@@ -105,6 +105,13 @@ private theorem label_br_readback {n : Nat} {cont : List Instr} {l : LabelIdx} {
     simp only [List.append_assoc, List.singleton_append, first_prefix, first_values, first_throwing] at head
     simp [first, Admin.val?] at head
 
+theorem core_label_br_zero {n : Nat} {vs : List Val} {rest out : List Admin}
+    (pop : LabelExit n [] (vals vs ++ .plain (.br ⟨0⟩) :: rest) out) :
+    ∃ scratch results, vs = scratch ++ results ∧ results.length = n ∧ out = vals results := by
+  rcases label_br_readback pop with ⟨scratch, results, split, arity, _, eq⟩ | ⟨bad, _⟩
+  · exact ⟨scratch, results, split, arity, by simpa [expression] using eq⟩
+  · exact (Nat.lt_irrefl 0 bad).elim
+
 theorem core_label_br_cont_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Frame}
     {n : Nat} {cont : List Instr} {depth : LabelIdx} {stack : List Val} {rest : List Admin} {dst : Config H} :
     Step P SingleThreaded.Det.noHost ⟨s, f, [.label n cont (vals stack ++ .plain (.br depth) :: rest)]⟩ dst ↔

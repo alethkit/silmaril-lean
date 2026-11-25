@@ -118,12 +118,12 @@ theorem entry_iff {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
     simpa only [values, List.map_nil, List.nil_append] using
       Step.pure (host := host) s f (.block (limeType result) body ⟨[], result.toList⟩ (resolve f.module.types result) [] rfl)
 
-private theorem pure_label_readback {types : List Lime1.FuncType} {result : Option NumType}
+theorem locals_label_exit {types : List Lime1.FuncType} {n : Nat}
     {ops : List Locals.Op} {out : List Admin}
-    (step : PureStep types [.label result.toList.length [] (Locals.limeCodec.encode ops)] out) :
+    (step : PureStep types [.label n [] (Locals.limeCodec.encode ops)] out) :
     ∃ vs, ops = Locals.values vs ∧ out = values vs := by
   have supported := Locals.limeCodec.supports_encode ops
-  generalize eq : ([.label result.toList.length [] (Locals.limeCodec.encode ops)] :
+  generalize eq : ([.label n [] (Locals.limeCodec.encode ops)] :
     List Admin) = before at step
   cases step <;> simp [values, List.singleton_eq_append_iff] at eq
   case labelDone n cont vs =>
@@ -158,7 +158,7 @@ theorem readback {H : Type} {host : HostSemantics H} {s : Store H} {m : ModuleIn
     have shape := split_wrapper step rfl (by trivial)
     cases shape with
     | pure h =>
-      obtain ⟨vs, code, rfl⟩ := pure_label_readback h
+      obtain ⟨vs, code, rfl⟩ := locals_label_exit h
       have eq : a = ⟨a.locals, Locals.values vs⟩ := by cases a; simp_all
       rw [eq]
       exact ⟨.done a.locals vs, exit result a.locals vs, rfl⟩

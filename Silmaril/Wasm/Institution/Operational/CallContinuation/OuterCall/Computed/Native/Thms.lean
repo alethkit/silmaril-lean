@@ -69,6 +69,16 @@ theorem lime_direct_call_iff {H : Type} {s : Wasm.Lime1.Execution.Store H} {f : 
   Proofs.Lime1.call_iff lookup
 
 open Wasm.Lime1.Execution in
+theorem lime_block_step_iff {H : Type} {s : Store H} {f : Frame} {bt : Wasm.Lime1.BlockType}
+    {stack : List Value} {body : Wasm.Lime1.Expr} {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.block bt body) :: rest⟩ dst ↔
+      ∃ (saved args : List Value) (ft : Wasm.Lime1.FuncType),
+        stack = saved ++ args ∧ blockType? f.module.types bt = some ft ∧
+        args.length = ft.params.length ∧
+        dst = ⟨s, f, values saved ++ .label ft.results.length [] (values args ++ expression body) :: rest⟩ :=
+  Proofs.Lime1.block_step_iff
+
+open Wasm.Lime1.Execution in
 theorem lime_block_iff {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
     {stack : List Value} {body : Wasm.Lime1.Expr} {rest : List Admin} {dst : Config H} :
     Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.block (Blocks.limeType result) body) :: rest⟩ dst ↔
