@@ -5,6 +5,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Soundness.Th
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Dispatcher.Singleton.Thms
 public import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Naturality.Thms
 public import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Category.Retained.Thms
 
 /-! # Loop-free singleton reification in the Paper quotient -/
 
@@ -143,9 +144,9 @@ open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical
 open Paper.TypeCategory
 open Paper.RetainedLet (diagonal_typed returnOnce_typed returnOnce_denotation literal_let)
 open Paper.RetainedCase (reindexHom returnSum_typed returnSum_denotation packedArms_typed
-  literal_case_transport case_ofRegion_inl case_ofRegion_inr distributor_hom_ext
+  literal_case_ofRegion case_ofRegion_inl case_ofRegion_inr distributor_hom_ext
   left_distributor_inl left_distributor_inr)
-open CfgEta.TypeCategory.Retained (packedDistributor packedCopair distributorRegion_typed)
+open CfgEta.TypeCategory.Retained (case_factor packedDistributor packedCopair distributorRegion_typed)
 open CfgEta.TypeCategory.ConstructorReification (inlMap inrMap)
 open CfgEta.TypeCategory (caseValueBranches seqValueBranches)
 open Paper.RetainedLet (unpackBody_typed)
@@ -246,6 +247,40 @@ variable
 
 set_option backward.isDefEq.respectTransparency false in
 include copy whisker in
+private theorem factor_literal_let₁ (ha : Tm.HasType [X] a A)
+    (hp : ValueBranches [Silmaril.product X A] p [D])
+    (hf : reindexHom J M objIso (denoteSingletonRegion J M (returnOnce_typed ha).hasType) =
+      ofRegion (τ := τ) (returnOnce_typed ha)) :
+    reindexHom J M objIso (denoteSingletonRegion J M (.let₁ ha (applyPacked_typed hp).hasType)) =
+      (ofRegion (τ := τ) (diagonal_typed X) ≫ whiskerLeft (ofType (Φ := Φ) X)
+        (ofRegion (τ := τ) (returnOnce_typed ha))) ≫
+        reindexHom J M objIso (denoteSingletonRegion J M hp.hasType) := by
+  rw [denotation_let J M ha hp]
+  let f := denoteSingletonRegion J M (returnOnce_typed ha).hasType
+  let g := denoteSingletonRegion J M hp.hasType
+  change reindexHom J M objIso (extend J f ≫ J.map (M.productIso X A).inv ≫ g) = _
+  rw [← Category.assoc, transport_comp, extend_compare J M objIso (copy X) whisker, hf]
+
+set_option backward.isDefEq.respectTransparency false in
+omit [SymmetricCategory V] [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
+  [HasFiniteCoproducts C] [DistributiveTensor V] [DistributivePremonoidalCategory C]
+  [Iteration C] [ElgotCategory C] [StrongElgotFreydCategory J] [FreydCategory.CentralUnit J]
+  [InstructionModel J M Φ] [RegionTypingCoherent (Φ := Φ) J M] in
+theorem assemble_let₁ (ha : Tm.HasType [X] a A)
+    (hp : ValueBranches [Silmaril.product X A] p [D]) :
+    (ofRegion (τ := τ) (diagonal_typed X) ≫ whiskerLeft (ofType (Φ := Φ) X)
+      (ofRegion (τ := τ) (returnOnce_typed ha))) ≫ ofRegion (τ := τ) hp =
+        ofRegion (τ := τ) (.let₁ ha (applyPacked_typed hp)) := by
+  have e : ofRegion (τ := τ) (unpackBody_typed (applyPacked_typed hp)) = ofRegion (τ := τ) hp :=
+    (ofRegion_eq_iff _ _).2 (unpack_applyPacked hp)
+  let hx := seqValueBranches (diagonal_typed (Φ := Φ) X)
+    (whiskerLeftRegion_typed X (returnOnce_typed ha))
+  let hy := unpackBody_typed (applyPacked_typed hp)
+  rw [← e, whiskerLeft_ofRegion, ofRegion_comp _ _ hx, ofRegion_comp hx hy (seqValueBranches hx hy)]
+  exact (ofRegion_eq_iff _ _).2 (literal_let ha (applyPacked_typed hp).hasType)
+
+set_option backward.isDefEq.respectTransparency false in
+include copy whisker in
 private theorem compare_let (ha : Tm.HasType [X] a A)
     (hp : ValueBranches [Silmaril.product X A] p [D])
     (hf : reindexHom J M objIso (denoteSingletonRegion J M (returnOnce_typed ha).hasType) =
@@ -253,19 +288,7 @@ private theorem compare_let (ha : Tm.HasType [X] a A)
     (hg : reindexHom J M objIso (denoteSingletonRegion J M hp.hasType) = ofRegion (τ := τ) hp) :
     reindexHom J M objIso (denoteSingletonRegion J M (.let₁ ha (applyPacked_typed hp).hasType)) =
       ofRegion (τ := τ) (.let₁ ha (applyPacked_typed hp)) := by
-  rw [denotation_let J M ha hp]
-  let f := denoteSingletonRegion J M (returnOnce_typed ha).hasType
-  let g := denoteSingletonRegion J M hp.hasType
-  change reindexHom J M objIso (extend J f ≫ J.map (M.productIso X A).inv ≫ g) = _
-  rw [← Category.assoc, transport_comp, extend_compare J M objIso (copy X) whisker, hf, hg]
-  have e : ofRegion (τ := τ) (unpackBody_typed (applyPacked_typed hp)) = ofRegion (τ := τ) hp :=
-    (ofRegion_eq_iff _ _).2 (unpack_applyPacked hp)
-  let hx := seqValueBranches (diagonal_typed (Φ := Φ) X)
-    (whiskerLeftRegion_typed X (returnOnce_typed ha))
-  let hy := unpackBody_typed (applyPacked_typed hp)
-  rw [← e, whiskerLeft_ofRegion, ofRegion_comp _ _ hx, ofRegion_comp hx hy (seqValueBranches hx hy)]
-  apply (ofRegion_eq_iff _ _).2
-  exact literal_let ha (applyPacked_typed hp).hasType
+  rw [factor_literal_let₁ J M objIso copy whisker ha hp hf, hg, assemble_let₁ ha hp]
 
 set_option backward.isDefEq.respectTransparency false in
 include copy whisker in
@@ -301,7 +324,7 @@ variable
 set_option backward.isDefEq.respectTransparency false in
 include inl inr in
 omit [FreydCategory.CentralUnit J] [InstructionModel J M Φ] [RegionTypingCoherent (Φ := Φ) J M] in
-private theorem compare_copair {l r : Region Φ} (hl : ValueBranches [A] l [D])
+theorem compare_copair {l r : Region Φ} (hl : ValueBranches [A] l [D])
     (hr : ValueBranches [B] r [D])
     {f : J.obj (M.obj A) ⟶ J.obj (M.obj D)} {g : J.obj (M.obj B) ⟶ J.obj (M.obj D)}
     (hf : reindexHom J M objIso f = ofRegion (τ := τ) hl)
@@ -318,6 +341,23 @@ private theorem compare_copair {l r : Region Φ} (hl : ValueBranches [A] l [D])
       Category.comp_id, splitMapCoprod, map_inr_inv_coprodComparison_assoc, coprod.inr_desc]
 
 set_option backward.isDefEq.respectTransparency false in
+include copy whisker distributor in
+private theorem factor_literal_case (ha : Tm.HasType [X] a (Silmaril.coprod A B))
+    (hp : ValueBranches [Silmaril.product X A] p [D])
+    (hq : ValueBranches [Silmaril.product X B] q [D])
+    (hf : reindexHom J M objIso (denoteSingletonRegion J M (returnSum_typed ha).hasType) =
+      ofRegion (τ := τ) (returnSum_typed ha)) :
+    reindexHom J M objIso (denoteSingletonRegion J M
+      (.case ha (applyPacked_typed hp).hasType (applyPacked_typed hq).hasType)) =
+      ((ofRegion (τ := τ) (diagonal_typed X) ≫ whiskerLeft (ofType (Φ := Φ) X)
+          (ofRegion (τ := τ) (returnSum_typed ha))) ≫
+        ofRegion (τ := τ) (distributorRegion_typed X A B)) ≫
+      reindexHom J M objIso (packedCopair J M
+        (denoteSingletonRegion J M hp.hasType) (denoteSingletonRegion J M hq.hasType)) := by
+  rw [denotation_case J M ha hp hq, case_factor, ← Category.assoc, transport_comp, transport_comp,
+    extend_compare J M objIso (copy X) whisker, hf, distributor]
+
+set_option backward.isDefEq.respectTransparency false in
 include copy whisker inl inr distributor in
 private theorem compare_case (ha : Tm.HasType [X] a (Silmaril.coprod A B))
     (hp : ValueBranches [Silmaril.product X A] p [D])
@@ -329,17 +369,12 @@ private theorem compare_case (ha : Tm.HasType [X] a (Silmaril.coprod A B))
     reindexHom J M objIso (denoteSingletonRegion J M
       (.case ha (applyPacked_typed hp).hasType (applyPacked_typed hq).hasType)) =
       ofRegion (τ := τ) (.case ha (applyPacked_typed hp) (applyPacked_typed hq)) := by
-  rw [denotation_case J M ha hp hq]
-  let f := denoteSingletonRegion J M (returnSum_typed ha).hasType
-  let g := denoteSingletonRegion J M hp.hasType
-  let h := denoteSingletonRegion J M hq.hasType
-  apply literal_case_transport J M objIso ha (applyPacked_typed hp) (applyPacked_typed hq) f g h
-  · rw [extend_compare J M objIso (copy X) whisker, hf]
-  · exact distributor X A B
-  · exact compare_copair J M objIso inl inr (unpackBody_typed (applyPacked_typed hp))
-      (unpackBody_typed (applyPacked_typed hq))
-      (hg.trans ((ofRegion_eq_iff (unpackBody_typed (applyPacked_typed hp)) hp).2 (unpack_applyPacked hp)).symm)
-      (hh.trans ((ofRegion_eq_iff (unpackBody_typed (applyPacked_typed hq)) hq).2 (unpack_applyPacked hq)).symm)
+  rw [factor_literal_case J M objIso copy whisker distributor ha hp hq hf]
+  rw [compare_copair J M objIso inl inr (unpackBody_typed (applyPacked_typed hp))
+    (unpackBody_typed (applyPacked_typed hq))
+    (hg.trans ((ofRegion_eq_iff _ hp).2 (unpack_applyPacked hp)).symm)
+    (hh.trans ((ofRegion_eq_iff _ hq).2 (unpack_applyPacked hq)).symm)]
+  exact literal_case_ofRegion ha (applyPacked_typed hp) (applyPacked_typed hq)
 
 variable
   (constructorReturn : ∀ {X A : τ} {a : Tm Φ} (ha : Tm.BranchValue [X] a A),
@@ -642,6 +677,40 @@ theorem compare_of_eqv (cmp : ModelComparisons J M objIso pe)
     unfold denoteSingletonRegion
     rw [e.sound J M shared hs.hasType hr.hasType]
   rw [hd, compare J M objIso pe cmp h, (ofRegion_eq_iff hs hr).2 e]
+
+open CfgEta.TypeCategory.Retained (packedCopair distributorRegion_typed)
+open Paper.RetainedLet (diagonal_typed)
+
+set_option backward.isDefEq.respectTransparency false in
+theorem factor_let₁ (cmp : ModelComparisons J M objIso pe)
+    {A : τ} {a : Tm Φ} {p : Region Φ} (ha : Tm.HasType [X] a A)
+    (hp : ValueBranches [Silmaril.product X A] p [D]) :
+    reindexHom J M objIso (denoteSingletonRegion J M (.let₁ ha (applyPacked_typed hp).hasType)) =
+      (ofRegion (τ := τ) (diagonal_typed X) ≫ whiskerLeft (ofType (Φ := Φ) X)
+        (ofRegion (τ := τ) (returnOnce_typed ha))) ≫
+        reindexHom J M objIso (denoteSingletonRegion J M hp.hasType) :=
+  factor_literal_let₁ J M objIso
+    (fun X => compare_diagonal (X := X) J M objIso pe cmp.fst cmp.snd cmp.imagePure cmp.projectionExtensionality)
+    (fun {Y A B} f => cmp.whisker (Y := Y) (A := A) (B := B) f) ha hp (cmp.producer ha)
+
+set_option backward.isDefEq.respectTransparency false in
+theorem factor_case (cmp : ModelComparisons J M objIso pe)
+    {A B : τ} {a : Tm Φ} {p q : Region Φ} (ha : Tm.HasType [X] a (Silmaril.coprod A B))
+    (hp : ValueBranches [Silmaril.product X A] p [D])
+    (hq : ValueBranches [Silmaril.product X B] q [D]) :
+    reindexHom J M objIso (denoteSingletonRegion J M
+      (.case ha (applyPacked_typed hp).hasType (applyPacked_typed hq).hasType)) =
+      ((ofRegion (τ := τ) (diagonal_typed X) ≫ whiskerLeft (ofType (Φ := Φ) X)
+          (ofRegion (τ := τ) (returnSum_typed ha))) ≫
+        ofRegion (τ := τ) (distributorRegion_typed X A B)) ≫
+      reindexHom J M objIso (packedCopair J M
+        (denoteSingletonRegion J M hp.hasType) (denoteSingletonRegion J M hq.hasType)) :=
+  factor_literal_case J M objIso
+    (fun X => compare_diagonal (X := X) J M objIso pe cmp.fst cmp.snd cmp.imagePure cmp.projectionExtensionality)
+    (fun {Y A B} f => cmp.whisker (Y := Y) (A := A) (B := B) f)
+    (fun _ _ _ => compare_distributor J M objIso
+      (fun {Y A B} f => cmp.whisker (Y := Y) (A := A) (B := B) f) cmp.inl cmp.inr)
+    ha hp hq (cmp.sumProducer ha)
 
 section BinaryLet
 
