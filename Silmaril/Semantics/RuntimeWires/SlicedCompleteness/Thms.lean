@@ -40,6 +40,22 @@ theorem Sheet.denote_eq_iff {p q : Sheet S A B} :
   ⟨fun h => Quotient.exact (SeamHom.termEquiv.injective h),
     fun h => Sheet.SeamEquivalent.sound h _⟩
 
+theorem Row.pass_straight (W Z : List O) :
+    Row.pass W (Row.straight (S := S) Z) = Row.straight (W ++ Z) :=
+  Proofs.SlicedCompleteness.pass_straight W Z
+
+theorem Row.Split.pass (W : List O) {r : Row S A C} {p : Row S A B} {q : Row S B C}
+    (h : Row.Split S r p q) : Row.Split S (Row.pass W r) (Row.pass W p) (Row.pass W q) :=
+  Proofs.SlicedCompleteness.split_pass W h
+
+theorem Sheet.SeamEquivalent.cons (r : Row S A B) {p q : Sheet S B C}
+    (h : Sheet.SeamEquivalent p q) : Sheet.SeamEquivalent (.cons r p) (.cons r q) :=
+  Proofs.SlicedCompleteness.seam_cons r h
+
+theorem Sheet.SeamEquivalent.reindex (a : A = X) (b : B = Y) {p q : Sheet S A B}
+    (h : Sheet.SeamEquivalent p q) : Sheet.SeamEquivalent (p.reindex a b) (q.reindex a b) :=
+  Proofs.SlicedCompleteness.seam_reindex a b h
+
 /-- The two serializations of a horizontal pair of rows arise by splitting
 the same joint row. -/
 theorem Sheet.swap_rows {Z : List O} (r : Row S A B) (s : Row S X Y)
