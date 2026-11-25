@@ -3,6 +3,7 @@ module
 import Silmaril.Semantics.ITree.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Case.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.DecisionTree.Reorder.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.SumCall.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -850,5 +851,85 @@ example : ∃ t s : Tm Empty Prim Γmix.length,
     strict pqHead pqTail headTyped tailTyped ht hs).mp hn⟩
 
 end ReorderedDecisionTree
+
+section EffectfulSumScrutinee
+
+open Response (Atom extendSorts)
+open Response.SumCall (SumSignature Program SumArgs SumResponse)
+
+abbrev sumSig : SumSignature Bool Unit :=
+  ⟨fun _ => 1, fun _ _ => false, fun _ => false, fun _ => true⟩
+
+local instance : HasEff Unit Fx := ⟨fun _ => strict⟩
+local instance : HasEff (Prim ⊕ Unit) Fx := Response.SumCall.effects
+local instance : HasTy (Prim ⊕ Unit) T := Response.SumCall.endpoints sig sumSig
+
+abbrev outerArgs : SumArgs sig sumSig sorts () := fun _ => .var 1
+abbrev leftResponseArm : Response.Sequence sig true (extendSorts false sorts) :=
+  .call Prim.read (fun _ => .var 0) (.ret (.var 0))
+abbrev rightResponseArm (next : Bool) : Response.Sequence sig true (extendSorts true sorts) :=
+  .call Prim.readOther (fun _ => .var 0)
+    (if next then .call Prim.readAlt (fun _ => .var 0) (.ret (.var 0))
+      else .call Prim.read (fun _ => .var 0) (.ret (.var 0)))
+abbrev sumProgram (next : Bool) : Program sig sumSig sorts true :=
+  ⟨(), outerArgs, leftResponseArm, rightResponseArm next⟩
+
+private theorem outerVisible (g : Unit) : ¬ IsPure (⊥ : Fx) g := by
+  change strict ≠ (⊥ : Fx)
+  decide
+
+private theorem sumTyped (next : Bool) : Program.WellTyped sig sumSig strict (sumProgram next) := by
+  have hr : ¬ IsPure (⊥ : Fx) Prim.readAlt := by
+    change strict ≠ (⊥ : Fx)
+    decide
+  cases next
+  · exact ⟨fun _ => trivial, le_rfl,
+      ⟨fun _ => trivial, read_not_pure, le_rfl, trivial⟩,
+      ⟨fun _ => trivial, read_other_not_pure, le_rfl,
+        fun _ => trivial, read_not_pure, le_rfl, trivial⟩⟩
+  · exact ⟨fun _ => trivial, le_rfl,
+      ⟨fun _ => trivial, read_not_pure, le_rfl, trivial⟩,
+      ⟨fun _ => trivial, read_other_not_pure, le_rfl,
+        fun _ => trivial, hr, le_rfl, trivial⟩⟩
+
+/-- Observe exactly one outer request, then distinct first requests in the two
+arms. The right arm uses its first call's response in its next request. -/
+example :
+    ∃ d : Derivation (Prim ⊕ Unit) Γ₀ Γ.toBoundCtx (sumProgram true).native outputSort,
+    ∃ k : SumResponse sig sumSig sorts () →
+        ITree.Tree (Response.SumCall.Event sig sumSig sorts) (Atom sig sorts true),
+      d.denote (Ty.denote (Atom sig sorts)) (Response.SumCall.instructions (ε := Fx) sig sumSig sorts)
+          (fun x => x.elim) (Response.variableEnv sig sorts slots_typed Tree.var) =
+          ITree.vis (.sum () outerArgs) k ∧
+      (∀ a, k (.inl a) = ITree.vis (.atom Prim.read (fun _ => a)) (fun b => ITree.ret ⟨b⟩)) ∧
+      (∀ a, k (.inr a) = ITree.vis (.atom Prim.readOther (fun _ => a)) (fun b =>
+        ITree.vis (.atom Prim.readAlt (fun _ => b)) (fun c => ITree.ret ⟨c⟩))) := by
+  obtain ⟨d, hd⟩ := Response.SumCall.eval_exists sig sumSig sorts slots_typed strict
+    (sumProgram true) (sumTyped true)
+  exact ⟨d, _, (hd Tree.var).trans rfl, fun _ => rfl, fun _ => rfl⟩
+
+private def secondRequest {n : Nat} {ss : Fin n → Bool} : Response.Sequence sig true ss → Option Prim
+  | .call _ _ (.call f _ _) => some f
+  | _ => none
+
+/-- Equal outer requests and equal left arms still expose the changed second
+request of the right arm. This runs through native soundness and both tagged
+response observations at the strict bound. -/
+example : ¬ AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx
+    (sumProgram true).native (sumProgram false).native outputSort := by
+  intro h
+  have he := Response.SumCall.native_eq_implies_eq sig sumSig outerVisible slots_typed strict
+    (sumProgram true) (sumProgram false) (sumTyped true) (sumTyped false) h
+  have hs : some Prim.readAlt = some Prim.read :=
+    congrArg (fun (p : Program sig sumSig sorts true) => secondRequest p.right) he
+  cases hs
+
+example : AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx
+    (sumProgram true).native (sumProgram false).native outputSort ↔
+    Eqv Γ outputSort strict (sumProgram true).source (sumProgram false).source :=
+  Response.SumCall.endpoint_reflection sig sumSig outerVisible ctx_pure slots_typed strict
+    (sumProgram true) (sumProgram false) (sumTyped true) (sumTyped false)
+
+end EffectfulSumScrutinee
 
 end LetIterResponseSingleCall
