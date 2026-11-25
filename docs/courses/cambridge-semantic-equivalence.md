@@ -18,21 +18,29 @@ existing L1 operational model separately at each initial store. Determinacy,
 terminal values, and safety justify the characterization, including the
 case where both sets of returns are empty.
 
-`L1.Context` presents the ten contexts on slide 263. The assignment case
-`L1.Context.assign_preservesEquiv` lifts both finite and infinite
-right-hand-side runs using the existing assignment rules. The finite case
-uses type preservation to obtain the common integer and store for the final
-write.
+`L1.Context.preservesEquiv` proves Theorem 29 for the ten contexts on
+slide 263. `L1.Context.plugAll_preservesEquiv` handles nested contexts.
+The proof uses `L1.Evaluates`, a finite evaluation judgment proved
+equivalent to reaching a value in the existing small-step semantics.
+The while cases use induction on finite loop evaluations. The original
+assignment proof also lifts infinite right-hand-side runs directly.
+
+`L1.SemanticEquiv.seq_comm_of_disjoint` proves Exercise 42 over the union
+of the typing environments. Its store argument tracks reads and writes in
+each environment and retains the contents of every location outside both.
+Conjecture 32 fails when the prefix sets a location from `0` to `1`
+and the guard reads that location. The two orderings return different
+integers and leave the same final store.
 
 ## Chapter coverage
 
 | Notes | Checked in this slice | Remaining |
 | --- | --- | --- |
-| Slides 252–255, 259–262 and 265 | Typed L1 equivalence and its equivalence laws. `2 + 2` and `4` agree. Two programs returning `4` leave different stores and the add-and-read context returns `4` and `5`. Increment followed by decrement is equivalent to writing the original contents. A checked looping example separates divergence from return. | General store-distinguishing contexts for each result type on slide 262. |
+| Slides 252–255, 259–262 and 265 | Typed L1 equivalence and its equivalence laws, arithmetic and store-sensitive examples, and the three store-reading contexts. The integer case uses a separate typed scratch location. | |
 | Slides 256–258 | | Stateful-function examples and the example with the temporary pointer-equality extension. |
-| Slides 263–264, Theorem 29 and Exercise 41 | All ten context forms, plugging, and the worked assignment case. | Congruence for the other nine forms and composition of nested contexts. |
-| Slides 266–267, Conjectures 30–32 | Determinacy of returned configurations and the characterization by return sets. | Sequencing associativity and the proposed conditional laws. |
-| Slide 268 and Exercise 42 | | Commutation of sequences with disjoint location environments. |
+| Slides 263–264, Theorem 29 and Exercise 41 | Congruence for all ten context forms and for nested contexts. | |
+| Slides 266–267, Conjectures 30–32 | Sequencing associativity and distribution over the selected conditional branch (30–31). Counterexample to moving a prefix after the guard (32). Slide 255's fourth candidate preserves order and is proved. Determinacy makes the value-and-store observation single-valued. | |
+| Slide 268 and Exercise 42 | Sequencing commutes for disjoint typing environments. | |
 | §8.1, Definition 33 and Exercise 43 | | L3 contextual equivalence using closed unit contexts and termination observations. Construct the distinguishing context for the two assignments. |
 
 The restored-store example uses addition of `-1` for subtraction of one,
