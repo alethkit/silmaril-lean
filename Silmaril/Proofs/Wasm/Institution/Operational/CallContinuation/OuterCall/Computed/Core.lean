@@ -1,10 +1,11 @@
 module
 
-public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Defs
+public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Native.Thms
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Rules
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.Core
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
 import Silmaril.Wasm.Execution.Core.Inversion.Thms
 import Silmaril.Wasm.Execution.Core.Sim.Context
 import Silmaril.Wasm.SingleThreaded.Determinism.Stuck
@@ -31,7 +32,7 @@ private theorem core_local {site : Site} {i : LocalIdx} {v : Value}
   change (site.frame.locals.map (fun x : Value => some x.toCore))[i.toNat]? = _
   simp [found]
 
-private theorem core_func {m : Execution.Runtime.ModuleInst} {i : FuncIdx} {a : FuncAddr}
+theorem core_func {m : Execution.Runtime.ModuleInst} {i : FuncIdx} {a : FuncAddr}
     (found : m.funcs[i.toNat]? = some a) : m.toCore.funcs[i.toNat]? = some a.value := by
   change (m.funcs.map (fun x : FuncAddr => x.value))[i.toNat]? = _
   simp [found]
@@ -85,10 +86,10 @@ private theorem entry_iff {H : Type} {P : Profile} {s : Store H} {caller : Execu
     rw [← target]
     exact .callRefFunc (c := .callRefType site.type.toDefType) trivial g.outerAlloc sig count rfl
 
-private theorem label_stays {n : Nat} {stack : List Val} {head : Admin} {rest out : List Admin}
+theorem label_stays {n : Nat} {stack : List Val} {head : Admin} {rest out : List Admin}
     (none : head.val? = none) (notBr : ∀ i, head ≠ .plain (.br i))
     (notRet : head ≠ .plain .return_) (notTail : ¬ head.IsReturnCallRef)
-    (notThrow : head ≠ .plain .throwRef) (notFinalTrap : head = .trap → rest ≠ [])
+    (notThrow : head ≠ .plain .throwRef) (notFinalTrap : head = .trap → stack ≠ [] ∨ rest ≠ [])
     (h : LabelExit n [] (vals stack ++ head :: rest) out) : False := by
   generalize eq : vals stack ++ head :: rest = code at h
   have seen := congrArg (fun c => (fnv c).2) eq
@@ -109,16 +110,20 @@ private theorem label_stays {n : Nat} {stack : List Val} {head : Admin} {rest ou
     exact notThrow seen.1
   | trap =>
     simp at seen
-    exact notFinalTrap seen.1 seen.2
+    have stackEq := congrArg (fun c => (fnv c).1) eq
+    simp only [fnv_vals_append, fnv_cons_of_none none, fnv_trap_cons, List.append_nil] at stackEq
+    cases notFinalTrap seen.1 with
+    | inl nz => exact nz stackEq
+    | inr nz => exact nz seen.2
 
-private theorem lift_body {H : Type} {P : Profile} {s s' : Store H}
+theorem lift_body {H : Type} {P : Profile} {s s' : Store H}
     {caller inner inner' : Frame} {n : Nat} {a b : List Admin}
     (h : Step P noHost ⟨s, inner, a⟩ ⟨s', inner', b⟩) :
     Step P noHost ⟨s, caller, [.frame n inner [.label n [] a]]⟩
       ⟨s', caller, [.frame n inner' [.label n [] b]]⟩ :=
   .ctxtFrame (.ctxtLabel h)
 
-private theorem read_body {H : Type} {P : Profile} {s : Store H} {caller inner : Frame}
+theorem read_body {H : Type} {P : Profile} {s : Store H} {caller inner : Frame}
     {n : Nat} {body : List Admin} {dst : Config H}
     (stays : ∀ {out}, LabelExit n [] body out → False)
     (h : Step P noHost ⟨s, caller, [.frame n inner [.label n [] body]]⟩ dst) :
@@ -145,35 +150,44 @@ private theorem front {H : Type} {P : Profile} {s : Store H} {f : Frame}
   · obtain ⟨_, _, _, _, _, ⟨eq, _, _⟩ | ⟨_, eq, _, _⟩⟩ := fnv_bubble bubble <;>
       simp [fnv_cons_of_none none, notTrap, notThrow] at eq
 
+private theorem get_read {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {stack : List Val} {i : LocalIdx} {rest : List Admin} {dst : Config H}
+    (h : Step P noHost ⟨s, f, vals stack ++ get i :: rest⟩ dst) :
+    ∃ v, f.local? i = some (some v) ∧ dst = ⟨s, f, vals stack ++ v.toAdmin :: rest⟩ := by
+  obtain ⟨saved, args, mid, rfl, step, rfl⟩ := front rfl (by simp) (by simp) h
+  have localStep : VariableStep ⟨s, f, vals args ++ [get i]⟩ mid :=
+    step.fam_inv (by change Fam.variable ≠ .control; decide)
+  generalize eq : vals args ++ [get i] = code at localStep
+  have last := congrArg List.getLast? eq
+  cases localStep with
+  | @localGet _ _ j w found =>
+    simp [List.getLast?_append] at last
+    subst j
+    have empty : args = [] := by simpa [vals] using congrArg List.length eq
+    subst args
+    exact ⟨w, found, by simp⟩
+  | _ => simp [List.getLast?_append] at last
+
 private theorem get_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
     {stack : List Val} {i : LocalIdx} {v : Val} {rest : List Admin} {dst : Config H}
     (lookup : f.local? i = some (some v)) :
     Step P noHost ⟨s, f, vals stack ++ get i :: rest⟩ dst ↔
       dst = ⟨s, f, vals stack ++ v.toAdmin :: rest⟩ := by
   constructor
-  · intro h
-    obtain ⟨saved, args, mid, rfl, step, rfl⟩ := front rfl (by simp) (by simp) h
-    have localStep : VariableStep ⟨s, f, vals args ++ [get i]⟩ mid := step.fam_inv (by change Fam.variable ≠ .control; decide)
-    generalize eq : vals args ++ [get i] = code at localStep
-    have last := congrArg List.getLast? eq
-    cases localStep with
-    | @localGet _ _ j w found =>
-      simp [List.getLast?_append] at last
-      subst j
-      rw [lookup] at found
-      cases found
-      have empty : args = [] := by simpa [vals] using congrArg List.length eq
-      subst args
-      simp
-    | _ => simp [List.getLast?_append] at last
+  · intro step
+    obtain ⟨w, found, eq⟩ := get_read step
+    rw [lookup] at found
+    cases found
+    exact eq
   · rintro rfl
     exact Sim.Step.vals_left (Sim.Step.append_right (.variable (.localGet lookup)) rest) stack
 
-private theorem bin_step {H : Type} {P : Profile} {s : Store H} {f : Frame}
-    {t : IntType} {op : IntBinOp} {x y : BitVec t.width} {rest : List Admin} {dst : Config H}
-    (h : Step P noHost ⟨s, f, vals [num t x, num t y] ++ bin t op :: rest⟩ dst) :
-    (∃ z, intBinOp t op x y = .ok z ∧ dst = ⟨s, f, (num t z).toAdmin :: rest⟩) ∨
-    (∃ e, intBinOp t op x y = .error e ∧ dst = ⟨s, f, .trap :: rest⟩) := by
+private theorem bin_read {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {t : IntType} {op : IntBinOp} {stack : List Val} {rest : List Admin} {dst : Config H}
+    (h : Step P noHost ⟨s, f, vals stack ++ bin t op :: rest⟩ dst) :
+    ∃ (saved : List Val) (x y : BitVec t.width), stack = saved ++ [num t x, num t y] ∧
+      ((∃ z, intBinOp t op x y = .ok z ∧ dst = ⟨s, f, vals saved ++ (num t z).toAdmin :: rest⟩) ∨
+      (∃ e, intBinOp t op x y = .error e ∧ dst = ⟨s, f, vals saved ++ .trap :: rest⟩)) := by
   obtain ⟨saved, args, mid, total, step, rfl⟩ := front rfl (by simp) (by simp) h
   obtain ⟨out, numeric, rfl⟩ := step.fam_inv (by change Fam.numeric ≠ .control; decide)
   generalize eq : vals args ++ [bin t op] = code at numeric
@@ -182,28 +196,119 @@ private theorem bin_step {H : Type} {P : Profile} {s : Store H} {f : Frame}
   | @intBinOp u o a b z hz =>
     simp [List.getLast?_append] at last
     obtain ⟨rfl, rfl⟩ := last
-    have argsEq : args = [num t a, num t b] := by
-      apply vals_inj.mp
-      exact List.append_cancel_right eq
+    have argsEq : args = [num t a, num t b] := vals_inj.mp (List.append_cancel_right eq)
     subst args
-    obtain ⟨rfl, left, right⟩ := two_values total
-    have hx : x = a := eq_of_heq (NumVal.mk.inj (Val.num.inj left)).2
-    have hy : y = b := eq_of_heq (NumVal.mk.inj (Val.num.inj right)).2
-    subst a b
-    exact .inl ⟨_, hz, rfl⟩
+    exact ⟨saved, a, b, total, .inl ⟨z, hz, by rw [List.append_assoc]; rfl⟩⟩
   | @intBinOpTrap u o a b e he =>
     simp [List.getLast?_append] at last
     obtain ⟨rfl, rfl⟩ := last
-    have argsEq : args = [num t a, num t b] := by
-      apply vals_inj.mp
-      exact List.append_cancel_right eq
+    have argsEq : args = [num t a, num t b] := vals_inj.mp (List.append_cancel_right eq)
     subst args
-    obtain ⟨rfl, left, right⟩ := two_values total
-    have hx : x = a := eq_of_heq (NumVal.mk.inj (Val.num.inj left)).2
-    have hy : y = b := eq_of_heq (NumVal.mk.inj (Val.num.inj right)).2
-    subst a b
-    exact .inr ⟨_, he, rfl⟩
+    exact ⟨saved, a, b, total, .inr ⟨e, he, by simp⟩⟩
   | _ => simp [List.getLast?_append] at last
+
+private theorem bin_step {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {t : IntType} {op : IntBinOp} {x y : BitVec t.width} {rest : List Admin} {dst : Config H}
+    (h : Step P noHost ⟨s, f, vals [num t x, num t y] ++ bin t op :: rest⟩ dst) :
+    (∃ z, intBinOp t op x y = .ok z ∧ dst = ⟨s, f, (num t z).toAdmin :: rest⟩) ∨
+    (∃ e, intBinOp t op x y = .error e ∧ dst = ⟨s, f, .trap :: rest⟩) := by
+  obtain ⟨saved, a, b, total, out⟩ := bin_read h
+  obtain ⟨rfl, left, right⟩ := two_values total
+  have hx : x = a := eq_of_heq (NumVal.mk.inj (Val.num.inj left)).2
+  have hy : y = b := eq_of_heq (NumVal.mk.inj (Val.num.inj right)).2
+  subst a b
+  exact out
+
+private theorem int_value {v : Value} {t : IntType} {x : BitVec t.width}
+    (eq : v.toCore = num t x) : v = .int t x := by
+  cases v
+  cases Val.num.inj eq
+  rfl
+
+@[local simp] private theorem int_admin (t : IntType) (bits : BitVec t.width) :
+    (Value.int t bits).toCore.toAdmin = .plain (.intConst t bits) := rfl
+
+@[local simp] private theorem num_admin (t : IntType) (bits : BitVec t.width) :
+    (num t bits).toAdmin = .plain (.intConst t bits) := rfl
+
+theorem prefix_read {H : Type} {P : Profile} {s : Store H} {f : Execution.Runtime.Frame}
+    {stack : List Value} {op : Prefix.Op} {suffix : List Admin} {dst : Config H}
+    (step : Step P noHost ⟨s, f.toCore, coreValues stack ++ Prefix.emit coreSyntax op :: suffix⟩ dst) :
+    ∃ ans, Prefix.Reduce f.locals stack op ans ∧
+      dst = ⟨s, f.toCore, Prefix.outcomeCode coreValues .trap suffix ans⟩ := by
+  cases op with
+  | get i =>
+    obtain ⟨v, found, eq⟩ := get_read step
+    change (f.locals.map (fun w : Value => some w.toCore))[i.toNat]? = some (some v) at found
+    rw [List.getElem?_map] at found
+    cases lookup : f.locals[i.toNat]? with
+    | none => simp [lookup] at found
+    | some w =>
+      simp only [lookup, Option.map_some, Option.some.injEq] at found
+      subst v
+      exact ⟨_, .get lookup, by simpa [Prefix.outcomeCode, coreValues, List.map_append, vals_append, List.append_assoc, vals] using eq⟩
+  | bin t op =>
+    obtain ⟨saved, x, y, split, ans⟩ := bin_read step
+    obtain ⟨kept, operands, rfl, rfl, written⟩ := List.map_eq_append_iff.mp split
+    obtain ⟨a, rest, rfl, left, written⟩ := List.map_eq_cons_iff.mp written
+    obtain ⟨b, tail, rfl, right, written⟩ := List.map_eq_cons_iff.mp written
+    have nil : tail = [] := List.map_eq_nil_iff.mp written
+    subst tail
+    rw [int_value left, int_value right]
+    rcases ans with ⟨z, ok, eq⟩ | ⟨_, err, eq⟩
+    · exact ⟨_, .bin ok, by
+        simpa [Prefix.outcomeCode, coreValues, List.map_append, vals_append, List.append_assoc, vals] using eq⟩
+    · exact ⟨_, .trap err, eq⟩
+
+theorem prefix_sound {H : Type} {P : Profile} {s : Store H} {f : Execution.Runtime.Frame}
+    {stack : List Value} {op : Prefix.Op} {suffix : List Admin} {ans : Prefix.Outcome}
+    (step : Prefix.Reduce f.locals stack op ans) :
+    Step P noHost ⟨s, f.toCore, coreValues stack ++ Prefix.emit coreSyntax op :: suffix⟩
+      ⟨s, f.toCore, Prefix.outcomeCode coreValues .trap suffix ans⟩ := by
+  cases step with
+  | @get stack i v found =>
+    have lookup : f.toCore.local? i = some (some v.toCore) := by
+      change (f.locals.map (fun w : Value => some w.toCore))[i.toNat]? = _
+      simp [found]
+    simpa [Prefix.outcomeCode, Prefix.emit, coreSyntax, coreValues, List.map_append, vals_append, List.append_assoc, vals] using
+      (get_iff (s := s) (P := P) (stack := stack.map Value.toCore) (rest := suffix) lookup).mpr rfl
+  | @bin saved t oper x y z ok =>
+    simpa [Prefix.outcomeCode, Prefix.emit, coreSyntax, coreValues, List.map_append, vals_append, List.append_assoc, vals] using
+      Sim.Step.vals_left (Sim.Step.append_right (Step.numeric (s := s) (P := P) (host := noHost) (f := f.toCore)
+        (NumericStep.intBinOp ok)) suffix) (saved.map Value.toCore)
+  | @trap saved t oper x y cause err =>
+    simpa [Prefix.outcomeCode, Prefix.emit, coreSyntax, coreValues, List.map_append, vals_append, List.append_assoc, vals] using
+      Sim.Step.vals_left (Sim.Step.append_right (Step.numeric (s := s) (P := P) (host := noHost) (f := f.toCore)
+        (NumericStep.intBinOpTrap err)) suffix) (saved.map Value.toCore)
+
+theorem prefix_discard_read {A H : Type} {P : Profile} {s : Store H} {f : Execution.Runtime.Frame}
+    (emit : A → Admin) {stack : List Value} {tail : List A} {dst : Config H}
+    (step : Step P noHost ⟨s, f.toCore, coreValues stack ++ .trap :: tail.map emit⟩ dst) :
+    ∃ kept rest, Prefix.Discard stack tail kept rest ∧
+      dst = ⟨s, f.toCore, coreValues kept ++ .trap :: rest.map emit⟩ := by
+  rcases Wasm.SingleThreaded.Det.Step.decomp step with head | bubble
+  · obtain ⟨_, _, _, _, _, eq, _, h, _⟩ := fnv_headDec head
+    simp at eq
+    exact (h.good.ne_trap eq.2.1.symm).elim
+  · obtain ⟨kept, removed, cut, rest, nz, ⟨eq, _, rfl⟩ | ⟨_, eq, _, _⟩⟩ := fnv_bubble bubble
+    · simp only [fnv_vals_append, fnv_trap_cons, List.append_nil, Prod.mk.injEq, List.cons.injEq, true_and] at eq
+      obtain ⟨left, right⟩ := eq
+      obtain ⟨a, b, rfl, rfl, rfl⟩ := List.map_eq_append_iff.mp left
+      obtain ⟨c, d, rfl, rfl, rfl⟩ := List.map_eq_append_iff.mp right
+      exact ⟨a, d, .cut a b c d (by simpa using nz), by simp⟩
+    · simp at eq
+
+theorem prefix_discard_sound {A H : Type} {P : Profile} {s : Store H} {f : Execution.Runtime.Frame}
+    (emit : A → Admin) {stack kept : List Value} {tail rest : List A}
+    (step : Prefix.Discard stack tail kept rest) :
+    Step P noHost ⟨s, f.toCore, coreValues stack ++ .trap :: tail.map emit⟩
+      ⟨s, f.toCore, coreValues kept ++ .trap :: rest.map emit⟩ := by
+  cases step with
+  | cut kept removed cut rest nz =>
+    have trap := Step.trapInstrs (P := P) (host := noHost) (s := s) (f := f.toCore)
+      (vs := removed.map Value.toCore) (rest := cut.map emit) (by simpa using nz)
+    simpa [coreValues, List.map_append, vals_append, List.append_assoc] using
+      Sim.Step.vals_left (Sim.Step.append_right trap (rest.map emit)) (kept.map Value.toCore)
 
 private theorem trap_step {H : Type} {P : Profile} {s : Store H} {f : Frame} {i : FuncIdx}
     {dst : Config H} (h : Step P noHost ⟨s, f, [.trap, call i, nop]⟩ dst) :
