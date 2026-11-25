@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Codiagonal.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Direct.Thms
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Categorical.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Dispatcher.Singleton.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgEta.Codiagonal
 
 /-! # Denotational soundness of duplicate-feedback collapse
@@ -46,7 +46,7 @@ theorem denoteSingleCfg {Γ : VCtx τ} {L : LCtx τ} {A : τ} {e p : Region Φ}
         (J.map (snd (ctxObj M Γ) (labelObj M L)))
         (contextualLoop J (J.map (ctxObj M Γ ◁ singletonLabelPayload M A) ≫
           denoteRegion J M hp ≫ J.map (labelAppendSplit M [A] L))) :=
-  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgEta.Codiagonal.denoteSingleCfg M J he hp
+  Silmaril.Isotope.LambdaSSA.Semantics.Categorical.SingletonDispatcher.denoteSingleCfg M J he hp
 
 /-- Collapse two feedback frames over the same state under shared tensor comparisons.
 The entry and body can be arbitrary exactly typed regions. -/
