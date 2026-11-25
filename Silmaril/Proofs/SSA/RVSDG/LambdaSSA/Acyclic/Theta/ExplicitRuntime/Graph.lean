@@ -211,7 +211,7 @@ theorem graph_observe (s : Loop Φ A B K E D) (a : TyDen A) (state : σ) :
   rw [OrderedTheta.iter_boundary _ step entry exitTuple (step_denote s) (a, state)]
   exact Part.bind_some_eq_map _ _
 
-private theorem exitTuple_injective :
+theorem exitTuple_injective :
     Function.Injective (exitTuple (A := A) (E := E) (D := D) (σ := σ)) := by
   rintro ⟨a, state⟩ ⟨b, token⟩ h
   have payload := congrArg (fun x : Point (σ := σ) (Carrier A E D) => x.get .head) h

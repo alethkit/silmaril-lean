@@ -1,0 +1,44 @@
+module
+
+public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Wires.Defs
+public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Model.Defs
+public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Model.Defs
+
+/-! # Interpret the handoff as guarded data routing with unchanged state -/
+
+@[expose] public section
+
+namespace Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Wires
+
+open Isotope.LetIter.ProofRelevant.Semantics
+open Isotope.LambdaSSA.Semantics.Monadic (LabelDen)
+open OrderedTheta (pack point)
+open TwoBlock.TwoExit (enter ExitCode)
+
+universe u
+variable {τ Φ ε σ : Type u} [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε] [Bot ε]
+  [Isotope.Subtyping τ] [TypeModel.{u,u} τ] [InstructionModel Φ τ ε (StateT σ Part.{u})]
+variable {A M E D : τ}
+
+def model : OrderedRuntime.Structured.Model (TwoBlock.TwoExit.Pure τ) (Effect Φ) (StateT σ Part.{u}) where
+  value := TyDen
+  runPure := (ExplicitRuntime.orderedModel (Φ := Φ) (ε := ε) (σ := σ)).runPure
+  effect
+    | .loop e, input => (ExplicitRuntime.orderedModel (Φ := Φ) (ε := ε) (σ := σ)).effect e input
+    | @Effect.link _ _ _ _ A M E D, .cons payload .nil =>
+      match TypeModel.coprodEquiv (ExitCode M M) A payload with
+      | .inl e => pure (pack (enter (A := M) (C := E) (D := D)
+          (Sum.elim id id (TypeModel.coprodEquiv M M e))))
+      | .inr _ => StateT.mk fun _ => Part.none
+
+abbrev wireModel :=
+  NestedTheta.ExplicitRuntime.Partial.wireModel (model (τ := τ) (Φ := Φ) (ε := ε) (σ := σ))
+
+noncomputable def observe (g : Graph Φ A M E D) (input : TyDen A) (token : σ) :=
+  NestedTheta.Partial.observe (wireModel (ε := ε)) g (point (enter input) token)
+
+def returns (g : Graph Φ A M E D) (input : TyDen A) (initial : σ) (label : LabelDen [E,D]) (final : σ) :=
+  NestedTheta.Partial.returns (wireModel (ε := ε)) g (point (enter input) initial)
+    (ExplicitRuntime.exitTuple (A := M) (label, final))
+
+end Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Wires
