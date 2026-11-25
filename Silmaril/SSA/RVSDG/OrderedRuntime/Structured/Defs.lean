@@ -225,6 +225,12 @@ def eraseLocals : (past : List (Ports (Ty V))) → Locals (RuntimeValues value �
   | [], _ => PUnit.unit
   | _ :: tail, (head, rest) => (eraseTuple head, eraseLocals tail rest)
 
+/-- Separate the pure data of a boundary from its single live runtime. -/
+def encode {ts : Ports (Ty V)} (input : Tuple (RuntimeValues value ρ) (Threaded ts)) :
+    Tuple (Values value) ts × ρ :=
+  let (data, rt) := splitRuntime ts input
+  (eraseTuple data, rt)
+
 /-- Reinsert the single runtime returned by the computation at the
 original output position. -/
 def decode {ts : Ports (Ty V)} (result : Tuple (Values value) ts × ρ) :

@@ -27,6 +27,15 @@ theorem denote_toGraph {M : Type (max u w) → Type (max u w)} [Monad M] (m : Mo
     denoteGraph m t.toGraph checked.collect = checked.denote m :=
   Proofs.denote_transport m (Term.toTerm_toGraph t) checked
 
+theorem encode_decode {ρ : Type (max u w)} {value : V → Type (max u w)}
+    (pair : Tuple (Values value) outs × ρ) : encode (decode pair) = pair :=
+  Proofs.encode_decode pair
+
+theorem decode_encode {ρ : Type (max u w)} {value : V → Type (max u w)}
+    (data : Data outs) (input : Tuple (RuntimeValues value ρ) (Threaded outs)) :
+    decode (encode input) = input :=
+  Proofs.decode_encode data input
+
 variable {ρ : Type (max u w)} (m : Model P E (StateM ρ))
 
 /-- The monadic and explicit-wire folds agree at every typed prefix. -/
@@ -45,8 +54,7 @@ theorem denoteGraph_run {a : Data args} {b : Data outs}
     (g : Graph (Opcode P E) (Threaded args) [] sigs (Threaded outs))
     (checked : EntryChecked a b g.toTerm)
     (input : Tuple (RuntimeValues m.value ρ) (Threaded args)) :
-    decode ((denoteGraph m g checked (eraseTuple (splitRuntime args input).1)).run
-      (splitRuntime args input).2) = g.run m.toRVSDG input :=
+    decode ((denoteGraph m g checked (encode input).1).run (encode input).2) = g.run m.toRVSDG input :=
   Proofs.denote_agrees m g checked input
 
 end Silmaril.SSA.RVSDG.OrderedRuntime.Structured
