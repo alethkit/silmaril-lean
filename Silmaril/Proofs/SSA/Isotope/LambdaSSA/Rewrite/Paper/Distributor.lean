@@ -202,6 +202,12 @@ noncomputable def distributorIso (X A B : τ) :
       rw [hb, left_distributor_inr]
       exact (Category.comp_id _).symm
 
+/-- The forward map of the exact distributor is the guarded syntax arrow. -/
+theorem distributorIso_hom (X A B : τ) :
+    (distributorIso (Φ := Φ) X A B).hom = ofRegion (distributorRegion_typed X A B) := by
+  unfold distributorIso
+  rfl
+
 set_option backward.isDefEq.respectTransparency false in
 theorem distributor_hom_ext {D : τ} {X A B : τ}
     {f g : ofType (Φ := Φ) (Silmaril.product X (Silmaril.coprod A B)) ⟶ ofType D}
