@@ -56,18 +56,6 @@ private theorem assign_eq (program : Program) (available : List DeclarationId)
   simp only [Iteration.denoteSuite, denote, bind, EStateM.bind]
   cases denote expr s <;> rfl
 
-private theorem project_state {α : Type} (address : Address) (project : Contents → Option α)
-    (s : State) : finishState (projectCell address project s) = s := by
-  simp only [projectCell, bind, EStateM.bind, getCell]
-  cases hs : s.heap[address]? with
-  | none => rfl
-  | some cell => dsimp only; cases project cell.contents <;> rfl
-
-private theorem map_state {α β : Type} (action : Meaning α) (f : α → β) (s : State) :
-    finishState ((f <$> action) s) = finishState (action s) := by
-  simp only [Functor.map, EStateM.map]
-  cases action s <;> rfl
-
 private theorem truth_frame (value : Value) (s : State) :
     finishState (truth value s) = s := by
   cases value with
@@ -258,49 +246,56 @@ private theorem simManyTail {program : Program} {available : List DeclarationId}
     exact continued rest
 
 private theorem simCallError {program : Program} {available : List DeclarationId}
-    {s u : State} {callee : SourceExpr} {args : List SourceExpr} {error : Error}
-    (ih : SimulatesMany program available s (callee :: args) (.error error u)) :
-    Simulates program available s (.callPos callee args) (.error error u) := by
+    {s u : State} {callee : SourceExpr} {positional : List SourceExpr}
+    {keywords : List (String × SourceExpr)} {star starStar : Option SourceExpr} {error : Error}
+    (ih : SimulatesMany program available s (callee :: argumentExprs positional keywords star starStar)
+      (.error error u)) :
+    Simulates program available s (.call callee positional keywords star starStar) (.error error u) := by
   refine ⟨ih.1, ?_⟩
   intro start target t same free _
   obtain ⟨final, after, step⟩ := ih.2 start t same free
   refine ⟨final, ?_, after⟩
-  rw [evaluate, emit_callPos]
+  rw [evaluate, emit_call]
   exact step _
 
 private theorem simCall {program : Program} {available : List DeclarationId}
-    {s u : State} {callee : SourceExpr} {args : List SourceExpr} {values : List Value} {out : Outcome Value}
-    (ih : SimulatesMany program available s (callee :: args) (.ok values u))
-    (applied : Applies program available args.length u values out) :
-    Simulates program available s (.callPos callee args) out := by
+    {s u : State} {callee : SourceExpr} {positional : List SourceExpr}
+    {keywords : List (String × SourceExpr)} {star starStar : Option SourceExpr}
+    {values : List Value} {out : Outcome Value}
+    (ih : SimulatesMany program available s (callee :: argumentExprs positional keywords star starStar)
+      (.ok values u))
+    (applied : Applies program available (argumentShape positional keywords star starStar) u values out) :
+    Simulates program available s (.call callee positional keywords star starStar) out := by
   refine ⟨scopeTrans (applies_scope applied) ih.1, ?_⟩
   intro start target t same free _
   obtain ⟨w, related, saved, step⟩ := ih.2 start t same free
-  let collected := ((stages (callee :: args)).run start).1
+  let operands := argumentExprs positional keywords star starStar
+  let shape := argumentShape positional keywords star starStar
+  let collected := ((stages (callee :: operands)).run start).1
   let reads := collected.tail.map Prod.snd
+  let args := fillArguments shape reads
   have relatedU := reboundBack same ih.1 related
   have freeW := StateMatch.free relatedU (scopeFree ih.1 free)
-  have argLen : reads.length = args.length := by
-    have length := stages_length (callee :: args) start
-    change collected.length = args.length + 1 at length
+  have argLen : reads.length = shape.count := by
+    have length := stages_length (callee :: operands) start
+    change collected.length = operands.length + 1 at length
     simp only [reads, List.length_map, List.length_tail, length, Nat.add_sub_cancel]
-  have evaluatedArgs : denote (Arguments.operands (scratchRead start) { positional := reads }) w =
-      .ok values w := by
+    exact argument_count _ _ _ _
+  obtain ⟨argsShape, argsOrdered⟩ := fill_arguments shape reads argLen
+  have evaluatedArgs : denote (Arguments.operands (scratchRead start) args) w = .ok values w := by
     have ran := saved_read saved freeW
-    rw [Arguments.operands]
-    simp only [List.map_nil, Option.toList_none, List.append_nil]
-    change denote (operandList (scratchRead start :: reads)) w = .ok values w
+    rw [Arguments.operands, argsOrdered]
     have form : collected.map Prod.snd = scratchRead start :: reads := by
       unfold reads collected
       rw [stages_cons]
       rfl
     exact form ▸ ran
-  have ran : evaluate program available (.callPos callee args) target start t =
+  have ran : evaluate program available (.call callee positional keywords star starStar) target start t =
       commit target (mapFrame (rebind · w.bindings) out) := by
-    rw [evaluate, emit_callPos]
+    rw [evaluate, emit_call]
     change denoteBody program available ((collected.map Prod.fst).foldr Body.seq _) t = _
     rw [step]
-    exact lower_call applied relatedU target _ _ argLen evaluatedArgs
+    exact lower_call applied relatedU target _ _ argsShape evaluatedArgs
   cases out with
   | error error final =>
     exact ⟨_, ran, continueMatch related final⟩

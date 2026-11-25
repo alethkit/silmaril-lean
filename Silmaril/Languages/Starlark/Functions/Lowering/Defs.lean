@@ -35,36 +35,54 @@ structure Lowered where
   modify (· + 1)
   return (← code slot, .read (.bound slot))
 
-theorem keywordSize (keyword : String × Expr) : sizeOf keyword.2 ≤ sizeOf keyword := by
-  cases keyword
-  simp
+/-- The resolved grammar fixes operand order independently of call binding. -/
+@[expose] def argumentExprs (positional : List Expr) (keywords : List (String × Expr))
+    (star starStar : Option Expr) : List Expr :=
+  positional ++ keywords.map Prod.snd ++ star.toList ++ starStar.toList
+
+@[expose] def argumentShape (positional : List Expr) (keywords : List (String × Expr))
+    (star starStar : Option Expr) : ArgumentShape :=
+  ⟨positional.length, keywords.map Prod.fst, star.isSome, starStar.isSome⟩
+
+/-- Reassociate staged reads with their original argument positions and names. -/
+@[expose] def fillArguments (shape : ArgumentShape) (reads : List Lists.Expr) : Arguments :=
+  let remaining := reads.drop shape.positional
+  let expansions := remaining.drop shape.keywords.length
+  { positional := reads.take shape.positional
+    keywords := shape.keywords.zip (remaining.take shape.keywords.length)
+    star := if shape.star then expansions[0]? else none
+    starStar := if shape.starStar then expansions[shape.star.toNat]? else none }
+
+theorem argumentSize (callee : Expr) (positional : List Expr) (keywords : List (String × Expr))
+    (star starStar : Option Expr) {part : Expr}
+    (member : part ∈ argumentExprs positional keywords star starStar) :
+    sizeOf part < sizeOf (.call callee positional keywords star starStar : Expr) := by
+  simp only [argumentExprs, List.mem_append] at member
+  rcases member with ((pos | named) | spread) | mapping
+  · have := List.sizeOf_lt_of_mem pos
+    simp
+    omega
+  · obtain ⟨⟨name, value⟩, inKeywords, rfl⟩ := List.mem_map.mp named
+    have := List.sizeOf_lt_of_mem inKeywords
+    simp at this ⊢
+    omega
+  · obtain rfl := Option.mem_toList.mp spread
+    simp
+    omega
+  · obtain rfl := Option.mem_toList.mp mapping
+    simp
+    omega
 
 @[expose] def emit (expression : Expr) (target : Binding) : StateM Nat Body :=
   match expression with
   | .atom value => pure (assign target value)
   | .call callee positional keywords star starStar => do
     let (before, callable) ← stage (emit callee)
-    let positions ← positional.attach.mapM fun part => do
-      have := List.sizeOf_lt_of_mem part.property
+    let parts ← (argumentExprs positional keywords star starStar).attach.mapM fun part => do
+      have := argumentSize callee positional keywords star starStar part.property
       stage (emit part.val)
-    let named ← keywords.attach.mapM fun part => do
-      have := List.sizeOf_lt_of_mem part.property
-      have := keywordSize part.val
-      return (part.val.1, ← stage (emit part.val.2))
-    let spread ← match star with
-      | none => pure none
-      | some value => some <$> stage (emit value)
-    let mapping ← match starStar with
-      | none => pure none
-      | some value => some <$> stage (emit value)
-    let args : Arguments :=
-      { positional := positions.map Prod.snd
-        keywords := named.map (fun (name, (_, value)) => (name, value))
-        star := spread.map Prod.snd
-        starStar := mapping.map Prod.snd }
-    let prefixes := positions.map Prod.fst ++ named.map (fun (_, (code, _)) => code) ++
-      spread.toList.map Prod.fst ++ mapping.toList.map Prod.fst
-    return .seq before (prefixes.foldr Body.seq (.call (some target) callable args))
+    let args := fillArguments (argumentShape positional keywords star starStar) (parts.map Prod.snd)
+    return .seq before ((parts.map Prod.fst).foldr Body.seq (.call (some target) callable args))
   | .branch test yes no => do
     let (before, condition) ← stage (emit test)
     return .seq before (.branch condition (← emit yes target) (← emit no target))
@@ -77,7 +95,7 @@ theorem keywordSize (keyword : String × Expr) : sizeOf keyword.2 ≤ sizeOf key
       | .or => Body.branch saved keep second
     return .seq first branch
 termination_by sizeOf expression
-decreasing_by all_goals (simp_wf; omega)
+decreasing_by all_goals first | assumption | (simp_wf; omega)
 
 /-- Lower into a caller-chosen destination that is distinct from scratch names.
 The returned names can use the frame's direct bindings for exact heap

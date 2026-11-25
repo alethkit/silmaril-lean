@@ -46,49 +46,82 @@ inductive AtomSafe : {α : Type} → Lists.Code α → Prop where
   | append {receiver value : Lists.Expr} :
       AtomSafe receiver → AtomSafe value → AtomSafe (.append receiver value)
 
-def positionalShape (arity : Nat) : Arguments :=
-  { positional := List.replicate arity (.scalar .none) }
-
 def callValue : Flow → Lists.Value
   | .returned value => value
   | _ => .scalar .none
 
-/-- Application operates on values already evaluated by the source rules.
-It uses the shared dispatch and independent core semantics for callee bodies. -/
-inductive Applies (program : Program) (available : List DeclarationId) (arity : Nat)
-    (state : State) (values : List Lists.Value) : Outcome Lists.Value → Prop where
+/-- Expansion runs only after all operands have evaluated. The pinned
+profile checks the mapping before the iterable. -/
+inductive Expands (args : EvaluatedArguments) (state : State) : Outcome Actual → Prop where
+  | mappingError {error : Lists.Error} {next : State} :
+      expandStarStar args.starStar state = .error error next →
+      Expands args state (.error error next)
+  | spreadError {keys : List (String × Lists.Value)} {next final : State} {error : Lists.Error} :
+      expandStarStar args.starStar state = .ok keys next →
+      expandStar args.star next = .error error final →
+      Expands args state (.error error final)
+  | success {keys : List (String × Lists.Value)} {values : List Lists.Value} {next final : State} :
+      expandStarStar args.starStar state = .ok keys next →
+      expandStar args.star next = .ok values final →
+      Expands args state (.ok ⟨args.positional ++ values, args.keywords ++ keys⟩ final)
+
+/-- Dispatch shares value-level call preparation, including argument binding,
+and uses independent core semantics to execute a callee body. -/
+inductive Dispatches (program : Program) (available : List DeclarationId)
+    (state : State) (callee : Lists.Value) (actual : Actual) : Outcome Lists.Value → Prop where
   | reject {error : Lists.Error} {next : State} :
-      prepare program available (positionalShape arity) values state = .error error next →
-      Applies program available arity state values (.error error next)
-  | builtin {id : Lists.Builtin} {actual : Actual} {next : State} {out : Outcome Lists.Value} :
-      prepare program available (positionalShape arity) values state = .ok (.builtin id actual) next →
-      Builtins.Invokes next id actual out →
-      Applies program available arity state values out
+      prepareExpanded program available actual callee state = .error error next →
+      Dispatches program available state callee actual (.error error next)
+  | builtin {id : Lists.Builtin} {bound : Actual} {next : State} {out : Outcome Lists.Value} :
+      prepareExpanded program available actual callee state = .ok (.builtin id bound) next →
+      Builtins.Invokes next id bound out →
+      Dispatches program available state callee actual out
   | returned {plan : Prepared available} {next final : State} {flow : Flow} :
-      prepare program available (positionalShape arity) values state = .ok (.closure plan) next →
+      prepareExpanded program available actual callee state = .ok (.closure plan) next →
       Exec program (withoutDeclaration available plan.id) next plan.body (.ok flow final) →
-      Applies program available arity state values (.ok (callValue flow) (restoreCaller state final))
+      Dispatches program available state callee actual (.ok (callValue flow) (restoreCaller state final))
   | failed {plan : Prepared available} {next final : State} {error : Lists.Error} :
-      prepare program available (positionalShape arity) values state = .ok (.closure plan) next →
+      prepareExpanded program available actual callee state = .ok (.closure plan) next →
       Exec program (withoutDeclaration available plan.id) next plan.body (.error error final) →
-      Applies program available arity state values (.error error (restoreCaller state final))
+      Dispatches program available state callee actual (.error error (restoreCaller state final))
+
+inductive Applies (program : Program) (available : List DeclarationId) (shape : ArgumentShape)
+    (state : State) : List Lists.Value → Outcome Lists.Value → Prop where
+  | expansionError {callee : Lists.Value} {operands : List Lists.Value}
+      {error : Lists.Error} {next : State} :
+      Expands (shape.collect operands) state (.error error next) →
+      Applies program available shape state (callee :: operands) (.error error next)
+  | expanded {callee : Lists.Value} {operands : List Lists.Value}
+      {actual : Actual} {next : State} {out : Outcome Lists.Value} :
+      Expands (shape.collect operands) state (.ok actual next) →
+      Dispatches program available next callee actual out →
+      Applies program available shape state (callee :: operands) out
+
+/-- In resolved calls, keyword expressions follow the positional expressions.
+The optional iterable and mapping expressions follow in that order. -/
+def sourceOperands (callee : Expr) (positional : List Expr) (keywords : List (String × Expr))
+    (star starStar : Option Expr) : List Expr :=
+  callee :: (positional ++ keywords.map Prod.snd ++ star.toList ++ starStar.toList)
 
 mutual
-/-- Source rules for the positional-call fragment. Short-circuiting returns
-the selected operand value. No rule mentions emitted code or scratch names. -/
+/-- Source rules evaluate operands left to right and stop at the first
+error. A short-circuit returns the selected operand value. -/
 inductive Evaluates (program : Program) (available : List DeclarationId) :
     State → Expr → Outcome Lists.Value → Prop where
   | atom {s : State} {expression : Lists.Expr} {out : Outcome Lists.Value} :
       AtomSafe expression → Lists.Eval s expression out →
       Evaluates program available s (.atom expression) out
-  | call {s t : State} {callee : Expr} {args : List Expr} {values : List Lists.Value}
-      {out : Outcome Lists.Value} :
-      EvaluatesMany program available s (callee :: args) (.ok values t) →
-      Applies program available args.length t values out →
-      Evaluates program available s (.callPos callee args) out
-  | callError {s t : State} {callee : Expr} {args : List Expr} {error : Lists.Error} :
-      EvaluatesMany program available s (callee :: args) (.error error t) →
-      Evaluates program available s (.callPos callee args) (.error error t)
+  | call {s t : State} {callee : Expr} {positional : List Expr} {keywords : List (String × Expr)}
+      {star starStar : Option Expr} {values : List Lists.Value} {out : Outcome Lists.Value} :
+      EvaluatesMany program available s (sourceOperands callee positional keywords star starStar)
+        (.ok values t) →
+      Applies program available (argumentShape positional keywords star starStar) t values out →
+      Evaluates program available s (.call callee positional keywords star starStar) out
+  | callError {s t : State} {callee : Expr} {positional : List Expr} {keywords : List (String × Expr)}
+      {star starStar : Option Expr} {error : Lists.Error} :
+      EvaluatesMany program available s (sourceOperands callee positional keywords star starStar)
+        (.error error t) →
+      Evaluates program available s (.call callee positional keywords star starStar) (.error error t)
   | branch {s t : State} {test yes no : Expr} {tested out : Outcome Lists.Value} {flag : Bool} :
       Evaluates program available s test tested →
       Outcome.resume tested truth = .ok flag t →

@@ -74,6 +74,40 @@ out = len(len(events.append(1)), events.append(2))
 	fmt.Println("PASS nested positional call failure retains earlier effects and skips later operands")
 
 	g, err = initSource(`events = []
+out = len(events.append(1), ignored=len(events.append(2)), *events.append(3), **events.append(4))
+`)
+	require(err != nil && strings.Contains(err.Error(), "has no len"), fmt.Sprint(err))
+	require(g["events"].String() == "[1, 2]" && g["out"] == nil,
+		"the keyword expression's failure must skip both spreads and the destination write")
+	fmt.Println("PASS a nested keyword operand failure skips the spread operands")
+
+	g, err = initSource(`events = []
+out = len(events.append(1), ignored=events.append(2), *events.append(3), **events.append(4))
+`)
+	require(err != nil && strings.Contains(err.Error(), "argument after ** must be a mapping"), fmt.Sprint(err))
+	require(g["events"].String() == "[1, 2, 3, 4]" && g["out"] == nil,
+		"all operand effects must survive the mapping error")
+	fmt.Println("PASS all operands run before mapping validation, which precedes iterable validation")
+
+	g, err = initSource(`events = []
+out = len(*events.append(1), **{})
+`)
+	require(err != nil && strings.Contains(err.Error(), "argument after * must be iterable"), fmt.Sprint(err))
+	require(g["events"].String() == "[1]" && g["out"] == nil,
+		"the operand effect must survive the iterable error")
+	fmt.Println("PASS a valid mapping exposes the iterable error")
+
+	g, err = initSource(`def f(x):
+    events.append("body")
+events = []
+out = f(x=events.append(1), **{"x": events.append(2)})
+`)
+	require(err != nil && strings.Contains(err.Error(), `multiple values for parameter "x"`), fmt.Sprint(err))
+	require(g["events"].String() == "[1, 2]" && g["out"] == nil,
+		"both effects must survive binding failure, without entering the function body")
+	fmt.Println("PASS expansion reaches duplicate binding after both operands run")
+
+	g, err = initSource(`events = []
 out = events.append(1) and len(events.append(2))
 `)
 	require(err == nil && g["out"] == starlark.None && g["events"].String() == "[1]",
