@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.Sweep
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapWhiskering.Thms
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.NormNum
@@ -179,5 +180,55 @@ example :
     glued.sheet.reindex (matched.sweep_first_word lowerRead glued) (matched.sweep_last_word upperRead glued) =
       lowerRead.sheet.thenDo (upperRead.sheet.reindex (matched.sweep_join_word lowerRead upperRead) rfl) :=
   matched.sweep_concat lowerRead upperRead matched.glue.layerSweep
+
+private noncomputable def singletonCap : FixedCap signature where
+  profile :=
+    { size := 1
+      label _ := ()
+      x _ := 1 / 2
+      ordered := fun {i j} lt => (lt.ne (Subsingleton.elim i j)).elim }
+  inside _ := by norm_num [Set.mem_Ioo]
+
+private def emptyCap := FixedCap.empty signature
+
+private noncomputable def tiedActive : FixedDrawing signature emptyCap.profile singletonCap.profile where
+  vertices := 3
+  wires := 1
+  drawing := drawing true
+  input := by
+    letI : IsEmpty {w : Fin 1 // (drawing true).start w = none} :=
+      ⟨fun w => by
+        have h := w.property
+        change some (0 : Fin 3) = none at h
+        cases h⟩
+    change Fin 0 ≃ {w : Fin 1 // (drawing true).start w = none}
+    exact Equiv.equivOfIsEmpty _ _
+  output := (Equiv.subtypeUnivEquiv fun _ => rfl).symm
+  input_label i := i.elim0
+  output_label _ := rfl
+  input_x i := i.elim0
+  output_x _ := rfl
+
+example (side : ActiveStrip) :
+    (side.placeDrawing tiedActive singletonCap).drawing.levels = [1 / 4, 1 / 2] :=
+  (side.placeDrawing_levels tiedActive singletonCap).trans (operand_levels true)
+
+/-- The source and the zero-port scalar tied at height 1/2 stay in their
+original row while a passive contact is appended or prepended. -/
+example (s : tiedActive.drawing.LayerSweep)
+    (t : (ActiveStrip.left.placeDrawing tiedActive singletonCap).drawing.LayerSweep) :
+    (ActiveStrip.left.placeDrawing tiedActive singletonCap).readSheetAt t =
+      ((tiedActive.readSheetAt s).padRight singletonCap.types).reindex
+        (ActiveStrip.left.adjoin_labels emptyCap singletonCap).symm
+        (ActiveStrip.left.adjoin_labels singletonCap singletonCap).symm :=
+  ActiveStrip.readSheetAt_left tiedActive singletonCap s t
+
+example (s : tiedActive.drawing.LayerSweep)
+    (t : (ActiveStrip.right.placeDrawing tiedActive singletonCap).drawing.LayerSweep) :
+    (ActiveStrip.right.placeDrawing tiedActive singletonCap).readSheetAt t =
+      ((tiedActive.readSheetAt s).padLeft singletonCap.types).reindex
+        (ActiveStrip.right.adjoin_labels emptyCap singletonCap).symm
+        (ActiveStrip.right.adjoin_labels singletonCap singletonCap).symm :=
+  ActiveStrip.readSheetAt_right tiedActive singletonCap s t
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveGluing.SweepRegression

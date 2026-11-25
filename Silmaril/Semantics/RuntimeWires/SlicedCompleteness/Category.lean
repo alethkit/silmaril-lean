@@ -130,5 +130,26 @@ instance monoidal : MonoidalCategory (Presented S) :=
 instance : (toTerms S).Monoidal :=
   Monoidal.fromInducedMonoidal (toTerms S) (inducingData S)
 
+variable {S} {A B X Y : List O}
+
+/-- Typed sheet transport is categorical transport in the seam quotient. -/
+theorem ofSheet_reindex (p : Sheet S A B) (a : A = X) (b : B = Y) :
+    (SeamHom.ofSheet (p.reindex a b) : (⟨X⟩ : Presented S) ⟶ ⟨Y⟩) =
+      eqToHom (congrArg (Presented.mk (S := S)) a.symm) ≫
+        (SeamHom.ofSheet p : (⟨A⟩ : Presented S) ⟶ ⟨B⟩) ≫
+        eqToHom (congrArg (Presented.mk (S := S)) b) := by
+  cases a
+  cases b
+  simp [Sheet.reindex]
+
+theorem whiskerLeft_ofSheet (W : List O) (p : Sheet S A B) :
+    (⟨W⟩ : Presented S) ◁ (SeamHom.ofSheet p : (⟨A⟩ : Presented S) ⟶ ⟨B⟩) =
+      SeamHom.ofSheet (p.padLeft W) := by rfl
+
+theorem whiskerRight_ofSheet (W : List O) (p : Sheet S A B) :
+    (SeamHom.ofSheet p : (⟨A⟩ : Presented S) ⟶ ⟨B⟩) ▷ (⟨W⟩ : Presented S) =
+      SeamHom.ofSheet (p.padRight W) :=
+  congrArg SeamHom.ofSheet (Proofs.SlicedCompleteness.then_empty (p.padRight W))
+
 end Presented
 end Silmaril.RuntimeWires.Sliced
