@@ -15,6 +15,10 @@ universe u v
 variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} {kind : VertexSeparation}
 variable {d : Diagram S V W kind}
 
+theorem mem_completed (done : Finset (Fin V)) (order : List (Fin V)) (j : Fin V) :
+    j ∈ completed done order ↔ j ∈ done ∨ j ∈ order :=
+  Proofs.LayerSerialization.mem_completed done order j
+
 /-- Splitting at an intermediate set of completed slots retains the same
 position for each vertex box and each through block. -/
 theorem layerStep_split {a b c : Finset (Fin V)} (hab : a ⊆ b) (hbc : b ⊆ c)
@@ -39,7 +43,7 @@ variable {height lo hi : ℝ} (s : d.LayerSlice height lo hi)
 theorem covers_of_perm {order : List (Fin V)} (perm : order.Perm s.vertices) :
     ∀ j, Sum.inr j ∈ s.slots → j ∈ completed ∅ order := by
   intro j hj
-  exact (Proofs.LayerSerialization.mem_completed ∅ order j).mpr
+  exact (mem_completed ∅ order j).mpr
     (Or.inr (perm.mem_iff.mpr (List.mem_filterMap.mpr ⟨.inr j, hj, rfl⟩)))
 
 /-- Execute the layer's vertex slots in any prescribed permutation. The

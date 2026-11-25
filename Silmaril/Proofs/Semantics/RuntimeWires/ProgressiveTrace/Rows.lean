@@ -37,7 +37,7 @@ private theorem trace_straight (word : List O) (input : List (NamedWire O))
       have he : input.length = word.length := Nat.succ.inj hl
       simp [Row.straight, Row.traceWires, ih input he]
 
-private theorem trace_pass {A B : List O} (r : Row S A B) (word : List O)
+theorem trace_pass {A B : List O} (r : Row S A B) (word : List O)
     (leftNames input : List (NamedWire O)) (hl : leftNames.length = word.length) (row box : ℕ) :
     (Row.pass word r).traceWires row box (leftNames ++ input) =
       ⟨leftNames ++ (r.traceWires row box input).frontier, (r.traceWires row box input).boxes⟩ := by
