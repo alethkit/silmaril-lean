@@ -94,6 +94,15 @@ instruction covers enabled, message-free assertions.
 [Python assert statement](https://docs.python.org/release/3.12.13/reference/simple_stmts.html#the-assert-statement)
 · [Truth value testing](https://docs.python.org/release/3.12.13/library/stdtypes.html#truth-value-testing)
 
+`Executor.Operand.eqInt` compares one `NameRead.slot` or
+`NameRead.global` against an integer literal. The result is Boolean.
+Integers compare by value, and the two Booleans compare as zero and one.
+`None` and modeled functions compare false against an integer.
+The read's defined error or fault propagates before comparison.
+Equality for general operands and custom equality methods are outside
+this profile.
+[Python comparisons](https://docs.python.org/release/3.12.13/reference/expressions.html#value-comparisons)
+
 The executor shares the frame and heap APIs with the compiler. Call entry
 starts the selected body with its initialized frame. Return or an uncaught
 defined error reaches a receiving state with the exact saved caller,

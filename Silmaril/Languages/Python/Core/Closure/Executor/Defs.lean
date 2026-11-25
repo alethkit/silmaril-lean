@@ -14,10 +14,15 @@ abbrev GlobalLookup := String → Option Value
 
 def emptyGlobals : GlobalLookup := fun _ => none
 
+inductive NameRead (layout : Layout) where
+  | slot (slot : Slot layout)
+  | global (name : String)
+
 inductive Operand (layout : Layout) where
   | literal (value : Value)
   | read (slot : Slot layout)
   | readGlobal (name : String)
+  | eqInt (left : NameRead layout) (right : Int)
   | closure (code : CodeRef) (select : Fin code.layout.captures → CaptureSlot layout)
 
 /-- Every body ends in an explicit return. A call assigns its result before
@@ -59,13 +64,23 @@ abbrev Transition := Option Event × State
 
 variable {layout : Layout}
 
-def Operand.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout) : Operand layout → Except Failure Value
-  | .literal value => .ok value
-  | .read slot => frame.read heap slot
-  | .readGlobal name =>
+def NameRead.operand : NameRead layout → Operand layout
+  | .slot location => .read location
+  | .global name => .readGlobal name
+
+def NameRead.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout) :
+    NameRead layout → Except Failure Value
+  | .slot location => frame.read heap location
+  | .global name =>
     match globals name with
     | some value => .ok value
     | none => .error (.defined (.nameError name))
+
+def Operand.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout) : Operand layout → Except Failure Value
+  | .literal value => .ok value
+  | .read slot => frame.read heap slot
+  | .readGlobal name => (NameRead.global name).evalIn globals heap frame
+  | .eqInt left right => (left.evalIn globals heap frame).map fun value => .bool (value.equalInt right)
   | .closure code select => .ok (.function (frame.closure code select))
 
 def evalArgumentsIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout) :
@@ -152,6 +167,9 @@ inductive EvaluatesIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layo
       EvaluatesIn globals heap frame (.readGlobal name) (.ok value)
   | globalMissing {name} : globals name = none →
       EvaluatesIn globals heap frame (.readGlobal name) (.error (.defined (.nameError name)))
+  | eqInt {left : NameRead layout} {right result} :
+      EvaluatesIn globals heap frame left.operand result →
+      EvaluatesIn globals heap frame (.eqInt left right) (result.map fun value => .bool (value.equalInt right))
   | closure (code : CodeRef) (select : Fin code.layout.captures → CaptureSlot layout) :
       EvaluatesIn globals heap frame (.closure code select) (.ok (.function (frame.closure code select)))
 
