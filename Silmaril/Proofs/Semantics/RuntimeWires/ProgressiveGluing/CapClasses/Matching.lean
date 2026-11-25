@@ -59,6 +59,42 @@ noncomputable abbrev glue (p : FixedDrawing S a b) (q : FixedDrawing S b c) :
   input_x i := (inputCap_x (matching p q) (p.input i)).trans (p.input_x i)
   output_x i := (outputCap_x (matching p q) (q.output i)).trans (q.output_x i)
 
+theorem glue_straight_through (p : FixedDrawing S a b) (q : FixedDrawing S b c)
+    (i : Fin a.size) (j : Fin b.size) (k : Fin c.size) (x : ℝ)
+    (hp : (p.input i).val = (p.output j).val) (hq : (q.input j).val = (q.output k).val)
+    (px : ∀ y, p.drawing.x (p.input i).val y = x)
+    (qx : ∀ y, q.drawing.x (q.input j).val y = x) :
+    ((glue p q).input i).val = ((glue p q).output k).val ∧
+      ∀ y, (glue p q).drawing.x ((glue p q).input i).val y = x := by
+  let m := matching p q
+  have shared : leftWire m (p.input i).val = rightWire m (q.input j).val := by
+    rw [hp]
+    change lowerId (lowerId (p.output j).val) = m.upperJoin.upperId (q.input j).val
+    rw [m.glue_matches_contact, match_slot]
+  constructor
+  · change (inputCap m (p.input i)).val = (outputCap m (q.output k)).val
+    rw [inputCap_val, outputCap_val, shared, hq]
+  · intro y
+    change m.glue.x (inputCap m (p.input i)).val y = x
+    rw [inputCap_val]
+    by_cases below : y ≤ 1 / 4
+    · have first : slabHeight 0 y ≤ 1 / 2 := by dsimp [slabHeight]; linarith
+      have half : y ≤ 1 / 2 := by linarith
+      rw [m.glue_eq_upperJoin, leftWire, m.upperJoin.glue_x_lower _ half,
+        m.lowerJoin.glue_x_lower _ first]
+      exact px _
+    rw [shared]
+    by_cases above : 1 / 2 ≤ y
+    · rw [m.glue_eq_upperJoin, rightWire, m.upperJoin.glue_x_upper _ above]
+      exact qx _
+    have band : y ∈ Set.Icc (1 / 4 : ℝ) (1 / 2) := ⟨le_of_not_ge below, le_of_not_ge above⟩
+    have collar := m.glue_x_in_collar (p.output j) band
+    rw [match_slot] at collar
+    change m.glue.x (rightWire m (q.input j).val) y = _ at collar
+    rw [collar, ← hp, px, qx]
+    unfold interpolate
+    ring
+
 section Boundary
 
 variable {V W V' W' : ℕ}
