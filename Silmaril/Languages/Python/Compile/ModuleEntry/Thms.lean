@@ -6,6 +6,18 @@ import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Correspondence
 public section
 namespace Silmaril.Languages.Python.Compile.ModuleEntry
 
+theorem ScalarComparison.chain_iff (left : Core.Module.Value) (links : List (ScalarComparison × Core.Module.Value))
+    (value : Bool) : ScalarComparison.chain left links = value ↔ ScalarComparison.EvaluatesChain left links value :=
+  Proofs.Languages.Python.Compile.ModuleEntry.chain_iff left links value
+
+theorem literalComparisonChain_iff (left : Source.Expr) (first second : Source.Comparison × Source.Expr)
+    (rest : List (Source.Comparison × Source.Expr)) (result : Bool) :
+    literalComparisonChain? left (first :: second :: rest) = some result ↔
+      ∃ initial links, scalarLiteral? left = some initial ∧
+        (first :: second :: rest).mapM literalComparisonLink? = some links ∧
+        ScalarComparison.EvaluatesChain initial links result :=
+  Proofs.Languages.Python.Compile.ModuleEntry.literalComparisonChain_iff left first second rest result
+
 theorem global_reference {scope : Source.Scope} {name : Source.Name}
     (reference : GlobalReference scope name) : globalReference? scope name = some reference :=
   Proofs.Languages.Python.Compile.ModuleEntry.global_reference reference

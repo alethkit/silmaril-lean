@@ -63,6 +63,57 @@ def scalarLiteral? : Expr → Option Core.Module.Value
   | .boolean value => some (.bool value)
   | expression => (integerLiteral? expression).map .int
 
+inductive ScalarComparison where
+  | eq | ne | lt | le | gt | ge
+
+def ScalarComparison.ofSource? : Comparison → Option ScalarComparison
+  | .eq => some .eq
+  | .ne => some .ne
+  | .lt => some .lt
+  | .le => some .le
+  | .gt => some .gt
+  | .ge => some .ge
+  | _ => none
+
+/-- Only exact integers and Booleans enter this numeric comparison. -/
+def ScalarComparison.test (operator : ScalarComparison) (left right : Core.Module.Value) : Bool :=
+  match operator with
+  | .eq => left.equal right
+  | .ne => !left.equal right
+  | .lt => decide (left.asInt < right.asInt)
+  | .le => decide (left.asInt ≤ right.asInt)
+  | .gt => decide (left.asInt > right.asInt)
+  | .ge => decide (left.asInt ≥ right.asInt)
+
+/-- Each reached right value also supplies the next comparison's left value.
+A false link stops the comparison scan. -/
+def ScalarComparison.chain (left : Core.Module.Value) : List (ScalarComparison × Core.Module.Value) → Bool
+  | [] => true
+  | (operator, right) :: rest =>
+    if operator.test left right then chain right rest else false
+
+inductive ScalarComparison.EvaluatesChain :
+    Core.Module.Value → List (ScalarComparison × Core.Module.Value) → Bool → Prop where
+  | done (left : Core.Module.Value) : EvaluatesChain left [] true
+  | stop {left operator right rest} (failed : operator.test left right = false) :
+      EvaluatesChain left ((operator, right) :: rest) false
+  | next {left operator right rest result} (passed : operator.test left right = true)
+      (tail : EvaluatesChain right rest result) : EvaluatesChain left ((operator, right) :: rest) result
+
+def literalComparisonLink? (link : Comparison × Expr) : Option (ScalarComparison × Core.Module.Value) := do
+  let operator ← ScalarComparison.ofSource? link.1
+  let value ← scalarLiteral? link.2
+  return (operator, value)
+
+/-- Validate the whole chain before scanning for the first false comparison. -/
+def literalComparisonChain? (left : Expr) (links : List (Comparison × Expr)) : Option Bool :=
+  match links with
+  | _ :: _ :: _ => do
+    let value ← scalarLiteral? left
+    let checked ← links.mapM literalComparisonLink?
+    return ScalarComparison.chain value checked
+  | _ => none
+
 def scalarTuple? : Expr → Option (List Core.Module.Value)
   | .tuple elements => elements.mapM scalarLiteral?
   | _ => none
@@ -113,6 +164,9 @@ inductive OperandTranslation (scope : Scope) : Expr → Operand scope → Prop w
   | literalTupleComparison {left operator right value}
       (checked : literalTupleComparison? left operator right = some value) :
       OperandTranslation scope (.comparison left [(operator, right)]) (.booleanResult value)
+  | literalComparisonChain {left first second rest value}
+      (checked : literalComparisonChain? left (first :: second :: rest) = some value) :
+      OperandTranslation scope (.comparison left (first :: second :: rest)) (.booleanResult value)
   | literalConditional {condition yes no decision lhs rhs}
       (guard : literalGuard? condition = some decision)
       (positive : OperandTranslation scope yes lhs) (negative : OperandTranslation scope no rhs) :
@@ -161,6 +215,10 @@ def lowerOperand (scope : Scope) : (source : Expr) → Except Error {value // Op
         let rhs ← lowerOperand scope right
         return ⟨.binary .equal lhs.val rhs.val, .equal lhs.property rhs.property⟩
       | _ => .error .expressionProfile
+  | .comparison left (first :: second :: rest) =>
+    match folded : literalComparisonChain? left (first :: second :: rest) with
+    | some value => .ok ⟨.booleanResult value, .literalComparisonChain folded⟩
+    | none => .error .expressionProfile
   | .conditional condition yes no =>
     match guard : literalGuard? condition with
     | none => .error .expressionProfile

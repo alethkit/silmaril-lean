@@ -16,6 +16,42 @@ theorem global_reference {scope : Source.Scope} {name : Source.Name}
   · subst declared
     simp [globalReference?, resolved]
 
+theorem chain_iff (left : Core.Module.Value) (links : List (ScalarComparison × Core.Module.Value))
+    (value : Bool) : ScalarComparison.chain left links = value ↔ ScalarComparison.EvaluatesChain left links value := by
+  induction links generalizing left value with
+  | nil =>
+    constructor
+    · intro result
+      cases result
+      exact .done left
+    · intro result
+      cases result
+      rfl
+  | cons link rest ih =>
+    rcases link with ⟨operator, right⟩
+    constructor
+    · intro result
+      cases passed : operator.test left right with
+      | false =>
+        simp [ScalarComparison.chain, passed] at result
+        exact result ▸ .stop passed
+      | true =>
+        exact .next passed ((ih right value).mp (by simpa [ScalarComparison.chain, passed] using result))
+    · intro result
+      cases result with
+      | stop failed => simp [ScalarComparison.chain, failed]
+      | next passed tail => simpa [ScalarComparison.chain, passed] using (ih right value).mpr tail
+
+theorem literalComparisonChain_iff (left : Source.Expr) (first second : Source.Comparison × Source.Expr)
+    (rest : List (Source.Comparison × Source.Expr)) (result : Bool) :
+    literalComparisonChain? left (first :: second :: rest) = some result ↔
+      ∃ initial links, scalarLiteral? left = some initial ∧
+        (first :: second :: rest).mapM literalComparisonLink? = some links ∧
+        ScalarComparison.EvaluatesChain initial links result := by
+  cases initial : scalarLiteral? left <;>
+    cases links : (first :: second :: rest).mapM literalComparisonLink? <;>
+    simp [literalComparisonChain?, initial, links, chain_iff]
+
 private theorem scalarTuple_none {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
     (translated : OperandTranslation scope source operand) : scalarTuple? source = none := by
   cases translated <;> rfl
@@ -53,6 +89,14 @@ theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand 
     · rename_i value computed
       have equal := Option.some.inj (computed.symm.trans checked)
       subst value
+      rfl
+    · rename_i absent
+      cases checked.symm.trans absent
+  | literalComparisonChain checked =>
+    rw [lowerOperand]
+    split
+    · rename_i value computed
+      cases computed.symm.trans checked
       rfl
     · rename_i absent
       cases checked.symm.trans absent
