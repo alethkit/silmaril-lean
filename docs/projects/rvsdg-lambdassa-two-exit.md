@@ -54,12 +54,31 @@ exit with token 5 and a body exit after feedback with token 32.
 [Theorems](../../Silmaril/SSA/RVSDG/LambdaSSA/TwoBlock/TwoExit/ExplicitRuntime/Thms.lean)
 [Fixture](../../tests/ssa/RVSDGLambdaSSATwoExit.lean)
 
+## Partial instructions
+
+The partial interpretation of the same admitted graph reads the input
+token and runs the ordered `StateT σ Part` primitive. Every successful
+primitive observation contains all output data and the returned token.
+The finite relation requires success at each selected primitive and
+uses the returned token for each feedback activation.
+[Primitive agreement](../../Silmaril/SSA/RVSDG/NestedTheta/ExplicitRuntime/Partial/Thms.lean)
+
+The two-exit comparison needs only the shared partial instruction
+interpretation and region coherence. It preserves and reflects finite
+returns of the actual `Region.denote`, including the label's own payload
+and the final token. The fixture makes the body instruction undefined at
+token 7. Selecting the body at that token yields no finite return.
+Selecting the header exit returns 7 with token 7. This is a statement
+about finite observations.
+[Theorems](../../Silmaril/SSA/RVSDG/LambdaSSA/TwoBlock/TwoExit/ExplicitRuntime/Partial/Thms.lean)
+[Fixture](../../tests/ssa/RVSDGLambdaSSATwoExit.lean)
+
 ## Reproduce
 
 ```sh
-lake build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.ExplicitRuntime.Thms
-make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.ExplicitRuntime.Thms
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.ExplicitRuntime.Thms
+lake build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.ExplicitRuntime.Partial.Thms
+make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.ExplicitRuntime.Partial.Thms
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.ExplicitRuntime.Partial.Thms
 ```
 
 ## Sources

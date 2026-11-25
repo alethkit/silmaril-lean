@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.ExplicitRuntime.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.ExplicitRuntime.Partial.Thms
 import Silmaril.Raw.SSA.Isotope.Semantics.Model
 
 namespace Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.Tests
@@ -179,5 +180,90 @@ example (coherent : Isotope.LambdaSSA.Semantics.Agreement.RegionCoherent
       Part.some (exitLabel bodyPayload, 32) :=
   (ExplicitRuntime.region_returns_iff agrees coherent lowered.2 (PUnit.unit, (1 : Nat))
     (exitLabel bodyPayload) 0 32).mpr ⟨2, bodyWire⟩
+
+section PartialPrimitives
+
+private def partialInstruction : (op : Opcode) → Value (instrSrc op) →
+    StateT Nat Part (Value (instrTrg op))
+  | .header, x => instruction .header x
+  | .body, x => StateT.mk fun state =>
+    if state == 7 then Part.none else (instruction .body x).run state
+
+local instance (priority := 2000) partialModel : InstructionModel Opcode Code Bool (StateT Nat Part) where
+  denote := partialInstruction
+  denotePure _ h := False.elim (by change true = false at h; cases h)
+  denote_pure _ h _ := False.elim (by change true = false at h; cases h)
+
+private def partialRounds : Nat → StateT Nat Part ((Nat ⊕ (Nat × Nat)) ⊕ Nat) :=
+  round (ε := Bool) spec
+
+private theorem bodyUndefined (input : Nat × Nat) : (partialInstruction .body input).run 7 = Part.none := rfl
+
+-- Starting from 3, the header passes token 7 to the selected arm.
+-- With input 1 the body is selected and has no successful step at that token.
+private theorem blockedStep : Silmaril.Elgot.StateT.body partialRounds (1, 3) = Part.none := by
+  have header : (callCase (ε := Bool) (m := StateT Nat Part) spec.header (1 : Nat)).run 3 =
+      Part.some (Sum.inr ((1 : Nat), (4 : Nat)), 7) := by
+    simp [callCase, TwoBlock.call, spec, InstructionModel.denote, partialInstruction, instruction,
+      instructionTotal, TypeModel.coprodEquiv]
+    rfl
+  have body : (callCase (ε := Bool) (m := StateT Nat Part) spec.body ((1 : Nat), (4 : Nat))).run 7 =
+      Part.none := by
+    simp [callCase, TwoBlock.call, spec, InstructionModel.denote]
+    change Part.map _ ((partialInstruction .body ((1 : Nat), (4 : Nat))).run 7) = Part.none
+    rw [bodyUndefined, Part.map_none]
+  simp only [Silmaril.Elgot.StateT.body, partialRounds, round, StateT.run_bind,
+    Part.bind_eq_bind, header, Part.bind_some]
+  change (((callCase (ε := Bool) (m := StateT Nat Part) spec.body ((1 : Nat), (4 : Nat))).run 7).bind _).bind
+    _ = _
+  rw [body, Part.bind_none, Part.bind_none]
+
+private theorem blocked : (denote (ε := Bool) (m := StateT Nat Part)
+    lowered.1 (PUnit.unit, (1 : Nat))).run 3 = Part.none := by
+  rw [lowered.2.denote_iter, StateT.run_bind]
+  have noRound : (iter partialRounds 1).run 3 = Part.none := by
+    rw [Silmaril.Elgot.StateT.run_iter, Part.eq_none_iff]
+    intro out member
+    rw [Silmaril.Elgot.Part.mem_iter_iff] at member
+    cases member with
+    | done h => simp [blockedStep] at h
+    | more h _ => simp [blockedStep] at h
+  change ((iter partialRounds 1).run 3).bind _ = _
+  rw [noRound, Part.bind_none]
+
+example (label : LabelDen [number, pair]) (final : Nat) :
+    ¬ ExplicitRuntime.Partial.returns (ε := Bool) spec (1 : Nat) 3 label final := by
+  intro h
+  have observes := (ExplicitRuntime.Partial.ordered_returns_iff (ε := Bool) lowered.2
+    (PUnit.unit, (1 : Nat)) label 3 final).mpr h
+  rw [blocked] at observes
+  exact Part.none_ne_some _ observes
+
+example (coherent : Isotope.LambdaSSA.Semantics.Agreement.RegionCoherent
+    (τ := Code) (Φ := Opcode) (ε := Bool) (m := StateT Nat Part)) :
+    (Region.denote (ε := Bool) (m := StateT Nat Part) lowered.2.typing (PUnit.unit, (1 : Nat))).run 3 =
+      Part.none := by
+  rw [lowered.2.chosenDenote_eq coherent]
+  exact blocked
+
+private theorem partialHeaderExit : Sum.inl (Sum.inl 7, 7) ∈ Silmaril.Elgot.StateT.body partialRounds (0, 3) := by
+  simp [partialRounds, round, callCase, TwoBlock.call, spec, InstructionModel.denote, partialInstruction,
+    instruction, instructionTotal, Silmaril.Elgot.StateT.body, Silmaril.Elgot.StateT.distribute,
+    TypeModel.coprodEquiv, Part.bind_eq_bind, Part.bind_some]
+  exact Part.mem_some_iff.mpr rfl
+
+-- The same token 7 is returned when the header exits and skips the undefined body.
+example : ExplicitRuntime.Partial.returns (ε := Bool) spec (0 : Nat) 3 (.inl (7 : Nat)) 7 := by
+  apply (ExplicitRuntime.Partial.ordered_returns_iff (ε := Bool) lowered.2
+    (PUnit.unit, (0 : Nat)) (.inl (7 : Nat)) 3 7).mp
+  rw [lowered.2.denote_iter, StateT.run_bind]
+  have observed : (iter partialRounds 0).run 3 = Part.some (.inl 7, 7) := by
+    rw [Silmaril.Elgot.StateT.run_iter, Part.eq_some_iff, Silmaril.Elgot.Part.mem_iter_iff]
+    exact .done partialHeaderExit
+  change ((iter partialRounds 0).run 3).bind _ = _
+  rw [observed]
+  simp [exitLabel]
+
+end PartialPrimitives
 
 end Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.Tests
