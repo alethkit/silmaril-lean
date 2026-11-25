@@ -19,6 +19,7 @@ inductive TopCode where
   | atomic (code : Lists.Stmt)
   | assignExpr (name : String) (value : Lowering.Expr)
   | assignTargetExpr (target : Iteration.LoopTarget) (value : Lowering.Expr)
+  | assignTargetCompExpr (target : Iteration.LoopTarget) (value : Comprehensions.Expression)
   | assignListComp (name : String) (comp : Comprehensions.ListComp)
   | assignDictComp (name : String) (comp : Comprehensions.DictComp)
   | assignCompExpr (name : String) (expr : Comprehensions.Expression)
@@ -34,6 +35,7 @@ def TopCode.body : TopCode → Body
   | .atomic code => .total (.atomic code)
   | .assignExpr name value => .assignExpr (globalSlot name) value
   | .assignTargetExpr target value => .assignTargetExpr target value
+  | .assignTargetCompExpr target value => value.assignTargetCode target Comprehensions.directStages
   | .assignListComp name comp => comp.body (globalSlot name)
   | .assignDictComp name comp => comp.body (globalSlot name)
   | .assignCompExpr name expr => expr.body (globalSlot name)

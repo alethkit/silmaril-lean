@@ -547,6 +547,53 @@ out = f()
 	fmt.Println("PROFILE DIFFERENCE Go retains comprehension locals across revisits within a default")
 }
 
+func checkPatternAssignment() {
+	const mark = `events = []
+def mark(tag, value):
+    events.append(tag)
+    return value
+`
+	globals, err := run(mark + `def f(x):
+    (x, [x, y]) = [mark(2, piece) for piece in mark(1, [8, [9, x]])]
+    return (x, y)
+out = f(4)
+(payload, [countValue, _hidden]) = [mark(4, piece) for piece in mark(3, [[7], (2, 3)])]
+`)
+	require(err == nil && globals["out"].String() == "(9, 4)" && globals["payload"].String() == "[7]" &&
+		globals["countValue"].String() == "2" && globals["events"].String() == "[1, 2, 2, 3, 4, 4]",
+		fmt.Sprint(globals, err))
+	fmt.Println("PASS comprehension RHS before nested function and module pattern writes, including repeated names")
+
+	const assignment = `(a, [b, c], d) = [mark(3, [])[1] if fail else mark(2, x)
+                  for row in mark(1, rows) for (fail, x) in row]
+`
+	for _, tc := range []struct {
+		fail, errorPart, effects string
+		wroteFirst               bool
+	}{
+		{"False", "too few values to unpack", "[1, 2, 2, 2]", true},
+		{"True", "out of range", "[1, 2, 3]", false},
+	} {
+		rows := fmt.Sprintf("rows = [[(False, 5), (%s, [6]), (False, 7)]]\n", tc.fail)
+		globals, err = run(mark + rows + assignment)
+		checkError(err, tc.errorPart)
+		if tc.wroteFirst {
+			require(globals["a"] != nil && globals["a"].String() == "5", fmt.Sprint(globals, err))
+		} else {
+			require(globals["a"] == nil, fmt.Sprint(globals, err))
+		}
+		require(globals["b"] == nil && globals["c"] == nil && globals["d"] == nil &&
+			globals["events"].String() == tc.effects, fmt.Sprint(globals, err))
+		outer := globals["rows"].(*starlark.List)
+		inner := outer.Index(0).(*starlark.List)
+		require(outer.Append(starlark.None) == nil && inner.Append(starlark.None) == nil,
+			"failed assignment left a comprehension iterator active")
+	}
+	_, err = run("out = a\n(a, b) = [x for x in [1, 2]]")
+	checkError(err, "global variable a referenced before assignment")
+	fmt.Println("PASS pattern mismatch keeps earlier writes, failed RHS writes no leaf, and guards unwind")
+}
+
 func main() {
 	checkLists()
 	checkDictionaries()
@@ -557,4 +604,5 @@ func main() {
 	checkClauseOperands()
 	checkHeads()
 	checkDefaults()
+	checkPatternAssignment()
 }

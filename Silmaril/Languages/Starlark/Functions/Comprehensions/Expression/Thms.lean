@@ -48,6 +48,39 @@ theorem Expression.exec_return_iff_lowered (program : Program) (available : List
   rw [Proofs.Languages.Starlark.Functions.Comprehensions.return_exact program available expr admitted state free start]
   exact exec_iff_denoteBody _ _ _ _ _
 
+/-- The binder receives the single RHS result after discarding private
+bindings. An RHS error skips binding and retains the residual heap. -/
+theorem Expression.denote_assignTarget (program : Program) (available : List DeclarationId)
+    (expr : Expression) (target : Lists.Iteration.LoopTarget) (stages : ExpressionStages) (state : State) :
+    denoteBody program available (expr.assignTargetCode target stages) state =
+      match denoteBody program available (expr.returnCode stages) state with
+      | .error error next => .error error (restoreCaller state next)
+      | .ok (.returned value) next =>
+        Outcome.resume (Lists.Iteration.bindTarget target value (restoreCaller state next)) fun () => pure .next
+      | .ok signal next => .ok signal (restoreCaller state next) := by
+  rw [Expression.assignTargetCode, denoteBody]
+  rfl
+
+/-- Scratch lowering preserves both RHS failure and any partial writes made
+by the existing pattern binder. -/
+theorem Expression.assignTarget_preserves (program : Program) (available : List DeclarationId)
+    (expr : Expression) (admitted : expr.Admitted) (target : Lists.Iteration.LoopTarget)
+    (state : State) (free : Lowering.ScratchFree state) (start : Nat := 0) :
+    denoteBody program available (expr.assignTargetCode target (loweredStages start)) state =
+      denoteBody program available (expr.assignTargetCode target directStages) state :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.assign_target_exact
+    program available expr admitted target state free start
+
+/-- Independent checked-body derivations determine the exact scratch-lowered
+outcome, including the frame, heap and iterator guards. -/
+theorem Expression.exec_assignTarget_iff_lowered (program : Program) (available : List DeclarationId)
+    (expr : Expression) (admitted : expr.Admitted) (target : Lists.Iteration.LoopTarget)
+    (state : State) (out : Outcome Flow) (free : Lowering.ScratchFree state) (start : Nat := 0) :
+    Exec program available state (expr.assignTargetCode target directStages) out ↔
+      denoteBody program available (expr.assignTargetCode target (loweredStages start)) state = out := by
+  rw [expr.assignTarget_preserves program available admitted target state free start]
+  exact exec_iff_denoteBody _ _ _ _ _
+
 /-- Replacing each admitted definition-time operand by scratch-lowered code
 preserves the exact outcome and state of the complete definition. -/
 theorem definition_defaults_preserved (program : Program) (available : List DeclarationId)

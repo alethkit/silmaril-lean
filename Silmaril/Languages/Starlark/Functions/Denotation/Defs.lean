@@ -9,6 +9,14 @@ namespace Silmaril.Languages.Starlark.Functions
 open Lists
 open Lists.Iteration (Flow denoteSuite truth denoteForIn bindTarget)
 
+/-- Drop the scoped RHS bindings before applying the target binder. -/
+def completeTargetAssignment (caller : State) (target : Lists.Iteration.LoopTarget) :
+    Outcome Flow → Outcome Flow
+  | .error error next => .error error (restoreCaller caller next)
+  | .ok (.returned value) next =>
+    Outcome.resume (bindTarget target value (restoreCaller caller next)) fun () => pure .next
+  | .ok signal next => .ok signal (restoreCaller caller next)
+
 /-- Structural evaluation within a frame and strict descent through the
 finite set of declarations not on the call stack on invocation. -/
 def denoteBody (program : Program) (available : List DeclarationId) (body : Body)
@@ -27,6 +35,8 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
   | .assignScoped target locals code =>
     completeCall state (some target)
       (denoteBody program available code (locals.foldl State.allocateSlot state))
+  | .assignTargetScoped target rhs =>
+    completeTargetAssignment state target (denoteBody program available rhs state)
   | .setIndexExpr receiver subscript rhs =>
     Outcome.resume (evalExpr rhs state) fun value next =>
       Outcome.resume (evalExpr receiver next) fun target next =>

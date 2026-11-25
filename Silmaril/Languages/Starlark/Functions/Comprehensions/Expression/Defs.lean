@@ -6,7 +6,7 @@ public import Silmaril.Languages.Starlark.Functions.Comprehensions.Defs
 
 namespace Silmaril.Languages.Starlark.Functions.Comprehensions
 
-/-- Comprehensions in checked returns, name assignments and parameter defaults.
+/-- Comprehensions in checked returns, assignments and parameter defaults.
 The existing expression grammar supplies ordinary leaves. -/
 inductive Expression where
   | plain (value : Lowering.Expr)
@@ -211,6 +211,12 @@ def Expression.lower (expr : Expression) (target : Binding) (start : Nat := 0) :
 call restores its caller frame, including any private return binding. -/
 def Expression.returnCode (expr : Expression) (stages : ExpressionStages) : Body :=
   .seq (expr.compile stages expressionSlot) (returnSaved expressionSlot)
+
+/-- Evaluate the RHS once, then apply the existing pattern binder in the
+restored frame. Partial target writes survive a later binder error. -/
+def Expression.assignTargetCode (expr : Expression) (target : Lists.Iteration.LoopTarget)
+    (stages : ExpressionStages) : Body :=
+  .assignTargetScoped target (expr.returnCode stages)
 
 /-- The declaration's optional parameter reads its staged value from this binding. -/
 def defaultSlot (parameter : Binding) : Binding :=

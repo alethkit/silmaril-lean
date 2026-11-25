@@ -76,6 +76,8 @@ and load/global collisions are rejected before execution.
 For standalone destructuring, `Statement.assignTarget` resolves each name
 leaf to a function slot and `Command.assignTarget` resolves each leaf to a
 module global. The resolver collects those names before analyzing any RHS.
+Both contexts also accept `assignTargetCompExpr` with the same target and
+a `CompExpr` right-hand side.
 The module command uses the shared direct binder in source order. A failed
 initialization retains earlier heap effects, including partial writes into
 its slots, and follows the existing failure path without publication.
@@ -93,8 +95,8 @@ path as function assignments, then use the ordinary publication rules.
 
 The normalized `CompExpr` adapter allows comprehensions in call operands,
 conditional and short-circuit operands, collection displays, and index
-and slice reads within return values, single-name assignment RHSs, and
-parameter defaults.
+and slice reads within return values, assignment RHSs for names and
+nested name patterns, and parameter defaults.
 The first and later iterables and filters and the heads of a comprehension
 use the same broader placement grammar.
 Both selected and skipped AST positions are resolved before execution.
