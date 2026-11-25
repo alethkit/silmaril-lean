@@ -218,7 +218,7 @@ private theorem output_inr (B A : Shape) (i : A.Row) :
   rw [output, ← sumCofan_inr_sumIso_hom B.ty A.ty, ← Category.assoc]
   exact congrArg (· ≫ (sumIso B.ty A.ty).hom) (tag_inr B A i .unit).symm
 
-private theorem payload_before_emit (A : Shape) (i : A.Row) (p q : Payload) :
+theorem payload_before_emit (A : Shape) (i : A.Row) (p q : Payload) :
     Shape.unit.emit () p ≫ A.emit i q = A.emit i (p.then q) := by
   unfold Shape.emit
   rw [branch_comp]
@@ -226,16 +226,16 @@ private theorem payload_before_emit (A : Shape) (i : A.Row) (p q : Payload) :
   rw [tag_subst]
   cases p <;> cases q <;> rfl
 
-private theorem emit_factor (A : Shape) (i : A.Row) (p : Payload) :
+theorem emit_factor (A : Shape) (i : A.Row) (p : Payload) :
     Shape.unit.emit () p ≫ A.inj i = A.emit i p :=
   payload_before_emit A i p .forward
 
-private theorem payload_output_inl (B A : Shape) (i : B.Row) (p : Payload) :
+theorem payload_output_inl (B A : Shape) (i : B.Row) (p : Payload) :
     outputWithPayload B A ⟨.inl i, p⟩ = B.emit i p ≫ coprod.inl := by
   rw [outputWithPayload, ← sumCofan_inl_sumIso_hom B.ty A.ty, ← Category.assoc]
   exact congrArg (· ≫ (sumIso B.ty A.ty).hom) (tag_inl B A i p.value).symm
 
-private theorem payload_output_inr (B A : Shape) (i : A.Row) (p : Payload) :
+theorem payload_output_inr (B A : Shape) (i : A.Row) (p : Payload) :
     outputWithPayload B A ⟨.inr i, p⟩ = A.emit i p ≫ coprod.inr := by
   rw [outputWithPayload, ← sumCofan_inr_sumIso_hom B.ty A.ty, ← Category.assoc]
   exact congrArg (· ≫ (sumIso B.ty A.ty).hom) (tag_inr B A i p.value).symm
