@@ -22,8 +22,9 @@ The operational semantics course also covers
 [L3 with structural subtyping](cambridge-subtyping.md) from chapter 6 and
 [typed L1 semantic equivalence](cambridge-semantic-equivalence.md) from chapter 8.
 
-The [pure CBV L2 denotation](cambridge-l2-denotational.md) follows the
-function and local-definition rules in chapter 4.
+The [CBV L2 denotations](cambridge-l2-denotational.md) follow the function
+and local-definition rules in chapter 4 and cover mutable integer stores
+in the effectful fragment.
 
 ## Check the courses
 
