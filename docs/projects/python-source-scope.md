@@ -16,11 +16,21 @@ function reports its cells, and intervening functions report the captures
 they forward. The module and explicit global declarations are enclosing
 lookup barriers. An unbound `nonlocal`, a declaration following a use or
 binding, and a parameter/declaration collision produce distinct diagnostics.
+The default policy rejects an unresolved `nonlocal`. Reference comparisons
+can select `.globalFallback` to resolve only that case as implicit global
+access. A found enclosing binding still takes precedence, and the module
+scope check still applies.
 
 Each block also exposes name occurrences in traversal order, including
 repeated uses. An occurrence is addressed by the block path and its ordinal.
 Each entry carries its usage, resolved access and a proof that looking up
 the same name in that block returns that access.
+
+`collectLexical` exposes the source-collected block tree and its ordered
+name occurrences. `inferLexical` resolves that tree and certifies that
+`ScopeTree.lexical` recovers it exactly. The
+`analyze_preserves_lexical` theorem gives the same guarantee through
+the combined entry point, including block metadata and sibling order.
 
 Class bases are read in the enclosing block. Class bodies distinguish
 namespace lookup from free access to an enclosing cell. Method lookup skips
@@ -34,6 +44,12 @@ are visited in the defining block. Child paths follow traversal order.
 Function defaults precede annotations and decorators. Class decorators
 precede bases and keyword values. The caller selects eager or deferred
 annotation traversal. Lambda parameter annotations are rejected.
+
+Each collected block records whether its own lexical traversal visited a
+`yield` expression, including in an unreachable branch. Nested function
+and lambda bodies record their own yields. A yield in a nested function's
+default belongs to the defining block. This metadata is available for
+generator detection independently of the rules for generator execution.
 
 Destructuring and loop targets bind their names in the current block.
 Attribute and subscript targets read their operands. Exception-handler
@@ -57,6 +73,59 @@ The scope profile follows Python 3.7 lexical binding and declaration rules.
 Deleting a name counts as binding it for scope analysis. This entry point
 accepts constructor data and checks the represented scope rules. Full syntax
 validation, compilation, and runtime name lookup have separate contracts.
+
+## Closure layout
+
+The [closure layout checker](../../Silmaril/Languages/Python/Source/Closure/Thms.lean)
+looks up a child's captures in a selected parent scope. An owned capture
+contains a bounded index into the parent's cells. A forwarded capture
+contains a bounded index into the parent's incoming captures. The slot
+witness records the lexical origin and the name or capture found at that
+index. The output follows the child's capture order.
+`Layout.cells` reads the child's ordered cell identities from the chosen
+parent slots, with its length certified against the child's capture vector.
+
+The checker succeeds exactly when every capture is available in its
+corresponding parent slot family. The regression analyzes three nested
+functions and checks their interleaved owned and forwarded slots. It
+also checks rejection when the selected scope lacks a required slot.
+
+The [source frame layout](../../Silmaril/Languages/Python/Source/Closure/Frame/Thms.lean)
+lists ordinary local names separately from owned cells and forwarded
+captures. The parameter checker emits distinct, bounded local-or-owned
+destinations. Mapping destination names back gives the original parameter
+order. The capture entries are also available as a vector indexed by the
+child's capture count.
+
+The [Core lowering](../../Silmaril/Languages/Python/Compile/Closure/Thms.lean)
+assigns distinct slot families to ordinary locals, owned cells and forwarded
+captures. Parameter destinations keep declaration order. A nested closure
+selects the same parent cell identity at each capture index as the source
+layout. The regression constructs both versions of the Core closure and
+reads a parent's subsequent write through the child's capture.
+
+The [closure body compiler](../../Silmaril/Languages/Python/Compile/Closure/Body/Thms.lean)
+accepts one top-level function containing nested function definitions,
+single-name assignments and nonlocal declarations, with a final value return
+in each function. Expressions cover integers, addition, names and positional
+calls. Each successful result carries the analyzed source tree and a
+translation derivation. Child code carries the analyzed path, ordered
+parameter destinations and capture operands. The compiler proves its
+preorder list of code paths has no duplicates for code-table linking. The
+regression parses Python source and checks a nonlocal write through two
+nested call sites. Code-table linking and execution are subsequent stages.
+
+Ordinary body lowering checks `containsYield` and reports
+`unsupportedGenerator` with the block's lexical path. The standalone
+closure compiler and module-function planner check a top-level function's
+parameters before lowering its body. A top-level generator with a default
+parameter therefore reports `parameterProfile`. For a nested definition in
+an ordinary body, the child's yield check precedes its parameter check, so
+the same declaration reports `unsupportedGenerator` at the child path.
+`Translation.ordinary` certifies the admitted entry block, and
+`Translation.ordinaryChild` certifies each child path emitted by an
+admitted body. Generator suspension and resumption require a runtime profile
+with that behavior.
 
 ## Source intake
 
@@ -93,6 +162,12 @@ make check CHECK_TARGETS=+Silmaril.Languages.Python.Source.Scope.Thms
 - Python 3.7.17, §6.14, SHA-256
   `53021dbaf574df1726e3eb15dba1915b8dd7c2c4e06a26bf1782bddd13cb15bd`.
   [Lambdas](https://docs.python.org/release/3.7.17/reference/expressions.html#lambdas)
+- Python 3.7.17, §6.2.9, SHA-256
+  `53021dbaf574df1726e3eb15dba1915b8dd7c2c4e06a26bf1782bddd13cb15bd`.
+  [Yield expressions](https://docs.python.org/release/3.7.17/reference/expressions.html#yield-expressions)
 - Python 3.13.5, SHA-256
   `6dba22a6c0f7b3eaf4d413343554182c27653b7d6e134b9a6c36f6ff711b2d4b`.
   [CPython AST and feature version](https://docs.python.org/release/3.13.5/library/ast.html#ast.parse)
+- Köhl reference analyzer at `b7ff99372dd24845cf84e58c96b877f15764b276`,
+  SHA-256 `88b62abbf9e56479b40299cdc6c1f576d44c8465607439d1391e0cd522d2a139`.
+  [Reference scope analyzer](https://github.com/koehlma/rigorous/blob/b7ff99372dd24845cf84e58c96b877f15764b276/rigorous/semantics/python/syntax/blocks.py)

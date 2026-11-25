@@ -26,7 +26,14 @@ try {
   await new Promise((r) => setTimeout(r, 800));
   const p = await b.newPage({ viewport: { width: 1500, height: 1000 } });
   const errors = [];
+  const sqliteRequests = [];
   p.on("pageerror", (e) => errors.push(e.message));
+  p.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (pathname.includes("sqlite.wasi.preview1.reactor.") || pathname.endsWith("/llvm-provenance/receipt.json")) {
+      sqliteRequests.push(pathname);
+    }
+  });
   const open = async (hash) => {
     await p.goto(`http://127.0.0.1:${port}/index.html#${hash}`);
     await p.waitForFunction(() => window.explore && window.explore.ready && !window.explore.busy, null, { timeout: 60000 });
@@ -44,6 +51,10 @@ try {
       mayRaise: n((e) => e[2] === "effect" && e[1] === "raise"), marked: cfg.blocks.filter((x) => x.effects.length).length,
       mayFrom: new Set(cfg.edges.filter((e) => e[2] === "effect").map((e) => e[0])).size, cfg };
   };
+
+  await open("/wasm");
+  await p.waitForFunction(() => document.querySelector("#wfn")?.textContent.includes("defined functions"));
+  check(sqliteRequests.length === 0, `default Wasm overview loads no reactor or LLVM receipt (${sqliteRequests.length} requests)`);
 
   for (const [slug, idx, name] of [["silmaril.wasm.examples.rust_door", 5, "door"], ["silmaril.wasm_components.adapter.reactor.blob", 127, "large"]]) {
     const t0 = Date.now();
