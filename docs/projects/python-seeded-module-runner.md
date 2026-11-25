@@ -144,6 +144,16 @@ carry `True`, `None`, `False`, and `None` in order. In this projection,
 `bool-int.py` reaches the missing `int` and `bool-isinstance.py`
 reaches the missing `isinstance`. The separate CPython full-preamble
 run with stock builtins completes `bool-callable.py` quietly.
+
+`legacyBoolIsinstanceSeed` independently extends `legacySeed` with
+`___assertIs` in the selected harness namespace and stock `isinstance`,
+`bool` and `int` in builtin fallback. The pinned `bool-isinstance.py`
+completes in both placements with an empty user-binding delta. Its six
+instance checks return `True` four times, then `False` twice. Each
+paired identity assertion returns `None`. In this projection the
+`bool-callable.py` control reaches the missing `callable` and
+`bool-int.py` reaches the missing `___assertIsNot`. The full pinned
+preamble on stock CPython 3.13.5 completes the instance case quietly.
 [Pinned Boolean cases](https://github.com/koehlma/rigorous/tree/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/programs/original/lambda-py/python-reference/bool)
 
 The two pinned scalar equality rows now complete normally in the ordinary
