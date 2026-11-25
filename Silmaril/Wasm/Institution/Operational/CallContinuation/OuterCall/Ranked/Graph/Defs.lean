@@ -24,6 +24,7 @@ inductive Op where
   /-- The checker verifies this result annotation against the resolved label. -/
   | br (depth : LabelIdx) (result : Option NumType)
   | brIf (depth : LabelIdx) (result : Option NumType)
+  | brTable (depths : List LabelIdx) (fallback : LabelIdx) (result : Option NumType)
   | return_
   | unreachable
 
@@ -114,6 +115,10 @@ def checkOp (targets : List CallTarget) (locals returns : List NumType) (labels 
   | .br depth result => checkBranch labels stack depth result
   | .brIf depth result =>
       checkCondition stack fun saved => checkBranch labels saved depth result && resume saved
+  | .brTable depths fallback result =>
+      checkCondition stack fun saved =>
+        checkBranch labels saved fallback result &&
+          depths.all (fun depth => checkBranch labels saved depth result)
   | .return_ => decide (stack.take returns.length = returns.reverse)
   | .unreachable => true
 
@@ -311,6 +316,11 @@ inductive Layer (fn : Function) (childStep : CallTarget → Phase → Phase → 
       (result : Option NumType) (rest : List Op) :
       Layer fn childStep (.label locals (.running (stack ++ [Value.int .i32 condition]) (.brIf depth result :: rest)))
         (.label locals (.running stack (if condition = 0 then rest else .br depth result :: rest)))
+  /-- Pop the unsigned i32 selector and leave a pending branch to the selected depth. -/
+  | branchTable (locals stack : List Value) (selector : BitVec 32) (depths : List LabelIdx)
+      (fallback : LabelIdx) (result : Option NumType) (rest : List Op) :
+      Layer fn childStep (.label locals (.running (stack ++ [Value.int .i32 selector]) (.brTable depths fallback result :: rest)))
+        (.label locals (.running stack (.br (depths[selector.toNat]?.getD fallback) result :: rest)))
   /-- Consume the target label, keeping just its declared result suffix. -/
   | branchHere (locals extra values : List Value) (result : Option NumType) (rest : List Op)
       (arity : values.length = result.toList.length) :

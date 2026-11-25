@@ -1097,23 +1097,26 @@ example (nested : Bool) := nativeRun (branchChecked nested) (branchV1Checked nes
 example := nativeRun (branchChecked true) (branchV1Checked true) (branchRoot true)
   (.call (args := branchArgs) rfl) branchCrossInner
 
-private def readCondition : Op := .numeric (.get ⟨2⟩)
-private def brIfSaved : List Value := [i32 200]
-private def brIfArgs (condition : BitVec 32) : List Value := branchArgs ++ [i32 condition]
-private def brIfOperands : List Value := [i32 99, i32 7]
-private def brIfTail : List Op := [readArg, add]
+private def readBranchSelector : Op := .numeric (.get ⟨2⟩)
+private def branchCaseSaved : List Value := [i32 200]
+private def branchCaseArgs (condition : BitVec 32) : List Value := branchArgs ++ [i32 condition]
+private def branchCaseOperands : List Value := [i32 99, i32 7]
+private def branchCaseTail : List Op := [readArg, add]
+
+private def branchCaseBody (op : Op) : List Op :=
+  [readSecond, readArg, readBranchSelector, op, branchSub]
 
 private def brIfBody (depth : LabelIdx) (result : Option NumType) : List Op :=
-  [readSecond, readArg, readCondition, .brIf depth result, branchSub]
+  branchCaseBody (.brIf depth result)
 
-private def brIfArm (body : List Op) : List Op := .block scalarBlock body :: brIfTail
+private def branchCaseArm (body : List Op) : List Op := .block scalarBlock body :: branchCaseTail
 
-private def brIfCode (body : List Op) : List Op :=
-  [.if_ scalarBlock (brIfArm body) [readArg], branchSub]
+private def branchCaseCode (body : List Op) : List Op :=
+  [.if_ scalarBlock (branchCaseArm body) [readArg], branchSub]
 
 private def brIfFn : Function :=
-  ⟨{ declaration [] with params := [int32, int32, int32] }, 0, brIfSaved ++ [i32 1],
-    brIfCode (brIfBody ⟨1⟩ scalarBlock)⟩
+  ⟨{ declaration [] with params := [int32, int32, int32] }, 0, branchCaseSaved ++ [i32 1],
+    branchCaseCode (brIfBody ⟨1⟩ scalarBlock)⟩
 
 private def brIfGraph : Program := ⟨[some brIfFn]⟩
 private theorem brIfChecked : brIfGraph.check = true := rfl
@@ -1124,19 +1127,19 @@ private def zeroConditionFn : Function :=
   { brIfFn with declaration := { brIfFn.declaration with params := [int32, int32], locals := [int32] } }
 
 example : zeroConditionFn.check = true := rfl
-example : ({ zeroConditionFn with code := brIfCode (brIfBody ⟨2⟩ scalarBlock) }).check = false := rfl
-example : ({ zeroConditionFn with code := brIfCode (brIfBody ⟨1⟩ none) }).check = false := rfl
+example : ({ zeroConditionFn with code := branchCaseCode (brIfBody ⟨2⟩ scalarBlock) }).check = false := rfl
+example : ({ zeroConditionFn with code := branchCaseCode (brIfBody ⟨1⟩ none) }).check = false := rfl
 example : ({ zeroConditionFn with declaration := { zeroConditionFn.declaration with locals := [.int .i64] } }).check =
     false := rfl
 
 -- Fallthrough could store the i64 scratch value, but the taken i32 branch cannot use it.
 example : ({ zeroConditionFn with
     declaration := { zeroConditionFn.declaration with locals := [int32, .int .i64] }
-    code := brIfCode [readSecond, readArg, .numeric (.get ⟨3⟩), readCondition, .brIf ⟨1⟩ scalarBlock,
+    code := branchCaseCode [readSecond, readArg, .numeric (.get ⟨3⟩), readBranchSelector, .brIf ⟨1⟩ scalarBlock,
       .set ⟨3⟩, branchSub] }).check = false := rfl
 
 -- A well-typed taken path still needs a valid fallthrough.
-example : ({ zeroConditionFn with code := brIfCode [readSecond, readArg, readCondition, .brIf ⟨1⟩ scalarBlock] }).check =
+example : ({ zeroConditionFn with code := branchCaseCode [readSecond, readArg, readBranchSelector, .brIf ⟨1⟩ scalarBlock] }).check =
     false := rfl
 
 private abbrev BrIfLayer := Layer brIfFn (fun t => brIfGraph.Edge brIfChecked t.address)
@@ -1144,87 +1147,214 @@ private abbrev BrIfLayer := Layer brIfFn (fun t => brIfGraph.Edge brIfChecked t.
 private theorem brIfEdge {a b : Phase} (step : BrIfLayer a b) : brIfGraph.Edge brIfChecked ⟨0⟩ a b :=
   (brIfGraph.edge_iff brIfChecked (fn := brIfFn) rfl).mpr step
 
-private abbrev BrIfRun (condition : BitVec 32) := brIfGraph.Runs brIfChecked ⟨0⟩ (.call (brIfArgs condition))
+private abbrev BrIfRun (condition : BitVec 32) := brIfGraph.Runs brIfChecked ⟨0⟩ (.call (branchCaseArgs condition))
 
-private def brIfInner (condition : BitVec 32) (stack : List Value) (rest : List Op) : Phase :=
-  .label (brIfArgs condition) (.block brIfSaved scalarBlock
-    (.block [] scalarBlock (.running stack rest) brIfTail) [branchSub])
+private def branchCaseInner (condition : BitVec 32) (stack : List Value) (rest : List Op) : Phase :=
+  .label (branchCaseArgs condition) (.block branchCaseSaved scalarBlock
+    (.block [] scalarBlock (.running stack rest) branchCaseTail) [branchSub])
 
 private theorem brIfInnerStep {condition : BitVec 32} {stack : List Value} {rest : List Op} {next : Phase}
-    (step : BrIfLayer (.label (brIfArgs condition) (.running stack rest)) next) :
-    brIfGraph.Edge brIfChecked ⟨0⟩ (brIfInner condition stack rest)
-      ((next.afterBlock [] scalarBlock brIfTail).afterBlock brIfSaved scalarBlock [branchSub]) :=
-  brIfEdge (.blockStep brIfSaved scalarBlock [branchSub] (.blockStep [] scalarBlock brIfTail step))
+    (step : BrIfLayer (.label (branchCaseArgs condition) (.running stack rest)) next) :
+    brIfGraph.Edge brIfChecked ⟨0⟩ (branchCaseInner condition stack rest)
+      ((next.afterBlock [] scalarBlock branchCaseTail).afterBlock branchCaseSaved scalarBlock [branchSub]) :=
+  brIfEdge (.blockStep branchCaseSaved scalarBlock [branchSub] (.blockStep [] scalarBlock branchCaseTail step))
 
 private theorem brIfFromCall (condition : BitVec 32) :
-    BrIfRun condition (brIfInner condition (brIfOperands ++ [i32 condition]) [.brIf ⟨1⟩ scalarBlock, branchSub]) := by
-  let args := brIfArgs condition
+    BrIfRun condition (branchCaseInner condition (branchCaseOperands ++ [i32 condition]) [.brIf ⟨1⟩ scalarBlock, branchSub]) := by
+  let args := branchCaseArgs condition
   let body := brIfBody ⟨1⟩ scalarBlock
   have entered := (Relation.ReflTransGen.single (brIfEdge (.resolve args))).tail (brIfEdge (.enter args rfl))
-  have selected := entered.tail (brIfEdge (.ifSelect args brIfSaved 1 scalarBlock (brIfArm body) [readArg] [branchSub]))
-  have outer := selected.tail (brIfEdge (.blockEnter args brIfSaved scalarBlock (brIfArm body) [branchSub]))
-  have inner := outer.tail (brIfEdge (.blockStep brIfSaved scalarBlock [branchSub]
-    (.blockEnter args [] scalarBlock body brIfTail)))
+  have selected := entered.tail (brIfEdge (.ifSelect args branchCaseSaved 1 scalarBlock (branchCaseArm body) [readArg] [branchSub]))
+  have outer := selected.tail (brIfEdge (.blockEnter args branchCaseSaved scalarBlock (branchCaseArm body) [branchSub]))
+  have inner := outer.tail (brIfEdge (.blockStep branchCaseSaved scalarBlock [branchSub]
+    (.blockEnter args [] scalarBlock body branchCaseTail)))
   have scratch := inner.tail (brIfInnerStep (condition := condition)
     (.numeric (.get (i := ⟨1⟩) (stack := []) (v := i32 99) rfl)))
   have payload := scratch.tail (brIfInnerStep (condition := condition)
     (.numeric (.get (i := ⟨0⟩) (stack := [i32 99]) (v := i32 7) rfl)))
   exact payload.tail (brIfInnerStep (condition := condition)
-    (.numeric (.get (i := ⟨2⟩) (stack := brIfOperands) (v := i32 condition) rfl)))
+    (.numeric (.get (i := ⟨2⟩) (stack := branchCaseOperands) (v := i32 condition) rfl)))
 
 private theorem brIfSelectStep (condition : BitVec 32) :
     brIfGraph.Edge brIfChecked ⟨0⟩
-      (brIfInner condition (brIfOperands ++ [i32 condition]) [.brIf ⟨1⟩ scalarBlock, branchSub])
-      (brIfInner condition brIfOperands (if condition = 0 then [branchSub] else [.br ⟨1⟩ scalarBlock, branchSub])) :=
-  brIfInnerStep (.branchIf (brIfArgs condition) brIfOperands condition ⟨1⟩ scalarBlock [branchSub])
+      (branchCaseInner condition (branchCaseOperands ++ [i32 condition]) [.brIf ⟨1⟩ scalarBlock, branchSub])
+      (branchCaseInner condition branchCaseOperands (if condition = 0 then [branchSub] else [.br ⟨1⟩ scalarBlock, branchSub])) :=
+  brIfInnerStep (.branchIf (branchCaseArgs condition) branchCaseOperands condition ⟨1⟩ scalarBlock [branchSub])
 
-private def brIfResumed (condition result : BitVec 32) : Phase :=
-  .label (brIfArgs condition) (.running (brIfSaved ++ [i32 result]) [branchSub])
+private def branchCaseResumed (condition result : BitVec 32) : Phase :=
+  .label (branchCaseArgs condition) (.running (branchCaseSaved ++ [i32 result]) [branchSub])
 
 private theorem brIfTaken {condition : BitVec 32} (nonzero : condition ≠ 0) :
-    BrIfRun condition (brIfResumed condition 7) := by
+    BrIfRun condition (branchCaseResumed condition 7) := by
   have choose := brIfSelectStep condition
   rw [ite_eq_right nonzero] at choose
   have pending := (brIfFromCall condition).tail choose
-  have cross := pending.tail (brIfInnerStep (.branchOuter (brIfArgs condition) brIfOperands ⟨1⟩
+  have cross := pending.tail (brIfInnerStep (.branchOuter (branchCaseArgs condition) branchCaseOperands ⟨1⟩
     scalarBlock [branchSub] (by decide)))
-  exact cross.tail (brIfEdge (.blockStep brIfSaved scalarBlock [branchSub]
-    (.branchHere (brIfArgs condition) [i32 99] [i32 7] scalarBlock brIfTail rfl)))
+  exact cross.tail (brIfEdge (.blockStep branchCaseSaved scalarBlock [branchSub]
+    (.branchHere (branchCaseArgs condition) [i32 99] [i32 7] scalarBlock branchCaseTail rfl)))
 
-private theorem brIfFallsThrough : BrIfRun 0 (brIfResumed 0 99) := by
-  have kept : BrIfRun 0 (brIfInner 0 brIfOperands [branchSub]) :=
+private theorem brIfFallsThrough : BrIfRun 0 (branchCaseResumed 0 99) := by
+  have kept : BrIfRun 0 (branchCaseInner 0 branchCaseOperands [branchSub]) :=
     (brIfFromCall 0).tail (brIfSelectStep 0)
   have innerSub : Numerics.intBinOp .i32 .sub 99 7 = .ok 92 := rfl
   have difference := kept.tail (brIfInnerStep (.numeric (.bin (stack := []) innerSub)))
-  have delivered := difference.tail (brIfInnerStep (.leaveValues (brIfArgs 0) [i32 92]))
-  have get := delivered.tail (brIfEdge (.blockStep brIfSaved scalarBlock [branchSub]
+  have delivered := difference.tail (brIfInnerStep (.leaveValues (branchCaseArgs 0) [i32 92]))
+  have get := delivered.tail (brIfEdge (.blockStep branchCaseSaved scalarBlock [branchSub]
     (.numeric (.get (i := ⟨0⟩) (stack := [i32 92]) (v := i32 7) rfl))))
   have outerAdd : Numerics.intBinOp .i32 .add 92 7 = .ok 99 := rfl
-  have sum := get.tail (brIfEdge (.blockStep brIfSaved scalarBlock [branchSub]
+  have sum := get.tail (brIfEdge (.blockStep branchCaseSaved scalarBlock [branchSub]
     (.numeric (.bin (stack := []) outerAdd))))
-  exact sum.tail (brIfEdge (.blockStep brIfSaved scalarBlock [branchSub] (.leaveValues (brIfArgs 0) [i32 99])))
+  exact sum.tail (brIfEdge (.blockStep branchCaseSaved scalarBlock [branchSub] (.leaveValues (branchCaseArgs 0) [i32 99])))
 
 private theorem brIfFinish {condition result answer : BitVec 32}
-    (run : BrIfRun condition (brIfResumed condition result))
+    (run : BrIfRun condition (branchCaseResumed condition result))
     (sub : Numerics.intBinOp .i32 .sub 200 result = .ok answer) :
     BrIfRun condition (.done (.values [i32 answer])) := by
   have evaluated := run.tail (brIfEdge (.numeric (.bin (stack := []) sub)))
-  exact (evaluated.tail (brIfEdge (.leaveValues (brIfArgs condition) [i32 answer]))).tail
-    (brIfEdge (.leaveFrame (brIfArgs condition) (.values [i32 answer]) rfl))
+  exact (evaluated.tail (brIfEdge (.leaveValues (branchCaseArgs condition) [i32 answer]))).tail
+    (brIfEdge (.leaveFrame (branchCaseArgs condition) (.values [i32 answer]) rfl))
 
 private def brIfRootTarget : CallTarget := ⟨⟨0⟩, ⟨0⟩, brIfFn.declaration⟩
 
 private theorem brIfRoot : Root brIfGraph (callerFrame ⟨0⟩) brIfRootTarget brIfFn :=
   ⟨rfl, rfl, rfl⟩
 
-example := nativeRun brIfChecked brIfV1Checked brIfRoot (.call (args := brIfArgs 0) rfl)
+example := nativeRun brIfChecked brIfV1Checked brIfRoot (.call (args := branchCaseArgs 0) rfl)
   ((brIfFromCall 0).tail (brIfSelectStep 0))
-example := nativeRun brIfChecked brIfV1Checked brIfRoot (.call (args := brIfArgs 2) rfl)
+example := nativeRun brIfChecked brIfV1Checked brIfRoot (.call (args := branchCaseArgs 2) rfl)
   ((brIfFromCall 2).tail (brIfSelectStep 2))
 
-example := nativeRun brIfChecked brIfV1Checked brIfRoot (.call (args := brIfArgs 0) rfl)
+example := nativeRun brIfChecked brIfV1Checked brIfRoot (.call (args := branchCaseArgs 0) rfl)
   (brIfFinish brIfFallsThrough (answer := 101) rfl)
-example := nativeRun brIfChecked brIfV1Checked brIfRoot (.call (args := brIfArgs 2) rfl)
+example := nativeRun brIfChecked brIfV1Checked brIfRoot (.call (args := branchCaseArgs 2) rfl)
   (brIfFinish (brIfTaken (condition := 2) (by decide)) (answer := 193) rfl)
+
+
+private def tableDepths (empty : Bool) : List LabelIdx := if empty then [] else [⟨0⟩]
+
+private def brTableBody (depths : List LabelIdx) (fallback : LabelIdx) : List Op :=
+  branchCaseBody (.brTable depths fallback scalarBlock)
+
+private def brTableFn (empty : Bool) : Function :=
+  { brIfFn with code := branchCaseCode (brTableBody (tableDepths empty) ⟨1⟩) }
+
+private def brTableGraph (empty : Bool) : Program := ⟨[some (brTableFn empty)]⟩
+
+private theorem brTableChecked (empty : Bool) : (brTableGraph empty).check = true := by
+  cases empty <;> rfl
+
+private theorem brTableV1Checked (empty : Bool) : (brTableGraph empty).checkV1 = true := by
+  cases empty <;> rfl
+
+-- This selector reads a default-zero local, so slot zero would be selected.
+private def zeroSelectorFn : Function :=
+  { brTableFn false with declaration := zeroConditionFn.declaration }
+
+example : zeroSelectorFn.check = true := rfl
+example : ({ zeroSelectorFn with code := branchCaseCode (brTableBody [⟨0⟩, ⟨2⟩] ⟨1⟩) }).check = false := rfl
+example : ({ zeroSelectorFn with code := branchCaseCode (brTableBody [⟨0⟩] ⟨2⟩) }).check = false := rfl
+example : ({ zeroSelectorFn with declaration := { zeroSelectorFn.declaration with locals := [.int .i64] } }).check =
+    false := rfl
+example : ({ zeroSelectorFn with
+    declaration := { zeroSelectorFn.declaration with locals := [int32, .int .i64] }
+    code := branchCaseCode [.numeric (.get ⟨3⟩), readBranchSelector, .brTable [⟨0⟩] ⟨1⟩ scalarBlock] }).check =
+    false := rfl
+
+-- Slot zero selects the i32 conditional label. Depth zero is an i64 block label.
+example : ({ zeroSelectorFn with
+    code := [.if_ scalarBlock [.block wideBlock (brTableBody [⟨1⟩] ⟨1⟩), .unreachable] [readArg], branchSub] }).check =
+    true := rfl
+example : ({ zeroSelectorFn with
+    code := [.if_ scalarBlock [.block wideBlock (brTableBody [⟨1⟩] ⟨0⟩), .unreachable] [readArg], branchSub] }).check =
+    false := rfl
+
+private abbrev BrTableLayer (empty : Bool) :=
+  Layer (brTableFn empty) (fun t => (brTableGraph empty).Edge (brTableChecked empty) t.address)
+
+private theorem brTableEdge (empty : Bool) {a b : Phase} (step : BrTableLayer empty a b) :
+    (brTableGraph empty).Edge (brTableChecked empty) ⟨0⟩ a b :=
+  ((brTableGraph empty).edge_iff (brTableChecked empty) (fn := brTableFn empty) rfl).mpr step
+
+private abbrev BrTableRun (empty : Bool) (selector : BitVec 32) :=
+  (brTableGraph empty).Runs (brTableChecked empty) ⟨0⟩ (.call (branchCaseArgs selector))
+
+private theorem brTableInnerStep {empty : Bool} {selector : BitVec 32}
+    {stack : List Value} {rest : List Op} {next : Phase}
+    (step : BrTableLayer empty (.label (branchCaseArgs selector) (.running stack rest)) next) :
+    (brTableGraph empty).Edge (brTableChecked empty) ⟨0⟩ (branchCaseInner selector stack rest)
+      ((next.afterBlock [] scalarBlock branchCaseTail).afterBlock branchCaseSaved scalarBlock [branchSub]) :=
+  brTableEdge empty (.blockStep branchCaseSaved scalarBlock [branchSub] (.blockStep [] scalarBlock branchCaseTail step))
+
+private theorem brTableSelected (empty : Bool) (selector : BitVec 32) :
+    BrTableRun empty selector (branchCaseInner selector branchCaseOperands
+      [.br ((tableDepths empty)[selector.toNat]?.getD ⟨1⟩) scalarBlock, branchSub]) := by
+  let args := branchCaseArgs selector
+  let body := brTableBody (tableDepths empty) ⟨1⟩
+  have entered := (Relation.ReflTransGen.single (brTableEdge empty (.resolve args))).tail
+    (brTableEdge empty (.enter args rfl))
+  have chosenArm := entered.tail (brTableEdge empty
+    (.ifSelect args branchCaseSaved 1 scalarBlock (branchCaseArm body) [readArg] [branchSub]))
+  have outer := chosenArm.tail (brTableEdge empty
+    (.blockEnter args branchCaseSaved scalarBlock (branchCaseArm body) [branchSub]))
+  have inner := outer.tail (brTableEdge empty (.blockStep branchCaseSaved scalarBlock [branchSub]
+    (.blockEnter args [] scalarBlock body branchCaseTail)))
+  have scratch := inner.tail (brTableInnerStep (selector := selector)
+    (.numeric (.get (i := ⟨1⟩) (stack := []) (v := i32 99) rfl)))
+  have payload := scratch.tail (brTableInnerStep (selector := selector)
+    (.numeric (.get (i := ⟨0⟩) (stack := [i32 99]) (v := i32 7) rfl)))
+  have indexed := payload.tail (brTableInnerStep (selector := selector)
+    (.numeric (.get (i := ⟨2⟩) (stack := branchCaseOperands) (v := i32 selector) rfl)))
+  exact indexed.tail (brTableInnerStep
+    (.branchTable args branchCaseOperands selector (tableDepths empty) ⟨1⟩ scalarBlock [branchSub]))
+
+private theorem brTableHit : BrTableRun false 0 (branchCaseResumed 0 14) := by
+  have chosen : BrTableRun false 0 (branchCaseInner 0 branchCaseOperands [.br ⟨0⟩ scalarBlock, branchSub]) :=
+    brTableSelected false 0
+  have innerExit := chosen.tail (brTableInnerStep
+    (.branchHere (branchCaseArgs 0) [i32 99] [i32 7] scalarBlock [branchSub] rfl))
+  have addedArg := innerExit.tail (brTableEdge false (.blockStep branchCaseSaved scalarBlock [branchSub]
+    (.numeric (.get (i := ⟨0⟩) (stack := [i32 7]) (v := i32 7) rfl))))
+  have addValues : Numerics.intBinOp .i32 .add 7 7 = .ok 14 := rfl
+  have sum := addedArg.tail (brTableEdge false (.blockStep branchCaseSaved scalarBlock [branchSub]
+    (.numeric (.bin (stack := []) addValues))))
+  exact sum.tail (brTableEdge false (.blockStep branchCaseSaved scalarBlock [branchSub]
+    (.leaveValues (branchCaseArgs 0) [i32 14])))
+
+private theorem brTableDefault (empty : Bool) (selector : BitVec 32)
+    (miss : (tableDepths empty)[selector.toNat]? = none) :
+    BrTableRun empty selector (branchCaseResumed selector 7) := by
+  have chosen := brTableSelected empty selector
+  rw [miss] at chosen
+  have cross := chosen.tail (brTableInnerStep (.branchOuter (branchCaseArgs selector) branchCaseOperands ⟨1⟩
+    scalarBlock [branchSub] (by decide)))
+  exact cross.tail (brTableEdge empty (.blockStep branchCaseSaved scalarBlock [branchSub]
+    (.branchHere (branchCaseArgs selector) [i32 99] [i32 7] scalarBlock branchCaseTail rfl)))
+
+private theorem brTableFinish {empty : Bool} {selector result answer : BitVec 32}
+    (run : BrTableRun empty selector (branchCaseResumed selector result))
+    (sub : Numerics.intBinOp .i32 .sub 200 result = .ok answer) :
+    BrTableRun empty selector (.done (.values [i32 answer])) := by
+  have evaluated := run.tail (brTableEdge empty (.numeric (.bin (stack := []) sub)))
+  exact (evaluated.tail (brTableEdge empty (.leaveValues (branchCaseArgs selector) [i32 answer]))).tail
+    (brTableEdge empty (.leaveFrame (branchCaseArgs selector) (.values [i32 answer]) rfl))
+
+private def brTableRootTarget (empty : Bool) : CallTarget := ⟨⟨0⟩, ⟨0⟩, (brTableFn empty).declaration⟩
+
+private theorem brTableRoot (empty : Bool) :
+    Root (brTableGraph empty) (callerFrame ⟨0⟩) (brTableRootTarget empty) (brTableFn empty) :=
+  ⟨rfl, rfl, rfl⟩
+
+example := nativeRun (brTableChecked false) (brTableV1Checked false) (brTableRoot false)
+  (.call (args := branchCaseArgs 0) rfl) (brTableSelected false 0)
+example := nativeRun (brTableChecked false) (brTableV1Checked false) (brTableRoot false)
+  (.call (args := branchCaseArgs 0) rfl) (brTableFinish brTableHit (answer := 186) rfl)
+example := nativeRun (brTableChecked false) (brTableV1Checked false) (brTableRoot false)
+  (.call (args := branchCaseArgs 1) rfl) (brTableFinish (brTableDefault false 1 rfl) (answer := 193) rfl)
+example := nativeRun (brTableChecked false) (brTableV1Checked false) (brTableRoot false)
+  (.call (args := branchCaseArgs 0xFFFFFFFF) rfl)
+  (brTableFinish (brTableDefault false 0xFFFFFFFF rfl) (answer := 193) rfl)
+example := nativeRun (brTableChecked true) (brTableV1Checked true) (brTableRoot true)
+  (.call (args := branchCaseArgs 0) rfl) (brTableFinish (brTableDefault true 0 rfl) (answer := 193) rfl)
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph

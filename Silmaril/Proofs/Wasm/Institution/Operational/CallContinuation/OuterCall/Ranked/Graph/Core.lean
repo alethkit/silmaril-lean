@@ -42,7 +42,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | if_ | br | brIf | return_ | unreachable => rfl
+    | set | tee | call | block | if_ | br | brIf | brTable | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.coreFunc.body = (Body.running fn.initial fn.code).render coreAdmin := by
@@ -156,6 +156,9 @@ private theorem running_stays {n : Nat} {v : List Value} {op : Op} {rest : List 
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax, Admin.IsReturnCallRef])
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax]) pop
+  | brTable depths fallback _ =>
+    exact Computed.core_label_stays (head := .plain (.brTable depths fallback)) rfl
+      (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp) (by simp) pop
   | brIf depth _ =>
     exact Computed.core_label_stays (head := .plain (.brIf depth)) rfl
       (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp) (by simp) pop
@@ -478,6 +481,15 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
             exact ⟨_, rule.mpr (.dispatch locals saved operands child rest used count), eq.trans (by
               simp only [coreAt, Phase.renderAt, Body.render, coreAdmin, values_append, n,
                 List.append_assoc, List.cons_append, List.nil_append])⟩
+          | brTable depths fallback result =>
+            obtain ⟨saved, selector, rfl⟩ := Function.split_br_table codeTyped
+            have select := (Computed.core_br_table_iff (P := P) (s := s) (f := (currentFrame target.declaration locals).toCore)
+              (saved := saved.map Value.toCore) (selector := selector) (depths := depths) (fallback := fallback)
+              (rest := rest.map coreAdmin.emit)).mp (by
+              simpa only [native, Body.render, coreAdmin, coreEmit, Op.emit, coreCodeSyntax, coreValues,
+                List.map_append, List.map_cons, List.map_nil, Value.toCore, Value.int, Val.i32] using inner)
+            subst mid
+            exact ⟨_, rule.mpr (.branchTable locals saved selector depths fallback result rest), eq⟩
           | brIf depth result =>
             obtain ⟨saved, condition, rfl⟩ := Function.split_br_if codeTyped
             have select := (Computed.core_br_if_iff (P := P) (s := s) (f := (currentFrame target.declaration locals).toCore)
@@ -536,6 +548,13 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
             apply lift_label
             simpa only [Body.render, Phase.render, Phase.renderAt, coreAdmin, coreEmit, Op.emit, coreCodeSyntax, Sequence.coreSource, Function.comp_def,
               values_append, List.map_cons, List.append_assoc, List.cons_append, List.nil_append] using step.mpr rfl
+          | branchTable _ saved selector depths fallback result rest =>
+            apply lift_label
+            have select := (Computed.core_br_table_iff (P := P) (s := s) (f := (currentFrame target.declaration locals).toCore)
+              (saved := saved.map Value.toCore) (selector := selector) (depths := depths) (fallback := fallback)
+              (rest := rest.map coreAdmin.emit)).mpr rfl
+            simpa only [native, Body.render, coreAdmin, coreEmit, Op.emit, coreCodeSyntax,
+              List.map_append, List.map_cons, List.map_nil, coreValues, Value.toCore, Value.int, Val.i32] using select
           | branchIf _ saved condition depth result rest =>
             apply lift_label
             have select := (Computed.core_br_if_iff (P := P) (s := s) (f := (currentFrame target.declaration locals).toCore)

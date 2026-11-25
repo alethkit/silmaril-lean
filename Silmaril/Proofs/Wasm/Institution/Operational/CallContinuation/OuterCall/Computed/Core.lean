@@ -271,6 +271,45 @@ theorem br_if_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
     rw [source]
     simpa only [List.append_assoc] using Sim.Step.vals_left (Sim.Step.append_right branch rest) saved
 
+theorem br_table_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {saved : List Val} {selector : BitVec 32} {depths : List LabelIdx} {fallback : LabelIdx}
+    {rest : List Admin} {dst : Config H} :
+    Step P noHost
+      ⟨s, f, vals (saved ++ [.i32 selector]) ++ .plain (.brTable depths fallback) :: rest⟩ dst ↔
+      dst = ⟨s, f, vals saved ++ .plain (.br (depths[selector.toNat]?.getD fallback)) :: rest⟩ := by
+  constructor
+  · rcases dst with ⟨s', f', code⟩
+    intro move
+    rcases Sim.Step.split_head (a := .plain (.brTable depths fallback)) rfl move with
+      ⟨kept, args, next, split, head, rfl⟩ | ⟨bad, _⟩ | ⟨bad, _⟩
+    · obtain ⟨headSaved, used, _, _, rfl, branch, exactHead⟩ := head.brData_vals_inv (i := .brTable depths fallback) trivial
+      have stack : saved ++ [Val.i32 selector] = (kept ++ headSaved) ++ used :=
+        split.trans (List.append_assoc ..).symm
+      cases branch with
+      | tableLt hit =>
+        obtain ⟨rfl, equal⟩ := List.append_inj' stack rfl
+        cases equal
+        cases exactHead
+        simp [hit, List.append_assoc, vals]
+      | tableGe past =>
+        obtain ⟨rfl, equal⟩ := List.append_inj' stack rfl
+        cases equal
+        cases exactHead
+        have miss : depths[selector.toNat]? = none := List.getElem?_eq_none_iff.mpr past
+        simp [miss, List.append_assoc, vals]
+    · cases bad
+    · cases bad
+  · rintro rfl
+    have choose : BrStep s f [.i32 selector] (.brTable depths fallback) []
+        [.plain (.br (depths[selector.toNat]?.getD fallback))] := by
+      cases found : depths[selector.toNat]? with
+      | none => exact .tableGe (List.getElem?_eq_none_iff.mp found)
+      | some depth => exact .tableLt found
+    have move := Sim.Step.vals_left
+      (Sim.Step.append_right (choose.step (P := P) (host := noHost)) rest) saved
+    simpa only [vals, List.map_append, List.map_cons, List.map_nil, List.append_assoc,
+      List.cons_append, List.nil_append] using move
+
 theorem unreachable_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
     {stack : List Val} {rest : List Admin} {dst : Config H} :
     Step P noHost ⟨s, f, vals stack ++ .plain .unreachable :: rest⟩ dst ↔
