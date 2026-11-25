@@ -161,9 +161,9 @@ typed sources.
 | Theorem 26 for the printed contexts on typed source expressions | `L3.contextStep_iff_step_of_hasType` |
 | Theorem 26 on arbitrary configurations with the (assign2) location premise | `L3.locationContextStep_iff_step` |
 
-Executable type inference and reduction, resolved AST codecs, and L3
-denotational models remain follow-up work. Named terms and expression
-types have structural codecs.
+Executable type inference and reduction and L3 denotational models remain
+follow-up work. Named and resolved terms and expression types have
+structural codecs.
 [AST codec guide](cambridge-ast-codecs.md)
 
 The [course notes](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf)
