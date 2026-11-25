@@ -13,19 +13,23 @@ open Lists.Iteration (Flow denoteSuite truth iterationSource restoreIterators pu
 finite set of declarations not on the call stack on invocation. -/
 def denoteBody (program : Program) (available : List DeclarationId) (body : Body)
     (state : State) : Outcome Flow :=
+  let execute (plan : Prepared available) (next : State) :=
+    denoteBody program (withoutDeclaration available plan.id) plan.body next
+  let evalExpr (value : Lowering.Expr) := Lowering.denoteExprWith program available execute value state
   match body with
   | .total suite => denoteSuite suite state
-  | .returnExpr value =>
-    let execute (plan : Prepared available) (next : State) :=
-      denoteBody program (withoutDeclaration available plan.id) plan.body next
-    Outcome.resume (Lowering.denoteExprWith program available execute value state)
-      (fun result => pure (.returned result))
+  | .returnExpr value => Outcome.resume (evalExpr value) (fun result => pure (.returned result))
+  | .assignExpr target value =>
+    Outcome.resume (evalExpr value) (fun result next => .ok .next (next.write target result))
   | .seq first rest =>
     Outcome.resume (denoteBody program available first state) fun
       | .next => denoteBody program available rest
       | signal => pure signal
   | .branch test yes no =>
     Outcome.resume (Outcome.resume (denote test state) truth) fun flag next =>
+      if flag then denoteBody program available yes next else denoteBody program available no next
+  | .branchExpr test yes no =>
+    Outcome.resume (Outcome.resume (evalExpr test) truth) fun flag next =>
       if flag then denoteBody program available yes next else denoteBody program available no next
   | .forIn target iterable body =>
     Outcome.resume (Outcome.resume (denote iterable state) iterationSource) fun (address, items) next =>
@@ -39,7 +43,7 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
     match Outcome.resume (denote (Arguments.operands callee arguments) state) (prepare program available arguments) with
     | .error error next => .error error next
     | .ok (.closure plan) next =>
-      completeCall state target (denoteBody program (withoutDeclaration available plan.id) plan.body next)
+      completeCall state target (execute plan next)
     | .ok (.builtin id actual) next =>
       Outcome.resume (Builtins.invoke id actual next) (writeCallResult target)
 termination_by (available.length, sizeOf body)
