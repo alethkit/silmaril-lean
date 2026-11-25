@@ -91,13 +91,32 @@ would need a recognizer and proof that handle such schedules.
 φ member slots stay fixed.
 [Linked productivity](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Isomorphism/Tail/Prefix/Thms.lean)
 
+For pointwise matching, the proof relates operands at the corresponding
+terminal vertices before either vertex runs. The row-store simulation
+compares the producers of each operand through the typed endpoint map.
+This gives the same selector and related child arguments at a γ, and a
+related callable and full argument tuple at an application. Primitive-only
+regions return related tuples. The premises allow independent primitives
+to exchange numbers before the terminal vertex. The runtime represents
+primitive effects through wired values, including state, and the theorem
+uses the existing `PrimitivesRespect` contract.
+
+`step_match_right` and `step_match_left` require support on the receiving
+side. The supplied transition establishes support at its own source.
+`stream_match_right` and `stream_match_left` match a supplied productive
+stream at every index, requiring support at the receiving side's reachable
+entries. These premises concern the selected path, so an unselected arm
+can contain unsupported control.
+[Pointwise theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Isomorphism/Tail/Prefix/Thms.lean)
+
 The linked recursive fixture increments a state wire before γ and
 uses a child-local primitive result as an argument of the recursive
 application. Each call in its infinite mode takes state `n` to
 `n + 1`. Its terminating mode takes two transitions and returns data
 7 and state 3, matching the real evaluator at call depth 3. The
-fixture also swaps the module's independent δ and φ vertices and
-checks linked productivity. A non-tail call demonstrates the
+fixture swaps the module's independent δ and φ vertices and also swaps
+the state update and an independent data copy in the φ member body.
+The matched linked streams carry exactly state `n` at index `n`. A non-tail call demonstrates the
 unsupported outcome and still returns in the full evaluator.
 [Prefix regression](../../tests/ssa/RVSDGRecursivePrimitivePrefix.lean)
 
