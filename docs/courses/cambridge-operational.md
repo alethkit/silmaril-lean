@@ -168,9 +168,29 @@ typed sources.
 | Theorem 26 for the printed contexts on typed source expressions | `L3.contextStep_iff_step_of_hasType` |
 | Theorem 26 on arbitrary configurations with the (assign2) location premise | `L3.locationContextStep_iff_step` |
 
-Executable type inference and reduction and L3 denotational models remain
-follow-up work. Named and resolved terms and expression types have
-structural codecs.
+### Executable reduction (§5.5)
+
+`L3.Config.reduce` selects one direct step when a successor exists. For an
+allocation, `L3.Store.freshAddress` chooses one above the maximum allocated
+address, using 1 for an empty store. The record reducer inspects fields in
+source order and stops at the first non-value, even if that field is stuck.
+Executable regressions check intermediate record writes, projection by label,
+a stuck first field, and allocation in empty and nonempty stores.
+
+| Result | Public name |
+| --- | --- |
+| The selected address is outside the current domain | `L3.Store.freshAddress_not_mem` |
+| Every selected edge satisfies the direct rules | `L3.Config.reduce_sound` |
+| The reducer stops exactly on configurations without a direct successor | `L3.Config.reduce_eq_none_iff_terminal` |
+| Some executable successor exists exactly when some relational successor exists | `L3.Config.reduce_exists_iff_step_exists` |
+
+Successor existence allows a single executable choice even when the relation
+admits several. For example, allocating in the empty store may choose 0 in
+the relation, while the reducer chooses 1. The operational institution below
+continues to observe the original relation.
+
+Executable type inference and L3 denotational models remain follow-up work.
+Named and resolved terms and expression types have structural codecs.
 [AST codec guide](cambridge-ast-codecs.md)
 
 The [course notes](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf)
@@ -183,4 +203,5 @@ call-by-value L2 step models and the direct L3 step model over their original
 configurations. Finite returns observe reachable values with their final
 stores. L3 retains each fresh location choice.
 [L1 and L2 observation contract](../projects/operational-institutions.md#cambridge-l1-and-l2) ·
-[L3 observation contract](../projects/operational-institutions.md#cambridge-l3)
+[L3 observation contract](../projects/operational-institutions.md#cambridge-l3) ·
+[Step specifications](cambridge-step-specification.md)
