@@ -356,6 +356,8 @@ if __name__ == "__main__":
             extra_imports=imports, capture_output=True,
         )
         for source, diagnostic in (
+            ('def outer(seed): assert "x" not in seed().__code__.co_cellvars', ".frontend .expressionShape"),
+            ('def outer(seed): assert "x" not in seed.__code__.co_cellvars, "message"', ".frontend .bodyShape"),
             ('def outer(seed): assert "x" in seed.__code__.co_cellvars', ".frontend .expressionShape"),
             ('def outer(seed): assert "x" in seed.__code__.co_names', ".frontend .expressionShape"),
             ('def outer(seed): assert "x" in seed().__code__.co_freevars', ".frontend .expressionShape"),

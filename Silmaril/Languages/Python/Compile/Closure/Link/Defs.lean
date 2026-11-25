@@ -21,6 +21,7 @@ inductive Code (layout : Layout) where
   | ret (value : Body.Expr layout)
   | assert (test : Body.Expr layout) (next : Code layout)
   | assertFreeVars (receiver : Body.Expr layout) (needle : List UInt32) (expected : Bool) (next : Code layout)
+  | assertCellVars (receiver : Body.Expr layout) (needle : List UInt32) (next : Code layout)
   | discardCall (callee : Body.Expr layout) (next : Code layout)
   | assign (destination : Slot layout) (value : Body.Expr layout) (next : Code layout)
   | closure (destination : Slot layout) (path : BlockPath) (ref : CodeRef)
@@ -29,7 +30,7 @@ inductive Code (layout : Layout) where
 def Code.references {layout : Layout} : Code layout → List (BlockPath × CodeRef)
   | .ret _ => []
   | .assign _ _ next | .assert _ next | .assertFreeVars _ _ _ next
-  | .discardCall _ next => next.references
+  | .assertCellVars _ _ next | .discardCall _ next => next.references
   | .closure _ path ref _ next => (path, ref) :: next.references
 
 structure Block where
@@ -56,19 +57,41 @@ structure BlockFreeVars (tree : ScopeTree) (block : Block) where
   profile : FreeVarProfile scope
   exactNames : names = freeVarNames scope
 
-def blockFreeVars? (tree : ScopeTree) (block : Block) : Option (BlockFreeVars tree block) := do
+def blockScope? (tree : ScopeTree) (block : Block) : Option {scope : Scope //
+    tree.atPath block.path = some scope ∧ block.entry.layout = frameLayout scope} := do
   unless tree.scope.context.kind == .module_ do none
   let scope ← ordinaryScopeAt? tree block.path
   if layout : block.entry.layout = frameLayout scope.val then
-    let metadata ← freeVarNames? scope.val
-    return ⟨scope.val, scope.property, layout, metadata.val, metadata.property.1, metadata.property.2⟩
+    return ⟨scope.val, scope.property, layout⟩
   else none
+
+def blockFreeVars? (tree : ScopeTree) (block : Block) : Option (BlockFreeVars tree block) := do
+  let ⟨scope, located, layout⟩ ← blockScope? tree block
+  let ⟨names, profile, exactNames⟩ ← freeVarNames? scope
+  return ⟨scope, located, layout, names, profile, exactNames⟩
+
+structure BlockCellVars (tree : ScopeTree) (block : Block) where
+  scope : Scope
+  located : tree.atPath block.path = some scope
+  codeLayout : block.entry.layout = frameLayout scope
+  names : List Source.Name
+  profile : CellVarProfile scope
+  exactNames : names = cellVarNames scope
+
+def blockCellVars? (tree : ScopeTree) (block : Block) : Option (BlockCellVars tree block) := do
+  let ⟨scope, located, layout⟩ ← blockScope? tree block
+  let ⟨names, profile, exactNames⟩ ← cellVarNames? scope
+  return ⟨scope, located, layout, names, profile, exactNames⟩
 
 /-- Attach only the metadata checked against this block's source scope and
 layout. The code reference, parameters and body are independent of the tuple. -/
 def Block.withFreeVars (block : Block) (tree : ScopeTree) : Block :=
   { block with entry := { block.entry with definition := { block.entry.definition with
     freevars := (blockFreeVars? tree block).map (·.names) } } }
+
+def Block.withCellVars (block : Block) (tree : ScopeTree) : Block :=
+  { block with entry := { block.entry with definition := { block.entry.definition with
+    cellvars := (blockCellVars? tree block).map (·.names) } } }
 
 structure LinkedBody (layout : Layout) where
   code : Code layout
@@ -83,6 +106,9 @@ def linkBody {layout : Layout} (first : Nat) (tree : ScopeTree) : Body.Code layo
   | .assertFreeVars receiver needle expected rest =>
     let tail := linkBody first tree rest
     ⟨.assertFreeVars receiver needle expected tail.code, tail.children⟩
+  | .assertCellVars receiver needle rest =>
+    let tail := linkBody first tree rest
+    ⟨.assertCellVars receiver needle tail.code, tail.children⟩
   | .discardCall callee rest =>
     let tail := linkBody first tree rest
     ⟨.discardCall callee tail.code, tail.children⟩
@@ -94,7 +120,7 @@ def linkBody {layout : Layout} (first : Nat) (tree : ScopeTree) : Body.Code layo
     let tail := linkBody (first + 1 + nested.children.length) tree rest
     let entry : Entry Code := ⟨childLayout, { parameters, body := nested.code }⟩
     ⟨.closure slot path ⟨first, childLayout⟩ captures tail.code,
-      (Block.mk path entry).withFreeVars tree :: (nested.children ++ tail.children)⟩
+      ((Block.mk path entry).withFreeVars tree).withCellVars tree :: (nested.children ++ tail.children)⟩
 
 structure Program where
   entry : CodeRef
@@ -116,7 +142,8 @@ def link {source : Source.Module} (compiled : Body.Compiled source) : Program :=
   let layout := frameLayout compiled.tree.scope
   let root := linkBody 1 compiled.moduleTree compiled.code
   let entry : Entry Code := ⟨layout, { parameters := compiled.parameters, body := root.code }⟩
-  let block := (Block.mk compiled.tree.scope.context.path entry).withFreeVars compiled.moduleTree
+  let block := ((Block.mk compiled.tree.scope.context.path entry).withFreeVars compiled.moduleTree)
+    |>.withCellVars compiled.moduleTree
   ⟨⟨0, layout⟩, block :: root.children⟩
 
 end Silmaril.Languages.Python.Compile.Closure.Link

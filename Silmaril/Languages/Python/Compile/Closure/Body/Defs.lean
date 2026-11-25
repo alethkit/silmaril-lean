@@ -146,6 +146,7 @@ inductive Code : Core.Closure.Layout → Type where
   | assert {layout} (test : Expr layout) (next : Code layout) : Code layout
   | assertFreeVars {layout} (receiver : Expr layout) (needle : List UInt32) (expected : Bool)
       (next : Code layout) : Code layout
+  | assertCellVars {layout} (receiver : Expr layout) (needle : List UInt32) (next : Code layout) : Code layout
   | discardCall {layout} (callee : Expr layout) (next : Code layout) : Code layout
   | assign {layout} (destination : Slot layout) (value : Expr layout) (next : Code layout) : Code layout
   | closure {layout} (destination : Slot layout) (path : BlockPath) (childLayout : Core.Closure.Layout)
@@ -156,7 +157,7 @@ inductive Code : Core.Closure.Layout → Type where
 def Code.childPaths {layout : Core.Closure.Layout} : Code layout → List BlockPath
   | .ret _ => []
   | .assign _ _ next | .assert _ next | .assertFreeVars _ _ _ next
-  | .discardCall _ next => next.childPaths
+  | .assertCellVars _ _ next | .discardCall _ next => next.childPaths
   | .closure _ path _ _ _ child next => path :: (child.childPaths ++ next.childPaths)
 
 def fixed (parameter : Source.Parameter) : Bool :=
@@ -214,6 +215,18 @@ def freeVarsTest? : (source : Source.Expr) →
     some ⟨(function, name, false), .excludes function name⟩
   | _ => none
 
+inductive CellVarsTest : Source.Expr → Name → List UInt32 → Prop where
+  | excludes (function : Name) (name : List UInt32) :
+      CellVarsTest
+        (.comparison (.text name) [(.notIn, .attribute (.attribute (.name function) "__code__") "co_cellvars")])
+        function name
+
+def cellVarsTest? : (source : Source.Expr) →
+    Option {test : Name × List UInt32 // CellVarsTest source test.1 test.2}
+  | .comparison (.text name) [(.notIn, .attribute (.attribute (.name function) "__code__") "co_cellvars")] =>
+    some ⟨(function, name), .excludes function name⟩
+  | _ => none
+
 inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
     Code (frameLayout tree.scope) → Prop where
   | ret {tree index source target} (ordinary : tree.scope.context.containsYield = false)
@@ -243,6 +256,11 @@ inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
       (tail : Translation tree index rest next) :
       Translation tree index (.assert_ source none :: rest)
         (.assertFreeVars function member expected next)
+  | assertCellVars {tree index source name function member rest next}
+      (shape : CellVarsTest source name member)
+      (read : ExprTranslation tree.scope (.name name) function)
+      (tail : Translation tree index rest next) :
+      Translation tree index (.assert_ source none :: rest) (.assertCellVars function member next)
   | discardCall {tree index source name callee rest next}
       (shape : ZeroArgumentNameCall source name)
       (read : ExprTranslation tree.scope (.name name) callee)
@@ -289,6 +307,10 @@ private def lowerOrdinaryBody (tree : ScopeTree) (allowGlobals : Bool)
       let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
       return ⟨.assertFreeVars read.val name expected tail.val,
         .assertFreeVars shape read.property tail.property⟩
+    else if let some ⟨(function, name), shape⟩ := cellVarsTest? test then
+      let read ← lowerExprWith tree.scope allowGlobals (.name function)
+      let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
+      return ⟨.assertCellVars read.val name tail.val, .assertCellVars shape read.property tail.property⟩
     else
       let target ← lowerExprWith tree.scope allowGlobals test
       let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
