@@ -44,6 +44,10 @@ theorem Related.region_observe (w : Related A B K E D r g)
   cases w with
   | loop s => rw [Proofs.region_round_eq s coherent env]; exact graph_observe s env.2 initial
 
+theorem exitTuple_injective :
+    Function.Injective (exitTuple (A := A) (E := E) (D := D) (σ := σ)) :=
+  Proofs.exitTuple_injective
+
 /-- A finite graph return has exactly the decoded label, its typed payload,
 and the final state observed by the actual LambdaSSA region. -/
 theorem Related.region_returns_iff (w : Related A B K E D r g)
