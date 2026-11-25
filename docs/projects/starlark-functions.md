@@ -120,16 +120,29 @@ including call-free operands, before the final call. Positional, keyword,
 still use the call semantics. The compiler places branch work inside the
 selected branch, and a failing right operand leaves the destination alone.
 
-Add the scratch slots to the declaration's local slots or install them in
-the root frame. Scratch names use a prefix outside the source identifier
-grammar. Thread the returned `next` value into any further lowering in
-that frame to keep ranges disjoint. The emitted code can be placed inside
-a function loop and uses the existing exact operational agreement theorem.
-The fixtures compare source evaluations in pinned Go. A source-level
-preservation theorem, parser integration, calls inside collection display
-and subscript atoms, default-expression lowering and module-level
-expression lowering remain open.
-[Lowerer](../../Silmaril/Languages/Starlark/Functions/Lowering/Defs.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Checks.lean) · [Go fixtures](../../examples/starlark/nested-expressions/check.go)
+Use the frame's direct bindings for scratch names when comparing exact
+heaps. In this mode, omit the compiler scratch names from the heap-backed
+slot map. They use a prefix outside the source identifier grammar. Thread
+the returned `next` value into further lowering in the same frame to keep
+ranges disjoint. The emitted code can be placed inside a function loop.
+
+`lower_preserves` relates an independent source evaluation to
+`denoteBody` of the emitted code. The proved fragment includes call-free
+atoms, nested positional calls of any arity, conditionals and short-circuit
+operations. Calls may invoke built-ins or existing core closures. The
+rules evaluate the callee first and arguments left to right. Successful
+evaluation commits the result to the destination under the existing
+assignment rules. Failure preserves the previous destination and retains
+any earlier heap effects. The projection keeps the entire heap, active
+iterators, lexical slots and every visible binding, hiding direct scratch
+bindings. Source atoms cannot read those names. The host supplies a
+visible, writable destination to observe the returned value.
+
+Keyword and spread operands still execute through the existing lowerer and
+have pinned Go regression coverage. Their source-level proof remains open,
+as do parser integration, calls inside collection display and subscript
+atoms, default-expression lowering and module-level expression lowering.
+[Preservation theorem](../../Silmaril/Languages/Starlark/Functions/Lowering/Thms.lean) · [Independent source rules](../../Silmaril/Languages/Starlark/Functions/Lowering/Source/Defs.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/PreservationChecks.lean) · [Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ## Checks and extensions
 
@@ -137,7 +150,8 @@ expression lowering remain open.
 lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
   +Silmaril.Languages.Starlark.Functions.Arguments.Checks \
   +Silmaril.Languages.Starlark.Functions.LoopChecks \
-  +Silmaril.Languages.Starlark.Functions.Lowering.Checks
+  +Silmaril.Languages.Starlark.Functions.Lowering.Checks \
+  +Silmaril.Languages.Starlark.Functions.Lowering.PreservationChecks
 ```
 
 Use Go 1.25 or newer and run from the repository root.

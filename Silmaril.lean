@@ -55,7 +55,7 @@ public import Silmaril.Languages.Starlark.Lists.Thms
 public import Silmaril.Languages.Starlark.Lists.Iteration.Thms
 public import Silmaril.Languages.Starlark.Functions.Builtins.Thms
 public import Silmaril.Languages.Starlark.Functions.Thms
-public import Silmaril.Languages.Starlark.Functions.Lowering.Defs
+public import Silmaril.Languages.Starlark.Functions.Lowering.Thms
 public import Silmaril.Languages.Starlark.Modules.Thms
 public import Silmaril.Languages.Starlark.Modules.Loader.Thms
 

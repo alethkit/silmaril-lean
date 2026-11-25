@@ -64,4 +64,19 @@ fail_after_mark(events)
 	require(err != nil && strings.Contains(err.Error(), "has no len"), fmt.Sprint(err))
 	require(g["events"].String() == "[5]", "prior operand effect was lost")
 	fmt.Println("PASS failure in a nested right operand retains effects of earlier evaluation")
+
+	g, err = initSource(`events = []
+out = len(len(events.append(1)), events.append(2))
+`)
+	require(err != nil && strings.Contains(err.Error(), "has no len"), fmt.Sprint(err))
+	require(g["events"].String() == "[1]" && g["out"] == nil,
+		"the first operand's failure must skip the later operand and destination write")
+	fmt.Println("PASS nested positional call failure retains earlier effects and skips later operands")
+
+	g, err = initSource(`events = []
+out = events.append(1) and len(events.append(2))
+`)
+	require(err == nil && g["out"] == starlark.None && g["events"].String() == "[1]",
+		"short-circuit must keep the left value and skip both the right effect and failure")
+	fmt.Println("PASS skipped call leaves the first mutation and None result")
 }
