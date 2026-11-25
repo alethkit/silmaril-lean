@@ -43,6 +43,13 @@ kept = 4
 assert identity(0)
 observed = 2
 """, "AssertionError", ".assertionError", None, 4),
+    ("function_pass", """def identity(value):
+    pass
+    answer = value
+    pass
+    return answer
+observed = identity(6)
+""", "normal", ".normal", 6, None),
     ("nested_assignment", """def identity(value):
     return value
 def select(first, second, third):
