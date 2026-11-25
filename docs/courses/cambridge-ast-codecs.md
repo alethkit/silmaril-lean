@@ -7,20 +7,20 @@ The Cambridge `L1.Codec`, `L2.Codec` and `L3.Codec` modules expose
 theorem gives encoder injectivity for each of these codecs.
 [Cambridge course index](cambridge.md)
 
-The term carriers are `L1.Expr`, `L2.RawExpr` and `L3.RawExpr`. L2 and L3
+The `term` carriers are `L1.Expr`, `L2.RawExpr` and `L3.RawExpr`. L2 and L3
 keep the exact names of binders and occurrences, including empty strings,
 reserved words and arbitrary Unicode. Apply the course’s existing
 `RawExpr.resolve []` to obtain the locally nameless AST. L3’s `loc`
 constructor represents a runtime address and retains its natural-number
-payload. The schema covers terms and their expression types. Resolved ASTs,
-configurations, stores and typing environments have separate representations
-in the course model.
+payload. Configurations, stores and typing environments are outside these
+codecs.
 
 ## Schema version 1
 
 Each value has the envelope `(cambridge-ast-v1 language sort body)`.
-`language` is `L1`, `L2` or `L3` and `sort` is `term` or `type`. A body is a
-list beginning with a constructor tag followed by its fields in order.
+`language` is `L1`, `L2` or `L3`. The named term and type codecs use the sorts
+`term` and `type`. A body is a list beginning with a constructor tag
+followed by its fields in order.
 The JSON representation maps lists to arrays and atoms to strings. Integer
 and location payloads use canonical decimal strings to retain their full
 precision across JSON consumers. A boolean is `(bool true)` or `(bool false)`,
@@ -60,6 +60,39 @@ after checking label uniqueness. Each decoder checks the envelope,
 constructor tags, child sorts and exact arities. It rejects duplicate labels
 and malformed decimal payloads. Empty records are valid.
 
+## Resolved L2 and L3 terms
+
+`L2.ResolvedCodec` and `L3.ResolvedCodec` expose `termSExp` and `termJson`
+for their locally nameless `Expr` types. They use the distinct sort
+`resolved-term` in the same version-1 envelope. The existing named and
+type encodings keep their tags and fields. L1 has one term AST and uses
+its existing codec.
+
+The resolved term tags and fields agree with the table above except for
+variable occurrences and binder nodes.
+
+| Constructor | Fields in schema order |
+| --- | --- |
+| `bvar` | Canonical decimal de Bruijn index |
+| `fvar` | Literal free name |
+| `lambda` | Parameter type, body |
+| `let` | Type, value, body |
+| `let-rec` | Domain, codomain, function body, enclosing body |
+| `match-sum` (L3) | Scrutinee, left payload type, left body, right payload type, right body |
+
+Index zero refers to the innermost binder. The recursive function body uses
+index zero for the parameter and index one for the function. The enclosing
+body binds the function at zero. Each match branch binds its own payload
+at zero. The value codec preserves any representable index, including a
+dangling one. Scope and typing checks are separate.
+
+L2 assignment and dereference retain their string location operands. L3
+preserves ordered record fields and the distinct `loc` runtime address
+constructor, even if the same decimal appears in a `bvar` node. Named and
+resolved term decoders check their respective envelope sorts.
+
+## Verification
+
 The proofs are over proper S-expression and JSON values. The regressions
 also exercise text conversion with the existing S-expression reader and
 printer and Lean’s JSON reader and printer. The source byte grammar is
@@ -67,5 +100,6 @@ documented separately.
 [L1/L2 concrete syntax](cambridge-concrete.md) · [L3 concrete syntax](cambridge-l3-concrete.md)
 
 ```sh
-lake build --wfail +Silmaril.Courses.Cambridge.AstCodec.Examples
+lake build --wfail +Silmaril.Courses.Cambridge.AstCodec.Examples \
+  +Silmaril.Courses.Cambridge.AstCodec.ResolvedExamples
 ```

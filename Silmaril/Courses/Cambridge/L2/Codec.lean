@@ -36,7 +36,7 @@ def termTree : RawExpr → Tree
       node "let-rec" [.atom fn, .atom param, typeTree domain, typeTree codomain,
         termTree fnBody, termTree body]
 
-def readFields (tag : String) (fields : List (Datum Ty RawExpr)) :
+def readNamedFields (tag : String) (fields : List (Datum Ty RawExpr)) :
     Option (Datum Ty RawExpr) :=
   match tag with
   | "int" => match fields with
@@ -84,6 +84,13 @@ def readFields (tag : String) (fields : List (Datum Ty RawExpr)) :
     | [.atom fn, .atom param, .type domain, .type codomain, .term fnBody, .term body] =>
         some (.term (.letRecFun fn param domain codomain fnBody body))
     | _ => none
+  | _ => none
+
+/-- Share expression type decoding across the named and resolved term schemas. -/
+def readWithTypes {Term : Type}
+    (readTermFields : String → List (Datum Ty Term) → Option (Datum Ty Term))
+    (tag : String) (fields : List (Datum Ty Term)) : Option (Datum Ty Term) :=
+  match tag with
   | "type-int" => match fields with
     | [] => some (.type .int)
     | _ => none
@@ -96,20 +103,22 @@ def readFields (tag : String) (fields : List (Datum Ty RawExpr)) :
   | "type-arrow" => match fields with
     | [.type dom, .type cod] => some (.type (.arr dom cod))
     | _ => none
-  | _ => none
+  | _ => readTermFields tag fields
 
-def readNode : List (Datum Ty RawExpr) → Option (Datum Ty RawExpr)
-  | .atom tag :: fields => readFields tag fields
-  | _ => none
+def readFields := readWithTypes readNamedFields
 
+def readNode := taggedReader readFields
 
-private theorem read_typeTree (type : Ty) :
-    readTree readNode (typeTree type) = some (.type type) := by
-  induction type <;> simp [typeTree, readNode, readFields, *]
+theorem read_typeTree {Term : Type}
+    (readTermFields : String → List (Datum Ty Term) → Option (Datum Ty Term)) (type : Ty) :
+    readTree (taggedReader (readWithTypes readTermFields)) (typeTree type) = some (.type type) := by
+  induction type <;> simp [typeTree, taggedReader, readWithTypes, *]
 
 private theorem read_termTree (term : RawExpr) :
     readTree readNode (termTree term) = some (.term term) := by
-  induction term <;> simp [termTree, readNode, readFields, read_typeTree, *]
+  unfold readNode readFields
+  induction term <;> simp [termTree, taggedReader, readWithTypes, readNamedFields,
+      read_typeTree, *]
 
 def termSExp : AstCodec.Codec RawExpr :=
   versioned "L2" "term" ⟨termTree, (fun t => readTree readNode t >>= Datum.getTerm),
@@ -117,7 +126,7 @@ def termSExp : AstCodec.Codec RawExpr :=
 
 def typeSExp : AstCodec.Codec Ty :=
   versioned "L2" "type" ⟨typeTree, (fun t => readTree readNode t >>= Datum.getType),
-    by intro type; rw [read_typeTree]; rfl⟩
+    by intro type; rw [readNode, readFields, read_typeTree]; rfl⟩
 
 def termJson := asJson termSExp
 def typeJson := asJson typeSExp
