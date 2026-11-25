@@ -16,7 +16,7 @@ theorem global_reference {scope : Source.Scope} {name : Source.Name}
   · subst declared
     simp [globalReference?, resolved]
 
-private theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
+theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
     (translated : OperandTranslation scope source operand) :
     lowerOperand scope source = .ok ⟨operand, translated⟩ := by
   induction translated with
@@ -35,6 +35,15 @@ private theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {
   | add _ _ left right => simp [lowerOperand, left, right] <;> rfl
   | floorDiv _ _ left right => simp [lowerOperand, left, right] <;> rfl
   | equal _ _ left right => simp [lowerOperand, left, right] <;> rfl
+  | literalConditional guard _ _ yes no =>
+    rw [lowerOperand]
+    split
+    · simp_all
+    · rename_i decision chosen
+      have equal := Option.some.inj (chosen.symm.trans guard)
+      subst decision
+      rw [yes, no]
+      rfl
 
 theorem statements_complete {scope : Source.Scope} {source : List Source.Stmt} {actions : List (Action scope)}
     (translated : Translation scope source actions) : lowerStatements scope source = .ok ⟨actions, translated⟩ := by

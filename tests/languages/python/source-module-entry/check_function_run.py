@@ -45,6 +45,15 @@ else:
     kept = 9
 observed = 8
 """, "AssertionError", ".assertionError", None, 4),
+    ("literal_conditional_selected", """kept = 1
+observed = missing if False else kept
+assert False if 0 else True
+""", "normal", ".normal", 1, 1),
+    ("literal_conditional_selected_error", """kept = 4
+observed = 7
+observed = selected_missing if True else ignored_missing
+kept = 9
+""", "NameError", '.raised (.nameError "selected_missing")', 7, 4),
     ("body_code_names_live_rebind", """global_x = 1
 def first():
     assert global_x == 1

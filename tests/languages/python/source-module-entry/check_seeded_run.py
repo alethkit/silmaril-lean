@@ -119,17 +119,6 @@ private def adjacentKeywordEvidence (source : Source.Module) (profile : String) 
     outcome.residual.moduleGlobals == residual.moduleGlobals &&
     outcome.heap.next == 1 && retained == value
 
-private def literalIfPrefix (source : Source.Module) (profile : String) : Bool :=
-  match Compile.ModuleEntry.Functions.Run.compile { source with body := source.body.take 2 } with
-  | .error _ => false
-  | .ok compiled =>
-    let space := initial profile
-    let result := Compile.ModuleEntry.Functions.Run.Seeded.run space compiled
-    match result.completion with
-    | .ok () => result.calls.isEmpty && result.heap.next == 0 &&
-        result.residual.moduleGlobals == space.moduleGlobals && result.residual.builtins == space.builtins
-    | .error _ => false
-
 private def ordinaryOutcome (source : Source.Module) : Option (String × Option Int) := do
   let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
   match (Compile.ModuleEntry.Functions.Run.runPrefix compiled.table 1000 compiled.start).2 with
@@ -446,6 +435,26 @@ else:
     result = 8
 after = 9
 """, ["NameError:missing", "int:7", "absent"]),
+    ("literal_conditional_true", "legacy_bool_callable_builtin", """result = True if -1 else missing
+___assertIs(result, True)
+after = 1 // 0 if 0 else 1
+""", ["normal", "bool:True", "int:1"]),
+    ("literal_conditional_false", "empty", """result = 1 if 0 else False
+assert not result
+after = 5
+""", ["normal", "bool:False", "int:5"]),
+    ("literal_conditional_missing", "legacy_preamble", """result = 7
+result = skipped if False else selected_missing
+after = 9
+""", ["NameError:selected_missing", "int:7", "absent"]),
+    ("literal_conditional_assertion", "empty", """result = 7
+assert False if True else missing
+after = 9
+""", ["AssertionError:empty", "int:7", "absent"]),
+    ("literal_conditional_unsupported", "empty", """result = 7
+result = skipped if False else 1 // 0
+after = 9
+""", ["unsupported", "int:7", "absent"]),
     ("bool_int_false", "legacy_bool_int_builtin", """result = int(False)
 ___assertEqual(result, 0)
 ___assertIsNot(result, False)
@@ -546,6 +555,11 @@ after = 9
 )
 
 NESTED_CALL_NAMES = {
+    "literal_conditional_true": ["___assertIs"],
+    "literal_conditional_false": [],
+    "literal_conditional_missing": [],
+    "literal_conditional_assertion": [],
+    "literal_conditional_unsupported": [],
     "literal_if_order": [],
     "literal_if_failure": [],
     "literal_if_missing": [],
@@ -571,6 +585,11 @@ NESTED_CALL_NAMES = {
 }
 
 EXACT_FIXTURE_BINDINGS = {
+    "literal_conditional_true": '[("after", .int 1), ("result", .bool true)]',
+    "literal_conditional_false": '[("after", .int 5), ("result", .bool false)]',
+    "literal_conditional_missing": '[("result", .int 7)]',
+    "literal_conditional_assertion": '[("result", .int 7)]',
+    "literal_conditional_unsupported": '[("result", .int 7)]',
     "literal_if_order": '[("after", .int 7), ("kept", .int 7), ("result", .int 7)]',
     "literal_if_failure": '[("result", .int 7)]',
     "literal_if_missing": '[("result", .int 7)]',
@@ -812,6 +831,7 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
         (UPSTREAM_ASSIGN_CASE, UPSTREAM_ASSIGN_SHA256, {"x": 5}),
         (UPSTREAM_ASSERT_NOT_CASE, UPSTREAM_ASSERT_NOT_SHA256, {}),
         (UPSTREAM_LITERAL_IF_CASE, UPSTREAM_LITERAL_IF_SHA256, {}),
+        (UPSTREAM_CONDITIONAL_EXPR_CASE, UPSTREAM_CONDITIONAL_EXPR_SHA256, {}),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_NO_OP),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_INDEXING),
     )
@@ -857,23 +877,6 @@ def replay_upstream_publication(checkout, shared, source_path, lean_path):
                                  "user_bindings": {"failing_function": "function"}}
     shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
     return {"path": UPSTREAM_PUBLICATION_CASE, "sha256": UPSTREAM_PUBLICATION_SHA256, "profiles": observations}
-
-
-def replay_upstream_conditional_expression(checkout, shared, source_path, lean_path):
-    source = pinned_source(checkout, UPSTREAM_CONDITIONAL_EXPR_CASE, UPSTREAM_CONDITIONAL_EXPR_SHA256)
-    shared["emit"](source_path, lean_path, source)
-    guards = ["""
-#guard (match Compile.ModuleEntry.Functions.Run.compile pythonSource with
-  | .error (.source (.scalar .expressionProfile)) => true
-  | _ => false)
-#guard ordinaryOutcome { pythonSource with body := pythonSource.body.take 2 } == some ("normal", none)
-"""]
-    for profile in ("empty", "legacy_builtin", "legacy_preamble"):
-        assert cpython(source, profile, expected_globals={}) == ["normal", "absent", "absent"]
-        guards.append(f"#guard literalIfPrefix pythonSource {json.dumps(profile)}")
-    shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
-    return {"path": UPSTREAM_CONDITIONAL_EXPR_CASE, "sha256": UPSTREAM_CONDITIONAL_EXPR_SHA256,
-            "cpython": "normal", "lean": "scalar expressionProfile", "lean_statement_prefix": "normal"}
 
 
 def replay_upstream_direct_discard(checkout, shared, source_path, lean_path):
@@ -927,7 +930,6 @@ def replay_upstream(checkout, shared, source_path, lean_path):
         "scalars": replay_upstream_scalars(checkout, shared, source_path, lean_path),
         "publication": replay_upstream_publication(checkout, shared, source_path, lean_path),
         "direct_discard": replay_upstream_direct_discard(checkout, shared, source_path, lean_path),
-        "conditional_expression_boundary": replay_upstream_conditional_expression(checkout, shared, source_path, lean_path),
     }
 
 

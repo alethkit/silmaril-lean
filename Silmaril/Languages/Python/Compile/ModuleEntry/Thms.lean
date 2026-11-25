@@ -10,6 +10,11 @@ theorem global_reference {scope : Source.Scope} {name : Source.Name}
     (reference : GlobalReference scope name) : globalReference? scope name = some reference :=
   Proofs.Languages.Python.Compile.ModuleEntry.global_reference reference
 
+theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
+    (translated : OperandTranslation scope source operand) :
+    lowerOperand scope source = .ok ⟨operand, translated⟩ :=
+  Proofs.Languages.Python.Compile.ModuleEntry.operand_complete translated
+
 theorem statements_complete {scope : Source.Scope} {source : List Source.Stmt} {actions : List (Action scope)}
     (translated : Translation scope source actions) : lowerStatements scope source = .ok ⟨actions, translated⟩ :=
   Proofs.Languages.Python.Compile.ModuleEntry.statements_complete translated

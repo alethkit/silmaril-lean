@@ -38,6 +38,35 @@ theorem run_preserves_builtins {source : Source.Module} (space : Namespace) (com
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.preserves_builtins
     space compiled.instructions ⟨compiled.table, heap, fuel, []⟩
 
+theorem evaluateScalar_conditionalResult {scope : Source.Scope} (space : Namespace)
+    (equalityOperand : Bool) (operand : ModuleEntry.Operand scope) :
+    evaluateScalar space equalityOperand operand.conditionalResult =
+      match operand with
+      | .boolean value => .ok (.bool value)
+      | other => evaluateScalar space equalityOperand other := by
+  cases operand with
+  | boolean value => cases value <;> rfl
+  | _ => rfl
+
+theorem effect_conditionalAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (name : Source.Name) (reference : ModuleEntry.GlobalReference scope name) (selected : ModuleEntry.Operand scope) :
+    effect space context (.scalar (.assign name reference selected.conditionalResult)) =
+      let result : Core.Module.SeededCall.Result := match selected with
+        | .boolean value => .ok (.bool value)
+        | other => evaluateScalar space false other
+      (⟨(result.map fun value => some (name, value)).mapError ModuleFailure.ofCall, []⟩, context.heap) := by
+  simp only [effect, evaluateScalar_conditionalResult]
+
+theorem effect_conditionalAssert {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (selected : ModuleEntry.Operand scope) :
+    effect space context (.scalar (.assertion selected.conditionalResult)) =
+      let result : Core.Module.SeededCall.Result := match selected with
+        | .boolean value => .ok (.bool value)
+        | other => evaluateScalar space false other
+      let checked := result.bind (assertTruthAs true)
+      (⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, []⟩, context.heap) := by
+  simp only [effect, assertOperand, evaluateScalar_conditionalResult]
+
 theorem callback_path (space : Namespace) (context : CallContext) (closure : Function) :
     let invocation := callbackInvocation space context.heap closure
     let (events, residual) := invocation.runPrefix context.table context.fuel

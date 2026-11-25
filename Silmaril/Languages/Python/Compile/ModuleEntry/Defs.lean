@@ -40,6 +40,10 @@ def integerLiteral? : Expr → Option Int
   | .unary .negative (.integer value) => some (-value)
   | _ => none
 
+def literalGuard? : Expr → Option Bool
+  | .boolean value => some value
+  | expression => (integerLiteral? expression).map fun value => value != 0
+
 def literalSequence? : Expr → Option (List Int)
   | .list_ elements | .tuple elements => elements.mapM integerLiteral?
   | _ => none
@@ -53,6 +57,12 @@ def literalSubscript? (source index : Expr) : Option Int := do
   let values ← literalSequence? source
   let position ← integerLiteral? index
   literalIndex? values position
+
+/-- Use the existing Boolean-valued scalar equality for a selected literal.
+In particular, the seeded scalar profile can return the Boolean itself. -/
+def Operand.conditionalResult {scope : Scope} : Operand scope → Operand scope
+  | .boolean value => .binary .equal (.boolean value) (.boolean true)
+  | value => value
 
 inductive OperandTranslation (scope : Scope) : Expr → Operand scope → Prop where
   | integer (value : Int) : OperandTranslation scope (.integer value) (.integer value)
@@ -72,6 +82,11 @@ inductive OperandTranslation (scope : Scope) : Expr → Operand scope → Prop w
   | equal {left right lhs rhs} (first : OperandTranslation scope left lhs)
       (second : OperandTranslation scope right rhs) :
       OperandTranslation scope (.comparison left [(.eq, right)]) (.binary .equal lhs rhs)
+  | literalConditional {condition yes no decision lhs rhs}
+      (guard : literalGuard? condition = some decision)
+      (positive : OperandTranslation scope yes lhs) (negative : OperandTranslation scope no rhs) :
+      OperandTranslation scope (.conditional condition yes no)
+        (if decision then lhs else rhs).conditionalResult
 
 inductive Action (scope : Scope) where
   | assign (name : Name) (reference : GlobalReference scope name) (value : Operand scope)
@@ -109,6 +124,14 @@ def lowerOperand (scope : Scope) : (source : Expr) → Except Error {value // Op
     let lhs ← lowerOperand scope left
     let rhs ← lowerOperand scope right
     return ⟨.binary .equal lhs.val rhs.val, .equal lhs.property rhs.property⟩
+  | .conditional condition yes no =>
+    match guard : literalGuard? condition with
+    | none => .error .expressionProfile
+    | some decision => do
+      let positive ← lowerOperand scope yes
+      let negative ← lowerOperand scope no
+      return ⟨(if decision then positive.val else negative.val).conditionalResult,
+        .literalConditional guard positive.property negative.property⟩
   | _ => .error .expressionProfile
 termination_by source => sizeOf source
 
@@ -120,10 +143,6 @@ def binding? : (statement : Stmt) → Option {pair : Name × Expr // Binding sta
   | .assign name value => some ⟨(name, value), .direct name value⟩
   | .assignTargets [.name name] value => some ⟨(name, value), .singleton name value⟩
   | _ => none
-
-def literalGuard? : Expr → Option Bool
-  | .boolean value => some value
-  | expression => (integerLiteral? expression).map fun value => value != 0
 
 /-- Arm statements neither introduce child scopes nor install directives.
 The operand checker also checks expressions in both arms. -/
