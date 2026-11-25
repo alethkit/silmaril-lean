@@ -50,9 +50,8 @@ def captureName (state : State) (name : FreeName) : Except Error Capture :=
   | some (.owned address) => .ok ⟨name.target, address, name.source.scope == .local⟩
   | some (.captured address localCell) => .ok ⟨name.target, address, localCell⟩
 
-def defaultOperands (program : Program) (id : DeclarationId) : Code (List Lists.Value) :=
-  operandList ((program[id]?.toList.flatMap fun declaration =>
-    declaration.signature.defaulted.map Prod.snd))
+def defaultOperands (program : Program) (id : DeclarationId) : List Lowering.Expr :=
+  program[id]?.toList.flatMap fun declaration => declaration.signature.defaulted.map Prod.snd
 
 def define (program : Program) (target : Binding) (id : DeclarationId)
     (defaults : List Lists.Value) : Meaning Flow :=
@@ -145,6 +144,8 @@ def Body.validateCalls (body : Body) : Except CallStaticError Unit := body.valid
 def validate (program : Program) (body : Body) : Except CallStaticError Unit := do
   for declaration in program do
     declaration.signature.validate
+    for (_, value) in declaration.signature.defaulted do
+      value.validateCalls
     declaration.body.validateCalls
   body.validateCalls
 

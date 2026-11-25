@@ -18,7 +18,7 @@ private def read (name : String) : Lists.Expr := .read (.bound (slot name))
 private def int (n : Int) : Lists.Expr := .scalar (.int n)
 private def list (items : List Lists.Expr) : Lists.Expr := .list (operandList items)
 private def param (name : String) (defaultExpr : Option Lists.Expr := none) : Parameter :=
-  ⟨slot name, defaultExpr⟩
+  ⟨slot name, defaultExpr.map .atom⟩
 private def set (name : String) (expr : Lists.Expr) : Body := .total (.atomic (.assign (slot name) expr))
 private def effect (expr : Lists.Expr) : Body := .total (.atomic (.eval expr))
 private def ret (expr : Lists.Expr) : Body := .total (.ret expr)
