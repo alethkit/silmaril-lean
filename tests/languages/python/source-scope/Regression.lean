@@ -226,7 +226,24 @@ private def signatureScopes : List Stmt :=
 #guard diagnose [.expression (.lambda [{ name := "x", annotation := some (.name "T") }] (.name "x"))] ==
   some ⟨[0], .lambdaParameterAnnotation "x"⟩
 
+private def occurrenceFixture : List Stmt :=
+  [.functionDef "f" [{ name := "x" }] [
+    .globalDecl ["g"],
+    .assign "x" (.binary .add (.name "x") (.name "x")),
+    .delete "x",
+    .return_ (some (.name "g"))]]
+
+#guard ((analyze ⟨occurrenceFixture⟩).toOption.bind (·.atPath [0])).map (fun scope =>
+  scope.occurrences.map (fun entry => (entry.occurrence, entry.access))) ==
+  some [(⟨"x", .parameter⟩, .local), (⟨"g", .globalDeclaration⟩, .declaredGlobal),
+    (⟨"x", .read⟩, .local), (⟨"x", .read⟩, .local), (⟨"x", .assign⟩, .local),
+    (⟨"x", .delete⟩, .local), (⟨"g", .read⟩, .declaredGlobal)]
+#guard ((analyze ⟨classScopes⟩).toOption.bind (·.atPath [0, 0, 0])).bind (fun scope =>
+  scope.occurrences.getLast?.map (fun entry => (entry.occurrence, entry.access))) ==
+  some (⟨"__class__", .implicitRead⟩, .free [0, 0])
+
 #print axioms enclosingBinding_eq_some_iff
 #print axioms enclosingBinding_stops
 #print axioms enclosingBinding_skips_class
 #print axioms enclosingBinding_classCell
+#print axioms Scope.occurrence_access
