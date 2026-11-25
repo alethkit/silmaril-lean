@@ -74,6 +74,7 @@ A second sentence names both possible final configurations.
 lake build --wfail +Silmaril.Courses.Cambridge.ReturnSpecification.Examples
 ```
 
-Must returns, divergence and other logics remain separate. The
-S-expression interface currently operates on values. A verified
-S-expression UTF-8 text bridge is a follow-up.
+Must returns, divergence and other logics remain separate.
+The structural S-expression codec also composes with the verified
+canonical UTF-8 bridge.
+[S-expression text](cambridge-sexp-bytes.md)
