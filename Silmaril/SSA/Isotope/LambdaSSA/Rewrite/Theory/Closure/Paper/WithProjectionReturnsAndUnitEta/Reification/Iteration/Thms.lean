@@ -15,15 +15,16 @@ namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithProjectionReturnsAndUnitEt
 open Silmaril Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
 open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
-open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Singleton (sumIso)
-open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification (packedWhiskerRight)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Singleton (sumIso sumCofan whiskerLeft whiskerLeftFunctor)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification (packedWhiskerRight packedWhiskerLeft)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification.SingleCfg
-  (guardedCfg_typed realizePackedStep_typed blockComputation)
+  (guardedCfg_typed realizePackedStep_typed blockComputation retagPacked_typed exitSum exitDecoder_typed)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification.SingleCfg.Model
-  (reindexHom carrier packedTensorIso)
+  (reindexHom carrier packedTensorIso carriedRoute)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.RetainedLet (returnOnce_typed)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory (productFstBranches)
-open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.ConstructorReification (fstMap)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.Retained (packedDistributor)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.ConstructorReification (fstMap inlMap inrMap)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.WithProjectionReturns (fstTerm)
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel contextualStep)
@@ -82,6 +83,32 @@ theorem reindexRetainLeft_of_tensorIso {R A B : τ} (f : J.obj (M.obj A) ⟶ J.o
       J.map (M.productIso R B).inv) =
       Obj R ◁ reindexHom J M objIso f :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedCarriedIteration.reindexRetainLeft_of_tensorIso J M objIso f source target swap
+
+/-- Compare the carried route using the retained decoder and two pairs of injection equations.
+The output equations compare the interpreted sum injections. The input equations
+test the interpreted distributor on the two native left-whiskered injections. -/
+theorem carriedRoute_of_distributor_injections (X S D : τ)
+    (outputInl :
+      reindexHom J M objIso (J.map (inlMap M (product X D) (product X S))) =
+        (sumCofan (Seed) (product X D) (product X S)).inl)
+    (outputInr :
+      reindexHom J M objIso (J.map (inrMap M (product X D) (product X S))) =
+        (sumCofan (Seed) (product X D) (product X S)).inr)
+    (decoder :
+      reindexHom J M objIso (J.map (packedWhiskerLeft M X _ _ (exitSum M S D))) =
+        whiskerLeft (Seed) (Obj X) (Lit (exitDecoder_typed S D)))
+    (inputInl :
+      (whiskerLeftFunctor (Seed) (Obj X)).map (sumCofan (Seed) D S).inl ≫
+          reindexHom J M objIso (J.map (packedDistributor M X D S)) =
+        (sumCofan (Seed) (product X D) (product X S)).inl)
+    (inputInr :
+      (whiskerLeftFunctor (Seed) (Obj X)).map (sumCofan (Seed) D S).inr ≫
+          reindexHom J M objIso (J.map (packedDistributor M X D S)) =
+        (sumCofan (Seed) (product X D) (product X S)).inr) :
+    carriedRoute J M objIso X S D =
+      Lit (retagPacked_typed X S D) ≫ (sumIso (Seed) (product X D) (product X S)).hom :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedCarriedIteration.carriedRoute_of_distributor_injections
+    J M objIso X S D outputInl outputInr decoder inputInl inputInr
 
 end Retained
 
