@@ -134,6 +134,11 @@ def loop (s : Loop Φ A B K E D) :
 
 end Wiring
 
+/-- Numbered graphs at the loop boundary, with an independently indexed vertex table. -/
+abbrev Numbered (Φ : Type u) [HasTy Φ τ] (A E D : τ)
+    (sigs : List (Ports (Structured.Ty τ))) :=
+  NestedTheta.Graph (Op Φ) (Threaded (carried (Carrier A E D))) [] sigs (Threaded (carried (Carrier A E D)))
+
 abbrev Graph (Φ : Type u) [HasTy Φ τ] (A E D : τ) := WireLoop (Pure τ) (Effect Φ) (Carrier A E D)
 
 def graph (s : Loop Φ A B K E D) : Graph Φ A E D := (Wiring.loop s).1.toGraph

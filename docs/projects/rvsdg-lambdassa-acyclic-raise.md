@@ -35,16 +35,46 @@ nested-choice fixture also checks recovery across feedback, with the
 full token history, and undefinedness on selection of an undefined arm.
 [Lean fixture](../../tests/ssa/RVSDGLambdaSSAAcyclicToken.lean)
 
-This interface requires a supplied typed parse and the exact numbered
-wiring of the generated family. Recognition of arbitrary raw graphs
-and transport along nontrivial numbered graph isomorphisms are outside
-its scope.
+## Typed renumbering
+
+`Reverse.Renumbered.Decomposition` puts the parse and exact wire check on
+a representative. The actual graph supplies an indexed `Graph.Isomorphic`
+witness preserving node labels, operand and result addresses, and each
+child in its original γ arm or θ body. The reverse fibre recovers the
+representative's CFG and relates it to the actual graph. Every relation
+witness preserves the full partial observation against `Region.denote`,
+including the exact typed exit, payload and final state.
+[Transported reverse fibre](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/ExplicitRuntime/Reverse/Renumbered/Thms.lean)
+
+The shared graph theorem uses the existing typed address trace proof.
+The proof represents each completed partial node observation as a
+classical option while comparing slots. A θ node still uses its original
+unbounded `Part` iteration. The resulting equality covers the full
+observation, including lack of a finite return.
+[Partial graph transport](../../Silmaril/SSA/RVSDG/NestedTheta/Partial/Isomorphism/Thms.lean)
+
+Every binding in the current forward family reads the immediately
+preceding binding's runtime token in its region. An isomorphism preserves
+those edges, and a topological vertex table must number a producer before
+its consumer. Thus the vertex order of this family is fixed recursively.
+A genuine nonidentity permutation is tested at the general graph layer,
+where a value computation and a runtime computation in a θ body are
+independent. The fixture compares their returned tuple and an undefined
+primitive. The reverse fixture uses the ordered family and checks its
+recovered CFG, feedback token and undefinedness through the same transport
+interface.
+[Graph fixture](../../tests/ssa/RVSDGNestedThetaIsomorphism.lean)
+
+The reverse API requires a supplied decomposition and typed isomorphism.
+Automatic raw-graph recognition and a reverse fibre for graphs with
+token-independent bindings are outside the scope here.
 
 ## Reproduce
 
 ```sh
-make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Thms'
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Renumbered.Thms +Silmaril.SSA.RVSDG.NestedTheta.Partial.Isomorphism.Thms'
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Renumbered.Thms
+lake env leanchecker Silmaril.SSA.RVSDG.NestedTheta.Partial.Isomorphism.Thms
 lake env leanchecker Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Decompose
 ```
 

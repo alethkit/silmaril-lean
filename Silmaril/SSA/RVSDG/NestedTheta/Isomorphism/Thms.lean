@@ -14,6 +14,16 @@ variable {V S : Type u} {Op : Dialect.{u, v} V S}
 variable {args outs : Ports (PortType V S)} {sigs sigs' : List (Ports (PortType V S))}
 variable {left : Graph Op args [] sigs outs} {right : Graph Op args [] sigs' outs}
 
+theorem Graph.Isomorphic.refl (g : Graph Op args [] sigs outs) : Graph.Isomorphic Op g g :=
+  Isomorphism.Proofs.refl g rfl
+
+/-- Renumbering preserves evaluation with any shared interpretation of node
+labels and child-region functions on explicit port values. -/
+theorem Graph.Isomorphic.evalWith_eq (iso : Graph.Isomorphic Op left right)
+    {F : PortType V S → Type w} (eval : KindEvaluator Op F) (entry : Tuple F args) :
+    left.evalWith eval entry PUnit.unit = right.evalWith eval entry PUnit.unit :=
+  Isomorphism.Proofs.evalWith_eq iso eval entry
+
 /-- Typed hierarchical renumbering preserves the full result at each θ bound. -/
 theorem Graph.Isomorphic.run_eq (iso : Graph.Isomorphic Op left right)
     (m : Model.{u, v, w} Op) (fuel : Nat) (entry : Tuple m.Val args) :

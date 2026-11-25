@@ -46,6 +46,7 @@ def choiceData {X Y : τ} (result : TyDen X ⊕ TyDen Y) :
   let tag : Fin 2 := match result with | .inl _ => 0 | .inr _ => 1
   .cons ⟨tag⟩ (pack ((TypeModel.coprodEquiv X Y).symm result))
 
+variable {sigs : List (Ports (OrderedRuntime.Structured.Ty τ))}
 variable {σ : Type u} [InstructionModel Φ τ ε (StateT σ Part.{u})]
 
 /-- Structural exit routing is pure. A bad guarded input has no partial
@@ -73,10 +74,10 @@ def exitTuple (p : LabelDen [E,D] × σ) :
     Tuple (RuntimeValues (TyDen (τ := τ)) σ) (Threaded (carried (Carrier A E D))) :=
   point (finish (exitPayload p.1)) p.2
 
-noncomputable def observe (g : Graph Φ A E D) (a : TyDen A) (initial : σ) :=
+noncomputable def observe (g : Numbered Φ A E D sigs) (a : TyDen A) (initial : σ) :=
   NestedTheta.Partial.observe (wireModel (ε := ε)) g (point (enter a) initial)
 
-def returns (g : Graph Φ A E D) (a : TyDen A) (initial : σ) (label : LabelDen [E,D]) (final : σ) : Prop :=
+def returns (g : Numbered Φ A E D sigs) (a : TyDen A) (initial : σ) (label : LabelDen [E,D]) (final : σ) : Prop :=
   NestedTheta.Partial.returns (wireModel (ε := ε)) g (point (enter a) initial)
     (exitTuple (label, final))
 
