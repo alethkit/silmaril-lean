@@ -5,9 +5,27 @@ See the [numbered examples][examples] for Examples 10, 20, and 22.
 
 | Source | Concrete model and coverage |
 | --- | --- |
-| §1.1, pp. 13:2–3 | The finite-word and productive printing monads are covered under Examples 10(4–5) and 20(4–5). The two complete Elgot printing models in the introduction additionally retain the finite output of a hanging computation. |
+| §1.1, pp. 13:2–3 | The finite-word and productive printing monads are covered under Examples 10(4–5) and 20(4–5). [Hangs][hangs] checks the deterministic complete Elgot model which retains the finite output of a hanging computation. The nondeterministic hang model uses sets of these traces. |
 | §1.2, pp. 13:3–4 | The paper specifies initial and final coalgebras for deterministic printing, and uses the countable nonempty powerset for printing and general signature I/O. The unrestricted nonempty trace powerset in Example 20(5) does not impose the countable branching condition of these resumption instances. |
 | §1.3, p. 13:5 | [Delay][delay] checks the identity-base, identity-operation case with Mathlib's raw `Computation` type, which keeps every explicit delay. |
+
+## Deterministic printing with finite hangs
+
+`Hangs.Model` has carrier `(List A × X) ⊕ Stream'.Seq A`. The successful
+summand records a finite word and return value. The terminal summand
+records either a finite sequence that ends with a hang or an infinite
+stream of characters.
+
+`unfoldTrace_return` checks the successful case. `unfoldTrace_spec` and
+`unfoldTrace_unique` prove finality for the letter-by-letter observation
+`Maybe (X + A × -)`. The actual CALCO parameter construction uses the
+classical equivalence `Part.equivOption` for the Maybe layer.
+`unit_eq` and `extend_eq` identify the resulting monad operations.
+`isElgot` applies the resumption theorem to the total Elgot base `Part`.
+
+```sh
+lake build --wfail +Silmaril.Papers.Calco2019.Examples.PrintingHangs
+```
 
 ## Capretta delay
 
@@ -31,3 +49,4 @@ lake build --wfail +Silmaril.Papers.Calco2019.Examples.Delay
 [paper]: https://doi.org/10.4230/LIPIcs.CALCO.2019.13
 [examples]: calco2019-examples.md
 [delay]: ../../Silmaril/Semantics/Calco2019/Examples/Delay/Thms.lean
+[hangs]: ../../Silmaril/Semantics/Calco2019/Examples/Printing/Hangs/Thms.lean
