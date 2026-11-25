@@ -2,6 +2,10 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.FixedCapCategory.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
+import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
+import Mathlib.Data.Fin.VecNotation
+import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.FunProp
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.NormNum
@@ -380,7 +384,7 @@ private theorem oneContact_inside : oneContact.Inside := by
   change (1 / 3 : ℝ) ∈ Set.Ioo 0 1
   norm_num
 
-example : (fixedFrame halfway).drawing.x (0 : Fin 1) (1 / 2) = 5 / 12 := by
+private theorem halfway_mid : (fixedFrame halfway).drawing.x (0 : Fin 1) (1 / 2) = 5 / 12 := by
   change (1 / 3 : ℝ) + displacement halfway (1 / 2) = 5 / 12
   norm_num [displacement, halfway, tent]
 
@@ -433,5 +437,116 @@ example :
     𝟙 (FixedCap.empty signature) ≫ 𝟙 (FixedCap.empty signature) =
       𝟙 (FixedCap.empty signature) :=
   Category.id_comp _
+
+private noncomputable def idleCap : FixedCap signature where
+  profile :=
+    { size := 2
+      label := ![false, true]
+      x := ![1 / 4, 3 / 4]
+      ordered := by
+        apply Fin.strictMono_iff_lt_succ.mpr
+        intro i
+        fin_cases i
+        norm_num [Fin.castSucc, Fin.succ] }
+  inside i := by
+    fin_cases i <;> norm_num
+
+private noncomputable abbrev activeFrame : FixedDrawing signature capObject.profile capObject.profile :=
+  fixedFrame halfway
+
+private noncomputable abbrev numberedActive (s : ActiveStrip) (idle : FixedCap signature) :=
+  s.activeWire (a := capObject) (b := capObject) activeFrame idle
+
+private noncomputable abbrev numberedIdle (s : ActiveStrip) (idle : FixedCap signature) :=
+  s.idleWire (a := capObject) (b := capObject) activeFrame idle
+
+private noncomputable def placedExample (s : ActiveStrip) :=
+  s.placeDrawing (a := capObject) (b := capObject) activeFrame idleCap
+
+private theorem placed_midpoints (s : ActiveStrip) :
+    ((placedExample s).drawing.x (numberedActive s idleCap (0 : Fin 1)) (1 / 2),
+      (placedExample s).drawing.x (numberedIdle s idleCap (0 : Fin 2)) (1 / 2),
+      (placedExample s).drawing.x (numberedIdle s idleCap (1 : Fin 2)) (1 / 2)) =
+    (s.place (5 / 12), s.opposite.place (1 / 4), s.opposite.place (3 / 4)) := by
+  refine Prod.ext ?_ (Prod.ext ?_ ?_)
+  · exact (ActiveStrip.active_x (a := capObject) (b := capObject) s activeFrame idleCap (0 : Fin 1) (1 / 2)).trans
+      (congrArg s.place halfway_mid)
+  · exact ActiveStrip.idle_x (a := capObject) (b := capObject) s activeFrame idleCap (0 : Fin 2) (1 / 2)
+  · exact ActiveStrip.idle_x (a := capObject) (b := capObject) s activeFrame idleCap (1 : Fin 2) (1 / 2)
+
+example :
+    ((placedExample .left).drawing.x (numberedActive .left idleCap (0 : Fin 1)) (1 / 2),
+      (placedExample .left).drawing.x (numberedIdle .left idleCap (0 : Fin 2)) (1 / 2),
+      (placedExample .left).drawing.x (numberedIdle .left idleCap (1 : Fin 2)) (1 / 2)) =
+    (5 / 24, 5 / 8, 7 / 8) :=
+  (placed_midpoints .left).trans (by norm_num [ActiveStrip.opposite, ActiveStrip.place])
+
+example :
+    ((placedExample .right).drawing.x (numberedActive .right idleCap (0 : Fin 1)) (1 / 2),
+      (placedExample .right).drawing.x (numberedIdle .right idleCap (0 : Fin 2)) (1 / 2),
+      (placedExample .right).drawing.x (numberedIdle .right idleCap (1 : Fin 2)) (1 / 2)) =
+    (17 / 24, 1 / 8, 3 / 8) :=
+  (placed_midpoints .right).trans (by norm_num [ActiveStrip.opposite, ActiveStrip.place])
+
+example : List.ofFn (ActiveStrip.left.adjoin capObject idleCap).profile.label = [true, false, true] :=
+  (ActiveStrip.left.adjoin_labels capObject idleCap).trans (by rfl)
+
+example : List.ofFn (ActiveStrip.right.adjoin capObject idleCap).profile.label = [false, true, true] :=
+  (ActiveStrip.right.adjoin_labels capObject idleCap).trans (by rfl)
+
+private noncomputable def rightSlots := ActiveStrip.right.capSlots capObject idleCap
+
+example :
+    ((rightSlots.symm (.inr (0 : Fin 2))).val, (rightSlots.symm (.inr (1 : Fin 2))).val,
+      (rightSlots.symm (.inl (0 : Fin 1))).val) = (0, 1, 2) :=
+  Prod.ext (ActiveStrip.right.idle_slot_val capObject idleCap (0 : Fin 2))
+    (Prod.ext (ActiveStrip.right.idle_slot_val capObject idleCap (1 : Fin 2))
+      (ActiveStrip.right.active_slot_val capObject idleCap (0 : Fin 1)))
+
+/-- Reading the right placement at the cap lists the idle IDs first,
+although allocation still assigns ID zero to the active wire. -/
+example :
+    (((placedExample .right).input (rightSlots.symm (.inr (0 : Fin 2)))).val.val,
+      ((placedExample .right).input (rightSlots.symm (.inr (1 : Fin 2)))).val.val,
+      ((placedExample .right).input (rightSlots.symm (.inl (0 : Fin 1)))).val.val) =
+      (1, 2, 0) := by
+  have idleId (i : Fin 2) :
+      ((placedExample .right).input (rightSlots.symm (.inr i))).val.val = 1 + i.val :=
+    (congrArg Fin.val (ActiveStrip.input_idle (a := capObject) (b := capObject)
+      .right activeFrame idleCap i)).trans
+      (ActiveStrip.idleWire_val (a := capObject) (b := capObject) .right activeFrame idleCap i)
+  have activeId :
+      ((placedExample .right).input (rightSlots.symm (.inl (0 : Fin 1)))).val.val = 0 :=
+    (congrArg Fin.val (ActiveStrip.input_active (a := capObject) (b := capObject)
+      .right activeFrame idleCap (0 : Fin 1))).trans
+      (ActiveStrip.activeWire_val (a := capObject) (b := capObject)
+        .right activeFrame idleCap (activeFrame.input (0 : Fin 1)).val)
+  exact Prod.ext (idleId 0) (Prod.ext (idleId 1) activeId)
+
+private def emptyCap := FixedCap.empty signature
+
+example : (ActiveStrip.left.placeDrawing (a := capObject) (b := capObject) activeFrame emptyCap).wires = 1 :=
+  (ActiveStrip.left.wire_count (a := capObject) (b := capObject) activeFrame emptyCap).trans (by rfl)
+
+example :
+    (ActiveStrip.left.placeDrawing (a := capObject) (b := capObject) activeFrame emptyCap).drawing.x
+      (numberedActive .left emptyCap (0 : Fin 1)) (1 / 2) = 5 / 24 := by
+  exact (ActiveStrip.left.active_x (a := capObject) (b := capObject) activeFrame emptyCap (0 : Fin 1) (1 / 2)).trans
+    ((congrArg ActiveStrip.left.place halfway_mid).trans (by norm_num [ActiveStrip.place]))
+
+/-- Leaving a half strip empty still rescales the other cap. -/
+example :
+    ((capObject.beside emptyCap).profile.x (0 : Fin 1),
+      (emptyCap.beside capObject).profile.x (0 : Fin 1)) = (1 / 6, 2 / 3) := by
+  change (ActiveStrip.left.place (1 / 3), ActiveStrip.right.place (1 / 3)) = _
+  norm_num [ActiveStrip.place]
+
+/-- The two nested placements give different first cap coordinates. -/
+example :
+    ((capObject.beside capObject).beside capObject).profile.x (0 : Fin 3) ≠
+      (capObject.beside (capObject.beside capObject)).profile.x (0 : Fin 3) := by
+  change ActiveStrip.left.place (ActiveStrip.left.place (1 / 3)) ≠
+    ActiveStrip.left.place (1 / 3)
+  norm_num [ActiveStrip.place]
 
 end Silmaril.RuntimeWires.Proofs.OperandAmbient.Regression
