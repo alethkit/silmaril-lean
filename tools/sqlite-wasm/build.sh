@@ -44,7 +44,8 @@ HASHES
 unzip -q "$archives/sqlite-amalgamation-3540100.zip" -d "$tmp"
 tar -xzf "$archives/wasi-sdk-30.0-x86_64-linux.tar.gz" -C "$tmp"
 (
-  cd "$tmp"
+  # Clang reports physical paths even when TMPDIR is reached through a symlink.
+  cd -P "$tmp"
   sha256sum --check <<'HASHES'
 0c657666d819f261cc4007526ad57e1669de9949df7a8ea847aa284a2bf0ee52  sqlite-amalgamation-3540100/sqlite3.c
 a5431c3533853c135005e2d6e32b211e7921c9255e69f34d5557a319c24a6169  wasi-sdk-30.0-x86_64-linux/bin/clang

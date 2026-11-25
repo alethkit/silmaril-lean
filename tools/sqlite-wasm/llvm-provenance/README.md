@@ -45,9 +45,10 @@ On x86-64 Linux with Python 3.11 or later, Bash, GNU coreutils, `unzip` and
 bash tools/sqlite-wasm/llvm-provenance/check.sh "$inputs"
 ```
 
-The check builds twice in fresh directories with a 90-second limit per
-build. It compares the driver trace and receipt to the committed versions
-and compares all three artifacts byte for byte. The build checks the
+The check builds twice in fresh directories, the second under a symlinked
+temporary directory, with a 90-second limit per build. It compares the driver
+trace and receipt to the committed versions and compares all three artifacts
+byte for byte. The build checks the
 existing source, SDK, compiler, linker and reactor pins. The check keeps
 the binaries in a temporary directory and removes them on exit.
 

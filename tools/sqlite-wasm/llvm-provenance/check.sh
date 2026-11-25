@@ -8,9 +8,15 @@ fi
 here=$(dirname "$(realpath "$0")")
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+mkdir "$work/physical"
+ln -s physical "$work/symlinked temp"
 for pass in first second; do
   stage=$work/$pass
-  if ! timeout 90 bash "$here/../build.sh" "$1" --retain-llvm "$stage" > "$work/$pass.log" 2>&1; then
+  scratch=$work/physical
+  if [[ $pass == second ]]; then
+    scratch="$work/symlinked temp"
+  fi
+  if ! TMPDIR="$scratch" timeout 90 bash "$here/../build.sh" "$1" --retain-llvm "$stage" > "$work/$pass.log" 2>&1; then
     cat "$work/$pass.log" >&2
     exit 1
   fi
