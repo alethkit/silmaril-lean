@@ -1,0 +1,114 @@
+// Run from the pinned starlark-go checkout as documented in docs/projects/starlark-lists.md.
+package main
+
+import (
+	"fmt"
+	"strings"
+
+	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
+)
+
+// Init exposes the heap before publication, including effects preceding an error.
+func run(source string) (starlark.StringDict, error) {
+	predeclared := starlark.StringDict{}
+	_, program, err := starlark.SourceProgramOptions(
+		&syntax.FileOptions{}, "list_store.star", source+"\n", predeclared.Has,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return program.Init(&starlark.Thread{Name: "list store"}, predeclared)
+}
+
+func require(ok bool, message string) {
+	if !ok {
+		panic(message)
+	}
+}
+
+func requireError(err error, part string) {
+	require(err != nil && strings.Contains(err.Error(), part), fmt.Sprintf("want error %q, got %v", part, err))
+}
+
+func checkAliases() {
+	globals, err := run(`x = [10]
+y = x
+other = [10]
+appended = x.append(11)
+y[-1] = 12
+observed = x[-1]
+independent = other[0]`)
+	require(err == nil, fmt.Sprint(err))
+	require(globals["x"] == globals["y"] && globals["x"] != globals["other"], "unexpected list identities")
+	require(globals["appended"] == starlark.None, "append must return None")
+	require(globals["observed"].String() == "12" && globals["independent"].String() == "10",
+		"alias write or independent allocation")
+	fmt.Println("PASS fresh list addresses, alias write, negative indexing and append result")
+}
+
+func checkFreeze() {
+	globals, err := run(`leaf = [42]
+inner = [leaf]
+outer = [inner]
+alias = inner
+spare = []
+inner.append(outer)
+inner.append(inner)`)
+	require(err == nil, fmt.Sprint(err))
+	outer := globals["outer"].(*starlark.List)
+	inner := globals["inner"].(*starlark.List)
+	alias := globals["alias"].(*starlark.List)
+	leaf := globals["leaf"].(*starlark.List)
+	spare := globals["spare"].(*starlark.List)
+	outer.Freeze()
+	outer.Freeze()
+	require(outer.Index(0) == alias && alias == inner, "alias edges changed during freeze")
+	require(inner.Index(1) == outer && inner.Index(2) == inner, "cycle edges changed during freeze")
+	requireError(alias.Append(starlark.None), "frozen list")
+	requireError(inner.SetIndex(2, starlark.None), "frozen list")
+	requireError(leaf.Append(starlark.None), "frozen list")
+	require(leaf.Index(0).String() == "42", "frozen list read")
+	require(spare.Append(starlark.MakeInt(5)) == nil, "unreachable list was frozen")
+	fmt.Println("PASS nested reachability, mutual cycle, self-cycle, frozen aliases and unrelated mutable list")
+}
+
+func checkEvaluationOrder() {
+	for _, tc := range []struct {
+		source, err, elements string
+	}{
+		{`a = []
+a[0][0] = a.append(9)`, "does not support item assignment", "[9]"},
+		{`a = []
+out = [a.append(4), a[4], a.append(5)]`, "out of range", "[4]"},
+		{`a = []
+(1).append(a.append(9))`, "no .append field or method", "[]"},
+	} {
+		globals, err := run(tc.source)
+		requireError(err, tc.err)
+		require(globals["a"].String() == tc.elements, "unexpected state after error")
+	}
+	fmt.Println("PASS RHS-first assignment, left-to-right elements and method lookup before arguments")
+}
+
+func checkIndexErrors() {
+	for _, tc := range []struct {
+		source, err string
+	}{
+		{"out = [10][-2]", "out of range"},
+		{"out = [10][True]", "list index:"},
+		{"out = [10][18446744073709551616]", "list index:"},
+		{"out = (1)[0]", "unhandled index operation"},
+	} {
+		_, err := run(tc.source)
+		requireError(err, tc.err)
+	}
+	fmt.Println("PASS negative bounds, Boolean index, very large index and scalar receiver errors")
+}
+
+func main() {
+	checkAliases()
+	checkFreeze()
+	checkEvaluationOrder()
+	checkIndexErrors()
+}
