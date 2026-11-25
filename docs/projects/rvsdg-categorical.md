@@ -66,10 +66,11 @@ divergence observations, and Petri firing semantics are separate results.
 
 ## Follow-on work
 
-- For θ, form the body arrow from the loop tuple `X) to the two-tagged
-  result paired with an updated `X`. In the computation category, route
-  the stop tag into `X ⨿ X` on the left and the continue tag on the right,
-  then use `Iteration.iterate`. The Elgot fixpoint equation unfolds the first
+- For θ, interpret the body as an arrow from the loop tuple `X` to
+  `K₂ ⊗ X`. In the computation category, use the two tagged legs to route
+  the updated tuple into the left summand of `X ⨿ X` on stop and the right
+  summand on continue. Apply `Iteration.iterate` to the composite. The
+  Elgot fixpoint equation unfolds the first
   body step. An invariant capture would use the existing contextual strength
   law. A separate adequacy theorem should relate finite returns and
   divergence to the chosen operational observations.
@@ -103,7 +104,7 @@ lake env leanchecker Silmaril.SSA.RVSDG.Categorical.Thms
 
 - Nico Reissmann, Jan Christian Meyer, Helge Bahmann and Magnus Själander,
   *RVSDG: An Intermediate Representation for Optimizing Compilers* (2020),
-  arXiv:1912.05036v2, §§4, 4.1.1–4.1.3, 4.3 and 5.1.3. PDF SHA-256
+  arXiv:1912.05036v2, §§4, 4.1.1–4.1.3, 4.3, 5.1.2–5.1.3 and 5.2.2. PDF SHA-256
   `861fb183f8b642327f3231a823bc0d2df7ebff17b39cd10ab7a2cc3a2be4f6a3`.
   [Versioned PDF](https://arxiv.org/pdf/1912.05036v2) · [DOI](https://doi.org/10.1145/3391902)
 - Jad Ghalayini and Neel Krishnaswami, *The Denotational Semantics of SSA*
