@@ -1,6 +1,9 @@
 module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarAmbient
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.Associator.Thms
+import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.Associator.Thms
+import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.Associator.Trace
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.CollarGeometry
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.FinCases
@@ -296,5 +299,93 @@ example (t : PolygonalCollar.Time) (x : ℝ) :
     matched.straightCollar.ambientIsotopy bent t (x, 1 / 2) = (x, 1 / 2) :=
   ⟨matched.straightCollar.ambientIsotopy_outside bent t _ (.inl le_rfl),
     matched.straightCollar.ambientIsotopy_outside bent t _ (.inr le_rfl)⟩
+
+private noncomputable def middleOut (w : Fin 2) : Diagram.PartialVerticalMatch.Contact upper :=
+  ⟨w, (operand true).drawing_finish w⟩
+
+private noncomputable def lastIn (w : Fin 2) : {i : Fin 2 // lower.start i = none} :=
+  ⟨w, (operand false).drawing_start w⟩
+
+private noncomputable def following : upper.OrderedVerticalMatch lower where
+  contact :=
+    { toFun := fun w => lastIn (swap w.val)
+      invFun := fun w => middleOut (swap w.val)
+      left_inv := fun _ => Subtype.ext (Equiv.swap_apply_self _ _ _)
+      right_inv := fun _ => Subtype.ext (Equiv.swap_apply_self _ _ _) }
+  label w := by
+    change ((operand true).drawing signature).label w.val =
+      ((operand false).drawing signature).label (swap w.val)
+    rw [CollarSpec.drawing_label, CollarSpec.drawing_label]
+    obtain ⟨i, _⟩ := w
+    fin_cases i <;> rfl
+  order a b := by
+    change ((operand true).drawing signature).x a.val 1 < ((operand true).drawing signature).x b.val 1 ↔
+      ((operand false).drawing signature).x (swap a.val) 0 < ((operand false).drawing signature).x (swap b.val) 0
+    rw [CollarSpec.drawing_top, CollarSpec.drawing_top, CollarSpec.drawing_bottom, CollarSpec.drawing_bottom]
+    obtain ⟨a, _⟩ := a
+    obtain ⟨b, _⟩ := b
+    have inv₀ : swap 0 = 1 := Equiv.swap_apply_left _ _
+    have inv₁ : swap 1 = 0 := Equiv.swap_apply_right _ _
+    fin_cases a <;> fin_cases b <;> norm_num [operand, leftX, rightX, inv₀, inv₁]
+
+open Proofs.CollarAssociator
+
+private theorem first_contact : (matched.contact (leftCap 0)).val = 1 := Equiv.swap_apply_left _ _
+private theorem second_contact : (following.contact (middleOut 1)).val = 0 := Equiv.swap_apply_right _ _
+
+private noncomputable def tripleWire := leftA matched following 0
+private noncomputable def otherWire := rightA matched following 0
+
+/-- The common composite wire is locally named 0, 1, 0. Its three origins
+are checked on both actual parenthesizations. -/
+example :
+    tripleWire = leftB matched following 1 ∧ tripleWire = leftC matched following 0 ∧
+    otherWire = rightB matched following 1 ∧ otherWire = rightC matched following 0 := by
+  have l₁ := leftAB matched following (leftCap 0)
+  rw [first_contact] at l₁
+  have l₂ := leftBC matched following (middleOut 1)
+  rw [second_contact] at l₂
+  have r₁ := rightAB matched following (leftCap 0)
+  rw [first_contact] at r₁
+  have r₂ := rightBC matched following (middleOut 1)
+  rw [second_contact] at r₂
+  exact ⟨l₁, l₁.trans l₂, r₁, r₁.trans r₂⟩
+
+private theorem first_collar_point :
+    ((1 / 4 : ℝ), (3 / 32 : ℝ)) ∈ ((matched.attachAfter following).glue.wire tripleWire).trace := by
+  apply (left_five matched following tripleWire _).mpr
+  refine .inr (.inl ⟨leftCap 0, 1 / 2, rfl, by norm_num [Set.mem_Icc], ?_⟩)
+  change (interpolate ((operand false).drawing signature |>.x 0 1)
+    ((operand true).drawing signature |>.x (matched.contact (leftCap 0)).val 0) (1 / 2),
+    Height.leftPlacement 1 (1 / 2)) = _
+  rw [first_contact, CollarSpec.drawing_top, CollarSpec.drawing_bottom]
+  norm_num [operand, leftX, rightX, interpolate, Height.leftPlacement, Height.lower, Height.collar, halfHeight]
+
+private theorem last_collar_point :
+    ((1 / 4 : ℝ), (3 / 8 : ℝ)) ∈ ((matched.attachAfter following).glue.wire tripleWire).trace := by
+  apply (left_five matched following tripleWire _).mpr
+  have names := leftAB matched following (leftCap 0)
+  rw [first_contact] at names
+  refine .inr (.inr (.inr (.inl ⟨middleOut 1, 1 / 2, names.symm, by norm_num [Set.mem_Icc], ?_⟩)))
+  change (interpolate ((operand true).drawing signature |>.x 1 1)
+    ((operand false).drawing signature |>.x (following.contact (middleOut 1)).val 0) (1 / 2),
+    Height.leftPlacement 3 (1 / 2)) = _
+  rw [second_contact, CollarSpec.drawing_top, CollarSpec.drawing_bottom]
+  norm_num [operand, leftX, rightX, interpolate, Height.leftPlacement, Height.collar, halfHeight]
+
+/-- The two collar midpoints appear at the checked heights on the same
+renamed wire in the right-associated drawing. -/
+example :
+    ((1 / 4 : ℝ), (3 / 8 : ℝ)) ∈ ((matched.attachBefore following).glue.wire otherWire).trace ∧
+    ((1 / 4 : ℝ), (11 / 16 : ℝ)) ∈ ((matched.attachBefore following).glue.wire otherWire).trace := by
+  have names : (matched.assocIncidence following).wire tripleWire = otherWire :=
+    matched.assoc_wire_first following 0
+  have trace := matched.assoc_trace following tripleWire
+  rw [names] at trace
+  rw [← trace]
+  have p := Height.point_placement 1 (1 / 4) (y := 1 / 2) (by norm_num [Set.mem_Icc])
+  have q := Height.point_placement 3 (1 / 4) (y := 1 / 2) (by norm_num [Set.mem_Icc])
+  norm_num [Height.leftPlacement, Height.rightPlacement, Height.lower, Height.collar, Height.upper, halfHeight] at p q
+  exact ⟨⟨_, first_collar_point, p⟩, ⟨_, last_collar_point, q⟩⟩
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveGluing.CollarRegression
