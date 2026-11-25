@@ -283,3 +283,43 @@ lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continu
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursiveContinuations.lean
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Thms'
 ```
+
+## Classification from a linked root
+
+`classify_linked` starts with the typed callable at an ω export, its
+arguments, the empty stack, and the actual infinite microsteps. A
+return to the empty stack has no following transition, so the trace
+itself gives the initial live delimiter. The assumptions on total
+single-step primitives and deterministic transitions are the same as
+for `split_live`.
+
+Each nested child continues at the least live call found by
+`first_child`. It retains the independent finite prefix, including
+finite θ feedback, and the exact typed stack at that position. A
+nonempty finite chain strictly increases both the microstep index
+and the saved stack depth. The global proof classically splits on
+whether a finite such chain ends at productive feedback. When it
+does, the final call and θ restart indices are on the supplied
+stream. Otherwise coinduction chooses an endless chain of successive
+least-child witnesses. `chain_checkpoints` chooses the independent
+prefix witnesses to recover a single `Descent.Run` at those same
+positions.
+
+`calls_sound` runs the independent infinite-call certificate through
+the existing simulation. The finite-call branch observes the route
+from its final call to θ on the supplied trace. A converse with wholly
+independent certificates also needs a finite judgment reaching the
+selected θ restart with its exact carried tuple and saved stack.
+[Root theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Descent/Completeness/Global/Thms.lean)
+
+The linked fixture starts at an exported λ that calls a φ member
+and leaves its suffix pending. The classifier extracts a nonempty
+finite chain ending at the φ call at microstep 3 and finds
+productive θ feedback inside it. The trace supplies no chain
+or restart checkpoints.
+[Linked fixture](../../tests/ssa/RVSDGRecursiveContinuations.lean)
+
+```sh
+lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Global.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Global.Thms'
+```

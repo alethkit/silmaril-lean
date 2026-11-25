@@ -1,7 +1,7 @@
 module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Divergence.Thms
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Global.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Tests
@@ -459,13 +459,14 @@ private def quietParent : Stack machine controlPorts controlPorts :=
 
 private abbrev decodedQuiet := quietBody.toGraph.toTerm
 
-private def quietCycle (i : Nat) : State machine controlPorts :=
+private def quietCycle (parent : Stack machine controlPorts controlPorts) (i : Nat) : State machine controlPorts :=
   match i % 3 with
-  | 0 => Feedback.restart decodedQuiet quietParent keepGoing
-  | 1 => .eval (.region decodedQuiet keepGoing PUnit.unit) (.loop decodedQuiet quietParent)
-  | _ => .returned (.cons (.control 1) keepGoing) (.loop decodedQuiet quietParent)
+  | 0 => Feedback.restart decodedQuiet parent keepGoing
+  | 1 => .eval (.region decodedQuiet keepGoing PUnit.unit) (.loop decodedQuiet parent)
+  | _ => .returned (.cons (.control 1) keepGoing) (.loop decodedQuiet parent)
 
-private theorem quietCycleStep (i : Nat) : Step (quietCycle i) (quietCycle (i + 1)) := by
+private theorem quietCycleStep (parent : Stack machine controlPorts controlPorts) (i : Nat) :
+    Step (quietCycle parent i) (quietCycle parent (i + 1)) := by
   have bound := Nat.mod_lt i (by decide : 0 < 3)
   have casesMod : i % 3 = 0 ∨ i % 3 = 1 ∨ i % 3 = 2 := by omega
   rcases casesMod with reduced | reduced | reduced <;>
@@ -475,25 +476,26 @@ private def quietMicro : Nat → State machine controlPorts
   | 0 => quietEntry.state .halt
   | 1 => .eval quietEntry.openBody .halt
   | 2 => State.runFor 2 (quietEntry.state .halt)
-  | i + 3 => quietCycle i
+  | i + 3 => quietCycle quietParent i
 
 private theorem quietSteps (i : Nat) : Step (quietMicro i) (quietMicro (i + 1)) := by
   match i with
   | 0 => rfl
   | 1 => rfl
   | 2 => cbv
-  | j + 3 => exact quietCycleStep j
+  | j + 3 => exact quietCycleStep quietParent j
+
+private theorem quietCycleNoCall (parent : Stack machine controlPorts controlPorts) (i : Nat) :
+    Descent.Entry.ofState (quietCycle parent i) = none := by
+  unfold quietCycle
+  split <;> rfl
 
 private theorem quietNoCall (i : Nat) (after : 0 < i) : Descent.Entry.ofState (quietMicro i) = none := by
   match i with
   | 0 => cases after
   | 1 => rfl
   | 2 => rfl
-  | j + 3 =>
-    change Descent.Entry.ofState (quietCycle j) = none
-    have bound := Nat.mod_lt j (by decide : 0 < 3)
-    have casesMod : j % 3 = 0 ∨ j % 3 = 1 ∨ j % 3 = 2 := by omega
-    rcases casesMod with reduced | reduced | reduced <;> simp only [quietCycle, reduced] <;> rfl
+  | j + 3 => exact quietCycleNoCall quietParent j
 
 -- The trace has an endless θ cycle but no deeper call. Its restart
 -- indices are computed by the theorem without a checkpoint premise.
@@ -507,5 +509,109 @@ example : HasFeedback quietMicro 1 := by
     cases child with
     | mk _ activation => cases activation; cases noCall
   · exact feedback.2
+
+open Descent.Completeness.Global
+
+private abbrev relayPorts : Ports T := quietFn.port :: controlPorts
+
+private def relayApply : NestedTheta.Node (Instruction Op) relayPorts [] controlPorts :=
+  ⟨relayPorts, .base (.simple (.apply quietFn)),
+    (NestedTheta.identityPorts relayPorts).map (fun _ => .arg), fun i => i.elim0⟩
+
+private def relaySuffix : NestedTheta.Term (Instruction Op) relayPorts [controlPorts] [] controlPorts :=
+  .ret (.cons (.output (0 : Fin 1) .head) .nil)
+
+private def relayLambda : LambdaTerm Op [] [[quietFn.port]] quietFn :=
+  ⟨[quietFn.port], .cons (.output (0 : Fin 1) .head) .nil,
+    [controlPorts], .bind relayApply (fun i => i.elim0) relaySuffix⟩
+
+private def relayModule : OmegaTerm Op [] [quietFn.port] [[quietFn.port], [quietFn.port]] :=
+  ⟨.bind (.phi quietGroup) (.bind (.lambda relayLambda) (.ret (.cons (.output (1 : Fin 2) .head) .nil)))⟩
+
+private def relayEntry : Descent.Entry machine :=
+  linkedEntry machine 29 relayModule.toGraph .nil .head keepGoing
+
+private def relayFrame : Stack machine controlPorts controlPorts :=
+  .resume (past := []) relaySuffix.toGraph.toTerm
+    (.cons quietEntry.activation.callee keepGoing) PUnit.unit .halt
+
+private def relayThetaFrame : Stack machine controlPorts controlPorts :=
+  .resume (past := []) quietSuffix.toGraph.toTerm keepGoing PUnit.unit relayFrame
+
+private def relayMicro : Nat → State machine controlPorts
+  | i + 6 => quietCycle relayThetaFrame i
+  | i => State.runFor i (relayEntry.state .halt)
+
+private theorem relaySteps (i : Nat) : Step (relayMicro i) (relayMicro (i + 1)) := by
+  match i with
+  | 0 => rfl
+  | 1 => rfl
+  | 2 => rfl
+  | 3 => rfl
+  | 4 => rfl
+  | 5 => cbv
+  | j + 6 => exact quietCycleStep relayThetaFrame j
+
+private theorem relayNoCall (i : Nat) (after : 0 < i) (different : i ≠ 3) :
+    Descent.Entry.ofState (relayMicro i) = none := by
+  match i with
+  | 0 => cases after
+  | 1 => rfl
+  | 2 => rfl
+  | 3 => exact False.elim (different rfl)
+  | 4 => rfl
+  | 5 => rfl
+  | j + 6 => exact quietCycleNoCall relayThetaFrame j
+
+private def observedDepth : State machine controlPorts → Nat
+  | .eval _ stack | .returned _ stack => Descent.stackDepth stack
+
+private theorem relayChildLive : Descent.Completeness.LiveFrom relayMicro 3 relayFrame := by
+  rintro i after ⟨output, returned⟩
+  match i with
+  | 0 | 1 | 2 => omega
+  | 3 | 4 | 5 =>
+    cbv at returned
+    cases returned
+  | j + 6 =>
+    change quietCycle relayThetaFrame j = .returned output relayFrame at returned
+    unfold quietCycle at returned
+    split at returned
+    · cases returned
+    · cases returned
+    · have clash : (3 : Nat) = 1 := congrArg observedDepth returned
+      cases clash
+
+private theorem relayCallIndex {point : Point machine controlPorts}
+    (after : 0 < point.index) (observed : point.Live relayMicro) : point.index = 3 := by
+  by_contra elsewhere
+  have noCall := relayNoCall point.index after elsewhere
+  rw [observed.1] at noCall
+  cases point with
+  | mk _ entry _ =>
+    cases entry with
+    | mk _ activation => cases activation; cases noCall
+
+-- The raw execution starts at an ω export. One independently specified
+-- call prefix leads into a φ member that runs a productive θ cycle.
+example : ∃ last, Relation.TransGen (ChildStep relayMicro) (Point.root relayEntry) last ∧
+    last.index = 3 ∧ Descent.Completeness.HasFeedback relayMicro (last.index + 1) := by
+  have root : relayMicro 0 =
+      start (.call ((Recursive.linkGraph machine 29 relayModule.toGraph .nil).get .head) keepGoing) := rfl
+  have classified := classify_linked machine 29 relayModule.toGraph .nil .head keepGoing relaySteps root
+  rcases classified with chain | ⟨last, path, live, closed, feedback⟩
+  · obtain ⟨points, first, edges⟩ := chain
+    have grows := (edges 0).grows.1
+    rw [first] at grows
+    have one : (points 1).index = 3 := relayCallIndex grows (edges 0).live
+    have later : (points 1).index < (points 2).index := (edges 1).grows.1
+    have two : (points 2).index = 3 := relayCallIndex (grows.trans later) (edges 1).live
+    rw [one, two] at later
+    exact False.elim ((Nat.lt_irrefl 3) later)
+  · rcases Relation.reflTransGen_iff_eq_or_transGen.mp path with same | nonempty
+    · subst last
+      have child : relayMicro 3 = quietEntry.state relayFrame := by cbv
+      exact False.elim (closed 3 (by decide) ⟨quietEntry, relayFrame, child, relayChildLive⟩)
+    · exact ⟨last, nonempty, relayCallIndex (path_grows nonempty).1 live, feedback⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Tests

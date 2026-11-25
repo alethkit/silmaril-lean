@@ -7,7 +7,7 @@ public section
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Global.Proofs
 
-open Relation (ReflTransGen)
+open Relation (ReflTransGen TransGen)
 
 universe u v w
 
@@ -26,6 +26,14 @@ theorem child_grows (edge : ChildStep micro parent child) :
     parent.index < child.index ∧ stackDepth parent.stack < stackDepth child.stack := by
   obtain ⟨pending, observed, stack⟩ := edge
   exact ⟨observed.later, stack ▸ observed.deeper⟩
+
+theorem path_grows (path : TransGen (ChildStep micro) parent child) :
+    parent.index < child.index ∧ stackDepth parent.stack < stackDepth child.stack := by
+  induction path with
+  | single edge => exact child_grows edge
+  | tail _ edge ih =>
+    have next := child_grows edge
+    exact ⟨ih.1.trans next.1, ih.2.trans next.2⟩
 
 private theorem root_live {entry : Entry m} {micro : Nat → State m entry.results}
     (steps : ∀ i, Step (micro i) (micro (i + 1))) (initial : micro 0 = entry.state .halt) :

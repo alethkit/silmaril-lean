@@ -21,9 +21,15 @@ theorem ChildStep.grows (edge : ChildStep micro parent child) :
     parent.index < child.index ∧ stackDepth parent.stack < stackDepth child.stack :=
   Proofs.child_grows edge
 
+/-- A nonempty finite prefix chain has strictly later and deeper endpoints. -/
+theorem path_grows (path : Relation.TransGen (ChildStep micro) parent child) :
+    parent.index < child.index ∧ stackDepth parent.stack < stackDepth child.stack :=
+  Proofs.path_grows path
+
 /-- Classify an actual infinite run at a root call. A return to the
 empty stack would make the next step impossible. The result uses the
-same deterministic machine with total, single-step primitives. -/
+same deterministic machine with total, single-step primitives.
+Its split on existence of a finite feedback ending is classical. -/
 theorem classify_root {entry : Entry m} {micro : Nat → State m entry.results}
     (steps : ∀ i, Step (micro i) (micro (i + 1))) (initial : micro 0 = entry.state .halt) :
     Classification entry micro :=
