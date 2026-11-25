@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.Coherence.Defs
 import Silmaril.Proofs.Semantics.RuntimeWires.Coherence.Premonoidal
+import Silmaril.Proofs.Semantics.RuntimeWires.Coherence.Whiskering
 
 @[expose] public section
 
@@ -32,5 +33,21 @@ instance premonoidal {G : EffectfulPolygraph.{u,v}} : PremonoidalCategory (Compu
   rightUnitor_naturality := by exact Computation.naturality_rightUnitor
   pentagon := by exact Computation.pentagon
   triangle := by exact Computation.triangle
+
+variable {G : EffectfulPolygraph.{u,v}}
+
+/-- Right whiskering only changes the grouping of the cap word. -/
+theorem splitRight_eqToIso (A B : Computations G)
+    (h : (A.concat B).boundary = A.boundary ⊗ valueWord B.word) :
+    A.splitRight B = eqToIso h := by
+  apply Iso.ext
+  exact splitRight_hom A B
+
+/-- The left split for an effect with no value ports and a single idle
+value is exactly the elementary crossing of the runtime. -/
+theorem splitLeft_singleton_empty (x : G.Obj) :
+    (Computations.mk [x]).splitLeft (Computations.mk []) = crossing x := by
+  apply Iso.ext
+  exact Proofs.RuntimeCoherence.splitLeft_singleton_empty x
 
 end Silmaril.RuntimeWires.Presentation.Computations

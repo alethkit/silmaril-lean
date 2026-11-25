@@ -44,4 +44,10 @@ theorem imposeEquations_ofTerm (includeEquation : ∀ {A B} {f g : Diagram S A B
     (imposeEquations includeEquation).map (ofTerm f) =
       ofTerm (A := ⟨A.word⟩) (B := ⟨B.word⟩) (E := F) f := by rfl
 
+theorem imposeEquations_tensor (includeEquation : ∀ {A B} {f g : Diagram S A B}, E f g → F f g)
+    {A B C D : Presented S E} (f : A ⟶ B) (g : C ⟶ D) :
+    (imposeEquations includeEquation).map (tensorMap f g) =
+      tensorMap ((imposeEquations includeEquation).map f) ((imposeEquations includeEquation).map g) := by
+  exact Quotient.inductionOn₂ f g (fun _ _ => rfl)
+
 end Silmaril.RuntimeWires.Diagram.Presented
