@@ -6,6 +6,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Dispatcher.Singleton
 public import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Naturality.Thms
 public import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Category.Retained.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Thms
 
 /-! # Loop-free singleton reification in the Paper quotient -/
 
@@ -711,6 +712,30 @@ theorem factor_case (cmp : ModelComparisons J M objIso pe)
     (fun _ _ _ => compare_distributor J M objIso
       (fun {Y A B} f => cmp.whisker (Y := Y) (A := A) (B := B) f) cmp.inl cmp.inr)
     ha hp hq (cmp.sumProducer ha)
+
+open CfgEta.TypeCategory.Retained (case_factor packedDistributor)
+open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (caseWithContext)
+
+set_option backward.isDefEq.respectTransparency false in
+omit [FreydCategory.CentralUnit J] [RegionTypingCoherent (Φ := Φ) J M] in
+theorem factor_dispatch (cmp : ModelComparisons J M objIso pe) {A B : τ}
+    (f : J.obj (M.obj X) ⟶ J.obj (M.obj (Silmaril.coprod A B)))
+    (g : J.obj (M.obj (Silmaril.product X A)) ⟶ J.obj (M.obj D))
+    (h : J.obj (M.obj (Silmaril.product X B)) ⟶ J.obj (M.obj D)) :
+    reindexHom J M objIso (caseWithContext J (f ≫ J.map (M.coprodIso A B).hom)
+      (J.map (M.productIso X A).inv ≫ g) (J.map (M.productIso X B).inv ≫ h)) =
+      (ofRegion (τ := τ) (diagonal_typed X) ≫ whiskerLeft (ofType (Φ := Φ) X)
+        (reindexHom J M objIso f)) ≫
+        ofRegion (τ := τ) (distributorRegion_typed X A B) ≫
+        (sumIso (Silmaril.product X A) (Silmaril.product X B)).hom ≫
+        coprod.desc (reindexHom J M objIso g) (reindexHom J M objIso h) := by
+  obtain ⟨_, hg, eg⟩ := exists_ofRegion (reindexHom J M objIso g)
+  obtain ⟨_, hh, eh⟩ := exists_ofRegion (reindexHom J M objIso h)
+  have copy := compare_diagonal (X := X) J M objIso pe cmp.fst cmp.snd cmp.imagePure cmp.projectionExtensionality
+  have whisker := fun {Y E F} f => cmp.whisker (Y := Y) (A := E) (B := F) f
+  rw [case_factor, transport_comp, transport_comp, extend_compare J M objIso copy whisker,
+    compare_distributor J M objIso whisker cmp.inl cmp.inr,
+    compare_copair J M objIso cmp.inl cmp.inr hg hh eg eh, eg, eh, coprod_desc_ofRegion]
 
 section BinaryLet
 
