@@ -9,6 +9,21 @@ public section
 
 universe u v
 
+namespace Silmaril.Calco2019.ParametrizedMonad
+
+open CategoryTheory
+
+variable {C : Type u} [Category.{v} C] (M : ParametrizedMonad C)
+
+/-- A parameter map preserves Kleisli extension. -/
+@[reassoc]
+theorem parameter_extend {W V X Y : C} (j : W ⟶ V) (g : X ⟶ (M.obj W).obj Y) :
+    (M.parameter X).map j ≫ M.extend (W := V) (g ≫ (M.parameter Y).map j) =
+      M.extend (W := W) g ≫ (M.parameter Y).map j :=
+  Proofs.parameter_extend j g
+
+end Silmaril.Calco2019.ParametrizedMonad
+
 namespace Silmaril.Calco2019.FinalResumptions
 
 open CategoryTheory

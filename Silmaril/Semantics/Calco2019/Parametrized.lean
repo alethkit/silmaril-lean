@@ -56,14 +56,14 @@ instance : Category (GuardedElgotMonad P) where
   assoc f g h := GuardedElgotMonadHom.ext (Category.assoc f.hom g.hom h.hom)
 
 /-- The monad underlying a guarded Elgot monad. -/
-def GuardedElgotMonad.forget (P : Coproducts C) : GuardedElgotMonad P ⥤ CategoryTheory.Monad C where
+abbrev GuardedElgotMonad.forget (P : Coproducts C) : GuardedElgotMonad P ⥤ CategoryTheory.Monad C where
   obj T := T.monad
   map m := m.hom
 
 /-- Definition 21. Functorial variation of guarded Elgot monads in a parameter. -/
 abbrev ParametrizedGuardedElgotMonad (P : Coproducts C) := C ⥤ GuardedElgotMonad P
 
-def ParametrizedGuardedElgotMonad.toParametrizedMonad (M : ParametrizedGuardedElgotMonad P) :
+abbrev ParametrizedGuardedElgotMonad.toParametrizedMonad (M : ParametrizedGuardedElgotMonad P) :
     ParametrizedMonad C :=
   M ⋙ GuardedElgotMonad.forget P
 
