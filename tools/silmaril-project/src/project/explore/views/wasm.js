@@ -347,7 +347,8 @@ async function wasmFuncPage(arg) {
     const path = `f/${encodeURIComponent(s.slug)}/${idx}.json`;
     try { body = await wasmJson(path); }
     catch (e) { return h + wasmMissing(e); }
-    if (body?.idx !== idx || typeof body.wat !== "string" || !validReactorGraph(body.cfg)) {
+    if (body?.idx !== idx || typeof body.wat !== "string" || !validReactorGraph(body.cfg) ||
+        body.cfg.blocks.length !== f.blocks) {
       wasmCache.delete(path);
       return h + '<p class="err">The detail file did not contain a usable CFG for this slot.</p>';
     }

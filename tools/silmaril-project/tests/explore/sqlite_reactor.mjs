@@ -91,7 +91,8 @@ try {
   assert.deepEqual(new Set(effects), new Set(["may-trap", "call"]));
   assert.equal(details.at(-1), `/wasm/f/${slug}/530.json`);
 
-  for (const payload of [null, { idx: 530, cfg: {} }, { idx: 530, wat: "(func)", cfg: {} }]) {
+  const exitOnly = { idx: 530, wat: "(func)", cfg: { blocks: [], edges: [], entry: "exit" } };
+  for (const payload of [null, { idx: 530, cfg: {} }, { idx: 530, wat: "(func)", cfg: {} }, exitOnly]) {
     const broken = await browser.newPage();
     broken.on("pageerror", (e) => errors.push(e.message));
     await broken.route(`**/wasm/f/${slug}/530.json`, (route) =>
@@ -105,6 +106,18 @@ try {
     assert.equal(await broken.locator("#wcy").count(), 0);
     await broken.close();
   }
+  const empty = await browser.newPage();
+  empty.on("pageerror", (e) => errors.push(e.message));
+  const inventory = JSON.parse(fs.readFileSync(path.join(site, "wasm", "m", `${slug}.json`)));
+  inventory.functions[530].blocks = 0;
+  inventory.functions[530].instrs = 0;
+  await empty.route(`**/wasm/m/${slug}.json`, (route) => route.fulfill({ json: inventory }));
+  await empty.route(`**/wasm/f/${slug}/530.json`, (route) => route.fulfill({ json: exitOnly }));
+  await empty.goto(`${base}#/wasm-func/${slug}/530`);
+  await empty.locator("#wcy").waitFor();
+  assert.equal(await empty.locator("#wlegend [data-c=flow]").innerText(), "0");
+  assert.equal(await empty.locator("#main .err").count(), 0);
+  await empty.close();
   assert.deepEqual(errors, []);
   console.log("SQLite reactor search, lazy CFGs, effect marks, and provenance-preserving detail errors passed.");
 } finally {
