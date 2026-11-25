@@ -29,13 +29,13 @@ lake build --wfail +Silmaril.Papers.Calco2019.Examples.PrintingHangs
 
 ## Finite and productive deterministic words
 
-[WordResumptions][word-resumptions] checks the other two carrier identifications
+`WordResumptions` checks the other two carrier identifications
 on p. 13:3. `initial` uses the empty-word return and letter prepend to show
 that `List A × X` is the initial algebra of `X + A × -`.
 `terminal` uses the head of the stream to make `(List A × X) ⊕ (ℕ → A)`
 the final coalgebra of the same functor. The productive coalgebra embeds in
 the hang coalgebra, and unfolding a total printing layer stays in the
-productive carrier.
+productive carrier. [Lean declarations](../../Silmaril/Semantics/Calco2019/Examples/Printing/WordResumptions/Thms.lean)
 
 ## Capretta delay
 
@@ -60,4 +60,3 @@ lake build --wfail +Silmaril.Papers.Calco2019.Examples.Delay
 [examples]: calco2019-examples.md
 [delay]: ../../Silmaril/Semantics/Calco2019/Examples/Delay/Thms.lean
 [hangs]: ../../Silmaril/Semantics/Calco2019/Examples/Printing/Hangs/Thms.lean
-[word-resumptions]: ../../Silmaril/Semantics/Calco2019/Examples/Printing/WordResumptions/Thms.lean
