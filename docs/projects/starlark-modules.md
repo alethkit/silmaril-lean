@@ -91,11 +91,12 @@ commands enter the same body
 path as function assignments, then use the ordinary publication rules.
 [List comprehension semantics](starlark-functions.md#list-comprehension-assignment) · [Dictionary comprehension semantics](starlark-functions.md#dictionary-comprehension-assignment)
 
-The normalized `CompExpr` adapter allows comprehensions in call callees,
-positional, keyword and spread arguments, and conditional or short-circuit
-operators within return values and single-name assignment RHSs. Both selected and skipped AST positions are
-resolved before execution. The emitted body evaluates only the selected
-paths and keeps prior shared heap effects on failure.
+The normalized `CompExpr` adapter allows comprehensions in call operands,
+conditional and short-circuit operands, collection displays and single
+subscript reads within return values and single-name assignment RHSs.
+Both selected and skipped AST positions are resolved before execution.
+The emitted body evaluates only reached operands, preserves their order
+and keeps prior shared heap effects on failure.
 [Expression placement](starlark-functions.md#comprehensions-in-checked-expression-positions)
 
 A loop target belongs to the whole function block. The resolver collects

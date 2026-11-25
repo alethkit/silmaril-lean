@@ -312,12 +312,40 @@ scratch-slot assumptions. The normalized source correspondence shares its
 elaborator.
 [Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
 
-Comprehensions in collection and subscript operands, comprehension clause
-operands, defaults and other statement operands remain open. Call shape
-and spread value domains follow the [existing argument profile](#argument-binding). Field and subscript pattern leaves
-remain outside this profile. Quotation supplies ordinary operands and
-pattern ASTs. The normalized comprehension and placement nodes are
-constructed separately.
+The same grammar admits comprehensions within list and tuple elements,
+dictionary display keys and values, and the receiver and index of a
+single subscript read. Lists and tuples evaluate elements left to right
+and allocate only after every element succeeds. Dictionary displays
+allocate an empty accumulator first. Each key and value run in order,
+then the display insertion checks hashability and duplicates before the
+next pair. A failed value takes precedence over an unhashable key.
+[Pinned lists][list-expr] · [Pinned dictionary displays][dict-expr] · [Go list compilation][go-comp-display] · [Go dictionary compilation][go-dict-compile]
+
+Dictionary displays retain the distinct duplicate rejection policy.
+Lean keeps the accepted prefix in its private accumulator. Go's
+`SETDICTUNIQ` updates the duplicate entry before reporting the error.
+The failed display never publishes this private dictionary in either
+runtime. The differential fixtures compare visible effects and errors,
+while Lean tests the exact private heap as well.
+[Go duplicate handling][go-dict-run]
+
+Subscript reads evaluate the receiver and then the index. Validation
+uses the existing read primitive after both operands succeed. A failed
+receiver skips the index, and an index expression error precedes
+validation of a successfully evaluated receiver. The body scopes retain
+earlier effects, restore the caller's bindings and iterator guards, and
+leave the destination untouched when an operand or final operation fails.
+`display_entry_order` and `index_order` state these staging boundaries.
+The exact assignment and return correspondence covers the new cases
+with the same admission assumptions.
+[Pinned subscripts][subscript] · [Go index compilation][go-index-compile] · [Go validation][go-index] · [Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean)
+
+Comprehensions in slice operands, comprehension clauses, defaults and
+other statement operands remain open. Call shapes and spread value
+domains follow the [existing argument profile](#argument-binding).
+Field and subscript assignment targets remain outside this placement
+profile. Quotation supplies ordinary operands and pattern ASTs. The
+normalized comprehension and placement nodes are constructed separately.
 
 ## Direct denotation of resolved expressions
 
@@ -826,3 +854,4 @@ extend this profile. Host callable effects remain open.
 [conditional]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#conditional-expressions
 [logical-ops]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#or-and-and
 [go-parameter-binding]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1429-L1480
+[go-comp-display]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1310-L1314

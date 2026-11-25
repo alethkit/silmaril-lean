@@ -123,4 +123,36 @@ theorem argument_order (program : Program) (available : List DeclarationId) (ind
       | signal => pure signal :=
   Proofs.Languages.Starlark.Functions.Comprehensions.argument_order program available index first rest dispatch state
 
+/-- A dictionary display runs the key, value and insertion in order.
+A failure skips the rest of the entry and every later pair. -/
+theorem display_entry_order (program : Program) (available : List DeclarationId)
+    (key value : Binding → Body) (rest : Body) (state : State) :
+    denoteBody program available (stageDisplayEntry key value rest) state =
+      Outcome.resume (denoteBody program available (key (argumentSlot 0)) state) fun
+        | .next => fun next =>
+          Outcome.resume (denoteBody program available (value (argumentSlot 1)) next) fun
+            | .next => fun next =>
+              Outcome.resume (denoteBody program available
+                (.insertDictEntry expressionSlot (argumentSlot 0) (argumentSlot 1)) next) fun
+                | .next => denoteBody program available rest
+                | signal => pure signal
+            | signal => pure signal
+        | signal => pure signal :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.display_entry_order program available key value rest state
+
+/-- Subscript validation follows both successful operand evaluations.
+Either operand can fail before indexing is attempted. -/
+theorem index_order (program : Program) (available : List DeclarationId)
+    (target : Binding) (receiver subscript : Binding → Body) (state : State) :
+    denoteBody program available (compileIndex target receiver subscript) state =
+      completeCall state (some target)
+        (Outcome.resume (denoteBody program available (receiver (argumentSlot 0)) state) fun
+          | .next => fun next =>
+            Outcome.resume (denoteBody program available (subscript (argumentSlot 1)) next) fun
+              | .next => denoteBody program available (.returnExpr
+                  (.atom (.index (readSaved (argumentSlot 0)) (readSaved (argumentSlot 1)))))
+              | signal => pure signal
+          | signal => pure signal) :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.index_order program available target receiver subscript state
+
 end Silmaril.Languages.Starlark.Functions.Comprehensions

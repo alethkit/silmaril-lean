@@ -19,6 +19,15 @@ inductive Expression.Admitted : Expression → Prop where
   | dict {comp : DictComp} : Lowering.Admitted comp.iterable →
       (∀ expr ∈ comp.operands, Lowering.Admitted expr) →
       (∀ name ∈ comp.locals, ¬ Scratch 0 name) → Expression.Admitted (.dict comp)
+  | listDisplay {elements : List Expression} :
+      (∀ element ∈ elements, element.Admitted) → Expression.Admitted (.listDisplay elements)
+  | tupleDisplay {elements : List Expression} :
+      (∀ element ∈ elements, element.Admitted) → Expression.Admitted (.tupleDisplay elements)
+  | dictDisplay {entries : List (Expression × Expression)} :
+      (∀ entry ∈ entries, entry.1.Admitted) → (∀ entry ∈ entries, entry.2.Admitted) →
+      Expression.Admitted (.dictDisplay entries)
+  | index {receiver subscript : Expression} :
+      receiver.Admitted → subscript.Admitted → Expression.Admitted (.index receiver subscript)
   | callPos {callee : Lowering.Expr} {arguments : List Expression} :
       Lowering.Admitted callee → (∀ arg ∈ arguments, arg.Admitted) →
       Expression.Admitted (.callPos callee arguments)

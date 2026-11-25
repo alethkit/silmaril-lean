@@ -50,6 +50,10 @@ inductive CompExpr where
   | plain (value : Lowering.Resolve.SourceExpr)
   | list (comp : ListComp)
   | dict (comp : DictComp)
+  | listDisplay (elements : List CompExpr)
+  | tupleDisplay (elements : List CompExpr)
+  | dictDisplay (entries : List (CompExpr × CompExpr))
+  | index (receiver subscript : CompExpr)
   | callPos (callee : Lowering.Resolve.SourceExpr) (arguments : List CompExpr)
   /-- Argument groups are already in valid source order. -/
   | call (callee : CompExpr) (positional : List CompExpr)
@@ -200,6 +204,28 @@ private def compileCompExpr (context : Context) :
   | .dict comp => do
     let (plan, reads) ← compileComp context comp.target comp.iterable comp.rest readEntry Comprehensions.DictComp.mk
     return (.dict plan, reads)
+  | .listDisplay elements => do
+    let elements ← elements.attach.mapM fun element => do
+      have := List.sizeOf_lt_of_mem element.property
+      compileCompExpr context element.val
+    return (.listDisplay (elements.map Prod.fst), elements.flatMap Prod.snd)
+  | .tupleDisplay elements => do
+    let elements ← elements.attach.mapM fun element => do
+      have := List.sizeOf_lt_of_mem element.property
+      compileCompExpr context element.val
+    return (.tupleDisplay (elements.map Prod.fst), elements.flatMap Prod.snd)
+  | .dictDisplay entries => do
+    let entries ← entries.attach.mapM fun ⟨(key, value), member⟩ => do
+      have := (Lowering.entrySize member).1
+      have := (Lowering.entrySize member).2
+      let (key, keyReads) ← compileCompExpr context key
+      let (value, valueReads) ← compileCompExpr context value
+      return ((key, value), keyReads ++ valueReads)
+    return (.dictDisplay (entries.map Prod.fst), entries.flatMap Prod.snd)
+  | .index receiver subscript => do
+    let (receiver, receiverReads) ← compileCompExpr context receiver
+    let (subscript, subscriptReads) ← compileCompExpr context subscript
+    return (.index receiver subscript, receiverReads ++ subscriptReads)
   | .callPos callee arguments => do
     let (callee, calleeReads) ← readExpr context callee
     let compiled ← arguments.attach.mapM fun argument => do

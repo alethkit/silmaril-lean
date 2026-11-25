@@ -12,6 +12,10 @@ inductive Expression where
   | plain (value : Lowering.Expr)
   | list (comp : ListComp)
   | dict (comp : DictComp)
+  | listDisplay (elements : List Expression)
+  | tupleDisplay (elements : List Expression)
+  | dictDisplay (entries : List (Expression × Expression))
+  | index (receiver subscript : Expression)
   | callPos (callee : Lowering.Expr) (arguments : List Expression)
   /-- Positional operands, then named operands, then at most one of each spread. -/
   | call (callee : Expression) (positional : List Expression)
@@ -47,8 +51,8 @@ def readSaved (name : Binding) : Lists.Expr := .read (.bound name)
 
 def returnSaved (name : Binding) : Body := .returnExpr (.atom (readSaved name))
 
-/-- Evaluate each operand into its own saved binding before entering dispatch.
-The containing call scope restores these bindings on both exits. -/
+/-- Evaluate each operand into its own saved binding before the final operation.
+The containing expression scope restores these bindings on both exits. -/
 def stageArguments (index : Nat) (arguments : List (Binding → Body))
     (dispatch : List Lists.Expr → Body) : Body :=
   match arguments with
@@ -56,6 +60,26 @@ def stageArguments (index : Nat) (arguments : List (Binding → Body))
   | argument :: rest =>
     .seq (argument (argumentSlot index))
       (stageArguments (index + 1) rest fun saved => dispatch (readSaved (argumentSlot index) :: saved))
+
+/-- Lists and tuples allocate only after every element has succeeded. -/
+def compileSequence (target : Binding) (finish : List Lists.Expr → Lists.Expr)
+    (elements : List (Binding → Body)) : Body :=
+  .assignScoped target [] (stageArguments 0 elements fun saved => .returnExpr (.atom (finish saved)))
+
+/-- Stage the key and then the value before inserting one pair. -/
+def stageDisplayEntry (key value : Binding → Body) (rest : Body) : Body :=
+  .seq (key (argumentSlot 0)) (.seq (value (argumentSlot 1))
+    (.seq (.insertDictEntry expressionSlot (argumentSlot 0) (argumentSlot 1)) rest))
+
+/-- Allocate before the first pair, then validate each pair before starting the next. -/
+def compileDictDisplay (target : Binding) (entries : List ((Binding → Body) × (Binding → Body))) : Body :=
+  .assignScoped target [] (.seq (.assignExpr expressionSlot (.atom (.dict .noEntries)))
+    (entries.foldr (fun (key, value) rest => stageDisplayEntry key value rest) (returnSaved expressionSlot)))
+
+/-- Select the existing indexing primitive only after the receiver and index have run. -/
+def compileIndex (target : Binding) (receiver subscript : Binding → Body) : Body :=
+  .assignScoped target [] (.seq (receiver (argumentSlot 0)) (.seq (subscript (argumentSlot 1))
+    (.returnExpr (.atom (.index (readSaved (argumentSlot 0)) (readSaved (argumentSlot 1)))))))
 
 /-- Only the final body operation expands arguments or prepares a call.
 Its operands read the saved values using the regular argument shape. -/
@@ -84,6 +108,21 @@ def Expression.compile (stages : ExpressionStages) (expr : Expression) (target :
   | .plain value => stages.plain target value
   | .list comp => stages.list comp target
   | .dict comp => stages.dict comp target
+  | .listDisplay elements =>
+    compileSequence target (.list ∘ operandList) (elements.attach.map fun element =>
+      have := List.sizeOf_lt_of_mem element.property
+      element.val.compile stages)
+  | .tupleDisplay elements =>
+    compileSequence target (.tuple ∘ operandList) (elements.attach.map fun element =>
+      have := List.sizeOf_lt_of_mem element.property
+      element.val.compile stages)
+  | .dictDisplay entries =>
+    compileDictDisplay target (entries.attach.map fun ⟨(key, value), member⟩ =>
+      have := (Lowering.entrySize member).1
+      have := (Lowering.entrySize member).2
+      (key.compile stages, value.compile stages))
+  | .index receiver subscript =>
+    compileIndex target (receiver.compile stages) (subscript.compile stages)
   | .callPos callee arguments =>
     let operands := arguments.attach.map fun arg =>
       have := List.sizeOf_lt_of_mem arg.property
