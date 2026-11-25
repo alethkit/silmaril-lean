@@ -7,7 +7,10 @@ For each proposed pair, `Sound` asks that every admitted x86 run project to
 a behavior of the SQLite input at the chosen layer. The inclusion is
 `projected implementation behaviors ⊆ specification behaviors`. Independently,
 every issued memory access must stay within the byte footprint allowed for the
-pair. Erasing an event from the trace does not exempt its access from that check.
+pair. The run adapters compute that footprint from their issued actions.
+The observation map only selects visible events and final state observations.
+The [regressions](../../Silmaril/X86/Concurrency/Sqlite/Checks.lean) reject empty
+and partial footprints for an erased two-byte store under both SC and TSO.
 
 | Layer | Existing relation | Observation |
 | --- | --- | --- |
@@ -27,7 +30,9 @@ The access footprint covers instruction-issued bytes. Initial pending writes,
 forwarding, flush confinement and synchronization are separate obligations when
 a client interprets an x86 program.
 
-The axiomatic adapter uses `Litmus.AxReach` and `Lattice.Name.model`, including
+The axiomatic adapter uses `Litmus.AxReach` and `Lattice.Name.model`. Its
+footprint covers the read and write units of the admitted candidate, including
+units split for tearing. The models include
 SC, strict TSO and the looser XL model of tearing and weak stores. Its trace
 vector records thread-indexed program order. A client that observes an order
 across threads needs an explicit justification for that order. The operational
@@ -43,6 +48,6 @@ boundary is a separate obligation from the
 [pinned mutex dispatch cut](sqlite-mutex.md).
 
 ```sh
-lake build --wfail +Silmaril.X86.Concurrency.Sqlite.Defs
-make check CHECK_TARGETS=+Silmaril.X86.Concurrency.Sqlite.Defs
+lake build --wfail +Silmaril.X86.Concurrency.Sqlite.Checks
+make check CHECK_TARGETS=+Silmaril.X86.Concurrency.Sqlite.Checks
 ```
