@@ -16,4 +16,14 @@ theorem layout_header_fields {leading page : List UInt8} {cells : List (List UIn
         some (File.Write.pageSize - cells.flatten.length) :=
   Silmaril.Proofs.Formats.Sqlite.BTree.LeafWrite.layout_header_fields accepted
 
+/-- An in-range pointer slot of a successful layout stores the content start
+plus the byte lengths of the preceding serialized cells. The field starts at
+the shown offset relative to the serialized page, including its leading bytes. -/
+theorem layout_pointer {leading page : List UInt8} {cells : List (List UInt8)} (slot : Nat)
+    (accepted : layout leading cells = .ok page) (within : slot < cells.length) :
+    let view := File.View.ofBytes (Bytes.ofList page)
+    view.be? (leading.length + 8 + 2 * slot) 2 =
+      some (File.Write.pageSize - cells.flatten.length + (cells.take slot).flatten.length) :=
+  Silmaril.Proofs.Formats.Sqlite.BTree.LeafWrite.layout_pointer slot accepted within
+
 end Silmaril.Formats.Sqlite.BTree.LeafWrite

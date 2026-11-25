@@ -18,6 +18,7 @@ The numbered examples are 10 (p. 13:8), 20 (pp. 13:10–11), and 22
 
 The accounts of printing, I/O, and free extensions in the paper's introduction
 are unnumbered. The table covers the three numbered examples.
+See the [introduction coverage](calco2019-introduction.md) for the §1 models.
 
 ## Verification record
 

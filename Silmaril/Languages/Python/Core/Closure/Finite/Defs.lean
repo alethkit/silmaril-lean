@@ -81,20 +81,34 @@ def execute (source : Heap × Frame layout) : Request layout → Response × (He
 
 namespace Snapshot
 
+def bindCell (source : Snapshot layout) (identity : CellId) (value : Value) :
+    Except Failure (Snapshot layout) :=
+  match source.heap.write identity value with
+  | some heap => .ok { source with heap }
+  | none => .error (.danglingCell identity)
+
+def write (source : Snapshot layout) (slot : Slot layout) (value : Value) :
+    Except Failure (Snapshot layout) :=
+  match slot with
+  | .local index =>
+    let frame : Frame layout := { source.frame with
+      locals := fun slot => if slot = index then some value else source.frame.locals slot }
+    .ok { source with frame }
+  | .owned index => source.bindCell (source.frame.owned index) value
+  | .capture index => source.bindCell (source.frame.captures index) value
+
+def reportWrite (source : Snapshot layout) : Except Failure (Snapshot layout) →
+    Response × Snapshot layout
+  | .ok next => (.write (.ok ()), next)
+  | .error failure => (.write (.error failure), source)
+
 def writeCell (source : Snapshot layout) (identity : CellId) (value : Value) :
     Response × Snapshot layout :=
-  match source.heap.write identity value with
-  | some heap => (.write (.ok ()), { source with heap })
-  | none => (.write (.error (.danglingCell identity)), source)
+  reportWrite source (source.bindCell identity value)
 
 def execute (source : Snapshot layout) : Request layout → Response × Snapshot layout
   | .read slot => (.read (source.frame.read source.heap.project slot), source)
-  | .write (.local index) value =>
-    let frame : Frame layout := { source.frame with
-      locals := fun slot => if slot = index then some value else source.frame.locals slot }
-    (.write (.ok ()), { source with frame })
-  | .write (.owned index) value => source.writeCell (source.frame.owned index) value
-  | .write (.capture index) value => source.writeCell (source.frame.captures index) value
+  | .write slot value => reportWrite source (source.write slot value)
   | .fresh captures =>
     (.fresh, ⟨source.heap.reserve layout.owned, (Frame.fresh source.heap.project captures).2⟩)
 
