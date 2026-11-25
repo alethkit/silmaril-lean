@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.FixedCapCategory.Thms
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalComparison.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.Whiskering.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapClasses.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
 import Mathlib.Data.Fin.VecNotation
@@ -619,5 +619,45 @@ example (s : ActiveStrip) :
       s.placeClass (a := capObject) (b := capObject) idleCap (CapClass.ofDrawing activeFrame) :=
   congrArg (s.placeClass (a := capObject) (b := capObject) idleCap)
     (CapClass.sound (bend_equivalent halfway))
+
+private noncomputable def leftWhiskering := ActiveStrip.left.whisker idleCap
+private noncomputable def rightWhiskering := ActiveStrip.right.whisker idleCap
+
+example :
+    leftWhiskering.map (bentMap halfway ≫ bentMap lastTime) =
+      leftWhiskering.map (bentMap halfway) ≫ leftWhiskering.map (bentMap lastTime) :=
+  leftWhiskering.map_comp _ _
+
+example :
+    rightWhiskering.map (bentMap halfway ≫ bentMap lastTime) =
+      rightWhiskering.map (bentMap halfway) ≫ rightWhiskering.map (bentMap lastTime) :=
+  rightWhiskering.map_comp _ _
+
+example (side : ActiveStrip) :
+    (side.whisker idleCap).map (bentMap halfway ≫ bentMap lastTime) =
+      FixedCap.ofDrawing (side.placeDrawing (a := capObject) (b := capObject)
+        ((fixedFrame halfway).thenDo (fixedFrame lastTime)) idleCap) :=
+  (congrArg (side.whisker idleCap).map
+    (FixedCap.comp_drawings (a := capObject) (b := capObject) (c := capObject)
+      (fixedFrame halfway) (fixedFrame lastTime))).trans
+    (side.whisker_drawings (a := capObject) (b := capObject) idleCap
+      ((fixedFrame halfway).thenDo (fixedFrame lastTime)))
+
+example : leftWhiskering.map (𝟙 capObject) = 𝟙 (leftWhiskering.obj capObject) :=
+  leftWhiskering.map_id _
+
+example : rightWhiskering.map (𝟙 capObject) = 𝟙 (rightWhiskering.obj capObject) :=
+  rightWhiskering.map_id _
+
+private noncomputable def emptyWhiskering (side : ActiveStrip) := side.whisker emptyCap
+
+example (side : ActiveStrip) :
+    (emptyWhiskering side).map (bentMap halfway ≫ bentMap lastTime) =
+      (emptyWhiskering side).map (bentMap halfway) ≫ (emptyWhiskering side).map (bentMap lastTime) :=
+  (emptyWhiskering side).map_comp _ _
+
+example (side : ActiveStrip) :
+    (emptyWhiskering side).map (𝟙 capObject) = 𝟙 ((emptyWhiskering side).obj capObject) :=
+  (emptyWhiskering side).map_id _
 
 end Silmaril.RuntimeWires.Proofs.OperandAmbient.Regression
