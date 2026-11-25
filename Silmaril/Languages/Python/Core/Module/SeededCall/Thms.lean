@@ -31,4 +31,12 @@ theorem invoke_iff {callee : Value} {arguments : List Value} {result : Result} :
     invoke callee arguments = result ↔ Executes (Request.decode callee arguments) result :=
   Proofs.Languages.Python.Core.Module.SeededCall.invoke_iff
 
+theorem invoke_int_bool (value : Bool) :
+    invoke (.builtin .int) [.bool value] = .ok (.int (Int.ofNat value.toNat)) :=
+  invoke_iff.mpr (.intFromBool value)
+
+theorem invoke_assertIsNot_int_bool (integer : Int) (truth : Bool) :
+    invoke (.helper .assertIsNot) [.int integer, .bool truth] = .ok .none :=
+  invoke_iff.mpr .distinctIntBool
+
 end Silmaril.Languages.Python.Core.Module.SeededCall

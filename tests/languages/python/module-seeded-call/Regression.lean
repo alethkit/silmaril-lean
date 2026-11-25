@@ -82,6 +82,18 @@ example : invoke (.helper (.assertRaises .empty))
 example : run builtinSeed populated (.global "___assertEqual") [.unsupported, .literal (.int 2)] =
     .error .unsupported := rfl
 
+example : invoke (.builtin .int) [.bool false] = .ok (.int 0) := invoke_int_bool false
+example : invoke (.builtin .int) [.bool true] = .ok (.int 1) := invoke_int_bool true
+example : invoke (.helper .assertIsNot) [.int 0, .bool false] = .ok .none :=
+  invoke_assertIsNot_int_bool 0 false
+
+example : invoke (.helper (.assertRaises .empty))
+    [.exceptionClass .typeError, .builtin .int, .int 1] = .error .unsupported := by
+  simp [invoke.eq_def, Request.decode, Expectation.deliver]
+
+example : invoke (.helper .assertIsNot) [.bool false, .bool false] = .error .unsupported := by
+  simp [invoke.eq_def, Request.decode]
+
 #print axioms Namespace.module_precedes
 #print axioms Namespace.builtin_fallback
 #print axioms Operand.eval_local

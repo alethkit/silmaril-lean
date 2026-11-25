@@ -91,4 +91,13 @@ example :
     result (run (.forList (localSlot "x") (read "out") (.ret (int 1)))) = .ok .next :=
   by decide +kernel
 
+example :
+    let input := ({ iterators := [99] } : State).write (localSlot "span")
+      (.range ⟨10, 3, -2, by decide⟩)
+    let code : Suite 0 := .seq (.forIn (localSlot "x") (read "span") .continueLoop) (.ret (read "x"))
+    let out := denoteSuite code input
+    result out = .ok (.returned (.scalar (.int 4))) ∧ (finishState out).iterators = [99] ∧
+      (finishState out).heap.isEmpty :=
+  by decide +kernel
+
 end Silmaril.Languages.Starlark.Lists.Iteration

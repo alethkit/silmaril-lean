@@ -12,7 +12,8 @@ open Execution.Runtime (Frame FuncAddr Value)
 open Computed
 
 /-- The body starts with a literal operand prefix. The remaining instructions
-are numeric locals, integer operations, direct calls, blocks, conditionals, return, and unreachable. -/
+are numeric locals, integer operations, direct calls, structured blocks and
+conditionals, branches to their labels, return, and unreachable. -/
 inductive Op where
   | numeric (op : Prefix.Op)
   | set (index : LocalIdx)
@@ -20,6 +21,10 @@ inductive Op where
   | call (target : CallTarget)
   | block (result : Option NumType) (code : List Op)
   | if_ (result : Option NumType) (thenBody elseBody : List Op)
+  /-- The checker verifies this result annotation against the resolved label. -/
+  | br (depth : LabelIdx) (result : Option NumType)
+  | brIf (depth : LabelIdx) (result : Option NumType)
+  | brTable (depths : List LabelIdx) (fallback : LabelIdx) (result : Option NumType)
   | return_
   | unreachable
 
@@ -52,18 +57,45 @@ def Function.entry (fn : Function) : Entry :=
 def Function.localTypes (fn : Function) : List NumType :=
   fn.declaration.params ++ fn.declaration.locals
 
+/-- A function body has no branchable label in this fragment. In a block,
+the enclosing branchable labels are listed nearest first. -/
+abbrev EnclosingLabels := Option (List (List NumType))
+
+def branchTargets (fallthrough : List NumType) (enclosing : EnclosingLabels) : List (List NumType) :=
+  match enclosing with
+  | none => []
+  | some labels => fallthrough :: labels
+
+def lowerBranch (depth : LabelIdx) : LabelIdx :=
+  ⟨⟨depth.toNat - 1, Nat.lt_of_le_of_lt (Nat.sub_le _ _) depth.value.isLt⟩⟩
+
+def SuffixTyped (types : List NumType) (stack : List Value) : Prop :=
+  (Prefix.stackTypes stack).take types.length = types.reverse
+
+def checkBranch (labels : List (List NumType)) (stack : List NumType)
+    (depth : LabelIdx) (result : Option NumType) : Bool :=
+  decide (labels[depth.toNat]? = some result.toList ∧
+    stack.take result.toList.length = result.toList.reverse)
+
+def checkCondition (stack : List NumType) (resume : List NumType → Bool) : Bool :=
+  match stack with
+  | .int .i32 :: saved => resume saved
+  | _ => false
+
 mutual
 
 /-- The checker carries top-first stack types. Blocks and both arms of a
 conditional start with no parameters and check against their declared optional
 fallthrough result. Explicit return checks the enclosing function's result types. -/
 def checkCode (targets : List CallTarget) (locals returns fallthrough : List NumType)
-    (stack : List NumType) : List Op → Bool
+    (enclosing : EnclosingLabels) (stack : List NumType) : List Op → Bool
   | [] => decide (stack = fallthrough.reverse)
   | op :: rest =>
-      checkOp targets locals returns stack (fun next => checkCode targets locals returns fallthrough next rest) op
+      checkOp targets locals returns (branchTargets fallthrough enclosing) stack
+        (fun next => checkCode targets locals returns fallthrough enclosing next rest) op
 
-def checkOp (targets : List CallTarget) (locals returns stack : List NumType)
+def checkOp (targets : List CallTarget) (locals returns : List NumType) (labels : List (List NumType))
+    (stack : List NumType)
     (resume : List NumType → Bool) : Op → Bool
   | .numeric op => ((Prefix.checkOp locals stack op).map resume).getD false
   | .set i => ((Locals.check locals stack [.set i]).map resume).getD false
@@ -73,22 +105,27 @@ def checkOp (targets : List CallTarget) (locals returns stack : List NumType)
       decide (target ∈ targets ∧ stack.take decl.params.length = decl.params.reverse) &&
         resume (decl.results.reverse ++ stack.drop decl.params.length)
   | .block result body =>
-      checkCode targets locals returns result.toList [] body &&
+      checkCode targets locals returns result.toList (some labels) [] body &&
         resume (result.toList.reverse ++ stack)
   | .if_ result thenBody elseBody =>
-      match stack with
-      | .int .i32 :: saved =>
-          checkCode targets locals returns result.toList [] thenBody &&
-            checkCode targets locals returns result.toList [] elseBody &&
-            resume (result.toList.reverse ++ saved)
-      | _ => false
+      checkCondition stack fun saved =>
+        checkCode targets locals returns result.toList (some labels) [] thenBody &&
+          checkCode targets locals returns result.toList (some labels) [] elseBody &&
+          resume (result.toList.reverse ++ saved)
+  | .br depth result => checkBranch labels stack depth result
+  | .brIf depth result =>
+      checkCondition stack fun saved => checkBranch labels saved depth result && resume saved
+  | .brTable depths fallback result =>
+      checkCondition stack fun saved =>
+        checkBranch labels saved fallback result &&
+          depths.all (fun depth => checkBranch labels saved depth result)
   | .return_ => decide (stack.take returns.length = returns.reverse)
   | .unreachable => true
 
 end
 
 def Function.check (fn : Function) : Bool :=
-  checkCode fn.targets fn.localTypes fn.declaration.results fn.declaration.results
+  checkCode fn.targets fn.localTypes fn.declaration.results fn.declaration.results none
     (Prefix.stackTypes fn.initial) fn.code
 
 /-- Each slot supplies the body and declaration for one runtime address. The
@@ -119,6 +156,7 @@ mutual
     | call (args : List Value)
     | invoke (args : List Value)
     | label (locals : List Value) (body : Body)
+    | branching (locals : List Value) (stack : List Value) (depth : LabelIdx) (result : Option NumType)
     | returning (locals : List Value) (stack : List Value)
     | exit (locals : List Value) (result : Nested.Result)
     | done (result : Nested.Result)
@@ -135,7 +173,7 @@ mutual
 /-- Entered graph frames in outermost-first order. -/
 def Phase.frames (address : FuncAddr) : Phase → List FuncAddr
   | .label _ body => address :: body.frames
-  | .returning .. | .exit .. => [address]
+  | .branching .. | .returning .. | .exit .. => [address]
   | _ => []
 
 def Body.frames : Body → List FuncAddr
@@ -147,7 +185,7 @@ end
 
 def Phase.Active : Phase → Prop
   | .invoke _ | .label .. | .returning .. | .exit .. => True
-  | .call _ | .done _ => False
+  | .call _ | .branching .. | .done _ => False
 
 def Body.attach (saved : List Value) (target : CallTarget) (rest : List Op) : Phase → Body
   | .done (.values values) => .running (saved ++ values) rest
@@ -155,16 +193,18 @@ def Body.attach (saved : List Value) (target : CallTarget) (rest : List Op) : Ph
   | child => .active saved target child rest
 
 /-- A block exit resumes the surrounding body. Explicit return crosses the
-label with its operands intact and leaves the surrounding suffix pending. -/
+label with its operands intact and leaves the surrounding suffix pending.
+A branch crossing a nontarget label resumes with its lowered index. -/
 def Phase.afterBlock (saved : List Value) (result : Option NumType) (rest : List Op) : Phase → Phase
   | .label locals body => .label locals (.block saved result body rest)
+  | .branching locals stack depth result => .label locals (.running (saved ++ stack) (.br depth result :: rest))
   | .returning locals stack => .label locals (.running (saved ++ stack) (.return_ :: rest))
   | .exit locals (.values stack) => .label locals (.running (saved ++ stack) rest)
   | .exit locals .trap => .label locals (.trapped saved rest)
   | other => other
 
 def Phase.LabelOutcome : Phase → Prop
-  | .label .. | .returning .. | .exit .. => True
+  | .label .. | .branching .. | .returning .. | .exit .. => True
   | _ => False
 
 def Body.afterNumeric (rest : List Op) : Prefix.Outcome → Body
@@ -181,49 +221,55 @@ def Function.ResultTyped (fn : Function) : Nested.Result → Prop
   | .trap => True
 
 def Function.WellTyped (fn : Function) (stack : List Value) (code : List Op)
-    (fallthrough : List NumType := fn.declaration.results) : Prop :=
-  checkCode fn.targets fn.localTypes fn.declaration.results fallthrough (Prefix.stackTypes stack) code = true
+    (fallthrough : List NumType := fn.declaration.results) (enclosing : EnclosingLabels := none) : Prop :=
+  checkCode fn.targets fn.localTypes fn.declaration.results fallthrough enclosing (Prefix.stackTypes stack) code = true
 
 /-- After crossing the function label, the pending return still needs to
 leave the frame with the declared result suffix. -/
 def Function.ReturnTyped (fn : Function) (stack : List Value) : Prop :=
-  (Prefix.stackTypes stack).take fn.declaration.results.length = fn.declaration.results.reverse
+  SuffixTyped fn.declaration.results stack
 
 def Function.ResumeTyped (fn : Function) (saved : List Value) (target : CallTarget) (rest : List Op)
-    (fallthrough : List NumType := fn.declaration.results) : Prop :=
-  checkCode fn.targets fn.localTypes fn.declaration.results fallthrough
+    (fallthrough : List NumType := fn.declaration.results) (enclosing : EnclosingLabels := none) : Prop :=
+  checkCode fn.targets fn.localTypes fn.declaration.results fallthrough enclosing
     (target.declaration.results.reverse ++ Prefix.stackTypes saved) rest = true
 
-/-- The fallthrough types belong to the current label. Child calls enter
-with their own function's result types. -/
-inductive AdmittedAt (program : Program) : Function → List NumType → Phase → Prop where
+/-- Fallthrough types belong to the current label. Branch targets come from
+the block label stack. Child calls start a fresh scope. -/
+inductive AdmittedAt (program : Program) : Function → List NumType → EnclosingLabels → Phase → Prop where
   | call {fn args} (typed : args.map Value.type = fn.declaration.params) :
-      AdmittedAt program fn fn.declaration.results (.call args)
+      AdmittedAt program fn fn.declaration.results none (.call args)
   | invoke {fn args} (typed : args.map Value.type = fn.declaration.params) :
-      AdmittedAt program fn fn.declaration.results (.invoke args)
-  | running {fn fallthrough locals stack rest} (typed : locals.map Value.type = fn.localTypes)
-      (body : fn.WellTyped stack rest fallthrough) : AdmittedAt program fn fallthrough (.label locals (.running stack rest))
-  | active {fn fallthrough locals saved target child rest callee} (typed : locals.map Value.type = fn.localTypes)
+      AdmittedAt program fn fn.declaration.results none (.invoke args)
+  | running {fn fallthrough enclosing locals stack rest} (typed : locals.map Value.type = fn.localTypes)
+      (body : fn.WellTyped stack rest fallthrough enclosing) :
+      AdmittedAt program fn fallthrough enclosing (.label locals (.running stack rest))
+  | active {fn fallthrough enclosing locals saved target child rest callee} (typed : locals.map Value.type = fn.localTypes)
       (used : target ∈ fn.targets) (found : program.lookup target.address = some callee)
       (declared : callee.declaration = target.declaration) (live : child.Active)
-      (ready : AdmittedAt program callee callee.declaration.results child) (resume : fn.ResumeTyped saved target rest fallthrough) :
-      AdmittedAt program fn fallthrough (.label locals (.active saved target child rest))
-  | block {fn fallthrough locals saved result inner rest}
-      (inside : AdmittedAt program fn result.toList (.label locals inner))
-      (resume : checkCode fn.targets fn.localTypes fn.declaration.results fallthrough
+      (ready : AdmittedAt program callee callee.declaration.results none child)
+      (resume : fn.ResumeTyped saved target rest fallthrough enclosing) :
+      AdmittedAt program fn fallthrough enclosing (.label locals (.active saved target child rest))
+  | block {fn fallthrough enclosing locals saved result inner rest}
+      (inside : AdmittedAt program fn result.toList (some (branchTargets fallthrough enclosing)) (.label locals inner))
+      (resume : checkCode fn.targets fn.localTypes fn.declaration.results fallthrough enclosing
         (result.toList.reverse ++ Prefix.stackTypes saved) rest = true) :
-      AdmittedAt program fn fallthrough (.label locals (.block saved result inner rest))
-  | trapped {fn fallthrough locals saved rest} (typed : locals.map Value.type = fn.localTypes) :
-      AdmittedAt program fn fallthrough (.label locals (.trapped saved rest))
-  | returning {fn fallthrough locals stack} (typed : locals.map Value.type = fn.localTypes)
-      (out : fn.ReturnTyped stack) : AdmittedAt program fn fallthrough (.returning locals stack)
-  | exit {fn fallthrough locals result} (typed : locals.map Value.type = fn.localTypes)
+      AdmittedAt program fn fallthrough enclosing (.label locals (.block saved result inner rest))
+  | trapped {fn fallthrough enclosing locals saved rest} (typed : locals.map Value.type = fn.localTypes) :
+      AdmittedAt program fn fallthrough enclosing (.label locals (.trapped saved rest))
+  | branching {fn fallthrough enclosing locals stack depth result}
+      (typed : locals.map Value.type = fn.localTypes) (target : (enclosing.getD [])[depth.toNat]? = some result.toList)
+      (values : SuffixTyped result.toList stack) :
+      AdmittedAt program fn fallthrough enclosing (.branching locals stack depth result)
+  | returning {fn fallthrough enclosing locals stack} (typed : locals.map Value.type = fn.localTypes)
+      (out : fn.ReturnTyped stack) : AdmittedAt program fn fallthrough enclosing (.returning locals stack)
+  | exit {fn fallthrough enclosing locals result} (typed : locals.map Value.type = fn.localTypes)
       (out : match result with | .values stack => stack.map Value.type = fallthrough | .trap => True) :
-      AdmittedAt program fn fallthrough (.exit locals result)
-  | done {fn fallthrough result} (typed : fn.ResultTyped result) : AdmittedAt program fn fallthrough (.done result)
+      AdmittedAt program fn fallthrough enclosing (.exit locals result)
+  | done {fn fallthrough enclosing result} (typed : fn.ResultTyped result) : AdmittedAt program fn fallthrough enclosing (.done result)
 
 abbrev Admitted (program : Program) (fn : Function) (phase : Phase) : Prop :=
-  AdmittedAt program fn fn.declaration.results phase
+  AdmittedAt program fn fn.declaration.results none phase
 
 /-- The single-frame SOS. The only premise involving another function is a
 step of the currently active child. The native step relation is absent here. -/
@@ -265,6 +311,26 @@ inductive Layer (fn : Function) (childStep : CallTarget → Phase → Phase → 
       Layer fn childStep (.label locals (.active saved target a rest)) (.label locals (Body.attach saved target rest b))
   | discard {locals stack kept : List Value} {before rest : List Op} (step : Prefix.Discard stack before kept rest) :
       Layer fn childStep (.label locals (.trapped stack before)) (.label locals (.trapped kept rest))
+  /-- Pop the condition and leave a pending ordinary branch for a nonzero condition. -/
+  | branchIf (locals stack : List Value) (condition : BitVec 32) (depth : LabelIdx)
+      (result : Option NumType) (rest : List Op) :
+      Layer fn childStep (.label locals (.running (stack ++ [Value.int .i32 condition]) (.brIf depth result :: rest)))
+        (.label locals (.running stack (if condition = 0 then rest else .br depth result :: rest)))
+  /-- Pop the unsigned i32 selector and leave a pending branch to the selected depth. -/
+  | branchTable (locals stack : List Value) (selector : BitVec 32) (depths : List LabelIdx)
+      (fallback : LabelIdx) (result : Option NumType) (rest : List Op) :
+      Layer fn childStep (.label locals (.running (stack ++ [Value.int .i32 selector]) (.brTable depths fallback result :: rest)))
+        (.label locals (.running stack (.br (depths[selector.toNat]?.getD fallback) result :: rest)))
+  /-- Consume the target label, keeping just its declared result suffix. -/
+  | branchHere (locals extra values : List Value) (result : Option NumType) (rest : List Op)
+      (arity : values.length = result.toList.length) :
+      Layer fn childStep (.label locals (.running (extra ++ values) (.br ⟨0⟩ result :: rest)))
+        (.exit locals (.values values))
+  /-- Cross one nontarget label, discarding its pending code. -/
+  | branchOuter (locals stack : List Value) (depth : LabelIdx) (result : Option NumType)
+      (rest : List Op) (outer : 0 < depth.toNat) :
+      Layer fn childStep (.label locals (.running stack (.br depth result :: rest)))
+        (.branching locals stack (lowerBranch depth) result)
   | returnLabel (locals stack : List Value) (rest : List Op) :
       Layer fn childStep (.label locals (.running stack (.return_ :: rest))) (.returning locals stack)
   | returnFrame (locals extra results : List Value) (arity : results.length = fn.declaration.results.length) :

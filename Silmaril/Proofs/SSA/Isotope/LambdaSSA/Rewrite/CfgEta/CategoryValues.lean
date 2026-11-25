@@ -21,7 +21,7 @@ open Region.CfgEta.TypeCategory
 variable {τ : Type v} [TypeFormers τ] {Φ : Type u} [HasTy Φ τ]
   {Γ : VCtx τ} {A B C : τ} {a b : Tm Φ}
 
-private theorem returnRegion_rename (a : Tm Φ) (ρ : Nat → Nat) :
+theorem returnRegion_rename (a : Tm Φ) (ρ : Nat → Nat) :
     returnRegion (a.rename ρ) = (returnRegion a).renameVars ρ := by
   induction a generalizing ρ <;> try rfl
   case let₁ a b iha ihb =>

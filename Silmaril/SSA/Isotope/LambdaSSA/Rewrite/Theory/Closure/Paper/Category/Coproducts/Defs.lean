@@ -15,14 +15,6 @@ open CategoryTheory CategoryTheory.Limits
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ] {Γ : VCtx τ}
 
-/-- The projection of native continuation classes to paper classes. -/
-@[expose] def fromNative : ContinuationContext Φ Γ ⥤ Interface Φ Γ :=
-  CfgEta.fromNative ⋙ fromCfgEta
-
-instance fromNative_full : (fromNative (Φ := Φ) (Γ := Γ)).Full := by
-  unfold fromNative
-  infer_instance
-
 /-- The chosen coproduct candidate concatenates the two typed exit lists. -/
 @[expose] def appendCofan (X Y : ContinuationContext Φ Γ) :
     BinaryCofan (fromNative.obj X) (fromNative.obj Y) :=

@@ -569,4 +569,59 @@ private def rangeExpr (args : List Expr) : Expr := .callPos (.atom (.builtin .ra
       published.exports.lookup "size" = some (.scalar (.int 2)))
   | _ => false
 
+-- Ordinary calls stage a range-producing operand once before materialization.
+#guard
+  let destination : Binding := ⟨.global, "out"⟩
+  let initial := root.write destination (.scalar (.int 99))
+  let span := rangeExpr [integer 10, integer 3, integer (-2)]
+  let sliced := Expr.slice span omitted omitted (integer (-2))
+  let expression := Expr.callPos (.atom (.builtin .tuple)) [note 1 sliced]
+  let runLowered := fun expr => run program (.seq setup (lower expr destination 5).code) initial
+  let bad := Expr.call (.atom (.builtin .list)) [note 1 span, note 2 (integer 0)]
+    [("ignored", note 3 (integer 0))] none none
+  match execute expression, runLowered expression, execute bad, runLowered bad, execute (note 1 sliced) with
+  | .ok tuple@(.tuple address) direct, .ok .next lowered,
+    .error (.builtinKeyword .list "ignored") failure, .error (.builtinKeyword .list "ignored") loweredFailure,
+    .ok _ operand =>
+      observed direct [1] && observed failure [1, 2, 3] &&
+        decide (address = operand.heap.size ∧ direct.heap.size = operand.heap.size + 1 ∧
+          direct.heap = lowered.heap ∧ failure.heap = loweredFailure.heap ∧
+          direct.iterators = lowered.iterators ∧ failure.iterators = loweredFailure.iterators ∧
+          (lowered.bindingValue destination).toOption = some tuple ∧
+          (loweredFailure.bindingValue destination).toOption = some (.scalar (.int 99))) &&
+        match Lists.tupleElements address direct with
+        | .ok values _ => decide (values = integers [4, 8])
+        | .error _ _ => false
+  | _, _, _, _, _ => false
+
+#guard
+  let span := rangeExpr [integer 4]
+  let failed := fun expression expected events =>
+    match execute expression with
+    | .error error state =>
+      error == expected && observed state events &&
+        state.heap.toList.countP (fun cell => match cell.contents with
+          | .list _ | .tuple .. => true
+          | _ => false) == 1
+    | _ => false
+  failed (.callPos (.atom (.builtin .list)) [note 1 span, length (note 2 (integer 9)), note 3 span])
+    (.builtinType .len (.scalar (.int 9))) [1, 2] &&
+  failed (.callPos (.atom (.builtin .tuple)) [note 1 (integer 9), note 2 span])
+    (.builtinArity .tuple 0 1 2) [1, 2] &&
+  failed (.callPos (.atom (.builtin .list)) [note 1 (integer 9)]) (.builtinType .list (.scalar (.int 9))) [1]
+
+#guard
+  let commands : List Modules.Resolve.Command := [
+    .assign "empty_list" starlark%[len(list(range(0)))],
+    .assign "empty_tuple" starlark%[len(tuple(range(3, 1)))],
+    .assign "descending" starlark%[list(range(10, 3, -2))[1]],
+    .assign "lookup" starlark%[{tuple(range(10, 3, -2)[::-2]): "sliced"}[(4, 8)]]]
+  match Modules.Resolve.runModule commands (fun _ => none) {} with
+  | .ok (.ok published _) =>
+    decide (published.exports.lookup "empty_list" = some (.scalar (.int 0)) ∧
+      published.exports.lookup "empty_tuple" = some (.scalar (.int 0)) ∧
+      published.exports.lookup "descending" = some (.scalar (.int 8)) ∧
+      published.exports.lookup "lookup" = some (.string "sliced"))
+  | _ => false
+
 end Silmaril.Languages.Starlark.Functions.Lowering

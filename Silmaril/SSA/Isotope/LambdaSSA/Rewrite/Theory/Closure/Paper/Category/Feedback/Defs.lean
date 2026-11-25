@@ -19,10 +19,6 @@ open CategoryTheory
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ] {Γ : VCtx τ}
   {X Y Z : ContinuationContext Φ Γ}
 
-/-- Pass from native guarded continuation classes through CFG η to the paper category. -/
-@[expose] def fromNative : ContinuationContext Φ Γ ⥤ Interface Φ Γ :=
-  CfgEta.fromNative ⋙ fromCfgEta
-
 /-- Turn the first exit interface of a guarded producer into local feedback labels. -/
 @[expose] def feedback :
     (fromNative.obj X ⟶ fromNative.obj (X.append Y)) → (fromNative.obj X ⟶ fromNative.obj Y) :=

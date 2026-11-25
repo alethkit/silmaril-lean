@@ -10,8 +10,8 @@ namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranke
 open Execution.Runtime (FuncAddr Frame Value)
 open Computed
 
-theorem split_call {fn : Function} {fallthrough : List NumType} {stack : List Value} {target : CallTarget} {rest : List Op}
-    (typed : fn.WellTyped stack (.call target :: rest) fallthrough) :
+theorem split_call {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value} {target : CallTarget} {rest : List Op}
+    (typed : fn.WellTyped stack (.call target :: rest) fallthrough enclosing) :
     ∃ saved operands, stack = saved ++ operands ∧ target ∈ fn.targets ∧
       operands.length = target.declaration.params.length := by
   unfold Function.WellTyped at typed
@@ -60,6 +60,9 @@ theorem render_block {A : Type} (ops : Syntax A)
   | label locals body =>
     exact ⟨locals, _, rfl, by simp only [Phase.afterBlock, Phase.renderAt, Body.render,
       List.append_assoc, List.singleton_append]⟩
+  | branching locals stack depth result =>
+    exact ⟨locals, _, rfl, by
+      simp [Phase.afterBlock, Phase.renderAt, Body.render, append, List.append_assoc]⟩
   | returning locals stack =>
     exact ⟨locals, _, rfl, by
       simp [Phase.afterBlock, Phase.renderAt, Body.render, append, ret, List.append_assoc]⟩

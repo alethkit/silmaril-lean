@@ -224,12 +224,17 @@ private theorem restore_stack (stack : List Address) (out : Outcome Flow) :
     (finishState (restoreIterators stack out)).iterators = stack := by
   cases out <;> rfl
 
+private theorem keeps_acquire (value : Value) : Preserves (acquireIterator value) := by
+  cases value with
+  | range => exact keeps_pure _
+  | _ => exact keeps_map _ (keeps_source _)
+
 theorem iterators_denoteForIn (target : Binding) (body : Meaning Flow) (operand : Outcome Value) :
     (finishState (denoteForIn target body operand)).iterators = (finishState operand).iterators := by
   unfold denoteForIn
-  refine (resume_preserves (Outcome.resume operand iterationSource) _ ?_).trans
-    (resume_preserves _ _ keeps_source)
-  rintro ⟨address, elements⟩ next
+  refine (resume_preserves (Outcome.resume operand acquireIterator) _ ?_).trans
+    (resume_preserves _ _ keeps_acquire)
+  rintro ⟨guard, cursor⟩ next
   exact restore_stack _ _
 
 theorem iterators_denoteSuite {depth : Nat} (code : Suite depth) (state : State) :

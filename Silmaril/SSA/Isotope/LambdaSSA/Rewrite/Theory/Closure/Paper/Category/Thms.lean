@@ -49,4 +49,12 @@ theorem toHom_eq_iff {X Y : Interface Φ Γ}
 instance fromCfgEta_full : (fromCfgEta (Φ := Φ) (Γ := Γ)).Full where
   map_surjective := Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.Category.ofCfgEta_surjective
 
+/-- The projection of native continuation classes to paper classes. -/
+@[expose] def fromNative : ContinuationContext Φ Γ ⥤ Interface Φ Γ :=
+  CfgEta.fromNative ⋙ fromCfgEta
+
+instance fromNative_full : (fromNative (Φ := Φ) (Γ := Γ)).Full := by
+  unfold fromNative
+  infer_instance
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper

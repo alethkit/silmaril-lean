@@ -38,6 +38,7 @@ private theorem builtinAction (id : Builtin) (actual : Actual) :
     | list => exact actionMap Prod.snd (actionMap _ (actionList _))
     | tuple => exact actionMap Prod.snd (actionMap _ (actionTuple _))
     | dict => exact actionMap Prod.snd (actionMap _ (actionDict _))
+    | range => exact actionPure _
     | _ => exact actionThrow _
   obtain ⟨positional, keywords⟩ := actual
   unfold Builtins.invoke

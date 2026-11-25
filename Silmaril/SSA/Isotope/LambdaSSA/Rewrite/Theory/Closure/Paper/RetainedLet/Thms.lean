@@ -22,6 +22,12 @@ namespace Silmaril.Isotope.LambdaSSA.Region.Paper.RetainedLet
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
   {X A B : τ} {a : Tm Φ} {r : Region Φ}
 
+/-- Substitutions that agree at every typed variable act identically on the term. -/
+theorem term_subst_eq {Γ : VCtx τ} (ha : Tm.HasType Γ a A)
+    {σ η : Nat → Tm Φ} (h : ∀ i C, At Γ i C → σ i = η i) :
+    a.subst σ = a.subst η :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.RetainedLet.term_subst_eq ha h
+
 /-- The retained composition for unary let is equivalent to literal let
 for arbitrary typed scrutinees and arbitrary exactly typed bodies. -/
 theorem literal_let (ha : Tm.HasType [X] a A) (hr : Region.HasType [A, X] r [B]) :

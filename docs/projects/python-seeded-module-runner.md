@@ -10,7 +10,8 @@ throughout execution. The ordinary module runner has its own entry point.
 
 The seeded profile admits integer literals, global reads, single-name
 assignments, truth assertions, and fixed-positional calls to the closed
-descriptors. A call can discard its result, bind it after success, or use
+descriptors. Calls also accept exact Boolean literals as positional operands.
+A call can discard its result, bind it after success, or use
 it as a direct assertion condition. An argument may itself be a named
 call with literal or name operands. The runner saves the outer callee
 first, evaluates arguments from left to right, and invokes the saved
@@ -122,11 +123,20 @@ changes to user bindings.
 | `bool-int.py` | `___assertEqual` | `int` |
 | `bool-isinstance.py` | `___assertIs` | `___assertIs` |
 
-The full preamble also supplies `___assertIs` and `___assertIsNot` and
-runs with stock builtins. The restricted seed has neither helper, and
-does not model the `int`, `callable`, or `isinstance` calls or the Boolean
-and type operands used by these rows. The restricted-namespace errors
-are separate from normal completion under the full preamble.
+The full preamble supplies `___assertIs` and `___assertIsNot` and runs with
+stock builtins. The table uses the exception-helper projection
+`legacySeed`. The separate opt-in `legacyBoolIntSeed` adds the typed
+`int(bool)` builtin and the mixed integer/Boolean `___assertIsNot`
+helper. The builtin uses builtin fallback in both placements, and the
+helper uses the selected harness namespace.
+
+In both Boolean-integer placements, `bool-int.py` completes normally
+in Lean and CPython with no changes to user bindings. Lean records eight
+calls in order, including the exact integer conversion results and
+`None` from each assertion helper. The other two rows still raise
+`NameError` for `___assertIs` in those projected namespaces. Their
+inner `callable` and `isinstance` operations require separate contracts.
+The CPython full-preamble outcomes are recorded separately.
 [Pinned Boolean cases](https://github.com/koehlma/rigorous/tree/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/programs/original/lambda-py/python-reference/bool)
 
 The two pinned scalar equality rows now complete normally in the ordinary

@@ -14,6 +14,19 @@ variable {O : Type u} {S : Signature.{u,v} O} {L R A B : ℕ}
 variable {lower : ProgressiveGraph.Diagram S L A .point} {upper : ProgressiveGraph.Diagram S R B .point}
 variable (m : lower.OrderedVerticalMatch upper)
 
+/-- The prescribed cap positions and labels used by all collars for this matching. -/
+noncomputable def collarSpec : CollarSpec O (collarCount lower) :=
+  Proofs.ProgressiveGluing.matchCollar m
+
+theorem collarSpec_label (w : Fin (collarCount lower)) :
+    m.collarSpec.label w = lower.label ((collarIndex lower).symm w).val := by rfl
+
+theorem collarSpec_bottom (w : Fin (collarCount lower)) :
+    m.collarSpec.bottom w = lower.x ((collarIndex lower).symm w).val 1 := by rfl
+
+theorem collarSpec_top (w : Fin (collarCount lower)) :
+    m.collarSpec.top w = upper.x (m.contact ((collarIndex lower).symm w)).val 0 := by rfl
+
 /-- The vertex-free interpolation between the two matched caps. -/
 noncomputable def collar : ProgressiveGraph.Diagram S 0 (collarCount lower) .point :=
   Proofs.ProgressiveGluing.collar m

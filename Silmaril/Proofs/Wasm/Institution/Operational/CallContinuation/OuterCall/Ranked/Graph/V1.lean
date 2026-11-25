@@ -28,7 +28,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | if_ | return_ | unreachable => rfl
+    | set | tee | call | block | if_ | br | brIf | brTable | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.v1Func.body = (Body.running fn.initial fn.code).render v1Admin := by
@@ -47,6 +47,7 @@ private theorem expression_code (fn : Function) :
 
 private def regionConfig {H : Type} (s : Store H) (target : CallTarget) (n : Nat) : Phase → Config H
   | .label locals body => ⟨s, currentFrame target.declaration locals, [.label n [] (body.render v1Admin)]⟩
+  | .branching locals stack depth _ => ⟨s, currentFrame target.declaration locals, values stack ++ [.source (.br depth)]⟩
   | .returning locals stack => ⟨s, currentFrame target.declaration locals, values stack ++ [.source .return_]⟩
   | .exit locals result => ⟨s, currentFrame target.declaration locals, Nested.resultCode values .trap result⟩
   | _ => ⟨s, currentFrame target.declaration [], []⟩
@@ -88,9 +89,9 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
       Root program parent child callee → Admitted program callee a → program.Edge check child.address a b →
       Step CallFrame.v1NoHost (v1Config s parent child a) (v1Config s parent child b))
     {a b : Phase} (edge : Layer fn (fun t => program.Edge check t.address) a b) :
-    ∀ {fallthrough}, AdmittedAt program fn fallthrough a → (∃ ls body, a = .label ls body) →
+    ∀ {fallthrough enclosing}, AdmittedAt program fn fallthrough enclosing a → (∃ ls body, a = .label ls body) →
       Step CallFrame.v1NoHost (regionConfig s target fallthrough.length a) (regionConfig s target fallthrough.length b) := by
-  induction edge <;> intro fallthrough ready isLabel
+  induction edge <;> intro fallthrough enclosing ready isLabel
   all_goals
     let n := fallthrough.length
   case resolve => obtain ⟨_, _, impossible⟩ := isLabel; cases impossible
@@ -138,6 +139,9 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
       | call | invoke | done => cases shape
       | label =>
         simpa only [regionConfig, Phase.afterBlock, Body.render, List.append_assoc, List.singleton_append, v1Admin] using lift
+      | branching =>
+        simpa only [regionConfig, Phase.afterBlock, Body.render, List.map_cons, List.append_assoc,
+          List.singleton_append, v1Admin, v1Emit, Op.emit, v1CodeSyntax, values_append] using lift
       | returning =>
         simpa only [regionConfig, Phase.afterBlock, Body.render, List.map_cons, List.append_assoc,
           List.singleton_append, v1Admin, v1Emit, Op.emit, v1CodeSyntax, Function.comp_def, values_append] using lift
@@ -173,6 +177,41 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
       exact Step.context inside saved (rest.map v1Admin.emit)
   case discard cut =>
     exact lift_label ((Prefix.v1_discard_iff v1Admin.emit).mpr ⟨_, _, cut, rfl⟩)
+  case branchIf locals stack condition depth result rest =>
+    apply lift_label
+    have branch : PureStep [value (Value.int .i32 condition), .source (.brIf depth)]
+        (if condition = 0 then [] else [.source (.br depth)]) := by
+      by_cases zero : condition = 0
+      · rw [ite_eq_left zero]
+        subst condition
+        exact .brIfZero depth
+      · rw [ite_eq_right zero]
+        exact .brIfNonzero depth condition zero
+    have move := Step.context (Step.pure (host := CallFrame.v1NoHost) s
+      (currentFrame target.declaration locals) branch) stack (rest.map v1Admin.emit)
+    simpa only [Body.render, Op.map_br_if, v1Admin, v1Emit, Op.emit, v1CodeSyntax, values,
+      List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append] using move
+  case branchTable locals stack selector depths fallback result rest =>
+    apply lift_label
+    have move := Step.context (Step.pure (host := CallFrame.v1NoHost) s
+      (currentFrame target.declaration locals) (.brTable depths fallback selector)) stack (rest.map v1Admin.emit)
+    simpa only [Body.render, v1Admin, v1Emit, Op.emit, v1CodeSyntax, values,
+      List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append] using move
+  case branchHere locals extra payload result rest arity =>
+    cases ready with
+    | running _ typed =>
+      have count := arity.trans (congrArg List.length (branch_here_result (checked_branch typed).1)).symm
+      simpa only [regionConfig, Body.render, v1Admin, v1Emit, Op.emit, v1CodeSyntax, List.map_cons,
+        values_append, List.append_assoc, List.singleton_append, Nested.resultCode, expression, List.map_nil,
+        List.append_nil, n] using
+        Step.pure (host := CallFrame.v1NoHost) s (currentFrame target.declaration locals)
+          (.labelBranch n [] extra payload (rest.map v1Admin.emit) count)
+  case branchOuter locals stack depth result rest outer =>
+    have lowered : lowerLabel depth = lowerBranch depth := rfl
+    simpa only [regionConfig, Body.render, v1Admin, v1Emit, Op.emit, v1CodeSyntax, List.map_cons,
+      List.append_assoc, List.singleton_append, lowered, n] using
+      Step.pure (host := CallFrame.v1NoHost) s (currentFrame target.declaration locals)
+        (.labelBranchOuter n [] stack (rest.map v1Admin.emit) depth (Nat.ne_of_gt outer))
   case returnLabel locals stack rest =>
     simpa only [regionConfig, Body.render, v1Admin, List.map_cons,
       v1Emit, Op.emit, v1CodeSyntax, List.append_assoc, List.singleton_append] using
@@ -205,6 +244,9 @@ theorem sound {H : Type} {s : Store H} {program : Program} (checked : program.ch
       have outcome := label_outcome step ⟨_, _, rfl⟩
       have lifted := Step.frame localStep target.declaration.results.length caller
       cases b with
+      | branching =>
+        have impossible := program.admitted_step check root.found ready move
+        cases impossible with | branching _ found _ => simp at found
       | label | returning | exit => exact lifted
       | call | invoke | done => cases outcome
     cases step with
@@ -238,7 +280,7 @@ private theorem emit_to_lime (op : Op) :
     (op.emit v1CodeSyntax).toLime = op.emit limeCodeSyntax := by
   cases op with
   | numeric op => cases op <;> rfl
-  | set | tee | call | return_ | unreachable => rfl
+  | set | tee | call | br | brIf | brTable | return_ | unreachable => rfl
   | block result code =>
     change Wasm.V1.Instr.toLime (.block result (Op.emitList v1CodeSyntax code)) =
       .block (Blocks.limeType result) (Op.emitList limeCodeSyntax code)
@@ -284,7 +326,7 @@ private theorem rest_to_lime (rest : List Op) :
   intro op _
   cases op with
   | numeric op => cases op <;> rfl
-  | set | tee | call | block | if_ | return_ | unreachable =>
+  | set | tee | call | block | if_ | br | brIf | brTable | return_ | unreachable =>
     exact congrArg AdminInstr.source (emit_to_lime _)
 
 mutual
@@ -299,6 +341,11 @@ private theorem phase_to_lime (target : CallTarget) (q : Phase) :
     change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)
       [.label target.declaration.results.length [] (codeToLime (body.render v1Admin))]] = _
     rw [body_to_lime body]
+    rfl
+  | branching locals stack depth result =>
+    change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)
+      (codeToLime (values stack ++ [.source (.br depth)]))] = _
+    rw [codeToLime_append, map_values]
     rfl
   | returning locals stack =>
     change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)

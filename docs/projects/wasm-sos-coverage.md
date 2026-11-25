@@ -36,8 +36,8 @@ The [ranked graph judgment](../../Silmaril/Wasm/Institution/Operational/CallCont
 interprets one typed activation at a time by well-founded recursion on resolved
 targets. The graph checker derives the target table from each body and checks
 the typed operand prefix, local reads and writes, integer binary operations,
-direct calls, unindexed scalar blocks and conditionals, explicit return, and
-normal fallthrough. The judgment also covers unreachable and partial trap
+direct calls, unindexed scalar blocks and conditionals, unconditional and
+conditional branch exits, explicit return, and normal fallthrough. The judgment also covers unreachable and partial trap
 discards. Exact active-call inversion identifies the child's step and the
 caller's unchanged continuation. Finite runs preserve typing and the
 descending chain of entered frames. The four-frame fixtures cover return and
@@ -109,8 +109,39 @@ selection and all subsequent steps in Core, Lime1, and V1. Fixtures exercise
 both arms, a ranked child call, explicit return through nested labels, and a
 child trap that bypasses the saved continuation.
 
+The ranked checker also checks unconditional `br` to its block and conditional
+labels. It resolves the depth through the label stack and checks the result
+annotation and operand suffix against that target. The target's types are
+independent of the current label's fallthrough and the function's return
+types. Each positive-depth step drops the crossed label's pending instructions
+and lowers the index. The target exit keeps exactly the ordered result suffix
+and resumes the target's saved operands and code. Core, Lime1, and V1 have exact
+successor and finite endpoint readback at each stage. Fixtures cover depth zero
+and a branch from an inner block to the surrounding conditional, with an
+observable noncommutative continuation. They reject missing or mistyped
+operands, an incorrect target annotation, and an out-of-range depth.
+
+The same label guard checks `br_if`. It verifies the target and its operand
+suffix after an `i32` condition is popped and checks fallthrough with those
+operands still on the stack. For a nonzero condition, the first SOS step
+leaves an ordinary branch for the existing label propagation rules. A zero
+condition advances directly to the pending instructions. Exact native
+successor and finite endpoint readback cover both paths in Core, Lime1, and
+V1. The nested fixtures distinguish results and continuations on both paths
+and reject bad types and targets even with a default-zero condition.
+
+Ranked `br_table` checks every listed depth and the default against the same
+optional numeric result and the operand suffix under an `i32` selector. The
+selector is interpreted as unsigned. A zero-based in-range slot supplies its
+depth, and any index at or beyond the length uses the default. An empty table
+always uses the default. The selection step keeps the operands and pending
+code and leaves an ordinary `br` for the checked label rules. Core, Lime1, and
+V1 have exact native successor and finite endpoint readback. Fixtures cover
+indexed and default targets, the all-ones selector, empty tables, and invalid
+unselected targets.
+
 The graph fragment excludes block parameters and multiple block results,
-loops, branches, recursion, indirect and host calls, store mutation, and
+branches to a function label, loops and loop back-edges, recursion, indirect and host calls, store mutation, and
 whole-module validation.
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.
