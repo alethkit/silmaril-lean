@@ -52,6 +52,17 @@ theorem packedArrow_eq_iff {n : Nat} {β : BoundCtx S.Ty n} {A : S.Ty}
   rw [← packedHomEquiv_mk h, ← packedHomEquiv_mk k, (packedHomEquiv β A).injective.eq_iff]
   exact ⟨Syn.eqv_of_mk_eq, Syn.mk_eq_mk h k⟩
 
+/-- The newest packed bound variable is the second projection. -/
+theorem packedArrow_bv_zero {n : Nat} (β : BoundCtx S.Ty n) (A : S.Ty) :
+    packedArrow (S := S) (HasType.bv (β := .snoc β A) (ι := 0)) =
+      second (of (packType β)) (of A) := rfl
+
+/-- An older packed bound variable is obtained by first dropping the newest one. -/
+theorem packedArrow_bv_succ {n : Nat} (β : BoundCtx S.Ty n) (A : S.Ty) (i : Fin n) :
+    packedArrow (S := S) (HasType.bv (β := .snoc β A) (ι := i.succ)) =
+      first (of (packType β)) (of A) ≫ packedArrow (HasType.bv (β := β) (ι := i)) :=
+  packedArrow_bv_succ_proof β A i
+
 /-- A packed instruction is composition with the instruction on its input variable. -/
 theorem packedArrow_op {n : Nat} {β : BoundCtx S.Ty n} {a : Tm Empty S.Instr n}
     {f : S.Instr} (ha : HasType S.Instr Ctx.nil β a (instrSrc f)) :

@@ -159,6 +159,20 @@ private theorem instantiate_underBinder_one {t a : Tm Empty S.Instr 1} :
   apply bsubst_congr
   exact Fin.cases rfl (fun i => i.elim0)
 
+theorem packedArrow_bv_succ_proof {n : Nat} (β : BoundCtx S.Ty n) (A : S.Ty) (i : Fin n) :
+    packedArrow (S := S) (HasType.bv (β := .snoc β A) (ι := i.succ)) =
+      first (of (packType β)) (of A) ≫ packedArrow (HasType.bv (β := β) (ι := i)) := by
+  let firstProjection := HasType.let₂
+    (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+      (β := .nil) (A := tensor (packType β) A)) (HasType.bv (ι := 1))
+  let projection := projectTyping β (HasType.newest (Γ := Ctx.nil) (β := .nil)) i
+  have beta := Eqv.ax (.structural (.letBeta (pureEff := S.pureEff) (.let₂ .bv .bv)))
+    (.let₁ firstProjection projection.underBinder) (projection.underBinder.instantiate firstProjection)
+  change Eqv S.pureEff Ctx.nil _ _ (instantiate (underBinder (project β (.bv 0) i))
+    (.let₂ (.bv 0) (.bv 1))) _ at beta
+  rw [instantiate_underBinder_one, project_bsubst, bsubst_bv] at beta
+  exact Quotient.sound beta.symm
+
 /-- Applying the packed body to the retained environment and the newest
 variable computes the lifted packing substitution. -/
 private theorem packed_body_on_pair {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}

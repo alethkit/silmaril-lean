@@ -64,6 +64,13 @@ theorem packedEnvInv_snoc (pe : ε) {n : Nat} (β : BoundCtx τ n) (A : τ) :
   unfold packedEnvIso
   exact packedEnvInv_snoc_proof (boundObj_eq (Φ := Φ) pe β) (valueObj (Φ := Φ) pe A)
 
+/-- Removing the free unit before bound lookup leaves only the packed bound-object comparison. -/
+theorem packedEnvInv_boundVar (pe : ε) {n : Nat} (β : BoundCtx τ n) (i : Fin n) :
+    (packedEnvIso (Φ := Φ) pe β).inv ≫
+      boundVar (typeModel (Φ := Φ) pe) (Γ := (Ctx.nil : Ctx Empty τ)) (β := β) i =
+      eqToHom (boundObj_eq (Φ := Φ) pe β).symm ≫ boundLookup (typeModel (Φ := Φ) pe) i := by
+  simp [packedEnvIso, boundVar, envObj, ctxObj]
+
 /-- Pure terms, including terms in open contexts, denote pure syntactic arrows. -/
 theorem denote_isPure {ν : Type u} [DecidableEq ν] (pe : ε)
     {Γ : Ctx ν τ} {n : Nat} {β : BoundCtx τ n} {t : LocallyNameless.Tm ν Φ n} {A : τ}

@@ -4,7 +4,7 @@ public import Silmaril.SSA.Isotope.LetIter.Categorical.Syntactic.Packing.Defs
 public import Silmaril.SSA.Thesis.SyntacticCategory.Packing.Thms
 import Silmaril.Proofs.SSA.Isotope.LetIter.Categorical.Syntactic.Packing
 
-/-! # Packed native LetIter application and binding -/
+/-! # Packed native LetIter reification -/
 
 public section
 
@@ -40,6 +40,37 @@ theorem packedNative_let1 (pe : ε) {n : Nat} {β : BoundCtx τ n} {t : Tm Empty
 
 local instance : Thesis.LambdaIter.TypeFormers τ := Bridge.thesisTypeFormers τ
 local instance : Thesis.LambdaIter.HasTy Φ τ := Bridge.thesisHasTy Φ τ
+
+/-- An arbitrary bound-variable lookup reifies to the packed context projection. -/
+theorem packedNative_bv_eq_packedArrow (pe : ε)
+    {n : Nat} {β : BoundCtx τ n} (i : Fin n)
+    (h : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (.bv i) (β.get i)) :
+    packedNative pe (Derivation.bv (Φ := Φ) (Γ := (Ctx.nil : Ctx Empty τ)) (ι := i) (β := β)) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) h :=
+  PackingProofs.packedNative_bv_eq_packedArrow pe i h
+
+/-- The packed denotation of unit is the packed syntactic unit. -/
+theorem packedNative_unit_eq_packedArrow (pe : ε) {n : Nat} {β : BoundCtx τ n}
+    (h : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) .unit (Silmaril.unit : τ)) :
+    packedNative pe (Derivation.unit (Φ := Φ) (Γ := (Ctx.nil : Ctx Empty τ)) (β := β)) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) h :=
+  PackingProofs.packedNative_unit_eq_packedArrow pe h
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+/-- Reification of an argument implies reification after applying a primitive. -/
+theorem packedNative_op_eq_packedArrow (pe : ε)
+    {n : Nat} {β : BoundCtx τ n} {t : Tm Empty Φ n} {f : Φ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t (instrSrc f))
+    (h : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (Bridge.toThesis t) (instrSrc f))
+    (ih : packedNative pe d = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) h) :
+    packedNative pe (.op (f := f) d) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (HasType.op (f := f) h) := by
+  rw [packedNative_op pe d, ih, packedArrow_op h]
+  rfl
 
 /-- Reification of the scrutinee and body implies reification of their let. -/
 theorem packedNative_let1_eq_packedArrow (pe : ε)
