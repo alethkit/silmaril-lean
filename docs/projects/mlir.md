@@ -1,47 +1,77 @@
 # MLIR-style scalar SSA
 
-The checked fragment in [`Silmaril.SSA.MLIR.Arith`](../../Silmaril/SSA/MLIR/Arith)
-models scalar signless `arith.constant`, `arith.addi`, and `arith.muli` on positive
-bit widths. Addition and multiplication have the empty overflow flag set and
-compute modulo (2^w). There are no flags, effects, poison values, parsers,
-or CFGs in this fragment.
+Import `Silmaril.SSA.MLIR.Thms` to construct a typed scalar block, lower it to
+LambdaSSA and LetIter, and reason about both targets' results. The source
+constructors and lowering names live in `Silmaril.MLIR.Arith`.
+[`MLIR/Thms.lean`](../../Silmaril/SSA/MLIR/Thms.lean)
 
-A context `Γ = [w₀, …, wₙ₋₁]` denotes the product of the corresponding
-`BitVec` types. A block denotes a total function from this product to its
-result type. Each instruction reads typed references and extends the context
-with one result. A yield projects a reference. The region-bearing form adds
-a pure scoped application with one explicit argument, one single-block body,
-and one yielded result. The body starts with a singleton context, so an outer
-value enters only as the explicit argument. Applications can nest.
-[`Defs.lean`](../../Silmaril/SSA/MLIR/Arith/Defs.lean)
+`Block Γ w` takes an `Env Γ` and denotes a `BitVec w.val`. Contexts are
+newest first. Use `.letOp` and `.yield` for straight-line code. The
+`.letRegion arg body rest` form passes one explicit value to an isolated
+single-block body, binds the yielded value, and continues with `rest`.
+The body starts with a singleton context, and applications can nest. Positive
+widths, scalar signless constants, and unflagged modular addition and
+multiplication define this lowering profile.
+[`Arith/Defs.lean`](../../Silmaril/SSA/MLIR/Arith/Defs.lean)
+
+```lean
+import Silmaril.SSA.MLIR.Thms
+
+open Silmaril.MLIR.Arith
+open Silmaril.Isotope.Institution.Observational
+
+def i8 : Width := ⟨8, by decide⟩
+def twice : Block [i8] i8 :=
+  .letOp (.binary .addi .here .here) (.yield .here)
+def input : Env [i8] := .cons 200#8 .nil
+
+example : iterBeh input.observationModel twice.toLetIter =
+    {Observation.ret () (word (w := i8) 144#8) ()} :=
+  twice.toLetIter_observations input
+
+example : ssaBeh 1 input.observationModel twice.toScopedLambdaSSA =
+    {Observation.ret () (0, word (w := i8) 144#8) ()} :=
+  twice.toLambdaSSA_observations input
+```
 
 ## Checked translations
 
 | Theorem | Statement |
 | --- | --- |
-| `Block.toLambdaSSA_hasType` | The lowered LambdaSSA region has one exit with the declared result type. |
-| `Block.toLambdaSSA_eval_iff` | On every typed input its finite outcomes consist exactly of exit zero carrying the source denotation. |
-| `Block.toLetIter_hasType` | The encoded LetIter term has the corresponding context and result type. |
-| `Block.toLetIter_eval_iff` | On the corresponding positional environment its finite results are exactly the source denotation. |
-| `Examples.double_lowering` | Rewriting `addi x x` to a block that materializes two and multiplies by it preserves the result at every width. |
-| `Examples.doubleMul_lambdaSSA`, `Examples.squareAdd_letIter` | The translated examples return (400 mod 256 = 144) and ((20^2 + 20) mod 256 = 164), respectively. |
+| `Block.toLambdaSSA_hasType`, `Block.toLetIter_hasType` | Both lowerings have the declared input and result types. |
+| `Block.toLambdaSSA_eval_iff`, `Block.toLetIter_eval_iff` | On every typed input the lowerings return exactly the source denotation. LambdaSSA returns at exit zero. |
+| `Block.toLambdaSSA_observations`, `Block.toLetIter_observations` | Under `Env.observationModel`, each full behavior set is the singleton return. |
+| `Block.toLetIter_quotEquiv` | The existing single-exit quotient equivalence maps the actual LambdaSSA class to the actual LetIter class. |
 
-The lowering uses LambdaSSA’s existing `Tm.let₁`, primitive applications
-and a single `Region.br` exit. A scoped application becomes a lexical let for
-its argument inside the let that binds its result. The proof checks its body
-with an arbitrary ambient suffix to the typing context and runtime environment.
-The existing `Isotope.Morphism.SSAIter.encodeSingle` applies because the lowered
-region is scoped and has one exit. The bridge reuses `encodeSingle_hasType`
-and `encodeSingle_eval_iff`. The ambient calculi already have an isomorphism
-`Isotope.Institution.Observational.iterSSAIso` on the single-exit observational
-quotients. [LambdaSSA theorems](../../Silmaril/SSA/MLIR/Arith/Thms.lean) ·
-[LetIter theorems](../../Silmaril/SSA/MLIR/Arith/LetIter/Thms.lean) ·
+`Block.toScopedLambdaSSA` packages the same region as `Block.toLambdaSSA`
+with its scope evidence. `Block.toLetIter` applies `SSAIter.encodeSingle`
+to that region. The quotient comparison uses `SSAIter.quotEquiv`, the
+program map on the inverse side of `Observational.iterSSAIso`. The
+singleton observations use the concrete arithmetic model at a typed input.
+The quotient ranges over the calculi's shared observational equivalence,
+which quantifies over primitive interpretations.
+[LambdaSSA](../../Silmaril/SSA/MLIR/Arith/Thms.lean) ·
+[LetIter](../../Silmaril/SSA/MLIR/Arith/LetIter/Thms.lean) ·
+[Isotope institutions](../../Silmaril/SSA/Isotope/Institution/Thms.lean)
+
+The `Examples.doubleMul_lambdaSSA` and `Examples.doubleMul_letIter`
+theorems check doubling `200 : BitVec 8` to `144`. The
+`Examples.squareAdd_lambdaSSA` and `Examples.squareAdd_letIter` theorems
+check squaring `20 : BitVec 8` in an isolated region and adding it to
+the original input for `164`. The theorem `Examples.double_lowering`
+validates the source rewrite from `addi x x` to multiplication by two
+at every width. The smoke test also checks a closed block and nested
+isolated regions whose input and result widths differ.
 [Examples](../../Silmaril/SSA/MLIR/Arith/Examples/Thms.lean) ·
-[Existing calculus results](ssa.md)
+[Smoke test](../../Silmaril/SSA/MLIR/Examples/Thms.lean)
 
 ```sh
-lake build --wfail Silmaril.SSA.MLIR.Arith.Examples.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.MLIR.Examples.Thms +Silmaril.SSA.MLIR.Arith.Examples.Thms'
 ```
+
+The pure plain and isolated-region signature institutions have a separate
+general syntax and satisfaction API. This lowering covers the concrete
+arithmetic blocks above. [Pure MLIR institutions](mlir-institutions.md)
 
 ## Roadmap
 
@@ -66,9 +96,8 @@ lake build --wfail Silmaril.SSA.MLIR.Arith.Examples.Thms
    of renaming and reduct and prove the satisfaction condition
    (M' models mathrm{Sen}(sigma)(e) iff M'|_sigma models e) by a
    denotation lemma. Its region case uses the induction hypothesis at each
-   parameter assignment, then the mapped operation's interpretation. These
-   institution laws for dialect signatures are planned. Use the repository's
-   [institution interface](../../Silmaril/Logic/Institution/Basic.lean).
+   parameter assignment, then the mapped operation's interpretation.
+   The pure signature laws are checked. [Pure MLIR institutions](mlir-institutions.md)
 3. **Categorical semantics.** Use contexts as objects and tuples of block
    results as arrows modulo a typed congruence closed under substitution
    and region contexts. Use projections for identity and capture-avoiding
