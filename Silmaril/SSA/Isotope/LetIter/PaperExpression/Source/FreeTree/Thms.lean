@@ -49,6 +49,13 @@ theorem instructions_pure (observe : ObserveInput (sorts := sorts) S) :
     InstructionModel.RespectsPure (ε := ε) (instructions (ε := ε) S observe) :=
   Proofs.instructions_pure S observe
 
+/-- The source expression of a pure tree is typed at any effect bound. -/
+theorem tree_wf {a : α} (t : Tree S sorts a) (hp : DeclaredPure (ε := ε) S t)
+    (hΓ : Γ.Pure) (hs : ∀ i, (Γ.get i).1 = .base (sorts i)) (e : ε) :
+    letI := S.endpoints
+    Wf Γ t.source (.base a) e :=
+  Proofs.tree_wf S t hp hΓ hs e
+
 variable [DecidableEq α] [EffectIteration ε]
 
 /-- Arbitrarily many sorts and finitary bottom-effect symbols are allowed.
