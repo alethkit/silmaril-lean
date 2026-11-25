@@ -67,3 +67,34 @@ example : ∃ final witnesses,
   exact ⟨final, witnesses, trace, views, returned⟩
 
 example : (Presentation.raising (∅ : Rows 2) unbound).completion? = none := rfl
+
+private def populated : Rows 2 := (∅ : Rows 2).insert slot 17
+private def yes : Code 2 := .ret (.arithmetic (.int 2))
+private def no : Code 2 := .ret (.arithmetic (.int 3))
+
+example : (Presentation.enter populated (.branch (.arithmetic (.int (-7))) yes no)).advance =
+    some (none, Presentation.enter populated yes) := rfl
+
+example : (Presentation.enter populated (.branch (.arithmetic (.int 0)) yes no)).advance =
+    some (none, Presentation.enter populated no) := rfl
+
+example : (Presentation.enter populated (.branch (.read 0) yes no)).advance =
+    some (none, .raising populated (.unboundLocal 0)) := rfl
+
+private def shortTest : Rhs 2 := .logical .and (.arithmetic (.int 0)) (.read 0)
+private def branchEntry := Presentation.enter populated (.branch shortTest yes no)
+private def branchTest := (Presentation.enter populated (.branch (.arithmetic (.int 0)) yes no)).view
+private def branchNo := (Presentation.enter populated no).view
+private def branchExit : State 2 := .finished (Environment.Finite.view populated) (.ok 3)
+
+private theorem runBranch :
+    (semantic 2).Execution branchEntry.view [none, none, some (.exit (.ok 3))] branchExit
+      [branchEntry.view, branchTest, branchNo, branchExit] :=
+  .stepL (.expression (.logicalShort rfl))
+    (.stepL (.takeNo _ yes no) (.stepL (.ret _ 3) (.refl _)))
+
+example : ∃ final witnesses,
+    (presented 2).Execution branchEntry [none, none, some (.exit (.ok 3))] final witnesses ∧
+      witnesses.map Presentation.view = [branchEntry.view, branchTest, branchNo, branchExit] ∧
+      final.view = branchExit :=
+  execution_readback runBranch
