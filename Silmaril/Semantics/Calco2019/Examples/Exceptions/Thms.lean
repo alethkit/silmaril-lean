@@ -42,4 +42,17 @@ noncomputable def parametrized (m : Type u → Type u) [Monad m] [LawfulMonad m]
 @[simp] theorem parametrized_obj (E : Type u) : (parametrized m).obj E = fibre m E :=
   Proofs.parametrized_obj E
 
+open CategoryTheory in
+/-- Example 22 for a total Elgot type monad and any endofunctor on types. -/
+noncomputable def parametrizedBy (m : Type u → Type u) [_root_.Monad m] [LawfulMonad m]
+    [Elgot.Iterate m] [Elgot.LawfulElgotMonad m] (H : Type u ⥤ Type u) :
+    ParametrizedGuardedElgotMonad typeCoproducts.{u} :=
+  H ⋙ parametrized m
+
+open CategoryTheory in
+@[simp] theorem parametrizedBy_obj (H : Type u ⥤ Type u) (W : Type u) :
+    (parametrizedBy m H).obj W = fibre m (H.obj W) := by
+  change (parametrized m).obj (H.obj W) = _
+  exact parametrized_obj _
+
 end Silmaril.Calco2019.Examples.Exceptions
