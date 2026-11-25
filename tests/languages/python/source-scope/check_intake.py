@@ -1,5 +1,6 @@
 """Check the Python AST emitter and run the emitted constructors in Lean."""
 
+import argparse
 import os
 import subprocess
 import sys
@@ -22,11 +23,12 @@ def emit(source, destination, text, *, check=True):
     )
 
 
-def check_lean(destination, regression):
+def check_lean(destination, regression, *, extra_imports=()):
     original = destination.read_text(encoding="utf-8")
     syntax = "Silmaril.Languages.Python.Source.Syntax.Defs"
     scope = "Silmaril.Languages.Python.Source.Scope.Defs"
-    imports = f"public import {syntax}\nimport {scope}\nmeta import {syntax}\nmeta import {scope}"
+    imports = "\n".join([f"public import {syntax}", f"import {scope}",
+                         f"meta import {syntax}", f"meta import {scope}", *extra_imports])
     destination.write_text(
         original.replace(f"public import {syntax}", imports, 1) + "\n" + regression,
         encoding="utf-8",
@@ -38,7 +40,7 @@ def check_lean(destination, regression):
     )
 
 
-def main():
+def check_scope_intake():
     with tempfile.TemporaryDirectory() as tmp:
         source = Path(tmp) / "Example.py"
         destination = Path(tmp) / "Example.lean"
@@ -78,5 +80,32 @@ def outer(seed):
         assert not destination.exists()
 
 
+def check_closed_compiler():
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "Example.py"
+        destination = Path(tmp) / "Example.lean"
+        emit(source, destination, "def answer():\n    return 1 + 2\n")
+        check_lean(destination, """
+open Silmaril.Languages.Python
+
+#guard (match Compile.Closed.compile pythonSource with
+  | .error _ => false
+  | .ok body =>
+    match Core.run .addition body 3 with
+    | some (.stop (.finished (.ok value)) (.observed (.returned (.ok observed)))) =>
+      value == 3 && observed == 3
+    | _ => false)
+""", extra_imports=(
+            "import Silmaril.Languages.Python.Compile.Closed.Thms",
+            "meta import Silmaril.Languages.Python.Compile.Closed.Defs",
+            "meta import Silmaril.Languages.Python.Core.Thms",
+        ))
+
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--closed-compiler", action="store_true")
+    if parser.parse_args().closed_compiler:
+        check_closed_compiler()
+    else:
+        check_scope_intake()
