@@ -37,12 +37,15 @@ The unnormalized probability of `false` from zero is `1/3` and the total
 return probability is `2/3`. Normalization assigns `false` probability
 `1/2`, but a single unfolding with the same continuation assigns `1/3`.
 `normalized_not_fixpoint` proves the inequality for this guarded PMF loop.
+The paper-facing `example20_3_counterexample` checks the guard and states the
+failure directly in the categorical Kleisli fixpoint equation.
 
 A probability-valued fixpoint can be produced by supplying an explicit fallback
 distribution. `completion` assigns the missing mass to the fallback and
 proves both unit mass and the original fixpoint equation. When termination has
 probability one at each state, the underlying least solution already has unit
-mass.
+mass. Under that hypothesis `normalized_pmf_fixpoint_of_mass_one` proves the
+categorical fixpoint equation for the normalized PMF.
 
 There is also an obstruction to replacing normalization with a different
 operator on the same guard. `no_nat_iteration` proves that even state and

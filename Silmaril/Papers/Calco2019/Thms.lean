@@ -5,7 +5,7 @@ public import Silmaril.Semantics.Calco2019.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionThms
 public import Silmaril.Semantics.Calco2019.ResumptionConway
 public import Silmaril.Semantics.Calco2019.VacuousThms
-public import Silmaril.Semantics.Calco2019.ExceptionGuardThms
+public import Silmaril.Semantics.Calco2019.ExceptionElgot
 
 /-! # Numbered results for CALCO 2019, Article 13 -/
 
@@ -128,6 +128,23 @@ theorem example22_guard {T : GuardedElgotMonad P} {E X Y Z : C}
       (Z := Kleisli.mk ((Exception.family P T.monad).obj E) Z) (kleisliArrow f) ↔
     Exception.Guard P T E (Y := Y) (Z := Z) f :=
   Iff.rfl
+
+/-- Pure uniformity for the chosen fixed-parameter iteration of Example 22. -/
+theorem example22_uniformity (T : GuardedElgotMonad P) (E : C) :
+    (Exception.fixpoints T E).Uniform
+      (Kleisli.Adjunction.toKleisli ((Exception.family P T.monad).obj E)) :=
+  Exception.uniformity T E
+
+/-- Example 22. The parametrized guarded Elgot monad has the paper's carrier. -/
+theorem example22 (T : GuardedElgotMonad P) (H : C ⥤ C) (X W : C) :
+    ((Exception.parametrizedElgot T H).obj W).monad.obj X = T.monad.obj (P.sum X (H.obj W)) :=
+  rfl
+
+/-- Corollary 26. The guarded Elgot structure of the coinductive exception resumptions. -/
+noncomputable def corollary26 (T : GuardedElgotMonad P) (H : C ⥤ C)
+    (R : FinalResumptions (Exception.parametrizedElgot T H).toParametrizedMonad) :
+    { S : GuardedElgotMonad P // S.monad = R.monad P } :=
+  ⟨(Exception.parametrizedElgot T H).resumptionElgotMonad R, rfl⟩
 
 end Exception
 
