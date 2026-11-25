@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the selected HourClock denotation from its pinned source files."""
+"""Check the selected HourClock denotations from their pinned source files."""
 
 import os
 from pathlib import Path
@@ -28,6 +28,7 @@ def main():
             "+Silmaril.Logic.Temporal.TLA.Surface.Parser.Defs",
             "+Silmaril.Logic.Temporal.TLA.Resolution.Levels.Defs",
             "+Silmaril.Logic.Temporal.TLA.DataElab.Tagged.Thms",
+            "+Silmaril.Logic.Temporal.TLA.DataElab.Endpoints.Thms",
             "+Silmaril.Logic.Temporal.TLA.DataBridge.Thms",
         ],
         cwd=ROOT,
