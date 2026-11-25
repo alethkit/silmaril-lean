@@ -171,6 +171,29 @@ theorem split_if {fn : Function} {fallthrough : List NumType} {enclosing : Enclo
   apply split_condition
   simpa only [Function.WellTyped, checkCode, checkOp] using typed
 
+theorem split_indexed_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
+    {kind : LabelKind} {stack : List Value} {index : TypeIdx} {signature : Wasm.V1.FuncType}
+    {thenBody elseBody rest : List Op}
+    (typed : fn.WellTyped stack (.indexedIf index signature thenBody elseBody :: rest) fallthrough enclosing kind) :
+    ∃ (operands : List Value) (condition : BitVec 32), stack = operands ++ [Value.int .i32 condition] := by
+  apply split_condition
+  simpa only [Function.WellTyped, checkCode, checkOp] using typed
+
+theorem indexed_if_arms {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
+    {kind : LabelKind} {operands : List Value} {condition : BitVec 32} {index : TypeIdx}
+    {signature : Wasm.V1.FuncType} {thenBody elseBody rest : List Op}
+    (typed : fn.WellTyped (operands ++ [Value.int .i32 condition])
+      (.indexedIf index signature thenBody elseBody :: rest) fallthrough enclosing kind) :
+    fn.WellTyped operands (.indexedBlock index signature thenBody :: rest) fallthrough enclosing kind ∧
+    fn.WellTyped operands (.indexedBlock index signature elseBody :: rest) fallthrough enclosing kind := by
+  unfold Function.WellTyped at typed
+  rw [stack_types_append] at typed
+  change checkCode _ _ _ _ _ (.int .i32 :: Prefix.stackTypes operands) _ _ _ = true at typed
+  simp only [checkCode, checkOp, checkCondition, Bool.and_eq_true_iff] at typed
+  obtain ⟨⟨⟨resolved, left⟩, right⟩, resume⟩ := typed
+  simp only [Function.WellTyped, checkCode, checkOp, Bool.and_eq_true_iff]
+  exact ⟨⟨⟨resolved, left⟩, resume⟩, ⟨⟨resolved, right⟩, resume⟩⟩
+
 theorem split_br_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {kind : LabelKind} {stack : List Value}
     {result : List NumType} {depth : LabelIdx} {rest : List Op}
     (typed : fn.WellTyped stack (.brIf depth result :: rest) fallthrough enclosing kind) :
@@ -246,6 +269,14 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
         split
         · exact ⟨body.1.2, body.2⟩
         · exact ⟨body.1.1, body.2⟩
+    | indexedIfSelect _ _ condition _ _ _ _ _ =>
+      cases ready with
+      | running typed body =>
+        obtain ⟨left, right⟩ := indexed_if_arms body
+        apply AdmittedAt.running typed
+        by_cases zero : condition = 0
+        · simpa only [ite_eq_left zero] using right
+        · simpa only [ite_eq_right zero] using left
     | blockEnter locals saved result code rest =>
       cases ready with
       | running typed body =>

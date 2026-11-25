@@ -44,7 +44,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | indexedBlock | loop | if_ | br | brIf | brTable | return_ | unreachable => rfl
+    | set | tee | call | block | indexedBlock | indexedIf | loop | if_ | br | brIf | brTable | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.coreFunc.body = (Body.running fn.initial fn.code).render coreAdmin := by
@@ -146,6 +146,13 @@ private theorem running_stays {n : Nat} {cont : List Instr} {v : List Value} {op
       (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp) (by simp) pop
   | if_ result thenBody elseBody =>
     exact Computed.core_label_stays (head := coreAdmin.emit (.if_ result thenBody elseBody)) rfl
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax, Admin.IsReturnCallRef])
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax]) pop
+  | indexedIf index signature thenBody elseBody =>
+    exact Computed.core_label_stays (head := coreAdmin.emit (.indexedIf index signature thenBody elseBody)) rfl
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax, Admin.IsReturnCallRef])
@@ -582,6 +589,20 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
               simp only [coreAt, Phase.renderAt, Body.render, coreAdmin, coreEmit, Op.emit,
                 coreCodeSyntax, Function.comp_def, Op.emitList_selected, List.map_cons]
               rfl)
+          | indexedIf index signature thenBody elseBody =>
+            obtain ⟨saved, condition, rfl⟩ := Function.split_indexed_if codeTyped
+            have select := (Computed.core_if_iff (P := P) (s := s) (f := (currentFrame target.declaration locals).toCore)
+              (bt := .typeIdx index) (saved := saved.map Value.toCore) (condition := condition)
+              (thenBody := Op.emitList coreCodeSyntax thenBody)
+              (elseBody := Op.emitList coreCodeSyntax elseBody) (rest := rest.map coreAdmin.emit)).mp (by
+              simpa only [native, Body.render, coreAdmin, coreEmit, Op.emit, coreCodeSyntax,
+                Function.comp_def, coreValues, List.map_append, List.map_cons, List.map_nil, Value.toCore, Value.int] using inner)
+            subst mid
+            refine ⟨_, rule.mpr (.indexedIfSelect locals saved condition index signature thenBody elseBody rest), ?_⟩
+            exact eq.trans (by
+              simp only [coreAt, Phase.renderAt, Body.render, coreAdmin, coreEmit, Op.emit,
+                coreCodeSyntax, Function.comp_def, Op.emitList_selected, List.map_cons]
+              rfl)
           | block result body =>
             have enter := (Blocks.core_context_entry_iff (result := result)
               (body := Op.emitList coreCodeSyntax body) (saved := stack.map Value.toCore)
@@ -653,6 +674,16 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
             apply lift_label
             have select := (Computed.core_if_iff (P := P) (s := s) (f := (currentFrame target.declaration locals).toCore)
               (bt := Blocks.coreType result) (saved := saved.map Value.toCore)
+              (condition := condition)
+              (thenBody := Op.emitList coreCodeSyntax thenBody)
+              (elseBody := Op.emitList coreCodeSyntax elseBody) (rest := rest.map coreAdmin.emit)).mpr rfl
+            simpa only [native, Body.render, coreAdmin, coreEmit, Op.emit, coreCodeSyntax, Function.comp_def,
+              Op.emitList_selected, coreValues, List.map_cons, List.map_append, List.map_nil,
+              Value.toCore, Value.int] using select
+          | @indexedIfSelect _ locals saved condition index _ thenBody elseBody rest =>
+            apply lift_label
+            have select := (Computed.core_if_iff (P := P) (s := s) (f := (currentFrame target.declaration locals).toCore)
+              (bt := .typeIdx index) (saved := saved.map Value.toCore)
               (condition := condition)
               (thenBody := Op.emitList coreCodeSyntax thenBody)
               (elseBody := Op.emitList coreCodeSyntax elseBody) (rest := rest.map coreAdmin.emit)).mpr rfl

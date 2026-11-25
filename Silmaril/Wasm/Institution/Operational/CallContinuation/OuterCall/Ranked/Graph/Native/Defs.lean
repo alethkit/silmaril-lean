@@ -25,6 +25,7 @@ structure CodeSyntax (A : Type) where
   indexedBlock : TypeIdx → List A → A
   loop : Option NumType → List A → A
   if_ : Option NumType → List A → List A → A
+  indexedIf : TypeIdx → List A → List A → A
   br : LabelIdx → A
   brIf : LabelIdx → A
   brTable : List LabelIdx → LabelIdx → A
@@ -41,6 +42,8 @@ def Op.emit {A : Type} (codec : CodeSyntax A) : Op → A
   | .loop result code => codec.loop result (Op.emitList codec code)
   | .if_ result thenBody elseBody =>
       codec.if_ result (Op.emitList codec thenBody) (Op.emitList codec elseBody)
+  | .indexedIf index _ thenBody elseBody =>
+      codec.indexedIf index (Op.emitList codec thenBody) (Op.emitList codec elseBody)
   | .br depth _ => codec.br depth
   | .brIf depth _ => codec.brIf depth
   | .brTable depths fallback _ => codec.brTable depths fallback
@@ -78,13 +81,16 @@ theorem Op.map_br_if {A : Type} (emit : Op → A) (condition : BitVec 32)
 /-- Indexed syntax lies outside the V1 source guard. The total renderer uses
 unreachable for that unsupported case. -/
 def v1CodeSyntax : CodeSyntax Wasm.V1.Instr :=
-  ⟨v1Source, .localSet, .localTee, .return_, .unreachable, .block, (fun _ _ => .unreachable), .loop, .if_, .br, .brIf, .brTable⟩
+  ⟨v1Source, .localSet, .localTee, .return_, .unreachable, .block, (fun _ _ => .unreachable),
+    .loop, .if_, (fun _ _ _ => .unreachable), .br, .brIf, .brTable⟩
 
 def limeCodeSyntax : CodeSyntax Wasm.Lime1.Instr :=
-  ⟨limeSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.limeType, .block ∘ .typeIdx, .loop ∘ Blocks.limeType, .if_ ∘ Blocks.limeType, .br, .brIf, .brTable⟩
+  ⟨limeSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.limeType, .block ∘ .typeIdx,
+    .loop ∘ Blocks.limeType, .if_ ∘ Blocks.limeType, .if_ ∘ .typeIdx, .br, .brIf, .brTable⟩
 
 def coreCodeSyntax : CodeSyntax Instr :=
-  ⟨coreSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.coreType, .block ∘ .typeIdx, .loop ∘ Blocks.coreType, .if_ ∘ Blocks.coreType, .br, .brIf, .brTable⟩
+  ⟨coreSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.coreType, .block ∘ .typeIdx,
+    .loop ∘ Blocks.coreType, .if_ ∘ Blocks.coreType, .if_ ∘ .typeIdx, .br, .brIf, .brTable⟩
 
 def Function.instructions {A : Type} (fn : Function) (codec : CodeSyntax A) : List A :=
   fn.initial.map codec.ops.value ++ Op.emitList codec fn.code

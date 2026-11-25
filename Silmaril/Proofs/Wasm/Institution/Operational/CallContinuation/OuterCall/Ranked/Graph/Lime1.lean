@@ -38,7 +38,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | indexedBlock | loop | if_ | br | brIf | brTable | return_ | unreachable => rfl
+    | set | tee | call | block | indexedBlock | indexedIf | loop | if_ | br | brIf | brTable | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.limeFunc.body = (Body.running fn.initial fn.code).render limeAdmin := by
@@ -139,6 +139,11 @@ private theorem running_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {cont
   | call t => exact Computed.lime_label_stays (head := .source (.call t.index)) rfl (by simp) (by simp) (by simp) pop
   | if_ result thenBody elseBody =>
     exact Computed.lime_label_stays (head := limeAdmin.emit (.if_ result thenBody elseBody)) rfl
+      (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax])
+      (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax])
+      (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax]) pop
+  | indexedIf index signature thenBody elseBody =>
+    exact Computed.lime_label_stays (head := limeAdmin.emit (.indexedIf index signature thenBody elseBody)) rfl
       (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax])
       (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax])
       (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax]) pop
@@ -535,6 +540,18 @@ private theorem region_step_iff {H : Type} {s : Store H} {program : Program} (ch
               simp only [limeAt, Phase.renderAt, Body.render, limeAdmin, limeEmit, Op.emit,
                 limeCodeSyntax, Function.comp_def, Op.emitList_selected, List.map_cons]
               rfl)
+          | indexedIf index signature thenBody elseBody =>
+            obtain ⟨saved, condition, rfl⟩ := Function.split_indexed_if codeTyped
+            have select := (Computed.lime_if_iff (s := s) (f := currentFrame target.declaration locals)
+              (bt := .typeIdx index) (saved := saved) (condition := condition)
+              (thenBody := Op.emitList limeCodeSyntax thenBody)
+              (elseBody := Op.emitList limeCodeSyntax elseBody) (rest := rest.map limeAdmin.emit)).mp inner
+            subst mid
+            refine ⟨_, rule.mpr (.indexedIfSelect locals saved condition index signature thenBody elseBody rest), ?_⟩
+            exact eq.trans (by
+              simp only [limeAt, Phase.renderAt, Body.render, limeAdmin, limeEmit, Op.emit,
+                limeCodeSyntax, Function.comp_def, Op.emitList_selected, List.map_cons]
+              rfl)
           | block result body =>
             have enter := (Computed.lime_block_iff (result := result)
               (body := Op.emitList limeCodeSyntax body) (stack := stack) (rest := rest.map limeAdmin.emit)).mp inner
@@ -599,6 +616,15 @@ private theorem region_step_iff {H : Type} {s : Store H} {program : Program} (ch
             apply lift_label
             have select := (Computed.lime_if_iff (s := s) (f := currentFrame target.declaration locals)
               (bt := Blocks.limeType result) (saved := saved)
+              (condition := condition)
+              (thenBody := Op.emitList limeCodeSyntax thenBody)
+              (elseBody := Op.emitList limeCodeSyntax elseBody) (rest := rest.map limeAdmin.emit)).mpr rfl
+            simpa only [Body.render, limeAdmin, limeEmit, Op.emit, limeCodeSyntax, Function.comp_def,
+              Op.emitList_selected, List.map_cons, List.map_append, List.map_nil] using select
+          | @indexedIfSelect _ locals saved condition index _ thenBody elseBody rest =>
+            apply lift_label
+            have select := (Computed.lime_if_iff (s := s) (f := currentFrame target.declaration locals)
+              (bt := .typeIdx index) (saved := saved)
               (condition := condition)
               (thenBody := Op.emitList limeCodeSyntax thenBody)
               (elseBody := Op.emitList limeCodeSyntax elseBody) (rest := rest.map limeAdmin.emit)).mpr rfl

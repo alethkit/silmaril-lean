@@ -23,6 +23,7 @@ inductive Op where
   | indexedBlock (index : TypeIdx) (signature : Wasm.V1.FuncType) (code : List Op)
   | loop (result : Option NumType) (code : List Op)
   | if_ (result : Option NumType) (thenBody elseBody : List Op)
+  | indexedIf (index : TypeIdx) (signature : Wasm.V1.FuncType) (thenBody elseBody : List Op)
   /-- Branch annotations list the target's operand types in delivery order. -/
   | br (depth : LabelIdx) (result : List NumType)
   | brIf (depth : LabelIdx) (result : List NumType)
@@ -45,7 +46,8 @@ def codeTargets : List Op → List CallTarget
 def Op.targets : Op → List CallTarget
   | .call target => [target]
   | .block _ body | .indexedBlock _ _ body | .loop _ body => codeTargets body
-  | .if_ _ thenBody elseBody => codeTargets thenBody ++ codeTargets elseBody
+  | .if_ _ thenBody elseBody | .indexedIf _ _ thenBody elseBody =>
+      codeTargets thenBody ++ codeTargets elseBody
   | _ => []
 
 end
@@ -58,7 +60,7 @@ def codeV1 : List Op → Bool
   | op :: rest => op.supportsV1 && codeV1 rest
 
 def Op.supportsV1 : Op → Bool
-  | .indexedBlock .. => false
+  | .indexedBlock .. | .indexedIf .. => false
   | .block _ body | .loop _ body => codeV1 body
   | .if_ _ left right => codeV1 left && codeV1 right
   | _ => true
@@ -128,9 +130,9 @@ def checkCondition (stack : List NumType) (resume : List NumType → Bool) : Boo
 
 mutual
 
-/-- The checker carries top-first stack types. Blocks and both arms of a
-conditional start with no parameters and check against their declared optional
-fallthrough result. Explicit return checks the enclosing function's result types. -/
+/-- The checker carries top-first stack types. Indexed blocks and both arms of
+an indexed conditional start with the resolved parameter types. Explicit return
+checks the enclosing function's result types. -/
 def checkCode (targets : List CallTarget) (locals returns fallthrough : List NumType)
     (enclosing : EnclosingLabels) (stack : List NumType) : List Op → (kind : LabelKind := .exit) → (types : List Wasm.V1.FuncType := []) → Bool
   | [], _, _ => decide (stack = fallthrough.reverse)
@@ -163,6 +165,13 @@ def checkOp (targets : List CallTarget) (locals returns : List NumType) (labels 
         checkCode targets locals returns result.toList labels [] thenBody .exit types &&
           checkCode targets locals returns result.toList labels [] elseBody .exit types &&
           resume (result.toList.reverse ++ saved)
+  | .indexedIf index signature thenBody elseBody =>
+      checkCondition stack fun operands =>
+        decide (types[index.toNat]? = some signature ∧
+          operands.take signature.params.length = signature.params.reverse) &&
+          checkCode targets locals returns signature.results labels signature.params.reverse thenBody (.indexed signature) types &&
+          checkCode targets locals returns signature.results labels signature.params.reverse elseBody (.indexed signature) types &&
+          resume (signature.results.reverse ++ operands.drop signature.params.length)
   | .br depth result => checkBranch labels stack depth result
   | .brIf depth result =>
       checkCondition stack fun saved => checkBranch labels saved depth result && resume saved
@@ -397,6 +406,12 @@ inductive Layer (fn : Function) (childStep : CallTarget → Phase → Phase → 
       Layer fn childStep (.label locals (.running (saved ++ [Value.int .i32 condition])
         (.if_ result thenBody elseBody :: rest)))
         (.label locals (.running saved (.block result (if condition = 0 then elseBody else thenBody) :: rest))) kind
+  | indexedIfSelect {kind} (locals operands : List Value) (condition : BitVec 32) (index : TypeIdx)
+      (signature : Wasm.V1.FuncType) (thenBody elseBody rest : List Op) :
+      Layer fn childStep (.label locals (.running (operands ++ [Value.int .i32 condition])
+        (.indexedIf index signature thenBody elseBody :: rest)))
+        (.label locals (.running operands
+          (.indexedBlock index signature (if condition = 0 then elseBody else thenBody) :: rest))) kind
   | blockEnter {kind} (locals saved : List Value) (result : Option NumType) (code rest : List Op) :
       Layer fn childStep (.label locals (.running saved (.block result code :: rest)))
         (.label locals (.block saved result (.running [] code) rest)) kind
