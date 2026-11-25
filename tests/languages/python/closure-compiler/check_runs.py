@@ -24,6 +24,16 @@ FIXTURES = (
     pass
     return result
 """, "return 5", ["enter", "resume", "complete"]),
+    ("implicit_none", """def outer(seed):
+    pass
+""", "return None", ["complete None"]),
+    ("nested_implicit_none", """def outer(seed):
+    def inner(value):
+        copy = value
+    result = seed
+    result = inner(seed)
+    return result
+""", "return None", ["enter", "resume None", "complete None"]),
     ("forwarded_write", """def outer(seed):
     def middle(x):
         def inner(y):
@@ -76,6 +86,7 @@ open Silmaril.Languages.Python
 open Silmaril.Languages.Python.Compile.Closure.Run
 
 private def resultName : Core.Closure.Result → String
+  | .ok .none => "return None"
   | .ok (.int value) => s!"return {value}"
   | .error (.positionalArity 1 0) => "TypeError arity"
   | .error .notCallable => "TypeError noncallable"
@@ -84,7 +95,9 @@ private def resultName : Core.Closure.Result → String
 
 private def eventName : Core.Closure.Executor.Event → String
   | .enter _ => "enter"
+  | .resume (.ok .none) => "resume None"
   | .resume _ => "resume"
+  | .complete (.ok .none) => "complete None"
   | .complete _ => "complete"
   | .fault _ => "fault"
 
@@ -125,7 +138,9 @@ if __name__ == "__main__":
             extra = ""
             if name == "pass":
                 extra = '#guard observation pythonSource 2 == ("return 5", ["complete"])\n'
-            if name == "forwarded_write":
+            elif name == "implicit_none":
+                extra = '#guard observation pythonSource 2 == ("return None", ["complete None"])\n'
+            elif name == "forwarded_write":
                 extra = '#guard observation pythonSource 1 == ("live residual", [])\n'
             shared["check_lean"](
                 lean_file,
@@ -142,12 +157,12 @@ if __name__ == "__main__":
 """,
             extra_imports=imports, capture_output=True,
         )
-        shared["emit"](python_file, lean_file, "def outer(seed): pass\n")
-        implicit = subprocess.run(
+        shared["emit"](python_file, lean_file, "def outer(seed): return\n")
+        bare_return = subprocess.run(
             [sys.executable, "-I", "-c", CPYTHON, str(python_file)],
             check=True, capture_output=True, text=True, timeout=10,
         )
-        assert implicit.stdout.strip() == "return None"
+        assert bare_return.stdout.strip() == "return None"
         shared["check_lean"](
             lean_file,
             LEAN + """

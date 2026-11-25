@@ -50,6 +50,13 @@ observed = 2
     return answer
 observed = identity(6)
 """, "normal", ".normal", 6, None),
+    ("implicit_none_binding", """def quiet():
+    pass
+observed = quiet()
+kept = 4
+assert quiet()
+kept = 9
+""", "AssertionError", ".assertionError", None, 4),
     ("nested_assignment", """def identity(value):
     return value
 def select(first, second, third):
@@ -99,11 +106,17 @@ private def readInt (session : Core.Module.Functions.Session) (name : String) : 
   | some (.int value) => some value
   | _ => none
 
-private def observe (source : Module) : Option (Completion × Option Int × Option Int) := do
+private def noneBound (session : Core.Module.Functions.Session) (name : String) : Bool :=
+  match session.globals name with
+  | some .none => true
+  | _ => false
+
+private def observe (source : Module) : Option (Completion × Option Int × Option Int × Bool) := do
   let compiled ← (compile source).toOption
   let (_, live) := runPrefix compiled.table 5 compiled.start
   match (runPrefix compiled.table 128 live).2 with
-  | .finished session result => some (result, readInt session "observed", readInt session "kept")
+  | .finished session result =>
+    some (result, readInt session "observed", readInt session "kept", noneBound session "observed")
   | _ => none
 """
 
@@ -138,7 +151,8 @@ except (AssertionError, NameError, TypeError) as error:
     completion = type(error).__name__
     if isinstance(error, NameError):
         missing = error.name
-print(json.dumps([completion, missing, namespace.get("observed"), namespace.get("kept")]))
+bound_none = "observed" in namespace and namespace["observed"] is None
+print(json.dumps([completion, missing, namespace.get("observed"), namespace.get("kept"), bound_none]))
 """
 
 
@@ -167,15 +181,16 @@ if __name__ == "__main__":
             )
             name_error = re.fullmatch(r'\.raised \(\.nameError "([^"]+)"\)', lean)
             missing = name_error.group(1) if name_error else None
-            assert json.loads(result.stdout) == [completion, missing, observed, kept], (name, result.stdout)
+            bound_none = name == "implicit_none_binding"
+            assert json.loads(result.stdout) == [completion, missing, observed, kept, bound_none], (name, result.stdout)
             assert result.stderr == "", (name, result.stderr)
-            test = f"\n#guard observe pythonSource == some ({lean}, {optional(observed)}, {optional(kept)})\n"
+            test = f"\n#guard observe pythonSource == some ({lean}, {optional(observed)}, {optional(kept)}, {json.dumps(bound_none)})\n"
             if name == "rebind":
                 test += "#print axioms seed_lookup\n#print axioms invoke_current_globals\n#print axioms runPrefix_append\n"
             if name == "nested_assignment":
                 test += NESTED_TRACE
             shared["check_lean"](lean_file, LEAN + test, extra_imports=imports)
-            observations[name] = {"completion": completion, "observed": observed, "kept": kept}
+            observations[name] = {"completion": completion, "observed": observed, "kept": kept, "bound_none": bound_none}
         shared["emit"](source_file, lean_file, "def identity(x): return x\nidentity(1 + 2)\n")
         shared["check_lean"](lean_file, LEAN + """
 #guard (match compile pythonSource with | .error .callOperand => true | _ => false)

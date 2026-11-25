@@ -12,7 +12,7 @@ theorem ordinary {tree : Source.ScopeTree} {start : Nat} {source : List Source.S
     {code : Code (Compile.Closure.frameLayout tree.scope)} (translated : Translation tree start source code) :
     tree.scope.context.containsYield = false := by
   induction translated with
-  | ret clear _ _ => exact clear
+  | ret clear _ _ | fallthrough clear _ => exact clear
   | assign _ _ _ _ tail | pass _ tail | nonlocal _ tail | global _ tail => exact tail
   | closure _ _ _ _ _ _ _ _ _ _ tail => exact tail
 
@@ -22,7 +22,7 @@ theorem ordinaryChild {tree : Source.ScopeTree} {start : Nat} {source : List Sou
     ∃ relative block, tree.atPath relative = some block ∧
       emittedPath = tree.scope.context.path ++ relative ∧ block.context.containsYield = false := by
   induction translated with
-  | ret => simp [Code.childPaths] at member
+  | ret | fallthrough => simp [Code.childPaths] at member
   | assign _ _ _ _ tail | pass _ tail | nonlocal _ tail | global _ tail =>
     exact tail member
   | @closure tree start name declaration body rest slot child params code next found path _ _ _ _ _
@@ -42,7 +42,7 @@ theorem childPaths {tree : Source.ScopeTree} {start : Nat} {source : List Source
     code.childPaths.Nodup ∧ ∀ path ∈ code.childPaths,
       ∃ index suffix, start ≤ index ∧ path = tree.scope.context.path ++ index :: suffix := by
   induction translated with
-  | ret => simp [Code.childPaths]
+  | ret | fallthrough => simp [Code.childPaths]
   | assign _ _ _ _ tail => exact tail
   | pass _ tail | nonlocal _ tail | global _ tail => exact tail
   | @closure tree start name declaration body rest slot child params code next _ path _ _ _ _ _ _ _ inner tail =>
