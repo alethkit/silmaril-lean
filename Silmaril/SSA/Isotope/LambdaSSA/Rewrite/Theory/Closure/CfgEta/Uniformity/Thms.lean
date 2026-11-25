@@ -76,4 +76,68 @@ theorem sound
       denoteRegion J M (enterSingle_typed ht hq) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgEta.Uniformity.sound M J shared hp hq dt simulation
 
+
+/-- The feedback state type can change while outward labels retain their types. -/
+theorem localMap_typed {t : Tm Φ} (ht : Tm.HasType (A :: Γ) t D) :
+    Region.LSubst.HasType Γ (A :: L) (D :: L) (localMap t) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgEta.Uniformity.localMap_typed ht
+
+/-- Soundness of the one-block pure simulation rule from the denotations of
+its two typed step terms. This supplies the rule case of a soundness
+induction for a presentation extending CFG η. -/
+theorem sound_entry_of_denotations
+    (shared : ∀ E S : V, ∃ h : J.obj E ⊗ J.obj S = J.obj (E ⊗ S),
+      Functor.StrongPremonoidal.tensorIso (J := J) E S = eqToIso h)
+    {β p q : Region Φ} {t : Tm Φ}
+    (hβ : ValueBranches Γ β (A :: L))
+    (hp : ValueBranches (A :: Γ) p (A :: L))
+    (hq : Region.HasType (D :: Γ) q (D :: L))
+    {ht : Tm.HasType (A :: Γ) t D} {h : ctxObj M (A :: Γ) ⟶ M.obj D}
+    (dt : Denotes J M ht (J.map h))
+    (hl : Region.HasType (A :: Γ) (p.lsubst (Region.liftLSubstVars (localMap t))) (D :: L))
+    (hr : Region.HasType (A :: Γ)
+      ((Region.br 0 t).lsubst (Region.liftLSubstVars (fun _ => q))) (D :: L))
+    (square : denoteRegion J M hl = denoteRegion J M hr) :
+    denoteRegion J M (.cfg (fun _ : Fin 1 => A) hβ.hasType (fun _ => hp.hasType)) =
+    denoteRegion J M (.cfg (fun _ : Fin 1 => D) (hβ.hasType.lsubst (localMap_typed ht))
+      (fun _ => hq)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgEta.Uniformity.sound_entry_of_denotations M J shared hβ hp hq dt hl hr square
+
+/-- The local pure simulation square can change the state of any one-block
+CFG whose entry and first step have constructor-valued branch arguments. -/
+theorem sound_entry
+    (shared : ∀ E S : V, ∃ h : J.obj E ⊗ J.obj S = J.obj (E ⊗ S),
+      Functor.StrongPremonoidal.tensorIso (J := J) E S = eqToIso h)
+    {β p q : Region Φ} {t : Tm Φ}
+    (hβ : ValueBranches Γ β (A :: L))
+    (hp : ValueBranches (A :: Γ) p (A :: L))
+    (hq : Region.HasType (D :: Γ) q (D :: L))
+    {ht : Tm.HasType (A :: Γ) t D} {h : ctxObj M (A :: Γ) ⟶ M.obj D}
+    (dt : Denotes J M ht (J.map h))
+    (simulation : Region.CfgEta.Eqv (A :: Γ)
+      (p.lsubst (Region.liftLSubstVars (localMap t)))
+      ((Region.br 0 t).lsubst (Region.liftLSubstVars (fun _ => q))) (D :: L)) :
+    denoteRegion J M (.cfg (fun _ : Fin 1 => A) hβ.hasType (fun _ => hp.hasType)) =
+    denoteRegion J M (.cfg (fun _ : Fin 1 => D) (hβ.hasType.lsubst (localMap_typed ht))
+      (fun _ => hq)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgEta.Uniformity.sound_entry M J shared hβ hp hq dt simulation
+
+/-- An arbitrary exactly typed entry may first bind its branch arguments.
+The state change then consumes the evaluated payload at the local label. -/
+theorem sound_entry_afterBinding
+    (shared : ∀ E S : V, ∃ h : J.obj E ⊗ J.obj S = J.obj (E ⊗ S),
+      Functor.StrongPremonoidal.tensorIso (J := J) E S = eqToIso h)
+    {β p q : Region Φ} {t : Tm Φ}
+    (hβ : Region.HasType Γ β (A :: L))
+    (hp : ValueBranches (A :: Γ) p (A :: L))
+    (hq : Region.HasType (D :: Γ) q (D :: L))
+    {ht : Tm.HasType (A :: Γ) t D} {h : ctxObj M (A :: Γ) ⟶ M.obj D}
+    (dt : Denotes J M ht (J.map h))
+    (simulation : Region.CfgEta.Eqv (A :: Γ)
+      (p.lsubst (Region.liftLSubstVars (localMap t)))
+      ((Region.br 0 t).lsubst (Region.liftLSubstVars (fun _ => q))) (D :: L)) :
+    denoteRegion J M (.cfg (fun _ : Fin 1 => A) hβ (fun _ => hp.hasType)) =
+    denoteRegion J M (.cfg (fun _ : Fin 1 => D)
+      (hβ.bindBranchArguments.hasType.lsubst (localMap_typed ht)) (fun _ => hq)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgEta.Uniformity.sound_entry_afterBinding M J shared hβ hp hq dt simulation
 end Silmaril.Isotope.LambdaSSA.Region.CfgEta.Uniformity
