@@ -5,9 +5,18 @@ See the [numbered examples][examples] for Examples 10, 20, and 22.
 
 | Source | Concrete model and coverage |
 | --- | --- |
-| §1.1, pp. 13:2–3 | The finite-word and productive printing monads are covered under Examples 10(4–5) and 20(4–5). [Hangs][hangs] checks the deterministic complete Elgot model which retains the finite output of a hanging computation. [HangTraces][hang-traces] gives the nondeterministic complete Elgot model and its run semantics. |
+| §1.1, pp. 13:2–3 | The ordinary deterministic writer and the productive models are covered under Examples 10(4–5) and 20(4–5). [FiniteWriter][finite-writer] checks the nondeterministic model whose outcomes are finite words paired with returns. [Hangs][hangs] checks the deterministic complete Elgot model which retains the finite output of a hanging computation. [HangTraces][hang-traces] gives the nondeterministic complete Elgot model and its run semantics. |
 | §1.2, pp. 13:3–4 | The paper specifies initial algebras and final coalgebras for deterministic printing. [Countable resumptions][countable] checks the initial and final constructions for countably nondeterministic printing and general signature I/O. |
 | §1.3, p. 13:5 | [Delay][delay] checks the identity-base, identity-operation case with Mathlib's raw `Computation` type, which keeps every explicit delay. |
+
+## Nondeterministic printing with finite returns
+
+`FiniteWriter.Model` uses the writer transformer over the nonempty
+powerset with the free monoid on the alphabet. `observe` identifies its
+carrier with `P⁺(List A × X)` and `lawful` checks the inherited monad laws.
+`outcomes_pure` gives the singleton empty-word return.
+`mem_outcomes_bind` checks sequencing by following each continuation and
+concatenating words in execution order.
 
 ## Deterministic printing with finite hangs
 
@@ -62,3 +71,4 @@ lake build --wfail +Silmaril.Papers.Calco2019.Examples.Delay
 [hangs]: ../../Silmaril/Semantics/Calco2019/Examples/Printing/Hangs/Thms.lean
 [countable]: calco2019-introduction-countable.md
 [hang-traces]: calco2019-introduction-hang-traces.md
+[finite-writer]: ../../Silmaril/Semantics/Calco2019/Examples/Printing/FiniteWriter/Thms.lean
