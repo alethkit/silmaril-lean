@@ -35,6 +35,7 @@ theorem substitutionEquiv_typed {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
   | case ha _ _ ihl ihr => exact ⟨.case ha ihl.1 ihr.1, .case ha ihl.2 ihr.2⟩
   | cfg R _ _ ihe ihb => exact ⟨.cfg R ihe.1 (fun i => (ihb i).1), .cfg R ihe.2 (fun i => (ihb i).2)⟩
   | letValue ha hr => exact ⟨.let₁ ha.hasType hr, hr.substVars (Tm.Subst.HasType.single ha.hasType)⟩
+  | initial _ hr hs => exact ⟨hr, hs⟩
   | cfgOutward R hr hb => exact ⟨.cfg R (hr.renameLabels (outwardRen R _)) hb, hr⟩
 
 private theorem typedLiftBlocks {Γ : VCtx τ} {L K : LCtx τ} {σ : Nat → Region Φ}
@@ -105,6 +106,7 @@ theorem substitutionEquiv_lsubst {Γ : VCtx τ} {L K : LCtx τ} {r s : Region Φ
       exact .cfg R (ihe (typedLiftBlocks hσ R)) (fun i => ihb i ((typedLiftBlocks hσ R).liftVars _))
   | @letValue Γ a A r L ha hr =>
       exact (lsubst_single r a σ).symm ▸ SubstitutionEquiv.letValue ha (hr.lsubst (hσ.liftVars A))
+  | initial ha hr hs => exact .initial ha (hr.lsubst hσ) (hs.lsubst hσ)
   | cfgOutward R hr hb =>
       have hblocks := fun i => (hb i).lsubst ((typedLiftBlocks hσ R).liftVars (R i))
       simpa only [lsubst, lsubst_outward] using SubstitutionEquiv.cfgOutward R (hr.lsubst hσ) hblocks

@@ -20,6 +20,13 @@ theorem SubstitutionEquiv.typed {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
     (h : SubstitutionEquiv Γ r s L) : HasType Γ r L ∧ HasType Γ s L :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.substitutionEquiv_typed h
 
+/-- An empty-typed variable makes any two regions at the same interface
+equivalent, as in Figure 17 of *The Denotational Semantics of SSA*. -/
+theorem SubstitutionEquiv.initial_var {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ} {i : Nat}
+    (hi : At Γ i (Silmaril.empty : τ)) (hr : HasType Γ r L) (hs : HasType Γ s L) :
+    SubstitutionEquiv Γ r s L :=
+  .initial (.var hi) hr hs
+
 /-- Apply any exactly typed family of continuation bodies to both sides of
 an equation. The continuations may themselves contain nested CFGs. -/
 theorem SubstitutionEquiv.lsubst {Γ : VCtx τ} {L K : LCtx τ} {r s : Region Φ}

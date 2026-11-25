@@ -91,6 +91,7 @@ theorem substitutionEquiv_normalize {Γ : VCtx τ} {L : LCtx τ} {r s : Region �
   | case ha _ _ ihl ihr => exact .case ha ihl ihr
   | cfg R _ _ ihe ihb => exact .cfg R ihe ihb
   | letValue ha hr => exact normalizedLetValue ha hr
+  | initial ha hr hs => exact .initial ha hr.bindBranchArguments.hasType hs.bindBranchArguments.hasType
   | cfgOutward R hr hb =>
       simpa only [bindBranchArguments, bindBranchArguments_renameLabels] using
         SubstitutionEquiv.cfgOutward R hr.bindBranchArguments.hasType
