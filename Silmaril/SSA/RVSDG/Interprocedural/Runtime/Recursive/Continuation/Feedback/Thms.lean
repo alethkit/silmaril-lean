@@ -86,4 +86,17 @@ theorem run_iff_restarts : Run body input ↔
       inputs 0 = input ∧ RestartTrace body parent inputs micro indices :=
   Proofs.run_iff_restarts
 
+/-- An earlier job that eventually returns must have returned before a
+later job whose own frame remains live forever. The result uses the exact
+typed frames and the actual intervening microsteps. -/
+theorem return_before_live {other : Ports (Ty V S)} {micro : Nat → State m final}
+    {begin finish : Nat} {job : Job m ports} {next : Job m other}
+    {frame : Stack m ports final} {child : Stack m other final}
+    (steps : ∀ i, Step (micro i) (micro (i + 1))) (ordered : begin < finish)
+    (entered : micro begin = .eval job frame) (selected : micro finish = .eval next child)
+    (lives : ∀ i, finish ≤ i → ¬ atReturn child (micro i))
+    (returns : ∃ i, begin < i ∧ atReturn frame (micro i)) :
+    ∃ i, begin < i ∧ i < finish ∧ atReturn frame (micro i) :=
+  Proofs.return_before_live steps ordered entered selected lives returns
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback

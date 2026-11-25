@@ -160,4 +160,71 @@ theorem trace_without_return (frame : Stack m current final) (job : Job m curren
   obtain ⟨next, edge⟩ := state_step localState notDone
   exact ⟨under frame next, step_under frame edge, next, ran.tail edge, rfl⟩
 
+private theorem under_at {micro : Nat → State m final} {begin : Nat}
+    (steps : ∀ i, Step (micro i) (micro (i + 1)))
+    (frame : Stack m current final) {job : Job m current}
+    (opened : micro begin = .eval job frame) (count : Nat)
+    (within : ∀ offset, offset < count → ¬ atReturn frame (micro (begin + offset))) :
+    ∃ localState : State m current, under frame localState = micro (begin + count) := by
+  induction count with
+  | zero => exact ⟨start job, opened.symm⟩
+  | succ count ih =>
+    obtain ⟨localState, observed⟩ := ih (fun offset before => within offset (by omega))
+    have edge : InsideStep frame (under frame localState) (micro (begin + count + 1)) :=
+      ⟨observed.symm ▸ steps (begin + count), observed.symm ▸ within count (Nat.lt_succ_self _)⟩
+    obtain ⟨next, _, observed⟩ := step_from_under edge
+    exact ⟨next, observed⟩
+
+private theorem height_under (frame : Stack m current final) (localState : State m current) :
+    stateHeight (under frame localState) = height frame + stateHeight localState := by
+  cases localState with
+  | eval _ stack | returned _ stack => exact height_attach frame stack
+
+private theorem return_at_floor {frame : Stack m current final} {localState : State m current}
+    {other : Ports (Ty V S)} {otherFrame : Stack m other final} {value : Tuple m.Val other}
+    (observed : under frame localState = .returned value otherFrame) (low : height otherFrame ≤ height frame) :
+    atReturn frame (.returned value otherFrame) := by
+  have depths : height otherFrame = height frame + stateHeight localState :=
+    (congrArg stateHeight observed).symm.trans (height_under frame localState)
+  have empty : stateHeight localState = 0 := by omega
+  cases localState with
+  | eval => cases observed
+  | returned value stack =>
+    cases stack with
+    | halt => exact ⟨value, observed.symm⟩
+    | resume => cases empty
+    | loop => cases empty
+
+theorem return_before_live {other : Ports (Ty V S)} {micro : Nat → State m final}
+    {begin finish : Nat} {job : Job m current} {next : Job m other}
+    {frame : Stack m current final} {child : Stack m other final}
+    (steps : ∀ i, Step (micro i) (micro (i + 1))) (ordered : begin < finish)
+    (entered : micro begin = .eval job frame) (selected : micro finish = .eval next child)
+    (lives : ∀ i, finish ≤ i → ¬ atReturn child (micro i))
+    (returns : ∃ i, begin < i ∧ atReturn frame (micro i)) :
+    ∃ i, begin < i ∧ i < finish ∧ atReturn frame (micro i) := by
+  classical
+  by_contra noEarlierReturn
+  have stillOpen (offset : Nat) (before : offset < finish - begin) :
+      ¬ atReturn frame (micro (begin + offset)) := by
+    intro returned
+    cases offset with
+    | zero =>
+      obtain ⟨_, done⟩ := returned
+      rw [Nat.add_zero, entered] at done
+      cases done
+    | succ offset => exact noEarlierReturn ⟨_, by omega, by omega, returned⟩
+  obtain ⟨current, reached⟩ := under_at steps frame entered (finish - begin) stillOpen
+  rw [Nat.add_sub_of_le (Nat.le_of_lt ordered), selected] at reached
+  have depthChild : height child = height frame + stateHeight current :=
+    (congrArg stateHeight reached).symm.trans (height_under frame current)
+  obtain ⟨stop, afterBegin, value, returned⟩ := returns
+  have afterFinish : finish ≤ stop := by
+    by_contra tooSoon
+    exact noEarlierReturn ⟨stop, afterBegin, by omega, value, returned⟩
+  obtain ⟨atStop, inside⟩ := under_at steps child selected (stop - finish)
+    (fun i _ => lives (finish + i) (Nat.le_add_right _ _))
+  rw [Nat.add_sub_of_le afterFinish, returned] at inside
+  exact lives stop afterFinish (returned ▸ return_at_floor inside (by omega))
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Proofs
