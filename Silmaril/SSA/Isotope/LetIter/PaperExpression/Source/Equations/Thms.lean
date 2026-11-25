@@ -18,6 +18,11 @@ theorem wk_subst (a : Expr Φ) (σ : Nat → Expr Φ) (ρ : Nat → Nat) :
     (a.subst σ).wk ρ = a.subst (fun i => (σ i).wk ρ) :=
   Source.Proofs.wk_subst a σ ρ
 
+/-- View a renaming as a substitution of variables. -/
+theorem wk_eq_subst (a : Expr Φ) (ρ : Nat → Nat) :
+    a.wk ρ = a.subst (Expr.var ∘ ρ) := by
+  rw [← Source.Proofs.subst_wk, Source.Proofs.subst_var]
+
 theorem subst_var (a : Expr Φ) : a.subst Expr.var = a := Source.Proofs.subst_var a
 
 end Silmaril.Isotope.LetIter.PaperExpression.Expr
@@ -41,6 +46,10 @@ theorem Wf.subst_congr (ha : Wf Δ a A e)
   Source.Proofs.eqv_subst_congr ha hσ
 
 namespace Source
+
+/-- Both endpoints of a source equation are typed at its bound. -/
+theorem Eqv.endpoints_wf (h : Eqv Γ A e a b) : Wf Γ a A e ∧ Wf Γ b A e :=
+  Proofs.eqv_typed h
 
 /-- Source equality is preserved by substitutions typed at each slot's effect. -/
 theorem Eqv.subst_typed (h : Eqv Δ A e a b)
