@@ -30,6 +30,17 @@ theorem packedPair_id_right {P X : τ} (f : M.obj P ⟶ M.obj X) :
     packedPair M P X P f (𝟙 (M.obj P)) = packedDiagonal M P ≫ packedWhiskerRight M P P X f :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.CarriedModel.packedPair_id_right M f
 
+/-- The head of the packed exit list is the repeat arm. -/
+theorem exitSum_inl (S D : τ) :
+    inlMap M S (Silmaril.coprod D Silmaril.empty) ≫ exitSum M S D = inrMap M D S :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.CarriedModel.exitSum_inl M S D
+
+/-- The second packed exit is the result arm. -/
+theorem exitSum_inr_inl (S D : τ) :
+    inlMap M D Silmaril.empty ≫ inrMap M S (Silmaril.coprod D Silmaril.empty) ≫ exitSum M S D =
+      inlMap M D S :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.CarriedModel.exitSum_inr_inl M S D
+
 end Prefix
 
 variable {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C] [CartesianMonoidalCategory V] [SymmetricCategory V]

@@ -22,7 +22,7 @@ open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification (packed
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification.SingleCfg (retagPacked_typed blockComputation)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Singleton
 open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory (productFstBranches)
-open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.ConstructorReification (fstMap)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.ConstructorReification (fstMap inlMap inrMap)
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel contextualStep)
 open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (retainLeft)
@@ -63,6 +63,37 @@ noncomputable def canonicalAssembly {X S D : τ}
       rw [Functor.map_comp, Functor.map_comp, show (F).map b = (F).map b' from Quot.sound h])
     (fun _ _ _ h => Paper.SingletonReification.SingleCfg.canonicalAssembly_map_congr (Seed)
       (X := X) (S := S) (D := D) (Quot.sound h) rfl)
+
+section Route
+
+variable {V : Type u₁} [Category.{v₁} V] [CartesianMonoidalCategory V] [SymmetricCategory V]
+  [HasFiniteCoproducts V] [DistributiveTensor V] [DistributivePremonoidalCategory Comp]
+  (J : V ⥤ Comp) [DistributiveFreydCategory J] (M : TypeModel τ V)
+  (objIso : ∀ A : τ, J.obj (M.obj A) ≅ Obj A)
+
+open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification.SingleCfg.Model
+  (reindexHom packedTensorIso)
+
+/-- The packed product comparison agrees with the two object isomorphisms
+applied in the order used by left retention. -/
+def RetainedTensorAgrees (X A : τ) : Prop :=
+  (packedTensorIso J M objIso X A).hom =
+    ((objIso X).hom ▷ J.obj (M.obj A)) ≫ (Obj X ◁ (objIso A).hom)
+
+/-- Both interpreted injections use the joined quotient's exact sum coordinates. -/
+def SumInjectionsAgree (A B : τ) : Prop :=
+  reindexHom J M objIso (J.map (inlMap M A B)) = (sumCofan (Seed) A B).inl ∧
+  reindexHom J M objIso (J.map (inrMap M A B)) = (sumCofan (Seed) A B).inr
+
+/-- The local sum and tensor comparisons that transport the carried distributor. -/
+structure CarriedDistributorCoordinates (X S D : τ) : Prop where
+  exitSum : SumInjectionsAgree J M objIso D S
+  carriedSum : SumInjectionsAgree J M objIso (product X D) (product X S)
+  tensorState : RetainedTensorAgrees J M objIso X S
+  tensorResult : RetainedTensorAgrees J M objIso X D
+  tensorExitSum : RetainedTensorAgrees J M objIso X (coprod D S)
+
+end Route
 
 section Model
 

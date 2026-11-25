@@ -32,6 +32,42 @@ variable {τ : Type u} [TypeFormers τ]
   (M : TypeModel τ V)
   {X A B D : τ}
 
+variable [DistributiveTensor V] in
+set_option backward.isDefEq.respectTransparency false in
+theorem packedDistributor_inl (X A B : τ) :
+    (M.productIso X A).hom ≫ (M.obj X ◁ inlMap M A B) ≫
+      (M.productIso X (Silmaril.coprod A B)).inv ≫ packedDistributor M X A B =
+    inlMap M (Silmaril.product X A) (Silmaril.product X B) := by
+  unfold packedDistributor inlMap
+  simp only [Category.assoc, Iso.inv_hom_id_assoc, ← MonoidalCategory.whiskerLeft_comp_assoc,
+    Iso.inv_hom_id, Category.comp_id]
+  have h : (M.obj X ◁ (coprod.inl : M.obj A ⟶ M.obj A ⨿ M.obj B)) ≫
+      (DistributiveTensor.leftIso (M.obj X) (M.obj A) (M.obj B)).inv = coprod.inl := by
+    rw [← DistributiveTensor.inl_leftHom]
+    let e := DistributiveTensor.leftIso (M.obj X) (M.obj A) (M.obj B)
+    change (coprod.inl ≫ e.hom) ≫ e.inv = _
+    rw [Category.assoc, e.hom_inv_id, Category.comp_id]
+  rw [← Category.assoc _ (DistributiveTensor.leftIso _ _ _).inv, h, coprod.inl_map_assoc,
+    Iso.hom_inv_id_assoc]
+
+variable [DistributiveTensor V] in
+set_option backward.isDefEq.respectTransparency false in
+theorem packedDistributor_inr (X A B : τ) :
+    (M.productIso X B).hom ≫ (M.obj X ◁ inrMap M A B) ≫
+      (M.productIso X (Silmaril.coprod A B)).inv ≫ packedDistributor M X A B =
+    inrMap M (Silmaril.product X A) (Silmaril.product X B) := by
+  unfold packedDistributor inrMap
+  simp only [Category.assoc, Iso.inv_hom_id_assoc, ← MonoidalCategory.whiskerLeft_comp_assoc,
+    Iso.inv_hom_id, Category.comp_id]
+  have h : (M.obj X ◁ (coprod.inr : M.obj B ⟶ M.obj A ⨿ M.obj B)) ≫
+      (DistributiveTensor.leftIso (M.obj X) (M.obj A) (M.obj B)).inv = coprod.inr := by
+    rw [← DistributiveTensor.inr_leftHom]
+    let e := DistributiveTensor.leftIso (M.obj X) (M.obj A) (M.obj B)
+    change (coprod.inr ≫ e.hom) ≫ e.inv = _
+    rw [Category.assoc, e.hom_inv_id, Category.comp_id]
+  rw [← Category.assoc _ (DistributiveTensor.leftIso _ _ _).inv, h, coprod.inr_map_assoc,
+    Iso.hom_inv_id_assoc]
+
 variable {C : Type u₂} [Category.{v₂} C] [SymmetricCategory V]
   [PremonoidalCategory C] [SymmetricPremonoidalCategory C] [HasFiniteCoproducts C]
   [DistributiveTensor V] [DistributivePremonoidalCategory C]
