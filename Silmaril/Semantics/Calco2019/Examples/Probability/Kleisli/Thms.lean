@@ -50,4 +50,9 @@ theorem no_conway_uniform (I : pmfGuard.{0}.Conway)
     (hu : I.toFixpoints.Uniform (Kleisli.Adjunction.toKleisli (ofTypeMonad PMF))) : False :=
   KleisliProofs.no_conway_uniform I hu
 
+/-- The pure loop with no result type would require a PMF on the empty type. -/
+theorem no_total_fixpoints (F : (Guardedness.greatest (typeCoproducts.kleisli
+    (ofTypeMonad PMF.{0}))).Fixpoints) : False :=
+  KleisliProofs.no_total_fixpoints F
+
 end Silmaril.Calco2019.Examples.Probability
