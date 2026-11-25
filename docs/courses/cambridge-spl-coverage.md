@@ -83,8 +83,8 @@ external Tripos revision questions remain separate.
 | Exercise | Coverage |
 | --- | --- |
 | **28** L3 preservation | **Checked.** `L3.preservation` and `preservation_steps`. [L3 metatheory][l3meta] |
-| **29** Labelled variants | **Missing design exercise.** The collected language provides binary sums and labelled records. [Notes p. 82][notes5ex] |
-| **30** ML-style exceptions | **Missing design exercise.** No module checks raise/handle typing and reduction or nested handler examples. [Notes p. 82][notes5ex] |
+| **29** Labelled variants | **Checked design.** Nonempty variants have distinct labels and an exhaustive match with a binder for each payload. Lean checks typing and evaluation of the elaboration to L3 sums and strict let. [Variant design](../../Silmaril/Courses/Cambridge/L3/Exercises/LabelledVariants.lean) |
+| **30** ML-style exceptions | **Checked design.** The exercise-local CBV language has fixed payload-free tags and embeds closed L3 computations. Lean checks handler rules and nested handlers across recursion, including a store write before a raise. [Exception design](../../Silmaril/Courses/Cambridge/L3/Exercises/Exceptions.lean) · [Checked traces](../../Silmaril/Courses/Cambridge/L3/Exercises/ExceptionExamples.lean) |
 | **31** Extend the implementation to all of L3 | **Checked Lean implementation.** `L3.infer_iff_hasType` and `checkStore_eq_true_iff` give exact expression and store checking. `L3.evaluate` connects the existing surface-byte parser and supplied store to fuel-bounded reduction, with distinct parse, store-type, expression-type and fuel outcomes. `evaluate_ne_stuck` excludes stuckness for accepted inputs. `evaluate_returned` proves fuel-bounded reachability by the selected reducer and preserves the result type and final-store typing. `evaluate_of_selectedSteps` recovers returns from selected value-ending traces within budget. Allocation follows the reducer policy and the driver makes no termination claim. [Evaluation guide][l3eval] · [Merged implementation][exercise31] |
 
 ### Subtyping and objects
@@ -106,7 +106,7 @@ external Tripos revision questions remain separate.
 | Exercise | Coverage |
 | --- | --- |
 | **37** Compare SPL mutexes and C&DS | **Scoped to the selected bit.** `Mutex.Comparison.acquire_iff`, `release_iff`, `held_attempts` check action effects and held behavior. The guide describes Java reentrancy and the distinction between spinning, blocking and try-lock. [Concurrency guide][conguide] |
-| **38** Necessity of all four O2PL conditions | **Checked checked counterexamples.** `protection_necessary`, `terminal_release_necessary`, `two_phase_necessary`, `increasing_order_necessary` in `Mutex.OrderedTwoPhase.Examples`. [O2PL examples][o2plex] |
+| **38** Necessity of all four O2PL conditions | **Checked counterexamples.** `protection_necessary`, `terminal_release_necessary`, `two_phase_necessary`, `increasing_order_necessary` in `Mutex.OrderedTwoPhase.Examples`. [O2PL examples][o2plex] |
 | **39** Prove the O2PL conjecture | **Refuted as printed.** The covering-store version remains open. [O2PL examples][o2plex] |
 | **40** Unix-style threads and communication | **Checked as a design exercise.** `Concurrency.UnixThreads` supplies IDs, fork/join, shared cells and asynchronous FIFO channels. The checks include `Step.preserves_wellFormed`, `Examples.fork_send_receive_join` and `fifo_trace`. [Unix-style threads][unix] |
 
@@ -126,9 +126,10 @@ external Tripos revision questions remain separate.
   round-trips and injectivity. L3’s `Concrete.Exact` fixes one spelling
   classification for variables and labels across terms, types and
   annotations, following the categories in §§5.2 and 5.5. The original
-  byte profile also remains available. An independently specified
-  ordinary-precedence grammar correspondence and a full L2→L3 grammar
-  and operational embedding remain separate proof obligations.
+  byte profile also remains available. Ordinary precedence is covered by
+  executable parsers and regression examples. Correspondence with an
+  independently specified precedence grammar remains a separate proof
+  obligation.
   [L1/L2 syntax][con12] · [L3 syntax][con3]
 - The structural AST codecs cover named L1–L3 terms and types and resolved
   L2/L3 terms. The wire bridges prove recovery from canonical UTF-8 JSON
@@ -137,9 +138,18 @@ external Tripos revision questions remain separate.
   satisfaction translations. [AST codecs][codecs] · [JSON bytes][jsonb] ·
   [S-expression bytes][sexpb] · [Operational adapters][opinst] ·
   [Step specifications][stepguide] · [May-return specifications][retguide]
-- The syllabus’s core concerns operational semantics. The L1/L2/L3
-  denotational fragments, the L1 LetIter compiler relation, and prospective
-  game models and machine or Wasm backends are extensions. The Cambridge
+- L1 concrete syntax embeds in L2 through a named-AST retraction. The
+  resolved L2→L3 embedding maps terms and stores injectively and commutes
+  with canonical JSON and S-expression bytes. It preserves CBV steps and
+  reflects them at typed L2 sources, with corresponding results for finite
+  returns, stuckness and infinite traces. Named L2→L3 concrete-source
+  correspondence is separate.
+  [L1/L2 concrete source][con12] · [L2→L3 embedding][embed23]
+- The syllabus’s core concerns operational semantics. The L1 effectful
+  denotation and LetIter compiler relation, L2 recursive CBV return model,
+  L3 lexical and single stored-closure call results, and the L2/Wasm
+  callback fixture are checked extensions. A general Wasm backend and
+  game denotation for the course languages remain separate. The Cambridge
   Part II courses have their own coverage guides.
   [Cambridge courses](cambridge.md) · [Integration guide][integration] ·
   [L2 denotation][l2denotguide] · [L3 denotation][l3denotguide]
@@ -151,6 +161,7 @@ external Tripos revision questions remain separate.
 [cong]: ../../Silmaril/Courses/Cambridge/SemanticEquivalence/Congruence.lean
 [conguide]: cambridge-concurrency.md
 [disjoint]: ../../Silmaril/Courses/Cambridge/SemanticEquivalence/Disjoint.lean
+[embed23]: cambridge-l2-to-l3.md
 [equivguide]: cambridge-semantic-equivalence.md
 [exercise31]: https://github.com/hiloopai/silmaril-lean/pull/2489
 [integration]: cambridge-integration.md
