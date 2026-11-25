@@ -38,6 +38,14 @@ inductive ValueRelated (m : Machine.{u, v, w} Op) (ids : GlobalRel) :
       (captured : TupleRelated m ids left right)
       (body : NestedTheta.Graph.Isomorphic (Instruction Op) bodyL bodyR) :
       ValueRelated m ids (.closure left bodyL) (.closure right bodyR)
+  /-- A φ member remembers the closed group and a fixed member slot. The runtime
+  stores no numeric group ID. The table relation preserves each member's
+  capture sources, including recursion arguments and earlier member outputs. -/
+  | member {context : Ports (Ty V S)} {members : List (Function V S)}
+      {left right : Tuple m.Val context} {tableL tableR : MemberTable Op context members}
+      (captured : TupleRelated m ids left right)
+      (definitions : ∀ i, (tableL i).Renumbered id (tableR i)) (slot : Fin members.length) :
+      ValueRelated m ids (.member left tableL slot) (.member right tableR slot)
 
 /-- Match the colours in their typed port order. -/
 inductive TupleRelated (m : Machine.{u, v, w} Op) (ids : GlobalRel) :

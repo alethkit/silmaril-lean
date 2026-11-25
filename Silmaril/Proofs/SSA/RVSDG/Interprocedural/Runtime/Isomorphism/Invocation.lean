@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Table
+public import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Members
 
 public section
 
@@ -135,8 +136,7 @@ theorem invoke_related (respects : PrimitivesRespect m ids) (loops calls : Nat) 
       | apply fn =>
         cases related with
         | cons callees arguments => exact ih callees arguments
-    cases related with
-    | closure captured body =>
-      exact body_related handler steps loops body _ _ (prepend_related args captured)
+    obtain ⟨captured, body⟩ := resolve_related related
+    exact body_related handler steps loops body _ _ (prepend_related args captured)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Proofs
