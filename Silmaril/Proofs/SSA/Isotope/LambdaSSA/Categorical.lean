@@ -208,7 +208,7 @@ variable {V : Type u₁} {C : Type u₂}
   {τ : Type u₃} [TypeFormers τ] (M : TypeModel τ V)
   {Φ : Type u₄} [HasTy Φ τ] [InstructionModel J M Φ]
 
-private theorem collectiveDenotes_exists_succ (n : Nat) (Γ : VCtx τ)
+theorem collectiveDenotes_exists_succ_proof (n : Nat) (Γ : VCtx τ)
     (R : Fin (n + 1) → τ) (L : LCtx τ)
     (block : ∀ i, J.obj (ctxObj M (R i :: Γ)) ⟶
       J.obj (labelObj M (List.ofFn R ++ L))) :
@@ -239,7 +239,7 @@ theorem regionDenotes_exists_proof
       | succ n =>
           rcases ihe with ⟨fe, de⟩
           choose fb db using ihb
-          rcases collectiveDenotes_exists_succ J M n _ R _ fb with ⟨fc, dc⟩
+          rcases collectiveDenotes_exists_succ_proof J M n _ R _ fb with ⟨fc, dc⟩
           exact ⟨_, .cfg he hb de db dc⟩
 
 end Region

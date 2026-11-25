@@ -117,6 +117,8 @@ inductive ScopeError where
   | boundBeforeDirective (name : Name) (directive : Directive)
   | nonlocalInModule (name : Name)
   | unboundNonlocal (name : Name)
+  | starImport
+  | unsupportedExpression (form : UnsupportedExpr)
   deriving BEq, DecidableEq, Repr
 
 structure Diagnostic where
@@ -179,6 +181,11 @@ private def functionContext (path : BlockPath)
     return parameter.name :: names
   return { path, kind := .function, parameters := names.reverse }
 
+private def Collecting.importName (block : Collecting) (name : ImportName) :
+    Except Diagnostic Collecting :=
+  if name.member == "*" then .error ⟨block.context.path, .starImport⟩
+  else .ok (block.bindName (name.alias.getD name.member))
+
 mutual
   private def collect (block : Collecting) : List Stmt → Except Diagnostic Collecting
     | [] => .ok block
@@ -186,9 +193,13 @@ mutual
 
   private def collectStmt (block : Collecting) : Stmt → Except Diagnostic Collecting
     | .assign target value => do return (← collectExpr block value).bindName target
+    | .assignTargets targets value => do collectTargets (← collectExpr block value) targets
     | .delete target => .ok (block.bindName target)
+    | .deleteTargets targets => collectTargets block targets
     | .expression value | .return_ (some value) => collectExpr block value
-    | .pass | .return_ none => .ok block
+    | .pass | .break_ | .continue_ | .return_ none => .ok block
+    | .raise_ exception cause => do collectOptional (← collectOptional block exception) cause
+    | .assert_ condition message => do collectOptional (← collectExpr block condition) message
     | .globalDecl names => do
       let context ← names.foldlM (fun ctx name => collectDirective ctx .global_ name) block.context
       return { block with context }
@@ -197,6 +208,13 @@ mutual
       return { block with context }
     | .if_ condition body otherwise | .while_ condition body otherwise => do
       collect (← collect (← collectExpr block condition) body) otherwise
+    | .for_ target iterator body otherwise => do
+      let outer ← collectTarget (← collectExpr block iterator) target
+      collect (← collect outer body) otherwise
+    | .try_ body handlers otherwise cleanup => do
+      let afterHandlers ← collectHandlers (← collect block body) handlers
+      collect (← collect afterHandlers otherwise) cleanup
+    | .importFrom _ _ names => names.foldlM Collecting.importName block
     | .functionDef name parameters body decorators => do
       let outer ← collectExprs (← collectDefaults block parameters) decorators
       let context ← functionContext outer.childPath parameters
@@ -209,23 +227,79 @@ mutual
 
   private def collectExpr (block : Collecting) : Expr → Except Diagnostic Collecting
     | .name name => .ok (block.readName name)
+    | .list_ elements | .tuple elements | .booleanOp _ elements => collectExprs block elements
+    | .dictionary entries => do collectDictValues (← collectDictKeys block entries) entries
+    | .unary _ operand => collectExpr block operand
     | .binary _ left right => do collectExpr (← collectExpr block left) right
+    | .conditional condition consequent alternate => do
+      collectExpr (← collectExpr (← collectExpr block condition) consequent) alternate
+    | .comparison left rest => do collectComparands (← collectExpr block left) rest
     | .call callee arguments => do collectExprs (← collectExpr block callee) arguments
+    | .callWith callee arguments => do collectArguments (← collectExpr block callee) arguments
+    | .attribute receiver _ => collectExpr block receiver
+    | .subscript receiver index => do collectExpr (← collectExpr block receiver) index
+    | .slice receiver lower upper stride => do
+      let block ← collectExpr block receiver
+      collectOptional (← collectOptional (← collectOptional block lower) upper) stride
+    | .yield_ value => collectOptional block value
     | .lambda parameters body => do
       let outer ← collectDefaults block parameters
       let context ← functionContext outer.childPath parameters
       let nested ← collectExpr { context } body
       return outer.addChild nested
-    | .integer _ | .boolean _ | .none_ => .ok block
+    | .integer _ | .floatBits _ | .text _ | .boolean _ | .none_ | .ellipsis => .ok block
+    | .unsupported form => .error ⟨block.context.path, .unsupportedExpression form⟩
 
   private def collectExprs (block : Collecting) : List Expr → Except Diagnostic Collecting
     | [] => .ok block
     | expr :: rest => do collectExprs (← collectExpr block expr) rest
 
+  private def collectDictKeys (block : Collecting) :
+      List (Option Expr × Expr) → Except Diagnostic Collecting
+    | [] => .ok block
+    | (key, _) :: rest => do collectDictKeys (← collectOptional block key) rest
+
+  private def collectDictValues (block : Collecting) :
+      List (Option Expr × Expr) → Except Diagnostic Collecting
+    | [] => .ok block
+    | (_, value) :: rest => do collectDictValues (← collectExpr block value) rest
+
+  private def collectComparands (block : Collecting) :
+      List (Comparison × Expr) → Except Diagnostic Collecting
+    | [] => .ok block
+    | (_, value) :: rest => do collectComparands (← collectExpr block value) rest
+
+  private def collectArguments (block : Collecting) :
+      List (ArgumentKind × Expr) → Except Diagnostic Collecting
+    | [] => .ok block
+    | (_, value) :: rest => do collectArguments (← collectExpr block value) rest
+
   private def collectDefaults (block : Collecting) : List Parameter → Except Diagnostic Collecting
     | [] => .ok block
     | ⟨_, none⟩ :: rest => collectDefaults block rest
     | ⟨_, some expr⟩ :: rest => do collectDefaults (← collectExpr block expr) rest
+
+  private def collectOptional (block : Collecting) : Option Expr → Except Diagnostic Collecting
+    | none => .ok block
+    | some expr => collectExpr block expr
+
+  private def collectTarget (block : Collecting) : Target → Except Diagnostic Collecting
+    | .name name => .ok (block.bindName name)
+    | .attribute receiver _ => collectExpr block receiver
+    | .subscript receiver index => do collectExpr (← collectExpr block receiver) index
+    | .tuple targets | .list_ targets => collectTargets block targets
+
+  private def collectTargets (block : Collecting) : List Target → Except Diagnostic Collecting
+    | [] => .ok block
+    | target :: rest => do collectTargets (← collectTarget block target) rest
+
+  private def collectHandlers (block : Collecting) :
+      List ExceptHandler → Except Diagnostic Collecting
+    | [] => .ok block
+    | ⟨condition, target, body⟩ :: rest => do
+      let block ← collectOptional block condition
+      let block := target.elim block block.bindName
+      collectHandlers (← collect block body) rest
 end
 
 private def BlockContext.mentionedNames (block : BlockContext) : List Name :=

@@ -56,6 +56,15 @@ variable [Iteration C] [ElgotCategory C]
   {Φ : Type u₄} [HasTy Φ τ] [InstructionModel J M Φ]
   {Γ : VCtx τ} {r : Region Φ} {L : LCtx τ}
 
+/-- A nonempty family of typed blocks has an arrow that restricts to each
+block along the corresponding local label injection. -/
+theorem collectiveDenotes_exists_succ (n : Nat) (Γ : VCtx τ)
+    (R : Fin (n + 1) → τ) (L : LCtx τ)
+    (block : ∀ i, J.obj (ctxObj M (R i :: Γ)) ⟶
+      J.obj (labelObj M (List.ofFn R ++ L))) :
+    ∃ f, CollectiveDenotes J M Γ R L block f :=
+  collectiveDenotes_exists_succ_proof J M n Γ R L block
+
 /-- Every exactly typed region has a structural denotation, including nested CFGs. -/
 theorem regionDenotes_exists (h : Region.HasType Γ r L) : ∃ f, RegionDenotes J M h f :=
   regionDenotes_exists_proof J M h

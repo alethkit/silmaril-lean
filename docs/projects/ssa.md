@@ -159,6 +159,15 @@ These results give structural denotations. Soundness for the λSSA rewrite
 theory and the syntactic initial model of that theory remain open here.
 [Ghalayini and Krishnaswami, *The Denotational Semantics of SSA*, §5](https://arxiv.org/abs/2411.09347)
 
+Subtyped λSSA (`Silmaril.SSA.Isotope.LambdaSSA.Subtyping.Categorical.Thms`).
+`Subtyping.Exact.tm` and `Subtyping.Exact.region` embed exact typing into the
+derivation-valued typing system. A subtyping step in an expression composes
+with the value morphism of the supplied coercion. The structural graph gives
+a unique arrow for each expression derivation. Every region derivation has a
+structural arrow, with uniqueness under `RegionTypingCoherent`. The region
+semantics shares the exact dispatcher and retains coercions in the expressions
+of its entry and blocks.
+
 Thesis ports (`Silmaril.SSA.Thesis.Thms`, `.Categorical.Thms`), for a signature
 `S`: `Syn.isInitial : IsInitial (Syn S)` in `Alg S` and `Syn.denote_eq_iff_eqv`
 (λiter; λcase analogues `Syn.denote_eq_iff_equiv`); `Alg.ofCategorical` and
@@ -172,6 +181,16 @@ Thesis Kleisli model (`Silmaril.SSA.Thesis.Kleisli.Thms`), for a lawful Elgot mo
 `kleisli_lawfulModel` (the instances the categorical initiality assumed), and
 `uniqueHomKleisli`/`kleisli_initial` (exactly one algebra morphism from `Syn S`
 into the Kleisli model, computing the denotation); `uniqueHomKleisliPart` at `Part`.
+
+Thesis syntactic category (`Silmaril.SSA.Thesis.SyntacticCategory.Thms`).
+`Syn.SynCat S` has the signature's types as objects and one-variable
+terms modulo `Eqv` as arrows. It has binary coproducts and satisfies
+fixpoint, naturality and codiagonal for iteration, in both the syntax
+and Mathlib coproduct presentations. The syntactic pure-arrow predicate
+is existence of a pure representative, and `iterate_uniformity` holds
+along those arrows. `elgotCategory_of_hasFiniteCoproducts` assumes finite
+coproducts. The existence of an initial object, the Cartesian structure of
+the value category and iteration strength remain open.
 
 Quantitative refinement (`Silmaril.SSA.Isotope.Refinement.Thms`, namespace
 `Silmaril.Isotope.Refinement`): `Models.syntaxIsInitial`, `Models.fold_unique`,

@@ -145,6 +145,62 @@ private def classHeaderScopes : List Stmt :=
 #guard ((analyze ⟨classHeaderScopes⟩).toOption.bind (·.atPath [2])).map (·.context.kind) ==
   some .class_
 
+private def statementScopes : List Stmt :=
+  [.functionDef "f" [] [
+    .importFrom ["pkg"] 1 [⟨"member", some "alias"⟩, ⟨"other", none⟩],
+    .for_ (.tuple [.name "value", .attribute (.name "receiver") "field"]) (.name "entries")
+      [.assignTargets [.list_ [.name "left", .name "right"]] (.name "value")]
+      [.deleteTargets [.subscript (.name "mapping") (.name "index")]],
+    .try_ [.assert_ (.name "left") (some (.name "message"))]
+      [⟨some (.name "Error"), some "caught",
+          [.functionDef "inner" [] [.return_ (some (.name "caught"))]]⟩]
+      [.expression (.attribute (.name "alias") "field")]
+      [.raise_ (some (.name "other")) (some (.name "reason"))]]]
+
+#guard inspect statementScopes [0] "alias" == some .local
+#guard inspect statementScopes [0] "member" == none
+#guard inspect statementScopes [0] "other" == some .local
+#guard inspect statementScopes [0] "receiver" == some .implicitGlobal
+#guard inspect statementScopes [0] "field" == none
+#guard inspect statementScopes [0] "value" == some .local
+#guard inspect statementScopes [0] "left" == some .local
+#guard inspect statementScopes [0] "right" == some .local
+#guard inspect statementScopes [0] "index" == some .implicitGlobal
+#guard inspect statementScopes [0] "reason" == some .implicitGlobal
+#guard inspect statementScopes [0, 0] "caught" == some (.free [0])
+#guard ((analyze ⟨statementScopes⟩).toOption.bind (·.atPath [0])).map (·.cells) ==
+  some ["caught"]
+#guard diagnose [.functionDef "f" [] [
+  .importFrom ["pkg"] 0 [⟨"member", some "alias"⟩], .globalDecl ["alias"]]] ==
+  some ⟨[0], .boundBeforeDirective "alias" .global_⟩
+#guard diagnose [.importFrom ["pkg"] 0 [⟨"*", none⟩]] == some ⟨[], .starImport⟩
+
+private def expressionScopes : List Stmt :=
+  [.functionDef "f" [] [
+    .expression (.dictionary [
+      (some (.lambda [] (.name "keyOne")), .lambda [] (.name "valueOne")),
+      (some (.lambda [] (.name "keyTwo")), .lambda [] (.name "valueTwo"))]),
+    .expression (.callWith (.name "callee") [
+      (.keyword "label", .unary .negative (.name "arg")),
+      (.unpackIterable, .slice (.name "array") (some (.name "lo")) none (some (.name "stride"))),
+      (.unpackMapping, .name "opts")]),
+    .expression (.yield_ (some (.conditional
+      (.booleanOp .and_ [.name "cond", .comparison (.name "lo") [(.lt, .name "hi")]])
+      (.list_ [.floatBits 0, .name "yes"])
+      (.tuple [.text [0, 0xd800], .ellipsis, .name "no"]))))]]
+
+#guard inspect expressionScopes [0, 0] "keyOne" == some .implicitGlobal
+#guard inspect expressionScopes [0, 1] "keyTwo" == some .implicitGlobal
+#guard inspect expressionScopes [0, 2] "valueOne" == some .implicitGlobal
+#guard inspect expressionScopes [0, 3] "valueTwo" == some .implicitGlobal
+#guard inspect expressionScopes [0] "label" == none
+#guard ["callee", "arg", "array", "lo", "stride", "opts", "cond", "hi", "yes", "no"].all
+  (fun name => inspect expressionScopes [0] name == some .implicitGlobal)
+#guard diagnose [.assign "x" (.tuple [.unsupported .listComprehension])] ==
+  some ⟨[], .unsupportedExpression .listComprehension⟩
+#guard diagnose [.functionDef "f" [] [.return_ (some (.unsupported .bytesLiteral))]] ==
+  some ⟨[0], .unsupportedExpression .bytesLiteral⟩
+
 #print axioms enclosingBinding_eq_some_iff
 #print axioms enclosingBinding_stops
 #print axioms enclosingBinding_skips_class

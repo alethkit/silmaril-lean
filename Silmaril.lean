@@ -100,4 +100,5 @@ public import Silmaril.SSA.Thesis.Thms
 public import Silmaril.SSA.Thesis.Categorical.Thms
 public import Silmaril.Machine.LambdaRTLLir.Sim.Thms
 public import Silmaril.SSA.Thesis.Kleisli.Thms
+public import Silmaril.SSA.Thesis.SyntacticCategory.Thms
 public import Silmaril.SSA.Isotope.Refinement.Thms

@@ -20,6 +20,9 @@ All module names below start with `Silmaril.Courses.Cambridge.`.
 | `L2` | L1 plus functions, application, strict `let` and recursive functions | Capture-avoiding substitution; decidable sound and complete type inference; type uniqueness; preservation of typing, closedness and allocated locations; progress for closed well-typed expressions |
 | `L3` | L2 control and functions, plus products, sums, ordered records and allocatable references | Typed substitution, progress, preservation with store growth, finite-trace safety and a counterexample to determinacy |
 
+The [concrete syntax guide](cambridge-concrete.md) describes the L1 and L2
+UTF-8 profile, byte parsers, canonical printers and their checked round-trips.
+
 ## L1 and L2 stores and safety assumptions
 
 Stores are finite partial maps from location names to integers. Locations are
@@ -141,3 +144,10 @@ grammar and codecs, and institution and denotational models for later work.
 
 The [course notes](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf)
 are pinned as `sewell2026semantics` in [the bibliography](../../references.bib).
+
+## Operational institution
+
+`Silmaril.Courses.Cambridge.OperationalInstitution` exposes the L1 and L2
+call-by-value step models over their original configurations. The finite
+return view observes reachable values with their final stores.
+[Sentences, reducts and observation contract](../projects/operational-institutions.md#cambridge-l1-and-l2)
