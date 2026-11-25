@@ -177,20 +177,22 @@ variable {args outs : Ports (PortType V S)} {past sigs : List (Ports (PortType V
 
 abbrev Erased (F : Ty → Type w) := List (Option (List (Sigma F)))
 
-def trace (m : Model.{u, v, w} Op) (fuel : Nat) (entry : Tuple m.Val args) :
-    (past sigs : List (Ports (PortType V S))) → Slots m.Val past →
-    (nodes : Nodes Op args past sigs) → Runners m nodes → Slots m.Val (extend past sigs)
+variable {G : PortType V S → Type w}
+
+def trace (eval : KindEvaluator Op G) (entry : Tuple G args) :
+    (past sigs : List (Ports (PortType V S))) → Slots G past →
+    (nodes : Nodes Op args past sigs) → TableEvaluators (F := G) nodes → Slots G (extend past sigs)
   | _, [], slots, _, _ => slots
   | past, head :: tail, slots, nodes, children =>
     let node := nodes 0
-    let output := read node.inputs entry slots >>= node.kind.eval m fuel (children 0)
-    trace m fuel entry (past ++ [head]) tail (slots.snoc output)
+    let output := read node.inputs entry slots >>= eval node.kind (children 0)
+    trace eval entry (past ++ [head]) tail (slots.snoc output)
       (fun i => nodes i.succ) (fun i => children i.succ)
 
-theorem trace_prefix (m : Model.{u, v, w} Op) (fuel : Nat) (entry : Tuple m.Val args)
-    (past sigs : List (Ports (PortType V S))) (slots : Slots m.Val past)
-    (nodes : Nodes Op args past sigs) (children : Runners m nodes) :
-    store slots <+: store (trace m fuel entry past sigs slots nodes children) := by
+theorem trace_prefix (eval : KindEvaluator Op G) (entry : Tuple G args)
+    (past sigs : List (Ports (PortType V S))) (slots : Slots G past)
+    (nodes : Nodes Op args past sigs) (children : TableEvaluators (F := G) nodes) :
+    store slots <+: store (trace eval entry past sigs slots nodes children) := by
   induction sigs generalizing past with
   | nil => exact ⟨[], List.append_nil _⟩
   | cons head tail ih =>
@@ -198,23 +200,23 @@ theorem trace_prefix (m : Model.{u, v, w} Op) (fuel : Nat) (entry : Tuple m.Val 
     apply List.IsPrefix.trans _ (ih _ _ _ _)
     exact ⟨_, (store_snoc _ _).symm⟩
 
-theorem trace_at (m : Model.{u, v, w} Op) (fuel : Nat) (entry : Tuple m.Val args)
-    (past sigs : List (Ports (PortType V S))) (slots : Slots m.Val past)
-    (nodes : Nodes Op args past sigs) (children : Runners m nodes) (i : Fin sigs.length) :
-    let all := store (trace m fuel entry past sigs slots nodes children)
+theorem trace_at (eval : KindEvaluator Op G) (entry : Tuple G args)
+    (past sigs : List (Ports (PortType V S))) (slots : Slots G past)
+    (nodes : Nodes Op args past sigs) (children : TableEvaluators (F := G) nodes) (i : Fin sigs.length) :
+    let all := store (trace eval entry past sigs slots nodes children)
     let node := nodes i
-    ∃ before : Slots m.Val (site past sigs i).1,
+    ∃ before : Slots G (site past sigs i).1,
       store before <+: all ∧
       all[(site past sigs i).1.length]? = some
-        ((read node.inputs entry before >>= node.kind.eval m fuel (children i)).map colours) := by
+        ((read node.inputs entry before >>= eval node.kind (children i)).map colours) := by
   induction sigs generalizing past with
   | nil => exact i.elim0
   | cons head tail ih =>
-    let first := read (nodes 0).inputs entry slots >>= (nodes 0).kind.eval m fuel (children 0)
+    let first := read (nodes 0).inputs entry slots >>= eval (nodes 0).kind (children 0)
     let next := slots.snoc first
-    let later := trace m fuel entry (past ++ [head]) tail next
+    let later := trace eval entry (past ++ [head]) tail next
       (fun j => nodes j.succ) (fun j => children j.succ)
-    have preserves : store next <+: store later := trace_prefix m fuel entry _ _ _ _ _
+    have preserves : store next <+: store later := trace_prefix eval entry _ _ _ _ _
     refine Fin.cases ?_ (fun j => ?_) i
     · have addsFirst : store slots <+: store next := ⟨[first.map colours], (store_snoc slots first).symm⟩
       refine ⟨slots, addsFirst.trans preserves, ?_⟩
@@ -225,21 +227,21 @@ theorem trace_at (m : Model.{u, v, w} Op) (fuel : Nat) (entry : Tuple m.Val args
       rfl
     · exact ih (past ++ [head]) next _ _ j
 
-def graphTrace (m : Model.{u, v, w} Op) (fuel : Nat) (graph : Graph Op args [] sigs outs)
-    (entry : Tuple m.Val args) : Slots m.Val (extend [] sigs) :=
-  trace m fuel entry [] sigs PUnit.unit graph.nodes (fun i j input => (graph.children i j).run m fuel input)
+def graphTrace (eval : KindEvaluator Op G) (graph : Graph Op args [] sigs outs)
+    (entry : Tuple G args) : Slots G (extend [] sigs) :=
+  trace eval entry [] sigs PUnit.unit graph.nodes (fun i j input => (graph.children i j).evalWith eval input PUnit.unit)
 
-theorem graphTrace_at (m : Model.{u, v, w} Op) (fuel : Nat) (graph : Graph Op args [] sigs outs)
-    (entry : Tuple m.Val args) (i : Fin sigs.length) :
-    let all := store (graphTrace m fuel graph entry)
+theorem graphTrace_at (eval : KindEvaluator Op G) (graph : Graph Op args [] sigs outs)
+    (entry : Tuple G args) (i : Fin sigs.length) :
+    let all := store (graphTrace eval graph entry)
     let node := graph.nodes i
-    ∃ before : Slots m.Val (site [] sigs i).1,
+    ∃ before : Slots G (site [] sigs i).1,
       store before <+: all ∧
-      all[i.val]? = some ((read node.inputs entry before >>= node.kind.eval m fuel
-        (fun arm input => (graph.children i arm).run m fuel input)).map colours) := by
+      all[i.val]? = some ((read node.inputs entry before >>= eval node.kind
+        (fun arm input => (graph.children i arm).evalWith eval input PUnit.unit)).map colours) := by
   simpa only [graphTrace, site_length, List.length_nil, Nat.zero_add] using
-    trace_at m fuel entry [] sigs PUnit.unit graph.nodes
-      (fun i arm input => (graph.children i arm).run m fuel input) i
+    trace_at eval entry [] sigs PUnit.unit graph.nodes
+      (fun i arm input => (graph.children i arm).evalWith eval input PUnit.unit) i
 
 abbrev completed (all : Erased F) : Prop := all.all Option.isSome = true
 
@@ -280,12 +282,12 @@ private def finish {args users : Ports Ty} {past : List (Ports Ty)} (results : W
     (entry : Tuple F args) (slots : Slots F past) : Option (Tuple F users) :=
   if completed (store slots) then read results entry slots else none
 
-private theorem trace_result (m : Model.{u, v, w} Op) (fuel : Nat) (entry : Tuple m.Val args)
-    (past sigs : List (Ports (PortType V S))) (values : Locals m.Val past)
-    (nodes : Nodes Op args past sigs) (children : Runners m nodes)
+private theorem trace_result (eval : KindEvaluator Op G) (entry : Tuple G args)
+    (past sigs : List (Ports (PortType V S))) (values : Locals G past)
+    (nodes : Nodes Op args past sigs) (children : TableEvaluators (F := G) nodes)
     (results : Wires args (extend past sigs) outs) :
-    evalTable m fuel entry past sigs values nodes children results =
-      finish results entry (trace m fuel entry past sigs (Slots.ofLocals values) nodes children) := by
+    evalTableWith eval entry past sigs values nodes children results =
+      finish results entry (trace eval entry past sigs (Slots.ofLocals values) nodes children) := by
   induction sigs generalizing past with
   | nil =>
     let wires : Wires args past outs := results
@@ -294,11 +296,11 @@ private theorem trace_result (m : Model.{u, v, w} Op) (fuel : Nat) (entry : Tupl
     rw [ite_eq_left (slots_complete values), read_ofLocals wires entry values]
   | cons head tail ih =>
     let node : Node Op args past head := nodes 0
-    let run := node.kind.eval m fuel (children 0)
-    let rest (result : Tuple m.Val head) := evalTable m fuel entry (past ++ [head]) tail
+    let run := eval node.kind (children 0)
+    let rest (result : Tuple G head) := evalTableWith eval entry (past ++ [head]) tail
       (values.snoc result) (fun i => nodes i.succ) (fun i => children i.succ) results
-    let fill (output : Option (Tuple m.Val head)) := finish results entry
-      (trace m fuel entry (past ++ [head]) tail ((Slots.ofLocals values).snoc output)
+    let fill (output : Option (Tuple G head)) := finish results entry
+      (trace eval entry (past ++ [head]) tail ((Slots.ofLocals values).snoc output)
         (fun i => nodes i.succ) (fun i => children i.succ))
     change (run (node.inputs.read entry values) >>= rest) =
       fill (read node.inputs entry (Slots.ofLocals values) >>= run)
@@ -308,9 +310,9 @@ private theorem trace_result (m : Model.{u, v, w} Op) (fuel : Nat) (entry : Tupl
     dsimp only [fill]
     cases first with
     | none =>
-      have pref := trace_prefix m fuel entry (past ++ [head]) tail ((Slots.ofLocals values).snoc
-        (none : Option (Tuple m.Val head))) (fun i => nodes i.succ) (fun i => children i.succ)
-      have failed : none ∈ store (trace m fuel entry (past ++ [head]) tail
+      have pref := trace_prefix eval entry (past ++ [head]) tail ((Slots.ofLocals values).snoc
+        (none : Option (Tuple G head))) (fun i => nodes i.succ) (fun i => children i.succ)
+      have failed : none ∈ store (trace eval entry (past ++ [head]) tail
           ((Slots.ofLocals values).snoc none) (fun i => nodes i.succ) (fun i => children i.succ)) :=
         pref.sublist.subset (by simp [store_snoc])
       exact (ite_eq_right (fun done => Bool.noConfusion ((List.all_eq_true.mp done) none failed))).symm
@@ -318,12 +320,12 @@ private theorem trace_result (m : Model.{u, v, w} Op) (fuel : Nat) (entry : Tupl
       rw [← Slots.ofLocals_snoc]
       exact ih _ _ _ _ _
 
-theorem graphTrace_result (m : Model.{u, v, w} Op) (fuel : Nat)
-    (graph : Graph Op args [] sigs outs) (entry : Tuple m.Val args) :
-    graph.run m fuel entry =
-      if completed (store (graphTrace m fuel graph entry))
-      then read graph.results entry (graphTrace m fuel graph entry) else none := by
+theorem graphTrace_result (eval : KindEvaluator Op G)
+    (graph : Graph Op args [] sigs outs) (entry : Tuple G args) :
+    graph.evalWith eval entry PUnit.unit =
+      if completed (store (graphTrace eval graph entry))
+      then read graph.results entry (graphTrace eval graph entry) else none := by
   cases graph with
-  | region nodes children results => exact trace_result m fuel entry [] sigs PUnit.unit nodes _ results
+  | region nodes children results => exact trace_result eval entry [] sigs PUnit.unit nodes _ results
 
 end Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Proofs

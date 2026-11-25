@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Renumbered.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Partial.Thms
 import Silmaril.Raw.SSA.Isotope.Semantics.Model
 
@@ -272,6 +272,26 @@ example :
   · refine Fin.cases ?_ (fun k => ?_) j
     · rfl
     · exact k.eq_zero ▸ rfl
+
+private noncomputable def transported :
+    Reverse.Renumbered.Decomposition (graph spec) number pair :=
+  ⟨graph spec, Reverse.canonical spec, NestedTheta.Graph.Isomorphic.refl _⟩
+
+private noncomputable def transportedSource := Reverse.Renumbered.raise transported
+
+example : transportedSource.1 = region spec := Reverse.raise_canonical_source spec
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) transportedSource.2.typing (PUnit.unit, (2 : Nat))).run [] =
+      Part.some (joinExit, finalToken) := by
+  apply (transportedSource.2.region_returns_iff coherent
+    (PUnit.unit, (2 : Nat)) joinExit [] finalToken).mp
+  exact (NestedTheta.Partial.observe_eq_some _ _ _ _).mp wireFeedback
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) transportedSource.2.typing (PUnit.unit, (3 : Nat))).run [] =
+      Part.none :=
+  (transportedSource.2.region_undefined_iff coherent (PUnit.unit, (3 : Nat)) []).mp wireUndefined
 
 end Reverse
 

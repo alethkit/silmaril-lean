@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Thms
+import Silmaril.SSA.RVSDG.NestedTheta.Partial.Isomorphism.Thms
 
 namespace Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Tests
 
@@ -138,5 +138,36 @@ example : left.run model 2 input = some result := rfl
 example : right.toTerm.Returns model input result :=
   (renumbered.term_returns_iff model input result).1
     ((left.returns_iff model input result).1 ⟨2, rfl⟩)
+
+-- The value computation is independent of the token computation. Swap their
+-- vertices inside a θ body and transport a full partial observation.
+private def partialModel : Partial.Model Op where
+  value := model.value
+  snapshot := model.state
+  primitive
+    | .add n, .cons x .nil =>
+      if (show Nat from x) = 0 then Part.none else Part.some (model.run (.add n) (.cons x .nil))
+    | .stamp n, input => Part.some (model.run (.stamp n) input)
+    | .tick bound, input => Part.some (model.run (.tick bound) input)
+
+private def bodyInput (n : Nat) : Tuple partialModel.Val both := .cons n (.cons [] .nil)
+
+private def bodyOutput : Tuple partialModel.Val bodyResults :=
+  .cons ⟨(1 : Fin 2)⟩ (.cons (15 : Nat) (.cons [3] .nil))
+
+example : Partial.observe partialModel (rightBody 1).toGraph (bodyInput 10) = Part.some bodyOutput := by
+  rw [← Partial.observe_iso (bodyIso 1)]
+  change Part.bind (Part.some (show Tuple partialModel.Val np from .cons (15 : Nat) .nil)) (fun _ =>
+    Part.bind (Part.some (model.run (.tick 3) (.cons [] .nil))) (fun _ => Part.some bodyOutput)) =
+      Part.some bodyOutput
+  rw [Part.bind_some, Part.bind_some]
+
+example : Partial.observe partialModel (rightBody 1).toGraph (bodyInput 0) = Part.none := by
+  rw [← Partial.observe_iso (bodyIso 1)]
+  simp only [Partial.observe, Term.toTerm_toGraph, leftBody, Term.denoteOpenWith, Kind.denoteWith,
+    partialModel, bodyInput, Wires.read, Tuple.map, Part.bind_eq_bind]
+  rw [ite_eq_left (by rfl), Part.bind_none]
+
+example : ((rightBody 1).toGraph.nodes (0 : Fin 2)).label.kind = .base (.simple (.tick 3)) := rfl
 
 end Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Tests
