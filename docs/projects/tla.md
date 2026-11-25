@@ -3,8 +3,10 @@
 Import [`Silmaril.Logic.Temporal.TLA.Thms`](../../Silmaril/Logic/Temporal/TLA/Thms.lean)
 for Simple TLA and
 [`Silmaril.Logic.Temporal.TLA.General.Thms`](../../Silmaril/Logic/Temporal/TLA/General/Thms.lean)
-for scoped General TLA. The developments use Lean's state types and propositions
-and have no dependencies on the institution machinery.
+for scoped General TLA. Both standalone modules use Lean's state types and
+propositions. Import
+[`Silmaril.Logic.Temporal.TLA.General.Institution.Thms`](../../Silmaril/Logic/Temporal/TLA/General/Institution/Thms.lean)
+for the room functor and satisfaction condition.
 
 The reference is Leslie Lamport's *The Temporal Logic of Actions*,
 §§5.3–5.6 and Fig. 4 for Simple TLA, §§2.6–2.7 for rigid variables and enabling,
@@ -168,34 +170,64 @@ function can compute specification variables as in §8.3.2. Substitution
 through explicit `ENABLED` would require a separate successor-lifting
 condition on the state function.
 
-## Institution handoff
+## General TLA institution
 
-For fixed sorts and carriers, take signatures to be `Scope Sorts` and
-morphisms to be `Scope.Rename` with pointwise injectivity evidence for
-the flexible component. `Scope.Rename.id_comp`, `comp_id` and
-`comp_assoc` give the map equalities, and `Context.Rename.injective_id`
-and `Context.Rename.Injective.comp` give closure of the evidence.
+For a fixed type of sorts `Sorts` and carrier family `Value`, the signature
+category has objects `Scope Sorts`. A morphism is a sort-preserving
+`Scope.Rename` with injectivity evidence at each flexible sort. The rigid
+maps may identify names. `Scope.Rename.id_comp`, `comp_id` and
+`comp_assoc` give equality of the underlying maps, and proof irrelevance
+gives equality of the morphisms carrying the evidence.
 
-The intended discrete-model presentation fills the fields of
-[`Institution.Plain`](../../Silmaril/Logic/Inst/Builders/Core/Defs.lean)
-as follows.
+The discrete-model presentation `General.Institution.plain Value` fills
+[`Silmaril.Inst.Plain`](../../Silmaril/Logic/Inst/Builders/Core/Defs.lean)
+with the standalone interfaces.
 
 | Fields | Standalone interface |
 | --- | --- |
 | `Sen`, `map` | `General.Formula Value Γ`, `Formula.rename` |
-| `map_id`, `map_comp` | `Formula.rename_id`, `Formula.rename_comp` (with the builder's orientation) |
+| `map_id`, `map_comp` | `Formula.rename_id`, `Formula.rename_comp` |
 | `Mod`, `reduct` | `General.Model Value Γ`, `Model.reduct` |
 | `reduct_id`, `reduct_comp` | `Model.reduct_id`, `Model.reduct_comp` |
 | `Sat`, `sat_map` | `Formula.Satisfies`, `Formula.satisfies_rename` |
 
-The next task needs to package the category of signatures, lift the
-standalone map equalities to the morphisms carrying injectivity evidence,
-fill this presentation, and export its `Plain.functor : Sign ⥤ Room`
-and satisfaction theorem. The model type here uses actual behaviors.
-A presentation with stutter classes would additionally need quotient
-descent for reducts and satisfaction, using `StutterEquiv.map` and
-`Formula.sat_stutterInvariant`. Changes of carriers or richer signature
-morphisms would require additional semantics and proofs.
+`General.Institution.roomFunctor Value` is the resulting `Scope Sorts ⥤ Room`,
+and `General.Institution.institution Value` is the packaged institution.
+`General.Institution.satisfaction` exposes the corridor's iff on the
+standalone formulas and models. A reduct restricts the single rigid
+valuation and projects every flexible state at the same instant. Rooms use
+actual behaviors and their model categories are discrete. Flexible hiding
+still compares its projected witnesses up to stuttering as in standalone
+General TLA. A presentation with stutter classes as model objects would
+need quotient descent for reducts and satisfaction.
+
+These morphisms express name changes and scope extensions for fixed carriers.
+The satisfaction law covers all scoped formulas, including explicit
+`ENABLED` and flexible hiding. The successor-lifting proof explains the
+injectivity requirement. Semantic refinement via `Refines` transports
+satisfying behaviors along a computed state function. For a substitution
+along such a function to commute with `ENABLED`, it would also have to
+lift successors, and any extension to scoped substitution would need
+semantics and laws under binders. Changes of sorts or carriers would also
+need their own reindexing semantics.
+
+## Handoff to the TLA+ abstract syntax and codec
+
+First define a structural TLA+ AST for an explicit fragment and elaborate
+it into `General.Expr`, `Action`, `StatePred` and `Formula` over checked
+scopes. The standalone leaves contain Lean functions, so the AST needs
+its own representation of terms, actions and binding. Track rigid and
+flexible declarations, sorts, and bound names during elaboration. Give
+priming and `ENABLED` their action and state levels, respectively, and
+use `Formula.existsFlex` for temporal hiding. On the supported renamings,
+check that elaborating a renamed formula agrees with the room's sentence
+map, including under binders.
+
+Then define an S-expression encoding of the structural AST and prove
+decode-after-encode on the supported AST. Specify the accepted forms and
+how malformed inputs are rejected. Keep that round trip independent of
+the later parser for concrete TLA+ text. Concrete parsing and Quint
+integration follow the AST and codec.
 
 ## Checked examples and coverage
 
@@ -208,10 +240,16 @@ prove that the translated body has no synchronous witness, distinguish a
 flexible Boolean witness from a single rigid value, and test successor
 lifting and its failure under identification. A refinement example
 computes a Boolean latch observation from a Nat clock.
+[Institution examples](../../Silmaril/Logic/Temporal/TLA/General/Institution/Examples.lean)
+exercise a corridor that identifies two rigid names and adds an
+unobserved flexible flag. They check the reduct's coordinates and
+satisfaction of the translated `ENABLED` and flexible hiding formulas.
 
 ```sh
 lake build --wfail +Silmaril.Logic.Temporal.TLA.Thms +Silmaril.Logic.Temporal.TLA.Examples \
-  +Silmaril.Logic.Temporal.TLA.General.Thms +Silmaril.Logic.Temporal.TLA.General.Examples
+  +Silmaril.Logic.Temporal.TLA.General.Thms +Silmaril.Logic.Temporal.TLA.General.Examples \
+  +Silmaril.Logic.Temporal.TLA.General.Institution.Thms \
+  +Silmaril.Logic.Temporal.TLA.General.Institution.Examples
 ```
 
 | Area | Formalized | Remaining |
@@ -219,4 +257,4 @@ lake build --wfail +Silmaril.Logic.Temporal.TLA.Thms +Silmaril.Logic.Temporal.TL
 | Terms and actions | Typed variable lookup, denotational expressions and actions, rigid existential quantification, explicit state-level `ENABLED` | First-order expression and action ASTs, elaboration, and general capture-avoiding term substitution |
 | Temporal formulas | Typed Simple and General TLA syntax and semantics, rigid and flexible quantifiers, whole-state stutter invariance, and scoped reindexing | A derivation calculus with the syntactic substitution rules of Fig. 9, machine closure, completeness results, and a Lean comparison with a separate stutter-reduction operator |
 | Specifications | Simple TLA fairness, invariant and progress rules, and semantic state-map refinement | General refinement substitution and auxiliary-variable theorems |
-| Integration | Sentence and model maps with the satisfaction equation for fixed carriers | The room functor, TLA+ AST, S-expressions and concrete parser, and Quint integration |
+| Integration | The General TLA room functor and satisfaction condition for fixed carriers | TLA+ AST, S-expression codec, concrete parser, and Quint integration |
