@@ -24,14 +24,34 @@ author-hosted November 1993 camera-ready PDF, SHA-256
 
 ### Figure 5 rules
 
-| Paper rules | Checked interface and gap |
+The statements in `Rules.Figure5` interpret validity of an action premise as
+quantification over source and successor states. A temporal premise is an
+entailment over all behaviors, so it can also be applied on any suffix.
+
+| Paper rule | Lean statement and coverage |
 | --- | --- |
-| STL1–STL6 | Lean's propositional logic and the suffix semantics can discharge individual instances. There is no standalone derivation system or named suite for these rules, including STL1's criterion for propositional provability. |
-| Lattice | No rule deriving progress from a well-founded ranking over a family of temporal formulas. |
-| TLA1, TLA2 | The structural induction in `Formula.spec_invariant` gives invariant preservation under bracket steps. The TLA1 equivalence with the unchanged-observation premise and the TLA2 step-simulation rule have no standalone statement. |
-| INV1, INV2 | `Formula.spec_invariant` gives INV1 with a separate initial condition and an arbitrary extra liveness conjunct. INV2's equivalence after strengthening the next-state relation with the invariant at both ends remains to be stated and proved. |
-| WF1, SF1 | `Formula.weakFair_progress` gives a semantic WF1 variant. It assumes progress from any step of the fair angle action while waiting, so it can use an independent observation for that action. Fig. 5 uses the common observation and only needs progress on the intersection with the next-state relation. The exact WF1 premise and SF1's recurrent enabling argument under an additional always-assumption are absent. |
-| WF2, SF2 | No fairness transfer rule with a separately evaluated target enabledness premise, as required for §8.3.3. `strongFair_implies_weakFair` compares fairness of the same action and observation. |
+| TLA1 | `tla1` gives the equivalence between `□P` and `P ∧ □[P ⇒ P′]_f`. The premise checks preservation of `P` across any step with equal observations. |
+| TLA2 | `tla2` derives `□Q ∧ □[B]_g` from `□P ∧ □[A]_f` using the single step premise `P ∧ [A]_f ⇒ Q ∧ [B]_g`. The simulation example erases a hidden bit, including steps where only that bit changes. |
+| INV1 | `inv1` derives `□I` from `I ∧ □[N]_f` using the bracket-preservation premise. It specializes the existing `Formula.spec_invariant`. |
+| INV2 | `inv2` gives the equivalence between `□[N]_f` and `□[N ∧ I ∧ I′]_f` under `□I`. Both copies of `I` are inside the bracket. |
+| WF1 | `wf1` derives `P ↝ Q` using bracket preservation of `P ∨ Q` while in `P`, progress on `⟨N ∧ A⟩_f` while in `P`, and enablement of `⟨A⟩_f` in `P`. The example's fair action permits a successor outside `N` that fails `Q`. |
+| SF1 | `sf1` uses the same step premises and the temporal premise `□P ∧ □[N]_f ∧ □F ⇒ ◇ENABLED ⟨A⟩_f`. Applying this premise on every suffix that stays in `P` yields recurrent enabledness. The checked example includes an alternating behavior that meets the step and temporal assumptions with weak fairness and fails the leads-to conclusion. |
+| WF2 | `wf2` takes the barred action, observation, and target enabledness separately. Its four premises keep the Figure 5 simulation, guarded progress (including `P′` and target enabledness), enablement implication, and eventual stabilization of `P` when no changing `B` steps occur and target enabledness eventually holds continuously. |
+| SF2 | `sf2` uses recurrent target enabledness in the stabilization premise and drops the enabledness guard from step progress, as in Figure 5. Its conclusion uses recurrent target steps or eventual continuous target disabledness, following equation (18). The pinned PDF's barred SF line in equation (53) prints `□◇` on disabledness and `◇□` on the step disjunct. Equation (18), the Figure 5 recurrent-enablement premise, and the §7.2.2 explanation give the strong-fairness reading used here. |
+| STL1–STL6 | Lean's propositional logic and suffix semantics can discharge individual instances. STL1's criterion for propositional provability needs a representation of propositional derivations. Named semantic rules for STL2–STL6 remain open. |
+| Lattice | The well-founded temporal descent rule over the family `H_c` remains open. |
+
+For WF2 and SF2, `weakFair_map_iff` and `strongFair_map_iff` identify ordinary
+fairness of the mapped behavior with the explicit-enabledness formulas for the
+pulled-back action and observation. They evaluate `ENABLED` over target
+successors before mapping the resulting predicate back. Both transfer examples
+use a target step that can change a hidden component at counter zero, where
+enabledness of the pulled-back action fails. The SF2 example also checks that
+positive even counter states enable a target step and odd states disable it.
+
+[Figure 5 statements](../../Silmaril/Logic/Temporal/TLA/Rules/Figure5/Thms.lean)
+· [Checked examples](../../Silmaril/Logic/Temporal/TLA/Rules/Figure5/Examples.lean)
+· [Pinned PDF, Figure 5](https://lamport.azurewebsites.net/pubs/lamport-actions.pdf#page=17)
 
 ## General TLA and Figure 9
 
@@ -80,18 +100,22 @@ author-hosted November 1993 camera-ready PDF, SHA-256
 
 ## Next PRs
 
-1. Add a Simple TLA proof-rule module for TLA1, TLA2 and INV2, with a checked
-   step-simulation example that uses an observation coarser than the whole state.
-   Extend it with Fig. 5's exact WF1/SF1 and the WF2/SF2 rules with an explicit
-   target enabledness predicate, preserving the distinction from §8.3.3.
+1. State and prove the remaining STL rules and the Lattice descent rule. The
+   latter must handle arbitrary well-founded orders and preserve the paper's
+   temporal hypothesis `F` throughout the leads-to reasoning.
 2. Define the canonical stutter reduction from equation (48) and prove its
    equality criterion against common expansions, including behaviors with an
    infinite final block. Use it to state (49) with the paper's relation verbatim.
 3. On a specified expression grammar, prove capture-avoiding substitution under
-   priming, quantifiers and `ENABLED` and connect it to E1/F1 evaluation.
-   Prove the free-name weakening criteria for E2/F2 in the same representation.
+   priming, quantifiers and `ENABLED` and connect it to E1/F1 evaluation and to
+   barring. Prove the free-name weakening criteria for E2/F2 in the same
+   representation.
+4. Formalize machine closure and identify the remaining premises of the paper's
+   relative completeness result (§8.3.2 and Note 12).
 
-Figure 5 soundness beyond the listed theorems and the paper's relative
-completeness result (§8.3.2 and Note 12) remain open. Build the standalone
-rules and checked examples with
-`lake build --wfail +Silmaril.Logic.Temporal.TLA.Rules.Examples`.
+Build both sets of standalone rule examples with
+
+```sh
+lake build --wfail +Silmaril.Logic.Temporal.TLA.Rules.Examples \
+  +Silmaril.Logic.Temporal.TLA.Rules.Figure5.Examples
+```
