@@ -59,7 +59,7 @@ private theorem args_check {fn : Function} {target : CallTarget} {saved operands
     List.take_left, List.drop_left] at typed
   exact ⟨List.reverse_inj.mp typed.1.2, typed.2⟩
 
-private theorem local_types {fn : Function} {args : List Value} (typed : args.map Value.type = fn.declaration.params) :
+private theorem init_local_types {fn : Function} {args : List Value} (typed : args.map Value.type = fn.declaration.params) :
     (fn.declaration.frame args).locals.map Value.type = fn.localTypes := by
   simp [Declaration.frame, Function.localTypes, List.map_map, Function.comp_def, Value.zero, typed]
 
@@ -67,13 +67,31 @@ private theorem result_of_nil {fn : Function} {stack : List Value} (typed : fn.W
     fn.ResultTyped (.values stack) := by
   simpa [Function.WellTyped, Function.ResultTyped, checkCode, Prefix.stackTypes] using typed
 
-private theorem numeric_preserves {fn : Function} {args stack next : List Value} {op : Prefix.Op} {rest : List Op}
-    (typed : args.map Value.type = fn.declaration.params)
-    (step : Prefix.Reduce (fn.declaration.frame args).locals stack op (.values next))
+private theorem numeric_preserves {fn : Function} {locals stack next : List Value} {op : Prefix.Op} {rest : List Op}
+    (typed : locals.map Value.type = fn.localTypes)
+    (step : Prefix.Reduce locals stack op (.values next))
     (body : fn.WellTyped stack (.numeric op :: rest)) : fn.WellTyped next rest := by
   have head := Prefix.checkOp_result step
-  rw [local_types typed] at head
+  rw [typed] at head
   simpa [Function.WellTyped, checkCode, head] using body
+
+private theorem set_preserves {fn : Function} {locals next saved : List Value} {i : LocalIdx} {v : Value} {rest : List Op}
+    (typed : locals.map Value.type = fn.localTypes)
+    (write : Locals.Edge ⟨locals, [.value v, .set i]⟩ ⟨next, []⟩)
+    (body : fn.WellTyped (saved ++ [v]) (.set i :: rest)) :
+    next.map Value.type = fn.localTypes ∧ fn.WellTyped saved rest := by
+  by_cases fits : fn.localTypes[i.toNat]? = some v.type
+  · have localGuard : Locals.Admitted fn.localTypes [] ⟨locals, [.value v, .set i]⟩ :=
+      ⟨typed, by simp [Locals.check, fits]⟩
+    exact ⟨(Locals.closed localGuard write).1,
+      by simpa [Function.WellTyped, checkCode, Prefix.stackTypes, Locals.check, fits] using body⟩
+  · simp [Function.WellTyped, checkCode, Prefix.stackTypes, Locals.check, fits] at body
+
+private theorem tee_preserves {fn : Function} {saved : List Value} {i : LocalIdx} {v : Value} {rest : List Op}
+    (body : fn.WellTyped (saved ++ [v]) (.tee i :: rest)) :
+    fn.WellTyped (saved ++ [v, v]) (.set i :: rest) := by
+  by_cases fits : fn.localTypes[i.toNat]? = some v.type <;>
+    simp_all [Function.WellTyped, checkCode, Prefix.stackTypes, Locals.check]
 
 theorem admitted_step {program : Program} (checked : program.check = true) (address : FuncAddr) :
     ∀ {fn a b}, program.lookup address = some fn → Admitted program fn a →
@@ -84,7 +102,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
     have step := (edge_iff checked found).mp move
     cases step with
     | resolve args => cases ready with | call typed => exact .invoke typed
-    | enter args typed => exact .running typed (check_function checked found)
+    | enter args typed => exact .running (init_local_types typed) (check_function checked found)
     | numeric step =>
       cases ready with
       | running typed body =>
@@ -92,6 +110,14 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
         · exact .running typed (numeric_preserves typed (.get ‹_›) body)
         · exact .running typed (numeric_preserves typed (.bin ‹_›) body)
         · exact .trapped typed
+    | localSet write =>
+      cases ready with
+      | running typed body =>
+        obtain ⟨nextTyped, restTyped⟩ := set_preserves typed write body
+        exact .running nextTyped restTyped
+    | localTee _ =>
+      cases ready with
+      | running typed body => exact .running typed (tee_preserves body)
     | unreachable args stack rest => cases ready with | running typed _ => exact .trapped typed
     | dispatch args saved operands target rest used count =>
       cases ready with

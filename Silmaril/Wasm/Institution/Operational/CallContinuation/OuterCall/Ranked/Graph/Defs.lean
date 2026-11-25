@@ -2,18 +2,21 @@ module
 
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Thms
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Thms
+public import Silmaril.Wasm.Institution.Operational.Locals.Thms
 
 @[expose] public section
 
 namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph
 
-open Execution.Runtime (FuncAddr Value)
+open Execution.Runtime (Frame FuncAddr Value)
 open Computed
 
 /-- The body starts with a literal operand prefix. The remaining instructions
-are read-only local reads, integer operations, direct calls, and unreachable. -/
+are numeric locals, integer operations, direct calls, and unreachable. -/
 inductive Op where
   | numeric (op : Prefix.Op)
+  | set (index : LocalIdx)
+  | tee (index : LocalIdx)
   | call (target : CallTarget)
   | unreachable
 
@@ -40,6 +43,10 @@ def checkCode (targets : List CallTarget) (locals result : List NumType) (stack 
   | [] => decide (stack = result.reverse)
   | .numeric op :: rest =>
       ((Prefix.checkOp locals stack op).map (fun next => checkCode targets locals result next rest)).getD false
+  | .set i :: rest =>
+      ((Locals.check locals stack [.set i]).map (fun next => checkCode targets locals result next rest)).getD false
+  | .tee i :: rest =>
+      ((Locals.check locals stack [.tee i]).map (fun next => checkCode targets locals result next rest)).getD false
   | .call target :: rest =>
       let decl := target.declaration
       decide (target ∈ targets ∧ stack.take decl.params.length = decl.params.reverse) &&
@@ -76,8 +83,8 @@ mutual
   inductive Phase where
     | call (args : List Value)
     | invoke (args : List Value)
-    | label (args : List Value) (body : Body)
-    | exit (args : List Value) (result : Nested.Result)
+    | label (locals : List Value) (body : Body)
+    | exit (locals : List Value) (result : Nested.Result)
     | done (result : Nested.Result)
 
   inductive Body where
@@ -113,6 +120,11 @@ def Body.afterNumeric (rest : List Op) : Prefix.Outcome → Body
   | .values stack => .running stack rest
   | .trap saved => .trapped saved rest
 
+/-- The current frame uses the declaration's module and the activation's
+entire current local vector. Default locals are added only on entry. -/
+def currentFrame (decl : Declaration) (locals : List Value) : Frame :=
+  ⟨locals, decl.module⟩
+
 def Function.ResultTyped (fn : Function) : Nested.Result → Prop
   | .values stack => stack.map Value.type = fn.declaration.results
   | .trap => True
@@ -129,17 +141,17 @@ and the typed activation at its resolved child address. -/
 inductive Admitted (program : Program) : Function → Phase → Prop where
   | call {fn args} (typed : args.map Value.type = fn.declaration.params) : Admitted program fn (.call args)
   | invoke {fn args} (typed : args.map Value.type = fn.declaration.params) : Admitted program fn (.invoke args)
-  | running {fn args stack rest} (typed : args.map Value.type = fn.declaration.params)
-      (body : fn.WellTyped stack rest) : Admitted program fn (.label args (.running stack rest))
-  | active {fn args saved target child rest callee} (typed : args.map Value.type = fn.declaration.params)
+  | running {fn locals stack rest} (typed : locals.map Value.type = fn.localTypes)
+      (body : fn.WellTyped stack rest) : Admitted program fn (.label locals (.running stack rest))
+  | active {fn locals saved target child rest callee} (typed : locals.map Value.type = fn.localTypes)
       (used : target ∈ fn.targets) (found : program.lookup target.address = some callee)
       (declared : callee.declaration = target.declaration) (live : child.Active)
       (ready : Admitted program callee child) (resume : fn.ResumeTyped saved target rest) :
-      Admitted program fn (.label args (.active saved target child rest))
-  | trapped {fn args saved rest} (typed : args.map Value.type = fn.declaration.params) :
-      Admitted program fn (.label args (.trapped saved rest))
-  | exit {fn args result} (typed : args.map Value.type = fn.declaration.params) (out : fn.ResultTyped result) :
-      Admitted program fn (.exit args result)
+      Admitted program fn (.label locals (.active saved target child rest))
+  | trapped {fn locals saved rest} (typed : locals.map Value.type = fn.localTypes) :
+      Admitted program fn (.label locals (.trapped saved rest))
+  | exit {fn locals result} (typed : locals.map Value.type = fn.localTypes) (out : fn.ResultTyped result) :
+      Admitted program fn (.exit locals result)
   | done {fn result} (typed : fn.ResultTyped result) : Admitted program fn (.done result)
 
 /-- The single-frame SOS. The only premise involving another function is a
@@ -147,27 +159,35 @@ step of the currently active child. The native step relation is absent here. -/
 inductive Layer (fn : Function) (childStep : CallTarget → Phase → Phase → Prop) : Phase → Phase → Prop where
   | resolve (args : List Value) : Layer fn childStep (.call args) (.invoke args)
   | enter (args : List Value) (typed : args.map Value.type = fn.declaration.params) :
-      Layer fn childStep (.invoke args) (.label args (.running fn.initial fn.code))
-  | numeric {args stack : List Value} {op : Prefix.Op} {rest : List Op} {out : Prefix.Outcome}
-      (step : Prefix.Reduce (fn.declaration.frame args).locals stack op out) :
-      Layer fn childStep (.label args (.running stack (.numeric op :: rest))) (.label args (Body.afterNumeric rest out))
-  | unreachable (args stack : List Value) (rest : List Op) :
-      Layer fn childStep (.label args (.running stack (.unreachable :: rest))) (.label args (.trapped stack rest))
-  | dispatch (args saved operands : List Value) (target : CallTarget) (rest : List Op)
+      Layer fn childStep (.invoke args) (.label (fn.declaration.frame args).locals (.running fn.initial fn.code))
+  | numeric {locals stack : List Value} {op : Prefix.Op} {rest : List Op} {out : Prefix.Outcome}
+      (step : Prefix.Reduce locals stack op out) :
+      Layer fn childStep (.label locals (.running stack (.numeric op :: rest))) (.label locals (Body.afterNumeric rest out))
+  | localSet {locals next saved : List Value} {i : LocalIdx} {v : Value} {rest : List Op}
+      (write : Locals.Edge ⟨locals, [.value v, .set i]⟩ ⟨next, []⟩) :
+      Layer fn childStep (.label locals (.running (saved ++ [v]) (.set i :: rest)))
+        (.label next (.running saved rest))
+  | localTee {locals saved : List Value} {i : LocalIdx} {v : Value} {rest : List Op}
+      (write : Locals.Edge ⟨locals, [.value v, .tee i]⟩ ⟨locals, [.value v, .value v, .set i]⟩) :
+      Layer fn childStep (.label locals (.running (saved ++ [v]) (.tee i :: rest)))
+        (.label locals (.running (saved ++ [v, v]) (.set i :: rest)))
+  | unreachable (locals stack : List Value) (rest : List Op) :
+      Layer fn childStep (.label locals (.running stack (.unreachable :: rest))) (.label locals (.trapped stack rest))
+  | dispatch (locals saved operands : List Value) (target : CallTarget) (rest : List Op)
       (used : target ∈ fn.targets) (count : operands.length = target.declaration.params.length) :
-      Layer fn childStep (.label args (.running (saved ++ operands) (.call target :: rest)))
-        (.label args (.active saved target (.invoke operands) rest))
-  | child (args saved : List Value) (target : CallTarget) (rest : List Op) {a b : Phase}
+      Layer fn childStep (.label locals (.running (saved ++ operands) (.call target :: rest)))
+        (.label locals (.active saved target (.invoke operands) rest))
+  | child (locals saved : List Value) (target : CallTarget) (rest : List Op) {a b : Phase}
       (used : target ∈ fn.targets) (live : a.Active) (step : childStep target a b) :
-      Layer fn childStep (.label args (.active saved target a rest)) (.label args (Body.attach saved target rest b))
-  | discard {args stack kept : List Value} {before rest : List Op} (step : Prefix.Discard stack before kept rest) :
-      Layer fn childStep (.label args (.trapped stack before)) (.label args (.trapped kept rest))
-  | leaveValues (args stack : List Value) :
-      Layer fn childStep (.label args (.running stack [])) (.exit args (.values stack))
-  | leaveTrap (args : List Value) :
-      Layer fn childStep (.label args (.trapped [] [])) (.exit args .trap)
-  | leaveFrame (args : List Value) (result : Nested.Result) (typed : fn.ResultTyped result) :
-      Layer fn childStep (.exit args result) (.done result)
+      Layer fn childStep (.label locals (.active saved target a rest)) (.label locals (Body.attach saved target rest b))
+  | discard {locals stack kept : List Value} {before rest : List Op} (step : Prefix.Discard stack before kept rest) :
+      Layer fn childStep (.label locals (.trapped stack before)) (.label locals (.trapped kept rest))
+  | leaveValues (locals stack : List Value) :
+      Layer fn childStep (.label locals (.running stack [])) (.exit locals (.values stack))
+  | leaveTrap (locals : List Value) :
+      Layer fn childStep (.label locals (.trapped [] [])) (.exit locals .trap)
+  | leaveFrame (locals : List Value) (result : Nested.Result) (typed : fn.ResultTyped result) :
+      Layer fn childStep (.exit locals result) (.done result)
 
 def Program.order (program : Program) (callee caller : FuncAddr) : Prop :=
   program.table.Resolved caller callee
