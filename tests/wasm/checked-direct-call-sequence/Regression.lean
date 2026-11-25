@@ -84,11 +84,23 @@ private theorem secondInvokes :
       (.active (secondId firstCallee) (.invoke saved [i32 7]) (continuation firstCallee)) :=
   firstReturned.tail (fact (.resolve (secondId firstCallee) saved [i32 7] (continuation firstCallee) rfl))
 
+private theorem secondReturns {s : Site} (i : s.TargetId) (declared : (s.target i).callee = secondCallee)
+    (below : List Value) (arg : Value) (rest : List (Op s)) :
+    Runs s (.active i (.invoke below [arg]) rest) (.running (below ++ [arg]) rest) := by
+  have enter : CallFrame.Edge (s.target i).callee (.invoke below [arg])
+      (.label below [arg] (.code secondCallee.program)) := by
+    rw [declared]
+    exact CallFrame.fact (.enter below [arg] rfl)
+  have read := (Relation.ReflTransGen.single (call (i := i) (rest := rest) (by trivial) enter)).tail
+    (call (by trivial) (CallFrame.reduce below (Locals.fact (.get [arg] ⟨0⟩ arg rfl))))
+  have label := read.tail (call (by trivial) (CallFrame.fact (.labelValues below [arg] [arg])))
+  have pop : CallFrame.Edge (s.target i).callee (.exit below [arg] (.values [arg])) (.returned below [arg]) := by
+    rw [declared]
+    exact CallFrame.fact (.frameValues below [arg] [arg] rfl)
+  exact label.tail (call (by trivial) pop)
+
 private theorem normalPath : Runs (site firstCallee) (.running saved (code firstCallee)) (.running [i32 17] []) := by
-  have entry := secondInvokes.tail (call (by trivial) (CallFrame.fact (.enter saved [i32 7] rfl)))
-  have read := entry.tail (call (by trivial) (CallFrame.reduce saved (Locals.fact (.get [i32 7] ⟨0⟩ (i32 7) rfl))))
-  have label := read.tail (call (by trivial) (CallFrame.fact (.labelValues saved [i32 7] [i32 7])))
-  have returned := label.tail (call (by trivial) (CallFrame.fact (.frameValues saved [i32 7] [i32 7] rfl)))
+  have returned := secondInvokes.trans (secondReturns (secondId firstCallee) rfl saved (i32 7) (continuation firstCallee))
   have load := returned.tail (fact (.numeric (.get rfl)))
   have mul : intBinOp .i32 .mul 7 2 = .ok 14 := rfl
   have product := load.tail (fact (.numeric (.bin (stack := saved) mul)))
@@ -242,7 +254,13 @@ open DirectSequence
 
 private def afterAdd : List Prefix.Op := [.get ⟨0⟩, .bin .i32 .add]
 
-private def enclosing : Enclosing.Context := ⟨parent, [i32 11], .bin .i32 .add :: afterAdd, [int32]⟩
+private def enclosing : Enclosing.Context := Enclosing.Context.numeric parent [i32 11] (.bin .i32 .add :: afterAdd) [int32]
+
+private def afterAddCode : List (Op enclosing.sequence) := afterAdd.map .numeric
+
+private theorem enclosingGuard (fn : CallFrame.Callee) (g : DirectSequence.V1Guard (outerStore fn) parent (outer fn)) :
+    Enclosing.V1Guard (outerStore fn) enclosing (outer fn) := by
+  refine ⟨g, ⟨?_, ?_, ?_, ?_⟩⟩ <;> intro i <;> exact Fin.elim0 i
 
 private theorem enclosingTyped (fn : CallFrame.Callee) : enclosing.Typed (outer fn) := rfl
 
@@ -254,11 +272,11 @@ private theorem restored :
 private theorem continued :
     Enclosing.Runs enclosing (outer firstCallee) (.active .call) (.resume [i32 127] []) := by
   have firstAdd : intBinOp .i32 .add 11 17 = .ok 28 := rfl
-  have sum := restored.tail (Enclosing.fact (.resume (.bin (stack := []) firstAdd)))
-  have load : Enclosing.Edge enclosing (outer firstCallee) (.resume [i32 28] afterAdd)
-      (.resume [i32 28, i32 99] [.bin .i32 .add]) := Enclosing.fact (.resume (.get rfl))
+  have sum := restored.tail (Enclosing.resume (fact (.numeric (.bin (stack := []) firstAdd))))
+  have load : Enclosing.Edge enclosing (outer firstCallee) (.resume [i32 28] afterAddCode)
+      (.resume [i32 28, i32 99] [.numeric (.bin .i32 .add)]) := Enclosing.resume (fact (.numeric (.get rfl)))
   have lastAdd : intBinOp .i32 .add 28 99 = .ok 127 := rfl
-  exact (sum.tail load).tail (Enclosing.fact (.resume (.bin (stack := []) lastAdd)))
+  exact (sum.tail load).tail (Enclosing.resume (fact (.numeric (.bin (stack := []) lastAdd))))
 
 private theorem outerBubbled :
     Enclosing.Runs enclosing (outer trappingCallee) (.active .call) (.trapped enclosing.saved enclosing.continuation) :=
@@ -266,32 +284,35 @@ private theorem outerBubbled :
 
 private theorem discardOne :
     Enclosing.Edge enclosing (outer trappingCallee) (.trapped enclosing.saved enclosing.continuation)
-      (.trapped enclosing.saved afterAdd) := by
-  apply Enclosing.fact (.discard ?_)
-  simpa only [List.append_nil, List.singleton_append, enclosing] using
-    Prefix.Discard.cut enclosing.saved [] ([.bin .i32 .add] : List Prefix.Op) afterAdd (.inr (by simp))
+      (.trapped enclosing.saved afterAddCode) := by
+  apply Enclosing.resume (fact (.discard ?_))
+  have code : [.numeric (.bin .i32 .add)] ++ afterAddCode = enclosing.continuation := rfl
+  rw [← code]
+  simpa only [List.append_nil] using
+    Prefix.Discard.cut enclosing.saved [] ([.numeric (.bin .i32 .add)] : List (Op enclosing.sequence)) afterAddCode
+      (.inr (by simp))
 
 private theorem bubbled :
     Enclosing.Runs enclosing (outer trappingCallee) (.active .call) (.trapped [] []) := by
-  have dropStack : Enclosing.Edge enclosing (outer trappingCallee) (.trapped enclosing.saved afterAdd)
-      (.trapped [] afterAdd) :=
-    Enclosing.fact (.discard (.cut [] enclosing.saved [] afterAdd (.inl (by decide))))
-  have dropRest : Enclosing.Edge enclosing (outer trappingCallee) (.trapped [] afterAdd) (.trapped [] []) :=
-    Enclosing.fact (.discard (.cut [] [] afterAdd [] (.inr (by decide))))
+  have dropStack : Enclosing.Edge enclosing (outer trappingCallee) (.trapped enclosing.saved afterAddCode)
+      (.trapped [] afterAddCode) :=
+    Enclosing.resume (fact (.discard (.cut [] enclosing.saved [] afterAddCode (.inl (by decide)))))
+  have dropRest : Enclosing.Edge enclosing (outer trappingCallee) (.trapped [] afterAddCode) (.trapped [] []) :=
+    Enclosing.resume (fact (.discard (.cut [] [] afterAddCode [] (.inr (by decide)))))
   exact ((outerBubbled.tail discardOne).tail dropStack).tail dropRest
 
 example : V1.Execution.Steps CallFrame.v1NoHost
     (Enclosing.v1Config (outerStore firstCallee) enclosing (outer firstCallee).site (.active .call))
     ⟨outerStore firstCallee, parent, [.source (.intConst .i32 11), .source (.intConst .i32 17),
       .source (.intBinOp .i32 .add), .source (.localGet ⟨0⟩), .source (.intBinOp .i32 .add)]⟩ :=
-  (Enclosing.v1_run_iff regularGuard (enclosingTyped firstCallee) (a := .active .call) ⟨trivial, trivial⟩).mpr
+  (Enclosing.v1_run_iff (enclosingGuard firstCallee regularGuard) (enclosingTyped firstCallee) (a := .active .call) ⟨trivial, trivial⟩).mpr
     ⟨_, restored, rfl, rfl⟩
 
 example : Lime1.Execution.Steps CallFrame.limeNoHost
     (Enclosing.v1Config (outerStore firstCallee) enclosing (outer firstCallee).site (.active .call)).toLime
     ⟨(outerStore firstCallee).mapCode V1.Func.toLime, parent, [.source (.intConst .i32 127)]⟩ := by
   rw [Enclosing.v1_to_lime]
-  exact (Enclosing.lime_run_iff (DirectSequence.guard_to_lime regularGuard) (enclosingTyped firstCallee)
+  exact (Enclosing.lime_run_iff (Enclosing.guard_to_lime (enclosingGuard firstCallee regularGuard)) (enclosingTyped firstCallee)
     (a := .active .call) ⟨trivial, trivial⟩).mpr ⟨_, continued, rfl, rfl⟩
 
 example : Lime1.Execution.Step CallFrame.limeNoHost
@@ -300,29 +321,149 @@ example : Lime1.Execution.Step CallFrame.limeNoHost
     ⟨(outerStore trappingCallee).mapCode V1.Func.toLime, parent, [.source (.intConst .i32 11),
       .trap, .source (.localGet ⟨0⟩), .source (.intBinOp .i32 .add)]⟩ := by
   rw [Enclosing.v1_to_lime]
-  exact Enclosing.lime_sound (DirectSequence.guard_to_lime failingGuard) discardOne
+  exact Enclosing.lime_sound (Enclosing.guard_to_lime (enclosingGuard trappingCallee failingGuard)) discardOne
 
 example : Core.Steps Profile.spec noHost
     (Enclosing.v1Config (outerStore trappingCallee) enclosing (outer trappingCallee).site (.active .call)).toLime.toCore
     ⟨((outerStore trappingCallee).mapCode V1.Func.toLime).toCore, parent.toCore, [.trap]⟩ := by
-  have g := DirectSequence.guard_to_lime failingGuard
+  have g := Enclosing.guard_to_lime (enclosingGuard trappingCallee failingGuard)
   rw [Enclosing.v1_to_lime, Enclosing.lime_to_core g]
-  exact (Enclosing.core_run_iff (DirectSequence.guard_to_core g) (enclosingTyped trappingCallee)
+  exact (Enclosing.core_run_iff (Enclosing.guard_to_core g) (enclosingTyped trappingCallee)
     (a := .active .call) ⟨trivial, trivial⟩).mpr ⟨_, bubbled, trivial, rfl⟩
 
-private def firstOuterTrap : Enclosing.State (outer trappingCallee).site :=
+private def firstOuterTrap : Enclosing.State enclosing (outer trappingCallee).site :=
   .active (.label (.trapped saved (later trappingCallee)))
 
 example {target : Core.Config Unit}
     (path : Core.Steps Profile.spec noHost
       (Enclosing.v1Config (outerStore trappingCallee) enclosing (outer trappingCallee).site firstOuterTrap).toLime.toCore target) :
-    ∃ phase, Enclosing.Unwinding (outer trappingCallee).site phase ∧
+    ∃ phase, Enclosing.Unwinding enclosing (outer trappingCallee).site phase ∧
       target = (Enclosing.v1Config (outerStore trappingCallee) enclosing
         (outer trappingCallee).site phase).toLime.toCore := by
-  have g := DirectSequence.guard_to_lime failingGuard
+  have g := Enclosing.guard_to_lime (enclosingGuard trappingCallee failingGuard)
   rw [Enclosing.v1_to_lime, Enclosing.lime_to_core g] at path
-  obtain ⟨phase, run, _, eq⟩ := (Enclosing.core_run_iff (DirectSequence.guard_to_core g) (enclosingTyped trappingCallee)
+  obtain ⟨phase, run, _, eq⟩ := (Enclosing.core_run_iff (Enclosing.guard_to_core g) (enclosingTyped trappingCallee)
     (a := firstOuterTrap) ⟨trivial, trivial⟩).mp path
+  exact ⟨phase, Enclosing.trap_bypasses (.active (.label _ _) trivial) run,
+    by rw [Enclosing.v1_to_lime, Enclosing.lime_to_core g, eq]⟩
+
+private def callParent : Frame :=
+  { parent with module := { parent.module with funcs := [⟨2⟩, ⟨1⟩] } }
+
+private def callSequence : Site := ⟨callParent, [⟨⟨1⟩, ⟨1⟩, secondCallee⟩], [int32]⟩
+private def continuationTarget : callSequence.TargetId := ⟨0, by decide⟩
+private def afterCall : List (Op callSequence) := [.numeric (.bin .i32 .add)]
+private def enclosingCall : Enclosing.Context :=
+  ⟨callSequence, [i32 11], .call continuationTarget :: afterCall⟩
+
+private theorem enclosingCallTyped (fn : CallFrame.Callee) : enclosingCall.Typed (outer fn) := rfl
+
+private theorem enclosingCallGuard (fn : CallFrame.Callee)
+    (g : DirectSequence.V1Guard (outerStore fn) parent (outer fn)) :
+    Enclosing.V1Guard (outerStore fn) enclosingCall (outer fn) := by
+  have onlyTarget (i : callSequence.TargetId) : i = continuationTarget := by
+    have bound : i.val < 1 := i.isLt
+    exact Fin.ext (by change i.val = 0; omega)
+  refine ⟨⟨⟨g.typed, rfl⟩, g.allocated, g.body⟩, ⟨?_, ?_, ?_, ?_⟩⟩
+  · intro i
+    rw [onlyTarget i]
+    simp [enclosingCall, Site.target, callSequence, continuationTarget, secondCallee,
+      OuterCall.Computed.Sequence.Composed.ReadOnly]
+  · intro i
+    rw [onlyTarget i]
+    rfl
+  · intro i
+    rw [onlyTarget i]
+    rfl
+  · intro i
+    rw [onlyTarget i]
+    rfl
+
+private theorem callRestored :
+    Enclosing.Runs enclosingCall (outer firstCallee) (.active .call)
+      (.resume [i32 11, i32 17] enclosingCall.continuation) :=
+  Enclosing.invoke_run (ctx := enclosingCall) outerNormal
+
+private theorem callResolved :
+    Enclosing.Runs enclosingCall (outer firstCallee) (.active .call)
+      (.continuation (.active continuationTarget (.invoke [i32 11] [i32 17]) afterCall)) :=
+  callRestored.tail (Enclosing.resume (fact (.resolve continuationTarget [i32 11] [i32 17] afterCall rfl)))
+
+private theorem callContinued :
+    Enclosing.Runs enclosingCall (outer firstCallee) (.active .call) (.resume [i32 28] []) := by
+  have returned := callResolved.trans (Enclosing.resume_run
+    (secondReturns continuationTarget rfl [i32 11] (i32 17) afterCall))
+  have add : intBinOp .i32 .add 11 17 = .ok 28 := rfl
+  exact returned.tail (Enclosing.resume (fact (.numeric (.bin (stack := []) add))))
+
+private theorem discardContinuationCall :
+    Enclosing.Edge enclosingCall (outer trappingCallee) (.trapped enclosingCall.saved enclosingCall.continuation)
+      (.trapped enclosingCall.saved afterCall) := by
+  apply Enclosing.resume (fact (.discard ?_))
+  simpa only [List.append_nil, List.cons_append, List.nil_append, enclosingCall] using
+    Prefix.Discard.cut enclosingCall.saved [] ([.call continuationTarget] : List (Op callSequence)) afterCall
+      (.inr (by simp))
+
+private theorem callTrap :
+    Enclosing.Runs enclosingCall (outer trappingCallee) (.active .call) (.trapped [] []) := by
+  have unwind := Enclosing.invoke_run (ctx := enclosingCall) outerTrap
+  exact (unwind.tail discardContinuationCall).tail (Enclosing.resume (fact (.discard
+    (.cut [] enclosingCall.saved afterCall [] (.inl (by decide))))))
+
+example : V1.Execution.Steps CallFrame.v1NoHost
+    (Enclosing.v1Config (outerStore firstCallee) enclosingCall (outer firstCallee).site (.active .call))
+    ⟨outerStore firstCallee, callParent, [.source (.intConst .i32 11), .source (.intConst .i32 17),
+      .source (.call ⟨1⟩), .source (.intBinOp .i32 .add)]⟩ :=
+  (Enclosing.v1_run_iff (enclosingCallGuard firstCallee regularGuard) (enclosingCallTyped firstCallee)
+    (a := .active .call) ⟨trivial, trivial⟩).mpr ⟨_, callRestored, rfl, rfl⟩
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    (Enclosing.v1Config (outerStore firstCallee) enclosingCall (outer firstCallee).site (.active .call)).toLime
+    ⟨(outerStore firstCallee).mapCode V1.Func.toLime, callParent, [.source (.intConst .i32 11), .source (.intConst .i32 17),
+      .invoke ⟨1⟩, .source (.intBinOp .i32 .add)]⟩ := by
+  rw [Enclosing.v1_to_lime]
+  have g := Enclosing.guard_to_lime (enclosingCallGuard firstCallee regularGuard)
+  exact (Enclosing.lime_run_iff g (enclosingCallTyped firstCallee) (a := .active .call) ⟨trivial, trivial⟩).mpr
+    ⟨_, callResolved, ⟨trivial, ⟨rfl, rfl⟩, rfl⟩, rfl⟩
+
+example : Core.Steps Profile.spec noHost
+    (Enclosing.v1Config (outerStore firstCallee) enclosingCall (outer firstCallee).site (.active .call)).toLime.toCore
+    ⟨((outerStore firstCallee).mapCode V1.Func.toLime).toCore, callParent.toCore, [.plain (.intConst .i32 28)]⟩ := by
+  have g := Enclosing.guard_to_lime (enclosingCallGuard firstCallee regularGuard)
+  rw [Enclosing.v1_to_lime, Enclosing.lime_to_core g]
+  exact (Enclosing.core_run_iff (Enclosing.guard_to_core g) (enclosingCallTyped firstCallee)
+    (a := .active .call) ⟨trivial, trivial⟩).mpr ⟨_, callContinued, rfl, rfl⟩
+
+example : Core.Steps Profile.spec noHost
+    (Enclosing.v1Config (outerStore trappingCallee) enclosingCall (outer trappingCallee).site (.active .call)).toLime.toCore
+    ⟨((outerStore trappingCallee).mapCode V1.Func.toLime).toCore, callParent.toCore, [.trap]⟩ := by
+  have g := Enclosing.guard_to_lime (enclosingCallGuard trappingCallee failingGuard)
+  rw [Enclosing.v1_to_lime, Enclosing.lime_to_core g]
+  exact (Enclosing.core_run_iff (Enclosing.guard_to_core g) (enclosingCallTyped trappingCallee)
+    (a := .active .call) ⟨trivial, trivial⟩).mpr ⟨_, callTrap, trivial, rfl⟩
+
+example : Lime1.Execution.Step CallFrame.limeNoHost
+    (Enclosing.v1Config (outerStore trappingCallee) enclosingCall (outer trappingCallee).site
+      (.trapped enclosingCall.saved enclosingCall.continuation)).toLime
+    ⟨(outerStore trappingCallee).mapCode V1.Func.toLime, callParent,
+      [.source (.intConst .i32 11), .trap, .source (.intBinOp .i32 .add)]⟩ := by
+  rw [Enclosing.v1_to_lime]
+  exact Enclosing.lime_sound (Enclosing.guard_to_lime (enclosingCallGuard trappingCallee failingGuard))
+    discardContinuationCall
+
+private def callTrapStart : Enclosing.State enclosingCall (outer trappingCallee).site :=
+  .active (.label (.trapped saved (later trappingCallee)))
+
+example {target : Core.Config Unit}
+    (path : Core.Steps Profile.spec noHost
+      (Enclosing.v1Config (outerStore trappingCallee) enclosingCall (outer trappingCallee).site callTrapStart).toLime.toCore target) :
+    ∃ phase, Enclosing.Unwinding enclosingCall (outer trappingCallee).site phase ∧
+      target = (Enclosing.v1Config (outerStore trappingCallee) enclosingCall
+        (outer trappingCallee).site phase).toLime.toCore := by
+  have g := Enclosing.guard_to_lime (enclosingCallGuard trappingCallee failingGuard)
+  rw [Enclosing.v1_to_lime, Enclosing.lime_to_core g] at path
+  obtain ⟨phase, run, _, eq⟩ := (Enclosing.core_run_iff (Enclosing.guard_to_core g) (enclosingCallTyped trappingCallee)
+    (a := callTrapStart) ⟨trivial, trivial⟩).mp path
   exact ⟨phase, Enclosing.trap_bypasses (.active (.label _ _) trivial) run,
     by rw [Enclosing.v1_to_lime, Enclosing.lime_to_core g, eq]⟩
 
