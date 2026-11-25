@@ -1,5 +1,6 @@
 module
 
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Coproducts.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithConstructorSequencing.FiniteSquare.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.BoundSimulation.Obstruction.PairSequencing.Thms
 
@@ -98,20 +99,6 @@ theorem reflect_square (p : Bool → Option Bool) (q : Bool → Option (Option B
     rw [← projection.map_comp, ← projection.map_comp, right, table_right] at h
     rw [right, table_right, targetOutput_injective h]
 
-private theorem project_desc_right {A B C : Ty Empty} (l : obj A ⟶ obj C)
-    {r r' : obj B ⟶ obj C} (h : projection.map r = projection.map r') :
-    projection.map (coprod.desc l r) = projection.map (coprod.desc l r') := by
-  obtain ⟨l₀, hl, rfl⟩ := exists_ofRegion l
-  obtain ⟨r₀, hr, rfl⟩ := exists_ofRegion r
-  obtain ⟨r₁, hr', rfl⟩ := exists_ofRegion r'
-  have e := (Paper.Extension.Singleton.ofRegion_eq_iff Seed hr hr').mp h
-  apply (cancel_epi (projection.map (sumIso A B).hom)).mp
-  rw [← Functor.map_comp, ← Functor.map_comp, coprod_desc_ofRegion, coprod_desc_ofRegion]
-  apply (Paper.Extension.Singleton.ofRegion_eq_iff Seed _ _).mpr
-  exact .case (.var (i := 0) rfl)
-    (.refl (hl.renameVars ((Ren.wk [] (Silmaril.coprod A B)).lift A)).hasType)
-    (e.renameVars ((Ren.wk [] (Silmaril.coprod A B)).lift B))
-
 private theorem project_update :
     projection.map (boundReturn update_normalizes.typed.1) = projection.map embedding :=
   (Paper.Extension.Singleton.ofRegion_eq_iff Seed
@@ -121,13 +108,8 @@ private theorem project_update :
 
 private theorem project_map_update :
     projection.map (coprod.map (𝟙 (obj U)) (boundReturn update_normalizes.typed.1)) =
-      projection.map (coprod.map (𝟙 (obj U)) embedding) := by
-  have map_eq (a : obj S ⟶ obj D) :
-      coprod.map (𝟙 (obj U)) a = coprod.desc coprod.inl (a ≫ coprod.inr) := by
-    apply coprod.hom_ext <;> simp
-  rw [map_eq, map_eq]
-  apply project_desc_right
-  simp only [Functor.map_comp, project_update]
+      projection.map (coprod.map (𝟙 (obj U)) embedding) :=
+  Paper.Extension.Singleton.projection_map_coprod_map_congr Seed rfl project_update
 
 theorem iterate_uniformity (p : Bool → Option Bool) (q : Bool → Option (Option Bool))
     (extra : obj U ⟶ obj U ⨿ obj D)
