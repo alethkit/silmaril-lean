@@ -62,6 +62,20 @@ Deleting a name counts as binding it for scope analysis. This entry point
 accepts constructor data and checks the represented scope rules. Full syntax
 validation, compilation, and runtime name lookup have separate contracts.
 
+## Closure layout
+
+The [closure layout checker](../../Silmaril/Languages/Python/Source/Closure/Thms.lean)
+looks up a child's captures in a selected parent scope. An owned capture
+contains a bounded index into the parent's cells. A forwarded capture
+contains a bounded index into the parent's incoming captures. The slot
+witness records the lexical origin and the name or capture found at that
+index. The output follows the child's capture order.
+
+The checker succeeds exactly when every capture is available in its
+corresponding parent slot family. The regression analyzes three nested
+functions and checks their interleaved owned and forwarded slots. It
+also checks rejection when the selected scope lacks a required slot.
+
 ## Source intake
 
 The AST emitter takes an external CPython AST and writes a Lean module
