@@ -3,7 +3,9 @@ module
 public import Silmaril.Papers.Calco2019.Defs
 public import Silmaril.Semantics.Calco2019.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionThms
-public import Silmaril.Semantics.Calco2019.ResumptionGuardThms
+public import Silmaril.Semantics.Calco2019.ResumptionConway
+public import Silmaril.Semantics.Calco2019.VacuousThms
+public import Silmaril.Semantics.Calco2019.ExceptionResumption.Interpretation.Uniqueness
 
 /-! # Numbered results for CALCO 2019, Article 13 -/
 
@@ -97,6 +99,70 @@ theorem example20_vacuous : (Guardedness.least P).Iterative :=
 
 end Guardedness
 
+section Elgot
+
+variable {C : Type u} [Category.{v} C] {P : Coproducts C}
+
+/-- The observation after Definition 19, with the initial object as the result type. -/
+theorem definition19_divergence (T : GuardedElgotMonad P) (h : T.IsElgot) [HasInitial C] (X : C) :
+    Nonempty (X ⟶ T.monad.obj (⊥_ C)) :=
+  T.divergent_at h X (⊥_ C)
+
+end Elgot
+
+section Exception
+
+variable {C : Type u} [Category.{v} C] (P : Coproducts C)
+
+/-- The underlying monad-valued functor of Example 22 has the stated object action. -/
+theorem example22_carrier (T : CategoryTheory.Monad C) (H : C ⥤ C) (X W : C) :
+    ((Exception.parametrized P T H).obj W).obj X = T.obj (P.sum X (H.obj W)) :=
+  rfl
+
+/-- The guard in Example 22 agrees with guardedness after moving the parameter
+into the return summand in the base monad. -/
+theorem example22_guard {T : GuardedElgotMonad P} {E X Y Z : C}
+    (f : X ⟶ T.monad.obj (P.sum (P.sum Y Z) E)) :
+    (Exception.guardedness T E).guarded
+      (Y := Kleisli.mk ((Exception.family P T.monad).obj E) Y)
+      (Z := Kleisli.mk ((Exception.family P T.monad).obj E) Z) (kleisliArrow f) ↔
+    Exception.Guard P T E (Y := Y) (Z := Z) f :=
+  Iff.rfl
+
+/-- Pure uniformity for the chosen fixed-parameter iteration of Example 22. -/
+theorem example22_uniformity (T : GuardedElgotMonad P) (E : C) :
+    (Exception.fixpoints T E).Uniform
+      (Kleisli.Adjunction.toKleisli ((Exception.family P T.monad).obj E)) :=
+  Exception.uniformity T E
+
+/-- Example 22. The parametrized guarded Elgot monad has the paper's carrier. -/
+theorem example22 (T : GuardedElgotMonad P) (H : C ⥤ C) (X W : C) :
+    ((Exception.parametrizedElgot T H).obj W).monad.obj X = T.monad.obj (P.sum X (H.obj W)) :=
+  rfl
+
+/-- Corollary 26. The guarded Elgot structure of the coinductive exception resumptions. -/
+noncomputable def corollary26 (T : GuardedElgotMonad P) (H : C ⥤ C)
+    (R : FinalResumptions (Exception.parametrizedElgot T H).toParametrizedMonad) :
+    { S : GuardedElgotMonad P // S.monad = R.monad P } :=
+  ⟨(Exception.parametrizedElgot T H).resumptionElgotMonad R, rfl⟩
+
+/-- Lemma 27(1). The suspension generator is guarded. -/
+theorem lemma27_suspension [HasInitial C] (T : GuardedElgotMonad P) (H : C ⥤ C)
+    (R : FinalResumptions (Exception.parametrizedElgot T H).toParametrizedMonad) :
+    MonadGuardedness.GuardedNatTrans P ((Exception.parametrizedElgot T H).resumptionElgotMonad R).guard
+      (Exception.suspension T H R) :=
+  Exception.suspension_guarded T H R
+
+/-- Lemma 27(2). The base embedding is a guarded Elgot monad morphism with the
+stated components. -/
+theorem lemma27_base (T : GuardedElgotMonad P) (H : C ⥤ C)
+    (R : FinalResumptions (Exception.parametrizedElgot T H).toParametrizedMonad) :
+    ∃ e : GuardedElgotMonadHom P T ((Exception.parametrizedElgot T H).resumptionElgotMonad R),
+      ∀ X, e.hom.app X = T.monad.map (P.inl (Y := H.obj (R.obj X))) ≫ R.roll X :=
+  ⟨Exception.baseEmbedding T H R, Exception.baseEmbedding_app T H R⟩
+
+end Exception
+
 section Resumptions
 
 variable {C : Type u} [Category.{v} C] {M : ParametrizedMonad C}
@@ -157,6 +223,18 @@ theorem theorem25_naturality {Z : C} (f : X ⟶ R.obj (P.sum Y X)) (g : Y ⟶ R.
     M.iterateResumption R (M.naturalityBody R f g) (M.naturalityBody_guarded R f g hf) =
       M.iterateResumption R f hf ≫ R.extend P g :=
   M.iterateResumption_naturality R f g hf
+
+/-- Theorem 25. The resumption monad is guarded Elgot, with the uniquely
+characterized solution on every guarded loop. -/
+theorem theorem25 (f : Kleisli.mk (R.monad P) X ⟶ Kleisli.mk (R.monad P) (P.sum Y X))
+    (hf : (M.resumptionElgotMonad R).guard.guarded
+      (Y := Kleisli.mk (R.monad P) Y) (Z := Kleisli.mk (R.monad P) X) f) :
+    (M.resumptionElgotMonad R).monad = R.monad P ∧
+      R.IsSolution P (M.diamond R f.of ((M.resumptionGuardedness_iff R f).mp hf))
+        ((M.resumptionElgotMonad R).iteration.iterate f hf).of ∧
+      ∀ g, R.IsSolution P (M.diamond R f.of ((M.resumptionGuardedness_iff R f).mp hf)) g →
+        g = ((M.resumptionElgotMonad R).iteration.iterate f hf).of :=
+  ⟨rfl, M.iterateResumption_characterization R f.of ((M.resumptionGuardedness_iff R f).mp hf)⟩
 
 end GuardedResumptions
 end Silmaril.Papers.Calco2019

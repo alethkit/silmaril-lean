@@ -16,6 +16,10 @@ function reports its cells, and intervening functions report the captures
 they forward. The module and explicit global declarations are enclosing
 lookup barriers. An unbound `nonlocal`, a declaration following a use or
 binding, and a parameter/declaration collision produce distinct diagnostics.
+The default policy rejects an unresolved `nonlocal`. Reference comparisons
+can select `.globalFallback` to resolve only that case as implicit global
+access. A found enclosing binding still takes precedence, and the module
+scope check still applies.
 
 Each block also exposes name occurrences in traversal order, including
 repeated uses. An occurrence is addressed by the block path and its ordinal.
@@ -58,6 +62,29 @@ Deleting a name counts as binding it for scope analysis. This entry point
 accepts constructor data and checks the represented scope rules. Full syntax
 validation, compilation, and runtime name lookup have separate contracts.
 
+## Closure layout
+
+The [closure layout checker](../../Silmaril/Languages/Python/Source/Closure/Thms.lean)
+looks up a child's captures in a selected parent scope. An owned capture
+contains a bounded index into the parent's cells. A forwarded capture
+contains a bounded index into the parent's incoming captures. The slot
+witness records the lexical origin and the name or capture found at that
+index. The output follows the child's capture order.
+`Layout.cells` reads the child's ordered cell identities from the chosen
+parent slots, with its length certified against the child's capture vector.
+
+The checker succeeds exactly when every capture is available in its
+corresponding parent slot family. The regression analyzes three nested
+functions and checks their interleaved owned and forwarded slots. It
+also checks rejection when the selected scope lacks a required slot.
+
+The [source frame layout](../../Silmaril/Languages/Python/Source/Closure/Frame/Thms.lean)
+lists ordinary local names separately from owned cells and forwarded
+captures. The parameter checker emits distinct, bounded local-or-owned
+destinations. Mapping destination names back gives the original parameter
+order. The capture entries are also available as a vector indexed by the
+child's capture count.
+
 ## Source intake
 
 The AST emitter takes an external CPython AST and writes a Lean module
@@ -96,3 +123,6 @@ make check CHECK_TARGETS=+Silmaril.Languages.Python.Source.Scope.Thms
 - Python 3.13.5, SHA-256
   `6dba22a6c0f7b3eaf4d413343554182c27653b7d6e134b9a6c36f6ff711b2d4b`.
   [CPython AST and feature version](https://docs.python.org/release/3.13.5/library/ast.html#ast.parse)
+- Köhl reference analyzer at `b7ff99372dd24845cf84e58c96b877f15764b276`,
+  SHA-256 `88b62abbf9e56479b40299cdc6c1f576d44c8465607439d1391e0cd522d2a139`.
+  [Reference scope analyzer](https://github.com/koehlma/rigorous/blob/b7ff99372dd24845cf84e58c96b877f15764b276/rigorous/semantics/python/syntax/blocks.py)
