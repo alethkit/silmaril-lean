@@ -2,9 +2,10 @@ module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Defs
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Thms
+public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Thms
 public import Silmaril.SSA.RVSDG.Interprocedural.Isomorphism.Thms
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Linking
-import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Invocation
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Returns
 
 public section
 
@@ -103,5 +104,74 @@ theorem exportedCall_withImports_related (respects : PrimitivesRespect m ids)
   Isomorphism.Proofs.bind_related providers (fun _ _ exports =>
     exportedCall_related respects unitL unitR loops calls iso allocated
       (wireImports_related wires exports) port inputs)
+
+namespace Recursive
+
+/-- Resolving corresponding member references reads related captures and
+selects typed-isomorphic bodies. -/
+theorem resolve_related {params results : Ports (Ty V S)}
+    {left right : m.Val (.value (.function params results))}
+    (related : ValueRelated m ids left right) :
+    TupleRelated m ids (resolve m left).values (resolve m right).values ∧
+      NestedTheta.Graph.Isomorphic (Instruction Op) (resolve m left).body (resolve m right).body :=
+  Isomorphism.Proofs.resolve_related related
+
+/-- The total recursive linker relates the ordered exports of typed-isomorphic
+modules. Paired φ vertices yield related references at the same member slots. -/
+theorem linkGraph_related (respects : PrimitivesRespect m ids) (unitL unitR : Nat)
+    {left : Omega Op args outs sigs} {right : Omega Op args outs sigs'}
+    {rename : Fin sigs.length ≃ Fin sigs'.length} (iso : left.RenumberedBy right rename)
+    (allocated : ∀ i, Allocates (left.region.vertices i) → ids (unitL, i.val) (unitR, (rename i).val))
+    {inL inR : Tuple m.Val args} (inputs : TupleRelated m ids inL inR) :
+    TupleRelated m ids (linkGraph m unitL left inL) (linkGraph m unitR right inR) :=
+  Isomorphism.Proofs.recursiveLink_related respects unitL unitR iso allocated inL inR inputs
+
+theorem linkTerm_related (respects : PrimitivesRespect m ids) (unitL unitR : Nat)
+    {left : OmegaTerm Op args outs sigs} {right : OmegaTerm Op args outs sigs'}
+    {rename : Fin sigs.length ≃ Fin sigs'.length} (iso : left.RenumberedBy right rename)
+    (allocated : ∀ i, Allocates (left.toGraph.region.vertices i) → ids (unitL, i.val) (unitR, (rename i).val))
+    {inL inR : Tuple m.Val args} (inputs : TupleRelated m ids inL inR) :
+    TupleRelated m ids (linkTerm m unitL left inL) (linkTerm m unitR right inR) := by
+  rw [← link_toGraph, ← link_toGraph]
+  exact linkGraph_related respects unitL unitR ((left.renumberedBy_toGraph_iff right rename).2 iso) allocated inputs
+
+/-- Compare actual calls to the same port after recursive linking, including
+any member references reached through captures or returned as values. -/
+theorem exportedCall_related (respects : PrimitivesRespect m ids) (unitL unitR loops depth : Nat)
+    {left : Omega Op args outs sigs} {right : Omega Op args outs sigs'}
+    {rename : Fin sigs.length ≃ Fin sigs'.length} (iso : left.RenumberedBy right rename)
+    (allocated : ∀ i, Allocates (left.region.vertices i) → ids (unitL, i.val) (unitR, (rename i).val))
+    {importsL importsR : Tuple m.Val args} (imports : TupleRelated m ids importsL importsR)
+    {params results : Ports (Ty V S)} (port : Port outs (.value (.function params results)))
+    {inL inR : Tuple m.Val params} (inputs : TupleRelated m ids inL inR) :
+    RunRelated m ids (invoke m loops depth ((linkGraph m unitL left importsL).get port) inL)
+      (invoke m loops depth ((linkGraph m unitR right importsR).get port) inR) :=
+  invoke_related respects loops depth ((linkGraph_related respects unitL unitR iso allocated imports).get port) inputs
+
+/-- Independent finite `Returns` agrees on every pair of observations that
+respects the returned tuple relation. This quantifies over finite returns. -/
+theorem call_returns_iff (respects : PrimitivesRespect m ids)
+    {params results : Ports (Ty V S)} {calleeL calleeR : m.Val (.value (.function params results))}
+    (callees : ValueRelated m ids calleeL calleeR) {inL inR : Tuple m.Val params}
+    (inputs : TupleRelated m ids inL inR) {observesL observesR : Tuple m.Val results → Prop}
+    (observation : ∀ x y, TupleRelated m ids x y → (observesL x ↔ observesR y)) :
+    (∃ out, Returns m (.call calleeL inL) out ∧ observesL out) ↔
+      ∃ out, Returns m (.call calleeR inR) out ∧ observesR out :=
+  Isomorphism.Proofs.call_returns_iff respects callees inputs observation
+
+theorem exportedCall_returns_iff (respects : PrimitivesRespect m ids) (unitL unitR : Nat)
+    {left : Omega Op args outs sigs} {right : Omega Op args outs sigs'}
+    {rename : Fin sigs.length ≃ Fin sigs'.length} (iso : left.RenumberedBy right rename)
+    (allocated : ∀ i, Allocates (left.region.vertices i) → ids (unitL, i.val) (unitR, (rename i).val))
+    {importsL importsR : Tuple m.Val args} (imports : TupleRelated m ids importsL importsR)
+    {params results : Ports (Ty V S)} (port : Port outs (.value (.function params results)))
+    {inL inR : Tuple m.Val params} (inputs : TupleRelated m ids inL inR)
+    {observesL observesR : Tuple m.Val results → Prop}
+    (observation : ∀ x y, TupleRelated m ids x y → (observesL x ↔ observesR y)) :
+    (∃ out, Returns m (.call ((linkGraph m unitL left importsL).get port) inL) out ∧ observesL out) ↔
+      ∃ out, Returns m (.call ((linkGraph m unitR right importsR).get port) inR) out ∧ observesR out :=
+  call_returns_iff respects ((linkGraph_related respects unitL unitR iso allocated imports).get port) inputs observation
+
+end Recursive
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime
