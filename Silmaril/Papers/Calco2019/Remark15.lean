@@ -11,6 +11,7 @@ public import Silmaril.Semantics.Calco2019.Trace.ProfileEquivalence.Thms
 public import Silmaril.Semantics.Calco2019.Trace.Total.Thms
 public import Silmaril.Semantics.Calco2019.Trace.PointedCpo.Thms
 public import Silmaril.Semantics.Calco2019.Trace.CounterSemiring.Witness.Thms
+public import Silmaril.Semantics.Calco2019.Trace.CounterSemiring.MatrixTrace.Thms
 
 /-! # CALCO 2019 Article 13, Remark 15
 
