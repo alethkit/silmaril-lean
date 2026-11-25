@@ -5,6 +5,32 @@ import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveTrace.Sheet
 
 public section
 
+namespace Silmaril.RuntimeWires.Sliced
+
+universe u v
+
+variable {O : Type u} {S : Signature.{u,v} O}
+
+/-- On a list of distinct wire IDs, the decoder's port numbers coincide
+with the positions of those IDs in the list. -/
+theorem namePorts_map {I : Type*} [BEq I] [LawfulBEq I] (wires : List I) (nd : wires.Nodup)
+    (label : I → O) (source : ℕ → WireOrigin) :
+    namePorts source (wires.map label) = wires.map (fun w => (label w, source (wires.idxOf w))) :=
+  Proofs.ProgressiveTrace.namePorts_map wires nd label source
+
+/-- A local named-frontier invariant composes for the structural decoder. -/
+theorem Sheet.traceWiresFrom_joinRows {n : ℕ} (word : Fin (n + 1) → List O)
+    (row : ∀ i : Fin n, Row S (word i.castSucc) (word i.succ))
+    (frontier : Fin (n + 1) → List (NamedWire O))
+    (boxes : Fin n → List (BoxTrace S)) (offset : ℕ)
+    (step : ∀ i, (row i).traceWires (offset + i.val) 0 (frontier i.castSucc) =
+      ⟨frontier i.succ, boxes i⟩) :
+    (ProgressiveGraph.Diagram.Sweep.joinRows word row).traceWiresFrom offset (frontier 0) =
+      ⟨List.ofFn boxes, frontier (Fin.last n)⟩ :=
+  Proofs.ProgressiveTrace.trace_joinRows word row frontier boxes offset step
+
+end Silmaril.RuntimeWires.Sliced
+
 namespace Silmaril.RuntimeWires.ProgressiveGraph.Diagram.Sweep
 
 open Silmaril.RuntimeWires.Sliced

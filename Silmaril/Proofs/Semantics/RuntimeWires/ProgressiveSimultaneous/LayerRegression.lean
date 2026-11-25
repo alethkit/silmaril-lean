@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.RuntimeWires.TiedHeightSweep.Thms
+public import Silmaril.Semantics.RuntimeWires.TiedHeightTrace.Thms
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.FunProp
 import Mathlib.Tactic.Linarith
@@ -283,12 +283,15 @@ private noncomputable def horizontal (s : drawing.LayerSweep) : s.Schedule :=
 private noncomputable def reversed (s : drawing.LayerSweep) : s.Schedule :=
   ⟨fun i => (s.layer i).vertices.reverse, fun i => List.reverse_perm (s.layer i).vertices⟩
 
-example : (reversed sweep).order (drawing.levelIndex 2) = [2, 0, 1] := by
+private theorem tied_vertices (s : drawing.LayerSweep) :
+    (s.layer (drawing.levelIndex 2)).vertices = [1, 0, 2] := by
   have h : drawing.levelHeight (drawing.levelIndex 2) = 1 / 2 :=
     (Diagram.levelHeight_index 2).trans (by norm_num [drawing, height])
-  change ((sweep.layer (drawing.levelIndex 2)).vertices).reverse = _
   rw [Diagram.LayerSlice.vertices, slots_at_half _ h]
   rfl
+
+example : (reversed sweep).order (drawing.levelIndex 2) = [2, 0, 1] :=
+  congrArg List.reverse (tied_vertices sweep)
 
 example : Sheet.SeamEquivalent (sweep.serialSheet (reversed sweep))
     (sweep.serialSheet (horizontal sweep)) :=
@@ -296,5 +299,67 @@ example : Sheet.SeamEquivalent (sweep.serialSheet (reversed sweep))
 
 example (empty : Diagram signature 0 2 .point) : empty.levelCount = 0 := by
   simp [Diagram.levelCount, Diagram.levels]
+
+private theorem sink_vertices (s : drawing.LayerSweep) :
+    (s.layer (drawing.levelIndex 3)).vertices = [3] := by
+  let e := s.layer (drawing.levelIndex 3)
+  have nd := e.vertices_order.imp (fun h => ne_of_apply_ne drawing.vertexX (ne_of_lt h))
+  apply List.perm_singleton.mp ((List.perm_ext_iff_of_nodup nd (by simp)).mpr ?_)
+  intro v
+  rw [e.vertices_exact, Diagram.levelHeight_index]
+  fin_cases v <;> norm_num [drawing, height]
+
+private theorem source_name : sweep.namedWire 1 = (true, .box 0 2 0) := by
+  have hs : drawing.start 1 = some 2 := rfl
+  rw [Diagram.LayerSweep.namedWire, Diagram.LayerSweep.origin, hs]
+  change (drawing.label 1, WireOrigin.box (drawing.levelIndex 2).val (sweep.boxOrdinal 2)
+    ((drawing.outputs 2).idxOf 1)) = _
+  rw [source_level, Diagram.LayerSweep.boxOrdinal, tied_vertices]
+  rfl
+
+private theorem cap_name : sweep.namedWire 0 = (false, .boundary 0) := by
+  have hs : drawing.start 0 = none := rfl
+  rw [Diagram.LayerSweep.namedWire, Diagram.LayerSweep.origin, hs, (caps sweep).1]
+  rfl
+
+private abbrev expectedFirst : List (BoxTrace signature) :=
+  [⟨1, [], []⟩, ⟨0, [], []⟩, ⟨2, [], [(true, .box 0 2 0)]⟩]
+
+private abbrev expectedSecond : List (BoxTrace signature) :=
+  [⟨3, [(true, .box 0 2 0)], []⟩]
+
+private theorem first_trace :
+    (sweep.layer (drawing.levelIndex 2)).vertices.map sweep.expectedBox = expectedFirst := by
+  rw [tied_vertices]
+  change ([⟨1, [], []⟩, ⟨0, [], []⟩, ⟨2, [], [sweep.namedWire 1]⟩] : List (BoxTrace signature)) = _
+  rw [source_name]
+
+private theorem second_trace :
+    (sweep.layer (drawing.levelIndex 3)).vertices.map sweep.expectedBox = expectedSecond := by
+  rw [sink_vertices]
+  change ([⟨3, [sweep.namedWire 1], []⟩] : List (BoxTrace signature)) = _
+  rw [source_name]
+
+/-- Both zero-port boxes advance the ordinal before the source. The sink
+receives its exact name, and the cap-to-cap wire retains its boundary name. -/
+example : sweep.sheet.traceWires =
+    ⟨[expectedFirst, expectedSecond], [(false, .boundary 0)]⟩ := by
+  rw [sweep.trace_sheet, Diagram.LayerSweep.expectedTrace, (caps sweep).2]
+  have rows : List.ofFn (fun i => (sweep.layer i).vertices.map sweep.expectedBox) =
+      [expectedFirst, expectedSecond] := by
+    apply List.ext_getElem (by simp [levelCount])
+    intro i hi hj
+    have bound : i < 2 := by simpa using hj
+    have cases_i : i = 0 ∨ i = 1 := by omega
+    rcases cases_i with rfl | rfl
+    · have eq : (⟨0, by simpa using hi⟩ : Fin drawing.levelCount) = drawing.levelIndex 2 :=
+        Fin.ext source_level.symm
+      rw [List.getElem_ofFn, eq, first_trace]
+      rfl
+    · have eq : (⟨1, by simpa using hi⟩ : Fin drawing.levelCount) = drawing.levelIndex 3 :=
+        Fin.ext sink_level.symm
+      rw [List.getElem_ofFn, eq, second_trace]
+      rfl
+  rw [rows, List.map_singleton, cap_name]
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveSimultaneous.LayerRegression
