@@ -21,6 +21,15 @@ variable {τ : Type u} {Φ : Type v} {ε : Type w} [TypeFormers τ]
 def singletonInput (M : TypeModel τ V) (X : τ) : M.obj X ⟶ M.obj (product unit X) :=
   (λ_ (M.obj X)).inv ≫ (M.unitIso.inv ▷ M.obj X) ≫ (M.productIso unit X).inv
 
+/-- Recover the value from a packed singleton input. -/
+def singletonProjection (M : TypeModel τ V) (X : τ) : M.obj (product unit X) ⟶ M.obj X :=
+  (M.productIso unit X).hom ≫ CartesianMonoidalCategory.snd _ _
+
+/-- Extend a value map of packed inputs by the identity on the newest slot. -/
+def extendInputMap (M : TypeModel τ V) {X Y : τ} (k : M.obj X ⟶ M.obj Y) (A : τ) :
+    M.obj (product X A) ⟶ M.obj (product Y A) :=
+  (M.productIso X A).hom ≫ (k ▷ M.obj A) ≫ (M.productIso Y A).inv
+
 variable {C : Type u₂} [Category.{v₂} C] [SymmetricCategory V]
   [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
   [HasFiniteCoproducts C] [DistributiveTensor V] [DistributivePremonoidalCategory C]
