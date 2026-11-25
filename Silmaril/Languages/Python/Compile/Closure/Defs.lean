@@ -16,6 +16,33 @@ open Source.Closure.Frame (Destination ParameterLayout ParameterSlot ordinaryNam
 def frameLayout (scope : Scope) : Core.Closure.Layout :=
   ⟨(ordinaryNames scope).length, scope.cells.length, scope.captures.length⟩
 
+def freeVarIdentifier (name : Name) : Bool :=
+  match name.toList with
+  | [] => false
+  | first :: rest =>
+    (first.isAlpha || first == '_') && rest.all (fun c => c.isAlphanum || c == '_') &&
+      name != "__class__"
+
+/-- The observable order of CPython free-variable names is independent of
+the order in which the executor transports the corresponding cells. -/
+def freeVarNames (scope : Scope) : List Name :=
+  (scope.captures.map (·.name)).mergeSort (fun left right => decide (left ≤ right))
+
+def FreeVarProfile (scope : Scope) : Prop :=
+  scope.context.kind = .function ∧ scope.context.read.contains "super" = false ∧
+    (scope.captures.map (·.name)).all freeVarIdentifier = true ∧
+    (scope.captures.map (·.name)).Nodup
+
+instance (scope : Scope) : Decidable (FreeVarProfile scope) := by
+  unfold FreeVarProfile
+  infer_instance
+
+/-- Derive the immutable tuple from an already selected ordinary function
+scope. An empty tuple is valid metadata. -/
+def freeVarNames? (scope : Scope) :
+    Option {names : List Name // FreeVarProfile scope ∧ names = freeVarNames scope} :=
+  if profile : FreeVarProfile scope then some ⟨freeVarNames scope, profile, rfl⟩ else none
+
 def parameterSlot (scope : Scope) :
     Destination scope → Core.Closure.ParameterSlot (frameLayout scope)
   | .inl index => .local index

@@ -74,6 +74,12 @@ theorem Program.linked_target {program : Program} (checked : program.check = tru
       fn.declaration.module.funcs[target.index.toNat]? = some target.address :=
   Proofs.linked_target checked found used
 
+theorem Function.split_if {fn : Function} {fallthrough : List NumType} {stack : List Value}
+    {result : Option NumType} {thenBody elseBody rest : List Op}
+    (typed : fn.WellTyped stack (.if_ result thenBody elseBody :: rest) fallthrough) :
+    ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] :=
+  Proofs.split_if typed
+
 theorem Program.admitted_step {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} {a b : Phase} (found : program.lookup address = some fn)
     (ready : Admitted program fn a) (move : program.Edge checked address a b) : Admitted program fn b :=
