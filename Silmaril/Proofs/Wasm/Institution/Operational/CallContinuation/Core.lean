@@ -54,18 +54,18 @@ theorem core_sound {H : Type} {P : Profile} {s : Store H} {caller : Execution.Ru
       simpa only [coreConfig, coreCode, render, tail, Bool.true_eq, ↓reduceIte, Bool.false_eq_true,
         List.map_append, vals_append, List.append_assoc, List.append_nil] using lifted
 
-private theorem active_strip {H : Type} {P : Profile} {s : Store H} {caller : Execution.Runtime.Frame}
+theorem active_strip {H : Type} {P : Profile} {s : Store H} {caller : Execution.Runtime.Frame}
     {addr : FuncAddr} {fn : CallFrame.Callee} (allocated : s.funcs[addr.value]? = some fn.coreInstance)
-    {a : CallFrame.State} {dst : Config H} (live : Active a)
-    (step : Step P noHost (coreConfig s caller addr fn (.active a)) dst) :
+    {a : CallFrame.State} {dst : Config H} {suffix : List Admin} (live : Active a)
+    (step : Step P noHost (⟨s, caller.toCore, CallFrame.coreCode addr fn a ++ suffix⟩) dst) :
     ∃ mid, Step P noHost (CallFrame.coreConfig s caller addr fn a) mid ∧
-      dst = ⟨mid.store, mid.frame, mid.code ++ [nop]⟩ := by
+      dst = ⟨mid.store, mid.frame, mid.code ++ suffix⟩ := by
   cases a with
   | invoke saved args =>
-    simp only [coreConfig, coreCode, render, CallFrame.coreCode, List.append_assoc] at step
+    simp only [CallFrame.coreCode, List.append_assoc] at step
     obtain ⟨kept, used, ps, rs, stack, hexpand, arity, rfl⟩ :=
       Step.callRef_wasm_inv_seq (vs := (saved ++ args).map Value.toCore)
-        (r := .callRefType fn.type.toDefType) (rest := [nop])
+        (r := .callRefType fn.type.toDefType) (rest := suffix)
         (by trivial) allocated (show fn.coreInstance.code = .wasm fn.coreFunc from rfl) step
     let body : List Admin := [.label rs.length [] (expression fn.coreFunc.body)]
     let run := Admin.frame rs.length (Frame.forCall (fn.coreInstance (H := H)).module used fn.coreFunc.locals) body
@@ -76,18 +76,18 @@ private theorem active_strip {H : Type} {P : Profile} {s : Store H} {caller : Ex
       lift_instrs kept [] _ _ (.callRefFunc (c := .callRefType fn.type.toDefType)
         (by trivial) allocated hexpand arity rfl)
   | label saved ls body =>
-    simp only [coreConfig, coreCode, render, CallFrame.coreCode, List.append_assoc,
+    simp only [CallFrame.coreCode, List.append_assoc,
       List.singleton_append] at step
-    obtain ⟨mid, h, eq⟩ := Step.ctx_in_seq (vs := saved.map Value.toCore) (rest := [nop])
+    obtain ⟨mid, h, eq⟩ := Step.ctx_in_seq (vs := saved.map Value.toCore) (rest := suffix)
       (X := .frame fn.arity (fn.frame ls).toCore [.label fn.arity [] (CallFrame.coreBody body)])
       (by trivial) step
     exact ⟨⟨mid.store, mid.frame, cv saved ++ mid.code⟩, by
       simpa only [CallFrame.coreConfig, CallFrame.coreCode, List.append_nil] using lift_instrs
         (saved.map Value.toCore) [] _ _ h, eq⟩
   | exit saved ls ready =>
-    simp only [coreConfig, coreCode, render, CallFrame.coreCode, List.append_assoc,
+    simp only [CallFrame.coreCode, List.append_assoc,
       List.singleton_append] at step
-    obtain ⟨mid, h, eq⟩ := Step.ctx_in_seq (vs := saved.map Value.toCore) (rest := [nop])
+    obtain ⟨mid, h, eq⟩ := Step.ctx_in_seq (vs := saved.map Value.toCore) (rest := suffix)
       (X := .frame fn.arity (fn.frame ls).toCore (CallFrame.coreExit ready)) (by trivial) step
     exact ⟨⟨mid.store, mid.frame, cv saved ++ mid.code⟩, by
       simpa only [CallFrame.coreConfig, CallFrame.coreCode, List.append_nil] using lift_instrs
@@ -134,7 +134,7 @@ theorem core_readback {H : Type} {P : Profile} {s : Store H} {caller : Execution
     ∃ out, Edge fn a out ∧ dst = coreConfig s caller addr fn out := by
   cases a with
   | active q =>
-    obtain ⟨mid, h, rfl⟩ := active_strip allocated ready.1 step
+    obtain ⟨mid, h, rfl⟩ := active_strip (suffix := [nop]) allocated ready.1 step
     obtain ⟨out, edge, rfl⟩ := (CallFrame.core_step_iff allocated ready.2).mp h
     exact ⟨attach out, call ready.1 edge, congrArg (fun code => (⟨s, caller.toCore, code⟩ : Config H))
       (append_render addr fn out)⟩

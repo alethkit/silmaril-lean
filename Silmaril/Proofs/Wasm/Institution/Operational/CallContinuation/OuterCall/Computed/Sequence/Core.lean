@@ -19,24 +19,7 @@ open Wasm.SingleThreaded.Det (noHost)
 open Execution.Runtime (FuncAddr Value)
 open Wasm.Numerics (Profile)
 open Wasm.Validation (Expand Ty)
-open Computed.Proofs.Core (core_func lift_body read_body label_stays)
-
-private theorem call_iff {H : Type} {P : Profile} {s : Store H} {f : Execution.Runtime.Frame}
-    {i : FuncIdx} {a : FuncAddr} {fn : FuncInst H} {stack : List Value} {tail : List Admin} {dst : Config H}
-    (lookup : f.module.funcs[i.toNat]? = some a) (alloc : s.funcs[a.value]? = some fn) :
-    Step P noHost ⟨s, f.toCore, coreValues stack ++ .plain (.call i) :: tail⟩ dst ↔
-      dst = ⟨s, f.toCore, coreValues stack ++ .ref (.func a.value) :: .callRefType fn.type :: tail⟩ := by
-  have found : f.toCore.module.funcs[i.toNat]? = some a.value := core_func lookup
-  constructor
-  · intro h
-    obtain ⟨a', fn', atIndex, atAddr, eq⟩ := Step.call_vals_inv_seq h
-    rw [found] at atIndex
-    cases atIndex
-    rw [alloc] at atAddr
-    cases atAddr
-    exact eq
-  · rintro rfl
-    exact Sim.Step.vals_left (Sim.Step.append_right (.call found alloc) tail) _
+open Computed.Proofs.Core (core_func lift_body read_body label_stays call_iff)
 
 private theorem frame_init (site : Site) :
     Frame.forCall site.outerModule.toCore (site.args.map Value.toCore) site.coreFunc.locals = site.frame.toCore := by

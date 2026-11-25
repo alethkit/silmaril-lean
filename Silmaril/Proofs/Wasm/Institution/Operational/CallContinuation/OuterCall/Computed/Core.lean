@@ -86,6 +86,23 @@ private theorem entry_iff {H : Type} {P : Profile} {s : Store H} {caller : Execu
     rw [← target]
     exact .callRefFunc (c := .callRefType site.type.toDefType) trivial g.outerAlloc sig count rfl
 
+theorem call_iff {H : Type} {P : Profile} {s : Store H} {f : Execution.Runtime.Frame}
+    {i : FuncIdx} {a : FuncAddr} {fn : FuncInst H} {stack : List Value} {tail : List Admin} {dst : Config H}
+    (lookup : f.module.funcs[i.toNat]? = some a) (alloc : s.funcs[a.value]? = some fn) :
+    Step P noHost ⟨s, f.toCore, coreValues stack ++ .plain (.call i) :: tail⟩ dst ↔
+      dst = ⟨s, f.toCore, coreValues stack ++ .ref (.func a.value) :: .callRefType fn.type :: tail⟩ := by
+  have found : f.toCore.module.funcs[i.toNat]? = some a.value := core_func lookup
+  constructor
+  · intro h
+    obtain ⟨a', fn', atIndex, atAddr, eq⟩ := Step.call_vals_inv_seq h
+    rw [found] at atIndex
+    cases atIndex
+    rw [alloc] at atAddr
+    cases atAddr
+    exact eq
+  · rintro rfl
+    exact Sim.Step.vals_left (Sim.Step.append_right (.call found alloc) tail) _
+
 theorem label_stays {n : Nat} {stack : List Val} {head : Admin} {rest out : List Admin}
     (none : head.val? = none) (notBr : ∀ i, head ≠ .plain (.br i))
     (notRet : head ≠ .plain .return_) (notTail : ¬ head.IsReturnCallRef)

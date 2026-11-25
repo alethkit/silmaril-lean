@@ -213,6 +213,17 @@ theorem read_call {H : Type} {s : Store H} {f : Frame} {stack : List Value} {i :
     cases lookup
     simpa [split] using eq
 
+theorem call_iff {H : Type} {s : Store H} {f : Frame}
+    {i : FuncIdx} {addr : FuncAddr} {stack : List Value} {tail : List Admin} {dst : Config H}
+    (lookup : f.module.funcs[i.toNat]? = some addr) :
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.call i) :: tail⟩ dst ↔
+      dst = ⟨s, f, values stack ++ .invoke addr :: tail⟩ := by
+  constructor
+  · exact read_call lookup
+  · rintro rfl
+    simpa only [List.append_assoc, List.singleton_append] using
+      Step.context (Step.call (host := CallFrame.limeNoHost) s f i addr lookup) stack tail
+
 theorem label_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {stack : List Value}
     {head : Admin} {rest out : List Admin}
     (none : asValue? head = none) (notBr : ∀ i, head ≠ .source (.br i))
