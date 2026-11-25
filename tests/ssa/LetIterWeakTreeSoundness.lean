@@ -10,6 +10,7 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mix
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Ranked.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Ranked.Compile.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Cyclic.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -1569,3 +1570,140 @@ example : ∃ d : Derivation (Empty ⊕ Unit) free Γ.toBoundCtx cycle A,
   Mixed.repeatOnRight_hasVisiblePrefixes sig sumSig rfl modelSlots (fun i => i.elim0) (.var 0)
 
 end LetIterCyclicFixture
+
+namespace LetIterWrittenMixedFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response
+
+abbrev Fx := Bool × Bool
+abbrev strict : Fx := (true, false)
+abbrev sig : Signature Unit Bool := ⟨fun _ => 1, fun _ _ => (), fun _ => ()⟩
+abbrev sumSig : SumCall.SumSignature Unit Unit :=
+  ⟨fun _ => 0, fun _ i => i.elim0, fun _ => (), fun _ => ()⟩
+abbrev A : Ty Unit := .base ()
+abbrev Γ : EffectCtx (Ty Unit) Fx := []
+abbrev free := (Ctx.nil : Ctx Empty (Ty Unit))
+abbrev slots : Fin Γ.length → Unit := Fin.elim0
+abbrev Ops := Bool ⊕ Unit
+
+local instance : HasEff Bool Fx := ⟨fun _ => strict⟩
+local instance : HasEff Unit Fx := ⟨fun _ => strict⟩
+local instance : HasEff Ops Fx := SumCall.effects
+local instance : HasTy Ops (Ty Unit) := SumCall.endpoints sig sumSig
+local instance : EffectIteration Fx := EffectIteration.complete Fx
+
+private theorem visibleAtom (f : Bool) : ¬ IsPure (⊥ : Fx) f := by
+  change strict ≠ (⊥ : Fx)
+  decide
+
+private theorem visibleSum (g : Unit) : ¬ IsPure (⊥ : Fx) g := by
+  change strict ≠ (⊥ : Fx)
+  decide
+
+abbrev usePayload (tag : Bool) : Expr Ops := .op (.inl tag) (.pair (.var 0) .unit)
+
+/-- The sum request's response survives both an ordinary let and a product
+binder before the case selects which visible atomic request receives it. -/
+abbrev expression : Expr Ops :=
+  .let₁ (.pair (.op (.inr ()) .unit) .unit)
+    (.let₂ (.var 0) (.case (.var 1) (usePayload false) (usePayload true)))
+
+private theorem expressionTyped : Wf Γ expression A strict :=
+  .let₁ (.pair (.op (f := Sum.inr ()) le_rfl (.unit _ _)) (.unit _ _))
+    (.let₂ (.var 0 bot_le)
+      (.case (.var 1 bot_le)
+        (.op (f := Sum.inl false) le_rfl (.pair (.var 0 bot_le) (.unit _ _)))
+        (.op (f := Sum.inl true) le_rfl (.pair (.var 0 bot_le) (.unit _ _)))))
+
+abbrev native : Tm Empty Ops Γ.length :=
+  .let₁ (.pair (.op (.inr ()) .unit) .unit)
+    (.let₂ (.bv 0) (.case (.bv 1)
+      (.op (.inl false) (.pair (.bv 0) .unit))
+      (.op (.inl true) (.pair (.bv 0) .unit))))
+
+private theorem lowers : expression.toLetIter Γ.length = some native := rfl
+
+def derivation : Derivation Ops free Γ.toBoundCtx native A :=
+  .let₁ (.pair (.op (f := Sum.inr ()) .unit) .unit)
+    (.let₂ .bv (.case .bv
+      (.op (f := Sum.inl false) (.pair .bv .unit))
+      (.op (f := Sum.inl true) (.pair .bv .unit))))
+
+abbrev expected : Mixed.Program sig sumSig () slots :=
+  .sum () (fun i => i.elim0)
+    (.atom false (fun _ => .var 0) (.ret (.var 0)))
+    (.atom true (fun _ => .var 0) (.ret (.var 0)))
+
+private theorem expectedTyped : expected.WellTyped sig sumSig strict :=
+  ⟨fun i => i.elim0, le_rfl,
+    ⟨fun _ => trivial, visibleAtom false, le_rfl, trivial⟩,
+    ⟨fun _ => trivial, visibleAtom true, le_rfl, trivial⟩⟩
+
+private theorem ctxPure : Γ.Pure := fun i => i.elim0
+private theorem slotsTyped : ∀ i, (Γ.get i).1 = .base (slots i) := fun i => i.elim0
+
+variable {m : Nat} (ms : Fin m → Unit)
+
+local notation "D" => Ty.denote (Atom sig ms)
+local notation "M" => SumCall.instructions (ε := Fx) sig sumSig ms
+local notation "emptyEnv" => (fun x : Empty => x.elim)
+
+private theorem evalAtom (f : Bool) (r : Atom sig ms ()) :
+    (M).eval (.inl f) (r, PUnit.unit) =
+      ITree.vis (.atom f (fun _ => r.down)) (fun reply => ITree.ret ⟨reply⟩) := by
+  change (M).eval (.inl f) (packArgs sig ms 1 (sig.arg f) (fun _ => r.down)) = _
+  simp only [SumCall.instructions, ite_eq_right (visibleAtom f), readArgs, unpackArgs_packArgs]
+
+private theorem evalSum :
+    (M).eval (.inr ()) PUnit.unit =
+      ITree.vis (.sum () (fun j => j.elim0))
+        (fun r => ITree.ret (SumCall.responseValue sig sumSig ms r)) := by
+  change (M).eval (.inr ()) (packArgs sig ms 0 (sumSig.arg ()) (fun j => j.elim0)) = _
+  simp only [SumCall.instructions, unpackArgs_packArgs]
+  rfl
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+private theorem expressionDenote (vars : (i : Fin Γ.length) → Tree sig ms (slots i)) :
+    derivation.denote D M emptyEnv (variableEnv sig ms slotsTyped vars) =
+      expected.denote sig sumSig ms vars := by
+  simp only [derivation, Derivation.denote, pure_bind]
+  erw [evalSum ms, ITree.vis_bind, ITree.vis_bind]
+  simp only [Mixed.Program.denote]
+  congr 1
+  · congr 1
+    funext i
+    exact i.elim0
+  funext reply
+  erw [pure_bind]
+  cases reply with
+  | inl r =>
+    erw [pure_bind]
+    exact evalAtom ms false ⟨r⟩
+  | inr r =>
+    erw [pure_bind]
+    exact evalAtom ms true ⟨r⟩
+
+private theorem agreesWithExpected : Eqv Γ A strict expression expected.source := by
+  obtain ⟨p, hp, he⟩ := Mixed.Written.normalize_atomic sig sumSig ctxPure slotsTyped strict expressionTyped
+  have eq : p = expected := by
+    apply Mixed.eq_of_denote_eq sig sumSig
+    intro m ms vars
+    obtain ⟨dp, hdp⟩ := Mixed.eval_exists sig sumSig ms slotsTyped strict p hp
+    have hn := he.toLetIter lowers (Mixed.lowers sig sumSig p)
+    have agree := denote_eq_of_abortEquiv_nil.{0, 2, 0, 0} (Atom sig ms)
+      (SumCall.instructions (ε := Fx) sig sumSig ms)
+      (Mixed.instructions_respectsPure sig sumSig ms visibleSum) hn derivation dp
+      (variableEnv sig ms slotsTyped vars)
+    exact (hdp vars).symm.trans (agree.symm.trans (expressionDenote ms vars))
+  exact eq ▸ he
+
+example : AbortEquiv (⊥ : Fx) free Γ.toBoundCtx native expected.native A ∧
+    Eqv Γ A strict expression expected.source := by
+  have hreflect := Mixed.Written.endpoint_reflection sig sumSig visibleSum ctxPure slotsTyped strict expressionTyped
+    (Mixed.source_wf sig sumSig ctxPure slotsTyped strict expected expectedTyped)
+    lowers (Mixed.lowers sig sumSig expected)
+  exact ⟨hreflect.mpr agreesWithExpected, hreflect.mp (hreflect.mpr agreesWithExpected)⟩
+
+end LetIterWrittenMixedFixture
