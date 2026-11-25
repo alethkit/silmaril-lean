@@ -58,4 +58,15 @@ theorem snd_return_fails :
       (.let₂ (.var 0) (.br 0 (.var 0))) [Ty.unit] :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.snd_return_fails
 
+
+/-- Returning the mixed swap expression is distinguished from the guarded
+swap on a nested product of units in default Paper. -/
+theorem mixed_swap_return_fails :
+    let X : Ty Empty := Ty.unit
+    let P := Ty.product X X
+    ¬ Paper.Eqv [Ty.product P X]
+      (.let₁ (.let₂ (.var 0) (.pair (.var 0) (.var 1))) (.br 0 (.var 0)) : Region Empty)
+      (.let₂ (.var 0) (.br 0 (.pair (.var 0) (.var 1)))) [Ty.product X P] :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.mixed_swap_return_fails
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction

@@ -152,4 +152,22 @@ theorem snd_return_fails :
       (.let₂ (.var 0) (.br 0 (.var 0))) [Ty.unit] :=
   projection_return_fails 0 (.inl rfl)
 
+
+theorem mixed_swap_return_fails :
+    let X : Ty Empty := Ty.unit
+    let P := Ty.product X X
+    ¬ Paper.Eqv [Ty.product P X]
+      (.let₁ (.let₂ (.var 0) (.pair (.var 0) (.var 1))) (.br 0 (.var 0)) : Region Empty)
+      (.let₂ (.var 0) (.br 0 (.pair (.var 0) (.var 1)))) [Ty.product X P] := by
+  intro X P eq
+  let env : Env := fun _ => .pair (.pair .unit .unit) .unit
+  have henv : EnvTy [Ty.product P X] env := by
+    intro j A hj
+    cases j with
+    | zero => cases Option.some.inj hj; exact .pair (.pair .unit .unit) .unit
+    | succ j => simp [At] at hj
+  have obs := paper_same eq env henv
+  change Result.fault = Result.jump 0 (.pair .unit (.pair .unit .unit)) at obs
+  cases obs
+
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction
