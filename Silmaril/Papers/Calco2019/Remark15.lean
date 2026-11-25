@@ -12,8 +12,7 @@ public import Silmaril.Semantics.Calco2019.Trace.Total.Thms
 public import Silmaril.Semantics.Calco2019.Trace.PointedCpo.Thms
 public import Silmaril.Semantics.Calco2019.Trace.CounterSemiring.Witness.Thms
 public import Silmaril.Semantics.Calco2019.Trace.CounterSemiring.Independence.Thms
-public import Silmaril.Semantics.Calco2019.Trace.IterationTheory.PointedModel.Thms
-public import Silmaril.Semantics.Calco2019.Trace.IterationTheory.Wiring.Evaluation.Thms
+public import Silmaril.Semantics.Calco2019.Trace.IterationTheory.Completeness.Thms
 
 /-! # CALCO 2019 Article 13, Remark 15
 
@@ -21,5 +20,5 @@ Guarded Conway operators correspond to four-interface guarded traces
 satisfying the equations of Goncharov–Schröder, Figure 4. The view also
 exports the ordinary trace correspondence, the commutative and automaton
 identities, a finite-matrix Conway operator refuting the binary cycle identity,
-and completeness of finite ranked-system comparison in the pointed path model.
+and equational completeness for iteration terms in pointed ω-cpos.
 -/
