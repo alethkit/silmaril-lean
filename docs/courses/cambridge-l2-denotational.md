@@ -1,9 +1,9 @@
 # CBV L2 denotations
 
-This slice follows Peter Sewell’s Cambridge Part IB *Semantics of
-Programming Languages* notes for 2025–26, dated 12 February 2026. It uses
-the CBV application rules on p. 55, strict `let` on p. 60, and the
-corresponding rules in the collected definition on pp. 65–67. The PDF
+These denotations follow Peter Sewell’s Cambridge Part IB *Semantics of
+Programming Languages* notes for 2025–26, dated 12 February 2026. They use
+the CBV application rules on p. 55, strict `let` on p. 60, recursion on
+p. 61, and the collected definition on pp. 65–67. The PDF
 matches the SHA-256 for `sewell2026semantics`. [Notes][notes] · [Bibliography][bib]
 
 ```sh
@@ -65,6 +65,40 @@ the function operand, and increments the location to `7` in the
 argument. The body adds the saved `3` to the current `7`, returning
 `10` with `l ↦ 7`.
 
+## Recursive functions and loops
+
+`L2.RelationalDenotation.Returns ρ e s v t` relates the lexical
+environment, expression and initial store to a semantic value and final
+store. Its inductive rules generate the least relation closed under the
+evaluation clauses. A function call evaluates both operands in order and
+uses the store after the argument. A recursive closure saves its definition
+environment. The call evaluates the body with the parameter and the same
+recursive closure at the front of that environment. The while rules run
+the guard before the body and retain the store of the final false guard.
+
+| Lean result | Contract |
+| --- | --- |
+| `Returns.while_iff` | A loop returns after a finite sequence of true guard/body iterations and a false guard. Every iteration passes its resulting store to the next. |
+| `adequate_env` | A finite return with an explicit lexical environment agrees exactly with L2 substitution small-step on the expression instantiated with that environment, including the quoted result and full final store. |
+| `adequate`, `sat_iff` | The empty-environment case gives finite-return adequacy for the original L2 expression and agrees with the institution's `.returned` observation. This includes function results quoted as L2 lambda values. |
+| `agrees_effectful` | The relational model and the typed `StateT Store Part` model agree on ground results for the earlier fragment and covering stores. |
+
+The adequacy proof factors a finite small-step path by expression
+constructor. It uses the existing `Expr.recClosure` substitution rule
+to reify recursive closures. The environment supplies de Bruijn indices
+in nearest-first order. Indices beyond the environment remain ambient
+indices after substitution, and free names stay free. An unbound variable
+has no evaluation rule. The theorem applies as stated to arbitrary stores
+and syntax, including ill-typed expressions. The closed, well-typed course
+programs use an empty lexical environment and a store covering their
+declared locations.
+
+The observations record successful returns only. Operationally, a missing
+location can be stuck and a loop can have an infinite trace. Both have an
+empty finite-return observation, as the checked examples show. Other
+examples check a recursive call that captures `3` and later returns `13`
+with `l ↦ 13`, and a loop whose final false guard writes `l ↦ 3`.
+
 ## Chapter 4 coverage
 
 | Pinned material | Denotation coverage |
@@ -72,13 +106,14 @@ argument. The body adds the saved `3` to the current `7`, returning
 | CBV application and typing, §§4.2–4.3 | Checked in both fragments for the represented ground and function types. |
 | Strict local definitions, §4.4, p. 60 | Checked in both fragments. |
 | Integer store operations and inherited CBV rules, §4.6, pp. 65–67 | Checked in the mutable-store fragment for lookup, assignment, sequencing, conditionals, addition and comparison. |
-| Recursive functions, §4.4, p. 61 | Remaining. A fixed point for recursive closure application needs a correspondence proof for the existing `Expr.recClosure` rule. |
-| While, §4.6 | Remaining. The existing Elgot instance for `StateT Store Part` can express iteration that threads the store through guard and body. |
+| Recursive functions, §4.4, p. 61 | Finite adequate environment semantics for recursive binding, application and returning a recursive closure. |
+| While, §4.6, p. 66 | Finite adequate relational iteration with store effects in guards and bodies. |
+| Stuckness and infinite evaluation | Separate operational predicates. The relational denotation observes successful finite returns. |
 | Call by name and unrestricted reduction, §4.2 | Outside the CBV denotations. |
 
-[Recursive-function rules][recursion] · [Elgot state and partiality][elgot]
+[Recursive-function rules][recursion] · [L1’s Elgot state interpretation][l1]
 
 [notes]: https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=55
 [recursion]: https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=61
 [bib]: ../../references.bib
-[elgot]: ../../Silmaril/Semantics/ElgotMonads/Thms.lean
+[l1]: cambridge-denotational.md#effectful-l1
