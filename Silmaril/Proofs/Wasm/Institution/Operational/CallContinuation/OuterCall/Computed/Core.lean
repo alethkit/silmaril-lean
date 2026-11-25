@@ -140,18 +140,29 @@ theorem lift_body {H : Type} {P : Profile} {s s' : Store H}
       ⟨s', caller, [.frame n inner' [.label n [] b]]⟩ :=
   .ctxtFrame (.ctxtLabel h)
 
+theorem body_step_cases {H : Type} {P : Profile} {s : Store H} {caller inner : Frame}
+    {n : Nat} {body : List Admin} {dst : Config H}
+    (h : Step P noHost ⟨s, caller, [.frame n inner [.label n [] body]]⟩ dst) :
+    (∃ mid : Config H, Step P noHost ⟨s, inner, body⟩ mid ∧
+      dst = ⟨mid.store, caller, [.frame n mid.frame [.label n [] mid.code]]⟩) ∨
+    ∃ out, LabelExit n [] body out ∧ dst = ⟨s, caller, [.frame n inner out]⟩ := by
+  rcases Step.frame_inv h with ⟨_, _, _, step, rfl⟩ | ⟨_, bad, _⟩
+  · rcases Step.label_inv step with ⟨_, _, _, innerStep, eq⟩ | ⟨_, pop, eq⟩
+    · obtain ⟨rfl, rfl, rfl⟩ := Config.mk.inj eq
+      exact .inl ⟨_, innerStep, rfl⟩
+    · cases eq
+      exact .inr ⟨_, pop, rfl⟩
+  · exact (CallContinuation.Proofs.frame_label_stays bad).elim
+
 theorem read_body {H : Type} {P : Profile} {s : Store H} {caller inner : Frame}
     {n : Nat} {body : List Admin} {dst : Config H}
     (stays : ∀ {out}, LabelExit n [] body out → False)
     (h : Step P noHost ⟨s, caller, [.frame n inner [.label n [] body]]⟩ dst) :
     ∃ mid : Config H, Step P noHost ⟨s, inner, body⟩ mid ∧
       dst = ⟨mid.store, caller, [.frame n mid.frame [.label n [] mid.code]]⟩ := by
-  rcases Step.frame_inv h with ⟨_, _, _, step, rfl⟩ | ⟨_, bad, _⟩
-  · rcases Step.label_inv step with ⟨_, _, _, innerStep, eq⟩ | ⟨_, bad, _⟩
-    · obtain ⟨rfl, rfl, rfl⟩ := Config.mk.inj eq
-      exact ⟨_, innerStep, rfl⟩
-    · exact (stays bad).elim
-  · exact (CallContinuation.Proofs.frame_label_stays bad).elim
+  rcases body_step_cases h with body | ⟨_, pop, _⟩
+  · exact body
+  · exact (stays pop).elim
 
 private theorem front {H : Type} {P : Profile} {s : Store H} {f : Frame}
     {stack : List Val} {op : Admin} {rest : List Admin} {dst : Config H}

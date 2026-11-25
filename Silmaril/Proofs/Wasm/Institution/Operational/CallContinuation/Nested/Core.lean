@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Thms
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Native.Thms
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
 import Silmaril.Wasm.Execution.Core.Inversion.Thms
 import Silmaril.Wasm.SingleThreaded.Determinism.Stuck
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.Nested.Rules
@@ -161,11 +162,35 @@ private theorem frame_pop {H : Type} {s : Store H} {f : Frame} {arity : Nat}
   | @returnCallAddr _ _ _ op _ _ _ _ kind _ _ _ => exact ((allowed op (by simp)).2.2.2 kind).elim
   | throw a => exact ((allowed (.plain .throwRef) (by simp [throwing])).2.1 rfl).elim
 
-private theorem no_result_step {H : Type} {P : Profile} {s : Store H} {f : Frame}
-    {r : Result} {dst : Config H} (h : Step P noHost ⟨s, f, resultCode cv .trap r⟩ dst) : False := by
+theorem no_result_step {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {r : Result} {dst : Config H} (h : Step P noHost ⟨s, f, resultCode (fun vs => vals (vs.map Value.toCore)) .trap r⟩ dst) : False := by
   cases r with
   | values stack => exact Step.not_vals h
   | trap => exact Step.trap_stuck h
+
+theorem core_label_result {arity : Nat} {r : Result} {out : List Admin}
+    (pop : LabelExit arity [] (resultCode (fun vs => vals (vs.map Value.toCore)) .trap r) out) : out = resultCode (fun vs => vals (vs.map Value.toCore)) .trap r := by
+  cases r with
+  | values stack => exact labelExit_of_vals pop
+  | trap =>
+    have allowed : ∀ a ∈ ([.trap] : List Admin), safe a := by simp [safe, Admin.IsReturnCallRef]
+    change LabelExit arity [] [.trap] out at pop
+    generalize eq : ([.trap] : List Admin) = code at pop
+    rw [eq] at allowed
+    cases pop with
+    | vals | throw | trap => exact eq.symm
+    | @brZero _ _ label _ _ _ | @brSucc _ label _ _ =>
+      exact ((allowed (.plain (.br label)) (by simp)).2.2.1 label rfl).elim
+    | ret => exact ((allowed (.plain .return_) (by simp)).1 rfl).elim
+    | @returnCall vs op rest kind => exact ((allowed op (by simp)).2.2.2 kind).elim
+
+theorem core_frame_result {H : Type} {P : Profile} {s : Store H}
+    {caller outer : Execution.Runtime.Frame} {arity : Nat} {r : Result} {dst : Config H}
+    (step : Step P noHost ⟨s, caller.toCore, [.frame arity outer.toCore (resultCode (fun vs => vals (vs.map Value.toCore)) .trap r)]⟩ dst) :
+    dst = ⟨s, caller.toCore, resultCode (fun vs => vals (vs.map Value.toCore)) .trap r⟩ := by
+  rcases Step.frame_inv step with ⟨_, _, _, inner, _⟩ | ⟨_, pop, rfl⟩
+  · exact (no_result_step inner).elim
+  · rw [(frame_pop pop).2]
 
 theorem core_readback {H : Type} {P : Profile} {s : Store H} {caller outer : Execution.Runtime.Frame}
     {addr : FuncAddr} {fn : CallFrame.Callee} {arity : Nat}

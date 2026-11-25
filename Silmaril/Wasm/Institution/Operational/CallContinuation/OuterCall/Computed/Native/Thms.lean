@@ -1,5 +1,7 @@
 module
 
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
+public import Silmaril.Wasm.Lime1.Execution.Callout
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Thms
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Native.Thms
@@ -17,6 +19,37 @@ open Execution
 open Execution.Runtime (Frame FuncAddr Value)
 open Wasm.Numerics (Profile)
 open Wasm.SingleThreaded.Det (noHost)
+
+theorem core_body_step_cases {H : Type} {P : Profile} {s : Core.Store H} {caller inner : Core.Frame}
+    {n : Nat} {body : List Core.Admin} {dst : Core.Config H}
+    (h : Core.Step P noHost ⟨s, caller, [.frame n inner [.label n [] body]]⟩ dst) :
+    (∃ mid : Core.Config H, Core.Step P noHost ⟨s, inner, body⟩ mid ∧
+      dst = ⟨mid.store, caller, [.frame n mid.frame [.label n [] mid.code]]⟩) ∨
+    ∃ out, Core.LabelExit n [] body out ∧ dst = ⟨s, caller, [.frame n inner out]⟩ :=
+  Proofs.Core.body_step_cases h
+
+open Wasm.Lime1.Execution in
+theorem lime_body_step_cases {H : Type} {s : Store H} {caller inner : Frame} {n : Nat}
+    {body : List Admin} {dst : Config H}
+    (h : Step CallFrame.limeNoHost ⟨s, caller, [.frame n inner [.label n [] body]]⟩ dst) :
+    (∃ mid : Config H, Step CallFrame.limeNoHost ⟨s, inner, body⟩ mid ∧
+      dst = ⟨mid.store, caller, [.frame n mid.frame [.label n [] mid.code]]⟩) ∨
+    ∃ out, PureStep inner.module.types [.label n [] body] out ∧ dst = ⟨s, caller, [.frame n inner out]⟩ :=
+  Proofs.Lime1.body_step_cases h
+
+theorem core_label_stays {n : Nat} {stack : List Core.Val} {head : Core.Admin}
+    {rest out : List Core.Admin} (none : head.val? = none) (notBr : ∀ i, head ≠ .plain (.br i))
+    (notRet : head ≠ .plain .return_) (notTail : ¬ head.IsReturnCallRef)
+    (notThrow : head ≠ .plain .throwRef) (notFinalTrap : head = .trap → stack ≠ [] ∨ rest ≠ [])
+    (h : Core.LabelExit n [] (Core.vals stack ++ head :: rest) out) : False :=
+  Proofs.Core.label_stays none notBr notRet notTail notThrow notFinalTrap h
+
+open Wasm.Lime1.Execution in
+theorem lime_label_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {stack : List Value}
+    {head : Admin} {rest out : List Admin} (none : asValue? head = none) (notBr : ∀ i, head ≠ .source (.br i))
+    (notRet : head ≠ .source .return_) (notFinalTrap : head = .trap → stack ≠ [] ∨ rest ≠ [])
+    (h : PureStep types [.label n [] (values stack ++ head :: rest)] out) : False :=
+  Proofs.Lime1.label_stays none notBr notRet notFinalTrap h
 
 theorem core_direct_call_iff {H : Type} {P : Profile} {s : Core.Store H} {f : Frame}
     {i : FuncIdx} {a : FuncAddr} {fn : Core.FuncInst H} {stack : List Value}

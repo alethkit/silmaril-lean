@@ -1,5 +1,6 @@
 module
 
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Thms
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Native.Thms
@@ -14,8 +15,42 @@ import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.Nested.Tran
 namespace Silmaril.Wasm.Institution.Operational.CallContinuation.Nested
 
 open Execution
-open Execution.Runtime (Frame FuncAddr)
+open Execution.Runtime (Frame FuncAddr Value)
 open Wasm.SingleThreaded.Det (noHost)
+
+theorem core_label_result {arity : Nat} {r : Result} {out : List Core.Admin}
+    (pop : Core.LabelExit arity [] (resultCode (fun vs => Core.vals (vs.map Value.toCore)) .trap r) out) :
+    out = resultCode (fun vs => Core.vals (vs.map Value.toCore)) .trap r :=
+  Proofs.core_label_result pop
+
+theorem core_frame_result {H : Type} {P : Numerics.Profile} {s : Core.Store H}
+    {caller outer : Frame} {arity : Nat} {r : Result} {dst : Core.Config H}
+    (step : Core.Step P noHost
+      ⟨s, caller.toCore, [.frame arity outer.toCore (resultCode (fun vs => Core.vals (vs.map Value.toCore)) .trap r)]⟩ dst) :
+    dst = ⟨s, caller.toCore, resultCode (fun vs => Core.vals (vs.map Value.toCore)) .trap r⟩ :=
+  Proofs.core_frame_result step
+
+theorem core_result_stuck {H : Type} {P : Numerics.Profile} {s : Core.Store H} {f : Core.Frame} {r : Result}
+    {dst : Core.Config H}
+    (step : Core.Step P noHost ⟨s, f, resultCode (fun vs => Core.vals (vs.map Value.toCore)) .trap r⟩ dst) : False :=
+  Proofs.no_result_step step
+
+open Wasm.Lime1.Execution in
+theorem lime_label_result {types : List Wasm.Lime1.FuncType} {arity : Nat} {r : Result} {out : List Admin}
+    (pop : PureStep types [.label arity [] (resultCode values .trap r)] out) :
+    out = resultCode values .trap r :=
+  Proofs.Lime1.label_result pop
+
+open Wasm.Lime1.Execution in
+theorem lime_frame_result {H : Type} {s : Store H} {caller outer : Frame} {arity : Nat} {r : Result}
+    {dst : Config H} (step : Step CallFrame.limeNoHost ⟨s, caller, [.frame arity outer (resultCode values .trap r)]⟩ dst) :
+    dst = ⟨s, caller, resultCode values .trap r⟩ :=
+  Proofs.Lime1.frame_result step
+
+open Wasm.Lime1.Execution in
+theorem lime_result_stuck {H : Type} {s : Store H} {f : Frame} {r : Result} {dst : Config H}
+    (step : Step CallFrame.limeNoHost ⟨s, f, resultCode values .trap r⟩ dst) : False :=
+  Proofs.Lime1.result_stuck step
 
 section v1
 variable {H : Type} {s : Wasm.V1.Execution.Store H}

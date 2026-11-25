@@ -1,5 +1,6 @@
 module
 
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Thms
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Native.Thms
@@ -18,6 +19,17 @@ open Execution
 open Execution.Runtime (Frame)
 open Wasm.Numerics (Profile)
 open Wasm.SingleThreaded.Det (noHost)
+
+theorem core_active_label_stays {addr : Execution.Runtime.FuncAddr} {fn : CallFrame.Callee}
+    {arity : Nat} {q : CallFrame.State} {suffix out : List Core.Admin} (live : Active q)
+    (h : Core.LabelExit arity [] (CallFrame.coreCode addr fn q ++ suffix) out) : False :=
+  Proofs.Core.active_label_stays live h
+
+open Wasm.Lime1.Execution in
+theorem lime_active_label_stays {addr : Execution.Runtime.FuncAddr} {fn : CallFrame.Callee}
+    {types : List Wasm.Lime1.FuncType} {arity : Nat} {q : CallFrame.State} {suffix out : List Admin}
+    (live : Active q) (h : PureStep types [.label arity [] (CallFrame.limeCode addr fn q ++ suffix)] out) : False :=
+  Proofs.Lime1.active_label_stays live h
 
 theorem guard_to_lime {H : Type} {s : Wasm.V1.Execution.Store H} {site : Site}
     (g : V1Guard s site) : LimeGuard (s.mapCode Wasm.V1.Func.toLime) site :=

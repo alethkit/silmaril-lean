@@ -22,14 +22,19 @@ open Wasm.Numerics (Profile)
 open Wasm.Validation (Expand Ty)
 open Computed.Proofs.Core (core_func lift_body read_body label_stays call_iff)
 
-theorem frame_init (site : Site) :
-    Frame.forCall site.outerModule.toCore (site.args.map Value.toCore)
-      (site.locals.map Wasm.V1.ValType.toCore) = site.frame.toCore := by
-  simp only [Frame.forCall, Site.frame, Execution.Runtime.Frame.toCore, List.map_append, List.map_map]
+theorem frame_forCall (m : Execution.Runtime.ModuleInst) (args : List Value) (locals : List NumType) :
+    Frame.forCall m.toCore (args.map Value.toCore)
+      (locals.map Wasm.V1.ValType.toCore) = (⟨args ++ locals.map Value.zero, m⟩ : Execution.Runtime.Frame).toCore := by
+  simp only [Frame.forCall, Execution.Runtime.Frame.toCore, List.map_append, List.map_map]
   congr 2
   apply List.map_congr_left
   intro t _
   cases t <;> rfl
+
+theorem frame_init (site : Site) :
+    Frame.forCall site.outerModule.toCore (site.args.map Value.toCore)
+      (site.locals.map Wasm.V1.ValType.toCore) = site.frame.toCore :=
+  frame_forCall site.outerModule site.args site.locals
 
 private theorem body_expression (site : Site) :
     expression site.coreFunc.body = site.body coreSyntax := by

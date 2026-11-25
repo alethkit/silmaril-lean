@@ -15,9 +15,25 @@ import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.C
 namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Sequence
 
 open Execution
-open Execution.Runtime (Frame)
+open Execution.Runtime (Frame FuncAddr Value ModuleInst)
 open Wasm.Numerics (Profile)
 open Wasm.SingleThreaded.Det (noHost)
+
+theorem core_frame_forCall (m : ModuleInst) (args : List Value) (locals : List NumType) :
+    Core.Frame.forCall m.toCore (args.map Value.toCore) (locals.map Wasm.V1.ValType.toCore) =
+      (⟨args ++ locals.map Value.zero, m⟩ : Frame).toCore :=
+  Proofs.Core.frame_forCall m args locals
+
+theorem wasm_entry_iff {H : Type} {P : Profile} {s : Core.Store H} {caller : Frame}
+    {address : FuncAddr} {ty : Wasm.V1.FuncType} {m : Execution.Runtime.ModuleInst} {fn : Wasm.Func}
+    {args : List Value} {dst : Core.Config H}
+    (allocated : s.funcs[address.value]? = some ⟨ty.toDefType, m.toCore, .wasm fn⟩)
+    (typed : args.map Value.type = ty.params) :
+    Core.Step P noHost ⟨s, caller.toCore, coreValues args ++ [.ref (.func address.value), .callRefType ty.toDefType]⟩ dst ↔
+      dst = ⟨s, caller.toCore, [.frame ty.results.length
+        (Core.Frame.forCall m.toCore (args.map Value.toCore) fn.locals)
+        [.label ty.results.length [] (Core.expression fn.body)]]⟩ :=
+  Proofs.Core.wasm_entry_iff allocated typed
 
 theorem guard_to_lime {H : Type} {s : Wasm.V1.Execution.Store H} {caller : Frame} {site : Site}
     (g : V1Guard s caller site) : LimeGuard (s.mapCode Wasm.V1.Func.toLime) caller site :=
