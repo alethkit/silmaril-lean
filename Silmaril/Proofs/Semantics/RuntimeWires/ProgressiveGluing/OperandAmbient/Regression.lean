@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.FixedCapCategory.Thms
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.OuterAssociator.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.Coherence.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapClasses.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.Associator.Contacts
@@ -842,5 +842,39 @@ example :
       (FixedCap.rightAssociator idleCap shiftedCap).hom.app capObject ≫
         (ActiveStrip.right.nestedWhisker shiftedCap idleCap).map bentShiftMap :=
   (FixedCap.rightAssociator idleCap shiftedCap).hom.naturality bentShiftMap
+
+example :
+    FixedCap.whiskerLeftHom idleCap (FixedCap.recoordinate shifted_types) =
+      FixedCap.recoordinate (FixedCap.whiskerLeft_types idleCap shifted_types) :=
+  FixedCap.whiskerLeft_recoordinate idleCap shifted_types
+
+example :
+    FixedCap.whiskerRightHom idleCap (FixedCap.recoordinate shifted_types) =
+      FixedCap.recoordinate (FixedCap.whiskerRight_types idleCap shifted_types) :=
+  FixedCap.whiskerRight_recoordinate idleCap shifted_types
+
+example :
+    (FixedCap.objectAssociator idleCap emptyCap shiftedCap).hom ≫
+        FixedCap.whiskerLeftHom idleCap (FixedCap.leftUnitor shiftedCap).hom =
+      FixedCap.whiskerRightHom shiftedCap (FixedCap.rightUnitor idleCap).hom :=
+  FixedCap.triangle idleCap shiftedCap
+
+/-- The two paths give different intermediate coordinates for the third
+contact, which comes from the first strand of the second operand. -/
+example :
+    (((idleCap.beside capObject).beside (shiftedCap.beside idleCap)).profile.x (2 : Fin 6),
+      ((idleCap.beside (capObject.beside shiftedCap)).beside idleCap).profile.x (2 : Fin 6)) =
+      (1 / 3, 7 / 24) := by
+  change (ActiveStrip.left.place (ActiveStrip.right.place (1 / 3)),
+    ActiveStrip.left.place (ActiveStrip.right.place (ActiveStrip.left.place (1 / 3)))) = _
+  norm_num [ActiveStrip.place]
+
+example :
+    (FixedCap.objectAssociator (idleCap.beside capObject) shiftedCap idleCap).hom ≫
+        (FixedCap.objectAssociator idleCap capObject (shiftedCap.beside idleCap)).hom =
+      FixedCap.whiskerRightHom idleCap (FixedCap.objectAssociator idleCap capObject shiftedCap).hom ≫
+        (FixedCap.objectAssociator idleCap (capObject.beside shiftedCap) idleCap).hom ≫
+        FixedCap.whiskerLeftHom idleCap (FixedCap.objectAssociator capObject shiftedCap idleCap).hom :=
+  FixedCap.pentagon idleCap capObject shiftedCap idleCap
 
 end Silmaril.RuntimeWires.Proofs.OperandAmbient.Regression
