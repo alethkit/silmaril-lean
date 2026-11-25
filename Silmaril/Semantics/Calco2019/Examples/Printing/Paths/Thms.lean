@@ -47,7 +47,7 @@ theorem greatest_nonempty (hf : TraceGuarded f) (hbody : ∀ x, (f x).Nonempty) 
 
 /-- The chosen solution of the separating equation retains both the finite words
 and the infinite repetition of the letter. -/
-theorem greatest_letter_trace (a : A) : greatestTrace (traceLoop a) = productiveSolution a :=
+theorem greatest_letter_trace (a : A) : greatestTrace (traceLoop.{u, 0} a) = productiveSolution a :=
   PathProofs.greatest_letter_trace a
 
 end Silmaril.Calco2019.Examples.Printing
