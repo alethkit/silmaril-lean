@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.FixedCapCategory.Thms
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CentralRecoordination.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.Premonoidal.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapClasses.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.Associator.Contacts
@@ -880,21 +880,33 @@ example :
 
 noncomputable section
 
-open scoped PremonoidalCategory
+open scoped MonoidalCategory PremonoidalCategory
 
 /-- Exercise both centrality equations with a bent drawing and a
 coordinate change from 1/3 to 2/3. -/
 example :
-    letI := FixedCap.geometricMonoidalData signature
     FixedCap.recoordinate shifted_types ⋉ bentShiftMap =
       FixedCap.recoordinate shifted_types ⋊ bentShiftMap :=
   (FixedCap.recoordinate_central shifted_types).1 bentShiftMap
 
 example :
-    letI := FixedCap.geometricMonoidalData signature
     bentShiftMap ⋉ FixedCap.recoordinate shifted_types =
       bentShiftMap ⋊ FixedCap.recoordinate shifted_types :=
   (FixedCap.recoordinate_central shifted_types).2 bentShiftMap
+
+/-- The packaged associator is natural for the bent drawing in the middle slot. -/
+example :
+    ((idleCap ◁ bentShiftMap) ▷ shiftedCap) ≫ (α_ idleCap shiftedCap shiftedCap).hom =
+      (α_ idleCap capObject shiftedCap).hom ≫ idleCap ◁ (bentShiftMap ▷ shiftedCap) :=
+  PremonoidalCategory.associator_naturality_middle idleCap bentShiftMap shiftedCap
+
+example : idleCap ⊗ capObject = idleCap.beside capObject := rfl
+
+example :
+    bentShiftMap ⊗ₘ FixedCap.recoordinate shifted_types =
+      FixedCap.whiskerRightHom capObject bentShiftMap ≫
+        FixedCap.whiskerLeftHom shiftedCap (FixedCap.recoordinate shifted_types) :=
+  rfl
 
 private theorem slide_coordinates (side : ActiveStrip) :
     (CentralRecoordination.horizontal side shifted_types (side.place (5 / 12)),

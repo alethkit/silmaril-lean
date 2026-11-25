@@ -31,7 +31,7 @@ namespace FixedCap
 
 /-- Object and whiskering data for the repository's premonoidal interface,
 using the left sequential tensor of morphisms. -/
-@[instance_reducible]
+@[expose, instance_reducible]
 def geometricMonoidalData (S : Signature.{u,v} O) : MonoidalCategoryStruct (FixedCap S) where
   tensorObj := beside
   whiskerLeft a {_ _} f := whiskerLeftHom a f
