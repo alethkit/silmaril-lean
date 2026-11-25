@@ -54,6 +54,10 @@ metatheory and checked examples. Every course module is also checked by
 The [AST codecs guide](cambridge-ast-codecs.md) documents the shared
 S-expression and JSON schema for L1, L2 and L3.
 
+The [integration and compilation guide](cambridge-integration.md) follows the
+checked L1 lowering and identifies which Wasm interfaces can support further
+Cambridge compilation proofs.
+
 ## How it fits together
 
 ```mermaid
