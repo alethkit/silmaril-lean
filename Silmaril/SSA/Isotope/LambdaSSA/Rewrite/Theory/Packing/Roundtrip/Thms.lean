@@ -4,7 +4,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Category.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.PackingRoundtrip
 
-/-! # Syntactic retraction of the packed exit interface -/
+/-! # Syntactic inverses for the packed exit interface -/
 
 public section
 
@@ -53,13 +53,34 @@ theorem unpackExits_empty_packExits (Γ : VCtx τ) :
       (.br 0 (.var 0)) [Silmaril.empty] :=
   .initial_var (i := 0) rfl (unpackExits_hasType Γ []).packExits (.br rfl (.var rfl))
 
+/-- Decoding a packed value and tagging its exits again rewrites to the
+original region, even when its packed branch arguments are variables. -/
+theorem ValueBranches.pack_unpackExits {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
+    (hr : ValueBranches Γ r [packedExitType L]) :
+    SubstitutionEquiv Γ (r.lsubst (fun _ => unpackExits L)).packExits r [packedExitType L] :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.pack_unpackExits hr
+
+/-- Decode and repack after evaluating each argument exactly once. -/
+theorem HasType.pack_unpackExits_afterBinding {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
+    (hr : HasType Γ r [packedExitType L]) :
+    SubstitutionEquiv Γ (r.bindBranchArguments.lsubst (fun _ => unpackExits L)).packExits
+      r.bindBranchArguments [packedExitType L] :=
+  hr.bindBranchArguments.pack_unpackExits
+
+/-- The tagged singleton exit and the original finite exit interface are
+isomorphic in the native continuation category. -/
+theorem ContinuationContext.nonempty_packedIso {Γ : VCtx τ} (X : ContinuationContext Φ Γ) :
+    Nonempty (X ≅ (⟨[packedExitType X.labels]⟩ : ContinuationContext Φ Γ)) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.nonempty_packedIso X
+
 /-- The tagged exit interface admits a split inclusion in the native
 continuation category. -/
 theorem ContinuationContext.exists_packed_retraction {Γ : VCtx τ} (X : ContinuationContext Φ Γ) :
     ∃ (pack : X ⟶ (⟨[packedExitType X.labels]⟩ : ContinuationContext Φ Γ))
       (unpack : (⟨[packedExitType X.labels]⟩ : ContinuationContext Φ Γ) ⟶ X),
-      pack ≫ unpack = 𝟙 X :=
-  Proofs.SSA.Isotope.LambdaSSA.Rewrite.exists_packed_retraction X
+      pack ≫ unpack = 𝟙 X := by
+  obtain ⟨e⟩ := X.nonempty_packedIso
+  exact ⟨e.hom, e.inv, e.hom_inv_id⟩
 
 /-- Packing reflects native rewrite equivalence on regions with value branches. -/
 theorem ValueBranches.packExits_equiv_iff {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}

@@ -109,20 +109,92 @@ theorem unpack_packExits {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
   rw [lsubst_comp]
   simpa only [lsubst_labelId] using hr.lsubst_substitutionEquiv (unpack_packExits_pointwise Γ L)
 
-theorem exists_packed_retraction {Γ : VCtx τ} (X : ContinuationContext Φ Γ) :
-    ∃ (pack : X ⟶ (⟨[packedExitType X.labels]⟩ : ContinuationContext Φ Γ))
-      (unpack : (⟨[packedExitType X.labels]⟩ : ContinuationContext Φ Γ) ⟶ X),
-      pack ≫ unpack = 𝟙 X := by
+@[simp] private theorem packedExitArg_rename_lift (i : Nat) :
+    (packedExitArg i (.var 0 : Tm Φ)).rename (Silmaril.DeBruijn.lift Nat.succ) =
+      packedExitArg i (.var 0) := by
+  induction i with
+  | zero => rfl
+  | succ i ih => exact congrArg Tm.inr ih
+
+private theorem packFamily_liftVars :
+    liftLSubstVars (Φ := Φ) (fun i => .br 0 (packedExitArg i (.var 0))) =
+      fun i => .br 0 (packedExitArg i (.var 0)) := by
+  funext i
+  exact congrArg (Region.br 0) (packedExitArg_rename_lift i)
+
+theorem pack_unpackExits_payload (Γ : VCtx τ) (L : LCtx τ) :
+    SubstitutionEquiv (packedExitType L :: Γ) (unpackExits L : Region Φ).packExits
+      (.br 0 (.var 0)) [packedExitType L] := by
+  induction L generalizing Γ with
+  | nil =>
+      exact .initial_var (i := 0) rfl (unpackExits_hasType Γ []).packExits (.br rfl (.var rfl))
+  | cons A L ih =>
+      let P := packedExitType (A :: L)
+      let Q := packedExitType L
+      let tag : Nat → Region Φ := fun i => .br 0 (packedExitArg i (.var 0))
+      let rightTag : Nat → Region Φ := fun _ => .br 0 (.inr (.var 0))
+      have htags : LSubst.HasType (Q :: P :: Γ) [Q] [P] rightTag := by
+        intro i B hi
+        cases i with
+        | zero =>
+            cases Option.some.inj hi
+            exact .br rfl (.inr (.var (i := 0) rfl))
+        | succ i => simp [At] at hi
+      have right := (ih (P :: Γ)).lsubst htags
+      have rightBody : ((unpackExits L).renameLabels Nat.succ).lsubst tag =
+          (unpackExits L).packExits.lsubst rightTag := by
+        rw [lsubst_renameLabels]
+        change (unpackExits L).lsubst (tag ∘ Nat.succ) = ((unpackExits L).lsubst tag).lsubst rightTag
+        rw [lsubst_comp]
+        rfl
+      change SubstitutionEquiv (P :: Γ)
+        (.case (.var 0) ((Region.br 0 (.var 0)).lsubst (liftLSubstVars tag))
+          (((unpackExits L).renameLabels Nat.succ).lsubst (liftLSubstVars tag)))
+        (.br 0 (.var 0)) [P]
+      rw [show liftLSubstVars tag = tag from packFamily_liftVars, rightBody]
+      have left : Region.HasType (A :: P :: Γ) (.br 0 (.inl (.var 0)) : Region Φ) [P] :=
+        .br rfl (.inl (.var rfl))
+      have hcase := SubstitutionEquiv.case
+        (Tm.HasType.var (Φ := Φ) (Γ := P :: Γ) (i := 0) (A := P) rfl)
+        (SubstitutionEquiv.base (.refl left)) right
+      have hbody : Region.HasType (P :: P :: Γ) (.br 0 (.var 0) : Region Φ) [P] :=
+        .br rfl (.var rfl)
+      have eta := SubstitutionEquiv.caseValue (Γ := P :: Γ) (A := A) (B := Q)
+        (Tm.BranchValue.var (Φ := Φ) (i := 0) (A := P) rfl) hbody
+      exact hcase.trans eta
+
+private theorem pack_unpackExits_pointwise (Γ : VCtx τ) (L : LCtx τ) :
+    ∀ ⦃i A⦄, At [packedExitType L] i A → SubstitutionEquiv (A :: Γ)
+      (compLSubst (fun _ => unpackExits L) (fun j => .br 0 (packedExitArg j (.var 0))) i)
+      (labelId i : Region Φ) [packedExitType L] := by
+  intro i A hi
+  cases i with
+  | zero =>
+      cases Option.some.inj hi
+      unfold compLSubst
+      rw [packFamily_liftVars]
+      exact pack_unpackExits_payload Γ L
+  | succ i => simp [At] at hi
+
+theorem pack_unpackExits {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
+    (hr : ValueBranches Γ r [packedExitType L]) :
+    SubstitutionEquiv Γ (r.lsubst (fun _ => unpackExits L)).packExits r [packedExitType L] := by
+  unfold packExits
+  rw [lsubst_comp]
+  simpa only [lsubst_labelId] using hr.lsubst_substitutionEquiv (pack_unpackExits_pointwise Γ L)
+
+theorem nonempty_packedIso {Γ : VCtx τ} (X : ContinuationContext Φ Γ) :
+    Nonempty (X ≅ (⟨[packedExitType X.labels]⟩ : ContinuationContext Φ Γ)) := by
   let Y : ContinuationContext Φ Γ := ⟨[packedExitType X.labels]⟩
   let pack : ContinuationFamily (Φ := Φ) Γ X.labels Y.labels :=
     ⟨_, packExits_valueFamily Γ X.labels⟩
   let unpack : ContinuationFamily (Φ := Φ) Γ Y.labels X.labels :=
     ⟨_, unpackExits_valueFamily Γ X.labels⟩
-  refine ⟨pack.toHom, unpack.toHom, ?_⟩
-  rw [← ContinuationFamily.compose_toHom, ← ContinuationFamily.identity_toHom]
-  exact ContinuationFamily.toHom_eq_iff.mpr
-    (unpack_packExits_pointwise Γ X.labels)
-
+  refine ⟨⟨pack.toHom, unpack.toHom, ?_, ?_⟩⟩
+  · rw [← ContinuationFamily.compose_toHom, ← ContinuationFamily.identity_toHom]
+    exact ContinuationFamily.toHom_eq_iff.mpr (unpack_packExits_pointwise Γ X.labels)
+  · rw [← ContinuationFamily.compose_toHom, ← ContinuationFamily.identity_toHom]
+    exact ContinuationFamily.toHom_eq_iff.mpr (pack_unpackExits_pointwise Γ X.labels)
 
 theorem packExits_equiv_iff {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
     (hr : ValueBranches Γ r L) (hs : ValueBranches Γ s L) :

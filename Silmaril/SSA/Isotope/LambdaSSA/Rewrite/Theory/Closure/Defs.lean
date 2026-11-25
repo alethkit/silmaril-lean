@@ -8,6 +8,15 @@ public section
 
 universe u v
 
+namespace Silmaril.Isotope.LambdaSSA.Tm
+
+/-- Replace the newest slot by a term, keeping earlier variable indices.
+This replaces a sum-typed slot by the injection of its case payload. -/
+@[expose] def replaceNewest {Φ : Type v} (a : Tm Φ) : Nat → Tm Φ :=
+  consSubst a (var ∘ Nat.succ)
+
+end Silmaril.Isotope.LambdaSSA.Tm
+
 namespace Silmaril.Isotope.LambdaSSA.Region
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
@@ -15,7 +24,7 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 set_option autoImplicit true in
 set_option relaxedAutoImplicit true in
 /-- Extend the native rewrite theory with pure let β for arbitrary region
-bodies, elimination of CFGs whose entry targets only outward exits, and
+bodies, case analysis of a sum value, outward-only CFG elimination, and
 initiality. An empty-typed value witnesses initiality and remains a value
 under the native constructor-value substitutions. -/
 inductive SubstitutionEquiv : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop where
@@ -34,6 +43,12 @@ inductive SubstitutionEquiv : VCtx τ → Region Φ → Region Φ → LCtx τ �
       SubstitutionEquiv Γ (.cfg entry n blocks) (.cfg entry' n blocks') L
   | letValue (ha : Tm.BranchValue Γ a A) (hr : HasType (A :: Γ) r L) :
       SubstitutionEquiv Γ (.let₁ a r) (r.substVars (Tm.singleSubst a)) L
+  | caseValue (ha : Tm.BranchValue Γ a (Silmaril.coprod A B))
+      (hr : HasType (Silmaril.coprod A B :: Γ) r L) :
+      SubstitutionEquiv Γ
+        (.case a (r.substVars (Tm.replaceNewest (.inl (.var 0))))
+          (r.substVars (Tm.replaceNewest (.inr (.var 0)))))
+        (r.substVars (Tm.singleSubst a)) L
   | initial {a : Tm Φ} (ha : Tm.BranchValue Γ a Silmaril.empty) (hr : HasType Γ r L) (hs : HasType Γ s L) :
       SubstitutionEquiv Γ r s L
   | cfgOutward (R : Fin (n + 1) → τ) (hr : HasType Γ r L)

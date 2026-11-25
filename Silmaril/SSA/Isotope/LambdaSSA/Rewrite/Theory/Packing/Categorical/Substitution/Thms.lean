@@ -39,6 +39,17 @@ theorem denoteRegion_unpackPackExits_afterBinding {Γ : VCtx τ} {L : LCtx τ} {
   exact (hr.unpack_packExits_afterBinding.sound J M hu hs hr.bindBranchArguments.hasType).trans
     (Region.denoteRegion_bindBranchArguments J M hu hr).symm
 
+/-- Decoding the bound singleton exits and then packing them again preserves
+the original arrow by the native inverse equation. -/
+theorem denoteRegion_packUnpackExits_afterBinding {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
+    (hr : Region.HasType Γ r [packedExitType L])
+    (hs : Region.HasType Γ (r.bindBranchArguments.lsubst (fun _ => unpackExits L)).packExits
+      [packedExitType L]) :
+    denoteRegion J M hs = denoteRegion J M hr := by
+  let hu := FreydCategory.CentralUnit.unit_central (J := J)
+  exact (hr.pack_unpackExits_afterBinding.sound J M hu hs hr.bindBranchArguments.hasType).trans
+    (Region.denoteRegion_bindBranchArguments J M hu hr).symm
+
 /-- Decode bound singleton exits by literal substitution and pack them again.
 The result has the original arrow in a shared-tensor Freyd model. -/
 theorem denoteRegion_packUnpackExits_afterBinding_sharedTensor
