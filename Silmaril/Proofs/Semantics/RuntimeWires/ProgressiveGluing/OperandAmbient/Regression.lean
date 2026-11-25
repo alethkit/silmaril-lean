@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapUnits.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.FixedCapCategory.Thms
 import Mathlib.Tactic.FunProp
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.NormNum
@@ -397,5 +397,41 @@ private noncomputable def emptyUnit :=
 
 example : emptyUnit.thenDo emptyUnit = emptyUnit :=
   CapClass.identity_thenDo _ CapProfile.empty_inside
+
+open CategoryTheory
+
+private noncomputable def capObject : FixedCap signature := ⟨oneContact, oneContact_inside⟩
+
+private noncomputable def bentMap (t : Time) : capObject ⟶ capObject :=
+  FixedCap.ofDrawing (fixedFrame t)
+
+example : (fixedFrame lastTime).drawing.x (0 : Fin 1) (1 / 2) = 1 / 2 := by
+  change (1 / 3 : ℝ) + displacement lastTime (1 / 2) = 1 / 2
+  norm_num [displacement, lastTime, tent]
+
+example :
+    𝟙 capObject ≫ bentMap halfway = bentMap halfway ∧
+      bentMap lastTime ≫ 𝟙 capObject = bentMap lastTime :=
+  ⟨Category.id_comp _, Category.comp_id _⟩
+
+example :
+    (bentMap halfway ≫ bentMap lastTime) ≫ bentMap halfway =
+      bentMap halfway ≫ (bentMap lastTime ≫ bentMap halfway) :=
+  Category.assoc _ _ _
+
+example :
+    bentMap halfway ≫ bentMap lastTime =
+      FixedCap.ofDrawing ((fixedFrame halfway).thenDo (fixedFrame lastTime)) :=
+  FixedCap.comp_drawings _ _
+
+example (h : oneContact.Inside) :
+    (𝟙 capObject : capObject ⟶ capObject) =
+      FixedCap.ofDrawing (FixedDrawing.identity signature oneContact h) :=
+  FixedCap.id_eq capObject h
+
+example :
+    𝟙 (FixedCap.empty signature) ≫ 𝟙 (FixedCap.empty signature) =
+      𝟙 (FixedCap.empty signature) :=
+  Category.id_comp _
 
 end Silmaril.RuntimeWires.Proofs.OperandAmbient.Regression
