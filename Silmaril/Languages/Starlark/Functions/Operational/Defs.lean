@@ -33,20 +33,22 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       {value : Outcome Lists.Value} {error : Error} :
       Eval s test value → Outcome.resume value truth = .error error t →
       Exec program available s (.branch test yes no) (.error error t)
-  | define {available : List DeclarationId} {s : State} {target : Binding} {id : DeclarationId} :
-      Exec program available s (.define target id) (define program target id s)
+  | define {available : List DeclarationId} {s : State} {target : Binding} {id : DeclarationId}
+      {defaults : Outcome (List Lists.Value)} :
+      Eval s (defaultOperands program id) defaults →
+      Exec program available s (.define target id) (Outcome.resume defaults (define program target id))
   | call {available : List DeclarationId} {s t : State} {target : Option Binding}
-      {callee : Lists.Expr} {arguments : Code (List Lists.Value)} {operands : Outcome (List Lists.Value)}
+      {callee : Lists.Expr} {arguments : Arguments} {operands : Outcome (List Lists.Value)}
       {plan : Prepared available} {out : Outcome Flow} :
-      Eval s (.cons callee arguments) operands →
-      Outcome.resume operands (prepare program available) = .ok plan t →
+      Eval s (Arguments.operands callee arguments) operands →
+      Outcome.resume operands (prepare program available arguments) = .ok plan t →
       Exec program (withoutDeclaration available plan.id) t plan.body out →
       Exec program available s (.call target callee arguments) (completeCall s target out)
   | callError {available : List DeclarationId} {s t : State} {target : Option Binding}
-      {callee : Lists.Expr} {arguments : Code (List Lists.Value)} {operands : Outcome (List Lists.Value)}
+      {callee : Lists.Expr} {arguments : Arguments} {operands : Outcome (List Lists.Value)}
       {error : Error} :
-      Eval s (.cons callee arguments) operands →
-      Outcome.resume operands (prepare program available) = .error error t →
+      Eval s (Arguments.operands callee arguments) operands →
+      Outcome.resume operands (prepare program available arguments) = .error error t →
       Exec program available s (.call target callee arguments) (.error error t)
 
 end Silmaril.Languages.Starlark.Functions

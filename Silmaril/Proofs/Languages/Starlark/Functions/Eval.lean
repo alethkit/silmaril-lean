@@ -60,11 +60,11 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
       · exact .branch evaluated h (exec_denote program available yes next)
   | define target id =>
     rw [denoteBody]
-    exact .define
+    exact .define ((eval_iff_denote _ _ _).mpr rfl)
   | call target callee arguments =>
     rw [denoteBody]
-    have evaluated := (eval_iff_denote (.cons callee arguments) state _).mpr rfl
-    cases h : Outcome.resume (denote (.cons callee arguments) state) (prepare program available) with
+    have evaluated := (eval_iff_denote (Arguments.operands callee arguments) state _).mpr rfl
+    cases h : Outcome.resume (denote (Arguments.operands callee arguments) state) (prepare program available arguments) with
     | error error next => exact .callError evaluated h
     | ok plan next =>
       exact .call evaluated h (exec_denote program (withoutDeclaration available plan.id) plan.body next)

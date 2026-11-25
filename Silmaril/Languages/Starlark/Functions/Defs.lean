@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Languages.Starlark.Lists.Iteration.Defs
+public import Silmaril.Languages.Starlark.Functions.Arguments.Defs
 
 @[expose] public section
 
@@ -21,7 +21,7 @@ inductive Body where
   | seq (first rest : Body)
   | branch (test : Lists.Expr) (yes no : Body)
   | define (target : Binding) (declaration : DeclarationId)
-  | call (target : Option Binding) (callee : Lists.Expr) (arguments : Code (List Lists.Value))
+  | call (target : Option Binding) (callee : Lists.Expr) (arguments : Arguments)
 
 /-- Capture a slot from the defining activation under its resolved name in the callee. -/
 structure FreeName where
@@ -29,7 +29,7 @@ structure FreeName where
   target : Binding
 
 structure Declaration where
-  params : List Binding
+  signature : Signature
   locals : List Binding
   free : List FreeName
   body : Body
@@ -43,7 +43,12 @@ def captureName (state : State) (name : FreeName) : Except Error Capture :=
   | some (.owned address) => .ok ⟨name.target, address, name.source.scope == .local⟩
   | some (.captured address localCell) => .ok ⟨name.target, address, localCell⟩
 
-def define (program : Program) (target : Binding) (id : DeclarationId) : Meaning Flow :=
+def defaultOperands (program : Program) (id : DeclarationId) : Code (List Lists.Value) :=
+  operandList ((program[id]?.toList.flatMap fun declaration =>
+    declaration.signature.defaulted.map Prod.snd))
+
+def define (program : Program) (target : Binding) (id : DeclarationId)
+    (defaults : List Lists.Value) : Meaning Flow :=
   fun state =>
     match program[id]? with
     | none => .error (.unknownDeclaration id) state
@@ -52,7 +57,9 @@ def define (program : Program) (target : Binding) (id : DeclarationId) : Meaning
       | .error error => .error error state
       | .ok captures =>
         let address := state.heap.size
-        let next := { state with heap := state.heap.push ⟨.function ⟨id, captures⟩, false⟩ }
+        let boundDefaults := (declaration.signature.defaulted.map Prod.fst).zip defaults
+        let next := { state with
+          heap := state.heap.push ⟨.function ⟨id, captures, boundDefaults⟩, false⟩ }
         .ok .next (next.write target (.function address))
 
 def getClosure (address : Address) : Meaning Closure :=
@@ -65,10 +72,10 @@ def capturedSlots (captures : List Capture) (binding : Binding) : Option Slot :=
     fun capture => .captured capture.address capture.localCell
 
 def activate (state : State) (declaration : Declaration) (captures : List Capture)
-    (arguments : List Lists.Value) : State :=
+    (arguments : List (Binding × Lists.Value)) : State :=
   let frame := { state with bindings := fun _ => none, slots := capturedSlots captures }
-  let frame := (declaration.params ++ declaration.locals).foldl State.allocateSlot frame
-  (declaration.params.zip arguments).foldl (fun next (binding, value) =>
+  let frame := (declaration.signature.slots ++ declaration.locals).foldl State.allocateSlot frame
+  arguments.foldl (fun next (binding, value) =>
     next.write binding value) frame
 
 structure Prepared (available : List DeclarationId) where
@@ -76,23 +83,42 @@ structure Prepared (available : List DeclarationId) where
   permitted : id ∈ available
   body : Body
 
-/-- The caller evaluates every operand before checking callable identity and
-arity. Removing a declaration from `available` protects all of its instances. -/
-def prepare (program : Program) (available : List DeclarationId) :
+/-- Expand evaluated operands before callability, then check re-entry before binding. -/
+def prepare (program : Program) (available : List DeclarationId) (arguments : Arguments) :
     List Lists.Value → Meaning (Prepared available)
-  | .function address :: arguments => do
-    let closure ← getClosure address
-    fun state =>
+  | callee :: operands => do
+    let actual ← arguments.expand operands
+    match callee with
+    | .function address =>
+      let closure ← getClosure address
       match program[closure.declaration]? with
-      | none => .error (.unknownDeclaration closure.declaration) state
+      | none => throw (.unknownDeclaration closure.declaration)
       | some declaration =>
-        if h : closure.declaration ∈ available then
-          if declaration.params.length = arguments.length then
+        if h : closure.declaration ∈ available then do
+          let bound ← fromExcept (bindArguments declaration.signature closure.defaults actual)
+          let assigned ← packArgs declaration.signature bound
+          fun state =>
             .ok ⟨closure.declaration, h, declaration.body⟩
-              (activate state declaration closure.captures arguments)
-          else .error (.arity declaration.params.length arguments.length) state
-        else .error (.recursiveCall closure.declaration) state
-  | _ => throw .notCallable
+              (activate state declaration closure.captures assigned)
+        else throw (.recursiveCall closure.declaration)
+    | _ => throw .notCallable
+  | [] => throw .notCallable
+
+def Body.validateCalls : Body → Except CallStaticError Unit
+  | .seq first rest => do
+    first.validateCalls
+    rest.validateCalls
+  | .branch _ yes no => do
+    yes.validateCalls
+    no.validateCalls
+  | .call _ _ arguments => arguments.validate
+  | .define .. | .total _ => pure ()
+
+def validate (program : Program) (body : Body) : Except CallStaticError Unit := do
+  for declaration in program do
+    declaration.signature.validate
+    declaration.body.validateCalls
+  body.validateCalls
 
 def restoreCaller (caller state : State) : State :=
   { state with slots := caller.slots, bindings := caller.bindings }
