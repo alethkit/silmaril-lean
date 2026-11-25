@@ -10,11 +10,34 @@ namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run
 theorem seed_lookup (globals : Core.Module.Globals) (heap : Core.Closure.Heap) (name : String) :
     (seed globals heap).globals name = (globals.lookup name).map embed := rfl
 
+/-- Scalar actions emit a prefix of scalar instructions and consume no code
+keys. Both runners receive the same instructions and linked rows. -/
+theorem lowerInstructions_scalarPrefix {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)
+    (actions : List (ModuleEntry.Action scope)) (rest : List (Functions.Action scope)) :
+    lowerInstructions tree key (actions.map .scalar ++ rest) =
+      (lowerInstructions tree key rest).map fun (instructions, rows) =>
+        (actions.map .scalar ++ instructions, rows) := by
+  induction actions with
+  | nil =>
+    simp only [List.map_nil, List.nil_append]
+    cases lowerInstructions tree key rest with
+    | error _ => rfl
+    | ok result => cases result; rfl
+  | cons action actions ih =>
+    simp only [List.map_cons, List.cons_append, lowerInstructions, ih]
+    cases lowerInstructions tree key rest <;> rfl
+
 theorem invoke_current_globals {scope : Source.Scope} (session : Core.Module.Functions.Session)
     (table : Core.Closure.Executor.CodeTable) (target : Core.Module.Functions.Destination)
     (name : String) (arguments : List Core.Module.Functions.Operand) (remaining : List (Instruction scope)) :
     advance table (.ready session (.call target name arguments :: remaining)) =
       ([], .calling (session.prepareCall target (.readGlobal name) arguments) remaining) := rfl
+
+theorem advance_literalArmBoolean {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (value : Bool) (rest : List (Instruction scope)) :
+    advance table (.ready session (.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: rest)) =
+      ([], if value then .ready session rest else .finished session .assertionError) := by
+  cases value <;> rfl
 
 theorem advance_assertVarNames {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (receiver : String) (needle : List UInt32)

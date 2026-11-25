@@ -84,6 +84,13 @@ theorem failing_instruction {scope : Source.Scope} {space : Namespace} {instruct
       ⟨space, .error error, (effect space context instruction).1.calls, (effect space context instruction).2⟩ :=
   by simp [runInstructionsIn, failed]
 
+theorem run_literalArmBoolean {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (value : Bool) (rest : List (Instruction scope)) :
+    runInstructionsIn space context (.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: rest) =
+      if value then runInstructionsIn space context rest
+      else ⟨space, .error (.raised (.assertionError .empty)), [], context.heap⟩ := by
+  cases value <;> rfl
+
 /-- Settle one direct discard call from the actual executor state. A
 finished call emits one receipt before its tail, and a failed call skips the tail. -/
 theorem run_directDiscard {scope : Source.Scope} {space : Namespace} {context : CallContext}

@@ -121,6 +121,22 @@ def binding? : (statement : Stmt) → Option {pair : Name × Expr // Binding sta
   | .assignTargets [.name name] value => some ⟨(name, value), .singleton name value⟩
   | _ => none
 
+def literalGuard? : Expr → Option Bool
+  | .boolean value => some value
+  | expression => (integerLiteral? expression).map fun value => value != 0
+
+/-- Arm statements neither introduce child scopes nor install directives.
+The operand checker also checks expressions in both arms. -/
+def literalArmStatement : Stmt → Bool
+  | .assert_ _ none | .pass => true
+  | statement => (binding? statement).isSome
+
+/-- A literal Boolean assertion uses only truth. Emit the equivalent
+integer test so this arm uses the same assertion path in both runners. -/
+def Action.inLiteralArm {scope : Scope} : Action scope → Action scope
+  | .assertion (.boolean value) => .assertion (.integer (if value then 1 else 0))
+  | action => action
+
 inductive Translation (scope : Scope) : List Stmt → List (Action scope) → Prop where
   | done : Translation scope [] []
   | assign {statement name expression reference value rest next}
@@ -134,6 +150,13 @@ inductive Translation (scope : Scope) : List Stmt → List (Action scope) → Pr
       Translation scope (.globalDecl names :: rest) next
   | pass {rest next} (tail : Translation scope rest next) :
       Translation scope (.pass :: rest) next
+  | literalIf {condition yes no rest decision positive negative next}
+      (arms : (yes.all literalArmStatement && no.all literalArmStatement) = true)
+      (guard : literalGuard? condition = some decision)
+      (yesTranslation : Translation scope yes positive) (noTranslation : Translation scope no negative)
+      (tail : Translation scope rest next) :
+      Translation scope (.if_ condition yes no :: rest)
+        ((if decision then positive else negative).map Action.inLiteralArm ++ next)
 
 def lowerStatements (scope : Scope) : (body : List Stmt) →
     Except Error {actions // Translation scope body actions}
@@ -149,12 +172,24 @@ def lowerStatements (scope : Scope) : (body : List Stmt) →
   | .pass :: body => do
     let tail ← lowerStatements scope body
     return ⟨tail.val, .pass tail.property⟩
+  | .if_ condition yes no :: body => do
+    if arms : (yes.all literalArmStatement && no.all literalArmStatement) = true then
+      match guard : literalGuard? condition with
+      | none => throw .statementProfile
+      | some decision =>
+        let positive ← lowerStatements scope yes
+        let negative ← lowerStatements scope no
+        let tail ← lowerStatements scope body
+        return ⟨(if decision then positive.val else negative.val).map Action.inLiteralArm ++ tail.val,
+          .literalIf arms guard positive.property negative.property tail.property⟩
+    else throw .statementProfile
   | statement :: body => do
     let some ⟨(name, expression), binding⟩ := binding? statement | throw .statementProfile
     let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
     let value ← lowerOperand scope expression
     let tail ← lowerStatements scope body
     return ⟨.assign name reference value.val :: tail.val, .assign binding value.property tail.property⟩
+termination_by body => sizeOf body
 
 structure Checked (source : Source.Module) where
   tree : ScopeTree

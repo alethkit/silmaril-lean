@@ -39,12 +39,21 @@ private theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {
 theorem statements_complete {scope : Source.Scope} {source : List Source.Stmt} {actions : List (Action scope)}
     (translated : Translation scope source actions) : lowerStatements scope source = .ok ⟨actions, translated⟩ := by
   induction translated with
-  | done => rfl
+  | done => simp [lowerStatements]
   | @assign statement name expression reference value rest next binding operand _ tail =>
     cases binding <;> simp [lowerStatements, binding?, global_reference reference, operand_complete operand, tail] <;> rfl
   | assertion operand _ tail => simp [lowerStatements, operand_complete operand, tail] <;> rfl
   | globals _ tail => simp [lowerStatements, tail] <;> rfl
   | pass _ tail => simp [lowerStatements, tail] <;> rfl
+  | literalIf arms guard _ _ _ yes no tail =>
+    rw [lowerStatements, dite_eq_left arms]
+    split
+    · simp_all
+    · rename_i decision chosen
+      have equal := Option.some.inj (chosen.symm.trans guard)
+      subst decision
+      rw [yes, no, tail]
+      rfl
 
 theorem check_complete {source : Source.Module} {tree : Source.ScopeTree}
     {actions : List (Action tree.scope)} (analyzed : Source.analyze source = .ok tree)
