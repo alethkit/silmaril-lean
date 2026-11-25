@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Semantics.RuntimeWires.Clique.Defs
-import Silmaril.Proofs.Semantics.RuntimeWires.Clique.Components
+import all Silmaril.Proofs.Semantics.RuntimeWires.Clique.Components
 
 public section
 
@@ -17,5 +17,9 @@ noncomputable def componentEquiv {C : Type u} [Category.{v} C] {I J : Type w}
     (A : Clique C I) (B : Clique C J) (a : I) (b : J) :
     Hom A B ≃ (A.obj a ⟶ B.obj b) :=
   Proofs.cliqueComponentEquiv a b
+
+theorem componentEquiv_apply {C : Type u} [Category.{v} C] {I J : Type w}
+    {A : Clique C I} {B : Clique C J} (a : I) (b : J) (f : Hom A B) :
+    componentEquiv A B a b f = f.app a b := by rfl
 
 end Silmaril.RuntimeWires.Clique
