@@ -51,42 +51,87 @@ private theorem keeps_getCell (address : Address) : Preserves (getCell address) 
 private theorem keeps_except {α : Type} (out : Except Error α) : Preserves (fromExcept out) := by
   cases out <;> (intro state; rfl)
 
-private theorem keeps_edit (address : Address) (edit : List Value → Except Error (List Value)) :
-    Preserves (updateCell address edit) := by
-  unfold updateCell
-  apply keeps_bind (keeps_getCell _)
+private theorem keeps_project {α : Type} (address : Address) (project : Contents → Option α) :
+    Preserves (projectCell address project) := by
+  unfold projectCell
+  apply keeps_bind (keeps_getCell address)
   intro cell
-  apply keeps_bind (keeps_except _)
-  intro _ state
+  cases project cell.contents
+  · exact keeps_throw _
+  · exact keeps_pure _
+
+private theorem keeps_edit (address : Address) (edit : Contents → Except Error Contents) :
+    Preserves (editCell address edit) := by
+  unfold editCell
+  apply keeps_bind (keeps_getCell _)
+  intro cell state
   split
   · rfl
   · dsimp only
-    split <;> rfl
+    split
+    · rfl
+    · split
+      · rfl
+      · split <;> rfl
+
+private theorem keeps_update (address : Address) (edit : List Value → Except Error (List Value)) :
+    Preserves (updateCell address edit) := by
+  unfold updateCell
+  exact keeps_bind (keeps_project _ _) fun _ =>
+    keeps_bind (keeps_except _) fun _ => keeps_edit _ _
+
+private theorem keeps_readSequence (elements : List Value) (index : Value) :
+    Preserves (readSequence elements index) := by
+  unfold readSequence
+  exact keeps_bind (keeps_except _) fun _ => keeps_pure _
 
 private theorem keeps_readIndex (receiver index : Value) : Preserves (readIndex receiver index) := by
   cases receiver with
-  | scalar => exact keeps_throw _
-  | list address =>
+  | scalar | function | string => exact keeps_throw _
+  | list =>
     rw [readIndex]
-    exact keeps_bind (keeps_getCell address) fun _ =>
-      keeps_bind (keeps_except _) fun _ => keeps_pure _
+    exact keeps_bind (keeps_project _ _) (keeps_readSequence · index)
+  | tuple =>
+    rw [readIndex]
+    exact keeps_bind (keeps_project _ _) (keeps_readSequence · index)
+  | dict address =>
+    rw [readIndex, readDict]
+    apply keeps_bind (keeps_project _ _)
+    intro entries state
+    dsimp only
+    split
+    · rfl
+    · split <;> rfl
 
 private theorem keeps_writeIndex (receiver index value : Value) :
     Preserves (writeIndex receiver index value) := by
   cases receiver with
-  | scalar => exact keeps_throw _
+  | scalar | tuple | function | string => exact keeps_throw _
   | list =>
     rw [writeIndex]
-    exact keeps_edit _ _
+    exact keeps_update _ _
+  | dict =>
+    rw [writeIndex]
+    intro state
+    unfold writeDict
+    exact keeps_edit _ _ state
 
 private theorem keeps_append (address : Address) (value : Value) :
     Preserves (appendAt address value) := by
   unfold appendAt
-  exact keeps_bind (keeps_edit _ _) fun _ => keeps_pure _
+  exact keeps_bind (keeps_update _ _) fun _ => keeps_pure _
+
+private theorem keeps_displayEntry (entries : List Entry) (key value : Value) :
+    Preserves (addDisplayEntry entries key value) := by
+  intro state
+  unfold addDisplayEntry
+  split
+  · rfl
+  · split <;> rfl
 
 private theorem keeps_code {α : Type} (code : Code α) : Preserves (denote code) := by
   induction code with
-  | scalar => exact keeps_pure _
+  | scalar | string => exact keeps_pure _
   | read ref =>
     intro state
     cases ref with
@@ -97,6 +142,17 @@ private theorem keeps_code {α : Type} (code : Code α) : Preserves (denote code
   | list elements ih =>
     rw [denote]
     exact keeps_bind ih fun _ _ => rfl
+  | tuple elements ih =>
+    rw [denote]
+    exact keeps_bind ih fun _ _ => rfl
+  | dict entries ih =>
+    rw [denote]
+    exact keeps_bind ih fun _ _ => rfl
+  | noEntries => exact keeps_pure _
+  | entry earlier key value ihPrefix ihKey ihValue =>
+    rw [denote]
+    exact keeps_bind ihPrefix fun entries => keeps_bind ihKey fun k =>
+      keeps_bind ihValue (keeps_displayEntry entries k)
   | empty => exact keeps_pure _
   | cons head tail ihHead ihTail =>
     rw [denote]
@@ -109,7 +165,7 @@ private theorem keeps_code {α : Type} (code : Code α) : Preserves (denote code
     apply keeps_bind ihReceiver
     intro value
     cases value with
-    | scalar => exact keeps_throw _
+    | scalar | tuple | dict | function | string => exact keeps_throw _
     | list address => exact keeps_bind ihArgument (keeps_append address)
   | pass => exact keeps_pure _
   | eval expr ih =>
@@ -117,7 +173,13 @@ private theorem keeps_code {α : Type} (code : Code α) : Preserves (denote code
     exact keeps_bind ih fun _ => keeps_pure _
   | assign binding rhs ih =>
     rw [denote]
-    exact keeps_bind ih fun _ _ => rfl
+    apply keeps_bind ih
+    intro value state
+    simp only [bindValue, finishState, State.write]
+    split
+    · rfl
+    · rfl
+    · split <;> rfl
   | setIndex receiver index rhs ihReceiver ihIndex ihRhs =>
     rw [denote]
     exact keeps_bind ihRhs fun value => keeps_bind ihReceiver fun dst =>
@@ -128,17 +190,17 @@ private theorem keeps_code {α : Type} (code : Code α) : Preserves (denote code
 
 private theorem keeps_truth (value : Value) : Preserves (truth value) := by
   cases value with
-  | scalar => exact keeps_pure _
-  | list address =>
+  | scalar | function | string => exact keeps_pure _
+  | list | tuple | dict =>
     rw [truth]
-    exact keeps_map _ (keeps_getCell address)
+    exact keeps_map _ (keeps_project _ _)
 
-private theorem keeps_source (value : Value) : Preserves (listSource value) := by
+private theorem keeps_source (value : Value) : Preserves (iterationSource value) := by
   cases value with
-  | scalar => exact keeps_throw _
-  | list address =>
-    rw [listSource]
-    exact keeps_map _ (keeps_getCell address)
+  | scalar | function | string => exact keeps_throw _
+  | list | tuple | dict =>
+    rw [iterationSource]
+    exact keeps_map _ (keeps_project _ _)
 
 private theorem restore_stack (stack : List Address) (out : Outcome Flow) :
     (finishState (restoreIterators stack out)).iterators = stack := by
@@ -164,9 +226,9 @@ theorem iterators_denoteSuite {depth : Nat} (code : Suite depth) (state : State)
       cases flag
       · exact ihNo
       · exact ihYes
-  | forList target iterable body _ =>
+  | forIn target iterable body _ =>
     rw [denoteSuite]
-    refine (resume_preserves (Outcome.resume (denote iterable state) listSource) _ ?_).trans
+    refine (resume_preserves (Outcome.resume (denote iterable state) iterationSource) _ ?_).trans
       ((resume_preserves _ _ keeps_source).trans (keeps_code iterable state))
     intro pair next
     obtain ⟨address, elements⟩ := pair
@@ -177,15 +239,11 @@ theorem iterators_denoteSuite {depth : Nat} (code : Suite depth) (state : State)
     rw [denoteSuite, resume_preserves _ _ (fun _ => keeps_pure _)]
     exact keeps_code value state
 
-theorem updateCell_iterating (state : State) (address : Address)
-    (edit : List Value → Except Error (List Value)) {cell : Cell}
+theorem editCell_iterating (state : State) (address : Address)
+    (edit : Contents → Except Error Contents) {cell : Cell}
     (found : state.heap[address]? = some cell) (mutable : cell.frozen = false)
     (active : address ∈ state.iterators) :
-    updateCell address edit state =
-      match edit cell.elements with
-      | .ok _ => .error (.activeIteration address) state
-      | .error error => .error error state := by
-  cases checked : edit cell.elements <;>
-    simp [updateCell, getCell, fromExcept, bind, EStateM.bind, Pure.pure, EStateM.pure, found, checked, mutable, active] <;> rfl
+    editCell address edit state = .error (.activeIteration address) state := by
+  simp [editCell, getCell, bind, EStateM.bind, found, mutable, active]
 
 end Silmaril.Proofs.Languages.Starlark.Lists.Iteration

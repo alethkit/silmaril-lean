@@ -73,4 +73,21 @@ theorem iterateResumption_naturality {X Y Z : C} (f : X ⟶ R.obj (P.sum Y X)) (
       M.iterateResumption R f hf ≫ R.extend P g :=
   Proofs.iterateResumption_naturality M R f g hf (M.naturalityBody_guarded R f g hf)
 
+theorem observed_fixpoint {X Y : Kleisli (R.monad P)}
+    (f : X ⟶ (P.kleisli (R.monad P)).sum Y X) (hf : M.observedGuard R (Y := Y) (Z := X) f) :
+    Guardedness.IsFixpoint f (kleisliArrow (M.iterateResumption R f.of hf)) :=
+  Proofs.observedFixpoint M R f hf
+
+/-- The characterized resumption solutions, packaged as guarded Kleisli fixpoints. -/
+@[expose]
+def resumptionFixpoints : (M.resumptionGuardedness R).Fixpoints where
+  iterate f hf := kleisliArrow (M.iterateResumption R f.of ((M.resumptionGuardedness_iff R f).mp hf))
+  fixpoint f hf := M.observed_fixpoint R f ((M.resumptionGuardedness_iff R f).mp hf)
+
+theorem resumptionFixpoints_of {X Y : Kleisli (R.monad P)}
+    (f : X ⟶ (P.kleisli (R.monad P)).sum Y X) (hf : (M.resumptionGuardedness R).guarded f) :
+    ((M.resumptionFixpoints R).iterate f hf).of =
+      M.iterateResumption R f.of ((M.resumptionGuardedness_iff R f).mp hf) :=
+  rfl
+
 end Silmaril.Calco2019.ParametrizedGuardedElgotMonad
