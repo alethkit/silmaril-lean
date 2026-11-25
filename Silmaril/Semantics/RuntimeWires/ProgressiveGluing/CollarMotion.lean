@@ -96,6 +96,17 @@ theorem glueWith_x_collar (w : Fin (collarCount lower)) {y : ℝ} (hy : y ∈ Se
     (m.glueWith p).x (m.gluedCollarId w) y = (p.wire w).x (4 * y - 1) :=
   Proofs.ProgressiveGluing.glueChoice_collar m p w hy
 
+/-- The only wires present anywhere in the closed collar slab are
+the renamed collar wires. -/
+theorem glueWith_collar_id_exists (w : Fin m.gluedWireCount) {y : ℝ}
+    (hy : y ∈ Set.Icc (1 / 4 : ℝ) (1 / 2)) (cover : (m.glueWith p).covers w y) :
+    ∃ c, w = m.gluedCollarId c :=
+  Proofs.ProgressiveGluing.collar_id_exists m p w hy cover
+
+theorem glueWith_vertex_outside (j : Fin (L + R)) :
+    (m.glueWith p).vertexHeight j ≤ 1 / 4 ∨ 1 / 2 ≤ (m.glueWith p).vertexHeight j :=
+  Proofs.ProgressiveGluing.glued_vertex_outside m p j
+
 /-- Changing the collar leaves vertex positions and labeled incidence fixed. -/
 theorem glueWith_fixed_data :
     (m.glueWith p).vertexX = (m.glueWith q).vertexX ∧
