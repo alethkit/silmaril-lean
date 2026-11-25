@@ -20,7 +20,7 @@ open Paper.RetainedCase (reindexHom)
 open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel contextualStep)
-open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (caseWithContext contextualLoop)
+open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (caseWithContext contextualLoop retainLeft)
 open CartesianMonoidalCategory (snd)
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 
@@ -71,6 +71,29 @@ theorem canonicalElgotCategory [HasFiniteCoproducts Comp] :
   let : Iteration Comp := canonicalIteration
   exact ⟨Paper.TypeCategory.iterate_fixpoint, Paper.TypeCategory.iterate_naturality,
     Paper.TypeCategory.iterate_codiagonal⟩
+
+section StepFactor
+
+variable {V : Type u₁} [Category.{v₁} V] [CartesianMonoidalCategory V] [SymmetricCategory V]
+  [PremonoidalCategory Comp] [SymmetricPremonoidalCategory Comp]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts Comp] [DistributiveTensor V] [DistributivePremonoidalCategory Comp]
+  (J : V ⥤ Comp) [DistributiveFreydCategory J]
+  (M : TypeModel τ V) (objIso : ∀ A : τ, J.obj (M.obj A) ≅ ofType (Φ := Φ) A)
+  {X S D : τ}
+
+/-- Factor the carried step around the transported left whiskering of the block. -/
+theorem carriedStep_factor
+    (whisker : ∀ {Y A B : τ} (f : J.obj (M.obj A) ⟶ J.obj (M.obj B)),
+      reindexHom J M objIso (J.map (M.productIso Y A).hom ≫ retainLeft J (R := M.obj Y) f ≫
+        J.map (M.productIso Y B).inv) =
+        whiskerLeft (ofType (Φ := Φ) Y) (reindexHom J M objIso f))
+    (b : J.obj (M.obj (product X S)) ⟶ J.obj (M.obj (packedExitType [S, D]))) :
+    carriedStep J M objIso X S D b =
+      capturePrefix J M objIso X S ≫ whiskerLeft (ofType X) (reindexHom J M objIso b) ≫
+        carriedRoute J M objIso X S D :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonCfgAssembly.carriedStep_factor J M objIso whisker b
+
+end StepFactor
 
 variable {V : Type u₁} [Category.{v₁} V] [CartesianMonoidalCategory V] [SymmetricCategory V]
   [PremonoidalCategory Comp] [SymmetricPremonoidalCategory Comp]

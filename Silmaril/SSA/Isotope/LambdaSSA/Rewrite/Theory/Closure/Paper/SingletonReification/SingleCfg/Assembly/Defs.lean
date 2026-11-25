@@ -4,6 +4,8 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Single
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Thms
 
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.Product.Defs
+
 /-! # The dispatcher and retained feedback at separate interfaces -/
 
 @[expose] public section
@@ -18,13 +20,17 @@ open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open SingletonDispatcher (labelInject_payload payload_labelInject)
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel)
 open Paper.TypeCategory
+open Paper.SingletonReification (packedPair)
+open Paper.RetainedCase (reindexHom)
+open CfgEta.TypeCategory.ConstructorReification (fstMap)
+open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (retainLeft)
 open Paper.RetainedLet (diagonal_typed)
 open CfgEta.TypeCategory.Retained (distributorRegion_typed)
 open CfgEta.TypeCategory (caseValueBranches productSndBranches seqValueBranches)
 open Paper.PackedBody (applyPacked_typed)
 open Paper.RetainedCase (assembleCase_typed)
 open SyntacticCategory (iterateRegion_valueBranches)
-open Silmaril.Isotope.LetIter.Semantics.Categorical (contextualStep)
+open Silmaril.Isotope.LetIter.Semantics.Categorical (contextualStep routeEnvironment)
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
@@ -86,7 +92,7 @@ def exitDecoder {τ : Type u} {Φ : Type v} : Region Φ :=
   .case (.var 0) (right.renameVars wk) (tail.renameVars wk)
 
 theorem exitDecoder_typed (S D : τ) :
-    ValueBranches [packedExitType [S,D]] (exitDecoder (τ := τ) : Region Φ) [Silmaril.coprod D S] :=
+    ValueBranches [packedExitType [S, D]] (exitDecoder (τ := τ) : Region Φ) [Silmaril.coprod D S] :=
   caseValueBranches (A := S) (B := Silmaril.coprod D Silmaril.empty)
     (.br rfl (.inr (.var rfl)))
     (caseValueBranches (A := D) (B := Silmaril.empty)
@@ -103,7 +109,7 @@ def canonicalRegion (X S : τ) (e b : Region Φ) : Region Φ :=
       (fun _ => drop.renameVars lift)))
 
 theorem canonicalRegion_typed {X S D : τ} {e b : Region Φ}
-    (he : ValueBranches [X] e [packedExitType [S,D]])
+    (he : ValueBranches [X] e [packedExitType [S, D]])
     (hb : ValueBranches [Silmaril.product X S] b
       [Silmaril.coprod (Silmaril.product X D) (Silmaril.product X S)]) :
     ValueBranches [X] (canonicalRegion X S e b) [D] :=
@@ -141,7 +147,7 @@ variable {C : Type u₂} [Category.{v₂} C]
 
 /-- Interpret a packed block at the context and local label interface of the dispatcher. -/
 noncomputable def blockComputation (J : V ⥤ C) (X S D : τ)
-    (f : J.obj (M.obj (Silmaril.product X S)) ⟶ J.obj (M.obj (packedExitType [S,D]))) :
+    (f : J.obj (M.obj (Silmaril.product X S)) ⟶ J.obj (M.obj (packedExitType [S, D]))) :
     J.obj (ctxObj M [X] ⊗ labelObj M [S]) ⟶ J.obj (labelObj M [D] ⨿ labelObj M [S]) :=
   J.map (carriedIso M X S).hom ≫ f ≫ J.map (unpackLabel M [S, D] ≫ labelAppendSplit M [S] [D])
 
@@ -164,11 +170,28 @@ noncomputable def paperCarrier (X A : τ) :
 
 /-- The ordinary carried step of the actual block, in exact singleton coordinates. -/
 noncomputable def carriedStep (X S D : τ)
-    (b : J.obj (M.obj (Silmaril.product X S)) ⟶ J.obj (M.obj (packedExitType [S,D]))) :
+    (b : J.obj (M.obj (Silmaril.product X S)) ⟶ J.obj (M.obj (packedExitType [S, D]))) :
     ofType (Φ := Φ) (Silmaril.product X S) ⟶
       ofType (Silmaril.product X D) ⨿ ofType (Silmaril.product X S) :=
   reindexStep (paperCarrier J M objIso X S) (paperCarrier J M objIso X D)
     (contextualStep J (blockComputation M J X S D b))
+
+/-- Retain the first component while forwarding the whole state pair. -/
+noncomputable def capturePrefix (X S : τ) :
+    ofType (Φ := Φ) (product X S) ⟶ ofType (product X (product X S)) :=
+  reindexHom J M objIso (J.map (packedPair M _ X _ (fstMap M X S) (𝟙 _)))
+
+/-- Route the packed block result with the retained capture to the exact sum. -/
+noncomputable def carriedRoute (X S D : τ) :
+    ofType (Φ := Φ) (product X (packedExitType [S, D])) ⟶
+      ofType (product X D) ⨿ ofType (product X S) :=
+  let E := ctxObj M [X]
+  let K := packedExitType [S, D]
+  (objIso (product X K)).inv ≫ J.map (M.productIso X K).hom ≫
+    J.map ((λ_ (M.obj X)).inv ▷ M.obj K) ≫
+    retainLeft J (R := E) (J.map (unpackLabel M [S, D] ≫ labelAppendSplit M [S] [D])) ≫
+    routeEnvironment J E (labelObj M [D]) (labelObj M [S]) ≫
+    coprod.map (paperCarrier J M objIso X D).hom (paperCarrier J M objIso X S).hom
 
 end ComputationModel
 

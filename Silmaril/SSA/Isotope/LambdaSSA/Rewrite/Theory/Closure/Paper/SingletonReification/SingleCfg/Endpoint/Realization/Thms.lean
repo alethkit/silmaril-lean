@@ -18,6 +18,12 @@ universe u v
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ] {X S D : τ}
 
+/-- Tag a repeat or exit while reading the capture from the same value slot. -/
+theorem tagCarriedExit_valueFamily (K Z : τ) :
+    LSubst.ValueFamily (Φ := Φ) [K, X, Z] [S, D]
+      [Silmaril.coprod (Silmaril.product X D) (Silmaril.product X S)] tagCarriedExit :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingleCfgRealization.tagCarriedExit_valueFamily K Z
+
 /-- Tag the two exits of a decoded, guarded block while retaining its capture. -/
 theorem realizeStep_typed {p : Region Φ} (hp : ValueBranches [S, X] p [S, D]) :
     ValueBranches [Silmaril.product X S] (realizeStep p)
