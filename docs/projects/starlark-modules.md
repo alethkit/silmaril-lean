@@ -38,20 +38,48 @@ The heap may retain unreachable allocations.
 command-sequencing and initialization rules on publication, failure and final
 state. Core top-level commands use the existing independent function and
 collection judgments. The rules use the same host catalog contract as the
-denotation. Effectful loading, recursive dependency discovery and execution,
-cycle errors, host thread callbacks and source parsing remain open.
+denotation. The finite-manifest loader adds on-demand initialization to
+this shared publication model.
 [Operational rules](../../Silmaril/Languages/Starlark/Modules/Operational/Defs.lean) · [Theorem header](../../Silmaril/Languages/Starlark/Modules/Thms.lean)
 
-The next loader slice can use a finite in-memory manifest with a
-requester-relative label map to canonical module IDs. Resolve each load
-when its command runs, initialize unseen modules on demand, and memoize
-successful publication. Track active IDs to report dependency cycles.
-The fixtures should distinguish a shared dependency reached by two labels
-from a cycle, and check propagation of a dependency failure with prior
-heap effects. Module resolution and cache policy in this slice are host
-choices. Filesystem access, host callbacks and failure caching can stay
-outside the manifest model.
-[Load statements][loading] · [Module execution][modules]
+## Finite-manifest loader
+
+`Loader.load` takes a known module ID and an optional session. A session
+keeps the shared runtime and the cache for one fixed manifest and linked
+declaration table. Manifest array indices are canonical IDs. Each entry
+provides its own label table, queried when that module executes a load.
+Distinct labels that resolve to the same ID share one successful
+initialization and the published values retain their heap identities.
+The table uses the first matching label when entries repeat.
+[Loader definitions](../../Silmaril/Languages/Starlark/Modules/Loader/Defs.lean)
+
+- A missing label reports the requester and label. An ID outside the
+  manifest reports an unknown module when it is requested.
+- A cycle reports the current path from the root through the repeated
+  ID. The path is local to the request and is discarded when it ends.
+- Validation and runtime errors carry the ID of the failing module.
+  A missing export is a failure of the importing command. Failure stops
+  the remaining commands and propagates to every waiting importer.
+- Failed modules leave no cache entry and perform no publication freeze.
+  Prior heap effects and successfully published dependencies survive,
+  so a later request can retry the failure and reuse those dependencies.
+  Callers recover their lexical and iterator state at each module exit.
+
+`runs_iff_denote` proves exact agreement with independent rules on the
+result, error, heap and cache. Descent counts inactive manifest IDs and
+pending commands, so the loader needs no fuel. A fresh Starlark thread
+and publication freeze use the same primitives as `initializeModule`.
+Canonical resolution, successful-publication caching and cycle rejection
+are policies of this host model. Filesystem I/O, concurrency, custom host
+thread state, failure caching and backtraces remain open.
+[Theorem header](../../Silmaril/Languages/Starlark/Modules/Loader/Thms.lean) · [Load statements][loading] · [Module execution][modules]
+
+The Go loader fixture supplies the same host policy through `Thread.Load`.
+It uses `Program.Init` and freezes globals only on success. This lets it
+compare dependency order, aliases and failure effects in the pinned
+engine. The cycle and cache policy come from the fixture's host, and the
+Go convenience wrapper freezes a partial mapping even on failure.
+[Lean loader fixtures](../../Silmaril/Languages/Starlark/Modules/Loader/Checks.lean) · [Go loader fixtures](../../examples/starlark/loader/check.go)
 
 The Lean fixtures cover cross-module captures, private freezing, file-local
 aliases, validation, missing exports and rollback of the scope on failure
@@ -64,17 +92,18 @@ on error.
 [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Checks.lean) · [Go fixtures](../../examples/starlark/modules/check.go) · [Pinned starlark-go][go]
 
 ```sh
-lake build --wfail +Silmaril.Languages.Starlark.Modules.Checks
+lake build --wfail +Silmaril.Languages.Starlark.Modules.Checks \
+  +Silmaril.Languages.Starlark.Modules.Loader.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
 
 ```sh
-fixture="$(pwd)/examples/starlark/modules/check.go"
+fixtures="$(pwd)/examples/starlark"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
-(cd "$oracle" && go run "$fixture")
+(cd "$oracle" && go run "$fixtures/modules/check.go" && go run "$fixtures/loader/check.go")
 ```
 
 [modules]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#module-execution

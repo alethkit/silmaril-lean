@@ -15,6 +15,11 @@ open scoped MonoidalCategory
 
 variable {S : Sig.{u}}
 
+/-- The computation associator is the inclusion of the Cartesian value associator. -/
+def tensorAssociator (A B C : SynCat S) :
+    productObj (productObj A B) C ≅ productObj A (productObj B C) :=
+  (values S).mapIso (MonoidalCategoryStruct.associator (⟨A⟩ : ValueCat S) ⟨B⟩ ⟨C⟩)
+
 /-- The tensor data uses the syntactic computations for whiskering and the
 pure Cartesian structural maps. -/
 @[instance_reducible] def computationTensor (S : Sig.{u}) : MonoidalCategoryStruct (SynCat S) where
@@ -22,14 +27,18 @@ pure Cartesian structural maps. -/
   whiskerLeft := tensorLeft
   whiskerRight f R := tensorRight R f
   tensorUnit := tensorUnit S
-  associator A B C := (values S).mapIso
-    (MonoidalCategoryStruct.associator (⟨A⟩ : ValueCat S) ⟨B⟩ ⟨C⟩)
+  associator := tensorAssociator
   leftUnitor := tensorLeftUnitor
   rightUnitor := tensorRightUnitor
 
 /-- The syntactic value and computation categories choose the same unit type. -/
 def valuesUnitIso (S : Sig.{u}) :
     tensorUnit S ≅ (values S).obj (𝟙_ (ValueCat S)) :=
+  Iso.refl _
+
+/-- The value and computation tensors choose identical product objects. -/
+def valuesTensorIso (A B : ValueCat S) :
+    productObj A.obj B.obj ≅ (values S).obj (A ⊗ B) :=
   Iso.refl _
 
 end Silmaril.Thesis.LambdaIter.Syn.SynCat

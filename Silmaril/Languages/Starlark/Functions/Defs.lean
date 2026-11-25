@@ -20,6 +20,9 @@ inductive Body where
   | total (code : Suite 0)
   | seq (first rest : Body)
   | branch (test : Lists.Expr) (yes no : Body)
+  | forIn (target : Binding) (iterable : Lists.Expr) (body : Body)
+  | breakLoop
+  | continueLoop
   | define (target : Binding) (declaration : DeclarationId)
   | call (target : Option Binding) (callee : Lists.Expr) (arguments : Arguments)
 
@@ -109,15 +112,20 @@ def prepare (program : Program) (available : List DeclarationId) (arguments : Ar
     | _ => throw .notCallable
   | [] => throw .notCallable
 
-def Body.validateCalls : Body → Except CallStaticError Unit
+def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
   | .seq first rest => do
-    first.validateCalls
-    rest.validateCalls
+    first.validateIn inLoop
+    rest.validateIn inLoop
   | .branch _ yes no => do
-    yes.validateCalls
-    no.validateCalls
+    yes.validateIn inLoop
+    no.validateIn inLoop
+  | .forIn _ _ body => body.validateIn true
+  | .breakLoop => if inLoop then pure () else throw .breakOutsideLoop
+  | .continueLoop => if inLoop then pure () else throw .continueOutsideLoop
   | .call _ _ arguments => arguments.validate
   | .define .. | .total _ => pure ()
+
+def Body.validateCalls (body : Body) : Except CallStaticError Unit := body.validateIn false
 
 def validate (program : Program) (body : Body) : Except CallStaticError Unit := do
   for declaration in program do

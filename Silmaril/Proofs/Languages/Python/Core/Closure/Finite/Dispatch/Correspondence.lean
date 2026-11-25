@@ -68,7 +68,6 @@ theorem dispatch_project (rows : CodeRows Body) (callee : Value) (arguments : Li
     (dispatch rows callee arguments heap caller stack).map Active.project =
       Silmaril.Languages.Python.Core.Closure.Dispatch.dispatch rows.project callee arguments heap.project caller stack := by
   cases callee with
-  | int value => rfl
   | function fn =>
     simp only [dispatch, Silmaril.Languages.Python.Core.Closure.Dispatch.dispatch]
     cases Silmaril.Languages.Python.Core.Closure.Dispatch.resolve rows.project fn.code with
@@ -77,6 +76,7 @@ theorem dispatch_project (rows : CodeRows Body) (callee : Value) (arguments : Li
       simp only
       rw [← enter_project fn definition.parameters arguments heap caller stack]
       cases enter fn definition.parameters arguments heap <;> rfl
+  | _ => rfl
 
 theorem finish_project (heap : HeapTable) (stack : List (Call.Saved Continuation)) (result : Result) :
     (finish heap stack result).project = Call.finish heap.project stack result := by
