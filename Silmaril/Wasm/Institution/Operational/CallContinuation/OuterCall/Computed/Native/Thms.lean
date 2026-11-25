@@ -69,6 +69,19 @@ theorem lime_direct_call_iff {H : Type} {s : Wasm.Lime1.Execution.Store H} {f : 
   Proofs.Lime1.call_iff lookup
 
 open Wasm.Lime1.Execution in
+theorem lime_call_indirect_iff {H : Type} {s : Store H} {f : Frame} {stack : List Value}
+    {index : TypeIdx} {selector : BitVec 32} {table : Execution.Runtime.TableInst} {ft : V1.FuncType}
+    {rest : List Admin} {dst : Config H}
+    (tableFound : frameTable s f = some table) (typeFound : f.module.types[index.toNat]? = some ft) :
+    Step CallFrame.limeNoHost
+      ⟨s, f, values (stack ++ [Value.int .i32 selector]) ++ .source (.callIndirect index) :: rest⟩ dst ↔
+      ((table.refs[selector.toNat]? = none ∨ table.refs[selector.toNat]? = some none) ∧
+        dst = ⟨s, f, values stack ++ .trap :: rest⟩) ∨
+      ∃ addr fn, table.refs[selector.toNat]? = some (some addr) ∧ s.funcs[addr.value]? = some fn ∧
+        dst = ⟨s, f, values stack ++ (if fn.type = ft then .invoke addr else .trap) :: rest⟩ :=
+  Proofs.Lime1.call_indirect_iff tableFound typeFound
+
+open Wasm.Lime1.Execution in
 theorem lime_block_step_iff {H : Type} {s : Store H} {f : Frame} {bt : Wasm.Lime1.BlockType}
     {stack : List Value} {body : Wasm.Lime1.Expr} {rest : List Admin} {dst : Config H} :
     Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.block bt body) :: rest⟩ dst ↔
