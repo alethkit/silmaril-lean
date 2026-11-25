@@ -15,20 +15,55 @@ namespace Silmaril.Languages.Python.Source
 abbrev Name := String
 
 inductive BinaryOperator where
-  | add | sub | mul
+  | add | sub | mul | trueDiv | floorDiv | modulo | pow | matrixMul
+  | bitAnd | bitOr | bitXor | shiftLeft | shiftRight
+  deriving Repr
+
+inductive UnaryOperator where
+  | positive | negative | invert | not_
+  deriving Repr
+
+inductive BooleanOperator where
+  | and_ | or_
+  deriving Repr
+
+inductive Comparison where
+  | eq | ne | lt | le | gt | ge | is_ | isNot | in_ | notIn
+  deriving Repr
+
+inductive UnsupportedExpr where
+  | listComprehension | setComprehension | dictComprehension | generatorExpression | bytesLiteral
+  deriving BEq, DecidableEq, Repr
+
+inductive ArgumentKind where
+  | positional | keyword (name : Name) | unpackIterable | unpackMapping
   deriving Repr
 
 mutual
   inductive Expr where
     | name (identifier : Name)
     | integer (value : Int)
+    | floatBits (bits : UInt64)
+    | text (codepoints : List UInt32)
     | boolean (value : Bool)
     | none_
+    | ellipsis
+    | list_ (elements : List Expr)
+    | tuple (elements : List Expr)
+    | dictionary (entries : List (Option Expr × Expr))
+    | unary (operator : UnaryOperator) (operand : Expr)
     | binary (operator : BinaryOperator) (left right : Expr)
+    | booleanOp (operator : BooleanOperator) (operands : List Expr)
+    | conditional (condition consequent alternate : Expr)
+    | comparison (left : Expr) (rest : List (Comparison × Expr))
     | call (callee : Expr) (arguments : List Expr)
+    | callWith (callee : Expr) (arguments : List (ArgumentKind × Expr))
     | attribute (receiver : Expr) (field : Name)
     | subscript (receiver index : Expr)
+    | slice (receiver : Expr) (lower upper stride : Option Expr)
+    | yield_ (value : Option Expr)
     | lambda (parameters : List Parameter) (body : Expr)
+    | unsupported (form : UnsupportedExpr)
     deriving Repr
 
   structure Parameter where

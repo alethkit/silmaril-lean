@@ -34,6 +34,12 @@ targets and selective import aliases also bind in the current block.
 Star imports report an explicit diagnostic because their bindings would
 depend on a runtime module.
 
+Expression syntax retains collections, comparison chains, slices, yield
+operands and call argument forms. Text literals carry code points, including
+lone surrogates. Floating literals carry binary64 bits. Scope visits all
+dictionary keys before values. The constructor profile reports unsupported
+comprehensions, generator expressions and bytes literals explicitly.
+
 `enclosingBinding_eq_some_iff` characterizes successful executable lookup
 with an inductive nearest-binder judgment. `enclosingBinding_stops`
 characterizes lookup at a barrier. The regression exercises the full

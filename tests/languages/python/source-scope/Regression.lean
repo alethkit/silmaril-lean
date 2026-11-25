@@ -175,6 +175,32 @@ private def statementScopes : List Stmt :=
   some ⟨[0], .boundBeforeDirective "alias" .global_⟩
 #guard diagnose [.importFrom ["pkg"] 0 [⟨"*", none⟩]] == some ⟨[], .starImport⟩
 
+private def expressionScopes : List Stmt :=
+  [.functionDef "f" [] [
+    .expression (.dictionary [
+      (some (.lambda [] (.name "keyOne")), .lambda [] (.name "valueOne")),
+      (some (.lambda [] (.name "keyTwo")), .lambda [] (.name "valueTwo"))]),
+    .expression (.callWith (.name "callee") [
+      (.keyword "label", .unary .negative (.name "arg")),
+      (.unpackIterable, .slice (.name "array") (some (.name "lo")) none (some (.name "stride"))),
+      (.unpackMapping, .name "opts")]),
+    .expression (.yield_ (some (.conditional
+      (.booleanOp .and_ [.name "cond", .comparison (.name "lo") [(.lt, .name "hi")]])
+      (.list_ [.floatBits 0, .name "yes"])
+      (.tuple [.text [0, 0xd800], .ellipsis, .name "no"]))))]]
+
+#guard inspect expressionScopes [0, 0] "keyOne" == some .implicitGlobal
+#guard inspect expressionScopes [0, 1] "keyTwo" == some .implicitGlobal
+#guard inspect expressionScopes [0, 2] "valueOne" == some .implicitGlobal
+#guard inspect expressionScopes [0, 3] "valueTwo" == some .implicitGlobal
+#guard inspect expressionScopes [0] "label" == none
+#guard ["callee", "arg", "array", "lo", "stride", "opts", "cond", "hi", "yes", "no"].all
+  (fun name => inspect expressionScopes [0] name == some .implicitGlobal)
+#guard diagnose [.assign "x" (.tuple [.unsupported .listComprehension])] ==
+  some ⟨[], .unsupportedExpression .listComprehension⟩
+#guard diagnose [.functionDef "f" [] [.return_ (some (.unsupported .bytesLiteral))]] ==
+  some ⟨[0], .unsupportedExpression .bytesLiteral⟩
+
 #print axioms enclosingBinding_eq_some_iff
 #print axioms enclosingBinding_stops
 #print axioms enclosingBinding_skips_class
