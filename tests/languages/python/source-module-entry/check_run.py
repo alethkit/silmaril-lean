@@ -67,6 +67,14 @@ after = 9
     bad = 1
 result = 2
 """, {}, {"result": 2, "bad": None}, "normal", ".normal", 2),
+    ("literal_conditional_types", """truth = False if -1 else missing
+number = 1 // 0 if 0 else 0
+assert not_reached if False else 1
+""", {}, {"truth": False, "number": 0}, "normal", ".normal", 3),
+    ("literal_conditional_error", """result = 7
+result = missing if 0 else 1 // 0
+after = 9
+""", {}, {"result": 7, "after": None}, "ZeroDivisionError", ".raised (.arithmetic .zeroDivisionError)", 2),
 )
 
 UNSUPPORTED_INDEXING = (
@@ -92,6 +100,10 @@ REJECTED_BRANCHES = (
     ("if False:\n    nonlocal hidden\n", '.scope ⟨[], .nonlocalInModule "hidden"⟩'),
     ("hidden = 1\nif False:\n    global hidden\n",
      '.scope ⟨[], .boundBeforeDirective "hidden" .global_⟩'),
+    ("flag = 1\nresult = 2 if flag else 3\n", ".expressionProfile"),
+    ("result = 2 if True else (lambda: 3)\n", ".expressionProfile"),
+    ("result = f() if False else 3\n", ".expressionProfile"),
+    ("result = 1 if True else [3][1]\n", ".expressionProfile"),
 )
 
 CPYTHON = """
@@ -160,7 +172,9 @@ if __name__ == "__main__":
                 [sys.executable, "-I", "-c", CPYTHON, str(python_file), json.dumps(names), json.dumps(seeds)],
                 check=True, capture_output=True, text=True, timeout=10,
             )
-            assert json.loads(reference.stdout) == [completion, namespace], (name, reference.stdout)
+            actual_completion, actual = json.loads(reference.stdout)
+            assert (actual_completion, actual) == (completion, namespace), (name, reference.stdout)
+            assert all(type(actual[key]) is type(value) for key, value in namespace.items()), (name, actual)
             bindings = ", ".join(f"({json.dumps(key)}, {lean_value(value)})" for key, value in seeds.items())
             values = ", ".join("none" if value is None else "some (" + lean_value(value) + ")"
                                for value in namespace.values())
