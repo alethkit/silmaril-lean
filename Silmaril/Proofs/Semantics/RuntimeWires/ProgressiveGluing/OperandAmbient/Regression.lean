@@ -2,8 +2,7 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.FixedCapCategory.Thms
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.Premonoidal.Thms
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapReadout.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapWhiskering.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapClasses.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.Associator.Contacts
@@ -944,6 +943,23 @@ example :
       (congrArg Sliced.SeamHom.ofSheet ((fixedFrame halfway).readSheet_vertexFree rfl rfl))
   rw [Functor.map_comp, bend, Category.id_comp]
   exact FixedCap.toSliced_recoordinate shifted_types
+
+private abbrev slicedReadout := FixedCap.toSliced signature
+
+/-- The same bent drawing is placed beside two idle wires in either orientation. -/
+example :
+    slicedReadout.map (bentShiftMap ▷ idleCap) =
+      (FixedCap.toSlicedTensorIso capObject idleCap).inv ≫
+        slicedReadout.map bentShiftMap ▷ slicedReadout.obj idleCap ≫
+        (FixedCap.toSlicedTensorIso shiftedCap idleCap).hom :=
+  FixedCap.toSliced_whiskerRight bentShiftMap idleCap
+
+example :
+    slicedReadout.map (idleCap ◁ bentShiftMap) =
+      (FixedCap.toSlicedTensorIso idleCap capObject).inv ≫
+        slicedReadout.obj idleCap ◁ slicedReadout.map bentShiftMap ≫
+        (FixedCap.toSlicedTensorIso idleCap shiftedCap).hom :=
+  FixedCap.toSliced_whiskerLeft idleCap bentShiftMap
 
 end
 
