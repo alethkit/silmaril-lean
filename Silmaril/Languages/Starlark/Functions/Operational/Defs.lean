@@ -63,6 +63,16 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       {iterable : Lists.Expr} {body : Body} {value : Outcome Lists.Value} {error : Error} :
       Eval s iterable value → Outcome.resume value iterationSource = .error error t →
       Exec program available s (.forIn target iterable body) (.error error t)
+  | forInExpr {available : List DeclarationId} {s t : State} {target : Binding}
+      {iterable : Lowering.Expr} {body : Body} {value : Outcome Lists.Value} {address : Address}
+      {items : List Lists.Value} {out : Outcome Flow} :
+      ExecExpr program available s iterable value → Outcome.resume value iterationSource = .ok (address, items) t →
+      ExecItems program available target body items (pushIterator t address) out →
+      Exec program available s (.forInExpr target iterable body) (restoreIterators t.iterators out)
+  | forInExprError {available : List DeclarationId} {s t : State} {target : Binding}
+      {iterable : Lowering.Expr} {body : Body} {value : Outcome Lists.Value} {error : Error} :
+      ExecExpr program available s iterable value → Outcome.resume value iterationSource = .error error t →
+      Exec program available s (.forInExpr target iterable body) (.error error t)
   | breakLoop {available : List DeclarationId} {s : State} :
       Exec program available s .breakLoop (.ok .breakLoop s)
   | continueLoop {available : List DeclarationId} {s : State} :

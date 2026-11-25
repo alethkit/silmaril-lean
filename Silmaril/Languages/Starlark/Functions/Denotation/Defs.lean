@@ -7,7 +7,7 @@ public import Silmaril.Languages.Starlark.Functions.Expressions.Denotation.Defs
 namespace Silmaril.Languages.Starlark.Functions
 
 open Lists
-open Lists.Iteration (Flow denoteSuite truth iterationSource restoreIterators pushIterator denoteItems)
+open Lists.Iteration (Flow denoteSuite truth denoteForIn)
 
 /-- Structural evaluation within a frame and strict descent through the
 finite set of declarations not on the call stack on invocation. -/
@@ -32,9 +32,9 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
     Outcome.resume (Outcome.resume (evalExpr test) truth) fun flag next =>
       if flag then denoteBody program available yes next else denoteBody program available no next
   | .forIn target iterable body =>
-    Outcome.resume (Outcome.resume (denote iterable state) iterationSource) fun (address, items) next =>
-      restoreIterators next.iterators (denoteItems target (denoteBody program available body)
-        items (pushIterator next address))
+    denoteForIn target (denoteBody program available body) (denote iterable state)
+  | .forInExpr target iterable body =>
+    denoteForIn target (denoteBody program available body) (evalExpr iterable)
   | .breakLoop => .ok .breakLoop state
   | .continueLoop => .ok .continueLoop state
   | .define target id =>

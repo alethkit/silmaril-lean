@@ -118,6 +118,11 @@ example : Exec #[] [] input (.assignExpr destination keywordFailure)
   (exec_assignExpr_iff_denoteExpr #[] [] destination keywordFailure input _).mpr
     (by simp only [denoteExpr_eq_of_evaluates keywordFailure_runs, Lists.Outcome.resume])
 
+example : Exec #[] [] input (.forInExpr destination keywordFailure .breakLoop)
+    (.error (.builtinType .len (.scalar .none)) (marked input [1, 2])) :=
+  (exec_forInExpr_iff_denoteExpr #[] [] destination keywordFailure .breakLoop input _).mpr
+    (by simp only [denoteExpr_eq_of_evaluates keywordFailure_runs, Lists.Iteration.denoteForIn, Lists.Outcome.resume])
+
 example : ∃ final,
     denoteBody #[] [] (lower keywordFailure destination).code input =
       .error (.builtinType .len (.scalar .none)) final ∧

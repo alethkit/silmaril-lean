@@ -15,7 +15,7 @@ open Silmaril.Languages.Starlark (Binding)
 open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Lists
 open Silmaril.Languages.Starlark.Lists.Iteration
-  (Flow Runs runs_iff_denoteSuite truth iterationSource denoteItems)
+  (Flow Runs runs_iff_denoteSuite truth iterationSource denoteItems denoteForIn)
 
 private theorem branch_apply (program : Program) (available : List DeclarationId)
     (flag : Bool) (yes no : Body) (state : State) :
@@ -38,7 +38,7 @@ theorem denote_eq_of_exec {program : Program} {available : List DeclarationId} {
     (try have evaluated := (eval_iff_denote _ _ _).mp (by assumption)) <;>
     (try have total := (runs_iff_denoteSuite _ _ _).mp (by assumption)) <;>
     (try have invoked := (Builtins.invokes_iff_invoke _ _ _ _).mp (by assumption)) <;>
-    simp_all [denoteBody, denoteItems, Outcome.resume]
+    simp_all [denoteBody, denoteForIn, denoteItems, Outcome.resume]
   case seqStop signal _ _ _ =>
     cases signal <;> simp_all <;> rfl
   case branch =>
@@ -123,6 +123,7 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
       · exact .branchExpr (exprRun test) h (exec_denote program available yes next)
   | forIn target iterable body =>
     rw [denoteBody]
+    unfold denoteForIn
     have evaluated := (eval_iff_denote iterable state _).mpr rfl
     cases h : Outcome.resume (denote iterable state) iterationSource with
     | error error next => exact .forError evaluated h
@@ -130,6 +131,18 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
       obtain ⟨address, items⟩ := source
       exact .forIn evaluated h (exec_items program available target body (denoteBody program available body)
         (exec_denote program available body) items _)
+  | forInExpr target iterable body =>
+    rw [denoteBody]
+    change Exec program available state (.forInExpr target iterable body)
+      (denoteForIn target (denoteBody program available body)
+        (Lowering.denoteExprWith program available execute iterable state))
+    unfold denoteForIn
+    cases h : Outcome.resume (Lowering.denoteExprWith program available execute iterable state) iterationSource with
+    | error error next => exact .forInExprError (exprRun iterable) h
+    | ok source next =>
+      obtain ⟨address, items⟩ := source
+      exact .forInExpr (exprRun iterable) h (exec_items program available target body
+        (denoteBody program available body) (exec_denote program available body) items _)
   | breakLoop =>
     rw [denoteBody]
     exact .breakLoop

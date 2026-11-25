@@ -15,7 +15,7 @@ abbrev DeclarationId := Nat
 def withoutDeclaration (available : List DeclarationId) (id : DeclarationId) : List DeclarationId :=
   available.filter (· != id)
 
-/-- Resolved function code with direct expression returns, assignments and tests. -/
+/-- Resolved function code with direct expression operands. -/
 inductive Body where
   | total (code : Suite 0)
   | returnExpr (value : Lowering.Expr)
@@ -24,6 +24,7 @@ inductive Body where
   | branch (test : Lists.Expr) (yes no : Body)
   | branchExpr (test : Lowering.Expr) (yes no : Body)
   | forIn (target : Binding) (iterable : Lists.Expr) (body : Body)
+  | forInExpr (target : Binding) (iterable : Lowering.Expr) (body : Body)
   | breakLoop
   | continueLoop
   | define (target : Binding) (declaration : DeclarationId)
@@ -130,6 +131,9 @@ def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
     yes.validateIn inLoop
     no.validateIn inLoop
   | .forIn _ _ body => body.validateIn true
+  | .forInExpr _ iterable body => do
+    iterable.validateCalls
+    body.validateIn true
   | .breakLoop => if inLoop then pure () else throw .breakOutsideLoop
   | .continueLoop => if inLoop then pure () else throw .continueOutsideLoop
   | .call _ _ arguments => arguments.validate

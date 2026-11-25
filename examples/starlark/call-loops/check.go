@@ -60,4 +60,39 @@ xs.append(3)`)
 	require(g["out"].String() == "1" && g["events"].String() == "[0, 0]" &&
 		g["xs"].String() == "[0, 1, 2, 3]", "loop flow, effects, or cleanup differed")
 	fmt.Println("PASS nested calls keep effects through break, continue, and return")
+
+	const prepare = `def prepare(xs):
+    xs.append(3)
+    return xs
+xs = [1, 2]
+seen = []
+`
+	g, err = initSource(prepare + `def visit():
+    for x in prepare(xs):
+        seen.append(x)
+visit()`)
+	require(err == nil && g["xs"].String() == "[1, 2, 3]" && g["seen"].String() == "[1, 2, 3]",
+		fmt.Sprint(err))
+	fmt.Println("PASS the iterable call runs once and its mutation enters the snapshot")
+
+	g, err = initSource(prepare + `def visit():
+    for x in len(prepare(xs) and 9):
+        seen.append(x)
+visit()`)
+	require(err != nil && strings.Contains(err.Error(), "has no len"), fmt.Sprint(err))
+	xs = g["xs"].(*starlark.List)
+	require(xs.String() == "[1, 2, 3]" && g["seen"].String() == "[]" && xs.Append(starlark.MakeInt(4)) == nil,
+		"an operand error must retain its mutation without leaving an iterator or running the loop body")
+	fmt.Println("PASS an iterable operand error keeps its effects before iterator acquisition")
+
+	g, err = initSource(prepare + `def visit():
+    alias = xs
+    for x in prepare(xs):
+        alias.append(4)
+visit()`)
+	require(err != nil && strings.Contains(err.Error(), "during iteration"), fmt.Sprint(err))
+	xs = g["xs"].(*starlark.List)
+	require(xs.String() == "[1, 2, 3]" && xs.Append(starlark.MakeInt(4)) == nil,
+		"the loop's guard must reject the alias write and then be released on failure")
+	fmt.Println("PASS alias mutation is guarded after acquisition and the guard is released on error")
 }
