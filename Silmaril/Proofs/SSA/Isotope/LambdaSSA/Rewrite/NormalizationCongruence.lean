@@ -94,6 +94,24 @@ theorem substitutionEquiv_normalize {Γ : VCtx τ} {L : LCtx τ} {r s : Region �
   | caseValue ha hr =>
       simpa only [bindBranchArguments, bindBranchArguments_substVars] using
         SubstitutionEquiv.caseValue ha hr.bindBranchArguments.hasType
+  | @caseCfg Γ e A B l L r he hl hr =>
+      let R : Fin 2 → τ := Fin.cases A (fun _ => B)
+      have hl' := hl.bindBranchArguments.hasType
+      have hr' := hr.bindBranchArguments.hasType
+      have hmain := SubstitutionEquiv.caseCfg he hl' hr'
+      refine hmain.trans ?_
+      have hleft : SubstitutionEquiv (A :: Γ) (.br 0 (.var 0) : Region Φ)
+          (Region.br 0 (.var 0)).bindBranchArguments (List.ofFn R ++ L) :=
+        (normalizedBranch (localAt R 0 _) (.var (i := 0) rfl)).symm
+      have hright : SubstitutionEquiv (B :: Γ) (.br 1 (.var 0) : Region Φ)
+          (Region.br 1 (.var 0)).bindBranchArguments (List.ofFn R ++ L) :=
+        (normalizedBranch (localAt R 1 _) (.var (i := 0) rfl)).symm
+      refine .cfg R (.case he hleft hright) (fun i => ?_)
+      refine Fin.cases ?_ (fun j => ?_) i
+      · simp only [Fin.cases_zero, bindBranchArguments_renameLabels]
+        exact .base (.refl (hl'.renameLabels (fun _ _ hi => exitAt R hi)))
+      · simp only [Fin.cases_succ, bindBranchArguments_renameLabels]
+        exact .base (.refl (hr'.renameLabels (fun _ _ hi => exitAt R hi)))
   | initial ha hr hs => exact .initial ha hr.bindBranchArguments.hasType hs.bindBranchArguments.hasType
   | cfgOutward R hr hb =>
       simpa only [bindBranchArguments, bindBranchArguments_renameLabels] using
