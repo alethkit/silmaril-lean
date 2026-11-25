@@ -19,10 +19,10 @@ open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruc
   cfgRun_mapOut finish enter step mapOut mapTerminal shiftOut insideMap enter_insideMap
   finish_mapTerminalOn step_typed enter_typed mapOut_liftN liftLSubstN_local liftLSubstN_out)
 
-variable {markPairLet : Bool}
+variable {observation : TermObservation}
 
-local notation "evalTerm" => evalTermWith markPairLet
-local notation "evalRegion" => evalRegionWith markPairLet
+local notation "evalTerm" => evalTermWith observation
+local notation "evalRegion" => evalRegionWith observation
 
 theorem evalRegion_renameLabels (r : Region Empty) (ρ : Nat → Nat) (env : Env) :
     evalRegion (r.renameLabels ρ) env = mapOut (fun i v => .jump (ρ i) v) (evalRegion r env) := by
@@ -82,7 +82,7 @@ theorem evalRegion_lsubst {Γ : VCtx (Ty Empty)} {r : Region Empty} {L : LCtx (T
     evalRegion (r.lsubst σ) env = mapOut (fun i v => evalRegion (σ i) (extend env v)) (evalRegion r env) := by
   induction hr generalizing env σ with
   | br hi ht =>
-    obtain ⟨v, eq, hv⟩ := evalValue (markPairLet := markPairLet) ht h
+    obtain ⟨v, eq, hv⟩ := evalValue (observation := observation) ht h
     rw [lsubst, evalRegion_subst _ (RealizesWith.single eq (value_startsLet ht)), evalRegionWith, eq]
     rfl
   | @let₁ _ t _ _ _ ht _ ih =>

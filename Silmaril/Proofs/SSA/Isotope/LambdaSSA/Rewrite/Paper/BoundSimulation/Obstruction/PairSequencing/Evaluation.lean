@@ -2,11 +2,11 @@ module
 
 public import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Evaluation
 
-/-! # Evaluation that distinguishes unary lets in pair operands
+/-! # Syntactic tests in the expression observer
 
-This observer sequences a term let at the root. A pair faults if either
-operand starts with a unary let. This head test is stable under the
-constructor substitutions used by the equational rules.
+The pair test faults if either operand starts with a unary let. The term-case
+test faults at an expression case. Both tests are stable under the constructor
+substitutions used by the equational rules.
 -/
 
 @[expose] public section
@@ -47,52 +47,58 @@ theorem startsLet_substOn {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
 theorem value_startsLet {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
     (ht : Tm.BranchValue Γ t A) : startsLet t = false := by cases ht <;> rfl
 
-/-- The marked observer faults at an immediate unary-let pair operand.
-The unmarked observer evaluates both pair operands in order. -/
-def evalTermWith (markPairLet : Bool) : Tm Empty → Env → Option Val
+/-- Syntactic tests on expression evaluation. Region-level cases always evaluate the scrutinee. -/
+structure TermObservation where
+  pairLet : Bool := false
+  caseTerm : Bool := false
+
+/-- Evaluate expressions while respecting the selected syntactic tests. -/
+def evalTermWith (observation : TermObservation) : Tm Empty → Env → Option Val
   | .var i, env => some (env i)
   | .op p _, _ => p.elim
   | .let₁ x t, env => do
-      let v ← evalTermWith markPairLet x env
-      evalTermWith markPairLet t (extend env v)
+      let v ← evalTermWith observation x env
+      evalTermWith observation t (extend env v)
   | .unit, _ => some .unit
   | .pair x y, env =>
-      if markPairLet && (startsLet x || startsLet y) then none
+      if observation.pairLet && (startsLet x || startsLet y) then none
       else do
-        let v ← evalTermWith markPairLet x env
-        let w ← evalTermWith markPairLet y env
+        let v ← evalTermWith observation x env
+        let w ← evalTermWith observation y env
         pure (.pair v w)
   | .let₂ x t, env => do
-      let .pair v w ← evalTermWith markPairLet x env | none
-      evalTermWith markPairLet t (extend (extend env v) w)
-  | .inl x, env => (evalTermWith markPairLet x env).map Value.inl
-  | .inr x, env => (evalTermWith markPairLet x env).map Value.inr
-  | .case x l r, env => match evalTermWith markPairLet x env with
-      | some (.inl v) => evalTermWith markPairLet l (extend env v)
-      | some (.inr v) => evalTermWith markPairLet r (extend env v)
-      | _ => none
+      let .pair v w ← evalTermWith observation x env | none
+      evalTermWith observation t (extend (extend env v) w)
+  | .inl x, env => (evalTermWith observation x env).map Value.inl
+  | .inr x, env => (evalTermWith observation x env).map Value.inr
+  | .case x l r, env =>
+      if observation.caseTerm then none else
+        match evalTermWith observation x env with
+        | some (.inl v) => evalTermWith observation l (extend env v)
+        | some (.inr v) => evalTermWith observation r (extend env v)
+        | _ => none
   | .abort _, _ => none
 
-noncomputable def evalRegionWith (markPairLet : Bool) : Region Empty → Env → Result
-  | .br i t, env => match evalTermWith markPairLet t env with
+noncomputable def evalRegionWith (observation : TermObservation) : Region Empty → Env → Result
+  | .br i t, env => match evalTermWith observation t env with
       | some v => .jump i v
       | none => .fault
-  | .let₁ x r, env => match evalTermWith markPairLet x env with
-      | some v => evalRegionWith markPairLet r (extend env v)
+  | .let₁ x r, env => match evalTermWith observation x env with
+      | some v => evalRegionWith observation r (extend env v)
       | _ => .fault
-  | .let₂ x r, env => match evalTermWith markPairLet x env with
-      | some (.pair v w) => evalRegionWith markPairLet r (extend (extend env v) w)
+  | .let₂ x r, env => match evalTermWith observation x env with
+      | some (.pair v w) => evalRegionWith observation r (extend (extend env v) w)
       | _ => .fault
-  | .case x l r, env => match evalTermWith markPairLet x env with
-      | some (.inl v) => evalRegionWith markPairLet l (extend env v)
-      | some (.inr v) => evalRegionWith markPairLet r (extend env v)
+  | .case x l r, env => match evalTermWith observation x env with
+      | some (.inl v) => evalRegionWith observation l (extend env v)
+      | some (.inr v) => evalRegionWith observation r (extend env v)
       | _ => .fault
-  | .cfg e n bs, env => cfgRun n (fun i v => evalRegionWith markPairLet (bs i) (extend env v)) (evalRegionWith markPairLet e env)
+  | .cfg e n bs, env => cfgRun n (fun i v => evalRegionWith observation (bs i) (extend env v)) (evalRegionWith observation e env)
 
-variable {markPairLet : Bool}
+variable {observation : TermObservation}
 
-local notation "evalTerm" => evalTermWith markPairLet
-local notation "evalRegion" => evalRegionWith markPairLet
+local notation "evalTerm" => evalTermWith observation
+local notation "evalRegion" => evalRegionWith observation
 
 theorem evalTerm_rename (t : Tm Empty) {env env' : Env} {ρ : Nat → Nat}
     (h : ∀ i, env' (ρ i) = env i) : evalTerm (t.rename ρ) env' = evalTerm t env := by
@@ -116,17 +122,19 @@ theorem evalTerm_rename (t : Tm Empty) {env env' : Env} {ρ : Nat → Nat}
   | inl _ ix => simp only [Tm.rename, evalTermWith, ix h]
   | inr _ ix => simp only [Tm.rename, evalTermWith, ix h]
   | case x l r ix il ir =>
-    simp only [Tm.rename, evalTermWith, ix h]
+    by_cases hm : observation.caseTerm
+    · simp [Tm.rename, evalTermWith, hm]
+    simp only [Tm.rename, evalTermWith, ix h, hm]
     cases evalTerm x env with
     | none => rfl
     | some v =>
       cases v <;> first | rfl | exact il (extend_rename h _) | exact ir (extend_rename h _)
   | abort _ _ => rfl
 
-def RealizesWith (markPairLet : Bool) (env env' : Env) (θ : Nat → Tm Empty) : Prop :=
-  ∀ i, evalTermWith markPairLet (θ i) env = some (env' i) ∧ startsLet (θ i) = false
+def RealizesWith (observation : TermObservation) (env env' : Env) (θ : Nat → Tm Empty) : Prop :=
+  ∀ i, evalTermWith observation (θ i) env = some (env' i) ∧ startsLet (θ i) = false
 
-local notation "Realizes" => RealizesWith markPairLet
+local notation "Realizes" => RealizesWith observation
 
 theorem RealizesWith.lift {env env' : Env} {θ : Nat → Tm Empty} (h : Realizes env env' θ) (v : Val) :
     Realizes (extend env v) (extend env' v) (Tm.liftSubst θ) := by
@@ -164,7 +172,9 @@ theorem evalTerm_subst (t : Tm Empty) {env env' : Env} {θ : Nat → Tm Empty}
   | inl _ ix => simp only [Tm.subst, evalTermWith, ix h]
   | inr _ ix => simp only [Tm.subst, evalTermWith, ix h]
   | case x l r ix il ir =>
-    simp only [Tm.subst, evalTermWith, ix h]
+    by_cases hm : observation.caseTerm
+    · simp [Tm.subst, evalTermWith, hm]
+    simp only [Tm.subst, evalTermWith, ix h, hm]
     cases evalTerm x env' with
     | none => rfl
     | some v => cases v <;> first | rfl | exact il (h.lift _) | exact ir (h.lift _)
@@ -225,7 +235,7 @@ theorem evalTerm_typed {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
     | none => simp [evalTermWith, hx] at he
     | some x => exact ib (h.extend (ia h hx)) (by simpa [evalTermWith, hx] using he)
   | @pair _ a b _ _ _ _ ix iy =>
-    by_cases guard : (markPairLet && (startsLet a || startsLet b)) = true
+    by_cases guard : (observation.pairLet && (startsLet a || startsLet b)) = true
     · simp [evalTermWith, guard] at he
     · cases hx : evalTerm a env with
       | none => simp [evalTermWith, guard, hx] at he
@@ -258,12 +268,14 @@ theorem evalTerm_typed {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
       subst v
       exact .inr (it h hx)
   | @case _ a _ _ _ _ _ _ _ _ ix il ir =>
+    by_cases hm : observation.caseTerm
+    · simp [evalTermWith, hm] at he
     cases hx : evalTerm a env with
-    | none => simp [evalTermWith, hx] at he
+    | none => simp [evalTermWith, hm, hx] at he
     | some x =>
       cases ix h hx with
-      | inl hv => exact il (h.extend hv) (by simpa [evalTermWith, hx] using he)
-      | inr hv => exact ir (h.extend hv) (by simpa [evalTermWith, hx] using he)
+      | inl hv => exact il (h.extend hv) (by simpa [evalTermWith, hm, hx] using he)
+      | inr hv => exact ir (h.extend hv) (by simpa [evalTermWith, hm, hx] using he)
   | abort => cases he
 
 theorem evalValue {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
@@ -317,10 +329,10 @@ theorem evalRegion_typed {Γ : VCtx (Ty Empty)} {r : Region Empty} {L : LCtx (Ty
     rw [evalRegionWith]
     exact cfgRun_typed R _ (ie h) (fun i _ hv => ib i (h.extend hv))
 
-def RealizesOnWith (markPairLet : Bool) (Γ : VCtx (Ty Empty)) (env env' : Env) (θ : Nat → Tm Empty) : Prop :=
-  ∀ i A, At Γ i A → evalTermWith markPairLet (θ i) env = some (env' i) ∧ startsLet (θ i) = false
+def RealizesOnWith (observation : TermObservation) (Γ : VCtx (Ty Empty)) (env env' : Env) (θ : Nat → Tm Empty) : Prop :=
+  ∀ i A, At Γ i A → evalTermWith observation (θ i) env = some (env' i) ∧ startsLet (θ i) = false
 
-local notation "RealizesOn" => RealizesOnWith markPairLet
+local notation "RealizesOn" => RealizesOnWith observation
 
 omit [UnitPayloadPolicy] in
 theorem RealizesOnWith.lift {Γ : VCtx (Ty Empty)} {env env' : Env} {θ : Nat → Tm Empty}
@@ -362,7 +374,9 @@ theorem evalTerm_substOn {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
   | inl _ it => simp only [Tm.subst, evalTermWith, it h]
   | inr _ it => simp only [Tm.subst, evalTermWith, it h]
   | @case _ a _ _ A B _ _ _ _ ix il ir =>
-    simp only [Tm.subst, evalTermWith, ix h]
+    by_cases hm : observation.caseTerm
+    · simp [Tm.subst, evalTermWith, hm]
+    simp only [Tm.subst, evalTermWith, ix h, hm]
     cases evalTerm a env' with
     | none => rfl
     | some v => cases v <;> first | rfl | exact il (h.lift A _) | exact ir (h.lift B _)

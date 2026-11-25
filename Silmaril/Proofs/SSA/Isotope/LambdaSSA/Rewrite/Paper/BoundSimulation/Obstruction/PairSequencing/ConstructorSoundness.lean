@@ -18,28 +18,28 @@ open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruc
 open scoped Paper.BoundSimulation.Obstruction
 
 private theorem sequence_pair (a b : Tm Empty) (env : Env) :
-    evalRegionWith false (returnOnce (.pair a b)) env =
-      evalRegionWith false (pairSequence a b) env := by
+    evalRegionWith {} (returnOnce (.pair a b)) env =
+      evalRegionWith {} (pairSequence a b) env := by
   simp only [returnOnce, pairSequence, evalRegionWith, evalTermWith,
     Bool.false_and, Bool.false_eq_true, ↓reduceIte]
-  cases evalTermWith false a env with
+  cases evalTermWith {} a env with
   | none => rfl
   | some v =>
-    simp only [evalTerm_rename b (markPairLet := false) (env := env)
+    simp only [evalTerm_rename b (observation := {}) (env := env)
       (env' := extend env v) (ρ := Nat.succ) (fun _ => rfl)]
-    cases evalTermWith false b env <;> rfl
+    cases evalTermWith {} b env <;> rfl
 
 private theorem sequence_inl (a : Tm Empty) (env : Env) :
-    evalRegionWith false (returnOnce (.inl a)) env =
-      evalRegionWith false (inlSequence a) env := by
+    evalRegionWith {} (returnOnce (.inl a)) env =
+      evalRegionWith {} (inlSequence a) env := by
   simp only [returnOnce, inlSequence, evalRegionWith, evalTermWith]
-  cases evalTermWith false a env <;> rfl
+  cases evalTermWith {} a env <;> rfl
 
 private theorem sequence_inr (a : Tm Empty) (env : Env) :
-    evalRegionWith false (returnOnce (.inr a)) env =
-      evalRegionWith false (inrSequence a) env := by
+    evalRegionWith {} (returnOnce (.inr a)) env =
+      evalRegionWith {} (inrSequence a) env := by
   simp only [returnOnce, inrSequence, evalRegionWith, evalTermWith]
-  cases evalTermWith false a env <;> rfl
+  cases evalTermWith {} a env <;> rfl
 
 section
 
@@ -49,8 +49,8 @@ variable [UnitPayloadPolicy]
 
 /-- Opt-in constructor sequencing preserves the unmarked observation. -/
 private theorem sequencing_same {Γ L : List (Ty Empty)} {r s : Region Empty}
-    (h : Paper.WithConstructorSequencing.Eqv Γ r s L) : SameWith false Γ r s :=
-  extension_same (markPairLet := false) (fun e =>
+    (h : Paper.WithConstructorSequencing.Eqv Γ r s L) : SameWith {} Γ r s :=
+  extension_same (observation := {}) (fun e =>
     Or.elim e unary_fusion_same (fun h => by
       cases h with
       | pair ha hb => exact fun env _ => sequence_pair _ _ env
@@ -70,7 +70,7 @@ private def quote : Val → Tm Empty
 
 private theorem eval_quote {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
     (ht : Tm.BranchValue Γ t A) (env : Env) :
-    (evalTermWith false t env).map quote = some (t.subst (quote ∘ env)) := by
+    (evalTermWith {} t env).map quote = some (t.subst (quote ∘ env)) := by
   induction ht with
   | var _ => rfl
   | unit => rfl

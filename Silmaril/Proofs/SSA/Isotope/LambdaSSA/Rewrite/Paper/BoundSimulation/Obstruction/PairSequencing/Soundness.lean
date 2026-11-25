@@ -19,13 +19,13 @@ open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruc
   (UnitPayloadPolicy Env EnvTy Val ValTy Result ResultTy cfgRun one onState
   mergeFeedback one_codiagonal one_eq_of_runs run_simulation mapOut mapOut_congr)
 
-variable {markPairLet : Bool}
+variable {observation : TermObservation}
 
-local notation "evalTerm" => evalTermWith markPairLet
-local notation "evalRegion" => evalRegionWith markPairLet
+local notation "evalTerm" => evalTermWith observation
+local notation "evalRegion" => evalRegionWith observation
 
-local notation "Same" => SameWith markPairLet
-local notation "Realizes" => RealizesWith markPairLet
+local notation "Same" => SameWith observation
+local notation "Realizes" => RealizesWith observation
 
 theorem observes_collapse {e p : Region Empty} (env : Env) :
     evalRegion (CfgEta.Codiagonal.nested e p) env =
@@ -61,7 +61,7 @@ theorem mapOut_localMap {Γ : VCtx (Ty Empty)} {A D : Ty Empty} {a : Tm Empty}
     | zero =>
       obtain ⟨T, hi, hv⟩ := ht
       cases Option.some.inj hi
-      obtain ⟨w, hw, _⟩ := evalValue (markPairLet := markPairLet) ha (he.extend hv)
+      obtain ⟨w, hw, _⟩ := evalValue (observation := observation) ha (he.extend hv)
       simp only [mapOut, CfgEta.Uniformity.localMap, evalRegionWith, hw, onState, Option.getD_some]
 
 theorem observes_uniform {Γ L : List (Ty Empty)} {A D : Ty Empty}
@@ -95,7 +95,7 @@ theorem observes_uniform {Γ L : List (Ty Empty)} {A D : Ty Empty}
       simp only [eval_liftLSubstVars]
       exact mapOut_localMap ha henv (evalRegion_typed hp.hasType (henv.extend hv))
     rw [lhs, evalRegion_lsubst branch (henv.extend hv)] at h
-    obtain ⟨w, hw, _⟩ := evalValue (markPairLet := markPairLet) ha (henv.extend hv)
+    obtain ⟨w, hw, _⟩ := evalValue (observation := observation) ha (henv.extend hv)
     simp only [evalRegionWith, hw, mapOut, eval_liftLSubstVars] at h
     simpa only [f, hw, Option.getD_some] using h.symm
   apply one_eq_of_runs
@@ -111,8 +111,8 @@ theorem paper_same {Γ L : List (Ty Empty)} {r s : Region Empty}
     cases h with
     | @let₂Beta a _ b _ _ _ ha hb hr =>
       intro env henv
-      obtain ⟨v, ev, _⟩ := evalValue (markPairLet := markPairLet) ha henv
-      obtain ⟨w, ew, _⟩ := evalValue (markPairLet := markPairLet) hb henv
+      obtain ⟨v, ev, _⟩ := evalValue (observation := observation) ha henv
+      obtain ⟨w, ew, _⟩ := evalValue (observation := observation) hb henv
       have realized : Realizes env (extend (extend env v) w) (Tm.consSubst b (Tm.singleSubst a)) := by
         intro i
         cases i with
@@ -150,7 +150,7 @@ theorem paper_same {Γ L : List (Ty Empty)} {r s : Region Empty}
     let env' := fun i => (evalTerm (θ i) env).getD .unit
     have ht (i : Nat) (A : Ty Empty) (hi : At G i A) :
         evalTerm (θ i) env = some (env' i) ∧ ValTy (env' i) A := by
-      obtain ⟨v, eq, hv⟩ := evalValue (markPairLet := markPairLet) (hθ hi) he
+      obtain ⟨v, eq, hv⟩ := evalValue (observation := observation) (hθ hi) he
       simpa [env', eq] using hv
     rw [evalRegion_substOn h.typed.1 (fun i A hi => ⟨(ht i A hi).1, value_startsLet (hθ hi)⟩),
         evalRegion_substOn h.typed.2 (fun i A hi => ⟨(ht i A hi).1, value_startsLet (hθ hi)⟩)]
@@ -209,7 +209,7 @@ theorem extension_same {Seed : VCtx (Ty Empty) → Region Empty → Region Empty
     let env' := fun i => (evalTerm (θ i) env).getD .unit
     have ht (i : Nat) (A : Ty Empty) (hi : At G i A) :
         evalTerm (θ i) env = some (env' i) ∧ ValTy (env' i) A := by
-      obtain ⟨v, eq, hv⟩ := evalValue (markPairLet := markPairLet) (hθ hi) he
+      obtain ⟨v, eq, hv⟩ := evalValue (observation := observation) (hθ hi) he
       simpa [env', eq] using hv
     rw [evalRegion_substOn h.typed.1 (fun i A hi => ⟨(ht i A hi).1, value_startsLet (hθ hi)⟩),
         evalRegion_substOn h.typed.2 (fun i A hi => ⟨(ht i A hi).1, value_startsLet (hθ hi)⟩)]
