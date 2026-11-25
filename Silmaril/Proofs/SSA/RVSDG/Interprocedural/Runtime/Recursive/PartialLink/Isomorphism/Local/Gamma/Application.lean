@@ -230,6 +230,38 @@ private theorem choose_after_pair {context params outs : Ports (Ty V S)} {fn : F
   exact bind_pair (some tag.val) inputs selectedL selectedR (observe tag operands middle)
     (fun values finalStore => resume (aligned.snoc values) finalStore)
 
+/-- Recover the original scoped captures at every actual restart. The body
+observer receives only the new related ordinary carry and the current store. -/
+private theorem loop_for_captures {bodyContext bodyParams : Ports (Ty V S)} {past : List (Ports (Ty V S))}
+    {tailL tailR : List (Ports (Ty V S))}
+    {bodyL : LoopBody Op (bodyContext ++ bodyParams) sigsL}
+    {bodyR : LoopBody Op (bodyContext ++ bodyParams) sigsR}
+    {restL : NestedTheta.Term (Instruction Op) args (past ++ [bodyContext ++ bodyParams]) tailL outs}
+    {restR : NestedTheta.Term (Instruction Op) args (past ++ [bodyContext ++ bodyParams]) tailR outs}
+    {entryL entryR : Tuple m.Val args} {localsL localsR : Locals m.Val past} {store : σ}
+    {bodyCapL bodyCapR : Tuple m.Val bodyContext}
+    (initial : Wires args past (bodyContext ++ bodyParams))
+    (related : TupleRelated m ids (initial.read entryL localsL) (initial.read entryR localsR))
+    (firstL : ∃ input, initial.read entryL localsL = prependContext input bodyCapL)
+    (firstR : ∃ input, initial.read entryR localsR = prependContext input bodyCapR)
+    (fixedL : PreservesLoopCaptures Op bodyContext bodyParams bodyL)
+    (fixedR : PreservesLoopCaptures Op bodyContext bodyParams bodyR)
+    (observe : ∀ {inputL inputR : Tuple m.Val bodyParams}, TupleRelated m ids inputL inputR → ∀ middle,
+      RegionPair primitives ids (mapping.child past.length 0) bodyL bodyR
+        (prependContext inputL bodyCapL) (prependContext inputR bodyCapR) middle)
+    (resume : ∀ {valueL valueR : Tuple m.Val (bodyContext ++ bodyParams)}, TupleRelated m ids valueL valueR → ∀ middle,
+      ScopedRegionPair primitives ids mapping restL restR entryL entryR (localsL.snoc valueL) (localsR.snoc valueR) middle) :
+    ScopedRegionPair primitives ids mapping (bindTheta initial bodyL restL) (bindTheta initial bodyR restR)
+      entryL entryR localsL localsR store := by
+  refine loop_scoped initial related ?_ resume
+  intro current completed
+  obtain ⟨nextL, carryL⟩ := feedback_captures fixedL bodyCapL firstL (left_completed completed)
+  obtain ⟨nextR, carryR⟩ := feedback_captures fixedR bodyCapR firstR (right_completed completed)
+  dsimp only at carryL carryR
+  have inputs := current.related
+  rw [carryL, carryR] at inputs ⊢
+  exact observe (related_arguments inputs) current.store
+
 theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     {capturesL capturesR : Tuple m.Val context}
     {left : NestedTheta.Term (Instruction Op) (context ++ params) past sigsL outs}
@@ -278,19 +310,11 @@ theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : Li
   | @theta _ _ _ _ _ _ _ _ _ _ _ _ capL capR bodyL bodyR restL restR ports initial _ fixedL fixedR _ bodyIH suffixIH =>
     have entries := prepend_related captures arguments
     have captured := project_related captures ports
-    refine loop_scoped (bodyL := bodyL) (bodyR := bodyR) (restL := restL) (restR := restR)
-      (captureInputs ports initial) (Local.aligned_read entries locals (captureInputs ports initial)) ?_ ?_
-    · intro current completed
-      obtain ⟨nextL, carryL⟩ := feedback_captures fixedL (projectCaptures capL ports)
-        ⟨_, read_projected capL argsL localsL ports initial⟩ (left_completed completed)
-      obtain ⟨nextR, carryR⟩ := feedback_captures fixedR (projectCaptures capR ports)
-        ⟨_, read_projected capR argsR localsR ports initial⟩ (right_completed completed)
-      dsimp only at carryL carryR
-      have related := current.related
-      rw [carryL, carryR] at related ⊢
-      exact bodyIH captured (related_arguments related) .empty current.store
-    · intro valueL valueR values middle
-      exact suffixIH captures arguments (locals.snoc values) middle
+    exact loop_for_captures (bodyL := bodyL) (bodyR := bodyR) (restL := restL) (restR := restR)
+      (captureInputs ports initial) (Local.aligned_read entries locals (captureInputs ports initial))
+      ⟨_, read_projected capL argsL localsL ports initial⟩ ⟨_, read_projected capR argsR localsR ports initial⟩
+      fixedL fixedR (fun {_ _} inputs middle => bodyIH captured inputs .empty middle)
+      (fun values middle => suffixIH captures arguments (locals.snoc values) middle)
 
   | @choose _ _ _ _ _ _ _ _ _ _ _ _ restL restR selector ports wires family _ originL originR captured
       _ _ _ calleeIH suffixIH =>
@@ -304,5 +328,31 @@ theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : Li
       originL originR captures arguments locals
       (fun tag {_ _} operands middle => calleeIH tag (captured tag) operands .empty middle)
       (fun aligned middle => suffixIH captures arguments aligned middle)
+
+  | @chooseTheta _ _ _ context params _ _ fn past _ _ _ _ capL capR bodyL bodyR restL restR
+      selector ports initial _ fixedL fixedR _ bodyIH suffixIH =>
+    let source := joinedOrigin (past := past) (args := context ++ params) fn
+    let wiring := Tuple.cons source initial
+    refine choose_pair (restL := bindTheta wiring bodyL restL) (restR := bindTheta wiring bodyR restR)
+      selector ports captures arguments locals ?_
+    intro tag
+    let entryL := prependContext argsL capL
+    let entryR := prependContext argsR capR
+    let valueL := capL.get (ports tag)
+    let valueR := capR.get (ports tag)
+    let scopeL := localsL.snoc (.cons valueL .nil)
+    let scopeR := localsR.snoc (.cons valueR .nil)
+    have capture := captures.get (ports tag)
+    have joined := locals.snoc (.cons capture .nil)
+    have startL : Wires.read wiring entryL scopeL =
+        prependContext (initial.read entryL scopeL) (.cons valueL .nil) :=
+      congrArg (fun value => Tuple.cons value (initial.read entryL scopeL)) (joined_origin_read entryL localsL valueL)
+    have startR : Wires.read wiring entryR scopeR =
+        prependContext (initial.read entryR scopeR) (.cons valueR .nil) :=
+      congrArg (fun value => Tuple.cons value (initial.read entryR scopeR)) (joined_origin_read entryR localsR valueR)
+    exact loop_for_captures wiring (Local.aligned_read (prepend_related captures arguments) joined wiring)
+      ⟨_, startL⟩ ⟨_, startR⟩ fixedL fixedR
+      (fun {_ _} inputs middle => bodyIH tag (.cons capture .nil) inputs .empty middle)
+      (fun values middle => suffixIH captures arguments (joined.snoc values) middle)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Proofs
