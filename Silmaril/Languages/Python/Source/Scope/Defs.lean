@@ -118,6 +118,7 @@ inductive ScopeError where
   | nonlocalInModule (name : Name)
   | unboundNonlocal (name : Name)
   | starImport
+  | unsupportedExpression (form : UnsupportedExpr)
   deriving BEq, DecidableEq, Repr
 
 structure Diagnostic where
@@ -226,20 +227,52 @@ mutual
 
   private def collectExpr (block : Collecting) : Expr → Except Diagnostic Collecting
     | .name name => .ok (block.readName name)
+    | .list_ elements | .tuple elements | .booleanOp _ elements => collectExprs block elements
+    | .dictionary entries => do collectDictValues (← collectDictKeys block entries) entries
+    | .unary _ operand => collectExpr block operand
     | .binary _ left right => do collectExpr (← collectExpr block left) right
+    | .conditional condition consequent alternate => do
+      collectExpr (← collectExpr (← collectExpr block condition) consequent) alternate
+    | .comparison left rest => do collectComparands (← collectExpr block left) rest
     | .call callee arguments => do collectExprs (← collectExpr block callee) arguments
+    | .callWith callee arguments => do collectArguments (← collectExpr block callee) arguments
     | .attribute receiver _ => collectExpr block receiver
     | .subscript receiver index => do collectExpr (← collectExpr block receiver) index
+    | .slice receiver lower upper stride => do
+      let block ← collectExpr block receiver
+      collectOptional (← collectOptional (← collectOptional block lower) upper) stride
+    | .yield_ value => collectOptional block value
     | .lambda parameters body => do
       let outer ← collectDefaults block parameters
       let context ← functionContext outer.childPath parameters
       let nested ← collectExpr { context } body
       return outer.addChild nested
-    | .integer _ | .boolean _ | .none_ => .ok block
+    | .integer _ | .floatBits _ | .text _ | .boolean _ | .none_ | .ellipsis => .ok block
+    | .unsupported form => .error ⟨block.context.path, .unsupportedExpression form⟩
 
   private def collectExprs (block : Collecting) : List Expr → Except Diagnostic Collecting
     | [] => .ok block
     | expr :: rest => do collectExprs (← collectExpr block expr) rest
+
+  private def collectDictKeys (block : Collecting) :
+      List (Option Expr × Expr) → Except Diagnostic Collecting
+    | [] => .ok block
+    | (key, _) :: rest => do collectDictKeys (← collectOptional block key) rest
+
+  private def collectDictValues (block : Collecting) :
+      List (Option Expr × Expr) → Except Diagnostic Collecting
+    | [] => .ok block
+    | (_, value) :: rest => do collectDictValues (← collectExpr block value) rest
+
+  private def collectComparands (block : Collecting) :
+      List (Comparison × Expr) → Except Diagnostic Collecting
+    | [] => .ok block
+    | (_, value) :: rest => do collectComparands (← collectExpr block value) rest
+
+  private def collectArguments (block : Collecting) :
+      List (ArgumentKind × Expr) → Except Diagnostic Collecting
+    | [] => .ok block
+    | (_, value) :: rest => do collectArguments (← collectExpr block value) rest
 
   private def collectDefaults (block : Collecting) : List Parameter → Except Diagnostic Collecting
     | [] => .ok block
