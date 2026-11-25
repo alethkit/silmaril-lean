@@ -26,7 +26,7 @@ private theorem env_ext {Γ : VCtx τ} (γ δ : Env Γ)
     refine Prod.ext (ih _ _ (fun i A h => eq (i + 1) A h)) ?_
     exact eq 0 B rfl
 
-private theorem rename_wk {Γ : VCtx τ} (B : τ) (γ : Env Γ) (b : TyDen B) :
+theorem rename_wk_proof {Γ : VCtx τ} (B : τ) (γ : Env Γ) (b : TyDen B) :
     Env.rename (SSA.Ren.wk Γ B) (γ, b) = γ :=
   env_ext _ _ (fun i _ h => Env.rename_get (SSA.Ren.wk Γ B) (γ, b) i h)
 
@@ -36,7 +36,7 @@ variable {m : Type v → Type v} [Monad m] [LawfulMonad m]
   {Γ : VCtx τ} {L K : LCtx τ} {k : Continuation (m := m) Γ L K} {σ : Nat → Region Φ}
 
 omit [LawfulMonad m] [LawfulElgotMonad m] in
-private theorem Continuation.Denotes.liftVars (d : k.Denotes (ε := ε) σ) (B : τ) :
+theorem Continuation.Denotes.liftVars_proof (d : k.Denotes (ε := ε) σ) (B : τ) :
     Continuation.Denotes (ε := ε) (Γ := B :: Γ) (fun γ x => k γ.1 x) (Region.liftLSubstVars σ) := by
   intro i A h
   obtain ⟨typed, den⟩ := d h
@@ -47,7 +47,7 @@ private theorem Continuation.Denotes.liftVars (d : k.Denotes (ε := ε) σ) (B :
   rcases γ with ⟨⟨γ, b⟩, a⟩
   have hrename : Env.rename ((SSA.Ren.wk Γ B).lift A) ((γ, b), a) = (γ, a) :=
     (Env.rename_lift (SSA.Ren.wk Γ B) (γ, b) A a).trans
-      (congrArg (fun ρ => (ρ, a)) (rename_wk B γ b))
+      (congrArg (fun ρ => (ρ, a)) (rename_wk_proof B γ b))
   exact congrArg (fun ρ : Env (A :: Γ) => k ρ.1 (LabelValue.inject i h ρ.2)) hrename.symm
 
 private theorem Continuation.Denotes.liftLabel (d : k.Denotes (ε := ε) σ) (B : τ) :
@@ -69,7 +69,7 @@ private theorem Continuation.Denotes.liftLabel (d : k.Denotes (ε := ε) σ) (B 
     obtain ⟨typed, den⟩ := d hL
     exact ⟨_, den.weakenLabels_proof B⟩
 
-private theorem Continuation.Denotes.append (d : k.Denotes (ε := ε) σ) (R : LCtx τ) :
+theorem Continuation.Denotes.append_proof (d : k.Denotes (ε := ε) σ) (R : LCtx τ) :
     (k.liftLabels R).Denotes (ε := ε) (Region.liftLSubstN R.length σ) := by
   induction R with
   | nil => exact d
@@ -95,8 +95,8 @@ theorem RegionDenotes.bound_lsubst_proof {region : Region Φ}
     funext γ
     simp [Continuation.applyTo]
   | case de dl dr ihl ihr =>
-    obtain ⟨hl, dl'⟩ := ihl (cont.liftVars _)
-    obtain ⟨hr, dr'⟩ := ihr (cont.liftVars _)
+    obtain ⟨hl, dl'⟩ := ihl (cont.liftVars_proof _)
+    obtain ⟨hr, dr'⟩ := ihr (cont.liftVars_proof _)
     refine ⟨.case (by assumption) hl hr, ?_⟩
     convert RegionDenotes.case de dl' dr' using 1 <;> try rfl
     funext γ
@@ -105,13 +105,13 @@ theorem RegionDenotes.bound_lsubst_proof {region : Region Φ}
     intro e
     cases TypeModel.coprodEquiv _ _ e <;> rfl
   | let₁ da db ih =>
-    obtain ⟨ht, dt⟩ := ih (cont.liftVars _)
+    obtain ⟨ht, dt⟩ := ih (cont.liftVars_proof _)
     refine ⟨.let₁ (by assumption) ht, ?_⟩
     convert RegionDenotes.let₁ da dt using 1 <;> try rfl
     funext γ
     simp [Continuation.applyTo, bind_assoc]
   | let₂ da db ih =>
-    obtain ⟨ht, dt⟩ := ih ((cont.liftVars _).liftVars _)
+    obtain ⟨ht, dt⟩ := ih ((cont.liftVars_proof _).liftVars_proof _)
     refine ⟨.let₂ (by assumption) ht, ?_⟩
     convert RegionDenotes.let₂ da dt using 1 <;> try rfl
     funext γ
@@ -122,9 +122,9 @@ theorem RegionDenotes.bound_lsubst_proof {region : Region Φ}
   | @cfg n R Γ L entry blocks he hb fe fb collective de db dc ihe ihb =>
     let lifted := k.liftLabels (List.ofFn R)
     have cont' : lifted.Denotes (ε := ε) (Region.liftLSubstN (n + 1) σ) := by
-      simpa only [List.length_ofFn] using cont.append (List.ofFn R)
+      simpa only [List.length_ofFn] using cont.append_proof (List.ofFn R)
     obtain ⟨he', de'⟩ := ihe cont'
-    choose hb' db' using fun i => ihb i (cont'.liftVars (R i))
+    choose hb' db' using fun i => ihb i (cont'.liftVars_proof (R i))
     let collective' : Env Γ × FiniteLabelDen R → m (LabelDen (List.ofFn R ++ K)) :=
       fun p => collective p >>= lifted p.1
     have dc' : CollectiveDenotes Γ R K (fun i γ => fb i γ >>= lifted γ.1) collective' :=
@@ -161,6 +161,6 @@ theorem continuation_comp_proof {H : LCtx τ} {υ : Nat → Region Φ}
     (k.comp after).Denotes (ε := ε) (Region.boundCompLSubst σ υ) := by
   intro i A h
   obtain ⟨_, d⟩ := first h
-  exact d.bound_lsubst_proof (second.liftVars A)
+  exact d.bound_lsubst_proof (second.liftVars_proof A)
 
 end Silmaril.Isotope.LambdaSSA.Semantics.Monadic

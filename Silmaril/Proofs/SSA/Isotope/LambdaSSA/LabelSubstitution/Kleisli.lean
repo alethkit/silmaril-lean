@@ -37,20 +37,18 @@ private theorem envTo_surjective (Γ : VCtx τ) :
   | nil => rfl
   | cons _ _ ih => simp [envFromCategorical, envToCategorical, ih]
 
-theorem categoricalRegion_bound_lsubst_graph_proof
-    {Γ : VCtx τ} {L K : LCtx τ} {r : Region Φ} {σ : Nat → Region Φ}
-    {hr : Region.HasType Γ r L} {f : Monadic.Env Γ → m (Monadic.LabelDen L)}
-    (df : Monadic.RegionDenotes ε hr f)
-    (k : Monadic.Continuation (m := m) Γ L K) (d : k.Denotes (ε := ε) σ) :
+theorem categoricalRegion_bind_graph_proof
+    {Γ : VCtx τ} {L K : LCtx τ} {r s : Region Φ}
+    {hr : Region.HasType Γ r L} {hs : Region.HasType Γ s K}
+    {f : Monadic.Env Γ → m (Monadic.LabelDen L)} {k : Monadic.Continuation (m := m) Γ L K}
+    (df : Monadic.RegionDenotes ε hr f) (ds : Monadic.RegionDenotes ε hs (k.applyTo f)) :
     let _ := Categorical.ofMonadicInstructionModel (τ := τ) (Φ := Φ) (ε := ε) (m := m)
     let J := typeJ (m := m)
     let T := Categorical.ofMonadicTypeModel (τ := τ)
     ∃ F, Categorical.RegionDenotes J T hr F ∧
-      ∃ hs : Region.HasType Γ (r.bindBranchArguments.lsubst σ) K,
-        Categorical.RegionDenotes J T hs (catBind J F (continuationArrow k)) := by
+      Categorical.RegionDenotes J T hs (catBind J F (continuationArrow k)) := by
   dsimp only
   let _ := Categorical.ofMonadicInstructionModel (τ := τ) (Φ := Φ) (ε := ε) (m := m)
-  obtain ⟨hs, ds⟩ := df.bound_lsubst_proof d
   obtain ⟨F, dF, hF⟩ := regionDenotes_toCategorical df
   obtain ⟨G, dG, hG⟩ := regionDenotes_toCategorical ds
   have eq : G = catBind (typeJ (m := m)) F (continuationArrow k) := by
@@ -71,7 +69,22 @@ theorem categoricalRegion_bound_lsubst_graph_proof
         k (envFromCategorical (envToCategorical ρ)) ((Monadic.LabelValue.categoricalEquiv L).symm z) >>=
           fun y => pure (Monadic.LabelValue.categoricalEquiv K y))
     simp only [envFrom_envTo, bind_assoc, pure_bind, Equiv.symm_apply_apply]
-  exact ⟨F, dF, hs, eq ▸ dG⟩
+  exact ⟨F, dF, eq ▸ dG⟩
+
+theorem categoricalRegion_bound_lsubst_graph_proof
+    {Γ : VCtx τ} {L K : LCtx τ} {r : Region Φ} {σ : Nat → Region Φ}
+    {hr : Region.HasType Γ r L} {f : Monadic.Env Γ → m (Monadic.LabelDen L)}
+    (df : Monadic.RegionDenotes ε hr f)
+    (k : Monadic.Continuation (m := m) Γ L K) (d : k.Denotes (ε := ε) σ) :
+    let _ := Categorical.ofMonadicInstructionModel (τ := τ) (Φ := Φ) (ε := ε) (m := m)
+    let J := typeJ (m := m)
+    let T := Categorical.ofMonadicTypeModel (τ := τ)
+    ∃ F, Categorical.RegionDenotes J T hr F ∧
+      ∃ hs : Region.HasType Γ (r.bindBranchArguments.lsubst σ) K,
+        Categorical.RegionDenotes J T hs (catBind J F (continuationArrow k)) := by
+  obtain ⟨hs, ds⟩ := df.bound_lsubst_proof d
+  obtain ⟨F, dF, dG⟩ := categoricalRegion_bind_graph_proof df ds
+  exact ⟨F, dF, hs, dG⟩
 
 theorem categoricalRegion_bound_lsubst_proof
     (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := m))
