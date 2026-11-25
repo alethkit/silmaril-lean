@@ -175,6 +175,27 @@ theorem packedArrow_bv_succ_proof {n : Nat} (β : BoundCtx S.Ty n) (A : S.Ty) (i
   rw [instantiate_underBinder_one, project_bsubst, bsubst_bv] at beta
   exact Quotient.sound beta.symm
 
+theorem packedArrow_lift_proof {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {t : Tm Empty S.Instr n} (h : HasType S.Instr Ctx.nil β t B) :
+    packedArrow (S := S) (h.lift (B := A)) =
+      first (of (packType β)) (of A) ≫ packedArrow h := by
+  let p := HasType.let₂ (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+    (β := .nil) (A := tensor (packType β) A)) (.bv (ι := 1))
+  let k := packedTyping (S := S) h
+  have eq := Eqv.ax (pureEff := S.pureEff) (.structural (.letBeta (.let₂ .bv .bv)))
+    (.let₁ p k.underBinder) (k.underBinder.instantiate p)
+  change Eqv S.pureEff Ctx.nil _ _ (instantiate (underBinder (packedTerm β t))
+    (.let₂ (.bv 0) (.bv 1))) _ at eq
+  have terms : instantiate (underBinder (packedTerm β t)) (.let₂ (.bv 0) (.bv 1)) =
+      packedTerm (β.snoc A) (lift t) := by
+    rw [instantiate_underBinder_one, packedTerm, bsubst_comp, packedTerm, lift, bsubst_rename]
+    apply bsubst_congr
+    intro i
+    rw [project_bsubst, bsubst_bv]
+    rfl
+  rw [terms] at eq
+  exact Quotient.sound eq.symm
+
 /-- Applying the packed body to the retained environment and the newest
 variable computes the lifted packing substitution. -/
 private theorem packed_body_on_pair {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}

@@ -3,7 +3,8 @@ module
 public import Silmaril.SSA.Isotope.LetIter.Categorical.Syntactic.Packing.Defs
 import Silmaril.SSA.Isotope.Bridge.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Naturality.Thms
-import Silmaril.SSA.Thesis.SyntacticCategory.Packing.Thms
+import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Iteration.Thms
+import Silmaril.SSA.Thesis.SyntacticCategory.Packing.Iteration.Thms
 
 public section
 
@@ -19,7 +20,7 @@ open Silmaril.Isotope.LetIter.LocallyNameless (Derivation Tm)
 open Silmaril.Thesis.LambdaIter.LocallyNameless (HasType)
 open Silmaril.Thesis.LambdaIter.Syn.SynCat
 
-open ProofRelevant.Semantics.Categorical (caseWithContext extend retainLeft splitMapCoprod)
+open ProofRelevant.Semantics.Categorical (caseWithContext contextualLoop extend retainLeft splitMapCoprod)
 local notation "pairArrow" => ProofRelevant.Semantics.Categorical.pair
 local notation "bindArrow" => ProofRelevant.Semantics.Categorical.bind
 
@@ -382,6 +383,37 @@ private theorem route_packed_sum (pe : ε)
 
 set_option backward.isDefEq.respectTransparency false in
 set_option backward.isDefEq.respectTransparency.types false in
+private theorem case_values (pe : ε)
+    (X : ValueCat (signature (τ := τ) (Φ := Φ) pe)) (A B : τ)
+    {D : ValueCat (signature (τ := τ) (Φ := Φ) pe)}
+    (f : X.obj ⟶ (valueObj (Φ := Φ) pe (Silmaril.coprod A B)).obj)
+    (l : (X ⊗ valueObj (Φ := Φ) pe A).obj ⟶ D.obj)
+    (r : (X ⊗ valueObj (Φ := Φ) pe B).obj ⟶ D.obj) :
+    let S := signature (τ := τ) (Φ := Φ) pe
+    let J := values S
+    caseWithContext J (f ≫ J.map ((typeModel (Φ := Φ) pe).coprodIso A B).hom) l r =
+      pairArrows (𝟙 X.obj) f ≫ contextSumSplit X.obj (of A) (of B) ≫ coprod.desc l r := by
+  let S := signature (τ := τ) (Φ := Φ) pe
+  let J := values S
+  let M := typeModel (τ := τ) (Φ := Φ) pe
+  let Y := valueObj (Φ := Φ) pe A
+  let Z := valueObj (Φ := Φ) pe B
+  let P := valueObj (Φ := Φ) pe (Silmaril.coprod A B)
+  let i := (M.coprodIso A B).hom
+  let branches : (J.obj (X ⊗ Y) ⨿ J.obj (X ⊗ Z)) ⟶ J.obj D := coprod.desc l r
+  calc
+    _ = bindArrow J (f ≫ J.map i) (routeEnvironment J X Y Z ≫ branches) := by
+      simp only [caseWithContext, routeEnvironment, branches, Category.assoc]
+      rfl
+    _ = bindArrow J f (J.map (X ◁ i) ≫ routeEnvironment J X Y Z ≫ branches) := by
+      unfold ProofRelevant.Semantics.Categorical.bind
+      rw [extend_postmap, Category.assoc]
+    _ = bindArrow J f (contextSumSplit X.obj Y.obj Z.obj ≫ branches) := by
+      rw [← Category.assoc, route_packed_sum pe X A B]
+    _ = _ := @bind_values S X P D f (contextSumSplit X.obj Y.obj Z.obj ≫ branches)
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
 theorem packedNative_case (pe : ε) {n : Nat} {β : BoundCtx τ n}
     {t : Tm Empty Φ n} {l r : Tm Empty Φ (n + 1)} {A B D : τ}
     (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t (Silmaril.coprod A B))
@@ -398,7 +430,6 @@ theorem packedNative_case (pe : ε) {n : Nat} {β : BoundCtx τ n}
   let Y := valueObj (τ := τ) (Φ := Φ) pe A
   let Z := valueObj (τ := τ) (Φ := Φ) pe B
   let W := valueObj (τ := τ) (Φ := Φ) pe D
-  let P := valueObj (τ := τ) (Φ := Φ) pe (Silmaril.coprod A B)
   let k := (packedEnvIso (Φ := Φ) pe β).inv
   let i := (M.coprodIso A B).hom
   let ll := J.map (envSnocIso M (Ctx.nil : Ctx Empty τ) β A).hom ≫ denoteInSyntax pe dl
@@ -419,20 +450,132 @@ theorem packedNative_case (pe : ε) {n : Nat} {β : BoundCtx τ n}
         congrArg (fun f => caseWithContext J f _ _)
           (Category.assoc (J.map k) (denoteInSyntax pe d) (J.map i)).symm
       _ = _ := congrArg₂ (caseWithContext J (packedNative pe d ≫ J.map i)) lhs rhs
-  let branches : (J.obj (X ⊗ Y) ⨿ J.obj (X ⊗ Z)) ⟶ J.obj W :=
-    coprod.desc (packedNative pe dl) (packedNative pe dr)
-  have expand : packedNative pe (.case d dl dr) =
-      bindArrow J (packedNative pe d ≫ J.map i) (routeEnvironment J X Y Z ≫ branches) := by
-    rw [transported]
-    simp only [caseWithContext, routeEnvironment, branches, Category.assoc]
-    rfl
+  exact transported.trans (case_values pe X A B (D := W)
+    (packedNative pe d) (packedNative pe dl) (packedNative pe dr))
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+theorem packedNative_iter (pe : ε) {n : Nat} {β : BoundCtx τ n}
+    {a : Tm Empty Φ n} {b : Tm Empty Φ (n + 1)} {A B : τ}
+    (da : Derivation Φ (Ctx.nil : Ctx Empty τ) β a A)
+    (db : Derivation Φ (Ctx.nil : Ctx Empty τ) (β.snoc A) b (Silmaril.coprod B A)) :
+    let S := signature (τ := τ) (Φ := Φ) pe
+    let J := values S
+    let X := of (S := S) (packType (Bridge.BoundCtx.toThesis β))
+    packedNative pe (.iter da db) = pairArrows (𝟙 X) (packedNative pe da) ≫
+      contextualLoop J (packedNative pe db ≫ J.map ((typeModel (Φ := Φ) pe).coprodIso B A).hom) := by
+  let S := signature (τ := τ) (Φ := Φ) pe
+  let J := values S
+  let M := typeModel (τ := τ) (Φ := Φ) pe
+  let X := valueObj (τ := τ) (Φ := Φ) pe (packType (S := S) (Bridge.BoundCtx.toThesis β))
+  let Y := valueObj (Φ := Φ) pe A
+  let Z := valueObj (Φ := Φ) pe B
+  let k := (packedEnvIso (Φ := Φ) pe β).inv
+  let i := (M.coprodIso B A).hom
+  let f := J.map (envSnocIso M (Ctx.nil : Ctx Empty τ) β A).hom ≫
+    denoteInSyntax pe db ≫ J.map i
+  have body : J.map (k ▷ Y) ≫ contextualLoop J f =
+      contextualLoop J (packedNative pe db ≫ J.map i) := by
+    rw [← contextualLoop_pre_map]
+    unfold f packedNative
+    rw [← J.map_comp_assoc, packedEnvInv_snoc, Category.assoc]
   calc
-    _ = bindArrow J (packedNative pe d ≫ J.map i) (routeEnvironment J X Y Z ≫ branches) := expand
-    _ = bindArrow J (packedNative pe d) (J.map (X ◁ i) ≫ routeEnvironment J X Y Z ≫ branches) := by
-      unfold ProofRelevant.Semantics.Categorical.bind
-      rw [extend_postmap, Category.assoc]
-    _ = bindArrow J (packedNative pe d) (contextSumSplit X.obj Y.obj Z.obj ≫ branches) := by
-      rw [← Category.assoc, route_packed_sum pe X A B]
-    _ = _ := @bind_values S X P W (packedNative pe d) (contextSumSplit X.obj Y.obj Z.obj ≫ branches)
+    _ = J.map k ≫ bindArrow J (denoteInSyntax pe da) (contextualLoop J f) := rfl
+    _ = bindArrow J (packedNative pe da) (J.map (k ▷ Y) ≫ contextualLoop J f) :=
+      (bind_pre_map J k (denoteInSyntax pe da) (contextualLoop J f)).symm
+    _ = bindArrow J (packedNative pe da) (contextualLoop J (packedNative pe db ≫ J.map i)) :=
+      congrArg (bindArrow J (packedNative pe da)) body
+    _ = _ := @bind_values S X Y Z (packedNative pe da) _
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+private theorem contextualLoop_carried (pe : ε) {n : Nat} {β : BoundCtx τ n} {A B : τ}
+    {b : Thesis.LambdaIter.LocallyNameless.Tm Empty Φ (n + 1)}
+    (hb : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil ((Bridge.BoundCtx.toThesis β).snoc A) b (Silmaril.coprod B A)) :
+    let J := values (signature (τ := τ) (Φ := Φ) pe)
+    contextualLoop J (packedArrow hb ≫ J.map ((typeModel (Φ := Φ) pe).coprodIso B A).hom) =
+      Silmaril.Thesis.LambdaIter.Syn.SynCat.iterate (packedArrow (carriedIterTyping hb)) := by
+  let S := signature (τ := τ) (Φ := Φ) pe
+  let J := values S
+  let α := Bridge.BoundCtx.toThesis β
+  let R := valueObj (τ := τ) (Φ := Φ) pe (packType (S := S) α)
+  let Y := valueObj (τ := τ) (Φ := Φ) pe A
+  let Z := valueObj (τ := τ) (Φ := Φ) pe B
+  let W := R ⊗ Y
+  let U : ValueCat S := ⟨cop Z.obj W.obj⟩
+  let p := fst R Y
+  let f := packedArrow (S := S) hb
+  let i := ((typeModel (Φ := Φ) pe).coprodIso B A).hom
+  let body := f ≫ J.map i
+  let out : J.obj (R ⊗ Z) ⟶ J.obj U := J.map (snd R Z) ≫ injl Z.obj W.obj
+  let recur : J.obj (R ⊗ Y) ⟶ J.obj U := injr Z.obj W.obj
+  let ht := HasType.inl (B := packType (S := S) (α.snoc A))
+    (HasType.newest (Φ := S.Instr) (Γ := (Thesis.LambdaIter.Ctx.nil :
+      Thesis.LambdaIter.Ctx Empty S.Ty)) (β := α.snoc A) (A := B))
+  let hr := HasType.inr (A := B) ((packTermTyping (S := S) (α.snoc A)).underBinder (X := A))
+  have exitBranch : packedArrow (S := S) ht = J.map (p ▷ Z) ≫ out := by
+    unfold ht out
+    rw [packedArrow_inl]
+    have proj : packedArrow (S := S) (HasType.newest (β := α.snoc A) (A := B)) = J.map (snd W Z) :=
+      packedArrow_bv_zero (S := S) (α.snoc A) B
+    calc
+      _ = J.map (snd W Z) ≫ injl Z.obj W.obj := congrArg (fun f => f ≫ injl Z.obj W.obj) proj
+      _ = _ := by rw [← J.map_comp_assoc, whiskerRight_snd]
+  have projectState : J.map (p ▷ Y) =
+      pairArrows (first W.obj Y.obj ≫ first R.obj Y.obj) (second W.obj Y.obj) := by
+    have eq : p ▷ Y = lift (fst W Y ≫ p) (snd W Y) := by
+      apply hom_ext <;> simp [W]
+    exact (congrArg J.map eq).trans (valueLift_hom _ _)
+  have recurBranch : packedArrow (S := S) hr = J.map (p ▷ Y) ≫ recur := by
+    unfold hr recur
+    rw [packedArrow_inr, packedArrow_carriedState, projectState]
+    rfl
+  have step : packedArrow (S := S) (carriedIterTyping hb) =
+      contextualStep J body ≫ coprod.desc out recur := by
+    change packedArrow (S := S) (.case hb ht hr) = _
+    rw [packedArrow_case, exitBranch, recurBranch]
+    refine (case_values pe W B A (D := U) f (J.map (p ▷ Z) ≫ out) (J.map (p ▷ Y) ≫ recur)).symm.trans ?_
+    calc
+      _ = retainEnvironment J p body ≫ routeEnvironment J R Z Y ≫ coprod.desc out recur :=
+        caseWithContext_project (E := W) (R := R) (A := Z) (B := Y) J p body out recur
+      _ = _ := (Category.assoc (retainEnvironment J p body) (routeEnvironment J R Z Y)
+        (coprod.desc out recur)).symm
+  have dropExit : coprod.map (J.map (snd R Z)) (𝟙 (J.obj W)) ≫ (copIso Z.obj W.obj).inv =
+      coprod.desc out recur := by
+    apply coprod.hom_ext
+    · rw [← Category.assoc, coprod.inl_map, Category.assoc]
+      exact (congrArg (fun f => J.map (snd R Z) ≫ f) (coprod_inl_copIso_inv Z.obj W.obj)).trans
+        (coprod.inl_desc out recur).symm
+    · rw [← Category.assoc, coprod.inr_map, Category.id_comp]
+      exact (coprod_inr_copIso_inv Z.obj W.obj).trans (coprod.inr_desc out recur).symm
+  calc
+    _ = iterate' (contextualStep J body) ≫ J.map (snd R Z) := by
+      simp only [contextualLoop, contextualStep, retainEnvironment, routeEnvironment, Category.assoc]
+      rfl
+    _ = iterate' (contextualStep J body ≫ coprod.map (J.map (snd R Z)) (𝟙 (J.obj W))) :=
+      iterate'_naturality _ _
+    _ = Silmaril.Thesis.LambdaIter.Syn.SynCat.iterate (contextualStep J body ≫ coprod.desc out recur) := by
+      unfold iterate'
+      rw [Category.assoc]
+      exact congrArg (fun f => Silmaril.Thesis.LambdaIter.Syn.SynCat.iterate
+        (contextualStep J body ≫ f)) dropExit
+    _ = _ := congrArg Silmaril.Thesis.LambdaIter.Syn.SynCat.iterate step.symm
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+theorem packedNative_iter_eq_packedArrow (pe : ε) {n : Nat} {β : BoundCtx τ n}
+    {a : Tm Empty Φ n} {b : Tm Empty Φ (n + 1)} {A B : τ}
+    (da : Derivation Φ (Ctx.nil : Ctx Empty τ) β a A)
+    (db : Derivation Φ (Ctx.nil : Ctx Empty τ) (β.snoc A) b (Silmaril.coprod B A))
+    (ha : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (Bridge.toThesis a) A)
+    (hb : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil ((Bridge.BoundCtx.toThesis β).snoc A) (Bridge.toThesis b) (Silmaril.coprod B A))
+    (iha : packedNative pe da = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) ha)
+    (ihb : packedNative pe db = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) hb) :
+    packedNative pe (.iter da db) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (.iter ha hb) := by
+  rw [packedNative_iter pe da db, packedArrow_iter_state ha hb, iha, ihb, contextualLoop_carried pe hb]
 
 end Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic.PackingProofs

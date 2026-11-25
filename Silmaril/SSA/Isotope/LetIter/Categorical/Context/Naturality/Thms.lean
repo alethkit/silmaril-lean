@@ -116,6 +116,14 @@ theorem bind_case_capture {E A B X Y : V}
         (bindArrow J right (J.map (fst E B ▷ X) ≫ k)) :=
   bind_case_capture_proof J central scrutinee left right k
 
+/-- Run both contextual branches against a fixed pure projection of the original input. -/
+theorem caseWithContext_project {E R A B X : V} (p : E ⟶ R)
+    (f : J.obj E ⟶ J.obj (A ⨿ B))
+    (l : J.obj (R ⊗ A) ⟶ J.obj X) (r : J.obj (R ⊗ B) ⟶ J.obj X) :
+    caseWithContext J f (J.map (p ▷ A) ≫ l) (J.map (p ▷ B) ≫ r) =
+      retainEnvironment J p f ≫ routeEnvironment J R A B ≫ coprod.desc l r :=
+  caseWithContext_project_proof J p f l r
+
 /-- Compare value-context routing with the computation distributor and the coproduct comparison. -/
 theorem routeEnvironment_tensor_comparison (E A B : V) :
     routeEnvironment J E A B =
