@@ -3,6 +3,7 @@ module
 public import Silmaril.Papers.Calco2019.Defs
 public import Silmaril.Semantics.Calco2019.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionThms
+public import Silmaril.Semantics.Calco2019.ResumptionGuardThms
 
 /-! # Numbered results for CALCO 2019, Article 13 -/
 
@@ -111,4 +112,26 @@ theorem proposition23_monad (f : X ⟶ R.obj Y) :
   ⟨rfl, R.monad_extend P f⟩
 
 end Resumptions
+
+section GuardedResumptions
+
+variable {C : Type u} [Category.{v} C] {P : Coproducts C}
+  (M : ParametrizedGuardedElgotMonad P) (R : FinalResumptions M.toParametrizedMonad)
+  {X Y : C}
+
+/-- The unique observation-diagram solution in Theorem 25. -/
+theorem theorem25_characterization (f : X ⟶ R.obj (P.sum Y X))
+    (hf : M.ResumptionGuard R (Y := Y) (Z := X) f) :
+    ∃! g, R.IsSolution P (M.diamond R f hf) g :=
+  ⟨M.iterateResumption R f hf, (M.iterateResumption_characterization R f hf).1,
+    (M.iterateResumption_characterization R f hf).2⟩
+
+/-- The fixpoint law for the iteration in Theorem 25. -/
+theorem theorem25_fixpoint (f : X ⟶ R.obj (P.sum Y X))
+    (hf : M.ResumptionGuard R (Y := Y) (Z := X) f) :
+    f ≫ R.extend P (P.desc (R.unit Y) (M.iterateResumption R f hf)) =
+      M.iterateResumption R f hf :=
+  M.iterateResumption_fixpoint R f hf
+
+end GuardedResumptions
 end Silmaril.Papers.Calco2019
