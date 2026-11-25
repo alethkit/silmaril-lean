@@ -27,6 +27,16 @@ theorem finite_run_iff_of_step {A C : Type} {edge : A → A → Prop} {native : 
   simpa only [true_and] using
     (Proofs.lift_runs (fun _ => True) render (fun _ _ => trivial) (fun _ => step _ _) (a := a) (b := b) trivial)
 
+theorem linked_runs {C : Type} {program : Graph.Program} {fn : Graph.Function}
+    {address : Execution.Runtime.FuncAddr} (checked : program.checkDirect = true)
+    (found : program.lookup address = some fn) (render : Graph.Phase → C) (native : C → C → Prop)
+    (step : ∀ {a b}, Graph.Admitted program fn a → (∀ args, a ≠ .call args ∧ a ≠ .invoke args) →
+      (native (render a) b ↔ ∃ out, program.FrameEdge address a out ∧ b = render out))
+    {a : Graph.Phase} {b : C} (admitted : Graph.Admitted program fn a) (live : a.LabelOutcome) :
+    Relation.ReflTransGen native (render a) b ↔
+      ∃ out, program.FrameRuns address a out ∧ Graph.Admitted program fn out ∧ b = render out :=
+  Proofs.linked_runs checked found render native step admitted live
+
 section Core
 
 variable {H : Type} {P : Numerics.Profile} {s : Core.Store H}

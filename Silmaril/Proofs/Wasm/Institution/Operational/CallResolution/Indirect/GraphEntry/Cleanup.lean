@@ -226,6 +226,39 @@ private theorem lime_cleanup_step {H : Type} {s : Store H} {entry : Entry} {oute
       rintro ⟨out, step, _⟩
       cases step)
 
+theorem core_trap_run_via {H : Type} {P : Numerics.Profile} {s : Core.Store H}
+    {entry : Entry} {program : CallContinuation.OuterCall.Ranked.Graph.Program} {tables : Source.Tables}
+    {outer : Frame} {index : FuncIdx} {args : List Value} {active : Source.Activation}
+    {states : List OperandState} {stack : List Value}
+    (ready : entry.AtSite program tables outer index args states stack active)
+    (start : Core.Config H) (front : List (Core.Config H))
+    (enters : (start :: front ++ [entry.coreBody s outer args]).IsChain
+      (fun a b => ∀ dst, Core.Step P noHost a dst ↔ dst = b))
+    (tablesFound : Source.Tables.CoreAllocated tables s)
+    (targets : active.binding.site.CoreAllocated program s) {out : Outcome}
+    (resolved : active.resolve program = some out) (trap : LookupTrap out) {dst : Core.Config H} :
+    Core.Steps P noHost start dst ↔
+      dst ∈ ((start :: front) ++ entry.coreSitePath s outer args active out states).dropLast ∨
+      ∃ phase, CleanupRuns (entry.coreTrapStart active out) phase ∧ dst = entry.coreCleanup s outer active.caller phase := by
+  let before := ((start :: front) ++ entry.coreSitePath s outer args active out states).dropLast
+  let trapped := entry.coreCleanup s outer active.caller (entry.coreTrapStart active out)
+  have same : before ++ [trapped] = (start :: front) ++ entry.coreSitePath s outer args active out states := by
+    apply List.dropLast_append_getLast?
+    have render := Core.core_site_trap (entry := entry) (s := s) (outer := outer)
+      active.caller (active.operands.saved ++ active.operands.args)
+    cases trap <;>
+      simp [List.getLast?_cons, trapped, Entry.coreSitePath, Outcome.coreTrace, Entry.coreLookup, Entry.coreTrapStart,
+        render, Source.Activation.coreConfig, Context.Resume.Continuation.coreSiteWrap,
+        Indirect.coreConfig, Site.coreCode, coreValues, List.append_assoc]
+  have chain : (before ++ [trapped]).IsChain (fun a b => ∀ dst, Core.Step P noHost a dst ↔ dst = b) := by
+    rw [same]
+    exact Core.prefix_via ready (start :: front) enters tablesFound targets resolved
+  have run := Context.Resume.prefix_run_iff (dst := dst) before trapped chain
+  have head : before.headD trapped = start := by
+    simp [before, List.dropLast_cons_of_ne_nil, Entry.coreSitePath, Outcome.coreTrace]
+  rw [head] at run
+  exact run.trans (or_congr Iff.rfl (Context.finite_run_iff_of_step _ core_cleanup_step))
+
 theorem core_trap_run_iff {H : Type} {P : Numerics.Profile} {s : Core.Store H}
     {entry : Entry} {program : CallContinuation.OuterCall.Ranked.Graph.Program} {tables : Source.Tables}
     {outer : Frame} {index : FuncIdx} {args : List Value} {active : Source.Activation}
@@ -235,21 +268,43 @@ theorem core_trap_run_iff {H : Type} {P : Numerics.Profile} {s : Core.Store H}
     (resolved : active.resolve program = some out) (trap : LookupTrap out) {dst : Core.Config H} :
     Core.Steps P noHost (coreSource s outer index args) dst ↔
       dst ∈ (entry.corePrefix s outer index args active out states).dropLast ∨
-      ∃ phase, CleanupRuns (entry.coreTrapStart active out) phase ∧ dst = entry.coreCleanup s outer active.caller phase := by
-  let before := (entry.corePrefix s outer index args active out states).dropLast
-  let trapped := entry.coreCleanup s outer active.caller (entry.coreTrapStart active out)
-  have same : before ++ [trapped] = entry.corePrefix s outer index args active out states := by
-    have render := Core.core_site_trap (entry := entry) (s := s) (outer := outer)
-      active.caller (active.operands.saved ++ active.operands.args)
-    cases trap <;>
-      simp [before, trapped, Entry.corePrefix, Outcome.coreTrace, Entry.coreLookup, Entry.coreTrapStart,
-        render, Source.Activation.coreConfig, Context.Resume.Continuation.coreSiteWrap,
-        Indirect.coreConfig, Site.coreCode, coreValues, List.append_assoc]
-  have chain : (before ++ [trapped]).IsChain (fun a b => ∀ dst, Core.Step P noHost a dst ↔ dst = b) := by
+      ∃ phase, CleanupRuns (entry.coreTrapStart active out) phase ∧ dst = entry.coreCleanup s outer active.caller phase :=
+  core_trap_run_via (P := P) ready (coreSource s outer index args) [entry.coreInvoke s outer args]
+    (Core.ordinary_path (P := P) ready.checked allocated.entry) allocated.tables allocated.targets resolved trap
+
+open Wasm.Lime1.Execution in
+theorem lime_trap_run_via {H : Type} {s : Store H}
+    {entry : Entry} {program : CallContinuation.OuterCall.Ranked.Graph.Program} {tables : Source.Tables}
+    {outer : Frame} {index : FuncIdx} {args : List Value} {active : Source.Activation}
+    {states : List OperandState} {stack : List Value}
+    (ready : entry.AtSite program tables outer index args states stack active)
+    (start : Config H) (front : List (Config H))
+    (enters : (start :: front ++ [entry.limeBody s outer args]).IsChain
+      (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b))
+    (tablesFound : Source.Tables.LimeAllocated tables s)
+    (targets : active.binding.site.LimeAllocated program s) {out : Outcome}
+    (resolved : active.resolve program = some out) (trap : LookupTrap out) {dst : Config H} :
+    Steps CallFrame.limeNoHost start dst ↔
+      dst ∈ ((start :: front) ++ entry.limeSitePath s outer args active out states).dropLast ∨
+      ∃ phase, CleanupRuns (entry.limeTrapStart active) phase ∧ dst = entry.limeCleanup s outer active.caller phase := by
+  let before := ((start :: front) ++ entry.limeSitePath s outer args active out states).dropLast
+  let trapped := entry.limeCleanup s outer active.caller (entry.limeTrapStart active)
+  have chain : (before ++ [trapped]).IsChain (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b) := by
+    have same : before ++ [trapped] = (start :: front) ++ entry.limeSitePath s outer args active out states := by
+      apply List.dropLast_append_getLast?
+      have render := Lime1.lime_site_trap (entry := entry) (s := s) (outer := outer)
+        active.caller (active.operands.saved ++ active.operands.args)
+      cases trap <;>
+        simp [List.getLast?_cons, trapped, Entry.limeSitePath, Entry.limeTrapStart, render, Source.Activation.limeResolved,
+          Context.Resume.Continuation.limeSiteWrap, Indirect.limeResolved, values,
+          List.map_append, List.append_assoc]
     rw [same]
-    exact Core.prefix_exact ready allocated resolved
+    exact Lime1.prefix_via ready (start :: front) enters tablesFound targets resolved
   have run := Context.Resume.prefix_run_iff (dst := dst) before trapped chain
-  cases trap <;> exact run.trans (or_congr Iff.rfl (Context.finite_run_iff_of_step _ core_cleanup_step))
+  have head : before.headD trapped = start := by
+    simp [before, List.dropLast_cons_of_ne_nil, Entry.limeSitePath]
+  rw [head] at run
+  exact run.trans (or_congr Iff.rfl (Context.finite_run_iff_of_step _ lime_cleanup_step))
 
 open Wasm.Lime1.Execution in
 theorem lime_trap_run_iff {H : Type} {s : Store H}
@@ -261,22 +316,26 @@ theorem lime_trap_run_iff {H : Type} {s : Store H}
     (resolved : active.resolve program = some out) (trap : LookupTrap out) {dst : Config H} :
     Steps CallFrame.limeNoHost (limeSource s outer index args) dst ↔
       dst ∈ (entry.limePrefix s outer index args active out states).dropLast ∨
-      ∃ phase, CleanupRuns (entry.limeTrapStart active) phase ∧ dst = entry.limeCleanup s outer active.caller phase := by
-  let before := (entry.limePrefix s outer index args active out states).dropLast
-  let trapped := entry.limeCleanup s outer active.caller (entry.limeTrapStart active)
-  have chain : (before ++ [trapped]).IsChain (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b) := by
-    have same : before ++ [trapped] = entry.limePrefix s outer index args active out states := by
-      apply List.dropLast_append_getLast?
-      have render := Lime1.lime_site_trap (entry := entry) (s := s) (outer := outer)
-        active.caller (active.operands.saved ++ active.operands.args)
-      cases trap <;>
-        simp [trapped, Entry.limePrefix, Entry.limeTrapStart, render, Source.Activation.limeResolved,
-          Context.Resume.Continuation.limeSiteWrap, Indirect.limeResolved, values,
-          List.map_append, List.append_assoc]
-    rw [same]
-    exact Lime1.prefix_exact ready allocated resolved
-  exact (Context.Resume.prefix_run_iff (dst := dst) before trapped chain).trans
-    (or_congr Iff.rfl (Context.finite_run_iff_of_step _ lime_cleanup_step))
+      ∃ phase, CleanupRuns (entry.limeTrapStart active) phase ∧ dst = entry.limeCleanup s outer active.caller phase :=
+  lime_trap_run_via ready (limeSource s outer index args) [entry.limeInvoke s outer args]
+    (Lime1.ordinary_path ready.checked allocated.entry) allocated.tables allocated.targets resolved trap
+
+theorem core_operand_trap_run_via {H : Type} {P : Numerics.Profile} {s : Core.Store H}
+    {entry : Entry} {outer : Frame} {args : List Value}
+    (start : Core.Config H) (front : List (Core.Config H))
+    (enters : (start :: front ++ [entry.coreBody s outer args]).IsChain
+      (fun a b => ∀ dst, Core.Step P noHost a dst ↔ dst = b))
+    {states : List OperandState} {saved : List Value} {rest : List CallContinuation.OuterCall.Computed.Prefix.Op}
+    (trace : entry.OperandTrace args states (.trap saved rest)) {dst : Core.Config H} :
+    Core.Steps P noHost start dst ↔
+      dst ∈ (start :: front) ++ entry.coreInside s outer args states ∨
+      ∃ phase, CleanupRuns (entry.siteTrap Graph.coreEmit saved (entry.coreSiteCode rest)) phase ∧
+        dst = entry.coreCleanup s outer (entry.frame args) phase := by
+  have chain := Core.operands_via (P := P) (start :: front) enters trace
+  have read := Context.Resume.prefix_run_iff (dst := dst) _ _ chain
+  simp only [Entry.coreOperandResult] at read
+  exact read.trans (or_congr Iff.rfl (Context.finite_run_iff_of_step
+    (entry.coreCleanup s outer (entry.frame args)) core_cleanup_step))
 
 theorem core_operand_trap_run_iff {H : Type} {P : Numerics.Profile} {s : Core.Store H}
     {entry : Entry} {program : CallContinuation.OuterCall.Ranked.Graph.Program} {tables : Source.Tables}
@@ -288,12 +347,27 @@ theorem core_operand_trap_run_iff {H : Type} {P : Numerics.Profile} {s : Core.St
     Core.Steps P noHost (coreSource s outer index args) dst ↔
       dst ∈ entry.coreBefore s outer index args states ∨
       ∃ phase, CleanupRuns (entry.siteTrap Graph.coreEmit saved (entry.coreSiteCode rest)) phase ∧
-        dst = entry.coreCleanup s outer (entry.frame args) phase := by
-  have chain := Core.operands_exact (P := P) ready allocated trace
+        dst = entry.coreCleanup s outer (entry.frame args) phase :=
+  core_operand_trap_run_via (P := P) (coreSource s outer index args) [entry.coreInvoke s outer args]
+    (Core.ordinary_path (P := P) ready allocated) trace
+
+open Wasm.Lime1.Execution in
+theorem lime_operand_trap_run_via {H : Type} {s : Store H}
+    {entry : Entry} {outer : Frame} {args : List Value}
+    (start : Config H) (front : List (Config H))
+    (enters : (start :: front ++ [entry.limeBody s outer args]).IsChain
+      (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b))
+    {states : List OperandState} {saved : List Value} {rest : List CallContinuation.OuterCall.Computed.Prefix.Op}
+    (trace : entry.OperandTrace args states (.trap saved rest)) {dst : Config H} :
+    Steps CallFrame.limeNoHost start dst ↔
+      dst ∈ (start :: front) ++ entry.limeInside s outer args states ∨
+      ∃ phase, CleanupRuns (entry.siteTrap Graph.limeEmit saved (entry.limeSiteCode rest)) phase ∧
+        dst = entry.limeCleanup s outer (entry.frame args) phase := by
+  have chain := Lime1.operands_via (start :: front) enters trace
   have read := Context.Resume.prefix_run_iff (dst := dst) _ _ chain
-  simp only [Entry.coreOperandResult] at read
+  simp only [Entry.limeOperandResult] at read
   exact read.trans (or_congr Iff.rfl (Context.finite_run_iff_of_step
-    (entry.coreCleanup s outer (entry.frame args)) core_cleanup_step))
+    (entry.limeCleanup s outer (entry.frame args)) lime_cleanup_step))
 
 open Wasm.Lime1.Execution in
 theorem lime_operand_trap_run_iff {H : Type} {s : Store H}
@@ -306,11 +380,8 @@ theorem lime_operand_trap_run_iff {H : Type} {s : Store H}
     Steps CallFrame.limeNoHost (limeSource s outer index args) dst ↔
       dst ∈ entry.limeBefore s outer index args states ∨
       ∃ phase, CleanupRuns (entry.siteTrap Graph.limeEmit saved (entry.limeSiteCode rest)) phase ∧
-        dst = entry.limeCleanup s outer (entry.frame args) phase := by
-  have chain := Lime1.operands_exact ready allocated trace
-  have read := Context.Resume.prefix_run_iff (dst := dst) _ _ chain
-  simp only [Entry.limeOperandResult] at read
-  exact read.trans (or_congr Iff.rfl (Context.finite_run_iff_of_step
-    (entry.limeCleanup s outer (entry.frame args)) lime_cleanup_step))
+        dst = entry.limeCleanup s outer (entry.frame args) phase :=
+  lime_operand_trap_run_via (limeSource s outer index args) [entry.limeInvoke s outer args]
+    (Lime1.ordinary_path ready allocated) trace
 
 end Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Proofs
