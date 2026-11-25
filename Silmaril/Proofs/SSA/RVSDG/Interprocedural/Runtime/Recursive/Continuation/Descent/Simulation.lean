@@ -15,6 +15,16 @@ variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {m : Machine.{u, v, w} Op} {ports final : Ports (Ty V S)}
 variable {job : Job m ports} {next : Entry m} {pending : Pending m next.results ports}
 
+private theorem feedback_steps {carried : Ports (Ty V S)} {sigs : List (Ports (Ty V S))}
+    {body : NestedTheta.Term (Instruction Op) carried [] sigs (Theta.BodyResults carried)}
+    {input current : Tuple m.Val carried}
+    (completed : ReflTransGen (Feedback.Iteration body) input current) (stack : Stack m carried final) :
+    ReflTransGen Step (Feedback.restart body stack input) (Feedback.restart body stack current) := by
+  induction completed with
+  | refl => exact .refl
+  | tail _ iteration ih =>
+    exact ih.trans (Feedback.segment_steps (Feedback.iteration_iff_segment.mp iteration)).to_reflTransGen
+
 theorem prefix_steps (reached : Prefix m job next pending) (stack : Stack m ports final) :
     TransGen Step (.eval job stack) (next.state (pending.push stack)) := by
   induction reached with
@@ -30,6 +40,11 @@ theorem prefix_steps (reached : Prefix m job next pending) (stack : Stack m port
   | @inside args head ports past tail node children rest entry locals next pending reached ih =>
     exact (ih (.resume rest entry locals stack)).head rfl
   | gamma selected ih => exact (ih stack).head rfl
+  | theta _ ih => exact (ih stack).head rfl
+  | @iteration carried sigs body input current next pending completed active ih =>
+    have enter : Step (Feedback.restart body stack current)
+        (.eval (.region body current PUnit.unit) (.loop body stack)) := rfl
+    exact TransGen.trans_right ((feedback_steps completed stack).tail enter) (ih (.loop body stack))
 
 theorem entry_steps {entry : Entry m} {pending : Pending m next.results entry.results}
     (reached : Prefix m entry.openBody next pending) (stack : Stack m entry.results final) :
@@ -46,6 +61,11 @@ theorem depth_push {selected : Ports (Ty V S)} (pending : Pending m selected por
     rw [ih]
     change (stackDepth stack + 1) + inside.depth = _
     omega
+  | loop body inside ih =>
+    change stackDepth (inside.push (.loop body stack)) = stackDepth stack + (inside.depth + 1)
+    rw [ih]
+    change (stackDepth stack + 1) + inside.depth = _
+    omega
 
 private def isRegion : Job m ports → Prop
   | .region .. => True
@@ -58,6 +78,8 @@ private theorem positive_depth (reached : Prefix m job next pending) (region : i
   | later first more ih => exact ih trivial
   | inside => exact Nat.succ_pos _
   | gamma => cases region
+  | theta => cases region
+  | iteration => cases region
 
 theorem stack_grows (run : Run m) (base : Stack m (run.entry 0).results final) (n : Nat) :
     stackDepth (run.stackAt base n) < stackDepth (run.stackAt base (n + 1)) := by
