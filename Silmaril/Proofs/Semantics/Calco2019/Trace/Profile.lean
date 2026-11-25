@@ -13,7 +13,7 @@ open CategoryTheory Guardedness
 
 variable {K : Type u} [Category.{v} K] {P : Coproducts K} {G : Guardedness P}
 
-private theorem assocInv_assoc (X Y Z : K) :
+theorem assocInv_assoc (X Y Z : K) :
     P.assocInv (X := X) (Y := Y) (Z := Z) ≫ P.assoc = 𝟙 _ := by
   apply P.hom_ext
   · simp [Coproducts.assoc, Coproducts.assocInv]
