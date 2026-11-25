@@ -15,7 +15,7 @@ single blocks, including their local loops, writes and returns. Lifting
 preserves the collection denotation exactly. This normalized input requires a
 finite declaration table. The caller supplies statically resolved names and
 scope legality, including full lists of local slots and free names. Calls
-inside collection loop bodies require further lowering support.
+inside collection loop bodies are outside this profile.
 [Definitions](../../Silmaril/Languages/Starlark/Functions/Defs.lean) · [Theorem header](../../Silmaril/Languages/Starlark/Functions/Thms.lean)
 
 Each invocation allocates its own lexical slots. A closure keeps the
@@ -110,9 +110,9 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$fixture")
 ```
 
-Module initialization and loading, built-ins, and host callable effects
-remain open. Calls in collection loop bodies and direct source lowering
-remain outside the current normalized input.
+Module initialization and prepublished imports extend this profile. Built-ins,
+host callable effects, calls within collection loop bodies and direct
+source lowering remain open. [Modules](starlark-modules.md)
 
 [functions]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions
 [names]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#name-binding-and-variables

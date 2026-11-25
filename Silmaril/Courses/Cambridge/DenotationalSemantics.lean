@@ -10,8 +10,10 @@ public import Silmaril.Courses.Cambridge.DenotationalSemantics.PCF
 public import Silmaril.Courses.Cambridge.DenotationalSemantics.ScottInduction
 public import Silmaril.Courses.Cambridge.L1.DenotationalInstitution
 public import Silmaril.Courses.Cambridge.L1.EffectfulDenotational.Institution
+public import Silmaril.Courses.Cambridge.L1.LetIter.Thms
 import Silmaril.Courses.Cambridge.DenotationalSemantics.L1Examples
 import Silmaril.Courses.Cambridge.DenotationalSemantics.L1EffectfulExamples
+import Silmaril.Courses.Cambridge.DenotationalSemantics.L1LetIterExamples
 
 /-! # Cambridge Part II Denotational Semantics
 
