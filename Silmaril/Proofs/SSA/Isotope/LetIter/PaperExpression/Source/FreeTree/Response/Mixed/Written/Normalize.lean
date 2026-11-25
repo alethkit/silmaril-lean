@@ -163,6 +163,16 @@ private theorem normalize_subst {Δ : EffectCtx (Ty α) ε} {a : Expr (Φ ⊕ Ψ
 
 variable {Γ : EffectCtx (Ty α) ε} {ss : Fin Γ.length → α}
 
+public theorem normalize {a : Expr (Φ ⊕ Ψ)} (hΓ : Γ.Pure)
+    (hs : ∀ i, (Γ.get i).1 = .base (ss i)) (e : ε)
+    (ha : letI := endpoints S T; letI : HasEff (Φ ⊕ Ψ) ε := effects; Wf Γ a A e) :
+    letI := endpoints S T
+    letI : HasEff (Φ ⊕ Ψ) ε := effects
+    ∃ p : Code S T A ss, p.WellTyped S T e ∧ Eqv Γ A e a p.source := by
+  obtain ⟨p, hp, he⟩ := normalize_subst S T ha hΓ hs (NormalEnv.identity S hs)
+  rw [Expr.subst_var] at he
+  exact ⟨p, hp, he⟩
+
 private theorem toMixed_typed {n : Nat} {ss : Fin n → α} {c : α} (p : Code S T (.base c) ss)
     (hp : p.WellTyped S T e) : p.toMixed.WellTyped S T e := by
   induction p with
@@ -185,8 +195,7 @@ public theorem normalize_atomic {a : Expr (Φ ⊕ Ψ)} {c : α} (hΓ : Γ.Pure)
     ∃ p : Mixed.Program S T c ss, p.WellTyped S T e ∧ Eqv Γ (.base c) e a p.source := by
   let instr := endpoints S T
   let eff : HasEff (Φ ⊕ Ψ) ε := effects
-  obtain ⟨p, hp, he⟩ := normalize_subst S T ha hΓ hs (NormalEnv.identity S hs)
-  rw [Expr.subst_var] at he
+  obtain ⟨p, hp, he⟩ := normalize S T hΓ hs e ha
   exact ⟨p.toMixed, toMixed_typed S T p hp, (toMixed_source S T p).symm ▸ he⟩
 
 variable [EffectIteration ε] [DecidableEq α]

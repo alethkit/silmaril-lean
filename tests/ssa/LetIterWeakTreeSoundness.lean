@@ -11,6 +11,7 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mix
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Ranked.Compile.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Cyclic.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Structured.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -1707,3 +1708,95 @@ example : AbortEquiv (⊥ : Fx) free Γ.toBoundCtx native expected.native A ∧
   exact ⟨hreflect.mpr agreesWithExpected, hreflect.mp (hreflect.mpr agreesWithExpected)⟩
 
 end LetIterWrittenMixedFixture
+
+namespace LetIterStructuredResultFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response
+open LetIterWrittenMixedFixture
+
+local instance : HasEff Bool Fx := ⟨fun _ => strict⟩
+local instance : HasEff Unit Fx := ⟨fun _ => strict⟩
+local instance : HasEff Ops Fx := SumCall.effects
+local instance : HasTy Ops (Ty Unit) := SumCall.endpoints sig sumSig
+local instance : EffectIteration Fx := EffectIteration.complete Fx
+
+abbrev Choice : Ty Unit := .coprod A A
+abbrev Result : Ty Unit := .product Choice .unit
+abbrev req : Expr Ops := .op (.inr ()) .unit
+abbrev body : Expr Ops := .pair (.var 0) .unit
+abbrev expression : Expr Ops := .let₁ req body
+
+private theorem reqTyped : Wf Γ req Choice strict :=
+  .op (f := Sum.inr ()) le_rfl (.unit _ _)
+
+private theorem expressionTyped : Wf Γ expression Result strict :=
+  .let₁ reqTyped (.pair (.var 0 bot_le) (.unit _ _))
+
+abbrev native : Tm Empty Ops Γ.length :=
+  .let₁ (.op (.inr ()) .unit) (.pair (.bv 0) .unit)
+
+private theorem lowers : expression.toLetIter Γ.length = some native := rfl
+
+/-- Both branches return a product with the response sum still tagged. -/
+abbrev expected : Mixed.Written.Code sig sumSig Result slots :=
+  .sum () (fun i => i.elim0)
+    (.ret (.pair (.inl (.tree (.var 0))) .unit))
+    (.ret (.pair (.inr (.tree (.var 0))) .unit))
+
+abbrev swappedLeft : Mixed.Written.Code sig sumSig Result slots :=
+  .sum () (fun i => i.elim0)
+    (.ret (.pair (.inr (.tree (.var 0))) .unit))
+    (.ret (.pair (.inr (.tree (.var 0))) .unit))
+
+private theorem expectedTyped : expected.WellTyped sig sumSig strict :=
+  ⟨fun i => i.elim0, le_rfl, ⟨trivial, trivial⟩, ⟨trivial, trivial⟩⟩
+
+private theorem swappedTyped : swappedLeft.WellTyped sig sumSig strict :=
+  ⟨fun i => i.elim0, le_rfl, ⟨trivial, trivial⟩, ⟨trivial, trivial⟩⟩
+
+private theorem agrees : Eqv Γ Result strict expression expected.source := by
+  have hL : Wf [(A, ⊥)] (.inl (.var 0) : Expr Ops) Choice (⊥ : Fx) := .inl (.var 0 le_rfl)
+  have hR : Wf [(A, ⊥)] (.inr (.var 0) : Expr Ops) Choice (⊥ : Fx) := .inr (.var 0 le_rfl)
+  have hl := hL.weakenEffect (bot_le : (⊥ : Fx) ≤ strict)
+  have hr := hR.weakenEffect (bot_le : (⊥ : Fx) ≤ strict)
+  have hc := Wf.case reqTyped hl hr
+  have hb : Wf [(Choice, ⊥)] body Result strict := .pair (.var 0 bot_le) (.unit _ _)
+  have hw : Wf [(Choice, ⊥), (A, ⊥)] body.wk1 Result strict := .pair (.var 0 bot_le) (.unit _ _)
+  have eta := (Eqv.step (Step.rewrite hc reqTyped (.case_eta _))).symm
+  have push := Eqv.step (Step.rewrite (.let₁ hc hb)
+    (.case reqTyped (.let₁ hl hw) (.let₁ hr hw)) (.let1_case _ _ _ _))
+  exact (Eqv.let1 eta (.refl hb)).trans
+    (push.trans (.case (.refl reqTyped) (.step (.let1_beta hL hw)) (.step (.let1_beta hR hw))))
+
+/-- Run the public reflection theorem at the original strict bound instead
+of identifying the compound result with an atomic code. -/
+example : AbortEquiv (⊥ : Fx) free Γ.toBoundCtx native expected.native Result ∧
+    Eqv Γ Result strict expression expected.source := by
+  have h := Mixed.Written.endpoint_reflection_structured sig sumSig visibleSum ctxPure slotsTyped strict
+    expressionTyped agrees.endpoints_wf.2 lowers (Mixed.Written.Code.lowers sig sumSig expected)
+  exact ⟨h.mpr agrees, h.mp (h.mpr agrees)⟩
+
+/-- The very same requests with a changed injection inside the returned
+product are distinguishable at their original bound. -/
+example : ¬ Eqv Γ Result strict expected.source swappedLeft.source := by
+  intro h
+  have hn := h.toLetIter (Mixed.Written.Code.lowers sig sumSig expected)
+    (Mixed.Written.Code.lowers sig sumSig swappedLeft)
+  have hcode := Mixed.Written.Code.native_eq_implies_eq sig sumSig visibleSum slotsTyped strict
+    expected swappedLeft expectedTyped swappedTyped hn
+  simp [expected, swappedLeft] at hcode
+
+abbrev requestThenUnit : Mixed.Written.Code sig sumSig .unit slots :=
+  .sum () (fun i => i.elim0) (.ret .unit) (.ret .unit)
+
+abbrev returnUnit : Mixed.Written.Code sig sumSig .unit slots := .ret .unit
+
+/-- Unit compares equal at a pure return. It does not erase the preceding request. -/
+example : ¬ AbortEquiv (⊥ : Fx) free Γ.toBoundCtx requestThenUnit.native returnUnit.native .unit := by
+  intro h
+  have hcode := Mixed.Written.Code.native_eq_implies_eq sig sumSig visibleSum slotsTyped strict
+    requestThenUnit returnUnit ⟨fun i => i.elim0, le_rfl, trivial, trivial⟩ trivial h
+  cases hcode
+
+end LetIterStructuredResultFixture

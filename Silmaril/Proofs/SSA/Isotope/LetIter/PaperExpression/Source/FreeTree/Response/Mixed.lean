@@ -28,7 +28,7 @@ local notation "D[" ss "]" => Ty.denote (Atom S ss)
 local notation "M[" ss "]" => SumCall.instructions (ε := ε) S T ss
 
 omit [HasEff Φ ε] [HasEff Ψ ε] [SemilatticeSup ε] [OrderBot ε] in
-private theorem tuple_lowers {k n : Nat} (a : Fin k → Expr (Φ ⊕ Ψ)) (t : Fin k → Tm Empty (Φ ⊕ Ψ) n)
+public theorem tuple_lowers {k n : Nat} (a : Fin k → Expr (Φ ⊕ Ψ)) (t : Fin k → Tm Empty (Φ ⊕ Ψ) n)
     (h : ∀ i, (a i).toLetIter n = some (t i)) :
     (sourceTuple k a).toLetIter n = some (nativeTuple k t) := by
   induction k with
@@ -38,7 +38,7 @@ private theorem tuple_lowers {k n : Nat} (a : Fin k → Expr (Φ ⊕ Ψ)) (t : F
       ih (fun i => a i.succ) (fun i => t i.succ) (fun i => h i.succ), Option.map_some]
 
 omit [HasEff Φ ε] [HasEff Ψ ε] [SemilatticeSup ε] [OrderBot ε] in
-private theorem tree_lowers {n : Nat} {ss : Fin n → α} {a : α} (p : Tree S ss a) :
+public theorem tree_lowers {n : Nat} {ss : Fin n → α} {a : α} (p : Tree S ss a) :
     (treeSource (Ψ := Ψ) S p).toLetIter n = some (treeNative (Ψ := Ψ) S p) := by
   induction p with
   | var i => simp [treeSource, treeNative, Expr.toLetIter, i.isLt]
@@ -197,7 +197,7 @@ private theorem eval_cast_bv {i : Fin Γ.length} {A : Ty α}
   exact congrArg ITree.ret hx
 
 omit [HasEff Ψ ε] in
-private theorem eval_tree_exists (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+public theorem eval_tree_exists (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
     {a : α} (p : Tree S slots a) (hp : DeclaredPure (ε := ε) S p) :
     letI := endpoints S T
     ∃ d : Derivation (Φ ⊕ Ψ) Γ₀ β (treeNative S p) (.base a),
@@ -221,7 +221,7 @@ private theorem eval_tree_exists (hslots : ∀ i, (Γ.get i).1 = .base (slots i)
     rfl
 
 omit [HasEff Ψ ε] in
-private theorem eval_args_exists (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+public theorem eval_args_exists (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
     {k : Nat} {as : Fin k → α} (args : (i : Fin k) → Tree S slots (as i))
     (hp : ∀ i, DeclaredPure (ε := ε) S (args i)) :
     letI := endpoints S T
@@ -234,7 +234,7 @@ private theorem eval_args_exists (hslots : ∀ i, (Γ.get i).1 = .base (slots i)
   exact ⟨tupleDerivation S T ds, fun vars => eval_tuple S T modelSlots _ ds _ (fun i => hds i vars)⟩
 
 omit [HasEff Ψ ε] in
-private theorem eval_atom_visible (f : Φ) (args : Args S modelSlots f)
+public theorem eval_atom_visible (f : Φ) (args : Args S modelSlots f)
     (hf : ¬ IsPure (⊥ : ε) f) :
     letI := endpoints S T
     (M).eval (.inl f) (packArgs S modelSlots (S.arity f) (S.arg f) args) =
@@ -243,7 +243,7 @@ private theorem eval_atom_visible (f : Φ) (args : Args S modelSlots f)
   simp only [SumCall.instructions, ite_eq_right hf, readArgs, unpackArgs_packArgs]
 
 omit [HasEff Ψ ε] in
-private theorem eval_sum_request (g : Ψ) (args : SumArgs S T modelSlots g) :
+public theorem eval_sum_request (g : Ψ) (args : SumArgs S T modelSlots g) :
     letI := endpoints S T
     (M).eval (.inr g) (packArgs S modelSlots (T.arity g) (T.arg g) args) =
       ITree.vis (.sum g args) (fun r => ITree.ret (responseValue S T modelSlots r)) := by
@@ -331,20 +331,6 @@ end Evaluation
 
 section Reflection
 
-private noncomputable def headRequest {m : Nat} (modelSlots : Fin m → α)
-    (t : ITree.Tree (SumCall.Event S T modelSlots) (Atom S modelSlots c)) :
-    _root_.Part (Option (Request S modelSlots ⊕ SumCall.SumRequest S T modelSlots)) :=
-  (ITree.out t).map (fun
-    | .ret _ => none
-    | .vis (.atom f args) _ => some (.inl ⟨f, args⟩)
-    | .vis (.sum g args) _ => some (.inr ⟨g, args⟩))
-
-private theorem extendValues_head {n m : Nat} {ss : Fin n → α} {ms : Fin m → α} {a : α}
-    (vars : (i : Fin (n + 1)) → Tree S ms (extendSorts a ss i)) :
-    extendValues S ms (vars 0) (fun i => vars i.succ) = vars := by
-  funext i
-  exact Fin.cases rfl (fun _ => rfl) i
-
 omit [HasEff Φ ε] [HasEff Ψ ε] [SemilatticeSup ε] [OrderBot ε] in
 public theorem eq_of_denote_eq {n : Nat} {ss : Fin n → α} {p q : Program S T c ss}
     (h : ∀ {m : Nat} (modelSlots : Fin m → α)
@@ -363,11 +349,11 @@ public theorem eq_of_denote_eq {n : Nat} {ss : Fin n → α} {p q : Program S T 
     cases q with
     | ret q => exact (ITree.ret_ne_vis _ _ _ (h ambient Tree.var).symm).elim
     | sum g req left right =>
-      have hh := congrArg (headRequest S T ambient) (h ambient Tree.var)
-      simp [headRequest, Program.denote, ITree.out_vis] at hh
+      have hh := congrArg (SumCall.headRequest S T ambient) (h ambient Tree.var)
+      simp [SumCall.headRequest, Program.denote, ITree.out_vis] at hh
     | atom f' args' next' =>
-      have hh := congrArg (headRequest S T ambient) (h ambient Tree.var)
-      simp only [headRequest, Program.denote, ITree.out_vis, Part.map_some, Part.some_inj,
+      have hh := congrArg (SumCall.headRequest S T ambient) (h ambient Tree.var)
+      simp only [SumCall.headRequest, Program.denote, ITree.out_vis, Part.map_some, Part.some_inj,
         Option.some.injEq, Sum.inl.injEq, SingleCall.interpret_vars] at hh
       have hf : f = f' := congrArg Sigma.fst hh
       subst f'
@@ -385,11 +371,11 @@ public theorem eq_of_denote_eq {n : Nat} {ss : Fin n → α} {p q : Program S T 
     cases q with
     | ret q => exact (ITree.ret_ne_vis _ _ _ (h ambient Tree.var).symm).elim
     | atom f req next =>
-      have hh := congrArg (headRequest S T ambient) (h ambient Tree.var)
-      simp [headRequest, Program.denote, ITree.out_vis] at hh
+      have hh := congrArg (SumCall.headRequest S T ambient) (h ambient Tree.var)
+      simp [SumCall.headRequest, Program.denote, ITree.out_vis] at hh
     | sum g' args' left' right' =>
-      have hh := congrArg (headRequest S T ambient) (h ambient Tree.var)
-      simp only [headRequest, Program.denote, ITree.out_vis, Part.map_some, Part.some_inj,
+      have hh := congrArg (SumCall.headRequest S T ambient) (h ambient Tree.var)
+      simp only [SumCall.headRequest, Program.denote, ITree.out_vis, Part.map_some, Part.some_inj,
         Option.some.injEq, Sum.inr.injEq, SingleCall.interpret_vars] at hh
       have hg : g = g' := congrArg Sigma.fst hh
       subst g'
