@@ -3,7 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Tensor.Premonoidal.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Values.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithUnitEta.Defs
-public import Silmaril.Raw.Semantics.Categories.Premonoidal.Symmetric
+public import Silmaril.Semantics.Categories.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ProjectedPremonoidal
 
 /-! # Premonoidal structure in singleton quotients with unit η -/
