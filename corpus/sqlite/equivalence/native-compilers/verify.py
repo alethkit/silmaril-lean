@@ -64,14 +64,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--clang", type=Path, required=True)
     parser.add_argument("--gcc", type=Path, help="fresh GCC rebuild, defaults to committed ELF")
+    parser.add_argument("--symbol", default="sqlite3_libversion_number",
+                        help="select the pair by dynamic symbol name")
     parser.add_argument("--archive", type=Path, help="also check the original upstream ZIP")
     parser.add_argument("--lean-check", type=Path,
                         help="write a Lean check equating each extracted slice to the proof input")
     args = parser.parse_args()
     manifest = json.loads((HERE / "manifest.json").read_text())
     gcc, clang = manifest["endpoints"]
-    pair, = manifest["pairs"]
-    name = pair["function_symbol"]
+    name = args.symbol
+    pairs = [pair for pair in manifest["pairs"] if pair["function_symbol"] == name]
+    if len(pairs) != 1:
+        parser.error(f"expected one registered pair for {name}")
+    pair, = pairs
     require((pair["left"], pair["right"]) == (gcc["id"], clang["id"]), "wrong paired endpoints")
 
     source = manifest["source"]
@@ -82,8 +87,13 @@ def main():
     excerpt = data[span["offset"]:span["offset"] + span["length"]]
     require(excerpt == span["text"].encode() and corpus.sha(excerpt) == span["sha256"],
             "amalgamation definition span mismatch")
-    require(re.search(rb"^#define SQLITE_VERSION_NUMBER\s+(\d+)", data, re.M)[1]
-            == str(pair["value"]).encode(), "amalgamation version number mismatch")
+    if name == "sqlite3_libversion_number":
+        require(re.search(rb"^#define SQLITE_VERSION_NUMBER\s+(\d+)", data, re.M)[1]
+                == str(pair["value"]).encode(), "amalgamation version number mismatch")
+    if "source_layout" in pair:
+        layout = source["layouts"][pair["source_layout"]]
+        excerpt = data[layout["offset"]:layout["offset"] + layout["length"]]
+        require(corpus.sha(excerpt) == layout["sha256"], "amalgamation struct span mismatch")
     if args.archive:
         require(corpus.sha(args.archive.read_bytes()) == source["archive"]["sha256"],
                 "upstream ZIP digest mismatch")
@@ -94,20 +104,18 @@ def main():
 
     gcc_code = verify_elf(args.gcc or corpus.public_file(ROOT, gcc["path"]), gcc, name)
     clang_code = verify_elf(args.clang, clang, name)
-    require(gcc_code == clang_code, "paired code slices differ")
+    require((gcc_code == clang_code) == pair["same_code"], "unexpected code identity")
     if args.lean_check:
-        cases = []
-        for code in (gcc_code, clang_code):
+        namespace, theorem = pair["declaration"].rsplit(".", 1)
+        root = pair.get("root", manifest["root"])
+        lines = [f"import {root}", "", f"open {namespace}", ""]
+        for endpoint, code in ((gcc, gcc_code), (clang, clang_code)):
+            constant = endpoint["functions"][name]["lean_code"]
             literal = ", ".join(f"0x{byte:02x}" for byte in code)
-            cases.append(f"example : libversionNumberCode = [{literal}] := rfl")
-        args.lean_check.write_text(
-            f"import {manifest['root']}\n\n"
-            f"open Silmaril.Elf.Corpus.SqliteNativeCompilers\n\n"
-            + "\n".join(cases) + "\n\n"
-            "#print axioms libversionNumberCode\n"
-            "#print axioms libversionNumber_firstReturn\n"
-            "#print axioms libversionNumber_pair\n"
-        )
+            lines.append(f"example : {constant} = [{literal}] := rfl")
+        lines.append("")
+        lines.extend(f"#print axioms {decl}" for decl in [*pair["audit_declarations"], theorem])
+        args.lean_check.write_text("\n".join(lines) + "\n")
 
 
 if __name__ == "__main__":
