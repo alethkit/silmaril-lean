@@ -73,9 +73,13 @@ literal's code points. Fast-local tuple evidence follows checked local
 loads and stores in emission order, including the store of a nested
 definition into its parent. Each nested body has a separate tuple.
 This evidence covers CPython 3.13.5 in `exec` mode at optimization level
-zero for the checked straight-line profile with no parameters, owned
-cells, or incoming captures. The module runner reads the current
-binding once and resolves that function's code key and layout. It
+zero for the checked straight-line profile with at most one fixed
+positional parameter, no defaults or parameter annotations, and no
+owned cells or incoming captures. The verified parameter prefix
+includes an unread parameter. Later fast locals keep their first
+emission order with parameter names and repeats removed. The module
+runner reads the current binding once and resolves that function's
+code key and layout. It
 checks exact code-point membership without invoking the function.
 A profiled empty tuple gives a false assertion. Missing metadata and
 non-function receivers give distinct module profile stops. An unbound

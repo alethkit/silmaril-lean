@@ -5,15 +5,16 @@ public import Silmaril.Languages.Python.Compile.Closure.Link.Defs
 /-! # Fast-local tuple evidence for checked ordinary functions
 
 The profile is CPython 3.13.5 in `exec` mode at optimization level zero.
-Inspected functions have no parameters, owned cells, or incoming captures.
-The tuple follows the first emitted use of each fast local in the selected
-block. Slot indices identify names within the checked layout.
+Inspected functions have at most one checked fixed positional parameter
+and have no owned cells or incoming captures. The declared parameter
+prefix precedes the first emitted uses of the other fast locals. Slot
+indices identify names within the checked layout.
 -/
 
 @[expose] public section
 namespace Silmaril.Languages.Python.Compile.Closure.VarNames
 
-open Core.Closure (CodeRef Layout)
+open Core.Closure (CodeRef Layout Parameters)
 open Source (Name Scope ScopeTree)
 open Source.Closure.Frame (ordinaryNames)
 
@@ -43,11 +44,16 @@ def emittedSlots? {layout : Layout} : Link.Code layout → Option (List (Fin lay
   | _ => none
 
 def Profile (scope : Scope) : Prop :=
-  scope.context.parameters = [] ∧ scope.cells = [] ∧ scope.captures = []
+  scope.context.parameters.length ≤ 1 ∧ scope.cells = [] ∧ scope.captures = []
 
 instance (scope : Scope) : Decidable (Profile scope) := by
   unfold Profile
   infer_instance
+
+def linkedParameterNames (block : Link.Block) (scope : Scope)
+    (layout : block.entry.layout = frameLayout scope) : List Name :=
+  let parameters : Parameters (frameLayout scope) := layout ▸ block.entry.definition.parameters
+  parameters.slots.map (parameterName scope)
 
 structure Evidence (tree : ScopeTree) (blocks : List Link.Block) (ref : CodeRef) where
   block : Link.Block
@@ -57,6 +63,7 @@ structure Evidence (tree : ScopeTree) (blocks : List Link.Block) (ref : CodeRef)
   located : tree.atPath block.path = some scope
   scopeLayout : block.entry.layout = frameLayout scope
   profile : Profile scope
+  parameterOrder : linkedParameterNames block scope scopeLayout = scope.context.parameters
   emittedSlots : List (Fin block.entry.layout.locals)
   emitted : emittedSlots? block.entry.definition.body = some emittedSlots
 
@@ -70,7 +77,8 @@ def Evidence.emittedNames {tree : ScopeTree} {blocks : List Link.Block} {ref : C
 
 def Evidence.tuple {tree : ScopeTree} {blocks : List Link.Block} {ref : CodeRef}
     (evidence : Evidence tree blocks ref) : List Name :=
-  evidence.emittedNames.eraseDups
+  let declared := evidence.scope.context.parameters
+  declared ++ (evidence.emittedNames.filter fun name => !declared.contains name).eraseDups
 
 /-- Bind this evidence to an ordinary lexical path and the exact linked code
 key and layout. An empty tuple is represented by successful evidence. -/
@@ -81,10 +89,11 @@ def checked? (tree : ScopeTree) (blocks : List Link.Block) (ref : CodeRef) :
   | some block =>
     if layout : block.entry.layout = ref.layout then
       let ⟨scope, located, scopeLayout⟩ ← Link.blockScope? tree block
-      if profile : Profile scope then
+      if profile : Profile scope ∧ linkedParameterNames block scope scopeLayout = scope.context.parameters then
         match emitted : emittedSlots? block.entry.definition.body with
         | none => none
-        | some slots => return ⟨block, found, layout, scope, located, scopeLayout, profile, slots, emitted⟩
+        | some slots =>
+          return ⟨block, found, layout, scope, located, scopeLayout, profile.1, profile.2, slots, emitted⟩
       else none
     else none
 

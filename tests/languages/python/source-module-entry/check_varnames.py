@@ -54,9 +54,10 @@ with open(sys.argv[1], 'rb') as source:
     unit = compile(source.read(), sys.argv[1], 'exec', dont_inherit=True, optimize=0)
 namespace = {'__builtins__': {}}
 exec(unit, namespace)
-assert namespace['alias'] is not namespace['probe']
-assert 'first' not in namespace['probe'].__code__.co_varnames
-assert 'child_local' not in namespace['alias'].__code__.co_varnames
+if len(sys.argv) == 3:
+    assert namespace['alias'] is not namespace['probe']
+    assert 'first' not in namespace['probe'].__code__.co_varnames
+    assert 'child_local' not in namespace['alias'].__code__.co_varnames
 children = [item for item in unit.co_consts if isinstance(item, types.CodeType)]
 print(json.dumps([sys.version.split()[0], [names for child in children for names in tuples(child)]]))
 """
@@ -67,7 +68,7 @@ EMITTED = ["later", "first", "later", "later", "first", "nested", "later", "firs
 IMPORTS = ("import Batteries.Data.Except",) + tuple(
     f"{prefix} Silmaril.Languages.Python.{module}"
     for module in (
-        "Compile.Closure.VarNames.Defs",
+        "Compile.Closure.VarNames.Thms",
         "Compile.Closure.Link.Defs",
         "Compile.ModuleEntry.Functions.Defs",
         "Compile.ModuleEntry.Functions.Run.Thms",
@@ -167,8 +168,10 @@ CASES = (
      "NameError", '(.raised (.nameError "unbound"))', '(.raised (.runtime (.nameError "unbound")))'),
     ("target = 9", 'assert "x" in target.__code__.co_varnames',
      "AttributeError", ".unsupportedVarNamesReceiver", ".unsupported"),
-    ("def target(parameter): return parameter", 'assert "parameter" in target.__code__.co_varnames',
-     "normal", "(.unprofiledVarNames ⟨0, ⟨1, 0, 0⟩⟩)", ".unsupported"),
+    ("def target(parameter): pass", 'assert "missing" in target.__code__.co_varnames',
+     "AssertionError", ".assertionError", "(.raised (.assertionError .empty))"),
+    ("def target(parameter, second): return parameter", 'assert "parameter" in target.__code__.co_varnames',
+     "normal", "(.unprofiledVarNames ⟨0, ⟨2, 0, 0⟩⟩)", ".unsupported"),
     ("def target():\n    \U00010400 = 1\n"
      'assert "\\U00010400" in target.__code__.co_varnames',
      r'assert "\ud801\udc00" in target.__code__.co_varnames',
@@ -271,22 +274,78 @@ private def retained (source : Module) : Bool := Id.run do
 """
 
 
+PARAMETERS_SOURCE = """def unread(parameter):
+    pass
+
+def ordered(initial):
+    first = later
+    later = 3
+    changed = initial
+    initial = 8
+    value = later
+    return first
+
+def owns_capture(parameter):
+    def nested():
+        return parameter
+    return nested
+
+assert "parameter" in unread.__code__.co_varnames
+assert "initial" in ordered.__code__.co_varnames
+assert "later" in ordered.__code__.co_varnames
+"""
+
+PARAMETER_TUPLES = [["parameter"], ["initial", "later", "first", "changed", "value"],
+                    ["parameter", "nested"], []]
+
+PARAMETERS_LEAN = """
+open Silmaril.Languages.Python
+open Compile.ModuleEntry.Functions.Run
+
+private def parameterProfile (source : Module) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  let blocks := compiled.linked
+  let .finished _ .normal := (runPrefix compiled.table 64 compiled.start).2 | return false
+  let some unread := blocks[0]? | return false
+  let some ordered := blocks[1]? | return false
+  let some first := Compile.Closure.VarNames.checked? compiled.checked.tree blocks ⟨0, unread.entry.layout⟩ | return false
+  let some second := Compile.Closure.VarNames.checked? compiled.checked.tree blocks ⟨1, ordered.entry.layout⟩ | return false
+  let emptyParameters : Core.Closure.Parameters unread.entry.layout := ⟨[], by simp⟩
+  let badEntry := { unread.entry with definition := { unread.entry.definition with parameters := emptyParameters } }
+  let badBlocks := { unread with entry := badEntry } :: blocks.drop 1
+  return first.emittedNames.isEmpty && first.tuple == ["parameter"] &&
+    second.emittedNames == ["later", "first", "later", "initial", "changed", "initial", "later", "value", "first"] &&
+    compiled.entries.map (·.definition.varnames) ==
+      [some ["parameter"], some ["initial", "later", "first", "changed", "value"], none, none] &&
+    (Compile.Closure.VarNames.checked? compiled.checked.tree badBlocks ⟨0, unread.entry.layout⟩).isNone &&
+    [Core.Module.SeededCall.Namespace.empty, Seeded.legacySeed .builtin, Seeded.legacySeed .preamble].all
+      (fun space =>
+        let result := Seeded.run space compiled
+        result.completion == .ok () && result.calls.isEmpty && result.heap.next == 0)
+
+#guard parameterProfile pythonSource
+#print axioms Compile.Closure.VarNames.Evidence.tuple_linked_parameters
+#print axioms Compile.Closure.VarNames.Evidence.tuple_single_parameter
+#print axioms Compile.Closure.VarNames.Evidence.tuple_without_emitted_names
+"""
+
+
 if __name__ == "__main__":
     shared = runpy.run_path(str(Path(__file__).resolve().parent.parent / "source-scope/check_intake.py"))
     with tempfile.TemporaryDirectory() as temporary:
         source = Path(temporary) / "Example.py"
         destination = Path(temporary) / "Example.lean"
         shared["emit"](source, destination, SOURCE)
-        result = subprocess.run([sys.executable, "-I", "-c", CPYTHON, str(source)], check=True,
+        result = subprocess.run([sys.executable, "-I", "-c", CPYTHON, str(source), "aliases"], check=True,
                                 text=True, capture_output=True, timeout=10)
         version, tuples = json.loads(result.stdout)
         assert result.stderr == ""
         if version == "3.13.5":
             assert tuples == EXPECTED, tuples
             print(f"CPython {version} matched the fast-local and module-rebinding fixtures.")
-        expected = ", ".join(f"some {json.dumps(names)}" for names in EXPECTED[:4])
+        expected = ", ".join(f"some {json.dumps(names)}" for names in EXPECTED[:5])
         lean = LEAN + (
-            f"\n#guard observations pythonSource == some ([{expected}, none, none, none], "
+            f"\n#guard observations pythonSource == some ([{expected}, none, none], "
             f"{json.dumps(EMITTED)}, true)\n"
         )
         shared["check_lean"](destination, lean, extra_imports=IMPORTS)
@@ -310,6 +369,22 @@ if __name__ == "__main__":
         if version == "3.13.5":
             assert json.loads(result.stdout) == ["AssertionError", 5, None]
         shared["check_lean"](destination, RETAINED_LEAN, extra_imports=IMPORTS)
+        shared["emit"](source, destination, PARAMETERS_SOURCE)
+        result = subprocess.run([sys.executable, "-I", "-c", CPYTHON, str(source)], check=True,
+                                text=True, capture_output=True, timeout=10)
+        assert result.stderr == ""
+        if version == "3.13.5":
+            assert json.loads(result.stdout) == [version, PARAMETER_TUPLES]
+        shared["check_lean"](destination, PARAMETERS_LEAN, extra_imports=IMPORTS)
+        for declaration in ("value=0", "*value", "*, value", "value: int"):
+            shared["emit"](source, destination, f"def inspect({declaration}): pass\n")
+            shared["check_lean"](destination, """
+open Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run
+
+#guard (match compile pythonSource with
+  | .error (.source (.functionBody .parameterProfile)) => true
+  | _ => false)
+""", extra_imports=IMPORTS)
         for statement, diagnostic in (
             ('assert "x" not in inspect.__code__.co_varnames', ".expressionProfile"),
             ('assert "x" in inspect().__code__.co_varnames', ".expressionProfile"),
