@@ -49,6 +49,7 @@ All == \A a, b \in {x} : a = b
 Invalid == IF {} THEN x ELSE Base
 Forced == (FALSE /\ {}) = FALSE
 ImageFromBase == {y : y \in Base}
+Numeral == 12
 ====
 "#
 
@@ -89,7 +90,7 @@ private meta def rejects (name : String) (diagnostic : DataElab.Diagnostic)
 #guard rejects "TupleUse" ⟨⟨"root", [.unit 8, .body]⟩, .unsupported .tuple⟩
 #guard rejects "Pool" ⟨⟨"root", [.unit 2, .body]⟩, .expansionLimit⟩ 0
 #guard rejects "Data" ⟨⟨"root", [.unit 3, .body, .body]⟩, .primitiveArity wrapId 1 2⟩
-  (signature := fun _ => some 2)
+  (signature := fun id => if id = wrapId then some 2 else none)
 #guard rejects "Data" ⟨⟨"root", [.unit 3, .body, .body]⟩,
     .missingPrimitive (.declared ⟨"other-prims", [.member 0]⟩)⟩
   (primitiveModule := "other-prims")
@@ -123,6 +124,7 @@ private meta partial def quoteTerm (term : Term fixtureSignature) : Elab.Term.Te
   | .rigid id => return node ``Term.rigid #[toExpr id]
   | .flexible id => return node ``Term.flexible #[toExpr id]
   | .witness slot => return node ``Term.witness #[toExpr slot]
+  | .numeral value => return node ``Term.numeral #[toExpr value]
   | .boolean b => return node ``Term.boolean #[toExpr b]
   | .booleanSet => return node ``Term.booleanSet #[]
   | .eq b l r => return node ``Term.eq #[toExpr b, ← quoteTerm l, ← quoteTerm r]
@@ -161,9 +163,10 @@ private noncomputable def allExpr : CheckedExpr fixtureSignature := by_elab emit
 private noncomputable def invalidExpr : CheckedExpr fixtureSignature := by_elab emit "Invalid"
 private noncomputable def forcedExpr : CheckedExpr fixtureSignature := by_elab emit "Forced"
 private noncomputable def imageExpr : CheckedExpr fixtureSignature := by_elab emit "ImageFromBase"
+private noncomputable def numeralExpr : CheckedExpr fixtureSignature := by_elab emit "Numeral"
 
 universe u
-variable {V : Type u} (M : Data.Model V) (B : Booleans V) (v : Valuation V)
+variable {V : Type u} (M : Data.Model V) (numeral : Nat → V) (B : Booleans V) (v : Valuation V)
 
 private def external (ops : DataOperations V) : ExternalInterpretation V fixtureSignature :=
   fun _ _ _ =>
@@ -172,27 +175,27 @@ private def external (ops : DataOperations V) : ExternalInterpretation V fixture
       sound := fun _ _ => rfl }
 
 private noncomputable def evaluate (expr : CheckedExpr fixtureSignature) : V :=
-  let ops := DataOperations.ofModel M
+  let ops := DataOperations.ofModel M numeral
   expr.eval ops B (external ops) v
 
 private abbrev base := v.rigid baseId
 private abbrev x := v.flexible xId
 
-private theorem pool_eq : evaluate M B v poolExpr = M.enum [base v, x v] := by
+private theorem pool_eq : evaluate M numeral B v poolExpr = M.enum [base v, x v] := by
   classical
   simp [evaluate, CheckedExpr.eval, DataOperations.ofModel, poolExpr, Term.eval, Term.evalList,
     Data.Model.mem_enum, Booleans.IsBoolean, B.holds_true, base, x, baseId, xId]
 
 private theorem data_eq :
-    evaluate M B v dataExpr =
+    evaluate M numeral B v dataExpr =
       M.image (M.sep (M.enum [base v, x v]) (· ≠ base v)) (fun y => M.enum [y]) := by
   classical
   simp [evaluate, CheckedExpr.eval, DataOperations.ofModel, dataExpr, Term.eval, Term.evalList,
     Data.Model.mem_enum, withWitness, external, Booleans.holds_ofProp, Booleans.IsBoolean,
     B.holds_true, base, x, baseId, xId]
 
-private theorem pick_eq : evaluate M B v pickExpr = x v := by
-  have equation : evaluate M B v pickExpr = M.chooseIn (M.enum [x v]) (· = x v) := by
+private theorem pick_eq : evaluate M numeral B v pickExpr = x v := by
+  have equation : evaluate M numeral B v pickExpr = M.chooseIn (M.enum [x v]) (· = x v) := by
     simp [evaluate, CheckedExpr.eval, DataOperations.ofModel, pickExpr, Term.eval, Term.evalList, withWitness,
       Booleans.holds_ofProp, Data.Model.chooseIn, Data.Model.choose, x, xId]
   rw [equation]
@@ -200,22 +203,22 @@ private theorem pick_eq : evaluate M B v pickExpr = x v := by
   exact (M.existsIn_iff_chooseIn.mp witness).2
 
 private theorem nested_iff :
-    B.holds (evaluate M B v nestedExpr) ↔ x v ≠ base v := by
+    B.holds (evaluate M numeral B v nestedExpr) ↔ x v ≠ base v := by
   simp [evaluate, CheckedExpr.eval, DataOperations.ofModel, nestedExpr, Term.eval, Term.evalList, withWitness,
     Booleans.holds_ofProp, x, xId, base, baseId]
 
-example : evaluate M B v symbolicExpr = x v := rfl
+example : evaluate M numeral B v symbolicExpr = x v := rfl
 
-example : B.holds (evaluate M B v allExpr) := by
+example : B.holds (evaluate M numeral B v allExpr) := by
   simp [evaluate, CheckedExpr.eval, DataOperations.ofModel, allExpr, Term.eval, Term.evalList, withWitness,
     Booleans.holds_ofProp, B.holds_true]
 
 example (h : ¬ B.IsBoolean M.empty) :
-    evaluate M B v invalidExpr = B.invalid .conditional [M.empty, x v, base v] := by
+    evaluate M numeral B v invalidExpr = B.invalid .conditional [M.empty, x v, base v] := by
   simp [evaluate, CheckedExpr.eval, DataOperations.ofModel, invalidExpr, Term.eval, Term.evalList,
     Data.Model.enum, h, x, xId, base, baseId]
 
-example : B.holds (evaluate M B v forcedExpr) := by
+example : B.holds (evaluate M numeral B v forcedExpr) := by
   simp [evaluate, CheckedExpr.eval, DataOperations.ofModel, forcedExpr, Term.eval, Logic.eval, B.holds_true]
 
 /-- Image evaluation on an unrecognized bound follows the interpretation's policy. -/
@@ -225,5 +228,8 @@ private theorem image_on_invalid_bound
     (invalidBound : ¬ isSet (base v)) :
     imageExpr.eval ops B (external ops) v = unspecified (base v) :=
   invalidImage id invalidBound
+
+example (ops : DataOperations V) :
+    numeralExpr.eval ops B (external ops) v = ops.numeral 12 := rfl
 
 end Silmaril.Logic.Temporal.TLA.DataElab.Examples

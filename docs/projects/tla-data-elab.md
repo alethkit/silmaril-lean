@@ -47,12 +47,14 @@ level and modal-dependency summaries before any modal evaluation is admitted.
 
 ## Values and admitted syntax
 
-- `DataOperations` supplies membership, enumeration, separation, images, and
-  a fixed `Data.ChoicePolicy`. `DataOperations.ofModel model` adapts the
-  pure-set `Data.Model` and inherits its laws on the entire carrier. The
-  evaluator itself requires no set extensionality. Set images bind one
-  identifier. Rigid quantifiers support multiple plain names and groups. All bounded domains are lowered in the
-  incoming scope. Bounded quantifiers and bounded CHOOSE restrict witnesses
+- `DataOperations` supplies a `Nat → V` interpretation of natural literals,
+  membership, enumeration, separation, images, and a fixed
+  `Data.ChoicePolicy`. `DataOperations.ofModel model numeral` inherits the
+  pure-set operations and their laws on the entire carrier. The caller
+  supplies its numeral meaning. The evaluator requires no set extensionality.
+  Set images bind one identifier. Rigid quantifiers support multiple plain
+  names and groups. Bounded domains are lowered in the incoming scope.
+  Bounded quantifiers and bounded CHOOSE restrict witnesses
   through the supplied membership operation. Equality is Lean equality on
   the common carrier. [Pure-set model](tla-data.md)
 - `Booleans` provides TRUE and FALSE, a predicate interpretation with laws for
@@ -66,34 +68,64 @@ level and modal-dependency summaries before any modal evaluation is admitted.
   [Lamport, §§16.1.3–16.1.4](https://lamport.azurewebsites.net/tla/book-21-07-04.pdf#page=314)
 - `ExternalSignature` lists admitted declaration IDs and expression arities.
   A used signature-only operator or positive-arity CONSTANT operator must
-  match both the resolved signature and the admission table. Source
-  definitions always expand from their bodies. At evaluation,
+  match both the resolved signature and the admission table. A nullary
+  CONSTANT uses the rigid valuation unless its ID has an explicit admission.
+  Source definitions always expand from their bodies. At evaluation,
   `ExternalInterpretation` supplies a `Primitive` for each admitted ID,
   with a Lean implementation and a proof of the caller's stated contract
   for argument lists of that arity. A caller may parameterize a result over
   that contract explicitly. The API assigns no standard-module semantics
   by name.
 
-The tagged carrier has set extensionality for recognized set values. A tagged
-adapter can supply its checked membership and enumeration operations, and
-test set recognition before separation and image. It must supply explicit
-results for unrecognized bounds, for which the usual set-formation laws are
-conditional. With tagged membership, an unrecognized bound has no members.
-A bounded existential is then false, a bounded universal is vacuous, and a
-bounded CHOOSE uses the choice policy's no-witness result. The tagged adapter
-is a separate increment. [Tagged values](tla-tagged-values.md)
+Decimal and string literals, tuple binders, multi-binder images, CASE,
+functions, records, tuples, and other collection syntax require future
+clauses. This entry point produces a single-state data denotation. Action and
+temporal forms, INSTANCE, ASSUME, theorem declarations and proof syntax are
+outside the checked pipeline.
 
-Literals, tuple binders, multi-binder images, CASE, functions, records, tuples,
-and other collection syntax require future clauses. This entry point produces
-a single-state data denotation. Action and temporal forms, INSTANCE, ASSUME,
-theorem declarations and proof syntax are outside the checked pipeline.
-The incremental scope leaves intact HourClock and collection-heavy examples
-for later work.
+## Tagged interpretation
+
+Import `Silmaril.Logic.Temporal.TLA.DataElab.Tagged.Thms`. Fix one
+`DataElab.Tagged.Policy` across valuations and use `policy.operations` and
+`policy.booleans` when evaluating. Its numeral slot maps a natural literal to
+`Value.integer (Int.ofNat n)`. Predicate truth is `Value.isTrue`. The core
+Boolean rules determine the result for Boolean inputs and absorbing values.
+The configured `invalidBoolean` supplies the other results.
+[Tagged evaluator API](../../Silmaril/Logic/Temporal/TLA/DataElab/Tagged/Defs.lean)
+
+`Policy.mem_enum` gives the enumeration law. `Policy.mem_sep_set`,
+`Policy.mem_image_set`, and `Policy.set_eq_iff` give characteristic laws on
+recognized set values. An unrecognized bound has no members at the tagged
+value level. A bounded existential is false, a bounded universal is vacuous,
+and bounded CHOOSE uses the no-witness policy in that case. Separation and
+image instead return `invalidSet` for their operation and bound.
+[Adapter laws](../../Silmaril/Logic/Temporal/TLA/DataElab/Tagged/Thms.lean) ·
+[Tagged value model](tla-tagged-values.md)
+
+Supply a computable table `BindingId → Option Tagged.NumericPrimitive` mapping
+the attested declaration IDs to `.interval`, `.add`, `.modulo`, `.le`,
+`.lt`, `.naturals` or `.integers`. Pass `Tagged.numericSignature table` to
+lowering and `policy.external table` to evaluation. The binary primitive
+contracts state results on integer inputs. The modulo equation requires a
+positive divisor. All the operations use the same `policy.numeric`, including
+the underlying arithmetic behavior on inputs outside the integer contracts.
+The two nullary primitives return the tagged natural and integer sets.
+`Policy.mem_naturals` and `Policy.mem_integers` give their exact membership
+laws. [Scalar laws](tla-tagged-values.md#scalar-handoff)
+
+The HourClock registry can attest the required Naturals declarations as a
+signature entry. Pinned Naturals has dummy source bodies for arithmetic, so
+parsing it as a source module selects those bodies. Callers can use the same
+signature registry for level checking and lowering. This increment covers
+the numeric and set prerequisites for HourClock state expressions. Intact
+module acceptance and prime remain separate work.
+[Level checking](tla-expression-levels.md)
 
 ## Verification
 
 ```sh
 lake build --wfail +Silmaril.Logic.Temporal.TLA.DataElab.Examples \
+  +Silmaril.Logic.Temporal.TLA.DataElab.Tagged.Examples \
   +Silmaril.Logic.Temporal.TLA.Resolution.Examples
 scripts/check-layout.sh
 ```
@@ -113,3 +145,10 @@ The parser and resolver run during elaboration, so this fixture does not
 constitute a general source adequacy theorem.
 
 [In-memory regression](../../Silmaril/Logic/Temporal/TLA/DataElab/Examples.lean)
+
+The tagged regression checks the resolved and lowered shapes for a clock
+interval test and update value, an admitted nullary constant, and a parsed
+operator whose ID is also in the external table. Lean checks the interval and
+arithmetic equations for the corresponding terms, plus the policies on
+unrecognized set bounds and a zero modulus divisor.
+[Tagged regressions](../../Silmaril/Logic/Temporal/TLA/DataElab/Tagged/Examples.lean)
