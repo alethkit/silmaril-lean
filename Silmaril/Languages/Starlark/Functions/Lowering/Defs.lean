@@ -40,6 +40,11 @@ structure Lowered where
       have := List.sizeOf_lt_of_mem element.property
       stage (emit element.val)
     return (parts.map Prod.fst).foldr Body.seq (assign target (.list (operandList (parts.map Prod.snd))))
+  | .tuple elements => do
+    let parts ← elements.attach.mapM fun element => do
+      have := List.sizeOf_lt_of_mem element.property
+      stage (emit element.val)
+    return (parts.map Prod.fst).foldr Body.seq (assign target (.tuple (operandList (parts.map Prod.snd))))
   | .index receiver subscript => do
     let (first, value) ← stage (emit receiver)
     let (second, index) ← stage (emit subscript)

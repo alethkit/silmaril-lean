@@ -123,7 +123,7 @@ static rejection, execution outcomes, publication and the exact residual
 state. This correspondence shares the elaborator and starts at a normalized
 AST with legal identifier spellings. An independent source binding relation
 and text parsing remain open. Compound targets, lambdas, comprehensions,
-tuple and dictionary displays, slices and subscript assignment remain outside
+dictionary displays, slices and subscript assignment remain outside
 this source fragment.
 [Theorem header](../../Silmaril/Languages/Starlark/Modules/Resolve/Thms.lean) · [Lean source fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Checks.lean)
 

@@ -13,6 +13,7 @@ inductive SourceExpr where
   | scalar (expression : Starlark.SourceExpr)
   | string (text : String)
   | list (elements : List SourceExpr)
+  | tuple (elements : List SourceExpr)
   | index (receiver subscript : SourceExpr)
   | call (callee : SourceExpr) (positional : List SourceExpr)
       (keywords : List (String × SourceExpr)) (star starStar : Option SourceExpr)
@@ -66,6 +67,11 @@ private def resolveExpr (context : Context) : SourceExpr → Tracked Expr
       have := List.sizeOf_lt_of_mem element.property
       resolveExpr context element.val
     return .list resolved
+  | .tuple elements => do
+    let resolved ← elements.attach.mapM fun element => do
+      have := List.sizeOf_lt_of_mem element.property
+      resolveExpr context element.val
+    return .tuple resolved
   | .index receiver subscript =>
     return .index (← resolveExpr context receiver) (← resolveExpr context subscript)
   | .call callee positional keywords star starStar => do

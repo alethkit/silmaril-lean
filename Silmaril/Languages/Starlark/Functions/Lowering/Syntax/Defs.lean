@@ -42,7 +42,7 @@ theorem argumentSize (callee : Expr) (positional : List Expr) (keywords : List (
 /-- Check explicit keyword names at every call, including unreachable operands. -/
 @[expose] def Expr.validateCalls : Expr → Except CallStaticError Unit
   | .atom _ => .ok ()
-  | .list elements => elements.attach.forM fun element => do
+  | .list elements | .tuple elements => elements.attach.forM fun element => do
     have := List.sizeOf_lt_of_mem element.property
     element.val.validateCalls
   | .index receiver subscript => do

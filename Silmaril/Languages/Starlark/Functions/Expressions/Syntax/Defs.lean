@@ -11,6 +11,7 @@ An atom uses the existing call-free collection expression language. -/
 inductive Expr where
   | atom (expression : Lists.Expr)
   | list (elements : List Expr)
+  | tuple (elements : List Expr)
   | index (receiver subscript : Expr)
   | call (callee : Expr) (positional : List Expr) (keywords : List (String × Expr))
       (star starStar : Option Expr)

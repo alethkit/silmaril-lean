@@ -133,7 +133,7 @@ available declaration set bounds live calls.
 
 `Lowering.denoteExpr` maps a resolved expression and state to a value or
 dynamic error with its final state. It interprets call-free collection
-atoms, list displays, subscript reads, nested calls with positional,
+atoms, list and tuple displays, subscript reads, nested calls with positional,
 keyword, `*` and `**` operands, conditionals and operand-valued `and` and
 `or`. A call evaluates the callee and operands from left to right, then
 expands and binds the arguments.
@@ -160,10 +160,11 @@ scratch projection when compiling the same expression.
 
 [Denotation](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Defs.lean) · [Adequacy](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Closure fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Checks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
 
-### List displays and subscript reads
+### List and tuple displays and subscript reads
 
-`Expr.list` evaluates elements once from left to right and allocates the
-list after all elements succeed. `Expr.index` evaluates its receiver once,
+`Expr.list` and `Expr.tuple` evaluate elements once from left to right and
+allocate after all elements succeed. Tuple allocation uses the existing
+structural key cache. `Expr.index` evaluates its receiver once,
 then its subscript once, and reads from the resulting heap. A receiver
 error skips the subscript. An operand or lookup error retains the effects
 preceding it. The independent rules and denotation share the existing
@@ -173,10 +174,10 @@ theorems include the exact result or error and residual state.
 Subscript reads accept lists, tuples and dictionaries already supported by
 the shared store. Sequence reads use exact integers and allow negative
 indices. String and byte indexing, slices, subscript writes with call-aware
-operands, and direct tuple and dictionary displays remain open. The pinned
-Go comparison uses common list operations. Go also supports additional
+operands, and direct dictionary displays remain open. The pinned
+Go comparison uses common list and tuple operations. Go also supports additional
 indexable types and checks sequence indices through a signed 32-bit conversion.
-[List expressions in the pinned spec][list-expr] · [Subscripts in the pinned spec][subscript] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
+[List expressions in the pinned spec][list-expr] · [Tuples in the pinned spec][tuple-expr] · [Subscripts in the pinned spec][subscript] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ## Native expression positions
 
@@ -208,7 +209,7 @@ expression-position theorems in the denotation header expose that agreement
 without the compiler's scratch projection.
 
 Module commands reuse native assignment and expression statements, including
-direct list displays and subscript reads.
+direct list and tuple displays and subscript reads.
 [Body rules](../../Silmaril/Languages/Starlark/Functions/Operational/Defs.lean) · [Native position agreement](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Assignment and conditional fixtures](../../Silmaril/Languages/Starlark/Functions/NativeBodyChecks.lean) · [Return fixtures](../../Silmaril/Languages/Starlark/Functions/NativeReturnChecks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
 
 ## Nested expression lowering
@@ -219,7 +220,7 @@ including call-free operands, before the final call. Positional, keyword,
 `*` and `**` operands stay in source order. Expansion and argument errors
 still use the call semantics. The compiler places branch work inside the
 selected branch and skips its destination write if the operand fails. List
-displays and subscript reads stage their operands before the final collection
+and tuple displays and subscript reads stage their operands before the final collection
 operation.
 
 Use the frame's direct bindings for scratch names when comparing exact
@@ -230,7 +231,7 @@ ranges disjoint. The emitted code can be placed inside a function loop.
 
 `lower_preserves` relates an independent source evaluation to
 `denoteBody` of the emitted code. The proved fragment includes call-free
-atoms, list displays, subscript reads, nested calls with positional, keyword,
+atoms, list and tuple displays, subscript reads, nested calls with positional, keyword,
 `*` and `**` operands, conditionals and short-circuit operations. The source rules evaluate the
 callee first, then operands left to right, stopping at the first evaluation
 error. Only after all operands succeed do they expand the mapping and then
@@ -257,7 +258,7 @@ shared-store call profile above.
 
 `Lowering.Resolve.resolve` takes an unresolved expression and a lexical
 context collected by the caller. It accepts integer and string literals,
-identifier reads, list displays, single-expression subscripts, calls with all
+identifier reads, list and tuple displays, single-expression subscripts, calls with all
 four operand classes, conditionals and operand-valued `and` and `or`. It uses
 the scalar resolver's precedence
 for locals, globals and universal constants, then looks up the supported
@@ -279,7 +280,7 @@ valid identifier tokens, the set of lexical bindings and allocated frame
 slots. `resolveTracked` also returns the lexical slots read during resolution.
 The [module adapter](starlark-modules.md#resolving-module-declarations)
 collects scopes and uses those reads for closure captures. Text parsing,
-source locations, tuple and dictionary displays, slices and attribute syntax
+source locations, dictionary displays, slices and attribute syntax
 remain outside the expression adapter. The preservation theorem starts at
 the resulting resolved tree.
 [Resolver](../../Silmaril/Languages/Starlark/Functions/Lowering/Resolve/Defs.lean) · [End-to-end Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Resolve/Checks.lean)
@@ -288,7 +289,7 @@ the resulting resolved tree.
 
 `starlark%[...]` constructs a `Lowering.Resolve.SourceExpr` in a Lean file.
 It accepts grouped expressions, simple ASCII identifiers, decimal integer
-literals with optional minus, plain double-quoted strings, list displays,
+literals with optional minus, plain double-quoted strings, list displays and parenthesized tuples,
 single-expression subscripts, nested calls, conditionals and operand-valued
 `and` and `or`. Calls accept positional
 and named arguments followed by optional `*` and `**`, with an optional
@@ -356,5 +357,6 @@ extend this profile. Host callable effects remain open.
 [defs]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#function-definitions
 [modules]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#module-execution
 [list-expr]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#list-expressions
+[tuple-expr]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#parenthesized-expressions
 [subscript]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#subscript-expressions
 [go-function]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go

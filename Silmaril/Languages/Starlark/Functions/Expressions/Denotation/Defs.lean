@@ -45,6 +45,11 @@ def denoteExprWith (program : Program) (available : List DeclarationId)
       have := List.sizeOf_lt_of_mem element.property
       denoteExprWith program available bodyMeaning element.val
     Outcome.resume (values state) Lists.allocate
+  | .tuple elements => fun state =>
+    let values := elements.attach.mapM fun element => do
+      have := List.sizeOf_lt_of_mem element.property
+      denoteExprWith program available bodyMeaning element.val
+    Outcome.resume (values state) Lists.allocateTuple
   | .index receiver subscript => fun state =>
     Outcome.resume (denoteExprWith program available bodyMeaning receiver state) fun value next =>
       Outcome.resume (denoteExprWith program available bodyMeaning subscript next) (Lists.readIndex value)

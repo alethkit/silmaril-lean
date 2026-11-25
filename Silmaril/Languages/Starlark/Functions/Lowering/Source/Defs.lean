@@ -71,11 +71,11 @@ export AppliesWith (expansionError expanded)
 end Applies
 
 namespace Admitted
-export AdmittedWith (atom list index call branch logical)
+export AdmittedWith (atom list tuple index call branch logical)
 end Admitted
 
 namespace Evaluates
-export EvaluatesWith (atom list index indexReceiverError call callError branch branchError logical shortCircuit logicalError rec)
+export EvaluatesWith (atom list tuple index indexReceiverError call callError branch branchError logical shortCircuit logicalError rec)
 end Evaluates
 
 namespace EvaluatesMany

@@ -77,6 +77,8 @@ inductive AdmittedWith (atomAllowed : Lists.Expr → Prop) : Expr → Prop where
   | atom {expression : Lists.Expr} : atomAllowed expression → AdmittedWith atomAllowed (.atom expression)
   | list {elements : List Expr} :
       (∀ element ∈ elements, AdmittedWith atomAllowed element) → AdmittedWith atomAllowed (.list elements)
+  | tuple {elements : List Expr} :
+      (∀ element ∈ elements, AdmittedWith atomAllowed element) → AdmittedWith atomAllowed (.tuple elements)
   | index {receiver subscript : Expr} :
       AdmittedWith atomAllowed receiver → AdmittedWith atomAllowed subscript →
       AdmittedWith atomAllowed (.index receiver subscript)
@@ -101,6 +103,9 @@ inductive EvaluatesWith (program : Program) (available : List DeclarationId)
   | list {s : State} {elements : List Expr} {out : Outcome (List Lists.Value)} :
       EvaluatesManyWith program available calls atomAllowed s elements out →
       EvaluatesWith program available calls atomAllowed s (.list elements) (Outcome.resume out Lists.allocate)
+  | tuple {s : State} {elements : List Expr} {out : Outcome (List Lists.Value)} :
+      EvaluatesManyWith program available calls atomAllowed s elements out →
+      EvaluatesWith program available calls atomAllowed s (.tuple elements) (Outcome.resume out Lists.allocateTuple)
   | index {s t : State} {receiver subscript : Expr} {value : Lists.Value} {out : Outcome Lists.Value} :
       EvaluatesWith program available calls atomAllowed s receiver (.ok value t) →
       EvaluatesWith program available calls atomAllowed t subscript out →

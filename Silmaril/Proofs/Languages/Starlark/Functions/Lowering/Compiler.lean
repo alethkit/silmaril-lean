@@ -58,6 +58,15 @@ private theorem advances_emit (expr : Expr) (target : Binding) :
       exact advances_stage (advances_emit element.val)
     · intro _
       exact advances_pure _
+  | tuple elements =>
+    rw [emit]
+    apply advances_bind
+    · apply advances_many
+      intro element _
+      have := List.sizeOf_lt_of_mem element.property
+      exact advances_stage (advances_emit element.val)
+    · intro _
+      exact advances_pure _
   | index receiver subscript =>
     rw [emit]
     refine advances_bind (advances_stage (advances_emit receiver)) ?_
@@ -121,6 +130,20 @@ theorem emit_list (elements : List Expr) (target : Binding) (start : Nat) :
     ((emit (.list elements) target).run start).1 =
     let parts := ((stages elements).run start).1
     (parts.map Prod.fst).foldr Body.seq (assign target (.list (operandList (parts.map Prod.snd)))) := by
+  let stageOne := fun expr : Expr => stage (emit expr)
+  have traverse : elements.attach.mapM (stageOne ∘ Subtype.val) = elements.mapM stageOne := by
+    rw [← List.mapM_map]
+    change elements.attach.unattach.mapM stageOne = _
+    rw [List.unattach_attach]
+  rw [emit]
+  change ((elements.attach.mapM (stageOne ∘ Subtype.val) >>= _) start).1 = _
+  rw [traverse]
+  rfl
+
+theorem emit_tuple (elements : List Expr) (target : Binding) (start : Nat) :
+    ((emit (.tuple elements) target).run start).1 =
+    let parts := ((stages elements).run start).1
+    (parts.map Prod.fst).foldr Body.seq (assign target (.tuple (operandList (parts.map Prod.snd)))) := by
   let stageOne := fun expr : Expr => stage (emit expr)
   have traverse : elements.attach.mapM (stageOne ∘ Subtype.val) = elements.mapM stageOne := by
     rw [← List.mapM_map]
