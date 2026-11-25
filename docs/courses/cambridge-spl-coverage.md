@@ -24,7 +24,7 @@ Lean names are relative to `Silmaril.Courses.Cambridge` unless given otherwise.
 | **5. Data**, pp. 69–82 | L3 covers products, annotated sums, ordered records with distinct labels and mutable reference values. Definition **22** maps to `L3.StoreTyped`. Theorems **23–25** map to `L3.progress`, `preservation` and `safety`. Theorem **26** holds for the printed contexts at typed sources (`contextStep_iff_step_of_hasType`) and at arbitrary configurations with the location premise restored (`locationContextStep_iff_step`). `assignment_context_counterexample` refutes the literal untyped claim. Section 5.2 excludes recursive datatypes from L3. [L3 course][l3] · [L3 metatheory][l3meta] |
 | **6. Subtyping and objects**, pp. 83–88 | Structural width, depth, permutation, function variance, products and reference invariance, plus the sum rule. `Subtyping.L3Subty`, `Typing.sub`, `progress`, `preservation`, and `safety` use L3 dynamics. `Subtyping.Examples.counterProgram_typed` checks a counter with private state. The object generator and method-reuse examples on pp. 86–87 lack dedicated checked derivations. [Subtyping guide][subguide] |
 | **7. Concurrency**, pp. 89–97 | Checked shared-store interleaving, race schedules and primitive mutexes. `Concurrency.Mutex.step_iff_labelledStep` proves Theorem **27**. `conjecture28_false` refutes the printed all-stores form of **28** using an absent cell. `CoveredConjecture28` remains open. [Concurrency guide][conguide] · [O2PL counterexample][o2plex] |
-| **8. Semantic equivalence**, pp. 98–102 | `L1.SemanticEquiv` compares returned value and store or joint divergence. `L1.Context.preservesEquiv` proves Theorem **29**. `L1.SemanticEquiv.seq_assoc` and `cond_seq` prove **30–31**. `conjecture32_counterexample` refutes **32**. `L3.ContextualEquiv` covers Definition **33** and contextual closure. Slide 256 has checked equality of finite integer-call response lists for all fresh choices, with exact final stores. Contextual equivalence for the pair remains open. Slides 257–258 use a temporary pointer-equality extension. [Equivalence guide][equivguide] · [L1 laws][laws] · [L3 contexts][l3equiv] |
+| **8. Semantic equivalence**, pp. 98–102 | `L1.SemanticEquiv` compares returned value and store or joint divergence. `L1.Context.preservesEquiv` proves Theorem **29**. `L1.SemanticEquiv.seq_assoc` and `cond_seq` prove **30–31**. `conjecture32_counterexample` refutes **32**. `L3.ContextualEquiv` covers Definition **33** and contextual closure. Slide 256 has checked equality of finite integer-call response lists for all fresh choices, with exact final stores. Contextual equivalence for the pair remains open. Slides 257–258 have a typed pointer-equality fragment with a single closing unit context that separates the two functions for every fresh allocation choice. [Equivalence guide][equivguide] · [L1 laws][laws] · [L3 contexts][l3equiv] |
 | **9. Semantics in practice** and **10. Epilogue**, pp. 102–103 | Historical examples, aims and design discussion. |
 | **Appendices A–C**, pp. 105–126 | The official L1 OCaml, SML and Java implementations accompany the Lean reduction, derivation-printing and type inference counterparts. The host implementations remain external references. [Official materials][materials] · [L1 exercises][l1ex] |
 | **Appendix D**, pp. 127–136 | Proof background with connective rules, the regular-language pumping lemma and sequent calculus. The appendix has no dedicated Cambridge Lean module. [Appendix D][notesD] |
@@ -50,7 +50,7 @@ external Tripos revision questions remain separate.
 | **8** Lecture example typing | **Checked with harmless environment weakening.** `lecture_type_derivation` uses the stated three-location environment, which includes one unused cell. [Typing examples][l1typingex] |
 | **9** Preservation for the value-returning assignment variant | **Checked.** `old_assignment_typed`, `old_assignment_reduces`, `old_assignment_result_not_unit`, revised `ValueHasType`, and `value_assignment_preservation`. [Variant typing][l1vartyping] |
 | **10** Revise the inference implementation | **Scoped Lean counterpart.** `inferValue`, `inferValue_iff_hasType`, `revised_inference_examples`. [Variant typing][l1vartyping] |
-| **11** Host language, reference interpreter and L1 evaluation order | **Partial.** `original_operator_order_trace` and `sequence_left_first_trace` check L1. The companion implementations explicitly implement left-before-right object-language steps for these forms. The comparison with each host's own operand evaluation and an executable cross-host check are outside the checked artifact. [Lean examples][l1order] · [Reference sources][materials] |
+| **11** Host language, reference interpreter and L1 evaluation order | **Checked for OCaml and Java.** `original_operator_order_trace` and `sequence_left_first_trace` check L1. The pinned OCaml and Java interpreters both follow L1’s left-first rules. OCaml 5.3.0 evaluated host infix operands right-first in both tested modes, with operand order left unspecified by the language. OCaml sequences and the Java probes follow specified left-first order. [Lean examples][l1order] · [Reproduction and language sources](cambridge-l1-evaluation-order.md) |
 | **12** Print a rule derivation or show search failure | **Checked for the reduction option in the exercise.** `searchConfig`, `StepTree.toStep`, `searchConfig_sound`, `printStep`, `malformed_addition_search_fails`. The exercise offers reduction or typing. The Lean exercise chooses reduction, certifies success, and supplies a stuck example. [Derivation printer][l1printer] |
 | **13** Determinacy cases | **Checked.** `L1.Step.deterministic`. [Determinacy][l1det] |
 | **13.5** Operational and typing inversion | **Checked.** `Step.binary_inversion`, `Step.seq_inversion`, `Step.cond_inversion` and the rest of the `Step` / `HasType` inversion families. [Inversion][l1inversion] |
@@ -85,15 +85,15 @@ external Tripos revision questions remain separate.
 | **28** L3 preservation | **Checked.** `L3.preservation` and `preservation_steps`. [L3 metatheory][l3meta] |
 | **29** Labelled variants | **Missing design exercise.** The collected language provides binary sums and labelled records. [Notes p. 82][notes5ex] |
 | **30** ML-style exceptions | **Missing design exercise.** No module checks raise/handle typing and reduction or nested handler examples. [Notes p. 82][notes5ex] |
-| **31** Extend the implementation to all of L3 | **Partial.** Named/resolved parsing and `L3.Config.reduce` cover the complete one-step grammar. `reduce_sound` and `reduce_exists_iff_step_exists` certify the selected successor, including allocation. A checked executable type checker and a full driver for the §4.5 workflow remain missing. [L3 reducer][l3interp] · [Official L2 implementation][l2sml] |
+| **31** Extend the implementation to all of L3 | **Checked Lean implementation.** `L3.infer_iff_hasType` and `checkStore_eq_true_iff` give exact expression and store checking. `L3.evaluate` connects the existing surface-byte parser and supplied store to fuel-bounded reduction, with distinct parse, store-type, expression-type and fuel outcomes. `evaluate_ne_stuck` excludes stuckness for accepted inputs. `evaluate_returned` proves fuel-bounded reachability by the selected reducer and preserves the result type and final-store typing. `evaluate_of_selectedSteps` recovers returns from selected value-ending traces within budget. Allocation follows the reducer policy and the driver makes no termination claim. [Evaluation guide][l3eval] · [Merged implementation][exercise31] |
 
 ### Subtyping and objects
 
-[Official exercise text, p. 87](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=87)
+[Official exercise text, pp. 87–88](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=87)
 
 | Exercise | Coverage |
 | --- | --- |
-| **32** Four subtyping derivations | **Partial.** `Subtyping.Examples.missing_p` proves the relevant negative subtyping obligation for (3), without a checked whole-expression untypability theorem for that exact term. `Subtyping.Examples.reorderedArgumentFunction_typed` checks (4). Exact derivations are missing for (1)'s nested singleton coerced to `{p:{}}` or (2)'s `x.q.p` lambda. Generic `nested_record_depth` and projection rules are available. [Subtyping examples][subex] · [L3 derivations][subl3ex] |
+| **32** Four subtyping cases | **Checked.** `nestedSingleton_typed` derives (1)'s `{p:{}}`; `nestedProjectionFunction_typed` derives (2)'s `x.q.p` lambda; `missingFieldArgumentFunction_untypable` rules out every type for the whole lambda in (3); `reorderedArgumentFunction_typed` checks (4). [L3 derivations][subl3ex] |
 | **33** Both unsafe reference variances | **Checked.** `covarianceProgram_typed`, `contravarianceProgram_typed`, their `*_trace` lemmas, and `missingField_stuck`. [Reference examples][subref] |
 | **34** Sum subtyping | **Checked.** `Subty.sum`, `L3Subty.sum_inv` and `widenedSumMatch_typed` / `widenedSumMatch_trace`. [Rules][subrules] · [L3 derivations][subl3ex] |
 | **35** Typing for let and let rec with subtyping | **Checked.** The `Subtyping.Typing` let/let-rec constructors use extended typing in the premises, with `Typing.sub`. [Judgment][subtyping] |
@@ -152,6 +152,7 @@ external Tripos revision questions remain separate.
 [conguide]: cambridge-concurrency.md
 [disjoint]: ../../Silmaril/Courses/Cambridge/SemanticEquivalence/Disjoint.lean
 [equivguide]: cambridge-semantic-equivalence.md
+[exercise31]: https://github.com/hiloopai/silmaril-lean/pull/2489
 [integration]: cambridge-integration.md
 [jsonb]: cambridge-json-bytes.md
 [l1det]: ../../Silmaril/Courses/Cambridge/L1/Metatheory/Determinacy.lean
@@ -178,7 +179,6 @@ external Tripos revision questions remain separate.
 [l2free]: ../../Silmaril/Courses/Cambridge/L2/Exercises/FreeVariables.lean
 [l2meta]: ../../Silmaril/Courses/Cambridge/L2/Metatheory
 [l2name]: ../../Silmaril/Courses/Cambridge/L2/Metatheory/NameInterpreter.lean
-[l2sml]: https://www.cl.cam.ac.uk/teaching/2526/Semantics/L2/
 [l2strategies]: ../../Silmaril/Courses/Cambridge/L2/Exercises/EvaluationStrategies.lean
 [l2substex]: ../../Silmaril/Courses/Cambridge/L2/Exercises/Substitution.lean
 [l2typeex]: ../../Silmaril/Courses/Cambridge/L2/Exercises/TypingDerivations.lean
@@ -186,7 +186,7 @@ external Tripos revision questions remain separate.
 [l3denotguide]: cambridge-l3-denotation.md
 [l3equiv]: ../../Silmaril/Courses/Cambridge/SemanticEquivalence/L3.lean
 [l3equivex]: ../../Silmaril/Courses/Cambridge/SemanticEquivalence/L3Examples.lean
-[l3interp]: ../../Silmaril/Courses/Cambridge/L3/Interpreter.lean
+[l3eval]: cambridge-l3-evaluation.md
 [l3meta]: ../../Silmaril/Courses/Cambridge/L3/Metatheory
 [laws]: ../../Silmaril/Courses/Cambridge/SemanticEquivalence/Laws.lean
 [materials]: https://www.cl.cam.ac.uk/teaching/2526/Semantics/materials.html
@@ -198,7 +198,6 @@ external Tripos revision questions remain separate.
 [sexpb]: cambridge-sexp-bytes.md
 [stepguide]: cambridge-step-specification.md
 [sub]: ../../Silmaril/Courses/Cambridge/Subtyping
-[subex]: ../../Silmaril/Courses/Cambridge/Subtyping/Examples.lean
 [subguide]: cambridge-subtyping.md
 [subl3ex]: ../../Silmaril/Courses/Cambridge/Subtyping/L3Examples.lean
 [subref]: ../../Silmaril/Courses/Cambridge/Subtyping/ReferenceExamples.lean

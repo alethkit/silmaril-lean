@@ -32,7 +32,7 @@ section Distributive
 
 variable (J : V ⥤ C) [DistributiveFreydCategory J]
 
-@[reassoc] private theorem retainLeft_pre {D E A B : V} (k : D ⟶ E)
+@[reassoc] theorem retainLeft_pre {D E A B : V} (k : D ⟶ E)
     (f : J.obj A ⟶ J.obj B) :
     J.map (k ▷ A) ≫ retainLeft J (R := E) f =
       retainLeft J (R := D) f ≫ J.map (k ▷ B) := by
