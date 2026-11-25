@@ -55,7 +55,7 @@ theorem after_word (s : d.EventSlice v lo hi) :
   Proofs.ProgressiveGraph.after_word s
 
 /-- Read the row at the words obtained from the actual wire indices. -/
-def cutRow (s : d.EventSlice v lo hi) :
+@[expose] def cutRow (s : d.EventSlice v lo hi) :
     Sliced.Row S (s.beforeWires.map d.label) (s.afterWires.map d.label) :=
   (congrArg₂ (Sliced.Row S) s.before_word s.after_word).symm.mp s.row
 
