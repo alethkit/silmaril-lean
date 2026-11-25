@@ -55,6 +55,28 @@ FIXTURES = (
     result = child(value)
     return result
 """, "AssertionError", ["enter", "resume None", "enter", "resume AssertionError", "complete AssertionError"]),
+    ("body_assert_bool_paths", """def outer(seed):
+    assert True
+    def first(value):
+        assert True
+        return value
+    assert True
+    def second(value):
+        return value
+    middle = first(seed)
+    result = second(middle)
+    return result
+""", "return 5", ["enter", "resume", "enter", "resume", "complete"]),
+    ("body_assert_bool_false", """def outer(seed):
+    def child():
+        nonlocal seed
+        seed = 41
+        assert False
+        seed = 99
+        return seed
+    result = child()
+    return result
+""", "AssertionError", ["enter", "resume AssertionError", "complete AssertionError"]),
     ("forwarded_write", """def outer(seed):
     def middle(x):
         def inner(y):
@@ -184,6 +206,29 @@ if __name__ == "__main__":
   | .ok compiled => compiled.sourceBody.paths == [[0], [0, 0]]
   | .error _ => false)
 """
+            elif name == "body_assert_bool_paths":
+                extra = """
+#guard (match compile pythonSource with
+  | .ok compiled =>
+    compiled.sourceBody.paths == [[0], [0, 0], [0, 1]] &&
+      match compiled.table compiled.entry.key with
+      | some entry => match entry.definition.body with
+        | .assert (.literal (.bool true)) _ => true
+        | _ => false
+      | none => false
+  | .error _ => false)
+"""
+            elif name == "body_assert_bool_false":
+                extra = """
+#guard retainedAssertionWrite pythonSource
+#guard (match compile pythonSource with
+  | .ok compiled => match compiled.table 1 with
+    | some entry => match entry.definition.body with
+      | .store _ _ (.assert (.literal (.bool false)) _) => true
+      | _ => false
+    | none => false
+  | .error _ => false)
+"""
             elif name == "body_assert_saved_caller":
                 extra = "#guard retainedAssertionWrite pythonSource\n"
             elif name == "forwarded_write":
@@ -219,8 +264,10 @@ if __name__ == "__main__":
         for source, diagnostic in (
             ("def outer(seed): assert seed + 1", ".bodyProfile [0]"),
             ("def outer(seed): assert seed()", ".bodyProfile [0]"),
-            ("def outer(seed): assert True", ".frontend .expressionShape"),
-            ('def outer(seed): assert seed, "message"', ".frontend .bodyShape"),
+            ("def outer(seed): assert seed == 5", ".frontend .expressionShape"),
+            ("def outer(seed): assert True and False", ".frontend .expressionShape"),
+            ("def outer(seed): return True", ".frontend .expressionShape"),
+            ('def outer(seed): assert False, "message"', ".frontend .bodyShape"),
         ):
             shared["emit"](python_file, lean_file, source + "\n")
             shared["check_lean"](

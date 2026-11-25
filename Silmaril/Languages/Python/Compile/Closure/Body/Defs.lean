@@ -25,6 +25,8 @@ inductive Expr (layout : Core.Closure.Layout) where
   /-- Synthesized at the end of an ordinary function body. -/
   | none
   | integer (value : Int)
+  /-- A literal Boolean test in a message-free body assertion. -/
+  | boolean (value : Bool)
   | read (slot : Slot layout)
   | globalName (name : Name)
   | add (left right : Expr layout)
@@ -194,6 +196,8 @@ inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
   | assert {tree index source target rest next}
       (test : ExprTranslation tree.scope source target) (tail : Translation tree index rest next) :
       Translation tree index (.assert_ source none :: rest) (.assert target next)
+  | assertBoolean {tree index value rest next} (tail : Translation tree index rest next) :
+      Translation tree index (.assert_ (.boolean value) none :: rest) (.assert (.boolean value) next)
   | pass {tree index rest next} (tail : Translation tree index rest next) :
       Translation tree index (.pass :: rest) next
   | nonlocal {tree index names rest next} (tail : Translation tree index rest next) :
@@ -222,6 +226,9 @@ private def lowerOrdinaryBody (tree : ScopeTree) (allowGlobals : Bool)
       let target ← lowerExprWith tree.scope allowGlobals value
       return ⟨.ret target.val, .ret ordinary complete target.property⟩
     else throw (.scopeTree tree.scope.context.path)
+  | .assert_ (.boolean value) none :: rest => do
+    let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
+    return ⟨.assert (.boolean value) tail.val, .assertBoolean tail.property⟩
   | .assert_ test none :: rest => do
     let target ← lowerExprWith tree.scope allowGlobals test
     let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
