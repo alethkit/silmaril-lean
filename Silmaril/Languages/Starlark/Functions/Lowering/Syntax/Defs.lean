@@ -11,12 +11,12 @@ namespace Silmaril.Languages.Starlark.Functions.Lowering
   | _ => .scalar .none
 
 /-- The resolved grammar fixes operand order independently of call binding. -/
-@[expose] def argumentExprs (positional : List Expr) (keywords : List (String × Expr))
-    (star starStar : Option Expr) : List Expr :=
+@[expose] def argumentExprs {α : Type} (positional : List α) (keywords : List (String × α))
+    (star starStar : Option α) : List α :=
   positional ++ keywords.map Prod.snd ++ star.toList ++ starStar.toList
 
-@[expose] def argumentShape (positional : List Expr) (keywords : List (String × Expr))
-    (star starStar : Option Expr) : ArgumentShape :=
+@[expose] def argumentShape {α : Type} (positional : List α) (keywords : List (String × α))
+    (star starStar : Option α) : ArgumentShape :=
   ⟨positional.length, keywords.map Prod.fst, star.isSome, starStar.isSome⟩
 
 theorem argumentSize (callee : Expr) (positional : List Expr) (keywords : List (String × Expr))

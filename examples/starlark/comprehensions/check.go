@@ -181,8 +181,79 @@ def sink(*args):
 	fmt.Println("PASS failed callee or comprehension skips later arguments and dispatch, retaining effects")
 }
 
+func checkCallOperands() {
+	const mark = `events = []
+def mark(tag, value):
+    events.append(tag)
+    return value
+`
+	const callee = `(sink if [mark(2, x) for x in mark(1, [True])] else len(1))`
+	globals, err := run(mark + `def sink(a, b, k, z):
+    return mark(9, (a, b, k[0], z))
+def run():
+    return ` + callee + `(
+        mark(3, 9),
+        k=[mark(5, x) for x in mark(4, [10])],
+        *[mark(7, x) for x in mark(6, [11])],
+        **{n: v for (n, v) in mark(8, [("z", 12)])},
+    )
+out = run()
+`)
+	require(err == nil && globals["out"].String() == "(9, 11, 10, 12)" &&
+		globals["events"].String() == "[1, 2, 3, 4, 5, 6, 7, 8, 9]", fmt.Sprint(globals, err))
+
+	globals, err = run(`xs = [1]
+def bump(value):
+    xs[0] = 9
+    return value
+def sink(a, b):
+    return (a, b)
+out = sink(*xs, **{k: bump(v) for (k, v) in [("b", 2)]})
+`)
+	require(err == nil && globals["out"].String() == "(9, 2)", fmt.Sprint(globals, err))
+	fmt.Println("PASS comprehension callee, keyword and spreads, including mutation before expansion")
+
+	const prelude = `rows = [[("a", [4]), ([], [5])]]
+def sink(*rest, k=0):
+    return mark(7, k)
+`
+	const named = `k=[x for x in mark(3, [5])]`
+	const goodStar = `*[x for x in mark(4, [6])]`
+	const badStar = `*mark(4, 0)`
+	const duplicate = `**{k: mark(6, v) for (k, v) in mark(5, [("k", 8)])}`
+	const nonString = `**{k: mark(6, v) for (k, v) in mark(5, [(1, 8)])}`
+	const badMapping = `**[x for x in mark(5, [])]`
+	const failed = `{mark(4, k): mark(5, v) for row in mark(3, rows) for (k, [v]) in row}`
+	for _, tc := range []struct {
+		callee    string
+		arguments string
+		errorPart string
+		events    string
+	}{
+		{callee, named + ", " + goodStar + ", " + duplicate, `multiple values for parameter "k"`, "[1, 2, 3, 4, 5, 6]"},
+		{callee, named + ", " + badStar + ", " + nonString, "keywords must be strings", "[1, 2, 3, 4, 5, 6]"},
+		{callee, named + ", " + badStar + ", " + badMapping, "argument after ** must be a mapping", "[1, 2, 3, 4, 5]"},
+		{callee, named + ", " + badStar + ", " + duplicate, "argument after * must be iterable", "[1, 2, 3, 4, 5, 6]"},
+		{callee, badStar + ", **" + failed, "unhashable type: list", "[1, 2, 4, 3, 4, 5, 4, 5]"},
+		{"(sink if " + failed + " else sink)", named + ", " + goodStar + ", " + duplicate,
+			"unhashable type: list", "[3, 4, 5, 4, 5]"},
+	} {
+		globals, err = run(mark + prelude + "out = " + tc.callee + "(" + tc.arguments + ")")
+		checkError(err, tc.errorPart)
+		require(globals["out"] == nil && globals["events"].String() == tc.events, fmt.Sprint(globals, err))
+		outer := globals["rows"].(*starlark.List)
+		inner := outer.Index(0).(*starlark.List)
+		require(outer.Append(starlark.None) == nil && inner.Append(starlark.None) == nil,
+			"failed callee or expansion operand left an iterator active")
+	}
+	_, err = run(`out = len(x=[x for x in []], x=[y for y in []]) if False else None`)
+	checkError(err, `keyword argument "x" is repeated`)
+	fmt.Println("PASS operand versus expansion versus binding errors, duplicate keyword checks, and iterator cleanup")
+}
+
 func main() {
 	checkLists()
 	checkDictionaries()
 	checkExpressionPositions()
+	checkCallOperands()
 }
