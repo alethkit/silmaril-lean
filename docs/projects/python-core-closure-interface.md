@@ -79,9 +79,20 @@ Python errors. The definition's body family is a parameter of dispatch.
 
 `Core.Closure.Executor` instantiates the code table with layout-indexed bodies.
 The supported instructions store a value, call with positional arguments and
-store the result, or return. Operands are values, bounded slot reads and
-closure creation with a bounded capture map. The callee is evaluated before
-its arguments, which are evaluated left to right before dispatch.
+store the result, assert an operand, or return. Operands are values, bounded
+slot reads, ambient global reads and closure creation with a bounded capture
+map. The callee is evaluated before its arguments, which are evaluated from
+left to right before dispatch.
+
+An assertion evaluates its operand in the current frame. A truthy value
+continues silently. A false value raises the payload-free
+`RuntimeError.assertionError` and skips the remaining body, with the heap
+as it stood when the assertion was reached. Operand errors or faults follow
+their existing paths before truth is tested. `Value.truth` is shared by
+body assertions and the existing module call destination. The body
+instruction covers enabled, message-free assertions.
+[Python assert statement](https://docs.python.org/release/3.12.13/reference/simple_stmts.html#the-assert-statement)
+· [Truth value testing](https://docs.python.org/release/3.12.13/library/stdtypes.html#truth-value-testing)
 
 The executor shares the frame and heap APIs with the compiler. Call entry
 starts the selected body with its initialized frame. Return or an uncaught
@@ -101,7 +112,7 @@ instruction sequence per body and guarantees termination of each selector
 invocation and bounded prefix. It makes no global termination claim.
 
 This syntax covers explicit returns and uncaught errors. Branches, loops,
-arithmetic operands, globals, keyword and variadic arguments, defaults,
+arithmetic operands, global writes, keyword and variadic arguments, defaults,
 exception handlers, cleanup, generators and host operations require
 additional runtime profiles.
 [Executor definitions](../../Silmaril/Languages/Python/Core/Closure/Executor/Defs.lean)
