@@ -159,6 +159,15 @@ These results give structural denotations. Soundness for the λSSA rewrite
 theory and the syntactic initial model of that theory remain open here.
 [Ghalayini and Krishnaswami, *The Denotational Semantics of SSA*, §5](https://arxiv.org/abs/2411.09347)
 
+λSSA Kleisli agreement (`Silmaril.SSA.Isotope.LambdaSSA.Kleisli.Thms`).
+The direct monadic denotation threads a typed product of variable values
+and returns a typed destination from the label context. The graph comparison
+sends every monadic witness to a categorical witness at the matching
+environment. `categoricalTermDenote_eq` and `categoricalRegionDenote_eq`
+identify the chosen arrows under the corresponding coherence assumptions,
+with the latter transporting typed exits along the finite-coproduct
+equivalence. Region agreement includes nested CFGs in a lawful Elgot monad.
+
 Subtyped λSSA (`Silmaril.SSA.Isotope.LambdaSSA.Subtyping.Categorical.Thms`).
 `Subtyping.Exact.tm` and `Subtyping.Exact.region` embed exact typing into the
 derivation-valued typing system. A subtyping step in an expression composes
@@ -292,6 +301,7 @@ lake build --wfail Silmaril.SSA.LambdaRTL.Thms Silmaril.SSA.LambdaRTL.CFG.Thms \
   Silmaril.SSA.Isotope.Thms Silmaril.SSA.Isotope.Institution.Thms \
   Silmaril.SSA.Isotope.Bridge.Categorical.Thms Silmaril.SSA.Thesis.Categorical.Thms \
   Silmaril.SSA.Isotope.LetIter.Thms Silmaril.SSA.Isotope.LambdaSSA.Categorical.Thms \
+  Silmaril.SSA.Isotope.LambdaSSA.Kleisli.Thms \
   Silmaril.SSA.Thesis.Kleisli.Thms Silmaril.SSA.Isotope.Refinement.Thms
 ```
 
