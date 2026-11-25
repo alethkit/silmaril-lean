@@ -14,6 +14,8 @@ structure Definition (Body : Layout → Type) (layout : Layout) where
   body : Body layout
   /-- Exact profiled `co_freevars` tuple for this checked definition. -/
   freevars : Option (List String) := none
+  /-- Exact profiled `co_cellvars` tuple for this checked definition. -/
+  cellvars : Option (List String) := none
 
 structure Entry (Body : Layout → Type) where
   layout : Layout

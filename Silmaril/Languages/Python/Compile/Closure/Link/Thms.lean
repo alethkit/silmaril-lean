@@ -23,7 +23,8 @@ theorem resolve_entry {source : Source.Module} (compiled : Body.Compiled source)
     resolve (link compiled).table (link compiled).entry =
       .ok { parameters := compiled.parameters
             body := (linkBody 1 compiled.moduleTree compiled.code).code
-            freevars := (link compiled).entryFreeVars } :=
+            freevars := (link compiled).entryFreeVars
+            cellvars := (link compiled).entryCellVars } :=
   Core.Closure.Dispatch.resolve_iff.mpr rfl
 
 theorem resolve_reference {source : Source.Module} (compiled : Body.Compiled source)

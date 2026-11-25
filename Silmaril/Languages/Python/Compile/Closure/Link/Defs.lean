@@ -106,6 +106,9 @@ def Program.table (program : Program) : CodeTable Code :=
 def Program.entryFreeVars (program : Program) : Option (List Source.Name) :=
   program.blocks[program.entry.key]?.bind (·.entry.definition.freevars)
 
+def Program.entryCellVars (program : Program) : Option (List Source.Name) :=
+  program.blocks[program.entry.key]?.bind (·.entry.definition.cellvars)
+
 def Program.references (program : Program) : List (BlockPath × CodeRef) :=
   program.blocks.flatMap (fun block => block.entry.definition.body.references)
 

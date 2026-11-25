@@ -12,6 +12,11 @@ theorem readFreevars_iff {table : CodeTable} {fn : Function} {names : List Strin
       ∃ definition, Dispatch.Resolves table fn.code definition ∧ definition.freevars = some names :=
   Proofs.Languages.Python.Core.Closure.Executor.readFreevars_iff
 
+theorem readCellvars_iff {table : CodeTable} {fn : Function} {names : List String} :
+    readCellvars table (.function fn) = .ok names ↔
+      ∃ definition, Dispatch.Resolves table fn.code definition ∧ definition.cellvars = some names :=
+  Proofs.Languages.Python.Core.Closure.Executor.readCellvars_iff
+
 theorem stepIn_iff {table : CodeTable} {globals : GlobalLookup} {source target : State} {label : Option Event} :
     StepIn table globals source label target ↔ advanceIn table globals source = some (label, target) :=
   ⟨Proofs.Languages.Python.Core.Closure.Executor.advance_of_step,
