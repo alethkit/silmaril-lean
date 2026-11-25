@@ -79,6 +79,27 @@ theorem gamma
     RegionPair primitives ids mapping (code inputs armsL outputs) (code inputs armsR outputs) inputL inputR store :=
   Proofs.gamma inputs outputs arms related
 
+/-- Matched selectors enter only the chosen arms with fresh locals. On return,
+bind the full arm tuple in the saved caller scope and start its suffix at the
+returned store. A block or productive arm retains the actual γ binding. -/
+theorem gamma_scoped
+    {past : List (Ports (Ty V S))} {tailL tailR : List (Ports (Ty V S))}
+    {childSigsL childSigsR : Fin (extra + 2) → List (Ports (Ty V S))}
+    {armsL : (i : Fin (extra + 2)) → NestedTheta.Term (Instruction Op) entry [] (childSigsL i) returned}
+    {armsR : (i : Fin (extra + 2)) → NestedTheta.Term (Instruction Op) entry [] (childSigsR i) returned}
+    {restL : NestedTheta.Term (Instruction Op) args (past ++ [returned]) tailL outs}
+    {restR : NestedTheta.Term (Instruction Op) args (past ++ [returned]) tailR outs}
+    {localsL localsR : Locals m.Val past} {tag : Fin (extra + 2)} {nextL nextR : Tuple m.Val entry}
+    (inputs : Wires args past (.control (extra + 2) :: entry))
+    (selectL : inputs.read inputL localsL = .cons (.control tag) nextL)
+    (selectR : inputs.read inputR localsR = .cons (.control tag) nextR)
+    (arm : RegionPair primitives ids (mapping.child past.length tag.val) (armsL tag) (armsR tag) nextL nextR store)
+    (resume : ∀ {valueL valueR : Tuple m.Val returned}, TupleRelated m ids valueL valueR → ∀ middle,
+      ScopedRegionPair primitives ids mapping restL restR inputL inputR (localsL.snoc valueL) (localsR.snoc valueR) middle) :
+    ScopedRegionPair primitives ids mapping (bindGamma inputs armsL restL) (bindGamma inputs armsR restR)
+      inputL inputR localsL localsR store :=
+  Proofs.gamma_scoped inputs selectL selectR arm resume
+
 /-- A depth-independent θ congruence over observers of fresh activations.
 Each related selector either exits or restarts with its full carry. The
 chosen block or productive child keeps the θ and saved suffix frames. -/
@@ -227,8 +248,8 @@ theorem call_plan_regions {rank : Nat} {context : Ports (Ty V S)}
         RegionPair primitives ids mapping left right (prependContext argsL capturesL) (prependContext argsR capturesR) store :=
   Proofs.call_plan_regions plan respects
 
-/-- Pair the actual execution of an ordered spine of static calls and
-primitive bindings. Each call enters a lower-ranked body. Its suffix
+/-- Pair the actual execution of an ordered region of static calls,
+primitive bindings and selected γ arms. Each call enters a lower-ranked body. Its suffix
 consumes one binding of the caller plan and keeps the caller's scope. -/
 theorem ranked_regions {rank : Nat} {context : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     {capturesL capturesR : Tuple m.Val context}
