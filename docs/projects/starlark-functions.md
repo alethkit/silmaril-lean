@@ -274,36 +274,47 @@ elaborator. Successful module initialization freezes the reachable result.
 
 The normalized `CompExpr` grammar admits list and dictionary
 comprehensions in return values and single-name assignment RHSs. Its
-recursive nodes are positional call arguments, conditional tests and arms,
-and both operands of `and` and `or`. Ordinary leaves, call callees and
-comprehension clause operands retain the existing resolved expression
-grammar. The original list and dictionary assignment forms still work.
+recursive nodes include calls, conditional tests and arms, and both
+operands of `and` and `or`. A call's callee, positional operands, named
+operands, and optional `*` and `**` operands all admit the placement
+grammar. Ordinary leaves and comprehension clause operands retain the
+existing resolved expression grammar.
 [Pinned comprehensions][comprehensions] · [Pinned conditionals][conditional] · [Pinned logical operators][logical-ops]
 
 The placement compiler emits a checked body at the point the value is
-needed. A call evaluates its callee once, stages its positional operands
-left to right, then dispatches using the saved values. A prior failure
-skips the remaining stages. Conditions execute one arm. A short circuit
-returns the saved left operand with its effects. The scoped expression
-bodies restore their private staging bindings on exit. They reuse the
-existing comprehension accumulator, nested name binder, fresh locals and
-iterator cleanup. Call termination retains the finite declaration guard.
-[Go expression and argument compilation][go-call-compile]
+needed. A call evaluates its callee once, then stages positional operands,
+named operands, at most one `*` and at most one final `**` in source order.
+After every stage succeeds, the shared call operation expands the saved
+values, checks callability and binds arguments. The Go profile checks the
+mapping before the iterable. Both expansion checks precede binding errors
+such as a duplicate key from an explicit keyword and `**`. A repeated
+explicit keyword is rejected statically, including in a skipped arm. A
+later operand can mutate an earlier saved iterable before expansion, and
+a failing operand skips expansion and dispatch.
+[Pinned functions][functions] · [Go operand compilation][go-call-compile] · [Go expansion][go-call-expand] · [Go binding][go-parameter-binding]
+
+Conditions execute one arm, and a short circuit returns the saved left
+operand with its effects. The scoped expression bodies restore private
+bindings on exit. They reuse the comprehension accumulator, nested name
+binder, fresh locals and iterator cleanup. Failure preserves earlier
+effects and leaves the destination untouched. Call termination retains
+the finite declaration guard.
 
 The correspondence uses the independent checked body rules over the
 emitted direct code. `Expression.lower_preserves` compares the exact
-outcome, frame, heap and guards with scratch lowering, and
-`Expression.exec_return_iff_lowered` gives the analogous return
-correspondence. Separate equations state conditional selection, short
-circuiting, callee failure and positional sequencing. The proofs start
+outcome, frame, heap and guards with scratch lowering.
+`Expression.exec_iff_lowered` and `Expression.exec_return_iff_lowered`
+connect these results to the independent assignment and return derivations.
+Separate equations state the call order, conditional selection, short
+circuiting, callee failure and argument sequencing. The proofs start
 with resolved expression placement and use the existing admission and
 scratch-slot assumptions. The normalized source correspondence shares its
 elaborator.
 [Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
 
-Comprehensions in keyword or spread arguments, callee expressions,
-collections and subscripts, comprehension clause operands, defaults and
-other statement operands remain open. Field and subscript pattern leaves
+Comprehensions in collection and subscript operands, comprehension clause
+operands, defaults and other statement operands remain open. Call shape
+and spread value domains follow the [existing argument profile](#argument-binding). Field and subscript pattern leaves
 remain outside this profile. Quotation supplies ordinary operands and
 pattern ASTs. The normalized comprehension and placement nodes are
 constructed separately.
@@ -814,3 +825,4 @@ extend this profile. Host callable effects remain open.
 [go-comp-put]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L78-L150
 [conditional]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#conditional-expressions
 [logical-ops]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#or-and-and
+[go-parameter-binding]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1429-L1480

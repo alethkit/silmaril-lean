@@ -116,11 +116,20 @@ theorem expression_exact (program : Program) (available : List DeclarationId)
   | list outer inner locals => exact list_exact _ target start outer inner locals
   | dict outer inner locals => exact dict_exact _ target start outer inner locals
   | callPos callee arguments =>
+    unfold compileCall
     apply scope_exact target
     apply seq_agrees (stage callee (argumentSlot 0) start)
     apply argument_agrees
     intro item _ destination
     have := List.sizeOf_lt_of_mem item.property
+    exact expression_exact program available item.val (arguments _ item.property) destination start
+  | @call callee positional keywords star starStar calleeAdmitted arguments =>
+    unfold compileCall
+    apply scope_exact target
+    apply seq_agrees (expression_exact program available callee calleeAdmitted (argumentSlot 0) start)
+    apply argument_agrees
+    intro item _ destination
+    have := callOperandSize callee positional keywords star starStar item.property
     exact expression_exact program available item.val (arguments _ item.property) destination start
   | branch test yes no =>
     apply scope_exact target
@@ -137,7 +146,7 @@ theorem expression_exact (program : Program) (available : List DeclarationId)
     | and => exact branch_agrees rightEq (fun _ _ => rfl)
     | or => exact branch_agrees (fun _ _ => rfl) rightEq
 termination_by sizeOf expr
-decreasing_by all_goals (simp_wf; omega)
+decreasing_by all_goals first | assumption | (simp_wf; omega)
 
 theorem return_exact (program : Program) (available : List DeclarationId)
     (expr : Expression) (admitted : expr.Admitted) (state : State) (free : ScratchFree state) (start : Nat) :
@@ -198,9 +207,35 @@ theorem callee_failure (program : Program) (available : List DeclarationId) (sta
     (failed : denoteBody program available (stages.plain (argumentSlot 0) callee) state = .error error stopped) :
     denoteBody program available ((Expression.callPos callee arguments).compile stages target) state =
       .error error (restoreCaller state stopped) := by
-  rw [Expression.compile.eq_def stages (.callPos callee arguments), denoteBody]
+  rw [Expression.compile.eq_def stages (.callPos callee arguments)]
+  dsimp only
+  unfold compileCall
+  rw [denoteBody]
   change completeCall state (some target) (denoteBody program available (.seq _ _) state) = _
   rw [sequenceDenotation, failed]
+  rfl
+
+theorem call_order (program : Program) (available : List DeclarationId) (target : Binding)
+    (callee : Body) (shape : ArgumentShape) (operands : List (Binding → Body)) (state : State) :
+    denoteBody program available (compileCall target callee shape operands) state =
+      completeCall state (some target)
+        (Outcome.resume (denoteBody program available callee state) fun
+          | .next => denoteBody program available
+              (stageArguments 1 operands fun saved =>
+                .seq (.call (some expressionSlot) (readSaved (argumentSlot 0)) (fillArguments shape saved))
+                  (returnSaved expressionSlot))
+          | signal => pure signal) := by
+  rw [compileCall, denoteBody]
+  change completeCall state (some target) (denoteBody program available (.seq _ _) state) = _
+  rw [sequenceDenotation] <;> rfl
+
+theorem call_callee_failure (program : Program) (available : List DeclarationId) (stages : ExpressionStages)
+    (callee : Expression) (positional : List Expression) (keywords : List (String × Expression))
+    (star starStar : Option Expression) (target : Binding) (state stopped : State) (error : Error)
+    (failed : denoteBody program available (callee.compile stages (argumentSlot 0)) state = .error error stopped) :
+    denoteBody program available ((Expression.call callee positional keywords star starStar).compile stages target) state =
+      .error error (restoreCaller state stopped) := by
+  rw [Expression.compile.eq_def stages (.call callee positional keywords star starStar), call_order, failed]
   rfl
 
 theorem argument_order (program : Program) (available : List DeclarationId) (index : Nat)

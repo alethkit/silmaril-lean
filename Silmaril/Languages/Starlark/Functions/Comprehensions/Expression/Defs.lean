@@ -7,14 +7,37 @@ public import Silmaril.Languages.Starlark.Functions.Comprehensions.Defs
 namespace Silmaril.Languages.Starlark.Functions.Comprehensions
 
 /-- Comprehensions in the checked return and name-assignment profile.
-The existing expression grammar supplies ordinary leaves and call callees. -/
+The existing expression grammar supplies ordinary leaves. -/
 inductive Expression where
   | plain (value : Lowering.Expr)
   | list (comp : ListComp)
   | dict (comp : DictComp)
   | callPos (callee : Lowering.Expr) (arguments : List Expression)
+  /-- Positional operands, then named operands, then at most one of each spread. -/
+  | call (callee : Expression) (positional : List Expression)
+      (keywords : List (String × Expression)) (star starStar : Option Expression)
   | branch (test yes no : Expression)
   | logical (op : LogicalOp) (left right : Expression)
+
+theorem callOperandSize (callee : Expression) (positional : List Expression)
+    (keywords : List (String × Expression)) (star starStar : Option Expression) {part : Expression}
+    (member : part ∈ Lowering.argumentExprs positional keywords star starStar) :
+    sizeOf part < sizeOf (.call callee positional keywords star starStar : Expression) := by
+  simp only [Lowering.argumentExprs, List.mem_append] at member
+  rcases member with ((pos | named) | spread) | mapping
+  · have := List.sizeOf_lt_of_mem pos
+    simp
+    omega
+  · obtain ⟨⟨name, value⟩, inKeywords, rfl⟩ := List.mem_map.mp named
+    have := List.sizeOf_lt_of_mem inKeywords
+    simp at this ⊢
+    omega
+  · obtain rfl := Option.mem_toList.mp spread
+    simp
+    omega
+  · obtain rfl := Option.mem_toList.mp mapping
+    simp
+    omega
 
 def expressionSlot : Binding := ⟨.global, "$comp-expression"⟩
 
@@ -33,6 +56,15 @@ def stageArguments (index : Nat) (arguments : List (Binding → Body))
   | argument :: rest =>
     .seq (argument (argumentSlot index))
       (stageArguments (index + 1) rest fun saved => dispatch (readSaved (argumentSlot index) :: saved))
+
+/-- Only the final body operation expands arguments or prepares a call.
+Its operands read the saved values using the regular argument shape. -/
+def compileCall (target : Binding) (callee : Body) (shape : ArgumentShape)
+    (operands : List (Binding → Body)) : Body :=
+  .assignScoped target [] (.seq callee
+    (stageArguments 1 operands fun saved =>
+      .seq (.call (some expressionSlot) (readSaved (argumentSlot 0)) (Lowering.fillArguments shape saved))
+        (returnSaved expressionSlot)))
 
 /-- Choose direct operands or reuse the existing scratch lowerers, without
 changing the expression site at which any operand runs. -/
@@ -56,10 +88,13 @@ def Expression.compile (stages : ExpressionStages) (expr : Expression) (target :
     let operands := arguments.attach.map fun arg =>
       have := List.sizeOf_lt_of_mem arg.property
       arg.val.compile stages
-    .assignScoped target [] (.seq (stages.plain (argumentSlot 0) callee)
-      (stageArguments 1 operands fun saved =>
-        .seq (.call (some expressionSlot) (readSaved (argumentSlot 0)) { positional := saved })
-          (returnSaved expressionSlot)))
+    compileCall target (stages.plain (argumentSlot 0) callee) ⟨arguments.length, [], false, false⟩ operands
+  | .call callee positional keywords star starStar =>
+    let operands := (Lowering.argumentExprs positional keywords star starStar).attach.map fun arg =>
+      have := callOperandSize callee positional keywords star starStar arg.property
+      arg.val.compile stages
+    compileCall target (callee.compile stages (argumentSlot 0))
+      (Lowering.argumentShape positional keywords star starStar) operands
   | .branch test yes no =>
     .assignScoped target [] (.seq (test.compile stages expressionSlot)
       (.branch (readSaved expressionSlot)

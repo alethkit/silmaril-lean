@@ -29,6 +29,15 @@ theorem Expression.lower_preserves (program : Program) (available : List Declara
   ((Proofs.Languages.Starlark.Functions.Comprehensions.expression_exact
     program available expr admitted target start) state free).1.symm
 
+/-- Exact checked-body agreement for assignment after scratch lowering. -/
+theorem Expression.exec_iff_lowered (program : Program) (available : List DeclarationId)
+    (expr : Expression) (admitted : expr.Admitted) (target : Binding) (state : State) (out : Outcome Flow)
+    (free : Lowering.ScratchFree state) (start : Nat := 0) :
+    Exec program available state (expr.body target) out ↔
+      denoteBody program available (expr.lower target start) state = out := by
+  rw [expr.lower_preserves program available admitted target state free start]
+  exact expr.exec_iff_denote program available target state out
+
 /-- The exact denotation of scratch-lowered return code also characterizes
 the independent return derivation of the direct code. -/
 theorem Expression.exec_return_iff_lowered (program : Program) (available : List DeclarationId)
@@ -78,7 +87,31 @@ theorem callee_failure (program : Program) (available : List DeclarationId) (sta
   Proofs.Languages.Starlark.Functions.Comprehensions.callee_failure
     program available stages callee arguments target state stopped error failed
 
-/-- Each positional stage runs once, and a failed stage contributes its
+/-- The callee runs before the operand stages. The terminal call reads
+the saved operands and uses the existing expansion and invocation rules. -/
+theorem call_order (program : Program) (available : List DeclarationId) (target : Binding)
+    (callee : Body) (shape : ArgumentShape) (operands : List (Binding → Body)) (state : State) :
+    denoteBody program available (compileCall target callee shape operands) state =
+      completeCall state (some target)
+        (Outcome.resume (denoteBody program available callee state) fun
+          | .next => denoteBody program available
+              (stageArguments 1 operands fun saved =>
+                .seq (.call (some expressionSlot) (readSaved (argumentSlot 0)) (Lowering.fillArguments shape saved))
+                  (returnSaved expressionSlot))
+          | signal => pure signal) :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.call_order program available target callee shape operands state
+
+/-- A failing comprehension-containing callee skips every argument group. -/
+theorem call_callee_failure (program : Program) (available : List DeclarationId) (stages : ExpressionStages)
+    (callee : Expression) (positional : List Expression) (keywords : List (String × Expression))
+    (star starStar : Option Expression) (target : Binding) (state stopped : State) (error : Lists.Error)
+    (failed : denoteBody program available (callee.compile stages (argumentSlot 0)) state = .error error stopped) :
+    denoteBody program available ((Expression.call callee positional keywords star starStar).compile stages target) state =
+      .error error (restoreCaller state stopped) :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.call_callee_failure
+    program available stages callee positional keywords star starStar target state stopped error failed
+
+/-- Each argument stage runs once, and a failed stage contributes its
 exact error and state without entering any later stage or dispatch. -/
 theorem argument_order (program : Program) (available : List DeclarationId) (index : Nat)
     (first : Binding → Body) (rest : List (Binding → Body))

@@ -51,6 +51,9 @@ inductive CompExpr where
   | list (comp : ListComp)
   | dict (comp : DictComp)
   | callPos (callee : Lowering.Resolve.SourceExpr) (arguments : List CompExpr)
+  /-- Argument groups are already in valid source order. -/
+  | call (callee : CompExpr) (positional : List CompExpr)
+      (keywords : List (String × CompExpr)) (star starStar : Option CompExpr)
   | branch (test yes no : CompExpr)
   | logical (op : LogicalOp) (left right : CompExpr)
 
@@ -203,6 +206,24 @@ private def compileCompExpr (context : Context) :
       have := List.sizeOf_lt_of_mem argument.property
       compileCompExpr context argument.val
     return (.callPos callee (compiled.map Prod.fst), calleeReads ++ compiled.flatMap Prod.snd)
+  | .call callee positional keywords star starStar => do
+    let (callee, calleeReads) ← compileCompExpr context callee
+    let positional ← positional.attach.mapM fun ⟨argument, member⟩ => do
+      have := List.sizeOf_lt_of_mem member
+      compileCompExpr context argument
+    let keywords ← keywords.attach.mapM fun ⟨(name, argument), member⟩ => do
+      have := (Lowering.entrySize member).2
+      return (name, ← compileCompExpr context argument)
+    let star ← star.attach.mapM fun ⟨argument, member⟩ => do
+      have smaller : sizeOf argument < sizeOf star := by simp [Option.mem_def.mp member]
+      compileCompExpr context argument
+    let starStar ← starStar.attach.mapM fun ⟨argument, member⟩ => do
+      have smaller : sizeOf argument < sizeOf starStar := by simp [Option.mem_def.mp member]
+      compileCompExpr context argument
+    return (.call callee (positional.map Prod.fst)
+      (keywords.map fun (name, argument, _) => (name, argument)) (star.map Prod.fst) (starStar.map Prod.fst),
+      calleeReads ++ positional.flatMap Prod.snd ++ keywords.flatMap (·.2.2) ++
+        (star.toList ++ starStar.toList).flatMap Prod.snd)
   | .branch test yes no => do
     let (test, tests) ← compileCompExpr context test
     let (yes, yesReads) ← compileCompExpr context yes

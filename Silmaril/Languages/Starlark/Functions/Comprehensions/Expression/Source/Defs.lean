@@ -22,6 +22,10 @@ inductive Expression.Admitted : Expression → Prop where
   | callPos {callee : Lowering.Expr} {arguments : List Expression} :
       Lowering.Admitted callee → (∀ arg ∈ arguments, arg.Admitted) →
       Expression.Admitted (.callPos callee arguments)
+  | call {callee : Expression} {positional : List Expression} {keywords : List (String × Expression)}
+      {star starStar : Option Expression} :
+      callee.Admitted → (∀ arg ∈ Lowering.argumentExprs positional keywords star starStar, arg.Admitted) →
+      Expression.Admitted (.call callee positional keywords star starStar)
   | branch {test yes no : Expression} :
       test.Admitted → yes.Admitted → no.Admitted → Expression.Admitted (.branch test yes no)
   | logical {op : LogicalOp} {left right : Expression} :
