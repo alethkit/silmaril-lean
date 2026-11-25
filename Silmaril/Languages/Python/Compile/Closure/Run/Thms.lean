@@ -27,7 +27,8 @@ theorem Compiled.resolve_entry {source : Source.Module} (compiled : Compiled sou
         { parameters := compiled.sourceBody.parameters
           body := target
           freevars := (Link.link compiled.sourceBody).entryFreeVars
-          cellvars := (Link.link compiled.sourceBody).entryCellVars } :=
+          cellvars := (Link.link compiled.sourceBody).entryCellVars
+          codeNames := (Link.link compiled.sourceBody).entryCodeNames } :=
   Proofs.Languages.Python.Compile.Closure.Run.resolve_entry compiled
 
 theorem Compiled.resolve_reference {source : Source.Module} (compiled : Compiled source)
@@ -40,7 +41,8 @@ theorem Compiled.resolve_reference {source : Source.Module} (compiled : Compiled
         { parameters := definition.parameters
           body := target
           freevars := definition.freevars
-          cellvars := definition.cellvars } :=
+          cellvars := definition.cellvars
+          codeNames := definition.codeNames } :=
   Proofs.Languages.Python.Compile.Closure.Run.resolve_reference compiled emitted
 
 theorem run_path {source : Source.Module} {compiled : Compiled source} {arguments : List Value}

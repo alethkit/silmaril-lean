@@ -40,6 +40,7 @@ private theorem failMetadata_project (field : MetadataField) (heap : HeapTable) 
   | read failure => exact fail_project heap stack failure
   | code failure => exact failDispatch_project heap stack failure
   | unprofiled ref => rfl
+  | wrongCodeNamesProfile ref actual => rfl
   | nonFunction => rfl
 
 private theorem resumeStore_project {layout : Layout} (source : Snapshot layout) (destination : Slot layout)
@@ -85,6 +86,11 @@ theorem advanceIn_project (rows : CodeRows) (globals : GlobalLookup) (source : S
       cases test.evalIn rows.project globals environment.heap.project environment.frame with
       | ok passes => cases passes <;> rfl
       | error failure => exact congrArg some (failMetadata_project .cellvars environment.heap stack failure)
+    | assertCodeNames test next =>
+      simp only [advanceIn, coreAdvance, State.project, Option.map_some]
+      cases test.evalIn rows.project globals environment.heap.project environment.frame with
+      | ok passes => cases passes <;> rfl
+      | error failure => exact congrArg some (failMetadata_project .codeNames environment.heap stack failure)
     | callTo destination callee arguments next =>
       simp only [advanceIn, coreAdvance, State.project, Option.map_some]
       cases evalCallIn globals environment.heap.project environment.frame callee arguments with

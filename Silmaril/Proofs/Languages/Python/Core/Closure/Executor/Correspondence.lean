@@ -32,6 +32,18 @@ theorem readCellvars_iff {table : CodeTable} {fn : Function} {names : List Strin
       ∃ definition, Dispatch.Resolves table fn.code definition ∧ definition.cellvars = some names :=
   readMetadata_iff (field := .cellvars)
 
+theorem readCodeNames_iff {table : CodeTable} {fn : Function} {names : List String} :
+    readCodeNames table (.function fn) = .ok names ↔
+      ∃ definition, Dispatch.Resolves table fn.code definition ∧
+        definition.codeNames = some ⟨.cpython3135ExecOptimize0, names⟩ := by
+  rw [readMetadata_iff]
+  refine exists_congr fun definition => and_congr_right fun _ => ?_
+  cases tuple : definition.codeNames with
+  | none => simp [MetadataField.select, tuple]
+  | some metadata =>
+    obtain ⟨profile, names⟩ := metadata
+    cases profile <;> simp [MetadataField.select, tuple]
+
 private theorem name_read_eval (source : NameRead layout) :
     source.operand.evalIn globals heap frame = source.evalIn globals heap frame := by
   cases source <;> rfl
@@ -212,6 +224,9 @@ theorem advance_of_step {source target : State} {label : Option Event}
   | assertCellvarsTrue eval => simp [advanceIn, eval]
   | assertCellvarsFalse eval => simp [advanceIn, eval]
   | assertCellvarsError eval => simp [advanceIn, eval]
+  | assertCodeNamesTrue eval => simp [advanceIn, eval]
+  | assertCodeNamesFalse eval => simp [advanceIn, eval]
+  | assertCodeNamesError eval => simp [advanceIn, eval]
   | call evaluated entered => simp [advanceIn, inputs_eq evaluated, Dispatch.dispatch_iff.mpr entered]
   | callError evaluated => simp [advanceIn, inputs_eq evaluated]
   | rejected evaluated reject => simp [advanceIn, inputs_eq evaluated, rejected_eq reject]
@@ -282,6 +297,16 @@ theorem step_of_advance {source : State} {transition : Transition}
         cases holds <;> simp [advanceIn, evaluated] at advanced <;> subst transition
         · exact .assertCellvarsFalse evaluated
         · exact .assertCellvarsTrue evaluated
+    | assertCodeNames test next =>
+      cases evaluated : test.evalIn table globals heap frame with
+      | error error =>
+        simp [advanceIn, evaluated] at advanced
+        subst transition
+        exact .assertCodeNamesError evaluated
+      | ok holds =>
+        cases holds <;> simp [advanceIn, evaluated] at advanced <;> subst transition
+        · exact .assertCodeNamesFalse evaluated
+        · exact .assertCodeNamesTrue evaluated
     | callTo destination callee arguments next =>
       cases evaluated : evalCallIn globals heap frame callee arguments with
       | error error =>

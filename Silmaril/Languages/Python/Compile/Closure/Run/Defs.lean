@@ -140,7 +140,8 @@ def executorEntry (block : Link.Block) (body : Core.Closure.Executor.Body block.
     { parameters := block.entry.definition.parameters
       body := body
       freevars := block.entry.definition.freevars
-      cellvars := block.entry.definition.cellvars }⟩
+      cellvars := block.entry.definition.cellvars
+      codeNames := block.entry.definition.codeNames }⟩
 
 inductive TableTranslation : List Link.Block → List ExecutorEntry → Prop where
   | nil : TableTranslation [] []

@@ -8,6 +8,16 @@ public import Silmaril.Languages.Python.Core.Closure.Call.Defs
 
 namespace Silmaril.Languages.Python.Core.Closure.Dispatch
 
+inductive CodeNamesProfile where
+  | cpython3135ExecOptimize0
+  | cpython373ExecOptimize0
+  deriving DecidableEq, Repr
+
+structure ProfiledCodeNames where
+  profile : CodeNamesProfile
+  names : List String
+  deriving DecidableEq, Repr
+
 /-- The compiler supplies a body and positional layout for the same frame. -/
 structure Definition (Body : Layout → Type) (layout : Layout) where
   parameters : Parameters layout
@@ -16,6 +26,8 @@ structure Definition (Body : Layout → Type) (layout : Layout) where
   freevars : Option (List String) := none
   /-- Exact profiled `co_cellvars` tuple for this checked definition. -/
   cellvars : Option (List String) := none
+  /-- Exact `co_names` tuple for the code's stated compiler profile. -/
+  codeNames : Option ProfiledCodeNames := none
 
 structure Entry (Body : Layout → Type) where
   layout : Layout
