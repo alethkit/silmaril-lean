@@ -74,7 +74,7 @@ private theorem project_congr (Γ : EffectCtx τ ε) (i : Fin Γ.length)
     · exact .let2 h (.refl var₀)
     · exact ih j (.let2 h (.refl (var₁ _)))
 
-private theorem project_wf (Γ : EffectCtx τ ε) (i : Fin Γ.length)
+theorem project_wf (Γ : EffectCtx τ ε) (i : Fin Γ.length)
     {Δ : EffectCtx τ ε} {a : Expr Φ} {e : ε} (h : Wf Δ a (packType Γ) e) :
     Wf Δ (project i.val a) (Γ.get i).1 e :=
   (eqv_typed (project_congr Γ i (.refl h))).1
@@ -124,7 +124,7 @@ private theorem packingSubst (Γ : EffectCtx τ ε) :
     TypedSubst [(packType Γ, ⊥)] Γ (fun i => project i (.var 0 : Expr Φ)) :=
   fun i => project_wf Γ i var₀
 
-private theorem oneSubst {Γ : EffectCtx τ ε} {A : τ} {a : Expr Φ} (h : Wf Γ a A ⊥) :
+theorem oneSubst {Γ : EffectCtx τ ε} {A : τ} {a : Expr Φ} (h : Wf Γ a A ⊥) :
     TypedSubst Γ [(A, ⊥)] a.subst0 := by
   intro i
   exact Fin.cases h (fun j => j.elim0) i
