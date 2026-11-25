@@ -8,6 +8,7 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mix
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.RawArms.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Raw.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Ranked.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Ranked.Compile.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -1405,3 +1406,104 @@ example : ∃ t : Term Γ.length, (unrolled (ss := slots)).source.toLetIter Γ.l
   exact ⟨t, ht, htLoop, ht', h.mpr he, h.mp (h.mpr he)⟩
 
 end LetIterRankedFixture
+
+namespace LetIterCompiledRankedFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response
+open Mixed.Ranked.Compile
+
+abbrev Fx := Bool × Bool
+abbrev strict : Fx := (true, false)
+abbrev sig : Signature Unit Unit := ⟨fun _ => 1, fun _ _ => (), fun _ => ()⟩
+abbrev sumSig : SumCall.SumSignature Unit Unit :=
+  ⟨fun _ => 0, fun _ i => i.elim0, fun _ => (), fun _ => ()⟩
+abbrev A : Ty Unit := .base ()
+abbrev free := (Ctx.nil : Ctx Empty (Ty Unit))
+abbrev Γ : EffectCtx (Ty Unit) Fx := [(A, ⊥)]
+abbrev slots : Fin Γ.length → Unit := fun _ => ()
+
+local instance : HasEff Unit Fx := ⟨fun _ => strict⟩
+local instance : HasEff (Unit ⊕ Unit) Fx := SumCall.effects
+local instance : HasTy (Unit ⊕ Unit) (Ty Unit) := SumCall.endpoints sig sumSig
+local instance : EffectIteration Fx := EffectIteration.complete Fx
+
+private theorem visible (g : Unit) : ¬ IsPure (⊥ : Fx) g := by
+  change strict ≠ (⊥ : Fx)
+  decide
+
+/-- State 1 branches on a visible sum reply. The right arm re-enters state 0
+with that reply. The unary request of state 0 uses the carried payload. -/
+def controller : Controller sig sumSig () () 1 :=
+  Fin.cases (motive := fun j => Body sig sumSig () () 1 j.val (fun _ : Fin 1 => ()))
+    (.atom () (fun _ => .var 0) (.done (.var 0)))
+    (fun j => .sum () (fun i => i.elim0) (.done (.var 0))
+      (.again 0 (Nat.zero_lt_succ j.val) (.var 0)))
+
+private theorem controllerTyped (j : Fin 2) : Body.WellTyped sig sumSig strict (controller j) := by
+  refine Fin.cases (motive := fun j => Body.WellTyped sig sumSig strict (controller j)) ?_ ?_ j
+  · exact ⟨fun _ => trivial, visible (), le_rfl, trivial⟩
+  · exact fun _ => ⟨fun i => i.elim0, le_rfl, trivial, trivial⟩
+
+def start : Entry sig Fx () 1 slots := ⟨(0 : Fin 1).succ, .var 0, by trivial⟩
+
+def afterReply : Entry sig Fx () 1 (extendSorts () slots) := ⟨0, .var 0, by trivial⟩
+
+abbrev system := controller.system sig sumSig strict controllerTyped
+
+private theorem stepStart :
+    system.step slots start =
+      .sum () (fun j => j.elim0) (.done (.straight (.tree (.var 0)))) (.again afterReply (by decide)) := by
+  simp only [system, Controller.system, start, controller, Fin.cases_succ, Body.toStep, Tree.interpret]
+  congr 1
+  funext i
+  exact i.elim0
+
+private theorem stepAfterReply :
+    system.step (extendSorts () slots) afterReply =
+      .atom () (fun _ => .var 0) (.done (.straight (.tree (.var 0)))) := rfl
+
+abbrev explicit : Mixed.Raw.Program sig sumSig () slots :=
+  .sum () (fun j => j.elim0) (.straight (.tree (.var 0)))
+    (.straight (.request () (fun _ => .var 0)))
+
+private theorem explicitTyped : explicit.WellTyped sig sumSig strict :=
+  ⟨fun j => j.elim0, le_rfl, trivial, le_rfl, fun _ => trivial⟩
+
+/-- The smaller state uses index zero, the selected payload, even though
+index one still refers to the original loop entry's payload. -/
+example :
+    Mixed.Ranked.Scoped.Step.native (ε := Fx) sig sumSig (@entryRank _ _ sig () 1 Fx _ _)
+      (controller.system sig sumSig strict controllerTyped).endpoint
+      ((controller.system sig sumSig strict controllerTyped).step slots start) =
+    (.case (.op (.inr ()) .unit) (.bv 0)
+      (.iter (.inl (.bv 0)) (controller.loopBody sig sumSig (Γ.length + 1)))) :=
+  rfl
+
+private theorem expansion_eq :
+    controller.expansion sig sumSig strict controllerTyped start = explicit.compile sig sumSig (ε := Fx) := by
+  unfold Controller.expansion
+  rw [Mixed.Ranked.Scoped.System.expand_step, stepStart]
+  simp only [Mixed.Ranked.Scoped.Step.expand, Mixed.Raw.Program.compile, Flatten.compile, Mixed.ofSequence]
+  rw [Mixed.Ranked.Scoped.System.expand_step, stepAfterReply]
+  simp [Mixed.Ranked.Scoped.Step.expand, Mixed.Raw.Program.compile, Flatten.compile, Flatten.emit,
+    Mixed.ofSequence, visible]
+
+example : ∃ t : Tm Empty (Unit ⊕ Unit) Γ.length, explicit.source.toLetIter Γ.length = some t ∧
+    HasTypeEffect free Γ.toBoundCtx (controller.loop sig sumSig start) A strict ∧
+    AbortEquiv (⊥ : Fx) free Γ.toBoundCtx (controller.loop sig sumSig start) t A ∧
+    Eqv Γ A strict (controller.expansion sig sumSig strict controllerTyped start).source explicit.source := by
+  have hΓ : Γ.Pure := fun i => Fin.cases rfl (fun j => j.elim0) i
+  have hs : ∀ i : Fin Γ.length, (Γ.get i).1 = .base (slots i) :=
+    fun i => Fin.cases rfl (fun j => j.elim0) i
+  have he : IsIterative strict := rfl
+  obtain ⟨t, ht, _⟩ := (Mixed.Raw.source_wf sig sumSig hΓ hs strict explicit explicitTyped).toLetIter
+  have h := raw_endpoint_reflection sig sumSig visible strict he controller controllerTyped
+    hΓ hs start explicit explicitTyped ht
+  have heq : Eqv Γ A strict (controller.expansion sig sumSig strict controllerTyped start).source explicit.source := by
+    rw [expansion_eq]
+    exact (Mixed.Raw.compile_eqv sig sumSig hΓ hs strict explicit explicitTyped).symm
+  exact ⟨t, ht, (controller.checked sig sumSig strict he controllerTyped).endpoint_typed hΓ hs start,
+    h.mpr heq, h.mp (h.mpr heq)⟩
+
+end LetIterCompiledRankedFixture
