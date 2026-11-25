@@ -1,7 +1,7 @@
 module
 
 import Silmaril.Semantics.ITree.Thms
-import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.SingleCall.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Sequence.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -217,6 +217,7 @@ open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree
 inductive Prim where
   | next
   | read
+  | readOther
 
 abbrev Fx := Bool × Bool
 abbrev strict : Fx := (true, false)
@@ -224,12 +225,13 @@ abbrev T := Ty Bool
 abbrev inputSort : T := .base false
 abbrev outputSort : T := .base true
 
-/-- Both calls have one argument. The read returns a different sort. -/
+/-- The two reads have different argument and response sorts. -/
 abbrev sig : Signature Bool Prim :=
-  ⟨fun _ => 1, fun _ _ => false, fun | .next => false | .read => true⟩
+  ⟨fun _ => 1, fun f _ => match f with | .readOther => true | _ => false,
+    fun | .read => true | _ => false⟩
 
 local instance : HasTy Prim T := sig.endpoints
-local instance : HasEff Prim Fx := ⟨fun | .next => ⊥ | .read => strict⟩
+local instance : HasEff Prim Fx := ⟨fun | .next => ⊥ | _ => strict⟩
 local instance : EffectIteration Fx := EffectIteration.complete Fx
 
 abbrev Γ : EffectCtx T Fx := [(outputSort, ⊥), (inputSort, ⊥)]
@@ -315,5 +317,106 @@ example : Eqv Γ outputSort strict (.let₁ request.source receiveThroughLet)
   have he : t = request.native := Option.some.inj (hl.symm.trans rfl)
   subst t
   exact let_in_continuation.mp (.equiv (.let₁ (.refl htyped.1) (Equiv.letEta .bv)))
+
+theorem read_other_not_pure : ¬ IsPure (⊥ : Fx) Prim.readOther := by
+  change strict ≠ (⊥ : Fx)
+  decide
+
+abbrev otherArgs : Response.Args sig sorts Prim.readOther := fun _ => .var 0
+
+/-- The request equality resolves the primitive before comparing its dependent
+argument tuple, even when the response sorts differ. -/
+example : ¬ AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx (.let₁ request.native (.bv 0))
+    (.let₁ (Tree.op Prim.readOther otherArgs).native (.bv 1)) outputSort := by
+  intro hn
+  have h := Response.SingleCall.request_eq sig slots_typed args otherArgs
+    args_pure (fun _ => trivial) read_not_pure read_other_not_pure hn
+  have hfg : Prim.read = Prim.readOther := congrArg Sigma.fst h
+  cases hfg
+
+abbrev normArg : Expr Prim := sourceTuple 1 (fun i => (args i).source)
+abbrev normArgNative : Tm Empty Prim Γ.length := nativeTuple 1 (fun i => (args i).native)
+abbrev rawArg : Expr Prim := .let₁ normArg (.var 0)
+abbrev rawArgNative : Tm Empty Prim Γ.length := .let₁ normArgNative (.bv 0)
+
+theorem arg_wf : Wf Γ normArg (input (sig.arity Prim.read) (sig.arg Prim.read)) (⊥ : Fx) :=
+  .pair (.op (f := Prim.next) le_rfl (.pair (.var 1 le_rfl) (.unit _ _))) (.unit _ _)
+
+example : Eqv Γ outputSort strict (.let₁ (.op Prim.read rawArg) receive)
+    (.let₁ (.op Prim.read normArg) receive) := by
+  have hreflect := Response.SingleCall.endpoint_reflection_pure_arguments sig ctx_pure slots_typed
+    read_not_pure read_not_pure strict le_rfl le_rfl
+    (x := rawArg) (y := normArg) (.let₁ arg_wf (.var 0 le_rfl)) arg_wf receive_wf receive_wf
+    (x₀ := rawArgNative) (y₀ := normArgNative) (t := .bv 0) (s := .bv 0) rfl rfl rfl rfl
+  obtain ⟨arg, hl, ht⟩ := arg_wf.toLetIter
+  have he : arg = normArgNative := Option.some.inj (hl.symm.trans rfl)
+  subst arg
+  exact hreflect.mp (.equiv (.let₁ (.op (Equiv.letEta ht.1)) (.refl .bv)))
+
+abbrev useFirstResponse : Response.Sequence sig true sorts :=
+  .call Prim.read args (.call Prim.readOther (fun _ => .var 0) (.ret (.var 1)))
+
+abbrev useAmbientAtSecondCall : Response.Sequence sig true sorts :=
+  .call Prim.read args (.call Prim.readOther (fun _ => .var 1) (.ret (.var 1)))
+
+abbrev returnAmbientAfterTwoCalls : Response.Sequence sig true sorts :=
+  .call Prim.read args (.call Prim.readOther (fun _ => .var 0) (.ret (.var 2)))
+
+theorem firstResponse_wf : Response.Sequence.WellTyped sig strict useFirstResponse :=
+  ⟨args_pure, read_not_pure, le_rfl, fun _ => trivial, read_other_not_pure, le_rfl, trivial⟩
+
+theorem ambientAtSecondCall_wf : Response.Sequence.WellTyped sig strict useAmbientAtSecondCall :=
+  ⟨args_pure, read_not_pure, le_rfl, fun _ => trivial, read_other_not_pure, le_rfl, trivial⟩
+
+theorem ambientAfterTwoCalls_wf : Response.Sequence.WellTyped sig strict returnAmbientAfterTwoCalls :=
+  ⟨args_pure, read_not_pure, le_rfl, fun _ => trivial, read_other_not_pure, le_rfl, trivial⟩
+
+/-- The first response and a same-sort ambient variable give distinguishable
+requests at the second call. -/
+example : ¬ Eqv Γ outputSort strict useFirstResponse.source useAmbientAtSecondCall.source := by
+  intro h
+  have hn := (Response.Sequence.endpoint_reflection sig ctx_pure slots_typed strict
+    useFirstResponse useAmbientAtSecondCall firstResponse_wf ambientAtSecondCall_wf).mpr h
+  have he := Response.Sequence.native_eq_implies_eq sig slots_typed strict
+    useFirstResponse useAmbientAtSecondCall firstResponse_wf ambientAtSecondCall_wf hn
+  let secondArgument : Expr Prim → Option Nat
+    | .let₁ _ (.let₁ (.op _ (.pair (.var i) .unit)) _) => some i
+    | _ => none
+  have hi := congrArg (fun p => secondArgument (Response.Sequence.source sig p)) he
+  exact (by decide : (some 0 : Option Nat) ≠ some 1) hi
+
+/-- After the second call, the first response is at index one and the
+original same-sort ambient variable is at index two. -/
+example : ¬ AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx
+    useFirstResponse.native returnAmbientAfterTwoCalls.native outputSort := by
+  intro hn
+  have he := Response.Sequence.native_eq_implies_eq sig slots_typed strict
+    useFirstResponse returnAmbientAfterTwoCalls firstResponse_wf ambientAfterTwoCalls_wf hn
+  let finalVariable : Expr Prim → Option Nat
+    | .let₁ _ (.let₁ _ (.var i)) => some i
+    | _ => none
+  have hi := congrArg (fun p => finalVariable (Response.Sequence.source sig p)) he
+  exact (by decide : (some 1 : Option Nat) ≠ some 2) hi
+
+example : useFirstResponse.source.toLetIter Γ.length =
+    some (.let₁ request.native (.let₁ (.op Prim.readOther (.pair (.bv 0) .unit)) (.bv 1))) :=
+  Response.Sequence.lowers sig useFirstResponse
+
+abbrev returnAfterFirstCall : Response.Sequence sig true sorts :=
+  .call Prim.read args (.ret (.var 0))
+
+/-- A pure return is observable where the longer sequence makes its second call. -/
+example : ¬ AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx
+    returnAfterFirstCall.native useFirstResponse.native outputSort := by
+  intro hn
+  have hshort : Response.Sequence.WellTyped sig strict returnAfterFirstCall :=
+    ⟨args_pure, read_not_pure, le_rfl, trivial⟩
+  have he := Response.Sequence.native_eq_implies_eq sig slots_typed strict
+    returnAfterFirstCall useFirstResponse hshort firstResponse_wf hn
+  let continuationCalls : Expr Prim → Bool
+    | .let₁ _ (.let₁ _ _) => true
+    | _ => false
+  have h := congrArg (fun p => continuationCalls (Response.Sequence.source sig p)) he
+  exact (by decide : false ≠ true) h
 
 end LetIterResponseSingleCall
