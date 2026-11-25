@@ -216,7 +216,7 @@ theorem denoteSingleton_swapTerm (A B : τ) :
       J.map (packedSwap M A B) :=
   denoteSingleton_productGraph J M (swapReturn_denotes J M A B)
 
-private theorem denoteSingleton_firstTerm (A B : τ) :
+theorem denoteSingleton_firstTerm (A B : τ) :
     denoteSingletonRegion J M (returnOnce_typed (fstTerm (Φ := Φ) A B)).hasType =
       J.map (fstMap M A B) :=
   denoteSingleton_productGraph J M (by
