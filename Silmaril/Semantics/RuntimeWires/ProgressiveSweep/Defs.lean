@@ -33,6 +33,15 @@ noncomputable def vertexOrder : Equiv.Perm (Fin V) := Tuple.sort d.vertexHeight
 noncomputable def landmark : Fin (V + 2) → ℝ :=
   Fin.cons 0 (Fin.snoc (d.vertexHeight ∘ d.vertexOrder) 1)
 
+/-- The open gap after the landmark with the given index. -/
+noncomputable def gap (i : Fin (V + 1)) : Set ℝ :=
+  Set.Ioo (d.landmark i.castSucc) (d.landmark i.succ)
+
+/-- Choose one height in each open gap between successive landmarks. -/
+structure Cuts where
+  height : Fin (V + 1) → ℝ
+  in_gap : ∀ i, height i ∈ d.gap i
+
 /-- One interior cut in each open gap between successive landmarks. -/
 noncomputable def cutHeight (i : Fin (V + 1)) : ℝ :=
   (d.landmark i.castSucc + d.landmark i.succ) / 2
@@ -53,10 +62,11 @@ noncomputable def vertexAt (j : Fin (V + 2)) : Option (Fin V) :=
 /-- The ordered wire list at each cut and the local incidence certificate
 for each successive vertex. -/
 structure Sweep where
+  cuts : d.Cuts
   wires : Fin (V + 1) → List (Fin W)
-  ordered : ∀ i, d.OrderedCut (d.cutHeight i) (wires i)
+  ordered : ∀ i, d.OrderedCut (cuts.height i) (wires i)
   event : ∀ i : Fin V, d.EventSlice (d.vertexOrder i)
-    (d.cutHeight i.castSucc) (d.cutHeight i.succ)
+    (cuts.height i.castSucc) (cuts.height i.succ)
   before : ∀ i, (event i).beforeWires = wires i.castSucc
   after : ∀ i, (event i).afterWires = wires i.succ
 

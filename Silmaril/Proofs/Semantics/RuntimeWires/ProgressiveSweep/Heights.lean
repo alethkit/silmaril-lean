@@ -45,67 +45,59 @@ theorem landmark_strict : StrictMono d.landmark := by
       · exact (not_lt_of_ge (Fin.le_last _) hf).elim
       · simpa using (sorted_heights d) ((Fin.castSucc_lt_castSucc_iff).mp hu)
 
-private theorem cut_above_lower (i : Fin (V + 1)) : d.landmark i.castSucc < d.cutHeight i := by
-  have h := landmark_strict d (Fin.castSucc_lt_succ (i := i))
+theorem midpoint_in_gap (i : Fin (V + 1)) : d.cutHeight i ∈ d.gap i := by
+  have ordered := landmark_strict d (Fin.castSucc_lt_succ (i := i))
+  change d.landmark i.castSucc < d.cutHeight i ∧ d.cutHeight i < d.landmark i.succ
   unfold Diagram.cutHeight
-  linarith
+  constructor <;> linarith
 
-private theorem cut_below_upper (i : Fin (V + 1)) : d.cutHeight i < d.landmark i.succ := by
-  have h := landmark_strict d (Fin.castSucc_lt_succ (i := i))
-  unfold Diagram.cutHeight
-  linarith
+theorem gap_inside {i : Fin (V + 1)} {h : ℝ} (hh : h ∈ d.gap i) : h ∈ Set.Ioo 0 1 := by
+  have hl := (landmark_strict d).monotone (Fin.zero_le i.castSucc)
+  have hr := (landmark_strict d).monotone (Fin.le_last i.succ)
+  rw [landmark_zero] at hl
+  rw [landmark_last] at hr
+  exact ⟨hl.trans_lt hh.1, hh.2.trans_le hr⟩
 
-theorem cut_inside (i : Fin (V + 1)) : d.cutHeight i ∈ Set.Ioo 0 1 := by
-  have h := (landmark_strict d).monotone (Fin.zero_le i.castSucc)
-  have h' := (landmark_strict d).monotone (Fin.le_last i.succ)
-  rw [landmark_zero] at h
-  rw [landmark_last] at h'
-  exact ⟨h.trans_lt (cut_above_lower d i), (cut_below_upper d i).trans_le h'⟩
-
-private theorem landmark_below_cut_iff (i : Fin (V + 1)) (j : Fin (V + 2)) :
-    d.landmark j ≤ d.cutHeight i ↔ j.val ≤ i.val := by
+private theorem landmark_below_gap_iff {i : Fin (V + 1)} {h : ℝ} (hh : h ∈ d.gap i)
+    (j : Fin (V + 2)) : d.landmark j ≤ h ↔ j.val ≤ i.val := by
   constructor
-  · intro h
+  · intro hle
     by_contra! hn
-    exact (not_le_of_gt ((cut_below_upper d i).trans_le
-      ((landmark_strict d).monotone (show i.succ ≤ j by exact hn)))) h
-  · intro h
-    exact (((landmark_strict d).monotone (show j ≤ i.castSucc from h)).trans_lt
-      (cut_above_lower d i)).le
+    exact (not_le_of_gt (hh.2.trans_le ((landmark_strict d).monotone (show i.succ ≤ j from hn)))) hle
+  · intro hle
+    exact (((landmark_strict d).monotone (show j ≤ i.castSucc from hle)).trans_lt hh.1).le
 
-private theorem cut_below_landmark_iff (i : Fin (V + 1)) (j : Fin (V + 2)) :
-    d.cutHeight i ≤ d.landmark j ↔ i.val < j.val := by
+private theorem gap_below_landmark_iff {i : Fin (V + 1)} {h : ℝ} (hh : h ∈ d.gap i)
+    (j : Fin (V + 2)) : h ≤ d.landmark j ↔ i.val < j.val := by
   constructor
-  · intro h
+  · intro hle
     by_contra! hn
-    exact (not_le_of_gt (((landmark_strict d).monotone (show j ≤ i.castSucc from hn)).trans_lt
-      (cut_above_lower d i))) h
-  · intro h
-    exact ((cut_below_upper d i).trans_le
-      ((landmark_strict d).monotone (show i.succ ≤ j from h))).le
+    exact (not_le_of_gt (((landmark_strict d).monotone (show j ≤ i.castSucc from hn)).trans_lt hh.1)) hle
+  · intro hlt
+    exact (hh.2.trans_le ((landmark_strict d).monotone (show i.succ ≤ j from hlt))).le
 
-theorem cut_regular (i : Fin (V + 1)) : d.Regular (d.cutHeight i) := by
-  refine ⟨cut_inside d i, fun v he => ?_⟩
+theorem gap_regular {i : Fin (V + 1)} {h : ℝ} (hh : h ∈ d.gap i) : d.Regular h := by
+  refine ⟨gap_inside d hh, fun v he => ?_⟩
   let j := d.vertexOrder.symm v
-  have eq : d.landmark j.castSucc.succ = d.cutHeight i := by
+  have eq : d.landmark j.castSucc.succ = h := by
     rw [landmark_event, d.vertexOrder.apply_symm_apply v, he]
-  exact (not_lt_of_ge ((landmark_below_cut_iff d i _).mp eq.le))
-    ((cut_below_landmark_iff d i _).mp eq.ge)
+  exact (not_lt_of_ge ((landmark_below_gap_iff d hh _).mp eq.le))
+    ((gap_below_landmark_iff d hh _).mp eq.ge)
 
-theorem cut_isolates (i : Fin V) :
-    d.Isolates (d.vertexOrder i) (d.cutHeight i.castSucc) (d.cutHeight i.succ) := by
-  refine ⟨(cut_inside d i.castSucc).1, ?_, ?_, (cut_inside d i.succ).2, ?_⟩
+theorem gap_isolates (i : Fin V) {lo hi : ℝ} (hl : lo ∈ d.gap i.castSucc) (hr : hi ∈ d.gap i.succ) :
+    d.Isolates (d.vertexOrder i) lo hi := by
+  refine ⟨(gap_inside d hl).1, ?_, ?_, (gap_inside d hr).2, ?_⟩
   · rw [← landmark_event d i]
-    exact cut_below_upper d i.castSucc
+    exact hl.2
   · rw [← landmark_event d i, ← Fin.castSucc_succ]
-    exact cut_above_lower d i.succ
+    exact hr.1
   · intro v h
     let j := d.vertexOrder.symm v
     have he : d.landmark j.castSucc.succ = d.vertexHeight v := by
       rw [landmark_event, d.vertexOrder.apply_symm_apply v]
     rw [← he] at h
-    have a := (cut_below_landmark_iff d i.castSucc _).mp h.1
-    have b := (landmark_below_cut_iff d i.succ _).mp h.2
+    have a := (gap_below_landmark_iff d hl _).mp h.1
+    have b := (landmark_below_gap_iff d hr _).mp h.2
     change i.val < j.val + 1 at a
     change j.val + 1 ≤ i.val + 1 at b
     have eq : j = i := Fin.ext (by omega)
@@ -129,15 +121,13 @@ theorem endpoint_indices (w : Fin W) : d.startIndex w < d.finishIndex w := by
   rw [landmark_start d w, landmark_finish d w]
   exact (d.wire w).increasing
 
-theorem crosses_iff_indices (i : Fin (V + 1)) (w : Fin W) :
-    d.crosses w (d.cutHeight i) ↔ (d.startIndex w).val ≤ i.val ∧ i.val < (d.finishIndex w).val := by
-  change d.lower w < d.cutHeight i ∧ d.cutHeight i < d.upper w ↔ _
+theorem gap_crosses_iff_indices {i : Fin (V + 1)} {h : ℝ} (hh : h ∈ d.gap i) (w : Fin W) :
+    d.crosses w h ↔ (d.startIndex w).val ≤ i.val ∧ i.val < (d.finishIndex w).val := by
+  change d.lower w < h ∧ h < d.upper w ↔ _
   rw [← landmark_start d w, ← landmark_finish d w]
-  refine ⟨fun h => ⟨(landmark_below_cut_iff d i _).mp h.1.le,
-    (cut_below_landmark_iff d i _).mp h.2.le⟩, fun h => ⟨?_, ?_⟩⟩
-  · exact ((landmark_strict d).monotone (show d.startIndex w ≤ i.castSucc from h.1)).trans_lt
-      (cut_above_lower d i)
-  · exact (cut_below_upper d i).trans_le
-      ((landmark_strict d).monotone (show i.succ ≤ d.finishIndex w from h.2))
+  refine ⟨fun hp => ⟨(landmark_below_gap_iff d hh _).mp hp.1.le,
+    (gap_below_landmark_iff d hh _).mp hp.2.le⟩, fun hp => ⟨?_, ?_⟩⟩
+  · exact ((landmark_strict d).monotone (show d.startIndex w ≤ i.castSucc from hp.1)).trans_lt hh.1
+  · exact hh.2.trans_le ((landmark_strict d).monotone (show i.succ ≤ d.finishIndex w from hp.2))
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveSweep

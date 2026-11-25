@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGraph.Thms
 import Silmaril.Semantics.RuntimeWires.ProgressiveTrace.Thms
+import Silmaril.Semantics.RuntimeWires.ProgressiveCutChoice.Thms
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.FunProp
 import Mathlib.Tactic.Linarith
@@ -227,7 +228,7 @@ private theorem cap_singleton (i : Fin 4)
     drawing.sweep.wires i = [0] := by
   have nd : (drawing.sweep.wires i).Nodup :=
     (drawing.sweep.ordered i).ordered.imp
-      (fun h => ne_of_apply_ne (fun w => drawing.x w (drawing.cutHeight i)) (ne_of_lt h))
+      (fun h => ne_of_apply_ne (fun w => drawing.x w (drawing.sweep.cuts.height i)) (ne_of_lt h))
   exact ((List.perm_ext_iff_of_nodup nd (by simp)).mpr (by simpa using members)).eq_singleton
 
 private theorem input_cap : drawing.sweep.wires 0 = [0] := by
@@ -282,5 +283,53 @@ example :
     (Sliced.Sheet.empty (S := signature) [true, true]).traceWires =
       ⟨[], [(true, .boundary 0), (true, .boundary 1)]⟩ :=
   rfl
+
+private theorem landmark_coordinates (i : Fin 5) : drawing.landmark i = (i.val : ℝ) / 4 := by
+  unfold Diagram.landmark
+  rw [vertex_order]
+  fin_cases i
+  · change (0 : ℝ) = _
+    norm_num
+  · change vertexHeight 0 = _
+    norm_num [vertexHeight]
+  · change vertexHeight 1 = _
+    norm_num [vertexHeight]
+  · change vertexHeight 2 = _
+    norm_num [vertexHeight]
+  · change (1 : ℝ) = _
+    norm_num
+
+/-- Shift every midpoint cut toward the preceding landmark. -/
+private noncomputable def alternateCuts : drawing.Cuts where
+  height i := (4 * (i.val : ℝ) + 1) / 16
+  in_gap := by
+    intro i
+    fin_cases i <;> norm_num [Diagram.gap, landmark_coordinates, Set.mem_Ioo]
+
+/-- Every alternate height differs from its midpoint, including the gaps
+next to the two caps. -/
+example (i : Fin 4) : alternateCuts.height i ≠ drawing.cutHeight i := by
+  fin_cases i <;> norm_num [alternateCuts, Diagram.cutHeight, landmark_coordinates]
+
+/-- The cut moves from height 3/8 to 5/16 and still reads the same two slanted wires. -/
+example :
+    alternateCuts.height 1 = (5 / 16 : ℝ) ∧ (drawing.sweepAt alternateCuts).wires 1 = [0, 1] := by
+  refine ⟨by norm_num [alternateCuts], ?_⟩
+  have midpoint : (3 / 8 : ℝ) ∈ drawing.gap 1 := by
+    norm_num [Diagram.gap, landmark_coordinates, Set.mem_Ioo]
+  have relocated := shared_cut.relocate midpoint (alternateCuts.in_gap 1)
+  have read := (drawing.sweepAt alternateCuts).ordered 1
+  rw [Diagram.sweepAt_cuts] at read
+  exact Diagram.ordered_cut_unique read relocated
+
+/-- The whole alternate sheet agrees with the midpoint sheet after the two
+boundary transports. This includes the isolated nullary generator. -/
+example :
+    let alt := drawing.sweepAt alternateCuts
+    let mid := drawing.sweep
+    (congrArg₂ (Sliced.Sheet signature)
+      (congrArg (List.map drawing.label) (alt.wires_eq mid 0))
+      (congrArg (List.map drawing.label) (alt.wires_eq mid (Fin.last 3)))).mp alt.sheet = mid.sheet :=
+  (drawing.sweepAt alternateCuts).sheet_eq drawing.sweep
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveGraph.Regression

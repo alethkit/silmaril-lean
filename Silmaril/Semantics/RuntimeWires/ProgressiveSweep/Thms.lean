@@ -17,17 +17,35 @@ variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} {d : Diagram S V W}
 theorem landmark_strict : StrictMono d.landmark :=
   Proofs.ProgressiveSweep.landmark_strict d
 
+theorem gap_regular {i : Fin (V + 1)} {h : ℝ} (hh : h ∈ d.gap i) : d.Regular h :=
+  Proofs.ProgressiveSweep.gap_regular d hh
+
+theorem gap_isolates (i : Fin V) {lo hi : ℝ} (hl : lo ∈ d.gap i.castSucc) (hr : hi ∈ d.gap i.succ) :
+    d.Isolates (d.vertexOrder i) lo hi :=
+  Proofs.ProgressiveSweep.gap_isolates d i hl hr
+
+theorem gap_crosses_iff_indices {i : Fin (V + 1)} {h : ℝ} (hh : h ∈ d.gap i) (w : Fin W) :
+    d.crosses w h ↔ (d.startIndex w).val ≤ i.val ∧ i.val < (d.finishIndex w).val :=
+  Proofs.ProgressiveSweep.gap_crosses_iff_indices d hh w
+
 theorem cut_regular (i : Fin (V + 1)) : d.Regular (d.cutHeight i) :=
-  Proofs.ProgressiveSweep.cut_regular d i
+  d.gap_regular (Proofs.ProgressiveSweep.midpoint_in_gap d i)
 
 theorem cut_isolates (i : Fin V) :
     d.Isolates (d.vertexOrder i) (d.cutHeight i.castSucc) (d.cutHeight i.succ) :=
-  Proofs.ProgressiveSweep.cut_isolates d i
+  d.gap_isolates i (Proofs.ProgressiveSweep.midpoint_in_gap d _) (Proofs.ProgressiveSweep.midpoint_in_gap d _)
 
-/-- Read the whole graph by choosing its unique wire lists at the
-midpoints of the gaps in its ordered heights. -/
+/-- Read a sheet at the chosen regular heights. -/
+noncomputable def sweepAt (d : Diagram S V W) (cuts : d.Cuts) : d.Sweep :=
+  Proofs.ProgressiveSweep.sweepAt d cuts
+
+@[simp] theorem sweepAt_cuts (d : Diagram S V W) (cuts : d.Cuts) :
+    (d.sweepAt cuts).cuts = cuts :=
+  Proofs.ProgressiveSweep.sweepAt_cuts d cuts
+
+/-- The midpoint sweep is a particular choice of a regular cut in each gap. -/
 noncomputable def sweep (d : Diagram S V W) : d.Sweep :=
-  Proofs.ProgressiveSweep.sweep d
+  d.sweepAt ⟨d.cutHeight, Proofs.ProgressiveSweep.midpoint_in_gap d⟩
 
 namespace Sweep
 
