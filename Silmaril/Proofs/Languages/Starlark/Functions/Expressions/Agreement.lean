@@ -27,6 +27,19 @@ private theorem denote_list (program : Program) (available : List DeclarationId)
   change Outcome.resume (elements.attach.mapM (meaning ∘ Subtype.val) state) allocate = _
   rw [traverse]
 
+private theorem denote_tuple (program : Program) (available : List DeclarationId)
+    (bodyMeaning : ClosureMeaning available) (state : State) (elements : List Lowering.Expr) :
+    denoteExprWith program available bodyMeaning (.tuple elements) state =
+      Outcome.resume (elements.mapM (denoteExprWith program available bodyMeaning) state) allocateTuple := by
+  let meaning := denoteExprWith program available bodyMeaning
+  have traverse : elements.attach.mapM (meaning ∘ Subtype.val) = elements.mapM meaning := by
+    rw [← List.mapM_map]
+    change elements.attach.unattach.mapM meaning = _
+    rw [List.unattach_attach]
+  rw [denoteExprWith]
+  change Outcome.resume (elements.attach.mapM (meaning ∘ Subtype.val) state) allocateTuple = _
+  rw [traverse]
+
 private theorem denote_index (program : Program) (available : List DeclarationId)
     (bodyMeaning : ClosureMeaning available) (state : State) (receiver subscript : Lowering.Expr) :
     denoteExprWith program available bodyMeaning (.index receiver subscript) state =
@@ -92,6 +105,7 @@ theorem denote_eq_of_evaluates {program : Program} {available : List Declaration
       expressions.mapM (denoteExprWith program available bodyMeaning) state = out) with
   | atom safe ran => rw [denoteExprWith]; exact (eval_iff_denote _ _ _).mp ran
   | list ran ih => rw [denote_list, ih]
+  | tuple ran ih => rw [denote_tuple, ih]
   | index receiver subscript receiverIH subscriptIH =>
     simp only [denote_index, receiverIH, Outcome.resume, subscriptIH]
   | indexReceiverError ran ih => simp only [denote_index, ih, Outcome.resume]
@@ -183,6 +197,9 @@ theorem evaluates_denote (program : Program) (available : List DeclarationId)
   | @list elements all ih =>
     rw [denote_list]
     exact .list (operands_denote program available calls bodyMeaning elements ih state)
+  | @tuple elements all ih =>
+    rw [denote_tuple]
+    exact .tuple (operands_denote program available calls bodyMeaning elements ih state)
   | @index receiver subscript _ _ receiverIH subscriptIH =>
     rw [denote_index]
     have ran := receiverIH state
@@ -266,6 +283,11 @@ theorem admits_all_atoms (expression : Lowering.Expr) : AdmittedWith (fun _ => T
   | atom => exact .atom trivial
   | list elements =>
     refine .list ?_
+    intro element member
+    have := List.sizeOf_lt_of_mem member
+    exact admits_all_atoms element
+  | tuple elements =>
+    refine .tuple ?_
     intro element member
     have := List.sizeOf_lt_of_mem member
     exact admits_all_atoms element

@@ -49,6 +49,13 @@ events = []
 		require(g["out"] == nil && g["events"].String() == test.trace, test.expr)
 	}
 	fmt.Println("PASS list and subscript failures retain exactly the earlier effects")
+
+	g, err = initSource(setup + `out = (note(1, 17), note(2, 22),)[note(3, -1)]`)
+	require(err == nil && g["out"].String() == "22" && g["events"].String() == "[1, 2, 3]", fmt.Sprint(err))
+	g, err = initSource(setup + `out = (note(1, 17), len(note(2, 9)), note(3, 22))`)
+	require(err != nil && strings.Contains(err.Error(), "has no len") && g["out"] == nil &&
+		g["events"].String() == "[1, 2]", fmt.Sprint(err))
+	fmt.Println("PASS tuple elements evaluate once in order and stop at the first error")
 }
 
 func main() {

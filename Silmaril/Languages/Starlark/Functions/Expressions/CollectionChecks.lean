@@ -93,4 +93,27 @@ private def observed (state : Lists.State) (trace : List Int) : Bool :=
   | .error (.duplicateExplicitKeyword "x") => true
   | _ => false
 
+#guard
+  match execute (.tuple [note 1 (integer 17), note 2 (integer 22)]) with
+  | .ok (.tuple address) state =>
+    let key : Lists.Key := [.openTuple, .scalar (.int 17), .scalar (.int 22), .closeTuple]
+    observed state [1, 2] && decide (state.heap[address]? = some ⟨.tuple (integers [17, 22]) (some key), false⟩)
+  | _ => false
+
+#guard
+  match execute (.tuple [note 1 (integer 17), length (note 2 (integer 9)), note 3 (integer 22)]) with
+  | .error (.builtinType .len (.scalar (.int 9))) state =>
+    observed state [1, 2] && state.heap.all (fun cell => match cell.contents with
+      | .tuple .. => false
+      | _ => true)
+  | _ => false
+
+#guard
+  let commands : List Modules.Resolve.Command := [
+    .define "pick" { positional := [⟨"value", none⟩] } (.ret (some starlark%[value])),
+    .assign "out" starlark%[(pick(17), pick(22),)[pick(-1)]]]
+  match Modules.Resolve.runModule commands (fun _ => none) {} with
+  | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.scalar (.int 22)))
+  | _ => false
+
 end Silmaril.Languages.Starlark.Functions.Lowering

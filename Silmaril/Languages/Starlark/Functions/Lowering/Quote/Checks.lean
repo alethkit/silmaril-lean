@@ -56,6 +56,10 @@ example : starlark%[len("é",)] =
 
 example : starlark%[type] = name "type" := rfl
 
+example : starlark%[()] = Resolve.SourceExpr.tuple [] := rfl
+example : starlark%[(x,)] = Resolve.SourceExpr.tuple [name "x"] := rfl
+example : starlark%[(x)] = name "x" := rfl
+
 /--
 @ +1:25...26
 error: binary '+' is outside the Starlark expression quotation

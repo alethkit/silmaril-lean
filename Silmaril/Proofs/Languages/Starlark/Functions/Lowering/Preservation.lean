@@ -356,6 +356,22 @@ private theorem simList {program : Program} {available : List DeclarationId}
     intro saved
     simp only [denote, bind, EStateM.bind, saved_read saved free]
 
+private theorem simTuple {program : Program} {available : List DeclarationId}
+    {s : State} {elements : List SourceExpr} {out : Outcome (List Value)}
+    (ih : SimulatesMany program available s elements out) :
+    Simulates program available s (.tuple elements) (Outcome.resume out allocateTuple) := by
+  cases out with
+  | error => exact simCollectionError ih (fun start target => ⟨_, emit_tuple elements target start⟩)
+  | ok values state =>
+    change Simulates program available s (.tuple elements) (allocateTuple values state)
+    refine simCollection (operation := allocateTuple values) ih (actionAllocateTuple values)
+      (fun _ reads => .tuple (operandList reads))
+      (fun start target => emit_tuple elements target start) ?_
+    intro start w free
+    dsimp only
+    intro saved
+    simp only [denote, bind, EStateM.bind, saved_read saved free]
+
 private theorem simIndex {program : Program} {available : List DeclarationId}
     {s u : State} {receiver subscript : SourceExpr} {value index : Value}
     (ih : SimulatesMany program available s [receiver, subscript] (.ok [value, index] u)) :
@@ -572,6 +588,7 @@ private theorem simulates {program : Program} {available : List DeclarationId}
     (motive_2 := fun state expressions result _ => SimulatesMany program available state expressions result) with
   | atom safe eval => exact simAtom safe eval
   | list _ ih => exact simList ih
+  | tuple _ ih => exact simTuple ih
   | @index _ _ receiver subscript _ out _ _ receiverIH subscriptIH =>
     cases out with
     | error error final =>

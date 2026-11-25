@@ -16,6 +16,8 @@ syntax:max ident : starlarkExpr
 syntax:max num : starlarkExpr
 syntax:max str : starlarkExpr
 syntax:max "(" starlarkExpr ")" : starlarkExpr
+syntax:max "(" ")" : starlarkExpr
+syntax:max "(" starlarkExpr "," starlarkExpr,*,? ")" : starlarkExpr
 syntax:max starlarkExpr:max "(" starlarkArg,*,? ")" : starlarkExpr
 syntax:max starlarkExpr:max "[" starlarkExpr "]" : starlarkExpr
 syntax:max "[" starlarkExpr,*,? "]" : starlarkExpr
@@ -106,6 +108,10 @@ private meta def quoteExpr (expression : TSyntax `starlarkExpr) : MacroM (TSynta
       Macro.throwErrorAt literal "expected a double-quoted string without escapes"
     `(Resolve.SourceExpr.string $literal)
   | `(starlarkExpr| ($inner)) => `(starlark%[$inner])
+  | `(starlarkExpr| ()) => `(Resolve.SourceExpr.tuple [])
+  | `(starlarkExpr| ($first, $rest,*)) => do
+    let quoted ← (#[first] ++ rest.getElems).mapM fun element => `(starlark%[$element])
+    `(Resolve.SourceExpr.tuple [$[$quoted],*])
   | `(starlarkExpr| -$value) => do
     let `(starlarkExpr| $literal:num) := value
       | Macro.throwErrorAt expression.raw[0] "unary '-' is admitted only on a decimal integer literal"
