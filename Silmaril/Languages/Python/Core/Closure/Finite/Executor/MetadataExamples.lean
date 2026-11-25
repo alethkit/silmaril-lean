@@ -7,7 +7,7 @@ import Mathlib.Data.List.AList
 namespace Silmaril.Languages.Python.Core.Closure.Finite.Executor
 
 private abbrev callerLayout : Layout := ⟨2, 0, 0⟩
-private abbrev capturedLayout : Layout := ⟨0, 0, 2⟩
+private abbrev capturedLayout : Layout := ⟨0, 1, 2⟩
 private abbrev closedLayout : Layout := ⟨0, 0, 0⟩
 
 private def aliasSlot : Slot callerLayout := .local 1
@@ -26,17 +26,20 @@ private def environment (binding : Option Value) : Snapshot callerLayout :=
 
 private def returnAlias : Closure.Executor.Body callerLayout := .ret (.read aliasSlot)
 
-private def rows (closedMetadata : Option (List String)) : CodeRows :=
+private def rows (closedFreevars : Option (List String))
+    (closedCellvars : Option (List String) := none) : CodeRows :=
   let capturedEntry : Closure.Dispatch.Entry Closure.Executor.Body :=
     ⟨capturedLayout, {
       parameters := ⟨[], by decide⟩
       body := .ret (.read (.capture 0))
-      freevars := some ["alpha", "zeta"] }⟩
+      freevars := some ["alpha", "zeta"]
+      cellvars := some ["own"] }⟩
   let closedEntry : Closure.Dispatch.Entry Closure.Executor.Body :=
     ⟨closedLayout, {
       parameters := ⟨[], by decide⟩
       body := .ret (.literal .none)
-      freevars := closedMetadata }⟩
+      freevars := closedFreevars
+      cellvars := closedCellvars }⟩
   ((∅ : CodeRows).insert capturedRef.key capturedEntry).insert closedRef.key closedEntry
 
 private def profiled : CodeRows := rows (some [])
@@ -93,6 +96,68 @@ example : advance (∅ : CodeRows) start =
 private def stale : Function := Function.ofCaptureList ⟨capturedRef.key, closedLayout⟩ [] rfl
 
 example : advance profiled (checking (some (.function stale)) present) =
+    some (some (.fault (.layoutMismatch closedLayout capturedLayout)),
+      .faulted heap [] (.layoutMismatch closedLayout capturedLayout)) := rfl
+
+private def cellvars (name : String) : Closure.Executor.CellvarsTest callerLayout :=
+  ⟨.slot aliasSlot, name.toList.map Char.val⟩
+
+private def cellvarsStart : State :=
+  .running capturedEnvironment
+    (.assertCellvars (cellvars "alpha") (.assertCellvars (cellvars "zeta") returnAlias)) []
+
+private def afterCellvarsNotIn : State :=
+  .running capturedEnvironment (.assertCellvars (cellvars "zeta") returnAlias) []
+
+-- The free names are absent from the owned-cell tuple. Both steps preserve
+-- the aliased closure, its capture IDs, and the contents of both cells.
+private theorem cellvarsRun :
+    (semantic profiled.project).Execution cellvarsStart.project
+      [none, none, none, some (.complete success)] finished
+      [cellvarsStart.project, afterCellvarsNotIn.project, afterNotIn.project, delivering, finished] :=
+  .stepL (.assertCellvarsTrue rfl) (.stepL (.assertCellvarsTrue rfl)
+    (.stepL (.ret (.read aliasSlot)) (.stepL (.complete _ _) (.refl _))))
+
+example : ∃ final states, (presented profiled).Execution cellvarsStart
+      [none, none, none, some (.complete success)] final states ∧
+    states.map State.project =
+      [cellvarsStart.project, afterCellvarsNotIn.project, afterNotIn.project, delivering, finished] ∧
+    final.project = finished :=
+  execution_readback cellvarsRun
+
+example : runPrefix profiled 2 cellvarsStart = ([], afterNotIn) := rfl
+
+example : runPrefix profiled 4 cellvarsStart = ([.complete success], .finished heap success) := rfl
+
+private def checkCellvars (binding : Option Value) (name : String)
+    (stack : Closure.Executor.Stack := []) : State :=
+  .running (environment binding) (.assertCellvars (cellvars name) returnAlias) stack
+
+private def saved : Call.Saved Closure.Executor.Continuation :=
+  ⟨callerLayout, capturedEnvironment.frame, ⟨.discard, returnAlias⟩⟩
+
+private def ownedName : State := checkCellvars (some (.function captured)) "own" [saved]
+private def rejected : Result := .error .assertionError
+
+example : (semantic profiled.project).Tr ownedName.project none (.delivering heap.project [saved] rejected) :=
+  .assertCellvarsFalse rfl
+
+example : runPrefix profiled 4 ownedName =
+    ([.resume rejected, .complete rejected], .finished heap rejected) := rfl
+
+example : advance (rows (some []) (some [])) (checkCellvars (some (.function closed)) "own" [saved]) =
+    some (none, .running (environment (some (.function closed))) returnAlias [saved]) := rfl
+
+example : advance profiled (checkCellvars (some (.function closed)) "own" [saved]) =
+    some (some (.fault (.unprofiledCellvars closedRef)), .faulted heap [saved] (.unprofiledCellvars closedRef)) := rfl
+
+example : advance profiled (checkCellvars none "own") =
+    some (none, .delivering heap [] (.error (.unboundLocal 1))) := rfl
+
+example : advance profiled (checkCellvars (some (.int 7)) "own") =
+    some (some (.fault .unsupportedCellvarsReceiver), .faulted heap [] .unsupportedCellvarsReceiver) := rfl
+
+example : advance profiled (checkCellvars (some (.function stale)) "own") =
     some (some (.fault (.layoutMismatch closedLayout capturedLayout)),
       .faulted heap [] (.layoutMismatch closedLayout capturedLayout)) := rfl
 
