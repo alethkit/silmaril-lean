@@ -152,6 +152,63 @@ noncomputable def blockComputation (J : V ⥤ C) (X S D : τ)
 
 end ValueModel
 
+namespace Model
+
+universe u₁ u₂ v₁ v₂
+variable {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C] [CartesianMonoidalCategory V] [SymmetricCategory V]
+  [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts C]
+  [DistributiveTensor V] [DistributivePremonoidalCategory C]
+  (J : V ⥤ C) [DistributiveFreydCategory J] (M : TypeModel τ V)
+  {obj : τ → C} (objIso : ∀ A : τ, J.obj (M.obj A) ≅ obj A)
+
+/-- Reindex the denotation at the computation objects chosen for two syntactic types. -/
+abbrev reindexHom {A B : τ} (f : J.obj (M.obj A) ⟶ J.obj (M.obj B)) : obj A ⟶ obj B :=
+  (objIso A).inv ≫ f ≫ (objIso B).hom
+
+/-- Compare both carried endpoints while preserving the order of the exits. -/
+noncomputable abbrev reindexStep {A B X Y : C} (state : A ≅ X) (result : B ≅ Y)
+    (f : A ⟶ B ⨿ A) : X ⟶ Y ⨿ X :=
+  state.inv ≫ f ≫ coprod.map result.hom state.hom
+
+/-- The product comparison induced by the value tensor and the chosen syntax objects. -/
+noncomputable abbrev packedTensorIso (A B : τ) :
+    J.obj (M.obj A) ⊗ J.obj (M.obj B) ≅ obj (product A B) :=
+  Functor.StrongPremonoidal.tensorIso (J := J) (M.obj A) (M.obj B) ≪≫
+    J.mapIso (M.productIso A B).symm ≪≫ objIso (product A B)
+
+/-- Interpret the carrier as the selected computation object for its packed syntactic type. -/
+noncomputable abbrev carrier (X A : τ) :
+    J.obj (ctxObj M [X] ⊗ labelObj M [A]) ≅ obj (Silmaril.product X A) :=
+  J.mapIso (carriedIso M X A) ≪≫ objIso (Silmaril.product X A)
+
+/-- The ordinary carried step of the actual block, in exact singleton coordinates. -/
+noncomputable abbrev carriedStep (X S D : τ)
+    (b : J.obj (M.obj (Silmaril.product X S)) ⟶ J.obj (M.obj (packedExitType [S, D]))) :
+    obj (Silmaril.product X S) ⟶
+      obj (Silmaril.product X D) ⨿ obj (Silmaril.product X S) :=
+  reindexStep (carrier J M objIso X S) (carrier J M objIso X D)
+    (contextualStep J (blockComputation M J X S D b))
+
+/-- Retain the first component while forwarding the whole state pair. -/
+noncomputable abbrev capturePrefix (X S : τ) :
+    obj (product X S) ⟶ obj (product X (product X S)) :=
+  reindexHom J M objIso (J.map (packedPair M _ X _ (fstMap M X S) (𝟙 _)))
+
+/-- Route the packed block result with the retained capture to the exact sum. -/
+noncomputable abbrev carriedRoute (X S D : τ) :
+    obj (product X (packedExitType [S, D])) ⟶
+      obj (product X D) ⨿ obj (product X S) :=
+  let E := ctxObj M [X]
+  let K := packedExitType [S, D]
+  (objIso (product X K)).inv ≫ J.map (M.productIso X K).hom ≫
+    J.map ((λ_ (M.obj X)).inv ▷ M.obj K) ≫
+    retainLeft J (R := E) (J.map (unpackLabel M [S, D] ≫ labelAppendSplit M [S] [D])) ≫
+    routeEnvironment J E (labelObj M [D]) (labelObj M [S]) ≫
+    coprod.map (carrier J M objIso X D).hom (carrier J M objIso X S).hom
+
+end Model
+
 section ComputationModel
 
 universe u₁ v₁
@@ -165,32 +222,25 @@ variable {V : Type u₁} [Category.{v₁} V] [CartesianMonoidalCategory V] [Symm
 /-- Interpret the carrier as a packed singleton object of the Paper category. -/
 noncomputable def paperCarrier (X A : τ) :
     J.obj (ctxObj M [X] ⊗ labelObj M [A]) ≅ ofType (Φ := Φ) (Silmaril.product X A) :=
-  J.mapIso (carriedIso M X A) ≪≫ objIso (Silmaril.product X A)
+  Model.carrier J M objIso X A
 
 /-- The ordinary carried step of the actual block, in exact singleton coordinates. -/
 noncomputable def carriedStep (X S D : τ)
     (b : J.obj (M.obj (Silmaril.product X S)) ⟶ J.obj (M.obj (packedExitType [S, D]))) :
     ofType (Φ := Φ) (Silmaril.product X S) ⟶
       ofType (Silmaril.product X D) ⨿ ofType (Silmaril.product X S) :=
-  reindexStep (paperCarrier J M objIso X S) (paperCarrier J M objIso X D)
-    (contextualStep J (blockComputation M J X S D b))
+  Model.carriedStep J M objIso X S D b
 
 /-- Retain the first component while forwarding the whole state pair. -/
 noncomputable def capturePrefix (X S : τ) :
     ofType (Φ := Φ) (product X S) ⟶ ofType (product X (product X S)) :=
-  reindexHom J M objIso (J.map (packedPair M _ X _ (fstMap M X S) (𝟙 _)))
+  Model.capturePrefix J M objIso X S
 
 /-- Route the packed block result with the retained capture to the exact sum. -/
 noncomputable def carriedRoute (X S D : τ) :
     ofType (Φ := Φ) (product X (packedExitType [S, D])) ⟶
       ofType (product X D) ⨿ ofType (product X S) :=
-  let E := ctxObj M [X]
-  let K := packedExitType [S, D]
-  (objIso (product X K)).inv ≫ J.map (M.productIso X K).hom ≫
-    J.map ((λ_ (M.obj X)).inv ▷ M.obj K) ≫
-    retainLeft J (R := E) (J.map (unpackLabel M [S, D] ≫ labelAppendSplit M [S] [D])) ≫
-    routeEnvironment J E (labelObj M [D]) (labelObj M [S]) ≫
-    coprod.map (paperCarrier J M objIso X D).hom (paperCarrier J M objIso X S).hom
+  Model.carriedRoute J M objIso X S D
 
 end ComputationModel
 

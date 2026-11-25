@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturns.Reification.Iteration.Defs
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.Product.Swap.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.SingleCfg.Assembly.Model.Thms
 
 /-! # Carried iteration in the projection-return quotient -/
 
@@ -65,11 +66,7 @@ private theorem capturePrefix_map {X S D : τ} {b : Region Φ}
     (F).map (capturePrefix J M objIso X S) = Q (duplicateCapture_typed X S) := by
   let P := product X S
   let f := fstMap M X S
-  have split : packedPair M P X P f (𝟙 (M.obj P)) =
-      packedDiagonal M P ≫ packedWhiskerRight M P P X f := by
-    simp only [packedPair, packedDiagonal, packedWhiskerRight, Category.assoc, Iso.inv_hom_id_assoc]
-    rw [← Category.assoc (CartesianMonoidalCategory.lift _ _) (f ▷ M.obj P),
-      CartesianMonoidalCategory.lift_whiskerRight, Category.id_comp]
+  have split := Paper.SingletonReification.SingleCfg.Model.packedPair_id_right M f
   have fst := cmp.fstProducer
   rw [denoteSingleton_firstTerm J M] at fst
   change (F).map (reindexValueHom J M objIso P X f) = _ at fst
