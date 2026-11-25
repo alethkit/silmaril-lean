@@ -13,7 +13,10 @@ private def list (items : List Expr) : Expr := .list (items.foldr Code.cons .emp
 private def assign (name : String) (v : Expr) : Stmt := .assign (localSlot name) v
 private def append (name : String) (v : Expr) : Stmt := .eval (.append (read name) v)
 private def items (state : State) (address : Address) : Option (List Value) :=
-  state.heap[address]?.map Cell.elements
+  state.heap[address]?.bind fun cell =>
+    match cell.contents with
+    | .list elements => some elements
+    | _ => none
 
 private def result {α : Type} : Outcome α → Except Error α
   | .ok a _ => .ok a
