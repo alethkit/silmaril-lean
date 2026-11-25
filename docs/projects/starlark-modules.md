@@ -163,8 +163,13 @@ and absence of compiler scratch slots. `initializes_iff_runModule` composes
 the elaboration result with the resolved operational theorem. It compares
 static rejection, execution outcomes, publication and the exact residual
 state. This correspondence shares the elaborator and starts at a normalized
-AST with legal identifier spellings. An independent source binding relation
-and text parsing remain open. Lambdas, general comprehension expression
+AST with legal identifier spellings. A separate
+[mixed assignment theorem](starlark-functions.md#mixed-name-and-subscript-targets)
+relates accepted targets and a bounded RHS to independent lexical rules in
+an already collected block. The caller supplies the module or function write
+scope. Soundness of block collection, capture installation, whole-module
+elaboration against independent source rules, and text parsing remain open.
+Lambdas, general comprehension expression
 positions, field leaves, store leaves in loop and comprehension targets,
 and other augmented assignment forms remain outside this source fragment.
 The pinned Starlark spec rejects slice assignment targets.
