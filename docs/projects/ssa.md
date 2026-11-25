@@ -159,6 +159,15 @@ These results give structural denotations. Soundness for the λSSA rewrite
 theory and the syntactic initial model of that theory remain open here.
 [Ghalayini and Krishnaswami, *The Denotational Semantics of SSA*, §5](https://arxiv.org/abs/2411.09347)
 
+Subtyped λSSA (`Silmaril.SSA.Isotope.LambdaSSA.Subtyping.Categorical.Thms`).
+`Subtyping.Exact.tm` and `Subtyping.Exact.region` embed exact typing into the
+derivation-valued typing system. A subtyping step in an expression composes
+with the value morphism of the supplied coercion. The structural graph gives
+a unique arrow for each expression derivation. Every region derivation has a
+structural arrow, with uniqueness under `RegionTypingCoherent`. The region
+semantics shares the exact dispatcher and retains coercions in the expressions
+of its entry and blocks.
+
 Thesis ports (`Silmaril.SSA.Thesis.Thms`, `.Categorical.Thms`), for a signature
 `S`: `Syn.isInitial : IsInitial (Syn S)` in `Alg S` and `Syn.denote_eq_iff_eqv`
 (λiter; λcase analogues `Syn.denote_eq_iff_equiv`); `Alg.ofCategorical` and

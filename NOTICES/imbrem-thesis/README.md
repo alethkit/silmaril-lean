@@ -94,3 +94,8 @@ The exact λSSA categorical semantics in
 the same public-domain commit. It uses Silmaril's existing exact SSA typing
 judgments and LetIter type and instruction models. Its source modules are
 `Isotope/LambdaSSA/Semantics/{Model,Term,Label,Collective,Region,Inversion}.lean`.
+
+The subtyped λSSA typing and categorical semantics in
+`Silmaril/SSA/Isotope/LambdaSSA/Subtyping/` and
+`Silmaril/Proofs/SSA/Isotope/LambdaSSA/Subtyping/` adapt
+`Isotope/LambdaSSA/Subtyping/{Typing,Semantics/Categorical/Term,Semantics/Categorical/Region}.lean`.
