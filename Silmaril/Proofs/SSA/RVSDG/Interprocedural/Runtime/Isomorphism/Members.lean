@@ -64,7 +64,7 @@ private theorem origin_eq {t : Ty V S} (left right : Origin args past t)
       subst j
       exact congrArg (Origin.output i) (port_eq p q (Address.output.inj same).2)
 
-private theorem wires_eq (left right : Wires args past ins)
+theorem wires_eq (left right : Wires args past ins)
     (same : left.addresses.map (Address.rename id) = right.addresses) : left = right := by
   induction left with
   | nil => cases right; rfl
