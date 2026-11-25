@@ -83,14 +83,14 @@ theorem runs_denoteSuite {depth : Nat} (code : Suite depth) (state : State) :
       cases flag
       · exact .branch tested h (ihNo next)
       · exact .branch tested h (ihYes next)
-  | forList target iterable body ihBody =>
+  | forIn target iterable body ihBody =>
     rw [denoteSuite]
     have evaluated : Eval state iterable (denote iterable state) := (eval_iff_denote _ _ _).mpr rfl
-    cases h : Outcome.resume (denote iterable state) listSource with
+    cases h : Outcome.resume (denote iterable state) iterationSource with
     | error error next => exact .forError evaluated h
     | ok source next =>
       obtain ⟨address, elements⟩ := source
-      exact .forList evaluated h (items_run body ihBody target elements (pushIterator next address))
+      exact .forIn evaluated h (items_run body ihBody target elements (pushIterator next address))
   | breakLoop => exact .breakLoop
   | continueLoop => exact .continueLoop
   | ret value => exact .ret ((eval_iff_denote _ _ _).mpr rfl)

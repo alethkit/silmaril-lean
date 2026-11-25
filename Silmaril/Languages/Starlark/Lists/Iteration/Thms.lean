@@ -19,15 +19,12 @@ theorem iterators_denoteSuite {depth : Nat} (code : Suite depth) (state : State)
     (finishState (denoteSuite code state)).iterators = state.iterators :=
   Proofs.Languages.Starlark.Lists.Iteration.iterators_denoteSuite code state
 
-/-- An edit through any alias of an actively iterated mutable list fails after validation. -/
-theorem updateCell_iterating (state : State) (address : Address)
-    (edit : List Value → Except Error (List Value)) {cell : Cell}
+/-- The mutable-cell guard rejects edits through any alias of an actively iterated cell. -/
+theorem editCell_iterating (state : State) (address : Address)
+    (edit : Contents → Except Error Contents) {cell : Cell}
     (found : state.heap[address]? = some cell) (mutable : cell.frozen = false)
     (active : address ∈ state.iterators) :
-    updateCell address edit state =
-      match edit cell.elements with
-      | .ok _ => .error (.activeIteration address) state
-      | .error error => .error error state :=
-  Proofs.Languages.Starlark.Lists.Iteration.updateCell_iterating state address edit found mutable active
+    editCell address edit state = .error (.activeIteration address) state :=
+  Proofs.Languages.Starlark.Lists.Iteration.editCell_iterating state address edit found mutable active
 
 end Silmaril.Languages.Starlark.Lists.Iteration

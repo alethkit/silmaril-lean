@@ -37,16 +37,16 @@ inductive Runs : State → Work → Outcome Flow → Prop where
       {value : Outcome Value} {error : Error} :
       Eval s test value → Outcome.resume value truth = .error error t →
       Runs s (.suite (.branch test yes no)) (.error error t)
-  | forList {depth : Nat} {s t : State} {target : Binding} {iterable : Expr}
+  | forIn {depth : Nat} {s t : State} {target : Binding} {iterable : Expr}
       {body : Suite (depth + 1)} {value : Outcome Value} {address : Address}
       {elements : List Value} {out : Outcome Flow} :
-      Eval s iterable value → Outcome.resume value listSource = .ok (address, elements) t →
+      Eval s iterable value → Outcome.resume value iterationSource = .ok (address, elements) t →
       Runs (pushIterator t address) (.items target body elements) out →
-      Runs s (.suite (.forList target iterable body)) (restoreIterators t.iterators out)
+      Runs s (.suite (.forIn target iterable body)) (restoreIterators t.iterators out)
   | forError {depth : Nat} {s t : State} {target : Binding} {iterable : Expr}
       {body : Suite (depth + 1)} {value : Outcome Value} {error : Error} :
-      Eval s iterable value → Outcome.resume value listSource = .error error t →
-      Runs s (.suite (.forList target iterable body)) (.error error t)
+      Eval s iterable value → Outcome.resume value iterationSource = .error error t →
+      Runs s (.suite (.forIn target iterable body)) (.error error t)
   | breakLoop {depth : Nat} {s : State} :
       Runs s (.suite (.breakLoop (depth := depth))) (.ok .breakLoop s)
   | continueLoop {depth : Nat} {s : State} :

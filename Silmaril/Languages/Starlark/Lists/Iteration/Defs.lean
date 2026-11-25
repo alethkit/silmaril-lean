@@ -11,11 +11,16 @@ inductive Suite : Nat → Type where
   | atomic {depth : Nat} (stmt : Stmt) : Suite depth
   | seq {depth : Nat} (first rest : Suite depth) : Suite depth
   | branch {depth : Nat} (test : Expr) (yes no : Suite depth) : Suite depth
-  | forList {depth : Nat} (target : Binding) (iterable : Expr)
+  | forIn {depth : Nat} (target : Binding) (iterable : Expr)
       (body : Suite (depth + 1)) : Suite depth
   | breakLoop {depth : Nat} : Suite (depth + 1)
   | continueLoop {depth : Nat} : Suite (depth + 1)
   | ret {depth : Nat} (value : Expr) : Suite depth
+
+/-- The original list-only constructor spelling remains available to clients. -/
+abbrev Suite.forList {depth : Nat} (target : Binding) (iterable : Expr)
+    (body : Suite (depth + 1)) : Suite depth :=
+  .forIn target iterable body
 
 inductive Flow where
   | next | breakLoop | continueLoop | returned (value : Value)
@@ -33,17 +38,17 @@ def pushIterator (state : State) (address : Address) : State :=
 
 def truth : Value → Meaning Bool
   | .scalar value => pure value.truth
-  | .list address => do
-    let cell ← getCell address
-    return !cell.elements.isEmpty
+  | .list address => (fun elements => !elements.isEmpty) <$> listElements address
+  | .tuple address => (fun elements => !elements.isEmpty) <$> tupleElements address
+  | .dict address => (fun entries => !entries.isEmpty) <$> dictEntries address
 
-def listSource : Value → Meaning (Address × List Value)
+def iterationSource : Value → Meaning (Address × List Value)
   | .scalar _ => throw .notIterable
-  | .list address => do
-    let cell ← getCell address
-    return (address, cell.elements)
+  | .list address => (fun elements => (address, elements)) <$> listElements address
+  | .tuple address => (fun elements => (address, elements)) <$> tupleElements address
+  | .dict address => (fun entries => (address, entries.map Entry.key)) <$> dictEntries address
 
-/-- Interpret successive elements of the list captured on iterator acquisition.
+/-- Interpret the finite sequence captured on iterator acquisition.
 The body's meaning is available before the recursion over elements begins. -/
 def denoteItems (target : Binding) (body : Meaning Flow) : List Value → Meaning Flow
   | [], state => .ok .next state
@@ -63,8 +68,8 @@ def denoteSuite {depth : Nat} : Suite depth → Meaning Flow
   | .branch test yes no, state =>
     Outcome.resume (Outcome.resume (denote test state) truth) fun test =>
       if test then denoteSuite yes else denoteSuite no
-  | .forList target iterable body, state =>
-    Outcome.resume (Outcome.resume (denote iterable state) listSource) fun (address, elements) next =>
+  | .forIn target iterable body, state =>
+    Outcome.resume (Outcome.resume (denote iterable state) iterationSource) fun (address, elements) next =>
       restoreIterators next.iterators
         (denoteItems target (denoteSuite body) elements (pushIterator next address))
   | .breakLoop, state => .ok .breakLoop state
