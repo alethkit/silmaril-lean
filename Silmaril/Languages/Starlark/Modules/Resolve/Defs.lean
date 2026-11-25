@@ -9,6 +9,7 @@ namespace Silmaril.Languages.Starlark.Modules.Resolve
 
 open Functions
 open Functions.Lowering.Resolve (Context resolveTracked)
+open Lists.Iteration (LoopTarget)
 
 structure SourceParameter where
   name : String
@@ -67,19 +68,22 @@ def fileNames (commands : List Command) : List String :=
     | .load _ imports => imports.map Modules.Import.localName
     | _ => []
 
-/-- The flat tuple and list spellings share the same resolved target.
+/-- Tuple and list spellings share the same resolved sequence target.
 The normalized input supplies valid identifier spellings. -/
-private def patternNames : Lowering.Resolve.SourceExpr → Except Error (List String)
-  | .list elements | .tuple elements => elements.mapM fun
-    | .scalar (.read name) => pure name
-    | _ => throw .unsupportedLoopTarget
+private def resolveTarget : Lowering.Resolve.SourceExpr → Except Error (LoopTarget × List String)
+  | .scalar (.read name) => pure (.name (fileSlot name), [name])
+  | .list elements | .tuple elements => do
+    let children ← elements.attach.mapM fun ⟨expr, member⟩ => do
+      have := List.sizeOf_lt_of_mem member
+      resolveTarget expr
+    return (.sequence (children.map Prod.fst), children.flatMap Prod.snd)
   | _ => throw .unsupportedLoopTarget
 
 private def Statement.localNames : Statement → Except Error (List String)
   | .assign name _ | .define name .. => pure [name]
   | .seq first rest | .branch _ first rest => return (← first.localNames) ++ (← rest.localNames)
   | .forIn target _ body => return target :: (← body.localNames)
-  | .forInTarget target _ body => return (← patternNames target) ++ (← body.localNames)
+  | .forInTarget target _ body => return (← resolveTarget target).2 ++ (← body.localNames)
   | .pass | .setIndex .. | .addIndex .. | .eval _ | .ret _ | .breakLoop | .continueLoop => pure []
 
 private abbrev Build := StateT Program (Except Error)
@@ -173,10 +177,10 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
     let body ← compileBody context body
     return ⟨.forInExpr (fileSlot target) iterable body.code, reads ++ body.reads⟩
   | .forInTarget target iterable body => do
-    let names ← monadLift (patternNames target)
+    let (target, _) ← monadLift (resolveTarget target)
     let (iterable, reads) ← readExpr context iterable
     let body ← compileBody context body
-    return ⟨.forInExpr (.unpack (names.map fileSlot)) iterable body.code, reads ++ body.reads⟩
+    return ⟨.forInExpr target iterable body.code, reads ++ body.reads⟩
   | .breakLoop => pure ⟨.breakLoop, []⟩
   | .continueLoop => pure ⟨.continueLoop, []⟩
   | .define name signature body => do

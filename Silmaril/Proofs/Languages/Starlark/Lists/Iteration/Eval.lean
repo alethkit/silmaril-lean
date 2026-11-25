@@ -48,52 +48,35 @@ theorem cursorCollects_length {cursor : Cursor} {values : List Value}
     | range current stride count => cases count <;> simp [Cursor.advance, Cursor.remaining] at empty ⊢
   | next step _ ih => exact (congrArg (· + 1) ih).trans (Cursor.advance_remaining step)
 
-private theorem writes_eq {s final : State} {assignments : List (Binding × Value)}
-    (ran : WritesBindings s assignments final) : writeBindings s assignments = final := by
-  induction ran with
-  | done => rfl
-  | next _ ih => exact ih
-
-private theorem writes (s : State) (assignments : List (Binding × Value)) :
-    WritesBindings s assignments (writeBindings s assignments) := by
-  induction assignments generalizing s with
-  | nil => exact .done s
-  | cons assignment rest ih =>
-    obtain ⟨binding, value⟩ := assignment
-    exact .next (ih (s.write binding value))
-
-theorem bindTarget_eq_of_binds {s : State} {value : Value} {target : LoopTarget} {out : Outcome Unit}
-    (ran : BindsTarget s value target out) : bindTarget target value s = out := by
+theorem unpackValue_eq_of_unpacks {s : State} {value : Value} {arity : Nat}
+    {out : Outcome (List Value)} (ran : UnpacksValue s value arity out) :
+    unpackValue arity value s = out := by
   cases ran with
-  | name => rfl
-  | unpack read arity yields assigned =>
-    simp [bindTarget, read, arity, (cursorCollects_iff_collect _ _).mp yields, writes_eq assigned]
-  | arity read mismatch => simp [bindTarget, read, mismatch]
-  | nonIterable _ read => simp [bindTarget, read]
-  | readError _ read other => simp [bindTarget, read, other]
+  | items read size yields =>
+    simp [unpackValue, read, size, (cursorCollects_iff_collect _ _).mp yields]
+  | arity read mismatch => simp [unpackValue, read, mismatch]
+  | nonIterable read => simp [unpackValue, read]
+  | readError read other => simp [unpackValue, read, other]
 
-theorem bindsTarget_bindTarget (s : State) (value : Value) (target : LoopTarget) :
-    BindsTarget s value target (bindTarget target value s) := by
-  cases target with
-  | name binding => exact .name binding
-  | unpack bindings =>
-    simp only [bindTarget]
-    cases read : acquireIterator value s with
-    | error error next =>
-      by_cases nonIterable : error = .notIterable
-      · subst error
-        exact .nonIterable bindings read
-      · simpa only [nonIterable, ite_false] using BindsTarget.readError bindings read nonIterable
-    | ok pair next =>
-      obtain ⟨guard, cursor⟩ := pair
-      by_cases arity : cursor.remaining = bindings.length
-      · simp only [arity, ite_true]
-        exact .unpack read arity ((cursorCollects_iff_collect _ _).mpr rfl) (writes next _)
-      · simp only [arity]
-        exact .arity read arity
+theorem unpacksValue_unpackValue (s : State) (value : Value) (arity : Nat) :
+    UnpacksValue s value arity (unpackValue arity value s) := by
+  simp only [unpackValue]
+  cases read : acquireIterator value s with
+  | error error next =>
+    by_cases nonIterable : error = .notIterable
+    · subst error
+      exact .nonIterable read
+    · simpa only [nonIterable, ite_false] using UnpacksValue.readError (arity := arity) read nonIterable
+  | ok pair next =>
+    obtain ⟨guard, cursor⟩ := pair
+    by_cases size : cursor.remaining = arity
+    · simp only [size, ite_true]
+      exact .items read size ((cursorCollects_iff_collect _ _).mpr rfl)
+    · simp only [size]
+      exact .arity read size
 
-theorem bindsTarget_failure_state {s final : State} {value : Value} {target : LoopTarget}
-    {error : Error} (ran : BindsTarget s value target (.error error final)) : final = s := by
+theorem unpackValue_failure_state {s final : State} {value : Value} {arity : Nat} {error : Error}
+    (ran : UnpacksValue s value arity (.error error final)) : final = s := by
   have kept : finishState (acquireIterator value s) = s := by
     cases value with
     | list | tuple | dict =>
@@ -101,9 +84,79 @@ theorem bindsTarget_failure_state {s final : State} {value : Value} {target : Lo
       exact projectCell_finishState _ _ s
     | _ => rfl
   cases ran with
-  | arity read _ | nonIterable _ read | readError _ read _ =>
+  | arity read _ | nonIterable read | readError read _ =>
     rw [read] at kept
     exact kept
+
+theorem bindTarget_eq_of_binds {s : State} {value : Value} {target : LoopTarget} {out : Outcome Unit}
+    (ran : BindsTarget s value target out) : bindTarget target value s = out := by
+  induction ran using BindsTarget.rec
+    (motive_2 := fun state targets values result _ => bindTargets targets values state = result) with
+  | name => rw [bindTarget]
+  | sequence unpacked _ ih =>
+    rw [bindTarget, unpackValue_eq_of_unpacks unpacked]
+    exact ih
+  | unpackError unpacked => rw [bindTarget, unpackValue_eq_of_unpacks unpacked]; rfl
+  | noTargets => rw [bindTargets]
+  | noValues _ targets => cases targets <;> rw [bindTargets]
+  | next _ _ head tail => rw [bindTargets, head]; exact tail
+  | failed _ head => rw [bindTargets, head]; rfl
+
+mutual
+theorem bindsTarget_bindTarget (s : State) (value : Value) (target : LoopTarget) :
+    BindsTarget s value target (bindTarget target value s) := by
+  cases target with
+  | name binding =>
+    rw [bindTarget]
+    exact .name s value binding
+  | sequence children =>
+    rw [bindTarget]
+    have ran := unpacksValue_unpackValue s value children.length
+    cases result : unpackValue children.length value s with
+    | error error next => exact .unpackError (result ▸ ran)
+    | ok values next =>
+      exact .sequence (result ▸ ran) (bindsTargets_bindTargets next children values)
+termination_by sizeOf target
+decreasing_by simp_wf <;> omega
+
+theorem bindsTargets_bindTargets (s : State) (targets : List LoopTarget) (values : List Value) :
+    BindsTargets s targets values (bindTargets targets values s) := by
+  cases targets with
+  | nil =>
+    rw [bindTargets]
+    exact .noTargets s values
+  | cons target rest =>
+    cases values with
+    | nil =>
+      rw [bindTargets]
+      exact .noValues s (target :: rest)
+    | cons value values =>
+      rw [bindTargets]
+      have head := bindsTarget_bindTarget s value target
+      cases result : bindTarget target value s with
+      | error error next => exact .failed (result ▸ head)
+      | ok assigned next =>
+        cases assigned
+        exact .next (result ▸ head) (bindsTargets_bindTargets next rest values)
+termination_by sizeOf targets
+decreasing_by all_goals (simp_wf <;> omega)
+end
+
+private theorem flat_targets_succeed {s final : State} {bindings : List Binding} {values : List Value}
+    {error : Error} (ran : BindsTargets s (bindings.map LoopTarget.name) values (.error error final)) : False := by
+  induction bindings generalizing s values with
+  | nil => cases ran
+  | cons binding rest ih =>
+    simp only [List.map_cons] at ran
+    cases ran with
+    | next _ tail => exact ih tail
+    | failed head => cases head
+
+theorem bindsTarget_failure_state {s final : State} {value : Value} {bindings : List Binding}
+    {error : Error} (ran : BindsTarget s value (.unpack bindings) (.error error final)) : final = s := by
+  cases ran with
+  | sequence _ child => exact False.elim (flat_targets_succeed child)
+  | unpackError failed => exact unpackValue_failure_state failed
 
 theorem cursor_eq_of_runs {body : State → Outcome Flow → Prop} {meaning : Meaning Flow}
     {target : LoopTarget} {cursor : Cursor} {state : State} {out : Outcome Flow}

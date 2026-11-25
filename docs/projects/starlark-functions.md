@@ -158,36 +158,38 @@ code. `exec_iff_denoteBody` covers the exact result or error, frame, heap
 and iterator stack. The available declaration set bounds live calls.
 [Native loop agreement and cleanup](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Native loop fixtures](../../Silmaril/Languages/Starlark/Functions/NativeLoopChecks.lean) · [Collection loops](starlark-lists.md#iteration-and-control)
 
-### Flat loop targets
+### Loop target patterns
 
-A resolved `LoopTarget` is a name or a flat tuple/list pattern of names.
-Existing single-name calls can pass a `Binding`. For a pattern, each yielded
-item supplies its own cursor. The binder checks the exact count before
-writing any slot, then pairs names and values and writes left to right.
-A repeated name takes its last assigned value. Empty patterns require
-empty items. An incompatible item or arity mismatch leaves the frame and
-heap at that iteration's binder entry. The loop skips its body and later
-items, preserves earlier effects and restores the operand's iterator stack.
+A resolved `LoopTarget` is a name or a nested tuple/list pattern with name
+leaves. Single-name calls can pass a `Binding`, and `LoopTarget.unpack`
+builds the flat form from a list of bindings. At each sequence node the binder
+checks the corresponding item's arity, then assigns its children in order.
+Repeated names take their last assigned value. An empty pattern requires an
+empty item. For `(a, [b, c], d)`, an outer arity mismatch writes nothing.
+If the outer count matches and `[b, c]` fails, the new `a` survives, while
+`b`, `c` and `d` keep their previous bindings. The loop skips its body and
+later items and restores the operand's iterator stack.
 [Pinned assignments][assignments] · [Pinned for statements][for-stmts] · [Go loop compilation][go-for-compile] · [Go target writes][go-unpack-compile] · [Go unpack checks][go-unpack]
 
 The pinned prose describes sequence inputs, including ranges. The
 Go-compatible profile also admits dictionaries, which yield their
-insertion-ordered keys. Go calls `Iterate` through `UNPACK`, checks for an
-extra item and closes the temporary iterator before assigning names. The
-Lean binder gets the same elements from the represented cursor. It checks
+insertion-ordered keys. Go emits `UNPACK` at each sequence node. It probes
+for an extra item and closes the temporary iterator before assigning that
+node's children. The Lean binder gets the same elements from the cursor. It checks
 the count before collection, which makes a huge mismatched range reject
 without enumerating it. The supported item cursors have no callback or
 mutation during unpacking.
 [Go iterator cleanup][go-loop-cleanup] · [Pinned Go fixtures](../../examples/starlark/call-loops/check.go)
 
 `bindsTarget_iff_bindTarget` proves exact agreement with the independent
-unpacking and write-order rules. `bindsTarget_failure_state` proves no
-target writes on failure. These statements compose with `exec_iff_denoteBody`
-and `runs_iff_denoteSuite` for the complete loop. `lowerForIn_preserves`
-transports the binder's heap, slots and visible writes through scratch
-projection before it uses the existing body premise. Nested patterns,
-subscript and field leaves, standalone destructuring assignments and
-comprehension targets remain open.
+unpacking and write-order rules, including the state at a nested error.
+`unpackValue_failure_state` preserves the incoming state of a failed node
+check, and `bindsTarget_failure_state` gives the full failure guarantee
+for flat targets. The binder composes with `exec_iff_denoteBody` and
+`runs_iff_denoteSuite`. `lowerForIn_preserves` transports the binder's heap,
+slots and visible writes through scratch projection before it uses the
+existing body premise. Subscript and field leaves, standalone
+destructuring assignments and comprehension targets remain open.
 [Binder and cursor theorems](../../Silmaril/Languages/Starlark/Lists/Iteration/Thms.lean) · [Lowering theorem](../../Silmaril/Languages/Starlark/Functions/Lowering/Thms.lean) · [Source loop validation](starlark-modules.md#resolving-module-declarations)
 
 ## Direct denotation of resolved expressions

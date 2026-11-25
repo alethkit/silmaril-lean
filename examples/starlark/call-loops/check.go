@@ -156,6 +156,7 @@ visit()`)
 	fmt.Println("PASS a range body failure keeps preceding effects and releases the enclosing list guard")
 
 	checkFlatTargets()
+	checkNestedTargets()
 }
 
 func checkFlatTargets() {
@@ -219,4 +220,49 @@ def run():
 run()`)
 	require(err != nil && strings.Contains(err.Error(), "local variable y referenced before assignment"), fmt.Sprint(err))
 	fmt.Println("PASS a later name in the pattern shadows the outer name in the iterable operand")
+}
+
+func checkNestedTargets() {
+	g, err := initSource(`def run():
+    for [x, (x, [x, y])] in [[1, (2, range(3, 5))]]:
+        return (x, y)
+out = run()`)
+	require(err == nil && g["out"].String() == "(3, 4)", fmt.Sprint(g, err))
+	fmt.Println("PASS nested tuple/list targets bind repeated names left to right")
+
+	const setup = `def run(rows):
+    a = 90
+    b = 91
+    c = 92
+    d = 93
+    def read():
+        return (a, b, c, d)
+    observers.append(read)
+    for (a, [b, c], d) in rows:
+        events.append(read())
+events = []
+observers = []
+`
+	for _, tc := range []struct{ item, want, bindings string }{
+		{"[5, [6], 7]", "too few values to unpack (got 1, want 2)", "(5, 2, 3, 4)"},
+		{"[5, 6, 7]", "got int in sequence assignment", "(5, 2, 3, 4)"},
+		{"[5, range(1000000000), 7]", "too many values to unpack (got 1000000000, want 2)", "(5, 2, 3, 4)"},
+		{"[5, [6, 7]]", "too few values to unpack (got 2, want 3)", "(1, 2, 3, 4)"},
+	} {
+		g, err := initSource(setup + "rows = [[1, [2, 3], 4], " + tc.item + ", [8, [9, 10], 11]]\nrun(rows)")
+		require(err != nil && strings.Contains(err.Error(), tc.want), fmt.Sprint(err))
+		read := g["observers"].(*starlark.List).Index(0)
+		last, err := starlark.Call(&starlark.Thread{Name: "observe nested writes"}, read, nil, nil)
+		rows := g["rows"].(*starlark.List)
+		require(err == nil && last.String() == tc.bindings && g["events"].String() == "[(1, 2, 3, 4)]" &&
+			rows.Append(starlark.None) == nil, fmt.Sprint(last, g, err))
+	}
+	fmt.Println("PASS a nested mismatch keeps earlier sibling writes, and an outer mismatch writes nothing")
+
+	_, err = initSource(`def run():
+    for [x, (y, 1)] in []:
+        pass
+run()`)
+	require(err != nil && strings.Contains(err.Error(), "can't assign to literal"), fmt.Sprint(err))
+	fmt.Println("PASS an invalid leaf in a nested pattern is rejected before iteration")
 }

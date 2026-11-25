@@ -79,11 +79,11 @@ all target names before resolving the iterable and body in that block. Thus
 last assignment to the target is visible after the loop, and an empty
 loop performs no target write. Loops emit `Body.forInExpr` and use
 the existing validation of `break` and `continue` in each function, including
-skipped code and nested definitions. A flat list or tuple of identifiers
-enters through `Statement.forInTarget`, for example
-`.forInTarget starlark%[(x, y)] starlark%[rows] .pass`. The resolver rejects
-nested patterns and non-name leaves even in skipped code. The identifier
-form still enters through `Statement.forIn`. The module command type admits
+skipped code and nested definitions. Tuple and list patterns with lexical
+name leaves enter through `Statement.forInTarget`, for example
+`.forInTarget starlark%[(x, [y, z])] starlark%[rows] .pass`. The resolver
+rejects non-name leaves even in skipped code. A single identifier can use
+`Statement.forIn`. The module command type admits
 only top-level forms permitted in this profile.
 [For statements in the pinned spec][loops] · [Resolved loops](starlark-functions.md#calls-inside-loops) · [Source loop fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/LoopChecks.lean)
 
