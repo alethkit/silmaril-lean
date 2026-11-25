@@ -1,11 +1,14 @@
 # Temporal Logic of Actions
 
 Import [`Silmaril.Logic.Temporal.TLA.Thms`](../../Silmaril/Logic/Temporal/TLA/Thms.lean)
-for the standalone semantics and proof rules. The core uses Lean's state types
-and propositions and has no imports from other Silmaril developments.
+for Simple TLA and
+[`Silmaril.Logic.Temporal.TLA.General.Thms`](../../Silmaril/Logic/Temporal/TLA/General/Thms.lean)
+for scoped General TLA. The developments use Lean's state types and propositions
+and have no dependencies on the institution machinery.
 
 The reference is Leslie Lamport's *The Temporal Logic of Actions*,
-§§5.3–5.6 and Fig. 4 for Simple TLA, and §8.2 and Fig. 9 for flexible hiding.
+§§5.3–5.6 and Fig. 4 for Simple TLA, §§2.6–2.7 for rigid variables and enabling,
+§8.2, equation (49) and Fig. 9 for General TLA, and §8.3.2 for refinement mappings.
 *Specifying Systems*, §§8.1, 8.3, 8.8 and 16.2.4, provides the specification and
 fairness conventions. [Paper](https://lamport.azurewebsites.net/pubs/lamport-actions.pdf)
 · [Book](https://lamport.azurewebsites.net/tla/book-21-07-04.pdf)
@@ -90,23 +93,130 @@ with the paper's equation (49). At a full input `σ`, choose a full behavior
 `ρ` in the stuttering class of `σ`, then existentially replace its hidden
 component pointwise to obtain a behavior satisfying `p`.
 
-## Checked examples and scope
+## Scoped General TLA
 
-[The example module](../../Silmaril/Logic/Temporal/TLA/Examples.lean)
-proves progress for a weakly fair latch and rejects the run that leaves it off
-forever. It separates WF from SF on an intermittently enabled action, proves
-a parity invariant, and shows that hiding accommodates an internal
-initialization step where pointwise existential projection fails.
+A `General.Scope` gives each sort two types of names, in `rigid` and
+`flex`. Fix a family of carriers `Value : Sorts → Type u`. A valuation
+assigns a value of the designated sort to every name. A `General.Model`
+holds one rigid valuation and a behavior of flexible valuations. The same
+rigid valuation is available at every instant and on both sides of an
+action. `Expr.rigid` and `Expr.flex` read typed names. Use
+`TLA.Action.current` and `TLA.Action.prime` on an expression with the
+rigid environment fixed to read the two ends of an action.
+
+A binder adds a distinguished fresh name of the selected sort in its
+own context. `Context.old` embeds an outer name and `Context.fresh`
+selects the new name. Renaming under a binder translates outer names
+and fixes the fresh name. Rigid existential quantification chooses a
+single value from its sort. It is available in actions through
+`Action.existsRigid` and in both state predicates and temporal formulas.
+
+The temporal syntax has state predicates, bracket modalities, conjunction,
+negation, always, and both existential binders. Always ranges over suffixes
+and can enclose quantified formulas. `Formula.Holds` evaluates on the
+suffix at a given instant. Both universal binders are defined by duality.
+`Formula.sat_forallFlex` quantifies over the same class of extended
+behaviors as the existential binder and `Formula.sat_forallRigid`
+quantifies over values.
+
+`Formula.existsFlex` uses the product-state `hide` above. The product
+splits an extended valuation into its outer valuation and its bound
+variable. `Formula.sat_existsFlex` gives the equivalent direct clause
+over extended valuations: the witness's old variables follow the
+input behavior up to stuttering. Its bound variable may change on
+each step. `Formula.sat_stutterInvariant` covers every scoped formula,
+so the operands of flexible hiding meet the hypothesis in
+`hide_iff_lamport`. `Formula.holds_retime` gives the corresponding
+law at related instants.
+
+## Scope maps and refinement
+
+A `Scope.Rename Γ Δ` maps each kind of name to a name of the same sort.
+`Formula.rename` translates forward and `Model.reduct` restricts the
+rigid environment and the states of a behavior backward. Both operations
+obey identity and composition, with equality of the translated syntax.
+
+`Formula.satisfies_rename` states that satisfaction of a translated
+formula in the larger model is equivalent to satisfaction of the original
+in its reduct. Its hypothesis is injectivity at each flexible sort.
+Rigid names may be identified. The hypothesis is used for the
+explicit `StatePred.enabled` constructor, including under binders.
+In the reverse direction of `Action.enabled_rename`, extend a successor
+from the smaller scope by assigning its values on the image and keeping
+the current state's values at every other name. This construction
+requires only the actual current state as a base, even when some sorts
+have empty carriers. Identifying flexible names can equate coordinates
+that an enabled action requires to differ.
+
+`hide_map_iff` commutes hiding with pullback along any visible-state
+function for a stutter-invariant operand. The
+easy direction maps the entire witness. For the reverse direction,
+the projected ambient behavior and the visible part of the witness
+admit a common expansion. Repeat the *whole ambient state* with the
+ambient clock and take the hidden value with the witness clock. The
+result projects onto a retiming of the ambient behavior, and its small
+image is a retiming of the original full witness. Stutter invariance
+transfers the operand to that image. This construction preserves extra
+ambient state through inserted repeats and works even when projection
+collapses steps. Injectivity is used only when the formula induction
+reaches `ENABLED`.
+
+`Refines` expresses semantic refinement via a total state function.
+It sends each satisfying implementation behavior to a satisfying
+specification behavior. `Refines.comp` composes such maps. A state
+function can compute specification variables as in §8.3.2. Substitution
+through explicit `ENABLED` would require a separate successor-lifting
+condition on the state function.
+
+## Institution handoff
+
+For fixed sorts and carriers, take signatures to be `Scope Sorts` and
+morphisms to be `Scope.Rename` with pointwise injectivity evidence for
+the flexible component. `Scope.Rename.id_comp`, `comp_id` and
+`comp_assoc` give the map equalities, and `Context.Rename.injective_id`
+and `Context.Rename.Injective.comp` give closure of the evidence.
+
+The intended discrete-model presentation fills the fields of
+[`Institution.Plain`](../../Silmaril/Logic/Inst/Builders/Core/Defs.lean)
+as follows.
+
+| Fields | Standalone interface |
+| --- | --- |
+| `Sen`, `map` | `General.Formula Value Γ`, `Formula.rename` |
+| `map_id`, `map_comp` | `Formula.rename_id`, `Formula.rename_comp` (with the builder's orientation) |
+| `Mod`, `reduct` | `General.Model Value Γ`, `Model.reduct` |
+| `reduct_id`, `reduct_comp` | `Model.reduct_id`, `Model.reduct_comp` |
+| `Sat`, `sat_map` | `Formula.Satisfies`, `Formula.satisfies_rename` |
+
+The next task needs to package the category of signatures, lift the
+standalone map equalities to the morphisms carrying injectivity evidence,
+fill this presentation, and export its `Plain.functor : Sign ⥤ Room`
+and satisfaction theorem. The model type here uses actual behaviors.
+A presentation with stutter classes would additionally need quotient
+descent for reducts and satisfaction, using `StutterEquiv.map` and
+`Formula.sat_stutterInvariant`. Changes of carriers or richer signature
+morphisms would require additional semantics and proofs.
+
+## Checked examples and coverage
+
+[Simple examples](../../Silmaril/Logic/Temporal/TLA/Examples.lean) cover
+weakly fair latch progress, the distinction between WF and SF, a parity
+invariant, and a hidden initialization step.
+[General examples](../../Silmaril/Logic/Temporal/TLA/General/Examples.lean)
+hide an initialization step after widening the scope by a Nat clock,
+prove that the translated body has no synchronous witness, distinguish a
+flexible Boolean witness from a single rigid value, and test successor
+lifting and its failure under identification. A refinement example
+computes a Boolean latch observation from a Nat clock.
 
 ```sh
-lake build --wfail +Silmaril.Logic.Temporal.TLA.Thms +Silmaril.Logic.Temporal.TLA.Examples
+lake build --wfail +Silmaril.Logic.Temporal.TLA.Thms +Silmaril.Logic.Temporal.TLA.Examples \
+  +Silmaril.Logic.Temporal.TLA.General.Thms +Silmaril.Logic.Temporal.TLA.General.Examples
 ```
 
-The current fragments are typed Simple TLA and semantic flexible hiding on
-product states. General TLA syntax with flexible and rigid binders, the
-full derivation calculus, machine closure, and the TLA+ operator
-`-+->` (“while”) from *Specifying Systems* §16.2.4 remain separate work.
-A next standalone milestone is scoped variable syntax for General TLA and
-a satisfaction theorem for reindexing and refinement mappings. Those can
-serve the later institution interface. The TLA+ AST, S-expressions, concrete
-parser and Quint connection are later milestones.
+| Area | Formalized | Remaining |
+| --- | --- | --- |
+| Terms and actions | Typed variable lookup, denotational expressions and actions, rigid existential quantification, explicit state-level `ENABLED` | First-order expression and action ASTs, elaboration, and general capture-avoiding term substitution |
+| Temporal formulas | Typed Simple and General TLA syntax and semantics, rigid and flexible quantifiers, whole-state stutter invariance, and scoped reindexing | A derivation calculus with the syntactic substitution rules of Fig. 9, machine closure, completeness results, and a Lean comparison with a separate stutter-reduction operator |
+| Specifications | Simple TLA fairness, invariant and progress rules, and semantic state-map refinement | General refinement substitution and auxiliary-variable theorems |
+| Integration | Sentence and model maps with the satisfaction equation for fixed carriers | The room functor, TLA+ AST, S-expressions and concrete parser, and Quint integration |
