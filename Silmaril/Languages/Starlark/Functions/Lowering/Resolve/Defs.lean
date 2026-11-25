@@ -14,6 +14,7 @@ inductive SourceExpr where
   | string (text : String)
   | list (elements : List SourceExpr)
   | tuple (elements : List SourceExpr)
+  | dict (entries : List (SourceExpr × SourceExpr))
   | index (receiver subscript : SourceExpr)
   | call (callee : SourceExpr) (positional : List SourceExpr)
       (keywords : List (String × SourceExpr)) (star starStar : Option SourceExpr)
@@ -72,6 +73,12 @@ private def resolveExpr (context : Context) : SourceExpr → Tracked Expr
       have := List.sizeOf_lt_of_mem element.property
       resolveExpr context element.val
     return .tuple resolved
+  | .dict entries => do
+    let resolved ← entries.attach.mapM fun ⟨(key, value), member⟩ => do
+      have := (entrySize member).1
+      have := (entrySize member).2
+      return (← resolveExpr context key, ← resolveExpr context value)
+    return .dict resolved
   | .index receiver subscript =>
     return .index (← resolveExpr context receiver) (← resolveExpr context subscript)
   | .call callee positional keywords star starStar => do

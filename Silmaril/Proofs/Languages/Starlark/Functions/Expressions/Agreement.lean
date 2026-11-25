@@ -47,6 +47,26 @@ private theorem denote_index (program : Program) (available : List DeclarationId
         Outcome.resume (denoteExprWith program available bodyMeaning subscript next) (readIndex value)) := by
   rw [denoteExprWith]
 
+private theorem denote_dict (program : Program) (available : List DeclarationId)
+    (bodyMeaning : ClosureMeaning available) (state : State) (entries : List (Lowering.Expr × Lowering.Expr)) :
+    let meaning := denoteExprWith program available bodyMeaning
+    denoteExprWith program available bodyMeaning (.dict entries) state =
+      Outcome.resume (allocateDict [] state) fun receiver next =>
+        Outcome.resume (denoteEntries receiver (entries.map fun (key, value) => (meaning key, meaning value)) next)
+          fun _ => pure receiver := by
+  dsimp only
+  let meaning := denoteExprWith program available bodyMeaning
+  let actions := fun (pair : Lowering.Expr × Lowering.Expr) => (meaning pair.1, meaning pair.2)
+  have traverse : entries.attach.map (actions ∘ Subtype.val) = entries.map actions := by
+    rw [← List.map_map]
+    change entries.attach.unattach.map actions = _
+    rw [List.unattach_attach]
+  rw [denoteExprWith]
+  change Outcome.resume (allocateDict [] state) (fun receiver next =>
+    Outcome.resume (denoteEntries receiver (entries.attach.map (actions ∘ Subtype.val)) next)
+      fun _ => pure receiver) = _
+  rw [traverse]
+
 private theorem denote_call (program : Program) (available : List DeclarationId)
     (bodyMeaning : ClosureMeaning available) (state : State)
     (callee : Lowering.Expr) (positional : List Lowering.Expr) (keywords : List (String × Lowering.Expr))
@@ -102,10 +122,15 @@ theorem denote_eq_of_evaluates {program : Program} {available : List Declaration
     denoteExprWith program available bodyMeaning expression state = out := by
   induction h using EvaluatesWith.rec
     (motive_2 := fun state expressions out _ =>
-      expressions.mapM (denoteExprWith program available bodyMeaning) state = out) with
+      expressions.mapM (denoteExprWith program available bodyMeaning) state = out)
+    (motive_3 := fun receiver state entries out _ =>
+      denoteEntries receiver (entries.map fun pair =>
+        (denoteExprWith program available bodyMeaning pair.1,
+          denoteExprWith program available bodyMeaning pair.2)) state = out) with
   | atom safe ran => rw [denoteExprWith]; exact (eval_iff_denote _ _ _).mp ran
   | list ran ih => rw [denote_list, ih]
   | tuple ran ih => rw [denote_tuple, ih]
+  | dict allocated ran ih => simp only [denote_dict, allocated, Outcome.resume, ih]
   | index receiver subscript receiverIH subscriptIH =>
     simp only [denote_index, receiverIH, Outcome.resume, subscriptIH]
   | indexReceiverError ran ih => simp only [denote_index, ih, Outcome.resume]
@@ -132,6 +157,14 @@ theorem denote_eq_of_evaluates {program : Program} {available : List Declaration
   | headError ran ih => simp only [List.mapM_cons, bind, EStateM.bind, ih]
   | tailError first rest firstIH restIH =>
     simp only [List.mapM_cons, bind, EStateM.bind, firstIH, restIH]
+  | noEntries => rfl
+  | keyError ran ih => simp only [List.map_cons, denoteEntries, ih, Outcome.resume]
+  | valueError key value keyIH valueIH =>
+    simp only [List.map_cons, denoteEntries, keyIH, valueIH, Outcome.resume]
+  | insertionError key value inserted keyIH valueIH =>
+    simp only [List.map_cons, denoteEntries, keyIH, valueIH, inserted, Outcome.resume]
+  | entry key value inserted rest keyIH valueIH restIH =>
+    simp only [List.map_cons, denoteEntries, keyIH, valueIH, inserted, Outcome.resume, restIH]
 
 theorem denote_eq_of_evaluatesMany {program : Program} {available : List DeclarationId}
     {calls : ClosureRuns available} {bodyMeaning : ClosureMeaning available}
@@ -184,6 +217,43 @@ private theorem cons_has_value (program : Program) (available : List Declaration
     dsimp only
     cases tail.mapM (denoteExprWith program available bodyMeaning) next <;> simp
 
+private theorem entries_denote (program : Program) (available : List DeclarationId)
+    (calls : ClosureRuns available) (bodyMeaning : ClosureMeaning available)
+    {atomAllowed : Silmaril.Languages.Starlark.Lists.Expr → Prop}
+    (receiver : Value) (entries : List (Lowering.Expr × Lowering.Expr)) (state : State)
+    (keys : ∀ entry ∈ entries, ∀ state,
+      EvaluatesWith program available calls atomAllowed state entry.1 (denoteExprWith program available bodyMeaning entry.1 state))
+    (values : ∀ entry ∈ entries, ∀ state,
+      EvaluatesWith program available calls atomAllowed state entry.2 (denoteExprWith program available bodyMeaning entry.2 state)) :
+    EvaluatesEntriesWith program available calls atomAllowed receiver state entries
+      (denoteEntries receiver (entries.map fun pair =>
+        (denoteExprWith program available bodyMeaning pair.1,
+          denoteExprWith program available bodyMeaning pair.2)) state) := by
+  induction entries generalizing state with
+  | nil => exact .noEntries
+  | cons pair rest ih =>
+    obtain ⟨key, value⟩ := pair
+    simp only [List.map_cons, denoteEntries]
+    have keyRun := keys (key, value) (by simp) state
+    dsimp only at keyRun
+    cases keyEq : denoteExprWith program available bodyMeaning key state with
+    | error error next => exact .keyError (keyEq ▸ keyRun)
+    | ok k next =>
+      simp only [Outcome.resume]
+      have valueRun := values (key, value) (by simp) next
+      dsimp only at valueRun
+      cases valueEq : denoteExprWith program available bodyMeaning value next with
+      | error error final => exact .valueError (keyEq ▸ keyRun) (valueEq ▸ valueRun)
+      | ok v final =>
+        dsimp only
+        cases inserted : insertDisplayEntry receiver k v final with
+        | error error stopped => exact .insertionError (keyEq ▸ keyRun) (valueEq ▸ valueRun) inserted
+        | ok result stopped =>
+          cases result
+          exact .entry (keyEq ▸ keyRun) (valueEq ▸ valueRun) inserted
+            (ih stopped (fun pair mem => keys pair (List.mem_cons_of_mem _ mem))
+              (fun pair mem => values pair (List.mem_cons_of_mem _ mem)))
+
 theorem evaluates_denote (program : Program) (available : List DeclarationId)
     (calls : ClosureRuns available) (bodyMeaning : ClosureMeaning available)
     (closureComplete : ∀ plan state, calls plan state (bodyMeaning plan state))
@@ -200,6 +270,12 @@ theorem evaluates_denote (program : Program) (available : List DeclarationId)
   | @tuple elements all ih =>
     rw [denote_tuple]
     exact .tuple (operands_denote program available calls bodyMeaning elements ih state)
+  | @dict entries _ _ keyIH valueIH =>
+    rw [denote_dict]
+    let receiver := Value.dict state.heap.size
+    let next := { state with heap := state.heap.push ⟨.dict [], false⟩ }
+    exact .dict (receiver := receiver) (t := next) rfl
+      (entries_denote program available calls bodyMeaning receiver entries next keyIH valueIH)
   | @index receiver subscript _ _ receiverIH subscriptIH =>
     rw [denote_index]
     have ran := receiverIH state
@@ -291,6 +367,14 @@ theorem admits_all_atoms (expression : Lowering.Expr) : AdmittedWith (fun _ => T
     intro element member
     have := List.sizeOf_lt_of_mem member
     exact admits_all_atoms element
+  | dict entries =>
+    constructor
+    · rintro ⟨key, value⟩ member
+      have := (entrySize member).1
+      exact admits_all_atoms key
+    · rintro ⟨key, value⟩ member
+      have := (entrySize member).2
+      exact admits_all_atoms value
   | index receiver subscript => exact .index (admits_all_atoms receiver) (admits_all_atoms subscript)
   | logical op left right => exact .logical (admits_all_atoms left) (admits_all_atoms right)
   | branch test yes no =>

@@ -79,6 +79,9 @@ inductive AdmittedWith (atomAllowed : Lists.Expr → Prop) : Expr → Prop where
       (∀ element ∈ elements, AdmittedWith atomAllowed element) → AdmittedWith atomAllowed (.list elements)
   | tuple {elements : List Expr} :
       (∀ element ∈ elements, AdmittedWith atomAllowed element) → AdmittedWith atomAllowed (.tuple elements)
+  | dict {entries : List (Expr × Expr)} :
+      (∀ entry ∈ entries, AdmittedWith atomAllowed entry.1) →
+      (∀ entry ∈ entries, AdmittedWith atomAllowed entry.2) → AdmittedWith atomAllowed (.dict entries)
   | index {receiver subscript : Expr} :
       AdmittedWith atomAllowed receiver → AdmittedWith atomAllowed subscript →
       AdmittedWith atomAllowed (.index receiver subscript)
@@ -106,6 +109,10 @@ inductive EvaluatesWith (program : Program) (available : List DeclarationId)
   | tuple {s : State} {elements : List Expr} {out : Outcome (List Lists.Value)} :
       EvaluatesManyWith program available calls atomAllowed s elements out →
       EvaluatesWith program available calls atomAllowed s (.tuple elements) (Outcome.resume out Lists.allocateTuple)
+  | dict {s t : State} {entries : List (Expr × Expr)} {receiver : Lists.Value} {out : Outcome Unit} :
+      Lists.allocateDict [] s = .ok receiver t →
+      EvaluatesEntriesWith program available calls atomAllowed receiver t entries out →
+      EvaluatesWith program available calls atomAllowed s (.dict entries) (Outcome.resume out fun _ => pure receiver)
   | index {s t : State} {receiver subscript : Expr} {value : Lists.Value} {out : Outcome Lists.Value} :
       EvaluatesWith program available calls atomAllowed s receiver (.ok value t) →
       EvaluatesWith program available calls atomAllowed t subscript out →
@@ -169,6 +176,35 @@ inductive EvaluatesManyWith (program : Program) (available : List DeclarationId)
       EvaluatesWith program available calls atomAllowed s head (.ok value t) →
       EvaluatesManyWith program available calls atomAllowed t tail (.error error u) →
       EvaluatesManyWith program available calls atomAllowed s (head :: tail) (.error error u)
+
+/-- Evaluate one key and value, commit the checked pair, and then continue. -/
+inductive EvaluatesEntriesWith (program : Program) (available : List DeclarationId)
+    (calls : ClosureRuns available) (atomAllowed : Lists.Expr → Prop) :
+    Lists.Value → State → List (Expr × Expr) → Outcome Unit → Prop where
+  | noEntries {receiver : Lists.Value} {s : State} :
+      EvaluatesEntriesWith program available calls atomAllowed receiver s [] (.ok () s)
+  | keyError {receiver : Lists.Value} {s t : State} {key value : Expr}
+      {rest : List (Expr × Expr)} {error : Lists.Error} :
+      EvaluatesWith program available calls atomAllowed s key (.error error t) →
+      EvaluatesEntriesWith program available calls atomAllowed receiver s ((key, value) :: rest) (.error error t)
+  | valueError {receiver k : Lists.Value} {s t u : State} {key value : Expr}
+      {rest : List (Expr × Expr)} {error : Lists.Error} :
+      EvaluatesWith program available calls atomAllowed s key (.ok k t) →
+      EvaluatesWith program available calls atomAllowed t value (.error error u) →
+      EvaluatesEntriesWith program available calls atomAllowed receiver s ((key, value) :: rest) (.error error u)
+  | insertionError {receiver k v : Lists.Value} {s t u w : State} {key value : Expr}
+      {rest : List (Expr × Expr)} {error : Lists.Error} :
+      EvaluatesWith program available calls atomAllowed s key (.ok k t) →
+      EvaluatesWith program available calls atomAllowed t value (.ok v u) →
+      Lists.insertDisplayEntry receiver k v u = .error error w →
+      EvaluatesEntriesWith program available calls atomAllowed receiver s ((key, value) :: rest) (.error error w)
+  | entry {receiver k v : Lists.Value} {s t u w : State} {key value : Expr}
+      {rest : List (Expr × Expr)} {out : Outcome Unit} :
+      EvaluatesWith program available calls atomAllowed s key (.ok k t) →
+      EvaluatesWith program available calls atomAllowed t value (.ok v u) →
+      Lists.insertDisplayEntry receiver k v u = .ok () w →
+      EvaluatesEntriesWith program available calls atomAllowed receiver w rest out →
+      EvaluatesEntriesWith program available calls atomAllowed receiver s ((key, value) :: rest) out
 end
 
 end Silmaril.Languages.Starlark.Functions.Lowering

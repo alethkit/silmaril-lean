@@ -133,7 +133,7 @@ available declaration set bounds live calls.
 
 `Lowering.denoteExpr` maps a resolved expression and state to a value or
 dynamic error with its final state. It interprets call-free collection
-atoms, list and tuple displays, subscript reads, nested calls with positional,
+atoms, list, tuple and dictionary displays, subscript reads, nested calls with positional,
 keyword, `*` and `**` operands, conditionals and operand-valued `and` and
 `or`. A call evaluates the callee and operands from left to right, then
 expands and binds the arguments.
@@ -160,7 +160,7 @@ scratch projection when compiling the same expression.
 
 [Denotation](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Defs.lean) · [Adequacy](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Closure fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Checks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
 
-### List and tuple displays and subscript reads
+### Collection displays and subscript reads
 
 `Expr.list` and `Expr.tuple` evaluate elements once from left to right and
 allocate after all elements succeed. Tuple allocation uses the existing
@@ -171,12 +171,27 @@ preceding it. The independent rules and denotation share the existing
 allocation and lookup primitives. The expression and body agreement
 theorems include the exact result or error and residual state.
 
+`Expr.dict` allocates an empty dictionary before evaluating the first pair.
+It evaluates the key, then the value, then checks and inserts the pair before
+the next key. A value error takes precedence over hash or duplicate checking
+for that pair. Failure preserves prior effects and the dictionary's accepted
+prefix. The older call-free `Lists.Code.dict` still allocates after collecting
+the pairs. The two forms have distinct internal heap allocation schedules.
+
+The pinned Go bytecode uses the same key/value and insertion order. Its
+duplicate-error instruction replaces the old value in its private dictionary
+before raising the error. The Lean heap retains the original accepted prefix.
+The Go fixture compares ordinary values, errors and effects visible to callers.
+The prose spec allows a frozen-container exception to unhashability. The
+shared Lean key policy and pinned Go reject list and dictionary keys even
+after freezing.
+[Dictionary expressions in the pinned spec][dict-expr] · [Hashing in the pinned spec][hashing] · [Go compiler][go-dict-compile] · [Go interpreter][go-dict-run]
+
 Subscript reads accept lists, tuples and dictionaries already supported by
 the shared store. Sequence reads use exact integers and allow negative
-indices. String and byte indexing, slices, subscript writes with call-aware
-operands, and direct dictionary displays remain open. The pinned
-Go comparison uses common list and tuple operations. Go also supports additional
-indexable types and checks sequence indices through a signed 32-bit conversion.
+indices. String and byte indexing, slices and subscript writes with call-aware
+operands remain open. Go also supports additional indexable types and checks
+sequence indices through a signed 32-bit conversion.
 [List expressions in the pinned spec][list-expr] · [Tuples in the pinned spec][tuple-expr] · [Subscripts in the pinned spec][subscript] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ## Native expression positions
@@ -209,7 +224,7 @@ expression-position theorems in the denotation header expose that agreement
 without the compiler's scratch projection.
 
 Module commands reuse native assignment and expression statements, including
-direct list and tuple displays and subscript reads.
+direct collection displays and subscript reads.
 [Body rules](../../Silmaril/Languages/Starlark/Functions/Operational/Defs.lean) · [Native position agreement](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Assignment and conditional fixtures](../../Silmaril/Languages/Starlark/Functions/NativeBodyChecks.lean) · [Return fixtures](../../Silmaril/Languages/Starlark/Functions/NativeReturnChecks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
 
 ## Nested expression lowering
@@ -220,8 +235,9 @@ including call-free operands, before the final call. Positional, keyword,
 `*` and `**` operands stay in source order. Expansion and argument errors
 still use the call semantics. The compiler places branch work inside the
 selected branch and skips its destination write if the operand fails. List
-and tuple displays and subscript reads stage their operands before the final collection
-operation.
+and tuple displays and subscript reads stage their operands before the final
+collection operation. Dictionary lowering stages a key and value, checks and
+inserts the pair into the dictionary, then continues with the next pair.
 
 Use the frame's direct bindings for scratch names when comparing exact
 heaps. In this mode, omit the compiler scratch names from the heap-backed
@@ -231,7 +247,7 @@ ranges disjoint. The emitted code can be placed inside a function loop.
 
 `lower_preserves` relates an independent source evaluation to
 `denoteBody` of the emitted code. The proved fragment includes call-free
-atoms, list and tuple displays, subscript reads, nested calls with positional, keyword,
+atoms, list, tuple and dictionary displays, subscript reads, nested calls with positional, keyword,
 `*` and `**` operands, conditionals and short-circuit operations. The source rules evaluate the
 callee first, then operands left to right, stopping at the first evaluation
 error. Only after all operands succeed do they expand the mapping and then
@@ -258,7 +274,7 @@ shared-store call profile above.
 
 `Lowering.Resolve.resolve` takes an unresolved expression and a lexical
 context collected by the caller. It accepts integer and string literals,
-identifier reads, list and tuple displays, single-expression subscripts, calls with all
+identifier reads, list, tuple and dictionary displays, single-expression subscripts, calls with all
 four operand classes, conditionals and operand-valued `and` and `or`. It uses
 the scalar resolver's precedence
 for locals, globals and universal constants, then looks up the supported
@@ -280,7 +296,7 @@ valid identifier tokens, the set of lexical bindings and allocated frame
 slots. `resolveTracked` also returns the lexical slots read during resolution.
 The [module adapter](starlark-modules.md#resolving-module-declarations)
 collects scopes and uses those reads for closure captures. Text parsing,
-source locations, dictionary displays, slices and attribute syntax
+source locations, slices and attribute syntax
 remain outside the expression adapter. The preservation theorem starts at
 the resulting resolved tree.
 [Resolver](../../Silmaril/Languages/Starlark/Functions/Lowering/Resolve/Defs.lean) · [End-to-end Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Resolve/Checks.lean)
@@ -289,7 +305,7 @@ the resulting resolved tree.
 
 `starlark%[...]` constructs a `Lowering.Resolve.SourceExpr` in a Lean file.
 It accepts grouped expressions, simple ASCII identifiers, decimal integer
-literals with optional minus, plain double-quoted strings, list displays and parenthesized tuples,
+literals with optional minus, plain double-quoted strings, list and dictionary displays, parenthesized tuples,
 single-expression subscripts, nested calls, conditionals and operand-valued
 `and` and `or`. Calls accept positional
 and named arguments followed by optional `*` and `**`, with an optional
@@ -358,5 +374,9 @@ extend this profile. Host callable effects remain open.
 [modules]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#module-execution
 [list-expr]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#list-expressions
 [tuple-expr]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#parenthesized-expressions
+[dict-expr]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#dictionary-expressions
+[hashing]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#hashing
+[go-dict-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1371-L1380
+[go-dict-run]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L469-L486
 [subscript]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#subscript-expressions
 [go-function]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go

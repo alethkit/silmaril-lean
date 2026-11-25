@@ -21,6 +21,7 @@ inductive Body where
   | returnExpr (value : Lowering.Expr)
   | assignExpr (target : Binding) (value : Lowering.Expr)
   | evalExpr (value : Lowering.Expr)
+  | insertDictEntry (receiver key value : Binding)
   | seq (first rest : Body)
   | branch (test : Lists.Expr) (yes no : Body)
   | branchExpr (test : Lowering.Expr) (yes no : Body)
@@ -138,7 +139,7 @@ def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
   | .continueLoop => if inLoop then pure () else throw .continueOutsideLoop
   | .call _ _ arguments => arguments.validate
   | .returnExpr value | .assignExpr _ value | .evalExpr value => value.validateCalls
-  | .define .. | .total _ => pure ()
+  | .define .. | .insertDictEntry .. | .total _ => pure ()
 
 def Body.validateCalls (body : Body) : Except CallStaticError Unit := body.validateIn false
 
@@ -152,6 +153,14 @@ def validate (program : Program) (body : Body) : Except CallStaticError Unit := 
 
 def restoreCaller (caller state : State) : State :=
   { state with slots := caller.slots, bindings := caller.bindings }
+
+/-- Insert a dictionary display entry after lowering has staged both operands. -/
+def insertDictEntry (receiver key value : Binding) : Meaning Flow := do
+  let dictionary ← fun state : State => state.read (.bound receiver)
+  let key ← fun state : State => state.read (.bound key)
+  let value ← fun state : State => state.read (.bound value)
+  insertDisplayEntry dictionary key value
+  pure .next
 
 def writeCallResult (target : Option Binding) (value : Lists.Value) : Meaning Flow :=
   fun state => .ok .next (target.elim state fun binding => state.write binding value)

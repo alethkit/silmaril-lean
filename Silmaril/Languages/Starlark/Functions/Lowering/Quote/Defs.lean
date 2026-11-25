@@ -11,6 +11,7 @@ open Lean
 
 declare_syntax_cat starlarkExpr
 declare_syntax_cat starlarkArg
+declare_syntax_cat starlarkEntry
 
 syntax:max ident : starlarkExpr
 syntax:max num : starlarkExpr
@@ -21,6 +22,8 @@ syntax:max "(" starlarkExpr "," starlarkExpr,*,? ")" : starlarkExpr
 syntax:max starlarkExpr:max "(" starlarkArg,*,? ")" : starlarkExpr
 syntax:max starlarkExpr:max "[" starlarkExpr "]" : starlarkExpr
 syntax:max "[" starlarkExpr,*,? "]" : starlarkExpr
+syntax:max "{" starlarkEntry,*,? "}" : starlarkExpr
+syntax starlarkExpr ":" starlarkExpr : starlarkEntry
 syntax:75 "-" starlarkExpr:75 : starlarkExpr
 scoped syntax:30 starlarkExpr:30 " and " starlarkExpr:31 : starlarkExpr
 scoped syntax:25 starlarkExpr:25 " or " starlarkExpr:26 : starlarkExpr
@@ -123,6 +126,12 @@ private meta def quoteExpr (expression : TSyntax `starlarkExpr) : MacroM (TSynta
   | `(starlarkExpr| [$elements,*]) => do
     let quoted ← elements.getElems.mapM fun element => `(starlark%[$element])
     `(Resolve.SourceExpr.list [$[$quoted],*])
+  | `(starlarkExpr| {$entries,*}) => do
+    let quoted ← entries.getElems.mapM fun entry => do
+      let `(starlarkEntry| $key:starlarkExpr : $value:starlarkExpr) := entry
+        | Macro.throwErrorAt entry "expected a Starlark dictionary entry"
+      `((starlark%[$key], starlark%[$value]))
+    `(Resolve.SourceExpr.dict [$[$quoted],*])
   | `(starlarkExpr| $left and $right) =>
     `(Resolve.SourceExpr.logical .and starlark%[$left] starlark%[$right])
   | `(starlarkExpr| $left or $right) =>

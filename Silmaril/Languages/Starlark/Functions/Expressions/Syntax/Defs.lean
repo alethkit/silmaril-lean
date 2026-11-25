@@ -12,6 +12,7 @@ inductive Expr where
   | atom (expression : Lists.Expr)
   | list (elements : List Expr)
   | tuple (elements : List Expr)
+  | dict (entries : List (Expr × Expr))
   | index (receiver subscript : Expr)
   | call (callee : Expr) (positional : List Expr) (keywords : List (String × Expr))
       (star starStar : Option Expr)

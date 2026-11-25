@@ -387,6 +387,156 @@ private theorem simIndex {program : Program} {available : List DeclarationId}
   obtain ⟨readSubscript, _⟩ := saved_head rest free
   simp only [denote, bind, EStateM.bind, readReceiver, readSubscript]
 
+private def SimulatesEntries (program : Program) (available : List DeclarationId) (receiver : Value)
+    (s : State) (entries : List (SourceExpr × SourceExpr)) (out : Outcome Unit) : Prop :=
+  SameScope (finishState out) s ∧
+  ∀ dictionary start (t : State), dictionary < start → StateMatch 0 s t → ScratchFree s →
+    t.bindings (temporary dictionary) = some receiver →
+    let code := ((dictionaryStages (temporary dictionary) entries).run start).1.flatten
+    ∃ final, StateMatch start (rebind (finishState out) t.bindings) final ∧
+      ∀ rest, denoteBody program available (code.foldr Body.seq rest) t =
+        match out with
+        | .ok _ _ => denoteBody program available rest final
+        | .error error _ => .error error final
+
+private theorem simEntriesNil (program : Program) (available : List DeclarationId) (receiver : Value) (s : State) :
+    SimulatesEntries program available receiver s [] (.ok () s) := by
+  refine ⟨⟨rfl, rfl⟩, ?_⟩
+  intro dictionary start t _ same _ _
+  exact ⟨t, same_rebound same ▸ seesRebound s t.bindings, fun _ => rfl⟩
+
+private theorem simEntriesOperandError {program : Program} {available : List DeclarationId}
+    {receiver : Value} {s u : State} {key value : SourceExpr} {rest : List (SourceExpr × SourceExpr)}
+    {error : Error} (ih : SimulatesMany program available s [key, value] (.error error u)) :
+    SimulatesEntries program available receiver s ((key, value) :: rest) (.error error u) := by
+  refine ⟨ih.1, ?_⟩
+  intro dictionary start t _ same free _
+  obtain ⟨final, related, step⟩ := ih.2 start t same free
+  refine ⟨final, related, fun tail => ?_⟩
+  simp only [dictionaryStages_cons, List.flatten_cons, List.foldr_append, List.foldr_cons, List.foldr_nil]
+  exact step _
+
+private theorem insert_eq (program : Program) (available : List DeclarationId) (s : State)
+    (receiver key value : Nat) (r k v : Value)
+    (readReceiver : s.read (.bound (temporary receiver)) = .ok r s)
+    (readKey : s.read (.bound (temporary key)) = .ok k s)
+    (readValue : s.read (.bound (temporary value)) = .ok v s) :
+    denoteBody program available (.insertDictEntry (temporary receiver) (temporary key) (temporary value)) s =
+      Outcome.resume (insertDisplayEntry r k v s) fun _ => pure .next := by
+  rw [denoteBody]
+  simp only [insertDictEntry, bind, EStateM.bind, readReceiver, readKey, readValue]
+  cases insertDisplayEntry r k v s <;> rfl
+
+private theorem simEntriesInsert {program : Program} {available : List DeclarationId}
+    {receiver k v : Value} {s u : State} {key value : SourceExpr} {rest : List (SourceExpr × SourceExpr)}
+    {insertion out : Outcome Unit} (pairIH : SimulatesMany program available s [key, value] (.ok [k, v] u))
+    (performed : insertDisplayEntry receiver k v u = insertion)
+    (restIH : ∀ next, insertion = .ok () next → SimulatesEntries program available receiver next rest out) :
+    SimulatesEntries program available receiver s ((key, value) :: rest) (Outcome.resume insertion fun _ _ => out) := by
+  have action := actionInsertDisplayEntry receiver k v
+  have insertedScope := action.2 u
+  rw [performed] at insertedScope
+  have stayed := scopeTrans insertedScope pairIH.1
+  constructor
+  · cases insertion with
+    | error => exact stayed
+    | ok result next =>
+      cases result
+      exact scopeTrans (restIH next rfl).1 stayed
+  · intro dictionary start t below same free stored
+    obtain ⟨w, related, saved, pairStep⟩ := pairIH.2 start t same free
+    have sameU : StateMatch 0 u w := reboundBack same pairIH.1 related
+    have freeW := StateMatch.free sameU (scopeFree pairIH.1 free)
+    have slotSafe : ¬ Scratch start (temporary dictionary) := by
+      rintro ⟨i, bound, eq⟩
+      exact Nat.not_le_of_lt below (temporary_inj eq ▸ bound)
+    have storedW : w.bindings (temporary dictionary) = some receiver :=
+      (related.bindings _ slotSafe).symm.trans stored
+    let intermediate := ((emit key (temporary start)).run (start + 1)).2
+    let pairEnd := ((stages [key, value]).run start).2
+    have le : start ≤ pairEnd := stages_ge [key, value] start
+    have readReceiver := read_temp freeW dictionary storedW
+    simp only [stages_cons, List.map_cons] at saved
+    obtain ⟨readKey, savedValue⟩ := saved_head saved freeW
+    obtain ⟨readValue, _⟩ := saved_head savedValue freeW
+    have inserted := frameRun action.1 sameU
+    rw [performed] at inserted
+    have prefixRun (tail : Body) :
+        denoteBody program available
+          (((dictionaryStages (temporary dictionary) ((key, value) :: rest)).run start).1.flatten.foldr Body.seq tail) t =
+        denoteBody program available
+          (.seq (.insertDictEntry (temporary dictionary) (temporary start) (temporary intermediate))
+            (((dictionaryStages (temporary dictionary) rest).run pairEnd).1.flatten.foldr Body.seq tail)) w := by
+      simp only [dictionaryStages_cons, List.flatten_cons, List.foldr_append, List.foldr_cons, List.foldr_nil]
+      exact pairStep _
+    have performedCode := insert_eq program available w dictionary start intermediate receiver k v
+      readReceiver readKey readValue
+    rw [inserted] at performedCode
+    cases insertion with
+    | error error next =>
+      refine ⟨rebind next w.bindings, continueMatch related next, fun tail => ?_⟩
+      rw [prefixRun, seq_eq, performedCode]
+      rfl
+    | ok result next =>
+      cases result
+      have relatedInsert := continueMatch related next
+      obtain ⟨final, after, ran⟩ := (restIH next rfl).2 dictionary pairEnd (rebind next w.bindings)
+        (Nat.lt_of_lt_of_le below le) (reboundBack same stayed relatedInsert) (scopeFree stayed free) storedW
+      refine ⟨final, StateMatch.trans (continueMatch related (finishState out)) (StateMatch.back after le), ?_⟩
+      intro tail
+      rw [prefixRun, seq_eq, performedCode]
+      exact ran tail
+
+private theorem simDict {program : Program} {available : List DeclarationId}
+    {s next : State} {receiver : Value} {entries : List (SourceExpr × SourceExpr)} {out : Outcome Unit}
+    (allocated : allocateDict [] s = .ok receiver next)
+    (ih : SimulatesEntries program available receiver next entries out) :
+    Simulates program available s (.dict entries) (Outcome.resume out fun _ => pure receiver) := by
+  have allocScope := (actionAllocateDict []).2 s
+  rw [allocated] at allocScope
+  change SameScope next s at allocScope
+  have scope := scopeTrans ih.1 allocScope
+  constructor
+  · cases out <;> exact scope
+  · intro start target t same free _
+    let staged := (rebind next t.bindings).write (temporary start) receiver
+    have allocatedT := frameRun (actionAllocateDict []).1 same
+    rw [allocated] at allocatedT
+    have nextFree : ScratchFree (rebind next t.bindings) := by
+      change ScratchFree next
+      exact scopeFree allocScope free
+    have stored : staged.bindings (temporary start) = some receiver := write_temp_read nextFree start receiver
+    have written := StateMatch.hideWrite (scopeTransport same allocScope) nextFree (Nat.zero_le start) receiver
+    have hidden := StateMatch.hideWrite (seesRebound next t.bindings) nextFree (Nat.le_refl start) receiver
+    obtain ⟨final, after, ran⟩ := ih.2 start (start + 1) staged (Nat.lt_succ_self _) written
+      (scopeFree allocScope free) stored
+    have prefixRun : evaluate program available (.dict entries) target start t =
+        denoteBody program available
+          (((dictionaryStages (temporary start) entries).run (start + 1)).1.flatten.foldr Body.seq
+            (assign target (scratchRead start))) staged := by
+      rw [evaluate, emit_dict, seq_eq, assign_eq]
+      change Outcome.resume (commit (temporary start) (allocateDict [] t)) _ = _
+      rw [allocatedT]
+      rfl
+    have related := StateMatch.trans (continueMatch hidden (finishState out))
+      (StateMatch.back after (Nat.le_succ start))
+    cases out with
+    | error error stopped => exact ⟨final, prefixRun.trans (ran _), related⟩
+    | ok result stopped =>
+      have storedFinal : final.bindings (temporary start) = some receiver :=
+        (after.bindings _ (temporary_protected start)).symm.trans stored
+      have keptFree : ScratchFree (rebind stopped t.bindings) := by
+        change ScratchFree stopped
+        exact scopeFree scope free
+      have freeFinal := StateMatch.free related keptFree
+      refine ⟨final.write target receiver, ?_, StateMatch.write related target receiver⟩
+      rw [prefixRun, ran]
+      dsimp only
+      rw [assign_eq]
+      change commit target (denote (.read (.bound (temporary start))) final) = _
+      rw [read_temp freeFinal start storedFinal]
+      rfl
+
 private theorem combine {start next : Nat} {s t w final : State}
     (first : StateMatch start (rebind s t.bindings) w) (le : start ≤ next)
     (target : Binding) (out : Outcome Value)
@@ -585,10 +735,12 @@ private theorem simulates {program : Program} {available : List DeclarationId}
     {s : State} {expr : SourceExpr} {out : Outcome Value} (ran : Evaluates program available s expr out) :
     Simulates program available s expr out := by
   induction ran using Evaluates.rec
-    (motive_2 := fun state expressions result _ => SimulatesMany program available state expressions result) with
+    (motive_2 := fun state expressions result _ => SimulatesMany program available state expressions result)
+    (motive_3 := fun receiver state entries result _ => SimulatesEntries program available receiver state entries result) with
   | atom safe eval => exact simAtom safe eval
   | list _ ih => exact simList ih
   | tuple _ ih => exact simTuple ih
+  | dict allocated _ ih => exact simDict allocated ih
   | @index _ _ receiver subscript _ out _ _ receiverIH subscriptIH =>
     cases out with
     | error error final =>
@@ -610,6 +762,15 @@ private theorem simulates {program : Program} {available : List DeclarationId}
   | cons _ _ head tail => exact simManyTail head tail
   | headError _ ih => exact simManyHeadError ih
   | tailError _ _ head tail => exact simManyTail head tail
+  | noEntries => exact simEntriesNil _ _ _ _
+  | keyError _ ih => exact simEntriesOperandError (simManyHeadError ih)
+  | valueError _ _ key value => exact simEntriesOperandError (simManyTail key (simManyHeadError value))
+  | insertionError _ _ performed key value =>
+    exact simEntriesInsert (out := .ok () {}) (simManyTail key (simManyTail value (simManyNil _ _ _)))
+      performed (fun _ impossible => nomatch impossible)
+  | entry _ _ performed _ key value rest =>
+    exact simEntriesInsert (simManyTail key (simManyTail value (simManyNil _ _ _)))
+      performed (fun _ eq => (EStateM.Result.ok.inj eq).2 ▸ rest)
 
 theorem preserves {program : Program} {available : List DeclarationId} {state : State}
     {expression : Languages.Starlark.Functions.Lowering.Expr} {out : Outcome Value} (ran : Evaluates program available state expression out)

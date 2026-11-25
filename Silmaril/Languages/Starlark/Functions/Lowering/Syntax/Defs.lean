@@ -39,12 +39,24 @@ theorem argumentSize (callee : Expr) (positional : List Expr) (keywords : List (
     simp
     omega
 
+theorem entrySize {α β : Type} [SizeOf α] [SizeOf β] {entries : List (α × β)}
+    {key : α} {value : β} (member : (key, value) ∈ entries) :
+    sizeOf key < sizeOf entries ∧ sizeOf value < sizeOf entries := by
+  have bound := List.sizeOf_lt_of_mem member
+  simp at bound
+  omega
+
 /-- Check explicit keyword names at every call, including unreachable operands. -/
 @[expose] def Expr.validateCalls : Expr → Except CallStaticError Unit
   | .atom _ => .ok ()
   | .list elements | .tuple elements => elements.attach.forM fun element => do
     have := List.sizeOf_lt_of_mem element.property
     element.val.validateCalls
+  | .dict entries => entries.attach.forM fun ⟨(key, value), member⟩ => do
+    have := (entrySize member).1
+    have := (entrySize member).2
+    key.validateCalls
+    value.validateCalls
   | .index receiver subscript => do
     receiver.validateCalls
     subscript.validateCalls

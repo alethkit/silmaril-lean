@@ -326,6 +326,16 @@ def writeDict (address : Address) (key value : Value) : Meaning Unit :=
       return .dict (putEntry ⟨key, keyCode, value⟩ entries)
     | _ => .error (.wrongCellKind address)) state
 
+/-- Insert one pair into the dictionary under construction. A duplicate leaves
+the accepted prefix intact. Key checks and insertion order match `addDisplayEntry`. -/
+def insertDisplayEntry (receiver key value : Value) : Meaning Unit :=
+  match receiver with
+  | .dict address => do
+    let entries ← dictEntries address
+    let extended ← addDisplayEntry entries key value
+    editCell address fun _ => .ok (.dict extended)
+  | _ => throw .assignmentTarget
+
 def writeIndex (receiver index value : Value) : Meaning Unit :=
   match receiver with
   | .scalar _ | .tuple _ | .function _ | .builtin _ | .string _ => throw .assignmentTarget

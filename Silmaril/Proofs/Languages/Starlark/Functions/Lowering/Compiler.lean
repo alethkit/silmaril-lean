@@ -43,6 +43,16 @@ private theorem advances_stage {code : Binding → StateM Nat Body}
   rw [stage_run]
   exact Nat.le_trans (Nat.le_succ _) (h (temporary start) (start + 1))
 
+private theorem advances_fresh : Advances freshTemporary := fun start => Nat.le_succ start
+
+private theorem advances_entry (dictionary : Binding) {key value : Binding → StateM Nat Body}
+    (keyAdvances : ∀ slot, Advances (key slot)) (valueAdvances : ∀ slot, Advances (value slot)) :
+    Advances (stageEntry dictionary key value) :=
+  advances_bind advances_fresh fun keySlot =>
+    advances_bind (keyAdvances keySlot) fun _ =>
+      advances_bind advances_fresh fun valueSlot =>
+        advances_bind (valueAdvances valueSlot) fun _ => advances_pure _
+
 private theorem advances_emit (expr : Expr) (target : Binding) :
     Advances (emit expr target) := by
   cases expr with
@@ -65,6 +75,17 @@ private theorem advances_emit (expr : Expr) (target : Binding) :
       intro element _
       have := List.sizeOf_lt_of_mem element.property
       exact advances_stage (advances_emit element.val)
+    · intro _
+      exact advances_pure _
+  | dict entries =>
+    rw [emit]
+    refine advances_bind advances_fresh fun dictionary => ?_
+    apply advances_bind
+    · apply advances_many
+      rintro ⟨⟨key, value⟩, member⟩ _
+      have := (entrySize member).1
+      have := (entrySize member).2
+      exact advances_entry dictionary (advances_emit key) (advances_emit value)
     · intro _
       exact advances_pure _
   | index receiver subscript =>
@@ -125,6 +146,40 @@ theorem stages_length (expressions : List Expr) (start : Nat) :
   | nil => rfl
   | cons head tail ih =>
     simp only [stages_cons, List.length_cons, ih]
+
+@[expose] def dictionaryStages (dictionary : Binding) (entries : List (Expr × Expr)) :
+    StateM Nat (List (List Body)) :=
+  entries.mapM fun (key, value) => stageEntry dictionary (emit key) (emit value)
+
+theorem dictionaryStages_cons (dictionary : Binding) (key value : Expr) (rest : List (Expr × Expr))
+    (start : Nat) :
+    ((dictionaryStages dictionary ((key, value) :: rest)).run start) =
+      let pair := (stages [key, value]).run start
+      let intermediate := ((emit key (temporary start)).run (start + 1)).2
+      let tail := (dictionaryStages dictionary rest).run pair.2
+      ((pair.1.map Prod.fst ++ [.insertDictEntry dictionary (temporary start) (temporary intermediate)]) :: tail.1,
+        tail.2) := by
+  unfold dictionaryStages
+  simp only [List.mapM_cons, stages_cons]
+  rfl
+
+theorem emit_dict (entries : List (Expr × Expr)) (target : Binding) (start : Nat) :
+    ((emit (.dict entries) target).run start).1 =
+      let dictionary := temporary start
+      let steps := ((dictionaryStages dictionary entries).run (start + 1)).1
+      .seq (assign dictionary (.dict .noEntries))
+        (steps.flatten.foldr Body.seq (assign target (scratchRead start))) := by
+  let stageOne := fun dictionary (pair : Expr × Expr) => stageEntry dictionary (emit pair.1) (emit pair.2)
+  have traverse (dictionary : Binding) :
+      entries.attach.mapM (stageOne dictionary ∘ Subtype.val) = entries.mapM (stageOne dictionary) := by
+    rw [← List.mapM_map]
+    change entries.attach.unattach.mapM (stageOne dictionary) = _
+    rw [List.unattach_attach]
+  rw [emit]
+  change ((freshTemporary >>= fun dictionary =>
+    entries.attach.mapM (stageOne dictionary ∘ Subtype.val) >>= _) start).1 = _
+  simp only [traverse]
+  rfl
 
 theorem emit_list (elements : List Expr) (target : Binding) (start : Nat) :
     ((emit (.list elements) target).run start).1 =

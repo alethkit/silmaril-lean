@@ -126,6 +126,16 @@ private theorem editAction (address : Address) (edit : Contents → Except Error
         · exact ⟨rfl, rfl⟩
         · split <;> exact ⟨rfl, rfl⟩
 
+theorem actionInsertDisplayEntry (receiver key value : Value) :
+    FrameAction (insertDisplayEntry receiver key value) := by
+  cases receiver with
+  | dict address =>
+    change FrameAction (dictEntries address >>= fun entries => addDisplayEntry entries key value >>= fun extended =>
+      editCell address fun _ => .ok (.dict extended))
+    exact actionBind (actionDict address) fun entries =>
+      actionBind (addEntry entries key value) fun extended => editAction address (fun _ => .ok (.dict extended))
+  | _ => exact actionThrow _
+
 private theorem appendAction (address : Address) (value : Value) :
     FrameAction (appendAt address value) := by
   unfold appendAt updateCell
