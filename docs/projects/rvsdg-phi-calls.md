@@ -217,9 +217,18 @@ The linked fixture extracts the child at step 15 from an infinite
 stream. A return to its saved frame would run the remaining suffix to
 a terminal return, which contradicts the observed infinite steps.
 
-Infinite replay starts from a supplied certificate over totally linked
-calls. Extraction from arbitrary infinite partial-machine runs and
-partial module initialization are separate milestones.
+The [complementary local theorem](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/CallDescent/Extraction/Theta/Thms.lean)
+starts in a caller whose frame stays live and whose later calls all
+return. It locates one live θ on the same stream and recovers its
+successive completed feedback iterations. The first returns of the
+θ bodies give the exact tuples and stores through partial finite
+reflection. The linked regression gives an actual six-step cycle
+per iteration, with one increment of the state wire and store on
+each cycle.
+
+These local theorems apply to totally linked calls. A root-level
+projection and classification of infinite runs remain separate,
+as does partial module initialization.
 
 ## Productive θ feedback
 
