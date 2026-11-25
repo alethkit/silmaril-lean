@@ -70,6 +70,11 @@ structure Lowered where
     let (first, value) ← stage (emit receiver)
     let (second, index) ← stage (emit subscript)
     return .seq first (.seq second (assign target (.index value index)))
+  | .slice receiver start stop stride => do
+    let parts ← [receiver, start, stop, stride].attach.mapM fun operand => do
+      have := sliceOperandSize operand.property
+      stage (emit operand.val)
+    return (parts.map Prod.fst).foldr Body.seq (assign target (.slice (operandList (parts.map Prod.snd))))
   | .call callee positional keywords star starStar => do
     let (before, callable) ← stage (emit callee)
     let parts ← (argumentExprs positional keywords star starStar).attach.mapM fun part => do

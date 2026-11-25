@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Institution.Operational.CallFrame.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.CallFrame.Thms
 public import Silmaril.Wasm.SingleThreaded.Determinism.Head
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
 import Silmaril.Proofs.Wasm.Institution.Operational.CallFrame.Core
 import Silmaril.Proofs.Wasm.Institution.Operational.CallFrame.V1
 import Silmaril.Proofs.Wasm.Institution.Operational.CallFrame.Lime1
@@ -84,6 +85,15 @@ theorem lime_frame_prefix_inv {H : Type} {s : Store H} {f inside : Frame} {n : N
   Proofs.Lime1.frame_prefix_inv h
 
 open Wasm.Lime1.Execution in
+theorem lime_label_prefix_cases {f : Frame} {n : Nat} {saved : List Execution.Runtime.Value}
+    {code : List Admin} {dst : Config H}
+    (step : Step limeNoHost ⟨s, f, values saved ++ [.label n [] code]⟩ dst) :
+    (∃ mid, Step limeNoHost ⟨s, f, code⟩ mid ∧
+      dst = ⟨mid.store, mid.frame, values saved ++ [.label n [] mid.code]⟩) ∨
+    ∃ out, PureStep f.module.types [.label n [] code] out ∧ dst = ⟨s, f, values saved ++ out⟩ :=
+  Proofs.Lime1.label_prefix_cases step
+
+open Wasm.Lime1.Execution in
 theorem lime_invoke_wasm_prefix_iff {ty : Wasm.Lime1.FuncType} {m : Execution.Runtime.ModuleInst}
     {fnCode : Wasm.Lime1.Func} {saved args : List Execution.Runtime.Value} {dst : Config H}
     (allocated : s.funcs[address.value]? = some (.wasm ty m fnCode)) (count : args.length = ty.params.length) :
@@ -91,6 +101,26 @@ theorem lime_invoke_wasm_prefix_iff {ty : Wasm.Lime1.FuncType} {m : Execution.Ru
       dst = ⟨s, caller, values saved ++ [.frame ty.results.length ⟨args ++ fnCode.locals.map Execution.Runtime.Value.zero, m⟩
         [.label ty.results.length [] (expression fnCode.body)]]⟩ :=
   Proofs.Lime1.invoke_wasm_prefix_iff allocated count
+
+open Wasm.Lime1.Execution in
+theorem lime_return_stuck {f : Frame} {stack : List Execution.Runtime.Value}
+    {tail : List Admin} {dst : Config H}
+    (step : Step limeNoHost ⟨s, f, values stack ++ .source .return_ :: tail⟩ dst) : False :=
+  Proofs.Lime1.return_stuck step
+
+open Wasm.Lime1.Execution in
+theorem lime_return_label_result {types : List Wasm.Lime1.FuncType} {n : Nat}
+    {stack : List Execution.Runtime.Value} {tail out : List Admin}
+    (pop : PureStep types [.label n [] (values stack ++ .source .return_ :: tail)] out) :
+    out = values stack ++ [.source .return_] :=
+  Proofs.Lime1.return_label_result pop
+
+open Wasm.Lime1.Execution in
+theorem lime_return_frame_iff {outer inner : Frame} {n : Nat}
+    {extra results : List Execution.Runtime.Value} {dst : Config H} (arity : results.length = n) :
+    Step limeNoHost ⟨s, outer, [.frame n inner (values (extra ++ results) ++ [.source .return_])]⟩ dst ↔
+      dst = ⟨s, outer, values results⟩ :=
+  Proofs.Lime1.return_frame_iff arity
 
 end Lime1
 
@@ -115,6 +145,22 @@ theorem core_run_iff (allocated : s.funcs[address.value]? = some fn.coreInstance
       ∃ out, Runs fn a out ∧ Admitted fn out ∧ target = coreConfig s caller address fn out :=
   Proofs.run_iff (coreConfig s caller address fn) _ (fun h => core_sound allocated h)
     (fun guard step => (core_step_iff allocated guard).mp step) ready
+
+theorem core_return_stuck {f : Core.Frame} {stack : List Core.Val}
+    {tail : List Core.Admin} {dst : Core.Config H}
+    (step : Core.Step P noHost ⟨s, f, Core.vals stack ++ .plain .return_ :: tail⟩ dst) : False :=
+  Proofs.return_stuck step
+
+theorem core_return_label_result {n : Nat} {stack : List Core.Val} {tail out : List Core.Admin}
+    (pop : Core.LabelExit n [] (Core.vals stack ++ .plain .return_ :: tail) out) :
+    out = Core.vals stack ++ [.plain .return_] :=
+  Proofs.return_label_result pop
+
+theorem core_return_frame_iff {outer inner : Core.Frame} {n : Nat}
+    {extra results : List Core.Val} {dst : Core.Config H} (arity : results.length = n) :
+    Core.Step P noHost ⟨s, outer, [.frame n inner (Core.vals (extra ++ results) ++ [.plain .return_])]⟩ dst ↔
+      dst = ⟨s, outer, Core.vals results⟩ :=
+  Proofs.return_frame_iff arity
 
 end Core
 

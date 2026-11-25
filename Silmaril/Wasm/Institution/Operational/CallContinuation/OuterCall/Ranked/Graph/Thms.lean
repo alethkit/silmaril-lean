@@ -33,30 +33,30 @@ child. The parent's saved operands and continuation are carried by `attach`. -/
 theorem Program.active_iff {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
     {target : CallTarget} (used : target ∈ fn.targets) {a : Phase} (live : a.Active)
-    {args saved : List Value} {rest : List Op} {b : Phase} :
-    program.Edge checked address (.label args (.active saved target a rest)) b ↔
-      ∃ out, program.Edge checked target.address a out ∧ b = .label args (Body.attach saved target rest out) :=
+    {locals saved : List Value} {rest : List Op} {b : Phase} :
+    program.Edge checked address (.label locals (.active saved target a rest)) b ↔
+      ∃ out, program.Edge checked target.address a out ∧ b = .label locals (Body.attach saved target rest out) :=
   Proofs.active_iff checked found used live
 
 theorem Program.lift_child {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
     {target : CallTarget} (used : target ∈ fn.targets) {a b : Phase} (live : a.Active)
-    {args saved : List Value} {rest : List Op} (run : program.Runs checked target.address a b) :
-    program.Runs checked address (.label args (.active saved target a rest))
-      (.label args (Body.attach saved target rest b)) :=
+    {locals saved : List Value} {rest : List Op} (run : program.Runs checked target.address a b) :
+    program.Runs checked address (.label locals (.active saved target a rest))
+      (.label locals (Body.attach saved target rest b)) :=
   Proofs.lift_child checked found used live run
 
 /-- Resolve the checked direct call, run its child, and deliver the child's
 ordered values or trap to the caller's unchanged continuation. -/
 theorem Program.compose_call {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
-    {target : CallTarget} (used : target ∈ fn.targets) {args saved operands : List Value} {rest : List Op}
+    {target : CallTarget} (used : target ∈ fn.targets) {locals saved operands : List Value} {rest : List Op}
     (count : operands.length = target.declaration.params.length) {result : Nested.Result}
     (run : program.Runs checked target.address (.invoke operands) (.done result)) :
-    program.Runs checked address (.label args (.running (saved ++ operands) (.call target :: rest)))
-      (.label args (Body.attach saved target rest (.done result))) :=
+    program.Runs checked address (.label locals (.running (saved ++ operands) (.call target :: rest)))
+      (.label locals (Body.attach saved target rest (.done result))) :=
   (Relation.ReflTransGen.single ((Program.edge_iff checked found).mpr
-    (.dispatch args saved operands target rest used count))).trans (Program.lift_child checked found used (by trivial) run)
+    (.dispatch locals saved operands target rest used count))).trans (Program.lift_child checked found used (by trivial) run)
 
 theorem Program.check_function {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn) : fn.check = true :=

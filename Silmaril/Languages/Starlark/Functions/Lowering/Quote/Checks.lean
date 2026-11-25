@@ -73,6 +73,13 @@ example : starlark%[[pick(1), [2],][key()][0]] =
       (.index (.list [.call (name "pick") [int 1] [] none none, .list [int 2]])
         (.call (name "key") [] [] none none)) (int 0) := rfl
 
+example : starlark%[xs[:]] = Resolve.SourceExpr.slice (name "xs") none none none := rfl
+example : starlark%[xs[::]] = Resolve.SourceExpr.slice (name "xs") none none none := rfl
+example : starlark%[xs[::-2][0]] =
+    Resolve.SourceExpr.index (.slice (name "xs") none none (some (int (-2)))) (int 0) := rfl
+example : starlark%[xs[-1 : None :]] =
+    Resolve.SourceExpr.slice (name "xs") (some (int (-1))) (some (name "None")) none := rfl
+
 /--
 @ +1:27...34
 error: keyword arguments must precede '*'

@@ -53,16 +53,15 @@ private theorem singleton_head {H : Type} {P : Profile} {s : Store H} {f : Frame
   · obtain ⟨_, _, _, _, _, ⟨eq, _, _⟩ | ⟨_, eq, _, _⟩⟩ := fnv_bubble bubble <;>
       rw [first] at eq <;> simp_all
 
-private theorem head_block {H : Type} {P : Profile} {s : Store H} {m : ModuleInst}
-    {result : Option NumType} {body : Locals.State} {b : Config H}
-    (head : Head P s ⟨body.locals.map Locals.coreLocal, m⟩ []
-      (.plain (.block (coreType result) (body.code.map Locals.coreInstr))) b) :
-    b = coreConfig s m (.label result body) := by
+private theorem head_block {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {result : Option NumType} {body : List Instr} {b : Config H}
+    (head : Head P s f [] (.plain (.block (coreType result) body)) b) :
+    b = ⟨s, f, [.label result.toList.length [] (expression body)]⟩ := by
   cases head with
   | block found arity =>
     rw [resolve] at found
     cases found
-    simp [coreConfig, encode_body, vals]
+    simp [vals]
   | _ =>
     first
     | have hf := (famOf_of_shape (ParametricStep.shape ‹_›)).2; contradiction
@@ -74,6 +73,17 @@ private theorem head_block {H : Type} {P : Profile} {s : Store H} {m : ModuleIns
     | have hf := (famOf_of_shape (RefStep.shape ‹_›)).2; contradiction
     | have hf := (famOf_of_shape (AggregateStep.shape ‹_›)).2; contradiction
     | contradiction
+
+theorem core_entry_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {result : Option NumType} {body : List Instr} {dst : Config H} :
+    Step P noHost ⟨s, f, [.plain (.block (coreType result) body)]⟩ dst ↔
+      dst = ⟨s, f, [.label result.toList.length [] (expression body)]⟩ := by
+  constructor
+  · intro step
+    exact head_block (singleton_head step rfl (by simp) (by simp))
+  · rintro rfl
+    simpa only [vals, List.map_nil, List.nil_append, List.length_map] using
+      Step.block (P := P) (host := noHost) (s := s) (body := body) (vs := []) (resolve f.module result) rfl
 
 private theorem head_label {H : Type} {P : Profile} {s : Store H} {m : ModuleInst}
     {result : Option NumType} {a : Locals.State} {b : Config H}
@@ -146,8 +156,8 @@ theorem core_readback {H : Type} {P : Profile} {s : Store H} {m : ModuleInst}
     ∃ out, Edge a out ∧ b = coreConfig s m out := by
   cases a with
   | block result a =>
-    exact ⟨.label result a, enter result a,
-      head_block (singleton_head step rfl (by intro h; cases h) (by intro h; cases h))⟩
+    refine ⟨.label result a, enter result a, ?_⟩
+    simpa only [coreConfig, encode_body] using core_entry_iff.mp step
   | label result a =>
     exact head_label (singleton_head step rfl (by intro h; cases h) (by intro h; cases h))
   | done ls vs => exact (not_step_vals step).elim

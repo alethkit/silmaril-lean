@@ -119,6 +119,13 @@ inductive Error where
   | indexTarget
   | indexType
   | indexRange (index : Int) (length : Nat)
+  | invalidIndexUTF8
+  | sliceTarget
+  | sliceStartType (value : Value)
+  | sliceStopType (value : Value)
+  | sliceStrideType (value : Value)
+  | zeroSliceStride
+  | invalidSliceUTF8
   | assignmentTarget
   | integerAddType (left right : Value)
   | appendTarget
@@ -266,10 +273,13 @@ def addDisplayEntry (entries : List Entry) (key value : Value) : Meaning (List E
       if (findEntry keyCode entries).isSome then .error (.duplicateKey key) state
       else .ok (entries ++ [⟨key, keyCode, value⟩]) state
 
-/-- List indexes range from `-length` through `length - 1`. -/
+def offsetIndex (length index : Int) : Int :=
+  if index < 0 then length + index else index
+
+/-- Sequence indexes range from `-length` through `length - 1`. -/
 def normalizeIndex (length : Nat) : Value → Except Error (Fin length)
   | .scalar (.int index) =>
-    let offset := if index < 0 then (length : Int) + index else index
+    let offset := offsetIndex length index
     if h : 0 ≤ offset ∧ offset.toNat < length then .ok ⟨offset.toNat, h.2⟩
     else .error (.indexRange index length)
   | _ => .error .indexType
@@ -277,6 +287,12 @@ def normalizeIndex (length : Nat) : Value → Except Error (Fin length)
 def fromExcept {α : Type} : Except Error α → Meaning α
   | .ok value => pure value
   | .error error => throw error
+
+/-- The string profile only admits well-formed UTF-8. -/
+def decodeString (bytes : ByteArray) (invalid : Error) : Except Error Value :=
+  match String.fromUTF8? bytes with
+  | some text => .ok (.string text)
+  | none => .error invalid
 
 def readSequence (elements : List Value) (index : Value) : Meaning Value := do
   let i ← fromExcept (normalizeIndex elements.length index)
@@ -294,10 +310,66 @@ def readDict (address : Address) (key : Value) : Meaning Value := do
 
 def readIndex (receiver index : Value) : Meaning Value :=
   match receiver with
-  | .scalar _ | .function _ | .builtin _ | .string _ => throw .indexTarget
+  | .scalar _ | .function _ | .builtin _ => throw .indexTarget
+  | .string text => fromExcept do
+    let bytes := text.toUTF8
+    let offset ← normalizeIndex bytes.size index
+    decodeString ⟨#[bytes[offset.val]'(offset.isLt)]⟩ .invalidIndexUTF8
   | .list address => listElements address >>= fun elements => readSequence elements index
   | .tuple address => tupleElements address >>= fun elements => readSequence elements index
   | .dict address => readDict address index
+
+def sliceInteger (typeError : Value → Error) : Value → Except Error (Option Int)
+  | .scalar .none => .ok none
+  | .scalar (.int i) => .ok (some i)
+  | value => .error (typeError value)
+
+def sliceBound (length low high default : Int) (bound : Option Int) : Int :=
+  match bound with
+  | none => default
+  | some index => max low (min high (offsetIndex length index))
+
+/-- Select the elements of a slice using exact integer bounds and stride.
+Visit the input in index order, returning selected elements in stride order. -/
+def sliceElements {α : Type} (elements : List α) (start stop stride : Value) : Except Error (List α) := do
+  let step := (← sliceInteger .sliceStrideType stride).getD 1
+  if step = 0 then throw .zeroSliceStride
+  let lo ← sliceInteger .sliceStartType start
+  let hi ← sliceInteger .sliceStopType stop
+  let length : Int := elements.length
+  if step > 0 then
+    let first := sliceBound length 0 length 0 lo
+    let last := sliceBound length 0 length length hi
+    return elements.zipIdx.filterMap fun (value, i) =>
+      let index : Int := i
+      if first ≤ index ∧ index < last ∧ (index - first) % step = 0 then some value else none
+  else
+    let first := sliceBound length (-1) (length - 1) (length - 1) lo
+    let last := sliceBound length (-1) (length - 1) (-1) hi
+    return (elements.zipIdx.filterMap fun (value, i) =>
+      let index : Int := i
+      if last < index ∧ index ≤ first ∧ (first - index) % (-step) = 0 then some value else none).reverse
+
+/-- Read a slice after all operands have run. Collections get a fresh shallow
+copy. Strings use byte offsets and reject results that are invalid UTF-8. -/
+def readSlice (receiver start stop stride : Value) : Meaning Value :=
+  match receiver with
+  | .list address => do
+    let elements ← listElements address
+    allocate (← fromExcept (sliceElements elements start stop stride))
+  | .tuple address => do
+    let elements ← tupleElements address
+    allocateTuple (← fromExcept (sliceElements elements start stop stride))
+  | .string text => fromExcept do
+    let bytes ← sliceElements text.toUTF8.toList start stop stride
+    decodeString bytes.toByteArray .invalidSliceUTF8
+  | _ => throw .sliceTarget
+
+/-- Lowered slices supply four values in evaluation order, with `None` for
+omitted bounds. A malformed operand spine has no slice target. -/
+def readSliceOperands : List Value → Meaning Value
+  | [receiver, start, stop, stride] => readSlice receiver start stop stride
+  | _ => throw .sliceTarget
 
 /-- Check mutability before applying a same-kind edit to the current cell. -/
 def editCell (address : Address) (edit : Contents → Except Error Contents) : Meaning Unit := do
@@ -366,6 +438,7 @@ inductive Code : Type → Type where
   | empty : Code (List Value)
   | cons (head : Code Value) (tail : Code (List Value)) : Code (List Value)
   | index (receiver index : Code Value) : Code Value
+  | slice (operands : Code (List Value)) : Code Value
   | append (receiver argument : Code Value) : Code Value
   | pass : Code Unit
   | eval (expr : Code Value) : Code Unit

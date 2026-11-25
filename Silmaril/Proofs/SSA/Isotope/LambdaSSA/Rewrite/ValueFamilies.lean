@@ -29,6 +29,12 @@ private theorem valueBranches_substVars {Γ Δ : VCtx τ} {L : LCtx τ} {r : Reg
       exact .case (ha.subst (valuesTyped hσ)) (ihl (liftValues hσ _)) (ihr (liftValues hσ _))
   | cfg R _ _ ihe ihb => exact .cfg R (ihe hσ) (fun i => ihb i (liftValues hσ _))
 
+theorem valueBranches_renameVars {Γ Δ : VCtx τ} {L : LCtx τ} {r : Region Φ}
+    (hr : ValueBranches Γ r L) {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ) :
+    ValueBranches Δ (r.renameVars ρ) L := by
+  rw [renameVars_eq_substVars]
+  exact valueBranches_substVars hr (fun _ _ hi => .var (hρ hi))
+
 theorem valueBranches_renameLabels {Γ : VCtx τ} {L K : LCtx τ} {r : Region Φ}
     (hr : ValueBranches Γ r L) {ρ : Nat → Nat} (hρ : Ren L K ρ) :
     ValueBranches Γ (r.renameLabels ρ) K := by

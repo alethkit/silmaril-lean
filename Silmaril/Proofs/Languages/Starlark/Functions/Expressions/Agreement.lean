@@ -47,6 +47,19 @@ private theorem denote_index (program : Program) (available : List DeclarationId
         Outcome.resume (denoteExprWith program available bodyMeaning subscript next) (readIndex value)) := by
   rw [denoteExprWith]
 
+private theorem denote_slice (program : Program) (available : List DeclarationId)
+    (bodyMeaning : ClosureMeaning available) (state : State) (receiver start stop stride : Lowering.Expr) :
+    denoteExprWith program available bodyMeaning (.slice receiver start stop stride) state =
+      Outcome.resume ([receiver, start, stop, stride].mapM (denoteExprWith program available bodyMeaning) state)
+        readSliceOperands := by
+  rw [denoteExprWith]
+  let operands := [receiver, start, stop, stride]
+  let meaning := denoteExprWith program available bodyMeaning
+  change Outcome.resume (operands.attach.mapM (meaning ∘ Subtype.val) state) readSliceOperands = _
+  rw [← List.mapM_map]
+  change Outcome.resume (operands.attach.unattach.mapM meaning state) readSliceOperands = _
+  rw [List.unattach_attach]
+
 private theorem denote_dict (program : Program) (available : List DeclarationId)
     (bodyMeaning : ClosureMeaning available) (state : State) (entries : List (Lowering.Expr × Lowering.Expr)) :
     let meaning := denoteExprWith program available bodyMeaning
@@ -134,6 +147,7 @@ theorem denote_eq_of_evaluates {program : Program} {available : List Declaration
   | index receiver subscript receiverIH subscriptIH =>
     simp only [denote_index, receiverIH, Outcome.resume, subscriptIH]
   | indexReceiverError ran ih => simp only [denote_index, ih, Outcome.resume]
+  | slice ran ih => rw [denote_slice, ih]
   | call operands applied ih =>
     rw [denote_call, ih, Outcome.resume]
     exact application_eq closureEq applied
@@ -282,6 +296,9 @@ theorem evaluates_denote (program : Program) (available : List DeclarationId)
     cases tested : denoteExprWith program available bodyMeaning receiver state with
     | error error next => exact .indexReceiverError (tested ▸ ran)
     | ok value next => exact .index (tested ▸ ran) (subscriptIH next)
+  | @slice receiver start stop stride _ ih =>
+    rw [denote_slice]
+    exact .slice (operands_denote program available calls bodyMeaning [receiver, start, stop, stride] ih state)
   | @call callee positional keywords star starStar all ih =>
     rw [denote_call]
     let operands := sourceOperands callee positional keywords star starStar
@@ -376,6 +393,10 @@ theorem admits_all_atoms (expression : Lowering.Expr) : AdmittedWith (fun _ => T
       have := (entrySize member).2
       exact admits_all_atoms value
   | index receiver subscript => exact .index (admits_all_atoms receiver) (admits_all_atoms subscript)
+  | slice receiver start stop stride =>
+    refine .slice fun operand member => ?_
+    have := sliceOperandSize member
+    exact admits_all_atoms operand
   | logical op left right => exact .logical (admits_all_atoms left) (admits_all_atoms right)
   | branch test yes no =>
     exact .branch (admits_all_atoms test) (admits_all_atoms yes) (admits_all_atoms no)

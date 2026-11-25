@@ -29,6 +29,15 @@ section V1
 variable {H : Type} {host : Wasm.V1.Execution.HostSemantics H}
 variable {s : Wasm.V1.Execution.Store H} {m : ModuleInst}
 
+open Wasm.V1.Execution in
+/-- Exact entry for an unindexed block with no parameters. The source body
+is retained in its administrative label. -/
+theorem v1_entry_iff {f : Execution.Runtime.Frame}
+    {result : Option NumType} {body : Wasm.V1.Expr} {dst : Config H} :
+    Step host ⟨s, f, [.source (.block result body)]⟩ dst ↔
+      dst = ⟨s, f, [.label result.toList.length [] (expression body)]⟩ :=
+  Proofs.V1.entry_iff
+
 theorem v1_sound {a b : State} (edge : Edge a b) :
     Wasm.V1.Execution.Step host (v1Config s m a) (v1Config s m b) :=
   Proofs.V1.sound s m edge
@@ -50,6 +59,15 @@ section Lime1
 variable {H : Type} {host : Wasm.Lime1.Execution.HostSemantics H}
 variable {s : Wasm.Lime1.Execution.Store H} {m : ModuleInst}
 
+open Wasm.Lime1.Execution in
+/-- Exact entry for an unindexed block with no parameters. The source body
+is retained in its administrative label. -/
+theorem lime_entry_iff {f : Execution.Runtime.Frame}
+    {result : Option NumType} {body : Wasm.Lime1.Expr} {dst : Config H} :
+    Step host ⟨s, f, [.source (.block (limeType result) body)]⟩ dst ↔
+      dst = ⟨s, f, [.label result.toList.length [] (expression body)]⟩ :=
+  Proofs.Lime1.entry_iff
+
 theorem lime_sound {a b : State} (edge : Edge a b) :
     Wasm.Lime1.Execution.Step host (limeConfig s m a) (limeConfig s m b) :=
   Proofs.Lime1.sound s m edge
@@ -70,6 +88,15 @@ end Lime1
 section Core
 variable {H : Type} {P : Wasm.Numerics.Profile}
 variable {s : Core.Store H} {m : Core.ModuleInst}
+
+open Core in
+/-- Exact entry for an unindexed block with no parameters. The source body
+is retained in its administrative label. -/
+theorem core_entry_iff {f : Core.Frame}
+    {result : Option NumType} {body : List Instr} {dst : Config H} :
+    Step P noHost ⟨s, f, [.plain (.block (coreType result) body)]⟩ dst ↔
+      dst = ⟨s, f, [.label result.toList.length [] (expression body)]⟩ :=
+  Proofs.core_entry_iff
 
 theorem core_sound {a b : State} (edge : Edge a b) :
     Core.Step P noHost (coreConfig s m a) (coreConfig s m b) :=

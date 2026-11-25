@@ -91,6 +91,22 @@ theorem glue_outputs_upper (v : Fin R) :
   rw [← List.map_ofFn, jointOutput, jointPorts, Proofs.ProgressiveGluing.port_list_right]
   simp only [Diagram.outputs, List.map_ofFn, upperId, Function.comp_def]
 
+theorem glue_vertexX_lower (v : Fin L) :
+    m.glue.vertexX (Fin.castAdd R v) = lower.vertexX v :=
+  Proofs.ProgressiveGluing.x_left v
+
+theorem glue_vertexX_upper (v : Fin R) :
+    m.glue.vertexX (Fin.natAdd L v) = upper.vertexX v :=
+  Proofs.ProgressiveGluing.x_right v
+
+theorem glue_generator_lower (v : Fin L) :
+    m.glue.generator (Fin.castAdd R v) = lower.generator v :=
+  Proofs.ProgressiveGluing.generator_left v
+
+theorem glue_generator_upper (v : Fin R) :
+    m.glue.generator (Fin.natAdd L v) = upper.generator v :=
+  Proofs.ProgressiveGluing.generator_right v
+
 theorem glue_height_lower (v : Fin L) :
     m.glue.vertexHeight (Fin.castAdd R v) = halfHeight 0 (lower.vertexHeight v) :=
   Proofs.ProgressiveGluing.height_left v

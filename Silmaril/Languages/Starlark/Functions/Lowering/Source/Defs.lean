@@ -42,6 +42,7 @@ inductive AtomSafe : {α : Type} → Lists.Code α → Prop where
       AtomSafe head → AtomSafe tail → AtomSafe (.cons head tail)
   | index {receiver index : Lists.Expr} :
       AtomSafe receiver → AtomSafe index → AtomSafe (.index receiver index)
+  | slice {operands : Lists.Code (List Lists.Value)} : AtomSafe operands → AtomSafe (.slice operands)
   | append {receiver value : Lists.Expr} :
       AtomSafe receiver → AtomSafe value → AtomSafe (.append receiver value)
 
@@ -71,11 +72,11 @@ export AppliesWith (expansionError expanded)
 end Applies
 
 namespace Admitted
-export AdmittedWith (atom list tuple dict index call branch logical)
+export AdmittedWith (atom list tuple dict index slice call branch logical)
 end Admitted
 
 namespace Evaluates
-export EvaluatesWith (atom list tuple dict index indexReceiverError call callError branch branchError logical shortCircuit logicalError rec)
+export EvaluatesWith (atom list tuple dict index indexReceiverError slice call callError branch branchError logical shortCircuit logicalError rec)
 end Evaluates
 
 namespace EvaluatesMany

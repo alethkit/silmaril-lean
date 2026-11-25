@@ -6,6 +6,7 @@ import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.R
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.NativeCommon
 import Silmaril.Wasm.Institution.Operational.CallContinuation.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Thms
+import Silmaril.Wasm.Institution.Operational.Locals.Native.Thms
 import Silmaril.Wasm.Versions.Lime1.Execution.Thms
 
 @[expose] public section
@@ -18,10 +19,10 @@ open Computed
 
 private theorem expression_code (fn : Function) :
     expression fn.v1Func.body = (Body.running fn.initial fn.code).render v1Admin := by
-  change expression (fn.instructions Sequence.v1Source .unreachable) = _
+  change expression (fn.instructions Sequence.v1Source (Locals.v1Instr ∘ .set) (Locals.v1Instr ∘ .tee) .return_ .unreachable) = _
   rw [Function.instructions, expression_append]
   change (fn.initial.map Sequence.v1Source.value).map AdminInstr.source ++
-      (fn.code.map (Op.emit Sequence.v1Source .unreachable)).map AdminInstr.source =
+      (fn.code.map (Op.emit Sequence.v1Source (Locals.v1Instr ∘ .set) (Locals.v1Instr ∘ .tee) .return_ .unreachable)).map AdminInstr.source =
     values fn.initial ++ fn.code.map v1Admin.emit
   rw [List.map_map, List.map_map]
   congr 1
@@ -33,13 +34,37 @@ private theorem expression_code (fn : Function) :
     intro op _
     cases op with
     | numeric op => cases op <;> rfl
-    | call | unreachable => rfl
+    | set | tee | call | return_ | unreachable => rfl
 
-private theorem lift_label {H : Type} {s : Store H} {caller parent : Frame} {n : Nat}
-    {before after : List Admin} (move : Step CallFrame.v1NoHost ⟨s, parent, before⟩ ⟨s, parent, after⟩) :
+private theorem lift_label {H : Type} {s : Store H} {caller parent parentNext : Frame} {n : Nat}
+    {before after : List Admin} (move : Step CallFrame.v1NoHost ⟨s, parent, before⟩ ⟨s, parentNext, after⟩) :
     Step CallFrame.v1NoHost ⟨s, caller, [.frame n parent [.label n [] before]]⟩
-      ⟨s, caller, [.frame n parent [.label n [] after]]⟩ :=
+      ⟨s, caller, [.frame n parentNext [.label n [] after]]⟩ :=
   .frame (.label move n []) n caller
+
+private theorem set_sound {H : Type} {s : Store H} {decl : Declaration}
+    {locals next saved : List Value} {v : Value} {idx : LocalIdx} {rest : List Op}
+    (write : Locals.Edge ⟨locals, [.value v, .set idx]⟩ ⟨next, []⟩) :
+    Step CallFrame.v1NoHost ⟨s, currentFrame decl locals, (Body.running (saved ++ [v]) (.set idx :: rest)).render v1Admin⟩
+      ⟨s, currentFrame decl next, (Body.running saved rest).render v1Admin⟩ := by
+  have move := Locals.v1_sound (host := CallFrame.v1NoHost) (s := s) (m := decl.module) write
+  have lifted := Step.context move saved (rest.map v1Admin.emit)
+  rcases v with ⟨t, bits⟩
+  cases t <;> simp [Locals.Codec.encode, Locals.v1Codec, Locals.legacyCodec,
+    Locals.v1Instr, currentFrame, Body.render, v1Admin, Syntax.emit, Op.emit,
+    List.append_assoc, values] at lifted ⊢ <;> exact lifted
+
+private theorem tee_sound {H : Type} {s : Store H} {decl : Declaration}
+    {locals saved : List Value} {v : Value} {idx : LocalIdx} {rest : List Op}
+    (write : Locals.Edge ⟨locals, [.value v, .tee idx]⟩ ⟨locals, [.value v, .value v, .set idx]⟩) :
+    Step CallFrame.v1NoHost ⟨s, currentFrame decl locals, (Body.running (saved ++ [v]) (.tee idx :: rest)).render v1Admin⟩
+      ⟨s, currentFrame decl locals, (Body.running (saved ++ [v, v]) (.set idx :: rest)).render v1Admin⟩ := by
+  have move := Locals.v1_sound (host := CallFrame.v1NoHost) (s := s) (m := decl.module) write
+  have lifted := Step.context move saved (rest.map v1Admin.emit)
+  rcases v with ⟨t, bits⟩
+  cases t <;> simp [Locals.Codec.encode, Locals.v1Codec, Locals.legacyCodec,
+    Locals.v1Instr, currentFrame, Body.render, v1Admin, Syntax.emit, Op.emit,
+    List.append_assoc, values] at lifted ⊢ <;> exact lifted
 
 theorem sound {H : Type} {s : Store H} {program : Program} (checked : program.checkV1 = true)
     (allocated : program.V1Allocated s) (address : FuncAddr) :
@@ -63,35 +88,36 @@ theorem sound {H : Type} {s : Store H} {program : Program} (checked : program.ch
         fn.declaration.type fn.declaration.module fn.v1Func args (allocated _ _ root.found)
         arity (program.scalar_result checked root.found)
       rw [expression_code] at step
-      simpa only [v1Config, Phase.render, v1Admin, ← root.declared, Declaration.type, Declaration.frame, Function.v1Func] using step
-    | @numeric args stack op rest answer reduce =>
-      rw [root.declared] at reduce
+      simpa only [v1Config, Phase.render, v1Admin, ← root.declared, Declaration.type, Declaration.frame, Function.v1Func, currentFrame] using step
+    | @numeric locals stack op rest answer reduce =>
       apply lift_label
-      exact (Prefix.v1_step_iff (s := s) (f := target.declaration.frame args) (stack := stack) (op := op)
+      exact (Prefix.v1_step_iff (s := s) (f := currentFrame target.declaration locals) (stack := stack) (op := op)
         (tail := rest.map v1Admin.emit)).mpr ⟨answer, reduce, by cases answer <;> rfl⟩
-    | unreachable args stack rest =>
+    | localSet write => exact lift_label (set_sound write)
+    | localTee write => exact lift_label (tee_sound write)
+    | unreachable locals stack rest =>
       apply lift_label
       change Step CallFrame.v1NoHost
-        ⟨s, target.declaration.frame args, values stack ++ .source .unreachable :: rest.map v1Admin.emit⟩
-        ⟨s, target.declaration.frame args, values stack ++ .trap :: rest.map v1Admin.emit⟩
+        ⟨s, currentFrame target.declaration locals, values stack ++ .source .unreachable :: rest.map v1Admin.emit⟩
+        ⟨s, currentFrame target.declaration locals, values stack ++ .trap :: rest.map v1Admin.emit⟩
       simpa only [List.append_assoc, List.singleton_append] using
-        Step.context (Step.pure (host := CallFrame.v1NoHost) s (target.declaration.frame args) PureStep.unreachable)
+        Step.context (Step.pure (host := CallFrame.v1NoHost) s (currentFrame target.declaration locals) PureStep.unreachable)
           stack (rest.map v1Admin.emit)
-    | dispatch args saved operands child rest used count =>
+    | dispatch locals saved operands child rest used count =>
       obtain ⟨_, _, _, resolves⟩ := program.linked_target check root.found used
-      have found : child.Resolves (target.declaration.frame args) := by
-        simpa only [CallTarget.Resolves, Declaration.frame, ← root.declared] using resolves
+      have found : child.Resolves (currentFrame target.declaration locals) := by
+        simpa only [CallTarget.Resolves, currentFrame, ← root.declared] using resolves
       apply lift_label
       simpa only [Body.render, Phase.render, v1Admin, Syntax.emit, Op.emit, v1Syntax, Function.comp_def,
         values_append, List.map_cons, List.append_assoc, List.singleton_append] using
-        Step.context (Step.call (host := CallFrame.v1NoHost) s (target.declaration.frame args)
+        Step.context (Step.call (host := CallFrame.v1NoHost) s (currentFrame target.declaration locals)
           child.index child.address found) (saved ++ operands) (rest.map v1Admin.emit)
-    | child args saved child rest used live step =>
+    | child locals saved child rest used live step =>
       cases ready with
       | active _ _ childFound declared _ childReady _ =>
         obtain ⟨_, _, _, resolves⟩ := program.linked_target check root.found used
-        have childResolves : child.Resolves (target.declaration.frame args) := by
-          simpa only [CallTarget.Resolves, Declaration.frame, ← root.declared] using resolves
+        have childResolves : child.Resolves (currentFrame target.declaration locals) := by
+          simpa only [CallTarget.Resolves, currentFrame, ← root.declared] using resolves
         have inside := ih child.address (program.target_resolved check root.found used)
           rfl ⟨childFound, declared, childResolves⟩ childReady step
         apply lift_label
@@ -99,12 +125,23 @@ theorem sound {H : Type} {s : Store H} {program : Program} (checked : program.ch
         exact Step.context inside saved (rest.map v1Admin.emit)
     | discard cut =>
       exact lift_label ((Prefix.v1_discard_iff v1Admin.emit).mpr ⟨_, _, cut, rfl⟩)
-    | leaveValues args stack =>
+    | returnLabel locals stack rest =>
+      simpa only [v1Config, Phase.render, Body.render, v1Admin, List.map_cons,
+        Syntax.emit, Op.emit, List.append_assoc, List.singleton_append] using
+        Step.frame (Step.pure (host := CallFrame.v1NoHost) s (currentFrame target.declaration locals)
+          (.labelReturn target.declaration.results.length [] stack (rest.map v1Admin.emit)))
+          target.declaration.results.length caller
+    | returnFrame locals extra results arity =>
+      have n := arity.trans (congrArg (fun d => d.results.length) root.declared)
+      simpa only [v1Config, Phase.render, v1Admin, values_append, List.append_nil, Nested.resultCode] using
+        Step.pure (host := CallFrame.v1NoHost) s caller
+          (.frameReturn _ (currentFrame target.declaration locals) extra results [] n)
+    | leaveValues locals stack =>
       simpa only [v1Config, Phase.render, Body.render, v1Admin, List.map_nil, List.append_nil, Nested.resultCode] using
-        Step.frame (Step.pure (host := CallFrame.v1NoHost) s (target.declaration.frame args)
+        Step.frame (Step.pure (host := CallFrame.v1NoHost) s (currentFrame target.declaration locals)
           (.labelDone target.declaration.results.length [] stack)) target.declaration.results.length caller
     | leaveTrap => exact .frame (.pure s _ (.labelTrap _ [])) _ caller
-    | leaveFrame args result resultTyped =>
+    | leaveFrame locals result resultTyped =>
       cases result with
       | trap => exact .pure s caller (.frameTrap _ _)
       | values xs =>
@@ -112,8 +149,8 @@ theorem sound {H : Type} {s : Store H} {program : Program} (checked : program.ch
           (congrArg (fun decl => decl.results.length) root.declared)))
 
 private theorem function_to_lime (fn : Function) : fn.v1Func.toLime = fn.limeFunc := by
-  have body : Wasm.V1.Expr.toLime (fn.instructions Sequence.v1Source .unreachable) =
-      fn.instructions Sequence.limeSource .unreachable := by
+  have body : Wasm.V1.Expr.toLime (fn.instructions Sequence.v1Source (Locals.v1Instr ∘ .set) (Locals.v1Instr ∘ .tee) .return_ .unreachable) =
+      fn.instructions Sequence.limeSource (Locals.limeInstr ∘ .set) (Locals.limeInstr ∘ .tee) .return_ .unreachable := by
     rw [Wasm.V1.Expr.toLime_eq_map, Function.instructions, Function.instructions, List.map_append,
       List.map_map, List.map_map]
     congr 1
@@ -125,7 +162,7 @@ private theorem function_to_lime (fn : Function) : fn.v1Func.toLime = fn.limeFun
       intro op _
       cases op with
       | numeric op => cases op <;> rfl
-      | call | unreachable => rfl
+      | set | tee | call | return_ | unreachable => rfl
   exact congrArg (fun code => (⟨fn.declaration.typeIndex, fn.declaration.locals, code⟩ : Wasm.Lime1.Func)) body
 
 theorem allocations_to_lime {H : Type} {s : Store H} {program : Program} (allocated : program.V1Allocated s) :
@@ -142,7 +179,7 @@ private theorem rest_to_lime (rest : List Op) :
   intro op _
   cases op with
   | numeric op => cases op <;> rfl
-  | call | unreachable => rfl
+  | set | tee | call | return_ | unreachable => rfl
 
 mutual
 
@@ -152,18 +189,23 @@ private theorem phase_to_lime (target : CallTarget) (q : Phase) :
   | call args | invoke args =>
     simp only [Phase.render, codeToLime_append, v1Admin, limeAdmin, map_values]
     rfl
-  | label args body =>
-    change [AdminInstr.frame target.declaration.results.length (target.declaration.frame args)
+  | label locals body =>
+    change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)
       [.label target.declaration.results.length [] (codeToLime (body.render v1Admin))]] = _
     rw [body_to_lime body]
     rfl
-  | exit args result =>
-    change [AdminInstr.frame target.declaration.results.length (target.declaration.frame args)
+  | returning locals stack =>
+    change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)
+      (codeToLime (values stack ++ [.source .return_]))] = _
+    rw [codeToLime_append, map_values]
+    rfl
+  | exit locals result =>
+    change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)
       (codeToLime (Nested.resultCode values .trap result))] = _
     cases result with
     | trap => rfl
     | values stack =>
-      change [AdminInstr.frame target.declaration.results.length (target.declaration.frame args)
+      change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)
         (codeToLime (values stack))] = _
       rw [map_values]
       rfl

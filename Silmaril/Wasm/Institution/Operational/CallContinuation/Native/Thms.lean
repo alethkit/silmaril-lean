@@ -105,6 +105,15 @@ theorem lime_frame_context_inv {H : Type} {s : Store H} {f inside : Frame} {n : 
       dst = ⟨mid.store, mid.frame, values saved ++ mid.code ++ rest⟩ :=
   Proofs.Lime1.frame_context_inv step
 
+open Wasm.Lime1.Execution in
+theorem lime_label_context_cases {H : Type} {s : Store H} {f : Frame} {n : Nat}
+    {saved : List Value} {code rest : List Admin} {dst : Config H}
+    (step : Step CallFrame.limeNoHost ⟨s, f, values saved ++ .label n [] code :: rest⟩ dst) :
+    (∃ mid, Step CallFrame.limeNoHost ⟨s, f, code⟩ mid ∧
+      dst = ⟨mid.store, mid.frame, values saved ++ .label n [] mid.code :: rest⟩) ∨
+    ∃ out, PureStep f.module.types [.label n [] code] out ∧ dst = ⟨s, f, values saved ++ out ++ rest⟩ :=
+  Proofs.Lime1.label_context_cases step
+
 /-- A live Lime1 callee step leaves the caller's pending instructions unchanged. -/
 theorem lime_active_strip {H : Type} {s : Wasm.Lime1.Execution.Store H} {caller : Frame}
     {addr : FuncAddr} {fn : CallFrame.Callee} {a : CallFrame.State} {dst : Wasm.Lime1.Execution.Config H}

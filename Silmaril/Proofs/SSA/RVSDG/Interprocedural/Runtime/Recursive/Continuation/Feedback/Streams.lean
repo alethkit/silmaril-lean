@@ -167,4 +167,15 @@ theorem run_iff_restarts :
   · rintro ⟨inputs, micro, indices, first, trace⟩
     exact ⟨inputs, first, fun n => iteration_iff_segment.mpr (segments_of_restarts trace n)⟩
 
+theorem iterations_steps {carried : Ports (Ty V S)} {sigs : List (Ports (Ty V S))}
+    {body : NestedTheta.Term (Instruction Op) carried [] sigs (Theta.BodyResults carried)}
+    {input current : Tuple m.Val carried}
+    (completed : ReflTransGen (Feedback.Iteration body) input current) (stack : Stack m carried final) :
+    ReflTransGen Step (Feedback.restart body stack input) (Feedback.restart body stack current) := by
+  induction completed with
+  | refl => exact .refl
+  | tail _ iteration ih =>
+    exact ih.trans (segment_steps (iteration_iff_segment.mp iteration)).to_reflTransGen
+
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Proofs
