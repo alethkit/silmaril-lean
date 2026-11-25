@@ -18,19 +18,19 @@ open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruc
   (UnitPayloadPolicy Env EnvTy Val ValTy Result ResultTy cfgRun
   cfgRun_out cfgRun_local cfgRun_fault cfgRun_diverges cfgRun_congr cfgRun_shiftOut mapOut shiftOut)
 
-variable {markPairLet : Bool}
+variable {observation : TermObservation}
 
-local notation "evalTerm" => evalTermWith markPairLet
-local notation "evalRegion" => evalRegionWith markPairLet
+local notation "evalTerm" => evalTermWith observation
+local notation "evalRegion" => evalRegionWith observation
 
 set_option linter.concreteInstances false
 
 variable [UnitPayloadPolicy]
 
-def SameWith (markPairLet : Bool) (Γ : VCtx (Ty Empty)) (r s : Region Empty) : Prop :=
-  ∀ env, EnvTy Γ env → evalRegionWith markPairLet r env = evalRegionWith markPairLet s env
+def SameWith (observation : TermObservation) (Γ : VCtx (Ty Empty)) (r s : Region Empty) : Prop :=
+  ∀ env, EnvTy Γ env → evalRegionWith observation r env = evalRegionWith observation s env
 
-local notation "Same" => SameWith markPairLet
+local notation "Same" => SameWith observation
 
 theorem SameWith.refl (Γ : VCtx (Ty Empty)) (r : Region Empty) : Same Γ r r :=
   fun _ _ => rfl
@@ -107,12 +107,12 @@ theorem cfgEquiv_same {Γ L : List (Ty Empty)} {r s : Region Empty}
     | fault => exact cfgRun_fault 0 _
   | cfgBrExit R hi ht hb =>
     intro env henv
-    obtain ⟨v, eq, hv⟩ := evalValue (markPairLet := markPairLet) ht henv
+    obtain ⟨v, eq, hv⟩ := evalValue (observation := observation) ht henv
     simp only [evalRegionWith, eq]
     rw [cfgRun_out _ _ (Nat.le_add_right _ _), Nat.add_sub_cancel_left]
   | @cfgBrLocal Δ K n t bs R i ht hb =>
     intro env henv
-    obtain ⟨v, eq, hv⟩ := evalValue (markPairLet := markPairLet) ht henv
+    obtain ⟨v, eq, hv⟩ := evalValue (observation := observation) ht henv
     simp only [evalRegionWith, eq]
     exact cfgRun_local _ _ i.isLt
 
@@ -128,7 +128,7 @@ theorem rewriteEquiv_same {Γ L : List (Ty Empty)} {r s : Region Empty}
   | cfg R he hb ie ib => exact SameWith.cfg R he.typed.1 (fun i => (hb i).typed.1) ie ib
   | letBr ht hb hi =>
     intro env henv
-    obtain ⟨v, eq, hv⟩ := evalValue (markPairLet := markPairLet) ht henv
+    obtain ⟨v, eq, hv⟩ := evalValue (observation := observation) ht henv
     simp only [evalRegionWith, eq, evalTerm_subst _ (RealizesWith.single eq (value_startsLet ht))]
   | @caseInl _ t _ _ _ _ _ ha hl hr =>
     intro env he
@@ -172,11 +172,11 @@ theorem substitutionEquiv_same {Γ L : List (Ty Empty)} {r s : Region Empty}
   | cfg R he hb ie ib => exact SameWith.cfg R he.typed.1 (fun i => (hb i).typed.1) ie ib
   | letValue ht hr =>
     intro env he
-    obtain ⟨v, eq, hv⟩ := evalValue (markPairLet := markPairLet) ht he
+    obtain ⟨v, eq, hv⟩ := evalValue (observation := observation) ht he
     simp only [evalRegionWith, eq, evalRegion_subst _ (RealizesWith.single eq (value_startsLet ht))]
   | @caseValue Δ t A B r K ht hr =>
     intro env he
-    obtain ⟨v, eq, hv⟩ := evalValue (markPairLet := markPairLet) ht he
+    obtain ⟨v, eq, hv⟩ := evalValue (observation := observation) ht he
     rw [evalRegion_subst r (RealizesWith.single eq (value_startsLet ht))]
     cases hv with
     | inl hv =>
@@ -192,7 +192,7 @@ theorem substitutionEquiv_same {Γ L : List (Ty Empty)} {r s : Region Empty}
   | caseCfg ht hl hr => exact caseCfg_same ht
   | initial ht hr hs =>
     intro env he
-    obtain ⟨v, eq, hv⟩ := evalValue (markPairLet := markPairLet) ht he
+    obtain ⟨v, eq, hv⟩ := evalValue (observation := observation) ht he
     cases hv
   | cfgOutward R hr hb =>
     intro env he

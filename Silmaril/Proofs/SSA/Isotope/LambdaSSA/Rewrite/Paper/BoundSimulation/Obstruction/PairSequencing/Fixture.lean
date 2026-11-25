@@ -2,8 +2,7 @@ module
 
 public import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Soundness
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Beta.Constructors.Example.Defs
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturns.Defs
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithUnitEta.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturnsAndUnitEta.Defs
 
 /-! # The pair sequence and mixed update have distinct observations
 -/
@@ -39,7 +38,7 @@ theorem pair_sequence_fails :
       (returnOnce (.pair (.let₁ (.var 0) (.var 0)) (.var 0)))
       (pairSequence (.let₁ (.var 0) (.var 0)) (.var 0)) [product source source] := by
   intro h
-  have obs := extended_same (markPairLet := true) h env env_typed
+  have obs := extended_same (observation := { pairLet := true }) h env env_typed
   change Result.fault = .jump 0 (.pair (.inl .unit) (.inl .unit)) at obs
   cases obs
 
@@ -55,7 +54,7 @@ theorem fusion_cannot_sequence_constructors :
 theorem mixed_state_fails :
     ¬ Paper.Extension.Eqv Paper.UnaryReturn.Step [source] (returnOnce update) (.br 0 constructor) [target] := by
   intro h
-  have obs := extended_same (markPairLet := true) h env env_typed
+  have obs := extended_same (observation := { pairLet := true }) h env env_typed
   change Result.fault = .jump 0 (.inl (.pair (.inl .unit) (.inl .unit))) at obs
   cases obs
 
@@ -65,8 +64,8 @@ open CfgEta.TypeCategory (returnRegion)
 
 -- The projection laws respect both typed unit observations.
 set_option linter.concreteInstances false in
-private theorem projection_same [Observer.UnitPayloadPolicy] {Γ L : List (Ty Empty)} {r s : Region Empty}
-    (h : Paper.WithProjectionReturns.Step Γ r s L) : Observer.SameWith true Γ r s := by
+private theorem projection_same [Observer.UnitPayloadPolicy] {observation : Observer.TermObservation} {Γ L : List (Ty Empty)} {r s : Region Empty}
+    (h : Paper.WithProjectionReturns.Step Γ r s L) : Observer.SameWith observation Γ r s := by
   cases h <;> intro env _ <;> cases hx : env 0 <;>
     simp [returnRegion, Observer.evalRegionWith, Observer.evalTermWith, hx, extend]
 
@@ -81,20 +80,24 @@ theorem projection_unit_eta_fails :
     cases i with
     | zero => cases Option.some.inj hi; exact .alternateUnit rfl
     | succ i => simp [At] at hi
-  have obs := Observer.extension_same (markPairLet := true) projection_same h env henv
+  have obs := Observer.extension_same (observation := { pairLet := true }) projection_same h env henv
   change Result.jump 0 .unit = Result.jump 0 (.inl .unit) at obs
   cases obs
 
 section
 open scoped Observer.CanonicalUnit
 
-private theorem unit_same {Γ L : List (Ty Empty)} {r s : Region Empty}
-    (h : Paper.WithUnitEta.Step Γ r s L) : Observer.SameWith true Γ r s := by
+private theorem unit_same {observation : Observer.TermObservation} {Γ L : List (Ty Empty)} {r s : Region Empty}
+    (h : Paper.WithUnitEta.Step Γ r s L) : Observer.SameWith observation Γ r s := by
   cases h
   intro env he
   have ht := he (rfl : At [Ty.unit] 0 (Ty.unit : Ty Empty))
   have hu : env 0 = .unit := ht.eq_unit rfl
   simp [Observer.evalRegionWith, Observer.evalTermWith, hu]
+
+theorem joined_same {observation : Observer.TermObservation} {Γ L : List (Ty Empty)} {r s : Region Empty}
+    (h : Paper.Extension.Eqv Paper.WithProjectionReturnsAndUnitEta.Step Γ r s L) : Observer.SameWith observation Γ r s :=
+  Observer.extension_same (fun h => h.elim projection_same unit_same) h
 
 /-- The witness uses variable and unary-let expressions inside a pair. Both
 the projection-return and unit seeds preserve its separating observation. -/
@@ -106,7 +109,7 @@ theorem lowered_pure_pair_discard_fails :
         (fun _ => .br 0 .unit) 0)
       (.br 0 .unit) [Ty.unit] := by
   intro h
-  have same := Observer.extension_same (markPairLet := true) (fun h => h.elim projection_same unit_same) h
+  have same := joined_same (observation := { pairLet := true }) h
   have obs := same env env_typed
   change Result.fault = .jump 0 .unit at obs
   cases obs
