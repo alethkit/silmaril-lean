@@ -28,6 +28,14 @@ uses a message. The SOS basis uses no argument. Recursive invocation
 consumes the class and callback operands. The evaluator resolves the
 callable before its arguments and evaluates arguments left to right.
 
+The Boolean-integer projection supplies a stock `int` descriptor and
+the Lambda-Py `___assertIsNot` helper. The descriptor accepts one exact
+Boolean and returns the exact integer zero or one. The helper accepts one
+integer and one Boolean in either order. Those values have distinct Python
+identities, so the helper returns `None`. Other conversions, signatures,
+and identity operand pairs remain unsupported. `invoke_int_bool` and
+`invoke_assertIsNot_int_bool` characterize the two admitted calls.
+
 The call model covers the closed helper descriptors and known non-callable
 values in this value domain. Object equality, constructing an exception
 instance by calling its class, arbitrary function callbacks, generalized

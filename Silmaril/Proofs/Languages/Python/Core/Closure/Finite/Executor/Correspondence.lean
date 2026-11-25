@@ -13,9 +13,9 @@ namespace Silmaril.Proofs.Languages.Python.Core.Closure.Finite.Executor
 open Silmaril.Languages.Python.Core.Closure
 open Silmaril.Languages.Python.Core.Closure.Finite
 open Silmaril.Languages.Python.Core.Closure.Finite.Executor
-open Silmaril.Languages.Python.Core.Closure.Executor (Continuation Event GlobalLookup Stack evalCallIn)
+open Silmaril.Languages.Python.Core.Closure.Executor (Continuation Event FreevarsFailure GlobalLookup Stack evalCallIn)
 open Silmaril.Languages.Python.Core.Closure.Executor renaming advanceIn → coreAdvance,
-  fail → coreFail, failDispatch → coreFailDispatch, resumeStore → coreResumeStore,
+  fail → coreFail, failDispatch → coreFailDispatch, failFreevars → coreFailFreevars, resumeStore → coreResumeStore,
   enter → coreEnter, runPrefixIn → coreRunPrefix, stepIn_iff → coreStepIff,
   State → CoreState, Body → CoreBody
 open Semantics.Operational
@@ -31,6 +31,14 @@ private theorem failDispatch_project (heap : HeapTable) (stack : Stack)
   | call failure => exact fail_project heap stack failure
   | missingCode key => rfl
   | layoutMismatch expected actual => rfl
+
+private theorem failFreevars_project (heap : HeapTable) (stack : Stack) (error : FreevarsFailure) :
+    (failFreevars heap stack error).project = coreFailFreevars heap.project stack error := by
+  cases error with
+  | read failure => exact fail_project heap stack failure
+  | code failure => exact failDispatch_project heap stack failure
+  | unprofiled ref => rfl
+  | nonFunction => rfl
 
 private theorem resumeStore_project {layout : Layout} (source : Snapshot layout) (destination : Slot layout)
     (value : Value) (body : CoreBody layout) (stack : Stack) :
@@ -65,6 +73,11 @@ theorem advanceIn_project (rows : CodeRows) (globals : GlobalLookup) (source : S
       cases test.evalIn globals environment.heap.project environment.frame with
       | ok value => cases truth : value.truth <;> simp [truth, Transition.project, State.project]
       | error failure => exact congrArg some (fail_project environment.heap stack failure)
+    | assertFreevars test next =>
+      simp only [advanceIn, coreAdvance, State.project, Option.map_some]
+      cases test.evalIn rows.project globals environment.heap.project environment.frame with
+      | ok passes => cases passes <;> rfl
+      | error failure => exact congrArg some (failFreevars_project environment.heap stack failure)
     | callTo destination callee arguments next =>
       simp only [advanceIn, coreAdvance, State.project, Option.map_some]
       cases evalCallIn globals environment.heap.project environment.frame callee arguments with

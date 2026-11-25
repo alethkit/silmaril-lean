@@ -64,6 +64,14 @@ private def callBody (body : Statement) : List Command :=
   | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.scalar (.int 7)))
   | _ => false
 
+-- A quoted, reversed slice supplies a normalized source loop and initializes
+-- the target even for reads after the loop.
+#guard
+  let loop : Statement := .forIn "x" starlark%[range(10, 3, -2)[::-2]] .pass
+  match runModule (callBody (.seq loop (.ret (some starlark%[x])))) noImports {} with
+  | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.scalar (.int 8)))
+  | _ => false
+
 -- Check iterator cleanup at the command boundary, before module restoration.
 #guard
   let commands := callBody (.forIn "x" starlark%[items(7)] (.eval starlark%[len(x)]))

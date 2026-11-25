@@ -91,20 +91,32 @@ private theorem split_wrapper {H : Type} {host : HostSemantics H} {a b : Config 
   | _ => simp at eq
 
 private theorem pure_block_readback {types : List Lime1.FuncType} {result : Option NumType}
-    {ops : List Locals.Op} {out : List Admin}
-    (step : PureStep types [.source (.block (limeType result) (ops.map Locals.limeInstr))] out) :
-    out = [.label result.toList.length [] (Locals.limeCodec.encode ops)] := by
-  generalize eq : ([.source (.block (limeType result) (ops.map Locals.limeInstr))] :
+    {body : Wasm.Lime1.Expr} {out : List Admin}
+    (step : PureStep types [.source (.block (limeType result) body)] out) :
+    out = [.label result.toList.length [] (expression body)] := by
+  generalize eq : ([.source (.block (limeType result) body)] :
     List Admin) = before at step
   cases step <;> simp [values, List.singleton_eq_append_iff] at eq
-  case block bt code ft lookup vs arity =>
+  case block bt nativeBody ft lookup vs arity =>
     obtain ⟨zero, same, body⟩ := eq
     subst bt
-    subst code
+    subst nativeBody
     subst vs
     rw [resolve] at lookup
     cases lookup
-    simp [encode_body, values]
+    simp [values]
+
+theorem entry_iff {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
+    {result : Option NumType} {body : Wasm.Lime1.Expr} {dst : Config H} :
+    Step host ⟨s, f, [.source (.block (limeType result) body)]⟩ dst ↔
+      dst = ⟨s, f, [.label result.toList.length [] (expression body)]⟩ := by
+  constructor
+  · intro step
+    cases split_wrapper step rfl (by trivial) with
+    | pure h => rw [pure_block_readback h]
+  · rintro rfl
+    simpa only [values, List.map_nil, List.nil_append] using
+      Step.pure (host := host) s f (.block (limeType result) body ⟨[], result.toList⟩ (resolve f.module.types result) [] rfl)
 
 private theorem pure_label_readback {types : List Lime1.FuncType} {result : Option NumType}
     {ops : List Locals.Op} {out : List Admin}
@@ -140,9 +152,8 @@ theorem readback {H : Type} {host : HostSemantics H} {s : Store H} {m : ModuleIn
     ∃ b, Edge a b ∧ target = limeConfig s m b := by
   cases a with
   | block result a =>
-    have shape := split_wrapper step rfl (by trivial)
-    cases shape with
-    | pure h => exact ⟨.label result a, enter result a, by rw [pure_block_readback h]; rfl⟩
+    refine ⟨.label result a, enter result a, ?_⟩
+    simpa only [limeConfig, encode_body] using entry_iff.mp step
   | label result a =>
     have shape := split_wrapper step rfl (by trivial)
     cases shape with

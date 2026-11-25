@@ -11,6 +11,22 @@ import tempfile
 
 
 FIXTURES = (
+    ("body_freevars_global", """def target():
+    pass
+def inspect():
+    assert "unused" not in target.__code__.co_freevars
+    return 4
+observed = inspect()
+""", "normal", ".normal", 4, None),
+    ("body_freevars_membership_failure", """def target():
+    pass
+def inspect():
+    assert "unused" in target.__code__.co_freevars
+    return 9
+observed = 5
+observed = inspect()
+kept = 9
+""", "AssertionError", ".raised .assertionError", 5, None),
     ("body_discard_call_current_global", """def target():
     assert False
 def caller():

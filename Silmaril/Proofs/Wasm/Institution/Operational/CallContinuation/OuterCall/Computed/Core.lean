@@ -178,6 +178,138 @@ private theorem front {H : Type} {P : Profile} {s : Store H} {f : Frame}
   · obtain ⟨_, _, _, _, _, ⟨eq, _, _⟩ | ⟨_, eq, _, _⟩⟩ := fnv_bubble bubble <;>
       simp [fnv_cons_of_none none, notTrap, notThrow] at eq
 
+theorem if_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {saved : List Val} {condition : BitVec 32} {bt : BlockType} {thenBody elseBody : List Instr}
+    {rest : List Admin} {dst : Config H} :
+    Step P noHost
+      ⟨s, f, vals (saved ++ [.num ⟨.int .i32, condition⟩]) ++ .plain (.if_ bt thenBody elseBody) :: rest⟩ dst ↔
+      dst = ⟨s, f, vals saved ++ .plain (.block bt (if condition = 0 then elseBody else thenBody)) :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨kept, args, mid, split, step, rfl⟩ := front rfl (by simp) (by simp) move
+    cases step with
+    | ifTrue nonzero =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [ite_eq_right nonzero]
+      simp
+    | ifFalse zero =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [ite_eq_left zero]
+      simp
+    | _ =>
+      first
+      | have family := (famOf_of_shape (ParametricStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (NumericStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (VectorStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (VariableStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (TableStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (MemoryStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (RefStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (AggregateStep.shape ‹_›)).2; contradiction
+      | contradiction
+  · rintro rfl
+    have source : vals (saved ++ [(.num ⟨.int .i32, condition⟩ : Val)]) ++ Admin.plain (.if_ bt thenBody elseBody) :: rest =
+        vals saved ++ ([constI32 condition, Admin.plain (.if_ bt thenBody elseBody)] ++ rest) := by
+      rw [vals_append, List.append_assoc]
+      rfl
+    rw [source]
+    by_cases zero : condition = 0
+    · rw [ite_eq_left zero]
+      subst condition
+      simpa only [vals, List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append] using
+        Sim.Step.vals_left (Sim.Step.append_right (Step.ifFalse (P := P) (host := noHost)
+          (s := s) (f := f) (bt := bt) (b₁ := thenBody) (b₂ := elseBody)) rest) saved
+    · rw [ite_eq_right zero]
+      simpa only [vals, List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append] using
+        Sim.Step.vals_left (Sim.Step.append_right (Step.ifTrue (P := P) (host := noHost)
+          (s := s) (f := f) (bt := bt) (b₁ := thenBody) (b₂ := elseBody) zero) rest) saved
+
+theorem br_if_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {saved : List Val} {condition : BitVec 32} {depth : LabelIdx}
+    {rest : List Admin} {dst : Config H} :
+    Step P noHost
+      ⟨s, f, vals (saved ++ [.num ⟨.int .i32, condition⟩]) ++ .plain (.brIf depth) :: rest⟩ dst ↔
+      dst = ⟨s, f, vals saved ++ (if condition = 0 then [] else [.plain (.br depth)]) ++ rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨kept, args, mid, split, step, rfl⟩ := front rfl (by simp) (by simp) move
+    cases step with
+    | brIfTrue nonzero =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [ite_eq_right nonzero]
+    | brIfFalse zero =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [ite_eq_left zero]
+    | _ =>
+      first
+      | have family := (famOf_of_shape (ParametricStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (NumericStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (VectorStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (VariableStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (TableStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (MemoryStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (RefStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (AggregateStep.shape ‹_›)).2; contradiction
+      | contradiction
+  · rintro rfl
+    have branch : Step P noHost ⟨s, f, [constI32 condition, .plain (.brIf depth)]⟩
+        ⟨s, f, if condition = 0 then [] else [.plain (.br depth)]⟩ := by
+      by_cases zero : condition = 0
+      · rw [ite_eq_left zero]
+        subst condition
+        exact .brIfFalse
+      · rw [ite_eq_right zero]
+        exact .brIfTrue zero
+    have source : vals (saved ++ [(.num ⟨.int .i32, condition⟩ : Val)]) ++ .plain (.brIf depth) :: rest =
+        vals saved ++ ([constI32 condition, .plain (.brIf depth)] ++ rest) := by
+      rw [vals_append, List.append_assoc]
+      rfl
+    rw [source]
+    simpa only [List.append_assoc] using Sim.Step.vals_left (Sim.Step.append_right branch rest) saved
+
+theorem br_table_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {saved : List Val} {selector : BitVec 32} {depths : List LabelIdx} {fallback : LabelIdx}
+    {rest : List Admin} {dst : Config H} :
+    Step P noHost
+      ⟨s, f, vals (saved ++ [.i32 selector]) ++ .plain (.brTable depths fallback) :: rest⟩ dst ↔
+      dst = ⟨s, f, vals saved ++ .plain (.br (depths[selector.toNat]?.getD fallback)) :: rest⟩ := by
+  constructor
+  · rcases dst with ⟨s', f', code⟩
+    intro move
+    rcases Sim.Step.split_head (a := .plain (.brTable depths fallback)) rfl move with
+      ⟨kept, args, next, split, head, rfl⟩ | ⟨bad, _⟩ | ⟨bad, _⟩
+    · obtain ⟨headSaved, used, _, _, rfl, branch, exactHead⟩ := head.brData_vals_inv (i := .brTable depths fallback) trivial
+      have stack : saved ++ [Val.i32 selector] = (kept ++ headSaved) ++ used :=
+        split.trans (List.append_assoc ..).symm
+      cases branch with
+      | tableLt hit =>
+        obtain ⟨rfl, equal⟩ := List.append_inj' stack rfl
+        cases equal
+        cases exactHead
+        simp [hit, List.append_assoc, vals]
+      | tableGe past =>
+        obtain ⟨rfl, equal⟩ := List.append_inj' stack rfl
+        cases equal
+        cases exactHead
+        have miss : depths[selector.toNat]? = none := List.getElem?_eq_none_iff.mpr past
+        simp [miss, List.append_assoc, vals]
+    · cases bad
+    · cases bad
+  · rintro rfl
+    have choose : BrStep s f [.i32 selector] (.brTable depths fallback) []
+        [.plain (.br (depths[selector.toNat]?.getD fallback))] := by
+      cases found : depths[selector.toNat]? with
+      | none => exact .tableGe (List.getElem?_eq_none_iff.mp found)
+      | some depth => exact .tableLt found
+    have move := Sim.Step.vals_left
+      (Sim.Step.append_right (choose.step (P := P) (host := noHost)) rest) saved
+    simpa only [vals, List.map_append, List.map_cons, List.map_nil, List.append_assoc,
+      List.cons_append, List.nil_append] using move
+
 theorem unreachable_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
     {stack : List Val} {rest : List Admin} {dst : Config H} :
     Step P noHost ⟨s, f, vals stack ++ .plain .unreachable :: rest⟩ dst ↔

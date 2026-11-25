@@ -79,6 +79,17 @@ theorem frame_context_inv {H : Type} {s : Store H} {f inside : Frame} {n : Nat}
   obtain ⟨localStep, isolated, rfl⟩ := CallFrame.lime_frame_prefix_inv step
   exact ⟨localStep, isolated, eq⟩
 
+theorem label_context_cases {H : Type} {s : Store H} {f : Frame} {n : Nat}
+    {saved : List Value} {code rest : List Admin} {dst : Config H}
+    (step : Step CallFrame.limeNoHost ⟨s, f, values saved ++ .label n [] code :: rest⟩ dst) :
+    (∃ mid, Step CallFrame.limeNoHost ⟨s, f, code⟩ mid ∧
+      dst = ⟨mid.store, mid.frame, values saved ++ .label n [] mid.code :: rest⟩) ∨
+    ∃ out, PureStep f.module.types [.label n [] code] out ∧ dst = ⟨s, f, values saved ++ out ++ rest⟩ := by
+  obtain ⟨mid, move, rfl⟩ := (front step (.label n code) rfl).ordinary (by simp) (by simp)
+  rcases CallFrame.lime_label_prefix_cases move with ⟨inner, h, rfl⟩ | ⟨out, pop, rfl⟩
+  · exact .inl ⟨inner, h, by simp only [List.append_assoc, List.singleton_append]⟩
+  · exact .inr ⟨out, pop, rfl⟩
+
 theorem active_strip {H : Type} {s : Store H} {caller : Frame}
     {addr : FuncAddr} {fn : CallFrame.Callee} {a : CallFrame.State} {dst : Config H}
     {suffix : List Admin} (live : Active a) (step : Step CallFrame.limeNoHost (⟨s, caller, CallFrame.limeCode addr fn a ++ suffix⟩) dst) :

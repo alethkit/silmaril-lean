@@ -1,16 +1,19 @@
 module
 
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Defs
+public import Silmaril.Languages.Python.Core.Module.Functions.Thms
+public import Silmaril.Languages.Python.Core.Module.SeededCall.Thms
+public import Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Thms
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 
 public section
 
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 
-open Core.Module.SeededCall (Failure Namespace Value)
+open Core.Module.SeededCall (CallObservation Delivers Expectation Failure Namespace Raised Value)
 open Core.Module.Functions (TopFunction)
-open Core.Closure (Heap)
-open Core.Closure.Executor (CodeTable)
+open Core.Closure (Function Heap)
+open Core.Closure.Executor (Fault labelledIn)
 
 theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     {values : Except Failure (List Value)} {calls : List CallEvent} :
@@ -30,43 +33,76 @@ theorem observeNestedCall_failedArguments {space : Namespace} {destination : Cor
   by simp [observeNestedCall, found, observeArguments_iff.mpr failed]
 
 theorem run_preserves_builtins {source : Source.Module} (space : Namespace) (compiled : Compiled source)
-    (heap : Heap := .empty) :
-    (run space compiled heap).residual.builtins = space.builtins :=
-  (Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.preserves_storage
-    space compiled.instructions compiled.table heap).1
+    (heap : Heap := .empty) (fuel : Nat := 1000) :
+    (run space compiled heap fuel).residual.builtins = space.builtins :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.preserves_builtins
+    space compiled.instructions ⟨compiled.table, heap, fuel, []⟩
 
-theorem run_preserves_heap {source : Source.Module} (space : Namespace) (compiled : Compiled source)
-    (heap : Heap) : (run space compiled heap).heap = heap :=
-  (Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.preserves_storage
-    space compiled.instructions compiled.table heap).2
+theorem callback_path (space : Namespace) (context : CallContext) (closure : Function) :
+    let invocation := callbackInvocation space context.heap closure
+    let (events, residual) := invocation.runPrefix context.table context.fuel
+    (labelledIn context.table (callbackSession space context.heap).globals).Path
+      invocation.state events residual.state :=
+  (callbackInvocation space context.heap closure).run_path context.table context.fuel
+
+theorem callback_delivers {space : Namespace} {expectation : Expectation}
+    {heap residual : Heap} {result : Core.Closure.Result} {observation : CallObservation} :
+    observeCallback space expectation (.finished heap result) = (.ok observation, residual) ↔
+      let inner := (result.map seededValue).mapError (callbackError space)
+      Delivers expectation inner observation.result ∧
+        observation.caught = expectation.caught? inner ∧ residual = heap := by
+  cases observation
+  simp [observeCallback, Expectation.delivers_iff.symm, eq_comm, and_assoc]
+
+theorem invokeCall_published {space : Namespace} {context : CallContext} {closure : Function}
+    (expectation : Expectation)
+    {definition : Core.Closure.Dispatch.Definition Core.Closure.Executor.Body closure.code.layout}
+    (published : closure ∈ context.published)
+    (resolved : Core.Closure.Dispatch.resolve context.table closure.code = .ok definition)
+    (noParameters : definition.parameters.slots = []) :
+    invokeCall space context (.helper (.assertRaises expectation.onReturn))
+        [.exceptionClass expectation.expected, .function closure] =
+      invokeCallback space context expectation closure := by
+  cases expectation
+  simp [invokeCall, Core.Module.SeededCall.Request.decode, published, resolved, noParameters]
+
+theorem callback_fault (space : Namespace) (expectation : Expectation) (heap : Heap)
+    (stack : Core.Closure.Executor.Stack) (fault : Fault) :
+    observeCallback space expectation (.faulted heap stack fault) = (.error (.callbackFault fault), heap) := rfl
+
+theorem callback_seedOnlyGlobal {space : Namespace} {heap : Heap} {name : String} {value : Value}
+    (found : space.lookupGlobal name = some value) (unsupported : ordinaryValue? value = none) :
+    (callbackSession space heap).globals name = none ∧
+      callbackError space (.nameError name) = .unsupported := by
+  simp [callbackSession, callbackError, found, unsupported]
 
 theorem failing_instruction {scope : Source.Scope} {space : Namespace} {instruction : Instruction scope}
     {rest : List (Instruction scope)} {error : ModuleFailure}
-    {table : CodeTable} {heap : Heap}
-    (failed : (effect space instruction table).binding = .error error) :
-    runInstructions space (instruction :: rest) table heap =
-      ⟨space, .error error, (effect space instruction table).calls, heap⟩ :=
-  by simp [runInstructions, failed]
+    {context : CallContext} (failed : (effect space context instruction).1.binding = .error error) :
+    runInstructionsIn space context (instruction :: rest) =
+      ⟨space, .error error, (effect space context instruction).1.calls, (effect space context instruction).2⟩ :=
+  by simp [runInstructionsIn, failed]
 
-theorem run_publication {scope : Source.Scope} {space : Namespace} {table : CodeTable} {heap : Heap}
+theorem run_publication {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name : String} {function : TopFunction} {rest : List (Instruction scope)}
     {definition : Core.Closure.Dispatch.Definition Core.Closure.Executor.Body function.ref.layout}
-    (resolved : Core.Closure.Dispatch.resolve table function.ref = .ok definition) :
-    runInstructions space (.publish name function :: rest) table heap =
-      runInstructions (space.bindGlobal name (.function function.closure)) rest table heap :=
-  by simp [runInstructions, effect, resolved, Except.map, Except.mapError]
+    (resolved : Core.Closure.Dispatch.resolve context.table function.ref = .ok definition) :
+    runInstructionsIn space context (.publish name function :: rest) =
+      runInstructionsIn (space.bindGlobal name (.function function.closure))
+        { context with published := function.closure :: context.published } rest :=
+  by simp [runInstructionsIn, effect, resolved, Except.map, Except.mapError]
 
-theorem run_publication_fault {scope : Source.Scope} {space : Namespace} {table : CodeTable} {heap : Heap}
+theorem run_publication_fault {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name : String} {function : TopFunction} {rest : List (Instruction scope)} {error : Core.Closure.Dispatch.Failure}
-    (failed : Core.Closure.Dispatch.resolve table function.ref = .error error) :
-    runInstructions space (.publish name function :: rest) table heap =
-      ⟨space, .error (.publicationFault error), [], heap⟩ :=
-  by simp [runInstructions, effect, failed, Except.map, Except.mapError]
+    (failed : Core.Closure.Dispatch.resolve context.table function.ref = .error error) :
+    runInstructionsIn space context (.publish name function :: rest) =
+      ⟨space, .error (.publicationFault error), [], context.heap⟩ :=
+  by simp [runInstructionsIn, effect, failed, Except.map, Except.mapError]
 
-theorem assertNot_operand_failure {scope : Source.Scope} {space : Namespace}
+theorem assertNot_operand_failure {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {operand : ModuleEntry.Operand scope} {error : Failure}
     (failed : evaluateScalar space false operand = .error error) :
-    effect space (.assertNot operand) = ⟨.error (.ofCall error), []⟩ :=
+    effect space context (.assertNot operand) = (⟨.error (.ofCall error), []⟩, context.heap) :=
   by simp [effect, assertOperand, failed, Except.bind, Except.map, Except.mapError]
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

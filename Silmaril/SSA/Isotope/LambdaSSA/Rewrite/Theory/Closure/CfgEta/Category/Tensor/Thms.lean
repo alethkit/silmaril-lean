@@ -17,15 +17,25 @@ open Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgEta
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
   {A B : τ} {r s : Region Φ}
 
+/-- Typing after unpacking the input for left whiskering. -/
+theorem whiskerLeftBody_typed (X : τ) (hr : ValueBranches [A] r [B]) :
+    ValueBranches [A, X, Silmaril.product X A] (whiskerLeftBody r) [Silmaril.product X B] :=
+  Tensor.whiskerLeftBody_typed X hr
+
+/-- Typing after unpacking the input for right whiskering. -/
+theorem whiskerRightBody_typed (X : τ) (hr : ValueBranches [A] r [B]) :
+    ValueBranches [X, A, Silmaril.product A X] (whiskerRightBody r) [Silmaril.product B X] :=
+  Tensor.whiskerRightBody_typed X hr
+
 /-- Left whiskering retains value branches under unpacking and the paired return. -/
 theorem whiskerLeftRegion_typed (X : τ) (hr : ValueBranches [A] r [B]) :
     ValueBranches [Silmaril.product X A] (whiskerLeftRegion r) [Silmaril.product X B] :=
-  Tensor.whiskerLeftRegion_typed X hr
+  .let₂ (.var rfl) (whiskerLeftBody_typed X hr)
 
 /-- Right whiskering retains value branches under unpacking and the paired return. -/
 theorem whiskerRightRegion_typed (X : τ) (hr : ValueBranches [A] r [B]) :
     ValueBranches [Silmaril.product A X] (whiskerRightRegion r) [Silmaril.product B X] :=
-  Tensor.whiskerRightRegion_typed X hr
+  .let₂ (.var rfl) (whiskerRightBody_typed X hr)
 
 /-- Left whiskering respects the computation quotient. -/
 theorem whiskerLeftRegion_congr (X : τ) (h : Eqv [A] r s [B]) :

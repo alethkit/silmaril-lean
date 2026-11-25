@@ -10,7 +10,8 @@ throughout execution. The ordinary module runner has its own entry point.
 
 The seeded profile admits integer literals, global reads, single-name
 assignments, truth assertions, and fixed-positional calls to the closed
-descriptors. A call can discard its result, bind it after success, or use
+descriptors. Calls also accept exact Boolean literals as positional operands.
+A call can discard its result, bind it after success, or use
 it as a direct assertion condition. An argument may itself be a named
 call with literal or name operands. The runner saves the outer callee
 first, evaluates arguments from left to right, and invokes the saved
@@ -40,24 +41,43 @@ builtin fallback, and publication leaves every other binding and the
 ordinary heap intact. A missing key or mismatched layout reports the
 exact module `publicationFault`. `run_publication` and
 `run_publication_fault` give the exact continuation or residual state.
-Invoking ordinary functions, including through a harness expectation, and
-constructing exception instances lie outside the seeded profile. The
-closed dispatcher handles both inner and outer calls.
+
+A direct named call to the typed exception-expectation helper can run a
+function published earlier in the same module execution. The callback
+must have zero positional parameters and receive zero arguments.
+The runner uses the ordinary call and delivery path with the current
+module-first namespace and shared heap. Integers, Booleans, `None`, and
+ordinary functions can cross the lookup boundary. A read of a seed-only
+class or helper is unsupported, including when the expectation would
+have caught a genuinely missing name.
+
+After a matching defined exception, the helper returns `None` and records
+the caught error. An unmatched exception propagates. A normal callback
+return raises the helper's configured missing-exception diagnostic.
+An executor fault or a live prefix at the explicit callback fuel limit
+stops module execution with its own outcome and retains the current heap.
+The default limit is 1000 ordinary transitions per callback. Direct
+ordinary module calls through the seeded runner, ordinary callbacks in
+nested helper calls, and constructing exception instances remain outside
+the seeded profile. The closed dispatcher still handles closed callbacks.
+
 `Observation.calls` records evaluated argument calls in order, then the
-outer receipt if all inputs resolved. A missing outer name emits no
-nested-call receipts. Each receipt carries the result and the error
-caught by that call's expectation helper, including a typed integer-pair
-payload on a caught assertion. Raised Python errors and unsupported
-operations are distinct outcomes.
+settled outer receipt. A missing outer name emits no nested-call receipts.
+Each receipt carries the result and any caught error, including the typed
+integer-pair payload on a closed assertion and the empty payload on an
+ordinary assertion. Executor faults and exhausted prefixes emit no
+settled helper receipt.
 
 `run_preserves_builtins` proves that execution preserves the supplied
 builtin table. `failing_instruction` gives the exact residual and trace
 on failure. `observeArguments_iff` relates the runner to ordered argument
 evaluation rules with a first-failure rule. `observeNestedCall_missing`
 and `observeNestedCall_failedArguments` give the exact failure outcomes
-before outer dispatch. `SeededCall.runObserved_result` connects the
-call receipt's result to the checked closed evaluator, and
-`Expectation.caught_iff` states when a typed error appears in the catch field.
+before outer dispatch. `invokeCall_published`, `callback_path`, and
+`callback_delivers` connect callback admission, the ordinary labelled path,
+and the existing expectation delivery rules with the precise residual heap.
+`SeededCall.runObserved_result` and `Expectation.caught_iff` characterize
+closed execution and the catch payload.
 [Runner theorems](../../Silmaril/Languages/Python/Compile/ModuleEntry/Functions/Run/Seeded/Thms.lean)
 
 ## Corpus replay handoff
@@ -103,11 +123,20 @@ changes to user bindings.
 | `bool-int.py` | `___assertEqual` | `int` |
 | `bool-isinstance.py` | `___assertIs` | `___assertIs` |
 
-The full preamble also supplies `___assertIs` and `___assertIsNot` and
-runs with stock builtins. The restricted seed has neither helper, and
-does not model the `int`, `callable`, or `isinstance` calls or the Boolean
-and type operands used by these rows. The restricted-namespace errors
-are separate from normal completion under the full preamble.
+The full preamble supplies `___assertIs` and `___assertIsNot` and runs with
+stock builtins. The table uses the exception-helper projection
+`legacySeed`. The separate opt-in `legacyBoolIntSeed` adds the typed
+`int(bool)` builtin and the mixed integer/Boolean `___assertIsNot`
+helper. The builtin uses builtin fallback in both placements, and the
+helper uses the selected harness namespace.
+
+In both Boolean-integer placements, `bool-int.py` completes normally
+in Lean and CPython with no changes to user bindings. Lean records eight
+calls in order, including the exact integer conversion results and
+`None` from each assertion helper. The other two rows still raise
+`NameError` for `___assertIs` in those projected namespaces. Their
+inner `callable` and `isinstance` operations require separate contracts.
+The CPython full-preamble outcomes are recorded separately.
 [Pinned Boolean cases](https://github.com/koehlma/rigorous/tree/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/programs/original/lambda-py/python-reference/bool)
 
 The two pinned scalar equality rows now complete normally in the ordinary
@@ -121,15 +150,15 @@ namespace and outcome recorded for each profile.
 The pinned `assert-silent.py` case publishes `failing_function` under
 all three restricted profiles. The empty profile then raises
 `NameError("___assertRaises")` during callee lookup. In both supplied
-profiles, callee and argument lookup succeed, and the ordinary callback
-is unsupported when the expectation attempts to dispatch it. The
-function binding survives in every profile. The supplied CPython
-profiles run the callback and catch its empty assertion error.
+profiles, the runner and CPython execute the callback and catch its
+empty assertion error. The helper returns `None`, and the function
+binding survives in every profile.
 [Pinned publication row](https://github.com/koehlma/rigorous/blob/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/programs/original/lambda-py/python-reference/exceptions/assert-silent.py)
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms +Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Thms'
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/module-seeded-call/Publication.lean
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/module-seeded-call/Callback.lean
 python3 -I tests/languages/python/source-module-entry/check_seeded_run.py
 python3 -I tests/languages/python/source-module-entry/check_seeded_run.py --upstream /path/to/pinned/rigorous
 ```

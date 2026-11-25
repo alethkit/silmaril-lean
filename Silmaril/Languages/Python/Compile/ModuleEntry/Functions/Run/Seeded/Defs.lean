@@ -10,16 +10,16 @@ public import Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Defs
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 
 open Source (Scope)
-open Core.Closure (Heap)
-open Core.Closure.Executor (CodeTable)
-open Core.Module.SeededCall (AssertionArgument Bindings CallObservation Failure Namespace Raised Result Value)
+open Core.Closure (Function Heap)
+open Core.Closure.Executor (CodeTable Fault)
+open Core.Module.SeededCall (AssertionArgument Bindings CallObservation Expectation Failure Namespace Raised Result Value)
 
 inductive SeedPlacement where
   | builtin
   | preamble
 
-/-- Only this explicit profile supplies harness entries. In either placement,
-the class token is a builtin and the helpers use the chosen namespace. -/
+/-- The exception-helper projection uses the selected namespace for harness
+entries and builtin fallback for the class token. -/
 def legacySeed (placement : SeedPlacement) : Namespace :=
   let classes : Bindings := [("AssertionError", .exceptionClass .assertionError)]
   let helpers (diagnostic : AssertionArgument) : Bindings :=
@@ -28,9 +28,21 @@ def legacySeed (placement : SeedPlacement) : Namespace :=
   | .builtin => ⟨[], classes ++ helpers .empty⟩
   | .preamble => ⟨helpers (.text "did not raise exception"), classes⟩
 
+/-- Extend the legacy projection with the typed Boolean-to-integer call
+and the mixed integer/Boolean identity assertion. The stock builtin uses
+builtin fallback in either harness placement. -/
+def legacyBoolIntSeed (placement : SeedPlacement) : Namespace :=
+  let seed := legacySeed placement
+  let comparison := ("___assertIsNot", Value.helper .assertIsNot)
+  let builtins := ("int", Value.builtin .int) :: seed.builtins
+  match placement with
+  | .builtin => { seed with builtins := comparison :: builtins }
+  | .preamble => { seed with moduleGlobals := comparison :: seed.moduleGlobals, builtins := builtins }
+
 def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.Operand 0
   | .readGlobal name => .global name
   | .literal (.int value) => .literal (.int value)
+  | .literal (.bool value) => .literal (.bool value)
   | .literal _ => .unsupported
 
 def lowerScalarOperand {scope : Scope} : ModuleEntry.Operand scope → Core.Module.SeededCall.Operand 0
@@ -41,7 +53,7 @@ def lowerScalarOperand {scope : Scope} : ModuleEntry.Operand scope → Core.Modu
 def scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
-  | .none | .exceptionClass _ | .helper _ | .function _ => none
+  | .none | .exceptionClass _ | .helper _ | .builtin _ | .function _ => none
 
 /-- Boolean literals are admitted inside equality. The resulting Boolean
 can be bound as a value. Other compound operands use the existing boundary. -/
@@ -61,7 +73,7 @@ def truth : Value → Bool
   | .int value => decide (value ≠ 0)
   | .bool value => value
   | .none => false
-  | .exceptionClass _ | .helper _ => true
+  | .exceptionClass _ | .helper _ | .builtin _ => true
   | .function closure => (Core.Closure.Value.function closure).truth
 
 def assertTruthAs (expected : Bool) (value : Value) : Except Failure Unit :=
@@ -80,11 +92,13 @@ structure CallEvent where
   callee : String
   observation : CallObservation
 
-/-- A malformed code reference is a module fault outside closed call delivery. -/
+/-- Executor faults and live prefixes are outside Python exception delivery. -/
 inductive ModuleFailure where
   | raised (error : Raised)
   | unsupported
   | publicationFault (error : Core.Closure.Dispatch.Failure)
+  | callbackFault (fault : Fault)
+  | callbackFuelExhausted
   deriving DecidableEq, Repr
 
 def ModuleFailure.ofCall : Failure → ModuleFailure
@@ -94,6 +108,79 @@ def ModuleFailure.ofCall : Failure → ModuleFailure
 structure Effect where
   binding : Except ModuleFailure (Option (String × Value))
   calls : List CallEvent
+
+def ordinaryValue? : Value → Option Core.Closure.Value
+  | .int value => some (.int value)
+  | .bool value => some (.bool value)
+  | .none => some .none
+  | .function closure => some (.function closure)
+  | .exceptionClass _ | .helper _ | .builtin _ => none
+
+def seededValue : Core.Closure.Value → Value
+  | .int value => .int value
+  | .bool value => .bool value
+  | .none => .none
+  | .function closure => .function closure
+
+def callbackSession (space : Namespace) (heap : Heap) : Core.Module.Functions.Session :=
+  ⟨fun name => (space.lookupGlobal name).bind ordinaryValue?, heap⟩
+
+def callbackInvocation (space : Namespace) (heap : Heap) (closure : Function) :
+    Core.Module.Functions.Invocation :=
+  (callbackSession space heap).prepareCall .discard (.literal (.function closure)) []
+
+/-- The ordinary executor delivers an ambient lookup miss as a terminal
+`nameError name`. Check the same namespace before passing it to the
+expectation, since projection also drops seed-only values. -/
+def callbackError (space : Namespace) (error : Core.Closure.RuntimeError) : Failure :=
+  match error with
+  | .nameError name =>
+    match space.lookupGlobal name with
+    | none => .raised (.runtime error)
+    | some value =>
+      if (ordinaryValue? value).isNone then .unsupported else .raised (.runtime error)
+  | .assertionError => .raised (.assertionError .empty)
+  | _ => .raised (.runtime error)
+
+/-- Deliver only a completed ordinary callback to the existing expectation.
+All ordinary states carry the exact heap at that point in execution. -/
+def observeCallback (space : Namespace) (expectation : Expectation) :
+    Core.Closure.Executor.State → Except ModuleFailure CallObservation × Heap
+  | .finished heap result =>
+    let inner := (result.map seededValue).mapError (callbackError space)
+    (.ok ⟨expectation.deliver inner, expectation.caught? inner⟩, heap)
+  | .faulted heap _ fault => (.error (.callbackFault fault), heap)
+  | .running heap .. | .delivering heap .. | .receiving heap .. =>
+    (.error .callbackFuelExhausted, heap)
+
+structure CallContext where
+  table : CodeTable
+  heap : Heap
+  fuel : Nat
+  published : List Function := []
+
+def invokeCallback (space : Namespace) (context : CallContext)
+    (expectation : Expectation) (closure : Function) : Except ModuleFailure CallObservation × Heap :=
+  let invocation := callbackInvocation space context.heap closure
+  observeCallback space expectation (invocation.runPrefix context.table context.fuel).2.state
+
+def invokeCall (space : Namespace) (context : CallContext) (callee : Value) (arguments : List Value) :
+    Except ModuleFailure CallObservation × Heap :=
+  match Core.Module.SeededCall.Request.decode callee arguments with
+  | .expect expectation (.function closure) [] _ =>
+    let unsupported := (.ok ⟨.error .unsupported, none⟩, context.heap)
+    if closure ∈ context.published then
+      match Core.Closure.Dispatch.resolve context.table closure.code with
+      | .ok definition =>
+        if definition.parameters.slots.isEmpty then invokeCallback space context expectation closure
+        else unsupported
+      | .error _ => invokeCallback space context expectation closure
+    else unsupported
+  | _ => (.ok (Core.Module.SeededCall.invokeObserved callee arguments), context.heap)
+
+def acceptObservation (destination : Core.Module.Functions.Destination)
+    (name : String) (observed : CallObservation) : Effect :=
+  ⟨(observed.result.bind (acceptCall destination)).mapError ModuleFailure.ofCall, [⟨name, observed⟩]⟩
 
 def observeNamedCall (space : Namespace) (name : String)
     (arguments : List Core.Module.Functions.Operand) : CallEvent :=
@@ -147,20 +234,26 @@ def assertOperand {scope : Scope} (space : Namespace) (operand : ModuleEntry.Ope
   let checked := (evaluateScalar space false operand).bind (assertTruthAs expected)
   ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, []⟩
 
-def effect {scope : Scope} (space : Namespace) (instruction : Instruction scope)
-    (table : CodeTable := fun _ => none) : Effect :=
+def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruction : Instruction scope) :
+    Effect × Heap :=
   match instruction with
   | .scalar (.assign name _ operand) =>
-    ⟨((evaluateScalar space false operand).map fun value => some (name, value)).mapError ModuleFailure.ofCall, []⟩
-  | .scalar (.assertion operand) => assertOperand space operand true
-  | .assertNot operand => assertOperand space operand false
+    (⟨((evaluateScalar space false operand).map fun value => some (name, value)).mapError ModuleFailure.ofCall,
+      []⟩, context.heap)
+  | .scalar (.assertion operand) => (assertOperand space operand true, context.heap)
+  | .assertNot operand => (assertOperand space operand false, context.heap)
   | .publish name function =>
-    let resolved := Core.Closure.Dispatch.resolve table function.ref
-    ⟨(resolved.map fun _ => some (name, .function function.closure)).mapError .publicationFault, []⟩
+    let resolved := Core.Closure.Dispatch.resolve context.table function.ref
+    (⟨(resolved.map fun _ => some (name, .function function.closure)).mapError .publicationFault, []⟩, context.heap)
   | .call destination name arguments =>
-    let event := observeNamedCall space name arguments
-    ⟨(event.observation.result.bind (acceptCall destination)).mapError ModuleFailure.ofCall, [event]⟩
-  | .nestedCall destination name arguments => observeNestedCall space destination name arguments
+    match Core.Module.SeededCall.resolveCall space #v[] (.global name) (arguments.map lowerCallOperand) with
+    | .error error => (acceptObservation destination name ⟨.error error, none⟩, context.heap)
+    | .ok (callee, values) =>
+      let (observed, heap) := invokeCall space context callee values
+      match observed with
+      | .ok result => (acceptObservation destination name result, heap)
+      | .error error => (⟨.error error, []⟩, heap)
+  | .nestedCall destination name arguments => (observeNestedCall space destination name arguments, context.heap)
 
 structure Observation where
   residual : Namespace
@@ -168,25 +261,31 @@ structure Observation where
   calls : List CallEvent
   heap : Heap
 
-/-- Execute the checked stream in source order. A failed instruction keeps
-its incoming namespace and stops the stream. The ordinary heap is retained. -/
-def runInstructions {scope : Scope} (space : Namespace) (instructions : List (Instruction scope))
-    (table : CodeTable := fun _ => none) (heap : Heap := .empty) : Observation :=
-  match instructions with
-  | [] => ⟨space, .ok (), [], heap⟩
+/-- A failed instruction keeps its incoming namespace and the heap reached
+by its effects. Only successful publications authorize ordinary callbacks. -/
+def runInstructionsIn {scope : Scope} (space : Namespace) (context : CallContext) :
+    List (Instruction scope) → Observation
+  | [] => ⟨space, .ok (), [], context.heap⟩
   | instruction :: rest =>
-    let item := effect space instruction table
+    let (item, heap) := effect space context instruction
     match item.binding with
     | .error error => ⟨space, .error error, item.calls, heap⟩
     | .ok binding =>
       let updated := binding.elim space fun (name, value) => space.bindGlobal name value
-      let tail := runInstructions updated rest table heap
+      let published := match instruction with
+        | .publish _ function => function.closure :: context.published
+        | _ => context.published
+      let tail := runInstructionsIn updated { context with heap, published } rest
       { tail with calls := item.calls ++ tail.calls }
+
+def runInstructions {scope : Scope} (space : Namespace) (instructions : List (Instruction scope))
+    (table : CodeTable := fun _ => none) (heap : Heap := .empty) (callbackFuel : Nat := 1000) : Observation :=
+  runInstructionsIn space ⟨table, heap, callbackFuel, []⟩ instructions
 
 /-- Seeded execution starts from the same compiled instruction stream as
 ordinary module execution. The caller supplies the namespace explicitly. -/
 def run {source : Source.Module} (space : Namespace) (compiled : Compiled source)
-    (heap : Heap := .empty) : Observation :=
-  runInstructions space compiled.instructions compiled.table heap
+    (heap : Heap := .empty) (callbackFuel : Nat := 1000) : Observation :=
+  runInstructions space compiled.instructions compiled.table heap callbackFuel
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

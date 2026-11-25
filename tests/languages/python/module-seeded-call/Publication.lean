@@ -14,7 +14,9 @@ private def top : TopFunction :=
   ⟨⟨11, ⟨0, 0, 0⟩⟩, rfl⟩
 
 private def table : CodeTable :=
-  fun key => if key = 11 then some ⟨top.ref.layout, ⟨⟨[], by decide⟩, .ret (.literal .none)⟩⟩ else none
+  fun key => if key = 11 then
+    some ⟨top.ref.layout, { parameters := ⟨[], by decide⟩, body := .ret (.literal .none) }⟩
+  else none
 
 private def initial : Namespace :=
   ⟨[("kept", .int 5)], [("f", .helper .assertEqual), ("AssertionError", .exceptionClass .assertionError)]⟩
@@ -49,4 +51,4 @@ example (scope : Source.Scope) :
 
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.run_publication
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.run_publication_fault
-#print axioms Compile.ModuleEntry.Functions.Run.Seeded.run_preserves_heap
+#print axioms Compile.ModuleEntry.Functions.Run.Seeded.run_preserves_builtins
