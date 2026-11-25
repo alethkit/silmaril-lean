@@ -38,16 +38,15 @@ open SyntacticCategory (iterateRegion_valueBranches)
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
 set_option hygiene false in
-local notation "Seed" => fun (Γ : VCtx τ) (r s : Region Φ) (K : LCtx τ) =>
-  Paper.WithProjectionReturns.Step Γ r s K ∨ Paper.WithUnitEta.Step Γ r s K
+local notation "Seed" => Paper.WithProjectionReturnsAndUnitEta.Step (τ := τ) (Φ := Φ)
 set_option hygiene false in
-local notation "Comp" => Paper.Extension.Singleton.TypeCategory (Seed)
+local notation "Comp" => Paper.WithProjectionReturnsAndUnitEta.TypeCategory (τ := τ) (Φ := Φ)
 set_option hygiene false in
 local notation "Obj" => Paper.Extension.Singleton.ofType (Seed)
 set_option hygiene false in
 local notation "Lit" => Paper.Extension.Singleton.ofRegion (Seed)
 set_option hygiene false in
-local notation "F" => projection (Seed)
+local notation "F" => Paper.WithProjectionReturnsAndUnitEta.projection (τ := τ) (Φ := Φ)
 
 theorem fstReturn_eq (X S : τ) :
     Lit (returnOnce_typed (fstTerm (Φ := Φ) X S)) = Lit (productFstBranches X S) :=

@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.SingleCfg.Assembly.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.SingleCfg.Endpoint.Realization.Factor.Thms
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturns.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturnsAndUnitEta.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Coproducts.Finite.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Tensor.Premonoidal.Thms
 public import Mathlib.Data.Quot
@@ -30,14 +30,15 @@ open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (retainLeft)
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
 set_option hygiene false in
-local notation "Seed" => fun (Γ : VCtx τ) (r s : Region Φ) (K : LCtx τ) =>
-  Paper.WithProjectionReturns.Step Γ r s K ∨ Paper.WithUnitEta.Step Γ r s K
+local notation "Seed" => Paper.WithProjectionReturnsAndUnitEta.Step (τ := τ) (Φ := Φ)
 set_option hygiene false in
-local notation "Comp" => Paper.Extension.Singleton.TypeCategory (Seed)
+local notation "Comp" => Paper.WithProjectionReturnsAndUnitEta.TypeCategory (τ := τ) (Φ := Φ)
 set_option hygiene false in
 local notation "Obj" => Paper.Extension.Singleton.ofType (Seed)
 set_option hygiene false in
 local notation "Lit" => Paper.Extension.Singleton.ofRegion (Seed)
+set_option hygiene false in
+local notation "F" => Paper.WithProjectionReturnsAndUnitEta.projection (τ := τ) (Φ := Φ)
 
 scoped instance computationPremonoidal : PremonoidalCategory Comp :=
   premonoidalOfUnitEta (Seed) (fun h => Or.inr h)
@@ -55,11 +56,11 @@ noncomputable def canonicalAssembly {X S D : τ}
     (entry : Obj X ⟶ Obj (packedExitType [S, D]))
     (step : Obj (product X S) ⟶ Obj (coprod (product X D) (product X S))) : Obj X ⟶ Obj D :=
   Quot.liftOn₂ entry step
-    (fun e b => (projection (Seed)).map (Paper.SingletonReification.SingleCfg.canonicalAssembly e
+    (fun e b => (F).map (Paper.SingletonReification.SingleCfg.canonicalAssembly e
       (b ≫ (Paper.TypeCategory.sumIso (product X D) (product X S)).hom)))
     (fun _ b b' h => by
       apply Paper.SingletonReification.SingleCfg.canonicalAssembly_map_congr (Seed) (X := X) (S := S) (D := D) rfl
-      rw [Functor.map_comp, Functor.map_comp, show (projection (Seed)).map b = (projection (Seed)).map b' from Quot.sound h])
+      rw [Functor.map_comp, Functor.map_comp, show (F).map b = (F).map b' from Quot.sound h])
     (fun _ _ _ h => Paper.SingletonReification.SingleCfg.canonicalAssembly_map_congr (Seed)
       (X := X) (S := S) (D := D) (Quot.sound h) rfl)
 
