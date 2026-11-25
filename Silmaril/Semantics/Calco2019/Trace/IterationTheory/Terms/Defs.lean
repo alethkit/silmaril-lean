@@ -30,7 +30,7 @@ instance (A : Arity) : Finite A := A.finite
 namespace Arity
 
 /-- The standard index set for (n) inputs or outputs. -/
-def ofNat (n : Nat) : Arity := ⟨Fin n, inferInstance⟩
+abbrev ofNat (n : Nat) : Arity := ⟨Fin n, inferInstance⟩
 
 /-- A singleton index set for an operation's sole input in the coproduct theory. -/
 def one : Arity := ⟨PUnit, inferInstance⟩
