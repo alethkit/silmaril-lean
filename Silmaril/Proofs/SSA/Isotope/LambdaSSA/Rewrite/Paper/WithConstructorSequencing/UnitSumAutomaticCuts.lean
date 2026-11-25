@@ -126,7 +126,7 @@ theorem exists_orbit_cut {X : Type*} [Finite X] (next : X → X) :
   have le : first i ≤ Finset.univ.sup first := Finset.le_sup (Finset.mem_univ i)
   exact ⟨first i, Nat.lt_succ_of_le le, Nat.find_spec (reaches_mark next i)⟩
 
-private theorem rows_finite (A : Shape) : Finite A.Row := by
+theorem rows_finite (A : Shape) : Finite A.Row := by
   induction A with
   | empty => change Finite Empty; infer_instance
   | unit => change Finite Unit; infer_instance

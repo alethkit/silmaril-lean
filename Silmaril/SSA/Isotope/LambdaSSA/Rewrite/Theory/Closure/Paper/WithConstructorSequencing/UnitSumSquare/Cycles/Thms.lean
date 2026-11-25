@@ -19,6 +19,20 @@ theorem collapse_cut (B A : Shape) (next : A.Row → A.Row) (mark : A.Row → Bo
       stepWithPayload B A (recurrenceRows B next) :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumCycles.collapse_cut B A next mark
 
+/-- A bounded cut computes a replacement step while preserving the full iteration. -/
+theorem iterate_of_bounded_cut (B A : Shape) (cut : A.Row → OutputCode (.sum B A) A)
+    (out : A.Row → OutputCode B A)
+    (bounded : ∀ i, ∃ n, run cut n i = some ⟨(out i).tag, (out i).payload⟩) :
+    iterate (stepWithPayload B A (flattenCut ∘ cut)) = iterate (stepWithPayload B A out) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumCycles.iterate_of_bounded_cut B A cut out bounded
+
+/-- An immediate forwarding self-loop has the singleton self-loop iteration. -/
+theorem iterate_self_row (B A : Shape) (p : A.Row → OutputCode B A) (i : A.Row)
+    (self : p i = ⟨.inr i, .forward⟩) :
+    A.inj i ≫ iterate (stepWithPayload B A p) =
+      iterate (coprod.inr : obj .unit ⟶ obj B.ty ⨿ obj .unit) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumCycles.iterate_self_row B A p i self
+
 /-- Finite unfolding along a forwarding path identifies its first and last
 rows of iteration, even when the path enters a cycle. -/
 theorem iterate_row_along (B A : Shape) (p : A.Row → OutputCode B A) {i j : A.Row}
