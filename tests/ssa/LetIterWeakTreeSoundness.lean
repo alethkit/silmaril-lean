@@ -6,6 +6,7 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Dec
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.SumCall.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.RawArms.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Raw.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -1076,6 +1077,119 @@ example : ∃ t s : Tm Empty (Prim ⊕ Unit) Γ.length,
       nestedRaw sequencedRaw nestedRaw_typed sequencedRaw_typed ht hs).mp hn⟩
 
 end RawSumResponseArms
+
+section RawMixedPrefix
+
+abbrev argumentInLeft : Response.Flatten.Program sig (extendSorts false sorts) false :=
+  .unary Prim.readOther rfl (.request Prim.read (fun _ => .var 0))
+
+abbrev secondLeft : Response.Mixed.Raw.Program sig sumSig true (extendSorts false (extendSorts false sorts)) :=
+  .straight (.request Prim.readAlt (fun _ => .var 1))
+abbrev secondRight : Response.Mixed.Raw.Program sig sumSig true (extendSorts true (extendSorts false sorts)) :=
+  .straight (.tree (.var 0))
+abbrev shiftedLeft : Response.Mixed.Raw.Program sig sumSig true
+    (extendSorts false (extendSorts false (extendSorts false sorts))) :=
+  .straight (.request Prim.readAlt (fun _ => .var 2))
+abbrev shiftedRight : Response.Mixed.Raw.Program sig sumSig true
+    (extendSorts true (extendSorts false (extendSorts false sorts))) :=
+  .straight (.tree (.var 0))
+
+abbrev nestedInLeft : Response.Mixed.Raw.Program sig sumSig true (extendSorts false sorts) :=
+  .sumUnary () rfl argumentInLeft secondLeft secondRight
+abbrev explicitInLeft : Response.Mixed.Raw.Program sig sumSig true (extendSorts false sorts) :=
+  .let1 argumentInLeft (.sum () (fun _ => .var 0) shiftedLeft shiftedRight)
+
+abbrev rawNestedTree : Response.Mixed.Raw.Program sig sumSig true sorts :=
+  .sum () outerArgs nestedInLeft (.straight (.tree (.var 0)))
+abbrev rawPrefixTree : Response.Mixed.Raw.Program sig sumSig true sorts :=
+  .sum () outerArgs explicitInLeft (.straight (.tree (.var 0)))
+
+private theorem rawNestedTree_typed : Response.Mixed.Raw.Program.WellTyped sig sumSig strict rawNestedTree := by
+  refine ⟨fun _ => trivial, le_rfl, ?_, trivial⟩
+  exact ⟨⟨le_rfl, le_rfl, fun _ => trivial⟩, le_rfl, ⟨le_rfl, fun _ => trivial⟩, trivial⟩
+
+private theorem rawPrefixTree_typed : Response.Mixed.Raw.Program.WellTyped sig sumSig strict rawPrefixTree := by
+  refine ⟨fun _ => trivial, le_rfl, ?_, trivial⟩
+  exact ⟨⟨le_rfl, le_rfl, fun _ => trivial⟩, fun _ => trivial, le_rfl, ⟨le_rfl, fun _ => trivial⟩, trivial⟩
+
+private theorem rawMixedSameCompile :
+    Response.Mixed.Raw.Program.compile (ε := Fx) sig sumSig rawNestedTree =
+      Response.Mixed.Raw.Program.compile (ε := Fx) sig sumSig rawPrefixTree := by
+  have ha : Response.Mixed.Raw.unaryVarArgs sig sumSig (g := ()) (slots := extendSorts false sorts) rfl =
+      (fun _ => .var 0) := by
+    funext i
+    rw [Fin.eq_zero i]
+    rfl
+  have hl : Response.Mixed.weakenUnder sig sumSig false
+      (Response.Mixed.Raw.Program.compile (ε := Fx) sig sumSig secondLeft) =
+      Response.Mixed.Raw.Program.compile (ε := Fx) sig sumSig shiftedLeft := by
+    simp only [Response.Mixed.Raw.Program.compile, Response.Flatten.compile,
+      Response.Flatten.emit, ite_eq_right read_alt_not_pure, Response.Mixed.ofSequence,
+      Response.Mixed.weakenUnder, Response.Mixed.subst]
+    rfl
+  have hr : Response.Mixed.weakenUnder sig sumSig false
+      (Response.Mixed.Raw.Program.compile (ε := Fx) sig sumSig secondRight) =
+      Response.Mixed.Raw.Program.compile (ε := Fx) sig sumSig shiftedRight := rfl
+  have hbody :
+      (Response.Mixed.Program.sum (S := sig) (T := sumSig) ()
+        (Response.Mixed.Raw.unaryVarArgs sig sumSig (slots := extendSorts false sorts) rfl)
+        (Response.Mixed.weakenUnder sig sumSig false
+          (Response.Mixed.Raw.Program.compile (ε := Fx) sig sumSig secondLeft))
+        (Response.Mixed.weakenUnder sig sumSig false
+          (Response.Mixed.Raw.Program.compile (ε := Fx) sig sumSig secondRight))) =
+      .sum () (fun _ => .var 0) (Response.Mixed.Raw.Program.compile (ε := Fx) sig sumSig shiftedLeft)
+        (Response.Mixed.Raw.Program.compile (ε := Fx) sig sumSig shiftedRight) := by
+    rw [ha, hl, hr]
+  exact congrArg (fun body => Response.Mixed.Program.sum (S := sig) (T := sumSig) () outerArgs
+    (Response.Mixed.bindPrefix sig sumSig (Response.Flatten.compile (ε := Fx) sig argumentInLeft) body)
+    (.ret (.var 0))) hbody
+
+/-- A second sum request is inside the first left arm. Its argument contains
+two nested atomic calls and uses that first payload at slot zero. -/
+example : rawNestedTree.source.toLetIter Γ.length = some
+    (.case (.op (.inr ()) (.pair (.bv 1) .unit))
+      (.case (.op (.inr ())
+        (.pair (.op (.inl Prim.readOther) (.pair (.op (.inl Prim.read) (.pair (.bv 0) .unit)) .unit)) .unit))
+        (.op (.inl Prim.readAlt) (.pair (.bv 1) .unit)) (.bv 0))
+      (.bv 0)) := rfl
+
+private def compiledLeftRequests (p : Response.Mixed.Program sig sumSig true sorts) : List (Option Nat) :=
+  match p with
+  | .sum _ _ (.atom .read first (.atom .readOther next (.sum _ arg (.atom .readAlt retained _) _))) _ =>
+    [treeSlot (first 0), treeSlot (next 0), treeSlot (arg 0), treeSlot (retained 0)]
+  | _ => []
+
+/-- The normalized branch passes each new reply into the next request.
+After the second split, slot three still points to the first sum payload. -/
+example : compiledLeftRequests (Response.Mixed.Raw.Program.compile (ε := Fx) sig sumSig rawNestedTree) =
+    [some 0, some 0, some 0, some 3] := by
+  simp only [Response.Mixed.Raw.Program.compile, Response.Flatten.compile, Response.Flatten.unaryTail,
+    Response.Flatten.emit, ite_eq_right read_not_pure, ite_eq_right read_other_not_pure,
+    ite_eq_right read_alt_not_pure, Response.Sequence.bind, Response.Sequence.subst,
+    Response.Mixed.bindPrefix, Response.Mixed.ofSequence, Response.Mixed.weakenUnder, Response.Mixed.subst]
+  rfl
+
+/-- Both raw trees stay at the strict bound, including the nested argument
+and the arm that retains the earlier payload. -/
+example : ∃ t s : Tm Empty (Prim ⊕ Unit) Γ.length,
+    rawNestedTree.source.toLetIter Γ.length = some t ∧ rawPrefixTree.source.toLetIter Γ.length = some s ∧
+    HasTypeEffect Γ₀ Γ.toBoundCtx t outputSort strict ∧ HasTypeEffect Γ₀ Γ.toBoundCtx s outputSort strict ∧
+    AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx t s outputSort ∧
+    Eqv Γ outputSort strict rawNestedTree.source rawPrefixTree.source := by
+  let h := Response.Mixed.Raw.source_wf sig sumSig (c := true) ctx_pure slots_typed strict
+  obtain ⟨t, ht, _⟩ := (h rawNestedTree rawNestedTree_typed).toLetIter
+  obtain ⟨s, hs, _⟩ := (h rawPrefixTree rawPrefixTree_typed).toLetIter
+  obtain ⟨ht', _, hp⟩ := Response.Mixed.Raw.compile_native sig sumSig ctx_pure slots_typed strict
+    rawNestedTree rawNestedTree_typed ht
+  obtain ⟨hs', _, hq⟩ := Response.Mixed.Raw.compile_native sig sumSig ctx_pure slots_typed strict
+    rawPrefixTree rawPrefixTree_typed hs
+  have hq' := rawMixedSameCompile.symm ▸ hq
+  have hn := hp.trans hq'.symm
+  exact ⟨t, s, ht, hs, ht', hs', hn,
+    (Response.Mixed.Raw.endpoint_reflection sig sumSig outerVisible ctx_pure slots_typed strict
+      rawNestedTree rawPrefixTree rawNestedTree_typed rawPrefixTree_typed ht hs).mp hn⟩
+
+end RawMixedPrefix
 
 end EffectfulSumScrutinee
 

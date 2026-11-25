@@ -58,14 +58,14 @@ public theorem lowers {n : Nat} {ss : Fin n → α} (p : Program S T c ss) :
       tuple_lowers _ _ (fun i => tree_lowers S (args i)), ihl, ihr, Option.map_some, Option.bind_some]
 
 omit [HasEff Φ ε] [HasEff Ψ ε] in
-private theorem slots_extended {a : α} (hslots : ∀ i, (Γ.get i).1 = .base (slots i)) :
+public theorem slots_extended {a : α} (hslots : ∀ i, (Γ.get i).1 = .base (slots i)) :
     ∀ i : Fin (Γ.length + 1),
       (((Ty.base a, (⊥ : ε)) :: Γ).get i).1 = .base (extendSorts a slots i) :=
   fun i => Fin.cases (motive := fun j =>
     (((Ty.base a, (⊥ : ε)) :: Γ).get j).1 = .base (extendSorts a slots j)) rfl hslots i
 
 omit [HasEff Φ ε] [HasEff Ψ ε] in
-private theorem pure_extended (hΓ : Γ.Pure) (a : α) :
+public theorem pure_extended (hΓ : Γ.Pure) (a : α) :
     EffectCtx.Pure ((Ty.base a, (⊥ : ε)) :: Γ) :=
   fun i => Fin.cases (motive := fun j => (((Ty.base a, (⊥ : ε)) :: Γ).get j).2 = ⊥) rfl hΓ i
 
@@ -80,7 +80,7 @@ private theorem tuple_wf {k : Nat} {as : Fin k → α} {xs : Fin k → Expr (Φ 
   | zero => exact .unit _ _
   | succ k ih => exact .pair (hs 0) (ih (fun i => hs i.succ))
 
-private theorem tree_wf (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+public theorem tree_wf (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
     {a : α} (p : Tree S slots a) (hp : DeclaredPure (ε := ε) S p) (e : ε) :
     letI := endpoints S T
     letI : HasEff (Φ ⊕ Ψ) ε := effects
@@ -91,6 +91,30 @@ private theorem tree_wf (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (s
   | var i => exact hslots i ▸ Wf.var i ((hΓ i).trans_le bot_le)
   | op f args ih =>
     exact .op (f := (Sum.inl f : Φ ⊕ Ψ)) (hp.1.trans_le bot_le) (tuple_wf S T (fun i => ih i (hp.2 i)))
+
+public theorem atom_request_wf (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+    {f : Φ} (args : Args S slots f) (hargs : ∀ i, DeclaredPure (ε := ε) S (args i))
+    {e : ε} (hf : instrEff f ≤ e) :
+    letI := endpoints S T
+    letI : HasEff (Φ ⊕ Ψ) ε := effects
+    Wf Γ (.op (Sum.inl f : Φ ⊕ Ψ) (sourceTuple (S.arity f) (fun i => treeSource S (args i))))
+      (Ty.base (S.out f)) e := by
+  let instr := endpoints S T
+  let eff : HasEff (Φ ⊕ Ψ) ε := effects
+  exact .op (f := (Sum.inl f : Φ ⊕ Ψ)) hf (tuple_wf S T (fun i =>
+    tree_wf S T hΓ hslots (args i) (hargs i) e))
+
+public theorem sum_request_wf (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+    {f : Ψ} (args : SumCall.SumArgs S T slots f) (hargs : ∀ i, DeclaredPure (ε := ε) S (args i))
+    {e : ε} (hf : instrEff f ≤ e) :
+    letI := endpoints S T
+    letI : HasEff (Φ ⊕ Ψ) ε := effects
+    Wf Γ (.op (Sum.inr f) (sourceTuple (T.arity f) (fun i => treeSource S (args i))))
+      (SumCall.result T f) e := by
+  let instr := endpoints S T
+  let eff : HasEff (Φ ⊕ Ψ) ε := effects
+  exact .op (f := (Sum.inr f : Φ ⊕ Ψ)) hf (tuple_wf S T (fun i =>
+    tree_wf S T hΓ hslots (args i) (hargs i) e))
 
 private theorem wf_aux {n : Nat} {ss : Fin n → α} (e : ε)
     (p : Program S T c ss) (hp : Program.WellTyped S T e p) :
@@ -109,14 +133,12 @@ private theorem wf_aux {n : Nat} {ss : Fin n → α} (e : ε)
   | @atom size ambient f args next ih =>
     intro Γ hlen hΓ hslots
     subst size
-    refine .let₁ (.op (f := (Sum.inl f : Φ ⊕ Ψ)) hp.2.2.1 (tuple_wf S T (fun i =>
-      tree_wf S T hΓ hslots (args i) (hp.1 i) e))) ?_
+    refine .let₁ (atom_request_wf S T hΓ hslots args hp.1 hp.2.2.1) ?_
     exact ih hp.2.2.2 rfl (pure_extended hΓ _) (slots_extended hslots)
   | @sum size ambient g args left right ihl ihr =>
     intro Γ hlen hΓ hslots
     subst size
-    exact .case (.op (f := (Sum.inr g : Φ ⊕ Ψ)) hp.2.1 (tuple_wf S T (fun i =>
-      tree_wf S T hΓ hslots (args i) (hp.1 i) e)))
+    exact .case (sum_request_wf S T hΓ hslots args hp.1 hp.2.1)
       (ihl hp.2.2.1 rfl (pure_extended hΓ _) (slots_extended hslots))
       (ihr hp.2.2.2 rfl (pure_extended hΓ _) (slots_extended hslots))
 

@@ -74,7 +74,7 @@ section Typed
 variable {ε : Type r} [HasEff Φ ε] [Preorder ε] [Bot ε]
 
 omit [Preorder ε] in
-private theorem tree_pure_subst (p : Tree S slots c) (hp : DeclaredPure (ε := ε) S p)
+public theorem tree_pure_subst (p : Tree S slots c) (hp : DeclaredPure (ε := ε) S p)
     (σ : TreeSubst S slots target) (hσ : ∀ i, DeclaredPure (ε := ε) S (σ i)) :
     DeclaredPure (ε := ε) S (p.interpret S (Tree S target) Tree.op σ) := by
   induction p with

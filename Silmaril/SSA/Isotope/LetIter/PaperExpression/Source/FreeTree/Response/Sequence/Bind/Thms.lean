@@ -34,6 +34,12 @@ section Typed
 
 variable {ε : Type r} [HasEff Φ ε] [Preorder ε] [Bot ε]
 
+omit [Preorder ε] in
+theorem tree_pure_subst (p : Tree S slots c) (hp : DeclaredPure (ε := ε) S p)
+    (σ : TreeSubst S slots target) (hσ : ∀ i, DeclaredPure (ε := ε) S (σ i)) :
+    DeclaredPure (ε := ε) S (p.interpret S (Tree S target) Tree.op σ) :=
+  BindProofs.tree_pure_subst S p hp σ hσ
+
 theorem subst_typed (e : ε) (p : Sequence S c slots) (hp : Sequence.WellTyped S e p)
     (σ : TreeSubst S slots target) (hσ : ∀ i, DeclaredPure (ε := ε) S (σ i)) :
     Sequence.WellTyped S e (subst S p σ) :=
