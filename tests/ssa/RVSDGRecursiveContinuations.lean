@@ -11,6 +11,7 @@ private abbrev state : T := .state ()
 private abbrev tag : T := .control 2
 private abbrev decision : Ports T := [tag, word]
 private abbrev results : Ports T := [word, state]
+private abbrev route : Ports T := [tag, word, state]
 private abbrev fn : Function Unit Unit := ⟨[word, state], results⟩
 private abbrev callable : T := fn.port
 private abbrev bodyArgs : Ports T := callable :: fn.args
@@ -20,6 +21,8 @@ private inductive Op : Dialect (ValueSort Unit Unit) Unit
   | prefix : Op [state] [state]
   | base : Op [state] results
   | suffix : Op [word, state, state] results
+  | loopPrepare : Op [state] results
+  | loopRoute : Op [word, state] route
 
 private def machine : Machine Op where
   Data _ := Nat
@@ -32,6 +35,12 @@ private def machine : Machine Op where
       .cons (.data (10 : Nat)) (.cons (.state (history ++ [2])) .nil)
     | .suffix, .cons (.data n) (.cons (.state returned) (.cons (.state saved) .nil)) =>
       .cons (.data (n + 1)) (.cons (.state (returned ++ [3, saved.length])) .nil)
+    | .loopPrepare, .cons (.state history) .nil =>
+      .cons (.data (0 : Nat)) (.cons (.state (history ++ [4])) .nil)
+    | .loopRoute, .cons (.data n) (.cons (.state history) .nil) =>
+      let again := 1 < n
+      .cons (.control (if again then 1 else 0)) <|
+        .cons (.data (n - 1)) <| .cons (.state (history ++ [if again then 5 else 6])) .nil
 
 private def prefixNode : NestedTheta.Node (Instruction Op) bodyArgs [] [state] :=
   ⟨[state], .base (.simple (.primitive .prefix)), .cons (.arg (.tail (.tail .head))) .nil, fun i => i.elim0⟩
@@ -128,21 +137,82 @@ example : Completes (start initial) expected :=
   (completes_call_iff_invoke callee (arguments 2 []) (admitted_of_completes completes)).2
     ⟨0, 3, by cbv⟩
 
-private abbrev carried : Ports T := [tag, state]
+private def loopPrepareNode : NestedTheta.Node (Instruction Op) bodyArgs [] results :=
+  ⟨[state], .base (.simple (.primitive .loopPrepare)),
+    .cons (.arg (.tail (.tail .head))) .nil, fun i => i.elim0⟩
 
-private def thetaBody : NestedTheta.Term (Instruction Op) carried [] [] (Theta.BodyResults carried) :=
-  .ret (.cons (.arg .head) (.cons (.arg .head) (.cons (.arg (.tail .head)) .nil)))
+private def loopApplyNode : NestedTheta.Node (Instruction Op) bodyArgs [results] results :=
+  ⟨bodyArgs, .base (.simple (.apply fn)),
+    .cons (.arg .head) (.cons (.output (0 : Fin 1) .head)
+      (.cons (.output (0 : Fin 1) (.tail .head)) .nil)), fun i => i.elim0⟩
 
-private def thetaInput : Tuple machine.Val carried :=
-  .cons (.control (0 : Fin 2)) (.cons (.state ([] : List Nat)) .nil)
+private def loopRouteNode : NestedTheta.Node (Instruction Op) bodyArgs [results, results] route :=
+  ⟨[word, state], .base (.simple (.primitive .loopRoute)),
+    .cons (.arg (.tail .head)) (.cons (.output (1 : Fin 2) (.tail .head)) .nil), fun i => i.elim0⟩
 
-private def thetaJob : Job machine carried :=
-  .node (.theta carried) (fun _ => []) (fun _ => thetaBody) thetaInput
+private def loopBody : NestedTheta.Term (Instruction Op) bodyArgs [] [results, results, route]
+    (Theta.BodyResults bodyArgs) :=
+  .bind loopPrepareNode (fun i => i.elim0) <| .bind loopApplyNode (fun i => i.elim0) <|
+    .bind loopRouteNode (fun i => i.elim0) <|
+      .ret (.cons (.output (2 : Fin 3) .head) (.cons (.arg .head)
+        (.cons (.output (2 : Fin 3) (.tail .head)) (.cons (.output (2 : Fin 3) (.tail (.tail .head))) .nil))))
 
-example : Returns machine thetaJob thetaInput := .theta (.stop (.ret _ _ _) rfl)
+private def loopNode : NestedTheta.Node (Instruction Op) bodyArgs [[state]] bodyArgs :=
+  ⟨bodyArgs, .theta bodyArgs,
+    .cons (.arg .head) (.cons (.arg (.tail .head)) (.cons (.output (0 : Fin 1) .head) .nil)),
+    fun _ => [results, results, route]⟩
 
-example : (start thetaJob).Unsupported := ⟨rfl, rfl⟩
+private def postLoop : NestedTheta.Node (Instruction Op) bodyArgs [[state], bodyArgs] results :=
+  ⟨[word, state, state], .base (.simple (.primitive .suffix)),
+    .cons (.output (1 : Fin 2) (.tail .head)) (.cons (.output (1 : Fin 2) (.tail (.tail .head)))
+      (.cons (.output (0 : Fin 2) .head) .nil)), fun i => i.elim0⟩
 
-example : ¬ Admitted (start thetaJob) := fun admitted => admitted _ .refl ⟨rfl, rfl⟩
+private def driverSuffix : NestedTheta.Term (Instruction Op) bodyArgs [[state], bodyArgs] [results] results :=
+  .bind postLoop (fun i => i.elim0) <|
+    .ret (.cons (.output (2 : Fin 3) .head) (.cons (.output (2 : Fin 3) (.tail .head)) .nil))
+
+private def driverBody : NestedTheta.Term (Instruction Op) bodyArgs [] [[state], bodyArgs, results] results :=
+  .bind prefixNode (fun i => i.elim0) (.bind loopNode (fun _ => loopBody) driverSuffix)
+
+private def driver : LambdaTerm Op [] [[callable]] fn :=
+  ⟨[callable], .cons (.output (0 : Fin 1) .head) .nil, [[state], bodyArgs, results], driverBody⟩
+
+private def loopModule : OmegaTerm Op [] [callable] [[callable], [callable]] :=
+  ⟨.bind (.phi group) <| .bind (.lambda driver) <| .ret (.cons (.output (1 : Fin 2) .head) .nil)⟩
+
+private def linkedDriver : machine.Val callable :=
+  (Recursive.linkGraph machine 19 loopModule.toGraph .nil).get .head
+
+private def loopJob : Job machine results := .call linkedDriver (arguments 2 [])
+
+private def waitingParent : Stack machine bodyArgs results :=
+  .resume (past := [[state]]) driverSuffix.toGraph.toTerm (.cons callee (arguments 2 []))
+    (.cons (.state ([1] : List Nat)) .nil, PUnit.unit) .halt
+
+-- The feedback step starts a second body with empty locals and retains
+-- the original parent continuation.
+example : State.runFor 31 (start loopJob) =
+    .eval (.region loopBody.toGraph.toTerm (.cons callee (arguments 1 [1, 4, 2, 5])) PUnit.unit)
+      (.loop loopBody.toGraph.toTerm waitingParent) := by cbv
+
+-- Exit hands the carried tuple to the same parent, discarding the tag.
+example : State.runFor 54 (start loopJob) =
+    .returned (.cons callee (arguments 0 [1, 4, 2, 5, 4, 2, 6])) waitingParent := by cbv
+
+private def loopExpected : Tuple machine.Val results :=
+  .cons (.data (1 : Nat)) (.cons (.state ([1, 4, 2, 5, 4, 2, 6, 3, 1] : List Nat)) .nil)
+
+-- The two visits each call the linked φ member (2). Only the first
+-- feeds back (5). The exit (6) is followed by the parent's suffix (3, 1).
+example : Completes (start loopJob) loopExpected :=
+  completes_runFor (fuel := 128) (by cbv)
+
+example : invoke machine 1 2 linkedDriver (arguments 2 []) = none := by cbv
+
+private theorem linkedReturns : Returns machine loopJob loopExpected :=
+  (Recursive.call_iff machine linkedDriver (arguments 2 []) loopExpected).2 ⟨2, 2, by cbv⟩
+
+example : Completes (start loopJob) loopExpected :=
+  completes_iff_returns.mpr linkedReturns
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Tests
