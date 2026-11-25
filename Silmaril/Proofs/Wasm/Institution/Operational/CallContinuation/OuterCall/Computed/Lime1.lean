@@ -1,9 +1,10 @@
 module
 
-public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Defs
+public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Native.Thms
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Rules
+public import Silmaril.Wasm.Lime1.Execution.Callout
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.Lime1Head
 import Silmaril.Wasm.Institution.Operational.CallFrame.Native.Thms
 
@@ -98,6 +99,79 @@ private theorem read_front {H : Type} {src dst : Config H} (step : Step CallFram
         subst op
         cases focus
 
+@[local simp] private theorem values_one (v : Value) : values [v] = [value v] := rfl
+
+@[local simp] private theorem values_two (a b : Value) : values [a, b] = [value a, value b] := rfl
+
+theorem prefix_read {H : Type} {s : Store H} {f : Frame} {stack : List Value} {op : Prefix.Op}
+    {suffix : List Admin} {dst : Config H}
+    (h : Step CallFrame.limeNoHost ⟨s, f, values stack ++ Prefix.emit limeSyntax op :: suffix⟩ dst) :
+    ∃ ans, Prefix.Reduce f.locals stack op ans ∧
+      dst = ⟨s, f, Prefix.outcomeCode values .trap suffix ans⟩ := by
+  cases op with
+  | get i =>
+    obtain ⟨saved, used, next, split, head, eq⟩ := read_front h (.get i) rfl
+    cases head with
+    | get found =>
+      have same : stack = saved := by simpa using split
+      subst stack
+      exact ⟨_, .get found, by simpa [Prefix.outcomeCode, List.append_assoc] using eq⟩
+  | bin t op =>
+    obtain ⟨saved, used, next, rfl, head, eq⟩ := read_front h (.bin t op) rfl
+    cases head with
+    | bin ok =>
+      exact ⟨_, .bin ok, by simpa [Prefix.outcomeCode, List.append_assoc] using eq⟩
+    | trap err => exact ⟨_, .trap err, by simpa [Prefix.outcomeCode] using eq⟩
+
+theorem prefix_sound {H : Type} {s : Store H} {f : Frame} {stack : List Value} {op : Prefix.Op}
+    {suffix : List Admin} {ans : Prefix.Outcome} (step : Prefix.Reduce f.locals stack op ans) :
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ Prefix.emit limeSyntax op :: suffix⟩
+      ⟨s, f, Prefix.outcomeCode values .trap suffix ans⟩ := by
+  cases step with
+  | get found =>
+    simpa [Prefix.outcomeCode, Prefix.emit, limeSyntax, List.append_assoc] using
+      Step.context (Step.localGet (host := CallFrame.limeNoHost) s f _ _ found) stack suffix
+  | bin ok =>
+    simpa [Prefix.outcomeCode, Prefix.emit, limeSyntax, List.append_assoc] using
+      Step.context (Step.pure (host := CallFrame.limeNoHost) s f (.intBinary _ _ _ _ _ ok)) _ suffix
+  | trap err =>
+    simpa [Prefix.outcomeCode, Prefix.emit, limeSyntax, List.append_assoc] using
+      Step.context (Step.pure (host := CallFrame.limeNoHost) s f (.intBinaryTrap _ _ _ _ _ err)) _ suffix
+
+theorem prefix_discard_read {A H : Type} {s : Store H} {f : Frame} (emit : A → Admin)
+    {stack : List Value} {tail : List A} {dst : Config H}
+    (h : Step CallFrame.limeNoHost ⟨s, f, values stack ++ .trap :: tail.map emit⟩ dst) :
+    ∃ kept rest, Prefix.Discard stack tail kept rest ∧
+      dst = ⟨s, f, values kept ++ .trap :: rest.map emit⟩ := by
+  have front := CallContinuation.Proofs.Lime1.front h .trap rfl
+  generalize stackEq : stack = vs at front
+  generalize tailEq : tail.map emit = tailCode at front
+  cases front with
+  | normal _ notTrap _ => exact (notTrap rfl).elim
+  | bubble kept removed cut rest nz =>
+    obtain ⟨left, right, rfl, rfl, rfl⟩ := List.map_eq_append_iff.mp tailEq
+    subst stack
+    exact ⟨kept, right, .cut kept removed left right (by simpa using nz), rfl⟩
+
+theorem prefix_discard_sound {A H : Type} {s : Store H} {f : Frame} (emit : A → Admin)
+    {stack kept : List Value} {tail rest : List A} (step : Prefix.Discard stack tail kept rest) :
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .trap :: tail.map emit⟩
+      ⟨s, f, values kept ++ .trap :: rest.map emit⟩ := by
+  cases step with
+  | cut kept removed cut rest nz =>
+    cases removed with
+    | nil =>
+      cases cut with
+      | nil => cases nz <;> contradiction
+      | cons head cut =>
+        simpa [List.append_assoc] using Step.context
+          (Step.pure (host := CallFrame.limeNoHost) s f (.trapTail (emit head) (cut.map emit)))
+          kept (rest.map emit)
+    | cons v vs =>
+      simpa [List.append_assoc] using Step.context
+        (Step.pure (host := CallFrame.limeNoHost) s f (.trapValues v vs (cut.map emit)))
+        kept (rest.map emit)
+
 private theorem read_get {H : Type} {s : Store H} {f : Frame} {stack : List Value} {i : LocalIdx}
     {v : Value} {rest : List Admin} {dst : Config H} (found : f.locals[i.toNat]? = some v)
     (h : Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.localGet i) :: rest⟩ dst) :
@@ -128,7 +202,7 @@ private theorem read_bin {H : Type} {s : Store H} {f : Frame} {t : IntType} {op 
     cases eq_of_heq (Value.mk.inj right).2
     exact .inr ⟨_, err, eq⟩
 
-private theorem read_call {H : Type} {s : Store H} {f : Frame} {stack : List Value} {i : FuncIdx}
+theorem read_call {H : Type} {s : Store H} {f : Frame} {stack : List Value} {i : FuncIdx}
     {a : FuncAddr} {rest : List Admin} {dst : Config H} (found : f.module.funcs[i.toNat]? = some a)
     (h : Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.call i) :: rest⟩ dst) :
     dst = ⟨s, f, values stack ++ .invoke a :: rest⟩ := by
@@ -139,10 +213,10 @@ private theorem read_call {H : Type} {s : Store H} {f : Frame} {stack : List Val
     cases lookup
     simpa [split] using eq
 
-private theorem label_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {stack : List Value}
+theorem label_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {stack : List Value}
     {head : Admin} {rest out : List Admin}
     (none : asValue? head = none) (notBr : ∀ i, head ≠ .source (.br i))
-    (notRet : head ≠ .source .return_) (notFinalTrap : head = .trap → rest ≠ [])
+    (notRet : head ≠ .source .return_) (notFinalTrap : head = .trap → stack ≠ [] ∨ rest ≠ [])
     (h : PureStep types [.label n [] (values stack ++ head :: rest)] out) : False := by
   generalize eq : ([.label n [] (values stack ++ head :: rest)] : List Admin) = code at h
   have headEq {body : List Admin} {arity : Nat} {cont : Wasm.Lime1.Expr}
@@ -172,7 +246,7 @@ private theorem label_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {stack 
     have stackNil : stack = [] := List.eq_nil_of_length_eq_zero (by omega)
     have restNil : rest = [] := List.eq_nil_of_length_eq_zero (by omega)
     subst stack rest
-    exact notFinalTrap (List.cons.inj body).1 rfl
+    cases notFinalTrap (List.cons.inj body).1 <;> contradiction
   | trapValues | trapTail =>
     have len := congrArg List.length eq
     simp [values] at len
@@ -180,14 +254,14 @@ private theorem label_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {stack 
     have last := congrArg List.getLast? eq
     simp [values, List.getLast?_append] at last
 
-private theorem lift_body {H : Type} {s s' : Store H} {caller inner inner' : Frame}
+theorem lift_body {H : Type} {s s' : Store H} {caller inner inner' : Frame}
     {n : Nat} {a b : List Admin}
     (h : Step CallFrame.limeNoHost ⟨s, inner, a⟩ ⟨s', inner', b⟩) :
     Step CallFrame.limeNoHost ⟨s, caller, [.frame n inner [.label n [] a]]⟩
       ⟨s', caller, [.frame n inner' [.label n [] b]]⟩ :=
   .frame (.label h n []) n caller
 
-private theorem read_body {H : Type} {s : Store H} {caller inner : Frame} {n : Nat}
+theorem read_body {H : Type} {s : Store H} {caller inner : Frame} {n : Nat}
     {body : List Admin} {dst : Config H}
     (stays : ∀ {out}, PureStep inner.module.types [.label n [] body] out → False)
     (h : Step CallFrame.limeNoHost ⟨s, caller, [.frame n inner [.label n [] body]]⟩ dst) :
