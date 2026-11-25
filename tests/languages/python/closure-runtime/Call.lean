@@ -69,4 +69,7 @@ example :
 #print axioms bind_preserves_ids
 #print axioms enter_capture
 #print axioms enter_captures_live
+#print axioms enter_complete
+#print axioms enter_read
+#print axioms enter_preserves_cell
 #print axioms finish_after_enter

@@ -40,8 +40,12 @@ the ordered `Writes` relation. Arity mismatch is a defined error with no
 committed write. `Call.enter` accepts a function and its positional layout,
 checks the incoming cell identities against the original heap, binds the
 arguments in a fresh frame and pushes the saved caller. The binding proof
-preserves the owned and incoming cell identities. General pointwise
-readback of bound arguments in fresh frames is a follow-up theorem.
+preserves the owned and incoming cell identities. `Call.enter_complete`
+guarantees entry when arity matches and the captured addresses are allocated,
+including captures that are still unbound. `Call.enter_read` proves that each
+argument is readable at its compiler-assigned local or owned-cell slot.
+`Call.enter_preserves_cell` covers every previously allocated caller cell,
+including any incoming capture, before callee execution begins.
 [Call definitions](../../Silmaril/Languages/Python/Core/Closure/Call/Defs.lean)
 
 A `Call.Saved` stores the caller's layout, frame and typed continuation.
