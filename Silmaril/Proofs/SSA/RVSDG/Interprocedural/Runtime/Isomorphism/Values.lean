@@ -1,6 +1,6 @@
 module
 
-public import Mathlib.Data.List.Forall2
+public import Batteries.Data.List.Basic
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Defs
 public import Silmaril.Proofs.SSA.RVSDG.NestedTheta.Isomorphism.Trace
 
