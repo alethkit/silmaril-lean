@@ -192,6 +192,7 @@ check-integrations:
 	$(if $(filter elf-pages,$(CHECK_TARGETS)),$(MAKE) elf-check)
 	$(if $(filter SilmarilLogicGraphData,$(CHECK_TARGETS)),$(MAKE) logic-graph-check)
 	$(if $(filter cexplorer-export CompilesToExamples,$(CHECK_TARGETS)),$(MAKE) compiler-explorer-check)
+	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.LambdaSSA.Theta.% +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Theta.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.Theta.Categorical.Thms +Silmaril.Raw.SSA.Isotope.LetIter.Semantics.Categorical.Kleisli && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGLambdaSSATheta.lean)
 
 # The Lean-NDJSON fixture is what lean4export writes now (docs/projects/formal-rows.md).
 lean-ndjson-check:
