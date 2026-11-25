@@ -38,7 +38,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | indexedBlock | indexedIf | loop | if_ | br | brIf | brTable | return_ | unreachable => rfl
+    | set | tee | call | block | indexedBlock | indexedIf | loop | indexedLoop | if_ | br | brIf | brTable | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.limeFunc.body = (Body.running fn.initial fn.code).render limeAdmin := by
@@ -154,6 +154,11 @@ private theorem running_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {cont
       (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax]) pop
   | loop result body =>
     exact Computed.lime_label_stays (head := limeAdmin.emit (.loop result body)) rfl
+      (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax])
+      (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax])
+      (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax]) pop
+  | indexedLoop index signature body =>
+    exact Computed.lime_label_stays (head := limeAdmin.emit (.indexedLoop index signature body)) rfl
       (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax])
       (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax])
       (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax]) pop
@@ -327,6 +332,7 @@ private theorem branch_step_iff {H : Type} {s : Store H} {program : Program}
       have empty : payload = [] := List.eq_nil_of_length_eq_zero size
       subst payload
       rfl
+    | indexedLoop => rfl
   constructor
   · rintro ⟨mid, move, rfl⟩
     rcases invert.mp move with ⟨extra, payload, split, size, here, rfl⟩ | ⟨outer, rfl⟩
@@ -412,6 +418,28 @@ private theorem indexed_entry_iff {H : Type} {s : Store H} {decl : Declaration}
   have lookup : blockType? decl.module.types (.typeIdx index) = some signature := resolved
   have arity : args.length = signature.params.length := by simpa using congrArg List.length typed
   rw [show native = Step CallFrame.limeNoHost from rfl, Computed.lime_block_step_iff]
+  constructor
+  · rintro ⟨kept, used, ft, split, found, size, rfl⟩
+    change blockType? decl.module.types (.typeIdx index) = _ at found
+    rw [lookup] at found
+    cases found
+    obtain ⟨rfl, rfl⟩ := List.append_inj' split (arity.trans size.symm)
+    rfl
+  · intro eq
+    exact ⟨saved, args, _, rfl, lookup, arity, eq⟩
+
+private theorem indexed_loop_entry_iff {H : Type} {s : Store H} {decl : Declaration}
+    {locals saved args : List Value} {index : TypeIdx} {signature : Wasm.V1.FuncType}
+    {body : Wasm.Lime1.Expr} {rest : List Admin} {dst : Config H}
+    (resolved : decl.module.types[index.toNat]? = some signature)
+    (typed : args.map Value.type = signature.params) :
+    native ⟨s, (currentFrame decl locals), values (saved ++ args) ++
+      .source (.loop (.typeIdx index) body) :: rest⟩ dst ↔
+      dst = ⟨s, (currentFrame decl locals), values saved ++
+        .label signature.params.length [.loop (.typeIdx index) body] (values args ++ expression body) :: rest⟩ := by
+  have lookup : blockType? decl.module.types (.typeIdx index) = some signature := resolved
+  have arity : args.length = signature.params.length := by simpa using congrArg List.length typed
+  rw [show native = Step CallFrame.limeNoHost from rfl, Computed.lime_loop_step_iff]
   constructor
   · rintro ⟨kept, used, ft, split, found, size, rfl⟩
     change blockType? decl.module.types (.typeIdx index) = _ at found
@@ -570,6 +598,17 @@ private theorem region_step_iff {H : Type} {s : Store H} {program : Program} (ch
             exact ⟨_, rule.mpr (.indexedBlockEnter locals saved args index signature body rest resolved typed),
               eq.trans (congrArg (fun x : Config H =>
                 (⟨x.store, caller, [.frame n x.frame [.label k cont x.code]]⟩ : Config H)) enter)⟩
+          | indexedLoop index signature body =>
+            obtain ⟨saved, args, rfl, typed, resolved⟩ := split_indexed_loop codeTyped
+            have inModule : target.declaration.module.types[index.toNat]? = some signature := by
+              simpa only [← root.declared] using resolved
+            have enter := (indexed_loop_entry_iff (s := s) (locals := locals) (saved := saved) (args := args)
+              (body := Op.emitList limeCodeSyntax body) (rest := rest.map limeAdmin.emit)
+              inModule typed).mp inner
+            rw [code_expression] at enter
+            exact ⟨_, rule.mpr (.indexedLoopEnter locals saved args index signature body rest resolved typed),
+              eq.trans (congrArg (fun x : Config H =>
+                (⟨x.store, caller, [.frame n x.frame [.label k cont x.code]]⟩ : Config H)) enter)⟩
           | loop result body =>
             have enter := (Loops.lime_entry_iff (result := result)
               (body := Op.emitList limeCodeSyntax body) (saved := stack) (rest := rest.map limeAdmin.emit)).mp inner
@@ -641,6 +680,12 @@ private theorem region_step_iff {H : Type} {s : Store H} {program : Program} (ch
             apply lift_label
             exact (indexed_entry_iff (saved := saved) (body := Op.emitList limeCodeSyntax body)
               (rest := rest.map limeAdmin.emit) inModule typed).mpr (by rw [code_expression]; rfl)
+          | indexedLoopEnter locals saved args index signature body rest resolved typed =>
+            have inModule : target.declaration.module.types[index.toNat]? = some signature := by
+              simpa only [← root.declared] using resolved
+            apply lift_label
+            exact (indexed_loop_entry_iff (saved := saved) (body := Op.emitList limeCodeSyntax body)
+              (rest := rest.map limeAdmin.emit) inModule typed).mpr (by rw [code_expression]; rfl)
           | loopEnter =>
             rename_i result body
             apply lift_label
@@ -655,7 +700,7 @@ private theorem region_step_iff {H : Type} {s : Store H} {program : Program} (ch
       have childStep {next : Config H} := descend child used
         (dst := next) ⟨childFound, declared, childResolves⟩ childReady
       cases q with
-      | call | branching | restart | done => cases live
+      | call | branching | restart | indexedRestart | done => cases live
       | invoke operands =>
         cases childReady with
         | invoke localsTyped => exact pending_child_iff checked n allocated root.found used childFound declared localsTyped
@@ -686,6 +731,11 @@ private theorem region_step_iff {H : Type} {s : Store H} {program : Program} (ch
       have smaller : sizeOf inside < size := by rw [← sizeEq]; simp [Body.loop.sizeOf_spec]; omega
       exact block_step_iff checked root.found (n := n) (innerKind := .loop result original)
         (fun _ _ eq => (LabelKind.loop.inj eq).1.symm) (loop_iff checked root.found) (fun {dst} =>
+          ih (sizeOf inside) smaller (dst := dst) rfl innerTyped)
+    | @indexedLoop _ _ _ _ locals saved index signature original inside rest innerTyped _ _ resume =>
+      have smaller : sizeOf inside < size := by rw [← sizeEq]; simp [Body.indexedLoop.sizeOf_spec]; omega
+      exact block_step_iff checked root.found (n := n) (innerKind := .indexedLoop index signature original)
+        (fun _ _ eq => by cases eq) (indexed_loop_iff checked root.found) (fun {dst} =>
           ih (sizeOf inside) smaller (dst := dst) rfl innerTyped)
 
 theorem step_iff {H : Type} {s : Store H} {program : Program} (checked : program.check = true)
@@ -735,6 +785,7 @@ theorem step_iff {H : Type} {s : Store H} {program : Program} (checked : program
     | active typed used found declared live ready resume => exact region (.active typed used found declared live ready resume)
     | block inside resume => exact region (.block inside resume)
     | indexedBlock inside resume => exact region (.indexedBlock inside resume)
+    | indexedLoop inside resolved original resume => exact region (.indexedLoop inside resolved original resume)
     | loop inside original resume => exact region (.loop inside original resume)
     | trapped typed => exact region (.trapped typed)
     | @returning _ _ _ _ locals stack typed returnTyped =>

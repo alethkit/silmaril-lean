@@ -24,6 +24,26 @@ theorem split_call {fn : Function} {fallthrough : List NumType} {enclosing : Enc
   exact ⟨stack.take below, stack.drop below, (List.take_append_drop below stack).symm, used,
     by simp [below]; omega⟩
 
+private theorem split_suffix {stack : List Value} {params : List NumType}
+    (shape : SuffixTyped params stack) :
+    ∃ saved args, stack = saved ++ args ∧ args.map Value.type = params := by
+  unfold SuffixTyped at shape
+  have length : min params.length stack.length = params.length := by
+    simpa [Prefix.stackTypes] using congrArg List.length shape
+  have enough : params.length ≤ stack.length := by omega
+  let below := stack.length - params.length
+  let saved := stack.take below
+  let args := stack.drop below
+  have stackEq : stack = saved ++ args := (List.take_append_drop below stack).symm
+  have count : (Prefix.stackTypes args).length = params.length := by
+    simp [Prefix.stackTypes, args, below]
+    omega
+  have split : Prefix.stackTypes stack = Prefix.stackTypes args ++ Prefix.stackTypes saved := by
+    rw [stackEq]
+    simp [Prefix.stackTypes]
+  rw [split, ← count, List.take_left] at shape
+  exact ⟨saved, args, stackEq, List.reverse_inj.mp shape⟩
+
 theorem split_indexed_block {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
     {kind : LabelKind} {stack : List Value} {index : TypeIdx} {signature : Wasm.V1.FuncType} {body rest : List Op}
     (typed : fn.WellTyped stack (.indexedBlock index signature body :: rest) fallthrough enclosing kind) :
@@ -31,21 +51,18 @@ theorem split_indexed_block {fn : Function} {fallthrough : List NumType} {enclos
       fn.declaration.module.types[index.toNat]? = some signature := by
   simp only [Function.WellTyped, checkCode, checkOp, Bool.and_eq_true_iff, decide_eq_true_eq] at typed
   obtain ⟨⟨⟨resolved, shape⟩, _⟩, _⟩ := typed
-  have length : min signature.params.length stack.length = signature.params.length := by
-    simpa [Prefix.stackTypes] using congrArg List.length shape
-  have enough : signature.params.length ≤ stack.length := by omega
-  let below := stack.length - signature.params.length
-  let saved := stack.take below
-  let args := stack.drop below
-  have stackEq : stack = saved ++ args := (List.take_append_drop below stack).symm
-  have count : (Prefix.stackTypes args).length = signature.params.length := by
-    simp [Prefix.stackTypes, args, below]
-    omega
-  have split : Prefix.stackTypes stack = Prefix.stackTypes args ++ Prefix.stackTypes saved := by
-    rw [stackEq]
-    simp [Prefix.stackTypes]
-  rw [split, ← count, List.take_left] at shape
-  exact ⟨saved, args, stackEq, List.reverse_inj.mp shape, resolved⟩
+  obtain ⟨saved, args, eq, argsTyped⟩ := split_suffix shape
+  exact ⟨saved, args, eq, argsTyped, resolved⟩
+
+theorem split_indexed_loop {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
+    {kind : LabelKind} {stack : List Value} {index : TypeIdx} {signature : Wasm.V1.FuncType} {body rest : List Op}
+    (typed : fn.WellTyped stack (.indexedLoop index signature body :: rest) fallthrough enclosing kind) :
+    ∃ saved args, stack = saved ++ args ∧ args.map Value.type = signature.params ∧
+      fn.declaration.module.types[index.toNat]? = some signature := by
+  simp only [Function.WellTyped, checkCode, checkOp, Bool.and_eq_true_iff, decide_eq_true_eq] at typed
+  obtain ⟨⟨⟨resolved, shape⟩, _⟩, _⟩ := typed
+  obtain ⟨saved, args, eq, argsTyped⟩ := split_suffix shape
+  exact ⟨saved, args, eq, argsTyped, resolved⟩
 
 theorem split_return {fn : Function} {stack : List Value} (typed : fn.ReturnTyped stack) :
     ∃ extra results, stack = extra ++ results ∧ results.length = fn.declaration.results.length := by
@@ -74,7 +91,7 @@ theorem render_under_label {A : Type} (ops : Syntax A)
     (body.underLabel saved result rest kind).render ops =
       ops.values saved ++ ops.label (kind.results result).length kind (body.render ops) :: rest.map ops.emit := by
   cases kind with
-  | exit | indexed => rfl
+  | exit | indexed | indexedLoop => rfl
   | loop r original => cases compatible r original rfl; rfl
 
 theorem render_block {A : Type} (ops : Syntax A)
@@ -103,6 +120,9 @@ theorem render_block {A : Type} (ops : Syntax A)
   | restart locals result original =>
     exact ⟨locals, _, rfl, by
       simp [Phase.afterBlock, Phase.renderAt, Body.render, List.append_assoc]⟩
+  | indexedRestart locals args index signature original =>
+    exact ⟨locals, _, rfl, by
+      simp [Phase.afterBlock, Phase.renderAt, Body.render, append, List.append_assoc]⟩
   | exit locals result =>
     cases result with
     | values => exact ⟨locals, _, rfl, by simp [Phase.afterBlock, Phase.renderAt, Body.render,

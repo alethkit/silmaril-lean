@@ -1825,6 +1825,17 @@ private theorem checkedIndexedRun {program : Program} {caller : Execution.Runtim
   exact ⟨(core_run_iff checked (coreAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩,
     (lime_run_iff checked (limeAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩⟩
 
+private theorem checkedIndexedStep {program : Program} {caller : Execution.Runtime.Frame}
+    {target : CallTarget} {fn : Function} {start out : Phase} (checked : program.check = true)
+    (root : Root program caller target fn) (ready : Admitted program fn start)
+    (edge : program.Edge checked target.address start out) :
+    Execution.Core.Step Numerics.Profile.spec SingleThreaded.Det.noHost
+      (coreConfig (coreStore program) caller target start) (coreConfig (coreStore program) caller target out) ∧
+    Lime1.Execution.Step CallFrame.limeNoHost
+      (limeConfig (limeStore program) caller target start) (limeConfig (limeStore program) caller target out) :=
+  ⟨(core_step_iff checked (coreAllocated _) root ready).mpr ⟨_, edge, rfl⟩,
+    (lime_step_iff checked (limeAllocated _) root ready).mpr ⟨_, edge, rfl⟩⟩
+
 example := checkedIndexedRun mixedChecked mixedRoot (.call (args := []) rfl) (mixedResume mixedChecked rfl mixedLeafRun)
 example := checkedIndexedRun mixedChecked mixedRoot (.call (args := []) rfl)
   (mixedFinish mixedChecked rfl (mixedResume mixedChecked rfl mixedLeafRun))
@@ -1866,18 +1877,10 @@ private theorem mixedIfSelect (condition : BitVec 32) :
   ((mixedIfGraph condition).edge_iff (mixedIfChecked condition) (fn := mixedIfCallee condition) rfl).mpr
     (.indexedIfSelect beforeMixed mixedArgs condition indexedType mixedSig flatBody (flatBody ++ mixedBranch) [])
 
-example (condition : BitVec 32) :
-    Execution.Core.Step Numerics.Profile.spec SingleThreaded.Det.noHost
-      (coreConfig (coreStore (mixedIfGraph condition)) (callerFrame ⟨0⟩) mixedTarget (mixedIfSource condition))
-      (coreConfig (coreStore (mixedIfGraph condition)) (callerFrame ⟨0⟩) mixedTarget (mixedIfSelected condition)) ∧
-    Lime1.Execution.Step CallFrame.limeNoHost
-      (limeConfig (limeStore (mixedIfGraph condition)) (callerFrame ⟨0⟩) mixedTarget (mixedIfSource condition))
-      (limeConfig (limeStore (mixedIfGraph condition)) (callerFrame ⟨0⟩) mixedTarget (mixedIfSelected condition)) := by
-  have checked := mixedIfChecked condition
+example (condition : BitVec 32) :=
   have root : Root (mixedIfGraph condition) (callerFrame ⟨0⟩) mixedTarget (mixedIfCallee condition) := ⟨rfl, rfl, rfl⟩
   have ready : Admitted (mixedIfGraph condition) (mixedIfCallee condition) (mixedIfSource condition) := .running rfl rfl
-  exact ⟨(core_step_iff checked (coreAllocated _) root ready).mpr ⟨_, mixedIfSelect condition, rfl⟩,
-    (lime_step_iff checked (limeAllocated _) root ready).mpr ⟨_, mixedIfSelect condition, rfl⟩⟩
+  checkedIndexedStep (mixedIfChecked condition) root ready (mixedIfSelect condition)
 
 private theorem mixedIfLeafRun (condition : BitVec 32) :
     (mixedIfGraph condition).Runs (mixedIfChecked condition) ⟨0⟩ (.invoke mixedArgs) (.done (.values mixedResults)) := by
@@ -1904,6 +1907,135 @@ example := checkedIndexedRun (mixedIfChecked 1) (mixedIfRoot 1) (.call (args := 
 example := checkedIndexedRun (mixedIfChecked 0) (mixedIfRoot 0) (.call (args := []) rfl) (mixedIfResume 0)
 example (condition : BitVec 32) := checkedIndexedRun (mixedIfChecked condition) (mixedIfRoot condition)
   (.call (args := []) rfl) (mixedFinish (mixedIfChecked condition) rfl (mixedIfResume condition))
+
+private def loopSig : V1.FuncType := ⟨[wide, int32], [wide]⟩
+private def loopSaved : List Value := [i32 9]
+private def loopArgs : List Value := [i32 1]
+private def loopLocals (flag : BitVec 32) : List Value := [i32 flag, i32 0, i32 0]
+private def loopRemainder : List Op := [.set ⟨2⟩]
+private def loopTest : Op := .brIf ⟨0⟩ loopSig.params
+private def indexedLoopBody : List Op := [readLocal ⟨0⟩, readLocal ⟨1⟩, .set ⟨0⟩, loopTest] ++ loopRemainder
+private def indexedLoopCode : List Op := [.indexedLoop indexedType loopSig indexedLoopBody]
+private def indexedLoopFn : Function :=
+  ⟨⟨{ types := [⟨[int32], [int32, wide]⟩, loopSig] }, ⟨0⟩, [int32], [int32, int32], [int32, wide]⟩,
+    0, loopSaved ++ mixedArgs, indexedLoopCode⟩
+private def indexedLoopGraph : Program := ⟨[some indexedLoopFn]⟩
+private def indexedLoopTarget : CallTarget := ⟨⟨0⟩, ⟨0⟩, indexedLoopFn.declaration⟩
+private theorem indexedLoopChecked : indexedLoopGraph.check = true := rfl
+private theorem indexedLoopRoot : Root indexedLoopGraph (callerFrame ⟨0⟩) indexedLoopTarget indexedLoopFn := ⟨rfl, rfl, rfl⟩
+
+example : ({ indexedLoopFn with code := [.indexedLoop ⟨2⟩ loopSig indexedLoopBody] }).check = false := rfl
+example : ({ indexedLoopFn with code := [.indexedLoop indexedType mixedSig indexedLoopBody] }).check = false := rfl
+example : ({ indexedLoopFn with initial := loopSaved ++ mixedArgs.reverse }).check = false := rfl
+example : ({ indexedLoopFn with code := [.indexedLoop indexedType loopSig []] }).check = false := rfl
+example : ({ indexedLoopFn with code := [.indexedLoop indexedType loopSig [.br ⟨0⟩ loopSig.results]] }).check = false := rfl
+example : ({ indexedLoopFn with code := [.indexedLoop indexedType loopSig [.set ⟨2⟩, .br ⟨0⟩ loopSig.params]] }).check = false := rfl
+
+private def emptyIndexedLoop : Op := .indexedLoop ⟨0⟩ ⟨[], []⟩ []
+example : (skippedIndexed [emptyIndexedLoop]).check = true := rfl
+example : (skippedIndexed [emptyIndexedLoop]).checkV1 = false := rfl
+example : (skippedIndexed [.unreachable, emptyIndexedLoop]).check = true := rfl
+example : (skippedIndexed [.unreachable, emptyIndexedLoop]).checkV1 = false := rfl
+
+private abbrev indexedLoopPending (flag : BitVec 32) : Phase :=
+  .label (loopLocals flag) (.running (loopSaved ++ mixedArgs) indexedLoopCode)
+
+private abbrev indexedIteration (locals stack : List Value) (code : List Op) : Phase :=
+  .label locals (.indexedLoop loopSaved indexedType loopSig indexedLoopBody (.running stack code) [])
+
+private theorem indexedLoopEdge {a b : Phase}
+    (step : Layer indexedLoopFn (fun t => indexedLoopGraph.Edge indexedLoopChecked t.address) a b) :
+    indexedLoopGraph.Edge indexedLoopChecked ⟨0⟩ a b :=
+  (indexedLoopGraph.edge_iff indexedLoopChecked (fn := indexedLoopFn) rfl).mpr step
+
+private theorem mixedReentry (flag : BitVec 32) :
+    indexedLoopGraph.Edge indexedLoopChecked ⟨0⟩ (indexedLoopPending flag)
+      (indexedIteration (loopLocals flag) mixedArgs indexedLoopBody) :=
+  indexedLoopEdge (.indexedLoopEnter (loopLocals flag) loopSaved mixedArgs indexedType loopSig indexedLoopBody [] rfl rfl)
+
+private theorem mixedIterationTest (flag : BitVec 32) :
+    indexedLoopGraph.Runs indexedLoopChecked ⟨0⟩ (indexedLoopPending flag)
+      (indexedIteration (loopLocals 0) (mixedArgs ++ [i32 flag]) (loopTest :: loopRemainder)) := by
+  have step {locals : List Value} {body : Body} {next : Phase}
+      (edge : Layer indexedLoopFn (fun t => indexedLoopGraph.Edge indexedLoopChecked t.address)
+        (.label locals body) next (.indexedLoop indexedType loopSig indexedLoopBody)) :=
+    indexedLoopEdge (.indexedLoopStep loopSaved indexedType loopSig indexedLoopBody [] edge)
+  have savedFlag := (Relation.ReflTransGen.single (mixedReentry flag)).tail (step
+    (.numeric (locals := loopLocals flag) (rest := [readLocal ⟨1⟩, .set ⟨0⟩, loopTest] ++ loopRemainder)
+      (.get (stack := mixedArgs) (i := ⟨0⟩) (v := i32 flag) rfl)))
+  have zero := savedFlag.tail (step
+    (.numeric (locals := loopLocals flag) (rest := [.set ⟨0⟩, loopTest] ++ loopRemainder)
+      (.get (stack := mixedArgs ++ [i32 flag]) (i := ⟨1⟩) (v := i32 0) rfl)))
+  exact zero.tail (step (.localSet (saved := mixedArgs ++ [i32 flag]) (rest := loopTest :: loopRemainder)
+    (Locals.fact (.set (loopLocals flag) ⟨0⟩ (i32 0) (by change 0 < 3; decide)))))
+
+private abbrev mixedBranchSource : Phase :=
+  indexedIteration (loopLocals 0) mixedArgs (.br ⟨0⟩ loopSig.params :: loopRemainder)
+
+private theorem firstMixedIteration :
+    indexedLoopGraph.Runs indexedLoopChecked ⟨0⟩ (.call loopArgs) mixedBranchSource := by
+  have entered := (Relation.ReflTransGen.single (indexedLoopEdge (.resolve loopArgs))).tail
+    (indexedLoopEdge (.enter loopArgs rfl))
+  exact (entered.trans (mixedIterationTest 1)).tail (indexedLoopEdge
+    (.indexedLoopStep loopSaved indexedType loopSig indexedLoopBody []
+      (.branchIf (loopLocals 0) mixedArgs 1 ⟨0⟩ loopSig.params loopRemainder)))
+
+private theorem mixedBackEdge :
+    indexedLoopGraph.Edge indexedLoopChecked ⟨0⟩ mixedBranchSource (indexedLoopPending 0) :=
+  indexedLoopEdge (.indexedLoopStep loopSaved indexedType loopSig indexedLoopBody []
+    (.branchHere (kind := .indexedLoop indexedType loopSig indexedLoopBody)
+      (loopLocals 0) [] mixedArgs loopSig.params loopRemainder rfl))
+
+-- The back edge reinstates the pending instruction with its two ordered operands.
+-- The second step consumes that suffix into the new label without resetting the flag.
+example :=
+  have ready := Program.admitted_run indexedLoopChecked indexedLoopRoot.found (.call (args := loopArgs) rfl) firstMixedIteration
+  checkedIndexedStep indexedLoopChecked indexedLoopRoot ready mixedBackEdge
+
+example :=
+  have ready := Program.admitted_run indexedLoopChecked indexedLoopRoot.found (.call (args := loopArgs) rfl)
+    (firstMixedIteration.tail mixedBackEdge)
+  checkedIndexedStep indexedLoopChecked indexedLoopRoot ready (mixedReentry 0)
+
+private theorem indexedLoopReturns : indexedLoopGraph.Runs indexedLoopChecked ⟨0⟩ (.call loopArgs)
+    (.done (.values [i32 9, wideVal 11])) := by
+  have ready := (firstMixedIteration.tail mixedBackEdge).trans (mixedIterationTest 0)
+  have notTaken := ready.tail (indexedLoopEdge (.indexedLoopStep loopSaved indexedType loopSig indexedLoopBody []
+    (.branchIf (loopLocals 0) mixedArgs 0 ⟨0⟩ loopSig.params loopRemainder)))
+  have consume := notTaken.tail (indexedLoopEdge (.indexedLoopStep loopSaved indexedType loopSig indexedLoopBody []
+    (.localSet (saved := [wideVal 11]) (rest := [])
+      (Locals.fact (.set (loopLocals 0) ⟨2⟩ (i32 7) (by decide))))))
+  let locals : List Value := [i32 0, i32 0, i32 7]
+  have leave := consume.tail (indexedLoopEdge (.indexedLoopStep loopSaved indexedType loopSig indexedLoopBody []
+    (.leaveValues locals [wideVal 11])))
+  exact (leave.tail (indexedLoopEdge (.leaveValues locals [i32 9, wideVal 11]))).tail
+    (indexedLoopEdge (.leaveFrame locals (.values [i32 9, wideVal 11]) rfl))
+
+example := checkedIndexedRun indexedLoopChecked indexedLoopRoot (.call (args := loopArgs) rfl) indexedLoopReturns
+
+-- An explicit return delivers the i32 function result while dropping the i64
+-- operand and the pending code in both the loop and the surrounding function label.
+private def returnLoopBody : List Op := [.return_, .unreachable]
+private def returnLoopTail : List Op := [.set ⟨1⟩, readLocal ⟨0⟩]
+private def returnLoopFn : Function :=
+  ⟨⟨{ types := [⟨[], [int32]⟩, loopSig] }, ⟨0⟩, [], [int32, wide], [int32]⟩, 0, mixedArgs,
+    .indexedLoop indexedType loopSig returnLoopBody :: returnLoopTail⟩
+private def returnLoopGraph : Program := ⟨[some returnLoopFn]⟩
+private def returnLoopTarget : CallTarget := ⟨⟨0⟩, ⟨0⟩, returnLoopFn.declaration⟩
+private theorem returnLoopChecked : returnLoopGraph.check = true := rfl
+private theorem returnLoopRoot : Root returnLoopGraph (callerFrame ⟨0⟩) returnLoopTarget returnLoopFn := ⟨rfl, rfl, rfl⟩
+
+private theorem returnThroughIndexedLoop : returnLoopGraph.Runs returnLoopChecked ⟨0⟩ (.call []) (.done (.values [i32 7])) := by
+  have rule {a b : Phase} := (returnLoopGraph.edge_iff returnLoopChecked (a := a) (b := b) returnLoopRoot.found).mpr
+  let locals : List Value := [i32 0, wideVal 0]
+  have activation := (Relation.ReflTransGen.single (rule (.resolve []))).tail (rule (.enter [] rfl))
+  have entered := activation.tail (rule (.indexedLoopEnter locals [] mixedArgs indexedType loopSig returnLoopBody returnLoopTail rfl rfl))
+  have acrossLoop := entered.tail (rule (.indexedLoopStep [] indexedType loopSig returnLoopBody returnLoopTail
+    (.returnLabel locals mixedArgs [.unreachable])))
+  exact (acrossLoop.tail (rule (.returnLabel locals mixedArgs returnLoopTail))).tail
+    (rule (.returnFrame locals [wideVal 11] [i32 7] rfl))
+
+example := checkedIndexedRun returnLoopChecked returnLoopRoot (.call (args := []) rfl) returnThroughIndexedLoop
 
 end IndexedBlocks
 

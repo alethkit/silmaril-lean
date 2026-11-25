@@ -230,28 +230,40 @@ theorem block_iff {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
   · intro eq
     exact ⟨stack, [], _, (List.append_nil _).symm, lookup, rfl, eq⟩
 
-theorem loop_iff {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
+theorem loop_step_iff {H : Type} {s : Store H} {f : Frame} {bt : Wasm.Lime1.BlockType}
     {stack : List Value} {body : Wasm.Lime1.Expr} {rest : List Admin} {dst : Config H} :
-    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.loop (Blocks.limeType result) body) :: rest⟩ dst ↔
-      dst = ⟨s, f, values stack ++ .label 0 [.loop (Blocks.limeType result) body] (expression body) :: rest⟩ := by
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.loop bt body) :: rest⟩ dst ↔
+      ∃ (saved args : List Value) (ft : Wasm.Lime1.FuncType),
+        stack = saved ++ args ∧ blockType? f.module.types bt = some ft ∧
+        args.length = ft.params.length ∧
+        dst = ⟨s, f, values saved ++ .label ft.params.length [.loop bt body] (values args ++ expression body) :: rest⟩ := by
   constructor
   · intro move
     obtain ⟨saved, used, _, _, split, head, eq⟩ := read_front move (.loop _ _) rfl
     cases head with
     | loop resolved arity =>
-      have lookup : blockType? f.module.types (Blocks.limeType result) = some ⟨[], result.toList⟩ := by
-        cases result <;> rfl
-      rw [lookup] at resolved
-      cases resolved
-      have empty : used = [] := List.eq_nil_of_length_eq_zero arity
-      subst used
-      simpa [values, split] using eq
-  · rintro rfl
-    have lookup : blockType? f.module.types (Blocks.limeType result) = some ⟨[], result.toList⟩ := by
-      cases result <;> rfl
-    have enter := Step.pure (host := CallFrame.limeNoHost) s f (PureStep.loop _ body _ lookup [] rfl)
-    simpa only [values, List.map_nil, List.length_nil, List.nil_append, List.append_assoc, List.singleton_append] using
-      Step.context enter stack rest
+      exact ⟨saved, used, _, split, resolved, arity, by simpa only [List.append_assoc, List.singleton_append] using eq⟩
+  · rintro ⟨saved, args, ft, rfl, lookup, count, rfl⟩
+    simpa only [values_append, List.append_assoc, List.singleton_append] using
+      Step.context (Step.pure (host := CallFrame.limeNoHost) s f
+        (PureStep.loop bt body ft lookup args count)) saved rest
+
+theorem loop_iff {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
+    {stack : List Value} {body : Wasm.Lime1.Expr} {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.loop (Blocks.limeType result) body) :: rest⟩ dst ↔
+      dst = ⟨s, f, values stack ++ .label 0 [.loop (Blocks.limeType result) body] (expression body) :: rest⟩ := by
+  have lookup : blockType? f.module.types (Blocks.limeType result) = some ⟨[], result.toList⟩ := by
+    cases result <;> rfl
+  rw [loop_step_iff]
+  constructor
+  · rintro ⟨saved, args, ft, split, found, size, rfl⟩
+    rw [lookup] at found
+    cases found
+    have empty : args = [] := List.eq_nil_of_length_eq_zero size
+    subst args
+    simp [split, values]
+  · intro eq
+    exact ⟨stack, [], _, (List.append_nil _).symm, lookup, rfl, eq⟩
 
 theorem if_iff {H : Type} {s : Store H} {f : Frame}
     {saved : List Value} {condition : BitVec 32} {bt : Wasm.Lime1.BlockType} {thenBody elseBody : Wasm.Lime1.Expr}

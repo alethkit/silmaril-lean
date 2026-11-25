@@ -21,6 +21,29 @@ section Core
 open Execution.Core
 open Wasm.SingleThreaded.Det (noHost)
 
+theorem core_loop_step_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Frame}
+    {bt : BlockType} {body : List Instr} {stack : List Val} {rest : List Admin} {dst : Config H} :
+    Step P noHost ⟨s, f, vals stack ++ .plain (.loop bt body) :: rest⟩ dst ↔
+      ∃ (saved args : List Val) (params results : List Wasm.Validation.CValType),
+        stack = saved ++ args ∧ f.module.blockType? bt = some (params, results) ∧
+        args.length = params.length ∧
+        dst = ⟨s, f, vals saved ++ .label params.length [.loop bt body] (vals args ++ expression body) :: rest⟩ := by
+  constructor
+  · rcases dst with ⟨s', f', code⟩
+    intro step
+    rcases Sim.Step.split_head (a := .plain (.loop bt body)) rfl step with
+      ⟨outside, used, _, split, head, rfl⟩ | ⟨bad, _⟩ | ⟨bad, _⟩
+    · obtain ⟨kept, args, params, results, eq, lookup, count, target⟩ := head.loop_vals_inv
+      cases target
+      exact ⟨outside ++ kept, args, params, results, by rw [split, eq, List.append_assoc],
+        lookup, count, by simp only [vals_append, List.append_assoc, List.singleton_append]⟩
+    · cases bad
+    · cases bad
+  · rintro ⟨saved, args, params, results, rfl, lookup, count, rfl⟩
+    simpa only [vals_append, List.append_assoc, List.singleton_append] using
+      Sim.Step.vals_left (Sim.Step.append_right (Step.loop (P := P) (host := noHost) (s := s)
+        (body := body) lookup count) rest) saved
+
 theorem core_entry_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Frame} {result : Option NumType}
     {saved : List Val} {body : List Instr} {rest : List Admin} {dst : Config H} :
     Step P noHost ⟨s, f, vals saved ++ .plain (.loop (Blocks.coreType result) body) :: rest⟩ dst ↔
@@ -28,24 +51,16 @@ theorem core_entry_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Fram
   have lookup : f.module.blockType? (Blocks.coreType result) =
       some ([], result.toList.map (fun t => .num t)) := by
     cases result <;> rfl
+  rw [core_loop_step_iff]
   constructor
-  · rcases dst with ⟨s', f', code⟩
-    intro move
-    rcases Sim.Step.split_head (a := .plain (.loop (Blocks.coreType result) body)) rfl move with
-      ⟨kept, used, _, split, head, rfl⟩ | ⟨bad, _⟩ | ⟨bad, _⟩
-    · obtain ⟨headSaved, params, _, _, args, resolved, arity, exactHead⟩ := head.loop_vals_inv
-      rw [lookup] at resolved
-      cases resolved
-      have empty : params = [] := List.eq_nil_of_length_eq_zero arity
-      subst params
-      cases exactHead
-      simp [split, args, vals, List.map_append, List.append_assoc]
-    · cases bad
-    · cases bad
-  · rintro rfl
-    have enter := Step.loop (P := P) (host := noHost) (s := s) (body := body) (vs := []) lookup rfl
-    simpa only [vals, List.map_nil, List.length_nil, List.nil_append, List.append_assoc,
-      List.singleton_append] using Sim.Step.vals_left (Sim.Step.append_right enter rest) saved
+  · rintro ⟨kept, used, params, results, split, found, count, rfl⟩
+    rw [lookup] at found
+    cases found
+    have empty : used = [] := List.eq_nil_of_length_eq_zero count
+    subst used
+    simp [vals, split]
+  · intro eq
+    exact ⟨saved, [], _, _, (List.append_nil _).symm, lookup, rfl, eq⟩
 
 theorem core_restart_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Frame} {cont : List Instr}
     {saved scratch : List Val} {pending rest : List Admin} {dst : Config H} :

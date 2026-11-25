@@ -43,6 +43,9 @@ theorem map_child {fn : Function} {r₁ r₂ : CallTarget → Phase → Phase �
   | indexedBlockStep saved signature rest _ ih => exact .indexedBlockStep saved signature rest ih
   | loopEnter locals saved result body rest => exact .loopEnter locals saved result body rest
   | loopStep saved result original rest _ ih => exact .loopStep saved result original rest ih
+  | indexedLoopEnter locals saved args index signature body rest resolved typed =>
+    exact .indexedLoopEnter locals saved args index signature body rest resolved typed
+  | indexedLoopStep saved index signature original rest _ ih => exact .indexedLoopStep saved index signature original rest ih
   | unreachable args stack rest => exact .unreachable args stack rest
   | dispatch locals saved operands target rest used count => exact .dispatch locals saved operands target rest used count
   | child locals saved target rest used live step => exact .child locals saved target rest used live (map target used step)
@@ -96,6 +99,11 @@ theorem label_outcome {fn : Function} {childStep : CallTarget → Phase → Phas
     cases next <;> simp_all [Phase.afterBlock, Phase.LabelOutcome]
     case exit result => cases result <;> trivial
   | @loopStep kind locals inner next saved result original rest step ih =>
+    intro _
+    have valid := ih ⟨_, _, rfl⟩
+    cases next <;> simp_all [Phase.afterBlock, Phase.LabelOutcome]
+    case exit result => cases result <;> trivial
+  | @indexedLoopStep kind locals inner next saved index signature original rest step ih =>
     intro _
     have valid := ih ⟨_, _, rfl⟩
     cases next <;> simp_all [Phase.afterBlock, Phase.LabelOutcome]
@@ -160,6 +168,21 @@ theorem loop_iff {program : Program} (checked : program.check = true)
   · rintro ⟨next, step, rfl⟩
     exact .loopStep saved result original rest ((edge_iff checked found).mp step)
 
+theorem indexed_loop_iff {program : Program} (checked : program.check = true)
+    {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
+    {locals saved : List Value} {index : TypeIdx} {signature : Wasm.V1.FuncType} {inner : Body} {original rest : List Op}
+    {out : Phase} {kind : LabelKind} :
+    program.EdgeAt checked address kind (.label locals (.indexedLoop saved index signature original inner rest)) out ↔
+      ∃ next, program.EdgeAt checked address (.indexedLoop index signature original) (.label locals inner) next ∧
+        out = next.afterBlock saved none rest (.indexedLoop index signature original) := by
+  rw [edge_iff checked found]
+  constructor
+  · intro step
+    cases step with
+    | indexedLoopStep _ _ _ _ _ step => exact ⟨_, (edge_iff checked found).mpr step, rfl⟩
+  · rintro ⟨next, step, rfl⟩
+    exact .indexedLoopStep saved index signature original rest ((edge_iff checked found).mp step)
+
 private theorem source_active {program : Program} {checked : program.check = true}
     {address : FuncAddr} {a b : Phase} (ready : ∀ args, a ≠ .call args)
     (edge : program.Edge checked address a b) : a.Active := by
@@ -182,6 +205,10 @@ theorem not_call {program : Program} {checked : program.check = true}
     cases next <;> simp_all [Phase.LabelOutcome, Phase.afterBlock]
     case exit result => cases result <;> simp
   | @loopStep _ locals inner next saved result original rest step =>
+    have outcome := label_outcome step ⟨_, _, rfl⟩
+    cases next <;> simp_all [Phase.LabelOutcome, Phase.afterBlock]
+    case exit result => cases result <;> simp
+  | @indexedLoopStep _ locals inner next saved index signature original rest step =>
     have outcome := label_outcome step ⟨_, _, rfl⟩
     cases next <;> simp_all [Phase.LabelOutcome, Phase.afterBlock]
     case exit result => cases result <;> simp

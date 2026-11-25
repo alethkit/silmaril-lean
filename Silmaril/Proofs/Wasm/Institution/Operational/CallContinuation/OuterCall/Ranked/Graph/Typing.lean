@@ -143,6 +143,14 @@ private theorem restart_guard {program : Program} {fn : Function} {fallthrough :
     kind = .loop result original ∧ locals.map Value.type = fn.localTypes := by
   cases ready with | restart typed => exact ⟨rfl, typed⟩
 
+private theorem indexed_restart_guard {program : Program} {fn : Function} {fallthrough : List NumType}
+    {enclosing : EnclosingLabels} {kind : LabelKind} {locals args : List Value}
+    {index : TypeIdx} {signature : Wasm.V1.FuncType} {original : List Op}
+    (ready : AdmittedAt program fn fallthrough enclosing (.indexedRestart locals args index signature original) kind) :
+    kind = .indexedLoop index signature original ∧ locals.map Value.type = fn.localTypes ∧
+      args.map Value.type = signature.params := by
+  cases ready with | indexedRestart typed params => exact ⟨rfl, typed, params⟩
+
 private theorem trap_exit_guard {program : Program} {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {kind : LabelKind}
     {locals : List Value} (ready : AdmittedAt program fn fallthrough enclosing (.exit locals .trap) kind) :
     locals.map Value.type = fn.localTypes := by
@@ -308,6 +316,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
               Prefix.stackTypes, outTyped] using resume)
           | trap => exact .trapped (trap_exit_guard after)
         | restart => cases (restart_guard after).1
+        | indexedRestart => cases (indexed_restart_guard after).1
         | call | invoke | done => cases outcome
     | indexedBlockEnter locals saved args index signature code rest resolved argsTyped =>
       cases ready with
@@ -342,6 +351,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
               Prefix.stackTypes, outTyped] using resume)
           | trap => exact .trapped (trap_exit_guard after)
         | restart => cases (restart_guard after).1
+        | indexedRestart => cases (indexed_restart_guard after).1
         | call | invoke | done => cases outcome
     | loopEnter locals saved result code rest =>
       cases ready with
@@ -380,6 +390,52 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
             simpa only [Function.WellTyped, checkCode, checkOp, Bool.and_eq_true_iff] using
               And.intro originalTyped resume)
         | call | invoke | done => cases outcome
+        | indexedRestart => cases (indexed_restart_guard after).1
+    | indexedLoopEnter locals saved args index signature code rest resolved argsTyped =>
+      cases ready with
+      | running typed body =>
+        have size : signature.params.length = (Prefix.stackTypes args).length := by
+          simp [Prefix.stackTypes, argsTyped]
+        simp only [Function.WellTyped, checkCode, checkOp, Bool.and_eq_true_iff,
+          stack_types_append, size, List.drop_left] at body
+        exact .indexedLoop
+          (.running typed (by simpa [Function.WellTyped, Prefix.stackTypes, argsTyped] using body.1.2))
+          resolved body.1.2 body.2
+    | @indexedLoopStep kind locals inner next saved index signature original rest step bodyIH =>
+      cases ready with
+      | indexedLoop inside resolved originalTyped resume =>
+        have outcome := label_outcome step ⟨_, _, rfl⟩
+        have after := bodyIH inside ((edge_iff checked found).mpr step)
+        cases next with
+        | label => exact .indexedLoop after resolved originalTyped resume
+        | branching =>
+          obtain ⟨typed, target, payload⟩ := branching_guard after
+          exact .running typed (by
+            simpa only [Function.WellTyped, checkCode, checkOp, checkBranch, decide_eq_true_eq, SuffixTyped] using
+              And.intro target (suffix_prefix (saved := saved) payload))
+        | returning =>
+          obtain ⟨typed, out⟩ := returning_guard after
+          exact .running typed (by
+            simpa only [Function.WellTyped, checkCode, checkOp, Function.ReturnTyped, SuffixTyped, decide_eq_true_eq] using
+              suffix_prefix (saved := saved) out)
+        | exit locals out =>
+          cases out with
+          | values stack =>
+            obtain ⟨typed, outTyped⟩ := exit_guard after
+            exact .running typed (by simpa [Function.WellTyped, stack_types_append,
+              Prefix.stackTypes, outTyped] using resume)
+          | trap => exact .trapped (trap_exit_guard after)
+        | restart => cases (restart_guard after).1
+        | indexedRestart updated args restarted signature' body =>
+          obtain ⟨same, typed, argsTyped⟩ := indexed_restart_guard after
+          obtain ⟨rfl, rfl, rfl⟩ := LabelKind.indexedLoop.inj same
+          have shape : Prefix.stackTypes args = signature.params.reverse := by simp [Prefix.stackTypes, argsTyped]
+          have size : signature.params.length = (Prefix.stackTypes args).length := by simp [Prefix.stackTypes, argsTyped]
+          apply AdmittedAt.running typed
+          simp only [Function.WellTyped, checkCode, checkOp, Bool.and_eq_true_iff, decide_eq_true_eq,
+            stack_types_append, size, List.take_left, List.drop_left]
+          exact ⟨⟨⟨resolved, shape⟩, originalTyped⟩, resume⟩
+        | call | invoke | done => cases outcome
     | unreachable args stack rest => cases ready with | running typed _ => exact .trapped typed
     | dispatch args saved operands target rest used count =>
       cases ready with
@@ -402,6 +458,8 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
         | indexedBlock inside body => exact .active typed used childFound declared trivial (.indexedBlock inside body) resume
         | loop inside original body =>
           exact .active typed used childFound declared trivial (.loop inside original body) resume
+        | indexedLoop inside resolved original body =>
+          exact .active typed used childFound declared trivial (.indexedLoop inside resolved original body) resume
         | trapped newArgs => exact .active typed used childFound declared trivial (.trapped newArgs) resume
         | branching _ target _ => simp at target
         | returning newArgs out => exact .active typed used childFound declared trivial (.returning newArgs out) resume
@@ -441,6 +499,8 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
         cases kind with
         | exit | indexed => exact .exit typed ((suffix_result payload arity).trans (branch_here_result target).symm)
         | loop result original => exact .restart typed
+        | indexedLoop index signature original =>
+          exact .indexedRestart typed ((suffix_result payload arity).trans (branch_here_result target).symm)
     | branchOuter locals stack depth result rest outer =>
       cases ready with
       | running typed body =>
@@ -467,12 +527,12 @@ theorem nesting_of_admitted {program : Program} (checked : program.check = true)
     have resolved := target_resolved checked found used
     have nested := ih calleeFound
     cases q with
-    | call | branching | restart => cases live
+    | call | branching | restart | indexedRestart => cases live
     | invoke => simp [Phase.frames, Body.frames]
     | label => exact List.isChain_cons_cons.mpr ⟨resolved, nested⟩
     | returning | exit => exact List.isChain_cons_cons.mpr ⟨resolved, nested⟩
     | done => cases live
-  | block _ _ ih | indexedBlock _ _ ih | loop _ _ _ ih => exact ih found
+  | block _ _ ih | indexedBlock _ _ ih | loop _ _ _ ih | indexedLoop _ _ _ _ ih => exact ih found
   | _ => simp [Phase.frames, Body.frames]
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Proofs
