@@ -14,6 +14,13 @@ open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
 open Silmaril.Thesis.LambdaIter.Syn.SynCat
 
+theorem packedEnvInv_snoc_proof {V : Type u} [Category* V] [MonoidalCategory V]
+    {X P : V} (h : X = P) (A : V) :
+    (((λ_ X).trans (eqToIso h)).inv ▷ A) ≫ (α_ (𝟙_ V) X A).hom =
+      eqToHom (congrArg (fun Z => Z ⊗ A) h).symm ≫ (λ_ (X ⊗ A)).inv := by
+  subst P
+  simp
+
 variable {τ Φ ε : Type u} [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε]
 
 theorem valueInl_coprodIso_proof (pe : ε) (A B : τ) :

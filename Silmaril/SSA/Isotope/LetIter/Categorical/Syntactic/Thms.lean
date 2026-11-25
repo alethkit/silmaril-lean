@@ -56,6 +56,14 @@ noncomputable def packedEnvIso (pe : ε) {n : Nat} (β : BoundCtx τ n) :
       valueObj pe (packType (S := signature (τ := τ) (Φ := Φ) pe) (Bridge.BoundCtx.toThesis β)) :=
   (λ_ (boundObj (typeModel (Φ := Φ) pe) β)).trans (eqToIso (boundObj_eq pe β))
 
+/-- The packed context comparison commutes with introducing a bound variable. -/
+theorem packedEnvInv_snoc (pe : ε) {n : Nat} (β : BoundCtx τ n) (A : τ) :
+    ((packedEnvIso (Φ := Φ) pe β).inv ▷ valueObj (Φ := Φ) pe A) ≫
+      (envSnocIso (typeModel (Φ := Φ) pe) (Ctx.nil : Ctx Empty τ) β A).hom =
+      (packedEnvIso (Φ := Φ) pe (.snoc β A)).inv := by
+  unfold packedEnvIso
+  exact packedEnvInv_snoc_proof (boundObj_eq (Φ := Φ) pe β) (valueObj (Φ := Φ) pe A)
+
 /-- Pure terms, including terms in open contexts, denote pure syntactic arrows. -/
 theorem denote_isPure {ν : Type u} [DecidableEq ν] (pe : ε)
     {Γ : Ctx ν τ} {n : Nat} {β : BoundCtx τ n} {t : LocallyNameless.Tm ν Φ n} {A : τ}

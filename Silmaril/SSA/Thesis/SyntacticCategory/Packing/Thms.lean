@@ -13,6 +13,7 @@ namespace Silmaril.Thesis.LambdaIter.Syn.SynCat
 
 open CategoryTheory
 open LocallyNameless
+open Silmaril.Thesis.LambdaIter (instrSrc instrTrg)
 
 variable {S : Sig.{u}}
 
@@ -50,6 +51,22 @@ theorem packedArrow_eq_iff {n : Nat} {β : BoundCtx S.Ty n} {A : S.Ty}
     packedArrow h = packedArrow k ↔ Eqv S.pureEff Ctx.nil β t v A := by
   rw [← packedHomEquiv_mk h, ← packedHomEquiv_mk k, (packedHomEquiv β A).injective.eq_iff]
   exact ⟨Syn.eqv_of_mk_eq, Syn.mk_eq_mk h k⟩
+
+/-- A packed instruction is composition with the instruction on its input variable. -/
+theorem packedArrow_op {n : Nat} {β : BoundCtx S.Ty n} {a : Tm Empty S.Instr n}
+    {f : S.Instr} (ha : HasType S.Instr Ctx.nil β a (instrSrc f)) :
+    packedArrow (S := S) (HasType.op (f := f) ha) =
+      packedArrow ha ≫ mk (S := S) (HasType.op (f := f) HasType.newest) :=
+  packedArrow_op_proof ha
+
+/-- Packing a let retains the packed context while evaluating the scrutinee,
+then composes with the packed body. -/
+theorem packedArrow_let1 {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {a : Tm Empty S.Instr n} {b : Tm Empty S.Instr (n + 1)}
+    (ha : HasType S.Instr Ctx.nil β a A) (hb : HasType S.Instr Ctx.nil (.snoc β A) b B) :
+    packedArrow (S := S) (.let₁ ha hb) =
+      pairArrows (𝟙 (of (packType β))) (packedArrow ha) ≫ packedArrow hb :=
+  packedArrow_let1_proof ha hb
 
 /-- Substituting pure terms in a typed term is precomposition by their
 packed context arrow. -/
