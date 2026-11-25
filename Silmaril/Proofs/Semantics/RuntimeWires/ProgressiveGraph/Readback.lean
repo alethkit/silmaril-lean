@@ -10,7 +10,7 @@ open Silmaril.RuntimeWires.ProgressiveGraph
 
 universe u v
 
-variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} (d : Diagram S V W)
+variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} {kind : VertexSeparation} (d : Diagram S V W kind)
 
 private theorem crosses_of_regular {h : ℝ} (reg : d.Regular h) {w : Fin W} (hc : d.covers w h) :
     d.crosses w h := by

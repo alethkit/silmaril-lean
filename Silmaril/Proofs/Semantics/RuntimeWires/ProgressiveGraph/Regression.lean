@@ -54,7 +54,7 @@ private noncomputable def drawing : Diagram signature 3 2 where
   vertex_inside := by
     intro v
     fin_cases v <;> norm_num [vertexX, vertexHeight, Set.mem_Ioo]
-  distinct_heights := by
+  vertex_separation := by
     intro v z hz
     fin_cases v <;> fin_cases z <;> norm_num [vertexHeight] at *
   generator := id

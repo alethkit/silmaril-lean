@@ -54,15 +54,27 @@ end Wire
 def endpointHeight {n : ℕ} (height : Fin n → ℝ) (cap : ℝ) (endpoint : Option (Fin n)) : ℝ :=
   endpoint.elim cap height
 
-/-- A finite drawing in the unit square with point vertices at distinct
-heights. Wires can share a point only at common incident vertices. The
-port numbering records the geometry of incident ends on each side of a
-vertex, including their labels. -/
-structure Diagram {O : Type u} (S : Signature.{u,v} O) (vertices wires : ℕ) where
+/-- The finite sweep uses distinct heights. The local geometry also
+allows vertices at distinct points on the same horizontal line. -/
+inductive VertexSeparation
+  | height
+  | point
+
+def VertexSeparation.Valid (kind : VertexSeparation) {V : ℕ}
+    (x height : Fin V → ℝ) : Prop :=
+  match kind with
+  | .height => Function.Injective height
+  | .point => Function.Injective (fun v => (x v, height v))
+
+/-- A finite drawing in the unit square. Wires can share a point only at
+common incident vertices. Port numbering records the geometry of incident
+ends on each side of a vertex, including their labels. -/
+structure Diagram {O : Type u} (S : Signature.{u,v} O) (vertices wires : ℕ)
+    (kind : VertexSeparation := .height) where
   vertexX : Fin vertices → ℝ
   vertexHeight : Fin vertices → ℝ
   vertex_inside : ∀ v, vertexX v ∈ Set.Ioo 0 1 ∧ vertexHeight v ∈ Set.Ioo 0 1
-  distinct_heights : Function.Injective vertexHeight
+  vertex_separation : kind.Valid vertexX vertexHeight
   generator : Fin vertices → S.Edge
   label : Fin wires → O
   start : Fin wires → Option (Fin vertices)
@@ -104,7 +116,12 @@ structure Diagram {O : Type u} (S : Signature.{u,v} O) (vertices wires : ℕ) wh
 
 namespace Diagram
 
-variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} (d : Diagram S V W)
+variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ}
+
+theorem distinct_heights (d : Diagram S V W) : Function.Injective d.vertexHeight :=
+  d.vertex_separation
+
+variable {kind : VertexSeparation} (d : Diagram S V W kind)
 
 def lower (w : Fin W) : ℝ := endpointHeight d.vertexHeight 0 (d.start w)
 def upper (w : Fin W) : ℝ := endpointHeight d.vertexHeight 1 (d.finish w)

@@ -9,9 +9,16 @@ namespace Silmaril.RuntimeWires.ProgressiveGraph.Diagram
 
 universe u v
 
-variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} {d : Diagram S V W}
+variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} {kind : VertexSeparation} {d : Diagram S V W kind}
 
-theorem ordered_cut_exists (d : Diagram S V W) (h : ℝ) : ∃ wires, d.OrderedCut h wires :=
+/-- Sort a finite selection of wires active at a given height. -/
+theorem ordered_selection (d : Diagram S V W kind) (h : ℝ) (P : Fin W → Prop)
+    (active : ∀ w, P w → d.crosses w h) :
+    ∃ wires : List (Fin W), (∀ w, w ∈ wires ↔ P w) ∧
+      wires.Pairwise (fun a b => d.x a h < d.x b h) :=
+  Proofs.ProgressiveGraph.sorted_selection d h P active
+
+theorem ordered_cut_exists (d : Diagram S V W kind) (h : ℝ) : ∃ wires, d.OrderedCut h wires :=
   Proofs.ProgressiveGraph.ordered_cut_exists d h
 
 theorem ordered_cut_unique {h : ℝ} {a b : List (Fin W)}
