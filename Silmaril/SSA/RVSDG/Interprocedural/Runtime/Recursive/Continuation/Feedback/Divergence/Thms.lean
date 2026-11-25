@@ -41,11 +41,31 @@ theorem Interval.iteration {first last : Checkpoint m carried}
   iteration_iff_segment.mpr
     (segment_of_positions steps edge.atStart edge.atNext edge.later edge.bodyReturn edge.inside)
 
-/-- The nonreturning suffix takes only steps delimited by the saved frame. -/
-theorem BodyForever.insideSteps {point : Checkpoint m carried}
+/-- The alternatives are disjoint on the supplied microstep stream. -/
+theorem no_bodyForever_of_restarts {inputs : Nat → Tuple m.Val carried} {indices : Nat → Nat}
+    (trace : RestartTrace body parent inputs micro indices) (point : Checkpoint m carried) :
+    ¬ BodyForever body parent micro point :=
+  Proofs.no_bodyForever_of_restarts trace point
+
+/-- The actual nonreturning suffix starts with fresh locals and takes
+only steps delimited by the saved frame. -/
+theorem BodyForever.bodySuffix {point : Checkpoint m carried}
     (forever : BodyForever body parent micro point)
     (steps : ∀ i, Step (micro i) (micro (i + 1))) :
-    ∀ i, InsideStep (.loop body parent) (micro (point.1 + i + 1)) (micro (point.1 + i + 1 + 1)) :=
-  fun i => ⟨steps (point.1 + i + 1), forever.2 _ (by omega)⟩
+    micro (point.1 + 1) =
+        .eval (.region body point.2 (PUnit.unit : Locals m.Val [])) (.loop body parent) ∧
+      ∀ i, InsideStep (.loop body parent) (micro (point.1 + i + 1)) (micro (point.1 + i + 1 + 1)) :=
+  ⟨step_deterministic (a := restart body parent point.2) (forever.1 ▸ steps point.1) rfl,
+    fun i => ⟨steps (point.1 + i + 1), forever.2 _ (by omega)⟩⟩
+
+/-- Concatenate any finite sequence of completed feedback iterations
+and an infinite delimited body execution under the same saved frame. -/
+theorem trace_of_iterations_then_body {last : Tuple m.Val carried}
+    (iterations : Relation.ReflTransGen (Iteration body) input last)
+    (bodyTrace : InfiniteTrace (InsideStep (.loop body parent))
+      (.eval (.region body last (PUnit.unit : Locals m.Val [])) (.loop body parent))) :
+    ∃ micro : Nat → State m final, micro 0 = restart body parent input ∧
+      (∀ i, Step (micro i) (micro (i + 1))) ∧ StaysInLoop body parent micro :=
+  Proofs.trace_of_iterations_then_body iterations bodyTrace
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Divergence

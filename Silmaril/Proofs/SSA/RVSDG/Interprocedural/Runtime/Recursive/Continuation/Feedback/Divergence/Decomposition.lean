@@ -109,16 +109,25 @@ private theorem interval_stays {first last : Checkpoint m carried}
     exact feedback_only next
   · exact False.elim (edge.inside i (by omega) (by omega) ⟨_, returned⟩)
 
+private theorem grows {indices : Nat → Nat}
+    (later : ∀ n, indices n + 1 < indices (n + 1)) (n : Nat) : n ≤ indices n := by
+  induction n with
+  | zero => exact Nat.zero_le _
+  | succ n ih => have := later n; omega
+
+theorem no_bodyForever_of_restarts {inputs : Nat → Tuple m.Val carried} {indices : Nat → Nat}
+    (trace : RestartTrace body parent inputs micro indices) (point : Checkpoint m carried) :
+    ¬ BodyForever body parent micro point := by
+  intro forever
+  obtain ⟨tag, returned⟩ := trace.bodyReturn (point.1 + 1)
+  have unbounded := grows trace.later (point.1 + 1 + 1)
+  exact forever.2 _ (by omega) ⟨.cons tag _, returned⟩
+
 private theorem covered {indices : Nat → Nat} (start : indices 0 = 0)
     (later : ∀ n, indices n + 1 < indices (n + 1)) (i : Nat) :
     ∃ n, indices n ≤ i ∧ i < indices (n + 1) := by
   classical
-  have grows : ∀ n, n ≤ indices n := by
-    intro n
-    induction n with
-    | zero => exact Nat.zero_le _
-    | succ n ih => have := later n; omega
-  have bounded : ∃ n, i < indices (n + 1) := ⟨i, by have := grows (i + 1); omega⟩
+  have bounded : ∃ n, i < indices (n + 1) := ⟨i, by have := grows later (i + 1); omega⟩
   refine ⟨Nat.find bounded, ?_, Nat.find_spec bounded⟩
   generalize equation : Nat.find bounded = k
   cases k with
@@ -165,5 +174,43 @@ theorem body_decomposes (steps : ∀ i, Step (micro i) (micro (i + 1)))
     cases i with
     | zero => exact False.elim (no_return_at_restart input ⟨_, returned⟩)
     | succ i => exact stays i tag values returned
+
+private def scopedStep (body : NestedTheta.Term (Instruction Op) carried [] sigs (Theta.BodyResults carried))
+    (parent : Stack m carried final) (source target : State m final) : Prop :=
+  Step source target ∧ ∀ tag values, source = .returned (.cons tag values) (.loop body parent) →
+    (tag.selector.val == 1) = true
+
+private theorem scoped_step_of_inside {source target : State m final}
+    (edge : InsideStep (.loop body parent) source target) : scopedStep body parent source target :=
+  ⟨edge.1, fun _ _ returned => False.elim (edge.2 ⟨_, returned⟩)⟩
+
+private theorem scoped_iteration {before after : Tuple m.Val carried}
+    (iteration : Iteration body before after) :
+    ReflTransGen (scopedStep body parent) (restart body parent before) (restart body parent after) := by
+  obtain ⟨tag, path, feedback⟩ := (iteration_iff_segment (parent := parent)).mp iteration
+  have entry : InsideStep (.loop body parent) (restart body parent before)
+      (.eval (.region body before PUnit.unit) (.loop body parent)) :=
+    ⟨rfl, no_return_at_restart before⟩
+  have steps := ReflTransGen.mono (fun _ _ => scoped_step_of_inside) _ _ (path.head (r := InsideStep (.loop body parent)) entry)
+  exact steps.tail ⟨feedback, fun _ _ returned => feedback_only (returned ▸ feedback)⟩
+
+theorem trace_of_iterations_then_body {last : Tuple m.Val carried}
+    (iterations : ReflTransGen (Iteration body) input last)
+    (bodyTrace : InfiniteTrace (InsideStep (.loop body parent))
+      (.eval (.region body last (PUnit.unit : Locals m.Val [])) (.loop body parent))) :
+    ∃ micro : Nat → State m final, micro 0 = restart body parent input ∧
+      (∀ i, Step (micro i) (micro (i + 1))) ∧ StaysInLoop body parent micro := by
+  have path : ReflTransGen (scopedStep body parent) (restart body parent input)
+      (restart body parent last) := by
+    clear bodyTrace
+    induction iterations with
+    | refl => exact .refl
+    | tail _ iteration ih => exact ih.trans (scoped_iteration iteration)
+  have entry : InsideStep (.loop body parent) (restart body parent last)
+      (.eval (.region body last PUnit.unit) (.loop body parent)) :=
+    ⟨rfl, no_return_at_restart last⟩
+  have trace := InfiniteTrace.map id (fun _ _ => scoped_step_of_inside) (bodyTrace.fold entry)
+  obtain ⟨micro, initial, steps⟩ := InfiniteTrace.of_steps path trace
+  exact ⟨micro, initial, fun i => (steps i).1, fun i => (steps i).2⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Divergence.Proofs
