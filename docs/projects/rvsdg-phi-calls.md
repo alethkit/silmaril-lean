@@ -235,3 +235,51 @@ lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continu
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursiveDescent.lean
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Thms'
 ```
+
+## Extracting the first live child or productive feedback
+
+`split_live` starts at a real call on a supplied infinite continuation
+stream. The call's saved frame must remain live, meaning that the stream
+never reaches a return to that exact frame. The theorem derives the
+checkpoints from the stream using a classical split on liveness.
+It applies to linked φ members and to
+ordinary linked closures. For a call started at the empty stack,
+`split_start` derives root liveness from the infinite steps.
+
+When a later call never returns to its own stack, the first such
+entry is selected. A typed stack delimiter shows that each earlier
+returning call must finish before the selected entry. Guarded reflection
+then yields the independent prefix, with its exact typed arguments and
+saved frames. The prefix includes any finite θ feedback on the way
+to the selected application. The selected stack has strictly more
+frames, and its liveness and actual entry position permit another
+application of the theorem on the same stream.
+
+If every later call returns, induction on finite region syntax uses
+the actual node returns and selected γ arms to locate a live θ. A
+live θ either yields unbounded completed feedback or reaches a
+particular body activation that stays live. In the latter case the
+proof continues inside that finite body syntax. The feedback result
+gives actual restart positions and finite body derivations on the
+original stream's suffix.
+
+The proof uses the current deterministic machine. Each primitive is
+a total typed tuple transformation that returns in one microstep,
+with state threaded through its ports. γ takes a single selected child,
+and linked calls resolve through the total typed resolver. Infinite
+streams must take an actual step at every index. Primitive failure,
+nondeterministic scheduling and finite stuck execution are outside
+this classification.
+[Public theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Descent/Completeness/Thms.lean)
+
+The linked regressions supply raw streams with no call or restart
+checkpoints. One invokes a φ export that repeatedly makes a non-tail
+recursive call with a pending suffix. The other invokes a φ export
+with an always-feedback θ and no deeper call.
+[Linked fixtures](../../tests/ssa/RVSDGRecursiveContinuations.lean)
+
+```sh
+lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Thms
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursiveContinuations.lean
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Thms'
+```

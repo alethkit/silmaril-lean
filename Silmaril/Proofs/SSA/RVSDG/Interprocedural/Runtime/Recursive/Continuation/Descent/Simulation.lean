@@ -81,11 +81,15 @@ private theorem positive_depth (reached : Prefix m job next pending) (region : i
   | theta => cases region
   | iteration => cases region
 
-theorem stack_grows (run : Run m) (base : Stack m (run.entry 0).results final) (n : Nat) :
-    stackDepth (run.stackAt base n) < stackDepth (run.stackAt base (n + 1)) := by
-  change stackDepth (run.stackAt base n) < stackDepth ((run.pending n).push (run.stackAt base n))
+theorem entry_grows {entry : Entry m} {pending : Pending m next.results entry.results}
+    (reached : Prefix m entry.openBody next pending) (stack : Stack m entry.results final) :
+    stackDepth stack < stackDepth (pending.push stack) := by
   rw [depth_push]
-  exact Nat.lt_add_of_pos_right (positive_depth (run.reaches n) trivial)
+  exact Nat.lt_add_of_pos_right (positive_depth reached trivial)
+
+theorem stack_grows (run : Run m) (base : Stack m (run.entry 0).results final) (n : Nat) :
+    stackDepth (run.stackAt base n) < stackDepth (run.stackAt base (n + 1)) :=
+  entry_grows (run.reaches n) (run.stackAt base n)
 
 private theorem infinite_of_segments (boundary : Nat → State m final)
     (segments : ∀ n, TransGen Step (boundary n) (boundary (n + 1))) :

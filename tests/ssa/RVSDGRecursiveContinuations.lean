@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Divergence.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Tests
@@ -389,5 +390,122 @@ example : InfiniteTrace Step (start endlessJob) := by
   have reached : State.runFor 6 (start endlessJob) =
       Feedback.restart feedbackBody endlessParent endlessInput := by cbv
   exact InfiniteTrace.of_steps (reached ▸ runFor_reachable 6 (start endlessJob)) ⟨micro, initial, steps⟩
+
+private def endlessEntry (log : List Nat) : Descent.Entry machine :=
+  ⟨results, ⟨fn.args, endlessCallee, arguments 0 log⟩⟩
+
+private theorem endlessCallNoReturn (log : List Nat) (output : Tuple machine.Val results) :
+    ¬ Returns machine (endlessEntry log).activation.job output := by
+  intro returned
+  obtain ⟨loops, depth, evaluated⟩ := (Recursive.call_iff machine endlessCallee (arguments 0 log) output).mp returned
+  rw [endlessInvoke] at evaluated
+  cases evaluated
+
+private theorem runFor_slice {micro : Nat → State machine results}
+    (steps : ∀ i, Step (micro i) (micro (i + 1))) (i count : Nat) :
+    State.runFor count (micro i) = micro (i + count) := by
+  induction count generalizing i with
+  | zero => rfl
+  | succ count ih =>
+    rw [State.runFor, show (micro i).next = some (micro (i + 1)) from steps i]
+    rw [show i + (count + 1) = i + 1 + count by omega]
+    exact ih (i + 1)
+
+-- Start at the real φ export with only a live microstep stream.
+-- The concrete check at step 6 rules out the feedback alternative in this
+-- example. No entry index, stack, or prefix is supplied to the splitter.
+open Descent.Completeness in
+example : ∃ micro : Nat → State machine results,
+    micro 0 = (endlessEntry []).state .halt ∧
+    (∀ i, Step (micro i) (micro (i + 1))) ∧
+    HasFirstChild (endlessEntry []) .halt micro 0 := by
+  obtain ⟨micro, initial, inside⟩ :=
+    Feedback.trace_without_return .halt (endlessEntry []).activation.job (endlessCallNoReturn [])
+  have steps (i : Nat) : Step (micro i) (micro (i + 1)) := (inside i).1
+  have split := split_start steps initial
+  refine ⟨micro, initial, steps, split.resolve_right ?_⟩
+  intro feedback
+  have reaches : State.runFor 6 ((endlessEntry []).state (.halt : Stack machine results results)) =
+      (endlessEntry [1]).state (endlessWaiting [] .halt) := by cbv
+  have observed : micro 6 = (endlessEntry [1]).state (endlessWaiting [] .halt) :=
+    ((runFor_slice steps 0 6).symm.trans (congrArg (State.runFor 6) initial)).trans reaches
+  exact feedback.1 6 (by decide) ⟨endlessEntry [1], endlessWaiting [] .halt, observed,
+    live_of_no_return steps observed (endlessCallNoReturn [1])⟩
+
+private abbrev controlPorts : Ports T := [tag]
+private abbrev quietFn : Function Unit Unit := ⟨controlPorts, controlPorts⟩
+
+private def quietBody :
+    NestedTheta.Term (Instruction Op) controlPorts [] [] (Theta.BodyResults controlPorts) :=
+  .ret (.cons (.arg .head) (.cons (.arg .head) .nil))
+
+private def quietSuffix : NestedTheta.Term (Instruction Op) controlPorts [controlPorts] [] controlPorts :=
+  .ret (.cons (.output (0 : Fin 1) .head) .nil)
+
+private def quietGroup : PhiTerm Op [] [] [quietFn] :=
+  ⟨[], .nil, .cons ⟨[], .nil, [controlPorts],
+    .bind (NestedTheta.thetaVertex []) (fun _ => quietBody) quietSuffix⟩ .nil⟩
+
+private def quietModule : OmegaTerm Op [] [quietFn.port] [[quietFn.port]] :=
+  ⟨.bind (.phi quietGroup) (.ret (.cons (.output (0 : Fin 1) .head) .nil))⟩
+
+private def keepGoing : Tuple machine.Val controlPorts := .cons (.control 1) .nil
+
+private def quietEntry : Descent.Entry machine :=
+  ⟨controlPorts, ⟨controlPorts, (Recursive.linkGraph machine 29 quietModule.toGraph .nil).get .head, keepGoing⟩⟩
+
+private def quietParent : Stack machine controlPorts controlPorts :=
+  .resume (past := []) quietSuffix.toGraph.toTerm keepGoing PUnit.unit .halt
+
+private abbrev decodedQuiet := quietBody.toGraph.toTerm
+
+private def quietCycle (i : Nat) : State machine controlPorts :=
+  match i % 3 with
+  | 0 => Feedback.restart decodedQuiet quietParent keepGoing
+  | 1 => .eval (.region decodedQuiet keepGoing PUnit.unit) (.loop decodedQuiet quietParent)
+  | _ => .returned (.cons (.control 1) keepGoing) (.loop decodedQuiet quietParent)
+
+private theorem quietCycleStep (i : Nat) : Step (quietCycle i) (quietCycle (i + 1)) := by
+  have bound := Nat.mod_lt i (by decide : 0 < 3)
+  have casesMod : i % 3 = 0 ∨ i % 3 = 1 ∨ i % 3 = 2 := by omega
+  rcases casesMod with reduced | reduced | reduced <;>
+    simp only [quietCycle, Nat.add_mod i 1 3, reduced] <;> rfl
+
+private def quietMicro : Nat → State machine controlPorts
+  | 0 => quietEntry.state .halt
+  | 1 => .eval quietEntry.openBody .halt
+  | 2 => State.runFor 2 (quietEntry.state .halt)
+  | i + 3 => quietCycle i
+
+private theorem quietSteps (i : Nat) : Step (quietMicro i) (quietMicro (i + 1)) := by
+  match i with
+  | 0 => rfl
+  | 1 => rfl
+  | 2 => cbv
+  | j + 3 => exact quietCycleStep j
+
+private theorem quietNoCall (i : Nat) (after : 0 < i) : Descent.Entry.ofState (quietMicro i) = none := by
+  match i with
+  | 0 => cases after
+  | 1 => rfl
+  | 2 => rfl
+  | j + 3 =>
+    change Descent.Entry.ofState (quietCycle j) = none
+    have bound := Nat.mod_lt j (by decide : 0 < 3)
+    have casesMod : j % 3 = 0 ∨ j % 3 = 1 ∨ j % 3 = 2 := by omega
+    rcases casesMod with reduced | reduced | reduced <;> simp only [quietCycle, reduced] <;> rfl
+
+-- The trace has an endless θ cycle but no deeper call. Its restart
+-- indices are computed by the theorem without a checkpoint premise.
+open Descent.Completeness in
+example : HasFeedback quietMicro 1 := by
+  have classified := split_start (caller := quietEntry) (micro := quietMicro) quietSteps rfl
+  rcases classified with first | feedback
+  · obtain ⟨i, child, pending, observed⟩ := first
+    have noCall := quietNoCall i observed.later
+    rw [observed.atEntry] at noCall
+    cases child with
+    | mk _ activation => cases activation; cases noCall
+  · exact feedback.2
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Tests
