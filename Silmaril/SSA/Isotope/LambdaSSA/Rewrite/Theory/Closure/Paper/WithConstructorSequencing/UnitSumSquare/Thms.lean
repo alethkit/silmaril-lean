@@ -66,6 +66,22 @@ theorem separate_payload_output (B A : Shape) {i j : OutputCode B A}
     i = j :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumSquare.separate_payload_output B A h
 
+theorem payload_before_emit (A : Shape) (i : A.Row) (p q : Payload) :
+    Shape.unit.emit () p ≫ A.emit i q = A.emit i (p.then q) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumSquare.payload_before_emit A i p q
+
+theorem emit_factor (A : Shape) (i : A.Row) (p : Payload) :
+    Shape.unit.emit () p ≫ A.inj i = A.emit i p :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumSquare.emit_factor A i p
+
+theorem outputWithPayload_inl (B A : Shape) (i : B.Row) (p : Payload) :
+    outputWithPayload B A ⟨.inl i, p⟩ = B.emit i p ≫ coprod.inl :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumSquare.payload_output_inl B A i p
+
+theorem outputWithPayload_inr (B A : Shape) (i : A.Row) (p : Payload) :
+    outputWithPayload B A ⟨.inr i, p⟩ = A.emit i p ≫ coprod.inr :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumSquare.payload_output_inr B A i p
+
 /-- Compare the composed square arms after restriction to their source rows.
 A row may forward the input or emit literal unit. -/
 theorem reflect_payload_square (B A D : Shape) {a : Tm Empty} (ha : Tm.BranchValue [A.ty] a D.ty)
