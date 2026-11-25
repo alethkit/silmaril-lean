@@ -8,7 +8,13 @@ public import Silmaril.Semantics.RuntimeWires.Computations.Defs
 # Nullary effectful generator
 
 The one-generator, empty-object signature tests the trivial-centre assertion
-preceding Lemma 5.3 in Román and Sobociński's *String Diagrams for Premonoidal Categories*.
+preceding Lemma 5.3 (pp. 9:15–9:16) in Mario Román and Paweł Sobociński,
+*String Diagrams for Premonoidal Categories*, arXiv:2305.06075v5.
+
+- PDF: <https://arxiv.org/pdf/2305.06075v5>,
+  SHA-256 `8d34da8f010f438e5ff0d0791a3dc338204c55d08ee591a4a18287d193902711`.
+- TeX source archive: <https://arxiv.org/src/2305.06075v5>,
+  SHA-256 `d1ac1aff3179f351e53daf2905907f7b0ca68ee8d79ffa157c21f8f5755dcfb3`.
 -/
 
 namespace Silmaril.RuntimeWires.Nullary
