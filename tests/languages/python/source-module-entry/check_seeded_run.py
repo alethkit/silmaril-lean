@@ -225,6 +225,12 @@ UPSTREAM_LITERAL_IF_CASE = "tests/python/programs/original/k-python/programs/tes
 UPSTREAM_LITERAL_IF_SHA256 = "a65342d9d5bc36848971fe5628ee00379edacee5a20cc406c790f4ef128222b8"
 UPSTREAM_CONDITIONAL_EXPR_CASE = "tests/python/programs/original/k-python/programs/testif.py"
 UPSTREAM_CONDITIONAL_EXPR_SHA256 = "3e35304b328295b30ffa6dbba0b50d7b6e1b10872e4138616a9bc3cd87d5ee4f"
+UPSTREAM_LITERAL_TUPLE_COMPARISONS = (
+    ("tests/python/programs/original/k-python/programs/testin.py",
+     "00a7ea2904c8b31edf06a507d337cbb21b416b4371cb4afe6dde8697f55dc8ac"),
+    ("tests/python/programs/original/k-python/programs/testtuples1.py",
+     "e6835512c2b669200b60a1e0fece8985616c744d80ce044c21bdd7678befc89a"),
+)
 UPSTREAM_LITERAL_INDEXING = (
     ("tests/python/programs/original/k-python/programs/testlists2.py",
      "7f4fdac9762c64a4355649bab7aeba840c94512eb11831621d60660ce7aa644e"),
@@ -455,6 +461,19 @@ after = 9
 result = skipped if False else 1 // 0
 after = 9
 """, ["unsupported", "int:7", "absent"]),
+    ("literal_tuple_typed_bindings", "legacy_bool_callable_builtin", """result = (True, -2) == (1, -2)
+after = False not in (0,)
+___assertIs(result, True)
+___assertIs(after, False)
+""", ["normal", "bool:True", "bool:False"]),
+    ("literal_tuple_failed_assertion", "empty", """result = 7
+assert (1, 2) == (1,)
+after = 9
+""", ["AssertionError:empty", "int:7", "absent"]),
+    ("literal_tuple_operand_failure_order", "legacy_preamble", """result = 7
+result = (1 in (True,)) == (missing == later)
+after = 9
+""", ["NameError:missing", "int:7", "absent"]),
     ("bool_int_false", "legacy_bool_int_builtin", """result = int(False)
 ___assertEqual(result, 0)
 ___assertIsNot(result, False)
@@ -555,6 +574,9 @@ after = 9
 )
 
 NESTED_CALL_NAMES = {
+    "literal_tuple_typed_bindings": ["___assertIs", "___assertIs"],
+    "literal_tuple_failed_assertion": [],
+    "literal_tuple_operand_failure_order": [],
     "literal_conditional_true": ["___assertIs"],
     "literal_conditional_false": [],
     "literal_conditional_missing": [],
@@ -585,6 +607,9 @@ NESTED_CALL_NAMES = {
 }
 
 EXACT_FIXTURE_BINDINGS = {
+    "literal_tuple_typed_bindings": '[("after", .bool false), ("result", .bool true)]',
+    "literal_tuple_failed_assertion": '[("result", .int 7)]',
+    "literal_tuple_operand_failure_order": '[("result", .int 7)]',
     "literal_conditional_true": '[("after", .int 1), ("result", .bool true)]',
     "literal_conditional_false": '[("after", .int 5), ("result", .bool false)]',
     "literal_conditional_missing": '[("result", .int 7)]',
@@ -834,6 +859,7 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
         (UPSTREAM_CONDITIONAL_EXPR_CASE, UPSTREAM_CONDITIONAL_EXPR_SHA256, {}),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_NO_OP),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_INDEXING),
+        *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_TUPLE_COMPARISONS),
     )
     for path, sha256, bindings in cases:
         source = pinned_source(checkout, path, sha256)

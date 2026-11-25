@@ -75,6 +75,18 @@ assert not_reached if False else 1
 result = missing if 0 else 1 // 0
 after = 9
 """, {}, {"result": 7, "after": None}, "ZeroDivisionError", ".raised (.arithmetic .zeroDivisionError)", 2),
+    ("literal_tuple_boolean_results", """same = (True, -2, False) == (1, -2, 0)
+different = (1, 2) == (2, 1)
+member = -2 in (True, -2)
+absent = 1 not in ()
+assert () == ()
+assert True in (1,)
+assert 1 not in (False,)
+""", {}, {"same": True, "different": False, "member": True, "absent": True}, "normal", ".normal", 5),
+    ("literal_tuple_operand_failure_order", """result = 7
+result = (1 in (True,)) == (missing + (1 // 0))
+after = 9
+""", {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
 )
 
 UNSUPPORTED_INDEXING = (
@@ -104,6 +116,12 @@ REJECTED_BRANCHES = (
     ("result = 2 if True else (lambda: 3)\n", ".expressionProfile"),
     ("result = f() if False else 3\n", ".expressionProfile"),
     ("result = 1 if True else [3][1]\n", ".expressionProfile"),
+    ("result = (1, unknown) == (1, 2)\n", ".expressionProfile"),
+    ("result = (1,) == [1]\n", ".expressionProfile"),
+    ("result = (1,) in ((1,),)\n", ".expressionProfile"),
+    ("result = 1 in (*other,)\n", ".expressionProfile"),
+    ("result = 1 in (f(),)\n", ".expressionProfile"),
+    ("result = 1 in (1,) == (1,)\n", ".expressionProfile"),
 )
 
 CPYTHON = """

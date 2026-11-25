@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Python.Source.Scope.Defs
+public import Silmaril.Languages.Python.Core.Module.Defs
 
 /-! # Check Python module-entry syntax and global name bindings
 
@@ -12,7 +13,7 @@ the analyzed access. The plan is independent of a runtime store.
 @[expose] public section
 namespace Silmaril.Languages.Python.Compile.ModuleEntry
 
-open Source (Access Expr Name Scope ScopeTree Stmt)
+open Source (Access Comparison Expr Name Scope ScopeTree Stmt)
 
 structure GlobalReference (scope : Scope) (name : Name) where
   access : Access
@@ -58,10 +59,37 @@ def literalSubscript? (source index : Expr) : Option Int := do
   let position ← integerLiteral? index
   literalIndex? values position
 
-/-- Use the existing Boolean-valued scalar equality for a selected literal.
-In particular, the seeded scalar profile can return the Boolean itself. -/
+def scalarLiteral? : Expr → Option Core.Module.Value
+  | .boolean value => some (.bool value)
+  | expression => (integerLiteral? expression).map .int
+
+def scalarTuple? : Expr → Option (List Core.Module.Value)
+  | .tuple elements => elements.mapM scalarLiteral?
+  | _ => none
+
+def literalTupleMember? (left right : Expr) : Option Bool := do
+  let needle ← scalarLiteral? left
+  let elements ← scalarTuple? right
+  return elements.any (needle.equal ·)
+
+/-- Read only closed literal operands. Tuple equality compares corresponding
+elements and lengths. Membership tests scalar equality in tuple order. -/
+def literalTupleComparison? (left : Expr) (operator : Comparison) (right : Expr) : Option Bool :=
+  match operator with
+  | .eq => do
+    let lhs ← scalarTuple? left
+    let rhs ← scalarTuple? right
+    return lhs.isEqv rhs Core.Module.Value.equal
+  | .in_ => literalTupleMember? left right
+  | .notIn => (literalTupleMember? left right).map (! ·)
+  | _ => none
+
+/-- Deliver a computed Boolean through the existing typed scalar equality. -/
+def Operand.booleanResult {scope : Scope} (value : Bool) : Operand scope :=
+  .binary .equal (.boolean value) (.boolean true)
+
 def Operand.conditionalResult {scope : Scope} : Operand scope → Operand scope
-  | .boolean value => .binary .equal (.boolean value) (.boolean true)
+  | .boolean value => .booleanResult value
   | value => value
 
 inductive OperandTranslation (scope : Scope) : Expr → Operand scope → Prop where
@@ -82,6 +110,9 @@ inductive OperandTranslation (scope : Scope) : Expr → Operand scope → Prop w
   | equal {left right lhs rhs} (first : OperandTranslation scope left lhs)
       (second : OperandTranslation scope right rhs) :
       OperandTranslation scope (.comparison left [(.eq, right)]) (.binary .equal lhs rhs)
+  | literalTupleComparison {left operator right value}
+      (checked : literalTupleComparison? left operator right = some value) :
+      OperandTranslation scope (.comparison left [(operator, right)]) (.booleanResult value)
   | literalConditional {condition yes no decision lhs rhs}
       (guard : literalGuard? condition = some decision)
       (positive : OperandTranslation scope yes lhs) (negative : OperandTranslation scope no rhs) :
@@ -120,10 +151,16 @@ def lowerOperand (scope : Scope) : (source : Expr) → Except Error {value // Op
     let lhs ← lowerOperand scope left
     let rhs ← lowerOperand scope right
     return ⟨.binary .floorDiv lhs.val rhs.val, .floorDiv lhs.property rhs.property⟩
-  | .comparison left [(.eq, right)] => do
-    let lhs ← lowerOperand scope left
-    let rhs ← lowerOperand scope right
-    return ⟨.binary .equal lhs.val rhs.val, .equal lhs.property rhs.property⟩
+  | .comparison left [(operator, right)] =>
+    match folded : literalTupleComparison? left operator right with
+    | some value => .ok ⟨.booleanResult value, .literalTupleComparison folded⟩
+    | none =>
+      match operator with
+      | .eq => do
+        let lhs ← lowerOperand scope left
+        let rhs ← lowerOperand scope right
+        return ⟨.binary .equal lhs.val rhs.val, .equal lhs.property rhs.property⟩
+      | _ => .error .expressionProfile
   | .conditional condition yes no =>
     match guard : literalGuard? condition with
     | none => .error .expressionProfile

@@ -16,6 +16,10 @@ theorem global_reference {scope : Source.Scope} {name : Source.Name}
   · subst declared
     simp [globalReference?, resolved]
 
+private theorem scalarTuple_none {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
+    (translated : OperandTranslation scope source operand) : scalarTuple? source = none := by
+  cases translated <;> rfl
+
 theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
     (translated : OperandTranslation scope source operand) :
     lowerOperand scope source = .ok ⟨operand, translated⟩ := by
@@ -31,10 +35,27 @@ theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand 
       subst value
       rfl
     · simp_all
-  | read _ witness => simp [lowerOperand, global_reference witness] <;> rfl
-  | add _ _ left right => simp [lowerOperand, left, right] <;> rfl
-  | floorDiv _ _ left right => simp [lowerOperand, left, right] <;> rfl
-  | equal _ _ left right => simp [lowerOperand, left, right] <;> rfl
+  | read _ witness => simp [lowerOperand, global_reference witness]; rfl
+  | add _ _ left right => simp [lowerOperand, left, right]; rfl
+  | floorDiv _ _ left right => simp [lowerOperand, left, right]; rfl
+  | @equal sourceLeft sourceRight _ _ first _ left right =>
+    have notFolded : literalTupleComparison? sourceLeft .eq sourceRight = none := by
+      simp [literalTupleComparison?, scalarTuple_none first]
+    rw [lowerOperand]
+    split
+    · rename_i value folded
+      cases folded.symm.trans notFolded
+    · rw [left, right]
+      rfl
+  | literalTupleComparison checked =>
+    rw [lowerOperand]
+    split
+    · rename_i value computed
+      have equal := Option.some.inj (computed.symm.trans checked)
+      subst value
+      rfl
+    · rename_i absent
+      cases checked.symm.trans absent
   | literalConditional guard _ _ yes no =>
     rw [lowerOperand]
     split
@@ -50,10 +71,10 @@ theorem statements_complete {scope : Source.Scope} {source : List Source.Stmt} {
   induction translated with
   | done => simp [lowerStatements]
   | @assign statement name expression reference value rest next binding operand _ tail =>
-    cases binding <;> simp [lowerStatements, binding?, global_reference reference, operand_complete operand, tail] <;> rfl
-  | assertion operand _ tail => simp [lowerStatements, operand_complete operand, tail] <;> rfl
-  | globals _ tail => simp [lowerStatements, tail] <;> rfl
-  | pass _ tail => simp [lowerStatements, tail] <;> rfl
+    cases binding <;> (simp [lowerStatements, binding?, global_reference reference, operand_complete operand, tail]; rfl)
+  | assertion operand _ tail => simp [lowerStatements, operand_complete operand, tail]; rfl
+  | globals _ tail => simp [lowerStatements, tail]
+  | pass _ tail => simp [lowerStatements, tail]
   | literalIf arms guard _ _ _ yes no tail =>
     rw [lowerStatements, dite_eq_left arms]
     split
@@ -76,6 +97,6 @@ theorem check_complete {source : Source.Module} {tree : Source.ScopeTree}
   · rename_i other accepted
     have same := Except.ok.inj (accepted.symm.trans analyzed)
     subst other
-    simp [moduleScope, statements_complete translated] <;> rfl
+    simp [moduleScope, statements_complete translated]; rfl
 
 end Silmaril.Proofs.Languages.Python.Compile.ModuleEntry

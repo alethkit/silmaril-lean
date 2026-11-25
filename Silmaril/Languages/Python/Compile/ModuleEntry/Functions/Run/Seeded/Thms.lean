@@ -48,6 +48,12 @@ theorem evaluateScalar_conditionalResult {scope : Source.Scope} (space : Namespa
   | boolean value => cases value <;> rfl
   | _ => rfl
 
+theorem evaluateScalar_booleanResult {scope : Source.Scope} (space : Namespace)
+    (equalityOperand value : Bool) :
+    evaluateScalar space equalityOperand (ModuleEntry.Operand.booleanResult (scope := scope) value) =
+      .ok (.bool value) :=
+  evaluateScalar_conditionalResult space equalityOperand (.boolean value)
+
 theorem effect_conditionalAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (name : Source.Name) (reference : ModuleEntry.GlobalReference scope name) (selected : ModuleEntry.Operand scope) :
     effect space context (.scalar (.assign name reference selected.conditionalResult)) =
