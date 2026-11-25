@@ -104,6 +104,7 @@ inductive Statement where
   | pass
   | assign (name : String) (value : Lowering.Resolve.SourceExpr)
   | assignTarget (target rhs : Lowering.Resolve.SourceExpr)
+  | assignTargetCompExpr (target : Lowering.Resolve.SourceExpr) (rhs : CompExpr)
   | assignListComp (name : String) (comp : ListComp)
   | assignDictComp (name : String) (comp : DictComp)
   | assignCompExpr (name : String) (expr : CompExpr)
@@ -124,6 +125,7 @@ inductive Statement where
 inductive Command where
   | assign (name : String) (value : Lowering.Resolve.SourceExpr)
   | assignTarget (target rhs : Lowering.Resolve.SourceExpr)
+  | assignTargetCompExpr (target : Lowering.Resolve.SourceExpr) (rhs : CompExpr)
   | assignListComp (name : String) (comp : ListComp)
   | assignDictComp (name : String) (comp : DictComp)
   | assignCompExpr (name : String) (expr : CompExpr)
@@ -169,14 +171,15 @@ def globalNames (commands : List Command) : List String :=
   commands.flatMap fun
     | .assign name _ | .assignListComp name _ | .assignDictComp name _
     | .assignCompExpr name _ | .define name .. => [name]
-    | .assignTarget target _ =>
+    | .assignTarget target _ | .assignTargetCompExpr target _ =>
       ((resolveTarget globalSlot .unsupportedAssignmentTarget target).toOption.map Prod.snd).getD []
     | .setIndex .. | .addIndex .. | .eval _ | .load .. => []
 
 private def Statement.localNames : Statement → Except Error (List String)
   | .assign name _ | .assignListComp name _ | .assignDictComp name _
   | .assignCompExpr name _ | .define name .. => pure [name]
-  | .assignTarget target _ => return (← resolveTarget fileSlot .unsupportedAssignmentTarget target).2
+  | .assignTarget target _ | .assignTargetCompExpr target _ =>
+    return (← resolveTarget fileSlot .unsupportedAssignmentTarget target).2
   | .seq first rest | .branch _ first rest => return (← first.localNames) ++ (← rest.localNames)
   | .forIn target _ body => return target :: (← body.localNames)
   | .forInTarget target _ body =>
@@ -448,6 +451,10 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
     let (target, _) ← monadLift (resolveTarget fileSlot .unsupportedAssignmentTarget target)
     let (rhs, reads) ← readExpr context rhs
     return ⟨.assignTargetExpr target rhs, reads⟩
+  | .assignTargetCompExpr target rhs => do
+    let (target, _) ← monadLift (resolveTarget fileSlot .unsupportedAssignmentTarget target)
+    let (rhs, reads) ← compileCompExpr context rhs
+    return ⟨rhs.assignTargetCode target Comprehensions.directStages, reads⟩
   | .assignListComp name comp => do
     let (comp, reads) ← compileComp context comp.target comp.iterable comp.rest readExpr Comprehensions.ListComp.mk
     return ⟨comp.body (fileSlot name), reads⟩
@@ -511,6 +518,10 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
     let (target, _) ← monadLift (resolveTarget globalSlot .unsupportedAssignmentTarget target)
     let (rhs, _) ← readExpr context rhs
     return .exec (.assignTargetExpr target rhs)
+  | .assignTargetCompExpr target rhs => do
+    let (target, _) ← monadLift (resolveTarget globalSlot .unsupportedAssignmentTarget target)
+    let (rhs, _) ← compileCompExpr context rhs
+    return .exec (.assignTargetCompExpr target rhs)
   | .assignListComp name comp => do
     let (comp, _) ← compileComp context comp.target comp.iterable comp.rest readExpr Comprehensions.ListComp.mk
     return .exec (.assignListComp name comp)

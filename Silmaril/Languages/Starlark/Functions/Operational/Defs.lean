@@ -39,6 +39,20 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       {locals : List Binding} {body : Body} {out : Outcome Flow} :
       Exec program available (locals.foldl State.allocateSlot s) body out →
       Exec program available s (.assignScoped target locals body) (completeCall s (some target) out)
+  | assignTargetScoped {available : List DeclarationId} {s t : State} {target : LoopTarget}
+      {rhs : Body} {value : Lists.Value} {out : Outcome Unit} :
+      Exec program available s rhs (.ok (.returned value) t) →
+      BindsTarget (restoreCaller s t) value target out →
+      Exec program available s (.assignTargetScoped target rhs) (Outcome.resume out fun () => pure .next)
+  | assignTargetScopedError {available : List DeclarationId} {s t : State} {target : LoopTarget}
+      {rhs : Body} {error : Error} :
+      Exec program available s rhs (.error error t) →
+      Exec program available s (.assignTargetScoped target rhs) (.error error (restoreCaller s t))
+  | assignTargetScopedSignal {available : List DeclarationId} {s t : State} {target : LoopTarget}
+      {rhs : Body} {signal : Flow} :
+      Exec program available s rhs (.ok signal t) →
+      (∀ value, signal ≠ .returned value) →
+      Exec program available s (.assignTargetScoped target rhs) (.ok signal (restoreCaller s t))
   | setIndexExpr {available : List DeclarationId} {s t u : State}
       {receiver subscript rhs : Lowering.Expr} {value target : Lists.Value} {out : Outcome Lists.Value} :
       ExecExpr program available s rhs (.ok value t) →

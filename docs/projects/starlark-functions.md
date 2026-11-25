@@ -273,8 +273,9 @@ elaborator. Successful module initialization freezes the reachable result.
 ## Comprehensions in checked expression positions
 
 The normalized `CompExpr` grammar admits list and dictionary
-comprehensions in return values and single-name assignment RHSs. Its
-recursive nodes include calls, conditional tests and arms, and both
+comprehensions in return values, assignment RHSs for names and nested
+name patterns, and parameter defaults. Its recursive nodes include calls,
+conditional tests and arms, and both
 operands of `and` and `or`. A call's callee, positional operands, named
 operands, and optional `*` and `**` operands all admit the placement
 grammar. Ordinary leaves retain the existing resolved expression grammar.
@@ -417,8 +418,8 @@ The normalized `CompExpr.listComprehension` and
 `CompExpr.dictComprehension` forms accept recursive operands in clauses
 and heads. The plain-head forms remain available. Quotation supplies
 ordinary leaves and pattern ASTs. The recursive comprehension nodes
-are constructed separately. General statement operands and field and
-subscript assignment targets remain outside this placement boundary.
+are constructed separately. Subscript stores, field targets, and other
+statement operands remain outside this placement boundary.
 Call shapes and spread value domains follow the
 [existing argument profile](#argument-binding).
 
@@ -713,9 +714,32 @@ staging the RHS in a scratch binding preserves success and both kinds of
 failure, including the exact heap, slots, iterator stack, and visible
 bindings. Checked module commands use the direct body evaluator and the
 existing initialization and publication rules. This slice admits name
-leaves in ordinary assignment. Comprehension targets, subscript or field
-leaves inside patterns, and augmented pattern assignment are separate.
+leaves under nested tuple/list patterns.
 [Native and lowered fixtures](../../Silmaril/Languages/Starlark/Functions/NativeBodyChecks.lean) · [Source fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Checks.lean) · [Pinned Go fixtures](../../examples/starlark/functions/check.go)
+
+#### Comprehension right-hand sides
+
+`assignTargetCompExpr` accepts a normalized `CompExpr` RHS and the same
+name-leaf pattern in function and module code. After the scoped RHS
+returns, the evaluator restores the enclosing frame and runs the
+existing binder on the saved value. The heap and iterator state come
+from RHS execution. Restoring the frame before binding keeps any
+earlier target writes when a later nested arity check fails, including
+direct binding writes in a resolved state without allocated target slots.
+On RHS failure the binder does not run.
+[Pinned assignments][assignments] · [Go RHS order][go-assignment] · [Go recursive pattern order][go-unpack-compile] · [Go unpack checks][go-unpack]
+
+`Expression.exec_assignTarget_iff_lowered` connects the independently
+stated RHS-body and binder premises to exact scratch-lowered outcomes
+for admitted RHSs from scratch-free states. It includes residual heap,
+frame and iterator state on either kind of failure. The proof shares
+normalized lexical resolution and inherits finite declaration descent.
+The Go fixtures observe target writes, effect order and guard release.
+The Lean fixtures also compare the private frame and heap. Comprehension
+revisits retain the [fresh-local profile](#comprehensions-in-parameter-defaults).
+Quotation, comprehension RHSs in subscript stores, subscript and field
+pattern leaves, and augmented pattern assignment remain separate.
+[Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
 
 ### Simple subscript assignment
 

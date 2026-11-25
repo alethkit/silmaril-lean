@@ -708,4 +708,91 @@ private def isUnhashableList : Lists.Error → Bool
   | .ok (.error (.runtime (.uninitialized name)) state) => name == fileSlot "y" && state.iterators.isEmpty
   | _ => false
 
+-- A function's RHS sees the old parameter before either repeated name
+-- is written. A module pattern uses the same binder and publishes its
+-- public leaves only.
+#guard
+  let localRhs := CompExpr.list
+    ⟨starlark%[piece], starlark%[mark(1, [8, [9, x]])], .yield starlark%[mark(2, piece)]⟩
+  let moduleRhs := CompExpr.list
+    ⟨starlark%[piece], starlark%[mark(3, [[7], (2, 3)])], .yield starlark%[mark(4, piece)]⟩
+  let commands := logCommands ++
+    [.define "f" { positional := [⟨"x", none⟩] }
+       (.seq (.assignTargetCompExpr starlark%[(x, [x, y])] localRhs)
+         (.ret (some starlark%[(x, y)]))),
+     .assign "out" starlark%[f(4)],
+     .assignTargetCompExpr starlark%[(payload, [countValue, _hidden])] moduleRhs,
+     .assign "ok" starlark%[{((9, 4), 7, 2): True}[(out, payload[0], countValue)]]]
+  match runModule commands noImports {} with
+  | .ok (.ok published state) =>
+    published.exports.lookup "ok" == some (.scalar (.bool true)) &&
+    (published.exports.lookup "_hidden").isNone &&
+    match published.exports.lookup "events" with
+    | some (.list address) => eventsMatch state address [1, 2, 2, 3, 4, 4, 0, 0]
+    | _ => false
+  | _ => false
+
+private def checkPatternRhsFailure (failRhs : Bool) : Bool :=
+  let rows := if failRhs then starlark%[[[(False, 5), (True, [6]), (False, 7)]]]
+    else starlark%[[[(False, 5), (False, [6]), (False, 7)]]]
+  let rhs := CompExpr.list ⟨starlark%[row], starlark%[mark(1, rows)],
+    .forIn starlark%[(fail, x)] starlark%[row]
+      (.yield starlark%[mark(3, [])[1] if fail else mark(2, x)])⟩
+  let commands := logCommands ++ [.assign "rows" rows,
+    .assignTargetCompExpr starlark%[(a, [b, c], d)] rhs]
+  match resolve commands with
+  | .ok resolved =>
+    match resolved.source.commands.reverse with
+    | .exec (.assignTargetCompExpr target expr) :: reversed =>
+      match runCommands resolved.program noImports reversed.reverse (enter resolved.source {}) with
+      | .ok () entered =>
+        match entered.bindingValue (globalSlot "rows") with
+        | .ok (.list outer) =>
+          let a := globalSlot "a"
+          let names := [a, globalSlot "b", globalSlot "c", globalSlot "d"]
+          let saved := Functions.Comprehensions.expressionSlot
+          -- An unowned first leaf tests that restoring the RHS frame
+          -- does not discard the binder's direct writes.
+          let start := { entered with
+            slots := fun name => if name = a then none else entered.slots name
+            iterators := [outer] }
+          let before := (names.zip ([90, 91, 92, 93].map intValue)).foldl
+            (fun state (name, value) => state.write name value) (start.write saved (intValue 94))
+          let run := fun stages => Functions.run resolved.program (expr.assignTargetCode target stages) before
+          match run Functions.Comprehensions.directStages, run (Functions.Comprehensions.loweredStages 0) with
+          | .error first direct, .error second lowered =>
+            let expectedError := if failRhs then Lists.Error.indexRange 1 0 else .unpackArity 2 1
+            let expected := (if failRhs then [90, 91, 92, 93] else [5, 91, 92, 93]).map (some ∘ intValue)
+            let written := fun (state : State) => names.map fun name => (state.bindingValue name).toOption
+            first == expectedError && second == first &&
+              direct.heap == lowered.heap && direct.iterators == [outer] && lowered.iterators == [outer] &&
+              written direct == expected && written lowered == expected &&
+              direct.bindings saved == some (intValue 94) && lowered.bindings saved == some (intValue 94) &&
+              match direct.bindingValue (globalSlot "events") with
+              | .ok (.list address) =>
+                eventsMatch direct address (if failRhs then [1, 2, 3, 0, 0, 0, 0, 0] else [1, 2, 2, 2, 0, 0, 0, 0])
+              | _ => false
+          | _, _ => false
+        | _ => false
+      | _ => false
+    | _ => false
+  | _ => false
+
+#guard checkPatternRhsFailure false && checkPatternRhsFailure true
+
+-- Scope collection visits the target before analyzing the lexical block.
+-- Reading its global before the assignment is a runtime unbound error.
+#guard
+  match runModule [.assign "out" starlark%[a],
+    .assignTargetCompExpr starlark%[(a, b)] (collect starlark%[[1, 2]])] noImports {} with
+  | .ok (.error (.runtime (.uninitialized name)) _) => name == globalSlot "a"
+  | _ => false
+
+-- Target shape checking also runs in a branch that won't execute.
+#guard
+  let invalid := Statement.assignTargetCompExpr starlark%[(a, [b, rows[0]])] (collect starlark%[[]])
+  match resolve [.define "f" {} (.branch starlark%[False] invalid .pass)] with
+  | .error .unsupportedAssignmentTarget => true
+  | _ => false
+
 end Silmaril.Languages.Starlark.Modules.Resolve

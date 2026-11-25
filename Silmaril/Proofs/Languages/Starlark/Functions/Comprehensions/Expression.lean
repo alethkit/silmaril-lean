@@ -263,6 +263,16 @@ theorem return_exact (program : Program) (available : List DeclarationId)
   (seq_agrees (expression_exact program available expr admitted expressionSlot start)
     (rest := returnSaved expressionSlot) (rest' := returnSaved expressionSlot) (fun _ _ => rfl) state free).symm
 
+theorem assign_target_exact (program : Program) (available : List DeclarationId)
+    (expr : Expression) (admitted : expr.Admitted) (target : LoopTarget)
+    (state : State) (free : ScratchFree state) (start : Nat) :
+    denoteBody program available (expr.assignTargetCode target (loweredStages start)) state =
+      denoteBody program available (expr.assignTargetCode target directStages) state := by
+  unfold Expression.assignTargetCode
+  rw [denoteBody.eq_def program available (.assignTargetScoped target _),
+    denoteBody.eq_def program available (.assignTargetScoped target _)]
+  exact congrArg (completeTargetAssignment state target) (return_exact program available expr admitted state free start)
+
 theorem definition_defaults_exact (program : Program) (available : List DeclarationId)
     (target : Binding) (id : DeclarationId) (defaults : List (Binding × Expression))
     (admitted : ∀ item ∈ defaults, item.2.Admitted) (start : Nat) :

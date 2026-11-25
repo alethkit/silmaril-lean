@@ -46,6 +46,14 @@ theorem denote_eq_of_exec {program : Program} {available : List DeclarationId} {
     simp only [denoteBody, evaluated, Outcome.resume, (bindsTarget_iff_bindTarget _ _ _ _).mp assigned]
   case assignTargetExprRhsError _ evaluated =>
     simp only [denoteBody, evaluated, Outcome.resume]
+  case assignTargetScoped _ assigned evaluated =>
+    simp only [denoteBody, evaluated, completeTargetAssignment, (bindsTarget_iff_bindTarget _ _ _ _).mp assigned]
+  case assignTargetScopedError _ evaluated =>
+    simp only [denoteBody, evaluated, completeTargetAssignment]
+  case assignTargetScopedSignal signal _ other evaluated =>
+    cases signal with
+    | returned value => exact False.elim (other value rfl)
+    | next | breakLoop | continueLoop => simp only [denoteBody, evaluated, completeTargetAssignment]
   all_goals
     (try have evaluated := (eval_iff_denote _ _ _).mp (by assumption)) <;>
     (try have total := (runs_iff_denoteSuite _ _ _).mp (by assumption)) <;>
@@ -105,6 +113,17 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
   | assignScoped target locals code =>
     rw [denoteBody]
     exact .assignScoped (exec_denote program available code (locals.foldl State.allocateSlot state))
+  | assignTargetScoped target rhs =>
+    rw [denoteBody]
+    have rhsRun := exec_denote program available rhs state
+    cases evaluated : denoteBody program available rhs state with
+    | error error next => exact .assignTargetScopedError (evaluated ▸ rhsRun)
+    | ok signal next =>
+      cases signal with
+      | returned value =>
+        exact .assignTargetScoped (evaluated ▸ rhsRun) ((bindsTarget_iff_bindTarget _ _ _ _).mpr rfl)
+      | next | breakLoop | continueLoop =>
+        exact .assignTargetScopedSignal (evaluated ▸ rhsRun) (by intro value; simp)
   | setIndexExpr receiver subscript rhs =>
     rw [denoteBody]
     change Exec program available state (.setIndexExpr receiver subscript rhs)
