@@ -145,6 +145,7 @@ check-runtime:
 	$(if $(filter Silmaril +Silmaril.Formats.PER.EGraph.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/formats/GuardedEGraph.lean)
 	$(if $(filter Silmaril +Silmaril.Formats.Dasl.EGraph.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/formats/DaslEGraphBridge.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Theta.% +Silmaril.Proofs.SSA.RVSDG.Theta.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Theta.Thms +Silmaril.SSA.RVSDG.Theta.Petri.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGTheta.lean)
+	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Theta.Categorical.% +Silmaril.Proofs.SSA.RVSDG.Theta.Categorical.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Theta.Categorical.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGThetaCategorical.lean)
 
 check-integrations:
 	$(if $(filter ci_cerberus_genuine_oracle,$(CHECK_TARGETS)),$(MAKE) cerberus-oracle)
