@@ -148,6 +148,18 @@ private theorem label_br_readback {types : List Wasm.Lime1.FuncType} {n : Nat} {
     | (try simp only [List.append_assoc, List.singleton_append, first_prefix, first_value] at outerHead)
       simp [first, asValue?] at outerHead
 
+theorem br_vals_stuck {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
+    {depth : LabelIdx} {stack : List Value} {rest : List Admin} {dst : Config H}
+    (move : Step host ⟨s, f, values stack ++ .source (.br depth) :: rest⟩ dst) : False :=
+  br_stuck move (by rw [first_prefix, first_head _ rfl])
+
+theorem label_br_zero {types : List Wasm.Lime1.FuncType} {n : Nat} {vs : List Value} {rest out : List Admin}
+    (pop : PureStep types [.label n [] (values vs ++ .source (.br ⟨0⟩) :: rest)] out) :
+    ∃ scratch results, vs = scratch ++ results ∧ results.length = n ∧ out = values results := by
+  rcases label_br_readback pop with ⟨scratch, results, split, arity, _, eq⟩ | ⟨bad, _⟩
+  · exact ⟨scratch, results, split, arity, by simpa [expression] using eq⟩
+  · exact (bad rfl).elim
+
 theorem label_br_cont_iff {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
     {n : Nat} {cont : Wasm.Lime1.Expr} {depth : LabelIdx} {stack : List Value} {rest : List Admin} {dst : Config H} :
     Step host ⟨s, f, [.label n cont (values stack ++ .source (.br depth) :: rest)]⟩ dst ↔

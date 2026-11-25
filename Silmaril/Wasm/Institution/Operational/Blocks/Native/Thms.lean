@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Institution.Operational.Blocks.Native.Defs
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
 public import Silmaril.Wasm.Institution.Operational.Blocks.Thms
 public import Silmaril.Wasm.Institution.Operational.Locals.Native.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.Blocks.Core
@@ -68,6 +69,13 @@ theorem lime_entry_iff {f : Execution.Runtime.Frame}
       dst = ⟨s, f, [.label result.toList.length [] (expression body)]⟩ :=
   Proofs.Lime1.entry_iff
 
+open Wasm.Lime1.Execution in
+theorem lime_locals_label_exit {types : List Wasm.Lime1.FuncType} {n : Nat}
+    {ops : List Locals.Op} {out : List Admin}
+    (pop : PureStep types [.label n [] (Locals.limeCodec.encode ops)] out) :
+    ∃ vs, ops = Locals.values vs ∧ out = values vs :=
+  Proofs.Lime1.locals_label_exit pop
+
 theorem lime_sound {a b : State} (edge : Edge a b) :
     Wasm.Lime1.Execution.Step host (limeConfig s m a) (limeConfig s m b) :=
   Proofs.Lime1.sound s m edge
@@ -104,6 +112,25 @@ theorem core_context_entry_iff {f : Core.Frame} {result : Option NumType} {body 
     Step P noHost ⟨s, f, vals saved ++ .plain (.block (coreType result) body) :: rest⟩ dst ↔
       dst = ⟨s, f, vals saved ++ .label result.toList.length [] (expression body) :: rest⟩ :=
   Proofs.core_context_entry_iff
+
+open Core in
+/-- The resolved signature determines the consumed suffix and label arity.
+The raw step checks the parameter count. Value types are checked at the
+guarded source boundary. -/
+theorem core_block_step_iff {f : Frame} {bt : BlockType} {body : List Instr}
+    {stack : List Val} {rest : List Admin} {dst : Config H} :
+    Step P noHost ⟨s, f, vals stack ++ .plain (.block bt body) :: rest⟩ dst ↔
+      ∃ (saved args : List Val) (params results : List Wasm.Validation.CValType),
+        stack = saved ++ args ∧ f.module.blockType? bt = some (params, results) ∧
+        args.length = params.length ∧
+        dst = ⟨s, f, vals saved ++ .label results.length [] (vals args ++ expression body) :: rest⟩ :=
+  Proofs.core_block_step_iff
+
+open Core in
+theorem core_locals_label_exit {n : Nat} {ops : List Locals.Op} {out : List Admin}
+    (pop : LabelExit n [] (Locals.coreCodec.encode ops) out) :
+    ∃ vs, ops = Locals.values vs ∧ out = vals (vs.map LegacyDivision.liftValue) :=
+  Proofs.core_locals_label_exit pop
 
 theorem core_sound {a b : State} (edge : Edge a b) :
     Core.Step P noHost (coreConfig s m a) (coreConfig s m b) :=

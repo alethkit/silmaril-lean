@@ -4,6 +4,8 @@ public import Silmaril.Wasm.Institution.Operational.Blocks.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.Blocks.Thms
 public import Silmaril.Wasm.Institution.Operational.Locals.Native.Thms
 import Silmaril.Wasm.Execution.Core.Sim.Context
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
+import Silmaril.Wasm.Execution.Core.Inversion.Thms
 
 @[expose] public section
 
@@ -110,71 +112,65 @@ theorem core_context_entry_iff {H : Type} {P : Profile} {s : Store H} {f : Frame
     simpa only [List.append_assoc, List.singleton_append] using
       Sim.Step.vals_left (Sim.Step.append_right (core_entry_iff.mpr rfl) rest) saved
 
-private theorem head_label {H : Type} {P : Profile} {s : Store H} {m : ModuleInst}
-    {result : Option NumType} {a : Locals.State} {b : Config H}
-    (head : Head P s ⟨a.locals.map Locals.coreLocal, m⟩ []
-      (.label result.toList.length [] (Locals.coreCodec.encode a.code)) b) :
-    ∃ out, Edge (.label result a) out ∧ b = coreConfig s m out := by
-  have supported := Locals.coreCodec.supports_encode a.code
-  generalize codeEq : Locals.coreCodec.encode a.code = body at head
-  cases head with
-  | ctxtLabel step =>
-    rw [← codeEq] at step
-    obtain ⟨out, inner, exactTarget⟩ := Locals.core_step_iff.mp step
-    exact ⟨.label result out, reduce result inner,
-      congrArg (fun c : Config H => (⟨c.store, c.frame, [.label result.toList.length [] c.code]⟩ : Config H)) exactTarget⟩
-  | labelVals eq =>
-    have eq := codeEq.trans eq
-    have numeric {v : Val} (h : (Locals.coreCodec.read v.toAdmin).isSome) :
-        ∃ w : Value, LegacyDivision.liftValue w = v := by
-      cases v with
-      | num n => exact ⟨⟨n.type, n.bits⟩, by cases n; rfl⟩
-      | vec | ref => contradiction
-    have numericList (vs : List Val) (h : Locals.coreCodec.Supported (vals vs)) :
-        ∃ ws : List Value, ws.map LegacyDivision.liftValue = vs := by
+theorem core_block_step_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {bt : BlockType} {body : List Instr} {stack : List Val} {rest : List Admin} {dst : Config H} :
+    Step P noHost ⟨s, f, vals stack ++ .plain (.block bt body) :: rest⟩ dst ↔
+      ∃ (saved args : List Val) (params results : List Wasm.Validation.CValType),
+        stack = saved ++ args ∧ f.module.blockType? bt = some (params, results) ∧
+        args.length = params.length ∧
+        dst = ⟨s, f, vals saved ++ .label results.length [] (vals args ++ expression body) :: rest⟩ := by
+  constructor
+  · rcases dst with ⟨s', f', code⟩
+    intro step
+    rcases Sim.Step.split_head (a := .plain (.block bt body)) rfl step with
+      ⟨outside, used, _, split, head, rfl⟩ | ⟨bad, _⟩ | ⟨bad, _⟩
+    · obtain ⟨kept, args, params, results, eq, lookup, count, target⟩ := head.block_vals_inv
+      cases target
+      exact ⟨outside ++ kept, args, params, results, by rw [split, eq, List.append_assoc],
+        lookup, count, by simp only [vals_append, List.append_assoc, List.singleton_append]⟩
+    · cases bad
+    · cases bad
+  · rintro ⟨saved, args, params, results, rfl, lookup, count, rfl⟩
+    simpa only [vals_append, List.append_assoc, List.singleton_append] using
+      Sim.Step.vals_left (Sim.Step.append_right (Step.block (P := P) (host := noHost) (s := s)
+        (body := body) lookup count) rest) saved
+
+theorem core_locals_label_exit {n : Nat} {ops : List Locals.Op} {out : List Admin}
+    (pop : LabelExit n [] (Locals.coreCodec.encode ops) out) :
+    ∃ vs, ops = Locals.values vs ∧ out = vals (vs.map LegacyDivision.liftValue) := by
+  have supported := Locals.coreCodec.supports_encode ops
+  generalize eq : Locals.coreCodec.encode ops = body at pop
+  cases pop with
+  | vals vs =>
+    have numericList (vs : List Val) (ok : Locals.coreCodec.Supported (vals vs)) :
+        ∃ values : List Value, values.map LegacyDivision.liftValue = vs := by
       induction vs with
       | nil => exact ⟨[], rfl⟩
       | cons v vs ih =>
-        obtain ⟨hv, tail⟩ := Locals.coreCodec.supports_cons.mp h
-        obtain ⟨w, rfl⟩ := numeric hv
-        obtain ⟨ws, rfl⟩ := ih tail
-        exact ⟨w :: ws, rfl⟩
+        obtain ⟨head, tail⟩ := Locals.coreCodec.supports_cons.mp ok
+        obtain ⟨values, rfl⟩ := ih tail
+        cases v with
+        | num v => exact ⟨⟨v.type, v.bits⟩ :: values, by cases v; rfl⟩
+        | vec | ref => contradiction
     rw [eq] at supported
-    obtain ⟨vs, rfl⟩ := numericList _ supported
+    obtain ⟨values, rfl⟩ := numericList vs supported
     rw [← encode_values] at eq
-    have code := congrArg Locals.coreCodec.decode eq
-    simp only [Locals.Codec.decode_encode] at code
-    have same : a = ⟨a.locals, Locals.values vs⟩ := by cases a; simp_all
-    rw [same]
-    exact ⟨.done a.locals vs, exit result a.locals vs, rfl⟩
-  | @returnCallRefLabel _ _ _ _ vs c tail eq kind =>
-    rw [codeEq, eq] at supported
-    have h := (Locals.coreCodec.supports_cons.mp
-      (Locals.coreCodec.supports_append.mp (Locals.coreCodec.supports_append.mp supported).1).2).1
-    cases read : Locals.coreCodec.read c with
-    | none => simp [read] at h
-    | some op =>
-      have emit := Locals.coreCodec.emit_read read
-      subst c
-      cases op with
+    exact ⟨values, by simpa using congrArg Locals.coreCodec.decode eq, rfl⟩
+  | returnCall kind =>
+    rw [eq] at supported
+    rename_i vs op rest
+    have read := supported op (by simp)
+    cases found : Locals.coreCodec.read op with
+    | none => simp [found] at read
+    | some op' =>
+      have emit := Locals.coreCodec.emit_read found
+      subst op
+      cases op' with
       | value v => rcases v with ⟨t, bits⟩; cases t <;> contradiction
       | _ => contradiction
   | _ =>
-    first
-    | have hf := (famOf_of_shape (ParametricStep.shape ‹_›)).2; contradiction
-    | have hf := (famOf_of_shape (NumericStep.shape ‹_›)).2; contradiction
-    | have hf := (famOf_of_shape (VectorStep.shape ‹_›)).2; contradiction
-    | have hf := (famOf_of_shape (VariableStep.shape ‹_›)).2; contradiction
-    | have hf := (famOf_of_shape (TableStep.shape ‹_›)).2; contradiction
-    | have hf := (famOf_of_shape (MemoryStep.shape ‹_›)).2; contradiction
-    | have hf := (famOf_of_shape (RefStep.shape ‹_›)).2; contradiction
-    | have hf := (famOf_of_shape (AggregateStep.shape ‹_›)).2; contradiction
-    | have impossible : (Admin.label result.toList.length [] body).IsCallRef := ‹_›
-      exact False.elim impossible
-    | rw [codeEq] at supported
-      try rw [‹body = _›] at supported
-      simp only [Locals.Codec.supports_append, Locals.Codec.supports_cons, Locals.coreCodec,
-        Locals.readInstr, Option.isSome_none, Bool.false_eq_true, and_false, false_and] at supported
+    rw [eq] at supported
+    simp [Locals.coreCodec, Locals.readInstr, throwing] at supported
 
 theorem core_readback {H : Type} {P : Profile} {s : Store H} {m : ModuleInst}
     {a : State} {b : Config H} (step : Step P noHost (coreConfig s m a) b) :
@@ -184,7 +180,14 @@ theorem core_readback {H : Type} {P : Profile} {s : Store H} {m : ModuleInst}
     refine ⟨.label result a, enter result a, ?_⟩
     simpa only [coreConfig, encode_body] using core_entry_iff.mp step
   | label result a =>
-    exact head_label (singleton_head step rfl (by intro h; cases h) (by intro h; cases h))
+    rcases Step.label_inv step with ⟨s', f', code, inside, rfl⟩ | ⟨out, pop, rfl⟩
+    · obtain ⟨next, move, same⟩ := Locals.core_step_iff.mp inside
+      exact ⟨.label result next, reduce result move,
+        congrArg (fun c : Config H => (⟨c.store, c.frame, [.label result.toList.length [] c.code]⟩ : Config H)) same⟩
+    · obtain ⟨vs, code, rfl⟩ := core_locals_label_exit pop
+      have eq : a = ⟨a.locals, Locals.values vs⟩ := by cases a; simp_all
+      rw [eq]
+      exact ⟨.done a.locals vs, exit result a.locals vs, rfl⟩
   | done ls vs => exact (not_step_vals step).elim
 
 end Silmaril.Wasm.Institution.Operational.Blocks.Proofs

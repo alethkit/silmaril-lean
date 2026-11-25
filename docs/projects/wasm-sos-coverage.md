@@ -1,6 +1,7 @@
 # Guarded Wasm SOS correspondence
 
-Each row identifies a checked domain for the native V1, Lime1, and Core relations.
+Each row identifies a checked domain and its native dialects. Rows use V1, Lime1,
+and Core unless they specify a narrower set.
 The SOS rules and their native renderings live under
 [`Silmaril.Wasm.Institution.Operational`](../../Silmaril/Wasm/Institution/Operational).
 Readback starts from a rendered source and allows any native successor or finite
@@ -12,7 +13,8 @@ allocation premises.
 | --- | --- | --- |
 | [Integer division](../../Silmaril/Wasm/Institution/Operational/LegacyDivision/Transport/Thms.lean) | Flat signed and unsigned division at each width, including a zero divisor and signed overflow traps. | Other flat numeric operators and division in general structured code. |
 | [Numeric locals](../../Silmaril/Wasm/Institution/Operational/Locals/Native/Thms.lean) | Typed flat `local.get`, `local.set`, and `local.tee` with exact local updates. | Uninitialized and nonnumeric Core local slots, globals, and arbitrary structured contexts. |
-| [Scalar blocks](../../Silmaril/Wasm/Institution/Operational/Blocks/Native/Thms.lean) and [nested branch exits](../../Silmaril/Wasm/Institution/Operational/BranchExit/Native/Thms.lean) | An isolated scalar block with flat locals and normal exit. A separate guard covers `br 1` followed by `br 0` under two already-entered block labels. | Nested source entry, `br_if`, `br_table`, loop continuations, and Lime1 indexed block parameters and multiple results. |
+| [Scalar blocks](../../Silmaril/Wasm/Institution/Operational/Blocks/Native/Thms.lean) and [nested branch exits](../../Silmaril/Wasm/Institution/Operational/BranchExit/Native/Thms.lean) | An isolated scalar block with flat locals and normal exit. A separate guard covers `br 1` followed by `br 0` under two already-entered block labels. | Nested source entry, `br_if`, `br_table`, and loop continuations. |
+| [Checked indexed blocks](../../Silmaril/Wasm/Institution/Operational/Blocks/Indexed/Native/Thms.lean) | Core and Lime1 resolve a numeric signature in the current frame module. Entry consumes exactly the typed parameter suffix. The block returns ordered results after flat local code or immediate `br 0`. An immediate function return crosses the block with the function’s separate result guard. Exact successors and finite endpoints include local updates and the saved prefix. | Ranked admission, nested block bodies, general branches, and indexed loops and conditionals. V1 has only unindexed, parameterless blocks with at most one result. |
 | [Memory32 queries](../../Silmaril/Wasm/Institution/Operational/MemoryQuery/Native/Thms.lean) and [writes](../../Silmaril/Wasm/Institution/Operational/MemoryWrite/Native/Thms.lean) | Isolated `memory.size`, full-width `i32.load`, and full-width `i32.store` at index zero and static offset zero. The bounds trap preserves the store. | Packed and floating accesses, other offsets, Lime1 bulk operations, and Core memory64 or multiple memories. |
 | [Memory32 growth](../../Silmaril/Wasm/Institution/Operational/MemoryGrow/Native/Thms.lean) | An isolated `memory.grow` at index zero. The Core spec profile agrees on aligned buffers and representable maxima. Success appends zero-filled pages and returns the old size. Failure returns all ones and preserves the store. | Oracle-controlled growth, multiple memories, and memory64. |
 | [Direct-call resolution](../../Silmaril/Wasm/Institution/Operational/CallResolution/Native/Thms.lean) and [typed callee frames](../../Silmaril/Wasm/Institution/Operational/CallFrame/Native/Thms.lean) | Individually checked resolution and resolved invocation of one allocated non-host function. Numeric locals, at most one result, explicit return, fallthrough, and trap propagation. The typed caller keeps its value prefix. | Indirect calls, host contracts and divergence, and composition with caller continuations. |
@@ -185,6 +187,17 @@ fallthrough checks.
 The graph fragment excludes indexed block types, block parameters, multiple
 block results, recursive calls, indirect and host calls, store mutation, and
 whole-module validation.
+
+The standalone indexed-block slice checks the actual frame module's type
+table. Lime1 indexes its function signatures directly. Core indexes the
+translated defined types and expands a numeric function type to the same
+parameter and result lists. The native entry inversion checks lookup and
+arity, and the executable source guard checks the ordered operand types
+and the body. See the [Core block entry rule](../../specs/spectec/src/specification/wasm-3.0/4.3-execution.instructions.spectec#L77)
+and the [Wasm 1.0 block rule](../../specs/spectec/src/specification/wasm-1.0/8-reduction.spectec#L63).
+Ranked admission still needs to carry the resolved indexed signature into
+its body guard and check that every emitted V1 source body uses the V1 syntax,
+including instructions that execution skips.
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.
 Lime1-specific multi-value and bulk-memory cases and newer Core features have

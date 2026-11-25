@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Institution.Operational.BranchExit.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.BranchExit.Thms
 public import Silmaril.Wasm.Execution.Core.Step
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
 import Silmaril.Proofs.Wasm.Institution.Operational.BranchExit.V1
 import Silmaril.Proofs.Wasm.Institution.Operational.BranchExit.Lime1
 import Silmaril.Proofs.Wasm.Institution.Operational.BranchExit.Core
@@ -54,6 +55,23 @@ theorem lime_label_br_cont_iff {H : Type} {host : HostSemantics H} {s : Store H}
         dst = ⟨s, f, values payload ++ expression cont⟩) ∨
       (0 < depth.toNat ∧ dst = ⟨s, f, values stack ++ [.source (.br (lowerLabel depth))]⟩) :=
   Proofs.Lime1.label_br_cont_iff
+
+theorem core_label_br_zero {n : Nat} {vs : List Core.Val} {rest out : List Core.Admin}
+    (pop : Core.LabelExit n [] (Core.vals vs ++ .plain (.br ⟨0⟩) :: rest) out) :
+    ∃ scratch results, vs = scratch ++ results ∧ results.length = n ∧ out = Core.vals results :=
+  Proofs.core_label_br_zero pop
+
+open Wasm.Lime1.Execution in
+theorem lime_br_vals_stuck {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
+    {depth : LabelIdx} {stack : List Value} {rest : List Admin} {dst : Config H}
+    (move : Step host ⟨s, f, values stack ++ .source (.br depth) :: rest⟩ dst) : False :=
+  Proofs.Lime1.br_vals_stuck move
+
+open Wasm.Lime1.Execution in
+theorem lime_label_br_zero {types : List Wasm.Lime1.FuncType} {n : Nat} {vs : List Value} {rest out : List Admin}
+    (pop : PureStep types [.label n [] (values vs ++ .source (.br ⟨0⟩) :: rest)] out) :
+    ∃ scratch results, vs = scratch ++ results ∧ results.length = n ∧ out = values results :=
+  Proofs.Lime1.label_br_zero pop
 
 section v1
 variable {H : Type} {host : Wasm.V1.Execution.HostSemantics H}
