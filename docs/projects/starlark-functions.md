@@ -8,8 +8,8 @@ The core dialect follows the Bazel team's specification at revision
 ## Resolved input
 
 `Silmaril.Languages.Starlark.Functions.Thms` exposes function definitions,
-calls, native expression returns, assignments and tests, sequencing,
-call-aware loops and the existing total collection suites. The current collection
+calls, native expression returns, assignments, tests and loop operands,
+sequencing and the existing total collection suites. The current collection
 suites can be lifted as single blocks, including their local loops, writes
 and returns. Lifting preserves the collection denotation exactly. This normalized input requires a
 finite declaration table. The caller supplies statically resolved names and
@@ -93,21 +93,26 @@ to ordered calls and temporary slots.
 
 ## Calls inside loops
 
-`Body.forIn` accepts a resolved list, tuple or dictionary operand and a
-call-aware body. It uses the finite snapshot, guards and outcome handling
-of the collection suite. Each iteration writes its target binding before
-running that body. A callee shares heap identities and active iterators
-with its caller, so it cannot mutate a list or dictionary being traversed,
-even through a separate alias. An inner loop releases its own guard.
-The enclosing guard survives until its loop exits, including on an early
-return or error.
+`Body.forInExpr` evaluates a resolved iterable expression once in the
+current frame. The operand may invoke a closure and mutate the collection
+it returns. A successful operand supplies the value for the snapshot and
+guard acquisition. An operand failure propagates its effects with
+no loop target write or new guard.
 
-`runChecked` checks break and continue in each declaration's own lexical
-loop context, including unreachable code. The rules for loop entry and
-iteration are part of `exec_iff_denoteBody`, which still accounts for
-the exact outcome and store. The finite list of items bounds iteration
-and the available declaration set bounds live calls.
-[Collection loops](starlark-lists.md#iteration-and-control) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/LoopChecks.lean)
+`Body.forInExpr`, the call-free `Body.forIn`, and collection suites share
+the same acquisition, finite snapshot and cleanup denotation for list,
+tuple and dictionary operands. Each iteration writes its target binding
+before running the body. A callee shares heap identities and active
+iterators with its caller, so the guard covers mutations through aliases.
+The loop restores the guard stack left by operand evaluation on every
+exit, including return and error.
+
+`runChecked` validates calls in the operand and checks break and continue
+in each declaration's own lexical loop context, including unreachable
+code. `exec_iff_denoteBody` covers the exact result or error, frame, heap
+and iterator stack. The finite item list bounds iteration and the
+available declaration set bounds live calls.
+[Native loop agreement and cleanup](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Native loop fixtures](../../Silmaril/Languages/Starlark/Functions/NativeLoopChecks.lean) · [Collection loops](starlark-lists.md#iteration-and-control)
 
 ## Direct denotation of resolved expressions
 
@@ -141,8 +146,8 @@ scratch projection when compiling the same expression.
 
 ## Native expression positions
 
-`Body.returnExpr`, `Body.assignExpr` and `Body.branchExpr` evaluate a resolved
-expression in the current frame. A successful return operand produces the
+`Body.returnExpr`, `Body.assignExpr`, `Body.branchExpr` and `Body.forInExpr`
+evaluate a resolved expression in the current frame. A successful return operand produces the
 return signal. Assignment writes its destination with the existing binding
 semantics after the right-hand side succeeds. A successful test is converted
 to truth and selects one body in the resulting state. An operand or truth
@@ -167,8 +172,8 @@ the exact result or error and final frame, heap and iterator stack. The
 expression-position theorems in the denotation header expose that agreement
 without the compiler's scratch projection.
 
-Loop iterables and parameter defaults still use call-free collection
-expressions. Module commands still use the separate call-free atomic and
+Parameter defaults still use call-free collection expressions. Module
+commands still use the separate call-free atomic and
 destination-based call forms. Collection displays and subscripts use
 call-free atoms as well. The coverage guide records the remaining integration
 obligations.
@@ -283,6 +288,7 @@ lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
   +Silmaril.Languages.Starlark.Functions.Arguments.Checks \
   +Silmaril.Languages.Starlark.Functions.NativeBodyChecks \
   +Silmaril.Languages.Starlark.Functions.NativeReturnChecks \
+  +Silmaril.Languages.Starlark.Functions.NativeLoopChecks \
   +Silmaril.Languages.Starlark.Functions.LoopChecks \
   +Silmaril.Languages.Starlark.Functions.Lowering.Checks \
   +Silmaril.Languages.Starlark.Functions.Lowering.Denotation.Checks \

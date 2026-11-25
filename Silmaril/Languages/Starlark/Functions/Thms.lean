@@ -17,7 +17,7 @@ theorem denote_total (program : Program) (available : List DeclarationId) (suite
   rw [denoteBody]
 
 /-- Exact adequacy for the strict core, including native expression positions,
-errors and the post-call store. -/
+iterator cleanup, errors and the post-call store. -/
 theorem exec_iff_denoteBody (program : Program) (available : List DeclarationId) (body : Body)
     (state : State) (out : Outcome Flow) :
     Exec program available state body out ↔ denoteBody program available body state = out :=

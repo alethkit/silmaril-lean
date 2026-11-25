@@ -33,6 +33,11 @@ theorem iterators_denoteSuite {depth : Nat} (code : Suite depth) (state : State)
     (finishState (denoteSuite code state)).iterators = state.iterators :=
   Proofs.Languages.Starlark.Lists.Iteration.iterators_denoteSuite code state
 
+/-- A loop keeps the iterator stack left by its operand, including on abrupt exits. -/
+theorem iterators_denoteForIn (target : Binding) (body : Meaning Flow) (operand : Outcome Value) :
+    (finishState (denoteForIn target body operand)).iterators = (finishState operand).iterators :=
+  Proofs.Languages.Starlark.Lists.Iteration.iterators_denoteForIn target body operand
+
 /-- The mutable-cell guard rejects edits through any alias of an actively iterated cell. -/
 theorem editCell_iterating (state : State) (address : Address)
     (edit : Contents → Except Error Contents) {cell : Cell}
