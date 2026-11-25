@@ -5,6 +5,7 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Cas
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.DecisionTree.Reorder.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.SumCall.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.RawArms.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -1000,6 +1001,81 @@ example : ¬ Eqv Γ outputSort strict (mixedProgram true).source (mixedProgram f
     slots_typed strict (mixedProgram true) (mixedProgram false) (mixedTyped true) (mixedTyped false)).mpr he)
 
 end ResponseDependentRequest
+
+section RawSumResponseArms
+
+
+abbrev payloadRead : Response.Flatten.Program sig (extendSorts true sorts) false :=
+  .request Prim.readOther (fun _ => .var 0)
+abbrev argumentRead : Response.Flatten.Program sig (extendSorts false (extendSorts true sorts)) true :=
+  .request Prim.readAlt (fun _ => .var 0)
+abbrev nestedRaw : Response.Mixed.RawArms.Program sig sumSig sorts true :=
+  ⟨(), outerArgs, .request Prim.read (fun _ => .var 0), .unary Prim.readAlt rfl payloadRead⟩
+abbrev sequencedRaw : Response.Mixed.RawArms.Program sig sumSig sorts true :=
+  ⟨(), outerArgs, .request Prim.read (fun _ => .var 0), .let1 payloadRead argumentRead⟩
+
+private theorem nestedRaw_typed : Response.Mixed.RawArms.Program.WellTyped sig sumSig strict nestedRaw :=
+  ⟨fun _ => trivial, le_rfl, ⟨le_rfl, fun _ => trivial⟩, le_rfl, le_rfl, fun _ => trivial⟩
+private theorem sequencedRaw_typed : Response.Mixed.RawArms.Program.WellTyped sig sumSig strict sequencedRaw :=
+  ⟨fun _ => trivial, le_rfl, ⟨le_rfl, fun _ => trivial⟩,
+    ⟨le_rfl, fun _ => trivial⟩, le_rfl, fun _ => trivial⟩
+
+private theorem sameArmCompile : Response.Flatten.compile (ε := Fx) sig nestedRaw.right =
+    Response.Flatten.compile (ε := Fx) sig sequencedRaw.right := by
+  have hArgs :
+      Response.Flatten.unaryArgs sig (f := Prim.readAlt) rfl
+        (Tree.var (S := sig) (sorts := extendSorts false (extendSorts true sorts)) 0) =
+      (fun _ => Tree.var (S := sig) (sorts := extendSorts false (extendSorts true sorts)) 0) := by
+    funext i
+    rw [Fin.eq_zero i]
+    rfl
+  simp only [nestedRaw, sequencedRaw, Response.Flatten.compile, Response.Flatten.unaryTail, hArgs]
+
+private theorem sameCompile : Response.Mixed.RawArms.Program.compile (ε := Fx) sig sumSig nestedRaw =
+    Response.Mixed.RawArms.Program.compile (ε := Fx) sig sumSig sequencedRaw := by
+  exact congrArg (fun arm => Response.Mixed.Program.sum (S := sig) (T := sumSig) () outerArgs
+    (Response.Mixed.ofSequence sig sumSig (Response.Flatten.compile (ε := Fx) sig nestedRaw.left))
+    (Response.Mixed.ofSequence sig sumSig arm)) sameArmCompile
+
+/-- The raw lowering passes the selected right payload to readOther, nested
+inside the argument of readAlt. -/
+example : nestedRaw.source.toLetIter Γ.length = some
+    (.case (.op (.inr ()) (.pair (.bv 1) .unit))
+      (.op (.inl Prim.read) (.pair (.bv 0) .unit))
+      (.op (.inl Prim.readAlt) (.pair (.op (.inl Prim.readOther) (.pair (.bv 0) .unit)) .unit))) :=
+  rfl
+
+/-- The inner read uses the payload at slot zero. Its response becomes
+the argument of the second request. -/
+example : Response.Flatten.compile (ε := Fx) sig nestedRaw.right = rightResponseArm true := by
+  rw [sameArmCompile]
+  simp only [sequencedRaw, Response.Flatten.compile, Response.Flatten.emit,
+    ite_eq_right read_other_not_pure, ite_eq_right read_alt_not_pure,
+    Response.Sequence.bind, Response.Sequence.subst]
+  rfl
+
+/-- The explicit let and the nested argument are equal at the strict bound.
+Both native endpoints keep that bound, and the raw endpoint theorem reflects
+their equality. -/
+example : ∃ t s : Tm Empty (Prim ⊕ Unit) Γ.length,
+    nestedRaw.source.toLetIter Γ.length = some t ∧ sequencedRaw.source.toLetIter Γ.length = some s ∧
+    HasTypeEffect Γ₀ Γ.toBoundCtx t outputSort strict ∧ HasTypeEffect Γ₀ Γ.toBoundCtx s outputSort strict ∧
+    AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx t s outputSort ∧
+    Eqv Γ outputSort strict nestedRaw.source sequencedRaw.source := by
+  let h := Response.Mixed.RawArms.source_wf sig sumSig (c := true) ctx_pure slots_typed strict
+  obtain ⟨t, ht, _⟩ := (h nestedRaw nestedRaw_typed).toLetIter
+  obtain ⟨s, hs, _⟩ := (h sequencedRaw sequencedRaw_typed).toLetIter
+  obtain ⟨hpt, _, hp⟩ := Response.Mixed.RawArms.compile_native sig sumSig ctx_pure slots_typed strict
+    nestedRaw nestedRaw_typed ht
+  obtain ⟨hqt, _, hq⟩ := Response.Mixed.RawArms.compile_native sig sumSig ctx_pure slots_typed strict
+    sequencedRaw sequencedRaw_typed hs
+  have hq' := sameCompile.symm ▸ hq
+  have hn := hp.trans hq'.symm
+  exact ⟨t, s, ht, hs, hpt, hqt, hn,
+    (Response.Mixed.RawArms.endpoint_reflection sig sumSig outerVisible ctx_pure slots_typed strict
+      nestedRaw sequencedRaw nestedRaw_typed sequencedRaw_typed ht hs).mp hn⟩
+
+end RawSumResponseArms
 
 end EffectfulSumScrutinee
 
