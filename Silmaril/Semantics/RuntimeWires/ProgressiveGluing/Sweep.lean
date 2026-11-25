@@ -31,44 +31,44 @@ variable (m : lower.VerticalMatch upper)
 
 theorem levels_glue :
     m.glue.levels = lower.levels.map (halfHeight 0) ++ upper.levels.map (halfHeight 1) :=
-  Proofs.ProgressiveGluing.levels_glue m
+  (Proofs.ProgressiveGluing.matchedStack m).levels_glue
 
 noncomputable def lowerSweepCut (i : Fin (lower.levelCount + 1)) :
     Fin (m.glue.levelCount + 1) :=
-  Proofs.ProgressiveGluing.lowerCut m i
+  (Proofs.ProgressiveGluing.matchedStack m).lowerCut i
 
 noncomputable def upperSweepCut (i : Fin (upper.levelCount + 1)) :
     Fin (m.glue.levelCount + 1) :=
-  Proofs.ProgressiveGluing.upperCut m i
+  (Proofs.ProgressiveGluing.matchedStack m).upperCut i
 
 /-- The gap index between the lower and upper level sequences. -/
 noncomputable def spliceSweepCut : Fin (m.glue.levelCount + 1) :=
   m.lowerSweepCut (Fin.last lower.levelCount)
 
 theorem upperSweepCut_zero : m.upperSweepCut 0 = m.spliceSweepCut :=
-  Proofs.ProgressiveGluing.upper_join m
+  (Proofs.ProgressiveGluing.matchedStack m).upper_join
 
 theorem spliceSweepCut_in_gap : (1 / 2 : ℝ) ∈ m.glue.levelGap m.spliceSweepCut :=
-  Proofs.ProgressiveGluing.join_gap m
+  (Proofs.ProgressiveGluing.matchedStack m).join_gap
 
 /-- Rescale both cut families, retaining the geometric join in place of the
 last lower and first upper cut. -/
 noncomputable def spliceSweepCuts (p : lower.LayerCuts) (q : upper.LayerCuts) : m.glue.LayerCuts :=
-  Proofs.ProgressiveGluing.spliceCuts m p q
+  (Proofs.ProgressiveGluing.matchedStack m).spliceCuts p q
 
 theorem spliceSweepCuts_join (p : lower.LayerCuts) (q : upper.LayerCuts) :
     (m.spliceSweepCuts p q).height m.spliceSweepCut = 1 / 2 :=
-  Proofs.ProgressiveGluing.spliceCuts_join m p q
+  (Proofs.ProgressiveGluing.matchedStack m).spliceCuts_join p q
 
 theorem spliceSweepCuts_lower (p : lower.LayerCuts) (q : upper.LayerCuts)
     (i : Fin (lower.levelCount + 1)) (before : i.val < lower.levelCount) :
     (m.spliceSweepCuts p q).height (m.lowerSweepCut i) = halfHeight 0 (p.height i) :=
-  Proofs.ProgressiveGluing.spliceCuts_lower m p q i before
+  (Proofs.ProgressiveGluing.matchedStack m).spliceCuts_lower p q i before
 
 theorem spliceSweepCuts_upper (p : lower.LayerCuts) (q : upper.LayerCuts)
     (i : Fin (upper.levelCount + 1)) (after : 0 < i.val) :
     (m.spliceSweepCuts p q).height (m.upperSweepCut i) = halfHeight 1 (q.height i) :=
-  Proofs.ProgressiveGluing.spliceCuts_upper m p q i after
+  (Proofs.ProgressiveGluing.matchedStack m).spliceCuts_upper p q i after
 
 /-- The lower event's ordered slots transport with the lower vertex IDs. -/
 theorem sweep_slots_lower {h a b c d : ℝ} (below : h < 1)
