@@ -22,6 +22,7 @@ inductive AssertionArgument where
   | empty
   | text (message : String)
   | integerPair (left right : Int)
+  | booleanPair (left right : Bool)
   deriving DecidableEq, Repr
 
 inductive Raised where
@@ -45,12 +46,15 @@ instance (expected actual : ExceptionClass) : Decidable (expected.catches actual
 
 inductive Helper where
   | assertEqual
+  | assertIs
   | assertIsNot
   | assertRaises (onReturn : AssertionArgument)
   deriving DecidableEq, Repr
 
 inductive Builtin where
   | int
+  | callable
+  | len
   deriving DecidableEq, Repr
 
 inductive Value where
@@ -58,8 +62,8 @@ inductive Value where
   | bool (value : Bool)
   | none
   | exceptionClass (kind : ExceptionClass)
-  | helper (callable : Helper)
-  | builtin (callable : Builtin)
+  | helper (descriptor : Helper)
+  | builtin (descriptor : Builtin)
   | function (closure : Core.Closure.Function)
   deriving DecidableEq, Repr
 
@@ -123,11 +127,32 @@ inductive Delivers (expectation : Expectation) : Result → Result → Prop wher
       Delivers expectation (.error (.raised error)) (.error (.raised error))
   | unsupported : Delivers expectation (.error .unsupported) (.error .unsupported)
 
+/-- Exact Booleans refer to the two canonical Python singleton objects. -/
+inductive BoolIdentity where
+  | falseObject
+  | trueObject
+  deriving DecidableEq
+
+def BoolIdentity.ofBool : Bool → BoolIdentity
+  | false => .falseObject
+  | true => .trueObject
+
+/-- Only the stock `len` object and exact integers are probed. -/
+inductive CallableProbe where
+  | len
+  | integer
+
+def CallableProbe.result : CallableProbe → Bool
+  | .len => true
+  | .integer => false
+
 /-- Decoding identifies the admitted typed call shapes. In particular,
 calling an exception class would construct an object outside this profile. -/
 inductive Request (arity : Nat) where
   | compare (left right : Int)
   | intFromBool (value : Bool)
+  | callable (probe : CallableProbe)
+  | boolIdentity (left right : Bool)
   | distinctIntBool
   | expect (expectation : Expectation) (callback : Value) (arguments : List Value)
       (shorter : arguments.length < arity)
@@ -138,6 +163,9 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   match callee, arguments with
   | .helper .assertEqual, [.int left, .int right] => .compare left right
   | .builtin .int, [.bool value] => .intFromBool value
+  | .builtin .callable, [.builtin .len] => .callable .len
+  | .builtin .callable, [.int _] => .callable .integer
+  | .helper .assertIs, [.bool left, .bool right] => .boolIdentity left right
   | .helper .assertIsNot, [.int _, .bool _] | .helper .assertIsNot, [.bool _, .int _] => .distinctIntBool
   | .helper (.assertRaises onReturn), .exceptionClass expected :: callback :: arguments =>
     .expect ⟨expected, onReturn⟩ callback arguments (by simp only [List.length_cons]; omega)
@@ -151,6 +179,10 @@ def invoke (callee : Value) (arguments : List Value) : Result :=
   | .compare left right =>
     if left = right then .ok .none else .error (.raised (.assertionError (.integerPair left right)))
   | .intFromBool value => .ok (.int (Int.ofNat value.toNat))
+  | .callable probe => .ok (.bool probe.result)
+  | .boolIdentity left right =>
+    if BoolIdentity.ofBool left = BoolIdentity.ofBool right then .ok .none
+    else .error (.raised (.assertionError (.booleanPair left right)))
   | .distinctIntBool => .ok .none
   | .expect expectation callback args _shorter =>
     expectation.deliver (invoke callback args)
@@ -165,6 +197,15 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
       Executes (arity := arity) (.compare left right) (.error (.raised (.assertionError (.integerPair left right))))
   | intFromBool {arity : Nat} (value : Bool) :
       Executes (arity := arity) (.intFromBool value) (.ok (.int (Int.ofNat value.toNat)))
+  | callable {arity : Nat} (probe : CallableProbe) :
+      Executes (arity := arity) (.callable probe) (.ok (.bool probe.result))
+  | sameBool {arity : Nat} (left right : Bool)
+      (same : BoolIdentity.ofBool left = BoolIdentity.ofBool right) :
+      Executes (arity := arity) (.boolIdentity left right) (.ok .none)
+  | distinctBool {arity : Nat} (left right : Bool)
+      (different : BoolIdentity.ofBool left ≠ BoolIdentity.ofBool right) :
+      Executes (arity := arity) (.boolIdentity left right)
+        (.error (.raised (.assertionError (.booleanPair left right))))
   | distinctIntBool {arity : Nat} : Executes (arity := arity) .distinctIntBool (.ok .none)
   | expected {arity : Nat} {expectation : Expectation} {callback : Value} {arguments : List Value}
       {shorter : arguments.length < arity} {inner outer : Result} :

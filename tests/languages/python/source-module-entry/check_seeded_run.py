@@ -41,12 +41,15 @@ private def initial (profile : String) : Namespace :=
   | "legacy_preamble" => Compile.ModuleEntry.Functions.Run.Seeded.legacySeed .preamble
   | "legacy_bool_int_builtin" => Compile.ModuleEntry.Functions.Run.Seeded.legacyBoolIntSeed .builtin
   | "legacy_bool_int_preamble" => Compile.ModuleEntry.Functions.Run.Seeded.legacyBoolIntSeed .preamble
+  | "legacy_bool_callable_builtin" => Compile.ModuleEntry.Functions.Run.Seeded.legacyBoolCallableSeed .builtin
+  | "legacy_bool_callable_preamble" => Compile.ModuleEntry.Functions.Run.Seeded.legacyBoolCallableSeed .preamble
   | _ => .empty
 
 private def detail : AssertionArgument → String
   | .empty => "empty"
   | .text text => "text:" ++ text
   | .integerPair left right => s!"pair:{left}:{right}"
+  | .booleanPair left right => s!"bool-pair:{left}:{right}"
 
 private def raised : Raised → String
   | .assertionError argument => "AssertionError:" ++ detail argument
@@ -165,6 +168,7 @@ AUDIT = """
 
 UPSTREAM_REVISION = "b7ff99372dd24845cf84e58c96b877f15764b276"
 BOOL_INT_PROFILES = ("legacy_bool_int_builtin", "legacy_bool_int_preamble")
+BOOL_CALLABLE_PROFILES = ("legacy_bool_callable_builtin", "legacy_bool_callable_preamble")
 UPSTREAM_CASE = "tests/python/programs/original/lambda-py/python-reference/exceptions/assertion-error.py"
 UPSTREAM_SHA256 = "822abc163f457af8784c41c08cef152ecbb1266bb9704197292944386bc3dd79"
 UPSTREAM_BOOL_DIR = "tests/python/programs/original/lambda-py/python-reference/bool"
@@ -353,6 +357,37 @@ after = 9
     assert int
 ___assertRaises(AssertionError, callback)
 """, ["unsupported", "absent", "absent"]),
+    ("callable_len_alias", "legacy_bool_callable_builtin", """saved_len = len
+len = 7
+result = callable(saved_len)
+___assertIs(result, True)
+___assertIs(callable(len), False)
+after = 9
+""", ["normal", "bool:True", "int:9"]),
+    ("callable_shadow", "legacy_bool_callable_preamble", """result = 5
+callable = 7
+result = callable(len)
+after = 9
+""", ["TypeError", "int:5", "absent"]),
+    ("assert_is_shadow", "legacy_bool_callable_builtin", """result = 5
+___assertIs = 7
+___assertIs(callable(len), True)
+after = 9
+""", ["TypeError", "int:5", "absent"]),
+    ("assert_is_argument_order", "legacy_bool_callable_preamble", """result = 5
+___assertIs(callable(len), missing)
+after = 9
+""", ["NameError:missing", "int:5", "absent"]),
+    ("assert_is_distinct", "legacy_bool_callable_builtin", """result = 5
+___assertIs(callable(1), True)
+after = 9
+""", ["AssertionError:bool-pair:false:true", "int:5", "absent"]),
+    ("assert_is_mixed", "legacy_bool_callable_preamble", "result = 5\n___assertIs(True, 1)\nafter = 9\n",
+     ["unsupported", "int:5", "absent"]),
+    ("callable_bool", "legacy_bool_callable_builtin", "result = 5\nresult = callable(True)\nafter = 9\n",
+     ["unsupported", "int:5", "absent"]),
+    ("len_direct", "legacy_bool_callable_preamble", "result = 5\nresult = len(1)\nafter = 9\n",
+     ["unsupported", "int:5", "absent"]),
 )
 
 NESTED_CALL_NAMES = {
@@ -364,6 +399,21 @@ NESTED_CALL_NAMES = {
     "nested_unsupported": ["AssertionError"],
     "bool_int_argument_order": ["int"],
     "bool_int_defined_assertion": ["int", "___assertEqual"],
+    "callable_len_alias": ["callable", "___assertIs", "callable", "___assertIs"],
+    "assert_is_shadow": ["callable", "___assertIs"],
+    "assert_is_argument_order": ["callable"],
+    "assert_is_distinct": ["callable", "___assertIs"],
+}
+
+CALLABLE_FIXTURE_BINDINGS = {
+    "callable_len_alias": '[("after", .int 9), ("result", .bool true), ("len", .int 7), ("saved_len", .builtin .len)]',
+    "callable_shadow": '[("callable", .int 7), ("result", .int 5)]',
+    "assert_is_shadow": '[("___assertIs", .int 7), ("result", .int 5)]',
+    "assert_is_argument_order": '[("result", .int 5)]',
+    "assert_is_distinct": '[("result", .int 5)]',
+    "assert_is_mixed": '[("result", .int 5)]',
+    "callable_bool": '[("result", .int 5)]',
+    "len_direct": '[("result", .int 5)]',
 }
 
 
@@ -373,6 +423,8 @@ def assertion(error):
     (argument,) = error.args
     if isinstance(argument, tuple):
         left, right = argument
+        if type(left) is bool and type(right) is bool:
+            return f"AssertionError:bool-pair:{str(left).lower()}:{str(right).lower()}"
         return f"AssertionError:pair:{left}:{right}"
     return "AssertionError:text:" + argument
 
@@ -390,6 +442,8 @@ def cpython(source, profile, *, expected_globals=None, expected_functions=()):
     profile = profile.removeprefix("legacy_")
     bool_int = profile.startswith("bool_int_")
     profile = profile.removeprefix("bool_int_")
+    bool_callable = profile.startswith("bool_callable_")
+    profile = profile.removeprefix("bool_callable_")
     caught = []
 
     def compare_ints(left, right):
@@ -398,6 +452,9 @@ def cpython(source, profile, *, expected_globals=None, expected_functions=()):
 
     def assert_is_not(left, right):
         assert left is not right, (left, right)
+
+    def assert_is(left, right):
+        assert left is right, (left, right)
 
     def require_error(expected, callback, *arguments):
         try:
@@ -418,6 +475,9 @@ def cpython(source, profile, *, expected_globals=None, expected_functions=()):
     if bool_int:
         classes["int"] = int
         helpers["___assertIsNot"] = assert_is_not
+    if bool_callable:
+        classes.update(callable=callable, len=len)
+        helpers["___assertIs"] = assert_is
     if profile == "builtin":
         namespace = {"__builtins__": classes | helpers}
     elif profile == "preamble":
@@ -501,8 +561,30 @@ def replay_upstream_nested(checkout, shared, source_path, lean_path):
             else:
                 guards.append(f"#guard callNames pythonSource {name} == some []")
             projection[profile] = completion
+        callable_projection = {}
+        for profile in BOOL_CALLABLE_PROFILES:
+            completion, calls = {
+                "bool-callable.py": ("normal", ["callable", "___assertIs", "callable", "___assertIs"]),
+                "bool-int.py": ("NameError:int", ["int"]),
+                "bool-isinstance.py": ("NameError:isinstance", ["isinstance"]),
+            }[filename]
+            expected = [completion, "absent", "absent"]
+            assert cpython(source, profile, expected_globals={}) == expected, (path, profile)
+            name = json.dumps(profile)
+            guards.extend((
+                guard_observation(profile, expected),
+                f"#guard exactGlobals pythonSource {name}",
+                f"#guard callNames pythonSource {name} == some {json.dumps(calls)}",
+            ))
+            if completion == "normal":
+                guards.append(
+                    f'#guard callValues pythonSource {name} = some [("callable", .bool true), '
+                    '("___assertIs", .none), ("callable", .bool false), ("___assertIs", .none)]'
+                )
+            callable_projection[profile] = {"completion": completion, "calls": calls, "user_bindings": {}}
         shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
-        rows.append({"path": path, "sha256": sha256, "completions": completions, "bool_int_projection": projection})
+        rows.append({"path": path, "sha256": sha256, "completions": completions,
+                     "bool_int_projection": projection, "bool_callable_projection": callable_projection})
     return rows
 
 
@@ -521,7 +603,7 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
         guards = [f'#guard ordinaryOutcome pythonSource == some ("normal", {x})']
         if path == UPSTREAM_ASSERT_NOT_CASE:
             guards.append("#guard equalityBeforeAssertNot pythonSource")
-        for profile in ("empty", "legacy_builtin", "legacy_preamble", *BOOL_INT_PROFILES):
+        for profile in ("empty", "legacy_builtin", "legacy_preamble", *BOOL_INT_PROFILES, *BOOL_CALLABLE_PROFILES):
             expected = ["normal", "absent", "absent"]
             assert cpython(source, profile, expected_globals=bindings) == expected, (path, profile)
             name = json.dumps(profile)
@@ -540,7 +622,7 @@ def replay_upstream_publication(checkout, shared, source_path, lean_path):
     shared["emit"](source_path, lean_path, source)
     guards = ['#guard ordinaryOutcome pythonSource == some ("NameError:___assertRaises", none)']
     observations = {}
-    for profile in ("empty", "legacy_builtin", "legacy_preamble", *BOOL_INT_PROFILES):
+    for profile in ("empty", "legacy_builtin", "legacy_preamble", *BOOL_INT_PROFILES, *BOOL_CALLABLE_PROFILES):
         empty = profile == "empty"
         cpython_expected = (["NameError:___assertRaises", "absent", "absent"] if empty
                              else ["normal", "absent", "absent", "AssertionError:empty"])
@@ -570,7 +652,7 @@ def replay_upstream(checkout, shared, source_path, lean_path):
 #guard exactGlobals pythonSource "empty"
 """
     assert cpython(source, "empty", expected_globals={}) == ["NameError:___assertRaises", "absent", "absent"]
-    for profile in ("legacy_builtin", "legacy_preamble", *BOOL_INT_PROFILES):
+    for profile in ("legacy_builtin", "legacy_preamble", *BOOL_INT_PROFILES, *BOOL_CALLABLE_PROFILES):
         expected = ["normal", "absent", "absent", "AssertionError:pair:1:2"]
         assert cpython(source, profile, expected_globals={}) == expected, profile
         name = json.dumps(profile)
@@ -609,6 +691,8 @@ if __name__ == "__main__":
             check = guard_observation(profile, expected)
             if name in NESTED_CALL_NAMES:
                 check += f"\n#guard callNames pythonSource {json.dumps(profile)} == some {json.dumps(NESTED_CALL_NAMES[name])}"
+            if name in CALLABLE_FIXTURE_BINDINGS:
+                check += f"\n#guard exactGlobals pythonSource {json.dumps(profile)} {CALLABLE_FIXTURE_BINDINGS[name]}"
             if name == "empty":
                 check += "\n" + AUDIT
             shared["check_lean"](lean_path, LEAN + check, extra_imports=IMPORTS)

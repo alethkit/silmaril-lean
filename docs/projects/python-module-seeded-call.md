@@ -36,6 +36,18 @@ identities, so the helper returns `None`. Other conversions, signatures,
 and identity operand pairs remain unsupported. `invoke_int_bool` and
 `invoke_assertIsNot_int_bool` characterize the two admitted calls.
 
+The independent Boolean-callable projection supplies the stock
+`callable` and `len` descriptors and the Lambda-Py `___assertIs`
+helper. Its one-argument `callable` probe returns `True` for the
+stock `len` object and `False` for exact integers. A module alias of
+`len` retains that descriptor after the name is rebound. Direct
+invocation of `len` and other probe operands are unsupported.
+`___assertIs` compares only the two canonical Boolean singleton
+identities. A match returns `None`. A mismatch raises `AssertionError`
+with the ordered Boolean pair. Other identity operands are unsupported.
+`invoke_callable_len`, `invoke_callable_int`, and `invoke_assertIs_bool`
+state the exact results.
+
 The call model covers the closed helper descriptors and known non-callable
 values in this value domain. Object equality, constructing an exception
 instance by calling its class, arbitrary function callbacks, generalized
