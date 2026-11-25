@@ -120,6 +120,7 @@ inductive Error where
   | indexType
   | indexRange (index : Int) (length : Nat)
   | assignmentTarget
+  | integerAddType (left right : Value)
   | appendTarget
   | frozen (address : Address)
   | activeIteration (address : Address)

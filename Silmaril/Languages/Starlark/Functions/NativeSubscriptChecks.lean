@@ -154,4 +154,94 @@ private def dictCell (entries : List (String × Int)) (frozen : Bool := false) :
     | _ => false
   | _ => false
 
+private def addIndex (subscript rhs : Lowering.Expr) : Body :=
+  .addIndexExpr (note 1 (.atom (read alias))) subscript rhs
+
+-- The old value comes from the one-element list. Write-back uses the saved raw -1
+-- against the two-element list left by the RHS, so it replaces the new last element.
+#guard
+  let grow := Lowering.Expr.callPos (.atom (read (global "grow"))) []
+  match execute originalList (addIndex (note 2 (integer (-1))) grow) with
+  | .ok (.ok .next state) => observed state [1, 2, 3] && decide (cell state = listCell [7, 6])
+  | _ => false
+
+#guard
+  let code := addIndex (note 2 (string "b")) (note 3 (integer 9))
+  match execute originalDict code with
+  | .ok (.ok .next state) => observed state [1, 2, 3] && decide (cell state = dictCell [("b", 16), ("a", 8)])
+  | _ => false
+
+#guard
+  let failAt := fun n => Lowering.Expr.callPos (.atom (.builtin .len)) [note n (integer 9)]
+  let subscript := note 2 (integer 0)
+  let rhs := note 3 (integer 9)
+  let failed := fun code trace => match execute originalList (followedByEffect code) with
+    | .ok (.error (.builtinType .len (.scalar (.int 9))) state) =>
+      observed state trace && decide (cell state = listCell [7])
+    | _ => false
+  failed (.addIndexExpr (failAt 1) subscript rhs) [1] &&
+    failed (addIndex (failAt 2) rhs) [1, 2] && failed (addIndex subscript (failAt 3)) [1, 2, 3]
+
+-- The target read fails before RHS effects or a write guard check.
+#guard
+  let check := fun subscript => followedByEffect (addIndex (note 2 subscript) (note 3 (integer 9)))
+  match execute originalList (check (integer 2)), execute originalDict (check (string "absent")) frozen,
+      execute originalDict (check (.list [])) frozen with
+  | .ok (.error (.indexRange 2 1) first), .ok (.error (.missingKey (.string "absent")) second),
+    .ok (.error (.unhashableKey (.list _)) third) =>
+    observed first [1, 2] && observed second [1, 2] && observed third [1, 2] &&
+      decide (cell first = listCell [7] ∧ cell second = dictCell [("b", 7), ("a", 8)] true ∧
+        cell third = dictCell [("b", 7), ("a", 8)] true)
+  | _, _, _ => false
+
+-- The integer operator fails after the RHS but before the frozen write check.
+#guard
+  let unsupported := addIndex (note 2 (integer 0)) (note 3 (.atom (.scalar (.bool true))))
+  match execute originalList (followedByEffect unsupported) frozen with
+  | .ok (.error (.integerAddType (.scalar (.int 7)) (.scalar (.bool true))) state) =>
+    observed state [1, 2, 3] && decide (cell state = listCell [7] true)
+  | _ => false
+
+#guard
+  let listWrite := followedByEffect (addIndex (note 2 (integer 0)) (note 3 (integer 9)))
+  let dictWrite := followedByEffect (addIndex (note 2 (string "b")) (note 3 (integer 9)))
+  let iterate := fun write => Body.forInExpr (localName "item") (.atom (read target)) write
+  match execute originalList listWrite frozen, execute originalDict (iterate dictWrite) with
+  | .ok (.error (.frozen list) first), .ok (.error (.activeIteration dict) second) =>
+    observed first [1, 2, 3] && observed second [1, 2, 3] &&
+      decide (address first = some list ∧ address second = some dict ∧ cell first = listCell [7] true ∧
+        cell second = dictCell [("b", 7), ("a", 8)])
+  | _, _ => false
+
+-- The RHS changes both the saved receiver's contents and the receiver selection.
+-- Write-back keeps the old integer and original object. The final command runs at module scope.
+#guard
+  let commands : List Modules.Resolve.Command := [
+    .assign "first" starlark%[[7]], .assign "second" starlark%[[50]], .assign "selected" starlark%[[first]],
+    .define "choose" {} (.ret (some starlark%[selected[0]])),
+    .define "change" {} (.seq (.setIndex starlark%[selected] starlark%[0] starlark%[second])
+      (.seq (.setIndex starlark%[first] starlark%[0] starlark%[100]) (.ret (some starlark%[2])))),
+    .define "update" {} (.addIndex starlark%[choose()] starlark%[0] starlark%[change()]),
+    .eval starlark%[update()], .addIndex starlark%[first] starlark%[0] starlark%[1]]
+  match Modules.Resolve.runModule commands (fun _ => none) {} with
+  | .ok (.ok published state) =>
+    match published.exports.lookup "first", published.exports.lookup "second", published.exports.lookup "selected" with
+    | some (.list first), some (.list second), some (.list selected) =>
+      decide (state.heap[first]? = listCell [10] true ∧ state.heap[second]? = listCell [50] true ∧
+        state.heap[selected]? = some ⟨.list [.list second], true⟩)
+    | _, _, _ => false
+  | _ => false
+
+-- A failed RHS keeps its own write through the alias and skips augmented write-back.
+#guard
+  let commands : List Modules.Resolve.Command := [
+    .assign "xs" starlark%[[7]], .assign "alias" starlark%[xs],
+    .define "failRhs" {} (.seq (.setIndex starlark%[alias] starlark%[0] starlark%[100])
+      (.ret (some starlark%[len(9)]))),
+    .addIndex starlark%[xs] starlark%[0] starlark%[failRhs()]]
+  match Modules.Resolve.runModule commands (fun _ => none) {} with
+  | .ok (.error (.runtime (.builtinType .len (.scalar (.int 9)))) state) =>
+    state.heap.any fun entry => decide (some entry = listCell [100])
+  | _ => false
+
 end Silmaril.Languages.Starlark.Functions

@@ -26,6 +26,7 @@ inductive Statement where
   | pass
   | assign (name : String) (value : Lowering.Resolve.SourceExpr)
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
+  | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
   | ret (value : Option Lowering.Resolve.SourceExpr)
   | seq (first rest : Statement)
@@ -39,6 +40,7 @@ inductive Statement where
 inductive Command where
   | assign (name : String) (value : Lowering.Resolve.SourceExpr)
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
+  | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
   | define (name : String) (signature : SourceSignature) (body : Statement)
   | load (label : String) (imports : List Modules.Import)
@@ -56,7 +58,7 @@ structure ResolvedModule where
 def globalNames (commands : List Command) : List String :=
   commands.filterMap fun
     | .assign name _ | .define name .. => some name
-    | .setIndex .. | .eval _ | .load .. => none
+    | .setIndex .. | .addIndex .. | .eval _ | .load .. => none
 
 def fileNames (commands : List Command) : List String :=
   commands.flatMap fun
@@ -67,7 +69,7 @@ private def Statement.localNames : Statement → List String
   | .assign name _ | .define name .. => [name]
   | .seq first rest | .branch _ first rest => first.localNames ++ rest.localNames
   | .forIn target _ body => target :: body.localNames
-  | .pass | .setIndex .. | .eval _ | .ret _ | .breakLoop | .continueLoop => []
+  | .pass | .setIndex .. | .addIndex .. | .eval _ | .ret _ | .breakLoop | .continueLoop => []
 
 private abbrev Build := StateT Program (Except Error)
 
@@ -75,13 +77,25 @@ private def readExpr (context : Context) (expression : Lowering.Resolve.SourceEx
     Build (Lowering.Expr × List Binding) :=
   monadLift ((resolveTracked context expression).mapError Error.expression)
 
+private def resolveSubscript (context : Context) (receiver subscript : Lowering.Resolve.SourceExpr) :
+    Build (Lowering.Expr × Lowering.Expr × List Binding) := do
+  let (receiver, receiverReads) ← readExpr context receiver
+  let (subscript, subscriptReads) ← readExpr context subscript
+  return (receiver, subscript, receiverReads ++ subscriptReads)
+
 private def resolveSetIndex {α : Type} (context : Context)
     (receiver subscript rhs : Lowering.Resolve.SourceExpr)
     (emit : Lowering.Expr → Lowering.Expr → Lowering.Expr → α) : Build (α × List Binding) := do
   let (rhs, rhsReads) ← readExpr context rhs
-  let (receiver, receiverReads) ← readExpr context receiver
-  let (subscript, subscriptReads) ← readExpr context subscript
-  return (emit receiver subscript rhs, rhsReads ++ receiverReads ++ subscriptReads)
+  let (receiver, subscript, reads) ← resolveSubscript context receiver subscript
+  return (emit receiver subscript rhs, rhsReads ++ reads)
+
+private def resolveAddIndex {α : Type} (context : Context)
+    (receiver subscript rhs : Lowering.Resolve.SourceExpr)
+    (emit : Lowering.Expr → Lowering.Expr → Lowering.Expr → α) : Build (α × List Binding) := do
+  let (receiver, subscript, reads) ← resolveSubscript context receiver subscript
+  let (rhs, rhsReads) ← readExpr context rhs
+  return (emit receiver subscript rhs, reads ++ rhsReads)
 
 private def readParameter (context : Context) (parameter : SourceParameter) :
     Build (Functions.Parameter × List Binding) := do
@@ -124,6 +138,9 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
   | .setIndex receiver subscript rhs => do
     let (code, reads) ← resolveSetIndex context receiver subscript rhs Body.setIndexExpr
     return ⟨code, reads⟩
+  | .addIndex receiver subscript rhs => do
+    let (code, reads) ← resolveAddIndex context receiver subscript rhs Body.addIndexExpr
+    return ⟨code, reads⟩
   | .eval value => do
     let (value, reads) ← readExpr context value
     return ⟨.evalExpr value, reads⟩
@@ -158,6 +175,9 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
     return .exec (.assignExpr name value)
   | .setIndex receiver subscript rhs => do
     let (code, _) ← resolveSetIndex context receiver subscript rhs TopCode.setIndexExpr
+    return .exec code
+  | .addIndex receiver subscript rhs => do
+    let (code, _) ← resolveAddIndex context receiver subscript rhs TopCode.addIndexExpr
     return .exec code
   | .eval value => do
     let (value, _) ← readExpr context value

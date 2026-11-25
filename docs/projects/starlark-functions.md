@@ -224,7 +224,7 @@ expression-position theorems in the denotation header expose that agreement
 without the compiler's scratch projection.
 
 Module commands reuse native assignment and expression statements, including
-direct collection displays, subscript reads, and simple subscript assignment.
+direct collection displays, subscript reads, and both subscript assignment forms below.
 [Body rules](../../Silmaril/Languages/Starlark/Functions/Operational/Defs.lean) · [Native position agreement](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Assignment and conditional fixtures](../../Silmaril/Languages/Starlark/Functions/NativeBodyChecks.lean) · [Return fixtures](../../Silmaril/Languages/Starlark/Functions/NativeReturnChecks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
 
 ### Simple subscript assignment
@@ -245,9 +245,35 @@ keeps the entry's position, and a new key goes at the end.
 
 Normalized function and module statements expose `setIndex receiver subscript rhs`.
 The three expressions can use the existing quotation. A subscript assignment
-creates no lexical binding. Augmented assignment, slice and compound targets,
-and user-defined item assignment remain open.
+creates no lexical binding. Slice and compound targets and user-defined item
+assignment remain open.
 [Assignments in the pinned spec][assignments] · [Go assignment compilation][go-assign] · [Go write dispatch][go-write] · [Go dictionary checks][go-dict-write] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/NativeSubscriptChecks.lean) · [Pinned Go fixtures](../../examples/starlark/subscript-assignment/check.go)
+
+### Integer augmented subscript assignment
+
+`Body.addIndexExpr` evaluates the receiver and subscript once, in that
+order, and reads the old value before evaluating the RHS. It then adds the
+old value and the RHS result as exact integers and writes the sum. The
+first failure stops execution with its residual state. A failed read
+skips the RHS. A failed addition precedes any write guard. A frozen or
+active iterator error comes from the final write after the RHS effects.
+
+Write-back uses the saved receiver identity and raw subscript in the heap
+left by the RHS. For a negative list index, the read and write each
+normalize against the length at that step. If the RHS grows the list,
+write-back can replace a different element of the same list. The pinned
+spec requires target subexpressions to run once before the RHS. Pinned Go
+also confirms the read and write timing and negative-index behavior.
+
+`exec_addIndexExpr_iff_denoteExpr` compares the independent operational
+rules with the direct denotation on the exact outcome, frame, heap and
+iterator stack under the existing finite declaration descent. Normalized
+function and module statements expose `addIndex receiver subscript rhs`
+without introducing a lexical binding. Successful writes cover existing
+list elements and dictionary entries. Operand pairs outside integer addition
+report `integerAddType` in this profile. Other augmented operators, name
+and field targets, slices, and Go's in-place list addition remain open.
+[Augmented assignments in the pinned spec][augmented] · [Go compilation][go-augmented] · [Go operator dispatch][go-inplace-add] · [Go write dispatch][go-write] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/NativeSubscriptChecks.lean) · [Pinned Go fixtures](../../examples/starlark/subscript-assignment/check.go)
 
 ## Nested expression lowering
 
@@ -403,7 +429,10 @@ extend this profile. Host callable effects remain open.
 [go-dict-run]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L469-L486
 [subscript]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#subscript-expressions
 [assignments]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#assignments
+[augmented]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#augmented-assignments
 [go-assign]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1247-L1272
+[go-augmented]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1124-L1166
+[go-inplace-add]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L217-L244
 [go-write]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L719-L746
 [go-dict-write]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L78-L88
 [go-function]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go
