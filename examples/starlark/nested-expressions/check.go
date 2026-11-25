@@ -113,4 +113,16 @@ out = events.append(1) and len(events.append(2))
 	require(err == nil && g["out"] == starlark.None && g["events"].String() == "[1]",
 		"short-circuit must keep the left value and skip both the right effect and failure")
 	fmt.Println("PASS skipped call leaves the first mutation and None result")
+
+	g, err = initSource(`items = ("abc",)
+keywords = {}
+out = (len(*items, **keywords) or len(9)) if True else len(9)
+`)
+	require(err == nil && g["out"].String() == "3", fmt.Sprint(err))
+	fmt.Println("PASS resolved built-in, global spreads and skipped calls agree with the Lean fixture")
+
+	_, err = initSource(`out = 0 if True else missing
+`)
+	require(err != nil && strings.Contains(err.Error(), "undefined: missing"), fmt.Sprint(err))
+	fmt.Println("PASS lexical resolution rejects an unknown name in an untaken branch")
 }

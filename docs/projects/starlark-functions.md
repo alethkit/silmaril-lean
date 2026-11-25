@@ -145,12 +145,40 @@ supplies a visible, writable destination to observe the returned value.
 Lean and pinned Go fixtures cover a failing nested keyword operand,
 competing expansion errors and a duplicate keyword introduced by `**`.
 
-Parser integration and lexical resolution, calls inside collection display
-and subscript atoms, default-expression lowering and module-level expression
-lowering remain open. Static validation of repeated explicit keywords stays
-with `runChecked`. Supported iterable, mapping and callable values are
-those of the shared-store call profile above.
+Calls inside collection display and subscript atoms, default-expression
+lowering and module-level expression lowering remain open. Static
+validation of repeated explicit keywords stays with `runChecked`.
+Supported iterable, mapping and callable values are those of the
+shared-store call profile above.
 [Preservation theorem](../../Silmaril/Languages/Starlark/Functions/Lowering/Thms.lean) · [Independent source rules](../../Silmaril/Languages/Starlark/Functions/Lowering/Source/Defs.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/PreservationChecks.lean) · [Go fixtures](../../examples/starlark/nested-expressions/check.go)
+
+## Resolving a normalized expression
+
+`Lowering.Resolve.resolve` takes an unresolved expression and a lexical
+context collected by the caller. It accepts integer and string literals,
+identifier reads, calls with all four operand classes, conditionals and
+operand-valued `and` and `or`. It uses the scalar resolver's precedence
+for locals, globals and universal constants, then looks up the supported
+built-ins. A declared local shadows a built-in even if the local has no
+runtime value.
+
+Pass the resolved tree to `Lowering.lower` and the resulting code to
+`runChecked` with a destination outside the compiler scratch namespace.
+Resolution rejects unknown names in all branches and reserves the
+compiler's dollar prefix. Unary and binary operator nodes submitted
+through the scalar AST get explicit profile errors. The checked executor
+rejects repeated explicit keywords before evaluation, including in skipped
+branches. The Lean fixture starts with unresolved names and observes the
+result in the shared store. The pinned Go fixture checks equivalent
+Starlark text.
+
+This entry point takes normalized AST input and relies on the caller for
+valid identifier tokens, the set of lexical bindings and allocated frame
+slots. Text parsing, source locations, automatic scope collection for
+call-aware blocks, and collection, subscript and attribute syntax remain
+outside this adapter. The preservation theorem starts at the resulting
+resolved tree.
+[Resolver](../../Silmaril/Languages/Starlark/Functions/Lowering/Resolve/Defs.lean) · [End-to-end Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Resolve/Checks.lean)
 
 ## Checks and extensions
 
@@ -159,7 +187,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
   +Silmaril.Languages.Starlark.Functions.Arguments.Checks \
   +Silmaril.Languages.Starlark.Functions.LoopChecks \
   +Silmaril.Languages.Starlark.Functions.Lowering.Checks \
-  +Silmaril.Languages.Starlark.Functions.Lowering.PreservationChecks
+  +Silmaril.Languages.Starlark.Functions.Lowering.PreservationChecks \
+  +Silmaril.Languages.Starlark.Functions.Lowering.Resolve.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.

@@ -13,7 +13,8 @@ inductive StaticError where
   | topLevelReturn
   deriving DecidableEq, Repr
 
-private def resolveName (locals globals : List String) (name : String) :
+/-- Resolve one name in an already collected lexical context. -/
+@[expose] def resolveName (locals globals : List String) (name : String) :
     Except StaticError Ref :=
   if locals.contains name then
     .ok (.bound ⟨.local, name⟩)
