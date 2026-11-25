@@ -81,6 +81,15 @@ initialization retains earlier heap effects, including partial writes into
 its slots, and follows the existing failure path without publication.
 [Pattern semantics][pattern-assignment] · [Source assignment fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Checks.lean)
 
+`Statement.assignListComp` and `Command.assignListComp` resolve a list
+comprehension assigned to a name. Only that destination joins the
+enclosing block. The first iterable uses the enclosing scope and the
+remaining clauses resolve with all generator names local to the
+comprehension. Quoted expressions can supply the pattern, iterable,
+filter and element ASTs. Resolved module commands enter the same body
+path as function assignments, then use the ordinary publication rules.
+[List comprehension semantics](starlark-functions.md#list-comprehension-assignment) · [Source fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/ComprehensionChecks.lean)
+
 A loop target belongs to the whole function block. The resolver collects
 all target names before resolving the iterable and body in that block. Thus
 `for x in x` reads the function's `x` before any iteration writes it. The
@@ -135,7 +144,8 @@ the elaboration result with the resolved operational theorem. It compares
 static rejection, execution outcomes, publication and the exact residual
 state. This correspondence shares the elaborator and starts at a normalized
 AST with legal identifier spellings. An independent source binding relation
-and text parsing remain open. Compound targets, lambdas, comprehensions
+and text parsing remain open. Lambdas, comprehension forms beyond
+list comprehension assignment, subscript or field leaves in patterns,
 and other augmented assignment forms remain outside this source fragment.
 The pinned Starlark spec rejects slice assignment targets.
 [Theorem header](../../Silmaril/Languages/Starlark/Modules/Resolve/Thms.lean) · [Lean source fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Checks.lean)

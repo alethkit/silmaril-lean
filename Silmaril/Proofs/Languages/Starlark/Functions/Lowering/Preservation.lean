@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Proofs.Languages.Starlark.Functions.Lowering.Call
 public import Silmaril.Proofs.Languages.Starlark.Functions.Lowering.Compiler
+import Silmaril.Languages.Starlark.Functions.Lowering.Denotation.Thms
 
 public section
 
@@ -837,5 +838,84 @@ theorem stage_preserves {program : Program} {available : List DeclarationId} {st
   | error error s =>
     obtain ⟨final, evaluated, related⟩ := save_error semantics start same free
     exact ⟨final, evaluated, reboundBack same semantics.1 related⟩
+
+private theorem restoreStage {caller source lowered : State}
+    (scope : SameScope source caller) (matched : StateMatch 0 source lowered) :
+    restoreCaller caller lowered = source := by
+  have heap := matched.heap.symm
+  have iterators := matched.iterators.symm
+  have ⟨bindings, slots⟩ := scope
+  cases caller
+  cases source
+  cases lowered
+  simp_all [restoreCaller]
+
+theorem write_slots (state : State) (target : Binding) (value : Value) :
+    (state.write target value).slots = state.slots := by
+  unfold State.write
+  split
+  · rfl
+  · rfl
+  · split <;> rfl
+
+theorem assignExpr_slots {program : Program} {available : List DeclarationId} {state : State}
+    {expression : Languages.Starlark.Functions.Lowering.Expr} {out : Outcome Value}
+    (ran : Evaluates program available state expression out) (target : Binding) :
+    (finishState (denoteBody program available (.assignExpr target expression) state)).slots = state.slots := by
+  rw [denoteBody]
+  change (finishState (Outcome.resume (denoteExpr program available expression state)
+    (fun value next => .ok Flow.next (next.write target value)))).slots = state.slots
+  rw [denoteExpr_eq_of_evaluates ran]
+  have scope := (simulates ran).1.2
+  cases out with
+  | error => exact scope
+  | ok value next => exact (write_slots next target value).trans scope
+
+theorem scopedStage_preserves {program : Program} {available : List DeclarationId} {state : State}
+    {expression : Languages.Starlark.Functions.Lowering.Expr} {out : Outcome Value}
+    (ran : Evaluates program available state expression out)
+    (free : ScratchFree state) (target : Binding) (start : Nat) :
+    let scratch := temporary start
+    let lowered := lower expression scratch (start + 1)
+    denoteBody program available
+      (.assignScoped target [] (.seq lowered.code (.returnExpr (.atom (scratchRead start))))) state =
+      denoteBody program available (.assignExpr target expression) state := by
+  have staged := stage_preserves ran free start
+  dsimp only
+  rw [denoteBody.eq_def program available (.assignScoped ..)]
+  change completeCall state (some target)
+    (denoteBody program available (.seq (lower expression (temporary start) (start + 1)).code
+      (.returnExpr (.atom (scratchRead start)))) state) = _
+  rw [seq_eq]
+  rw [denoteBody.eq_def program available (.assignExpr ..)]
+  change _ = Outcome.resume (denoteExpr program available expression state)
+    (fun value next => .ok Flow.next (next.write target value))
+  rw [denoteExpr_eq_of_evaluates ran]
+  have scope := (simulates ran).1
+  cases out with
+  | error error residual =>
+    obtain ⟨final, ranCode, matched⟩ := staged
+    rw [ranCode]
+    have restored := restoreStage scope matched
+    simp [Outcome.resume, completeCall, restored, finishState]
+  | ok value residual =>
+    obtain ⟨final, ranCode, matched, saved⟩ := staged
+    rw [ranCode]
+    have readBack : denoteExpr program available (.atom (scratchRead start)) final = .ok value final := by
+      unfold denoteExpr
+      rw [denoteExprWith.eq_def]
+      exact saved
+    have restored := restoreStage scope matched
+    change completeCall state (some target)
+      (denoteBody program available (.returnExpr (.atom (scratchRead start))) final) = _
+    rw [denoteBody]
+    change completeCall state (some target)
+      (Outcome.resume (denoteExpr program available (.atom (scratchRead start)) final)
+        (fun result => pure (.returned result))) = _
+    rw [readBack]
+    change EStateM.Result.ok Flow.next ((restoreCaller state final).write target value) =
+      EStateM.Result.ok Flow.next (residual.write target value)
+    rw [restored]
+    rfl
 
 end Silmaril.Proofs.Languages.Starlark.Functions.Lowering

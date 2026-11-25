@@ -22,11 +22,23 @@ structure SourceSignature where
   varargs : Option String := none
   kwargs : Option String := none
 
-/-- Admitted function statements. Only `define` introduces a child scope. -/
+/-- Additional clauses and the element expression of an admitted list comprehension. -/
+inductive ListCompTail where
+  | yield (value : Lowering.Resolve.SourceExpr)
+  | filter (test : Lowering.Resolve.SourceExpr) (rest : ListCompTail)
+  | forIn (target iterable : Lowering.Resolve.SourceExpr) (rest : ListCompTail)
+
+structure ListComp where
+  target : Lowering.Resolve.SourceExpr
+  iterable : Lowering.Resolve.SourceExpr
+  rest : ListCompTail
+
+/-- Admitted function statements. -/
 inductive Statement where
   | pass
   | assign (name : String) (value : Lowering.Resolve.SourceExpr)
   | assignTarget (target rhs : Lowering.Resolve.SourceExpr)
+  | assignListComp (name : String) (comp : ListComp)
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
@@ -43,6 +55,7 @@ inductive Statement where
 inductive Command where
   | assign (name : String) (value : Lowering.Resolve.SourceExpr)
   | assignTarget (target rhs : Lowering.Resolve.SourceExpr)
+  | assignListComp (name : String) (comp : ListComp)
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
@@ -55,6 +68,7 @@ inductive Error where
   | emptyLoad (label : String)
   | unsupportedLoopTarget
   | unsupportedAssignmentTarget
+  | unsupportedComprehensionTarget
   deriving DecidableEq, Repr
 
 structure ResolvedModule where
@@ -82,13 +96,13 @@ private def resolveTarget (slot : String → Binding) (unsupported : Error) :
 Command elaboration rejects invalid targets. -/
 def globalNames (commands : List Command) : List String :=
   commands.flatMap fun
-    | .assign name _ | .define name .. => [name]
+    | .assign name _ | .assignListComp name _ | .define name .. => [name]
     | .assignTarget target _ =>
       ((resolveTarget globalSlot .unsupportedAssignmentTarget target).toOption.map Prod.snd).getD []
     | .setIndex .. | .addIndex .. | .eval _ | .load .. => []
 
 private def Statement.localNames : Statement → Except Error (List String)
-  | .assign name _ | .define name .. => pure [name]
+  | .assign name _ | .assignListComp name _ | .define name .. => pure [name]
   | .assignTarget target _ => return (← resolveTarget fileSlot .unsupportedAssignmentTarget target).2
   | .seq first rest | .branch _ first rest => return (← first.localNames) ++ (← rest.localNames)
   | .forIn target _ body => return target :: (← body.localNames)
@@ -101,6 +115,38 @@ private abbrev Build := StateT Program (Except Error)
 private def readExpr (context : Context) (expression : Lowering.Resolve.SourceExpr) :
     Build (Lowering.Expr × List Binding) :=
   monadLift ((resolveTracked context expression).mapError Error.expression)
+
+private def listCompTarget :=
+  resolveTarget fileSlot .unsupportedComprehensionTarget
+
+private def ListCompTail.names : ListCompTail → Except Error (List String)
+  | .yield _ => pure []
+  | .filter _ rest => rest.names
+  | .forIn target _ rest => return (← listCompTarget target).2 ++ (← rest.names)
+
+private def compileListCompTail (context : Context) :
+    ListCompTail → Build (Comprehensions.Tail × List Binding)
+  | .yield value => do
+    let (value, reads) ← readExpr context value
+    return (.yield value, reads)
+  | .filter test rest => do
+    let (test, reads) ← readExpr context test
+    let (rest, restReads) ← compileListCompTail context rest
+    return (.filter test rest, reads ++ restReads)
+  | .forIn target iterable rest => do
+    let (target, _) ← monadLift (listCompTarget target)
+    let (iterable, reads) ← readExpr context iterable
+    let (rest, restReads) ← compileListCompTail context rest
+    return (.forIn target iterable rest, reads ++ restReads)
+
+private def compileListComp (context : Context) (comp : ListComp) :
+    Build (Comprehensions.ListComp × List Binding) := do
+  let (target, firstNames) ← monadLift (listCompTarget comp.target)
+  let names := (firstNames ++ (← monadLift comp.rest.names)).eraseDups
+  let locals := names.map fileSlot
+  let (iterable, outerReads) ← readExpr context comp.iterable
+  let (rest, innerReads) ← compileListCompTail { context with locals := names ++ context.locals } comp.rest
+  return (⟨locals, target, iterable, rest⟩, outerReads ++ innerReads.filter (!locals.contains ·))
 
 private def resolveSubscript (context : Context) (receiver subscript : Lowering.Resolve.SourceExpr) :
     Build (Lowering.Expr × Lowering.Expr × List Binding) := do
@@ -164,6 +210,9 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
     let (target, _) ← monadLift (resolveTarget fileSlot .unsupportedAssignmentTarget target)
     let (rhs, reads) ← readExpr context rhs
     return ⟨.assignTargetExpr target rhs, reads⟩
+  | .assignListComp name comp => do
+    let (comp, reads) ← compileListComp context comp
+    return ⟨comp.body (fileSlot name), reads⟩
   | .setIndex receiver subscript rhs => do
     let (code, reads) ← resolveSetIndex context receiver subscript rhs Body.setIndexExpr
     return ⟨code, reads⟩
@@ -212,6 +261,9 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
     let (target, _) ← monadLift (resolveTarget globalSlot .unsupportedAssignmentTarget target)
     let (rhs, _) ← readExpr context rhs
     return .exec (.assignTargetExpr target rhs)
+  | .assignListComp name comp => do
+    let (comp, _) ← compileListComp context comp
+    return .exec (.assignListComp name comp)
   | .setIndex receiver subscript rhs => do
     let (code, _) ← resolveSetIndex context receiver subscript rhs TopCode.setIndexExpr
     return .exec code

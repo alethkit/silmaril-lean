@@ -24,6 +24,9 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
   | .assignTargetExpr target value =>
     Outcome.resume (evalExpr value state) fun result next =>
       Outcome.resume (bindTarget target result next) fun () => pure .next
+  | .assignScoped target locals code =>
+    completeCall state (some target)
+      (denoteBody program available code (locals.foldl State.allocateSlot state))
   | .setIndexExpr receiver subscript rhs =>
     Outcome.resume (evalExpr rhs state) fun value next =>
       Outcome.resume (evalExpr receiver next) fun target next =>
