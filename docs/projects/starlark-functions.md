@@ -188,9 +188,64 @@ check, and `bindsTarget_failure_state` gives the full failure guarantee
 for flat targets. The binder composes with `exec_iff_denoteBody` and
 `runs_iff_denoteSuite`. `lowerForIn_preserves` transports the binder's heap,
 slots and visible writes through scratch projection before it uses the
-existing body premise. Subscript and field leaves and comprehension
-targets remain open. Standalone pattern assignments use the same binder.
+existing body premise. Standalone pattern assignments and the list
+comprehension assignment profile also use this binder. Subscript and field
+leaves remain open.
 [Binder and cursor theorems](../../Silmaril/Languages/Starlark/Lists/Iteration/Thms.lean) · [Lowering theorem](../../Silmaril/Languages/Starlark/Functions/Lowering/Thms.lean) · [Source loop validation](starlark-modules.md#resolving-module-declarations)
+
+## List comprehension assignment
+
+The normalized function and module ASTs admit assigning a list
+comprehension to a name. The first generator is required. Later clauses
+can be generators or filters, followed by the element expression.
+Each generator accepts a single name or a nested tuple/list pattern with
+lexical name leaves. A comprehension introduces a lexical block containing
+all generator names. Its first iterable evaluates once in the enclosing
+block. All later operands, filters and elements use the new block,
+including forward references that may fail as uninitialized. Duplicate
+names in a pattern reuse a slot and are written left to right.
+[Pinned comprehensions][comprehensions] · [Pinned name binding][names] · [Go resolution][go-comp-resolve]
+
+The empty result list is allocated before the outer iterable, as in the
+pinned Go compiler. The resolved core uses a scoped assignment, the
+existing cursor, the independent target binder and the ordinary branch
+and append actions. A mismatch keeps earlier sibling writes in the exact
+heap, skips later children and the remaining clauses, and releases each
+active iterator guard. Both exits restore the surrounding frame. The
+destination receives the list only on success. At module scope the
+ordinary publication path freezes the reachable result.
+[Go clause compilation][go-comp-compile] · [Go guard cleanup][go-loop-cleanup] · [Resolved definitions](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Defs.lean)
+
+`Comprehensions.exec_iff_denote` composes the independent scoped body,
+loop and binder rules with their exact denotation. `Comprehensions.lower_preserves`
+covers the first iterable, later iterable operands, filters and element
+expressions. It assumes the existing expression admission and scratch
+slot conditions. Each lowered operand discards its scratch writes while
+retaining the heap and errors, so the entire outcome agrees exactly,
+including the restored bindings and iterator stack. Call termination
+still uses the finite declaration guard and cursor descent uses the
+remaining element count. The proof starts at resolved syntax. The
+source correspondence shares the elaborator.
+[Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Thms.lean) · [Normalized source fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/ComprehensionChecks.lean)
+
+Within a single evaluation, later iterations can read earlier writes to
+the comprehension block. The Lean profile starts fresh on each visit to
+the comprehension site. The pinned Go compiler places the locals in
+the enclosing activation and retains their previous contents across
+visits. For example, `[y for x in source if x or y for y in [2]]` yields
+`[2]` on both runtimes when `source = [1]`. When the same site next runs
+with `source = [0]`, Go again yields `[2]` and Lean reports uninitialized
+`y`. The Go failure fixture observes mutations to shared values and
+guard release through `Program.Init`. Lean also inspects the retained
+comprehension slots in its residual heap.
+[Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
+
+General comprehension expression positions and dictionary accumulators
+remain open. The pinned Go dict comprehension evaluates key then value
+and overwrites an earlier key, so it needs a separate accumulator path
+from duplicate-rejecting dictionary displays. Subscript and field target
+leaves remain outside the name-pattern profile.
+[Go key/value emission][go-comp-compile]
 
 ## Direct denotation of resolved expressions
 
@@ -690,3 +745,7 @@ extend this profile. Host callable effects remain open.
 [go-write]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L719-L746
 [go-dict-write]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L78-L88
 [go-function]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go
+
+[comprehensions]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#comprehensions
+[go-comp-resolve]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L686-L708
+[go-comp-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1745-L1804

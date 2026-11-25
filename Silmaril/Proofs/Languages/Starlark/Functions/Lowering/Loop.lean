@@ -212,4 +212,121 @@ theorem preservesForIn {program : Program} {available : List DeclarationId} {sta
     rw [saved]
     exact forInMatch _ _ bodyMatch target value similar
 
+private theorem unpack_slots (arity : Nat) (value : Value) (state : State) :
+    (finishState (unpackValue arity value state)).slots = state.slots := by
+  have kept := (acquireAction value).2 state
+  unfold unpackValue
+  cases read : acquireIterator value state with
+  | error =>
+    rw [read] at kept
+    exact kept.2
+  | ok iterator next =>
+    rw [read] at kept
+    obtain ⟨_, cursor⟩ := iterator
+    by_cases arityCheck : cursor.remaining = arity <;> simpa only [arityCheck, ite_true, ite_false, finishState] using kept.2
+
+mutual
+private theorem bindTarget_slots (target : LoopTarget) (value : Value) (state : State) :
+    (finishState (bindTarget target value state)).slots = state.slots := by
+  rw [bindTarget.eq_def]
+  cases target with
+  | name name => exact write_slots state name value
+  | sequence children =>
+    have kept := unpack_slots children.length value state
+    cases ran : unpackValue children.length value state with
+    | error =>
+      rw [ran] at kept
+      simpa only [ran, Outcome.resume, finishState] using kept
+    | ok values next =>
+      rw [ran] at kept
+      simpa only [ran, Outcome.resume, finishState] using (bindTargets_slots children values next).trans kept
+termination_by sizeOf target
+decreasing_by simp_wf <;> omega
+
+private theorem bindTargets_slots (targets : List LoopTarget) (values : List Value) (state : State) :
+    (finishState (bindTargets targets values state)).slots = state.slots := by
+  cases targets with
+  | nil => rw [bindTargets]; rfl
+  | cons target rest =>
+    cases values with
+    | nil => rw [bindTargets]; rfl
+    | cons value values =>
+      rw [bindTargets]
+      have kept := bindTarget_slots target value state
+      cases ran : bindTarget target value state with
+      | error =>
+        rw [ran] at kept
+        simpa only [ran, Outcome.resume, finishState] using kept
+      | ok _ next =>
+        rw [ran] at kept
+        simpa only [ran, Outcome.resume, finishState] using (bindTargets_slots rest values next).trans kept
+termination_by sizeOf targets
+decreasing_by all_goals (simp_wf <;> omega)
+end
+
+private theorem cursor_exact (target : LoopTarget) (source lowered : Meaning Flow)
+    (body : ∀ s, ScratchFree s → source s = lowered s ∧ (finishState (source s)).slots = s.slots)
+    (cursor : Cursor) (state : State) (free : ScratchFree state) :
+    denoteCursor target source cursor state = denoteCursor target lowered cursor state ∧
+      (finishState (denoteCursor target source cursor state)).slots = state.slots := by
+  rw [denoteCursor.eq_def target source cursor state, denoteCursor.eq_def target lowered cursor state]
+  cases step : cursor.advance with
+  | none => exact ⟨rfl, rfl⟩
+  | some item =>
+    obtain ⟨value, rest⟩ := item
+    dsimp only
+    have slots := bindTarget_slots target value state
+    cases ran : bindTarget target value state with
+    | error error stopped =>
+      rw [ran] at slots
+      simp only [Outcome.resume]
+      exact ⟨True.intro, slots⟩
+    | ok _ next =>
+      rw [ran] at slots
+      have ⟨equal, kept⟩ := body next (fun index => (congrFun slots (temporary index)).trans (free index))
+      simp only [Outcome.resume, ← equal]
+      cases runBody : source next with
+      | error error stopped =>
+        rw [runBody] at kept
+        exact ⟨rfl, kept.trans slots⟩
+      | ok flow final =>
+        rw [runBody] at kept
+        have finalSlots := kept.trans slots
+        cases flow with
+        | next | continueLoop =>
+          obtain ⟨out, after⟩ := cursor_exact target source lowered body rest final
+            (fun index => (congrFun finalSlots (temporary index)).trans (free index))
+          exact ⟨out, after.trans finalSlots⟩
+        | breakLoop | returned => exact ⟨rfl, finalSlots⟩
+termination_by cursor.remaining
+decreasing_by all_goals exact Cursor.advance_decreases step
+
+theorem forIn_exact (target : LoopTarget) (source lowered : Meaning Flow)
+    (body : ∀ s, ScratchFree s → source s = lowered s ∧ (finishState (source s)).slots = s.slots)
+    (operand : Outcome Value) (free : ScratchFree (finishState operand)) :
+    denoteForIn target source operand = denoteForIn target lowered operand ∧
+      (finishState (denoteForIn target source operand)).slots = (finishState operand).slots := by
+  cases operand with
+  | error => exact ⟨rfl, rfl⟩
+  | ok value state =>
+    have kept := (acquireAction value).2 state
+    simp only [denoteForIn, Outcome.resume]
+    cases ran : acquireIterator value state with
+    | error error stopped =>
+      rw [ran] at kept
+      exact ⟨rfl, kept.2⟩
+    | ok iterator next =>
+      rw [ran] at kept
+      obtain ⟨guard, cursor⟩ := iterator
+      have slots : (enterIterator next guard).slots = state.slots := by
+        cases guard <;> exact kept.2
+      obtain ⟨equal, after⟩ := cursor_exact target source lowered body cursor (enterIterator next guard)
+        (fun index => (congrFun slots (temporary index)).trans (free index))
+      dsimp only
+      refine ⟨congrArg (restoreIterators next.iterators) equal, ?_⟩
+      have cleaned : ∀ out : Outcome Flow,
+          (finishState (restoreIterators next.iterators out)).slots = (finishState out).slots :=
+        fun out => by cases out <;> rfl
+      exact (cleaned _).trans (after.trans slots)
+
 end Silmaril.Proofs.Languages.Starlark.Functions.Lowering

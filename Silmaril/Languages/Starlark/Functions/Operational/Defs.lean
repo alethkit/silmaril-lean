@@ -35,6 +35,10 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       {rhs : Lowering.Expr} {error : Error} :
       ExecExpr program available s rhs (.error error t) →
       Exec program available s (.assignTargetExpr target rhs) (.error error t)
+  | assignScoped {available : List DeclarationId} {s : State} {target : Binding}
+      {locals : List Binding} {body : Body} {out : Outcome Flow} :
+      Exec program available (locals.foldl State.allocateSlot s) body out →
+      Exec program available s (.assignScoped target locals body) (completeCall s (some target) out)
   | setIndexExpr {available : List DeclarationId} {s t u : State}
       {receiver subscript rhs : Lowering.Expr} {value target : Lists.Value} {out : Outcome Lists.Value} :
       ExecExpr program available s rhs (.ok value t) →

@@ -21,6 +21,9 @@ inductive Body where
   | returnExpr (value : Lowering.Expr)
   | assignExpr (target : Binding) (value : Lowering.Expr)
   | assignTargetExpr (target : LoopTarget) (value : Lowering.Expr)
+  /-- Install fresh lexical locals, restore the frame on either exit, and commit
+  the scoped body’s return value on success. The heap and guard effects survive. -/
+  | assignScoped (target : Binding) (locals : List Binding) (body : Body)
   | setIndexExpr (receiver subscript rhs : Lowering.Expr)
   | addIndexExpr (receiver subscript rhs : Lowering.Expr)
   | evalExpr (value : Lowering.Expr)
@@ -138,6 +141,7 @@ def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
   | .forInExpr _ iterable body => do
     iterable.validateCalls
     body.validateIn true
+  | .assignScoped _ _ body => body.validateIn false
   | .breakLoop => if inLoop then pure () else throw .breakOutsideLoop
   | .continueLoop => if inLoop then pure () else throw .continueOutsideLoop
   | .call _ _ arguments => arguments.validate

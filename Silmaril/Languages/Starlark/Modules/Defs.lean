@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Starlark.Functions.Denotation.Defs
+public import Silmaril.Languages.Starlark.Functions.Comprehensions.Defs
 public import Silmaril.Languages.Starlark.Lists.Freeze.Defs
 
 @[expose] public section
@@ -18,6 +19,7 @@ inductive TopCode where
   | atomic (code : Lists.Stmt)
   | assignExpr (name : String) (value : Lowering.Expr)
   | assignTargetExpr (target : Iteration.LoopTarget) (value : Lowering.Expr)
+  | assignListComp (name : String) (comp : Comprehensions.ListComp)
   | setIndexExpr (receiver subscript rhs : Lowering.Expr)
   | addIndexExpr (receiver subscript rhs : Lowering.Expr)
   | evalExpr (value : Lowering.Expr)
@@ -28,6 +30,7 @@ def TopCode.body : TopCode → Body
   | .atomic code => .total (.atomic code)
   | .assignExpr name value => .assignExpr (globalSlot name) value
   | .assignTargetExpr target value => .assignTargetExpr target value
+  | .assignListComp name comp => comp.body (globalSlot name)
   | .setIndexExpr receiver subscript rhs => .setIndexExpr receiver subscript rhs
   | .addIndexExpr receiver subscript rhs => .addIndexExpr receiver subscript rhs
   | .evalExpr value => .evalExpr value

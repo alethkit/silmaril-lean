@@ -102,6 +102,9 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
     | error error next => exact .assignTargetExprRhsError (evaluated ▸ rhsRun)
     | ok value next =>
       exact .assignTargetExpr (evaluated ▸ rhsRun) ((bindsTarget_iff_bindTarget _ _ _ _).mpr rfl)
+  | assignScoped target locals code =>
+    rw [denoteBody]
+    exact .assignScoped (exec_denote program available code (locals.foldl State.allocateSlot state))
   | setIndexExpr receiver subscript rhs =>
     rw [denoteBody]
     change Exec program available state (.setIndexExpr receiver subscript rhs)

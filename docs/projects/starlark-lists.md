@@ -158,9 +158,10 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
   into collection expressions still open.
   [Lexical calls](starlark-functions.md) · [Functions][functions]
 - **Collection operations.** General equality and ordering, `hash`,
-  concatenation, slicing of bytes, comprehensions, other methods, augmented forms beyond
+  concatenation, slicing of bytes, other methods, augmented forms beyond
   [integer subscript `+=`](starlark-functions.md#integer-augmented-subscript-assignment),
-  destructuring with subscript or field leaves and comprehension targets,
+  destructuring with subscript or field leaves, dictionary comprehensions,
+  general comprehension expression positions,
   and other iterable types remain open. The supported
   collection truth tests apply in the resolved suite conditional.
 - **Module initialization and loading.** The finite manifest loads modules
