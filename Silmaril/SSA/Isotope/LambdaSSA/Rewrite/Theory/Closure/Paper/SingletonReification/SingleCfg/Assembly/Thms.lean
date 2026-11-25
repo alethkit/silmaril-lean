@@ -42,6 +42,11 @@ theorem canonicalIteration_preserves [HasFiniteCoproducts Comp] {U W : Comp} (st
     letI : Iteration Comp := canonicalIteration
     PreservesLoop step := rfl
 
+/-- The exact-sum exit conversion has the guarded decoder as its representative. -/
+theorem exitSum_ofRegion (S D : τ) :
+    exitSumArrow (Φ := Φ) S D = ofRegion (τ := τ) (exitDecoder_typed S D) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonCfgAssembly.exitSum_ofRegion S D
+
 /-- The canonical arrow is represented by the typed region with a carried loop. -/
 theorem canonicalAssembly_ofRegion {X S D : τ} {e b : Region Φ}
     (he : ValueBranches [X] e [packedExitType [S, D]])

@@ -38,6 +38,12 @@ variable
   (objIso : ∀ T : τ, J.obj (M.obj T) ≅ ofType (Φ := Φ) T)
   {ε : Type w} [HasEff Φ ε] (pe : ε)
 
+/-- The retained distributor is preserved by the whiskering and injection comparisons. -/
+theorem distributor_compare (cmp : ModelComparisons J M objIso pe) (X A B : τ) :
+    reindexHom J M objIso (J.map (CfgEta.TypeCategory.Retained.packedDistributor M X A B)) =
+      ofRegion (τ := τ) (CfgEta.TypeCategory.Retained.distributorRegion_typed X A B) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonReification.distributor_compare J M objIso pe cmp X A B
+
 variable [FreydCategory.CentralUnit J] [RegionTypingCoherent (Φ := Φ) J M]
   {X D : τ} {r : Region Φ} {hr : ValueBranches [X] r [D]}
 

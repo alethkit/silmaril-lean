@@ -79,7 +79,7 @@ private theorem exact_inr {A B : τ} {Y : Comp} (g : ofType (Φ := Φ) A ⟶ Y)
   rw [← Category.assoc, sumCofan_inr_sumIso_hom, coprod.inr_desc]
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem exitSum_ofRegion (S D : τ) :
+theorem exitSum_ofRegion (S D : τ) :
     exitSumArrow (Φ := Φ) S D = ofRegion (τ := τ) (exitDecoder_typed S D) := by
   unfold exitSumArrow
   rw [sumCofan_inl, sumCofan_inr, coprod_desc_ofRegion, coprod_desc_ofRegion]

@@ -548,6 +548,14 @@ open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (caseWithConte
 
 set_option backward.isDefEq.respectTransparency false in
 omit [FreydCategory.CentralUnit J] [RegionTypingCoherent (Φ := Φ) J M] in
+theorem distributor_compare (cmp : ModelComparisons J M objIso pe) (X A B : τ) :
+    reindexHom J M objIso (J.map (packedDistributor M X A B)) =
+      ofRegion (τ := τ) (distributorRegion_typed X A B) :=
+  compare_distributor J M objIso (fun {Y E F} f => cmp.whisker (Y := Y) (A := E) (B := F) f)
+    cmp.inl cmp.inr
+
+set_option backward.isDefEq.respectTransparency false in
+omit [FreydCategory.CentralUnit J] [RegionTypingCoherent (Φ := Φ) J M] in
 theorem factor_dispatch (cmp : ModelComparisons J M objIso pe) {A B : τ}
     (f : J.obj (M.obj X) ⟶ J.obj (M.obj (Silmaril.coprod A B)))
     (g : J.obj (M.obj (Silmaril.product X A)) ⟶ J.obj (M.obj D))
