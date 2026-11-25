@@ -41,6 +41,22 @@ def packArgs : (m : Nat) → (as : Fin m → α) →
 def readArgs (f : Φ) (x : D (input (S.arity f) (S.arg f))) : Args S sorts f :=
   unpackArgs S sorts (S.arity f) (S.arg f) x
 
+/-- The response takes index zero in the scope of the remainder. -/
+abbrev extendSorts {m : Nat} (a : α) (slots : Fin m → α) : Fin (m + 1) → α :=
+  Fin.cases a slots
+
+/-- Place one typed response before the existing valuation. -/
+def extendValues {m : Nat} {a : α} {slots : Fin m → α}
+    (r : Tree S sorts a) (vars : (i : Fin m) → Tree S sorts (slots i)) :
+    (i : Fin (m + 1)) → Tree S sorts (extendSorts a slots i) :=
+  Fin.cases (motive := fun i => Tree S sorts (extendSorts a slots i)) r vars
+
+/-- Assign a sorted tree to every atomic slot of a native environment. -/
+def variableEnv {ε : Type r} {Γ : EffectCtx (Ty α) ε} {slots : Fin Γ.length → α}
+    (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+    (vars : (i : Fin Γ.length) → Tree S sorts (slots i)) : BoundEnv D Γ.toBoundCtx :=
+  fun i => ((EffectCtx.get_toBoundCtx Γ i).trans (hslots i)).symm ▸ (⟨vars i⟩ : Atom S sorts _)
+
 /-- An event retains the whole input and returns a value of the declared result sort. -/
 inductive Event : Type (u + 1) → Type (u + 1) where
   | call (f : Φ) (x : Args S sorts f) : Event (Tree S sorts (S.out f))
