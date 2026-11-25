@@ -124,6 +124,7 @@ inductive Error where
   | sliceStopType (value : Value)
   | sliceStrideType (value : Value)
   | zeroSliceStride
+  | invalidSliceUTF8
   | assignmentTarget
   | integerAddType (left right : Value)
   | appendTarget
@@ -319,7 +320,7 @@ def sliceBound (length low high default : Int) (bound : Option Int) : Int :=
 
 /-- Select the elements of a slice using exact integer bounds and stride.
 Visit the input in index order, returning selected elements in stride order. -/
-def sliceElements (elements : List Value) (start stop stride : Value) : Except Error (List Value) := do
+def sliceElements {α : Type} (elements : List α) (start stop stride : Value) : Except Error (List α) := do
   let step := (← sliceInteger .sliceStrideType stride).getD 1
   if step = 0 then throw .zeroSliceStride
   let lo ← sliceInteger .sliceStartType start
@@ -338,8 +339,8 @@ def sliceElements (elements : List Value) (start stop stride : Value) : Except E
       let index : Int := i
       if last < index ∧ index ≤ first ∧ (first - index) % (-step) = 0 then some value else none).reverse
 
-/-- Read a slice after all operands have run. The resulting collection is a
-fresh shallow copy and may share elements with the input. -/
+/-- Read a slice after all operands have run. Collections get a fresh shallow
+copy. Strings use byte offsets and reject results that are invalid UTF-8. -/
 def readSlice (receiver start stop stride : Value) : Meaning Value :=
   match receiver with
   | .list address => do
@@ -348,6 +349,11 @@ def readSlice (receiver start stop stride : Value) : Meaning Value :=
   | .tuple address => do
     let elements ← tupleElements address
     allocateTuple (← fromExcept (sliceElements elements start stop stride))
+  | .string text => fromExcept do
+    let bytes ← sliceElements text.toUTF8.toList start stop stride
+    match String.fromUTF8? bytes.toByteArray with
+    | some result => pure (.string result)
+    | none => throw .invalidSliceUTF8
   | _ => throw .sliceTarget
 
 /-- Lowered slices supply four values in evaluation order, with `None` for

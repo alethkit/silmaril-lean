@@ -223,8 +223,28 @@ value-level selection and allocation primitive with the denotation.
 `evaluates_iff_denoteExpr` compares the exact outcome and state.
 `lower_preserves` covers slice reads after projecting direct scratch bindings.
 The normalized resolver and Lean quotation admit `xs[a:b:s]` with optional
-bounds. Strings, bytes and ranges need their own slice semantics.
+bounds. Bytes and ranges remain open.
 [Pinned slice spec][slice-expr] · [Go compilation][go-slice-compile] · [Go validation][go-slice-eval] · [Go list slice][go-list-slice] · [Go tuple slice][go-tuple-slice] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
+
+### String slice reads
+
+String slices use the same operand and validation order, exact integer
+normalization, and slice selection as lists and tuples. The input elements
+are UTF-8 bytes, consistent with the existing `len`. The evaluator decodes
+the selected bytes only after slicing, including when the stride is
+negative. A valid result is an immutable string value and allocates no
+heap cell. An invalid result raises `invalidSliceUTF8` and retains all
+operand effects. Both outcomes are covered by `evaluates_iff_denoteExpr`
+and `lower_preserves`. The existing resolver and quotation accept string
+receivers through the same expression form.
+
+This is the pinned spec's 8-bit profile that disallows invalid Unicode
+encodings. Pinned Go accepts the malformed bytes from a split sequence or
+byte reversal as a string. For example, `"é"[:1]` yields the byte `c3` in
+Go and raises `invalidSliceUTF8` in Lean. `"aé🙂z"[1:-1]` yields
+`"é🙂"` in both. String subscript reads and the distinct `bytes` value
+type remain open.
+[Pinned strings][strings] · [Pinned slice spec][slice-expr] · [Go string indexing and slicing][go-string-slice] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ## Native expression positions
 
@@ -461,10 +481,12 @@ extend this profile. Host callable effects remain open.
 [go-dict-run]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L469-L486
 [subscript]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#subscript-expressions
 [slice-expr]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#slice-expressions
+[strings]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#strings
 [go-slice-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1340-L1358
 [go-slice-eval]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1266-L1381
 [go-list-slice]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L992-L1004
 [go-tuple-slice]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L1131-L1142
+[go-string-slice]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L560-L597
 [assignments]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#assignments
 [augmented]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#augmented-assignments
 [go-assign]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1247-L1272

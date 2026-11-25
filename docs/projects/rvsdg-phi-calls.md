@@ -307,9 +307,8 @@ positions.
 
 `calls_sound` runs the independent infinite-call certificate through
 the existing simulation. The finite-call branch observes the route
-from its final call to θ on the supplied trace. A converse with wholly
-independent certificates also needs a finite judgment reaching the
-selected θ restart with its exact carried tuple and saved stack.
+from its final call to θ on the supplied trace. The independent
+reaching judgment below reflects that route and replays it.
 [Root theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Descent/Completeness/Global/Thms.lean)
 
 The linked fixture starts at an exported λ that calls a φ member
@@ -322,4 +321,46 @@ or restart checkpoints.
 ```sh
 lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Global.Thms
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Global.Thms'
+```
+
+## Independent certificates for productive feedback
+
+`ThetaReach.Reaches` describes a finite route to a selected θ restart
+without a machine trace. A completed binding uses independent
+`Returns`, including when the binding evaluates an application. A
+selected γ arm receives its actual typed input. Entering a live θ body
+after finite feedback records the exact carried tuple, fresh locals
+and saved loop frame. The route can also choose a later restart of
+the same θ. The pending bindings and loop frames preserve their
+original order and port types.
+
+`reaches_of_interval` recovers the route to the exact observed restart
+and stack. It delimits the first return of every completed binding and
+θ body. In the finite branch of the rooted classifier, all intermediate
+calls return before the selected restart, because that restart's parent
+frame stays live. `feedback_of_observation` then projects a finite chain
+of the existing call prefixes followed by the independent θ route and
+productive feedback.
+
+`linked_iff` relates actual infinite continuation execution at a typed
+ω export to either of two independent certificates. One is the
+existing infinite call descent. The other uses the finite chain and
+θ route to replay up to a selected restart, then stitches the
+productive feedback steps. Completeness uses the classical rooted
+classifier. The equivalence applies to the deterministic machine
+with total single-step primitives and explicit state ports.
+[Public theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Descent/ThetaReach/Thms.lean)
+
+The linked relay fixture constructs its certificate from the syntax
+and finite return rules. The exported λ calls the φ member, which
+completes one feedback body before the selected restart. The fixture
+runs the certificate through the forward implication and uses the
+original raw relay execution to exercise the reverse implication.
+A second finite route checks a carried state of `[1, 4, 2, 5]`
+after a completed feedback iteration with a linked return.
+[Linked fixture](../../tests/ssa/RVSDGRecursiveContinuations.lean)
+
+```sh
+lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.ThetaReach.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.ThetaReach.Thms'
 ```

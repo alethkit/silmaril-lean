@@ -146,21 +146,27 @@ example : (graph true).Runs (checked true) ⟨3⟩ (.call input) (.done .trap) :
 private def multiResult : Function :=
   { leaf false with
     declaration := { (leaf false).declaration with results := [.int .i64, int32] }
-    initial := [Value.int .i64 11] }
+    initial := [i32 99, Value.int .i64 11]
+    code := [readArg, .return_, .unreachable] }
 
 private def multiGraph : Program := ⟨[some multiResult]⟩
 
 private theorem multiChecked : multiGraph.check = true := rfl
 example : multiGraph.checkV1 = false := rfl
 
+example : ({ multiResult with initial := [], code := [.return_] }).check = false := rfl
+example : ({ multiResult with initial := [i32 7, Value.int .i64 11], code := [.return_] }).check = false := rfl
+example : ({ multiResult with initial := [i32 11, i32 7], code := [.return_] }).check = false := rfl
+
 private theorem multiRun : multiGraph.Runs multiChecked ⟨0⟩ (.invoke input) (.done (.values [Value.int .i64 11, i32 7])) := by
   have rule {a b : Phase} := (Program.edge_iff multiChecked (address := ⟨0⟩) (fn := multiResult)
     (a := a) (b := b) rfl).mpr
   have enter := rule (.enter input rfl)
-  have readLocal := rule (.numeric (locals := input) (rest := []) (.get (stack := [Value.int .i64 11])
-    (i := ⟨0⟩) (v := i32 7) (by rfl)))
-  exact (((Relation.ReflTransGen.single enter).tail readLocal).tail (rule (.leaveValues input _))).tail
-    (rule (.leaveFrame input (.values [Value.int .i64 11, i32 7]) rfl))
+  have readLocal := rule (.numeric (locals := input) (rest := [.return_, .unreachable])
+    (.get (stack := [i32 99, Value.int .i64 11]) (i := ⟨0⟩) (v := i32 7) rfl))
+  exact (((Relation.ReflTransGen.single enter).tail readLocal).tail
+    (rule (.returnLabel input [i32 99, Value.int .i64 11, i32 7] [.unreachable]))).tail
+    (rule (.returnFrame input [i32 99] [Value.int .i64 11, i32 7] rfl))
 
 open Silmaril.Wasm.Execution.Core in
 example (s : Store Unit) (caller parent child : Frame) :
@@ -328,7 +334,7 @@ example : Execution.Core.Steps Numerics.Profile.spec SingleThreaded.Det.noHost
     ⟨_, multiRun, .done rfl, rfl⟩
 
 private def readSecond : Op := .numeric (.get ⟨1⟩)
-private def leafRest (traps : Bool) : List Op := if traps then [.unreachable] else [readArg, add]
+private def leafRest (traps : Bool) : List Op := if traps then [.unreachable] else [readArg, readArg, add, .return_, .unreachable]
 
 private def writingLeaf (traps : Bool) : Function :=
   ⟨{ declaration [] with locals := [int32] }, 0, [i32 2],
@@ -414,14 +420,31 @@ private theorem writingReached (traps : Bool) :
     (writingGraph traps).Runs (writingChecked traps) ⟨1⟩ (.call input) (suspendedWrite traps (afterWrite traps)) :=
   (parentInvokes traps).trans (liftWriteRun traps (by trivial) (((leafGetsToTee traps).tail (leafTee traps)).tail (leafWrite traps)))
 
-private theorem leafReturnsWritten :
-    (writingGraph false).Runs (writingChecked false) ⟨0⟩ (afterWrite false) (.done (.values [i32 12])) := by
-  have get := leafRule false (.numeric (locals := [i32 6, i32 2]) (rest := [add])
+private def beforeReturn : Phase :=
+  .label [i32 6, i32 2] (.running [i32 6, i32 12] [.return_, .unreachable])
+
+private def betweenReturnExits : Phase := .returning [i32 6, i32 2] [i32 6, i32 12]
+
+private theorem leafPreparesReturn :
+    (writingGraph false).Runs (writingChecked false) ⟨0⟩ (afterWrite false) beforeReturn := by
+  have get := leafRule false (.numeric (locals := [i32 6, i32 2]) (rest := [readArg, add, .return_, .unreachable])
     (.get (stack := [i32 6]) (i := ⟨0⟩) (v := i32 6) rfl))
+  have getAgain := leafRule false (.numeric (locals := [i32 6, i32 2]) (rest := [add, .return_, .unreachable])
+    (.get (stack := [i32 6, i32 6]) (i := ⟨0⟩) (v := i32 6) rfl))
   have sum : Numerics.intBinOp .i32 .add 6 6 = .ok 12 := rfl
-  have added := (Relation.ReflTransGen.single get).tail (leafRule false (.numeric (.bin (stack := []) sum)))
-  exact (added.tail (leafRule false (.leaveValues [i32 6, i32 2] [i32 12]))).tail
-    (leafRule false (.leaveFrame [i32 6, i32 2] (.values [i32 12]) rfl))
+  exact ((Relation.ReflTransGen.single get).tail getAgain).tail (leafRule false (.numeric (.bin (stack := [i32 6]) sum)))
+
+private theorem leafReturnLabel :
+    (writingGraph false).Edge (writingChecked false) ⟨0⟩ beforeReturn betweenReturnExits :=
+  leafRule false (.returnLabel [i32 6, i32 2] [i32 6, i32 12] [.unreachable])
+
+private theorem leafReturnFrame :
+    (writingGraph false).Edge (writingChecked false) ⟨0⟩ betweenReturnExits (.done (.values [i32 12])) :=
+  leafRule false (.returnFrame [i32 6, i32 2] [i32 6] [i32 12] rfl)
+
+private theorem leafReturnsWritten :
+    (writingGraph false).Runs (writingChecked false) ⟨0⟩ (afterWrite false) (.done (.values [i32 12])) :=
+  (leafPreparesReturn.tail leafReturnLabel).tail leafReturnFrame
 
 private theorem writingReturns :
     (writingGraph false).Runs (writingChecked false) ⟨1⟩
@@ -468,7 +491,8 @@ example : V1.Execution.Step CallFrame.v1NoHost
       [.frame 1 ⟨[i32 4, i32 0], (writingParent false).declaration.module⟩
         [.label 1 [] ([.source (.intConst .i32 4)] ++
           [.frame 1 ⟨[i32 6, i32 2], (writingLeaf false).declaration.module⟩
-            [.label 1 [] [.source (.intConst .i32 6), .source (.localGet ⟨0⟩), .source (.intBinOp .i32 .add)]]] ++
+            [.label 1 [] [.source (.intConst .i32 6), .source (.localGet ⟨0⟩), .source (.localGet ⟨0⟩),
+              .source (.intBinOp .i32 .add), .source .return_, .source .unreachable]]] ++
           parentRest.map v1Admin.emit)]]⟩ := by
   have nested := liftWriteRun false (by trivial) ((leafGetsToTee false).tail (leafTee false))
   have ready := (writingGraph false).admitted_run (writingChecked false) rfl (.call rfl)
@@ -488,6 +512,45 @@ example : Lime1.Execution.Steps CallFrame.limeNoHost
   have ready := (writingGraph true).admitted_run (writingChecked true) rfl (.call rfl) (writingReached true)
   exact (lime_run_iff (writingChecked true) (limeAllocated _) (writingRoot true) ready).mpr
     ⟨_, trapReachesParent, .trapped rfl, rfl⟩
+
+private theorem nestedReturnLabel :
+    (writingGraph false).Edge (writingChecked false) ⟨1⟩
+      (suspendedWrite false beforeReturn) (suspendedWrite false betweenReturnExits) :=
+  parentRule false (.child (a := beforeReturn) (b := betweenReturnExits) [i32 4, i32 0] [i32 4]
+    (writingTarget false) parentRest (usesWritingTarget false) trivial leafReturnLabel)
+
+private theorem nestedReturnFrame :
+    (writingGraph false).Edge (writingChecked false) ⟨1⟩
+      (suspendedWrite false betweenReturnExits) (.label [i32 4, i32 0] (.running [i32 4, i32 12] parentRest)) :=
+  parentRule false (.child (a := betweenReturnExits) (b := .done (.values [i32 12])) [i32 4, i32 0] [i32 4]
+    (writingTarget false) parentRest (usesWritingTarget false) trivial leafReturnFrame)
+
+private theorem beforeReturnReady : Admitted (writingGraph false) (writingParent false)
+    (suspendedWrite false beforeReturn) :=
+  (writingGraph false).admitted_run (writingChecked false) rfl (.call rfl)
+    ((writingReached false).trans (liftWriteRun false (by trivial) leafPreparesReturn))
+
+example : Execution.Core.Step Numerics.Profile.spec SingleThreaded.Det.noHost
+    (coreConfig (coreStore (writingGraph false)) (callerFrame ⟨1⟩) (writingRootTarget false)
+      (suspendedWrite false beforeReturn))
+    ⟨coreStore (writingGraph false), (callerFrame ⟨1⟩).toCore,
+      [.frame 1 (currentFrame (writingParent false).declaration [i32 4, i32 0]).toCore
+        [.label 1 [] (.plain (.intConst .i32 4) ::
+          .frame 1 (currentFrame (writingLeaf false).declaration [i32 6, i32 2]).toCore
+            [.plain (.intConst .i32 6), .plain (.intConst .i32 12), .plain .return_] ::
+          parentRest.map coreAdmin.emit)]]⟩ :=
+  (core_step_iff (writingChecked false) (coreAllocated _) (writingRoot false) beforeReturnReady).mpr
+    ⟨_, nestedReturnLabel, rfl⟩
+
+example : V1.Execution.Step CallFrame.v1NoHost
+    (v1Config (v1Store (writingGraph false)) (callerFrame ⟨1⟩) (writingRootTarget false)
+      (suspendedWrite false betweenReturnExits))
+    ⟨v1Store (writingGraph false), callerFrame ⟨1⟩,
+      [.frame 1 (currentFrame (writingParent false).declaration [i32 4, i32 0])
+        [.label 1 [] (.source (.intConst .i32 4) :: .source (.intConst .i32 12) :: parentRest.map v1Admin.emit)]]⟩ := by
+  have ready := (writingGraph false).admitted_step (writingChecked false) rfl beforeReturnReady nestedReturnLabel
+  exact (v1_step_iff (writingV1Checked false) (v1Allocated _) (writingRoot false) ready).mpr
+    ⟨_, nestedReturnFrame, rfl⟩
 
 private def writingResult (traps : Bool) : Nested.Result := if traps then .trap else .values [i32 20]
 

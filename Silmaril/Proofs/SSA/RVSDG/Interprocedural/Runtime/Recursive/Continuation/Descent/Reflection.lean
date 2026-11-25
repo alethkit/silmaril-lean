@@ -1,6 +1,5 @@
 module
 
-public import Mathlib.Data.Nat.Find
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Defs
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Thms
 
@@ -28,33 +27,6 @@ private theorem before_entry {i : Nat} (bounded : i ≤ finish)
   have same : i = finish := by omega
   rw [← same, actual, noncall] at selected
   cases selected
-
-private theorem delimited_slice (steps : ∀ i, Step (micro i) (micro (i + 1)))
-    (frame : Stack m ports final) (i count : Nat)
-    (within : ∀ offset, offset < count → ¬ Feedback.atReturn frame (micro (i + offset))) :
-    ReflTransGen (Feedback.InsideStep frame) (micro i) (micro (i + count)) := by
-  induction count with
-  | zero => exact .refl
-  | succ count ih =>
-    exact (ih fun offset smaller => within offset (by omega)).tail
-      ⟨steps (i + count), within count (Nat.lt_succ_self _)⟩
-
-private theorem first_return (steps : ∀ i, Step (micro i) (micro (i + 1)))
-    {job : Job m ports} {frame : Stack m ports final} (entered : micro begin = .eval job frame) :
-    (∃ stop, begin ≤ stop ∧ stop < finish ∧ ∃ value,
-      micro stop = .returned value frame ∧ Returns m job value) ∨ BeforeReturn micro begin finish frame := by
-  classical
-  by_cases found : ∃ offset, begin + offset < finish ∧ Feedback.atReturn frame (micro (begin + offset))
-  · let offset := Nat.find found
-    obtain ⟨inTime, value, returned⟩ := Nat.find_spec found
-    have path := delimited_slice steps frame begin offset
-      (fun j smaller observed => Nat.find_min found smaller ⟨by omega, observed⟩)
-    rw [entered, returned] at path
-    exact .inl ⟨begin + offset, Nat.le_add_right _ _, inTime, value, returned,
-      (Feedback.returns_iff_delimited frame).mpr path⟩
-  · refine .inr (fun i lower upper observed => found ⟨i - begin, ?_, ?_⟩)
-    · simpa only [Nat.add_sub_of_le lower] using upper
-    · simpa only [Nat.add_sub_of_le lower] using observed
 
 theorem prefix_of_interval (steps : ∀ i, Step (micro i) (micro (i + 1)))
     (atFinish : Entry.ofState (micro finish) = some next) {job : Job m ports} {stack : Stack m ports final}
@@ -87,7 +59,7 @@ theorem prefix_of_interval (steps : ∀ i, Step (micro i) (micro (i + 1)))
       let active := Job.region body input (PUnit.unit : Locals m.Val [])
       have entered : micro (start + 1) = .eval active frame :=
         advance steps actual (show Step _ (.eval active frame) from rfl)
-      rcases first_return (finish := finish) steps entered with
+      rcases Feedback.first_return_before (finish := finish) steps entered with
         ⟨stop, afterEnter, inTime, value, returned, ran⟩ | under
       · cases value with
         | cons tag values =>
@@ -125,7 +97,7 @@ theorem prefix_of_interval (steps : ∀ i, Step (micro i) (micro (i + 1)))
         have entered : micro (start + 1) = .eval nodeJob frame :=
           advance steps actual (show Step _ (.eval nodeJob frame) from rfl)
         have inTime := before_entry (by omega) entered rfl atFinish
-        rcases first_return (finish := finish) steps entered with
+        rcases Feedback.first_return_before (finish := finish) steps entered with
           ⟨stop, afterEnter, returnedBefore, value, returned, ran⟩ | under
         · have resumed : micro (stop + 1) = .eval (.region rest entry (locals.snoc value)) stack :=
             advance steps returned (show Step _ (.eval (.region rest entry (locals.snoc value)) stack) from rfl)

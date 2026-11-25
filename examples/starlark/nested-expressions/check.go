@@ -145,6 +145,32 @@ tupleKey = {(0, 1, 2)[pick(1):] : 9}[(1, 2)]
 	_, err = initSource(`out = [0, 1, 2][-100000000000:100000000000:100000000000]`)
 	require(err != nil && strings.Contains(err.Error(), "invalid slice step"), fmt.Sprint(err))
 	fmt.Println("DIALECT pinned Go rejects a stride outside signed 32 bits")
+
+	g, err = initSource(setup + `out = note(1, "aé🙂z")[note(2, 1):note(3, -1):note(4, None)]
+size = len(out)
+reverse = "aéz"[::-3]
+empty = "é"[1:1]`)
+	require(err == nil && g["out"] == starlark.String("é🙂") && g["size"].String() == "6" &&
+		g["reverse"] == starlark.String("za") && g["empty"] == starlark.String("") &&
+		g["events"].String() == "[1, 2, 3, 4]", fmt.Sprint(err))
+	fmt.Println("PASS string slices count UTF-8 bytes, including a valid reverse stride and an empty result")
+
+	g, err = initSource(setup + `out = note(1, "aé🙂z")[note(2, 1):note(3, 2):note(4, None)]
+reverse = "é"[::-1]
+index = "é"[0]`)
+	require(err == nil && g["out"] == starlark.String("\xc3") && g["reverse"] == starlark.String("\xa9\xc3") &&
+		g["index"] == starlark.String("\xc3") && g["events"].String() == "[1, 2, 3, 4]", fmt.Sprint(err))
+	fmt.Println("DIALECT pinned Go preserves malformed UTF-8 from a split, reversal or single-byte index")
+
+	for _, test := range []struct{ expr, message string }{
+		{`note(1, "é")[note(2, 0):note(3, 1):len(note(4, 9))]`, "has no len"},
+		{`note(1, "é")[note(2, 0):note(3, 1):note(4, 0)]`, "zero is not a valid slice step"},
+	} {
+		g, err := initSource(setup + "out = " + test.expr)
+		require(err != nil && strings.Contains(err.Error(), test.message), fmt.Sprint(err))
+		require(g["out"] == nil && g["events"].String() == "[1, 2, 3, 4]", test.expr)
+	}
+	fmt.Println("PASS string slice operand and stride failures retain earlier effects")
 }
 
 func main() {

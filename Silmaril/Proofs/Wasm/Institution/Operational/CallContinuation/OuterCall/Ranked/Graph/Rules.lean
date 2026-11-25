@@ -36,6 +36,8 @@ theorem map_child {fn : Function} {r₁ r₂ : CallTarget → Phase → Phase �
   | dispatch locals saved operands target rest used count => exact .dispatch locals saved operands target rest used count
   | child locals saved target rest used live step => exact .child locals saved target rest used live (map target used step)
   | discard step => exact .discard step
+  | returnLabel locals stack rest => exact .returnLabel locals stack rest
+  | returnFrame locals extra results arity => exact .returnFrame locals extra results arity
   | leaveValues args stack => exact .leaveValues args stack
   | leaveTrap args => exact .leaveTrap args
   | leaveFrame args result typed => exact .leaveFrame args result typed
