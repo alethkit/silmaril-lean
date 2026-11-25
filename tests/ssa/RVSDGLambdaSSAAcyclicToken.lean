@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Partial.Thms
 import Silmaril.Raw.SSA.Isotope.Semantics.Model
 
@@ -194,5 +194,85 @@ example (coherent : Coherent) :
     (Region.denote (ε := Bool) (m := Runtime) lowered.2.typing (PUnit.unit, (3 : Nat))).run [] =
       Part.none :=
   (lowered.2.region_undefined_iff coherent (PUnit.unit, (3 : Nat)) []).mp wireUndefined
+
+section Reverse
+
+open OrderedTheta (carried carriedData resultData)
+open OrderedRuntime.Structured (Threaded runtimePort nextRuntime)
+open TwoBlock.TwoExit (Carrier ExitCode Pure Route headerPorts armPorts)
+open TwoBlock.ExplicitRuntime.Skeleton (Closed)
+open LinearChain.Wiring (newest)
+
+private noncomputable def recovered := Reverse.raise (Reverse.canonical spec)
+
+example : recovered.1 = region spec := Reverse.raise_canonical_source spec
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recovered.2.typing (PUnit.unit, (2 : Nat))).run [] =
+      Part.some (joinExit, finalToken) := by
+  apply (Reverse.raise_returns_iff (Reverse.canonical spec) coherent
+    (PUnit.unit, (2 : Nat)) joinExit [] finalToken).mp
+  exact (NestedTheta.Partial.observe_eq_some _ _ _ _).mp wireFeedback
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recovered.2.typing (PUnit.unit, (3 : Nat))).run [] =
+      Part.none :=
+  (Reverse.raise_undefined_iff (Reverse.canonical spec) coherent (PUnit.unit, (3 : Nat)) []).mp wireUndefined
+
+private abbrev Carry := Carrier number number pair
+private def manualHeader : TwoBlock.Instruction Op number (Silmaril.coprod number number) := ⟨.header, rfl, rfl⟩
+private def manualCall : TwoBlock.Instruction Op number pair := ⟨.innerRight, rfl, rfl⟩
+private def manualJoin : TwoBlock.Instruction Op pair (Silmaril.coprod pair number) := ⟨.join, rfl, rfl⟩
+
+-- Assemble the numbered graph from checked wire constructors without a source region or Loop.
+private def manualBody :
+    Wiring.Code (past := []) Op (Wiring.armData number number number pair) (resultData Carry)
+      (.arg (runtimePort (armPorts number number number pair))) :=
+  Wiring.primitive (carriedData (Silmaril.coprod (ExitCode number pair) number)) (carriedData pair)
+    (.effect (.acyclic (.call (.right (X := ExitCode number pair)) manualCall))) (.arg _) (.cons (.arg (.tail .head)) .nil)
+    (Wiring.primitive (carriedData pair) (resultData Carry) (.effect (.join manualJoin))
+      (nextRuntime [] (carried pair)) (.cons (newest .head []) .nil)
+      (Wiring.finishStep [Threaded (carried pair)]))
+
+private def manualActivation :
+    Wiring.Code (past := []) Op (carriedData Carry) (resultData Carry) (.arg (runtimePort (carried Carry))) :=
+  let header := headerPorts number number pair
+  Wiring.primitive (past := []) (carriedData Carry) (resultData (Route number number pair))
+    (.effect (.header manualHeader)) (.arg _) (.cons (.arg .head) .nil)
+    (Wiring.choice (Wiring.armData number number number pair) (resultData Carry) Wiring.exitArm manualBody
+      (newest .head []) (nextRuntime [] header)
+      (.cons (.arg .head) (.cons (newest (.tail .head) []) .nil))
+      (Wiring.finishStep [Threaded header]))
+
+private def manualTerm :
+    Closed (Pure Ty) (Effect Op) (carriedData Carry) (carriedData Carry) [Threaded (carried Carry)] :=
+  ⟨_, .theta (.arg (runtimePort (carried Carry))) (carriedData Carry) (.cons (.arg .head) .nil)
+    manualActivation.1 (children := fun _ => manualActivation.2.1) (fun _ => manualActivation.2.2)
+    (.ret (nextRuntime [] (carried Carry)) (.cons (newest .head []) .nil))⟩
+
+private def manualGraph : Graph Op number number pair := manualTerm.1.toGraph
+
+private def manualDecomposition : Reverse.Decomposition manualGraph number pair where
+  checked := manualTerm.2.collect
+  view := by
+    exact .loop manualHeader (.call manualCall) manualJoin
+  wiring := by rfl
+
+example :
+    (Reverse.raise manualDecomposition).1 =
+      .cfg (.br 0 (.var 0)) 3
+        (Fin.cases (.case (.op .header (.var 0)) (.br 3 (.var 0)) (.br 2 (.var 0)))
+          (fun i => Fin.cases
+            (.case (.op .join (.var 0)) (.br 4 (.var 0)) (.br 0 (.var 0)))
+            (fun _ => .br 1 (.op .innerRight (.var 0))) i)) := by
+  apply congrArg (Isotope.LambdaSSA.Region.cfg (.br 0 (.var 0)) 3)
+  funext i
+  refine Fin.cases ?_ (fun j => ?_) i
+  · rfl
+  · refine Fin.cases ?_ (fun k => ?_) j
+    · rfl
+    · exact k.eq_zero ▸ rfl
+
+end Reverse
 
 end Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Tests
