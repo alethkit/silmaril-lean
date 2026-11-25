@@ -66,6 +66,11 @@ theorem pureReturn_returnTerm {A B : τ} {a : Tm Φ} (ha : Tm.HasType [A] a B) (
     PureReturn pe (returnTerm ha) :=
   ⟨a, ha, hp, rfl⟩
 
+/-- The immediate return of a constructor value is in the pure image and has both interchange squares. -/
+theorem centralPureReturn_branchValue {A B : τ} {a : Tm Φ} (ha : Tm.BranchValue [A] a B) :
+    CentralPureReturn pe (ofRegion (.br (ℓ := 0) rfl ha)) :=
+  PureReturnComposition.centralPureReturn_branchValue pe ha
+
 theorem pureReturn_id (A : Comp) : PureReturn pe (𝟙 A) :=
   ⟨.var 0, .var rfl, .var, (returnTerm_id (show τ from A)).symm⟩
 

@@ -79,6 +79,13 @@ private theorem branchValue_pure {Γ : VCtx τ} {T : τ} {a : Tm Φ}
   | inl _ ih => exact .inl ih
   | inr _ ih => exact .inr ih
 
+theorem centralPureReturn_branchValue {A B : τ} {a : Tm Φ} (ha : Tm.BranchValue [A] a B) :
+    CentralPureReturn pe (ofRegion (.br (ℓ := 0) rfl ha)) := by
+  have eq := (ofRegion_eq_iff (returnRegion_typed ha.hasType) (.br rfl ha)).mpr
+    (.cfgEta (.native (.base (CfgEta.TypeCategory.returnRegion_branchValue ha))))
+  exact ⟨eq ▸ ⟨a, ha.hasType, branchValue_pure pe ha, rfl⟩,
+    whiskerCentral_ofRegion_branchValue ha⟩
+
 theorem pureReturnGenerators_le (central : PrimitiveReturnsCentral (τ := τ) (Φ := Φ) pe) :
     PureReturnGenerators (τ := τ) (Φ := Φ) pe ≤ CentralPureReturn pe := by
   intro A B f hf
