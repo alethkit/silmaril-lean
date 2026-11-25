@@ -65,7 +65,7 @@ private theorem renameLookup_lift {Γ Δ : VCtx τ} {ρ : Nat → Nat} (hρ : Re
     change (k ▷ M.obj B) ≫ lookup M (i + 1) hi = lookup M (ρ i + 1) ((hρ.lift B) hi)
     rw [lookup_succ, lookup_succ, CartesianMonoidalCategory.whiskerRight_fst_assoc, hk]
 
-private theorem denotes_rename {Γ : VCtx τ} {a : Tm Φ} {A : τ} {ha : Tm.HasType Γ a A}
+theorem denotes_rename {Γ : VCtx τ} {a : Tm Φ} {A : τ} {ha : Tm.HasType Γ a A}
     {f : J.obj (ctxObj M Γ) ⟶ J.obj (M.obj A)} (d : Denotes J M ha f)
     {Δ : VCtx τ} {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ) {k : ctxObj M Δ ⟶ ctxObj M Γ}
     (hk : ∀ ⦃i B⦄ (h : At Γ i B), k ≫ lookup M i h = lookup M (ρ i) (hρ h)) :
@@ -100,7 +100,7 @@ private theorem denotes_rename {Γ : VCtx τ} {a : Tm Φ} {A : τ} {ha : Tm.HasT
     exact .case (ihe hρ hk) (ihl (hρ.lift _) (renameLookup_lift M hρ hk _))
       (ihr (hρ.lift _) (renameLookup_lift M hρ hk _))
 
-private def SubstDenotes {Γ Δ : VCtx τ} (σ : Nat → Tm Φ) (k : ctxObj M Δ ⟶ ctxObj M Γ) : Prop :=
+@[expose] def SubstDenotes {Γ Δ : VCtx τ} (σ : Nat → Tm Φ) (k : ctxObj M Δ ⟶ ctxObj M Γ) : Prop :=
   ∀ ⦃i A⦄ (hi : At Γ i A), ∃ h : Tm.HasType Δ (σ i) A,
     Denotes J M h (J.map (k ≫ lookup M i hi))
 
@@ -182,7 +182,7 @@ variable [Iteration C] [ElgotCategory C] [StrongElgotFreydCategory J]
 
 open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (caseWithContext contextualLoop)
 
-private theorem regionDenotes_subst {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
+theorem regionDenotes_subst {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
     {hr : Region.HasType Γ r L} {f : J.obj (ctxObj M Γ) ⟶ J.obj (labelObj M L)}
     (d : RegionDenotes J M hr f) {Δ : VCtx τ} {σ : Nat → Tm Φ}
     {k : ctxObj M Δ ⟶ ctxObj M Γ} (hσ : SubstDenotes J M σ k) :
