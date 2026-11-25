@@ -8,15 +8,16 @@ executor projection assembles these equations at the actual
 The fixed code table is the view of finite rows. Machine states retain
 the original typed frames, bodies, continuations, stacks and result
 payloads. Each state carries a finite heap, with its exact frontier and
-cell addresses.
+cell addresses. Both sides use the same ambient global lookup.
 
-`advance_project` preserves the optional label and the full projected
-successor for every executor state. `step_iff` relates the finite
+`advanceIn_project` preserves the optional label and the full projected
+successor for every executor state. `stepIn_iff` relates the finite
 selector to the Core inductive step relation from a specified finite
-source. `execution_readback` threads the recovered witness through the
+source. `executionIn_readback` threads the recovered witness through the
 whole finite run. It preserves every action, including silent actions,
-and every projected state. `runPrefix_project` relates the executors'
-fuel-bounded prefixes, visible event lists and residual states.
+and every projected state. `runPrefixIn_project` relates the executors'
+fuel-bounded prefixes, visible event lists and residual states for a
+fixed lookup. The original interfaces use the empty lookup.
 
 The same correspondence covers failed code lookup, defined exceptions,
 return delivery and successful result storage in the caller. Finished

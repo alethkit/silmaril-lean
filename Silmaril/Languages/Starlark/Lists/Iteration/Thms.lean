@@ -3,10 +3,24 @@ module
 public import Silmaril.Languages.Starlark.Lists.Iteration.Operational.Defs
 import Silmaril.Proofs.Languages.Starlark.Lists.Iteration.Eval
 import Silmaril.Proofs.Languages.Starlark.Lists.Iteration.Cleanup
+import Silmaril.Proofs.Languages.Starlark.Lists.Iteration.Truth
 
 public section
 
 namespace Silmaril.Languages.Starlark.Lists.Iteration
+
+theorem projectCell_finishState {α : Type} (address : Address) (project : Contents → Option α)
+    (state : State) : finishState (projectCell address project state) = state :=
+  Proofs.Languages.Starlark.Lists.Iteration.projectCell_finishState address project state
+
+theorem map_finishState {α β : Type} (action : Meaning α) (f : α → β) (state : State) :
+    finishState ((f <$> action) state) = finishState (action state) :=
+  Proofs.Languages.Starlark.Lists.Iteration.map_finishState action f state
+
+/-- Truth testing reads the store and preserves it on success and failure. -/
+theorem truth_finishState (value : Value) (state : State) :
+    finishState (truth value state) = state :=
+  Proofs.Languages.Starlark.Lists.Iteration.truth_finishState value state
 
 /-- The suite denotation agrees with the independent rules on exact outcomes. -/
 theorem runs_iff_denoteSuite {depth : Nat} (code : Suite depth) (state : State)

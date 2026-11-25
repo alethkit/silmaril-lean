@@ -9,9 +9,10 @@ public import Silmaril.Courses.Cambridge.Subtyping.Preservation
 
 namespace Silmaril.Courses.Cambridge.Subtyping.Examples
 
-open L3 (Ty Expr IsValue Value Store Step Steps Stuck RecordLabels)
+open L3 (Ty Expr IsValue Value Store Step Steps Stuck RecordLabels LocTypes VarTypes)
 
 abbrev labelsP : RecordLabels := ⟨["p"], by decide⟩
+abbrev labelsQ : RecordLabels := ⟨["q"], by decide⟩
 abbrev labelsPQ : RecordLabels := ⟨["p", "q"], by decide⟩
 abbrev labelsQP : RecordLabels := ⟨["q", "p"], by decide⟩
 
@@ -43,6 +44,104 @@ theorem projectionApplication_typed : HasType ∅ .empty projectionApplication .
 theorem projectionApplication_trace : Steps ⟨projectionApplication, ∅⟩ ⟨.int 3, ∅⟩ :=
   .head (.appFun valuePQ.property)
     (.single (.projectValue (labels := labelsPQ) 0 (fun i => .int (fieldsPQ i))))
+
+/-- Exercise 32(1) on p. 87. Keep the outer field and forget the inner fields. -/
+def nestedSingleton : Expr :=
+  .record labelsP (fun _ => .record labelsP (fun _ => .record labelsP (fun _ =>
+    .record labelsP (fun _ => .int 3))))
+
+def singletonP (A : Ty) : Ty := .record labelsP (fun _ => A)
+
+def emptyRecord : Ty := .record ⟨[], by decide⟩ (fun i => Fin.elim0 i)
+
+theorem nestedSingleton_typed :
+    HasType ∅ .empty nestedSingleton (singletonP emptyRecord) := by
+  let inner := singletonP (singletonP typeP)
+  have inferred : HasType ∅ .empty nestedSingleton (singletonP inner) :=
+    .record (fun _ => .record (fun _ => .record (fun _ => .record (fun _ => .int 3))))
+  have width : L3Subty inner emptyRecord :=
+    .recordWidth (kept := []) (dropped := [("p", singletonP typeP)]) rfl rfl
+  apply Typing.sub inferred (.recordDepth [("p", inner, emptyRecord)] rfl rfl ?_)
+  intro label source target member
+  simp only [List.mem_singleton, Prod.mk.injEq] at member
+  obtain ⟨rfl, rfl, rfl⟩ := member
+  exact width
+
+def intBoolRecordType : Ty := .record labelsPQ (fun i => if i = 0 then .int else .bool)
+
+def nestedProjectionDomain : Ty :=
+  .record labelsPQ (fun i => if i = 0 then .bool else intBoolRecordType)
+
+/-- Exercise 32(2) on p. 88. Project the integer through the nested record. -/
+def nestedProjectionFunction : Expr :=
+  .lam nestedProjectionDomain (.project (.project (.bvar 0) "q") "p")
+
+theorem nestedProjectionFunction_typed :
+    HasType ∅ .empty nestedProjectionFunction (.arr nestedProjectionDomain .int) :=
+  .lam (.project (labels := labelsPQ) (types := fun i => if i = 0 then .int else .bool) 0
+    (.project (labels := labelsPQ) (types := fun i => if i = 0 then .bool else intBoolRecordType)
+      1 (.bvar rfl)))
+
+private theorem add_left_typed {Θ : LocTypes} {Γ : VarTypes} {e left right : Expr} {T : Ty}
+    (typed : HasType Θ Γ e T) (shape : e = .binary left .add right) :
+    HasType Θ Γ left .int := by
+  induction typed
+  case add leftTyped _ _ _ => cases shape; exact leftTyped
+  case sub _ _ ih => exact ih shape
+  all_goals cases shape
+
+private theorem app_typed {Θ : LocTypes} {Γ : VarTypes} {e fn arg : Expr} {T : Ty}
+    (typed : HasType Θ Γ e T) (shape : e = .app fn arg) :
+    ∃ A B, HasType Θ Γ fn (.arr A B) ∧ HasType Θ Γ arg A := by
+  induction typed
+  case app fnTyped argTyped _ _ => cases shape; exact ⟨_, _, fnTyped, argTyped⟩
+  case sub _ _ ih => exact ih shape
+  all_goals cases shape
+
+private theorem bound_subtype {Θ : LocTypes} {Γ : VarTypes} {e : Expr} {T A : Ty} {i : Nat}
+    (typed : HasType Θ Γ e T) (shape : e = .bvar i) (lookup : Γ.bound[i]? = some A) :
+    L3Subty A T := by
+  induction typed
+  case bvar found =>
+    cases shape
+    cases Option.some.inj (lookup.symm.trans found)
+    exact .refl _
+  case sub _ sub ih => exact (ih shape lookup).trans sub
+  all_goals cases shape
+
+def argumentQ : Expr := .record labelsQ (fun _ => .int 3)
+
+private theorem argumentQ_not_typed {Θ : LocTypes} {Γ : VarTypes} :
+    ¬ HasType Θ Γ argumentQ typeP := by
+  intro typed
+  obtain ⟨source, introType, subtype⟩ := typed.valueTyping (.record (fun _ => .int 3))
+  cases introType with
+  | record =>
+    obtain ⟨_, _, same, fields⟩ := L3Subty.record_inv (labels := labelsP) subtype
+    cases same
+    obtain ⟨i, labelEq, _⟩ := fields 0
+    have only : i = 0 := Fin.ext (Nat.le_zero.mp (Nat.le_of_lt_succ i.isLt))
+    subst i
+    exact (by decide : "q" ≠ "p") labelEq
+
+/-- Exercise 32(3) on p. 88. Only the first argument omits the required field. -/
+def missingFieldArgumentFunction : Expr :=
+  .lam (.arr typeP .int)
+    (.binary (.app (.bvar 0) argumentQ) .add
+      (.app (.bvar 0) (.record labelsP (fun _ => .int 4))))
+
+theorem missingFieldArgumentFunction_untypable (T : Ty) :
+    ¬ HasType ∅ .empty missingFieldArgumentFunction T := by
+  intro typed
+  obtain ⟨_, introType, _⟩ := typed.valueTyping (.lam _ _)
+  cases introType with
+  | lam bodyTyped =>
+    have left := add_left_typed bodyTyped rfl
+    obtain ⟨A, B, fn, arg⟩ := app_typed left rfl
+    have functionSubtype : L3Subty (.arr typeP .int) (.arr A B) := bound_subtype fn rfl rfl
+    obtain ⟨_, _, same, domainSubtype, _⟩ := L3Subty.arr_inv functionSubtype
+    cases same
+    exact argumentQ_not_typed (.sub arg domainSubtype)
 
 /-- Exercise 32(4). The first argument puts the required field second. -/
 def reorderedArgumentFunction : Expr :=

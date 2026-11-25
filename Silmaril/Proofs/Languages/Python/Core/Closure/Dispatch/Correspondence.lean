@@ -39,6 +39,7 @@ variable {callee : Value} {arguments : List Value} {heap : Heap}
 theorem dispatch_sound (launched : dispatch table callee arguments heap caller stack = .ok active) :
     Dispatches table arguments heap caller stack callee active := by
   cases callee with
+  | none => simp [dispatch] at launched
   | int value => simp [dispatch] at launched
   | bool value => simp [dispatch] at launched
   | function fn =>

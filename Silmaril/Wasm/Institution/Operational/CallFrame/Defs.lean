@@ -55,6 +55,11 @@ inductive State where
   | returned (saved results : List Value)
   | trapped (saved : List Value)
 
+/-- Operand values below this invocation's arguments and results. -/
+def State.saved : State → List Value
+  | .invoke saved _ | .label saved _ _ | .exit saved _ _
+  | .returned saved _ | .trapped saved => saved
+
 inductive Judgment where
   | body (edge : Locals.Judgment)
   | call (source target : State)

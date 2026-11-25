@@ -67,6 +67,12 @@ theorem toThesis_fsubst [DecidableEq ν] {n : Nat} (x : ν) (s t : LTm ν Φ n) 
 
 end Syntax
 
+/-- Translating a bound context preserves the type at each index. -/
+theorem BoundCtx.get_toThesis {τ : Type u} {n : Nat}
+    (β : Silmaril.Isotope.BoundCtx τ n) (i : Fin n) :
+    (BoundCtx.toThesis β).get i = β.get i :=
+  Silmaril.Proofs.SSA.Isotope.Bridge.BoundCtx.get_toThesis β i
+
 /-! ## Typing and equivalence -/
 
 section Theory
