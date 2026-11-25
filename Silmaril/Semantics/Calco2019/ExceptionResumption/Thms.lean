@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Semantics.Calco2019.ExceptionResumption.Defs
+public import Silmaril.Semantics.Calco2019.ExceptionResumption.Suspension.Thms
 import Silmaril.Proofs.Semantics.Calco2019.ExceptionResumption
 
 /-! # Guardedness and preservation for the embeddings of Lemma 27 -/
@@ -32,22 +33,21 @@ theorem liftBase_out (X : C) :
 @[reassoc, simp]
 theorem liftStep_out (X : C) :
     liftStep T H R X ≫ R.out X = H.map (R.unit X) ≫ raise P T.monad (H.obj (R.obj X)) X :=
-  Proofs.step_out T H R X
+  liftStepFor_out P T.monad H R X
 
 /-- The suspension generator of Lemma 27(1). -/
-noncomputable def suspension : H ⟶ ((R.monad P : CategoryTheory.Monad C) : C ⥤ C) where
-  app := liftStep T H R
-  naturality _ _ f := Proofs.step_nat T H R f
+noncomputable def suspension : H ⟶ ((R.monad P : CategoryTheory.Monad C) : C ⥤ C) :=
+  suspensionFor P T.monad H R
 
 @[simp]
 theorem suspension_app (X : C) : (suspension T H R).app X = liftStep T H R X :=
-  by unfold suspension; rfl
+  suspensionFor_app P T.monad H R X
 
 /-- Every suspension is guarded in its entire output. -/
 theorem suspension_guarded [HasInitial C] :
     MonadGuardedness.GuardedNatTrans P ((parametrizedElgot T H).resumptionElgotMonad R).guard
       (suspension T H R) :=
-  Proofs.suspension_guard T H R
+  suspensionFor_guarded P T.monad H R T.guard
 
 /-- The embedding of the base monad preserves unit and bind. -/
 noncomputable def baseMonadHom : T.monad ⟶ R.monad P where

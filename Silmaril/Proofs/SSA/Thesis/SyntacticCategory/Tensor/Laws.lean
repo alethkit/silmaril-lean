@@ -82,6 +82,60 @@ private theorem let_tensor_pair {n : Nat} {β : BoundCtx S.Ty n} {R A B : S.Ty}
   rw [instantiate_onNewest_tensor] at e
   exact e.trans (left_on_pair h ha hb hpa hpb)
 
+theorem pair_pure_left {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {a b : Tm Empty S.Instr n} (ha : HasType S.Instr Ctx.nil β a A)
+    (hb : HasType S.Instr Ctx.nil β b B) (hp : Pure S.pureEff a) :
+    Eqv S.pureEff Ctx.nil β (.pair a b) (.let₁ b (.pair (lift a) (.bv 0))) (tensor A B) := by
+  let p := HasType.pair ha hb
+  let q : HasType S.Instr (Ctx.nil : Ctx Empty S.Ty) (.snoc (.snoc β A) B) (.pair (.bv 1) (.bv 0))
+      (tensor A B) := .pair HasType.previous HasType.newest
+  let c := HasType.let₁ hb.lift q
+  have drop : instantiate (.let₁ (lift b) (.pair (.bv 1) (.bv 0))) a = .let₁ b (.pair (lift a) (.bv 0)) := by
+    simp only [instantiate, bsubst_let₁, bsubst_pair, bsubst_bv, lift, bsubst_rename, Fin.cases_succ]
+    have e : bsubst (fun i => .bv i) b = b := by rw [bsubst_bv_eq_rename, rename_id]
+    rw [e]
+    rfl
+  exact (Eqv.ax (.structural (.pairEta _)) (.let₂ p q) p).symm.trans
+    ((Eqv.ax (.structural (.pairBeta a b _)) (.let₂ p q) (.let₁ ha c)).trans (by
+      have e := Eqv.ax (.structural (.letBeta hp)) (.let₁ ha c) (c.instantiate ha)
+      rwa [drop] at e))
+
+theorem pair_pure_right {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {a b : Tm Empty S.Instr n} (ha : HasType S.Instr Ctx.nil β a A)
+    (hb : HasType S.Instr Ctx.nil β b B) (hp : Pure S.pureEff b) :
+    Eqv S.pureEff Ctx.nil β (.pair a b) (.let₁ a (.pair (.bv 0) (lift b))) (tensor A B) := by
+  let p := HasType.pair ha hb
+  let q : HasType S.Instr (Ctx.nil : Ctx Empty S.Ty) (.snoc (.snoc β A) B)
+      (.pair (.bv 1) (.bv 0)) (tensor A B) := .pair HasType.previous HasType.newest
+  exact (Eqv.ax (.structural (.pairEta _)) (.let₂ p q) p).symm.trans
+    ((Eqv.ax (.structural (.pairBeta a b _)) (.let₂ p q) (.let₁ ha (.let₁ hb.lift q))).trans
+      (.let₁ (.refl ha) (.ax (.structural (.letBeta (hp.rename Fin.succ)))
+        (.let₁ hb.lift q) (q.instantiate hb.lift))))
+
+theorem tensorLeft_pair_proof {X R A B : SynCat S} {a : X ⟶ R} {b : X ⟶ A}
+    (ha : IsPureMor a) (hb : IsPureMor b) (f : A ⟶ B) :
+    pairArrows a b ≫ tensorLeft R f = pairArrows a (b ≫ f) := by
+  obtain ⟨a, ha, hpa, rfl⟩ := ha
+  obtain ⟨b, hb, hpb, rfl⟩ := hb
+  induction f using Syn.ind with
+  | H t ht =>
+    apply Quotient.sound
+    let k := HasType.let₁ hb (onNewestTyping ht)
+    have apply_eq : instantiate (onNewest t) b = bsubst (fun _ : Fin 1 => b) t := by
+      rw [instantiate, onNewest, bsubst_rename]
+      rfl
+    have beta := Eqv.ax (.structural (.letBeta hpb)) k ((onNewestTyping ht).instantiate hb)
+    rw [apply_eq] at beta
+    change Eqv S.pureEff Ctx.nil _ (.let₁ (.pair a b) (underBinder (tensorLeftTm t)))
+      (.pair a (.let₁ b (underBinder t))) _
+    have shift (s : Tm Empty S.Instr 1) : underBinder s = onNewest s :=
+      rename_congr (Fin.cases rfl (fun i => i.elim0)) _
+    rw [shift, shift]
+    have term := pair_pure_left ha ((onNewestTyping ht).instantiate hb) hpa
+    rw [apply_eq] at term
+    exact (let_tensor_pair ht ha hb hpa hpb).trans
+      (term.symm.trans (.pair (.refl ha) beta.symm))
+
 private theorem underBinder_eq_onNewest (t : Tm Empty S.Instr 1) :
     underBinder t = onNewest t :=
   rename_congr (Fin.cases rfl (fun i => i.elim0)) _
@@ -212,36 +266,58 @@ private theorem tensorLeft_first (R : SynCat S) {A B : SynCat S} {f : A ⟶ B}
   rw [underBinder_eq_onNewest]
   exact e.trans (Eqv.let₂ (.refl x) (step.trans head))
 
-private theorem tensorLeft_second (R : SynCat S) {A B : SynCat S} {f : A ⟶ B}
-    (hf : IsPureMor f) : tensorLeft R f ≫ second R B = second R A ≫ f := by
-  obtain ⟨t, ht, hp, rfl⟩ := hf
-  apply Quotient.sound
-  let β := BoundCtx.nil.snoc (tensor R.ty A.ty)
-  let γ := (β.snoc R.ty).snoc A.ty
-  let x : HasType S.Instr (Ctx.nil : Ctx Empty S.Ty) β (.bv 0) (tensor R.ty A.ty) :=
-    HasType.newest
-  let k := HasType.let₂ (A := R.ty) (B := B.ty)
+private theorem after_tensor_second {n : Nat} {β : BoundCtx S.Ty n} {R A B : S.Ty}
+    {t : Tm Empty S.Instr 1} (ht : HasType S.Instr Ctx.nil (.snoc .nil A) t B) :
+    Eqv S.pureEff Ctx.nil (.snoc (.snoc β R) A)
+      (.let₁ (tensorLeftBody t) (onNewest (.let₂ (.bv 0) (.bv 0)))) (onNewest t) B := by
+  let γ := (β.snoc R).snoc A
+  let f := onNewestTyping (β := β.snoc R) ht
+  let left : HasType S.Instr (Ctx.nil : Ctx Empty S.Ty) (.snoc γ B) (.bv 2) R := .bv
+  let right := HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+    (β := γ) (A := B)
+  let p := HasType.pair left right
+  let k := HasType.let₂ (A := R) (B := B)
     (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty)) (β := .nil)) HasType.newest
-  let e := after_destructuring x (tensorLeftBodyTyping ht) k
-  have step := after_pure_tensor_body (β := β) ht hp k
-  have last := second_beta (HasType.previous (β := β) (A := R.ty) (B := A.ty))
-    (onNewestTyping (β := β.snoc R.ty) ht) .bv
-  let x₀ := HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
-    (β := β.snoc R.ty) (A := A.ty)
-  let hbody := onNewestTyping (β := γ) ht
-  have beta : Eqv S.pureEff Ctx.nil γ (.let₁ (.bv 0) (onNewest t)) (onNewest t) B.ty := by
-    have ax := Eqv.ax (pureEff := S.pureEff) (.structural (.letBeta .bv))
-      (.let₁ x₀ hbody) (hbody.instantiate x₀)
-    have openTerm : instantiate (onNewest t) (.bv (0 : Fin 3)) = onNewest t := by
-      rw [instantiate, onNewest, bsubst_rename, onNewest]
-      exact bsubst_bv_eq_rename (fun _ => 0) _
-    rwa [openTerm] at ax
-  change Eqv S.pureEff Ctx.nil β
-    (.let₁ (tensorLeftTm t) (underBinder (.let₂ (.bv 0) (.bv 0))))
-    (.let₁ (.let₂ (.bv 0) (.bv 0)) (underBinder t)) B.ty
-  rw [underBinder_eq_onNewest, underBinder_eq_onNewest]
-  exact (e.trans (Eqv.let₂ (.refl x) (step.trans last))).trans
-    ((after_destructuring x x₀ ht).trans (Eqv.let₂ (.refl x) beta)).symm
+  let c := onNewestTyping (β := γ) k
+  have assoc := Eqv.ax (pureEff := S.pureEff) (.sequencing (.bindLet _ _ _))
+    (.let₁ (.let₁ f p) c) (.let₁ f (.let₁ p c.underBinder))
+  rw [underBinder_onNewest] at assoc
+  let c' := onNewestTyping (β := γ.snoc B) k
+  have beta := Eqv.ax (pureEff := S.pureEff) (.structural (.letBeta (.pair .bv .bv)))
+    (.let₁ p c') (c'.instantiate p)
+  have eta := Eqv.ax (pureEff := S.pureEff) (.structural (.letEta _))
+    (.let₁ f HasType.newest) f
+  exact assoc.trans ((Eqv.let₁ (.refl f)
+    (beta.trans (second_beta left right .bv))).trans eta)
+
+theorem tensorLeft_second_proof (R : SynCat S) {A B : SynCat S} (f : A ⟶ B) :
+    tensorLeft R f ≫ second R B = second R A ≫ f := by
+  induction f using Syn.ind with
+  | H t ht =>
+    apply Quotient.sound
+    let β := BoundCtx.nil.snoc (tensor R.ty A.ty)
+    let γ := (β.snoc R.ty).snoc A.ty
+    let x : HasType S.Instr (Ctx.nil : Ctx Empty S.Ty) β (.bv 0) (tensor R.ty A.ty) :=
+      HasType.newest
+    let k := HasType.let₂ (A := R.ty) (B := B.ty)
+      (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty)) (β := .nil)) HasType.newest
+    let e := after_destructuring x (tensorLeftBodyTyping ht) k
+    let x₀ := HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+      (β := β.snoc R.ty) (A := A.ty)
+    let hbody := onNewestTyping (β := γ) ht
+    have beta : Eqv S.pureEff Ctx.nil γ (.let₁ (.bv 0) (onNewest t)) (onNewest t) B.ty := by
+      have ax := Eqv.ax (pureEff := S.pureEff) (.structural (.letBeta .bv))
+        (.let₁ x₀ hbody) (hbody.instantiate x₀)
+      have openTerm : instantiate (onNewest t) (.bv (0 : Fin 3)) = onNewest t := by
+        rw [instantiate, onNewest, bsubst_rename, onNewest]
+        exact bsubst_bv_eq_rename (fun _ => 0) _
+      rwa [openTerm] at ax
+    change Eqv S.pureEff Ctx.nil β
+      (.let₁ (tensorLeftTm t) (underBinder (.let₂ (.bv 0) (.bv 0))))
+      (.let₁ (.let₂ (.bv 0) (.bv 0)) (underBinder t)) B.ty
+    rw [underBinder_eq_onNewest, underBinder_eq_onNewest]
+    exact (e.trans (Eqv.let₂ (.refl x) (after_tensor_second ht))).trans
+      ((after_destructuring x x₀ ht).trans (Eqv.let₂ (.refl x) beta)).symm
 
 theorem tensorLeft_value_proof {R A B : ValueCat S} (f : A ⟶ B) :
     tensorLeft R.obj f.hom = (CategoryTheory.MonoidalCategoryStruct.whiskerLeft R f).hom := by
@@ -253,7 +329,7 @@ theorem tensorLeft_value_proof {R A B : ValueCat S} (f : A ⟶ B) :
   · rw [CartesianMonoidalCategory.whiskerLeft_fst]
     exact WideSubcategory.hom_ext (pureProperty S) (tensorLeft_first R.obj f.property)
   · rw [CartesianMonoidalCategory.whiskerLeft_snd]
-    exact WideSubcategory.hom_ext (pureProperty S) (tensorLeft_second R.obj f.property)
+    exact WideSubcategory.hom_ext (pureProperty S) (tensorLeft_second_proof R.obj f.hom)
 
 theorem tensorRight_value_proof {R A B : ValueCat S} (f : A ⟶ B) :
     tensorRight R.obj f.hom = (CategoryTheory.MonoidalCategoryStruct.whiskerRight f R).hom := by
@@ -265,5 +341,17 @@ theorem tensorRight_value_proof {R A B : ValueCat S} (f : A ⟶ B) :
     rw [← Category.assoc, ← BraidedCategory.braiding_naturality_left]
     simp
   exact congrArg (fun g => g.hom) h
+
+theorem tensorRight_first_proof (R : SynCat S) {A B : SynCat S} (f : A ⟶ B) :
+    tensorRight R f ≫ first B R = first A R ≫ f := by
+  let : BraidedCategory (ValueCat S) := BraidedCategory.ofCartesianMonoidalCategory
+  have hf : (tensorSwap B R).inv ≫ first B R = second R B :=
+    congrArg (fun g => g.hom)
+      (CartesianMonoidalCategory.braiding_inv_fst (⟨B⟩ : ValueCat S) ⟨R⟩)
+  have hs : (tensorSwap A R).hom ≫ second R A = first A R :=
+    congrArg (fun g => g.hom)
+      (CartesianMonoidalCategory.braiding_hom_snd (⟨A⟩ : ValueCat S) ⟨R⟩)
+  simp only [tensorRight, Category.assoc, hf]
+  rw [tensorLeft_second_proof, ← Category.assoc, hs]
 
 end Silmaril.Thesis.LambdaIter.Syn.SynCat

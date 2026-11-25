@@ -39,9 +39,19 @@ command-sequencing and initialization rules on publication, failure and final
 state. Core top-level commands use the existing independent function and
 collection judgments. The rules use the same host catalog contract as the
 denotation. Effectful loading, recursive dependency discovery and execution,
-cycle errors, host thread callbacks, general built-in functions and source
-parsing remain open.
+cycle errors, host thread callbacks and source parsing remain open.
 [Operational rules](../../Silmaril/Languages/Starlark/Modules/Operational/Defs.lean) · [Theorem header](../../Silmaril/Languages/Starlark/Modules/Thms.lean)
+
+The next loader slice can use a finite in-memory manifest with a
+requester-relative label map to canonical module IDs. Resolve each load
+when its command runs, initialize unseen modules on demand, and memoize
+successful publication. Track active IDs to report dependency cycles.
+The fixtures should distinguish a shared dependency reached by two labels
+from a cycle, and check propagation of a dependency failure with prior
+heap effects. Module resolution and cache policy in this slice are host
+choices. Filesystem access, host callbacks and failure caching can stay
+outside the manifest model.
+[Load statements][loading] · [Module execution][modules]
 
 The Lean fixtures cover cross-module captures, private freezing, file-local
 aliases, validation, missing exports and rollback of the scope on failure

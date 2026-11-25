@@ -4,6 +4,7 @@ public import Silmaril.Courses.Cambridge.L3
 public import Silmaril.Courses.Cambridge.L3.Codec
 public import Silmaril.Courses.Cambridge.L3.Concrete
 public import Silmaril.Courses.Cambridge.L3.Denotation
+public import Silmaril.Courses.Cambridge.L3.DenotationalInstitution
 import Silmaril.Courses.Cambridge.L3.Denotation.Examples
 public import Silmaril.Courses.Cambridge.L3.Metatheory.Preservation
 public import Silmaril.Courses.Cambridge.L3.Metatheory.ContextEquivalence

@@ -87,5 +87,6 @@ lake build --wfail +Silmaril.Courses.Cambridge.StepSpecification.Examples
 ```
 
 Finite may-return claims have a separate versioned specification format.
-Other logics and a verified S-expression text bridge remain follow-ups.
-[May-return specifications](cambridge-return-specification.md)
+The step tree codec also composes with the verified UTF-8 S-expression
+bridge.
+[May-return specifications](cambridge-return-specification.md) · [S-expression text](cambridge-sexp-bytes.md)

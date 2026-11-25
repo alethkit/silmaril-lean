@@ -93,7 +93,7 @@ and valid identifier spellings, and lowers call expressions within operands
 to ordered calls and temporary slots.
 [Argument binding](../../Silmaril/Languages/Starlark/Functions/Arguments/Defs.lean) · [Functions][functions] · [Definitions][defs]
 
-## Checks and next increment
+## Checks and extensions
 
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
@@ -110,9 +110,18 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$fixture")
 ```
 
-Module initialization and prepublished imports extend this profile. Built-ins,
-host callable effects, calls within collection loop bodies and direct
-source lowering remain open. [Modules](starlark-modules.md)
+Module initialization, prepublished imports and five universal built-ins
+extend this profile. Host callable effects remain open.
+[Modules](starlark-modules.md) · [Built-ins](starlark-builtins.md)
+
+The next loop slice can index resolved function bodies by loop depth and
+reuse the existing snapshot and iterator cleanup rules. A loop body can
+then evaluate a call into a fresh local slot and use that slot in later
+statements or the return. The proof should cover aliased mutation through
+a callee and cleanup on break, continue, early return and failure. This
+gives a target for lowering calls in expression position, starting with
+ordered operands and preserving branch-dependent evaluation.
+[Collection loops](starlark-lists.md#iteration-and-control)
 
 [functions]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions
 [names]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#name-binding-and-variables

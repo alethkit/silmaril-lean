@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LetIter.Categorical.Thms
+public import Silmaril.Semantics.Categories.Freyd.CentralUnit.Thms
 import Silmaril.Proofs.SSA.Isotope.LetIter.Categorical.LetEta
 
 /-! # Exact categorical let-η with a central unit comparison -/
@@ -41,5 +42,19 @@ theorem denote_unit_eta (h : IsCentral (Functor.StrongPremonoidal.unitIso (J := 
     (d : Derivation Φ Γ β t (unit : τ)) :
     denote J M (.let₁ d .unit) = denote J M d :=
   denote_unit_eta_proof J M h d
+
+/-- Exact let-η holds in a model with the central-unit refinement. -/
+theorem denote_let_eta_of_centralUnit [FreydCategory.CentralUnit J]
+    {Γ : Ctx ν τ} {n : Nat} {β : BoundCtx τ n} {t : Tm ν Φ n} {A : τ}
+    (d : Derivation Φ Γ β t A) :
+    denote J M (.let₁ d (.bv (ι := 0))) = denote J M d :=
+  denote_let_eta J M (FreydCategory.CentralUnit.unit_central (J := J)) d
+
+/-- Exact unit-η holds in a model with the central-unit refinement. -/
+theorem denote_unit_eta_of_centralUnit [FreydCategory.CentralUnit J]
+    {Γ : Ctx ν τ} {n : Nat} {β : BoundCtx τ n} {t : Tm ν Φ n}
+    (d : Derivation Φ Γ β t (unit : τ)) :
+    denote J M (.let₁ d .unit) = denote J M d :=
+  denote_unit_eta J M (FreydCategory.CentralUnit.unit_central (J := J)) d
 
 end Silmaril.Isotope.LetIter.Semantics.Categorical
