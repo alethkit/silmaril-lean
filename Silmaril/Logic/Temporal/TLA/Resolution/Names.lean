@@ -21,6 +21,7 @@ inductive Fixity where
 inductive Name where
   | ident (spelling : Ident)
   | symbol (fixity : Fixity) (spelling : String)
+  | qualified (prefixes : List Ident) (member : Name)
   deriving DecidableEq, Repr
 
 def Name.ofSymbol : Symbol → Name
@@ -52,6 +53,7 @@ def Name.ofOperator : OperatorName → Name
 def Name.canonical (name : Name) : Name :=
   match name with
   | .ident _ => name
+  | .qualified prefixes member => .qualified prefixes member.canonical
   | .symbol fixity spelling =>
     match Surface.Parser.lookupOperator spelling with
     | some op =>
@@ -84,6 +86,9 @@ inductive Step where
   | bound (index : Nat)
   | domain
   | binder (index : Nat)
+  | substitution (index : Nat)
+  | instanceMember (index : Nat)
+  | selector (index : Nat)
   deriving DecidableEq, Repr
 
 abbrev Path := List Step
@@ -102,7 +107,7 @@ inductive BindingId where
   deriving DecidableEq, Repr
 
 inductive BindingKind where
-  | builtin | constant | variable | operator | formal | rigid
+  | builtin | constant | variable | operator | formal | rigid | instanceNamespace
   deriving DecidableEq, Repr
 
 structure Binding where
@@ -141,10 +146,34 @@ inductive ModuleInput where
 
 abbrev Registry := List (ModuleId × ModuleInput)
 
+/-- Resolve an explicit replacement in its host tree. An implicit replacement
+references the exact host binding selected at the instance declaration. -/
+inductive Replacement where
+  | expression (site : Site) (body : Surface.Expr)
+  | binding (id : BindingId)
+  deriving Repr
+
+structure InstanceMember where
+  id : BindingId
+  home : BindingId
+  /-- Arity of each qualified segment, including the final member. -/
+  argumentCounts : List Nat
+  deriving Repr
+
+structure InstancePlan where
+  site : Site
+  target : ModuleId
+  parameters : List BindingId
+  substitutions : List (BindingId × Replacement)
+  members : List InstanceMember
+  deriving Repr
+
 inductive Unsupported where
   | instantiation | submodule | recursive | functionDefinition
   | assumption | theoremDecl | proofDirective | proofReference
   | qualifiedReference | labeledExpression | actionOrTemporal | except
+  | operatorSubstitution | instanceParameter | instanceTheorem | letInstance
+  | instanceSignature
   deriving DecidableEq, Repr
 
 inductive DiagnosticKind where
@@ -159,6 +188,10 @@ inductive DiagnosticKind where
   | unknownName (name : Name)
   | arityMismatch (name : Name) (expected actual : Nat)
   | expectedExpression
+  | incompleteInstanceName (name : Name)
+  | illegalSubstitutionTarget (name : Name)
+  | duplicateSubstitution (id : BindingId)
+  | missingSubstitution (name : Name) (id : BindingId)
   | expectedOperatorArgument (arity : Nat)
   | operatorArgumentMismatch (expectedArity : Nat) (actualSlots : List Slot)
   | malformed (form : String)

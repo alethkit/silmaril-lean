@@ -5,9 +5,10 @@ public import Silmaril.Logic.Temporal.TLA.Resolution.Names
 /-!
 # TLA+ name and arity resolution
 
-Resolve a Surface module and its EXTENDS closure against an explicit registry.
+Resolve a Surface module and its dependency closure against an explicit registry.
 Each resolved use points to the identity of its declaration. The original trees
-remain available for later passes. See `docs/projects/tla-module-resolution.md`.
+remain available for later passes. See `docs/projects/tla-module-resolution.md`
+and `docs/projects/tla-module-instantiation.md`.
 -/
 
 namespace Silmaril.Logic.Temporal.TLA.Resolution
@@ -26,6 +27,7 @@ public section
 inductive Profile where
   | core
   | levelSyntax
+  | instanceSyntax
   deriving DecidableEq, Repr
 
 structure CheckedModule where
@@ -36,6 +38,7 @@ structure CheckedModule where
   /-- All bindings introduced in this module, including lexical bindings. -/
   bindings : List Binding
   references : List (Path × Reference)
+  instances : List InstancePlan
   /-- Final module scope, including inherited bindings, local definitions and built-ins. -/
   scope : List Binding
   deriving Repr
@@ -54,6 +57,14 @@ theorem CheckedModule.mem_exports (mod : CheckedModule) (binding : Binding) :
       binding.kind ≠ .builtin := by
   simp [exports]
 
+def CheckedModule.instanceAt (mod : CheckedModule) (path : Path) : Option InstancePlan :=
+  mod.instances.find? fun plan => plan.site.path = path
+
+private def findMember (plans : List InstancePlan) (id : BindingId) :
+    Option (InstancePlan × InstanceMember) :=
+  plans.findSome? fun plan =>
+    (plan.members.find? fun member => member.id = id).map (plan, ·)
+
 structure CheckedRegistry where
   private mk ::
   root : ModuleId
@@ -62,6 +73,23 @@ structure CheckedRegistry where
 
 def CheckedRegistry.moduleAt (checked : CheckedRegistry) (id : ModuleId) : Option CheckedModule :=
   checked.modules.lookup id
+
+private def extendsClosure (modules : List (ModuleId × CheckedModule)) (target : ModuleId) :
+    List (ModuleId × CheckedModule) :=
+  (modules.foldr (fun (id, mod) (needed, ordered) =>
+    if id ∈ needed then (mod.imports ++ needed, (id, mod) :: ordered) else (needed, ordered))
+    ([target], [])).2
+
+/-- The dependency-first EXTENDS closure. INSTANCE edges keep their own environments. -/
+def CheckedRegistry.extendedModules (checked : CheckedRegistry) (target : ModuleId) :
+    List (ModuleId × CheckedModule) :=
+  extendsClosure checked.modules target
+
+def CheckedRegistry.instanceMemberAt (checked : CheckedRegistry) (id : BindingId) :
+    Option (InstancePlan × InstanceMember) := do
+  let .declared site := id | none
+  let mod ← checked.moduleAt site.moduleId
+  findMember mod.instances id
 
 end
 
@@ -91,11 +119,26 @@ public def CheckedRegistry.findBinding (checked : CheckedRegistry) : BindingId �
     let mod ← checked.moduleAt site.moduleId
     mod.bindings.find? fun binding => binding.id = .declared site
 
+private abbrev RegistryM := StateT (List (ModuleId × CheckedModule)) (Except Diagnostic)
+
 private structure ModuleState where
   bindings : List Binding := []
   references : List (Path × Reference) := []
+  instances : List InstancePlan := []
 
-private abbrev ModuleM := StateT ModuleState (Except Diagnostic)
+private abbrev ModuleM := StateT ModuleState RegistryM
+
+private def knownMember (id : BindingId) : ModuleM (Option InstanceMember) := do
+  let .declared site := id | return none
+  if let some (_, member) := findMember (← get).instances id then return some member
+  let modules ← (get : RegistryM (List (ModuleId × CheckedModule)))
+  return (modules.lookup site.moduleId).bind fun mod =>
+    (findMember mod.instances id).map Prod.snd
+
+private structure ModuleContext where
+  profile : Profile
+  loadInstance : Site → Ident → RegistryM (ModuleId × CheckedModule)
+
 
 private def diagnostic (site : Site) (kind : DiagnosticKind) : Diagnostic :=
   ⟨site, kind⟩
@@ -115,6 +158,8 @@ private def recordUse (profile : Profile) (scope : Scope) (site : Site) (name : 
     (role : ReferenceRole) : ModuleM Binding := do
   let some binding := lookup scope name
     | throw (diagnostic site (.unknownName name))
+  if binding.kind = .instanceNamespace then
+    throw (diagnostic site (.incompleteInstanceName name))
   if binding.name ∈ deferredOperators ||
       (profile = .core && binding.name ∈ levelSyntaxOperators) then
     throw (diagnostic site (.unsupported .actionOrTemporal))
@@ -206,18 +251,57 @@ private def resolveOperatorArg (profile : Profile) (visit : Scope → Site → E
   | .expr (.ref _ _ (_ :: _)) => throw (diagnostic site (.unsupported .qualifiedReference))
   | .expr _ => throw (diagnostic site (.expectedOperatorArgument expected))
 
+/-- Keep argument sites in their original selector or head segment. -/
+public def qualifiedCall (site : Site) (head : OperatorName) (args : List OpArg)
+    (selectors : List Selector) : Option (Name × List (Site × List OpArg)) := do
+  let segments ← selectors.zipIdx.mapM fun (selector, index) =>
+    match selector with
+    | .named name arguments => some (Name.ofOperator name, site.child (.selector index), arguments)
+    | _ => none
+  let (member, memberSite, memberArgs) :: parents := segments.reverse | none
+  let prefixes ← ((Name.ofOperator head) :: parents.reverse.map (·.1)).mapM fun name =>
+    match name with | .ident prefixName => some prefixName | _ => none
+  return (.qualified prefixes member,
+    (site, args) :: (parents.reverse.map Prod.snd ++ [(memberSite, memberArgs)]))
+
+private def resolveArguments (profile : Profile) (visit : Scope → Site → Expr → ModuleM Unit)
+    (scope : Scope) (slots : List Slot) (args : List (Site × OpArg)) : ModuleM Unit := do
+  for (slot, argSite, arg) in slots.zip args do
+    match slot, arg with
+    | .expression, .expr body => visit scope argSite body
+    | .expression, _ => throw (diagnostic argSite .expectedExpression)
+    | .operator expected, arg => resolveOperatorArg profile visit scope argSite expected arg
+
+/-- Argument order for a resolved qualified call. Each segment keeps its own path. -/
+public def qualifiedArguments (segments : List (Site × List OpArg)) : List (Site × OpArg) :=
+  segments.flatMap fun (part, args) =>
+    args.zipIdx.map fun (arg, index) => (part.child (.argument index), arg)
+
 private def resolveApplication (profile : Profile) (visit : Scope → Site → Expr → ModuleM Unit)
     (scope : Scope) (site : Site) (name : Name) (args : List OpArg)
     (child : Nat → Step) : ModuleM Unit := do
   let binding ← recordUse profile scope site name .application
   unless args.length = binding.slots.length do
     throw (diagnostic site (.arityMismatch name binding.slots.length args.length))
-  for ((slot, arg), index) in (binding.slots.zip args).zipIdx do
-    let argSite := site.child (child index)
-    match slot, arg with
-    | .expression, .expr body => visit scope argSite body
-    | .expression, _ => throw (diagnostic argSite .expectedExpression)
-    | .operator expected, arg => resolveOperatorArg profile visit scope argSite expected arg
+  resolveArguments profile visit scope binding.slots
+    (args.zipIdx.map fun (arg, index) => (site.child (child index), arg))
+
+private def resolveQualified (profile : Profile) (visit : Scope → Site → Expr → ModuleM Unit)
+    (scope : Scope) (site : Site) (head : OperatorName) (args : List OpArg)
+    (selectors : List Selector) : ModuleM Unit := do
+  unless profile = .instanceSyntax do
+    throw (diagnostic site (.unsupported .qualifiedReference))
+  let some (name, segments) := qualifiedCall site head args selectors
+    | throw (diagnostic site (.unsupported .qualifiedReference))
+  let binding ← recordUse profile scope site name .application
+  let some member ← knownMember binding.id
+    | throw (diagnostic site (.unsupported .qualifiedReference))
+  unless segments.length = member.argumentCounts.length do
+    throw (diagnostic site (.unsupported .qualifiedReference))
+  for (expected, part, actual) in member.argumentCounts.zip segments do
+    unless actual.length = expected do
+      throw (diagnostic part (.arityMismatch name expected actual.length))
+  resolveArguments profile visit scope binding.slots (qualifiedArguments segments)
 
 private instance : Inhabited (ModuleM Unit) := ⟨pure ()⟩
 
@@ -232,7 +316,8 @@ private partial def resolveExpr (profile : Profile) (scope : Scope) (site : Site
       (args.map .expr) .operand
   match expr with
   | .ref (.step _) _ _ => throw (diagnostic site (.unsupported .proofReference))
-  | .ref (.operator _) _ (_ :: _) => throw (diagnostic site (.unsupported .qualifiedReference))
+  | .ref (.operator name) args (selector :: rest) =>
+    resolveQualified profile (resolveExpr profile) scope site name args (selector :: rest)
   | .ref (.operator name) args [] =>
     resolveApplication profile (resolveExpr profile) scope site (Name.ofOperator name) args .argument
   | .literal _ => pure ()
@@ -258,6 +343,9 @@ private partial def resolveExpr (profile : Profile) (scope : Scope) (site : Site
     let inner ← declarations.zipIdx.foldlM (init := scope) fun current (decl, index) =>
       let declSite := site.child (.letDecl index)
       match decl with
+      | .definition (.namedInstance ..) =>
+        let unsupported := if profile = .instanceSyntax then Unsupported.letInstance else .instantiation
+        throw (diagnostic declSite (.unsupported unsupported))
       | .definition definition =>
         resolveDefinitionWith (resolveExpr profile) current declSite definition true
       | .recursive _ => throw (diagnostic declSite (.unsupported .recursive))
@@ -294,7 +382,101 @@ private partial def resolveExpr (profile : Profile) (scope : Scope) (site : Site
     throw (diagnostic site (.unsupported .actionOrTemporal))
   | .labeled .. => throw (diagnostic site (.unsupported .labeledExpression))
 
-private def resolveUnit (profile : Profile) (scope : Scope) (site : Site) (unit : ModuleUnit) : ModuleM Scope := do
+private def moduleParameter (binding : Binding) : Bool :=
+  binding.kind = .constant || binding.kind = .variable
+
+private def hasStatement (mod : CheckedModule) : Bool :=
+  mod.source.any fun source => source.units.any fun unit =>
+    match unit with | .theoremDecl _ | .assumption .. => true | _ => false
+
+private def prefixName (prefixName : Ident) (name : Name) : Name :=
+  match name with
+  | .qualified prefixes member => .qualified (prefixName :: prefixes) member
+  | _ => .qualified [prefixName] name
+
+private def resolveSubstitutions (scope : Scope) (site : Site)
+    (declarations : List Binding) (substitutions : List Surface.Substitution) :
+    ModuleM (List (BindingId × Replacement)) := do
+  let mut explicit := []
+  for (subst, index) in substitutions.zipIdx do
+    let position := site.child (.substitution index)
+    let name := Name.ofOperator subst.target
+    let some target := lookup declarations name
+      | throw (diagnostic position (.illegalSubstitutionTarget name))
+    if (explicit.lookup target.id).isSome then
+      throw (diagnostic position (.duplicateSubstitution target.id))
+    unless target.slots.isEmpty do
+      throw (diagnostic position (.unsupported .operatorSubstitution))
+    let .expr body := subst.replacement
+      | throw (diagnostic position (.unsupported .operatorSubstitution))
+    resolveExpr .instanceSyntax scope position body
+    explicit := (target.id, .expression position body) :: explicit
+  declarations.mapM fun target => do
+    unless target.slots.isEmpty do
+      throw (diagnostic site (.unsupported .operatorSubstitution))
+    if let some replacement := explicit.lookup target.id then
+      return (target.id, replacement)
+    let some replacement := lookup scope target.name
+      | throw (diagnostic site (.missingSubstitution target.name target.id))
+    if replacement.kind = .instanceNamespace then
+      throw (diagnostic site (.incompleteInstanceName target.name))
+    unless replacement.slots.isEmpty do
+      throw (diagnostic site (.arityMismatch target.name 0 replacement.slots.length))
+    return (target.id, .binding replacement.id)
+
+private def resolveInstance (context : ModuleContext) (scope : Scope) (site : Site)
+    (visibility : Visibility) (named : Option (Ident × List OperatorDecl))
+    (body : Instantiation) : ModuleM Scope := do
+  unless context.profile = .instanceSyntax do
+    throw (diagnostic site (.unsupported .instantiation))
+  let (target, mod) ← context.loadInstance site body.moduleName
+  let modules ← (get : RegistryM (List (ModuleId × CheckedModule)))
+  let dependencies := extendsClosure modules.reverse target
+  if dependencies.any (hasStatement ∘ Prod.snd) then
+    throw (diagnostic site (.unsupported .instanceTheorem))
+  if dependencies.any (fun (_, dep) => dep.source.isNone) then
+    throw (diagnostic site (.unsupported .instanceSignature))
+  let localVisibility := visibilityIsLocal visibility
+  let (host, introduced, parameters) ← match named with
+    | none => pure (scope, scope, [])
+    | some (name, params) => do
+      for (param, index) in params.zipIdx do
+        unless (declSignature param).2 = 0 do
+          throw (diagnostic (site.child (.parameter index)) (.unsupported .instanceParameter))
+      let namespaceBinding ← declare scope site (.ident name) .instanceNamespace [] localVisibility
+      let inner ← bindFormals (namespaceBinding :: scope) site params
+      let ids := params.zipIdx.map fun (_, index) => BindingId.declared (site.child (.parameter index))
+      pure (inner.filter (·.id ≠ namespaceBinding.id), namespaceBinding :: scope, ids)
+  let substitutions ← resolveSubstitutions host site (mod.exports.filter moduleParameter)
+    body.substitutions
+  let mut current := introduced
+  let mut members := []
+  let reused := named.isNone && substitutions.isEmpty
+  for (home, index) in (mod.exports.filter (·.kind = .operator)).zipIdx do
+    if reused then
+      match lookup current home.name with
+      | some previous =>
+        unless previous.id = home.id do
+          throw (diagnostic site (.conflictingName home.name previous.id))
+        if previous.isLocal && !localVisibility then
+          current := { previous with isLocal := false } :: current.filter (·.id ≠ previous.id)
+      | none => current := { home with isLocal := localVisibility } :: current
+    else
+      let homeCounts := ((← knownMember home.id).map (·.argumentCounts)).getD [home.slots.length]
+      let (name, counts) := match named with
+        | none => (home.name, homeCounts)
+        | some (name, _) => (prefixName name home.name, parameters.length :: homeCounts)
+      let slots := List.replicate parameters.length Slot.expression ++ home.slots
+      let binding ← declare current (site.child (.instanceMember index)) name .operator
+        slots localVisibility
+      members := ⟨binding.id, home.id, counts⟩ :: members
+      current := binding :: current
+  let plan : InstancePlan := ⟨site, target, parameters, substitutions, members.reverse⟩
+  modify fun state => { state with instances := plan :: state.instances }
+  return current
+
+private def resolveUnit (context : ModuleContext) (scope : Scope) (site : Site) (unit : ModuleUnit) : ModuleM Scope := do
+  let profile := context.profile
   match unit with
   | .variables names =>
     requireNonempty site "empty VARIABLE declaration" names
@@ -308,8 +490,10 @@ private def resolveUnit (profile : Profile) (scope : Scope) (site : Site) (unit 
       let binding ← declare current (site.child (.member index)) name .constant
         (List.replicate arity .expression) false
       return binding :: current
+  | .definition (.namedInstance visibility name params body) =>
+    resolveInstance context scope site visibility (some (name, params)) body
   | .definition definition => resolveDefinitionWith (resolveExpr profile) scope site definition false
-  | .instantiation .. => throw (diagnostic site (.unsupported .instantiation))
+  | .instantiation visibility body => resolveInstance context scope site visibility none body
   | .recursive _ => throw (diagnostic site (.unsupported .recursive))
   | .submodule _ => throw (diagnostic site (.unsupported .submodule))
   | .assumption .. => throw (diagnostic site (.unsupported .assumption))
@@ -336,6 +520,8 @@ private def resolveSignature (scope : Scope) (site : Site) (decl : SignatureDecl
       let (name, arity) := declSignature decl
       pure (name, .constant, List.replicate arity .expression)
     | .operator name slots =>
+      if let .qualified .. := name then
+        throw (diagnostic site (.malformed "qualified signature"))
       if .operator 0 ∈ slots then
         throw (diagnostic site (.malformed "zero-arity operator slot"))
       if let .symbol fixity _ := name then
@@ -354,19 +540,18 @@ private def ModuleInput.importsToResolve : ModuleInput → List Ident × ImportM
   | .parsed source imports => (source.extendsModules, imports)
   | .signature _ imports _ => (imports.map Prod.fst, imports)
 
-private def checkModule (profile : Profile) (site : Site) (input : ModuleInput)
-    (imported : List ModuleId) (scope : Scope) : Except Diagnostic CheckedModule := do
+private def checkModule (context : ModuleContext) (site : Site) (input : ModuleInput)
+    (imported : List ModuleId) (scope : Scope) : RegistryM CheckedModule := do
   let (source, resolver) := match input with
     | .parsed source _ =>
       (some source, source.units.zipIdx.foldlM (init := scope) fun current (unit, index) =>
-        resolveUnit profile current (site.child (.unit index)) unit)
+        resolveUnit context current (site.child (.unit index)) unit)
     | .signature _ _ decls =>
       (none, decls.zipIdx.foldlM (init := scope) fun current (decl, index) =>
         resolveSignature current (site.child (.member index)) decl)
   let (finalScope, state) ← resolver.run {}
-  return ⟨input.header, source, imported, state.bindings.reverse, state.references.reverse, finalScope⟩
-
-private abbrev RegistryM := StateT (List (ModuleId × CheckedModule)) (Except Diagnostic)
+  return ⟨input.header, source, imported, state.bindings.reverse, state.references.reverse,
+    state.instances.reverse, finalScope⟩
 
 private def resolveModules (profile : Profile) (registry : Registry) (fuel : Nat) (openModules : List ModuleId)
     (incoming : Site) (id : ModuleId) : RegistryM CheckedModule := do
@@ -380,28 +565,30 @@ private def resolveModules (profile : Profile) (registry : Registry) (fuel : Nat
   | remaining + 1 =>
     let site : Site := ⟨id, []⟩
     let (names, links) := input.importsToResolve
+    let load (incoming : Site) (name : Ident) : RegistryM (ModuleId × CheckedModule) := do
+      let target ← match links.filter (fun entry => entry.1 = name) with
+        | [(_, target)] => pure target
+        | [] => throw (diagnostic incoming (.unresolvedImport name))
+        | _ => throw (diagnostic incoming (.duplicateImportMapping name))
+      let some dependency := registry.lookup target
+        | throw (diagnostic incoming (.unknownModule target))
+      unless dependency.header = name do
+        throw (diagnostic incoming (.importNameMismatch name dependency.header target))
+      return (target, ← resolveModules profile registry remaining (openModules ++ [id]) incoming target)
     let mut scope := builtins
     let mut imported := []
     for (name, index) in names.zipIdx do
       let importSite := site.child (.import_ index)
-      let target ← match links.filter (fun entry => entry.1 = name) with
-        | [(_, target)] => pure target
-        | [] => throw (diagnostic importSite (.unresolvedImport name))
-        | _ => throw (diagnostic importSite (.duplicateImportMapping name))
-      let some dependency := registry.lookup target
-        | throw (diagnostic importSite (.unknownModule target))
-      unless dependency.header = name do
-        throw (diagnostic importSite (.importNameMismatch name dependency.header target))
-      let checked ← resolveModules profile registry remaining (openModules ++ [id]) importSite target
+      let (target, checked) ← load importSite name
       scope ← mergeExports scope importSite checked.exports
       imported := target :: imported
-    let checked ← checkModule profile site input imported.reverse scope
+    let checked ← checkModule ⟨profile, load⟩ site input imported.reverse scope
     modify ((id, checked) :: ·)
     return checked
 
 /-- Check every unit of every reachable parsed module. Inherited names retain
-their declaration identity. The caller supplies EXTENDS edges. The level syntax
-profile binds additional forms for a separate check of their levels. -/
+their declaration identity. The caller supplies EXTENDS edges and, in the
+instance profile, INSTANCE edges. Later passes check expression levels. -/
 public def resolveWith (profile : Profile) (registry : Registry) (root : ModuleId) :
     Except Diagnostic CheckedRegistry := do
   let mut seen := []
