@@ -21,12 +21,12 @@ variable [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε] [Preorder ε] [OrderBot �
 variable {Γ : EffectCtx τ ε} {A B C X : τ} {e : ε} {a b : Expr Φ}
 
 omit [TypeFormers τ] in
-theorem branchCtx_lookup_self (i : Fin Γ.length) (X : τ) :
+public theorem branchCtx_lookup_self (i : Fin Γ.length) (X : τ) :
     (branchCtx Γ i X).get (i.cast (List.length_set.symm)) = (X, ⊥) := by
   exact List.getElem_set_self _
 
 omit [TypeFormers τ] in
-theorem branchCtx_lookup_ne (i j : Fin Γ.length) (hij : i.val ≠ j.val) (X : τ) :
+public theorem branchCtx_lookup_ne (i j : Fin Γ.length) (hij : i.val ≠ j.val) (X : τ) :
     (branchCtx Γ i X).get (j.cast (List.length_set.symm)) = Γ.get j := by
   exact List.getElem_set_ne hij _
 
@@ -43,7 +43,7 @@ public theorem branchCtx_pure (hΓ : Γ.Pure) (i : Fin Γ.length) (X : τ) :
     exact hΓ j'
 
 omit [TypeFormers τ] in
-theorem ren_toFront (i : Fin Γ.length) (ht : (Γ.get i).1 = X) :
+public theorem ren_toFront (i : Fin Γ.length) (ht : (Γ.get i).1 = X) :
     Renaming ((X, ⊥) :: Γ) Γ (toFront i) := by
   intro j
   by_cases hj : j.val = i.val
@@ -52,7 +52,7 @@ theorem ren_toFront (i : Fin Γ.length) (ht : (Γ.get i).1 = X) :
   · exact ⟨j.succ, ite_eq_right hj, rfl, le_rfl⟩
 
 omit [TypeFormers τ] in
-theorem ren_branch_toFront (i : Fin Γ.length) (X : τ) :
+public theorem ren_branch_toFront (i : Fin Γ.length) (X : τ) :
     Renaming ((X, ⊥) :: Γ) (branchCtx Γ i X) (toFront i) := by
   intro j
   let j' : Fin Γ.length := j.cast List.length_set
@@ -64,7 +64,7 @@ theorem ren_branch_toFront (i : Fin Γ.length) (X : τ) :
   · rw [hj', branchCtx_lookup_ne i j' (Ne.symm hj)]
     exact ⟨j'.succ, ite_eq_right hj, rfl, le_rfl⟩
 
-theorem eqv_rename {Δ : EffectCtx τ ε} {ξ : Nat → Nat}
+public theorem eqv_rename {Δ : EffectCtx τ ε} {ξ : Nat → Nat}
     (h : Eqv Δ C e a b) (hr : Renaming Γ Δ ξ) :
     Eqv Γ C e (a.wk ξ) (b.wk ξ) := by
   have hs : TypedSubst Γ Δ (Expr.var ∘ ξ : Nat → Expr Φ) := by
@@ -104,7 +104,7 @@ public theorem right_typed (i : Fin Γ.length) (ht : (Γ.get i).1 = coprod A B)
   simpa only [branchCtx_lookup_self, Fin.val_cast] using
     Wf.var (Φ := Φ) (Γ := branchCtx Γ i B) (i.cast List.length_set.symm) le_rfl
 
-theorem rebind_beta (i : Nat) (a : Expr Φ) :
+public theorem rebind_beta (i : Nat) (a : Expr Φ) :
     (a.wk (toFront i)).subst (.var i : Expr Φ).subst0 = a := by
   rw [subst_wk]
   have h : ((.var i : Expr Φ).subst0 ∘ toFront i) = Expr.var := by

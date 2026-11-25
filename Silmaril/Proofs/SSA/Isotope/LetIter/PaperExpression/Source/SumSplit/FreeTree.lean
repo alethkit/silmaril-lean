@@ -3,7 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit.FreeTree.Defs
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Thms
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit.Thms
-import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit
+public import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Substitution.Thms
 
 /-! # Reflection after splitting one source sum slot -/
@@ -26,7 +26,7 @@ variable {τ : Type u} {Φ : Type v} {ε : Type w}
 /-- A typed source substitution from a bottom-annotated context lowers to a
 pure native substitution. The existing native preservation theorem applies to
 the entire derivation of the original equality. -/
-theorem native_subst {Γ Δ : EffectCtx τ ε} (hΓ : Γ.Pure)
+public theorem native_subst {Γ Δ : EffectCtx τ ε} (hΓ : Γ.Pure)
     {a b : Expr Φ} {σ : Nat → Expr Φ} {C : τ}
     {t s : Tm Empty Φ Γ.length}
     (ht : a.toLetIter Γ.length = some t) (hs : b.toLetIter Γ.length = some s)
