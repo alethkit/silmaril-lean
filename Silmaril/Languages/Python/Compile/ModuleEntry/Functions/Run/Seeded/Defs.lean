@@ -120,6 +120,8 @@ inductive ModuleFailure where
   | publicationFault (error : Core.Closure.Dispatch.Failure)
   | callbackFault (fault : Fault)
   | callbackFuelExhausted
+  | directCallFault (fault : Fault)
+  | directCallFuelExhausted
   deriving DecidableEq, Repr
 
 def ModuleFailure.ofCall : Failure → ModuleFailure
@@ -151,8 +153,8 @@ def callbackInvocation (space : Namespace) (heap : Heap) (closure : Function) :
   (callbackSession space heap).prepareCall .discard (.literal (.function closure)) []
 
 /-- The ordinary executor delivers an ambient lookup miss as a terminal
-`nameError name`. Check the same namespace before passing it to the
-expectation, since projection also drops seed-only values. -/
+`nameError name`. Check the same namespace when observing the error,
+since projection also drops seed-only values. -/
 def callbackError (space : Namespace) (error : Core.Closure.RuntimeError) : Failure :=
   match error with
   | .nameError name =>
@@ -180,6 +182,15 @@ structure CallContext where
   fuel : Nat
   published : List Function := []
 
+/-- The ledger records the descriptors of functions published in this run.
+The ordinary executor reports an invalid reference if dispatch fails. -/
+def CallContext.acceptsPublishedCall (context : CallContext) (closure : Function) : Bool :=
+  if closure ∈ context.published then
+    match Core.Closure.Dispatch.resolve context.table closure.code with
+    | .ok definition => definition.parameters.slots.isEmpty
+    | .error _ => true
+  else false
+
 def invokeCallback (space : Namespace) (context : CallContext)
     (expectation : Expectation) (closure : Function) : Except ModuleFailure CallObservation × Heap :=
   let invocation := callbackInvocation space context.heap closure
@@ -189,15 +200,32 @@ def invokeCall (space : Namespace) (context : CallContext) (callee : Value) (arg
     Except ModuleFailure CallObservation × Heap :=
   match Core.Module.SeededCall.Request.decode callee arguments with
   | .expect expectation (.function closure) [] _ =>
-    let unsupported := (.ok ⟨.error .unsupported, none⟩, context.heap)
-    if closure ∈ context.published then
-      match Core.Closure.Dispatch.resolve context.table closure.code with
-      | .ok definition =>
-        if definition.parameters.slots.isEmpty then invokeCallback space context expectation closure
-        else unsupported
-      | .error _ => invokeCallback space context expectation closure
-    else unsupported
+    if context.acceptsPublishedCall closure then invokeCallback space context expectation closure
+    else (.ok ⟨.error .unsupported, none⟩, context.heap)
   | _ => (.ok (Core.Module.SeededCall.invokeObserved callee arguments), context.heap)
+
+/-- Only a finished invocation issues a receipt. Faults and live prefixes
+carry the exact heap reached by ordinary execution. -/
+def observeDirectCall (space : Namespace) :
+    Core.Closure.Executor.State → Except ModuleFailure CallObservation × Heap
+  | .finished heap result =>
+    (.ok ⟨(result.map seededValue).mapError (callbackError space), none⟩, heap)
+  | .faulted heap _ fault => (.error (.directCallFault fault), heap)
+  | .running heap .. | .delivering heap .. | .receiving heap .. =>
+    (.error .directCallFuelExhausted, heap)
+
+/-- Dispatch an already resolved flat call. A published ordinary function
+can enter through the zero-argument discard profile. -/
+def invokeFlatCall (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (callee : Value) (arguments : List Value) :
+    Except ModuleFailure CallObservation × Heap :=
+  match destination, callee, arguments with
+  | .discard, .function closure, [] =>
+    if context.acceptsPublishedCall closure then
+      let invocation := callbackInvocation space context.heap closure
+      observeDirectCall space (invocation.runPrefix context.table context.fuel).2.state
+    else (.ok ⟨.error .unsupported, none⟩, context.heap)
+  | _, _, _ => invokeCall space context callee arguments
 
 def acceptObservation (destination : Core.Module.Functions.Destination)
     (name : String) (observed : CallObservation) : Effect :=
@@ -270,7 +298,7 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
     match Core.Module.SeededCall.resolveCall space #v[] (.global name) (arguments.map lowerCallOperand) with
     | .error error => (acceptObservation destination name ⟨.error error, none⟩, context.heap)
     | .ok (callee, values) =>
-      let (observed, heap) := invokeCall space context callee values
+      let (observed, heap) := invokeFlatCall space context destination callee values
       match observed with
       | .ok result => (acceptObservation destination name result, heap)
       | .error error => (⟨.error error, []⟩, heap)
@@ -283,7 +311,7 @@ structure Observation where
   heap : Heap
 
 /-- A failed instruction keeps its incoming namespace and the heap reached
-by its effects. Only successful publications authorize ordinary callbacks. -/
+by its effects. Successful publications authorize checked ordinary calls. -/
 def runInstructionsIn {scope : Scope} (space : Namespace) (context : CallContext) :
     List (Instruction scope) → Observation
   | [] => ⟨space, .ok (), [], context.heap⟩

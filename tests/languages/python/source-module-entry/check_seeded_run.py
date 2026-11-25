@@ -2,6 +2,7 @@
 """Exercise the seeded runner on independently authored Python fixtures."""
 
 import argparse
+import ast
 from contextlib import redirect_stderr, redirect_stdout
 import hashlib
 from io import StringIO
@@ -77,6 +78,8 @@ private def inspect (source : Source.Module) (profile : String) : Option (List S
     | .error (.publicationFault _) => "publication fault"
     | .error (.callbackFault _) => "callback fault"
     | .error .callbackFuelExhausted => "callback fuel exhausted"
+    | .error (.directCallFault _) => "direct call fault"
+    | .error .directCallFuelExhausted => "direct call fuel exhausted"
   let catches := outcome.calls.filterMap (fun call => call.observation.caught.map raised)
   return completion :: (["result", "after"].map (resultBinding ∘ lookupBinding outcome.residual.moduleGlobals)) ++ catches
 
@@ -153,6 +156,21 @@ private def publicationReceipt (source : Source.Module) (profile : String) : Opt
         then some "caught callback assertion" else none
     | _ => none
   | _, _, _ => none
+
+private def directDiscardReceipt (source : Source.Module) (profile : String) : Option (Nat × Int) := do
+  let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
+  let [.publish name top, .call .discard callee []] := compiled.instructions | none
+  let space := initial profile
+  let expected := space.bindGlobal name (.function top.closure)
+  let outcome := Compile.ModuleEntry.Functions.Run.Seeded.run space compiled
+  let .ok () := outcome.completion | none
+  let [event] := outcome.calls | none
+  let .ok .none := event.observation.result | none
+  let none := event.observation.caught | none
+  if callee != name || event.callee != name || outcome.residual.moduleGlobals != expected.moduleGlobals ||
+      outcome.residual.builtins != expected.builtins then none else
+  let some (some (.int value)) := outcome.heap.lookup ⟨0⟩ | none
+  return (outcome.heap.next, value)
 """
 
 AUDIT = """
@@ -164,6 +182,8 @@ AUDIT = """
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.callback_path
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.callback_delivers
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.callback_seedOnlyGlobal
+#print axioms Compile.ModuleEntry.Functions.Run.Seeded.run_directDiscard
+#print axioms Compile.ModuleEntry.Functions.Run.Seeded.run_directDiscard_unsupported
 #print axioms runObserved_result
 #print axioms Expectation.caught_iff
 """
@@ -182,6 +202,8 @@ UPSTREAM_ASSIGN_CASE = "tests/python/programs/original/k-python/programs/testass
 UPSTREAM_ASSIGN_SHA256 = "7fc33245631f77c0dcfd63277f906b580c6034c487b189cc1f32dc4872efed63"
 UPSTREAM_PUBLICATION_CASE = "tests/python/programs/original/lambda-py/python-reference/exceptions/assert-silent.py"
 UPSTREAM_PUBLICATION_SHA256 = "c4664c5343be15e123a772fb1d7f49819b3ba9781266c6900172d653bdd26ada"
+UPSTREAM_DIRECT_DISCARD_CASE = "tests/python/programs/original/k-python/programs/testscope3.py"
+UPSTREAM_DIRECT_DISCARD_SHA256 = "8cd010d3911293c1dfe2da09adf3b40c8fcb258ecd85dd9847e65d5555866924"
 UPSTREAM_NO_OP = (
     ("tests/python/programs/original/k-python/programs/testpass.py",
      "9f56e761d79bfdb34304a012586cb04d16b435ef6130091a97702e559260a2f2"),
@@ -326,10 +348,26 @@ require_error(AssertionError, callback, 0)
     assert parameter
 require_error(TypeError, callback)
 """, ["unsupported", "absent", "absent"]),
-    ("callback_direct_unsupported", "builtin", """def callback():
+    ("direct_defined_assertion", "builtin", """def callback():
     assert 0
 callback()
-""", ["unsupported", "absent", "absent"]),
+after = 9
+""", ["AssertionError:empty", "absent", "absent"]),
+    ("direct_live_shadow", "builtin", """def f():
+    assert 0
+f = 7
+result = 5
+f()
+after = 9
+""", ["TypeError", "int:5", "absent"]),
+    ("direct_bind_unsupported", "empty", "def f():\n    return 1\nresult = 5\nresult = f()\nafter = 9\n",
+     ["unsupported", "int:5", "absent"]),
+    ("direct_assert_unsupported", "empty", "def f():\n    return 1\nassert f()\nafter = 9\n",
+     ["unsupported", "absent", "absent"]),
+    ("direct_positional_unsupported", "empty", "def f(value):\n    assert value\nf(1)\nafter = 9\n",
+     ["unsupported", "absent", "absent"]),
+    ("direct_nested_unsupported", "builtin", "def f():\n    return 1\ncompare_ints(f(), 1)\nafter = 9\n",
+     ["unsupported", "absent", "absent"]),
     ("bool_int_false", "legacy_bool_int_builtin", """result = int(False)
 ___assertEqual(result, 0)
 ___assertIsNot(result, False)
@@ -436,6 +474,9 @@ NESTED_CALL_NAMES = {
     "nested_missing_argument": ["compare_ints"],
     "nested_assertion": ["compare_ints", "require_error"],
     "nested_unsupported": ["AssertionError"],
+    "direct_defined_assertion": ["callback"],
+    "direct_live_shadow": ["f"],
+    "direct_nested_unsupported": ["f"],
     "bool_int_argument_order": ["int"],
     "bool_int_defined_assertion": ["int", "___assertEqual"],
     "callable_len_alias": ["callable", "___assertIs", "callable", "___assertIs"],
@@ -729,6 +770,23 @@ def replay_upstream_publication(checkout, shared, source_path, lean_path):
     return {"path": UPSTREAM_PUBLICATION_CASE, "sha256": UPSTREAM_PUBLICATION_SHA256, "profiles": observations}
 
 
+def replay_upstream_direct_discard(checkout, shared, source_path, lean_path):
+    source = pinned_source(checkout, UPSTREAM_DIRECT_DISCARD_CASE, UPSTREAM_DIRECT_DISCARD_SHA256)
+    shared["emit"](source_path, lean_path, source)
+    (published, _) = ast.parse(source).body
+    assert isinstance(published, ast.FunctionDef)
+    guards = ['#guard ordinaryOutcome pythonSource == some ("normal", none)']
+    observations = {}
+    for profile in ("empty", "legacy_builtin", "legacy_preamble"):
+        expected = ["normal", "absent", "absent"]
+        assert cpython(source, profile, expected_globals={}, expected_functions=(published.name,)) == expected
+        guards.append(f"#guard directDiscardReceipt pythonSource {json.dumps(profile)} = some (1, 5)")
+        observations[profile] = {"cpython": "normal", "seeded": "normal", "user_bindings": ["published function"],
+                                 "receipt": {"result": "None", "caught": None}, "heap": {"next": 1, "cell_0": 5}}
+    shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
+    return {"path": UPSTREAM_DIRECT_DISCARD_CASE, "sha256": UPSTREAM_DIRECT_DISCARD_SHA256, "profiles": observations}
+
+
 def replay_upstream(checkout, shared, source_path, lean_path):
     revision = subprocess.check_output(
         ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
@@ -762,6 +820,7 @@ def replay_upstream(checkout, shared, source_path, lean_path):
         "nested": replay_upstream_nested(checkout, shared, source_path, lean_path),
         "scalars": replay_upstream_scalars(checkout, shared, source_path, lean_path),
         "publication": replay_upstream_publication(checkout, shared, source_path, lean_path),
+        "direct_discard": replay_upstream_direct_discard(checkout, shared, source_path, lean_path),
     }
 
 
