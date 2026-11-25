@@ -2,12 +2,13 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.FixedCapCategory.Thms
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.Coherence.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CentralRecoordination.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapClasses.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.Associator.Contacts
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.MiddleAssociator.Core
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.OuterAssociator.Core
+import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.CentralRecoordination.Knots
 import Mathlib.Data.Fin.VecNotation
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.FunProp
@@ -876,5 +877,42 @@ example :
         (FixedCap.objectAssociator idleCap (capObject.beside shiftedCap) idleCap).hom ≫
         FixedCap.whiskerLeftHom idleCap (FixedCap.objectAssociator capObject shiftedCap idleCap).hom :=
   FixedCap.pentagon idleCap capObject shiftedCap idleCap
+
+noncomputable section
+
+open scoped PremonoidalCategory
+
+/-- Exercise both centrality equations with a bent drawing and a
+coordinate change from 1/3 to 2/3. -/
+example :
+    letI := FixedCap.geometricMonoidalData signature
+    FixedCap.recoordinate shifted_types ⋉ bentShiftMap =
+      FixedCap.recoordinate shifted_types ⋊ bentShiftMap :=
+  (FixedCap.recoordinate_central shifted_types).1 bentShiftMap
+
+example :
+    letI := FixedCap.geometricMonoidalData signature
+    bentShiftMap ⋉ FixedCap.recoordinate shifted_types =
+      bentShiftMap ⋊ FixedCap.recoordinate shifted_types :=
+  (FixedCap.recoordinate_central shifted_types).2 bentShiftMap
+
+private theorem slide_coordinates (side : ActiveStrip) :
+    (CentralRecoordination.horizontal side shifted_types (side.place (5 / 12)),
+      CentralRecoordination.horizontal side shifted_types (side.opposite.place (1 / 3))) =
+      (side.place (5 / 12), side.opposite.place (2 / 3)) :=
+  Prod.ext (CentralRecoordination.horizontal_active side shifted_types (by constructor <;> norm_num))
+    (CentralRecoordination.horizontal_idle side shifted_types (0 : Fin 1))
+
+example :
+    (CentralRecoordination.horizontal .left shifted_types (5 / 24),
+      CentralRecoordination.horizontal .left shifted_types (2 / 3)) = (5 / 24, 5 / 6) := by
+  convert slide_coordinates .left using 1 <;> norm_num [ActiveStrip.place, ActiveStrip.opposite]
+
+example :
+    (CentralRecoordination.horizontal .right shifted_types (17 / 24),
+      CentralRecoordination.horizontal .right shifted_types (1 / 6)) = (17 / 24, 1 / 3) := by
+  convert slide_coordinates .right using 1 <;> norm_num [ActiveStrip.place, ActiveStrip.opposite]
+
+end
 
 end Silmaril.RuntimeWires.Proofs.OperandAmbient.Regression
