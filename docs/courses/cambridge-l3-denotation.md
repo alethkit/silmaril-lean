@@ -92,8 +92,10 @@ cell. A compositional model for open terms must account for how a context can
 call a returned function and how aliasing and private allocations affect
 later calls. The function-cell example exercises the corresponding direct
 rules. Lexical quotation accounts for the captured values in an opaque
-stored function. Adequacy of calling that function, including calls that
-re-enter the store through aliases or cycles, remains open here.
+stored function. The single-call extension proves adequacy for calling a
+stored closure with a lexical body. The general case of calls that re-enter
+the store through aliases or cycles remains outside the checked scope.
+[Single-call denotation](cambridge-l3-single-call.md) ·
 [L3 function cell](../../Silmaril/Courses/Cambridge/L3/Examples.lean)
 
 Abramsky, Honda and McCusker give a fully abstract game model of an
