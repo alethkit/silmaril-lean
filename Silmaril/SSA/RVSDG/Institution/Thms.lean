@@ -24,6 +24,11 @@ theorem mapGraph_comp (h : OpcodeMap P Q) (k : OpcodeMap Q R) (g : Graph P args 
     mapGraph (fun f => k (h f)) g = mapGraph k (mapGraph h g) :=
   Proofs.graph_map_comp h k g
 
+/-- Relabelling commutes with collecting the numbered graph from the term. -/
+theorem mapGraph_toGraph (h : OpcodeMap P Q) (t : Term P args past sigs outs) :
+    mapGraph h t.toGraph = (mapTerm h t).toGraph :=
+  congrArg (fun term => (mapTerm h term).toGraph) (Term.toTerm_toGraph t)
+
 /-- Evaluating a relabelled graph in a target model is evaluating the source
 graph in the reduct, including all returned state ports. -/
 theorem mapGraph_run (h : OpcodeMap P Q) (m : Model.{u, v, w} Q)

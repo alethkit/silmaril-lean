@@ -77,7 +77,7 @@ private theorem translatedHolds : (equation.map (Signature.opcodeMap migrate)).H
   intro input
   change (mapGraph (Signature.opcodeMap migrate) (switch SourceOp.advance SourceOp.advance).toGraph).run targetModel input =
     (mapGraph (Signature.opcodeMap migrate) (switch SourceOp.legacyAdvance SourceOp.advance).toGraph).run targetModel input
-  simp only [mapGraph, Term.toTerm_toGraph]
+  simp only [mapGraph_toGraph]
   rfl
 
 example : equation.Holds (reduct (Signature.opcodeMap migrate) targetModel) :=
@@ -104,13 +104,13 @@ example : ¬equation.Holds distinctModel := by
 example : (equation.map (Signature.opcodeMap migrate)).lhs.run targetModel (entry 0) =
     (.cons (10 : Nat) .nil : Tuple targetModel.Val payload) := by
   change (mapGraph (Signature.opcodeMap migrate) (switch SourceOp.advance SourceOp.advance).toGraph).run targetModel _ = _
-  simp only [mapGraph, Term.toTerm_toGraph]
+  simp only [mapGraph_toGraph]
   rfl
 
 example : (equation.map (Signature.opcodeMap migrate)).rhs.run targetModel (entry 2) =
     (.cons (11 : Nat) .nil : Tuple targetModel.Val payload) := by
   change (mapGraph (Signature.opcodeMap migrate) (switch SourceOp.legacyAdvance SourceOp.advance).toGraph).run targetModel _ = _
-  simp only [mapGraph, Term.toTerm_toGraph]
+  simp only [mapGraph_toGraph]
   rfl
 
 end Silmaril.SSA.RVSDG.Institution.Tests
