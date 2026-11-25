@@ -137,6 +137,19 @@ private theorem read_sources {args users : Ports Ty} {past : List (Ports Ty)}
       | none => rfl
       | some tuple => exact (colours_get tuple p).symm
 
+private theorem sequence {α : Type (max u w)} (xs : List α) (f : α → Option (Sigma F)) :
+    xs.mapM f = (xs.map f).mapM id := by
+  induction xs with
+  | nil => rfl
+  | cons x xs ih => simp only [List.mapM_cons, List.map_cons, id, ih]
+
+theorem read_colours {args users : Ports Ty} {past : List (Ports Ty)}
+    (wires : Wires args past users) (entry : Tuple F args) (slots : Slots F past)
+    (all : List (Option (List (Sigma F)))) (pref : store slots <+: all) :
+    (read wires entry slots).map colours = (wires.addresses.map (lookup (colours entry) all)).mapM id := by
+  simp only [read, collect_colours]
+  rw [sequence (colours (wires.map fun _ => colour entry slots)), read_sources wires entry slots all pref]
+
 theorem compare_reads {args args' ins ins' : Ports Ty} {past past' : List (Ports Ty)}
     (left : Wires args past ins) (right : Wires args' past' ins')
     (entry : Tuple F args) (entry' : Tuple F args') (inputs : colours entry = colours entry')
@@ -145,9 +158,8 @@ theorem compare_reads {args args' ins ins' : Ports Ty} {past past' : List (Ports
     (rename : Nat → Nat) (wires : left.addresses.map (Address.rename rename) = right.addresses)
     (sources : ∀ i p, Address.output i p ∈ left.addresses → all[i]? = all'[rename i]?) :
     (read left entry slots).map colours = (read right entry' slots').map colours := by
-  simp only [read, collect_colours]
-  have leftSources := read_sources left entry slots all pref
-  have rightSources := read_sources right entry' slots' all' pref'
+  rw [read_colours left entry slots all pref, read_colours right entry' slots' all' pref']
+  congr 1
   have observations : left.addresses.map (lookup (colours entry) all) =
       right.addresses.map (lookup (colours entry') all') := by
     rw [← wires, List.map_map]
@@ -158,13 +170,7 @@ theorem compare_reads {args args' ins ins' : Ports Ty} {past past' : List (Ports
     | output i p =>
       exact congrArg (fun slot : Option (Option (List (Sigma F))) =>
         slot.join.bind (fun xs => xs[p]?)) (sources i p present)
-  have sequence {α : Type (max u w)} (xs : List α) (f : α → Option (Sigma F)) :
-      xs.mapM f = (xs.map f).mapM id := by
-    induction xs with
-    | nil => rfl
-    | cons x xs ih => simp only [List.mapM_cons, List.map_cons, id, ih]
-  rw [sequence (colours (left.map fun _ => colour entry slots)),
-    sequence (colours (right.map fun _ => colour entry' slots')), leftSources, rightSources, observations]
+  exact observations
 
 variable {V S : Type u} {Op : Dialect.{u, v} V S}
 variable {args outs : Ports (PortType V S)} {past sigs : List (Ports (PortType V S))}
