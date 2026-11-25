@@ -24,11 +24,11 @@ extents and `Tensor.Tensor` for the elements of a rank-one extent tensor.
   operand returns `none`. Converting an unknown or invalid size to `index`
   has undefined behavior, as does converting a negative `index` to a size.
 
-The model assumes decoded, well-typed operations. It uses mathematical
-nonnegative extents and sizes and mathematical integers for indices. Claims
-about target execution require represented operands and results to fit the
-target index width. The model carries no error message payload and assigns
-no behavior to out-of-scope cases.
+The model assumes decoded, well-typed operations on non-poison operands. It
+uses mathematical nonnegative extents and sizes and mathematical integers for
+indices. Claims about target execution require represented operands and
+results to fit the target index width. The model carries no error message
+payload and assigns no behavior to out-of-scope cases.
 
 ## Checked static bridge
 
@@ -51,12 +51,12 @@ count is one, from a tensor with a zero extent, whose element count is zero.
 
 ## Upstream operation coverage
 
-The inventory covers the 40 operations in LLVM `llvmorg-22.1.0`, commit
-`4434dabb69916856b824f68a64b029c67175e532`. “Checked” means the stated
+The inventory covers the 40 operations in llvm-project at commit
+`cc45e189bc99870d26d50c5e3a3d215068e74880`. “Checked” means the stated
 fragment has a Lean definition and kernel-checked laws or boundary examples.
 MLIR text admission and correspondence with the native implementation are
 future work. [Dialect reference](https://mlir.llvm.org/docs/Dialects/ShapeDialect/) ·
-[Pinned operation inventory](https://github.com/llvm/llvm-project/blob/4434dabb69916856b824f68a64b029c67175e532/mlir/include/mlir/Dialect/Shape/IR/ShapeOps.td)
+[Pinned operation inventory](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/Shape/IR/ShapeOps.td)
 
 | Operation | Checked fragment |
 | --- | --- |
@@ -85,17 +85,19 @@ The other 31 pinned operations are all planned only, along with
 
 ## Provenance and checks
 
-The Lean implementation is original Silmaril code under MIT. LLVM's
-specifications and verifier are cited under Apache-2.0 WITH LLVM-exception.
+The Lean definitions, proofs and examples are independently authored Silmaril
+code under MIT. They use the public operation contracts and Silmaril's Tensor
+API. The cited LLVM TableGen and C++ files carry the SPDX identifier
+`Apache-2.0 WITH LLVM-exception`.
 
 | Pinned source | SHA-256 |
 | --- | --- |
-| [ShapeOps.td](https://github.com/llvm/llvm-project/blob/4434dabb69916856b824f68a64b029c67175e532/mlir/include/mlir/Dialect/Shape/IR/ShapeOps.td) | `7a52b8cf1e3dd91b3b837bf1313dca7bb6c68e707d767d999c91b9f86719dfd1` |
-| [ShapeBase.td](https://github.com/llvm/llvm-project/blob/4434dabb69916856b824f68a64b029c67175e532/mlir/include/mlir/Dialect/Shape/IR/ShapeBase.td) | `5c94a6380d23f2b7efc8888813b058c6716c533beaae649cd8eea11f2a13173f` |
-| [Shape.cpp](https://github.com/llvm/llvm-project/blob/4434dabb69916856b824f68a64b029c67175e532/mlir/lib/Dialect/Shape/IR/Shape.cpp) | `b0f27808850cda7988fba288ddbf0d9663a1d1a0d6e324b884281f6d28354c6e` |
+| [ShapeOps.td](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/Shape/IR/ShapeOps.td) | `0816c5d0b8bbb17ac821048f49c699f6c214ddc69724a09ab9af163443c489e9` |
+| [ShapeBase.td](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/Shape/IR/ShapeBase.td) | `04d411df55d4ef3ed476d3e84905f8ce89d7f25e6fe21c26813f962ae2771766` |
+| [Shape.cpp](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Dialect/Shape/IR/Shape.cpp) | `5d655eece44308a0907fbff7ec301434781067307919a94683e868268fee284e` |
+| [LLVM MLIR LICENSE.TXT](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/LICENSE.TXT) | `94b301bb652ae351f5941655bf533f1a136300ad1396be7452c8a04ff2c91374` |
 
-[Silmaril license](../../LICENSE) ·
-[LLVM MLIR license](https://github.com/llvm/llvm-project/blob/4434dabb69916856b824f68a64b029c67175e532/mlir/LICENSE.TXT)
+[Silmaril license](../../LICENSE)
 
 ```sh
 lake build --wfail +Silmaril.SSA.MLIR.Shape.Examples.Thms
