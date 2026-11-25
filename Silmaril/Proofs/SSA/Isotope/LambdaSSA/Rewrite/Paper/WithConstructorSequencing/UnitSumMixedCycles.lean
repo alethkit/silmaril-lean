@@ -151,10 +151,11 @@ private theorem flatten_cut {B A : Shape} (p : A.Row → Sum B.Row A.Row) (mark 
   cases row : p i <;> cases marked : mark i <;>
     simp [Function.comp_apply, forwardingSteps, cutTags, row, marked, flattenCut]
 
-theorem iterate_nonexit_row (B A : Shape) (p : A.Row → Sum B.Row A.Row) (i : A.Row)
-    (infinite : ¬ ReachesExit p i) :
-    A.inj i ≫ iterate (stepWithPayload B A (forwardingSteps p)) =
-      iterate (coprod.inr : obj .unit ⟶ obj B.ty ⨿ obj .unit) := by
+theorem exists_common_cut (B A : Shape) (p : A.Row → Sum B.Row A.Row) :
+    ∃ (mark : A.Row → Bool) (fuel : Nat) (out : A.Row → Sum B.Row A.Row),
+      (∀ i, run (forwardingSteps (cutTags p mark)) fuel i = some ⟨out i, .forward⟩) ∧
+      (∀ i b, out i = .inl b → ReachesExit p i) ∧
+      (∀ i j, out i = .inr j → ¬ ReachesExit p i ∧ out j = .inr j) := by
   let _ : Finite A.Row := Cycles.Automatic.rows_finite A
   obtain ⟨anchor, mark, fuel, advance, stable, spec, _, hits⟩ :=
     Cycles.Automatic.exists_orbit_cut (successor p)
@@ -165,32 +166,40 @@ theorem iterate_nonexit_row (B A : Shape) (p : A.Row → Sum B.Row A.Row) (i : A
   have computed (x : A.Row) :
       run (forwardingSteps (cutTags p mark)) fuel x = some ⟨out x, .forward⟩ :=
     Classical.choose_spec (output x)
-  have cut := iterate_of_bounded_cut B A (forwardingSteps (cutTags p mark)) (forwardingSteps out)
-    (fun x => ⟨fuel, computed x⟩)
-  rw [flatten_cut p mark] at cut
-  rw [cut]
   have exits {x : A.Row} {b : B.Row} (e : out x = .inl b) : ReachesExit p x :=
     ⟨fuel, ⟨b, .forward⟩, cut_exit_run p mark (by simpa only [e] using computed x)⟩
   have returns {x j : A.Row} (e : out x = .inr j) :
       j = anchor x ∧ ¬ ReachesExit p x ∧ ¬ ReachesExit p j :=
     cut_anchor p mark anchor advance (fun v h => (spec v).mp h)
       (by simpa only [e] using computed x)
+  refine ⟨mark, fuel, out, computed, fun _ _ => exits, ?_⟩
+  intro i j ei
+  obtain ⟨ej, infinite, infinite_j⟩ := returns ei
+  have fixed : anchor j = j :=
+    (congrArg anchor ej).trans ((stable i).trans ej.symm)
+  refine ⟨infinite, ?_⟩
+  cases e : out j with
+  | inl b => exact False.elim (infinite_j (exits e))
+  | inr k => exact congrArg Sum.inr ((returns e).1.trans fixed)
+
+theorem iterate_nonexit_row (B A : Shape) (p : A.Row → Sum B.Row A.Row) (i : A.Row)
+    (infinite : ¬ ReachesExit p i) :
+    A.inj i ≫ iterate (stepWithPayload B A (forwardingSteps p)) =
+      iterate (coprod.inr : obj .unit ⟶ obj B.ty ⨿ obj .unit) := by
+  obtain ⟨mark, fuel, out, computed, exits, returns⟩ := exists_common_cut B A p
+  have cut := iterate_of_bounded_cut B A (forwardingSteps (cutTags p mark)) (forwardingSteps out)
+    (fun j => ⟨fuel, computed j⟩)
+  rw [flatten_cut p mark] at cut
+  rw [cut]
   cases ei : out i with
-  | inl b => exact False.elim (infinite (exits ei))
+  | inl b => exact False.elim (infinite (exits i b ei))
   | inr j =>
-    obtain ⟨ej, _, infinite_j⟩ := returns ei
-    have fixed : anchor j = j :=
-      (congrArg anchor ej).trans ((stable i).trans ej.symm)
-    have self : out j = .inr j := by
-      cases e : out j with
-      | inl b => exact False.elim (infinite_j (exits e))
-      | inr k => exact congrArg Sum.inr ((returns e).1.trans fixed)
     calc
       _ = A.inj j ≫ iterate (stepWithPayload B A (forwardingSteps out)) :=
         iterate_row_along B A (forwardingSteps out) (Relation.ReflTransGen.single
           (congrArg (fun o => (⟨o, .forward⟩ : OutputCode B A)) ei))
       _ = _ := iterate_self_row B A (forwardingSteps out) j
-        (congrArg (fun o => (⟨o, .forward⟩ : OutputCode B A)) self)
+        (congrArg (fun o => (⟨o, .forward⟩ : OutputCode B A)) (returns i j ei).2)
 
 theorem run_eq_of_square (B A D : Shape) (tags : A.Row → D.Row)
     (p : A.Row → Sum B.Row A.Row) (q : D.Row → Sum B.Row D.Row)
