@@ -20,6 +20,7 @@
 | Wasm extras | The SpecTec meta-theory and the SpecTec Lean 4 backend model, Iris program logics for Wasm and WasmFX, WASI theories over the x86 process models, the Wasm components registry and the WASI 0.3 Rust example components, and more Wasm tools | [Wasm extras](wasm-extras.md) |
 | Region extraction | Raw and lawful region relations, first-exit semantics and gluing, semantic queries, typed binary adapters, conservative x86/Wasm candidates and a raw-relation institution; explicit operational and coverage limits | [Region extraction](region-extraction.md) |
 | Function relations | Machine-independent decomposition, call graphs, indexed effects and room institution; certified direct ELF graph projections and a conditional x86 operational adapter | [Function relations](function-relations.md) |
+| RVSDG | Typed primitives and multi-way γ regions, numbered graph/term round trips, and agreement of their operational semantics | [RVSDG](rvsdg.md) |
 | Compiler foundations | Semantic contracts, passes, checked transformations, translations and compiler categories | [Compiler APIs](compilers.md) |
 | Logics and institutions | HOL, Metamath, ZF/ZFC, arithmetic, proof translations and Hets-style development graphs | [Logic](logic.md) |
 | Lambda calculi | Eight cube corners, STLC categorical semantics, System F/Fω parametricity and institution graphs | [Lambda cube](lambda-cube.md) |
@@ -42,7 +43,7 @@
 | SQLite VFS-file read | Typed `xRead` request and handler law; verified dispatch at one call site in the pinned x86-64 SQLite ELF | [SQLite VFS-file read](sqlite-vfs-read.md) |
 | SQLite file control | Source-derived Lean port of one locked VFS forwarding branch, with trace refinement and a pinned C probe | [SQLite file control](sqlite-control.md) |
 | Abstract SQLite VFS | Dependent read-only and bounded read-write file contracts, with concrete byte backings and container machine traces | [Abstract SQLite VFS](sqlite-vfs.md) |
-| Starlark | Scalar AST, lexical resolution, and agreement between the denotation and big-step rules for exact integers, control and errors | [Starlark](starlark.md) |
+| Starlark | Scalar lexical resolution, exact integers, control and errors, plus a shared list store with aliasing and reachable freezing | [Scalar semantics](starlark.md), [List store](starlark-lists.md) |
 | Languages | Named languages over typed domains (bytes, Unicode, numbers, trees): Lean definitions, formats, interpreted Wasm artifacts, set operations, regular expressions over monoids, measure restrictions; the standard membership, inclusion, equality and bound problems; the explorer's Languages page | [Languages](languages.md) |
 | Modal logics | Normal modal K, the modal μ-calculus (vectorial and finite-vector fixed points, substitution), PDL, CTL, reachability logic over matching-logic fixed points, and Wasm step observations as a modal logic: institutions with the comorphisms between them | [Modal logics](logic-modal.md) |
 | First-order LFP, e-graphs and definite programs | First-order logic with least fixed points and its Boolean fragment, the egg and egglog core logics with named sources and the functional first-order graph institution, definite programs and their translation to first-order logic | [LFP and e-graphs](logic-lfp-egg.md) |

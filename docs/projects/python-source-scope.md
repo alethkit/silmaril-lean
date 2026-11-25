@@ -4,9 +4,9 @@ Use [Source.Syntax.Defs](../../Silmaril/Languages/Python/Source/Syntax/Defs.lean
 for unresolved constructor data and
 [Source.Scope.Thms](../../Silmaril/Languages/Python/Source/Scope/Thms.lean)
 for executable analysis and its enclosing-binder law. The source fragment
-covers modules, classes, nested functions and lambdas with positional
-parameters and defaults, name assignment and deletion, declarations, and
-conditional and loop suites.
+covers modules, classes, nested functions and lambdas with parameter kinds
+and defaults, assignment and deletion targets, declarations,
+selective imports, and conditional, loop and exception suites.
 
 `analyze` collects name occurrences and declarations before resolving each
 block. A name assigned later in a function is local throughout that block.
@@ -24,9 +24,23 @@ functions referring to the synthetic `__class__` cell capture their enclosing
 class. A use of `super` within a function adds the implicit `__class__` use.
 
 Lambda bodies have function scope and leave the enclosing namespace
-untouched. Defaults, decorators and class bases introduce any lambdas in
-the enclosing block. Child paths follow traversal order. Function defaults
-precede function decorators, and class decorators precede bases.
+untouched. Defaults, decorators, class bases and class keyword values
+are visited in the defining block. Child paths follow traversal order.
+Function defaults precede annotations and decorators. Class decorators
+precede bases and keyword values. The caller selects eager or deferred
+annotation traversal. Lambda parameter annotations are rejected.
+
+Destructuring and loop targets bind their names in the current block.
+Attribute and subscript targets read their operands. Exception-handler
+targets and selective import aliases also bind in the current block.
+Star imports report an explicit diagnostic because their bindings would
+depend on a runtime module.
+
+Expression syntax retains collections, comparison chains, slices, yield
+operands and call argument forms. Text literals carry code points, including
+lone surrogates. Floating literals carry binary64 bits. Scope visits all
+dictionary keys before values. The constructor profile reports unsupported
+comprehensions, generator expressions and bytes literals explicitly.
 
 `enclosingBinding_eq_some_iff` characterizes successful executable lookup
 with an inductive nearest-binder judgment. `enclosingBinding_stops`

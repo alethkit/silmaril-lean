@@ -23,8 +23,8 @@ private def closedOverLaterBinding : List Stmt :=
   some [⟨"x", [0]⟩]
 
 private def shadowedBinding : List Stmt :=
-  [.functionDef "outer" [⟨"x", none⟩] [
-    .functionDef "middle" [⟨"x", none⟩] [
+  [.functionDef "outer" [{ name := "x" }] [
+    .functionDef "middle" [{ name := "x" }] [
       .functionDef "inner" [] [.nonlocalDecl ["x"], .assign "x" (.integer 2)]]]]
 
 #guard inspect shadowedBinding [0, 0, 0] "x" == some (.free [0, 0])
@@ -32,7 +32,7 @@ private def shadowedBinding : List Stmt :=
 #guard ((analyze ⟨shadowedBinding⟩).toOption.bind (·.atPath [0, 0])).map (·.cells) == some ["x"]
 
 private def barriers : List Stmt :=
-  [.assign "m" (.integer 0), .functionDef "outer" [⟨"x", none⟩] [
+  [.assign "m" (.integer 0), .functionDef "outer" [{ name := "x" }] [
     .functionDef "middle" [] [
       .globalDecl ["x"],
       .functionDef "inner" [] [
@@ -46,7 +46,7 @@ private def barriers : List Stmt :=
 private def defaultsAndControl : List Stmt :=
   [.functionDef "outer" [] [
     .if_ (.name "guard")
-      [.functionDef "left" [⟨"p", some (.call (.name "make") [.name "x"])⟩]
+      [.functionDef "left" [{ name := "p", defaultValue := some (.call (.name "make") [.name "x"]) }]
         [.return_ (some (.name "p"))]]
       [.functionDef "right" [] [.pass]],
     .while_ (.boolean false) [.delete "x"] [.pass]]]
@@ -67,9 +67,9 @@ private def diagnose (body : List Stmt) : Option Diagnostic :=
 #guard diagnose [.nonlocalDecl ["x"]] == some ⟨[], .nonlocalInModule "x"⟩
 #guard diagnose [.assign "x" (.integer 1), .functionDef "f" [] [.nonlocalDecl ["x"]]] ==
   some ⟨[0], .unboundNonlocal "x"⟩
-#guard diagnose [.functionDef "f" [⟨"x", none⟩, ⟨"x", none⟩] []] ==
+#guard diagnose [.functionDef "f" [{ name := "x" }, { name := "x" }] []] ==
   some ⟨[0], .duplicateParameter "x"⟩
-#guard diagnose [.functionDef "f" [⟨"x", none⟩] [.globalDecl ["x"]]] ==
+#guard diagnose [.functionDef "f" [{ name := "x" }] [.globalDecl ["x"]]] ==
   some ⟨[0], .parameterDirective "x" .global_⟩
 #guard diagnose [.functionDef "f" [] [.globalDecl ["x"], .nonlocalDecl ["x"]]] ==
   some ⟨[0], .conflictingDirectives "x"⟩
@@ -78,24 +78,24 @@ private def diagnose (body : List Stmt) : Option Diagnostic :=
 #guard diagnose [.functionDef "f" [] [.delete "x", .globalDecl ["x"]]] ==
   some ⟨[0], .boundBeforeDirective "x" .global_⟩
 #guard diagnose [.functionDef "f" [] [.globalDecl ["x"], .globalDecl ["x"]]] == none
-#guard diagnose [.functionDef "outer" [⟨"x", none⟩] [
+#guard diagnose [.functionDef "outer" [{ name := "x" }] [
   .functionDef "middle" [] [
     .globalDecl ["x"], .functionDef "inner" [] [.nonlocalDecl ["x"]]]]] ==
   some ⟨[0, 0, 0], .unboundNonlocal "x"⟩
 
 private def classScopes : List Stmt :=
-  [.functionDef "outer" [⟨"x", none⟩, ⟨"y", none⟩, ⟨"z", none⟩] [
+  [.functionDef "outer" [{ name := "x" }, { name := "y" }, { name := "z" }] [
     .classDef "C" [.name "base"] [
       .globalDecl ["y"],
       .assign "x" (.integer 0),
       .expression (.name "z"),
       .expression (.name "unbound"),
-      .functionDef "method" [⟨"self", none⟩] [
+      .functionDef "method" [{ name := "self" }] [
         .expression (.name "x"), .expression (.name "y"),
         .return_ (some (.call (.name "super") []))],
       .classDef "Nested" [] [
         .expression (.name "__class__"),
-        .functionDef "owner" [⟨"self", none⟩] [.return_ (some (.name "__class__"))]]]]]
+        .functionDef "owner" [{ name := "self" }] [.return_ (some (.name "__class__"))]]]]]
 
 #guard inspect classScopes [0] "base" == some .implicitGlobal
 #guard inspect classScopes [0, 0] "base" == none
@@ -112,7 +112,7 @@ private def classScopes : List Stmt :=
   some ["__class__"]
 
 private def classNonlocal : List Stmt :=
-  [.functionDef "outer" [⟨"x", none⟩] [
+  [.functionDef "outer" [{ name := "x" }] [
     .classDef "C" [] [.nonlocalDecl ["x"], .assign "x" (.integer 2)]]]
 
 #guard inspect classNonlocal [0, 0] "x" == some (.classFree [0])
@@ -120,10 +120,10 @@ private def classNonlocal : List Stmt :=
   some ⟨[0], .unboundNonlocal "missing"⟩
 
 private def lambdaScopes : List Stmt :=
-  [.functionDef "outer" [⟨"x", none⟩, ⟨"y", none⟩] [
-    .functionDef "f" [⟨"p", some (.lambda [] (.name "x"))⟩] [
+  [.functionDef "outer" [{ name := "x" }, { name := "y" }] [
+    .functionDef "f" [{ name := "p", defaultValue := some (.lambda [] (.name "x")) }] [
       .return_ (some
-        (.lambda [⟨"q", some (.name "p")⟩] (.binary .add (.name "q") (.name "p"))))]
+        (.lambda [{ name := "q", defaultValue := some (.name "p") }] (.binary .add (.name "q") (.name "p"))))]
       [.lambda [] (.name "y")]]]
 
 #guard inspect lambdaScopes [0, 0] "x" == some (.free [0])
@@ -134,7 +134,7 @@ private def lambdaScopes : List Stmt :=
 #guard inspect lambdaScopes [0] "<lambda>" == none
 #guard ((analyze ⟨lambdaScopes⟩).toOption.bind (·.atPath [0, 2])).map (·.cells) ==
   some ["p"]
-#guard diagnose [.expression (.lambda [⟨"x", none⟩, ⟨"x", none⟩] (.name "x"))] ==
+#guard diagnose [.expression (.lambda [{ name := "x" }, { name := "x" }] (.name "x"))] ==
   some ⟨[0], .duplicateParameter "x"⟩
 
 private def classHeaderScopes : List Stmt :=
@@ -144,6 +144,87 @@ private def classHeaderScopes : List Stmt :=
 #guard inspect classHeaderScopes [1] "baseName" == some .implicitGlobal
 #guard ((analyze ⟨classHeaderScopes⟩).toOption.bind (·.atPath [2])).map (·.context.kind) ==
   some .class_
+
+private def statementScopes : List Stmt :=
+  [.functionDef "f" [] [
+    .importFrom ["pkg"] 1 [⟨"member", some "alias"⟩, ⟨"other", none⟩],
+    .for_ (.tuple [.name "value", .attribute (.name "receiver") "field"]) (.name "entries")
+      [.assignTargets [.list_ [.name "left", .name "right"]] (.name "value")]
+      [.deleteTargets [.subscript (.name "mapping") (.name "index")]],
+    .try_ [.assert_ (.name "left") (some (.name "message"))]
+      [⟨some (.name "Error"), some "caught",
+          [.functionDef "inner" [] [.return_ (some (.name "caught"))]]⟩]
+      [.expression (.attribute (.name "alias") "field")]
+      [.raise_ (some (.name "other")) (some (.name "reason"))]]]
+
+#guard inspect statementScopes [0] "alias" == some .local
+#guard inspect statementScopes [0] "member" == none
+#guard inspect statementScopes [0] "other" == some .local
+#guard inspect statementScopes [0] "receiver" == some .implicitGlobal
+#guard inspect statementScopes [0] "field" == none
+#guard inspect statementScopes [0] "value" == some .local
+#guard inspect statementScopes [0] "left" == some .local
+#guard inspect statementScopes [0] "right" == some .local
+#guard inspect statementScopes [0] "index" == some .implicitGlobal
+#guard inspect statementScopes [0] "reason" == some .implicitGlobal
+#guard inspect statementScopes [0, 0] "caught" == some (.free [0])
+#guard ((analyze ⟨statementScopes⟩).toOption.bind (·.atPath [0])).map (·.cells) ==
+  some ["caught"]
+#guard diagnose [.functionDef "f" [] [
+  .importFrom ["pkg"] 0 [⟨"member", some "alias"⟩], .globalDecl ["alias"]]] ==
+  some ⟨[0], .boundBeforeDirective "alias" .global_⟩
+#guard diagnose [.importFrom ["pkg"] 0 [⟨"*", none⟩]] == some ⟨[], .starImport⟩
+
+private def expressionScopes : List Stmt :=
+  [.functionDef "f" [] [
+    .expression (.dictionary [
+      (some (.lambda [] (.name "keyOne")), .lambda [] (.name "valueOne")),
+      (some (.lambda [] (.name "keyTwo")), .lambda [] (.name "valueTwo"))]),
+    .expression (.callWith (.name "callee") [
+      (.keyword "label", .unary .negative (.name "arg")),
+      (.unpackIterable, .slice (.name "array") (some (.name "lo")) none (some (.name "stride"))),
+      (.unpackMapping, .name "opts")]),
+    .expression (.yield_ (some (.conditional
+      (.booleanOp .and_ [.name "cond", .comparison (.name "lo") [(.lt, .name "hi")]])
+      (.list_ [.floatBits 0, .name "yes"])
+      (.tuple [.text [0, 0xd800], .ellipsis, .name "no"]))))]]
+
+#guard inspect expressionScopes [0, 0] "keyOne" == some .implicitGlobal
+#guard inspect expressionScopes [0, 1] "keyTwo" == some .implicitGlobal
+#guard inspect expressionScopes [0, 2] "valueOne" == some .implicitGlobal
+#guard inspect expressionScopes [0, 3] "valueTwo" == some .implicitGlobal
+#guard inspect expressionScopes [0] "label" == none
+#guard ["callee", "arg", "array", "lo", "stride", "opts", "cond", "hi", "yes", "no"].all
+  (fun name => inspect expressionScopes [0] name == some .implicitGlobal)
+#guard diagnose [.assign "x" (.tuple [.unsupported .listComprehension])] ==
+  some ⟨[], .unsupportedExpression .listComprehension⟩
+#guard diagnose [.functionDef "f" [] [.return_ (some (.unsupported .bytesLiteral))]] ==
+  some ⟨[0], .unsupportedExpression .bytesLiteral⟩
+
+private def signatureScopes : List Stmt :=
+  [.functionDef "outer" [] [
+    .functionDef "f"
+      [{ name := "args", kind := .varPositional, annotation := some (.name "TypeA") },
+        { name := "k", kind := .keywordOnly, defaultValue := some (.name "defaultK") },
+        { name := "options", kind := .varKeyword }]
+      [.expression (.name "args"), .expression (.name "k"), .expression (.name "options")]
+      [] (some (.name "TypeR")),
+    .classDef "C" [] [.pass] []
+      [(some "metaclass", .name "metatype"), (none, .name "classOptions")]]]
+
+#guard inspect signatureScopes [0] "TypeA" == some .implicitGlobal
+#guard inspect signatureScopes [0] "TypeR" == some .implicitGlobal
+#guard inspect signatureScopes [0] "defaultK" == some .implicitGlobal
+#guard inspect signatureScopes [0] "metaclass" == none
+#guard inspect signatureScopes [0] "metatype" == some .implicitGlobal
+#guard inspect signatureScopes [0] "classOptions" == some .implicitGlobal
+#guard ["args", "k", "options"].all (fun name => inspect signatureScopes [0, 0] name == some .local)
+#guard inspect signatureScopes [0, 0] "TypeA" == none
+#guard ((analyze ⟨signatureScopes⟩ .deferred).toOption.bind (·.atPath [0])).map
+  (fun scope => (scope.access "TypeA", scope.access "TypeR", scope.access "defaultK")) ==
+  some (none, none, some .implicitGlobal)
+#guard diagnose [.expression (.lambda [{ name := "x", annotation := some (.name "T") }] (.name "x"))] ==
+  some ⟨[0], .lambdaParameterAnnotation "x"⟩
 
 #print axioms enclosingBinding_eq_some_iff
 #print axioms enclosingBinding_stops

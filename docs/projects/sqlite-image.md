@@ -23,6 +23,12 @@ the data occupies page 2. Encoding finishes before the tool opens the
 output. It uses exclusive creation and flushes the handle. An I/O error
 after creating the file can leave a partial file.
 
+`Record.Write.decode_amount` proves that the ordinary record decoder reads
+the fixed-width amount record as the NULL alias slot and the original
+signed 64-bit INTEGER for every text encoding. The native differential
+checks both signs at SQLite's integer serial-width cutoffs and both signed
+endpoints. The fixture checks the serial types written by each executable.
+
 The Lean theorem for an accepted image proves that it is exactly two
 512-byte pages and that the file reader reconstructs the snapshot's
 ordered VM entries. The logical write profile accepts INSERT, UPDATE

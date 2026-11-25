@@ -6,6 +6,7 @@ public import Silmaril.Logic.Hets
 public import Silmaril.Logic.Arithmetic.Thms
 public import Silmaril.Logic.SecondOrderArithmetic.Thms
 public import Silmaril.Logic.SetTheory.Thms
+public import Silmaril.Logic.Temporal.TLA.General.Institution.Thms
 public import Silmaril.Logic.HOL
 public import Silmaril.Logic.HOLLight
 public import Silmaril.Logic.Metamath
