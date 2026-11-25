@@ -94,4 +94,30 @@ theorem run_directDiscard_unsupported {scope : Source.Scope} {space : Namespace}
     Core.Module.SeededCall.Operand.eval, found, Core.Module.SeededCall.Operand.evalList,
     Except.bind, Except.map, Except.mapError, invokeFlatCall, rejected, acceptObservation, ModuleFailure.ofCall]
 
+theorem run_adjacentKeywordDiscard {scope : Source.Scope} {space : Namespace} {context : CallContext}
+    {name : String} {closure : Function} {value : Int} {rest : List (Instruction scope)}
+    (found : space.lookupGlobal name = some (.function closure))
+    (admitted : context.acceptsPublishedCall closure 1 = true) :
+    runInstructionsIn space context (.adjacentKeywordDiscard name value :: rest) =
+      let invocation := (callbackSession space context.heap).prepareCall .discard
+        (.literal (.function closure)) [.literal (.int value)]
+      match (invocation.runPrefix context.table context.fuel).2.state with
+      | .finished heap (.ok result) =>
+        let tail := runInstructionsIn space { context with heap } rest
+        { tail with calls := ⟨name, ⟨.ok (seededValue result), none⟩⟩ :: tail.calls }
+      | .finished heap (.error error) =>
+        let failure := callbackError space error
+        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap⟩
+      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap⟩
+      | .running heap .. | .delivering heap .. | .receiving heap .. =>
+        ⟨space, .error .directCallFuelExhausted, [], heap⟩ :=
+  by
+    simp [runInstructionsIn, effect, invokeAdjacentKeywordDiscard, found, admitted]
+    generalize (((callbackSession space context.heap).prepareCall .discard
+      (.literal (.function closure)) [.literal (.int value)]).runPrefix context.table context.fuel).2.state =
+      state
+    cases state with
+    | finished heap result => cases result <;> rfl
+    | _ => rfl
+
 end Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

@@ -16,6 +16,7 @@ from types import FunctionType
 
 
 IMPORTS = (
+    "import Batteries.Data.Except",
     "import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms",
     "import Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Thms",
     "meta import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Defs",
@@ -102,6 +103,21 @@ private def exactGlobals (source : Source.Module) (profile : String) (bindings :
     let space := initial profile
     (Compile.ModuleEntry.Functions.Run.Seeded.run space compiled).residual.moduleGlobals ==
       bindings ++ space.moduleGlobals
+
+private def adjacentKeywordEvidence (source : Source.Module) (profile : String) (value : Int) : Bool := Id.run do
+  let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
+  let input := initial profile
+  let outcome := Compile.ModuleEntry.Functions.Run.Seeded.run input compiled
+  let some (.function function) := lookupBinding outcome.residual.moduleGlobals "probe" | return false
+  let expected : Result := if value == 4 then .ok .none else .error (.raised (.assertionError .empty))
+  let published := (input.bindGlobal "result" (.int 5)).bindGlobal "probe" (.function function)
+  let residual := if value == 4 then published.bindGlobal "after" (.int 9) else published
+  let [event] := outcome.calls | return false
+  let some (some (.int retained)) := outcome.heap.lookup ⟨0⟩ | return false
+  return event.callee == "probe" && event.observation.result == expected &&
+    event.observation.caught.isNone && outcome.residual.builtins == input.builtins &&
+    outcome.residual.moduleGlobals == residual.moduleGlobals &&
+    outcome.heap.next == 1 && retained == value
 
 private def literalIfPrefix (source : Source.Module) (profile : String) : Bool :=
   match Compile.ModuleEntry.Functions.Run.compile { source with body := source.body.take 2 } with
@@ -249,6 +265,16 @@ after = 9
 
 # An expected vector contains the terminal observation, two selected module
 # bindings, then the assertion caught by each outer expectation.
+ADJACENT_KEYWORD = """result = 5
+def probe(value):
+    def read():
+        return value
+    read()
+    assert value == 4
+probe(**{"value": %d})
+after = 9
+"""
+
 FIXTURES = (
     ("empty", "empty", "result = 5\n" + SUCCESS, ["NameError:require_error", "int:5", "absent"]),
     ("builtin", "builtin", SUCCESS, ["normal", "None", "int:9", "AssertionError:pair:-4:7"]),
@@ -654,7 +680,7 @@ def cpython(source, profile, *, expected_globals=None, expected_functions=()):
     completion = "normal"
     with redirect_stdout(StringIO()) as stdout, redirect_stderr(StringIO()) as stderr:
         try:
-            exec(compile(source, "<seeded fixture>", "exec", optimize=0), namespace)
+            exec(compile(source, "<seeded fixture>", "exec", dont_inherit=True, optimize=0), namespace)
         except (NameError, TypeError, AssertionError) as error:
             completion = exception_observation(error)
     assert not stdout.getvalue() and not stderr.getvalue()
@@ -931,6 +957,20 @@ if __name__ == "__main__":
             else:
                 assert cpython(source, profile, expected_globals=CPYTHON_FIXTURE_BINDINGS.get(name)) == expected, name
             observations[name] = expected
+        for profile in ("empty", "legacy_builtin", "legacy_preamble"):
+            for value, completion, after in ((4, "normal", 9), (3, "AssertionError:empty", None)):
+                source = ADJACENT_KEYWORD % value
+                residual = {"result": 5} if after is None else {"result": 5, "after": after}
+                expected = [completion, "int:5", "absent" if after is None else f"int:{after}"]
+                assert cpython(source, profile, expected_globals=residual, expected_functions=("probe",)) == expected
+                shared["emit"](source_path, lean_path, source)
+                check = guard_observation(profile, expected)
+                check += f"\n#guard adjacentKeywordEvidence pythonSource {json.dumps(profile)} {value}"
+                shared["check_lean"](lean_path, LEAN + check, extra_imports=IMPORTS)
+                observations[f"adjacent_keyword_{profile}_{value}"] = expected
+        shared["emit"](source_path, lean_path, "def probe(value): pass\nprobe(4)\nafter = 9\n")
+        shared["check_lean"](lean_path, LEAN + guard_observation("empty", ["unsupported", "absent", "absent"]),
+                             extra_imports=IMPORTS)
         if args.upstream is not None:
             upstream = replay_upstream(args.upstream, shared, source_path, lean_path)
     print(json.dumps({"cpython": sys.version.split()[0], "observations": observations,
