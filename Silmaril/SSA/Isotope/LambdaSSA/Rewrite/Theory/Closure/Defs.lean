@@ -21,12 +21,17 @@ namespace Silmaril.Isotope.LambdaSSA.Region
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
+/-- Run case arms as two local blocks that jump only to the outward interface. -/
+@[expose] def caseCfg (e : Tm Φ) (l r : Region Φ) : Region Φ :=
+  .cfg (.case e (.br 0 (.var 0)) (.br 1 (.var 0))) 2
+    (fun i => Region.renameLabels (fun j => 2 + j) (Fin.cases l (fun _ => r) i))
+
 set_option autoImplicit true in
 set_option relaxedAutoImplicit true in
 /-- Extend the native rewrite theory with pure let β for arbitrary region
-bodies, case analysis of a sum value, outward-only CFG elimination, and
-initiality. An empty-typed value witnesses initiality and remains a value
-under the native constructor-value substitutions. -/
+bodies, case analysis of a sum value, case-to-CFG conversion, outward-only
+CFG elimination, and initiality. An empty-typed value witnesses initiality
+and remains a value under the native constructor-value substitutions. -/
 inductive SubstitutionEquiv : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop where
   | base : RewriteEquiv Γ r s L → SubstitutionEquiv Γ r s L
   | symm : SubstitutionEquiv Γ r s L → SubstitutionEquiv Γ s r L
@@ -49,6 +54,9 @@ inductive SubstitutionEquiv : VCtx τ → Region Φ → Region Φ → LCtx τ �
         (.case a (r.substVars (Tm.replaceNewest (.inl (.var 0))))
           (r.substVars (Tm.replaceNewest (.inr (.var 0)))))
         (r.substVars (Tm.singleSubst a)) L
+  | caseCfg (he : Tm.HasType Γ e (Silmaril.coprod A B))
+      (hl : HasType (A :: Γ) l L) (hr : HasType (B :: Γ) r L) :
+      SubstitutionEquiv Γ (.case e l r) (Region.caseCfg e l r) L
   | initial {a : Tm Φ} (ha : Tm.BranchValue Γ a Silmaril.empty) (hr : HasType Γ r L) (hs : HasType Γ s L) :
       SubstitutionEquiv Γ r s L
   | cfgOutward (R : Fin (n + 1) → τ) (hr : HasType Γ r L)

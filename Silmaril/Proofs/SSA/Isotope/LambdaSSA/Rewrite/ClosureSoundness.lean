@@ -5,6 +5,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Outward.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Initial
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CaseValueSoundness
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CaseCfg
 
 public section
 
@@ -74,6 +75,9 @@ theorem substitutionEquiv_common
     obtain ⟨ht, f, ds, dt⟩ := letValue_common J M ha hr
     exact ⟨_, ht, f, ds, dt⟩
   | caseValue ha hr => exact caseValue_common J M ha hr
+  | caseCfg he hl hr =>
+    obtain ⟨ht, f, ds, dt⟩ := caseCfg_common J M hu he hl hr
+    exact ⟨.case he hl hr, ht, f, ds, dt⟩
   | initial ha hr hs =>
     have equal := emptyValue_hom_ext J M ha (f := denoteRegion J M hr) (g := denoteRegion J M hs)
     exact ⟨hr, hs, _, denoteRegion_spec J M hr, equal.symm ▸ denoteRegion_spec J M hs⟩

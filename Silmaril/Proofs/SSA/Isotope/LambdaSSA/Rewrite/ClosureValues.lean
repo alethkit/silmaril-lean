@@ -48,6 +48,17 @@ theorem substitutionEquiv_substVars {Γ Δ : VCtx τ} {L : LCtx τ} {r s : Regio
       rw [substVars_replaceNewest_lift r σ rfl, substVars_replaceNewest_lift r σ rfl,
         substVars_comp r (Tm.singleSubst a), Tm.singleSubst_comp, ← substVars_comp]
       exact .caseValue (branchValue_subst ha hσ) (hr.substVars (valuesTyped (liftValues hσ _)))
+  | @caseCfg Γ e A B l L r he hl hr =>
+      have eq : (Region.caseCfg e l r).substVars σ =
+          Region.caseCfg (e.subst σ) (l.substVars (Tm.liftSubst σ)) (r.substVars (Tm.liftSubst σ)) := by
+        simp only [Region.caseCfg, substVars]
+        congr 1
+        funext i
+        refine Fin.cases ?_ (fun j => ?_) i
+        · exact substVars_renameLabels l _ _
+        · exact substVars_renameLabels r _ _
+      exact eq.symm ▸ SubstitutionEquiv.caseCfg (he.subst (valuesTyped hσ))
+        (hl.substVars (valuesTyped (liftValues hσ A))) (hr.substVars (valuesTyped (liftValues hσ B)))
   | initial ha hr hs =>
       exact .initial (branchValue_subst ha hσ) (hr.substVars (valuesTyped hσ))
         (hs.substVars (valuesTyped hσ))
