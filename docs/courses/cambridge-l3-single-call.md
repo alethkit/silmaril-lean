@@ -1,7 +1,7 @@
-# Cambridge L3 stored closures and nested calls
+# Cambridge L3 stored closures and call depth
 
 Import `Silmaril.Courses.Cambridge.L3.Denotation.CallDepth` for the nested
-call model and adequacy theorems. `L3.Course` exports it and the original
+and let-bound call model and adequacy theorems. `L3.Course` exports it and the original
 `SingleCall` interface. The rules are from §5.5 of Sewell's 12 February
 2026 Cambridge notes, pinned as `sewell2026semantics`. [Pinned notes](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=78)
 
@@ -51,8 +51,8 @@ allocation stores and rules out the stale-store result 11.
 
 ## Nested calls
 
-`CallDepth.denoteWith 0` is the lexical model. At depth `d + 1`, a
-tail application may follow strict lets. The let initializers and the
+`CallDepth.denoteWith 0` is the lexical model. In the default
+`.tail` mode at depth `d + 1`, a tail application may follow strict lets. The let initializers and the
 function and argument operands remain lexical. Application invokes the
 quoted lambda body at depth `d`, with the argument in slot zero and
 the store left by the argument. Each invoked body can have its own
@@ -82,11 +82,33 @@ and that these are all finite returns. The depth-one denotation has no
 return for this program. The regressions realize two different address
 choices and check result and store typing.
 
-The exact theorem applies to admitted terms at the chosen index.
-Applications inside operands, non-tail calls, recursive-function
-declarations, and unrestricted call chains through general references
-are outside this slice. It establishes finite may-return adequacy with
-concrete stores. Divergence and contextual equivalence are separate
-observations.
-[Nested model and adequacy](../../Silmaril/Courses/Cambridge/L3/Denotation/CallDepth.lean) ·
+[Call-depth model and adequacy](../../Silmaril/Courses/Cambridge/L3/Denotation/CallDepth.lean) ·
 [Nested example](../../Silmaril/Courses/Cambridge/L3/Denotation/CallDepth/Examples.lean)
+
+## Let-bound calls
+
+Use `.sequenced` in `CallDepth.denote`, `denoteWith`, and `Admitted`
+to allow calls in strict let initializers. The initializer and its
+continuation both run at the same positive depth. Structural recursion
+handles the two let subterms, and entering a callee still lowers the
+depth. `Admitted.letBound` requires admission of the initializer and
+of the continuation for every returned value and intermediate store.
+`adequateWith` and `adequate` use the same direct-rule let and call
+factorizations for both modes. They retain the complete result and
+final store. The original tail mode remains the default.
+
+The checked program binds the reference returned by a call allocating
+an integer cell with contents 4. The continuation assigns 5 through
+that reference and reads it back. `program_steps_iff` proves that the
+result is 5 and the exact final store is the initial store extended by
+that cell with contents 5, for every fresh address. `program_typed`
+and the typed-return regression check the result and store typing.
+`program_not_admitted_tail` rules out admission in the tail mode at
+every depth. [Let-bound example](../../Silmaril/Courses/Cambridge/L3/Denotation/CallDepth/LetBoundExample.lean)
+
+The theorem applies to admitted terms at the chosen depth. The new
+call position is the initializer of a strict let. Application operands
+and the expressions handled directly by the lexical model remain in
+the lexical fragment. Recursive-function declarations and unrestricted
+call chains through general references are outside this scope. The
+observation is finite may return with a concrete final store.

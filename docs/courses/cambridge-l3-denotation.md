@@ -93,12 +93,13 @@ call a returned function and how aliasing and private allocations affect
 later calls. The function-cell example exercises the corresponding direct
 rules. Lexical quotation accounts for the captured values in an opaque
 stored function. The call-depth extension proves exact finite-return and
-final-store adequacy for admitted chains of nested tail applications.
-The checked example loads a closure from a cell and then invokes its
-captured helper. Each callee retains every fresh choice in the current
-store. Recursive declarations and unrestricted re-entry through aliases
-or cycles remain outside the checked scope.
-[Stored closure and nested-call denotations](cambridge-l3-single-call.md) ·
+final-store adequacy for admitted nested tail applications and calls
+bound by strict lets. The checked examples invoke a captured helper
+from a stored closure and update a reference returned by a call.
+Allocation retains every fresh choice in the current store. Recursive
+declarations and unrestricted re-entry through aliases or cycles remain
+outside the checked scope.
+[Stored closure and let-bound call denotations](cambridge-l3-single-call.md) ·
 [L3 function cell](../../Silmaril/Courses/Cambridge/L3/Examples.lean)
 
 Abramsky, Honda and McCusker give a fully abstract game model of an

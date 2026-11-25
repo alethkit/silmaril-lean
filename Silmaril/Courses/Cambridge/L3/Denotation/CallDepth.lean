@@ -5,10 +5,11 @@ public import Silmaril.Courses.Cambridge.L3.Denotation
 /-! # Bounded call depth for Cambridge L3 denotations
 
 The lexical model interprets a value as a quote with its captured
-bindings. The additional layer runs a strict let prefix and a tail
-application with lexical operands. On invoking a quote, it interprets
-the body at the previous call depth with the argument in slot zero
-and the store left by the argument calculation.
+bindings. At positive depth, a layer interprets strict lets and
+applications with lexical operands. The let mode controls whether
+initializers can call. On invoking a quote, the model interprets the
+body at the previous call depth with the argument in slot zero and
+the store left by the argument calculation.
 -/
 
 @[expose] public section
@@ -23,64 +24,80 @@ def applyBody (interpretBody : Environment → Expr → Computation Value)
   | .lam _ body => interpretBody (Environment.empty.extend argument) body
   | _ => fail
 
-/-- A tail application can follow strict lets whose initializers are
-lexical. Each operand is interpreted before invoking the resulting closure. -/
+/-- Tail mode uses lexical let initializers. Sequenced mode interprets
+the initializer and continuation at the same call depth. -/
+inductive LetMode where
+  | tail
+  | sequenced
+
+/-- Each call evaluates its lexical operands before invoking the closure.
+Sequencing is structural on the syntax of the let. -/
 def denoteLayer (interpretBody : Environment → Expr → Computation Value)
-    (env : Environment) : Expr → Computation Value
+    (env : Environment) (e : Expr) (mode : LetMode := .tail) : Computation Value :=
+  match e with
   | .letE _ value body =>
-      Denotation.denoteWith env value >>= fun result =>
-        denoteLayer interpretBody (env.extend result) body
+      let initializer := match mode with
+        | .tail => Denotation.denoteWith env value
+        | .sequenced => denoteLayer interpretBody env value mode
+      initializer >>= fun result => denoteLayer interpretBody (env.extend result) body mode
   | .app fn arg =>
       Denotation.denoteWith env fn >>= fun function =>
         Denotation.denoteWith env arg >>= applyBody interpretBody function
   | e => Denotation.denoteWith env e
-termination_by structural e => e
+termination_by structural e
 
-/-- The index bounds nested invocations. Lexical computations retain their
-ordinary finite-return semantics at every layer. -/
-def denoteWith : Nat → Environment → Expr → Computation Value
-  | 0 => Denotation.denoteWith
-  | depth + 1 => denoteLayer (denoteWith depth)
+/-- The index bounds nested invocations. Each strict let uses the same index
+for both subterms. Lexical computations retain their finite-return semantics. -/
+def denoteWith (depth : Nat) (env : Environment) (e : Expr)
+    (mode : LetMode := .tail) : Computation Value :=
+  match depth with
+  | 0 => Denotation.denoteWith env e
+  | depth + 1 => denoteLayer (fun localEnv body => denoteWith depth localEnv body mode) env e mode
 
-def denote (depth : Nat) (e : Expr) : Computation Value :=
-  denoteWith depth Environment.empty e
+def denote (depth : Nat) (e : Expr) (mode : LetMode := .tail) : Computation Value :=
+  denoteWith depth Environment.empty e mode
 
-/-- The index allows one more invocation at each application. Check the
-callee for each pair of operand returns, in the environment and store with
-which it is actually entered. Every possible return of a let initializer
-must also admit the continuation. -/
-inductive Admitted : Nat → Environment → Store → Expr → Prop where
-  | lexical {depth : Nat} {env : Environment} {s : Store} {e : Expr}
-      (fragment : Fragment e) : Admitted depth env s e
+/-- Check each callee in the environment and store in which it actually runs.
+A let continuation must be admitted after every possible initializer return.
+Only sequenced mode admits a let initializer outside the lexical fragment. -/
+inductive Admitted : Nat → Environment → Store → Expr → (mode : LetMode := .tail) → Prop where
+  | lexical {depth : Nat} {env : Environment} {s : Store} {e : Expr} {mode : LetMode}
+      (fragment : Fragment e) : Admitted depth env s e mode
   | letE {depth : Nat} {env : Environment} {s : Store} {A : Ty} {value body : Expr}
-      (bound : Fragment value)
+      {mode : LetMode} (bound : Fragment value)
       (bodyAdmitted : ∀ {v t}, Returns (Denotation.denoteWith env value) s v t →
-        Admitted (depth + 1) (env.extend v) t body) :
-      Admitted (depth + 1) env s (.letE A value body)
-  | app {depth : Nat} {env : Environment} {s : Store} {fn arg : Expr}
+        Admitted (depth + 1) (env.extend v) t body mode) :
+      Admitted (depth + 1) env s (.letE A value body) mode
+  | letBound {depth : Nat} {env : Environment} {s : Store} {A : Ty} {value body : Expr}
+      (bound : Admitted (depth + 1) env s value .sequenced)
+      (bodyAdmitted : ∀ {v t}, Returns (denoteWith (depth + 1) env value .sequenced) s v t →
+        Admitted (depth + 1) (env.extend v) t body .sequenced) :
+      Admitted (depth + 1) env s (.letE A value body) .sequenced
+  | app {depth : Nat} {env : Environment} {s : Store} {fn arg : Expr} {mode : LetMode}
       (function : Fragment fn) (argument : Fragment arg)
       (bodyAdmitted : ∀ {A body middle a afterArgument},
         Returns (Denotation.denoteWith env fn) s ⟨.lam A body, .lam A body⟩ middle →
         Returns (Denotation.denoteWith env arg) middle a afterArgument →
-        Admitted depth (Environment.empty.extend a) afterArgument body) :
-      Admitted (depth + 1) env s (.app fn arg)
+        Admitted depth (Environment.empty.extend a) afterArgument body mode) :
+      Admitted (depth + 1) env s (.app fn arg) mode
 
 private theorem denoteLayer_of_fragment {e : Expr} (fragment : Fragment e)
-    (interpretBody : Environment → Expr → Computation Value) (env : Environment) :
-    denoteLayer interpretBody env e = Denotation.denoteWith env e := by
+    (interpretBody : Environment → Expr → Computation Value) (env : Environment)
+    (mode : LetMode) :
+    denoteLayer interpretBody env e mode = Denotation.denoteWith env e := by
   induction fragment generalizing env with
   | value ready => cases ready <;> rfl
-  | letE _ _ _ ih =>
-      simp only [denoteLayer, Denotation.denoteWith, ih]
+  | letE _ _ ihValue ihBody =>
+      cases mode <;> simp only [denoteLayer, Denotation.denoteWith, ihValue, ihBody]
   | bvar | matchSum | binary | cond | seq | loop | pair | fst | snd | inl | inr |
     record | project | ref | deref | assign => rfl
 
 theorem denoteWith_of_fragment {e : Expr} (fragment : Fragment e)
-    (depth : Nat) (env : Environment) :
-    denoteWith depth env e = Denotation.denoteWith env e := by
+    (depth : Nat) (env : Environment) (mode : LetMode := .tail) :
+    denoteWith depth env e mode = Denotation.denoteWith env e := by
   cases depth with
   | zero => rfl
-  | succ depth => exact denoteLayer_of_fragment fragment (denoteWith depth) env
+  | succ depth => exact denoteLayer_of_fragment fragment _ env mode
 
 private theorem frame (plug : Expr → Expr)
     (lift : ∀ {e e' : Expr} {s s' : Store}, Step ⟨e, s⟩ ⟨e', s'⟩ →
@@ -188,28 +205,44 @@ private theorem instantiate_argument (body : Expr) (argument : Value) :
   funext i
   cases i <;> rfl
 
+/-- Compose two exact return correspondences at a strict let, using the
+intermediate store and the value returned by the initializer. -/
+private theorem let_returns_iff {env : Environment} {s t : Store} {result : Value}
+    {A : Ty} {value body : Expr} {m : Computation Value} {k : Value → Computation Value}
+    (init : ∀ {v middle}, Returns m s v middle ↔
+      Steps ⟨value.subst env.substitution, s⟩ ⟨v.val, middle⟩)
+    (continuation : ∀ {v middle}, Returns m s v middle →
+      (Returns (k v) middle result t ↔
+        Steps ⟨body.subst (env.extend v).substitution, middle⟩ ⟨result.val, t⟩)) :
+    Returns (m >>= k) s result t ↔
+      Steps ⟨(.letE A value body : Expr).subst env.substitution, s⟩ ⟨result.val, t⟩ := by
+  simp only [Expr.subst, returns_bind, let_iff (target := ⟨result.val, t⟩) result.property,
+    beta_after_capture]
+  constructor
+  · rintro ⟨v, middle, evaluated, continued⟩
+    exact ⟨v, middle, init.mp evaluated, (continuation evaluated).mp continued⟩
+  · rintro ⟨v, middle, evaluated, continued⟩
+    have returned := init.mpr evaluated
+    exact ⟨v, middle, returned, (continuation returned).mpr continued⟩
+
 /-- Exact finite may adequacy at an admitted call depth. The result and
 the whole final store agree with the original L3 rules. The index bounds
 callee nesting and need not bound the length of the source trace. -/
 theorem adequateWith {depth : Nat} {env : Environment} {s t : Store} {e : Expr} {result : Value}
-    (admitted : Admitted depth env s e) :
-    Returns (denoteWith depth env e) s result t ↔
+    {mode : LetMode} (admitted : Admitted depth env s e mode) :
+    Returns (denoteWith depth env e mode) s result t ↔
       Steps ⟨e.subst env.substitution, s⟩ ⟨result.val, t⟩ := by
-  induction admitted with
-  | lexical fragment =>
-      rw [denoteWith_of_fragment fragment]
+  induction admitted generalizing t result with
+  | @lexical depth env s e mode fragment =>
+      rw [denoteWith_of_fragment fragment depth env mode]
       exact Denotation.adequateWith _ fragment
-  | @letE depth env s A value body bound _ ih =>
-      simp only [denoteWith, denoteLayer, Expr.subst, returns_bind,
-        let_iff (target := ⟨result.val, t⟩) result.property, beta_after_capture]
-      constructor
-      · rintro ⟨v, middle, evaluated, continued⟩
-        exact ⟨v, middle, (Denotation.adequateWith env bound).mp evaluated,
-          (ih evaluated).mp continued⟩
-      · rintro ⟨v, middle, evaluated, continued⟩
-        have returned := (Denotation.adequateWith env bound).mpr evaluated
-        exact ⟨v, middle, returned, (ih returned).mpr continued⟩
-  | @app depth env s fn arg function argument _ ih =>
+  | @letE depth env s A value body mode bound _ ih =>
+      cases mode <;> simp only [denoteWith, denoteLayer, denoteLayer_of_fragment bound] <;>
+        exact let_returns_iff (Denotation.adequateWith env bound) (fun returned => ih returned)
+  | @letBound depth env s A value body bound _ ihBound ihBody =>
+      simp only [denoteWith, denoteLayer]
+      exact let_returns_iff ihBound (fun returned => ihBody returned)
+  | @app depth env s fn arg mode function argument _ ih =>
       simp only [denoteWith, denoteLayer, Expr.subst, returns_bind,
         app_iff (target := ⟨result.val, t⟩) result.property]
       constructor
@@ -231,14 +264,14 @@ theorem adequateWith {depth : Nat} {env : Environment} {s t : Store} {e : Expr} 
           (ih returnedFn returnedArg).mpr invoked⟩
 
 theorem adequate {depth : Nat} {s t : Store} {e : Expr} {result : Value}
-    (admitted : Admitted depth Environment.empty s e) :
-    Returns (denote depth e) s result t ↔ Steps ⟨e, s⟩ ⟨result.val, t⟩ := by
+    {mode : LetMode} (admitted : Admitted depth Environment.empty s e mode) :
+    Returns (denote depth e mode) s result t ↔ Steps ⟨e, s⟩ ⟨result.val, t⟩ := by
   simpa only [denote, show Environment.empty.substitution = Expr.bvar from rfl, Expr.subst_id] using
     (adequateWith admitted (result := result) (t := t))
 
 theorem typed_return {depth : Nat} {Θ : LocTypes} {T : Ty} {e : Expr} {s t : Store} {result : Value}
-    (admitted : Admitted depth Environment.empty s e) (typed : HasType Θ .empty e T)
-    (store : StoreTyped Θ s) (returned : Returns (denote depth e) s result t) :
+    {mode : LetMode} (admitted : Admitted depth Environment.empty s e mode) (typed : HasType Θ .empty e T)
+    (store : StoreTyped Θ s) (returned : Returns (denote depth e mode) s result t) :
     ∃ Θ', Θ.Extends Θ' ∧ HasType Θ' .empty result.val T ∧ StoreTyped Θ' t :=
   preservation_steps ((adequate admitted).mp returned) typed store
 
