@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGraph.Thms
+import Silmaril.Semantics.RuntimeWires.ProgressiveTrace.Thms
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.FunProp
 import Mathlib.Tactic.Linarith
@@ -175,5 +176,111 @@ example : creation.afterWires = [0, 1] ∧ scalar.beforeWires = scalar.afterWire
 noncomputable example :
     Sliced.Sheet signature (creation.beforeWires.map drawing.label) (deletion.afterWires.map drawing.label) :=
   creation.prependAtSeam scalar (scalar.prependAtSeam deletion (deletion.prepend (.empty _)))
+
+private theorem vertex_order : drawing.vertexOrder = Equiv.refl (Fin 3) := by
+  unfold Diagram.vertexOrder
+  apply Tuple.sort_eq_refl_iff_monotone.mpr
+  intro i j hij
+  fin_cases i <;> fin_cases j <;> norm_num [drawing, vertexHeight] at *
+
+/-- The sweep finds the midpoint between creation and the isolated scalar. -/
+example : drawing.cutHeight 1 = (3 / 8 : ℝ) := by
+  simp only [Diagram.cutHeight, Diagram.landmark, vertex_order]
+  change (drawing.vertexHeight 0 + drawing.vertexHeight 1) / 2 = _
+  norm_num [drawing, vertexHeight]
+
+/-- Read back the original internal wire and the boundary-to-boundary wire. -/
+example :
+    drawing.sweep.readStart 1 = some 0 ∧
+    drawing.sweep.readFinish 1 = some 2 ∧
+    drawing.sweep.readStart 0 = none ∧
+    drawing.sweep.readFinish 0 = none := by
+  simp [Diagram.Sweep.readStart_eq, Diagram.Sweep.readFinish_eq, drawing, start, finish]
+
+/-- The internal wire appears at exactly the two cuts on either side of the scalar. -/
+example : drawing.sweep.wireCuts 1 = {1, 2} := by
+  ext i
+  simp only [Diagram.Sweep.wireCuts, Finset.mem_filter, Finset.mem_univ, true_and,
+    Diagram.Sweep.wire_span]
+  have startRank : (drawing.startIndex 1).val = 1 := by
+    rw [Diagram.startIndex, show drawing.start 1 = some 0 from rfl]
+    change (drawing.vertexOrder.symm 0).val + 1 = 1
+    rw [vertex_order]
+    rfl
+  have finishRank : (drawing.finishIndex 1).val = 3 := by
+    rw [Diagram.finishIndex, show drawing.finish 1 = some 2 from rfl]
+    change (drawing.vertexOrder.symm 2).val + 1 = 3
+    rw [vertex_order]
+    rfl
+  rw [startRank, finishRank]
+  fin_cases i <;> decide
+
+/-- In the vertex-free case the schedule uses just the midpoint of the caps. -/
+example (d : Diagram signature 0 2) : d.cutHeight 0 = (1 / 2 : ℝ) := by
+  change ((0 : ℝ) + 1) / 2 = _
+  norm_num
+
+open Silmaril.RuntimeWires.Sliced
+
+private theorem cap_singleton (i : Fin 4)
+    (members : ∀ w : Fin 2, w ∈ drawing.sweep.wires i ↔ w = 0) :
+    drawing.sweep.wires i = [0] := by
+  have nd : (drawing.sweep.wires i).Nodup :=
+    (drawing.sweep.ordered i).ordered.imp
+      (fun h => ne_of_apply_ne (fun w => drawing.x w (drawing.cutHeight i)) (ne_of_lt h))
+  exact ((List.perm_ext_iff_of_nodup nd (by simp)).mpr (by simpa using members)).eq_singleton
+
+private theorem input_cap : drawing.sweep.wires 0 = [0] := by
+  apply cap_singleton
+  intro w
+  rw [drawing.sweep.input_mem]
+  fin_cases w <;> simp [drawing, start]
+
+private theorem output_cap : drawing.sweep.wires (Fin.last 3) = [0] := by
+  apply cap_singleton
+  intro w
+  rw [drawing.sweep.output_mem]
+  fin_cases w <;> simp [drawing, finish]
+
+/-- The decoder sees the same source-port name leaving creation and entering
+deletion, preserves the boundary wire, and records the isolated scalar. -/
+example :
+    drawing.sweep.sheet.traceWires =
+      ⟨[[⟨0, [], [(true, .box 0 0 0)]⟩],
+        [⟨1, [], []⟩],
+        [⟨2, [(true, .box 0 0 0)], []⟩]],
+        [(false, .boundary 0)]⟩ := by
+  have wire : drawing.sweep.namedWire 1 = (true, .box 0 0 0) := by
+    rw [Diagram.Sweep.namedWire, Diagram.Sweep.origin, show drawing.start 1 = some 0 from rfl]
+    rw [vertex_order]
+    rfl
+  have boundary : drawing.sweep.namedWire 0 = (false, .boundary 0) := by
+    rw [Diagram.Sweep.namedWire, Diagram.Sweep.origin, show drawing.start 0 = none from rfl, input_cap]
+    rfl
+  rw [drawing.sweep.trace_sheet, Diagram.Sweep.expectedTrace, output_cap]
+  have create : drawing.sweep.expectedBox 0 = ⟨0, [], [(true, .box 0 0 0)]⟩ := by
+    rw [Diagram.Sweep.expectedBox, vertex_order]
+    change (⟨0, [], [drawing.sweep.namedWire 1]⟩ : BoxTrace signature) = _
+    rw [wire]
+  have scalar : drawing.sweep.expectedBox 1 = ⟨1, [], []⟩ := by
+    rw [Diagram.Sweep.expectedBox, vertex_order]
+    rfl
+  have delete : drawing.sweep.expectedBox 2 = ⟨2, [(true, .box 0 0 0)], []⟩ := by
+    rw [Diagram.Sweep.expectedBox, vertex_order]
+    change (⟨2, [drawing.sweep.namedWire 1], []⟩ : BoxTrace signature) = _
+    rw [wire]
+  change (⟨[[drawing.sweep.expectedBox 0], [drawing.sweep.expectedBox 1], [drawing.sweep.expectedBox 2]],
+    [drawing.sweep.namedWire 0]⟩ : SheetTrace signature) = _
+  rw [create, scalar, delete, boundary]
+
+example (d : Diagram signature 0 2) :
+    d.sweep.sheet.traceWires = ⟨[], namePorts .boundary ((d.sweep.wires 0).map d.label)⟩ :=
+  d.sweep.trace_no_vertices
+
+/-- Even equal labels at the boundary have distinct source-port names. -/
+example :
+    (Sliced.Sheet.empty (S := signature) [true, true]).traceWires =
+      ⟨[], [(true, .boundary 0), (true, .boundary 1)]⟩ :=
+  rfl
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveGraph.Regression

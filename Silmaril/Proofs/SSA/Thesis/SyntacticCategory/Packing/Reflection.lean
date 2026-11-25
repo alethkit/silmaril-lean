@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.Thesis.SyntacticCategory.Packing.Defs
-import Silmaril.SSA.Thesis.SyntacticCategory.Tensor.Thms
+public import Silmaril.SSA.Thesis.SyntacticCategory.Tensor.Structure.Defs
 
 public section
 
@@ -10,6 +10,8 @@ universe u
 namespace Silmaril.Thesis.LambdaIter.Syn.SynCat
 
 open CategoryTheory
+open CartesianMonoidalCategory (fst snd hom_ext)
+open scoped MonoidalCategory
 open LocallyNameless LocallyNameless.Tm LocallyNameless.Syntax
 
 variable {S : Sig.{u}}
@@ -159,6 +161,20 @@ private theorem instantiate_underBinder_one {t a : Tm Empty S.Instr 1} :
   apply bsubst_congr
   exact Fin.cases rfl (fun i => i.elim0)
 
+theorem packedArrow_bv_succ_proof {n : Nat} (β : BoundCtx S.Ty n) (A : S.Ty) (i : Fin n) :
+    packedArrow (S := S) (HasType.bv (β := .snoc β A) (ι := i.succ)) =
+      first (of (packType β)) (of A) ≫ packedArrow (HasType.bv (β := β) (ι := i)) := by
+  let firstProjection := HasType.let₂
+    (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+      (β := .nil) (A := tensor (packType β) A)) (HasType.bv (ι := 1))
+  let projection := projectTyping β (HasType.newest (Γ := Ctx.nil) (β := .nil)) i
+  have beta := Eqv.ax (.structural (.letBeta (pureEff := S.pureEff) (.let₂ .bv .bv)))
+    (.let₁ firstProjection projection.underBinder) (projection.underBinder.instantiate firstProjection)
+  change Eqv S.pureEff Ctx.nil _ _ (instantiate (underBinder (project β (.bv 0) i))
+    (.let₂ (.bv 0) (.bv 1))) _ at beta
+  rw [instantiate_underBinder_one, project_bsubst, bsubst_bv] at beta
+  exact Quotient.sound beta.symm
+
 /-- Applying the packed body to the retained environment and the newest
 variable computes the lifted packing substitution. -/
 private theorem packed_body_on_pair {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
@@ -223,6 +239,40 @@ theorem packedArrow_op_proof {n : Nat} {β : BoundCtx S.Ty n}
   exact eta.symm.trans (seq.trans (.let₁ (.refl p)
     (.ax (.structural (.letEta _)) (.let₁ r .newest) r)))
 
+theorem packedArrow_inl_proof {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {a : Tm Empty S.Instr n} (h : HasType S.Instr Ctx.nil β a A) :
+    packedArrow (S := S) (HasType.inl (B := B) h) =
+      packedArrow h ≫ injl (of A) (of B) := by
+  let argument := packedTyping (S := S) h
+  let injection := HasType.inl (B := B) argument
+  let left := HasType.inl (B := B)
+    (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+      (β := .snoc .nil (packType β)) (A := A))
+  let right := HasType.inr (A := A)
+    (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+      (β := .snoc .nil (packType β)) (A := B))
+  let split := HasType.case injection left right
+  apply Quotient.sound
+  exact (Eqv.ax (.structural (.caseEta (pureEff := S.pureEff) _)) split injection).symm.trans
+    (Eqv.ax (.structural (.caseBetaL _ _ _)) split (.let₁ argument left))
+
+theorem packedArrow_inr_proof {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {a : Tm Empty S.Instr n} (h : HasType S.Instr Ctx.nil β a B) :
+    packedArrow (S := S) (HasType.inr (A := A) h) =
+      packedArrow h ≫ injr (of A) (of B) := by
+  let argument := packedTyping (S := S) h
+  let injection := HasType.inr (A := A) argument
+  let left := HasType.inl (B := B)
+    (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+      (β := .snoc .nil (packType β)) (A := A))
+  let right := HasType.inr (A := A)
+    (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+      (β := .snoc .nil (packType β)) (A := B))
+  let split := HasType.case injection left right
+  apply Quotient.sound
+  exact (Eqv.ax (.structural (.caseEta (pureEff := S.pureEff) _)) split injection).symm.trans
+    (Eqv.ax (.structural (.caseBetaR _ _ _)) split (.let₁ argument right))
+
 theorem packedSubst_comp_proof {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx S.Ty m}
     {σ : Fin n → Tm Empty S.Instr m}
     (s : PureTypedSubst (Γ := Ctx.nil) (pureEff := S.pureEff) β γ σ)
@@ -245,6 +295,126 @@ theorem packedSubst_comp_proof {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx
   have e := ((project_packTerm β i).bsubst s).bsubst (packingSubst γ)
   rw [project_bsubst, project_bsubst, bsubst_bv] at e
   exact e
+
+private def splitNewestPair (n : Nat) : Fin (n + 2) → Tm Empty S.Instr (n + 1) :=
+  Fin.cases (.let₂ (.bv 0) (.bv 0))
+    (Fin.cases (.let₂ (.bv 0) (.bv 1)) (fun i => .bv i.succ))
+
+private def splitNewestPairSubst {n : Nat} (β : BoundCtx S.Ty n) (A B : S.Ty) :
+    PureTypedSubst (Γ := Ctx.nil) (pureEff := S.pureEff)
+      ((β.snoc A).snoc B) (β.snoc (tensor A B)) (splitNewestPair (S := S) n) where
+  typed := Fin.cases (.let₂ HasType.newest .newest)
+    (Fin.cases (.let₂ HasType.newest (.bv (ι := 1))) (fun _ => .bv))
+  pure := Fin.cases (.let₂ .bv .bv) (Fin.cases (.let₂ .bv .bv) (fun _ => .bv))
+
+private theorem splitNewestPair_eqv {n : Nat} {β : BoundCtx S.Ty n} {A B C : S.Ty}
+    {c : Tm Empty S.Instr (n + 2)} (hc : HasType S.Instr Ctx.nil ((β.snoc A).snoc B) c C) :
+    Eqv S.pureEff Ctx.nil (β.snoc (tensor A B))
+      (.let₂ (Tm.bv 0) c.underTwoBinders) (bsubst (splitNewestPair n) c) C := by
+  let input := HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+    (β := β) (A := tensor A B)
+  let left := HasType.let₂ input (.bv (ι := 1))
+  let right := HasType.let₂ input .newest
+  let body := hc.underTwoBinders (X := tensor A B)
+  refine (Eqv.let₂ (pair_projections_eta input .bv).symm (.refl body)).trans ?_
+  refine (Eqv.ax (.structural (.pairBeta _ _ _)) (.let₂ (.pair left right) body)
+    (.let₁ left (.let₁ right.lift body))).trans ?_
+  refine (Eqv.let₁ (.refl left)
+    (.ax (.structural (.letBeta ((Pure.let₂ .bv .bv).rename Fin.succ)))
+      (.let₁ right.lift body) (body.instantiate right.lift))).trans ?_
+  have beta := Eqv.ax (.structural (.letBeta (Pure.let₂ (pureEff := S.pureEff) .bv .bv)))
+    (.let₁ left (body.instantiate right.lift)) ((body.instantiate right.lift).instantiate left)
+  have subst :
+      instantiate (instantiate c.underTwoBinders (lift (.let₂ (.bv 0) (.bv 0))))
+          (.let₂ (.bv 0) (.bv 1)) = bsubst (splitNewestPair n) c := by
+    unfold instantiate underTwoBinders
+    rw [bsubst_comp, bsubst_rename]
+    apply bsubst_congr
+    refine Fin.cases ?_ (Fin.cases rfl (fun _ => rfl))
+    change bsubst _ (lift (.let₂ (.bv 0) (.bv 0) : Tm Empty S.Instr (n + 1))) = _
+    rw [lift, bsubst_rename]
+    change bsubst (fun i => Tm.bv i) (.let₂ (.bv 0) (.bv 0) : Tm Empty S.Instr (n + 1)) = _
+    rw [bsubst_bv_eq_rename, rename_id]
+    rfl
+  rwa [subst] at beta
+
+set_option backward.isDefEq.respectTransparency false in
+private theorem splitNewestPair_assoc {n : Nat} (β : BoundCtx S.Ty n) (A B : S.Ty) :
+    packedSubst (splitNewestPairSubst (S := S) β A B) =
+      (tensorAssociator (of (packType β)) (of A) (of B)).inv := by
+  let β' := β.snoc (tensor A B)
+  let X : ValueCat S := ⟨of (packType β)⟩
+  let Y : ValueCat S := ⟨of A⟩
+  let Z : ValueCat S := ⟨of B⟩
+  let input := HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+    (β := β) (A := tensor A B)
+  let left := HasType.let₂ input (.bv (ι := 1))
+  let right := HasType.let₂ input .newest
+  let context := (packTermTyping (S := S) β).lift (B := tensor A B)
+  have tuple :
+      bsubst (splitNewestPair (S := S) n) (packTerm ((β.snoc A).snoc B)) =
+        .pair (.pair (lift (packTerm β)) (.let₂ (.bv 0) (.bv 1))) (.let₂ (.bv 0) (.bv 0)) := by
+    simp only [packTerm, bsubst_pair, lift, bsubst_rename, bsubst_bv]
+    congr 2
+    exact bsubst_bv_eq_rename Fin.succ (packTerm β)
+  have tupleArrow : packedSubst (splitNewestPairSubst (S := S) β A B) =
+      pairArrows (pairArrows (packedArrow context) (packedArrow left)) (packedArrow right) := by
+    apply Quotient.sound
+    change Eqv S.pureEff Ctx.nil _ (packedTerm β'
+      (bsubst (splitNewestPair n) (packTerm ((β.snoc A).snoc B)))) _ _
+    rw [tuple]
+    exact .refl (packedTyping (HasType.pair (HasType.pair context left) right))
+  have contextArrow : packedArrow context = first X.obj (Y ⊗ Z).obj := by
+    apply Quotient.sound
+    change Eqv S.pureEff Ctx.nil _ (bsubst (project β' (.bv 0)) (lift (packTerm β))) _ _
+    rw [lift, bsubst_rename]
+    exact packTerm_project β (HasType.let₂ HasType.newest (.bv (ι := 1))) (Pure.let₂ .bv .bv)
+  let p : HasType S.Instr (Ctx.nil : Ctx Empty S.Ty) (.snoc .nil (packType β'))
+      (.let₂ (.bv 0) (.bv 0)) (tensor A B) := .let₂ .newest .newest
+  let l : HasType S.Instr (Ctx.nil : Ctx Empty S.Ty) (.snoc .nil (tensor A B))
+      (.let₂ (.bv 0) (.bv 1)) A := .let₂ .newest (.bv (ι := 1))
+  let r : HasType S.Instr (Ctx.nil : Ctx Empty S.Ty) (.snoc .nil (tensor A B))
+      (.let₂ (.bv 0) (.bv 0)) B := .let₂ .newest .newest
+  have leftArrow : packedArrow left = second X.obj (Y ⊗ Z).obj ≫ first Y.obj Z.obj :=
+    (Quotient.sound (Eqv.ax (.structural (.letBeta (Pure.let₂ (pureEff := S.pureEff) .bv .bv)))
+      (.let₁ p l.underBinder) (l.underBinder.instantiate p))).symm
+  have rightArrow : packedArrow right = second X.obj (Y ⊗ Z).obj ≫ second Y.obj Z.obj :=
+    (Quotient.sound (Eqv.ax (.structural (.letBeta (Pure.let₂ (pureEff := S.pureEff) .bv .bv)))
+      (.let₁ p r.underBinder) (r.underBinder.instantiate p))).symm
+  let firstSlot := fst X (Y ⊗ Z)
+  let leftSlot := snd X (Y ⊗ Z) ≫ fst Y Z
+  let rightSlot := snd X (Y ⊗ Z) ≫ snd Y Z
+  let tupleMap := CartesianMonoidalCategory.lift
+    (CartesianMonoidalCategory.lift firstSlot leftSlot) rightSlot
+  have assoc : (α_ X Y Z).inv = tupleMap := by
+    dsimp [tupleMap, firstSlot, leftSlot, rightSlot]
+    apply hom_ext
+    · apply hom_ext <;> simp
+    · simp
+  have mapTuple : (values S).map tupleMap =
+      pairArrows (pairArrows firstSlot.hom leftSlot.hom) rightSlot.hom := by
+    change tupleMap.hom = _
+    unfold tupleMap
+    rw [valueLift_hom, valueLift_hom]
+  rw [tupleArrow, contextArrow, leftArrow, rightArrow]
+  exact mapTuple.symm.trans (congrArg (values S).map assoc).symm
+
+theorem packedArrow_let2_proof {n : Nat} {β : BoundCtx S.Ty n} {A B C : S.Ty}
+    {a : Tm Empty S.Instr n} {c : Tm Empty S.Instr (n + 2)}
+    (ha : HasType S.Instr Ctx.nil β a (tensor A B))
+    (hc : HasType S.Instr Ctx.nil ((β.snoc A).snoc B) c C) :
+    packedArrow (S := S) (.let₂ ha hc) =
+      pairArrows (𝟙 (of (packType β))) (packedArrow ha) ≫
+        (tensorAssociator (of (packType β)) (of A) (of B)).inv ≫ packedArrow hc := by
+  let σ := splitNewestPairSubst (S := S) β A B
+  let hb := hc.bsubst σ.typed
+  have seq := Eqv.ax (pureEff := S.pureEff) (.sequencing (.bindPair a c))
+    (.let₂ ha hc) (.let₁ ha (.let₂ .newest hc.underTwoBinders))
+  have subst := Eqv.let₁ (.refl ha) (splitNewestPair_eqv hc)
+  have packed : packedArrow (S := S) (.let₂ ha hc) = packedArrow (.let₁ ha hb) :=
+    Quotient.sound ((seq.trans subst).bsubst (packingSubst β))
+  rw [packed, packedArrow_let1_proof, ← packedSubst_comp_proof σ hc, splitNewestPair_assoc]
+  rfl
 
 theorem packedSubst_isPureMor_proof {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx S.Ty m}
     {σ : Fin n → Tm Empty S.Instr m}

@@ -10,6 +10,20 @@ import tempfile
 
 
 FIXTURES = (
+    ("pass", """def outer(seed):
+    pass
+    return seed
+""", "return 5", ["complete"]),
+    ("nested_pass", """def outer(seed):
+    pass
+    def inner(value):
+        pass
+        return value
+    pass
+    result = inner(seed)
+    pass
+    return result
+""", "return 5", ["enter", "resume", "complete"]),
     ("forwarded_write", """def outer(seed):
     def middle(x):
         def inner(y):
@@ -109,6 +123,8 @@ if __name__ == "__main__":
             ).stdout.strip()
             assert reference == expected, (name, reference, expected)
             extra = ""
+            if name == "pass":
+                extra = '#guard observation pythonSource 2 == ("return 5", ["complete"])\n'
             if name == "forwarded_write":
                 extra = '#guard observation pythonSource 1 == ("live residual", [])\n'
             shared["check_lean"](
@@ -123,6 +139,19 @@ if __name__ == "__main__":
             lean_file,
             LEAN + """
 #guard (match compile pythonSource with | .error (.bodyProfile [0]) => true | _ => false)
+""",
+            extra_imports=imports, capture_output=True,
+        )
+        shared["emit"](python_file, lean_file, "def outer(seed): pass\n")
+        implicit = subprocess.run(
+            [sys.executable, "-I", "-c", CPYTHON, str(python_file)],
+            check=True, capture_output=True, text=True, timeout=10,
+        )
+        assert implicit.stdout.strip() == "return None"
+        shared["check_lean"](
+            lean_file,
+            LEAN + """
+#guard (match compile pythonSource with | .error (.frontend .bodyShape) => true | _ => false)
 """,
             extra_imports=imports, capture_output=True,
         )

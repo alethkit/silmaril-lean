@@ -63,18 +63,18 @@ private theorem Front.ordinary {H : Type} {s : Store H} {f : Frame} {vs : List V
   | nop => exact (notNop rfl).elim
   | bubble => exact (notTrap rfl).elim
 
-private theorem active_strip {H : Type} {s : Store H} {caller : Frame}
+theorem active_strip {H : Type} {s : Store H} {caller : Frame}
     {addr : FuncAddr} {fn : CallFrame.Callee} {a : CallFrame.State} {dst : Config H}
-    (live : Active a) (step : Step CallFrame.limeNoHost (limeConfig s caller addr fn (.active a)) dst) :
+    {suffix : List Admin} (live : Active a) (step : Step CallFrame.limeNoHost (⟨s, caller, CallFrame.limeCode addr fn a ++ suffix⟩) dst) :
     ∃ mid, Step CallFrame.limeNoHost (CallFrame.limeConfig s caller addr fn a) mid ∧
-      dst = ⟨mid.store, mid.frame, mid.code ++ [nop]⟩ := by
+      dst = ⟨mid.store, mid.frame, mid.code ++ suffix⟩ := by
   have strip {op : Admin} {stack : List Value} (focus : Focus op)
       (noNop : op ≠ .source .nop) (noTrap : op ≠ .trap)
       (code : CallFrame.limeCode addr fn a = values stack ++ [op]) :
       ∃ mid, Step CallFrame.limeNoHost (CallFrame.limeConfig s caller addr fn a) mid ∧
-        dst = ⟨mid.store, mid.frame, mid.code ++ [nop]⟩ := by
-    have source : (limeConfig s caller addr fn (.active a)).code = values stack ++ op :: [nop] := by
-      change CallFrame.limeCode addr fn a ++ [nop] = _
+        dst = ⟨mid.store, mid.frame, mid.code ++ suffix⟩ := by
+    have source : (⟨s, caller, CallFrame.limeCode addr fn a ++ suffix⟩ : Config H).code = values stack ++ op :: suffix := by
+      change CallFrame.limeCode addr fn a ++ suffix = _
       rw [code, List.append_assoc, List.singleton_append]
     obtain ⟨mid, h, eq⟩ := (front step focus source).ordinary noNop noTrap
     refine ⟨mid, ?_, eq⟩
@@ -118,7 +118,7 @@ theorem readback {H : Type} {s : Store H} {caller : Frame} {addr : FuncAddr} {fn
     ∃ out, Edge fn a out ∧ dst = limeConfig s caller addr fn out := by
   cases a with
   | active q =>
-    obtain ⟨mid, h, rfl⟩ := active_strip ready.1 step
+    obtain ⟨mid, h, rfl⟩ := active_strip (suffix := [nop]) ready.1 step
     obtain ⟨out, edge, rfl⟩ := (CallFrame.lime_step_iff allocated ready.2).mp h
     exact ⟨attach out, call ready.1 edge, congrArg (fun code => (⟨s, caller, code⟩ : Config H))
       (append_render addr fn out)⟩

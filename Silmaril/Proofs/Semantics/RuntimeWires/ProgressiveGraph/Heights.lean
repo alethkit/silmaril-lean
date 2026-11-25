@@ -89,7 +89,7 @@ theorem cross_after (iso : d.Isolates v lo hi) (w : Fin W) :
         exact hv.ne (finish_height d hs).symm
       exact ⟨he ▸ iso.above, ht⟩
 
-private theorem order_transport {a b : ℝ} {w z : Fin W}
+theorem order_transport {a b : ℝ} {w z : Fin W}
     (cover : ∀ h ∈ Set.uIcc a b, d.covers w h ∧ d.covers z h)
     (hne : ∀ h ∈ Set.uIcc a b, d.x w h ≠ d.x z h)
     (h : d.x w a < d.x z a) : d.x w b < d.x z b := by

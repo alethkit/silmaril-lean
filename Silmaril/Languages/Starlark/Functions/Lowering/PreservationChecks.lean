@@ -1,6 +1,7 @@
 module
 
 import Silmaril.Languages.Starlark.Functions.Lowering.Thms
+import Silmaril.Languages.Starlark.Functions.Lowering.Denotation.Thms
 
 namespace Silmaril.Languages.Starlark.Functions.Lowering
 
@@ -70,6 +71,17 @@ private theorem skip_runs :
     Evaluates #[] [] input skipCall (.ok (.scalar .none) afterAppend) :=
   .shortCircuit mark_runs rfl rfl
 
+private theorem skip_admitted : Admitted skipCall := by
+  refine .logical (.atom (mark_safe 1)) (.call ?_)
+  intro operand member
+  simp [sourceOperands] at member
+  rcases member with rfl | rfl
+  · exact .atom (.builtin .len)
+  · exact .atom (mark_safe 2)
+
+example : Evaluates #[] [] input skipCall (denoteExpr #[] [] skipCall input) :=
+  (evaluates_iff_denoteExpr #[] [] skip_admitted input _).mpr rfl
+
 example : ∃ final, denoteBody #[] [] (lower skipCall destination 3).code input = .ok .next final ∧
     final.heap = afterAppend.heap ∧ final.bindingValue destination = .ok (.scalar .none) := by
   obtain ⟨final, ran, related⟩ := lower_preserves skip_runs (by intro _; rfl)
@@ -90,6 +102,11 @@ private theorem keywordFailure_runs :
     .atom (mark_safe 2) (mark_eval afterAppend 2 rfl)
   exact .callError (.tailError (.atom (.builtin _) .builtin) (.tailError mark_runs
     (.headError (lenMark_fails second))))
+
+example :
+    denoteExpr #[] [] keywordFailure input =
+      .error (.builtinType .len (.scalar .none)) (marked input [1, 2]) :=
+  denoteExpr_eq_of_evaluates keywordFailure_runs
 
 example : ∃ final,
     denoteBody #[] [] (lower keywordFailure destination).code input =
@@ -114,6 +131,10 @@ private theorem invalidExpansions_run :
         (.cons (.atom (mark_safe 3) (mark_eval (marked input [1, 2]) 3 rfl))
           (.cons (.atom (mark_safe 4) (mark_eval (marked input [1, 2, 3]) 4 rfl)) .empty))))
   · exact .expansionError (.mappingError rfl)
+
+example :
+    denoteExpr #[] [] invalidExpansions input = .error .invalidStarStar (marked input [1, 2, 3, 4]) :=
+  denoteExpr_eq_of_evaluates invalidExpansions_run
 
 example : ∃ final,
     denoteBody #[] [] (lower invalidExpansions destination).code input = .error .invalidStarStar final ∧
@@ -181,6 +202,10 @@ private theorem duplicateName_runs :
         (.cons (.atom (.dict (.entry .noEntries (.string _) (mark_safe 2))) mapping) .empty))
   · exact .expanded (.success (next := duplicateFinal) (final := duplicateFinal)
       (keys := [("x", .scalar .none)]) (values := []) rfl rfl) (.reject rfl)
+
+example :
+    denoteExpr program [0] duplicateName functionInput = .error (.multipleArgumentValues "x") duplicateFinal :=
+  denoteExpr_eq_of_evaluates duplicateName_runs
 
 example : ∃ final,
     denoteBody program [0] (lower duplicateName destination).code functionInput =

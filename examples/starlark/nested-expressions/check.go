@@ -125,4 +125,20 @@ out = (len(*items, **keywords) or len(9)) if True else len(9)
 `)
 	require(err != nil && strings.Contains(err.Error(), "undefined: missing"), fmt.Sprint(err))
 	fmt.Println("PASS lexical resolution rejects an unknown name in an untaken branch")
+
+	const mutatingBody = `def body(a, b, c, d):
+    events.append(a)
+    events.append(b)
+    events.append(c)
+    return len(d)
+events = []
+`
+	g, err = initSource(mutatingBody + `out = body(1, c=3, *(2,), **{"d": events})`)
+	require(err == nil && g["out"].String() == "3" && g["events"].String() == "[1, 2, 3]", fmt.Sprint(err))
+	fmt.Println("PASS mixed operands invoke the closure and its inner built-in with a shared list")
+
+	g, err = initSource(mutatingBody + `out = body(1, c=3, *(2,), **{"d": 9})`)
+	require(err != nil && strings.Contains(err.Error(), "has no len"), fmt.Sprint(err))
+	require(g["out"] == nil && g["events"].String() == "[1, 2, 3]", "callee effects must survive its error")
+	fmt.Println("PASS callee effects survive failure in the inner built-in")
 }

@@ -4,7 +4,7 @@ public import Silmaril.SSA.Isotope.LetIter.Categorical.Syntactic.Packing.Defs
 public import Silmaril.SSA.Thesis.SyntacticCategory.Packing.Thms
 import Silmaril.Proofs.SSA.Isotope.LetIter.Categorical.Syntactic.Packing
 
-/-! # Packed native LetIter application and binding -/
+/-! # Packed native LetIter reification -/
 
 public section
 
@@ -41,6 +41,37 @@ theorem packedNative_let1 (pe : ε) {n : Nat} {β : BoundCtx τ n} {t : Tm Empty
 local instance : Thesis.LambdaIter.TypeFormers τ := Bridge.thesisTypeFormers τ
 local instance : Thesis.LambdaIter.HasTy Φ τ := Bridge.thesisHasTy Φ τ
 
+/-- An arbitrary bound-variable lookup reifies to the packed context projection. -/
+theorem packedNative_bv_eq_packedArrow (pe : ε)
+    {n : Nat} {β : BoundCtx τ n} (i : Fin n)
+    (h : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (.bv i) (β.get i)) :
+    packedNative pe (Derivation.bv (Φ := Φ) (Γ := (Ctx.nil : Ctx Empty τ)) (ι := i) (β := β)) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) h :=
+  PackingProofs.packedNative_bv_eq_packedArrow pe i h
+
+/-- The packed denotation of unit is the packed syntactic unit. -/
+theorem packedNative_unit_eq_packedArrow (pe : ε) {n : Nat} {β : BoundCtx τ n}
+    (h : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) .unit (Silmaril.unit : τ)) :
+    packedNative pe (Derivation.unit (Φ := Φ) (Γ := (Ctx.nil : Ctx Empty τ)) (β := β)) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) h :=
+  PackingProofs.packedNative_unit_eq_packedArrow pe h
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+/-- Reification of an argument implies reification after applying a primitive. -/
+theorem packedNative_op_eq_packedArrow (pe : ε)
+    {n : Nat} {β : BoundCtx τ n} {t : Tm Empty Φ n} {f : Φ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t (instrSrc f))
+    (h : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (Bridge.toThesis t) (instrSrc f))
+    (ih : packedNative pe d = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) h) :
+    packedNative pe (.op (f := f) d) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (HasType.op (f := f) h) := by
+  rw [packedNative_op pe d, ih, packedArrow_op h]
+  rfl
+
 /-- Reification of the scrutinee and body implies reification of their let. -/
 theorem packedNative_let1_eq_packedArrow (pe : ε)
     {n : Nat} {β : BoundCtx τ n} {t : Tm Empty Φ n} {s : Tm Empty Φ (n + 1)} {A B : τ}
@@ -55,5 +86,71 @@ theorem packedNative_let1_eq_packedArrow (pe : ε)
     packedNative pe (.let₁ d e) =
       packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (.let₁ ha hb) :=
   PackingProofs.packedNative_let1_eq_packedArrow pe d e ha hb ih₁ ih₂
+
+/-- Reification of an argument implies reification of its left injection. -/
+theorem packedNative_inl_eq_packedArrow (pe : ε)
+    {n : Nat} {β : BoundCtx τ n} {t : Tm Empty Φ n} {A B : τ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t A)
+    (h : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (Bridge.toThesis t) A)
+    (ih : packedNative pe d = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) h) :
+    packedNative pe (Derivation.inl (B := B) d) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (HasType.inl (B := B) h) :=
+  PackingProofs.packedNative_inl_eq_packedArrow pe d h ih
+
+/-- Reification of an argument implies reification of its right injection. -/
+theorem packedNative_inr_eq_packedArrow (pe : ε)
+    {n : Nat} {β : BoundCtx τ n} {t : Tm Empty Φ n} {A B : τ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t B)
+    (h : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (Bridge.toThesis t) B)
+    (ih : packedNative pe d = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) h) :
+    packedNative pe (Derivation.inr (A := A) d) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (HasType.inr (A := A) h) :=
+  PackingProofs.packedNative_inr_eq_packedArrow pe d h ih
+
+/-- Reifying both components reifies their left-to-right sequential pair. -/
+theorem packedNative_pair_eq_packedArrow (pe : ε)
+    {n : Nat} {β : BoundCtx τ n} {t s : Tm Empty Φ n} {A B : τ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t A)
+    (e : Derivation Φ (Ctx.nil : Ctx Empty τ) β s B)
+    (ha : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (Bridge.toThesis t) A)
+    (hb : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (Bridge.toThesis s) B)
+    (ih₁ : packedNative pe d = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) ha)
+    (ih₂ : packedNative pe e = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) hb) :
+    packedNative pe (.pair d e) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (.pair ha hb) :=
+  PackingProofs.packedNative_pair_eq_packedArrow pe d e ha hb ih₁ ih₂
+
+/-- Product elimination retains the input, reassociates the pair, and runs the body. -/
+theorem packedNative_let2 (pe : ε)
+    {n : Nat} {β : BoundCtx τ n} {t : Tm Empty Φ n} {s : Tm Empty Φ (n + 2)} {A B C : τ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t (product A B))
+    (e : Derivation Φ (Ctx.nil : Ctx Empty τ) (.snoc (.snoc β A) B) s C) :
+    let S := signature (τ := τ) (Φ := Φ) pe
+    let X := of (S := S) (packType (Bridge.BoundCtx.toThesis β))
+    packedNative pe (.let₂ d e) =
+      pairArrows (𝟙 X) (packedNative pe d) ≫ (tensorAssociator X (of A) (of B)).inv ≫
+        packedNative pe e :=
+  PackingProofs.packedNative_let2 pe d e
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+/-- Reifying a pair scrutinee and the two-slot body reifies their product elimination. -/
+theorem packedNative_let2_eq_packedArrow (pe : ε)
+    {n : Nat} {β : BoundCtx τ n} {t : Tm Empty Φ n} {s : Tm Empty Φ (n + 2)} {A B C : τ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t (product A B))
+    (e : Derivation Φ (Ctx.nil : Ctx Empty τ) (.snoc (.snoc β A) B) s C)
+    (ha : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (Bridge.toThesis t) (product A B))
+    (hb : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (.snoc (.snoc (Bridge.BoundCtx.toThesis β) A) B) (Bridge.toThesis s) C)
+    (ih₁ : packedNative pe d = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) ha)
+    (ih₂ : packedNative pe e = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) hb) :
+    packedNative pe (.let₂ d e) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (.let₂ ha hb) := by
+  rw [packedNative_let2 pe d e, packedArrow_let2 ha hb, ih₁, ih₂]
 
 end Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic

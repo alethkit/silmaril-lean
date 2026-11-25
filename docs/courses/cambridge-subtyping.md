@@ -46,6 +46,26 @@ requires a field `p` and subsumption cannot add it to `{q = 3}`.
 Part (4) uses permutation and width to type the argument with both fields.
 [Exact derivations](../../Silmaril/Courses/Cambridge/Subtyping/L3Examples.lean)
 
+### Object generators and method reuse
+
+On p. 86, slide 219's `newCounter` allocates a reference to `0` and
+returns a record of methods capturing it. The printed expression immediately
+calls `inc`. Lean derives type `unit` and proves a trace to `skip` with
+`1` in the new cell, for every choice of fresh address. [Slide 219][objects]
+
+On p. 87, slides 220–221 give `counterClass`, the version of `newCounter`
+that passes a freshly allocated `{p:int ref}` representation to the
+class, and `resetCounterClass`. Lean checks each declaration and the
+reductions of the constructors. The resettable object takes `get` and
+`inc` from `super`. Its `reset` closes over the same representation.
+Checked calls read, increment, and reset the supplied cell. [Slides 220–221][classes]
+
+The examples use core L3 records, functions, references, and `let`.
+The notes' `()` is represented by `skip`. The p. 87 declarations that use
+`counterClass` are typed with that binding in scope. The reduction examples
+close them with the printed `counterClass` definition and supply a call.
+[Lean derivations and traces](../../Silmaril/Courses/Cambridge/Subtyping/ObjectExamples.lean)
+
 The safety proofs use L3's value and reduction relations. With an empty
 variable environment and a well-typed store, `Subtyping.progress` gives
 either a value or an L3 step (Exercise 36). `Subtyping.preservation` retains
@@ -54,4 +74,6 @@ location environment to grow on allocation. `Subtyping.safety` applies
 these results to every finite reachable configuration.
 
 [notes]: https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=83
+[objects]: https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=86
+[classes]: https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=87
 [bib]: ../../references.bib

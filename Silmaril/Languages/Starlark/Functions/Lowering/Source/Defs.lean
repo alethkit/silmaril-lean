@@ -46,10 +46,6 @@ inductive AtomSafe : {α : Type} → Lists.Code α → Prop where
   | append {receiver value : Lists.Expr} :
       AtomSafe receiver → AtomSafe value → AtomSafe (.append receiver value)
 
-def callValue : Flow → Lists.Value
-  | .returned value => value
-  | _ => .scalar .none
-
 /-- Expansion runs only after all operands have evaluated. The pinned
 profile checks the mapping before the iterable. -/
 inductive Expands (args : EvaluatedArguments) (state : State) : Outcome Actual → Prop where
@@ -102,6 +98,19 @@ The optional iterable and mapping expressions follow in that order. -/
 def sourceOperands (callee : Expr) (positional : List Expr) (keywords : List (String × Expr))
     (star starStar : Option Expr) : List Expr :=
   callee :: (positional ++ keywords.map Prod.snd ++ star.toList ++ starStar.toList)
+
+/-- Every atom is admissible independently of the path evaluation takes.
+The call syntax and lexical context are assumed to have been resolved. -/
+inductive Admitted : Expr → Prop where
+  | atom {expression : Lists.Expr} : AtomSafe expression → Admitted (.atom expression)
+  | call {callee : Expr} {positional : List Expr} {keywords : List (String × Expr)}
+      {star starStar : Option Expr} :
+      (∀ operand ∈ sourceOperands callee positional keywords star starStar, Admitted operand) →
+      Admitted (.call callee positional keywords star starStar)
+  | branch {test yes no : Expr} :
+      Admitted test → Admitted yes → Admitted no → Admitted (.branch test yes no)
+  | logical {op : LogicalOp} {left right : Expr} :
+      Admitted left → Admitted right → Admitted (.logical op left right)
 
 mutual
 /-- Source rules evaluate operands left to right and stop at the first
