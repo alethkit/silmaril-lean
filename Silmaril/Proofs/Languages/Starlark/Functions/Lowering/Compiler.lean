@@ -49,6 +49,22 @@ private theorem advances_emit (expr : Expr) (target : Binding) :
   | atom atom =>
     rw [emit]
     exact advances_pure _
+  | list elements =>
+    rw [emit]
+    apply advances_bind
+    · apply advances_many
+      intro element _
+      have := List.sizeOf_lt_of_mem element.property
+      exact advances_stage (advances_emit element.val)
+    · intro _
+      exact advances_pure _
+  | index receiver subscript =>
+    rw [emit]
+    refine advances_bind (advances_stage (advances_emit receiver)) ?_
+    rintro ⟨_, _⟩
+    refine advances_bind (advances_stage (advances_emit subscript)) ?_
+    rintro ⟨_, _⟩
+    exact advances_pure _
   | branch test yes no =>
     rw [emit]
     refine advances_bind (advances_stage (advances_emit test)) fun saved => ?_
@@ -100,6 +116,29 @@ theorem stages_length (expressions : List Expr) (start : Nat) :
   | nil => rfl
   | cons head tail ih =>
     simp only [stages_cons, List.length_cons, ih]
+
+theorem emit_list (elements : List Expr) (target : Binding) (start : Nat) :
+    ((emit (.list elements) target).run start).1 =
+    let parts := ((stages elements).run start).1
+    (parts.map Prod.fst).foldr Body.seq (assign target (.list (operandList (parts.map Prod.snd)))) := by
+  let stageOne := fun expr : Expr => stage (emit expr)
+  have traverse : elements.attach.mapM (stageOne ∘ Subtype.val) = elements.mapM stageOne := by
+    rw [← List.mapM_map]
+    change elements.attach.unattach.mapM stageOne = _
+    rw [List.unattach_attach]
+  rw [emit]
+  change ((elements.attach.mapM (stageOne ∘ Subtype.val) >>= _) start).1 = _
+  rw [traverse]
+  rfl
+
+theorem emit_index (receiver subscript : Expr) (target : Binding) (start : Nat) :
+    ((emit (.index receiver subscript) target).run start).1 =
+    let parts := ((stages [receiver, subscript]).run start).1
+    let next := ((emit receiver (temporary start)).run (start + 1)).2
+    (parts.map Prod.fst).foldr Body.seq (assign target (.index (scratchRead start) (scratchRead next))) := by
+  rw [emit]
+  simp only [stages_cons]
+  rfl
 
 theorem emit_call (callee : Expr) (positional : List Expr) (keywords : List (String × Expr))
     (star starStar : Option Expr) (target : Binding) (start : Nat) :

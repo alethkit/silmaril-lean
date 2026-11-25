@@ -24,6 +24,33 @@ func require(ok bool, message string) {
 	}
 }
 
+func collectionOperands() {
+	const setup = `def note(marker, value):
+    events.append(marker)
+    return value
+events = []
+`
+	g, err := initSource(setup + `out = [note(1, 17), note(2, 22),][note(3, -1)]`)
+	require(err == nil && g["out"].String() == "22" && g["events"].String() == "[1, 2, 3]", fmt.Sprint(err))
+	fmt.Println("PASS list elements, receiver and subscript evaluate once in order")
+
+	g, err = initSource(setup + `out = note(1, events)[note(2, -1)]`)
+	require(err == nil && g["out"].String() == "2" && g["events"].String() == "[1, 2]", fmt.Sprint(err))
+	fmt.Println("PASS the subscript observes a receiver mutation performed by the index operand")
+
+	for _, test := range []struct{ expr, trace, message string }{
+		{`[note(1, 17), len(note(2, 9)), note(3, 22)]`, "[1, 2]", "has no len"},
+		{`len(note(1, 9))[note(2, 0)]`, "[1]", "has no len"},
+		{`[note(1, 17)][len(note(2, 9))]`, "[1, 2]", "has no len"},
+		{`note(1, 17)[note(2, 0)]`, "[1, 2]", "unhandled index operation"},
+	} {
+		g, err := initSource(setup + "out = " + test.expr)
+		require(err != nil && strings.Contains(err.Error(), test.message), fmt.Sprint(err))
+		require(g["out"] == nil && g["events"].String() == test.trace, test.expr)
+	}
+	fmt.Println("PASS list and subscript failures retain exactly the earlier effects")
+}
+
 func main() {
 	g, err := initSource(`def mark(events, value):
     events.append(value)
@@ -181,4 +208,6 @@ out = driver()`)
 out = driver()`)
 	require(err == nil && g["out"].String() == "2" && g["events"].String() == "[1, 2]", fmt.Sprint(err))
 	fmt.Println("PASS an effectful condition runs once and only the chosen branch mutates")
+
+	collectionOperands()
 }

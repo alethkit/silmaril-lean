@@ -10,8 +10,9 @@ namespace Silmaril.Languages.Starlark.Functions.Lowering
 
 open Lists (State Outcome)
 
-/-- Compile a resolved source derivation for atoms, calls with positional, named
-and spread operands, and conditional or short-circuit expressions. Success
+/-- Compile a resolved source derivation for atoms, list displays, subscript
+reads, calls with positional, named and spread operands, and conditional or
+short-circuit expressions. Success
 commits the source value to the destination. Both exits preserve the source
 state up to direct scratch bindings, including the exact heap, lexical slot
 map and iterator stack. -/

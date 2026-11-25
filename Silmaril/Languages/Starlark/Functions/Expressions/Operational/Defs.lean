@@ -75,6 +75,11 @@ def sourceOperands (callee : Expr) (positional : List Expr) (keywords : List (St
 The call syntax and lexical context are assumed to have been resolved. -/
 inductive AdmittedWith (atomAllowed : Lists.Expr → Prop) : Expr → Prop where
   | atom {expression : Lists.Expr} : atomAllowed expression → AdmittedWith atomAllowed (.atom expression)
+  | list {elements : List Expr} :
+      (∀ element ∈ elements, AdmittedWith atomAllowed element) → AdmittedWith atomAllowed (.list elements)
+  | index {receiver subscript : Expr} :
+      AdmittedWith atomAllowed receiver → AdmittedWith atomAllowed subscript →
+      AdmittedWith atomAllowed (.index receiver subscript)
   | call {callee : Expr} {positional : List Expr} {keywords : List (String × Expr)}
       {star starStar : Option Expr} :
       (∀ operand ∈ sourceOperands callee positional keywords star starStar, AdmittedWith atomAllowed operand) →
@@ -93,6 +98,17 @@ inductive EvaluatesWith (program : Program) (available : List DeclarationId)
   | atom {s : State} {expression : Lists.Expr} {out : Outcome Lists.Value} :
       atomAllowed expression → Lists.Eval s expression out →
       EvaluatesWith program available calls atomAllowed s (.atom expression) out
+  | list {s : State} {elements : List Expr} {out : Outcome (List Lists.Value)} :
+      EvaluatesManyWith program available calls atomAllowed s elements out →
+      EvaluatesWith program available calls atomAllowed s (.list elements) (Outcome.resume out Lists.allocate)
+  | index {s t : State} {receiver subscript : Expr} {value : Lists.Value} {out : Outcome Lists.Value} :
+      EvaluatesWith program available calls atomAllowed s receiver (.ok value t) →
+      EvaluatesWith program available calls atomAllowed t subscript out →
+      EvaluatesWith program available calls atomAllowed s (.index receiver subscript)
+        (Outcome.resume out (Lists.readIndex value))
+  | indexReceiverError {s t : State} {receiver subscript : Expr} {error : Lists.Error} :
+      EvaluatesWith program available calls atomAllowed s receiver (.error error t) →
+      EvaluatesWith program available calls atomAllowed s (.index receiver subscript) (.error error t)
   | call {s t : State} {callee : Expr} {positional : List Expr} {keywords : List (String × Expr)}
       {star starStar : Option Expr} {values : List Lists.Value} {out : Outcome Lists.Value} :
       EvaluatesManyWith program available calls atomAllowed s (sourceOperands callee positional keywords star starStar)

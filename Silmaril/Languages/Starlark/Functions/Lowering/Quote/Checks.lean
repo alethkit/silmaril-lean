@@ -63,19 +63,10 @@ error: binary '+' is outside the Starlark expression quotation
 #guard_msgs (error, positions := true, drop info) in
 #check starlark%[len("x" + "y")]
 
-/--
-@ +1:25...26
-error: subscripts are outside the Starlark expression quotation
--/
-#guard_msgs (error, positions := true, drop info) in
-#check starlark%[outer(xs[0])]
-
-/--
-@ +1:21...22
-error: list displays are outside the Starlark expression quotation
--/
-#guard_msgs (error, positions := true, drop info) in
-#check starlark%[len([1])]
+example : starlark%[[pick(1), [2],][key()][0]] =
+    Resolve.SourceExpr.index
+      (.index (.list [.call (name "pick") [int 1] [] none none, .list [int 2]])
+        (.call (name "key") [] [] none none)) (int 0) := rfl
 
 /--
 @ +1:27...34
