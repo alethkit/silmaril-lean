@@ -2,9 +2,10 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.FixedCapCategory.Thms
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.Whiskering.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.EmptyWhiskering.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapClasses.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
+import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.Associator.Contacts
 import Mathlib.Data.Fin.VecNotation
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.FunProp
@@ -659,5 +660,59 @@ example (side : ActiveStrip) :
 example (side : ActiveStrip) :
     (emptyWhiskering side).map (𝟙 capObject) = 𝟙 ((emptyWhiskering side).obj capObject) :=
   (emptyWhiskering side).map_id _
+
+private noncomputable def shiftedCap : FixedCap signature where
+  profile :=
+    { size := 1
+      label := oneContact.label
+      x := fun _ => 2 / 3
+      ordered := fun _ _ h => (h.ne (Subsingleton.elim _ _)).elim }
+  inside _ := by norm_num
+
+private theorem shifted_types : capObject.types = shiftedCap.types := rfl
+
+private noncomputable abbrev shiftedDrawing := FixedCap.interpolationDrawing shifted_types
+
+private noncomputable abbrev bentShift : FixedDrawing signature capObject.profile shiftedCap.profile :=
+  activeFrame.thenDo shiftedDrawing
+
+private noncomputable def bentShiftMap : capObject ⟶ shiftedCap := FixedCap.ofDrawing bentShift
+
+example : capObject.profile.x (0 : Fin 1) ≠ shiftedCap.profile.x (0 : Fin 1) := by
+  change (1 / 3 : ℝ) ≠ 2 / 3
+  norm_num
+
+example :
+    bentShift.drawing.x (bentShift.input (0 : Fin 1)).val (1 / 8) = 5 / 12 := by
+  let m := activeFrame.matching shiftedDrawing
+  have id : (bentShift.input (0 : Fin 1)).val = CollarAssociator.leftWire m (0 : Fin 1) :=
+    CollarAssociator.inputCap_val m (activeFrame.input (0 : Fin 1))
+  have y₁ : slabHeight 0 (1 / 8) = (1 / 4 : ℝ) := by norm_num [slabHeight]
+  have y₂ : slabHeight 0 (1 / 4) = (1 / 2 : ℝ) := by norm_num [slabHeight]
+  have outer := m.upperJoin.glue_x_lower
+    (ProgressiveGraph.Diagram.PartialVerticalMatch.lowerId (upper := m.collar) (0 : Fin 1))
+    (y := 1 / 8) (by norm_num)
+  have inner := m.lowerJoin.glue_x_lower (0 : Fin 1) (y := 1 / 4) (by norm_num)
+  rw [y₁] at outer
+  rw [y₂] at inner
+  calc
+    _ = m.glue.x (CollarAssociator.leftWire m (0 : Fin 1)) (1 / 8) :=
+      congrArg (fun w => bentShift.drawing.x w (1 / 8)) id
+    _ = activeFrame.drawing.x (0 : Fin 1) (1 / 2) := by
+      rw [m.glue_eq_upperJoin]
+      exact outer.trans inner
+    _ = _ := halfway_mid
+
+example :
+    bentShiftMap ≫ (ActiveStrip.left.emptyWhiskerIso (S := signature)).hom.app shiftedCap =
+      (ActiveStrip.left.emptyWhiskerIso (S := signature)).hom.app capObject ≫
+        (emptyWhiskering .left).map bentShiftMap :=
+  (ActiveStrip.left.emptyWhiskerIso (S := signature)).hom.naturality bentShiftMap
+
+example :
+    bentShiftMap ≫ (ActiveStrip.right.emptyWhiskerIso (S := signature)).hom.app shiftedCap =
+      (ActiveStrip.right.emptyWhiskerIso (S := signature)).hom.app capObject ≫
+        (emptyWhiskering .right).map bentShiftMap :=
+  (ActiveStrip.right.emptyWhiskerIso (S := signature)).hom.naturality bentShiftMap
 
 end Silmaril.RuntimeWires.Proofs.OperandAmbient.Regression
