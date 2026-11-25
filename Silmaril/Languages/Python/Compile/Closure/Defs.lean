@@ -28,10 +28,16 @@ the order in which the executor transports the corresponding cells. -/
 def freeVarNames (scope : Scope) : List Name :=
   (scope.captures.map (·.name)).mergeSort (fun left right => decide (left ≤ right))
 
-def FreeVarProfile (scope : Scope) : Prop :=
+def CodeNameProfile (scope : Scope) (names : List Name) : Prop :=
   scope.context.kind = .function ∧ scope.context.read.contains "super" = false ∧
-    (scope.captures.map (·.name)).all freeVarIdentifier = true ∧
-    (scope.captures.map (·.name)).Nodup
+    names.all freeVarIdentifier = true ∧ names.Nodup
+
+instance (scope : Scope) (names : List Name) : Decidable (CodeNameProfile scope names) := by
+  unfold CodeNameProfile
+  infer_instance
+
+def FreeVarProfile (scope : Scope) : Prop :=
+  CodeNameProfile scope (scope.captures.map (·.name))
 
 instance (scope : Scope) : Decidable (FreeVarProfile scope) := by
   unfold FreeVarProfile
@@ -42,6 +48,24 @@ scope. An empty tuple is valid metadata. -/
 def freeVarNames? (scope : Scope) :
     Option {names : List Name // FreeVarProfile scope ∧ names = freeVarNames scope} :=
   if profile : FreeVarProfile scope then some ⟨freeVarNames scope, profile, rfl⟩ else none
+
+/-- Ordered metadata for a function's owned cells, independent of cell slot order. -/
+def cellVarNames (scope : Scope) : List Name :=
+  scope.cells.mergeSort (fun left right => decide (left ≤ right))
+
+/-- Captured parameters can have a different observable tuple order in
+CPython versions with a combined locals-and-cells layout. -/
+def CellVarProfile (scope : Scope) : Prop :=
+  CodeNameProfile scope scope.cells ∧
+    scope.cells.all (fun name => !scope.context.parameters.contains name) = true
+
+instance (scope : Scope) : Decidable (CellVarProfile scope) := by
+  unfold CellVarProfile
+  infer_instance
+
+def cellVarNames? (scope : Scope) :
+    Option {names : List Name // CellVarProfile scope ∧ names = cellVarNames scope} :=
+  if profile : CellVarProfile scope then some ⟨cellVarNames scope, profile, rfl⟩ else none
 
 def parameterSlot (scope : Scope) :
     Destination scope → Core.Closure.ParameterSlot (frameLayout scope)

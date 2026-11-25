@@ -48,12 +48,14 @@ private theorem link_targets {layout : Layout} (tree : Source.ScopeTree) (first 
       (∀ ref ∈ blockReferences lowered.children, HasTarget first lowered.children ref) := by
   induction code generalizing first with
   | ret => simp [linkBody, Code.references, blockReferences]
-  | assign _ _ _ tail | assert _ _ tail | assertFreeVars _ _ _ _ tail | discardCall _ _ tail =>
+  | assign _ _ _ tail | assert _ _ tail | assertFreeVars _ _ _ _ tail
+  | assertCellVars _ _ _ tail | discardCall _ _ tail =>
     simpa [linkBody, Code.references] using tail first
   | closure slot path childLayout parameters captures child rest inner tail =>
     let nested := linkBody (first + 1) tree child
     let later := linkBody (first + 1 + nested.children.length) tree rest
-    let newBlock := (Block.mk path ⟨childLayout, { parameters, body := nested.code }⟩).withFreeVars tree
+    let entry : Entry Code := ⟨childLayout, { parameters, body := nested.code }⟩
+    let newBlock := ((Block.mk path entry).withFreeVars tree).withCellVars tree
     have nestedTargets := inner (first + 1)
     have laterTargets := tail (first + 1 + nested.children.length)
     have hasNested {ref : Source.BlockPath × CodeRef} (target : HasTarget (first + 1) nested.children ref) :
@@ -82,14 +84,15 @@ private theorem link_paths {layout : Layout} (tree : Source.ScopeTree) (first : 
     (linkBody first tree code).children.map Block.path = code.childPaths := by
   induction code generalizing first with
   | ret => rfl
-  | assign _ _ _ tail | assert _ _ tail | assertFreeVars _ _ _ _ tail | discardCall _ _ tail =>
+  | assign _ _ _ tail | assert _ _ tail | assertFreeVars _ _ _ _ tail
+  | assertCellVars _ _ _ tail | discardCall _ _ tail =>
     simpa [linkBody, Body.Code.childPaths] using tail first
   | closure _ _ _ _ _ _ _ inner tail =>
-    simp [linkBody, Block.withFreeVars, Body.Code.childPaths, inner, tail]
+    simp [linkBody, Block.withFreeVars, Block.withCellVars, Body.Code.childPaths, inner, tail]
 
 theorem paths {source : Source.Module} (compiled : Body.Compiled source) :
     (link compiled).blocks.map Block.path = compiled.paths := by
-  simp [link, Block.withFreeVars, Body.Compiled.paths, link_paths]
+  simp [link, Block.withFreeVars, Block.withCellVars, Body.Compiled.paths, link_paths]
 
 theorem resolve_reference {source : Source.Module} (compiled : Body.Compiled source)
     {path : Source.BlockPath} {ref : CodeRef} (emitted : (path, ref) ∈ (link compiled).references) :
@@ -99,9 +102,10 @@ theorem resolve_reference {source : Source.Module} (compiled : Body.Compiled sou
   let body := linkBody 1 compiled.moduleTree compiled.code
   let layout := Compile.Closure.frameLayout compiled.tree.scope
   let entry : Entry Code := ⟨layout, { parameters := compiled.parameters, body := body.code }⟩
-  let root := (Block.mk compiled.tree.scope.context.path entry).withFreeVars compiled.moduleTree
+  let root := ((Block.mk compiled.tree.scope.context.path entry).withFreeVars compiled.moduleTree)
+    |>.withCellVars compiled.moduleTree
   have rootOrChild : (path, ref) ∈ body.code.references ∨ (path, ref) ∈ blockReferences body.children := by
-    simpa [Program.references, link, body, Block.withFreeVars, blockReferences] using emitted
+    simpa [Program.references, link, body, Block.withFreeVars, Block.withCellVars, blockReferences] using emitted
   have targets := link_targets compiled.moduleTree 1 compiled.code
   have found : HasTarget 1 body.children (path, ref) :=
     rootOrChild.elim (targets.1 (path, ref)) (targets.2 (path, ref))

@@ -11,6 +11,25 @@ import tempfile
 
 
 FIXTURES = (
+    ("body_cellvars_global", """def target():
+    pass
+def inspect():
+    assert "unused" not in target.__code__.co_cellvars
+    return 4
+observed = inspect()
+""", "normal", ".normal", 4, None),
+    ("body_cellvars_nonmembership_failure", """def target():
+    zeta = 4
+    def leaf():
+        return zeta
+    leaf()
+def inspect():
+    assert "zeta" not in target.__code__.co_cellvars
+    return 9
+observed = 5
+observed = inspect()
+kept = 9
+""", "AssertionError", ".raised .assertionError", 5, None),
     ("body_freevars_global", """def target():
     pass
 def inspect():

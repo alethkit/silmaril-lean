@@ -42,8 +42,16 @@ uses the same code reference and cells. This metadata profile covers ordinary
 function paths with distinct ASCII capture identifiers and excludes class paths
 and synthetic `super` and `__class__` captures. A nonfunction receiver or
 unprofiled definition gives a distinct executor fault. The source profile
-admits this assertion form only, so other code metadata attributes remain
-compiler rejections.
+admits the tuple lookup inside these assertions.
+
+The `co_cellvars` source form accepts message-free literal-string
+non-membership on a resolved bare name. Its code definition records the
+sorted names of the checked function's owned cells. Forwarded captures still
+contribute to `co_freevars`. A definition with captured parameters has no
+`co_cellvars` tuple in this profile because their observable ordering differs
+between CPython 3.7 and 3.13. The executor retains the literal code points and
+uses the same frame, heap and function identity through the test.
+Other code metadata attributes remain compiler rejections.
 
 Successful lowering retains the source translation and preserves the
 definition, layout and parameter destinations at every emitted code key.
