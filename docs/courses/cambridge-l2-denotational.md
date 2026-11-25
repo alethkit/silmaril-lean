@@ -1,4 +1,4 @@
-# Pure CBV L2 denotation
+# CBV L2 denotations
 
 This slice follows Peter Sewell’s Cambridge Part IB *Semantics of
 Programming Languages* notes for 2025–26, dated 12 February 2026. It uses
@@ -9,6 +9,8 @@ matches the SHA-256 for `sewell2026semantics`. [Notes][notes] · [Bibliography][
 ```sh
 lake build --wfail +Silmaril.Courses.Cambridge.L2.Denotational
 ```
+
+## Pure fragment
 
 `L2.PureDenotation.Term Γ e T` is a computational typing derivation for a
 fragment of the existing `L2.Expr` AST. It admits integers, Booleans,
@@ -32,26 +34,51 @@ substitution that represents the saved environment. The two examples on
 slide 140 return `12` and `6`. A separate strict-let example checks
 lexical scope by shadowing a name after a closure has captured it.
 
-## Extension to effectful and recursive L2
+## Mutable-store fragment
 
-The normalization discussion on p. 59 precedes the introduction of recursive
-functions. Section 4.4 includes `let rec` at function types, with the
-recursive closure rule on p. 61. This total interpretation covers the pure
-fragment above and makes no full-L2 coverage claim.
+`L2.EffectfulDenotation.Term locations Γ e T` adds dereference and
+assignment at locations declared in the existing L2 typing environment.
+It interprets a computation as `StateT Store Part A`. A function value
+maps an argument to a computation. The closure saves its lexical
+environment. Application evaluates the function expression and then the
+argument, threading the store through both before running the closure in
+the resulting store. Assignment updates an existing location after
+evaluating its right-hand side, as in the collected L2 rules.
 
-For store effects and loops, computations can use
-`Comp A := Store → Part (A × Store)`. At a function type, a value can
-map an argument value to a computation, so creating a closure and applying
-it have separate meanings. The repository's Elgot instance for `Part`
-provides iteration for while loops. Recursive function calls also need a
-fixed point for the argument-to-computation function captured by `let rec`,
-together with an adequacy proof for L2's existing `Expr.recClosure` rule. The executable
-`RuntimeValue.recursive` closure provides a reference for the environment
-layout. The pure interpretation uses total functions.
-[Recursive-function rules][recursion] · [Elgot partiality][elgot] · [L2 closure interpreter][closures]
+| Lean result | Contract |
+| --- | --- |
+| `Term.hasType`, `Term.scoped`, `Term.closed` | Each derivation embeds in L2 typing and has the indexed binder depth. An empty lexical environment gives a closed expression. |
+| `Term.terminates` | Every closed derivation, including at function types, reaches an L2 value from a store covering the declared locations. |
+| `Term.adequate` | For a closed derivation at `int`, `bool`, or `unit` and a covering initial store, a configuration belongs to the denotational observation iff the existing substitution-based small-step semantics reaches it with a value. Both observations include the entire final store. |
+| `sat_iff` | On the same admitted sources, atomic satisfaction agrees with `L2.OperationalInstitution.semantics.May` for the corresponding `.returned` configuration. |
+
+The function clause of the adequacy relation quantifies over related
+arguments and covering stores. The evaluation proof uses
+`Step.preserves_coverage` to pass the store hypothesis along the
+constructed reduction. The institutional comparison concerns finite
+ground returns on these sources.
+
+Slide 138's argument writes `2` before the body writes `1`. Its
+denotation and institutional observation both return `skip` with
+`l ↦ 1`. The lexical-capture example saves `!l = 3`, writes `5` in
+the function operand, and increments the location to `7` in the
+argument. The body adds the saved `3` to the current `7`, returning
+`10` with `l ↦ 7`.
+
+## Chapter 4 coverage
+
+| Pinned material | Denotation coverage |
+| --- | --- |
+| CBV application and typing, §§4.2–4.3 | Checked in both fragments for the represented ground and function types. |
+| Strict local definitions, §4.4, p. 60 | Checked in both fragments. |
+| Integer store operations and inherited CBV rules, §4.6, pp. 65–67 | Checked in the mutable-store fragment for lookup, assignment, sequencing, conditionals, addition and comparison. |
+| Recursive functions, §4.4, p. 61 | Remaining. A fixed point for recursive closure application needs a correspondence proof for the existing `Expr.recClosure` rule. |
+| While, §4.6 | Remaining. The existing Elgot instance for `StateT Store Part` can express iteration that threads the store through guard and body. |
+| Call by name and unrestricted reduction, §4.2 | Outside the CBV denotations. |
+
+[Recursive-function rules][recursion] · [Elgot state and partiality][elgot]
 
 [notes]: https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=55
 [recursion]: https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=61
 [bib]: ../../references.bib
 [elgot]: ../../Silmaril/Semantics/ElgotMonads/Thms.lean
-[closures]: ../../Silmaril/Courses/Cambridge/L2/ClosureInterpreter.lean
