@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Defs
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Feedback
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Captures
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Regions
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Dispatch
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Application
@@ -111,6 +112,34 @@ theorem loop {carried : Ports (Ty V S)} {bodyL : LoopBody Op carried sigsL} {bod
     RegionPair primitives ids mapping (loopCode initial bodyL outputs)
       (loopCode initial bodyR outputs) inputL inputR store :=
   Proofs.loop initial outputs observe inputs store
+
+/-- Pair actual θ activations along the reachable feedback prefixes. On exit,
+resume the saved suffix with the full carry and exact store. A blocked or
+productive body retains its real θ frame and enclosing binding. -/
+theorem loop_scoped {carried : Ports (Ty V S)} {past : List (Ports (Ty V S))} {tailL tailR : List (Ports (Ty V S))}
+    {bodyL : LoopBody Op carried sigsL} {bodyR : LoopBody Op carried sigsR}
+    {restL : NestedTheta.Term (Instruction Op) args (past ++ [carried]) tailL outs}
+    {restR : NestedTheta.Term (Instruction Op) args (past ++ [carried]) tailR outs}
+    {localsL localsR : Locals m.Val past} (initial : Wires args past carried)
+    (related : TupleRelated m ids (initial.read inputL localsL) (initial.read inputR localsR))
+    (observe : ∀ current : Carries m ids σ carried,
+      ReflTransGen (IterationPair primitives bodyL bodyR)
+        ⟨initial.read inputL localsL, initial.read inputR localsR, related, store⟩ current →
+      RegionPair primitives ids (mapping.child past.length 0) bodyL bodyR current.left current.right current.store)
+    (resume : ∀ {valueL valueR : Tuple m.Val carried}, TupleRelated m ids valueL valueR → ∀ middle,
+      ScopedRegionPair primitives ids mapping restL restR inputL inputR (localsL.snoc valueL) (localsR.snoc valueR) middle) :
+    ScopedRegionPair primitives ids mapping (bindTheta initial bodyL restL) (bindTheta initial bodyR restR)
+      inputL inputR localsL localsR store :=
+  Proofs.loop_scoped initial related observe resume
+
+/-- Completed feedback preserves the exact statically routed capture prefix. -/
+theorem PreservesLoopCaptures.feedback {context params : Ports (Ty V S)}
+    {body : LoopBody Op (context ++ params) sigsL} {first current : Tuple m.Val (context ++ params) × σ}
+    (fixed : PreservesLoopCaptures Op context params body) (captures : Tuple m.Val context)
+    (initial : ∃ input, first.1 = prependContext input captures)
+    (completed : ReflTransGen (Feedback.Iteration primitives body) first current) :
+    ∃ input, current.1 = prependContext input captures :=
+  Proofs.feedback_captures fixed captures initial completed
 
 section Feedback
 
@@ -248,8 +277,8 @@ theorem call_plan_regions {rank : Nat} {context : Ports (Ty V S)}
         RegionPair primitives ids mapping left right (prependContext argsL capturesL) (prependContext argsR capturesR) store :=
   Proofs.call_plan_regions plan respects
 
-/-- Pair the actual execution of an ordered region of static calls,
-primitive bindings and selected γ arms. Each call enters a lower-ranked body. Its suffix
+/-- Pair the actual execution of ordered static calls, primitive bindings,
+selected γ arms and θ bodies with preserved capture wires. Each call enters a lower-ranked body. Its suffix
 consumes one binding of the caller plan and keeps the caller's scope. -/
 theorem ranked_regions {rank : Nat} {context : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     {capturesL capturesR : Tuple m.Val context}

@@ -5,7 +5,7 @@ import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.I
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Regions
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Environments
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Thms
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Thms
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Captures
 
 public section
 
@@ -134,32 +134,6 @@ theorem call_plan_regions {rank : Nat} {context params : Ports (Ty V S)}
     have operands := read_same entries LocalsRelated.empty arguments
     exact application_then respects (.cons (.arg .head) arguments) suffix entries rfl rfl (ih.2 operands store)
 
-private theorem get_capture {t : Ty V S} {context params : Ports (Ty V S)}
-    (port : Port context t) (captures : Tuple m.Val context) (arguments : Tuple m.Val params) :
-    (prependContext arguments captures).get (capturePort port) = captures.get port := by
-  induction port with
-  | head => cases captures; rfl
-  | tail port ih => cases captures with | cons _ rest => exact ih rest
-
-private theorem project_related {context childContext : Ports (Ty V S)} {capL capR : Tuple m.Val context}
-    (captured : TupleRelated m ids capL capR) (ports : Tuple (Port context) childContext) :
-    TupleRelated m ids (projectCaptures capL ports) (projectCaptures capR ports) := by
-  induction ports with
-  | nil => exact .nil
-  | cons port _ ih => exact .cons (captured.get port) ih
-
-private theorem read_projected {context params childContext childArgs : Ports (Ty V S)}
-    {past : List (Ports (Ty V S))} (captures : Tuple m.Val context) (paramsIn : Tuple m.Val params)
-    (locals : Locals m.Val past) (ports : Tuple (Port context) childContext)
-    (arguments : Wires (context ++ params) past childArgs) :
-    Wires.read (prependContext arguments (ports.map (fun _ port => .arg (capturePort port))))
-        (prependContext paramsIn captures) locals =
-      prependContext (arguments.read (prependContext paramsIn captures) locals) (projectCaptures captures ports) := by
-  induction ports with
-  | nil => rfl
-  | cons port rest ih =>
-    exact congrArg₂ Tuple.cons (get_capture port captures paramsIn) ih
-
 private theorem read_arm_input {context params childContext childArgs : Ports (Ty V S)}
     {past : List (Ports (Ty V S))} {extra : Nat} {tag : Fin (extra + 2)}
     (captures : Tuple m.Val context) (paramsIn : Tuple m.Val params) (locals : Locals m.Val past)
@@ -272,5 +246,22 @@ theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : Li
       (read_arm_input capR argsR localsR selector ports wires (congrArg (fun v => v.get .head) selectR))
       (armIH tag captured operands .empty store)
       (fun values middle => suffixIH captures arguments (locals.snoc values) middle)
+
+  | @theta _ _ _ _ _ _ _ _ _ _ _ _ capL capR bodyL bodyR restL restR ports initial _ fixedL fixedR _ bodyIH suffixIH =>
+    have entries := prepend_related captures arguments
+    have captured := project_related captures ports
+    refine loop_scoped (bodyL := bodyL) (bodyR := bodyR) (restL := restL) (restR := restR)
+      (captureInputs ports initial) (Local.aligned_read entries locals (captureInputs ports initial)) ?_ ?_
+    · intro current completed
+      obtain ⟨nextL, carryL⟩ := feedback_captures fixedL (projectCaptures capL ports)
+        ⟨_, read_projected capL argsL localsL ports initial⟩ (left_completed completed)
+      obtain ⟨nextR, carryR⟩ := feedback_captures fixedR (projectCaptures capR ports)
+        ⟨_, read_projected capR argsR localsR ports initial⟩ (right_completed completed)
+      dsimp only at carryL carryR
+      have related := current.related
+      rw [carryL, carryR] at related ⊢
+      exact bodyIH captured (related_arguments related) .empty current.store
+    · intro valueL valueR values middle
+      exact suffixIH captures arguments (locals.snoc values) middle
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Proofs
