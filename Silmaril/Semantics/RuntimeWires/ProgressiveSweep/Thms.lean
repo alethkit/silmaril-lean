@@ -79,13 +79,14 @@ theorem output_order (s : d.Sweep) :
   Proofs.ProgressiveSweep.output_order s
 
 /-- Read the row at the types of the two global cut lists. -/
-noncomputable def row (s : d.Sweep) (i : Fin V) :
+@[expose] noncomputable def row (s : d.Sweep) (i : Fin V) :
     Sliced.Row S ((s.wires i.castSucc).map d.label) ((s.wires i.succ).map d.label) :=
   (congrArg₂ (Sliced.Row S)
     (congrArg (List.map d.label) (s.before i)) (congrArg (List.map d.label) (s.after i))).mp
     (s.event i).cutRow
 
-private def joinRows {n : ℕ} (word : Fin (n + 1) → List O)
+/-- Assemble a finite sequence of rows at its successive typed frontiers. -/
+@[expose] def joinRows {n : ℕ} (word : Fin (n + 1) → List O)
     (row : ∀ i : Fin n, Sliced.Row S (word i.castSucc) (word i.succ)) :
     Sliced.Sheet S (word 0) (word (Fin.last n)) :=
   match n with
@@ -93,7 +94,7 @@ private def joinRows {n : ℕ} (word : Fin (n + 1) → List O)
   | _ + 1 => .cons (row 0) (joinRows (word ∘ Fin.succ) (fun i => row i.succ))
 
 /-- Compose one row per vertex into the typed sheet at the cap words. -/
-noncomputable def sheet (s : d.Sweep) :
+@[expose] noncomputable def sheet (s : d.Sweep) :
     Sliced.Sheet S ((s.wires 0).map d.label) ((s.wires (Fin.last V)).map d.label) :=
   joinRows (fun i => (s.wires i).map d.label) s.row
 
