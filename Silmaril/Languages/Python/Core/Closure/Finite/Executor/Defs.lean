@@ -54,6 +54,7 @@ def failMetadata (field : MetadataField) (heap : HeapTable) (stack : Stack) : Me
   | .read failure => fail heap stack failure
   | .code failure => failDispatch heap stack failure
   | .unprofiled ref => fault heap stack (field.unprofiledFault ref)
+  | .wrongCodeNamesProfile ref actual => fault heap stack (.wrongCodeNamesProfile ref actual)
   | .nonFunction => fault heap stack field.nonFunctionFault
 
 abbrev failFreevars := failMetadata .freevars
@@ -94,6 +95,11 @@ def advanceIn (rows : CodeRows) (globals : GlobalLookup) : State → Option Tran
     | .ok true => (none, .running source next stack)
     | .ok false => (none, .delivering source.heap stack (.error .assertionError))
     | .error error => failMetadata .cellvars source.heap stack error
+  | .running source (.assertCodeNames test next) stack =>
+    some <| match test.evalIn rows.project globals source.heap.project source.frame with
+    | .ok true => (none, .running source next stack)
+    | .ok false => (none, .delivering source.heap stack (.error .assertionError))
+    | .error error => failMetadata .codeNames source.heap stack error
   | .running source (.callTo destination callee arguments next) stack =>
     some <| match Closure.Executor.evalCallIn globals source.heap.project source.frame callee arguments with
     | .error error => fail source.heap stack error

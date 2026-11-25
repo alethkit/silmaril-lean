@@ -27,13 +27,15 @@ private def environment (binding : Option Value) : Snapshot callerLayout :=
 private def returnAlias : Closure.Executor.Body callerLayout := .ret (.read aliasSlot)
 
 private def rows (closedFreevars : Option (List String))
-    (closedCellvars : Option (List String) := none) : CodeRows :=
+    (closedCellvars : Option (List String) := none)
+    (capturedCodeNames : Option Closure.Dispatch.ProfiledCodeNames := none) : CodeRows :=
   let capturedEntry : Closure.Dispatch.Entry Closure.Executor.Body :=
     ⟨capturedLayout, {
       parameters := ⟨[], by decide⟩
       body := .ret (.read (.capture 0))
       freevars := some ["alpha", "zeta"]
-      cellvars := some ["own"] }⟩
+      cellvars := some ["own"]
+      codeNames := capturedCodeNames }⟩
   let closedEntry : Closure.Dispatch.Entry Closure.Executor.Body :=
     ⟨closedLayout, {
       parameters := ⟨[], by decide⟩
@@ -160,5 +162,77 @@ example : advance profiled (checkCellvars (some (.int 7)) "own") =
 example : advance profiled (checkCellvars (some (.function stale)) "own") =
     some (some (.fault (.layoutMismatch closedLayout capturedLayout)),
       .faulted heap [] (.layoutMismatch closedLayout capturedLayout)) := rfl
+
+private def codeNamesRows (profile : Closure.Dispatch.CodeNamesProfile) (names : List String) : CodeRows :=
+  rows (some []) none (some ⟨profile, names⟩)
+
+private def codeNameTuple : List String := ["𐐀", "�"]
+private def codeNamesProfiled : CodeRows := codeNamesRows .cpython3135ExecOptimize0 codeNameTuple
+
+private def codeNames (needle : List UInt32) : Closure.Executor.CodeNamesTest callerLayout :=
+  ⟨.slot aliasSlot, needle⟩
+
+private def afterFirstCodeName : State :=
+  .running capturedEnvironment (.assertCodeNames (codeNames [0xFFFD]) returnAlias) []
+
+private def codeNamesStart : State :=
+  .running capturedEnvironment
+    (.assertCodeNames (codeNames [0x10400]) (.assertCodeNames (codeNames [0xFFFD]) returnAlias)) []
+
+private theorem codeNamesRun :
+    (semantic codeNamesProfiled.project).Execution codeNamesStart.project
+      [none, none, none, some (.complete success)] finished
+      [codeNamesStart.project, afterFirstCodeName.project, afterNotIn.project, delivering, finished] :=
+  .stepL (.assertCodeNamesTrue rfl) (.stepL (.assertCodeNamesTrue rfl)
+    (.stepL (.ret (.read aliasSlot)) (.stepL (.complete _ _) (.refl _))))
+
+example : ∃ final states, (presented codeNamesProfiled).Execution codeNamesStart
+      [none, none, none, some (.complete success)] final states ∧
+    states.map State.project =
+      [codeNamesStart.project, afterFirstCodeName.project, afterNotIn.project, delivering, finished] ∧
+    final.project = finished :=
+  execution_readback codeNamesRun
+
+example : runPrefix codeNamesProfiled 2 codeNamesStart = ([], afterNotIn) := rfl
+
+private def checkCodeNames (needle : List UInt32) : State :=
+  .running capturedEnvironment (.assertCodeNames (codeNames needle) returnAlias) [saved]
+
+-- Compare the same function, needle and machine state across four metadata rows.
+private def sameReceiver : State := checkCodeNames [0x10400]
+
+example : advance codeNamesProfiled sameReceiver =
+    some (none, .running capturedEnvironment returnAlias [saved]) := rfl
+
+example : advance (codeNamesRows .cpython3135ExecOptimize0 []) sameReceiver =
+    some (none, .delivering heap [saved] rejected) := rfl
+
+example : advance profiled sameReceiver =
+    some (some (.fault (.unprofiledCodeNames capturedRef)), .faulted heap [saved] (.unprofiledCodeNames capturedRef)) :=
+  rfl
+
+private def wrongProfile : Closure.Executor.Fault := .wrongCodeNamesProfile capturedRef .cpython373ExecOptimize0
+
+example : advance (codeNamesRows .cpython373ExecOptimize0 codeNameTuple) sameReceiver =
+    some (some (.fault wrongProfile), .faulted heap [saved] wrongProfile) := rfl
+
+-- U+10400 is one code point. A surrogate pair cannot stand for it here,
+-- and a lone surrogate cannot stand for the stored replacement character.
+example : advance codeNamesProfiled (checkCodeNames [0xD801, 0xDC00]) =
+    some (none, .delivering heap [saved] rejected) := rfl
+
+example : runPrefix codeNamesProfiled 4 (checkCodeNames [0xD800]) =
+    ([.resume rejected, .complete rejected], .finished heap rejected) := rfl
+
+-- The same code row still answers the independent variable-tuple queries.
+example : runPrefix codeNamesProfiled 4 start = ([.complete success], .finished heap success) := rfl
+
+example : advance codeNamesProfiled ownedName = some (none, .delivering heap [saved] rejected) := rfl
+
+example : advance codeNamesProfiled (checkCodeNames ("alpha".toList.map Char.val)) =
+    some (none, .delivering heap [saved] rejected) := rfl
+
+example : advance codeNamesProfiled (checkCodeNames ("own".toList.map Char.val)) =
+    some (none, .delivering heap [saved] rejected) := rfl
 
 end Silmaril.Languages.Python.Core.Closure.Finite.Executor
