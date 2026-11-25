@@ -1,0 +1,194 @@
+# SPDX-License-Identifier: MIT
+"""Compare seeded factory settlement and escaped calls with CPython."""
+
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
+from pathlib import Path
+import runpy
+import tempfile
+
+
+SUCCESS = """def make(n):
+    def leaf(x):
+        return n + x
+    n = n + 1
+    return leaf
+first = make(3)
+saved = first
+def make():
+    n = 20
+    def leaf(x):
+        return n + x
+    return leaf
+first = make()
+___assertEqual(saved(2), 6)
+___assertEqual(first(2), 22)
+after = 9
+"""
+
+FACTORY = """def make(n):
+    def leaf(x):
+        return n + x
+    n = n + 1
+    %s
+    return leaf
+result = 5
+result = make(3)
+after = 9
+"""
+
+FAULT = FACTORY % "def inspect(): return n\n    inspect()"
+ASSERTION = FACTORY % "assert False"
+ARGUMENT = """def make(n):
+    def leaf(x):
+        return (n + x) + missing
+    return leaf
+saved = make(3)
+___assertEqual(saved(1), 4)
+after = 9
+"""
+
+LEAN = """
+private def returned (calls : List Seeded.CallEvent) : List (String × Result) :=
+  calls.map fun call => (call.callee, call.observation.result)
+
+private def factorySuccess (source : Source.Module) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  return [Namespace.empty, seed .builtin, seed .preamble].all fun space =>
+    Id.run do
+      let run := Seeded.run space compiled initialHeap
+      let some (.function saved) := run.residual.lookupGlobal "saved" | return false
+      let some (.function first) := run.residual.lookupGlobal "first" | return false
+      let some (.function live) := run.residual.lookupGlobal "make" | return false
+      let expected := ((space.bindGlobal "first" (.function saved)).bindGlobal "saved" (.function saved))
+        |>.bindGlobal "make" (.function live) |>.bindGlobal "first" (.function first)
+      let factories := [("make", .ok (.function saved)), ("make", .ok (.function first))]
+      let outer := ("___assertEqual", .ok .none)
+      let (completion, bindings, receipts) :=
+        if (space.lookupGlobal "___assertEqual").isSome then
+          (.ok (), expected.bindGlobal "after" (.int 9),
+            factories ++ [("saved", .ok (.int 6)), outer, ("first", .ok (.int 22)), outer])
+        else (.error (.raised (.runtime (.nameError "___assertEqual"))), expected, factories)
+      return run.completion == completion && returned run.calls == receipts &&
+        run.calls.all (fun call => call.observation.caught.isNone) &&
+        run.residual.moduleGlobals == bindings.moduleGlobals && run.residual.builtins == bindings.builtins &&
+        saved.captures.toList.map (·.address) == [1] && first.captures.toList.map (·.address) == [2] &&
+        heapInts run.heap == [some 37, some 4, some 20]
+
+private def factoryStops (source : Source.Module) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  let .publish "make" top :: _ := compiled.instructions | return false
+  let space := seed .builtin
+  let expected := (space.bindGlobal "make" (.function top.closure)).bindGlobal "result" (.int 5)
+  let missing : Core.Closure.Executor.CodeTable := fun key => if key == 2 then none else compiled.table key
+  let wrong : Core.Closure.Executor.CodeTable := fun key => if key == 2 then compiled.table 1 else compiled.table key
+  let incomplete := Seeded.run space compiled initialHeap 3
+  let fault := Seeded.runInstructions space compiled.instructions missing initialHeap 128
+  let mismatch := Seeded.runInstructions space compiled.instructions wrong initialHeap 128
+  let .error (.directCallFault (.layoutMismatch ..)) := mismatch.completion | return false
+  return incomplete.completion == .error .directCallFuelExhausted &&
+    fault.completion == .error (.directCallFault (.missingCode 2)) &&
+    [incomplete, fault, mismatch].all (fun run =>
+      run.calls.isEmpty && run.residual.moduleGlobals == expected.moduleGlobals &&
+      run.residual.builtins == expected.builtins && heapInts run.heap == [some 37, some 4])
+
+private def factoryFailure (source : Source.Module) (callee : String) (failure : Failure)
+    (heap : List Int) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  let space := seed .builtin
+  let run := Seeded.run space compiled initialHeap
+  return run.completion == .error (.ofCall failure) &&
+    returned run.calls == [(callee, .error failure)] &&
+    run.calls.all (fun call => call.observation.caught.isNone) &&
+    run.residual.lookupGlobal "after" == none && run.residual.lookupGlobal "result" == some (.int 5) &&
+    run.residual.builtins == space.builtins && heapInts run.heap == heap.map some
+
+private def escapedFailure (source : Source.Module) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  let space := seed .builtin
+  let failed := Seeded.run space compiled initialHeap
+  let missing : Core.Closure.Executor.CodeTable := fun key => if key == 1 then none else compiled.table key
+  let fault := Seeded.runInstructions space compiled.instructions missing initialHeap 128
+  let some (.function result) := failed.residual.lookupGlobal "saved" | return false
+  return failed.completion == .error (.raised (.runtime (.nameError "missing"))) &&
+    returned failed.calls == [("make", .ok (.function result)), ("saved", .error (.raised (.runtime (.nameError "missing"))))] &&
+    fault.completion == .error (.directCallFault (.missingCode 1)) &&
+    returned fault.calls == [("make", .ok (.function result))] &&
+    [failed, fault].all (fun run => run.residual.lookupGlobal "after" == none &&
+      run.calls.all (fun call => call.observation.caught.isNone) &&
+      run.residual.builtins == space.builtins && heapInts run.heap == [some 37, some 3])
+
+private def escapedOutsideHelper (source : Source.Module) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  let run := Seeded.run (seed .builtin) compiled initialHeap
+  let some (.function result) := run.residual.lookupGlobal "saved" | return false
+  return run.completion == .error .unsupported &&
+    returned run.calls == [("make", .ok (.function result)), ("saved", .error .unsupported)] &&
+    run.calls.all (fun call => call.observation.caught.isNone) &&
+    run.residual.lookupGlobal "after" == none && heapInts run.heap == [some 37, some 3]
+"""
+
+
+def reference(source, placement):
+    def equal(left, right):
+        assert type(left) is type(right) is int and left == right
+
+    space = {"__builtins__": {"___assertEqual": equal} if placement == "builtin" else {}}
+    if placement == "preamble":
+        space["___assertEqual"] = equal
+    completion = "normal"
+    with redirect_stdout(StringIO()) as stdout, redirect_stderr(StringIO()) as stderr:
+        try:
+            exec(compile(source, "<factory>", "exec", dont_inherit=True, optimize=0), space)
+        except AssertionError as error:
+            assert not error.args
+            completion = "AssertionError"
+        except NameError as error:
+            completion = f"NameError:{error.name}"
+        except TypeError:
+            completion = "TypeError"
+    assert stdout.getvalue() == stderr.getvalue() == ""
+    return completion, space
+
+
+if __name__ == "__main__":
+    directory = Path(__file__).resolve().parent
+    existing = runpy.run_path(str(directory / "check_return_local_call.py"))
+    shared = runpy.run_path(str(directory.parent / "source-scope/check_intake.py"))
+    for placement in ("empty", "builtin", "preamble"):
+        completion, space = reference(SUCCESS, placement)
+        assert completion == ("NameError:___assertEqual" if placement == "empty" else "normal")
+        assert space.get("after") == (None if placement == "empty" else 9)
+        assert space["saved"].__closure__[0].cell_contents == 4
+        assert space["first"].__closure__[0].cell_contents == 20
+        assert space["first"] is not space["saved"]
+    completion, space = reference(ASSERTION, "builtin")
+    assert completion == "AssertionError" and space["result"] == 5 and "after" not in space
+    assert reference(ARGUMENT, "builtin")[0] == "NameError:missing"
+    missing_callee = FAULT.replace("make(3)", "absent(missing)")
+    masked = FAULT.replace("result = make(3)", "make = 0\nresult = make(missing)")
+    noncallable = masked.replace("make(missing)", "make(3)")
+    assert reference(missing_callee, "empty")[0] == "NameError:absent"
+    assert reference(masked, "empty")[0] == "NameError:missing"
+    assert reference(noncallable, "empty")[0] == "TypeError"
+    fixtures = (
+        (SUCCESS, "#guard factorySuccess pythonSource"),
+        (FAULT, "#guard factoryStops pythonSource"),
+        (ARGUMENT, "#guard escapedFailure pythonSource"),
+        (ARGUMENT.replace("___assertEqual(saved(1), 4)", "saved(1)"), "#guard escapedOutsideHelper pythonSource"),
+        (ARGUMENT.replace("___assertEqual(saved(1), 4)", "___assertEqual = 0\n___assertEqual(saved(1), 4)"),
+         "#guard escapedOutsideHelper pythonSource"),
+        (ASSERTION, '#guard factoryFailure pythonSource "make" (.raised (.assertionError .empty)) [37, 4]'),
+        (missing_callee, '#guard factoryFailure pythonSource "absent" (.raised (.runtime (.nameError "absent"))) [37]'),
+        (masked, '#guard factoryFailure pythonSource "make" (.raised (.runtime (.nameError "missing"))) [37]'),
+        (noncallable, '#guard factoryFailure pythonSource "make" (.raised (.runtime .notCallable)) [37]'),
+        (FAULT.replace("make(3)", "make(True)"), '#guard factoryFailure pythonSource "make" .unsupported [37]'),
+        (FAULT.replace("return leaf", "return n"), '#guard factoryFailure pythonSource "make" .unsupported [37]'),
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        source_path, lean_path = Path(tmp) / "Example.py", Path(tmp) / "Example.lean"
+        for source, guard in fixtures:
+            shared["emit"](source_path, lean_path, source)
+            shared["check_lean"](lean_path, existing["LEAN"] + LEAN + "\n" + guard + "\n",
+                                 extra_imports=existing["IMPORTS"])
+    print("CPython and Lean verified factory results, captured cells, and seeded stops.")

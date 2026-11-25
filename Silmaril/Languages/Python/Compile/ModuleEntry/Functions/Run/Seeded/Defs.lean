@@ -10,7 +10,7 @@ public import Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Defs
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 
 open Source (Scope)
-open Core.Closure (Function Heap)
+open Core.Closure (CodeRef Function Heap)
 open Core.Closure.Executor (CodeTable Fault)
 open Core.Module.SeededCall (AssertionArgument Bindings CallObservation Expectation Failure Namespace Raised Result Value)
 
@@ -182,6 +182,7 @@ structure CallContext where
   heap : Heap
   fuel : Nat
   published : List Function := []
+  escaped : List Function := []
 
 /-- The ledger records the descriptors of functions published in this run.
 The ordinary executor reports an invalid reference if dispatch fails. -/
@@ -189,6 +190,46 @@ def CallContext.acceptsPublishedCall (context : CallContext) (closure : Function
   if closure ∈ context.published then
     match Core.Closure.Dispatch.resolve context.table closure.code with
     | .ok definition => definition.parameters.slots.length == arity
+    | .error _ => true
+  else false
+
+/-- Track only private locals assigned fresh closures. A final call can
+forward the result of a closure created in this frame. -/
+def returnsClosure {layout : Core.Closure.Layout} (forwards : CodeRef → Bool) :
+    Core.Closure.Executor.Body layout → (Fin layout.locals → Option CodeRef) → Bool
+  | .ret (.read (.local slot)), locals => (locals slot).isSome
+  | .store (.local slot) value rest, locals =>
+    let ref := match value with
+      | .closure ref _ => some ref
+      | _ => none
+    returnsClosure forwards rest (fun key => if key = slot then ref else locals key)
+  | .store _ _ rest, locals | .assert _ rest, locals | .callTo .discard _ _ rest, locals =>
+    returnsClosure forwards rest locals
+  | .callTo (.store (.local destination)) (.read (.local callee)) arguments (.ret (.read (.local result))), locals =>
+    decide (destination = result ∧ arguments.length ≤ 1) && (locals callee).any forwards
+  | _, _ => false
+
+/-- The pinned factory profile forwards through at most two lexical
+wrappers. Dispatch faults on this path belong to ordinary execution. -/
+def factoryCode (table : CodeTable) (ref : CodeRef) : Nat → Bool
+  | 0 =>
+    match Core.Closure.Dispatch.resolve table ref with
+    | .ok definition => returnsClosure (fun _ => false) definition.body (fun _ => none)
+    | .error _ => true
+  | depth + 1 =>
+    match Core.Closure.Dispatch.resolve table ref with
+    | .ok definition => returnsClosure (fun child => factoryCode table child depth) definition.body (fun _ => none)
+    | .error _ => true
+
+def CallContext.acceptsFactory (context : CallContext) (closure : Function) (arity : Nat) : Bool :=
+  context.acceptsPublishedCall closure arity && factoryCode context.table closure.code 2
+
+/-- Escaped results have their own ledger. Their one-slot selector is
+used only inside a checked helper argument. -/
+def CallContext.acceptsEscapedArgument (context : CallContext) (closure : Function) : Bool :=
+  if closure ∈ context.escaped then
+    match Core.Closure.Dispatch.resolve context.table closure.code with
+    | .ok definition => definition.parameters.slots.length == 1
     | .error _ => true
   else false
 
@@ -215,8 +256,26 @@ def observeDirectCall (space : Namespace) :
   | .running heap .. | .delivering heap .. | .receiving heap .. =>
     (.error .directCallFuelExhausted, heap)
 
-/-- Dispatch an already resolved flat call. A published ordinary function
-can enter through the zero-argument discard profile. -/
+def ordinaryCall (space : Namespace) (context : CallContext) (closure : Function)
+    (arguments : List Core.Module.Functions.Operand) : Core.Closure.Executor.State :=
+  let invocation := (callbackSession space context.heap).prepareCall .discard (.literal (.function closure)) arguments
+  (invocation.runPrefix context.table context.fuel).2.state
+
+def factoryOperands : List Value → Option (List Core.Module.Functions.Operand)
+  | [] => some []
+  | [.int value] => some [.literal (.int value)]
+  | _ => none
+
+/-- Only a successful closure result can write the factory destination. -/
+def observeFactory (space : Namespace) (state : Core.Closure.Executor.State) :
+    Except ModuleFailure CallObservation × Heap :=
+  match state with
+  | .finished heap (.ok (.int _)) | .finished heap (.ok (.bool _)) | .finished heap (.ok .none) =>
+    (.ok ⟨.error .unsupported, none⟩, heap)
+  | _ => observeDirectCall space state
+
+/-- Dispatch an already resolved flat call. Factory binding is confined
+to published ordinary functions and the checked zero/one-integer shape. -/
 def invokeFlatCall (space : Namespace) (context : CallContext)
     (destination : Core.Module.Functions.Destination) (callee : Value) (arguments : List Value) :
     Except ModuleFailure CallObservation × Heap :=
@@ -226,6 +285,13 @@ def invokeFlatCall (space : Namespace) (context : CallContext)
       let invocation := callbackInvocation space context.heap closure
       observeDirectCall space (invocation.runPrefix context.table context.fuel).2.state
     else (.ok ⟨.error .unsupported, none⟩, context.heap)
+  | .bindGlobal _, .function closure, values =>
+    match factoryOperands values with
+    | some operands =>
+      if context.acceptsFactory closure operands.length then
+        observeFactory space (ordinaryCall space context closure operands)
+      else (.ok ⟨.error .unsupported, none⟩, context.heap)
+    | none => (.ok ⟨.error .unsupported, none⟩, context.heap)
   | _, _, _ => invokeCall space context callee arguments
 
 /-- The adjacent source guard establishes the name-to-slot mapping. Read the
@@ -282,11 +348,12 @@ def observeNestedCall (space : Namespace) (destination : Core.Module.Functions.D
       ⟨(observed.result.bind (acceptCall destination)).mapError ModuleFailure.ofCall,
         calls ++ [⟨name, observed⟩]⟩
 
-/-- A module argument can use the existing published zero-argument
-invocation. Its returned value supplies the argument and its heap is
-carried to the next argument. The closed call path handles other values. -/
-def observeArgumentIn (space : Namespace) (context : CallContext) :
-    Argument → Except ModuleFailure Value × List CallEvent × Heap
+/-- A module argument can use the published zero-argument invocation or
+the checked one-integer escaped invocation selected by the outer helper.
+The returned value and heap are carried to the next argument. -/
+def observeArgumentIn (space : Namespace) (context : CallContext) (argument : Argument)
+    (allowEscaped : Bool := false) : Except ModuleFailure Value × List CallEvent × Heap :=
+  match argument with
   | .scalar operand =>
     (((lowerCallOperand operand).eval space #v[]).mapError .ofCall, [], context.heap)
   | .call name arguments =>
@@ -296,21 +363,30 @@ def observeArgumentIn (space : Namespace) (context : CallContext) :
       | .ok (callee, values) =>
         match callee, values with
         | .function _, [] => invokeFlatCall space context .discard callee values
+        | .function closure, [.int value] =>
+          if allowEscaped && context.acceptsEscapedArgument closure then
+            observeDirectCall space (ordinaryCall space context closure [.literal (.int value)])
+          else (.ok ⟨.error .unsupported, none⟩, context.heap)
         | _, _ => (.ok (Core.Module.SeededCall.invokeObserved callee values), context.heap)
     match outcome with
     | (.ok observed, heap) => (observed.result.mapError .ofCall, [⟨name, observed⟩], heap)
     | (.error error, heap) => (.error error, [], heap)
 
-def observeArgumentsIn (space : Namespace) (context : CallContext) :
-    List Argument → Except ModuleFailure (List Value) × List CallEvent × Heap
+def observeArgumentsIn (space : Namespace) (context : CallContext) (arguments : List Argument)
+    (allowEscaped : Bool := false) : Except ModuleFailure (List Value) × List CallEvent × Heap :=
+  match arguments with
   | [] => (.ok [], [], context.heap)
   | argument :: rest =>
-    let (result, calls, heap) := observeArgumentIn space context argument
+    let (result, calls, heap) := observeArgumentIn space context argument allowEscaped
     match result with
     | .error error => (.error error, calls, heap)
     | .ok value =>
-      let (values, later, residual) := observeArgumentsIn space { context with heap } rest
+      let (values, later, residual) := observeArgumentsIn space { context with heap } rest allowEscaped
       (values.map (value :: ·), calls ++ later, residual)
+
+def allowsEscapedArgument : Core.Module.Functions.Destination → Value → Bool
+  | .discard, .helper .assertEqual => true
+  | _, _ => false
 
 /-- Read the outer callee before the arguments and retain the heap reached
 even when an ordinary argument faults or has yet to settle. -/
@@ -320,7 +396,7 @@ def observeNestedCallIn (space : Namespace) (context : CallContext)
   match space.lookupGlobal name with
   | none => (⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap)
   | some callee =>
-    let (values, calls, heap) := observeArgumentsIn space context arguments
+    let (values, calls, heap) := observeArgumentsIn space context arguments (allowsEscapedArgument destination callee)
     match values with
     | .error error => (⟨.error error, calls⟩, heap)
     | .ok values =>
@@ -401,12 +477,15 @@ def runInstructionsIn {scope : Scope} (space : Namespace) (context : CallContext
       let published := match instruction with
         | .publish _ function => function.closure :: context.published
         | _ => context.published
-      let tail := runInstructionsIn updated { context with heap, published } rest
+      let escaped := match instruction, binding with
+        | .call (.bindGlobal _) _ _, some (_, .function closure) => closure :: context.escaped
+        | _, _ => context.escaped
+      let tail := runInstructionsIn updated { context with heap, published, escaped } rest
       { tail with calls := item.calls ++ tail.calls }
 
 def runInstructions {scope : Scope} (space : Namespace) (instructions : List (Instruction scope))
     (table : CodeTable := fun _ => none) (heap : Heap := .empty) (callbackFuel : Nat := 1000) : Observation :=
-  runInstructionsIn space ⟨table, heap, callbackFuel, []⟩ instructions
+  runInstructionsIn space { table, heap, fuel := callbackFuel } instructions
 
 /-- Seeded execution starts from the same compiled instruction stream as
 ordinary module execution. The caller supplies the namespace explicitly. -/

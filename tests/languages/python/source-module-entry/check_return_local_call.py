@@ -73,11 +73,11 @@ private def checkNestedStops (source : Source.Module) : Bool := Id.run do
   let instructions := compiled.instructions.drop 2
   let missingG : Core.Closure.Executor.CodeTable := fun key =>
     if key == g.ref.key then none else compiled.table key
-  let faulted := Seeded.runInstructionsIn space ⟨missingG, initialHeap, 128, published⟩ instructions
+  let faulted := Seeded.runInstructionsIn space ⟨missingG, initialHeap, 128, published, []⟩ instructions
   let withFallback := { space with builtins := ("f", .function f.closure) :: space.builtins }
   let shadowed := withFallback.bindGlobal "f" (.int 0)
-  let masked := Seeded.runInstructionsIn shadowed ⟨compiled.table, initialHeap, 128, published⟩ instructions
-  let live := Seeded.runInstructionsIn space ⟨compiled.table, initialHeap, 0, published⟩ instructions
+  let masked := Seeded.runInstructionsIn shadowed ⟨compiled.table, initialHeap, 128, published, []⟩ instructions
+  let live := Seeded.runInstructionsIn space ⟨compiled.table, initialHeap, 0, published, []⟩ instructions
   let .error (.directCallFault _) := faulted.completion | return false
   return heapInts faulted.heap == [some 37, some 4] &&
     faulted.calls.map (fun call => (call.callee, call.observation.result)) == [("f", .ok (.int 4))] &&
