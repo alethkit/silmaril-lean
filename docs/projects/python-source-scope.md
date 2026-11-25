@@ -26,6 +26,12 @@ repeated uses. An occurrence is addressed by the block path and its ordinal.
 Each entry carries its usage, resolved access and a proof that looking up
 the same name in that block returns that access.
 
+`collectLexical` exposes the source-collected block tree and its ordered
+name occurrences. `inferLexical` resolves that tree and certifies that
+`ScopeTree.lexical` recovers it exactly. The
+`analyze_preserves_lexical` theorem gives the same guarantee through
+the combined entry point, including block metadata and sibling order.
+
 Class bases are read in the enclosing block. Class bodies distinguish
 namespace lookup from free access to an enclosing cell. Method lookup skips
 the ordinary class namespace, including its global declarations, while
@@ -84,6 +90,24 @@ captures. The parameter checker emits distinct, bounded local-or-owned
 destinations. Mapping destination names back gives the original parameter
 order. The capture entries are also available as a vector indexed by the
 child's capture count.
+
+The [Core lowering](../../Silmaril/Languages/Python/Compile/Closure/Thms.lean)
+assigns distinct slot families to ordinary locals, owned cells and forwarded
+captures. Parameter destinations keep declaration order. A nested closure
+selects the same parent cell identity at each capture index as the source
+layout. The regression constructs both versions of the Core closure and
+reads a parent's subsequent write through the child's capture.
+
+The [closure body compiler](../../Silmaril/Languages/Python/Compile/Closure/Body/Thms.lean)
+accepts one top-level function containing nested function definitions,
+single-name assignments and nonlocal declarations, with a final value return
+in each function. Expressions cover integers, addition, names and positional
+calls. Each successful result carries the analyzed source tree and a
+translation derivation. Child code carries the analyzed path, ordered
+parameter destinations and capture operands. The compiler proves its
+preorder list of code paths has no duplicates for code-table linking. The
+regression parses Python source and checks a nonlocal write through two
+nested call sites. Code-table linking and execution are subsequent stages.
 
 ## Source intake
 

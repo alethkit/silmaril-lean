@@ -15,30 +15,57 @@ CASES = {
 }
 
 
-def check_page_fields(image, expected_count):
-    assert image[16:18] == b"\x02\x00"
-    page = image[PAGE_SIZE:]
-    assert page[0] == 13 and page[1:3] == b"\x00\x00" and page[7] == 0
-    count = int.from_bytes(page[3:5], "big")
-    content = int.from_bytes(page[5:7], "big")
-    pointers_end = 8 + 2 * count
+def read_varint(page, offset):
+    value = 0
+    for index in range(8):
+        byte = page[offset + index]
+        value = value * 128 + byte % 128
+        if byte < 128:
+            return value, offset + index + 1
+    return value * 256 + page[offset + 8], offset + 9
+
+
+def check_leaf(page, base, expected_count, writer_order):
+    assert page[base] == 13 and page[base + 7] == 0
+    assert page[base + 1:base + 3] == b"\x00\x00"
+    count = int.from_bytes(page[base + 3:base + 5], "big")
+    content = int.from_bytes(page[base + 5:base + 7], "big")
+    pointers_end = base + 8 + 2 * count
     assert count == expected_count and pointers_end <= content <= PAGE_SIZE
-    pointers = [int.from_bytes(page[i:i + 2], "big") for i in range(8, pointers_end, 2)]
+    pointers = [int.from_bytes(page[i:i + 2], "big") for i in range(base + 8, pointers_end, 2)]
     assert len(set(pointers)) == count
     assert all(content <= pointer < PAGE_SIZE for pointer in pointers)
-    assert min(pointers, default=PAGE_SIZE) == content
-    return content - pointers_end
+    cursor = content
+    physical_order = pointers if writer_order else sorted(pointers)
+    for pointer in physical_order:
+        assert pointer == cursor
+        payload_size, key = read_varint(page, pointer)
+        _, payload = read_varint(page, key)
+        cursor = max(pointer + 4, payload + payload_size)
+    assert cursor == PAGE_SIZE
+    return content - pointers_end, pointers
+
+
+def check_page_fields(image, expected_count, writer_order):
+    assert image[16:18] == b"\x02\x00"
+    check_leaf(image[:PAGE_SIZE], 100, 1, writer_order)
+    return check_leaf(image[PAGE_SIZE:], 0, expected_count, writer_order)
 
 
 def check_rejected_images(native, path, image, count):
-    malformed_content = image[:PAGE_SIZE + 5] + b"\x02\x01" + image[PAGE_SIZE + 7:]
-    cases = [
-        ("truncated-page-size", image[:17], "1024-byte"),
-        ("out-of-range-content", malformed_content, "malformed"),
-    ]
-    if count:
-        malformed_pointer = image[:PAGE_SIZE + 8] + b"\x02\x00" + image[PAGE_SIZE + 10:]
-        cases.append(("out-of-range-pointer", malformed_pointer, "malformed"))
+    cases = [("truncated-page-size", image[:17], "1024-byte")]
+    for label, base, has_cells in (("catalogue", 100, True), ("table", PAGE_SIZE, bool(count))):
+        fields = [("content", base + 5, b"\x02\x01")]
+        if has_cells:
+            fields.append(("pointer", base + 8, b"\x02\x00"))
+        for field, offset, invalid in fields:
+            damaged = image[:offset] + invalid + image[offset + 2:]
+            cases.append((f"{label}-out-of-range-{field}", damaged, "malformed"))
+    if count >= 2:
+        first_pointer = PAGE_SIZE + 8
+        swapped = (image[:first_pointer] + image[first_pointer + 2:first_pointer + 4] +
+                   image[first_pointer:first_pointer + 2] + image[first_pointer + 4:])
+        cases.append(("table-swapped-pointers", swapped, "malformed"))
     for name, damaged, reason in cases:
         corrupted = path.with_name(f"{path.stem}-{name}.sqlite")
         corrupted.write_bytes(damaged)
@@ -63,11 +90,15 @@ def main():
             successful(create(lean_path, *row_arguments(entries)))
             for path in (native_path, lean_path):
                 image = check_image(native, path, entries)
-                unused = check_page_fields(image, len(entries))
+                unused, pointers = check_page_fields(image, len(entries), path == lean_path)
                 if path == lean_path and name == "capacity":
                     assert unused == 0
+                    # Slot 9 follows eight 13-byte cells and one 14-byte cell.
+                    assert pointers[1] - pointers[0] == 13
+                    assert pointers[9] - pointers[8] == 14
+                    assert pointers[9] == pointers[0] + 8 * 13 + 14
                 check_rejected_images(native, path, image, len(entries))
-    print("Both readers reopened valid images. Stock integrity and localized field checks passed.")
+    print("Both readers reopened valid images. Stock integrity and packed-leaf pointer checks passed.")
     print("Lean rejected the damaged images, and stock integrity_check flagged them.")
 
 

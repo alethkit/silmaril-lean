@@ -14,6 +14,9 @@ public import Silmaril.Courses.Cambridge.L2.Metatheory.Substitution
 public import Silmaril.Courses.Cambridge.L2.Metatheory.Preservation
 public import Silmaril.Courses.Cambridge.L2.Metatheory.Closedness
 public import Silmaril.Courses.Cambridge.L2.Metatheory.Progress
+public import Silmaril.Courses.Cambridge.L2.ResolvedCodec
+public import Silmaril.Courses.Cambridge.L2.Metatheory.Interpreter
+public import Silmaril.Courses.Cambridge.L2.Metatheory.NameInterpreter
 
 /-! # Cambridge Semantics chapter 4
 
