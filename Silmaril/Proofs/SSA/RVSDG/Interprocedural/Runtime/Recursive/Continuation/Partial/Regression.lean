@@ -295,6 +295,8 @@ private theorem cutoffBody :
 private def cutoffEndpoint : Config machine Nat answer :=
   ⟨.eval (undefinedSite 10).job (thirdBodyFrames.push thirdBodyFrame), 23⟩
 
+example : Descent.stackDepth (thirdBodyFrames.push thirdBodyFrame) = 5 := rfl
+
 private theorem cutoffObserved :
     ReflTransGen (Step (feedbackPrimitives cutoff)) ⟨start (entry 1), 20⟩ cutoffEndpoint ∧
       cutoffEndpoint.Blocked (feedbackPrimitives cutoff) := by
@@ -310,5 +312,8 @@ example : ∃ site pending, Eval (feedbackPrimitives cutoff) (entry 1) 20 (.bloc
 
 example : ¬ InfiniteTrace (Step (feedbackPrimitives cutoff)) ⟨start (entry 1), 20⟩ :=
   no_infinite_of_reaches_blocked cutoffObserved.1 cutoffObserved.2
+
+example : ¬ Feedback.Productive (feedbackPrimitives cutoff) (entry 1) 20 :=
+  fun productive => productive.no_block .halt cutoffObserved.1 cutoffObserved.2
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Tests

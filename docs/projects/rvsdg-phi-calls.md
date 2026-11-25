@@ -147,6 +147,32 @@ lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.
 make check CHECK_TARGETS='+Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Regression'
 ```
 
+### Productive feedback with partial actions
+
+The [partial feedback judgment](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Feedback/Defs.lean)
+pairs the carried tuple with the ambient store. Each iteration starts
+with fresh locals, derives a successful finite evaluation of the actual
+θ body, and selects feedback. Replay takes a nonempty segment to the next
+restart with the same parent frame and the exact new tuple and store.
+
+A finite route to the selected θ uses the syntax-directed reaching
+rules for completed bindings, selected γ arms, opened calls, and
+nested θ bodies. Completed work uses successful partial evaluation.
+Each active binding or enclosing loop saves its typed pending frame.
+A route followed by an infinite sequence of successful feedback
+iterations yields a productive microstep trace from the linked
+entry. The certificate covers one live θ with infinitely many
+returning body activations. Nonreturning bodies and general infinite
+call descent are separate cases.
+
+In the linked fixture, one interpretation permits every selected action
+and both the state wire and store increase on each restart. Setting a
+cutoff of `23` leaves two completed feedback iterations and blocks in
+the third body at state wire `10`, store `23`, with all five frames
+live. Finite reflection recovers the exact blocked observation, and
+determinism excludes an infinite trace from that blocked run's entry.
+[Replay theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Feedback/Thms.lean)
+
 ## Productive θ feedback
 
 A feedback iteration consists of a finite `Returns` derivation for
