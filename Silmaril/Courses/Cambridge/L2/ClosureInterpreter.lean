@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Courses.Cambridge.L2.Interpreter
+public import Silmaril.Courses.Cambridge.L2.ClosureValue
 
 /-! # Cambridge L2 closure interpreter, Exercise 27
 
@@ -16,17 +17,6 @@ programs; a general simulation theorem is not provided here.
 @[expose] public section
 
 namespace Silmaril.Courses.Cambridge.L2
-
-inductive RuntimeValue where
-  | int (value : Int)
-  | bool (value : Bool)
-  | unit
-  | closure (domain : Ty) (body : Expr) (environment : List RuntimeValue)
-  | recursive (domain codomain : Ty) (body : Expr)
-      (environment : List RuntimeValue)
-  deriving Repr
-
-abbrev RuntimeEnv := List RuntimeValue
 
 /-- Fuel bounds evaluation depth, including recursive calls and loops. -/
 def evalClosureFuel : Nat → RuntimeEnv → Store → Expr →
@@ -96,13 +86,6 @@ def evalClosureFuel : Nat → RuntimeEnv → Store → Expr →
       | .letRecFun domain codomain functionBody body =>
           let self := RuntimeValue.recursive domain codomain functionBody environment
           evalClosureFuel fuel (self :: environment) store body
-
-/-- Observe ground results in the same configuration shape as the small-step interpreter. -/
-def RuntimeValue.groundExpr : RuntimeValue → Option Expr
-  | .int n => some (.int n)
-  | .bool b => some (.bool b)
-  | .unit => some .skip
-  | .closure _ _ _ | .recursive _ _ _ _ => none
 
 def evalClosureGround (fuel : Nat) (config : Config) : Option Config := do
   let (value, store) ← evalClosureFuel fuel [] config.store config.expr
