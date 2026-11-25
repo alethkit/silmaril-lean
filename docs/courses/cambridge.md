@@ -19,7 +19,8 @@ interfaces and discussion exercises. This collection follows selected course
 materials; it does not cover the whole Cambridge curriculum.
 
 The operational semantics course also covers
-[L3 with structural subtyping](cambridge-subtyping.md) from chapter 6.
+[L3 with structural subtyping](cambridge-subtyping.md) from chapter 6 and
+[typed L1 semantic equivalence](cambridge-semantic-equivalence.md) from chapter 8.
 
 ## Check the courses
 
