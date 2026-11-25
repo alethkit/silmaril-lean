@@ -10,7 +10,7 @@ module uses the existing closure executor and its layout-indexed code table.
 
 | Operation | Contract |
 | --- | --- |
-| `Session` | Supply the initialized global lookup and shared heap. The lookup maps normalized names to exact integers, booleans, or functions. |
+| `Session` | Supply the initialized global lookup and shared heap. The lookup maps normalized names to exact integers, booleans, functions, or `None`. |
 | `Session.bindGlobal` | Publish an already evaluated value at a name. All other bindings and the heap are preserved. |
 | `TopFunction`, `Session.publish` | Supply a code reference with no incoming cells. The executor checks code presence and layout, then binds the function in statement order. The body is entered at call time. |
 | `Session.prepareCall` | Lower the callee and positional operands as literals or global reads. Select a result destination of discard, named binding, or truth assertion. |
@@ -30,8 +30,10 @@ An argument error can precede a non-callable error. Wrong arity and
 non-callable values are defined errors. A successful call assigns the
 result only after the callee returns. A defined error skips that assignment
 and preserves the previous binding. Truth assertion consumes the returned
-integer, boolean, or function value after the call and reports
-`AssertionError` when false. A runtime fault such as a malformed code
+integer, boolean, function, or `None` value after the call and reports
+`AssertionError` when false. `None` is false, and dispatching it as a
+callee raises the defined non-callable error. A successful assignment
+binds `None` as a value. A runtime fault such as a malformed code
 reference has its own completion class. The trace is the executor's trace,
 including delivery to the internal caller that holds the result slot.
 The internal caller allocates no heap cells.

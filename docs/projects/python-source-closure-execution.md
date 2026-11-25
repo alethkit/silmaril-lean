@@ -5,7 +5,12 @@ links the analyzed source to the Core closure executor. Each value is an
 integer literal or a name read. A nested function definition stores a
 closure with the linked code reference and ordered captures. A positional
 call assigns its result to a named local or cell. Each function has a
-final value return.
+final value return or falls through to an implicit `None` return. Source
+lowering erases a `pass` before either exit. It consumes no Core steps and
+preserves the frame layout and lexical child order. Fallthrough emits
+the existing executor return with a literal `None` operand. A nested
+call writes that value to its destination before resuming the caller.
+Bare `return` and explicit `None` syntax remain outside this source profile.
 
 Successful lowering retains the source translation and preserves the
 definition, layout and parameter destinations at every emitted code key.

@@ -14,7 +14,7 @@ open CategoryTheory Category CartesianMonoidalCategory
 open scoped MonoidalCategory
 open OmegaCompletePartialOrder Silmaril.Semantics.Domain
 
-private theorem fusion {D E : Type*} [OmegaCompletePartialOrder D] [OrderBot D]
+theorem fusion {D E : Type*} [OmegaCompletePartialOrder D] [OrderBot D]
     [OmegaCompletePartialOrder E] [OrderBot E] {F : D →𝒄 D} {G : E →𝒄 E} {p : D → E}
     (hp : ωScottContinuous p) (hbot : p ⊥ = ⊥) (comm : ∀ x, p (F x) = G (p x)) :
     p (fix F) = fix G := by

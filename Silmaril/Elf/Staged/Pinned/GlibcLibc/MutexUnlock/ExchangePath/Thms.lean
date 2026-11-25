@@ -55,6 +55,22 @@ theorem private_threaded_exchange {initial : MState} {kind : BitVec 32}
   Proofs.Elf.Staged.Pinned.GlibcLibc.MutexUnlockExchangePath.private_threaded_exchange
     rip loaded clearLoaded kindRead privateKind threadRead
 
+/-- The private threaded route also retains the frame pointer. -/
+theorem private_threaded_exchange_with_rbp {initial : MState} {kind : BitVec 32}
+    (rip : initial.core.rip = 0xa1b7a)
+    (loaded : Loaded initial.memory 0xa1b7a selectBytes)
+    (clearLoaded : Loaded initial.memory 0xa1ba0 clearBytes)
+    (kindRead : loadN initial.memory (initial.core.read .rdi + 16#64) 4 =
+      some (kind.setWidth 64))
+    (privateKind : kind &&& 128#32 = 0)
+    (threadRead : loadN initial.memory 0x20c040 1 = some 0#64) :
+    ∃ final, run Atomic9.step 6 initial = some final ∧ final.core.rip = 0xa1ba2 ∧
+      final.core.read .rax = 0#64 ∧ final.core.read .rdi = initial.core.read .rdi ∧
+      final.core.read .rbp = initial.core.read .rbp ∧
+      final.memory = initial.memory :=
+  Proofs.Elf.Staged.Pinned.GlibcLibc.MutexUnlockExchangePath.private_threaded_exchange_with_rbp
+    rip loaded clearLoaded kindRead privateKind threadRead
+
 /-- When the kind bit is clear and the same byte is nonzero, the five-step
 cut ends at the alternate instruction at 0xa1b8e. Memory is unchanged. -/
 theorem private_single_thread_fallthrough {initial : MState} {kind : BitVec 32} {value : Byte}

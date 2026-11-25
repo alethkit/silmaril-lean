@@ -8,7 +8,7 @@ public import Mathlib.Data.Set.Insert
 
 namespace Silmaril.Calco2019.Examples.Printing
 
-universe u v w
+universe u v w s
 
 variable {A : Type u} {X : Type v} {Y : Type w} {Z : Type*}
 
@@ -57,15 +57,16 @@ def traceStep (f : X → Set (Trace A (Y ⊕ X))) (g : X → Set (Trace A Y)) (x
        (∃ word x' tail, Sum.inl (word, Sum.inr x') ∈ f x ∧ tail ∈ g x' ∧ t = prepend word tail)}
 
 /-- The separating equation of Example 20(5) offers immediate return or another letter. -/
-def traceLoop (a : A) (_ : Unit) : Set (Trace A (Unit ⊕ Unit)) :=
-  {Sum.inl ([], Sum.inl ()), Sum.inl ([a], Sum.inr ())}
+def traceLoop (a : A) (_ : PUnit.{s + 1}) :
+    Set (Trace A (PUnit.{s + 1} ⊕ PUnit.{s + 1})) :=
+  {Sum.inl ([], Sum.inl PUnit.unit), Sum.inl ([a], Sum.inr PUnit.unit)}
 
 /-- The finite-only solution of the separating equation. -/
-def finiteSolution (a : A) (_ : Unit) : Set (Trace A Unit) :=
-  {t | ∃ n : ℕ, t = Sum.inl (List.replicate n a, ())}
+def finiteSolution (a : A) (_ : PUnit.{s + 1}) : Set (Trace A PUnit.{s + 1}) :=
+  {t | ∃ n : ℕ, t = Sum.inl (List.replicate n a, PUnit.unit)}
 
 /-- The solution that also records the infinite run. -/
-def productiveSolution (a : A) (x : Unit) : Set (Trace A Unit) :=
+def productiveSolution (a : A) (x : PUnit.{s + 1}) : Set (Trace A PUnit.{s + 1}) :=
   insert (Sum.inr fun _ => a) (finiteSolution a x)
 
 end Silmaril.Calco2019.Examples.Printing
