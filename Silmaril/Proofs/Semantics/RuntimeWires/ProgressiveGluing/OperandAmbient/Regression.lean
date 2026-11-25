@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapClasses.Quotient
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapUnits.Thms
 import Mathlib.Tactic.FunProp
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.NormNum
@@ -374,5 +374,28 @@ example :
     (CapClass.ofDrawing (fixedFrame beginning)).thenDo
       ((CapClass.ofDrawing (fixedFrame halfway)).thenDo (CapClass.ofDrawing (fixedFrame beginning))) :=
   CapClass.thenDo_assoc _ _ _
+
+private theorem oneContact_inside : oneContact.Inside := by
+  intro i
+  change (1 / 3 : ℝ) ∈ Set.Ioo 0 1
+  norm_num
+
+example : (fixedFrame halfway).drawing.x (0 : Fin 1) (1 / 2) = 5 / 12 := by
+  change (1 / 3 : ℝ) + displacement halfway (1 / 2) = 5 / 12
+  norm_num [displacement, halfway, tent]
+
+/-- Both units act on the class of the genuinely bent strand. -/
+example :
+    (CapClass.identity signature oneContact oneContact_inside).thenDo
+      (CapClass.ofDrawing (fixedFrame halfway)) = CapClass.ofDrawing (fixedFrame halfway) ∧
+    (CapClass.ofDrawing (fixedFrame halfway)).thenDo
+      (CapClass.identity signature oneContact oneContact_inside) = CapClass.ofDrawing (fixedFrame halfway) :=
+  ⟨CapClass.identity_thenDo _ _, CapClass.thenDo_identity _ _⟩
+
+private noncomputable def emptyUnit :=
+  CapClass.identity signature CapProfile.empty CapProfile.empty_inside
+
+example : emptyUnit.thenDo emptyUnit = emptyUnit :=
+  CapClass.identity_thenDo _ CapProfile.empty_inside
 
 end Silmaril.RuntimeWires.Proofs.OperandAmbient.Regression
