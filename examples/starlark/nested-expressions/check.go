@@ -56,6 +56,30 @@ events = []
 	require(err != nil && strings.Contains(err.Error(), "has no len") && g["out"] == nil &&
 		g["events"].String() == "[1, 2]", fmt.Sprint(err))
 	fmt.Println("PASS tuple elements evaluate once in order and stop at the first error")
+
+	const pairs = `note(1, "b"): note(2, 17), note(3, "a"): note(4, 22)`
+	g, err = initSource(setup + "out = {" + pairs + "}")
+	require(err == nil && g["out"].String() == `{"b": 17, "a": 22}` &&
+		g["events"].String() == "[1, 2, 3, 4]", fmt.Sprint(err))
+	fmt.Println("PASS dictionary key/value effects and insertion order")
+
+	for _, test := range []struct{ expr, trace, message string }{
+		{`{` + pairs + `, note(5, "b"): note(6, 33), note(7, "later"): note(8, 9)}`, "[1, 2, 3, 4, 5, 6]", "duplicate key"},
+		{`{` + pairs + `, note(5, []): note(6, 9), note(7, "later"): note(8, 9)}`, "[1, 2, 3, 4, 5, 6]", "unhashable type: list"},
+		{`{len(note(1, 9)): note(2, 17)}`, "[1]", "has no len"},
+		{`{note(1, []): len(note(2, 9))}`, "[1, 2]", "has no len"},
+	} {
+		g, err := initSource(setup + "out = " + test.expr)
+		require(err != nil && strings.Contains(err.Error(), test.message), fmt.Sprint(err))
+		require(g["out"] == nil && g["events"].String() == test.trace, test.expr)
+	}
+	fmt.Println("PASS dictionary operands and insertion stop at the first failure, including duplicate and hash errors")
+
+	frozen := starlark.NewList(nil)
+	frozen.Freeze()
+	_, err = frozen.Hash()
+	require(err != nil && strings.Contains(err.Error(), "unhashable type: list"), fmt.Sprint(err))
+	fmt.Println("DIALECT pinned Go rejects frozen list keys")
 }
 
 func main() {

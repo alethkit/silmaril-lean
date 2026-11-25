@@ -30,6 +30,8 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       {out : Outcome Lists.Value} :
       ExecExpr program available s value out →
       Exec program available s (.evalExpr value) (Outcome.resume out fun _ => pure .next)
+  | insertDictEntry {available : List DeclarationId} {s : State} {receiver key value : Binding} :
+      Exec program available s (.insertDictEntry receiver key value) (insertDictEntry receiver key value s)
   | seq {available : List DeclarationId} {s t : State} {first rest : Body} {out : Outcome Flow} :
       Exec program available s first (.ok .next t) → Exec program available t rest out →
       Exec program available s (.seq first rest) out

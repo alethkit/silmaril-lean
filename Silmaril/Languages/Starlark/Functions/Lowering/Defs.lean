@@ -18,10 +18,23 @@ structure Lowered where
 @[expose] def assign (target : Binding) (value : Lists.Expr) : Body :=
   .total (.atomic (.assign target value))
 
-@[expose] def stage (code : Binding → StateM Nat Body) : StateM Nat (Body × Lists.Expr) := do
+@[expose] def freshTemporary : StateM Nat Binding := do
   let slot := temporary (← get)
   modify (· + 1)
+  return slot
+
+@[expose] def stage (code : Binding → StateM Nat Body) : StateM Nat (Body × Lists.Expr) := do
+  let slot ← freshTemporary
   return (← code slot, .read (.bound slot))
+
+/-- Stage a key and value, then check and insert their pair. -/
+@[expose] def stageEntry (dictionary : Binding) (key value : Binding → StateM Nat Body) :
+    StateM Nat (List Body) := do
+  let keySlot ← freshTemporary
+  let first ← key keySlot
+  let valueSlot ← freshTemporary
+  let second ← value valueSlot
+  return [first, second, .insertDictEntry dictionary keySlot valueSlot]
 
 /-- Reassociate staged reads with their original argument positions and names. -/
 @[expose] def fillArguments (shape : ArgumentShape) (reads : List Lists.Expr) : Arguments :=
@@ -45,6 +58,14 @@ structure Lowered where
       have := List.sizeOf_lt_of_mem element.property
       stage (emit element.val)
     return (parts.map Prod.fst).foldr Body.seq (assign target (.tuple (operandList (parts.map Prod.snd))))
+  | .dict entries => do
+    let dictionary ← freshTemporary
+    let steps ← entries.attach.mapM fun ⟨(key, value), member⟩ => do
+      have := (entrySize member).1
+      have := (entrySize member).2
+      stageEntry dictionary (emit key) (emit value)
+    return .seq (assign dictionary (.dict .noEntries))
+      (steps.flatten.foldr Body.seq (assign target (.read (.bound dictionary))))
   | .index receiver subscript => do
     let (first, value) ← stage (emit receiver)
     let (second, index) ← stage (emit subscript)

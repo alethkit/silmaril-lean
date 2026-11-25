@@ -35,6 +35,14 @@ def denoteApplicationWith (program : Program) (available : List DeclarationId)
     let actual ← (shape.collect operands).expand
     denoteDispatchWith program available bodyMeaning callee actual
 
+/-- Finish each insertion before starting the next key. -/
+def denoteEntries (receiver : Lists.Value) : List (Meaning Lists.Value × Meaning Lists.Value) → Meaning Unit
+  | [] => pure ()
+  | (key, value) :: rest => fun state =>
+    Outcome.resume (key state) fun k next =>
+    Outcome.resume (value next) fun v inserted =>
+    Outcome.resume (Lists.insertDisplayEntry receiver k v inserted) fun _ => denoteEntries receiver rest
+
 /-- Interpret resolved expressions in syntax order. Calls delegate their
 prepared closure bodies to the supplied denotation. -/
 def denoteExprWith (program : Program) (available : List DeclarationId)
@@ -50,6 +58,14 @@ def denoteExprWith (program : Program) (available : List DeclarationId)
       have := List.sizeOf_lt_of_mem element.property
       denoteExprWith program available bodyMeaning element.val
     Outcome.resume (values state) Lists.allocateTuple
+  | .dict entries => fun state =>
+    let actions := entries.attach.map fun ⟨(key, value), member⟩ =>
+      have := (entrySize member).1
+      have := (entrySize member).2
+      (denoteExprWith program available bodyMeaning key,
+        denoteExprWith program available bodyMeaning value)
+    Outcome.resume (Lists.allocateDict [] state) fun receiver next =>
+      Outcome.resume (denoteEntries receiver actions next) fun _ => pure receiver
   | .index receiver subscript => fun state =>
     Outcome.resume (denoteExprWith program available bodyMeaning receiver state) fun value next =>
       Outcome.resume (denoteExprWith program available bodyMeaning subscript next) (Lists.readIndex value)

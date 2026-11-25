@@ -17,6 +17,7 @@ private def events : Binding := ⟨.global, "events"⟩
 private def noteName : Binding := ⟨.global, "note"⟩
 private def read (binding : Binding) : Lists.Expr := .read (.bound binding)
 private def integer (value : Int) : Expr := .atom (.scalar (.int value))
+private def string (value : String) : Expr := .atom (.string value)
 
 private def program : Program := #[
   ⟨{ positional := [⟨marker, none⟩, ⟨argument, none⟩] }, [], [⟨events, events⟩],
@@ -28,9 +29,11 @@ private def note (n : Int) (value : Expr) : Expr :=
 
 private def length (value : Expr) : Expr := .callPos (.atom (.builtin .len)) [value]
 
+private def root : Lists.State := (({} : Lists.State).allocateSlot events).write marker (.scalar (.int 99))
+
+private def setup : Body := .seq (.total (.atomic (.assign events (.list .empty)))) (.define noteName 0)
+
 private def execute (expression : Expr) : Lists.Outcome Lists.Value :=
-  let root := (({} : Lists.State).allocateSlot events).write marker (.scalar (.int 99))
-  let setup := Body.seq (.total (.atomic (.assign events (.list .empty)))) (.define noteName 0)
   Lists.Outcome.resume (run program setup root) fun _ => denoteExpr program [0] expression
 
 private def integers (values : List Int) : List Lists.Value := values.map fun n => .scalar (.int n)
@@ -112,6 +115,66 @@ private def observed (state : Lists.State) (trace : List Int) : Bool :=
   let commands : List Modules.Resolve.Command := [
     .define "pick" { positional := [⟨"value", none⟩] } (.ret (some starlark%[value])),
     .assign "out" starlark%[(pick(17), pick(22),)[pick(-1)]]]
+  match Modules.Resolve.runModule commands (fun _ => none) {} with
+  | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.scalar (.int 22)))
+  | _ => false
+
+private def dictionary (state : Lists.State) (entries : List (String × Int)) : Bool :=
+  let expected := entries.map fun (name, value) =>
+    (⟨.string name, [.string name], .scalar (.int value)⟩ : Lists.Entry)
+  decide (state.heap[3]? = some ⟨.dict expected, false⟩)
+
+private def pairs : List (Expr × Expr) := [
+  (note 1 (string "b"), note 2 (integer 17)), (note 3 (string "a"), note 4 (integer 22))]
+
+-- Allocation precedes the first operand. Each pair is inserted in source order.
+#guard
+  match execute (.dict pairs) with
+  | .ok (.dict 3) state => observed state [1, 2, 3, 4] && dictionary state [("b", 17), ("a", 22)]
+  | _ => false
+
+#guard
+  let later := (note 7 (string "later"), note 8 (integer 9))
+  let duplicate := (note 5 (string "b"), note 6 (integer 33))
+  match execute (.dict (pairs ++ [duplicate, later])) with
+  | .error (.duplicateKey (.string "b")) state =>
+    observed state [1, 2, 3, 4, 5, 6] && dictionary state [("b", 17), ("a", 22)]
+  | _ => false
+
+#guard
+  let bad := (note 5 (.list []), note 6 (integer 9))
+  let later := (note 7 (string "later"), note 8 (integer 9))
+  match execute (.dict (pairs ++ [bad, later])) with
+  | .error (.unhashableKey (.list address)) state =>
+    observed state [1, 2, 3, 4, 5, 6] && dictionary state [("b", 17), ("a", 22)] &&
+      address > 3 && decide (state.heap[address]? = some ⟨.list [], false⟩)
+  | _ => false
+
+-- An operand error takes precedence over entry validation and keeps the allocated dictionary.
+#guard
+  let keyError := Expr.dict [(length (note 1 (integer 9)), note 2 (integer 17))]
+  let valueError := Expr.dict [(note 1 (.list []), length (note 2 (integer 9)))]
+  match execute keyError, execute valueError with
+  | .error (.builtinType .len (.scalar (.int 9))) first, .error (.builtinType .len (.scalar (.int 9))) second =>
+    observed first [1] && observed second [1, 2] && dictionary first [] && dictionary second []
+  | _, _ => false
+
+#guard
+  let duplicate := (note 5 (string "b"), note 6 (integer 33))
+  let expression := Expr.dict (pairs ++ [duplicate, (note 7 (string "later"), note 8 (integer 9))])
+  let target : Binding := ⟨.global, "out"⟩
+  match execute expression, run program (.seq setup (lower expression target 5).code) root with
+  | .error (.duplicateKey (.string "b")) direct, .error (.duplicateKey (.string "b")) lowered =>
+    decide (lowered.heap = direct.heap) && observed lowered [1, 2, 3, 4, 5, 6] &&
+      match lowered.bindingValue target with
+      | .error (.uninitialized binding) => binding == target
+      | _ => false
+  | _, _ => false
+
+#guard
+  let commands : List Modules.Resolve.Command := [
+    .define "pick" { positional := [⟨"value", none⟩] } (.ret (some starlark%[value])),
+    .assign "out" starlark%[{ (pick(7),) : pick(22), }[(pick(7),)]]]
   match Modules.Resolve.runModule commands (fun _ => none) {} with
   | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.scalar (.int 22)))
   | _ => false
