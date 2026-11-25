@@ -3,9 +3,12 @@ module
 public import Silmaril.Papers.Calco2019.Defs
 public import Silmaril.Semantics.Calco2019.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionThms
+public import Silmaril.Semantics.Calco2019.InductiveResumption.Free.Thms
+public import Silmaril.Semantics.Calco2019.Maybe.Resumption.Thms
+public import Silmaril.Semantics.Calco2019.Maybe.Hyperextensive.Iteration.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionConway
 public import Silmaril.Semantics.Calco2019.VacuousThms
-public import Silmaril.Semantics.Calco2019.ExceptionResumption.Thms
+public import Silmaril.Semantics.Calco2019.ExceptionResumption.Specializations
 
 /-! # Numbered results for CALCO 2019, Article 13 -/
 
@@ -16,6 +19,52 @@ universe u v u' v'
 namespace Silmaril.Papers.Calco2019
 
 open CategoryTheory CategoryTheory.Limits Silmaril.Calco2019
+
+/-- Section 1.3. On Set, Maybe resumptions freely add the operations of the
+endofunctor in the category of total Elgot monads. -/
+theorem maybeResumption_freeOn {H : Type u ⥤ Type u}
+    (R : FinalResumptions (Exception.parametrizedElgot Maybe.Types.elgot.{u} H).toParametrizedMonad)
+    (S : Maybe.TotalElgot (typeCoproducts : Coproducts (Type u)))
+    (σ : H ⟶ (S.obj.monad : Type u ⥤ Type u)) :
+    ∃! k : (⟨(Exception.parametrizedElgot Maybe.Types.elgot H).resumptionElgotMonad R,
+        Exception.resumption_isElgot Maybe.Types.elgot H R Maybe.Types.elgot_total⟩ :
+          Maybe.TotalElgot typeCoproducts) ⟶ S,
+      Exception.suspension Maybe.Types.elgot H R ≫ k.hom.hom.toNatTrans = σ :=
+  Maybe.resumption_freeOn Maybe.Types.elgot_total R Maybe.Types.initial S σ
+
+/-- Section 1.3. On a hyperextensive category, Maybe resumptions freely add
+the operations of the endofunctor among total Elgot monads. -/
+theorem hyperextensiveMaybeResumption_freeOn {C : Type u} [Category.{v} C] [Maybe.Hyperextensive C]
+    {P : Coproducts C} {E : C} (terminal : IsTerminal E) {H : C ⥤ C}
+    (R : FinalResumptions (Exception.parametrizedElgot (Maybe.hyperextensiveElgot (P := P)
+      terminal) H).toParametrizedMonad)
+    (S : Maybe.TotalElgot P) (σ : H ⟶ (S.obj.monad : C ⥤ C)) :
+    ∃! k : (⟨(Exception.parametrizedElgot (Maybe.hyperextensiveElgot terminal) H).resumptionElgotMonad R,
+        Exception.resumption_isElgot (Maybe.hyperextensiveElgot terminal) H R
+          (Maybe.hyperextensiveElgot_total terminal)⟩ : Maybe.TotalElgot P) ⟶ S,
+      Exception.suspension (Maybe.hyperextensiveElgot terminal) H R ≫ k.hom.hom.toNatTrans = σ :=
+  Maybe.resumption_freeOn (Maybe.hyperextensiveElgot_total terminal) R
+    (Maybe.hyperextensiveInitial terminal) S σ
+
+section InductiveResumptions
+
+variable {C : Type u} [Category.{v} C] (P : Coproducts C)
+
+/-- Section 1.2. The chosen initial algebras of `Z ↦ T (X + H Z)` give the
+inductive resumption monad. -/
+abbrev inductiveResumption (T : CategoryTheory.Monad C) (H : C ⥤ C)
+    (R : InitialResumptions (Exception.parametrized P T H)) : CategoryTheory.Monad C :=
+  R.monad
+
+/-- Section 1.3. Inductive resumptions give an ordinary free extension
+of the base monad by the operation endofunctor. -/
+theorem inductiveFreeExtension (T : CategoryTheory.Monad C) (H : C ⥤ C)
+    (R : InitialResumptions (Exception.parametrized P T H)) :
+    (Inductive.monadBimodule C).IsFreeExtension (Inductive.suspension P R)
+      (Inductive.baseEmbedding P R) :=
+  Inductive.resumption_free P R
+
+end InductiveResumptions
 
 section FreeExtensions
 
@@ -160,6 +209,25 @@ theorem lemma27_base (T : GuardedElgotMonad P) (H : C ⥤ C)
     ∃ e : GuardedElgotMonadHom P T ((Exception.parametrizedElgot T H).resumptionElgotMonad R),
       ∀ X, e.hom.app X = T.monad.map (P.inl (Y := H.obj (R.obj X))) ≫ R.roll X :=
   ⟨Exception.baseEmbedding T H R, Exception.baseEmbedding_app T H R⟩
+
+/-- Theorem 28. Exception resumptions freely extend the guarded Elgot base by
+the endofunctor, with the specified base and suspension embeddings. -/
+theorem theorem28 [HasInitial C] (T : GuardedElgotMonad P) (H : C ⥤ C)
+    (R : FinalResumptions (Exception.parametrizedElgot T H).toParametrizedMonad) :
+    (guardedBimodule P).IsFreeExtension (Exception.resumptionGenerator R)
+      (Exception.baseEmbedding T H R) :=
+  Exception.resumption_free R
+
+/-- Corollary 29. The second coproduct summand comes from the final coalgebras
+of `Z ↦ X + H Z`, the identity-base instance of the resumption construction. -/
+theorem corollary29 [HasInitial C] (T : GuardedElgotMonad P) (H : C ⥤ C)
+    (R : FinalResumptions (Exception.parametrizedElgot T H).toParametrizedMonad)
+    (R₀ : FinalResumptions (Exception.parametrizedElgot (guardedIdentity P) H).toParametrizedMonad) :
+    ∃! l : (Exception.parametrizedElgot (guardedIdentity P) H).resumptionElgotMonad R₀ ⟶
+        (Exception.parametrizedElgot T H).resumptionElgotMonad R,
+      (guardedBimodule P).post (Exception.resumptionGenerator R₀) l = Exception.resumptionGenerator R ∧
+        Nonempty (IsColimit (BinaryCofan.mk l (Exception.baseEmbedding T H R))) :=
+  Exception.resumption_coproduct R R₀
 
 end Exception
 

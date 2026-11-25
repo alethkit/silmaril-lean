@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.RVSDG.Institution.Thms
+import Silmaril.SSA.RVSDG.Institution.Categorical.Thms
 
 namespace Silmaril.SSA.RVSDG.Institution.Tests
 set_option backward.isDefEq.respectTransparency false
@@ -103,7 +103,7 @@ example : (dialectInst.I.obj target).Sat (Discrete.mk targetModel)
     (dialectInst.I.obj source).Sat ((dialectInst.I.map migrate).mod.obj (Discrete.mk targetModel)) equation :=
   (dialectInst.I.map migrate).sat (Discrete.mk targetModel) equation
 
-example : ¬equation.Holds distinctModel := by
+private theorem distinctFails : ¬equation.Holds distinctModel := by
   intro h
   have bad := h (entry 1)
   change (Tuple.cons (11 : Nat) .nil : Tuple distinctModel.Val payload) = .cons (12 : Nat) .nil at bad
@@ -120,5 +120,27 @@ example : (equation.map (Signature.opcodeMap migrate)).rhs.run targetModel (entr
   change (mapGraph (Signature.opcodeMap migrate) (switch SourceOp.legacyAdvance SourceOp.advance).toGraph).run targetModel _ = _
   simp only [mapGraph_toGraph]
   rfl
+
+-- The same nonidentity signature map satisfies the institution law with
+-- arbitrary Cartesian port objects and chosen selector cocones.
+example {D : Type} [Category D] [CartesianMonoidalCategory D]
+    (m : Categorical.Model target.op D) :
+    (categoricalRoom target D).Sat (Discrete.mk m)
+        (((categoricalInst Unit Unit D).I.map migrate).sen equation) ↔
+      (categoricalRoom source D).Sat
+        (((categoricalInst Unit Unit D).I.map migrate).mod.obj (Discrete.mk m)) equation :=
+  ((categoricalInst Unit Unit D).I.map migrate).sat (Discrete.mk m) equation
+
+private abbrev typeInst : Inst.{1, 0, 0, 1, 1} := categoricalInst Unit Unit (Type 0)
+
+private abbrev specialize : Inst.CoHom typeInst dialectInst := toRuntime Unit Unit
+
+example : (equation.map (Signature.opcodeMap migrate)).HoldsCategorically
+    (Categorical.Model.ofRuntime targetModel) :=
+  (specialize.satisfaction target (Discrete.mk targetModel)
+    (equation.map (Signature.opcodeMap migrate))).mp translatedHolds
+
+example : ¬equation.HoldsCategorically (Categorical.Model.ofRuntime distinctModel) :=
+  fun h => distinctFails ((specialize.satisfaction source (Discrete.mk distinctModel) equation).mpr h)
 
 end Silmaril.SSA.RVSDG.Institution.Tests

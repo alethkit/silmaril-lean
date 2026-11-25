@@ -15,6 +15,11 @@ namespace Silmaril.Calco2019.Examples.Probability
 
 variable {X : Type*} {Y : Type*}
 
+/-- Nonnegative summation commutes with the supremum of an increasing sequence. -/
+theorem tsum_iSup_nat {A : Type*} (g : ℕ → A → ℝ≥0∞) (hg : Monotone g) :
+    (∑' a, ⨆ n, g n a) = ⨆ n, ∑' a, g n a :=
+  Proofs.tsum_iSup_nat g hg
+
 /-- The supremum of the finite approximants is a fixpoint of the unnormalized unfolding. -/
 theorem least_fixpoint (f : X → PMF (Y ⊕ X)) : step f (least f) = least f :=
   Proofs.least_fixpoint f

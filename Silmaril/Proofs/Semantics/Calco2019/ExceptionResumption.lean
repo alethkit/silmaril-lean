@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Semantics.Calco2019.ExceptionResumption.Defs
 import Silmaril.Proofs.Semantics.Calco2019.ResumptionGuard
+import Silmaril.Proofs.Semantics.Calco2019.ExceptionSuspension
 
 public section
 
@@ -89,89 +90,8 @@ theorem base_nat {X Y : C} (h : X ⟶ Y) :
 
 theorem resumption_map_out {X Y : C} (f : X ⟶ Y) :
     (R.monad P).map f ≫ R.out Y =
-      R.out X ≫ T.monad.map (P.map f (H.map ((R.monad P).map f))) := by
-  let K : R.obj X ⟶ R.obj Y := (R.monad P).map f
-  let M := (parametrizedElgot T H).toParametrizedMonad
-  let L := M.obj (R.obj Y)
-  let Q := T.monad
-  have e : M.extend (W := R.obj Y) ((f ≫ R.unit Y) ≫ R.out Y) = L.map f := by
-    have h : (f ≫ R.unit Y) ≫ R.out Y = f ≫ L.η.app Y :=
-      (Category.assoc _ _ _).trans (congrArg (f ≫ ·) (R.unit_out Y))
-    rw [h]
-    simp [ParametrizedMonad.extend, L]
-  calc
-    K ≫ R.out Y = R.out X ≫ (M.parameter X).map K ≫ M.extend ((f ≫ R.unit Y) ≫ R.out Y) :=
-      R.extend_spec P (f ≫ R.unit Y)
-    _ = R.out X ≫ Q.map (P.map f (H.map K)) := by
-      rw [e, parameter_map]
-      have eq : L.map f = Q.map (P.map f (𝟙 (H.obj (R.obj Y)))) := family_map _ _ _ f
-      rw [eq, ← Functor.map_comp]
-      have maps : P.map (𝟙 X) (H.map K) ≫ P.map f (𝟙 (H.obj (R.obj Y))) =
-          P.map f (H.map K) := by
-        apply P.hom_ext
-        · simp [Coproducts.map]
-        · simp only [Coproducts.map, Category.assoc, Coproducts.inr_desc_assoc,
-            Category.id_comp, Coproducts.inr_desc]
-      rw [maps]
-
-@[reassoc]
-theorem step_out (X : C) :
-    liftStep T H R X ≫ R.out X = H.map (R.unit X) ≫ raise P T.monad (H.obj (R.obj X)) X := by
-  unfold liftStep
-  rw [Category.assoc, Category.assoc, R.roll_out]
-  exact congrArg (H.map (R.unit X) ≫ ·) (Category.comp_id _)
-
-theorem step_nat {X Y : C} (f : X ⟶ Y) :
-    H.map f ≫ liftStep T H R Y = liftStep T H R X ≫ (R.monad P).map f := by
-  let Q := T.monad
-  let k : R.obj X ⟶ R.obj Y := (R.monad P).map f
-  have e : R.unit X ≫ k = f ≫ R.unit Y := by
-    change (R.monad P).η.app X ≫ (R.monad P).map f = f ≫ (R.monad P).η.app Y
-    exact (R.monad P).η.naturality f |>.symm
-  have er : raise P Q (H.obj (R.obj X)) X ≫ Q.map (P.map f (H.map k)) =
-      H.map k ≫ raise P Q (H.obj (R.obj Y)) Y := by
-    change raise P Q (H.obj (R.obj X)) X ≫ Q.map (P.map f (H.map k)) =
-      H.map k ≫ P.inr ≫ Q.η.app (P.sum Y (H.obj (R.obj Y)))
-    simp only [raise, Category.assoc, ← Q.η.naturality, Coproducts.map, Functor.id_map,
-      Coproducts.inr_desc_assoc]
-  have h : (H.map f ≫ liftStep T H R Y) ≫ R.out Y =
-      (liftStep T H R X ≫ k) ≫ R.out Y := by
-    rw [Category.assoc, step_out, Category.assoc, show k ≫ R.out Y = _ from resumption_map_out T H R f]
-    conv_rhs => rw [← Category.assoc, step_out]
-    rw [Category.assoc, er]
-    exact (H.map_comp_assoc f (R.unit Y) _).symm.trans
-      ((congrArg (fun p => H.map p ≫ raise P Q (H.obj (R.obj Y)) Y) e.symm).trans
-        (H.map_comp_assoc (R.unit X) k _))
-  change _ = liftStep T H R X ≫ k
-  simpa only [Category.assoc, R.out_roll, Category.comp_id] using congrArg (· ≫ R.roll Y) h
-
-theorem suspension_guard [HasInitial C] :
-    MonadGuardedness.GuardedNatTrans P ((parametrizedElgot T H).resumptionElgotMonad R).guard
-      ({ app := liftStep T H R, naturality := fun _ _ f => step_nat T H R f } :
-        H ⟶ ((R.monad P : CategoryTheory.Monad C) : C ⥤ C)) := by
-  intro Y
-  let Q := T.monad
-  let A := P.sum (⊥_ C) Y
-  let E := H.obj (R.obj A)
-  let j : Y ⟶ A := P.inr
-  let g : H.obj Y ⟶ Q.obj (P.sum (⊥_ C) E) :=
-    H.map j ≫ H.map (R.unit A) ≫ raise P Q E (⊥_ C)
-  apply ((parametrizedElgot T H).resumptionGuardedness_iff R _).mpr
-  change T.guard.guarded (Y := Kleisli.mk Q (P.sum (⊥_ C) E)) (Z := Kleisli.mk Q Y)
-    (kleisliArrow (((liftStep T H R Y ≫ (R.monad P).map j) ≫ R.out A) ≫ Q.map (rearrange P E)))
-  have q : ((liftStep T H R Y ≫ (R.monad P).map j) ≫ R.out A) ≫ Q.map (rearrange P E) =
-      g ≫ Q.map (P.inl (X := P.sum (⊥_ C) E) (Y := Y)) := by
-    rw [← step_nat T H R j, Category.assoc, Category.assoc, step_out_assoc]
-    have e : raise P Q E A ≫ Q.map (rearrange P E (Y := ⊥_ C) (Z := Y)) =
-        raise P Q E (⊥_ C) ≫ Q.map (P.inl (Y := Y)) := by
-      simp [raise, A, Category.assoc, ← Q.η.naturality, rearrange]
-    change H.map j ≫ H.map (R.unit A) ≫ raise P Q E A ≫ Q.map (rearrange P E) =
-      g ≫ Q.map (P.inl (Y := Y))
-    simp only [g, Category.assoc, e]
-  rw [q]
-  exact Eq.mp (congrArg (T.guard.guarded (Y := Kleisli.mk Q (P.sum (⊥_ C) E))
-    (Z := Kleisli.mk Q Y)) (Kleisli.hom_ext (comp_pure_of Q (kleisliArrow g) P.inl)))
-    (T.guard.trivial (kleisliArrow g))
+      R.out X ≫ T.monad.map (P.map f (H.map ((R.monad P).map f))) :=
+  Proofs.resumption_map_outFor P T.monad H R f
 
 private theorem base_normalized {X Y Z : C}
     (f : X ⟶ T.monad.obj (P.sum Y Z)) :

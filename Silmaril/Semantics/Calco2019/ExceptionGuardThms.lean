@@ -13,18 +13,40 @@ namespace Silmaril.Calco2019.Exception
 
 open CategoryTheory
 
-variable {C : Type u} [Category.{v} C] {P : Coproducts C} (T : GuardedElgotMonad P)
+variable {C : Type u} [Category.{v} C] {P : Coproducts C}
+
+section Guard
+
+variable {Q : CategoryTheory.Monad C} (G : MonadGuardedness P Q)
+
+/-- The exception family inherits guardedness from a guarded base monad. -/
+@[expose]
+def guardednessOf (E : C) : MonadGuardedness P ((family P Q).obj E) where
+  guarded f := kleisliGuardOf P G E f
+  trivial f := by exact Proofs.exception_guard_trivial Q E G f
+  parallel hf hg := by exact Proofs.exception_guard_parallel Q E G hf hg
+  compose h hf hg := by exact Proofs.exception_guard_compose Q E G h hf hg
+
+/-- A map of exception parameters preserves the inherited guard. -/
+theorem change_preservesOf {E E' : C} (h : E ⟶ E') :
+    MonadGuardedness.Preserves P (guardednessOf G E) (guardednessOf G E')
+      ((family P Q).map h) :=
+  fun _ hf => Proofs.change_guard Q E G h hf
+
+end Guard
+
+variable (T : GuardedElgotMonad P)
 
 theorem guard_trivial (E : C) {X Y Z : Kleisli ((family P T.monad).obj E)} (f : X ⟶ Y) :
     kleisliGuard P T E (f ≫ (P.kleisli ((family P T.monad).obj E)).inl (Y := Z)) :=
-  Proofs.exception_guard_trivial T E f
+  Proofs.exception_guard_trivial T.monad E T.guard f
 
 theorem guard_parallel (E : C) {X X' Y Z : Kleisli ((family P T.monad).obj E)}
     {f : X ⟶ (P.kleisli ((family P T.monad).obj E)).sum Y Z}
     {g : X' ⟶ (P.kleisli ((family P T.monad).obj E)).sum Y Z}
     (hf : kleisliGuard P T E (Y := Y) (Z := Z) f) (hg : kleisliGuard P T E (Y := Y) (Z := Z) g) :
     kleisliGuard P T E (Y := Y) (Z := Z) ((P.kleisli ((family P T.monad).obj E)).desc f g) :=
-  Proofs.exception_guard_parallel T E hf hg
+  Proofs.exception_guard_parallel T.monad E T.guard hf hg
 
 theorem guard_compose (E : C) {X Y Z V W : Kleisli ((family P T.monad).obj E)}
     {f : X ⟶ (P.kleisli ((family P T.monad).obj E)).sum Y Z}
@@ -32,15 +54,12 @@ theorem guard_compose (E : C) {X Y Z V W : Kleisli ((family P T.monad).obj E)}
     (h : Z ⟶ (P.kleisli ((family P T.monad).obj E)).sum V W)
     (hf : kleisliGuard P T E (Y := Y) (Z := Z) f) (hg : kleisliGuard P T E (Y := V) (Z := W) g) :
     kleisliGuard P T E (Y := V) (Z := W) (f ≫ (P.kleisli ((family P T.monad).obj E)).desc g h) :=
-  Proofs.exception_guard_compose T E h hf hg
+  Proofs.exception_guard_compose T.monad E T.guard h hf hg
 
 /-- The rearrangement described in Example 22 obeys the three guard axioms. -/
 @[expose]
-def guardedness (E : C) : MonadGuardedness P ((family P T.monad).obj E) where
-  guarded f := kleisliGuard P T E f
-  trivial f := guard_trivial T E f
-  parallel hf hg := guard_parallel T E hf hg
-  compose h hf hg := guard_compose T E h hf hg
+def guardedness (E : C) : MonadGuardedness P ((family P T.monad).obj E) :=
+  guardednessOf T.guard E
 
 theorem fixpoint (E : C) {X Y : Kleisli ((family P T.monad).obj E)}
     (f : X ⟶ (P.kleisli ((family P T.monad).obj E)).sum Y X)
@@ -57,7 +76,7 @@ def fixpoints (E : C) : (guardedness T E).Fixpoints where
 theorem change_guard {E E' X Y Z : C} (h : E ⟶ E')
     {f : X ⟶ T.monad.obj (P.sum (P.sum Y Z) E)} (hf : Guard P T E (Y := Y) (Z := Z) f) :
     Guard P T E' (Y := Y) (Z := Z) (f ≫ changeException P T.monad h (P.sum Y Z)) :=
-  Proofs.change_guard T E h hf
+  Proofs.change_guard T.monad E T.guard h hf
 
 theorem change_preserves {E E' : C} (h : E ⟶ E') :
     MonadGuardedness.Preserves P (guardedness T E) (guardedness T E') ((family P T.monad).map h) :=

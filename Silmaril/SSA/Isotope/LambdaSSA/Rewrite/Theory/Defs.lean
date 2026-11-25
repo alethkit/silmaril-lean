@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Defs
+public import Silmaril.Raw.SSA.Isotope.LambdaSSA.Continuation
 
 /-! # Typed let and CFG equations
 
@@ -36,7 +37,7 @@ inductive RewriteEquiv : VCtx τ → Region Φ → Region Φ → LCtx τ → Pro
       RewriteEquiv Γ (.cfg entry n blocks) (.cfg entry' n blocks') L
   | letBr (ha : Tm.BranchValue Γ a A) (hb : Tm.BranchValue (A :: Γ) b B) (hℓ : At L ℓ B) :
       RewriteEquiv Γ (.let₁ a (.br ℓ b))
-        (.br ℓ (b.subst (fun | 0 => a | n + 1 => .var n))) L
+        (.br ℓ (b.subst (Tm.singleSubst a))) L
   | caseInl (ha : Tm.HasType Γ a A) (hl : HasType (A :: Γ) l L) (hr : HasType (B :: Γ) r L) :
       RewriteEquiv Γ (.case (.inl a) l r) (.let₁ a l) L
   | caseInr (hb : Tm.HasType Γ b B) (hl : HasType (A :: Γ) l L) (hr : HasType (B :: Γ) r L) :

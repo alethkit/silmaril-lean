@@ -56,7 +56,7 @@ def termTree : RawExpr → Tree
       node "record" (List.ofFn fun i => node "field" [.atom (labels.label i), termTree (fields i)])
   | .project record label => node "project" [termTree record, .atom label]
 
-def asTypeField : Datum Ty RawExpr → Option (Label × Ty)
+def asTypeField {Term : Type} : Datum Ty Term → Option (Label × Ty)
   | .typeField name value => some (name, value)
   | _ => none
 
@@ -64,7 +64,7 @@ def asTermField : Datum Ty RawExpr → Option (Label × RawExpr)
   | .termField name value => some (name, value)
   | _ => none
 
-def readFields (tag : String) (fields : List (Datum Ty RawExpr)) :
+def readNamedFields (tag : String) (fields : List (Datum Ty RawExpr)) :
     Option (Datum Ty RawExpr) :=
   match tag with
   | "int" => match fields with
@@ -148,6 +148,13 @@ def readFields (tag : String) (fields : List (Datum Ty RawExpr)) :
   | "project" => match fields with
     | [.term record, .atom label] => some (.term (.project record label))
     | _ => none
+  | _ => none
+
+/-- Share expression type decoding across the named and resolved term schemas. -/
+def readWithTypes {Term : Type}
+    (readTermFields : String → List (Datum Ty Term) → Option (Datum Ty Term))
+    (tag : String) (fields : List (Datum Ty Term)) : Option (Datum Ty Term) :=
+  match tag with
   | "type-int" => match fields with
     | [] => some (.type .int)
     | _ => none
@@ -176,38 +183,40 @@ def readFields (tag : String) (fields : List (Datum Ty RawExpr)) :
       let entries ← fields.mapM asTypeField
       let ⟨labels, values⟩ ← RecordLabels.ofEntries entries
       return .type (.record labels values)
-  | _ => none
+  | _ => readTermFields tag fields
 
-def readNode : List (Datum Ty RawExpr) → Option (Datum Ty RawExpr)
-  | .atom tag :: fields => readFields tag fields
-  | _ => none
+def readFields := readWithTypes readNamedFields
 
+def readNode := taggedReader readFields
 
-private theorem read_typeTree (type : Ty) :
-    readTree readNode (typeTree type) = some (.type type) := by
+theorem read_typeTree {Term : Type}
+    (readTermFields : String → List (Datum Ty Term) → Option (Datum Ty Term)) (type : Ty) :
+    readTree (taggedReader (readWithTypes readTermFields)) (typeTree type) = some (.type type) := by
   induction type with
   | record labels fields ih =>
     rw [typeTree, readTree_node, mapM_ofFn_some _ _ (fun i => .typeField (labels.label i) (fields i))
-      (fun i => by simp [readNode, readFields, ih i])]
-    simp [readNode, readFields]
+      (fun i => by simp [taggedReader, readWithTypes, ih i])]
+    simp [taggedReader, readWithTypes]
     rw [mapM_ofFn_some (fun i => Datum.typeField (labels.label i) (fields i))
       asTypeField (fun i => (labels.label i, fields i)) (fun _ => rfl)]
     change (RecordLabels.ofEntries (labels.entries fields)).bind _ = _
     simp
-  | _ => simp [typeTree, readNode, readFields, *]
+  | _ => simp [typeTree, taggedReader, readWithTypes, *]
 
 private theorem read_termTree (term : RawExpr) :
     readTree readNode (termTree term) = some (.term term) := by
+  unfold readNode readFields
   induction term with
   | record labels fields ih =>
     rw [termTree, readTree_node, mapM_ofFn_some _ _ (fun i => .termField (labels.label i) (fields i))
-      (fun i => by simp [readNode, readFields, ih i])]
-    simp [readNode, readFields]
+      (fun i => by simp [taggedReader, readWithTypes, readNamedFields, ih i])]
+    simp [taggedReader, readWithTypes, readNamedFields]
     rw [mapM_ofFn_some (fun i => Datum.termField (labels.label i) (fields i))
       asTermField (fun i => (labels.label i, fields i)) (fun _ => rfl)]
     change (RecordLabels.ofEntries (labels.entries fields)).bind _ = _
     simp
-  | _ => simp [termTree, readNode, readFields, read_typeTree, *]
+  | _ => simp [termTree, taggedReader, readWithTypes, readNamedFields,
+      read_typeTree, *]
 
 def termSExp : AstCodec.Codec RawExpr :=
   versioned "L3" "term" ⟨termTree, (fun t => readTree readNode t >>= Datum.getTerm),
@@ -215,7 +224,7 @@ def termSExp : AstCodec.Codec RawExpr :=
 
 def typeSExp : AstCodec.Codec Ty :=
   versioned "L3" "type" ⟨typeTree, (fun t => readTree readNode t >>= Datum.getType),
-    by intro type; rw [read_typeTree]; rfl⟩
+    by intro type; rw [readNode, readFields, read_typeTree]; rfl⟩
 
 def termJson := asJson termSExp
 def typeJson := asJson typeSExp

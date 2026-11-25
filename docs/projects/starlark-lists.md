@@ -144,20 +144,21 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 
 ## Remaining work
 
-- **Calls and closures.** Add user function objects, declaration identity,
-  lexical capture of binding cells, positional calls and returns in the shared
-  heap. Freezing must follow captured cells and defaults, and execution must
-  check the core recursion restriction. Full argument binding remains a
-  separate obligation. [Functions][functions]
-- **Collection operations.** General equality and ordering, `len`, `hash`,
+- **Functions.** User function objects, lexical cells, calls
+  and declaration-based recursion checks extend this store. The call profile
+  includes definition-time defaults, keyword-only parameters and both
+  argument expansions and calls inside collection loops. Resolved nested
+  call lowering covers call-free collection atoms, with general embedding
+  into collection expressions still open.
+  [Lexical calls](starlark-functions.md) · [Functions][functions]
+- **Collection operations.** General equality and ordering, `hash`,
   concatenation, slicing, comprehensions, other methods, augmented assignment,
   destructuring, and other iterable types remain open. The supported
   collection truth tests apply in the resolved suite conditional.
-- **Module initialization and loading.** Run each module with its own lexical
-  frame and host thread context. Select all global roots on successful
-  publication, including private globals, and preserve heap identities in
-  the loader cache. Export validation, dependency cycles, load failure and
-  host policies remain open. [Module execution][modules] · [Load statements][loading]
+- **Module initialization and loading.** The finite manifest loads modules
+  in their own lexical frames, freezes successful publication roots and
+  preserves heap identities in the cache. Effectful host resolution and
+  concurrency remain open. [Module loader](starlark-modules.md) · [Module execution][modules]
 - **Source front end.** Parsing, shared Python and Starlark syntax resolution,
   and the Lean quotation macro remain open.
 

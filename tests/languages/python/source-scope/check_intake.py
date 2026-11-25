@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: MIT
-"""Check the Python AST emitter and compare the closed compiler with CPython."""
+"""Check the Python AST emitter, source scope and supported compiler profiles."""
 
 import argparse
+import inspect
 import json
 import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import CodeType
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -68,6 +70,7 @@ def outer(seed):
         assert ".floatBits 4607182418800017408" in generated, generated
         assert '.name "λ"' in generated, generated
         check_lean(destination, """
+#guard ((analyze pythonSource).toOption.map (·.scope.access "alias")) == some (some .moduleName)
 #guard ((analyze pythonSource).toOption.bind (·.atPath [0])).bind (·.access "Meta") ==
   some .implicitGlobal
 #guard ((analyze pythonSource).toOption.bind (·.atPath [0])).bind (·.access "bases") ==
@@ -76,7 +79,44 @@ def outer(seed):
   some .local
 #guard ((analyze pythonSource).toOption.bind (·.atPath [0, 0, 0, 0])).bind (·.access "key") ==
   some (.free [0, 0, 0])
-""")
+""", extra_imports=("import Batteries.Tactic.Alias",))
+        yields = """
+def outer():
+    def suspended():
+        if False:
+            yield 1
+    return lambda: (yield 2)
+
+def defaulted():
+    def nested(value=(yield 3)):
+        return value
+    return nested
+"""
+        expected = {
+            "outer": False, "suspended": True, "<lambda>": True,
+            "defaulted": True, "nested": False,
+        }
+
+        def generators(code):
+            result = {code.co_name: bool(code.co_flags & inspect.CO_GENERATOR)}
+            for constant in code.co_consts:
+                if isinstance(constant, CodeType):
+                    result.update(generators(constant))
+            return result
+
+        assert generators(compile(yields, "<scope fixture>", "exec")) == {"<module>": False, **expected}
+        emit(source, destination, yields)
+        paths = {"outer": [0], "suspended": [0, 0], "<lambda>": [0, 1],
+                 "defaulted": [1], "nested": [1, 0]}
+        observations = [
+            f"#guard hasYield {paths[name]} == some {str(value).lower()}"
+            for name, value in expected.items()
+        ]
+        check_lean(destination, """
+private def hasYield (path : BlockPath) : Option Bool :=
+  ((analyze pythonSource).toOption.bind (·.atPath path)).map (·.context.containsYield)
+#guard hasYield [] == some false
+""" + "\n".join(observations))
         emit(source, destination, "[item for item in entries]\n")
         check_lean(destination, """
 #guard (match analyze pythonSource with
@@ -162,10 +202,113 @@ def check_closed_compiler():
         }))
 
 
+def check_closure_bodies():
+    body_header = "Silmaril.Languages.Python.Compile.Closure.Body.Defs"
+    core_header = "Silmaril.Languages.Python.Core.Closure.Defs"
+    imports = (f"import {body_header}", f"meta import {body_header}", f"meta import {core_header}")
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "Example.py"
+        destination = Path(tmp) / "Example.lean"
+        emit(source, destination, """
+def outer(seed):
+    offset = 2
+    def middle(increment):
+        def inner(value):
+            nonlocal seed
+            seed = seed + value
+            return seed + offset
+        return inner(increment)
+    return middle(3)
+""")
+        check_lean(destination, """
+open Silmaril.Languages.Python.Compile.Closure.Body
+
+private def captureSlots {parent child : Silmaril.Languages.Python.Core.Closure.Layout}
+    (operands : Fin child.captures → Silmaril.Languages.Python.Core.Closure.CaptureSlot parent) :
+    List (Bool × Nat) :=
+  (List.finRange child.captures).map fun index => match operands index with
+    | .owned slot => (true, slot.val)
+    | .forwarded slot => (false, slot.val)
+
+private def shape : Bool :=
+  match compile pythonSource with
+  | .ok compiled =>
+    match compiled.code with
+    | .assign (.owned offset) (.integer 2)
+        (.closure (.local middle) [0, 0] _ middleParams middleCaptures
+          (.closure (.local inner) [0, 0, 0] _ innerParams innerCaptures
+            (.assign (.capture written) (.add (.read (.capture seed)) (.read (.local value)))
+              (.ret (.add (.read (.capture result)) (.read (.capture added)))))
+            (.ret (.call (.read (.local calledInner)) [.read (.local increment)])))
+          (.ret (.call (.read (.local calledMiddle)) [.integer 3]))) =>
+      middle.val == calledMiddle.val && inner.val == calledInner.val &&
+      written.val == seed.val && seed.val == result.val && seed.val == 0 && added.val == 1 &&
+      (match compiled.parameters.slots, middleParams.slots, innerParams.slots with
+       | [.owned initial], [.local argument], [.local payload] =>
+         argument.val == increment.val && payload.val == value.val &&
+         captureSlots middleCaptures == [(true, initial.val), (true, offset.val)] &&
+         captureSlots innerCaptures == [(false, 0), (false, 1)]
+       | _, _, _ => false)
+    | _ => false
+  | .error _ => false
+
+#guard shape
+""", extra_imports=imports)
+        emit(source, destination, """
+def outer():
+    def first():
+        def inside():
+            return 1
+        return inside()
+    def second():
+        return 2
+    return first() + second()
+""")
+        check_lean(destination, """
+open Silmaril.Languages.Python.Compile.Closure.Body
+#guard ((compile pythonSource).toOption.map Compiled.paths) ==
+  some [[0], [0, 0], [0, 0, 0], [0, 1]]
+""", extra_imports=imports)
+        emit(source, destination, "def outer(value=1): return value\n")
+        check_lean(destination, """
+open Silmaril.Languages.Python.Compile.Closure.Body
+#guard (match compile pythonSource with | .error .parameterProfile => true | _ => false)
+""", extra_imports=imports)
+        emit(source, destination, "def outer(fn): return fn(keyword=1)\n")
+        check_lean(destination, """
+open Silmaril.Languages.Python.Compile.Closure.Body
+#guard (match compile pythonSource with | .error .argumentProfile => true | _ => false)
+""", extra_imports=imports)
+        generator_cases = (
+            ("def outer():\n    if False: yield 1\n    return 2\n", [0]),
+            ("def outer():\n    def child():\n        yield 1\n    return 2\n", [0, 0]),
+            ("def outer():\n    def child(value=0): yield value\n    return 2\n", [0, 0]),
+            ("def outer():\n    def child(value=(yield 1)): return value\n    return 2\n", [0]),
+        )
+        for text, rejected_path in generator_cases:
+            emit(source, destination, text)
+            check_lean(destination, f"""
+open Silmaril.Languages.Python.Compile.Closure.Body
+#guard (match compile pythonSource with
+  | .error (.unsupportedGenerator path) => path == {rejected_path}
+  | _ => false)
+""", extra_imports=imports)
+        emit(source, destination, "def outer(value=0): yield value\n")
+        check_lean(destination, """
+open Silmaril.Languages.Python.Compile.Closure.Body
+#guard (match compile pythonSource with | .error .parameterProfile => true | _ => false)
+""", extra_imports=imports)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--closed-compiler", action="store_true")
-    if parser.parse_args().closed_compiler:
+    profiles = parser.add_mutually_exclusive_group()
+    profiles.add_argument("--closed-compiler", action="store_true")
+    profiles.add_argument("--closure-bodies", action="store_true")
+    args = parser.parse_args()
+    if args.closed_compiler:
         check_closed_compiler()
+    elif args.closure_bodies:
+        check_closure_bodies()
     else:
         check_scope_intake()
