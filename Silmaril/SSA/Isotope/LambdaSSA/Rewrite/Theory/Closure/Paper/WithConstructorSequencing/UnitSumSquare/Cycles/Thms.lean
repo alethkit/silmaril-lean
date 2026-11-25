@@ -33,6 +33,13 @@ theorem iterate_self_row (B A : Shape) (p : A.Row → OutputCode B A) (i : A.Row
       iterate (coprod.inr : obj .unit ⟶ obj B.ty ⨿ obj .unit) :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumCycles.iterate_self_row B A p i self
 
+/-- Unfold a recurrence while retaining the row's payload choice. -/
+theorem iterate_row_recurrence (B A : Shape) (p : A.Row → OutputCode B A) {i j : A.Row}
+    (payload : Payload) (h : p i = ⟨.inr j, payload⟩) :
+    A.inj i ≫ iterate (stepWithPayload B A p) = A.emit j payload ≫ iterate (stepWithPayload B A p) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumCycles.iterate_row_recurrence
+    B A p payload h
+
 /-- Finite unfolding along a forwarding path identifies its first and last
 rows of iteration, even when the path enters a cycle. -/
 theorem iterate_row_along (B A : Shape) (p : A.Row → OutputCode B A) {i j : A.Row}

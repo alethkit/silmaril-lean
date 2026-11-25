@@ -37,6 +37,15 @@ theorem reachesExit_of_square (B A D : Shape) (tags : A.Row → D.Row)
     (i : A.Row) : ReachesExit p i ↔ ReachesExit q (tags i) :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumMixedCycles.reachesExit_of_square B A D tags p q comm i
 
+/-- The bounded cut sends each row to an exit or to a self-loop anchor
+in the reduced tag table. -/
+theorem exists_common_cut (B A : Shape) (p : A.Row → Sum B.Row A.Row) :
+    ∃ (mark : A.Row → Bool) (fuel : Nat) (out : A.Row → Sum B.Row A.Row),
+      (∀ i, run (forwardingSteps (cutTags p mark)) fuel i = some ⟨out i, .forward⟩) ∧
+      (∀ i b, out i = .inl b → ReachesExit p i) ∧
+      (∀ i j, out i = .inr j → ¬ ReachesExit p i ∧ out j = .inr j) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumMixedCycles.exists_common_cut B A p
+
 /-- The row of iteration at a nonterminating input is the singleton
 forwarding self-loop. -/
 theorem iterate_nonexit_row (B A : Shape) (p : A.Row → Sum B.Row A.Row) (i : A.Row)

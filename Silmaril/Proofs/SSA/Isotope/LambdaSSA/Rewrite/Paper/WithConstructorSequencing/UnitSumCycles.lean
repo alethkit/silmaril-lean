@@ -62,10 +62,10 @@ theorem iterate_of_bounded_cut (B A : Shape) (cut : A.Row → OutputCode (.sum B
     rfl
   rw [← collapse_cut_rows B A cut, ← iterate_codiagonal, inner]
 
-private theorem iterate_row_forward (B A : Shape) (p : A.Row → OutputCode B A) {i j : A.Row}
-    (h : p i = ⟨.inr j, .forward⟩) :
-    A.inj i ≫ iterate (stepWithPayload B A p) = A.inj j ≫ iterate (stepWithPayload B A p) := by
-  have step : A.inj i ≫ stepWithPayload B A p = outputWithPayload B A ⟨.inr j, .forward⟩ := by
+theorem iterate_row_recurrence (B A : Shape) (p : A.Row → OutputCode B A) {i j : A.Row}
+    (payload : Payload) (h : p i = ⟨.inr j, payload⟩) :
+    A.inj i ≫ iterate (stepWithPayload B A p) = A.emit j payload ≫ iterate (stepWithPayload B A p) := by
+  have step : A.inj i ≫ stepWithPayload B A p = outputWithPayload B A ⟨.inr j, payload⟩ := by
     rw [stepWithPayload, inj_table]
     exact congrArg (outputWithPayload B A) h
   calc
@@ -74,7 +74,11 @@ private theorem iterate_row_forward (B A : Shape) (p : A.Row → OutputCode B A)
       congrArg (A.inj i ≫ ·) (iterate_fixpoint _)
     _ = _ := by
       rw [← Category.assoc, step, outputWithPayload_inr, Category.assoc, coprod.inr_desc]
-      rfl
+
+private theorem iterate_row_forward (B A : Shape) (p : A.Row → OutputCode B A) {i j : A.Row}
+    (h : p i = ⟨.inr j, .forward⟩) :
+    A.inj i ≫ iterate (stepWithPayload B A p) = A.inj j ≫ iterate (stepWithPayload B A p) :=
+  iterate_row_recurrence B A p .forward h
 
 theorem iterate_row_along (B A : Shape) (p : A.Row → OutputCode B A) {i j : A.Row}
     (path : Relation.ReflTransGen (fun src dst => p src = ⟨.inr dst, .forward⟩) i j) :
