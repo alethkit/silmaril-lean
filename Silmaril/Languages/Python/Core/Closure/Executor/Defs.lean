@@ -25,17 +25,26 @@ inductive Operand (layout : Layout) where
   | eqInt (left : NameRead layout) (right : Int)
   | closure (code : CodeRef) (select : Fin code.layout.captures → CaptureSlot layout)
 
-/-- Every body ends in an explicit return. A call assigns its result before
-resuming the remaining body. -/
+inductive Destination (layout : Layout) where
+  | store (slot : Slot layout)
+  | discard
+
+/-- Every body ends in an explicit return. A successful call either stores
+its result or continues without a write. -/
 inductive Body (layout : Layout) where
   | ret (value : Operand layout)
   | store (destination : Slot layout) (value : Operand layout) (next : Body layout)
   | assert (test : Operand layout) (next : Body layout)
-  | call (destination : Slot layout) (callee : Operand layout)
+  | callTo (destination : Destination layout) (callee : Operand layout)
       (arguments : List (Operand layout)) (next : Body layout)
 
+/-- Store a call's successful result in an existing slot. -/
+abbrev Body.call {layout : Layout} (destination : Slot layout) (callee : Operand layout)
+    (arguments : List (Operand layout)) (next : Body layout) : Body layout :=
+  .callTo (.store destination) callee arguments next
+
 structure Continuation (layout : Layout) where
-  destination : Slot layout
+  destination : Destination layout
   body : Body layout
 
 abbrev Stack := List (Call.Saved Continuation)
@@ -130,7 +139,7 @@ def advanceIn (table : CodeTable) (globals : GlobalLookup) : State → Option Tr
       if value.truth then (none, .running heap frame next stack)
       else (none, .delivering heap stack (.error .assertionError))
     | .error error => fail heap stack error
-  | .running heap frame (.call destination callee arguments next) stack =>
+  | .running heap frame (.callTo destination callee arguments next) stack =>
     some <| match evalCallIn globals heap frame callee arguments with
     | .error error => fail heap stack error
     | .ok (value, values) =>
@@ -143,7 +152,9 @@ def advanceIn (table : CodeTable) (globals : GlobalLookup) : State → Option Tr
     | .terminal observed => (some (.complete observed), .finished exit.heap observed)
     | .resume caller observed => (some (.resume observed), .receiving exit.heap caller exit.stack observed)
   | .receiving heap caller stack (.ok value) =>
-    some (resumeStore heap caller.frame caller.continuation.destination value caller.continuation.body stack)
+    some <| match caller.continuation.destination with
+    | .store slot => resumeStore heap caller.frame slot value caller.continuation.body stack
+    | .discard => (none, .running heap caller.frame caller.continuation.body stack)
   | .receiving heap _ stack (.error error) => some (none, .delivering heap stack (.error error))
   | .finished .. | .faulted .. => none
 
@@ -249,24 +260,29 @@ inductive StepIn (table : CodeTable) (globals : GlobalLookup) : State → Option
   | call {heap stack layout} {frame : Frame layout} {destination callee arguments next value values active} :
       InputsIn globals heap frame callee arguments (.ok (value, values)) →
       Dispatch.Dispatches table values heap ⟨layout, frame, ⟨destination, next⟩⟩ stack value active →
-      StepIn table globals (.running heap frame (.call destination callee arguments next) stack)
+      StepIn table globals (.running heap frame (.callTo destination callee arguments next) stack)
         (some (.enter value)) (enter active)
   | callError {heap stack layout} {frame : Frame layout} {destination callee arguments next error} :
       InputsIn globals heap frame callee arguments (.error error) →
-      StepIn table globals (.running heap frame (.call destination callee arguments next) stack)
+      StepIn table globals (.running heap frame (.callTo destination callee arguments next) stack)
         (fail heap stack error).1 (fail heap stack error).2
   | rejected {heap stack layout} {frame : Frame layout} {destination callee arguments next value values error} :
       InputsIn globals heap frame callee arguments (.ok (value, values)) → Rejects table values heap value error →
-      StepIn table globals (.running heap frame (.call destination callee arguments next) stack)
+      StepIn table globals (.running heap frame (.callTo destination callee arguments next) stack)
         (failDispatch heap stack error).1 (failDispatch heap stack error).2
   | complete (heap : Heap) (result : Result) :
       StepIn table globals (.delivering heap [] result) (some (.complete result)) (.finished heap result)
   | resume (heap : Heap) (caller : Call.Saved Continuation) (stack : Stack) (result : Result) :
       StepIn table globals (.delivering heap (caller :: stack) result) (some (.resume result))
         (.receiving heap caller stack result)
-  | receive {heap caller stack value transition} :
-      Stores heap caller.frame caller.continuation.destination value caller.continuation.body stack transition →
+  | receive {heap caller stack value slot transition} :
+      caller.continuation.destination = .store slot →
+      Stores heap caller.frame slot value caller.continuation.body stack transition →
       StepIn table globals (.receiving heap caller stack (.ok value)) transition.1 transition.2
+  | receiveDiscard {heap caller stack value} :
+      caller.continuation.destination = .discard →
+      StepIn table globals (.receiving heap caller stack (.ok value)) none
+        (.running heap caller.frame caller.continuation.body stack)
   | receiveError (heap : Heap) (caller : Call.Saved Continuation) (stack : Stack) (error : RuntimeError) :
       StepIn table globals (.receiving heap caller stack (.error error)) none (.delivering heap stack (.error error))
 

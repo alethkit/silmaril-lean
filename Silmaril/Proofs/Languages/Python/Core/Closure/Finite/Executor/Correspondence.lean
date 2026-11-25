@@ -65,7 +65,7 @@ theorem advanceIn_project (rows : CodeRows) (globals : GlobalLookup) (source : S
       cases test.evalIn globals environment.heap.project environment.frame with
       | ok value => cases truth : value.truth <;> simp [truth, Transition.project, State.project]
       | error failure => exact congrArg some (fail_project environment.heap stack failure)
-    | call destination callee arguments next =>
+    | callTo destination callee arguments next =>
       simp only [advanceIn, coreAdvance, State.project, Option.map_some]
       cases evalCallIn globals environment.heap.project environment.frame callee arguments with
       | error failure => exact congrArg some (fail_project environment.heap stack failure)
@@ -82,8 +82,12 @@ theorem advanceIn_project (rows : CodeRows) (globals : GlobalLookup) (source : S
   | receiving heap caller stack result =>
     cases result with
     | ok value =>
-      exact congrArg some (resumeStore_project ⟨heap, caller.frame⟩ caller.continuation.destination
-        value caller.continuation.body stack)
+      cases destination : caller.continuation.destination with
+      | store slot =>
+        simpa only [advanceIn, coreAdvance, State.project, Option.map_some, destination] using
+          congrArg some (resumeStore_project ⟨heap, caller.frame⟩ slot value caller.continuation.body stack)
+      | discard =>
+        simp [advanceIn, coreAdvance, State.project, destination, Transition.project]
     | error failure => rfl
   | finished heap result => rfl
   | faulted heap stack failure => rfl
