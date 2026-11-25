@@ -63,6 +63,16 @@ theorem glue_output_cap_exists {z : Fin (wireCount lower upper)} (h : m.glue.fin
     ∃ w, upper.finish w = none ∧ m.upperId w = z :=
   finish_cap_exists m h
 
+theorem glue_covered_lower {w : Fin (wireCount lower upper)} {y : ℝ}
+    (hy : y ≤ 1 / 2) (cover : m.glue.covers w y) :
+    ∃ a, (lowerId (upper := upper) a) = w ∧ lower.covers a (slabHeight 0 y) :=
+  covered_assemble_lower m hy cover
+
+theorem glue_covered_upper {w : Fin (wireCount lower upper)} {y : ℝ}
+    (hy : 1 / 2 ≤ y) (cover : m.glue.covers w y) :
+    ∃ b, m.upperId b = w ∧ upper.covers b (slabHeight 1 y) :=
+  covered_assemble_upper m hy cover
+
 theorem glue_x_lower (w : Fin A) {y : ℝ} (below : y ≤ 1 / 2) :
     m.glue.x (lowerId w) y = lower.x w (slabHeight 0 y) := by
   change (jointWire m ((numbering lower upper).symm ((numbering lower upper) (fromLower w)))).x y = _
