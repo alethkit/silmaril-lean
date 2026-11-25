@@ -1,11 +1,13 @@
 module
 
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Categorical.Wires.Thms
-import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Atomic.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Conditional.Reverse.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Defs
 import Silmaril.Raw.SSA.Isotope.Semantics.Model
+meta import Silmaril.SSA.Isotope.Types.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Check.Defs
 
 namespace Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Tests
 
@@ -26,6 +28,7 @@ private abbrev Value := Silmaril.Ty.denote (fun _ : Unit => Nat)
 private abbrev Runtime := StateT (List Nat) Part
 
 private inductive Op | gate | enterFirst | bodyFirst | joinFirst | enterSecond | bodySecond | joinSecond
+  deriving DecidableEq
 
 local instance : HasTy Op Ty :=
   ⟨(fun | .joinSecond => pair | _ => number),
@@ -444,6 +447,91 @@ example (coherent : Coherent) :
     (Region.denote (ε := Bool) (m := Runtime) numberedView.recover.typing (PUnit.unit, (99 : Nat))).run [] =
       Part.none :=
   (numberedView.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) []).mp numberedAbsent
+
+namespace Recognition
+
+open Flat.Numbered.Recognize
+open OrderedTheta (carried results)
+open OrderedRuntime.Structured (Threaded)
+open TwoBlock.TwoExit (Carrier)
+
+private def components : Components Op number number number number pair :=
+  ⟨number, number, number, pair, guarded, spec.second⟩
+
+private theorem parsed : candidate numbered = some components := rfl
+
+private def accepted : Match numbered := ⟨components, rfl⟩
+
+example : recognize numbered = some accepted :=
+  complete components parsed rfl
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) accepted.recover.typing (PUnit.unit, (2 : Nat))).run [] =
+      Part.some (guardedExit, guardedFinal) :=
+  (accepted.region_returns_iff coherent (PUnit.unit, (2 : Nat)) guardedExit [] guardedFinal).mp numberedReturns
+
+private abbrev InputPorts := Threaded (carried number)
+private abbrev ProducerPorts := Conditional.Signatures number number number
+private abbrev JointTerm := NestedTheta.Term (Wires.Op Op) InputPorts []
+  (Flat.Numbered.JoinedSignatures number number number pair)
+  (Threaded (Flat.Numbered.Stop number number pair))
+
+private def useStaleCarrier {ty : OrderedRuntime.Structured.Ty Ty}
+    (source : Origin InputPorts ProducerPorts ty) : Origin InputPorts ProducerPorts ty :=
+  if h : PortType.value (Carrier number number number) = ty then
+    Eq.mp (congrArg (Origin InputPorts ProducerPorts) h) (.output (0 : Fin 2) (.tail .head))
+  else source
+
+-- The stale carrier has the same type and retains the same live token
+-- input. Its data comes from the classifier instead of the selected γ.
+private def staleHandoff : Flat.Numbered.Graph Op number number number number pair :=
+  let term : JointTerm := match numbered.toTerm with
+    | .bind gate gateKids (.bind gamma arms (.bind link linkKids tail)) =>
+      let inputs := link.inputs.map (fun _ source => useStaleCarrier source)
+      .bind gate gateKids (.bind gamma arms (.bind { link with inputs } linkKids tail))
+  term.toGraph
+
+example : (staleHandoff.nodes (2 : Fin 4)).inputs.addresses =
+    [Address.output 0 1, Address.output 1 1] := rfl
+
+example : cut staleHandoff = none := rfl
+
+example : recognize staleHandoff = none := reject_cut rfl
+
+private def useStaleToken {past : List (Ports (OrderedRuntime.Structured.Ty Ty))}
+    {ty : OrderedRuntime.Structured.Ty Ty} (source : Origin InputPorts past ty) : Origin InputPorts past ty :=
+  if h : OrderedRuntime.Structured.runtime = ty then
+    Eq.mp (congrArg (Origin InputPorts past) h) (.arg (.tail .head))
+  else source
+
+-- The cut itself is unchanged here. The final comparison must inspect
+-- addresses inside the producer, beyond the handoff guard.
+private def staleGamma : Flat.Numbered.Graph Op number number number number pair :=
+  let term : JointTerm := match numbered.toTerm with
+    | .bind gate gateKids (.bind gamma arms tail) =>
+      let inputs := gamma.inputs.map (fun _ source => useStaleToken source)
+      .bind gate gateKids (.bind { gamma with inputs } arms tail)
+  term.toGraph
+
+example : components.graph ≠ staleGamma := by
+  intro equal
+  have wire := congrArg (fun g : Flat.Numbered.Graph Op number number number number pair =>
+    (g.nodes (1 : Fin 4)).inputs.addresses) equal
+  change [Address.output 0 0, Address.output 0 1, Address.output 0 2] =
+    [Address.output 0 0, Address.output 0 1, Address.arg 1] at wire
+  cases wire
+
+#eval show IO Unit from do
+  unless (recognize numbered).isSome do
+    throw (IO.userError "recognizer rejected the two-loop numbered graph")
+  unless (recognize staleHandoff).isNone do
+    throw (IO.userError "recognizer accepted the stale producer data edge")
+  unless (candidate staleGamma).isSome do
+    throw (IO.userError "the nested wiring check was not exercised")
+  unless (recognize staleGamma).isNone do
+    throw (IO.userError "recognizer ignored the stale gamma token edge")
+
+end Recognition
 
 end FlatLink
 
