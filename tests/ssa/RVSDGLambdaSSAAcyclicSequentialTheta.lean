@@ -1,7 +1,7 @@
 module
 
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Categorical.Wires.Thms
-import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Observations.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Conditional.Reverse.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Defs
@@ -403,6 +403,47 @@ example (coherent : Coherent) :
   (Flat.recover_returns_iff (Conditional.Reverse.canonical guarded)
     (ExplicitRuntime.Reverse.canonical spec.second) coherent (PUnit.unit, (2 : Nat))
     guardedExit [] guardedFinal).mpr ⟨middle, guardedToken, guardedReturns, consumerReturns⟩
+
+private def numbered := Flat.Numbered.compile guarded spec.second
+private noncomputable def numberedView := Flat.Numbered.canonical guarded spec.second
+
+-- Outer vertices are the classifier, γ, carrier conversion, and relocated θ.
+-- Both data and token must follow the two cut edges.
+example : (numbered.nodes (2 : Fin 4)).inputs.addresses =
+    [Address.output 1 0, Address.output 1 1] := rfl
+
+example : (numbered.nodes (3 : Fin 4)).inputs.addresses =
+    [Address.output 2 0, Address.output 2 1] := rfl
+
+example : numbered.results.addresses = [Address.output 3 0, Address.output 3 1] := rfl
+
+example : ((numbered.children (1 : Fin 4) (1 : Fin 2)).nodes (0 : Fin 1)).kind.arity = 1 := rfl
+
+example : (numbered.nodes (3 : Fin 4)).kind.arity = 1 := rfl
+
+example : numberedView.recover.region = linked.region :=
+  congrArg Flat.Fragment.region (Flat.Numbered.recover_canonical guarded spec.second)
+
+private theorem numberedReturns :
+    Flat.Numbered.returns (ε := Bool) numbered (2 : Nat) [] guardedExit guardedFinal := by
+  apply (NestedTheta.Partial.observe_eq_some _ _ _ _).mp
+  change Flat.Numbered.observe (ε := Bool) numbered (2 : Nat) [] = _
+  exact (Flat.Numbered.compile_after guarded spec.second (2 : Nat) [] guardedToken middle guardedReturns).trans
+    ((NestedTheta.Partial.observe_eq_some _ _ _ _).mpr consumerReturns)
+
+private theorem numberedAbsent : Flat.Numbered.observe (ε := Bool) numbered (99 : Nat) ([] : List Nat) = Part.none := by
+  apply Flat.Numbered.compile_no_producer guarded spec.second
+  rw [Conditional.graph_observe, StateT.run_bind, Part.bind_eq_bind, gateUndefined, Part.bind_none, Part.map_none]
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) numberedView.recover.typing (PUnit.unit, (2 : Nat))).run [] =
+      Part.some (guardedExit, guardedFinal) :=
+  (numberedView.region_returns_iff coherent (PUnit.unit, (2 : Nat)) guardedExit [] guardedFinal).mp numberedReturns
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) numberedView.recover.typing (PUnit.unit, (99 : Nat))).run [] =
+      Part.none :=
+  (numberedView.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) []).mp numberedAbsent
 
 end FlatLink
 

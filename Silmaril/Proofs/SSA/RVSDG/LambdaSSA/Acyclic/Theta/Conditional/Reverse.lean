@@ -48,6 +48,9 @@ private theorem view_decode (s : Guarded Φ A L B K E D) : (view s).decode = s :
 noncomputable def canonical (s : Guarded Φ A L B K E D) : Decomposition (graph s) B K :=
   ⟨graphChecked s, view s, congrArg graph (view_decode s)⟩
 
+theorem canonical_decode (s : Guarded Φ A L B K E D) : (canonical s).view.decode = s :=
+  view_decode s
+
 theorem raise_canonical (s : Guarded Φ A L B K E D) : (raise (canonical s)).1 = region s :=
   congrArg region (view_decode s)
 

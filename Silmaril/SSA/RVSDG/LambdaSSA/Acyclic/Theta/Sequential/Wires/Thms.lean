@@ -17,12 +17,36 @@ open Isotope.LetIter.ProofRelevant.Semantics
 open Isotope.LambdaSSA.Semantics.Monadic
 open Isotope.LambdaSSA.Semantics.Agreement (RegionCoherent)
 open Silmaril.Elgot (iter)
+open OrderedTheta (carriedData point)
+open OrderedRuntime.Structured (Data Threaded RuntimeValues runtime)
+open NestedTheta.ExplicitRuntime (Checked)
+open TwoBlock.TwoExit (Pure enter)
 
 universe u
 variable {τ Φ ε σ : Type u} [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε] [Bot ε]
   [Isotope.Subtyping τ] [TypeModel.{u,u} τ] [InstructionModel Φ τ ε (StateT σ Part.{u})]
 variable {A B K M C J E D : τ}
 variable {r : Region Φ} {g : Graph Φ A M E D}
+
+/-- Embed any checked component into the shared dialect with the handoff
+generator, preserving its execution at every open prefix. -/
+theorem lift_denote {args outs : Ports (OrderedRuntime.Structured.Ty τ)} {past sigs : List (Ports (OrderedRuntime.Structured.Ty τ))}
+    {a : Data args} {b : Data outs} {live : Origin (Threaded args) past runtime}
+    {t : NestedTheta.Term (ExplicitRuntime.Op Φ) (Threaded args) past sigs (Threaded outs)}
+    (check : Checked (Pure τ) (ExplicitRuntime.Effect Φ) a b live t)
+    (input : Tuple (RuntimeValues (TyDen (τ := τ)) σ) (Threaded args))
+    (locals : Locals (RuntimeValues (TyDen (τ := τ)) σ) past) :
+    (liftChecked check).1.denoteOpenWith (wireModel (ε := ε)) input locals =
+      t.denoteOpenWith (ExplicitRuntime.wireModel (ε := ε)) input locals :=
+  Proofs.lifted check input locals
+
+/-- The existing structural handoff decodes an actual producer exit and
+retains the exact token as it prepares the consumer's loop carrier. -/
+theorem link_boundary (label : LabelDen [M,M]) (token : σ) :
+    (wireModel (Φ := Φ) (ε := ε)).primitive
+      (.ordered (carriedData (First A M)) (carriedData (Second M E D)) (.effect .link))
+      (ExplicitRuntime.exitTuple (A := A) (label, token)) = Part.some (point (enter (merge label)) token) :=
+  Proofs.link_boundary label token
 
 /-- The second loop receives both the first return's payload and its actual
 token. There is no invocation of the second action without a first return. -/
