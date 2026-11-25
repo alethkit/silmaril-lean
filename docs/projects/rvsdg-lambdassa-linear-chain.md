@@ -53,12 +53,55 @@ initial token with a direct header exit skips all body effects and
 returns payload and token `1`.
 [Fixture](../../tests/ssa/RVSDGLambdaSSAThreeBlock.lean)
 
+## Implicit effects in the shared categorical model
+
+The same admitted γ/θ shape has an interpretation in the categorical
+LambdaSSA model. Each primitive uses the shared computation arrow from
+`InstructionModel`. The selected γ arm sequences its arrows by
+composition in block order. Choice uses the computation coproduct,
+with the repository's preserved value coproduct comparison and the
+type model's sum isomorphism. The θ step returns the external label
+coproduct on the left or the next header payload on the right.
+Categorical iteration feeds back the latter. The interpretation
+consumes the RVSDG shape witness and uses its typed instruction spine.
+[Categorical definitions](../../Silmaril/SSA/RVSDG/LambdaSSA/LinearChain/Categorical/Defs.lean)
+
+The preservation proof uses `StrongElgotFreydCategory J` and the
+repository's `FreydCategory.CentralUnit J` boundary. The central
+unit comparison makes the projection away from an unused retained
+value context natural for arbitrary computation arrows. Projections,
+label injections, and type transports come from the value category.
+The computation coproduct supplies case dispatch, and no tensor
+interchange between two primitives is used. Codiagonal combines the
+forward-edge dispatcher with header feedback. Pure uniformity then
+restricts the iteration to states entering through the header
+injection. The resulting arrow belongs to the structural
+`RegionDenotes` relation of the actual LambdaSSA CFG.
+`RegionTypingCoherent` supplies uniqueness and hence equality to the
+chosen `denoteRegion`.
+[Categorical theorems](../../Silmaril/SSA/RVSDG/LambdaSSA/LinearChain/Categorical/Thms.lean)
+
+This interpretation has implicit effects. The only feedback object
+is the typed header payload, and a physical token belongs to the
+separate numbered graph model. For the canonical Kleisli inclusion of
+`StateT σ Part`, the unit comparison is central. The repository's
+categorical-to-monadic agreement transports the returned label and
+payload by its existing equivalence. In that model, the categorical
+result preserves and reflects the finite explicit-graph observations
+from the preceding theorem, including the same final `σ`. The fixture
+checks the body exit after feedback and the selected undefined middle
+instruction. This specialization is about finite observations of the
+admitted fragment.
+[State specialization](../../Silmaril/SSA/RVSDG/LambdaSSA/LinearChain/Categorical/State/Thms.lean)
+
 ## Reproduce
 
 ```sh
 lake build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Wires.Thms
-make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Wires.Thms
+lake build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.State.Thms
+make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.State.Thms
 lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Wires.Thms
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.State.Thms
 ```
 
 ## Sources
