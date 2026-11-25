@@ -100,3 +100,9 @@ The subtyped λSSA typing and categorical semantics in
 `Silmaril/SSA/Isotope/LambdaSSA/Subtyping/` and
 `Silmaril/Proofs/SSA/Isotope/LambdaSSA/Subtyping/` adapt
 `Isotope/LambdaSSA/Subtyping/{Typing,Semantics/Categorical/Term,Semantics/Categorical/Region}.lean`.
+
+The exact λSSA direct monadic denotations and Kleisli agreement in
+`Silmaril/Raw/SSA/Isotope/LambdaSSA/Denotation/` and
+`Silmaril/Proofs/SSA/Isotope/LambdaSSA/Kleisli.lean` adapt the source files
+`Isotope/LambdaSSA/Semantics/Monadic/{Model,Term,Label,Region}.lean` and
+`Isotope/LambdaSSA/Semantics/Agreement/{Term,Region,Full}.lean`.
