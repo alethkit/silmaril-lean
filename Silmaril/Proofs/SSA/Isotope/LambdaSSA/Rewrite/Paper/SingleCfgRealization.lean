@@ -21,8 +21,8 @@ universe u v
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ] {X S D : τ}
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem tagFamily (Z : τ) :
-    LSubst.ValueFamily (Φ := Φ) [S, X, Z] [S, D]
+theorem tagCarriedExit_valueFamily (K Z : τ) :
+    LSubst.ValueFamily (Φ := Φ) [K, X, Z] [S, D]
       [Silmaril.coprod (Silmaril.product X D) (Silmaril.product X S)] tagCarriedExit := by
   intro i A hi
   cases i with
@@ -40,7 +40,7 @@ theorem realizeStep_typed {p : Region Φ} (hp : ValueBranches [S, X] p [S, D]) :
     ValueBranches [Silmaril.product X S] (realizeStep p)
       [Silmaril.coprod (Silmaril.product X D) (Silmaril.product X S)] :=
   .let₂ (.var (i := 0) rfl)
-    ((hp.renameVars (((Ren.wk [] (Silmaril.product X S)).lift X).lift S)).lsubst (tagFamily _))
+    ((hp.renameVars (((Ren.wk [] (Silmaril.product X S)).lift X).lift S)).lsubst (tagCarriedExit_valueFamily _ _))
 
 private theorem caseLeft {Γ : VCtx τ} {L : LCtx τ} {A B : τ} {a : Tm Φ} {l r : Region Φ}
     (ha : Tm.BranchValue Γ a A) (hl : HasType (A :: Γ) l L) (hr : HasType (B :: Γ) r L) :

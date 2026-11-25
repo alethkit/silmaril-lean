@@ -19,20 +19,21 @@ namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonCfgAssemb
 open Silmaril Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
 open Paper.TypeCategory
 open Paper.SingletonReification.SingleCfg
-open Paper.SingletonReification (ModelComparisons)
+open Paper.SingletonReification (ModelComparisons packedPair)
 open Paper.RetainedCase (reindexHom)
 open CfgEta.TypeCategory (productSndBranches seqValueBranches caseValueBranches)
 open Paper.PackedBody (applyPacked_typed unpack_applyPacked)
 open Paper.RetainedLet (unpackBody_typed)
 open Paper.RetainedCase (assembleCase_ofRegion)
 open SyntacticCategory (iterateRegion_valueBranches)
-open CfgEta.TypeCategory.ConstructorReification (sndMap inlMap inrMap)
+open CfgEta.TypeCategory.ConstructorReification (sndMap fstMap inlMap inrMap)
 open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
 open Silmaril.Isotope.LetIter.Semantics.Categorical
   (TypeModel InstructionModel contextualStep retainEnvironment routeEnvironment
-    extend_postmap case_pre_map retainEnvironment_comp retainLeft_pre_map_assoc)
-open CartesianMonoidalCategory (snd)
+    extend_postmap case_pre_map retainEnvironment_comp retainEnvironment_pre_assoc retainEnvironment_map
+    retainLeft_pre_map_assoc)
+open CartesianMonoidalCategory (fst snd lift_fst_assoc)
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open SingletonDispatcher (route_inl route_inr labelInject_payload labelAppendSplit_zero_assoc
   labelAppendSplit_succ_assoc)
@@ -176,6 +177,82 @@ theorem canonicalAssembly_map_congr {X S D : τ}
   rfl
 
 end Quotient
+
+section StepFactor
+
+variable {V : Type u₁} [Category.{v₁} V] [CartesianMonoidalCategory V] [SymmetricCategory V]
+  [PremonoidalCategory Comp] [SymmetricPremonoidalCategory Comp]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts Comp] [DistributiveTensor V] [DistributivePremonoidalCategory Comp]
+  (J : V ⥤ Comp) [DistributiveFreydCategory J]
+  (M : TypeModel τ V) (objIso : ∀ A : τ, J.obj (M.obj A) ≅ ofType (Φ := Φ) A)
+  {X S D : τ}
+
+set_option backward.isDefEq.respectTransparency false in
+private theorem capturePrefix_factor (X S : τ) :
+    let E := ctxObj M [X]
+    let P := product X S
+    (paperCarrier J M objIso X S).inv ≫
+      retainEnvironment J (fst E (labelObj M [S])) (J.map (carriedIso M X S).hom) ≫
+      J.map ((λ_ (M.obj X)).hom ▷ M.obj P) ≫ J.map (M.productIso X P).inv ≫
+      (objIso (product X P)).hom = capturePrefix J M objIso X S := by
+  dsimp only [paperCarrier, Iso.trans_inv, Functor.mapIso_inv, ctxObj]
+  rw [Category.assoc, retainEnvironment_pre_assoc J, ← J.map_comp, Iso.inv_hom_id, retainEnvironment_map]
+  simp only [capturePrefix, reindexHom, packedPair, ← J.map_comp_assoc]
+  congr 3
+  rw [← Category.assoc]
+  congr 1
+  apply CartesianMonoidalCategory.hom_ext
+  · rw [Category.assoc, CartesianMonoidalCategory.whiskerRight_fst, lift_fst_assoc,
+      CartesianMonoidalCategory.lift_fst]
+    let kIso : ctxObj M [X] ≅ M.obj X := λ_ (M.obj X)
+    rw [Category.assoc]
+    change (carriedIso M X S).inv ≫ fst (ctxObj M [X]) (labelObj M [S]) ≫ kIso.hom = _
+    simp only [carriedIso, labelPayloadIso, Iso.trans_inv, Iso.symm_inv,
+      MonoidalCategory.whiskerLeftIso_inv, MonoidalCategory.whiskerRightIso_inv, Category.assoc]
+    change (M.productIso X S).hom ≫ (kIso.inv ▷ M.obj S) ≫
+      (ctxObj M [X] ◁ labelInject M 0 rfl) ≫ fst (ctxObj M [X]) (labelObj M [S]) ≫ kIso.hom = _
+    simp only [CartesianMonoidalCategory.whiskerLeft_fst_assoc,
+      CartesianMonoidalCategory.whiskerRight_fst_assoc, Iso.inv_hom_id, Category.comp_id, fstMap]
+
+  · rw [Category.assoc, CartesianMonoidalCategory.whiskerRight_snd,
+      CartesianMonoidalCategory.lift_snd, CartesianMonoidalCategory.lift_snd]
+
+set_option backward.isDefEq.respectTransparency false in
+theorem carriedStep_factor
+    (whisker : ∀ {Y A B : τ} (f : J.obj (M.obj A) ⟶ J.obj (M.obj B)),
+      reindexHom J M objIso (J.map (M.productIso Y A).hom ≫ retainLeft J (R := M.obj Y) f ≫
+        J.map (M.productIso Y B).inv) =
+        whiskerLeft (ofType (Φ := Φ) Y) (reindexHom J M objIso f))
+    (b : J.obj (M.obj (product X S)) ⟶ J.obj (M.obj (packedExitType [S, D]))) :
+    carriedStep J M objIso X S D b =
+      capturePrefix J M objIso X S ≫ whiskerLeft (ofType X) (reindexHom J M objIso b) ≫
+        carriedRoute J M objIso X S D := by
+  let E := ctxObj M [X]
+  let P := product X S
+  let K := packedExitType [S, D]
+  let kIso : E ≅ M.obj X := λ_ (M.obj X)
+  let intro := J.map (carriedIso M X S).hom
+  let split := J.map (unpackLabel M [S, D] ≫ labelAppendSplit M [S] [D])
+  let state := paperCarrier J M objIso X S
+  let result := paperCarrier J M objIso X D
+  change state.inv ≫ contextualStep J (intro ≫ b ≫ split) ≫ coprod.map result.hom state.hom = _
+  have prefixEq := capturePrefix_factor J M objIso X S
+  change state.inv ≫ retainEnvironment J (fst E (labelObj M [S])) intro ≫
+    J.map (kIso.hom ▷ M.obj P) ≫ J.map (M.productIso X P).inv ≫
+      (objIso (product X P)).hom = _ at prefixEq
+  rw [contextualStep, ← Category.assoc intro b split, retainEnvironment_comp, retainEnvironment_comp,
+    ← prefixEq, ← whisker (Y := X) (A := P) (B := K) b]
+  change _ = _ ≫ _ ≫ ((objIso (product X K)).inv ≫ J.map (M.productIso X K).hom ≫
+    J.map (kIso.inv ▷ M.obj K) ≫ retainLeft J (R := E) split ≫
+    routeEnvironment J E (labelObj M [D]) (labelObj M [S]) ≫ coprod.map result.hom state.hom)
+  simp only [reindexHom, Category.assoc, Iso.hom_inv_id_assoc, ← J.map_comp_assoc,
+    Iso.inv_hom_id, Category.comp_id]
+  simp only [Iso.inv_hom_id_assoc]
+  rw [retainLeft_pre_map_assoc J kIso.hom b, ← J.map_comp_assoc,
+    ← MonoidalCategory.comp_whiskerRight, Iso.hom_inv_id, MonoidalCategory.id_whiskerRight,
+    J.map_id, Category.id_comp]
+
+end StepFactor
 
 variable {V : Type u₁} [Category.{v₁} V] [CartesianMonoidalCategory V] [SymmetricCategory V]
   [PremonoidalCategory Comp] [SymmetricPremonoidalCategory Comp]
@@ -392,36 +469,10 @@ theorem carriedStep_map_congr (cmp : ModelComparisons J M objIso pe)
         (Paper.Extension.Singleton.projection Seed).map (reindexHom J M objIso b')) :
     (Paper.Extension.Singleton.projection Seed).map (carriedStep J M objIso X S D b) =
       (Paper.Extension.Singleton.projection Seed).map (carriedStep J M objIso X S D b') := by
-  let E := ctxObj M [X]
-  let P := Silmaril.product X S
-  let K := packedExitType [S, D]
-  let kIso : E ≅ M.obj X := λ_ (M.obj X)
-  let intro := J.map (carriedIso M X S).hom
-  let split := J.map (unpackLabel M [S, D] ≫ labelAppendSplit M [S] [D])
-  let state := paperCarrier J M objIso X S
-  let result := paperCarrier J M objIso X D
-  let pre := state.inv ≫ retainEnvironment J (CartesianMonoidalCategory.fst E (labelObj M [S])) intro ≫
-    J.map (kIso.hom ▷ M.obj P) ≫ J.map (M.productIso X P).inv ≫ (objIso (Silmaril.product X P)).hom
-  let post := (objIso (Silmaril.product X K)).inv ≫ J.map (M.productIso X K).hom ≫
-    J.map (kIso.inv ▷ M.obj K) ≫ retainLeft J (R := E) split ≫
-    routeEnvironment J E (labelObj M [D]) (labelObj M [S]) ≫ coprod.map result.hom state.hom
-  have factor (b : J.obj (M.obj P) ⟶ J.obj (M.obj K)) :
-      carriedStep J M objIso X S D b =
-        pre ≫ whiskerLeft (ofType (Φ := Φ) X) (reindexHom J M objIso b) ≫ post := by
-    change state.inv ≫ contextualStep J (intro ≫ b ≫ split) ≫
-      coprod.map result.hom state.hom = _
-    rw [contextualStep, ← Category.assoc intro b split, retainEnvironment_comp, retainEnvironment_comp]
-    rw [← cmp.whisker (Y := X) (A := P) (B := K) b]
-    simp only [pre, post, reindexHom, Category.assoc, Iso.hom_inv_id_assoc, ← J.map_comp_assoc,
-      Iso.inv_hom_id, Category.comp_id]
-    simp only [Iso.inv_hom_id_assoc]
-    rw [retainLeft_pre_map_assoc J kIso.hom b, ← J.map_comp_assoc,
-      ← MonoidalCategory.comp_whiskerRight, Iso.hom_inv_id, MonoidalCategory.id_whiskerRight,
-      J.map_id, Category.id_comp]
   have h := congrArg ((Paper.Extension.Singleton.whiskerLeftFunctor Seed
     ((Paper.Extension.Singleton.projection Seed).obj (ofType (Φ := Φ) X))).map) e
   rw [Paper.Extension.Singleton.whiskerLeft_map, Paper.Extension.Singleton.whiskerLeft_map] at h
-  simp only [factor, Functor.map_comp, h]
+  simp only [carriedStep_factor J M objIso (fun f => cmp.whisker f), Functor.map_comp, h]
 
 open Paper.Extension.Singleton (projection)
 
