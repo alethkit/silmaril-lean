@@ -53,7 +53,9 @@ From the repository root with its pinned Lean toolchain:
 ```sh
 lake build --wfail +Silmaril.SSA.RVSDG.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDG.lean
-make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.Thms
+lake build --wfail +Silmaril.SSA.RVSDG.Petri.Thms
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGPetri.lean
+make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.Petri.Thms
 ```
 
 The [fixture](../../tests/ssa/RVSDG.lean) constructs a graph directly as tables.
@@ -64,38 +66,62 @@ constructed term and the impossibility of sourcing a value from a lone state
 argument in an empty scope. For the axiom audit, import the theorem header
 and use `#print axioms` on the five public theorems.
 
-## Next milestone
+## Coloured firing semantics
 
-Use the same fragment for a typed, coloured Petri-net semantics. Key places by
-local region and user port, with one place per edge user so fan-out can produce
-one token per edge. Use pending/done control places for each active vertex.
-On region entry, seed argument-user places from the input tuple and mark its
-vertices pending. A primitive transition consumes its pending token and all
-input tokens, evaluates `Model.run`, and produces output-user tokens and a
-done token. A γ consumes its selector and entry tokens, records the selected
-arm in a waiting place, and activates that arm alone. Its exit transition
-consumes the selected region's result tokens and done tokens, then publishes
-the γ outputs. Region completion requires both all result tokens and all done
-tokens, including for vertices whose outputs have no users.
+[Petri.Defs](../../Silmaril/SSA/RVSDG/Petri/Defs.lean) uses typed argument and
+output places, with one colour at each marked data port. A read leaves its token
+in place. Each use of an origin reads the same colour, including repeated
+reads by the same transition. Output tuples are published together. Each
+vertex has a one-shot control token that is pending, waiting, or done.
+`Graph.toTerm` enumerates the graph's ports and vertices to index the marking.
+That order gives wire addresses. A firing can skip any earlier vertices whose
+outputs it does not need, including vertices waiting on a child.
 
-The interface should expose `initial` for a graph and input tuple, a firing
-relation `Step` on typed markings, and `Finishes` for reachability of a completed
-root with a given result tuple. Prove
-`Finishes m g input output ↔ g.run m input = output`. For soundness, track
-the unique activation of each pending vertex and prove agreement of each
-produced token with the numbered evaluation. For completeness, construct a
-run from the vertex numbering using `Graph.producer_lt`, recursing into each
-selected arm. The same net is a candidate for proving invariance across
-topological numberings of a labelled hierarchical DAG after defining
-renaming of endpoints and corresponding markings.
+A primitive transition consumes its pending token, reads all its input ports
+and marks its outputs and done control. A γ entry transition consumes its
+pending token and creates a waiting token recording the selector and the
+selected child's fresh marking. Only that child can fire under the waiting
+token. Its argument colours come from the γ entry tuple. A γ commit requires
+the child's completed result and retires its marking, publishing the result at
+the γ output ports. A region result requires all local vertices to be done
+and all its result colours to be present, even for a region with unused nodes.
+
+`Step` relates one firing, including a firing beneath a waiting γ.
+`Finishes m g input output` uses finite reflexive transitive closure from the
+initial marking. [Petri.Thms](../../Silmaril/SSA/RVSDG/Petri/Thms.lean) proves
+`finishes_iff`: every completed legal schedule returns `g.run m input`, and
+some finite schedule reaches that result. Soundness maintains a proof
+interpretation of the residual marking across **each** firing. Completeness
+constructs a numbered schedule and recursively completes its selected
+children. `step_unfinished` also shows that a completed marking admits no
+more firings. These statements cover finite completed executions and
+terminality of completed markings. Progress of arbitrary partial runs,
+termination of every maximal run, and fairness are open.
+
+The [firing fixture](../../tests/ssa/RVSDGPetri.lean) checks a complete schedule
+that fires a later unused primitive first and interleaves another primitive
+between two steps of a selected γ arm. The consumer reads the chosen arm's
+state after commit and reads an independent value twice. The checked result
+is the number `21` and state history `[1, 12, 13]`. The fixture also checks
+that a pending unused vertex prevents completion and that the consumer's state
+input is absent before γ commits. The axiom audit uses `#print axioms` on
+`Petri.finishes_iff` and `Petri.step_unfinished`.
+
+## Next milestones
+
+- **Graph renumbering.** Admit a labelled hierarchical DAG with a
+  topological-order certificate per region. Define an isomorphism preserving
+  typed endpoints, port and arm positions, boundary mappings, and operation
+  labels. Transport markings and individual firings along the isomorphism,
+  then use `finishes_iff` to compare the results at different valid numberings.
+- **θ.** Thread the carried tuple through fresh activations of a body whose
+  first result is the continuation predicate. Require a completed body
+  before re-entry or publication. Prove finite return correspondence against
+  an inductive numbered execution relation, then study divergence via
+  infinite firings with an explicit observation and scheduling policy.
 
 ## Remaining RVSDG constructs and later semantics
 
-- **θ (§4.1.3).** Match the loop's input, output and body argument signatures.
-  The body returns a continuation predicate followed by the updated loop
-  tuple. Evaluate the body at least once and distinguish finite return
-  from divergence. Extend the firing semantics with feedback at the region
-  boundary while preserving the DAG invariant inside each iteration.
 - **λ and apply, δ, ϕ, ω (§4.2).** Add explicit capture and callable signatures
   for function bodies and calls, capture and a single initializer result for
   globals, and recursion arguments paired with definition results for mutual
