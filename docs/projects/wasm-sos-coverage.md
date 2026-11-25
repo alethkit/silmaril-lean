@@ -18,6 +18,7 @@ allocation premises.
 | [Memory32 queries](../../Silmaril/Wasm/Institution/Operational/MemoryQuery/Native/Thms.lean) and [writes](../../Silmaril/Wasm/Institution/Operational/MemoryWrite/Native/Thms.lean) | Isolated `memory.size`, full-width `i32.load`, and full-width `i32.store` at index zero and static offset zero. The bounds trap preserves the store. | Packed and floating accesses, other offsets, Lime1 bulk operations, and Core memory64 or multiple memories. |
 | [Memory32 growth](../../Silmaril/Wasm/Institution/Operational/MemoryGrow/Native/Thms.lean) | An isolated `memory.grow` at index zero. The Core spec profile agrees on aligned buffers and representable maxima. Success appends zero-filled pages and returns the old size. Failure returns all ones and preserves the store. | Oracle-controlled growth, multiple memories, and memory64. |
 | [Direct-call resolution](../../Silmaril/Wasm/Institution/Operational/CallResolution/Native/Thms.lean) and [typed callee frames](../../Silmaril/Wasm/Institution/Operational/CallFrame/Native/Thms.lean) | Individually checked resolution and resolved invocation of one allocated non-host function. Numeric locals, at most one result, explicit return, fallthrough, and trap propagation. The typed caller keeps its value prefix. | Indirect calls, host contracts and divergence, and composition with caller continuations. |
+| [Checked indirect-call resolution](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/Native/Thms.lean) | Core and Lime1 read a fixed allocated Table32 at module slot zero. Exact successors consume the unsigned i32 selector while retaining the numeric operands and pending continuation. Bounds, null, and signature mismatch have separate checked outcomes. Successful lookup enters the allocated graph function on its ordered numeric argument suffix. | Contextual finite-run correspondence through callee execution and return to the suspended caller, other table profiles, host targets, and V1. |
 | [Saved caller continuation](../../Silmaril/Wasm/Institution/Operational/CallContinuation/Native/Thms.lean) | One pending `nop` stays in the caller during a resolved invocation. Return reinstates the caller's value prefix and scalar result before `nop` executes. Trap steps discard the continuation and may discard saved values in several steps. | General instruction suffixes and caller-side state changes. |
 | [One nested non-host call](../../Silmaril/Wasm/Institution/Operational/CallContinuation/Nested/Native/Thms.lean) | Start with an already-entered outer frame and label around one allocated, resolved inner call. The inner return runs the outer `nop`, exits the label, and returns across the outer frame when the stack has its declared arity. An inner trap discards the pending instruction and propagates through both outer boundaries. | General instruction suffixes or effects, outer source typing, and arbitrary depths or recursion. |
 | [Typed outer invocation](../../Silmaril/Wasm/Institution/Operational/CallContinuation/OuterCall/Native/Thms.lean) | Starts at an ordinary direct `call`. The outer function receives its numeric arguments and default locals, supplies literal arguments to one distinct allocated non-host inner callee, and resumes at one `nop`. Exact successors and finite endpoints include both returned values and a propagated trap. | General continuations, general argument expressions, host calls, indirect calls, recursion, extra top-level stack operands, and whole-module validation. |
@@ -245,9 +246,28 @@ trap case. The fixed-function regressions cover a base-case return to saved
 caller operands and locals, a propagated `unreachable` trap that bypasses the
 continuation, and reachable prefixes at every finite depth for a function that
 always calls itself. The generic theorem uses exact allocation and typing for
-every function in the admitted graph. Indirect and host calls, mutable stores,
+every function in the admitted graph. Indirect calls inside graph bodies, host calls, mutable stores,
 whole-module validation, and infinite-run correspondence are separate.
 [Native graph theorems](../../Silmaril/Wasm/Institution/Operational/CallContinuation/OuterCall/Ranked/Graph/Native/Thms.lean)
+
+Lime1 resolves the indirect call in one native step. Core unfolds it into
+`table.get`, a nullable cast, and `call_ref`. The exact resolution trace ends at
+the pending call or the first trap, with the rest of the lowered instructions
+still present when applicable. An out-of-bounds index traps before the cast.
+A null reference passes the nullable cast and traps at `call_ref`. A nonnull
+entry of the wrong signature fails the cast. On these translated numeric
+function types, Core subtyping at the cast agrees with Lime1 signature equality.
+Missing type indices or target declarations fail the site guard.
+[Wasm 3.0 reduction rules](../../specs/spectec/src/specification/wasm-3.0/4.3-execution.instructions.spectec#L220)
+and [Wasm 2.0 reduction rules](../../specs/spectec/src/specification/wasm-2.0/8-reduction.spectec#L122).
+
+Successful resolution gives the typed graph invocation edge and exact native
+frame entry without requiring a direct function index in the caller. To
+compose finite-run readback, the graph's invocation theorem needs an entry
+premise based on table resolution, and a contextual theorem carrying the
+saved stack and pending caller code through callee return or trap. The
+resolution fixtures check the native unwind of a callee that traps after a
+successful lookup.
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.
 Lime1-specific multi-value and bulk-memory cases and newer Core features have

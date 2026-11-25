@@ -23,6 +23,7 @@ private inductive Focus : Wasm.Lime1.Instr → Prop where
   | get (i : LocalIdx) : Focus (.localGet i)
   | bin (t : IntType) (op : IntBinOp) : Focus (.intBinOp t op)
   | call (i : FuncIdx) : Focus (.call i)
+  | indirect (i : TypeIdx) : Focus (.callIndirect i)
   | unreachable : Focus .unreachable
   | block (bt : Wasm.Lime1.BlockType) (code : Wasm.Lime1.Expr) : Focus (.block bt code)
   | loop (bt : Wasm.Lime1.BlockType) (code : Wasm.Lime1.Expr) : Focus (.loop bt code)
@@ -35,36 +36,52 @@ private inductive Focus : Wasm.Lime1.Instr → Prop where
 private theorem Focus.nonvalue {op : Wasm.Lime1.Instr} (h : Focus op) :
     asValue? (AdminInstr.source op) = none := by cases h <;> rfl
 
-private inductive Redex (f : Frame) : Wasm.Lime1.Instr → List Value → Frame → List Admin → Prop where
+private inductive Redex {H : Type} (s : Store H) (f : Frame) : Wasm.Lime1.Instr → List Value → Frame → List Admin → Prop where
   | get {i : LocalIdx} {v : Value} (found : f.locals[i.toNat]? = some v) :
-      Redex f (.localGet i) [] f [value v]
+      Redex s f (.localGet i) [] f [value v]
   | bin {t : IntType} {op : IntBinOp} {x y z : BitVec t.width} (ok : intBinOp t op x y = .ok z) :
-      Redex f (.intBinOp t op) [.int t x, .int t y] f [value (.int t z)]
+      Redex s f (.intBinOp t op) [.int t x, .int t y] f [value (.int t z)]
   | trap {t : IntType} {op : IntBinOp} {x y : BitVec t.width} {e : Numerics.IntTrap}
       (err : intBinOp t op x y = .error e) :
-      Redex f (.intBinOp t op) [.int t x, .int t y] f [.trap]
+      Redex s f (.intBinOp t op) [.int t x, .int t y] f [.trap]
   | call {i : FuncIdx} {a : FuncAddr} (found : f.module.funcs[i.toNat]? = some a) :
-      Redex f (.call i) [] f [.invoke a]
-  | unreachable : Redex f .unreachable [] f [.trap]
+      Redex s f (.call i) [] f [.invoke a]
+  | indirect {i : TypeIdx} {c : BitVec 32} {table : Execution.Runtime.TableInst} {a : FuncAddr}
+      {fn : Execution.Runtime.FuncInst Wasm.Lime1.Func H} {ft : V1.FuncType}
+      (tableFound : frameTable s f = some table) (typeFound : f.module.types[i.toNat]? = some ft)
+      (entry : table.refs[c.toNat]? = some (some a)) (found : s.funcs[a.value]? = some fn) (same : fn.type = ft) :
+      Redex s f (.callIndirect i) [Value.int .i32 c] f [.invoke a]
+  | indirectBounds {i : TypeIdx} {c : BitVec 32} {table : Execution.Runtime.TableInst}
+      (tableFound : frameTable s f = some table) (entry : table.refs[c.toNat]? = none) :
+      Redex s f (.callIndirect i) [Value.int .i32 c] f [.trap]
+  | indirectNull {i : TypeIdx} {c : BitVec 32} {table : Execution.Runtime.TableInst}
+      (tableFound : frameTable s f = some table) (entry : table.refs[c.toNat]? = some none) :
+      Redex s f (.callIndirect i) [Value.int .i32 c] f [.trap]
+  | indirectType {i : TypeIdx} {c : BitVec 32} {table : Execution.Runtime.TableInst} {a : FuncAddr}
+      {fn : Execution.Runtime.FuncInst Wasm.Lime1.Func H} {ft : V1.FuncType}
+      (tableFound : frameTable s f = some table) (typeFound : f.module.types[i.toNat]? = some ft)
+      (entry : table.refs[c.toNat]? = some (some a)) (found : s.funcs[a.value]? = some fn) (different : fn.type ≠ ft) :
+      Redex s f (.callIndirect i) [Value.int .i32 c] f [.trap]
+  | unreachable : Redex s f .unreachable [] f [.trap]
 
   | set {i : LocalIdx} {v old : Value} (found : f.locals[i.toNat]? = some old) :
-      Redex f (.localSet i) [v] { f with locals := f.locals.set i.toNat v } []
+      Redex s f (.localSet i) [v] { f with locals := f.locals.set i.toNat v } []
   | tee {i : LocalIdx} {v : Value} :
-      Redex f (.localTee i) [v] f [value v, value v, .source (.localSet i)]
+      Redex s f (.localTee i) [v] f [value v, value v, .source (.localSet i)]
   | block {bt : Wasm.Lime1.BlockType} {code : Wasm.Lime1.Expr} {ft : Wasm.Lime1.FuncType} {vs : List Value}
       (resolved : blockType? f.module.types bt = some ft) (arity : vs.length = ft.params.length) :
-      Redex f (.block bt code) vs f [.label ft.results.length [] (values vs ++ expression code)]
+      Redex s f (.block bt code) vs f [.label ft.results.length [] (values vs ++ expression code)]
   | loop {bt : Wasm.Lime1.BlockType} {code : Wasm.Lime1.Expr} {ft : Wasm.Lime1.FuncType} {vs : List Value}
       (resolved : blockType? f.module.types bt = some ft) (arity : vs.length = ft.params.length) :
-      Redex f (.loop bt code) vs f [.label ft.params.length [.loop bt code] (values vs ++ expression code)]
+      Redex s f (.loop bt code) vs f [.label ft.params.length [.loop bt code] (values vs ++ expression code)]
   | if_ {bt : Wasm.Lime1.BlockType} {thenBody elseBody : Wasm.Lime1.Expr} {condition : BitVec 32} :
-      Redex f (.if_ bt thenBody elseBody) [Value.int .i32 condition] f
+      Redex s f (.if_ bt thenBody elseBody) [Value.int .i32 condition] f
         [.source (.block bt (if condition = 0 then elseBody else thenBody))]
   | brIf {depth : LabelIdx} {condition : BitVec 32} :
-      Redex f (.brIf depth) [Value.int .i32 condition] f
+      Redex s f (.brIf depth) [Value.int .i32 condition] f
         (if condition = 0 then [] else [.source (.br depth)])
   | brTable {depths : List LabelIdx} {fallback : LabelIdx} {selector : BitVec 32} :
-      Redex f (.brTable depths fallback) [Value.int .i32 selector] f
+      Redex s f (.brTable depths fallback) [Value.int .i32 selector] f
         [.source (.br (depths[selector.toNat]?.getD fallback))]
 
 private theorem redex_shape {stack used : List Value} {op i : Wasm.Lime1.Instr} {rest : List Admin}
@@ -82,7 +99,7 @@ private theorem redex_shape {stack used : List Value} {op i : Wasm.Lime1.Instr} 
 private theorem read_front {H : Type} {src dst : Config H} (step : Step CallFrame.limeNoHost src dst)
     {stack : List Value} {op : Wasm.Lime1.Instr} {rest : List Admin} (focus : Focus op)
     (source : src.code = values stack ++ .source op :: rest) :
-    ∃ saved used frame next, stack = saved ++ used ∧ Redex src.frame op used frame next ∧
+    ∃ saved used frame next, stack = saved ++ used ∧ Redex src.store src.frame op used frame next ∧
       dst = ⟨src.store, frame, values saved ++ next ++ rest⟩ := by
   have firstEq : first src.code = some (.source op) := by
     rw [source, first_prefix, first_head _ focus.nonvalue]
@@ -104,6 +121,18 @@ private theorem read_front {H : Type} {src dst : Config H} (step : Step CallFram
   | call s f i a found =>
     obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := []) focus source.symm rfl
     exact ⟨[], [], _, _, rfl, .call found, rfl⟩
+  | callIndirect s f i c table a fn ft tableFound typeFound entry found same =>
+    obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [Value.int .i32 c]) focus source.symm rfl
+    exact ⟨[], _, _, _, rfl, .indirect tableFound typeFound entry found same, rfl⟩
+  | callIndirectBounds s f i c table tableFound entry =>
+    obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [Value.int .i32 c]) focus source.symm rfl
+    exact ⟨[], _, _, _, rfl, .indirectBounds tableFound entry, rfl⟩
+  | callIndirectNull s f i c table tableFound entry =>
+    obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [Value.int .i32 c]) focus source.symm rfl
+    exact ⟨[], _, _, _, rfl, .indirectNull tableFound entry, rfl⟩
+  | callIndirectType s f i c table a fn ft tableFound typeFound entry found different =>
+    obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [Value.int .i32 c]) focus source.symm rfl
+    exact ⟨[], _, _, _, rfl, .indirectType tableFound typeFound entry found different, rfl⟩
   | localSet s f i v old found =>
     obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [v]) focus source.symm rfl
     exact ⟨[], _, _, _, rfl, .set found, rfl⟩
@@ -159,6 +188,61 @@ private theorem read_front {H : Type} {src dst : Config H} (step : Step CallFram
       | simp [first, asValue?] at firstEq
         subst op
         cases focus
+
+theorem call_indirect_iff {H : Type} {s : Store H} {f : Frame} {stack : List Value}
+    {index : TypeIdx} {selector : BitVec 32} {table : Execution.Runtime.TableInst} {ft : V1.FuncType}
+    {rest : List Admin} {dst : Config H}
+    (tableFound : frameTable s f = some table) (typeFound : f.module.types[index.toNat]? = some ft) :
+    Step CallFrame.limeNoHost
+      ⟨s, f, values (stack ++ [Value.int .i32 selector]) ++ .source (.callIndirect index) :: rest⟩ dst ↔
+      ((table.refs[selector.toNat]? = none ∨ table.refs[selector.toNat]? = some none) ∧
+        dst = ⟨s, f, values stack ++ .trap :: rest⟩) ∨
+      ∃ addr fn, table.refs[selector.toNat]? = some (some addr) ∧ s.funcs[addr.value]? = some fn ∧
+        dst = ⟨s, f, values stack ++ (if fn.type = ft then .invoke addr else .trap) :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨kept, _, _, _, split, head, eq⟩ := read_front move (.indirect index) rfl
+    cases head with
+    | indirect looked expected entry found same =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [tableFound] at looked
+      rw [typeFound] at expected
+      cases looked
+      cases expected
+      exact .inr ⟨_, _, entry, found, by simpa only [ite_eq_left same, List.append_assoc, List.singleton_append] using eq⟩
+    | indirectBounds looked entry =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [tableFound] at looked
+      cases looked
+      exact .inl ⟨.inl entry, by simpa only [List.append_assoc, List.singleton_append] using eq⟩
+    | indirectNull looked entry =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [tableFound] at looked
+      cases looked
+      exact .inl ⟨.inr entry, by simpa only [List.append_assoc, List.singleton_append] using eq⟩
+    | indirectType looked expected entry found different =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [tableFound] at looked
+      rw [typeFound] at expected
+      cases looked
+      cases expected
+      exact .inr ⟨_, _, entry, found, by simpa only [ite_eq_right different, List.append_assoc, List.singleton_append] using eq⟩
+  · rintro (⟨entry | entry, rfl⟩ | ⟨addr, fn, entry, found, rfl⟩)
+    · simpa only [values, List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append, List.singleton_append] using
+        Step.context (Step.callIndirectBounds (host := CallFrame.limeNoHost) s f index selector table tableFound entry) stack rest
+    · simpa only [values, List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append, List.singleton_append] using
+        Step.context (Step.callIndirectNull (host := CallFrame.limeNoHost) s f index selector table tableFound entry) stack rest
+    · by_cases same : fn.type = ft
+      · simpa only [ite_eq_left same, values, List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append, List.singleton_append] using
+          Step.context (Step.callIndirect (host := CallFrame.limeNoHost) s f index selector table addr fn ft
+            tableFound typeFound entry found same) stack rest
+      · simpa only [ite_eq_right same, values, List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append, List.singleton_append] using
+          Step.context (Step.callIndirectType (host := CallFrame.limeNoHost) s f index selector table addr fn ft
+            tableFound typeFound entry found same) stack rest
 
 theorem set_read {H : Type} {s : Store H} {f : Frame} {stack : List Value} {index : LocalIdx}
     {rest : List Admin} {dst : Config H}

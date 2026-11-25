@@ -47,13 +47,14 @@ private theorem body_expression (site : Site) :
   | arg op => cases op <;> rfl
   | call | nop => rfl
 
-theorem wasm_entry_context_iff {H : Type} {P : Profile} {s : Store H} {caller : Execution.Runtime.Frame}
+theorem wasm_call_ref_entry_context_iff {H : Type} {P : Profile} {s : Store H} {caller : Execution.Runtime.Frame}
     {address : FuncAddr} {ty : Wasm.V1.FuncType} {m : Execution.Runtime.ModuleInst} {fn : Wasm.Func}
     {saved args : List Value} {rest : List Admin} {dst : Config H}
+    {call : Admin} (isCallRef : call.IsCallRef)
     (allocated : s.funcs[address.value]? = some ⟨ty.toDefType, m.toCore, .wasm fn⟩)
     (typed : args.map Value.type = ty.params) :
     Step P noHost
-      ⟨s, caller.toCore, coreValues (saved ++ args) ++ .ref (.func address.value) :: .callRefType ty.toDefType :: rest⟩ dst ↔
+      ⟨s, caller.toCore, coreValues (saved ++ args) ++ .ref (.func address.value) :: call :: rest⟩ dst ↔
       dst = ⟨s, caller.toCore, coreValues saved ++ .frame ty.results.length
         (Frame.forCall m.toCore (args.map Value.toCore) fn.locals)
         [.label ty.results.length [] (expression fn.body)] :: rest⟩ := by
@@ -65,17 +66,29 @@ theorem wasm_entry_context_iff {H : Type} {P : Profile} {s : Store H} {caller : 
   constructor
   · intro step
     obtain ⟨kept, used, ps, rs, split, expands, arity, eq⟩ :=
-      Step.callRef_wasm_inv_seq (r := .callRefType ty.toDefType) trivial allocated rfl step
+      Step.callRef_wasm_inv_seq (r := call) isCallRef allocated rfl step
     cases Wasm.SingleThreaded.Det.Expand.det expands sig
     rw [List.map_append] at split
     obtain ⟨rfl, rfl⟩ := List.append_inj' split (count.trans arity.symm)
     simpa only [Ty.length_ofList, List.length_map] using eq
   · rintro rfl
     have step := Step.callRefFunc (P := P) (host := noHost) (s := s) (f := caller.toCore)
-      (c := .callRefType ty.toDefType) trivial allocated sig count rfl
+      (c := call) isCallRef allocated sig count rfl
     simpa only [coreValues, List.map_append, vals_append, List.append_assoc, List.cons_append,
       List.nil_append, Ty.length_ofList, List.length_map] using
       Sim.Step.vals_left (Sim.Step.append_right step rest) (saved.map Value.toCore)
+
+theorem wasm_entry_context_iff {H : Type} {P : Profile} {s : Store H} {caller : Execution.Runtime.Frame}
+    {address : FuncAddr} {ty : Wasm.V1.FuncType} {m : Execution.Runtime.ModuleInst} {fn : Wasm.Func}
+    {saved args : List Value} {rest : List Admin} {dst : Config H}
+    (allocated : s.funcs[address.value]? = some ⟨ty.toDefType, m.toCore, .wasm fn⟩)
+    (typed : args.map Value.type = ty.params) :
+    Step P noHost
+      ⟨s, caller.toCore, coreValues (saved ++ args) ++ .ref (.func address.value) :: .callRefType ty.toDefType :: rest⟩ dst ↔
+      dst = ⟨s, caller.toCore, coreValues saved ++ .frame ty.results.length
+        (Frame.forCall m.toCore (args.map Value.toCore) fn.locals)
+        [.label ty.results.length [] (expression fn.body)] :: rest⟩ :=
+  wasm_call_ref_entry_context_iff (call := .callRefType ty.toDefType) trivial allocated typed
 
 /-- A resolved Wasm call with exactly the declared numeric arguments enters the
 callee frame with its typed results, default locals, and full source body. -/
