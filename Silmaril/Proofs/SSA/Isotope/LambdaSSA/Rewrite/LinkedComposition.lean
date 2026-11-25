@@ -3,7 +3,9 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Categorical.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Composition.Defs
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Direct.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.LabelSubstitution.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.EnvironmentNaturality
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.BranchNormalization
 
 /-! # Categorical composition of linked continuation families -/
 
@@ -58,5 +60,24 @@ theorem continuationDenotes_linkComp {Γ : VCtx τ} {L K H : LCtx τ}
     Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.bind J first (J.map (p ▷ X) ≫ after))
   rw [← bind_pre_map, ← J.map_comp_assoc, hq]
   simpa only [MonoidalCategory.id_tensorHom] using ds
+
+set_option backward.isDefEq.respectTransparency false in
+theorem continuationDenotes_boundComp_sharedTensor [RegionTypingCoherent (Φ := Φ) J M]
+    (shared : ∀ E X : V, ∃ h : J.obj E ⊗ J.obj X = J.obj (E ⊗ X),
+      Functor.StrongPremonoidal.tensorIso (J := J) E X = eqToIso h)
+    {Γ : VCtx τ} {L K H : LCtx τ} {σ υ : Nat → Region Φ}
+    {first : J.obj (ctxObj M Γ ⊗ labelObj M L) ⟶ J.obj (labelObj M K)}
+    {after : J.obj (ctxObj M Γ ⊗ labelObj M K) ⟶ J.obj (labelObj M H)}
+    (df : ContinuationDenotes J M σ first) (dg : ContinuationDenotes J M υ after) :
+    ContinuationDenotes J M (Region.boundCompLSubst σ υ)
+      (composeContinuations J M (Γ := Γ) (L := L) (K := K) (H := H) first after) := by
+  let hu := FreydCategory.CentralUnit.unit_central (J := J)
+  have norm : ContinuationDenotes J M (fun i => (σ i).bindBranchArguments) first := by
+    intro i A hi
+    obtain ⟨hs, ds⟩ := df hi
+    obtain ⟨hn, f, df', dn⟩ := bindBranchArguments_common J M hu hs
+    exact ⟨hn, (RegionTypingCoherent.denotes_eq df' ds) ▸ dn⟩
+  exact norm.compose_sharedTensor J M shared dg
+    (fun _ _ hi => PureBranches.of_valueBranches J M ((df hi).choose.bindBranchArguments))
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite

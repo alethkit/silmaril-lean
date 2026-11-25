@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Dispatcher.Eta.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Categorical.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Direct.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgLinkedEta
 
 /-! # Categorical CFG η using linked continuations -/
@@ -26,6 +27,7 @@ theorem Region.cfgEntryContinuations_hasType
 namespace Semantics.Categorical
 
 open CategoryTheory CategoryTheory.Limits
+open scoped MonoidalCategory
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
 
 variable {V : Type u₁} {C : Type u₂}
@@ -47,8 +49,9 @@ theorem cfgLinkedEta_denotes {n : Nat} {Γ : VCtx τ} {L : LCtx τ}
     (he : Region.HasType Γ entry (List.ofFn R ++ L))
     (hb : ∀ i, Region.HasType (R i :: Γ) (blocks i) (List.ofFn R ++ L)) :
     ∃ ht : Region.HasType Γ (entry.linkExits (List.ofFn R ++ L) (Region.cfgEntryContinuations blocks)) L,
-      ∃ f, RegionDenotes J M (.cfg R he hb) f ∧ RegionDenotes J M ht f :=
-  Proofs.SSA.Isotope.LambdaSSA.Rewrite.cfg_linked_eta_common J M R he hb
+      ∃ f, RegionDenotes J M (.cfg R he hb) f ∧ RegionDenotes J M ht f := by
+  obtain ⟨ht, f, _, df, dt, _⟩ := Proofs.SSA.Isotope.LambdaSSA.Rewrite.cfg_linked_eta_common J M R he hb
+  exact ⟨ht, f, df, dt⟩
 
 /-- Categorical CFG η for the linked representation of typed continuations. -/
 theorem denoteRegion_cfgLinkedEta [RegionTypingCoherent (Φ := Φ) J M]
@@ -60,6 +63,43 @@ theorem denoteRegion_cfgLinkedEta [RegionTypingCoherent (Φ := Φ) J M]
     denoteRegion J M (.cfg R he hb) = denoteRegion J M hs := by
   obtain ⟨_, _, d, d'⟩ := cfgLinkedEta_denotes J M R he hb
   exact (RegionDenotes.eq_denote J M d).symm.trans (RegionDenotes.eq_denote (h := hs) J M d')
+
+section SharedTensor
+
+variable [RegionTypingCoherent (Φ := Φ) J M]
+  (shared : ∀ E X : V, ∃ h : J.obj E ⊗ J.obj X = J.obj (E ⊗ X),
+    Functor.StrongPremonoidal.tensorIso (J := J) E X = eqToIso h)
+
+include shared
+
+/-- Figure 20 CFG η for literal substitution into an entry with pure branch
+arguments. All local blocks may contain arbitrary effects and nested CFGs. -/
+theorem denoteRegion_cfgEta_sharedTensor
+    {n : Nat} {Γ : VCtx τ} {L : LCtx τ}
+    {entry : Region Φ} (R : Fin n → τ) {blocks : Fin n → Region Φ}
+    (he : Region.HasType Γ entry (List.ofFn R ++ L))
+    (hb : ∀ i, Region.HasType (R i :: Γ) (blocks i) (List.ofFn R ++ L))
+    (pureBranches : PureBranches J M Γ entry (List.ofFn R ++ L))
+    (hs : Region.HasType Γ (entry.lsubst (Region.cfgEntryContinuations blocks)) L) :
+    denoteRegion J M (.cfg R he hb) = denoteRegion J M hs := by
+  obtain ⟨hl, _, _, d, dl, hk⟩ := Proofs.SSA.Isotope.LambdaSSA.Rewrite.cfg_linked_eta_common J M R he hb
+  rw [denoteRegion_lsubst_sharedTensor J M shared he hs pureBranches hk, ← denoteRegion_linkExits J M he hl hk]
+  exact (RegionDenotes.eq_denote J M d).symm.trans (RegionDenotes.eq_denote J M dl)
+
+/-- CFG η for any exactly typed entry, evaluating each outward payload once
+before literal substitution. -/
+theorem denoteRegion_cfgEta_bound_sharedTensor
+    {n : Nat} {Γ : VCtx τ} {L : LCtx τ}
+    {entry : Region Φ} (R : Fin n → τ) {blocks : Fin n → Region Φ}
+    (he : Region.HasType Γ entry (List.ofFn R ++ L))
+    (hb : ∀ i, Region.HasType (R i :: Γ) (blocks i) (List.ofFn R ++ L))
+    (hs : Region.HasType Γ (entry.bindBranchArguments.lsubst (Region.cfgEntryContinuations blocks)) L) :
+    denoteRegion J M (.cfg R he hb) = denoteRegion J M hs := by
+  obtain ⟨hl, _, _, d, dl, hk⟩ := Proofs.SSA.Isotope.LambdaSSA.Rewrite.cfg_linked_eta_common J M R he hb
+  rw [denoteRegion_bound_lsubst_sharedTensor J M shared he hs hk, ← denoteRegion_linkExits J M he hl hk]
+  exact (RegionDenotes.eq_denote J M d).symm.trans (RegionDenotes.eq_denote J M dl)
+
+end SharedTensor
 
 end Semantics.Categorical
 end Silmaril.Isotope.LambdaSSA

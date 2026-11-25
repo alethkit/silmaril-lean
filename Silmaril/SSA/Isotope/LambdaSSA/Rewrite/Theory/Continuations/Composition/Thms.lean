@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Composition.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Categorical.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.LabelSubstitution.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.LinkedComposition
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.LinkedCongruence
 
@@ -70,6 +71,19 @@ theorem ContinuationDenotes.linkComp {Γ : VCtx τ} {L K H : LCtx τ}
     ContinuationDenotes J M (Region.linkCompLSubst K σ υ)
       (composeContinuations J M (Γ := Γ) (L := L) (K := K) (H := H) first after) :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.continuationDenotes_linkComp J M df dg
+
+/-- The effect-preserving form of Theorem 5.12(b) for literal composition,
+binding each first-family payload once before running the second family. -/
+theorem ContinuationDenotes.boundComp_sharedTensor [RegionTypingCoherent (Φ := Φ) J M]
+    (shared : ∀ E X : V, ∃ h : J.obj E ⊗ J.obj X = J.obj (E ⊗ X),
+      Functor.StrongPremonoidal.tensorIso (J := J) E X = eqToIso h)
+    {Γ : VCtx τ} {L K H : LCtx τ} {σ υ : Nat → Region Φ}
+    {first : J.obj (ctxObj M Γ ⊗ labelObj M L) ⟶ J.obj (labelObj M K)}
+    {after : J.obj (ctxObj M Γ ⊗ labelObj M K) ⟶ J.obj (labelObj M H)}
+    (df : ContinuationDenotes J M σ first) (dg : ContinuationDenotes J M υ after) :
+    ContinuationDenotes J M (Region.boundCompLSubst σ υ)
+      (composeContinuations J M (Γ := Γ) (L := L) (K := K) (H := H) first after) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.continuationDenotes_boundComp_sharedTensor J M shared df dg
 
 end Semantics.Categorical
 end Silmaril.Isotope.LambdaSSA
