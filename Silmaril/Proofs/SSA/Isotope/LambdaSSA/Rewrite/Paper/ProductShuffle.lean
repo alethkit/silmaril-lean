@@ -24,7 +24,7 @@ local notation "Obj" => ofType (τ := τ) (Φ := Φ)
 local infixr:70 " ×ₜ " => product
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem tensorSequence_comp_of_interchange {A B C D E F : τ}
+theorem tensorSequence_comp_of_interchange {A B C D E F : τ}
     (f : Obj A ⟶ Obj C) (g : Obj B ⟶ Obj D) (h : Obj C ⟶ Obj E) (k : Obj D ⟶ Obj F)
     (swap : whiskerLeft (Obj C) g ≫ whiskerRight h (Obj D) =
       whiskerRight h (Obj B) ≫ whiskerLeft (Obj E) g) :
@@ -122,12 +122,12 @@ theorem pairArrows_centralCopies_of_shuffle {X A B : τ} {f : Obj X ⟶ Obj A} {
     (tensorSequence_copies_of_shuffle hg.1 hf.2 hg.2 shuffle)⟩
 
 set_option backward.isDefEq.respectTransparency false in
-theorem whiskerLeft_central_of_associator {A B : τ} {f : Obj A ⟶ Obj B} (X : τ)
+theorem whiskerLeft_central_of_associator_at {A B : τ} {f : Obj A ⟶ Obj B} (X : τ)
     (hf : WhiskerCentral f)
     (assoc : ∀ P Q R : τ, Obj ((P ×ₜ Q) ×ₜ R) ≅ Obj (P ×ₜ Q ×ₜ R))
     (middle : ∀ Y : τ, whiskerRight (whiskerLeft (Obj X) f) (Obj Y) ≫ (assoc X B Y).hom =
       (assoc X A Y).hom ≫ whiskerLeft (Obj X) (whiskerRight f (Obj Y)))
-    (right : ∀ (P : τ) {Y Z : τ} (g : Obj Y ⟶ Obj Z),
+    (right : ∀ (P : τ), P = A ∨ P = B → ∀ {Y Z : τ} (g : Obj Y ⟶ Obj Z),
       whiskerLeft (Obj (X ×ₜ P)) g ≫ (assoc X P Z).hom =
         (assoc X P Y).hom ≫ whiskerLeft (Obj X) (whiskerLeft (Obj P) g)) :
     WhiskerCentral (whiskerLeft (Obj X) f) := by
@@ -141,19 +141,30 @@ theorem whiskerLeft_central_of_associator {A B : τ} {f : Obj A ⟶ Obj B} (X : 
   calc
     _ = (assoc X A Y).hom ≫ whiskerLeft (Obj X)
         (whiskerRight f (Obj Y) ≫ whiskerLeft (Obj B) g) := by
-      rw [Category.assoc, right B g, ← Category.assoc, middle Y, Category.assoc, ← whiskerLeft_comp]
+      rw [Category.assoc, right B (.inr rfl) g, ← Category.assoc, middle Y, Category.assoc, ← whiskerLeft_comp]
     _ = (assoc X A Y).hom ≫ whiskerLeft (Obj X)
         (whiskerLeft (Obj A) g ≫ whiskerRight f (Obj Z)) := by rw [(hf g).1]
     _ = _ := by
-      rw [Category.assoc, middle Z, ← Category.assoc, right A g, Category.assoc, ← whiskerLeft_comp]
+      rw [Category.assoc, middle Z, ← Category.assoc, right A (.inl rfl) g, Category.assoc, ← whiskerLeft_comp]
+
+theorem whiskerLeft_central_of_associator {A B : τ} {f : Obj A ⟶ Obj B} (X : τ)
+    (hf : WhiskerCentral f)
+    (assoc : ∀ P Q R : τ, Obj ((P ×ₜ Q) ×ₜ R) ≅ Obj (P ×ₜ Q ×ₜ R))
+    (middle : ∀ Y : τ, whiskerRight (whiskerLeft (Obj X) f) (Obj Y) ≫ (assoc X B Y).hom =
+      (assoc X A Y).hom ≫ whiskerLeft (Obj X) (whiskerRight f (Obj Y)))
+    (right : ∀ (P : τ) {Y Z : τ} (g : Obj Y ⟶ Obj Z),
+      whiskerLeft (Obj (X ×ₜ P)) g ≫ (assoc X P Z).hom =
+        (assoc X P Y).hom ≫ whiskerLeft (Obj X) (whiskerLeft (Obj P) g)) :
+    WhiskerCentral (whiskerLeft (Obj X) f) :=
+  whiskerLeft_central_of_associator_at X hf assoc middle (fun P _ => by intro Y Z g; exact right P g)
 
 set_option backward.isDefEq.respectTransparency false in
-theorem whiskerRight_central_of_associator {A B : τ} {f : Obj A ⟶ Obj B} (X : τ)
+theorem whiskerRight_central_of_associator_at {A B : τ} {f : Obj A ⟶ Obj B} (X : τ)
     (hf : WhiskerCentral f)
     (assoc : ∀ P Q R : τ, Obj ((P ×ₜ Q) ×ₜ R) ≅ Obj (P ×ₜ Q ×ₜ R))
     (left : ∀ Y : τ, whiskerRight (whiskerRight f (Obj X)) (Obj Y) ≫ (assoc B X Y).hom =
       (assoc A X Y).hom ≫ whiskerRight f (Obj (X ×ₜ Y)))
-    (right : ∀ (P : τ) {Y Z : τ} (g : Obj Y ⟶ Obj Z),
+    (right : ∀ (P : τ), P = A ∨ P = B → ∀ {Y Z : τ} (g : Obj Y ⟶ Obj Z),
       whiskerLeft (Obj (P ×ₜ X)) g ≫ (assoc P X Z).hom =
         (assoc P X Y).hom ≫ whiskerLeft (Obj P) (whiskerLeft (Obj X) g)) :
     WhiskerCentral (whiskerRight f (Obj X)) := by
@@ -167,12 +178,23 @@ theorem whiskerRight_central_of_associator {A B : τ} {f : Obj A ⟶ Obj B} (X :
   calc
     _ = (assoc A X Y).hom ≫ (whiskerRight f (Obj (X ×ₜ Y)) ≫
         whiskerLeft (Obj B) (whiskerLeft (Obj X) g)) := by
-      rw [Category.assoc, right B g, ← Category.assoc, left Y, Category.assoc]
+      rw [Category.assoc, right B (.inr rfl) g, ← Category.assoc, left Y, Category.assoc]
     _ = (assoc A X Y).hom ≫ (whiskerLeft (Obj A) (whiskerLeft (Obj X) g) ≫
         whiskerRight f (Obj (X ×ₜ Z))) :=
       congrArg ((assoc A X Y).hom ≫ ·) ((hf (whiskerLeft (Obj X) g)).1)
     _ = _ := by
       symm
-      rw [Category.assoc, left Z, ← Category.assoc, right A g, Category.assoc]
+      rw [Category.assoc, left Z, ← Category.assoc, right A (.inl rfl) g, Category.assoc]
+
+theorem whiskerRight_central_of_associator {A B : τ} {f : Obj A ⟶ Obj B} (X : τ)
+    (hf : WhiskerCentral f)
+    (assoc : ∀ P Q R : τ, Obj ((P ×ₜ Q) ×ₜ R) ≅ Obj (P ×ₜ Q ×ₜ R))
+    (left : ∀ Y : τ, whiskerRight (whiskerRight f (Obj X)) (Obj Y) ≫ (assoc B X Y).hom =
+      (assoc A X Y).hom ≫ whiskerRight f (Obj (X ×ₜ Y)))
+    (right : ∀ (P : τ) {Y Z : τ} (g : Obj Y ⟶ Obj Z),
+      whiskerLeft (Obj (P ×ₜ X)) g ≫ (assoc P X Z).hom =
+        (assoc P X Y).hom ≫ whiskerLeft (Obj P) (whiskerLeft (Obj X) g)) :
+    WhiskerCentral (whiskerRight f (Obj X)) :=
+  whiskerRight_central_of_associator_at X hf assoc left (fun P _ => by intro Y Z g; exact right P g)
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ProductShuffle

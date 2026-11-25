@@ -17,6 +17,14 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 local notation "Obj" => ofType (τ := τ) (Φ := Φ)
 local infixr:70 " ×ₜ " => product
 
+/-- The sequential tensor preserves a composite across the indicated interchange square. -/
+theorem tensorSequence_comp_of_interchange {A B C D E F : τ}
+    (f : Obj A ⟶ Obj C) (g : Obj B ⟶ Obj D) (h : Obj C ⟶ Obj E) (k : Obj D ⟶ Obj F)
+    (swap : whiskerLeft (Obj C) g ≫ whiskerRight h (Obj D) =
+      whiskerRight h (Obj B) ≫ whiskerLeft (Obj E) g) :
+    tensorSequence (f ≫ h) (g ≫ k) = tensorSequence f g ≫ tensorSequence h k :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ProductShuffle.tensorSequence_comp_of_interchange f g h k swap
+
 /-- Copying a product is the two factor diagonals followed by the guarded shuffle. -/
 theorem diagonal_tensorSequence (A B : τ) :
     tensorSequence (diagonalArrow (Φ := Φ) A) (diagonalArrow B) ≫ middleFour A A B B =
@@ -41,6 +49,18 @@ theorem pairArrows_centralCopies_of_shuffle {X A B : τ} {f : Obj X ⟶ Obj A} {
     CentralCopies (pairArrows f g) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ProductShuffle.pairArrows_centralCopies_of_shuffle hf hg left right shuffle
 
+/-- Transport centrality through left whiskering using just its two endpoint comparisons. -/
+theorem whiskerLeft_central_of_associator_at {A B : τ} {f : Obj A ⟶ Obj B} (X : τ)
+    (hf : WhiskerCentral f)
+    (assoc : ∀ P Q R : τ, Obj ((P ×ₜ Q) ×ₜ R) ≅ Obj (P ×ₜ Q ×ₜ R))
+    (middle : ∀ Y : τ, whiskerRight (whiskerLeft (Obj X) f) (Obj Y) ≫ (assoc X B Y).hom =
+      (assoc X A Y).hom ≫ whiskerLeft (Obj X) (whiskerRight f (Obj Y)))
+    (right : ∀ (P : τ), P = A ∨ P = B → ∀ {Y Z : τ} (g : Obj Y ⟶ Obj Z),
+      whiskerLeft (Obj (X ×ₜ P)) g ≫ (assoc X P Z).hom =
+        (assoc X P Y).hom ≫ whiskerLeft (Obj X) (whiskerLeft (Obj P) g)) :
+    WhiskerCentral (whiskerLeft (Obj X) f) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ProductShuffle.whiskerLeft_central_of_associator_at X hf assoc middle right
+
 /-- Middle- and right-factor associator naturality transport centrality through left whiskering. -/
 theorem whiskerLeft_central_of_associator {A B : τ} {f : Obj A ⟶ Obj B} (X : τ)
     (hf : WhiskerCentral f)
@@ -52,6 +72,18 @@ theorem whiskerLeft_central_of_associator {A B : τ} {f : Obj A ⟶ Obj B} (X : 
         (assoc X P Y).hom ≫ whiskerLeft (Obj X) (whiskerLeft (Obj P) g)) :
     WhiskerCentral (whiskerLeft (Obj X) f) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ProductShuffle.whiskerLeft_central_of_associator X hf assoc middle right
+
+/-- Transport centrality through right whiskering using just its two endpoint comparisons. -/
+theorem whiskerRight_central_of_associator_at {A B : τ} {f : Obj A ⟶ Obj B} (X : τ)
+    (hf : WhiskerCentral f)
+    (assoc : ∀ P Q R : τ, Obj ((P ×ₜ Q) ×ₜ R) ≅ Obj (P ×ₜ Q ×ₜ R))
+    (left : ∀ Y : τ, whiskerRight (whiskerRight f (Obj X)) (Obj Y) ≫ (assoc B X Y).hom =
+      (assoc A X Y).hom ≫ whiskerRight f (Obj (X ×ₜ Y)))
+    (right : ∀ (P : τ), P = A ∨ P = B → ∀ {Y Z : τ} (g : Obj Y ⟶ Obj Z),
+      whiskerLeft (Obj (P ×ₜ X)) g ≫ (assoc P X Z).hom =
+        (assoc P X Y).hom ≫ whiskerLeft (Obj P) (whiskerLeft (Obj X) g)) :
+    WhiskerCentral (whiskerRight f (Obj X)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ProductShuffle.whiskerRight_central_of_associator_at X hf assoc left right
 
 /-- Left- and right-factor associator naturality transport centrality through right whiskering. -/
 theorem whiskerRight_central_of_associator {A B : τ} {f : Obj A ⟶ Obj B} (X : τ)
