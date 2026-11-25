@@ -16,7 +16,8 @@ theorem denote_total (program : Program) (available : List DeclarationId) (suite
     (state : State) : denoteBody program available (.total suite) state = denoteSuite suite state := by
   rw [denoteBody]
 
-/-- Exact adequacy for the strict core, including errors and the post-call store. -/
+/-- Exact adequacy for the strict core, including native expression positions,
+errors and the post-call store. -/
 theorem exec_iff_denoteBody (program : Program) (available : List DeclarationId) (body : Body)
     (state : State) (out : Outcome Flow) :
     Exec program available state body out ↔ denoteBody program available body state = out :=

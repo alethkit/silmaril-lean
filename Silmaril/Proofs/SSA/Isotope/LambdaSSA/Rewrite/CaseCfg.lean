@@ -33,7 +33,7 @@ section Freyd
 
 variable (J : V ⥤ C) [DistributiveFreydCategory J]
 
-private theorem case_snd_desc
+theorem case_snd_desc
     (hu : IsCentral (Functor.StrongPremonoidal.unitIso (J := J)).hom)
     {E A B D : V} (f : J.obj E ⟶ J.obj (A ⨿ B)) (a : A ⟶ D) (b : B ⟶ D) :
     caseWithContext J f (J.map (snd E A ≫ a)) (J.map (snd E B ≫ b)) =

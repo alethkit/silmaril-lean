@@ -85,6 +85,7 @@ variable {table : CodeTable} {args : List Value} {callee : Value} {failure : Dis
 private theorem rejected_eq (rejected : Rejects table args heap callee failure) :
     Dispatch.dispatch table callee args heap caller stack = .error failure := by
   cases rejected with
+  | nonCallableNone => rfl
   | nonCallable value => rfl
   | nonCallableBool value => rfl
   | missing fn absent => simp [Dispatch.dispatch, Dispatch.resolve_missing absent]
@@ -104,6 +105,10 @@ private theorem captures_live {fn : Function} (valid : Call.firstDangling fn hea
 private theorem rejected_rule (rejected : Dispatch.dispatch table callee args heap caller stack = .error failure) :
     Rejects table args heap callee failure := by
   cases callee with
+  | none =>
+    simp [Dispatch.dispatch] at rejected
+    subst failure
+    exact .nonCallableNone
   | int value =>
     simp [Dispatch.dispatch] at rejected
     subst failure

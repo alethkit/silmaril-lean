@@ -65,6 +65,16 @@ theorem lime_run_iff (allocated : s.funcs[address.value]? = some (.wasm fn.type 
   Proofs.run_iff (limeConfig s caller address fn) _ (fun h => lime_sound allocated h)
     (fun guard step => (lime_step_iff allocated guard).mp step) ready
 
+/-- A fully supplied native Wasm invocation enters its frame and initial label in one step. -/
+theorem lime_invoke_wasm_exact {ty : Wasm.Lime1.FuncType} {m : Execution.Runtime.ModuleInst}
+    {fnCode : Wasm.Lime1.Func} {args : List Execution.Runtime.Value} {dst : Wasm.Lime1.Execution.Config H}
+    (allocated : s.funcs[address.value]? = some (.wasm ty m fnCode)) (count : args.length = ty.params.length) :
+    Wasm.Lime1.Execution.Step limeNoHost
+      ⟨s, caller, Wasm.Lime1.Execution.values args ++ [.invoke address]⟩ dst ↔
+      dst = ⟨s, caller, [.frame ty.results.length ⟨args ++ fnCode.locals.map Execution.Runtime.Value.zero, m⟩
+        [.label ty.results.length [] (Wasm.Lime1.Execution.expression fnCode.body)]]⟩ :=
+  Proofs.Lime1.invoke_wasm_exact allocated count
+
 end Lime1
 
 section Core

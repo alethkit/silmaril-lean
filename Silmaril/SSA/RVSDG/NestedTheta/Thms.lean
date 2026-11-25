@@ -35,6 +35,13 @@ theorem Graph.returns_eventually (g : Graph Op args [] sigs outs) (m : Model.{u,
     ∃ limit, ∀ fuel, limit ≤ fuel → g.run m fuel input = some output :=
   Proofs.returns_eventually g m input output h
 
+/-- Forwarding the ordered ports of the only vertex returns its tuple. -/
+theorem single_vertex_results {Ty : Type u} {F : Ty → Type w} {entry exit : Ports Ty}
+    (input : Tuple F entry) (output : Tuple F exit) :
+    Wires.read ((identityPorts exit).map (fun _ p => Origin.output (past := [exit]) (0 : Fin 1) p))
+      input ((output, PUnit.unit) : Locals F [exit]) = output :=
+  Proofs.single_vertex_results input output
+
 theorem Term.returns_toGraph (t : Term Op args [] sigs outs) (m : Model.{u, v, w} Op)
     (input : Tuple m.Val args) (output : Tuple m.Val outs) :
     t.toGraph.Returns m input output ↔ t.Returns m input output := by

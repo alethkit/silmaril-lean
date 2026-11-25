@@ -20,4 +20,8 @@ theorem reduce {fn : Callee} (saved : List Value) {a b : Locals.State} (step : L
 theorem closed {fn : Callee} {a b : State} (guard : Admitted fn a) (step : Edge fn a b) :
     Admitted fn b := Proofs.closed guard step
 
+theorem saved_of_live {fn : Callee} {a b : State} (edge : Edge fn a b)
+    (live : ∀ xs, a ≠ .trapped xs) : b.saved = a.saved :=
+  Proofs.saved_of_live edge live
+
 end Silmaril.Wasm.Institution.Operational.CallFrame
