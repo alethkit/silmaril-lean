@@ -12,6 +12,12 @@ universe u v w
 
 variable {V S : Type u}
 
+/-- The λ definitions of a φ region, indexed by the existing member scopes. -/
+abbrev MemberTable (Op : Dialect.{u, v} (ValueSort V S) S)
+    (context : Ports (Ty V S)) (members : List (Function V S)) :=
+  (i : Fin members.length) →
+    Lambda Op (context ++ memberPorts members) (memberOutputs (members.take i.val)) members[i]
+
 /-- Runtime colours retain the callable's typed body and captured values.
 Global colours carry a translation-unit/vertex identity and an initialized value. -/
 inductive Colour (Op : Dialect.{u, v} (ValueSort V S) S) (Data : V → Type w) (State : S → Type w) :
@@ -25,6 +31,11 @@ inductive Colour (Op : Dialect.{u, v} (ValueSort V S) S) (Data : V → Type w) (
       (values : Tuple (Colour Op Data State) context)
       (body : NestedTheta.Graph (Instruction Op) (context ++ params) [] sigs results) :
       Colour Op Data State (.value (.function params results))
+
+  | member {context : Ports (Ty V S)} {members : List (Function V S)}
+      (values : Tuple (Colour Op Data State) context)
+      (definitions : MemberTable Op context members) (index : Fin members.length) :
+      Colour Op Data State (.value (.function members[index].args members[index].results))
 
 /-- Only primitive opcodes are supplied by the model. Apply is interpreted by invocation below. -/
 structure Machine (Op : Dialect.{u, v} (ValueSort V S) S) where
@@ -94,26 +105,61 @@ def dispatch (m : Machine.{u, v, w} Op) (call : Call m) : Handler m
   | _, _, .primitive op, args => some (m.primitive op args)
   | _, _, .apply _, .cons callee args => call callee args
 
+/-- Assemble the recursion-variable argument tuple from the group's member references. -/
+def memberValues {F : Ty V S → Type w} :
+    (members : List (Function V S)) → ((i : Fin members.length) → F members[i].port) →
+      Tuple F (memberPorts members)
+  | [], _ => .nil
+  | _ :: tail, values => .cons (values 0) (memberValues tail (fun i => values i.succ))
+
+/-- The earlier physical λ outputs that are in scope at a member. -/
+def memberPrefix {F : Ty V S → Type w} :
+    (members : List (Function V S)) → (n : Nat) →
+    ((i : Fin members.length) → F members[i].port) → Locals F (memberOutputs (members.take n))
+  | _, 0, _ => PUnit.unit
+  | [], _ + 1, _ => PUnit.unit
+  | _ :: tail, n + 1, values => (.cons (values 0) .nil, memberPrefix tail n (fun i => values i.succ))
+
+/-- Resolve a callable at invocation. A φ member carries only the group's closed
+outer context and definition table. The recursion arguments and earlier member
+outputs are views of that group, assembled when the member is called. -/
+def resolve (m : Machine.{u, v, w} Op) :
+    {params results : Ports (Ty V S)} →
+    m.Val (.value (.function params results)) → Closure Op m.Val ⟨params, results⟩
+  | _, _, .closure values body => ⟨_, values, _, body⟩
+  | _, _, .member (members := members) values definitions index =>
+    let refs (i : Fin members.length) := Colour.member values definitions i
+    let entry := prependContext (memberValues members refs) values
+    Lambda.close Op (definitions index) entry (memberPrefix members index.val refs)
+
 /-- Invoke an actual closure. The call bound counts the current activation
 and decreases for each nested call. The θ bound applies per loop invocation. -/
 def invoke (m : Machine.{u, v, w} Op) (loops : Nat) : Nat → Call m
   | 0, _, _, _, _ => none
-  | depth + 1, _, _, .closure values body, arguments =>
+  | depth + 1, _, _, callee, arguments =>
+    let closure := resolve m callee
     evalBody m (dispatch m (invoke m loops depth)) loops (past := [])
-      body.toTerm (prependContext arguments values) PUnit.unit
+      closure.body.toTerm (Closure.enter Op closure arguments) PUnit.unit
 
-/-- The definition-level linker reads captures in the local environment. A φ
-requires a recursive closure environment and is outside this linker. -/
+def lambdaValue (m : Machine.{u, v, w} Op) {fn : Function V S}
+    (entry : Tuple m.Val args) (locals : Locals m.Val past) (lambda : Lambda Op args past fn) :
+    Tuple m.Val [fn.port] :=
+  let closure := Lambda.close Op lambda entry locals
+  .cons (.closure closure.values closure.body) .nil
+
+def deltaValue (m : Machine.{u, v, w} Op) (unitId : Nat) {value : ValueSort V S}
+    (entry : Tuple m.Val args) (locals : Locals m.Val past) (delta : Delta Op args past value) :
+    Tuple m.Val [.value (.global value)] :=
+  let values := delta.captures.read entry locals
+  let initialized := evalInitializer m (past := []) delta.initializer.toTerm values PUnit.unit
+  .cons (.global unitId past.length (initialized.get .head)) .nil
+
+/-- The definition-level linker for the φ-free slice. -/
 def linkVertex (m : Machine.{u, v, w} Op) (unitId : Nat)
     (entry : Tuple m.Val args) (locals : Locals m.Val past) :
     {outs : Ports (Ty V S)} → Vertex Op args past outs → Option (Tuple m.Val outs)
-  | _, .lambda lambda =>
-    let closure := Lambda.close Op lambda entry locals
-    some (.cons (.closure closure.values closure.body) .nil)
-  | _, .delta delta =>
-    let values := delta.captures.read entry locals
-    let initialized := evalInitializer m (past := []) delta.initializer.toTerm values PUnit.unit
-    some (.cons (.global unitId past.length (initialized.get .head)) .nil)
+  | _, .lambda lambda => some (lambdaValue m entry locals lambda)
+  | _, .delta delta => some (deltaValue m unitId entry locals delta)
   | _, .phi _ => none
 
 def linkTable (m : Machine.{u, v, w} Op) (unitId : Nat) (imports : Tuple m.Val args) :
