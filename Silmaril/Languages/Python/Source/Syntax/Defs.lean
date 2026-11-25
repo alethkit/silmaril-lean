@@ -2,7 +2,7 @@ module
 
 public import Init
 
-/-! # Python source syntax for module and function scope
+/-! # Python source syntax for module, function and class scope
 
 This fragment starts at constructor data. Names have no resolved access
 annotations. Function parameters are positional, with optional defaults
@@ -43,6 +43,7 @@ inductive Stmt where
   | if_ (condition : Expr) (body otherwise : List Stmt)
   | while_ (condition : Expr) (body otherwise : List Stmt)
   | functionDef (name : Name) (parameters : List Parameter) (body : List Stmt)
+  | classDef (name : Name) (bases : List Expr) (body : List Stmt)
   deriving Repr
 
 structure Module where
