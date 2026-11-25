@@ -68,6 +68,23 @@ theorem preservesState (rel : Related A r g) (f : Steps (τ := τ) Φ (StateM σ
   cases rel with
   | loop s => exact state_observation f s a state
 
+theorem state_denotes (rel : Related A r g) (f : Steps (τ := τ) Φ (StateM σ))
+    (agrees : stepMap (m := StateT σ Part.{u}) (ε := ε) rel.step = liftState f rel.step) :
+    RegionDenotes (m := StateT σ Part.{u}) ε rel.typing (rel.stateDenotation f) := by
+  have aligned : (fun env : Env [A] =>
+      iter (stepMap (m := StateT σ Part.{u}) (ε := ε) rel.step) env.2 >>= fun a => pure (exit a)) =
+      rel.stateDenotation f := by
+    funext env
+    apply StateT.ext
+    intro state
+    rw [LawfulMonad.bind_pure_comp, StateT.run_map, preservesState rel f agrees env.2 state]
+    exact Functor.map_map (f := Part.{u}) (observe (A := A) (σ := σ))
+      (fun p : TyDen A × σ => (exit p.1, p.2))
+      (OrderedRuntime.Structured.Theta.denoteTotal.{u,u,u}
+        (orderedModel f) g rel.checked (point env.2 state))
+  exact Eq.mp (congrArg (RegionDenotes (m := StateT σ Part.{u}) ε rel.typing) aligned)
+    (ssa_denotes (m := StateT σ Part.{u}) (ε := ε) rel)
+
 omit [InstructionModel Φ τ ε (StateT σ Part.{u})] in
 private theorem point_observe
     (p : Tuple (RuntimeValues (TyDen (τ := τ)) σ) (Threaded (carried A))) :

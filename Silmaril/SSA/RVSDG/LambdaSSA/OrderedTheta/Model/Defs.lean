@@ -70,4 +70,17 @@ def liftState {σ : Type u} (f : Steps (τ := τ) Φ (StateM σ)) :
     Steps (τ := τ) Φ (StateT σ Part) :=
   fun s a => StateT.mk fun state => Part.some ((f s a).run state)
 
+
+/-- Read the numbered loop at the LambdaSSA exit boundary, retaining its final
+runtime in the state computation. -/
+noncomputable def Related.stateDenotation {σ : Type u}
+    {r : Isotope.LambdaSSA.Region Φ} {g : Loop Φ A} (rel : Related A r g)
+    (f : Steps (τ := τ) Φ (StateM σ)) :
+    Isotope.LambdaSSA.Semantics.Monadic.Env [A] →
+      StateT σ Part.{u} (Isotope.LambdaSSA.Semantics.Monadic.LabelDen [A]) :=
+  fun env => StateT.mk fun state =>
+    (fun output => (exit (observe output).1, (observe output).2)) <$>
+      OrderedRuntime.Structured.Theta.denoteTotal.{u,u,u}
+        (orderedModel f) g rel.checked (point env.2 state)
+
 end Silmaril.SSA.RVSDG.LambdaSSA.OrderedTheta

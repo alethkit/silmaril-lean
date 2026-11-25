@@ -30,8 +30,8 @@ state produced by its predecessor. [Preservation][proofs]
 
 For the deterministic specialization, the admitted instruction is
 interpreted by a total `StateM` step and embedded in `StateT σ Part`.
-The theorem compares the entire observation, including the final
-state. It equates finite results with the numbered θ return relation
+At the typed SSA boundary, the ordered loop gives a structural region
+denotation that returns the external label and its final state together. It equates finite results with the numbered θ return relation
 and undefinedness with infinitely many continuing body executions.
 The fixture's state advances through 0, 2, 6 and 14, with the stopping
 test and each next payload depending on the current state.

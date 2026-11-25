@@ -54,6 +54,13 @@ theorem Related.preservesState (rel : Related A r g) (f : Steps (τ := τ) Φ (S
         (orderedModel f) g rel.checked (point a state) :=
   Proofs.preservesState rel f agrees a state
 
+/-- The ordered loop itself supplies a structural StateT region denotation
+at the typed external label. -/
+theorem Related.state_denotes (rel : Related A r g) (f : Steps (τ := τ) Φ (StateM σ))
+    (agrees : stepMap (m := StateT σ Part.{u}) (ε := ε) rel.step = liftState f rel.step) :
+    RegionDenotes (m := StateT σ Part.{u}) ε rel.typing (rel.stateDenotation f) :=
+  Proofs.state_denotes rel f agrees
+
 /-- A finite ΛSSA result and its observed state agree with the numbered graph return. -/
 theorem Related.returns_iff (rel : Related A r g) (f : Steps (τ := τ) Φ (StateM σ))
     (agrees : stepMap (m := StateT σ Part.{u}) (ε := ε) rel.step = liftState f rel.step)

@@ -90,19 +90,56 @@ example (limit : Op) :
 
 -- The state advances 0 → 2 → 6 → 14. The state at each back edge controls the
 -- next payload and stopping test, so a state reset changes the result.
+private theorem finiteReturns :
+    (graph (step (some 10))).Returns (orderedModel total).toRVSDG
+      (point (A := number) (1 : Nat) 0) (point (A := number) (15 : Nat) 14) :=
+  .again (next := point (A := number) (3 : Nat) 2) rfl
+    (.again (next := point (A := number) (7 : Nat) 6) rfl (.stop rfl))
+
 example :
     (iter (stepMap (ε := Bool) (m := StateT Nat Part) (lowered (some 10)).2.step) (1 : Nat)).run 0 =
-      Part.some ((15 : Nat), 14) := by
-  apply ((lowered (some 10)).2.returns_iff total (agrees _) (1 : Nat) (15 : Nat) 0 14).mpr
-  exact .again (next := point (A := number) (3 : Nat) 2) rfl (.again (next := point (A := number) (7 : Nat) 6) rfl (.stop rfl))
+      Part.some ((15 : Nat), 14) :=
+  ((lowered (some 10)).2.returns_iff total (agrees _) (1 : Nat) (15 : Nat) 0 14).2 finiteReturns
+
+example (limit : Op) :
+    RegionDenotes (m := StateT Nat Part) Bool (raised limit).2.typing
+      ((raised limit).2.stateDenotation total) :=
+  (raised limit).2.state_denotes total (agrees limit)
+
+example :
+    ((raised (some 10)).2.stateDenotation total (PUnit.unit, (1 : Nat))).run 0 =
+      Part.some (exit (A := number) (15 : Nat), 14) := by
+  have h := (OrderedRuntime.Structured.Theta.denoteTotal_eq_some
+    (orderedModel total) (graph (step (some 10))) (graphChecked (step (some 10)))
+    (point (A := number) (1 : Nat) 0) (point (A := number) (15 : Nat) 14)).2 finiteReturns
+  change _ <$> OrderedRuntime.Structured.Theta.denoteTotal
+    (orderedModel total) (graph (step (some 10))) (graphChecked (step (some 10)))
+    (point (A := number) (1 : Nat) 0) = _
+  rw [h]
+  rfl
 
 private def trajectory (n : Nat) : Nat × Nat :=
   Nat.rec (1, 0) (fun _ p => advance p.1 p.2) n
 
+private theorem infiniteContinuation :
+    (graph (step none)).Diverges (orderedModel total).toRVSDG
+      (point (A := number) (1 : Nat) 0) :=
+  ⟨fun i => point (trajectory i).1 (trajectory i).2, rfl, fun _ => rfl⟩
+
 example :
     (iter (stepMap (ε := Bool) (m := StateT Nat Part) (lowered none).2.step) (1 : Nat)).run 0 =
-      Part.none := by
-  apply ((lowered none).2.diverges_iff total (agrees _) (1 : Nat) 0).mpr
-  exact ⟨fun i => point (trajectory i).1 (trajectory i).2, rfl, fun _ => rfl⟩
+      Part.none :=
+  ((lowered none).2.diverges_iff total (agrees _) (1 : Nat) 0).2 infiniteContinuation
+
+example :
+    ((raised none).2.stateDenotation total (PUnit.unit, (1 : Nat))).run 0 = Part.none := by
+  have h := (OrderedRuntime.Structured.Theta.denoteTotal_eq_none
+    (orderedModel total) (graph (step none)) (graphChecked (step none))
+    (point (A := number) (1 : Nat) 0)).2 infiniteContinuation
+  change _ <$> OrderedRuntime.Structured.Theta.denoteTotal
+    (orderedModel total) (graph (step none)) (graphChecked (step none))
+    (point (A := number) (1 : Nat) 0) = _
+  rw [h]
+  exact Part.map_none _
 
 end Silmaril.SSA.RVSDG.LambdaSSA.OrderedTheta.Tests
