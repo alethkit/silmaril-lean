@@ -45,6 +45,7 @@ header activation and takes the other exit.
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Diamond.ExplicitRuntime.Thms +Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.State.Thms'
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Diamond.ExplicitRuntime.Defs
 lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Diamond.ExplicitRuntime.Thms
 lake env leanchecker Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Diamond.ExplicitRuntime.Graph
 lake env leanchecker Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Diamond.ExplicitRuntime.Kleisli
