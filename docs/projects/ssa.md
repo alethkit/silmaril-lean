@@ -241,10 +241,17 @@ requires uniformity against mapped value arrows and strength for the carried
 context. A guarded-only model would need proofs of guardedness for each
 lowered loop, including silent back edges. The paper's Corollary 26 provides
 guarded iteration on a coinductive resumption monad, and Theorem 28 gives its
-free-extension property under the stated existence assumption. The library's
-λSSA instruction-resumption machine records a control state and an instruction
-continuation, with finite-run adequacy. A connection to the paper's final
-coalgebra, guarded iteration and free-extension property remains open.
+free-extension property under the stated existence assumption.
+
+`Silmaril.SSA.Isotope.Calco2019.Resumption.Thms` connects the λSSA
+instruction-resumption machine to that guarded iteration. The next control
+and external state lie under a suspension after each successful instruction.
+The initial observation factors through the left coproduct injection, so the
+body is guarded even under the least guard on observations. For deterministic
+instruction models and a chosen final coalgebra with the stated suspension
+and head-reading operations, `Machine.room_return_iff` preserves and reflects
+the existing room's finite returns at every exit. Faults, divergence,
+scheduling, and the free-extension property are separate claims.
 [Levy and Goncharov, *Coinductive Resumption Monads: Guarded Iterative and Guarded Elgot*](https://doi.org/10.4230/LIPIcs.CALCO.2019.13)
 
 ## Status
