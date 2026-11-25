@@ -7,8 +7,10 @@ For each proposed pair, `Sound` asks that every admitted x86 run project to
 a behavior of the SQLite input at the chosen layer. The inclusion is
 `projected implementation behaviors ⊆ specification behaviors`. Independently,
 every issued memory access must stay within the byte footprint allowed for the
-pair. The run adapters compute that footprint from their issued actions.
-The observation map only selects visible events and final state observations.
+pair. The public judgment validates each execution against the selected
+memory semantics and computes its footprint from its actions. A client may
+filter admitted executions with a predicate. The observation map only
+selects visible events and final state observations.
 The [regressions](../../Silmaril/X86/Concurrency/Sqlite/Checks.lean) reject empty
 and partial footprints for an erased two-byte store under both SC and TSO.
 
@@ -23,20 +25,20 @@ covers successful steps of the landed read-only VDBE subset. These signatures
 give no guarantees about faults, divergence, scheduling fairness, or which
 initial implementation runs exist.
 
-The operational adapters use the same program trace restriction with
-`Tso.SCStep` or `Tso.XWeakStep`. Weak TSO steps allow FIFO flushes around an
+The operational cases use `Tso.SCStep` or `Tso.XWeakStep`.
+A client can use the same program trace restriction for either model. Weak TSO steps allow FIFO flushes around an
 issued memory event and leave the final buffers available for a boundary check.
 The access footprint covers instruction-issued bytes. Initial pending writes,
 forwarding, flush confinement and synchronization are separate obligations when
 a client interprets an x86 program.
 
-The axiomatic adapter uses `Litmus.AxReach` and `Lattice.Name.model`. Its
+The axiomatic case uses `Litmus.AxReach` and `Lattice.Name.model`. Its
 footprint covers the read and write units of the admitted candidate, including
 units split for tearing. The models include
 SC, strict TSO and the looser XL model of tearing and weak stores. Its trace
 vector records thread-indexed program order. A client that observes an order
 across threads needs an explicit justification for that order. The operational
-FIFO adapter and the axiomatic adapter are distinct interpretations.
+FIFO and axiomatic semantics are distinct interpretations.
 
 For fixed observations, footprint and run semantics, the proposal lattice is
 the powerset of input pairs. Its meet is intersection, its join is union, its

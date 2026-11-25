@@ -63,27 +63,7 @@ structure Projection (layer : Layer) (Label Final : Type) where
   event : Label → Option layer.Event
   final : Final → layer.Final
 
-/-- The run semantics supplies the access footprint before observation. -/
-structure ImplementationRun (Label Final : Type) where
-  labels : List Label
-  final : Final
-  bytes : Set Nat
-
-def Projection.observe {layer : Layer} {Label Final : Type}
-    (p : Projection layer Label Final) (run : ImplementationRun Label Final) : layer.Observation :=
-  (run.labels.filterMap p.event, p.final run.final)
-
 abbrev Proposal (Input : Type) (layer : Layer) := Set (Input × layer.Input)
-
-/-- Every admitted x86 run projects to a VM run and every byte it accesses
-lies in the allowed footprint for this pair. Candidate relations are ordered
-by inclusion as sets of input pairs. -/
-def Sound {Input Label Final : Type} {layer : Layer}
-    (runs : Input → Set (ImplementationRun Label Final)) (p : Projection layer Label Final)
-    (allowed : Input → layer.Input → Set Nat) (proposed : Proposal Input layer) : Prop :=
-  ∀ pair ∈ proposed, ∀ run ∈ runs pair.1,
-    p.observe run ∈ layer.behaviors pair.2 ∧
-      run.bytes ⊆ allowed pair.1 pair.2
 
 /-- Byte spans at instruction issue. Propagation of pending stores is a
 separate obligation for a buffered implementation. -/
@@ -96,33 +76,66 @@ def accessBytes : Tso.XEvent Nat → Set Nat
 def issuedBytes (labels : List (Tso.XEvent Nat)) : Set Nat :=
   { addr | ∃ label ∈ labels, addr ∈ accessBytes label }
 
-/-- Operational SC for the chosen interleaved instruction traces. -/
-def scRuns (traces : Set (List (Tso.XEvent Nat))) (initial : Tso.Mem) :
-    Set (ImplementationRun (Tso.XEvent Nat) Tso.Mem) :=
-  { run | run.labels ∈ traces ∧ Tso.Execution Tso.SCStep initial run.labels run.final ∧
-    run.bytes = issuedBytes run.labels }
-
-/-- Operational FIFO byte TSO for the same traces. Weak steps allow silent
-flushes before and after each instruction. The final state retains buffers. -/
-def tsoRuns (traces : Set (List (Tso.XEvent Nat))) (initial : Tso.XState Nat) :
-    Set (ImplementationRun (Tso.XEvent Nat) (Tso.XState Nat)) :=
-  { run | run.labels ∈ traces ∧ Tso.Execution Tso.XWeakStep initial run.labels run.final ∧
-    run.bytes = issuedBytes run.labels }
-
 /-- Axiomatic candidate units covering the byte. `Litmus.AxReach` requires the
 candidate's events to be exactly these units. Fence events have no span here. -/
 def candidateBytes (traces : List MemoryModel.Litmus.XTrace) : Set Nat :=
   { addr | ∃ unit ∈ (MemoryModel.Litmus.units traces).map Prod.fst,
     (unit.isR || unit.isW) = true ∧ unit.covers addr = true }
 
-/-- Axiomatic candidates under the named model, including SC, strict TSO and
-XL. The chosen traces are indexed by thread. This vector gives no interleaving
-order for visible events across threads. -/
-def axiomaticRuns (model : Lattice.Name) (test : MemoryModel.Litmus.Test)
-    (choices : List (List MemoryModel.Litmus.XTrace)) :
-    Set (ImplementationRun MemoryModel.Litmus.XTrace MemoryModel.Litmus.Final) :=
-  { run | List.Forall₂ (· ∈ ·) run.labels choices ∧
-    MemoryModel.Litmus.AxReach test (run.labels.map fun trace => [trace]) model.model run.final ∧
-    run.bytes = candidateBytes run.labels }
+
+/-- Operational SC and FIFO TSO have interleaved labels. The axiomatic trace
+vector is indexed by thread and provides no ordering across threads. -/
+inductive MemorySemantics where
+  | sc
+  | fifo
+  | axiomatic (model : Lattice.Name)
+
+def MemorySemantics.Initial : MemorySemantics → Type
+  | .sc => Tso.Mem
+  | .fifo => Tso.XState Nat
+  | .axiomatic _ => MemoryModel.Litmus.Test
+
+def MemorySemantics.Label : MemorySemantics → Type
+  | .sc | .fifo => Tso.XEvent Nat
+  | .axiomatic _ => MemoryModel.Litmus.XTrace
+
+def MemorySemantics.Final : MemorySemantics → Type
+  | .sc => Tso.Mem
+  | .fifo => Tso.XState Nat
+  | .axiomatic _ => MemoryModel.Litmus.Final
+
+structure Execution (semantics : MemorySemantics) where
+  labels : List semantics.Label
+  final : semantics.Final
+
+/-- Validate the record against the selected semantics. FIFO weak steps
+permit silent flushes around each label and retain the final buffers. The
+axiomatic case checks exactly the given per-thread trace choices. -/
+def MemorySemantics.Executes : (model : MemorySemantics) → model.Initial → Execution model → Prop
+  | .sc, initial, run => Tso.Execution Tso.SCStep initial run.labels run.final
+  | .fifo, initial, run => Tso.Execution Tso.XWeakStep initial run.labels run.final
+  | .axiomatic model, test, run =>
+    MemoryModel.Litmus.AxReach test (run.labels.map fun trace => [trace]) model.model run.final
+
+/-- Computed before observation. Admitting or hiding a label cannot change its access span. -/
+def Execution.bytes : {model : MemorySemantics} → Execution model → Set Nat
+  | .sc, run => issuedBytes run.labels
+  | .fifo, run => issuedBytes run.labels
+  | .axiomatic _, run => candidateBytes run.labels
+
+def Projection.observe {layer : Layer} {model : MemorySemantics}
+    (p : Projection layer model.Label model.Final) (run : Execution model) : layer.Observation :=
+  (run.labels.filterMap p.event, p.final run.final)
+
+/-- Every admitted execution of the selected memory semantics projects to a
+SQLite run. Its computed footprint is included in the bytes allowed for the
+input pair. The admission predicate can select executions. It cannot supply a
+different execution semantics or footprint. -/
+def Sound {Input : Type} {layer : Layer} (model : MemorySemantics)
+    (initial : Input → model.Initial) (admitted : Input → Execution model → Prop)
+    (p : Projection layer model.Label model.Final) (allowed : Input → layer.Input → Set Nat)
+    (proposed : Proposal Input layer) : Prop :=
+  ∀ pair ∈ proposed, ∀ run, model.Executes (initial pair.1) run → admitted pair.1 run →
+    p.observe run ∈ layer.behaviors pair.2 ∧ run.bytes ⊆ allowed pair.1 pair.2
 
 end Silmaril.X86.Concurrency.Sqlite

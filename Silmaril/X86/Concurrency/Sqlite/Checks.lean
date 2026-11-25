@@ -5,10 +5,9 @@ import Silmaril.X86.Concurrency.Sqlite.Defs
 namespace Silmaril.X86.Concurrency.Sqlite
 
 open Silmaril.Machine.SqliteControl (Config Phase Shared)
-open Silmaril.X86.MemoryModel.Tso (XEvent XState enqueue writeMem xembed)
+open Silmaril.X86.MemoryModel.Tso (XEvent enqueue writeMem xembed)
 
 private def hiddenStore : XEvent Nat := .store 0 4 [1, 2]
-private def labels := [hiddenStore]
 private def initial : MemoryModel.Tso.Mem := fun _ => some 0
 private def control : Config Phase := ⟨{}, fun _ => .idle⟩
 
@@ -16,39 +15,43 @@ private def hideStore (Final : Type) : Projection .control (XEvent Nat) Final wh
   event := fun _ => none
   final := fun _ => ({} : Shared)
 
-private theorem coversBoth {Input Final : Type}
-    {runs : Input → Set (ImplementationRun (XEvent Nat) Final)} {start : Input} {finish : Final}
-    {allowed : Set Nat}
-    (run : ⟨labels, finish, issuedBytes labels⟩ ∈ runs start)
-    (sound : Sound runs (hideStore Final) (fun _ _ => allowed) {(start, control)}) :
-    4 ∈ allowed ∧ 5 ∈ allowed := by
-  have coverage := (sound (start, control) rfl _ run).2
-  exact ⟨coverage ⟨hiddenStore, List.mem_cons_self, (show 4 ≤ 4 ∧ 4 < 6 by decide)⟩,
-    coverage ⟨hiddenStore, List.mem_cons_self, (show 4 ≤ 5 ∧ 5 < 6 by decide)⟩⟩
-
 private theorem scRun :
-    ⟨labels, writeMem initial 4 [1, 2], issuedBytes labels⟩ ∈ scRuns Set.univ initial :=
-  ⟨trivial, .cons (.store _ _ _ _) (.nil _), rfl⟩
+    MemorySemantics.sc.Executes initial ⟨[hiddenStore], writeMem initial 4 [1, 2]⟩ :=
+  .cons (.store _ _ _ _) (.nil _)
 
 /-- The store stays pending. Its span is covered at issue even though memory is unchanged. -/
 private theorem tsoRun :
-    ⟨labels, enqueue (xembed initial) 0 4 [1, 2], issuedBytes labels⟩ ∈
-      tsoRuns Set.univ (xembed initial) :=
-  ⟨trivial, .cons ⟨_, _, .refl, .store _ _ _ _, .refl⟩ (.nil _), rfl⟩
+    MemorySemantics.fifo.Executes (xembed initial) ⟨[hiddenStore], enqueue (xembed initial) 0 4 [1, 2]⟩ :=
+  .cons ⟨_, _, .refl, .store _ _ _ _, .refl⟩ (.nil _)
 
-example : ¬Sound (scRuns Set.univ) (hideStore MemoryModel.Tso.Mem) (fun _ _ => ∅) {(initial, control)} :=
-  fun h => (coversBoth scRun h).1
+private theorem firstByte :
+    4 ∈ issuedBytes [hiddenStore] :=
+  ⟨hiddenStore, List.mem_cons_self, (show 4 ≤ 4 ∧ 4 < 6 by decide)⟩
 
-example : ¬Sound (scRuns Set.univ) (hideStore MemoryModel.Tso.Mem) (fun _ _ => {4}) {(initial, control)} :=
-  fun h => (by decide : (5 : Nat) ≠ 4) (coversBoth scRun h).2
+private theorem secondByte :
+    5 ∈ issuedBytes [hiddenStore] :=
+  ⟨hiddenStore, List.mem_cons_self, (show 4 ≤ 5 ∧ 5 < 6 by decide)⟩
+
+/-- Exercise the public judgment directly with an explicit admission predicate. -/
+example :
+    ¬Sound .sc id (fun _ run => run.labels = [hiddenStore]) (hideStore _)
+      (fun _ _ => ∅) {(initial, control)} :=
+  fun sound => (sound (initial, control) rfl _ scRun rfl).2 firstByte
 
 example :
-    ¬Sound (tsoRuns Set.univ) (hideStore (XState Nat)) (fun _ _ => ∅) {(xembed initial, control)} :=
-  fun h => (coversBoth tsoRun h).1
+    ¬Sound .sc id (fun _ run => run.labels = [hiddenStore]) (hideStore _)
+      (fun _ _ => {4}) {(initial, control)} :=
+  fun sound => (by decide : (5 : Nat) ≠ 4) ((sound (initial, control) rfl _ scRun rfl).2 secondByte)
 
 example :
-    ¬Sound (tsoRuns Set.univ) (hideStore (XState Nat)) (fun _ _ => {4}) {(xembed initial, control)} :=
-  fun h => (by decide : (5 : Nat) ≠ 4) (coversBoth tsoRun h).2
+    ¬Sound .fifo id (fun _ run => run.labels = [hiddenStore]) (hideStore _)
+      (fun _ _ => ∅) {(xembed initial, control)} :=
+  fun sound => (sound (xembed initial, control) rfl _ tsoRun rfl).2 firstByte
+
+example :
+    ¬Sound .fifo id (fun _ run => run.labels = [hiddenStore]) (hideStore _)
+      (fun _ _ => {4}) {(xembed initial, control)} :=
+  fun sound => (by decide : (5 : Nat) ≠ 4) ((sound (xembed initial, control) rfl _ tsoRun rfl).2 secondByte)
 
 private theorem chosenTraces {α : Type} {actual chosen : List α}
     (h : List.Forall₂ (· ∈ ·) actual (chosen.map fun item => [item])) : actual = chosen := by
@@ -58,16 +61,14 @@ private theorem chosenTraces {α : Type} {actual chosen : List α}
     cases h with
     | cons first tail => rw [List.mem_singleton.mp first, ih tail]
 
-/-- The footprint is an envelope of the actual checked candidate's units. -/
+/-- The footprint is the set of bytes touched by the actual checked candidate's units. -/
 example {model : MemoryModel.Lattice.Name} {test : MemoryModel.Litmus.Test}
-    {choices : List (List MemoryModel.Litmus.XTrace)}
-    {run : ImplementationRun MemoryModel.Litmus.XTrace MemoryModel.Litmus.Final}
-    (h : run ∈ axiomaticRuns model test choices) :
-    ∃ x : MemoryModel.Axiomatic.Exec,
+    {run : Execution (.axiomatic model)} (h : (MemorySemantics.axiomatic model).Executes test run) :
+    ∃ x : MemoryModel.Axiomatic.Exec, x.Wf = true ∧ model.model x ∧
       run.bytes = { addr | ∃ unit ∈ x.evs, (unit.isR || unit.isW) = true ∧ unit.covers addr = true } := by
-  obtain ⟨_, ⟨actual, actualOk, x, events, _, _, _, _, _⟩, bytes⟩ := h
+  obtain ⟨actual, actualOk, x, events, _, wellFormed, _, consistent, _⟩ := h
   have eq := chosenTraces actualOk
   subst actual
-  exact ⟨x, by rw [bytes, events]; rfl⟩
+  exact ⟨x, wellFormed, consistent, by rw [events]; rfl⟩
 
 end Silmaril.X86.Concurrency.Sqlite
