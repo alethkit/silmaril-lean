@@ -100,4 +100,27 @@ theorem reduced_tighten {I A B U A' B' : K} (i : IsInitial I) (T : G.FourInterfa
   simp [a', Coproducts.map, ← Category.assoc]
   simp [← post, Category.assoc]
 
+/-- The unit padding in the restriction is independent of the chosen initial object. -/
+theorem reduced_initial_independent {I J A B U : K} (i : IsInitial I) (j : IsInitial J)
+    (T : G.FourInterfaceTrace) (laws : T.Tightening)
+    (f : P.sum A U ⟶ P.sum B U) (hf : G.FeedbackGuard f) :
+    P.inr ≫ T.run (feedbackBody_guard i f hf) ≫ P.desc (𝟙 B) (i.to B) =
+      P.inr ≫ T.run (feedbackBody_guard j f hf) ≫ P.desc (𝟙 B) (j.to B) := by
+  let a : P.sum I A ⟶ A := P.desc (i.to A) (𝟙 A)
+  let b : B ⟶ P.sum B I := P.inl
+  have normalized : traceBody (FourInterfaceTrace.feedbackBody i f) = tighten f a b :=
+    traceBody_restore _
+  have recover : T.run (feedbackBody_guard i f hf) =
+      P.inr ≫ T.run (feedbackBody_guard j (tighten f a b) (tighten_feedbackGuard f a b hf)) ≫
+        P.desc (𝟙 (P.sum B I)) (j.to _) := by
+    refine (run_recovered j T laws (feedbackBody_guard i f hf)).symm.trans ?_
+    generalize traceBody_guard (feedbackBody_guard i f hf) = h
+    revert h
+    rw [normalized]
+    intro _
+    rfl
+  exact congrArg (fun t => P.inr ≫ t ≫ P.desc (𝟙 B) (i.to B))
+    (recover.trans (reduced_tighten j T laws f a b hf))
+      |>.trans (unit_transport i _)
+
 end Silmaril.Calco2019.Proofs.Feedback

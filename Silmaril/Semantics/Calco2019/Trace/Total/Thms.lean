@@ -39,6 +39,19 @@ def totalConwayEquiv [HasInitial K] :
       left_inv := fun _ => Subtype.ext rfl
       right_inv := fun _ => Subtype.ext rfl }
 
+@[simp]
+theorem totalConwayEquiv_feedback [HasInitial K] (F : (Guardedness.greatest P).Conway) :
+    @Eq (Guardedness.greatest P).Feedback (totalConwayEquiv F).val F.toFixpoints.feedback := by
+  unfold totalConwayEquiv
+  exact conwayEquiv_feedback F
+
+@[simp]
+theorem totalConwayEquiv_symm_conway [HasInitial K]
+    (T : {tr : Guardedness.Feedback (Guardedness.greatest P) // JoyalStreetVerity tr}) :
+    totalConwayEquiv.symm T = conway T.property.lawful := by
+  unfold totalConwayEquiv
+  exact conwayEquiv_symm_conway _
+
 /-- Vanishing II applies to any body with a coproduct as feedback object. -/
 theorem JoyalStreetVerity.vanishPair_body (laws : JoyalStreetVerity tr) {A B U V : K}
     (f : P.sum A (P.sum U V) ⟶ P.sum B (P.sum U V)) :

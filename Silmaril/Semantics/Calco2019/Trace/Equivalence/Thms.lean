@@ -54,4 +54,16 @@ theorem conway_of_feedback [HasInitial K] (F : G.Conway) :
     conway (lawful_ofConway F) = F :=
   (conwayEquiv (G := G)).left_inv F
 
+@[simp]
+theorem conwayEquiv_feedback [HasInitial K] (F : G.Conway) :
+    @Eq G.Feedback (conwayEquiv F).val F.toFixpoints.feedback := by
+  unfold conwayEquiv
+  rfl
+
+@[simp]
+theorem conwayEquiv_symm_conway [HasInitial K] (T : {tr : G.Feedback // Lawful tr}) :
+    conwayEquiv.symm T = conway T.property := by
+  unfold conwayEquiv
+  rfl
+
 end Silmaril.Calco2019.Guardedness.Feedback
