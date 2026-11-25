@@ -41,6 +41,8 @@ The fixture swaps two independent global allocations and two independent
 vertices inside a λ body. The exported wrapper captures and calls that
 λ. The observed global number changes from 0 to 1. Both invocations
 exhaust at depth one and return data 42 and state 51 at depth two.
+A second fixture renumbers a θ body and verifies the same bound
+exhaustion and carried-state return across two body activations.
 [Fixture](../../tests/ssa/RVSDGRuntimeIsomorphism.lean)
 
 ```sh

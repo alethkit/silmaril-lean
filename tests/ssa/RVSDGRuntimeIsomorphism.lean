@@ -9,6 +9,7 @@ private abbrev word : T := .value (.data ())
 private abbrev address : T := .value (.global (.data ()))
 private abbrev st : T := .state ()
 private abbrev returned : Ports T := [word, st]
+private abbrev feedback : Ports T := Theta.BodyResults [st]
 private abbrev fn : Function Unit Unit := ⟨[st], returned⟩
 private abbrev callable : T := fn.port
 private abbrev sigs : List (Ports T) := [[address], [address], [callable], [callable]]
@@ -17,6 +18,7 @@ private inductive Op : Dialect (ValueSort Unit Unit) Unit
   | inc (n : Nat) : Op [word] [word]
   | load : Op [address] [word]
   | tick : Op [st] [st]
+  | loopTick : Op [st] feedback
   | combine : Op [word, st] returned
 
 private def machine : Machine Op where
@@ -26,6 +28,9 @@ private def machine : Machine Op where
     | .inc n, .cons (.data x) .nil => .cons (.data (x + n)) .nil
     | .load, .cons (.global _ _ (.data x)) .nil => .cons (.data x) .nil
     | .tick, .cons (.state s) .nil => .cons (.state (s + 2)) .nil
+    | .loopTick, .cons (.state s) .nil =>
+      let next := s + 1
+      .cons (.control (if next < 3 then 1 else 0)) (.cons (.state next) .nil)
     | .combine, .cons (.data x) (.cons (.state s) .nil) =>
       .cons (.data x) (.cons (.state (x + s)) .nil)
 
@@ -64,6 +69,12 @@ private theorem compatible : PrimitivesRespect machine ids := by
       cases tail
       cases head with
       | state value => exact .cons (.state _) .nil
+  | loopTick =>
+    cases related with
+    | cons head tail =>
+      cases tail
+      cases head with
+      | state value => exact .cons (.control _) (.cons (.state _) .nil)
   | combine =>
     cases related with
     | cons head tail =>
@@ -193,5 +204,55 @@ private theorem allocatedIds (i : Fin sigs.length) : ids (17, i.val) (17, ((swap
 example (depth : Nat) : RunRelated machine ids (call moduleL depth) (call moduleR depth) :=
   exportedCall_related compatible 17 17 0 depth modulesIso (fun i _ => allocatedIds i)
     (.cons (.data _) .nil) (.tail .head) (.cons (.state _) .nil)
+
+private abbrev loopTick {past : List (Ports T)} :
+    NestedTheta.Node (Instruction Op) [st] past feedback :=
+  ⟨[st], .base (.simple (.primitive .loopTick)), .cons (.arg .head) .nil, fun j => j.elim0⟩
+
+private abbrev spareTick {past : List (Ports T)} :
+    NestedTheta.Node (Instruction Op) [st] past [st] :=
+  ⟨[st], .base (.simple (.primitive .tick)), .cons (.arg .head) .nil, fun j => j.elim0⟩
+
+private def iterationsL : NestedTheta.Term (Instruction Op) [st] [] [feedback, [st]] feedback :=
+  .bind loopTick (fun j => Fin.elim0 (by change Fin 0 at j; exact j)) <|
+    .bind spareTick (fun j => Fin.elim0 (by change Fin 0 at j; exact j)) <|
+      .ret (.cons (.output (0 : Fin 2) .head) (.cons (.output (0 : Fin 2) (.tail .head)) .nil))
+
+private def iterationsR : NestedTheta.Term (Instruction Op) [st] [] [[st], feedback] feedback :=
+  .bind spareTick (fun j => Fin.elim0 (by change Fin 0 at j; exact j)) <|
+    .bind loopTick (fun j => Fin.elim0 (by change Fin 0 at j; exact j)) <|
+      .ret (.cons (.output (1 : Fin 2) .head) (.cons (.output (1 : Fin 2) (.tail .head)) .nil))
+
+private theorem iterationsIso :
+    NestedTheta.Graph.Isomorphic (Instruction Op) iterationsL.toGraph iterationsR.toGraph := by
+  refine .intro rfl rfl (swap 0) ?_ ?_ rfl ?_
+  · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
+  · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
+  · exact Fin.cases (fun j => j.elim0) (Fin.cases (fun j => j.elim0) (fun i => i.elim0))
+
+private def loop {bodySigs : List (Ports T)}
+    (body : NestedTheta.Term (Instruction Op) [st] [] bodySigs feedback) :
+    NestedTheta.Term (Instruction Op) [st] [] [[st]] [st] :=
+  .bind (NestedTheta.thetaVertex bodySigs) (fun _ => body) (.ret (NestedTheta.thetaResults [st]))
+
+private theorem loopIso :
+    NestedTheta.Graph.Isomorphic (Instruction Op) (loop iterationsL).toGraph (loop iterationsR).toGraph := by
+  refine .intro rfl rfl (Equiv.refl _) ?_ ?_ rfl ?_
+  · exact Fin.cases rfl (fun i => i.elim0)
+  · exact Fin.cases rfl (fun i => i.elim0)
+  · exact Fin.cases (fun _ => iterationsIso) (fun i => i.elim0)
+
+private def loopL : machine.Val (.value (.function [st] [st])) := .closure .nil (loop iterationsL).toGraph
+private def loopR : machine.Val (.value (.function [st] [st])) := .closure .nil (loop iterationsR).toGraph
+private def start : Tuple machine.Val [st] := .cons (.state (1 : Nat)) .nil
+
+example (budget : Nat) : RunRelated machine ids (invoke machine budget 1 loopL start)
+    (invoke machine budget 1 loopR start) :=
+  invoke_related compatible budget 1 (.closure .nil loopIso) (.cons (.state _) .nil)
+
+example : invoke machine 1 1 loopL start = none := by cbv
+example : invoke machine 1 1 loopR start = none := by cbv
+example : invoke machine 2 1 loopL start = some (.cons (.state (3 : Nat)) .nil) := by cbv
+example : invoke machine 2 1 loopR start = some (.cons (.state (3 : Nat)) .nil) := by cbv
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Tests
