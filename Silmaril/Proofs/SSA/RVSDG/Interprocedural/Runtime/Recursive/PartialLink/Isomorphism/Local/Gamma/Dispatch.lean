@@ -74,6 +74,8 @@ theorem calls (respects : ActionsRespect primitives ids)
   | application calleeCaptures calleeIso code captures wires outputs =>
     exact invoke_regions (captured_application code respects wires outputs
       (prepend_related captures arguments) calleeCaptures calleeIso store)
+  | plan scheduled =>
+    exact invoke_regions ((call_plan_regions scheduled respects).2 arguments store)
 
 private theorem terminal_excludes_infinite {source : Config m σ outs}
     {outcome : Continuation.Partial.Outcome m σ outs}

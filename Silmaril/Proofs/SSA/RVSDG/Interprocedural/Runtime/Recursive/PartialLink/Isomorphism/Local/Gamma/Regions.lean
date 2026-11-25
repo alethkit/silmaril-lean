@@ -63,6 +63,8 @@ theorem block_observations
   | gamma _ _ _ _ _ ih => exact ⟨congrArg (Location.gamma _) ih.1, ih.2⟩
   | loop _ _ _ _ _ _ _ ih => exact ⟨congrArg Location.loop ih.1, ih.2⟩
   | application _ _ _ _ _ ih => exact ⟨congrArg Location.application ih.1, ih.2⟩
+  | applicationThen _ _ _ _ _ _ ih => exact ⟨congrArg Location.application ih.1, ih.2⟩
+  | afterApplication _ _ _ _ _ _ _ _ sites _ _ => exact ⟨rfl, sites, rfl⟩
 
 theorem block_evals
     (stopped : BlockPair primitives ids mapping left right inputL inputR store locL locR stopL stopR) :
@@ -107,6 +109,18 @@ theorem block_evals
     have ranR := Eval.call ((open_lambda right captR argsR).symm ▸ ih.2)
     exact ⟨.bindBlocked (node := applicationVertex fn inputs) (application_eval selectedL ranL),
       .bindBlocked (node := applicationVertex fn inputs) (application_eval selectedR ranR)⟩
+
+  | @applicationThen _ _ _ fn _ _ _ _ _ left right captL captR _ _ argsL argsR _ _ _ stopL stopR
+      inputs _ _ selectedL selectedR _ ih =>
+    cases stopL
+    cases stopR
+    have ranL := Eval.call ((open_lambda left captL argsL).symm ▸ ih.1)
+    have ranR := Eval.call ((open_lambda right captR argsR).symm ▸ ih.2)
+    exact ⟨.bindBlocked (node := applicationVertex fn inputs) (application_eval selectedL ranL),
+      .bindBlocked (node := applicationVertex fn inputs) (application_eval selectedR ranR)⟩
+  | afterApplication inputs _ _ selectedL selectedR ranL ranR _ _ blockedL blockedR =>
+    exact ⟨.bind (node := applicationVertex _ inputs) (application_eval selectedL ranL) blockedL.eval,
+      .bind (node := applicationVertex _ inputs) (application_eval selectedR ranR) blockedR.eval⟩
 
 private theorem selected_tuple {valuesL valuesR : Tuple m.Val (.control (extra + 2) :: entry)}
     (related : TupleRelated m ids valuesL valuesR) :

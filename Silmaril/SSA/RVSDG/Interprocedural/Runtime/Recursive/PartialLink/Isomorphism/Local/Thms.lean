@@ -52,6 +52,18 @@ theorem graph_evaluate {left : Graph Op args [] sigsL outs} {right : Graph Op ar
       inputL inputR PUnit.unit PUnit.unit store outL outR :=
   Proofs.graph_evaluate code respects inputs store
 
+/-- An ordered acyclic suffix starts from the actual saved caller inputs
+and the related tuple bound by the application. Its actions start at the
+post-call store and retain an addressed diagnostic if they block. -/
+theorem suffix_evaluate {head : Ports (Ty V S)} {left : Term Op args [head] sigsL outs} {right : Term Op args [head] sigsR outs}
+    (schedule : Schedule Op .identity left right) (respects : ActionsRespect primitives ids)
+    {inputL inputR : Tuple m.Val args} {valueL valueR : Tuple m.Val head}
+    (inputs : TupleRelated m ids inputL inputR) (values : TupleRelated m ids valueL valueR) (store : σ) :
+    ∃ outL outR, EvaluationPair primitives ids .identity (left := left) (right := right)
+      inputL inputR (Locals.snoc (past := []) PUnit.unit valueL) (Locals.snoc (past := []) PUnit.unit valueR)
+      store outL outR :=
+  Proofs.suffix_evaluate schedule respects inputs values store
+
 /-- A provided return or blocked endpoint is the unique reachable terminal
 configuration. This reflects arbitrary observed finite machine outcomes into
 the paired terminal endpoints, from either side. -/

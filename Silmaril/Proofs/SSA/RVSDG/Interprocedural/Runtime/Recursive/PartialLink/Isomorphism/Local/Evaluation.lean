@@ -198,4 +198,13 @@ theorem graph_evaluate {left : Graph Op args [] sigsL outs} {right : Graph Op ar
       inputL inputR PUnit.unit PUnit.unit store outL outR :=
   evaluate code.schedule respects inputs LocalsRelated.empty store
 
+theorem suffix_evaluate {left : Term Op args [head] sigsL outs} {right : Term Op args [head] sigsR outs}
+    (schedule : Schedule Op .identity left right) (respects : ActionsRespect primitives ids)
+    {inputL inputR : Tuple m.Val args} {valueL valueR : Tuple m.Val head}
+    (inputs : TupleRelated m ids inputL inputR) (values : TupleRelated m ids valueL valueR) (store : σ) :
+    ∃ outL outR, EvaluationPair primitives ids .identity (left := left) (right := right)
+      inputL inputR (Locals.snoc (past := []) PUnit.unit valueL) (Locals.snoc (past := []) PUnit.unit valueR)
+      store outL outR :=
+  evaluate schedule respects inputs (LocalsRelated.empty.snoc Renaming.identity.vertices.injective rfl values) store
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Proofs
