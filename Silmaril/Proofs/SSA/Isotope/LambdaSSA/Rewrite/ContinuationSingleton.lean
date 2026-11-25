@@ -14,7 +14,7 @@ namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite
 open CategoryTheory CategoryTheory.Limits
 open Silmaril.Isotope.LambdaSSA
 open Silmaril.Isotope.LambdaSSA.Region
-open ContinuationContext (single sumCase sumTagRegion)
+open ContinuationContext (single singletonToHom sumCase sumTagRegion)
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ] {Γ : VCtx τ}
 
@@ -37,6 +37,30 @@ theorem sumTag_valueFamily (A B : τ) :
 @[expose] def sumTag (A B : τ) :
     (single A : ContinuationContext Φ Γ).append (single B) ⟶ single (Silmaril.coprod A B) :=
   ContinuationFamily.toHom ⟨sumTagRegion, sumTag_valueFamily A B⟩
+
+theorem appendInl_sumTag (A B : τ) :
+    (single A : ContinuationContext Φ Γ).appendInl (single B) ≫ sumTag A B =
+      singletonToHom (A := A) (Y := single (Silmaril.coprod A B))
+        (.br (ℓ := 0) rfl (.inl (.var (i := 0) rfl))) := by
+  apply ContinuationFamily.toHom_eq_iff.mpr
+  intro i D hi
+  cases i with
+  | zero =>
+    cases Option.some.inj hi
+    exact .base (.refl (.br (ℓ := 0) rfl (.inl (.var (i := 0) rfl))))
+  | succ i => simp [At, single] at hi
+
+theorem appendInr_sumTag (A B : τ) :
+    (single A : ContinuationContext Φ Γ).appendInr (single B) ≫ sumTag A B =
+      singletonToHom (A := B) (Y := single (Silmaril.coprod A B))
+        (.br (ℓ := 0) rfl (.inr (.var (i := 0) rfl))) := by
+  apply ContinuationFamily.toHom_eq_iff.mpr
+  intro i D hi
+  cases i with
+  | zero =>
+    cases Option.some.inj hi
+    exact .base (.refl (.br (ℓ := 0) rfl (.inr (.var (i := 0) rfl))))
+  | succ i => simp [At, single] at hi
 
 theorem sumTag_sumCase (A B : τ) :
     sumTag (Φ := Φ) (Γ := Γ) A B ≫ sumCase A B = 𝟙 ((single A).append (single B)) := by

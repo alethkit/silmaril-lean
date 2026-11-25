@@ -22,6 +22,20 @@ def sumTag (A B : τ) :
     (single A : ContinuationContext Φ Γ).append (single B) ⟶ single (Silmaril.coprod A B) :=
   ContinuationFamily.toHom ⟨sumTagRegion, Proofs.SSA.Isotope.LambdaSSA.Rewrite.sumTag_valueFamily A B⟩
 
+/-- The left singleton injection is represented by a branch of the tagged payload. -/
+theorem appendInl_sumTag (A B : τ) :
+    (single A : ContinuationContext Φ Γ).appendInl (single B) ≫ sumTag A B =
+      singletonToHom (A := A) (Y := single (Silmaril.coprod A B))
+        (.br (ℓ := 0) rfl (.inl (.var (i := 0) rfl))) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.appendInl_sumTag A B
+
+/-- The right singleton injection is represented by a branch of the tagged payload. -/
+theorem appendInr_sumTag (A B : τ) :
+    (single A : ContinuationContext Φ Γ).appendInr (single B) ≫ sumTag A B =
+      singletonToHom (A := B) (Y := single (Silmaril.coprod A B))
+        (.br (ℓ := 0) rfl (.inr (.var (i := 0) rfl))) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.appendInr_sumTag A B
+
 /-- The tagged sum is isomorphic to the pair of single-label interfaces. -/
 def singletonSumIso (A B : τ) :
     (single A : ContinuationContext Φ Γ).append (single B) ≅ single (Silmaril.coprod A B) where
