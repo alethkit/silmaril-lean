@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.RVSDG.NestedTheta.OrderedState.Thms
+import Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.Thms
 
 namespace Silmaril.SSA.RVSDG.NestedTheta.OrderedState.Tests
 
@@ -106,5 +106,58 @@ example : observe model program.toGraph (input 1) 0 = Part.some (data 102, 205) 
   rw [Term.toTerm_toGraph]
   refine ⟨(data 0, 100), ⟨(data 0, 100), rfl, rfl⟩, (data 102, 205), ?_, rfl⟩
   exact Theta.Iterate.stop (firstBody 100)
+
+open Structured (Data Opcode Threaded decode nextRuntime runtimePort)
+
+private abbrev dataOnly : Data dataPorts := .value .nil
+private abbrev bodyData : Data bodyPorts := .control dataOnly
+private abbrev entryData : Data args := .control dataOnly
+
+private abbrev ExplicitEntry {entry outs : Ports Ty} (a : Data entry) (b : Data outs)
+    (sigs : List (Ports Ty)) :=
+  Σ t : Term (Opcode Pure Effect) (Threaded entry) [] sigs (Threaded outs),
+    ExplicitRuntime.EntryChecked (a := a) (b := b) t
+
+private def explicitBump : ExplicitEntry dataOnly bodyData [Threaded bodyPorts] :=
+  ⟨_, .primitive (.arg (runtimePort dataPorts)) dataOnly bodyData (.effect .bump) (.cons (.arg .head) .nil)
+    (.ret (nextRuntime [] bodyPorts)
+      (.cons (.output (0 : Fin 1) .head) (.cons (.output (0 : Fin 1) (.tail .head)) .nil)))⟩
+
+private def explicitOuterBody : ExplicitEntry dataOnly bodyData [Threaded dataPorts, Threaded bodyPorts] :=
+  ⟨_, .theta (.arg (runtimePort dataPorts)) dataOnly (.cons (.arg .head) .nil) [Threaded bodyPorts]
+    (children := fun _ => explicitBump.1) (fun _ => explicitBump.2)
+    (.primitive (nextRuntime [] dataPorts) dataOnly bodyData (.effect .inspect)
+      (.cons (.output (0 : Fin 1) .head) .nil)
+      (.ret (nextRuntime [Threaded dataPorts] bodyPorts)
+        (.cons (.output (1 : Fin 2) .head) (.cons (.output (1 : Fin 2) (.tail .head)) .nil))))⟩
+
+private def explicitArms (tag : Fin 2) :
+    ExplicitEntry dataOnly dataOnly (Fin.cases [] (fun _ => [Threaded dataPorts]) tag) :=
+  Fin.cases
+    ⟨_, .ret (.arg (runtimePort dataPorts)) (.cons (.arg .head) .nil)⟩
+    (fun _ => ⟨_, .primitive (.arg (runtimePort dataPorts)) dataOnly dataOnly (.effect .addHundred)
+      (.cons (.arg .head) .nil) (.ret (nextRuntime [] dataPorts) (.cons (.output (0 : Fin 1) .head) .nil))⟩) tag
+
+private def explicitProgram : ExplicitEntry entryData dataOnly [Threaded dataPorts, Threaded dataPorts] :=
+  ⟨_, .gamma 0 (.arg .head) (.arg (runtimePort args)) dataOnly dataOnly
+    (.cons (.arg (.tail .head)) .nil) (Fin.cases [] (fun _ => [Threaded dataPorts]))
+    (children := fun j => (explicitArms j).1) (fun j => (explicitArms j).2)
+    (.theta (nextRuntime [] dataPorts) dataOnly (.cons (.output (0 : Fin 1) .head) .nil)
+      [Threaded dataPorts, Threaded bodyPorts]
+      (children := fun _ => explicitOuterBody.1) (fun _ => explicitOuterBody.2)
+      (.ret (nextRuntime [Threaded dataPorts] dataPorts) (.cons (.output (1 : Fin 2) .head) .nil)))⟩
+
+-- The bounded, explicit graph evaluator supplies the finite observation.
+-- The erased computation skips the unselected effect, and the two outer
+-- activations inspect the actual state returned by the inner θ.
+example : ExplicitRuntime.observe model explicitProgram.1.toGraph explicitProgram.2.collect (decode (input 0, 0)) =
+    Part.some (Structured.withRuntime PUnit.unit (data 7), 15) :=
+  (ExplicitRuntime.observe_eq_some model _ explicitProgram.2.collect _ (decode (data 7, 15))).mpr ⟨2, rfl⟩
+
+-- Selecting the other arm adds 100 before entering the loop, so the first
+-- outer activation returns payload 102 and token 205.
+example : ExplicitRuntime.observe model explicitProgram.1.toGraph explicitProgram.2.collect (decode (input 1, 0)) =
+    Part.some (Structured.withRuntime PUnit.unit (data 102), 205) :=
+  (ExplicitRuntime.observe_eq_some model _ explicitProgram.2.collect _ (decode (data 102, 205))).mpr ⟨2, rfl⟩
 
 end Silmaril.SSA.RVSDG.NestedTheta.OrderedState.Tests

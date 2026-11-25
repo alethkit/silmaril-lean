@@ -14,19 +14,19 @@ variable {args outs : Ports (Ty V)} {past sigs : List (Ports (Ty V))}
 
 set_option backward.isDefEq.respectTransparency false
 
-private theorem get_runtime {F : Ty V → Type w} (rt : F runtime) (xs : Tuple F outs) :
+theorem get_runtime {F : Ty V → Type w} (rt : F runtime) (xs : Tuple F outs) :
     (withRuntime rt xs).get (runtimePort outs) = rt := by
   induction xs with
   | nil => rfl
   | cons _ _ ih => exact ih
 
-private theorem split_append {F : Ty V → Type w} (rt : F runtime) (xs : Tuple F outs) :
+theorem split_append {F : Ty V → Type w} (rt : F runtime) (xs : Tuple F outs) :
     splitRuntime outs (withRuntime rt xs) = (xs, rt) := by
   induction xs with
   | nil => rfl
   | cons x _ ih => simp only [withRuntime, splitRuntime, ih]
 
-private theorem append_split {F : Ty V → Type w} (xs : Tuple F (Threaded outs)) :
+theorem append_split {F : Ty V → Type w} (xs : Tuple F (Threaded outs)) :
     withRuntime (splitRuntime outs xs).2 (splitRuntime outs xs).1 = xs := by
   induction outs with
   | nil => cases xs with | cons _ tail => cases tail; rfl
@@ -41,14 +41,14 @@ private theorem get_newest {F : Ty V → Type w} {head : Ports (Ty V)} {t : Ty V
   | nil => rfl
   | cons _ _ ih => exact ih locals.2
 
-private theorem read_cons {F : Ty V → Type w} {t : Ty V}
+theorem read_cons {F : Ty V → Type w} {t : Ty V}
     (o : Origin args past t) (wires : Wires args past outs)
     (entry : Tuple F args) (locals : Locals F past) :
     Wires.read (.cons o wires) entry locals =
       .cons (readOrigin o entry locals) (wires.read entry locals) := by
   cases o <;> rfl
 
-private theorem read_appended {F : Ty V → Type w} (live : Origin args past runtime)
+theorem read_appended {F : Ty V → Type w} (live : Origin args past runtime)
     (wires : Wires args past outs) (entry : Tuple F args) (locals : Locals F past) :
     Wires.read (withRuntime live wires) entry locals =
       withRuntime (readOrigin live entry locals) (wires.read entry locals) := by
@@ -77,7 +77,7 @@ private theorem erase_origin {t : Ty V} (o : Origin args past t)
   | arg p => exact erase_get entry p
   | output i p => simp only [readOrigin, erase_lookup, erase_get]
 
-private theorem erase_read (wires : Wires args past outs)
+theorem erase_read (wires : Wires args past outs)
     (entry : Tuple (RuntimeValues value ρ) args) (locals : Locals (RuntimeValues value ρ) past) :
     wires.read (eraseTuple entry) (eraseLocals past locals) = eraseTuple (wires.read entry locals) := by
   induction wires with
@@ -89,7 +89,7 @@ private theorem erase_read (wires : Wires args past outs)
       Tuple.cons (eraseValue t (readOrigin o entry locals)) (eraseTuple (Wires.read rest entry locals))
     rw [erase_origin, ih]
 
-private theorem erase_snoc (locals : Locals (RuntimeValues value ρ) past)
+theorem erase_snoc (locals : Locals (RuntimeValues value ρ) past)
     (xs : Tuple (RuntimeValues value ρ) outs) :
     eraseLocals (past ++ [outs]) (locals.snoc xs) = (eraseLocals past locals).snoc (eraseTuple xs) := by
   induction past with
@@ -99,7 +99,7 @@ private theorem erase_snoc (locals : Locals (RuntimeValues value ρ) past)
       (eraseTuple locals.1, (eraseLocals _ locals.2).snoc (eraseTuple xs))
     rw [ih]
 
-private theorem erase_append (rt : ρ) (xs : Tuple (RuntimeValues value ρ) outs) :
+theorem erase_append (rt : ρ) (xs : Tuple (RuntimeValues value ρ) outs) :
     eraseTuple (withRuntime rt xs) = withRuntime PUnit.unit (eraseTuple xs) := by
   induction xs with
   | nil => rfl
@@ -134,11 +134,11 @@ theorem decode_encode (data : Data outs) (input : Tuple (RuntimeValues value ρ)
     ((eraseTuple (splitRuntime outs input).1).map (restoreValue _)) = _
   rw [restore_erase data, append_split]
 
-private theorem erase_decode (result : Tuple (Values value) outs × ρ) :
+theorem erase_decode (result : Tuple (Values value) outs × ρ) :
     eraseTuple (decode result) = withRuntime PUnit.unit result.1 := by
   simp only [decode, erase_append, erase_restore]
 
-private theorem next_decode (locals : Locals (RuntimeValues value ρ) past)
+theorem next_decode (locals : Locals (RuntimeValues value ρ) past)
     (result : Tuple (Values value) outs × ρ) (entry : Tuple (RuntimeValues value ρ) args) :
     readOrigin (nextRuntime past outs) entry (locals.snoc (decode result)) = result.2 := by
   simp only [nextRuntime, readOrigin, get_newest, decode, get_runtime]

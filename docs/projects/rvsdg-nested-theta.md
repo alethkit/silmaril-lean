@@ -102,9 +102,7 @@ pure entry points embed the total value primitives with `pure`. The ordered
 instance uses the structured runtime's `Instruction P E` dialect and lifts
 each `StateM σ` primitive into `StateT σ Part`. The typed ports carry values,
 selectors, and unit state slots. The live state stays in the computation, so
-reading or copying an in-scope port cannot recover a previous runtime. This
-slice uses implicit state in the Kleisli category. The separate explicit
-runtime-wire admission judgment is for the whole-region development.
+reading or copying an in-scope port cannot recover a previous runtime.
 [Definitions](../../Silmaril/SSA/RVSDG/NestedTheta/OrderedState/Defs.lean) · [Primitive lift](rvsdg-structured-runtime-lift.md)
 
 The independent `OrderedState.exec` relation records a finite derivation in
@@ -123,15 +121,45 @@ restart and to determine the returned payload. Choosing the uncharged γ arm
 returns payload 7 and state 15. Choosing the arm that adds 100 returns
 payload 102 and state 205. [Ordered fixture](../../tests/ssa/RVSDGNestedThetaOrderedState.lean)
 
+## Explicit runtime wires
+
+`ExplicitRuntime.Checked` admits nested terms over the structured runtime
+opcode dialect. It extends the flat live-wire rules. Every region enters with
+one runtime at the last port. Each binding uses only its designated live
+origin and its continuation can use only the token returned by that binding.
+The data signatures of instructions and regions exclude runtime ports. The
+selected γ arm gets the incoming token at its own boundary. A θ enters its
+body with the carried tuple and token. Each completed body routes its updated
+tuple and token together to the next activation or to the exit.
+[Admission and erasure](../../Silmaril/SSA/RVSDG/NestedTheta/ExplicitRuntime/Defs.lean)
+
+Erasure retains the numbered port positions. Runtime slots in the erased
+value scope are unit, and the erased instructions use the same ordered
+`StateM` actions as the explicit ones. `Checked.exec_iff` compares the two
+unbounded finite relations at an arbitrary admitted prefix. The live wire
+determines the implicit starting state. A boundary comparison pairs the
+erased output tuple with the final token, and the proof uses a bijection at
+each data-only interface. `observe_eq_some` composes this result with
+`StateT σ Part` adequacy for the erased graph and with the finite-return
+theorem for the explicit graph evaluator. Both directions concern the
+entire result and final token. The theorem is for supplied admission
+witnesses and finite observations in this deterministic model.
+[Theorems](../../Silmaril/SSA/RVSDG/NestedTheta/ExplicitRuntime/Thms.lean)
+
+The state fixture also assembles and checks explicit versions of the two
+γ arms and the nested θ body. Both branch results agree with the implicit
+observations, including payload 7 and token 15 when the arm that adds 100 is
+skipped. [Fixture](../../tests/ssa/RVSDGNestedThetaOrderedState.lean)
+
 ## Reproduce
 
 ```sh
 lake build --wfail +Silmaril.SSA.RVSDG.NestedTheta.Categorical.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGNestedTheta.lean
-lake build --wfail +Silmaril.SSA.RVSDG.NestedTheta.OrderedState.Thms
+lake build --wfail +Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGNestedThetaOrderedState.lean
-make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.NestedTheta.OrderedState.Thms
-lake env leanchecker Silmaril.SSA.RVSDG.NestedTheta.OrderedState.Thms
+make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.Thms
+lake env leanchecker Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.Thms
 ```
 
 The [interprocedural graph interfaces](rvsdg-interprocedural.md) use these
