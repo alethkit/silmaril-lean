@@ -77,14 +77,16 @@ def Rhs.reduce (store : Store slots) : Rhs slots → Option (Except (Error slots
       | none => (reduce store right).map (·.map (Rhs.binary op (.arithmetic (.int a))))
       | some b => some (lift ((op.eval a b).map .int))
 
-/-- A lowered function body is a sequence of assignments followed by a return. -/
+/-- A lowered function body ends in a return on each control-flow branch. -/
 inductive Code (slots : Nat) where
   | ret (rhs : Rhs slots)
   | assign (slot : Fin slots) (rhs : Rhs slots) (rest : Code slots)
+  | branch (test : Rhs slots) (yes no : Code slots)
 
 inductive Continuation (slots : Nat) where
   | ret
   | assign (slot : Fin slots) (rest : Code slots)
+  | branch (yes no : Code slots)
 
 inductive State (slots : Nat) where
   | evaluating (store : Store slots) (rhs : Rhs slots) (cont : Continuation slots)
@@ -99,6 +101,7 @@ inductive Event (slots : Nat) where
 def State.enter (store : Store slots) : Code slots → State slots
   | .ret rhs => .evaluating store rhs .ret
   | .assign slot rhs rest => .evaluating store rhs (.assign slot rest)
+  | .branch test yes no => .evaluating store test (.branch yes no)
 
 def State.resume (store : Store slots) (cont : Continuation slots) :
     Except (Error slots) (Rhs slots) → State slots
@@ -112,6 +115,12 @@ inductive Step : State slots → Option (Event slots) → State slots → Prop w
   | assign (store : Store slots) (slot : Fin slots) (value : Int) (rest : Code slots) :
       Step (.evaluating store (.arithmetic (.int value)) (.assign slot rest))
         (some (.write slot value)) (State.enter (store.write slot value) rest)
+  | takeYes (store : Store slots) (value : Int) (yes no : Code slots) (nonzero : value ≠ 0) :
+      Step (.evaluating store (.arithmetic (.int value)) (.branch yes no))
+        none (State.enter store yes)
+  | takeNo (store : Store slots) (yes no : Code slots) :
+      Step (.evaluating store (.arithmetic (.int 0)) (.branch yes no))
+        none (State.enter store no)
   | ret (store : Store slots) (value : Int) :
       Step (.evaluating store (.arithmetic (.int value)) .ret)
         (some (.exit (.ok value))) (.finished store (.ok value))
@@ -139,6 +148,7 @@ def State.advance : State slots → Option (Option (Event slots) × State slots)
     match cont with
     | .ret => some (some (.exit (.ok value)), .finished store (.ok value))
     | .assign slot rest => some (some (.write slot value), State.enter (store.write slot value) rest)
+    | .branch yes no => some (none, State.enter store (if value = 0 then no else yes))
   | .evaluating store rhs cont =>
     (rhs.reduce store).map fun next => (none, State.resume store cont next)
   | .raising store error => some (some (.exit (.error error)), .finished store (.error error))
@@ -157,10 +167,12 @@ def Rhs.work : Rhs slots → Nat
 def Code.budget : Code slots → Nat
   | .ret rhs => rhs.work + 2
   | .assign _ rhs rest => rhs.work + (rest.budget + 1)
+  | .branch test yes no => test.work + (max yes.budget no.budget + 1)
 
 def Continuation.budget : Continuation slots → Nat
   | .ret => 2
   | .assign _ rest => rest.budget + 1
+  | .branch yes no => max yes.budget no.budget + 1
 
 def State.budget : State slots → Nat
   | .evaluating _ rhs cont => rhs.work + cont.budget
@@ -184,12 +196,20 @@ def Code.eval (store : Store slots) : Code slots → Answer slots
     match rhs.eval store with
     | .ok value => rest.eval (store.write slot value)
     | .error error => ⟨store, .error error⟩
+  | .branch test yes no =>
+    match test.eval store with
+    | .ok value => if value = 0 then no.eval store else yes.eval store
+    | .error error => ⟨store, .error error⟩
 
 def Continuation.finish (store : Store slots) (result : Result slots) : Continuation slots → Answer slots
   | .ret => ⟨store, result⟩
   | .assign slot rest =>
     match result with
     | .ok value => rest.eval (store.write slot value)
+    | .error error => ⟨store, .error error⟩
+  | .branch yes no =>
+    match result with
+    | .ok value => if value = 0 then no.eval store else yes.eval store
     | .error error => ⟨store, .error error⟩
 
 def State.answer : State slots → Answer slots

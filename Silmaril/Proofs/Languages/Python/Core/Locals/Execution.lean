@@ -113,6 +113,16 @@ theorem advance_iff : source.advance = some (label, target) ↔ Step source labe
           | assign slot rest =>
             cases selected
             exact .assign store slot value rest
+          | branch yes no =>
+            change some (none, State.enter store (if value = 0 then no else yes)) =
+              some (label, target) at selected
+            by_cases zero : value = 0
+            · subst value
+              cases selected
+              exact .takeNo store yes no
+            · simp only [zero, ite_false] at selected
+              cases selected
+              exact .takeYes store value yes no zero
     | raising store error =>
       cases selected
       exact .raise store error
@@ -128,7 +138,8 @@ theorem advance_iff : source.advance = some (label, target) ↔ Step source labe
         | int =>
           cases reduced with
           | arithmetic core => cases core
-    | assign | ret | raise => rfl
+    | takeYes store value yes no nonzero => simp [State.advance, nonzero]
+    | takeNo | assign | ret | raise => rfl
 
 theorem deterministic {other : State slots} {otherLabel : Option (Event slots)}
     (left : Step source label target) (right : Step source otherLabel other) :
@@ -187,6 +198,11 @@ theorem progress (state : State slots) :
     · cases cont with
       | ret => exact ⟨_, _, .ret store value⟩
       | assign slot rest => exact ⟨_, _, .assign store slot value rest⟩
+      | branch yes no =>
+        by_cases zero : value = 0
+        · subst value
+          exact ⟨_, _, .takeNo store yes no⟩
+        · exact ⟨_, _, .takeYes store value yes no zero⟩
     · exact ⟨_, _, .expression step⟩
   | raising store error => exact Or.inl ⟨_, _, .raise store error⟩
   | finished store result => exact Or.inr ⟨_, .finished store result⟩

@@ -55,6 +55,10 @@ theorem answer_eq (step : Step source label target) : source.answer = target.ans
       rw [result]
       cases cont <;> rfl
   | assign store slot value rest => exact (enter_answer (store.write slot value) rest).symm
+  | takeYes store value yes no nonzero =>
+    simpa [State.answer, Continuation.finish, Rhs.eval, Silmaril.Languages.Python.Core.Expr.eval,
+      Except.mapError, nonzero] using (enter_answer store yes).symm
+  | takeNo store yes no => exact (enter_answer store no).symm
   | ret | raise => rfl
 
 private theorem rhs_decreases (step : rhs.Step store next) :
@@ -88,6 +92,10 @@ private theorem code_minBudget (code : Code slots) : 2 ≤ code.budget := by
   | assign slot rhs rest ih =>
     simp only [Code.budget]
     omega
+  | branch test yes no yesIH noIH =>
+    simp only [Code.budget]
+    have upper := Nat.le_max_left yes.budget no.budget
+    omega
 
 private theorem cont_minBudget (cont : Continuation slots) : 2 ≤ cont.budget := by
   cases cont with
@@ -95,6 +103,11 @@ private theorem cont_minBudget (cont : Continuation slots) : 2 ≤ cont.budget :
   | assign slot rest =>
     simp only [Continuation.budget]
     have enough := code_minBudget rest
+    omega
+  | branch yes no =>
+    simp only [Continuation.budget]
+    have enough := code_minBudget yes
+    have upper := Nat.le_max_left yes.budget no.budget
     omega
 
 theorem decreases (step : Step source label target) : target.budget < source.budget := by
@@ -110,6 +123,16 @@ theorem decreases (step : Step source label target) : target.budget < source.bud
   | assign store slot value rest =>
     rw [enter_budget]
     simp [State.budget, Rhs.work, Continuation.budget, Silmaril.Languages.Python.Core.Expr.work]
+  | takeYes store value yes no nonzero =>
+    rw [enter_budget]
+    change yes.budget < 0 + (max yes.budget no.budget + 1)
+    have upper := Nat.le_max_left yes.budget no.budget
+    omega
+  | takeNo store yes no =>
+    rw [enter_budget]
+    change no.budget < 0 + (max yes.budget no.budget + 1)
+    have upper := Nat.le_max_right yes.budget no.budget
+    omega
   | ret => simp [State.budget, Rhs.work, Continuation.budget, Silmaril.Languages.Python.Core.Expr.work]
   | raise => simp [State.budget]
 
