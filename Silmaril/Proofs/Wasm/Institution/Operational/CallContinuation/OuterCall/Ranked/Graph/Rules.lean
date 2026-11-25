@@ -36,6 +36,9 @@ theorem map_child {fn : Function} {r₁ r₂ : CallTarget → Phase → Phase �
     exact .ifSelect locals saved condition result thenBody elseBody rest
   | blockEnter locals saved result body rest => exact .blockEnter locals saved result body rest
   | blockStep saved result rest _ ih => exact .blockStep saved result rest ih
+  | indexedBlockEnter locals saved args index signature body rest resolved typed =>
+    exact .indexedBlockEnter locals saved args index signature body rest resolved typed
+  | indexedBlockStep saved signature rest _ ih => exact .indexedBlockStep saved signature rest ih
   | loopEnter locals saved result body rest => exact .loopEnter locals saved result body rest
   | loopStep saved result original rest _ ih => exact .loopStep saved result original rest ih
   | unreachable args stack rest => exact .unreachable args stack rest
@@ -85,6 +88,11 @@ theorem label_outcome {fn : Function} {childStep : CallTarget → Phase → Phas
     have valid := ih ⟨_, _, rfl⟩
     cases next <;> simp_all [Phase.afterBlock, Phase.LabelOutcome]
     case exit result => cases result <;> trivial
+  | @indexedBlockStep kind locals inner next saved signature rest step ih =>
+    intro _
+    have valid := ih ⟨_, _, rfl⟩
+    cases next <;> simp_all [Phase.afterBlock, Phase.LabelOutcome]
+    case exit result => cases result <;> trivial
   | @loopStep kind locals inner next saved result original rest step ih =>
     intro _
     have valid := ih ⟨_, _, rfl⟩
@@ -120,6 +128,21 @@ theorem block_iff {program : Program} (checked : program.check = true)
   · rintro ⟨next, step, rfl⟩
     exact .blockStep saved result rest ((edge_iff checked found).mp step)
 
+theorem indexed_block_iff {program : Program} (checked : program.check = true)
+    {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
+    {locals saved : List Value} {signature : Wasm.V1.FuncType} {inner : Body} {rest : List Op}
+    {out : Phase} {kind : LabelKind} :
+    program.EdgeAt checked address kind (.label locals (.indexedBlock saved signature inner rest)) out ↔
+      ∃ next, program.EdgeAt checked address (.indexed signature) (.label locals inner) next ∧
+        out = next.afterBlock saved none rest (.indexed signature) := by
+  rw [edge_iff checked found]
+  constructor
+  · intro step
+    cases step with
+    | indexedBlockStep _ _ _ step => exact ⟨_, (edge_iff checked found).mpr step, rfl⟩
+  · rintro ⟨next, step, rfl⟩
+    exact .indexedBlockStep saved signature rest ((edge_iff checked found).mp step)
+
 theorem loop_iff {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
     {locals saved : List Value} {result : Option NumType} {inner : Body} {original rest : List Op}
@@ -149,6 +172,10 @@ theorem not_call {program : Program} {checked : program.check = true}
   obtain ⟨_, _, step⟩ := (unfold_edge checked address a b .exit).mp edge
   cases step with
   | @blockStep _ locals saved result rest inner next step =>
+    have outcome := label_outcome step ⟨_, _, rfl⟩
+    cases next <;> simp_all [Phase.LabelOutcome, Phase.afterBlock]
+    case exit result => cases result <;> simp
+  | @indexedBlockStep _ locals inner next saved signature rest step =>
     have outcome := label_outcome step ⟨_, _, rfl⟩
     cases next <;> simp_all [Phase.LabelOutcome, Phase.afterBlock]
     case exit result => cases result <;> simp

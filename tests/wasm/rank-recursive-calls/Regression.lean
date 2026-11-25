@@ -275,9 +275,9 @@ private theorem v1Trace (traps : Bool) :
     V1.Execution.Steps CallFrame.v1NoHost
       (v1Config (v1Store (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (.call input))
       (v1Config (v1Store (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (.done (outcome traps))) := by
-  have nested := (v1_run_iff (v1Checked traps) (v1Allocated _) (root traps) (.call rfl)).mpr
+  have nested := (v1_run_iff (v1Checked traps) (v1Allocated _) (root traps) (.call rfl) rfl).mpr
     ⟨_, reaches traps, deepestReady traps, rfl⟩
-  have exit := (v1_run_iff (v1Checked traps) (v1Allocated _) (root traps) (deepestReady traps)).mpr
+  have exit := (v1_run_iff (v1Checked traps) (v1Allocated _) (root traps) (deepestReady traps) (by cases traps <;> rfl)).mpr
     ⟨_, finishes traps, outcomeReady traps, rfl⟩
   exact nested.trans exit
 
@@ -315,7 +315,7 @@ example (traps : Bool) {dst : Lime1.Execution.Config Unit}
       (v1Config (v1Store (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (deepest traps)).toLime dst) :
     ∃ mid, V1.Execution.Step CallFrame.v1NoHost
       (v1Config (v1Store (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (deepest traps)) mid ∧ mid.toLime = dst :=
-  v1_reflect_lime_step (v1Checked traps) (v1Allocated _) (root traps) (deepestReady traps) step
+  v1_reflect_lime_step (v1Checked traps) (v1Allocated _) (root traps) (deepestReady traps) (by cases traps <;> rfl) step
 
 private def multiTarget : CallTarget := ⟨⟨0⟩, ⟨0⟩, multiResult.declaration⟩
 
@@ -501,7 +501,7 @@ example : V1.Execution.Step CallFrame.v1NoHost
       (suspendedWrite false (afterTee false)) (suspendedWrite false (afterWrite false)) :=
     parentRule false (.child (a := afterTee false) (b := afterWrite false) [i32 4, i32 0] [i32 4] (writingTarget false) parentRest
       (usesWritingTarget false) (by trivial) (leafWrite false))
-  exact (v1_step_iff (writingV1Checked false) (v1Allocated _) (writingRoot false) ready).mpr ⟨_, write, rfl⟩
+  exact (v1_step_iff (writingV1Checked false) (v1Allocated _) (writingRoot false) ready rfl).mpr ⟨_, write, rfl⟩
 
 example : Lime1.Execution.Steps CallFrame.limeNoHost
     (limeConfig (limeStore (writingGraph true)) (callerFrame ⟨1⟩) (writingRootTarget true)
@@ -549,7 +549,7 @@ example : V1.Execution.Step CallFrame.v1NoHost
       [.frame 1 (currentFrame (writingParent false).declaration [i32 4, i32 0])
         [.label 1 [] (.source (.intConst .i32 4) :: .source (.intConst .i32 12) :: parentRest.map v1Admin.emit)]]⟩ := by
   have ready := (writingGraph false).admitted_step (writingChecked false) rfl beforeReturnReady nestedReturnLabel
-  exact (v1_step_iff (writingV1Checked false) (v1Allocated _) (writingRoot false) ready).mpr
+  exact (v1_step_iff (writingV1Checked false) (v1Allocated _) (writingRoot false) ready rfl).mpr
     ⟨_, nestedReturnFrame, rfl⟩
 
 private def writingResult (traps : Bool) : Nested.Result := if traps then .trap else .values [i32 20]
@@ -580,7 +580,7 @@ example (traps : Bool) : Lime1.Execution.Steps CallFrame.limeNoHost
 example (traps : Bool) : V1.Execution.Steps CallFrame.v1NoHost
     (v1Config (v1Store (writingGraph traps)) (callerFrame ⟨1⟩) (writingRootTarget traps) (.call input))
     (v1Config (v1Store (writingGraph traps)) (callerFrame ⟨1⟩) (writingRootTarget traps) (.done (writingResult traps))) :=
-  (v1_run_iff (writingV1Checked traps) (v1Allocated _) (writingRoot traps) (.call rfl)).mpr
+  (v1_run_iff (writingV1Checked traps) (v1Allocated _) (writingRoot traps) (.call rfl) rfl).mpr
     ⟨_, writingRun traps, writingResultTyped traps, rfl⟩
 
 
@@ -790,7 +790,7 @@ example (early traps : Bool) : V1.Execution.Steps CallFrame.v1NoHost
     (v1Config (v1Store (blockGraph early traps)) (callerFrame ⟨1⟩) (blockRootTarget early traps) (.call input))
     (v1Config (v1Store (blockGraph early traps)) (callerFrame ⟨1⟩) (blockRootTarget early traps)
       (.done (blockResult early traps))) :=
-  (v1_run_iff (blockV1Checked early traps) (v1Allocated _) (blockRoot early traps) (.call rfl)).mpr
+  (v1_run_iff (blockV1Checked early traps) (v1Allocated _) (blockRoot early traps) (.call rfl) rfl).mpr
     ⟨_, blockRun early traps, blockResultTyped early traps, rfl⟩
 
 
@@ -956,7 +956,7 @@ private theorem ifNative {takeThen early traps : Bool} {result : Nested.Result}
   have endpoint := Program.admitted_run checked root.found ready run
   exact ⟨(core_run_iff checked (coreAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩,
     (lime_run_iff checked (limeAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩,
-    (v1_run_iff (ifV1Checked takeThen early traps) (v1Allocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩⟩
+    (v1_run_iff (ifV1Checked takeThen early traps) (v1Allocated _) root ready rfl).mpr ⟨_, run, endpoint, rfl⟩⟩
 
 example := ifNative ifThenRun
 example := ifNative ifElseRun
@@ -1077,7 +1077,7 @@ private theorem branchRoot (nested : Bool) :
 private theorem nativeRun {program : Program} {caller : Execution.Runtime.Frame} {target : CallTarget}
     {fn : Function} {start out : Phase} (checked : program.check = true) (checkedV1 : program.checkV1 = true)
     (root : Root program caller target fn) (ready : Admitted program fn start)
-    (run : program.Runs checked target.address start out) :
+    (run : program.Runs checked target.address start out) (supported : start.supportsV1 = true := by rfl) :
     Execution.Core.Steps Numerics.Profile.spec SingleThreaded.Det.noHost
       (coreConfig (coreStore program) caller target start) (coreConfig (coreStore program) caller target out) ∧
     Lime1.Execution.Steps CallFrame.limeNoHost
@@ -1087,7 +1087,7 @@ private theorem nativeRun {program : Program} {caller : Execution.Runtime.Frame}
   have endpoint := Program.admitted_run checked root.found ready run
   exact ⟨(core_run_iff checked (coreAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩,
     (lime_run_iff checked (limeAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩,
-    (v1_run_iff checkedV1 (v1Allocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩⟩
+    (v1_run_iff checkedV1 (v1Allocated _) root ready supported).mpr ⟨_, run, endpoint, rfl⟩⟩
 
 -- Check both the resumed operand order and the noncommutative continuation result.
 example (nested : Bool) := nativeRun (branchChecked nested) (branchV1Checked nested) (branchRoot nested)
@@ -1705,8 +1705,119 @@ example {dst : Lime1.Execution.Config Unit} :=
 
 example {dst : V1.Execution.Config Unit} :=
   exactCycle (dst := dst) (v1Config (v1Store foreverGraph) (callerFrame ⟨0⟩) foreverTarget)
-    (v1_run_iff foreverV1Checked (v1Allocated _) foreverRoot foreverReady)
+    (v1_run_iff foreverV1Checked (v1Allocated _) foreverRoot foreverReady rfl)
 
 end ScalarLoops
+
+section IndexedBlocks
+
+private abbrev wide := NumType.int .i64
+private abbrev wideVal := Value.int .i64
+private abbrev narrowLocal : LocalIdx := ⟨2⟩
+private abbrev wideLocal : LocalIdx := ⟨3⟩
+private abbrev indexedType : TypeIdx := ⟨1⟩
+private def mixedSig : V1.FuncType := ⟨[wide, int32], [int32, wide]⟩
+private def mixedArgs : List Value := [wideVal 11, i32 7]
+private def beforeMixed : List Value := mixedArgs ++ [i32 0, wideVal 0]
+private def afterMixed : List Value := mixedArgs ++ [i32 7, wideVal 11]
+private def mixedResults : List Value := [i32 7, wideVal 11]
+private def flatBody : List Op := [.set narrowLocal, .set wideLocal, readLocal narrowLocal, readLocal wideLocal]
+private def mixedCode : List Op := [.indexedBlock indexedType mixedSig flatBody]
+
+private def mixedCallee : Function :=
+  ⟨⟨{ types := [⟨[], []⟩, mixedSig] }, ⟨0⟩, mixedSig.params, [int32, wide], mixedSig.results⟩,
+    0, mixedArgs, mixedCode⟩
+
+private def mixedTarget : CallTarget := ⟨⟨0⟩, ⟨0⟩, mixedCallee.declaration⟩
+private def mixedTail : List Op := [.set ⟨0⟩, add, readLocal ⟨0⟩]
+private def mixedCaller : Function :=
+  ⟨⟨{ funcs := [⟨0⟩] }, ⟨0⟩, [], [wide], [int32, wide]⟩, 1, [i32 9] ++ mixedArgs,
+    .call mixedTarget :: mixedTail⟩
+private def mixedGraph : Program := ⟨[some mixedCallee, some mixedCaller]⟩
+private def mixedRootTarget : CallTarget := ⟨⟨0⟩, ⟨1⟩, mixedCaller.declaration⟩
+private theorem mixedChecked : mixedGraph.check = true := rfl
+private theorem mixedRoot : Root mixedGraph (callerFrame ⟨1⟩) mixedRootTarget mixedCaller := ⟨rfl, rfl, rfl⟩
+
+example : ({ mixedCallee with code := [.indexedBlock ⟨2⟩ mixedSig flatBody] }).check = false := rfl
+example : ({ mixedCallee with code := [.indexedBlock ⟨0⟩ mixedSig flatBody] }).check = false := rfl
+example : ({ mixedCallee with code := [.indexedBlock indexedType ⟨[wide, int32], [wide, int32]⟩ flatBody] }).check = false := rfl
+example : ({ mixedCallee with initial := [i32 7, wideVal 11] }).check = false := rfl
+example : ({ mixedCallee with initial := [i32 7] }).check = false := rfl
+example : ({ mixedCallee with code := [.indexedBlock indexedType mixedSig []] }).check = false := rfl
+example : ({ mixedCallee with code := [.indexedBlock indexedType mixedSig [.br ⟨0⟩ [wide, int32]]] }).check = false := rfl
+
+-- An unexecuted suffix and an unselected arm must still fit V1 source syntax.
+private def skippedIndexed (code : List Op) : Program :=
+  ⟨[some ⟨⟨{ types := [⟨[], []⟩] }, ⟨0⟩, [], [], []⟩, 0, [], code⟩]⟩
+
+private def skippedBlock : Op := .indexedBlock ⟨0⟩ ⟨[], []⟩ []
+
+example : (skippedIndexed [.unreachable, skippedBlock]).check = true := rfl
+example : (skippedIndexed [.unreachable, skippedBlock]).checkV1 = false := rfl
+example : (skippedIndexed [.block none [.return_, skippedBlock]]).checkV1 = false := rfl
+example : (skippedIndexed [.unreachable, .if_ none [] [skippedBlock]]).checkV1 = false := rfl
+
+private theorem mixedLeafRule {a b : Phase}
+    (step : Layer mixedCallee (fun t => mixedGraph.Edge mixedChecked t.address) a b) :
+    mixedGraph.Edge mixedChecked ⟨0⟩ a b :=
+  (mixedGraph.edge_iff mixedChecked (fn := mixedCallee) rfl).mpr step
+
+private theorem mixedLeafRun : mixedGraph.Runs mixedChecked ⟨0⟩ (.invoke mixedArgs) (.done (.values mixedResults)) := by
+  have entered := (Relation.ReflTransGen.single (mixedLeafRule (.enter mixedArgs rfl))).tail
+    (mixedLeafRule (.indexedBlockEnter beforeMixed [] mixedArgs indexedType mixedSig flatBody [] rfl rfl))
+  have setNarrow := entered.tail (mixedLeafRule (.indexedBlockStep [] mixedSig []
+    (.localSet (saved := [wideVal 11]) (rest := [.set wideLocal, readLocal narrowLocal, readLocal wideLocal])
+      (Locals.fact (.set beforeMixed narrowLocal (i32 7) (by decide))))))
+  have setWide := setNarrow.tail (mixedLeafRule (.indexedBlockStep [] mixedSig []
+    (.localSet (saved := []) (rest := [readLocal narrowLocal, readLocal wideLocal])
+      (Locals.fact (.set (mixedArgs ++ [i32 7, wideVal 0]) wideLocal (wideVal 11) (by decide))))))
+  have first := setWide.tail (mixedLeafRule (.indexedBlockStep [] mixedSig []
+    (.numeric (locals := afterMixed) (rest := [readLocal wideLocal])
+      (.get (stack := []) (i := narrowLocal) (v := i32 7) rfl))))
+  have second := first.tail (mixedLeafRule (.indexedBlockStep [] mixedSig []
+    (.numeric (locals := afterMixed) (rest := []) (.get (stack := [i32 7]) (i := wideLocal)
+      (v := wideVal 11) rfl))))
+  have leave := second.tail (mixedLeafRule (.indexedBlockStep [] mixedSig [] (.leaveValues afterMixed mixedResults)))
+  exact (leave.tail (mixedLeafRule (.leaveValues afterMixed mixedResults))).tail
+    (mixedLeafRule (.leaveFrame afterMixed (.values mixedResults) rfl))
+
+private theorem mixedResume :
+    mixedGraph.Runs mixedChecked ⟨1⟩ (.call []) (.label [wideVal 0] (.running ([i32 9] ++ mixedResults) mixedTail)) := by
+  have rule {a b : Phase} := (mixedGraph.edge_iff mixedChecked (address := ⟨1⟩)
+    (fn := mixedCaller) (a := a) (b := b) rfl).mpr
+  have start := (Relation.ReflTransGen.single (rule (.resolve []))).tail (rule (.enter [] rfl))
+  exact start.trans (Program.compose_call mixedChecked (address := ⟨1⟩) (fn := mixedCaller) (target := mixedTarget)
+    (locals := [wideVal 0]) (saved := [i32 9]) (rest := mixedTail) rfl
+    (by simp [mixedCaller, Function.targets, codeTargets, Op.targets, mixedTail, readLocal, add]) rfl mixedLeafRun)
+
+private theorem mixedFinish :
+    mixedGraph.Runs mixedChecked ⟨1⟩ (.call []) (.done (.values [i32 16, wideVal 11])) := by
+  have rule {a b : Phase} := (mixedGraph.edge_iff mixedChecked (address := ⟨1⟩)
+    (fn := mixedCaller) (a := a) (b := b) rfl).mpr
+  have set := mixedResume.tail (rule (.localSet (saved := [i32 9, i32 7]) (rest := [add, readLocal ⟨0⟩])
+    (Locals.fact (.set [wideVal 0] ⟨0⟩ (wideVal 11) (by decide)))))
+  have added := set.tail (rule (.numeric (rest := [readLocal ⟨0⟩]) (.bin (stack := [])
+    (show Numerics.intBinOp .i32 .add 9 7 = .ok 16 from rfl))))
+  have last := added.tail (rule (.numeric (locals := [wideVal 11]) (rest := [])
+    (.get (stack := [i32 16]) (i := ⟨0⟩) (v := wideVal 11) rfl)))
+  exact (last.tail (rule (.leaveValues [wideVal 11] [i32 16, wideVal 11]))).tail
+    (rule (.leaveFrame [wideVal 11] (.values [i32 16, wideVal 11]) rfl))
+
+private theorem checkedIndexedRun {program : Program} {caller : Execution.Runtime.Frame}
+    {target : CallTarget} {fn : Function} {start out : Phase} (checked : program.check = true)
+    (root : Root program caller target fn) (ready : Admitted program fn start)
+    (run : program.Runs checked target.address start out) :
+    Execution.Core.Steps Numerics.Profile.spec SingleThreaded.Det.noHost
+      (coreConfig (coreStore program) caller target start) (coreConfig (coreStore program) caller target out) ∧
+    Lime1.Execution.Steps CallFrame.limeNoHost
+      (limeConfig (limeStore program) caller target start) (limeConfig (limeStore program) caller target out) := by
+  have endpoint := Program.admitted_run checked root.found ready run
+  exact ⟨(core_run_iff checked (coreAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩,
+    (lime_run_iff checked (limeAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩⟩
+
+example := checkedIndexedRun mixedChecked mixedRoot (.call (args := []) rfl) mixedResume
+example := checkedIndexedRun mixedChecked mixedRoot (.call (args := []) rfl) mixedFinish
+
+end IndexedBlocks
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph

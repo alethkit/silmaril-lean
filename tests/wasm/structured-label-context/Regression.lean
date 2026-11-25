@@ -299,7 +299,7 @@ example {dst : Config Unit} :
       ∃ out, program.Edge (Bool.and_eq_true_iff.mp checkedV1).1 target.address activation out ∧
         dst = wrap (Graph.v1Config v1AllocStore frame target out) := by
   intro wrap
-  have inner {mid : Config Unit} := Graph.v1_step_iff checkedV1 v1Allocated root (b := mid) admitted
+  have inner {mid : Config Unit} := Graph.v1_step_iff checkedV1 v1Allocated root (b := mid) admitted rfl
   change Step CallFrame.v1NoHost (wrap (Graph.v1Config v1AllocStore frame target activation)) dst ↔ _
   have context :
       Step CallFrame.v1NoHost (wrap (Graph.v1Config v1AllocStore frame target activation)) dst ↔

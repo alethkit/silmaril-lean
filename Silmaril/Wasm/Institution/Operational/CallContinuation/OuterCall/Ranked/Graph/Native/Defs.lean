@@ -22,6 +22,7 @@ structure CodeSyntax (A : Type) where
   ret : A
   unreachable : A
   block : Option NumType → List A → A
+  indexedBlock : TypeIdx → List A → A
   loop : Option NumType → List A → A
   if_ : Option NumType → List A → List A → A
   br : LabelIdx → A
@@ -36,6 +37,7 @@ def Op.emit {A : Type} (codec : CodeSyntax A) : Op → A
   | .tee i => codec.tee i
   | .call target => codec.ops.call target.index
   | .block result code => codec.block result (Op.emitList codec code)
+  | .indexedBlock index _ code => codec.indexedBlock index (Op.emitList codec code)
   | .loop result code => codec.loop result (Op.emitList codec code)
   | .if_ result thenBody elseBody =>
       codec.if_ result (Op.emitList codec thenBody) (Op.emitList codec elseBody)
@@ -54,7 +56,7 @@ end
 /-- Native continuation carried by the current administrative label. -/
 def LabelKind.cont {A : Type} (kind : LabelKind) (codec : CodeSyntax A) : List A :=
   match kind with
-  | .exit => []
+  | .exit | .indexed _ => []
   | .loop result original => [codec.loop result (Op.emitList codec original)]
 
 theorem LabelKind.inputs_length (kind : LabelKind) (fallthrough : List NumType) :
@@ -73,14 +75,16 @@ theorem Op.map_br_if {A : Type} (emit : Op → A) (condition : BitVec 32)
       (if condition = 0 then [] else [emit (.br depth result)]) ++ rest.map emit := by
   split <;> rfl
 
+/-- Indexed syntax lies outside the V1 source guard. The total renderer uses
+unreachable for that unsupported case. -/
 def v1CodeSyntax : CodeSyntax Wasm.V1.Instr :=
-  ⟨v1Source, .localSet, .localTee, .return_, .unreachable, .block, .loop, .if_, .br, .brIf, .brTable⟩
+  ⟨v1Source, .localSet, .localTee, .return_, .unreachable, .block, (fun _ _ => .unreachable), .loop, .if_, .br, .brIf, .brTable⟩
 
 def limeCodeSyntax : CodeSyntax Wasm.Lime1.Instr :=
-  ⟨limeSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.limeType, .loop ∘ Blocks.limeType, .if_ ∘ Blocks.limeType, .br, .brIf, .brTable⟩
+  ⟨limeSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.limeType, .block ∘ .typeIdx, .loop ∘ Blocks.limeType, .if_ ∘ Blocks.limeType, .br, .brIf, .brTable⟩
 
 def coreCodeSyntax : CodeSyntax Instr :=
-  ⟨coreSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.coreType, .loop ∘ Blocks.coreType, .if_ ∘ Blocks.coreType, .br, .brIf, .brTable⟩
+  ⟨coreSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.coreType, .block ∘ .typeIdx, .loop ∘ Blocks.coreType, .if_ ∘ Blocks.coreType, .br, .brIf, .brTable⟩
 
 def Function.instructions {A : Type} (fn : Function) (codec : CodeSyntax A) : List A :=
   fn.initial.map codec.ops.value ++ Op.emitList codec fn.code
@@ -149,6 +153,8 @@ def Body.render {A : Type} (ops : Syntax A) : Body → List A
       ops.values saved ++ child.renderAt ops target target.declaration.results.length ++ rest.map ops.emit
   | .block saved result body rest =>
       ops.values saved ++ ops.label result.toList.length .exit (body.render ops) :: rest.map ops.emit
+  | .indexedBlock saved signature body rest =>
+      ops.values saved ++ ops.label signature.results.length (.indexed signature) (body.render ops) :: rest.map ops.emit
   | .loop saved result original body rest =>
       ops.values saved ++ ops.label result.toList.length (.loop result original) (body.render ops) :: rest.map ops.emit
   | .trapped saved rest => ops.values saved ++ ops.trap :: rest.map ops.emit
