@@ -198,7 +198,7 @@ private def inIteration (code : List Admin) : List Admin :=
 private theorem iterationStep {f f' : Frame} {a b : List Admin}
     (edge : Step CallFrame.v1NoHost (onceConfig f a) (onceConfig f' b)) :
     Step CallFrame.v1NoHost (onceConfig f (inIteration a)) (onceConfig f' (inIteration b)) :=
-  (Blocks.Context.v1_label_iff (cont := [onceLoop]) (saved := saved) (rest := onceTail)).mpr
+  (Blocks.Context.v1_label_cont_iff (cont := [onceLoop]) (saved := saved) (rest := onceTail)).mpr
     (.inl ⟨_, edge, rfl⟩)
 
 private theorem iterationTest (v : Value) :
@@ -268,7 +268,7 @@ private theorem coreIterationStep {v v' : Value} {a b : List Admin}
     (edge : Step Numerics.Profile.spec noHost (coreOnceConfig v a) (coreOnceConfig v' b)) :
     Step Numerics.Profile.spec noHost (coreOnceConfig v (coreInIteration a))
       (coreOnceConfig v' (coreInIteration b)) :=
-  (Blocks.Context.core_label_iff (cont := [coreOnceLoop]) (saved := saved.map Value.toCore)
+  (Blocks.Context.core_label_cont_iff (cont := [coreOnceLoop]) (saved := saved.map Value.toCore)
     (rest := coreOnceTail)).mpr (.inl ⟨_, edge, rfl⟩)
 
 private theorem coreIterationTest (v : Value) :

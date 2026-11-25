@@ -54,7 +54,7 @@ theorem core_restart_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Fr
       dst = ⟨s, f, vals saved ++ expression cont ++ rest⟩ := by
   constructor
   · intro move
-    have contextual := Blocks.Context.core_label_iff.mp move
+    have contextual := Blocks.Context.core_label_cont_iff.mp move
     have exitExact {next : Config H}
         (h : Step P noHost ⟨s, f, [.label 0 cont (vals scratch ++ .plain (.br ⟨0⟩) :: pending)]⟩ next) :
         next = ⟨s, f, expression cont⟩ := by
@@ -64,18 +64,18 @@ theorem core_restart_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Fr
       · exact (Nat.lt_irrefl 0 bad).elim
     let surround (c : Config H) : Config H := ⟨c.store, c.frame, vals saved ++ c.code ++ rest⟩
     rcases contextual with ⟨mid, step, rfl⟩ | ⟨out, pop, rfl⟩
-    · have wrapped := (Blocks.Context.core_label_iff (P := P) (s := s) (f := f) (n := 0) (cont := cont)
+    · have wrapped := (Blocks.Context.core_label_cont_iff (P := P) (s := s) (f := f) (n := 0) (cont := cont)
         (saved := []) (rest := [])
         (dst := ⟨mid.store, mid.frame, [.label 0 cont mid.code]⟩)).mpr
         (.inl ⟨mid, step, by simp [vals]⟩)
       simpa [surround] using congrArg surround (exitExact wrapped)
-    · have wrapped := (Blocks.Context.core_label_iff (P := P) (s := s) (f := f) (n := 0) (cont := cont)
+    · have wrapped := (Blocks.Context.core_label_cont_iff (P := P) (s := s) (f := f) (n := 0) (cont := cont)
         (saved := []) (rest := [])
         (dst := ⟨s, f, out⟩)).mpr
         (.inr ⟨out, pop, by simp [vals]⟩)
       exact congrArg surround (exitExact wrapped)
   · rintro rfl
-    apply Blocks.Context.core_label_iff.mpr
+    apply Blocks.Context.core_label_cont_iff.mpr
     refine .inr ⟨_, ?_, rfl⟩
     simpa [vals, List.append_assoc] using
       (LabelExit.brZero (cont := cont) (l := ⟨0⟩) (vs' := scratch) (vs := []) (rest := pending) rfl rfl)
@@ -86,7 +86,7 @@ theorem core_result_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Fra
     Step P noHost ⟨s, f, vals saved ++ .label 0 cont code :: rest⟩ dst ↔
       dst = ⟨s, f, vals saved ++ code ++ rest⟩ := by
   dsimp only
-  rw [Blocks.Context.core_label_iff]
+  rw [Blocks.Context.core_label_cont_iff]
   constructor
   · rintro (⟨_, inside, _⟩ | ⟨out, pop, rfl⟩)
     · exact (Nested.core_result_stuck inside).elim
@@ -116,7 +116,7 @@ theorem lime_restart_iff {H : Type} {s : Store H} {f : Frame} {cont : Wasm.Lime1
       dst = ⟨s, f, values saved ++ expression cont ++ rest⟩ := by
   constructor
   · intro move
-    have contextual := Blocks.Context.lime_label_iff.mp move
+    have contextual := Blocks.Context.lime_label_cont_iff.mp move
     have exitExact {next : Config H}
         (h : Step CallFrame.limeNoHost ⟨s, f, [.label 0 cont (values scratch ++ .source (.br ⟨0⟩) :: pending)]⟩ next) :
         next = ⟨s, f, expression cont⟩ := by
@@ -126,18 +126,18 @@ theorem lime_restart_iff {H : Type} {s : Store H} {f : Frame} {cont : Wasm.Lime1
       · exact (Nat.lt_irrefl 0 bad).elim
     let surround (c : Config H) : Config H := ⟨c.store, c.frame, values saved ++ c.code ++ rest⟩
     rcases contextual with ⟨mid, step, rfl⟩ | ⟨out, pop, rfl⟩
-    · have wrapped := (Blocks.Context.lime_label_iff (s := s) (f := f) (n := 0) (cont := cont)
+    · have wrapped := (Blocks.Context.lime_label_cont_iff (s := s) (f := f) (n := 0) (cont := cont)
         (saved := []) (rest := [])
         (dst := ⟨mid.store, mid.frame, [.label 0 cont mid.code]⟩)).mpr
         (.inl ⟨mid, step, by simp [values]⟩)
       simpa [surround] using congrArg surround (exitExact wrapped)
-    · have wrapped := (Blocks.Context.lime_label_iff (s := s) (f := f) (n := 0) (cont := cont)
+    · have wrapped := (Blocks.Context.lime_label_cont_iff (s := s) (f := f) (n := 0) (cont := cont)
         (saved := []) (rest := [])
         (dst := ⟨s, f, out⟩)).mpr
         (.inr ⟨out, pop, by simp [values]⟩)
       exact congrArg surround (exitExact wrapped)
   · rintro rfl
-    apply Blocks.Context.lime_label_iff.mpr
+    apply Blocks.Context.lime_label_cont_iff.mpr
     refine .inr ⟨_, ?_, rfl⟩
     simpa [values, List.append_assoc] using
       (PureStep.labelBranch (types := f.module.types) 0 cont scratch [] pending rfl)
@@ -148,7 +148,7 @@ theorem lime_result_iff {H : Type} {s : Store H} {f : Frame} {cont : Wasm.Lime1.
     Step CallFrame.limeNoHost ⟨s, f, values saved ++ .label 0 cont code :: rest⟩ dst ↔
       dst = ⟨s, f, values saved ++ code ++ rest⟩ := by
   dsimp only
-  rw [Blocks.Context.lime_label_iff]
+  rw [Blocks.Context.lime_label_cont_iff]
   constructor
   · rintro (⟨_, inside, _⟩ | ⟨out, pop, rfl⟩)
     · exact (Nested.lime_result_stuck inside).elim
@@ -195,7 +195,7 @@ theorem v1_restart_iff {H : Type} {s : Store H} {f : Frame} {cont : Wasm.V1.Expr
     exact CallContinuation.config_toLime_injective H
       (by simpa [Config.toLime, Wasm.V1.Expr.toLime_eq_map] using eq)
   · rintro rfl
-    apply Blocks.Context.v1_label_iff.mpr
+    apply Blocks.Context.v1_label_cont_iff.mpr
     refine .inr ⟨_, ?_, rfl⟩
     simpa [values] using (PureStep.labelBranch 0 cont scratch [] pending rfl)
 
@@ -220,7 +220,7 @@ theorem v1_result_iff {H : Type} {s : Store H} {f : Frame} {cont : Wasm.V1.Expr}
     exact CallContinuation.config_toLime_injective H
       (by simpa only [Config.toLime, codeToLime_append, map_values, mapResult] using eq)
   · rintro rfl
-    apply Blocks.Context.v1_label_iff.mpr
+    apply Blocks.Context.v1_label_cont_iff.mpr
     cases r with
     | values stack => exact .inr ⟨_, .labelDone _ _ stack, rfl⟩
     | trap => exact .inr ⟨_, .labelTrap _ _, rfl⟩
