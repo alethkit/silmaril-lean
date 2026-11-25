@@ -26,6 +26,13 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
       Outcome.resume (evalExpr receiver next) fun target next =>
         Outcome.resume (evalExpr subscript next) fun index next =>
           Outcome.resume (writeIndex target index value next) fun _ => pure .next
+  | .addIndexExpr receiver subscript rhs =>
+    Outcome.resume (evalExpr receiver state) fun target next =>
+      Outcome.resume (evalExpr subscript next) fun index next =>
+        Outcome.resume (readIndex target index next) fun previous next =>
+          Outcome.resume (evalExpr rhs next) fun value next =>
+            Outcome.resume (fromExcept (applyIntegerAdd previous value) next) fun sum next =>
+              Outcome.resume (writeIndex target index sum next) fun _ => pure .next
   | .evalExpr value => Outcome.resume (evalExpr value state) (fun _ => pure .next)
   | .insertDictEntry receiver key value => insertDictEntry receiver key value state
   | .seq first rest =>

@@ -144,6 +144,7 @@ arguments and the capture operands retain their source order. -/
 inductive Code : Core.Closure.Layout → Type where
   | ret {layout} (value : Expr layout) : Code layout
   | assert {layout} (test : Expr layout) (next : Code layout) : Code layout
+  | discardCall {layout} (callee : Expr layout) (next : Code layout) : Code layout
   | assign {layout} (destination : Slot layout) (value : Expr layout) (next : Code layout) : Code layout
   | closure {layout} (destination : Slot layout) (path : BlockPath) (childLayout : Core.Closure.Layout)
       (parameters : Parameters childLayout) (captures : Fin childLayout.captures → CaptureSlot layout)
@@ -152,7 +153,7 @@ inductive Code : Core.Closure.Layout → Type where
 /-- Child code paths in lexical preorder. -/
 def Code.childPaths {layout : Core.Closure.Layout} : Code layout → List BlockPath
   | .ret _ => []
-  | .assign _ _ next | .assert _ next => next.childPaths
+  | .assign _ _ next | .assert _ next | .discardCall _ next => next.childPaths
   | .closure _ path _ _ _ child next => path :: (child.childPaths ++ next.childPaths)
 
 def fixed (parameter : Source.Parameter) : Bool :=
@@ -182,6 +183,16 @@ def assignment? : (source : Source.Stmt) →
   | .assignTargets [.name name] value => some ⟨(name, value), .singleTarget name value⟩
   | _ => none
 
+inductive ZeroArgumentNameCall : Source.Expr → Name → Prop where
+  | plain (name : Name) : ZeroArgumentNameCall (.call (.name name) []) name
+  | tagged (name : Name) : ZeroArgumentNameCall (.callWith (.name name) []) name
+
+def zeroArgumentNameCall? : (source : Source.Expr) →
+    Option {name // ZeroArgumentNameCall source name}
+  | .call (.name name) [] => some ⟨name, .plain name⟩
+  | .callWith (.name name) [] => some ⟨name, .tagged name⟩
+  | _ => none
+
 inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
     Code (frameLayout tree.scope) → Prop where
   | ret {tree index source target} (ordinary : tree.scope.context.containsYield = false)
@@ -205,6 +216,11 @@ inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
       (tail : Translation tree index rest next) :
       Translation tree index (.assert_ (.comparison (.name name) [(.eq, .integer right)]) none :: rest)
         (.assert (.eqInt left right) next)
+  | discardCall {tree index source name callee rest next}
+      (shape : ZeroArgumentNameCall source name)
+      (read : ExprTranslation tree.scope (.name name) callee)
+      (tail : Translation tree index rest next) :
+      Translation tree index (.expression source :: rest) (.discardCall callee next)
   | pass {tree index rest next} (tail : Translation tree index rest next) :
       Translation tree index (.pass :: rest) next
   | nonlocal {tree index names rest next} (tail : Translation tree index rest next) :
@@ -244,6 +260,11 @@ private def lowerOrdinaryBody (tree : ScopeTree) (allowGlobals : Bool)
     let target ← lowerExprWith tree.scope allowGlobals test
     let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
     return ⟨.assert target.val tail.val, .assert target.property tail.property⟩
+  | .expression source :: rest => do
+    let some call := zeroArgumentNameCall? source | throw .bodyShape
+    let callee ← lowerExprWith tree.scope allowGlobals (.name call.val)
+    let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
+    return ⟨.discardCall callee.val tail.val, .discardCall call.property callee.property tail.property⟩
   | .pass :: rest => do
     let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
     return ⟨tail.val, .pass tail.property⟩

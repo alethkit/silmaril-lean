@@ -88,4 +88,57 @@ note(2, alias)[note(3, "c")] = note(1, 9)`, nil)
 	require(activeList.Append(starlark.None) == nil && activeDict.SetKey(starlark.String("c"), starlark.None) == nil,
 		"failed iteration should release its guards")
 	fmt.Println("PASS alias mutation guards and cleanup on loop failure")
+
+	g, err = run(list+`def grow():
+    events.append(3)
+    alias.append(77)
+    return -1
+note(1, alias)[note(2, -1)] += grow()`, nil)
+	require(err == nil && g["events"].String() == "[1, 2, 3]" && g["target"].String() == "[7, 6]" &&
+		g["target"] == g["alias"], fmt.Sprint(err))
+	g, err = run(dictionary+`note(1, alias)[note(2, "b")] += note(3, 9)`, nil)
+	require(err == nil && g["events"].String() == "[1, 2, 3]" &&
+		g["target"].String() == `{"b": 16, "a": 8}` && g["target"] == g["alias"], fmt.Sprint(err))
+	g, err = run(`first = [7]
+second = [50]
+selected = [first]
+def choose():
+    return selected[0]
+def change():
+    selected[0] = second
+    first[0] = 100
+    return 2
+def update():
+    choose()[0] += change()
+update()
+first[0] += 1`, nil)
+	require(err == nil && g["first"].String() == "[10]" && g["second"].String() == "[50]" &&
+		g["selected"].(*starlark.List).Index(0) == g["second"], fmt.Sprint(err))
+	fmt.Println("PASS augmented receiver and index evaluated once, old value read before RHS, saved raw index and identity used for write")
+
+	for _, test := range []struct{ stmt, trace, message string }{
+		{`len(note(1, 9))[note(2, 0)] += note(3, 9)`, "[1]", "has no len"},
+		{`note(1, alias)[len(note(2, 9))] += note(3, 9)`, "[1, 2]", "has no len"},
+		{`note(1, alias)[note(2, 0)] += len(note(3, 9))`, "[1, 2, 3]", "has no len"},
+		{`note(1, alias)[note(2, 2)] += note(3, 9)`, "[1, 2]", "out of range"},
+	} {
+		failedWrite(list+test.stmt, test.message, test.trace, "[7]", nil)
+	}
+	failedWrite(provided+`note(1, alias)[note(2, "absent")] += note(3, 9)`,
+		"key \"absent\" not in dict", "[1, 2]", `{"b": 7}`, starlark.StringDict{"provided": frozenDict})
+	failedWrite(provided+`note(1, alias)[note(2, [])] += note(3, 9)`,
+		"unhashable type: list", "[1, 2]", `{"b": 7}`, starlark.StringDict{"provided": frozenDict})
+	failedWrite(list+`def fail_rhs():
+    alias[0] = 100
+    return len(note(3, 9))
+note(1, target)[note(2, 0)] += fail_rhs()`, "has no len", "[1, 2, 3]", "[100]", nil)
+	failedWrite(provided+`note(1, alias)[note(2, 0)] += note(3, True)`,
+		"unknown binary op: int + bool", "[1, 2, 3]", "[7]", starlark.StringDict{"provided": frozenList})
+	failedWrite(provided+`note(1, alias)[note(2, 0)] += note(3, 9)`,
+		"frozen list", "[1, 2, 3]", "[7]", starlark.StringDict{"provided": frozenList})
+	augmentedActiveDict := failedWrite(dictionary+loop+"note(1, alias)[note(2, \"b\")] += note(3, 9)\nvisit()",
+		"during iteration", "[1, 2, 3]", `{"b": 7, "a": 8}`, nil).(*starlark.Dict)
+	require(augmentedActiveDict.SetKey(starlark.String("c"), starlark.None) == nil,
+		"failed augmented assignment should release the iterator guard")
+	fmt.Println("PASS augmented read, RHS, operator and write failure order, preserved effects, and iterator cleanup")
 }

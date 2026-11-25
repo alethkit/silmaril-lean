@@ -24,6 +24,19 @@ theorem LSubst.ValueFamily.liftVars {Γ : VCtx τ} {L K : LCtx τ} {σ : Nat →
     LSubst.ValueFamily (A :: Γ) L K (liftLSubstVars σ) :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.valueFamily_liftVars hσ A
 
+/-- Preserve a prefix of local labels while replacing the outward continuations. -/
+theorem LSubst.ValueFamily.append {Γ : VCtx τ} {L K : LCtx τ} {σ : Nat → Region Φ}
+    (hσ : LSubst.ValueFamily Γ L K σ) (R : LCtx τ) :
+    LSubst.ValueFamily Γ (R ++ L) (R ++ K) (liftLSubstN R.length σ) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.valueFamily_append hσ R
+
+/-- Replacing the exits of a value-branch region by value-branch continuations
+preserves value branches. -/
+theorem ValueBranches.lsubst {Γ : VCtx τ} {L K : LCtx τ} {r : Region Φ}
+    (hr : ValueBranches Γ r L) {σ : Nat → Region Φ} (hσ : LSubst.ValueFamily Γ L K σ) :
+    ValueBranches Γ (r.lsubst σ) K :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.valueBranches_lsubst hr hσ
+
 theorem LSubst.ValueFamily.comp {Γ : VCtx τ} {L K P : LCtx τ} {σ υ : Nat → Region Φ}
     (hσ : LSubst.ValueFamily Γ L K σ) (hυ : LSubst.ValueFamily Γ K P υ) :
     LSubst.ValueFamily Γ L P (compLSubst σ υ) :=

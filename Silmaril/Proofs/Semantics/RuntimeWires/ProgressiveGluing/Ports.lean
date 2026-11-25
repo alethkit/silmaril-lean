@@ -11,7 +11,9 @@ open ProgressiveGraph ProgressiveGraph.Diagram
 universe u v
 
 variable {O : Type u} {S : Signature.{u,v} O} {L R W : ℕ}
-variable {lower : Diagram S L W .point} {upper : Diagram S R W .point}
+section Ports
+
+variable {U : ℕ} {P : Type*} {lower : Diagram S L W .point} {upper : Diagram S R U .point}
 
 theorem generator_left (j : Fin L) : gluedGenerator lower upper (Fin.castAdd R j) = lower.generator j := by
   simp [gluedGenerator]
@@ -20,42 +22,46 @@ theorem generator_right (j : Fin R) : gluedGenerator lower upper (Fin.natAdd L j
   simp [gluedGenerator]
 
 def ports (word : S.Edge → List O)
-    (first : ∀ j, Fin (word (lower.generator j)).length → Fin W)
-    (last : ∀ j, Fin (word (upper.generator j)).length → Fin W) :
-    ∀ j, Fin (word (gluedGenerator lower upper j)).length → Fin W :=
+    (first : ∀ j, Fin (word (lower.generator j)).length → P)
+    (last : ∀ j, Fin (word (upper.generator j)).length → P) :
+    ∀ j, Fin (word (gluedGenerator lower upper j)).length → P :=
   Fin.addCases
     (fun j i => first j (i.cast (congrArg (fun e => (word e).length) (generator_left j))))
     (fun j i => last j (i.cast (congrArg (fun e => (word e).length) (generator_right j))))
 
 theorem ports_left (word : S.Edge → List O) (j : Fin L)
-    (first : ∀ j, Fin (word (lower.generator j)).length → Fin W)
-    (last : ∀ j, Fin (word (upper.generator j)).length → Fin W)
+    (first : ∀ j, Fin (word (lower.generator j)).length → P)
+    (last : ∀ j, Fin (word (upper.generator j)).length → P)
     (i : Fin (word (gluedGenerator lower upper (Fin.castAdd R j))).length) :
     ports word first last (Fin.castAdd R j) i =
       first j (i.cast (congrArg (fun e => (word e).length) (generator_left j))) := by
   simp [ports]
 
 theorem ports_right (word : S.Edge → List O) (j : Fin R)
-    (first : ∀ j, Fin (word (lower.generator j)).length → Fin W)
-    (last : ∀ j, Fin (word (upper.generator j)).length → Fin W)
+    (first : ∀ j, Fin (word (lower.generator j)).length → P)
+    (last : ∀ j, Fin (word (upper.generator j)).length → P)
     (i : Fin (word (gluedGenerator lower upper (Fin.natAdd L j))).length) :
     ports word first last (Fin.natAdd L j) i =
       last j (i.cast (congrArg (fun e => (word e).length) (generator_right j))) := by
   simp [ports]
 
 theorem port_list_left (word : S.Edge → List O) (j : Fin L)
-    (first : ∀ j, Fin (word (lower.generator j)).length → Fin W)
-    (last : ∀ j, Fin (word (upper.generator j)).length → Fin W) :
+    (first : ∀ j, Fin (word (lower.generator j)).length → P)
+    (last : ∀ j, Fin (word (upper.generator j)).length → P) :
     List.ofFn (ports word first last (Fin.castAdd R j)) = List.ofFn (first j) := by
   rw [List.ofFn_congr (congrArg (fun e => (word e).length) (generator_left j))]
   exact congrArg List.ofFn (funext fun i => by simp [ports_left])
 
 theorem port_list_right (word : S.Edge → List O) (j : Fin R)
-    (first : ∀ j, Fin (word (lower.generator j)).length → Fin W)
-    (last : ∀ j, Fin (word (upper.generator j)).length → Fin W) :
+    (first : ∀ j, Fin (word (lower.generator j)).length → P)
+    (last : ∀ j, Fin (word (upper.generator j)).length → P) :
     List.ofFn (ports word first last (Fin.natAdd L j)) = List.ofFn (last j) := by
   rw [List.ofFn_congr (congrArg (fun e => (word e).length) (generator_right j))]
   exact congrArg List.ofFn (funext fun i => by simp [ports_right])
+
+end Ports
+
+variable {lower : Diagram S L W .point} {upper : Diagram S R W .point}
 
 theorem start_left (w : Fin W) (j : Fin L) :
     gluedStart (R := R) lower w = some (Fin.castAdd R j) ↔ lower.start w = some j := by

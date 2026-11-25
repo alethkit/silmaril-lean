@@ -21,6 +21,7 @@ inductive Body where
   | returnExpr (value : Lowering.Expr)
   | assignExpr (target : Binding) (value : Lowering.Expr)
   | setIndexExpr (receiver subscript rhs : Lowering.Expr)
+  | addIndexExpr (receiver subscript rhs : Lowering.Expr)
   | evalExpr (value : Lowering.Expr)
   | insertDictEntry (receiver key value : Binding)
   | seq (first rest : Body)
@@ -144,6 +145,10 @@ def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
     rhs.validateCalls
     receiver.validateCalls
     subscript.validateCalls
+  | .addIndexExpr receiver subscript rhs => do
+    receiver.validateCalls
+    subscript.validateCalls
+    rhs.validateCalls
   | .define .. | .insertDictEntry .. | .total _ => pure ()
 
 def Body.validateCalls (body : Body) : Except CallStaticError Unit := body.validateIn false
@@ -158,6 +163,14 @@ def validate (program : Program) (body : Body) : Except CallStaticError Unit := 
 
 def restoreCaller (caller state : State) : State :=
   { state with slots := caller.slots, bindings := caller.bindings }
+
+/-- The integer `+=` profile uses the scalar addition operation. -/
+def applyIntegerAdd (left right : Lists.Value) : Except Error Lists.Value :=
+  match left, right with
+  | .scalar (.int lhs), .scalar (.int rhs) =>
+    ((Starlark.applyBinary .add (.int lhs) (.int rhs)).map Lists.Value.scalar).mapError fun _ =>
+      .integerAddType left right
+  | _, _ => .error (.integerAddType left right)
 
 /-- Insert a dictionary display entry after lowering has staged both operands. -/
 def insertDictEntry (receiver key value : Binding) : Meaning Flow := do

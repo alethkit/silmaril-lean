@@ -60,6 +60,11 @@ theorem entrySize {α β : Type} [SizeOf α] [SizeOf β] {entries : List (α × 
   | .index receiver subscript => do
     receiver.validateCalls
     subscript.validateCalls
+  | .slice receiver start stop stride => do
+    receiver.validateCalls
+    start.validateCalls
+    stop.validateCalls
+    stride.validateCalls
   | .call callee positional keywords star starStar => do
     if let some duplicate := firstDuplicate (keywords.map Prod.fst) then
       throw (.duplicateExplicitKeyword duplicate)

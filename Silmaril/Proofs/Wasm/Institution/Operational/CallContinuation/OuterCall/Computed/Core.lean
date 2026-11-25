@@ -178,6 +178,76 @@ private theorem front {H : Type} {P : Profile} {s : Store H} {f : Frame}
   · obtain ⟨_, _, _, _, _, ⟨eq, _, _⟩ | ⟨_, eq, _, _⟩⟩ := fnv_bubble bubble <;>
       simp [fnv_cons_of_none none, notTrap, notThrow] at eq
 
+theorem unreachable_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {stack : List Val} {rest : List Admin} {dst : Config H} :
+    Step P noHost ⟨s, f, vals stack ++ .plain .unreachable :: rest⟩ dst ↔
+      dst = ⟨s, f, vals stack ++ .trap :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨saved, args, mid, rfl, step, rfl⟩ := front rfl (by simp) (by simp) move
+    obtain ⟨out, pure, rfl⟩ := step.fam_inv (by change Fam.parametric ≠ .control; decide)
+    generalize eq : vals args ++ [Admin.plain .unreachable] = code at pure
+    have last := congrArg List.getLast? eq
+    cases pure with
+    | unreachable =>
+      have nil : args = [] := by simpa [vals] using congrArg List.length eq
+      subst args
+      simp [List.append_assoc]
+    | _ => simp [List.getLast?_append] at last
+  · rintro rfl
+    exact Sim.Step.vals_left (Sim.Step.append_right (.parametric .unreachable) rest) stack
+
+theorem set_read {H : Type} {P : Profile} {s : Store H} {f : Execution.Runtime.Frame}
+    {stack : List Value} {index : LocalIdx} {rest : List Admin} {dst : Config H}
+    (move : Step P noHost ⟨s, f.toCore, coreValues stack ++ .plain (.localSet index) :: rest⟩ dst) :
+    ∃ saved v next, stack = saved ++ [v] ∧ Locals.Edge ⟨f.locals, [.value v, .set index]⟩ ⟨next, []⟩ ∧
+      dst = ⟨s, (⟨next, f.module⟩ : Execution.Runtime.Frame).toCore, coreValues saved ++ rest⟩ := by
+  obtain ⟨saved, args, mid, split, head, rfl⟩ := front rfl (by simp) (by simp) move
+  have variableStep : VariableStep ⟨s, f.toCore, vals args ++ [.plain (.localSet index)]⟩ mid :=
+    head.fam_inv (by change Fam.variable ≠ .control; decide)
+  generalize eq : vals args ++ [Admin.plain (.localSet index)] = code at variableStep
+  have last := congrArg List.getLast? eq
+  cases variableStep with
+  | @localSet _ _ i v bound =>
+    simp [List.getLast?_append] at last
+    subst i
+    have one : args = [v] := vals_inj.mp (List.append_cancel_right eq)
+    subst args
+    obtain ⟨below, operand, rfl, rfl, values⟩ := List.map_eq_append_iff.mp split
+    obtain ⟨w, tail, rfl, rfl, empty⟩ := List.map_eq_cons_iff.mp values
+    have nil : tail = [] := List.map_eq_nil_iff.mp empty
+    subst tail
+    have fits : index.toNat < f.locals.length := by simpa [Execution.Runtime.Frame.toCore] using bound
+    refine ⟨below, w, _, rfl, Locals.fact (.set _ _ _ fits), ?_⟩
+    cases f
+    simp [Frame.setLocal, Execution.Runtime.Frame.toCore, List.map_set, coreValues]
+  | _ => simp [List.getLast?_append] at last
+
+theorem tee_read {H : Type} {P : Profile} {s : Store H} {f : Execution.Runtime.Frame}
+    {stack : List Value} {index : LocalIdx} {rest : List Admin} {dst : Config H}
+    (move : Step P noHost ⟨s, f.toCore, coreValues stack ++ .plain (.localTee index) :: rest⟩ dst) :
+    ∃ saved v, stack = saved ++ [v] ∧
+      Locals.Edge ⟨f.locals, [.value v, .tee index]⟩ ⟨f.locals, [.value v, .value v, .set index]⟩ ∧
+      dst = ⟨s, f.toCore, coreValues (saved ++ [v, v]) ++ .plain (.localSet index) :: rest⟩ := by
+  obtain ⟨saved, args, mid, split, head, rfl⟩ := front rfl (by simp) (by simp) move
+  have variableStep : VariableStep ⟨s, f.toCore, vals args ++ [.plain (.localTee index)]⟩ mid :=
+    head.fam_inv (by change Fam.variable ≠ .control; decide)
+  generalize eq : vals args ++ [Admin.plain (.localTee index)] = code at variableStep
+  have last := congrArg List.getLast? eq
+  cases variableStep with
+  | @localTee _ _ i v =>
+    simp [List.getLast?_append] at last
+    subst i
+    have one : args = [v] := vals_inj.mp (List.append_cancel_right eq)
+    subst args
+    obtain ⟨below, operand, rfl, rfl, values⟩ := List.map_eq_append_iff.mp split
+    obtain ⟨w, tail, rfl, rfl, empty⟩ := List.map_eq_cons_iff.mp values
+    have nil : tail = [] := List.map_eq_nil_iff.mp empty
+    subst tail
+    exact ⟨below, w, rfl, Locals.fact (.tee _ _ _), by
+      simp [coreValues, List.map_append, vals, List.append_assoc]⟩
+  | _ => simp [List.getLast?_append] at last
+
 private theorem get_read {H : Type} {P : Profile} {s : Store H} {f : Frame}
     {stack : List Val} {i : LocalIdx} {rest : List Admin} {dst : Config H}
     (h : Step P noHost ⟨s, f, vals stack ++ get i :: rest⟩ dst) :

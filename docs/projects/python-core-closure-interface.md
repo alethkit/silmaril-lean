@@ -78,8 +78,9 @@ Python errors. The definition's body family is a parameter of dispatch.
 ## Fixed positional body execution
 
 `Core.Closure.Executor` instantiates the code table with layout-indexed bodies.
-The supported instructions store a value, call with positional arguments and
-store the result, assert an operand, or return. Operands are values, bounded
+The supported instructions store a value, call with positional arguments,
+assert an operand, or return. `Body.callTo` chooses `Destination.store slot`
+or `Destination.discard`. `Body.call` abbreviates the store form. Operands are values, bounded
 slot reads, ambient global reads and closure creation with a bounded capture
 map. The callee is evaluated before its arguments, which are evaluated from
 left to right before dispatch.
@@ -107,8 +108,10 @@ The executor shares the frame and heap APIs with the compiler. Call entry
 starts the selected body with its initialized frame. Return or an uncaught
 defined error reaches a receiving state with the exact saved caller,
 continuation and older stack, and the callee's residual heap. A successful
-return writes the caller's result slot. An error unwinds to the next
-continuation without that write. Invalid runtime references stop in a
+return to a store destination writes the result slot. `StepIn.receiveDiscard`
+silently resumes the saved frame and body with the residual heap and older
+stack, leaving the result unused. A defined error skips the saved body and
+continues unwinding. Invalid runtime references stop in a
 separate fault state. The trace records entry, delivery, completion and
 fault labels. Primitive reads and writes use the existing frame operations.
 

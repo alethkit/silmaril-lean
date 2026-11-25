@@ -85,6 +85,9 @@ inductive AdmittedWith (atomAllowed : Lists.Expr → Prop) : Expr → Prop where
   | index {receiver subscript : Expr} :
       AdmittedWith atomAllowed receiver → AdmittedWith atomAllowed subscript →
       AdmittedWith atomAllowed (.index receiver subscript)
+  | slice {receiver start stop stride : Expr} :
+      (∀ operand ∈ [receiver, start, stop, stride], AdmittedWith atomAllowed operand) →
+      AdmittedWith atomAllowed (.slice receiver start stop stride)
   | call {callee : Expr} {positional : List Expr} {keywords : List (String × Expr)}
       {star starStar : Option Expr} :
       (∀ operand ∈ sourceOperands callee positional keywords star starStar, AdmittedWith atomAllowed operand) →
@@ -121,6 +124,10 @@ inductive EvaluatesWith (program : Program) (available : List DeclarationId)
   | indexReceiverError {s t : State} {receiver subscript : Expr} {error : Lists.Error} :
       EvaluatesWith program available calls atomAllowed s receiver (.error error t) →
       EvaluatesWith program available calls atomAllowed s (.index receiver subscript) (.error error t)
+  | slice {s : State} {receiver start stop stride : Expr} {out : Outcome (List Lists.Value)} :
+      EvaluatesManyWith program available calls atomAllowed s [receiver, start, stop, stride] out →
+      EvaluatesWith program available calls atomAllowed s (.slice receiver start stop stride)
+        (Outcome.resume out Lists.readSliceOperands)
   | call {s t : State} {callee : Expr} {positional : List Expr} {keywords : List (String × Expr)}
       {star starStar : Option Expr} {values : List Lists.Value} {out : Outcome Lists.Value} :
       EvaluatesManyWith program available calls atomAllowed s (sourceOperands callee positional keywords star starStar)

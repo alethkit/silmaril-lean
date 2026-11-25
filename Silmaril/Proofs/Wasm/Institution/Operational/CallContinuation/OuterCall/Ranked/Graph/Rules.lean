@@ -30,9 +30,11 @@ theorem map_child {fn : Function} {r₁ r₂ : CallTarget → Phase → Phase �
   | resolve args => exact .resolve args
   | enter args typed => exact .enter args typed
   | numeric step => exact .numeric step
+  | localSet write => exact .localSet write
+  | localTee write => exact .localTee write
   | unreachable args stack rest => exact .unreachable args stack rest
-  | dispatch args saved operands target rest used count => exact .dispatch args saved operands target rest used count
-  | child args saved target rest used live step => exact .child args saved target rest used live (map target used step)
+  | dispatch locals saved operands target rest used count => exact .dispatch locals saved operands target rest used count
+  | child locals saved target rest used live step => exact .child locals saved target rest used live (map target used step)
   | discard step => exact .discard step
   | leaveValues args stack => exact .leaveValues args stack
   | leaveTrap args => exact .leaveTrap args
@@ -64,16 +66,16 @@ theorem edge_iff {program : Program} (checked : program.check = true)
 theorem active_iff {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
     {target : CallTarget} (used : target ∈ fn.targets) {a : Phase} (live : a.Active)
-    {args saved : List Value} {rest : List Op} {b : Phase} :
-    program.Edge checked address (.label args (.active saved target a rest)) b ↔
-      ∃ out, program.Edge checked target.address a out ∧ b = .label args (Body.attach saved target rest out) := by
+    {locals saved : List Value} {rest : List Op} {b : Phase} :
+    program.Edge checked address (.label locals (.active saved target a rest)) b ↔
+      ∃ out, program.Edge checked target.address a out ∧ b = .label locals (Body.attach saved target rest out) := by
   rw [edge_iff checked found]
   constructor
   · intro step
     cases step with
     | child _ _ _ _ _ _ step => exact ⟨_, step, rfl⟩
   · rintro ⟨out, step, rfl⟩
-    exact .child args saved target rest used live step
+    exact .child locals saved target rest used live step
 
 private theorem source_active {program : Program} {checked : program.check = true}
     {address : FuncAddr} {a b : Phase} (ready : ∀ args, a ≠ .call args)
@@ -92,9 +94,9 @@ theorem not_call {program : Program} {checked : program.check = true}
 theorem lift_child {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
     {target : CallTarget} (used : target ∈ fn.targets) {a b : Phase} (live : a.Active)
-    {args saved : List Value} {rest : List Op} (run : program.Runs checked target.address a b) :
-    program.Runs checked address (.label args (.active saved target a rest))
-      (.label args (Body.attach saved target rest b)) := by
+    {locals saved : List Value} {rest : List Op} (run : program.Runs checked target.address a b) :
+    program.Runs checked address (.label locals (.active saved target a rest))
+      (.label locals (Body.attach saved target rest b)) := by
   have noCall (operands : List Value) : a ≠ .call operands := by
     intro eq
     subst a

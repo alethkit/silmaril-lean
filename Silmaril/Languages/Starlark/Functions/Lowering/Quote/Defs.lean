@@ -21,6 +21,9 @@ syntax:max "(" ")" : starlarkExpr
 syntax:max "(" starlarkExpr "," starlarkExpr,*,? ")" : starlarkExpr
 syntax:max starlarkExpr:max "(" starlarkArg,*,? ")" : starlarkExpr
 syntax:max starlarkExpr:max "[" starlarkExpr "]" : starlarkExpr
+syntax:max starlarkExpr:max "[" (starlarkExpr)? ":" (starlarkExpr)? "]" : starlarkExpr
+syntax:max starlarkExpr:max "[" (starlarkExpr)? ":" (starlarkExpr)? ":" (starlarkExpr)? "]" : starlarkExpr
+syntax:max starlarkExpr:max "[" (starlarkExpr)? "::" (starlarkExpr)? "]" : starlarkExpr
 syntax:max "[" starlarkExpr,*,? "]" : starlarkExpr
 syntax:max "{" starlarkEntry,*,? "}" : starlarkExpr
 syntax starlarkExpr ":" starlarkExpr : starlarkEntry
@@ -59,6 +62,14 @@ private meta def quoteName (identifier : TSyntax `ident) : MacroM String := do
 private meta def checkDecimal (literal : TSyntax `num) : MacroM Unit := do
   unless literal.raw[0].getAtomVal == toString literal.getNat do
     Macro.throwErrorAt literal "expected a decimal integer without separators or leading zeros"
+
+private meta def quoteSlice (receiver : TSyntax `starlarkExpr)
+    (start stop stride : Option (TSyntax `starlarkExpr)) : MacroM (TSyntax `term) := do
+  let quoteBound (bound : Option (TSyntax `starlarkExpr)) := match bound with
+    | none => `(none)
+    | some value => `(some starlark%[$value])
+  `(Resolve.SourceExpr.slice starlark%[$receiver]
+      $(← quoteBound start) $(← quoteBound stop) $(← quoteBound stride))
 
 private meta def quoteCall (callee : TSyntax `starlarkExpr) (args : Array (TSyntax `starlarkArg)) :
     MacroM (TSyntax `term) := do
@@ -123,6 +134,9 @@ private meta def quoteExpr (expression : TSyntax `starlarkExpr) : MacroM (TSynta
   | `(starlarkExpr| $callee($args,*)) => quoteCall callee args.getElems
   | `(starlarkExpr| $receiver[$subscript]) =>
     `(Resolve.SourceExpr.index starlark%[$receiver] starlark%[$subscript])
+  | `(starlarkExpr| $receiver[$[$start]?:$[$stop]?]) => quoteSlice receiver start stop none
+  | `(starlarkExpr| $receiver[$[$start]?:$[$stop]?:$[$stride]?]) => quoteSlice receiver start stop stride
+  | `(starlarkExpr| $receiver[$[$start]?::$[$stride]?]) => quoteSlice receiver start none stride
   | `(starlarkExpr| [$elements,*]) => do
     let quoted ← elements.getElems.mapM fun element => `(starlark%[$element])
     `(Resolve.SourceExpr.list [$[$quoted],*])

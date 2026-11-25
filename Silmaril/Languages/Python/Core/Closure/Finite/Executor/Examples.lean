@@ -21,10 +21,10 @@ private def heap : HeapTable := HeapTable.empty.reserve 1
 private def frame : Frame callerLayout :=
   ⟨fun _ => none, fun _ => ⟨0⟩, Fin.elim0⟩
 private def caller : Call.Saved Closure.Executor.Continuation :=
-  ⟨callerLayout, frame, ⟨output, rest⟩⟩
+  ⟨callerLayout, frame, ⟨.store output, rest⟩⟩
 private abbrev olderLayout : Layout := ⟨1, 0, 0⟩
 private def older : Call.Saved Closure.Executor.Continuation :=
-  ⟨olderLayout, ⟨fun _ => none, Fin.elim0, Fin.elim0⟩, ⟨.local 0, .ret (.read (.local 0))⟩⟩
+  ⟨olderLayout, ⟨fun _ => none, Fin.elim0, Fin.elim0⟩, ⟨.store (.local 0), .ret (.read (.local 0))⟩⟩
 private def ref : CodeRef := ⟨17, calleeLayout⟩
 
 private def code (result : Closure.Executor.Operand calleeLayout) : CodeRows :=
@@ -121,7 +121,7 @@ private theorem returnedRun (value : Value) :
       [none, some (.resume (.ok value)), none, none, some (.complete (.ok value))] (completed value)
       [(returning value).project, returned value, resumed value, stored value, delivered value, completed value] := by
   refine .stepL (.ret (.literal value)) (.stepL (.resume _ caller [] (.ok value)) ?_)
-  refine .stepL (.receive (.ok ?_)) (.stepL (.ret (.read output)) (.stepL (.complete _ _) (.refl _)))
+  refine .stepL (.receive rfl (.ok ?_)) (.stepL (.ret (.read output)) (.stepL (.complete _ _) (.refl _)))
   rfl
 
 private theorem returnReadback (value : Value) :
@@ -155,7 +155,7 @@ example :
 private def ownedOutput : Slot callerLayout := .owned 0
 
 private def assertionCaller : Call.Saved Closure.Executor.Continuation :=
-  ⟨callerLayout, frame, ⟨ownedOutput, .ret (.read ownedOutput)⟩⟩
+  ⟨callerLayout, frame, ⟨.store ownedOutput, .ret (.read ownedOutput)⟩⟩
 
 private def assertionEnvironment : Snapshot calleeLayout :=
   ⟨residual, ⟨fun _ => none, Fin.elim0, fun _ => ⟨0⟩⟩⟩

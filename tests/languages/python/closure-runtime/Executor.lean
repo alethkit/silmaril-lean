@@ -12,12 +12,12 @@ private def caller : Frame callerLayout :=
   { initial.2 with locals := fun slot => if slot.val = 1 then some (.int 19) else none }
 private def cell : CellId := caller.owned ⟨0, by decide⟩
 private def next : Body callerLayout := .ret (.read output)
-private def saved : Call.Saved Continuation := ⟨callerLayout, caller, ⟨output, next⟩⟩
+private def saved : Call.Saved Continuation := ⟨callerLayout, caller, ⟨.store output, next⟩⟩
 
 private def olderLayout : Layout := ⟨1, 0, 0⟩
 private def olderOutput : Slot olderLayout := .local ⟨0, by decide⟩
 private def older : Call.Saved Continuation :=
-  ⟨olderLayout, (Frame.fresh Heap.empty Fin.elim0).2, ⟨olderOutput, .ret (.read olderOutput)⟩⟩
+  ⟨olderLayout, (Frame.fresh Heap.empty Fin.elim0).2, ⟨.store olderOutput, .ret (.read olderOutput)⟩⟩
 
 private def calleeCode : CodeRef := ⟨17, ⟨2, 0, 1⟩⟩
 private def parameter : Fin calleeCode.layout.locals := ⟨0, by decide⟩
@@ -141,6 +141,49 @@ private def missing : CodeRef := ⟨18, ⟨0, 0, 0⟩⟩
 example :
     advance (table (.read capture))
       (.running initial.1 caller (.call output (.closure missing Fin.elim0) [] next) [older]) =
+      some (some (.fault (.missingCode 18)), .faulted initial.1 [older] (.missingCode 18)) := rfl
+
+private def discardTail : Body callerLayout :=
+  .store (.owned ⟨0, by decide⟩) (.literal (.int 99)) (.ret (.literal .none))
+
+private def discardStart : State :=
+  .running initial.1 caller
+    (.callTo .discard (.closure calleeCode (fun _ => .owned ⟨0, by decide⟩))
+      [.literal (.int 7)] discardTail) [older]
+
+private def discardResume : Prop :=
+  let (log, state) := runPrefix (table (.literal (.int 42))) 5 discardStart
+  match log, state with
+  | [.enter _, .resume (.ok (.int 42))], .running residual restored body parents =>
+    .running residual restored body parents = State.running residual caller discardTail [older] ∧
+      residual.lookup cell = some (some (.int 7))
+  | _, _ => False
+
+example : discardResume := ⟨rfl, rfl⟩
+
+-- With a failing callee, the suspended tail's overwrite is skipped.
+private def discardUnwinds : Prop :=
+  let (log, state) := runPrefix (table (.read unset)) 12 discardStart
+  match log, state with
+  | [.enter _, .resume (.error (.unboundLocal 1)), .resume (.error (.unboundLocal 1)),
+      .complete (.error (.unboundLocal 1))], .finished residual (.error (.unboundLocal 1)) =>
+    residual.lookup cell = some (some (.int 7))
+  | _, _ => False
+
+example : discardUnwinds := rfl
+
+private def noSlots : Layout := ⟨0, 0, 0⟩
+private def noSlotFrame : Frame noSlots := (Frame.fresh Heap.empty Fin.elim0).2
+private def noSlotTail : Body noSlots := .ret (.literal .none)
+private def noSlotSaved : Call.Saved Continuation := ⟨noSlots, noSlotFrame, ⟨.discard, noSlotTail⟩⟩
+
+example : Step (table (.read capture))
+    (.receiving initial.1 noSlotSaved [older] (.ok (.int 42))) none
+    (.running initial.1 noSlotFrame noSlotTail [older]) := .receiveDiscard rfl
+
+example :
+    advance (table (.read capture))
+      (.running initial.1 noSlotFrame (.callTo .discard (.closure missing Fin.elim0) [] noSlotTail) [older]) =
       some (some (.fault (.missingCode 18)), .faulted initial.1 [older] (.missingCode 18)) := rfl
 
 #print axioms step_iff

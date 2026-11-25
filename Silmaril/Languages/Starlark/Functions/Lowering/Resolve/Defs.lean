@@ -16,6 +16,7 @@ inductive SourceExpr where
   | tuple (elements : List SourceExpr)
   | dict (entries : List (SourceExpr × SourceExpr))
   | index (receiver subscript : SourceExpr)
+  | slice (receiver : SourceExpr) (start stop stride : Option SourceExpr)
   | call (callee : SourceExpr) (positional : List SourceExpr)
       (keywords : List (String × SourceExpr)) (star starStar : Option SourceExpr)
   | conditional (test yes no : SourceExpr)
@@ -81,6 +82,13 @@ private def resolveExpr (context : Context) : SourceExpr → Tracked Expr
     return .dict resolved
   | .index receiver subscript =>
     return .index (← resolveExpr context receiver) (← resolveExpr context subscript)
+  | .slice receiver start stop stride => do
+    let receiver ← resolveExpr context receiver
+    let start ← start.mapM (resolveExpr context)
+    let stop ← stop.mapM (resolveExpr context)
+    let stride ← stride.mapM (resolveExpr context)
+    let omitted := Expr.atom (.scalar .none)
+    return .slice receiver (start.getD omitted) (stop.getD omitted) (stride.getD omitted)
   | .call callee positional keywords star starStar => do
     let callee ← resolveExpr context callee
     let positional ← positional.attach.mapM fun ⟨expression, member⟩ => do
