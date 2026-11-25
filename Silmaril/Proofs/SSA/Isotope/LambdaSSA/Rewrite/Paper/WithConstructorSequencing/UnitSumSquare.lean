@@ -1,5 +1,6 @@
 module
 
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Uniformity.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Coproducts.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithConstructorSequencing.UnitSumSquare.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.BoundSimulation.Obstruction.PairSequencing.Observation.Thms
@@ -157,8 +158,8 @@ theorem separate_output (B A : Shape) {i j : Sum B.Row A.Row}
   congrArg OutputCode.tag
     (separate_payload_output B A (i := ⟨i, .literal⟩) (j := ⟨j, .literal⟩) h)
 
-private theorem unit_slot {i : Nat} {A : Ty Empty} (hi : At [.unit] i A) :
-    i = 0 ∧ A = .unit := by
+private theorem singleton_slot {i : Nat} {A B : Ty Empty} (hi : At [B] i A) :
+    i = 0 ∧ A = B := by
   cases i with
   | zero => exact ⟨rfl, (Option.some.inj hi).symm⟩
   | succ i => cases i <;> contradiction
@@ -169,16 +170,16 @@ private theorem tagged_unit (A : Shape) {a : Tm Empty} (ha : Tm.BranchValue [(Ty
   | empty =>
     change Tm.BranchValue [(Ty.unit : Ty Empty)] a .empty at ha
     cases ha with
-    | var hi => cases (unit_slot hi).2
+    | var hi => cases (singleton_slot hi).2
   | unit =>
     change Tm.BranchValue [(Ty.unit : Ty Empty)] a .unit at ha
     cases ha with
-    | var hi => rw [(unit_slot hi).1]; exact ⟨(), .inl rfl⟩
+    | var hi => rw [(singleton_slot hi).1]; exact ⟨(), .inl rfl⟩
     | unit => exact ⟨(), .inr rfl⟩
   | sum A B ihA ihB =>
     change Tm.BranchValue [(Ty.unit : Ty Empty)] a (.coprod A.ty B.ty) at ha
     cases ha with
-    | var hi => cases (unit_slot hi).2
+    | var hi => cases (singleton_slot hi).2
     | inl ha =>
       obtain ⟨j, rfl | rfl⟩ := ihA ha
       · exact ⟨.inl j, .inl rfl⟩
@@ -244,11 +245,11 @@ private theorem payload_before_output (B A : Shape) (p : Payload) (o : OutputCod
       outputWithPayload B A ⟨o.tag, p.then o.payload⟩ := by
   rw [outputWithPayload, outputWithPayload, ← Category.assoc, payload_before_emit]
 
-private theorem map_recurrence (B A D : Shape) {a : Tm Empty} (ha : Tm.BranchValue [A.ty] a D.ty)
-    {i : A.Row} {j : D.Row} {p : Payload} (h : A.inj i ≫ branch ha = D.emit j p) (q : Payload) :
-    outputWithPayload B A ⟨.inr i, q⟩ ≫ coprod.map (𝟙 (obj B.ty)) (branch ha) =
+private theorem map_recurrence (B A D : Shape) (k : obj A.ty ⟶ obj D.ty)
+    {i : A.Row} {j : D.Row} {p : Payload} (h : A.inj i ≫ k = D.emit j p) (q : Payload) :
+    outputWithPayload B A ⟨.inr i, q⟩ ≫ coprod.map (𝟙 (obj B.ty)) (k) =
       outputWithPayload B D ⟨.inr j, q.then p⟩ := by
-  have next : A.emit i q ≫ branch ha = D.emit j (q.then p) := by
+  have next : A.emit i q ≫ k = D.emit j (q.then p) := by
     rw [← emit_factor, Category.assoc, h, payload_before_emit]
   rw [payload_output_inr, payload_output_inr, Category.assoc, coprod.inr_map, ← Category.assoc, next]
 
@@ -259,14 +260,13 @@ private theorem source_row (B A D : Shape) {a : Tm Empty} (ha : Tm.BranchValue [
   rcases o with ⟨i | i, p⟩
   · exact ⟨⟨.inl i, p⟩, by simp [payload_output_inl]⟩
   · obtain ⟨j, q, h⟩ := row_image A D i ha
-    exact ⟨_, map_recurrence B A D ha h p⟩
+    exact ⟨_, map_recurrence B A D (branch ha) h p⟩
 
-private theorem table_after_state (B A D : Shape) {a : Tm Empty}
-    (ha : Tm.BranchValue [A.ty] a D.ty)
+private theorem table_after_state (B A D : Shape) (k : obj A.ty ⟶ obj D.ty)
     (q : D.Row → (obj .unit ⟶ obj B.ty ⨿ obj D.ty))
-    {i : A.Row} {j : D.Row} {p : Payload} (h : A.inj i ≫ branch ha = D.emit j p)
+    {i : A.Row} {j : D.Row} {p : Payload} (h : A.inj i ≫ k = D.emit j p)
     {o : OutputCode B D} (ho : q j = outputWithPayload B D o) :
-    A.inj i ≫ (branch ha ≫ D.table q) = outputWithPayload B D ⟨o.tag, p.then o.payload⟩ := by
+    A.inj i ≫ (k ≫ D.table q) = outputWithPayload B D ⟨o.tag, p.then o.payload⟩ := by
   rw [← Category.assoc, h, ← emit_factor, Category.assoc, inj_table, ho, payload_before_output]
 
 private theorem target_row (B A D : Shape) {a : Tm Empty} (ha : Tm.BranchValue [A.ty] a D.ty)
@@ -275,7 +275,19 @@ private theorem target_row (B A D : Shape) {a : Tm Empty} (ha : Tm.BranchValue [
     ∃ o : OutputCode B D, A.inj i ≫ (branch ha ≫ D.table q) = outputWithPayload B D o := by
   obtain ⟨j, p, h⟩ := row_image A D i ha
   obtain ⟨o, ho⟩ := hq i j p h
-  exact ⟨_, table_after_state B A D ha q h ho⟩
+  exact ⟨_, table_after_state B A D (branch ha) q h ho⟩
+
+private theorem reflect_coded_rows (B A D : Shape) {f g : obj A.ty ⟶ obj B.ty ⨿ obj D.ty}
+    (left : ∀ i, ∃ o : OutputCode B D, A.inj i ≫ f = outputWithPayload B D o)
+    (right : ∀ i, ∃ o : OutputCode B D, A.inj i ≫ g = outputWithPayload B D o)
+    (comm : projection.map f = projection.map g) : f = g := by
+  apply table_hom_ext A
+  intro i
+  obtain ⟨o, ho⟩ := left i
+  obtain ⟨j, hj⟩ := right i
+  have h := congrArg (projection.map (A.inj i) ≫ ·) comm
+  rw [← projection.map_comp, ← projection.map_comp, ho, hj] at h
+  rw [ho, hj, separate_payload_output B D h]
 
 theorem reflect_payload_square (B A D : Shape) {a : Tm Empty} (ha : Tm.BranchValue [A.ty] a D.ty)
     (p : A.Row → OutputCode B A) (q : D.Row → (obj .unit ⟶ obj B.ty ⨿ obj D.ty))
@@ -283,17 +295,66 @@ theorem reflect_payload_square (B A D : Shape) {a : Tm Empty} (ha : Tm.BranchVal
     (comm : projection.map (stepWithPayload B A p ≫ coprod.map (𝟙 (obj B.ty)) (branch ha)) =
       projection.map (branch ha ≫ D.table q)) :
     stepWithPayload B A p ≫ coprod.map (𝟙 (obj B.ty)) (branch ha) = branch ha ≫ D.table q := by
-  apply table_hom_ext A
+  apply reflect_coded_rows B A D _ (target_row B A D ha q hq) comm
   intro i
-  obtain ⟨o, ho⟩ := source_row B A D ha (p i)
-  obtain ⟨j, hj⟩ := target_row B A D ha q hq i
-  have hi : A.inj i ≫ (stepWithPayload B A p ≫ coprod.map (𝟙 (obj B.ty)) (branch ha)) =
-      outputWithPayload B D o := by
-    rw [← Category.assoc, stepWithPayload, inj_table]
-    exact ho
-  have h := congrArg (projection.map (A.inj i) ≫ ·) comm
-  rw [← projection.map_comp, ← projection.map_comp, hi, hj] at h
-  rw [hi, hj, separate_payload_output B D h]
+  rw [← Category.assoc, stepWithPayload, inj_table]
+  exact source_row B A D ha (p i)
+
+theorem inj_caseMap (A D : Shape) (rows : A.Row → StateCode D) (i : A.Row) :
+    A.inj i ≫ caseMap A D rows = D.emit (rows i).tag (rows i).payload :=
+  inj_table A _ i
+
+private theorem map_case_output (B A D : Shape) (rows : A.Row → StateCode D) (o : OutputCode B A) :
+    outputWithPayload B A o ≫ coprod.map (𝟙 (obj B.ty)) (caseMap A D rows) =
+      outputWithPayload B D (o.mapState rows) := by
+  rcases o with ⟨j | i, p⟩
+  · simp [OutputCode.mapState, payload_output_inl]
+  · exact map_recurrence B A D (caseMap A D rows) (inj_caseMap A D rows i) p
+
+private theorem case_left_row (B A D : Shape) (rows : A.Row → StateCode D)
+    (p : A.Row → OutputCode B A) (i : A.Row) :
+    A.inj i ≫ (stepWithPayload B A p ≫ coprod.map (𝟙 (obj B.ty)) (caseMap A D rows)) =
+      outputWithPayload B D ((p i).mapState rows) := by
+  rw [← Category.assoc, stepWithPayload, inj_table]
+  exact map_case_output B A D rows (p i)
+
+private theorem case_right_row (B A D : Shape) (rows : A.Row → StateCode D)
+    (q : D.Row → (obj .unit ⟶ obj B.ty ⨿ obj D.ty)) (i : A.Row) {o : OutputCode B D}
+    (ho : q (rows i).tag = outputWithPayload B D o) :
+    A.inj i ≫ (caseMap A D rows ≫ D.table q) =
+      outputWithPayload B D (o.withInput (rows i).payload) :=
+  table_after_state B A D (caseMap A D rows) q (inj_caseMap A D rows i) ho
+
+theorem reflect_case_square (B A D : Shape) (rows : A.Row → StateCode D)
+    (p : A.Row → OutputCode B A) (q : D.Row → (obj .unit ⟶ obj B.ty ⨿ obj D.ty))
+    (hq : HasCaseTargetOutputs B A D rows q)
+    (comm : projection.map (stepWithPayload B A p ≫ coprod.map (𝟙 (obj B.ty)) (caseMap A D rows)) =
+      projection.map (caseMap A D rows ≫ D.table q)) :
+    stepWithPayload B A p ≫ coprod.map (𝟙 (obj B.ty)) (caseMap A D rows) =
+      caseMap A D rows ≫ D.table q := by
+  refine reflect_coded_rows B A D (fun i => ⟨_, case_left_row B A D rows p i⟩) ?_ comm
+  intro i
+  obtain ⟨o, ho⟩ := hq i
+  exact ⟨_, case_right_row B A D rows q i ho⟩
+
+theorem case_square_iff (B A D : Shape) (rows : A.Row → StateCode D)
+    (p : A.Row → OutputCode B A) (q : D.Row → OutputCode B D) :
+    projection.map (stepWithPayload B A p ≫ coprod.map (𝟙 (obj B.ty)) (caseMap A D rows)) =
+        projection.map (caseMap A D rows ≫ stepWithPayload B D q) ↔
+      ∀ i, (p i).mapState rows = (q (rows i).tag).withInput (rows i).payload := by
+  have right (i : A.Row) := case_right_row B A D rows (outputWithPayload B D ∘ q) i
+    (o := q (rows i).tag) rfl
+  constructor
+  · intro comm i
+    have h := congrArg (projection.map (A.inj i) ≫ ·) comm
+    rw [← projection.map_comp, ← projection.map_comp, case_left_row, stepWithPayload, right] at h
+    exact separate_payload_output B D h
+  · intro codes
+    apply congrArg projection.map
+    apply table_hom_ext A
+    intro i
+    rw [case_left_row, codes i]
+    exact (right i).symm
 
 private theorem literal_targets (B A D : Shape) {a : Tm Empty} (ha : Tm.BranchValue [A.ty] a D.ty)
     (q : D.Row → (obj .unit ⟶ obj B.ty ⨿ obj D.ty)) (hq : HasLiteralTargets B A D ha q) :
@@ -356,6 +417,54 @@ theorem iterate_uniformity (B A D : Shape) {t c : Tm Empty}
   iterate_payload_uniformity B A D hc (fun i => ⟨p i, .literal⟩) q
     (literal_targets B A D hc.typed.2 q hq) hf hg comm
 
+theorem permutation_inverse (A D : Shape) (e : A.Row ≃ D.Row) :
+    caseMap A D (permutationRows e) ≫ caseMap D A (permutationRows e.symm) = 𝟙 (obj A.ty) := by
+  apply table_hom_ext A
+  intro i
+  rw [← Category.assoc, inj_caseMap, Category.comp_id]
+  change D.inj (e i) ≫ caseMap D A (permutationRows e.symm) = A.inj i
+  rw [inj_caseMap]
+  change A.inj (e.symm (e i)) = A.inj i
+  rw [e.symm_apply_apply]
+
+noncomputable def permutationIso (A D : Shape) (e : A.Row ≃ D.Row) : obj A.ty ≅ obj D.ty where
+  hom := caseMap A D (permutationRows e)
+  inv := caseMap D A (permutationRows e.symm)
+  hom_inv_id := permutation_inverse A D e
+  inv_hom_id := permutation_inverse D A e.symm
+
+theorem permutationIso_hom (A D : Shape) (e : A.Row ≃ D.Row) :
+    (permutationIso A D e).hom = caseMap A D (permutationRows e) := rfl
+
+private theorem iterate_square_ofIso {A D B : Paper.TypeCategory (τ := Ty Empty) Empty} (e : A ≅ D)
+    (f : A ⟶ B ⨿ A) (g : D ⟶ B ⨿ D)
+    (comm : f ≫ coprod.map (𝟙 B) e.hom = e.hom ≫ g) :
+    iterate f = e.hom ≫ iterate g := by
+  let middle := e.inv ≫ f
+  have start : e.hom ≫ middle = f := by simp [middle]
+  have finish : middle ≫ coprod.map (𝟙 B) e.hom = g := by
+    change (e.inv ≫ f) ≫ _ = _
+    rw [Category.assoc, comm, Iso.inv_hom_id_assoc]
+  simpa only [start, finish] using iterate_roll e.hom middle
+
+theorem iterate_case_uniformity_ofIso (B A D : Shape) (rows : A.Row → StateCode D)
+    (e : obj A.ty ≅ obj D.ty) (he : e.hom = caseMap A D rows)
+    (p : A.Row → OutputCode B A) (q : D.Row → (obj .unit ⟶ obj B.ty ⨿ obj D.ty))
+    (hq : HasCaseTargetOutputs B A D rows q)
+    {f : obj A.ty ⟶ obj B.ty ⨿ obj A.ty} {g : obj D.ty ⟶ obj B.ty ⨿ obj D.ty}
+    (hf : projection.map f = projection.map (stepWithPayload B A p))
+    (hg : projection.map g = projection.map (D.table q))
+    (comm : projection.map (f ≫ coprod.map (𝟙 (obj B.ty)) (caseMap A D rows)) =
+      projection.map (caseMap A D rows ≫ g)) :
+    projection.map (iterate f) =
+      projection.map (caseMap A D rows) ≫ projection.map (iterate g) := by
+  have square := reflect_case_square B A D rows p q hq
+    (by simpa only [Functor.map_comp, hf, hg] using comm)
+  have eq := iterate_square_ofIso e (stepWithPayload B A p) (D.table q) (by simpa only [he] using square)
+  rw [Paper.Extension.Singleton.iterate_map_congr Seed hf,
+    Paper.Extension.Singleton.iterate_map_congr Seed hg, ← projection.map_comp, ← he]
+  exact congrArg projection.map eq
+
 namespace Forwarding
 
 open Paper.WithConstructorSequencing.UnitSumSquare.Forwarding
@@ -372,7 +481,7 @@ private theorem left_row (i : source.Row) :
   cases i with
   | inl i =>
     cases i
-    exact map_recurrence result source target normalizes.typed.2 (state_row (.inr ())) .forward
+    exact map_recurrence result source target (branch normalizes.typed.2) (state_row (.inr ())) .forward
   | inr i =>
     cases i
     change outputWithPayload result source ⟨.inl (), .forward⟩ ≫ _ =
@@ -382,7 +491,7 @@ private theorem left_row (i : source.Row) :
 private theorem right_row (p : Payload) (i : source.Row) :
     source.inj i ≫ (branch normalizes.typed.2 ≫ stepWithPayload result target (targetRows p)) =
       outputWithPayload result target (targetRows p (.inl i)) := by
-  have h := table_after_state result source target normalizes.typed.2
+  have h := table_after_state result source target (branch normalizes.typed.2)
     (outputWithPayload result target ∘ targetRows p) (state_row i)
     (o := targetRows p (.inl i)) rfl
   have keep (q : Payload) : Payload.forward.then q = q := by cases q <;> rfl
@@ -422,6 +531,82 @@ theorem literal_square_fails :
   cases payload
 
 end Forwarding
+
+namespace Swap
+
+open Paper.WithConstructorSequencing.UnitSumSquare.Swap
+
+local notation "swapMap" => caseMap state state
+
+private theorem separate_emit_tags (D : Shape) {i j : D.Row} {p q : Payload}
+    (h : D.emit i p = D.emit j q) : i = j := by
+  have eq := congrArg (fun f => projection.map
+    (f ≫ (coprod.inr : obj D.ty ⟶ obj (Shape.unit.ty) ⨿ obj D.ty))) h
+  rw [← payload_output_inr .unit D i p, ← payload_output_inr .unit D j q] at eq
+  exact Sum.inr.inj (congrArg OutputCode.tag (separate_payload_output .unit D eq))
+
+private theorem left_changes (input output : Payload) :
+    state.inj (.inl ()) ≫ swapMap (stateRows input) ≠ state.emit (.inl ()) output := by
+  rw [inj_caseMap]
+  intro h
+  have bad : (Sum.inr () : state.Row) = .inl () := separate_emit_tags state h
+  cases bad
+
+private theorem right_changes (input output : Payload) :
+    state.inj (.inr ()) ≫ swapMap (stateRows input) ≠ state.emit (.inr ()) output := by
+  rw [inj_caseMap]
+  intro h
+  have bad : (Sum.inl () : state.Row) = .inr () := separate_emit_tags state h
+  cases bad
+
+private theorem unit_in_state {a : Tm Empty} (ha : Tm.BranchValue [state.ty] a .unit) :
+    a = .unit := by
+  cases ha with
+  | var hi => cases (singleton_slot hi).2
+  | unit => rfl
+
+theorem not_constructor_return (p : Payload) : ¬ ConstructorReturn (swapMap (stateRows p)) := by
+  rintro ⟨a, ha, h⟩
+  change swapMap (stateRows p) = branch ha at h
+  change Tm.BranchValue [(.coprod .unit .unit : Ty Empty)] a (.coprod .unit .unit) at ha
+  cases ha with
+  | var hi =>
+    apply left_changes p .forward
+    rw [h, branch_congr _ (.var (i := 0) rfl) (congrArg Tm.var (singleton_slot hi).1),
+      branch, ofRegion_id, Category.comp_id]
+    rfl
+  | inl ha =>
+    apply left_changes p .literal
+    rw [h, branch_congr _ (.inl .unit) (congrArg Tm.inl (unit_in_state ha))]
+    exact branch_comp (state.tagValue (.inl ()) (.var (i := 0) rfl)) (.inl .unit)
+  | inr ha =>
+    apply right_changes p .literal
+    rw [h, branch_congr _ (.inr .unit) (congrArg Tm.inr (unit_in_state ha))]
+    exact branch_comp (state.tagValue (.inr ()) (.var (i := 0) rfl)) (.inr .unit)
+
+theorem projected_square (p : Payload) :
+    projection.map (stepWithPayload result state (sourceRows p) ≫
+      coprod.map (𝟙 (obj result.ty)) (swapMap (stateRows p))) =
+      projection.map (swapMap (stateRows p) ≫ stepWithPayload result state targetRows) := by
+  apply (case_square_iff result state state (stateRows p) (sourceRows p) targetRows).mpr
+  intro i
+  cases p <;> cases i <;> rfl
+
+theorem iterate_swap :
+    projection.map (iterate (stepWithPayload result state (sourceRows .forward))) =
+      projection.map (swapMap (stateRows .forward)) ≫
+        projection.map (iterate (stepWithPayload result state targetRows)) := by
+  have e : (permutationIso state state permutation).hom = swapMap (stateRows .forward) := by
+    change swapMap (permutationRows permutation) = swapMap (stateRows .forward)
+    congr 1
+    funext i
+    cases i <;> rfl
+  exact iterate_case_uniformity_ofIso result state state (stateRows .forward)
+    (permutationIso state state permutation) e (sourceRows .forward)
+    (outputWithPayload result state ∘ targetRows)
+    (fun i => ⟨targetRows (stateRows .forward i).tag, rfl⟩) rfl rfl (projected_square .forward)
+
+end Swap
 
 namespace Collapse
 
