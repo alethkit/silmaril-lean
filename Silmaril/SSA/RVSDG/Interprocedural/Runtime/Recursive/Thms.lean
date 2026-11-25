@@ -17,17 +17,18 @@ theorem link_toGraph (m : Machine.{u, v, w} Op) (unitId : Nat) (term : OmegaTerm
     (imports : Tuple m.Val args) : linkGraph m unitId term.toGraph imports = linkTerm m unitId term imports :=
   Proofs.linkBindings_eq m unitId imports term.region PUnit.unit
 
-/-- Bounded execution at zero θ budget is sound and complete for the
-independent inductive relation over calls, primitive nodes and selected γ arms. -/
+/-- Bounded execution is sound and complete for the independent finite
+relation over calls, primitive nodes, selected γ arms and θ iterations. -/
 theorem call_iff (m : Machine.{u, v, w} Op) (callee : m.Val (.value (.function args outs)))
     (input : Tuple m.Val args) (output : Tuple m.Val outs) :
-    Returns m (.call callee input) output ↔ ∃ depth, invoke m 0 depth callee input = some output :=
+    Returns m (.call callee input) output ↔ ∃ loops depth, invoke m loops depth callee input = some output :=
   Proofs.call_iff m callee input output
 
-/-- A finite derivation has a sufficient call depth that succeeds at all larger depths. -/
+/-- Each finite derivation succeeds at all sufficiently large call and per-θ bounds. -/
 theorem returns_eventually (m : Machine.{u, v, w} Op) {job : Job m outs} {output : Tuple m.Val outs}
     (derivation : Returns m job output) :
-    ∃ depth, ∀ bound, depth ≤ bound → job.run m bound = some output :=
+    ∃ callLimit loopLimit, ∀ loops depth, callLimit ≤ depth → loopLimit ≤ loops →
+      job.run m loops depth = some output :=
   Proofs.complete m derivation
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive

@@ -72,6 +72,57 @@ private theorem firstRun : invoke machine 0 4 (exported.get .head) input = some 
 example : invoke machine 0 4 (exported.get (.tail .head)) input = some result := by cbv
 
 example : Returns machine (.call (exported.get .head) input) result :=
-  (call_iff machine (exported.get .head) input result).2 ⟨4, firstRun⟩
+  (call_iff machine (exported.get .head) input result).2 ⟨0, 4, firstRun⟩
+
+private abbrev LoopResult := Theta.BodyResults Entry
+
+private def loopCall : NestedTheta.Term (Instruction Op) LoopResult [] [[word, st]] LoopResult :=
+  let call : NestedTheta.Node (Instruction Op) LoopResult [] [word, st] :=
+    ⟨[callable, st], .base (.simple (.apply fn)),
+      .cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail .head)))) .nil),
+      fun i => i.elim0⟩
+  .bind call (fun i => Fin.elim0 (show Fin 0 from i))
+    (.ret (.cons (.arg .head) (.cons (.output (0 : Fin 1) .head)
+      (.cons (.arg (.tail (.tail .head))) (.cons (.output (0 : Fin 1) (.tail .head)) .nil)))))
+
+private def loopBody :
+    NestedTheta.Term (Instruction Op) Entry [] [[.control 2, st], LoopResult] LoopResult :=
+  let step : NestedTheta.Node (Instruction Op) Entry [] [.control 2, st] :=
+    ⟨[st], .base (.simple (.primitive .step)),
+      .cons (.arg (.tail (.tail .head))) .nil, fun i => i.elim0⟩
+  let branch : NestedTheta.Node (Instruction Op) Entry [[.control 2, st]] LoopResult :=
+    ⟨.control 2 :: LoopResult, .base (.gamma 0),
+      .cons (.output (0 : Fin 1) .head) (.cons (.output (0 : Fin 1) .head)
+        (.cons (.arg .head) (.cons (.arg (.tail .head))
+          (.cons (.output (0 : Fin 1) (.tail .head)) .nil)))),
+      Fin.cases [] fun _ => [[word, st]]⟩
+  .bind step (fun i => Fin.elim0 (show Fin 0 from i))
+    (.bind branch
+      (Fin.cases (.ret ((NestedTheta.identityPorts LoopResult).map fun _ => .arg)) fun _ => loopCall)
+      (.ret ((NestedTheta.identityPorts LoopResult).map fun _ => Origin.output (past := [[.control 2, st], LoopResult]) (1 : Fin 2))))
+
+-- The member enters θ, and the selected γ arm inside θ calls the same member.
+private def loopingMember : LambdaTerm Op [word, callable] [] fn :=
+  ⟨[word, callable], .cons (.arg .head) (.cons (.arg (.tail .head)) .nil), [Entry],
+    .bind (NestedTheta.thetaVertex [[.control 2, st], LoopResult]) (fun _ => loopBody)
+      (.ret (.cons (.output (0 : Fin 1) .head) (.cons (.output (0 : Fin 1) (.tail (.tail .head))) .nil)))⟩
+
+private def loopingModule : OmegaTerm Op [word] [callable] [[callable]] :=
+  ⟨.bind (.phi (members := [fn]) ⟨[word], .cons (.arg .head) .nil, .cons loopingMember .nil⟩)
+    (.ret (.cons (.output (0 : Fin 1) .head) .nil))⟩
+
+private def loopingExport : machine.Val callable :=
+  (linkGraph machine 19 loopingModule.toGraph imports).get .head
+
+private def loopInput : Tuple machine.Val [st] := .cons (.state (2 : Nat)) .nil
+
+example : invoke machine 1 3 loopingExport loopInput = none := by cbv
+
+example : invoke machine 2 2 loopingExport loopInput = none := by cbv
+
+private theorem loopingRun : invoke machine 2 3 loopingExport loopInput = some result := by cbv
+
+example : Returns machine (.call loopingExport loopInput) result :=
+  (call_iff machine loopingExport loopInput result).2 ⟨2, 3, loopingRun⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Tests
