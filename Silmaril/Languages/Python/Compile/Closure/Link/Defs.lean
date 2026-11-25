@@ -15,7 +15,7 @@ namespace Silmaril.Languages.Python.Compile.Closure.Link
 
 open Source (BlockPath Scope ScopeTree)
 open Core.Closure (CaptureSlot CodeRef Layout Slot)
-open Core.Closure.Dispatch (CodeTable Entry)
+open Core.Closure.Dispatch (CodeTable Entry ProfiledCodeNames)
 
 inductive Code (layout : Layout) where
   | ret (value : Body.Expr layout)
@@ -134,6 +134,9 @@ def Program.entryFreeVars (program : Program) : Option (List Source.Name) :=
 
 def Program.entryCellVars (program : Program) : Option (List Source.Name) :=
   program.blocks[program.entry.key]?.bind (·.entry.definition.cellvars)
+
+def Program.entryCodeNames (program : Program) : Option ProfiledCodeNames :=
+  program.blocks[program.entry.key]?.bind (·.entry.definition.codeNames)
 
 def Program.references (program : Program) : List (BlockPath × CodeRef) :=
   program.blocks.flatMap (fun block => block.entry.definition.body.references)

@@ -132,6 +132,20 @@ this field. `Executor.readCellvars_iff` identifies the checked definition
 that supplies the tuple.
 [Python code objects](https://docs.python.org/release/3.12.13/reference/datamodel.html#code-objects)
 
+`Executor.Body.assertCodeNames` tests positive membership in the immutable
+`Dispatch.Definition.codeNames` tuple for the current receiver's checked
+code key and layout. The assertion selects CPython 3.13.5 in `exec` mode
+with `optimize=0`. It compares the original `List UInt32` needle with the
+stored names' exact code points. A match continues with the same frame,
+heap and stack. A miss on a profiled tuple, including an explicit empty
+tuple, delivers the defined empty assertion error. The CPython 3.7.3 tag
+records evidence and produces `wrongCodeNamesProfile` at this executor
+boundary. Absent data yields `unprofiledCodeNames`, and a nonfunction
+receiver yields `unsupportedCodeNamesReceiver`. Receiver lookup errors
+and invalid references follow the existing typed paths.
+`Executor.readCodeNames_iff` ties a successful read to the matching tag
+and tuple on the resolved definition.
+
 The executor shares the frame and heap APIs with the compiler. Call entry
 starts the selected body with its initialized frame. Return or an uncaught
 defined error reaches a receiving state with the exact saved caller,

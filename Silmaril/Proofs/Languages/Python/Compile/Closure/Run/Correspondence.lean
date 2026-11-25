@@ -76,7 +76,8 @@ theorem resolve_entry {source : Source.Module} (compiled : Compiled source) :
         { parameters := compiled.sourceBody.parameters
           body := target
           freevars := (Link.link compiled.sourceBody).entryFreeVars
-          cellvars := (Link.link compiled.sourceBody).entryCellVars } := by
+          cellvars := (Link.link compiled.sourceBody).entryCellVars
+          codeNames := (Link.link compiled.sourceBody).entryCodeNames } := by
   obtain ⟨target, translated, lookup⟩ := table_entry compiled.lowered (key := 0) rfl
   exact ⟨target, translated, resolve_iff.mpr lookup⟩
 
@@ -90,7 +91,8 @@ theorem resolve_reference {source : Source.Module} (compiled : Compiled source)
         { parameters := definition.parameters
           body := target
           freevars := definition.freevars
-          cellvars := definition.cellvars } := by
+          cellvars := definition.cellvars
+          codeNames := definition.codeNames } := by
   obtain ⟨definition, original, resolved⟩ := Link.resolve_reference compiled.sourceBody emitted
   obtain ⟨target, translated, lookup⟩ := table_entry compiled.lowered original
   exact ⟨definition, target, resolved, translated, resolve_iff.mpr lookup⟩
