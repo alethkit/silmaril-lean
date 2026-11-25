@@ -42,6 +42,17 @@ theorem release_publishes {s t : XState Nat} {tid lock payload : Nat}
     t.memory payload = viewMem s tid payload :=
   Silmaril.Proofs.X86.Concurrency.Sqlite.Release.release_publishes separate confined releases
 
+/-- A confined full dword release clears the four-byte lock and publishes the
+owner's view outside it, at any byte no peer can overwrite from a buffer. -/
+theorem dword_release {s t : XState Nat} {tid lock : Nat}
+    (lockConfined : ∀ addr, lock ≤ addr → addr < lock + 4 → BuffersAvoid s addr)
+    (release : XWeakStep s (.rmw tid lock [1, 0, 0, 0] [0, 0, 0, 0]) t) :
+    (∀ addr, lock ≤ addr → addr < lock + 4 → t.memory addr = some 0) ∧
+    t.buffer tid = [] ∧
+    ∀ addr, (addr < lock ∨ lock + 4 ≤ addr) → PeerBuffersAvoid s tid addr →
+      t.memory addr = viewMem s tid addr :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.dword_release lockConfined release
+
 /-- A peer’s pending lock write can refute observation inclusion for top. -/
 theorem top_unsound (allowed : XState Nat → Config Phase → Set Nat) :
     ¬ Sound .fifo id (IsRelease 0 0) (releaseProjection 0 0 0)

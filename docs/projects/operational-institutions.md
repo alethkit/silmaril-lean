@@ -33,10 +33,10 @@ the forward simulation proof. Reflection, termination, and demonic correctness
 have separate obligations. [Machine shapes and laws](../../Silmaril/Logic/Operational/Machines/Thms.lean)
 
 The earlier finite-machine institution covers registered finite machine
-documents and their properties. The Cambridge transition institution uses
-steps as models of program theories over injective register renamings. The
-institutions here use predicates on steps as models and make individual
-permitted transitions the sentences. [Finite machines](automata.md) ·
+documents and their properties. The Cambridge Optimising Compilers transition
+institution uses steps as models of program theories over injective register
+renamings. The institutions here use predicates on steps as models and make
+individual permitted transitions the sentences. [Finite machines](automata.md) ·
 [Cambridge transition institution](../../Silmaril/Courses/Cambridge/OptimisingCompilers/Institutions/Transitions.lean)
 
 ## Checked model connections
@@ -72,6 +72,59 @@ permitted transitions the sentences. [Finite machines](automata.md) ·
   API records initial states, observations, and UB, which gives a separate seam
   for richer behavioural claims. [Program-level operational API](../../Silmaril/Semantics/Operational/Program/Defs.lean)
 
+## Cambridge L1 and L2
+
+Each adapter uses the course's existing CSLib `lts` as a model of
+`Signature.institution`. A sentence `(s, (), t)` names one reduction between
+complete configurations. Both endpoints include the expression and a finite
+partial store from locations to unbounded integers. `sat_iff` identifies truth
+with the course's `Step`, which is call-by-value in L2. The labels carry no
+event payload. All configurations are admitted as states, including untyped
+and stuck configurations. Converting the model back to a CSLib LTS recovers
+the original system, so labelled finite runs keep the same endpoints and one
+unit label per step. [Course adapters](../../Silmaril/Courses/Cambridge/OperationalInstitution.lean)
+
+A signature map translates the two endpoints and the label. The reduct tests
+the translated edge in the course's LTS. For example, a map that pairs each L1
+expression with a fixed store pulls back exactly the reductions that leave
+that store unchanged. A simulation between actual systems would also require
+step preservation. [Reduct and LTS correspondence](../../Silmaril/Courses/Cambridge/OperationalInstitution/Basic.lean)
+
+The accompanying `OpSem` view reports a finite return exactly when zero or
+more course steps reach a value. The return includes the value expression
+and its final store, including lambda expressions in L2. Stuck nonvalues
+have no return and the view supplies no trap outcomes. The step institution
+has individual edge sentences. Return, reachability and terminality are read
+from the semantics, and this adapter supplies no sentences for those
+properties, divergence, or typing. [L1 return correspondence](../../Silmaril/Courses/Cambridge/L1/OperationalInstitution.lean) ·
+[L2 return correspondence](../../Silmaril/Courses/Cambridge/L2/OperationalInstitution.lean)
+
+`ofLTS` packages a CSLib transition system, and `valueSemantics` accepts a
+course-specific value predicate for unit-labelled systems. The read-only L1
+denotational adapter uses this finite-return view to prove satisfaction of
+value-and-store atoms. A specification-format adapter can target the step
+sentences once it defines how documents name configurations and establishes
+satisfaction for that translation. [Shared entry points](../../Silmaril/Courses/Cambridge/OperationalInstitution/Basic.lean) ·
+[Read-only L1 denotations](../courses/cambridge-denotational.md#read-only-l1)
+
+## Cambridge L3
+
+The CSLib wrapper uses the direct L3 `Step` relation verbatim. Each state is
+the original `L3.Config` with its expression and a finite partial store of
+L3 values. Locations are concrete natural numbers. Every fresh location gives
+its own permitted allocation edge, and the model keeps the inserted binding
+in the target store. `sat_iff` identifies satisfaction with the direct rules,
+and `steps_iff_reachable` identifies finite CSLib reachability with `L3.Steps`.
+[L3 adapter](../../Silmaril/Courses/Cambridge/L3/OperationalInstitution.lean)
+
+The sentence logic consists of atomic positive edge claims `(s, (), t)` with
+one unit label per step. A return is a separate `OpSem.May` observation. It
+witnesses a finite run to an `L3.IsValue` expression and reports that expression
+with the full final store. Concrete fresh names remain visible, even when two
+runs return the same expression. The view supplies no trap outcomes. Must
+observations, divergence, and equivalence up to location renaming require
+separate proof obligations. [Finite return correspondence](../../Silmaril/Courses/Cambridge/L3/OperationalInstitution.lean)
+
 ## Checks
 
 Run the three module builds and the regression with the pinned toolchain.
@@ -85,6 +138,18 @@ lake env lean -DwarningAsError=true tests/semantics/operational-institutions/Reg
 The regression checks the composition of simulations on finite runs, register
 and memory-map variance, satisfaction under translation, stack order, and the
 Wasm and x86 adapters.
+
+The Cambridge build checks L1 assignment, dereference at a fixed store,
+and a missing location. It also checks an L2 run that dereferences the
+argument before beta reduction and returns the value with the final store.
+The L3 examples rule out allocating at an occupied location and check two
+runs of `!(ref 42)` that reach the same integer with distinct final stores.
+[L1 and L2 examples](../../Silmaril/Courses/Cambridge/OperationalInstitution/Examples.lean) ·
+[L3 examples](../../Silmaril/Courses/Cambridge/OperationalInstitution/L3Examples.lean)
+
+```sh
+make check CHECK_TARGETS='+Silmaril.Courses.Cambridge.OperationalInstitution'
+```
 
 The RV64 regression runs real instruction bytes through the landed model.
 `LD` returns the overlaid value `43` and reports eight bytes at address `256`.

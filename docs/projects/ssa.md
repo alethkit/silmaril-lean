@@ -63,11 +63,13 @@ bridge relates the two.
 | Elgot iteration | `Silmaril.Semantics.Elgot.{Defs,Thms}`, `Silmaril.Semantics.ElgotMonads.{Defs,Thms}` | `Iterate`, `LawfulElgotMonad` (fixpoint, naturality, codiagonal, uniformity); instances for `Part`, `SetM`, `StateT`, `ReaderT`, `ExceptT`, `OptionT`, `WriterT` |
 | Categorical support | `Silmaril.Semantics.Categories.Thms` | re-exports Raw premonoidal, Freyd, distributive Freyd and Elgot-monad category theory used by the categorical let-iter semantics |
 | Behaviours | `Silmaril.Semantics.Behaviour.Thms` | re-exports Raw labelled traces, contracts, refinement, the compilation relation `Implements`, simulation conventions and equivalence over `Silmaril.Machine.Behaviour` |
+| LetIter denotational soundness | `Silmaril.SSA.Isotope.LetIter.Thms` | proof-relevant typed equations preserve direct monadic denotations and the corresponding categorical arrows in the Kleisli model of a lawful Elgot monad |
+| λSSA categorical semantics | `Silmaril.SSA.Isotope.LambdaSSA.Categorical.{Defs,Thms}` | expression and region denotation graphs, totality for exact typing, and uniqueness under the respective coherence hypotheses |
 | Let-family institutions | `Silmaril.SSA.Isotope.Institution.Thms` | re-exports the Raw equational institutions of let-seq, let-case and let-iter, inclusion comorphisms with borrowing, syntactic initiality, refinement institutions and `eqToRef`, observational institutions and `iterSSAIso` |
 | Thesis initiality | `Silmaril.SSA.Thesis.Thms` | re-exports the Raw port of the thesis λiter and λcase (`Silmaril.Raw.SSA.Thesis`): `Syn.isInitial` in `Alg S`, equational completeness |
 | Thesis categorical models | `Silmaril.SSA.Thesis.Categorical.Thms` | λiter derivations denoted in strong Elgot Freyd categories, `Alg.ofCategorical`, initiality into those models, non-vacuity of `Alg S` |
 | Thesis Kleisli model | `Silmaril.SSA.Thesis.Kleisli.Thms` | the Kleisli category of a lawful Elgot monad as a λiter model: `TypingCoherent` and `LawfulModel` instances, initiality into it, and the instance at `Part` |
-| Quantitative refinement | `Silmaril.SSA.Isotope.Refinement.Thms` | re-exports the Raw quantitative refinement calculus (`Silmaril.Raw.SSA.Isotope.Refinement`): usage-annotated typing, refinement theories, initiality among algebraic and ordered models, completeness, categorical interpretation in seq/case/iter models |
+| Quantitative refinement | `Silmaril.SSA.Isotope.Refinement.Thms` | usage-annotated typing, rewrite theories, ordered constructor models, and strict categorical models of letseq, letcase and letiter |
 | Let-iter bridge | `Silmaril.SSA.Isotope.Bridge.{Defs,Thms}` | term and context translations between `Silmaril.Isotope.LetIter` and the thesis λiter, preservation of typing, axioms and equivalence, agreement of the two completeness theorems |
 | Dataflow | `Silmaril.Calculi.Dataflow.{Defs,Thms}` | round-robin (Gauss–Seidel) iteration over `Silmaril.Semantics.Dataflow` equation systems |
 
@@ -134,6 +136,47 @@ borrowing (`seqCase_entails_iff_of_any`, `caseIter_entails_iff_of_any`);
 `Observational.iterSSAIso` in `CoIns` between let-iter and single-exit λSSA modulo
 observational equivalence.
 
+LetIter denotational soundness (`Silmaril.Isotope.LetIter.ProofRelevant.Semantics`).
+`sound` and `related_sound` preserve the denotations at the given proof-relevant
+typing endpoints. `categorical_denote_eq` identifies the associated Kleisli arrow
+pointwise with the direct semantics, and `categorical_sound` gives equality
+of the arrows. For exact LetIter, `Bridge.toThesis_categorical_sound` transports
+an equation to the thesis syntax at any free and bound contexts and applies
+categorical soundness there. It assumes matching type formers, instruction
+types and effects, and the thesis model laws and typing coherence. The existing
+algebraic completeness theorem ranges over operation algebras of the presentation.
+
+λSSA categorical semantics (`Silmaril.Isotope.LambdaSSA.Semantics.Categorical`).
+`denote_spec` and `denoteRegion_spec` witness the expression and region graphs
+at every exactly typed input. Expression models are distributive Freyd
+categories. Region models additionally provide strong Elgot iteration.
+Variable contexts are products and exit contexts are finite coproducts. A CFG
+with zero local labels denotes its entry. A nonempty CFG dispatches a finite
+family of possibly differently typed local labels, with outward jumps on the
+left and local iteration on the right. `Denotes.eq_denote` and
+`RegionDenotes.eq_denote` require separate typing coherence hypotheses.
+These results give structural denotations. Soundness for the λSSA rewrite
+theory and the syntactic initial model of that theory remain open here.
+[Ghalayini and Krishnaswami, *The Denotational Semantics of SSA*, §5](https://arxiv.org/abs/2411.09347)
+
+λSSA Kleisli agreement (`Silmaril.SSA.Isotope.LambdaSSA.Kleisli.Thms`).
+The direct monadic denotation threads a typed product of variable values
+and returns a typed destination from the label context. The graph comparison
+sends every monadic witness to a categorical witness at the matching
+environment. `categoricalTermDenote_eq` and `categoricalRegionDenote_eq`
+identify the chosen arrows under the corresponding coherence assumptions,
+with the latter transporting typed exits along the finite-coproduct
+equivalence. Region agreement includes nested CFGs in a lawful Elgot monad.
+
+Subtyped λSSA (`Silmaril.SSA.Isotope.LambdaSSA.Subtyping.Categorical.Thms`).
+`Subtyping.Exact.tm` and `Subtyping.Exact.region` embed exact typing into the
+derivation-valued typing system. A subtyping step in an expression composes
+with the value morphism of the supplied coercion. The structural graph gives
+a unique arrow for each expression derivation. Every region derivation has a
+structural arrow, with uniqueness under `RegionTypingCoherent`. The region
+semantics shares the exact dispatcher and retains coercions in the expressions
+of its entry and blocks.
+
 Thesis ports (`Silmaril.SSA.Thesis.Thms`, `.Categorical.Thms`), for a signature
 `S`: `Syn.isInitial : IsInitial (Syn S)` in `Alg S` and `Syn.denote_eq_iff_eqv`
 (λiter; λcase analogues `Syn.denote_eq_iff_equiv`); `Alg.ofCategorical` and
@@ -148,6 +191,16 @@ Thesis Kleisli model (`Silmaril.SSA.Thesis.Kleisli.Thms`), for a lawful Elgot mo
 `uniqueHomKleisli`/`kleisli_initial` (exactly one algebra morphism from `Syn S`
 into the Kleisli model, computing the denotation); `uniqueHomKleisliPart` at `Part`.
 
+Thesis syntactic category (`Silmaril.SSA.Thesis.SyntacticCategory.Thms`).
+`Syn.SynCat S` has the signature's types as objects and one-variable
+terms modulo `Eqv` as arrows. It has binary coproducts and satisfies
+fixpoint, naturality and codiagonal for iteration, in both the syntax
+and Mathlib coproduct presentations. The syntactic pure-arrow predicate
+is existence of a pure representative, and `iterate_uniformity` holds
+along those arrows. `elgotCategory_of_hasFiniteCoproducts` assumes finite
+coproducts. The existence of an initial object, the Cartesian structure of
+the value category and iteration strength remain open.
+
 Quantitative refinement (`Silmaril.SSA.Isotope.Refinement.Thms`, namespace
 `Silmaril.Isotope.Refinement`): `Models.syntaxIsInitial`, `Models.fold_unique`,
 `Models.syntacticModelIsInitial`, `Models.orderedSyntacticModelIsInitial`,
@@ -156,12 +209,59 @@ completeness `Models.{refinement,mutual_refinement,equation}_iff_all_models`,
 `Theory.{refinement,equational}Functor`, and the categorical interpretation
 `Models.Denotation.denote{Seq,Case,Iter}` with `fold_unique`.
 
+The quantitative categorical results use the free types `Ty α` and a fixed
+instruction signature. Their objects are sequential ordered symmetric
+premonoidal models, distributive branching models, and iterative models with
+strong directed Conway iteration, respectively. Morphisms preserve the chosen
+structure strictly.
+
+- `Models.Denotation.{seq,case,iter}WitnessCoherent` and
+  `{seq,case,iter}_validates_refines` give typing witness coherence and
+  soundness for every quantitative context. The iterative result covers
+  effectful directed uniformity.
+- `Models.Interpretation.free{Seq,Case,Iter}ModelIsInitial` gives the free
+  native singleton-term quotient's initiality. `{seq,case,iter}IsInitial`
+  gives initiality for a formed `RewriteSystem` closed under quantitative
+  renaming and native pure substitution. The initiality categories place
+  homs in the instruction universe.
+- `Models.Interpretation.{seq,case,iter}_{refines,equates}_iff_models` gives
+  completeness for terms with one input `Syntactic.input A`. The native
+  presented models validate their rewrite systems in arbitrary contexts.
+
+These declarations correspond to the quantitative refinement development at
+source revision `cc9b669ac91832336c04eac000dbc9cf34913bd9`, under
+`Models/Denotation`, `Models/Syntactic` and `Models/Interpretation`.
+The λSSA categorical semantics above treats the general multi-exit region
+judgment, whose codomain is a finite coproduct of exit types.
+
 Bridge (`Silmaril.SSA.Isotope.Bridge.Thms`), under the explicit compatibility
 hypotheses `TypeCompat`, `InstrCompat`, `EffCompat` (each discharged by `rfl` for
 the canonical instances): `hasType_iff`, `pure_iff`, `coreAxiom_iff` (the same 19
 axiom schemes), `equiv_iff` (in every free context), and `semantic_iff_semantic`
 (closed terms: validity in every Isotope equational model iff validity in every
 thesis algebra).
+
+## Guarded iteration and resumptions
+
+CALCO 2019 article 13, Definition 19, identifies ordinary Elgot monads with the
+totally guarded special case. LetIter and the λSSA CFG dispatcher use an
+iteration operation on every arrow `X ⟶ Y ⨿ X`, and their Freyd interface
+requires uniformity against mapped value arrows and strength for the carried
+context. A guarded-only model would need proofs of guardedness for each
+lowered loop, including silent back edges. The paper's Corollary 26 provides
+guarded iteration on a coinductive resumption monad, and Theorem 28 gives its
+free-extension property under the stated existence assumption.
+
+`Silmaril.SSA.Isotope.Calco2019.Resumption.Thms` connects the λSSA
+instruction-resumption machine to that guarded iteration. The next control
+and external state lie under a suspension after each successful instruction.
+The initial observation factors through the left coproduct injection, so the
+body is guarded even under the least guard on observations. For deterministic
+instruction models and a chosen final coalgebra with the stated suspension
+and head-reading operations, `Machine.room_return_iff` preserves and reflects
+the existing room's finite returns at every exit. Faults, divergence,
+scheduling, and the free-extension property are separate claims.
+[Levy and Goncharov, *Coinductive Resumption Monads: Guarded Iterative and Guarded Elgot*](https://doi.org/10.4230/LIPIcs.CALCO.2019.13)
 
 ## Status
 
@@ -181,7 +281,11 @@ thesis algebra).
 | Thesis λiter initiality into strong Elgot Freyd models | proved (Raw port), assuming the coherence classes `TypingCoherent` and `LawfulModel` (hypotheses) |
 | Instances of `TypingCoherent` and `LawfulModel` for the Kleisli category of a lawful Elgot monad; initiality into the Kleisli model, and at `Part` | proved (Raw port) |
 | Quantitative refinement calculus: initiality among algebraic and ordered models, completeness, categorical interpretation | proved (Raw); initiality among algebras of the presentation, not among Freyd/Elgot categories |
-| Soundness and initiality of the categorical refinement models | open |
+| Proof-relevant LetIter typed equations in the associated Kleisli model | proved under a lawful Elgot monad and the typed instruction model |
+| Exact LetIter equations translated to thesis categorical models | proved under signature compatibility, typing coherence and lawful model hypotheses |
+| Exactly typed λSSA expressions and nested CFG regions have structural categorical denotations | proved, with uniqueness under the corresponding coherence class |
+| Quantitative categorical soundness and initiality | proved for letseq, letcase and letiter over the fixed signature |
+| Quantitative categorical completeness | proved for singleton-input refinement and equations |
 | Bridge: typing, axioms, equivalence, completeness agreement | proved under `TypeCompat`, `InstrCompat`, `EffCompat` |
 | A translation of models between the Isotope equational models and `Alg S`; equivalence of the model categories; bridges for let-seq and let-case | open |
 | The paper's "syntax is the initial distributive Elgot category" | open |
@@ -202,7 +306,9 @@ declaration in this project. Every constant in its modules depends only on
 lake build --wfail Silmaril.SSA.LambdaRTL.Thms Silmaril.SSA.LambdaRTL.CFG.Thms \
   Silmaril.Machine.LambdaRTLLir.Thms Silmaril.Machine.OfLambdaSSA.Thms \
   Silmaril.SSA.Isotope.Thms Silmaril.SSA.Isotope.Institution.Thms \
-  Silmaril.SSA.Isotope.Bridge.Thms Silmaril.SSA.Thesis.Categorical.Thms \
+  Silmaril.SSA.Isotope.Bridge.Categorical.Thms Silmaril.SSA.Thesis.Categorical.Thms \
+  Silmaril.SSA.Isotope.LetIter.Thms Silmaril.SSA.Isotope.LambdaSSA.Categorical.Thms \
+  Silmaril.SSA.Isotope.LambdaSSA.Kleisli.Thms \
   Silmaril.SSA.Thesis.Kleisli.Thms Silmaril.SSA.Isotope.Refinement.Thms
 ```
 

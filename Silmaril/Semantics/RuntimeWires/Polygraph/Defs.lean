@@ -10,6 +10,12 @@ public import Mathlib.CategoryTheory.Adjunction.Basic
 Definitions 3.1 and 3.7 of Mario Román and Paweł Sobociński,
 *String Diagrams for Premonoidal Categories* (LMCS 21(2), 2025),
 <https://doi.org/10.46298/LMCS-21(2:9)2025>.
+
+The studied version is arXiv:2305.06075v5 (2025-04-28).
+
+- PDF SHA-256 `8d34da8f010f438e5ff0d0791a3dc338204c55d08ee591a4a18287d193902711`. [PDF](https://arxiv.org/pdf/2305.06075v5)
+- Source archive SHA-256 `d1ac1aff3179f351e53daf2905907f7b0ca68ee8d79ffa157c21f8f5755dcfb3`. [TeX source](https://arxiv.org/src/2305.06075v5)
+- The archive's `arxivmain.tex` has SHA-256 `22ab11b9727b5bd4acef1dc282957441308679a054d94cdd0d741eb84ae4a855`.
 -/
 
 namespace Silmaril.RuntimeWires

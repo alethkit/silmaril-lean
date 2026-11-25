@@ -179,6 +179,44 @@ theorem release_publishes {s t : XState Nat} {tid lock payload : Nat}
     _ = viewMem mid tid payload := by simp [updated, viewMem, writeMem, outside]
     _ = viewMem s tid payload := beforeView
 
+/-- A confined full dword release clears the four-byte lock and publishes the
+owner's view outside it, at any byte no peer can overwrite from a buffer. -/
+theorem dword_release {s t : XState Nat} {tid lock : Nat}
+    (lockConfined : ∀ addr, lock ≤ addr → addr < lock + 4 → BuffersAvoid s addr)
+    (release : XWeakStep s (.rmw tid lock [1, 0, 0, 0] [0, 0, 0, 0]) t) :
+    (∀ addr, lock ≤ addr → addr < lock + 4 → t.memory addr = some 0) ∧
+    t.buffer tid = [] ∧
+    ∀ addr, (addr < lock ∨ lock + 4 ≤ addr) → PeerBuffersAvoid s tid addr →
+      t.memory addr = viewMem s tid addr := by
+  obtain ⟨mid, before, ownerEmpty, _, _, after⟩ := weak_rmw_atomic release
+  let written := {mid with memory := writeMem mid.memory lock [0, 0, 0, 0]}
+  have drained := weak_rmw_empty release
+  have observed {addr : Nat} (safe : PeerBuffersAvoid s tid addr) :
+      t.memory addr = written.memory addr := by
+    have retained := (flushes_preserve_view before safe).2
+    have atWrite : PeerBuffersAvoid written tid addr := retained
+    have eq := (flushes_preserve_view after atWrite).1
+    simpa [viewMem, drained, written, ownerEmpty, readBufByte] using eq
+  refine ⟨?_, drained, ?_⟩
+  · intro addr low high
+    rw [observed (fun who _ => lockConfined addr low high who)]
+    have offset : addr - lock = 0 ∨ addr - lock = 1 ∨ addr - lock = 2 ∨ addr - lock = 3 := by omega
+    rcases offset with equal | equal | equal | equal <;> simp [written, writeMem, entryByte, low, equal]
+  · intro addr outside safe
+    have zero : entryByte lock [0#8, 0#8, 0#8, 0#8] addr = none := by
+      unfold entryByte
+      split
+      · apply List.getElem?_eq_none
+        simp
+        omega
+      · rfl
+    calc
+      t.memory addr = written.memory addr := observed safe
+      _ = mid.memory addr := by simp [written, writeMem, zero]
+      _ = viewMem s tid addr := by
+        have eq := (flushes_preserve_view before safe).1
+        simpa [viewMem, ownerEmpty, readBufByte] using eq
+
 theorem sc_release_matches {initial last : Silmaril.X86.MemoryModel.Tso.Mem} {tid lock : Nat} {busy rc : Int32}
     (startsLocked : initial lock = some 1)
     (path : Tso.Execution SCStep initial [releaseEvent tid lock] last) :
