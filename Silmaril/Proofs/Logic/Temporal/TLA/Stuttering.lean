@@ -8,7 +8,7 @@ namespace Silmaril.Proofs.Logic.Temporal.TLA
 
 open Silmaril.Logic.Temporal.TLA
 
-universe u v
+universe u v w
 
 variable {S : Type u} {V : Type v}
 
@@ -181,6 +181,32 @@ theorem sat_stutterInvariant (p : Formula S) : StutterInvariant p.Sat := by
   intro σ τ ⟨r, t, h⟩
   exact (sat_retime p σ r).symm.trans (h ▸ sat_retime p τ t)
 
+/-- A suffix of an expansion expands the corresponding original suffix. -/
+theorem stutter_suffix_retime (σ : Behavior S) (r : Retiming) (i : Nat) :
+    StutterEquiv ((σ.retime r).suffix i) (σ.suffix (r.index i)) := by
+  let tail : Retiming := {
+    index := fun j => r.index (i + j) - r.index i
+    zero := by simp
+    step := fun j => by
+      have bound := index_mono r (Nat.le_add_right i j)
+      rcases r.step (i + j) with same | next
+      · left
+        rw [← Nat.add_assoc, same]
+      · right
+        rw [← Nat.add_assoc, next]
+        omega
+    cofinal := fun j => by
+      obtain ⟨k, hk⟩ := r.cofinal (r.index i + j)
+      have bound := index_mono r (Nat.le_add_left k i)
+      exact ⟨k, by omega⟩ }
+  have same : (σ.suffix (r.index i)).retime tail = (σ.retime r).suffix i := by
+    funext j
+    have bound := index_mono r (Nat.le_add_right i j)
+    simp only [Behavior.retime, Behavior.suffix, tail]
+    rw [show r.index i + (r.index (i + j) - r.index i) = r.index (i + j) by omega]
+  rw [← same]
+  exact stutter_symm (stutter_retime _ tail)
+
 theorem hide_stutterInvariant (p : Behavior (S × V) → Prop) : StutterInvariant (hide p) := by
   intro σ τ h
   constructor
@@ -188,6 +214,25 @@ theorem hide_stutterInvariant (p : Behavior (S × V) → Prop) : StutterInvarian
     exact ⟨ρ, stutter_trans (stutter_symm h) he, hp⟩
   · rintro ⟨ρ, he, hp⟩
     exact ⟨ρ, stutter_trans h he, hp⟩
+
+theorem hide_map_iff {T : Type w} (f : T → S) {p : Behavior (S × V) → Prop}
+    (hp : StutterInvariant p) (σ : Behavior T) :
+    hide (fun τ => p (τ.map fun z => (f z.1, z.2))) σ ↔ hide p (σ.map f) := by
+  constructor
+  · rintro ⟨τ, hσ, hτ⟩
+    refine ⟨τ.map (fun z => (f z.1, z.2)), ?_, hτ⟩
+    exact stutter_map f hσ
+  · rintro ⟨τ, ⟨r, t, agrees⟩, hτ⟩
+    let lifted : Behavior (T × V) := fun i => (σ.retime r i, (τ.retime t i).2)
+    have projection : lifted.map Prod.fst = σ.retime r := rfl
+    have mapped : lifted.map (fun z => (f z.1, z.2)) = τ.retime t :=
+      funext fun i => Prod.ext (congrFun agrees i) rfl
+    refine ⟨lifted, ?_, ?_⟩
+    · rw [projection]
+      exact stutter_retime σ r
+    · change p (lifted.map _)
+      rw [mapped]
+      exact (hp (stutter_retime τ t)).mp hτ
 
 /-- Lamport's full-state, two-witness clause for hiding on product states. -/
 theorem hide_iff_lamport {p : Behavior (S × V) → Prop} (hp : StutterInvariant p)

@@ -50,6 +50,7 @@ public import Silmaril.Logic
 public import Silmaril.ProofFormats
 
 public import Silmaril.Calculi
+public import Silmaril.Languages.Starlark.Thms
 
 -- SSA calculi, λRTL and the SSA-form machine RTL (docs/projects/ssa.md).
 public import Silmaril.Calculi.Dataflow.Thms
@@ -94,8 +95,10 @@ public import Silmaril.Semantics.Tokens.Thms
 public import Silmaril.Semantics.StreamBounds.Thms
 public import Silmaril.SSA.Isotope.Institution.Thms
 public import Silmaril.SSA.Isotope.Bridge.Thms
+public import Silmaril.SSA.Isotope.Bridge.Categorical.Thms
 public import Silmaril.SSA.Thesis.Thms
 public import Silmaril.SSA.Thesis.Categorical.Thms
 public import Silmaril.Machine.LambdaRTLLir.Sim.Thms
 public import Silmaril.SSA.Thesis.Kleisli.Thms
+public import Silmaril.SSA.Thesis.SyntacticCategory.Thms
 public import Silmaril.SSA.Isotope.Refinement.Thms

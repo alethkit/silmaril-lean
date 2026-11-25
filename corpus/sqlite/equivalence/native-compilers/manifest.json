@@ -1,0 +1,125 @@
+{
+  "schema": "silmaril.sqlite-native-compiler-pair.v1",
+  "root": "Silmaril.Elf.Corpus.SqliteNativeCompilers.Thms",
+  "definition": "Silmaril/Elf/Corpus/SqliteNativeCompilers/Defs.lean",
+  "source": {
+    "path": "corpus/sqlite/upstream/sqlite-amalgamation-3540100/sqlite3.c",
+    "sha256": "0c657666d819f261cc4007526ad57e1669de9949df7a8ea847aa284a2bf0ee52",
+    "definitions": {
+      "sqlite3_libversion_number": {
+        "offset": 6913879,
+        "length": 79,
+        "sha256": "7cc67a0904f3480b405d774ce92af482c7c4f5e8ff92f49e399190d1eb087181",
+        "text": "SQLITE_API int sqlite3_libversion_number(void){ return SQLITE_VERSION_NUMBER; }"
+      }
+    },
+    "archive": {
+      "url": "https://sqlite.org/2026/sqlite-amalgamation-3540100.zip",
+      "sha256": "0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9"
+    },
+    "header_sha256": "d6c84557261893439b341d2e6c35187ae3ea24fbfd843ad94616f72d89242b8c"
+  },
+  "build": {
+    "version": "3.54.1",
+    "configuration": "default",
+    "target": "x86_64-linux-gnu",
+    "abi": "System V AMD64; little-endian ELF64 ET_DYN",
+    "optimization": "O2",
+    "snapshot": "https://snapshot.debian.org/archive/debian/20251103T000000Z",
+    "base_image": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+    "linker": "GNU ld 2.44 (Debian binutils 2.44-3)",
+    "libc_dev": "2.41-12",
+    "directory": "/build/sqlite",
+    "environment": {
+      "SOURCE_DATE_EPOCH": "1762128000",
+      "LC_ALL": "C",
+      "TZ": "UTC"
+    },
+    "compile_args": [
+      "-O2",
+      "-g0",
+      "-ffile-prefix-map=/build/sqlite=.",
+      "-DSQLITE_THREADSAFE=1",
+      "-MMD",
+      "-fPIC",
+      "-c",
+      "sqlite3.c",
+      "-o",
+      "sqlite3.o"
+    ],
+    "link_args": [
+      "-shared",
+      "-Wl,-soname,libsqlite3.so.0",
+      "-o",
+      "libsqlite3.so",
+      "sqlite3.o",
+      "-lm"
+    ]
+  },
+  "endpoints": [
+    {
+      "id": "sqlite-3.54.1-default-x86_64-O2-gcc14",
+      "compiler": "gcc",
+      "compiler_version": "14.2.0-19",
+      "sha256": "fcdd0cd75ea98cee14f2743832c6ad2ed4dd4229e2b5093f8bce7dc33c9c17f8",
+      "size": 1208160,
+      "needed": [
+        "libc.so.6"
+      ],
+      "functions": {
+        "sqlite3_libversion_number": {
+          "address": 79904,
+          "file_offset": 79904,
+          "size": 6,
+          "symbol_section": 3,
+          "symbol_index": 311,
+          "symbol_type": "STT_FUNC",
+          "bytes_hex": "b8 b1 99 2e 00 c3",
+          "code_sha256": "3d779d39cb681720172513443573eca693b320fcee070ae5d10eb11f65a8d078"
+        }
+      },
+      "path": "corpus/variants/sqlite/3.54.1/default/x86_64/O2/unstripped/libsqlite3.so",
+      "kernel_file_evidence": [
+        "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.defaultO2Version_at",
+        "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.defaultO2Version_symbol"
+      ]
+    },
+    {
+      "id": "sqlite-3.54.1-default-x86_64-O2-clang19",
+      "compiler": "clang-19",
+      "compiler_version": "1:19.1.7-3+b1",
+      "sha256": "449086f493bd3058fdcefbf4319f00e386b73b269e00e72c3ec4d8a1a3b82ff1",
+      "size": 1321024,
+      "needed": [
+        "libm.so.6",
+        "libc.so.6"
+      ],
+      "functions": {
+        "sqlite3_libversion_number": {
+          "address": 149920,
+          "file_offset": 149920,
+          "size": 6,
+          "symbol_section": 3,
+          "symbol_index": 312,
+          "symbol_type": "STT_FUNC",
+          "bytes_hex": "b8 b1 99 2e 00 c3",
+          "code_sha256": "3d779d39cb681720172513443573eca693b320fcee070ae5d10eb11f65a8d078"
+        }
+      },
+      "rebuild_output": "libsqlite3-clang-19.so"
+    }
+  ],
+  "pairs": [
+    {
+      "id": "silmaril.corpus.sqlite.native_compilers.libversion_number",
+      "left": "sqlite-3.54.1-default-x86_64-O2-gcc14",
+      "right": "sqlite-3.54.1-default-x86_64-O2-clang19",
+      "function_symbol": "sqlite3_libversion_number",
+      "declaration": "Silmaril.Elf.Corpus.SqliteNativeCompilers.libversionNumber_pair",
+      "status": "proved-loaded-slices",
+      "value": 3054001,
+      "left_frame": 0,
+      "right_frame": 0
+    }
+  ]
+}
