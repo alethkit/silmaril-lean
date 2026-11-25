@@ -104,8 +104,8 @@ theorem invoke_mono (m : Machine.{u, v, w} Op) {loops loops' : Nat} (enoughLoops
         | apply fn =>
           cases values with
           | cons callee arguments => exact ih calls' (Nat.le_of_succ_le_succ enoughCalls) callee arguments answer done
-      cases callee with
-      | closure values body =>
-        exact evalBody_mono m _ _ handlers enoughLoops body.toTerm _ PUnit.unit output returns
+      let closure := resolve m callee
+      exact evalBody_mono m _ _ handlers enoughLoops closure.body.toTerm
+        (Closure.enter Op closure input) PUnit.unit output returns
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Proofs
