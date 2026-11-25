@@ -13,6 +13,15 @@ open Silmaril.Languages.Python.Core.Closure.Executor
 
 variable {globals : GlobalLookup} {layout : Layout} {heap : Heap} {frame : Frame layout}
 
+theorem readFreevars_iff {table : CodeTable} {fn : Function} {names : List String} :
+    readFreevars table (.function fn) = .ok names ↔
+      ∃ definition, Dispatch.Resolves table fn.code definition ∧ definition.freevars = some names := by
+  simp only [← Dispatch.resolve_iff]
+  cases resolved : Dispatch.resolve table fn.code with
+  | error error => simp [readFreevars, resolved]
+  | ok definition =>
+    cases tuple : definition.freevars <;> simp [readFreevars, resolved, tuple]
+
 private theorem name_read_eval (source : NameRead layout) :
     source.operand.evalIn globals heap frame = source.evalIn globals heap frame := by
   cases source <;> rfl
@@ -187,6 +196,9 @@ theorem advance_of_step {source target : State} {label : Option Event}
   | assertTrue eval holds => simp [advanceIn, eval_eq eval, holds]
   | assertFalse eval fails => simp [advanceIn, eval_eq eval, fails]
   | assertError eval => simp [advanceIn, eval_eq eval]
+  | assertFreevarsTrue eval => simp [advanceIn, eval]
+  | assertFreevarsFalse eval => simp [advanceIn, eval]
+  | assertFreevarsError eval => simp [advanceIn, eval]
   | call evaluated entered => simp [advanceIn, inputs_eq evaluated, Dispatch.dispatch_iff.mpr entered]
   | callError evaluated => simp [advanceIn, inputs_eq evaluated]
   | rejected evaluated reject => simp [advanceIn, inputs_eq evaluated, rejected_eq reject]
@@ -237,6 +249,16 @@ theorem step_of_advance {source : State} {transition : Transition}
           simp [advanceIn, evaluated, truth] at advanced
           subst transition
           exact .assertTrue (evaluated ▸ eval_rule test) truth
+    | assertFreevars test next =>
+      cases evaluated : test.evalIn table globals heap frame with
+      | error error =>
+        simp [advanceIn, evaluated] at advanced
+        subst transition
+        exact .assertFreevarsError evaluated
+      | ok holds =>
+        cases holds <;> simp [advanceIn, evaluated] at advanced <;> subst transition
+        · exact .assertFreevarsFalse evaluated
+        · exact .assertFreevarsTrue evaluated
     | callTo destination callee arguments next =>
       cases evaluated : evalCallIn globals heap frame callee arguments with
       | error error =>

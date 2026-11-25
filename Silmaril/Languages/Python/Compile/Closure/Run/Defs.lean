@@ -109,20 +109,25 @@ inductive Error where
 
 abbrev ExecutorEntry := Entry Core.Closure.Executor.Body
 
+def executorEntry (block : Link.Block) (body : Core.Closure.Executor.Body block.entry.layout) : ExecutorEntry :=
+  ⟨block.entry.layout,
+    { parameters := block.entry.definition.parameters
+      body := body
+      freevars := block.entry.definition.freevars }⟩
+
 inductive TableTranslation : List Link.Block → List ExecutorEntry → Prop where
   | nil : TableTranslation [] []
   | cons {block : Link.Block} {body : Core.Closure.Executor.Body block.entry.layout}
       {blocks entries} (head : Translation block.entry.definition.body body)
       (tail : TableTranslation blocks entries) :
-      TableTranslation (block :: blocks) (⟨block.entry.layout, ⟨block.entry.definition.parameters, body⟩⟩ :: entries)
+      TableTranslation (block :: blocks) (executorEntry block body :: entries)
 
 def lowerTable : (blocks : List Link.Block) → Except Error {entries // TableTranslation blocks entries}
   | [] => .ok ⟨[], .nil⟩
   | block :: rest => do
     let some body := lowerCode block.entry.definition.body | throw (.bodyProfile block.path)
     let tail ← lowerTable rest
-    let entry : ExecutorEntry := ⟨block.entry.layout, ⟨block.entry.definition.parameters, body.val⟩⟩
-    return ⟨entry :: tail.val, .cons body.property tail.property⟩
+    return ⟨executorEntry block body.val :: tail.val, .cons body.property tail.property⟩
 
 structure Compiled (source : Source.Module) where
   sourceBody : Body.Compiled source

@@ -52,7 +52,7 @@ private theorem link_targets {layout : Layout} (first : Nat) (code : Body.Code l
   | closure slot path childLayout parameters captures child rest inner tail =>
     let nested := linkBody (first + 1) child
     let later := linkBody (first + 1 + nested.children.length) rest
-    let newBlock : Block := ⟨path, ⟨childLayout, ⟨parameters, nested.code⟩⟩⟩
+    let newBlock : Block := ⟨path, ⟨childLayout, { parameters, body := nested.code }⟩⟩
     have nestedTargets := inner (first + 1)
     have laterTargets := tail (first + 1 + nested.children.length)
     have hasNested {ref : Source.BlockPath × CodeRef} (target : HasTarget (first + 1) nested.children ref) :
@@ -96,7 +96,8 @@ theorem resolve_reference {source : Source.Module} (compiled : Body.Compiled sou
       resolve (link compiled).table ref = .ok definition := by
   let body := linkBody 1 compiled.code
   let layout := Compile.Closure.frameLayout compiled.tree.scope
-  let root : Block := ⟨compiled.tree.scope.context.path, ⟨layout, ⟨compiled.parameters, body.code⟩⟩⟩
+  let root : Block :=
+    ⟨compiled.tree.scope.context.path, ⟨layout, { parameters := compiled.parameters, body := body.code }⟩⟩
   have rootOrChild : (path, ref) ∈ body.code.references ∨ (path, ref) ∈ blockReferences body.children := by
     simpa [Program.references, link, body, blockReferences] using emitted
   have targets := link_targets 1 compiled.code
