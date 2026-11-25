@@ -3,9 +3,9 @@ module
 public import Silmaril.Logic.Temporal.TLA.Kernel.Defs
 public import Silmaril.Logic.Temporal.TLA.Surface.Defs
 
-/-! # Scalar TLA+ surface elaboration
+/-! # Scalar and temporal TLA+ surface elaboration
 
-Check ordered declarations and elaborate scalar expressions to kernel denotations.
+Check ordered declarations and elaborate scalar expressions and temporal formulas.
 See `docs/projects/tla-elaborator.md` for the fragment and import contract.
 -/
 
@@ -56,6 +56,11 @@ inductive Diagnostic where
   | arityMismatch (name : Ident) (expected actual : Nat)
   | typeMismatch (expected actual : Scalar)
   | actionInState (name : Ident)
+  | actionInObservation
+  | actionInTemporal
+  | temporalInScalar
+  | tupleInScalar
+  | expectedTemporal (name : Ident)
   | primeOfAction
   | requiresImport (operator : String) (library : StandardModule)
   | unsupportedOperator (spelling : String)
@@ -70,9 +75,43 @@ inductive CheckedPredicate (Γ : Scope) where
   | state (predicate : StatePredicate Γ)
   | action (predicate : StepPredicate Γ)
 
+-- Tag the components so observations preserve both their scalar sorts and order.
+abbrev Observation (Γ : Scope) := Kernel.StateExpr Γ (List (Int ⊕ Bool))
+
+/-- Checked source temporal formulas. Scalar leaves retain their scoped kernel
+meanings. Each bracket and fairness clause carries its own observation. -/
+inductive TemporalFormula (Γ : Scope) where
+  | state (predicate : StatePredicate Γ)
+  | conj (left right : TemporalFormula Γ)
+  | alwaysBracket (step : StepPredicate Γ) (observe : Observation Γ)
+  | weakFair (step : StepPredicate Γ) (observe : Observation Γ)
+  | strongFair (step : StepPredicate Γ) (observe : Observation Γ)
+
+namespace TemporalFormula
+
+variable {Γ : Scope}
+
+/-- Lower to the standalone TLA semantics at a fixed rigid environment. -/
+@[expose] def toFormula (ρ : Kernel.RigidEnv Γ) : TemporalFormula Γ → Formula (State Γ)
+  | .state p => .state (p.toStatePred.eval ρ)
+  | .conj p q => .conj (p.toFormula ρ) (q.toFormula ρ)
+  | .alwaysBracket step observe => .alwaysBracket (step.toAction ρ) (observe ρ)
+  | .weakFair step observe => Formula.weakFair (step.toAction ρ) (observe ρ)
+  | .strongFair step observe => Formula.strongFair (step.toAction ρ) (observe ρ)
+
+private def weakenRigid (sort : Scalar) : TemporalFormula Γ → TemporalFormula (Γ.bindRigid sort)
+  | .state p => .state (p.weakenRigid sort)
+  | .conj p q => .conj (p.weakenRigid sort) (q.weakenRigid sort)
+  | .alwaysBracket p e => .alwaysBracket (p.weakenRigid sort) (e.weakenRigid sort)
+  | .weakFair p e => .weakFair (p.weakenRigid sort) (e.weakenRigid sort)
+  | .strongFair p e => .strongFair (p.weakenRigid sort) (e.weakenRigid sort)
+
+end TemporalFormula
+
 structure CheckedModule (signature : Signature) where
   private mk ::
   predicate : Ident → Except Diagnostic (CheckedPredicate signature.scope)
+  temporalFormula : Ident → Except Diagnostic (TemporalFormula signature.scope)
 
 @[expose] def CheckedModule.statePredicate {signature : Signature} (checked : CheckedModule signature)
     (name : Ident) : Except Diagnostic (StatePredicate signature.scope) :=
@@ -244,9 +283,24 @@ where
     requireImport imports op .integers
     return ⟨sort, (← Checked.expect left .int).combine f (← Checked.expect right .int)⟩
 
+private inductive CheckedValue (Γ : Scope) where
+  | scalar (value : ScalarExpr Γ)
+  | tuple (value : Observation Γ)
+  | temporal (value : TemporalFormula Γ)
+
+private def CheckedValue.asScalar : CheckedValue Γ → Except Diagnostic (ScalarExpr Γ)
+  | .scalar value => pure value
+  | .tuple _ => throw .tupleInScalar
+  | .temporal _ => throw .temporalInScalar
+
+private def CheckedValue.weaken (sort : Scalar) : CheckedValue Γ → CheckedValue (Γ.bindRigid sort)
+  | .scalar ⟨a, value⟩ => .scalar ⟨a, value.weaken sort⟩
+  | .tuple value => .tuple (value.weakenRigid sort)
+  | .temporal value => .temporal (value.weakenRigid sort)
+
 private structure Binding (Γ : Scope) where
   isOperator : Bool
-  value : ScalarExpr Γ
+  value : CheckedValue Γ
 
 private abbrev Locals (Γ : Scope) := List (Ident × Binding Γ)
 
@@ -257,12 +311,12 @@ private def ensureFresh (imports : Imports) (locals : Locals Γ) (name : Ident) 
     throw (.conflictingName name)
 
 private def resolveName (imports : Imports) (locals : Locals Γ) (name : Ident) (argc : Nat) :
-    Except Diagnostic (ScalarExpr Γ) := do
+    Except Diagnostic (CheckedValue Γ) := do
   let value ← match locals.lookup name with
     | some binding => pure binding.value
     | none => match name with
-      | "TRUE" => pure ⟨.bool, Checked.literal .bool true⟩
-      | "FALSE" => pure ⟨.bool, Checked.literal .bool false⟩
+      | "TRUE" => pure (.scalar ⟨.bool, Checked.literal .bool true⟩)
+      | "FALSE" => pure (.scalar ⟨.bool, Checked.literal .bool false⟩)
       | _ => if knownUnsupportedName imports name then throw (.nameOutsideFragment name)
              else throw (.unknownName name)
   if argc != 0 then throw (.arityMismatch name 0 argc)
@@ -279,16 +333,16 @@ private def setElement (imports : Imports) : Expr → Except Diagnostic ((sort :
 
 private def bindRigid (locals : Locals Γ) (name : Ident) (sort : Scalar) : Locals (Γ.bindRigid sort) :=
   let value := Kernel.Term.rigid (a := sort) (Γ.rigid.fresh sort)
-  (name, ⟨false, ⟨sort, .state (Meaning.ofTerm sort value)⟩⟩) ::
+  (name, ⟨false, .scalar ⟨sort, .state (Meaning.ofTerm sort value)⟩⟩) ::
     locals.map fun (key, binding) =>
-      (key, ⟨binding.isOperator, ⟨binding.value.1, binding.value.2.weaken sort⟩⟩)
+      (key, ⟨binding.isOperator, binding.value.weaken sort⟩)
 
 mutual
 
 private def elabExpr {Γ : Scope} (imports : Imports) (expr : Expr) (locals : Locals Γ) :
     Except Diagnostic (ScalarExpr Γ) := do
   match expr with
-  | .ref (.operator (.ident name)) args [] => resolveName imports locals name args.length
+  | .ref (.operator (.ident name)) args [] => (← resolveName imports locals name args.length).asScalar
   | .ref .. => throw (.unsupportedExpression "qualified, symbolic or proof reference")
   | .literal (.natural n) => pure ⟨.int, Checked.literal .int (Int.ofNat n)⟩
   | .prefix .minus arg =>
@@ -338,6 +392,88 @@ termination_by structural items
 
 end
 
+private def observationComponent : ScalarExpr Γ →
+    Except Diagnostic (Kernel.StateExpr Γ (Int ⊕ Bool))
+  | ⟨.int, .state value⟩ => pure (Term.map Sum.inl (Meaning.asTerm .int value))
+  | ⟨.bool, .state value⟩ => pure (Term.map Sum.inr (Meaning.asTerm .bool value))
+  | ⟨_, .action _⟩ => throw .actionInObservation
+
+private def elabTuple (imports : Imports) (items : List Expr) (locals : Locals Γ) :
+    Except Diagnostic (Observation Γ) := do
+  if items.isEmpty then throw (.unsupportedExpression "empty observation tuple")
+  let components ← items.mapM fun item => do
+    observationComponent (← elabExpr imports item locals)
+  return Term.enumeration components
+
+private def elabObservation (imports : Imports) (expr : Expr) (locals : Locals Γ) :
+    Except Diagnostic (Observation Γ) := do
+  match expr with
+  | .tuple items => elabTuple imports items locals
+  | .ref (.operator (.ident name)) args [] =>
+    match ← resolveName imports locals name args.length with
+    | .tuple observation => pure observation
+    | value => return Term.enumeration [← observationComponent (← value.asScalar)]
+  | _ => return Term.enumeration [← observationComponent (← elabExpr imports expr locals)]
+
+private def elabStep (imports : Imports) (expr : Expr) (locals : Locals Γ) :
+    Except Diagnostic (StepPredicate Γ) := do
+  return (← Checked.expect (← elabExpr imports expr locals) .bool).toStep
+
+private def CheckedValue.asFormula : CheckedValue Γ → Except Diagnostic (TemporalFormula Γ)
+  | .temporal formula => pure formula
+  | value => do
+    match ← Checked.expect (← value.asScalar) .bool with
+    | .state p => return .state p
+    | .action _ => throw .actionInTemporal
+
+private def CheckedValue.conj (left right : CheckedValue Γ) : Except Diagnostic (CheckedValue Γ) := do
+  match left, right with
+  | .temporal _, _ | _, .temporal _ =>
+    let p ← left.asFormula
+    let q ← right.asFormula
+    return .temporal (.conj p q)
+  | _, _ =>
+    let p ← Checked.expect (← left.asScalar) .bool
+    let q ← Checked.expect (← right.asScalar) .bool
+    return .scalar ⟨.bool, p.combine (a := .bool) (b := .bool) Kernel.Predicate.and q⟩
+
+mutual
+
+private def elabDefinition (imports : Imports) (expr : Expr) (locals : Locals Γ) :
+    Except Diagnostic (CheckedValue Γ) := do
+  match expr with
+  | .prefix .always (.action .square action observation) =>
+    return .temporal (TemporalFormula.alwaysBracket (← elabStep imports action locals)
+      (← elabObservation imports observation locals))
+  | .fairness kind observation action =>
+    let observe ← elabObservation imports observation locals
+    let step ← elabStep imports action locals
+    return .temporal (match kind with
+      | .weak => TemporalFormula.weakFair step observe
+      | .strong => TemporalFormula.strongFair step observe)
+  | .infix (.symbol "/\\") left right
+  | .infix (.symbol "\\land") left right
+  | .infix (.symbol "∧") left right =>
+    (← elabDefinition imports left locals).conj (← elabDefinition imports right locals)
+  | .junction .conjunction items => elabConjunction imports items locals
+  | .ref (.operator (.ident name)) args [] => resolveName imports locals name args.length
+  | .tuple items => return .tuple (← elabTuple imports items locals)
+  | _ => return .scalar (← elabExpr imports expr locals)
+termination_by structural expr
+
+private def elabConjunction (imports : Imports) (items : List Expr) (locals : Locals Γ) :
+    Except Diagnostic (CheckedValue Γ) := do
+  match items with
+  | [] => throw (.unsupportedExpression "empty junction")
+  | [item] =>
+    match ← elabDefinition imports item locals with
+    | .temporal p => return .temporal p
+    | value => return .scalar ⟨.bool, ← Checked.expect (← value.asScalar) .bool⟩
+  | item :: rest => (← elabDefinition imports item locals).conj (← elabConjunction imports rest locals)
+termination_by structural items
+
+end
+
 private def addVariable (signature : Signature) (imports : Imports) (name : Ident)
     (locals : Locals signature.scope) : Except Diagnostic (Locals signature.scope) := do
   ensureFresh imports locals name
@@ -345,7 +481,7 @@ private def addVariable (signature : Signature) (imports : Imports) (name : Iden
   | none => throw (.missingSort name)
   | some sort =>
     let term := Term.flex (Γ := signature.scope) (a := sort) ⟨name, h⟩
-    return (name, ⟨false, ⟨sort, .state (Meaning.ofTerm sort term)⟩⟩) :: locals
+    return (name, ⟨false, .scalar ⟨sort, .state (Meaning.ofTerm sort term)⟩⟩) :: locals
 
 private def checkUnit (signature : Signature) (imports : Imports) (unit : Surface.ModuleUnit)
     (locals : Locals signature.scope) : Except Diagnostic (Locals signature.scope) := do
@@ -355,7 +491,7 @@ private def checkUnit (signature : Signature) (imports : Imports) (unit : Surfac
     names.foldlM (fun ctx name => addVariable signature imports name ctx) locals
   | .definition (.operator _ (.ident name []) body) =>
     ensureFresh imports locals name
-    let value ← (elabExpr imports body locals).mapError (.inDefinition name)
+    let value ← (elabDefinition imports body locals).mapError (.inDefinition name)
     return (name, ⟨true, value⟩) :: locals
   | .definition _ =>
     throw (.unsupportedDeclaration "definition other than a nullary identifier operator")
@@ -366,6 +502,11 @@ private def checkUnit (signature : Signature) (imports : Imports) (unit : Surfac
   | .submodule _ => throw (.unsupportedDeclaration "submodule")
   | .theoremDecl _ => throw (.unsupportedDeclaration "theorem")
   | .directive _ => throw (.unsupportedDeclaration "proof directive")
+
+private def selectOperator (locals : Locals Γ) (name : Ident) : Except Diagnostic (CheckedValue Γ) := do
+  let some binding := locals.lookup name | throw (.unknownName name)
+  unless binding.isOperator do throw (.expectedOperator name)
+  return binding.value
 
 /-- Check every unit in declaration order. Only libraries both attested by the
 caller and named in `EXTENDS` enter resolution. -/
@@ -380,11 +521,14 @@ def elaborate (available : List StandardModule) (signature : Signature) (source 
   for (name, _) in signature do
     unless ((locals.lookup name).any (fun binding => !binding.isOperator)) do
       throw (.unexpectedSort name)
-  return ⟨fun name => do
-    let some binding := locals.lookup name | throw (.unknownName name)
-    unless binding.isOperator do throw (.expectedOperator name)
-    match ← Checked.expect binding.value .bool with
-    | .state p => pure (.state p)
-    | .action p => pure (.action p)⟩
+  return {
+    predicate := fun name => do
+      match ← Checked.expect (← (← selectOperator locals name).asScalar) .bool with
+      | .state p => pure (.state p)
+      | .action p => pure (.action p)
+    temporalFormula := fun name => do
+      match ← selectOperator locals name with
+      | .temporal formula => pure formula
+      | _ => throw (.expectedTemporal name) }
 
 end Silmaril.Logic.Temporal.TLA.Elaborator
