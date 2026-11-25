@@ -14,10 +14,11 @@ parameter context. The source has no state sorts.
 
 namespace Silmaril.SSA.RVSDG.MLIR.Graph
 
-open Silmaril.MLIR.Institution (Assignment Block OpArity Profile Signature)
+open CategoryTheory
+open Silmaril.MLIR.Institution (Block OpArity Profile Signature)
 
-abbrev Ty (V : Type) := PortType V Empty
-abbrev Source (V : Type) := Institution.Signature.{0, 0} V Empty
+abbrev Ty (V : Type) := PortType V PEmpty
+abbrev Source (V : Type) := Institution.Signature.{0, 0} V PEmpty
 
 variable {V : Type} {P : Source V}
 
@@ -42,6 +43,18 @@ def Op.name {a : OpArity true} {p : Profile a (Ty V)} : Op P p → String
   | .gamma .. => "rvsdg.gamma"
 
 abbrev signature (P : Source V) : Signature true := ⟨Ty V, Op P⟩
+
+/-- Relabel the primitive payload in a typed symbol. γ keeps its region slots
+and every symbol retains its full port profile. -/
+def Op.map {Q : Source V} (h : P ⟶ Q) {a : OpArity true} {p : Profile a (Ty V)} :
+    Op P p → Op Q p
+  | .simple op => .simple (Institution.Signature.opcodeMap h op)
+  | .gamma entry exit extra => .gamma entry exit extra
+
+/-- An RVSDG signature morphism induces a scoped MLIR signature morphism. -/
+def mapSignature {Q : Source V} (h : P ⟶ Q) : signature P ⟶ signature Q where
+  sort := id
+  symbol := Op.map h
 
 /-- Read an ordered RVSDG tuple as a finite MLIR assignment. -/
 def toAssignment {F : Ty V → Type} : {ts : Ports (Ty V)} →

@@ -7,6 +7,7 @@ public section
 
 namespace Silmaril.SSA.RVSDG.MLIR.Graph.Proofs
 
+open CategoryTheory
 open RVSDG (Locals Shape Term Tuple Wires)
 
 variable {V : Type} {P : Source V} {F G : Ty V → Type}
@@ -138,5 +139,107 @@ theorem denote_lower (g : RVSDG.Graph P.op args [] sigs outs) (input : Tuple m.V
   have h := denote_lowerTerm m (Γ := args.get) g.toTerm (ofAssignment _ .var)
     PUnit.unit (toAssignment input)
   rwa [denote_vars] at h
+
+section SignatureChange
+
+open Silmaril.MLIR.Institution (Block)
+
+variable {Q R : Source V}
+
+theorem mapSignature_id (P : Source V) : mapSignature (𝟙 P) = 𝟙 (signature P) := by
+  change Silmaril.MLIR.Institution.Signature.Hom.mk (S := signature P) (T := signature P)
+      id (fun op => Op.map (𝟙 P) op) =
+    Silmaril.MLIR.Institution.Signature.Hom.mk id id
+  congr 1
+  funext a p op
+  cases op <;> rfl
+
+theorem mapSignature_comp (h : P ⟶ Q) (k : Q ⟶ R) :
+    mapSignature (h ≫ k) = mapSignature h ≫ mapSignature k := by
+  change Silmaril.MLIR.Institution.Signature.Hom.mk (S := signature P) (T := signature R)
+      id (fun op => Op.map (h ≫ k) op) =
+    Silmaril.MLIR.Institution.Signature.Hom.mk (S := signature P) (T := signature R)
+      id (fun op => Op.map k (Op.map h op))
+  congr 1
+  funext a p op
+  cases op <;> rfl
+
+theorem model_reduct (h : P ⟶ Q) (m : Model.{0, 0, 0} Q.op) :
+    model (Institution.reduct (Institution.Signature.opcodeMap h) m) =
+      (model m).reduct (mapSignature h) := by
+  unfold model Silmaril.MLIR.Institution.Model.reduct
+  congr 1
+  funext a p op args bodies
+  cases op <;> rfl
+
+private def rename (h : P ⟶ Q) {n : Nat} {Γ : Fin n → Ty V} :
+    ∀ t, Expr P Γ t → Expr Q Γ t :=
+  fun _ e => e.map (mapSignature h)
+
+private theorem rename_vars (h : P ⟶ Q) :
+    (ofAssignment args (F := Expr P args.get) .var).map (rename h) =
+      ofAssignment args (F := Expr Q args.get) .var :=
+  of_map (rename h) _
+
+private theorem rename_emit_simple (h : P ⟶ Q) (op : P.op ins outs)
+    (args : Tuple (Expr P Γ) ins)
+    (bodies : Fin (Shape.simple op).regionCount → Block (signature P) (List.get []) (List.get []))
+    (bodies' : Fin (Shape.simple (Institution.Signature.opcodeMap h op)).regionCount →
+      Block (signature Q) (List.get []) (List.get [])) :
+    (emit (Shape.simple op) args bodies).map (rename h) =
+      emit (Shape.simple (Institution.Signature.opcodeMap h op)) (args.map (rename h)) bodies' := by
+  simp only [emit, of_map, rename, Silmaril.MLIR.Institution.Term.map, mapSignature, Op.map]
+  rw [funext (to_map (rename h) args)]
+  congr 1
+  funext i
+  congr 1
+  funext r
+  exact r.elim0
+
+private theorem rename_emit_gamma (h : P ⟶ Q) (extra : Nat)
+    (args : Tuple (Expr P Γ) (.control (extra + 2) :: ins))
+    (bodies : Fin (extra + 2) → Block (signature P) ins.get outs.get) :
+    (emit (Shape.gamma (entry := ins) (exit := outs) extra) args bodies).map (rename h) =
+      emit (Shape.gamma (entry := ins) (exit := outs) extra) (args.map (rename h))
+        (fun r i => rename h _ (bodies r i)) := by
+  simp only [emit, of_map, rename, Silmaril.MLIR.Institution.Term.map, mapSignature, Op.map]
+  rw [funext (to_map (rename h) args)]
+  rfl
+
+private theorem rename_lowerTerm (h : P ⟶ Q) (t : Term P.op args past sigs outs)
+    (entry : Tuple (Expr P Γ) args) (locals : Locals (Expr P Γ) past) :
+    (lowerTerm entry locals t).map (rename h) =
+      lowerTerm (entry.map (rename h)) (mapLocals (rename h) locals)
+        (Institution.mapTerm (Institution.Signature.opcodeMap h) t) := by
+  induction t generalizing n with
+  | ret results => exact read_map _ results entry locals
+  | bind node children rest childIH restIH =>
+    rcases node with ⟨_, shape, wires, childSigs⟩
+    cases shape with
+    | simple op =>
+      rw [lowerTerm, Institution.mapTerm, lowerTerm, restIH, mapLocals_snoc]
+      erw [← read_map (rename h) wires entry locals]
+      congr 2
+      exact rename_emit_simple h op _ _ _
+    | gamma extra =>
+      rw [lowerTerm, Institution.mapTerm, lowerTerm, restIH, mapLocals_snoc]
+      erw [rename_emit_gamma, read_map]
+      congr 3
+      funext r i
+      have hChild := childIH r (ofAssignment _ .var) PUnit.unit
+      rw [rename_vars] at hChild
+      exact (to_map (rename h) _ i).symm.trans (congrArg (fun result => toAssignment result i) hChild)
+
+theorem lower_map (h : P ⟶ Q) (g : RVSDG.Graph P.op args [] sigs outs) (i : Fin outs.length) :
+    lower (Institution.mapGraph (Institution.Signature.opcodeMap h) g) i =
+      (lower g i).map (mapSignature h) := by
+  unfold lower Institution.mapGraph
+  rw [Term.toTerm_toGraph]
+  change _ = rename h _ (toAssignment _ i)
+  have hTerm := rename_lowerTerm h g.toTerm (Γ := args.get) (ofAssignment _ .var) PUnit.unit
+  rw [rename_vars] at hTerm
+  exact (congrArg (fun result => toAssignment result i) hTerm.symm).trans (to_map (rename h) _ i)
+
+end SignatureChange
 
 end Silmaril.SSA.RVSDG.MLIR.Graph.Proofs
