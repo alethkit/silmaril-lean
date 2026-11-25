@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Context.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Native.Thms
+import Silmaril.Proofs.Wasm.Institution.Operational.CallResolution.Indirect.Context.Common
 import Silmaril.Proofs.Wasm.Institution.Operational.CallResolution.Indirect.Context.Core
 import Silmaril.Proofs.Wasm.Institution.Operational.CallResolution.Indirect.Context.Lime1
 
@@ -17,6 +18,14 @@ open Wasm.SingleThreaded.Det (noHost)
 theorem entered_admitted {call : Invocation} {program : Graph.Program}
     (checked : call.Checked program) : Graph.Admitted program call.callee call.entered :=
   Proofs.entered_admitted checked
+
+theorem finite_run_iff_of_step {A C : Type} {edge : A → A → Prop} {native : C → C → Prop}
+    (render : A → C) (step : ∀ a b, native (render a) b ↔ ∃ out, edge a out ∧ b = render out)
+    {a : A} {b : C} :
+    Relation.ReflTransGen native (render a) b ↔
+      ∃ out, Relation.ReflTransGen edge a out ∧ b = render out := by
+  simpa only [true_and] using
+    (Proofs.lift_runs (fun _ => True) render (fun _ _ => trivial) (fun _ => step _ _) (a := a) (b := b) trivial)
 
 section Core
 

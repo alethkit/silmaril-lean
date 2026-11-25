@@ -66,12 +66,13 @@ private theorem preserve {program : Graph.Program} {cont : Continuation} {call :
         Context.Proofs.frame_entered continuation.found live move⟩
     · cases (program.frameEdge_iff continuation.found).mp move
 
-private theorem no_source_call {a : Graph.Phase} (ready : Context.Proofs.Entered a) :
-    ∀ args, a ≠ .call args := by
-  rintro args rfl
-  rcases ready with impossible | ⟨result, impossible⟩
-  · exact impossible
-  · cases impossible
+private theorem entered_excludes_calls {a : Graph.Phase} (ready : Context.Proofs.Entered a)
+    (args : List Value) : a ≠ .call args ∧ a ≠ .invoke args := by
+  constructor <;> rintro rfl
+  all_goals
+    rcases ready with impossible | ⟨result, impossible⟩
+    · exact impossible
+    · cases impossible
 
 theorem entered_run_iff {C : Type} {program : Graph.Program} {cont : Continuation} {call : Invocation}
     (checked : call.Checked program)
@@ -79,7 +80,7 @@ theorem entered_run_iff {C : Type} {program : Graph.Program} {cont : Continuatio
     (render : Phase → C) (native : C → C → Prop)
     (childStep : ∀ {a b}, Graph.Admitted program call.callee a → a.LabelOutcome →
       (native (render (.callee a)) b ↔ ∃ out, program.FrameEdge call.address a out ∧ b = render (.callee out)))
-    (callerStep : ∀ {a b}, Graph.Admitted program cont.owner a → (∀ args, a ≠ .call args) →
+    (callerStep : ∀ {a b}, Graph.Admitted program cont.owner a → (∀ args, a ≠ .call args ∧ a ≠ .invoke args) →
       (native (render (.caller a)) b ↔ ∃ out, program.FrameEdge cont.address a out ∧ b = render (.caller out)))
     (handoff : ∀ result, render (.callee (.done result)) = render (.caller (cont.resume call.caller call.saved result)))
     {b : C} :
@@ -99,7 +100,7 @@ theorem entered_run_iff {C : Type} {program : Graph.Program} {cont : Continuatio
           | resume => cases live
       · rw [handoff result]
         refine (callerStep (handoff_ready checked continuation ready.1)
-          (Context.Proofs.not_call (in_caller_label _ _ _ _))).trans ⟨?_, ?_⟩
+          (entered_excludes_calls (.inl (in_caller_label _ _ _ _)))).trans ⟨?_, ?_⟩
         · rintro ⟨out, move, eq⟩
           exact ⟨_, .resume move, eq⟩
         · rintro ⟨out, move, eq⟩
@@ -107,7 +108,7 @@ theorem entered_run_iff {C : Type} {program : Graph.Program} {cont : Continuatio
           | callee live => cases live
           | resume move => exact ⟨_, move, eq⟩
     | caller a =>
-      refine (callerStep ready.1 (no_source_call ready.2)).trans ⟨?_, ?_⟩
+      refine (callerStep ready.1 (entered_excludes_calls ready.2)).trans ⟨?_, ?_⟩
       · rintro ⟨out, move, eq⟩
         exact ⟨_, .caller move, eq⟩
       · rintro ⟨out, move, eq⟩

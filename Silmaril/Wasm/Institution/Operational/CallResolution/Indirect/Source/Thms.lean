@@ -53,6 +53,14 @@ theorem lime_table {H : Type} {program : Graph.Program} {tables : Tables} {activ
     Wasm.Lime1.Execution.frameTable s active.caller = some active.binding.site.table :=
   Proofs.lime_table checked allocated
 
+theorem invocation_fields {active : Activation} {program : Graph.Program} {call : Context.Invocation}
+    (invoked : active.invocation program = some call) :
+    ∃ address callee, active.resolve program = some (.resolved address) ∧
+      program.lookup address = some callee ∧
+      call = ⟨active.binding.site, active.caller, active.operands.selector, active.operands.saved,
+        active.operands.args, address, callee⟩ :=
+  Proofs.invocation_fields invoked
+
 theorem invocation_checked {active : Activation} {program : Graph.Program} {tables : Tables}
     {call : Context.Invocation} (checked : active.Checked program tables) (graph : program.checkDirect = true)
     (invoked : active.invocation program = some call) : call.Checked program :=

@@ -293,9 +293,9 @@ private theorem numeric_cast_iff {caller : Execution.Runtime.Frame} {site : Site
     apply RefOk.sub (.func allocated) (numeric_ref_ok true site.signature)
     exact .refNull (.defDef ((V1.FuncType.toDefType_sub_iff _ _ _).mpr same))
 
-theorem trace_exact {caller : Execution.Runtime.Frame} {site : Site} {program : Program} {selector : BitVec 32}
+theorem trace_allocated_exact {caller : Execution.Runtime.Frame} {site : Site} {program : Program} {selector : BitVec 32}
     {stack : List Value} {rest : List Admin} {out : Outcome} {addr : Nat}
-    (checked : site.check program caller = true) (allocated : program.CoreAllocated s)
+    (checked : site.check program caller = true) (allocated : site.CoreAllocated program s)
     (tableFound : s.table? caller.toCore tableIndex = some (addr, site.table.toCore))
     (resolved : site.resolve program selector = some out) :
     out.coreTrace.IsChain (fun a b => ∀ dst,
@@ -333,14 +333,14 @@ theorem trace_exact {caller : Execution.Runtime.Frame} {site : Site} {program : 
       cast (entry := none) dst (show _ ↔ true = true from ⟨fun _ => rfl, fun _ => pass⟩)
   | @mismatch address fn entry found different =>
     have fail : ¬ RefOk s (coreRef (some address)) (caller.toCore.module.instRef ⟨true, .typeIdx site.typeIndex⟩) :=
-      mt (numeric_cast_iff typeFound (allocated _ _ found)).mp different
+      mt (numeric_cast_iff typeFound (allocated _ _ (List.mem_of_getElem? entry) found)).mp different
     refine List.isChain_cons_cons.mpr ⟨read_entry entry, List.isChain_cons_cons.mpr ⟨?_, .singleton _⟩⟩
     intro dst
     simpa [coreConfig, Site.coreCode, Site.coreCast] using
       cast (entry := some address) dst (show _ ↔ false = true from ⟨fun ok => (fail ok).elim, fun bad => by cases bad⟩)
   | @resolved address fn entry found same =>
     have pass : RefOk s (coreRef (some address)) (caller.toCore.module.instRef ⟨true, .typeIdx site.typeIndex⟩) :=
-      (numeric_cast_iff typeFound (allocated _ _ found)).mpr same
+      (numeric_cast_iff typeFound (allocated _ _ (List.mem_of_getElem? entry) found)).mpr same
     refine List.isChain_cons_cons.mpr ⟨read_entry entry, List.isChain_cons_cons.mpr ⟨?_, .singleton _⟩⟩
     intro dst
     simpa [coreConfig, Site.coreCode, Site.coreCast] using
@@ -369,10 +369,10 @@ theorem trace_reachable {caller : Execution.Runtime.Frame} {site : Site} {select
         exact .head ((step _).mpr rfl) (ih next more later)
   exact follow .start _ exactSteps member
 
-theorem enter_iff {caller : Execution.Runtime.Frame} {site : Site} {program : Program}
+theorem enter_at_iff {caller : Execution.Runtime.Frame} {site : Site} {program : Program}
     {selector : BitVec 32} {addr : Execution.Runtime.FuncAddr} {fn : Function}
     {saved args : List Value} {rest : List Admin} {dst : Config H}
-    (allocated : program.CoreAllocated s) (found : program.lookup addr = some fn)
+    (allocated : s.funcs[addr.value]? = some fn.coreInstance) (found : program.lookup addr = some fn)
     (resolved : site.resolve program selector = some (.resolved addr))
     (typed : args.map Value.type = site.signature.params) :
     Step P noHost (coreConfig s caller site selector (saved ++ args) rest (.call (some addr))) dst ↔
@@ -381,7 +381,7 @@ theorem enter_iff {caller : Execution.Runtime.Frame} {site : Site} {program : Pr
   have params : args.map Value.type = fn.declaration.type.params := by rwa [same]
   have enter := CallContinuation.OuterCall.Computed.Sequence.wasm_call_ref_entry_context_iff
     (P := P) (caller := caller) (saved := saved) (rest := rest) (dst := dst)
-    (call := site.coreCall) trivial (allocated _ _ found) params
+    (call := site.coreCall) trivial allocated params
   have frame := CallContinuation.OuterCall.Computed.Sequence.core_frame_forCall
     fn.declaration.module args fn.declaration.locals
   change Frame.forCall fn.declaration.module.toCore (args.map Value.toCore) fn.coreFunc.locals =
