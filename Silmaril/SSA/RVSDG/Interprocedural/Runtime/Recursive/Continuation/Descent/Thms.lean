@@ -30,6 +30,13 @@ theorem entry_microsteps {entry : Entry m} {pending : Pending m next.results ent
     TransGen Step (entry.state stack) (next.state (pending.push stack)) :=
   Proofs.entry_steps reached stack
 
+/-- A prefix from an opened caller keeps at least one additional
+suspended frame at its selected call. -/
+theorem entry_stack_grows {entry : Entry m} {pending : Pending m next.results entry.results}
+    (reached : Prefix m entry.openBody next pending) (stack : Stack m entry.results final) :
+    stackDepth stack < stackDepth (pending.push stack) :=
+  Proofs.entry_grows reached stack
+
 /-- Every descent step retains its predecessor stack and strictly
 increases the number of pending continuation frames. -/
 theorem Run.stack_grows (run : Run m) (base : Stack m (run.entry 0).results final) (n : Nat) :

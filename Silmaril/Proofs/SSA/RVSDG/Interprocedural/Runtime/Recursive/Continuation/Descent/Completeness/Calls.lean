@@ -29,6 +29,21 @@ theorem return_or_live {job : Job m ports} {frame : Stack m ports final}
       cases equal
     · exact returned ⟨i, after, hit⟩
 
+theorem live_of_no_return (steps : ∀ i, Step (micro i) (micro (i + 1)))
+    {job : Job m ports} {frame : Stack m ports final}
+    (entered : micro begin = .eval job frame) (noReturn : ∀ value, ¬ Returns m job value) :
+    LiveFrom micro begin frame := by
+  obtain ⟨delimited, initial, inside⟩ := Feedback.trace_without_return frame job noReturn
+  have same (i : Nat) : micro (begin + i) = delimited i := by
+    induction i with
+    | zero => exact entered.trans initial.symm
+    | succ i ih =>
+      exact step_deterministic (steps (begin + i)) (ih.symm ▸ (inside i).1)
+  intro i lower returned
+  have observed := same (i - begin)
+  rw [Nat.add_sub_of_le lower] at observed
+  exact (inside (i - begin)).2 (observed ▸ returned)
+
 theorem first_child (steps : ∀ i, Step (micro i) (micro (i + 1)))
     {caller : Entry m} {base : Stack m caller.results final}
     (entered : micro begin = caller.state base) (live : LiveFrom micro begin base)
