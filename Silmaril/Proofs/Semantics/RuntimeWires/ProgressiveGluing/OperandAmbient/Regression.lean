@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapClasses.Quotient
 import Mathlib.Tactic.FunProp
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.NormNum
@@ -320,5 +321,58 @@ example :
       ((combined.drawing halfway).wire ((combined.correspondence halfway).rename
         (matchCaps.gluedCollarId middleId))).trace :=
   matchCaps.glueWithMotions_trace _ _ _ _ halfway _
+
+private noncomputable def oneContact : CapProfile Bool where
+  size := 1
+  label _ := true
+  x _ := 1 / 3
+  ordered := by
+    intro i j h
+    exact (lt_irrefl i ((Subsingleton.elim j i) ▸ h)).elim
+
+private noncomputable def fixedFrame (t : Time) : FixedDrawing signature oneContact oneContact where
+  vertices := 0
+  wires := 1
+  drawing := drawing t
+  input :=
+    { toFun := fun w => ⟨w, rfl⟩
+      invFun := Subtype.val
+      left_inv _ := rfl
+      right_inv _ := Subtype.ext rfl }
+  output :=
+    { toFun := fun w => ⟨w, rfl⟩
+      invFun := Subtype.val
+      left_inv _ := rfl
+      right_inv _ := Subtype.ext rfl }
+  input_label _ := rfl
+  output_label _ := rfl
+  input_x _ := by
+    change 1 / 3 + displacement t 0 = 1 / 3
+    norm_num [displacement, tent]
+  output_x _ := by
+    change 1 / 3 + displacement t 1 = 1 / 3
+    norm_num [displacement, tent]
+
+private noncomputable def beginning : Time := ⟨0, le_rfl, zero_le_one⟩
+
+private theorem bend_equivalent (t : Time) : (fixedFrame beginning).Equivalent (fixedFrame t) :=
+  ⟨ProgressiveGraph.Diagram.CapComparison.ofMotion motion t⟩
+
+/-- A bend in only the lower operand gives the same class after gluing. -/
+example :
+    (CapClass.ofDrawing (fixedFrame beginning)).thenDo (CapClass.ofDrawing (fixedFrame beginning)) =
+      (CapClass.ofDrawing (fixedFrame halfway)).thenDo (CapClass.ofDrawing (fixedFrame beginning)) := by
+  rw [CapClass.thenDo_drawings, CapClass.thenDo_drawings]
+  exact CapClass.sound (FixedDrawing.thenDo_congr (bend_equivalent halfway)
+    (FixedDrawing.Equivalent.refl _))
+
+/-- Three actual collared operands define the same class under the two
+parenthesizations, with the bent middle frame kept at its fixed contacts. -/
+example :
+    ((CapClass.ofDrawing (fixedFrame beginning)).thenDo (CapClass.ofDrawing (fixedFrame halfway))).thenDo
+      (CapClass.ofDrawing (fixedFrame beginning)) =
+    (CapClass.ofDrawing (fixedFrame beginning)).thenDo
+      ((CapClass.ofDrawing (fixedFrame halfway)).thenDo (CapClass.ofDrawing (fixedFrame beginning))) :=
+  CapClass.thenDo_assoc _ _ _
 
 end Silmaril.RuntimeWires.Proofs.OperandAmbient.Regression
