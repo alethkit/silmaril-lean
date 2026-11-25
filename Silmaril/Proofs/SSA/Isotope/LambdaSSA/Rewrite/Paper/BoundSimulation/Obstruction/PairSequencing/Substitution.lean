@@ -18,29 +18,34 @@ open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruc
   cfgRun_mapOut finish enter step mapOut mapTerminal shiftOut insideMap enter_insideMap
   finish_mapTerminalOn step_typed enter_typed mapOut_liftN liftLSubstN_local liftLSubstN_out)
 
+variable {markPairLet : Bool}
+
+local notation "evalTerm" => evalTermWith markPairLet
+local notation "evalRegion" => evalRegionWith markPairLet
+
 theorem evalRegion_renameLabels (r : Region Empty) (ρ : Nat → Nat) (env : Env) :
     evalRegion (r.renameLabels ρ) env = mapOut (fun i v => .jump (ρ i) v) (evalRegion r env) := by
   induction r generalizing ρ env with
   | br i t =>
-    simp only [renameLabels, evalRegion]
+    simp only [renameLabels, evalRegionWith]
     cases evalTerm t env <;> rfl
   | let₁ t r ih =>
-    simp only [renameLabels, evalRegion]
+    simp only [renameLabels, evalRegionWith]
     cases evalTerm t env with
     | none => rfl
     | some v => exact ih ρ _
   | let₂ t r ih =>
-    simp only [renameLabels, evalRegion]
+    simp only [renameLabels, evalRegionWith]
     cases evalTerm t env with
     | none => rfl
     | some v => cases v <;> first | rfl | exact ih ρ _
   | case t l r ihl ihr =>
-    simp only [renameLabels, evalRegion]
+    simp only [renameLabels, evalRegionWith]
     cases evalTerm t env with
     | none => rfl
     | some v => cases v <;> first | rfl | exact ihl ρ _ | exact ihr ρ _
   | cfg entry n bs ihe ihb =>
-    simp only [renameLabels, evalRegion, ihe, ihb, mapOut_liftN]
+    simp only [renameLabels, evalRegionWith, ihe, ihb, mapOut_liftN]
     exact cfgRun_mapOut n _ _ _
 
 theorem eval_liftLSubstVars (σ : Nat → Region Empty) (i : Nat) (env : Env) (u v : Val) :
@@ -72,45 +77,45 @@ theorem evalRegion_lsubst {Γ : VCtx (Ty Empty)} {r : Region Empty} {L : LCtx (T
     evalRegion (r.lsubst σ) env = mapOut (fun i v => evalRegion (σ i) (extend env v)) (evalRegion r env) := by
   induction hr generalizing env σ with
   | br hi ht =>
-    obtain ⟨v, eq, hv⟩ := evalValue ht h
-    rw [lsubst, evalRegion_subst _ (Realizes.single eq (value_startsLet ht)), evalRegion, eq]
+    obtain ⟨v, eq, hv⟩ := evalValue (markPairLet := markPairLet) ht h
+    rw [lsubst, evalRegion_subst _ (RealizesWith.single eq (value_startsLet ht)), evalRegionWith, eq]
     rfl
   | @let₁ _ t _ _ _ ht _ ih =>
     cases eq : evalTerm t env with
-    | none => simp [lsubst, evalRegion, eq, mapOut]
+    | none => simp [lsubst, evalRegionWith, eq, mapOut]
     | some v =>
       have hv := evalTerm_typed ht h eq
-      simp only [lsubst, evalRegion, eq]
+      simp only [lsubst, evalRegionWith, eq]
       rw [ih (h.extend hv)]
       congr 1
       funext i w
       exact eval_liftLSubstVars σ i env v w
   | @let₂ _ t _ _ _ _ ht _ ih =>
     cases eq : evalTerm t env with
-    | none => simp [lsubst, evalRegion, eq, mapOut]
+    | none => simp [lsubst, evalRegionWith, eq, mapOut]
     | some v =>
       have hv := evalTerm_typed ht h eq
       cases hv with
       | pair h₁ h₂ =>
-        simp only [lsubst, evalRegion, eq]
+        simp only [lsubst, evalRegionWith, eq]
         rw [ih ((h.extend h₁).extend h₂)]
         congr 1
         funext i w
         rw [eval_liftLSubstVars, eval_liftLSubstVars]
   | @case _ t _ _ _ _ _ ht _ _ il ir =>
     cases eq : evalTerm t env with
-    | none => simp [lsubst, evalRegion, eq, mapOut]
+    | none => simp [lsubst, evalRegionWith, eq, mapOut]
     | some v =>
       have hv := evalTerm_typed ht h eq
       cases hv with
       | inl hv =>
-        simp only [lsubst, evalRegion, eq]
+        simp only [lsubst, evalRegionWith, eq]
         rw [il (h.extend hv)]
         congr 1
         funext i w
         exact eval_liftLSubstVars σ i env _ w
       | inr hv =>
-        simp only [lsubst, evalRegion, eq]
+        simp only [lsubst, evalRegionWith, eq]
         rw [ir (h.extend hv)]
         congr 1
         funext i w

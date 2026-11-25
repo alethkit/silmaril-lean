@@ -2,7 +2,9 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Beta.Constructors.Example.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithConstructorSequencing.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Fixture
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.ConstructorSoundness
 
 /-! # Pair sequencing is independent of unary return fusion
 
@@ -38,5 +40,12 @@ theorem fusion_cannot_sequence_constructors :
 theorem mixed_state_fails :
     ¬ Paper.Extension.Eqv UnaryReturn.Step [source] (returnOnce update) (.br 0 constructor) [target] :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.mixed_state_fails
+
+/-- Constructor sequencing identifies closed constructor returns only if
+their payload syntax agrees. The input is a single unit and is unused. -/
+theorem closed_branch_injective {t u : Tm Empty} {A : Ty Empty}
+    (ht : Tm.BranchValue [] t A) (hu : Tm.BranchValue [] u A)
+    (h : Paper.WithConstructorSequencing.Eqv [.unit] (.br 0 t) (.br 0 u) [A]) : t = u :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Observer.closed_branch_injective ht hu h
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction.PairSequencing
