@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Semantics.Calco2019.Examples.Probability.Defs
 import Silmaril.Proofs.Semantics.Calco2019.Examples.Probability
+import Silmaril.Proofs.Semantics.Calco2019.Examples.ProbabilityArithmetic
 
 /-! # Probabilistic guarded loops, their least solutions, and normalization -/
 
@@ -48,6 +49,16 @@ theorem completion (f : X → PMF (Y ⊕ X)) (fallback : PMF Y) :
 
 theorem chain_guarded (label : ℕ → Y) : Guarded (chain label) :=
   Proofs.chain_guarded label
+
+/-- The exit weight is the rational expression printed in Example 20(3). -/
+theorem exit_printed (n : ℕ) : exit n = 1 / ((2 : ℝ≥0∞) ^ n + 2) :=
+  ArithmeticProofs.exit_printed n
+
+/-- The probability of first exiting at state `n` is the product of the preceding
+continuation weights and the exit weight at `n`. -/
+theorem first_exit_probability (n : ℕ) :
+    (∏ i ∈ Finset.range n, advance i) * exit n = 1 / (3 * (2 : ℝ≥0∞) ^ n) :=
+  ArithmeticProofs.first_exit_probability n
 
 /-- With any exit labeling, the probability of the printed loop eventually returning
 from state zero is two thirds. -/
