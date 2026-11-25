@@ -3,7 +3,7 @@ module
 public import Silmaril.Papers.Calco2019.Defs
 public import Silmaril.Semantics.Calco2019.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionThms
-public import Silmaril.Semantics.Calco2019.InductiveResumption.Thms
+public import Silmaril.Semantics.Calco2019.InductiveResumption.Free.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionConway
 public import Silmaril.Semantics.Calco2019.VacuousThms
 public import Silmaril.Semantics.Calco2019.ExceptionResumption.Specializations
@@ -27,6 +27,14 @@ inductive resumption monad. -/
 abbrev inductiveResumption (T : CategoryTheory.Monad C) (H : C ⥤ C)
     (R : InitialResumptions (Exception.parametrized P T H)) : CategoryTheory.Monad C :=
   R.monad
+
+/-- Section 1.3. Inductive resumptions give an ordinary free extension
+of the base monad by the operation endofunctor. -/
+theorem inductiveFreeExtension (T : CategoryTheory.Monad C) (H : C ⥤ C)
+    (R : InitialResumptions (Exception.parametrized P T H)) :
+    (Inductive.monadBimodule C).IsFreeExtension (Inductive.suspension P R)
+      (Inductive.baseEmbedding P R) :=
+  Inductive.resumption_free P R
 
 end InductiveResumptions
 
