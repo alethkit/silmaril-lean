@@ -227,4 +227,12 @@ theorem map_state {α β : Type} (action : Meaning α) (f : α → β) (s : Stat
   simp only [Functor.map, EStateM.map]
   cases action s <;> rfl
 
+theorem truth_frame (value : Value) (s : State) :
+    Iteration.finishState (truth value s) = s := by
+  cases value with
+  | list | tuple | dict =>
+    rw [truth, map_state]
+    exact project_state _ _ s
+  | _ => rfl
+
 end Silmaril.Proofs.Languages.Starlark.Functions.Lowering

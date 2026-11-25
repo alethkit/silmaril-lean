@@ -110,6 +110,40 @@ the exact outcome and store. The finite list of items bounds iteration
 and the available declaration set bounds live calls.
 [Collection loops](starlark-lists.md#iteration-and-control) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/LoopChecks.lean)
 
+## Direct denotation of resolved expressions
+
+`Lowering.denoteExpr` maps a resolved expression and state to a value or
+dynamic error with its final state. It interprets call-free collection
+atoms, nested calls with positional, keyword, `*` and `**` operands,
+conditionals and operand-valued `and` and `or`. A call evaluates the callee
+and operands from left to right, then expands and binds the arguments.
+`**` validation precedes `*` validation in the pinned Go profile.
+Expansion and binding use the same value-level primitives as the
+operational rules.
+
+Closure application invokes the independently defined `denoteBody` under
+the reduced available-declaration set. Built-ins use their denotation.
+Caller bindings and slots are restored after a closure returns or fails,
+and heap effects survive. This interpreter recurses on expression syntax
+and finite operand lists. The core recurses on body syntax and the
+available-declaration set. There is no fuel parameter.
+
+`denoteExpr_eq_of_evaluates` proves exact equality with every operational
+expression derivation. `evaluates_iff_denoteExpr` also constructs a
+derivation for every denotational outcome when all atoms are admissible,
+including atoms on skipped branches. Admissible atoms use call-free
+collection code and keep compiler scratch names out of source reads.
+The equality includes the entire heap, bindings, slots and iterator stack.
+The direct interpreter has no destination or scratch-frame condition.
+The separate lowering theorem accounts for destination assignment and
+scratch projection when compiling the same expression.
+
+Embedding these trees directly in function, default and module expression
+positions remains open. Collection displays and subscripts still use
+call-free atoms. General operators, comprehensions, attributes and methods,
+the remaining built-ins, and host effects are tracked in the coverage guide.
+[Denotation](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Defs.lean) · [Adequacy](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Closure fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Checks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
+
 ## Nested expression lowering
 
 `Lowering.lower` compiles a resolved tree of call-free atoms, nested calls,
@@ -219,6 +253,7 @@ lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
   +Silmaril.Languages.Starlark.Functions.Arguments.Checks \
   +Silmaril.Languages.Starlark.Functions.LoopChecks \
   +Silmaril.Languages.Starlark.Functions.Lowering.Checks \
+  +Silmaril.Languages.Starlark.Functions.Lowering.Denotation.Checks \
   +Silmaril.Languages.Starlark.Functions.Lowering.PreservationChecks \
   +Silmaril.Languages.Starlark.Functions.Lowering.Resolve.Checks \
   +Silmaril.Languages.Starlark.Functions.Lowering.Quote.Checks

@@ -56,14 +56,6 @@ private theorem assign_eq (program : Program) (available : List DeclarationId)
   simp only [Iteration.denoteSuite, denote, bind, EStateM.bind]
   cases denote expr s <;> rfl
 
-private theorem truth_frame (value : Value) (s : State) :
-    finishState (truth value s) = s := by
-  cases value with
-  | list | tuple | dict =>
-    rw [truth, map_state]
-    exact project_state _ _ s
-  | _ => rfl
-
 private theorem keep_truth {t : State} {out : Outcome Value} {flag : Bool}
     (h : Outcome.resume out truth = .ok flag t) :
     ∃ value, out = .ok value t ∧ truth value t = .ok flag t := by
