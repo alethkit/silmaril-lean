@@ -51,4 +51,4 @@ example (scope : Source.Scope) :
 
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.run_publication
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.run_publication_fault
-#print axioms Compile.ModuleEntry.Functions.Run.Seeded.run_preserves_heap
+#print axioms Compile.ModuleEntry.Functions.Run.Seeded.run_preserves_builtins
