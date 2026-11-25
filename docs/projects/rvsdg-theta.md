@@ -37,6 +37,9 @@ restart step. These statements use completed iteration checkpoints.
 Classification of arbitrary infinite or maximal firing schedules is open.
 [Petri theorems](../../Silmaril/SSA/RVSDG/Theta/Petri/Thms.lean)
 
+For θ as an ordinary vertex, including in γ arms and other θ bodies,
+see the [compositional extension](rvsdg-nested-theta.md).
+
 ## Checking and extending the fragment
 
 ```sh
@@ -50,9 +53,8 @@ two dependent body vertices. It checks a three-iteration return, a mandatory
 first iteration at the stopping bound, an always-continuing loop, and the
 restart rule installing a fresh marking.
 
-The primitive/γ types and model remain the body interface. General θ nodes
-inside graphs need an extended node kind and a recursive body interface,
-reusing the carried signature and the iteration rules here. For an Elgot
+The primitive/γ types and model remain the body interface. The compositional
+extension reuses the carried signature and the iteration rules here. For an Elgot
 model, the returned predicate routes the updated carried tuple into the
 exit or feedback summand of a body map. A future interpretation should
 prove finite return and divergence adequacy against the corresponding

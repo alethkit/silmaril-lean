@@ -19,7 +19,7 @@ local notation "V" => valueWord (G := G)
 local notation "σ" => crossingWord (G := G)
 
 /-- Pass the runtime across two consecutive blocks. -/
-def crossTensor {X Y : Runtime G} (s : R ⊗ X ≅ X ⊗ R) (t : R ⊗ Y ≅ Y ⊗ R) :
+@[expose] def crossTensor {X Y : Runtime G} (s : R ⊗ X ≅ X ⊗ R) (t : R ⊗ Y ≅ Y ⊗ R) :
     R ⊗ (X ⊗ Y) ≅ (X ⊗ Y) ⊗ R :=
   (α_ R X Y).symm ≪≫ (s ⊗ᵢ Iso.refl Y) ≪≫ α_ X R Y ≪≫
     (Iso.refl X ⊗ᵢ t) ≪≫ (α_ X Y R).symm
