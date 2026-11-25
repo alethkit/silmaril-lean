@@ -205,6 +205,12 @@ UPSTREAM_PUBLICATION_CASE = "tests/python/programs/original/lambda-py/python-ref
 UPSTREAM_PUBLICATION_SHA256 = "c4664c5343be15e123a772fb1d7f49819b3ba9781266c6900172d653bdd26ada"
 UPSTREAM_DIRECT_DISCARD_CASE = "tests/python/programs/original/k-python/programs/testscope3.py"
 UPSTREAM_DIRECT_DISCARD_SHA256 = "8cd010d3911293c1dfe2da09adf3b40c8fcb258ecd85dd9847e65d5555866924"
+UPSTREAM_LITERAL_INDEXING = (
+    ("tests/python/programs/original/k-python/programs/testlists2.py",
+     "7f4fdac9762c64a4355649bab7aeba840c94512eb11831621d60660ce7aa644e"),
+    ("tests/python/programs/original/k-python/programs/testtuples9.py",
+     "0147158c9fa7523038e49436eec9649707edd8023411f1ccef367f3ddb3306a3"),
+)
 UPSTREAM_NO_OP = (
     ("tests/python/programs/original/k-python/programs/testpass.py",
      "9f56e761d79bfdb34304a012586cb04d16b435ef6130091a97702e559260a2f2"),
@@ -726,6 +732,7 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
         (UPSTREAM_ASSIGN_CASE, UPSTREAM_ASSIGN_SHA256, {"x": 5}),
         (UPSTREAM_ASSERT_NOT_CASE, UPSTREAM_ASSERT_NOT_SHA256, {}),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_NO_OP),
+        *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_INDEXING),
     )
     for path, sha256, bindings in cases:
         source = pinned_source(checkout, path, sha256)

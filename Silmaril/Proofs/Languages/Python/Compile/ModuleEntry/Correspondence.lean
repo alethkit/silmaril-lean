@@ -23,6 +23,14 @@ private theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {
   | integer => simp [lowerOperand]
   | boolean => simp [lowerOperand]
   | negativeInteger => simp [lowerOperand]
+  | literalSubscript selected =>
+    rw [lowerOperand]
+    split
+    · rename_i value computed
+      have equal := Option.some.inj (computed.symm.trans selected)
+      subst value
+      rfl
+    · simp_all
   | read _ witness => simp [lowerOperand, global_reference witness] <;> rfl
   | add _ _ left right => simp [lowerOperand, left, right] <;> rfl
   | floorDiv _ _ left right => simp [lowerOperand, left, right] <;> rfl
