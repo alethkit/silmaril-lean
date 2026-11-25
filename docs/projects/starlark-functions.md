@@ -110,12 +110,34 @@ the exact outcome and store. The finite list of items bounds iteration
 and the available declaration set bounds live calls.
 [Collection loops](starlark-lists.md#iteration-and-control) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/LoopChecks.lean)
 
+## Nested expression lowering
+
+`Lowering.lower` compiles a resolved tree of call-free atoms, nested calls,
+conditional expressions and operand-valued `and` and `or` to a `Body`
+and a list of scratch slots. It stages the callee and every operand,
+including call-free operands, before the final call. Positional, keyword,
+`*` and `**` operands stay in source order. Expansion and argument errors
+still use the call semantics. The compiler places branch work inside the
+selected branch, and a failing right operand leaves the destination alone.
+
+Add the scratch slots to the declaration's local slots or install them in
+the root frame. Scratch names use a prefix outside the source identifier
+grammar. Thread the returned `next` value into any further lowering in
+that frame to keep ranges disjoint. The emitted code can be placed inside
+a function loop and uses the existing exact operational agreement theorem.
+The fixtures compare source evaluations in pinned Go. A source-level
+preservation theorem, parser integration, calls inside collection display
+and subscript atoms, default-expression lowering and module-level
+expression lowering remain open.
+[Lowerer](../../Silmaril/Languages/Starlark/Functions/Lowering/Defs.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Checks.lean) · [Go fixtures](../../examples/starlark/nested-expressions/check.go)
+
 ## Checks and extensions
 
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
   +Silmaril.Languages.Starlark.Functions.Arguments.Checks \
-  +Silmaril.Languages.Starlark.Functions.LoopChecks
+  +Silmaril.Languages.Starlark.Functions.LoopChecks \
+  +Silmaril.Languages.Starlark.Functions.Lowering.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
@@ -125,16 +147,14 @@ fixtures="$(pwd)/examples/starlark"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
-(cd "$oracle" && go run "$fixtures/functions/check.go" && go run "$fixtures/call-loops/check.go")
+(cd "$oracle" && go run "$fixtures/functions/check.go" && go run "$fixtures/call-loops/check.go" \
+  && go run "$fixtures/nested-expressions/check.go")
 ```
 
 Module initialization, prepublished imports and five universal built-ins
 extend this profile. Host callable effects remain open.
 [Modules](starlark-modules.md) · [Built-ins](starlark-builtins.md)
 
-Call-aware loops provide a target for lowering nested call expressions,
-including ordered operands and branch-dependent evaluation. Source parsing
-and expression lowering remain open.
 
 [functions]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions
 [names]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#name-binding-and-variables
