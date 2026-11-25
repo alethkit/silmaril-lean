@@ -20,6 +20,7 @@ open Paper.TypeCategory Paper.BoundSimulation
 open Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction
 open Observer
 open scoped Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction
+open scoped Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer.AlternateUnit
 
 private theorem guardedRepeat (U : Ty Empty) (Γ : VCtx (Ty Empty)) :
     ValueBranches (U :: Γ) repeatBody [U, result] :=
@@ -119,7 +120,7 @@ theorem unit_eta_fails :
   have henv : EnvTy [(Ty.unit : Ty Empty)] env := by
     intro i A hi
     cases i with
-    | zero => cases Option.some.inj hi; exact .alternateUnit
+    | zero => cases Option.some.inj hi; exact .alternateUnit rfl
     | succ i => simp [At] at hi
   have observed := paper_same eq env henv
   change Result.jump 0 .unit = Result.jump 0 (.inl .unit) at observed

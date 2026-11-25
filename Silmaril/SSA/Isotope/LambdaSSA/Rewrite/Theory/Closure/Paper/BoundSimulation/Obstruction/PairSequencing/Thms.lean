@@ -3,6 +3,8 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Beta.Constructors.Example.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithConstructorSequencing.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturns.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithUnitEta.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Fixture
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.ConstructorSoundness
 
@@ -47,5 +49,17 @@ theorem closed_branch_injective {t u : Tm Empty} {A : Ty Empty}
     (ht : Tm.BranchValue [] t A) (hu : Tm.BranchValue [] u A)
     (h : Paper.WithConstructorSequencing.Eqv [.unit] (.br 0 t) (.br 0 u) [A]) : t = u :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Observer.closed_branch_injective ht hu h
+open Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory (returnRegion)
+
+/-- Discarding the result of this instruction-free pure term is inequivalent
+to immediate discard even when projection returns and unit η are available. -/
+theorem lowered_pure_pair_discard_fails :
+    ¬ Paper.Extension.Eqv
+      (fun Γ r s L => Paper.WithProjectionReturns.Step Γ r s L ∨ Paper.WithUnitEta.Step Γ r s L)
+      [source]
+      (compLSubst (fun _ => returnRegion (.pair (.let₁ (.var 0) (.var 0)) (.var 0) : Tm Empty))
+        (fun _ => .br 0 .unit) 0)
+      (.br 0 .unit) [Ty.unit] :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.lowered_pure_pair_discard_fails
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction.PairSequencing

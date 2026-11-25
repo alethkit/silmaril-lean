@@ -19,6 +19,12 @@ open Silmaril.DeBruijn (lift liftN)
 open Silmaril.Isotope.LambdaSSA.Semantics (extend extend_rename)
 open scoped Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction
 
+-- Each separating observer chooses its own scoped unit interpretation.
+set_option linter.concreteInstances false
+
+variable [UnitPayloadPolicy]
+
+omit [UnitPayloadPolicy] in
 theorem mapOut_liftN (n : Nat) (ρ : Nat → Nat) (r : Result) :
     mapOut (fun i v => .jump (liftN n ρ i) v) r =
       insideMap n (fun i v => .jump (ρ i) v) r := by
@@ -30,6 +36,7 @@ theorem mapOut_liftN (n : Nat) (ρ : Nat → Nat) (r : Result) :
   | diverges => rfl
   | fault => rfl
 
+omit [UnitPayloadPolicy] in
 theorem evalRegion_renameLabels (r : Region Empty) (ρ : Nat → Nat) (env : Env) :
     evalRegion (r.renameLabels ρ) env = mapOut (fun i v => .jump (ρ i) v) (evalRegion r env) := by
   induction r generalizing ρ env with
@@ -55,11 +62,13 @@ theorem evalRegion_renameLabels (r : Region Empty) (ρ : Nat → Nat) (env : Env
     simp only [renameLabels, evalRegion, ihe, ihb, mapOut_liftN]
     exact cfgRun_mapOut n _ _ _
 
+omit [UnitPayloadPolicy] in
 theorem eval_liftLSubstVars (σ : Nat → Region Empty) (i : Nat) (env : Env) (u v : Val) :
     evalRegion (liftLSubstVars σ i) (extend (extend env u) v) = evalRegion (σ i) (extend env v) :=
   evalRegion_renameVars (σ i) (ρ := lift Nat.succ)
     (extend_rename (env := env) (env' := extend env u) (ρ := Nat.succ) (fun _ => rfl) v)
 
+omit [UnitPayloadPolicy] in
 theorem liftLSubstN_local (n : Nat) (σ : Nat → Region Empty) {i : Nat} (hi : i < n) :
     liftLSubstN n σ i = labelId i := by
   induction n generalizing i with
@@ -72,6 +81,7 @@ theorem liftLSubstN_local (n : Nat) (σ : Nat → Region Empty) {i : Nat} (hi : 
       rw [ih (Nat.lt_of_succ_lt_succ hi)]
       rfl
 
+omit [UnitPayloadPolicy] in
 theorem liftLSubstN_out (n : Nat) (σ : Nat → Region Empty) (i : Nat) :
     liftLSubstN n σ (n + i) = (σ i).renameLabels (n + ·) := by
   induction n with
@@ -86,6 +96,7 @@ theorem liftLSubstN_out (n : Nat) (σ : Nat → Region Empty) (i : Nat) :
     change Nat.succ (n + j) = n + 1 + j
     omega
 
+omit [UnitPayloadPolicy] in
 theorem mapOut_liftLSubstN (n : Nat) (σ : Nat → Region Empty) (env : Env) (r : Result) :
     mapOut (fun i v => evalRegion (liftLSubstN n σ i) (extend env v)) r =
       insideMap n (fun i v => evalRegion (σ i) (extend env v)) r := by
