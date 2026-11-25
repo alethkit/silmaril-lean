@@ -104,6 +104,10 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
   | evalScoped {available : List DeclarationId} {s : State} {code : Body} {out : Outcome Flow} :
       Exec program available s code out →
       Exec program available s (.evalScoped code) (completeCall s none out)
+  | withTemporaryBindings {available : List DeclarationId} {s : State} {names : List Binding}
+      {code : Body} {out : Outcome Flow} :
+      Exec program available (enterTemporaryBindings names s) code out →
+      Exec program available s (.withTemporaryBindings names code) (restoreTemporaryBindings names s out)
   | insertDictEntry {available : List DeclarationId} {s : State} {receiver key value : Binding} :
       Exec program available s (.insertDictEntry receiver key value) (insertDictEntry receiver key value s)
   | seq {available : List DeclarationId} {s t : State} {first rest : Body} {out : Outcome Flow} :

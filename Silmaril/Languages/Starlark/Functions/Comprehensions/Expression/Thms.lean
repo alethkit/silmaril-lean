@@ -81,6 +81,47 @@ theorem Expression.exec_assignTarget_iff_lowered (program : Program) (available 
   rw [expr.assignTarget_preserves program available admitted target state free start]
   exact exec_iff_denoteBody _ _ _ _ _
 
+/-- Lower the RHS and each reached store operand with the same exact outcome.
+The residual state includes writes before any later unpack or store failure. -/
+theorem assignPattern_preserves (program : Program) (available : List DeclarationId)
+    (pattern : AssignmentPattern) (rhs : Expression) (targetAdmitted : pattern.Admitted)
+    (rhsAdmitted : rhs.Admitted) (state : State) (free : Lowering.ScratchFree state) (start : Nat := 0) :
+    denoteBody program available (assignPatternCode pattern rhs (loweredStages start)) state =
+      denoteBody program available (assignPatternCode pattern rhs directStages) state :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.assign_pattern_exact
+    program available pattern rhs targetAdmitted rhsAdmitted state free start
+
+theorem exec_assignPattern_iff_lowered (program : Program) (available : List DeclarationId)
+    (pattern : AssignmentPattern) (rhs : Expression) (targetAdmitted : pattern.Admitted)
+    (rhsAdmitted : rhs.Admitted) (state : State) (out : Outcome Flow)
+    (free : Lowering.ScratchFree state) (start : Nat := 0) :
+    Exec program available state (assignPatternCode pattern rhs directStages) out ↔
+      denoteBody program available (assignPatternCode pattern rhs (loweredStages start)) state = out := by
+  rw [assignPattern_preserves program available pattern rhs targetAdmitted rhsAdmitted state free start]
+  exact exec_iff_denoteBody _ _ _ _ _
+
+/-- The assignment evaluates its RHS once and uses the saved value for
+the whole pattern. The continuation runs only after RHS success. -/
+theorem assignPattern_phases (program : Program) (available : List DeclarationId)
+    (pattern : AssignmentPattern) (rhs : Expression) (stages : ExpressionStages) (state : State) :
+    denoteBody program available (assignPatternCode pattern rhs stages) state =
+      restoreTemporaryBindings [patternSlot 0 0] state
+        (Outcome.resume (denoteBody program available (rhs.compile stages (patternSlot 0 0))
+          (enterTemporaryBindings [patternSlot 0 0] state)) fun
+          | .next => denoteBody program available (pattern.code stages (patternSlot 0 0) 1)
+          | signal => pure signal) :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.assign_pattern_phases program available pattern rhs stages state
+
+/-- A failed RHS never reaches unpacking or a target leaf. -/
+theorem assignPattern_rhs_failure (program : Program) (available : List DeclarationId)
+    (pattern : AssignmentPattern) (rhs : Expression) (stages : ExpressionStages)
+    (state failed : State) (error : Lists.Error)
+    (ran : denoteBody program available (rhs.compile stages (patternSlot 0 0))
+      (enterTemporaryBindings [patternSlot 0 0] state) = .error error failed) :
+    denoteBody program available (assignPatternCode pattern rhs stages) state =
+      restoreTemporaryBindings [patternSlot 0 0] state (.error error failed) := by
+  rw [assignPattern_phases, ran] <;> rfl
+
 /-- Scratch lowering of each staged operand leaves the exact assignment
 outcome unchanged, including the heap, frame and iterator stack. -/
 theorem setIndex_preserves (program : Program) (available : List DeclarationId)

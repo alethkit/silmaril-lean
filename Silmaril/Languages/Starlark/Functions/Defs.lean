@@ -35,6 +35,9 @@ inductive Body where
   /-- Execute scoped code for effects. Discard its result and restore the
   caller's bindings and slots on either exit. -/
   | evalScoped (body : Body)
+  /-- Shadow selected bindings without allocating cells. Restore only those
+  bindings on exit, preserving writes to all other names. -/
+  | withTemporaryBindings (names : List Binding) (body : Body)
   | insertDictEntry (receiver key value : Binding)
   | seq (first rest : Body)
   | branch (test : Lists.Expr) (yes no : Body)
@@ -150,6 +153,7 @@ def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
     iterable.validateCalls
     body.validateIn true
   | .assignScoped _ _ body | .assignTargetScoped _ body | .evalScoped body => body.validateIn false
+  | .withTemporaryBindings _ body => body.validateIn inLoop
   | .breakLoop => if inLoop then pure () else throw .breakOutsideLoop
   | .continueLoop => if inLoop then pure () else throw .continueOutsideLoop
   | .call _ _ arguments => arguments.validate
@@ -176,6 +180,19 @@ def validate (program : Program) (body : Body) : Except CallStaticError Unit := 
 
 def restoreCaller (caller state : State) : State :=
   { state with slots := caller.slots, bindings := caller.bindings }
+
+def enterTemporaryBindings (names : List Binding) (state : State) : State :=
+  { state with
+    slots := fun name => if names.contains name then none else state.slots name
+    bindings := fun name => if names.contains name then none else state.bindings name }
+
+def restoreTemporaryBindings (names : List Binding) (caller : State) (out : Outcome Flow) : Outcome Flow :=
+  let restore := fun (state : State) => { state with
+    slots := fun name => if names.contains name then caller.slots name else state.slots name
+    bindings := fun name => if names.contains name then caller.bindings name else state.bindings name }
+  match out with
+  | .ok signal state => .ok signal (restore state)
+  | .error error state => .error error (restore state)
 
 /-- The integer `+=` profile uses the scalar addition operation. -/
 def applyIntegerAdd (left right : Lists.Value) : Except Error Lists.Value :=

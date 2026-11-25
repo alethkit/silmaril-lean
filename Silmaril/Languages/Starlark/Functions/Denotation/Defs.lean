@@ -52,6 +52,8 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
   | .assignIntegerAdd target left right => assignIntegerAdd target left right state
   | .evalExpr value => Outcome.resume (evalExpr value state) (fun _ => pure .next)
   | .evalScoped code => completeCall state none (denoteBody program available code state)
+  | .withTemporaryBindings names code =>
+    restoreTemporaryBindings names state (denoteBody program available code (enterTemporaryBindings names state))
   | .insertDictEntry receiver key value => insertDictEntry receiver key value state
   | .seq first rest =>
     Outcome.resume (denoteBody program available first state) fun

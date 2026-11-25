@@ -719,8 +719,8 @@ leaves under nested tuple/list patterns.
 
 #### Comprehension right-hand sides
 
-`assignTargetCompExpr` accepts a normalized `CompExpr` RHS and the same
-name-leaf pattern in function and module code. After the scoped RHS
+`assignTargetCompExpr` accepts a normalized `CompExpr` RHS in function
+and module code. For name-only patterns, after the scoped RHS
 returns, the evaluator restores the enclosing frame and runs the
 existing binder on the saved value. The heap and iterator state come
 from RHS execution. Restoring the frame before binding keeps any
@@ -737,9 +737,41 @@ normalized lexical resolution and inherits finite declaration descent.
 The Go fixtures observe target writes, effect order and guard release.
 The Lean fixtures also compare the private frame and heap. Comprehension
 revisits retain the [fresh-local profile](#comprehensions-in-parameter-defaults).
-Quotation, subscript and field pattern leaves, and augmented pattern
-assignment remain separate.
+Quotation and augmented pattern assignment remain separate.
 [Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
+
+#### Mixed name and subscript targets
+
+`assignTargetCompExpr` also accepts nested tuple/list patterns mixing
+name leaves and list or dictionary subscript stores. Subscript receiver
+and index expressions use the ordinary call-aware operand grammar.
+The RHS runs once before the target. Each visited sequence node checks
+its arity and snapshots its immediate values with the shared binder,
+then visits children left to right. A subscript leaf evaluates the
+receiver and index once when reached, then uses the ordinary store.
+Earlier leaf writes remain visible to later receiver and index
+expressions. An aliased write can change a sequence before a later
+nested unpack, while a sequence already unpacked keeps its saved
+immediate values.
+[Pinned assignments][assignments] · [Go RHS and leaf compilation][go-assignment] · [Go unpack and leaf order][go-unpack-compile] · [Go unpack checks][go-unpack]
+
+`assignPattern_phases` states the once-only RHS and its continuation.
+`exec_assignPattern_iff_lowered` relates independent checked-body
+derivations and native and scratch-lowered execution for admitted
+RHSs and leaf operands from scratch-free states. It compares the exact
+outcome, heap, frame and iterator stack. Saving and restoring private
+bindings preserves earlier name writes, including direct bindings on
+unallocated slots, and heap mutations made before a later failure.
+The source comparison shares normalized elaboration and finite
+declaration descent.
+[Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean mixed target fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
+
+Mixed loop and comprehension targets and the broader comprehension
+grammar inside leaf receivers and indices remain open. Field leaves
+require a checked field-write profile. Pinned Go dispatches field writes
+through `HasSetField`. The fresh-local profile and the quotation boundary
+for comprehensions still apply.
+[Go field dispatch][go-field-write]
 
 ### Simple subscript assignment
 
@@ -759,8 +791,8 @@ keeps the entry's position, and a new key goes at the end.
 
 Normalized function and module statements expose `setIndex receiver subscript rhs`.
 The three expressions can use the existing quotation. A subscript assignment
-creates no lexical binding. Slice and compound targets and user-defined item
-assignment remain open.
+creates no lexical binding. Slice targets and user-defined item assignment
+remain outside this profile.
 [Assignments in the pinned spec][assignments] · [Go assignment compilation][go-assign] · [Go write dispatch][go-write] · [Go dictionary checks][go-dict-write] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/NativeSubscriptChecks.lean) · [Pinned Go fixtures](../../examples/starlark/subscript-assignment/check.go)
 
 #### Comprehension operands in simple subscript stores
@@ -783,8 +815,7 @@ from scratch-free states. Source correspondence shares normalized
 elaboration and inherits the finite declaration context. Pinned fixtures
 cover alias writes, operand and store error order, and release of nested
 guards. The existing exact-integer index and fresh comprehension-local
-profiles still apply. Field and subscript leaves in patterns and
-comprehension quotation remain separate.
+profiles still apply. Field leaves and comprehension quotation remain separate.
 [Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/subscript-assignment/check.go)
 
 ### Integer augmented subscript assignment
@@ -848,8 +879,7 @@ saved target operands. `exec_addIndex_iff_lowered` and
 and native and lowered outcomes on the exact frame, heap, guards and
 error for admitted operands from scratch-free states. The source
 correspondence shares normalized elaboration and inherits finite
-declaration descent. Quotation and field or subscript leaves in patterns
-remain separate.
+declaration descent. Quotation and field leaves remain separate.
 [Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean)
 
 ## Nested expression lowering
@@ -1045,6 +1075,7 @@ extend this profile. Host callable effects remain open.
 [go-augmented]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1124-L1166
 [go-inplace-add]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L217-L244
 [go-write]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L719-L746
+[go-field-write]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L664-L680
 [go-dict-write]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L78-L88
 [go-function]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go
 

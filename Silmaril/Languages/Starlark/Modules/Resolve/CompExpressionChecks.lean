@@ -790,7 +790,7 @@ private def checkPatternRhsFailure (failRhs : Bool) : Bool :=
 
 -- Target shape checking also runs in a branch that won't execute.
 #guard
-  let invalid := Statement.assignTargetCompExpr starlark%[(a, [b, rows[0]])] (collect starlark%[[]])
+  let invalid := Statement.assignTargetCompExpr starlark%[(a, [b, rows[:]])] (collect starlark%[[]])
   match resolve [.define "f" {} (.branch starlark%[False] invalid .pass)] with
   | .error .unsupportedAssignmentTarget => true
   | _ => false
@@ -1002,6 +1002,95 @@ private def checkStoreFailure (targetValue : Functions.Lowering.Resolve.SourceEx
   match runModule commands noImports {} with
   | .ok (.error (.runtime (.uninitialized name)) state) =>
     name == fileSlot "x" && state.heap.any (·.contents == .list (List.replicate 8 (intValue 0)))
+  | _ => false
+
+-- The first name is visible to the later receiver. The nested module
+-- pattern reads its second child from the unpack snapshot after writing
+-- through an alias of that same sequence.
+#guard
+  let localTarget := starlark%[(x, [mark(2, x)[mark(3, 0)], table[mark(4, "new")]])]
+  let moduleTarget := starlark%[([mark(6, row)[mark(7, 1)], saved], out)]
+  let commands := logCommands ++
+    [.assign "alias" starlark%[[7]], .assign "table" starlark%[{"old": 8}],
+     .define "f" { positional := [⟨"x", none⟩] }
+       (.seq (.assignTargetCompExpr localTarget (collect starlark%[mark(1, [alias, [9, 10]])]))
+         (.ret (some starlark%[x[0]]))),
+     .assign "result" starlark%[f(None)], .assign "row" starlark%[[10, 20]],
+     .assignTargetCompExpr moduleTarget (collect starlark%[mark(5, [row, 12])]),
+     .assign "ok" starlark%[{(9, 9, 10, 10, 20, 12): True}[
+       (result, alias[0], table["new"], row[1], saved, out)]]]
+  match runModule commands noImports {} with
+  | .ok (.ok published state) =>
+    published.exports.lookup "ok" == some (.scalar (.bool true)) &&
+    match published.exports.lookup "events" with
+    | some (.list events) => eventsMatch state events [1, 2, 3, 4, 5, 6, 7, 0]
+    | _ => false
+  | _ => false
+
+private def checkMixedPatternFailure (target : Functions.Lowering.Resolve.SourceExpr) (rhs : CompExpr)
+    (error : Lists.Error) (names : List Int) (afterStore : Int) (trace : List Int) : Bool :=
+  let commands := logCommands ++ [.assign "xs" starlark%[[7]], .assign "alias" starlark%[xs],
+    .assign "rows" starlark%[[[0]]], .assignTargetCompExpr target rhs]
+  match resolve commands with
+  | .ok resolved =>
+    match resolved.source.commands.reverse with
+    | .exec (.assignPatternCompExpr target rhs) :: reversed =>
+      match runCommands resolved.program noImports reversed.reverse (enter resolved.source {}) with
+      | .ok () entered =>
+        match entered.bindingValue (globalSlot "rows"), entered.bindingValue (globalSlot "xs") with
+        | .ok (.list rows), .ok (.list address) =>
+          let a := globalSlot "a"
+          let b := globalSlot "b"
+          let saved := List.range 3 |>.map (fun depth => Functions.Comprehensions.patternSlot depth 0)
+          let allocated := Functions.Comprehensions.patternSlot 1 0
+          let entered := entered.allocateSlot allocated
+          let start := { entered with
+            slots := fun key => if key = a then none else entered.slots key
+            iterators := [rows] }
+          let before := saved.foldl (fun state slot => state.write slot (intValue 79))
+            ((start.write a (intValue 90)).write b (intValue 91))
+          let run := fun stages => Functions.run resolved.program
+            (Functions.Comprehensions.assignPatternCode target rhs stages) before
+          let kept := fun (state : State) =>
+            let bindings := [a, b].map fun slot => (state.bindingValue slot).toOption
+            bindings == names.map (some ∘ intValue) && state.iterators == [rows] &&
+              saved.all (fun slot => decide (state.slots slot = before.slots slot) &&
+                (state.bindingValue slot).toOption == some (intValue 79)) &&
+              state.heap[address]?.map Cell.contents == some (.list [intValue afterStore])
+          match run Functions.Comprehensions.directStages, run (Functions.Comprehensions.loweredStages 0) with
+          | .error first direct, .error second lowered =>
+            first == error && second == first && direct.heap == lowered.heap && kept direct && kept lowered &&
+            match direct.bindingValue (globalSlot "events") with
+            | .ok (.list events) => eventsMatch direct events (trace ++ List.replicate (8 - trace.length) 0)
+            | _ => false
+          | _, _ => false
+        | _, _ => false
+      | _ => false
+    | _ => false
+  | _ => false
+
+-- The root RHS, the second unpack, and the later store can each stop
+-- the assignment. In the late cases the earlier name and alias writes survive.
+#guard
+  let target := starlark%[(a, mark(2, alias)[mark(3, 0)], [b, mark(4, alias)[mark(5, 8)]],
+    mark(6, alias)[mark(7, 0)])]
+  let good := collect starlark%[mark(1, [5, 9, [10, 11], 12])]
+  let short := collect starlark%[mark(1, [5, 9, [10], 12])]
+  let bad := brokenStoreOperand starlark%[mark(1, rows)]
+  let badReceiver := starlark%[(a, mark(2, alias)[mark(3, 0)], [b, mark(4, [])[0][mark(5, 8)]],
+    mark(6, alias)[mark(7, 0)])]
+  checkMixedPatternFailure target bad (.indexRange 0 0) [90, 91] 7 [1] &&
+  checkMixedPatternFailure target short (.unpackArity 2 1) [5, 91] 9 [1, 2, 3] &&
+  checkMixedPatternFailure target good (.indexRange 8 1) [5, 10] 9 [1, 2, 3, 4, 5] &&
+  checkMixedPatternFailure badReceiver good (.indexRange 0 0) [5, 10] 9 [1, 2, 3, 4]
+
+-- A receiver read does not add a module binding. Name leaves still
+-- participate in the usual single-binding validation.
+#guard
+  let commands := [.assign "xs" starlark%[[7]],
+    .assignTargetCompExpr starlark%[(a, [a, xs[0]])] (collect starlark%[[5, [6, 7]]])]
+  match resolve commands with
+  | .error (.validation (.bindingCollision "a")) => true
   | _ => false
 
 end Silmaril.Languages.Starlark.Modules.Resolve

@@ -116,6 +116,9 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
   | evalScoped code =>
     rw [denoteBody]
     exact .evalScoped (exec_denote program available code state)
+  | withTemporaryBindings names code =>
+    rw [denoteBody]
+    exact .withTemporaryBindings (exec_denote program available code (enterTemporaryBindings names state))
   | assignTargetScoped target rhs =>
     rw [denoteBody]
     have rhsRun := exec_denote program available rhs state

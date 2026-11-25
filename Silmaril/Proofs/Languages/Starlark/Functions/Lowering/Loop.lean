@@ -226,7 +226,7 @@ private theorem unpack_slots (arity : Nat) (value : Value) (state : State) :
     by_cases arityCheck : cursor.remaining = arity <;> simpa only [arityCheck, ite_true, ite_false, finishState] using kept.2
 
 mutual
-private theorem bindTarget_slots (target : LoopTarget) (value : Value) (state : State) :
+theorem bindTarget_slots (target : LoopTarget) (value : Value) (state : State) :
     (finishState (bindTarget target value state)).slots = state.slots := by
   rw [bindTarget.eq_def]
   cases target with

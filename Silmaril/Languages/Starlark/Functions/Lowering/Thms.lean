@@ -11,6 +11,11 @@ namespace Silmaril.Languages.Starlark.Functions.Lowering
 
 open Lists (State Outcome)
 
+/-- Recursive name binding updates values without changing the slot map. -/
+theorem bindTarget_slots (target : Lists.Iteration.LoopTarget) (value : Lists.Value) (state : State) :
+    (Lists.Iteration.finishState (Lists.Iteration.bindTarget target value state)).slots = state.slots :=
+  Proofs.Languages.Starlark.Functions.Lowering.bindTarget_slots target value state
+
 /-- Compile a resolved source derivation for atoms, collection displays, subscript
 reads, calls with positional, named and spread operands, and conditional or
 short-circuit expressions. Success

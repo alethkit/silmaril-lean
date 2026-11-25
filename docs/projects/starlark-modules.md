@@ -77,7 +77,9 @@ For standalone destructuring, `Statement.assignTarget` resolves each name
 leaf to a function slot and `Command.assignTarget` resolves each leaf to a
 module global. The resolver collects those names before analyzing any RHS.
 Both contexts also accept `assignTargetCompExpr` with the same target and
-a `CompExpr` right-hand side.
+a `CompExpr` right-hand side. This form also accepts subscript leaves
+whose receiver and index use the ordinary resolved expression grammar.
+Only identifier leaves join the enclosing lexical block.
 The module command uses the shared direct binder in source order. A failed
 initialization retains earlier heap effects, including partial writes into
 its slots, and follows the existing failure path without publication.
@@ -162,9 +164,9 @@ the elaboration result with the resolved operational theorem. It compares
 static rejection, execution outcomes, publication and the exact residual
 state. This correspondence shares the elaborator and starts at a normalized
 AST with legal identifier spellings. An independent source binding relation
-and text parsing remain open. Lambdas, general comprehension
-expression positions, subscript or field leaves in patterns, and other
-augmented assignment forms remain outside this source fragment.
+and text parsing remain open. Lambdas, general comprehension expression
+positions, field leaves, store leaves in loop and comprehension targets,
+and other augmented assignment forms remain outside this source fragment.
 The pinned Starlark spec rejects slice assignment targets.
 [Theorem header](../../Silmaril/Languages/Starlark/Modules/Resolve/Thms.lean) · [Lean source fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Checks.lean)
 

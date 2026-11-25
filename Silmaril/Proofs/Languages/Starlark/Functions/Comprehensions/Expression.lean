@@ -273,21 +273,38 @@ theorem assign_target_exact (program : Program) (available : List DeclarationId)
     denoteBody.eq_def program available (.assignTargetScoped target _)]
   exact congrArg (completeTargetAssignment state target) (return_exact program available expr admitted state free start)
 
+private theorem eval_scope_exact {program : Program} {available : List DeclarationId}
+    {first second : Body} (inside : Agrees program available first second) :
+    Exact program available (.evalScoped first) (.evalScoped second) := by
+  intro state free
+  rw [denoteBody.eq_def program available (.evalScoped first),
+    denoteBody.eq_def program available (.evalScoped second)]
+  let out := denoteBody program available first state
+  change completeCall state none out = completeCall state none (denoteBody program available second state) ∧
+    (finishState (completeCall state none out)).slots = state.slots
+  exact ⟨congrArg (completeCall state none) (inside state free), by cases out <;> rfl⟩
+
+private theorem set_index_stages_exact (program : Program) (available : List DeclarationId)
+    (receiver subscript rhs : Expression) (receiverAdmitted : receiver.Admitted)
+    (subscriptAdmitted : subscript.Admitted) (rhsAdmitted : rhs.Admitted)
+    (start : Nat) :
+    Exact program available (setIndexCode receiver subscript rhs directStages)
+      (setIndexCode receiver subscript rhs (loweredStages start)) := by
+  unfold setIndexCode
+  apply eval_scope_exact
+  exact seq_agrees (expression_exact program available rhs rhsAdmitted (argumentSlot 0) start)
+    (seq_agrees (expression_exact program available receiver receiverAdmitted (argumentSlot 1) start)
+      (seq_agrees (expression_exact program available subscript subscriptAdmitted (argumentSlot 2) start)
+        (fun _ _ => rfl)))
+
 theorem set_index_exact (program : Program) (available : List DeclarationId)
     (receiver subscript rhs : Expression) (receiverAdmitted : receiver.Admitted)
     (subscriptAdmitted : subscript.Admitted) (rhsAdmitted : rhs.Admitted)
     (state : State) (free : ScratchFree state) (start : Nat) :
     denoteBody program available (setIndexCode receiver subscript rhs (loweredStages start)) state =
-      denoteBody program available (setIndexCode receiver subscript rhs directStages) state := by
-  unfold setIndexCode
-  rw [denoteBody.eq_def program available (.evalScoped _),
-    denoteBody.eq_def program available (.evalScoped _)]
-  apply congrArg (completeCall state none)
-  symm
-  exact seq_agrees (expression_exact program available rhs rhsAdmitted (argumentSlot 0) start)
-    (seq_agrees (expression_exact program available receiver receiverAdmitted (argumentSlot 1) start)
-      (seq_agrees (expression_exact program available subscript subscriptAdmitted (argumentSlot 2) start)
-        (fun _ _ => rfl))) state free
+      denoteBody program available (setIndexCode receiver subscript rhs directStages) state :=
+  ((set_index_stages_exact program available receiver subscript rhs receiverAdmitted subscriptAdmitted
+    rhsAdmitted start) state free).1.symm
 
 theorem set_index_rhs_failure (program : Program) (available : List DeclarationId)
     (receiver subscript rhs : Expression) (stages : ExpressionStages) (state failed : State) (error : Error)
@@ -373,6 +390,131 @@ theorem add_name_exact (program : Program) (available : List DeclarationId)
   exact seq_agrees (assign_atom_exact (argumentSlot 0) (code := readSaved target) (savedReadScope target))
     (seq_agrees (expression_exact program available rhs admitted (argumentSlot 1) start)
       (fun _ _ => rfl)) state free
+
+private theorem temporary_scope_exact {program : Program} {available : List DeclarationId}
+    {first second : Body} (names : List Binding) (inside : Exact program available first second) :
+    Exact program available (.withTemporaryBindings names first) (.withTemporaryBindings names second) := by
+  intro state free
+  let input := enterTemporaryBindings names state
+  have inputFree : ScratchFree input := by
+    intro index
+    change (if names.contains (temporary index) then none else state.slots (temporary index)) = none
+    simp [free index]
+  obtain ⟨equal, kept⟩ := inside input inputFree
+  rw [denoteBody.eq_def program available (.withTemporaryBindings names first),
+    denoteBody.eq_def program available (.withTemporaryBindings names second)]
+  let out := denoteBody program available first input
+  change restoreTemporaryBindings names state out =
+    restoreTemporaryBindings names state (denoteBody program available second input) ∧ _
+  refine ⟨congrArg (restoreTemporaryBindings names state) equal, ?_⟩
+  change (finishState (restoreTemporaryBindings names state out)).slots = state.slots
+  change (finishState out).slots = input.slots at kept
+  have restoreSlots (next : State) (same : next.slots = input.slots) :
+      (fun name => if names.contains name then state.slots name else next.slots name) = state.slots := by
+    rw [same]
+    funext name
+    change (if names.contains name then state.slots name
+      else (if names.contains name then none else state.slots name)) = _
+    split <;> rfl
+  cases ran : out <;> rw [ran] at kept <;> exact restoreSlots _ kept
+
+private theorem bind_saved_exact {program : Program} {available : List DeclarationId}
+    (target : LoopTarget) (saved : Binding) :
+    Exact program available (.assignTargetExpr target (.atom (readSaved saved)))
+      (.assignTargetExpr target (.atom (readSaved saved))) := by
+  intro state _
+  refine ⟨rfl, ?_⟩
+  rw [denoteBody]
+  change (finishState (Outcome.resume (denoteExpr program available (.atom (readSaved saved)) state)
+    (fun value next => Outcome.resume (bindTarget target value next) (fun () => pure Flow.next)))).slots = _
+  unfold denoteExpr
+  rw [denoteExprWith.eq_def]
+  let operand := denote (readSaved saved) state
+  change (finishState (Outcome.resume operand
+    (fun value next => Outcome.resume (bindTarget target value next) (fun () => pure Flow.next)))).slots = _
+  have kept : (finishState operand).slots = state.slots := (savedReadScope saved state).2
+  cases ran : operand with
+  | error =>
+    rw [ran] at kept
+    exact kept
+  | ok value next =>
+    rw [ran] at kept
+    have bound := (Lowering.bindTarget_slots target value next).trans kept
+    change (finishState (Outcome.resume (bindTarget target value next) (fun () => pure Flow.next))).slots = _
+    cases checked : bindTarget target value next with
+    | error => rw [checked] at bound; exact bound
+    | ok done result => cases done; rw [checked] at bound; exact bound
+
+private theorem patternSlot_visible (depth index : Nat) : ¬ Scratch 0 (patternSlot depth index) := by
+  rintro ⟨slot, _, equal⟩
+  have := congrArg Binding.scope equal
+  contradiction
+
+mutual
+private theorem pattern_exact (program : Program) (available : List DeclarationId)
+    (pattern : AssignmentPattern) (admitted : pattern.Admitted) (saved : Binding) (depth : Nat)
+    (visible : ¬ Scratch 0 saved) (start : Nat) :
+    Exact program available (pattern.code directStages saved depth) (pattern.code (loweredStages start) saved depth) := by
+  cases admitted with
+  | name binding =>
+    simpa only [AssignmentPattern.code] using
+      (assign_atom_exact (program := program) (available := available) binding
+        (code := readSaved saved) (savedReadScope saved))
+  | subscript recv idx =>
+    simp only [AssignmentPattern.code]
+    exact set_index_stages_exact program available _ _ _ (.plain recv) (.plain idx)
+      (.plain (.atom (.bound visible))) start
+  | @sequence children admitted =>
+    simp only [AssignmentPattern.code]
+    apply temporary_scope_exact
+    exact seq (bind_saved_exact _ saved) (pattern_children_exact program available children admitted depth 0 start)
+termination_by sizeOf pattern
+decreasing_by simp_wf <;> omega
+
+private theorem pattern_children_exact (program : Program) (available : List DeclarationId)
+    (children : List AssignmentPattern) (admitted : ∀ child ∈ children, child.Admitted) (depth index start : Nat) :
+    Exact program available (AssignmentPattern.childCode directStages depth index children)
+      (AssignmentPattern.childCode (loweredStages start) depth index children) := by
+  cases remaining : children with
+  | nil =>
+    simp only [AssignmentPattern.childCode]
+    intro state _
+    refine ⟨rfl, ?_⟩
+    rw [denoteBody]
+    rfl
+  | cons first rest =>
+    simp only [AssignmentPattern.childCode]
+    exact seq (pattern_exact program available first (admitted first (by rw [remaining]; simp))
+      (patternSlot depth index) (depth + 1) (patternSlot_visible depth index) start)
+      (pattern_children_exact program available rest
+        (fun child member => admitted child (by rw [remaining]; exact List.mem_cons_of_mem _ member))
+        depth (index + 1) start)
+termination_by sizeOf children
+decreasing_by all_goals (simp_wf; rw [remaining]; simp_wf <;> omega)
+end
+
+theorem assign_pattern_exact (program : Program) (available : List DeclarationId)
+    (pattern : AssignmentPattern) (rhs : Expression) (targetAdmitted : pattern.Admitted)
+    (rhsAdmitted : rhs.Admitted) (state : State) (free : ScratchFree state) (start : Nat) :
+    denoteBody program available (assignPatternCode pattern rhs (loweredStages start)) state =
+      denoteBody program available (assignPatternCode pattern rhs directStages) state :=
+  ((temporary_scope_exact [patternSlot 0 0]
+    (seq (expression_exact program available rhs rhsAdmitted (patternSlot 0 0) start)
+      (pattern_exact program available pattern targetAdmitted (patternSlot 0 0) 1 (patternSlot_visible 0 0) start)))
+    state free).1.symm
+
+theorem assign_pattern_phases (program : Program) (available : List DeclarationId)
+    (pattern : AssignmentPattern) (rhs : Expression) (stages : ExpressionStages) (state : State) :
+    denoteBody program available (assignPatternCode pattern rhs stages) state =
+      restoreTemporaryBindings [patternSlot 0 0] state
+        (Outcome.resume (denoteBody program available (rhs.compile stages (patternSlot 0 0))
+          (enterTemporaryBindings [patternSlot 0 0] state)) fun
+          | .next => denoteBody program available (pattern.code stages (patternSlot 0 0) 1)
+          | signal => pure signal) := by
+  rw [assignPatternCode, denoteBody]
+  change restoreTemporaryBindings [patternSlot 0 0] state
+    (denoteBody program available (.seq _ _) (enterTemporaryBindings _ state)) = _
+  rw [sequenceDenotation] <;> rfl
 
 theorem definition_defaults_exact (program : Program) (available : List DeclarationId)
     (target : Binding) (id : DeclarationId) (defaults : List (Binding × Expression))
