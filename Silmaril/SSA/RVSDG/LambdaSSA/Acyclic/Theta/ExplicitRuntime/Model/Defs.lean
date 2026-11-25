@@ -69,6 +69,25 @@ def orderedModel : OrderedRuntime.Structured.Model (Pure τ) (Effect Φ) (StateT
 abbrev wireModel :=
   NestedTheta.ExplicitRuntime.Partial.wireModel (orderedModel (τ := τ) (Φ := Φ) (ε := ε) (σ := σ))
 
+namespace Wiring
+
+open OrderedRuntime.Structured (Data runtime)
+
+abbrev WireValues := RuntimeValues (TyDen (τ := τ)) σ
+
+variable {args outs : Ports (OrderedRuntime.Structured.Ty τ)}
+variable {past : List (Ports (OrderedRuntime.Structured.Ty τ))}
+variable {a : Data args} {o : Data outs}
+variable {live : Origin (Threaded args) past runtime}
+
+/-- Evaluate a checked continuation in its current numbered scope. -/
+noncomputable def eval (code : Code Φ a o live) (entry : Tuple (WireValues (τ := τ) (σ := σ)) (Threaded args))
+    (locals : Locals (WireValues (τ := τ) (σ := σ)) past) :
+    Part (Tuple (WireValues (τ := τ) (σ := σ)) (Threaded outs)) :=
+  code.2.1.denoteOpenWith (wireModel (ε := ε) (σ := σ)) entry locals
+
+end Wiring
+
 /-- Encode a decoded LambdaSSA exit and its final token as the actual θ result. -/
 def exitTuple (p : LabelDen [E,D] × σ) :
     Tuple (RuntimeValues (TyDen (τ := τ)) σ) (Threaded (carried (Carrier A E D))) :=

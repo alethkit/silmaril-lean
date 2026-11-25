@@ -21,6 +21,65 @@ open Silmaril.Elgot (iter)
 universe u
 variable {τ Φ ε σ : Type u} [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε] [Bot ε]
   [Isotope.Subtyping τ] [TypeModel.{u,u} τ] [InstructionModel Φ τ ε (StateT σ Part.{u})]
+namespace Wiring
+
+open OrderedTheta (point)
+open OrderedRuntime.Structured
+open TwoBlock.TwoExit (Pure)
+open LinearChain.Wiring (newest)
+
+variable {B : τ} {args ins out outs : Ports (OrderedRuntime.Structured.Ty τ)}
+variable {past : List (Ports (OrderedRuntime.Structured.Ty τ))}
+variable {a : Data args} {o : Data outs}
+variable {live : Origin (Threaded args) past runtime}
+
+local notation "readWire" => OrderedRuntime.Structured.readOrigin (F := WireValues (τ := τ) (σ := σ))
+
+omit [TypeFormers τ] [Isotope.Subtyping τ] [TypeModel τ] in
+theorem read_newest {F : OrderedRuntime.Structured.Ty τ → Type u}
+    {t : OrderedRuntime.Structured.Ty τ} (p : Port out t)
+    (entry : Tuple F args) (locals : Locals F past) (outcome : Tuple F out) :
+    OrderedRuntime.Structured.readOrigin (newest p past) entry (locals.snoc outcome) = outcome.get p :=
+  Proofs.read_newest p entry locals outcome
+
+omit [TypeFormers τ] [Isotope.Subtyping τ] [TypeModel τ] in
+theorem read_nextRuntime {F : OrderedRuntime.Structured.Ty τ → Type u}
+    (entry : Tuple F args) (locals : Locals F past) (outcome : Tuple F (Threaded out)) :
+    OrderedRuntime.Structured.readOrigin (nextRuntime past out) entry (locals.snoc outcome) =
+      outcome.get (runtimePort out) :=
+  Proofs.read_nextRuntime entry locals outcome
+
+theorem eval_primitive (i : Data ins) (d : Data out) (op : Instruction (Pure τ) (Effect Φ) ins out)
+    (inputs : Wires (Threaded args) past ins) (rest : Code Φ a o (nextRuntime past out))
+    (entry : Tuple (WireValues (τ := τ) (σ := σ)) (Threaded args))
+    (locals : Locals (WireValues (τ := τ) (σ := σ)) past) :
+    eval (ε := ε) (Wiring.primitive i d op live inputs rest) entry locals =
+      (wireModel (ε := ε) (σ := σ)).primitive (.ordered i d op)
+        (Wires.read (withRuntime live inputs) entry locals) >>= fun output =>
+      eval (ε := ε) rest entry (locals.snoc output) :=
+  Proofs.eval_primitive i d op inputs rest entry locals
+
+theorem eval_finish (source : Origin (Threaded args) past (.value B))
+    (entry : Tuple (WireValues (τ := τ) (σ := σ)) (Threaded args))
+    (locals : Locals (WireValues (τ := τ) (σ := σ)) past) :
+    eval (ε := ε) (Wiring.finish (Φ := Φ) (a := a) past live source) entry locals =
+      Part.some (point (readWire source entry locals) (readWire live entry locals)) :=
+  Proofs.eval_finish source entry locals
+
+theorem eval_choice (i : Data ins) (d : Data out)
+    (left right : Code (past := []) Φ i d (.arg (runtimePort ins)))
+    (selector : Origin (Threaded args) past (.control 2))
+    (inputs : Wires (Threaded args) past ins) (rest : Code Φ a o (nextRuntime past out))
+    (entry : Tuple (WireValues (τ := τ) (σ := σ)) (Threaded args))
+    (locals : Locals (WireValues (τ := τ) (σ := σ)) past) :
+    eval (ε := ε) (Wiring.choice i d left right selector live inputs rest) entry locals =
+      eval (ε := ε) (past := []) (Fin.cases left (fun _ => right) (readWire selector entry locals).down)
+        (Wires.read (withRuntime live inputs) entry locals) PUnit.unit >>= fun output =>
+      eval (ε := ε) rest entry (locals.snoc output) :=
+  Proofs.eval_choice i d left right selector inputs rest entry locals
+
+end Wiring
+
 variable {A B K E D : τ}
 variable {r : Isotope.LambdaSSA.Region Φ} {g : Graph Φ A E D}
 
