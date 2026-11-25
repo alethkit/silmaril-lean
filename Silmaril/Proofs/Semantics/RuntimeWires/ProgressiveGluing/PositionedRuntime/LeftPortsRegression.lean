@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.PositionedRuntime.LeftWord.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.PositionedRuntime.BothSides.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.PositionedRuntime.LeftPorts.Defs
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
 import Mathlib.Tactic.FinCases
@@ -13,8 +13,8 @@ namespace Silmaril.RuntimeWires.Proofs.PositionedRuntime.LeftPortsRegression
 open CategoryTheory Presentation ProgressiveGraph
 
 private abbrev system : EffectfulPolygraph where
-  Obj := Fin 4
-  pure := Signature.empty (Fin 4)
+  Obj := Fin 6
+  pure := Signature.empty (Fin 6)
   effect := { Edge := Unit, source := fun _ => [1], target := fun _ => [2] }
 
 private abbrev S := signature system
@@ -25,7 +25,7 @@ private def target : FixedRuntimeCap system := ⟨binaryCap S none (some 2), [2]
 private def effectDrawing : FixedDrawing S source.cap.profile target.cap.profile :=
   binaryBox (S := S) (Edge.effect (G := system) ()) rfl rfl
 
-private def singleContact (label : Fin 4) (x : ℝ) (inside : x ∈ Set.Ioo 0 1) : FixedCap S where
+private def singleContact (label : Fin 6) (x : ℝ) (inside : x ∈ Set.Ioo 0 1) : FixedCap S where
   profile :=
     { size := 1
       label _ := some label
@@ -223,7 +223,7 @@ example :
 /-- Independently read rows show the runtime crossing `3`, then `0`,
 performing the effect, and returning through `0`, then `3`. The active
 value is present as a through cell on the right of both crossing pairs. -/
-example : twiceDecorated.readSheet.cells =
+private theorem twiceDecorated_cells : twiceDecorated.readSheet.cells =
     [[.inr (.moveRight 3), .inl (some 0), .inl (some 1)],
      [.inl (some 3), .inr (.moveRight 0), .inl (some 1)],
      [.inl (some 3), .inl (some 0), .inr (.effect ())],
@@ -238,5 +238,85 @@ example : twiceDecorated.readSheet.cells =
   unfold effectDrawing
   erw [binaryBox_cells]
   rfl
+
+private abbrev rightWord : List (Fin 6) := [4, 5]
+private def rightPad := FixedCap.evenlySpaced S (values rightWord)
+private def otherRightPad := binaryCap S (some 4) (some 5)
+
+private theorem rightPad_types : rightPad.types = values rightWord := FixedCap.evenlySpaced_types _ _
+private theorem otherRightPad_types : otherRightPad.types = values rightWord := rfl
+
+private abbrev leftFirstInput := secondPlacement.source.padRight rightPad rightPad_types
+private abbrev leftFirstOutput := secondPlacement.target.padRight rightPad rightPad_types
+
+private def leftThenRight : FixedDrawing S leftFirstInput.cap.profile leftFirstOutput.cap.profile :=
+  FixedRuntimeCap.padRightDrawing (X := secondPlacement.source) (Y := secondPlacement.target)
+    rightPad rightPad_types twiceDecorated
+
+private abbrev paddedInput := source.padRight otherRightPad otherRightPad_types
+private abbrev paddedOutput := target.padRight otherRightPad otherRightPad_types
+
+private def paddedEffect : FixedDrawing S paddedInput.cap.profile paddedOutput.cap.profile :=
+  FixedRuntimeCap.padRightDrawing (X := source) (Y := target) otherRightPad otherRightPad_types effectDrawing
+
+private abbrev rightFirstPlan := (FixedRuntimeCap.LeftPlacement.withDefaultCuts paddedInput paddedOutput [3, 0]).2.2
+private def rightThenLeft := rightFirstPlan.drawing paddedEffect
+
+example : leftFirstInput.cap.types = [none, some 3, some 0, some 1, some 4, some 5] ∧
+    leftFirstOutput.cap.types = [none, some 3, some 0, some 2, some 4, some 5] ∧
+    rightFirstPlan.source.cap.types = [none, some 3, some 0, some 1, some 4, some 5] ∧
+    rightFirstPlan.target.cap.types = [none, some 3, some 0, some 2, some 4, some 5] := by
+  have words := FixedRuntimeCap.twoSided_types (pTypes := rightPad_types) (qTypes := otherRightPad_types)
+    secondPlacement rightFirstPlan
+  exact ⟨leftFirstInput.types, leftFirstOutput.types,
+    words.1.symm.trans leftFirstInput.types, words.2.symm.trans leftFirstOutput.types⟩
+
+/-- An independently chosen outer cut puts the runtime at a different coordinate. -/
+example : leftFirstInput.cap.profile.x (0 : Fin 6) ≠ rightFirstPlan.source.cap.profile.x (0 : Fin 6) := by
+  change (1 / 8 : ℝ) / 2 ≠ ((↑(0 : ℕ) : ℝ) + 1) / ((↑(6 : ℕ) : ℝ) + 1)
+  norm_num
+
+private def expectedRows : List (List (Presentation.Wire system.Obj ⊕ Edge system)) :=
+  [[.inr (.moveRight 3), .inl (some 0), .inl (some 1), .inl (some 4), .inl (some 5)],
+   [.inl (some 3), .inr (.moveRight 0), .inl (some 1), .inl (some 4), .inl (some 5)],
+   [.inl (some 3), .inl (some 0), .inr (.effect ()), .inl (some 4), .inl (some 5)],
+   [.inl (some 3), .inr (.moveLeft 0), .inl (some 2), .inl (some 4), .inl (some 5)],
+   [.inr (.moveLeft 3), .inl (some 0), .inl (some 2), .inl (some 4), .inl (some 5)]]
+
+/-- The independently selected valid sweep of left-then-right preserves
+both right idle contacts through every crossing and the effect. -/
+example (s : leftThenRight.drawing.LayerSweep) : (leftThenRight.readSheetAt s).cells = expectedRows := by
+  have h := FixedRuntimeCap.padRightDrawing_cellsAt (X := secondPlacement.source) (Y := secondPlacement.target)
+    rightPad rightPad_types twiceDecorated twiceDecorated.drawing.layerSweep s
+  exact h.trans (by erw [twiceDecorated_cells]; rfl)
+
+/-- Right-then-left gives the same ordered cells at its own independent cuts. -/
+example (s : rightThenLeft.drawing.LayerSweep) : (rightThenLeft.readSheetAt s).cells = expectedRows := by
+  rw [rightThenLeft.readSheetAt_eq_readSheet s]
+  unfold rightThenLeft
+  simp only [rightFirstPlan, FixedRuntimeCap.LeftPlacement.withDefaultCuts,
+    FixedRuntimeCap.LeftPlacement.withOuterCuts, FixedRuntimeCap.LeftPlacement.drawing]
+  erw [FixedRuntimeCap.placeLeftDrawing_cells, FixedRuntimeCap.placeLeftDrawing_cells]
+  have h := FixedRuntimeCap.padRightDrawing_cellsAt (X := source) (Y := target)
+    otherRightPad otherRightPad_types effectDrawing effectDrawing.drawing.layerSweep paddedEffect.drawing.layerSweep
+  change paddedEffect.readSheet.cells = _ at h
+  erw [h]
+  unfold effectDrawing
+  erw [binaryBox_cells]
+  rfl
+
+/-- Both concrete representatives give equal computations after the two
+outer words are identified by the runtime associator. -/
+example :
+    (FixedRuntimeCap.toComputations system).map (X := leftFirstInput) (Y := leftFirstOutput)
+      (FixedRuntimeCap.ofDrawing leftThenRight) ≫
+        eqToHom (Computations.concat_assoc (Computations.mk (G := system) [3, 0]) target.computation
+          (Computations.mk rightWord)) =
+    eqToHom (Computations.concat_assoc (Computations.mk (G := system) [3, 0]) source.computation
+      (Computations.mk rightWord)) ≫
+      (FixedRuntimeCap.toComputations system).map (X := rightFirstPlan.source) (Y := rightFirstPlan.target)
+        (FixedRuntimeCap.ofDrawing rightThenLeft) :=
+  FixedRuntimeCap.toComputations_twoSided (pTypes := rightPad_types) (qTypes := otherRightPad_types)
+    secondPlacement rightFirstPlan effectDrawing
 
 end Silmaril.RuntimeWires.Proofs.PositionedRuntime.LeftPortsRegression
