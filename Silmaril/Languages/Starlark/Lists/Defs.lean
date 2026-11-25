@@ -119,6 +119,7 @@ inductive Error where
   | indexTarget
   | indexType
   | indexRange (index : Int) (length : Nat)
+  | invalidIndexUTF8
   | sliceTarget
   | sliceStartType (value : Value)
   | sliceStopType (value : Value)
@@ -275,7 +276,7 @@ def addDisplayEntry (entries : List Entry) (key value : Value) : Meaning (List E
 def offsetIndex (length index : Int) : Int :=
   if index < 0 then length + index else index
 
-/-- List indexes range from `-length` through `length - 1`. -/
+/-- Sequence indexes range from `-length` through `length - 1`. -/
 def normalizeIndex (length : Nat) : Value → Except Error (Fin length)
   | .scalar (.int index) =>
     let offset := offsetIndex length index
@@ -286,6 +287,12 @@ def normalizeIndex (length : Nat) : Value → Except Error (Fin length)
 def fromExcept {α : Type} : Except Error α → Meaning α
   | .ok value => pure value
   | .error error => throw error
+
+/-- The string profile only admits well-formed UTF-8. -/
+def decodeString (bytes : ByteArray) (invalid : Error) : Except Error Value :=
+  match String.fromUTF8? bytes with
+  | some text => .ok (.string text)
+  | none => .error invalid
 
 def readSequence (elements : List Value) (index : Value) : Meaning Value := do
   let i ← fromExcept (normalizeIndex elements.length index)
@@ -303,7 +310,11 @@ def readDict (address : Address) (key : Value) : Meaning Value := do
 
 def readIndex (receiver index : Value) : Meaning Value :=
   match receiver with
-  | .scalar _ | .function _ | .builtin _ | .string _ => throw .indexTarget
+  | .scalar _ | .function _ | .builtin _ => throw .indexTarget
+  | .string text => fromExcept do
+    let bytes := text.toUTF8
+    let offset ← normalizeIndex bytes.size index
+    decodeString ⟨#[bytes[offset.val]'(offset.isLt)]⟩ .invalidIndexUTF8
   | .list address => listElements address >>= fun elements => readSequence elements index
   | .tuple address => tupleElements address >>= fun elements => readSequence elements index
   | .dict address => readDict address index
@@ -351,9 +362,7 @@ def readSlice (receiver start stop stride : Value) : Meaning Value :=
     allocateTuple (← fromExcept (sliceElements elements start stop stride))
   | .string text => fromExcept do
     let bytes ← sliceElements text.toUTF8.toList start stop stride
-    match String.fromUTF8? bytes.toByteArray with
-    | some result => pure (.string result)
-    | none => throw .invalidSliceUTF8
+    decodeString bytes.toByteArray .invalidSliceUTF8
   | _ => throw .sliceTarget
 
 /-- Lowered slices supply four values in evaluation order, with `None` for
