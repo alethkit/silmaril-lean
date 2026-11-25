@@ -75,6 +75,23 @@ theorem lime_invoke_wasm_exact {ty : Wasm.Lime1.FuncType} {m : Execution.Runtime
         [.label ty.results.length [] (Wasm.Lime1.Execution.expression fnCode.body)]]⟩ :=
   Proofs.Lime1.invoke_wasm_exact allocated count
 
+open Wasm.Lime1.Execution in
+theorem lime_frame_prefix_inv {H : Type} {s : Store H} {f inside : Frame} {n : Nat}
+    {saved : List Execution.Runtime.Value} {code : List Admin} {dst : Config H}
+    (h : Step limeNoHost ⟨s, f, values saved ++ [.frame n inside code]⟩ dst) :
+    ∃ mid, Step limeNoHost ⟨s, f, [.frame n inside code]⟩ mid ∧
+      dst = ⟨mid.store, mid.frame, values saved ++ mid.code⟩ :=
+  Proofs.Lime1.frame_prefix_inv h
+
+open Wasm.Lime1.Execution in
+theorem lime_invoke_wasm_prefix_iff {ty : Wasm.Lime1.FuncType} {m : Execution.Runtime.ModuleInst}
+    {fnCode : Wasm.Lime1.Func} {saved args : List Execution.Runtime.Value} {dst : Config H}
+    (allocated : s.funcs[address.value]? = some (.wasm ty m fnCode)) (count : args.length = ty.params.length) :
+    Step limeNoHost ⟨s, caller, values (saved ++ args) ++ [.invoke address]⟩ dst ↔
+      dst = ⟨s, caller, values saved ++ [.frame ty.results.length ⟨args ++ fnCode.locals.map Execution.Runtime.Value.zero, m⟩
+        [.label ty.results.length [] (expression fnCode.body)]]⟩ :=
+  Proofs.Lime1.invoke_wasm_prefix_iff allocated count
+
 end Lime1
 
 section Core

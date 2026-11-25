@@ -8,6 +8,7 @@ public import Silmaril.Wasm.SingleThreaded.Determinism.Head
 public import Silmaril.Wasm.Execution.Core.Inversion.Defs
 import Silmaril.Wasm.Execution.Core.Inversion.Thms
 import Silmaril.Wasm.Execution.Core.Sim.Context
+import Silmaril.Wasm.SingleThreaded.Determinism.FamDet
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Core
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Sequence.Rules
 
@@ -46,6 +47,36 @@ private theorem body_expression (site : Site) :
   | arg op => cases op <;> rfl
   | call | nop => rfl
 
+theorem wasm_entry_context_iff {H : Type} {P : Profile} {s : Store H} {caller : Execution.Runtime.Frame}
+    {address : FuncAddr} {ty : Wasm.V1.FuncType} {m : Execution.Runtime.ModuleInst} {fn : Wasm.Func}
+    {saved args : List Value} {rest : List Admin} {dst : Config H}
+    (allocated : s.funcs[address.value]? = some ⟨ty.toDefType, m.toCore, .wasm fn⟩)
+    (typed : args.map Value.type = ty.params) :
+    Step P noHost
+      ⟨s, caller.toCore, coreValues (saved ++ args) ++ .ref (.func address.value) :: .callRefType ty.toDefType :: rest⟩ dst ↔
+      dst = ⟨s, caller.toCore, coreValues saved ++ .frame ty.results.length
+        (Frame.forCall m.toCore (args.map Value.toCore) fn.locals)
+        [.label ty.results.length [] (expression fn.body)] :: rest⟩ := by
+  have sig : Expand ty.toDefType (.func (Ty.ofList (ty.params.map Ty.num))
+      (Ty.ofList (ty.results.map Ty.num))) :=
+    Expand.iff.mpr (Wasm.V1.FuncType.toDefType_expand _)
+  have count : (args.map Value.toCore).length = (Ty.ofList (ty.params.map Ty.num)).length := by
+    simpa [Ty.length_ofList] using congrArg List.length typed
+  constructor
+  · intro step
+    obtain ⟨kept, used, ps, rs, split, expands, arity, eq⟩ :=
+      Step.callRef_wasm_inv_seq (r := .callRefType ty.toDefType) trivial allocated rfl step
+    cases Wasm.SingleThreaded.Det.Expand.det expands sig
+    rw [List.map_append] at split
+    obtain ⟨rfl, rfl⟩ := List.append_inj' split (count.trans arity.symm)
+    simpa only [Ty.length_ofList, List.length_map] using eq
+  · rintro rfl
+    have step := Step.callRefFunc (P := P) (host := noHost) (s := s) (f := caller.toCore)
+      (c := .callRefType ty.toDefType) trivial allocated sig count rfl
+    simpa only [coreValues, List.map_append, vals_append, List.append_assoc, List.cons_append,
+      List.nil_append, Ty.length_ofList, List.length_map] using
+      Sim.Step.vals_left (Sim.Step.append_right step rest) (saved.map Value.toCore)
+
 /-- A resolved Wasm call with exactly the declared numeric arguments enters the
 callee frame with its typed results, default locals, and full source body. -/
 theorem wasm_entry_iff {H : Type} {P : Profile} {s : Store H} {caller : Execution.Runtime.Frame}
@@ -56,21 +87,8 @@ theorem wasm_entry_iff {H : Type} {P : Profile} {s : Store H} {caller : Executio
     Step P noHost ⟨s, caller.toCore, coreValues args ++ [.ref (.func address.value), .callRefType ty.toDefType]⟩ dst ↔
       dst = ⟨s, caller.toCore, [.frame ty.results.length
         (Frame.forCall m.toCore (args.map Value.toCore) fn.locals)
-        [.label ty.results.length [] (expression fn.body)]]⟩ := by
-  have sig : Expand ty.toDefType (.func (Ty.ofList (ty.params.map Ty.num))
-      (Ty.ofList (ty.results.map Ty.num))) :=
-    Expand.iff.mpr (Wasm.V1.FuncType.toDefType_expand _)
-  have count : (args.map Value.toCore).length = (Ty.ofList (ty.params.map Ty.num)).length := by
-    simpa [Ty.length_ofList] using congrArg List.length typed
-  constructor
-  · intro h
-    have next := Step.callRef_wasm_inv_exact (r := .callRefType ty.toDefType)
-      (code := fn) (by trivial) allocated rfl sig count h
-    simpa only [Ty.length_ofList, List.length_map] using next
-  · rintro rfl
-    have next := Step.callRefFunc (P := P) (host := noHost) (s := s) (f := caller.toCore)
-      (c := .callRefType ty.toDefType) trivial allocated sig count rfl
-    simpa only [Ty.length_ofList, List.length_map] using next
+        [.label ty.results.length [] (expression fn.body)]]⟩ :=
+  wasm_entry_context_iff (saved := []) (rest := []) allocated typed
 
 private theorem enter_iff {H : Type} {P : Profile} {s : Store H} {caller : Execution.Runtime.Frame}
     {site : Site} {dst : Config H} (g : CoreGuard s caller site) :

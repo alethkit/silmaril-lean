@@ -13,6 +13,10 @@ open StraightLine
 theorem fact {p : Program} {a b : State p.site} (rule : Ground p a b) : Edge p a b :=
   Derives.apply (R := (presentation p).rules) (r := ⟨[], .step a b⟩) (.ground rule) (by simp)
 
+theorem done_no_edge {p : Program} {result : Nested.Result} {b : State p.site} :
+    ¬ Edge p (.done result) b :=
+  Proofs.done_no_edge
+
 theorem underLabel {p : Program} {a b : Sequence.State p.site.body}
     (edge : Sequence.Edge p.site.body a b) : Edge p (.label a) (.label b) :=
   Proofs.underLabel edge

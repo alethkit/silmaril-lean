@@ -347,30 +347,53 @@ theorem readback {H : Type} {s : Store H} {caller : Frame} {address : FuncAddr} 
         subst saved
         exact ⟨.trapped kept, fact (.bubble kept (v :: vs) (List.cons_ne_nil _ _)), rfl⟩
 
-theorem invoke_wasm_exact {H : Type} {s : Store H} {caller : Frame}
-    {i : FuncAddr} {args : List Value} {ty : Wasm.Lime1.FuncType}
+theorem frame_prefix_inv {H : Type} {s : Store H} {f inside : Frame} {n : Nat}
+    {saved : List Value} {code : List Admin} {dst : Config H}
+    (h : Step limeNoHost ⟨s, f, values saved ++ [.frame n inside code]⟩ dst) :
+    ∃ mid, Step limeNoHost ⟨s, f, [.frame n inside code]⟩ mid ∧
+      dst = ⟨mid.store, mid.frame, values saved ++ mid.code⟩ := by
+  obtain ⟨kept, used, target, stackEq, head, rfl⟩ := split h (.frame n inside code) rfl
+  cases head with
+  | frame innerStep =>
+    rw [List.append_nil] at stackEq
+    subst kept
+    exact ⟨_, .frame innerStep n f, rfl⟩
+  | pure ordinary =>
+    have zero : used = [] := by cases pure_focus ordinary (.frame n inside code) <;> rfl
+    subst used
+    rw [List.append_nil] at stackEq
+    subst kept
+    exact ⟨_, .pure s f ordinary, rfl⟩
+
+theorem invoke_wasm_prefix_iff {H : Type} {s : Store H} {caller : Frame}
+    {i : FuncAddr} {saved args : List Value} {ty : Wasm.Lime1.FuncType}
     {m : ModuleInst} {fn : Wasm.Lime1.Func} {dst : Config H}
     (allocated : s.funcs[i.value]? = some (.wasm ty m fn)) (count : args.length = ty.params.length) :
-    Step CallFrame.limeNoHost ⟨s, caller, values args ++ [.invoke i]⟩ dst ↔
-      dst = ⟨s, caller, [.frame ty.results.length ⟨args ++ fn.locals.map Value.zero, m⟩
+    Step CallFrame.limeNoHost ⟨s, caller, values (saved ++ args) ++ [.invoke i]⟩ dst ↔
+      dst = ⟨s, caller, values saved ++ [.frame ty.results.length ⟨args ++ fn.locals.map Value.zero, m⟩
         [.label ty.results.length [] (expression fn.body)]]⟩ := by
   constructor
   · intro step
     obtain ⟨kept, used, mid, split, head, rfl⟩ :=
-      split step (stack := args) (.invoke i) rfl
+      split step (stack := saved ++ args) (.invoke i) rfl
     cases head with
     | pure pure => cases pure_focus pure (.invoke i)
     | wasm found arity =>
       change s.funcs[i.value]? = _ at found
       rw [allocated] at found
       cases found
-      have len := congrArg List.length split
-      simp [count, arity] at len
-      subst kept
-      simp only [List.nil_append] at split
-      subst used
+      obtain ⟨rfl, rfl⟩ := List.append_inj' split (count.trans arity.symm)
       rfl
   · rintro rfl
-    exact .invokeWasm s caller i ty m fn args allocated count
+    simpa only [values_append, List.append_assoc] using context_step saved (Step.invokeWasm s caller i ty m fn args allocated count)
+
+theorem invoke_wasm_exact {H : Type} {s : Store H} {caller : Frame}
+    {i : FuncAddr} {args : List Value} {ty : Wasm.Lime1.FuncType}
+    {m : ModuleInst} {fn : Wasm.Lime1.Func} {dst : Config H}
+    (allocated : s.funcs[i.value]? = some (.wasm ty m fn)) (count : args.length = ty.params.length) :
+    Step CallFrame.limeNoHost ⟨s, caller, values args ++ [.invoke i]⟩ dst ↔
+      dst = ⟨s, caller, [.frame ty.results.length ⟨args ++ fn.locals.map Value.zero, m⟩
+        [.label ty.results.length [] (expression fn.body)]]⟩ :=
+  invoke_wasm_prefix_iff (saved := []) allocated count
 
 end Silmaril.Wasm.Institution.Operational.CallFrame.Proofs.Lime1

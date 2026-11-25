@@ -26,6 +26,12 @@ theorem invert {p : Program} {a b : State p.site} (edge : Edge p a b) : Move p a
   | underLabel a b => exact .body (ih _ (List.Mem.head _))
   | ground rule => exact .ground rule
 
+theorem done_no_edge {p : Program} {result : Nested.Result} {b : State p.site} :
+    ¬ Edge p (.done result) b := by
+  intro edge
+  cases invert edge with
+  | ground rule => cases rule
+
 theorem underLabel {p : Program} {a b : Sequence.State p.site.body}
     (edge : Sequence.Edge p.site.body a b) : Edge p (.label a) (.label b) := by
   have lifted := Derives.map
