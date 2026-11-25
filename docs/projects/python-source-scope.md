@@ -78,6 +78,13 @@ corresponding parent slot family. The regression analyzes three nested
 functions and checks their interleaved owned and forwarded slots. It
 also checks rejection when the selected scope lacks a required slot.
 
+The [source frame layout](../../Silmaril/Languages/Python/Source/Closure/Frame/Thms.lean)
+lists ordinary local names separately from owned cells and forwarded
+captures. The parameter checker emits distinct, bounded local-or-owned
+destinations. Mapping destination names back gives the original parameter
+order. The capture entries are also available as a vector indexed by the
+child's capture count.
+
 ## Source intake
 
 The AST emitter takes an external CPython AST and writes a Lean module
