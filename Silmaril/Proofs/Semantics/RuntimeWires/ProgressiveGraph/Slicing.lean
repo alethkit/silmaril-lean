@@ -11,11 +11,11 @@ open Silmaril.RuntimeWires.ProgressiveGraph
 
 universe u v
 
-variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} (d : Diagram S V W)
+variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} {kind : VertexSeparation} (d : Diagram S V W kind)
 variable {v : Fin V} {lo hi : ℝ}
 
 /-- Sort a finite selection at a height at which every selected edge is active. -/
-private theorem sorted_selection (h : ℝ) (P : Fin W → Prop)
+theorem sorted_selection (h : ℝ) (P : Fin W → Prop)
     (hP : ∀ w, P w → d.crosses w h) :
     ∃ l : List (Fin W), (∀ w, w ∈ l ↔ P w) ∧ l.Pairwise (fun a b => d.x a h < d.x b h) := by
   classical

@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.SlicedCompleteness.Quotient
 import Silmaril.Proofs.Semantics.RuntimeWires.SlicedCompleteness.Equivalence
+import Silmaril.Proofs.Semantics.RuntimeWires.SlicedCompleteness.Moves
 
 @[expose] public section
 
@@ -38,6 +39,15 @@ theorem Sheet.denote_eq_iff {p q : Sheet S A B} :
     p.denote (noEquations S) = q.denote (noEquations S) ↔ Sheet.SeamEquivalent p q :=
   ⟨fun h => Quotient.exact (SeamHom.termEquiv.injective h),
     fun h => Sheet.SeamEquivalent.sound h _⟩
+
+/-- The two serializations of a horizontal pair of rows arise by splitting
+the same joint row. -/
+theorem Sheet.swap_rows {Z : List O} (r : Row S A B) (s : Row S X Y)
+    (tail : Sheet S (B ++ Y) Z) :
+    Sheet.SeamEquivalent
+      (.cons (r.beside (Row.straight X)) (.cons (Row.pass B s) tail))
+      (.cons (Row.pass A s) (.cons (r.beside (Row.straight Y)) tail)) :=
+  Proofs.SlicedCompleteness.swap_rows r s tail
 
 theorem SeamHom.toTermHom_comp (f : SeamHom S A B) (g : SeamHom S B C) :
     (f.comp g).toTermHom =

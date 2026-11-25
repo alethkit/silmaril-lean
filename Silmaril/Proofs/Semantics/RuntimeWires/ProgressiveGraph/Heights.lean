@@ -12,7 +12,7 @@ open Silmaril.RuntimeWires.ProgressiveGraph
 
 universe u v
 
-variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} (d : Diagram S V W)
+variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} {kind : VertexSeparation} (d : Diagram S V W kind)
 variable {v : Fin V} {lo hi : ℝ}
 
 theorem start_height {w : Fin W} (h : d.start w = some v) : d.lower w = d.vertexHeight v := by
