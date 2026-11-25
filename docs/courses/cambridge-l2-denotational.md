@@ -82,6 +82,7 @@ the guard before the body and retain the store of the final false guard.
 | `adequate_env` | A finite return with an explicit lexical environment agrees exactly with L2 substitution small-step on the expression instantiated with that environment, including the quoted result and full final store. |
 | `adequate`, `sat_iff` | The empty-environment case gives finite-return adequacy for the original L2 expression and agrees with the institution's `.returned` observation. This includes function results quoted as L2 lambda values. |
 | `agrees_effectful` | The relational model and the typed `StateT Store Part` model agree on ground results for the earlier fragment and covering stores. |
+| `no_observation_iff_infinite` | For closed, well-typed terms in covering stores, the lack of a finite observation is equivalent to an infinite operational trace. |
 
 The adequacy proof factors a finite small-step path by expression
 constructor. It uses the existing `Expr.recClosure` substitution rule
@@ -95,7 +96,9 @@ declared locations.
 
 The observations record successful returns only. Operationally, a missing
 location can be stuck and a loop can have an infinite trace. Both have an
-empty finite-return observation, as the checked examples show. Other
+empty finite-return observation, as the checked examples show. Progress and
+preservation rule out stuck outcomes for the typed, closed, covered inputs
+of `no_observation_iff_infinite`. Other
 examples check a recursive call that captures `3` and later returns `13`
 with `l ↦ 13`, and a loop whose final false guard writes `l ↦ 3`.
 
