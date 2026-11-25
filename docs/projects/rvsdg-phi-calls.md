@@ -246,6 +246,29 @@ descent, a nested λ call whose θ feeds back indefinitely, and the
 selected undefined arm. These results use the existing total linker
 and δ initialization, with partial actions during invocation.
 
+### Classifying partial invocation outcomes
+
+[Progress and trichotomy](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Classification/Thms.lean)
+classify the outcomes of a totally linked export with partial primitive
+actions during invocation. Every intrinsically typed configuration
+either returns to the empty stack, is blocked at a selected undefined
+primitive, or takes another step. The typed control and total closure
+resolver suffice for progress at every reachable state.
+
+Exactly one independent outcome holds: a finite return with its tuple
+and store, a finite block with its site and pending frames, or a
+divergence certificate. Finite reflection recovers either terminal
+derivation. If neither finite outcome exists, every reachable
+configuration has a successor and an infinite trace supplies the
+divergence certificate. Determinism separates the three outcomes.
+This is a classical proposition about an invocation.
+
+The same linked λ export exercises all three cases. Tag `0` returns.
+Tag `1` blocks with the original partial primitive interpretation and
+feeds back indefinitely with the interpretation that permits the
+selected action. Linking and δ initialization retain their total
+semantics throughout.
+
 ## Productive θ feedback
 
 A feedback iteration consists of a finite `Returns` derivation for

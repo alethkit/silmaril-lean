@@ -1,6 +1,7 @@
 module
 
 import Mathlib.Tactic.IntervalCases
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Classification.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Divergence.Thms
 import Silmaril.Foundations.InfiniteTrace.Deterministic
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Extraction.Thms
@@ -769,5 +770,43 @@ example : Divergence.Diverges primitives
 example : ¬ Divergence.Diverges primitives
     (Divergence.linkedEntry machine 47 linked.toGraph .nil (.tail .head) (args 1 7) 20) :=
   Divergence.not_diverges_of_blocked (blockRoot.steps .halt) (blockRoot.blocks .halt)
+
+private def outcomeEntry (selector : Fin 2) : CallDescent.Entry machine Nat :=
+  Divergence.linkedEntry machine 47 linked.toGraph .nil (.tail .head) (args selector 7) 20
+
+private theorem outcomeReturned : Classification.Returns primitives (outcomeEntry 0) :=
+  ⟨stateValue 8, 21, returnRoot⟩
+
+private theorem outcomeBlocked : Classification.Blocks primitives (outcomeEntry 1) :=
+  ⟨undefinedSite 8, savedFrames, 21, blockRoot⟩
+
+private theorem outcomeDiverges : Divergence.Diverges (feedbackPrimitives none) (outcomeEntry 1) :=
+  Divergence.diverges_iff_infinite.mpr (productiveRoot.infinite .halt)
+
+-- The same linked export returns through γ arm 0. With arm 1 it
+-- either blocks on the selected action or feeds back indefinitely,
+-- depending on the interpretation of that primitive.
+example : Classification.Returns primitives (outcomeEntry 0) ∧
+    ¬ Classification.Blocks primitives (outcomeEntry 0) ∧
+    ¬ Divergence.Diverges primitives (outcomeEntry 0) := by
+  have classified := Classification.linked_trichotomy (primitives := primitives)
+    47 linked.toGraph .nil (.tail .head) (args 0 7) 20
+  exact ⟨outcomeReturned, classified.return_exclusive outcomeReturned⟩
+
+example : Classification.Blocks primitives (outcomeEntry 1) ∧
+    ¬ Classification.Returns primitives (outcomeEntry 1) ∧
+    ¬ Divergence.Diverges primitives (outcomeEntry 1) := by
+  have classified := Classification.linked_trichotomy (primitives := primitives)
+    47 linked.toGraph .nil (.tail .head) (args 1 7) 20
+  exact ⟨outcomeBlocked, fun returned => (classified.return_exclusive returned).1 outcomeBlocked,
+    classified.block_excludes_divergence outcomeBlocked⟩
+
+example : Divergence.Diverges (feedbackPrimitives none) (outcomeEntry 1) ∧
+    ¬ Classification.Returns (feedbackPrimitives none) (outcomeEntry 1) ∧
+    ¬ Classification.Blocks (feedbackPrimitives none) (outcomeEntry 1) := by
+  have classified := Classification.linked_trichotomy (primitives := feedbackPrimitives none)
+    47 linked.toGraph .nil (.tail .head) (args 1 7) 20
+  exact ⟨outcomeDiverges, fun returned => (classified.return_exclusive returned).2 outcomeDiverges,
+    fun blocked => classified.block_excludes_divergence blocked outcomeDiverges⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Tests
