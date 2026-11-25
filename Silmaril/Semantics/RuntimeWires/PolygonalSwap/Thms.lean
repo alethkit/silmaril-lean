@@ -104,6 +104,20 @@ theorem second_cell_image (t : SwapTime) (c : BoxCell S f) :
       Subtype.val ⁻¹' d.second.cell (secondAltitude t) c :=
   Proofs.PolygonalSwap.second_cell d t c
 
+/-- Compare points in the first slot at the same reference height. -/
+theorem deformation_first_height (t : SwapTime) (p : d.rectangle)
+    (hx : p.val.1 ∈ Set.Icc d.first.left d.first.right) {y : ℝ}
+    (hy : p.val.2 = rescale (firstAltitude swapStart) y) :
+    (d.deformation t p).val.2 = rescale (firstAltitude t) y :=
+  Proofs.PolygonalSwap.first_height d t p hx hy
+
+/-- Compare points in the second slot at the same reference height. -/
+theorem deformation_second_height (t : SwapTime) (p : d.rectangle)
+    (hx : p.val.1 ∈ Set.Icc d.second.left d.second.right) {y : ℝ}
+    (hy : p.val.2 = rescale (secondAltitude swapStart) y) :
+    (d.deformation t p).val.2 = rescale (secondAltitude t) y :=
+  Proofs.PolygonalSwap.second_height d t p hx hy
+
 theorem snapshot_image (t : SwapTime) :
     d.deformation t '' (Subtype.val ⁻¹' d.snapshot swapStart) = Subtype.val ⁻¹' d.snapshot t :=
   Proofs.PolygonalSwap.snapshot_image d t

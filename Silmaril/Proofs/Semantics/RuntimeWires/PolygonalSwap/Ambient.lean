@@ -196,6 +196,36 @@ theorem deformation_horizontal (t : SwapTime) (p : d.rectangle) :
     ((frameHomeomorph d swapStart).apply_symm_apply p)
   exact h
 
+private theorem deformation_height (t : SwapTime) (p : d.rectangle) (h k : BoxAltitude)
+    (h₀ : d.altitude swapStart p.val.1 = h.val) (ht : d.altitude t p.val.1 = k.val)
+    {y : ℝ} (hy : p.val.2 = BoxPair.rescale h y) :
+    (deformation d t p).val.2 = BoxPair.rescale k y := by
+  let q := (frameHomeomorph d swapStart).symm p
+  have eq : d.frame swapStart q.val = p.val := by
+    rw [← frameHomeomorph_val]
+    exact congrArg Subtype.val ((frameHomeomorph d swapStart).apply_symm_apply p)
+  have hx : q.val.1 = p.val.1 := by
+    have h := congrArg Prod.fst eq
+    exact h
+  have hz := congrArg Prod.snd eq
+  change BoxPair.rescale (d.altitude swapStart q.val.1) q.val.2 = p.val.2 at hz
+  rw [hx, h₀, hy] at hz
+  rw [deformation_apply, frameHomeomorph_val]
+  change BoxPair.rescale (d.altitude t q.val.1) q.val.2 = _
+  rw [hx, ht, (rescale_strict h.property).injective hz]
+
+theorem first_height (t : SwapTime) (p : d.rectangle)
+    (hx : p.val.1 ∈ Set.Icc d.first.left d.first.right) {y : ℝ}
+    (hy : p.val.2 = BoxPair.rescale (BoxPair.firstAltitude swapStart) y) :
+    (deformation d t p).val.2 = BoxPair.rescale (BoxPair.firstAltitude t) y :=
+  deformation_height d t p _ _ (altitude_first d swapStart hx) (altitude_first d t hx) hy
+
+theorem second_height (t : SwapTime) (p : d.rectangle)
+    (hx : p.val.1 ∈ Set.Icc d.second.left d.second.right) {y : ℝ}
+    (hy : p.val.2 = BoxPair.rescale (BoxPair.secondAltitude swapStart) y) :
+    (deformation d t p).val.2 = BoxPair.rescale (BoxPair.secondAltitude t) y :=
+  deformation_height d t p _ _ (altitude_second d swapStart hx) (altitude_second d t hx) hy
+
 theorem deformation_fiber (t : SwapTime) (x : ℝ) :
     deformation d t '' {p : d.rectangle | p.val.1 = x} = {p : d.rectangle | p.val.1 = x} := by
   ext p
