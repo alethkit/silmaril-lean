@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Thesis.SyntacticCategory.Packing.Defs
+public import Silmaril.SSA.Thesis.SyntacticCategory.Tensor.Structure.Defs
 import Silmaril.Proofs.SSA.Thesis.SyntacticCategory.Packing.Reflection
 
 /-! # Context packing and reflection in the one-variable λiter syntactic category -/
@@ -92,6 +93,23 @@ theorem packedArrow_inr {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
     packedArrow (S := S) (HasType.inr (A := A) h) =
       packedArrow h ≫ injr (of A) (of B) :=
   packedArrow_inr_proof h
+
+/-- Packing a product elimination retains the input and reassociates the two bound slots. -/
+theorem packedArrow_let2 {n : Nat} {β : BoundCtx S.Ty n} {A B C : S.Ty}
+    {a : Tm Empty S.Instr n} {c : Tm Empty S.Instr (n + 2)}
+    (ha : HasType S.Instr Ctx.nil β a (tensor A B))
+    (hc : HasType S.Instr Ctx.nil ((β.snoc A).snoc B) c C) :
+    packedArrow (S := S) (.let₂ ha hc) =
+      pairArrows (𝟙 (of (packType β))) (packedArrow ha) ≫
+        (tensorAssociator (of (packType β)) (of A) (of B)).inv ≫ packedArrow hc :=
+  packedArrow_let2_proof ha hc
+
+/-- Packing a pair substitutes the packed projections in each component. -/
+theorem packedArrow_pair {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {a b : Tm Empty S.Instr n} (ha : HasType S.Instr Ctx.nil β a A)
+    (hb : HasType S.Instr Ctx.nil β b B) :
+    packedArrow (S := S) (.pair ha hb) = pairArrows (packedArrow ha) (packedArrow hb) :=
+  rfl
 
 /-- Substituting pure terms in a typed term is precomposition by their
 packed context arrow. -/

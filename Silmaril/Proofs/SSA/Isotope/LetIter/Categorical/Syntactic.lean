@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LetIter.Categorical.Syntactic.Defs
 public import Silmaril.SSA.Thesis.SyntacticCategory.Packing.Defs
 import Silmaril.SSA.Isotope.LetIter.Categorical.Purity.Thms
+import Mathlib.CategoryTheory.Monoidal.CoherenceLemmas
 
 public section
 
@@ -20,6 +21,16 @@ theorem packedEnvInv_snoc_proof {V : Type u} [Category* V] [MonoidalCategory V]
       eqToHom (congrArg (fun Z => Z ⊗ A) h).symm ≫ (λ_ (X ⊗ A)).inv := by
   subst P
   simp
+
+theorem packedEnvInv_pair_proof {V : Type u} [Category* V] [MonoidalCategory V]
+    {X P : V} (h : X = P) (A B : V) :
+    (((λ_ X).trans (eqToIso h)).inv ▷ (A ⊗ B)) ≫
+        (α_ (𝟙_ V) X (A ⊗ B)).hom ≫ ((𝟙_ V) ◁ (α_ X A B).inv) =
+      (α_ P A B).inv ≫ eqToHom (congrArg (fun Z => (Z ⊗ A) ⊗ B) h).symm ≫
+        (λ_ ((X ⊗ A) ⊗ B)).inv := by
+  subst P
+  simp only [eqToIso_refl, Iso.trans_refl, eqToHom_refl, Category.id_comp]
+  monoidal_coherence
 
 variable {τ Φ ε : Type u} [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε]
 
