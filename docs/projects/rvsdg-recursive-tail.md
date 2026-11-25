@@ -125,3 +125,42 @@ lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Tail.
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursivePrimitivePrefix.lean
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Tail.Prefix.Thms +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Tail.Thms'
 ```
+
+## Correspondence with continuation microsteps
+
+A tail activation corresponds to the actual continuation machine's
+call job, with the same callable and full typed argument tuple. A
+matching segment follows actual continuation steps to the first
+successive call entry. It has at least one step, and every interior
+state is outside a call entry. The proof follows the tail inspector's
+declarative rules through primitive operands and the selected γ arm.
+
+`ForwardedOver` records the actual saved inputs and locals in each
+frame and the suffix that forwards the newest binding's entire tuple.
+A segment can add these forwarding frames above the original stack.
+Their unwinding preserves the full returned tuple. The converse
+requires the source tail entry to be admitted, the source stack to
+consist of forwarding frames above the empty stack, and the segment
+to end at its first successive call. A returning activation unwinds
+those frames without encountering another call.
+[Segment definitions and theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/TailCall/Thms.lean)
+
+The stream proof locates every supplied tail activation at a strictly
+increasing index of one productive continuation execution. It also
+splits microsteps at supplied successive call boundaries. With the
+same admission and frame premises, the split execution reflects a
+tail stream. This correspondence concerns the primitive-prefix and
+selected γ tail fragment. Non-tail continuations and θ executions
+are outside the claim.
+
+The linked φ regression computes two successive continuation
+boundaries at microsteps `14` and `28`, with the original callable,
+the exact state arguments `1` and `2`, and the saved γ and application
+frames. It checks the productive stream and the reverse boundary
+statement on that linked program.
+[Regression](../../tests/ssa/RVSDGRecursivePrimitivePrefix.lean)
+
+```sh
+lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.TailCall.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.TailCall.Thms'
+```
