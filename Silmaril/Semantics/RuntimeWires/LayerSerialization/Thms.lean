@@ -64,7 +64,7 @@ theorem serializeCuts_seam {d : Diagram S V W .point} (s : d.LayerSlice height l
     (order : List (Fin V)) (perm : order.Perm s.vertices) :
     Sheet.SeamEquivalent (s.serializeCuts order perm) (.cons s.cutRow (.empty _)) := by
   have h := (s.serialize_seam order perm).reindex s.input_types.symm s.output_types.symm
-  simpa only [serializeCuts, Proofs.LayerSerialization.one_row_reindex, cutRow] using h
+  simpa only [serializeCuts, Sheet.reindex_single, cutRow] using h
 
 end LayerSlice
 end Silmaril.RuntimeWires.ProgressiveGraph.Diagram

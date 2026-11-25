@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.RuntimeWires.LayerSerialization.Thms
+public import Silmaril.Semantics.RuntimeWires.TiedHeightSweep.Thms
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.FunProp
 import Mathlib.Tactic.Linarith
@@ -14,24 +14,26 @@ namespace Silmaril.RuntimeWires.Proofs.ProgressiveSimultaneous.LayerRegression
 open Silmaril.RuntimeWires.ProgressiveGraph
 
 private abbrev signature : Signature Bool where
-  Edge := Fin 3
-  source _ := []
+  Edge := Fin 4
+  source j := if j = 3 then [true] else []
   target j := if j = 2 then [true] else []
 
-private noncomputable def vertexX (j : Fin 3) : ℝ :=
-  if j = 0 then 3 / 8 else if j = 1 then 1 / 4 else 3 / 4
+private noncomputable def vertexX (j : Fin 4) : ℝ :=
+  if j = 0 then 3 / 8 else if j = 1 then 1 / 4 else if j = 2 then 3 / 4 else 27 / 32
 
-private noncomputable def height (_ : Fin 3) : ℝ := 1 / 2
+private noncomputable def height (j : Fin 4) : ℝ := if j = 3 then 7 / 8 else 1 / 2
 
-private def start (w : Fin 2) : Option (Fin 3) := if w = 0 then none else some 2
+private def start (w : Fin 2) : Option (Fin 4) := if w = 0 then none else some 2
+
+private def finish (w : Fin 2) : Option (Fin 4) := if w = 0 then none else some 3
 
 private noncomputable def x (w : Fin 2) (y : ℝ) : ℝ :=
   if w = 0 then (3 + y) / 8 else (5 + 2 * y) / 8
 
 private noncomputable def strand (w : Fin 2) :
-    Wire (endpointHeight height 0 (start w)) 1 where
+    Wire (endpointHeight height 0 (start w)) (endpointHeight height 1 (finish w)) where
   x := x w
-  increasing := by fin_cases w <;> norm_num [start, height, endpointHeight]
+  increasing := by fin_cases w <;> norm_num [start, finish, height, endpointHeight]
   continuous := by
     unfold x
     split <;> exact (by fun_prop : Continuous _).continuousOn
@@ -42,8 +44,8 @@ private noncomputable def strand (w : Fin 2) :
     split <;> ring
 
 /-- Two adjacent scalars lie to the left of a passing wire. The third
-vertex creates a wire and lies to its right. -/
-private noncomputable def drawing : Diagram signature 3 2 .point where
+vertex creates a slanted wire to a fourth vertex at a later level. -/
+private noncomputable def drawing : Diagram signature 4 2 .point where
   vertexX := vertexX
   vertexHeight := height
   vertex_inside := by intro j; fin_cases j <;> norm_num [vertexX, height, Set.mem_Ioo]
@@ -54,66 +56,72 @@ private noncomputable def drawing : Diagram signature 3 2 .point where
   generator := id
   label := fun i => decide (i = 1)
   start := start
-  finish _ := none
+  finish := finish
   wire := strand
   wire_inside := by
     intro w y hy
-    fin_cases w <;> norm_num [strand, x, start, height, endpointHeight,
+    fin_cases w <;> norm_num [strand, x, start, finish, height, endpointHeight,
       Set.mem_Icc, Set.mem_Ioo] at * <;>
       constructor <;> linarith [hy.1, hy.2]
   start_attached := by
     intro w j he
     fin_cases w <;> fin_cases j <;> norm_num [start, height, vertexX, strand, x] at *
-  finish_attached := by simp
+  finish_attached := by
+    intro w j he
+    fin_cases w <;> fin_cases j <;> norm_num [finish, height, vertexX, strand, x] at *
   separated := by
     intro w z hw y ha hb
     fin_cases w <;> fin_cases z
-    all_goals norm_num [strand, x, start, height, endpointHeight, Set.mem_Icc, Set.mem_Ioo] at *
+    all_goals norm_num [strand, x, start, finish, height, endpointHeight, Set.mem_Icc, Set.mem_Ioo] at *
     all_goals
       intro he
       linarith [ha.1, ha.2, hb.1, hb.2]
   avoids_vertex := by
     intro w j hw
     fin_cases w <;> fin_cases j <;>
-      norm_num [strand, x, vertexX, height, start, endpointHeight, Set.mem_Ioo] at *
+      norm_num [strand, x, vertexX, height, start, finish, endpointHeight, Set.mem_Ioo] at *
   input_boundary_separated := by
     intro w z hw hs ht
     fin_cases w <;> fin_cases z <;> norm_num [start, strand, x] at *
   output_boundary_separated := by
     intro w z hw hs ht
-    fin_cases w <;> fin_cases z <;> norm_num [strand, x] at *
-  input _ i := Fin.elim0 i
+    fin_cases w <;> fin_cases z <;> norm_num [finish, strand, x] at *
+  input _ _ := 1
   output _ _ := 1
   input_exact := by
     intro j w
-    change (none : Option (Fin 3)) = some j ↔ ∃ i : Fin 0, Fin.elim0 i = w
-    simp
+    fin_cases j <;> fin_cases w <;> simp [signature, finish]
   output_exact := by
     intro j w
     fin_cases j <;> fin_cases w <;> simp [signature, start]
-  input_types := by intro j; rfl
+  input_types := by intro j; fin_cases j <;> simp [List.ofFn_succ]
   output_types := by intro j; fin_cases j <;> simp [List.ofFn_succ]
-  input_order := by intro j i; exact Fin.elim0 i
+  input_order := by
+    intro j i k hij
+    have small : (signature.source (id j)).length ≤ 1 := by fin_cases j <;> decide
+    omega
   output_order := by
     intro j i k hij
     have small : (signature.target (id j)).length ≤ 1 := by fin_cases j <;> decide
     omega
 
 private theorem layer : drawing.IsolatesLayer (1 / 2) (1 / 4) (3 / 4) :=
-  ⟨by norm_num, by norm_num, by norm_num, by norm_num, fun _ _ => rfl⟩
+  ⟨by norm_num, by norm_num, by norm_num, by norm_num, by
+    intro j hj
+    fin_cases j <;> norm_num [drawing, height, Set.mem_Icc] at *⟩
 
 private noncomputable def slice := Classical.choice (Diagram.layer_slice layer)
 
-private abbrev expected : List (Diagram.LayerSlot 3 2) :=
+private abbrev expected : List (Diagram.LayerSlot 4 2) :=
   [.inr 1, .inr 0, .inl 0, .inr 2]
 
-private theorem expected_exact (c : Diagram.LayerSlot 3 2) :
+private theorem expected_exact (c : Diagram.LayerSlot 4 2) :
     c ∈ expected ↔ drawing.atLayer (1 / 2) c := by
   cases c with
   | inl w =>
     fin_cases w <;>
       norm_num [expected, drawing, Diagram.atLayer, Diagram.crosses, Diagram.lower,
-        Diagram.upper, endpointHeight, height, start, Set.mem_Ioo]
+        Diagram.upper, endpointHeight, height, start, finish, Set.mem_Ioo]
   | inr j => fin_cases j <;> norm_num [expected, Diagram.atLayer, drawing, height]
 
 private theorem expected_order :
@@ -125,13 +133,17 @@ private theorem expected_order :
 
 /-- The two nullary cells are consecutive in the actual geometrically
 sorted slot list, despite having no incident wire IDs. -/
-private theorem slots : slice.slots = expected := by
-  have nd : slice.slots.Nodup := slice.ordered.imp
+private theorem slots_at_half {y lo hi : ℝ} (s : drawing.LayerSlice y lo hi)
+    (hy : y = 1 / 2) : s.slots = expected := by
+  subst y
+  have nd : s.slots.Nodup := s.ordered.imp
     (fun h => ne_of_apply_ne (drawing.slotX (1 / 2)) (ne_of_lt h))
   have perm := (List.perm_ext_iff_of_nodup nd (by simp [expected])).mpr
-    (fun c => (slice.exact_slots c).trans (expected_exact c).symm)
+    (fun c => (s.exact_slots c).trans (expected_exact c).symm)
   exact perm.eq_of_pairwise (fun _ _ _ _ h₁ h₂ => (lt_asymm h₁ h₂).elim)
-    slice.ordered expected_order
+    s.ordered expected_order
+
+private theorem slots : slice.slots = expected := slots_at_half slice rfl
 
 private theorem vertices : slice.vertices = [1, 0, 2] := by
   rw [Diagram.LayerSlice.vertices, slots]
@@ -156,19 +168,19 @@ noncomputable example : Silmaril.RuntimeWires.Sliced.Row signature [false] [fals
 
 open Silmaril.RuntimeWires.Sliced
 
-private abbrev order : List (Fin 3) := [2, 0, 1]
+private abbrev order : List (Fin 4) := [2, 0, 1]
 
 private theorem order_perm : order.Perm slice.vertices := by
   rw [vertices]
   exact (List.Perm.swap 0 2 [1]).trans
     ((List.Perm.cons 0 (List.Perm.swap 1 2 [])).trans (List.Perm.swap 1 0 [2]))
 
-private noncomputable def rowGenerators : {A B : List Bool} → Row signature A B → List (Fin 3)
+private noncomputable def rowGenerators : {A B : List Bool} → Row signature A B → List (Fin 4)
   | _, _, .empty => []
   | _, _, .wire _ tail => rowGenerators tail
   | _, _, .box j tail => j :: rowGenerators tail
 
-private noncomputable def sheetGenerators : {A B : List Bool} → Sheet signature A B → List (List (Fin 3))
+private noncomputable def sheetGenerators : {A B : List Bool} → Sheet signature A B → List (List (Fin 4))
   | _, _, .empty _ => []
   | _, _, .cons r tail => rowGenerators r :: sheetGenerators tail
 
@@ -192,5 +204,97 @@ noncomputable example : Sheet signature [false] [false, true] := by
 
 example : Sheet.SeamEquivalent (slice.serializeCuts order order_perm) (.cons slice.cutRow (.empty _)) :=
   slice.serializeCuts_seam order order_perm
+
+private theorem levels : drawing.levels = [1 / 2, 7 / 8] := by
+  apply (Finset.sortedLT_sort _).eq_of_mem_iff
+  · rw [List.sortedLT_iff_pairwise]
+    norm_num
+  · intro h
+    simp [drawing, height, Fin.exists_fin_succ, eq_comm]
+
+private theorem levelCount : drawing.levelCount = 2 := by
+  simp [Diagram.levelCount, levels]
+
+private noncomputable def middleCut : Fin (drawing.levelCount + 1) :=
+  ⟨1, by rw [levelCount]; decide⟩
+
+private theorem source_level : (drawing.levelIndex 2).val = 0 := by
+  change drawing.levels.idxOf (height 2) = 0
+  rw [levels]
+  norm_num [height]
+
+private theorem sink_level : (drawing.levelIndex 3).val = 1 := by
+  change drawing.levels.idxOf (height 3) = 1
+  rw [levels]
+  have different : (7 / 8 : ℝ) ≠ 1 / 2 := by norm_num
+  norm_num [height, List.idxOf_cons_ne _ different]
+
+private theorem caps (s : drawing.LayerSweep) :
+    s.wires 0 = [0] ∧ s.wires (Fin.last drawing.levelCount) = [0] := by
+  have lower := s.input_order.imp (fun h => ne_of_apply_ne (fun w => drawing.x w 0) (ne_of_lt h))
+  have upper := s.output_order.imp (fun h => ne_of_apply_ne (fun w => drawing.x w 1) (ne_of_lt h))
+  constructor
+  · apply List.perm_singleton.mp ((List.perm_ext_iff_of_nodup lower (by simp)).mpr ?_)
+    intro w
+    rw [s.input_mem]
+    fin_cases w <;> simp [drawing, start]
+  · apply List.perm_singleton.mp ((List.perm_ext_iff_of_nodup upper (by simp)).mpr ?_)
+    intro w
+    rw [s.output_mem]
+    fin_cases w <;> simp [drawing, finish]
+
+/-- The through wire meets all three cuts. The transient slanted wire
+starts at the tied level and finishes at the second level. -/
+private theorem middle_wires (s : drawing.LayerSweep) : s.wires middleCut = [0, 1] := by
+  let y := s.cuts.height middleCut
+  have inside := (Diagram.level_gap_regular (s.cuts.in_gap middleCut)).inside
+  have nd := (s.ordered middleCut).ordered.imp
+    (fun h => ne_of_apply_ne (fun w => drawing.x w y) (ne_of_lt h))
+  have perm : (s.wires middleCut).Perm [0, 1] := (List.perm_ext_iff_of_nodup nd (by simp)).mpr (by
+    intro w
+    rw [s.wire_span]
+    fin_cases w <;>
+      norm_num [middleCut, drawing, Diagram.layerStartIndex, Diagram.layerFinishIndex, start,
+        finish, source_level, sink_level]
+    change 0 < drawing.levelCount
+    rw [levelCount]
+    decide)
+  apply perm.eq_of_pairwise (fun _ _ _ _ h₁ h₂ => (lt_asymm h₁ h₂).elim)
+    (s.ordered middleCut).ordered
+  simp
+  change (3 + y) / 8 < (5 + 2 * y) / 8
+  linarith [inside.1]
+
+private noncomputable def sweep := drawing.layerSweep
+
+example : sweep.wires 0 = [0] ∧ sweep.wires middleCut = [0, 1] ∧
+    sweep.wires (Fin.last drawing.levelCount) = [0] :=
+  ⟨(caps sweep).1, middle_wires sweep, (caps sweep).2⟩
+
+noncomputable example : Sheet signature [false] [false] := by
+  have a : sweep.word 0 = [false] := by rw [Diagram.LayerSweep.word, (caps sweep).1]; rfl
+  have b : sweep.word (Fin.last drawing.levelCount) = [false] := by
+    rw [Diagram.LayerSweep.word, (caps sweep).2]; rfl
+  exact sweep.sheet.reindex a b
+
+private noncomputable def horizontal (s : drawing.LayerSweep) : s.Schedule :=
+  ⟨fun i => (s.layer i).vertices, fun _ => .refl _⟩
+
+private noncomputable def reversed (s : drawing.LayerSweep) : s.Schedule :=
+  ⟨fun i => (s.layer i).vertices.reverse, fun i => List.reverse_perm (s.layer i).vertices⟩
+
+example : (reversed sweep).order (drawing.levelIndex 2) = [2, 0, 1] := by
+  have h : drawing.levelHeight (drawing.levelIndex 2) = 1 / 2 :=
+    (Diagram.levelHeight_index 2).trans (by norm_num [drawing, height])
+  change ((sweep.layer (drawing.levelIndex 2)).vertices).reverse = _
+  rw [Diagram.LayerSlice.vertices, slots_at_half _ h]
+  rfl
+
+example : Sheet.SeamEquivalent (sweep.serialSheet (reversed sweep))
+    (sweep.serialSheet (horizontal sweep)) :=
+  sweep.serial_equiv (reversed sweep) (horizontal sweep)
+
+example (empty : Diagram signature 0 2 .point) : empty.levelCount = 0 := by
+  simp [Diagram.levelCount, Diagram.levels]
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveSimultaneous.LayerRegression

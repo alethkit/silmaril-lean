@@ -56,6 +56,17 @@ theorem Sheet.SeamEquivalent.reindex (a : A = X) (b : B = Y) {p q : Sheet S A B}
     (h : Sheet.SeamEquivalent p q) : Sheet.SeamEquivalent (p.reindex a b) (q.reindex a b) :=
   Proofs.SlicedCompleteness.seam_reindex a b h
 
+theorem Sheet.SeamEquivalent.thenDo {p p' : Sheet S A B} {q q' : Sheet S B C}
+    (h : Sheet.SeamEquivalent p p') (k : Sheet.SeamEquivalent q q') :
+    Sheet.SeamEquivalent (p.thenDo q) (p'.thenDo q') :=
+  Proofs.SlicedCompleteness.seam_then h k
+
+theorem Sheet.reindex_single (a : A = X) (b : B = Y) (r : Row S A B) :
+    (Sheet.cons r (.empty _)).reindex a b = .cons (r.reindex a b) (.empty _) := by
+  subst a
+  subst b
+  rfl
+
 /-- The two serializations of a horizontal pair of rows arise by splitting
 the same joint row. -/
 theorem Sheet.swap_rows {Z : List O} (r : Row S A B) (s : Row S X Y)

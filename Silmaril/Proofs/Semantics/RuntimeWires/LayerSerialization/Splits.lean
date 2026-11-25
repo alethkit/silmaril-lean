@@ -157,12 +157,6 @@ private theorem layerStep_full (slots : List (LayerSlot V W)) (done : Finset (Fi
       (frontier_full d slots done covers) = d.layerRow slots :=
   reindex_heq _ _ (layerStep_full_heq d slots done covers)
 
-theorem one_row_reindex {A B X Y : List O} (a : A = X) (b : B = Y) (r : Row S A B) :
-    (Sheet.cons r (.empty _)).reindex a b = .cons (r.reindex a b) (.empty _) := by
-  subst a
-  subst b
-  rfl
-
 theorem serializeFrom_full (slots : List (LayerSlot V W)) (order : List (Fin V))
     (covers : ∀ j, Sum.inr j ∈ slots → j ∈ completed ∅ order) :
     Sheet.SeamEquivalent
@@ -171,7 +165,7 @@ theorem serializeFrom_full (slots : List (LayerSlot V W)) (order : List (Fin V))
       (.cons (d.layerRow slots) (.empty _)) := by
   have seam := (serializeFrom_seam d slots ∅ order).reindex
     (frontier_empty d slots) (frontier_full d slots (completed ∅ order) covers)
-  rw [one_row_reindex, layerStep_full d slots (completed ∅ order) covers] at seam
+  rw [Sheet.reindex_single, layerStep_full d slots (completed ∅ order) covers] at seam
   exact seam
 
 end Silmaril.RuntimeWires.Proofs.LayerSerialization
