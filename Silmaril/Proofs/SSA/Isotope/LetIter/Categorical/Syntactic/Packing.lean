@@ -19,7 +19,7 @@ open Silmaril.Isotope.LetIter.LocallyNameless (Derivation Tm)
 open Silmaril.Thesis.LambdaIter.LocallyNameless (HasType)
 open Silmaril.Thesis.LambdaIter.Syn.SynCat
 
-open ProofRelevant.Semantics.Categorical (extend retainLeft)
+open ProofRelevant.Semantics.Categorical (caseWithContext extend retainLeft splitMapCoprod)
 local notation "pairArrow" => ProofRelevant.Semantics.Categorical.pair
 local notation "bindArrow" => ProofRelevant.Semantics.Categorical.bind
 
@@ -351,5 +351,88 @@ theorem packedNative_let2 (pe : ε)
       congrArg (bindArrow J (packedNative pe d)) afterSplit
     _ = _ := @bind_values S X (Y ⊗ Z) W (packedNative pe d)
       (J.map (α_ X Y Z).inv ≫ packedNative pe e)
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+private theorem route_packed_sum (pe : ε)
+    (X : ValueCat (signature (τ := τ) (Φ := Φ) pe)) (A B : τ) :
+    let S := signature (τ := τ) (Φ := Φ) pe
+    let J := values S
+    let Y := valueObj (Φ := Φ) pe A
+    let Z := valueObj (Φ := Φ) pe B
+    J.map (X ◁ ((typeModel (Φ := Φ) pe).coprodIso A B).hom) ≫ routeEnvironment J X Y Z =
+      contextSumSplit X.obj Y.obj Z.obj := by
+  let S := signature (τ := τ) (Φ := Φ) pe
+  let J := values S
+  let Y := valueObj (Φ := Φ) pe A
+  let Z := valueObj (Φ := Φ) pe B
+  let i := (typeModel (Φ := Φ) pe).coprodIso A B
+  let d := DistributivePremonoidalCategory.leftInv X.obj Y.obj Z.obj
+  have route : routeEnvironment J X Y Z = tensorLeft X.obj (splitMapCoprod J Y Z) ≫ d := by
+    rw [routeEnvironment_tensor_comparison]
+    change 𝟙 _ ≫ tensorLeft X.obj (splitMapCoprod J Y Z) ≫ d ≫ coprod.map (𝟙 _) (𝟙 _) = _
+    simp
+  have comparison : J.map (X ◁ i.hom) = tensorLeft X.obj (J.map i.hom) :=
+    (tensorLeft_value (R := X) i.hom).symm
+  change J.map (X ◁ i.hom) ≫ routeEnvironment J X Y Z = _
+  rw [comparison, route, ← Category.assoc, ← tensorLeft_comp]
+  change tensorLeft X.obj (J.map i.hom ≫ inv (coprodComparison J Y Z)) ≫ d = _
+  rw [map_coprodIso pe A B]
+  rfl
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+theorem packedNative_case (pe : ε) {n : Nat} {β : BoundCtx τ n}
+    {t : Tm Empty Φ n} {l r : Tm Empty Φ (n + 1)} {A B D : τ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t (Silmaril.coprod A B))
+    (dl : Derivation Φ (Ctx.nil : Ctx Empty τ) (β.snoc A) l D)
+    (dr : Derivation Φ (Ctx.nil : Ctx Empty τ) (β.snoc B) r D) :
+    let S := signature (τ := τ) (Φ := Φ) pe
+    let X := of (S := S) (packType (Bridge.BoundCtx.toThesis β))
+    packedNative pe (.case d dl dr) = pairArrows (𝟙 X) (packedNative pe d) ≫
+      contextSumSplit X (of A) (of B) ≫ coprod.desc (packedNative pe dl) (packedNative pe dr) := by
+  let S := signature (τ := τ) (Φ := Φ) pe
+  let J := values S
+  let M := typeModel (τ := τ) (Φ := Φ) pe
+  let X := valueObj (τ := τ) (Φ := Φ) pe (packType (S := S) (Bridge.BoundCtx.toThesis β))
+  let Y := valueObj (τ := τ) (Φ := Φ) pe A
+  let Z := valueObj (τ := τ) (Φ := Φ) pe B
+  let W := valueObj (τ := τ) (Φ := Φ) pe D
+  let P := valueObj (τ := τ) (Φ := Φ) pe (Silmaril.coprod A B)
+  let k := (packedEnvIso (Φ := Φ) pe β).inv
+  let i := (M.coprodIso A B).hom
+  let ll := J.map (envSnocIso M (Ctx.nil : Ctx Empty τ) β A).hom ≫ denoteInSyntax pe dl
+  let rr := J.map (envSnocIso M (Ctx.nil : Ctx Empty τ) β B).hom ≫ denoteInSyntax pe dr
+  have lhs : J.map (k ▷ Y) ≫ ll = packedNative pe dl := by
+    unfold ll packedNative
+    rw [← J.map_comp_assoc, packedEnvInv_snoc]
+  have rhs : J.map (k ▷ Z) ≫ rr = packedNative pe dr := by
+    unfold rr packedNative
+    rw [← J.map_comp_assoc, packedEnvInv_snoc]
+  have transported : packedNative pe (.case d dl dr) =
+      caseWithContext J (packedNative pe d ≫ J.map i) (packedNative pe dl) (packedNative pe dr) := by
+    change J.map k ≫ caseWithContext J (denoteInSyntax pe d ≫ J.map i) ll rr = _
+    rw [← case_pre_map]
+    calc
+      _ = caseWithContext J (packedNative pe d ≫ J.map i)
+          (J.map (k ▷ Y) ≫ ll) (J.map (k ▷ Z) ≫ rr) :=
+        congrArg (fun f => caseWithContext J f _ _)
+          (Category.assoc (J.map k) (denoteInSyntax pe d) (J.map i)).symm
+      _ = _ := congrArg₂ (caseWithContext J (packedNative pe d ≫ J.map i)) lhs rhs
+  let branches : (J.obj (X ⊗ Y) ⨿ J.obj (X ⊗ Z)) ⟶ J.obj W :=
+    coprod.desc (packedNative pe dl) (packedNative pe dr)
+  have expand : packedNative pe (.case d dl dr) =
+      bindArrow J (packedNative pe d ≫ J.map i) (routeEnvironment J X Y Z ≫ branches) := by
+    rw [transported]
+    simp only [caseWithContext, routeEnvironment, branches, Category.assoc]
+    rfl
+  calc
+    _ = bindArrow J (packedNative pe d ≫ J.map i) (routeEnvironment J X Y Z ≫ branches) := expand
+    _ = bindArrow J (packedNative pe d) (J.map (X ◁ i) ≫ routeEnvironment J X Y Z ≫ branches) := by
+      unfold ProofRelevant.Semantics.Categorical.bind
+      rw [extend_postmap, Category.assoc]
+    _ = bindArrow J (packedNative pe d) (contextSumSplit X.obj Y.obj Z.obj ≫ branches) := by
+      rw [← Category.assoc, route_packed_sum pe X A B]
+    _ = _ := @bind_values S X P W (packedNative pe d) (contextSumSplit X.obj Y.obj Z.obj ≫ branches)
 
 end Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic.PackingProofs
