@@ -33,10 +33,16 @@ classes, and helper values is unsupported. Arithmetic and standalone
 Boolean literals remain outside the seeded operand profile.
 
 The runner handles the checked stream at module instruction granularity.
-User function publication, ordinary closure callbacks, and constructing
-exception instances lie outside the seeded profile. There is no host
-callable or reflection interface. The closed dispatcher handles both inner
-and outer calls.
+A module-level function can be published as the same empty-capture
+function value used by the ordinary runner. Publication checks its code
+reference and layout in the compiled ordinary table. The binding shadows
+builtin fallback, and publication leaves every other binding and the
+ordinary heap intact. A missing key or mismatched layout reports the
+exact module `publicationFault`. `run_publication` and
+`run_publication_fault` give the exact continuation or residual state.
+Invoking ordinary functions, including through a harness expectation, and
+constructing exception instances lie outside the seeded profile. The
+closed dispatcher handles both inner and outer calls.
 `Observation.calls` records evaluated argument calls in order, then the
 outer receipt if all inputs resolved. A missing outer name emits no
 nested-call receipts. Each receipt carries the result and the error
@@ -112,8 +118,18 @@ these rows and the other seven admitted inputs against CPython, with the
 namespace and outcome recorded for each profile.
 [Pinned equality rows](https://github.com/koehlma/rigorous/tree/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/programs/original/k-python/programs)
 
+The pinned `assert-silent.py` case publishes `failing_function` under
+all three restricted profiles. The empty profile then raises
+`NameError("___assertRaises")` during callee lookup. In both supplied
+profiles, callee and argument lookup succeed, and the ordinary callback
+is unsupported when the expectation attempts to dispatch it. The
+function binding survives in every profile. The supplied CPython
+profiles run the callback and catch its empty assertion error.
+[Pinned publication row](https://github.com/koehlma/rigorous/blob/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/programs/original/lambda-py/python-reference/exceptions/assert-silent.py)
+
 ```sh
 make check CHECK_TARGETS='+Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms +Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Thms'
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/module-seeded-call/Publication.lean
 python3 -I tests/languages/python/source-module-entry/check_seeded_run.py
 python3 -I tests/languages/python/source-module-entry/check_seeded_run.py --upstream /path/to/pinned/rigorous
 ```

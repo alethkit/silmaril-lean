@@ -11,6 +11,7 @@ import runpy
 import subprocess
 import sys
 import tempfile
+from types import FunctionType
 
 
 IMPORTS = (
@@ -56,6 +57,7 @@ private def resultBinding : Option Value → String
   | some .none => "None"
   | some (.int value) => s!"int:{value}"
   | some (.bool value) => if value then "bool:True" else "bool:False"
+  | some (.function _) => "function"
   | _ => "unexpected binding"
 
 private def inspect (source : Source.Module) (profile : String) : Option (List String) := do
@@ -65,6 +67,7 @@ private def inspect (source : Source.Module) (profile : String) : Option (List S
     | .ok _ => "normal"
     | .error (.raised error) => raised error
     | .error .unsupported => "unsupported"
+    | .error (.publicationFault _) => "publication fault"
   let catches := outcome.calls.filterMap (fun call => call.observation.caught.map raised)
   return completion :: (["result", "after"].map (resultBinding ∘ lookupBinding outcome.residual.moduleGlobals)) ++ catches
 
@@ -111,6 +114,32 @@ private def singleNoneReturn (source : Source.Module) (profile : String) : Bool 
       | .ok .none => true
       | _ => false
     | _ => false
+
+private def publicationPhase (source : Source.Module) (profile : String) : Option String := do
+  let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
+  let [.publish name top, .call .discard callee operands] := compiled.instructions | none
+  let space := initial profile
+  let expectedSpace := space.bindGlobal name (.function top.closure)
+  let result := Compile.ModuleEntry.Functions.Run.Seeded.run space compiled
+  if result.residual.moduleGlobals != expectedSpace.moduleGlobals || result.residual.builtins != expectedSpace.builtins
+    then none else
+  let [event] := result.calls | none
+  if event.callee != callee || event.observation.caught.isSome then none else
+  let resolved := resolveCall result.residual #v[] (.global callee)
+    (operands.map Compile.ModuleEntry.Functions.Run.Seeded.lowerCallOperand)
+  match resolved, event.observation.result with
+  | .error (.raised (.runtime (.nameError missing))), .error (.raised (.runtime (.nameError observed))) =>
+    if missing == callee && observed == missing then some "callee lookup" else none
+  | .ok (function, arguments), .error .unsupported =>
+    match Request.decode function arguments with
+    | .expect expectation (.function callback) [] _ =>
+      match Request.decode (.function callback) [] with
+      | .unsupported =>
+        if expectation.expected == .assertionError && callback == top.closure
+          then some "ordinary callback dispatch" else none
+      | _ => none
+    | _ => none
+  | _, _ => none
 """
 
 AUDIT = """
@@ -131,6 +160,8 @@ UPSTREAM_ASSERT_NOT_CASE = "tests/python/programs/original/k-python/programs/tes
 UPSTREAM_ASSERT_NOT_SHA256 = "295e494847f164f28f922f9eeb34a7344a199f51bb759eb043f88f06a1a31d61"
 UPSTREAM_ASSIGN_CASE = "tests/python/programs/original/k-python/programs/testassign1.py"
 UPSTREAM_ASSIGN_SHA256 = "7fc33245631f77c0dcfd63277f906b580c6034c487b189cc1f32dc4872efed63"
+UPSTREAM_PUBLICATION_CASE = "tests/python/programs/original/lambda-py/python-reference/exceptions/assert-silent.py"
+UPSTREAM_PUBLICATION_SHA256 = "c4664c5343be15e123a772fb1d7f49819b3ba9781266c6900172d653bdd26ada"
 UPSTREAM_NO_OP = (
     ("tests/python/programs/original/k-python/programs/testpass.py",
      "9f56e761d79bfdb34304a012586cb04d16b435ef6130091a97702e559260a2f2"),
@@ -223,6 +254,12 @@ after = 9
      ["unsupported", "int:5", "absent"]),
     ("standalone_boolean_unsupported", "empty", "result = 5\nassert not False\nafter = 9\n",
      ["unsupported", "int:5", "absent"]),
+    ("publish_shadow", "builtin", """def compare_ints():
+    assert 0
+result = compare_ints
+assert result
+after = 9
+""", ["normal", "function", "int:9"]),
 )
 
 NESTED_CALL_NAMES = {
@@ -245,7 +282,7 @@ def assertion(error):
     return "AssertionError:text:" + argument
 
 
-def cpython(source, profile, *, expected_globals=None):
+def cpython(source, profile, *, expected_globals=None, expected_functions=()):
     legacy = profile.startswith("legacy_")
     profile = profile.removeprefix("legacy_")
     caught = []
@@ -289,7 +326,8 @@ def cpython(source, profile, *, expected_globals=None):
             completion = assertion(error)
     assert not stdout.getvalue() and not stderr.getvalue()
     if expected_globals is not None:
-        assert namespace == initial | expected_globals
+        assert all(type(namespace.get(name)) is FunctionType for name in expected_functions)
+        assert {key: value for key, value in namespace.items() if key not in expected_functions} == initial | expected_globals
     bindings = []
     for name in ("result", "after"):
         if name not in namespace:
@@ -298,6 +336,8 @@ def cpython(source, profile, *, expected_globals=None):
             bindings.append("None")
         elif type(namespace[name]) is bool:
             bindings.append(f"bool:{namespace[name]}")
+        elif type(namespace[name]) is FunctionType:
+            bindings.append("function")
         else:
             assert type(namespace[name]) is int
             bindings.append(f"int:{namespace[name]}")
@@ -370,6 +410,28 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
     return rows
 
 
+def replay_upstream_publication(checkout, shared, source_path, lean_path):
+    source = pinned_source(checkout, UPSTREAM_PUBLICATION_CASE, UPSTREAM_PUBLICATION_SHA256)
+    shared["emit"](source_path, lean_path, source)
+    guards = ['#guard ordinaryOutcome pythonSource == some ("NameError:___assertRaises", none)']
+    observations = {}
+    for profile in ("empty", "legacy_builtin", "legacy_preamble"):
+        empty = profile == "empty"
+        cpython_expected = (["NameError:___assertRaises", "absent", "absent"] if empty
+                             else ["normal", "absent", "absent", "AssertionError:empty"])
+        assert cpython(source, profile, expected_globals={}, expected_functions=("failing_function",)) == cpython_expected
+        seeded = "NameError:___assertRaises" if empty else "unsupported"
+        phase = "callee lookup" if empty else "ordinary callback dispatch"
+        guards.extend((
+            guard_observation(profile, [seeded, "absent", "absent"]),
+            f"#guard publicationPhase pythonSource {json.dumps(profile)} == some {json.dumps(phase)}",
+        ))
+        observations[profile] = {"cpython": cpython_expected[0], "seeded": seeded, "phase": phase,
+                                 "user_bindings": {"failing_function": "function"}}
+    shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
+    return {"path": UPSTREAM_PUBLICATION_CASE, "sha256": UPSTREAM_PUBLICATION_SHA256, "profiles": observations}
+
+
 def replay_upstream(checkout, shared, source_path, lean_path):
     revision = subprocess.check_output(
         ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
@@ -399,6 +461,7 @@ def replay_upstream(checkout, shared, source_path, lean_path):
         "preamble_projection": "normal, None, caught AssertionError((1, 2))",
         "nested": replay_upstream_nested(checkout, shared, source_path, lean_path),
         "scalars": replay_upstream_scalars(checkout, shared, source_path, lean_path),
+        "publication": replay_upstream_publication(checkout, shared, source_path, lean_path),
     }
 
 

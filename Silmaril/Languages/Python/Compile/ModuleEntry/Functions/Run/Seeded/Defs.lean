@@ -10,7 +10,9 @@ public import Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Defs
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 
 open Source (Scope)
-open Core.Module.SeededCall (AssertionArgument Bindings CallObservation Failure Namespace Result Value)
+open Core.Closure (Heap)
+open Core.Closure.Executor (CodeTable)
+open Core.Module.SeededCall (AssertionArgument Bindings CallObservation Failure Namespace Raised Result Value)
 
 inductive SeedPlacement where
   | builtin
@@ -39,7 +41,7 @@ def lowerScalarOperand {scope : Scope} : ModuleEntry.Operand scope → Core.Modu
 def scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
-  | .none | .exceptionClass _ | .helper _ => none
+  | .none | .exceptionClass _ | .helper _ | .function _ => none
 
 /-- Boolean literals are admitted inside equality. The resulting Boolean
 can be bound as a value. Other compound operands use the existing boundary. -/
@@ -60,6 +62,7 @@ def truth : Value → Bool
   | .bool value => value
   | .none => false
   | .exceptionClass _ | .helper _ => true
+  | .function closure => (Core.Closure.Value.function closure).truth
 
 def assertTruthAs (expected : Bool) (value : Value) : Except Failure Unit :=
   if truth value = expected then .ok () else .error (.raised (.assertionError .empty))
@@ -77,8 +80,19 @@ structure CallEvent where
   callee : String
   observation : CallObservation
 
+/-- A malformed code reference is a module fault outside closed call delivery. -/
+inductive ModuleFailure where
+  | raised (error : Raised)
+  | unsupported
+  | publicationFault (error : Core.Closure.Dispatch.Failure)
+  deriving DecidableEq, Repr
+
+def ModuleFailure.ofCall : Failure → ModuleFailure
+  | .raised error => .raised error
+  | .unsupported => .unsupported
+
 structure Effect where
-  binding : Except Failure (Option (String × Value))
+  binding : Except ModuleFailure (Option (String × Value))
   calls : List CallEvent
 
 def observeNamedCall (space : Namespace) (name : String)
@@ -111,10 +125,11 @@ def observeNestedCall (space : Namespace) (destination : Core.Module.Functions.D
   | some callee =>
     let (values, calls) := observeArguments space arguments
     match values with
-    | .error error => ⟨.error error, calls⟩
+    | .error error => ⟨.error (.ofCall error), calls⟩
     | .ok values =>
       let observed := Core.Module.SeededCall.invokeObserved callee values
-      ⟨observed.result.bind (acceptCall destination), calls ++ [⟨name, observed⟩]⟩
+      ⟨(observed.result.bind (acceptCall destination)).mapError ModuleFailure.ofCall,
+        calls ++ [⟨name, observed⟩]⟩
 
 inductive EvaluatesArguments (space : Namespace) :
     List Argument → Except Failure (List Value) → List CallEvent → Prop where
@@ -130,40 +145,48 @@ inductive EvaluatesArguments (space : Namespace) :
 def assertOperand {scope : Scope} (space : Namespace) (operand : ModuleEntry.Operand scope)
     (expected : Bool) : Effect :=
   let checked := (evaluateScalar space false operand).bind (assertTruthAs expected)
-  ⟨checked.map fun _ => none, []⟩
+  ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, []⟩
 
-def effect {scope : Scope} (space : Namespace) : Instruction scope → Effect
+def effect {scope : Scope} (space : Namespace) (instruction : Instruction scope)
+    (table : CodeTable := fun _ => none) : Effect :=
+  match instruction with
   | .scalar (.assign name _ operand) =>
-    ⟨(evaluateScalar space false operand).map fun value => some (name, value), []⟩
+    ⟨((evaluateScalar space false operand).map fun value => some (name, value)).mapError ModuleFailure.ofCall, []⟩
   | .scalar (.assertion operand) => assertOperand space operand true
   | .assertNot operand => assertOperand space operand false
-  | .publish .. => ⟨.error .unsupported, []⟩
+  | .publish name function =>
+    let resolved := Core.Closure.Dispatch.resolve table function.ref
+    ⟨(resolved.map fun _ => some (name, .function function.closure)).mapError .publicationFault, []⟩
   | .call destination name arguments =>
     let event := observeNamedCall space name arguments
-    ⟨event.observation.result.bind (acceptCall destination), [event]⟩
+    ⟨(event.observation.result.bind (acceptCall destination)).mapError ModuleFailure.ofCall, [event]⟩
   | .nestedCall destination name arguments => observeNestedCall space destination name arguments
 
 structure Observation where
   residual : Namespace
-  completion : Except Failure Unit
+  completion : Except ModuleFailure Unit
   calls : List CallEvent
+  heap : Heap
 
 /-- Execute the checked stream in source order. A failed instruction keeps
-its incoming namespace and stops the stream. -/
-def runInstructions {scope : Scope} (space : Namespace) : List (Instruction scope) → Observation
-  | [] => ⟨space, .ok (), []⟩
+its incoming namespace and stops the stream. The ordinary heap is retained. -/
+def runInstructions {scope : Scope} (space : Namespace) (instructions : List (Instruction scope))
+    (table : CodeTable := fun _ => none) (heap : Heap := .empty) : Observation :=
+  match instructions with
+  | [] => ⟨space, .ok (), [], heap⟩
   | instruction :: rest =>
-    let item := effect space instruction
+    let item := effect space instruction table
     match item.binding with
-    | .error error => ⟨space, .error error, item.calls⟩
+    | .error error => ⟨space, .error error, item.calls, heap⟩
     | .ok binding =>
       let updated := binding.elim space fun (name, value) => space.bindGlobal name value
-      let tail := runInstructions updated rest
+      let tail := runInstructions updated rest table heap
       { tail with calls := item.calls ++ tail.calls }
 
 /-- Seeded execution starts from the same compiled instruction stream as
 ordinary module execution. The caller supplies the namespace explicitly. -/
-def run {source : Source.Module} (space : Namespace) (compiled : Compiled source) : Observation :=
-  runInstructions space compiled.instructions
+def run {source : Source.Module} (space : Namespace) (compiled : Compiled source)
+    (heap : Heap := .empty) : Observation :=
+  runInstructions space compiled.instructions compiled.table heap
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
