@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Defs
+public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Sequence.Composed.Defs
 
 @[expose] public section
@@ -59,6 +60,20 @@ inductive State (site : Site) where
   | running (stack : List Value) (rest : List (Op site))
   | active (i : site.TargetId) (callee : CallFrame.State) (rest : List (Op site))
   | trapped (stack : List Value) (rest : List (Op site))
+
+/-- The administrative label can leave when its checked sequence has yielded
+only values or a trap with no surrounding operands or pending instructions. -/
+inductive Finished (site : Site) : State site → Nested.Result → Prop where
+  | values (stack : List Value) : Finished site (.running stack []) (.values stack)
+  | trap : Finished site (.trapped [] []) .trap
+
+def ResultTyped (site : Site) : Nested.Result → Prop
+  | .values stack => stack.map Value.type = site.results
+  | .trap => True
+
+def ResultArity (site : Site) : Nested.Result → Prop
+  | .values stack => stack.length = site.results.length
+  | .trap => True
 
 def attach {site : Site} (i : site.TargetId) (rest : List (Op site)) : CallFrame.State → State site
   | .returned saved values => .running (saved ++ values) rest

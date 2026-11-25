@@ -27,6 +27,13 @@ theorem check_numeric (site : Site) (types : List NumType) (code : List Prefix.O
     check site types (code.map .numeric) = Prefix.check (site.frame.locals.map Value.type) types code :=
   Proofs.check_numeric site types code
 
+theorem finished_typed {site : Site} {q : State site} {r : Nested.Result}
+    (finished : Finished site q r) (ready : Admitted site q) : ResultTyped site r :=
+  Proofs.finished_typed finished ready
+
+theorem result_arity {site : Site} {r : Nested.Result} (typed : ResultTyped site r) : ResultArity site r :=
+  Proofs.result_arity typed
+
 theorem closed {site : Site} (guard : site.TypedTargets) {a b : State site}
     (ready : Admitted site a) (edge : Edge site a b) : Admitted site b :=
   Proofs.closed guard ready edge

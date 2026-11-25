@@ -19,41 +19,6 @@ open StraightLine
 open Computed (limeSyntax)
 open Computed.Sequence (limeSource)
 
-private abbrev emit {site : Sequence.Site} := Sequence.emit (site := site) limeSyntax
-
-private theorem label_result {site : Site} {q : Sequence.State site.body} {out : List Admin}
-    (ready : Sequence.Admitted site.body q) (pop : PureStep site.frame.module.types [.label site.arity [] (Sequence.limeCode site.body q)] out) :
-    ∃ result, Finished site q result ∧ out = Nested.resultCode values .trap result := by
-  cases q with
-  | active i callee rest =>
-    exact (StraightLine.lime_active_label_stays ready.1 pop).elim
-  | running stack rest =>
-    cases rest with
-    | nil =>
-      have h : PureStep site.frame.module.types [.label site.arity [] (Nested.resultCode values .trap (.values stack))] out := by
-        simpa only [Sequence.limeCode, Sequence.render, List.map_nil, List.append_nil, Nested.resultCode] using pop
-      exact ⟨.values stack, .values stack, Nested.lime_label_result h⟩
-    | cons op rest =>
-      cases op with
-      | numeric op =>
-        have h := pop
-        change PureStep site.frame.module.types [.label site.arity [] ((values stack ++ emit (.numeric op) :: rest.map emit))] out at h
-        cases op <;> exact (Computed.lime_label_stays (stack := stack) rfl (by simp [emit, Sequence.emit, Computed.Prefix.emit, limeSyntax])
-          (by simp [emit, Sequence.emit, Computed.Prefix.emit, limeSyntax]) (by simp [emit, Sequence.emit, Computed.Prefix.emit, limeSyntax]) h).elim
-      | call i =>
-        have h := pop
-        change PureStep site.frame.module.types [.label site.arity [] ((values stack ++ emit (.call i) :: rest.map emit))] out at h
-        exact (Computed.lime_label_stays (stack := stack) (head := .source (.call (site.body.target i).index))
-          rfl (by simp) (by simp) (by simp) h).elim
-  | trapped stack rest =>
-    by_cases unfinished : ¬ (stack = [] ∧ rest = [])
-    · have h := pop
-      change PureStep site.frame.module.types [.label site.arity [] ((values stack ++ .trap :: rest.map emit))] out at h
-      exact (Computed.lime_label_stays (stack := stack) (head := .trap) rfl (by simp) (by simp)
-        (fun _ => by simpa using not_and_or.mp unfinished) h).elim
-    · obtain ⟨rfl, rfl⟩ := not_not.mp unfinished
-      exact ⟨.trap, .trap, Nested.lime_label_result pop⟩
-
 theorem body_expression (p : Program) :
     expression p.limeFunc.body = Sequence.limeCode p.site.body (.running [] p.code) := by
   change (p.body limeSource).map Execution.Runtime.AdminInstr.source = p.body limeSyntax
@@ -108,8 +73,8 @@ theorem readback {H : Type} {s : Store H} {caller : Frame}
     rcases Computed.lime_body_step_cases step with ⟨mid, move, eq⟩ | ⟨_, pop, eq⟩
     · obtain ⟨out, edge, rfl⟩ := (Sequence.lime_step_iff g.body ready).mp move
       exact ⟨.label out, underLabel edge, eq⟩
-    · obtain ⟨result, finished, rfl⟩ := label_result ready pop
-      exact ⟨.exit result, fact (.leaveLabel finished), eq⟩
+    · obtain ⟨result, finished, rfl⟩ := Sequence.lime_label_result ready pop
+      exact ⟨.exit result, fact (.leaveLabel (by cases finished <;> constructor)), eq⟩
   | exit result =>
     exact ⟨.done result, fact (.leaveFrame result (result_arity ready)), Nested.lime_frame_result  step⟩
   | done result => exact (Nested.lime_result_stuck step).elim

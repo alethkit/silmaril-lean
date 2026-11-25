@@ -1,6 +1,8 @@
 module
 
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence.Native.Defs
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
+public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence.Thms
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence.Rules
@@ -8,14 +10,27 @@ import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.StraightLin
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence.Lime1
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence.V1
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence.Transport
+import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence.LabelExit
 
 @[expose] public section
 
 namespace Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence
 
 open Execution
+open OuterCall (coreValues)
 open Wasm.Numerics (Profile)
 open Wasm.SingleThreaded.Det (noHost)
+
+theorem core_label_result {site : Site} {arity : Nat} {q : State site} {out : List Core.Admin}
+    (ready : Admitted site q) (pop : Core.LabelExit arity [] (coreCode site q) out) :
+    ∃ result, Finished site q result ∧ out = Nested.resultCode coreValues .trap result :=
+  Proofs.core_label_result ready pop
+
+open Wasm.Lime1.Execution in
+theorem lime_label_result {site : Site} {arity : Nat} {q : State site} {out : List Admin}
+    (ready : Admitted site q) (pop : PureStep site.frame.module.types [.label arity [] (limeCode site q)] out) :
+    ∃ result, Finished site q result ∧ out = Nested.resultCode values .trap result :=
+  Proofs.lime_label_result ready pop
 
 theorem guard_to_lime {H : Type} {s : Wasm.V1.Execution.Store H} {site : Site}
     (g : V1Guard s site) : LimeGuard (s.mapCode Wasm.V1.Func.toLime) site :=
