@@ -13,21 +13,34 @@ open Silmaril.Languages.Python.Core.Closure.Executor
 
 variable {globals : GlobalLookup} {layout : Layout} {heap : Heap} {frame : Frame layout}
 
+private theorem name_read_eval (source : NameRead layout) :
+    source.operand.evalIn globals heap frame = source.evalIn globals heap frame := by
+  cases source <;> rfl
+
 private theorem eval_eq {operand : Operand layout} {result : Except Failure Value}
     (eval : EvaluatesIn globals heap frame operand result) : operand.evalIn globals heap frame = result := by
-  cases eval with
-  | globalFound found => simp [Operand.evalIn, found]
-  | globalMissing missing => simp [Operand.evalIn, missing]
+  induction eval with
+  | globalFound found => simp [Operand.evalIn, NameRead.evalIn, found]
+  | globalMissing missing => simp [Operand.evalIn, NameRead.evalIn, missing]
+  | eqInt _ ih => rw [Operand.evalIn, ← name_read_eval, ih]
   | _ => rfl
 
-private theorem eval_rule (operand : Operand layout) : EvaluatesIn globals heap frame operand (operand.evalIn globals heap frame) := by
-  cases operand with
-  | readGlobal name =>
+private theorem name_rule (source : NameRead layout) :
+    EvaluatesIn globals heap frame source.operand (source.evalIn globals heap frame) := by
+  cases source with
+  | slot location => exact .read location
+  | global name =>
     cases found : globals name with
-    | none => simpa [Operand.evalIn, found] using
+    | none => simpa [NameRead.operand, NameRead.evalIn, found] using
         (EvaluatesIn.globalMissing (heap := heap) (frame := frame) found)
-    | some value => simpa [Operand.evalIn, found] using
+    | some value => simpa [NameRead.operand, NameRead.evalIn, found] using
         (EvaluatesIn.globalFound (heap := heap) (frame := frame) found)
+
+private theorem eval_rule (operand : Operand layout) :
+    EvaluatesIn globals heap frame operand (operand.evalIn globals heap frame) := by
+  cases operand with
+  | readGlobal name => exact name_rule (.global name)
+  | eqInt source _ => exact .eqInt (name_rule source)
   | _ => constructor
 
 private theorem arguments_eq {operands : List (Operand layout)} {result : Except Failure (List Value)}

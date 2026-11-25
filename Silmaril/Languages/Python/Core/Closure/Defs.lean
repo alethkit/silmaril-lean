@@ -74,6 +74,13 @@ def Value.truth : Value → Bool
   | .bool value => value
   | .function _ => true
 
+/-- Compare a value in this closed closure profile with an integer literal. -/
+def Value.equalInt : Value → Int → Bool
+  | .int value, right => decide (value = right)
+  | .bool false, right => decide (0 = right)
+  | .bool true, right => decide (1 = right)
+  | .none, _ | .function _, _ => false
+
 /-- Python-level errors carried across frames. An unbound incoming capture
 corresponds to `NameError`; an unbound local or owned cell to `UnboundLocalError`. -/
 inductive RuntimeError where

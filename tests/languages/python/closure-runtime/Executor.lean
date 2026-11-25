@@ -96,6 +96,39 @@ example :
       (.running Heap.empty caller (.assert (.read (.owned ⟨0, by decide⟩)) next) [older]) =
       some (some (.fault (.danglingCell cell)), .faulted Heap.empty [older] (.danglingCell cell)) := rfl
 
+example : assertionContinues (.eqInt (.slot (.local ⟨1, by decide⟩)) 19) := rfl
+example : assertionRaises (.eqInt (.slot (.local ⟨1, by decide⟩)) 20) := rfl
+example : finished (.assert (.eqInt (.slot capture) 7) (.ret (.read capture))) (.ok (.int 7)) :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+example : resumed (.assert (.eqInt (.slot unset) 0) (.ret (.read capture))) (.error (.unboundLocal 1)) :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+private def compareGlobal (value : Value) (right : Int) : Option Transition :=
+  let globals : GlobalLookup := fun name => if name = "operand" then some value else none
+  advanceIn (table (.read capture)) globals
+    (.running initial.1 caller (.assert (.eqInt (.global "operand") right) next) [older])
+
+private def globalComparisonHolds (value : Value) (right : Int) : Prop :=
+  compareGlobal value right = some (none, .running initial.1 caller next [older])
+
+private def globalComparisonFails (value : Value) (right : Int) : Prop :=
+  compareGlobal value right = some (none, .delivering initial.1 [older] (.error .assertionError))
+
+example : globalComparisonHolds (.bool false) 0 := rfl
+example : globalComparisonHolds (.bool true) 1 := rfl
+example : globalComparisonFails (.bool true) 0 := rfl
+example : globalComparisonFails .none 0 := rfl
+example : globalComparisonFails (.function (caller.closure calleeCode (fun _ => .owned ⟨0, by decide⟩))) 0 := rfl
+
+example :
+    assertionAdvance (.eqInt (.global "missing") 0) =
+      some (none, .delivering initial.1 [older] (.error (.nameError "missing"))) := rfl
+
+example :
+    advance (table (.read capture))
+      (.running Heap.empty caller (.assert (.eqInt (.slot (.owned ⟨0, by decide⟩)) 0) next) [older]) =
+      some (some (.fault (.danglingCell cell)), .faulted Heap.empty [older] (.danglingCell cell)) := rfl
+
 -- Python evaluates arguments before reporting that an evaluated integer is
 -- not callable. The first argument's failure also precedes the later read.
 example :
