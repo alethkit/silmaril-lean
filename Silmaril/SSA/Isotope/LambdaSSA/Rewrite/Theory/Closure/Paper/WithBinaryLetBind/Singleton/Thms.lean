@@ -70,6 +70,14 @@ theorem compare_let₂ (cmp : ModelComparisons J M objIso pe)
         ofRegion (τ := τ) (.let₂ ha (applyPackedPair_typed hp)) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonBinaryLetBind.compare_let₂ J M objIso pe cmp ha hp hBody
 
+/-- Reify a packed loop-free singleton representative after projecting its
+interpreted arrow to the binary-let quotient. -/
+theorem compare (cmp : ModelComparisons J M objIso pe)
+    {r : Region Φ} {hr : ValueBranches [X] r [D]} (h : LoopFree hr) :
+    (projection (τ := τ) (Φ := Φ)).map (reindexHom J M objIso (denoteSingletonRegion J M hr.hasType)) =
+      ofRegion (τ := τ) hr :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonBinaryLetBind.compare J M objIso pe cmp h
+
 end Denotation
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithBinaryLetBind.Singleton
