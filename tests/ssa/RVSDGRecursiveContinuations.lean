@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Tests
@@ -23,6 +23,7 @@ private inductive Op : Dialect (ValueSort Unit Unit) Unit
   | suffix : Op [word, state, state] results
   | loopPrepare : Op [state] results
   | loopRoute : Op [word, state] route
+  | loopAgain : Op [word, state] route
 
 private def machine : Machine Op where
   Data _ := Nat
@@ -41,6 +42,8 @@ private def machine : Machine Op where
       let again := 1 < n
       .cons (.control (if again then 1 else 0)) <|
         .cons (.data (n - 1)) <| .cons (.state (history ++ [if again then 5 else 6])) .nil
+    | .loopAgain, .cons (.data n) (.cons (.state history) .nil) =>
+      .cons (.control 1) (.cons (.data (n + 1)) (.cons (.state (history ++ [5])) .nil))
 
 private def prefixNode : NestedTheta.Node (Instruction Op) bodyArgs [] [state] :=
   ⟨[state], .base (.simple (.primitive .prefix)), .cons (.arg (.tail (.tail .head))) .nil, fun i => i.elim0⟩
@@ -146,14 +149,16 @@ private def loopApplyNode : NestedTheta.Node (Instruction Op) bodyArgs [results]
     .cons (.arg .head) (.cons (.output (0 : Fin 1) .head)
       (.cons (.output (0 : Fin 1) (.tail .head)) .nil)), fun i => i.elim0⟩
 
-private def loopRouteNode : NestedTheta.Node (Instruction Op) bodyArgs [results, results] route :=
-  ⟨[word, state], .base (.simple (.primitive .loopRoute)),
+private def loopRouteNode (opcode : Op [word, state] route) :
+    NestedTheta.Node (Instruction Op) bodyArgs [results, results] route :=
+  ⟨[word, state], .base (.simple (.primitive opcode)),
     .cons (.arg (.tail .head)) (.cons (.output (1 : Fin 2) (.tail .head)) .nil), fun i => i.elim0⟩
 
-private def loopBody : NestedTheta.Term (Instruction Op) bodyArgs [] [results, results, route]
+private def loopBody (opcode : Op [word, state] route) :
+    NestedTheta.Term (Instruction Op) bodyArgs [] [results, results, route]
     (Theta.BodyResults bodyArgs) :=
   .bind loopPrepareNode (fun i => i.elim0) <| .bind loopApplyNode (fun i => i.elim0) <|
-    .bind loopRouteNode (fun i => i.elim0) <|
+    .bind (loopRouteNode opcode) (fun i => i.elim0) <|
       .ret (.cons (.output (2 : Fin 3) .head) (.cons (.arg .head)
         (.cons (.output (2 : Fin 3) (.tail .head)) (.cons (.output (2 : Fin 3) (.tail (.tail .head))) .nil))))
 
@@ -171,33 +176,34 @@ private def driverSuffix : NestedTheta.Term (Instruction Op) bodyArgs [[state], 
   .bind postLoop (fun i => i.elim0) <|
     .ret (.cons (.output (2 : Fin 3) .head) (.cons (.output (2 : Fin 3) (.tail .head)) .nil))
 
-private def driverBody : NestedTheta.Term (Instruction Op) bodyArgs [] [[state], bodyArgs, results] results :=
-  .bind prefixNode (fun i => i.elim0) (.bind loopNode (fun _ => loopBody) driverSuffix)
+private def driverBody (opcode : Op [word, state] route) :
+    NestedTheta.Term (Instruction Op) bodyArgs [] [[state], bodyArgs, results] results :=
+  .bind prefixNode (fun i => i.elim0) (.bind loopNode (fun _ => loopBody opcode) driverSuffix)
 
-private def driver : LambdaTerm Op [] [[callable]] fn :=
-  ⟨[callable], .cons (.output (0 : Fin 1) .head) .nil, [[state], bodyArgs, results], driverBody⟩
+private def driver (opcode : Op [word, state] route) : LambdaTerm Op [] [[callable]] fn :=
+  ⟨[callable], .cons (.output (0 : Fin 1) .head) .nil, [[state], bodyArgs, results], driverBody opcode⟩
 
-private def loopModule : OmegaTerm Op [] [callable] [[callable], [callable]] :=
-  ⟨.bind (.phi group) <| .bind (.lambda driver) <| .ret (.cons (.output (1 : Fin 2) .head) .nil)⟩
+private def loopModule (opcode : Op [word, state] route) : OmegaTerm Op [] [callable] [[callable], [callable]] :=
+  ⟨.bind (.phi group) <| .bind (.lambda (driver opcode)) <| .ret (.cons (.output (1 : Fin 2) .head) .nil)⟩
 
-private def linkedDriver : machine.Val callable :=
-  (Recursive.linkGraph machine 19 loopModule.toGraph .nil).get .head
+private def linkedDriver (opcode : Op [word, state] route) : machine.Val callable :=
+  (Recursive.linkGraph machine 19 (loopModule opcode).toGraph .nil).get .head
 
-private def loopJob : Job machine results := .call linkedDriver (arguments 2 [])
+private def loopJob : Job machine results := .call (linkedDriver .loopRoute) (arguments 2 [])
 
-private def waitingParent : Stack machine bodyArgs results :=
-  .resume (past := [[state]]) driverSuffix.toGraph.toTerm (.cons callee (arguments 2 []))
+private def waitingParent (n : Nat) : Stack machine bodyArgs results :=
+  .resume (past := [[state]]) driverSuffix.toGraph.toTerm (.cons callee (arguments n []))
     (.cons (.state ([1] : List Nat)) .nil, PUnit.unit) .halt
 
 -- The feedback step starts a second body with empty locals and retains
 -- the original parent continuation.
 example : State.runFor 31 (start loopJob) =
-    .eval (.region loopBody.toGraph.toTerm (.cons callee (arguments 1 [1, 4, 2, 5])) PUnit.unit)
-      (.loop loopBody.toGraph.toTerm waitingParent) := by cbv
+    .eval (.region (loopBody .loopRoute).toGraph.toTerm (.cons callee (arguments 1 [1, 4, 2, 5])) PUnit.unit)
+      (.loop (loopBody .loopRoute).toGraph.toTerm (waitingParent 2)) := by cbv
 
 -- Exit hands the carried tuple to the same parent, discarding the tag.
 example : State.runFor 54 (start loopJob) =
-    .returned (.cons callee (arguments 0 [1, 4, 2, 5, 4, 2, 6])) waitingParent := by cbv
+    .returned (.cons callee (arguments 0 [1, 4, 2, 5, 4, 2, 6])) (waitingParent 2) := by cbv
 
 private def loopExpected : Tuple machine.Val results :=
   .cons (.data (1 : Nat)) (.cons (.state ([1, 4, 2, 5, 4, 2, 6, 3, 1] : List Nat)) .nil)
@@ -207,12 +213,68 @@ private def loopExpected : Tuple machine.Val results :=
 example : Completes (start loopJob) loopExpected :=
   completes_runFor (fuel := 128) (by cbv)
 
-example : invoke machine 1 2 linkedDriver (arguments 2 []) = none := by cbv
+example : invoke machine 1 2 (linkedDriver .loopRoute) (arguments 2 []) = none := by cbv
 
 private theorem linkedReturns : Returns machine loopJob loopExpected :=
-  (Recursive.call_iff machine linkedDriver (arguments 2 []) loopExpected).2 ⟨2, 2, by cbv⟩
+  (Recursive.call_iff machine (linkedDriver .loopRoute) (arguments 2 []) loopExpected).2 ⟨2, 2, by cbv⟩
 
 example : Completes (start loopJob) loopExpected :=
   completes_iff_returns.mpr linkedReturns
+
+private def history : Nat → List Nat
+  | 0 => [1]
+  | n + 1 => ((history n ++ [4]) ++ [2]) ++ [5]
+
+private def feedbackInputs (n : Nat) : Tuple machine.Val bodyArgs :=
+  .cons callee (arguments n (history n))
+
+private abbrev feedbackBody := (loopBody .loopAgain).toGraph.toTerm
+
+private def feedbackJob : Job machine results := .call (linkedDriver .loopAgain) (arguments 0 [])
+
+private theorem linkedBaseReturns (log : List Nat) :
+    Returns machine (.call callee (arguments 0 log))
+      (.cons (.data (10 : Nat)) (.cons (.state (log ++ [2])) .nil)) :=
+  (Recursive.call_iff machine callee (arguments 0 log) _).2 ⟨0, 1, by cbv⟩
+
+private theorem completedIteration (n : Nat) :
+    Feedback.Iteration feedbackBody (feedbackInputs n) (feedbackInputs (n + 1)) := by
+  refine ⟨.control 1, ?_, rfl⟩
+  have ran : Returns machine
+      (.region (loopBody .loopAgain) (feedbackInputs n) (PUnit.unit : Locals machine.Val []))
+      (.cons (.control (1 : Fin 2)) (feedbackInputs (n + 1))) := by
+    refine Returns.bind (node := loopPrepareNode) (.primitive Op.loopPrepare _ _ _) ?_
+    refine Returns.bind (node := loopApplyNode) (.apply (linkedBaseReturns (history n ++ [4]))) ?_
+    refine Returns.bind (node := loopRouteNode Op.loopAgain) (.primitive Op.loopAgain _ _ _) ?_
+    exact .ret _ _ _
+  exact Eq.mpr (congrArg (fun term =>
+    Returns machine (.region (past := []) term (feedbackInputs n) (PUnit.unit : Locals machine.Val []))
+      (.cons (.control (1 : Fin 2)) (feedbackInputs (n + 1))))
+    (NestedTheta.Term.toTerm_toGraph (loopBody Op.loopAgain))) ran
+
+-- Enter the actual linked driver's loop and check two concrete feedback edges.
+private theorem reachedInitial :
+    State.runFor 6 (start feedbackJob) = Feedback.restart feedbackBody (waitingParent 0) (feedbackInputs 0) := by cbv
+
+example : State.runFor 30 (start feedbackJob) =
+    Feedback.restart feedbackBody (waitingParent 0) (feedbackInputs 1) := by cbv
+
+example : State.runFor 54 (start feedbackJob) =
+    Feedback.restart feedbackBody (waitingParent 0) (feedbackInputs 2) := by cbv
+
+private theorem linkedRestarts : ∃ micro indices,
+    Feedback.RestartTrace feedbackBody (waitingParent 0) feedbackInputs micro indices :=
+  (Feedback.iterations_iff_restarts feedbackInputs).mp completedIteration
+
+example : Feedback.Run feedbackBody (feedbackInputs 0) := by
+  obtain ⟨micro, indices, trace⟩ := linkedRestarts
+  exact Feedback.run_iff_restarts.mpr ⟨feedbackInputs, micro, indices, rfl, trace⟩
+
+example : InfiniteTrace Step (start feedbackJob) := by
+  obtain ⟨micro, indices, trace⟩ := linkedRestarts
+  have initial := trace.atRestart 0
+  rw [trace.first] at initial
+  exact InfiniteTrace.of_steps (reachedInitial ▸ runFor_reachable 6 (start feedbackJob))
+    ⟨micro, initial, trace.steps⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Tests

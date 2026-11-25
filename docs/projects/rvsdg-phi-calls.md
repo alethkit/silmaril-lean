@@ -100,3 +100,41 @@ lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continu
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursiveContinuations.lean
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Thms'
 ```
+
+## Productive θ feedback
+
+A feedback iteration consists of a finite `Returns` derivation for
+the actual body and a selector requesting feedback. The derivation
+starts with the full carried tuple and empty locals and supplies the
+entire next carried tuple. A productive feedback run repeats these
+completed iterations indefinitely.
+
+`returns_iff_delimited` relates a finite job derivation to continuation
+microsteps up to its first return to the supplied frame. The proof
+attaches or removes the same outer stack on both sides of each local
+step, so nested calls and loops keep their ordinary transitions.
+`iteration_iff_segment` then matches one feedback iteration to
+the actual body followed by its feedback edge.
+[Definitions and finite correspondence](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Feedback/Thms.lean)
+
+The stream theorem places every supplied carried tuple at a
+successive restart of one actual continuation trace, with the same
+saved parent. In reverse, supplied restart and body-return positions
+and the first-return guard recover each finite body derivation. This
+statement is about completed feedback iterations. A body that supplies
+no finite return, whether it runs indefinitely or stops without
+returning, supplies no feedback segment. The typed continuation
+machine already rules out incomplete terminal states.
+
+The linked regression adds an always-feedback variant of the θ body.
+Each activation calls the linked φ member to completion and adds
+`[4, 2, 5]` to state. Microsteps `6`, `30`, and `54` check the initial
+iteration and the next two restarts with distinct full carried tuples
+and the original parent frame. The fixture gives a finite derivation
+for every iteration and exercises both directions of the stream proof.
+[Linked fixture](../../tests/ssa/RVSDGRecursiveContinuations.lean)
+
+```sh
+lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Thms'
+```
