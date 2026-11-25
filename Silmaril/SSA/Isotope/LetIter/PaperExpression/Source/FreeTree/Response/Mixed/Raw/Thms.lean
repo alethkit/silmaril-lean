@@ -22,14 +22,15 @@ universe u r
 variable {α Φ Ψ : Type u} (S : Signature α Φ) (T : SumSignature α Ψ) {c : α}
 
 variable {ε : Type r} [HasEff Φ ε] [HasEff Ψ ε] [SemilatticeSup ε] [OrderBot ε]
-  {Γ : EffectCtx (Ty α) ε} {slots : Fin Γ.length → α}
 
 local notation "Γ₀" => (Ctx.nil : Ctx Empty (Ty α))
 
 /-- The normalized tree is admitted at the original bound. -/
-theorem compile_typed (e : ε) (p : Program S T c slots) (hp : Program.WellTyped S T e p) :
+theorem compile_typed {n : Nat} {slots : Fin n → α} (e : ε) (p : Program S T c slots) (hp : Program.WellTyped S T e p) :
     Mixed.Program.WellTyped S T e (Program.compile (ε := ε) S T p) :=
   Proofs.compile_typed S T e p hp
+
+variable {Γ : EffectCtx (Ty α) ε} {slots : Fin Γ.length → α}
 
 /-- Normalize the raw mixed tree at the supplied source bound. -/
 theorem compile_eqv (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i))

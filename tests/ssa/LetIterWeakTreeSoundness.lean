@@ -7,6 +7,7 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Sum
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.RawArms.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Raw.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Ranked.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -1194,3 +1195,213 @@ end RawMixedPrefix
 end EffectfulSumScrutinee
 
 end LetIterResponseSingleCall
+
+namespace LetIterRankedFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response
+
+abbrev Fx := Bool × Bool
+abbrev strict : Fx := (true, false)
+abbrev A : Ty Unit := .base ()
+abbrev X : Ty Unit := .coprod .unit .unit
+abbrev R : Ty Unit := .coprod A X
+abbrev sig : Signature Unit Empty := ⟨Empty.elim, fun e => e.elim, Empty.elim⟩
+abbrev sumSig : SumCall.SumSignature Unit Unit := ⟨fun _ => 0, fun _ i => i.elim0, fun _ => (), fun _ => ()⟩
+abbrev free := (Ctx.nil : Ctx Empty (Ty Unit))
+abbrev Term n := Tm Empty (Empty ⊕ Unit) n
+
+local instance : HasEff Empty Fx := ⟨Empty.elim⟩
+local instance : HasEff Unit Fx := ⟨fun _ => strict⟩
+local instance : HasEff (Empty ⊕ Unit) Fx := SumCall.effects
+local instance : HasTy (Empty ⊕ Unit) (Ty Unit) := SumCall.endpoints sig sumSig
+local instance : EffectIteration Fx := EffectIteration.complete Fx
+
+abbrev state (i : Bool) (n : Nat) : Term n :=
+  if i then .inr .unit else .inl .unit
+abbrev ask (n : Nat) : Term n := .op (.inr ()) .unit
+
+-- The `true` state repeats on the right reply, while the `false` state
+-- makes its own request and exits on either reply.
+abbrev replyStep (i : Bool) (n : Nat) : Term n :=
+  .case (ask n) (.inl (.bv 0)) (if i then .inr (state false (n + 1)) else .inl (.bv 0))
+abbrev loopBody (n : Nat) : Term (n + 1) :=
+  .case (.bv 0) (replyStep false (n + 2)) (replyStep true (n + 2))
+abbrev loop (i : Bool) (n : Nat) : Term n := .iter (state i n) (loopBody n)
+abbrev restart (n : Nat) : Term (n + 1) := .iter (.bv 0) (loopBody (n + 1))
+abbrev dispatch (n : Nat) : Term (n + 1) := .case (.bv 0) (.bv 0) (restart (n + 1))
+
+private theorem stateTy {n : Nat} (β : BoundCtx (Ty Unit) n) (i : Bool) :
+    HasType (Empty ⊕ Unit) free β (state i n) X := by
+  cases i
+  · exact .inl .unit
+  · exact .inr .unit
+
+private theorem replyTy {n : Nat} (β : BoundCtx (Ty Unit) n) (i : Bool) :
+    HasType (Empty ⊕ Unit) free β (replyStep i n) R := by
+  cases i
+  · exact .case (.op .unit) (.inl .bv) (.inl .bv)
+  · exact .case (.op .unit) (.inl .bv) (.inr (.inl .unit))
+
+private theorem bodyTy {n : Nat} (β : BoundCtx (Ty Unit) n) :
+    HasType (Empty ⊕ Unit) free (.snoc β X) (loopBody n) R :=
+  .case (A := (Ty.unit : Ty Unit)) (B := Ty.unit) .bv (replyTy _ false) (replyTy _ true)
+
+private theorem restartTy {n : Nat} (β : BoundCtx (Ty Unit) n) :
+    HasType (Empty ⊕ Unit) free (.snoc β X) (restart n) A :=
+  .iter .bv (bodyTy _)
+
+private theorem dispatchTy {n : Nat} (β : BoundCtx (Ty Unit) n) :
+    HasType (Empty ⊕ Unit) free (.snoc β R) (dispatch n) A :=
+  .case (A := A) (B := X) .bv .bv (restartTy _)
+
+private theorem selectState {n : Nat} (β : BoundCtx (Ty Unit) n) (i : Bool) :
+    Equiv (⊥ : Fx) free β
+      (.case (state i n) (replyStep false (n + 1)) (replyStep true (n + 1))) (replyStep i n) R := by
+  cases i
+  · exact (Equiv.caseBetaL (B := (Ty.unit : Ty Unit)) .unit (replyTy _ false) (replyTy _ true)).trans
+      (Equiv.letBeta .unit .unit (replyTy _ false))
+  · exact (Equiv.caseBetaR (A := (Ty.unit : Ty Unit)) .unit (replyTy _ false) (replyTy _ true)).trans
+      (Equiv.letBeta .unit .unit (replyTy _ true))
+
+private theorem unfoldLoop {n : Nat} (β : BoundCtx (Ty Unit) n) (i : Bool) :
+    Equiv (⊥ : Fx) free β (loop i n) (.case (replyStep i n) (.bv 0) (restart n)) A := by
+  have hfix := Equiv.fixpoint (pureEff := (⊥ : Fx)) (stateTy β i) (bodyTy β)
+  have hp : Pure (⊥ : Fx) (state i n) := by
+    cases i
+    · exact .inl .unit
+    · exact .inr .unit
+  have hw : HasType (Empty ⊕ Unit) free (.snoc β X)
+      (.case (loopBody n) (.bv 0) (restart (n + 1))) A :=
+    .case (A := A) (B := X) (bodyTy β) .bv (restartTy _)
+  have h₁ := hfix.trans (Equiv.letBeta hp (stateTy β i) hw)
+  exact h₁.trans (.case (selectState β i) (.refl .bv) (.refl (restartTy β)))
+
+abbrev replyLeft (n : Nat) : Term (n + 1) := .inl (.bv 0)
+abbrev replyRight (i : Bool) (n : Nat) : Term (n + 1) :=
+  if i then .inr (state false (n + 1)) else replyLeft n
+
+private theorem leftTy {n : Nat} (β : BoundCtx (Ty Unit) n) :
+    HasType (Empty ⊕ Unit) free (.snoc β A) (replyLeft n) R :=
+  .inl .bv
+
+private theorem rightTy {n : Nat} (β : BoundCtx (Ty Unit) n) (i : Bool) :
+    HasType (Empty ⊕ Unit) free (.snoc β A) (replyRight i n) R := by
+  cases i
+  · exact leftTy β
+  · exact .inr (stateTy _ false)
+
+private theorem returnReply {n : Nat} (β : BoundCtx (Ty Unit) n) :
+    Equiv (⊥ : Fx) free (.snoc β A) (.let₁ (replyLeft n) (dispatch (n + 1))) (.bv 0) A := by
+  have h := Equiv.letBeta (pureEff := (⊥ : Fx)) (.inl .bv) (leftTy β) (dispatchTy (.snoc β A))
+  exact h.trans ((Equiv.caseBetaL (.bv (ι := 0)) .bv (restartTy _)).trans (Equiv.letEta .bv))
+
+private theorem repeatReply {n : Nat} (β : BoundCtx (Ty Unit) n) :
+    Equiv (⊥ : Fx) free (.snoc β A) (.let₁ (replyRight true n) (dispatch (n + 1))) (loop false (n + 1)) A := by
+  have h := Equiv.letBeta (pureEff := (⊥ : Fx)) (.inr (.inl .unit)) (rightTy β true) (dispatchTy (.snoc β A))
+  have hcase := Equiv.caseBetaR (pureEff := (⊥ : Fx)) (A := A)
+    (stateTy (.snoc β A) false) (.bv (ι := 0)) (restartTy (.snoc β A))
+  have hbeta := Equiv.letBeta (pureEff := (⊥ : Fx)) (.inl .unit)
+    (stateTy (.snoc β A) false) (restartTy (.snoc β A))
+  exact h.trans (hcase.trans hbeta)
+
+private theorem simplifyReply {n : Nat} (β : BoundCtx (Ty Unit) n) (i : Bool) :
+    Equiv (⊥ : Fx) free β (.case (replyStep i n) (.bv 0) (restart n))
+      (.case (ask n) (.bv 0) (if i then loop false (n + 1) else .bv 0)) A := by
+  have h :=
+    Equiv.bindCase (pureEff := (⊥ : Fx)) (replyTy β i) (.bv (ι := 0)) (restartTy β)
+  have hAsk : HasType (Empty ⊕ Unit) free β (ask n) (.coprod A A) := .op .unit
+  have h' := Equiv.bindLetCase (pureEff := (⊥ : Fx)) hAsk (leftTy β) (rightTy β i) (dispatchTy β)
+  refine h.trans (h'.trans (.case (.refl hAsk) (returnReply β) ?_))
+  cases i
+  · exact returnReply β
+  · exact repeatReply β
+
+def rank : Bool → Nat
+  | false => 0
+  | true => 1
+
+abbrev finish {n : Nat} {ss : Fin n → Unit} :
+    Mixed.Raw.Program sig sumSig () (extendSorts () ss) := .straight (.tree (.var 0))
+
+def sys : Mixed.Ranked.System sig sumSig rank () where
+  endpoint := fun {n} _ i => loop i n
+  step := fun _ i => match i with
+    | false => .sum () (fun i => i.elim0) (.done finish) (.done finish)
+    | true => .sum () (fun i => i.elim0) (.done finish) (.again false (by decide))
+
+private theorem sumVisible (g : Unit) : ¬ IsPure (⊥ : Fx) g := by
+  change strict ≠ (⊥ : Fx)
+  decide
+
+private theorem sys_checked : Mixed.Ranked.System.Checked sig sumSig rank sys strict := by
+  refine ⟨?_, ?_, ?_⟩
+  · intro n ss i
+    cases i
+    · exact ⟨fun j => j.elim0, le_rfl, trivial, trivial⟩
+    · exact ⟨fun j => j.elim0, le_rfl, trivial, trivial⟩
+  · intro Γ ss hΓ hs i
+    refine ⟨.iter (stateTy Γ.toBoundCtx i) (bodyTy Γ.toBoundCtx), ?_⟩
+    cases i <;> exact le_rfl
+  · intro Γ ss hΓ hs i
+    have h := (unfoldLoop Γ.toBoundCtx i).trans (simplifyReply Γ.toBoundCtx i)
+    cases i
+    · exact .equiv h
+    · exact .equiv h
+
+abbrev returnEither {n : Nat} {ss : Fin n → Unit} : Mixed.Raw.Program sig sumSig () ss :=
+  .sum () (fun j => j.elim0) finish finish
+
+/-- Only the right reply causes a second request, in the smaller state. -/
+abbrev unrolled {n : Nat} {ss : Fin n → Unit} : Mixed.Raw.Program sig sumSig () ss :=
+  .sum () (fun j => j.elim0) finish returnEither
+
+private theorem unrolledTyped {n : Nat} (ss : Fin n → Unit) :
+    Mixed.Raw.Program.WellTyped sig sumSig strict (unrolled (ss := ss)) :=
+  ⟨fun j => j.elim0, le_rfl, trivial, fun j => j.elim0, le_rfl, trivial, trivial⟩
+
+private theorem expandFalse {n : Nat} (ss : Fin n → Unit) :
+    Mixed.Ranked.System.expand (ε := Fx) sig sumSig rank sys false ss =
+      Mixed.Raw.Program.compile (ε := Fx) sig sumSig (returnEither (ss := ss)) := by
+  rw [Mixed.Ranked.System.expand_step]
+  rfl
+
+private theorem expandTrue {n : Nat} (ss : Fin n → Unit) :
+    Mixed.Ranked.System.expand (ε := Fx) sig sumSig rank sys true ss =
+      Mixed.Raw.Program.compile (ε := Fx) sig sumSig (unrolled (ss := ss)) := by
+  rw [Mixed.Ranked.System.expand_step]
+  change Mixed.Program.sum (S := sig) (T := sumSig) () (fun j => j.elim0) (.ret (.var 0))
+    (Mixed.Ranked.System.expand (ε := Fx) sig sumSig rank sys false (extendSorts () ss)) = _
+  rw [expandFalse]
+  rfl
+
+abbrev Γ : EffectCtx (Ty Unit) Fx := []
+abbrev slots : Fin Γ.length → Unit := Fin.elim0
+
+/-- The local equation retains a native iteration only at the right reply. -/
+example : Mixed.Ranked.Step.native (ε := Fx) sig sumSig rank sys.endpoint (sys.step slots true) =
+    .case (ask Γ.length) (.bv 0) (loop false (Γ.length + 1)) :=
+  rfl
+
+/-- Native fixpoint expansion and source reflection at the strict effect
+bound. The right tag of the first visible request takes the repeat site. -/
+example : ∃ t : Term Γ.length, (unrolled (ss := slots)).source.toLetIter Γ.length = some t ∧
+    HasTypeEffect free Γ.toBoundCtx (loop true Γ.length) A strict ∧
+    HasTypeEffect free Γ.toBoundCtx t A strict ∧
+    AbortEquiv (⊥ : Fx) free Γ.toBoundCtx (loop true Γ.length) t A ∧
+    Eqv Γ A strict (Mixed.Ranked.System.expand (ε := Fx) sig sumSig rank sys true slots).source
+      (unrolled (ss := slots)).source := by
+  have hΓ : Γ.Pure := fun i => i.elim0
+  have hs : ∀ i, (Γ.get i).1 = .base (slots i) := fun i => i.elim0
+  let p := unrolled (ss := slots)
+  have hp := unrolledTyped slots
+  obtain ⟨t, ht, ht'⟩ := (Mixed.Raw.source_wf sig sumSig hΓ hs strict p hp).toLetIter
+  have h := Mixed.Ranked.raw_endpoint_reflection sig sumSig rank sumVisible sys strict sys_checked
+    true hΓ hs p hp ht
+  have he : Eqv Γ A strict (Mixed.Ranked.System.expand (ε := Fx) sig sumSig rank sys true slots).source p.source := by
+    rw [expandTrue]
+    exact (Mixed.Raw.compile_eqv sig sumSig hΓ hs strict p hp).symm
+  have htLoop := (Mixed.Ranked.expand_native sig sumSig rank sys strict sys_checked true hΓ hs).1
+  exact ⟨t, ht, htLoop, ht', h.mpr he, h.mp (h.mpr he)⟩
+
+end LetIterRankedFixture
