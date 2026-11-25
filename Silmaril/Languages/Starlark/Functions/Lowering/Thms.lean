@@ -35,7 +35,7 @@ the scratch projection on every entry gives a loop that preserves it on every ex
 theorem lowerForIn_preserves {program : Program} {available : List DeclarationId} {state : State}
     {iterable : Expr} {out : Outcome Lists.Value}
     (ran : Evaluates program available state iterable out) (free : ScratchFree state)
-    (target : Binding) (sourceBody loweredBody : Body)
+    (target : Lists.Iteration.LoopTarget) (sourceBody loweredBody : Body)
     (bodyMatch : ∀ s t, StateMatch 0 s t → OutcomeMatch 0
       (denoteBody program available sourceBody s) (denoteBody program available loweredBody t))
     (start : Nat := 0) :

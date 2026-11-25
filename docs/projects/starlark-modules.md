@@ -60,7 +60,7 @@ checked `Modules.Source` and linked declaration table. Module commands cover
 single-name assignment, [simple subscript assignment][subscript-assignment],
 [integer subscript `+=`][augmented-subscript], expression statements, `def` and
 named `load` imports. Function bodies add nested `def`, sequencing, `if`, `pass` and
-`return`, as well as single-name `for` loops with `break` and `continue`.
+`return`, as well as `for` loops with `break` and `continue`.
 Signatures represent the positional, keyword-only, `*args` and
 `**kwargs` classes used by the existing binder. Operands use the
 [existing source expression profile][source-expressions], including the Lean
@@ -74,13 +74,17 @@ dynamically if read before its assignment or load. Duplicate module bindings
 and load/global collisions are rejected before execution.
 
 A loop target belongs to the whole function block. The resolver collects
-the target before resolving the iterable and body in that block. Thus
+all target names before resolving the iterable and body in that block. Thus
 `for x in x` reads the function's `x` before any iteration writes it. The
 last assignment to the target is visible after the loop, and an empty
 loop performs no target write. Loops emit `Body.forInExpr` and use
 the existing validation of `break` and `continue` in each function, including
-skipped code and nested definitions. The module command type admits only
-top-level forms permitted in this profile.
+skipped code and nested definitions. A flat list or tuple of identifiers
+enters through `Statement.forInTarget`, for example
+`.forInTarget starlark%[(x, y)] starlark%[rows] .pass`. The resolver rejects
+nested patterns and non-name leaves even in skipped code. The identifier
+form still enters through `Statement.forIn`. The module command type admits
+only top-level forms permitted in this profile.
 [For statements in the pinned spec][loops] · [Resolved loops](starlark-functions.md#calls-inside-loops) · [Source loop fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/LoopChecks.lean)
 
 Defaults resolve in the enclosing scope. Function bodies use the function's

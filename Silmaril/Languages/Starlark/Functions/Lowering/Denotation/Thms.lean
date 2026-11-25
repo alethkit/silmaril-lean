@@ -11,7 +11,7 @@ public section
 namespace Silmaril.Languages.Starlark.Functions.Lowering
 
 open Lists (State Outcome)
-open Lists.Iteration (Flow truth denoteForIn finishState iterators_denoteForIn)
+open Lists.Iteration (Flow LoopTarget truth denoteForIn finishState iterators_denoteForIn)
 
 /-- Every operational derivation agrees with direct denotation on the exact
 result or error and final state. -/
@@ -81,7 +81,7 @@ theorem exec_branchExpr_iff_denoteExpr (program : Program) (available : List Dec
 
 /-- A native loop acquires its iterator from the exact outcome of the direct operand. -/
 theorem exec_forInExpr_iff_denoteExpr (program : Program) (available : List DeclarationId)
-    (target : Binding) (iterable : Expr) (body : Body) (state : State) (out : Outcome Flow) :
+    (target : LoopTarget) (iterable : Expr) (body : Body) (state : State) (out : Outcome Flow) :
     Exec program available state (.forInExpr target iterable body) out ↔
       denoteForIn target (denoteBody program available body)
         (denoteExpr program available iterable state) = out := by
@@ -89,7 +89,7 @@ theorem exec_forInExpr_iff_denoteExpr (program : Program) (available : List Decl
 
 /-- The loop restores the guard stack left by iterable evaluation on every exit. -/
 theorem iterators_forInExpr (program : Program) (available : List DeclarationId)
-    (target : Binding) (iterable : Expr) (body : Body) (state : State) :
+    (target : LoopTarget) (iterable : Expr) (body : Body) (state : State) :
     (finishState (denoteBody program available (.forInExpr target iterable body) state)).iterators =
       (finishState (denoteExpr program available iterable state)).iterators := by
   rw [denoteBody]

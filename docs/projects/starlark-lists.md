@@ -20,8 +20,9 @@ denotation and operational rules. Resolved expressions cover three families.
 
 The statement forms are name and subscript assignment, evaluation for effects,
 `pass`, and sequencing. `Lists.Iteration.Thms` adds function-body conditionals,
-single-name `for` over these three container types, `break`, `continue` and
-`return`. A bare return lowers to the scalar value `None`. The suite index
+`for` over lists, tuples, dictionaries and ranges, `break`, `continue` and
+`return`. Loop targets can be names or flat patterns of names.
+A bare return lowers to the scalar value `None`. The suite index
 counts lexical loop depth and rules out unscoped `break` and `continue`.
 Callers supply resolved binding slots and enforce source rules such as
 single-assignment globals and function-only control. The scalar entry points
@@ -159,7 +160,8 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 - **Collection operations.** General equality and ordering, `hash`,
   concatenation, slicing of bytes, comprehensions, other methods, augmented forms beyond
   [integer subscript `+=`](starlark-functions.md#integer-augmented-subscript-assignment),
-  destructuring, and other iterable types remain open. The supported
+  general destructuring beyond [flat loop targets](starlark-functions.md#flat-loop-targets),
+  and other iterable types remain open. The supported
   collection truth tests apply in the resolved suite conditional.
 - **Module initialization and loading.** The finite manifest loads modules
   in their own lexical frames, freezes successful publication roots and

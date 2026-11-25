@@ -8,7 +8,7 @@ public import Silmaril.Languages.Starlark.Functions.Lowering.Syntax.Defs
 namespace Silmaril.Languages.Starlark.Functions
 
 open Lists
-open Lists.Iteration (Flow Suite denoteSuite truth)
+open Lists.Iteration (Flow Suite LoopTarget denoteSuite truth)
 
 abbrev DeclarationId := Nat
 
@@ -27,8 +27,8 @@ inductive Body where
   | seq (first rest : Body)
   | branch (test : Lists.Expr) (yes no : Body)
   | branchExpr (test : Lowering.Expr) (yes no : Body)
-  | forIn (target : Binding) (iterable : Lists.Expr) (body : Body)
-  | forInExpr (target : Binding) (iterable : Lowering.Expr) (body : Body)
+  | forIn (target : LoopTarget) (iterable : Lists.Expr) (body : Body)
+  | forInExpr (target : LoopTarget) (iterable : Lowering.Expr) (body : Body)
   | breakLoop
   | continueLoop
   | define (target : Binding) (declaration : DeclarationId)

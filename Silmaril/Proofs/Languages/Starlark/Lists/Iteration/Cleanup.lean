@@ -229,7 +229,7 @@ private theorem keeps_acquire (value : Value) : Preserves (acquireIterator value
   | range => exact keeps_pure _
   | _ => exact keeps_map _ (keeps_source _)
 
-theorem iterators_denoteForIn (target : Binding) (body : Meaning Flow) (operand : Outcome Value) :
+theorem iterators_denoteForIn (target : LoopTarget) (body : Meaning Flow) (operand : Outcome Value) :
     (finishState (denoteForIn target body operand)).iterators = (finishState operand).iterators := by
   unfold denoteForIn
   refine (resume_preserves (Outcome.resume operand acquireIterator) _ ?_).trans

@@ -14,29 +14,57 @@ inductive CursorCollects : Cursor → List Value → Prop where
       cursor.advance = some (value, rest) → CursorCollects rest tail →
       CursorCollects cursor (value :: tail)
 
+inductive WritesBindings : State → List (Binding × Value) → State → Prop where
+  | done (s : State) : WritesBindings s [] s
+  | next {s final : State} {binding : Binding} {value : Value} {rest : List (Binding × Value)} :
+      WritesBindings (s.write binding value) rest final →
+      WritesBindings s ((binding, value) :: rest) final
+
+/-- Unpack and validate an item before any writes to a flat target. -/
+inductive BindsTarget (s : State) (value : Value) : LoopTarget → Outcome Unit → Prop where
+  | name (binding : Binding) : BindsTarget s value (.name binding) (.ok () (s.write binding value))
+  | unpack {bindings : List Binding} {values : List Value} {guard : Option Address}
+      {cursor : Cursor} {t final : State} :
+      acquireIterator value s = .ok (guard, cursor) t → cursor.remaining = bindings.length →
+      CursorCollects cursor values → WritesBindings t (bindings.zip values) final →
+      BindsTarget s value (.unpack bindings) (.ok () final)
+  | arity {bindings : List Binding} {guard : Option Address} {cursor : Cursor} {t : State} :
+      acquireIterator value s = .ok (guard, cursor) t → cursor.remaining ≠ bindings.length →
+      BindsTarget s value (.unpack bindings) (.error (.unpackArity bindings.length cursor.remaining) t)
+  | nonIterable (bindings : List Binding) {t : State} :
+      acquireIterator value s = .error .notIterable t →
+      BindsTarget s value (.unpack bindings) (.error (.unpackTarget value) t)
+  | readError (bindings : List Binding) {error : Error} {t : State} :
+      acquireIterator value s = .error error t → error ≠ .notIterable →
+      BindsTarget s value (.unpack bindings) (.error error t)
+
 /-- Step rules shared by the suite and checked-body loop judgments. -/
-inductive CursorRuns (body : State → Outcome Flow → Prop) (target : Binding) :
+inductive CursorRuns (body : State → Outcome Flow → Prop) (target : LoopTarget) :
     Cursor → State → Outcome Flow → Prop where
   | done {cursor : Cursor} {s : State} :
       cursor.advance = none → CursorRuns body target cursor s (.ok .next s)
-  | advance {cursor rest : Cursor} {s t : State} {value : Value} {signal : Flow} {out : Outcome Flow} :
-      cursor.advance = some (value, rest) → body (s.write target value) (.ok signal t) →
+  | advance {cursor rest : Cursor} {s u t : State} {value : Value} {signal : Flow} {out : Outcome Flow} :
+      cursor.advance = some (value, rest) → BindsTarget s value target (.ok () u) → body u (.ok signal t) →
       (signal = .next ∨ signal = .continueLoop) → CursorRuns body target rest t out →
       CursorRuns body target cursor s out
-  | breakLoop {cursor rest : Cursor} {s t : State} {value : Value} :
-      cursor.advance = some (value, rest) → body (s.write target value) (.ok .breakLoop t) →
+  | breakLoop {cursor rest : Cursor} {s u t : State} {value : Value} :
+      cursor.advance = some (value, rest) → BindsTarget s value target (.ok () u) → body u (.ok .breakLoop t) →
       CursorRuns body target cursor s (.ok .next t)
-  | returned {cursor rest : Cursor} {s t : State} {value result : Value} :
-      cursor.advance = some (value, rest) → body (s.write target value) (.ok (.returned result) t) →
+  | returned {cursor rest : Cursor} {s u t : State} {value result : Value} :
+      cursor.advance = some (value, rest) → BindsTarget s value target (.ok () u) →
+      body u (.ok (.returned result) t) →
       CursorRuns body target cursor s (.ok (.returned result) t)
-  | failed {cursor rest : Cursor} {s t : State} {value : Value} {error : Error} :
-      cursor.advance = some (value, rest) → body (s.write target value) (.error error t) →
+  | failed {cursor rest : Cursor} {s u t : State} {value : Value} {error : Error} :
+      cursor.advance = some (value, rest) → BindsTarget s value target (.ok () u) → body u (.error error t) →
+      CursorRuns body target cursor s (.error error t)
+  | bindingError {cursor rest : Cursor} {s t : State} {value : Value} {error : Error} :
+      cursor.advance = some (value, rest) → BindsTarget s value target (.error error t) →
       CursorRuns body target cursor s (.error error t)
 
 /-- Suite and cursor judgments share one induction principle. -/
 inductive Work where
   | suite {depth : Nat} (code : Suite depth)
-  | cursor {depth : Nat} (target : Binding) (body : Suite depth) (remaining : Cursor)
+  | cursor {depth : Nat} (target : LoopTarget) (body : Suite depth) (remaining : Cursor)
 
 abbrev Work.items {depth : Nat} (target : Binding) (body : Suite depth) (remaining : List Value) : Work :=
   .cursor target body (.items remaining)
@@ -65,13 +93,13 @@ inductive Runs : State → Work → Outcome Flow → Prop where
       {value : Outcome Value} {error : Error} :
       Eval s test value → Outcome.resume value truth = .error error t →
       Runs s (.suite (.branch test yes no)) (.error error t)
-  | forIn {depth : Nat} {s t : State} {target : Binding} {iterable : Expr}
+  | forIn {depth : Nat} {s t : State} {target : LoopTarget} {iterable : Expr}
       {body : Suite (depth + 1)} {value : Outcome Value} {guard : Option Address}
       {cursor : Cursor} {out : Outcome Flow} :
       Eval s iterable value → Outcome.resume value acquireIterator = .ok (guard, cursor) t →
       Runs (enterIterator t guard) (.cursor target body cursor) out →
       Runs s (.suite (.forIn target iterable body)) (restoreIterators t.iterators out)
-  | forError {depth : Nat} {s t : State} {target : Binding} {iterable : Expr}
+  | forError {depth : Nat} {s t : State} {target : LoopTarget} {iterable : Expr}
       {body : Suite (depth + 1)} {value : Outcome Value} {error : Error} :
       Eval s iterable value → Outcome.resume value acquireIterator = .error error t →
       Runs s (.suite (.forIn target iterable body)) (.error error t)
@@ -82,7 +110,7 @@ inductive Runs : State → Work → Outcome Flow → Prop where
   | ret {depth : Nat} {s : State} {value : Expr} {out : Outcome Value} :
       Eval s value out → Runs s (.suite (.ret (depth := depth) value))
         (Outcome.resume out fun result => pure (.returned result))
-  | cursor {depth : Nat} {s : State} {target : Binding} {body : Suite depth}
+  | cursor {depth : Nat} {s : State} {target : LoopTarget} {body : Suite depth}
       {remaining : Cursor} {out : Outcome Flow} {bodyRuns : State → Outcome Flow → Prop} :
       (∀ state result, bodyRuns state result → Runs state (.suite body) result) →
       CursorRuns bodyRuns target remaining s out → Runs s (.cursor target body remaining) out

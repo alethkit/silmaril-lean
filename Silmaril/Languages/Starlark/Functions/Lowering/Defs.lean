@@ -104,7 +104,7 @@ comparison. Only a successful expression writes the destination. -/
   ⟨code, (List.range' start (stop - start)).map temporary, stop⟩
 
 /-- Stage a loop operand once before entering the existing checked body. -/
-@[expose] def lowerForIn (target : Binding) (iterable : Expr) (body : Body) (start : Nat := 0) : Lowered :=
+@[expose] def lowerForIn (target : Lists.Iteration.LoopTarget) (iterable : Expr) (body : Body) (start : Nat := 0) : Lowered :=
   let operand := temporary start
   let staged := lower iterable operand (start + 1)
   ⟨.seq staged.code (.forIn target (.read (.bound operand)) body),
