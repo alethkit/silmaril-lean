@@ -37,6 +37,14 @@ theorem iterateRegion_unfold (hr : ValueBranches (A :: Γ) r [Silmaril.coprod B 
       (.cfg (iterationBody r) 1 (fun _ => (iterationBody r).renameVars (lift Nat.succ))) [B] :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.iterateRegion_unfold hr
 
+/-- Move a one-label feedback CFG through the value decoder. A return leaves
+the CFG immediately, and a repeat meets the same loop at the new state. -/
+theorem iterationDispatch_cfg (hr : ValueBranches (A :: Γ) r [Silmaril.coprod B A]) :
+    SubstitutionEquiv (Silmaril.coprod B A :: Γ)
+      (.cfg iterationDispatch 1 (fun _ => (iterationBody r).renameVars (lift Nat.succ)))
+      (.case (.var 0) (.br 0 (.var 0)) ((iterateRegion A r).renameVars (lift Nat.succ))) [B] :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.iterationDispatch_cfg hr
+
 /-- An immediate left injection returns its payload without taking a repeat step. -/
 theorem iterateRegion_return {b : Tm Φ} (hb : Tm.BranchValue (A :: Γ) b B) :
     SubstitutionEquiv (A :: Γ) (iterateRegion A (.br 0 (.inl b))) (.br 0 b) [B] :=
