@@ -3,6 +3,7 @@ module
 import Mathlib.Tactic.IntervalCases
 import Silmaril.Foundations.InfiniteTrace.Deterministic
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Extraction.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Extraction.Theta.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Feedback.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
@@ -561,5 +562,118 @@ example : ∃ (micro : Nat → Config machine Nat answer) (child : CallDescent.E
     rw [align stop (by omega)]
     exact returned
   exact ⟨micro, child, pending, exactFinish ▸ extracted, atChild⟩
+
+private def feedbackOnlyTick : NestedTheta.Node (Instruction Op) fn.args [] answer :=
+  ⟨answer, .base (.simple (.primitive .tick)), .cons (.arg (.tail .head)) .nil, fun i => i.elim0⟩
+
+private def feedbackOnlyRest : NestedTheta.Term (Instruction Op) fn.args [answer] [] (Theta.BodyResults fn.args) :=
+  .ret (.cons (.arg .head) (.cons (.arg .head) (.cons (.output (0 : Fin 1) .head) .nil)))
+
+private def feedbackOnlyBody : NestedTheta.Term (Instruction Op) fn.args [] [answer] (Theta.BodyResults fn.args) :=
+  .bind feedbackOnlyTick (fun i => i.elim0) feedbackOnlyRest
+
+private def feedbackOnlyNode : NestedTheta.Node (Instruction Op) fn.args [] fn.args :=
+  NestedTheta.thetaVertex [answer]
+
+private def feedbackOnlySuffix : NestedTheta.Term (Instruction Op) fn.args [fn.args] [] answer :=
+  .ret (.cons (.output (0 : Fin 1) (.tail .head)) .nil)
+
+private def feedbackOnlyTerm : NestedTheta.Term (Instruction Op) fn.args [] [fn.args] answer :=
+  .bind feedbackOnlyNode (fun _ => feedbackOnlyBody) feedbackOnlySuffix
+
+private def feedbackOnlyModule : OmegaTerm Op [] [callable] [[callable]] :=
+  ⟨.bind (.lambda ⟨[], .nil, [fn.args], feedbackOnlyTerm⟩) (.ret (.cons (.output (0 : Fin 1) .head) .nil))⟩
+
+private def feedbackOnlyCallee : machine.Val callable :=
+  (Recursive.linkGraph machine 61 feedbackOnlyModule.toGraph .nil).get .head
+
+private theorem feedbackOnlyOpened :
+    Job.openClosure machine feedbackOnlyCallee (args 1 7) = .region feedbackOnlyTerm (args 1 7) PUnit.unit :=
+  congrArg (fun term => Job.region (m := machine) (past := []) term (args 1 7) PUnit.unit)
+    (NestedTheta.Term.toTerm_toGraph feedbackOnlyTerm)
+
+private def feedbackOnlyEntry : CallDescent.Entry machine Nat :=
+  ⟨⟨answer, ⟨fn.args, feedbackOnlyCallee, args 1 7⟩⟩, 20⟩
+
+private def feedbackOnlyParent : Stack machine fn.args answer :=
+  .resume (past := []) feedbackOnlySuffix (args 1 7) PUnit.unit .halt
+
+private def feedbackOnlyPhase (iteration phase : Nat) : Config machine Nat answer :=
+  let input := args 1 (7 + iteration)
+  let store := 20 + iteration
+  let value := stateValue (7 + iteration + 1)
+  let loop := Stack.loop feedbackOnlyBody feedbackOnlyParent
+  let saved := Stack.resume (past := []) feedbackOnlyRest input PUnit.unit loop
+  match phase with
+  | 0 => ⟨.eval (.iteration feedbackOnlyBody input) feedbackOnlyParent, store⟩
+  | 1 => ⟨.eval (.region feedbackOnlyBody input PUnit.unit) loop, store⟩
+  | 2 => ⟨.eval (.node (.base (.simple (.primitive .tick))) (fun i => i.elim0) (fun i => i.elim0)
+    (stateValue (7 + iteration))) saved, store⟩
+  | 3 => ⟨.returned value saved, store + 1⟩
+  | 4 => ⟨.eval (.region feedbackOnlyRest input (value, PUnit.unit)) loop, store + 1⟩
+  | _ => ⟨.returned (.cons (.control 1) (args 1 (7 + iteration + 1))) loop, store + 1⟩
+
+-- Explicit actual steps, with one tick and one restart in each cycle.
+private def feedbackOnlyStream : Nat → Config machine Nat answer
+  | 0 => feedbackOnlyEntry.config .halt
+  | 1 => ⟨.eval (.region feedbackOnlyTerm (args 1 7) PUnit.unit) .halt, 20⟩
+  | 2 => ⟨.eval (.node (.theta fn.args) (fun _ => [answer]) (fun _ => feedbackOnlyBody) (args 1 7))
+    feedbackOnlyParent, 20⟩
+  | n + 3 => feedbackOnlyPhase (n / 6) (n % 6)
+
+private theorem feedbackOnlySteps (i : Nat) :
+    Step primitives (feedbackOnlyStream i) (feedbackOnlyStream (i + 1)) := by
+  cases i with
+  | zero =>
+    apply Step.of_next_some
+    change _root_.Part.some (Config.mk (.eval (Job.openClosure machine feedbackOnlyCallee (args 1 7)) .halt) 20) =
+      _root_.Part.some (Config.mk (.eval (.region feedbackOnlyTerm (args 1 7) PUnit.unit) .halt) 20)
+    rw [feedbackOnlyOpened]
+  | succ i =>
+    cases i with
+    | zero => exact .of_next_some rfl
+    | succ i =>
+      cases i with
+      | zero => exact .of_next_some rfl
+      | succ n =>
+        change Step primitives (feedbackOnlyPhase (n / 6) (n % 6))
+          (feedbackOnlyPhase ((n + 1) / 6) ((n + 1) % 6))
+        have phases : n % 6 = 0 ∨ n % 6 = 1 ∨ n % 6 = 2 ∨ n % 6 = 3 ∨ n % 6 = 4 ∨ n % 6 = 5 := by omega
+        rcases phases with h | h | h | h | h | h
+        all_goals
+          first
+          | have nextRound : (n + 1) / 6 = n / 6 := by omega
+            rw [nextRound, show (n + 1) % 6 = n % 6 + 1 by omega, h]
+            exact .of_next_some rfl
+          | rw [show (n + 1) / 6 = n / 6 + 1 by omega, show (n + 1) % 6 = 0 by omega, h]
+            exact .of_next_some rfl
+
+private theorem feedbackOnlyNoLaterCalls (i : Nat) (later : 0 < i) :
+    Descent.Entry.ofState (feedbackOnlyStream i).control = none := by
+  cases i with
+  | zero => cases later
+  | succ i =>
+    cases i with
+    | zero => rfl
+    | succ i =>
+      cases i with
+      | zero => rfl
+      | succ n =>
+        change Descent.Entry.ofState (feedbackOnlyPhase (n / 6) (n % 6)).control = none
+        have small : n % 6 < 6 := Nat.mod_lt _ (by decide)
+        generalize n % 6 = phase at small ⊢
+        interval_cases phase <;> rfl
+
+example : CallDescent.Extraction.HasFeedback primitives feedbackOnlyStream 1 := by
+  apply CallDescent.Extraction.feedback_of_live (begin := 0) feedbackOnlySteps
+    (caller := feedbackOnlyEntry) (base := .halt) rfl
+  · rintro i _ ⟨value, popped⟩
+    have actual : feedbackOnlyStream i = ⟨.returned value .halt, (feedbackOnlyStream i).store⟩ := by rw [← popped]
+    exact noStepAtHalt value (feedbackOnlyStream i).store _ (actual ▸ feedbackOnlySteps i)
+  · rintro i later ⟨entry, frame, atCall, _⟩
+    have notCall := feedbackOnlyNoLaterCalls i later
+    rw [atCall] at notCall
+    rcases entry with ⟨⟨_, ⟨_, _, _⟩⟩, _⟩
+    cases notCall
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Tests
