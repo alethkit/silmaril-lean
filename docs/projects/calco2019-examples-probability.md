@@ -24,8 +24,9 @@ are `2^(-n-1) / S(n)` and `S(n+1) / S(n)`. The probability of first exiting
 at state `n` from state zero is therefore `2^(-n-1) / S(0)`, or
 `1 / (3 * 2^n)`. Summing the geometric series gives **2/3**. The printed
 sequence weight `1/2^(n+2)` and total `1/2` differ from those calculated
-using the printed transitions. Lean checks the filtered geometric series in
-`scaled_least` and the total in `chain_mass_zero`. A constant exit label
+using the printed transitions. Lean checks the exact printed hazard in `exit_printed`, the individual
+path weight in `first_exit_probability`, the filtered geometric series in
+`scaled_least`, and the total in `chain_mass_zero`. A constant exit label
 recovers the paper's singleton-result loop.
 
 ### The normalization claim
@@ -53,8 +54,11 @@ on earlier exits on that tail. The fixpoint equations then force the weight
 of every individual label at state zero to equal the corresponding finite
 exit probability. Those weights sum to `2/3`, while a PMF has mass one.
 
-The development gives the unnormalized least solution for PMF inputs and the
-obstruction for the guard in Example 10(3). The complete Elgot laws of the
+The [Kleisli theorems][kleisli] verify `pmfGuard` against the three axioms of
+Definition 6. `no_conway_uniform` applies the pure-map obstruction to the
+CALCO interface in Definition 19(2), using the inherited coproducts on types.
+
+The unnormalized least solution takes PMF bodies. The complete Elgot laws of the
 subdistribution monad for arbitrary subdistribution inputs are outside this
 slice.
 
@@ -66,4 +70,5 @@ lake build --wfail +Silmaril.Papers.Calco2019.Examples.Probability
 
 [paper]: https://doi.org/10.4230/LIPIcs.CALCO.2019.13
 [prob-defs]: ../../Silmaril/Semantics/Calco2019/Examples/Probability/Defs.lean
+[kleisli]: ../../Silmaril/Semantics/Calco2019/Examples/Probability/Kleisli/Thms.lean
 [prob-thms]: ../../Silmaril/Semantics/Calco2019/Examples/Probability/Thms.lean

@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.Calco2019.Examples.Probability.Thms
+public import Silmaril.Semantics.Calco2019.Examples.Probability.Kleisli.Thms
 
 /-! # CALCO 2019, Example 20(3)
 
