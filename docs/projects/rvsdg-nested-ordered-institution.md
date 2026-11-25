@@ -23,9 +23,9 @@ satisfaction in the reduct iff satisfaction of the translated equation, give
 an institution in the repository's `Sign ⥤ Room` framework. By unbounded
 finite adequacy, this is equivalent to agreement on each finite return of the
 existing ordered relation. With total primitive actions, a missing finite
-observation records only absence of a completed return. Institutions for
-partial primitives, infinite traces, and explicit state wires are separate
-extensions. [Satisfaction and adequacy](../../Silmaril/SSA/RVSDG/NestedTheta/Institution/Thms.lean)
+observation records only absence of a completed return. The
+partial-primitive institution adds block diagnostics and productive divergence.
+[Satisfaction and adequacy](../../Silmaril/SSA/RVSDG/NestedTheta/Institution/Thms.lean) · [Partial-primitive institution](rvsdg-nested-partial-institution.md)
 
 The fixture migrates two distinct effectful opcodes to a common target opcode.
 The selected γ arm contains a θ that takes one feedback step. The equation
