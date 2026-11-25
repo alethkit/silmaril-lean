@@ -446,14 +446,14 @@ theorem call_iff {H : Type} {s : Store H} {f : Frame}
     simpa only [List.append_assoc, List.singleton_append] using
       Step.context (Step.call (host := CallFrame.limeNoHost) s f i addr lookup) stack tail
 
-theorem label_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {stack : List Value}
+theorem label_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {cont : Wasm.Lime1.Expr} {stack : List Value}
     {head : Admin} {rest out : List Admin}
     (none : asValue? head = none) (notBr : ∀ i, head ≠ .source (.br i))
     (notRet : head ≠ .source .return_) (notFinalTrap : head = .trap → stack ≠ [] ∨ rest ≠ [])
-    (h : PureStep types [.label n [] (values stack ++ head :: rest)] out) : False := by
-  generalize eq : ([.label n [] (values stack ++ head :: rest)] : List Admin) = code at h
-  have headEq {body : List Admin} {arity : Nat} {cont : Wasm.Lime1.Expr}
-      (e : ([.label n [] (values stack ++ head :: rest)] : List Admin) = [.label arity cont body]) :
+    (h : PureStep types [.label n cont (values stack ++ head :: rest)] out) : False := by
+  generalize eq : ([.label n cont (values stack ++ head :: rest)] : List Admin) = code at h
+  have headEq {body : List Admin} {arity : Nat} {otherCont : Wasm.Lime1.Expr}
+      (e : ([.label n cont (values stack ++ head :: rest)] : List Admin) = [.label arity otherCont body]) :
       first body = some head :=
     (congrArg first (AdminInstr.label.inj (List.cons.inj e).1).2.2).symm.trans
       (by rw [first_prefix, first_head _ none])
@@ -494,12 +494,12 @@ theorem lift_body {H : Type} {s s' : Store H} {caller inner inner' : Frame}
       ⟨s', caller, [.frame n inner' [.label n [] b]]⟩ :=
   .frame (.label h n []) n caller
 
-theorem body_step_cases {H : Type} {s : Store H} {caller inner : Frame} {n : Nat}
+theorem body_step_cases {H : Type} {s : Store H} {caller inner : Frame} {n k : Nat} {cont : Wasm.Lime1.Expr}
     {body : List Admin} {dst : Config H}
-    (h : Step CallFrame.limeNoHost ⟨s, caller, [.frame n inner [.label n [] body]]⟩ dst) :
+    (h : Step CallFrame.limeNoHost ⟨s, caller, [.frame n inner [.label k cont body]]⟩ dst) :
     (∃ mid : Config H, Step CallFrame.limeNoHost ⟨s, inner, body⟩ mid ∧
-      dst = ⟨mid.store, caller, [.frame n mid.frame [.label n [] mid.code]]⟩) ∨
-    ∃ out, PureStep inner.module.types [.label n [] body] out ∧ dst = ⟨s, caller, [.frame n inner out]⟩ := by
+      dst = ⟨mid.store, caller, [.frame n mid.frame [.label k cont mid.code]]⟩) ∨
+    ∃ out, PureStep inner.module.types [.label k cont body] out ∧ dst = ⟨s, caller, [.frame n inner out]⟩ := by
   cases wrapper_step h rfl trivial with
   | pure pop => exact (frame_label_stays pop).elim
   | frame step =>

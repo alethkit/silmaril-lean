@@ -1395,7 +1395,7 @@ private theorem directFunctionExit (mixed : Bool) :
   have entered := (Relation.ReflTransGen.single (directFunctionEdge mixed (.resolve []))).tail
     (directFunctionEdge mixed (.enter [] rfl))
   exact entered.tail (directFunctionEdge mixed
-    (.branchHere [] [i32 99] payload (payload.map Value.type) skipped (by simp)))
+    (.branchHere (kind := .exit) [] [i32 99] payload (payload.map Value.type) skipped (by simp)))
 
 private theorem directFunctionRun (mixed : Bool) :
     (directFunctionGraph mixed).Runs (directFunctionChecked mixed) ⟨0⟩ (.call [])
@@ -1522,5 +1522,191 @@ example (table : Bool) := nativeRun (functionBranchChecked table) (functionBranc
   (.call (args := input) rfl) (functionBranchResumes table)
 example (table : Bool) := nativeRun (functionBranchChecked table) (functionBranchV1Checked table) (functionBranchRoot table)
   (.call (args := input) rfl) (functionBranchRun table)
+
+section ScalarLoops
+
+private abbrev loopFlag : LocalIdx := ⟨0⟩
+private abbrev loopValue : LocalIdx := ⟨1⟩
+private abbrev loopZero : LocalIdx := ⟨2⟩
+private abbrev loopDepth : LabelIdx := ⟨0⟩
+
+private def readLocal (i : LocalIdx) : Op := .numeric (.get i)
+private def onceBody : List Op :=
+  [readLocal loopFlag, readLocal loopZero, .set loopFlag, .brIf loopDepth [], readLocal loopValue]
+
+private def onceTail : List Op := [readLocal loopFlag, .numeric (.bin .i32 .sub)]
+private def onceCode : List Op := .loop scalarBlock onceBody :: onceTail
+private def onceArgs : List Value := [i32 1, i32 42]
+private def onceLocals (flag : BitVec 32) : List Value := [i32 flag, i32 42, i32 0]
+
+private def onceCallee : Function := ⟨⟨{}, ⟨0⟩, [int32, int32], [int32], [int32]⟩, 0, [], onceCode⟩
+private def onceTarget : CallTarget := ⟨⟨0⟩, ⟨0⟩, onceCallee.declaration⟩
+private def onceCaller : Function :=
+  ⟨⟨{ funcs := [⟨0⟩] }, ⟨0⟩, [], [], [int32]⟩, 1, [i32 9] ++ onceArgs, [.call onceTarget, add]⟩
+private def onceGraph : Program := ⟨[some onceCallee, some onceCaller]⟩
+private def onceRootTarget : CallTarget := ⟨⟨0⟩, ⟨1⟩, onceCaller.declaration⟩
+
+private theorem onceChecked : onceGraph.check = true := rfl
+private theorem onceV1Checked : onceGraph.checkV1 = true := rfl
+private theorem onceRoot : Root onceGraph (callerFrame ⟨1⟩) onceRootTarget onceCaller := ⟨rfl, rfl, rfl⟩
+
+-- The loop's result type is separate from its empty branch payload.
+example : ({ onceCallee with code := [.loop scalarBlock [.br loopDepth [int32]]] }).check = false := rfl
+example : ({ onceCallee with code := [.loop scalarBlock []] }).check = false := rfl
+example : ({ onceCallee with code := [.loop scalarBlock [readLocal loopValue, .br ⟨2⟩ [int32]]] }).check = false := rfl
+example : ({ onceCallee with code := [.loop scalarBlock [.brIf loopDepth [], readLocal loopValue]] }).check = false := rfl
+
+private theorem onceRule {a b : Phase}
+    (step : Layer onceCallee (fun t => onceGraph.Edge onceChecked t.address) a b) :
+    onceGraph.Edge onceChecked ⟨0⟩ a b :=
+  (onceGraph.edge_iff onceChecked (fn := onceCallee) rfl).mpr step
+
+private def inIteration (locals stack : List Value) (code : List Op) : Phase :=
+  .label locals (.loop [] scalarBlock onceBody (.running stack code) onceTail)
+
+private theorem iterationTest (flag : BitVec 32) :
+    onceGraph.Runs onceChecked ⟨0⟩ (.label (onceLocals flag) (.running [] onceCode))
+      (inIteration (onceLocals 0) [i32 flag] [.brIf loopDepth [], readLocal loopValue]) := by
+  have enter := onceRule (.loopEnter (onceLocals flag) [] scalarBlock onceBody onceTail)
+  have cached := onceRule (.loopStep [] scalarBlock onceBody onceTail
+    (.numeric (locals := onceLocals flag) (rest := [readLocal loopZero, .set loopFlag, .brIf loopDepth [], readLocal loopValue])
+      (.get (stack := []) (i := loopFlag) (v := i32 flag) rfl)))
+  have zero := onceRule (.loopStep [] scalarBlock onceBody onceTail
+    (.numeric (locals := onceLocals flag) (rest := [.set loopFlag, .brIf loopDepth [], readLocal loopValue])
+      (.get (stack := [i32 flag]) (i := loopZero) (v := i32 0) rfl)))
+  have set := onceRule (.loopStep [] scalarBlock onceBody onceTail
+    (.localSet (saved := [i32 flag]) (rest := [.brIf loopDepth [], readLocal loopValue])
+      (Locals.fact (.set (onceLocals flag) loopFlag (i32 0) (by change 0 < 3; decide)))))
+  exact (((Relation.ReflTransGen.single enter).tail cached).tail zero).tail set
+
+private theorem throughRestart :
+    onceGraph.Runs onceChecked ⟨0⟩ (.invoke onceArgs)
+      (.label (onceLocals 0) (.running [] onceCode)) := by
+  have enter := onceRule (.enter onceArgs rfl)
+  have taken := onceRule (.loopStep [] scalarBlock onceBody onceTail
+    (.branchIf (onceLocals 0) [] 1 loopDepth [] [readLocal loopValue]))
+  have restart := onceRule (.loopStep [] scalarBlock onceBody onceTail
+    (.branchHere (onceLocals 0) [] [] [] [readLocal loopValue] rfl))
+  exact (((Relation.ReflTransGen.single enter).trans (iterationTest 1)).tail taken).tail restart
+
+private theorem onceReturns :
+    onceGraph.Runs onceChecked ⟨0⟩ (.invoke onceArgs) (.done (.values [i32 42])) := by
+  have skipped := (iterationTest 0).tail (onceRule (.loopStep [] scalarBlock onceBody onceTail
+    (.branchIf (onceLocals 0) [] 0 loopDepth [] [readLocal loopValue])))
+  have computed := skipped.tail (onceRule (.loopStep [] scalarBlock onceBody onceTail
+    (.numeric (locals := onceLocals 0) (rest := []) (.get (stack := []) (i := loopValue) (v := i32 42) rfl))))
+  have left := computed.tail (onceRule (.loopStep [] scalarBlock onceBody onceTail
+    (.leaveValues (onceLocals 0) [i32 42])))
+  have readUpdated := left.tail (onceRule (.numeric (locals := onceLocals 0) (rest := [.numeric (.bin .i32 .sub)])
+    (.get (stack := [i32 42]) (i := loopFlag) (v := i32 0) rfl)))
+  have subtracted := readUpdated.tail (onceRule (.numeric (rest := []) (.bin (stack := [])
+    (show Numerics.intBinOp .i32 .sub 42 0 = .ok 42 from rfl))))
+  have finish := (subtracted.tail (onceRule (.leaveValues (onceLocals 0) [i32 42]))).tail
+    (onceRule (.leaveFrame (onceLocals 0) (.values [i32 42]) rfl))
+  exact throughRestart.trans finish
+
+private theorem onceCallerRuns :
+    onceGraph.Runs onceChecked ⟨1⟩ (.call []) (.done (.values [i32 51])) := by
+  have edge {a b : Phase} := (onceGraph.edge_iff onceChecked (address := ⟨1⟩) (fn := onceCaller)
+    (a := a) (b := b) rfl).mpr
+  have invoke := (Relation.ReflTransGen.single (edge (.resolve []))).tail (edge (.enter [] rfl))
+  have child := Program.compose_call onceChecked (address := ⟨1⟩) (fn := onceCaller) (target := onceTarget)
+    (locals := []) (saved := [i32 9]) (rest := [add]) rfl (by simp [onceCaller, Function.targets, codeTargets, Op.targets, add])
+    rfl onceReturns
+  have finish := (invoke.trans child).tail (edge (.numeric (rest := []) (.bin (stack := [])
+    (show Numerics.intBinOp .i32 .add 9 42 = .ok 51 from rfl))))
+  exact (finish.tail (edge (.leaveValues [] [i32 51]))).tail (edge (.leaveFrame [] (.values [i32 51]) rfl))
+
+example := nativeRun onceChecked onceV1Checked onceRoot (.call (args := []) rfl) onceCallerRuns
+
+private def foreverBody : List Op := [.br loopDepth []]
+private def foreverCode : List Op := [.loop scalarBlock foreverBody]
+private def foreverFn : Function := ⟨⟨{}, ⟨0⟩, [], [], [int32]⟩, 0, [], foreverCode⟩
+private def foreverGraph : Program := ⟨[some foreverFn]⟩
+private def foreverTarget : CallTarget := ⟨⟨0⟩, ⟨0⟩, foreverFn.declaration⟩
+private theorem foreverV1Checked : foreverGraph.checkV1 = true := rfl
+private theorem foreverChecked : foreverGraph.check = true := (Bool.and_eq_true_iff.mp foreverV1Checked).1
+private theorem foreverRoot : Root foreverGraph (callerFrame ⟨0⟩) foreverTarget foreverFn := ⟨rfl, rfl, rfl⟩
+private def beforeRestart : Phase := .label [] (.running [] foreverCode)
+private def afterEntry : Phase := .label [] (.loop [] scalarBlock foreverBody (.running [] foreverBody) [])
+
+private theorem foreverReady : Admitted foreverGraph foreverFn beforeRestart := .running rfl rfl
+
+private theorem foreverEdge {out : Phase} :
+    foreverGraph.Edge foreverChecked ⟨0⟩ beforeRestart out ↔ out = afterEntry := by
+  rw [foreverGraph.edge_iff foreverChecked (fn := foreverFn) rfl]
+  constructor
+  · intro edge
+    generalize eq : beforeRestart = src at edge
+    cases edge <;> simp [beforeRestart, foreverCode, List.append_eq_nil_iff] at eq
+    case loopEnter =>
+      obtain ⟨rfl, rfl, ⟨rfl, rfl⟩, rfl⟩ := eq
+      rfl
+  · rintro rfl
+    exact .loopEnter [] [] scalarBlock foreverBody []
+
+private theorem foreverRestart {out : Phase} :
+    foreverGraph.Edge foreverChecked ⟨0⟩ afterEntry out ↔ out = beforeRestart := by
+  rw [foreverGraph.edge_iff foreverChecked (fn := foreverFn) rfl]
+  constructor
+  · intro edge
+    cases edge with
+    | loopStep _ _ _ _ inner =>
+      generalize eq : Phase.label [] (.running [] foreverBody) = src at inner
+      cases inner <;> simp [foreverBody, List.append_eq_nil_iff] at eq
+      case branchHere =>
+        obtain ⟨rfl, ⟨rfl, rfl⟩, rfl, rfl⟩ := eq
+        rfl
+      case branchOuter =>
+        obtain ⟨rfl, rfl, ⟨rfl, rfl⟩, rfl⟩ := eq
+        exact (Nat.lt_irrefl 0 ‹_›).elim
+  · rintro rfl
+    exact .loopStep [] scalarBlock foreverBody [] (.branchHere [] [] [] [] [] rfl)
+
+private theorem foreverEndpoints {out : Phase} :
+    foreverGraph.Runs foreverChecked ⟨0⟩ beforeRestart out ↔ out = beforeRestart ∨ out = afterEntry := by
+  constructor
+  · intro run
+    induction run with
+    | refl => exact .inl rfl
+    | tail _ edge ih =>
+      rcases ih with rfl | rfl
+      · exact .inr (foreverEdge.mp edge)
+      · exact .inl (foreverRestart.mp edge)
+  · rintro (rfl | rfl)
+    · exact .refl
+    · exact .single (foreverEdge.mpr rfl)
+
+private theorem exactCycle {C : Type} {step : C → C → Prop} {dst : C}
+    (render : Phase → C)
+    (agree : Relation.ReflTransGen step (render beforeRestart) dst ↔
+      ∃ out, foreverGraph.Runs foreverChecked ⟨0⟩ beforeRestart out ∧ Admitted foreverGraph foreverFn out ∧
+        dst = render out) :
+    Relation.ReflTransGen step (render beforeRestart) dst ↔
+      dst = render beforeRestart ∨ dst = render afterEntry := by
+  rw [agree]
+  constructor
+  · rintro ⟨out, run, _, rfl⟩
+    rcases foreverEndpoints.mp run with rfl | rfl
+    · exact .inl rfl
+    · exact .inr rfl
+  · rintro (rfl | rfl)
+    · exact ⟨_, .refl, foreverReady, rfl⟩
+    · have edge := foreverEdge.mpr rfl
+      exact ⟨_, .single edge, foreverGraph.admitted_step foreverChecked rfl foreverReady edge, rfl⟩
+
+example {dst : Execution.Core.Config Unit} :=
+  exactCycle (dst := dst) (coreConfig (coreStore foreverGraph) (callerFrame ⟨0⟩) foreverTarget)
+    (core_run_iff (P := Numerics.Profile.spec) foreverChecked (coreAllocated _) foreverRoot foreverReady)
+
+example {dst : Lime1.Execution.Config Unit} :=
+  exactCycle (dst := dst) (limeConfig (limeStore foreverGraph) (callerFrame ⟨0⟩) foreverTarget)
+    (lime_run_iff foreverChecked (limeAllocated _) foreverRoot foreverReady)
+
+example {dst : V1.Execution.Config Unit} :=
+  exactCycle (dst := dst) (v1Config (v1Store foreverGraph) (callerFrame ⟨0⟩) foreverTarget)
+    (v1_run_iff foreverV1Checked (v1Allocated _) foreverRoot foreverReady)
+
+end ScalarLoops
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph

@@ -161,18 +161,18 @@ theorem core_readback {H : Type} {P : Profile} {s : Store H} {caller : Execution
   | trapped stack hasTail => exact trap_read step
 
 theorem frame_label_stays {H : Type} {s : Store H} {f : Frame} {arity : Nat}
-    {body out : List Admin} (h : FrameExit s f arity [.label arity [] body] out) : False := by
-  generalize eq : ([.label arity [] body] : List Admin) = code at h
+    {k : Nat} {cont : List Instr} {body out : List Admin} (h : FrameExit s f arity [.label k cont body] out) : False := by
+  generalize eq : ([.label k cont body] : List Admin) = code at h
   cases h with
   | returnCallNull kind | returnCallAddr kind _ _ _ =>
     have first := congrArg (fun code => (fnv code).2) eq
     have none := Admin.val?_of_isReturnCallRef kind
-    simp [fnv_cons_of_none none, fnv_cons_of_none (a := .label arity [] body) rfl] at first
+    simp [fnv_cons_of_none none, fnv_cons_of_none (a := .label k cont body) rfl] at first
     rw [← first.1] at kind
     contradiction
   | _ =>
     have first := congrArg (fun code => (fnv code).2) eq
-    simp [fnv_cons_of_none (a := .label arity [] body) rfl,
+    simp [fnv_cons_of_none (a := .label k cont body) rfl,
       fnv_cons_of_none (a := .plain .return_) rfl, fnv_cons_of_none (a := .plain .throwRef) rfl, throwing] at first
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.Proofs

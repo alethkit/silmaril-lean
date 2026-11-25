@@ -23,9 +23,9 @@ theorem target_resolved {program : Program} (checked : program.check = true)
   Table.resolved_of_target (Program.rankCheck checked)
     ⟨fn.rank, by rw [lookup_table, found]; rfl⟩ used
 
-theorem map_child {fn : Function} {r₁ r₂ : CallTarget → Phase → Phase → Prop} {a b : Phase}
+theorem map_child {fn : Function} {r₁ r₂ : CallTarget → Phase → Phase → Prop} {a b : Phase} {kind : LabelKind}
     (map : ∀ target ∈ fn.targets, ∀ {c d}, r₁ target c d → r₂ target c d)
-    (step : Layer fn r₁ a b) : Layer fn r₂ a b := by
+    (step : Layer fn r₁ a b kind) : Layer fn r₂ a b kind := by
   induction step with
   | resolve args => exact .resolve args
   | enter args typed => exact .enter args typed
@@ -36,6 +36,8 @@ theorem map_child {fn : Function} {r₁ r₂ : CallTarget → Phase → Phase �
     exact .ifSelect locals saved condition result thenBody elseBody rest
   | blockEnter locals saved result body rest => exact .blockEnter locals saved result body rest
   | blockStep saved result rest _ ih => exact .blockStep saved result rest ih
+  | loopEnter locals saved result body rest => exact .loopEnter locals saved result body rest
+  | loopStep saved result original rest _ ih => exact .loopStep saved result original rest ih
   | unreachable args stack rest => exact .unreachable args stack rest
   | dispatch locals saved operands target rest used count => exact .dispatch locals saved operands target rest used count
   | child locals saved target rest used live step => exact .child locals saved target rest used live (map target used step)
@@ -51,20 +53,20 @@ theorem map_child {fn : Function} {r₁ r₂ : CallTarget → Phase → Phase �
   | leaveTrap args => exact .leaveTrap args
   | leaveFrame args result typed => exact .leaveFrame args result typed
 
-private theorem unfold_edge {program : Program} (checked : program.check = true) (address : FuncAddr) (a b : Phase) :
-    program.Edge checked address a b ↔
+private theorem unfold_edge {program : Program} (checked : program.check = true) (address : FuncAddr) (a b : Phase) (kind : LabelKind) :
+    program.EdgeAt checked address kind a b ↔
       ∃ fn, program.lookup address = some fn ∧
         Layer fn (fun target c d => ∃ _ : program.order target.address address,
-          program.Edge checked target.address c d) a b := by
+          program.Edge checked target.address c d) a b kind := by
   conv_lhs =>
-    unfold Program.Edge
+    unfold Program.EdgeAt
     rw [WellFounded.fix_eq]
   rfl
 
 theorem edge_iff {program : Program} (checked : program.check = true)
-    {address : FuncAddr} {fn : Function} {a b : Phase} (found : program.lookup address = some fn) :
-    program.Edge checked address a b ↔
-      Layer fn (fun target => program.Edge checked target.address) a b := by
+    {address : FuncAddr} {fn : Function} {a b : Phase} {kind : LabelKind} (found : program.lookup address = some fn) :
+    program.EdgeAt checked address kind a b ↔
+      Layer fn (fun target => program.Edge checked target.address) a b kind := by
   rw [unfold_edge checked]
   constructor
   · rintro ⟨current, lookup, step⟩
@@ -75,21 +77,27 @@ theorem edge_iff {program : Program} (checked : program.check = true)
     exact ⟨fn, found, map_child (fun _ used _ _ edge => ⟨target_resolved checked found used, edge⟩) step⟩
 
 theorem label_outcome {fn : Function} {childStep : CallTarget → Phase → Phase → Prop}
-    {a b : Phase} (step : Layer fn childStep a b) :
+    {a b : Phase} {kind : LabelKind} (step : Layer fn childStep a b kind) :
     (∃ locals inner, a = .label locals inner) → b.LabelOutcome := by
   induction step with
-  | @blockStep locals saved result rest inner next step ih =>
+  | @blockStep kind locals saved result rest inner next step ih =>
     intro _
     have valid := ih ⟨_, _, rfl⟩
     cases next <;> simp_all [Phase.afterBlock, Phase.LabelOutcome]
     case exit result => cases result <;> trivial
+  | @loopStep kind locals inner next saved result original rest step ih =>
+    intro _
+    have valid := ih ⟨_, _, rfl⟩
+    cases next <;> simp_all [Phase.afterBlock, Phase.LabelOutcome]
+    case exit result => cases result <;> trivial
+  | @branchHere kind _ _ _ _ _ _ => cases kind <;> simp [LabelKind.branchHere, Phase.LabelOutcome]
   | _ => simp [Phase.LabelOutcome]
 
 theorem active_iff {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
     {target : CallTarget} (used : target ∈ fn.targets) {a : Phase} (live : a.Active)
-    {locals saved : List Value} {rest : List Op} {b : Phase} :
-    program.Edge checked address (.label locals (.active saved target a rest)) b ↔
+    {locals saved : List Value} {rest : List Op} {b : Phase} {kind : LabelKind} :
+    program.EdgeAt checked address kind (.label locals (.active saved target a rest)) b ↔
       ∃ out, program.Edge checked target.address a out ∧ b = .label locals (Body.attach saved target rest out) := by
   rw [edge_iff checked found]
   constructor
@@ -101,8 +109,8 @@ theorem active_iff {program : Program} (checked : program.check = true)
 
 theorem block_iff {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
-    {locals saved : List Value} {result : Option NumType} {inner : Body} {rest : List Op} {out : Phase} :
-    program.Edge checked address (.label locals (.block saved result inner rest)) out ↔
+    {locals saved : List Value} {result : Option NumType} {inner : Body} {rest : List Op} {out : Phase} {kind : LabelKind} :
+    program.EdgeAt checked address kind (.label locals (.block saved result inner rest)) out ↔
       ∃ next, program.Edge checked address (.label locals inner) next ∧ out = next.afterBlock saved result rest := by
   rw [edge_iff checked found]
   constructor
@@ -112,10 +120,25 @@ theorem block_iff {program : Program} (checked : program.check = true)
   · rintro ⟨next, step, rfl⟩
     exact .blockStep saved result rest ((edge_iff checked found).mp step)
 
+theorem loop_iff {program : Program} (checked : program.check = true)
+    {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
+    {locals saved : List Value} {result : Option NumType} {inner : Body} {original rest : List Op}
+    {out : Phase} {kind : LabelKind} :
+    program.EdgeAt checked address kind (.label locals (.loop saved result original inner rest)) out ↔
+      ∃ next, program.EdgeAt checked address (.loop result original) (.label locals inner) next ∧
+        out = next.afterBlock saved result rest (.loop result original) := by
+  rw [edge_iff checked found]
+  constructor
+  · intro step
+    cases step with
+    | loopStep _ _ _ _ step => exact ⟨_, (edge_iff checked found).mpr step, rfl⟩
+  · rintro ⟨next, step, rfl⟩
+    exact .loopStep saved result original rest ((edge_iff checked found).mp step)
+
 private theorem source_active {program : Program} {checked : program.check = true}
     {address : FuncAddr} {a b : Phase} (ready : ∀ args, a ≠ .call args)
     (edge : program.Edge checked address a b) : a.Active := by
-  obtain ⟨_, _, step⟩ := (unfold_edge checked address a b).mp edge
+  obtain ⟨_, _, step⟩ := (unfold_edge checked address a b .exit).mp edge
   cases step with
   | resolve args => exact (ready args rfl).elim
   | _ => trivial
@@ -123,13 +146,17 @@ private theorem source_active {program : Program} {checked : program.check = tru
 theorem not_call {program : Program} {checked : program.check = true}
     {address : FuncAddr} {a b : Phase} (edge : program.Edge checked address a b) (args : List Value) :
     b ≠ .call args := by
-  obtain ⟨_, _, step⟩ := (unfold_edge checked address a b).mp edge
+  obtain ⟨_, _, step⟩ := (unfold_edge checked address a b .exit).mp edge
   cases step with
-  | @blockStep locals saved result rest inner next step =>
+  | @blockStep _ locals saved result rest inner next step =>
     have outcome := label_outcome step ⟨_, _, rfl⟩
     cases next <;> simp_all [Phase.LabelOutcome, Phase.afterBlock]
     case exit result => cases result <;> simp
-  | _ => simp
+  | @loopStep _ locals inner next saved result original rest step =>
+    have outcome := label_outcome step ⟨_, _, rfl⟩
+    cases next <;> simp_all [Phase.LabelOutcome, Phase.afterBlock]
+    case exit result => cases result <;> simp
+  | _ => simp [LabelKind.branchHere]
 
 theorem lift_child {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)

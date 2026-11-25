@@ -10,8 +10,8 @@ namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranke
 open Execution.Runtime (FuncAddr Frame Value)
 open Computed
 
-theorem split_call {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value} {target : CallTarget} {rest : List Op}
-    (typed : fn.WellTyped stack (.call target :: rest) fallthrough enclosing) :
+theorem split_call {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {kind : LabelKind} {stack : List Value} {target : CallTarget} {rest : List Op}
+    (typed : fn.WellTyped stack (.call target :: rest) fallthrough enclosing kind) :
     ∃ saved operands, stack = saved ++ operands ∧ target ∈ fn.targets ∧
       operands.length = target.declaration.params.length := by
   unfold Function.WellTyped at typed
@@ -45,27 +45,41 @@ theorem render_attach {A : Type} {ops : Syntax A}
   | done result => cases result <;> simp [Body.attach, Body.render, Phase.render, Phase.renderAt, Nested.resultCode, append]
   | _ => rfl
 
+theorem render_under_label {A : Type} (ops : Syntax A)
+    (saved : List Value) (result : Option NumType) (rest : List Op) (kind : LabelKind)
+    (compatible : ∀ r original, kind = .loop r original → r = result) (body : Body) :
+    (body.underLabel saved result rest kind).render ops =
+      ops.values saved ++ ops.label result.toList.length kind (body.render ops) :: rest.map ops.emit := by
+  cases kind with
+  | exit => rfl
+  | loop r original => cases compatible r original rfl; rfl
+
 theorem render_block {A : Type} (ops : Syntax A)
     (append : ∀ xs ys, ops.values (xs ++ ys) = ops.values xs ++ ops.values ys)
     (ret : ops.emit .return_ = ops.ret) (target : CallTarget) (n : Nat)
     (saved : List Value) (result : Option NumType) (rest : List Op)
-    (next : Phase) (outcome : next.LabelOutcome) :
-    ∃ locals code, next.renderAt ops target result.toList.length =
+    (outerKind innerKind : LabelKind)
+    (compatible : ∀ r original, innerKind = .loop r original → r = result) (next : Phase) (outcome : next.LabelOutcome) :
+    ∃ locals code, next.renderAt ops target result.toList.length innerKind =
         [ops.frame result.toList.length (currentFrame target.declaration locals) code] ∧
-      (next.afterBlock saved result rest).renderAt ops target n =
+      (next.afterBlock saved result rest innerKind).renderAt ops target n outerKind =
         [ops.frame n (currentFrame target.declaration locals)
-          [ops.label n (ops.values saved ++ code ++ rest.map ops.emit)]] := by
+          [ops.label n outerKind (ops.values saved ++ code ++ rest.map ops.emit)]] := by
   cases next with
   | call | invoke | done => cases outcome
   | label locals body =>
-    exact ⟨locals, _, rfl, by simp only [Phase.afterBlock, Phase.renderAt, Body.render,
-      List.append_assoc, List.singleton_append]⟩
+    exact ⟨locals, _, rfl, by
+      rw [Phase.afterBlock, Phase.renderAt, render_under_label ops saved result rest innerKind compatible]
+      simp only [List.append_assoc, List.singleton_append]⟩
   | branching locals stack depth result =>
     exact ⟨locals, _, rfl, by
       simp [Phase.afterBlock, Phase.renderAt, Body.render, append, List.append_assoc]⟩
   | returning locals stack =>
     exact ⟨locals, _, rfl, by
       simp [Phase.afterBlock, Phase.renderAt, Body.render, append, ret, List.append_assoc]⟩
+  | restart locals result original =>
+    exact ⟨locals, _, rfl, by
+      simp [Phase.afterBlock, Phase.renderAt, Body.render, List.append_assoc]⟩
   | exit locals result =>
     cases result with
     | values => exact ⟨locals, _, rfl, by simp [Phase.afterBlock, Phase.renderAt, Body.render,

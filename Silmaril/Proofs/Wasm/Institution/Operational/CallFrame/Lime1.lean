@@ -178,11 +178,11 @@ theorem return_stuck {H : Type} {s : Store H} {f : Frame}
   simp only [firstNonvalue_values] at seen
   exact distinct (by simpa [firstNonvalue, asValue?] using seen.symm)
 
-theorem return_label_result {types : List Wasm.Lime1.FuncType} {n : Nat}
+theorem return_label_result {types : List Wasm.Lime1.FuncType} {n : Nat} {cont : Wasm.Lime1.Expr}
     {stack : List Value} {tail out : List Admin}
-    (pop : PureStep types [.label n [] (values stack ++ .source .return_ :: tail)] out) :
+    (pop : PureStep types [.label n cont (values stack ++ .source .return_ :: tail)] out) :
     out = values stack ++ [.source .return_] := by
-  have exit := pure_focus (args := []) pop (.label n [] _)
+  have exit := pure_focus (args := []) pop (.label n cont _)
   generalize shape : values stack ++ .source .return_ :: tail = code at exit
   have head := congrArg firstNonvalue shape
   cases exit with

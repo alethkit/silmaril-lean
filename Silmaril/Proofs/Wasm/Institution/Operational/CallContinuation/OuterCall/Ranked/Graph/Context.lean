@@ -16,11 +16,11 @@ open Wasm.Numerics (Profile)
 open Wasm.SingleThreaded.Det (noHost)
 
 theorem core_entered_child_iff {H : Type} {P : Profile} {s : Core.Store H} {caller parent child : Core.Frame}
-    {n k : Nat} {saved : List Core.Val} {body rest : List Core.Admin} {dst : Core.Config H} :
+    {n k m : Nat} {cont : List Instr} {saved : List Core.Val} {body rest : List Core.Admin} {dst : Core.Config H} :
     Core.Step P noHost
-      ⟨s, caller, [.frame n parent [.label n [] (Core.vals saved ++ .frame k child body :: rest)]]⟩ dst ↔
+      ⟨s, caller, [.frame n parent [.label m cont (Core.vals saved ++ .frame k child body :: rest)]]⟩ dst ↔
       ∃ mid, Core.Step P noHost ⟨s, parent, [.frame k child body]⟩ mid ∧
-        dst = ⟨mid.store, caller, [.frame n mid.frame [.label n [] (Core.vals saved ++ mid.code ++ rest)]]⟩ := by
+        dst = ⟨mid.store, caller, [.frame n mid.frame [.label m cont (Core.vals saved ++ mid.code ++ rest)]]⟩ := by
   constructor
   · intro step
     rcases Computed.core_body_step_cases step with ⟨mid, inside, eq⟩ | ⟨_, pop, _⟩
@@ -31,15 +31,15 @@ theorem core_entered_child_iff {H : Type} {P : Profile} {s : Core.Store H} {call
   · rintro ⟨⟨_, _, _⟩, inside, rfl⟩
     simpa only [List.append_assoc, List.singleton_append] using
       Core.Step.ctxtFrame (f := caller) (n := n)
-        (Core.Step.ctxtLabel (n := n) (cont := []) (Core.Sim.Step.vals_left (Core.Sim.Step.append_right inside rest) saved))
+        (Core.Step.ctxtLabel (n := m) (cont := cont) (Core.Sim.Step.vals_left (Core.Sim.Step.append_right inside rest) saved))
 
 open Wasm.Lime1.Execution in
 theorem lime_entered_child_iff {H : Type} {s : Store H} {caller parent child : Frame}
-    {n k : Nat} {saved : List Value} {body rest : List Admin} {dst : Config H} :
+    {n k m : Nat} {cont : Wasm.Lime1.Expr} {saved : List Value} {body rest : List Admin} {dst : Config H} :
     Step CallFrame.limeNoHost
-      ⟨s, caller, [.frame n parent [.label n [] (values saved ++ .frame k child body :: rest)]]⟩ dst ↔
+      ⟨s, caller, [.frame n parent [.label m cont (values saved ++ .frame k child body :: rest)]]⟩ dst ↔
       ∃ mid, Step CallFrame.limeNoHost ⟨s, parent, [.frame k child body]⟩ mid ∧
-        dst = ⟨mid.store, caller, [.frame n mid.frame [.label n [] (values saved ++ mid.code ++ rest)]]⟩ := by
+        dst = ⟨mid.store, caller, [.frame n mid.frame [.label m cont (values saved ++ mid.code ++ rest)]]⟩ := by
   constructor
   · intro step
     rcases Computed.lime_body_step_cases step with ⟨mid, inside, eq⟩ | ⟨_, pop, _⟩
@@ -49,7 +49,7 @@ theorem lime_entered_child_iff {H : Type} {s : Store H} {caller parent child : F
         (by simp) (by simp) (by simp) pop).elim
   · rintro ⟨⟨_, _, _⟩, inside, rfl⟩
     simpa only [List.append_assoc, List.singleton_append] using
-      Step.frame (.label (.context inside saved rest) n []) n caller
+      Step.frame (.label (.context inside saved rest) m cont) n caller
 
 open Wasm.V1.Execution in
 theorem v1_entered_child_iff {H : Type} {s : Store H} {caller parent child : Frame}

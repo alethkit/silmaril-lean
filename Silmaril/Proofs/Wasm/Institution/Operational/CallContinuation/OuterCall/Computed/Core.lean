@@ -103,11 +103,11 @@ theorem call_iff {H : Type} {P : Profile} {s : Store H} {f : Execution.Runtime.F
   · rintro rfl
     exact Sim.Step.vals_left (Sim.Step.append_right (.call found alloc) tail) _
 
-theorem label_stays {n : Nat} {stack : List Val} {head : Admin} {rest out : List Admin}
+theorem label_stays {n : Nat} {cont : List Instr} {stack : List Val} {head : Admin} {rest out : List Admin}
     (none : head.val? = none) (notBr : ∀ i, head ≠ .plain (.br i))
     (notRet : head ≠ .plain .return_) (notTail : ¬ head.IsReturnCallRef)
     (notThrow : head ≠ .plain .throwRef) (notFinalTrap : head = .trap → stack ≠ [] ∨ rest ≠ [])
-    (h : LabelExit n [] (vals stack ++ head :: rest) out) : False := by
+    (h : LabelExit n cont (vals stack ++ head :: rest) out) : False := by
   generalize eq : vals stack ++ head :: rest = code at h
   have seen := congrArg (fun c => (fnv c).2) eq
   simp only [fnv_vals_append, fnv_cons_of_none none] at seen
@@ -141,11 +141,11 @@ theorem lift_body {H : Type} {P : Profile} {s s' : Store H}
   .ctxtFrame (.ctxtLabel h)
 
 theorem body_step_cases {H : Type} {P : Profile} {s : Store H} {caller inner : Frame}
-    {n : Nat} {body : List Admin} {dst : Config H}
-    (h : Step P noHost ⟨s, caller, [.frame n inner [.label n [] body]]⟩ dst) :
+    {n k : Nat} {cont : List Instr} {body : List Admin} {dst : Config H}
+    (h : Step P noHost ⟨s, caller, [.frame n inner [.label k cont body]]⟩ dst) :
     (∃ mid : Config H, Step P noHost ⟨s, inner, body⟩ mid ∧
-      dst = ⟨mid.store, caller, [.frame n mid.frame [.label n [] mid.code]]⟩) ∨
-    ∃ out, LabelExit n [] body out ∧ dst = ⟨s, caller, [.frame n inner out]⟩ := by
+      dst = ⟨mid.store, caller, [.frame n mid.frame [.label k cont mid.code]]⟩) ∨
+    ∃ out, LabelExit k cont body out ∧ dst = ⟨s, caller, [.frame n inner out]⟩ := by
   rcases Step.frame_inv h with ⟨_, _, _, step, rfl⟩ | ⟨_, bad, _⟩
   · rcases Step.label_inv step with ⟨_, _, _, innerStep, eq⟩ | ⟨_, pop, eq⟩
     · obtain ⟨rfl, rfl, rfl⟩ := Config.mk.inj eq
