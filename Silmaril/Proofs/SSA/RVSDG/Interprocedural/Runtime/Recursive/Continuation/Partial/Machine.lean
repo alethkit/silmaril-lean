@@ -68,4 +68,28 @@ theorem step_liftTotal {source target : Config m σ final} :
       · rintro ⟨stepped, state⟩
         exact ⟨_, stepped, rfl, state⟩
 
+theorem step_deterministic {other : Config m σ final}
+    (left : Step primitives source target) (right : Step primitives source other) : target = other :=
+  _root_.Part.mem_unique left right
+
+private theorem infinite_suffix (path : Relation.ReflTransGen (Step primitives) source target)
+    (infinite : InfiniteTrace (Step primitives) source) : InfiniteTrace (Step primitives) target := by
+  induction path with
+  | refl => exact infinite
+  | tail _ edge ih =>
+    obtain ⟨next, picked, rest⟩ := ih.unfold
+    exact step_deterministic picked edge ▸ rest
+
+theorem no_infinite_of_reaches_blocked (path : Relation.ReflTransGen (Step primitives) source target)
+    (blocked : target.Blocked primitives) : ¬ InfiniteTrace (Step primitives) source := by
+  intro infinite
+  obtain ⟨next, picked, _⟩ := (infinite_suffix path infinite).unfold
+  change next ∈ target.next primitives at picked
+  rw [blocked_next blocked] at picked
+  exact _root_.Part.notMem_none _ picked
+
+theorem no_blocked_liftTotal (source : Config m σ final) : ¬ source.Blocked (Primitives.liftTotal m σ) := by
+  rintro ⟨active, _, undefined⟩
+  exact _root_.Part.some_ne_none _ undefined
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Proofs
