@@ -33,7 +33,7 @@ variable {V : Type u₁} {C : Type u₂}
   [HasFiniteCoproducts V] [HasFiniteCoproducts C]
   [DistributiveTensor V] [DistributivePremonoidalCategory C]
 
-private theorem context_of_empty_hom_ext (J : V ⥤ C) [DistributiveFreydCategory J]
+theorem context_of_empty_hom_ext (J : V ⥤ C) [DistributiveFreydCategory J]
     {E A : V} {D : C} {f g : J.obj (E ⊗ A) ⟶ D}
     (h : (coprod.inl : A ⟶ A ⨿ A) = coprod.inr) : f = g := by
   let route := J.map (DistributiveTensor.leftIso E A A).inv ≫
