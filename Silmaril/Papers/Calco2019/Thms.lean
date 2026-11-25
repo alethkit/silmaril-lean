@@ -4,7 +4,7 @@ public import Silmaril.Papers.Calco2019.Defs
 public import Silmaril.Semantics.Calco2019.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionThms
 public import Silmaril.Semantics.Calco2019.InductiveResumption.Free.Thms
-public import Silmaril.Semantics.Calco2019.Maybe.LoopDecomposition.Thms
+public import Silmaril.Semantics.Calco2019.Maybe.Types.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionConway
 public import Silmaril.Semantics.Calco2019.VacuousThms
 public import Silmaril.Semantics.Calco2019.ExceptionResumption.Specializations
