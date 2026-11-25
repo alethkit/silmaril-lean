@@ -49,6 +49,28 @@ state sequencing is explicit through wires. Like value ports, state origins
 permit fan-out and may be unused. An operation has only the effects carried
 by its input and output state values in this model.
 
+## Numbered γ/θ liveness
+
+`NestedTheta.Graph.liveness` exposes the local schedule directly as a
+`Semantics.Dataflow.GenKill` problem. At point `n`, binding `n` generates the
+origins of its input wires and kills the origins it defines. The point after
+the last binding generates the result origins, including returned state.
+`Graph.liveAt n` computes exactly the shared least may solution at that point.
+Agreement on the live entry ports preserves the result at every θ fuel bound
+and every finite return, including the exact final token. The API uses the
+existing typed graph decoder and is independent of the LambdaSSA recognizers.
+[API](../../Silmaril/SSA/RVSDG/NestedTheta/Liveness/Thms.lean)
+
+Each child has its own liveness problem. The outer analysis retains all γ and
+θ operands, even when a child ignores a supplied port. Propagating facts
+across region boundaries and θ feedback, analyzing linked calls, and
+justifying removal of effectful or potentially nonterminating bindings require
+further work. The checked regression changes an unwired argument and preserves
+payload `4` and final token `50` after a selected effectful γ arm and two θ
+iterations. It checks that γ's token remains live when its data result is
+dead, and that its unused child operand is retained at the parent.
+[Regression](../../Silmaril/Proofs/SSA/RVSDG/NestedTheta/Liveness/Regression.lean)
+
 ## Reproduce the checks
 
 From the repository root with its pinned Lean toolchain:
@@ -60,6 +82,7 @@ lake build --wfail +Silmaril.SSA.RVSDG.Petri.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGPetri.lean
 lake build --wfail +Silmaril.SSA.RVSDG.Isomorphism.Petri.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGIsomorphism.lean
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Regression
 make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.Isomorphism.Petri.Thms
 ```
 
