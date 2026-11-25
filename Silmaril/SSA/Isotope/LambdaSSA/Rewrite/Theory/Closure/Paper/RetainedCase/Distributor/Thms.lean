@@ -53,6 +53,11 @@ noncomputable def distributorIso (X A B : τ) :
       ofType (Silmaril.coprod (Silmaril.product X A) (Silmaril.product X B)) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.Distributor.distributorIso X A B
 
+/-- The forward map of the exact distributor is the guarded syntax arrow. -/
+theorem distributorIso_hom (X A B : τ) :
+    (distributorIso (Φ := Φ) X A B).hom = ofRegion (distributorRegion_typed X A B) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.Distributor.distributorIso_hom X A B
+
 /-- The two whiskered injections detect equality of arrows out of the retained sum. -/
 theorem distributor_hom_ext {D : τ} {X A B : τ}
     {f g : ofType (Φ := Φ) (Silmaril.product X (Silmaril.coprod A B)) ⟶ ofType D}
