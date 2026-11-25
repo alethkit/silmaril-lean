@@ -146,4 +146,47 @@ theorem glueChoice_continuous (w : Fin (choiceWireCount m)) :
     (hl.comp continuous_snd)).add ((continuous_subtype_val.comp continuous_fst).mul
       (hr.comp continuous_snd))).prodMk (continuous_subtype_val.comp continuous_snd)
 
+/-- Every actual strand in the closed collar slab comes from a collar ID. -/
+theorem collar_id_exists (w : Fin (choiceWireCount m)) {y : ℝ}
+    (hy : y ∈ Set.Icc (1 / 4 : ℝ) (1 / 2)) (cover : (glueChoice m p).covers w y) :
+    ∃ c, w = choiceCollarId m c := by
+  let d := lowerAttached m p
+  let e := numbering d upper
+  let a := numbering lower (polygonalDrawing (S := S) p)
+  let j := upperChoice m p
+  let k := lowerChoice m p
+  have bounds : y ∈ Set.Icc (wireLo (e.symm w)) (wireHi j (e.symm w)) := cover
+  obtain ⟨old, id⟩ := lower_present hy.2 bounds.1
+  have atLower : d.covers old (slabHeight 0 y) :=
+    (covered_lower j old hy.2).mp (id.symm ▸ bounds)
+  have h : (1 / 2 : ℝ) ≤ slabHeight 0 y := by unfold slabHeight; linarith [hy.1]
+  have below : slabHeight 0 y ≤ wireHi k (a.symm old) := atLower.2
+  obtain ⟨c, hc⟩ := upper_present k h below
+  have code : k.upperId c = old := by
+    change a (k.fromUpper c) = old
+    rw [hc, a.apply_symm_apply]
+  refine ⟨c, ?_⟩
+  have eq : e (fromLower (upper := upper) old) = w :=
+    (congrArg e id).trans (e.apply_symm_apply w)
+  change w = e (fromLower (upper := upper) (k.upperId c))
+  exact Eq.trans eq.symm (congrArg (fun i => e (fromLower (upper := upper) i)) code.symm)
+
+theorem glued_vertex_outside (j : Fin (L + R)) :
+    (glueChoice m p).vertexHeight j ≤ 1 / 4 ∨ 1 / 2 ≤ (glueChoice m p).vertexHeight j := by
+  induction j using Fin.addCases with
+  | left v =>
+    left
+    change gluedHeight (lowerAttached m p) upper (Fin.castAdd R v) ≤ _
+    rw [Proofs.ProgressiveGluing.height_left]
+    change halfHeight 0 (gluedHeight lower (polygonalDrawing p) (Fin.castAdd 0 v)) ≤ _
+    rw [Proofs.ProgressiveGluing.height_left]
+    unfold halfHeight
+    linarith [(lower.vertex_inside v).2.2]
+  | right v =>
+    right
+    change _ ≤ gluedHeight (lowerAttached m p) upper (Fin.natAdd (L + 0) v)
+    rw [Proofs.ProgressiveGluing.height_right]
+    unfold halfHeight
+    linarith [(upper.vertex_inside v).2.1]
+
 end Silmaril.RuntimeWires.Proofs.ProgressiveGluing

@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarMotion
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarAmbient
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.CollarGeometry
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.FinCases
@@ -258,5 +258,43 @@ example (t : PolygonalCollar.Time) (w : CapId) :
     matched.glueWith_x_collar _ w (by norm_num [Set.mem_Icc]),
     show 4 * (1 / 4 : ℝ) - 1 = 0 by norm_num, show 4 * (1 / 2 : ℝ) - 1 = 1 by norm_num,
     PolygonalCollar.bottom, PolygonalCollar.top]
+
+private noncomputable def ambientMid := matched.straightCollar.ambientIsotopy bent halfTime
+
+private theorem ambient_first_mid :
+    ambientMid (1 / 4, 3 / 8) = (13 / 48, 3 / 8) := by
+  have h := matched.straightCollar.ambientIsotopy_wire bent halfTime first
+    (y := 3 / 8) (by norm_num [Set.mem_Icc])
+  rw [show 4 * (3 / 8 : ℝ) - 1 = 1 / 2 by norm_num] at h
+  simp only [moving_mid, straight_first] at h
+  norm_num [interpolate] at h
+  exact h
+
+private theorem ambient_second_mid :
+    ambientMid (2 / 3, 3 / 8) = (17 / 24, 3 / 8) := by
+  have h := matched.straightCollar.ambientIsotopy_wire bent halfTime second
+    (y := 3 / 8) (by norm_num [Set.mem_Icc])
+  rw [show 4 * (3 / 8 : ℝ) - 1 = 1 / 2 by norm_num] at h
+  simp only [moving_mid, straight_second] at h
+  norm_num [interpolate] at h
+  exact h
+
+/-- The same plane homeomorphism moves both wires and its inverse restores
+both original points at the original height. -/
+example :
+    (ambientMid (1 / 4, 3 / 8), ambientMid (2 / 3, 3 / 8)) =
+      ((13 / 48, 3 / 8), (17 / 24, 3 / 8)) ∧
+    (ambientMid.symm (13 / 48, 3 / 8), ambientMid.symm (17 / 24, 3 / 8)) =
+      ((1 / 4, 3 / 8), (2 / 3, 3 / 8)) := by
+  constructor
+  · rw [ambient_first_mid, ambient_second_mid]
+  · rw [← ambient_first_mid, ← ambient_second_mid, Homeomorph.symm_apply_apply,
+      Homeomorph.symm_apply_apply]
+
+example (t : PolygonalCollar.Time) (x : ℝ) :
+    matched.straightCollar.ambientIsotopy bent t (x, 1 / 4) = (x, 1 / 4) ∧
+    matched.straightCollar.ambientIsotopy bent t (x, 1 / 2) = (x, 1 / 2) :=
+  ⟨matched.straightCollar.ambientIsotopy_outside bent t _ (.inl le_rfl),
+    matched.straightCollar.ambientIsotopy_outside bent t _ (.inr le_rfl)⟩
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveGluing.CollarRegression
