@@ -18,6 +18,11 @@ theorem nil_iff {locals stack : List Value} {result : List NumType} :
     WellTyped locals stack [] result ↔ stack.map Value.type = result :=
   Proofs.nil_iff
 
+theorem checkOp_result {locals stack next : List Value} {op : Op}
+    (step : Reduce locals stack op (.values next)) :
+    checkOp (locals.map Value.type) (stackTypes stack) op = some (stackTypes next) :=
+  Proofs.checkOp_result step
+
 theorem preserve {locals stack next : List Value} {op : Op} {rest : List Op} {result : List NumType}
     (step : Reduce locals stack op (.values next)) (typed : WellTyped locals stack (op :: rest) result) :
     WellTyped locals next rest result :=

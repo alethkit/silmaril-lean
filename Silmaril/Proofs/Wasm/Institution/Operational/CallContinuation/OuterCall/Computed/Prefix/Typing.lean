@@ -23,14 +23,19 @@ theorem nil_iff {locals stack : List Value} {result : List NumType} :
     WellTyped locals stack [] result ↔ stack.map Value.type = result := by
   simp [WellTyped, check, stackTypes]
 
+theorem checkOp_result {locals stack next : List Value} {op : Op}
+    (step : Reduce locals stack op (.values next)) :
+    checkOp (locals.map Value.type) (stackTypes stack) op = some (stackTypes next) := by
+  cases step with
+  | get found =>
+    simp [checkOp, stackTypes, List.reverse_append, List.getElem?_map, found]
+  | bin =>
+    simp [checkOp, stackTypes, List.reverse_append, Value.int]
+
 theorem preserve {locals stack next : List Value} {op : Op} {rest : List Op} {result : List NumType}
     (step : Reduce locals stack op (.values next)) (typed : WellTyped locals stack (op :: rest) result) :
     WellTyped locals next rest result := by
-  cases step with
-  | get found =>
-    simpa [WellTyped, check, checkOp, stackTypes, List.reverse_append, List.getElem?_map, found] using typed
-  | bin =>
-    simpa [WellTyped, check, checkOp, stackTypes, List.reverse_append, Value.int] using typed
+  simpa [WellTyped, check, checkOp_result step] using typed
 
 theorem progress {locals stack : List Value} {op : Op} {tail : List Op} {result : List NumType}
     (typed : WellTyped locals stack (op :: tail) result) : ∃ out, Reduce locals stack op out := by
