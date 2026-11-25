@@ -44,13 +44,13 @@ private theorem wrap_exact {a b : Config H}
 
 theorem resolution_prefix_exact {site : Indirect.Site} {caller : Runtime.Frame} {out : Outcome}
     {selector : BitVec 32} {stack : List Value} {addr : Nat}
-    (checked : site.check program caller = true) (allocated : program.CoreAllocated s)
+    (checked : site.check program caller = true) (allocated : site.CoreAllocated program s)
     (tableFound : s.table? caller.toCore tableIndex = some (addr, site.table.toCore))
     (resolved : site.resolve program selector = some out) :
     out.coreTrace.IsChain (fun a b => ∀ dst,
       Step P noHost (cont.coreWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) a)) dst ↔
         dst = cont.coreWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) b)) := by
-  have chain := Indirect.core_trace_exact (P := P) (stack := stack) (rest := cont.code.map Graph.coreEmit)
+  have chain := Indirect.core_trace_allocated_exact (P := P) (stack := stack) (rest := cont.code.map Graph.coreEmit)
     checked allocated tableFound resolved
   have live (a : Indirect.Phase) (mem : a ∈ (out.coreTrace).dropLast) : a.Pending := by
     cases out <;>
@@ -78,6 +78,16 @@ theorem prefix_exact (checked : call.Checked program) (allocated : program.CoreA
   · exact wrap_exact (fun out => Indirect.core_lookup_stays (phase := .cast (some call.address)) trivial _ out) exactStep
   · exact wrap_exact (fun out => Indirect.core_lookup_stays (phase := .call (some call.address)) trivial _ out) exactStep
 
+theorem entry_iff (checked : call.Checked program)
+    (allocated : s.funcs[call.address.value]? = some call.callee.coreInstance) {dst : Config H} :
+    Step P noHost (cont.coreWrap outer (Indirect.coreConfig s call.caller call.site call.selector (call.saved ++ call.args)
+        (cont.code.map Graph.coreEmit) (.call (some call.address)))) dst ↔
+      dst = cont.coreConfig call s outer (.callee call.entered) := by
+  have entry := wrap_exact (cont := cont) (outer := outer) (fun out => Indirect.core_lookup_stays (phase := .call (some call.address)) trivial _ out)
+    (fun _ => Indirect.core_enter_at_iff (P := P) (caller := call.caller) (saved := call.saved)
+      (rest := cont.code.map Graph.coreEmit) allocated checked.found checked.resolved checked.typed) dst
+  exact entry.trans (by rw [Context.Proofs.Core.entered_config]; rfl)
+
 private theorem handoff (continuation : cont.Checked program call.caller call.saved call.site.signature.results)
     (result : Nested.Result) :
     cont.coreConfig call s outer (.callee (.done result)) =
@@ -89,7 +99,7 @@ private theorem handoff (continuation : cont.Checked program call.caller call.sa
     List.append_assoc, List.singleton_append]
   all_goals rw [← continuation.module_eq]
 
-private theorem callee_step (checked : call.Checked program) (allocated : program.CoreAllocated s)
+private theorem callee_step (checked : call.Checked program) (allocated : program.CoreLinksAllocated s)
     {a : Graph.Phase} {dst : Config H} (ready : Graph.Admitted program call.callee a) (live : a.LabelOutcome) :
     Step P noHost (cont.coreConfig call s outer (.callee a)) dst ↔
       ∃ out, program.FrameEdge call.address a out ∧ dst = cont.coreConfig call s outer (.callee out) := by
@@ -104,10 +114,20 @@ private theorem callee_step (checked : call.Checked program) (allocated : progra
   rw [wrap_step_iff stays]
   constructor
   · rintro ⟨mid, step, rfl⟩
-    obtain ⟨out, move, rfl⟩ := (Context.core_frame_step_iff checked allocated ready live).mp step
+    obtain ⟨out, move, rfl⟩ := (Context.Proofs.Core.linked_frame_step_iff checked allocated ready live).mp step
     exact ⟨out, move, rfl⟩
   · rintro ⟨out, move, rfl⟩
-    exact ⟨_, (Context.core_frame_step_iff checked allocated ready live).mpr ⟨_, move, rfl⟩, rfl⟩
+    exact ⟨_, (Context.Proofs.Core.linked_frame_step_iff checked allocated ready live).mpr ⟨_, move, rfl⟩, rfl⟩
+
+theorem entered_run_iff (checked : call.Checked program) (allocated : program.CoreLinksAllocated s)
+    (continuation : cont.Checked program call.caller call.saved call.site.signature.results)
+    {dst : Config H} :
+    Steps P noHost (cont.coreConfig call s outer (.callee call.entered)) dst ↔
+      ∃ out, Runs program call cont (.callee call.entered) out ∧ dst = cont.coreConfig call s outer out :=
+  Resume.Proofs.entered_run_iff checked continuation (cont.coreConfig call s outer) _
+    (fun h live => callee_step checked allocated h live)
+    (fun ready entered => Graph.core_entered_frame_step_iff checked.graph allocated continuation.found rfl ready entered)
+    (handoff continuation)
 
 theorem run_iff (checked : call.Checked program) (allocated : program.CoreAllocated s)
     (continuation : cont.Checked program call.caller call.saved call.site.signature.results)
@@ -121,10 +141,6 @@ theorem run_iff (checked : call.Checked program) (allocated : program.CoreAlloca
   have exactPrefix := prefix_exact (P := P) (cont := cont) (outer := outer) checked allocated tableFound
   have path := prefix_run_iff (dst := dst) (native := Step P noHost)
     (cont.corePrefix call s outer).dropLast (cont.coreConfig call s outer (.callee call.entered)) (by exact exactPrefix)
-  exact path.trans (or_congr Iff.rfl
-    (entered_run_iff checked continuation (cont.coreConfig call s outer) _
-      (fun h live => callee_step checked allocated h live)
-      (fun ready resolved => Graph.core_resolved_frame_step_iff checked.graph allocated continuation.found rfl ready resolved)
-      (handoff continuation)))
+  exact path.trans (or_congr Iff.rfl (entered_run_iff checked allocated.links continuation))
 
 end Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Context.Resume.Proofs.Core

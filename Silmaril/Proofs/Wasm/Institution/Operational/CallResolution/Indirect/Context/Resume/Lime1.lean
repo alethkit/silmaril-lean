@@ -42,12 +42,12 @@ private theorem wrap_exact {a b : Config H}
 
 theorem resolution_step_iff {site : Indirect.Site} {caller : Frame} {selector : BitVec 32}
     {stack : List Value} {out : Outcome} {dst : Config H}
-    (checked : site.check program caller = true) (allocated : program.LimeAllocated s)
+    (checked : site.check program caller = true) (allocated : site.LimeAllocated program s)
     (tableFound : frameTable s caller = some site.table) (resolved : site.resolve program selector = some out) :
     Step CallFrame.limeNoHost
       (cont.limeWrap outer (limeSource s caller site selector stack (cont.code.map Graph.limeEmit))) dst ↔
       dst = cont.limeWrap outer (limeResolved s caller stack (cont.code.map Graph.limeEmit) out) :=
-  wrap_exact (fun out => Indirect.lime_lookup_stays _ out) (fun _ => Indirect.lime_step_iff checked allocated tableFound resolved) dst
+  wrap_exact (fun out => Indirect.lime_lookup_stays _ out) (fun _ => Indirect.lime_step_allocated_iff checked allocated tableFound resolved) dst
 
 theorem prefix_exact (checked : call.Checked program) (allocated : program.LimeAllocated s)
     (tableFound : frameTable s call.caller = some call.site.table) :
@@ -61,6 +61,15 @@ theorem prefix_exact (checked : call.Checked program) (allocated : program.LimeA
   · exact wrap_exact (fun out => Indirect.lime_lookup_stays _ out) exactStep
   · exact wrap_exact (fun out => Indirect.lime_invoke_stays _ out) exactStep
 
+theorem entry_iff (checked : call.Checked program)
+    (allocated : s.funcs[call.address.value]? = some (.wasm call.callee.declaration.type call.callee.declaration.module call.callee.limeFunc)) {dst : Config H} :
+    Step CallFrame.limeNoHost (cont.limeWrap outer (Indirect.limeResolved s call.caller (call.saved ++ call.args) (cont.code.map Graph.limeEmit) (.resolved call.address))) dst ↔
+      dst = cont.limeConfig call s outer (.callee call.entered) := by
+  have entry := wrap_exact (cont := cont) (outer := outer) (fun out => Indirect.lime_invoke_stays _ out)
+    (fun _ => Indirect.lime_enter_at_iff (caller := call.caller) (saved := call.saved)
+      (rest := cont.code.map Graph.limeEmit) allocated checked.found checked.resolved checked.typed) dst
+  exact entry.trans (by rw [Context.Proofs.Lime1.entered_config]; rfl)
+
 private theorem handoff (continuation : cont.Checked program call.caller call.saved call.site.signature.results)
     (result : Nested.Result) :
     cont.limeConfig call s outer (.callee (.done result)) =
@@ -71,7 +80,7 @@ private theorem handoff (continuation : cont.Checked program call.caller call.sa
     Graph.Body.render, Nested.resultCode, values, List.map_append, List.append_assoc, List.singleton_append]
   all_goals rw [← continuation.module_eq]
 
-private theorem callee_step (checked : call.Checked program) (allocated : program.LimeAllocated s)
+private theorem callee_step (checked : call.Checked program) (allocated : program.LimeLinksAllocated s)
     {a : Graph.Phase} {dst : Config H} (ready : Graph.Admitted program call.callee a) (live : a.LabelOutcome) :
     Step CallFrame.limeNoHost (cont.limeConfig call s outer (.callee a)) dst ↔
       ∃ out, program.FrameEdge call.address a out ∧ dst = cont.limeConfig call s outer (.callee out) := by
@@ -85,10 +94,20 @@ private theorem callee_step (checked : call.Checked program) (allocated : progra
   rw [wrap_step_iff stays]
   constructor
   · rintro ⟨mid, step, rfl⟩
-    obtain ⟨out, move, rfl⟩ := (Context.lime_frame_step_iff checked allocated ready live).mp step
+    obtain ⟨out, move, rfl⟩ := (Context.Proofs.Lime1.linked_frame_step_iff checked allocated ready live).mp step
     exact ⟨out, move, rfl⟩
   · rintro ⟨out, move, rfl⟩
-    exact ⟨_, (Context.lime_frame_step_iff checked allocated ready live).mpr ⟨_, move, rfl⟩, rfl⟩
+    exact ⟨_, (Context.Proofs.Lime1.linked_frame_step_iff checked allocated ready live).mpr ⟨_, move, rfl⟩, rfl⟩
+
+theorem entered_run_iff (checked : call.Checked program) (allocated : program.LimeLinksAllocated s)
+    (continuation : cont.Checked program call.caller call.saved call.site.signature.results)
+    {dst : Config H} :
+    Steps CallFrame.limeNoHost (cont.limeConfig call s outer (.callee call.entered)) dst ↔
+      ∃ out, Runs program call cont (.callee call.entered) out ∧ dst = cont.limeConfig call s outer out :=
+  Resume.Proofs.entered_run_iff checked continuation (cont.limeConfig call s outer) _
+    (fun h live => callee_step checked allocated h live)
+    (fun ready entered => Graph.lime_entered_frame_step_iff checked.graph allocated continuation.found rfl ready entered)
+    (handoff continuation)
 
 theorem run_iff (checked : call.Checked program) (allocated : program.LimeAllocated s)
     (continuation : cont.Checked program call.caller call.saved call.site.signature.results)
@@ -101,10 +120,6 @@ theorem run_iff (checked : call.Checked program) (allocated : program.LimeAlloca
   have exactPrefix := prefix_exact (cont := cont) (outer := outer) checked allocated tableFound
   have path := prefix_run_iff (dst := dst) (native := Step CallFrame.limeNoHost)
     (cont.limePrefix call s outer).dropLast (cont.limeConfig call s outer (.callee call.entered)) (by exact exactPrefix)
-  exact path.trans (or_congr Iff.rfl
-    (entered_run_iff checked continuation (cont.limeConfig call s outer) _
-      (fun h live => callee_step checked allocated h live)
-      (fun ready resolved => Graph.lime_resolved_frame_step_iff checked.graph allocated continuation.found rfl ready resolved)
-      (handoff continuation)))
+  exact path.trans (or_congr Iff.rfl (entered_run_iff checked allocated.links continuation))
 
 end Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Context.Resume.Proofs.Lime1

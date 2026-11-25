@@ -252,7 +252,7 @@ private theorem under_label_iff {H : Type} {P : Profile} {s : Store H} {caller :
     exact .ctxtFrame (.ctxtLabel move)
 
 private theorem pending_child_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (n : Nat) {kind : LabelKind}
-    (allocated : program.CoreAllocated s) {caller : Runtime.Frame} {root target : CallTarget} {fn callee : Function}
+    (allocated : program.CoreLinksAllocated s) {caller : Runtime.Frame} {root target : CallTarget} {fn callee : Function}
     (found : program.lookup root.address = some fn) (used : target ∈ fn.targets)
     (childFound : program.lookup target.address = some callee) (declared : callee.declaration = target.declaration)
     {locals saved operands : List Value} {rest : List Op} (typed : operands.map Value.type = callee.declaration.params)
@@ -275,7 +275,7 @@ private theorem pending_child_iff {H : Type} {P : Profile} {s : Store H} {progra
   have ctx := under_label_iff (n := n) (P := P) (s := s) (caller := caller)
     (parent := (currentFrame root.declaration locals).toCore) (dst := dst) stays
   have entry {mid : Config H} := entry_iff (P := P) (caller := currentFrame root.declaration locals) (saved := saved)
-    (rest := rest.map coreAdmin.emit) (dst := mid) declared (allocated _ _ childFound) typed
+    (rest := rest.map coreAdmin.emit) (dst := mid) declared (allocated _ _ found target used _ childFound) typed
   have live : (Phase.invoke operands).Active := trivial
   have source : (Body.active saved target (.invoke operands) rest).render coreAdmin =
       coreValues (saved ++ operands) ++ .ref (.func target.address.value) :: head :: rest.map coreAdmin.emit := by
@@ -496,11 +496,11 @@ private theorem indexed_loop_entry_iff {H : Type} {P : Profile} {s : Store H} {d
       by simpa using eq⟩
 
 private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (checked : program.checkDirect = true)
-    (allocated : program.CoreAllocated s) {caller : Runtime.Frame} {target : CallTarget} {fn : Function}
+    (allocated : program.CoreLinksAllocated s) {caller : Runtime.Frame} {target : CallTarget} {fn : Function}
     (rootFound : program.lookup target.address = some fn)
     (rootDeclared : fn.declaration = target.declaration)
     {bound : Nat}
-    (descend : ∀ child, ∀ {parent callee q dst}, sizeOf q < bound →
+    (descend : ∀ child ∈ fn.targets, ∀ {parent callee q dst}, sizeOf q < bound →
       Root program parent child callee → Admitted program callee q →
       (native P (coreConfig s parent child q) dst ↔
         ∃ out, program.FrameEdge child.address q out ∧ dst = coreConfig s parent child out))
@@ -585,7 +585,7 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
             have h : (currentFrame target.declaration locals).module.funcs[child.index.toNat]? = some child.address := by
               simpa only [currentFrame, ← rootDeclared] using resolves
             have call := (Computed.core_direct_call_iff (stack := saved ++ operands)
-              (tail := rest.map coreAdmin.emit) h (allocated _ _ childFound)).mp inner
+              (tail := rest.map coreAdmin.emit) h (allocated _ _ rootFound child used _ childFound)).mp inner
             have signature : (callee.coreInstance (H := H)).type = child.declaration.type.toDefType :=
               congrArg (fun d => d.type.toDefType) declared
             rw [signature] at call
@@ -702,7 +702,7 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
             have signature : (callee.coreInstance (H := H)).type = child.declaration.type.toDefType :=
               congrArg (fun d => d.type.toDefType) declared
             have step {dst : Config H} := Computed.core_direct_call_iff (P := P) (stack := saved ++ operands)
-              (tail := rest.map coreAdmin.emit) (dst := dst) h (allocated _ _ childFound)
+              (tail := rest.map coreAdmin.emit) (dst := dst) h (allocated _ _ rootFound child used _ childFound)
             rw [signature] at step
             apply lift_label
             simpa only [Body.render, Phase.render, Phase.renderAt, coreAdmin, coreEmit, Op.emit, coreCodeSyntax, Sequence.coreSource, Function.comp_def,
@@ -772,7 +772,7 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
         rw [← sizeEq]
         simp only [Body.active.sizeOf_spec]
         omega
-      have childStep {next : Config H} := descend child (smaller.trans within)
+      have childStep {next : Config H} := descend child used (smaller.trans within)
         (dst := next) ⟨childFound, declared, childResolves⟩ childReady
       cases q with
       | call | branching | restart | indexedRestart | done => cases live
@@ -813,23 +813,25 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
         (fun _ _ eq => by cases eq) (indexed_loop_iff rootFound) (fun {dst} =>
           ih (sizeOf inside) smaller (dst := dst) rfl (smaller.trans within) innerTyped)
 
-theorem resolved_frame_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (checked : program.checkDirect = true)
-    (allocated : program.CoreAllocated s) (size : Nat) :
+theorem linked_frame_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (checked : program.checkDirect = true)
+    (allocated : program.CoreLinksAllocated s) (size : Nat) :
     ∀ {caller target fn a dst}, sizeOf a = size →
       (program.lookup target.address = some fn) → (fn.declaration = target.declaration) →
-      (∀ args, a = .call args → target.Resolves caller) → Admitted program fn a →
+      (∀ args, a = .call args → target.Resolves caller) →
+      (∀ args, a = .call args ∨ a = .invoke args →
+        s.funcs[target.address.value]? = some fn.coreInstance) → Admitted program fn a →
       (Step P noHost (coreConfig s caller target a) dst ↔
         ∃ out, program.FrameEdge target.address a out ∧ dst = coreConfig s caller target out) := by
   induction size using Nat.strong_induction_on with
   | ind size ih =>
-    intro caller target fn a dst sizeEq found declared resolves ready
+    intro caller target fn a dst sizeEq found declared resolves entry ready
     have rule {a b : Phase} := frame_edge_iff (a := a) (b := b) (kind := .exit) found
-    have alloc := allocated _ _ found
     have coreType : (fn.coreInstance (H := H)).type = target.declaration.type.toDefType :=
       congrArg (fun d => d.type.toDefType) declared
-    have descend child {parent callee q dst} (smaller : sizeOf q < size)
+    have descend child (used : child ∈ fn.targets) {parent callee q dst} (smaller : sizeOf q < size)
         (childRoot : Root program parent child callee) (childReady : Admitted program callee q) :=
-      ih (sizeOf q) smaller (dst := dst) rfl childRoot.found childRoot.declared (fun _ _ => childRoot.resolves) childReady
+      ih (sizeOf q) smaller (dst := dst) rfl childRoot.found childRoot.declared (fun _ _ => childRoot.resolves)
+        (fun _ _ => allocated _ _ found child used _ childRoot.found) childReady
     have region {locals body} (eq : sizeOf (Phase.label locals body) = size)
         (ok : Admitted program fn (.label locals body)) :
         native P (coreConfig s caller target (.label locals body)) dst ↔
@@ -843,7 +845,7 @@ theorem resolved_frame_step_iff {H : Type} {P : Profile} {s : Store H} {program 
     | @call _ args typed =>
       have callLookup := resolves args rfl
       have move {next : Config H} := Computed.core_direct_call_iff (s := s) (P := P) (stack := args)
-        (tail := []) (dst := next) callLookup alloc
+        (tail := []) (dst := next) callLookup (entry args (.inl rfl))
       constructor
       · intro h
         refine ⟨_, rule.mpr (.resolve args), ?_⟩
@@ -856,7 +858,7 @@ theorem resolved_frame_step_iff {H : Type} {P : Profile} {s : Store H} {program 
           exact move.mpr rfl
     | @invoke _ args typed =>
       have move {next : Config H} := entry_iff (P := P) (caller := caller) (saved := []) (rest := []) (dst := next)
-        declared alloc typed
+        declared (entry args (.inr rfl)) typed
       constructor
       · intro step
         refine ⟨_, rule.mpr (.enter args typed), ?_⟩
@@ -913,6 +915,16 @@ theorem resolved_frame_step_iff {H : Type} {P : Profile} {s : Store H} {program 
         exact (Nested.core_result_stuck (r := result) step).elim
       · rintro ⟨_, step, _⟩
         cases rule.mp step
+
+theorem resolved_frame_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (checked : program.checkDirect = true)
+    (allocated : program.CoreAllocated s) (size : Nat) :
+    ∀ {caller target fn a dst}, sizeOf a = size →
+      (program.lookup target.address = some fn) → (fn.declaration = target.declaration) →
+      (∀ args, a = .call args → target.Resolves caller) → Admitted program fn a →
+      (Step P noHost (coreConfig s caller target a) dst ↔
+        ∃ out, program.FrameEdge target.address a out ∧ dst = coreConfig s caller target out) :=
+  fun sizeEq found declared resolves => linked_frame_step_iff checked allocated.links size sizeEq found declared
+    resolves (fun _ _ => allocated _ _ found)
 
 theorem frame_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (checked : program.checkDirect = true)
     (allocated : program.CoreAllocated s) (size : Nat) :

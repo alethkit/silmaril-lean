@@ -27,9 +27,9 @@ theorem invoke_stays {H : Type} {s : Store H} {addr : Execution.Runtime.FuncAddr
     ¬ PureStep caller.module.types [.label n [] (limeResolved s caller stack rest (.resolved addr)).code] out :=
   lime_label_stays (head := .invoke addr) rfl (by simp) (by simp) (by simp)
 
-theorem step_iff {H : Type} {s : Store H} {caller : Frame} {site : Site} {program : Program}
+theorem step_allocated_iff {H : Type} {s : Store H} {caller : Frame} {site : Site} {program : Program}
     {selector : BitVec 32} {stack : List Value} {rest : List Admin} {out : Outcome} {dst : Config H}
-    (checked : site.check program caller = true) (allocated : program.LimeAllocated s)
+    (checked : site.check program caller = true) (allocated : site.LimeAllocated program s)
     (tableFound : frameTable s caller = some site.table) (resolved : site.resolve program selector = some out) :
     Step CallFrame.limeNoHost (limeSource s caller site selector stack rest) dst ↔
       dst = limeResolved s caller stack rest out := by
@@ -39,16 +39,17 @@ theorem step_iff {H : Type} {s : Store H} {caller : Frame} {site : Site} {progra
   | bounds entry => simp [entry, limeResolved]
   | null entry => simp [entry, limeResolved]
   | mismatch entry found different =>
-    have slot := allocated _ _ found
+    have slot := allocated _ _ (List.mem_of_getElem? entry) found
     simp [entry, slot, limeResolved, Execution.Runtime.FuncInst.type, different]
   | resolved entry found same =>
-    have slot := allocated _ _ found
+    have slot := allocated _ _ (List.mem_of_getElem? entry) found
     simp [entry, slot, limeResolved, Execution.Runtime.FuncInst.type, same]
 
-theorem enter_iff {H : Type} {s : Store H} {caller : Frame} {site : Site} {program : Program}
+theorem enter_at_iff {H : Type} {s : Store H} {caller : Frame} {site : Site} {program : Program}
     {selector : BitVec 32} {addr : Execution.Runtime.FuncAddr} {fn : Function}
     {saved args : List Value} {rest : List Admin} {dst : Config H}
-    (allocated : program.LimeAllocated s) (found : program.lookup addr = some fn)
+    (allocated : s.funcs[addr.value]? = some (.wasm fn.declaration.type fn.declaration.module fn.limeFunc))
+    (found : program.lookup addr = some fn)
     (resolved : site.resolve program selector = some (.resolved addr))
     (typed : args.map Value.type = site.signature.params) :
     Step CallFrame.limeNoHost (limeResolved s caller (saved ++ args) rest (.resolved addr)) dst ↔
@@ -58,7 +59,7 @@ theorem enter_iff {H : Type} {s : Store H} {caller : Frame} {site : Site} {progr
   have count : args.length = fn.declaration.type.params.length := by
     simpa using congrArg List.length params
   have enter (next : Config H) := CallFrame.lime_invoke_wasm_prefix_iff (caller := caller) (saved := saved)
-    (dst := next) (allocated _ _ found) count
+    (dst := next) allocated count
   have locals : fn.limeFunc.locals = fn.declaration.locals := rfl
   constructor
   · intro move

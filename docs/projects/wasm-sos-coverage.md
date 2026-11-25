@@ -22,6 +22,7 @@ allocation premises.
 | [Indirect-call contextual readback](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/Context/Thms.lean) | A successfully resolved Table32 site enters a checked, allocated Core or Lime1 graph callee. Exact native prefixes include four Core steps or two Lime1 steps through frame entry, arbitrary finite prefixes of cyclic direct calls, ordered return above the saved caller operands, and trap discard up to the bare caller trap. | Execution of the resumed caller instructions, indirect calls in graph bodies, mutable tables or stores, host calls, and V1. |
 | [Checked resumption after an indirect call](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/Context/Resume/Thms.lean) | One designated Table32 site under an entered function label in Core or Lime1. Exact lookup through the first native trap or pending invocation. For a successful lookup, every finite native run reads back through callee execution, the typed caller tail, and the caller function exit, including callee traps and arbitrary finite recursion inside either checked direct-call fragment. | Source `call_indirect` inside graph bodies, exact failed-lookup cleanup beyond the first trap, arbitrary enclosing label positions, mutable tables or stores, host calls, and V1. |
 | [Checked indirect source regions](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/Source/Thms.lean) | A single typed indirect operator after a numeric prefix, optionally inside parameterless scalar blocks with checked graph tails. Preparation resolves the current activation's module type index and Table32 address. Exact Core and Lime1 lookup and successful callee entry preserve already-entered block contexts. The source guard supplies the checked resumption theorem at a function label. | Installing the operator in cyclic graph function bodies, native evaluation from the start of the source region, and nested post-entry return and trap readback. Mutable tables and stores, host calls, whole-module execution, and V1 remain separate. |
+| [Indirect graph source entry](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Thms.lean) | One designated allocated graph address begins with a literal operand prefix and a typed Table32 site under its function label. Exact Core and Lime1 finite readback starts from an ordinary direct `call`, includes the pending lookup phases, and continues through the cyclic direct callee and checked caller tail or lookup-trap cleanup. | Computed prefixes before the site, indirect sites in nested labels, re-entry to the indirect body from graph dispatch, mutable tables or stores, host calls, whole-module execution, and V1. |
 | [Saved caller continuation](../../Silmaril/Wasm/Institution/Operational/CallContinuation/Native/Thms.lean) | One pending `nop` stays in the caller during a resolved invocation. Return reinstates the caller's value prefix and scalar result before `nop` executes. Trap steps discard the continuation and may discard saved values in several steps. | General instruction suffixes and caller-side state changes. |
 | [One nested non-host call](../../Silmaril/Wasm/Institution/Operational/CallContinuation/Nested/Native/Thms.lean) | Start with an already-entered outer frame and label around one allocated, resolved inner call. The inner return runs the outer `nop`, exits the label, and returns across the outer frame when the stack has its declared arity. An inner trap discards the pending instruction and propagates through both outer boundaries. | General instruction suffixes or effects, outer source typing, and arbitrary depths or recursion. |
 | [Typed outer invocation](../../Silmaril/Wasm/Institution/Operational/CallContinuation/OuterCall/Native/Thms.lean) | Starts at an ordinary direct `call`. The outer function receives its numeric arguments and default locals, supplies literal arguments to one distinct allocated non-host inner callee, and resumes at one `nop`. Exact successors and finite endpoints include both returned values and a propagated trap. | General continuations, general argument expressions, host calls, indirect calls, recursion, extra top-level stack operands, and whole-module validation. |
@@ -306,11 +307,28 @@ The fixtures use two modules with different type entries and table addresses.
 Exact lookup and successful entry hold under already-entered scalar labels,
 preserving each label's saved operands and pending instructions. At a
 function label the checker supplies the typed resumption premises above. The
-source region is checked separately from the allocated direct-call graph.
-Installing it in graph bodies still requires threading the allocation guard
-and pending lookup phases through recursive frame descent and composing
-callee return and trap through checked nested labels.
+source-region checker also supplies the guard for one designated graph entry
+with a literal operand prefix and a top-level indirect site. The native store
+contains the actual indirect source code at that graph address. The checked
+direct-call graph supplies the registered declaration and continuation typing.
+Native allocation is checked at linked direct targets and at table entries
+used by lookup. This lets the callee and resumed tail use dynamic recursive
+frame descent without requiring the designated entry's body to be direct code.
+
+The graph-entry proof starts at an ordinary typed `call` and records both
+steps through entry of the outer function. Core then takes four steps to
+successful callee entry. Lime1 takes two. Exact finite readback includes
+ordered resumption, recursive prefixes inside checked direct callees, and
+lookup trap cleanup through function exit. Core trap cleanup retains pending
+lowering instructions up to the step that discards them. The fixtures
+exercise mixed-width return, three lookup failures, and arbitrarily deep
+finite direct recursion after the indirect site.
+
+Further graph integration needs source phases for indirect sites in nested
+labels, recursive dispatch back to an indirect body, and nested return and
+trap readback. The designated entry currently begins with literal operands.
 [Source-region theorems](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/Source/Thms.lean)
+and [graph-entry theorems](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Thms.lean)
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.
 Lime1-specific multi-value and bulk-memory cases and newer Core features have

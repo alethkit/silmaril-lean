@@ -77,6 +77,17 @@ theorem core_resolved_frame_step_iff (checked : program.checkDirect = true)
   Proofs.Core.resolved_frame_step_iff checked allocated _ rfl found declared
     (fun args eq => (resolved args eq).elim) ready
 
+theorem core_entered_frame_step_iff (checked : program.checkDirect = true)
+    (allocated : program.CoreLinksAllocated s)
+    (found : program.lookup target.address = some fn) (declared : fn.declaration = target.declaration)
+    {a : Phase} {b : Core.Config H} (ready : Admitted program fn a)
+    (entered : ∀ args, a ≠ .call args ∧ a ≠ .invoke args) :
+    Core.Step P noHost (coreConfig s caller target a) b ↔
+      ∃ out, program.FrameEdge target.address a out ∧ b = coreConfig s caller target out :=
+  Proofs.Core.linked_frame_step_iff checked allocated _ rfl found declared
+    (fun args h => ((entered args).1 h).elim)
+    (fun args h => (h.elim (entered args).1 (entered args).2).elim) ready
+
 /-- Exact native successors under dynamic frame descent, including recursive calls
 to a checked, allocated direct target. -/
 theorem core_frame_step_iff (checked : program.checkDirect = true) (allocated : program.CoreAllocated s)
@@ -127,6 +138,17 @@ theorem lime_resolved_frame_step_iff (checked : program.checkDirect = true)
       ∃ out, program.FrameEdge target.address a out ∧ b = limeConfig s caller target out :=
   Proofs.Lime1.resolved_frame_step_iff checked allocated _ rfl found declared
     (fun args eq => (resolved args eq).elim) ready
+
+theorem lime_entered_frame_step_iff (checked : program.checkDirect = true)
+    (allocated : program.LimeLinksAllocated s)
+    (found : program.lookup target.address = some fn) (declared : fn.declaration = target.declaration)
+    {a : Phase} {b : Wasm.Lime1.Execution.Config H} (ready : Admitted program fn a)
+    (entered : ∀ args, a ≠ .call args ∧ a ≠ .invoke args) :
+    Wasm.Lime1.Execution.Step CallFrame.limeNoHost (limeConfig s caller target a) b ↔
+      ∃ out, program.FrameEdge target.address a out ∧ b = limeConfig s caller target out :=
+  Proofs.Lime1.linked_frame_step_iff checked allocated _ rfl found declared
+    (fun args h => ((entered args).1 h).elim)
+    (fun args h => (h.elim (entered args).1 (entered args).2).elim) ready
 
 theorem lime_frame_step_iff (checked : program.checkDirect = true) (allocated : program.LimeAllocated s)
     (root : Root program caller target fn) {a : Phase} {b : Wasm.Lime1.Execution.Config H} (ready : Admitted program fn a) :

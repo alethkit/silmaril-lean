@@ -118,6 +118,26 @@ def Program.LimeAllocated {H : Type} (program : Program) (s : Wasm.Lime1.Executi
   ∀ address fn, program.lookup address = some fn →
     s.funcs[address.value]? = some (.wasm fn.declaration.type fn.declaration.module fn.limeFunc)
 
+/-- An entered graph activation only needs exact allocation of its possible
+direct dispatch targets. Its own source body may have been entered by a
+different checked source rule. -/
+def Program.CoreLinksAllocated {H : Type} (program : Program) (s : Core.Store H) : Prop :=
+  ∀ owner fn, program.lookup owner = some fn → ∀ target ∈ fn.targets, ∀ callee,
+    program.lookup target.address = some callee → s.funcs[target.address.value]? = some callee.coreInstance
+
+def Program.LimeLinksAllocated {H : Type} (program : Program) (s : Wasm.Lime1.Execution.Store H) : Prop :=
+  ∀ owner fn, program.lookup owner = some fn → ∀ target ∈ fn.targets, ∀ callee,
+    program.lookup target.address = some callee →
+      s.funcs[target.address.value]? = some (.wasm callee.declaration.type callee.declaration.module callee.limeFunc)
+
+theorem Program.CoreAllocated.links {H : Type} {program : Program} {s : Core.Store H}
+    (allocated : program.CoreAllocated s) : program.CoreLinksAllocated s :=
+  fun _ _ _ target _ callee found => allocated target.address callee found
+
+theorem Program.LimeAllocated.links {H : Type} {program : Program} {s : Wasm.Lime1.Execution.Store H}
+    (allocated : program.LimeAllocated s) : program.LimeLinksAllocated s :=
+  fun _ _ _ target _ callee found => allocated target.address callee found
+
 def Program.V1Allocated {H : Type} (program : Program) (s : Wasm.V1.Execution.Store H) : Prop :=
   ∀ address fn, program.lookup address = some fn →
     s.funcs[address.value]? = some (.wasm fn.declaration.type fn.declaration.module fn.v1Func)

@@ -47,6 +47,19 @@ def limeResolved {H : Type} (s : Wasm.Lime1.Execution.Store H) (caller : Frame)
 
 open CallContinuation.OuterCall.Ranked.Graph (Function)
 
+/-- Each consulted nonnull table entry has its exact checked graph function.
+Other registrations do not participate in this lookup. -/
+def Site.CoreAllocated {H : Type} (site : Site) (program : CallContinuation.OuterCall.Ranked.Graph.Program)
+    (s : Execution.Core.Store H) : Prop :=
+  ∀ address fn, some address ∈ site.table.refs → program.lookup address = some fn →
+    s.funcs[address.value]? = some fn.coreInstance
+
+def Site.LimeAllocated {H : Type} (site : Site) (program : CallContinuation.OuterCall.Ranked.Graph.Program)
+    (s : Wasm.Lime1.Execution.Store H) : Prop :=
+  ∀ address fn, some address ∈ site.table.refs → program.lookup address = some fn →
+    s.funcs[address.value]? = some (.wasm fn.declaration.type fn.declaration.module fn.limeFunc)
+
+
 def coreEntered {H : Type} (s : Execution.Core.Store H) (caller : Frame)
     (fn : Function) (saved args : List Value) (rest : List Admin) : Execution.Core.Config H :=
   ⟨s, caller.toCore, Execution.Core.vals (saved.map Value.toCore) ++

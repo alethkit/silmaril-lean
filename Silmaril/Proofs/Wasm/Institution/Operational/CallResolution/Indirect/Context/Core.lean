@@ -22,7 +22,7 @@ open Wasm.SingleThreaded.Det (noHost)
 variable {H : Type} {P : Numerics.Profile} {s : Store H} {call : Invocation} {program : Graph.Program}
   {rest : List Admin}
 
-private theorem entered_config :
+theorem entered_config :
     coreEntered s call.caller call.callee call.saved call.args rest = call.coreCallee s rest call.entered := by
   rw [coreEntered, Graph.core_body_expression]
   simp only [Invocation.coreCallee, Invocation.entered, Graph.Phase.render, Graph.Phase.renderAt,
@@ -47,14 +47,18 @@ theorem frame_shape {phase : Graph.Phase} (live : phase.LabelOutcome) :
     ∃ n f body, phase.render Graph.coreAdmin call.target = [Admin.frame n f body] := by
   cases phase <;> first | contradiction | exact ⟨_, _, _, rfl⟩
 
-theorem frame_step_iff (checked : call.Checked program) (allocated : program.CoreAllocated s)
+theorem linked_frame_step_iff (checked : call.Checked program) (allocated : program.CoreLinksAllocated s)
     {phase : Graph.Phase} {dst : Config H} (ready : Graph.Admitted program call.callee phase)
     (live : phase.LabelOutcome) :
     Step P noHost (call.coreCallee s rest phase) dst ↔
       ∃ out, program.FrameEdge call.address phase out ∧ dst = call.coreCallee s rest out := by
   obtain ⟨n, f, body, code⟩ := frame_shape (call := call) live
-  have exactStep {mid} := Graph.core_resolved_frame_step_iff (P := P) (s := s) (caller := call.caller)
-    (target := call.target) (b := mid) checked.graph allocated checked.found rfl ready (not_call live)
+  have entered (args : List Value) : phase ≠ .call args ∧ phase ≠ .invoke args := by
+    refine ⟨not_call live args, ?_⟩
+    rintro rfl
+    exact live
+  have exactStep {mid} := Graph.core_entered_frame_step_iff (P := P) (s := s) (caller := call.caller)
+    (target := call.target) (b := mid) checked.graph allocated checked.found rfl ready entered
   constructor
   · intro step
     simp only [Invocation.coreCallee, code, List.append_assoc, List.singleton_append] at step
@@ -72,6 +76,13 @@ theorem frame_step_iff (checked : call.Checked program) (allocated : program.Cor
     exact by
       simpa only [List.append_assoc, List.singleton_append] using
         Core.Sim.Step.vals_left (Core.Sim.Step.append_right single rest) (call.saved.map Value.toCore)
+
+theorem frame_step_iff (checked : call.Checked program) (allocated : program.CoreAllocated s)
+    {phase : Graph.Phase} {dst : Config H} (ready : Graph.Admitted program call.callee phase)
+    (live : phase.LabelOutcome) :
+    Step P noHost (call.coreCallee s rest phase) dst ↔
+      ∃ out, program.FrameEdge call.address phase out ∧ dst = call.coreCallee s rest out :=
+  linked_frame_step_iff checked allocated.links ready live
 
 theorem stopped (result : Nested.Result) (dst : Config H) :
     ¬ call.coreFrameStep P rest (call.coreCallee s rest (.done result)) dst := by
