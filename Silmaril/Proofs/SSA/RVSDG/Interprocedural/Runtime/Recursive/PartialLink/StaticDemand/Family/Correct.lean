@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Defs
-import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Correct
+public import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Correct
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 
 public section
@@ -139,6 +139,22 @@ private theorem member_prefix (actions : Actions m σ) (observed : Demand)
         ((readyL i).2 argsL) ((readyR i).2 argsR) (body_agrees family i wanted readyL readyR live)
       intro outL outR middle agree _ _
       exact prefix_mono (Nat.le_succ n) (finish outL outR middle agree trivial trivial)
+
+/-- Dispatch into the closed group with any related suffix, including
+a frame belonging to an enclosing exported λ. -/
+theorem family_dispatch (actions : Actions m σ) (observed : Demand)
+    (capturedL capturedR : Tuple m.Val family.context)
+    (readyL : family.Ready capturedL) (readyR : family.Ready capturedR) (budget : Nat) :
+    MemberDispatch actions observed (family.guard capturedL) (family.guard capturedR) budget final := by
+  intro depth _ i
+  dsimp only
+  intro wanted fL fR capL capR argsL argsR store left right hL hR live resume
+  rcases hL with ⟨targetL, capturesL⟩
+  rcases hR with ⟨targetR, capturesR⟩
+  rw [targetL, targetR]
+  rw [capturesL, capturesR] at live
+  exact member_prefix family actions observed capturedL capturedR readyL readyR depth i wanted argsL argsR
+    store left right live resume
 
 theorem family_calls (i : Fin table.members.length) (actions : Actions m σ) (demand : Demand)
     (importedL importedR : Tuple m.Val imports) (argsL argsR : Tuple m.Val (table.at i).fn.args) (store : σ)

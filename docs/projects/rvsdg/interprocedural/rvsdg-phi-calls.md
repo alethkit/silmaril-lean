@@ -719,6 +719,40 @@ at store `46`, blocks on the zero capture at store `24`, and returns
 at store `70` after both saved suffix effects run on resumption.
 [Linked fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
 
+### Linked λ consumers of a φ family
+
+`Family.Wrapper` builds a linked λ over an earlier φ binding.
+The leading λ capture is a typed output wire of that binding. Additional
+captures use the same linker scope. At a checked application, the
+ordinary reads flow through the actual capture and argument witnesses
+at the demand induced by the suffix's result wires. The wrapper uses
+`Code.liveness` and has no supplied λ summary. The fixture uses the
+synthesized φ summaries from `Template.admit`.
+[Linked λ/φ precedent](https://github.com/hiloopai/silmaril-lean/pull/3512)
+
+The callable's link edge is a dispatch dependency. `Wrapper.Ready`
+checks each target against its actual linked member and matches its
+capture witnesses to that member's real captures. A dispatch-only
+callable need not be equal across the compared executions. Uses of a
+callable as data still create ordinary live origins. The admission
+covers static targets in one checked group.
+
+`Wrapper.linked_prefixes_agree` applies the actual partial runner to the
+two-binding graph. It preserves demanded return values, exact stores,
+and the typed attempted primitive and store at a block. The saved
+suffixes agree observationally after a common primitive result and
+resumption store. `Family.lambda_calls_prefix` also accepts an actual
+closure body and captures at the post-link store for other link layouts.
+[Wrapper API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Wrapper/Thms.lean)
+
+In the linked fixture, requesting the λ's result makes a formal payload
+live through the earlier φ call. Empty demand removes the payload read,
+while the selector input and the potentially blocking capture stay live.
+Varying the spare formal preserves the result `41` and store `56`.
+A zero capture blocks at store `24`, and resumption runs the two φ
+suffixes and the λ suffix to store `80`.
+[Linked fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
+
 ### Single-call admission
 
 `DirectCall` admits a two-λ module by construction. Its exported caller
