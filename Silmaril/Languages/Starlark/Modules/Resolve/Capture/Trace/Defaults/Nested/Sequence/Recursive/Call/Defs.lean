@@ -9,7 +9,7 @@ namespace Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nes
 open Assignment (LexicalBlock)
 open Functions
 open Lists (State Outcome)
-open Lists.Iteration (Flow)
+open Lists.Iteration (Flow finishState)
 
 local notation "NormalizedExpr" => Lowering.Resolve.SourceExpr
 
@@ -60,33 +60,45 @@ structure ClosureAt {parent : LexicalBlock} (site : Site parent)
   installed : Installs defining site.free captures
   live : Body.CaptureCells state captures
 
+/-- The body proof operates at the callee's reduced declaration set. -/
+abbrev BodyEntry {parent : LexicalBlock} (site : Site parent) (program : Program)
+    (available : List DeclarationId) (id : DeclarationId) (bodyRuns : State → Outcome Flow → Prop) : Prop :=
+  ∀ (caller defining : State) (captures : List Lists.Capture), Installs defining site.free captures →
+    Body.CaptureCells caller captures → ∀ (assigned : List (Binding × Lists.Value)),
+    let active := activate caller site.declaration captures assigned
+    ∃ out, bodyRuns active out ∧ Exec program (withoutDeclaration available id) active site.body.code out ∧
+      Body.Keeps caller.heap.size caller (finishState (Leaf.returnTo caller out))
+
 /-- The call first reads the local callee and then evaluates its
 positional operands. Binding consults the reached heap only after all
 operands succeed. A failed bind has no activation premise. -/
-inductive Runs {parent : LexicalBlock} (site : Site parent) (block : LexicalBlock)
+inductive RunsWith {parent : LexicalBlock} (site : Site parent) (bodyRuns : State → Outcome Flow → Prop)
+    (block : LexicalBlock)
     (id : DeclarationId) (callee : String) (arguments : List NormalizedExpr) (codes : List Lowering.Expr) :
     State → Outcome Value → Prop where
   | calleeError {state next : State} {error : Lists.Error} :
       Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.error error next) →
-      Runs site block id callee arguments codes state (.error error next)
+      RunsWith site bodyRuns block id callee arguments codes state (.error error next)
   | operandError {state next : State} {address : Nat} {error : Lists.Error} :
       Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.ok (.function address) state) →
       Evaluates block state arguments codes (.error error next) →
-      Runs site block id callee arguments codes state (.error error next)
+      RunsWith site bodyRuns block id callee arguments codes state (.error error next)
   | bindingError {state actualState defining : State} {address : Nat} {values : List Value} {error : Lists.Error} :
       Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.ok (.function address) state) →
       Evaluates block state arguments codes (.ok values actualState) →
       (record : ClosureAt site id defining actualState address) →
       Binds (site.parameters.slots record.defaults) values (.error error) →
-      Runs site block id callee arguments codes state (.error error actualState)
+      RunsWith site bodyRuns block id callee arguments codes state (.error error actualState)
   | invoked {state actualState defining : State} {address : Nat} {values : List Value} {bodyOut : Outcome Flow}
       {assigned : List (Binding × Value)} :
       Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.ok (.function address) state) →
       Evaluates block state arguments codes (.ok values actualState) →
       (record : ClosureAt site id defining actualState address) →
       Binds (site.parameters.slots record.defaults) values (.ok assigned) →
-      Sequence.Runs site.block (activate actualState site.declaration record.captures assigned)
-        site.source site.body.code bodyOut →
-      Runs site block id callee arguments codes state (Leaf.returnTo actualState bodyOut)
+      bodyRuns (activate actualState site.declaration record.captures assigned) bodyOut →
+      RunsWith site bodyRuns block id callee arguments codes state (Leaf.returnTo actualState bodyOut)
+
+abbrev Runs {parent : LexicalBlock} (site : Site parent) :=
+  RunsWith site (fun state out => Sequence.Runs site.block state site.source site.body.code out)
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call

@@ -48,6 +48,15 @@ theorem call_ids {block : LexicalBlock} {source : Statement} {seed final : Progr
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.call_ids
     profile
 
+/-- A child's local call IDs precede the child's own emitted ID. -/
+theorem child_available {block : LexicalBlock} {source : Statement} {seed childTable : Program}
+    {code : ResolvedBody} {emitted : Emissions} {childCalls : List DeclarationId}
+    (child : Elaborates block source seed code childTable emitted childCalls)
+    {available : List DeclarationId} (guarded : List.Subset childCalls available) :
+    List.Subset childCalls (withoutDeclaration available childTable.size) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.child_available
+    child guarded
+
 /-- From the reached frame, a local call reads its installed closure and
 commits a result only on success. Subsequent statements see the restored
 frame. Every error retains its reached state and ends the suite. -/

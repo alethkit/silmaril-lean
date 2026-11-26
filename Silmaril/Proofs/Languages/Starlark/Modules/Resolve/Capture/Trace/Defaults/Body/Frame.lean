@@ -174,4 +174,18 @@ theorem capture_cells_written (state : State) (target : Binding) (value : Value)
     exact Array.getElem?_setIfInBounds_self_of_lt valid
   · exact ⟨before, frozen, (RootCall.write_other_cell _ _ _ _ same).trans cell⟩
 
+theorem returned_keeps (caller : State) (declaration : Declaration) (captures : List Capture)
+    (assigned : List (Binding × Value)) (out : Silmaril.Languages.Starlark.Lists.Outcome
+      Silmaril.Languages.Starlark.Lists.Iteration.Flow)
+    (kept : Keeps caller.heap.size (activate caller declaration captures assigned)
+      (Silmaril.Languages.Starlark.Lists.Iteration.finishState out)) :
+    Keeps caller.heap.size caller
+      (Silmaril.Languages.Starlark.Lists.Iteration.finishState (Leaf.returnTo caller out)) := by
+  have preserved (address : Nat) (cell : Silmaril.Languages.Starlark.Lists.Cell) (low : address < caller.heap.size)
+      (stored : caller.heap[address]? = some cell) :
+      (Silmaril.Languages.Starlark.Lists.Iteration.finishState out).heap[address]? = some cell := by
+    have active := (Wrapper.activation_preserves caller declaration captures assigned address low).trans stored
+    exact kept.2 address cell low active
+  cases out <;> exact ⟨rfl, preserved⟩
+
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body

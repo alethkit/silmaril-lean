@@ -51,8 +51,8 @@ theorem compiles {block : LexicalBlock} {source : Statement} {seed final : Progr
   | assignments leading _ rest => exact Body.compile_prefix leading rest
   | define site _ _ child rest =>
     exact compileBody_plainSeq _ _ _ _ _ _ _ _ (compile_site site child) rest
-  | call site legal assignment child _ rest =>
-    exact compileBody_plainSeq _ _ _ _ _ _ _ _ (compile_site site (Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.compiles child))
+  | call site legal assignment _ _ child rest =>
+    exact compileBody_plainSeq _ _ _ _ _ _ _ _ (compile_site site child)
       (compile_assignment site legal assignment rest)
 
 theorem collects {block : LexicalBlock} {source : Statement} {seed final : Program} {resolved : ResolvedBody}
@@ -66,7 +66,7 @@ theorem collects {block : LexicalBlock} {source : Statement} {seed final : Progr
   | define _ _ _ _ rest =>
     obtain ⟨_, binders⟩ := rest
     exact ⟨_, .seq (.define _ _ _) binders⟩
-  | call _ _ _ _ _ rest =>
+  | call _ _ _ _ _ _ rest =>
     obtain ⟨_, binders⟩ := rest
     exact ⟨_, .seq (.define _ _ _) (.seq (.assign _ _) (.seq (.assign _ _) binders))⟩
 
@@ -102,7 +102,7 @@ theorem selects {block : LexicalBlock} {source : Statement} {seed final : Progra
     intro binding member
     exact (List.mem_append.mp member).elim (Nested.definition_read_origins site.selects site.lexical binding)
       (rest binding)
-  | call site _ assignment _ _ rest =>
+  | call site _ assignment _ _ _ rest =>
     intro binding member
     rcases List.mem_append.mp member with own | later
     · exact Nested.definition_read_origins site.selects site.lexical binding own
@@ -134,7 +134,7 @@ theorem links {block : LexicalBlock} {source : Statement} {seed final : Program}
   | plain ordinary => exact Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.links ordinary
   | assignments _ _ rest => exact rest
   | define site _ _ child rest => exact append_links site.declaration child rest
-  | call site _ _ child _ rest => exact append_links site.declaration (Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.links child) rest
+  | call site _ _ _ _ child rest => exact append_links site.declaration child rest
 
 theorem call_ids {block : LexicalBlock} {source : Statement} {seed final : Program} {resolved : ResolvedBody}
     {emitted : Emissions} {calls : List DeclarationId} (profile : Elaborates block source seed resolved final emitted calls) :
@@ -146,11 +146,24 @@ theorem call_ids {block : LexicalBlock} {source : Statement} {seed final : Progr
     intro id member
     exact List.mem_map.mpr <| (List.mem_map.mp (rest member)).imp
       (fun entry ⟨seen, eq⟩ => ⟨List.mem_append_right _ (List.mem_cons_of_mem _ seen), eq⟩)
-  | call site _ _ _ _ rest =>
+  | call _ _ _ _ _ child rest =>
     intro id member
     rcases List.mem_cons.mp member with rfl | later
     · exact List.mem_map.mpr ⟨_, List.mem_append_right _ List.mem_cons_self, rfl⟩
-    · exact List.mem_map.mpr <| (List.mem_map.mp (rest later)).imp
-        (fun entry ⟨seen, eq⟩ => ⟨List.mem_append_right _ (List.mem_cons_of_mem _ seen), eq⟩)
+    · rcases List.mem_append.mp later with nested | suffix
+      · exact List.mem_map.mpr <| (List.mem_map.mp (child nested)).imp
+          (fun entry ⟨seen, eq⟩ => ⟨List.mem_append_left _ seen, eq⟩)
+      · exact List.mem_map.mpr <| (List.mem_map.mp (rest suffix)).imp
+          (fun entry ⟨seen, eq⟩ => ⟨List.mem_append_right _ (List.mem_cons_of_mem _ seen), eq⟩)
+
+theorem child_available {block : LexicalBlock} {source : Statement} {seed childTable : Program}
+    {code : ResolvedBody} {emitted : Emissions} {childCalls : List DeclarationId}
+    (child : Elaborates block source seed code childTable emitted childCalls)
+    {available : List DeclarationId} (guarded : List.Subset childCalls available) :
+    List.Subset childCalls (withoutDeclaration available childTable.size) := by
+  intro id used
+  obtain ⟨entry, emitted, index⟩ := List.mem_map.mp (call_ids child used)
+  have within := (Array.getElem?_eq_some_iff.mp ((links child).2 entry emitted)).choose
+  exact mem_withoutDeclaration.mpr ⟨guarded used, Nat.ne_of_lt (index ▸ within)⟩
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite
