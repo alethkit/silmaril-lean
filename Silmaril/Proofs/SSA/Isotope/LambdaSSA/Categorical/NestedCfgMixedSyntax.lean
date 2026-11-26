@@ -48,7 +48,7 @@ private theorem local_at {α : Type} {m : Nat} (P : Fin m → α) (K : List α) 
   simp [List.getElem?_append_left, i.isLt]
 
 private theorem ordinary_at {q : Nat} (A : Ty Empty) (Q : Fin q → Ty Empty) (L : LCtx (Ty Empty))
-    (i : Fin q) : (layout A (List.ofFn Q ++ L))[i.succ.val]? = some (Q i, false) := by
+    (i : Fin q) : (layout A (List.ofFn Q ++ L))[i.succ.val]? = some (Q i, none) := by
   simp only [layout, Fin.val_succ, List.getElem?_cons_succ, List.getElem?_map,
     local_at Q L i, Option.map_some]
 
@@ -60,7 +60,7 @@ theorem nested_type {q o k n : Nat} {outerKeep : Fin (q + 1) ↪ Fin (o + 1)}
     (rows : ∀ j, (p.inner.rows (innerKeep j)).HasType [P j, p.inner.payload] (List.ofFn P ++ K))
     (i : Fin q) (hit : p.nestedAnchor i = true) : At K i.succ (Q i) := by
   have target : (NestedAdmission.Finite.layout P (List.ofFn Q ++ L) p.inner.payload)[k + 1 + i.succ.val]? =
-      some (Q i, false) := by
+      some (Q i, none) := by
     unfold NestedAdmission.Finite.layout
     rw [exit_at]
     simp only [Fin.val_succ, List.getElem?_cons_succ, List.getElem?_map, local_at Q L i, Option.map_some]

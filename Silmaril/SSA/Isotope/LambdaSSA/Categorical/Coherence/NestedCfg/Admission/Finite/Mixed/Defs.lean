@@ -18,7 +18,7 @@ variable {Φ : Type v} [HasTy Φ (Ty Empty)]
 /-- Compact label zero is the nested row. The ordinary local operands and
 actual exits carry their payloads without a tag change. -/
 def layout (A : Ty Empty) (suffix : LCtx (Ty Empty)) : RouteLayout Empty :=
-  (A, true) :: suffix.map fun T => (T, false)
+  (A, some .inl) :: suffix.map fun T => (T, none)
 
 /-- Only the nested row changes its input type in the common dispatcher. -/
 def stateTypes {q : Nat} (A : Ty Empty) (ordinary : Fin q → Ty Empty) : Fin (q + 1) → Ty Empty :=

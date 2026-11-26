@@ -17,15 +17,15 @@ variable {Φ : Type v} [HasTy Φ (Ty Empty)]
 
 /-- Prepend the ordinary local targets of a finite inner table. -/
 def innerLayout {m : Nat} (types : Fin m → Ty Empty) (out : RouteLayout Empty) : RouteLayout Empty :=
-  List.ofFn (fun i => (types i, false)) ++ out
+  List.ofFn (fun i => (types i, none)) ++ out
 
 /-- The outer repeat uses a left tag. Each actual exit keeps its position. -/
 def enclosingLayout (payload : Ty Empty) (exitTypes : LCtx (Ty Empty)) : RouteLayout Empty :=
-  (payload, true) :: exitTypes.map (fun A => (A, false))
+  (payload, some .inl) :: exitTypes.map (fun A => (A, none))
 
 def layout {m : Nat} (types : Fin m → Ty Empty) (exitTypes : LCtx (Ty Empty) := exits)
     (payload : Ty Empty := unitTy) : RouteLayout Empty :=
-  List.ofFn (fun i => (types i, false)) ++ (payload, true) :: exitTypes.map (fun A => (A, false))
+  List.ofFn (fun i => (types i, none)) ++ (payload, some .inl) :: exitTypes.map (fun A => (A, none))
 
 /-- Branch targets in the transfer and case fragment checked by `checkRoutes?`. -/
 def branchesTo (target : Nat) : Region Φ → Bool

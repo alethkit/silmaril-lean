@@ -42,11 +42,11 @@ omit [DecidableEq κ] in
 theorem CheckedRoutes.toConstructorRoutes {layout : RouteLayout κ} {Γ : VCtx (Ty κ)} {r s : Region Φ}
     {L K : LCtx (Ty κ)} {Y : V} {left : labelObj M L ⟶ Y} {right : labelObj M K ⟶ Y}
     (route : CheckedRoutes layout Γ r s)
-    (plain : ∀ i A, layout[i]? = some (A, false) →
+    (plain : ∀ i A, layout[i]? = some (A, none) →
       ∃ (hl : At L i A) (hr : At K i A), labelInject M i hl ≫ left = labelInject M i hr ≫ right)
-    (tagged : ∀ i A, layout[i]? = some (A, true) →
-      ∃ (D : Ty κ) (hl : At L i A) (hr : At K i (.coprod A D)),
-        labelInject M i hl ≫ left = (coprod.inl ≫ (M.coprodIso A D).inv) ≫ labelInject M i hr ≫ right) :
+    (tagged : ∀ i A tag, layout[i]? = some (A, some tag) →
+      ∃ (D : Ty κ) (hl : At L i A) (hr : At K i (tag.sumType A D)),
+        labelInject M i hl ≫ left = tag.injection M A D ≫ labelInject M i hr ≫ right) :
     RegionConstructorRoutes M left right Γ r s :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgRouteCheck.model_routes M route plain tagged
 

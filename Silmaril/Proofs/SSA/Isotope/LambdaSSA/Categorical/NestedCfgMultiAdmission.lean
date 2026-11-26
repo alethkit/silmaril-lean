@@ -37,12 +37,13 @@ set_option backward.isDefEq.respectTransparency.types false
 
 variable {Φ : Type v} [HasTy Φ (Ty Empty)]
 
-private def payloadType (A D : Ty Empty) : Bool → Ty Empty
-  | false => A
-  | true => .coprod A D
+private def payloadType (A D : Ty Empty) : Option CaseTag → Ty Empty
+  | none => A
+  | some tag => tag.sumType A D
 
-private abbrev wideTypes {m : Nat} (P : Fin m → Ty Empty) (forms : Fin m → Bool) (D : Fin m → Ty Empty) :=
-  fun i => payloadType (P i) (D i) (forms i)
+private abbrev wideTypes {m : Nat} (P : Fin m → Ty Empty) (chosen : Fin m → Option CaseTag)
+    (D : Fin m → Ty Empty) :=
+  fun i => payloadType (P i) (D i) (chosen i)
 
 private abbrev labels {m : Nat} (P : Fin m → Ty Empty) (L : LCtx (Ty Empty)) := List.ofFn P ++ L
 
@@ -58,81 +59,80 @@ section Maps
 variable {V : Type u₁} [Category.{v₁} V] [CartesianMonoidalCategory V] [HasFiniteCoproducts V]
   (M : TypeModel (Ty Empty) V)
 
-private noncomputable abbrev inLeft (A D : Ty Empty) : M.obj A ⟶ M.obj (.coprod A D) :=
-  coprod.inl ≫ (M.coprodIso A D).inv
+private noncomputable def payloadMap (A D : Ty Empty) (choice : Option CaseTag) :
+    M.obj A ⟶ M.obj (payloadType A D choice) :=
+  match choice with
+  | none => 𝟙 _
+  | some tag => tag.injection M A D
 
-private noncomputable def payloadMap (A D : Ty Empty) (t : Bool) :
-    M.obj A ⟶ M.obj (payloadType A D t) :=
-  match t with
-  | false => 𝟙 _
-  | true => inLeft M A D
-
-private noncomputable abbrev slot {m : Nat} (P : Fin m → Ty Empty) (F : Fin m → Bool) (D : Fin m → Ty Empty) :
-    ∀ i, M.obj (P i) ⟶ M.obj (wideTypes P F D i) :=
-  fun i => payloadMap M (P i) (D i) (F i)
+private noncomputable abbrev slot {m : Nat} (P : Fin m → Ty Empty) (chosen : Fin m → Option CaseTag)
+    (D : Fin m → Ty Empty) : ∀ i, M.obj (P i) ⟶ M.obj (wideTypes P chosen D i) :=
+  fun i => payloadMap M (P i) (D i) (chosen i)
 
 /-- The checked transfer law is phrased on label injections, independently
 of any row or iteration witness. -/
 private structure Coordinates (out : RouteLayout Empty) {K W : LCtx (Ty Empty)}
     (post : labelObj M K ⟶ labelObj M W) : Prop where
-  plain : ∀ i A, out[i]? = some (A, false) →
+  plain : ∀ i A, out[i]? = some (A, none) →
     ∃ (hl : At K i A) (hr : At W i A), labelInject M i hl ≫ post = labelInject M i hr
-  left : ∀ i A, out[i]? = some (A, true) →
-    ∃ (D : Ty Empty) (hl : At K i A) (hr : At W i (.coprod A D)),
-      labelInject M i hl ≫ post = inLeft M A D ≫ labelInject M i hr
+  tagged : ∀ i A tag, out[i]? = some (A, some tag) →
+    ∃ (D : Ty Empty) (hl : At K i A) (hr : At W i (tag.sumType A D)),
+      labelInject M i hl ≫ post = tag.injection M A D ≫ labelInject M i hr
 
-private theorem local_plain {K : LCtx (Ty Empty)} {i : Nat} {A D : Ty Empty} {t : Bool}
-    (eq : t = false) (h : At K i (payloadType A D t)) (h' : At K i A) :
-    payloadMap M A D t ≫ labelInject M i h = labelInject M i h' := by
-  subst t
+private theorem local_plain {K : LCtx (Ty Empty)} {i : Nat} {A D : Ty Empty} {choice : Option CaseTag}
+    (eq : choice = none) (h : At K i (payloadType A D choice)) (h' : At K i A) :
+    payloadMap M A D choice ≫ labelInject M i h = labelInject M i h' := by
+  subst choice
   exact Category.id_comp _
 
-private theorem local_left {K : LCtx (Ty Empty)} {i : Nat} {A D : Ty Empty} {t : Bool}
-    (eq : t = true) (h : At K i (payloadType A D t)) (h' : At K i (.coprod A D)) :
-    payloadMap M A D t ≫ labelInject M i h = inLeft M A D ≫ labelInject M i h' := by
-  subst t
+private theorem local_tagged {K : LCtx (Ty Empty)} {i : Nat} {A D : Ty Empty} {choice : Option CaseTag}
+    {tag : CaseTag} (eq : choice = some tag) (h : At K i (payloadType A D choice))
+    (h' : At K i (tag.sumType A D)) :
+    payloadMap M A D choice ≫ labelInject M i h = tag.injection M A D ≫ labelInject M i h' := by
+  subst choice
   rfl
 
-private theorem coordinates {m : Nat} (P : Fin m → Ty Empty) (F : Fin m → Bool) (D : Fin m → Ty Empty)
-    (L : LCtx (Ty Empty)) : Coordinates M (layout P F L) (mapSlotBoundary M (slot M P F D) L) := by
-  let W := wideTypes P F D
+private theorem coordinates {m : Nat} (P : Fin m → Ty Empty) (F : Fin m → Bool) (tags : Fin m → CaseTag)
+    (D : Fin m → Ty Empty) (L : LCtx (Ty Empty)) :
+    Coordinates M (layout P F L tags) (mapSlotBoundary M (slot M P (selection F tags) D) L) := by
+  let chosen := selection F tags
+  let W := wideTypes P chosen D
+  let maps := slot M P chosen D
   have lookup {i : Nat} (hi : i < m) :
-      (layout P F L)[i]? = some (P ⟨i, hi⟩, F ⟨i, hi⟩) := by
-    simp [layout, List.getElem?_append_left, hi]
-  have outward (i : Nat) : (layout P F L)[m + i]? = (L.map (fun A => (A, false)))[i]? := by
+      (layout P F L tags)[i]? = some (P ⟨i, hi⟩, chosen ⟨i, hi⟩) := by
+    simp [layout, chosen, List.getElem?_append_left, hi]
+  have outward (i : Nat) : (layout P F L tags)[m + i]? = (L.map (fun A => (A, none)))[i]? := by
     simp [layout, List.getElem?_append_right]
   constructor
   · intro i A hit
     by_cases hi : i < m
     · let j : Fin m := ⟨i, hi⟩
-      obtain ⟨same, flag⟩ := Prod.mk.inj (Option.some.inj ((lookup hi).symm.trans hit))
+      obtain ⟨same, choice⟩ := Prod.mk.inj (Option.some.inj ((lookup hi).symm.trans hit))
       change P j = A at same
       subst A
       have h : At (labels W L) j (W j) := localAt W L j
-      change F j = false at flag
+      change chosen j = none at choice
       have ht : At (labels W L) j (P j) := by
-        change At (labels W L) j (payloadType (P j) (D j) (F j)) at h
-        simpa only [flag, payloadType] using h
-      exact ⟨localAt P L j, ht, (mapSlotBoundary_local M (slot M P F D) L j _ h).trans
-        (local_plain M flag h ht)⟩
+        change At (labels W L) j (payloadType (P j) (D j) (chosen j)) at h
+        simpa only [choice, payloadType] using h
+      exact ⟨localAt P L j, ht, (mapSlotBoundary_local M maps L j _ h).trans (local_plain M choice h ht)⟩
     · obtain ⟨j, rfl⟩ : ∃ j, i = m + j := ⟨i-m, by omega⟩
       rw [outward, List.getElem?_map] at hit
       obtain ⟨B, get, eq⟩ := Option.map_eq_some_iff.mp hit
-      have h : At L j A := get.trans (congrArg (fun x : Ty Empty × Bool => some x.1) eq)
-      exact ⟨exitAt P h, exitAt W h, mapSlotBoundary_exit M (slot M P F D) L h _ _⟩
-  · intro i A hit
+      have h : At L j A := get.trans (congrArg (fun x : Ty Empty × Option CaseTag => some x.1) eq)
+      exact ⟨exitAt P h, exitAt W h, mapSlotBoundary_exit M maps L h _ _⟩
+  · intro i A tag hit
     by_cases hi : i < m
     · let j : Fin m := ⟨i, hi⟩
-      obtain ⟨same, flag⟩ := Prod.mk.inj (Option.some.inj ((lookup hi).symm.trans hit))
+      obtain ⟨same, choice⟩ := Prod.mk.inj (Option.some.inj ((lookup hi).symm.trans hit))
       change P j = A at same
       subst A
       have h : At (labels W L) j (W j) := localAt W L j
-      change F j = true at flag
-      have ht : At (labels W L) j (.coprod (P j) (D j)) := by
-        change At (labels W L) j (payloadType (P j) (D j) (F j)) at h
-        simpa only [flag, payloadType] using h
-      exact ⟨D j, localAt P L j, ht, (mapSlotBoundary_local M (slot M P F D) L j _ h).trans
-        (local_left M flag h ht)⟩
+      change chosen j = some tag at choice
+      have ht : At (labels W L) j (tag.sumType (P j) (D j)) := by
+        change At (labels W L) j (payloadType (P j) (D j) (chosen j)) at h
+        simpa only [choice, payloadType] using h
+      exact ⟨D j, localAt P L j, ht, (mapSlotBoundary_local M maps L j _ h).trans (local_tagged M choice h ht)⟩
     · obtain ⟨j, rfl⟩ : ∃ j, i = m + j := ⟨i-m, by omega⟩
       rw [outward, List.getElem?_map] at hit
       obtain ⟨_, _, eq⟩ := Option.map_eq_some_iff.mp hit
@@ -146,8 +146,8 @@ private theorem leaf_routes {out : RouteLayout Empty} {K W : LCtx (Ty Empty)}
   · intro i A h
     obtain ⟨l, r, e⟩ := coord.plain i A h
     exact ⟨l, r, e.trans (Category.comp_id _).symm⟩
-  · intro i A h
-    obtain ⟨D, l, r, e⟩ := coord.left i A h
+  · intro i A tag h
+    obtain ⟨D, l, r, e⟩ := coord.tagged i A tag h
     exact ⟨D, l, r, by rw [Category.comp_id]; exact e⟩
 
 private theorem inner_routes {out : RouteLayout Empty} {K W : LCtx (Ty Empty)}
@@ -162,7 +162,7 @@ private theorem inner_routes {out : RouteLayout Empty} {K W : LCtx (Ty Empty)}
         f ≫ labelInject M (n+i) (exitAt I r) ≫ labelAppendSplit M (List.ofFn I) W := by
     rw [← Category.assoc, labelAppendSplit_exit M I K l, Category.assoc,
       coprod.inl_map, ← Category.assoc, h, Category.assoc, labelAppendSplit_exit M I W r]
-  have lookup {i : Nat} (h : i < n) : (innerLayout I out)[i]? = some (I ⟨i, h⟩, false) := by
+  have lookup {i : Nat} (h : i < n) : (innerLayout I out)[i]? = some (I ⟨i, h⟩, none) := by
     simp [innerLayout, List.getElem?_append_left, h]
   have outward (i : Nat) : (innerLayout I out)[n+i]? = out[i]? := by
     simp [innerLayout, List.getElem?_append_right]
@@ -182,14 +182,14 @@ private theorem inner_routes {out : RouteLayout Empty} {K W : LCtx (Ty Empty)}
       have eq := liftExit l r (𝟙 _) (e.trans (Category.id_comp _).symm)
       rw [Category.id_comp] at eq
       exact ⟨exitAt I l, exitAt I r, eq⟩
-  · intro i B hit
+  · intro i B tag hit
     by_cases h : i < n
     · rw [lookup h] at hit
       cases hit
     · obtain ⟨j, rfl⟩ : ∃ j, i = n+j := ⟨i-n, by omega⟩
       rw [outward] at hit
-      obtain ⟨D, l, r, e⟩ := coord.left j B hit
-      exact ⟨D, exitAt I l, exitAt I r, liftExit l r (inLeft M B D) e⟩
+      obtain ⟨D, l, r, e⟩ := coord.tagged j B tag hit
+      exact ⟨D, exitAt I l, exitAt I r, liftExit l r (tag.injection M B D) e⟩
 
 end Maps
 
@@ -219,15 +219,24 @@ private theorem read_selected {k l : Nat} {keep : Fin (k + 1) ↪ Fin (l + 1)} {
   rw [eq] at slim
   exact slim
 
-private theorem select_inner {A D : Ty Empty} {K : LCtx (Ty Empty)} {raw body : Region Φ}
-    (prune : Region.PruneConstructorTests (raw.substVars (Tm.replaceNewest (.inl (.var 0)))) body)
-    {t : raw.HasType [.coprod A D] K} {b : J.obj (ctxObj M [.coprod A D]) ⟶ J.obj (labelObj M K)}
+private theorem select_inner {A D : Ty Empty} {tag : CaseTag} {K : LCtx (Ty Empty)} {raw body : Region Φ}
+    (prune : Region.PruneConstructorTests (raw.substVars (Tm.replaceNewest (tag.inject (.var 0)))) body)
+    {t : raw.HasType [tag.sumType A D] K}
+    {b : J.obj (ctxObj M [tag.sumType A D]) ⟶ J.obj (labelObj M K)}
     (w : RegionDenotes J M t b) :
-    ∃ h : body.HasType [A] K, RegionDenotes J M h (J.map (Env ◁ inLeft M A D) ≫ b) := by
-  have da : Denotes J M (.inl (.var rfl) (B := D) : (Tm.inl (.var 0) : Tm Φ).HasType [A] (.coprod A D))
-      (J.map (snd Env (M.obj A) ≫ inLeft M A D)) := by
-    rw [J.map_comp]
-    exact .inl (.var rfl)
+    ∃ h : body.HasType [A] K, RegionDenotes J M h (J.map (Env ◁ tag.injection M A D) ≫ b) := by
+  have value : ∃ h : (tag.inject (.var 0) : Tm Φ).HasType [A] (tag.sumType A D),
+      Denotes J M h (J.map (snd Env (M.obj A) ≫ tag.injection M A D)) := by
+    cases tag with
+    | inl =>
+        refine ⟨.inl (.var rfl), ?_⟩
+        rw [J.map_comp]
+        exact .inl (.var rfl)
+    | inr =>
+        refine ⟨.inr (.var rfl), ?_⟩
+        rw [J.map_comp]
+        exact .inr (.var rfl)
+  obtain ⟨_, da⟩ := value
   obtain ⟨_, restricted⟩ := w.replaceNewest J M da
   exact prune.denotes J M restricted
 
@@ -250,31 +259,32 @@ private theorem inner_compare {k l : Nat} {keep : Fin (k + 1) ↪ Fin (l + 1)} {
     (left.cfg_readback_of_labels_determined J M shape) (read_selected J M checked roll len right)
 
 private theorem row_anchor {m : Nat} {P S : Fin m → Ty Empty} {F : Fin m → Bool}
-    {L : LCtx (Ty Empty)} {A B : Ty Empty} {form : Bool} {raw : Region Φ} {p : RowPlan Φ}
-    (roll : IterationRolling C) (row : p.Valid A (layout P F L) raw form) (fit : NestedCfgMultiSyntax.Fits A form B)
+    {L : LCtx (Ty Empty)} {A B : Ty Empty} {form : Option CaseTag} {raw : Region Φ} {p : RowPlan Φ}
+    {tags : Fin m → CaseTag}
+    (roll : IterationRolling C) (row : p.Valid A (layout P F L tags) raw form) (fit : NestedCfgMultiSyntax.Fits A form B)
     {h : raw.HasType [B] (labels S L)} {f : J.obj (ctxObj M [B]) ⟶ J.obj (labelObj M (labels S L))}
     (d : RegionDenotes J M h f) (i : Fin m) (edge : p.targets i = true) :
-    NestedCfgMultiSyntax.Fits (P i) (F i) (S i) := by
+    NestedCfgMultiSyntax.Fits (P i) (selection F tags i) (S i) := by
   cases row with
   | ordinary route =>
       change B = A at fit
       subst B
       exact NestedCfgMultiSyntax.target [] route h i (by simpa [RowPlan.targets] using edge)
-  | @nested mask plan body prune checked =>
+  | @nested mask plan body tag prune checked =>
       obtain ⟨D, rfl⟩ := fit
       obtain ⟨_, selected⟩ := select_inner J M prune d
-      have len : (layout P F L).length = (labels S L).length := by simp [layout, labels]
+      have len : (layout P F L tags).length = (labels S L).length := by simp [layout, labels]
       obtain ⟨entry, rows, _⟩ := read_selected J M checked roll len selected
       rcases Bool.or_eq_true_iff.mp edge with throughEntry | throughRow
-      · exact NestedCfgMultiSyntax.target (List.ofFn (fun j => (mask.types j, false))) checked.entryRoute
+      · exact NestedCfgMultiSyntax.target (List.ofFn (fun j => (mask.types j, none))) checked.entryRoute
           (by simpa only [List.map_ofFn, Function.comp_def] using entry) i
           (by simpa only [List.length_ofFn] using throughEntry)
       · obtain ⟨j, _, next⟩ := List.any_eq_true.mp throughRow
-        exact NestedCfgMultiSyntax.target (List.ofFn (fun j => (mask.types j, false))) (checked.rowRoutes j)
+        exact NestedCfgMultiSyntax.target (List.ofFn (fun j => (mask.types j, none))) (checked.rowRoutes j)
           (by simpa only [List.map_ofFn, Function.comp_def] using (rows j)) i
           (by simpa only [List.length_ofFn] using next)
 
-private theorem row_eq {A D : Ty Empty} {form : Bool} {out : RouteLayout Empty}
+private theorem row_eq {A D : Ty Empty} {form : Option CaseTag} {out : RouteLayout Empty}
     {K W : LCtx (Ty Empty)} {post : labelObj M K ⟶ labelObj M W}
     (roll : IterationRolling C) (len : out.length = W.length) (coord : Coordinates M out post)
     {raw : Region Φ} {p : RowPlan Φ} (checked : p.Valid A out raw form)
@@ -295,71 +305,71 @@ private theorem row_eq {A D : Ty Empty} {form : Bool} {out : RouteLayout Empty}
       exact inner_compare J M coord typed roll len left selected
 
 variable {m n : Nat} {keep : Fin (m + 1) ↪ Fin (n + 1)} {P : Fin (m + 1) → Ty Empty}
-  {F : Fin (m + 1) → Bool} {r : Region Φ} {L : LCtx (Ty Empty)} {p : Plan Φ (m + 1) (n + 1)}
+  {F : Fin (m + 1) → Bool} {tags : Fin (m + 1) → CaseTag} {r : Region Φ} {L : LCtx (Ty Empty)} {p : Plan Φ (m + 1) (n + 1)}
 
 local notation "Arrow" => J.obj Env ⟶ J.obj (labelObj M L)
 local notation "ActualRows" => fun i => p.outer.rows (keep i)
 local notation "CommonRows" => fun i => RowPlan.commonRegion (p.rows i)
 
-private theorem align (roll : IterationRolling C) (ok : p.Valid keep P F r L) {S : Fin (m + 1) → Ty Empty}
+private theorem align (roll : IterationRolling C) (ok : p.Valid keep P F r L tags) {S : Fin (m + 1) → Ty Empty}
     {f : Arrow} (d : CfgDenotesAt J M S p.outer.entry ActualRows f) :
-    ∃ D : Fin (m + 1) → Ty Empty, S = wideTypes P F D := by
+    ∃ D : Fin (m + 1) → Ty Empty, S = wideTypes P (selection F tags) D := by
   obtain ⟨he, _, _, _, _, _, rows, _⟩ := d
   have initial (i : Fin (m + 1)) (hit : NestedAdmission.Finite.branchesTo i p.entry = true) :
-      NestedCfgMultiSyntax.Fits (P i) (F i) (S i) :=
+      NestedCfgMultiSyntax.Fits (P i) (selection F tags i) (S i) :=
     NestedCfgMultiSyntax.target [] ok.entry he i (by simpa using hit)
-  have advance (j i : Fin (m + 1)) (fit : NestedCfgMultiSyntax.Fits (P j) (F j) (S j))
+  have advance (j i : Fin (m + 1)) (fit : NestedCfgMultiSyntax.Fits (P j) (selection F tags j) (S j))
       (edge : (p.rows j).targets i = true) :
-      NestedCfgMultiSyntax.Fits (P i) (F i) (S i) :=
+      NestedCfgMultiSyntax.Fits (P i) (selection F tags i) (S i) :=
     row_anchor J M roll (ok.rows j) fit (rows j) i edge
-  have tails (i : Fin (m + 1)) : ∃ D, S i = payloadType (P i) D (F i) := by
+  have tails (i : Fin (m + 1)) : ∃ D, S i = payloadType (P i) D (selection F tags i) := by
     have fit := NestedCfgFiniteSyntax.of_worklist initial advance (ok.anchors i)
-    cases hi : F i with
-    | false => exact ⟨.empty, by simpa [NestedCfgMultiSyntax.Fits, payloadType, hi] using fit⟩
-    | true => simpa [NestedCfgMultiSyntax.Fits, payloadType, hi] using fit
+    cases hi : selection F tags i with
+    | none => exact ⟨.empty, by simpa [NestedCfgMultiSyntax.Fits, payloadType, hi] using fit⟩
+    | some tag => simpa [NestedCfgMultiSyntax.Fits, payloadType, hi] using fit
   choose D eq using tails
   exact ⟨D, funext eq⟩
 
-private theorem compare_reduced (roll : IterationRolling C) (ok : p.Valid keep P F r L) (D : Fin (m + 1) → Ty Empty)
+private theorem compare_reduced (roll : IterationRolling C) (ok : p.Valid keep P F r L tags) (D : Fin (m + 1) → Ty Empty)
     {f g : Arrow} (small : CfgDenotesAt J M P p.entry CommonRows f)
-    (wide : CfgDenotesAt J M (wideTypes P F D) p.outer.entry ActualRows g) : f = g := by
-  let post := mapSlotBoundary M (slot M P F D) L
-  have coord := coordinates M P F D L
+    (wide : CfgDenotesAt J M (wideTypes P (selection F tags) D) p.outer.entry ActualRows g) : f = g := by
+  let post := mapSlotBoundary M (slot M P (selection F tags) D) L
+  have coord := coordinates M P F tags D L
   have split_eq {Γ : VCtx (Ty Empty)}
       {a : J.obj (ctxObj M Γ) ⟶ J.obj (labelObj M (labels P L))}
-      {b : J.obj (ctxObj M Γ) ⟶ J.obj (labelObj M (labels (wideTypes P F D) L))}
+      {b : J.obj (ctxObj M Γ) ⟶ J.obj (labelObj M (labels (wideTypes P (selection F tags) D) L))}
       (h : b = a ≫ J.map post) :
-      b ≫ J.map (labelAppendSplit M (List.ofFn (wideTypes P F D)) L) =
+      b ≫ J.map (labelAppendSplit M (List.ofFn (wideTypes P (selection F tags) D)) L) =
         a ≫ J.map (labelAppendSplit M (List.ofFn P) L) ≫
-          J.map (coprod.map (𝟙 _) (mapSlotLabels M (slot M P F D))) := by
+          J.map (coprod.map (𝟙 _) (mapSlotLabels M (slot M P (selection F tags) D))) := by
     rw [h, Category.assoc, ← J.map_comp, mapSlotBoundary_split, J.map_comp]
-  have mapped := CfgDenotesAt.postmap_of_slot_squares J M (slot M P F D) (𝟙 (labelObj M L))
+  have mapped := CfgDenotesAt.postmap_of_slot_squares J M (slot M P (selection F tags) D) (𝟙 (labelObj M L))
     (fun _ _ _ _ dl dr => by
       have eq := RegionConstructorRoutes.denotes J M (leaf_routes M coord (Region.checkRoutes?_sound ok.entry)) dl dr
       rw [J.map_id, Category.comp_id] at eq
       exact split_eq eq.symm)
     (fun i _ _ a b dl dr => by
       have eq := row_eq J M (D := D i) roll (by simp [layout]) coord (ok.rows i) dl dr
-      have component := split_eq (Γ := [P i]) (a := a) (b := J.map (Env ◁ slot M P F D i) ≫ b) eq
+      have component := split_eq (Γ := [P i]) (a := a) (b := J.map (Env ◁ slot M P (selection F tags) D i) ≫ b) eq
       rw [Category.assoc] at component
       exact component)
     small wide
   rwa [J.map_id, Category.comp_id, eq_comm] at mapped
 
-private theorem common_type {out : RouteLayout Empty} {A : Ty Empty} {form : Bool} {raw : Region Φ}
+private theorem common_type {out : RouteLayout Empty} {A : Ty Empty} {form : Option CaseTag} {raw : Region Φ}
     {row : RowPlan Φ} (ok : row.Valid A out raw form) : row.commonRegion.HasType [A] (out.map Prod.fst) := by
   cases ok with
   | ordinary h => exact (Region.checkRoutes?_sound h).hasType
-  | @nested mask plan body prune checked =>
+  | @nested mask plan body tag prune checked =>
       have shape : (innerLayout mask.types out).map Prod.fst = List.ofFn mask.types ++ out.map Prod.fst := by
         simp [innerLayout, List.map_ofFn, Function.comp_def]
       exact .cfg mask.types (shape ▸ (Region.checkRoutes?_sound checked.entryRoute).hasType)
         (fun i => shape ▸ (Region.checkRoutes?_sound (checked.rowRoutes i)).hasType)
 
-private theorem compare_checked (roll : IterationRolling C) (ok : p.Valid keep P F r L)
+private theorem compare_checked (roll : IterationRolling C) (ok : p.Valid keep P F r L tags)
     {h h' : r.HasType [] L} {f g : Arrow}
     (left : RegionDenotes J M h f) (right : RegionDenotes J M h' g) : f = g := by
-  have shape : (layout P F L).map Prod.fst = labels P L := by
+  have shape : (layout P F L tags).map Prod.fst = labels P L := by
     simp [layout, labels, List.map_ofFn, Function.comp_def, List.map_map]
   obtain ⟨base, small⟩ := CfgDenotesAt.exists_of_typing J M P (L := L)
     (shape ▸ (Region.checkRoutes?_sound ok.entry).hasType) (fun i => shape ▸ common_type (ok.rows i))
@@ -371,10 +381,10 @@ private theorem compare_checked (roll : IterationRolling C) (ok : p.Valid keep P
   exact (agree left).symm.trans (agree right)
 
 theorem compare {masks : Fin (m + 1) → Option InnerMask}
-    (roll : IterationRolling C) (ok : compare? keep P F r L masks = .certified)
+    (roll : IterationRolling C) (ok : compare? keep P F r L masks tags = .certified)
     {h h' : r.HasType [] L} {f g : Arrow}
     (left : RegionDenotes J M h f) (right : RegionDenotes J M h' g) : f = g := by
-  cases found : check? keep P F r L masks with
+  cases found : check? keep P F r L masks tags with
   | none => simp [compare?, found] at ok
   | some p => exact compare_checked J M roll (NestedCfgMultiSyntax.checked found) left right
 

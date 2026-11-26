@@ -152,15 +152,15 @@ private theorem checked_routes {q : Nat} (A D : Ty Empty) (Q : Fin q → Ty Empt
     | succ i =>
         simp only [layout, List.getElem?_cons_succ, List.getElem?_map] at hit
         obtain ⟨U, get, eq⟩ := Option.map_eq_some_iff.mp hit
-        have ht : At (List.ofFn Q ++ L) i T := get.trans (congrArg (fun x : Ty Empty × Bool => some x.1) eq)
+        have ht : At (List.ofFn Q ++ L) i T := get.trans (congrArg (fun x : Ty Empty × Option CaseTag => some x.1) eq)
         have hl : At (labels A Q L) (i + 1) T := (labels_eq A Q L).symm ▸ ht
         have hr : At (labels (.coprod A D) Q L) (i + 1) T := (labels_eq (.coprod A D) Q L).symm ▸ ht
         exact ⟨hl, hr, (post_nonzero M A D Q L (by simp) hl hr).trans (Category.comp_id _).symm⟩
-  · intro i T hit
+  · intro i T tag hit
     cases i with
     | zero =>
-        have eq : A = T := congrArg Prod.fst (Option.some.inj hit)
-        subst T
+        obtain ⟨rfl, tagEq⟩ := Prod.mk.inj (Option.some.inj hit)
+        cases Option.some.inj tagEq
         refine ⟨D, localAt (stateTypes A Q) L 0, localAt (stateTypes (.coprod A D) Q) L 0, ?_⟩
         rw [Category.comp_id]
         exact post_zero M A D Q L
