@@ -43,6 +43,42 @@ lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Regression
 ```
 
+## Bypass a single-user Store inside one arm
+
+`DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter
+10's direct Store bypass to one arm of the native memory diamond. The
+Region slot selects the actual predecessor and the one-based version is
+local to that arm. The existing linear checker reads the named memory
+operands, checks the same typed address port, and requires the following
+Store to be the sole user. The diamond census reports an arm Return
+as the memory Phi input at that precise slot.
+[Pinned Simple StoreNode rule](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65) ·
+[Pinned Simple memory Phi](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#memory-is-an-ssa-variable) ·
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/SingleUser/Defs.lean)
+
+An arm can have several Loads on its current version, and its Return
+exports the current version exactly once at its Region occurrence.
+The other arm has its own version namespace. The suffix receives
+only the selected export, so no arm snapshot reaches the suffix
+separately from that Phi. A second Load user or a version exported
+without the required overwrite refuses the edit.
+
+The proof preserves the Region ordering, every Load in each arm and the
+suffix, and the exact latch observation at either slot. The emitted
+MemRef CFGs enter the same arm slot and send the same jump frame, word,
+and complete buffer to the join. Both runs agree on the returned word
+and full buffer for either predicate and every CF budget, typed
+valuation, and initialized buffer. The fixture runs both guard values
+in both Region orders, reads the actual join packets and final buffers,
+and exercises the observer and export refusals.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/SingleUser/Thms.lean) ·
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/SingleUser/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.SingleUser.Regression
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/SingleUser/Regression.lean
+```
+
 ## Discover both overwrites
 
 `DeadStore.Discovery.rewrite source input` infers the two arm witnesses.

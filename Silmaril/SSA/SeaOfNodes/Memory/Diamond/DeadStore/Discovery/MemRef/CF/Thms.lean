@@ -8,8 +8,11 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF
 
 open RVSDG (Tuple)
-open SeaOfNodes.Diamond (Projection)
+open SeaOfNodes.Diamond (Projection Slot)
+open Silmaril.MLIR.Arith (Env)
+open Silmaril.MLIR.CF.Ordered (Block)
 open Silmaril.MLIR.MemRef (Buffer)
+open SeaOfNodes.Memory.MLIR.MemRef (observe)
 
 variable {cells : Nat} {args : List ValueSort}
 
@@ -23,6 +26,15 @@ theorem lowerDiamond_entryTransition (graph : Graph args) (entryBody : Option (M
           | none => initial.cell
           | some body => (body.denote input initial.cell).2⟩) :=
   Proofs.lowerDiamond_entryTransition graph entryBody input guard initial
+
+/-- The actual arm block passes its word and complete buffer to the join
+from the predecessor designated by this Region occurrence. -/
+theorem lowerDiamond_arm_eval (graph : Graph args) (entryBody : Option (Memory.Graph args))
+    (input : Tuple (Val cells) args) (arrival : Slot) (env : Env entryTypes) (initial : Buffer cells) :
+    Block.eval (evalBody input) ((lowerDiamond cells graph entryBody).block (Label.arm arrival)) env initial =
+      let selected := observe (graph.arm (graph.merge.predecessor arrival)) input initial
+      (.inl ⟨.join, .cons selected.1 .nil⟩, selected.2) :=
+  Proofs.arm_eval graph entryBody input arrival env initial
 
 /-- The ordered diamond runs on the heap supplied by the optional entry body. -/
 theorem lowerDiamond_run (graph : Graph args) (entryBody : Option (Memory.Graph args))

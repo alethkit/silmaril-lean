@@ -1005,6 +1005,47 @@ also distinguish reached literal UB from an ordinary return and failed
 extraction from a rejected comparison.
 [Executable refinement checker][ssa-ub-open-operand-checker]
 
+### Executable refinement over a finite caller interface
+
+`CallerEnumeration` supplies a list of all shaped packets at the shared
+entry type and a proof of exhaustiveness. `Table.compareInterface?`
+checks both original CFGs once, then scans the caller packets using the
+pointwise checker. An absent verdict reports failed exact readback or
+ranking, including at an empty caller interface. After successful
+readback, acceptance is equivalent to shaped refinement at every typed
+caller packet and on every deterministic finite-state primitive
+interpreter and initial state.
+
+Rejection returns a caller packet and the actual pointwise prefix.
+`Table.compareInterface_counterexample` certifies membership in the caller
+list, feasibility in both extracted trees, the existing rank bound, and
+failure of refinement between the original endpoints in the prefix model.
+The regression compares a second request that reads the caller with one
+that uses a literal. The first listed caller packet agrees for every
+reply. The later packet fails after a shared reply. An empty caller list
+and an exact table with a reachable request backedge exercise the
+readback boundary.
+[Finite caller checker][ssa-ub-open-caller-interface]
+
+### Rank dependence of a future cyclic product comparison
+
+| Obligation | Current checked use of rank | Requirement for a cyclic product comparison |
+|---|---|---|
+| Readback and extraction | Exact re-emission uses `sameRegion_eq` independently of rank. `Table.entryCheck` ranks the entry-reachable graph of written reply tags, including tags with no inhabited payload. Unreachable rows still participate in exact syntax comparison. `Table.expand` follows each typed reply edge at a strictly smaller rank. This is what permits an exhaustive tree rather than a cyclic graph. | Keep exact re-emission and certify one local request or exit and each typed reply successor. Retain cyclic continuations as graph edges. |
+| Termination and witness length | `Tree.compare` recurses structurally on its left tree. The reply and caller lists bound their respective scans. Rank supplies the tree and its `Fits` bound, which bounds the length of the certified common prefix. | Use a worklist over finite pairs of exact configurations, including each label and incoming payload with the caller held fixed. Exhaustive reply enumeration gives finite successors. A shortest path in a certified finite product could bound a counterexample, with one additional test state. |
+| Semantic soundness and completeness | `Table.observe_extract` proves agreement by induction on extraction fuel. Tree soundness and prefix separation recurse on trees. The native feedback bridge and its finite-UB and infinite-divergence characterizations have no rank premise. | Prove that product steps match actual typed routing at a shared machine state and preserve each reply's final state. Account for finite exits, faults, divergence within a request, and infinite replay of matching requests. Check reachable literal UB in the installed order. A completeness proof also needs the handler to realize each chosen typed reply at its recorded argument and state. |
+
+For a universal comparison over the current primitive interface, a common
+query can use the same action on both sides. The witness allocates fresh
+handler states along the chosen path. A checker for a single fixed
+interpreter instead needs to represent its machine state in the
+configurations. The existing cyclic native checker proves an agreement
+theorem for a supplied finite deterministic interpreter and coded starts.
+The finite caller checker here still requires the entry rank on both
+sides.
+[Rank checker][ssa-ub-open-ranks] [Native feedback][ssa-ub-feedback]
+[Fixed-interpreter cyclic checker][ssa-ub-cyclic-native-checker]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1164,3 +1205,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-operand-extraction]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Thms.lean
 [ssa-ub-open-operand-refinement]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Thms.lean
 [ssa-ub-open-operand-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Checker/Thms.lean
+[ssa-ub-open-caller-interface]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Checker/Interface/Thms.lean
+[ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
+[ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
