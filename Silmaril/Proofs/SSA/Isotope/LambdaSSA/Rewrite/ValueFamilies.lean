@@ -17,7 +17,7 @@ open Silmaril.Isotope.LambdaSSA.Region
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
-private theorem valueBranches_substVars {Γ Δ : VCtx τ} {L : LCtx τ} {r : Region Φ}
+theorem valueBranches_substVars {Γ Δ : VCtx τ} {L : LCtx τ} {r : Region Φ}
     (hr : ValueBranches Γ r L) {σ : Nat → Tm Φ}
     (hσ : ∀ ⦃i A⦄, At Γ i A → Tm.BranchValue Δ (σ i) A) :
     ValueBranches Δ (r.substVars σ) L := by
