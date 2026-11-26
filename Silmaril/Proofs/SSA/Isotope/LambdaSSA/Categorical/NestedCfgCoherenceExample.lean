@@ -2,6 +2,8 @@ module
 
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Paths.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Trim.Thms
+import Mathlib.Data.Fin.Embedding
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.BlockParameters.Thms
@@ -221,6 +223,158 @@ example (roll : IterationRolling C) :
   obtain ⟨g, right⟩ := nested_exists J M .empty
   exact ⟨innerDead_differs, f, g, left, right,
     outer_functional J M roll (left.denotes J M) (right.denotes J M)⟩
+
+private def keep : Fin 2 ↪ Fin 3 := (1 : Fin 3).succAboveEmb
+
+private def wideFamily (dead : Ty Empty) : Fin 3 → Ty Empty :=
+  Fin.cases Flag (Fin.cases dead (fun _ => Result))
+
+private def rowsBeforeTrim : Fin 3 → Region Op :=
+  Fin.cases innerRegion (Fin.cases (.br 2 .unit) (fun _ => outerRows 1))
+
+private def wideEntry : Region Op := outerEntry.renameLabels (retainLabelIndex keep)
+private def wideRows (i : Fin 3) : Region Op := (rowsBeforeTrim i).renameLabels (retainLabelIndex keep)
+private abbrev wideRegion : Region Op := .cfg wideEntry 3 wideRows
+private abbrev innerIndex := Silmaril.DeBruijn.liftN 3 (retainLabelIndex keep)
+private abbrev wideInnerEntry := innerEntry.renameLabels innerIndex
+private abbrev wideInnerRows (i : Fin 3) := (innerRows i).renameLabels innerIndex
+private abbrev wideLabels (D : Ty Empty) := List.ofFn (wideFamily D) ++ exits
+
+private theorem entryScope : outerEntry.LabelsBound 4 := by
+  change 0 < 4
+  decide
+
+private theorem innerScope : innerRegion.LabelsBound 4 := by
+  change innerEntry.LabelsBound 7 ∧ ∀ i, (innerRows i).LabelsBound 7
+  refine ⟨?_, fun i => Fin.cases ?_ (Fin.cases ?_ (fun _ => ?_)) i⟩
+  · change 0 < 7
+    decide
+  · change 1 < 7
+    decide
+  · change 0 < 7 ∧ (4 < 7 ∧ 5 < 7)
+    decide
+  · change 5 < 7
+    decide
+
+private theorem rowScopes (i : Fin 3) : (rowsBeforeTrim i).LabelsBound 4 := by
+  refine Fin.cases innerScope (Fin.cases ?_ (fun _ => ?_)) i
+  · change 2 < 4
+    decide
+  · change 3 < 4
+    decide
+
+/-- The reindexed inner CFG keeps both internal transfers and all term
+arguments. Its transfer to outer block 2 and direct exit shift by one. -/
+example : wideRows 0 = .cfg (.br 0 (.var 0)) 3
+    (Fin.cases (.br 1 (.var 0)) (Fin.cases
+      (.case (.op Op.inspect (.var 0)) (.br 0 (.var 1))
+        (.case (.var 0) (.br 5 (.pair (.var 4) (.var 2))) (.br 6 (.var 0))))
+      (fun _ => .br 6 .unit))) := by
+  change Region.cfg wideInnerEntry 3 wideInnerRows = _
+  congr 1
+  funext i
+  exact Fin.cases rfl (Fin.cases rfl (fun _ => rfl)) i
+
+/-- The retained sibling now sends its pair to actual outward index 1
+after the three outer local labels. -/
+example : wideRows 2 = .br 4 (.pair (.var 1) (.inl .unit)) := rfl
+
+private theorem wideRen (D : Ty Empty) : Ren outerLabels (wideLabels D) (retainLabelIndex keep) := by
+  have family_eq : (fun i => wideFamily D (keep i)) = outerFamily := by
+    funext i
+    refine Fin.cases rfl (Fin.cases rfl ?_) i
+    intro j
+    exact Fin.elim0 j
+  simpa only [family_eq] using retainLabelRen keep (wideFamily D) exits
+
+private theorem wideInnerRen (D I : Ty Empty) :
+    Ren (List.ofFn (innerFamily I) ++ outerLabels) (List.ofFn (innerFamily I) ++ wideLabels D)
+      innerIndex := by
+  simpa only [List.length_ofFn] using (SSA.Ren.append (wideRen D) (List.ofFn (innerFamily I)))
+
+private theorem wideEntry_typed (D : Ty Empty) : wideEntry.HasType [U] (wideLabels D) :=
+  outerEntry_typed.renameLabels (wideRen D)
+
+private theorem wideDead_typed (D : Ty Empty) : (wideRows 1).HasType [D, U] (wideLabels D) := by
+  have typed : (Region.br 2 .unit : Region Op).HasType [D, U] outerLabels := .br rfl .unit
+  exact typed.renameLabels (wideRen D)
+
+private theorem wideSibling_typed (D : Ty Empty) : (wideRows 2).HasType [Result, U] (wideLabels D) :=
+  (sibling_typed_at Result).renameLabels (wideRen D)
+
+private theorem wide_functional (roll : IterationRolling C) :
+    RegionDenotes.Functional J M [U] wideRegion exits := by
+  intro _ _ f g d e
+  obtain ⟨S, left⟩ := d.cfg_readback J M
+  obtain ⟨T, right⟩ := e.cfg_readback J M
+  have narrow {R : Fin 3 → Ty Empty} {a : Arrow}
+      (w : CfgDenotesAt J M R wideEntry wideRows a) :
+      CfgDenotesAt J M (fun i => R (keep i)) outerEntry outerRows a := by
+    have trimmed := CfgDenotesAt.restrict J M keep R (L := exits) (entry := outerEntry)
+      (rows := rowsBeforeTrim) roll entryScope rowScopes w
+    have rows_eq : (fun i => rowsBeforeTrim (keep i)) = outerRows := by
+      funext i
+      refine Fin.cases rfl (Fin.cases rfl ?_) i
+      intro j
+      exact Fin.elim0 j
+    simpa only [rows_eq] using trimmed
+  let typed : outerRegion.HasType [U] exits := .cfg outerFamily outerEntry_typed (outerRows_typed U)
+  have left' : RegionDenotes J M typed f := (narrow left).denotes J M
+  have right' : RegionDenotes J M typed g := (narrow right).denotes J M
+  exact outer_functional J M roll left' right'
+
+private def WideAt (D I : Ty Empty) (f : Arrow) : Prop :=
+  ∃ (entry : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (wideLabels D)))
+    (rows : ∀ i, J.obj (ctxObj M (wideFamily D i :: [U])) ⟶ J.obj (labelObj M (wideLabels D)))
+    (dispatch : J.obj (ctxObj M [U] ⊗ finiteLabelObj M (wideFamily D)) ⟶ J.obj (labelObj M (wideLabels D))),
+    RegionDenotes J M (wideEntry_typed D) entry ∧
+      CfgDenotesAt J M (innerFamily I) wideInnerEntry wideInnerRows (rows 0) ∧
+      RegionDenotes J M (wideDead_typed D) (rows 1) ∧
+      RegionDenotes J M (wideSibling_typed D) (rows 2) ∧
+      CollectiveDenotes J M [U] (wideFamily D) exits rows dispatch ∧
+      f = cfgDispatchArrow J M (wideFamily D) entry dispatch
+
+private theorem wide_exists (D I : Ty Empty) : ∃ f : Arrow, WideAt J M D I f := by
+  obtain ⟨innerArrow, innerAt⟩ := CfgDenotesAt.exists_of_typing J M (innerFamily I)
+    ((innerEntry_typed I).renameLabels (wideInnerRen D I))
+    (fun i => (innerRows_typed I i).renameLabels (wideInnerRen D I))
+  let rows (i : Fin 3) : J.obj (ctxObj M (wideFamily D i :: [U])) ⟶ J.obj (labelObj M (wideLabels D)) :=
+    Fin.cases innerArrow (Fin.cases (denoteRegion J M (wideDead_typed D))
+      (fun _ => denoteRegion J M (wideSibling_typed D))) i
+  obtain ⟨dispatch, branches⟩ := collective_exists J M 2 [U] (wideFamily D) (labelObj M (wideLabels D)) rows
+  exact ⟨_, _, rows, dispatch, denoteRegion_spec J M (wideEntry_typed D), innerAt,
+    denoteRegion_spec J M (wideDead_typed D), denoteRegion_spec J M (wideSibling_typed D),
+    ⟨branches⟩, rfl⟩
+
+private theorem WideAt.denotes {D I : Ty Empty} {f : Arrow} (w : WideAt J M D I f) :
+    ∃ t : wideRegion.HasType [U] exits, RegionDenotes J M t f := by
+  obtain ⟨entry, rows, dispatch, de, di, dead, sibling, dc, eq⟩ := w
+  have typedInner : (wideRows 0).HasType [Flag, U] (wideLabels D) :=
+    .cfg (innerFamily I) ((innerEntry_typed I).renameLabels (wideInnerRen D I))
+      (fun i => (innerRows_typed I i).renameLabels (wideInnerRen D I))
+  let hb (i : Fin 3) : (wideRows i).HasType (wideFamily D i :: [U]) (wideLabels D) :=
+    Fin.cases typedInner (Fin.cases (wideDead_typed D) (fun _ => wideSibling_typed D)) i
+  refine ⟨.cfg (wideFamily D) (wideEntry_typed D) hb,
+    CfgDenotesAt.denotes J M (R := wideFamily D)
+      ⟨wideEntry_typed D, hb, entry, rows, dispatch, de, ?_, dc, eq⟩⟩
+  intro i
+  refine Fin.cases (di.denotes J M) (Fin.cases dead (Fin.cases sibling ?_)) i
+  intro j
+  exact Fin.elim0 j
+
+/-- Both actual top-level witnesses retain their inner CFG, with independently
+chosen dead types at both levels. The middle outer slot has no incoming edge,
+even from the inner table. -/
+example (roll : IterationRolling C) :
+    wideFamily U 1 ≠ wideFamily .empty 1 ∧ innerFamily U 2 ≠ innerFamily .empty 2 ∧
+      ∃ f g : Arrow, WideAt J M U .empty f ∧ WideAt J M .empty U g ∧ f = g := by
+  obtain ⟨f, left⟩ := wide_exists J M U .empty
+  obtain ⟨g, right⟩ := wide_exists J M .empty U
+  obtain ⟨_, dl⟩ := left.denotes J M
+  obtain ⟨_, dr⟩ := right.denotes J M
+  refine ⟨?_, innerDead_differs, f, g, left, right, wide_functional J M roll dl dr⟩
+  intro eq
+  cases eq
 
 end Model
 
