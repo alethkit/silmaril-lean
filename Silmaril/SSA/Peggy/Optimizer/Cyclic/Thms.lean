@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Peggy.Optimizer.Cyclic.Defs
 public import Silmaril.SSA.Peggy.EPEG.Selection.Thms
+public import Silmaril.SSA.Peggy.EPEG.Selection.Legality.Thms
 import Silmaril.Proofs.SSA.Peggy.Optimizer.Cyclic.Admission
 import Silmaril.Proofs.SSA.Peggy.Optimizer.Cyclic.Sound
 
@@ -42,6 +43,11 @@ theorem Match.Replay.targetDemandWellFounded {found : Match g site} {rank : Dema
     (checked : found.Replay rank) : WellFounded found.extract.Demand :=
   (found.selectionWithRank rank).demandWellFounded checked.boundary
 
+/-- The replay certifies Definition 5.1(1) for the actual compacted table. -/
+theorem Match.Replay.feedbackCycles {found : Match g site} {rank : DemandRank n 1}
+    (checked : found.Replay rank) : found.extract.FeedbackCycles :=
+  checked.feedback.feedbackCycles
+
 /-- The rule and row receipt preserve the entire observation, including
 unbounded eval and pass samples when admitted by the two demand checks. -/
 theorem Match.Replay.sound {found : Match g site} {rank : DemandRank n 1}
@@ -60,6 +66,6 @@ theorem Result.sound (result : Result g) (m : Interpretation.{u,v,x} P)
       result.matched.extract.observe m
         (result.matched.extract.denote m env result.target.demandWellFounded) i :=
   (show result.matched.Replay (demandRank result.target.phase) from
-    ⟨result.boundary, result.edges⟩).sound result.source.demandWellFounded m env i
+    ⟨result.boundary, result.edges, result.target.feedback⟩).sound result.source.demandWellFounded m env i
 
 end Silmaril.SSA.Peggy.Optimizer.Cyclic

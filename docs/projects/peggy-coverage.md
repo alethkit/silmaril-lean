@@ -413,11 +413,43 @@ and nested code motion remain open. No claim about fault equality.
 [§7.9 and Figure 33](https://arxiv.org/pdf/1012.1802v3#page=56) ·
 [Figure 34 and EvalCond](https://arxiv.org/pdf/1012.1802v3#page=57)
 
-Section 8.3's displayed cycle constraints exclude cycles without a θ
-node. A θ whose initializer selects itself still passes that test,
-although Definition 5.1(1) requires a feedback edge on the cycle.
-Legality of that selection formulation remains open.
-[§8.3 constraints](https://arxiv.org/pdf/1012.1802v3#page=64)
+### Selection cycle legality
+
+`EPEG.Selection.PrintedCycles` models the three reachability clauses
+on p. 64 of §8.3 for the wired candidate. A chosen non-θ reaches each
+child. Reaching a chosen non-θ extends reachability to its children.
+For each non-θ, the diagonal reachability variable is false.
+`PrintedCycles.excludes_nonTheta_cycle` proves that these clauses
+exclude a nonempty cycle of chosen non-θ rows. Root and class constraints
+from p. 63 are separate.
+
+In the counterexample, the source θ feeds itself through its second
+operand and initializes from a distinct parameter. The existing
+self-feedback rule soundly merges their classes. Selecting the θ as the
+representative also for the first operand gives a one-row table with both
+operands pointing to θ. The ordered class wiring check succeeds. All
+rows are selected, and setting every reachability variable false satisfies
+the three printed clauses. The first operand yields an initial-edge
+self-cycle, violating Definition 5.1(1) regardless of the second operand.
+
+`FeedbackRank.infer` synthesizes and checks a decreasing rank on all
+materialized edges except θ feedback edges. In particular, the checker
+visits initializer and observer operands as well as strict operands.
+`FeedbackRank.feedbackCycles` proves Definition 5.1(1) for this table.
+The bounded cyclic extractor uses the same certificate for its structural
+admission and retains it in the replay gate alongside the independent
+ordered class, root and native demand checks. It rejects the
+self-initializer, and the executable positive regression retains a live
+θ → primitive → θ recurrence through a feedback edge. Loop forest and
+scope, cycles through observers, Figure 19 admission, and semantic
+equality require separate evidence. This covers the displayed cycle
+defect and its repair for materialized selections. The pseudo-Boolean
+objective and general SelectBest search and optimality remain open.
+[Definition 5.1](https://arxiv.org/pdf/1012.1802v3#page=23) ·
+[§8.3 class constraints](https://arxiv.org/pdf/1012.1802v3#page=63) ·
+[§8.3 cycle constraints](https://arxiv.org/pdf/1012.1802v3#page=64) ·
+[Selection legality](../../Silmaril/SSA/Peggy/EPEG/Selection/Legality/Thms.lean) ·
+[Regression](../../tests/ssa/PeggyEgg.lean)
 
 ## Dialects, institutions and IR bridges
 

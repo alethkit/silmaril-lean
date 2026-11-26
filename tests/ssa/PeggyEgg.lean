@@ -12,6 +12,7 @@ import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 import Silmaril.SSA.Peggy.Optimizer.Thms
 import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
 meta import Silmaril.SSA.Peggy.Optimizer.Cyclic.Defs
+meta import Silmaril.SSA.Peggy.EPEG.Selection.Legality.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Figure11.Defs
 meta import Silmaril.SSA.Peggy.Acyclic.Defs
@@ -815,6 +816,82 @@ example : streams .bottom (4, clock 1) = none := by
   have init : streams .bottom (4, clock 0) = streams .bottom (6, clock 0) :=
     equations .bottom (4, clock 0)
   exact (selfStep .bottom).trans (init.trans bad)
+
+-- θ(init, θ) equals its parameter initializer in the source. Choosing
+-- the θ representative for that initializer slot creates an initial-edge
+-- self-cycle, while the ordered class check still succeeds.
+private def seedSource : Graph Op params [.count] 2 1 where
+  forest := ⟨fun _ => none⟩
+  sort := fun _ => .count
+  node i := Fin.cases (.ofLabel (.theta 0)
+      (.cons ⟨1, rfl⟩ (.cons ⟨0, rfl⟩ .nil)))
+    (fun _ => .ofLabel (.param .head) .nil) i
+  roots := .cons ⟨0, rfl⟩ .nil
+
+private def selfInitializer : Graph Op params [.count] 1 1 where
+  forest := ⟨fun _ => none⟩
+  sort := fun _ => .count
+  node _ := .ofLabel (.theta 0) (.cons ⟨0, rfl⟩ (.cons ⟨0, rfl⟩ .nil))
+  roots := .cons ⟨0, rfl⟩ .nil
+
+private def seedMatch : Match seedSource 0 := (matchAt seedSource 0).get (by decide)
+
+private def selected : EPEG.Selection seedSource selfInitializer :=
+  ⟨fun _ => ⟨0, rfl⟩, demandRank (fun _ => 0)⟩
+
+private def selectedRows (i : Fin 1) : EPEG.Selection.Row selected i :=
+  ⟨[.count, .count], .theta 0,
+    .cons ⟨1, rfl⟩ (.cons ⟨0, rfl⟩ .nil),
+    .cons ⟨0, rfl⟩ (.cons ⟨0, rfl⟩ .nil), HEq.rfl, rfl⟩
+
+example : EPEG.Selection.checkRows selectedRows seedMatch.classes = true := by decide
+
+private def seedAdmission : Admission seedSource := (admit seedSource).get (by decide)
+
+example : seedMatch.classes.Valid
+    (seedSource.denote arithmetic input seedAdmission.demandWellFounded) :=
+  seedMatch.classes_valid seedAdmission.demandWellFounded
+
+-- Assign every selected row true and every reachability variable false.
+-- The source of each edge is θ, so no immediate implication fires.
+example : EPEG.Selection.PrintedCycles selfInitializer (fun _ => true) (fun _ _ => false) := by
+  constructor
+  · intro i j kind chosen nonTheta edge
+    cases nonTheta
+  · intro i j k kind reaches
+    cases reaches
+  · intro i nonTheta
+    rfl
+
+example : ¬ selfInitializer.FeedbackCycles := by
+  intro feedback
+  have initial : selfInitializer.Edge 0 (.initial 0) 0 := ⟨⟨0, by decide⟩, rfl, rfl⟩
+  have cycle : Walk selfInitializer.Edge 0 [.initial 0] 0 := .cons initial (.nil 0)
+  obtain ⟨kind, member, feedbackEdge⟩ := feedback 0 _ cycle (by simp)
+  simp only [List.mem_singleton] at member
+  subst kind
+  exact feedbackEdge
+
+#guard (EPEG.Selection.FeedbackRank.infer selfInitializer).isNone
+#guard ((EPEG.Selection.FeedbackRank.infer (graph .parameter))).isSome
+
+-- The bounded optimizer returns a certified selection with a live
+-- θ→succ→θ recurrence, in addition to eliminating the matched row.
+private def liveMatch : Match (graph .parameter) 4 :=
+  (matchAt (graph .parameter) 4).get (by decide)
+
+private def liveRank : DemandRank 6 1 :=
+  demandRank fun i => if i = 0 then 1 else if i = 1 ∨ i = 4 then 2 else 0
+
+#guard (liveMatch.replay liveRank).isSome
+
+example (replay : liveMatch.Replay liveRank) : liveMatch.extract.FeedbackCycles :=
+  replay.feedbackCycles
+
+example : Walk liveMatch.extract.Edge 0 [.feedback 0, .ordinary] 0 := by
+  have feedback : liveMatch.extract.Edge 0 (.feedback 0) 1 := ⟨⟨1, by decide⟩, rfl, rfl⟩
+  have ordinary : liveMatch.extract.Edge 1 .ordinary 0 := ⟨⟨0, by decide⟩, rfl, rfl⟩
+  exact .cons feedback (.cons ordinary (.nil 0))
 
 end Silmaril.SSA.Peggy.Optimizer.Cyclic.Tests
 
