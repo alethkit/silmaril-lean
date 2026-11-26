@@ -100,7 +100,7 @@ variable (pe : ε)
 set_option hygiene false in
 local notation "Obj" => ofType (Seed[pe])
 
-private theorem exact_comp {A B C : Ty Unit} {r s : Region Ops}
+theorem exact_comp {A B C : Ty Unit} {r s : Region Ops}
     (hr : Region.ValueBranches [A] r [B]) (hs : Region.ValueBranches [B] s [C])
     (hrs : Region.ValueBranches [A] (Region.compLSubst (fun _ => r) (fun _ => s) 0) [C]) :
     ofRegion (Seed[pe]) hr ≫ ofRegion (Seed[pe]) hs = ofRegion (Seed[pe]) hrs := by
@@ -166,10 +166,10 @@ private theorem rightTag (A B : Code) :
     Region.ValueBranches [B.ty] (.br 0 (.inr (.var 0)) : Region Ops) [(.sum A B : Code).ty] :=
   .br rfl (.inr (.var rfl))
 
-private noncomputable def left (A B : Code) : Obj A.ty ⟶ Obj (.sum A B : Code).ty :=
+noncomputable def left (A B : Code) : Obj A.ty ⟶ Obj (.sum A B : Code).ty :=
   ofRegion (Seed[pe]) (leftTag A B)
 
-private noncomputable def right (A B : Code) : Obj B.ty ⟶ Obj (.sum A B : Code).ty :=
+noncomputable def right (A B : Code) : Obj B.ty ⟶ Obj (.sum A B : Code).ty :=
   ofRegion (Seed[pe]) (rightTag A B)
 
 private theorem left_coord (A B : Code) :
@@ -178,29 +178,29 @@ private theorem left_coord (A B : Code) :
   change (sumCofan (Seed[pe]) A.ty B.ty).inl = left pe A B at h
   rw [← h, sumCofan_inl_sumIso_hom]
 
-private theorem right_coord (A B : Code) :
+theorem right_coord (A B : Code) :
     right pe A B ≫ (sumIso (Seed[pe]) A.ty B.ty).hom = coprod.inr := by
   have h := congrArg ((projection (Seed[pe])).map) (Region.Paper.TypeCategory.sumCofan_inr (Φ := Ops) A.ty B.ty)
   change (sumCofan (Seed[pe]) A.ty B.ty).inr = right pe A B at h
   rw [← h, sumCofan_inr_sumIso_hom]
 
-private theorem left_inv (A B : Code) :
+theorem left_inv (A B : Code) :
     (coprod.inl : Obj A.ty ⟶ Obj A.ty ⨿ Obj B.ty) ≫ (sumIso (Seed[pe]) A.ty B.ty).inv = left pe A B := by
   rw [← left_coord pe A B, Category.assoc, Iso.hom_inv_id, Category.comp_id]
 
-private theorem right_inv (A B : Code) :
+theorem right_inv (A B : Code) :
     (coprod.inr : Obj B.ty ⟶ Obj A.ty ⨿ Obj B.ty) ≫ (sumIso (Seed[pe]) A.ty B.ty).inv = right pe A B := by
   rw [← right_coord pe A B, Category.assoc, Iso.hom_inv_id, Category.comp_id]
 
 local notation "lit[" c "," x "]" => (Step.lit (F := F) (O := c) x)
 
-private theorem lit_left (I A B : Code) (x : A.Value) :
+theorem lit_left (I A B : Code) (x : A.Value) :
     (lit[A,x] : Step F I A).arrow pe ≫ left pe A B =
       (lit[.sum A B, .inl x] : Step F I (.sum A B)).arrow pe := by
   exact exact_comp pe ((lit[A,x] : Step F I A).typed []) (leftTag A B)
     ((lit[.sum A B, .inl x] : Step F I (.sum A B)).typed [])
 
-private theorem lit_right (I A B : Code) (x : B.Value) :
+theorem lit_right (I A B : Code) (x : B.Value) :
     (lit[B,x] : Step F I B).arrow pe ≫ right pe A B =
       (lit[.sum A B, .inr x] : Step F I (.sum A B)).arrow pe := by
   exact exact_comp pe ((lit[B,x] : Step F I B).typed []) (rightTag A B)
@@ -219,7 +219,7 @@ theorem mapOut_arrow (s : Step F I O) (f : O.Value → P.Value) (g : Obj O.ty �
     apply (cancel_epi (sumIso (Seed[pe]) A.ty B.ty).inv).mp
     rw [Step.mapOut, split_arrow, ← Category.assoc, split_arrow, coprod.desc_comp, il f g leaf, ir f g leaf]
 
-private theorem literal_map (c : Code) (f : O.Value → P.Value) (xs : c.Value → O.Value) :
+theorem literal_map (c : Code) (f : O.Value → P.Value) (xs : c.Value → O.Value) :
     Step.mapOut f (literals (F := F) c xs) = literals c (fun v => f (xs v)) := by
   simp only [literals, tabulate_map, Step.mapOut]
 
@@ -274,7 +274,7 @@ theorem expanded_source (first : Ops) (argument : first.argCode.Value)
 
 open Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns (requestBlocks iterateChosen_requestBlocks)
 
-private theorem lift_control (S R B : Code) (s : Step F I (.sum B S)) :
+theorem lift_control (S R B : Code) (s : Step F I (.sum B S)) :
     (Step.mapOut (O := .sum B S) (P := .sum B (.sum S R)) (Sum.map id Sum.inl) s).arrow pe ≫
       (sumIso (Seed[pe]) B.ty (.sum S R : Code).ty).hom =
     s.arrow pe ≫ (sumIso (Seed[pe]) B.ty S.ty).hom ≫ coprod.map (𝟙 (Obj B.ty)) (left pe S R) := by
@@ -342,7 +342,7 @@ private theorem expanded_coords (first : Ops) (argument : first.argCode.Value)
 
 open Silmaril.Isotope.LambdaSSA.Region.SyntacticCategory (iterateRegion iterateRegion_valueBranches)
 
-private theorem loop_coords (s : Step F I (.sum O I)) :
+theorem loop_coords (s : Step F I (.sum O I)) :
     iterateChosen (Seed[pe]) (s.arrow pe ≫ (sumIso (Seed[pe]) O.ty I.ty).hom) =
       ofRegion (Seed[pe]) (iterateRegion_valueBranches (s.typed [])) := by
   change iterateSum (Seed[pe])

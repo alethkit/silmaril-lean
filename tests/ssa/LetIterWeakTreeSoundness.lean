@@ -2,6 +2,7 @@ module
 
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Indexed.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Iteration.Chosen.Laws.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.StructuralValues.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedCase.Distributor.Thms
@@ -4743,6 +4744,76 @@ example :
   refine ⟨lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h)), hf, he, r, s, left, right, eq⟩
 
 end LambdaSSARequestBlockTransport
+
+namespace LambdaSSAIndexedRequestBlockTransport
+
+open Silmaril Silmaril.Isotope
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Heterogeneous
+open Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport (targetSeed eraseLoop)
+open Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport.Indexed
+
+private abbrev Bit : Code := .sum .unit .unit
+private def family : Family 3 where
+  argument := Fin.cases .unit (Fin.cases .unit (fun _ => Bit))
+  reply := Fin.cases Bit (fun _ => .unit)
+
+private abbrev read : Opcode family := ⟨0⟩
+private abbrev tick : Opcode family := ⟨1⟩
+private abbrev notify : Opcode family := ⟨2⟩
+private abbrev state₀ : Bit.Value := .inl PUnit.unit
+private abbrev state₁ : Bit.Value := .inr PUnit.unit
+private abbrev Fx := Bool × Bool
+private abbrev strict : Fx := (true, false)
+local instance : HasEff (Opcode family) Fx := ⟨fun _ => strict⟩
+local instance : EffectIteration Fx := EffectIteration.complete Fx
+
+private def next : read.replyCode.Value → Row family Bit .unit
+  | .inl _ => .call read PUnit.unit (fun
+      | .inl _ => .inr state₁
+      | .inr _ => .inl PUnit.unit)
+  | .inr _ => .call notify (.inr PUnit.unit) (fun _ => .inl PUnit.unit)
+
+private def fixture : Rows family Bit .unit Bit :=
+  .split (.leaf read PUnit.unit next)
+    (.leaf tick PUnit.unit (fun _ => .call notify (.inl PUnit.unit) (fun _ => .inl PUnit.unit)))
+
+private def expandedTable := Plans.expand fixture.plans
+
+-- Distinct original states have different first-reply codes at the leaves
+-- of the pending-state code.
+example : fixture.pending = Code.sum Bit .unit := rfl
+
+example : expandedTable (.inl state₀) =
+    .call read PUnit.unit (fun reply => .inr (.inr (.inl reply))) := rfl
+
+example : expandedTable (.inl state₁) =
+    .call tick PUnit.unit (fun reply => .inr (.inr (.inr reply))) := rfl
+
+-- A second read can transfer from the first original state to the other
+-- one. The other first reply instead selects notify and returns.
+example : ∃ k : read.replyCode.Value → Code.unit.Value ⊕ (Code.sum Bit fixture.pending).Value,
+    expandedTable (.inr (.inl (.inl PUnit.unit))) = .call read PUnit.unit k ∧
+    k (.inl PUnit.unit) = .inr (.inl state₁) :=
+  ⟨_, rfl, rfl⟩
+
+example : expandedTable (.inr (.inl (.inr PUnit.unit))) =
+    .call notify (.inr PUnit.unit) (fun _ => .inl PUnit.unit) := rfl
+
+example :
+    strict < (⊤ : Fx) ∧ state₀ ≠ state₁ ∧
+    HasTypeEffect (ε := Fx) (Ctx.nil : Ctx Empty (Ty Unit)) .nil (fusedNative fixture state₀) Ty.unit strict ∧
+    HasTypeEffect (ε := Fx) (Ctx.nil : Ctx Empty (Ty Unit)) .nil (expandedNative fixture state₀) Ty.unit strict ∧
+    ∃ r s, eraseLoop Bit (fusedNative fixture state₀) = some r ∧
+      eraseLoop (.sum Bit fixture.pending) (expandedNative fixture state₀) = some s ∧
+      Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Eqv (targetSeed (F := family) (⊥ : Fx)) [Ty.unit] r s [Ty.unit] := by
+  obtain ⟨hf, he, _, r, s, hl, hr, _, _, eq⟩ :=
+    endpoint_transport (e := strict) fixture state₀ (fun _ => le_rfl) (by rfl)
+  refine ⟨lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h)), ?_, hf, he, r, s, hl, hr, eq⟩
+  intro h
+  cases h
+
+end LambdaSSAIndexedRequestBlockTransport
 
 namespace LetIterHeterogeneousFeedbackFixture
 
