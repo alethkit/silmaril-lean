@@ -28,6 +28,12 @@ theorem prependEmits_congr {Γ L : List (Ty Empty)} {r s : Region signature.Inst
     (bits : List Bool) (h : E Γ r s L) : E Γ (prependEmits bits r) (prependEmits bits s) L :=
   RedundantSelectedTest.prependEmits_congr bits h
 
+/-- Substituting the terminal context leaves the closed emit prefix in place. -/
+theorem prependEmits_subst (emits : List Bool) (r : Region signature.Instr)
+    (σ : Nat → Tm signature.Instr) :
+    (prependEmits emits r).substVars σ = prependEmits emits (r.substVars σ) :=
+  RedundantSelectedTest.prependEmits_subst emits r σ
+
 /-- The selected terminal executes its emits before entering the terminal on
 the original input, in the order of the supplied list. -/
 theorem terminal_prefix {X : Ty Empty} {L : List (Ty Empty)} {n : Nat}

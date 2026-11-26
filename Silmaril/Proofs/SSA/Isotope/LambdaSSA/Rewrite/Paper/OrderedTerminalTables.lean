@@ -5,6 +5,9 @@ import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithComputedProductProducers.Intrinsic.SumCase.Tree.Packed.ReplyAgreement.NativeReplay.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Institution.Rewrite.Repair.Reply.Payload.Finite.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Roundtrip.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.RedundantTest.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.PacketCases.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.SingleCfg.Endpoint.Thms
 
 /-! # Native recovery of ordered truth-table quotations -/
 
@@ -23,6 +26,134 @@ open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite
 open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload
 
 local instance : HasTy signature.Instr (Ty Empty) := signature.hasTy
+
+local notation "E" => Paper.Extension.Eqv Seed
+
+private theorem rename_branch {Γ Δ : List (Ty Empty)} {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ)
+    {a : Tm signature.Instr} {X : Ty Empty} (h : Tm.BranchValue Γ a X) :
+    Tm.BranchValue Δ (a.rename ρ) X := by
+  rw [Tm.rename_eq_subst]
+  exact h.subst (fun _ _ hi => .var (hρ hi))
+
+private def renameFrame {Γ Δ : List (Ty Empty)} {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ) :
+    {X : Ty Empty} → {frame : ReplyFrame X} → ReplyFrame.Value Γ frame → ReplyFrame.Value Δ frame
+  | _, _, .base u => .base ⟨_, rename_branch hρ u.property⟩
+  | _, _, .unit v u => .unit (renameFrame hρ v) ⟨_, rename_branch hρ u.property⟩
+  | _, _, .bit v b u => .bit (renameFrame hρ v) b ⟨_, rename_branch hρ u.property⟩
+
+private theorem renameFrame_elaborate {Γ Δ : List (Ty Empty)} {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ)
+    {X : Ty Empty} {frame : ReplyFrame X} (v : ReplyFrame.Value Γ frame) :
+    (renameFrame hρ v).elaborate.val = v.elaborate.val.rename ρ := by
+  induction v with
+  | base => rfl
+  | unit v u ih => simp [renameFrame, ReplyFrame.Value.elaborate, Tm.rename, ih]
+  | bit v b u ih => cases b <;> simp [renameFrame, ReplyFrame.Value.elaborate, Tm.rename, ih]
+
+private theorem read_renameFrame {Γ Δ : List (Ty Empty)} {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ)
+    {X : Ty Empty} {frame : ReplyFrame X} (slot : ReplyFrame.Slot frame) (v : ReplyFrame.Value Γ frame) :
+    (slot.read (renameFrame hρ v)).1 = (slot.read v).1 := by
+  induction slot with
+  | newest => cases v; rfl
+  | retainUnit _ ih => cases v; exact ih _
+  | retainBit _ ih => cases v; exact ih _
+
+/-- The complete constructor packet in a selected reply arm after opening
+the Bit variable with its fresh unit payload. -/
+private def extendReply {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    (v : ReplyFrame.Value Γ frame) (b : Bool) : ReplyFrame.Value (unit :: Bit :: Γ) (.bit frame) :=
+  .bit (renameFrame ((Ren.wk Γ Bit).comp (Ren.wk (Bit :: Γ) unit)) v) b ⟨.var 0, .var rfl⟩
+
+private theorem replyFacts_hold {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    {v : ReplyFrame.Value Γ frame} {known : CompactTerminal.Known frame} (valid : FactsHold known v)
+    (b : Bool) : FactsHold (replyFacts known) (extendReply v b) := by
+  intro slot tag found
+  cases slot with
+  | newest => cases found
+  | retainBit old =>
+    change (old.read (renameFrame ((Ren.wk Γ Bit).comp (Ren.wk (Bit :: Γ) unit)) v)).1 = tag
+    rw [read_renameFrame]
+    exact valid old tag found
+
+private theorem guardFacts_hold {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    {v : ReplyFrame.Value Γ frame} {known : CompactTerminal.Known frame} (valid : FactsHold known v)
+    (slot : ReplyFrame.Slot frame) (tag reply : Bool) (chosen : (slot.read v).1 = tag) :
+    FactsHold (guardFacts known slot tag) (extendReply (.unit v (slot.read v).2) reply) := by
+  apply replyFacts_hold
+  intro query bit seen
+  cases query with
+  | retainUnit old =>
+    change CompactTerminal.remember known slot tag old = some bit at seen
+    change (old.read v).1 = bit
+    by_cases same : old = slot
+    · subst old
+      simp [CompactTerminal.remember] at seen
+      exact chosen.trans seen
+    · apply valid old bit
+      simpa [CompactTerminal.remember, same] using seen
+
+private theorem single_values {Γ : List (Ty Empty)} {X : Ty Empty} {a : Tm signature.Instr}
+    (ha : Tm.BranchValue Γ a X) :
+    ∀ ⦃i D⦄, At [X] i D → Tm.BranchValue Γ (Tm.singleSubst a i) D := by
+  intro i D hi
+  cases i with
+  | zero => cases Option.some.inj hi; exact ha
+  | succ i => simp [At] at hi
+
+private abbrev atFrame {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X} {L : List (Ty Empty)}
+    (p : CaseTree signature.Instr X L) (v : ReplyFrame.Value Γ frame) : Region signature.Instr :=
+  p.elaborate.val.substVars (Tm.singleSubst v.elaborate.val)
+
+private theorem opened_reply {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    {L : List (Ty Empty)} (p : CaseTree signature.Instr (product X Bit) L)
+    (v : ReplyFrame.Value Γ frame) (b : Bool) :
+    ((p.elaborate.val.substVars (Tm.singleSubst (.pair (v.elaborate.val.rename Nat.succ) (.var 0)))).substVars
+      (bitBranch 0 b)) = atFrame p (extendReply v b) := by
+  rw [substVars_comp]
+  apply Paper.SingletonReification.SingleCfg.singleton_subst p.elaborate.property.hasType
+  have shifted : (v.elaborate.val.rename Nat.succ).subst (bitBranch 0 b) =
+      v.elaborate.val.rename (Nat.succ ∘ Nat.succ) := by
+    rw [Tm.subst_rename, Tm.rename_eq_subst]
+    rfl
+  cases b <;> simp [Tm.singleSubst, Tm.consSubst, Tm.subst, extendReply, ReplyFrame.Value.elaborate,
+    shifted, bitBranch, replyBitTag] <;>
+    exact (renameFrame_elaborate ((Ren.wk Γ Bit).comp (Ren.wk (Bit :: Γ) unit)) v).symm
+
+private theorem request_at {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    {L : List (Ty Empty)} (emits : List Bool) (label : Bool) (v : ReplyFrame.Value Γ frame)
+    {l r l' r' : CaseTree signature.Instr (product X Bit) L}
+    (left : ∀ b, E (unit :: Bit :: Γ) (atFrame l (extendReply v b)) (atFrame l' (extendReply v b)) L)
+    (right : ∀ b, E (unit :: Bit :: Γ) (atFrame r (extendReply v b)) (atFrame r' (extendReply v b)) L) :
+    E Γ (atFrame (selectRequest emits label l r) v) (atFrame (selectRequest emits label l' r') v) L := by
+  have arm {p q : CaseTree signature.Instr (product X Bit) L}
+      (rows : ∀ b, E (unit :: Bit :: Γ) (atFrame p (extendReply v b)) (atFrame q (extendReply v b)) L) :
+      E (Bit :: Γ) (p.elaborate.val.substVars (Tm.singleSubst (.pair (v.elaborate.val.rename Nat.succ) (.var 0))))
+        (q.elaborate.val.substVars (Tm.singleSubst (.pair (v.elaborate.val.rename Nat.succ) (.var 0)))) L := by
+    have packet : Tm.BranchValue (Bit :: Γ) (.pair (v.elaborate.val.rename Nat.succ) (.var 0)) (product X Bit) :=
+      .pair (rename_branch (Ren.wk Γ Bit) v.elaborate.property) (.var rfl)
+    apply bit_case_ext (i := 0) rfl
+      (p.elaborate.property.substVars (single_values packet)).hasType
+      (q.elaborate.property.substVars (single_values packet)).hasType
+    intro b
+    rw [opened_reply p v b, opened_reply q v b]
+    exact rows b
+  exact packed_case_congr_at (KnownGuardTraversal.requestTerm emits label) v.elaborate.property
+    l.elaborate.property r.elaborate.property l'.elaborate.property r'.elaborate.property (arm left) (arm right)
+
+private theorem guard_at {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    {L : List (Ty Empty)} (slot : ReplyFrame.Slot frame) (emits : List Bool) (v : ReplyFrame.Value Γ frame)
+    {l r l' r' : CaseTree signature.Instr (product X unit) L}
+    (left : (slot.read v).1 = false → E Γ (atFrame l (.unit v (slot.read v).2))
+      (atFrame l' (.unit v (slot.read v).2)) L)
+    (right : (slot.read v).1 = true → E Γ (atFrame r (.unit v (slot.read v).2))
+      (atFrame r' (.unit v (slot.read v).2)) L) :
+    E Γ (atFrame (.case unit unit (emitPrefix emits slot.term) l r) v)
+      (atFrame (.case unit unit (emitPrefix emits slot.term) l' r') v) L := by
+  have source := framed_case_at slot emits v l.elaborate.property r.elaborate.property
+  have target := framed_case_at slot emits v l'.elaborate.property r'.elaborate.property
+  refine source.trans ((prependEmits_congr emits ?_).trans target.symm)
+  cases chosen : (slot.read v).1
+  · exact left chosen
+  · exact right chosen
 
 theorem frame_eq {X : Ty Empty} (frame other : ReplyFrame X) : frame = other := by
   induction frame with
@@ -58,35 +189,59 @@ private theorem locate_eq {X : Ty Empty} {frame : ReplyFrame X} {n : Nat}
   let := ReplyFrame.Slot.decEq frame
   exact of_decide_eq_true hit
 
-private theorem reindex_rows {X : Ty Empty} {frame : ReplyFrame X} {Γ : List (Ty Empty)} {n m : Nat}
+private theorem readWithFacts_rows {X : Ty Empty} {frame : ReplyFrame X} {Γ : List (Ty Empty)} {n : Nat}
+    (slot : ReplyFrame.Slot frame) (kept : Fin n → ReplyFrame.Slot frame)
+    (known : CompactTerminal.Known frame) (table : Finite.Table n)
+    (found : readWithFacts? kept known slot = some table) (v : ReplyFrame.Value Γ frame)
+    (valid : FactsHold known v) :
+    (slot.read v).1 = table (fun j => ((kept j).read v).1) := by
+  cases tag : known slot with
+  | none =>
+    simp only [readWithFacts?, tag, Option.map_eq_some_iff] at found
+    obtain ⟨j, located, rfl⟩ := found
+    exact congrArg (fun s : ReplyFrame.Slot frame => (s.read v).1) (locate_eq kept slot j located).symm
+  | some tagValue =>
+    simp only [readWithFacts?, tag, Option.some.injEq] at found
+    subst table
+    exact valid slot tagValue tag
+
+theorem reindexWithFacts_sound {X : Ty Empty} {frame : ReplyFrame X} {Γ : List (Ty Empty)} {n m : Nat}
     (e : Finite.Expr m) (slots : Fin m → ReplyFrame.Slot frame)
-    (kept : Fin n → ReplyFrame.Slot frame) (table : Finite.Table n)
-    (found : reindex? kept e slots = some table) (v : ReplyFrame.Value Γ frame) :
+    (kept : Fin n → ReplyFrame.Slot frame) (known : CompactTerminal.Known frame) (table : Finite.Table n)
+    (found : reindexWithFacts? kept known e slots = some table) (v : ReplyFrame.Value Γ frame)
+    (valid : FactsHold known v) :
     e.eval (fun j => ((slots j).read v).1) = table (fun j => ((kept j).read v).1) := by
   induction e generalizing table with
   | literal bit =>
-    simp only [reindex?, Option.some.injEq] at found
+    simp only [reindexWithFacts?, Option.some.injEq] at found
     subst table
     rfl
   | read i =>
-    simp only [reindex?, Option.map_eq_some_iff] at found
-    obtain ⟨j, located, rfl⟩ := found
-    simp only [Finite.Expr.eval, locate_eq kept (slots i) j located]
+    exact readWithFacts_rows (slots i) kept known table found v valid
   | split low high hl hr =>
-    by_cases redundant : low = high
-    · have reduced : reindex? kept low (fun j => slots j.succ) = some table := by
-        simpa only [reindex?, redundant, ↓reduceIte] using found
-      rw [← redundant]
-      simpa [Finite.Expr.eval] using! hl _ _ reduced
-    · simp only [reindex?, redundant, ↓reduceIte, bind, Option.bind_eq_some_iff, pure, Option.some.injEq]
-        at found
-      obtain ⟨j, located, l, left, r, right, rfl⟩ := found
-      have same := congrArg (fun slot : ReplyFrame.Slot frame => (slot.read v).1)
-        (locate_eq kept (slots 0) j located)
-      simp only [Finite.Expr.eval, ← same]
-      split
-      · exact hr _ _ right
-      · exact hl _ _ left
+    cases knownTag : known (slots 0) with
+    | some tag =>
+      have actual := valid (slots 0) tag knownTag
+      cases tag
+      · simp only [reindexWithFacts?, knownTag] at found
+        simpa [Finite.Expr.eval, actual] using! hl _ _ found
+      · simp only [reindexWithFacts?, knownTag] at found
+        simpa [Finite.Expr.eval, actual] using! hr _ _ found
+    | none =>
+      by_cases redundant : low = high
+      · have reduced : reindexWithFacts? kept known low (fun j => slots j.succ) = some table := by
+          simpa only [reindexWithFacts?, knownTag, redundant, ↓reduceIte] using found
+        rw [← redundant]
+        simpa [Finite.Expr.eval] using! hl _ _ reduced
+      · simp only [reindexWithFacts?, knownTag, redundant, ↓reduceIte, bind,
+          Option.bind_eq_some_iff, pure, Option.some.injEq] at found
+        obtain ⟨j, located, l, left, r, right, rfl⟩ := found
+        have same := congrArg (fun slot : ReplyFrame.Slot frame => (slot.read v).1)
+          (locate_eq kept (slots 0) j located)
+        simp only [Finite.Expr.eval, ← same]
+        split
+        · exact hr _ _ right
+        · exact hl _ _ left
 
 private theorem render_emits {L : List (Ty Empty)} {n : Nat} (emits before : List Bool)
     (p : Finite.Normal L n) :
@@ -120,77 +275,101 @@ theorem render_normal {L : List (Ty Empty)} {n : Nat} (p : Finite.Normal L n) (e
     | cons b bs h => simp [Finite.Tree.normal, h]
 
 set_option backward.isDefEq.respectTransparency false in
-theorem recoverTree_sound {L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X} {n m : Nat}
-    (tree : ReadTree L m) (slots : Fin m → ReplyFrame.Slot frame)
+theorem recoverTreeWithFacts_at {L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X} {n m : Nat}
+    (tree : ReadTree L m) (known : CompactTerminal.Known frame) (slots : Fin m → ReplyFrame.Slot frame)
     (kept : Fin n → ReplyFrame.Slot frame) (normal : Finite.Normal L n)
-    (found : recoverTree tree slots kept = some normal) :
-    selectedEq (tree.selectedWith (fun j => (slots j).term))
-      ((renderWith normal []).selectedWith (fun j => (kept j).term)) := by
-  induction tree generalizing n X with
+    (found : recoverTreeWithFacts tree known slots kept = some normal)
+    {Γ : List (Ty Empty)} (v : ReplyFrame.Value Γ frame) (valid : FactsHold known v) :
+    E Γ ((tree.selectedWith (fun j => (slots j).term)).elaborate.val.substVars
+        (Tm.singleSubst v.elaborate.val))
+      (((renderWith normal []).selectedWith (fun j => (kept j).term)).elaborate.val.substVars
+        (Tm.singleSubst v.elaborate.val)) L := by
+  induction tree generalizing n X Γ with
   | ret emits pos i =>
-    simp only [recoverTree, bind, Option.bind_eq_some_iff, pure, Option.some.injEq] at found
-    obtain ⟨j, located, rfl⟩ := found
+    simp only [recoverTreeWithFacts, bind, Option.bind_eq_some_iff, pure, Option.some.injEq] at found
+    obtain ⟨table, lookup, rfl⟩ := found
     simp only [render_emits, List.nil_append, renderWith, ReadTree.selectedWith]
-    apply CompactTerminal.selected_of_frame_rows
-    intro Γ v
+    apply CompactTerminal.selected_of_frame_row
     rw [Finite.Expr.quote_eval]
-    exact congrArg (fun slot : ReplyFrame.Slot frame => (slot.read v).1) (locate_eq kept (slots i) j located).symm
+    exact readWithFacts_rows (slots i) kept known table lookup v valid
   | retExpr emits pos e =>
-    simp only [recoverTree, bind, Option.bind_eq_some_iff, pure, Option.some.injEq] at found
-    obtain ⟨table, reindexed, rfl⟩ := found
+    simp only [recoverTreeWithFacts, bind, Option.bind_eq_some_iff, pure, Option.some.injEq] at found
+    obtain ⟨table, recovered, rfl⟩ := found
     simp only [render_emits, List.nil_append, renderWith, ReadTree.selectedWith]
-    apply CompactTerminal.selected_of_frame_rows
-    intro Γ v
+    apply CompactTerminal.selected_of_frame_row
     rw [Finite.Expr.quote_eval]
-    exact reindex_rows e slots kept table reindexed v
+    exact reindexWithFacts_sound e slots kept known table recovered v valid
   | request emits label bound l r hl hr =>
-    simp only [recoverTree, bind, Option.bind_eq_some_iff, pure, Option.some.injEq] at found
+    simp only [recoverTreeWithFacts, bind, Option.bind_eq_some_iff, pure, Option.some.injEq] at found
     obtain ⟨left, hleft, right, hright, rfl⟩ := found
-    have le := hl _ _ _ hleft
-    have re := hr _ _ _ hright
+    have le (b : Bool) := hl _ _ _ _ hleft (extendReply v b) (replyFacts_hold valid b)
+    have re (b : Bool) := hr _ _ _ _ hright (extendReply v b) (replyFacts_hold valid b)
     rw [bindSlots_term, bindSlots_term] at le re
     simp only [render_emits, List.nil_append, renderWith, ReadTree.selectedWith]
-    exact case_congr _ le re
+    exact request_at emits label v le re
   | testRequest emits test low lowBound highBound fl fr tl tr hfl hfr htl htr =>
     cases n with
-    | zero => simp [recoverTree] at found
+    | zero => simp [recoverTreeWithFacts] at found
     | succ n =>
-      simp only [recoverTree, bind, Option.bind_eq_some_iff, pure, Option.some.injEq] at found
+      simp only [recoverTreeWithFacts, bind, Option.bind_eq_some_iff, pure, Option.some.injEq] at found
       obtain ⟨i, located, fl', h₀, fr', h₁, tl', h₂, tr', h₃, rfl⟩ := found
-      have flEq := hfl _ _ _ h₀
-      have frEq := hfr _ _ _ h₁
-      have tlEq := htl _ _ _ h₂
-      have trEq := htr _ _ _ h₃
+      let tested := slots test
+      let child := ReplyFrame.Value.unit v (tested.read v).2
+      have leftFact (chosen : (tested.read v).1 = false) (b : Bool) := guardFacts_hold valid tested false b chosen
+      have rightFact (chosen : (tested.read v).1 = true) (b : Bool) := guardFacts_hold valid tested true b chosen
+      have flEq chosen b := hfl _ _ _ _ h₀ (extendReply child b) (leftFact chosen b)
+      have frEq chosen b := hfr _ _ _ _ h₁ (extendReply child b) (leftFact chosen b)
+      have tlEq chosen b := htl _ _ _ _ h₂ (extendReply child b) (rightFact chosen b)
+      have trEq chosen b := htr _ _ _ _ h₃ (extendReply child b) (rightFact chosen b)
       rw [guardSlots_term, guardSlots_term] at flEq frEq tlEq trEq
       simp only [render_emits, List.nil_append, renderWith, ReadTree.selectedWith]
       rw [locate_eq kept (slots test) i located]
-      exact case_congr _ (case_congr _ flEq frEq) (case_congr _ tlEq trEq)
+      exact guard_at tested emits v
+        (fun chosen => request_at [] low child (flEq chosen) (frEq chosen))
+        (fun chosen => request_at [] (!low) child (tlEq chosen) (trEq chosen))
 
 set_option backward.isDefEq.respectTransparency false in
-theorem recoverSplit_sound {L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X} {n m : Nat}
+private theorem recoverSplit_at {L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X} {n m : Nat}
     (split : SelectedGuardSplit L m) (slots : Fin m → ReplyFrame.Slot frame)
     (kept : Fin (n + 1) → ReplyFrame.Slot frame) (normal : Finite.Normal L (n + 1))
-    (found : recoverSplit split slots kept = some normal) :
-    selectedEq (split.sourceWith (fun j => (slots j).term))
-      ((renderWith normal []).selectedWith (fun j => (kept j).term)) := by
+    (found : recoverSplit split slots kept = some normal)
+    {Γ : List (Ty Empty)} (v : ReplyFrame.Value Γ frame) :
+    E Γ (atFrame (split.sourceWith (fun j => (slots j).term)) v)
+      (atFrame ((renderWith normal []).selectedWith (fun j => (kept j).term)) v) L := by
   rcases split with ⟨test, emits, fl, tl⟩
   cases fl <;> cases tl <;> try (solve | simp [recoverSplit, bind] at found)
   rename_i prefixF low boundF fl fr prefixT high boundT tl tr
   cases prefixF <;> cases prefixT <;> try (solve | simp [recoverSplit, bind] at found)
   by_cases labels : high = !low
   · subst high
-    simp only [recoverSplit, bind, Option.bind_eq_some_iff, pure, Option.some.injEq,
-      ite_true] at found
+    simp only [recoverSplit, bind, Option.bind_eq_some_iff, pure, Option.some.injEq, ite_true] at found
     obtain ⟨i, located, fl', h₀, fr', h₁, tl', h₂, tr', h₃, rfl⟩ := found
-    have flEq := recoverTree_sound _ _ _ _ h₀
-    have frEq := recoverTree_sound _ _ _ _ h₁
-    have tlEq := recoverTree_sound _ _ _ _ h₂
-    have trEq := recoverTree_sound _ _ _ _ h₃
+    let tested := slots test
+    let child := ReplyFrame.Value.unit v (tested.read v).2
+    have empty : FactsHold (fun _ => none) v := by intro _ _ impossible; cases impossible
+    have leftFact (chosen : (tested.read v).1 = false) (b : Bool) := guardFacts_hold empty tested false b chosen
+    have rightFact (chosen : (tested.read v).1 = true) (b : Bool) := guardFacts_hold empty tested true b chosen
+    have flEq chosen b := recoverTreeWithFacts_at _ _ _ _ _ h₀ (extendReply child b) (leftFact chosen b)
+    have frEq chosen b := recoverTreeWithFacts_at _ _ _ _ _ h₁ (extendReply child b) (leftFact chosen b)
+    have tlEq chosen b := recoverTreeWithFacts_at _ _ _ _ _ h₂ (extendReply child b) (rightFact chosen b)
+    have trEq chosen b := recoverTreeWithFacts_at _ _ _ _ _ h₃ (extendReply child b) (rightFact chosen b)
     rw [bindSlots_term, guardSlots_term] at flEq frEq tlEq trEq
     simp only [render_emits, List.nil_append, renderWith, SelectedGuardSplit.sourceWith, ReadTree.selectedWith]
     rw [locate_eq kept (slots test) i located]
-    exact case_congr _ (case_congr _ flEq frEq) (case_congr _ tlEq trEq)
+    exact guard_at tested emits v
+      (fun chosen => request_at [] low child (flEq chosen) (frEq chosen))
+      (fun chosen => request_at [] (!low) child (tlEq chosen) (trEq chosen))
   · simp [recoverSplit, bind, labels] at found
+
+theorem recoverSplit_sound {L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X} {n m : Nat}
+    (split : SelectedGuardSplit L m) (slots : Fin m → ReplyFrame.Slot frame)
+    (kept : Fin (n + 1) → ReplyFrame.Slot frame) (normal : Finite.Normal L (n + 1))
+    (found : recoverSplit split slots kept = some normal) :
+    selectedEq (split.sourceWith (fun j => (slots j).term))
+      ((renderWith normal []).selectedWith (fun j => (kept j).term)) :=
+  frame_case_ext frame (split.sourceWith (fun j => (slots j).term)).elaborate.property.hasType
+    ((renderWith normal []).selectedWith (fun j => (kept j).term)).elaborate.property.hasType
+    (fun v => recoverSplit_at split slots kept normal found v)
 
 private theorem reframed_slots_term {X : Ty Empty} {f f' : ReplyFrame X} {m : Nat} (same : f = f')
     (slots : Fin m → ReplyFrame.Slot f) :
