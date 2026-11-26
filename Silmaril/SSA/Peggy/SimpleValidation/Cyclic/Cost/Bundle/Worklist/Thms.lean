@@ -14,13 +14,48 @@ open RVSDG (Tuple)
 open EPEG.Saturation
 open EPEG.Saturation.Extension
 
-universe u v w
+universe u v w x
 
 variable {Data : Type u} {P : InstructionSet.{u,v} Data}
 variable {params rest : List (Ty Data)} {result : Ty Data}
+variable {fuel : Nat} {source : Extension.Output P params (result :: rest) 1}
+variable {Action : Type x}
+variable {driver : Extension.Worklist.Driver (Extension.Output P params (result :: rest) 1) Action}
+
+/-- Pair receipt soundness with the existing extraction certificate. The
+result includes bottom at each ordered result. -/
+theorem CheckedReplay.observe_eq_of_preserves (receipt : CheckedReplay driver fuel source)
+    (a : Bundle.Accepted receipt.endpoint.2.graph receipt.endpoint.2.classes)
+    {m : Interpretation.{u,v,w} P} {input : Tuple m.Value params}
+    (preserves : Dedup.Preserves m input source receipt.endpoint)
+    (wf : WellFounded source.2.graph.Demand)
+    (valid : source.2.classes.Valid (source.2.graph.denote m input wf)) (idx : Index 1) :
+    source.2.graph.observe m (source.2.graph.denote m input wf) idx =
+      a.candidate.graph.observe m (a.candidate.graph.denote m input a.reversion.demandWellFounded) idx := by
+  obtain ⟨after, classes, observed⟩ := preserves wf valid
+  exact (observed idx).symm.trans (a.observe_eq after classes idx)
+
 variable [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
-variable {zero : P [] .count} {fuel : Nat}
-variable {source : Extension.Output P params (result :: rest) 1}
+
+theorem CheckedReplay.select_admitted (receipt : CheckedReplay driver fuel source)
+    {cost : Candidate receipt.endpoint.2.graph → Nat}
+    {pool : List (Candidate receipt.endpoint.2.graph)}
+    {chosen : Bundle.Accepted receipt.endpoint.2.graph receipt.endpoint.2.classes}
+    (found : receipt.select cost pool = some chosen) :
+    chosen.candidate ∈ pool ∧ Bundle.check receipt.endpoint.2.classes chosen.candidate = some chosen :=
+  Bundle.select_admitted found
+
+/-- The minimum is relative to the supplied pool and replayed partition. -/
+theorem CheckedReplay.select_min (receipt : CheckedReplay driver fuel source)
+    {cost : Candidate receipt.endpoint.2.graph → Nat}
+    {pool : List (Candidate receipt.endpoint.2.graph)}
+    {chosen : Bundle.Accepted receipt.endpoint.2.graph receipt.endpoint.2.classes}
+    (found : receipt.select cost pool = some chosen) {other : Candidate receipt.endpoint.2.graph}
+    (member : other ∈ pool) (admitted : (Bundle.check receipt.endpoint.2.classes other).isSome = true) :
+    cost chosen.candidate ≤ cost other :=
+  Bundle.select_min found member admitted
+
+variable {zero : P [] .count}
 
 theorem CheckedReceipt.fixed (receipt : CheckedReceipt zero fuel source)
     (stop : receipt.report.stop = .fixed) : Dedup.Worklist.Fixed zero receipt.endpoint :=
@@ -40,7 +75,7 @@ theorem CheckedReceipt.select_min (receipt : CheckedReceipt zero fuel source)
     (found : receipt.select cost pool = some chosen) {other : Candidate receipt.endpoint.2.graph}
     (member : other ∈ pool) (admitted : (Bundle.check receipt.endpoint.2.classes other).isSome = true) :
     cost chosen.candidate ≤ cost other :=
-  Bundle.select_min found member admitted
+  CheckedReplay.select_min receipt found member admitted
 
 variable {m : Interpretation.{u,v,w} P} {input : Tuple m.Value params}
 
@@ -56,9 +91,8 @@ theorem CheckedReceipt.observe_eq (receipt : CheckedReceipt zero fuel source)
     (valid : source.2.classes.Valid (source.2.graph.denote m input wf))
     (zeroLaw : m.run zero .nil = some ⟨0⟩) (idx : Index 1) :
     source.2.graph.observe m (source.2.graph.denote m input wf) idx =
-      a.candidate.graph.observe m (a.candidate.graph.denote m input a.reversion.demandWellFounded) idx := by
-  obtain ⟨after, classes, observed⟩ := receipt.preserves zeroLaw wf valid
-  exact (observed idx).symm.trans (a.observe_eq after classes idx)
+      a.candidate.graph.observe m (a.candidate.graph.denote m input a.reversion.demandWellFounded) idx :=
+  CheckedReplay.observe_eq_of_preserves receipt a (receipt.preserves zeroLaw) wf valid idx
 
 /-- Every successful emitted execution realizes the original ordered
 Figure 11 observation, even after an exhausted worklist prefix. -/
