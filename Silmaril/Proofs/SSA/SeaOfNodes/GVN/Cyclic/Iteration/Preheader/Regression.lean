@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Thms
+import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.MLIR.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Theta.Petri.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Petri.Thms
 import Silmaril.SSA.SeaOfNodes.Loop.Theta.Thms
@@ -10,7 +11,7 @@ import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Thms
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Regression
 
 open Silmaril.SSA.SeaOfNodes
-open Diamond (Ty Val ValueSort dataPorts)
+open Diamond (Val ValueSort dataPorts)
 open GVN.Cyclic.Activation (Inputs headerInput headerLatch inputSlot)
 open GVN.Cyclic.Builder (Built build?)
 open GVN.Cyclic.Builder.Preheader (Native prepare)
@@ -30,8 +31,8 @@ open scoped Pure.WordNormalize
 
 private abbrev inputs : List (ValueSort Unit) := [.predicate, .predicate, word, word]
 private abbrev carried : List (ValueSort Unit) := [.predicate, word, word, word]
-private abbrev entrySigs : List (List (Ty Unit)) := [[wordPort], [wordPort], [wordPort]]
-private abbrev headerSigs : List (List (Ty Unit)) := [[wordPort], [wordPort], [wordPort], [wordPort], [wordPort]]
+private abbrev entrySigs : List (List (Diamond.Ty Unit)) := [[wordPort], [wordPort], [wordPort]]
+private abbrev headerSigs : List (List (Diamond.Ty Unit)) := [[wordPort], [wordPort], [wordPort], [wordPort], [wordPort]]
 
 private def y : Port inputs word := .tail (.tail .head)
 private def z : Port inputs word := .tail (.tail (.tail .head))
@@ -39,16 +40,16 @@ private def firstLane : Port carried word := .tail .head
 private def secondLane : Port carried word := .tail (.tail .head)
 private def thirdLane : Port carried word := .tail (.tail (.tail .head))
 
-private def increment {past : List (List (Ty Unit))} (lane : Port carried word) :
+private def increment {past : List (List (Diamond.Ty Unit))} (lane : Port carried word) :
     Wires (Loop.headerPorts inputs carried) past [wordPort, wordPort] :=
   .cons (.arg (headerLatch (inputSlot lane) (dataPorts inputs)))
     (.cons (.arg (headerInput (dataPorts carried) y)) .nil)
 
-private def seedOperands {past : List (List (Ty Unit))} :
+private def seedOperands {past : List (List (Diamond.Ty Unit))} :
     Wires (dataPorts inputs) past [wordPort, wordPort] :=
   .cons (.arg (inputSlot y)) (.cons (.arg (inputSlot z)) .nil)
 
-private def feedback {sigs : List (List (Ty Unit))} (same : Bool)
+private def feedback {sigs : List (List (Diamond.Ty Unit))} (same : Bool)
     (last : Fin (extend [] sigs).length) (port : Port (extend [] sigs)[last] wordPort) :
     Wires (Loop.headerPorts inputs carried) (extend [] sigs) (dataPorts carried) :=
   .cons (.arg (headerInput (dataPorts carried) (.tail .head)))
@@ -220,7 +221,7 @@ theorem numbered_executions_observe_absence :
         (Part.eq_some_iff.mpr returned))
   exact ⟨absent, (emit_observe (fixture true) nonReturningInput).trans absent⟩
 
-private def publishPreheaderNode {past : List (List (Ty Unit))} {ports : List (Ty Unit)}
+private def publishPreheaderNode {past : List (List (Diamond.Ty Unit))} {ports : List (Diamond.Ty Unit)}
     (node : Node (ThetaOpcode Opcode) (dataPorts inputs) past ports)
     (colours : Tokens (Val model.value) past) : Option (Tokens (Val model.value) (past ++ [ports])) := do
   let ready ← read node.inputs input colours
@@ -230,7 +231,7 @@ private def publishPreheaderNode {past : List (List (Ty Unit))} {ports : List (T
 /-- Read the fourth root node using the colours published by the three
 actual preheader primitives, then activate its existing θ child. -/
 private def colouredEntry (program : Program inputs carried entrySigs word) :
-    Σ ports : List (Ty Unit), Option (Tuple (Val model.value) ports) :=
+    Σ ports : List (Diamond.Ty Unit), Option (Tuple (Val model.value) ports) :=
   let node := program.nodes (3 : Fin 5)
   ⟨node.kind.entry, do
     let first ← publishPreheaderNode (program.nodes (0 : Fin 5)) PUnit.unit
@@ -263,5 +264,74 @@ theorem neither_coloured_graph_completes_on_closed_guard :
       ∀ packet, ¬ Finishes (thetaRuntime model) (emit (fixture true)) nonReturningInput packet :=
   ⟨(petri_no_completion_iff_observe_none _ _).mpr numbered_executions_observe_absence.1,
     (petri_no_completion_iff_observe_none _ _).mpr numbered_executions_observe_absence.2⟩
+
+section CF
+
+open GVN.Cyclic.Iteration.Preheader.MLIR
+open Loop.MLIR.CF (evalOp)
+open Silmaril.MLIR.Pure (Code OpSignature)
+open Silmaril.MLIR.Arith (Width)
+
+private def sourceCF : Artifact inputs carried := (emit? (fixture true)).get (by rfl)
+
+private def firstCF : Artifact inputs carried := (emit? afterFirst.graph).get (by rfl)
+
+private def normalizedCF : Artifact inputs carried := (emit? afterSecond.graph).get (by rfl)
+
+private theorem sourceCF_emitted : emit? (fixture true) = some sourceCF := rfl
+
+private theorem normalizedCF_emitted : emitNormalized? (fixture true) = some normalizedCF := by
+  unfold emitNormalized?
+  rw [run_result]
+  rfl
+
+private def bindingCount {Op : OpSignature} {Term : List Width → Type} {scope : List Width} :
+    Code Op Term scope → Nat
+  | .terminator _ => 0
+  | .letOp _ _ rest => bindingCount rest + 1
+
+theorem cf_emitted_headers_shrink_after_both_deletions :
+    bindingCount (sourceCF.block .header) = 5 ∧
+      bindingCount (firstCF.block .header) = 4 ∧
+      bindingCount (normalizedCF.block .header) = 3 :=
+  ⟨rfl, rfl, rfl⟩
+
+theorem cf_emitted_entry_is_unchanged :
+    normalizedCF.entry = sourceCF.entry :=
+  emit_normalized_entry_eq sourceCF_emitted normalizedCF_emitted
+
+theorem cf_entry_retains_captures_and_phi_packet :
+    inputEnv input = .cons 1 (.cons 0 (.cons 3 (.cons 4 .nil))) ∧
+      sourceCF.entry.eval evalOp (fun term env => term.eval env) (inputEnv input) =
+        .inl ⟨.header, .cons 1 (.cons 7 (.cons 7 (.cons 7 .nil)))⟩ :=
+  ⟨rfl, rfl⟩
+
+theorem cf_both_return_99 :
+    sourceCF.run evalOp 4 (inputEnv input) = some (.cons 99 .nil) ∧
+      normalizedCF.run evalOp 5 (inputEnv input) = some (.cons 99 .nil) :=
+  ⟨rfl, rfl⟩
+
+theorem cf_neither_returns_on_closed_guard :
+    sourceCF.Diverges evalOp (inputEnv nonReturningInput) ∧
+      normalizedCF.Diverges evalOp (inputEnv nonReturningInput) := by
+  have absent : sourceCF.Diverges evalOp (inputEnv nonReturningInput) := by
+    intro fuel
+    cases found : sourceCF.run evalOp fuel (inputEnv nonReturningInput) with
+    | none => rfl
+    | some packet =>
+      cases packet with
+      | cons bits tail =>
+        cases tail
+        exact (no_native_return bits ((emit_returns_iff sourceCF_emitted nonReturningInput bits).mp
+          ⟨fuel, found⟩)).elim
+  exact ⟨absent, (emit_normalized_diverges_iff sourceCF_emitted normalizedCF_emitted nonReturningInput).mpr absent⟩
+
+private def withSub : Native inputs carried entrySigs headerSigs word :=
+  { fixture true with
+    preheader := .cons .sub seedOperands (.cons .add seedOperands (.cons .add seedOperands .nil)) }
+
+theorem cf_refuses_native_subtraction : emit? withSub = none := rfl
+
+end CF
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Regression
