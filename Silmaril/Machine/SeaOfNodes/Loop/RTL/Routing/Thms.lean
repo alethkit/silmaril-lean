@@ -47,6 +47,22 @@ theorem transfer_column {args : List PortTy} {past : List (List PortTy)} {arity 
         .running ⟨⟨s.point.func, target, 0⟩, after, s.stack, s.mem⟩ :=
   Proofs.transfer_column wires input locals p s target block found arityEq agree
 
+/-- The bank emitter reads the whole incoming column before rebinding its
+header parameters. This transfer applies to any emitted word-bank graph. -/
+theorem transfer_bank {arity : Nat} {sigs : List (List PortTy)} (g : BankGraph arity sigs)
+    (s : State Reg) (column : List Reg) (values : WordTuple arity)
+    (func : s.point.func = 0) (reads : s.frame.readAll column = some (words values)) :
+    transfer (lowerBank g) s 1 column =
+      .running ⟨⟨0, 1, 0⟩, bindWords arity s.frame values, s.stack, s.mem⟩ :=
+  Proofs.transfer_bank g s column values func reads
+
+theorem step_bank_entry {arity : Nat} {sigs : List (List PortTy)} (g : BankGraph arity sigs)
+    (input : WordTuple arity) (fr : Frame Reg) (stk : List (Activation Reg)) (mem : Memory)
+    (agree : ArgsMatch fr input) :
+    step (lowerBank g) ⟨⟨0, 0, 0⟩, fr, stk, mem⟩ =
+      .running ⟨⟨0, 1, 0⟩, bindWords arity fr (g.initial model input), stk, mem⟩ :=
+  Proofs.step_bank_entry g input fr stk mem agree
+
 /-- The decoded positions become exactly the emitted register operands, in
 slot order, beside the fixed incoming counter operand. -/
 theorem checkRoutes_registers {entry feedback : List Nat} {r : Routes}
@@ -63,7 +79,7 @@ theorem lowerChecked_eq_some_iff (entry feedback : List Nat) (target : Prog Reg)
 theorem checked_wellFormed {entry feedback : List Nat} {target : Prog Reg}
     (ok : lowerChecked entry feedback = some target) : target.WellFormed := by
   obtain ⟨r, _, wf, rfl⟩ := (lowerChecked_eq_some_iff entry feedback target).mp ok
-  simpa [Prog.WellFormed, Routes.lower, BankRoutes.lower, BankRoutes.lowerWith, BankRoutes.lowerWithRow] using wf
+  simpa [Prog.WellFormed, Routes.lower, BankRoutes.lower, BankRoutes.lowerWith, BankRoutes.lowerWithRow, lowerBank, BankRoutes.lowerFuncWithRow] using wf
 
 /-- Checked positions are preserved in the actual operands and return port. -/
 theorem checkBankRoutes_registers {payloads : Nat} {entry feedback : List Nat} {result : Nat}
@@ -87,7 +103,7 @@ theorem bank_checked_wellFormed {payloads : Nat} {entry feedback : List Nat} {re
     {target : Prog Reg} (ok : lowerBankChecked payloads entry feedback result = some target) :
     target.WellFormed := by
   obtain ⟨r, _, wf, rfl⟩ := (lowerBankChecked_eq_some_iff payloads entry feedback result target).mp ok
-  simpa [Prog.WellFormed, BankRoutes.lower, BankRoutes.lowerWith, BankRoutes.lowerWithRow] using wf
+  simpa [Prog.WellFormed, BankRoutes.lower, BankRoutes.lowerWith, BankRoutes.lowerWithRow, lowerBank, BankRoutes.lowerFuncWithRow] using wf
 
 /-- Admission recovers the checked update, copy routes, and the machine's
 SSA well-formedness proof. -/
@@ -106,7 +122,7 @@ theorem computed_checked_wellFormed {payloads : Nat} {entry feedback : List Nat}
   obtain ⟨u, _, r, _, wf, rfl⟩ :=
     (lowerComputedChecked_eq_some_iff payloads entry feedback result spec target).mp ok
   change (r.lowerFuncWithRow [u]).WellFormed at wf
-  simpa [Prog.WellFormed, BankRoutes.lowerWith, BankRoutes.lowerWithRow] using wf
+  simpa [Prog.WellFormed, BankRoutes.lowerWith, BankRoutes.lowerWithRow, lowerBank, BankRoutes.lowerFuncWithRow] using wf
 
 section ComputedFeedback
 
@@ -170,7 +186,7 @@ theorem row_checked_wellFormed {payloads : Nat} {entry feedback : List Nat} {res
     target.WellFormed := by
   obtain ⟨_, _, _, _, wf, rfl⟩ :=
     (lowerFeedbackRowChecked_eq_some_iff payloads entry feedback result specs target).mp ok
-  simpa [Prog.WellFormed, BankRoutes.lowerWithRow] using wf
+  simpa [Prog.WellFormed, BankRoutes.lowerWithRow, lowerBank, BankRoutes.lowerFuncWithRow] using wf
 
 theorem lowerFeedbackRowChecked_nil (payloads : Nat) (entry feedback : List Nat) (result : Nat) :
     lowerFeedbackRowChecked payloads entry feedback result [] =

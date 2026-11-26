@@ -220,33 +220,48 @@ def BankRoutes.graphWithRow {payloads : Nat} (r : BankRoutes payloads)
   predicate := keepOrigin (past := headerSigs) (sigs := rowSigs updates) (rowSuffix headerSigs updates) (.output (3 : Fin 4) .head)
   result := .arg (suffixPort (wordPorts (payloads + 1)) r.resultPort)
 
-def BankRoutes.incomingWithRow {payloads : Nat} (r : BankRoutes payloads)
-    (updates : List (FeedbackUpdate payloads)) : Incoming → List Reg
-  | .entry => emitColumn (arity := payloads + 1) ((r.graphWithRow updates).phiInputs .entry)
-  | .backedge => emitColumn (arity := payloads + 1) ((r.graphWithRow updates).phiInputs .backedge)
+/-- Native word-bank graphs with an empty preheader and one word result.
+The header table and the two incoming columns determine the machine code. -/
+abbrev BankGraph (arity : Nat) (sigs : List (List PortTy)) :=
+  Graph WordOp (wordSorts arity) (wordSorts arity) [] sigs word
+
+def bankIncoming {arity : Nat} {sigs : List (List PortTy)} (g : BankGraph arity sigs) :
+    Incoming → List Reg
+  | .entry => emitColumn (arity := arity) (g.phiInputs .entry)
+  | .backedge => emitColumn (arity := arity) (g.phiInputs .backedge)
 
 def paramRegs (base arity : Nat) : List Reg := (List.range' base arity).map Reg.arg
 
-def BankRoutes.preheaderWithRow {payloads : Nat} (r : BankRoutes payloads)
-    (updates : List (FeedbackUpdate payloads)) : Block Reg :=
-  ⟨paramRegs 0 (payloads + 1), [], .jump 1 (r.incomingWithRow updates .entry)⟩
+def bankPreheader {arity : Nat} {sigs : List (List PortTy)} (g : BankGraph arity sigs) : Block Reg :=
+  ⟨paramRegs 0 arity, [], .jump 1 (bankIncoming g .entry)⟩
 
-def BankRoutes.headerWithRow {payloads : Nat} (r : BankRoutes payloads)
-    (updates : List (FeedbackUpdate payloads)) : Block Reg :=
-  let graph := r.graphWithRow updates
-  ⟨paramRegs (payloads + 1) (payloads + 1), emitOpsWith (fun p => .arg p.index) graph.header,
-    .cond (register graph.predicate.address) 1 (r.incomingWithRow updates .backedge)
-      2 [register graph.result.address]⟩
+def bankHeader {arity : Nat} {sigs : List (List PortTy)} (g : BankGraph arity sigs) : Block Reg :=
+  ⟨paramRegs arity arity, emitOpsWith (fun p => .arg p.index) g.header,
+    .cond (register g.predicate.address) 1 (bankIncoming g .backedge) 2 [register g.result.address]⟩
 
 def exitBlock : Block Reg := ⟨[.phi], [], .ret [.phi]⟩
 
+def lowerBankFunc {arity : Nat} {sigs : List (List PortTy)} (g : BankGraph arity sigs) : Func Reg :=
+  ⟨⟨arity, 1⟩, 0, [bankPreheader g, bankHeader g, exitBlock]⟩
+
+def lowerBank {arity : Nat} {sigs : List (List PortTy)} (g : BankGraph arity sigs) : Prog Reg :=
+  ⟨[lowerBankFunc g]⟩
+
+def BankRoutes.incomingWithRow {payloads : Nat} (r : BankRoutes payloads)
+    (updates : List (FeedbackUpdate payloads)) := bankIncoming (r.graphWithRow updates)
+
+def BankRoutes.preheaderWithRow {payloads : Nat} (r : BankRoutes payloads)
+    (updates : List (FeedbackUpdate payloads)) := bankPreheader (r.graphWithRow updates)
+
+def BankRoutes.headerWithRow {payloads : Nat} (r : BankRoutes payloads)
+    (updates : List (FeedbackUpdate payloads)) := bankHeader (r.graphWithRow updates)
+
 def BankRoutes.lowerFuncWithRow {payloads : Nat} (r : BankRoutes payloads)
-    (updates : List (FeedbackUpdate payloads)) : Func Reg :=
-  ⟨⟨payloads + 1, 1⟩, 0, [r.preheaderWithRow updates, r.headerWithRow updates, exitBlock]⟩
+    (updates : List (FeedbackUpdate payloads)) := lowerBankFunc (r.graphWithRow updates)
 
 def BankRoutes.lowerWithRow {payloads : Nat} (r : BankRoutes payloads)
     (updates : List (FeedbackUpdate payloads)) : Prog Reg :=
-  ⟨[r.lowerFuncWithRow updates]⟩
+  lowerBank (r.graphWithRow updates)
 
 -- Keep the previous optional-update interface as wrappers of the row emitter.
 abbrev extraSigs {payloads : Nat} (u : Option (FeedbackUpdate payloads)) := rowSigs u.toList
