@@ -202,3 +202,51 @@ open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Equation.Exa
 #eval rvsdgResults 2   -- (none, none)
 #eval cfResults 15     -- (none, none)
 ```
+
+## Permute the typed entry interface
+
+Import `Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Thms`.
+An `EntryPermutation` maps each original entry port to a new port of
+the same sort, with a typed inverse. `pull` reads the new valuation in
+original register order. The CF emitter uses this map to bind the
+preheader's external names. The numbered RVSDG construction changes the
+outer argument wires and retains the original θ body. The original
+local register definitions, labels, predecessor occurrences and checked
+carried mask supply both lowerings.
+[Typed entry API](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/MLIR/CF/Pruned/Reindex/Defs.lean)
+
+`graph_run` and `cf_run` preserve each target's own budget at
+corresponding valuations. `graph_observe` and `cf_observe` give the same
+law for partial observations. `native_satisfaction`,
+`rvsdg_satisfaction` and `cf_satisfaction` reflect and preserve the
+native equation across the entire permuted entry interface. CF quantifies
+over all typed environments, using the existing encoding of words and
+`i1` predicates. The scope is the checked pure unequal-arm profile, with
+a common word result for equations.
+[Proof interface](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/MLIR/CF/Pruned/Reindex/Thms.lean)
+
+The fixture moves a true predicate before the last two words and
+exchanges the result and stride word positions. The correctly paired
+input takes merge predecessors `[6, 0, 6]` and returns 22 after two
+feedback edges. Supplying those two words in the wrong order still
+typechecks and returns 34 on both emitted targets.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/MLIR/CF/Pruned/Reindex/Regression.lean)
+
+Build with
+`lake build --wfail +Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Example.Defs`.
+Paste into `QuadDiamondEntry.lean` and run
+`lake env lean -DwarningAsError=true QuadDiamondEntry.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Example
+
+#eval predicateBit                   -- 1
+#eval predecessors                   -- [6, 0, 6]
+#eval results paired 3 16            -- (some 22, some 22)
+#eval results wrongPairing 3 16      -- (some 34, some 34)
+```

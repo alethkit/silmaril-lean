@@ -12,9 +12,10 @@ namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Proofs
 
 open SeaOfNodes.Diamond (ValueSort dataPorts)
 open SeaOfNodes.Loop.MLIR.CF (Op model evalOp)
-open SeaOfNodes.MLIR.Lowering (encodeValues valueBits)
+open SeaOfNodes.MLIR.Lowering (Names NamesAgree encodeValues valueBits)
 open Silmaril.MLIR.Arith (Width Env)
 open Silmaril.MLIR.CF (Frame)
+open RVSDG (Tuple)
 open Blocks (Bank)
 open Blocks.Prune (Mask)
 open Diamond.Prune (Checked)
@@ -35,21 +36,25 @@ private theorem jump_agrees :
     rw [mask.project_read model input locals versions] at bank
     exact congrArg (fun args => Frame.mk Label.header args) bank
 
-private theorem entry_eval (input : Bank (regs := regs) model) :
-    (lower checked).entry.eval evalOp (fun term env => term.eval env) (encodeValues input) =
+section Entry
+
+variable {Γ : List Width} (names : Tuple (Names Γ) (dataPorts regs)) (env : Env Γ)
+
+private theorem entry_eval_with (input : Bank (regs := regs) model) (ok : NamesAgree env names input) :
+    (lowerWith checked names).entry.eval evalOp (fun term env => term.eval env) env =
       let next := (src entry).body.eval model input
       .inl (destinationFrameWith (siteFrame p.header mask) (exitFrame p.header mask) next
         ((src entry).terminator.select model next)) :=
-  CF.block_eval_with jump_agrees _ _ _ _ (CF.entryNames_agree input)
+  CF.block_eval_with jump_agrees _ _ _ _ ok
 
-private theorem header_eval (input old : Bank (regs := regs) model) :
-    ((lower checked).block .header).eval evalOp (fun term env => term.eval env)
-        ((encodeValues (mask.project old)).append (encodeValues input)) =
+private theorem header_eval_with (old : Bank (regs := regs) model) :
+    ((lowerWith checked names).block .header).eval evalOp (fun term env => term.eval env)
+        ((encodeValues (mask.project old)).append env) =
       let next := (src p.header).body.eval model old
       .inl (destinationFrameWith (siteFrame p.header mask) (exitFrame p.header mask) next
         ((src p.header).terminator.select model next)) := by
   refine (CF.transfer_eval jump_agrees (past := []) (locals := PUnit.unit)
-    ⟨CF.blockNames_agree (encodeValues input) (mask.project old), trivial⟩
+    ⟨CF.blockNames_agree env (mask.project old), trivial⟩
     checked.flow checked.outgoing (src p.header).terminator).trans ?_
   change
     (let next := checked.headerBank model (mask.project old)
@@ -57,11 +62,11 @@ private theorem header_eval (input old : Bank (regs := regs) model) :
        ((src p.header).terminator.select model next))) = _
   rw [checked.header_agrees model old]
 
-theorem site_frame (input old : Bank (regs := regs) model) (id : Fin size) :
+theorem site_frame_with (old : Bank (regs := regs) model) (id : Fin size) :
     let current := siteFrame p.header mask (out := out) id old
     let next := (src id).body.eval model old
-    ((lower checked).block current.label).eval evalOp (fun term env => term.eval env)
-        (current.args.append (encodeValues input)) =
+    ((lowerWith checked names).block current.label).eval evalOp (fun term env => term.eval env)
+        (current.args.append env) =
       .inl (destinationFrameWith (siteFrame p.header mask) (exitFrame p.header mask) next
         ((src id).terminator.select model next)) := by
   by_cases different : id ≠ p.header
@@ -69,15 +74,40 @@ theorem site_frame (input old : Bank (regs := regs) model) (id : Fin size) :
         ⟨.site id different, encodeValues old⟩ := by simp [siteFrame, different]
     dsimp only
     rw [current]
-    exact CF.block_eval_with jump_agrees (src id) ⟨blockNames (Widths regs) regs, PUnit.unit⟩
-      _ old (CF.blockNames_agree (encodeValues input) old)
+    exact CF.block_eval_with jump_agrees (src id) ⟨blockNames Γ regs, PUnit.unit⟩
+      _ old (CF.blockNames_agree env old)
   · have same : id = p.header := not_ne_iff.mp different
     subst id
     have current : siteFrame p.header mask (out := out) p.header old = headerFrame p.header mask old := by
       simp [siteFrame]
     dsimp only
     rw [current]
-    exact header_eval checked input old
+    exact header_eval_with checked names env old
+
+theorem lowerWith_run (fuel : Nat) (input : Bank (regs := regs) model) (ok : NamesAgree env names input) :
+    (lowerWith checked names).run evalOp (fuel + 1) env =
+      (src.runFrom model fuel entry input).map (fun value => Env.cons (valueBits value) .nil) :=
+  CF.runBlock_eq_of_frames_with (lowerWith checked names) env (siteFrame p.header mask) .exit
+    (fun id old => site_frame_with checked names env old id) rfl fuel entry input _ _
+    (entry_eval_with checked names env input ok)
+
+end Entry
+
+private theorem entry_eval (input : Bank (regs := regs) model) :
+    (lower checked).entry.eval evalOp (fun term env => term.eval env) (encodeValues input) =
+      let next := (src entry).body.eval model input
+      .inl (destinationFrameWith (siteFrame p.header mask) (exitFrame p.header mask) next
+        ((src entry).terminator.select model next)) :=
+  entry_eval_with checked (entryNames regs) (encodeValues input) input (CF.entryNames_agree input)
+
+theorem site_frame (input old : Bank (regs := regs) model) (id : Fin size) :
+    let current := siteFrame p.header mask (out := out) id old
+    let next := (src id).body.eval model old
+    ((lower checked).block current.label).eval evalOp (fun term env => term.eval env)
+        (current.args.append (encodeValues input)) =
+      .inl (destinationFrameWith (siteFrame p.header mask) (exitFrame p.header mask) next
+        ((src id).terminator.select model next)) :=
+  site_frame_with checked (entryNames regs) (encodeValues input) old id
 
 theorem entry_frame (input : Bank (regs := regs) model) :
     (lower checked).entry.eval evalOp (fun term env => term.eval env) (encodeValues input) =
@@ -99,7 +129,6 @@ theorem latch_frame (input old : Bank (regs := regs) model) :
 theorem lower_run (fuel : Nat) (input : Bank (regs := regs) model) :
     (lower checked).run evalOp (fuel + 1) (encodeValues input) =
       (src.runFrom model fuel entry input).map (fun value => Env.cons (valueBits value) .nil) :=
-  CF.runBlock_eq_of_frames (lower checked) input (siteFrame p.header mask) .exit
-    (fun id old => site_frame checked input old id) rfl fuel entry input _ _ (entry_eval checked input)
+  lowerWith_run checked (entryNames regs) (encodeValues input) fuel input (CF.entryNames_agree input)
 
 end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Proofs

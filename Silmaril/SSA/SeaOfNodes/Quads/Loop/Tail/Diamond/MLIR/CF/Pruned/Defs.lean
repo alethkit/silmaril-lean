@@ -11,9 +11,10 @@ namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned
 
 open SeaOfNodes.Diamond (ValueSort dataPorts)
 open SeaOfNodes.Loop.MLIR.CF (Op TargetOp model opcode)
-open SeaOfNodes.MLIR.Lowering (encodeValues lowerCode operands valueWidth)
+open SeaOfNodes.MLIR.Lowering (Names encodeValues lowerCode operands valueWidth)
 open Silmaril.MLIR.Arith (Width)
 open Silmaril.MLIR.CF (Cfg Frame)
+open RVSDG (Tuple)
 open Blocks (Bank)
 open Blocks.Prune (Mask)
 open Diamond.Prune (Checked)
@@ -51,15 +52,21 @@ def exitFrame (header : Fin size) (mask : Mask regs)
     Frame (Label header regs mask.kept out) :=
   returnFrame .exit value
 
-/-- Only the header uses the checked renamed producer table. The entry,
-arms, merge and latch use the full-bank block compiler. -/
-def lower (checked : Checked p mask) : Target p.header mask out where
-  entry := lowerBlockWith (jump p.header mask) .exit (src entry) ⟨entryNames regs, PUnit.unit⟩
+/-- Compile the preheader with the supplied external argument names.
+Successor blocks still bind their original local and carried banks. -/
+def lowerWith (checked : Checked p mask) {Γ : List Width}
+    (names : Tuple (Names Γ) (dataPorts regs)) :
+    Cfg TargetOp (Label p.header regs mask.kept out) Γ [valueWidth out] where
+  entry := lowerBlockWith (jump p.header mask) .exit (src entry) ⟨names, PUnit.unit⟩
   block
     | .header =>
-      lowerCode opcode checked.flow ⟨blockNames (Widths regs) mask.kept, PUnit.unit⟩
+      lowerCode opcode checked.flow ⟨blockNames Γ mask.kept, PUnit.unit⟩
         fun scope => lowerTerminatorWith (jump p.header mask) .exit scope checked.outgoing (src p.header).terminator
-    | .site id _ => lowerBlockWith (jump p.header mask) .exit (src id) ⟨blockNames (Widths regs) regs, PUnit.unit⟩
+    | .site id _ => lowerBlockWith (jump p.header mask) .exit (src id) ⟨blockNames Γ regs, PUnit.unit⟩
     | .exit => .terminator (.ret (.cons .here .nil))
+
+/-- Bind the external inputs in register order. -/
+def lower (checked : Checked p mask) : Target p.header mask out :=
+  lowerWith checked (entryNames regs)
 
 end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned

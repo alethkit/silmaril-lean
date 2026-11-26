@@ -10,10 +10,11 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned
 
-open SeaOfNodes.Diamond (ValueSort)
+open SeaOfNodes.Diamond (ValueSort dataPorts)
 open SeaOfNodes.Loop.MLIR.CF (Op model evalOp)
-open SeaOfNodes.MLIR.Lowering (encodeValues valueBits)
+open SeaOfNodes.MLIR.Lowering (Names NamesAgree encodeValues valueBits)
 open Silmaril.MLIR.Arith (Width Env)
+open RVSDG (Tuple)
 open Blocks (Bank)
 open Blocks.Prune (Mask)
 open Diamond.Prune (Checked)
@@ -57,6 +58,14 @@ theorem latch_frame (input old : Bank (regs := regs) model) :
       .inl (if (next.get p.again).down then headerFrame p.header mask next
         else exitFrame p.header mask (next.get p.result)) :=
   Proofs.latch_frame checked input old
+
+/-- An external argument layout with a matching valuation uses the same
+source visit accounting and the original successor frames. -/
+theorem lowerWith_run {Γ : List Width} (names : Tuple (Names Γ) (dataPorts regs)) (env : Env Γ)
+    (fuel : Nat) (input : Bank (regs := regs) model) (ok : NamesAgree env names input) :
+    (lowerWith checked names).run evalOp (fuel + 1) env =
+      (src.runFrom model fuel entry input).map (fun value => Env.cons (valueBits value) .nil) :=
+  Proofs.lowerWith_run checked names env fuel input ok
 
 /-- The original source budget and the CF budget still differ by one return
 visit, even when a run exhausts. -/
