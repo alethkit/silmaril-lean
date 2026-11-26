@@ -334,9 +334,38 @@ tag from one nondeterministic primitive. One tag replays the backedge
 and the other exits. The primitive can also fault.
 [Regression][ssa-ub-shaped-continuation-regression]
 
-This descent is for native `ContinuationHom`. The separate guarded
-`Paper.Hom` has additional proof obligations, including label substitution,
-CFG collapse, and uniformity.
+The guarded `Paper.Hom` installs additional generators beyond native
+`ContinuationHom`.
+
+### Guarded Paper collapse and simulation square
+
+The exact `Paper.Eqv.collapsePost` generator preserves lifted observations
+in shaped models. The theorem allows arbitrary typed outgoing
+continuations, including effectful ones. It pushes the common literal
+substitution through both CFG forms with the proper value and label lifts.
+The operational proof then follows the native dispatch relation. A
+two-label graph keeps both possible backedges before two-level elimination.
+Its staged graph represents the nested CFG, while merging the labels
+represents the flat CFG. Step transport in both directions retains the
+payload and machine state. The native observations include successful
+exits, faults, divergence inside a primitive or body, and infinite CFG
+replay. The proof of the underlying duplicate-label observation law works
+with arbitrary native primitive relations. [Collapse][ssa-ub-paper-collapse]
+[Stateful regression][ssa-ub-paper-regression]
+
+For `Paper.Eqv.uniform`, the installed premises guard the entry and source
+body's branch arguments and give a constructor state map `a`. The target
+body `q` is exactly typed and may have effects. The premise equates the
+literal substitution of the lifted local map into the source body with
+substitution of the lifted target body into `br 0 a`. The shaped lemmas
+interpret that right-hand region as a single binding of `a` followed by
+`q`. They also interpret a constructor-valued left local branch as binding
+its payload before applying the state map. General uniformity still
+requires interpretation of the square on a whole source body and
+two-way transport of reachable steps and observations, including target
+successors under nondeterminism. Full `Paper.Hom` descent remains open.
+[Installed rule][ssa-ub-paper-rewrite]
+[Constructor branches][ssa-ub-paper-uniformity]
 
 ## Coverage and gaps
 
@@ -431,3 +460,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-native-continuation]: ../../Silmaril/SSA/Isotope/LambdaSSA/Rewrite/Theory/Closure/Category/Defs.lean
 [ssa-ub-shaped-continuation]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Continuation/Thms.lean
 [ssa-ub-shaped-continuation-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Continuation/Regression.lean
+[ssa-ub-paper-rewrite]: ../../Silmaril/SSA/Isotope/LambdaSSA/Rewrite/Theory/Closure/Paper/Defs.lean
+[ssa-ub-paper-collapse]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Thms.lean
+[ssa-ub-paper-uniformity]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Uniformity/Thms.lean
+[ssa-ub-paper-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Regression.lean
