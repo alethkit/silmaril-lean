@@ -665,7 +665,7 @@ selected Store must use original address and word arguments and be
 immediately followed by Return. The cut preserves every earlier native
 Load and Store, their scalar operands and order, and the Return's word
 wire. The current table may be the residual of entry-only discovery.
-The staged driver continues to use the separate singleton emitter.
+The original `Static.Staged.lower` uses the singleton emitter.
 [Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Static/Final/Defs.lean)
 
 The source entry buffer is the nominated write applied to the full
@@ -686,6 +686,45 @@ routes read the result after overwriting the nominated cell. A second
 valuation makes the two entry Store addresses alias and still accepts
 the same cut. A pre-overwrite read of the nominated cell on one route
 refuses the two-route cut.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```
+
+## Discover the final Store after entry discovery
+
+`Entry.Composition.Static.Final.Staged.lower graph entry input` runs
+the equality-only entry pass first. It takes the Store count of the
+actual resulting table and checks that version with `Final.cut`.
+`find_eq_some_iff` proves that discovery returns exactly the eligible
+one-based version. The eligible shape is an argument-addressed Store
+of an argument word immediately before Return.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Static/Final/Staged/Defs.lean)
+
+The result distinguishes `noFinalCandidate`, `routesRefused version`,
+and `applied version artifacts`. Both refusal outcomes keep the
+entry-only emitted pair. On success, the final pair uses the original
+artifact from entry discovery and the optimized artifact from
+`Static.Final.lower`. The replay theorem checks the discovered entry
+plan, the nomination on its exact residual table, and the equality
+of the intermediate artifacts. Both stages use the existing typed
+same-port and reader checks.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Static/Final/Staged/Thms.lean) ·
+[Pinned Simple chapter 10 Store rule](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65)
+
+The actual original and final MemRef CFGs agree on the successor
+packet, returned word and entire final buffer for either predicate,
+every typed valuation, every initialized buffer, and every CF budget.
+The optimized entry forwards the retained prefix buffer before the
+selected arm overwrites the nominated cell.
+
+The runnable fixture starts with three Stores and removes the first.
+The final Store shifts from version three to two, and both arms
+observe the retained prefix Store. A pre-overwrite read on one route
+keeps the first cut and refuses the second. A trailing entry Load
+keeps the first cut and reports that the residual has no final
+candidate.
 [Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
 
 ```sh
