@@ -5,6 +5,7 @@ import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed
 import Silmaril.Wasm.Institution.Operational.Blocks.Context.Thms
 import Silmaril.Wasm.Institution.Operational.Loops.Indexed.Thms
 import Silmaril.Wasm.Lime1.Execution.Callout.Properties
+import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Conditional.Thms
 
 @[expose] public section
 
@@ -175,6 +176,9 @@ theorem internal_iff (checked : p.Checked mem outer index) (a : Phase H) (before
     · exact Computed.lime_drop_iff (stack := [i32 res]) (v := i64 input) (rest := [])
   | loopResult res =>
     apply one ?_ (.loopResult res) (fun edge => by cases edge; rfl)
+    change Internal (p.render mem outer index arg ⟨bytes, .loopResult res⟩) dst ↔
+      dst = ⟨mem.store bytes, outer, (p.continuation.start [i64 p.saved] res).renderCode 1 (p.active arg)⟩
+    rw [Continuation.Conditional.Plan.start_code]
     apply function_iff (code := p.loopCode (values [i32 res]))
     · intro out
       exact stay (saved := [i64 p.saved]) rfl (by simp) (by simp) (by simp)
