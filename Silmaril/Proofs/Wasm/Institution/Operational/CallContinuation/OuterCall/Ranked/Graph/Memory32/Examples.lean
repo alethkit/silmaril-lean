@@ -1,6 +1,7 @@
 module
 
-import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Thms
+import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Run.Thms
+import Silmaril.Wasm.V1.Execution.Properties
 import Silmaril.Wasm.Institution.Operational.MemoryQuery.Native.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryWrite.Native.Thms
 
@@ -27,7 +28,7 @@ private def writer (traps : Bool) : Function :=
     if traps then [.store 2, .store 2] else [.store 2]⟩
 private def target (traps : Bool) : CallTarget := ⟨⟨0⟩, childAddr, (writer traps).declaration⟩
 private def reader (traps : Bool) : Function :=
-  ⟨declaration [childAddr] [.int .i32], 1, [i32 2], [.ranked (.call (target traps)), .load 1]⟩
+  ⟨{ declaration [childAddr] [.int .i32] with params := [.int .i64] }, 1, [i32 2], [.ranked (.call (target traps)), .load 1]⟩
 private def program (traps : Bool) : Program := ⟨[some (writer traps), some (reader traps)]⟩
 
 private theorem checked (traps : Bool) : (program traps).checkV1 slot = true := by cases traps <;> rfl
@@ -106,7 +107,7 @@ example : SharedStore (base false) slot memory (written false) :=
     (callerSaved := saved) (callerTail := continuation) (tail := []) (ptr := 1) (word := 0x11223344) didWrite).1
 
 -- Return to the parent's selected memory and observe the differently offset load.
-example : Steps CallFrame.v1NoHost (calling false)
+private theorem returnedWrite : Steps CallFrame.v1NoHost (calling false)
     ⟨written false, caller false, values [i32 0x11223344]⟩ := by
   apply Relation.ReflTransGen.head (resolve false)
   apply Relation.ReflTransGen.head (enter false)
@@ -148,7 +149,7 @@ example : SharedStore (base true) slot memory firstTrap.store :=
 
 -- The later bounds failure preserves the first write through label and frame
 -- unwind, including the native step that skips the parent's pending load.
-example : Steps CallFrame.v1NoHost (calling true) ⟨written true, caller true, [.trap]⟩ := by
+private theorem trapRun : Steps CallFrame.v1NoHost (calling true) ⟨written true, caller true, [.trap]⟩ := by
   apply Relation.ReflTransGen.head (resolve true)
   apply Relation.ReflTransGen.head (enter true)
   apply Relation.ReflTransGen.head writesBeforeTrap
@@ -163,5 +164,98 @@ example : Steps CallFrame.v1NoHost (calling true) ⟨written true, caller true, 
 
 example : (written true).memories = [untouched, updated] ∧ (written true).funcs = (base true).funcs :=
   ⟨rfl, rfl⟩
+
+-- The ordinary outer call enters the reader with its i64 argument. The
+-- reader's call then opens the writer inside that already-live activation.
+private def outside : Frame := ⟨[i32 88], { funcs := [parentAddr] }⟩
+private def rootArgs := [Value.int .i64 9]
+private def rootInput : State := ⟨before, outside, values rootArgs ++ [.source (.call ⟨0⟩)]⟩
+
+private def inReader (c : Config Unit) : Config Unit :=
+  ⟨c.store, outside, [.frame 1 c.frame [.label 1 [] c.code]]⟩
+
+example : Step CallFrame.v1NoHost (render (base false) slot memory rootInput)
+    (render (base false) slot memory ⟨before, outside, values rootArgs ++ [.invoke parentAddr]⟩) := by
+  have ready := call_ready (p := program false) (m := slot) (addr := parentAddr) (fn := reader false)
+    (index := ⟨0⟩) (caller := outside) rfl rfl rootArgs before
+  have move : Edge (program false) slot rootInput
+      ⟨before, outside, values rootArgs ++ [.invoke parentAddr]⟩ :=
+    .context (.resolve (i := ⟨0⟩) rfl) rootArgs []
+  exact (v1_step_iff (checked false) (layout false) ready).mpr
+    ⟨_, move, move.ready (checked false) ready, rfl⟩
+
+private theorem rootEnter (traps : Bool) : Steps CallFrame.v1NoHost
+    ⟨base traps, outside, rootInput.code⟩ (inReader (calling traps)) := by
+  apply Relation.ReflTransGen.head
+    (b := ⟨base traps, outside, values rootArgs ++ [.invoke parentAddr]⟩)
+    (Step.context (.call _ _ ⟨0⟩ parentAddr rfl) rootArgs [])
+  exact .single ((layout traps).enter (checked traps) (address := parentAddr) (fn := reader traps) rfl
+    (layout traps).initial_shared (saved := []) (args := rootArgs) (tail := []) rfl)
+
+private def returned : Config Unit := ⟨written false, outside, values [i32 0x11223344]⟩
+private def unwound : Config Unit := ⟨written true, outside, [.trap]⟩
+
+private theorem rootReturns : Steps CallFrame.v1NoHost ⟨base false, outside, rootInput.code⟩ returned := by
+  have body := (returnedWrite.label 1 []).frame 1 outside
+  have finishLabel : Step CallFrame.v1NoHost
+      (inReader ⟨written false, caller false, values [i32 0x11223344]⟩)
+      ⟨written false, outside, [.frame 1 (caller false) (values [i32 0x11223344])]⟩ :=
+    .frame (.pure _ _ (.labelDone 1 [] [i32 0x11223344])) 1 _
+  have finishFrame : Step CallFrame.v1NoHost
+      ⟨written false, outside, [.frame 1 (caller false) (values [i32 0x11223344])]⟩ returned :=
+    .pure _ _ (.frameDone 1 (caller false) [i32 0x11223344] rfl)
+  exact (((rootEnter false).trans body).tail finishLabel).tail finishFrame
+
+private theorem rootTraps : Steps CallFrame.v1NoHost ⟨base true, outside, rootInput.code⟩ unwound := by
+  have body := (trapRun.label 1 []).frame 1 outside
+  have finishLabel : Step CallFrame.v1NoHost (inReader ⟨written true, caller true, [.trap]⟩)
+      ⟨written true, outside, [.frame 1 (caller true) [.trap]]⟩ :=
+    .frame (.pure _ _ (.labelTrap 1 [])) 1 _
+  have finishFrame : Step CallFrame.v1NoHost
+      ⟨written true, outside, [.frame 1 (caller true) [.trap]]⟩ unwound :=
+    .pure _ _ (.frameTrap 1 (caller true))
+  exact (((rootEnter true).trans body).tail finishLabel).tail finishFrame
+
+private theorem rootPrefix : Steps CallFrame.v1NoHost
+    ⟨base true, outside, rootInput.code⟩ (inReader nextWrite) := by
+  have body := ((Relation.ReflTransGen.single (resolve true)).tail (enter true)).tail writesBeforeTrap
+  exact (rootEnter true).trans ((Wasm.V1.Execution.Steps.label body 1 []).frame 1 outside)
+
+private theorem rootReadback {traps : Bool} {dst : Config Unit}
+    (path : Steps CallFrame.v1NoHost ⟨base traps, outside, rootInput.code⟩ dst) :
+    ∃ out, Runs (program traps) slot rootInput out ∧
+      Ready (program traps) slot 2 before.size out ∧ dst = render (base traps) slot memory out :=
+  (v1_call_run_iff (root := parentAddr) (fn := reader traps) (index := ⟨0⟩) (args := rootArgs) (caller := outside)
+    (checked traps) (layout traps) rfl rfl).mp path
+
+example : ∃ out, Runs (program false) slot rootInput out ∧ returned = render (base false) slot memory out := by
+  obtain ⟨out, path, _, eq⟩ := rootReadback rootReturns
+  exact ⟨out, path, eq⟩
+
+example : ∃ out, Runs (program true) slot rootInput out ∧ unwound = render (base true) slot memory out ∧
+    SharedStore (base true) slot memory unwound.store := by
+  obtain ⟨out, path, ready, eq⟩ := rootReadback rootTraps
+  exact ⟨out, path, eq, eq ▸ render_shared ready⟩
+
+-- Stop after the nested write with both activations still live. Reflect the
+-- very next bounds trap separately, with the written store still in place.
+example : ∃ middle stopped,
+    Runs (program true) slot rootInput middle ∧ Edge (program true) slot middle stopped ∧
+      inReader nextWrite = render (base true) slot memory middle ∧
+      inReader firstTrap = render (base true) slot memory stopped ∧ middle.bytes = stopped.bytes := by
+  obtain ⟨middle, path, ready, endpoint⟩ := rootReadback rootPrefix
+  have trapUnderReader := Step.frame (Step.label trapsLater 1 []) 1 outside
+  have trapFromRender : Step CallFrame.v1NoHost (render (base true) slot memory middle) (inReader firstTrap) :=
+    endpoint ▸ trapUnderReader
+  obtain ⟨stopped, move, _, eq⟩ := (v1_step_iff (checked true) (layout true) ready).mp trapFromRender
+  have storeBefore := congrArg (fun c : Config Unit => c.store) endpoint
+  have storeAfter := congrArg (fun c : Config Unit => c.store) eq
+  have sameStore := storeBefore.symm.trans storeAfter
+  have sameCell := congrArg (fun s : Store Unit => s.memories[slot.value]?) sameStore
+  have inBounds : slot.value < (base true).memories.length := by decide
+  have cell : ({ memory with data := middle.bytes } : MemInst) =
+      { memory with data := stopped.bytes } := by
+    simpa [render, storeWithBytes, Wasm.V1.Execution.setMemory, List.getElem?_set, inBounds] using sameCell
+  exact ⟨middle, stopped, path, move, endpoint, eq, congrArg MemInst.data cell⟩
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32
