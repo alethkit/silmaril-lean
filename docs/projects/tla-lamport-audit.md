@@ -38,8 +38,22 @@ entailment over all behaviors, so it can also be applied on any suffix.
 | SF1 | `sf1` uses the same step premises and the temporal premise `□P ∧ □[N]_f ∧ □F ⇒ ◇ENABLED ⟨A⟩_f`. Applying this premise on every suffix that stays in `P` yields recurrent enabledness. The checked example includes an alternating behavior that meets the step and temporal assumptions with weak fairness and fails the leads-to conclusion. |
 | WF2 | `wf2` takes the barred action, observation, and target enabledness separately. Its four premises keep the Figure 5 simulation, guarded progress (including `P′` and target enabledness), enablement implication, and eventual stabilization of `P` when no changing `B` steps occur and target enabledness eventually holds continuously. |
 | SF2 | `sf2` uses recurrent target enabledness in the stabilization premise and drops the enabledness guard from step progress, as in Figure 5. Its conclusion uses recurrent target steps or eventual continuous target disabledness, following equation (18). The pinned PDF's barred SF line in equation (53) prints `□◇` on disabledness and `◇□` on the step disjunct. Equation (18), the Figure 5 recurrent-enablement premise, and the §7.2.2 explanation give the strong-fairness reading used here. |
-| STL1–STL6 | Lean's propositional logic and suffix semantics can discharge individual instances. STL1's criterion for propositional provability needs a representation of propositional derivations. Named semantic rules for STL2–STL6 remain open. |
-| Lattice | The well-founded temporal descent rule over the family `H_c` remains open. |
+| STL1 | `stl1` uses `PropDerives`, classical natural deduction in the `¬, ∧` basis, and its pointwise soundness theorem. Temporal formulas can stand for opaque propositions. An empty context gives tautologies. For Note 11's derivations from previously proved formulas, the caller supplies each context formula's validity on every behavior. Examples check excluded middle and modus ponens from such a context. |
+| STL2 | `stl2` derives `F` from `□F` at the current instant. |
+| STL3 | `stl3` gives the equivalence `□□F ≡ □F`. |
+| STL4 | `stl4` lifts the validity of `F ⇒ G` to `□F ⇒ □G` by applying the premise to each suffix. |
+| STL5 | `stl5` gives the equivalence `□(F ∧ G) ≡ (□F) ∧ (□G)`. |
+| STL6 | `stl6` gives the equivalence `(◇□F) ∧ (◇□G) ≡ ◇□(F ∧ G)`. The later of the two stabilization times witnesses the common tail. |
+| Lattice | `lattice` derives `(∃ c, H_c) ↝ G` under `F` from `H_c ↝ (G ∨ ∃ d, c ≻ d ∧ H_d)` for each `c` under the same `F`. Well-founded induction uses the smaller-rank instance at the later witness time of the original behavior. The example combines WF1 with Lattice on a run that passes through two ranks before reaching zero. `F` holds initially and fails at the second rank. |
+
+Lattice represents the paper's set by an index type, so `c : ι` carries the
+membership premise. The quantified families are written as Lean existentials
+at the relevant instants, using the same witness semantics as leads-to. This
+allows arbitrary temporal members without extending the Simple TLA grammar.
+The relation argument `smaller d c` expresses the printed `c ≻ d`. Lean requires
+well-foundedness alone, which also permits strict relations without transitivity.
+The rule retains the printed, unboxed `F` at the start of the behavior. The
+leads-to premises already quantify over all later instants of that behavior.
 
 For WF2 and SF2, `weakFair_map_iff` and `strongFair_map_iff` identify ordinary
 fairness of the mapped behavior with the explicit-enabledness formulas for the
@@ -50,8 +64,14 @@ enabledness of the pulled-back action fails. The SF2 example also checks that
 positive even counter states enable a target step and odd states disable it.
 
 [Figure 5 statements](../../Silmaril/Logic/Temporal/TLA/Rules/Figure5/Thms.lean)
-· [Checked examples](../../Silmaril/Logic/Temporal/TLA/Rules/Figure5/Examples.lean)
+· [STL and Lattice statements](../../Silmaril/Logic/Temporal/TLA/Rules/Figure5/Temporal/Thms.lean)
+· [Action and fairness examples](../../Silmaril/Logic/Temporal/TLA/Rules/Figure5/Examples.lean)
+· [STL and Lattice examples](../../Silmaril/Logic/Temporal/TLA/Rules/Figure5/Temporal/Examples.lean)
 · [Pinned PDF, Figure 5](https://lamport.azurewebsites.net/pubs/lamport-actions.pdf#page=17)
+
+```sh
+lake build --wfail +Silmaril.Logic.Temporal.TLA.Rules.Figure5.Temporal.Examples
+```
 
 ## General TLA and Figure 9
 
@@ -100,9 +120,6 @@ positive even counter states enable a target step and odd states disable it.
 
 ## Next PRs
 
-1. State and prove the remaining STL rules and the Lattice descent rule. The
-   latter must handle arbitrary well-founded orders and preserve the paper's
-   temporal hypothesis `F` throughout the leads-to reasoning.
 2. Define the canonical stutter reduction from equation (48) and prove its
    equality criterion against common expansions, including behaviors with an
    infinite final block. Use it to state (49) with the paper's relation verbatim.
