@@ -1,4 +1,6 @@
-# Finite packed execution of normalized φ-SSA
+# Packed execution of normalized φ-SSA
+
+## Finite returns
 
 A finite return of the predecessor-indexed source semantics is equivalent to
 finite evaluation of the accepted Isotope elaboration. The translation first
@@ -23,5 +25,20 @@ rejects the sequential-assignment result. The mutable correspondence also
 applies to the intermediate tuple-argument CFG produced by `Phi.lower`.
 [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Examples.lean) · [Mutable correspondence](https://github.com/hiloopai/silmaril-lean/pull/3415)
 
-The observation is a finite return in `Part`. Normalized φ inputs still require
-one edge per source-target pair. [φ interface](lambdassa-theorem-crosswalk.md#conventional-φ-nodes-and-block-arguments)
+Normalized φ inputs require one edge per source-target pair. [φ interface](lambdassa-theorem-crosswalk.md#conventional-φ-nodes-and-block-arguments)
+
+## Atomic infinite paths
+
+A source infinite path starts with a successful entry and continues with a
+successful internal transfer at every index. The local correspondence reflects
+each successful lexical entry and continuation to a source transfer with the
+same encoded packet. The lifted path retains the predecessor and store for
+the next φ assignment. [Local transfer theorems](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Phi/Infinite/Thms.lean)
+
+The same accepted elaboration, shared stateless partial primitives, capture
+agreement, exact packed typing and state-preserving capture packet give an
+equivalence with atomic packed divergence. The repeating classifier in the
+typed regression takes the backedge and keeps swapping unequal values. The
+stuck classifier fails before the first internal successor. Both source
+runners return `Part.none`, and only the repeating classifier gives a source
+path or packed divergence. [Infinite bridge](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Infinite/Thms.lean) · [Named atomic divergence](https://github.com/hiloopai/silmaril-lean/pull/3443)
