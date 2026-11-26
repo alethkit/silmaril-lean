@@ -5,11 +5,13 @@ import Silmaril.Languages.Starlark.Frontend.Checks
 meta import Silmaril.Languages.Starlark.Frontend.Checks
 import Silmaril.Languages.Starlark.Frontend.Module.Checks
 meta import Silmaril.Languages.Starlark.Frontend.Module.Checks
+import Silmaril.Languages.Starlark.Frontend.Module.SpreadChecks
+meta import Silmaril.Languages.Starlark.Frontend.Module.SpreadChecks
 import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 meta import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 
 open Lean Silmaril.Languages.Starlark.Frontend
-open Silmaril.Languages.Starlark.Frontend.Module (Observation controls)
+open Silmaril.Languages.Starlark.Frontend.Module (Observation controls spreadControls)
 
 private def moduleObservation (expected : Observation) : Json :=
   let (phase, want) := match expected with
@@ -20,6 +22,8 @@ private def moduleObservation (expected : Observation) : Json :=
     | .duplicateKey name => ("runtime", s!"duplicate key: {reprStr name}")
     | .duplicateExplicitKeyword name => ("validation", s!"keyword argument {reprStr name} is repeated")
     | .requiredAfterDefault _ => ("validation", "required parameter may not follow optional")
+    | .invalidStar => ("runtime", "argument after * must be iterable")
+    | .invalidStarStar => ("runtime", "argument after ** must be a mapping")
     | .uninitializedGlobal name => ("runtime", s!"global variable {name} referenced before assignment")
   Json.mkObj [("phase", toJson phase), ("want", toJson want)]
 
@@ -43,7 +47,7 @@ public def main (args : List String) : IO Unit := do
   let entries := fixtures.toArray.map fun fixture => Json.mkObj
     [("name", toJson fixture.name), ("source", toJson fixture.source),
      ("accepts", toJson fixture.goAccepts)]
-  let modules := controls.toArray.map fun control =>
+  let modules := (controls ++ spreadControls).toArray.map fun control =>
     Json.mkObj [("name", toJson control.name), ("source", toJson control.source),
       ("accepts", toJson true), ("module", moduleObservation control.expected)]
   let loaders := Silmaril.Languages.Starlark.Frontend.Module.Loader.controls.toArray.map loaderFixture

@@ -20,8 +20,9 @@ type fixture struct {
 }
 
 type moduleControl struct {
-	Phase string
-	Want  string
+	Phase  string
+	Want   string
+	Events string
 }
 
 type loaderControl struct {
@@ -50,6 +51,12 @@ func checkModule(file *syntax.File, control moduleControl) error {
 	}
 
 	globals, err := program.Init(new(starlark.Thread), nil)
+	if control.Events != "" {
+		events, ok := globals["events"].(*starlark.List)
+		if !ok || events.String() != control.Events {
+			return fmt.Errorf("want events %s, got %v", control.Events, globals["events"])
+		}
+	}
 	if control.Phase == "runtime" {
 		if err != nil && strings.Contains(err.Error(), control.Want) && globals["out"] == nil {
 			return nil
@@ -167,9 +174,14 @@ func main() {
 			}
 		}
 	}
+	spreads, err := checkGoSpreadControls()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		failed = true
+	}
 	if failed {
 		os.Exit(1)
 	}
-	fmt.Printf("Pinned Go matched %d parse expectations, %d module observations, and %d loader controls\n",
-		len(fixtures), modules, loaders)
+	fmt.Printf("Pinned Go matched %d parse expectations, %d module observations, %d loader controls, and %d Go-only spread controls\n",
+		len(fixtures), modules, loaders, spreads)
 }

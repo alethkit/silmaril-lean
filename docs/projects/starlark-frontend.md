@@ -55,7 +55,9 @@ retain their existing types. Parser soundness and completeness remain open.
 to located `Modules.Resolve.Command`s. The module profile accepts top-level
 scalar assignments and expression statements, multiline `def` declarations
 with positional parameters and optional scalar defaults, call assignments
-of the form `name = function(arg, ...)`, and leading load statements. The call is the entire right-hand side, and both
+of the form `name = function(arg, ...)`, and leading load statements.
+Top-level name assignments also accept the collection displays of the call
+profile. The call is the entire right-hand side, and both
 names are bare identifiers. The adapter reuses the logical-line, parameter,
 and suite parsers. It emits a normalized declaration for each `def` and a
 normalized `.call` expression for each call assignment. A top-level `pass`
@@ -102,13 +104,35 @@ assignment to `seed` after `def` and supplies an explicit named override. It
 still fails on the uninitialized default read at definition time.
 
 Call arguments use the order positional, named, optional `*`, then optional
-`**`. A call can contain at most one of each spread. `*` accepts a list or
-tuple display of scalar operands. `**` accepts a dictionary display with
-simple unescaped single- or double-quoted string keys and scalar values.
-Collection displays in other positions and general spread expressions remain
-outside the profile. The parser retains parameter, operand, and name/key
-spans. It reports a spanned diagnostic for order errors because a grouped
-normalized call cannot represent a misplaced operand.
+`**`. A call can contain at most one of each spread. Either spread accepts a
+bare name. The existing resolver binds that name, and the existing evaluator
+reads its value before expansion. A name assigned later can therefore fail
+on an uninitialized read. `*` also accepts a list or tuple display of scalar
+operands. `**` also accepts a dictionary display with simple unescaped single-
+or double-quoted string keys and scalar values. These displays can be assigned
+to module names and then passed by name.
+
+```starlark
+# 雪
+def f(a,b):
+  return b
+xs = [1]
+kw = {'b': 7}
+out = f(*xs, **kw)
+```
+
+The module publishes `out = 7`. Ordinary argument values, including the
+spread names, are read in source order before expansion. The normalized
+evaluator expands the mapping before expanding the iterable and then binds the
+resulting arguments. A reached collision between a named value and an expanded key is a binder
+error. For example, `f(b=3, *xs, **kw)` supplies `b` twice.
+
+The parser retains parameter, operand, and name/key spans. Lowered call
+commands also retain the positional spans, named-operand spans, and the span
+of each spread, including `*` or `**`. The parser reports a spanned diagnostic
+for order errors because a grouped normalized call cannot represent a
+misplaced operand. General spread expressions, nested calls inside operands,
+and collection displays in other positions remain outside this profile.
 
 The frontend preserves repeated explicit names so normalized validation can
 reject them. It also passes required-after-default signatures to normalized
@@ -121,10 +145,14 @@ check the corresponding error messages.
 `Frontend.Module.initializes_iff_run` applies the existing module agreement
 theorem to the normalized commands. `lowerNamedArguments_names` proves that
 successful named-operand lowering preserves explicit names in order, including
-repetitions. The kernel checks individual UTF-8 modules through publication
-and reached errors, including omission of a definition-time default and a
-positional/named binding collision. A general parser or source-to-normalized
-adequacy theorem remains open. [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+repetitions. `lowerCall_operands` identifies the normalized call produced by a
+successful lowering, preserves the original span groups, and proves that the
+positional count, ordered keyword names, and spread presence agree with the
+normalized argument shape. The kernel checks the normalized collection
+assignments, variable reads, and operand spans for concrete UTF-8 inputs.
+Executable Lean checks exercise variable-spread publication, expansion
+failure, and a named/expanded binding collision. A general parser or
+source-to-normalized adequacy theorem remains open. [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
 
 ### Leading loads and UTF-8 graphs
 
@@ -234,7 +262,8 @@ length and token count.
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.Checks \
-  +Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks +Silmaril.Languages.Starlark.Checks
+  +Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks \
+  +Silmaril.Languages.Starlark.Frontend.Module.SpreadChecks +Silmaril.Languages.Starlark.Checks
 scripts/starlark/frontend/run.sh
 ```
 
@@ -249,6 +278,16 @@ empty host. They compare integer `out` exports, default evaluation,
 validation errors, and runtime errors with `out` still unbound. The
 observations cover selected bindings and error phases. The Lean residual heap
 and Go partial globals remain outside the comparison.
+
+The shared variable-spread fixtures compare a later global read failing
+before expansion, mapping expansion taking precedence when both spread values
+are invalid, and a duplicate value reaching binding. Separate Go-only
+controls use nested operand calls to record side effects. They observe the
+positional, named, `*`, and `**` operands running in order. All four effects
+survive a reached spread or binding error, and the callee body runs only in
+the success case. The controls also check Go rejects named operands after
+`*` and `*` after `**`.
+[Shared spread checks](../../Silmaril/Languages/Starlark/Frontend/Module/SpreadChecks.lean) · [Go effect controls](../../scripts/starlark/frontend/spreads.go)
 
 The pinned Go scanner accepts significant tabs. The fixtures observe one tab
 or a space plus a tab aligned with eight spaces, and two tabs aligned with

@@ -18,6 +18,7 @@ open Modules (Published)
 structure LocatedCommand where
   span : Span
   command : Modules.Resolve.Command
+  callSpans : Option CallSpans := none
 
 structure ParsedModule where
   commands : List LocatedCommand
@@ -66,38 +67,53 @@ def lowerNamedArguments (arguments : List LocatedNamedArgument) :
   arguments.mapM fun argument => do
     return (argument.name, ← lowerArgument argument.value)
 
-private def lowerStar (spread : LocatedPositionalSpread) :
-    Except Diagnostic Functions.Lowering.Resolve.SourceExpr := do
-  let elements ← spread.elements.mapM lowerArgument
-  return if spread.isTuple then .tuple elements else .list elements
+private def lowerDisplay : CollectionDisplay → Except Diagnostic Functions.Lowering.Resolve.SourceExpr
+  | .sequence isTuple operands => do
+    let elements ← operands.mapM lowerArgument
+    return if isTuple then .tuple elements else .list elements
+  | .mapping operands => do
+    let entries ← operands.mapM fun entry => do
+      return (Functions.Lowering.Resolve.SourceExpr.string entry.name, ← lowerArgument entry.value)
+    return .dict entries
 
-private def lowerStarStar (spread : LocatedMappingSpread) :
-    Except Diagnostic Functions.Lowering.Resolve.SourceExpr := do
-  let entries ← spread.entries.mapM fun entry => do
-    return (Functions.Lowering.Resolve.SourceExpr.string entry.name, ← lowerArgument entry.value)
-  return .dict entries
+private def lowerSpread (spread : LocatedSpread) :
+    Except Diagnostic Functions.Lowering.Resolve.SourceExpr :=
+  match spread.operand with
+  | .name name => pure (.scalar (.read name))
+  | .display display => lowerDisplay display
 
-private def lowerCall (callee : String) (arguments : LocatedCallArguments) :
-    Except Diagnostic Functions.Lowering.Resolve.SourceExpr := do
+structure LoweredCall where
+  expression : Functions.Lowering.Resolve.SourceExpr
+  spans : CallSpans
+
+/-- Project the span groups onto the normalized binder's argument shape. -/
+def callShape (spans : CallSpans) : Functions.ArgumentShape :=
+  Functions.Lowering.argumentShape spans.positional spans.named spans.star spans.starStar
+
+/-- Lower the groups in source order and retain their original operand spans. -/
+def lowerCall (callee : String) (arguments : LocatedCallArguments) : Except Diagnostic LoweredCall := do
   let positional ← arguments.positional.mapM lowerArgument
   let named ← lowerNamedArguments arguments.named
-  let star ← arguments.star.mapM lowerStar
-  let starStar ← arguments.starStar.mapM lowerStarStar
-  return .call (.scalar (.read callee)) positional named star starStar
+  let star ← arguments.star.mapM lowerSpread
+  let starStar ← arguments.starStar.mapM lowerSpread
+  return ⟨.call (.scalar (.read callee)) positional named star starStar, arguments.spans⟩
 
 private def lowerCommand (source : LocatedFileCommand) :
     Except Diagnostic (Option LocatedCommand) := do
-  let command ← match source.command with
-    | .simple .pass => pure none
-    | .simple (.assign name rhs) =>
-      pure (some (.assign name (← lowerExpr source.span rhs)))
-    | .simple (.eval value) => pure (some (.eval (← lowerExpr source.span value)))
-    | .simple _ => .error ⟨.unsupported .compoundStatement, source.span⟩
-    | .define fn => pure (some (← lowerFunction fn))
-    | .assignCall target callee arguments => pure (some (.assign target (← lowerCall callee arguments)))
-    | .load label imports =>
-      pure (some (.load label.text (imports.map fun item => ⟨item.exported.text, item.localName.text⟩)))
-  return command.map (⟨source.span, ·⟩)
+  let located (command : Modules.Resolve.Command) : Option LocatedCommand :=
+    some { span := source.span, command }
+  match source.command with
+  | .simple .pass => return none
+  | .simple (.assign name rhs) => return located (.assign name (← lowerExpr source.span rhs))
+  | .simple (.eval value) => return located (.eval (← lowerExpr source.span value))
+  | .simple _ => .error ⟨.unsupported .compoundStatement, source.span⟩
+  | .define fn => return located (← lowerFunction fn)
+  | .assignDisplay target display => return located (.assign target (← lowerDisplay display))
+  | .assignCall target callee arguments =>
+    let call ← lowerCall callee arguments
+    return some ⟨source.span, .assign target call.expression, some call.spans⟩
+  | .load label imports =>
+    return located (.load label.text (imports.map fun item => ⟨item.exported.text, item.localName.text⟩))
 
 private def lowerCommands (source : List LocatedFileCommand) : Except Diagnostic ParsedModule := do
   return ⟨(← source.mapM lowerCommand).filterMap id⟩
