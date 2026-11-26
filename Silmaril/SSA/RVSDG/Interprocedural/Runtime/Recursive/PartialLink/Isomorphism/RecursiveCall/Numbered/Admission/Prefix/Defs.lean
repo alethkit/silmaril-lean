@@ -51,6 +51,13 @@ inductive Plan (Op : Dialect.{u, v} (ValueSort V S) S) (importsL importsR export
       {restR : ModuleTerm Op importsR (pastR ++ [[fn.port]]) sigsR exports}
       (next : Plan Op importsL importsR exports true restL restR) :
       Plan Op importsL importsR exports true (.bind (.lambda left) restL) (.bind (.lambda right) restR)
+  /-- Choose between a bilateral exact alias and checked fresh admission. -/
+  | lambdaAuto {pastL sigsL pastR sigsR : List (Ports (Ty V S))} {fn : Function V S}
+      {left : LambdaTerm Op importsL pastL fn} {right : LambdaTerm Op importsR pastR fn}
+      {restL : ModuleTerm Op importsL (pastL ++ [[fn.port]]) sigsL exports}
+      {restR : ModuleTerm Op importsR (pastR ++ [[fn.port]]) sigsR exports}
+      (next : Plan Op importsL importsR exports true restL restR) :
+      Plan Op importsL importsR exports true (.bind (.lambda left) restL) (.bind (.lambda right) restR)
   /-- Reuse an earlier paired λ, indexed from most recent to oldest. Alias rows do not add entries. -/
   | alias {pastL sigsL pastR sigsR : List (Ports (Ty V S))} {fn : Function V S}
       {left : LambdaTerm Op importsL pastL fn} {right : LambdaTerm Op importsR pastR fn}
@@ -243,6 +250,124 @@ def Checked.aliasRows {code : OpcodeCode (Instruction Op)} {captureCode : Captur
   ⟨earlier.familyL, earlier.familyR, earlier.keys, earlier.certified, earlier.lambdas,
     earlier.left.snoc (singletonRow known.1), earlier.right.snoc (singletonRow known.2)⟩
 
+section LambdaAdmission
+
+variable [DecidableEq (Ty V S)] {code : OpcodeCode (Instruction Op)} {captureCode : CaptureCode m}
+variable {localsL : Locals m.Val pastL} {localsR : Locals m.Val pastR}
+variable {fn : Function V S}
+
+/-- Extend the checked dispatch prefix by a fresh row and install the
+actual linked values in the typed locals. -/
+def Checked.freshLambda [DecidableEq code.Key] (ordinary : OrdinaryOutputs Op)
+    (earlier : Checked primitives ids code captureCode localsL localsR)
+    (entryL : Tuple m.Val importsL) (entryR : Tuple m.Val importsR)
+    (left : Lambda Op importsL pastL fn) (right : Lambda Op importsR pastR fn) :
+    Option (Checked primitives ids code captureCode
+      (localsL.snoc (.cons (linkedLambda left entryL localsL) .nil))
+      (localsR.snoc (.cons (linkedLambda right entryR localsR) .nil))) :=
+  match earlier.certified.addLambda code ordinary (entryL := entryL) (entryR := entryR)
+    (earlier.left.available earlier.certified.ordinaryL) (earlier.right.available earlier.certified.ordinaryR)
+    left right with
+  | none => none
+  | some certified =>
+    let calleeL := linkedLambda left entryL localsL
+    let calleeR := linkedLambda right entryR localsR
+    let familyL : Family m := WithExport earlier.familyL calleeL
+    let familyR : Family m := WithExport earlier.familyR calleeR
+    let entry : LambdaEntry familyL familyR := ⟨fn, calleeL, calleeR, .exported, .exported⟩
+    let tableL := (earlier.left.lift (fun known => WithExport.inherited known)).snoc (singletonRow entry.knownL)
+    let tableR := (earlier.right.lift (fun known => WithExport.inherited known)).snoc (singletonRow entry.knownR)
+    some ⟨familyL, familyR, _, certified.down, entry :: earlier.lambdas.map LambdaEntry.inherit, tableL, tableR⟩
+
+/-- The new values have different keys from every previously admitted λ
+on their own sides. Cross-side separation is checked by `freshLambda`. -/
+def Checked.DistinctLambdas (earlier : Checked primitives ids code captureCode localsL localsR)
+    (entryL : Tuple m.Val importsL) (entryR : Tuple m.Val importsR)
+    (left : Lambda Op importsL pastL fn) (right : Lambda Op importsR pastR fn) : Prop :=
+  (lambdaBodyKey code captureCode left entryL localsL).Fresh earlier.keys.left ∧
+    (lambdaBodyKey code captureCode right entryR localsR).Fresh earlier.keys.right
+
+instance [DecidableEq code.Key] (earlier : Checked primitives ids code captureCode localsL localsR)
+    (entryL : Tuple m.Val importsL) (entryR : Tuple m.Val importsR)
+    (left : Lambda Op importsL pastL fn) (right : Lambda Op importsR pastR fn) :
+    Decidable (earlier.DistinctLambdas entryL entryR left right) := by
+  letI := captureCode.decideKey
+  unfold Checked.DistinctLambdas
+  infer_instance
+
+omit [DecidableEq (Ty V S)] in
+theorem Checked.notKnown_of_distinct (earlier : Checked primitives ids code captureCode localsL localsR)
+    {entryL : Tuple m.Val importsL} {entryR : Tuple m.Val importsR}
+    {left : Lambda Op importsL pastL fn} {right : Lambda Op importsR pastR fn}
+    (distinct : earlier.DistinctLambdas entryL entryR left right) :
+    (¬earlier.familyL (linkedLambda left entryL localsL)) ∧ (¬earlier.familyR (linkedLambda right entryR localsR)) :=
+  ⟨fun known => distinct.1 (earlier.certified.keysL known rfl),
+    fun known => distinct.2 (earlier.certified.keysR known rfl)⟩
+
+/-- The alias branch carries the first bilateral match. The fresh branch
+carries the checked extension and excludes prior membership on either side. -/
+inductive LambdaAdmission (check : ExactValueCheck m)
+    (earlier : Checked primitives ids code captureCode localsL localsR) (left right : m.Val fn.port) where
+  | alias (hit : AliasMatch earlier.lambdas check (fn := fn) left right)
+  | fresh (distinct : (¬earlier.familyL left) ∧ (¬earlier.familyR right))
+      (extended : Checked primitives ids code captureCode (localsL.snoc (.cons left .nil)) (localsR.snoc (.cons right .nil)))
+
+def LambdaAdmission.toChecked {check : ExactValueCheck m}
+    {earlier : Checked primitives ids code captureCode localsL localsR} {left right : m.Val fn.port} :
+    LambdaAdmission check earlier (fn := fn) left right →
+      Checked primitives ids code captureCode (localsL.snoc (.cons left .nil)) (localsR.snoc (.cons right .nil))
+  | .alias hit => earlier.aliasRows (fn := fn) hit.known
+  | .fresh _ extended => extended
+
+/-- Prefer a proved bilateral alias. A miss proceeds only with independent
+evidence of same-side distinctness, as well as the existing checks for a
+fresh row's cross-side separation, capture membership and ordered body. -/
+def Checked.autoLambda [DecidableEq code.Key] (ordinary : OrdinaryOutputs Op) (check : ExactValueCheck m)
+    (earlier : Checked primitives ids code captureCode localsL localsR)
+    (entryL : Tuple m.Val importsL) (entryR : Tuple m.Val importsR)
+    (left : Lambda Op importsL pastL fn) (right : Lambda Op importsR pastR fn) :
+    Option (LambdaAdmission check earlier (fn := fn) (linkedLambda left entryL localsL) (linkedLambda right entryR localsR)) :=
+  match findAlias earlier.lambdas check (fn := fn) (linkedLambda left entryL localsL) (linkedLambda right entryR localsR) with
+  | some hit => some (.alias hit)
+  | none =>
+    if distinct : earlier.DistinctLambdas entryL entryR left right then
+      (earlier.freshLambda ordinary entryL entryR left right).map (.fresh (earlier.notKnown_of_distinct distinct))
+    else none
+
+variable [DecidableEq code.Key]
+variable (ordinary : OrdinaryOutputs Op) (check : ExactValueCheck m)
+variable (earlier : Checked primitives ids code captureCode localsL localsR)
+variable (entryL : Tuple m.Val importsL) (entryR : Tuple m.Val importsR)
+variable (left : Lambda Op importsL pastL fn) (right : Lambda Op importsR pastR fn)
+
+theorem Checked.autoLambda_alias
+    {hit : AliasMatch earlier.lambdas check (fn := fn) (linkedLambda left entryL localsL) (linkedLambda right entryR localsR)}
+    (found : findAlias earlier.lambdas check (fn := fn)
+      (linkedLambda left entryL localsL) (linkedLambda right entryR localsR) = some hit) :
+    earlier.autoLambda ordinary check entryL entryR left right = some (.alias hit) := by
+  simp [autoLambda, found]
+
+theorem Checked.autoLambda_fresh
+    (miss : findAlias earlier.lambdas check (fn := fn)
+      (linkedLambda left entryL localsL) (linkedLambda right entryR localsR) = none)
+    (distinct : earlier.DistinctLambdas entryL entryR left right) :
+    earlier.autoLambda ordinary check entryL entryR left right =
+      (earlier.freshLambda ordinary entryL entryR left right).map (.fresh (earlier.notKnown_of_distinct distinct)) := by
+  simp [autoLambda, miss, distinct]
+
+/-- After an alias miss, equality with any prior admitted value on either
+side rules out a fresh extension. This also covers split matches. -/
+theorem Checked.autoLambda_rejectKnown
+    (miss : findAlias earlier.lambdas check (fn := fn)
+      (linkedLambda left entryL localsL) (linkedLambda right entryR localsR) = none)
+    (known : earlier.familyL (linkedLambda left entryL localsL) ∨ earlier.familyR (linkedLambda right entryR localsR)) :
+    earlier.autoLambda ordinary check entryL entryR left right = none := by
+  have collision : ¬earlier.DistinctLambdas entryL entryR left right := fun distinct =>
+    known.elim (earlier.notKnown_of_distinct distinct).1 (earlier.notKnown_of_distinct distinct).2
+  simp [autoLambda, miss, collision]
+
+end LambdaAdmission
+
 inductive State (primitives : Primitives m σ) (ids : GlobalRel) (code : OpcodeCode (Instruction Op))
     (captureCode : CaptureCode m)
     (localsL : Locals m.Val pastL) (localsR : Locals m.Val pastR) : Bool → Type (max u v w) where
@@ -339,21 +464,24 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (captureCod
       storeL storeR next (.seeded ⟨groupL.In, groupR.In, ⟨[], []⟩, seed.down, [], leftTable, rightTable⟩)
     pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
   | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR,
-      .lambda (left := left) (right := right) next, .seeded earlier => do
-    let certified ← earlier.certified.addLambda keys ordinary
-      (earlier.left.available earlier.certified.ordinaryL) (earlier.right.available earlier.certified.ordinaryR)
-      left.toGraph right.toGraph
-    let calleeL := linkedLambda left.toGraph inputsL localsL
-    let calleeR := linkedLambda right.toGraph inputsR localsR
-    let familyL : Family m := WithExport earlier.familyL calleeL
-    let familyR : Family m := WithExport earlier.familyR calleeR
-    let entry : LambdaEntry familyL familyR := ⟨_, calleeL, calleeR, .exported, .exported⟩
-    let tableL := (earlier.left.lift (fun known => WithExport.inherited known)).snoc (singletonRow entry.knownL)
-    let tableR := (earlier.right.lift (fun known => WithExport.inherited known)).snoc (singletonRow entry.knownR)
-    let checked ← walk keys captureCode exactValue actions ids ordinary unitL unitR inputsL inputsR port
-      (localsL.snoc (.cons calleeL .nil)) (localsR.snoc (.cons calleeR .nil)) storeL storeR next
-      (.seeded ⟨familyL, familyR, _, certified.down, entry :: earlier.lambdas.map LambdaEntry.inherit, tableL, tableR⟩)
-    pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
+      .lambda (left := left) (right := right) next, .seeded earlier =>
+    match earlier.freshLambda ordinary inputsL inputsR left.toGraph right.toGraph with
+    | none => none
+    | some extended => do
+      let checked ← walk keys captureCode exactValue actions ids ordinary unitL unitR inputsL inputsR port
+        (localsL.snoc (.cons (linkedLambda left.toGraph inputsL localsL) .nil))
+        (localsR.snoc (.cons (linkedLambda right.toGraph inputsR localsR) .nil)) storeL storeR next (.seeded extended)
+      pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
+  | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR,
+      .lambdaAuto (left := left) (right := right) next, .seeded earlier =>
+    match earlier.autoLambda ordinary exactValue inputsL inputsR left.toGraph right.toGraph with
+    | none => none
+    | some admitted => do
+      let checked ← walk keys captureCode exactValue actions ids ordinary unitL unitR inputsL inputsR port
+        (localsL.snoc (.cons (linkedLambda left.toGraph inputsL localsL) .nil))
+        (localsR.snoc (.cons (linkedLambda right.toGraph inputsR localsR) .nil)) storeL storeR next
+        (.seeded admitted.toChecked)
+      pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
   | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR,
       .alias (fn := fn) (left := left) (right := right) prior next, .seeded earlier =>
     match earlier.lambdas[prior]? with
@@ -380,8 +508,9 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (captureCod
 selected export from the generated membership tables. The plan contains
 only binding selections. Each λ step checks separation using actual
 capture observations as well as the body profile. An alias row requires
-certificates of actual value equality on both sides. Use `Plan.aliasFirst`
-to select a paired entry by scanning the actual prefix. Related successful link
+certificates of actual value equality on both sides. `Plan.lambdaAuto`
+selects between the first proved alias and a checked fresh extension.
+Related successful link
 outcomes and primitive compatibility remain premises for paired invocation. -/
 def admit (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : Actions m σ)
     (ids : GlobalRel) (ordinary : OrdinaryOutputs Op) (unitL unitR : Nat)
