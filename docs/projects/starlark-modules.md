@@ -455,11 +455,48 @@ the retained heap and no published mapping.
 The fixtures instantiate the theorem from the static profile for
 success and two error cases. The corresponding evaluator checks cover
 a frozen private tuple, an uninitialized read after a shared write,
-and an index error before surplus-argument rejection. The broader
-normalized grammar still needs trace construction for independent
-or repeated calls, unrelated top-level definitions, wider bodies and
-operands, defaults, and loads. Text-level correctness remains separate.
+and an index error before surplus-argument rejection. The live-binding
+theorem below extends this schedule to independent definitions and calls.
 [Profile](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Checks.lean)
+
+### Traces with multiple live callees
+
+`Trace.Bindings.checked_module` derives a reached trace for checked
+load-free modules that interleave unrelated definitions, setup, and
+independent or repeated calls to the same supported bodies. Its source
+schedule tracks which definition or escaped child may be called through
+each module name. Explicit copies of tracked names can create aliases.
+The initial tracked environment is empty. Execution supplies the actual
+binding cells, closure addresses, capture lists, and lexical blocks.
+
+For a reached definition, the checked-site theorem locates its actual
+declaration index in the final table. Later emissions preserve earlier
+indices. On a successful call, a wrapper advances the destination to
+its child while keeping other tracked names callable. An explicit copy
+uses the closure already held in the source cell. Other assignments
+update or remove provenance at their own destination. Each call reads
+the live value and uses the shared heap. Successful leaf stores can
+change list or dictionary contents while preserving earlier binding
+and function cells. The trace stops at the first error and retains
+its state. Publication freezes exactly the values reachable from the
+initialized globals on success. Failure restores the caller with the
+residual heap and no published mapping.
+
+The normal validator still rejects duplicate module bindings. The
+profile preserves lexical reads of later-initialized globals, local
+assignment before a target read, and mutations through shared aliases.
+A callee needs provenance from a definition, a wrapper return, or a direct
+name copy. Calls through arbitrary results or collection lookups,
+wider bodies and operands, defaults, loads, and text parsing remain
+outside this theorem.
+
+The fixtures check a wrapper's escaped child and an unrelated mixed
+leaf at distinct table IDs. Both touch the same list. A repeated call
+uses an alias to the escaped child. The failure control reaches an
+uninitialized read after the second definition mutates the list and
+skips the remaining call. The Go control observes the residual state
+through `Program.Init`.
+[Profile and invariant](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/multi-callee/check.go)
 
 ## Finite-manifest loader
 
@@ -521,7 +558,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Modules.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.LoopChecks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Leaf.Checks \
-  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Checks
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
@@ -529,11 +567,12 @@ Use Go 1.25 or newer and run from the repository root.
 ```sh
 fixtures="$(pwd)/examples/starlark"
 mixed_leaf="$(pwd)/scripts/starlark/mixed-leaf.go"
+multi_callee="$(pwd)/scripts/starlark/multi-callee/check.go"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$fixtures/modules/check.go" && go run "$fixtures/loader/check.go" &&
-  go run "$fixtures/scope/check.go" && go run "$mixed_leaf")
+  go run "$fixtures/scope/check.go" && go run "$mixed_leaf" && go run "$multi_callee")
 ```
 
 [modules]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#module-execution

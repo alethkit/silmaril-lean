@@ -38,6 +38,21 @@ theorem checked_chain_site (before after : List Command) (chain : Forwarding.Cha
     before after chain globals linked resolved binders checked accepted suffixProfile
 
 /-- The checked site links the whole chain and records the leaf's actual lexical block. -/
+theorem checked_definition_site (before after : List Command) (chain : Forwarding.Chain) (globals : List String)
+    (linked : Program) (resolved : ResolvedModule)
+    (binders : ModuleBinders (before ++ .define chain.name (.required chain.parameters) chain.body :: after) globals)
+    (checked : resolve (before ++ .define chain.name (.required chain.parameters) chain.body :: after) linked =
+      .ok resolved)
+    (accepted : ∀ program, Forwarding.Accepted globals program [] chain) (suffixProfile : Segment globals after) :
+    ∃ seed head frames, Forwarding.Emits globals [] chain (head :: frames) ∧ Forwarding.Links seed chain (head :: frames) ∧
+      Forwarding.ScopedLeaves globals [] chain (head :: frames) ∧
+      resolved.source.commands[before.length]? = some (.exec (.define chain.name (Forwarding.EmittedProgram seed frames).size)) ∧
+      (∀ (index : Nat) (declaration : Functions.Declaration), (Forwarding.EmittedProgram seed (head :: frames))[index]? = some declaration →
+        resolved.program[index]? = some declaration) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.checked_chain_scoped_site
+    before after chain globals linked resolved binders checked accepted suffixProfile
+
+/-- The checked site links the whole chain and records the leaf's actual lexical block. -/
 theorem checked_chain_scoped_site (after : List Command) (chain : Forwarding.Chain) (globals : List String)
     (linked : Program) (resolved : ResolvedModule)
     (binders : ModuleBinders (.define chain.name (.required chain.parameters) chain.body :: after) globals)
@@ -49,7 +64,7 @@ theorem checked_chain_scoped_site (after : List Command) (chain : Forwarding.Cha
       resolved.source.commands[0]? = some (.exec (.define chain.name (Forwarding.EmittedProgram seed frames).size)) ∧
       (∀ (index : Nat) (declaration : Functions.Declaration), (Forwarding.EmittedProgram seed (head :: frames))[index]? = some declaration →
         resolved.program[index]? = some declaration) :=
-  Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.checked_chain_scoped_site
+  checked_definition_site
     [] after chain globals linked resolved binders checked accepted suffixProfile
 
 /-- A successful operand resolution identifies the checked assignment at its source position. -/

@@ -131,6 +131,7 @@ theorem child_total {seed program : Program} {globals : List String} {outer : Li
       (∀ value next, out = .ok value next →
         let stored := next.write (globalSlot destination) value
         ModuleSlots globals stored ∧
+        (next.slots = state.slots ∧ ∀ index, index < state.heap.size → next.heap[index]? = state.heap[index]?) ∧
         ∃ address selected, RootCall.Live stored destination address (EmittedProgram seed rest).size selected false ∧
           (∃ owner, Installs owner childFrame.free selected) ∧
           (∀ entry ∈ selected, entry.binding.name.toList.head? ≠ some '$')) := by
@@ -152,7 +153,7 @@ theorem child_total {seed program : Program} {globals : List String} {outer : Li
       (Silmaril.Languages.Starlark.Modules.fileSlot child.name) (.function active.heap.size)).heap[
         active.heap.size]? = _
     exact write_keeps_function _ _ _ _ _ _ (by simp)
-  exact ⟨written_slots restored _ _, active.heap.size, selected,
+  exact ⟨written_slots restored _ _, ⟨slots, cells⟩, active.heap.size, selected,
     ⟨⟨target, by rw [slots_write]; exact owned⟩, writes_binding _ _ _ _ owned bindingCell,
       write_keeps_function _ _ _ _ _ _ closureCell⟩,
     ⟨active, installed⟩,
