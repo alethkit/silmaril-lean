@@ -1389,6 +1389,34 @@ an ordinary return, and return `none` for two unranked entries. The
 earlier two-ranked fixture still needs both stores at its cutoff.
 [Ranked carrier cutoff][ssa-ub-open-guarded-ranked-cutoff]
 
+For exact guarded tables with exhaustive finite typed configuration and reply
+inventories, neither entry needs a rank. At a fixed shared caller, the product
+visits exactly the reachable pairs of typed configurations. It advances only
+on equal opcodes and evaluated arguments followed by a shared successful
+reply. A closed certificate proves refinement on arbitrary deterministic
+stores. Shared faults agree at their final store. If the two runners keep
+taking matched successful replies forever, both observe ordinary divergence.
+
+A reachable local mismatch has a terminal test. An ordinary exit differs
+from another ordered exit or from a pending request forced to diverge. For
+distinct queries, a fault at one key and divergence at the other suffice.
+A selected source exit can fail against an ordinary outcome. A selected
+target exit is greatest. Prepending each shared reply uses a fresh store
+and embeds the suffix interpreter, preserving the order of its full
+observations. This needs no finite derivation for either original runner.
+A shortest path to a mismatch visits distinct configuration pairs, even
+when the product has backedges.
+
+`Table.checkReachableEntries?` uses the maximum distinct reachable-pair
+count over the exhaustive caller inventory as a single carrier size. It
+includes the terminal pair, so a path of length `k` needs only `k + 1`
+stores. A supported verdict decides arbitrary-store deterministic
+refinement. Failed exact readback yields `none`. The regressions accept
+two relabelled productive loops and reject two unranked peers whose first
+mismatch requires a packet-changing reply. A longer path to the same
+mismatch takes an avoidable self-edge.
+[Reachable-product cutoff][ssa-ub-open-guarded-reachable-cutoff]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1561,6 +1589,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-mixed-support]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Infinite/Thms.lean
 [ssa-ub-open-guarded-finite-model]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Thms.lean
 [ssa-ub-open-guarded-ranked-cutoff]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Ranked/Thms.lean
+[ssa-ub-open-guarded-reachable-cutoff]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Reachable/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
 

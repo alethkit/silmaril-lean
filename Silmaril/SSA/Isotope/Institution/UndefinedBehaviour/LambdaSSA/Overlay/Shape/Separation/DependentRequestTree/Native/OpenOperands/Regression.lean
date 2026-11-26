@@ -1,5 +1,6 @@
 module
 
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FiniteSupport.Model.Reachable.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FiniteSupport.Model.Ranked.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Search.Replay.Schedule.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Thms
@@ -1036,6 +1037,78 @@ example : ∃ (σ : Type 1) (input : Syntax.Payload Bit) (prim : Syntax.StatePri
     (raw := tickLoop.native) (raw' := oneThenExit.native) (callers := callers)
     (decodeLeft := id) (decodeRight := id) (replies := enumeration)
     (left := inventory) (right := inventory) rfl rfl).mp ⟨2, stores 2, tickEntriesReject⟩
+
+-- Both peers replay successfully along a backedge under the same
+-- interpreter. The left and right loop labels are different.
+example : backedge.entryCheck = false ∧ secondLoop.entryCheck = false := ⟨rfl, rfl⟩
+
+private theorem shiftedReplay :
+    Feedback.Infinite (secondLoop.feedback left returnsForever) (blockPoint (⟨1, left⟩ : Packet Packets) 0) := by
+  let next : Packet Packets := ⟨1, right⟩
+  refine ⟨fun j => Nat.casesOn j (blockPoint (⟨1, left⟩ : Packet Packets) 0) (fun _ => blockPoint next 1), rfl, ?_⟩
+  intro j
+  cases j with
+  | zero =>
+    exact (secondLoop.feedback_step_iff left returnsForever ⟨1, left⟩ 0 _).mpr ⟨next, 1, rfl, rfl⟩
+  | succ j =>
+    exact (secondLoop.feedback_step_iff left returnsForever next 1 _).mpr ⟨next, 1, rfl, rfl⟩
+
+example : Shape.denote (withExitUB backedge.native backedge.selected)
+      (Syntax.model returnsForever (backedge.bindings left)) 0 =
+    Shape.denote (withExitUB secondLoop.native secondLoop.selected)
+      (Syntax.model returnsForever (secondLoop.bindings left)) 0 :=
+  Table.both_infinite_observations rfl rfl infiniteReplay shiftedReplay
+
+example : backedge.reachableCutoff secondLoop callers id id enumeration inventory inventory = 2 := rfl
+
+private theorem reachableRelabeled :
+    backedge.checkReachableEntries? secondLoop backedge.native secondLoop.native callers id id
+      enumeration inventory inventory = some true :=
+  relabeledFiniteChecks _ _
+
+example : backedge.DeterministicRefines.{0, storeLevel} secondLoop backedge.native secondLoop.native id id :=
+  (Table.checkReachableEntries_accepts_iff rfl rfl).mp reachableRelabeled
+
+-- Both paths below reach the same mismatch. The longer path first takes
+-- an avoidable self-edge with a left reply. The right reply changes the packet.
+private abbrev repeatedEdge : ProductEdge sig Packets Packets :=
+  (⟨.flip, ⟨0, left⟩⟩, loopStart, loopStart)
+
+example : ProductPath (backedge.productEdges literalLoop left left enumeration)
+    (loopStart, loopStart) (repeatedEdge :: adversePath) (loopNext, loopNext) :=
+  .step (.step .start (by decide)) (by decide)
+
+example : (ProductPath.vertices (loopStart, loopStart) adversePath).Nodup := by decide
+
+example {path : List (ProductEdge sig Packets Packets)}
+    (walk : ProductPath (backedge.productEdges literalLoop left left enumeration)
+      (loopStart, loopStart) path (loopNext, loopNext)) :
+    adversePath.length ≤ path.length := by
+  cases path with
+  | nil => cases congrArg (fun p => p.1.2.val) walk.nil_end
+  | cons => simp [adversePath]
+
+example : ∃ prim : Syntax.Primitives Op 2,
+    ¬ Shape.denote (withExitUB backedge.native backedge.selected) (Syntax.model prim (backedge.bindings left)) 0 ≤
+      Shape.denote (withExitUB literalLoop.native literalLoop.selected) (Syntax.model prim (literalLoop.bindings left)) 0 :=
+  Table.product_path_refutes (left := inventory) (right := inventory) rfl rfl adverseWalk rfl
+
+private def decodeLoopCaller (_ : Syntax.Payload (.unit : Syntax.Ty)) := left
+
+example : literalLoop.entryCheck = false := rfl
+
+example : backedge.reachableCutoff literalLoop unitCaller decodeLoopCaller decodeLoopCaller
+    enumeration inventory inventory = 2 := rfl
+
+example : backedge.checkReachableEntries? literalLoop backedge.native literalLoop.native
+    unitCaller decodeLoopCaller decodeLoopCaller enumeration inventory inventory = some false := by
+  obtain ⟨prim, refutes⟩ := Table.product_path_refutes (raw := backedge.native) (raw' := literalLoop.native)
+    (left := inventory) (right := inventory) rfl rfl adverseWalk rfl
+  exact Table.checkReachableEntries_rejects_of_refutation rfl rfl unitCaller enumeration inventory inventory
+    unitPayload prim 0 refutes
+
+example : backedge.checkReachableEntries? secondLoop silentCycle secondLoop.native callers id id
+    enumeration inventory inventory = none := rfl
 
 private def constantRequest {R Γ : List Syntax.Ty} (target : Fin R.length) (typed : R.get target = Bit) :
     Row sig R Γ :=

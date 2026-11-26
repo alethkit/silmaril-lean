@@ -15,10 +15,10 @@ open CFG.Dependent (Packet)
 open CFG.Dependent.Native (withExitUB)
 open TwoRequest (Exits)
 
-universe u
+universe u v
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ}
-  {R T : List Syntax.Ty} {states : Nat}
+  {R T : List Syntax.Ty} {σ : Type v}
 
 theorem Head.checkPair_iff [DecidableEq Φ] (replies : ReplyEnumeration S)
     (related : Packet R → Packet T → Bool) (p : Head S R) (q : Head S T) :
@@ -35,9 +35,9 @@ theorem productContains_iff (pairs : List (Packet R × Packet T)) (p : Packet R)
 initial state. The infinite case uses native feedback's ordinary divergence. -/
 theorem Table.closed_relation_sound (g : Table S R) (h : Table S T)
     (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
-    (prim : Syntax.Primitives Φ states) (rel : Packet R → Packet T → Prop)
+    (prim : Syntax.StatePrimitives Φ σ) (rel : Packet R → Packet T → Prop)
     (closed : ∀ p q, rel p q → (g.head caller p).Matches rel (h.head caller' q))
-    {p : Packet R} {q : Packet T} (related : rel p q) (s : Fin states) :
+    {p : Packet R} {q : Packet T} (related : rel p q) (s : σ) :
     g.observeAt caller prim p s ≤ h.observeAt caller' prim q s :=
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.closed_relation_sound
     g h caller caller' prim rel closed related s
@@ -51,7 +51,7 @@ theorem Table.checkProduct_sound [DecidableEq Φ] (g : Table S R) (h : Table S T
     (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
     (replies : ReplyEnumeration S) (pairs : List (Packet R × Packet T))
     (checked : g.checkProduct h caller caller' replies pairs = true)
-    (prim : Syntax.Primitives Φ states) (s : Fin states) :
+    (prim : Syntax.StatePrimitives Φ σ) (s : σ) :
     Shape.denote (withExitUB raw g.selected) (Syntax.model prim (g.bindings caller)) s ≤
       Shape.denote (withExitUB raw' h.selected) (Syntax.model prim (h.bindings caller')) s :=
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.product_sound
