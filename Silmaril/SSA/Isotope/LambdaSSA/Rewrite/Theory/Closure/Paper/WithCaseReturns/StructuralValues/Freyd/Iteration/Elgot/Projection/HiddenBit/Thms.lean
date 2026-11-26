@@ -75,6 +75,20 @@ theorem alternating_fold_square {A B : Q} (g : A ⟶ B ⨿ A) :
       coprod.desc (𝟙 A) (𝟙 A) ≫ g :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.HiddenBitFeedback.alternating_fold_square pe g
 
+/-- The alternating reduction uses the same chosen iteration in any contextual quotient. -/
+theorem alternating_fold_iff_double_of_seed
+    (S : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop)
+    {A B : Paper.Extension.Singleton.TypeCategory S} (g : A ⟶ B ⨿ A) :
+    iterateChosen S (coprod.desc (g ≫ coprod.map (𝟙 B) coprod.inr)
+      (g ≫ coprod.map (𝟙 B) coprod.inl)) =
+        coprod.desc (𝟙 A) (𝟙 A) ≫ iterateChosen S g ↔
+      iterateChosen S (g ≫ coprod.desc coprod.inl g) = iterateChosen S g := by
+  have alt := coprod.hom_ext
+    ((Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.HiddenBitFeedback.TwoMode.alternate_row_routes S g).1.trans (coprod.inl_desc _ _).symm)
+    ((Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.HiddenBitFeedback.TwoMode.alternate_row_routes S g).2.trans (coprod.inr_desc _ _).symm)
+  rw [← alt]
+  exact Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.HiddenBitFeedback.TwoMode.alternate_uniform_iff S g
+
 /-- Uniformity for the binary fold on an alternating step is exactly the double-step equation. -/
 theorem alternating_fold_iff_double {A B : Q} (g : A ⟶ B ⨿ A) :
     I (alternatingStep pe g) = coprod.desc (𝟙 A) (𝟙 A) ≫ I g ↔
