@@ -2,6 +2,7 @@ module
 
 public import Mathlib.Algebra.BigOperators.Fin
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Multiple.Computed.Block.Defs
+public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Multiple.Computed.Case.Defs
 
 /-! # Schedule computed transfers across one original block table -/
 
@@ -36,7 +37,8 @@ inductive Row (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
   | scheduled {transfer : Region F} (body : ScheduledTransfer sig packets outputs input transfer)
       (origin : written = transfer ∨ foldedTransfer written = some transfer)
   | outlined (count : Nat) (tree : EntryTree sig packets outputs [input] count)
-      (origin : written = tree.written)
+      (origin : written = tree.written ∨
+        ∃ check : DecidableEq F, @scheduleCases F check sig [input] written = some tree.written)
   | unchanged (body : Code sig (Sum.elim packets outputs) [input])
       (accepted : elaborateRow (Sum.elim packets outputs) sig [input] written = some body)
 
@@ -59,14 +61,25 @@ def readStraight [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blo
     else none
   | none => none
 
-/-- Check a branch-local continuation tree in the original packet scope.
-The exact erasure check ties every arm to the original written row. -/
+/-- Check a branch-local tree from a written row or its scheduled
+tests. Exact erasure ties the readback to that syntax. -/
+def readTreeAt [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
+    (outputs : Fin exits → PacketType) (input : PacketType) (written prepared : Region F)
+    (origin : written = prepared ∨
+      ∃ check : DecidableEq F, @scheduleCases F check sig [input] written = some prepared) :
+    Option (Row sig packets outputs input written) := do
+  let ⟨count, tree⟩ ← Multiple.read sig packets outputs [input] prepared
+  let exact ← commonRow (blocks + exits) prepared tree.written
+  have equal : prepared = tree.written := exact.property.1.trans exact.property.2.symm
+  return .outlined count tree (equal ▸ origin)
+
 def readTree [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) (input : PacketType) (written : Region F) :
-    Option (Row sig packets outputs input written) := do
-  let ⟨count, tree⟩ ← Multiple.read sig packets outputs [input] written
-  let exact ← commonRow (blocks + exits) written tree.written
-  return .outlined count tree (exact.property.1.trans exact.property.2.symm)
+    Option (Row sig packets outputs input written) :=
+  (readTreeAt sig packets outputs input written written (Or.inl rfl)).orElse fun _ =>
+    match accepted : scheduleCases sig [input] written with
+    | some prepared => readTreeAt sig packets outputs input written prepared (Or.inr ⟨inferInstance, accepted⟩)
+    | none => none
 
 structure Shape (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) (source : FiniteCFG F blocks exits captures) where

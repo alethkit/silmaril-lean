@@ -1,0 +1,55 @@
+module
+
+public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Multiple.Computed.Defs
+
+/-! # Schedule a case test before the branch-local continuation -/
+
+@[expose] public section
+
+namespace Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple.Computed
+
+open LambdaSSA (Region Tm)
+open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible (PacketType PrimitiveSignature)
+
+variable {F : Type} {Γ : List PacketType} {a b : PacketType} {sig : PrimitiveSignature F}
+
+/-- The operand supplies one sum to the sole dispatch. Each case payload
+stays at slot zero, and older slots move past the schedule. -/
+def scheduleCase (test : Operand sig Γ (.coprod a b)) (left right : Region F) : Region F :=
+  let scheduled := test.schedule
+  let shift := Silmaril.DeBruijn.lift scheduled.requests.shift
+  scheduled.requests.wrap Region.let₁ Region.let₂
+    (.case (operand position scheduled.value) (left.renameVars shift) (right.renameVars shift))
+
+structure CaseTest (sig : PrimitiveSignature F) (Γ : List PacketType) (written : Tm F) where
+  leftType : PacketType
+  rightType : PacketType
+  operand : Operand sig Γ (.coprod leftType rightType)
+  source_eq : written = operand.written
+
+def readCaseTest [DecidableEq F] (sig : PrimitiveSignature F) (Γ : List PacketType) (test : Tm F) :
+    Option (CaseTest sig Γ test) := do
+  let ⟨.coprod a b, arg⟩ ← readOperand sig Γ test | none
+  if exactTest : test = arg.written then some ⟨a, b, arg, exactTest⟩ else none
+
+def productTypes (sig : PrimitiveSignature F) (Γ : List PacketType) (value : Tm F) :
+    Option (PacketType × PacketType) := do
+  let ⟨.product a b, _⟩ ← readOperand sig Γ value | none
+  return (a, b)
+
+/-- Traverse written binders with the operand checker's types. Only case
+tests are hoisted here. The continuation checker still admits the resulting
+row and its exact branch-local syntax. -/
+def scheduleCases [DecidableEq F] (sig : PrimitiveSignature F) :
+    List PacketType → Region F → Option (Region F)
+  | _, .br label arg => some (.br label arg)
+  | Γ, .let₁ value tail => (readOperand sig Γ value).bind fun found =>
+    (scheduleCases sig (found.1 :: Γ) tail).map (.let₁ value)
+  | Γ, .let₂ value tail => (productTypes sig Γ value).bind fun (a, b) =>
+    (scheduleCases sig (b :: a :: Γ) tail).map (.let₂ value)
+  | Γ, .case test left right => (readCaseTest sig Γ test).bind fun found =>
+    (scheduleCases sig (found.leftType :: Γ) left).bind fun left =>
+      (scheduleCases sig (found.rightType :: Γ) right).map (scheduleCase found.operand left)
+  | _, .cfg .. => none
+
+end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple.Computed

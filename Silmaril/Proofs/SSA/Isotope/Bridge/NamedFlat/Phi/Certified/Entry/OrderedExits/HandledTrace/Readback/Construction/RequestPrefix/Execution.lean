@@ -755,7 +755,7 @@ theorem compiled_seed {A : Type 1} {Events : Type → Type}
 namespace Computed
 
 open Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple.Computed
-  (Operand Requests Scheduled Substitution Boundary Lifted substExpr renameExpr bindSubstitution hoist)
+  (Operand Requests Scheduled Substitution Boundary Lifted scheduleCase scheduleCases substExpr renameExpr bindSubstitution hoist)
 
 variable {Δ Θ : List PacketType}
 
@@ -992,6 +992,73 @@ theorem operand_run (instr : Primitive E F α) (env : Env α) {ty : PacketType} 
       apply bind_scope_congr
       intro final _
       exact (operand_tree instr position final (readSlots position final) arg.schedule.value (fun _ => rfl)).symm
+
+private theorem schedule_case_run (instr : Primitive E F α) (env : Env α) {a b : PacketType}
+    (arg : Operand sig Γ (.coprod a b)) (left right : Region F) :
+    region instr env (.case arg.written left right) = region instr env (scheduleCase arg left right) := by
+  let finish : Value α → Tree E (Transfer α) := fun
+    | .inl payload => region instr (extend env payload) left
+    | .inr payload => region instr (extend env payload) right
+    | _ => diverge
+  let scheduled := arg.schedule
+  rw [scheduleCase, region_wrap]
+  calc
+    _ = bindRequests instr scheduled.requests env
+        (fun final => finish (evalOperand (readSlots position final) scheduled.value)) :=
+      (schedule_run instr arg (fun slot => .var slot) env env (fun _ => rfl) finish).symm
+    _ = _ := by
+      apply bind_scope_congr
+      intro final older
+      have branch (r : Region F) (payload : Value α) :
+          region instr (extend env payload) r =
+            region instr (extend final payload) (r.renameVars (Silmaril.DeBruijn.lift scheduled.requests.shift)) := by
+        symm
+        apply LambdaSSA.Semantics.Interaction.region_renameVars
+        intro i
+        cases i with
+        | zero => rfl
+        | succ i => exact older i
+      simp only [region, operand_tree instr position final (readSlots position final)
+        arg.schedule.value (fun _ => rfl), pure_bind, finish]
+      cases evalOperand (readSlots position final) scheduled.value with
+      | inl payload => exact branch left payload
+      | inr payload => exact branch right payload
+      | atom _ | unit | pair _ _ => rfl
+
+private theorem schedule_cases_run [DecidableEq F] (instr : Primitive E F α) (env : Env α)
+    (Γ : List PacketType) (written prepared : Region F)
+    (accepted : scheduleCases sig Γ written = some prepared) :
+    region instr env written = region instr env prepared := by
+  induction written generalizing Γ env prepared with
+  | br label arg =>
+    cases accepted
+    rfl
+  | let₁ value tail ih =>
+    simp only [scheduleCases, Option.bind_eq_some_iff, Option.map_eq_some_iff] at accepted
+    obtain ⟨⟨ty, _⟩, _, next, checked, rfl⟩ := accepted
+    simp only [region]
+    exact bind_congr fun reply => ih (extend env reply) (ty :: Γ) next checked
+  | let₂ value tail ih =>
+    simp only [scheduleCases, Option.bind_eq_some_iff, Option.map_eq_some_iff] at accepted
+    obtain ⟨⟨a, b⟩, _, next, checked, rfl⟩ := accepted
+    simp only [region]
+    apply bind_congr
+    intro result
+    cases result with
+    | pair left right => exact ih (extend (extend env left) right) (b :: a :: Γ) next checked
+    | atom _ | unit | inl _ | inr _ => rfl
+  | case test left right ihLeft ihRight =>
+    simp only [scheduleCases, Option.bind_eq_some_iff, Option.map_eq_some_iff] at accepted
+    obtain ⟨found, _, left', hl, right', hr, rfl⟩ := accepted
+    rw [← schedule_case_run instr env found.operand left' right', ← found.source_eq]
+    simp only [region]
+    apply bind_congr
+    intro result
+    cases result with
+    | inl payload => exact ihLeft (extend env payload) _ left' hl
+    | inr payload => exact ihRight (extend env payload) _ right' hr
+    | atom _ | unit | pair _ _ => rfl
+  | cfg _ _ _ _ _ => cases accepted
 
 private theorem boundary_run {labels : Nat} {types : Fin labels → PacketType}
     (boundary : Boundary sig context types) (instr : Primitive E F α) (env : Env α) :
@@ -1265,8 +1332,12 @@ private theorem step_square (instr : Primitive E F α) (ambient : Env α) (state
       · rw [same]
       · exact folded_transfer_run instr (extend ambient packet) _ _ folded
     | outlined _ tree origin =>
-      exact outlined_visit instr ambient result.code i packet tree
-        (congrArg (region instr (extend ambient packet)) origin) labels fresh head cells
+      refine outlined_visit instr ambient result.code i packet tree ?_ labels fresh head cells
+      rcases origin with same | scheduled
+      · exact congrArg (region instr (extend ambient packet)) same
+      · obtain ⟨check, accepted⟩ := scheduled
+        let _ : DecidableEq F := check
+        exact schedule_cases_run instr (extend ambient packet) _ _ _ accepted
     | unchanged _ _ => exact unchanged_visit instr ambient result.code i packet head
   apply atRow (g.row i) (g.fresh i)
   · intro j
