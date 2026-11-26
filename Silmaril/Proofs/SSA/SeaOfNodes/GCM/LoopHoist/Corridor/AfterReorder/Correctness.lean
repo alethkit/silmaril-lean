@@ -31,14 +31,27 @@ variable {g : Program Input carried result entrySigs headerSigs}
 variable {state : State Input carried result} {output : Output Input carried result}
 variable {plan : Plan} {priorities : List Nat} {origin : Nat}
 
+theorem resolveMove?_spec {index : Nat} {cut : Point (SourceLabel carried result)}
+    (accepted : resolveMove? state origin = some (index, cut, output)) :
+    Header.Priority.resolve? state origin = some index ∧
+      hoistCodeWith? state.cfg.entry (state.cfg.block .header) index (chooseCfgCut? state.cfg) =
+        some (cut, output) := by
+  obtain ⟨current, resolved, next⟩ := Option.bind_eq_some_iff.mp accepted
+  obtain ⟨⟨site, moved⟩, selected, eq⟩ := Option.bind_eq_some_iff.mp next
+  change some (current, site, moved) = some (index, cut, output) at eq
+  simp only [Option.some.injEq, Prod.mk.injEq] at eq
+  obtain ⟨a, b, c⟩ := eq
+  subst current site moved
+  exact ⟨resolved, selected⟩
+
 private theorem finish?_spec (emitted : finish? state origin = some output) :
     ∃ index, state.origins[index]? = some origin ∧
       hoistCodeWith? state.cfg.entry (state.cfg.block .header) index (chooseCfgCut? state.cfg) =
         some (⟨none, 0⟩, output) := by
-  obtain ⟨index, resolved, attempted⟩ := Option.bind_eq_some_iff.mp emitted
-  obtain ⟨⟨cut, moved⟩, selected, same⟩ := Option.map_eq_some_iff.mp attempted
+  obtain ⟨⟨index, cut, moved⟩, attempted, same⟩ := Option.map_eq_some_iff.mp emitted
   change moved = output at same
   subst moved
+  obtain ⟨resolved, selected⟩ := resolveMove?_spec attempted
   obtain ⟨_, _, _, rfl, _⟩ := hoistCodeWith?_spec selected
   exact ⟨index, Header.Priority.resolve?_sound resolved, selected⟩
 

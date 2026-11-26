@@ -12,6 +12,7 @@ open Silmaril.MLIR.Arith (Env Var Width)
 open Silmaril.MLIR.CF (Block)
 open Silmaril.MLIR.CF.SwitchAssert (Cfg)
 open Silmaril.MLIR.Pure (Operands)
+open Header.Earlier (operations)
 open Loop.MLIR.CF (Program TargetOp evalOp lower model)
 
 variable {Input : List Width} {carried result : Width}
@@ -19,6 +20,15 @@ variable {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 variable {g : Program Input carried result entrySigs headerSigs}
 variable {first : AfterReorder.Plan} {consumerOrigin : Nat}
 variable {prepared : Prepared Input carried result} {moved : Emission Input carried result}
+
+/-- Substitution and edge lifting preserve the order of every retained let. -/
+theorem rewriteAt?_operations {Γ Δ : List Width} {saved consumer : Width}
+    {code : Block TargetOp (Label saved carried result) Γ [result]}
+    {index : Nat} {rename : Rename Γ Δ} {keep : Var Δ consumer}
+    {out : Block TargetOp (Label saved carried result [consumer]) Δ [result]}
+    (done : rewriteAt? index rename keep code = some out) :
+    operations out = (operations code).eraseIdx index :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.rewriteAt?_operations done
 
 /-- Replay uses the checked handoff from the exact first emission and then
 edits that CFG. -/
@@ -49,6 +59,12 @@ theorem replay?_routes (accepted : replay? g first consumerOrigin = some moved) 
       let value := evalOp moved.prepared.consumer.op (moved.prepared.consumer.inputs.eval (.cons saved input))
       StepRoutes moved.prepared.intermediate.2 moved.cfg input saved value :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.replay?_routes accepted input
+
+/-- The second replay deletes the current index and retains the remaining operation order. -/
+theorem replay?_header_operations (accepted : replay? g first consumerOrigin = some moved) :
+    operations (moved.cfg.block .header) =
+      (operations (moved.prepared.intermediate.2.block .header)).eraseIdx moved.prepared.index :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.replay?_header_operations accepted
 
 /-- The second edit preserves both return and exhaustion at the same CFG fuel. -/
 theorem replay?_run_eq (accepted : replay? g first consumerOrigin = some moved)

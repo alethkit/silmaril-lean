@@ -19,6 +19,26 @@ variable {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 variable {g : Program Input carried result entrySigs headerSigs}
 variable {first : AfterReorder.Plan} {consumerOrigin : Nat} {prepared : Prepared Input carried result}
 
+/-- The handoff retains the exact intermediate CFG and resolves its current origin order. -/
+theorem prepareOn?_spec {intermediate : Output Input carried result} {origins : List Nat}
+    (accepted : prepareOn? intermediate origins consumerOrigin = some prepared) :
+    prepared.intermediate = intermediate ∧ prepared.origins = origins ∧
+    prepared.origins.idxOf? consumerOrigin = some prepared.index ∧
+    findCandidate? prepared.index 0 savedOrigins (prepared.intermediate.2.block .header) =
+      some prepared.consumer ∧ checkConsumer prepared.intermediate.2 prepared.consumer = true :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.prepareOn?_spec accepted
+
+/-- The first hoist removes exactly its resolved operation from header order. -/
+theorem hoistCodeWith?_operations
+    {entry : Block TargetOp (SourceLabel carried result) Input [result]}
+    {header : Block TargetOp (SourceLabel carried result) (carried :: Input) [result]}
+    {choose : List (Point (SourceLabel carried result)) → List (Use (SourceLabel carried result)) →
+      Option (Point (SourceLabel carried result))}
+    {index : Nat} {cut : Point (SourceLabel carried result)} {output : Output Input carried result}
+    (moved : hoistCodeWith? entry header index choose = some (cut, output)) :
+    operations (output.2.block .header) = (operations header).eraseIdx index :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.hoistCodeWith?_operations moved
+
 /-- The captured operands evaluate the current typed binding in a header activation. -/
 theorem findCandidate?_value {index cut : Nat}
     {origins : Origins (saved :: Input) Γ} {code : Block TargetOp (Label saved carried result) Γ [result]}

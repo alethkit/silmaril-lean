@@ -20,6 +20,15 @@ variable {g : Program Input carried result entrySigs headerSigs}
 variable {output : Output Input carried result}
 variable {plan : Plan} {priorities : List Nat} {origin : Nat}
 
+/-- The tracked result exposes the exact resolution and cut consumed by the emitter. -/
+theorem resolveMove?_spec {state : State Input carried result} {index : Nat}
+    {cut : Point (SourceLabel carried result)}
+    (accepted : resolveMove? state origin = some (index, cut, output)) :
+    Header.Priority.resolve? state origin = some index ∧
+      hoistCodeWith? state.cfg.entry (state.cfg.block .header) index (chooseCfgCut? state.cfg) =
+        some (cut, output) :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.resolveMove?_spec accepted
+
 /-- The emitted CFG is exactly the result of replaying the returned plan. -/
 theorem schedule?_replay (accepted : schedule? g priorities origin = some (plan, output)) :
     replay? g plan = some output :=
