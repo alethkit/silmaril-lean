@@ -116,3 +116,65 @@ The numbered θ carries six fields, down from the seven source registers.
 Three activations take two feedback edges and return 16 at CF budget 15.
 The last line shows bounded exhaustion in both targets.
 [Numbered regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Numbered/Regression.lean)
+
+## Project the common merge bank
+
+The join projection is separate from θ's carried-header projection.
+Section 3.1 gathers changed definitions on all reaching paths. This
+pass projects those columns when the merge replaces an incoming field
+before any read. `MergePrune.mergeMask` uses the existing backward
+producer sweep. `checkMask` validates typed renaming for every merge
+producer and requires reconstruction of the **complete**
+post-merge bank before entering the latch. This admits overwritten
+inputs and keeps any unchanged slot that reaches the latch, even if
+the merge itself never reads that slot. It is a conservative check
+for this one merge.
+[Projection certificate and reconstruction](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Thms.lean)
+
+The numbered emitter removes the field from the outer γ's result
+signature and from both of its output packets, preserving the original
+nested γ and selection order. It uses in-scope header wires to fill
+dropped inputs for the ordinary quad compiler. The certificate proves
+those choices have no effect on the full reconstructed post-merge bank.
+The typed CF emitter gives the original merge label the smaller block
+signature. Every predecessor sends the same ordered projection of its
+own final versions. The merge emits the certificate's renamed flow and
+full outgoing bank. The original θ header projection is still applied
+separately.
+[Numbered proofs](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Numbered/Thms.lean) ·
+[Typed CF proofs](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/MLIR/CF/Thms.lean)
+
+`Numbered.merge_run` and `MLIR.CF.from_header_eq_merge` identify the
+smaller bank at the selected source occurrence. Both targets preserve
+their corresponding full-merge runner at every budget. The comparison
+theorems transfer finite return witnesses across targets and compare
+absence of a return at every finite budget.
+[Comparison](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Comparison/Thms.lean)
+
+Build with
+`lake build --wfail +Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Example.Defs`.
+Paste the block into `QuadNestedMergePrune.lean` and run
+`lake env lean -DwarningAsError=true QuadNestedMergePrune.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Example
+
+#eval columns                          -- [(3, 41, some 7), (2, 42, some 6), (4, 43, some 10)]
+#eval arities                          -- (6, some 6)
+#eval refusesUsed                      -- (true, true)
+#eval (runSource 14, runCF 15, runRVSDG 3)
+#eval (runSource 13, runCF 14, runRVSDG 2)
+```
+
+Each row names the original predecessor, its distinct dead scratch
+input, and the returned field from the actual reduced γ. Both emitted
+join interfaces carry six of seven fields. The checker refuses to
+drop the value read by the merge or the counter that crosses the
+merge to the latch. Two feedback edges lead to a return of 16 in
+all three runners, and the last line gives three exhausted runs.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Regression.lean)
