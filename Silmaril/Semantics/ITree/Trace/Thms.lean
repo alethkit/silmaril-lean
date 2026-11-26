@@ -73,6 +73,18 @@ theorem TraceLE.bind_right (t : Tree E A) {f g : A → Tree E B}
     (h : ∀ a, TraceLE (f a) (g a)) : TraceLE (t >>= f) (t >>= g) :=
   Silmaril.Proofs.Semantics.Elgot.ITree.trace_bind_right_mono t h
 
+/-- A common continuation preserves inclusion of the producers. Each
+terminating observation supplies the same value to that continuation. -/
+theorem TraceLE.bind_left {t s : Tree E A} (h : TraceLE t s) (f : A → Tree E B) :
+    TraceLE (t >>= f) (s >>= f) :=
+  Silmaril.Proofs.Semantics.Elgot.ITree.trace_bind_left_mono h f
+
+/-- Monotonicity in both the producer and the returned-value continuation. -/
+theorem TraceLE.bind {t s : Tree E A} {f g : A → Tree E B}
+    (h : TraceLE t s) (hfg : ∀ a, TraceLE (f a) (g a)) :
+    TraceLE (t >>= f) (s >>= g) :=
+  (h.bind_left f).trans (TraceLE.bind_right s hfg)
+
 /-- A pure return map takes the image of the observations under `Trace.map`.
 In particular it introduces no request, and it can merge result observations. -/
 theorem hasTrace_bind_pure_iff (f : A → B) (t : Tree E A) (p : Trace E B) :
@@ -80,9 +92,28 @@ theorem hasTrace_bind_pure_iff (f : A → B) (t : Tree E A) (p : Trace E B) :
   Silmaril.Proofs.Semantics.Elgot.ITree.trace_map_iff f t p
 
 theorem TraceLE.bind_pure {t s : Tree E A} (h : TraceLE t s) (f : A → B) :
-    TraceLE (t >>= fun a => pure (f a)) (s >>= fun a => pure (f a)) := by
-  intro p hp
-  obtain ⟨q, hq, hmap⟩ := (hasTrace_bind_pure_iff f t p).mp hp
-  exact (hasTrace_bind_pure_iff f s p).mpr ⟨q, h q hq, hmap⟩
+    TraceLE (t >>= fun a => pure (f a)) (s >>= fun a => pure (f a)) :=
+  h.bind_left (fun a => pure (f a))
+
+/-- A visible root of a resumed computation is witnessed by a finite run
+of the normalizer. Each recursive return goes to another body. The final
+step exposes a return or an indexed request with resumed continuations. -/
+theorem out_resume_runs_iff (f : A → Tree E (B ⊕ A)) (t : Tree E (B ⊕ A))
+    (node : Visible E B (Tree E B)) :
+    out (resume f t) = Part.some node ↔ Elgot.Part.Runs (normalizeStep f) t node :=
+  Silmaril.Proofs.Semantics.Elgot.ITree.out_resume_runs_iff f t node
+
+/-- Resumption preserves refinement of the current body and pointwise
+refinement of the bodies reached by recursive returns. -/
+theorem TraceLE.resume {f g : A → Tree E (B ⊕ A)} {t s : Tree E (B ⊕ A)}
+    (hfg : ∀ a, TraceLE (f a) (g a)) (hts : TraceLE t s) :
+    TraceLE (resume f t) (resume g s) :=
+  Silmaril.Proofs.Semantics.Elgot.ITree.trace_resume_mono hfg hts
+
+/-- The weak Elgot iterator is monotone in its body for finite traces. -/
+theorem TraceLE.iter {f g : A → Tree E (B ⊕ A)}
+    (hfg : ∀ a, TraceLE (f a) (g a)) (a : A) :
+    TraceLE (Elgot.iter f a) (Elgot.iter g a) := by
+  simpa only [resume_body] using TraceLE.resume hfg (hfg a)
 
 end Silmaril.Elgot.ITree
