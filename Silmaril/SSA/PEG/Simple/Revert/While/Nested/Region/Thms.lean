@@ -41,6 +41,16 @@ theorem Accepted.observe_of_returns (a : Accepted g inner)
     g.observe m (g.denote m input a.demandWellFounded) i = .cons (some value) .nil :=
   (Proofs.exits_and_observe a neg (g.denote_solves m input a.demandWellFounded) i returned).2
 
+/-- Successful nested execution certifies the least outer pass, every
+required child activation pass, and the ordered return. -/
+theorem Accepted.exits_and_observe_of_returns (a : Accepted g inner)
+    (neg : ∀ b : Bool, m.run a.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (input : Tuple m.Value outer) (base : Index l)
+    {value : m.Value result} (returned : a.revert.Returns m input value) :
+    (∃ count, a.FirstExits m (g.denote m input a.demandWellFounded) base count) ∧
+      g.observe m (g.denote m input a.demandWellFounded) base = .cons (some value) .nil :=
+  Proofs.exits_and_observe a neg (g.denote_solves m input a.demandWellFounded) base returned
+
 theorem Accepted.activate_of_runFuel (a : Accepted g inner) (fuel : Nat)
     {old : Tuple m.Value outer} {out : Tuple m.Value (inner ++ outer)}
     (ran : a.activateFuel m fuel old = some out) : Exec m a.activate old (some out) :=
