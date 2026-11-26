@@ -9,7 +9,7 @@ namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Prehe
 
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.RTL (Frame Opcode packValues)
-open Silmaril.Machine.RTL.SSA (Prog run)
+open Silmaril.Machine.RTL.SSA (Prog run StepsNWithin)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg model)
 open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
 open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
@@ -76,6 +76,30 @@ private theorem split_return {source : Family.Source old old entrySigs sigs test
     obtain ⟨finish, feedbacks, exits⟩ := ih
     exact ⟨finish, .visit hit feedbacks, exits⟩
 
+theorem from_return_path (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    {slots : List (Fin (tests + 1))} {value : Word}
+    (path : source.ReturnsAlong (mapping.pull input) slots (source.primary.initial model (mapping.pull input)) value) :
+    let initial := source.primary.initial model (mapping.pull input)
+    ∃ before finish after,
+      compiled.rtl.start 0 (words input) mem =
+        some ⟨⟨0, 0, 0⟩, bindWords 0 Frame.empty input, [], mem⟩ ∧
+      StepsNWithin compiled.rtl [] (entrySigs.length + 1)
+        ⟨⟨0, 0, 0⟩, bindWords 0 Frame.empty input, [], mem⟩ ⟨⟨0, 1, 0⟩, before, [], mem⟩ ∧
+      Realized compiled.setup input mem slots initial before finish after ∧
+      Taken compiled input mem finish after value ∧
+      compiled.rtl.runMain (entrySigs.length + 1 + (rtlCost sigs.length slots + (sigs.length + 2)))
+        0 (words input) mem = .returned [value] mem ∧
+      compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) := by
+  obtain ⟨finish, feedbacks, exits⟩ := split_return path
+  obtain ⟨started, before, entered, matched⟩ := Family.entry_packet mapping source compiled.accepted input mem
+  obtain ⟨after, realized, exit, rtl, cf⟩ := after_prefix compiled input mem before value matched feedbacks exits
+  have machine := (run_through_prefix entered _).trans rtl
+  refine ⟨before, finish, after, started, entered, realized, exit, ?_, ?_⟩
+  · simpa only [Prog.runMain, started] using machine
+  · unfold Cfg.run
+    rw [Cfg.runBlock, Producer.entry_frame compiled input]
+    exact cf
+
 theorem returns (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
     {slots : List (Fin (tests + 1))} {value : Word}
     (path : source.ReturnsAlong (mapping.pull input) slots (source.primary.initial model (mapping.pull input)) value)
@@ -85,15 +109,10 @@ theorem returns (compiled : Compiled mapping source origins) (input : WordTuple 
     compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) ∧
     Eval (Opcode.step (sigs := [⟨new, 1⟩]) compiled.rtl.oracle) env
       (toLambdaSSA [⟨new, 1⟩] (lowerFunc (mapCaptures mapping source))) mem 0 (packValues [value]) mem := by
-  obtain ⟨_, feedbacks, exits⟩ := split_return path
-  obtain ⟨started, frame, entered, matched⟩ := Family.entry_packet mapping source compiled.accepted input mem
-  obtain ⟨_, _, _, rtl, cf⟩ := after_prefix compiled input mem frame value matched feedbacks exits
-  have machine := (run_through_prefix entered _).trans rtl
-  refine ⟨?_, ?_, (Phi.region_return_iff mapping source compiled.accepted input env entry mem mem [value]).mpr
+  obtain ⟨_, _, _, started, _, _, _, rtl, cf⟩ := from_return_path compiled input mem path
+  have machine := rtl
+  rw [Prog.runMain, started] at machine
+  exact ⟨rtl, cf, (Phi.region_return_iff mapping source compiled.accepted input env entry mem mem [value]).mpr
     ⟨_, started, run_returned machine⟩⟩
-  · simpa only [Prog.runMain, started] using machine
-  · unfold Cfg.run
-    rw [Cfg.runBlock, Producer.entry_frame compiled input]
-    exact cf
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Proofs

@@ -10,7 +10,7 @@ namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Prehe
 
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.RTL (Frame Opcode packValues)
-open Silmaril.Machine.RTL.SSA (run)
+open Silmaril.Machine.RTL.SSA (run StepsNWithin)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg model)
 open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
 open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
@@ -51,6 +51,24 @@ theorem after_prefix (compiled : Compiled mapping source origins) (input : WordT
       compiled.setup.cf.runFrom evalOp (cfCost slots + 2) (wordEnv input) (headerFrame _ _ carried) =
         some (.cons value .nil) :=
   Proofs.after_prefix compiled input mem before value matched feedbacks exits
+
+/-- A native return path determines the actual checked entry, positional
+feedback latches, and first taken exit in both targets. -/
+theorem from_return_path (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    {slots : List (Fin (tests + 1))} {value : Word}
+    (path : source.ReturnsAlong (mapping.pull input) slots (source.primary.initial model (mapping.pull input)) value) :
+    let initial := source.primary.initial model (mapping.pull input)
+    ∃ before finish after,
+      compiled.rtl.start 0 (words input) mem =
+        some ⟨⟨0, 0, 0⟩, bindWords 0 Frame.empty input, [], mem⟩ ∧
+      StepsNWithin compiled.rtl [] (entrySigs.length + 1)
+        ⟨⟨0, 0, 0⟩, bindWords 0 Frame.empty input, [], mem⟩ ⟨⟨0, 1, 0⟩, before, [], mem⟩ ∧
+      Realized compiled.setup input mem slots initial before finish after ∧
+      Taken compiled input mem finish after value ∧
+      compiled.rtl.runMain (entrySigs.length + 1 + (rtlCost sigs.length slots + (sigs.length + 2)))
+        0 (words input) mem = .returned [value] mem ∧
+      compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) :=
+  Proofs.from_return_path compiled input mem path
 
 /-- A native finite return from entry witnesses actual CF and RTL results and exit zero in the canonical typed λSSA translation. -/
 theorem returns (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
