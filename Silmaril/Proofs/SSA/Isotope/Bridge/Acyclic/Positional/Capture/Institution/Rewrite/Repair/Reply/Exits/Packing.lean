@@ -7,7 +7,7 @@ public section
 namespace Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Exits
 
 open Kleisli (value)
-open Isotope.Semantics (BoundEnv)
+open Isotope.Semantics (BoundEnv InstructionModel)
 open Isotope.LetCase.LocallyNameless (Derivation)
 open LambdaSSA (At Ren)
 open LambdaSSA.Acyclic (Operand FiniteExit Code)
@@ -56,10 +56,13 @@ private theorem literal_run {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv val
     · rw [ihB, pure_bind]
       rfl
 
-private theorem tag_run {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β)
+variable {P : InstrSig Sorts Bool} {m : Type → Type} [Monad m] [LawfulMonad m]
+
+theorem tag_run_proof (M : InstructionModel value P.Instr m)
+    {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β)
     (L : List Sorts) (i : Nat) {A : Sorts} (h : At L i A) (x : value A)
-    (a : Operand signature.Instr β A) (ha : Kleisli.run model a.2 ρ = pure x) :
-    Kleisli.run model (FiniteExit.tag L i h a).2 ρ = pure (packAt L i h x) := by
+    (a : Operand P.Instr β A) (ha : Kleisli.run M a.2 ρ = pure x) :
+    Kleisli.run M (FiniteExit.tag L i h a).2 ρ = pure (packAt L i h x) := by
   induction L generalizing i with
   | nil => cases i <;> contradiction
   | cons B L ih =>
@@ -79,38 +82,40 @@ private theorem tag_run {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value �
 theorem exitOperand_run_proof {L : List Sorts} {n : Nat} {β : BoundCtx Sorts n}
     (ρ : BoundEnv value β) (x : Exit L) :
     Kleisli.run model (exitOperand L β x).2 ρ = pure x.packed :=
-  tag_run ρ L _ _ _ _ (literal_run ρ _ _)
+  tag_run_proof model ρ L _ _ _ _ (literal_run ρ _ _)
 
-theorem router_run_proof {K : List Sorts} {j : Nat} {D : Sorts} (fallback : At K j D)
+theorem router_run_proof (M : InstructionModel value P.Instr m)
+    {K : List Sorts} {j : Nat} {D : Sorts} (fallback : At K j D)
     (L : List Sorts) {f : Nat → Nat} (ren : Ren L K f)
     {n : Nat} {β : BoundCtx Sorts n} (s : Scope .nil β) (ρ : BoundEnv value β)
     (i : Nat) {A : Sorts} (h : At L i A) (x : value A) :
-    Kleisli.run model ((router fallback L ren).render s).encode.toLetCase.2
+    Kleisli.run M ((router fallback L ren).render s).encode.toLetCase.2
       (ρ.snoc (A := packedExitType L) (packAt L i h x)) = pure (packAt K (f i) (ren h) x) := by
   induction L generalizing f n i with
   | nil => cases i <;> contradiction
   | cons H L ih =>
-    let P := packedExitType (H :: L)
-    let next := router fallback L (ρ := fun i => f (i + 1)) (fun _ _ h => ren h)
-    let left : Operand signature.Instr ((β.snoc P).snoc H) (packedExitType K) :=
+    let T := packedExitType (H :: L)
+    let next := router (Φ := P.Instr)
+      fallback L (ρ := fun i => f (i + 1)) (fun _ _ h => ren h)
+    let left : Operand P.Instr ((β.snoc T).snoc H) (packedExitType K) :=
       FiniteExit.tag K (f 0) (ren (rfl : At (H :: L) 0 H)) ⟨.bv 0, .bv⟩
-    let right := (next.render (.skip s P)).encode.toLetCase
-    change Kleisli.run model (.case (.bv (ι := 0)) left.2 right.2)
-      (ρ.snoc (A := P) (packAt (H :: L) i h x)) = _
+    let right := (next.render (.skip s T)).encode.toLetCase
+    change Kleisli.run M (.case (.bv (ι := 0)) left.2 right.2)
+      (ρ.snoc (A := T) (packAt (H :: L) i h x)) = _
     cases i with
     | zero =>
       have e : H = A := Option.some.inj h
       cases e
-      let input := ρ.snoc (A := P) (Sum.inl x)
+      let input := ρ.snoc (A := T) (Sum.inl x)
       simp only [Kleisli.run, Derivation.denote, pure_bind]
-      change Kleisli.run model left.2 (input.snoc (A := A) x) = _
-      let packet : Operand signature.Instr ((β.snoc P).snoc A) A := ⟨.bv 0, .bv⟩
-      have purePacket : Kleisli.run model packet.2 (input.snoc (A := A) x) = pure x := rfl
-      exact tag_run _ _ _ _ x packet purePacket
+      change Kleisli.run M left.2 (input.snoc (A := A) x) = _
+      let packet : Operand P.Instr ((β.snoc T).snoc A) A := ⟨.bv 0, .bv⟩
+      have purePacket : Kleisli.run M packet.2 (input.snoc (A := A) x) = pure x := rfl
+      exact tag_run_proof M _ _ _ _ x packet purePacket
     | succ i =>
-      let input := ρ.snoc (A := P) (Sum.inr (packAt L i h x))
+      let input := ρ.snoc (A := T) (Sum.inr (packAt L i h x))
       simp only [Kleisli.run, Derivation.denote, pure_bind]
-      change Kleisli.run model right.2 (input.snoc (A := packedExitType L) (packAt L i h x)) = _
-      exact ih (f := fun index => f (index + 1)) _ (.skip s P) input i h
+      change Kleisli.run M right.2 (input.snoc (A := packedExitType L) (packAt L i h x)) = _
+      exact ih (f := fun index => f (index + 1)) _ (.skip s T) input i h
 
 end Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Exits

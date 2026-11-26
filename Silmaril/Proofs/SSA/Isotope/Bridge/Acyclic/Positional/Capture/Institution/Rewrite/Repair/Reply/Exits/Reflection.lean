@@ -44,7 +44,7 @@ private theorem packed_normal_run (H : Sorts) (L : List Sorts) (p : Normal (Exit
   apply Normal.run_with (success := Exit.packed)
   intro n β ρ' x
   rw [exitOperand_run_proof, pure_bind]
-  have runs := router_run_proof (rfl : At (H :: L) 0 H) (H :: L) (LambdaSSA.Ren.id (H :: L))
+  have runs := router_run_proof model (rfl : At (H :: L) 0 H) (H :: L) (LambdaSSA.Ren.id (H :: L))
     .base ρ x.1 (labelAt_get (H :: L) x.1) x.2
   change finish x.packed = pure x.packed at runs
   rw [runs]

@@ -56,9 +56,9 @@ def exitOperand (L : List Sorts) : ReturnOperand (Exit L) (packedExitType L) :=
 
 /-- The shared continuation dispatches the entry result to its original
 native position. The empty tail has no value to pass to the fallback. -/
-def router {K : List Sorts} {j : Nat} {D : Sorts} (fallback : At K j D) :
+def router {Φ : Type} [HasTy Φ Sorts] {K : List Sorts} {j : Nat} {D : Sorts} (fallback : At K j D) :
     (L : List Sorts) → {ρ : Nat → Nat} → Ren L K ρ →
-    LambdaSSA.Acyclic.Positional.Capture.Reverse.Tree signature.Instr .nil K (packedExitType L)
+    LambdaSSA.Acyclic.Positional.Capture.Reverse.Tree Φ .nil K (packedExitType L)
   | [], _, _ => .jump ⟨.abort (.bv 0), .abort .bv⟩ (.exit fallback)
   | A :: L, ρ, ren =>
     .case ⟨.bv 0, .bv⟩ (.exit (ren (rfl : At (A :: L) 0 A)))
