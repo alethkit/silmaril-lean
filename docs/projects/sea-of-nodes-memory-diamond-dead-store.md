@@ -138,3 +138,33 @@ Stores remaining after a successful deletion.
 ```sh
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Delete a Store within a two-Store entry
+
+`DeadStore.Entry.rewrite entry input` accepts a native straight-line entry
+table with exactly two Stores. It checks Store version 1 for deletion and
+version 2 for the overwrite. The Stores must address the same original
+port. The straight-line discovery and validator require each Load between
+them to read a concretely distinct cell at the supplied scalar input.
+The checked edit keeps the Loads and second Store in order with their
+original operands and renumbers the live memory edges.
+[Entry definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Defs.lean) ·
+[Pinned Store user check](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65)
+
+`Entry.lower graph entry input` emits both artifacts on success and
+returns `none` on refusal. They use the same diamond, original incoming
+slots and checked scalar input. The entry-transition theorem equates their
+destination frames and entire buffers. The execution theorem equates
+their returned word and full final buffer for either predicate and any
+initial buffer. Both artifacts use three CF block steps because the edit
+removes a MemRef operation inside the entry block. A shorter budget gives
+no return observation in either artifact.
+[Entry theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Thms.lean)
+
+The runnable fixture retains a Load whose result is the second Store's
+operand. At the disjoint input both emitted entries write `3`, and both
+predicates agree on the word and all four final cells. At the aliasing
+input the Load reads `99` from the first Store and the checker refuses
+before emission. The original emitted program returns `99` in that case.
+This edit establishes the overwrite within the entry table.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)

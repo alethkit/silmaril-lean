@@ -3,9 +3,11 @@ module
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
 
@@ -190,5 +192,44 @@ private def runSeeded (rightAddress : Address 4) (guard : Bool) :
 /-- info: some ([99, 2, 3, 55], [99, 33, 2, 3, 55], [99, 33, 2, 3, 55]) -/
 #guard_msgs in
 #eval runSeeded headCell false
+
+private def entryWithRead : Memory.Graph args :=
+  .store (.latest 0) (.arg headPort) (.arg entryWord)
+    (.load (.latest 1) (.arg rightPort)
+      (.store (.latest 1) (.arg headPort) loaded (.ret (.latest 2) loaded)))
+
+private def entryAfterEdit : Memory.Graph args :=
+  .load (.latest 0) (.arg rightPort)
+    (.store (.latest 0) (.arg headPort) loaded (.ret (.latest 1) loaded))
+
+-- The Load, its use as the second Store's operand, and their order survive.
+example : Entry.rewrite entryWithRead input = some entryAfterEdit := rfl
+
+private def entryEditDiamond (first : Projection) : Graph args := (source first true headPort).diamond
+
+private def runEntryEdit (first : Projection) (guard : Bool) (fuel : Nat) :
+    Option (Word × Word × List Word × List Word) := do
+  let programs ← Entry.lower (entryEditDiamond first) entryWithRead input
+  let enteredBefore := Discovery.MemRef.CF.entryTransition programs.original programs.input guard ⟨initial⟩
+  let enteredAfter := Discovery.MemRef.CF.entryTransition programs.optimized programs.input guard ⟨initial⟩
+  let before ← Discovery.MemRef.CF.run programs.original programs.input guard fuel ⟨initial⟩
+  let after ← Discovery.MemRef.CF.run programs.optimized programs.input guard fuel ⟨initial⟩
+  some (enteredBefore.2.cell headCell, enteredAfter.2.cell headCell, readback before, readback after)
+
+-- Both emitted entries write 3 through the second Store.
+/-- info: some (3#64, 3#64, [3#64, 11#64, 11#64, 3#64, 55#64], [3#64, 11#64, 11#64, 3#64, 55#64]) -/
+#guard_msgs in
+#eval runEntryEdit .onFalse true 3
+
+#guard runEntryEdit .onTrue false 3 == some (3, 3, [3, 33, 2, 33, 55], [3, 33, 2, 33, 55])
+#guard (runEntryEdit .onFalse true 2).isNone
+
+-- The distinct reader port aliases the first Store, so the second Store
+-- must still receive 99 from the Load. The checker refuses before emission.
+example : Entry.lower (entryEditDiamond .onFalse) entryWithRead (input headCell) = none := rfl
+
+#guard ((Discovery.MemRef.CF.run
+    (Discovery.MemRef.CF.lowerDiamond 4 (entryEditDiamond .onFalse) (some entryWithRead))
+    (input headCell) false 3 ⟨initial⟩).map readback) == some [99, 33, 2, 3, 55]
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
