@@ -285,3 +285,36 @@ reject. From just the two seed captures, generation adds the two required
 slots and proves the visible packed swap. The distinct latch fixture
 reuses all original slots and the entry-edge fixture also generates a closure.
 [Regressions](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)
+
+### Success conditions and failure stages
+
+The arrival transport theorem starts from an accepted original table, an
+existing selected edge, the plan's fresh label, and successful normalization
+of the rewritten graph. Renaming preserves static definitions and the scan
+of every unchanged route. For the selected route, its old terminal scan
+establishes both the moved φ reads and the destination claim. The reconstructed
+forwarding claim carries both, so the selected predecessor and the
+forwarding route each pass. This applies to entry edges and named
+backedges, including unvisited blocks that have claims. An accepted
+original table under these hypotheses rules out an arrival diagnostic.
+[Arrival transport](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Admission/Thms.lean)
+
+Once profile reconstruction produces a candidate, `generate_eq_of_profile`
+reduces success to exact named elaboration and typing at that candidate
+profile, followed by pure closure. This retains the actual checker for
+the reconstructed packet types, including types of the moved operands.
+The original finite table is still an input because `Admission` retains
+its soundness proof. The entry and backedge fixtures use this theorem
+with generated profiles and evaluate the remaining checks.
+
+`generateDetailed` reports the stage that rejected the split. In
+particular, an arrival failure reports a failed reconstructed table.
+An old-capture-types failure reports the positions of retained slots
+whose type changes make the same elaborated graph and block profiles
+pass the exact type checker. The accepted interface keeps those types
+fixed. Other typing failures retain their own stage, since the suggested
+slot changes might be insufficient. The fixtures distinguish a missing
+arrival table from a newly live old slot with an incompatible type and
+derive the target closures for both packed swap traces.
+[Diagnostics](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Admission/Defs.lean)
+· [Fixtures](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)

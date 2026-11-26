@@ -79,35 +79,11 @@ private def stale : Graph Reg (Option Key) Opcode :=
 example : plan.check source stale = false := by decide
 
 private def captures (i : Fin 4) : Option Reg := some ⟨i.val⟩
-private def renamedCaptures (i : Fin 4) : Option Reg := (captures i).map plan.register
 private def profile : BoundCtx (Ty SortName) 4 := .snoc (.snoc (.snoc (.snoc .nil num) num) num) num
 private def exits : Fin 1 → Ty SortName := fun _ => num
 private def pairPacket : Ty SortName := .product num (.product num .unit)
 private def originalProfile (_ : Fin (blockCount source)) : Ty SortName :=
   .product pairPacket pairPacket
-
--- The cyclic versioner carries the global tuple of free registers. After
--- splitting, the forwarding block's use of x and y adds them to the tuple.
-private def splitProfile (i : Fin (blockCount target)) : Ty SortName :=
-  .product (if i.val = 0 then .unit else pairPacket) (.product num (.product num pairPacket))
-
-private def admittedLeft := (Certified.admit source [seedX, seedY] [(header, [])]
-  captures profile originalProfile exits).get (by decide)
-
-private def admittedRight := (Certified.admit target ([seedX, seedY].map plan.register)
-  [(plan.forward, [plan.register x, plan.register y]), (plan.label header, [])]
-  renamedCaptures profile splitProfile exits).get (by decide)
-
-private def closedLeft := (close admittedLeft).get (by decide)
-private def closedRight := (close admittedRight).get (by decide)
-
-private theorem alignment : InputAlignment plan profile profile exits exits captures renamedCaptures :=
-  ⟨⟨rfl, rfl⟩, fun _ => rfl⟩
-
-private theorem packed_same (store : Store) :
-    packedObservation closedLeft instr store =
-      packedObservation closedRight instr (plan.renameStore store) :=
-  packed_eq checked instr closedLeft closedRight alignment store
 
 private abbrev State := Pending Reg Key (Value Atom)
 
@@ -163,13 +139,6 @@ private theorem source_swap :
   simp only [resume, vis_bind]
   exact hasTrace_vis_request _ _
 
--- The second request follows the inserted forwarding block and exposes the
--- two different values in swapped order. Sequential writes would lose one.
-private theorem packed_swap :
-    HasTrace (packedObservation closedRight instr (plan.renameStore originalStore)) swappedTrace := by
-  rw [← packed_same, packedObservation_eq_sourceObservation]
-  exact source_swap
-
 private def init : Key := ⟨16⟩
 private def latch : Key := ⟨18⟩
 
@@ -215,26 +184,13 @@ example : sourceObservation instr source originalStore =
 private def blockProfile (headerIndex : Nat) (index : Nat) : Ty SortName :=
   .product (if index = headerIndex then pairPacket else .unit) (.product num (.product num pairPacket))
 
-private def distinctAdmittedLeft := (Certified.admit distinctSource [seedX, seedY]
-  [(latch, [x, y]), (header, []), (init, [seedX, seedY])] captures profile
-  (fun i => blockProfile 1 i.val) exits).get (by decide)
+private def distinctArrivals : CFG.Cyclic.Phi.GlobalSSA.Certificate Reg Key :=
+  [(latch, [x, y]), (header, []), (init, [seedX, seedY])]
 
-private def distinctAdmittedRight := (Certified.admit distinctTarget ([seedX, seedY].map plan.register)
-  [(plan.forward, [plan.register x, plan.register y]), (plan.label latch, [plan.register x, plan.register y]),
-    (plan.label header, []), (plan.label init, [plan.register seedX, plan.register seedY])]
-  renamedCaptures profile (fun i => blockProfile 2 i.val) exits).get (by decide)
+private def distinctAdmittedLeft := (Certified.admit distinctSource [seedX, seedY]
+  distinctArrivals captures profile (fun i => blockProfile 1 i.val) exits).get (by decide)
 
 private def distinctClosedLeft := (close distinctAdmittedLeft).get (by decide)
-private def distinctClosedRight := (close distinctAdmittedRight).get (by decide)
-
-private theorem distinctAlignment :
-    InputAlignment distinctPlan profile profile exits exits captures renamedCaptures :=
-  ⟨⟨rfl, rfl⟩, fun _ => rfl⟩
-
-private theorem distinct_packed_same (store : Store) :
-    packedObservation distinctClosedLeft instr store =
-      packedObservation distinctClosedRight instr (distinctPlan.renameStore store) :=
-  packed_eq distinctChecked instr distinctClosedLeft distinctClosedRight distinctAlignment store
 
 private theorem straight_step (pred : Option Key) (target next : Key) (store : Store)
     (found : distinctSource.blocks.lookup target = some (jumpBlock next)) :
@@ -261,11 +217,6 @@ private theorem distinct_source_swap :
   simp only [resume, vis_bind]
   exact hasTrace_vis_request _ _
 
-private theorem distinct_packed_swap :
-    HasTrace (packedObservation distinctClosedRight instr (distinctPlan.renameStore originalStore)) swappedTrace := by
-  rw [← distinct_packed_same, packedObservation_eq_sourceObservation]
-  exact distinct_source_swap
-
 private def seedCaptures (i : Fin 2) : Option Reg := some ⟨i.val⟩
 private def seedTypes : BoundCtx (Ty SortName) 2 := .snoc (.snoc .nil num) num
 private def arrivals : CFG.Cyclic.Phi.GlobalSSA.Certificate Reg Key := [(header, [])]
@@ -284,7 +235,14 @@ example : (NamedFlat.compile (CFG.Cyclic.Phi.lower target) [none]
 example : CFG.Cyclic.Phi.GlobalSSA.check target ([seedX, seedY].map plan.register)
     [(plan.label header, [])] = false := by decide
 
-private def generated := (generate plan seedAdmission arrivals).get (by decide)
+private def seedCandidate := (profileCandidate plan source seedCaptures originalProfile).get (by decide)
+
+private theorem seedGeneration : (generate plan seedAdmission arrivals).isSome := by
+  rw [generate_eq_of_profile seedAdmission (candidate := seedCandidate)
+    (by decide) (by decide) (by decide) rfl]
+  decide
+
+private def generated := (generate plan seedAdmission arrivals).get seedGeneration
 
 example : generated.extra =
     [(some (plan.register y), num), (some (plan.register x), num)] := by decide
@@ -294,14 +252,34 @@ private theorem generated_packed_swap :
   rw [← generated.packed_eq seedClosed instr originalStore, packedObservation_eq_sourceObservation]
   exact source_swap
 
--- The distinct latch already causes both variables to occur in the old
--- versioner's support. Splitting it reuses all old capture positions.
-private def distinctGenerated := (generate distinctPlan distinctAdmittedLeft
-  [(latch, [x, y]), (header, []), (init, [seedX, seedY])]).get (by decide)
+-- The distinct latch already exposes both variables in the old support.
+private def distinctCandidate := (profileCandidate distinctPlan distinctSource captures
+  (fun i => blockProfile 1 i.val)).get (by decide)
+
+private theorem distinctGeneration : (generate distinctPlan distinctAdmittedLeft distinctArrivals).isSome := by
+  rw [generate_eq_of_profile distinctAdmittedLeft (candidate := distinctCandidate)
+    (by decide) (by decide) (by decide) rfl]
+  decide
+
+private def distinctGenerated := (generate distinctPlan distinctAdmittedLeft distinctArrivals).get distinctGeneration
 
 example : distinctGenerated.extra = [] := by decide
 
-example : (generate entryPlan seedAdmission arrivals).isSome := by decide
+private theorem distinct_packed_swap :
+    HasTrace (packedObservation distinctGenerated.closed instr (distinctPlan.renameStore originalStore)) swappedTrace := by
+  rw [← distinctGenerated.packed_eq distinctClosedLeft instr originalStore, packedObservation_eq_sourceObservation]
+  exact distinct_source_swap
+
+private def entryCandidate := (profileCandidate entryPlan source seedCaptures originalProfile).get (by decide)
+
+example : (generate entryPlan seedAdmission arrivals).isSome := by
+  rw [generate_eq_of_profile seedAdmission (candidate := entryCandidate)
+    (by decide) (by decide) (by decide) rfl]
+  decide
+
+-- Admission stores the SSA proof, so an unrelated table can still be passed.
+-- The diagnostic identifies the table failure before checking packet types.
+example : ((generateDetailed plan seedAdmission []).map (fun _ => ())) = .error .arrivalClaims := rfl
 
 -- An old, unused capture may carry a type that cannot type a newly live
 -- version-zero read. Generation keeps that interface and rejects it.
@@ -311,6 +289,7 @@ private def incompatibleTypes : BoundCtx (Ty SortName) 4 :=
 private def incompatibleAdmission := (Certified.admit source [seedX, seedY] arrivals
   captures incompatibleTypes originalProfile exits).get (by decide)
 
-example : (generate plan incompatibleAdmission arrivals).isNone := by decide
+example : ((generateDetailed plan incompatibleAdmission arrivals).map (fun _ => ())) =
+    .error (.oldCaptureTypes [2]) := rfl
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.PureCapture.Local.Split.Examples
