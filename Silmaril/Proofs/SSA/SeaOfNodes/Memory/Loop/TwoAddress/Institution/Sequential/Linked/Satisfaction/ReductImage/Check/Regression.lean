@@ -86,6 +86,16 @@ private def zeroInput : Tuple (Val 0) wordOnly.args := .cons (7 : Word) .nil
 #guard !checkCompositeCoverage (𝟙 wordOnly) insertAddress 0
 #guard checkCompositeCoverage (𝟙 wordOnly) insertAddress 1
 
+#guard match diagnoseCompositeCoverage? (𝟙 wordOnly) insertAddress 0 with
+  | some diagnostic =>
+    match diagnostic.failure with
+    | .emptyTargetAddress port =>
+      Quads.slot port == 0 && !(liftThrough? (𝟙 wordOnly) insertAddress ⟨diagnostic.input, fun _ => 0⟩).isSome
+    | _ => false
+  | none => false
+
+#guard !(diagnoseCompositeCoverage? (𝟙 wordOnly) insertAddress 1).isSome
+
 private abbrev twoAddresses : EntrySignature := ⟨[.address, .address]⟩
 private abbrev oneAddress : EntrySignature := ⟨[.address]⟩
 private def identifyAddress : twoAddresses ⟶ oneAddress :=
@@ -108,5 +118,18 @@ private def distinctInput : Tuple (Val 2) twoAddresses.args :=
 #guard checkCompositeCoverage (𝟙 twoAddresses) identifyAddress 0
 #guard checkCompositeCoverage (𝟙 twoAddresses) identifyAddress 1
 #guard !checkCompositeCoverage (𝟙 twoAddresses) identifyAddress 2
+
+#guard !(diagnoseCompositeCoverage? (𝟙 twoAddresses) identifyAddress 0).isSome
+#guard !(diagnoseCompositeCoverage? (𝟙 twoAddresses) identifyAddress 1).isSome
+#guard match diagnoseCompositeCoverage? (𝟙 twoAddresses) identifyAddress 2 with
+  | some diagnostic =>
+    match diagnostic.failure with
+    | .collision .address left right =>
+      let leftValue : Address 2 := diagnostic.input.get left
+      let rightValue : Address 2 := diagnostic.input.get right
+      leftValue == 0 && rightValue == 1 &&
+        !(liftThrough? (𝟙 twoAddresses) identifyAddress ⟨diagnostic.input, fun _ => 0⟩).isSome
+    | _ => false
+  | none => false
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage

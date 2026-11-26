@@ -33,6 +33,7 @@ private def identifySpare : extended ⟶ extended :=
 #guard checkInjectiveOnImage insert identifySpare .word
 #guard checkCompositeCoverage insert identifySpare 6
 #guard checkCompositeExpansive insert identifySpare
+#guard !(diagnoseCompositeCoverage? insert identifySpare 6).isSome
 
 example (backend : Backend) : (corridor backend insert ≫ corridor backend identifySpare).ModelExpansive :=
   (corridor_comp_modelExpansive_iff_check backend insert identifySpare).mpr rfl
@@ -84,6 +85,23 @@ private def identifyUsed : extended ⟶ extended :=
 #guard !checkInjectiveOnImage insert identifyUsed .word
 #guard !checkCompositeCoverage insert identifyUsed 6
 #guard !checkCompositeExpansive insert identifyUsed
+
+#guard match diagnoseCompositeCoverage? insert identifyUsed 6 with
+  | some diagnostic =>
+    match diagnostic.failure with
+    | .collision .word left right =>
+      let leftValue : Word := diagnostic.input.get left
+      let rightValue : Word := diagnostic.input.get right
+      Quads.slot left == Quads.slot leftStore && Quads.slot right == Quads.slot rightStore &&
+        leftValue == 0 && rightValue == 1 &&
+        !(liftThrough? insert identifyUsed ⟨diagnostic.input, initial⟩).isSome
+    | _ => false
+  | none => false
+
+example {diagnostic : CoverageDiagnostic combined extended 6}
+    (found : diagnoseCompositeCoverage? insert identifyUsed 6 = some diagnostic) :
+    liftThrough? insert identifyUsed ⟨diagnostic.input, initial⟩ = none :=
+  diagnoseCompositeCoverage?_rejects insert identifyUsed found initial
 
 example : liftThrough? insert identifyUsed source = none := rfl
 

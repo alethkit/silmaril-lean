@@ -105,4 +105,48 @@ def checkCompositeCoverage (h : P ⟶ Q) (k : Q ⟶ R) (cells : Nat) : Bool :=
 def checkCompositeExpansive (h : P ⟶ Q) (k : Q ⟶ R) : Bool :=
   checkCompositeCoverage h k 0 && checkCompositeCoverage h k 2
 
+/-- A zero-cell target address or two same-sort source ports identified by the map. -/
+inductive CoverageFailure (P Q : EntrySignature) where
+  | emptyTargetAddress (port : Port Q.args .address)
+  | collision (sort : ValueSort) (left right : Port P.args sort)
+
+/-- A concrete typed source valuation and the obstruction to lifting it. -/
+structure CoverageDiagnostic (P Q : EntrySignature) (cells : Nat) where
+  failure : CoverageFailure P Q
+  input : Tuple (Val cells) P.args
+
+def CoverageDiagnostic.Valid (h : P ⟶ Q) (diagnostic : CoverageDiagnostic P Q cells) : Prop :=
+  match diagnostic.failure with
+  | .emptyTargetAddress _ => cells = 0
+  | .collision _ left right =>
+    h.port left = h.port right ∧ diagnostic.input.get left ≠ diagnostic.input.get right
+
+/-- Find two distinct source ports with the same image, in source port order. -/
+def findCollision? (h : P ⟶ Q) (sort : ValueSort) : Option (Port P.args sort × Port P.args sort) :=
+  let ports := portsOf sort P.args
+  ports.findSome? fun left =>
+    (ports.find? fun right =>
+      decide (Quads.slot (h.port left) = Quads.slot (h.port right) ∧ Quads.slot left ≠ Quads.slot right)
+    ).map (left, ·)
+
+/-- Diagnose coverage starting with a default source valuation. If the target
+admits a tuple, separate a colliding pair with values zero and one. -/
+def diagnoseCoverage? (h : P ⟶ Q) (cells : Nat) : Option (CoverageDiagnostic P Q cells) :=
+  (defaultInput? cells P.args).bind fun input =>
+    if !(admitsInput cells Q.args) then
+      (portsOf .address Q.args).head?.map fun port => ⟨.emptyTargetAddress port, input⟩
+    else if let some (left, right) := findCollision? h .word then
+      some ⟨.collision .word left right, Quads.write right (1 : Word) (Quads.write left (0 : Word) input)⟩
+    else if two : 1 < cells then
+      (findCollision? h .address).map fun (left, right) =>
+        ⟨.collision .address left right,
+          Quads.write right (⟨1, two⟩ : Address cells)
+            (Quads.write left ⟨0, Nat.lt_trans Nat.zero_lt_one two⟩ input)⟩
+    else none
+
+/-- Diagnose the composite on its actual source ports. -/
+def diagnoseCompositeCoverage? (h : P ⟶ Q) (k : Q ⟶ R) (cells : Nat) :
+    Option (CoverageDiagnostic P R cells) :=
+  diagnoseCoverage? (h ≫ k) cells
+
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage

@@ -1428,6 +1428,41 @@ tuple holding `11` and `22` at those positions has no lift.
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.CompositionRegression
 ```
 
+##### Diagnosing failed composite capture coverage
+
+`diagnoseCompositeCoverage? h k cells` returns a typed source tuple and
+either a same-sort collision between two used source ports or a final
+address port with an empty domain at zero cells. For a collision, the
+tuple puts `0` and `1` in the two ports, which the composite sends to
+the same slot. If the source has no tuples at zero cells, coverage is
+vacuous and the diagnostic is absent. At one cell, only word collisions
+can produce a diagnostic.
+
+`diagnoseCompositeCoverage?_exists_iff` characterizes failure by the
+existence of a diagnostic. For every reported tuple and every initial heap,
+`diagnoseCompositeCoverage?_rejects` proves that the actual
+`liftThrough?` checker returns `none`. Use the public header directly
+or through the generated triple institution header.
+[Coverage and diagnostic laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/ReductImage/Check/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Thms
+```
+
+The composition regression diagnoses the two used store slots and
+produces no diagnostic when the second map identifies a used slot
+with an intermediate spare. The other regression checks the empty
+target address, the vacuous and singleton cases, and a two-cell
+address collision.
+[Store and spare ports](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/ReductImage/Check/CompositionRegression.lean) ·
+[Address boundaries](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/ReductImage/Check/Regression.lean)
+
+```sh
+lake build --wfail \
+  +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.CompositionRegression \
+  +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Regression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
