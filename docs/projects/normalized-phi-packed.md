@@ -431,7 +431,7 @@ the bottom effect. The event family and reply types are shared.
 The two-split fixture identifies the distinct `tick` and `finish`
 opcodes. After the continuing reply and the simultaneous swap, the
 second tick replies with `11`. The finishing primitive requests
-`tick 11 11` and its typed reply `23` is the returned payload in both
+`tick 11 11` and its typed reply `23` supplies the old payload in both
 relabelled evaluators.
 [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)
 
@@ -448,8 +448,10 @@ The reverse interface expects the explicit return operand
 pair, with a unit record for an empty live-out list. The reverse checker
 also checks packet locality and exact readback after attaching the RTL
 live-out reads. This detects a field-order mismatch even when the
-affected fields have the same type. Its accepted fragment uses
+affected fields have the same type. The original checker supports
 straight-line lets, supported operands, and jumps.
+[Typed case support](https://github.com/hiloopai/silmaril-lean/pull/3867)
+adds scoped sum terminators with jumps or nested cases in each arm.
 
 `Admitted.observe_reverse` composes the independent predecessor-snapshot
 observation theorem with equality for the emitted mutable RTL run and
@@ -463,3 +465,15 @@ edge. Both the emitted RTL and its actual admitted reversion request
 `tick 9 7` and return the reply with ordered live-outs `9, 7`.
 Reversing the selected fields is rejected by exact readback.
 [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/Reverse/Swap.lean)
+
+The admitted polling fixture uses the typed case support on a genuine
+self-edge. Its continuing branch sends both swapped values together in
+one packet. On the supplied seeds, the independent predecessor-snapshot
+runner requests `tick 2 5`, takes a continuing reply, then requests
+`tick 5 2`. A later reply `11` starts the finishing request
+`tick 11 11`, whose reply `23` returns as the old payload with live-outs
+`5, 2`. The actual reverse checker and ordinary typed re-admission
+both accept the polling table. The emitted mutable body retains the
+self-edge, and both the emitted and re-admitted observations contain
+the complete request/reply trace and return at exit zero.
+[Cyclic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)
