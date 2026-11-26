@@ -29,19 +29,24 @@ inductive Op where
 
 mutual
 
-def supportedCode : List Op → Bool
-  | [] => true
-  | op :: rest => op.supported && supportedCode rest
+def supportedCode : List Op → (labels : List (List NumType) := []) → Bool
+  | [], _ => true
+  | op :: rest, labels => op.supportedIn labels && supportedCode rest labels
 
-def Op.supported : Op → Bool
-  | .load _ | .store _ => true
-  | .ranked (.numeric _) | .ranked (.set _) | .ranked (.tee _)
-  | .ranked (.call _) | .ranked .return_ | .ranked .unreachable => true
-  | .ranked _ => false
-  | .block _ body => supportedCode body
-  | .if_ _ left right => supportedCode left && supportedCode right
+def Op.supportedIn : Op → List (List NumType) → Bool
+  | .load _, _ | .store _, _ => true
+  | .ranked (.numeric _), _ | .ranked (.set _), _ | .ranked (.tee _), _
+  | .ranked (.call _), _ | .ranked .return_, _ | .ranked .unreachable, _ => true
+  | .ranked (.br depth result), labels | .ranked (.brIf depth result), labels =>
+    decide (labels[depth.toNat]? = some result)
+  | .ranked _, _ => false
+  | .block result body, labels => supportedCode body (result.toList :: labels)
+  | .if_ result left right, labels =>
+    supportedCode left (result.toList :: labels) && supportedCode right (result.toList :: labels)
 
 end
+
+def Op.supported (op : Op) : Bool := op.supportedIn []
 
 mutual
 
@@ -92,27 +97,28 @@ def Function.v1Func (fn : Function) : Wasm.V1.Func :=
 mutual
 
 /-- Parameterless regions start on an empty stack and check their declared fallthrough.
-The enclosing function result types continue to govern explicit returns. -/
-def Function.checkRegion (fn : Function) (stack fallthrough : List NumType) : List Op → Bool
-  | [] => decide (stack = fallthrough.reverse)
-  | op :: rest =>
-    fn.checkRegionOp stack fallthrough (fun next => fn.checkRegion next fallthrough rest) op
+Labels are innermost first. The function's results govern explicit return. -/
+def Function.checkRegion (fn : Function) (stack fallthrough : List NumType) :
+    List Op → (labels : List (List NumType) := []) → Bool
+  | [], _ => decide (stack = fallthrough.reverse)
+  | op :: rest, labels =>
+    fn.checkRegionOp stack labels (fun next => fn.checkRegion next fallthrough rest labels) op
 
 /-- The stack is top-first. A load replaces its address with an i32 result.
 A store consumes the i32 word above the i32 address. -/
-def Function.checkRegionOp (fn : Function) (stack fallthrough : List NumType)
+def Function.checkRegionOp (fn : Function) (stack : List NumType) (labels : List (List NumType))
     (resume : List NumType → Bool) : Op → Bool
   | .ranked op =>
     Graph.checkOp fn.targets (fn.declaration.params ++ fn.declaration.locals) fn.declaration.results
-      [fallthrough] stack fn.declaration.module.types resume op
+      labels stack fn.declaration.module.types resume op
   | .load _ => Graph.checkCondition stack (fun saved => resume (.int .i32 :: saved))
   | .store _ => Graph.checkCondition stack (fun args => Graph.checkCondition args resume)
   | .block result body =>
-    fn.checkRegion [] result.toList body && resume (result.toList.reverse ++ stack)
+    fn.checkRegion [] result.toList body (result.toList :: labels) && resume (result.toList.reverse ++ stack)
   | .if_ result left right =>
     Graph.checkCondition stack fun saved =>
-      fn.checkRegion [] result.toList left &&
-        fn.checkRegion [] result.toList right &&
+      fn.checkRegion [] result.toList left (result.toList :: labels) &&
+        fn.checkRegion [] result.toList right (result.toList :: labels) &&
         resume (result.toList.reverse ++ saved)
 
 end
@@ -123,7 +129,8 @@ def Function.checkCode (fn : Function) (stack : List NumType) (code : List Op) :
 def Function.WellTyped (fn : Function) (stack : List Value) (code : List Op) : Prop :=
   fn.checkCode (Prefix.stackTypes stack) code = true
 
-/-- All syntax is checked, including source after an unconditional exit. -/
+/-- Syntax and declared branch targets are checked throughout the body. Stack
+checking follows the admitted continuations. -/
 def Function.checkV1 (fn : Function) (memory : MemAddr) : Bool :=
   decide (fn.declaration.results.length ≤ 1) &&
     fn.code.all Op.supported &&

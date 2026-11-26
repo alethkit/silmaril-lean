@@ -29,22 +29,38 @@ theorem Function.store_typed {fn : Function} {stack : List Value} {offset : Fin 
 
 /-- A parameterless block checks its body in isolation and delivers its optional result above the saved operands. -/
 theorem Function.block_typed {fn : Function} {saved : List Value} {result : Option NumType}
-    {body rest : List Op} {fallthrough : List NumType}
-    (checked : fn.checkRegion (Prefix.stackTypes saved) fallthrough (.block result body :: rest) = true) :
-    fn.checkRegion [] result.toList body = true ∧
+    {body rest : List Op} {fallthrough : List NumType} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes saved) fallthrough (.block result body :: rest) labels = true) :
+    fn.checkRegion [] result.toList body (result.toList :: labels) = true ∧
       ∀ delivered : List Value, delivered.map Value.type = result.toList →
-        fn.checkRegion (Prefix.stackTypes (saved ++ delivered)) fallthrough rest = true :=
+        fn.checkRegion (Prefix.stackTypes (saved ++ delivered)) fallthrough rest labels = true :=
   Proofs.block_typed checked
 
 /-- Both arms have the same declared fallthrough types. The continuation resumes above the saved prefix. -/
 theorem Function.if_typed {fn : Function} {stack : List Value} {result : Option NumType}
-    {left right rest : List Op} {fallthrough : List NumType}
-    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.if_ result left right :: rest) = true) :
+    {left right rest : List Op} {fallthrough : List NumType} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.if_ result left right :: rest) labels = true) :
     ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] ∧
-      fn.checkRegion [] result.toList left = true ∧ fn.checkRegion [] result.toList right = true ∧
+      fn.checkRegion [] result.toList left (result.toList :: labels) = true ∧ fn.checkRegion [] result.toList right (result.toList :: labels) = true ∧
       ∀ delivered : List Value, delivered.map Value.type = result.toList →
-        fn.checkRegion (Prefix.stackTypes (saved ++ delivered)) fallthrough rest = true :=
+        fn.checkRegion (Prefix.stackTypes (saved ++ delivered)) fallthrough rest labels = true :=
   Proofs.if_typed checked
+
+/-- The immediate resolves in the active block/if labels and the operand suffix matches. -/
+theorem Function.branch_typed {fn : Function} {stack : List Value} {depth : LabelIdx}
+    {result fallthrough : List NumType} {rest : List Op} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.ranked (.br depth result) :: rest) labels = true) :
+    labels[depth.toNat]? = some result ∧ Graph.SuffixTyped result stack :=
+  Proofs.branch_typed checked
+
+/-- A conditional branch validates its target even when zero, and the untaken path keeps the payload. -/
+theorem Function.br_if_typed {fn : Function} {stack : List Value} {depth : LabelIdx}
+    {result fallthrough : List NumType} {rest : List Op} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.ranked (.brIf depth result) :: rest) labels = true) :
+    ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] ∧
+      labels[depth.toNat]? = some result ∧ Graph.SuffixTyped result saved ∧
+      fn.checkRegion (Prefix.stackTypes saved) fallthrough rest labels = true :=
+  Proofs.br_if_typed checked
 
 /-- The rank table is derived from the declared bodies. -/
 theorem Program.lookup_table (program : Program) (address : FuncAddr) :
