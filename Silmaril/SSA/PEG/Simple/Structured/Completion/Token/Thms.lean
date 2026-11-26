@@ -14,6 +14,11 @@ universe u v w
 
 variable {Data : Type u} {P : InstructionSet.{u,v} Data}
 variable {vars : List (Ty Data)} {t : Ty Data}
+
+theorem Body.source_ofStmt {outs : List (Ty Data)} (stmt : Stmt P false vars outs) :
+    (Body.ofStmt stmt).source = stmt :=
+  Proofs.sourceOfStmt stmt
+
 variable (guard : Expr P vars .bool) (body : Body P vars vars) (ret : Port vars t)
 variable (neg : P [.bool] .bool)
 

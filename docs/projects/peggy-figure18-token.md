@@ -8,8 +8,10 @@ alongside the data result. [Figure 18 and §6.4](https://arxiv.org/pdf/1012.1802
 
 ## Emitted PEG
 
-`Structured.Token.translate` accepts a typed top-level while whose body is
-built from assignments, projections, and sequences. Its ordered roots
+`Structured.Token.translate` accepts a typed top-level while with a
+loop-free body. `Body.ofStmt` accepts existing typed loop-free SIMPLE
+syntax, and `Body.source_ofStmt` identifies its source semantics with
+the original statement. The ordered roots
 are the data result and a Boolean completion marker. The operations of the
 original instruction set retain their interpretation, including partiality.
 The additional operations have fixed interpretations:
@@ -21,6 +23,12 @@ The additional operations have fixed interpretations:
   the data store while the marker still depends on it.
 - Sequence passes the new marker to the next statement. Projection forwards
   the marker directly.
+- Both arms of a conditional start with the same input store and incoming
+  marker. The compiler joins the marker and every live data slot with
+  Figure 11 `φ` nodes using the same guard. A defined guard selects only the
+  corresponding arm. An undefined guard leaves the joined marker bottom.
+  A strict operation in the selected arm still contributes to its marker
+  when its data result is discarded.
 
 The compiler uses the existing structured loop builder and its checked
 demand rank. A separate carried θ takes the seed at iteration zero and the
@@ -43,11 +51,15 @@ source step. It also uses the existing loop-free interpreter's
 correspondence with `Exec`. The emitted PEG supplies the completion
 evidence directly. [Theorems](../../Silmaril/SSA/PEG/Simple/Structured/Completion/Token/Thms.lean)
 
-The #4615 countdown retains the same data result `0` and first pass `2` on
-the failing input, but the completion root is bottom because the discarded
-probe fails. The successful two-trip and zero-trip executions define both
-roots. [Regression](../../tests/ssa/PEGSimple.lean)
+The straight-line #4615 countdown retains the same data result `0` and first
+pass `2` on the failing input, with a bottom completion root. The conditional
+countdown has one discarded probe in each arm. Both directions complete
+when the selected probe is defined, even though a row in the untaken arm
+is bottom. Swapping only the probe input makes the selected operation fail.
+The data result still equals `0` and the completion root is bottom in both
+directions. Zero-trip runs define both roots with either direction selected
+by the input. [Regressions](../../tests/ssa/PEGSimple.lean)
 
-Branch bodies, nested or discarded loops, arbitrary effect tokens, and the
-paper's multi-result pass syntax are outside this slice. The observation
+Nested or discarded loops, arbitrary effect tokens, and the paper's
+multi-result pass syntax are outside this slice. The observation
 records successful completion. Bottom is shared by faults and divergence.

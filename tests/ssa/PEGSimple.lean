@@ -801,4 +801,186 @@ example : readRef (tokenValues 2 false) (tokenRef 3 (t := .count) rfl) tokenBase
       exact congrArg₂ (fun data token => Tuple.cons (F := fun t => Option (model.Value t))
         (t := .count) data (.cons token .nil)) value bot
 
+section Conditional
+
+-- Replaying the concrete dependent row types unfolds both arm layouts.
+set_option maxHeartbeats 1000000
+
+private abbrev branchVars : List (Ty Unit) := [.count, .bool, .bool]
+
+private def branchGuard : Expr Op branchVars .bool := .op .positive (.cons (.var .head) .nil)
+
+-- The arms have the same data outputs. Their discarded probes require
+-- opposite values of the third input.
+private def branchArm (yes : Bool) : Stmt Op false branchVars branchVars :=
+  let permit : Expr Op branchVars .bool := .var (.tail (.tail .head))
+  .seq (.assign (.op .probe (.cons (if yes then permit else .op .not (.cons permit .nil)) .nil)))
+    (.project (.cons (.tail .head) (.cons (.tail (.tail .head)) (.cons (.tail (.tail (.tail .head))) .nil))))
+
+private def branchStmt : Stmt Op false branchVars branchVars :=
+  .seq (.branch (.var (.tail .head)) (branchArm true) (branchArm false))
+    (.seq (.assign (.op .pred (.cons (.var .head) .nil)))
+      (.project (.cons .head (.cons (.tail (.tail .head)) (.cons (.tail (.tail (.tail .head))) .nil)))))
+
+private def branchSource := whileProgram branchGuard branchStmt.enableWhile .head
+private def branchBody := Token.Body.ofStmt branchStmt
+private def branchGraph : Graph (Token.Opcode Op) branchVars [.count, .bool] 26 26 :=
+  Token.translate branchGuard branchBody .head .not
+
+#guard (Structured.rank 26).check branchGraph
+
+private def branchInput (n : Nat) (yes permit : Bool) : Tuple model.Value branchVars :=
+  .cons ⟨n⟩ (.cons ⟨yes⟩ (.cons ⟨permit⟩ .nil))
+
+private def br (i : Fin 26) {t : Ty Unit} (typed : branchGraph.sort i = t) : Ref branchGraph.sort t :=
+  ⟨i, typed⟩
+
+private def branchBase : Index 26 := fun _ => 0
+private def branchKey : Fin 26 := 4
+private def branchSample (k : Nat) : Index 26 := branchBase.set branchKey k
+
+private noncomputable def branchValues (n : Nat) (side permit : Bool) : branchGraph.Valuation tokenModel :=
+  branchGraph.denote tokenModel (branchInput n side permit)
+    (Token.translate_demandWellFounded branchGuard branchBody .head .not)
+
+private theorem branchSolved (n : Nat) (side permit : Bool) :
+    branchGraph.Solves tokenModel (branchInput n side permit) (branchValues n side permit) :=
+  branchGraph.denote_solves tokenModel (branchInput n side permit) _
+
+example : Rules.HasNode (br 8 rfl) .phi
+    (.cons (br 20 rfl) (.cons (br 15 rfl) (.cons (br 12 rfl) .nil))) := HEq.rfl
+
+private theorem branchCountParam :
+    Rules.HasNode (g := branchGraph) (br 23 (t := .count) rfl) (.param .head) .nil :=
+  HEq.rfl
+
+private theorem branchSideParam :
+    Rules.HasNode (g := branchGraph) (br 24 (t := .bool) rfl) (.param (.tail .head)) .nil :=
+  HEq.rfl
+
+private theorem branchCountTheta : Rules.HasNode (g := branchGraph) (br 19 (t := .count) rfl) (.theta branchKey)
+    (.cons (br 23 rfl) (.cons (br 7 rfl) .nil)) := HEq.rfl
+
+private theorem branchSideTheta : Rules.HasNode (g := branchGraph) (br 20 (t := .bool) rfl) (.theta branchKey)
+    (.cons (br 24 rfl) (.cons (br 10 rfl) .nil)) := HEq.rfl
+
+private theorem branchCountPhi : Rules.HasNode (g := branchGraph) (br 9 (t := .count) rfl) .phi
+    (.cons (br 20 rfl) (.cons (br 19 rfl) (.cons (br 19 rfl) .nil))) := HEq.rfl
+
+private theorem branchSidePhi : Rules.HasNode (g := branchGraph) (br 10 (t := .bool) rfl) .phi
+    (.cons (br 20 rfl) (.cons (br 20 rfl) (.cons (br 20 rfl) .nil))) := HEq.rfl
+
+private theorem branchPred : Rules.HasNode (g := branchGraph) (br 7 (t := .count) rfl) (.op (.source Op.pred))
+    (.cons (br 9 rfl) .nil) := HEq.rfl
+
+private theorem branchSamples (n : Nat) (side permit : Bool) (k : Nat) :
+    readRef (branchValues n side permit) (br 19 (t := .count) rfl) (branchSample k) = some ⟨n - k⟩ ∧
+    readRef (branchValues n side permit) (br 20 (t := .bool) rfl) (branchSample k) = some ⟨side⟩ := by
+  have eq := branchSolved n side permit
+  induction k with
+  | zero =>
+    constructor
+    · exact (Rules.theta_zero eq branchCountTheta rfl).trans
+        (Rules.at_label eq branchCountParam (branchSample 0))
+    · exact (Rules.theta_zero eq branchSideTheta rfl).trans
+        (Rules.at_label eq branchSideParam (branchSample 0))
+  | succ k ih =>
+    have reset : (branchSample (k + 1)).set branchKey k = branchSample k := by
+      funext j
+      by_cases h : j = branchKey <;> simp [branchSample, Index.set, h]
+    constructor
+    · rw [Rules.theta_succ eq branchCountTheta rfl, reset,
+        Rules.unary_at eq branchPred, Rules.phi_at eq branchCountPhi, ih.2]
+      rw [Option.elim_some, ite_self, ih.1]
+      rfl
+    · rw [Rules.theta_succ eq branchSideTheta rfl, reset, Rules.phi_at eq branchSidePhi,
+        ih.2, Option.elim_some, ite_self]
+
+private theorem branchPass (n : Nat) (side permit : Bool) :
+    readRef (branchValues n side permit) (br 4 (t := .count) rfl) branchBase = some ⟨n⟩ := by
+  have eq := branchSolved n side permit
+  rw [Rules.pass_at eq (r := br 4 rfl) (cond := br 5 rfl) (loop := branchKey) HEq.rfl]
+  have stream : (fun j => (readRef (branchValues n side permit) (br 5 rfl) (branchSample j)).map
+      ULift.down) = fun j => some (decide (n ≤ j)) := by
+    funext j
+    rw [Rules.unary_at eq (r := br 5 rfl) (arg := br 17 rfl) (op := .source Op.not) HEq.rfl,
+      Rules.unary_at eq (r := br 17 rfl) (arg := br 19 rfl) (op := .source Op.positive) HEq.rfl,
+      (branchSamples n side permit j).1]
+    change some (!decide (0 < n - j)) = some (decide (n ≤ j))
+    by_cases h : n ≤ j
+    · simp [h, Nat.sub_eq_zero_of_le h]
+    · have pos : 0 < n - j := by omega
+      simp [h, pos]
+  have first : firstTrue (fun j => some (decide (n ≤ j))) = some n :=
+    (firstTrue_eq_some_iff_samples _ n).mpr ⟨by simp, fun j lt => by simp [Nat.not_le_of_lt lt]⟩
+  change (firstTrue (fun j => (readRef (branchValues n side permit) (br 5 rfl) (branchSample j)).map
+    ULift.down)).map ULift.up = _
+  rw [stream, first]
+  rfl
+
+private noncomputable def branchObserve (n : Nat) (side permit : Bool) :=
+  Token.observe branchGuard branchBody .head .not model (branchInput n side permit) branchBase
+
+private theorem branchData (n : Nat) (side permit : Bool) :
+    (branchObserve n side permit).get .head = some ⟨0⟩ := by
+  change readRef (branchValues n side permit) (br 1 (t := .count) rfl) branchBase = _
+  rw [Rules.eval_at (branchSolved n side permit) (r := br 1 rfl) (source := br 19 rfl)
+    (count := br 4 rfl) (loop := branchKey) HEq.rfl, branchPass]
+  change monotonize (fun j => readRef (branchValues n side permit) (br 19 (t := .count) rfl)
+    (branchSample j)) n = _
+  exact (monotonize_eq_some_iff _ _ _).mpr
+    ⟨by rw [(branchSamples n side permit n).1, Nat.sub_self], fun j _ => by
+      rw [(branchSamples n side permit j).1]; rfl⟩
+
+private theorem permitAtStart (side permit : Bool) :
+    readRef (branchValues 2 side permit) (br 21 (t := .bool) rfl) (branchSample 0) = some ⟨permit⟩ := by
+  have eq := branchSolved 2 side permit
+  rw [Rules.theta_zero eq (r := br 21 rfl) (initial := br 25 rfl)
+    (feedback := br 11 rfl) (loop := branchKey) HEq.rfl rfl]
+  exact Rules.at_label eq (r := br 25 rfl) (label := .param (.tail (.tail .head))) (args := .nil) HEq.rfl _
+
+-- Actual PEG equations witness the bottom probe in each untaken arm.
+example : readRef (branchValues 2 true true) (br 13 (t := .count) rfl) (branchSample 0) = none := by
+  have eq := branchSolved 2 true true
+  rw [Rules.unary_at eq (r := br 13 rfl) (arg := br 14 rfl) (op := .source Op.probe) HEq.rfl,
+    Rules.unary_at eq (r := br 14 rfl) (arg := br 21 rfl) (op := .source Op.not) HEq.rfl, permitAtStart]
+  rfl
+
+example : readRef (branchValues 2 false false) (br 16 (t := .count) rfl) (branchSample 0) = none := by
+  rw [Rules.unary_at (branchSolved 2 false false) (r := br 16 rfl) (arg := br 21 rfl)
+    (op := .source Op.probe) HEq.rfl, permitAtStart]
+  rfl
+
+private theorem branchReturns (side : Bool) :
+    branchSource.Returns model (branchInput 2 side side) ⟨0⟩ := by
+  cases side <;>
+    exact ⟨_, .whileStep (next := branchInput 1 _ _) rfl
+      (branchStmt.runLoopFree_enableWhile (branchInput 2 _ _))
+      (.whileStep (next := branchInput 0 _ _) rfl
+        (branchStmt.runLoopFree_enableWhile (branchInput 1 _ _)) (.whileStop rfl)), rfl⟩
+
+example (side : Bool) : branchObserve 2 side side = .cons (some ⟨0⟩) (.cons (some ⟨true⟩) .nil) :=
+  Token.observe_of_returns branchGuard branchBody .head .not model _ (fun _ => rfl) branchBase
+    (branchReturns side)
+
+private theorem branchFails (side : Bool) : branchSource.Fails model (branchInput 2 side (!side)) := by
+  cases side <;> exact .whileBodyFailed rfl (branchStmt.runLoopFree_enableWhile (branchInput 2 _ _))
+
+example (side : Bool) : (branchObserve 2 side (!side)).get .head = some ⟨0⟩ ∧
+    (branchObserve 2 side (!side)).get (.tail .head) = none := by
+  refine ⟨branchData 2 side (!side), ?_⟩
+  cases done : (branchObserve 2 side (!side)).get (.tail .head) with
+  | none => rfl
+  | some token =>
+    have defined : ((branchObserve 2 side (!side)).get (.tail .head)).isSome := by rw [done]; rfl
+    obtain ⟨value, ⟨_, run, _⟩, _⟩ := Token.returns_of_completion branchGuard branchBody .head .not
+      model _ (fun _ => rfl) branchBase defined
+    cases (branchFails side).deterministic run
+
+example (side : Bool) : branchObserve 0 side (!side) = .cons (some ⟨0⟩) (.cons (some ⟨true⟩) .nil) :=
+  Token.observe_of_returns branchGuard branchBody .head .not model _ (fun _ => rfl) branchBase
+    ⟨branchInput 0 side (!side), .whileStop rfl, rfl⟩
+
+end Conditional
+
 end Silmaril.SSA.PEG.Simple.Structured.Completion.Tests

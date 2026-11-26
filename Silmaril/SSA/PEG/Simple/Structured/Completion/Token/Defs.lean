@@ -41,18 +41,28 @@ def arguments : {ins : List (Ty Data)} → Args P vars ins → Args (Opcode P) v
 
 end
 
-/-- The first tokenized source fragment has no conditionals inside the
-body. The enclosing while still tests its original guard on each visit. -/
+/-- A loop-free body. Conditionals join data and completion using the
+same guard and the same choice of arm. -/
 inductive Body (P : InstructionSet.{u,v} Data) : List (Ty Data) → List (Ty Data) → Type (max u v)
   | assign {vars : List (Ty Data)} {t : Ty Data} (rhs : Expr P vars t) : Body P vars (t :: vars)
   | project {vars outs : List (Ty Data)} (slots : Tuple (Port vars) outs) : Body P vars outs
   | seq {vars mid outs : List (Ty Data)} (first : Body P vars mid) (second : Body P mid outs) :
     Body P vars outs
+  | branch {vars outs : List (Ty Data)} (guard : Expr P vars .bool)
+      (yes no : Body P vars outs) : Body P vars outs
+
+def Body.ofStmt : {vars outs : List (Ty Data)} → Stmt P false vars outs → Body P vars outs
+  | _, _, .assign rhs => .assign rhs
+  | _, _, .project slots => .project slots
+  | _, _, .seq first second => .seq (ofStmt first) (ofStmt second)
+  | _, _, .branch guard yes no => .branch guard (ofStmt yes) (ofStmt no)
+  | _, _, .while impossible _ _ => nomatch impossible
 
 def Body.source : {vars outs : List (Ty Data)} → Body P vars outs → Stmt P false vars outs
   | _, _, .assign rhs => .assign rhs
   | _, _, .project slots => .project slots
   | _, _, .seq first second => .seq first.source second.source
+  | _, _, .branch guard yes no => .branch guard yes.source no.source
 
 def tail {F : Ty Data → Type w} : Tuple F (.bool :: vars) → Tuple F vars
   | .cons _ rest => rest
@@ -70,6 +80,14 @@ def Body.lower : {vars outs : List (Ty Data)} → Body P vars outs →
   | _, _, .seq first second, _, ctx =>
     let a := first.lower ctx
     a.thenBuild (second.lower a.refs)
+  | _, _, .branch guard yes no, _, ctx =>
+    let test := (expr guard).lower (tail ctx)
+    let initial := test.code.liftRefs ctx
+    let y := yes.lower initial
+    let n := no.lower (y.code.liftRefs initial)
+    let flag := n.code.lift (y.code.lift (test.refs.get .head))
+    let joined := phiNodes flag (n.code.liftRefs y.refs) n.refs
+    test.thenBuild (y.thenBuild (n.thenBuild joined))
 
 def entry (P : InstructionSet.{u,v} Data) (vars : List (Ty Data)) :
     Simple.Build (Opcode P) vars [] (.bool :: vars) :=
