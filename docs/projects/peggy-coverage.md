@@ -365,6 +365,54 @@ boundaries, zero-trip hoisting, or loop peeling.
 [Analysis theorems](../../Silmaril/SSA/PEG/Figure19/Placement/MustEval/Thms.lean) ·
 [Placement](../../Silmaril/SSA/PEG/Simple/Revert/While/Region/Placement/MustEval/Thms.lean)
 
+### Guarded hoisting of a parameter-fed invariant
+
+`Region.Hoist.check` accepts a parentless one-loop PEG, a typed region
+descriptor and one proposed invariant primitive. The existing boundary
+checker validates the parameter initializers, θ feedback, invariant
+parameter slots, same-loop pass and designated eval. The whole-graph
+demand rank is inferred and checked independently. Primitive guard and
+remainder orders are synthesized over their available typed scopes.
+
+The proposed binding can read only parameter rows already available in
+the old store. It must occur in the computed same-index must-demand set
+of a complete update root and be absent from the guard schedule.
+`Site.invariantAt` derives the paper's Definition 5.2 for that row.
+`Site.cache_of_defined` combines §7.8 must-demand soundness at a defined
+update root with soundness of the invariant predicate, yielding one
+defined value at every index of the parentless loop. The interpretation
+may supply partial primitives.
+
+The reference SIMPLE update binds the primitive as its first assignment.
+The emitted SIMPLE first computes the same entry guard. Its true arm
+initializes the cache once, then enters a while whose update reads the
+cache, commits the old-store update simultaneously, and recomputes the
+guard on the new store. Its false arm projects the old store directly.
+The cached slot is immutable across the loop and absent from the return
+interface. The regression runs four continuing iterations with a
+two-unit decrement. At zero iterations the same primitive is undefined
+on the input, yet the program returns zero without evaluating it. A
+proposed binding that reads the changing θ is rejected.
+
+`Accepted.trace_placement` starts with a successful entry guard and
+a finite reference trace with defined true continuation tests, successful
+full updates at their actual old stores, and a defined false exit test.
+The first executed update supplies the defined root that justifies the
+initial cache. Replaying each step compares the scheduled operand reads
+at the same state and uses invariance to reuse the cached value. The
+negation law yields the exact first pass and all carried eval prefixes
+in the original graph. `Accepted.preserves` gives the corresponding
+successful-return implication. This path needs no global guard, update,
+or hoisted-op totality. A defined scalar PEG observation by itself can
+discard failing updates, so the preservation theorem uses the finite
+reference trace. General EvalCond, loop peeling, arbitrary invariants
+and nested code motion remain open. No claim about fault equality.
+
+[Placement and trace theorems](../../Silmaril/SSA/PEG/Simple/Revert/While/Region/Hoist/Thms.lean) ·
+[Regression](../../tests/ssa/PEGStructuredTheta.lean) ·
+[§7.9 and Figure 33](https://arxiv.org/pdf/1012.1802v3#page=56) ·
+[Figure 34 and EvalCond](https://arxiv.org/pdf/1012.1802v3#page=57)
+
 Section 8.3's displayed cycle constraints exclude cycles without a θ
 node. A θ whose initializer selects itself still passes that test,
 although Definition 5.1(1) requires a feedback edge on the cycle.
@@ -431,7 +479,7 @@ writers is rejected with `Rejection.reversion`.
    Relate the Figure 19 typing rules to the repaired guard. Extend checked
    placement from one hoist across nested branches in a parentless loop to
    multiple update roots and nested loop regions. Carry first-exit and prefix obligations through selection
-   and reversion. General extraction, fusion, MustEval, and LICM remain open.
+   and reversion. General extraction, fusion, MustEval and LICM remain open beyond the checked fragments.
 2. **Formalize the general saturation and cost interfaces.** Model
    node-generating analyses and prove (4.1)–(4.4) with their hypotheses.
    Relate worklist execution and constrained selection to that model. Port

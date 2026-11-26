@@ -41,7 +41,7 @@ def Realizes (values : g.Valuation m) (i : Index 1) (scope : Tuple (Ref g.sort) 
     (store : Tuple m.Value vars) : Prop :=
   ∀ t (p : Port vars t), read values i (scope.get p) = some (store.get p)
 
-private theorem operands {scope : Tuple (Ref g.sort) vars} {refs : Tuple (Ref g.sort) ins}
+theorem operands {scope : Tuple (Ref g.sort) vars} {refs : Tuple (Ref g.sort) ins}
     (reads : Reads scope refs) {idx : Index 1} {store : Tuple m.Value vars}
     (entry : Realizes values idx scope store) :
     collect ins (fun j => read values idx (refs.get (portAt ins j))) =
