@@ -9,25 +9,28 @@ STORE dependencies and Region/Phi convention.
 [Pinned Simple `LoadNode.idealize`](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/LoadNode.java#L58-L88) ·
 [IR ’95 §§2.5, 3.1–3.2](https://doi.org/10.1145/202530.202534)
 
-`Carried.rewrite` checks that the last Store targets the first Load’s
-original address argument. Each Store supersedes the previous address
-match, so an earlier matching write gives no evidence about the final
-memory version. The first Load sees version zero and all remaining
-effects keep their table order. The captured arguments are fixed
-throughout the run. The check compares typed wires and any earlier
-aliasing Stores precede the checked write.
-[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Forwarding/Carried/Defs.lean)
+`Carried.rewrite` selects the last Store and checks that it targets the
+first Load’s captured address. `Carried.rewriteWith` takes a one-based
+Store version and an existing `Disjoint.Certificate`. The nominated
+Store must use the captured address wire. Every later Store must use a
+covered writer port distinct from that wire. The certificate requires
+that the captured cell and each listed writer’s concrete cell be
+unequal. `rewriteChecked` checks those inequalities at the invocation.
+The first Load sees version zero, and all remaining effects keep their
+table order.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Forwarding/Carried/Defs.lean) ·
+[Disjoint certificate](../../Silmaril/SSA/SeaOfNodes/Memory/Forwarding/Disjoint/Thms.lean)
 
 The target’s entry table performs one Load and exports it with the
 initial heap. The target body is the original typed suffix
 `Memory.Body args [[.word]] 0`, whose first local is now the scalar Φ
-operand. A single execution of the suffix evaluates each Store’s typed
-data wire once and keeps its word for feedback. The guard and exit still
-use the native Return wire. `seed_agrees` establishes the cached-cell
-invariant at entry. `rewrite_lastStored_reads` ties the actual Store word
-to the addressed cell of the final heap, and `rewrite_step_agrees` uses
-it to reestablish the invariant on feedback. The exact-backedge and
-finite-return theorems quantify over every typed input, initial heap,
+operand. A single execution evaluates each Store’s typed data wire once.
+It saves the nominated operand at the write and carries it unchanged
+through the remaining effects. The guard and exit still use the native
+Return wire. `seed_agrees` establishes the cached-cell invariant at
+entry. `rewriteWith_stored_reads` ties the actual Store word to the
+captured cell after the suffix. On every input satisfying the certificate,
+the exact-backedge and finite-return theorems preserve the returned word
 and entire final heap.
 [Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Forwarding/Carried/Thms.lean)
 
@@ -36,10 +39,16 @@ including an exit at zero backedges. The separate-wire fixture tests
 words 1 and 2 on successive backedges while carrying Store words 2 and
 0. Its exit returns 0 with 2 in the captured cell. A final Store to a
 different port is rejected even after an earlier matching Store.
+The certified suffix fixture adds a fifth Store that writes the guard
+word to a distinct logging cell while the fourth Store supplies feedback.
+The checker rejects an uncovered writer and an invocation where the
+logging port aliases the captured cell.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Forwarding/Carried/Regression.lean)
 
 ```sh
-make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Regression'
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Regression'
+lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Correctness
+lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Thms
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Defs
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Correctness
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Thms
