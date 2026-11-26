@@ -84,11 +84,11 @@ from a smaller IR, it must be able to step from a larger IR to a state
 extending the smaller successor. (4.3) follows from (4.1) and (4.2) for
 the delayed application of the first analysis after another step.
 (4.4) concerns uniqueness of reachable normal forms for a set of such
-monotonic analyses, when a normal form exists. The current interface
-supplies no proofs of (4.2)–(4.4) for node generation. Those require a
-relation between independently extended tables, a policy for reusing
-or identifying generated nodes, and a specification and proof for
-the analysis family under that comparison. The finite worklist's
+monotonic analyses, when a normal form exists. The
+[embedding comparison](peggy-node-monotonicity.md) proves (4.2) for
+the zero-sample analysis under fresh append and gives the conditional
+(4.3) theorem. General rule transport, other node-reuse policies and
+(4.4) remain separate obligations. The finite worklist's
 least-closure and order-independence theorems still apply per fixed
 table and obligation list. This replay may add duplicate rows and has
 no global deduplication, scheduling, closure, termination or extraction
