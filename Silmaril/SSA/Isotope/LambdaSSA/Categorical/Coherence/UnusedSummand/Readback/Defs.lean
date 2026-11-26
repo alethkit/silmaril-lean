@@ -21,10 +21,14 @@ def Row.targets (i : Fin n) : {Δ : VCtx (Ty κ)} → Row (Φ := Φ) R L Δ → 
   | _, .exit .. => False
   | _, .case _ left right => left.targets i ∨ right.targets i
 
+/-- The label has an incoming jump in the written entry or a written row. -/
+def Program.targets (p : Program (Φ := Φ) R L Γ) (i : Fin n) : Prop :=
+  p.entry.targets i ∨ ∃ j, (p.blocks j).targets i
+
 /-- The written entry and rows supply a local-jump typing constraint
 for every internal label. -/
 def Program.targetsEveryLabel (p : Program (Φ := Φ) R L Γ) : Prop :=
-  ∀ i, p.entry.targets i ∨ ∃ j, (p.blocks j).targets i
+  ∀ i, p.targets i
 
 open CategoryTheory CategoryTheory.Limits
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
