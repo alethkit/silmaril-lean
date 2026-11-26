@@ -26,7 +26,7 @@ private def fn : Function :=
   ⟨⟨{ memories := [slot] }, ⟨0⟩, [.int .i32, .int .i32, .int .i32], [], [.int .i32]⟩,
     0, [i32 4], [.loop resultType region, .ranked (.numeric (.bin .i32 .sub))]⟩
 
-private def program : Program := ⟨[some fn]⟩
+private def program : Program := { functions := [some fn] }
 private def base : Store Unit :=
   { memories := [sentinel, memory], funcs := [.wasm fn.declaration.type fn.declaration.module fn.v1Func] }
 private theorem checked : program.checkV1 slot = true := rfl

@@ -39,6 +39,9 @@ inductive SourceAllowedFor (mode : MemoryMode) (program : Program) (memory : Mem
   | call {i : FuncIdx} {a : FuncAddr} {fn : Function}
       (resolved : module.funcs[i.toNat]? = some a) (found : program.lookup a = some fn)
       (permitted : calls.permits rank fn.rank) : SourceAllowedFor mode program memory calls rank module (.call i)
+  | callIndirect {i : TypeIdx} {signature : Wasm.V1.FuncType}
+      (checked : program.checkIndirect calls rank module i signature = true) :
+      SourceAllowedFor mode program memory calls rank module (.callIndirect i)
   | load (offset : Fin (2 ^ 32)) (slot : module.memories[0]? = some memory) :
       SourceAllowedFor mode program memory calls rank module (.intLoad .i32 none (immediate offset))
   | store (offset : Fin (2 ^ 32)) (slot : module.memories[0]? = some memory) :
@@ -123,6 +126,11 @@ inductive EdgeAt (mode : MemoryMode) (program : Program) (memory : MemAddr) : St
         ⟨bytes, { f with locals := f.locals.set i.toNat v }, []⟩
   | resolve {bytes f i address} (found : f.module.funcs[i.toNat]? = some address) :
       EdgeAt mode program memory ⟨bytes, f, [.source (.call i)]⟩ ⟨bytes, f, [.invoke address]⟩
+  | indirect {bytes f index selector fixed out}
+      (selected : program.fixedTable = some fixed) (slot : f.module.tables[0]? = some fixed.address)
+      (resolved : program.resolveIndirect fixed f.module index selector = some out) :
+      EdgeAt mode program memory ⟨bytes, f, [value (.int .i32 selector), .source (.callIndirect index)]⟩
+        ⟨bytes, f, [out.v1Head]⟩
   | enter {bytes f address fn args} (found : program.lookup address = some fn)
       (count : args.length = fn.declaration.params.length) :
       EdgeAt mode program memory ⟨bytes, f, values args ++ [.invoke address]⟩

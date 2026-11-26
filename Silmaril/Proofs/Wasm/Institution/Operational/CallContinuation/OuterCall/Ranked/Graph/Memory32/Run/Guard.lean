@@ -44,7 +44,8 @@ mutual
 private theorem code_sources {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} (checked : p.checkV1 m mode calls = true)
     {a : FuncAddr} {fn : Function} (found : p.lookup a = some fn)
     (slot : fn.declaration.module.memories[0]? = some m) (code : List Op)
-    (labels : List (List NumType)) (supported : supportedCode code labels mode = true)
+    (labels : List (List NumType))
+    (supported : supportedCode code labels mode (p.checkIndirect calls fn.rank fn.declaration.module) = true)
     (targets : ∀ target ∈ codeTargets code, target ∈ fn.targets) :
     ∀ i ∈ v1Code code, SourceAllowedFor mode p m calls fn.rank fn.declaration.module i := by
   cases code with
@@ -62,10 +63,12 @@ private theorem code_sources {mode : MemoryMode} {calls : CallMode} {p : Program
 private theorem op_source {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} (checked : p.checkV1 m mode calls = true)
     {a : FuncAddr} {fn : Function} (found : p.lookup a = some fn)
     (slot : fn.declaration.module.memories[0]? = some m) (op : Op)
-    (labels : List (List NumType)) (supported : op.supportedIn labels mode = true)
+    (labels : List (List NumType))
+    (supported : op.supportedIn labels mode (p.checkIndirect calls fn.rank fn.declaration.module) = true)
     (targets : ∀ target ∈ op.targets, target ∈ fn.targets) :
     SourceAllowedFor mode p m calls fn.rank fn.declaration.module op.v1 := by
   cases op with
+  | callIndirect index signature => exact .callIndirect supported
   | load offset => exact .load offset slot
   | store offset => exact .store offset slot
   | block result body =>
@@ -229,6 +232,15 @@ theorem preserve {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAd
     | call linked found permitted =>
       cases Option.some.inj (linked.symm.trans resolved)
       exact single_allowed.mpr (.invoke found permitted)
+  | @indirect bytes frame index selector fixed outcome selected slot resolved =>
+    cases outcome with
+    | resolved address =>
+      have guard := source_allowed (ready _ (List.Mem.tail _ (List.Mem.head _)))
+      cases guard with
+      | callIndirect admitted =>
+        obtain ⟨fn, found, _, permitted⟩ := p.indirect_target admitted selected resolved
+        exact single_allowed.mpr (.invoke found permitted)
+    | bounds | null | mismatch => exact single_allowed.mpr .trap
   | @enter bytes f a fn args found count =>
     have guard := single_allowed.mp (append_allowed.mp ready).2
     cases guard with
