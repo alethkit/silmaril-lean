@@ -46,7 +46,7 @@ theorem Function.if_typed {fn : Function} {stack : List Value} {result : Option 
         fn.checkRegion (Prefix.stackTypes (saved ++ delivered)) fallthrough rest labels = true :=
   Proofs.if_typed checked
 
-/-- The immediate resolves in the active block/if labels and the operand suffix matches. -/
+/-- The immediate resolves in the active labels and the operand suffix matches. -/
 theorem Function.branch_typed {fn : Function} {stack : List Value} {depth : LabelIdx}
     {result fallthrough : List NumType} {rest : List Op} {labels : List (List NumType)}
     (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.ranked (.br depth result) :: rest) labels = true) :
@@ -62,6 +62,12 @@ theorem Function.br_if_typed {fn : Function} {stack : List Value} {depth : Label
       fn.checkRegion (Prefix.stackTypes saved) fallthrough rest labels = true :=
   Proofs.br_if_typed checked
 
+/-- The function label follows all explicitly enclosing source labels. -/
+theorem Function.function_label_types (fn : Function) {labels : List (List NumType)} {result : List NumType}
+    (target : (labels ++ fn.entryLabels)[labels.length]? = some result) :
+    result = fn.declaration.results := by
+  simpa [Function.entryLabels, List.getElem?_append_right] using target.symm
+
 /-- The rank table is derived from the declared bodies. -/
 theorem Program.lookup_table (program : Program) (address : FuncAddr) :
     program.table.lookup address = (program.lookup address).map Function.entry :=
@@ -70,7 +76,7 @@ theorem Program.lookup_table (program : Program) (address : FuncAddr) :
 /-- Recover the V1 arity, source, stack, and shared-memory slot checks. -/
 theorem Program.function_checked {program : Program} {memory : MemAddr} (checked : program.checkV1 memory = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn) :
-    fn.declaration.results.length ≤ 1 ∧ fn.code.all Op.supported = true ∧
+    fn.declaration.results.length ≤ 1 ∧ fn.code.all fn.supports = true ∧
       fn.WellTyped fn.initial fn.code ∧ fn.declaration.module.memories[0]? = some memory :=
   Proofs.function_checked checked found
 
