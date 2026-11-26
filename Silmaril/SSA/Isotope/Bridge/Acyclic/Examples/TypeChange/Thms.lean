@@ -2,6 +2,7 @@ module
 
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.TypeChange.Comparison.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Expansion.TypeChange.Thms
+import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Expansion.Institution.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Pullback.Witness.Lift.Thms
 import Silmaril.Semantics.Calco2019.Maybe.Types.Thms
 
@@ -247,6 +248,28 @@ example : reify ((letCaseTypeInst.map (f ≫ g)).sen (compile equation)) =
   exact (congrArg (reify (P := widened))
     (typeCaseHom_translate (widen.comp collapse) (compile equation))).trans
       (reify_mapCaseSignature (widen.comp collapse) (compile equation))
+
+-- The inverse comparison commutes with the composite as a corridor,
+-- including its action on the validated model category.
+example : (ssaTypeInst J).map (f ≫ g) ≫ (validatedCompileNatural J).app s =
+    (validatedCompileNatural J).app p ≫
+      ((validatedTypeInst J).map f ≫ (validatedTypeInst J).map g) := by
+  rw [← CategoryTheory.Functor.map_comp]
+  exact (validatedCompileNatural J).naturality (f ≫ g)
+
+private def sequentialLet : SSAEquation source :=
+  ⟨⟨0, .nil, unit⟩, .let₁ ⟨.unit, .unit⟩ (.br ⟨.bv 0, .bv⟩), .br ⟨.unit, .unit⟩⟩
+
+-- The round trip reifies a straight-line let as a join.
+example : reify (compile sequentialLet) ≠ sequentialLet := by
+  intro h
+  have e := congrArg (fun φ : SSAEquation source => φ.2.1.toSSA 0) h
+  cases e
+
+example (K : (ssaRoom J source).Mod) :
+    (ssaRoom J source).Sat K (reify (compile sequentialLet)) ↔
+      (ssaRoom J source).Sat K sequentialLet :=
+  reify_compile_sat K sequentialLet
 
 end Composite
 
