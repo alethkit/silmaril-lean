@@ -7,7 +7,7 @@ import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Region.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Revert.Schedule.Thms
-import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Cuts.Thms
 import Silmaril.SSA.PEG.Semantics.Reindex.Defs
 import Silmaril.SSA.PEG.Rules.Thms
 import Mathlib.Data.Fin.Embedding
@@ -16,6 +16,7 @@ import Silmaril.SSA.PEG.Simple.Revert.While.Region.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Thms
 meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Cuts.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Defs
@@ -1283,5 +1284,26 @@ private def inferredRegion :
   | _ => none
 
 #guard inferredRegion.isSome
+
+open Simple.Revert.Schedule.Automatic
+
+-- Child evals are recovered from the labelled rows. The second child
+-- exit slot is needed for the certificate and is absent from the root slice.
+private def nestedCut : Cuts.Boundary moved :=
+  ⟨state, [.count], pair ((r 13 rfl).reindex relocation) ((r 14 rfl).reindex relocation), moved.roots⟩
+
+private def runFromNestedCut :
+    Option {a : Found moved (.nestedOnly Op.not) (rank.reindex relocation loopRelocation) //
+      Exec model a.gate.val.plan.revert (input 2) (some (.cons ⟨4⟩ .nil)) ∧
+      ∀ i, moved.observe model (moved.denote model (input 2) a.gate.val.demandWellFounded) i =
+        .cons (some ⟨4⟩) .nil} := do
+  let .ok a := Cuts.discover moved (.nestedOnly Op.not) (rank.reindex relocation loopRelocation) [nestedCut] 4 | none
+  match ran : a.gate.val.plan.runFuel model 2 (input 2) with
+  | some (.cons ⟨4⟩ .nil) =>
+    let exec := a.gate.val.plan.exec_of_runFuel 2 ran
+    return ⟨a, exec, fun i => (a.observations_of_exec (fun _ => rfl) (input 2) i exec).2⟩
+  | _ => none
+
+#guard runFromNestedCut.isSome
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Nested.Region.Tests

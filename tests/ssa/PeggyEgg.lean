@@ -19,11 +19,12 @@ import Silmaril.SSA.Peggy.Worked.StrengthReduction.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Thms
 import Silmaril.SSA.PEG.Simple.Revert.Schedule.Thms
-import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Cuts.Thms
 import Silmaril.SSA.PEG.Simple.Thms
 import Silmaril.SSA.PEG.Projection.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Cuts.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Cyclic.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Selection.Legality.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
@@ -2349,5 +2350,53 @@ private def staleBoundary : Graph Op inputs outputs 16 2 :=
 #guard match inferPlan staleBoundary rank 10000 with | .error .noPlan => true | _ => false
 #guard match inferPlan graph rank 1 with | .error .budget => true | _ => false
 #guard match inferPlan graph [] 1000 with | .error .invalidRank => true | _ => false
+
+open Simple.Revert.Schedule.Automatic
+
+-- Only cuts and exported PEG rows. The second candidate comes first,
+-- and its limit comes from the first candidate's actual loop result.
+private def cutCandidates (original : Graph Op inputs outputs 16 2) (sorts : original.sort = sort) :
+    List (Cuts.Boundary original) :=
+  let first : Cuts.Boundary original :=
+    ⟨inputs, inputs, sorts.symm ▸ pair (r 6 rfl) (r 7 rfl), sorts.symm ▸ pair (r 8 rfl) (r 7 rfl)⟩
+  let second : Cuts.Boundary original :=
+    ⟨inputs, outputs, sorts.symm ▸ pair (r 8 rfl) (r 7 rfl), sorts.symm ▸ graph.roots⟩
+  [second, first]
+
+private def runFromCuts :
+    Option {a : Found graph (.counted roles) rank //
+      Exec model a.gate.val.plan.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ i, graph.observe model (graph.denote model (input 2) a.gate.val.demandWellFounded) i =
+        four (some ⟨13⟩) (some ⟨3⟩) (some ⟨3⟩) (some ⟨13⟩)} := do
+  let .ok a := Cuts.discover graph (.counted roles) rank (cutCandidates graph rfl) 10 | none
+  match ran : a.gate.val.plan.runFuel model 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    let exec := a.gate.val.plan.exec_of_runFuel 3 ran
+    return ⟨a, exec, fun i => (a.observations_of_exec laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard runFromCuts.isSome
+
+private def runFromPermutedRoots : Option (List Nat) := do
+  let original := graph.withRoots (four (r 8 rfl) (r 15 rfl) (r 15 rfl) (r 8 rfl))
+  let .ok a := Cuts.discover original (.counted roles) rank (cutCandidates original rfl) 10 | none
+  let .cons x (.cons y (.cons z (.cons w .nil))) ← a.gate.val.plan.runFuel model 3 (input 2)
+  return [x.down, y.down, z.down, w.down]
+
+#guard runFromPermutedRoots == some [3, 13, 13, 3]
+
+#guard match Cuts.discover staleBoundary (.counted roles) rank (cutCandidates staleBoundary rfl) 10 with
+  | .error (.unsupported 0 .coverage) => true
+  | _ => false
+
+#guard match Cuts.discover graph (.counted roles) rank (cutCandidates graph rfl) 1 with
+  | .error (.schedule .budget) => true
+  | _ => false
+
+-- Both parentless keys are visible when the handoff is left uncut.
+#guard match Cuts.synthesize graph (.counted roles) rank
+    ⟨inputs, outputs, pair (r 6 rfl) (r 7 rfl), graph.roots⟩ with
+  | .error .loopShape => true
+  | _ => false
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Tests
