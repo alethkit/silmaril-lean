@@ -109,6 +109,17 @@ private theorem enter_lower (entryBody : Option (Memory.Graph args)) (input : Tu
     change (observe graph input initial).2 = _
     rw [lower_run]
 
+theorem lowerDiamond_entryTransition (graph : Graph args) (entryBody : Option (Memory.Graph args))
+    (input : Tuple (Val cells) args) (guard : Bool) (initial : Buffer cells) :
+    entryTransition (lowerDiamond cells graph entryBody) input guard initial =
+      (.inl ⟨.arm (graph.merge.slot (Projection.ofBool guard)), .nil⟩,
+        ⟨match entryBody with
+          | none => initial.cell
+          | some body => (body.denote input initial.cell).2⟩) := by
+  unfold entryTransition
+  rw [entry_eval, enter_lower]
+  rfl
+
 theorem lowerDiamond_run (graph : Graph args) (entryBody : Option (Memory.Graph args))
     (input : Tuple (Val cells) args) (guard : Bool) (fuel : Nat) (initial : Buffer cells) :
     run (lowerDiamond cells graph entryBody) input guard fuel initial =

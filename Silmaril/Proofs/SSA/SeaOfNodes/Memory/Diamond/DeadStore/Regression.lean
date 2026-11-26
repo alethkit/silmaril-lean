@@ -164,4 +164,31 @@ private def slotNumber (program : Discovery.MemRef.CF.Program 4 args) (guard : B
 -- The false route's alias rejects before either artifact is returned.
 example : Discovery.MemRef.CF.lower (source .onFalse) (input headCell) = none := rfl
 
+private def twoStoreEntry : Memory.Graph args :=
+  (⟨rightPort, leftWord⟩ : PrefixStore args).prepend (source .onFalse).store.table
+
+private def runSeeded (rightAddress : Address 4) (guard : Bool) :
+    Option (List Nat × List Nat × List Nat) := do
+  let valuation := input rightAddress
+  let graph := (source .onFalse).diamond
+  let original := Discovery.MemRef.CF.lowerDiamond 4 graph (some twoStoreEntry)
+  let entered := (Discovery.MemRef.CF.entryTransition original valuation guard ⟨initial⟩).2
+  let bare := Discovery.MemRef.CF.lowerDiamond 4 graph none
+  let before ← Discovery.MemRef.CF.run original valuation guard 3 ⟨initial⟩
+  let after ← Discovery.MemRef.CF.run bare valuation guard 3 entered
+  some ((List.finRange 4).map (fun cell => (entered.cell cell).toNat),
+    (readback before).map BitVec.toNat, (readback after).map BitVec.toNat)
+
+-- Read back the entry buffer, then the word and final cells of each run.
+/-- info: some ([99, 2, 11, 55], [11, 33, 2, 33, 55], [11, 33, 2, 33, 55]) -/
+#guard_msgs in
+#eval runSeeded rightCell false
+
+#guard runSeeded rightCell true == some ([99, 2, 11, 55], [2, 11, 11, 11, 55], [2, 11, 11, 11, 55])
+
+-- When both entry Stores target one cell, the false arm reads the second write.
+/-- info: some ([99, 2, 3, 55], [99, 33, 2, 3, 55], [99, 33, 2, 3, 55]) -/
+#guard_msgs in
+#eval runSeeded headCell false
+
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore

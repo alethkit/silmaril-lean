@@ -109,3 +109,32 @@ returns no artifacts.
 ```sh
 make check CHECK_TARGETS='+Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.MLIR.MemRef.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.CF.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.MLIR.Finite.Regression'
 ```
+
+### Reuse the emitted entry buffer
+
+`entryTransition` reads the destination frame and entire post-entry buffer
+from the actual ordered CF entry evaluation. `lowerDiamond_entryTransition`
+identifies that buffer with the optional entry table's native denotation
+at the same typed scalar input. `lowerDiamond_run_seeded` then relates a
+run with the entry table to a run of the bare diamond initialized with
+that buffer. Both runs use the same predicate and scalar input. The law
+compares whole-buffer return observations at every CF block budget.
+[Entry and run theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Discovery/MemRef/CF/Thms.lean)
+
+The runnable fixture emits two Stores as a straight-line entry table. The
+false arm reads `11` from the first write at disjoint addresses. When the
+addresses coincide it reads `99` from the second write. Both executions
+read back the entry buffer and compare the returned word and every final
+cell with the seeded run. The true arm also runs at the disjoint input.
+[Executable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean) ·
+[Pinned Simple memory chain](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#one-memory-value)
+
+Native `Prefixed` carries one entry Store, and the automatic checker
+returns a bare diamond on success. The entry-buffer law supports backend
+composition with any admitted straight-line entry table. Repeating native
+deletion would require a representation and checking law for the entry
+Stores remaining after a successful deletion.
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```
