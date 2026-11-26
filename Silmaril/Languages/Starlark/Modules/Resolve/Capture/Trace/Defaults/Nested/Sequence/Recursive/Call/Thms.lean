@@ -122,6 +122,27 @@ theorem runs_installed_alias_preserving {parent : LexicalBlock} (site : Site par
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.runs_installed_alias_preserving
     site profile checked table id found available permitted step receipts cells owned legal frame related
 
+/-- A reached local read dispatches through its live closure record. -/
+theorem runs_preserving_with {parent block : LexicalBlock} (site : Site parent)
+    (bodyRuns : State → Outcome Flow → Prop)
+    {commands : List Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved)
+    (id : DeclarationId) (found : resolved.program[id]? = some site.declaration)
+    (available : List DeclarationId) (permitted : id ∈ available)
+    (enterBody : BodyEntry site resolved.program available id bodyRuns)
+    {name : String} {state defining : State} {address : Nat}
+    (callee : Body.Evaluates block state (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
+      (.ok (.function address) state))
+    (record : ClosureAt site id defining state address)
+    {arguments : List NormalizedExpr} {codes : List Lowering.Expr} {reads : List Binding}
+    (related : Arguments block arguments codes reads) :
+    ∃ out, RunsWith site bodyRuns block id name arguments codes state out ∧
+      ExecExpr resolved.program available state (expression name codes) out ∧
+      Lowering.denoteExpr resolved.program available (expression name codes) state = out ∧
+      Body.Keeps state.heap.size state (finishState out) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.runs_preserving_with
+    site bodyRuns checked id found available permitted enterBody callee record related
+
 /-- Reuse the guarded alias call with a body derivation at the reduced set. -/
 theorem runs_installed_alias_preserving_with {parent : LexicalBlock} (site : Site parent)
     (bodyRuns : State → Outcome Flow → Prop)

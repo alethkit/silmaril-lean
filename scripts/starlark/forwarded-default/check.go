@@ -154,6 +154,50 @@ func checkAliasedCalls(opts *syntax.FileOptions) {
 	fmt.Println("PASS operand error precedes arity, and a reached inner body error skips the module tail")
 }
 
+func liveProvenanceSource(arguments string) string {
+	return fmt.Sprintf(`values = [11, 22]
+def factory(values, index):
+    def first(saved=values):
+        return saved[index]
+    alias = first
+    marker = [17]
+    copy = alias
+    def replacement(required):
+        return required
+    first = replacement
+    alias = 0
+    first_value = copy()
+    selected = first(%s)
+    after = [99]
+    return selected[0]
+result = factory(values, 1)
+finished = [91]
+`, arguments)
+}
+
+func checkLiveProvenance(opts *syntax.FileOptions) {
+	globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread),
+		"live-local-copies.star", liveProvenanceSource("[first_value]"), nil)
+	require(err == nil && globals["result"].String() == "22" && globals["finished"].String() == "[91]", globals)
+	fmt.Println("PASS a transitive, non-adjacent copy retains its default and captured index across rebinding")
+
+	for _, test := range []struct {
+		arguments string
+		errorText string
+	}{
+		{"", "function replacement missing 1 argument (required)"},
+		{"[73], [0][1], [77]", "index 1 out of range"},
+	} {
+		_, compiled, err := starlark.SourceProgramOptions(opts, "rebound-local-error.star",
+			liveProvenanceSource(test.arguments), func(string) bool { return false })
+		require(err == nil, err)
+		partial, err := compiled.Init(new(starlark.Thread), nil)
+		require(err != nil && strings.Contains(err.Error(), test.errorText), err)
+		require(partial["factory"] != nil && partial["result"] == nil && partial["finished"] == nil, partial)
+	}
+	fmt.Println("PASS the rebound callee uses the replacement signature and a reached operand error skips binding")
+}
+
 func main() {
 	opts := &syntax.FileOptions{}
 	for _, test := range []struct {
@@ -184,4 +228,5 @@ func main() {
 
 	checkRecursive(opts)
 	checkAliasedCalls(opts)
+	checkLiveProvenance(opts)
 }
