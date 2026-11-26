@@ -75,3 +75,37 @@ and full heap for both guards at a shared disjoint input.
 make check CHECK_TARGETS='+Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Readers.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.Forwarding.Disjoint.Regression'
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Compare the emitted MemRef CF diamonds
+
+`DeadStore.Discovery.MemRef.CF.lower source input` first checks discovery
+for both routes. On success it emits the original and optimized typed
+ordered CF artifacts. The original entry runs the lowered Store before its
+`cf.cond_br`. In both artifacts the selected arm passes its word to the
+shared join, and the ordered runner threads one initialized rank-one
+`memref<nxi64>` buffer through the entry, selected arm, and suffix. The
+scalar input used to check aliasing is retained with the emitted pair.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Discovery/MemRef/CF/Defs.lean) ·
+[Existing ordered CF runner](../../Silmaril/SSA/MLIR/CF/Ordered/Defs.lean) ·
+[Existing MemRef lowering](sea-of-nodes/memory/sea-of-nodes-memory.md#one-initialized-rank-one-memref) ·
+[Pinned CF operations](https://github.com/llvm/llvm-project/blob/4434dabb69916856b824f68a64b029c67175e532/mlir/include/mlir/Dialect/ControlFlow/IR/ControlFlowOps.td)
+
+Both entry terminators select the same original Region slot. The proof
+accounts for one block step each for entry, the selected arm, and the
+join. The reader observes `none` before three steps and the source
+word and full final buffer at every sufficient budget. Equality holds
+for either predicate and every initial buffer at the checked input.
+The budget counts CF blocks, with each ordered MemRef body executing
+inside its block step.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Discovery/MemRef/CF/Thms.lean)
+
+With the false predecessor first, the executable fixture reads back
+both emitted slot numbers and all four final cells for both predicates.
+It checks a short budget and a swapped predecessor order. When the
+false route's incoming reader aliases the entry Store's cell, discovery
+returns no artifacts.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+make check CHECK_TARGETS='+Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.MLIR.MemRef.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.CF.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.MLIR.Finite.Regression'
+```
