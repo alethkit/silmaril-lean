@@ -23,7 +23,7 @@ theorem admitsInput_zero_iff (args : List ValueSort) :
     | word => simpa [admitsInput, defaultInput?] using ih
     | address => simp [admitsInput, defaultInput?]
 
-private theorem admitsInput_positive (positive : 0 < cells) (args : List ValueSort) :
+theorem admitsInput_positive (positive : 0 < cells) (args : List ValueSort) :
     admitsInput cells args = true := by
   induction args with
   | nil => rfl

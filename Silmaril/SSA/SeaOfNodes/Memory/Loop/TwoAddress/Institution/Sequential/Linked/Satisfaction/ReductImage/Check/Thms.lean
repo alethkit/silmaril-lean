@@ -5,6 +5,7 @@ import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequent
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Coverage
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Composition
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.CompositeCoverage
+import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Diagnostic
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Thms
 
 /-! Exact executable coverage and lifts for canonical typed valuations. -/
@@ -119,5 +120,34 @@ theorem checkCompositeCoverage_iff_lifts (h : P ⟶ Q) (k : Q ⟶ R) (cells : Na
 theorem checkCompositeExpansive_eq (h : P ⟶ Q) (k : Q ⟶ R) :
     checkCompositeExpansive h k = checkExpansive (h ≫ k) := by
   simp only [checkCompositeExpansive, checkExpansive, checkCompositeCoverage_eq]
+
+/-- There is an executable diagnostic exactly when the composite coverage check fails. -/
+theorem diagnoseCompositeCoverage?_isSome_eq (h : P ⟶ Q) (k : Q ⟶ R) (cells : Nat) :
+    (diagnoseCompositeCoverage? h k cells).isSome = !checkCompositeCoverage h k cells := by
+  rw [checkCompositeCoverage_eq]
+  exact Proofs.diagnoseCoverage?_isSome_eq (h ≫ k) cells
+
+theorem diagnoseCompositeCoverage?_exists_iff (h : P ⟶ Q) (k : Q ⟶ R) (cells : Nat) :
+    (∃ diagnostic, diagnoseCompositeCoverage? h k cells = some diagnostic) ↔
+      checkCompositeCoverage h k cells = false := by
+  rw [← Option.isSome_iff_exists, diagnoseCompositeCoverage?_isSome_eq]
+  simp
+
+theorem diagnoseCompositeCoverage?_valid (h : P ⟶ Q) (k : Q ⟶ R) {diagnostic : CoverageDiagnostic P R cells}
+    (found : diagnoseCompositeCoverage? h k cells = some diagnostic) : diagnostic.Valid (h ≫ k) :=
+  Proofs.diagnoseCoverage?_valid (h ≫ k) found
+
+theorem CoverageDiagnostic.not_in_image (h : P ⟶ Q) {diagnostic : CoverageDiagnostic P Q cells}
+    (valid : diagnostic.Valid h) : ¬ InReductImage h diagnostic.input :=
+  Proofs.CoverageDiagnostic_valid_not_in_image h valid
+
+/-- The composite entry checker rejects the diagnosed valuation for every initialized heap. -/
+theorem diagnoseCompositeCoverage?_rejects (h : P ⟶ Q) (k : Q ⟶ R) {diagnostic : CoverageDiagnostic P R cells}
+    (found : diagnoseCompositeCoverage? h k cells = some diagnostic) (heap : Heap cells) :
+    liftThrough? h k ⟨diagnostic.input, heap⟩ = none := by
+  rw [← Option.isNone_iff_eq_none, ← Option.isSome_eq_false_iff, Bool.eq_false_iff]
+  intro lifted
+  exact CoverageDiagnostic.not_in_image (h ≫ k) (diagnoseCompositeCoverage?_valid h k found)
+    ((liftThrough?_isSome_iff h k _).mp lifted)
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage
