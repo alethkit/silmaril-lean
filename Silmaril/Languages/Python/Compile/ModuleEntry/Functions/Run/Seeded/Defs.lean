@@ -91,9 +91,11 @@ def legacyTextSeed (placement : SeedPlacement) : Namespace :=
 
 def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.Operand 0
   | .readGlobal name => .global name
+  | .intTrueDiv numerator divisor => .intTrueDiv numerator divisor
   | .tuple items => .tuple items
   | .literal (.int value) => .literal (.int value)
   | .literal (.bool value) => .literal (.bool value)
+  | .literal (.float64 value) => .literal (.float64 value)
   | .literal (.text value) => .literal (.text value)
   | .literal _ => .unsupported
 
@@ -144,6 +146,7 @@ decreasing_by
 def truth : Value → Bool
   | .int value => decide (value ≠ 0)
   | .bool value => value
+  | .float64 value => (Core.Closure.Value.float64 value).truth
   | .text value => value.truth
   | .none => false
   | .listObject object => !object.contents.isEmpty
@@ -191,6 +194,7 @@ structure Effect where
 def ordinaryValue? : Value → Option Core.Closure.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
+  | .float64 value => some (.float64 value)
   | .text value => some (.text value)
   | .none => some .none
   | .function closure => some (.function closure)
@@ -201,6 +205,7 @@ def ordinaryValue? : Value → Option Core.Closure.Value
 def seededValue : Core.Closure.Value → Value
   | .int value => .int value
   | .bool value => .bool value
+  | .float64 value => .float64 value
   | .text value => .text value
   | .none => .none
   | .function closure => .function closure
@@ -327,6 +332,16 @@ def ordinaryCall (space : Namespace) (context : CallContext) (closure : Function
   let invocation := (callbackSession space context.heap).prepareCall .discard (.literal (.function closure)) arguments
   (invocation.runPrefix context.table context.fuel).2.state
 
+/-- Enter a published function with one finite float through the ordinary
+binder. Integer-only operations remain checked by the executor. -/
+def invokePublishedFloat (space : Namespace) (context : CallContext) (closure : Function)
+    (arguments : List Value) : Except ModuleFailure CallObservation × Heap :=
+  if closure ∈ context.published then
+    match arguments with
+    | [.float64 value] => observeDirectCall space (ordinaryCall space context closure [.literal (.float64 value)])
+    | _ => (.ok ⟨.error .unsupported, none⟩, context.heap)
+  else (.ok ⟨.error .unsupported, none⟩, context.heap)
+
 def factoryOperand : Value → Option Core.Module.Functions.Operand
   | .int value => some (.literal (.int value))
   | _ => none
@@ -341,6 +356,7 @@ def observeFactory (space : Namespace) (state : Core.Closure.Executor.State) :
     Except ModuleFailure CallObservation × Heap :=
   match state with
   | .finished heap (.ok (.int _)) | .finished heap (.ok (.bool _)) | .finished heap (.ok .none)
+  | .finished heap (.ok (.float64 _))
   | .finished heap (.ok (.text _)) | .finished heap (.ok (.tuple _)) | .finished heap (.ok (.tupleObject _)) =>
     (.ok ⟨.error .unsupported, none⟩, heap)
   | _ => observeDirectCall space state
@@ -384,7 +400,8 @@ def invokeFlatCall (space : Namespace) (context : CallContext)
       else if context.acceptsTupleResult closure operands.length then
         observeTupleResult space (ordinaryCall space context closure operands)
       else (.ok ⟨.error .unsupported, none⟩, context.heap)
-    | none => (.ok ⟨.error .unsupported, none⟩, context.heap)
+    | none => invokePublishedFloat space context closure values
+  | _, .function closure, [.float64 value] => invokePublishedFloat space context closure [.float64 value]
   | _, _, _ => invokeCall space context callee arguments
 
 /-- The adjacent source guard establishes the name-to-slot mapping. Read the
@@ -465,6 +482,7 @@ def invokeArgumentIn (space : Namespace) (context : CallContext) (allowEscaped :
     if allowEscaped && context.acceptsEscapedArgument closure then
       observeDirectCall space (ordinaryCall space context closure [.literal (.int value)])
     else (.ok ⟨.error .unsupported, none⟩, context.heap)
+  | .function closure, [.float64 value] => invokePublishedFloat space context closure [.float64 value]
   | _, _ => (.ok (Core.Module.SeededCall.invokeObserved callee values), context.heap)
 
 /-- Attribute a settled argument call to the inner name. A fault or live
@@ -501,6 +519,14 @@ def allowsEscapedArgument : Core.Module.Functions.Destination → Value → Bool
   | .discard, .helper .assertEqual => true
   | _, _ => false
 
+/-- Only a resolved same-run function can enter the ordinary binder with
+a finite float. Other targets use the existing checked descriptor rules. -/
+def invokeNestedTarget (space : Namespace) (context : CallContext)
+    (callee : Value) (values : List Value) : Except ModuleFailure CallObservation × Heap :=
+  match callee, values with
+  | .function closure, [.float64 value] => invokePublishedFloat space context closure [.float64 value]
+  | _, _ => (.ok (Core.Module.SeededCall.invokeObserved callee values), context.heap)
+
 /-- Read the outer callee before the arguments and retain the heap reached
 even when an ordinary argument faults or has yet to settle. -/
 def observeNestedCallIn (space : Namespace) (context : CallContext)
@@ -513,8 +539,11 @@ def observeNestedCallIn (space : Namespace) (context : CallContext)
     match values with
     | .error error => (⟨.error error, calls⟩, heap)
     | .ok values =>
-      let observed := acceptObservation destination name (Core.Module.SeededCall.invokeObserved callee values)
-      ({ observed with calls := calls ++ observed.calls }, heap)
+      match invokeNestedTarget space { context with heap } callee values with
+      | (.ok result, residual) =>
+        let observed := acceptObservation destination name result
+        ({ observed with calls := calls ++ observed.calls }, residual)
+      | (.error error, residual) => (⟨.error error, calls⟩, residual)
 
 inductive EvaluatesArguments (space : Namespace) :
     List Argument → Except Failure (List Value) → List CallEvent → Prop where
@@ -538,7 +567,7 @@ def readSequenceLength (space : Namespace) (length : Nat) : Except Failure Int :
   match space.lookupGlobal "len" with
   | none => .error (.raised (.runtime (.nameError "len")))
   | some (.builtin .len) => .ok (Int.ofNat length)
-  | some (.int _) | some (.bool _) | some (.text _) | some .none | some (.returnedTuple _)
+  | some (.int _) | some (.bool _) | some (.float64 _) | some (.text _) | some .none | some (.returnedTuple _)
   | some (.tupleObject _) =>
     .error (.raised (.runtime .notCallable))
   | some _ => .error .unsupported
@@ -617,7 +646,7 @@ def constructList (space : Namespace) (heap : ListHeap) (argument : ListConstruc
     | .builtin .list =>
       let (object, updated) := reached.allocate contents
       (.ok object, updated)
-    | .int _ | .bool _ | .text _ | .none | .listObject _ | .returnedTuple _ | .tupleObject _ =>
+    | .int _ | .bool _ | .float64 _ | .text _ | .none | .listObject _ | .returnedTuple _ | .tupleObject _ =>
       (.error (.raised (.runtime .notCallable)), reached)
     | _ => (.error .unsupported, reached)
 
@@ -657,7 +686,7 @@ def tupleBinding (space : Namespace) : Option Core.Module.TupleDispatch.TypeBind
   (space.lookupGlobal "tuple").map fun
     | .builtin .tuple => .stockTuple
     | .none => .noneValue
-    | .int _ | .bool _ | .text _ | .returnedTuple _ | .listObject _ | .tupleObject _ => .nonCallable
+    | .int _ | .bool _ | .float64 _ | .text _ | .returnedTuple _ | .listObject _ | .tupleObject _ => .nonCallable
     | .exceptionClass _ | .helper _ | .builtin _ | .function _ => .outsideProfile
 
 def tupleLookup (space : Namespace) : TupleChain.Lookup :=

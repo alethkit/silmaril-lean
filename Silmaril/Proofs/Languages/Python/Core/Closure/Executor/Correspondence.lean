@@ -148,6 +148,7 @@ private theorem rejected_eq (rejected : Rejects table args heap callee failure) 
   | nonCallableNone => rfl
   | nonCallable value => rfl
   | nonCallableBool value => rfl
+  | nonCallableFloat value => rfl
   | nonCallableText value => rfl
   | nonCallableTuple items | nonCallableTupleObject items => rfl
   | missing fn absent => simp [Dispatch.dispatch, Dispatch.resolve_missing absent]
@@ -179,6 +180,10 @@ private theorem rejected_rule (rejected : Dispatch.dispatch table callee args he
     simp [Dispatch.dispatch] at rejected
     subst failure
     exact .nonCallableBool value
+  | float64 value =>
+    simp [Dispatch.dispatch] at rejected
+    subst failure
+    exact .nonCallableFloat value
   | text value =>
     simp [Dispatch.dispatch] at rejected
     subst failure

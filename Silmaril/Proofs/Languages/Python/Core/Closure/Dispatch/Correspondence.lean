@@ -42,6 +42,7 @@ theorem dispatch_sound (launched : dispatch table callee arguments heap caller s
   | none => simp [dispatch] at launched
   | int value => simp [dispatch] at launched
   | bool value => simp [dispatch] at launched
+  | float64 value => simp [dispatch] at launched
   | text value => simp [dispatch] at launched
   | tuple items | tupleObject items => simp [dispatch] at launched
   | function fn =>

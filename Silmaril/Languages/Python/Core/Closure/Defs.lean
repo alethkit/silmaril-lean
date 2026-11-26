@@ -1,5 +1,6 @@
 module
 
+public import Silmaril.Languages.Python.Core.Binary64.Defs
 public import Silmaril.Languages.Python.Core.Module.TupleDispatch.Defs
 public import Silmaril.Languages.Python.Core.Text.Defs
 
@@ -66,6 +67,7 @@ inductive Value where
   | none
   | int (value : Int)
   | bool (value : Bool)
+  | float64 (value : Silmaril.Numeric.Ieee754.F64.Finite)
   | text (value : Core.Text)
   | function (value : Function)
   | tuple (items : List Core.Module.Value)
@@ -76,23 +78,17 @@ def Value.truth : Value → Bool
   | .none => false
   | .int value => decide (value ≠ 0)
   | .bool value => value
+  | .float64 value => !value.val.isZero
   | .text value => value.truth
   | .function _ => true
   | .tuple items => !items.isEmpty
   | .tupleObject object => !object.contents.isEmpty
 
-/-- Compare a value in this closed closure profile with an integer literal. -/
-def Value.equalInt : Value → Int → Bool
-  | .int value, right => decide (value = right)
-  | .bool false, right => decide (0 = right)
-  | .bool true, right => decide (1 = right)
-  | .none, _ | .text _, _ | .function _, _ | .tuple _, _ | .tupleObject _, _ => false
-
 def Value.scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
   | .none => some .none
-  | .text _ | .function _ | .tuple _ | .tupleObject _ => Option.none
+  | .float64 _ | .text _ | .function _ | .tuple _ | .tupleObject _ => Option.none
 
 def Value.ofScalar : Core.Module.Value → Value
   | .int value => .int value
@@ -150,6 +146,7 @@ inductive RuntimeError where
   | multiplicationTypeError
   | assertionError
   | arithmetic (error : Exception)
+  | overflowError
   deriving DecidableEq, Repr
 
 /-- Invalid runtime references are distinct from defined Python exceptions. -/
@@ -157,6 +154,7 @@ inductive Failure where
   | defined (error : RuntimeError)
   | danglingCell (identity : CellId)
   | unsupportedTupleElement
+  | unsupportedFloatOperand
   deriving DecidableEq, Repr
 
 /-- Integer-like values in the closed closure value profile. -/
@@ -164,7 +162,15 @@ def Value.asInt? : Value → Option Int
   | .int value => some value
   | .bool false => some 0
   | .bool true => some 1
-  | .none | .text _ | .function _ | .tuple _ | .tupleObject _ => Option.none
+  | .none | .float64 _ | .text _ | .function _ | .tuple _ | .tupleObject _ => Option.none
+
+/-- Integer equality is checked before a comparison can consume a float. -/
+def Value.equalInt : Value → Int → Except Failure Value
+  | .float64 _, _ => .error .unsupportedFloatOperand
+  | .int value, right => .ok (.bool (decide (value = right)))
+  | .bool false, right => .ok (.bool (decide (0 = right)))
+  | .bool true, right => .ok (.bool (decide (1 = right)))
+  | .none, _ | .text _, _ | .function _, _ | .tuple _, _ | .tupleObject _, _ => .ok (.bool false)
 
 inductive IntegerOp where
   | add
@@ -182,13 +188,21 @@ def IntegerOp.typeError : IntegerOp → RuntimeError
 /-- Apply exact integer arithmetic after both operands have been read.
 The other modeled values include None, functions and flat tuples. -/
 def Value.binaryInt (op : IntegerOp) (left right : Value) : Except Failure Value :=
-  match left.asInt?, right.asInt? with
-  | some lhs, some rhs => .ok (.int (op.eval lhs rhs))
-  | _, _ => .error (.defined op.typeError)
+  match left, right with
+  | .float64 _, _ | _, .float64 _ => .error .unsupportedFloatOperand
+  | _, _ =>
+    match left.asInt?, right.asInt? with
+    | some lhs, some rhs => .ok (.int (op.eval lhs rhs))
+    | _, _ => .error (.defined op.typeError)
 
 abbrev Value.addInt := Value.binaryInt .add
 
 abbrev Result := Except RuntimeError Value
+
+def trueDivideInt (numerator divisor : Int) : Except RuntimeError Silmaril.Numeric.Ieee754.F64.Finite :=
+  (Core.Binary64.trueDivide numerator divisor).mapError fun
+    | .zeroDivisionError => .arithmetic .zeroDivisionError
+    | .overflowError => .overflowError
 
 /-- A shared heap with monotone cell allocation. Only addresses below
 `next` denote allocated cells. An allocated cell may be unbound. -/

@@ -57,6 +57,7 @@ def callOperand? {scope : Scope} : Operand scope → Option Core.Module.Function
 
 def callValue? {scope : Scope} : CallValue scope → Option Core.Module.Functions.Operand
   | .scalar operand => callOperand? operand
+  | .intTrueDiv numerator divisor => some (.intTrueDiv numerator divisor)
   | .tuple items => some (.tuple items)
   | .text value => some (.literal (.text value))
 
@@ -170,7 +171,7 @@ inductive Completion where
 def tupleBinding (session : Session) : Option Core.Module.TupleDispatch.TypeBinding :=
   (session.globals "tuple").map fun
     | .none => .noneValue
-    | .int _ | .bool _ | .text _ | .tuple _ | .tupleObject _ => .nonCallable
+    | .int _ | .bool _ | .float64 _ | .text _ | .tuple _ | .tupleObject _ => .nonCallable
     | .function _ => .outsideProfile
 
 def tupleLookup (session : Session) : TupleChain.Lookup :=
@@ -302,6 +303,7 @@ def bindTuple (session : Session) (name : String) (items : List Core.Closure.Glo
   | .error (.defined error) => .error (.raised error)
   | .error (.danglingCell identity) => .error (.executorFault (.danglingCell identity))
   | .error .unsupportedTupleElement => .error (.executorFault .unsupportedTupleElement)
+  | .error .unsupportedFloatOperand => .error (.executorFault .unsupportedFloatOperand)
 
 def prepareTupleIdentityCall (session : Session) (destination : Core.Module.Functions.Destination)
     (name : String) (test : TupleIdentity.Test) : Except Completion Invocation := do

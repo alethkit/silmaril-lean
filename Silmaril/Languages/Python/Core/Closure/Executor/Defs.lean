@@ -37,6 +37,7 @@ inductive Operand (layout : Layout) where
   | literal (value : Value)
   | read (slot : Slot layout)
   | readGlobal (name : String)
+  | intTrueDiv (numerator divisor : Int)
   | eqInt (left : NameRead layout) (right : Int)
   | binaryInt (op : IntegerOp) (left right : Operand layout)
   | tuple (items : List (TupleItem layout))
@@ -83,6 +84,7 @@ abbrev CodeTable := Dispatch.CodeTable Body
 inductive Fault where
   | danglingCell (identity : CellId)
   | unsupportedTupleElement
+  | unsupportedFloatOperand
   | missingCode (key : Nat)
   | layoutMismatch (expected actual : Layout)
   | unprofiledFreevars (ref : CodeRef)
@@ -177,7 +179,7 @@ def readMetadata (field : MetadataField) (table : CodeTable) : Value → Except 
       match field.select definition with
       | some names => .ok names
       | none => .error (field.unavailable fn.code definition)
-  | .int _ | .bool _ | .none | .text _ | .tuple _ | .tupleObject _ => .error .nonFunction
+  | .int _ | .bool _ | .none | .float64 _ | .text _ | .tuple _ | .tupleObject _ => .error .nonFunction
 
 abbrev readFreevars := readMetadata .freevars
 abbrev readCellvars := readMetadata .cellvars
@@ -223,7 +225,8 @@ def Operand.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout)
   | .literal value => .ok value
   | .read slot => frame.read heap slot
   | .readGlobal name => (NameRead.global name).evalIn globals heap frame
-  | .eqInt left right => (left.evalIn globals heap frame).map fun value => .bool (value.equalInt right)
+  | .intTrueDiv numerator divisor => (trueDivideInt numerator divisor).map Value.float64 |>.mapError .defined
+  | .eqInt left right => (left.evalIn globals heap frame).bind (·.equalInt right)
   | .tuple items => evalTupleIn globals heap frame items
   | .binaryInt op left right =>
     (left.evalIn globals heap frame).bind fun lhs =>
@@ -247,6 +250,7 @@ def fail (heap : Heap) (stack : Stack) : Failure → Transition
   | .defined error => (none, .delivering heap stack (.error error))
   | .danglingCell identity => fault heap stack (.danglingCell identity)
   | .unsupportedTupleElement => fault heap stack .unsupportedTupleElement
+  | .unsupportedFloatOperand => fault heap stack .unsupportedFloatOperand
 
 def failDispatch (heap : Heap) (stack : Stack) : Dispatch.Failure → Transition
   | .call error => fail heap stack error
@@ -344,9 +348,11 @@ inductive EvaluatesIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layo
       EvaluatesIn globals heap frame (.readGlobal name) (.ok value)
   | globalMissing {name} : globals name = none →
       EvaluatesIn globals heap frame (.readGlobal name) (.error (.defined (.nameError name)))
+  | intTrueDiv (numerator divisor : Int) : EvaluatesIn globals heap frame (.intTrueDiv numerator divisor)
+      ((trueDivideInt numerator divisor).map Value.float64 |>.mapError .defined)
   | eqInt {left : NameRead layout} {right result} :
       EvaluatesIn globals heap frame left.operand result →
-      EvaluatesIn globals heap frame (.eqInt left right) (result.map fun value => .bool (value.equalInt right))
+      EvaluatesIn globals heap frame (.eqInt left right) (result.bind (·.equalInt right))
   | binaryLeftError {op left right error} :
       EvaluatesIn globals heap frame left (.error error) →
       EvaluatesIn globals heap frame (.binaryInt op left right) (.error error)
@@ -388,6 +394,8 @@ inductive Rejects (table : CodeTable) (arguments : List Value) (heap : Heap) :
   | nonCallableNone : Rejects table arguments heap .none (.call (.defined .notCallable))
   | nonCallable (value : Int) : Rejects table arguments heap (.int value) (.call (.defined .notCallable))
   | nonCallableBool (value : Bool) : Rejects table arguments heap (.bool value) (.call (.defined .notCallable))
+  | nonCallableFloat (value : Silmaril.Numeric.Ieee754.F64.Finite) :
+      Rejects table arguments heap (.float64 value) (.call (.defined .notCallable))
   | nonCallableText (value : Core.Text) :
       Rejects table arguments heap (.text value) (.call (.defined .notCallable))
   | nonCallableTuple (items : List Core.Module.Value) :
