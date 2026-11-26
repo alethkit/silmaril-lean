@@ -1,5 +1,6 @@
 module
 
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Serial.Recognize.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Thms
 import Silmaril.Raw.SSA.Isotope.Semantics.Model
@@ -24,14 +25,14 @@ private abbrev unitTy : Ty := .unit
 private abbrev Value := Silmaril.Ty.denote (fun _ : Unit => Nat)
 private abbrev Runtime := StateT Nat Part
 
-private inductive Op | header | finalHeader | body | join
+private inductive Op | header | finalHeader | selectExit | body | maybeBody | join
   deriving DecidableEq
 
 local instance : HasTy Op Ty :=
   ⟨fun _ => number, fun
     | .header | .join => .coprod number number
-    | .finalHeader => .coprod unitTy number
-    | .body => number⟩
+    | .finalHeader | .selectExit => .coprod unitTy number
+    | .body | .maybeBody => number⟩
 
 private def valueCoe {A B : Ty} : Isotope.Ty.Subty A B → Value A → Value B
   | .refl _ => id
@@ -54,7 +55,11 @@ local instance : HasEff Op Bool := ⟨fun _ => true⟩
 private def instruction : (op : Op) → Value (instrSrc op) → Runtime (Value (instrTrg op))
   | .header, input => StateT.mk fun token => Part.some (.inr input, token + 1)
   | .finalHeader, input => StateT.mk fun token => Part.some (.inr input, token + 1)
+  | .selectExit, input => StateT.mk fun token =>
+    Part.some (if (show Nat from input) = 0 then .inl PUnit.unit else .inr input, token + 1)
   | .body, input => StateT.mk fun token => Part.some ((show Nat from input) + token, token + 1)
+  | .maybeBody, input => StateT.mk fun token =>
+    if (show Nat from input) = 9 then Part.none else Part.some ((show Nat from input) + token, token + 1)
   | .join, input => StateT.mk fun token =>
     Part.some (if token = 2 then .inr input else .inl input, token + 1)
 
@@ -184,6 +189,96 @@ example (coherent : RegionCoherent (τ := Ty) (Φ := Op) (ε := Bool) (m := Runt
   refine ⟨pipelineRecognized, ?_⟩
   apply (recovered.region_returns_iff coherent _ _ _ _).mp
   exact (NestedTheta.Partial.observe_eq_some _ _ _ _).mp pipelineDone
+
+private def selectingLoop : Loop Op number number number unitTy number :=
+  { finalLoop with header := ⟨.selectExit, rfl, rfl⟩ }
+
+private def conditionalTail : Loop Op number number number unitTy number :=
+  { finalLoop with body := .instruction ⟨.maybeBody, rfl, rfl⟩ }
+
+private def routed : Flat.Fragment Op number unitTy number :=
+  Flat.linkBy (.loop selectingLoop) (.loop conditionalTail) ⟨.first, .consumer⟩
+
+private abbrev Coherent := RegionCoherent (τ := Ty) (Φ := Op) (ε := Bool) (m := Runtime)
+private abbrev RoutedExit := LabelDen [unitTy,number]
+
+private theorem bypassStep :
+    (iter (ExplicitRuntime.round (ε := Bool) (m := Runtime) selectingLoop) (0 : Nat)).run 0 =
+      Part.some ((.inl PUnit.unit : RoutedExit), 1) := by
+  rw [Elgot.StateT.run_iter, Part.eq_some_iff, Elgot.Part.mem_iter_iff]
+  apply Elgot.Part.Runs.done
+  simp [Elgot.StateT.body, ExplicitRuntime.round, selectingLoop, callCase_run,
+    instruction, Elgot.StateT.distribute]
+
+private theorem producerReturns (input : Nat) (nonzero : input ≠ 0) :
+    (iter (ExplicitRuntime.round (ε := Bool) (m := Runtime) selectingLoop) input).run 0 =
+      Part.some ((.inr (.inl (input + 5)) : RoutedExit), 6) := by
+  rw [Elgot.StateT.run_iter, Part.eq_some_iff, Elgot.Part.mem_iter_iff]
+  refine .more (a' := ((input + 1 : Nat), 3)) ?_ (.done ?_)
+  all_goals
+    simp [Elgot.StateT.body, ExplicitRuntime.round, selectingLoop, finalLoop, stepLoop,
+      ExplicitRuntime.bodyAction, callCase_run, call_run, instruction, Elgot.StateT.distribute,
+      StateT.run_bind, StateT.run_pure, Part.bind_eq_bind, Part.bind_some, Part.pure_eq_some,
+      Function.comp_def, nonzero, Nat.add_assoc]
+
+private theorem consumerReturns :
+    (iter (ExplicitRuntime.round (ε := Bool) (m := Runtime) conditionalTail) (6 : Nat)).run 6 =
+      Part.some ((.inr (.inl (13 : Nat)) : RoutedExit), 9) := by
+  rw [Elgot.StateT.run_iter, Part.eq_some_iff, Elgot.Part.mem_iter_iff]
+  apply Elgot.Part.Runs.done
+  simp [Elgot.StateT.body, ExplicitRuntime.round, conditionalTail, finalLoop, stepLoop,
+    ExplicitRuntime.bodyAction, callCase_run, call_run, instruction, Elgot.StateT.distribute,
+    StateT.run_bind, StateT.run_pure, Part.bind_eq_bind, Part.bind_some, Part.pure_eq_some,
+    Function.comp_def]
+
+private theorem consumerUndefined :
+    (iter (ExplicitRuntime.round (ε := Bool) (m := Runtime) conditionalTail) (9 : Nat)).run 6 =
+      Part.none := by
+  rw [Elgot.StateT.run_iter, Part.eq_none_iff]
+  intro result finite
+  rw [Elgot.Part.mem_iter_iff] at finite
+  have blocked : Elgot.StateT.body (ExplicitRuntime.round (ε := Bool) (m := Runtime) conditionalTail)
+      ((9 : Nat),6) = Part.none := by
+    simp [Elgot.StateT.body, ExplicitRuntime.round, conditionalTail, finalLoop,
+      ExplicitRuntime.bodyAction, callCase_run, call_run, instruction,
+      StateT.run_bind, Part.bind_eq_bind]
+  cases finite with
+  | done h | more h _ => rw [blocked] at h; exact Part.notMem_none _ h
+
+private theorem routed_run (coherent : Coherent) (input : Nat) :
+    Region.denote (ε := Bool) (m := Runtime) routed.typing (PUnit.unit,input) =
+      iter (ExplicitRuntime.round (ε := Bool) selectingLoop) input >>= fun
+        | .inl result => pure (.inl result)
+        | .inr (.inl payload) => iter (ExplicitRuntime.round (ε := Bool) conditionalTail) payload
+        | .inr (.inr impossible) => nomatch impossible := by
+  rw [routed, Flat.denote_linkBy _ _ _ coherent]
+  simp only [Flat.Fragment.loop_denote, ExplicitRuntime.denote_rounds _ coherent]
+  congr 1
+  funext exit
+  rcases exit with result | payload | impossible
+  · rfl
+  · rfl
+  · exact impossible.elim
+
+-- The first label skips the consumer's effects. The heterogeneous second
+-- label goes through feedback and carries the producer token to the consumer.
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) routed.typing (PUnit.unit,(0 : Nat))).run 0 =
+      Part.some ((.inl PUnit.unit : RoutedExit), 1) := by
+  rw [routed_run coherent, StateT.run_bind, bypassStep]
+  simp only [Part.bind_eq_bind, Part.bind_some, StateT.run_pure, Part.pure_eq_some]
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) routed.typing (PUnit.unit,(1 : Nat))).run 0 =
+      Part.some ((.inr (.inl (13 : Nat)) : RoutedExit), 9) := by
+  rw [routed_run coherent, StateT.run_bind, producerReturns 1 (by decide)]
+  exact (Part.bind_some _ _).trans consumerReturns
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) routed.typing (PUnit.unit,(4 : Nat))).run 0 =
+      Part.none := by
+  rw [routed_run coherent, StateT.run_bind, producerReturns 4 (by decide)]
+  exact (Part.bind_some _ _).trans consumerUndefined
 
 private abbrev Start := WirePorts number number number
 private abbrev Stop := WirePorts number unitTy number
