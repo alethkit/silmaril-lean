@@ -122,6 +122,25 @@ admissible shapes per label), or relational. Even in unityped mode a
 profile may constrain arity by label. A maximally permissive unityped
 signature freely gives each `(data, p, q)` its own generator.
 
+Every v1 profile uses exactly one generator for each admissible
+`(data, input word, output word)` in a fixed signature. The label is
+compared by exact shallow equality and the words by their canonical
+color identifiers. In unityped mode the words are determined by the
+two arities, so the key is just `(data, p, q)` within the signature.
+Different admissible shapes for one label still give different
+generators. A signature with distinct generator identities at the
+same label and shape is outside the v1 interpretation. Validation
+of a finite signature with explicit generator rows must check this
+uniqueness before interpreting diagrams. The raw core can still be
+read as data.
+
+The generator key is scoped to the signature. Use its exact object
+link in a content-addressed context, such as the signature link of a
+theory. The raw core and typed wrapper take that context from the
+profile in which they are read. The same bytes can be used with
+different signatures. A typed isomorphism or replay judgment fixes
+one signature for both operands.
+
 An explicit typing records a length-$N$ array `sourceTypes` and the
 ordered boundary type words. Use shallow DASL type identifiers with
 exact equality, or canonical identifiers in a referenced type table.
@@ -140,14 +159,24 @@ Intrinsically a box carries a generator with indexed source and target
 words. Boundary and box input slots have types; each wiring value is a
 source with a proof that its type equals the destination type. Equivalently
 use a dependent finite function taking each destination to the subtype
-of sources of that color. From an explicit valid typing and chosen
-generator at each box, construct the intrinsic data by pairing each
-ordinal with its typing proof. Erasing the proof fields recovers the
-explicit data. Constructing again gives the same intrinsic data up to
-proof irrelevance, with the chosen generators fixed. If multiple generator
-identities share the same label and shape, intrinsically typed recovery of
-that identity needs a separate generator key. Erasing the types as well
-is generally many-to-one.
+of sources of that color. An explicit valid typing determines the
+unique v1 generator at every box. Construct the intrinsic data by
+pairing each ordinal with its typing proof. Erasing the proof fields
+recovers the explicit data. Constructing again gives the same intrinsic
+data up to proof irrelevance. Erasing the types as well is generally
+many-to-one.
+
+A future opt-in generator identity extension can use
+`["string-diagram/generator-ids/v1", body, generatorIds]`.
+Its profile would require a length-`B` array of nonnegative I64
+indices into the linked signature's generator rows, including for
+unityped boxes. The indexed signature row must match the label
+and recovered shape at that box. Layout conversions must
+transport this column with box occurrences, and graph extraction,
+isomorphism and replay in that profile must retain and check it.
+Readers that support the base v1 profiles can preserve the new wrapper
+opaquely. Interpreting it requires a verifier registered for that
+extension.
 
 For inference, introduce a variable for each source and substitute the
 same variable into all its uses. A fixed boundary contributes equations.
@@ -196,9 +225,9 @@ from the first operand to the second.
 **Symmetric monoidal.** For acyclic linear wiring and a colored generator
 signature, incidence is the usual combinatorial presentation of the free
 strict symmetric monoidal category, with objects color words (a PROP in
-the single-color case). The quotient is by a box bijection preserving
-labels, any chosen shapes and generator identities, ordered local slots,
-wiring, and each boundary position. There are no distinguished local
+the single-color case). At a fixed signature the quotient is by a box
+bijection preserving generator keys, ordered local slots, wiring, and
+each boundary position. There are no distinguished local
 coordinates. Here and below linearity counts **all** consumers, including
 exports.
 
@@ -233,9 +262,9 @@ central in the target of this profile.
 With a classification into distinguished central and other generators,
 the scheduled symmetric syntax equates adjacent dependency-incomparable
 steps when at least one is qualified central. The qualification may
-be by `data` (all admissible shapes of that label), by `(data,shape)`,
-or by generator ID when there are several per shape. A declared central
-arbitrary payload requires evidence from the signature or denotation.
+be by `data` (all admissible shapes of that label) or by the scoped
+`(data,shape)` key. Declaring an arbitrary payload central requires
+evidence from the signature or denotation.
 Exact equality of labels carries no such evidence. A target may
 validate extra interchanges by its equations or a proved independence
 relation; those can be recorded as theory equations. The monoidal
@@ -269,11 +298,22 @@ two-wire swap and no boxes. Even planar realizations of one wiring may
 be inequivalent. A nullary scalar to the left of a through wire and the
 same scalar to its right give the same core. The repository proves
 seam inequivalence of this pair in its [slice model](../Silmaril/Semantics/RuntimeWires/SeamPlacement/Thms.lean).
-Use a planar word or a slice witness specifying where each box consumes
-a contiguous ordered block of the frontier and where its outputs are
-inserted. For zero inputs the position specifies a gap, including which
-side of an unrelated strand the box occupies. Carry-through strands and
-the final boundary order are validated from the slices. The free strict
+Use a planar word or a progressive slice witness. A sequential slice
+row is `[b, g]`, with nonnegative I64 box and gap indices. The
+index `g` refers to the current ordered frontier of live source
+occurrences. Require `b < B` and `g + p_b ≤ len(frontier)`.
+Split the frontier as `L · U · R` with `len(L) = g` and
+`len(U) = p_b`. The occurrences in `U` must match the box input
+source ordinals in slot order. Replace exactly that block, at the
+same cut, by the fresh output occurrences `V` in output-slot order.
+In `L · U · R → L · V · R`, the prefix `L` and suffix `R`
+carry the same untouched strand occurrences in the same order.
+Check the generator's input and output types when
+typed. When `p_b = 0`, `g` selects one of the
+`len(frontier) + 1` indexed gaps, even for a scalar with no outputs.
+For the progressive linear witness start with the ordered diagram
+inputs, step through every box exactly once, and require the final
+frontier to equal the export source table in order. The free strict
 monoidal (non-symmetric PROP in one color) reading uses the typed
 planar terms or progressive diagrams modulo the monoidal coherence
 laws, with the core as their forgetful image. For a planar premonoidal
@@ -427,10 +467,17 @@ acyclicity are additional profiles.
   concatenated tails and the codomain. Encoding back recovers the
   incidence up to that vertex renaming, with hyperedge and leg
   positions fixed. For an exact round trip into the bare core, use
-  source order for vertices and `null` vertex labels. Other vertex
-  labels need a side table, such as the type annotation. Dropping
-  hyperedge order gives the symmetric incidence quotient up to
-  boundary-fixing isomorphism and forgets a selected schedule. Open hypergraphs with
+  source order for vertices and `null` vertex labels. In the typed
+  box-hypergraph profile, label each wire vertex with its canonical
+  color ID, including for unused sources. In the inverse, the producer
+  enumeration recovers `sourceTypes`, the two legs recover the boundary
+  words, and each hyperedge's tails and heads recover its shape. At a
+  fixed signature the edge label and that shape determine its v1
+  generator, including in unityped mode. In source order, this recovers
+  the explicit typed wrapper exactly. Arbitrary extra vertex data
+  needs a side table. Dropping hyperedge order gives the symmetric
+  incidence quotient up to boundary-fixing isomorphism and forgets a
+  selected schedule. Open hypergraphs with
   multiple producers, undriven vertices, or repeated left legs lie
   outside this image. Feedback without vertices needs a separate loop
   multiset, or a graph convention with marked loop vertices.
@@ -447,7 +494,10 @@ acyclicity are additional profiles.
   also loses nullary actions and unused-boundary information.
 - Isomorphisms of graphs and hypergraphs are bijections on vertices and
   edge occurrences preserving data, ordered incidence and each leg
-  position as appropriate. Dependency graph isomorphism does not lift
+  position as appropriate. For typed box hypergraphs, compare at the
+  same signature and preserve wire colors and exact shallow edge labels.
+  Ordered tail and head preservation then preserves the shape and
+  hence the generator key. Dependency graph isomorphism does not lift
   in general. Incidence isomorphism with the ordered box header fixed
   is raw structural equality after ordinals are reconstructed. An
   unordered symmetric diagram can use colored graph isomorphism by
@@ -547,7 +597,7 @@ translations applied when extracting subdiagrams or reordering boxes.
 
 | Table | Purpose |
 | --- | --- |
-| Signature, types and shapes | Label/shape/generator admission, colors, boundary profiles and selected overloads |
+| Signature, types and shapes | Label and shape admission, colors, boundary profiles and selected shapes. An opt-in generator ID extension uses a separate box column. |
 | Order, geometry and trace | Effect sequence, planar gaps/slices, braid words, feedback cuts, and standalone loops |
 | Theory and refinement | Theory equations and the evidence records specified below |
 | Origins and display | Stable box/boundary IDs, spans, titles, styles, region paths, coordinates, chosen layout and renderer hints |
@@ -594,26 +644,30 @@ array, whose length must fit in nonnegative I64. The list contains
 concrete typed equations without metavariables. The theory denotes
 the least well-typed congruence containing these equations and the
 admitted structural laws, closed under the profile's operations.
-Orienting an equation for replay
-does not change that congruence.
+Orienting an equation for replay does not change that congruence.
+The signature link fixes the v1 generator keys throughout the theory,
+its equations, and every checked claim and context.
 
 ### Equality evidence
 
-One verifier scheme uses `["string-diagram/equational-chain/v1", steps]`.
+The v1 chain verifier scheme uses
+`["string-diagram/equational-chain/v1", steps]`.
 Starting with the claim's `lhs`, replay each step against the current
 diagram and set the current diagram to its `next` link after successful
 validation. The last link must be `rhs`. An empty list therefore
-certifies a claim with the same endpoint key on both sides.
+certifies a validated claim with the same endpoint key on both sides.
+The scheme recognizes exactly the following two step kinds.
 
 - `["iso", next, boxMap]` checks structural isomorphism. For the
   symmetric incidence profiles, `boxMap` lists one target box index per
-  current box and must be a bijection. Check label and chosen generator
-  equality, arities, type and slot preservation, the wiring after
-  translating producer and consumer positions, and both ordered
-  boundaries. Also check the noncentral order in the premonoidal
-  profile and loop multiplicities by color in the traced profile,
-  as applicable. A placement or braid profile requires its own
-  geometric evidence scheme before accepting such a structural step.
+  current box and must be a bijection. Check exact label equality and
+  equal recovered shapes in the common signature. These checks
+  establish preservation of generator keys. Check arities, types at
+  every port, ordered slots, wiring after translating producer and
+  consumer positions, and both ordered boundaries. Also check the
+  noncentral order in the premonoidal profile and loop multiplicities
+  by color in the traced profile, as applicable. A placement or braid
+  profile requires its own geometric evidence scheme for such a step.
 - `["equation", next, row, direction, context]` looks up `row` in the
   theory and takes its sides in the given order. `direction` is exactly
   `"forward"` or `"reverse"`. The verifier reconstructs the current and
@@ -635,15 +689,29 @@ the availability of each operation at every constructor. The
 verifier scheme fixes the result row order and normalization for
 these operations. It must reject overflow of the transport bounds.
 
+This verifier checks a fragment of the full theory congruence.
+A structural equation that already evaluates to identical diagram
+keys needs no step. Those that evaluate to presentations related by
+the checked box bijection can use `iso`. Any other structural law
+requires a checked rule in another verifier schema, or a concrete
+instance explicitly declared as an equation in the theory table.
+With an empty equation table the v1 chain checks only reflexivity
+and supported `iso` steps. For example, in an unrestricted
+cartesian profile, natural deletion equates a unary box followed
+by deletion with direct deletion of its input. The cores have
+different box counts and no `iso` step between them. A verifier for
+the generic deletion law would have to check its profile and the
+reconstructed instance even when the equation table is empty.
+
 Induction over the replay proves soundness for the theory
 congruence. The initial diagram is equal to itself. An isomorphism
 step uses a structural law of the profile, and an equation step
 uses congruence in the reconstructed context. Transitivity yields
 the final equality. Soundness in a target model also requires that
 the interpretation validate the theory's equations and structural
-laws. Replay checks a supplied derivation. Completeness of search,
-termination of oriented rewriting and completeness of saturation
-are separate claims. The repository's
+laws. Replay checks only supplied steps and contexts. The coverage
+above makes no completeness claim about matching, search or the
+full theory congruence. The repository's
 [DASL e-graph bridge](dasl-egraph-bridge.md) uses a related
 replay-then-validate contract for class tables.
 
@@ -757,6 +825,11 @@ index and treat stored claims as candidates until verification.
   final states 1 and 0 in the two execution orders. Both orders have
   empty value dependency. The premonoidal order distinguishes the
   schedules.
+- On a single through strand with source ordinal 0, a nullary box
+  can have slice row `[0,0]` or `[0,1]`. With gap 0 the strand is
+  in `R`, and with gap 1 it is in `L`. In either case both `U` and
+  `V` are empty, so the export table is `[0]`. The core agrees for
+  both slice rows and the placement differs.
 - `["string-diagram/v1",[2,2,[],[],[0,0]]]` has use counts `[2,0]`.
   It copies input 0 and deletes input 1. This is an unrestricted
   structural wiring and fails the three narrower usage tests. Changing
