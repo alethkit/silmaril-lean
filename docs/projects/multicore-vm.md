@@ -36,6 +36,53 @@ schedule. Operational commutation requires a separate proof about the
 transition relation. The correspondence covers successful finite prefixes.
 Fairness and termination are outside its scope.
 
+## Yield-only cooperative scheduling
+
+Import `Silmaril.Machine.MulticoreVM.Cooperative.Thms`. The program supplies
+an atomic transition, a separate explicit yield transition, and a completion
+predicate over its own state. The dispatcher starts idle. A dispatch decision
+can select a policy-approved thread with an ordinary or yield instruction
+available. Ordinary instructions retain the owner, including silent
+instructions and the last instruction of a thread. A yield commits its
+continuation and releases the owner. The next dispatch can select the same
+thread if it is runnable. The runtime can retire a finished owner through
+`complete`, which also releases the dispatcher. Lack of an available
+instruction alone does not retire an owner or allow a different thread
+to run.
+
+The schedule distinguishes `dispatch`, `atomic`, `yield`, and `complete`.
+Only atomic instructions contribute to the chronological word. Under
+`Program.Refines`, ordinary steps realize the corresponding abstract
+transition with the same fragment and yields preserve the abstract state
+view. Then `scheduled_refines` erases administrative decisions and preserves
+the initial and final states under that view, along with the entire
+chronological word. Silent atomic steps still count toward the projected
+schedule length.
+
+`everyAtomic` instruments any atomic transition with a pending-yield bit.
+Each ordinary instruction sets it, and the synthetic yield clears it and
+releases ownership. The yield remains available after a terminal atomic
+instruction. After it is consumed, dispatch once again requires an available
+underlying step. With `anyDispatch`, `scheduled_instrument` lifts every successful
+finite arbitrary schedule by inserting dispatch before each atomic decision
+and yield after it. The lift starts and ends idle, including the empty
+schedule, and preserves the word and underlying VM state.
+`observedOutcomes_everyAtomic` gives equality with the arbitrary
+`namedOutcomes` at each atomic step count. The comparison concerns finite
+prefixes and assumes unrestricted dispatch for the converse. A more
+restrictive policy can exclude particular schedules. There is no fairness or
+progress requirement.
+[Definitions][coop] · [Theorems][coop-thms] · [Regressions][coop-tests]
+
+The optional [ThreadSync bridge][coop-thread-sync] checks an already-owned
+yield with an empty wake choice. When the generic program delegates this
+instruction to the keyed VM and the owner is live, both policies install the
+same continuation and release ownership. The generic schedule records the
+yield as a silent decision, while ThreadSync emits its yield event. ThreadSync
+combines selection with instruction execution and releases on parking or
+program exhaustion. The bridge covers the owned yield transition.
+[ThreadSync guide][thread-sync]
+
 ## Explicit core placement
 
 `Placed.Config` has separate core and thread IDs and stores. Its placement is a
@@ -151,10 +198,16 @@ registers, output, and spawn. [Machine traces][machine] · [Process.Mt][process]
 ```sh
 make check CHECK_TARGETS='+Silmaril.Proofs.Machine.MulticoreVM.Regression +Silmaril.Proofs.Semantics.ConcurrentTrace.Regression +Silmaril.Proofs.Machine.MulticoreVM.Placed.Regression +Silmaril.Proofs.Machine.MulticoreVM.Institution.ProjectionRegression'
 make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Scheduler.Thms +Silmaril.Proofs.Machine.MulticoreVM.Scheduler.ThreadSyncWitness +Silmaril.Proofs.Machine.MulticoreVM.Placed.Regression +Silmaril.Proofs.Machine.MulticoreVM.ThreadSync.Regression +Silmaril.Proofs.Machine.MulticoreVM.Regression +Silmaril.Proofs.Semantics.ConcurrentTrace.Regression'
+make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Cooperative.Thms +Silmaril.Machine.MulticoreVM.Cooperative.ThreadSync.Thms +Silmaril.Proofs.Machine.MulticoreVM.Cooperative.Regression +Silmaril.Proofs.Machine.MulticoreVM.ThreadSync.Regression'
 ```
 
 [defs]: ../../Silmaril/Machine/MulticoreVM/Defs.lean
 [thms]: ../../Silmaril/Machine/MulticoreVM/Thms.lean
+[coop]: ../../Silmaril/Machine/MulticoreVM/Cooperative/Defs.lean
+[coop-thms]: ../../Silmaril/Machine/MulticoreVM/Cooperative/Thms.lean
+[coop-tests]: ../../Silmaril/Proofs/Machine/MulticoreVM/Cooperative/Regression.lean
+[coop-thread-sync]: ../../Silmaril/Machine/MulticoreVM/Cooperative/ThreadSync/Thms.lean
+[thread-sync]: multicore-vm-thread-sync.md
 [placed]: ../../Silmaril/Machine/MulticoreVM/Placed/Defs.lean
 [placed-thms]: ../../Silmaril/Machine/MulticoreVM/Placed/Thms.lean
 [placed-outcomes]: ../../Silmaril/Machine/MulticoreVM/Placed/Outcomes/Thms.lean
