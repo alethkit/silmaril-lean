@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Defs
+public import Silmaril.SSA.SeaOfNodes.Pure.WordNormalize.Defs
 
 /-! Discover and compose checked word-add and erasure edits on the current word suffix. -/
 
@@ -13,6 +14,7 @@ open ConstantFold
 open GVN (Producer)
 open SubZero (word)
 open RVSDG (Wires)
+open scoped WordNormalize
 
 variable {inputs : List (ValueSort Unit)} {ports : List (Ty Unit)}
 
@@ -20,12 +22,13 @@ inductive Rule where
   | literal
   | rightZero
   | literalRight
+  | reuseAdd
   | deleteUnused
   deriving DecidableEq, Repr
 
 def Rule.erases : Rule → Bool
   | .literal | .literalRight => false
-  | .rightZero | .deleteUnused => true
+  | .rightZero | .reuseAdd | .deleteUnused => true
 
 def isAdd {ins : List (ValueSort Unit)} {out : ValueSort Unit} : SubZero.Opcode ins out → Bool
   | .add => true
@@ -100,20 +103,29 @@ def add? (block : Block inputs ports) (candidate : Producer block.flow word) : O
 def rightZero? (block : Block inputs ports) (candidate : Producer block.flow word) : Option (Edit block) :=
   (add? block candidate).filter fun edit => decide (edit.rule = .rightZero)
 
+/-- Reuse an earlier exact-key add from this table. The total route
+redirects reads of the duplicate in both the suffix and the packet. -/
+def reuseAdd? (block : Block inputs ports) (candidate : Producer block.flow word) : Option (Edit block) :=
+  if isAdd candidate.key.opcode then
+    (GVN.Pass.eliminateCandidate? candidate).bind fun rewrite =>
+      checkedEdit? block .reuseAdd (fromRewrite block rewrite)
+  else none
+
 /-- Attempt an erasure with the complete outgoing packet in scope. -/
 def unused? (block : Block inputs ports) (candidate : Producer block.flow word) : Option (Edit block) :=
   (Deletion.delete? candidate block.packet).bind fun deleted =>
     checkedEdit? block .deleteUnused
       ⟨⟨deleted.erasure.sigs', deleted.erasure.flow, deleted.outputs⟩, deleted.erasure.route⟩
 
-/-- Scan for an eligible add decision, then for an unused producer.
+/-- Scan for an eligible add idealization, exact add reuse, then unused deletion.
 Each scan selects the first candidate in table order. -/
 def step? (block : Block inputs ports) : Option (Edit block) :=
   let producers := RightIdentityPass.wordProducers block.flow
-  (producers.findSome? (add? block)).orElse fun _ => producers.findSome? (unused? block)
+  (producers.findSome? (add? block)).orElse fun _ =>
+    (producers.findSome? (reuseAdd? block)).orElse fun _ => producers.findSome? (unused? block)
 
 def NoEligible (block : Block inputs ports) : Prop :=
-  ∀ candidate : Producer block.flow word, add? block candidate = none ∧ unused? block candidate = none
+  ∀ candidate : Producer block.flow word, add? block candidate = none ∧ reuseAdd? block candidate = none ∧ unused? block candidate = none
 
 structure Result (block : Block inputs ports) where
   state : State inputs ports block.sigs

@@ -5,6 +5,8 @@ import Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Thms
 import Silmaril.SSA.SeaOfNodes.Pure.ConstantFold.AddIdealize.Thms
 import Silmaril.SSA.SeaOfNodes.Pure.Deletion.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Pass.Thms
+import Silmaril.SSA.SeaOfNodes.GVN.Discovery.Thms
+import Silmaril.SSA.SeaOfNodes.GVN.Elimination.Thms
 
 public section
 
@@ -13,12 +15,14 @@ namespace Silmaril.Proofs.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery
 open Silmaril.SSA.SeaOfNodes
 open Diamond (Dataflow Ty Val ValueSort dataPorts)
 open GVN (Producer)
+open GVN.Elimination (Routing operandScope routeSuffix erase)
+open scoped Silmaril.SSA.SeaOfNodes.Pure.WordNormalize
 open Silmaril.SSA.SeaOfNodes.Pure
 open Pure.ConstantFold
 open Pure.SubZero (model word)
 open Pure.SuffixReplay
 open Pure.SuffixReplay.Discovery
-open Silmaril.SSA.RVSDG (Tuple)
+open Silmaril.SSA.RVSDG (Origin Tuple)
 
 variable {inputs : List (ValueSort Unit)} {ports : List (Ty Unit)}
 variable {block : Block inputs ports} {candidate : Producer block.flow word} {edit : Edit block}
@@ -87,6 +91,22 @@ private theorem unused_agrees (accepted : unused? block candidate = some edit)
   rw [(checkedEdit_fields admitted).2]
   exact ⟨Deletion.delete?_agrees checked model entry PUnit.unit, (Deletion.delete?_eq_some_iff.mp checked).2⟩
 
+private theorem checkedEdit_erasure {rule : Rule} {state : State inputs ports block.sigs}
+    (erases : rule.erases = true) (bindings : state.block.sigs.length + 1 = block.sigs.length)
+    (kept : List.Sublist (Deletion.opcodes state.block.flow) (Deletion.opcodes block.flow)) :
+    checkedEdit? block rule state ≠ none := by
+  have adds : addCount state.block ≤ addCount block := kept.countP_le
+  have primary : primaryWeight state.block < primaryWeight block := by
+    unfold primaryWeight
+    omega
+  have progress : Progress rule block state.block := by
+    have distinct : rule ≠ .literalRight := by
+      intro same
+      subst rule
+      cases erases
+    simpa [Progress, distinct] using primary
+  simp [checkedEdit?, erases, bindings, progress, weight_lt_of_primary primary]
+
 theorem unused?_eq_none_iff : unused? block candidate = none ↔
     Deletion.delete? candidate block.packet = none := by
   cases checked : Deletion.delete? candidate block.packet with
@@ -98,25 +118,85 @@ theorem unused?_eq_none_iff : unused? block candidate = none ↔
       change List.Sublist (Deletion.opcodes deleted.erasure.flow) (Deletion.opcodes block.flow)
       rw [Deletion.delete?_opcode_order checked]
       exact List.eraseIdx_sublist _ _
-    have adds : addCount state.block ≤ addCount block := kept.countP_le
-    have bindings : state.block.sigs.length + 1 = block.sigs.length := deleted.erasure.shorter
-    have primary : primaryWeight state.block < primaryWeight block := by
-      unfold primaryWeight
-      omega
-    have decreases := weight_lt_of_primary primary
     simp only [unused?, checked, Option.bind_some]
     change checkedEdit? block .deleteUnused state = none ↔ some deleted = none
-    simp [checkedEdit?, Rule.erases, Progress, bindings, primary, decreases]
+    simp [checkedEdit_erasure (rule := .deleteUnused) rfl deleted.erasure.shorter kept]
+
+section Opcodes
+
+variable {args : List (Ty Unit)} {past sigs target : List (List (Ty Unit))}
+
+private theorem routeSuffix_opcodes (flow : Dataflow SubZero.Opcode args past sigs)
+    (route : Routing args past target) :
+    Deletion.opcodes (routeSuffix flow route).1 = Deletion.opcodes flow := by
+  induction flow generalizing target with
+  | nil => rfl
+  | @cons _ _ ins out opcode operands rest ih =>
+    exact congrArg (List.cons ⟨ins, out, opcode⟩) (ih (route.push [.value out]))
+
+private theorem erase_opcodes {flow : Dataflow SubZero.Opcode args past sigs} {sort : ValueSort Unit}
+    (node : Producer flow sort) (wire : Origin args (operandScope node) (.value sort)) :
+    List.Sublist (Deletion.opcodes (erase node wire).flow) (Deletion.opcodes flow) := by
+  induction node with
+  | @here past sigs ins out opcode operands rest =>
+    change Origin args past (.value out) at wire
+    change List.Sublist (Deletion.opcodes (routeSuffix rest (GVN.Elimination.dropNewest wire)).1)
+      (⟨ins, out, opcode⟩ :: Deletion.opcodes rest)
+    rw [routeSuffix_opcodes]
+    exact List.sublist_cons_self _ _
+  | later node ih => exact (ih wire).cons_cons _
+
+end Opcodes
+
+theorem reuseAdd?_checked (accepted : reuseAdd? block candidate = some edit) :
+    ∃ rewrite, isAdd candidate.key.opcode = true ∧ GVN.Pass.eliminateCandidate? candidate = some rewrite ∧
+      edit.rule = .reuseAdd ∧ edit.state = fromRewrite block rewrite := by
+  by_cases add : isAdd candidate.key.opcode = true
+  · simp only [reuseAdd?, add, ↓reduceIte, Option.bind_eq_some_iff] at accepted
+    obtain ⟨rewrite, checked, admitted⟩ := accepted
+    obtain ⟨rule, state⟩ := checkedEdit_fields admitted
+    exact ⟨rewrite, add, checked, rule, state⟩
+  · simp [reuseAdd?, add] at accepted
+
+theorem reuseAdd?_eq_none_iff : reuseAdd? block candidate = none ↔
+    isAdd candidate.key.opcode = false ∨
+      ∀ representative : Producer block.flow word, GVN.checkRepresentative candidate representative = false := by
+  cases add : isAdd candidate.key.opcode with
+  | false => simp [reuseAdd?, add]
+  | true =>
+    simp only [reuseAdd?, add, ↓reduceIte, Bool.true_eq_false, false_or]
+    rw [← GVN.Discovery.findRepresentative?_eq_none_iff, ← GVN.Pass.eliminateCandidate?_eq_none_iff]
+    cases checked : GVN.Pass.eliminateCandidate? candidate with
+    | none => simp
+    | some rewrite =>
+      obtain ⟨representative, wire, _, _, accept⟩ := GVN.Pass.eliminateCandidate?_checked candidate checked
+      have bindings := GVN.Elimination.eliminate_size candidate representative wire accept
+      have shape : erase candidate wire = rewrite := by
+        unfold GVN.Elimination.eliminate? at accept
+        split at accept
+        · exact Option.some.inj accept
+        · contradiction
+      have kept : List.Sublist (Deletion.opcodes rewrite.flow) (Deletion.opcodes block.flow) := by
+        rw [← shape]
+        exact erase_opcodes candidate wire
+      simp [checkedEdit_erasure (rule := .reuseAdd) (state := fromRewrite block rewrite) rfl bindings kept]
 
 theorem step?_checked (accepted : step? block = some edit) :
     ∃ candidate : Producer block.flow word,
-      add? block candidate = some edit ∨ unused? block candidate = some edit := by
+      add? block candidate = some edit ∨ reuseAdd? block candidate = some edit ∨ unused? block candidate = some edit := by
   cases found : (RightIdentityPass.wordProducers block.flow).findSome? (add? block) with
   | none =>
-    have chosen : (RightIdentityPass.wordProducers block.flow).findSome? (unused? block) = some edit := by
-      simpa [step?, found] using accepted
-    obtain ⟨candidate, _, checked⟩ := List.exists_of_findSome?_eq_some chosen
-    exact ⟨candidate, .inr checked⟩
+    cases reused : (RightIdentityPass.wordProducers block.flow).findSome? (reuseAdd? block) with
+    | none =>
+      have chosen : (RightIdentityPass.wordProducers block.flow).findSome? (unused? block) = some edit := by
+        simpa [step?, found, reused] using accepted
+      obtain ⟨candidate, _, checked⟩ := List.exists_of_findSome?_eq_some chosen
+      exact ⟨candidate, .inr (.inr checked)⟩
+    | some first =>
+      have same : first = edit := by simpa [step?, found, reused] using accepted
+      subst edit
+      obtain ⟨candidate, _, checked⟩ := List.exists_of_findSome?_eq_some reused
+      exact ⟨candidate, .inr (.inl checked)⟩
   | some first =>
     have same : first = edit := by simpa [step?, found] using accepted
     subst edit
@@ -125,10 +205,15 @@ theorem step?_checked (accepted : step? block = some edit) :
 
 theorem step_agrees (accepted : step? block = some edit) (entry : Tuple (Val model.value) (dataPorts inputs)) :
     Agrees block edit.state entry := by
-  obtain ⟨candidate, checked | checked⟩ := step?_checked accepted
+  obtain ⟨candidate, checked | checked | checked⟩ := step?_checked accepted
   · obtain ⟨applied, chosen, _, same⟩ := add?_checked checked
     rw [same]
     exact fromRewrite_agrees applied.rewrite entry (AddIdealize.step_agrees chosen entry)
+  · obtain ⟨rewrite, _, chosen, _, same⟩ := reuseAdd?_checked checked
+    rw [same]
+    obtain ⟨representative, wire, _, _, accepted⟩ := GVN.Pass.eliminateCandidate?_checked candidate chosen
+    exact fromRewrite_agrees rewrite entry
+      (GVN.Elimination.eliminate_sound candidate representative wire model entry PUnit.unit accepted)
   · exact unused_agrees checked entry
 
 private theorem mem_producers (candidate : Producer block.flow word) :
@@ -140,13 +225,17 @@ theorem step?_eq_none_iff (block : Block inputs ports) : step? block = none ↔ 
       (RightIdentityPass.wordProducers block.flow).findSome? check = none ↔ ∀ candidate, check candidate = none :=
     ⟨fun miss candidate => List.findSome?_eq_none_iff.mp miss candidate (mem_producers candidate),
       fun miss => List.findSome?_eq_none_iff.mpr fun candidate _ => miss candidate⟩
-  have noFirst : step? block = none ↔
+  have noHit : step? block = none ↔
       (RightIdentityPass.wordProducers block.flow).findSome? (add? block) = none ∧
+        (RightIdentityPass.wordProducers block.flow).findSome? (reuseAdd? block) = none ∧
         (RightIdentityPass.wordProducers block.flow).findSome? (unused? block) = none := by
-    cases first : (RightIdentityPass.wordProducers block.flow).findSome? (add? block) <;> simp [step?, first]
-  rw [noFirst, scan_iff, scan_iff]
-  exact ⟨fun miss candidate => ⟨miss.1 candidate, miss.2 candidate⟩,
-    fun miss => ⟨fun candidate => (miss candidate).1, fun candidate => (miss candidate).2⟩⟩
+    cases first : (RightIdentityPass.wordProducers block.flow).findSome? (add? block) <;>
+      cases second : (RightIdentityPass.wordProducers block.flow).findSome? (reuseAdd? block) <;>
+      simp [step?, first, second]
+  rw [noHit, scan_iff, scan_iff, scan_iff]
+  exact ⟨fun miss candidate => ⟨miss.1 candidate, miss.2.1 candidate, miss.2.2 candidate⟩,
+    fun miss => ⟨fun candidate => (miss candidate).1,
+      fun candidate => (miss candidate).2.1, fun candidate => (miss candidate).2.2⟩⟩
 
 private theorem run_spec (fuel : Nat) (block : Block inputs ports) (enough : weight block < fuel) :
     let final := Discovery.run fuel block enough

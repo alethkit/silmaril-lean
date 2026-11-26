@@ -201,4 +201,49 @@ theorem ordinary_live_operands_have_no_eligible_swap :
       (Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.normalize bothLive).state.block = bothLive :=
   ⟨rfl, rfl⟩
 
+/-- The original inner add already feeds the outer add. Add a second copy
+for a subtraction and for the packet's second field. -/
+private def repeatedAdd (reversed : Bool) (past : List (List (Ty Unit)))
+    (old : Origin args past wordPort) : TestTail past :=
+  let capture : Origin args past wordPort := .arg .head
+  let phi : Origin args past wordPort := .arg (.tail .head)
+  let operands := if reversed then .cons phi (.cons capture .nil) else .cons capture (.cons phi .nil)
+  let copy : Origin args (past ++ [row]) wordPort := newest .head
+  ⟨[row, row], .cons .add operands
+      (.cons .sub (.cons (weaken row old) (.cons copy .nil)) .nil),
+    .cons (newest .head) (.cons (weaken row copy) .nil)⟩
+
+private def reuseSummary (reversed : Bool) :=
+  (rewrite (sourceWith 7) x .left).map (fun result => match result with
+    | .materialized .right _ p =>
+      let ext := withTail p (repeatedAdd reversed)
+      let final := Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.normalize ext
+      let after := final.state.block
+      let ordered := (findProducer? after.program after.program.result).map
+        fun (candidate : Producer after.program.dataflow word) => candidate.key.operands.addresses
+      some (final.rules, after.sigs.length, (step? after).isNone, after.packet.addresses, ordered,
+        packetAt p ext false, packetAt p after false, packetAt p ext true, packetAt p after true)
+    | _ => none)
+
+theorem exact_add_reuse_shares_a_producer_across_two_observable_consumers :
+    reuseSummary false =
+      .ok (some ([.reuseAdd], 4, true, [.output 3 0, .output 1 0], some [.output 2 0, .output 1 0],
+        (7, 2), (7, 2), (7, 41), (7, 41))) := rfl
+
+theorem reversed_operands_keep_the_later_producer_live_and_distinct :
+    reuseSummary true =
+      .ok (some ([], 5, true, [.output 4 0, .output 3 0], some [.output 2 0, .output 3 0],
+        (7, 2), (7, 2), (7, 41), (7, 41))) := rfl
+
+theorem materialized_diamond_reuse_keeps_predecessor_occurrences :
+    (rewrite (sourceWith 7) x .left).map (fun result => match result with
+      | .materialized .right _ p =>
+        let extended := { p with suffix := (withTail p (repeatedAdd false)).program }
+        let target := normalize extended
+        some (target.suffix.sigs.length, target.diamond.merge,
+          (target.diamond.arms .first).outputs.addresses, (target.diamond.arms .second).outputs.addresses,
+          observe target false, observe target true)
+      | _ => none) =
+      .ok (some (4, ⟨.onFalse⟩, [.output 0 0], [.output 2 0], 7, 7)) := rfl
+
 end Silmaril.Proofs.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.SuffixReplay.Discovery.Regression
