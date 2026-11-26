@@ -70,6 +70,41 @@ Region orders. It also checks that emission refuses an observing Load
 or a missing overwrite on just one route.
 [Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
 
+## Check a finite predecessor bank
+
+`DeadStore.Finite.check preds store arm candidate input` uses the
+existing nonempty quad predecessor table to index a bank of ordered
+memory paths. The table position selects the path and its overwrite and
+reader certificate. Several positions can carry the same predecessor
+identifier. Each position gets its own check, and one refusal prevents
+the entire cut. The binary diamond uses the same per-path checker.
+[Predecessor table](../../Silmaril/SSA/SeaOfNodes/Quads/CFG/Defs.lean) ·
+[Memory checker](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Defs.lean) ·
+[Pinned Simple memory Phi](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#memory-is-an-ssa-variable)
+
+At each selected position the proof preserves every ordered Load
+readback and the entire word and heap packet. Any native continuation
+receives that same packet. Reindexing the paths and certificates by
+the same occurrence permutation gives the correspondingly reindexed
+results. The scope starts with an admitted incoming position and its
+full straight-line paths, at a scalar valuation accepted by all the
+reader checks.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Thms.lean)
+
+The fixture reads the packet from the actual emitted MemRef blocks for
+each of three paths, reverses their predecessor order, and checks that
+a Load of the old cell on only the middle path refuses. The current
+MemRef diamond CFG emitter uses two Region slots and a Boolean entry
+branch. Multiway dispatch and serialization of the full MemRef join
+remain open. The fixture uses the existing straight-line MemRef emitter
+for each path.
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.Regression
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Regression.lean
+```
+
 ## Bypass a single-user Store inside one arm
 
 `DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter

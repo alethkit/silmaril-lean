@@ -69,25 +69,24 @@ theorem rewrite_shape (input : Tuple (Val cells) args)
   let checked := rewrite_result input success
   ⟨checked.1, checked.2.1⟩
 
-theorem rewrite_arm_observations (input : Tuple (Val cells) args)
-    (success : rewrite source candidate input = some rewritten) (arrival : Slot) (initial : Heap cells) :
-    let edge := source.diamond.merge.predecessor arrival
-    let entered := (source.store.table.denote input initial).2
-    (rewritten.arm edge).denote input initial = (source.diamond.arm edge).denote input entered ∧
-      ∀ index, Memory.DeadStore.readAt (rewritten.arm edge) index input PUnit.unit initial =
-        Memory.DeadStore.readAt (source.diamond.arm edge) index input PUnit.unit entered := by
-  obtain ⟨checked, valid⟩ := (Memory.DeadStore.rewrite_eq_some_iff input).mp
-    (rewrite_occurrence input success arrival)
+theorem rewriteArm_observations {store : PrefixStore args} {arm edited : Memory.Graph args}
+    {witness : ArmOverwrite args} (input : Tuple (Val cells) args)
+    (success : rewriteArm store arm witness input = some edited) (initial : Heap cells) :
+    let entered := (store.table.denote input initial).2
+    edited.denote input initial = arm.denote input entered ∧
+      ∀ index, Memory.DeadStore.readAt edited index input PUnit.unit initial =
+        Memory.DeadStore.readAt arm index input PUnit.unit entered := by
+  obtain ⟨checked, valid⟩ := (Memory.DeadStore.rewrite_eq_some_iff input).mp success
   obtain ⟨result, reads⟩ := Memory.DeadStore.rewriteWith_observations checked input valid initial
-  exact ⟨result.trans (prepend_denote source.store _ input initial),
-    fun index => (reads index).trans (prepend_readAt source.store _ index input initial)⟩
+  exact ⟨result.trans (prepend_denote store arm input initial),
+    fun index => (reads index).trans (prepend_readAt store arm index input initial)⟩
 
 theorem rewrite_denote (input : Tuple (Val cells) args)
     (success : rewrite source candidate input = some rewritten) (guard : Bool) (initial : Heap cells) :
     rewritten.denote guard input initial = source.denote guard input initial := by
   have suffix := (rewrite_shape input success).2
   let arrival := source.diamond.merge.slot (Projection.ofBool guard)
-  have same := (rewrite_arm_observations input success arrival initial).1
+  have same := (rewriteArm_observations input (rewrite_occurrence input success arrival) initial).1
   dsimp only [arrival] at same
   rw [source.diamond.merge.predecessor_slot] at same
   simp only [Graph.denote, Prefixed.denote, suffix, same]
