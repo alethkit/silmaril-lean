@@ -196,9 +196,8 @@ reuses the original θ and arm routing. The checked packet proves that
 the in-scope fillers for dropped wires have no effect on the branch,
 return or retained feedback. The comparison reuses the existing
 source and CF budgets, including absence of any finite return.
-The CF endpoint uses the original full merge bank. A narrower CF
-join needs a typed merge-to-latch edge that supplies only the inputs
-needed by the latch, including any live-through values.
+This comparison uses the full-merge CF emitter. The next section
+gives the narrower CF emitter and its checked merge-to-latch edge.
 [Certificate](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Thms.lean) ·
 [Numbered emitter](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Numbered/Thms.lean) ·
 [CF comparison](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Comparison/Thms.lean)
@@ -238,3 +237,63 @@ latch packets show two continuing activations and a stop returning
 `16`. All three runners return `16` at budgets `14/15/3` and
 exhaust at the smaller bounds.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Regression.lean)
+
+## Emit the checked merge-to-latch interface in CF
+
+`Latch.Split.prepare` starts with the shared merge–latch certificate.
+The backward sweep on the separate latch keeps every producer operand,
+the resolved guard and return word, and every field of the projected
+header feedback. The checker then validates two typed transfers. The
+merge sends just the needed latch inputs in register order. The latch
+computes the same packet as the shared certificate. `Split.check` can
+also validate a supplied latch mask.
+[Checked interface](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Split/Thms.lean)
+
+`Latch.MLIR.CF.lower` reuses the existing projected header and merge
+labels and sends the original latch edges to its narrower block
+signature. The wrapped label family retains a full-width latch label,
+but all edges to the latch use the projected label. The additional cut
+check can refuse a mask if either locally scoped transfer cannot be
+renamed. `selected_predecessor_frame` identifies the actual emitted
+incoming frame from each selected original predecessor. This includes
+the inner split's direct edge and its post-inner definitions.
+`merge_frame` gives the actual merge-to-latch arguments, and
+`latch_frame` gives the selected exit word or simultaneous feedback
+frame. The merge and latch still execute as separate source visits.
+`lower_run` preserves the source budget `n` at CF budget `n + 1`,
+including exhaustion. Only the final typed CF return adds a visit.
+The comparison with the narrower numbered graph transfers finite
+return witnesses at independent budgets and proves agreement when
+neither runner returns at any finite budget.
+[CF proofs](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/MLIR/CF/Thms.lean) ·
+[Numbered comparison](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/MLIR/CF/Comparison/Thms.lean)
+
+Build with
+`lake build --wfail +Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.MLIR.CF.Example.Defs`.
+Paste into `QuadMergeLatchCF.lean` and run
+`lake env lean -DwarningAsError=true QuadMergeLatchCF.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.MLIR.CF.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.MLIR.CF.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch
+
+#eval Example.columns
+#eval MLIR.CF.Example.incomingArities
+#eval MLIR.CF.Example.latchArity
+#eval Example.refusesUsed
+#eval (Example.runSource 14, MLIR.CF.Example.runCF 15, Example.runRVSDG 3)
+#eval (Example.runSource 13, MLIR.CF.Example.runCF 14, Example.runRVSDG 2)
+```
+
+All three emitted merge edges and the subsequent latch edge carry five
+of seven fields. The latch resets the dropped decrement to `255`.
+The regression checks the exact emitted merge and latch packets on
+both backedges and the exit, which returns `16`. It also checks the
+merge operand, incoming latch guard, feedback field and counter refusals.
+The interface covers the checked pure nested split, common merge and
+tested latch.
+[CF regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/MLIR/CF/Regression.lean)

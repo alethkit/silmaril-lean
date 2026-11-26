@@ -28,7 +28,7 @@ variable {src : Source Op regs out size} {entry : Fin size} {carry merge : Mask 
 variable (p : Program src entry) (projected : HeaderProjection (src p.header).body carry)
 variable (checked : Checked p merge)
 
-private theorem jump_agrees :
+theorem jump_agrees :
     JumpAgrees (jump p.header p.join carry merge (out := out)) (siteFrame p.header p.join carry merge) := by
   intro _ _ _ _ _ input locals ok versions id
   by_cases atHeader : id = p.header
