@@ -1085,9 +1085,20 @@ singleton specialization.
 
 Literal readback checks the register plan, packet closure, and ordered
 live-out reattachment. The actual opt-in reversion still checks typing
-and entry-reachable rank. The caller supplies all selected slots and the
-register plan. Used register collisions, unsupported operands, and
-remaining ambient reads can cause the checks to reject.
+and entry-reachable rank. Used register collisions, unsupported operands,
+and remaining ambient reads can cause the checks to reject.
+
+`PacketLocal.Witnessed.compileInferred?` derives the shared list from the
+actual numbered typed rows. The scan uses LambdaSSA's free occurrence
+predicate inside operands and shifts past each local binder and the
+packet parameter. `Carry.inferSlots` keeps exactly the caller slots
+read in at least one written row, in oldest-to-newest order. Entry-only
+reads and purely local reads do not add fields. `Carry.infer_packetOnly`
+proves every carried row is scoped at one value, its packet, before
+Lowered readback or versioning. The caller still supplies labels and
+registers. A nested operand regression has packet-only rows and is
+rejected by the narrower named emitter. The mixed-type round trip
+exercises the inferred layout through actual admission.
 
 On success, the original written LetCase tree agrees at every caller
 record with the actual named run and its packed LambdaSSA reversion.
@@ -1108,5 +1119,6 @@ register plan fails admission.
 
 [Captured table adapter](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Flat/Tree/Thms.lean)
 · [Named and institutional round trip](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocal/LetCase/Witnessed/Thms.lean)
+· [Exact capture inference and packet-only scope](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Capture/Carry/Infer/Thms.lean)
 · [Internal packet typing and weak-tree preservation](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Capture/Carry/Thms.lean)
 · [Visible branching, exact rejection and carried-slot admission](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocalLetCaseWitnessedRegression.lean)

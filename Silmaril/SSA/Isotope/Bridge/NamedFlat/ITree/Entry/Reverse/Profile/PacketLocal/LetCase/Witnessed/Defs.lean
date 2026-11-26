@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Reverse.Flat.Thms
-public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.Carry.Defs
+public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.Carry.Infer.Defs
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.PacketLocal.LetCase.Institution.Defs
 
 /-! # Admit an independently witnessed LetCase term as named packet-local RTL -/
@@ -93,6 +93,18 @@ def compileCarry? [DecidableEq κ] [DecidableEq P.Instr] (g : ResultGrammar (L :
     (slot : Fin n) (registers : Registers Register) (labels : Fin (g.toTable.size + 1) → K) :
     Option (Compiled g (some slot)) :=
   compileCarryList? g [slot] registers labels
+
+/-- Infer the shared layout from the numbered typed table, including any
+reads in discriminator expressions and outward live-out payloads. -/
+def inferredSlots (g : ResultGrammar (L := exitList) source) : List (Fin n) :=
+  Capture.Carry.inferSlots (flat g none)
+
+/-- Lower with the inferred list. Labels and registers are still supplied
+by the caller, and the existing checker decides admission. -/
+def compileInferred? [DecidableEq κ] [DecidableEq P.Instr] (g : ResultGrammar (L := exitList) source)
+    (registers : Registers Register) (labels : Fin (g.toTable.size + 1) → K) :
+    Option (CompiledList g (inferredSlots g)) :=
+  compileCarryList? g (inferredSlots g) registers labels
 
 variable [AtomValues κ] {Events : Type u → Type u}
 

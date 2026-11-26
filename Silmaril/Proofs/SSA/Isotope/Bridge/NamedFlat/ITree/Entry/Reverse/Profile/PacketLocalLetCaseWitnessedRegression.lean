@@ -245,12 +245,16 @@ private def mixedLabels (i : Fin (mixedGrammar.toTable.size + 1)) : Label := ⟨
 private def mixedSlots : List (Fin 2) := [1, 0]
 private def mixedRegisters : Registers Register := freshRegisters 2
 
+example : inferredSlots (fields := fields) grammar = [] := by decide
+
+example : inferredSlots (fields := mixedFields) mixedGrammar = mixedSlots := by decide
+
 private theorem mixedCompiled_ok :
-    (compileCarryList? (fields := mixedFields) mixedGrammar mixedSlots mixedRegisters mixedLabels).isSome = true := by
+    (compileInferred? (fields := mixedFields) mixedGrammar mixedRegisters mixedLabels).isSome = true := by
   decide +kernel
 
-private def mixedCompiled : CompiledList (fields := mixedFields) mixedGrammar mixedSlots :=
-  (compileCarryList? (fields := mixedFields) mixedGrammar mixedSlots mixedRegisters mixedLabels).get mixedCompiled_ok
+private def mixedCompiled : CompiledList (fields := mixedFields) mixedGrammar (inferredSlots mixedGrammar) :=
+  (compileInferred? (fields := mixedFields) mixedGrammar mixedRegisters mixedLabels).get mixedCompiled_ok
 
 example : packetTypesList (fields := mixedFields) mixedGrammar mixedSlots 0 = .product (.product .unit num) choice ∧
     packetTypesList (fields := mixedFields) mixedGrammar mixedSlots 1 = .product (.product num num) choice := by decide
@@ -291,5 +295,32 @@ example : (Program.ofCFGEntry mixedGrammar.toTable.toFlat_hasType).denote model 
 
 example : (equationRoom sig).Sat (algebra (P := sig) model) mixedCompiled.equation :=
   mixedCompiled.satisfies model
+
+-- The oldest slot is used at entry only. The row reads the newer sum
+-- underneath a product decoder and the middle number inside a case arm's
+-- nested operand. Packet and local reads must not select caller slots.
+private abbrev shiftedContext : BoundCtx (Ty SortName) 3 := .snoc (.snoc context num) choice
+
+private def shiftedTable : LambdaSSA.FiniteCFG sig.Instr 1 1 3 :=
+  ⟨.br 0 (.bv 2), fun _ =>
+    .let₂ (.pair (.bv 0) .unit)
+      (.case (.bv 3)
+        (.br 1 (.let₁ (.bv 0) (.pair (.bv 0) (.bv 6))))
+        (.br 1 (.pair (.bv 0) (.bv 2))))⟩
+
+example : shiftedTable.HasType shiftedContext (fun _ => num) (fun _ => .product num num) :=
+  ⟨.br .bv, fun _ => .let₂ (.pair .bv .unit)
+    (.case .bv (.br (.let₁ .bv (.pair .bv .bv))) (.br (.pair .bv .bv)))⟩
+
+open Capture.Carry (graphList inferSlots infer_packetOnly) in
+example : inferSlots shiftedTable = [1, 0] ∧
+    ((graphList shiftedTable (inferSlots shiftedTable)).block 0).erase.Scoped 2 1 :=
+  ⟨by decide, infer_packetOnly shiftedTable 0⟩
+
+-- A packet-only row can still fail the named grammar's operand check.
+open Capture.Carry (graphList inferSlots) in
+example : (lower (freshRegisters 3) (fun i => (⟨i.val⟩ : Register))
+    (fun _ => (⟨7⟩ : Label)) (fun _ => ⟨22⟩)
+    (graphList shiftedTable (inferSlots shiftedTable))).isNone = true := by decide
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.PacketLocal.Witnessed.Tests

@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.PacketLocal.LetCase.Witnessed.Defs
+public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.Carry.Infer.Thms
 import Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.PacketLocalLetCaseWitnessed
 
 public section
@@ -43,6 +44,13 @@ omit [DecidableEq K] [AtomValues κ] in
 theorem flat_hasType (g : ResultGrammar source) (slot : Option (Fin n)) :
     (flat g slot).HasType context (packetTypes g slot) exitTypes :=
   flatList_hasType g slot.toList
+
+omit [DecidableEq K] [AtomValues κ] in
+/-- The actual table passed to the inferred-layout emitter has packet-only
+rows before named emission or any allocation, typing, or rank check. -/
+theorem inferred_packetOnly (g : ResultGrammar source) (row : Fin (g.toTable.size + 1)) :
+    ((flatList g (inferredSlots g)).block row).erase.Scoped (g.toTable.size + 1 + exits.length) 1 :=
+  Capture.Carry.infer_packetOnly _ row
 
 /-- Run the emitted mutable table at the original typed caller record and
 observe the same tagged result, including the specified final-store fields. -/
