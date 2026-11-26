@@ -17,6 +17,23 @@ universe u
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {X : Syntax.Ty}
 variable {R L : List Syntax.Ty} {states captures seeds results : Nat}
 
+/-- The selected packet keeps its payload and state at the destination
+chosen by the ordered reply tag. -/
+theorem observe_packedRequestTo {Γ : List Syntax.Ty} (prim : Primitives Φ states)
+    (env : Syntax.Bindings Γ) (f : Φ) (arg : Expr Γ (instrSrc f))
+    (typed : instrTrg f = LambdaSSA.Region.packedExitType R)
+    (target : Fin R.length → Fin L.length) (routed : ∀ i, L.get (target i) = R.get i)
+    (s : Fin states) :
+    Shape.denote (packedRequestTo f arg typed target routed) (model prim env) s =
+      match prim f (arg.eval env) s with
+      | .ret a t =>
+        let p := unpack (cast (congrArg Syntax.Payload typed) a)
+        WithTop.some {Outcome.ret (target p.1) p.2.val t}
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge} :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.observe_packedRequestTo
+    prim env f arg typed target routed s
+
 /-- Dispatch an exact primitive reply and run only its selected continuation
 at the reply state. The empty packet type has no successful reply. -/
 theorem observe_packedRequest_bind {Γ : List Syntax.Ty} (prim : Primitives Φ states)

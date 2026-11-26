@@ -67,6 +67,24 @@ private theorem packet_routes_agree (target : Fin P.length → Fin L.length)
   | cons A P ih =>
     exact select_agrees _ _ _ _ (fun _ _ => rfl) (ih (fun j => target j.succ) (fun j => typed j.succ))
 
+private theorem cast_routes {A' A : Silmaril.Ty Empty} (h : A' = A)
+    (r : Region Φ (A :: Γ) L) (q : Typed Φ (A :: Γ) L) (agree : Agrees.{u,w,x} r (.native q)) :
+    Agrees.{u,w,x}
+      (Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.castHead h r)
+      (.native (cast (congrArg (fun T => Typed Φ (T :: Γ) L) h.symm) q)) := by
+  cases h
+  exact agree
+
+theorem packedRequestTo_agrees (f : Φ)
+    (arg : Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.Syntax.Expr Γ (instrSrc f))
+    (reply : instrTrg f = Silmaril.Isotope.LambdaSSA.Region.packedExitType R)
+    (target : Fin R.length → Fin L.length) (typed : ∀ i, L.get (target i) = R.get i) :
+    ∀ (M : Model.{u,w,x} Φ Γ.length) (s : M.σ),
+      denote (Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.packedRequestTo
+        f arg reply target typed) M s =
+      denote (.native (packedRequestTo f arg reply target typed)) M s :=
+  bind_agrees _ _ _ _ (fun _ _ => rfl) (cast_routes reply _ _ (packet_routes_agree target typed))
+
 private theorem routes_agree :
     Agrees.{u,w,x} (Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.route (Γ := Γ) (Φ := Φ) R L) (.native (route R L)) :=
   select_agrees _ _ _ _ (packet_routes_agree _ _) (packet_routes_agree _ _)

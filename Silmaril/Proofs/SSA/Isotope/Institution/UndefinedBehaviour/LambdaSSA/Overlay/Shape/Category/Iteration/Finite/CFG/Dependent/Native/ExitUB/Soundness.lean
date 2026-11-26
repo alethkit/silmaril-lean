@@ -73,6 +73,15 @@ private theorem forward_exit (M : Model.{u,v,w} Φ Γ.length) (i : Fin L.length)
     · intro eq
       cases eq
 
+theorem denote_exitContinuation (M : Model.{u,v,w} Φ Γ.length) (selected : Fin L.length → Bool)
+    (i : Fin L.length) (a : Value M.α) (s : M.σ) :
+    denote (exitContinuation (Γ := Γ) selected i) (extendModel M a) s =
+      if selected i then ⊤ else WithTop.some {Outcome.ret i a s} := by
+  unfold exitContinuation
+  split
+  · rfl
+  · exact forward_exit M i a s
+
 theorem denote_noExitUB (raw : Typed Φ Γ L) (M : Shape.Model.{u,0,v,w} Φ Γ) (s : M.raw.σ) :
     Shape.denote (withExitUB raw (fun _ => false)) M s = Shape.denote (.native raw) M s := by
   let result := denote (.native raw) M.raw s
