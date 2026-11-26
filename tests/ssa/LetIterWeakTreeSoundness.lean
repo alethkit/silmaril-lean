@@ -2,7 +2,6 @@ module
 
 import Silmaril.SSA.Isotope.Institution.Parallel.Inclusions.Thms
 import Mathlib.Algebra.FreeMonoid.Basic
-import Mathlib.Control.Monad.Writer
 import Silmaril.Semantics.ITree.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Cover.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Heterogeneous.Native.TwoRequest.Thms
