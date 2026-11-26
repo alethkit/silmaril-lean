@@ -123,7 +123,7 @@ private theorem read_rebind (m : Model.{u, v, w} Op)
   exact congrArg (write dest value)
     (read_kept m current entry locals (Tuple.cons (t := PortType.value result) value .nil))
 
-private theorem get_read (m : Model.{u, v, w} Op) {ports : List (Ty Data)} {t : Ty Data}
+theorem get_read (m : Model.{u, v, w} Op) {ports : List (Ty Data)} {t : Ty Data}
     (current : Wires args past ports) (entry : Tuple (Val m.value) args)
     (locals : Locals (Val m.value) past) (src : Port ports t) :
     (current.read entry locals).get src = Diamond.read m (current.get src) entry locals :=
@@ -139,6 +139,15 @@ private theorem read_operands (m : Model.{u, v, w} Op) {ports : List (Ty Data)}
   | nil => rfl
   | cons src _ ih => exact cons_eq (get_read m current entry locals src).symm ih
 
+theorem quad_step_read (quad : Quad Op regs) (m : Model.{u, v, w} Op)
+    (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
+    (current : Wires args past (dataPorts regs)) :
+    (rebind current quad.dest).read entry
+      (locals.snoc (.cons (m.run quad.op ((quad.inputWires current).read entry locals)) .nil)) =
+      quad.eval m (current.read entry locals) := by
+  rw [read_rebind]
+  simp only [Quad.inputWires, Quad.eval, read_operands]
+
 private theorem get_tabulate {T : Type u} {F : T → Type w} {ts : List T} {t : T}
     (f : ∀ {s}, Port ts s → F s) (port : Port ts t) :
     (tabulate ts f).get port = f port := by
@@ -146,26 +155,30 @@ private theorem get_tabulate {T : Type u} {F : T → Type w} {ts : List T} {t : 
   | head => rfl
   | tail _ ih => exact ih _
 
-private theorem tuple_eq {T : Type u} {F : T → Type w} {ts : List T}
-    (xs ys : Tuple F ts) (equal : ∀ {t} (p : Port ts t), xs.get p = ys.get p) : xs = ys := by
-  induction xs with
-  | nil => cases ys; rfl
-  | cons _ _ ih =>
-    cases ys
-    exact cons_eq (equal .head) (ih _ (fun p => equal (.tail p)))
-
 theorem initial_get {t : Ty Data} (port : Port (dataPorts regs) t) :
     (initial regs).get port = .arg port :=
   get_tabulate _ port
 
-private theorem read_initial (m : Model.{u, v, w} Op)
+theorem tabulate_get_eq {T : Type u} {F : T → Type w} {ts : List T} (tuple : Tuple F ts) :
+    tabulate ts (fun p => tuple.get p) = tuple := by
+  induction tuple with
+  | nil => rfl
+  | cons head tail ih => exact congrArg (Tuple.cons head) ih
+
+theorem read_tabulate (m : Model.{u, v, w} Op) (ports : List (Ty Data))
+    (wires : ∀ {t}, Port ports t → Origin args past t)
+    (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) :
+    Wires.read (tabulate ports wires) entry locals =
+      tabulate ports (fun p => Diamond.read m (wires p) entry locals) := by
+  induction ports with
+  | nil => rfl
+  | cons _ _ ih =>
+    exact congrArg (Tuple.cons (Diamond.read m (wires .head) entry locals)) (ih (fun p => wires (.tail p)))
+
+theorem read_initial (m : Model.{u, v, w} Op)
     (entry : Tuple (Val m.value) (dataPorts regs)) :
-    (initial regs).read entry PUnit.unit = entry := by
-  apply tuple_eq
-  intro t port
-  exact (get_read (past := []) m (initial regs) entry PUnit.unit port).trans
-    (congrArg (fun origin => Diamond.read (past := []) m origin entry PUnit.unit)
-      (initial_get port))
+    (initial regs).read entry PUnit.unit = entry :=
+  (read_tabulate (past := []) m _ (fun port => .arg port) entry PUnit.unit).trans (tabulate_get_eq entry)
 
 theorem lowerFrom_eval (code : Code Op regs out) (m : Model.{u, v, w} Op)
     (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
@@ -178,9 +191,10 @@ theorem lowerFrom_eval (code : Code Op regs out) (m : Model.{u, v, w} Op)
       .cons ((current.read entry locals).get source) .nil
     exact cons_eq (get_read m current entry locals source).symm rfl
   | assign dest op operands next ih =>
-    simp only [Code.lowerFrom, RVSDG.Term.eval, RVSDG.Shape.eval, Diamond.Model.toRVSDG]
-    rw [ih, read_rebind, read_operands]
-    rfl
+    simp only [Code.lowerFrom, RVSDG.Term.eval, Quad.node, RVSDG.Shape.eval, Diamond.Model.toRVSDG]
+    rw [ih]
+    exact congrArg (fun bank => Tuple.cons (F := Val m.value) (t := PortType.value out) (next.eval m bank) .nil)
+      (quad_step_read (Quad.mk _ _ dest op operands) m entry locals current)
 
 theorem lower_run (code : Code Op regs out) (m : Model.{u, v, w} Op)
     (entry : Tuple (Val m.value) (dataPorts regs)) :

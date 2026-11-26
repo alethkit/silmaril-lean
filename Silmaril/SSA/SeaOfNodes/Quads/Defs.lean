@@ -35,6 +35,33 @@ def write {T : Type u} {F : T → Type w} {t : T} :
   | _, .head, value, .cons _ tail => .cons value tail
   | _, .tail dest, value, .cons old tail => .cons old (write dest value tail)
 
+/-- One assignment shared by the straight-line and branch/join profiles. -/
+structure Quad (Op : Signature.{u, v} Data) (regs : List (ValueSort Data)) where
+  ins : List (ValueSort Data)
+  result : ValueSort Data
+  dest : Port (dataPorts regs) (.value result)
+  op : Op ins result
+  operands : Tuple (Port (dataPorts regs)) (dataPorts ins)
+
+/-- Read all operands before updating the destination. -/
+def Quad.eval (quad : Quad Op regs) (m : Model.{u, v, w} Op)
+    (store : Tuple (Val m.value) (dataPorts regs)) : Tuple (Val m.value) (dataPorts regs) :=
+  write quad.dest (m.run quad.op (quad.operands.map (fun _ source => store.get source))) store
+
+/-- Resolve the operand wires in the version map before this assignment. -/
+def Quad.inputWires (quad : Quad Op regs) {args : List (Ty Data)} {past : List (List (Ty Data))}
+    (current : Wires args past (dataPorts regs)) : Wires args past (dataPorts quad.ins) :=
+  quad.operands.map (fun _ source => current.get source)
+
+/-- Emit the assignment as one ordinary RVSDG producer in a dialect with these pure opcodes. -/
+def Quad.node (quad : Quad Op regs)
+    {D : RVSDG.Dialect (ValueSort Data) PEmpty.{u + 1}}
+    (emit : ∀ {ins result}, Op ins result → D (dataPorts ins) [.value result])
+    {args : List (Ty Data)} {past : List (List (Ty Data))}
+    (current : Wires args past (dataPorts regs)) :
+    RVSDG.Node D args past [.value quad.result] :=
+  ⟨_, .simple (emit quad.op), quad.inputWires current, Fin.elim0⟩
+
 /-- The zero-based slot, allowing comparison between differently typed ports. -/
 def slot {T : Type u} {ts : List T} {t : T} : Port ts t → Nat
   | .head => 0
@@ -44,9 +71,7 @@ def slot {T : Type u} {ts : List T} {t : T} : Port ts t → Nat
 def Code.eval (m : Model.{u, v, w} Op) :
     Code Op regs out → Tuple (Val m.value) (dataPorts regs) → sortValue m.value out
   | .ret result, store => store.get result
-  | .assign dest op operands next, store =>
-      let value := m.run op (operands.map (fun _ source => store.get source))
-      next.eval m (write dest value store)
+  | .assign dest op operands next, store => next.eval m ((Quad.mk _ _ dest op operands).eval m store)
 
 /-- Exactly one producer result is appended for each assignment, in source order. -/
 def Code.producers : Code Op regs out → List (List (Ty Data))
@@ -91,7 +116,7 @@ def Code.lowerFrom {args : List (Ty Data)} :
       RVSDG.Term (Diamond.Opcode Op) args past code.producers [.value out]
   | .ret result, _, current => .ret (.cons (current.get result) .nil)
   | .assign dest op operands next, _, current =>
-      .bind ⟨_, .simple (.pure op), operands.map (fun _ src => current.get src), Fin.elim0⟩
+      .bind ((Quad.mk _ _ dest op operands).node Diamond.Opcode.pure current)
         (fun j => j.elim0) (next.lowerFrom (rebind current dest))
 
 /-- The numbered graph uses existing RVSDG origins and result ports. -/

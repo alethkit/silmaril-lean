@@ -42,6 +42,39 @@ theorem rebind_other (current : Wires args past (dataPorts regs))
     (rebind current dest).get source = keep (current.get source) :=
   Proofs.rebind_other current dest source different
 
+/-- Wire reading commutes with selecting a typed port. -/
+theorem read_get (m : Model.{u, v, w} Op) {ports : List (Ty Data)} {t : Ty Data}
+    (current : Wires args past ports) (entry : Tuple (Val m.value) args)
+    (locals : Locals (Val m.value) past) (port : Port ports t) :
+    (current.read entry locals).get port = Diamond.read m (current.get port) entry locals :=
+  Proofs.get_read m current entry locals port
+
+/-- Reading a table of port wires reads each entry in order. -/
+theorem read_tabulate (m : Model.{u, v, w} Op) (ports : List (Ty Data))
+    (wires : ∀ {t}, Port ports t → Origin args past t)
+    (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) :
+    Wires.read (tabulate ports wires) entry locals =
+      tabulate ports (fun p => Diamond.read m (wires p) entry locals) :=
+  Proofs.read_tabulate m ports wires entry locals
+
+theorem tabulate_get_eq {T : Type u} {F : T → Type w} {ts : List T} (tuple : Tuple F ts) :
+    tabulate ts (fun p => tuple.get p) = tuple :=
+  Proofs.tabulate_get_eq tuple
+
+/-- Reading the initial version map recovers the supplied register bank. -/
+theorem read_initial (m : Model.{u, v, w} Op) (entry : Tuple (Val m.value) (dataPorts regs)) :
+    (initial regs).read entry PUnit.unit = entry :=
+  Proofs.read_initial m entry
+
+/-- Reading the updated map after one producer agrees with the source write. -/
+theorem Quad.step_read (quad : Quad Op regs) (m : Model.{u, v, w} Op)
+    (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
+    (current : Wires args past (dataPorts regs)) :
+    (rebind current quad.dest).read entry
+      (locals.snoc (.cons (m.run quad.op ((quad.inputWires current).read entry locals)) .nil)) =
+      quad.eval m (current.read entry locals) :=
+  Proofs.quad_step_read quad m entry locals current
+
 /-- Running the lowered graph returns exactly the value of ordered register execution. -/
 theorem Code.lower_run (code : Code Op regs out) (m : Model.{u, v, w} Op)
     (entry : Tuple (Val m.value) (dataPorts regs)) :
