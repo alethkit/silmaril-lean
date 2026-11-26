@@ -160,6 +160,18 @@ factory path for the lambda input.
 | 4 | `testfunctions8.py` compares named call results in assertions. `testscope1.py` immediately calls a returned closure inside an assertion. | Both complete normally in every reference. They need checked call results as comparison operands. The first also uses a standalone Boolean assignment in the seeded namespace. The second needs a call-result callee and the assertion-message evaluation rule. |
 | 5 | `testfunctions11.py` omits two trailing literal positional defaults after six supplied values. | All references finish normally. It needs a saved-default positional binder, a conjunctive assertion, and a seeded ordinary discard with the completed argument list. Larger default and unpacking rows also require tuple, mapping or exception semantics. |
 
+### Flat tuple module values
+
+The function-aware module plan can bind a flat tuple assembled from
+integer, Boolean and `None` literals and live module reads. The same
+ordered tuple product is available in linked positional operands.
+Ordinary and seeded execution share the closure tuple assembly rule.
+Both complete the reached reads before checking that every item fits
+the exact scalar profile. A failure retains the incoming target
+binding and heap. Reading or aliasing a bound tuple uses the existing
+module lookup and assignment rules. Rebinding an item name or a tuple
+name preserves the earlier payload in its aliases.
+
 ### Checked calls as equality-helper arguments
 
 The published-closure operand adapter accepts up to three exact integer
@@ -178,6 +190,15 @@ metadata is linked, ordinary entry can bind the empty tail through
 this argument path using the same-run descriptor. Starred operands
 inside an inner call, tuple equality, and typed callbacks have their own
 prerequisites.
+
+The local future integration control combines #3762's linked signature
+with the #3823 operand adapter on the unchanged `varargs.py` pin. Under
+each supplied helper placement it reaches the end of the module with
+four integer-zero results alternating with four helper `None` receipts.
+The final binding is the second declaration's lambda and both heaps are
+empty. The 536-input comparison attributes the compiler admission to
+the linked source. The local selector changes only this input's two
+supplied-seed outcomes. Main still reaches the signature guard.
 
 ### Checked positional preparation and variadic binding
 

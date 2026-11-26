@@ -688,9 +688,9 @@ profile.
 
 `NamedFlat.Entry.Reverse.lowerChecked` generates an ordinary named mutable CFG
 from the actual scoped table. It supports straight-line `let₁` and `let₂`
-prefixes ending in jumps, variables, unit, pairs, and primitive applications
-whose arguments are values. Labelled bodies use their incoming packet and
-their local binders. The open entry can use the supplied typed record. The
+prefixes ending in jumps or sum cases. Operands are variables, unit,
+pairs, or primitive applications to values. Labelled bodies use their
+incoming packet and their local binders. The open entry can use the supplied typed record. The
 caller supplies block labels, a packet register, and local binder names by
 depth. Each body starts at depth zero, so different blocks can update the
 same physical registers. A single incoming packet captures every source of
@@ -711,8 +711,11 @@ accepted by `LiveOut.admit` at caller-supplied internal packet types. Both
 equalities use the same compatible typed instruction model, supplied entry
 record, ordered exits, and tagged payloads. Source typing and successful
 re-admission are separate premises. The compiler checks the reversion
-profile supplied by the caller. Case terminators and ambient reads in
-labelled blocks are outside this fragment.
+profile supplied by the caller. A sum case lowers its operand before
+introducing either arm binder. The two mutually exclusive arms can use the
+same mutable register at that binder depth. Arms must be terminators, so they
+can branch or contain another case. Let prefixes inside arms and ambient
+reads in labelled blocks are outside this fragment.
 
 The acyclic swap fixture reuses both mutable registers across an internal
 jump. From the supplied values `(7, 9)`, the admitted round trip returns the
@@ -720,6 +723,14 @@ old unit payload with the ordered live-outs `(9, 7)` at the second declared
 exit. A sequential copy in the actual named runner returns `(9, 9)` at the
 same exit. Reversing the projection fields fails the exact readback check.
 
+The case fixture passes a typed sum from the open entry to an internal block.
+Each arm returns its bound value and projects the same binder from the final
+store. The two exits have identical payload types and can return identical
+values. Their packed tags still follow the declared exit order, which differs
+from the numeric label order. The fixture checks the actual lowerer and
+re-admission and proves the selected result for every input to either arm.
+
 [Lowerer and certificate](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Defs.lean)
 · [Weak-tree agreement](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Thms.lean)
 · [Checked swap](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Swap.lean)
+· [Checked sum case](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)

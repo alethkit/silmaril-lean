@@ -2,13 +2,16 @@ module
 
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
 
 open RVSDG (Origin Port Tuple)
 open SeaOfNodes.Diamond (Merge Projection)
+open Silmaril.MLIR.MemRef (Buffer)
 
 private abbrev args : List ValueSort := [.address, .address, .address, .word, .word, .word]
 
@@ -122,5 +125,43 @@ example (first : Projection) : Discovery.rewrite (source first) (input headCell)
   let bad := Discovery.rewrite (source .onFalse) (input headCell)
   (good.map fun result =>
     ((result.candidate .first).storeVersion, (result.candidate .second).storeVersion), bad.isNone)
+
+private def readback (result : Word × Buffer 4) : List Word :=
+  result.1 :: (List.finRange 4).map result.2.cell
+
+private def runEmitted (first : Projection) (guard : Bool) (fuel : Nat) :
+    Option (List Word × List Word) := do
+  let programs ← Discovery.MemRef.CF.lower (source first) input
+  let before ← Discovery.MemRef.CF.run programs.original programs.input guard fuel ⟨initial⟩
+  let after ← Discovery.MemRef.CF.run programs.optimized programs.input guard fuel ⟨initial⟩
+  some (readback before, readback after)
+
+-- Each readback lists the returned word followed by all four buffer cells.
+/-- info: some ([2#64, 11#64, 11#64, 3#64, 55#64], [2#64, 11#64, 11#64, 3#64, 55#64]) -/
+#guard_msgs in
+#eval runEmitted .onFalse true 3
+
+/-- info: some ([3#64, 33#64, 2#64, 33#64, 55#64], [3#64, 33#64, 2#64, 33#64, 55#64]) -/
+#guard_msgs in
+#eval runEmitted .onFalse false 3
+
+#guard (runEmitted .onFalse true 2).isNone
+#guard runEmitted .onTrue false 5 == runEmitted .onFalse false 3
+
+private def slotNumber (program : Discovery.MemRef.CF.Program 4 args) (guard : Bool) : Option Nat :=
+  match Discovery.MemRef.CF.entryDestination program input guard ⟨initial⟩ with
+  | .inl frame => match frame.argsTy, frame.label with
+    | _, .arm .first => some 0
+    | _, .arm .second => some 1
+    | _, .join => none
+  | .inr _ => none
+
+#guard ((Discovery.MemRef.CF.lower (source .onFalse) input).map fun programs =>
+  (slotNumber programs.original false, slotNumber programs.optimized false,
+    slotNumber programs.original true, slotNumber programs.optimized true)) ==
+      some (some 0, some 0, some 1, some 1)
+
+-- The false route's alias rejects before either artifact is returned.
+example : Discovery.MemRef.CF.lower (source .onFalse) (input headCell) = none := rfl
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore

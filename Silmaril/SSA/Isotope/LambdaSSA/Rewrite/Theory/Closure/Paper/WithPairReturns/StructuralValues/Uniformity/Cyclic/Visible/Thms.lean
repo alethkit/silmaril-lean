@@ -10,10 +10,25 @@ public section
 namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.StructuralValues.Uniformity.Cyclic.Visible
 
 open CategoryTheory CategoryTheory.Limits Silmaril.Elgot.ITree
-open Extension.Singleton (iterateChosen)
+open Silmaril Silmaril.Isotope Silmaril.Isotope.LambdaSSA
+open Extension.Singleton (iterateChosen sumCofan)
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper
 
 local notation "fold" => foldState Seed UnitTy
+
+/-- The exact reply injections return their typed values without an event. -/
+theorem reply_tags_tree :
+    (interpretation.map (sumCofan Seed UnitTy UnitTy).inl).of PUnit.unit =
+      (pure (replyValue false) : Tree _) ∧
+    (interpretation.map (sumCofan Seed UnitTy UnitTy).inr).of PUnit.unit =
+      (pure (replyValue true) : Tree _) :=
+  CyclicFoldVisible.reply_tags
+
+/-- Poll once and interpret the selected continuation on its typed Unit payload. -/
+theorem choose_copair_tree {A : Ty Atom} (a b : One ⟶ Obj A) :
+    (interpretation.map (choose ≫ replyIso.hom ≫ coprod.desc a b)).of PUnit.unit =
+      vis .poll (fun r : Bool => (interpretation.map (if r then b else a : One ⟶ Obj A)).of PUnit.unit) :=
+  CyclicFoldVisible.choose_copair_tree a b
 
 /-- The actual quotient square uses the fold with the same written syntax as the replay audit. -/
 theorem square : sourceStep ≫ coprod.map (𝟙 One) fold = fold ≫ targetStep :=

@@ -256,7 +256,7 @@ private theorem reply_comparison :
     rfl
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem reply_tags :
+theorem reply_tags :
     ((F).map (sumCofan Seed Uty Uty).inl).of PUnit.unit = (pure (replyValue false) : Tree _) ∧
       ((F).map (sumCofan Seed Uty Uty).inr).of PUnit.unit = (pure (replyValue true) : Tree _) := by
   let := regionTypingCoherent raw compatible
@@ -271,7 +271,7 @@ private theorem reply_tags :
   exact ⟨congrArg (fun f => f.of PUnit.unit) hl, congrArg (fun f => f.of PUnit.unit) hr⟩
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem route_reply (a b : Uobj ⟶ Uobj) (reply : Bool) :
+private theorem route_reply {A : Ty Atom} (a b : Uobj ⟶ Obj A) (reply : Bool) :
     ((F).map (replyIso.hom ≫ coprod.desc a b)).of (replyValue reply) =
       ((F).map (if reply then b else a)).of PUnit.unit := by
   have left : (sumCofan Seed Uty Uty).inl ≫ replyIso.hom ≫ coprod.desc a b = a := by
@@ -279,18 +279,30 @@ private theorem route_reply (a b : Uobj ⟶ Uobj) (reply : Bool) :
   have right : (sumCofan Seed Uty Uty).inr ≫ replyIso.hom ≫ coprod.desc a b = b := by
     rw [← Category.assoc, sumCofan_inr_sumIso_hom, coprod.inr_desc]
   cases reply
-  · have h := congrArg (fun g : Uobj ⟶ Uobj => ((F).map g).of PUnit.unit) left
+  · have h := congrArg (fun g : Uobj ⟶ Obj A => ((F).map g).of PUnit.unit) left
     rw [(F).map_comp, Kleisli.Type.comp_of_eq_kleisliRight] at h
     change (Bind.bind (m := Tree) (((F).map (sumCofan Seed Uty Uty).inl).of PUnit.unit)
-      (fun x => ((F).map (replyIso.hom ≫ coprod.desc a b)).of x) : Tree PUnit.{2}) = _ at h
+      (fun x => ((F).map (replyIso.hom ≫ coprod.desc a b)).of x) : Tree (Ty.denote Atoms A)) = _ at h
     rw [reply_tags.1, pure_bind] at h
     exact h
-  · have h := congrArg (fun g : Uobj ⟶ Uobj => ((F).map g).of PUnit.unit) right
+  · have h := congrArg (fun g : Uobj ⟶ Obj A => ((F).map g).of PUnit.unit) right
     rw [(F).map_comp, Kleisli.Type.comp_of_eq_kleisliRight] at h
     change (Bind.bind (m := Tree) (((F).map (sumCofan Seed Uty Uty).inr).of PUnit.unit)
-      (fun x => ((F).map (replyIso.hom ≫ coprod.desc a b)).of x) : Tree PUnit.{2}) = _ at h
+      (fun x => ((F).map (replyIso.hom ≫ coprod.desc a b)).of x) : Tree (Ty.denote Atoms A)) = _ at h
     rw [reply_tags.2, pure_bind] at h
     exact h
+
+set_option backward.isDefEq.respectTransparency false in
+theorem choose_copair_tree {A : Ty Atom} (a b : Uobj ⟶ Obj A) :
+    ((F).map (choose ≫ replyIso.hom ≫ coprod.desc a b)).of PUnit.unit =
+      vis .poll (fun r : Bool => ((F).map (if r then b else a : Uobj ⟶ Obj A)).of PUnit.unit) := by
+  rw [(F).map_comp, Kleisli.Type.comp_of_eq_kleisliRight]
+  change ((((F).map choose).of PUnit.unit >>= fun x => ((F).map
+    (replyIso.hom ≫ coprod.desc a b)).of x) : Tree (Ty.denote Atoms A)) = _
+  rw [choose_image, vis_bind]
+  apply congrArg (vis Event.poll)
+  funext r
+  rw [pure_bind, route_reply]
 
 set_option backward.isDefEq.respectTransparency false in
 private theorem feedback_choose {enter next : Uobj ⟶ Three}
@@ -306,14 +318,10 @@ private theorem feedback_choose {enter next : Uobj ⟶ Three}
       rw [← Category.assoc enter, edge]
       simp only [Category.assoc, coprod.desc_comp, coprod.inr_desc]
   change out (((F).map (enter ≫ result)).of PUnit.unit : Tree PUnit.{2}) = _
-  rw [step, (F).map_comp, Kleisli.Type.comp_of_eq_kleisliRight]
-  change out ((((F).map choose).of PUnit.unit >>= fun x => ((F).map
-    (replyIso.hom ≫ coprod.desc (enter ≫ result) (next ≫ result))).of x) : Tree PUnit.{2}) = _
-  rw [choose_image, vis_bind, out_vis]
+  rw [step, choose_copair_tree, out_vis]
   apply congrArg Part.some
   apply congrArg (Silmaril.Elgot.ITree.Visible.vis Event.poll)
   funext b
-  rw [pure_bind, route_reply]
   cases b <;> rfl
 
 theorem mixed_visible :

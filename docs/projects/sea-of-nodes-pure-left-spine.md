@@ -64,8 +64,10 @@ refusal for equal or missing IDs. It also checks the literal case
 without IDs, earlier-rule refusals, exact routing, and wraparound
 in the private sum. The emitted fragment corresponds to one source
 permutation before recursive peepholing of the fresh inner sum.
-The checklist tracks the remaining swap and Φ cases.
+The ordered dispatcher also handles the earlier non-Φ swaps. The
+checklist tracks the remaining Φ and recursive cases.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Pure/ConstantFold/LeftSpine/Regression.lean) ·
+[Ordered dispatcher](sea-of-nodes-pure-add-idealize.md) ·
 [Chapter 8 coverage](sea-of-nodes-pure-sub-self.md#chapter-8-rule-coverage)
 
 ```sh

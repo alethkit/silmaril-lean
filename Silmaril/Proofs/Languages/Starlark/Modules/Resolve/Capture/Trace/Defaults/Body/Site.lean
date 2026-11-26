@@ -60,6 +60,29 @@ theorem compile_suite {block : LexicalBlock} {source : Suite}
     exact compileBody_plainSeq _ _ _ program program program _ _
       (compileBody_plainAssign _ _ _ _ _ program (resolves operand)) ih
 
+theorem compile_prefix {block : LexicalBlock} {source : List (String × SourceExpr)}
+    {code : List (String × Lowering.Expr)} {reads : List Binding}
+    (related : ElaboratesPrefix block source code reads)
+    {tail : Statement} {tailCode : ResolvedBody} {program final : Program}
+    (compiled : compileBody ⟨block.context, .local⟩ tail program = .ok (tailCode, final)) :
+    compileBody ⟨block.context, .local⟩ (prependSource source tail) program =
+      .ok (⟨prependCode code tailCode.code, reads ++ tailCode.reads⟩, final) := by
+  induction related with
+  | nil => exact compiled
+  | cons _ operand _ ih =>
+    simpa only [prependSource, prependCode, List.foldr_cons, List.append_assoc] using
+      compileBody_plainSeq ⟨block.context, .local⟩ _ _ program program final _ _
+        (compileBody_plainAssign _ _ _ _ _ program (resolves operand)) ih
+
+theorem collects_prefix (source : List (String × SourceExpr)) {tail : Statement} {binders : List String}
+    (collected : BodyBinders tail binders) : BodyBinders (prependSource source tail) (source.map Prod.fst ++ binders) := by
+  induction source with
+  | nil => exact collected
+  | cons item rest ih =>
+    change BodyBinders (Statement.seq (.assign item.1 item.2) (prependSource rest tail))
+      ([item.1] ++ (rest.map Prod.fst ++ binders))
+    exact .seq (.assign item.1 item.2) ih
+
 theorem collects (body : Suite) : BodyBinders body.source body.binders := by
   induction body with
   | ret => exact .ret _

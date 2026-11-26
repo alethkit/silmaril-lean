@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Machine.MulticoreVM.Scheduler.Defs
 public import Silmaril.Machine.MulticoreVM.Placed.Thms
+public import Silmaril.Machine.MulticoreVM.Placed.StoreProjection.Defs
 
 public section
 

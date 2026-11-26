@@ -33,21 +33,32 @@ These predicates describe observations on selected occurrences. The families
 allow gaps and arbitrary coverage. Each predicate is invariant under
 occurrence transport.
 
-`raceAt` reports the intersection of two concurrent event footprints.
-Footprints are abstract address sets supplied by the caller. Syncs have
-empty footprints, and overlapping reads are included if the caller marks
-both as touching the address. `traceRaceAddresses` collects every such
-address. The pairwise and aggregate address sets are invariant under
-occurrence transport.
-[Observation theorems][occurrence-observations]
+## Conflict policies
 
+`ConflictPolicy` assigns an address set to an ordered pair of labels.
+`conflictAt` applies the policy to distinct, incomparable occurrences.
+`traceConflictAddresses` collects the reported addresses over all such
+pairs in a trace. Occurrence transport preserves labels and concurrency,
+so both address observations are invariant for any policy.
+
+- `anyTouchPolicy touches` intersects two event footprints. The existing
+  `raceAt` and `traceRaceAddresses` functions use this policy.
+- `readWritePolicy reads writes` reports
+  `(Wₐ ∩ (Rᵦ ∪ Wᵦ)) ∪ (Wᵦ ∩ Rₐ)`, where `R` and `W` are the caller's
+  read and write footprints. At least one occurrence must write the
+  address. Use `traceConflictAddresses (readWritePolicy reads writes) t`
+  for a trace `t`.
+
+Both policies give synchronizations empty footprints.
+[Observation theorems][occurrence-observations]
 
 ## Checks
 
 ```sh
 lake build --wfail +Silmaril.Semantics.ConcurrentTrace.Occurrences.Observations.Thms \
-  +Silmaril.Proofs.Semantics.ConcurrentTrace.Occurrences.Regression
-make check CHECK_TARGETS='+Silmaril.Semantics.ConcurrentTrace.Occurrences.Observations.Thms +Silmaril.Proofs.Semantics.ConcurrentTrace.Occurrences.Regression'
+  +Silmaril.Proofs.Semantics.ConcurrentTrace.Occurrences.Regression \
+  +Silmaril.Proofs.Semantics.ConcurrentTrace.Occurrences.Conflict.Regression
+make check CHECK_TARGETS='+Silmaril.Semantics.ConcurrentTrace.Occurrences.Observations.Thms +Silmaril.Proofs.Semantics.ConcurrentTrace.Occurrences.Regression +Silmaril.Proofs.Semantics.ConcurrentTrace.Occurrences.Conflict.Regression'
 ```
 
 [finite-traces]: concurrent-traces.md

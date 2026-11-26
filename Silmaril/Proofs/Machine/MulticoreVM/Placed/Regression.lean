@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Machine.MulticoreVM.Institution.Placed.Thms
-public import Silmaril.Machine.MulticoreVM.Placed.Thms
+public import Silmaril.Machine.MulticoreVM.Placed.Outcomes.Thms
 public import Silmaril.Machine.MulticoreVM.Toy.Thms
 public import Silmaril.Semantics.ConcurrentTrace.Thms
 

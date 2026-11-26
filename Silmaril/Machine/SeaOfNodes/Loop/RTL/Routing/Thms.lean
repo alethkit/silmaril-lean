@@ -74,8 +74,8 @@ theorem emit_row_length {fields arity : Nat} (slot : Fin fields → Port (wordPo
     (emitOpsWith (fun p => .arg p.index) (rowSuffixAt slot past updates)).length = updates.length :=
   Proofs.emit_row_length slot past updates
 
-theorem suffix_get {pre tail : List PortTy} {t : PortTy}
-    (left : Tuple (Val model.value) pre) (right : Tuple (Val model.value) tail) (p : Port tail t) :
+theorem suffix_get {F : PortTy → Type*} {pre tail : List PortTy} {t : PortTy}
+    (left : Tuple F pre) (right : Tuple F tail) (p : Port tail t) :
     (appendTuple right left).get (suffixPort pre p) = right.get p :=
   Proofs.suffix_get left right p
 

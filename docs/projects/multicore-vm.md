@@ -2,9 +2,10 @@
 
 Import `Silmaril.Machine.MulticoreVM.Thms` for the generic interface or
 `Silmaril.Machine.MulticoreVM.Toy.Thms` for the runnable register VM. Import
-`Silmaril.Machine.MulticoreVM.Placed.Thms` for the layer with explicit core placement.
+`Silmaril.Machine.MulticoreVM.Placed.Thms` for the layer with explicit core placement
+and `Silmaril.Machine.MulticoreVM.Placed.Outcomes.Thms` for the outcome refinement.
 [Generic definitions][defs] · [Generic theorems][thms] · [Toy executor][toy] ·
-[Placement definitions][placed] · [Placement theorems][placed-thms]
+[Placement definitions][placed] · [Placement theorems][placed-thms] · [Outcome refinement][placed-outcomes]
 
 ## Scheduling and observations
 
@@ -156,6 +157,7 @@ make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Scheduler.Thms +Silmaril
 [thms]: ../../Silmaril/Machine/MulticoreVM/Thms.lean
 [placed]: ../../Silmaril/Machine/MulticoreVM/Placed/Defs.lean
 [placed-thms]: ../../Silmaril/Machine/MulticoreVM/Placed/Thms.lean
+[placed-outcomes]: ../../Silmaril/Machine/MulticoreVM/Placed/Outcomes/Thms.lean
 [placed-tests]: ../../Silmaril/Proofs/Machine/MulticoreVM/Placed/Regression.lean
 [placed-inst]: ../../Silmaril/Machine/MulticoreVM/Institution/Placed/Thms.lean
 [inst]: multicore-vm-institution.md#natural-observation-projections

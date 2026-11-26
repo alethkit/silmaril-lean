@@ -15,9 +15,11 @@ func require(ok bool, detail any) {
 	}
 }
 
-func program(defaultRead string) string {
-	return `def make(seed):
-    def inner(early=[13], saved=` + defaultRead + `, last=[73]):
+func program(index int, defaultRead string) string {
+	return fmt.Sprintf(`def make(seed):
+    earlier = [13]
+    offset = seed[%d]
+    def inner(early=[14], saved=%s, last=[73]):
         picked = saved[offset]
         buffer = [picked]
         answer = buffer[seed]
@@ -30,36 +32,48 @@ func program(defaultRead string) string {
     return inner
 seed_a = [3, 5]
 seed_b = [6, 8]
-a = make(seed_a)
-b = make(seed_b)
+outer_a = [seed_a]
+outer_b = [seed_b]
+a = make(outer_a)
+b = make(outer_b)
 alias = a
 first = alias()
 second = b()
 replacement = [7, 9]
 override = a(0, replacement)
 again = alias()
-`
+`, index, defaultRead)
+}
+
+func checkFailure(opts *syntax.FileOptions, source string, errorParts ...string) {
+	_, compiled, err := starlark.SourceProgramOptions(opts, "wrapper-error.star",
+		source, func(string) bool { return false })
+	require(err == nil, err)
+	partial, err := compiled.Init(new(starlark.Thread), nil)
+	require(err != nil, partial)
+	for _, part := range errorParts {
+		require(strings.Contains(err.Error(), part), err)
+	}
+	require(partial["seed_a"].String() == "[3, 5]" && partial["seed_b"].String() == "[6, 8]" &&
+		partial["a"] == nil && partial["b"] == nil && partial["alias"] == nil && partial["first"] == nil, partial)
+	err = partial["seed_a"].(*starlark.List).SetIndex(0, starlark.MakeInt(0))
+	require(err == nil, err)
 }
 
 func main() {
 	opts := &syntax.FileOptions{}
-	globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread), "local.star", program("seed"), nil)
+	globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread), "wrapper.star", program(0, "offset"), nil)
 	require(err == nil, err)
 	require(globals["a"] == globals["alias"] && globals["a"] != globals["b"] &&
 		globals["first"].String() == "5" && globals["second"].String() == "8" &&
 		globals["override"].String() == "9" && globals["again"].String() == "5", globals)
 	err = globals["seed_a"].(*starlark.List).SetIndex(0, starlark.MakeInt(0))
 	require(err != nil && strings.Contains(err.Error(), "frozen"), err)
-	fmt.Println("PASS separate escaping activations read a later-initialized, rebound local alongside the saved default and parameter capture")
+	fmt.Println("PASS prefix initializes a saved default, suffix rebinds the live capture, and separate escaped calls publish")
 
-	_, compiled, err := starlark.SourceProgramOptions(opts, "local-error.star",
-		program("offset"), func(string) bool { return false })
-	require(err == nil, err)
-	partial, err := compiled.Init(new(starlark.Thread), nil)
-	require(err != nil && strings.Contains(err.Error(), "offset") && strings.Contains(err.Error(), "before assignment"), err)
-	require(partial["seed_a"].String() == "[3, 5]" && partial["seed_b"].String() == "[6, 8]" &&
-		partial["a"] == nil && partial["b"] == nil && partial["alias"] == nil && partial["first"] == nil, partial)
-	err = partial["seed_a"].(*starlark.List).SetIndex(0, starlark.MakeInt(0))
-	require(err == nil, err)
-	fmt.Println("PASS reading that local as a default fails during definition, retains earlier globals unfrozen, and prevents escape")
+	checkFailure(opts, program(1, "offset"), "index 1 out of range")
+	fmt.Println("PASS prefix error stops the wrapper before child installation and leaves prior globals unfrozen")
+
+	checkFailure(opts, program(0, "unused"), "unused", "before assignment")
+	fmt.Println("PASS successful prefix leaves the suffix-only local uninitialized during defaults")
 }

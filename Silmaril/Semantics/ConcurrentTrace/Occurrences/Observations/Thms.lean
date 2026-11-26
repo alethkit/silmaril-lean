@@ -46,21 +46,39 @@ theorem fragmentFamily_iff {n : Nat} (fragments : Fin n → Finset (Fin p.size))
       p.FragmentFamily fragments :=
   Proofs.Semantics.ConcurrentTrace.Occurrences.fragmentFamily_iff f fragments
 
+theorem conflictAt_eq (policy : ConflictPolicy T E Addr) (i j : Fin p.size) :
+    q.conflictAt policy (f.equiv i) (f.equiv j) = p.conflictAt policy i j :=
+  Proofs.Semantics.ConcurrentTrace.Occurrences.conflictAt_eq f policy i j
+
+include f in
+theorem conflictAddresses_eq (policy : ConflictPolicy T E Addr) :
+    q.conflictAddresses policy = p.conflictAddresses policy :=
+  Proofs.Semantics.ConcurrentTrace.Occurrences.conflictAddresses_eq f policy
+
 theorem raceAt_eq (touches : T → E → Set Addr) (i j : Fin p.size) :
     q.raceAt touches (f.equiv i) (f.equiv j) = p.raceAt touches i j :=
-  Proofs.Semantics.ConcurrentTrace.Occurrences.raceAt_eq f touches i j
+  f.conflictAt_eq (anyTouchPolicy touches) i j
 
 include f in
 theorem raceAddresses_eq (touches : T → E → Set Addr) :
     q.raceAddresses touches = p.raceAddresses touches :=
-  Proofs.Semantics.ConcurrentTrace.Occurrences.raceAddresses_eq f touches
+  f.conflictAddresses_eq (anyTouchPolicy touches)
 
 end Iso
 
+/-- Observe the addresses reported by a conflict policy on a trace class. -/
+@[expose] def traceConflictAddresses (policy : ConflictPolicy T E Addr)
+    (t : Trace T E) : Set Addr :=
+  Quotient.liftOn (ofTrace t) (fun p => p.conflictAddresses policy) (fun _ _ ⟨f⟩ =>
+    (f.conflictAddresses_eq policy).symm)
+
+@[simp] theorem traceConflictAddresses_ofWord (policy : ConflictPolicy T E Addr) (w : Word T E) :
+    traceConflictAddresses policy (ConcurrentTrace.ofWord w) =
+      (ofWord w).conflictAddresses policy := rfl
+
 /-- The set of addresses with concurrent overlaps, for a trace class. -/
 @[expose] def traceRaceAddresses (touches : T → E → Set Addr) (t : Trace T E) : Set Addr :=
-  Quotient.liftOn (ofTrace t) (fun p => p.raceAddresses touches) (fun _ _ ⟨f⟩ =>
-    (f.raceAddresses_eq touches).symm)
+  traceConflictAddresses (anyTouchPolicy touches) t
 
 @[simp] theorem traceRaceAddresses_ofWord (touches : T → E → Set Addr) (w : Word T E) :
     traceRaceAddresses touches (ConcurrentTrace.ofWord w) = (ofWord w).raceAddresses touches := rfl

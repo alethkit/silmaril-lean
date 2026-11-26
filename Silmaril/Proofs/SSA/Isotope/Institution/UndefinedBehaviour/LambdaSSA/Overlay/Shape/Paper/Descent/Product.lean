@@ -10,47 +10,11 @@ namespace Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Paper.Descent
 
 open Silmaril.Isotope Silmaril.Isotope.LambdaSSA
 open Silmaril.Isotope.LambdaSSA.Semantics
-open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Continuation (Ops RegionAt PureValue Realizes ShapedObs)
+open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Continuation (Ops PureValue Realizes ShapedObs let₂_pure)
 
 universe u v w x
 
 variable {Φ : Type u} {α : Type w} {σ : Type x} {O : Ops Φ α σ} {env : Env α}
-
-theorem let₂_pure {a : Tm Φ} {l r : Value α} (pure : PureValue O env a (.pair l r))
-    (p : Region Φ) : RegionAt O env (.let₂ a p) (extend (extend env l) r) p where
-  eval := by
-    intro s j a t
-    constructor
-    · intro run
-      cases run with
-      | let₂ arg body =>
-        obtain ⟨eq, rfl⟩ := pure.unique arg
-        cases eq
-        exact body
-    · exact fun run => .let₂ (pure.eval _) run
-  fault := by
-    intro s t
-    constructor
-    · intro run
-      cases run with
-      | let₂_arg arg => exact (pure.noFault arg).elim
-      | let₂_body arg body =>
-        obtain ⟨eq, rfl⟩ := pure.unique arg
-        cases eq
-        exact body
-    · exact fun run => .let₂_body (pure.eval _) run
-  div := by
-    intro s
-    constructor
-    · intro run
-      cases run.unfold with
-      | let₂_arg arg => exact (pure.noDiv arg).elim
-      | core step => cases step with
-        | let₂ arg body =>
-          obtain ⟨eq, rfl⟩ := pure.unique arg
-          cases eq
-          exact body
-    · exact fun run => .fold_core (.let₂ (pure.eval _) run)
 
 private theorem realize_pair {a b : Tm Φ} {l r : Value α}
     (left : PureValue O env a l) (right : PureValue O env b r) :

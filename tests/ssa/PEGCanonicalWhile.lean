@@ -2,12 +2,13 @@ module
 
 import Silmaril.SSA.PEG.Simple.Revert.While.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms
-import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Reindexed.Thms
+import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Reindexed.Automatic.Thms
+import Mathlib.Logic.Equiv.Basic
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Thms
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Defs
-meta import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Reindexed.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Reindexed.Automatic.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Automatic.Defs
 
 namespace Silmaril.SSA.PEG.Simple.Revert.While.Tests
@@ -666,5 +667,45 @@ example (i : Index form.size) :
     moved.observe model (moved.denote model (outerStore 3 0) movedWF) i = .cons (some ⟨10⟩) .nil :=
   (movedCertificate.observe_denote model (outerStore 3 0) cert.demandWellFounded movedWF i).trans
     (observedTen _)
+
+-- The outer pass key is permuted independently of its vertex address.
+-- The returned accumulator is the only designated root, so the other
+-- outer eval must be covered by the discovered bundle anchor.
+private def movedIndependently : Graph Op Outer [.count] form.size form.size :=
+  form.compile.reindex (reversed form.size)
+    (Equiv.swap ⟨0, by decide⟩ ⟨2, by decide⟩)
+
+private def runInferredNumbering : Option Nat := do
+  let accepted ← Reindexed.Automatic.extract movedIndependently
+  (accepted.form.runFuel model 3 3 (outerStore 3 0)).map ULift.down
+
+/-- info: some 10 -/
+#guard_msgs in
+#eval runInferredNumbering
+
+/-- info: true -/
+#guard_msgs in
+#eval (Reindexed.Automatic.extract (bypassCapture movedIndependently)).isNone
+
+-- The second parameter is isolated when the primitive's two operands
+-- share the first parameter. An explicit anchor covers the isolated row.
+private def sharedOperands (split : Bool) : Graph Op Outer [.count] 3 0 where
+  forest := ⟨Fin.elim0⟩
+  sort _ := .count
+  node i := match i with
+    | 0 => .ofLabel (.op .add) (.cons ⟨1, rfl⟩ (.cons ⟨if split then 2 else 1, rfl⟩ .nil))
+    | 1 => .ofLabel (.param .head) .nil
+    | 2 => .ofLabel (.param (.tail .head)) .nil
+  roots := .cons ⟨0, rfl⟩ .nil
+
+-- Splitting a repeated wire forces one source row to pair with two
+-- target rows, even though every operand sort still agrees.
+/-- info: (true, true, true) -/
+#guard_msgs in
+#eval
+  let same := sharedOperands false
+  let changed := sharedOperands true
+  let infer new anchors := Silmaril.SSA.PEG.Reindex.Automatic.infer same new anchors
+  ((infer same []).isNone, (infer same [(2, 2)]).isSome, (infer changed [(2, 2)]).isNone)
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Nested.Tests

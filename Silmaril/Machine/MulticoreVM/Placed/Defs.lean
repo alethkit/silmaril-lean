@@ -8,7 +8,7 @@ public import Silmaril.Machine.MulticoreVM.Defs
 
 namespace Silmaril.Machine.MulticoreVM.Placed
 
-open Silmaril.Semantics.ConcurrentTrace (Letter Word Trace ofWord)
+open Silmaril.Semantics.ConcurrentTrace (Letter Word)
 
 universe u
 
@@ -45,9 +45,6 @@ inductive TaggedLetter (CoreId ThreadId Event : Type u) where
 
 abbrev TaggedWord (CoreId ThreadId Event : Type u) := List (TaggedLetter CoreId ThreadId Event)
 
-abbrev TaggedOutcome (CoreId ThreadId Core Thread Event : Type u) :=
-  Config CoreId ThreadId Core Thread × TaggedWord CoreId ThreadId Event
-
 /-- Attribute every letter in an instruction fragment to its executing core and thread. -/
 def tagFragment (core : CoreId) (thread : ThreadId) (fragment : Fragment ThreadId Event) :
     TaggedWord CoreId ThreadId Event :=
@@ -71,10 +68,6 @@ def threadWord (word : TaggedWord CoreId ThreadId Event) : Word ThreadId Event :
 
 def coreWord (word : TaggedWord CoreId ThreadId Event) : Word CoreId (Option Event) :=
   word.map TaggedLetter.dropThread
-
-/-- Observe the concurrent thread trace of a tagged chronological word. -/
-def threadTrace (word : TaggedWord CoreId ThreadId Event) : Trace ThreadId Event :=
-  ofWord (threadWord word)
 
 /-- A scheduled instruction names the executing pair and its auxiliary choice. Placement
 commands carry the cores and threads needed to check and apply the update. -/
@@ -116,29 +109,6 @@ def Instruction.Refines (instruction : Instruction CoreId ThreadId Core Thread C
     instruction core thread choice initial fragment next →
     step thread choice initial.threads fragment next.threads
 
-/-- A state observation may read both stores, which are preserved by placement commands. -/
-abbrev StoreView (CoreId ThreadId Core Thread State : Type u) :=
-  (CoreId → Option Core) → (ThreadId → Option Thread) → State
-
-/-- Project a tagged outcome to the chosen abstract state and the named thread word. -/
-def forgetCore {State : Type u} (view : StoreView CoreId ThreadId Core Thread State)
-    (outcome : TaggedOutcome CoreId ThreadId Core Thread Event) : Outcome State ThreadId Event :=
-  (view outcome.1.cores outcome.1.threads, threadWord outcome.2)
-
-/-- Project a tagged outcome to the chosen abstract state and the concurrent thread trace. -/
-def observeThreadQuotient {State : Type u} (view : StoreView CoreId ThreadId Core Thread State)
-    (outcome : TaggedOutcome CoreId ThreadId Core Thread Event) : State × Trace ThreadId Event :=
-  (view outcome.1.cores outcome.1.threads, threadTrace outcome.2)
-
-/-- The instruction obligation for an abstract state read from the two stores. -/
-def Instruction.RefinesBy {State : Type u}
-    (instruction : Instruction CoreId ThreadId Core Thread Choice Event)
-    (view : StoreView CoreId ThreadId Core Thread State) (step : Transition State ThreadId Choice Event) :
-    Prop :=
-  ∀ ⦃core thread choice initial fragment next⦄, initial.placement core = some thread →
-    instruction core thread choice initial fragment next →
-    step thread choice (view initial.cores initial.threads) fragment (view next.cores next.threads)
-
 /-- Idle clears a configured core. Assign installs a waiting thread on a configured core,
 leaving any displaced thread allocated. Migrate moves a resident thread atomically to a
 configured idle core and leaves the source idle. All three commands leave the stores intact. -/
@@ -175,12 +145,5 @@ inductive Scheduled [DecidableEq CoreId]
   | cons {action schedule initial fragment next tail final} :
       Step instruction action initial fragment next → Scheduled instruction schedule next tail final →
       Scheduled instruction (action :: schedule) initial (fragment ++ tail) final
-
-/-- The certified final configurations and tagged words of a successful concrete schedule. -/
-def taggedOutcomes [DecidableEq CoreId]
-    (instruction : Instruction CoreId ThreadId Core Thread Choice Event)
-    (schedule : Schedule CoreId ThreadId Choice) (initial : Config CoreId ThreadId Core Thread) :
-    Set (TaggedOutcome CoreId ThreadId Core Thread Event) :=
-  { outcome | Scheduled instruction schedule initial outcome.2 outcome.1 }
 
 end Silmaril.Machine.MulticoreVM.Placed

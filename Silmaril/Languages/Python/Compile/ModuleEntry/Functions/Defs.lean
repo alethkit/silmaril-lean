@@ -112,16 +112,85 @@ def lowerArguments (scope : Scope) : (source : List (Source.ArgumentKind × Sour
     return ⟨operand.val :: tail.val, .cons operand.property tail.property⟩
   | _ => .error .argumentProfile
 
-/-- A module argument can contain one direct call with scalar arguments. -/
-inductive CallArgument (scope : Scope) where
+def tupleScalar? : Source.Expr → Option Core.Module.Value
+  | .none_ => some .none
+  | source => scalarLiteral? source
+
+inductive FlatTupleItem (scope : Scope) : Source.Expr → Core.Closure.GlobalTupleItem → Prop where
+  | literal {source value} (checked : tupleScalar? source = some value) :
+      FlatTupleItem scope source (.literal value)
+  | read (name : Name) (reference : GlobalReference scope name) :
+      FlatTupleItem scope (.name name) (.global name)
+
+def lowerFlatTupleItem (scope : Scope) : (source : Source.Expr) →
+    Except Error {item // FlatTupleItem scope source item}
+  | .name name => do
+    let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
+    return ⟨.global name, .read name reference⟩
+  | source =>
+    match checked : tupleScalar? source with
+    | some value => .ok ⟨.literal value, .literal checked⟩
+    | none => .error (.scalar .expressionProfile)
+
+inductive FlatTupleItems (scope : Scope) :
+    List Source.Expr → List Core.Closure.GlobalTupleItem → Prop where
+  | nil : FlatTupleItems scope [] []
+  | cons {source item rest items} (first : FlatTupleItem scope source item)
+      (tail : FlatTupleItems scope rest items) :
+      FlatTupleItems scope (source :: rest) (item :: items)
+
+def lowerFlatTupleItems (scope : Scope) : (elements : List Source.Expr) →
+    Except Error {items // FlatTupleItems scope elements items}
+  | [] => .ok ⟨[], .nil⟩
+  | element :: rest => do
+    let head ← lowerFlatTupleItem scope element
+    let tail ← lowerFlatTupleItems scope rest
+    return ⟨head.val :: tail.val, .cons head.property tail.property⟩
+
+inductive CallValue (scope : Scope) where
   | scalar (operand : Operand scope)
-  | call (name : Name) (reference : GlobalReference scope name) (arguments : List (Operand scope))
+  | tuple (items : List Core.Closure.GlobalTupleItem)
+
+inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope → Prop where
+  | scalar {source operand} (checked : ArgumentOperandTranslation scope source operand) :
+      CallValueTranslation scope source (.scalar operand)
+  | tuple {elements items} (checked : FlatTupleItems scope elements items) :
+      CallValueTranslation scope (.tuple elements) (.tuple items)
+
+def lowerCallValue (scope : Scope) : (source : Source.Expr) →
+    Except Error {value // CallValueTranslation scope source value}
+  | .tuple elements =>
+    (lowerFlatTupleItems scope elements).map fun items => ⟨.tuple items.val, .tuple items.property⟩
+  | source =>
+    ((lowerArgumentOperand scope source).mapError .scalar).map fun operand =>
+      ⟨.scalar operand.val, .scalar operand.property⟩
+
+inductive PositionalValues (scope : Scope) :
+    List (Source.ArgumentKind × Source.Expr) → List (CallValue scope) → Prop where
+  | nil : PositionalValues scope [] []
+  | cons {source value rest values} (first : CallValueTranslation scope source value)
+      (tail : PositionalValues scope rest values) :
+      PositionalValues scope ((.positional, source) :: rest) (value :: values)
+
+def lowerCallValues (scope : Scope) : (source : List (Source.ArgumentKind × Source.Expr)) →
+    Except Error {values // PositionalValues scope source values}
+  | [] => .ok ⟨[], .nil⟩
+  | (.positional, source) :: rest => do
+    let value ← lowerCallValue scope source
+    let tail ← lowerCallValues scope rest
+    return ⟨value.val :: tail.val, .cons value.property tail.property⟩
+  | _ => .error .argumentProfile
+
+/-- A module argument can contain one named call with flat value operands. -/
+inductive CallArgument (scope : Scope) where
+  | value (operand : CallValue scope)
+  | call (name : Name) (reference : GlobalReference scope name) (arguments : List (CallValue scope))
 
 inductive ArgumentTranslation (scope : Scope) : Source.Expr → CallArgument scope → Prop where
-  | scalar {source operand} (translated : ArgumentOperandTranslation scope source operand) :
-      ArgumentTranslation scope source (.scalar operand)
+  | value {source operand} (translated : CallValueTranslation scope source operand) :
+      ArgumentTranslation scope source (.value operand)
   | call {source name arguments reference operands}
-      (shape : CallExpression source name arguments) (translated : Positional scope arguments operands) :
+      (shape : CallExpression source name arguments) (translated : PositionalValues scope arguments operands) :
       ArgumentTranslation scope source (.call name reference operands)
 
 inductive CallArguments (scope : Scope) :
@@ -135,11 +204,11 @@ def lowerCallArgument (scope : Scope) (source : Source.Expr) :
     Except Error {argument // ArgumentTranslation scope source argument} := do
   if let some ⟨(name, arguments), shape⟩ := callExpression? source then
     let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
-    let operands ← lowerArguments scope arguments
+    let operands ← lowerCallValues scope arguments
     return ⟨.call name reference operands.val, .call shape operands.property⟩
   else
-    let operand ← (lowerArgumentOperand scope source).mapError .scalar
-    return ⟨.scalar operand.val, .scalar operand.property⟩
+    let operand ← lowerCallValue scope source
+    return ⟨.value operand.val, .value operand.property⟩
 
 def lowerCallArguments (scope : Scope) : (source : List (Source.ArgumentKind × Source.Expr)) →
     Except Error {target // CallArguments scope source target}
@@ -416,6 +485,7 @@ def listConstructionTest? (scope : Scope) : (statement : Source.Stmt) →
 
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
+  | bindTuple (name : Name) (reference : GlobalReference scope name) (items : List Core.Closure.GlobalTupleItem)
   | assertNot (condition : Operand scope)
   | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
   | assertBoolIdentity (test : BoolIdentityTest scope)
@@ -440,6 +510,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
   | scalar {index statement rest actions tail}
       (first : ModuleEntry.Translation tree.scope [statement] actions) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
+  | bindTuple {index statement rest name elements reference items tail}
+      (binding : Binding statement name (.tuple elements)) (checked : FlatTupleItems tree.scope elements items)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.bindTuple name reference items :: tail)
   | assertNot {index condition operand rest tail}
       (translated : TestTranslation tree.scope condition operand)
       (remaining : Translation tree index rest tail) :
@@ -562,6 +636,12 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     else if let some test := tupleChainTest? tree.scope statement then
       let tail ← lowerPlan tree index rest
       return ⟨.assertTupleChain test.val :: tail.val, .assertTupleChain test.property tail.property⟩
+    else if let some ⟨(name, .tuple elements), binding⟩ := binding? statement then
+      let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
+      let items ← lowerFlatTupleItems tree.scope elements
+      let tail ← lowerPlan tree index rest
+      return ⟨.bindTuple name reference items.val :: tail.val,
+        .bindTuple binding items.property tail.property⟩
     else if let some ⟨(name, .lambda declaration body), binding⟩ := Compile.Closure.Body.assignment? statement then
       unless declaration.all Compile.Closure.Body.fixed do throw (.functionBody .parameterProfile)
       let path := tree.scope.context.path ++ [index]

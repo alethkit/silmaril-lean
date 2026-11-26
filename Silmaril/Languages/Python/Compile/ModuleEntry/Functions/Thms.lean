@@ -20,6 +20,12 @@ theorem Positional.length {scope : Source.Scope} {sources targets}
   | .nil => rfl
   | .cons _ tail => congrArg Nat.succ (Positional.length tail)
 
+theorem FlatTupleItems.length {scope : Source.Scope} {elements items}
+    (checked : FlatTupleItems scope elements items) : items.length = elements.length :=
+  match checked with
+  | .nil => rfl
+  | .cons _ tail => congrArg Nat.succ (FlatTupleItems.length tail)
+
 theorem CallArguments.length {scope : Source.Scope} {sources targets}
     (translated : CallArguments scope sources targets) : targets.length = sources.length :=
   match translated with

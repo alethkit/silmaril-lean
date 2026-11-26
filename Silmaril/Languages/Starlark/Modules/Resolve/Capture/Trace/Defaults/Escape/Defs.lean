@@ -65,10 +65,20 @@ structure Spec where
 @[expose] def Spec.childBody (wrapper : Spec) : Statement :=
   .ret (some (.scalar (.read wrapper.returned)))
 
-/-- Additional wrapper assignments run after child installation. The
-whole block nevertheless owns their slots when its defaults run. -/
-@[expose] def Spec.locals (wrapper : Spec) (updates : List (String × Int)) : List String :=
-  wrapper.childName :: (updates.map Prod.fst).eraseDups
+@[expose] def Spec.occurrences (wrapper : Spec) (updates : List (String × Int))
+    (leading : List String) : List String :=
+  leading ++ wrapper.childName :: wrapper.parameter :: updates.map Prod.fst
+
+/-- The entire wrapper block determines allocation order, including the
+trailing binders that are still unbound when defaults run. -/
+@[expose] def Spec.locals (wrapper : Spec) (updates : List (String × Int))
+    (additional : List String := []) (leading : List String := []) : List String :=
+  (wrapper.occurrences updates leading).eraseDups.filter (!(wrapper.parameter :: additional).contains ·)
+
+theorem Spec.local_member (wrapper : Spec) (updates : List (String × Int)) (additional leading : List String)
+    (name : String) (occurs : name ∈ wrapper.occurrences updates leading)
+    (outside : name ∉ wrapper.parameter :: additional) : name ∈ wrapper.locals updates additional leading :=
+  List.mem_filter.mpr ⟨List.mem_eraseDups.mpr occurs, by simpa using outside⟩
 
 @[expose] def Spec.updateSuite (wrapper : Spec) (updates : List (String × Int)) : Defaults.Body.Suite :=
   updates.foldr (fun (name, value) tail => .assign name (.scalar (.int value)) tail)
@@ -89,14 +99,16 @@ whole block nevertheless owns their slots when its defaults run. -/
 @[expose] def Spec.body (wrapper : Spec) : Statement := wrapper.bodyWith wrapper.childBody
 
 @[expose] def Spec.commandWith (wrapper : Spec) (childBody : Statement)
-    (additional : List String := []) (updates : List (String × Int) := []) : Command :=
-  .define wrapper.name (.required (wrapper.parameter :: additional)) (wrapper.bodyWith childBody updates)
+    (additional : List String := []) (updates : List (String × Int) := [])
+    (leading : List (String × Expr) := []) : Command :=
+  .define wrapper.name (.required (wrapper.parameter :: additional))
+    (Defaults.Body.prependSource leading (wrapper.bodyWith childBody updates))
 
 @[expose] def Spec.command (wrapper : Spec) : Command := wrapper.commandWith wrapper.childBody
 
 @[expose] def Spec.frame (wrapper : Spec) (childId : Nat) (additional : List String := [])
-    (updates : List (String × Int) := []) : Forwarding.Frame :=
-  ⟨wrapper.parameter :: additional, wrapper.locals updates, [],
+    (updates : List (String × Int) := []) (leading : List String := []) : Forwarding.Frame :=
+  ⟨wrapper.parameter :: additional, wrapper.locals updates additional leading, [],
     .seq (.define (fileSlot wrapper.childName) childId)
       (.seq (.assignExpr (fileSlot wrapper.parameter) (.atom (.scalar (.int wrapper.rebound))))
         (wrapper.updateCode updates))⟩

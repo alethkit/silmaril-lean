@@ -213,10 +213,8 @@ def TupleItem.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layou
 successful reads, so an earlier non-scalar value does not mask a later read error. -/
 def evalTupleIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout)
     (items : List (TupleItem layout)) : Except Failure Value :=
-  (items.mapM (TupleItem.evalIn globals heap frame)).bind fun values =>
-    match values.mapM Value.scalar? with
-    | some scalars => .ok (.tuple scalars)
-    | none => .error .unsupportedTupleElement
+  (assembleFlatTuple (TupleItem.evalIn globals heap frame) Value.scalar?
+    .unsupportedTupleElement items).map .tuple
 
 def Operand.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout) : Operand layout → Except Failure Value
   | .literal value => .ok value

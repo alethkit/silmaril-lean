@@ -41,21 +41,21 @@ theorem fragmentFamily_iff {n : Nat} (fragments : Fin n → Finset (Fin p.size))
   simp only [FragmentFamily, Fragment, Finset.map_nonempty, Finset.forall_mem_map,
     Equiv.coe_toEmbedding, concurrent_iff f]
 
-theorem raceAt_eq (touches : T → E → Set Addr) (i j : Fin p.size) :
-    q.raceAt touches (f.equiv i) (f.equiv j) = p.raceAt touches i j := by
-  simp [raceAt, touched, f.label_eq, concurrent_iff f]
+theorem conflictAt_eq (policy : ConflictPolicy T E Addr) (i j : Fin p.size) :
+    q.conflictAt policy (f.equiv i) (f.equiv j) = p.conflictAt policy i j := by
+  simp [conflictAt, f.label_eq, concurrent_iff f]
 
 include f in
-theorem raceAddresses_eq (touches : T → E → Set Addr) :
-    q.raceAddresses touches = p.raceAddresses touches := by
+theorem conflictAddresses_eq (policy : ConflictPolicy T E Addr) :
+    q.conflictAddresses policy = p.conflictAddresses policy := by
   ext a
-  change (∃ i j, a ∈ q.raceAt touches i j) ↔ (∃ i j, a ∈ p.raceAt touches i j)
+  change (∃ i j, a ∈ q.conflictAt policy i j) ↔ (∃ i j, a ∈ p.conflictAt policy i j)
   constructor
   · rintro ⟨i, j, ha⟩
     obtain ⟨i, rfl⟩ := f.equiv.surjective i
     obtain ⟨j, rfl⟩ := f.equiv.surjective j
-    exact ⟨i, j, raceAt_eq f touches i j ▸ ha⟩
+    exact ⟨i, j, conflictAt_eq f policy i j ▸ ha⟩
   · rintro ⟨i, j, ha⟩
-    exact ⟨f.equiv i, f.equiv j, (raceAt_eq f touches i j).symm ▸ ha⟩
+    exact ⟨f.equiv i, f.equiv j, (conflictAt_eq f policy i j).symm ▸ ha⟩
 
 end Silmaril.Proofs.Semantics.ConcurrentTrace.Occurrences

@@ -19,7 +19,7 @@ open Silmaril.Isotope.LambdaSSA.Region (ContinuationFamily liftLSubstVars)
 open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Paper (Exit)
 open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Paper.Descent
   (Runs literal continuation vars regionAt_iff)
-open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Continuation (Ops RegionAt PureValue)
+open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Continuation (Ops RegionAt PureValue let₂_pure)
 open Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Continuation (familyMember)
 
 universe u v w x
@@ -52,6 +52,29 @@ theorem outcomes_of_regionAt {Δ : List (Ty κ)} {n : Nat} (M : Institution.Obse
   apply Set.ext
   intro o
   exact (mem_runs r (rebind M br) hbr s o).trans ((regionAt_iff.mp h s _).trans (mem_runs t (rebind M bt) hbt s o).symm)
+
+/-- Destructuring a packed capture and seed is a pure read of the input.
+The renamed body uses the two fields and skips the original product slot. -/
+theorem unpack_outcomes {X : Ty κ} {r : Region Φ}
+    (M : Institution.Observational.Model.{u,w,x} Φ 0)
+    (h : r.HasType [A, X] L)
+    (hh : (.let₂ (.var 0) (r.renameVars (lift (lift Nat.succ))) : Region Φ).HasType [.product X A] L)
+    (c a : Value M.α) (s : M.σ) :
+    nativeOutcomes ⟨_, hh⟩ (extendModel M (.pair c a)) s =
+      nativeOutcomes ⟨r, h⟩ (extendModel (extendModel M c) a) s := by
+  let packed := extendModel M (.pair c a)
+  let fields := extendModel (extendModel packed c) a
+  let renamed : UB.Typed (Φ := Φ) [A, X, .product X A] L :=
+    ⟨r.renameVars (lift (lift Nat.succ)), h.renameVars (((SSA.Ren.wk [] (.product X A)).lift X).lift A)⟩
+  have agree := envOfBound_agrees M.bound
+  have packAgree := agree.extend (.pair c a)
+  have unpackAgree := (packAgree.extend c).extend a
+  have oldAgree := (agree.extend c).extend a
+  have unpacked : nativeOutcomes ⟨_, hh⟩ packed s = nativeOutcomes renamed fields s :=
+    outcomes_of_regionAt M ⟨_, hh⟩ renamed packAgree unpackAgree
+      (let₂_pure (PureValue.var 0) renamed.val) s
+  exact unpacked.trans (outcomes_of_regionAt M renamed ⟨r, h⟩ unpackAgree oldAgree
+    (vars r (ρ := lift (lift Nat.succ)) (fun j => by cases j with | zero => rfl | succ j => cases j <;> rfl)) s)
 
 theorem branch_label_outcomes (M : Institution.Observational.Model.{u,w,x} Φ Γ.length)
     {env : Env M.α} (agree : Morphism.CaseSSA.EnvAgrees env M.bound)

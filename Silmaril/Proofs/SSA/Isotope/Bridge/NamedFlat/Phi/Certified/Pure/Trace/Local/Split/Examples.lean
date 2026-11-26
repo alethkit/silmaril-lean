@@ -2,6 +2,7 @@ module
 
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.Split.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.InstructionMap.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.Reverse.Thms
 
 /-! A visible loop swaps two live values on the split edge. The admitted
 entry fixtures also exercise a second split after extending the record. -/
@@ -66,10 +67,13 @@ private def answerName : Reg := ⟨10⟩
 private def discardName : Reg := ⟨11⟩
 private def header : Key := ⟨17⟩
 
+private def returnWithLiveOut (payload : Val Reg) : CFG.Term Reg (Option Key) Opcode :=
+  ret (.pair payload (.pair (.var x) (.pair (.var y) .unit)))
+
 private def tickBody (next : Key) : CFG.Body Reg (Option Key) Opcode :=
   .term (.case (.app .tick (.pair (.var x) (.var y)))
     doneName (.case (.app .finish (.pair (.var doneName) (.var doneName)))
-      answerName (ret (.var answerName)) discardName (ret (.var doneName)))
+      answerName (returnWithLiveOut (.var answerName)) discardName (returnWithLiveOut (.var doneName)))
     backName (br next))
 
 private def headerBlock : Block Reg Key Opcode :=
@@ -101,8 +105,8 @@ example : plan.check source stale = false := by decide
 
 private def captures (i : Fin 4) : Option Reg := some ⟨i.val⟩
 private def profile : BoundCtx (Ty SortName) 4 := .snoc (.snoc (.snoc (.snoc .nil num) num) num) num
-private def exits : Fin 1 → Ty SortName := fun _ => num
 private def pairPacket : Ty SortName := .product num (.product num .unit)
+private def exits : Fin 1 → Ty SortName := fun _ => .product num pairPacket
 private def originalProfile (_ : Fin (blockCount source)) : Ty SortName :=
   .product pairPacket pairPacket
 
@@ -121,12 +125,15 @@ private def originalStore : Store := entryCaptures.store supplied
 
 private def writePair (store : Store) (a b : Nat) : Store := upd (upd store x (atom a)) y (atom b)
 
+private def returnedValue (store : Store) (payload : Value Runtime) : Value Runtime :=
+  .pair payload (.pair (store x) (.pair (store y) .unit))
+
 private def response (next : Key) (store : Store) : Nat ⊕ Unit → Tree Event State
   | .inl result =>
     let returned := upd store doneName (atom result)
     vis (.tick result result) fun
-      | .inl reply => pure (.returned (atom reply), upd returned answerName (atom reply))
-      | .inr _ => pure (.returned (atom result), upd returned discardName .unit)
+      | .inl reply => pure (.returned (returnedValue store (atom reply)), upd returned answerName (atom reply))
+      | .inr _ => pure (.returned (returnedValue store (atom result)), upd returned discardName .unit)
   | .inr _ => pure (.jump (some header) next, upd store backName .unit)
 
 private theorem tick_step_of (graph : Graph Reg Key Opcode) (next : Key)
@@ -141,9 +148,9 @@ private theorem tick_step_of (graph : Graph Reg Key Opcode) (next : Key)
   funext reply
   cases reply with
   | inl result =>
-    simp [response, ret, CFG.Term.exec, Val.eval, upd, atom, vis_bind]
+    simp [response, returnWithLiveOut, ret, CFG.Term.exec, Val.eval, vis_bind]
     funext reply
-    cases reply <;> simp [doneName, discardName]
+    cases reply <;> simp [returnedValue, atom, upd, x, y, doneName, answerName, discardName]
   | inr => simp [response, br, CFG.Term.exec, Val.eval]
 
 private theorem tick_step (pred : Option Key) (store : Store) (a b : Nat)
@@ -185,14 +192,15 @@ private theorem source_swap :
 
 private def finishedTrace : Trace Event (Transfer Runtime) :=
   .exchange (.tick 2 5) (.inr ()) (.exchange (.tick 5 2) (.inl 11)
-    (.exchange (.tick 11 11) (.inl 23) (.result (FiniteCFG.packedTreeOutput (0, atom 23)))))
+    (.exchange (.tick 11 11) (.inl 23)
+      (.result (FiniteCFG.packedTreeOutput (0, .pair (atom 23) (.pair (atom 5) (.pair (atom 2) .unit)))))))
 
 private theorem source_finish :
     HasTrace (sourceObservation instr source originalStore) finishedTrace := by
   rw [finishedTrace, source_after_continue, hasTrace_vis_exchange_iff]
   simp only [response, resume, vis_bind, hasTrace_vis_exchange_iff, pure_bind, Sum.elim_inr]
   rw [← resume_body, step_return]
-  simp [HasTrace, resume, FiniteCFG.packedTreeOutput, Region.packedExitValue]
+  simp [HasTrace, resume, FiniteCFG.packedTreeOutput, Region.packedExitValue, returnedValue, writePair, upd, x, y]
 
 private def init : Key := ⟨16⟩
 private def latch : Key := ⟨18⟩
@@ -623,5 +631,51 @@ private def incompatibleAdmission := (Certified.admit source [seedX, seedY] arri
 
 example : ((generateDetailed plan incompatibleAdmission arrivals).map (fun _ => ())) =
     .error (.oldCaptureTypes [2]) := rfl
+
+/-! ## Reverse the admitted polling loop to mutable RTL -/
+
+private def reversePorts : ReverseInterface SortName Reg Key 2 where
+  inputs i := ⟨i.val⟩
+  distinct _ _ eq := Fin.ext (congrArg ULift.down eq)
+  exit := ⟨99⟩
+  payload := num
+  liveOut := [(⟨9⟩, num), (⟨11⟩, num)]
+
+private def rtlRegisters : NamedFlat.Entry.Reverse.Registers Reg := ⟨⟨2⟩, fun i => ⟨3 + i⟩⟩
+private def rtlHeader : Key := ⟨0⟩
+
+private instance : DecidableEq signature.Instr := inferInstanceAs (DecidableEq Opcode)
+
+private def reversed : ReverseLowered reversePorts seedOriginal :=
+  (seedOriginal.reverseChecked reversePorts rtlRegisters (fun _ => rtlHeader)).get (by decide)
+
+private def readmitted : NamedFlat.Entry.LiveOut.Admission signature
+    (reversePorts.named seedTypes) (fun _ => reversePorts.liveOut) reversed.source :=
+  (NamedFlat.Entry.LiveOut.admit (P := signature) (reversePorts.named seedTypes)
+    (fun _ => reversePorts.liveOut) reversed.source
+    (fun _ => .product (.product pairPacket pairPacket) pairPacket)).get (by decide)
+
+-- The emitted mutable code contains an actual internal self-edge.
+example : (reversed.source.blocks.lookup rtlHeader).any
+    (fun block => block.body.targets.contains rtlHeader) := by decide
+
+private theorem seed_finished :
+    HasTrace (seedOriginal.observe model seedRecord) finishedTrace :=
+  (seedOriginal.observe_toFlat model seedRecord (fun _ => .unit)).symm ▸
+    seed_packed_trace (fun _ => .unit) source_finish
+
+/-- The emitted runner reads the swapped operands after the continuing reply
+and returns the later reply together with the ordered mutable live-outs. -/
+theorem reversed_cycle_trace :
+    HasTrace (NamedFlat.Entry.LiveOut.observe model (reversePorts.named seedTypes)
+      (fun _ => reversePorts.liveOut) reversed.source seedRecord) finishedTrace := by
+  rw [← seedOriginal.observe_reverse (I := reversePorts) reversed model seedRecord]
+  exact seed_finished
+
+theorem readmitted_cycle_trace (ambient : Env Runtime) :
+    HasTrace (region model.raw (extend ambient (encodeValue _ _ seedRecord)) readmitted.program.code)
+      finishedTrace := by
+  rw [← seedOriginal.observe_reverse_roundTrip (I := reversePorts) reversed readmitted model seedRecord ambient]
+  exact seed_finished
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.PureCapture.Local.Split.Examples

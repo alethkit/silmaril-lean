@@ -1,6 +1,9 @@
 module
 
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Analysis.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Terms.Thms
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Analysis.Thms
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Analysis.Defs
 meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Defs
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Wrapper.Thms
 meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Wrapper.Defs
@@ -830,52 +833,61 @@ private def thetaPlan (cap : Nat) (swap : Bool) :
       (thetaBinding swap).summary (thetaLambdas swap) :=
   Plan.finishDirect (scope := Scope.seed inferred (one cap) (one cap)) (thetaBinding swap)
 
-private def thetaAdmitted (cap : Nat) (swap : Bool) :=
-  (thetaPlan cap swap).admit inferred actions 83 (one cap) (one cap) 20 (relayReady cap) (relayReady cap)
+-- Start at the numbered vertex table and export wire. The demand witness
+-- must cover the source recovered from this table.
+private def thetaNumbered (swap : Bool) : Omega Op single [exportFn.port] (seedSigs ++ [[exportFn.port]]) :=
+  ⟨⟨Fin.cases (.phi inferred.group.toGraph)
+      (Fin.cases (.lambda (thetaBinding swap).term.toGraph) (fun i => i.elim0)),
+    lastExport seedSigs exportFn⟩⟩
 
-private def thetaExport (cap : Nat) := (thetaAdmitted cap false).get (by rfl)
+private theorem thetaSource (swap : Bool) :
+    (thetaNumbered swap).toTerm = ⟨.bind (.phi inferred.group) (thetaLambdas swap)⟩ := by
+  change (seededGraph inferred (thetaLambdas swap)).toTerm = _
+  exact OmegaTerm.toTerm_toGraph _
+
+private def thetaAdmitted (cap : Nat) (swap : Bool) :=
+  (thetaPlan cap swap).analyzeNumbered inferred actions 83 (thetaNumbered swap) (one cap) (one cap) 20
+    (thetaSource swap) (relayReady cap) (relayReady cap)
+
+private def thetaAnalysis (cap : Nat) := (thetaAdmitted cap false).get (by rfl)
 
 -- The actual initial callable wires still match. Swapping the two carried
 -- callables on the backedge removes the target's provenance at the call.
 example (cap : Nat) : thetaAdmitted cap true = none := rfl
 
+private def spareFormal : Port exportFn.args num := .tail (.tail .head)
+
 set_option maxRecDepth 2048 in
-private theorem thetaSpareDead : Address.arg 5 ∉ (thetaBinding false).summary.live requested := by decide
+private theorem thetaSpareDead (cap : Nat) : (thetaAnalysis cap).liveFormal requested spareFormal = false := by
+  change (thetaAnalysis 0).liveFormal requested spareFormal = false
+  decide
 
-#guard ((thetaBinding false).summary.live requested).contains (.arg 3)
-#guard ((thetaBinding false).summary.live requested).contains (.arg 4)
+#guard (thetaAnalysis 2).liveFormal requested (.head : Port exportFn.args num)
+#guard (thetaAnalysis 2).liveFormal requested (.tail .head : Port exportFn.args num)
+#guard !(thetaAnalysis 2).liveFormal requested spareFormal
 
-private theorem thetaAgreed (cap count : Nat) :
-    Ordered.InputsAgree (m := machine) (thetaBinding false).summary requested
-      (prependContext (args count 41 4) (thetaExport cap).capsL)
-      (prependContext (args count 41 40) (thetaExport cap).capsR) := by
-  intro ty p live
-  let scope := Scope.seed inferred (one cap) (one cap)
-  let captured := (thetaBinding false).captures.read (one cap) scope.localsL
-  change (prependContext (args count 41 4) captured).get p = (prependContext (args count 41 40) captured).get p
-  rcases p with _ | p
-  · rfl
-  rcases p with _ | p
-  · rfl
-  rcases p with _ | p
-  · rfl
+set_option maxRecDepth 2048 in
+example : Address.arg 3 ∈ ((thetaAnalysis 2).problem requested).mayOut 0 :=
+  ((thetaAnalysis 2).mem_liveIn_iff requested _).1 (by decide)
+
+private theorem thetaFormalsAgree (cap count : Nat) {ty : T} (p : Port exportFn.args ty)
+    (live : (thetaAnalysis cap).liveFormal requested p = true) :
+    (args count 41 4).get p = (args count 41 40).get p := by
   rcases p with _ | p
   · rfl
   rcases p with _ | p
   · rfl
   cases p with
-  | head => exact False.elim (thetaSpareDead live)
+  | head => exact False.elim (Bool.noConfusion ((thetaSpareDead cap).symm.trans live))
   | tail p => nomatch p
 
 private def runTheta (swap : Bool) (fuel cap count spare : Nat) :=
-  Executable.run actions fuel 83 (seededGraph inferred (thetaLambdas swap)) (one cap) .head (args count 41 spare) 20
+  Executable.run actions fuel 83 (thetaNumbered swap) (one cap) .head (args count 41 spare) 20
 
 example (fuel after cap count : Nat) :
     ∃ left right, runTheta false fuel cap count 4 = .ok left ∧ runTheta false fuel cap count 40 = .ok right ∧
       PrefixObservationsAgree actions requested after left right :=
-  Ordered.Prefix.Export.linked_prefixes_agree (actions := actions) (summary := (thetaBinding false).summary)
-    requested fuel after 83 (seededGraph inferred (thetaLambdas false)) (one cap) (one cap)
-    (args count 41 4) (args count 41 40) 20 (thetaExport cap) (thetaAgreed cap count)
+  (thetaAnalysis cap).linked_prefixes_agree requested fuel after (args count 41 4) (args count 41 40) (fun _ _ => rfl) (thetaFormalsAgree cap count)
 
 #guard (runTheta false 80 2 1 4).toOption.bind wrapperResult == some (41, 45)
 #guard (runTheta false 80 2 1 40).toOption.bind wrapperResult == some (41, 45)

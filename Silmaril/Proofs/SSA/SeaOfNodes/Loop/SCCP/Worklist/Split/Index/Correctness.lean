@@ -88,14 +88,14 @@ theorem mem_destinations_iff (index : Index g) (old new : State m.value carried 
       (incomingIndex .backedge ∈ old.1 ↔ incomingIndex .backedge ∈ new.1)
   · obtain ⟨entry, feedback⟩ := marks
     by_cases enabled : incomingIndex .backedge ∈ new.1
-    · simp [Index.destinations, entry, feedback, enabled, Finset.mem_biUnion, index.mem_readers]
+    · simp [Index.destinations, gateDestinations, entry, feedback, enabled, Finset.mem_biUnion, index.mem_readers]
       constructor
       · rintro ⟨field, changed, read⟩
         exact ⟨field, read, changed⟩
       · rintro ⟨field, read, changed⟩
         exact ⟨field, changed, read⟩
-    · simp [Index.destinations, entry, feedback, enabled]
-  · simp [Index.destinations, marks, ← and_assoc]
+    · simp [Index.destinations, gateDestinations, entry, feedback, enabled]
+  · simp [Index.destinations, gateDestinations, marks, ← and_assoc]
 
 theorem wake_eq (index : Index g) (old new : State m.value carried out) (pending : List (Task carried)) :
     Index.wake m index old new pending = Split.wake m g input old new pending := by
@@ -112,7 +112,7 @@ theorem wake_eq (index : Index g) (old new : State m.value carried out) (pending
         decide_eq_true_eq]
       rw [mem_destinations_iff (m := m) (input := input)]
       exact and_comm
-  unfold Index.wake Split.wake FIFO.wake Split.jobs
+  unfold Index.wake Index.wakeDestinations Split.wake FIFO.wake Split.jobs
   simp only [List.cons_append, List.filter_cons, List.filter_append, List.filter_map, List.filter_nil,
     Function.comp_def, Split.dependencies, Bool.and_true, ordered]
   rfl
@@ -122,10 +122,70 @@ theorem step_eq (index : Index g) (job : Task carried) (state : State m.value ca
     Index.step m input index job state pending = Split.step m g input job state pending :=
   congrArg (Prod.mk (Split.update m g input job state)) (wake_eq index state _ pending)
 
+theorem destinationsAfter_eq (index : Index g) (job : Task carried) (state : State m.value carried out) :
+    let new := Split.update m g input job state
+    index.destinationsAfter job state new = index.destinations state new := by
+  let new := Split.update m g input job state
+  let (field : Phi.Job carried) : DecidableEq (Fact m.value (dataPorts carried)[field]) :=
+    @Semantics.Dataflow.instDecidableEqFlat _ (BankDecidableEq.atPort field)
+  change index.destinationsAfter job state new = index.destinations state new
+  unfold Index.destinationsAfter Index.destinations
+  apply congrArg (gateDestinations state.1 new.1)
+  funext _
+  have unchanged (field : Phi.Job carried) (other : job ≠ .phi field) :
+      new.2.1 field = state.2.1 field := by
+    cases job with
+    | control | result => rfl
+    | phi dst =>
+      have different : field ≠ dst := fun eq => other (congrArg Job.phi eq.symm)
+      exact Function.update_of_ne different _ _
+  have member (dst : Phi.Job carried) :
+      dst ∈ (Finset.univ.filter fun field => new.2.1 field ≠ state.2.1 field).biUnion
+        (fun field => index.readers[field.val]) ↔
+      ∃ field, new.2.1 field ≠ state.2.1 field ∧ dst ∈ index.readers[field.val] := by
+    simp [Finset.mem_biUnion]
+  cases job with
+  | control | result =>
+    apply Finset.ext
+    intro dst
+    rw [member]
+    simp [unchanged]
+  | phi dst =>
+    apply Finset.ext
+    intro reader
+    rw [member]
+    by_cases same : new.2.1 dst = state.2.1 dst
+    · have every (field : Phi.Job carried) : new.2.1 field = state.2.1 field := by
+        by_cases eq : dst = field
+        · subst field
+          exact same
+        · exact unchanged field (fun h => eq (Job.phi.inj h))
+      simp [same, every]
+    · simp only [ite_eq_right same]
+      constructor
+      · exact fun read => ⟨dst, same, read⟩
+      · rintro ⟨field, changed, read⟩
+        have eq : dst = field := by
+          by_contra different
+          exact changed (unchanged field (fun h => different (Job.phi.inj h)))
+        simpa only [← eq] using read
+
+theorem stepLocal_eq (index : Index g) (job : Task carried) (state : State m.value carried out)
+    (pending : List (Task carried)) :
+    Index.stepLocal m input index job state pending = Index.step m input index job state pending :=
+  congrArg (fun readers => (Split.update m g input job state,
+    Index.wakeDestinations m readers state (Split.update m g input job state) pending))
+    (destinationsAfter_eq index job state)
+
+theorem runSteps_eq_step (index : Index g) :
+    Index.runSteps m input index = FIFO.runSteps (Index.step m input index) :=
+  congrArg FIFO.runSteps (funext fun job => funext fun state => funext fun pending =>
+    stepLocal_eq index job state pending)
+
 theorem runSteps_eq (index : Index g) :
     Index.runSteps m input index = Split.runSteps m g input := by
   have stepSame := funext fun job => funext fun state => funext fun pending =>
     step_eq (m := m) (input := input) index job state pending
-  rw [Index.runSteps, Split.runSteps, stepSame]
+  rw [runSteps_eq_step, Split.runSteps, stepSame]
 
 end Silmaril.SSA.SeaOfNodes.Loop.SCCP.Worklist.Split.Index.Proofs
