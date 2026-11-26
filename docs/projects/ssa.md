@@ -346,11 +346,17 @@ parallel pairing and primitive evaluation. Signature reducts restrict primitive
 evaluation and retain the action of these arrows on computations.
 `denote_mapInstr` and `denote_hom` are the corresponding interpreter squares.
 
-`LetPar.mapInstr_equiv` and `LetParCase.mapInstr_equiv` preserve the native
-typed congruences, including their purity-guarded schemes. Observation models
-accept any supplied parallel operation, so a derivable swap may fail as an
-observation in a model that sequences effects. The regression also compares
-native parallel pairing with ordinary ordered pairing within one model.
+`LetPar.mapInstr_equiv` and `LetParCase.mapInstr_equiv` take a derivable
+native `Equiv` equation to a derivable equation between its relabeled terms.
+This includes the purity-guarded schemes.
+
+The observation institutions accept an arbitrary supplied `ParOp`.
+`LetParInstitutionTests` derives a relabeled native swap and refutes its
+satisfaction in the ordered writer model, where the two endpoints log
+`[2, 7]` and `[7, 2]`. The same swap holds in the writer model whose
+parallel operation orders the two branch logs by their first tag. The
+fixture also shows that ordinary pairing keeps left-to-right order in
+that model.
 
 The restrictions transport specific witnesses in the same monad and
 primitive interpretation.

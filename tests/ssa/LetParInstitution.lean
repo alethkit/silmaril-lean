@@ -66,17 +66,17 @@ private abbrev noBound : BoundEnv D .nil := fun i => Fin.elim0 i
 example : LetPar.Equiv false Γ swapTest.bound swapTest.left swapTest.right swapTest.result :=
   Parallel.Equiv.parSwap ⟨emitD false⟩ ⟨emitD true⟩
 
-example :
-    LetPar.Equiv false Γ (swapTest.map renameOp).bound
-      (swapTest.map renameOp).left (swapTest.map renameOp).right (swapTest.map renameOp).result :=
-  LetPar.mapInstr_equiv renameOp (Parallel.Equiv.parSwap ⟨emitD false⟩ ⟨emitD true⟩)
-
 private theorem sorted_satisfies :
     (I.obj extended).Sat (traceModel sortedLog) ((I.map renameOp).sen swapTest) := by
   intro γ ρ
   rfl
 
-example : ¬ (I.obj extended).Sat (traceModel orderedLog) ((I.map renameOp).sen swapTest) := by
+/-- Relabeling preserves the native swap even when an ordered `ParOp` falsifies its observation. -/
+example :
+    LetPar.Equiv false Γ (swapTest.map renameOp).bound
+      (swapTest.map renameOp).left (swapTest.map renameOp).right (swapTest.map renameOp).result ∧
+    ¬ (I.obj extended).Sat (traceModel orderedLog) ((I.map renameOp).sen swapTest) := by
+  refine ⟨LetPar.mapInstr_equiv renameOp (Parallel.Equiv.parSwap ⟨emitD false⟩ ⟨emitD true⟩), ?_⟩
   intro h
   have he := h noFree noBound
   have log := congrArg (fun (x : trace (Nat × Nat)) => x.run.2.toList) he
