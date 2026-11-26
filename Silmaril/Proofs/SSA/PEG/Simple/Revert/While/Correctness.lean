@@ -15,10 +15,8 @@ universe u v w
 variable {Data : Type u} {P : InstructionSet.{u,v} Data} {state : Ty Data}
 variable {g : Graph P [state] [state] 7 1}
 
-theorem graph_eq [DecidableEq Data] (cert : Certificate g) : g = cert.form.compile := by
-  have h := congrArg RawGraph.check cert.table
-  rw [Graph.check_roundTrip, Graph.check_roundTrip] at h
-  exact Option.some.inj h
+theorem graph_eq [DecidableEq Data] (cert : Certificate g) : g = cert.form.compile :=
+  Graph.eq_of_toRaw_eq cert.table
 
 private theorem probe_compile [DecidableEq Data] (form : Form P state) :
     probe form.compile = some form := by
@@ -47,5 +45,19 @@ theorem observe_of_returns [DecidableEq Data] (cert : Certificate g)
   change g = form.compile at e
   subst g
   exact form.program.translate_returns form.negate m input notSem returns idx
+
+theorem returns_of_defined [DecidableEq Data] (cert : Certificate g)
+    (m : Interpretation.{u,v,w} P) (input : Tuple m.Value [state]) (total : cert.form.program.Total m)
+    (notSem : ∀ b : Bool, m.run cert.form.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (wf : WellFounded g.Demand) (idx : Index 1) {value : m.Value state}
+    (defined : g.observe m (g.denote m input wf) idx = .cons (some value) .nil) :
+    cert.revert.Returns m input value := by
+  have eq := graph_eq cert
+  obtain ⟨form, _⟩ := cert
+  change g = form.compile at eq
+  subst g
+  obtain ⟨_, final, witness⟩ := form.program.translate_exitWitness form.negate m input total
+    notSem idx defined
+  exact ⟨final, witness.trace.exec, witness.returned⟩
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Proofs

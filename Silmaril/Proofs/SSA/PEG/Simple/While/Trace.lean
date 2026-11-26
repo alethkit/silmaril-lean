@@ -66,4 +66,11 @@ theorem whileTrace {start final : Tuple m.Value vars}
     ∃ k, WhileTrace m guard body k start final :=
   extract h final rfl
 
+theorem traceExec {k : Nat} {start final : Tuple m.Value vars}
+    (trace : WhileTrace m guard body k start final) :
+    Exec m (.while rfl guard body) start (some final) := by
+  induction trace with
+  | stop test => exact .whileStop test
+  | step test run _ ih => exact .whileStep test run ih
+
 end Silmaril.SSA.PEG.Simple.WhileProofs

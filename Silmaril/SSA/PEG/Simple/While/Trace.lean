@@ -21,4 +21,24 @@ inductive WhileTrace (m : Interpretation.{u,v,w} P) (guard : Expr P vars .bool)
       (run : Exec m body start (some next)) (rest : WhileTrace m guard body k next final) :
       WhileTrace m guard body (k + 1) start final
 
+variable {out : Ty Data}
+
+/-- Purity comes from the interpretation. Both the guard and each complete
+body step must return on every defined carried store. -/
+structure WhileProgram.Total (p : WhileProgram P vars out) (m : Interpretation.{u,v,w} P) : Prop where
+  guard : ∀ store : Tuple m.Value vars, ∃ b : Bool, p.guard.eval m store = some ⟨b⟩
+  body : ∀ store : Tuple m.Value vars, ∃ next, Exec m p.body.enableWhile store (some next)
+
+/-- Evidence recovered from a defined eval root. The finite trace stops at
+the pass index, and the selected θ is defined throughout eval's prefix. -/
+structure WhileProgram.ExitWitness (p : WhileProgram P vars out) (neg : P [.bool] .bool)
+    (m : Interpretation.{u,v,w} P) (input : Tuple m.Value vars)
+    (values : (p.translate neg).Valuation m) (idx : Index 1)
+    (k : Nat) (final : Tuple m.Value vars) (value : m.Value out) : Prop where
+  trace : WhileTrace m p.guard p.body.enableWhile k input final
+  returned : final.get p.retvar = value
+  pass : p.readPort neg m values p.passPort idx = some ⟨k⟩
+  sample : p.readPort neg m values (p.carriedPort p.retvar) (fun _ => k) = some value
+  definedBefore : ∀ j < k, (p.readPort neg m values (p.carriedPort p.retvar) (fun _ => j)).isSome
+
 end Silmaril.SSA.PEG.Simple

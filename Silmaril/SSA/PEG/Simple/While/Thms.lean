@@ -22,6 +22,12 @@ theorem Exec.while_trace {m : Interpretation.{u,v,w} P} {guard : Expr P params .
     ∃ k, WhileTrace m guard body k input final :=
   WhileProofs.whileTrace run
 
+theorem WhileTrace.exec {m : Interpretation.{u,v,w} P} {guard : Expr P params .bool}
+    {body : Stmt P true params params} {k : Nat} {input final : Tuple m.Value params}
+    (trace : WhileTrace m guard body k input final) :
+    Exec m (.while rfl guard body) input (some final) :=
+  WhileProofs.traceExec trace
+
 /-- The compiler's rank is checked for every emitted graph. In particular it
 admits eval and pass demands at arbitrary iterations. -/
 theorem WhileProgram.translate_rank (p : WhileProgram P params out) (neg : P [.bool] .bool) :
@@ -49,5 +55,20 @@ theorem WhileProgram.translate_returns (p : WhileProgram P params out) (neg : P 
       ((p.translate neg).denote m input (p.translate_demandWellFounded neg)) i =
       .cons (some value) .nil :=
   WhileProofs.returns p neg m input notSem run ((p.translate neg).denote_solves m input _) i
+
+/-- Recover a finite SIMPLE trace from a defined compiled PEG return.
+Totality is required for the guard and full body, including carried
+operations that the selected PEG result may never demand. -/
+theorem WhileProgram.translate_exitWitness (p : WhileProgram P params out) (neg : P [.bool] .bool)
+    (m : Interpretation.{u,v,w} P) (input : Tuple m.Value params) (total : p.Total m)
+    (notSem : ∀ b : Bool, m.run neg (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (i : Index 1) {value : m.Value out}
+    (defined : (p.translate neg).observe m
+      ((p.translate neg).denote m input (p.translate_demandWellFounded neg)) i =
+      .cons (some value) .nil) :
+    ∃ k final, p.ExitWitness neg m input
+      ((p.translate neg).denote m input (p.translate_demandWellFounded neg)) i k final value :=
+  WhileProofs.exitWitness p neg m input total notSem ((p.translate neg).denote_solves m input _)
+    i defined
 
 end Silmaril.SSA.PEG.Simple

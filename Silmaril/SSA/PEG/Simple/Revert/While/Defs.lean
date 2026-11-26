@@ -19,7 +19,7 @@ open RVSDG (Port Tuple)
 universe u v
 
 variable {Data : Type u} {P : InstructionSet.{u,v} Data}
-variable {state : Ty Data}
+variable {state : Ty Data} {params results : List (Ty Data)} {n : Nat}
 
 /-- One carried slot, with a continuation test, a feedback update, and
 the Boolean negation used for the PEG exit test. -/
@@ -43,7 +43,7 @@ def castPrimitive [DecidableEq Data] {domain : List (Ty Data)} {range : Ty Data}
   else none
 
 /-- Read an opcode only when its profile matches the requested profile. -/
-def readPrimitive [DecidableEq Data] (g : Graph P [state] [state] 7 1) (i : Fin 7)
+def readPrimitive [DecidableEq Data] (g : Graph P params results n 1) (i : Fin n)
     (ins : List (Ty Data)) (out : Ty Data) : Option (P ins out) :=
   match (g.node i).label with
   | .op opcode => castPrimitive opcode ins out
@@ -67,12 +67,26 @@ theorem singlePort {out : Ty Data} (a b : Port [state] out) : a = b := by
     | tail p => exact nomatch p
   | tail p => exact nomatch p
 
+def portEq : {ps : List (Ty Data)} → {out : Ty Data} →
+    (a b : Port ps out) → Decidable (a = b)
+  | _, _, .head, .head => isTrue rfl
+  | _, _, .head, .tail _ => isFalse (by intro h; cases h)
+  | _, _, .tail _, .head => isFalse (by intro h; cases h)
+  | _, _, .tail a, .tail b =>
+    match portEq a b with
+    | isTrue h => isTrue (congrArg Port.tail h)
+    | isFalse h => isFalse (by intro eq; cases eq; exact h rfl)
+termination_by structural _ _ a _ => a
+
 variable [∀ ins out, DecidableEq (P ins out)]
 
 def labelEq {ins : List (Ty Data)} {out : Ty Data}
-    (a b : Label P [state] (Fin 1) ins out) : Decidable (a = b) := by
+    (a b : Label P params (Fin 1) ins out) : Decidable (a = b) := by
   cases a <;> cases b
-  case param.param a b => exact isTrue (congrArg Label.param (singlePort a b))
+  case param.param a b =>
+    letI := portEq a b
+    if h : a = b then exact isTrue (congrArg Label.param h)
+    else exact isFalse (by intro eq; cases eq; exact h rfl)
   case op.op a b =>
     if h : a = b then exact isTrue (h ▸ rfl) else exact isFalse (by
       intro eq
@@ -85,7 +99,7 @@ def labelEq {ins : List (Ty Data)} {out : Ty Data}
   all_goals exact isFalse (by intro h; cases h)
 
 def rowEq [DecidableEq Data] {out : Ty Data}
-    (a b : RawNode P [state] 1 out) : Decidable (a = b) := by
+    (a b : RawNode P params 1 out) : Decidable (a = b) := by
   obtain ⟨ins, label, args⟩ := a
   obtain ⟨ins', label', args'⟩ := b
   if hi : ins = ins' then
@@ -97,8 +111,8 @@ def rowEq [DecidableEq Data] {out : Ty Data}
     else exact isFalse (by intro h; cases h; exact hl rfl)
   else exact isFalse (fun h => hi (congrArg RawNode.inputs h))
 
-/-- Exact serialized table equality over the scalar boundary. -/
-def tableEq [DecidableEq Data] (a b : RawGraph P [state] [state] 7 1) : Decidable (a = b) := by
+/-- Exact serialized equality for a numbered single-loop table. -/
+def tableEq [DecidableEq Data] (a b : RawGraph P params results n 1) : Decidable (a = b) := by
   obtain ⟨⟨forest⟩, sort, node, roots⟩ := a
   obtain ⟨⟨forest'⟩, sort', node', roots'⟩ := b
   if hf : ∀ i, forest i = forest' i then
@@ -107,7 +121,7 @@ def tableEq [DecidableEq Data] (a b : RawGraph P [state] [state] 7 1) : Decidabl
     if hs : ∀ i, sort i = sort' i then
       have he := funext hs
       subst sort'
-      letI (i : Fin 7) := rowEq (node i) (node' i)
+      letI (i : Fin n) := rowEq (node i) (node' i)
       if hn : ∀ i, node i = node' i then
         have he := funext hn
         subst node'
