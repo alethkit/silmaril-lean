@@ -113,6 +113,14 @@ theorem flat_native_readback (law : CfgEta.EntryLet (Paper.Eqv (τ := Silmaril.T
   (ofRegion_eq_native flatPackets flatRank flat_typed (flat_accepts law)).trans
     ((ofRegion_eq_native packets rank accepted_typed accepts).symm.trans native_readback)
 
+/-- For this written table the global premise reduces to one exact local
+entry-let instance. The entry jump and the reply continuation are already
+eliminated by standard Paper equations. -/
+theorem flat_move_iff :
+    Paper.Eqv [ReplyShape.unit.ty] flatEntered flatMoved [ReplyShape.unit.ty] ↔
+    Paper.Eqv [ReplyShape.unit.ty] flat expected.region [ReplyShape.unit.ty] :=
+  RankedReplyRecognition.request_flat_move_iff
+
 end RequestExample
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.StructuralValues.Uniformity.Cyclic.Independent.FiniteReplies.Acyclic.Recognition.Ranked

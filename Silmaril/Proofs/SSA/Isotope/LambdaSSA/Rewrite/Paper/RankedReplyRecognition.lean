@@ -78,32 +78,29 @@ private theorem block_typed {s : ReplyShape} (b : Block (Φ := Φ) R t s) :
 private abbrev table (blocks : (i : Fin n) → Block (Φ := Φ) R t (R i)) :=
   fun i => (blocks i).region
 
-private theorem table_typed {Γ : VCtx (Ty Atom)}
-    (blocks : (i : Fin n) → Block (Φ := Φ) R t (R i)) :
-    ∀ i, ValueBranches ((R i).ty :: Γ) (table blocks i) (context R t) :=
-  fun i => packet_values (block_typed (blocks i))
-
-private theorem enter_block (blocks : (i : Fin n) → Block (Φ := Φ) R t (R i))
+private theorem enter_block (raw : Fin n → Region Φ)
+    (rows : ∀ i, ValueBranches [(R i).ty] (raw i) (context R t))
     (i : Fin n) {Γ : VCtx (Ty Atom)} :
-    Paper.Eqv ((R i).ty :: Γ) (.cfg (.br i (.var 0)) n (table blocks))
-      (.cfg (table blocks i) n (table blocks)) [t.ty] := by
+    Paper.Eqv ((R i).ty :: Γ) (.cfg (.br i (.var 0)) n raw)
+      (.cfg (raw i) n raw) [t.ty] := by
   cases n with
   | zero => exact Fin.elim0 i
   | succ n =>
       refine (Paper.Eqv.cfgEta (.native (.base (.entry
-        (.cfgBrLocal (fun j => (R j).ty) i (.var rfl) (fun j => (table_typed blocks j).hasType)))))).trans ?_
+        (.cfgBrLocal (fun j => (R j).ty) i (.var rfl) (fun j => (packet_values (rows j)).hasType)))))).trans ?_
       refine Paper.Eqv.cfg (fun j => (R j).ty) ?_
-        (fun j => Paper.Eqv.refl (table_typed blocks j).hasType)
-      have h := packet_subst (block_typed (blocks i)).hasType
+        (fun j => Paper.Eqv.refl (packet_values (rows j)).hasType)
+      have h := packet_subst (rows i).hasType
         (show Tm.singleSubst (.var 0 : Tm Φ) 0 = .var 0 from rfl)
       have beta := SubstitutionEquiv.letValue (.var (i := 0) rfl)
-        (table_typed (Γ := (R i).ty :: Γ) blocks i).hasType
+        (packet_values (Γ := (R i).ty :: Γ) (rows i)).hasType
       rw [h] at beta
       exact .cfgEta (.native beta)
 
-private theorem leave_block (blocks : (i : Fin n) → Block (Φ := Φ) R t (R i))
+private theorem leave_block (raw : Fin n → Region Φ)
+    (rows : ∀ i, ValueBranches [(R i).ty] (raw i) (context R t))
     {s : ReplyShape} {Γ : VCtx (Ty Atom)} (p : Control Φ s t) :
-    Paper.Eqv (s.ty :: Γ) (.cfg ((Block.exit p : Block R t s).region) n (table blocks))
+    Paper.Eqv (s.ty :: Γ) (.cfg ((Block.exit p : Block R t s).region) n raw)
       p.region [t.ty] := by
   cases n with
   | zero =>
@@ -111,7 +108,7 @@ private theorem leave_block (blocks : (i : Fin n) → Block (Φ := Φ) R t (R i)
       rw [show (fun j : Nat => j) = id from rfl, renameLabels_id]
       exact .cfgEta (.native (.base (.entry (.cfgZero (packet_scope p.region_typed.hasType) _))))
   | succ n => exact .cfgEta (.native (.cfgOutward (fun j => (R j).ty)
-                (packet_scope p.region_typed.hasType) (fun j => (table_typed blocks j).hasType)))
+                (packet_scope p.region_typed.hasType) (fun j => (packet_values (rows j)).hasType)))
 
 private theorem reindex_sound {s u : ReplyShape} {Γ : VCtx (Ty Atom)} {raw : Region Φ}
     (hs : s = u) {p : Control Φ s t} (eq : Paper.Eqv (s.ty :: Γ) raw p.region [t.ty]) :
@@ -119,54 +116,57 @@ private theorem reindex_sound {s u : ReplyShape} {Γ : VCtx (Ty Atom)} {raw : Re
   cases hs
   exact eq
 
-private theorem subst_case_entry (blocks : (i : Fin n) → Block (Φ := Φ) R t (R i))
+private theorem subst_case_entry (raw : Fin n → Region Φ)
+    (rows : ∀ i, ValueBranches [(R i).ty] (raw i) (context R t))
     {l r : ReplyShape} {left right : Region Φ}
     (hl : HasType [l.ty] left (context R t)) (hr : HasType [r.ty] right (context R t))
     (θ : Nat → Tm Φ) :
-    (.cfg (.case (.var 0) left right) n (table blocks) : Region Φ).substVars θ =
-      .cfg (.case (θ 0) left right) n (table blocks) := by
+    (.cfg (.case (.var 0) left right) n raw : Region Φ).substVars θ =
+      .cfg (.case (θ 0) left right) n raw := by
   simp only [Region.substVars, Tm.subst, packet_subst hl (θ := Tm.liftSubst θ) rfl,
     packet_subst hr (θ := Tm.liftSubst θ) rfl]
   congr 1
   funext j
-  exact packet_subst (block_typed (blocks j)).hasType (θ := Tm.liftSubst θ) rfl
+  exact packet_subst (rows j).hasType (θ := Tm.liftSubst θ) rfl
 
-private theorem case_cfg (blocks : (i : Fin n) → Block (Φ := Φ) R t (R i))
+private theorem case_cfg (raw : Fin n → Region Φ)
+    (rows : ∀ i, ValueBranches [(R i).ty] (raw i) (context R t))
     {Γ : VCtx (Ty Atom)} {l r : ReplyShape} {left right : Region Φ}
     (hl : HasType [l.ty] left (context R t)) (hr : HasType [r.ty] right (context R t)) :
-    Paper.Eqv ((ReplyShape.sum l r).ty :: Γ) (.cfg (.case (.var 0) left right) n (table blocks))
-      (.case (.var 0) (.cfg left n (table blocks)) (.cfg right n (table blocks))) [t.ty] := by
+    Paper.Eqv ((ReplyShape.sum l r).ty :: Γ) (.cfg (.case (.var 0) left right) n raw)
+      (.case (.var 0) (.cfg left n raw) (.cfg right n raw)) [t.ty] := by
   let S := (ReplyShape.sum l r).ty
-  have hbody : HasType (S :: S :: Γ) (.cfg (.case (.var 0) left right) n (table blocks)) [t.ty] :=
+  have hbody : HasType (S :: S :: Γ) (.cfg (.case (.var 0) left right) n raw) [t.ty] :=
     .cfg (fun j => (R j).ty)
-      (.case (.var rfl) (packet_scope hl) (packet_scope hr)) (fun j => (table_typed blocks j).hasType)
+      (.case (.var rfl) (packet_scope hl) (packet_scope hr)) (fun j => (packet_values (rows j)).hasType)
   have split := Paper.Eqv.cfgEta (.native
     (SubstitutionEquiv.caseValue (.var (Γ := S :: Γ) (i := 0) rfl) hbody))
-  simp only [subst_case_entry blocks hl hr, Tm.replaceNewest, Tm.singleSubst, Tm.consSubst] at split
+  simp only [subst_case_entry raw rows hl hr, Tm.replaceNewest, Tm.singleSubst, Tm.consSubst] at split
   apply split.symm.trans
   refine Paper.Eqv.case (A := l.ty) (B := r.ty) (.var rfl) ?_ ?_
   · refine Paper.Eqv.cfg (fun j => (R j).ty) ?_
-      (fun j => Paper.Eqv.refl (table_typed blocks j).hasType)
+      (fun j => Paper.Eqv.refl (packet_values (rows j)).hasType)
     refine (Paper.Eqv.cfgEta (.native (.base
       (.caseInl (.var rfl) (packet_scope hl) (packet_scope hr))))).trans ?_
     have beta := SubstitutionEquiv.letValue (.var (Γ := l.ty :: S :: Γ) (i := 0) rfl) (packet_scope hl)
     rw [packet_subst hl (θ := Tm.singleSubst (.var 0)) rfl] at beta
     exact .cfgEta (.native beta)
   · refine Paper.Eqv.cfg (fun j => (R j).ty) ?_
-      (fun j => Paper.Eqv.refl (table_typed blocks j).hasType)
+      (fun j => Paper.Eqv.refl (packet_values (rows j)).hasType)
     refine (Paper.Eqv.cfgEta (.native (.base
       (.caseInr (.var rfl) (packet_scope hl) (packet_scope hr))))).trans ?_
     have beta := SubstitutionEquiv.letValue (.var (Γ := r.ty :: S :: Γ) (i := 0) rfl) (packet_scope hr)
     rw [packet_subst hr (θ := Tm.singleSubst (.var 0)) rfl] at beta
     exact .cfgEta (.native beta)
 
-private theorem inline_sound (blocks : (i : Fin n) → Block (Φ := Φ) R t (R i))
+private theorem inline_sound (raw : Fin n → Region Φ)
+    (rows : ∀ i, ValueBranches [(R i).ty] (raw i) (context R t))
     (next : (i : Fin n) → Option (Control Φ (R i) t))
     (jump_sound : ∀ (j : Fin n) (Γ : VCtx (Ty Atom)) {p : Control Φ (R j) t}, next j = some p →
-      Paper.Eqv ((R j).ty :: Γ) (.cfg (.br j (.var 0)) n (table blocks)) p.region [t.ty])
+      Paper.Eqv ((R j).ty :: Γ) (.cfg (.br j (.var 0)) n raw) p.region [t.ty])
     {s : ReplyShape} (b : Block (Φ := Φ) R t s) {Γ : VCtx (Ty Atom)} {p : Control Φ s t}
     (h : b.inline next = some p) :
-    Paper.Eqv (s.ty :: Γ) (.cfg b.region n (table blocks)) p.region [t.ty] := by
+    Paper.Eqv (s.ty :: Γ) (.cfg b.region n raw) p.region [t.ty] := by
   induction b generalizing Γ with
   | jump j hs =>
       obtain ⟨q, hq, hqp⟩ := Option.map_eq_some_iff.mp h
@@ -175,12 +175,12 @@ private theorem inline_sound (blocks : (i : Fin n) → Block (Φ := Φ) R t (R i
   | exit q =>
       have hp : q = p := Option.some.inj h
       subst p
-      exact leave_block blocks q
+      exact leave_block raw rows q
   | case l r ihl ihr =>
       obtain ⟨pl, hl, tail⟩ := Option.bind_eq_some_iff.mp h
       obtain ⟨pr, hr, hp⟩ := Option.bind_eq_some_iff.mp tail
       cases hp
-      refine (case_cfg blocks (block_typed l).hasType (block_typed r).hasType).trans ?_
+      refine (case_cfg raw rows (block_typed l).hasType (block_typed r).hasType).trans ?_
       simp only [Control.region, packet_rename pl.region_typed.hasType (ρ := lift Nat.succ) rfl,
         packet_rename pr.region_typed.hasType (ρ := lift Nat.succ) rfl]
       exact .case (.var rfl) (ihl hl) (ihr hr)
@@ -190,10 +190,10 @@ private theorem inline_sound (blocks : (i : Fin n) → Block (Φ := Φ) R t (R i
       have ha : Tm.HasType (ReplyShape.unit.ty :: Γ) (.op op (.var 0)) (Profile.reply op).ty :=
         .op (.var rfl)
       have step := move (fun j => (R j).ty)
-        ha (packet_values (block_typed body)) (table_typed blocks)
+        ha (packet_values (block_typed body)) (fun j => packet_values (rows j))
       have keep (j : Fin n) :
-          (table blocks j).renameVars (lift Nat.succ) = table blocks j :=
-        packet_rename (block_typed (blocks j)).hasType rfl
+          (raw j).renameVars (lift Nat.succ) = raw j :=
+        packet_rename (rows j).hasType rfl
       simp only [keep] at step
       rw [call_region op q, packet_rename q.region_typed.hasType (ρ := lift Nat.succ) rfl]
       exact step.trans (.let₁ ha (ih hq))
@@ -205,8 +205,8 @@ private theorem follow_sound (blocks : (i : Fin n) → Block (Φ := Φ) R t (R i
   induction fuel generalizing Γ i with
   | zero => cases h
   | succ fuel ih =>
-      exact (enter_block blocks i).trans
-        (inline_sound blocks (follow blocks fuel) (fun _ _ _ eq => ih eq) (blocks i) h)
+      exact (enter_block (table blocks) (fun j => block_typed (blocks j)) i).trans
+        (inline_sound (table blocks) (fun j => block_typed (blocks j)) (follow blocks fuel) (fun _ _ _ eq => ih eq) (blocks i) h)
 
 variable [DecidableEq Φ]
 
@@ -226,7 +226,8 @@ private theorem entry_sound (rank : Fin n → Nat) (blocks : (i : Fin n) → Blo
     Paper.Eqv [s.ty] (.cfg entry n (table blocks)) p.region [t.ty] := by
   obtain ⟨b, hb, he⟩ := Option.bind_eq_some_iff.mp h
   rw [checkBlock_sound (fun _ => true) hb]
-  exact inline_sound blocks (fun i => follow blocks (rank i + 1) i)
+  exact inline_sound (table blocks) (fun j => block_typed (blocks j))
+    (fun i => follow blocks (rank i + 1) i)
     (fun _ _ _ eq => follow_sound blocks eq) b he
 
 private theorem collect_sound (rank : Fin n → Nat) {policy : RequestPolicy Φ n} {raw : Fin n → Region Φ}
@@ -301,12 +302,64 @@ theorem request_captured_typed : ValueBranches [ReplyShape.unit.ty] RequestExamp
     [ReplyShape.unit.ty] :=
   request_graph_typed (.br rfl (.var rfl))
 
-theorem request_flat_typed : ValueBranches [ReplyShape.unit.ty] RequestExample.flat
-    [ReplyShape.unit.ty] := by
-  refine .cfg (fun _ : Fin 2 => ReplyShape.unit.ty) (.br rfl (.var rfl)) ?_
-  exact Fin.cases
+private theorem request_flat_rows (j : Fin 2) :
+    ValueBranches [(RequestExample.flatPackets j).ty] (RequestExample.flatBlocks j)
+      (context RequestExample.flatPackets .unit) :=
+  Fin.cases
     (.let₁ (.op (.var rfl)) (.case (.var rfl) (.br rfl (.var rfl)) (.br rfl (.var rfl))))
-    (fun _ => .let₁ (.op (.var rfl)) (.br rfl (.var rfl)))
+    (fun _ => .let₁ (.op (.var rfl)) (.br rfl (.var rfl))) j
+
+theorem request_flat_typed : ValueBranches [ReplyShape.unit.ty] RequestExample.flat
+    [ReplyShape.unit.ty] :=
+  .cfg (fun i => (RequestExample.flatPackets i).ty) (.br rfl (.var rfl))
+    (fun i => packet_values (request_flat_rows i))
+
+theorem request_flat_entry :
+    Paper.Eqv [ReplyShape.unit.ty] RequestExample.flat RequestExample.flatEntered
+      [ReplyShape.unit.ty] :=
+  enter_block RequestExample.flatBlocks request_flat_rows 0
+
+private def tick : Control RequestExample.Op .unit .unit :=
+  .let₁ (.call .tick) (.forward .unit)
+
+private theorem request_flat_tail {Γ : VCtx (Ty Atom)} :
+    Paper.Eqv ((Profile.reply (Paper.WithPairReturns.StructuralValues.Uniformity.Cyclic.Independent.FiniteReplies.Acyclic.Recognition.Example.Op.read)).ty :: Γ)
+      (.cfg (RequestExample.choose 1) 2 RequestExample.flatBlocks)
+      (Control.case tick tick).region [ReplyShape.unit.ty] := by
+  let next : (i : Fin 2) → Option (Control RequestExample.Op (RequestExample.flatPackets i) .unit) :=
+    Fin.cases none (fun _ => some tick)
+  have jumps : ∀ (i : Fin 2) (Δ : VCtx (Ty Atom)) {p}, next i = some p →
+      Paper.Eqv ((RequestExample.flatPackets i).ty :: Δ)
+        (.cfg (.br i (.var 0)) 2 RequestExample.flatBlocks) p.region [ReplyShape.unit.ty] := by
+    intro i
+    refine Fin.cases ?_ (fun j => ?_) i
+    · intro Δ p h
+      change none = some p at h
+      cases h
+    · rw [Fin.eq_zero j]
+      intro Δ p h
+      change some tick = some p at h
+      cases h
+      exact (enter_block RequestExample.flatBlocks request_flat_rows 1).trans
+        (leave_block RequestExample.flatBlocks request_flat_rows tick)
+  exact inline_sound RequestExample.flatBlocks request_flat_rows next jumps
+    (.case (.jump 1 rfl) (.jump 1 rfl)) rfl
+
+theorem request_flat_moved :
+    Paper.Eqv [ReplyShape.unit.ty] RequestExample.flatMoved RequestExample.expected.region
+      [ReplyShape.unit.ty] := by
+  change Paper.Eqv _ _ (Control.let₁ (.call (Paper.WithPairReturns.StructuralValues.Uniformity.Cyclic.Independent.FiniteReplies.Acyclic.Recognition.Example.Op.read)) (.case tick tick)).region _
+  rw [call_region, packet_rename (Control.case tick tick).region_typed.hasType
+    (ρ := lift Nat.succ) rfl]
+  exact .let₁ (.op (.var rfl)) request_flat_tail
+
+theorem request_flat_move_iff :
+    Paper.Eqv [ReplyShape.unit.ty] RequestExample.flatEntered RequestExample.flatMoved
+      [ReplyShape.unit.ty] ↔
+    Paper.Eqv [ReplyShape.unit.ty] RequestExample.flat RequestExample.expected.region
+      [ReplyShape.unit.ty] :=
+  ⟨fun h => request_flat_entry.trans (h.trans request_flat_moved),
+    fun h => request_flat_entry.symm.trans (h.trans request_flat_moved.symm)⟩
 
 open Paper.WithPairReturns.StructuralValues.Uniformity.Cyclic.Independent.FiniteReplies (Row)
 
