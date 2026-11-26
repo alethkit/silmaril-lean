@@ -136,7 +136,7 @@ example (x : Atom) (ambient : Env Runtime) :
   (compiled.packed_tree model (PUnit.unit, x) ambient).trans (source_result x)
 
 -- The captured reverse compiler permits this older input read, but the
--- packet-local named emitter has no corresponding block-local name.
+-- unchanged packet-local input leaves no corresponding block-local name.
 private def readsAmbient : Reverse.Program sig.Instr context (List.ofFn D) :=
   ⟨num, ⟨.bv 0, .bv⟩,
     .jump ⟨.pair .unit (.pair (.bv 1) .unit), .pair .unit (.pair .bv .unit)⟩ (.exit (i := 0) rfl)⟩
@@ -152,5 +152,72 @@ example : (lowerFresh ambientLabels context exits external fields
     (ambientGrammar.toTable.toFlat List.length_ofFn)).isNone = true := by decide
 
 example : (compile? (fields := fields) ambientGrammar ambientLabels).isNone = true := by decide
+
+-- After attachment, the old emission reads the incoming packet at slot
+-- zero. The original typed row reads the older caller field at slot one.
+private def oldSource :=
+  (lower (freshRegisters 1) ports.names ambientLabels (fun i => exits[i])
+    (ambientGrammar.toTable.toFlat List.length_ofFn)).get (by decide)
+
+example : (flat (fields := fields) ambientGrammar none).block 0 =
+    .br 1 (.pair .unit (.pair (.bv 1) .unit)) := by decide
+
+example : ((elaborate (withLiveOut (P := sig) fields oldSource) exits ports.names).map
+    (fun code => code.block ⟨0, by decide⟩)) = some (.br 1 (.pair .unit (.pair (.bv 0) .unit))) := by decide
+
+-- Decode the old packet into register 2, then replace packet register 1
+-- with the carried caller field. The outward projection stays register 1.
+private def carryRegisters : Registers Register :=
+  ⟨⟨1⟩, fun depth => if depth = 1 then ⟨1⟩ else ⟨2 + depth⟩⟩
+
+private def ambientCompiled : Compiled (fields := fields) ambientGrammar (some 0) :=
+  (compileCarry? (fields := fields) ambientGrammar 0 carryRegisters ambientLabels).get (by decide)
+
+example : (equationRoom sig).Sat (algebra (P := sig) model) ambientCompiled.equation :=
+  ambientCompiled.satisfies model
+
+example : (Program.ofCFGEntry ambientGrammar.toTable.toFlat_hasType).denote model =
+    ambientCompiled.admission.program.denote model :=
+  ambientCompiled.packed_eq model
+
+-- A unit incoming argument makes the carried number distinguishable from
+-- the original packet. The same input, exit order and live-out register
+-- are used by the named run, the packed reversion and the equation.
+private def readsAmbientWithUnit : Reverse.Program sig.Instr context (List.ofFn D) :=
+  ⟨.unit, ⟨.unit, .unit⟩,
+    .jump ⟨.pair .unit (.pair (.bv 1) .unit), .pair .unit (.pair .bv .unit)⟩ (.exit (i := 0) rfl)⟩
+
+private def unitWritten : Operand sig.Instr context B :=
+  ⟨.let₁ .unit (.let₁ (.pair .unit (.pair (.bv 1) .unit)) (.inl (.bv 0))),
+    .let₁ .unit (.let₁ (.pair .unit (.pair .bv .unit)) (.inl .bv))⟩
+
+private def unitGrammar : ResultGrammar (L := List.ofFn D) unitWritten := ⟨readsAmbientWithUnit, rfl⟩
+private def unitLabels (i : Fin (unitGrammar.toTable.size + 1)) : Label := ⟨7 + i.val⟩
+
+private def unitCompiled : Compiled (fields := fields) unitGrammar (some 0) :=
+  (compileCarry? (fields := fields) unitGrammar 0 carryRegisters unitLabels).get (by decide)
+
+example : (flat (fields := fields) unitGrammar (some 0)).entry = .br 0 (.pair .unit (.bv 0)) ∧
+    (flat (fields := fields) unitGrammar (some 0)).block 0 =
+      .let₂ (.bv 0) (.br 1 (.pair .unit (.pair (.bv 0) .unit))) := by decide
+
+private theorem unit_result (x : Atom) :
+    (sourceTree (fields := fields) model unitWritten (PUnit.unit, x) >>=
+      fun b => pure (0, encodeValue C B b)) = pure (0, .inl (packet x)) := by
+  simp only [sourceTree, unitWritten, LetCase.LocallyNameless.Derivation.denote, pure_bind]
+  repeat' (first | rfl | erw [pure_bind])
+
+example (x : Atom) :
+    LiveOut.observe model ports fields unitCompiled.lowered.source (PUnit.unit, x) =
+      pure (0, .inl (packet x)) :=
+  (unitCompiled.named_tree model (PUnit.unit, x)).symm.trans (unit_result x)
+
+example (x : Atom) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue C A (PUnit.unit, x))) unitCompiled.admission.program.code =
+      pure (0, .inl (packet x)) :=
+  (unitCompiled.packed_tree model (PUnit.unit, x) ambient).trans (unit_result x)
+
+example : (equationRoom sig).Sat (algebra (P := sig) model) unitCompiled.equation :=
+  unitCompiled.satisfies model
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.PacketLocal.Witnessed.Tests

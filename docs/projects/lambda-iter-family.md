@@ -1066,8 +1066,22 @@ the existing packet-local fragment. Blocks read caller values through
 their incoming packets. An outward operand supplies the old payload
 and live-out record as the pair expected by the reverse emitter. Scoped
 readback checks the exact ordered register projection after reattachment.
-The named checker rejects the fixture whose live-out reads an older
-ambient variable where reattachment reads the incoming packet register.
+In the older-ambient fixture, the raw emitter succeeds. The original
+positional row reads slot one, while the attached live-out register
+reads slot zero, the incoming packet. Literal readback rejects that
+allocation even when the two values happen to agree.
+
+`PacketLocal.Witnessed.compileCarry?` accepts a caller-selected slot and
+an explicit register plan. It pairs every internal argument with that
+unchanged caller field and inserts a typed product decoder in each row.
+`Capture.Carry.graph_tree` uses weak ITree iterator uniformity to show
+that the changed internal packets preserve execution and all outward
+tags and payloads. The existing exact readback still checks name reuse,
+packet closure and ordered live-out reattachment. The existing opt-in
+reversion checks typing and entry-reachable rank. A successful run
+keeps the caller record, external interface and live-out register
+selection. This form carries one slot and still requires operands,
+remaining row reads and the allocation to pass the named checks.
 
 On success, the original written LetCase tree agrees at every caller
 record with the actual named run and its packed LambdaSSA reversion.
@@ -1077,7 +1091,12 @@ typed and erased primitives. `Compiled.packed_eq` compares the two
 existing typed packed denotations. The fixture supplies a number at
 entry, uses a visible Boolean reply to select either ordered exit, and
 checks the returned live-out while the original payload is unit.
+The carried-slot regression admits the formerly rejected row and
+a second row whose original incoming argument is unit. Both keep
+live-out register 1. In the second row the actual named and packed
+runs return the supplied number at the first ordered exit.
 
 [Captured table adapter](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Flat/Tree/Thms.lean)
 · [Named and institutional round trip](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocal/LetCase/Witnessed/Thms.lean)
-· [Visible branching and ambient-read rejection](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocalLetCaseWitnessedRegression.lean)
+· [Internal packet typing and weak-tree preservation](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Capture/Carry/Thms.lean)
+· [Visible branching, exact rejection and carried-slot admission](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocalLetCaseWitnessedRegression.lean)
