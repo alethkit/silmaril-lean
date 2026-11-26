@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedLet.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProductDestructureReturns.Term.Defs
 
 /-! # A unary-return body under an exact product destructure -/
 

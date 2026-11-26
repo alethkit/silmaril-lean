@@ -31,10 +31,6 @@ def diagonal : Region Φ :=
 def unpackBody (r : Region Φ) : Region Φ :=
   .let₂ (.var 0) (r.renameVars (lift (lift Nat.succ)))
 
-/-- Decode both fields of the sole packed input inside a returned term. -/
-def unpackTerm (b : Tm Φ) : Tm Φ :=
-  .let₂ (.var 0) (b.rename (lift (lift Nat.succ)))
-
 theorem returnOnce_typed (ha : Tm.HasType [X] a A) :
     ValueBranches [X] (returnOnce a) [A] :=
   .let₁ ha (.br rfl (.var (i := 0) rfl))
@@ -47,10 +43,5 @@ theorem unpackBody_typed (hr : ValueBranches [A, X] r [B]) :
     ValueBranches [Silmaril.product X A] (unpackBody r) [B] :=
   .let₂ (.var (i := 0) rfl)
     (hr.renameVars (((Ren.wk ([] : VCtx τ) (Silmaril.product X A)).lift X).lift A))
-
-theorem unpackTerm_typed {b : Tm Φ} (hb : Tm.HasType [A, X] b B) :
-    Tm.HasType [Silmaril.product X A] (unpackTerm b) B :=
-  .let₂ (.var (i := 0) rfl)
-    (hb.rename (((Ren.wk ([] : VCtx τ) (Silmaril.product X A)).lift X).lift A))
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.RetainedLet
