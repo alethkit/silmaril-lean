@@ -73,8 +73,8 @@ def admitClient [DecidableEq (Ty V S)] {keys : OpcodeCode (Instruction Op)} [Dec
   let knownL : provider.familyL (inputsL.get .head) := sameL.down.symm ▸ provider.knownL
   let knownR : provider.familyR (inputsR.get .head) := sameR.down.symm ▸ provider.knownR
   let checked ← provider.certified.addLambda keys ordinary
-    ((Table.empty provider.familyL (past := []) PUnit.unit).available provider.certified.ordinaryL (Row.headOnly knownL))
-    ((Table.empty provider.familyR (past := []) PUnit.unit).available provider.certified.ordinaryR (Row.headOnly knownR))
+    ((Table.empty provider.familyL (past := []) PUnit.unit).availableWithImports provider.certified.ordinaryL (Row.headOnly knownL))
+    ((Table.empty provider.familyR (past := []) PUnit.unit).availableWithImports provider.certified.ordinaryR (Row.headOnly knownR))
     left right
   pure ⟨checked.down.forExports .exported .exported⟩
 

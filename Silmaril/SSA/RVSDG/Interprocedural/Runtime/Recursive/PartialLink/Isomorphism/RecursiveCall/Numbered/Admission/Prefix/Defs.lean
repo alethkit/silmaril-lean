@@ -132,16 +132,23 @@ def Table.lift {family target : Family m}
   | _ :: _, _, table => ⟨fun p => (table.1 p).map (fun cert => ⟨includeValue cert.down⟩), Table.lift includeValue table.2⟩
 
 /-- Ordinary values are admitted at use. Other values need evidence at
-their exact import or output port. The default import table is empty. -/
-def Table.available {family : Family m} {entry : Tuple m.Val imports} {locals : Locals m.Val past}
+their exact import or output port. -/
+def Table.availableWithImports {family : Family m} {entry : Tuple m.Val imports} {locals : Locals m.Val past}
     (table : Table family locals)
     (ordinary : ∀ {port : Ty V S} (value : m.Val port), ordinaryPort port = true → family value)
-    (imported : Row family entry := fun _ => none) : Available family entry locals :=
+    (imported : Row family entry) : Available family entry locals :=
   fun {port} origin =>
     if plain : ordinaryPort port = true then some ⟨ordinary _ plain⟩
     else match origin with
       | .arg p => imported p
       | .output row p => table.get row p
+
+/-- Access checked locals with ordinary imports. -/
+def Table.available {family : Family m} {entry : Tuple m.Val imports} {locals : Locals m.Val past}
+    (table : Table family locals)
+    (ordinary : ∀ {port : Ty V S} (value : m.Val port), ordinaryPort port = true → family value) :
+    Available family entry locals :=
+  table.availableWithImports ordinary (fun _ => none)
 
 def memberRow {family : Family m} :
     (members : List (Function V S)) → (values : (i : Fin members.length) → m.Val members[i].port) →
