@@ -5,7 +5,7 @@ public import Silmaril.Languages.Python.Compile.Closure.Thms
 /-! # Source closure bodies awaiting code linking
 
 The fixed positional profile lowers nested declarations, name reads and
-writes, integer addition and calls. A child declaration retains its
+writes, integer addition, integer multiplication and calls. A child declaration retains its
 analyzed path, distinct parameter destinations and ordered capture
 operands so a code linker can choose the numeric key.
 -/
@@ -32,6 +32,7 @@ inductive Expr (layout : Core.Closure.Layout) where
   /-- Equality against an integer literal in a message-free assertion. -/
   | eqInt (left : Expr layout) (right : Int)
   | add (left right : Expr layout)
+  | mul (left right : Expr layout)
   | call (callee : Expr layout) (arguments : List (Expr layout))
   deriving Repr
 
@@ -59,6 +60,9 @@ mutual
     | add {left right lhs rhs} (leftTranslation : ExprTranslation scope left lhs)
         (rightTranslation : ExprTranslation scope right rhs) :
         ExprTranslation scope (.binary .add left right) (.add lhs rhs)
+    | mul {left right lhs rhs} (leftTranslation : ExprTranslation scope left lhs)
+        (rightTranslation : ExprTranslation scope right rhs) :
+        ExprTranslation scope (.binary .mul left right) (.mul lhs rhs)
     | call {callee arguments targetCallee targetArguments}
         (function : ExprTranslation scope callee targetCallee)
         (positional : ArgumentsTranslation scope arguments targetArguments) :
@@ -102,6 +106,10 @@ mutual
       let lhs ← lowerExprWith scope allowGlobals left
       let rhs ← lowerExprWith scope allowGlobals right
       return ⟨.add lhs.val rhs.val, .add lhs.property rhs.property⟩
+    | .binary .mul left right => do
+      let lhs ← lowerExprWith scope allowGlobals left
+      let rhs ← lowerExprWith scope allowGlobals right
+      return ⟨.mul lhs.val rhs.val, .mul lhs.property rhs.property⟩
     | .call callee arguments => do
       let function ← lowerExprWith scope allowGlobals callee
       let positional ← lowerArgumentsWith scope allowGlobals arguments
