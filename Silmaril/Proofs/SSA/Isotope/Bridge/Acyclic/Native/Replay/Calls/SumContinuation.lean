@@ -61,6 +61,12 @@ theorem split_inr_proof {a : Tm Φ} (ha : Tm.HasType Γ a B) :
   .extra (UnaryReturn.returnOnce_valueBranches (.inr ha)).hasType
     (.let₁ ha (.br (ℓ := 0) rfl (.inr (.var (i := 0) rfl)))) (.inr (.splitInr ha))
 
+theorem split_abort_proof {a : Tm Φ} (ha : Tm.HasType Γ a empty) :
+    Eqv pe Γ (returnOnce (.abort a)) (.let₁ a (returnOnce (.abort (.var 0)))) [D] :=
+  .extra (UnaryReturn.returnOnce_valueBranches (.abort ha)).hasType
+    (.let₁ ha (UnaryReturn.returnOnce_valueBranches (.abort (.var (i := 0) rfl))).hasType)
+    (.inr (.splitAbort ha))
+
 private theorem invoke_typed (hq : HasType (instrTrg f :: Γ) q L) :
     HasType (instrSrc f :: Γ) (invoke f q) L :=
   .let₁ (.op (.var (i := 0) rfl)) (hq.renameVars ((Ren.wk Γ (instrSrc f)).lift (instrTrg f)))
@@ -136,6 +142,10 @@ theorem sound_proof {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Categor
       have native := denote_inr_boundReturn_sequencing J M (L := [coprod X Y]) (i := 0) rfl ha
       change denoteRegion J M tp = denoteRegion J M tq at native
       exact ⟨_, denoteRegion_spec J M tp, native.symm ▸ denoteRegion_spec J M tq⟩
+    | @splitAbort D _ ha =>
+      have native := denote_abort_boundReturn_sequencing J M (L := [D]) (i := 0) rfl ha
+      change denoteRegion J M tp = denoteRegion J M tq at native
+      exact ⟨_, denoteRegion_spec J M tp, native.symm ▸ denoteRegion_spec J M tq⟩
 
 end Native
 
@@ -158,6 +168,7 @@ theorem rename_schedule_proof {ρ : Nat → Nat}
   | call value _ ih => exact .call (move value typed) (ih (typed.lift _))
   | caseVar value _ _ ihl ihr => exact .caseVar (typed value) (ihl (typed.lift _)) (ihr (typed.lift _))
   | unpackVar value _ ih => exact .unpackVar (typed value) (ih ((typed.lift _).lift _))
+  | abortValue value _ ih => exact .abortValue (move value typed) (ih (typed.lift _))
 
 private theorem invoke_subst (f : Φ) (a : Tm Φ) (q : Region Φ) :
     (invoke f q).substVars (Tm.singleSubst a) = .let₁ (.op f a) q := by
@@ -204,6 +215,9 @@ theorem splice_proof (producer : Schedule Γ p S before) (body : Schedule (instr
     have left := rename_schedule_proof body ((Ren.wk Γ A).lift (instrTrg f))
     have moved := rename_schedule_proof left ((Ren.wk (A :: Γ) B).lift (instrTrg f))
     exact .unpackVar value (ih moved single)
+  | @abortValue Γ _ A _ _ _ value _ ih =>
+    rw [Region.lsubst, invoke_lift]
+    exact .abortValue value (ih (rename_schedule_proof body ((Ren.wk Γ A).lift (instrTrg f))) single)
 
 end Schedule
 

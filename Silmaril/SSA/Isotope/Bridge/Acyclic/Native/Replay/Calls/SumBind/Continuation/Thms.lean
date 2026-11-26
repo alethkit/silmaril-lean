@@ -52,6 +52,12 @@ theorem split_inr {a : Tm Φ} (ha : Tm.HasType Γ a B) :
     Eqv pe Γ (returnOnce (.inr a)) (inrSequence a) [coprod A B] :=
   split_inr_proof ha
 
+/-- Split a returned empty elimination at its original singleton result.
+Only the producer of the empty value is evaluated before the eliminator. -/
+theorem split_abort {a : Tm Φ} (ha : Tm.HasType Γ a empty) :
+    Eqv pe Γ (returnOnce (.abort a)) (.let₁ a (returnOnce (.abort (.var 0)))) [D] :=
+  split_abort_proof ha
+
 /-- Use the computed case as the argument to a later primitive; leave the
 body at its original ordered exits under the primitive reply binder. -/
 theorem call_replay (he : Tm.HasType Γ e (coprod A B)) (hl : Tm.HasType (A :: Γ) l (instrSrc f))

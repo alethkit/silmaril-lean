@@ -103,6 +103,23 @@ private theorem replay_injection {Γ : VCtx (Ty α)} {A D : Ty α} {a injected v
   rw [append_return] at composed
   exact ⟨s, paths, scheduled, split.trans (composed.trans done)⟩
 
+private theorem replay_abort {Γ : VCtx (Ty α)} {D : Ty α} {a : Tm Φ} {p : Region Φ}
+    {before : List (List Φ × Nat)} (ha : Tm.HasType Γ a Ty.empty)
+    (hp : Schedule Γ p [Ty.empty] before) (ep : Continuation.Eqv pe Γ (returnOnce a) p [Ty.empty]) :
+    ∃ s, Schedule Γ s [D] [] ∧ Continuation.Eqv pe Γ (returnOnce (.abort a)) s [D] := by
+  have finish : Schedule (Ty.empty :: Γ) (returnOnce (.abort (.var 0)) : Region Φ) [D] [] :=
+    .abortValue (.var (i := 0) rfl) (.ret (i := 0) rfl (.var (i := 0) rfl))
+  obtain ⟨s, paths, scheduled, sub, done⟩ := splice_schedule_proof (pe := pe) hp finish rfl
+  have emptyPaths (prior : List (List Φ × Nat)) : appendPaths prior [] = [] := by
+    induction prior with
+    | nil => rfl
+    | cons _ _ ih => simpa only [appendPaths, List.flatMap_cons, List.map_nil, List.nil_append] using ih
+  have noExit := List.eq_nil_of_sublist_nil (emptyPaths before ▸ sub)
+  have composed := append_eq pe (UnaryReturn.returnOnce_valueBranches ha) hp.valueBranches ep
+    (Extension.Eqv.refl finish.valueBranches.hasType)
+  rw [append_return] at composed
+  exact ⟨s, noExit ▸ scheduled, (Continuation.split_abort ha).trans (composed.trans done)⟩
+
 private theorem replay_pair {Γ : VCtx (Ty α)} {A B : Ty α} {a b : Tm Φ} {p q : Region Φ}
     {before after : List (List Φ × Nat)}
     (ha : Tm.HasType Γ a A) (hb : Tm.HasType Γ b B)
@@ -132,14 +149,14 @@ private theorem replay_call {Γ : VCtx (Ty α)} {f : Φ} {a : Tm Φ} {p : Region
     {paths : List (List Φ × Nat)} (ha : Tm.HasType Γ a (instrSrc f))
     (h : Schedule Γ p [instrSrc f] paths) (e : Continuation.Eqv pe Γ (returnOnce a) p [instrSrc f]) :
     ∃ s routes, Schedule Γ s [instrTrg f] routes ∧ Continuation.Eqv pe Γ (returnOnce (.op f a)) s [instrTrg f] := by
-  have suffix : Schedule (instrTrg f :: Γ) (.br 0 (.var 0) : Region Φ) [instrTrg f] [([], 0)] :=
-    .ret (i := 0) rfl (.var rfl)
-  have scheduled := Continuation.splice (f := f) h suffix
+  have invoked : Schedule (instrSrc f :: Γ) (Continuation.invoke f (.br 0 (.var 0))) [instrTrg f] [([f], 0)] :=
+    .call (.var (i := 0) rfl) (.ret (i := 0) rfl (.var (i := 0) rfl))
+  obtain ⟨s, routes, scheduled, _, done⟩ := splice_schedule_proof (pe := pe) h invoked rfl
   have step := ConstructorJoin.ofCall (pe := pe) (Step.seq f ha)
   have replay := append_eq pe (returnRegion_typed ha) h.valueBranches ((returns_one pe ha).trans e)
     (Extension.Eqv.refl (UnaryReturn.returnOnce_valueBranches
       (Tm.HasType.op (f := f) (.var (i := 0) rfl))).hasType)
-  exact ⟨_, _, scheduled, (ofCalls pe step).trans replay⟩
+  exact ⟨s, routes, scheduled, (ofCalls pe step).trans (replay.trans done)⟩
 
 private theorem replay_case {Γ : VCtx (Ty α)} {A B D : Ty α} {e l r : Tm Φ} {p q s : Region Φ}
     {before left right : List (List Φ × Nat)}
@@ -198,7 +215,10 @@ theorem normalize_proof {n : Nat} {β : BoundCtx (Ty α) n} {t : LetCase.Locally
     obtain ⟨_, _, ha, ea⟩ := iha shape.1
     obtain ⟨_, _, hb, eb⟩ := ihb shape.2
     exact replay_let₂ pe (erase_hasType a.toHasType) (erase_hasType b.toHasType) ha hb ea eb
-  | abort => exact shape.elim
+  | abort d ih =>
+    obtain ⟨_, _, h, replay⟩ := ih shape
+    obtain ⟨s, scheduled, done⟩ := replay_abort pe (erase_hasType d.toHasType) h replay
+    exact ⟨s, [], scheduled, done⟩
 
 private theorem singleton_labels {D : Ty α} {L : LCtx (Ty α)} {i : Nat} (out : At L i D) :
     Ren [D] L (fun _ => i) :=
@@ -247,7 +267,7 @@ private theorem reify {n : Nat} {β : BoundCtx (Ty α) n}
     have ha := erase_hasType da.toHasType
     have split := Continuation.split_let₂ (pe := pe) ha (erase_hasType db.toHasType)
     exact (split.renameLabels (singleton_labels out)).trans (Extension.Eqv.let₂ ha (ihb shape.2 out))
-  | abort => exact shape.elim
+  | abort a _ => exact reflexive_return pe (.abort a) out
   | bv => exact reflexive_return pe .bv out
   | unit => exact reflexive_return pe .unit out
   | op a _ => exact reflexive_return pe (.op a) out
@@ -265,5 +285,15 @@ theorem normalize_at_proof {n : Nat} {β : BoundCtx (Ty α) n} {D : Ty α} {L : 
   exact ⟨_, paths.map Prod.fst, by
     simpa only [List.map_map, Function.comp_def] using retarget_schedule_proof out h rfl,
     written, (reify pe a.2 shape out).symm.trans written⟩
+
+theorem normalize_abort_at_proof {n : Nat} {β : BoundCtx (Ty α) n} {D : Ty α} {L : LCtx (Ty α)}
+    {i : Nat} (out : At L i D) (a : Operand Φ β Ty.empty) (shape : Admitted (erase a.1)) :
+    ∃ s, Schedule β.toList s L [] ∧
+      Continuation.Eqv pe β.toList ((Code.br ⟨.abort a.1, .abort (C := D) a.2⟩).guardedSSA i) s L ∧
+      Continuation.Eqv pe β.toList ((Code.ofLetCase (.abort (C := D) a.2)).guardedSSA i) s L := by
+  obtain ⟨_, _, h, replay⟩ := normalize_proof pe a.2 shape
+  obtain ⟨s, scheduled, done⟩ := replay_abort pe (erase_hasType a.2.toHasType) h replay
+  have written := done.renameLabels (singleton_labels out)
+  exact ⟨_, retarget_schedule_proof out scheduled rfl, written, written⟩
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Native.SumBind.Recursive

@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Calls.SumBind.Recursive.Defs
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Calls.SumBind.Continuation.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Family.Thms
 
 public section
 
@@ -118,6 +119,18 @@ private theorem specialize_schedule (h : Schedule Γ p L paths)
       have beta := Continuation.ofSums (SumBind.ofProducts (ProductBind.constructor_beta (pe := pe) left right bodyTyped))
       rw [specialize_fields] at beta
       exact ⟨s, routes, out, sub, beta.trans replay⟩
+  | @abortValue _ _ A _ _ _ value _ ih =>
+    obtain ⟨s, _, out, _, replay⟩ := ih (value_lift A typed)
+    have emptyValue := value.subst (fun _ _ hi => typed hi)
+    exact ⟨_, [], .abortValue emptyValue out, .refl [], .let₁ (.abort emptyValue.hasType) replay⟩
+
+-- Even an unreachable syntactic branch has a typed label to host the
+-- guarded eliminator. No such label is added to the returning paths.
+private theorem schedule_exit (h : Schedule Γ p L paths) : ∃ i A, At L i A := by
+  induction h with
+  | ret exit _ => exact ⟨_, _, exit⟩
+  | call _ _ ih | unpackVar _ _ ih | abortValue _ _ ih => exact ih
+  | caseVar _ _ _ ih _ => exact ih
 
 theorem splice_schedule_proof (producer : Schedule Γ p K before) (body : Schedule (D :: Γ) q L after)
     (single : K = [D]) :
@@ -147,6 +160,14 @@ theorem splice_schedule_proof (producer : Schedule Γ p K before) (body : Schedu
     obtain ⟨s, routes, out, sub, replay⟩ :=
       ih (Continuation.rename_schedule left ((Ren.wk (A :: Γ) B).lift D)) single
     exact ⟨_, _, .unpackVar value out, sub, .let₂ (.var value) replay⟩
+  | @abortValue Γ _ _ _ _ _ value dead _ =>
+    cases single
+    obtain ⟨i, T, exit⟩ := schedule_exit body
+    have stop : Schedule Γ (.let₁ (.abort _) (.br i (.var 0))) L [] :=
+      .abortValue value (.ret exit (.var (i := 0) rfl))
+    have pasted := (Schedule.abortValue value dead).valueBranches.lsubst (σ := fun _ => q)
+      (fun _ _ hi => (List.mem_singleton.mp (List.mem_of_getElem? hi)).symm ▸ body.valueBranches)
+    exact ⟨_, [], stop, .refl [], .paper (.cfgEta (.native (.initial value pasted.hasType stop.valueBranches.hasType)))⟩
 
 theorem retarget_schedule_proof {i : Nat} (out : At L i D) (h : Schedule Γ p K paths)
     (single : K = [D]) :
@@ -162,5 +183,6 @@ theorem retarget_schedule_proof {i : Nat} (out : At L i D) (h : Schedule Γ p K 
   | caseVar value _ _ ihl ihr =>
     simpa only [Region.renameLabels, List.map_append] using Schedule.caseVar value (ihl single) (ihr single)
   | unpackVar value _ ih => exact .unpackVar value (ih single)
+  | abortValue value _ ih => exact .abortValue value (ih single)
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Native.SumBind.Recursive
