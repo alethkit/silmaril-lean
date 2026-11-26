@@ -75,23 +75,23 @@ theorem iterateSum_no_repeat
 
 section OverlayStep
 
-variable {Φ : Type u} [HasTy Φ (Ty κ)] (M : Shape.Model.{u,v,w,x} Φ ([] : List (Ty κ)))
+variable {Φ : Type u} [HasTy Φ (Ty κ)] {Γ : List (Ty κ)} (M : Shape.Model.{u,v,w,x} Φ Γ)
 
 /-- Interpret any typed overlay region as a singleton arrow. Its one value
-binder supplies the incoming payload, with empty captures. -/
-noncomputable def interpretSingleton (r : Region Φ [A] [B]) :
+binder supplies the incoming payload ahead of the fixed captures. -/
+noncomputable def interpretSingleton (r : Region Φ (A :: Γ) [B]) :
     single A ⟶ (single B : Interface M.raw.α M.raw.σ M.atomType) where
   run _ a s := Shape.denote r (M.extend (payloadAtZero a).property) s
   returnsTyped _ a s := Shape.returns_typed r (M.extend (payloadAtZero a).property) s
 
 /-- Exact-sum iteration of an explicit overlay step, as a shaped arrow. -/
-noncomputable def iterateOverlay (r : Region Φ [A] [.coprod B A]) :
+noncomputable def iterateOverlay (r : Region Φ (A :: Γ) [.coprod B A]) :
     single A ⟶ (single B : Interface M.raw.α M.raw.σ M.atomType) :=
   iterateSum (interpretSingleton M r)
 
 /-- At an initial state the explicit-overlay iterator is greatest exactly
 when an ordinary typed repeat path reaches a greatest step behaviour. -/
-theorem iterateOverlay_eq_top_iff (r : Region Φ [A] [.coprod B A])
+theorem iterateOverlay_eq_top_iff (r : Region Φ (A :: Γ) [.coprod B A])
     (a : singlePayload (atomType := M.atomType) A) (s : M.raw.σ) :
     (iterateOverlay M r).run 0 a s = ⊤ ↔
       ∃ p, Relation.ReflTransGen (Repeat (interpretSingleton M r)) (a, s) p ∧
@@ -100,7 +100,7 @@ theorem iterateOverlay_eq_top_iff (r : Region Φ [A] [.coprod B A])
 
 /-- The existing overlay refinement supplies the pointwise comparison at
 each typed invocation of the loop. -/
-theorem iterateOverlay_mono {r t : Region Φ [A] [.coprod B A]} (le : Refines.{u,v,w,x} r t)
+theorem iterateOverlay_mono {r t : Region Φ (A :: Γ) [.coprod B A]} (le : Refines.{u,v,w,x} r t)
     (a : singlePayload (atomType := M.atomType) A) (s : M.raw.σ) :
     (iterateOverlay M r).run 0 a s ≤ (iterateOverlay M t).run 0 a s :=
   iterateSum_mono (f := interpretSingleton M r) (g := interpretSingleton M t)

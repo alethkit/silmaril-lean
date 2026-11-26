@@ -538,8 +538,9 @@ instead, so the erased comparison does not imply iterator refinement.
 
 ### Exact-sum iteration of explicit overlay steps
 
-An exactly typed overlay step with one input binder, no captures, and
-one exact-sum exit interprets directly as a shaped singleton arrow.
+An exactly typed overlay step with one input binder and one exact-sum
+exit interprets directly as a shaped singleton arrow at a fixed capture
+environment.
 `iterateOverlay` closes that arrow through the existing directed feedback
 and returns an arrow whose ordinary successful outputs have the result
 type. The same `WithTop (Set Outcome)` carrier applies at each initial
@@ -559,10 +560,38 @@ one it repeats at a new state and takes the explicit `ub` continuation,
 so the result is greatest. From the other it returns at once, and its
 exact ordinary singleton behaviour is independent of the unused
 continuation. Replacing an ordinary continuation with `ub` is checked
-as a typed refinement. The construction is at the shaped observation
-interface of the empty-capture fragment.
+as a typed refinement. This regression uses the empty-capture instance.
 [Overlay iteration][ssa-ub-shaped-overlay-iteration] [Regression][ssa-ub-shaped-overlay-iteration-regression]
 [Native agreement][ssa-ub-paper-iteration]
+
+### Fixed capture packs
+
+A step in context `[A, X]` can iterate on a product input `X × A`.
+The outer product is unpacked once. Its left field supplies the fixed
+capture of type `X`, which can itself contain products, and its right
+field supplies the initial loop payload. Every right-tagged repeat
+changes only the loop payload and machine state. Fresh top at an
+initial input and state is equivalent to a finite path of such repeats
+to a step at fresh top, with the original capture in scope throughout.
+The existing `Overlay.Refines` order gives pointwise monotonicity.
+
+At a fixed typed environment, the interpretation agrees with the
+installed `CfgEta.TypeCategory.iterateSum` projected to Paper and with
+`Paper.feedback` using the installed exact-sum dispatcher. For the
+product input, the concrete native packing equation compares the
+overlay arrow with `let₂ (var 0)` around that native iterator
+representative. The body skips the original product slot after binding
+the seed at slot zero and the capture at slot one. This equation keeps
+the whole observed behaviour, including faults and both sources of
+may-divergence. The product-input comparison uses one capture binder of
+arbitrary exact type.
+
+The literal-UB regression starts both runs with the same seed and
+machine state zero. Both repeat with a changed payload at state one.
+The first capture then reaches UB. The second reaches an ordinary
+return at state two.
+[Packed iterator][ssa-ub-shaped-capture-iteration] [Native comparisons][ssa-ub-paper-capture-iteration]
+[Regression][ssa-ub-shaped-capture-regression]
 
 ## Coverage and gaps
 
@@ -603,6 +632,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Iteration.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Iteration.Refinement.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Capture.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -684,3 +714,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-paper-iteration-refinement]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Iteration/Refinement/Regression.lean
 [ssa-ub-shaped-overlay-iteration]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Thms.lean
 [ssa-ub-shaped-overlay-iteration-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Regression.lean
+[ssa-ub-shaped-capture-iteration]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Capture/Thms.lean
+[ssa-ub-paper-capture-iteration]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Iteration/Capture/Thms.lean
+[ssa-ub-shaped-capture-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Capture/Regression.lean
