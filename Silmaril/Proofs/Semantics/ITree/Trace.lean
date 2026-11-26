@@ -149,6 +149,35 @@ theorem trace_same_exchange_iff {R : Type u} (e : E R) (k : R → Tree E A)
   exact ⟨fun ⟨h, _, hp⟩ => by simpa only [show h = rfl from Subsingleton.elim _ _] using hp,
     fun hp => ⟨rfl, rfl, hp⟩⟩
 
+theorem trace_antisymm {t s : Tree E A} (hts : TraceLE t s) (hst : TraceLE s t) :
+    t = s := by
+  apply Tree.eq_iff_observe.mpr
+  intro depth
+  induction depth generalizing t s with
+  | zero => exact Subsingleton.elim _ _
+  | succ depth ih =>
+    rcases cases_visible t with rfl | ⟨a, rfl⟩ | ⟨R, e, k, rfl⟩
+    · rcases cases_visible s with rfl | ⟨a, rfl⟩ | ⟨R, e, l, rfl⟩
+      · rfl
+      · have h := hst (.result a) (out_ret a)
+        simp [trace_diverge_iff] at h
+      · have h := hst (.request e) ⟨l, out_vis e l⟩
+        simp [trace_diverge_iff] at h
+    · have hs : s = ret a :=
+        out_injective ((hts (.result a) (out_ret a)).trans (out_ret a).symm)
+      rw [hs]
+    · obtain ⟨l, hl⟩ := hts (.request e) ⟨k, out_vis e k⟩
+      have hs : s = vis e l := out_injective (hl.trans (out_vis e l).symm)
+      subst s
+      have replyLE (r : R) {f g : R → Tree E A}
+          (h : TraceLE (vis e f) (vis e g)) : TraceLE (f r) (g r) :=
+        fun p hp => (trace_same_exchange_iff e g r p).mp
+          (h (.exchange e r p) ((trace_same_exchange_iff e f r p).mpr hp))
+      have children : (fun r => (k r).observe depth) = (fun r => (l r).observe depth) :=
+        funext fun r => ih (replyLE r hts) (replyLE r hst)
+      simp only [observe_succ_eq_out, out_vis, Part.map_eq_map, Part.map_some, Visible.map_vis,
+        Function.comp_def, children]
+
 theorem trace_map_iff (f : A → B) (t : Tree E A) (p : Trace E B) :
     HasTrace (t >>= fun a => pure (f a)) p ↔
       ∃ q, HasTrace t q ∧ q.map f = p :=

@@ -337,11 +337,26 @@ trace, and its observations are included in the specification's.
 [Packed refinement theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Trace/Thms.lean)
 · [Directed capture regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
 
+On deterministic weak trees, `eq_iff_traceLE` equates mutual finite
+inclusion with weak tree equality. A terminal observation fixes the return
+value, a pending request fixes the indexed event even without replies, and
+each exchange gives mutual inclusion after that actual reply. Induction on
+observation depth then determines the tree. `Tree.tracePartialOrder` exposes
+this order on the existing weak-tree type, where equality already identifies
+the weakly equal representatives. `packed_run_tree_eq_iff_traceLE` compares
+a packed specification with the whole named run after capture and exit
+retagging. The visible capture fixture checks the equivalence and uses the
+partial order for its strict comparison.
+[Weak tree partial order](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
+· [Packed comparison](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Trace/Thms.lean)
+· [Capture regressions](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
 Silent divergence contributes only an empty prefix at the point where it
 occurs. Inclusion can replace it with further events or a return, so it
 does not preserve may-divergence as a positive observation. The relation
 compares attainable finite progress and returns. It does not assert
-must-termination, fairness, or an infinite-path witness.
+must-termination, fairness, or an infinite-path witness. The equality result
+concerns deterministic weak-tree denotations.
 [Silent divergence law](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
 
 ### Edge arguments for a normalized φ port

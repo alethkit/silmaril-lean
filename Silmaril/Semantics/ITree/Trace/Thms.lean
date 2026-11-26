@@ -21,6 +21,24 @@ theorem TraceLE.trans {t s r : Tree E A} (h : TraceLE t s) (g : TraceLE s r) :
     TraceLE t r :=
   fun p hp => g p (h p hp)
 
+/-- For deterministic weak trees, mutual inclusion fixes the root and every
+typed reply continuation, hence every finite approximation. -/
+theorem TraceLE.antisymm {t s : Tree E A} (hts : TraceLE t s) (hst : TraceLE s t) :
+    t = s :=
+  Silmaril.Proofs.Semantics.Elgot.ITree.trace_antisymm hts hst
+
+theorem eq_iff_traceLE {t s : Tree E A} : t = s ↔ TraceLE t s ∧ TraceLE s t :=
+  ⟨fun h => h ▸ ⟨TraceLE.refl t, TraceLE.refl t⟩, fun h => h.1.antisymm h.2⟩
+
+/-- The trace order on weak trees. Equality on `Tree` already identifies
+weakly equal representatives. Use this order explicitly or as a local
+instance. -/
+@[expose, instance_reducible] def Tree.tracePartialOrder : PartialOrder (Tree E A) where
+  le := TraceLE
+  le_refl := TraceLE.refl
+  le_trans _ _ _ := TraceLE.trans
+  le_antisymm _ _ := TraceLE.antisymm
+
 -- Weak tree equality is equality in this model, and tau is the identity.
 @[simp] theorem traceLE_tau_left (t s : Tree E A) : TraceLE (tau t) s ↔ TraceLE t s := Iff.rfl
 
