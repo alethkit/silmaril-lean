@@ -2,8 +2,8 @@ module
 
 public import Silmaril.SSA.SeaOfNodes.Pure.SubZero.Defs
 
-/-! Fold operations whose actual operands are typed literals in the
-current prefix. A replacement occupies the original typed result slot. -/
+/-! Fold operations to literals using their actual typed operand wires.
+A replacement occupies the original typed result slot. -/
 
 @[expose] public section
 
@@ -33,14 +33,17 @@ def Literals.push (known : Literals m args past) (value : Option (Val m.value (.
     | .inr .head => value
     | .inr (.tail port) => nomatch port
 
-/-- A supported opcode is either a literal or an operation with a
-certified literal constructor for its result sort. -/
+/-- A folding rule preserves a literal, evaluates known operands, or
+recognizes a repeated word source with a certified constant result. -/
 inductive Rule (m : Model Op) : {ins : List (ValueSort Unit)} → {out : ValueSort Unit} →
     Op ins out → Type where
   | literal {out : ValueSort Unit} (op : Op [] out) : Rule m op
   | operation {ins : List (ValueSort Unit)} {out : ValueSort Unit}
       (op : Op ins out) (encode : sortValue m.value out → Op [] out)
       (read_encode : ∀ value, m.run (encode value) .nil = value) : Rule m op
+  | sameWord {out : ValueSort Unit} (op : Op [word, word] out) (result : Op [] out)
+      (read_same : ∀ value, m.run op (.cons value (.cons value .nil)) = m.run result .nil)
+      (fallback : Rule m op) : Rule m op
 
 abbrev Rules (m : Model Op) :=
   ∀ {ins : List (ValueSort Unit)} {out : ValueSort Unit} (op : Op ins out), Rule m op
@@ -61,12 +64,16 @@ abbrev binaryInputs? (known : Literals m args past)
     Option (Tuple (Val m.value) (dataPorts [word, word])) :=
   literalInputs? known operands
 
-/-- Evaluate a binding with the native model after all literal reads succeed. -/
-def Rule.replacement? (known : Literals m args past) {op : Op ins out} :
-    Rule m op → Wires args past (dataPorts ins) → Option (Op [] out)
-  | .literal original, _ => some original
-  | .operation opcode encode _, operands =>
+/-- Return a certified literal using the binding's actual typed wires. -/
+def Rule.replacement? (known : Literals m args past) :
+    {ins : List (ValueSort Unit)} → {out : ValueSort Unit} → {op : Op ins out} →
+      Rule m op → Wires args past (dataPorts ins) → Option (Op [] out)
+  | _, _, _, .literal original, _ => some original
+  | _, _, _, .operation opcode encode _, operands =>
     (literalInputs? known operands).map fun values => encode (m.run opcode values)
+  | _, _, _, .sameWord _ result _ fallback, operands =>
+    if (operands.get .head).address = (operands.get (.tail .head)).address then some result
+    else replacement? known fallback operands
 
 /-- Scan once in dependency order, preserving the table's output signatures. -/
 def foldDataflow (rules : Rules m) : {past sigs : List (List (Ty Unit))} →

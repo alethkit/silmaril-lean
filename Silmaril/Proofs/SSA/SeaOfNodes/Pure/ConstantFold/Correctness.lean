@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.SeaOfNodes.Pure.ConstantFold.Defs
 import Silmaril.SSA.SeaOfNodes.GVN.Elimination.Thms
+import Silmaril.SSA.RVSDG.NestedTheta.Equality.Thms
 
 public section
 
@@ -62,7 +63,7 @@ private theorem replacement_sound (agree : Agrees known entry locals) {op : Op i
     (rule : Rule m op) (operands : Wires args past (dataPorts ins)) {literal : Op [] out}
     (found : rule.replacement? known operands = some literal) :
     m.run op (operands.read entry locals) = m.run literal .nil := by
-  cases rule with
+  induction rule with
   | literal original =>
     cases operands
     cases Option.some.inj found
@@ -70,6 +71,23 @@ private theorem replacement_sound (agree : Agrees known entry locals) {op : Op i
   | operation opcode encode read_encode =>
     obtain ⟨values, knownOperands, rfl⟩ := Option.map_eq_some_iff.mp found
     rw [read_encode, literalInputs_sound agree operands knownOperands]
+  | sameWord opcode result read_same fallback ih =>
+    cases operands with
+    | cons lhs tail =>
+      cases tail with
+      | cons rhs empty =>
+        cases empty
+        simp only [Rule.replacement?, Tuple.get] at found
+        split at found
+        · rename_i sameAddress
+          have same := Silmaril.SSA.RVSDG.NestedTheta.Equality.addresses_injective
+            (.cons lhs .nil) (.cons rhs .nil) (congrArg (fun address => [address]) sameAddress)
+          have sameWire := congrArg (fun wires => Tuple.get wires .head) same
+          change lhs = rhs at sameWire
+          subst rhs
+          cases Option.some.inj found
+          exact read_same _
+        · exact ih _ found
 
 private theorem dataflow_eval (rules : Rules m) (flow : Dataflow Op args past sigs)
     (agree : Agrees known entry locals) :
