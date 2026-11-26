@@ -12,9 +12,13 @@ namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Dispatch.Del
 open SeaOfNodes.Diamond (ValueSort dataPorts)
 open SeaOfNodes.Diamond.SCCP (Fact TupleCovers)
 open SeaOfNodes.Loop.SCCP (BankDecidableEq)
-open SeaOfNodes.Loop.MLIR.CF (Op model)
+open SeaOfNodes.Loop.MLIR.CF (Op TargetOp model evalOp)
 open SeaOfNodes.MLIR (Word)
 open Silmaril.MLIR.Arith (Width)
+open Silmaril.MLIR.CF (Cfg)
+open SeaOfNodes.MLIR.Lowering (encodeValues)
+open Tail.Diamond.MLIR.CF (Widths)
+open RVSDG.NestedTheta (Graph)
 open RVSDG (Tuple)
 open Blocks (Bank)
 
@@ -58,6 +62,20 @@ theorem Correct.noReturn_iff (correct : Correct outcome input) :
 theorem mem_sourcePart_iff {value : Word result} :
     value ∈ sourcePart p input ↔ ∃ budget, runSource p input budget = some value :=
   Observation.Proofs.mem_sourcePart_iff
+
+/-- Membership in the pure CF observer has an independent block-fuel witness. -/
+theorem mem_observeCF_iff {Label : List Width → Type}
+    (target : Cfg TargetOp Label (Widths regs) [result]) {value : Word result} :
+    value ∈ observeCF target input ↔
+      ∃ fuel, target.run evalOp fuel (encodeValues input) = some (.cons value .nil) :=
+  Observation.Proofs.mem_observeCF_iff target
+
+/-- Membership in the numbered observer is an exact finite return. -/
+theorem mem_observeNumbered_iff {sigs}
+    (target : Graph (Join.Opcode Op) (dataPorts regs) [] sigs [.value (.data result)])
+    {value : Word result} :
+    value ∈ observeNumbered target input ↔ target.Returns (Join.model model) input (.cons value .nil) :=
+  Observation.Proofs.mem_observeNumbered_iff target
 
 /-- The actual partial target denotations, projected to their one result word,
 agree with the source's unbounded return observation. -/
