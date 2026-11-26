@@ -25,6 +25,12 @@ open Recognize (Bit Packets guardedTable)
 
 attribute [local instance] Recognize.requestTypes
 
+/-- Replaying a constructor packet preserves its value on projection. -/
+theorem lower_lift {Φ : Type} (p : Value Unit) :
+    Recognize.encodeValue (fun _ => ()) (Recognize.encodeValue
+      (fun _ => (Silmaril.Elgot.ITree.diverge : RunTree Φ)) p) = p :=
+  Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.lower_lift p
+
 theorem query_agrees {Φ : Type} (op : Φ) :
     ∀ arg : Syntax.Payload Bit,
       raw op (Recognize.encodeValue ULift.up arg.val) =
