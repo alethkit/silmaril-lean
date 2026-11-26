@@ -15,7 +15,8 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mix
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Context.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Reconstruction.Thms
-import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Reflection.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Arguments.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.CallByValue.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.AtomicSequence.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
@@ -2619,7 +2620,7 @@ private abbrev Eff := Bool × Bool
 private abbrev bound : Eff := (true, false)
 
 private inductive Instruction
-  | receive | send | discard | stop | sendTagged | stopAlt
+  | receive | send | discard | stop | sendTagged | stopAlt | tick
 
 private instance : HasTy Instruction T where
   src
@@ -2852,5 +2853,68 @@ example : ¬ AbortEquiv (⊥ : Eff) (Ctx.nil : Ctx Empty T) Γ.toBoundCtx
     stopVisible stopAltVisible (.unit _ _) (.unit _ _) .unit .unit
     (.unit _ _) (.unit _ _) rfl rfl h
   cases result.1
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyArguments
+  (Raw raw_reflection)
+
+private theorem tickVisible : ¬ IsPure (⊥ : Eff) Instruction.tick :=
+  fun h => Bool.noConfusion (congrArg Prod.fst h)
+
+private abbrev nestedArgs : Expr Instruction :=
+  .op .sendTagged (.pair (.op .receive .unit) (.op .tick .unit))
+
+private abbrev splitArgs : Expr Instruction :=
+  .let₁ (.op .receive .unit) (.op .sendTagged (.pair (.var 0) (.op .tick .unit)))
+
+private abbrev orderedCalls : Expr Instruction :=
+  .let₁ (.op .receive .unit)
+    (.let₁ (.op .tick .unit) (.op .sendTagged (.pair (.var 1) (.var 0))))
+
+private theorem receiveRaw (Δ : EffectCtx T Eff) :
+    Raw bound Δ R (.op Instruction.receive .unit) :=
+  .call receiveVisible le_rfl (.leaf (.unit _ _) .unit)
+
+private theorem tickRaw (Δ : EffectCtx T Eff) :
+    Raw bound Δ .unit (.op Instruction.tick .unit) :=
+  .call tickVisible le_rfl (.leaf (.unit _ _) .unit)
+
+private theorem nestedArgsRaw : Raw bound Γ .unit nestedArgs :=
+  .call taggedVisible le_rfl (.pair (receiveRaw _) (tickRaw _))
+
+private theorem splitArgsRaw : Raw bound Γ .unit splitArgs :=
+  .let1 (receiveRaw _) (.call taggedVisible le_rfl
+    (.pair (.leaf (.var 0 le_rfl) (.var 0)) (tickRaw _)))
+
+private theorem nestedArgs_order : Eqv Γ .unit bound nestedArgs orderedCalls := by
+  have receive : Wf Γ (.op Instruction.receive .unit) R bound := .op le_rfl (.unit _ _)
+  have tick : Wf Γ (.op Instruction.tick .unit) .unit bound := .op le_rfl (.unit _ _)
+  have tickUnder : Wf ((R, ⊥) :: Γ) (.op Instruction.tick .unit) .unit bound :=
+    .op le_rfl (.unit _ _)
+  have args : Wf ((.unit, ⊥) :: (R, ⊥) :: Γ) (.pair (.var 1) (.var 0) : Expr Instruction)
+      (.product R .unit) bound := .pair (.var 1 bot_le) (.var 0 bot_le)
+  exact (Eqv.op (f := Instruction.sendTagged) le_rfl (CallByValue.pair_bind receive tick)).trans
+    ((CallByValue.op_let (f := Instruction.sendTagged) le_rfl receive (.let₁ tickUnder args)).trans
+      (.let1 (.refl receive) (CallByValue.op_let (f := Instruction.sendTagged) le_rfl tickUnder args)))
+
+private theorem splitArgs_order : Eqv Γ .unit bound splitArgs orderedCalls := by
+  have receive : Wf Γ (.op Instruction.receive .unit) R bound := .op le_rfl (.unit _ _)
+  have tick : Wf ((R, ⊥) :: Γ) (.op Instruction.tick .unit) .unit bound := .op le_rfl (.unit _ _)
+  have value : Wf ((R, ⊥) :: Γ) (.var 0 : Expr Instruction) R (⊥ : Eff) := .var 0 le_rfl
+  have body : Wf ((R, ⊥) :: (R, ⊥) :: Γ)
+      (.let₁ (.op Instruction.tick .unit) (.pair (.var 1) (.var 0))) (.product R .unit) bound :=
+    .let₁ (.op le_rfl (.unit _ _)) (.pair (.var 1 bot_le) (.var 0 bot_le))
+  have pairOrder := (CallByValue.pair_bind (value.weakenEffect bot_le) tick).trans
+    (.step (.let1_beta value body))
+  exact .let1 (.refl receive) ((Eqv.op (f := Instruction.sendTagged) le_rfl pairOrder).trans
+    (CallByValue.op_let (f := Instruction.sendTagged) le_rfl tick (.pair (.var 1 bot_le) (.var 0 bot_le))))
+
+-- Both inputs are independently recognized before normalization. The
+-- structured receive reply becomes the first field of the final request.
+example : Eqv Γ .unit bound nestedArgs splitArgs := by
+  have lowers : orderedCalls.toLetIter 0 = some
+      (.let₁ (.op .receive .unit)
+        (.let₁ (.op .tick .unit) (.op .sendTagged (.pair (.bv 1) (.bv 0))))) := rfl
+  exact (raw_reflection profile pureCtx slotTy nestedArgsRaw splitArgsRaw rfl rfl).mp
+    ((nestedArgs_order.toLetIter rfl lowers).trans (splitArgs_order.toLetIter rfl lowers).symm)
 
 end LetIterSharedReplyReflectionFixture
