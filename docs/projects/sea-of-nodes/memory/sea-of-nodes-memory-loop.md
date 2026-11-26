@@ -262,6 +262,24 @@ is ruled out even with the same return word.
 [Backend theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Thms.lean) ·
 [Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Regression.lean)
 
+### Equations for coloured Petri completion
+
+`petriHolds` compares the two emitted graphs' finite completions for
+every initial heap at the chosen typed model. Each result contains the
+word and every final cell. If both graphs have no finite completion at
+an initial heap, both partial observations are absent there.
+`petri_satisfaction_iff_memref` and `petri_satisfaction` identify this
+relation with MemRef and native equation satisfaction.
+`petri_satisfaction_reindex` uses the native typed entry map and
+valuation reduct.
+
+The backend regression rejects equal words with different final cells.
+It also compares two programs that both exhaust a zero-backedge
+allowance. One returns after another activation, and the other has
+no finite completion at that heap.
+[Equation theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Thms.lean) ·
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Regression.lean)
+
 Save this example to a Lean file and run `lake env lean <file>`. The
 activation results list the selector, word, and both final cells. The
 feedback and CFG results list the word and both final cells on return.
