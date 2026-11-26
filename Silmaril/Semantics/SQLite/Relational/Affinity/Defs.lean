@@ -14,7 +14,7 @@ inductive Affinity where
   deriving DecidableEq, Repr
 
 /-- Ordinary declared type names use ASCII-insensitive substring rules in precedence order.
-The input is the resolved type name (`none` for no declaration), after parsing SQL. -/
+The input is the resolved, NUL-free type name (`none` for no declaration), after parsing SQL. -/
 def Affinity.ofDeclaredType : Option String → Affinity
   | none => .blob
   | some name =>
@@ -39,6 +39,19 @@ def StrictType.ofDeclaredType (name : Option String) : Option StrictType :=
   | some "blob" => some .blob
   | some "any" => some .any
   | _ => none
+
+/-- Affinity used at the STRICT write boundary. ANY has the identity affinity. -/
+def StrictType.affinity : StrictType → Affinity
+  | .int | .integer => .integer
+  | .real => .real
+  | .text => .text
+  | .blob | .any => .blob
+
+/-- Test the storage class after affinity, independently of row constraints. -/
+def StrictType.accepts : StrictType → StorageClass → Bool
+  | _, .null | .any, _ => true
+  | .int, .integer | .integer, .integer | .real, .real | .text, .text | .blob, .blob => true
+  | _, _ => false
 
 inductive ColumnType where
   | ordinary (affinity : Affinity)
@@ -96,9 +109,11 @@ where
     let (negative, unsigned) := splitSign trimmed
     let (digits, rest) := unsigned.span isDigit
     if !digits.isEmpty && rest.isEmpty then
-      let magnitude := digits.foldl (fun n b => min (2^63 + 1) (10 * n + (b.toNat - 48))) 0
-      if magnitude < 2^63 || (negative && magnitude == 2^63) then
-        return .integer (Int64.ofInt (if negative then -(Int.ofNat magnitude) else Int.ofNat magnitude))
+      let limit : Nat := 2 ^ 63
+      let magnitude := digits.foldl (fun n b => min (limit + 1) (10 * n + (b.toNat - 48))) 0
+      if magnitude < limit || (negative && magnitude == limit) then
+        let integer : Int := magnitude
+        return .integer (Int64.ofInt (if negative then -integer else integer))
       throw (.unsupported .numericTextOverflow)
     if realSyntax digits rest then throw (.unsupported .numericTextRealSyntax)
     return .text t
@@ -108,6 +123,7 @@ where
     | .real r =>
       let f := Float.Model.ofBits r.bits
       let i := f.toInt64
+      -- SQLite excludes the signed endpoints from REAL-to-INTEGER affinity.
       if i != Int64.minValue && i != Int64.maxValue && (Float.Model.ofInt64 i).beq f then
         .ok (.integer i)
       else .ok (.real r)
@@ -117,16 +133,11 @@ where
 constraints such as NOT NULL and INTEGER PRIMARY KEY are outside it. -/
 def ColumnType.apply : ColumnType → SqlValue → Except AffinityError SqlValue
   | .ordinary affinity, value => affinity.apply value
-  | .strict .any, value => .ok value
-  | .strict type, value => do
-    let (affinity, expected) : Affinity × StorageClass := match type with
-      | .int | .integer => (.integer, .integer)
-      | .real => (.real, .real)
-      | .text => (.text, .text)
-      | .blob | .any => (.blob, .blob)
-    let result ← affinity.apply value
-    if result.storageClass == .null || result.storageClass == expected then
-      return result
-    throw (.datatype type result.storageClass)
+  | .strict type, value =>
+    match type.affinity.apply value with
+    | .error error => .error error
+    | .ok result =>
+      if type.accepts result.storageClass then .ok result
+      else .error (.datatype type result.storageClass)
 
 end Silmaril.SQLite.Relational
