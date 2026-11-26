@@ -26,7 +26,7 @@ theorem observeNestedCallIn_instance {space : Namespace} {context : CallContext}
       [.call inner [operand, .readGlobal className]] =
       (⟨if result then .ok none else .error (.raised (.assertionError (.boolean false))),
         [⟨inner, ⟨.ok (.bool result), none⟩⟩,
-         ⟨outer, ⟨if result then .ok .none else .error (.raised (.assertionError (.boolean false))), none⟩⟩]⟩,
+         ⟨outer, ⟨if result then .ok .none else .error (.raised (.assertionError (.boolean false))), none⟩⟩], none⟩,
         context.heap) := by
   have resolved : Core.Module.SeededCall.resolveCall space #v[] (.global inner)
       [lowerCallOperand operand, lowerCallOperand (.readGlobal className)] =
@@ -62,7 +62,7 @@ theorem observeNestedCallIn_intInstance {space : Namespace} {context : CallConte
     (classBinding : space.lookupGlobal className = some (.builtin .int)) :
     observeNestedCallIn space context .discard outer
       [.call inner [.literal (.int value), .readGlobal className]] =
-      (⟨.ok none, [⟨inner, ⟨.ok (.bool true), none⟩⟩, ⟨outer, ⟨.ok .none, none⟩⟩]⟩, context.heap) :=
+      (⟨.ok none, [⟨inner, ⟨.ok (.bool true), none⟩⟩, ⟨outer, ⟨.ok .none, none⟩⟩], none⟩, context.heap) :=
   observeNestedCallIn_instance helper probe rfl classBinding
     (Core.Module.SeededCall.invoke_isinstance_int_int value)
 
@@ -72,7 +72,7 @@ theorem observeNestedCallIn_innerPreparationError {space : Namespace} {context :
     (failed : Core.Module.SeededCall.resolveCall space #v[] (.global inner) (operands.map lowerCallOperand) =
       .error error) :
     observeNestedCallIn space context .discard outer [.call inner operands] =
-      (⟨.error (.ofCall error), [⟨inner, ⟨.error error, none⟩⟩]⟩, context.heap) := by
+      (⟨.error (.ofCall error), [⟨inner, ⟨.error error, none⟩⟩], none⟩, context.heap) := by
   simp [observeNestedCallIn, observeRemainingCallIn, observeArgumentsIn, observeArgumentIn, argumentObservation,
     outerFound, failed, Except.mapError]
 
@@ -200,14 +200,18 @@ theorem preserves_builtins {scope : Languages.Python.Source.Scope} (space : Name
   induction instructions generalizing space context lists with
   | nil => rfl
   | cons instruction rest ih =>
+    have reached : ((effectWithLists space context instruction lists).1.1.reachedNamespace space).builtins =
+        space.builtins := by
+      simp only [Effect.reachedNamespace]
+      split <;> rfl
     cases selected : (effectWithLists space context instruction lists).1.1.binding with
-    | error error => simp [runInstructionsIn, selected]
+    | error error => simpa [runInstructionsIn, selected] using reached
     | ok binding =>
       cases binding with
-      | none => simp [runInstructionsIn, selected, ih]
+      | none => simpa [runInstructionsIn, selected, ih, applyBinding] using reached
       | some assignment =>
         obtain ⟨name, value⟩ := assignment
-        simp [runInstructionsIn, selected, ih, Namespace.bind_preserves_builtins]
+        simpa [runInstructionsIn, selected, ih, applyBinding, Namespace.bind_preserves_builtins] using reached
 
 
 theorem run_directDiscard {scope : Source.Scope} {space : Namespace} {context : CallContext}

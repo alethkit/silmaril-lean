@@ -166,7 +166,7 @@ theorem run_identityAssertion {scope : Source.Scope} (space : Namespace) (contex
       match ((result.map fun _ => (none : Option (String × Value))).mapError ModuleFailure.ofCall) with
       | .ok value => value = none
       | .error _ => True := by intro α result; cases result <;> trivial
-  simp only [runInstructionsIn, effectWithLists, effect]
+  simp only [runInstructionsIn, effectWithLists, effect, scalarBinding]
   cases h : (assertOperand space (.identityChain left links) true).binding with
   | error => rfl
   | ok binding =>

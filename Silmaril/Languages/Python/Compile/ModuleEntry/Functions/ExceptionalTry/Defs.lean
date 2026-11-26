@@ -17,6 +17,16 @@ structure Outcome (state failure : Type) where
   reached : state
   completion : Except failure Unit
 
+/-- Settle each successful scalar action before evaluating the next.
+The failed action contributes no write and leaves the earlier state available. -/
+def runSuite {state failure action : Type} (step : state → action → Except failure state) :
+    state → List action → Outcome state failure
+  | state, [] => ⟨state, .ok ()⟩
+  | state, action :: rest =>
+    match step state action with
+    | .ok reached => runSuite step reached rest
+    | .error error => ⟨state, .error error⟩
+
 def Outcome.canEnterCleanup {state failure : Type} (outcome : Outcome state failure)
     (isPythonError : failure → Bool) : Bool :=
   match outcome.completion with

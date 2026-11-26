@@ -35,4 +35,42 @@ theorem seededSuite_carriers {scope : Source.Scope} (context : Seeded.CallContex
     { context with heap := incoming.heap } actions incoming.lists
   exact ⟨heap, lists, by simp [seededSuite, calls], builtins⟩
 
+open Functions.ExceptionalTry (Plan runSuite)
+
+theorem runSuite_append {state failure action : Type}
+    (step : state → action → Except failure state) (initial : state) (earlier later : List action) :
+    runSuite step initial (earlier ++ later) =
+      let first := runSuite step initial earlier
+      match first.completion with
+      | .ok () => runSuite step first.reached later
+      | .error _ => first :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.runSuite_append step initial earlier later
+
+theorem ordinary_reached_carriers {scope : Source.Scope} (session : Session)
+    (plan : Plan (ModuleEntry.Action scope)) :
+    let outcome := Compile.ModuleEntry.Functions.Run.runExceptionalTry session plan
+    outcome.reached.heap = session.heap ∧ outcome.reached.lists = session.lists :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.ordinary_reached_carriers session plan
+
+theorem ordinary_settlement {scope : Source.Scope} (table : CodeTable) (session : Session)
+    (plan : Plan (ModuleEntry.Action scope)) (rest : List (Instruction scope)) :
+    advance table (.ready session (.exceptionalTry plan :: rest)) =
+      let outcome := Compile.ModuleEntry.Functions.Run.runExceptionalTry session plan
+      ([], match outcome.completion with
+        | .ok () => .ready outcome.reached rest
+        | .error error => .finished outcome.reached error) := rfl
+
+theorem seeded_reached_builtins {scope : Source.Scope} (space : Namespace) (plan : Plan (ModuleEntry.Action scope)) :
+    (Seeded.runExceptionalTry space plan).reached.builtins = space.builtins :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.seeded_reached_builtins space plan
+
+theorem seeded_settlement {scope : Source.Scope} (space : Namespace) (context : Seeded.CallContext)
+    (plan : Plan (ModuleEntry.Action scope)) (rest : List (Instruction scope)) (lists : ListHeap) :
+    Seeded.runInstructionsIn space context (.exceptionalTry plan :: rest) lists =
+      let outcome := Seeded.runExceptionalTry space plan
+      match outcome.completion with
+      | .ok () => Seeded.runInstructionsIn outcome.reached context rest lists
+      | .error error => ⟨outcome.reached, .error error, [], context.heap, lists⟩ :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.seeded_settlement space context plan rest lists
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry

@@ -15,88 +15,16 @@ INTAKE = NORMAL["INTAKE"]
 SUITE = NORMAL["SUITE"]
 execute = NORMAL["execute"]
 bindings = NORMAL["bindings"]
-IMPORTS = SUITE["IMPORTS"] + (
-    "import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.Thms",
-    "meta import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ExceptionalTry.Defs",
-    "meta import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.Defs",
-)
-LEAN = SUITE["LEAN"] + """
-open Compile.ModuleEntry.Functions
-open Compile.ModuleEntry.Functions.ExceptionalTry (Plan)
-
-private def isTry : Source.Stmt → Bool
-  | .try_ .. => true
-  | _ => false
-
-private structure CheckedCase where
-  scope : Source.Scope
-  names : List String
-  prefixCode : List Source.Stmt
-  plan : Plan (Compile.ModuleEntry.Action scope)
-  suffixCode : List (Compile.ModuleEntry.Action scope)
-
-private def checkedCase (source : Source.Module) : Option CheckedCase := do
-  let prefixCode := source.body.takeWhile (fun stmt => !isTry stmt)
-  let statement :: suffix ← some (source.body.drop prefixCode.length) | none
-  let tree ← (Source.analyze source).toOption
-  let plan ← ExceptionalTry.check tree.scope statement
-  let suffixCode ← ExceptionalTry.suite? tree.scope suffix
-  pure ⟨tree.scope, tree.scope.context.assigned.eraseDups, prefixCode, plan.val, suffixCode.val⟩
-
-private def cleanupHeap : Core.Closure.Heap := ⟨1, fun slot => if slot == 0 then some (.int 23) else none⟩
-private def cleanupLists : Core.Module.ListHeap := ⟨#[[.int 31]]⟩
-private def cleanupTable : Core.Closure.Executor.CodeTable := fun _ => none
-
-private def ordinaryCleanup (source : Source.Module) (completion : Except Run.Completion Unit)
-    (bindings : Bindings) : Bool := Id.run do
-  let some checked := checkedCase source | return false
-  let some prefixCode := ExceptionalTry.suite? checked.scope checked.prefixCode | return false
-  let initial := { Run.seed .empty cleanupHeap with lists := cleanupLists }
-  let before := Run.ExceptionalTry.ordinarySuite cleanupTable initial prefixCode.val
-  let outcome := if before.completion.isOk then
-    Run.ExceptionalTry.ordinary cleanupTable before.reached checked.plan
-  else before
-  let reached := if outcome.completion.isOk then
-    Run.ExceptionalTry.ordinarySuite cleanupTable outcome.reached checked.suffixCode
-  else outcome
-  let actual := checked.names.filterMap fun name =>
-    (reached.reached.globals name).map fun value => (name, Run.Seeded.seededValue value)
-  return reached.completion == completion && actual.length == bindings.length &&
-    bindings.all actual.contains && reached.reached.lists == cleanupLists &&
-    reached.reached.heap.next == cleanupHeap.next &&
-    (reached.reached.heap.contents 0).map Run.Seeded.seededValue == some (.int 23)
-
-private def seededCleanup (source : Source.Module) (space : Namespace)
-    (completion : Except Run.Seeded.ModuleFailure Unit) (bindings : Bindings)
-    (receipts : List (String × Result)) : Bool := Id.run do
-  let some checked := checkedCase source | return false
-  let .ok prefixCode := Run.compile ⟨checked.prefixCode⟩ | return false
-  let initial := Run.Seeded.run space prefixCode cleanupHeap (lists := cleanupLists)
-  let context : Run.Seeded.CallContext := { table := cleanupTable, heap := cleanupHeap, fuel := 1000 }
-  let outcome := Run.ExceptionalTry.seeded context initial checked.plan
-  let reached := if outcome.completion.isOk then
-    (Run.ExceptionalTry.seededSuite context outcome checked.suffixCode).reached
-  else outcome
-  let actual := reached.residual.moduleGlobals
-  let expected := bindings ++ space.moduleGlobals
-  return reached.completion == completion && actual.length == expected.length &&
-    expected.all actual.contains && reached.residual.builtins == space.builtins &&
-    reached.lists == cleanupLists && reached.heap.next == cleanupHeap.next &&
-    (reached.heap.contents 0).map Run.Seeded.seededValue == some (.int 23) &&
-    reached.calls.all (·.observation.caught.isNone) &&
-    reached.calls.map (fun call => (call.callee, call.observation.result)) == receipts
-"""
+IMPORTS = SUITE["IMPORTS"]
+LEAN = NORMAL["LEAN"]
 
 
 def guard(source, expected, ordinary, seeded):
-    bound = bindings(expected)
-    return (source, f"#guard ordinaryCleanup pythonSource ({ordinary}) {bound}\n"
-            f"#guard seededCleanup pythonSource .empty ({seeded}) {bound} []")
+    return source, NORMAL["guard_pair"](expected, ordinary, seeded)
 
 
 def name_error(name):
-    text = json.dumps(name)
-    return f".error (.raised (.nameError {text}))", f".error (.raised (.runtime (.nameError {text})))"
+    return f".raised (.nameError {json.dumps(name)})", f"NameError:{name}"
 
 
 def fixtures(checkout):
@@ -138,7 +66,7 @@ tail = 9
 """
     expected = {"saved": None, "copied": None}
     assert execute(source.encode(), expected) == "AssertionError:empty"
-    cases.append(guard(source, expected, ".error .assertionError", ".error (.raised (.assertionError .empty))"))
+    cases.append(guard(source, expected, ".assertionError", "AssertionError:empty"))
 
     source = """try:
     body = 3
@@ -153,7 +81,7 @@ tail = 9
 """
     expected = {"body": 3, "handled": 3, "cleanup": 3, "tail": 9}
     assert execute(source.encode(), expected) == "normal"
-    cases.append(guard(source, expected, ".ok ()", ".ok ()"))
+    cases.append(guard(source, expected, ".normal", "normal"))
 
     source = """try:
     assert body_missing
@@ -197,8 +125,13 @@ tail = 9
     expected = {"body": 3, "cleanup": 3}
     truth = SUITE["pinned_truth_helper"](checkout)
     assert execute(source.encode(), expected, builtins={"___assertTrue": truth}) == "AssertionError:empty"
-    cases.append((source, f"""#guard seededCleanup pythonSource (Run.Seeded.legacyTupleIdentitySeed .builtin)
-  (.error (.raised (.assertionError .empty))) {bindings(expected)} [("___assertTrue", .ok .none)]"""))
+    assert execute(source.encode(), expected, initial={"___assertTrue": truth}) == "AssertionError:empty"
+    assert execute(source.encode(), {}) == "NameError:___assertTrue"
+    cases.append((source, f"""#guard tryOrdinary pythonSource (.raised (.nameError "___assertTrue")) [] true
+#guard trySeeded pythonSource (legacyTupleIdentitySeed .builtin)
+  "AssertionError:empty" {bindings(expected)} [("___assertTrue", .ok .none)]
+#guard trySeeded pythonSource (legacyTupleIdentitySeed .preamble)
+  "AssertionError:empty" {bindings(expected)} [("___assertTrue", .ok .none)]"""))
 
     source = """retained = False
 absent = prefix_missing
@@ -231,7 +164,7 @@ def historical_boundaries(checkout):
         source = SUITE["pinned_source"](checkout, path, digest)
         raw = (checkout / path).read_bytes()
         assert source.encode() == raw and execute(raw, reached) == completion
-        checked.append((source, "#guard (checkedCase pythonSource).isNone"))
+        checked.append((source, "#guard !(Compile.ModuleEntry.Functions.Run.compile pythonSource).isOk"))
     return checked
 
 

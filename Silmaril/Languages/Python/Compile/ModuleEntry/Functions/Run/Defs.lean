@@ -25,6 +25,7 @@ inductive Argument where
 
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
+  | exceptionalTry (plan : ExceptionalTry.Plan (ModuleEntry.Action scope))
   | bindText (name : String) (value : Core.Text)
   | bindTuple (name : String) (items : List Core.Closure.GlobalTupleItem) (trackClosed : Bool := false)
   | assertNot (condition : Operand scope)
@@ -98,6 +99,9 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .scalar action :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.scalar action :: instructions, blocks)
+  | .exceptionalTry plan :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.exceptionalTry plan :: instructions, blocks)
   | .bindText name _ value :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.bindText name value :: instructions, blocks)
@@ -292,13 +296,28 @@ inductive State (scope : Scope) where
   | calling (invocation : Invocation) (remaining : List (Instruction scope))
   | finished (session : Session) (completion : Completion)
 
+def checkAssertion {scope : Scope} (session : Session) (operand : Operand scope)
+    (expectedTruth : Bool) : Except Completion Unit :=
+  (evaluate session operand).bind fun value =>
+    if Core.Module.Functions.truth value = expectedTruth then .ok () else .error .assertionError
+
 def assertOperand {scope : Scope} (session : Session) (operand : Operand scope)
     (expectedTruth : Bool) (remaining : List (Instruction scope)) : State scope :=
-  match evaluate session operand with
-  | .ok value =>
-    if Core.Module.Functions.truth value = expectedTruth then .ready session remaining
-    else .finished session .assertionError
+  match checkAssertion session operand expectedTruth with
+  | .ok () => .ready session remaining
   | .error error => .finished session error
+
+def scalarStep {scope : Scope} (session : Session) : ModuleEntry.Action scope → Except Completion Session
+  | .assign name _ operand => (evaluate session operand).map (session.bindGlobal name)
+  | .assertion operand => (checkAssertion session operand true).map fun _ => session
+
+def Completion.isPythonError : Completion → Bool
+  | .raised _ | .assertionError => true
+  | _ => false
+
+def runExceptionalTry {scope : Scope} (session : Session) (plan : ExceptionalTry.Plan (ModuleEntry.Action scope)) :
+    ExceptionalTry.Outcome Session Completion :=
+  ExceptionalTry.run (ExceptionalTry.runSuite scalarStep) Completion.isPythonError session plan
 
 inductive VarNamesFailure where
   | unsupportedReceiver
@@ -405,14 +424,18 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
   | .ready session [] => ([], .finished session .normal)
   | .ready session (instruction :: rest) =>
     match instruction with
-    | .scalar (.assign name _ operand) => ([], match evaluate session operand with
-      | .ok value => .ready (session.bindGlobal name value) rest
+    | .scalar action => ([], match scalarStep session action with
+      | .ok reached => .ready reached rest
       | .error error => .finished session error)
+    | .exceptionalTry plan =>
+      let outcome := runExceptionalTry session plan
+      ([], match outcome.completion with
+        | .ok () => .ready outcome.reached rest
+        | .error error => .finished outcome.reached error)
     | .bindText name value => ([], .ready (session.bindGlobal name (.text value)) rest)
     | .bindTuple name items trackClosed => ([], match bindTuple session name items trackClosed with
       | .ok updated => .ready updated rest
       | .error error => .finished session error)
-    | .scalar (.assertion operand) => ([], assertOperand session operand true rest)
     | .assertNot operand => ([], assertOperand session operand false rest)
     | .assertIntegerBuiltin test => ([], .finished session (match session.globals test.argument.name with
       | none => .raised (.nameError test.argument.name)

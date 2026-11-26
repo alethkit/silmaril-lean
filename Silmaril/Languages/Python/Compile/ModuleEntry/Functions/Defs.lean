@@ -3,6 +3,7 @@ module
 public import Silmaril.Languages.Python.Compile.Closure.Body.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuard.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ExceptionalTry.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ListDisplay.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NormalTry.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument.Defs
@@ -686,6 +687,7 @@ def textSliceGuard? (scope : Scope) : (statement : Source.Stmt) →
 
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
+  | exceptionalTry (plan : ExceptionalTry.Plan (ModuleEntry.Action scope))
   | bindText (name : Name) (reference : GlobalReference scope name) (value : Core.Text)
   | bindTuple (name : Name) (reference : GlobalReference scope name) (items : List Core.Closure.GlobalTupleItem)
   | assertNot (condition : Operand scope)
@@ -723,6 +725,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (selected : NormalTry.Translation tree.scope statement actions)
       (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
+  | exceptionalTry {index statement rest plan tail}
+      (checked : ExceptionalTry.Translation tree.scope statement plan)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.exceptionalTry plan :: tail)
   | bindText {index statement rest name points reference value tail}
       (binding : Binding statement name (.text points)) (checked : Core.Text.ofPoints? points = some value)
       (remaining : Translation tree index rest tail) :
@@ -868,6 +874,9 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     else if let some selected := NormalTry.check tree.scope statement then
       let tail ← lowerPlan tree index rest
       return ⟨selected.val.map .scalar ++ tail.val, .normalTry selected.property tail.property⟩
+    else if let some checked := ExceptionalTry.check tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.exceptionalTry checked.val :: tail.val, .exceptionalTry checked.property tail.property⟩
     else if let some test := integerBuiltinTest? tree.scope statement then
       let tail ← lowerPlan tree index rest
       return ⟨.assertIntegerBuiltin test.val :: tail.val, .assertIntegerBuiltin test.property tail.property⟩
