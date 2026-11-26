@@ -955,21 +955,69 @@ latch, and the untouched RTL memory. A skipped row forwards the same
 live tuple. `realized_run` consumes `rtlHeader.length + 1 + (i + 1)` RTL
 instructions and `i + 2` CF blocks for feedback slot `i`, leaving
 independent continuation budgets at the new header. The empty prefix
-stops at the input header. Exit equivalence and producer-table
-translation are separate obligations.
+stops at the input header. The checked producer translation below
+discharges local agreement for the shared word profile.
 
-In the resized fixture, the first visit takes slot 0 and latches
-`[0, 1, 5]`. That zeros the selector for the next visit, which reaches
-slot 1 and latches `[1, 5, 1]`. The old live tuple fails the snapshot relation against
-the second real RTL dispatcher frame. The examples execute both
-bounded programs, including the subsequent return.
+### Generate the CF producer tables from the checked RTL source
+
+`Family.MLIR.Prefix.Producer.compile` takes a native family, a typed
+capture map, and an ordered list of live native header origins. It runs
+the ordinary resized RTL checker, translates that same mapped producer
+table, and checks the dispatcher scope and explicit-Φ view. The
+translator accepts i64 constants, wrapping add/subtract, and signed
+less-than with ordered operands, emitted as existing `arith` operations.
+It preserves captures, old-bank reads and earlier producer references
+by position. Equality and inequality producers are outside this
+translation. The ordinary RTL checker still governs source admission.
+[Producer API][cf-producer] · [Shared arithmetic][cf-word-ops]
+
+`entry_frame` proves the actual CF entry supplies the same initial bank
+as the RTL entry at the pulled capture valuation. `header_match` proves
+the guard and every live word agree at any shared bank. Pass the native
+feedback path to `prefix_correct`; it derives a fresh agreement on each
+visit and establishes the same simultaneous Φ packet and RTL memory
+frame as the original prefix proof. The result covers the entry and
+continuing feedback visits. General exit equivalence remains open.
+[Prefix API][cf-producer]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Thms
+
+open Silmaril.Machine.Lir (Memory)
+open Silmaril.Machine.RTL (Frame)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
+open Family.MLIR.Prefix.Producer (compile prefix_correct Feedbacks)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    (mapping : InputMap old new) (source : Family.Source old old entry header tests)
+    (live : List (HeaderWord new old header)) (checked : (compile mapping source live).isSome)
+    (input : WordTuple new) (mem : Memory) {slots : List (Fin (tests + 1))}
+    {carried finish : WordTuple old}
+    (path : Feedbacks source (mapping.pull input) slots carried finish) (frame : Frame Reg)
+    (matched : ArgsMatch frame (appendTuple carried input)) :
+    ∃ after, Family.MLIR.Prefix.Realized (compile mapping source live |>.get checked).setup
+      input mem slots carried frame finish after :=
+  prefix_correct ((compile mapping source live).get checked) input mem path frame matched
+```
+
+In the three-to-four capture fixture, the generated preheader subtracts
+and then adds to the earlier result. The generated header adds two old
+bank words and compares the result against the third. Slot 0 latches
+`[0, 1, 5]`, which zeros the selector for the next visit. Slot 1 then
+latches `[1, 5, 1]`. The regression checks both executions, refuses a
+live scope missing the computed word, and shows that the first snapshot
+fails against the second real RTL dispatcher frame.
 [Checked regression][table-regression]
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
   +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms \
   +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms \
-  +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Thms \
+  +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Thms \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Regression \
@@ -1006,3 +1054,4 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 [cf-word-ops]: sea-of-nodes-loop-mlir-cf.md#signed-i64-operations-shared-with-rtl
 [cf-dispatch]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Thms.lean
 [cf-prefix]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Thms.lean
+[cf-producer]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Producer/Thms.lean
