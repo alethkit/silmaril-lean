@@ -30,7 +30,7 @@ theorem compile_components (success : compile p facts = .ok targets) :
   | error reason => simp [compile, admitted, Except.map] at success
   | ok checked =>
     have emitted : ⟨checked.side, Bypass.MLIR.CF.lower checked, Numbered.lower checked⟩ = targets := by
-      simpa [compile, admitted, Except.map] using success
+      simpa [compile, admitted, Except.map, emit] using success
     subst targets
     have accepted : check model p facts = some checked := by rw [check, admitted]; rfl
     exact ⟨congrArg (Option.map Bypass.MLIR.CF.lower) accepted,

@@ -24,13 +24,18 @@ variable {input : Tuple (Fact m.value) (dataPorts regs)} {concrete : Bank (regs 
 
 attribute [local irreducible] SCCP.solve
 
+theorem admitWith_eq (marks : Marked) (agrees : marks = (solve m p input).1) :
+    admitWith m p input marks agrees = admit m p input := by
+  subst marks
+  rfl
+
 theorem admit_bothMarked_iff :
     admit m p input = .error .bothMarked ↔
       incomingIndex (.feedback true) ∈ (solve m p input).1 ∧
       incomingIndex (.feedback false) ∈ (solve m p input).1 := by
   by_cases onTrue : incomingIndex (.feedback true) ∈ (solve m p input).1 <;>
     by_cases onFalse : incomingIndex (.feedback false) ∈ (solve m p input).1 <;>
-    simp [admit, onTrue, onFalse]
+    simp [admit, admitWith, onTrue, onFalse]
 
 theorem admit_neitherMarked_iff :
     admit m p input = .error .neitherMarked ↔
@@ -38,7 +43,7 @@ theorem admit_neitherMarked_iff :
       incomingIndex (.feedback false) ∉ (solve m p input).1 := by
   by_cases onTrue : incomingIndex (.feedback true) ∈ (solve m p input).1 <;>
     by_cases onFalse : incomingIndex (.feedback false) ∈ (solve m p input).1 <;>
-    simp [admit, onTrue, onFalse]
+    simp [admit, admitWith, onTrue, onFalse]
 
 theorem check_none_of_both_marked
     (onTrue : incomingIndex (.feedback true) ∈ (solve m p input).1)

@@ -39,14 +39,20 @@ inductive Refusal where
   | neitherMarked
   deriving DecidableEq, Repr
 
-/-- Solve once and admit exactly one marked feedback route. -/
-def admit : Except Refusal (Checked m p input) :=
-  let marks := (solve m p input).1
+/-- Admit exactly one feedback route from a marking proved equal to the
+simultaneous marking. The marking is the only runtime input to this check. -/
+def admitWith (marks : Marked) (agrees : marks = (solve m p input).1) :
+    Except Refusal (Checked m p input) :=
   if onTrue : incomingIndex (.feedback true) ∈ marks then
     if onFalse : incomingIndex (.feedback false) ∈ marks then .error .bothMarked
-    else .ok ⟨true, onTrue, onFalse⟩
-  else if onFalse : incomingIndex (.feedback false) ∈ marks then .ok ⟨false, onFalse, onTrue⟩
+    else .ok ⟨true, agrees ▸ onTrue, agrees ▸ onFalse⟩
+  else if onFalse : incomingIndex (.feedback false) ∈ marks then
+    .ok ⟨false, agrees ▸ onFalse, agrees ▸ onTrue⟩
   else .error .neitherMarked
+
+/-- Solve once and admit exactly one marked feedback route. -/
+def admit : Except Refusal (Checked m p input) :=
+  admitWith m p input (solve m p input).1 rfl
 
 /-- Admit exactly one marked feedback route, omitting refusal details. -/
 def check : Option (Checked m p input) := (admit m p input).toOption
