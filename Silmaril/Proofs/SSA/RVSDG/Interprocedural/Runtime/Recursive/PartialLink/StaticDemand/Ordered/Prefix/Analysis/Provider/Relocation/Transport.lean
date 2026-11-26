@@ -26,8 +26,8 @@ private theorem related_of_ports : {ports : Ports (Ty V S)} → (a b : Tuple m.V
   | _ :: _, .cons _ tailA, .cons _ tailB, ports =>
     .cons (ports .head) (related_of_ports tailA tailB (fun p => ports (.tail p)))
 
-theorem substitute_related (a : ExportAnalysis actions summary left left)
-    (b : ExportAnalysis actions summary right right)
+theorem substitute_related {otherL otherR : Outcome m σ [summary.fn.port]}
+    (a : ExportAnalysis actions summary left otherR) (b : ExportAnalysis actions summary otherL right)
     (demand : Demand) {argsL argsR replacementsL replacementsR : Tuple m.Val summary.fn.args}
     (args : TupleRelated m ids argsL argsR) (replacements : TupleRelated m ids replacementsL replacementsR) :
     TupleRelated m ids (a.substituteDeadFormals demand argsL replacementsL)
@@ -50,11 +50,9 @@ theorem substituted_starts {importsL importsR : Ports (Ty V S)}
     {sigsL sigsR : List (Ports (Ty V S))} {unitL unitR : Nat}
     {graphL : Omega Op importsL [summary.fn.port] sigsL} {graphR : Omega Op importsR [summary.fn.port] sigsR}
     {inputsL : Tuple m.Val importsL} {inputsR : Tuple m.Val importsR} {initialL initialR : σ}
-    {rename : Nat → Nat}
-    (a : ExportAnalysis actions summary (Executable.link actions unitL graphL inputsL initialL)
-      (Executable.link actions unitL graphL inputsL initialL))
-    (b : ExportAnalysis actions summary (Executable.link actions unitR graphR inputsR initialR)
-      (Executable.link actions unitR graphR inputsR initialR))
+    {rename : Nat → Nat} {otherL otherR : Outcome m σ [summary.fn.port]}
+    (a : ExportAnalysis actions summary (Executable.link actions unitL graphL inputsL initialL) otherR)
+    (b : ExportAnalysis actions summary otherL (Executable.link actions unitR graphR inputsR initialR))
     (linked : OutcomesRelated m ids σ rename [summary.fn.port]
       (Executable.link actions unitL graphL inputsL initialL)
       (Executable.link actions unitR graphR inputsR initialR))
@@ -70,12 +68,12 @@ theorem substituted_starts {importsL importsR : Ports (Ty V S)}
       Executable.start actions unitR graphR inputsR .head (b.substituteDeadFormals demand argsR replacementsR)
         initialR = .ok startR ∧
       ClosedFamily actions.toPrimitives ids familyL familyR ∧ Admitted m ids familyL familyR startL startR := by
-  rw [a.linked.linkedL, b.linked.linkedL] at linked admitted
+  rw [a.linked.linkedL, b.linked.linkedR] at linked admitted
   have common := linked_store linked
   rw [← common] at linked admitted
   obtain ⟨familyL, familyR, closed, ready⟩ :=
     ExportAdmission.atExport .head linked admitted (substitute_related a b demand args replacements) ordinary
   exact ⟨familyL, familyR, _, _, by simp only [Executable.start, a.linked.linkedL]; rfl,
-    by simp only [Executable.start, b.linked.linkedL, ← common]; rfl, closed, ready⟩
+    by simp only [Executable.start, b.linked.linkedR, ← common]; rfl, closed, ready⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.RelocationProofs

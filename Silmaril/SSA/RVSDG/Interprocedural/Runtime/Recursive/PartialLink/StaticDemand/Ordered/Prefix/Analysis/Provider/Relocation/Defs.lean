@@ -42,6 +42,15 @@ abbrev Initialized (actions : Actions m σ) (unit : Nat) (inputsL inputsR : Tupl
     (store : σ) :=
   LinkedRows (plan.linkDelta actions unit inputsL store) (plan.linkDelta actions unit inputsR store)
 
+/-- Initializer and outer wires at another numbered placement of the same λ body. -/
+structure Layout (shifted' : Bool) where
+  init : DeltaTerm Op imports (if shifted' then [[]] else []) value
+  captures : Wires imports ((if shifted' then [[]] else []) ++ [[.value (.global value)]]) plan.binding.context
+
+def withLayout {shifted' : Bool} (other : plan.Layout shifted') :
+    AllocationPlan Op table imports fn value shifted' :=
+  ⟨other.init, plan.binding.withCaptures other.captures⟩
+
 end AllocationPlan
 
 /-- Reconstruct the physical prefix of the chosen numbered layout. The empty

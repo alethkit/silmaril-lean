@@ -14,7 +14,7 @@ open Isomorphism (OutcomesRelated)
 open Isomorphism.RecursiveCall (Admitted ClosedFamily Frames TupleIn)
 open NestedTheta.Liveness (Demand)
 
-open Isomorphism.RecursiveCall.Numbered (ExactValueCheck ordinaryPorts)
+open Isomorphism.RecursiveCall.Numbered (ExactValueCheck checkWires ordinaryPorts)
 open Isomorphism.RecursiveCall.Numbered.Prefix (AdmittedExport AllocatingClient Row)
 
 universe u v w
@@ -36,6 +36,54 @@ theorem AllocationPlan.link_initialized
     | .linked values middle => Outcome.linked (.cons (layout.binding.value inputs
       ((AllocatingClient.initialLocals m shifted).snoc values)) .nil) middle) linked)
 
+/-- Check both physical capture boundaries using their actual successful
+initializer rows. The shared typed body supplies one GenKill problem.
+The resulting receipt indexes the two original numbered links. -/
+def AllocationPlan.analyzeLayouts {shiftedR : Bool}
+    (layoutL : AllocationPlan Op table imports fn value shifted)
+    (right : layoutL.Layout shiftedR)
+    (dispatch : Dispatch actions table) (unitL unitR : Nat) (inputsL inputsR : Tuple m.Val imports) (initial : σ)
+    (receipt : LinkedRows (layoutL.linkDelta actions unitL inputsL initial)
+      ((layoutL.withLayout right).linkDelta actions unitR inputsR initial))
+    (importedL : Row (Known dispatch.left) inputsL) (importedR : Row (Known dispatch.right) inputsR)
+    (readyL : layoutL.binding.resolved dispatch.left inputsL
+      ((AllocatingClient.initialLocals m shifted).snoc receipt.left))
+    (readyR : (layoutL.withLayout right).binding.resolved dispatch.right inputsR
+      ((AllocatingClient.initialLocals m shiftedR).snoc receipt.right)) :
+    Option (ExportAnalysis actions layoutL.binding.summary
+      (Executable.link actions unitL layoutL.numbered.toGraph inputsL initial)
+      (Executable.link actions unitR (layoutL.withLayout right).numbered.toGraph inputsR initial)) :=
+  let layoutR := layoutL.withLayout right
+  let checkedL := (allocationChecked dispatch shifted).addInitialized receipt.left receipt.left
+  let checkedR := (allocationChecked dispatch shiftedR).addInitialized receipt.right receipt.right
+  let localsL := (AllocatingClient.initialLocals m shifted).snoc receipt.left
+  let localsR := (AllocatingClient.initialLocals m shiftedR).snoc receipt.right
+  let capturesL := checkWires (entry := inputsL)
+    (checkedL.state.left.availableWithImports Known.ordinary importedL) layoutL.binding.captures
+  let capturesR := checkWires (entry := inputsR)
+    (checkedR.state.right.availableWithImports Known.ordinary importedR) layoutR.binding.captures
+  if capturesL.isSome && capturesR.isSome then
+    let linked : Export actions layoutL.binding.summary
+        (Executable.link actions unitL layoutL.numbered.toGraph inputsL initial)
+        (Executable.link actions unitR layoutR.numbered.toGraph inputsR initial) :=
+      { earlier := table
+        dispatch := ⟨layoutL.binding.extendGuard dispatch.left inputsL localsL,
+          layoutR.binding.extendGuard dispatch.right inputsR localsR,
+          dispatch.lambda_transport_withCaptures layoutL.binding right.captures
+            inputsL inputsR localsL localsR readyL readyR⟩
+        targetL := layoutL.binding.value inputsL localsL
+        targetR := layoutR.binding.value inputsR localsR
+        capsL := layoutL.binding.captures.read inputsL localsL
+        capsR := layoutR.binding.captures.read inputsR localsR
+        store := receipt.store
+        linkedL := layoutL.link_initialized actions unitL inputsL initial receipt.linkedL
+        linkedR := layoutR.link_initialized actions unitR inputsR initial receipt.linkedR
+        resolvedL := ⟨rfl, rfl⟩
+        resolvedR := ⟨rfl, rfl⟩ }
+    some ⟨linked, layoutL.binding.body.liveness, fun demand origin =>
+      (layoutL.binding.body.mem_liveIn_iff demand origin).symm.trans List.mem_eraseDups⟩
+  else none
+
 /-- Use actual successful δ outcomes to run the final λ's GenKill
 analysis and index its dispatch receipt by the actual numbered links. -/
 def AllocationPlan.analyze
@@ -49,16 +97,9 @@ def AllocationPlan.analyze
       ((AllocatingClient.initialLocals m shifted).snoc receipt.right)) :
     Option (ExportAnalysis actions layout.binding.summary
       (Executable.link actions unit layout.numbered.toGraph inputsL initial)
-      (Executable.link actions unit layout.numbered.toGraph inputsR initial)) := do
-  let scope := (allocationScope dispatch shifted).addInitialized receipt.left receipt.right
-  let checked : scope.Checked actions := (allocationChecked dispatch shifted).addInitialized receipt.left receipt.right
-  let added ← checked.addWithImports layout.binding inputsL inputsR importedL importedR readyL readyR
-  let exportReceipt := Scope.Checked.export (scope := scope) layout.binding inputsL inputsR added unit receipt.store
-  let plan := Plan.finish (scope := scope) layout.binding readyL readyR
-  let actualL := layout.link_initialized actions unit inputsL initial receipt.linkedL
-  let actualR := layout.link_initialized actions unit inputsR initial receipt.linkedR
-  pure ⟨exportReceipt.relink (actualL.trans exportReceipt.linkedL.symm) (actualR.trans exportReceipt.linkedR.symm),
-    plan.problem, plan.mem_problem_iff⟩
+      (Executable.link actions unit layout.numbered.toGraph inputsR initial)) :=
+  layout.analyzeLayouts ⟨layout.init, layout.binding.captures⟩ dispatch unit unit inputsL inputsR initial
+    receipt importedL importedR readyL readyR
 
 /-- Analyze either physical client layout from an actual provider demand
 receipt. Each import check is against the closure selected by that receipt;
@@ -99,11 +140,9 @@ theorem ExportAnalysis.relocated_substituted_starts {summary : MemberSummary V S
     {sigsL sigsR : List (Ports (Ty V S))} {unitL unitR : Nat}
     {graphL : Omega Op importsL [summary.fn.port] sigsL} {graphR : Omega Op importsR [summary.fn.port] sigsR}
     {inputsL : Tuple m.Val importsL} {inputsR : Tuple m.Val importsR} {initialL initialR : σ}
-    {rename : Nat → Nat}
-    (a : ExportAnalysis actions summary (Executable.link actions unitL graphL inputsL initialL)
-      (Executable.link actions unitL graphL inputsL initialL))
-    (b : ExportAnalysis actions summary (Executable.link actions unitR graphR inputsR initialR)
-      (Executable.link actions unitR graphR inputsR initialR))
+    {rename : Nat → Nat} {otherL otherR : Outcome m σ [summary.fn.port]}
+    (a : ExportAnalysis actions summary (Executable.link actions unitL graphL inputsL initialL) otherR)
+    (b : ExportAnalysis actions summary otherL (Executable.link actions unitR graphR inputsR initialR))
     (linked : OutcomesRelated m ids σ rename [summary.fn.port]
       (Executable.link actions unitL graphL inputsL initialL)
       (Executable.link actions unitR graphR inputsR initialR))
