@@ -360,12 +360,13 @@ evaluates entry outside its budget and needs `b + 1` header visits.
 [Checked regression][table-regression]
 
 ```lean
-import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Denotation.Thms
 
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (model word)
 open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
 open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader
+open Silmaril.Machine.SeaOfNodes.Loop.RTL
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA (inputEnv)
 open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
 
@@ -397,12 +398,37 @@ def dependent :
     (Generic.Fuel.decodeArgs model [word] packet).map fun fields => Silmaril.SSA.RVSDG.Tuple.get fields .head
   pure (machine.map (List.map BitVec.toInt), typed.map BitVec.toInt)
 -- some (some [7], some 7)
+
+example {targets : Checked.Phi.Targets} (accepted : Table.lowerChecked dependent = some targets)
+    (input : WordTuple 3) (initial : Memory) :
+    Table.rtlDenote targets.1 input initial = Table.nativeDenote dependent input initial ∧
+      Table.lambdaDenote targets.2 input initial = Table.nativeDenote dependent input initial :=
+  Table.denotations_eq accepted input initial
 ```
 
 The two results are `6 - 5 = 1` and `1 + 2 = 3`, so the bank enters as
 `(1, 3, 5)` and feeds back `(4, 3, 5)` before returning 7. Using captured
 2 as the entry stride returns 5 instead. A captured stride in the feedback
 column and a literal in the producer table both fail the check.
+
+## Unbounded partial observations
+
+Import `Rows.Native.Preheader.Table.Denotation.Thms` with the full module
+path shown above. `Table.denotations_eq` identifies each checked target's
+`Part (Word × Memory)` with the native partial word paired with the whole
+initial memory. The RTL observer selects a singleton return from the
+program's call oracle. The λSSA observer selects an exit-zero packet and
+final memory from actual Region evaluation. Determinism makes each
+witness unique.
+
+Use `mem_rtlDenote_iff_runMain` with an RTL instruction budget and
+`mem_lambdaDenote_iff_run` with a λSSA visit budget. The partial
+observations range over all finite witnesses. `denotations_none_iff`
+relates `Part.none` in each target to no finite native return.
+In the regression, input `(0, 1, 1)` initializes `(-1, 0, 1)`.
+That bank takes a backedge to itself on every activation, so both target
+observations are undefined. The observers describe finite word returns
+in this profile. [Return and fixed-point checks][table-regression]
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
