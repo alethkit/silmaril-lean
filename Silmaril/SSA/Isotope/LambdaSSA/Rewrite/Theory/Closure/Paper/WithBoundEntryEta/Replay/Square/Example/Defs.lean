@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithBoundEntryEta.Replay.Square.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithBoundEntryEta.Replay.Square.Native.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithBoundEntryEta.Replay.Case.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Family.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithEntryLet.Replay.Operand.Example.Defs
@@ -50,16 +51,19 @@ private theorem rowsTyped {Γ : VCtx (Ty Empty)} (j : Fin 2) :
     ValueBranches (U :: Γ) (blocks j) [U, U, U] :=
   Fin.cases (.br rfl (.var rfl)) (fun _ => .br rfl (.var rfl)) j
 
+private theorem discriminatorTyped {Γ : VCtx (Ty Empty)} :
+    Tm.HasType Γ discriminate Bit :=
+  .let₁ (.op .unit) (.inl .unit)
+
 private theorem entryTyped {Γ : VCtx (Ty Empty)} : ValueBranches Γ entry [U, U, U] :=
-  .case (.let₁ (.op .unit) (.inl (B := U) .unit))
-    (.br (ℓ := 0) rfl (.var rfl)) (.br (ℓ := 1) rfl (.var rfl))
+  .case discriminatorTyped (.br (ℓ := 0) rfl (.var rfl)) (.br (ℓ := 1) rfl (.var rfl))
 
 theorem workTyped : ValueBranches [U] work [U] :=
   .cfg (fun _ : Fin 2 => U) (.let₁ (.op .unit) entryTyped) rowsTyped
 
 theorem movedWorkTyped : ValueBranches [U] movedWork [U] :=
-  .let₁ (.op .unit) (.cfg (fun _ : Fin 2 => U) entryTyped
-    (fun i => (rowsTyped i).renameVars ((Ren.wk [U] U).lift U)))
+  NativeFrame.letCaseTable_guarded (fun _ : Fin 2 => U) (.op .unit) discriminatorTyped
+    (.br (ℓ := 0) rfl (.var rfl)) (.br (ℓ := 1) rfl (.var rfl)) rowsTyped
 
 theorem repeatTyped : ValueBranches [U] repeatExit [Bit] := .br rfl (.inr .unit)
 
@@ -82,5 +86,9 @@ noncomputable def movedSource : D ⟶ X ⨿ D :=
   forget ≫ ofRegion movedWorkTyped ≫ post
 
 noncomputable def target : X ⟶ X ⨿ X := ofRegion hoistedTyped ≫ (sumIso U U).hom
+
+/-- Reuse the same round while routing each input tag to the opposite tag. -/
+noncomputable def alternating (round : X ⟶ X) : D ⟶ X ⨿ D :=
+  NativeFrame.split forget round (sumCofan U U).inr (sumCofan U U).inl
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithBoundEntryEta.SquareReplay.Example
