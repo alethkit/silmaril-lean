@@ -18,7 +18,7 @@ open Syntax (Payload StatePrimitives)
 open TwoRequest (Exits)
 open ScheduleSearch (StateInventory)
 
-universe u v
+universe u v w
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ}
   {A : Syntax.Ty} {R T : List Syntax.Ty} {σ : Type v}
@@ -39,6 +39,15 @@ theorem FiniteRun.observes (run : FiniteRun g caller prim p s rows stop) :
     g.observeAt caller prim p s = stop.behaviour :=
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FiniteSupport.observes
     run
+
+/-- Agreement on the recorded typed answers suffices to replay a finite
+observation, with the terminal store mapped into the new carrier. -/
+theorem FiniteRun.replay {τ : Type w} (run : FiniteRun g caller prim p s rows stop)
+    (code : σ → τ) (other : StatePrimitives Φ τ)
+    (realizes : ∀ r ∈ rows, other r.op r.arg (code r.incoming) = r.answer.mapState code) :
+    g.observeAt caller other p (code s) = (stop.mapState code).behaviour :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FiniteSupport.replay
+    run code other realizes
 
 /-- The start and success/fault answers cover all queried and observed stores. -/
 theorem FiniteRun.supported (run : FiniteRun g caller prim p s rows stop)

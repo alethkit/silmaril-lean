@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FiniteSupport.Infinite.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FiniteSupport.Model.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Search.Replay.Schedule.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
@@ -983,6 +983,56 @@ example : Feedback.Infinite (tickLoop.feedback right steadyWitness.interpreter)
     exact (absent ⟨_, List.mem_singleton_self _⟩).elim
   | retain _ _ steps =>
     exact steadyReplay.mapped_is_infinite steadySupport.code steadyWitness.interpreter steps
+
+private theorem relabeledFiniteChecks (n : Nat) (states : ScheduleSearch.StateInventory n) :
+    backedge.checkEntries? secondLoop backedge.native secondLoop.native callers id id
+      enumeration inventory inventory states = some true := by
+  refine Table.checkEntries_accepts_iff.mpr ⟨rfl, rfl, fun input prim s => ?_⟩
+  have listed : input ∈ [left, right] := callers.complete input
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at listed
+  rcases listed with rfl | rfl
+  · exact backedge.checkProduct_sound secondLoop backedge.native secondLoop.native rfl rfl
+      left left enumeration shiftedPairs rfl prim s
+  · exact backedge.checkProduct_sound secondLoop backedge.native secondLoop.native rfl rfl
+      right right enumeration shiftedPairs rfl prim s
+
+universe storeLevel
+
+-- Both admitted CFGs have a request-guarded cycle. The common caller may
+-- supply either bit, and the two loops use different internal labels.
+example : backedge.DeterministicRefines.{0, storeLevel} secondLoop backedge.native secondLoop.native id id :=
+  (Table.finite_model_property (g := backedge) (h := secondLoop)
+    (raw := backedge.native) (raw' := secondLoop.native) (callers := callers)
+    (decodeLeft := id) (decodeRight := id) (replies := enumeration)
+    (left := inventory) (right := inventory) rfl rfl).mpr relabeledFiniteChecks
+
+-- An admitted pair with a counterexample at size two still accepts at
+-- size zero, which has no initial state.
+example : tickLoop.checkEntries? oneThenExit tickLoop.native oneThenExit.native callers id id
+    enumeration inventory inventory (stores 0) = some true := rfl
+
+example : tickLoop.checkEntries? oneThenExit oneThenExit.native oneThenExit.native callers id id
+    enumeration inventory inventory (stores 0) = none := rfl
+
+private theorem tickEntriesReject :
+    tickLoop.checkEntries? oneThenExit tickLoop.native oneThenExit.native callers id id
+      enumeration inventory inventory (stores 2) = some false :=
+  Table.checkEntries_rejects_iff.mpr
+    (((Table.compress_mixed_refutation (g := tickLoop) (h := oneThenExit)
+      (raw := tickLoop.native) (raw' := oneThenExit.native) (decodeLeft := id) (decodeRight := id)
+      (input := right) rfl rfl (.inl ⟨tickReplay.is_infinite, tickFinite⟩) tickingRefutes
+      callers enumeration inventory inventory).2.2.2.2 (stores 2)).2)
+
+-- A checker witness lifts into an explicitly higher store universe.
+example : ∃ (σ : Type 1) (input : Syntax.Payload Bit) (prim : Syntax.StatePrimitives Op σ) (s : σ),
+    ¬ Shape.denote (withExitUB tickLoop.native tickLoop.selected)
+        (Syntax.model prim (tickLoop.bindings input)) s ≤
+      Shape.denote (withExitUB oneThenExit.native oneThenExit.selected)
+        (Syntax.model prim (oneThenExit.bindings input)) s :=
+  (Table.finite_refutation_iff (g := tickLoop) (h := oneThenExit)
+    (raw := tickLoop.native) (raw' := oneThenExit.native) (callers := callers)
+    (decodeLeft := id) (decodeRight := id) (replies := enumeration)
+    (left := inventory) (right := inventory) rfl rfl).mp ⟨2, stores 2, tickEntriesReject⟩
 
 /-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.ScheduledPath.refutes_queries' depends on axioms: [propext,
  Classical.choice,
