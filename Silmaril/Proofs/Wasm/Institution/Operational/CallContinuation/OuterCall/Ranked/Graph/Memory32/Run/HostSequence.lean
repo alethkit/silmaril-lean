@@ -73,7 +73,7 @@ private theorem render_begin (bytes : ByteArray) (stack : List Value) (labels : 
   | root => exact render_hosts bytes stack labels seq.first seq.later none
   | hostSequence first later => exact render_hosts bytes stack labels first later none
   | hostsThen first later tail => exact render_hosts bytes stack labels first later (some tail)
-  | br | brIf => rfl
+  | br | brIf | brTable => rfl
   | plain code => exact render_finish bytes stack code labels
   | blockThen | ifThen => rfl
 
@@ -160,6 +160,12 @@ private theorem branch_test_step {bytes : ByteArray} {saved : List Value} {branc
     simpa only [render, List.append_assoc, List.nil_append] using selected
   · rw [ite_eq_right zero] at selected ⊢
     simpa only [render, List.append_assoc, List.singleton_append] using selected
+
+private theorem table_select_step {bytes : ByteArray} {saved : List Value} {table : ForwardTable}
+    {selector : BitVec 32} {labels : List (OpenLabel H)} {dst : Config H} :
+    Step host (renderPhase (.tableSelect bytes (saved ++ [Value.int .i32 selector]) table labels)) dst ↔
+      dst = renderPhase (.branching bytes saved (table.select selector) [] labels) :=
+  scoped_br_table_iff seq args labels
 
 private theorem branch_step {bytes : ByteArray} {stack : List Value} {branch : ForwardBranch}
     {skipped : List Admin} {label : OpenLabel H} {rest : List (OpenLabel H)} {dst : Config H} :
@@ -441,7 +447,7 @@ private theorem begin_ready {bytes : ByteArray} {region : Source H} {stack : Lis
       ⟨allowed, fun site used => listed site (List.mem_append_right _ used)⟩
   | br branch => exact ⟨extent, forward_checked ready.2.2.2, ready.1⟩
   | plain code => exact finish_ready checked extent ready.2.2.2 ready.1 ready.2.1
-  | blockThen | ifThen | brIf => exact ⟨extent, ready⟩
+  | blockThen | ifThen | brIf | brTable => exact ⟨extent, ready⟩
 
 private theorem resume_ready (checked : seq.Checked mode program memory calls base outer args source)
     {bytes : ByteArray} {stack : List Value} {later : List (HostSegment H)} {labels : List (OpenLabel H)}
@@ -506,6 +512,10 @@ private theorem condition_found (checked : seq.Checked mode program memory calls
     cases same
     exact ⟨bits, rfl⟩
 
+private theorem stack_types_i32 (saved : List Value) (bits : BitVec 32) :
+    Prefix.stackTypes (saved ++ [Value.int .i32 bits]) = .int .i32 :: Prefix.stackTypes saved := by
+  simp [Prefix.stackTypes, Value.int]
+
 private theorem branch_test_checked {saved : List Value} {condition : BitVec 32} {branch : ForwardBranch}
     {tail : Source H} {labels : List (OpenLabel H)}
     (ready : seq.SourceReady mode program memory calls labels (saved ++ [Value.int .i32 condition]) (.brIf branch tail) source) :
@@ -515,11 +525,24 @@ private theorem branch_test_checked {saved : List Value} {condition : BitVec 32}
   have checks : checkForward (rootFn) (Prefix.stackTypes saved) (OpenLabel.targets (rootFn) labels) branch = true ∧
       seq.checkSourceAt (Prefix.stackTypes saved) (OpenLabel.results (rootFn) labels)
         (OpenLabel.targets (rootFn) labels) (OpenLabel.needsResume labels) tail = true := by
-    have shape : Prefix.stackTypes (saved ++ [Value.int .i32 condition]) =
-        .int .i32 :: Prefix.stackTypes saved := by simp [Prefix.stackTypes, Value.int]
-    rw [checkSourceAt, shape] at typed
+    rw [checkSourceAt, stack_types_i32] at typed
     exact Bool.and_eq_true_iff.mp typed
   exact ⟨forward_checked checks.1, scopes, allowed, listed, checks.2⟩
+
+private theorem table_target_checked {saved : List Value} {selector : BitVec 32} {table : ForwardTable}
+    {labels : List (OpenLabel H)}
+    (ready : seq.SourceReady mode program memory calls labels (saved ++ [Value.int .i32 selector]) (.brTable table) source) :
+    Graph.checkBranch (OpenLabel.signatures labels) (Prefix.stackTypes saved)
+      (table.select selector).depth table.results = true := by
+  have typed := ready.2.2.2
+  rw [checkSourceAt, checkTable, stack_types_i32] at typed
+  have checked := Bool.and_eq_true_iff.mp typed
+  apply forward_checked (branch := table.select selector)
+  cases found : table.depths[selector.toNat]? with
+  | none => simpa [ForwardTable.select, found] using checked.1
+  | some depth =>
+    have member : depth ∈ table.depths := List.mem_of_getElem? found
+    simpa [ForwardTable.select, found] using List.all_eq_true.mp checked.2 depth member
 
 private theorem branch_outer_ready {stack : List Value} {branch : ForwardBranch}
     {label : OpenLabel H} {rest : List (OpenLabel H)}
@@ -598,6 +621,7 @@ theorem preserves (graphChecked : program.checkV1 memory mode calls = true)
     exact begin_ready checked liveExtent ⟨scopes, allowed, listed, by simpa [Prefix.stackTypes, types] using typed⟩
   | branchZero => exact begin_ready checked ready.1 (branch_test_checked ready.2).2
   | branchNonzero _ => exact ⟨ready.1, (branch_test_checked ready.2).1, ready.2.1⟩
+  | selectTable => exact ⟨ready.1, table_target_checked ready.2, ready.2.1⟩
   | branchOuter positive => exact ⟨ready.1, branch_outer_ready positive ready.2.1, ready.2.2.2.2.2⟩
   | branchExit count =>
     obtain ⟨liveExtent, typed, tailTyped, allowed, listed, scopes⟩ := ready
@@ -651,6 +675,7 @@ private theorem sound (graphChecked : program.checkV1 memory mode calls = true)
   | closeLabel _ => exact close_label_step.mpr rfl
   | branchZero => exact branch_test_step.mpr (ite_eq_left (rfl : (0 : BitVec 32) = 0) ▸ rfl)
   | branchNonzero nonzero => exact branch_test_step.mpr (ite_eq_right nonzero ▸ rfl)
+  | selectTable => exact table_select_step.mpr rfl
   | branchOuter positive => exact branch_step.mpr (.inr ⟨positive, rfl⟩)
   | branchExit count => exact branch_step.mpr (.inl ⟨_, _, rfl, count, rfl, rfl⟩)
   | numeric moved => exact numeric_step.mpr (.inl ⟨_, moved, rfl⟩)
@@ -700,6 +725,11 @@ private theorem readback (graphChecked : program.checkV1 memory mode calls = tru
       exact ⟨_, .branchZero, selected⟩
     · rw [ite_eq_right zero] at selected
       exact ⟨_, .branchNonzero zero, selected⟩
+  | tableSelect bytes stack table labels =>
+    have checkedSelector := ready.2.2.2.2
+    simp only [checkSourceAt, checkTable] at checkedSelector
+    obtain ⟨saved, selector, rfl, _⟩ := Memory32.split_i32 checkedSelector
+    exact ⟨_, .selectTable, table_select_step.mp step⟩
   | branching bytes stack branch skipped labels =>
     cases labels with
     | nil =>
