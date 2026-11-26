@@ -51,7 +51,7 @@ def Represents [LinearOrder Key] {n : Nat} (table : Table Key Kind Cell Content)
   BTreePages.Represents (Page.mapStore Nat _) table.layout table.tree (table.decodedMemory pages)
 
 def Validates [LinearOrder Key] (before after : Table Key Kind Cell Content) (n : Nat)
-    (trace : Page.Trace Nat Content) : Prop :=
+    (trace : ReadWrite.Trace Nat Content) : Prop :=
   trace.Validates (Page.UndefArray.access n Content) before.Represents after.Represents
 
 end Table
@@ -78,7 +78,7 @@ def Footprint (db : Database Key Kind Cell Content) (page : Nat) : Prop :=
   ∃ entry ∈ db.tables, entry.2.Footprint page
 
 def Validates [LinearOrder Key] (before after : Database Key Kind Cell Content) (n : Nat)
-    (trace : Page.Trace Nat Content) : Prop :=
+    (trace : ReadWrite.Trace Nat Content) : Prop :=
   trace.Validates (Page.UndefArray.access n Content) before.Represents after.Represents
 
 end Database

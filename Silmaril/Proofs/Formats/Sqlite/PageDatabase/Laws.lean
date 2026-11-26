@@ -24,7 +24,7 @@ private theorem lookupList_eq [DecidableEq Key] (key : Key) {Row : Type} (entrie
       simp [Silmaril.Formats.Sqlite.BTree.Abstract.lookupList, List.lookup, cmp, other, ih]
 
 variable [LinearOrder Key]
-variable {n : Nat} {initial final : Page.UndefArray n Content} {trace : Page.Trace Nat Content}
+variable {n : Nat} {initial final : Page.UndefArray n Content} {trace : ReadWrite.Trace Nat Content}
 
 theorem readModel_get (table : Table Key Kind Cell Content)
     (rep : table.Represents initial) (key : Key) :
@@ -39,7 +39,8 @@ theorem table_frame {table : Table Key Kind Cell Content}
     table.Represents final := by
   apply (BTreePages.represents_congr ?_).mp rep
   intro p inside
-  have unchanged := (Page.Trace.replays_memory_iff.mpr run).frame (disjoint p inside)
+  have unchanged := (Page.UndefArray.replays_memory_iff.mpr run).frame
+    (Page.mapStore Nat Content).access_frames (disjoint p inside)
   change final.toMemory p = initial.toMemory p at unchanged
   simp only [Page.mapStore, Table.decodedMemory, unchanged]
 

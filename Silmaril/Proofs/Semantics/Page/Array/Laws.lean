@@ -7,7 +7,8 @@ public section
 namespace Silmaril.Proofs.Semantics.Page
 
 open Silmaril.Semantics
-open Silmaril.Semantics.Page (Trace MapMemory mapStore Store override)
+open Silmaril.Semantics.Page (MapMemory mapStore Store override)
+open Silmaril.Semantics.ReadWrite
 
 universe v
 variable {Content : Type v} {n : Nat} {trace : Trace Nat Content}
@@ -102,7 +103,7 @@ theorem replays_complete {a b : Page.UndefArray n Content}
       by_cases eq : i = ⟨p, h⟩ <;> simp [override, Page.UndefArray.complete, eq]
 
 theorem satisfiable_iff (fill : Page.Array n Content) :
-    trace.UndefArraySatisfiable n ↔ trace.ArraySatisfiable n := by
+    Page.UndefArray.Satisfiable n trace ↔ Page.Array.Satisfiable n trace := by
   constructor
   · intro ⟨a, b, run⟩
     exact ⟨a.complete fill, b.complete fill, replays_complete run fill⟩
@@ -110,9 +111,9 @@ theorem satisfiable_iff (fill : Page.Array n Content) :
     exact ⟨a.embed, b.embed, replays_embed_iff.mpr run⟩
 
 theorem undef_replay_inBounds {a b : Page.UndefArray n Content}
-    (run : trace.Replays (Page.UndefArray.access n Content) a b) : trace.InBounds n := by
+    (run : trace.Replays (Page.UndefArray.access n Content) a b) : Page.Array.InBounds n trace := by
   induction trace generalizing a with
-  | nil => simp [Trace.InBounds, Trace.Footprint, Trace.Reads, Trace.Defs, Trace.reads, Trace.writes]
+  | nil => simp [Page.Array.InBounds, Trace.Footprint, Trace.Reads, Trace.Defs, Trace.reads, Trace.writes]
   | cons event rest ih =>
     intro page touches
     have touches' := (Trace.footprint_append (first := [event]) (last := rest)).mp touches

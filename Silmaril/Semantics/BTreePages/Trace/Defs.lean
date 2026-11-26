@@ -15,7 +15,7 @@ variable {Key Value Id : Type} {Memory : Type u} [LinearOrder Key]
 
 /-- The reads demanded by the logical route, in order from the root to a leaf. -/
 def lookupTraceFrom (key : Key) (layout : Layout Id) (position : Position) :
-    (height : Nat) → Node Key Value height → Page.ReadTrace Id (PageData Key Value Id)
+    (height : Nat) → Node Key Value height → ReadWrite.ReadTrace Id (PageData Key Value Id)
   | 0, node => [(layout position, encode layout position 0 node)]
   | height + 1, node =>
     let child := node.route key
@@ -23,11 +23,11 @@ def lookupTraceFrom (key : Key) (layout : Layout Id) (position : Position) :
       lookupTraceFrom key layout (position ++ [child.1]) height child.2
 
 def lookupTrace (key : Key) (layout : Layout Id) (tree : Tree Key Value) :
-    Page.ReadTrace Id (PageData Key Value Id) :=
+    ReadWrite.ReadTrace Id (PageData Key Value Id) :=
   lookupTraceFrom key layout [] tree.height tree.root
 
 /-- The endpoints may have different trees and placements. -/
-def Validates (trace : Page.Trace Id (PageData Key Value Id))
+def Validates (trace : ReadWrite.Trace Id (PageData Key Value Id))
     (store : Page.Store Id (PageData Key Value Id) Memory)
     (beforeLayout : Layout Id) (before : Tree Key Value)
     (afterLayout : Layout Id) (after : Tree Key Value) : Prop :=

@@ -29,7 +29,7 @@ theorem lookupTraceFrom_spec (rep : Represents store layout tree memory) (key : 
     have headPage := mem_footprint_iff.mpr ⟨position, _, rfl, dataAt⟩
     refine ⟨?_, ?_, ?_⟩
     · exact .read .pure
-    · simpa [lookupTraceFrom, Page.ReadTrace.Agrees] using headRead
+    · simpa [lookupTraceFrom, ReadWrite.ReadTrace.Agrees] using headRead
     · simpa [lookupTraceFrom] using headPage
   | succ height ih =>
     have dataAt : pageAt layout tree position = some (encode layout position (height + 1) node) := by
@@ -44,8 +44,8 @@ theorem lookupTraceFrom_spec (rep : Represents store layout tree memory) (key : 
     refine ⟨?_, ?_, ?_⟩
     · rw [lookup, lookupStep, Page.Program.read, Page.Program.bind, Page.Program.bind]
       apply Page.Program.Records.read
-      simpa only [Page.Program.bind, inspect_branch, Tree.lookup?, Node.lookup?, Page.ReadTrace.toTrace] using records
-    · simpa only [lookupTraceFrom, Page.ReadTrace.Agrees, List.forall_mem_cons] using ⟨headRead, agrees⟩
+      simpa only [Page.Program.bind, inspect_branch, Tree.lookup?, Node.lookup?, ReadWrite.ReadTrace.toTrace] using records
+    · simpa only [lookupTraceFrom, ReadWrite.ReadTrace.Agrees, List.forall_mem_cons] using ⟨headRead, agrees⟩
     · simpa only [lookupTraceFrom, List.forall_mem_cons] using ⟨headPage, footprint⟩
 
 theorem lookupTrace_spec (rep : Represents store layout tree memory) (key : Key) :
@@ -55,10 +55,10 @@ theorem lookupTrace_spec (rep : Represents store layout tree memory) (key : Key)
       ∀ entry ∈ lookupTrace key layout tree, Footprint layout tree entry.1 :=
   lookupTraceFrom_spec rep key rfl
 
-theorem replays_represents_of_disjoint {trace : Page.Trace Id (PageData Key Value Id)}
+theorem replays_represents_of_disjoint {trace : ReadWrite.Trace Id (PageData Key Value Id)}
     (rep : Represents store layout tree memory) (run : trace.Replays store.access memory final)
     (disjoint : ∀ page, Footprint layout tree page → ¬ trace.Defs page) :
     Represents store layout tree final :=
-  (represents_congr (fun p inside => (run.frame (disjoint p inside)).symm)).mp rep
+  (represents_congr (fun p inside => (run.frame store.access_frames (disjoint p inside)).symm)).mp rep
 
 end Silmaril.Proofs.Semantics.BTreePages

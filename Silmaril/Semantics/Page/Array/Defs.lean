@@ -7,6 +7,8 @@ public import Silmaril.Semantics.Page.Trace.Defs
 @[expose] public section
 namespace Silmaril.Semantics.Page
 
+open ReadWrite
+
 universe v
 variable {Content : Type v} {n : Nat}
 
@@ -40,14 +42,14 @@ def UndefArray.access (n : Nat) (Content : Type v) : Access Nat Content (UndefAr
   write a page value := if h : page < n then some (override a ⟨page, h⟩ (some value)) else none
 
 /-- The witness is an initial, fully defined array of the given size. -/
-def Trace.ArraySatisfiable (n : Nat) (trace : Trace Nat Content) : Prop :=
-  ∃ initial, trace.Consistent (Array.access n Content) initial
+def Array.Satisfiable (n : Nat) (trace : Trace Nat Content) : Prop :=
+  trace.Satisfiable (Array.access n Content)
 
 /-- The witness is an initial array of the given size admitting UNDEF. -/
-def Trace.UndefArraySatisfiable (n : Nat) (trace : Trace Nat Content) : Prop :=
-  ∃ initial, trace.Consistent (UndefArray.access n Content) initial
+def UndefArray.Satisfiable (n : Nat) (trace : Trace Nat Content) : Prop :=
+  trace.Satisfiable (UndefArray.access n Content)
 
-def Trace.InBounds (n : Nat) (trace : Trace Nat Content) : Prop :=
+def Array.InBounds (n : Nat) (trace : Trace Nat Content) : Prop :=
   ∀ page, trace.Footprint page → page < n
 
 end Silmaril.Semantics.Page

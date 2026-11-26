@@ -1,15 +1,15 @@
 module
 
-public import Silmaril.Semantics.Page.Trace.Labelled.Defs
+public import Silmaril.Semantics.ReadWrite.Labelled.Defs
 
 public section
-namespace Silmaril.Proofs.Semantics.Page
+namespace Silmaril.Proofs.Semantics.ReadWrite
 
-open Silmaril.Semantics.Page Silmaril.Semantics.Operational
+open Silmaril.Semantics.ReadWrite Silmaril.Semantics.Operational
 
 universe u v w
-variable {Id : Type u} {Content : Type v} {Memory : Type w}
-variable {access : Access Id Content Memory} {trace : Trace Id Content} {initial final : Memory}
+variable {Address : Type u} {Value : Type v} {State : Type w}
+variable {access : Access Address Value State} {trace : Trace Address Value} {initial final : State}
 
 theorem replays_iff_path :
     trace.Replays access initial final ↔ access.labelled.Path initial trace final := by
@@ -38,4 +38,4 @@ theorem replays_iff_path :
         exact ⟨read, ih⟩
       | write => exact ⟨_, step, ih⟩
 
-end Silmaril.Proofs.Semantics.Page
+end Silmaril.Proofs.Semantics.ReadWrite

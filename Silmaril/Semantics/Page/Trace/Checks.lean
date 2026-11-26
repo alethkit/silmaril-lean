@@ -1,9 +1,11 @@
 module
 
 import Silmaril.Semantics.Page.Array.Thms
-import Silmaril.Semantics.Page.Trace.Labelled.Thms
+import Silmaril.Semantics.ReadWrite.Labelled.Thms
 
 namespace Silmaril.Semantics.Page
+
+open ReadWrite
 
 private def access := UndefArray.access 2 Nat
 private def uninit : UndefArray 2 Nat := fun _ => none
@@ -24,12 +26,12 @@ example : (Trace.run access [.write 2 1] uninit) = none := rfl
 example : (Trace.run (Array.access 2 Nat) [.read 0 1] (uninit.complete total)) =
     some (uninit.complete total) := rfl
 
-example : initializes.UndefArraySatisfiable 2 :=
+example : UndefArray.Satisfiable 2 initializes :=
   ⟨uninit, first, Trace.run_eq_some_iff.mp rfl⟩
 
-example : ¬ (Trace.UndefArraySatisfiable 2 ([.write 2 1] : Trace Nat Nat)) := by
+example : ¬ (UndefArray.Satisfiable 2 ([.write 2 1] : Trace Nat Nat)) := by
   rintro ⟨initial, final, run⟩
-  have bounded := run.undef_inBounds 2 (.inr ⟨1, List.mem_cons_self⟩)
+  have bounded := UndefArray.replays_inBounds run 2 (.inr ⟨1, List.mem_cons_self⟩)
   exact (Nat.lt_irrefl 2) bounded
 
 example : ¬ initializes.Uses 0 := fun used => used.1 rfl
@@ -46,7 +48,7 @@ example : (Array.access 2 Nat).labelled.Path total updates
 
 example : updates.run access total.embed = some (Array.embed (override total (0 : Fin 2) 2)) := by
   change updates.run (UndefArray.access 2 Nat) total.embed = _
-  rw [Trace.run_embed]
+  rw [Array.run_embed]
   rfl
 
 end Silmaril.Semantics.Page

@@ -26,9 +26,9 @@ theorem lookupTrace_spec (rep : Represents store layout tree memory) (key : Key)
 
 theorem lookupTrace_replays (rep : Represents store layout tree memory) (key : Key) :
     (lookupTrace key layout tree).toTrace.Replays store.access memory memory :=
-  (Page.ReadTrace.replays_iff _).mpr ⟨rfl, (lookupTrace_spec rep key).2.1⟩
+  (ReadWrite.ReadTrace.replays_iff _).mpr ⟨rfl, (lookupTrace_spec rep key).2.1⟩
 
-theorem replays_represents_of_disjoint {trace : Page.Trace Id (PageData Key Value Id)}
+theorem replays_represents_of_disjoint {trace : ReadWrite.Trace Id (PageData Key Value Id)}
     (rep : Represents store layout tree memory) (run : trace.Replays store.access memory final)
     (disjoint : ∀ page, Footprint layout tree page → ¬ trace.Defs page) :
     Represents store layout tree final :=
@@ -39,11 +39,11 @@ variable {n : Nat} {arrayLayout : Layout Nat} {arrayTree : Tree Key Value}
 theorem lookupTrace_replays_undefArray {pages : Page.UndefArray n (PageData Key Value Nat)}
     (rep : RepresentsUndefArray arrayLayout arrayTree pages) (key : Key) :
     (lookupTrace key arrayLayout arrayTree).toTrace.Replays (Page.UndefArray.access n _) pages pages :=
-  Page.Trace.replays_memory_iff.mp (lookupTrace_replays rep key)
+  Page.UndefArray.replays_memory_iff.mp (lookupTrace_replays rep key)
 
 theorem lookupTrace_replays_array {pages : Page.Array n (PageData Key Value Nat)}
     (rep : RepresentsArray arrayLayout arrayTree pages) (key : Key) :
     (lookupTrace key arrayLayout arrayTree).toTrace.Replays (Page.Array.access n _) pages pages :=
-  Page.Trace.replays_embed_iff.mp (lookupTrace_replays_undefArray rep key)
+  Page.Array.replays_embed_iff.mp (lookupTrace_replays_undefArray rep key)
 
 end Silmaril.Semantics.BTreePages

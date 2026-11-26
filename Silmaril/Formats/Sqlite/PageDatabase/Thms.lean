@@ -10,7 +10,7 @@ namespace Silmaril.Formats.Sqlite.PageDatabase
 open Silmaril.Semantics
 
 variable {Key Kind Content : Type} {Cell : Kind → Type}
-variable {n : Nat} {initial final : Page.UndefArray n Content} {trace : Page.Trace Nat Content}
+variable {n : Nat} {initial final : Page.UndefArray n Content} {trace : ReadWrite.Trace Nat Content}
 
 theorem Table.readModel_rows [DecidableEq Key] (table : Table Key Kind Cell Content) :
     table.readModel.rows = table.rows :=

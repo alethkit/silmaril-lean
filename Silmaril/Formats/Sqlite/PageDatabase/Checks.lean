@@ -54,8 +54,8 @@ example : (right.readModel.get 8).map (fun row => row ⟨0, by decide⟩) = some
 
 example : db.Validates db 3 [.write 1 9, .read 1 9] := by
   let final := Page.override pages (1 : Fin 3) (some 9)
-  have run : Page.Trace.Replays (Page.UndefArray.access 3 Nat)
-      [.write 1 9, .read 1 9] pages final := Page.Trace.run_eq_some_iff.mp rfl
+  have run : ReadWrite.Trace.Replays (Page.UndefArray.access 3 Nat)
+      [.write 1 9, .read 1 9] pages final := ReadWrite.Trace.run_eq_some_iff.mp rfl
   refine ⟨pages, final, db_rep, run, Database.replays_frame db_rep run ?_⟩
   rintro p ⟨entry, member, pos, _, eq⟩ ⟨value, written⟩
   have atWrite : p = 1 := (Prod.mk.inj (List.mem_singleton.mp written)).1

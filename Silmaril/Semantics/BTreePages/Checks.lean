@@ -113,7 +113,7 @@ example (edits out) :
 example : ((lookupTrace 6 layout sample).map Prod.fst) = [[7], [7, 0], [7, 0, 1]] := rfl
 
 example : Page.Run model (lookup 6 2 [7]) memory
-    (lookupTrace 6 layout sample).toTrace.writes.edits (.returned (some "six") memory) :=
+    (Page.writeEdits (lookupTrace 6 layout sample).toTrace.writes) (.returned (some "six") memory) :=
   ((lookupTrace_spec represented 6).1).run (lookupTrace_replays represented 6)
 
 -- A separate root can observe a leaf already reachable from the multi-level root.

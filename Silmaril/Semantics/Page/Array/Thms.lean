@@ -9,6 +9,8 @@ import Silmaril.Proofs.Semantics.Page.Array.Laws
 public section
 namespace Silmaril.Semantics.Page
 
+open ReadWrite
+
 universe v
 variable {Content : Type v} {n : Nat} {trace : Trace Nat Content}
 
@@ -31,45 +33,45 @@ theorem UndefArray.memory_write (a : UndefArray n Content) (page : Nat) (v : Con
   Proofs.Semantics.Page.memory_write a page v
 
 /-- Running a trace commutes with embedding, including rejection. -/
-theorem Trace.run_embed [DecidableEq Content] (a : Array n Content) :
+theorem Array.run_embed [DecidableEq Content] (a : Array n Content) :
     trace.run (UndefArray.access n Content) a.embed =
       (trace.run (Array.access n Content) a).map Array.embed :=
   Trace.run_map Array.embed Array.embed_read Array.embed_write
 
-theorem Trace.run_memory [DecidableEq Content] (a : UndefArray n Content) :
+theorem UndefArray.run_memory [DecidableEq Content] (a : UndefArray n Content) :
     trace.run (mapStore Nat Content).access a.toMemory =
       (trace.run (UndefArray.access n Content) a).map UndefArray.toMemory :=
   Trace.run_map UndefArray.toMemory UndefArray.memory_read UndefArray.memory_write
 
 /-- Replay on the embedded total array gives exactly the embedded total result. -/
-theorem Trace.replays_embed_iff {a b : Array n Content} :
+theorem Array.replays_embed_iff {a b : Array n Content} :
     trace.Replays (UndefArray.access n Content) a.embed b.embed ↔
       trace.Replays (Array.access n Content) a b :=
   Proofs.Semantics.Page.replays_embed_iff
 
-theorem Trace.replays_memory_iff {a b : UndefArray n Content} :
+theorem UndefArray.replays_memory_iff {a b : UndefArray n Content} :
     trace.Replays (mapStore Nat Content).access a.toMemory b.toMemory ↔
       trace.Replays (UndefArray.access n Content) a b :=
   Proofs.Semantics.Page.replays_memory_iff
 
 /-- Filling UNDEF carries a successful replay to total arrays using the same
 fill at both endpoints. It may admit additional reads. -/
-theorem Trace.Replays.complete {a b : UndefArray n Content}
+theorem UndefArray.replays_complete {a b : UndefArray n Content}
     (run : trace.Replays (UndefArray.access n Content) a b) (fill : Array n Content) :
     trace.Replays (Array.access n Content) (a.complete fill) (b.complete fill) :=
   Proofs.Semantics.Page.replays_complete run fill
 
-theorem Trace.satisfiable_iff (fill : Array n Content) :
-    trace.UndefArraySatisfiable n ↔ trace.ArraySatisfiable n :=
+theorem UndefArray.satisfiable_iff (fill : Array n Content) :
+    UndefArray.Satisfiable n trace ↔ Array.Satisfiable n trace :=
   Proofs.Semantics.Page.satisfiable_iff fill
 
 /-- Every successful replay, including a read after a write, stays in bounds. -/
-theorem Trace.Replays.undef_inBounds {a b : UndefArray n Content}
-    (run : trace.Replays (UndefArray.access n Content) a b) : trace.InBounds n :=
+theorem UndefArray.replays_inBounds {a b : UndefArray n Content}
+    (run : trace.Replays (UndefArray.access n Content) a b) : Array.InBounds n trace :=
   Proofs.Semantics.Page.undef_replay_inBounds run
 
-theorem Trace.Replays.array_inBounds {a b : Array n Content}
-    (run : trace.Replays (Array.access n Content) a b) : trace.InBounds n :=
-  (Trace.replays_embed_iff.mpr run).undef_inBounds
+theorem Array.replays_inBounds {a b : Array n Content}
+    (run : trace.Replays (Array.access n Content) a b) : Array.InBounds n trace :=
+  UndefArray.replays_inBounds (Array.replays_embed_iff.mpr run)
 
 end Silmaril.Semantics.Page
