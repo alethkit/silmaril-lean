@@ -1,7 +1,9 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Replay.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Replay.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.MLIR.MemRef.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Replay
@@ -142,5 +144,77 @@ private def aliasDiscovery := discover preds fits entry arms suffix aliasInput
 private def stale := lower preds fits entry arms suffix input [.expect 1, .expect 2]
 #guard stale.deleted == 1 && stale.remaining.length == 1
 #guard entryBuffers stale == entryBuffers blocked
+
+-- Rebind the already admitted two-cut chain without rediscovering it.
+private def newInputs (readCell : Address 5) : Tuple (Val 5) Args :=
+  .cons (1 : Address 5) (.cons (3 : Address 5) (.cons (0 : Address 5) (.cons readCell (.cons (2 : Address 5)
+    (.cons (101 : Word) (.cons (202 : Word) (.cons (303 : Word) .nil)))))))
+
+private def newInput := newInputs 0
+private def secondAlias := newInputs 3
+
+private def newBuffer : Buffer 5 :=
+  ⟨fun cell => if cell = 0 then 60 else if cell = 1 then 70 else if cell = 2 then 80
+    else if cell = 3 then 90 else 100⟩
+
+private theorem recorded : Trace fits arms suffix input entry (lowerBank preds fits 5 (some entry) arms suffix)
+    (List.replicate 3 .discover) success :=
+  lower_trace
+
+private def rebound := Reuse.Chain.lower success entry newInput
+private def prefixOnly := Reuse.Chain.lower success entry secondAlias
+
+#guard Reuse.Chain.check success newInput
+#guard rebound.pending.isEmpty && rebound.replay.deleted == 2
+#guard rebound.replay.admitted.map MixedTail.Result.version == [1, 1]
+#guard rebound.replay.admitted.map (fun stage => (occurrenceRecords stage).toList.map ArmOverwrite.storeVersion) ==
+  [[1, 2, 1], [2, 1, 2]]
+
+example (complete : rebound.pending = []) : rebound.replay.programs.optimized = success.programs.optimized :=
+  (Reuse.Chain.lower_complete_artifacts recorded complete).1
+
+private def reboundBuffers (result : Result 5 Args preds) : List (List Nat) :=
+  (artifacts result).map fun program => contents (entryTransition program result.programs.input 1 newBuffer).2
+
+#guard reboundBuffers rebound.replay == [[60, 80, 60, 60, 100], [60, 70, 60, 60, 100], [60, 70, 60, 90, 100]]
+#guard contents (rebound.replay.restoreEntry newBuffer) == [60, 80, 60, 60, 100]
+
+private def newSnapshot (program : Program 5 Args preds) (values : Tuple (Val 5) Args)
+    (arrival : Occurrence preds) : Option (Nat × List Nat × List Nat) := do
+  let entered := entryTransition program values arrival newBuffer
+  let .inl ⟨.arm slot, _⟩ := entered.1 | none
+  let joined := armTransition program values slot entered.2
+  let .inl ⟨.join, words⟩ := joined.1 | none
+  let final ← run program values arrival 3 newBuffer
+  some (slot.val, (words.get .here).toNat :: contents joined.2, final.1.toNat :: contents final.2)
+
+private def reboundSnapshots (result : Result 5 Args preds) :
+    List (List (Option (Nat × List Nat × List Nat))) :=
+  List.ofFn fun i => (artifacts result).map fun artifact => newSnapshot artifact result.programs.input i
+
+private def newExpected : List (Option (Nat × List Nat × List Nat)) :=
+  [some (0, [60, 60, 101, 60, 101, 100], [101, 60, 101, 60, 101, 100]),
+   some (1, [60, 60, 202, 60, 202, 100], [202, 60, 202, 60, 202, 100]),
+   some (2, [60, 60, 303, 60, 303, 100], [303, 60, 303, 60, 303, 100])]
+
+#guard reboundSnapshots rebound.replay == newExpected.map (List.replicate 3)
+
+private def newProbes (graph : Memory.Graph Args) (values : Tuple (Val 5) Args) : List (Option Nat) :=
+  List.ofFn fun (index : Fin 5) => (Memory.DeadStore.throughLoad graph index.val).map fun block =>
+    (observe block values newBuffer).1.toNat
+
+#guard newProbes entry newInput == [some 80, some 60, some 60, some 60, none]
+#guard rebound.replay.admitted.all (fun stage =>
+  newProbes stage.emission.edit.retained stage.emission.programs.input == newProbes entry newInput)
+
+-- Only the second recorded cut loses separation, on the new right cell.
+#guard (Reuse.Chain.contracts success).map (fun facts => facts.check secondAlias) == [true, false]
+#guard prefixOnly.replay.deleted == 1 && prefixOnly.pending.length == 1
+#guard reboundBuffers prefixOnly.replay == [[60, 80, 60, 60, 100], [60, 70, 60, 60, 100]]
+#guard contents (entryTransition prefixOnly.replay.programs.optimized prefixOnly.replay.programs.input 1 newBuffer).2 ==
+  [60, 70, 60, 60, 100]
+#guard reboundSnapshots prefixOnly.replay == newExpected.map (List.replicate 2)
+#guard newProbes prefixOnly.replay.retained secondAlias == newProbes entry secondAlias
+#guard newProbes withoutBoth secondAlias == [some 80, some 60, some 90, some 90, none]
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Replay
