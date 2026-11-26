@@ -104,7 +104,7 @@ theorem liftTerm_eval (rename : Rename Γ Δ) (keep : Var Δ consumer)
     simp only [liftTerm, Terminator.eval, same, liftEdge_eval _ _ _ _ _ same]
     cases (source.get test).getLsbD 0 <;> rfl
 
-private theorem liftCode_eval (code : Block TargetOp (Label saved carried result extra) Γ [result])
+theorem liftCode_eval (code : Block TargetOp (Label saved carried result extra) Γ [result])
     (rename : Rename Γ Δ) (keep : Var Δ consumer) (source : Env Γ) (target : Env Δ)
     (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref) :
     (liftCode rename keep code).eval evalOp (fun term env => Terminator.eval env term) target =
