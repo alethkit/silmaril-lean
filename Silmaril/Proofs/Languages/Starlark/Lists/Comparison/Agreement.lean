@@ -59,6 +59,62 @@ theorem looksUp_iff_findEntry (key : Key) (entries : List Entry) (out : Option E
       · simpa [findEntry, beq_iff_eq, hit] using LooksUp.hit (rest := rest) hit
       · simpa [findEntry, beq_iff_eq, hit] using LooksUp.skip hit ih
 
+theorem dictionaryLookup_iff (heap : Heap) (address : Address) (key : Value)
+    (out : Except Error (Option Entry)) :
+    DictionaryLookup heap address key out ↔ lookupDictionary heap address key = out := by
+  constructor
+  · intro ran
+    cases ran with
+    | receiverError read => simp [lookupDictionary, read, Except.bind, bind]
+    | keyError read encoded => simp [lookupDictionary, read, encoded, Except.bind, bind]
+    | searched read encoded found =>
+      simp [lookupDictionary, read, encoded, Except.bind, bind, pure, Except.pure,
+        (looksUp_iff_findEntry ..).mp found]
+  · intro ran
+    subst out
+    cases read : dictionaryEntries heap address with
+    | error error =>
+      simpa [lookupDictionary, read, Except.bind, bind] using
+        DictionaryLookup.receiverError (key := key) read
+    | ok entries =>
+      cases encoded : ({ heap := heap } : State).keyOf key with
+      | error error =>
+        simpa [lookupDictionary, read, encoded, Except.bind, bind] using
+          DictionaryLookup.keyError read encoded
+      | ok code =>
+        simpa [lookupDictionary, read, encoded, Except.bind, bind, pure, Except.pure] using
+          DictionaryLookup.searched read encoded ((looksUp_iff_findEntry code entries _).mpr rfl)
+
+theorem probes_iff_probe {α : Type} {tests : α → Except Error Bool → Prop}
+    {test : α → Except Error Bool} (agree : ∀ item out, tests item out ↔ test item = out)
+    (candidates : List α) (out : Except Error (Option α)) :
+    Probes tests candidates out ↔ probe test candidates = out := by
+  constructor
+  · intro ran
+    induction ran with
+    | missing => rfl
+    | hit h => simp [probe, (agree ..).mp h]
+    | failed h => simp [probe, (agree ..).mp h]
+    | skip h _ ih => simpa [probe, (agree ..).mp h] using ih
+  · intro ran
+    subst out
+    induction candidates with
+    | nil => exact .missing
+    | cons candidate later ih =>
+      rw [probe]
+      cases checked : test candidate with
+      | error error => exact .failed ((agree ..).mpr checked)
+      | ok flag =>
+        cases flag with
+        | true => exact .hit ((agree ..).mpr checked)
+        | false => exact .skip ((agree ..).mpr checked) ih
+
+theorem probe_cached (key : Key) (entries : List Entry) :
+    probe (fun entry : Entry => .ok (entry.keyCode == key)) entries = .ok (findEntry key entries) := by
+  induction entries with
+  | nil => rfl
+  | cons entry later ih => cases hit : entry.keyCode == key <;> simp [probe, findEntry, hit, ih]
+
 theorem findEntry_some_iff_of_unique (key : Key) (entries : List Entry) (entry : Entry)
     (unique : UniqueKeyCodes entries) :
     findEntry key entries = some entry ↔ entry ∈ entries ∧ entry.keyCode = key := by
@@ -210,14 +266,17 @@ theorem containsAt_iff (heap : Heap) (depth : Nat) (needle target : Value)
     | fields route read runs =>
       simpa [containsAt, route, read, Except.bind, bind] using
         (scans_iff_scan (fun field => equalAt_iff heap depth field needle) ..).mp runs
+    | dictionary route ran => simp only [containsAt, route, (dictionaryLookup_iff ..).mp ran]
   · intro runs
     subst out
-    cases route : SequenceKind.locate target with
-    | none =>
+    cases route : MembershipTarget.ofValue target with
+    | unsupported =>
       simpa [containsAt, route] using
         ContainsAt.unsupported (heap := heap) (depth := depth) (needle := needle) route
-    | some sequence =>
-      obtain ⟨kind, address⟩ := sequence
+    | dictionary address =>
+      simpa [containsAt, route] using
+        ContainsAt.dictionary (depth := depth) route ((dictionaryLookup_iff heap address needle _).mpr rfl)
+    | sequence kind address =>
       cases read : kind.elements heap address with
       | error error =>
         simpa [containsAt, route, read, Except.bind, bind] using

@@ -18,6 +18,26 @@ theorem looksUp_iff_findEntry (key : Key) (entries : List Entry) (out : Option E
     LooksUp key entries out ↔ findEntry key entries = out :=
   Proofs.Languages.Starlark.Lists.Comparison.looksUp_iff_findEntry key entries out
 
+theorem dictionaryLookup_iff (heap : Heap) (address : Address) (key : Value)
+    (out : Except Error (Option Entry)) :
+    DictionaryLookup heap address key out ↔ lookupDictionary heap address key = out :=
+  Proofs.Languages.Starlark.Lists.Comparison.dictionaryLookup_iff heap address key out
+
+theorem probes_iff_probe {α : Type} {tests : α → Except Error Bool → Prop}
+    {test : α → Except Error Bool} (agree : ∀ item out, tests item out ↔ test item = out)
+    (candidates : List α) (out : Except Error (Option α)) :
+    Probes tests candidates out ↔ probe test candidates = out :=
+  Proofs.Languages.Starlark.Lists.Comparison.probes_iff_probe agree candidates out
+
+/-- A total canonical code test specializes the ordered probe to normal lookup. -/
+theorem probe_cached (key : Key) (entries : List Entry) :
+    probe (fun entry : Entry => .ok (entry.keyCode == key)) entries = .ok (findEntry key entries) :=
+  Proofs.Languages.Starlark.Lists.Comparison.probe_cached key entries
+
+theorem lookupOrMiss_some_iff {α : Type} (out : Except Error (Option α)) (value : α) :
+    lookupOrMiss out = some value ↔ out = .ok (some value) := by
+  cases out <;> simp [lookupOrMiss]
+
 /-- In a valid table, a key selects its entry regardless of insertion position. -/
 theorem findEntry_some_iff_of_unique (key : Key) (entries : List Entry) (entry : Entry)
     (unique : UniqueKeyCodes entries) :
@@ -39,6 +59,13 @@ theorem equalAt_iff (heap : Heap) (depth : Nat) (left right : Value)
     (out : Except Error Bool) :
     EqualAt heap depth left right out ↔ equalAt heap depth left right = out :=
   Proofs.Languages.Starlark.Lists.Comparison.equalAt_iff heap depth left right out
+
+/-- Agreement for bounded key equality on an already selected candidate order. -/
+theorem probesKeys_iff (heap : Heap) (depth : Nat) (key : Value) (candidates : List Entry)
+    (out : Except Error (Option Entry)) :
+    Probes (fun entry => EqualAt heap depth key entry.key) candidates out ↔
+      probeKeys heap depth key candidates = out :=
+  probes_iff_probe (fun entry => equalAt_iff heap depth key entry.key) candidates out
 
 theorem containsAt_iff (heap : Heap) (depth : Nat) (needle target : Value)
     (out : Except Error Bool) :

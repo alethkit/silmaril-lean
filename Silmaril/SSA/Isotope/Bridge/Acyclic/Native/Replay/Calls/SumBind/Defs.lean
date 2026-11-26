@@ -24,8 +24,8 @@ abbrev Seed {ε : Type w} [HasEff Φ ε] (pe : ε) :=
 abbrev Eqv {ε : Type w} [HasEff Φ ε] (pe : ε) :=
   Extension.Eqv (Seed (τ := τ) (Φ := Φ) pe)
 
-/-- The request list and native outward label of each syntactic path.
-A variable discriminator preserves the two paths in left-then-right order. -/
+/-- The request list and native outward label of each returning path. A variable
+discriminator preserves arm order. An empty elimination contributes no return path. -/
 inductive Schedule : VCtx τ → Region Φ → LCtx τ → List (List Φ × Nat) → Prop where
   | ret {Γ : VCtx τ} {L : LCtx τ} {i : Nat} {a : Tm Φ} {A : τ}
       (exit : At L i A) (value : Tm.BranchValue Γ a A) : Schedule Γ (.br i a) L [([], i)]
@@ -40,6 +40,10 @@ inductive Schedule : VCtx τ → Region Φ → LCtx τ → List (List Φ × Nat)
   | unpackVar {Γ : VCtx τ} {L : LCtx τ} {slot : Nat} {A B : τ} {r : Region Φ}
       {paths : List (List Φ × Nat)} (value : At Γ slot (product A B))
       (body : Schedule (B :: A :: Γ) r L paths) : Schedule Γ (.let₂ (.var slot) r) L paths
+
+  | abortValue {Γ : VCtx τ} {L : LCtx τ} {A : τ} {a : Tm Φ} {r : Region Φ}
+      {paths : List (List Φ × Nat)} (value : Tm.BranchValue Γ a empty)
+      (dead : Schedule (A :: Γ) r L paths) : Schedule Γ (.let₁ (.abort a) r) L []
 
 /-- The three possible terminal routes of a straight-line sum producer,
 with all its requests before the selected arm's requests. -/

@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.KnownTag.Pruning.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.Trim.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.KnownTag
 
@@ -78,5 +79,29 @@ theorem UnusedSummand.Program.denotes_eq_let_inl_case_entry
       (.case (.var 0) (left.renameVars (Silmaril.DeBruijn.lift Nat.succ)) right')) (n + 1) blocks) L}
     (d : RegionDenotes J M h f) (e : RegionDenotes J M h' g) : f = g :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.KnownTag.cfg_agree J M p roll determined shape d e
+
+/-- Restore the constructor on the already-bound payload, then prune the
+certified tests. Effectful initializers retained by the certificate run in
+their original order. -/
+theorem RegionDenotes.let_case_prune (tag : CaseTag) (determined : TypeDetermined Γ a A) {live : Region Φ}
+    (steps : Region.PruneConstructorTests ((tag.select left right).substVars (Tm.restoreTag tag)) live)
+    {h : Region.HasType Γ (.let₁ (tag.inject a) (.case (.var 0) left right)) L}
+    (d : RegionDenotes J M h f) :
+    ∃ ht : Region.HasType Γ (.let₁ a live) L, RegionDenotes J M ht f :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.KnownTag.let_case_prune J M tag determined steps d
+
+/-- Compare the original CFG witnesses when the restored old tag can be
+pruned to an entry in the trimmed CFG fragment. The syntax certificate
+supplies the reduced entry, and the graph supplies the typing and arrows. -/
+theorem UnusedSummand.Program.denotes_eq_let_case_prune
+    {n : Nat} {P : Fin (n + 1) → Ty κ} {blocks : Fin (n + 1) → Region Φ}
+    {renderTag : Bool} (p : UnusedSummand.Program (Φ := Φ) P L Γ) (roll : IterationRolling C) (tag : CaseTag)
+    (determined : TypeDetermined Γ a A) {live : Region Φ}
+    (steps : Region.PruneConstructorTests ((tag.select left right).substVars (Tm.restoreTag tag)) live)
+    (shape : p.region renderTag = .cfg (.let₁ a live) (n + 1) blocks)
+    {h : Region.HasType Γ (.cfg (.let₁ (tag.inject a) (.case (.var 0) left right)) (n + 1) blocks) L}
+    (d : RegionDenotes J M h f) (e : RegionDenotes J M h g) : f = g :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.KnownTag.cfg_prune_agree J M p roll tag
+    determined steps shape d e
 
 end Silmaril.Isotope.LambdaSSA.Semantics.Categorical

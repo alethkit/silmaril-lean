@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Defs
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Wasm
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Thms
+import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Memory.Callee.Thms
 
 @[expose] public section
 
@@ -98,7 +99,8 @@ private theorem contract_call (contract : Contract mem host (.call index site ::
   | call contract _ => exact contract
 
 theorem live_step {a b : State H} (edge : Edge mem host active results a b) (live : mem.Live a.bytes) : mem.Live b.bytes := by
-  cases edge <;> assumption
+  cases edge <;> try assumption
+  case memory move => exact MemoryCallee.live_step move live
 
 theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
     (ready : Ready mem host active results a.phase a.labels) : Ready mem host active results b.phase b.labels := by
@@ -209,7 +211,7 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
       have same := List.append_cancel_right (List.append_cancel_right split)
       cases ready.2.2 with
       | callIndirect contract tailContract =>
-        exact ⟨ready.1, allocated, typed, contract address code (List.mem_of_getElem? entry) allocated,
+        exact ⟨ready.1, allocated, typed, contract.hosts address code (List.mem_of_getElem? entry) allocated,
           same ▸ tail, tailContract⟩
     | @wasm callee _ present _ declared =>
       obtain ⟨_, split, linked, tail⟩ := checked_indirect ready.2.1
@@ -219,6 +221,18 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
         typed.trans (congrArg V1.FuncType.params declared).symm
       exact ⟨ready.1, linked, present, declared, by simp, by simp, .invoke arguments,
         same ▸ tail, contract_tail ready.2.2 trivial⟩
+    | @memory callee _ found allocated declared =>
+      obtain ⟨_, split, _, tail⟩ := checked_indirect ready.2.1
+      simp only [List.map_append, List.map_cons, List.map_nil, Value.int, typed] at split
+      have same := List.append_cancel_right (List.append_cancel_right split)
+      have arguments : args.map Value.type = callee.fn.declaration.params :=
+        typed.trans (congrArg V1.FuncType.params declared).symm
+      have resultTypes : callee.fn.declaration.results = indirect.signature.results :=
+        congrArg V1.FuncType.results declared
+      cases ready.2.2 with
+      | callIndirect contract tailContract =>
+        exact ⟨ready.1, allocated, contract.memory callee found, by simp, arguments,
+          by simpa only [resultTypes, same] using tail, tailContract⟩
   | @wasm bytes saved site callee phase next ops labels move =>
     obtain ⟨labelsReady, linked, found, declared, _, _, admitted, tail, contract⟩ := ready
     have admittedNext := site.graph.frame_admitted_step linked.graphChecked found admitted move
@@ -233,6 +247,16 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
           | done valueTypes => exact valueTypes
         have delivered := typed.trans (congrArg V1.FuncType.results declared)
         exact ⟨labelsReady, by simpa only [List.map_append, delivered] using tail, contract⟩
+  | @memory bytes written saved callee phase next ops labels move =>
+    obtain ⟨labelsReady, allocated, checked, _, admitted, tail, contract⟩ := ready
+    have admittedNext := MemoryCallee.ready_step checked move admitted
+    cases next <;> try exact ⟨labelsReady, allocated, checked, by simp, admittedNext, tail, contract⟩
+    case done out =>
+      cases out with
+      | trap => exact ⟨labelsReady, trivial⟩
+      | values vs =>
+        have typed : vs.map Value.type = callee.fn.declaration.results := admittedNext
+        exact ⟨labelsReady, by simpa only [List.map_append, typed] using tail, contract⟩
   | returned _ typed _ =>
     refine ⟨ready.1, ?_, ready.2.2.2.2.2⟩
     simpa only [List.map_append, show _ = _ from typed] using ready.2.2.2.2.1

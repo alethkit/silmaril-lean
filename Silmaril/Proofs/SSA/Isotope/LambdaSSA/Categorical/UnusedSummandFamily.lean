@@ -55,6 +55,13 @@ private theorem row_target {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ 
       | let₁ hv hb =>
           cases operand_type ren value _ hv
           exact ih (ren.lift _) hit hb
+  | let₂ value body ih =>
+      change (Region.let₂ (value.term.rename ρ)
+        (body.region tag (Silmaril.DeBruijn.liftN 2 ρ))).HasType Δ (List.ofFn S ++ L) at typed
+      cases typed with
+      | let₂ hv hb =>
+          obtain ⟨rfl, rfl⟩ := Ty.product.inj (operand_type ren value _ hv)
+          exact ih ((ren.lift _).lift _) hit hb
   | case arg left right ihl ihr =>
       change (Region.case (arg.term.rename ρ)
         (left.region tag (Silmaril.DeBruijn.lift ρ))
@@ -65,6 +72,11 @@ private theorem row_target {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ 
           rcases hit with h | h
           · exact ihl (ren.lift _) h yes
           · exact ihr (ren.lift _) h no
+
+theorem row_target_unwidened {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ Δ ρ)
+    (r : Row (Φ := Φ) R L Γ) {i : Fin n} (hit : r.targets i)
+    (typed : (r.region false ρ).HasType Δ (List.ofFn S ++ L)) : S i = R i :=
+  row_target ren r false hit typed
 
 theorem targets_from_typing (p : Program (Φ := Φ) R L Γ)
     (tag : Bool) (he : (p.entry.region tag id).HasType Γ (List.ofFn S ++ L))

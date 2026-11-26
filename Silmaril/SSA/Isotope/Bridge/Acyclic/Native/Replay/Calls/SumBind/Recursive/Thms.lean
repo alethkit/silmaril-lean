@@ -37,4 +37,13 @@ theorem normalize {n : Nat} {β : BoundCtx (Ty α) n} {i : Nat}
       Continuation.Eqv pe β.toList ((Code.ofLetCase a.2).guardedSSA i) s L :=
   normalize_at_proof pe out a shape
 
+/-- Replay a typed empty elimination at both literal endpoints. The
+producer can have effects, but no schedule path reaches an outward label. -/
+theorem normalize_abort {n : Nat} {β : BoundCtx (Ty α) n} {i : Nat}
+    (out : At L i A) (a : Operand Φ β Ty.empty) (shape : Admitted (erase a.1)) :
+    ∃ s, Schedule β.toList s L [] ∧
+      Continuation.Eqv pe β.toList ((Code.br ⟨.abort a.1, .abort (C := A) a.2⟩).guardedSSA i) s L ∧
+      Continuation.Eqv pe β.toList ((Code.ofLetCase (.abort (C := A) a.2)).guardedSSA i) s L :=
+  normalize_abort_at_proof pe out a shape
+
 end Silmaril.Isotope.LambdaSSA.Acyclic.Native.SumBind.Recursive

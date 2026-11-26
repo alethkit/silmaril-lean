@@ -146,4 +146,19 @@ def trueDivide (numerator divisor : Int) : Except DivisionError F64.Finite :=
     | some result => .ok result
     | none => .error .overflowError
 
+inductive FloatDivisionError where
+  | conversionOverflow
+  | zeroDivisionError
+  | nonfiniteResult
+  deriving DecidableEq, Repr
+
+/-- CPython converts an integer operand before testing the binary64 divisor
+for zero. The finite profile rounds the exact ratio once. -/
+def divideFloat (operands : FloatOperands) : Except FloatDivisionError F64.Finite := do
+  let some (left, right) := operands.convert? | .error .conversionOverflow
+  let some lhs := left.val.toRat? | .error .nonfiniteResult
+  let some rhs := right.val.toRat? | .error .nonfiniteResult
+  if rhs = 0 then .error .zeroDivisionError
+  else (roundExact? (left.val.signBit != right.val.signBit) (lhs / rhs)).elim (.error .nonfiniteResult) .ok
+
 end Silmaril.Languages.Python.Core.Binary64

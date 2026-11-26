@@ -40,6 +40,12 @@ def assignments (replies : ReplyEnumeration S) (stores : StateInventory states) 
 def interpret [DecidableEq Φ] (script : List (Row Φ states)) : Syntax.Primitives Φ states :=
   extend script (fun _ _ _ => .diverge)
 
+/-- Test the existing interpreter restrictions over their common key support. -/
+def checkAll [DecidableEq Φ] (replies : ReplyEnumeration S) (stores : StateInventory states)
+    (keys : List (Query Φ states)) (test : Syntax.Primitives Φ states → Fin states → Bool) : Bool :=
+  (assignments replies stores keys).all fun script =>
+    stores.values.all (test (interpret script))
+
 end InterpreterScript
 
 /-- All typed invocations, including configurations unreachable from the
@@ -99,11 +105,9 @@ def Table.checkAllInterpretersBy (g : Table S R) (h : Table S T)
     (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
     (stores : StateInventory states) (compare : Result 2 states → Result 2 states → Bool) : Bool :=
   let keys := (g.queries caller left stores ++ h.queries caller' right stores).dedup
-  (InterpreterScript.assignments replies stores keys).all fun script =>
-    let prim := InterpreterScript.interpret script
-    stores.values.all fun s =>
-      compare (g.runFinite caller prim left stores ⟨g.entry, caller⟩ s)
-        (h.runFinite caller' prim right stores ⟨h.entry, caller'⟩ s)
+  InterpreterScript.checkAll replies stores keys fun prim s =>
+    compare (g.runFinite caller prim left stores ⟨g.entry, caller⟩ s)
+      (h.runFinite caller' prim right stores ⟨h.entry, caller'⟩ s)
 
 def Table.checkAllInterpreters (g : Table S R) (h : Table S T)
     (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))

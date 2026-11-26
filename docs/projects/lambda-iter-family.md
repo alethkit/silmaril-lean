@@ -791,6 +791,15 @@ agrees with both the original mutable graph and its existing lexical SSA
 translation, with the same ordered exit, payload and selected live-outs.
 [Occurrence adapter and runner equations](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Public/Structural/Occurrences/Thms.lean)
 
+Exact admission of the compiled public dispatcher and agreement between its
+selected capture slot type and the structural packet type suffice to admit
+the rebuilt graph. The generated jump elaborates over the numbered slots
+with the exact type of each occurrence and targets the same label. The
+checker reuses the admitted rows under the new capture context, preserving
+their erased code and the ordered exit profile. A well-typed initial store
+is needed to decode a runtime seed.
+[Derived occurrence admission](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Public/Structural/Occurrences/Thms.lean)
+
 The existing directed verdict decides the handled-trace sentence on the
 two admitted occurrence-entry runners. Each side supplies its exact named
 admission, and each comparison uses both independently typed packets
@@ -800,6 +809,18 @@ its separate empty-domain flag. The extracted representative and trace
 supply a counterexample in the all-replies model.
 [Occurrence-entry satisfaction and witness](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Public/Structural/Occurrences/Refinement/Thms.lean)
 
+`StructuralEntry.checkOccurrenceComparison?` takes two structural RTL
+entries and checks both dispatcher packet types. On success it derives both
+occurrence admissions and exposes the pointwise and finite-domain verdicts
+and the original named counterexample. A failed compatibility check gives no
+comparison. A failed joint decode at a supplied store gives no pointwise
+verdict. A returned `false` rejects at a jointly decoded store, and the
+finite verdict reports an empty domain separately. Each verdict concerns the
+same ordered exits and selected live-outs in the admitted occurrence runners.
+Register renaming preserves compatibility and the sentence at the
+transported seeds.
+[Checked structural comparison](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Public/Structural/Occurrences/Comparison/Thms.lean)
+
 The repeated-capture fixture admits two distinct slots at different sum
 types and initializes both from the same value. The first compatible
 capture assignment gives equal weak trees. The later compatible assignment
@@ -807,6 +828,15 @@ changes the right live-out at the same ordered exit, and the extracted
 trace refutes the admitted comparison after a completed request. An
 injection accepted only by the wider type fails shared-store decoding.
 [Checked fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Public/StructuralRegression.lean)
+
+A bijection on the source registers also renames the selected live-outs.
+Rebuilding the occurrence adapter from the renamed structural certificate
+gives the same numbered graph and the same type at every slot. Exact admission
+agrees after erasing the scope indices from the checked code. Decoding the
+transported store gives the same packet, so the rebuilt named runner preserves
+ordered exits and live-out values. A directed trace witness keeps its trace
+and uses the transported initial store.
+[Occurrence adapter register-renaming laws](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Public/Structural/Occurrences/RegisterRename/Thms.lean)
 
 ### Reverse lowering of open flat SSA to mutable RTL
 

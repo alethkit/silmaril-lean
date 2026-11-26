@@ -155,7 +155,9 @@ def lowerFlatTupleItems (scope : Scope) : (elements : List Source.Expr) →
 
 inductive CallValue (scope : Scope) where
   | scalar (operand : Operand scope)
+  | intDivMod (op : Core.Closure.IntDivModOp) (numerator divisor : Int)
   | intTrueDiv (numerator divisor : Int)
+  | floatDiv (operands : Core.Binary64.FloatOperands)
   | mixedAdd (integer : Int) (floating : F64.Finite)
   | floatAdd (left right : F64.Finite)
   | floatSub (operands : Core.Binary64.FloatOperands)
@@ -209,12 +211,21 @@ def lowerFloatOperands? (left right : Source.Expr) :
       some ⟨.floatInt floating.val integer, .floatInt floating.property rhs⟩
     | _, _, _ => none
 
+def intDivModSourceOp : Core.Closure.IntDivModOp → Source.BinaryOperator
+  | .floorDiv => .floorDiv
+  | .modulo => .modulo
+
 inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope → Prop where
   | scalar {source operand} (checked : ArgumentOperandTranslation scope source operand) :
       CallValueTranslation scope source (.scalar operand)
+  | intDivMod {op left right numerator divisor}
+      (lhs : NumericArgument.integer? left = some numerator) (rhs : NumericArgument.integer? right = some divisor) :
+      CallValueTranslation scope (.binary (intDivModSourceOp op) left right) (.intDivMod op numerator divisor)
   | intTrueDiv {left right numerator divisor}
       (lhs : NumericArgument.integer? left = some numerator) (rhs : NumericArgument.integer? right = some divisor) :
       CallValueTranslation scope (.binary .trueDiv left right) (.intTrueDiv numerator divisor)
+  | floatDiv {left right operands} (checked : FloatOperandsTranslation left right operands) :
+      CallValueTranslation scope (.binary .trueDiv left right) (.floatDiv operands)
   | intFloatAdd {left right integer floating}
       (lhs : NumericArgument.integer? left = some integer) (rhs : DecimalCallLiteral right floating) :
       CallValueTranslation scope (.binary .add left right) (.mixedAdd integer floating)
@@ -244,14 +255,25 @@ def lowerScalarCallValue (scope : Scope) (source : Source.Expr) :
   ((lowerArgumentOperand scope source).mapError .scalar).map fun operand =>
     ⟨.scalar operand.val, .scalar operand.property⟩
 
+def lowerIntDivMod (scope : Scope) (op : Core.Closure.IntDivModOp) (left right : Source.Expr) :
+    Except Error {value // CallValueTranslation scope (.binary (intDivModSourceOp op) left right) value} :=
+  match lhs : NumericArgument.integer? left, rhs : NumericArgument.integer? right with
+  | some numerator, some divisor => .ok ⟨.intDivMod op numerator divisor, .intDivMod lhs rhs⟩
+  | _, _ => lowerScalarCallValue scope (.binary (intDivModSourceOp op) left right)
+
 def lowerCallValue (scope : Scope) : (source : Source.Expr) →
     Except Error {value // CallValueTranslation scope source value}
   | .tuple elements =>
     (lowerFlatTupleItems scope elements).map fun items => ⟨.tuple items.val, .tuple items.property⟩
+  | .binary .floorDiv left right => lowerIntDivMod scope .floorDiv left right
+  | .binary .modulo left right => lowerIntDivMod scope .modulo left right
   | .binary .trueDiv left right =>
     match lhs : NumericArgument.integer? left, rhs : NumericArgument.integer? right with
     | some numerator, some divisor => .ok ⟨.intTrueDiv numerator divisor, .intTrueDiv lhs rhs⟩
-    | _, _ => .error (.scalar .expressionProfile)
+    | _, _ =>
+      match lowerFloatOperands? left right with
+      | some operands => .ok ⟨.floatDiv operands.val, .floatDiv operands.property⟩
+      | none => .error (.scalar .expressionProfile)
   | .binary .add left right =>
     match lhs : NumericArgument.integer? left, lowerDecimalCallLiteral? right with
     | some integer, some floating => .ok ⟨.mixedAdd integer floating.val, .intFloatAdd lhs floating.property⟩
@@ -909,6 +931,12 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
       match lowerArguments tree.scope arguments with
       | .ok operands =>
         let tail ← lowerPlan tree index rest
+        -- Scalar floor division already parses here. Use the deferred call
+        -- operand when the entire call can be checked by that path.
+        if operands.val.any (fun | .binary .floorDiv .. => true | _ => false) then
+          if let .ok deferred := lowerCallArguments tree.scope arguments then
+            return ⟨.nestedCall destination.val name reference deferred.val :: tail.val,
+              .nestedCall site destination.property deferred.property tail.property⟩
         return ⟨.call destination.val name reference operands.val :: tail.val,
           .call site destination.property operands.property tail.property⟩
       | .error flatError =>

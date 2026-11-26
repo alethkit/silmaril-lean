@@ -54,7 +54,7 @@ private theorem run_succ {BlockTy : List Width → Type} {L : List Width → Typ
     rcases evaluated with ⟨out, buffer⟩
     cases out <;> rfl
 
-private theorem carryOperands_eval (word : Word) (env : Env scope) (operands : Operands scope delta) :
+theorem carryOperands_eval (word : Word) (env : Env scope) (operands : Operands scope delta) :
     (carryOperands operands).eval (Env.cons (w := wordWidth) word env) = operands.eval env := by
   induction operands with
   | nil => rfl

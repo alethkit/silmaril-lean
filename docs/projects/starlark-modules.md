@@ -1339,6 +1339,37 @@ remain open. Calls in textual function bodies belong to the frontend
 profile.
 [Suite theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/imported-checked/check.go)
 
+### Composing checked imports
+
+A topologically numbered graph may contain checked load-free roots and
+consumers with one leading renamed import. Each consumer supplies its
+normalized suite and checked link into the common declaration table.
+The import edge consumes the dependency's actual publication and cache
+entry, then derives the reached file-local binding and runs the finite
+suite. The edge theorem is independent of the graph induction, so a
+larger scheduler can reuse it for an individual dependency.
+
+The graph theorem follows strictly earlier dependencies. It preserves
+earlier cache entries, the original closure records and their capture
+addresses, and the caller's slots, bindings and iterator context.
+Its source trace agrees with the loader on exact publication and heap,
+or on the first reached error and residual session. Requests from an
+empty cache establish the same invariant for later mixed cold and
+cached loads.
+
+The chain currently transports regular closures, including direct
+re-exports and checked factory results. A module may define and call
+its own wrappers during initialization. Deriving a downstream call to
+a re-exported wrapper requires a provenance judgment that retains the
+imported callable behind the wrapper's captured file slot, together
+with a decreasing declaration guard across wrapper activations.
+The resolved loader and pinned Go control already exercise that call.
+The checked three-module control calls the original closure through a
+middle re-export and distinguishes cold, root-preloaded and
+middle-preloaded sessions. Multiple dependency order, broader bodies,
+and arbitrary incoming caches remain separate.
+[Chain theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Chain/Thms.lean)
+
 ## Finite-manifest loader
 
 `Loader.load` takes a known module ID and an optional session. A session

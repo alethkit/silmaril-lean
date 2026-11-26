@@ -17,13 +17,17 @@ variable {F : Type} {blocks exits captures n newBlocks : Nat} {Γ : List PacketT
 
 /-- A checked entry tree indexed by the number of appended rows.
 A request owns its application and reply rows, followed by the rows
-of its continuation. Cases divide the suffix into disjoint intervals. -/
+of its continuation. An unpack owns one row, followed by its
+continuation. Cases divide the suffix into disjoint intervals. -/
 inductive EntryTree (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) : List PacketType → Nat → Type
   | pure {Γ : List PacketType} (tail : CaseTail packets outputs Γ) : EntryTree sig packets outputs Γ 0
   | request {Γ : List PacketType} (leaf : Request sig packets outputs Γ) : EntryTree sig packets outputs Γ 2
   | requestThen {Γ : List PacketType} {n : Nat} (op : F) (arg : Expr Γ (sig.argument op)) (frame : Frame Γ)
       (next : EntryTree sig packets outputs (sig.reply op :: Γ) n) : EntryTree sig packets outputs Γ (2 + n)
+  | unpack {Γ : List PacketType} {a b : PacketType} {n : Nat}
+      (value : Expr Γ (.product a b)) (frame : Frame Γ)
+      (next : EntryTree sig packets outputs (b :: a :: Γ) n) : EntryTree sig packets outputs Γ (1 + n)
   | case {Γ : List PacketType} {a b : PacketType} {l r : Nat} (test : Expr Γ (.coprod a b))
       (left : EntryTree sig packets outputs (a :: Γ) l) (right : EntryTree sig packets outputs (b :: Γ) r) :
       EntryTree sig packets outputs Γ (l + r)
@@ -32,6 +36,7 @@ def EntryTree.written : {Γ : List PacketType} → {n : Nat} → EntryTree sig p
   | _, _, .pure tail => CaseTail.erase id position tail
   | _, _, .request leaf => leaf.row.erase
   | _, _, .requestThen op arg _ next => .let₁ (.op op (operand position arg)) next.written
+  | _, _, .unpack value _ next => .let₂ (operand position value) next.written
   | _, _, .case test left right => .case (operand position test) left.written right.written
 
 /-- Render an entry in the current slot layout. A reply row uses the
@@ -43,6 +48,8 @@ def EntryTree.entryAt (old : Fin blocks → Fin newBlocks) :
   | _, _, .request leaf, labels, layout => .br (labels 0).val (packScope leaf.frame layout)
   | _, _, .requestThen (n := n) _ _ frame _, labels, layout =>
     .br (labels ((0 : Fin 2).castAdd n)).val (packScope frame layout)
+  | _, _, .unpack (n := n) _ frame _, labels, layout =>
+    .br (labels ((0 : Fin 1).castAdd n)).val (packScope frame layout)
   | _, _, .case (r := r) test left right, labels, layout =>
     .case (operand layout test) (left.entryAt old (fun i => labels (i.castAdd r)) (bindPosition layout))
       (right.entryAt old (fun i => labels (i.natAdd _)) (bindPosition layout))
@@ -62,6 +69,12 @@ def EntryTree.cells (old : Fin blocks → Fin newBlocks) :
     appendTable (Fin.cases
       (frame.packet, frame.requestCell op arg (labels ((1 : Fin 2).castAdd n)))
       (fun _ : Fin 1 => (reply.packet, reply.unpack 0 (next.entryAt old childLabels (reply.position 0)))))
+      (next.cells old childLabels)
+  | _, _, .unpack (n := n) value frame next, labels =>
+    let childLabels := fun i : Fin n => labels (i.natAdd 1)
+    let layout : Positions _ := frame.position 0
+    appendTable (fun _ : Fin 1 => (frame.packet, frame.unpack 0
+      (.let₂ (operand layout value) (next.entryAt old childLabels (bindPosition (bindPosition layout))))))
       (next.cells old childLabels)
   | _, _, .case (r := r) _ left right, labels =>
     appendTable (left.cells old (fun i => labels (i.castAdd r))) (right.cells old (fun i => labels (i.natAdd _)))
@@ -84,6 +97,10 @@ def read (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType) (out
     | none => do
       let ⟨n, next⟩ ← read sig packets outputs (sig.reply op :: ty :: rest) tail
       return ⟨2 + n, .requestThen op value frame next⟩
+  | ty :: rest, .let₂ value tail => do
+    let ⟨.product a b, value⟩ ← elaborateExpr (ty :: rest) value | none
+    let ⟨n, next⟩ ← read sig packets outputs (b :: a :: ty :: rest) tail
+    return ⟨1 + n, .unpack value (scopeFrame ty rest) next⟩
   | Γ, .br label arg => do
     let tail ← elaborateBranch (Sum.elim packets outputs) Γ (.br label arg)
     return ⟨0, .pure tail⟩

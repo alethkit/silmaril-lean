@@ -333,6 +333,31 @@ private theorem published_lookup (state : State) (name : String) (value : Value)
         cases visible : Modules.isPublic first <;>
           simpa [previous, Except.toOption, visible, List.lookup, different] using result
 
+theorem publish_record {source : Modules.Source} {callee : Callable} {name : String}
+    {state defining : State} {address : Nat} (caller : State) (member : name ∈ source.globals)
+    (publicName : Modules.isPublic name = true) (loaded : state.bindingValue (globalSlot name) = .ok (.function address))
+    (record : ClosureAt callee.site callee.id defining state address) :
+    (Modules.publish source state).1.exports.lookup name = some (.function address) ∧
+      ∃ published : ClosureAt callee.site callee.id defining
+        (Modules.restoreThread caller (Modules.publish source state).2) address, published.frozen = true := by
+  have global : (name, Lists.Value.function address) ∈ Modules.globalValues source state :=
+    List.mem_filterMap.mpr ⟨name, member, by simp [loaded, Except.toOption]⟩
+  have exported : (Modules.publish source state).1.exports.lookup name = some (.function address) := by
+    obtain ⟨sourceGlobals, temps, commands⟩ := source
+    exact published_lookup state name _ publicName loaded (show name ∈ sourceGlobals from member)
+  let roots := (Modules.globalValues source state).map Prod.snd
+  have root : address ∈ roots.filterMap Lists.Value.address? :=
+    List.mem_filterMap.mpr ⟨_, List.mem_map_of_mem global, rfl⟩
+  have frozen := (Lists.freezes_iff_freeze state.heap (roots.filterMap Lists.Value.address?) _).mpr rfl
+  obtain ⟨flag, stored, iff⟩ := frozen.cell address _ record.recorded
+  have yes := iff.mpr (Or.inr (.root (Array.getElem?_eq_some_iff.mp record.recorded).choose root))
+  subst flag
+  refine ⟨exported, { record with frozen := true, recorded := stored, live := ?_ }, rfl⟩
+  intro capture member
+  obtain ⟨value, _, cell⟩ := record.live capture member
+  obtain ⟨flag, stored, _⟩ := frozen.cell capture.address _ cell
+  exact ⟨value, flag, stored⟩
+
 private theorem live_publication {globals : List String} {program : Program} {env : Environment}
     {source : Modules.Source} (names : source.globals = globals) (caller state : State)
     (ready : Ready globals program env) (live : Live env state) :
@@ -341,23 +366,8 @@ private theorem live_publication {globals : List String} {program : Program} {en
   intro name callee known publicName
   obtain ⟨member, linked⟩ := ready name callee known
   obtain ⟨address, defining, loaded, ⟨record⟩⟩ := live name callee known
-  have global : (name, Lists.Value.function address) ∈ Modules.globalValues source state :=
-    List.mem_filterMap.mpr ⟨name, names ▸ member, by simp [loaded, Except.toOption]⟩
-  have exported : (Modules.publish source state).1.exports.lookup name = some (.function address) := by
-    obtain ⟨sourceGlobals, temps, commands⟩ := source
-    exact published_lookup state name _ publicName loaded (show name ∈ sourceGlobals from (show sourceGlobals = globals from names) ▸ member)
-  let roots := (Modules.globalValues source state).map Prod.snd
-  have root : address ∈ roots.filterMap Lists.Value.address? :=
-    List.mem_filterMap.mpr ⟨_, List.mem_map_of_mem global, rfl⟩
-  have frozen := (Lists.freezes_iff_freeze state.heap (roots.filterMap Lists.Value.address?) _).mpr rfl
-  obtain ⟨flag, stored, iff⟩ := frozen.cell address _ record.recorded
-  have yes := iff.mpr (Or.inr (.root (Array.getElem?_eq_some_iff.mp record.recorded).choose root))
-  subst flag
-  refine ⟨linked, address, defining, exported, { record with frozen := true, recorded := stored, live := ?_ }, rfl⟩
-  intro capture member
-  obtain ⟨value, _, cell⟩ := record.live capture member
-  obtain ⟨flag, stored, _⟩ := frozen.cell capture.address _ cell
-  exact ⟨value, flag, stored⟩
+  obtain ⟨exported, published, frozen⟩ := publish_record caller (names.symm ▸ member) publicName loaded record
+  exact ⟨linked, address, defining, exported, published, frozen⟩
 
 theorem plan_globals {commands : List Silmaril.Languages.Starlark.Modules.Resolve.Command}
     {env exports : Environment} {code : List Modules.Command} {linked final : Program} {resolved : ResolvedModule}

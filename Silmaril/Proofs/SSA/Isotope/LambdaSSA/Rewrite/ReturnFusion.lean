@@ -95,6 +95,18 @@ theorem denote_inr_boundReturn_sequencing {Γ : VCtx τ} {L : LCtx τ} {i : Nat}
   rw [← RegionDenotes.eq_denote J M original, ← RegionDenotes.eq_denote J M sequenced]
   simp only [Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.bind, lookup, ctxObj, ← Category.assoc, extend_snd]
 
+set_option backward.isDefEq.respectTransparency false in
+theorem denote_abort_boundReturn_sequencing {Γ : VCtx τ} {L : LCtx τ} {i : Nat}
+    {D : τ} {a : Tm Φ} (hi : At L i D) (ha : Tm.HasType Γ a empty) :
+    denoteRegion J M (.let₁ (.abort ha) (.br hi (.var (i := 0) rfl))) =
+      denoteRegion J M (.let₁ ha (.let₁ (.abort (.var (i := 0) rfl)) (.br hi (.var (i := 0) rfl)))) := by
+  have da := denote_spec J M ha
+  have dv := Denotes.var (J := J) (M := M) (Φ := Φ) (i := 0) (rfl : At (empty :: Γ) 0 empty)
+  have original := boundReturn_denotes J M hi (Denotes.abort da)
+  have sequenced := RegionDenotes.let₁ da (boundReturn_denotes J M hi (Denotes.abort dv))
+  rw [← RegionDenotes.eq_denote J M original, ← RegionDenotes.eq_denote J M sequenced]
+  simp only [Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.bind, lookup, ctxObj, ← Category.assoc, extend_snd]
+
 theorem denote_let₂_boundReturn_fusion {Γ : VCtx τ} {L : LCtx τ} {i : Nat}
     {A B D : τ} {a b : Tm Φ} (hi : At L i D)
     (ha : Tm.HasType Γ a (product A B)) (hb : Tm.HasType (B :: A :: Γ) b D) :

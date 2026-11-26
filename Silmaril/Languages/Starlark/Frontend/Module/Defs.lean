@@ -24,18 +24,20 @@ structure ApplicationSpans where
 structure LocatedCommand where
   span : Span
   command : Modules.Resolve.Command
-  /-- Applications in preorder, visiting the callee before the operands. -/
+  /-- Applications in source statement order and preorder within each expression. -/
   applications : List ApplicationSpans := []
 
 /-- The outer application of a call assignment. -/
 def LocatedCommand.application (command : LocatedCommand) : Option ApplicationSpans :=
-  command.applications.head?
+  match command.command with
+  | .assign .. => command.applications.head?
+  | _ => none
 
 def LocatedCommand.callSpans (command : LocatedCommand) : Option CallSpans :=
   command.application.map ApplicationSpans.operands
 
 def LocatedCommand.nestedCalls (command : LocatedCommand) : List ApplicationSpans :=
-  command.applications.drop 1
+  if command.application.isSome then command.applications.drop 1 else command.applications
 
 structure ParsedModule where
   commands : List LocatedCommand
@@ -66,14 +68,6 @@ private def lowerParameter (parameter : LocatedParameter) :
   let defaultExpr ← parameter.defaultValue.mapM fun value =>
     Modules.Resolve.CompExpr.plain <$> lowerExpr value.span value.expr
   return ⟨parameter.name, defaultExpr⟩
-
-private def lowerFunction (fn : LocatedFunction) : Except Diagnostic Modules.Resolve.Command := do
-  let positional ← fn.parameters.mapM lowerParameter
-  let body ← fn.body.mapM fun stmt => lowerStmt stmt.span stmt.stmt
-  let body := match body.reverse with
-    | [] => .pass
-    | last :: preceding => preceding.foldl (fun rest first => .seq first rest) last
-  return .define fn.name { positional } body
 
 private def lowerArgument (argument : LocatedArgument) :
     Except Diagnostic Functions.Lowering.Resolve.SourceExpr := lowerExpr argument.span argument.expr
@@ -155,6 +149,42 @@ theorem lowerOperand_call (span : Span) (callee : CallOperand) (arguments : Loca
       return ⟨call.expression, ⟨span, callee.span, call.spans⟩ :: (callable.applications ++ call.nestedCalls)⟩) := by
   simp only [lowerOperand.eq_3, lowerCallWithCallee, bind_assoc, pure_bind]
 
+private structure LoweredBody where
+  statement : Modules.Resolve.Statement
+  applications : List ApplicationSpans := []
+
+private def LoweredBody.sequence (body : List LoweredBody) : Modules.Resolve.Statement :=
+  match body.reverse with
+  | [] => .pass
+  | last :: preceding => preceding.foldl (fun rest first => .seq first.statement rest) last.statement
+
+private def lowerBodyStmt (span : Span) (source : FunctionStmt) : Except Diagnostic LoweredBody := do
+  match source with
+  | .scalar stmt => return { statement := ← lowerStmt span stmt }
+  | .returnCall value =>
+    let call ← lowerOperand value
+    return ⟨.ret (some call.expression), call.applications⟩
+  | .branch test yes no =>
+    let test ← lowerExpr span test
+    let yes ← yes.attach.mapM fun ⟨stmt, member⟩ => do
+      have := List.sizeOf_lt_of_mem member
+      have : sizeOf stmt.stmt ≤ sizeOf stmt := by cases stmt; simp
+      lowerBodyStmt stmt.span stmt.stmt
+    let no ← no.attach.mapM fun ⟨stmt, member⟩ => do
+      have := List.sizeOf_lt_of_mem member
+      have : sizeOf stmt.stmt ≤ sizeOf stmt := by cases stmt; simp
+      lowerBodyStmt stmt.span stmt.stmt
+    return ⟨.branch test (LoweredBody.sequence yes) (LoweredBody.sequence no),
+      yes.flatMap LoweredBody.applications ++ no.flatMap LoweredBody.applications⟩
+termination_by sizeOf source
+decreasing_by all_goals (simp_all <;> omega)
+
+private def lowerFunction (fn : LocatedFunction FunctionStmt) :
+    Except Diagnostic (Modules.Resolve.Command × List ApplicationSpans) := do
+  let positional ← fn.parameters.mapM lowerParameter
+  let body ← fn.body.mapM fun stmt => lowerBodyStmt stmt.span stmt.stmt
+  return (.define fn.name { positional } (LoweredBody.sequence body), body.flatMap LoweredBody.applications)
+
 private def lowerCommand (source : LocatedFileCommand) :
     Except Diagnostic (Option LocatedCommand) := do
   let located (command : Modules.Resolve.Command) : Option LocatedCommand :=
@@ -164,7 +194,9 @@ private def lowerCommand (source : LocatedFileCommand) :
   | .simple (.assign name rhs) => return located (.assign name (← lowerExpr source.span rhs))
   | .simple (.eval value) => return located (.eval (← lowerExpr source.span value))
   | .simple _ => .error ⟨.unsupported .compoundStatement, source.span⟩
-  | .define fn => return located (← lowerFunction fn)
+  | .define fn =>
+    let (command, applications) ← lowerFunction fn
+    return some ⟨source.span, command, applications⟩
   | .assignDisplay target display => return located (.assign target (← lowerDisplay display))
   | .assignCall target value =>
     let call ← lowerOperand value

@@ -30,7 +30,9 @@ theorem Requests.slots_position {Γ Δ : List PacketType} {ty : PacketType}
     requests slot
 
 /-- The original operand and its scheduled lets have equal complete
-weak trees, with product effects in the evaluator's left-to-right order. -/
+weak trees. Product fields run left to right. A let initializer runs
+once, and product destructuring binds the right field at slot zero and
+the left field at slot one. -/
 theorem Operand.preserves_run {Γ : List PacketType} {ty : PacketType}
     (arg : Operand sig Γ ty) (instr : Primitive E F α) (env : Env α) :
     LambdaSSA.Semantics.Interaction.term instr env arg.written =
@@ -38,7 +40,7 @@ theorem Operand.preserves_run {Γ : List PacketType} {ty : PacketType}
   Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple.Computed.operand_run
     instr env arg
 
-/-- Inserting the scheduled replies preserves the written entry and its actual
+/-- Inserting the scheduled binders preserves the written entry and its actual
 old block iteration as complete weak trees. -/
 theorem Lifted.preserves_run (lifted : Lifted sig context source) (instr : Primitive E F α) (env : Env α) :
     region instr env source.erase = region instr env lifted.code.erase :=

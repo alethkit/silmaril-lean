@@ -53,6 +53,31 @@ theorem iterate_normalize {B : P} (g : T ⟶ B ⨿ T) :
       iterate (normalize g) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ComponentTripling.iterate_normalize g
 
+section PhaseInterleave
+
+universe w z
+variable {C : Type w} [Category.{z} C] [HasBinaryCoproducts C]
+
+local notation "Copies" A:max => (A ⨿ (A ⨿ A))
+
+/-- Group three copies of a binary sum by summand, preserving the phase
+order inside each summand. This uses only the chosen coproducts. -/
+noncomputable def phaseInterleave (A D : C) : Copies (A ⨿ D) ≅ Copies A ⨿ Copies D :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ComponentTripling.phaseInterleave A D
+
+theorem phaseInterleave_hom (A D : C) : (phaseInterleave A D).hom =
+  coprod.desc (coprod.map coprod.inl coprod.inl)
+    (coprod.desc (coprod.map (coprod.inl ≫ coprod.inr) (coprod.inl ≫ coprod.inr))
+      (coprod.map (coprod.inr ≫ coprod.inr) (coprod.inr ≫ coprod.inr))) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ComponentTripling.phaseInterleave_hom A D
+
+theorem phaseInterleave_inv (A D : C) : (phaseInterleave A D).inv =
+    coprod.desc (coprod.map coprod.inl (coprod.map coprod.inl coprod.inl))
+      (coprod.map coprod.inr (coprod.map coprod.inr coprod.inr)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ComponentTripling.phaseInterleave_inv A D
+
+end PhaseInterleave
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.TypeCategory.ComponentTripling
 
 namespace Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Singleton.ThreeCycle

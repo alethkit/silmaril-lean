@@ -1214,6 +1214,39 @@ has worst-case exponential size in the number of keys. The result applies
 to the guarded grammar at fixed callers and the supplied carrier.
 [Fixed-carrier refinement][ssa-ub-open-guarded-fixed-carrier]
 
+The payload-aware endpoint uses the same guarded control and emits a
+typed constructor expression at each terminal row. The expression can
+read the incoming packet and the caller. Its finite result code indexes
+the complete typed exit packet, including the ordered tag. Exit selection
+runs after decoding that packet. It hides the payload at a selected
+exit and preserves the payload and final state at ordinary exits.
+The decision reuses the existing fixed-carrier interpreter scan.
+
+For the named weak-tree observer, agreement at each request and each
+typed reply continuation, plus exact decoding at returns, gives
+agreement with the exact native readback. The named regression reads
+one register assigned by the incoming block packet and compares it to a
+pure assignment of false. Two reconstructed interpreters produce
+different projected bits at ordered exit zero in final state one.
+The true reply rejects refinement into the fixed projection at those
+same endpoints.
+[Payload-aware native endpoint][ssa-ub-open-guarded-payload]
+[Named weak-tree transport][ssa-ub-named-guarded-payload]
+
+The packet-local recognizer checks the existing versioner's exact entry,
+request decoder, typed reply dispatch, and terminal rows. It infers the
+destinations and the ordered exit at each terminal row. The projected
+bit can be the terminal bit parameter or a unit-to-bit instruction from
+the supplied pure literal table. The unit-packet row needs the literal
+form. The recognizer derives the full weak-tree root and typed decoder
+equations for every accepted table. A comparison that cannot recognize
+a named program or validate a native readback returns no verdict.
+A negative verdict after both checks has a witness on the original
+named runners on the supplied finite carrier. The regression sends a
+changed bit and machine state around a backedge before taking the second
+ordered exit.
+[Recognized packet-local live-outs][ssa-ub-recognized-liveout]
+
 `Table.compareEntries?` lifts the fixed-carrier comparison to the
 existing exhaustive `CallerEnumeration` of a shared typed domain. Each
 caller is decoded separately into the exact entry type of each original
@@ -1271,6 +1304,70 @@ preserve the infinite internal path. A regression advances a natural
 number at every backedge, so no finite list covers that run. The
 compression theorem applies to the finite branch.
 [Finite refutation support][ssa-ub-open-guarded-finite-support]
+
+For a mixed finite and infinite pair, preserving the observation needs
+only the finite side's full typed query table. The infinite side follows
+every recorded reply up to its first unlisted key. That lookup gives
+primitive divergence, with no further replay. If every key is listed,
+the compressed runner has a genuine infinite path. All stores through the
+cut or along the retained path belong to the finite run's support, so the
+bound is one plus the finite run's query count. Both cases give the same
+ordinary divergence as the original infinite run, while the finite
+observation still decodes exactly. A mixed refutation in either direction
+therefore gives a negative pointwise check at the same caller and a
+negative shared-entry verdict. The bound is specific to the finite run.
+
+Ordinary divergence refines itself and a selected-exit top. Returns,
+faults and selected-exit top all fail to refine ordinary divergence.
+Two infinite guarded runs give the same singleton divergence and cannot
+refute each other in this order. The regression exercises a shared first
+reply of a Nat run, a first missing key at the changed store, and a retained
+one-state replay.
+[Mixed finite and infinite refutations][ssa-ub-open-guarded-mixed-support]
+
+The guarded runner has a finite typed derivation or an actual infinite
+feedback path at every typed start. This gives the finite-model property
+for independently exact-readback native endpoints and the exhaustive
+shared caller domain. `Table.finite_model_property` equates refinement
+over every deterministic store type in any chosen Lean universe with
+`some true` from every finite-carrier check. A finite checker counterexample
+can be lifted from `Fin n` into that universe using `ULift`. The observation
+map preserves ordered returns, stores, primitive and infinite divergence,
+and fresh top. Its injectivity reflects the order.
+
+`Table.finite_refutation_iff` gives the existential version. A refuting
+caller and initial store yield a positive carrier size, with the existing
+query-count bound from the finite derivations on each side. The pointwise
+check rejects at that caller and the shared check returns a rejection.
+The bound depends on the witnessed derivations and supplies no fixed
+cutoff. The Boolean projection returns `none` for unsupported readback,
+including at size zero or for an empty caller inventory. Those cases are
+vacuously positive after admission when there is no caller or no initial
+store. A regression proves arbitrary-store validity for two genuine
+request-guarded cycles with different entry labels by checking a closed
+product certificate on every finite carrier.
+[Finite-model property][ssa-ub-open-guarded-finite-model]
+
+The entry-ranked subclass has a single executable cutoff.
+`Table.checkRankedEntries?` checks both native readbacks and the existing
+entry-rank certificates, then compares on `Fin (min leftRank rightRank + 1)`.
+Every successful reply in a common distinguishing prefix takes a
+rank-decreasing local edge. The prefix therefore uses at most the smaller
+entry rank many transfers, and the extra store supplies its terminal
+test. This counts successful replies, so a pending request with no
+successful reply still fits the cutoff.
+
+An arbitrary-store refutation first gives a finite rejection at the same
+caller by the finite-model proof. Rank-certified extraction gives a
+bounded prefix countermodel at the two original endpoints. State
+embedding enlarges its rejecting carrier to the computed size. The
+single-size verdict is equivalent to arbitrary-store deterministic
+refinement under the two checks. Failed rank or readback produces
+`none`. A regression compares different entry labels and types, with
+one request on the left and two on the right. Size one accepts and the
+computed size two rejects when the second request sees the changed
+store. This cutoff applies to the entry-ranked subclass.
+[Ranked carrier cutoff][ssa-ub-open-guarded-ranked-cutoff]
 
 ## Coverage and gaps
 
@@ -1441,5 +1538,12 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-entries]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Entry/Thms.lean
 [ssa-ub-open-guarded-carrier-embedding]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Entry/State/Thms.lean
 [ssa-ub-open-guarded-finite-support]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Thms.lean
+[ssa-ub-open-guarded-mixed-support]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Infinite/Thms.lean
+[ssa-ub-open-guarded-finite-model]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Thms.lean
+[ssa-ub-open-guarded-ranked-cutoff]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Ranked/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
+
+[ssa-ub-open-guarded-payload]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Payload/Thms.lean
+[ssa-ub-recognized-liveout]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Recognize/Thms.lean
+[ssa-ub-named-guarded-payload]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Thms.lean

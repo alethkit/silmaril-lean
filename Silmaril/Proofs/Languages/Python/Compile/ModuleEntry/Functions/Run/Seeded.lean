@@ -76,6 +76,18 @@ theorem observeNestedCallIn_innerPreparationError {space : Namespace} {context :
   simp [observeNestedCallIn, observeRemainingCallIn, observeArgumentsIn, observeArgumentIn, argumentObservation,
     outerFound, failed, Except.mapError]
 
+theorem intDivMod_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (op : Core.Closure.IntDivModOp) (numerator divisor : Int) :
+    (lowerCallOperand (.intDivMod op numerator divisor)).eval space #v[] =
+      (((Core.Module.Functions.Operand.intDivMod op numerator divisor).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) := by
+  simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
+    Core.Closure.Executor.Operand.evalIn]
+  cases op.eval numerator divisor <;> rfl
+
 theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
     (numerator divisor : Int) :
@@ -87,6 +99,18 @@ theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namesp
   simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
     Core.Closure.Executor.Operand.evalIn]
   cases Core.Closure.trueDivideInt numerator divisor <;> rfl
+
+theorem floatDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (operands : Core.Binary64.FloatOperands) :
+    (lowerCallOperand (.floatDiv operands)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatDiv operands).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) := by
+  simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
+    Core.Closure.Executor.Operand.evalIn]
+  cases Core.Closure.trueDivideFloat operands <;> rfl
 
 private theorem floatArithmeticResult_agrees
     (result : Except Core.Binary64.FloatArithmeticError Silmaril.Numeric.Ieee754.F64.Finite) :

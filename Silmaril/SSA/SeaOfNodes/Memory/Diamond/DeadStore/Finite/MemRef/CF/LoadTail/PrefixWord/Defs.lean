@@ -53,6 +53,23 @@ def checkArms (preds : Predecessors sites) (address : Port args .address)
     Bool :=
   (List.finRange (preds.rest.length + 1)).all fun i => checkArm address (arm i) (candidate i) input
 
+/-- A checked CFG pair together with the exact native entry edit used to emit it. -/
+structure Emission (cells : Nat) (args : List ValueSort) (preds : Predecessors sites) where
+  edit : Cut args [] 0
+  programs : Programs cells args preds
+
+/-- Check the suffix and each incoming occurrence at the same typed input,
+and expose the retained entry for a subsequent check. -/
+def lowerWithEntry (preds : Predecessors sites) (fits : Fits preds) (entry : Memory.Graph args) (version : Nat)
+    (arm : Occurrence preds → Memory.Graph args) (candidate : Candidate args preds)
+    (suffix : Memory.Graph (.word :: args)) (input : Tuple (Val cells) args)
+    (facts : Certificate args) : Option (Emission cells args preds) := do
+  let edit ← cut facts version entry
+  if facts.check input && checkArms preds edit.address arm candidate input then
+    some ⟨edit, input, lowerBank preds fits cells (some entry) arm suffix,
+      lowerBank preds fits cells (some edit.retained) arm suffix⟩
+  else none
+
 /-- Check the suffix and each incoming occurrence at the same typed input.
 Only the entry changes in the actual pair of MemRef CFGs. -/
 def lower (preds : Predecessors sites) (fits : Fits preds) (entry : Memory.Graph args) (version : Nat)

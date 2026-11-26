@@ -5,6 +5,7 @@ import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheade
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
 
@@ -812,5 +813,116 @@ example : ¬ ∃ value final, Eval (Opcode.step (sigs := [⟨4, 1⟩]) fixedProg
   exact fixedCannotReturn trace rfl
 
 end ExtractedPhi
+
+section CFDispatch
+
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.MLIR.CF (i64)
+open Silmaril.MLIR.Arith (Env Width)
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+
+private abbrev cfWord : Diamond.Ty Width := .value (.data i64)
+private abbrev cfPred : Diamond.Ty Width := .value .predicate
+private abbrev cfEntry : List (List (Diamond.Ty Width)) := [[cfWord], [cfWord]]
+private abbrev cfHeader : List (List (Diamond.Ty Width)) := [[cfWord], [cfPred]]
+
+-- The three-to-four RTL fixture has one unused capture at position 2.
+private def cfBank : Family.MLIR.Program 4 3 cfEntry cfHeader where
+  preheader :=
+    .cons (.arithmetic (.binary .subi))
+      (.cons (.arg .head) (.cons (.arg (.tail (.tail (.tail .head)))) .nil))
+      (.cons (.arithmetic (.binary .addi))
+        (.cons (.output (0 : Fin 1) .head) (.cons (.arg (.tail .head)) .nil)) .nil)
+  header :=
+    .cons (.arithmetic (.binary .addi))
+      (.cons (.arg (.tail (.tail (.tail (.tail .head)))))
+        (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head)))))) .nil))
+      (.cons (.slt i64)
+        (.cons (.output (0 : Fin 1) .head)
+          (.cons (.arg (.tail (.tail (.tail (.tail (.tail (.tail .head))))))) .nil)) .nil)
+  phiInputs
+    | .entry => .cons (.output (0 : Fin 2) .head)
+        (.cons (.output (1 : Fin 2) .head) (.cons (.arg (.tail (.tail (.tail .head)))) .nil))
+    | .backedge => .cons (.output (0 : Fin 2) .head)
+        (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head))))))
+          (.cons (.arg (.tail (.tail (.tail (.tail (.tail (.tail .head))))))) .nil))
+  predicate := .output (1 : Fin 2) .head
+  result := .output (0 : Fin 2) .head
+
+private def cfLive : Family.MLIR.Live 4 3 cfHeader :=
+  [.output (0 : Fin 2) .head,
+    .arg (.tail (.tail (.tail (.tail .head)))),
+    .arg (.tail (.tail (.tail (.tail (.tail .head))))),
+    .arg (.tail (.tail (.tail (.tail (.tail (.tail .head)))))),
+    .arg .head, .arg (.tail .head)]
+
+private def cfPlan : Family.MLIR.Plan familyFunction (Family.MLIR.liveRegs cfLive) 3 2 :=
+  ⟨by decide⟩
+
+example : Family.MLIR.check familyFunction (Family.MLIR.liveRegs cfLive) 3 2 = some cfPlan := by
+  simp [Family.MLIR.check, cfPlan.present]
+
+-- Leaving the producer temporary out of the live packet refuses admission.
+example : (Family.MLIR.check familyFunction (Family.MLIR.liveRegs cfLive.tail) 3 2).isNone := by decide
+
+example (slot : Fin 3) :
+    familyPhi.reemit slot.succ = some (1, (cfPlan.row slot).column.registers) :=
+  Family.MLIR.column_eq_phi cfPlan familyPhi slot
+
+private def cfTarget := Family.MLIR.lower cfBank cfLive cfPlan
+private def cfInput (x y : Word) : Env (Family.MLIR.wordsTy 4) := .cons x (.cons y (.cons 99 (.cons 5 .nil)))
+private def cfPacket (fresh x y c₀ c₁ : Word) : Env (Family.MLIR.wordsTy cfLive.length) :=
+  .cons fresh (.cons x (.cons y (.cons 5 (.cons c₀ (.cons c₁ .nil)))))
+
+-- The actual CF header passes its computed word and the pre-rebind bank.
+example : (cfTarget.block .header).eval evalOp (fun term env => term.eval env)
+    (.cons 1 (.cons 3 (.cons 5 (cfInput 6 2)))) =
+    .inl ⟨.dispatch 0, cfPacket 4 1 3 6 2⟩ :=
+  rfl
+
+example : (cfTarget.block .header).eval evalOp (fun term env => term.eval env)
+    (.cons (-5) (.cons (-4) (.cons 5 (cfInput 0 1)))) =
+    .inl ⟨.dispatch 0, cfPacket (-9) (-5) (-4) 0 1⟩ :=
+  rfl
+
+example : (cfTarget.block (.dispatch 0)).eval evalOp (fun term env => term.eval env)
+    ((cfPacket 4 1 3 6 2).append (cfInput 6 2)) =
+    .inl ⟨.header, .cons 4 (.cons 3 (.cons 5 .nil))⟩ :=
+  rfl
+
+example : (cfTarget.block (.dispatch 0)).eval evalOp (fun term env => term.eval env)
+    ((cfPacket (-9) (-5) (-4) 0 1).append (cfInput 0 1)) =
+    .inl ⟨.dispatch 1, cfPacket (-9) (-5) (-4) 0 1⟩ :=
+  rfl
+
+example : (cfTarget.block (.dispatch 1)).eval evalOp (fun term env => term.eval env)
+    ((cfPacket (-9) (-5) (-4) 0 1).append (cfInput 0 1)) =
+    .inl ⟨.header, .cons (-9) (.cons 5 (.cons (-4) .nil))⟩ :=
+  rfl
+
+example : (cfTarget.block (.dispatch 2)).eval evalOp (fun term env => term.eval env)
+    ((cfPacket (-10) (-5) (-5) 0 0).append (cfInput 0 0)) =
+    .inl ⟨.header, .cons (-10) (.cons 5 (.cons (-5) .nil))⟩ :=
+  rfl
+
+-- This run executes the dependent preheader and all three dispatchers.
+example : cfTarget.run evalOp 7 (cfInput 0 0) = some (.cons (-5) .nil) :=
+  rfl
+
+private def rtlAtMiddle := (runningState? (familyProg.runMain 7 0 (words middleInput) mem)).get (by cbv)
+
+private theorem middleSnapshot :
+    Family.MLIR.Snapshot (scope := Family.MLIR.liveRegs cfLive) (List.length_map ..)
+      ((cfPacket (-9) (-5) (-4) 0 1).append (cfInput 0 1)) rtlAtMiddle.frame := by
+  unfold Family.MLIR.Snapshot
+  decide
+
+example : Family.MLIR.StepAgreement (bank := 3) familyProg (1 : Fin 3) rtlAtMiddle.frame mem
+    (cfPacket (-9) (-5) (-4) 0 1)
+    (.inl ⟨.header, .cons (-9) (.cons 5 (.cons (-4) .nil))⟩) :=
+  Family.MLIR.checked_dispatch_step widenCaptures familySource familyAccepted cfBank cfLive cfPlan
+    1 (cfPacket (-9) (-5) (-4) 0 1) (cfInput 0 1) rtlAtMiddle.frame mem middleSnapshot
+
+end CFDispatch
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table

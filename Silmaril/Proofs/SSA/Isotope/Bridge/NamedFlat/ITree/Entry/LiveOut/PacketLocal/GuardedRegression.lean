@@ -2,7 +2,9 @@ module
 
 import Mathlib.Tactic.FinCases
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.LiveBit.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Payload.Recognize.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Payload.Thms
 
 /-! # A named request changes its loop packet before taking an ordered exit -/
 
@@ -479,5 +481,247 @@ example (value : Bool) : observed value (fun i => i == 0) = ⊤ := by
 end LiveBitRegression
 
 end FixedCarrier
+
+namespace DynamicLiveOut
+
+open LambdaSSA.UB.Overlay
+open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands
+open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload (Endpoint)
+open LambdaSSA.UB.Overlay.Shape.TwoRequest (Tag)
+open FixedCarrier.LiveBit (PayloadType payloadExpr)
+open FixedCarrier.PayloadRecognition (Checked recognize compare? outputPacket)
+
+private abbrev Incoming : List Syntax.Ty := [Bit, Bit, .unit]
+private abbrev Outputs := Payload.Exits PayloadType
+
+private def targets (backedge : Bool) (tag : Fin 3) : Fin 3 :=
+  if tag = 0 then if backedge then 0 else 1 else 2
+
+private abbrev control (selected : Tag → Bool) (backedge : Bool := false) : Table nativeSig Incoming where
+  entry := 0
+  row := Fin.cases (motive := fun i : Fin 3 => Row nativeSig Incoming [Incoming.get i, Bit])
+    (.request .poll (.var 0) (targets backedge) (by cases backedge <;> intro i <;> fin_cases i <;> rfl))
+    (Fin.cases (motive := fun i : Fin 2 => Row nativeSig Incoming [Incoming.get i.succ, Bit])
+      (.exit 0) (fun _ => .exit 1))
+  selected := selected
+
+private abbrev endpoint (fixed : Bool) (selected : Tag → Bool) (backedge : Bool := false) : Endpoint nativeSig Incoming PayloadType where
+  control := control selected backedge
+  output := Fin.cases (motive := fun i : Fin 3 => Syntax.Expr [Incoming.get i, Bit] PayloadType)
+    (payloadExpr false)
+    (Fin.cases (motive := fun i : Fin 2 => Syntax.Expr [Incoming.get i.succ, Bit] PayloadType)
+      (if fixed then payloadExpr false else .pair .unit (.pair (.var 0) .unit))
+      (fun _ => payloadExpr false))
+
+private abbrev outgoing := outputPacket
+
+private def payloadBit (value : Value Unit) : Bool :=
+  match value with
+  | .pair .unit (.pair (.inr .unit) .unit) => true
+  | _ => false
+
+private def codes : Fin 4 ≃ Packet Outputs where
+  toFun i := outgoing (if i.val < 2 then 0 else 1) (i.val % 2 == 1)
+  invFun p := ⟨p.1.val * 2 + (if payloadBit p.2.val then 1 else 0), by
+    have bounded := p.1.isLt
+    change p.1.val < 2 at bounded
+    split <;> omega⟩
+  left_inv := by intro i; fin_cases i <;> rfl
+  right_inv := by
+    rintro ⟨tag, value, typed⟩
+    fin_cases tag <;>
+      cases typed with
+      | pair old field =>
+        cases old
+        cases field with
+        | pair bit tail =>
+          cases tail
+          cases bit with
+          | inl bit => cases bit; rfl
+          | inr bit => cases bit; rfl
+
+private def packets : List (Packet Incoming) :=
+  [⟨0, leftBit⟩, ⟨0, rightBit⟩, ⟨1, leftBit⟩, ⟨1, rightBit⟩, ⟨2, unitPacket⟩]
+
+private def configs : ConfigurationEnumeration Incoming := ⟨packets, by
+  rintro ⟨i, value, typed⟩
+  fin_cases i
+  · cases typed with
+    | inl h => cases h; exact List.Mem.head _
+    | inr h => cases h; exact List.Mem.tail _ (List.Mem.head _)
+  · cases typed with
+    | inl h => cases h; exact List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _))
+    | inr h => cases h; exact List.Mem.tail _ (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _)))
+  · cases typed
+    exact List.Mem.tail _ (List.Mem.tail _ (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _))))⟩
+
+private def script (bit : Bool) : Syntax.Primitives Op 2 :=
+  InterpreterScript.interpret [
+    InterpreterScript.Row.success (S := nativeSig) ⟨.poll, leftBit, 0⟩
+      ⟨0, if bit then rightBit else leftBit⟩ 1]
+
+private def noSelection : Tag → Bool := fun _ => false
+private abbrev dynamic := endpoint false noSelection
+private abbrev fixed := endpoint true noSelection
+private abbrev marked := endpoint false (fun i => i == 0)
+
+private theorem valid (fixed : Bool) (selected : Tag → Bool) (backedge : Bool := false) :
+    (endpoint fixed selected backedge).checkNative (endpoint fixed selected backedge).native = true := by
+  have exactCheck : (endpoint fixed noSelection backedge).checkNative (endpoint fixed noSelection backedge).native = true := by
+    cases fixed <;> cases backedge <;> decide +kernel
+  exact exactCheck
+
+private noncomputable def observed (fixed : Bool) (selected : Tag → Bool) (prim : Syntax.Primitives Op 2) :=
+  LambdaSSA.UB.Overlay.Shape.denote
+    (CFG.Dependent.Native.withExitUB (endpoint fixed selected).native selected)
+    (Syntax.model prim ((control selected).bindings leftBit)) 0
+
+private theorem observesDynamic (bit : Bool) : observed false noSelection (script bit) =
+    WithTop.some {Outcome.ret (0 : Tag) (outgoing 0 bit).2.val (1 : Fin 2)} := by
+  unfold observed
+  rw [dynamic.observe_entry codes _ (valid false noSelection) leftBit _ configs states]
+  cases bit <;> rfl
+
+private theorem observesFixed : observed true noSelection (script true) =
+    WithTop.some {Outcome.ret (0 : Tag) (outgoing 0 false).2.val (1 : Fin 2)} := by
+  unfold observed
+  rw [fixed.observe_entry codes _ (valid true noSelection) leftBit _ configs states]
+  rfl
+
+-- A single ordered exit exposes either payload under the two shared scripts.
+example : observed false noSelection (script false) = WithTop.some {Outcome.ret (0 : Tag) (outgoing 0 false).2.val (1 : Fin 2)} :=
+  observesDynamic false
+
+example : observed false noSelection (script true) = WithTop.some {Outcome.ret (0 : Tag) (outgoing 0 true).2.val (1 : Fin 2)} :=
+  observesDynamic true
+
+example : observed false (fun i => i == 0) (script true) = ⊤ := by
+  unfold observed
+  rw [marked.observe_entry codes _ (valid false _) leftBit _ configs states]
+  rfl
+
+private theorem witness : ¬ observed false noSelection (script true) ≤ observed true noSelection (script true) := by
+  rw [observesDynamic true, observesFixed]
+  simp [WithTop.coe_le_coe, outgoing]
+  intro eq; cases eq
+
+-- The fixed projection is a different typed native readback.
+example : dynamic.checkNative fixed.native = false := by decide +kernel
+
+private def namedSource (fixed : Bool) (backedge : Bool) : CFG Reg Label signature.Instr :=
+  let finish : CFG.Body Reg Label signature.Instr := .term (.br .first .unit)
+  let assign := fun label => CFG.Body.let1 .left (.app (.literal false) .unit) (.term (.br label .unit))
+  ⟨.term (.br .loop (.var .seed)),
+    [(.loop, ⟨.arg, .term (.case (.app .poll (.var .arg))
+      .again (.br (if backedge then .loop else .left) (.var .again))
+      .rest (.case (.val (.var .rest))
+        .left (.br .right (.var .left))
+        .tail (.case (.val (.var .tail))
+          .right (.br .right (.var .right)) .impossible (.br .right .unit))))⟩),
+     (.left, ⟨.left, if fixed then assign .first else finish⟩),
+     (.right, ⟨.arg, assign .second⟩)]⟩
+
+private def argumentTypes (i : Fin 3) : Ty SortName := if i = 2 then .unit else bit
+
+private def namedAdmission (fixed backedge : Bool) :
+    Admission signature ports (FixedCarrier.LiveBit.fields Reg.left) (namedSource fixed backedge) :=
+  (PacketLocal.admit (P := signature) ports (FixedCarrier.LiveBit.fields Reg.left)
+    (namedSource fixed backedge) argumentTypes).get (by cases fixed <;> cases backedge <;> decide +kernel)
+
+private def literalValues : Op → Option Bool
+  | .literal bit => some bit
+  | _ => none
+
+private def recognized? (fixed backedge : Bool) :=
+  recognize (namedAdmission fixed backedge) .poll literalValues
+
+private def checked (fixed backedge : Bool) :
+    Checked (namedAdmission fixed backedge) .poll literalValues :=
+  (recognized? fixed backedge).get (by cases fixed <;> cases backedge <;> decide +kernel)
+
+private theorem recognized_eq (fixed backedge : Bool) :
+    recognized? fixed backedge = some (checked fixed backedge) := by
+  cases fixed <;> cases backedge <;> rfl
+
+-- A missing literal interpretation cannot produce a semantic comparison.
+example : compare?
+    (recognize (namedAdmission false false) .poll (fun _ => none))
+    (recognize (namedAdmission true false) .poll (fun _ => none))
+    dynamic.native fixed.native noSelection noSelection codes leftBit leftBit replies configs states = none := by
+  rfl
+
+private theorem inferred_native (fixed backedge : Bool) (selected : Tag → Bool) :
+    ((checked fixed backedge).profile.endpoint .poll selected).checkNative
+      (endpoint fixed selected backedge).native = true := by
+  have h := (show ∀ f b : Bool,
+      ((checked f b).profile.endpoint .poll noSelection).checkNative
+        (endpoint f noSelection b).native = true by intro f b; cases f <;> cases b <;> decide +kernel) fixed backedge
+  exact h
+
+private def seedStore (r : Reg) := input leftBit (r, 0)
+
+private noncomputable def namedObserved (fixed backedge : Bool) (selected : Tag → Bool)
+    (prim : Syntax.Primitives Op 2) (s : Fin 2 := 0) :=
+  FixedCarrier.LiveBit.observeNamed (namedSource fixed backedge) labels .left seedStore literalValues prim s selected
+
+private theorem named_observes (fixed backedge : Bool) (selected : Tag → Bool)
+    (prim : Syntax.Primitives Op 2) (s : Fin 2) :
+    namedObserved fixed backedge selected prim s =
+      LambdaSSA.UB.Overlay.Shape.denote
+        (CFG.Dependent.Native.withExitUB (endpoint fixed selected backedge).native selected)
+        (Syntax.model prim ((control selected backedge).bindings leftBit)) s :=
+  (checked fixed backedge).observe_native selected leftBit seedStore rfl _
+    (inferred_native fixed backedge selected) codes prim configs states s
+
+example (bit : Bool) : namedObserved false false noSelection (script bit) =
+    WithTop.some {Outcome.ret (0 : Tag) (outgoing 0 bit).2.val (1 : Fin 2)} :=
+  (named_observes false false noSelection (script bit) 0).trans (observesDynamic bit)
+
+private theorem fixed_returns :
+    namedObserved true false noSelection (script true) =
+      WithTop.some {Outcome.ret (0 : Tag) (outgoing 0 false).2.val (1 : Fin 2)} :=
+  (named_observes true false noSelection (script true) 0).trans observesFixed
+
+private theorem named_witness :
+    ¬ namedObserved false false noSelection (script true) ≤ namedObserved true false noSelection (script true) := by
+  rw [named_observes false false noSelection, named_observes true false noSelection]
+  exact witness
+
+example : compare? (recognized? false false) (recognized? true false)
+    dynamic.native fixed.native noSelection noSelection codes leftBit leftBit replies configs states = some false := by
+  rw [recognized_eq false false, recognized_eq true false]
+  apply (FixedCarrier.PayloadRecognition.rejection_iff (checked false false) (checked true false)
+    leftBit leftBit seedStore seedStore rfl rfl _ _ noSelection noSelection codes replies configs states
+    (inferred_native false false noSelection) (inferred_native true false noSelection)).mpr
+  exact ⟨script true, 0, named_witness⟩
+
+example (fixed bit : Bool) : namedObserved fixed false (fun i => i == 0) (script bit) = ⊤ := by
+  rw [named_observes fixed false, (endpoint fixed _).observe_entry codes _ (valid fixed _) leftBit _ configs states]
+  cases fixed <;> cases bit <;> rfl
+
+private def backedgeScript : Syntax.Primitives Op 2 :=
+  InterpreterScript.interpret [
+    InterpreterScript.Row.success (S := nativeSig) ⟨.poll, leftBit, 0⟩ ⟨0, rightBit⟩ 1,
+    InterpreterScript.Row.success (S := nativeSig) ⟨.poll, rightBit, 1⟩ ⟨1, unitPacket⟩ 1]
+
+-- The bit reply revisits the request with a different packet and state.
+-- The next reply returns at the second ordered exit.
+example : namedObserved false true noSelection backedgeScript =
+    WithTop.some {Outcome.ret (1 : Tag) (outgoing 1 false).2.val (1 : Fin 2)} := by
+  rw [named_observes false true noSelection,
+    (endpoint false noSelection true).observe_entry codes _ (valid false noSelection true) leftBit _ configs states]
+  rfl
+
+example : compare? (recognized? false true) (recognized? false true)
+    (endpoint false noSelection true).native (endpoint false noSelection true).native
+    noSelection noSelection codes leftBit leftBit replies configs states = some true := by
+  rw [recognized_eq false true]
+  apply (FixedCarrier.PayloadRecognition.acceptance_iff (checked false true) (checked false true)
+    leftBit leftBit seedStore seedStore rfl rfl _ _ noSelection noSelection codes replies configs states
+    (inferred_native false true noSelection) (inferred_native false true noSelection)).mpr
+  intro prim s
+  exact le_rfl
+
+end DynamicLiveOut
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.Tests

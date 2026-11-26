@@ -71,7 +71,7 @@ private def result {α : Type} : Outcome α → Except Error α
     evaluate state.heap .mem (int 1) (.tuple 4) = .error (.comparisonType (.builtin .len) (int 1)) ∧
     evaluate state.heap .notMem (int 1) (.tuple 4) = .error (.comparisonType (.builtin .len) (int 1)) ∧
     evaluate state.heap .eq (.tuple 6) (.tuple 6) = .error (.comparisonType (.builtin .len) (.builtin .len)) ∧
-    evaluate state.heap .mem (int 1) (.dict 7) = .error (.membershipTarget (.dict 7))
+    evaluate state.heap .mem (int 1) (.dict 7) = .ok false
 
 -- Nine singleton tuple levels plus the scalar use all ten comparisons.
 -- Membership grants the candidate the same ten levels as top-level equality.

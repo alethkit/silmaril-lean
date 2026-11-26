@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FiniteSupport.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FiniteSupport.Model.Ranked.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Search.Replay.Schedule.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
@@ -443,12 +443,15 @@ private def perLabel : (i : Fin Packets.length) → CallerEnumeration (Packets.g
       obtain rfl := Fin.eq_zero i
       exact unitCaller))
 
-private def inventory : ConfigurationEnumeration Packets where
-  configs := (List.finRange Packets.length).flatMap fun i =>
-    (perLabel i).packets.map fun input => ⟨i, input⟩
+private def configurationsOf {R : List Syntax.Ty}
+    (each : (i : Fin R.length) → CallerEnumeration (R.get i)) : ConfigurationEnumeration R where
+  configs := (List.finRange R.length).flatMap fun i =>
+    (each i).packets.map fun input => ⟨i, input⟩
   complete := fun ⟨i, input⟩ =>
     List.mem_flatMap.mpr ⟨i, List.mem_finRange i,
-      List.mem_map.mpr ⟨input, (perLabel i).complete input, rfl⟩⟩
+      List.mem_map.mpr ⟨input, (each i).complete input, rfl⟩⟩
+
+private def inventory : ConfigurationEnumeration Packets := configurationsOf perLabel
 
 -- The backedges revisit both labels. The result lists each distinct typed
 -- pair only once and includes the changed payload.
@@ -888,6 +891,220 @@ example (support : List Nat) : ∃ n, n ∉ support := by
     rcases List.mem_cons.mp h with rfl | mem
     · omega
     · exact outside n later mem
+
+private def oneRequest (loops : Bool) : Table sig Packets where
+  entry := 0
+  row := Fin.cases (motive := fun i : Fin 3 => Row sig Packets [Packets.get i, Bit])
+    (if loops then backedge.row 0 else source.row 0) (fun _ => .exit 0)
+  selected _ := false
+
+private abbrev tickLoop := oneRequest true
+private abbrev oneThenExit := oneRequest false
+private abbrev tickReply := pack (L := replies .flip) ⟨0, right⟩
+
+private def oneReplyRows (final : Nat) : List (RunRow Op Nat) :=
+  [⟨.flip, right, 0, .ret tickReply final⟩]
+
+private theorem tickFinite :
+    FiniteRun oneThenExit right ticking loopNext 0 (oneReplyRows 1) (.exit 0 false 1) := by
+  refine .repeat (f := Op.flip) (arg := right) (value := tickReply) rfl rfl ?_
+  exact .exit rfl
+
+private def tickReplay : GuardedReplay tickLoop right ticking loopNext (0 : Nat) :=
+  ⟨fun i => (loopNext, i), rfl, fun _ => rfl⟩
+
+private abbrev tickSupport := RunSupport.ofRows 0 (oneReplyRows 1)
+private abbrev tickWitness := tickSupport.witness right (oneReplyRows 1)
+
+example : tickSupport.values = [0, 1] := rfl
+
+-- The first reply is shared. At the same opcode and argument, the next
+-- store makes a different key, which the witness answers with divergence.
+example : tickReplay.listed (oneReplyRows 1) 0 ∧ ¬ tickReplay.listed (oneReplyRows 1) 1 := by
+  refine ⟨⟨_, List.mem_singleton_self _⟩, ?_⟩
+  intro recorded
+  obtain ⟨_, mem⟩ := recorded
+  have different := congrArg RunRow.incoming (List.mem_singleton.mp mem)
+  cases different
+
+example : ¬ Feedback.Infinite (tickLoop.feedback right tickWitness.interpreter)
+    (blockPoint loopNext tickWitness.initial) :=
+  tickReplay.no_infinite_after_cut tickSupport.code tickWitness.interpreter 1
+    (fun i smaller => by
+      have zero : i = 0 := by omega
+      subst i
+      rfl) rfl
+
+example : tickLoop.runFinite right tickWitness.interpreter inventory (stores 2) loopNext tickWitness.initial =
+    .diverge := rfl
+
+example : oneThenExit.runFinite right tickWitness.interpreter inventory (stores 2) loopNext tickWitness.initial =
+    .ret 0 (1 : Fin 2) := rfl
+
+private theorem tickingRefutes :
+    ¬ Shape.denote (withExitUB tickLoop.native tickLoop.selected) (Syntax.model ticking (tickLoop.bindings right)) 0 ≤
+      Shape.denote (withExitUB oneThenExit.native oneThenExit.selected)
+        (Syntax.model ticking (oneThenExit.bindings right)) 0 := by
+  have lower := (tickLoop.observe_entry tickLoop.native rfl right ticking 0).trans
+    (Table.observe_infinite tickReplay.is_infinite)
+  have upper := (oneThenExit.observe_entry oneThenExit.native rfl right ticking 0).trans tickFinite.observes
+  intro ordered
+  have compared := Eq.mp (congrArg₂ (· ≤ ·) lower upper) ordered
+  have impossible := (RunStop.divergence_order (.exit 0 false (1 : Nat))).1.mp compared
+  simp at impossible
+
+example : tickLoop.checkAllInterpreters? oneThenExit tickLoop.native oneThenExit.native right right
+    enumeration inventory inventory (stores 2) = some false :=
+  ((Table.compress_mixed_refutation (g := tickLoop) (h := oneThenExit)
+    (raw := tickLoop.native) (raw' := oneThenExit.native) (decodeLeft := id) (decodeRight := id)
+    (input := right) rfl rfl (.inl ⟨tickReplay.is_infinite, tickFinite⟩) tickingRefutes
+    callers enumeration inventory inventory).2.2.2.2 (stores 2)).1
+
+private def steady : Syntax.StatePrimitives Op Nat := fun f _ s =>
+  match f with
+  | .flip => .ret tickReply s
+  | .test => .diverge
+
+private theorem steadyFinite :
+    FiniteRun oneThenExit right steady loopNext 0 (oneReplyRows 0) (.exit 0 false 0) := by
+  refine .repeat (f := Op.flip) (arg := right) (value := tickReply) rfl rfl ?_
+  exact .exit rfl
+
+private def steadyReplay : GuardedReplay tickLoop right steady loopNext (0 : Nat) :=
+  ⟨fun _ => (loopNext, 0), rfl, fun _ => rfl⟩
+
+private abbrev steadySupport := RunSupport.ofRows 0 (oneReplyRows 0)
+private abbrev steadyWitness := steadySupport.witness right (oneReplyRows 0)
+
+-- The same table can supply every step. The compressed runner still
+-- has an infinite internal replay on its one-state carrier.
+example : Feedback.Infinite (tickLoop.feedback right steadyWitness.interpreter)
+    (blockPoint loopNext steadyWitness.initial) := by
+  have treated := steadyReplay.treatment steadyFinite right
+  cases treated with
+  | truncate cut _ absent _ _ =>
+    exact (absent ⟨_, List.mem_singleton_self _⟩).elim
+  | retain _ _ steps =>
+    exact steadyReplay.mapped_is_infinite steadySupport.code steadyWitness.interpreter steps
+
+private theorem relabeledFiniteChecks (n : Nat) (states : ScheduleSearch.StateInventory n) :
+    backedge.checkEntries? secondLoop backedge.native secondLoop.native callers id id
+      enumeration inventory inventory states = some true := by
+  refine Table.checkEntries_accepts_iff.mpr ⟨rfl, rfl, fun input prim s => ?_⟩
+  have listed : input ∈ [left, right] := callers.complete input
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at listed
+  rcases listed with rfl | rfl
+  · exact backedge.checkProduct_sound secondLoop backedge.native secondLoop.native rfl rfl
+      left left enumeration shiftedPairs rfl prim s
+  · exact backedge.checkProduct_sound secondLoop backedge.native secondLoop.native rfl rfl
+      right right enumeration shiftedPairs rfl prim s
+
+universe storeLevel
+
+-- Both admitted CFGs have a request-guarded cycle. The common caller may
+-- supply either bit, and the two loops use different internal labels.
+example : backedge.DeterministicRefines.{0, storeLevel} secondLoop backedge.native secondLoop.native id id :=
+  (Table.finite_model_property (g := backedge) (h := secondLoop)
+    (raw := backedge.native) (raw' := secondLoop.native) (callers := callers)
+    (decodeLeft := id) (decodeRight := id) (replies := enumeration)
+    (left := inventory) (right := inventory) rfl rfl).mpr relabeledFiniteChecks
+
+-- An admitted pair with a counterexample at size two still accepts at
+-- size zero, which has no initial state.
+example : tickLoop.checkEntries? oneThenExit tickLoop.native oneThenExit.native callers id id
+    enumeration inventory inventory (stores 0) = some true := rfl
+
+example : tickLoop.checkEntries? oneThenExit oneThenExit.native oneThenExit.native callers id id
+    enumeration inventory inventory (stores 0) = none := rfl
+
+private theorem tickEntriesReject :
+    tickLoop.checkEntries? oneThenExit tickLoop.native oneThenExit.native callers id id
+      enumeration inventory inventory (stores 2) = some false :=
+  Table.checkEntries_rejects_iff.mpr
+    (((Table.compress_mixed_refutation (g := tickLoop) (h := oneThenExit)
+      (raw := tickLoop.native) (raw' := oneThenExit.native) (decodeLeft := id) (decodeRight := id)
+      (input := right) rfl rfl (.inl ⟨tickReplay.is_infinite, tickFinite⟩) tickingRefutes
+      callers enumeration inventory inventory).2.2.2.2 (stores 2)).2)
+
+-- A checker witness lifts into an explicitly higher store universe.
+example : ∃ (σ : Type 1) (input : Syntax.Payload Bit) (prim : Syntax.StatePrimitives Op σ) (s : σ),
+    ¬ Shape.denote (withExitUB tickLoop.native tickLoop.selected)
+        (Syntax.model prim (tickLoop.bindings input)) s ≤
+      Shape.denote (withExitUB oneThenExit.native oneThenExit.selected)
+        (Syntax.model prim (oneThenExit.bindings input)) s :=
+  (Table.finite_refutation_iff (g := tickLoop) (h := oneThenExit)
+    (raw := tickLoop.native) (raw' := oneThenExit.native) (callers := callers)
+    (decodeLeft := id) (decodeRight := id) (replies := enumeration)
+    (left := inventory) (right := inventory) rfl rfl).mp ⟨2, stores 2, tickEntriesReject⟩
+
+private def constantRequest {R Γ : List Syntax.Ty} (target : Fin R.length) (typed : R.get target = Bit) :
+    Row sig R Γ :=
+  .request .flip (.inl .unit) (fun _ => target) fun i => by
+    obtain rfl := Fin.eq_zero i
+    exact typed
+
+private abbrev ShortPackets : List Syntax.Ty := [Bit, Bit]
+private abbrev LongPackets : List Syntax.Ty := [.unit, Bit, Bit]
+
+private def shortCall : Table sig ShortPackets where
+  entry := 1
+  row := Fin.cases (motive := fun i => Row sig ShortPackets [ShortPackets.get i, Bit])
+    (.exit 0) (fun _ => constantRequest 0 rfl)
+  selected _ := false
+
+private def longCall : Table sig LongPackets where
+  entry := 0
+  row := Fin.cases (motive := fun i => Row sig LongPackets [LongPackets.get i, .unit])
+    (constantRequest 1 rfl)
+    (Fin.cases (motive := fun i => Row sig LongPackets [LongPackets.get i.succ, .unit])
+      (constantRequest 2 rfl) (fun _ => .exit 0))
+  selected _ := false
+
+private def shortCallers : (i : Fin ShortPackets.length) → CallerEnumeration (ShortPackets.get i) :=
+  Fin.cases (motive := fun i => CallerEnumeration (ShortPackets.get i)) callers (fun i => by
+    obtain rfl := Fin.eq_zero i
+    exact callers)
+
+private def shortInventory : ConfigurationEnumeration ShortPackets := configurationsOf shortCallers
+
+private def longInventory : ConfigurationEnumeration LongPackets :=
+  configurationsOf (Fin.cases (motive := fun i => CallerEnumeration (LongPackets.get i)) unitCaller shortCallers)
+
+-- The entries have different labels and types. The shared unit packet
+-- independently decodes to a bit on the left and unit on the right.
+example : shortCall.rankedCutoff longCall = 2 := rfl
+
+example : shortCall.checkEntries? longCall shortCall.native longCall.native unitCaller (fun _ => left) id
+    enumeration shortInventory longInventory (stores 1) = some true := rfl
+
+example : shortCall.checkRankedEntries? longCall shortCall.native longCall.native unitCaller (fun _ => left) id
+    enumeration shortInventory longInventory = some false := rfl
+
+private def cutoffPrimitives : Syntax.Primitives Op 2 := fun f _ s =>
+  match f with
+  | .flip => if s = 0 then .ret (pack (L := replies .flip) ⟨0, left⟩) 1 else .fault 1
+  | .test => .diverge
+
+-- One request returns, while the second call to the same instruction
+-- and argument sees the updated store and faults.
+example : ¬ Shape.denote (withExitUB shortCall.native shortCall.selected)
+      (Syntax.model cutoffPrimitives (shortCall.bindings left)) 0 ≤
+    Shape.denote (withExitUB longCall.native longCall.selected)
+      (Syntax.model cutoffPrimitives (longCall.bindings unitPayload)) 0 := by
+  have lower := (shortCall.observe_entry shortCall.native rfl left cutoffPrimitives 0).trans
+    (shortCall.observe_runFinite left cutoffPrimitives shortInventory (stores 2) ⟨1, left⟩ 0)
+  have upper := (longCall.observe_entry longCall.native rfl unitPayload cutoffPrimitives 0).trans
+    (longCall.observe_runFinite unitPayload cutoffPrimitives longInventory (stores 2) ⟨0, unitPayload⟩ 0)
+  intro ordered
+  have compared := Eq.mp (congrArg₂ (· ≤ ·) lower upper) ordered
+  have impossible := (TwoRequest.result_order (.ret 0 (1 : Fin 2)) (.fault 1)).mp compared
+  simp [Result.refines] at impossible
+
+example : tickLoop.checkRankedEntries? oneThenExit tickLoop.native oneThenExit.native callers id id
+    enumeration inventory inventory = none := rfl
+
+example : oneThenExit.checkRankedEntries? oneThenExit source.native oneThenExit.native callers id id
+    enumeration inventory inventory = none := rfl
 
 /-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.ScheduledPath.refutes_queries' depends on axioms: [propext,
  Classical.choice,

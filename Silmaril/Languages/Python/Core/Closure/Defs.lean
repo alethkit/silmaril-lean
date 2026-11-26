@@ -208,10 +208,27 @@ abbrev Value.addInt := Value.binaryInt .add
 
 abbrev Result := Except RuntimeError Value
 
+/-- Exact integer floor division and its matching divisor-signed remainder. -/
+inductive IntDivModOp where
+  | floorDiv
+  | modulo
+
+def IntDivModOp.eval (op : IntDivModOp) (numerator divisor : Int) : Except RuntimeError Int :=
+  if divisor = 0 then .error (.arithmetic .zeroDivisionError)
+  else .ok (match op with
+    | .floorDiv => numerator.fdiv divisor
+    | .modulo => numerator.fmod divisor)
+
 def trueDivideInt (numerator divisor : Int) : Except RuntimeError Silmaril.Numeric.Ieee754.F64.Finite :=
   (Core.Binary64.trueDivide numerator divisor).mapError fun
     | .zeroDivisionError => .arithmetic .zeroDivisionError
     | .overflowError => .overflowError
+
+def trueDivideFloat (operands : Core.Binary64.FloatOperands) : Except Failure Silmaril.Numeric.Ieee754.F64.Finite :=
+  (Core.Binary64.divideFloat operands).mapError fun
+    | .conversionOverflow => .defined .overflowError
+    | .zeroDivisionError => .defined (.arithmetic .zeroDivisionError)
+    | .nonfiniteResult => .unsupportedFloatOperand
 
 def floatArithmeticResult
     (result : Except Core.Binary64.FloatArithmeticError Silmaril.Numeric.Ieee754.F64.Finite) :

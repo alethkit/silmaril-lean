@@ -116,7 +116,7 @@ inductive Callee (alias : String) (globals : List String) where
   | .wrapper .. => imported.returned.map (Callee.regular ∘ Callable.nested)
 
 @[expose] def Callee.Linked {alias globals} (producer final : Program) : Callee alias globals → Prop
-  | .regular callee => callee.Linked final
+  | .regular callee => callee.Linked producer
   | .wrapper declaration id => producer.size ≤ id ∧ final[id]? = some declaration.site.declaration
 
 /-- The wrapper is created in this module frame and retains its load slot
@@ -271,6 +271,18 @@ inductive BindsAlias (plan : Consumer) (published : Modules.Published) (state : 
     ∀ binding ∈ fileSlot alias :: globals.map globalSlot,
       ∃ address value frozen, state.slots binding = some (.owned address) ∧
         state.heap[address]? = some ⟨.binding value, frozen⟩
+
+/-- Importer writes use the cells allocated by the current module entry. -/
+@[expose] def FreshSlots (floor : Nat) (state : State) : Prop :=
+  ∀ binding address, state.slots binding = some (.owned address) → floor ≤ address
+
+/-- Binding writes preserve function records and keep capture addresses
+allocated as binding cells. Exact contents for earlier owners use FreshSlots. -/
+structure KeepsClosureCells (before after : State) : Prop where
+  functions : ∀ (address : Nat) closure flag, before.heap[address]? = some ⟨.function closure, flag⟩ →
+    ∃ next, after.heap[address]? = some ⟨.function closure, next⟩
+  bindings : ∀ (address : Nat) value flag, before.heap[address]? = some ⟨.binding value, flag⟩ →
+    ∃ next frozen, after.heap[address]? = some ⟨.binding next, frozen⟩
 
 /-- Each tracked name reads a linked closure at the actual value in its slot.
 The defining-frame witness stays with the closure when the caller changes. -/

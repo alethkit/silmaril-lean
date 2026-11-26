@@ -28,6 +28,7 @@ SUB_OVERFLOW = "1.7976931348623157e308 - -9.9792015476736e291"
 MUL_OVERFLOW_LEFT = "1.3407807830046643e154"
 MUL_OVERFLOW_RIGHT = "1.340780802983855e154"
 MUL_OVERFLOW = f"{MUL_OVERFLOW_LEFT} * {MUL_OVERFLOW_RIGHT}"
+DIV_OVERFLOW = "1.7976931348623157e308 / 0.9999999999999999"
 
 
 def nonfinite_control(expression, expected_bits):
@@ -225,6 +226,70 @@ def multiplication_controls():
     return fixtures, observations, expected_bits
 
 
+def division_controls():
+    cases = {
+        "exact_integer_before_numerator_cast": ("9007199254740993 / 3", "4325555555555556"),
+        "converted_numerator": ("9007199254740993 / 3.0", "4325555555555555"),
+        "exact_integer_before_divisor_cast": ("9007199254740987 / 9007199254740993", "3feffffffffffffa"),
+        "converted_divisor": ("9007199254740987.0 / 9007199254740993", "3feffffffffffffb"),
+        "huge_integer_ratio": ("2**1024 / 2**1024", "3ff0000000000000"),
+        "float_ratio": ("5.0 / -2.0", "c004000000000000"),
+        "mixed_zero_numerator": ("0 / -2.0", "8000000000000000"),
+        "negative_zero_numerator": ("-0.0 / 2", "8000000000000000"),
+        "two_negative_signs": ("-0.0 / -2.0", "0000000000000000"),
+        "half_minimum_subnormal": ("5e-324 / 2", "0000000000000000"),
+        "negative_underflow": ("-5e-324 / 2.0", "8000000000000000"),
+        "above_half_minimum_subnormal": ("5e-324 / 1.9999999999999998", "0000000000000001"),
+        "subnormal_tie_up": ("1.5e-323 / 2.0", "0000000000000002"),
+        "subnormal_tie_down": ("-2.5e-323 / 2", "8000000000000002"),
+        "half_minimum_normal": ("2.2250738585072014e-308 / 2.0", "0008000000000000"),
+        "largest_finite": ("1.7976931348623157e308 / 1.0", "7fefffffffffffff"),
+    }
+    finite = PREFIX + "".join(f"{name} = relay({expression})\n" for name, (expression, _) in cases.items())
+    expected_bits = {name: result for name, (_, result) in cases.items()}
+    namespace = EQUALITY["cpython"](finite, "ordinary")[2]
+    assert {name: bits(namespace[name]) for name in cases} == expected_bits
+
+    missing = "NameError:___assertEqual"
+    fixtures, observations = [], {}
+    for label, source, expected in (
+        ("division bits", finite, expect("normal", "normal")),
+        ("cast before positive zero divisor", PREFIX + "bad = relay(2**1024 / 0.0)\ntail = 9\n",
+         expect("OverflowError", "OverflowError")),
+        ("cast before negative zero divisor", PREFIX + "bad = relay(2**1024 / -0.0)\ntail = 9\n",
+         expect("OverflowError", "OverflowError")),
+        ("divisor cast with zero numerator", PREFIX + "bad = relay(0.0 / 2**1024)\ntail = 9\n",
+         expect("OverflowError", "OverflowError")),
+        ("mixed positive zero divisor", PREFIX + "bad = relay(1 / 0.0)\ntail = 9\n",
+         expect("ZeroDivisionError", "ZeroDivisionError")),
+        ("mixed integer zero divisor", PREFIX + "bad = relay(-0.0 / 0)\ntail = 9\n",
+         expect("ZeroDivisionError", "ZeroDivisionError")),
+        ("float negative zero divisor", PREFIX + "bad = relay(1.0 / -0.0)\ntail = 9\n",
+         expect("ZeroDivisionError", "ZeroDivisionError")),
+        ("integer result overflow is defined", PREFIX + "bad = relay(2**1024 / 1)\ntail = 9\n",
+         expect("OverflowError", "OverflowError")),
+        ("missing callee before division conversion", PREFIX + "___assertEqual(2**1024 / 0.0, missing)\n"
+         "tail = 9\n", expect(missing, "OverflowError")),
+        ("zero divisor before right lookup and mask", PREFIX + "___assertEqual = 0\n"
+         "___assertEqual(1.0 / 0, missing)\ntail = 9\n", expect("ZeroDivisionError", "ZeroDivisionError")),
+        ("lookup before right division", PREFIX + "___assertEqual(missing, 1 / 0.0)\ntail = 9\n",
+         expect(missing, "NameError:missing")),
+        ("quotient receipt before right zero divisor", PREFIX +
+         "___assertEqual(relay(-0.0 / 2), 1.0 / -0.0)\ntail = 9\n", expect(missing, "ZeroDivisionError")),
+        ("division mask after preparation", PREFIX + "___assertEqual = 0\n"
+         "___assertEqual(5 / 2.0, 2.5)\ntail = 9\n", expect("TypeError", "TypeError")),
+    ):
+        fixture, observed = observe(source, expected)
+        fixtures.append(fixture)
+        observations[label] = observed
+
+    fixtures.extend((
+        nonfinite_control(DIV_OVERFLOW, "7ff0000000000000"),
+        nonfinite_control("-2 / 5e-324", "fff0000000000000"),
+    ))
+    return fixtures, observations, expected_bits
+
+
 def controls(upstream):
     forward = "___assertEqual(4 + 2.0, 6.0)\n"
     reverse = "___assertEqual(4.0 + 2, 6.0)\n"
@@ -306,18 +371,21 @@ def controls(upstream):
     mul_fixtures, mul_observations, mul_bits = multiplication_controls()
     fixtures.extend(mul_fixtures)
     observations.update(mul_observations)
+    div_fixtures, div_observations, div_bits = division_controls()
+    fixtures.extend(div_fixtures)
+    observations.update(div_observations)
     rejected = """#guard (match compile pythonSource with
   | .error (.source (.scalar .expressionProfile)) => true
   | _ => false)"""
     fixtures.extend((f"relay({expression})\n", rejected) for expression in
                     ("(4 + 2.0) + 1", "(4.0 + 2.0) + 1.0", "4 + 1e999", "4.0 + 1e999", "1e999 + 2.0"))
-    for expression in ("None - 2", "1.0 - None", "None * 2", "1.0 * None"):
+    for expression in ("None - 2", "1.0 - None", "None * 2", "1.0 * None", "None / 2", "1.0 / None"):
         source = PREFIX + f"relay({expression})\n"
         assert EQUALITY["cpython"](source, "ordinary")[0] == "TypeError"
         fixtures.append((source, rejected))
     fixtures.extend((f"relay({expression})\n", rejected) for expression in
-                    ("1e999 - 2.0", "2.0 - 1e999", "1e999 * 2.0", "2.0 * 1e999"))
-    return fixtures, observations, expected_bits, float_bits, sub_bits, mul_bits
+                    ("1e999 - 2.0", "2.0 - 1e999", "1e999 * 2.0", "2.0 * 1e999", "1e999 / 2.0", "2.0 / 1e999"))
+    return fixtures, observations, expected_bits, float_bits, sub_bits, mul_bits, div_bits
 
 
 if __name__ == "__main__":
@@ -330,17 +398,20 @@ if __name__ == "__main__":
         assert sys.version_info[:3] == (3, 13, 5), sys.version
         revision = subprocess.check_output(["git", "-C", str(args.upstream), "rev-parse", "HEAD"], text=True).strip()
         assert revision == QUOTIENT["UPSTREAM"]
-    fixtures, observed, result_bits, float_bits, sub_bits, mul_bits = controls(args.upstream)
+    fixtures, observed, result_bits, float_bits, sub_bits, mul_bits, div_bits = controls(args.upstream)
     with tempfile.TemporaryDirectory() as directory:
         source, lean = Path(directory) / "Fixture.py", Path(directory) / "Fixtures.lean"
         INTAKE["check_lean_batch"](source, lean, fixtures, EQUALITY["LEAN"], extra_imports=TRANSPORT["SUITE"]["IMPORTS"])
     print(json.dumps({"cpython": ".".join(map(str, sys.version_info[:3])), "upstream": revision,
                       "fixtures": len(fixtures), "result_bits": result_bits, "float_result_bits": float_bits,
-                      "subtraction_bits": sub_bits, "multiplication_bits": mul_bits, "observations": observed,
+                      "subtraction_bits": sub_bits, "multiplication_bits": mul_bits, "division_bits": div_bits,
+                      "observations": observed,
                       "nonfinite_result": {"cpython_bits": "7ff0000000000000", "lean": "unsupported"},
                       "float_overflow": {"cpython_bits": ["7ff0000000000000", "fff0000000000000"],
                                          "lean": "unsupported"},
                       "subtraction_overflow": {"cpython_bits": ["7ff0000000000000", "fff0000000000000"],
                                                "lean": "unsupported"},
                       "multiplication_overflow": {"cpython_bits": ["7ff0000000000000", "fff0000000000000"],
-                                                  "lean": "unsupported"}}))
+                                                  "lean": "unsupported"},
+                      "division_overflow": {"cpython_bits": ["7ff0000000000000", "fff0000000000000"],
+                                            "lean": "unsupported"}}))

@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Defs
+public import Silmaril.Languages.Starlark.Modules.Operational.Defs
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Thms
 
 public section
@@ -44,7 +45,7 @@ theorem observed_eq (id : Nat) (source : Modules.Source) (caller : State)
   | error => rfl
   | ok value _ => cases value; rfl
 
-private theorem plan_executable {globals : List String} {env exports : Environment}
+theorem plan_executable {globals : List String} {env exports : Environment}
     {source : List Modules.Resolve.Command} {code : List Modules.Command} {linked final : Program}
     (profile : Plan globals env source linked code final exports) :
     ∀ command ∈ code, ∃ top, command = .exec top := by
@@ -64,7 +65,7 @@ private theorem loader_command {program : Program} {manifest : Modules.Loader.Ma
   cases native with
   | exec ran => exact .exec ran
 
-private theorem loader_exec {program : Program} {manifest : Modules.Loader.Manifest} {active : List Nat}
+theorem loader_exec {program : Program} {manifest : Modules.Loader.Manifest} {active : List Nat}
     {id : Nat} {state : State} {host : Modules.Catalog} {code : List Modules.Command}
     {out : Modules.Result Unit} (native : Modules.Runs program host state code out)
     (noLoads : ∀ command ∈ code, ∃ top, command = .exec top) (cache : List (Nat × Modules.Published)) :
@@ -79,7 +80,7 @@ private theorem loader_exec {program : Program} {manifest : Modules.Loader.Manif
     obtain ⟨top, rfl⟩ := noLoads first List.mem_cons_self
     exact .failed (loader_command head cache)
 
-private theorem exports_declared {source : Modules.Source} {state : State} {name : String} {value : Lists.Value}
+theorem exports_declared {source : Modules.Source} {state : State} {name : String} {value : Lists.Value}
     (loaded : (Modules.publish source state).1.exports.lookup name = some value) : name ∈ source.globals := by
   obtain ⟨before, after, shape, _⟩ := List.lookup_eq_some_iff.mp loaded
   have present : (name, value) ∈ (Modules.publish source state).1.exports := by

@@ -70,7 +70,7 @@ open LetSeq.StraightLine.Structural.Categorical (traceJ traceTypes traceInstruct
 
 /-- The free structural ordered-trace interpretation has coherent native
 region witnesses at every exact input and exit interface. -/
-theorem trace_region_coherent {Φ : Type} [LetCase.Structural.Finite.Signature Φ] :
+theorem trace_region_coherent {Φ : Type} [HasTy Φ Types] :
     letI := traceInstructions (α := Empty) (Φ := Φ)
     RegionTypingCoherent (Φ := Φ) (traceJ (α := Empty) (Φ := Φ)) (traceTypes Empty) :=
   trace_region_coherent_proof

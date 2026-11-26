@@ -171,18 +171,41 @@ overflow raises `OverflowError`, including when the other operand is
 zero. A finite-operand product that rounds to infinity stops outside
 the runtime profile. The source profile covers numeric operands.
 
+True division with at least one checked finite decimal literal uses the
+same ordered operand witness. The runner converts the integer operand,
+if present, before checking the divisor. Thus a value beyond the integer
+conversion limit raises `OverflowError` even with a zero float divisor.
+After conversion, either zero sign as divisor raises `ZeroDivisionError`.
+For a nonzero divisor the runner rounds the exact dyadic ratio once,
+ties to even, using the exclusive-or of the operand signs. That sign
+also applies to exact zero and underflow to zero. A ratio that rounds to
+infinity stops outside the finite runtime profile. Integer–integer true
+division uses its exact integer ratio and raises its defined overflow
+error when rounding reaches infinity.
+
+Positional floor division and modulo accept two closed integer expressions
+from the same integer checker. After live callee lookup, both runners
+evaluate the deferred operation as they prepare arguments left to right.
+A zero divisor raises `ZeroDivisionError` before call entry. For a nonzero
+divisor, the quotient and remainder satisfy `numerator = divisor * quotient + remainder`.
+For a positive divisor the remainder lies in `[0, divisor)`. For a negative
+divisor it lies in `(divisor, 0]`. These intervals uniquely determine the
+floor quotient and the remainder for either numerator sign.
+
 Line 28 of `test_int_float_primitives.py`, `___assertEqual(5 / 2, 2.5)`,
 completes in isolation in both helper placements. Ordinary and empty-seeded
 execution report the missing helper. The closed integer checker also lowers
 the exact sum in line 1, `___assertEqual(4 + 2, 6)`, to an integer call
 operand. Lines 1, 3 and 5 complete in isolation in both helper placements.
-The first twenty-nine unchanged lines complete with `legacyNumericIsinstanceSeed`
+The first thirty-eight unchanged lines complete with `legacyNumericIsinstanceSeed`
 in both helper placements. It installs the stock `float` class in the
 builtin table and the Boolean assertion helper in the selected placement.
-All thirteen probes record exact Boolean `True` before the outer helper's
+All seventeen probes record exact Boolean `True` before the outer helper's
 `None` receipt. The mixed and float–float sums, differences, and products
-supply finite binary64 `6.0`, `2.0`, and `8.0` respectively. The integer
-quotient at lines 28 and 29 supplies binary64 `2.5`.
+supply finite binary64 `6.0`, `2.0`, and `8.0` respectively. The four
+true-division pairs supply binary64 `2.5`. Lines 37–38 supply integer `2`
+and complete the prefix with 51 receipts per placement. The isolated
+integer remainder checks on lines 46–47 supply integer `1` and three receipts.
 Instance dispatch uses the live module-first
 descriptors. A saved class alias still works after rebinding `float`, and an `int` or `bool`
 mask yields exact `False` before the assertion fails. The checked pairs use
@@ -194,8 +217,9 @@ Ordinary and empty-seeded runs stop at the missing equality helper on
 line 1. The fixed stock profiles reach the missing Boolean assertion
 helper on line 2. Supplying that helper and only the integer and Boolean
 classes leaves the `float` lookup on line 4 undefined. The first
-rejected compiler prefix is line 30, `___assertEqual(5 / 2.0, 2.5)`,
-and the full file reports `expressionProfile`.
+rejected compiler prefix reports `expressionProfile` on line 39,
+`___assertEqual(5.0 // 2, 2.0)`. The full file has the same diagnostic.
+Float floor division and modulo require a separate checked rule.
 Run the binary64 arithmetic differential with
 `python3.13 -I scripts/check-python-mixed-finite-addition.py --upstream /path/to/pinned/rigorous`.
 Run the equality and positional arithmetic differential with
@@ -242,6 +266,24 @@ missing assertion helper after producing the exact Boolean flags.
 `try-finally-no-exception.py` also completes in both opt-in placements
 of the stock truth helper. Run the CPython 3.13.5 controls and exact
 pins with `python3.13 -I scripts/check-python-normal-try.py --upstream /path/to/pinned/rigorous`.
+
+The exceptional cleanup prerequisite checks scalar suites of passes,
+literal or name-read assignments, and assertions over the same atoms.
+It supports a finally-only statement and a single bare handler. Both
+adapters run those suites through the existing scalar runners. A reached
+defined error skips the else suite and selects the bare handler if present.
+Cleanup starts from the reached state. Normal cleanup restores the pending
+completion and a cleanup error replaces it. Profile failures stop outside
+Python exception transfer. The proofs bound ordinary execution by the
+number of scalar actions and preserve the seeded heaps and receipts.
+
+The adapters expose the reached completion independently of module
+instruction settlement. Installing the source rule needs a module
+continuation that can enter cleanup from a failed suite and publish all
+reached bindings with the final completion. The historical reached-raise
+cutoffs also need explicit raise lowering or typed exception lookup.
+Run the CPython 3.13.5 transfer and cutoff controls with
+`python3.13 -I scripts/check-python-exceptional-cleanup.py --upstream /path/to/pinned/rigorous`.
 
 Checked call operands can carry exact text code points, including
 surrogates. The ordinary executor transports that tag through argument
