@@ -1463,6 +1463,54 @@ lake build --wfail \
   +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Regression
 ```
 
+##### Checked lifting along capture chains
+
+`CaptureChain P Q` records a finite sequence of typed maps from `P`
+to `Q`. Chains can be appended at a common signature. `chain.lift?`
+checks the composed map once at the source cell count and then pulls
+back the final entry along each edge. Each adjacent pair satisfies the
+actual entry reduct, which preserves the initialized heap. The final
+entry determines every intermediate entry.
+[Checked lifting laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/ReductImage/Check/Chain/Thms.lean)
+
+`checkCoverage_iff_stages` characterizes coverage by the existence of
+a compatible chain for every source entry at the chosen count.
+`admitsStages_iff` derives stage inhabitation from a typed final
+entry. A typed suffix map sends an intermediate address port to a
+final address port, which has an empty domain at zero cells. When the
+source still admits entries, `chain.diagnose?`
+reports the empty final address and constructs an input that
+`chain.lift?` rejects.
+
+`Sentence.mapChain` re-emits one typed map at a time and agrees with
+re-emission along the composite. `Backend.satisfaction_liftChain`
+transports both equations and finite-termination sentences at a checked
+entry for numbered RVSDG, MemRef CF and coloured Petri. All-target
+numbered room truth at a fixed count corresponds to source truth on the
+composite reduct image. A successful coverage check extends the
+quantification to every source valuation at that count.
+[Generated institution laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/Satisfaction/Institution/Chain/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Institution.Chain.Thms
+```
+
+The three-map fixture inserts a spare word, identifies it with a store
+port, and inserts another slot. Backward reconstruction fills the
+first spare with the store's `22`, so the actual staged MemRef emission
+returns `(3, 3, 22)` and the full heap `[11, 73, 11, 3, 91, 22]`.
+Identifying the two used store ports instead yields a rejected
+diagnostic. The address regression uses a typed permutation after
+inserting an address to exercise the zero-cell boundary.
+[Three-map fixture](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/ReductImage/Check/CompositionRegression.lean) ·
+[Address regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/ReductImage/Check/Regression.lean)
+
+```sh
+lake build --wfail \
+  +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.CompositionRegression \
+  +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Regression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for

@@ -121,11 +121,19 @@ theorem checkCompositeExpansive_eq (h : P ⟶ Q) (k : Q ⟶ R) :
     checkCompositeExpansive h k = checkExpansive (h ≫ k) := by
   simp only [checkCompositeExpansive, checkExpansive, checkCompositeCoverage_eq]
 
+theorem diagnoseCoverage?_isSome_eq (h : P ⟶ Q) (cells : Nat) :
+    (diagnoseCoverage? h cells).isSome = !checkCoverage h cells :=
+  Proofs.diagnoseCoverage?_isSome_eq h cells
+
+theorem diagnoseCoverage?_valid (h : P ⟶ Q) {diagnostic : CoverageDiagnostic P Q cells}
+    (found : diagnoseCoverage? h cells = some diagnostic) : diagnostic.Valid h :=
+  Proofs.diagnoseCoverage?_valid h found
+
 /-- There is an executable diagnostic exactly when the composite coverage check fails. -/
 theorem diagnoseCompositeCoverage?_isSome_eq (h : P ⟶ Q) (k : Q ⟶ R) (cells : Nat) :
     (diagnoseCompositeCoverage? h k cells).isSome = !checkCompositeCoverage h k cells := by
   rw [checkCompositeCoverage_eq]
-  exact Proofs.diagnoseCoverage?_isSome_eq (h ≫ k) cells
+  exact diagnoseCoverage?_isSome_eq (h ≫ k) cells
 
 theorem diagnoseCompositeCoverage?_exists_iff (h : P ⟶ Q) (k : Q ⟶ R) (cells : Nat) :
     (∃ diagnostic, diagnoseCompositeCoverage? h k cells = some diagnostic) ↔
@@ -135,7 +143,7 @@ theorem diagnoseCompositeCoverage?_exists_iff (h : P ⟶ Q) (k : Q ⟶ R) (cells
 
 theorem diagnoseCompositeCoverage?_valid (h : P ⟶ Q) (k : Q ⟶ R) {diagnostic : CoverageDiagnostic P R cells}
     (found : diagnoseCompositeCoverage? h k cells = some diagnostic) : diagnostic.Valid (h ≫ k) :=
-  Proofs.diagnoseCoverage?_valid (h ≫ k) found
+  diagnoseCoverage?_valid (h ≫ k) found
 
 theorem CoverageDiagnostic.not_in_image (h : P ⟶ Q) {diagnostic : CoverageDiagnostic P Q cells}
     (valid : diagnostic.Valid h) : ¬ InReductImage h diagnostic.input :=
