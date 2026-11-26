@@ -136,7 +136,7 @@ private theorem member_prefix (actions : Actions m σ) (observed : Demand)
       apply PrefixMatches.step (enter capturedL argsL left) (enter capturedR argsR right)
       apply region actions observed (family.body i) (family.guard capturedL) (family.guard capturedR)
         (some n) (by simp) dispatch wanted _ _ PUnit.unit PUnit.unit left right store
-        ((readyL i).2 argsL) ((readyR i).2 argsR) (body_agrees family i wanted readyL readyR live)
+        ((readyL i).2 argsL PUnit.unit) ((readyR i).2 argsR PUnit.unit) (body_agrees family i wanted readyL readyR live)
       intro outL outR middle agree _ _
       exact prefix_mono (Nat.le_succ n) (finish outL outR middle agree trivial trivial)
 
