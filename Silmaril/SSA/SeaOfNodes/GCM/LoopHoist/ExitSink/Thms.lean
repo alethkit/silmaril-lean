@@ -58,6 +58,17 @@ theorem operand_occurrence (emission : Emission source index) {argument : Nat}
       some ⟨some ⟨_, .header⟩, index⟩ :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.ExitSink.operand_occurrence emission inPacket
 
+/-- The original false-edge Φ read is pinned to the header terminator.
+After a successful sink, that use site disappears entirely: the relocated
+operation is bound at the shortened exit's cut zero, with the canonical
+return reading it at cut one, not any Φ occurrence. -/
+theorem source_use_relocated (accepted : sink? source index = some emission) :
+    (Use.phi (some ⟨_, .header⟩) .onFalse 0).point? source =
+      some ⟨some ⟨_, .header⟩, index + 1⟩ ∧
+    emission.cfg.block .exit =
+      .letOp emission.header.opcode.2 (packetRefs Input _) (.terminator (.ret (.cons .here .nil))) :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.ExitSink.source_use_relocated accepted
+
 /-- The existing exact CFG checker admits exit cut zero and the actual
 return read at cut one using exact dominance and local availability. -/
 theorem sink?_legal (accepted : sink? source index = some emission) :

@@ -19,7 +19,10 @@ The emitted CFG passes the existing dominance and local cut checker.
 terminator. `operand_occurrence` resolves each new exit argument on the
 same false edge at the shortened header's terminator. `packetRefs_eval`
 connects those arguments to the actual operand reads in the exit block.
-[Theorems][thms]
+`source_use_relocated` pairs that same pinned-Φ resolution with the
+shortened exit's exact structure after a successful sink: the relocated
+operation is bound at exit cut zero, and the canonical return reads it at
+cut one — no Φ occurrence remains for this value at all. [Theorems][thms]
 
 Click's Schedule Late (§2.3) locates an existing Φ use in its predecessor.
 Here the old use therefore pins the original value to the header under
