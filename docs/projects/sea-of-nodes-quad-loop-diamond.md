@@ -1,12 +1,15 @@
 # A checked quad loop with an internal diamond
 
 `Quads.Loop.Tail.Diamond.check` reads the original typed quad source
-table. It checks six distinct blocks: a preheader jump, a header test,
-two arms jumping to the same merge, a merge jump, and a latch test.
-The latch's true occurrence returns to the header. Its false occurrence
-returns a typed register. The checker keeps the source block IDs and
-proofs of each terminator. The two merge columns are ordered true,
-then false, independent of the numeric block IDs.
+table. It follows two nonempty linear arms from the header test to
+the common merge. The merge jumps to the latch, whose true occurrence
+returns to the header and whose false occurrence returns a typed
+register. The finite-chain checker finds the two routes. Their
+segments end immediately before the merge, which is the last jump
+block before the latch. The checker requires all source block IDs to
+be distinct across entry, header, arms, merge, and latch and to cover
+the table. The merge columns stay in true/false order. Each names the
+last original block on its arm, while the header targets the first.
 [Checker and lowering](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/Defs.lean)
 
 The source follows Cliff Click's *From Quads to Graphs*, §2 and
@@ -32,10 +35,14 @@ The target is existing numbered `RVSDG.NestedTheta.Graph`, with γ inside θ.
 `Program.selected_predecessor` identifies the source ID selected by the
 γ tag. `Program.merge_run` proves that the selected occurrence supplies
 the entire bank. `Program.activation_run` gives the latch's exact
-continuation tag and bank. `Program.lower_run` relates `k` units of
-native θ fuel to `1 + 4 * k` source block visits and any surplus smaller
-than four. `Program.returns_iff` relates every finite native return to a
-successful run of the original source table in both directions.
+continuation tag and bank. `Program.lower_run` charges one entry visit and, for each traversed
+arm, the arm's length plus three visits for the header, merge, and latch.
+The trace stops at return or the native activation bound. For a
+returning native trace, `Program.run_at` proves that the sum is the
+minimum source fuel, with exhaustion below it. `Program.source_bounded_iff`
+characterizes every successful bounded source run by a native return
+whose exact visit count fits the budget. `Program.returns_iff` gives
+bidirectional finite returns for the original source table.
 [Proof interface](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/Thms.lean)
 
 The regression enters at block 4, runs true arm 5, feeds back through
@@ -46,11 +53,19 @@ feedback bank. The false arm reads that bank and the next merge gives
 Eight visits or one θ activation exhaust. A counter-one input returns
 `12` through the false arm without feedback. The checker rejects
 different arm merge targets and a wrong feedback target.
-This is one pure diamond, one tail test, and a full carried bank.
-[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/Regression.lean)
+The unequal-arm fixture alternates true, false, true. The arms have
+block IDs `[5, 6]` and `[0]`, so the merge predecessor trace is
+`[6, 0, 6]`. The longer arm's second block reads and redefines the
+first block's value of `y`. The activation costs are `[5, 4, 5]`,
+giving a return of `22` at exactly fifteen source visits or three
+θ activations. Fourteen visits exhaust. A self-loop on arm block 5
+is rejected. The admitted profile is one pure diamond with linear
+arms, one merge, one tail test, and a full carried bank.
+[Equal-arm regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/Regression.lean) ·
+[Unequal-arm regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/UnequalRegression.lean)
 
 ```sh
-lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.Regression
-make check CHECK_TARGETS='+Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Quads.Join.Finite.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Tail.Chain.Regression'
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.UnequalRegression
+make check CHECK_TARGETS='+Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.UnequalRegression +Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Quads.Join.Finite.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Tail.Chain.Regression'
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.Thms
 ```

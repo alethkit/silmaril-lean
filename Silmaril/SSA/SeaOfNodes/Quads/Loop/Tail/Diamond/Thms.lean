@@ -18,26 +18,26 @@ open Blocks (Bank)
 universe u v w
 
 variable {Data : Type u} {Op : SeaOfNodes.Diamond.Signature.{u, v} Data}
-variable {regs : List (ValueSort Data)} {out : ValueSort Data}
-variable {src : Source Op regs out} {entry : Fin 6}
+variable {regs : List (ValueSort Data)} {out : ValueSort Data} {size : Nat}
+variable {src : Source Op regs out size} {entry : Fin size}
 variable (p : Program src entry) (m : Model.{u, v, w} Op)
 
-/-- Each γ child uses the ordered quads at its original predecessor ID. -/
+/-- Each γ child uses the ordered quads of its checked original arm. -/
 theorem Program.arm_body (occurrence : Fin 2) :
-    p.stage.table.get occurrence = (src (p.predecessor occurrence)).body :=
+    p.stage.table.get occurrence = (p.armPath occurrence).quads :=
   Proofs.arm_body p occurrence
 
 /-- The γ tag preserves which occurrence the source conditional selects. -/
 theorem Program.selected_predecessor (bank : Bank (regs := regs) m) :
     p.predecessor (p.stage.choice.eval bank) =
-      (if (bank.get p.condition).down then p.onTrue else p.onFalse) :=
+      (if (bank.get p.condition).down then p.trueArm.lastBlock else p.falseArm.lastBlock) :=
   Proofs.selected_predecessor p m bank
 
 /-- The actual γ merge produces all reaching values from the selected
 occurrence. No value from the unselected predecessor enters this bank. -/
 theorem Program.merge_run (bank : Bank (regs := regs) m) :
     p.plan.lower.run (model m) bank =
-      (src (p.predecessor (p.stage.choice.eval bank))).body.eval m bank := by
+      (p.armPath (p.stage.choice.eval bank)).quads.eval m bank := by
   rw [Plan.lower_run]
   exact congrArg (fun block : Block Op regs => block.eval m bank) (p.arm_body _)
 
@@ -47,12 +47,30 @@ theorem Program.activation_run (fuel : Nat) (old : Bank (regs := regs) m) :
       some (RVSDG.Theta.bodyResult (model m) ((p.nextBank m old).get p.again).down (p.nextBank m old)) :=
   Proofs.body_run p m fuel old
 
-/-- Entry costs one source visit. Each θ activation costs four source visits,
-and a shorter surplus cannot reach another tested latch. -/
-theorem Program.lower_run (fuel extra : Nat) (short : extra < 4) (input : Bank (regs := regs) m) :
+/-- Match a native budget with one entry visit and the sum of the selected
+activation costs, even if the bounded native run exhausts. -/
+theorem Program.lower_run (fuel : Nat) (input : Bank (regs := regs) m) :
     p.lower.run (model m) fuel input =
-      (src.runFrom m (extra + 4 * fuel + 1) entry input).map (fun value => .cons value .nil) :=
-  Proofs.lower_run p m fuel extra short input
+      (src.runFrom m (p.sourceVisits m fuel input) entry input).map (fun value => .cons value .nil) :=
+  Proofs.lower_run p m fuel input
+
+/-- A returning native trace gives the minimum source fuel for that return.
+Every smaller source budget exhausts. -/
+theorem Program.run_at (fuel sourceFuel : Nat) (input : Bank (regs := regs) m)
+    (result : sortValue m.value out)
+    (returned : p.lower.run (model m) fuel input = some (.cons result .nil)) :
+    src.runFrom m sourceFuel entry input =
+      if p.sourceVisits m fuel input ≤ sourceFuel then some result else none :=
+  Proofs.run_at p m fuel sourceFuel input result returned
+
+/-- A bounded source return has a native return whose selected trace fits
+the source budget, and conversely. -/
+theorem Program.source_bounded_iff (fuel : Nat) (input : Bank (regs := regs) m)
+    (result : sortValue m.value out) :
+    src.runFrom m fuel entry input = some result ↔
+      ∃ activations, p.lower.run (model m) activations input = some (.cons result .nil) ∧
+        p.sourceVisits m activations input ≤ fuel :=
+  Proofs.source_bounded_iff p m fuel input result
 
 theorem Program.returns_iff (input : Bank (regs := regs) m) (result : sortValue m.value out) :
     p.lower.Returns (model m) input (.cons result .nil) ↔

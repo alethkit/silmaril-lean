@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Defs
+public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Chain.Segment.Defs
 public import Silmaril.SSA.SeaOfNodes.Quads.Join.Finite.Defs
 public import Silmaril.SSA.RVSDG.NestedTheta.Defs
 
@@ -20,61 +20,77 @@ open Blocks (Bank)
 universe u v w
 
 variable {Data : Type u} {Op : SeaOfNodes.Diamond.Signature.{u, v} Data}
-variable {regs : List (ValueSort Data)} {out : ValueSort Data}
+variable {regs : List (ValueSort Data)} {out : ValueSort Data} {size : Nat}
 
 abbrev Source (Op : SeaOfNodes.Diamond.Signature.{u, v} Data)
-    (regs : List (ValueSort Data)) (out : ValueSort Data) := Tail.Source Op regs out 6
+    (regs : List (ValueSort Data)) (out : ValueSort Data) (size : Nat := 6) :=
+  Tail.Source Op regs out size
 
-/-- The source has an entry, a data-dependent split at the header, two
-predecessors of a merge, and a distinct tested latch after the merge. -/
-structure Program (src : Source Op regs out) (entry : Fin 6) where
-  header : Fin 6
-  onTrue : Fin 6
-  onFalse : Fin 6
-  join : Fin 6
-  latch : Fin 6
+/-- Two disjoint nonempty arm segments run from the header split to the
+same merge. The merge jumps to the distinct tested latch. -/
+structure Program (src : Source Op regs out size) (entry : Fin size) where
+  header : Fin size
+  onTrue : Fin size
+  onFalse : Fin size
+  join : Fin size
+  latch : Fin size
   condition : Port (dataPorts regs) (.value .predicate)
   again : Port (dataPorts regs) (.value .predicate)
   result : Port (dataPorts regs) (.value out)
   entryEdge : (src entry).terminator = .transfer (.jump header)
   splitEdge : (src header).terminator = .branch condition (.jump onTrue) (.jump onFalse)
-  trueEdge : (src onTrue).terminator = .transfer (.jump join)
-  falseEdge : (src onFalse).terminator = .transfer (.jump join)
+  trueArm : Chain.Segment src join onTrue
+  falseArm : Chain.Segment src join onFalse
   joinEdge : (src join).terminator = .transfer (.jump latch)
   latchEdge : (src latch).terminator = .branch again (.jump header) (.ret result)
-  distinct : [entry, header, onTrue, onFalse, join, latch].Nodup
+  distinct : ([entry, header] ++ trueArm.blocks ++ falseArm.blocks ++ [join, latch]).Nodup
+  covers : ([entry, header] ++ trueArm.blocks ++ falseArm.blocks ++ [join, latch]).length = size
 
-def check (src : Source Op regs out) (entry : Fin 6) : Option (Program src entry) :=
+/-- Discover the merge immediately before the latch on the true route,
+then check both linear arms up to that same merge. -/
+def check (src : Source Op regs out size) (entry : Fin size) : Option (Program src entry) :=
   match entryEdge : (src entry).terminator with
   | .transfer (.jump header) =>
     match splitEdge : (src header).terminator with
-    | .branch condition (.jump onTrue) (.jump onFalse) =>
-      match trueEdge : (src onTrue).terminator, falseEdge : (src onFalse).terminator with
-      | .transfer (.jump join), .transfer (.jump otherJoin) =>
-        if same : otherJoin = join then
-          match joinEdge : (src join).terminator with
-          | .transfer (.jump latch) =>
-            match latchEdge : (src latch).terminator with
-            | .branch again (.jump target) (.ret result) =>
-              if shape : target = header ∧ [entry, header, onTrue, onFalse, join, latch].Nodup then
-                some ⟨header, onTrue, onFalse, join, latch, condition, again, result, entryEdge,
-                  splitEdge, trueEdge, same ▸ falseEdge, joinEdge, shape.1 ▸ latchEdge, shape.2⟩
-              else none
-            | _ => none
+    | .branch condition (.jump onTrue) (.jump onFalse) => do
+      let trueRoute ← Chain.findPath src header size onTrue
+      let falseRoute ← Chain.findPath src header size onFalse
+      match trueRoute.beforeLatch with
+      | none => none
+      | some join => do
+        let trueArm ← trueRoute.segmentTo join
+        let falseArm ← falseRoute.segmentTo join
+        match joinEdge : (src join).terminator with
+        | .transfer (.jump latch) =>
+          match latchEdge : (src latch).terminator with
+          | .branch again (.jump target) (.ret result) =>
+            let order := [entry, header] ++ trueArm.blocks ++ falseArm.blocks ++ [join, latch]
+            if shape : target = header ∧ order.Nodup ∧ order.length = size then
+              some ⟨header, onTrue, onFalse, join, latch, condition, again, result, entryEdge,
+                splitEdge, trueArm, falseArm, joinEdge, shape.1 ▸ latchEdge, shape.2.1, shape.2.2⟩
+            else none
           | _ => none
-        else none
-      | _, _ => none
+        | _ => none
     | _ => none
   | _ => none
 
-variable {src : Source Op regs out} {entry : Fin 6} (p : Program src entry)
+variable {src : Source Op regs out size} {entry : Fin size} (p : Program src entry)
 
-/-- The merge columns are ordered by the header's true and false occurrences. -/
-def Program.predecessor : Fin 2 → Fin 6 :=
+/-- Map each selector occurrence to its original target in the header. -/
+def Program.armStart : Fin 2 → Fin size :=
   Fin.cases p.onTrue (fun _ => p.onFalse)
 
+def Program.armPath (occurrence : Fin 2) : Chain.Segment src p.join (p.armStart occurrence) :=
+  Fin.cases (motive := fun i => Chain.Segment src p.join (p.armStart i))
+    p.trueArm (fun _ => p.falseArm) occurrence
+
+/-- The incoming merge occurrences remain in true/false order and are
+identified by the last original block of each selected arm. -/
+def Program.predecessor (occurrence : Fin 2) : Fin size :=
+  (p.armPath occurrence).lastBlock
+
 def Program.stage : Stage Op regs :=
-  ⟨(src p.onTrue).body, (src p.onFalse).body, [], .test p.condition (.take 0) (.take 1)⟩
+  ⟨p.trueArm.quads, p.falseArm.quads, [], .test p.condition (.take 0) (.take 1)⟩
 
 def Program.tail : Block Op regs := (src p.join).body ++ (src p.latch).body
 
@@ -82,6 +98,26 @@ def Program.tail : Block Op regs := (src p.join).body ++ (src p.latch).body
 after reconvergence. The resulting bank supplies feedback or the return. -/
 def Program.nextBank (m : Model.{u, v, w} Op) (old : Bank (regs := regs) m) : Bank (regs := regs) m :=
   p.tail.eval m (p.stage.eval m ((src p.header).body.eval m old))
+
+/-- Choose the same occurrence used by the compiled γ, after the header writes. -/
+def Program.selected (m : Model.{u, v, w} Op) (old : Bank (regs := regs) m) : Fin 2 :=
+  p.stage.choice.eval ((src p.header).body.eval m old)
+
+/-- A header, merge and latch visit accompany every block of the chosen arm. -/
+def Program.activationCost (occurrence : Fin 2) : Nat :=
+  (p.armPath occurrence).blocks.length + 3
+
+/-- Record each visited merge occurrence, up to the first return or the θ
+activation bound. Original merge predecessor IDs are available via `predecessor`. -/
+def Program.trace (m : Model.{u, v, w} Op) : Nat → Bank (regs := regs) m → List (Fin 2)
+  | 0, _ => []
+  | fuel + 1, old =>
+    let next := p.nextBank m old
+    p.selected m old :: if (next.get p.again).down then trace m fuel next else []
+
+/-- Count source visits in a bounded native execution, including the entry. -/
+def Program.sourceVisits (m : Model.{u, v, w} Op) (fuel : Nat) (input : Bank (regs := regs) m) : Nat :=
+  ((p.trace m fuel ((src entry).body.eval m input)).map p.activationCost).sum + 1
 
 section Prefix
 
