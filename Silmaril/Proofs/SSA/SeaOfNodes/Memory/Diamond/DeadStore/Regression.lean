@@ -10,6 +10,7 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retain
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Reindex.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Sequence.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Sequence.Search.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Defs
@@ -20,6 +21,7 @@ meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.R
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Reindex.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Sequence.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Sequence.Search.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
@@ -774,5 +776,49 @@ private def runMappedPlan (guard : Bool) : Option (Word × Word × List Word × 
 
 #guard runMappedPlan false == runCutPlan cutPlan false 3
 #guard runMappedPlan true == runCutPlan cutPlan true 3
+
+private def suppliedContracts : List (Static.AddressContract args) := [firstStep.facts, secondStep.facts]
+
+-- The second candidate starts at version 2. The first deletion shifts it
+-- to version 1, which the next discovery step records on the current table.
+example : Static.Sequence.Search.find sequenceEntry suppliedContracts = some (firstStep, sequenceMiddle) := rfl
+example : Static.Sequence.Search.find sequenceMiddle suppliedContracts = some (secondStep, sequenceTail) := rfl
+example : Static.Sequence.Search.discover sequenceEntry suppliedContracts = ⟨cutPlan, sequenceTail⟩ := rfl
+example : Static.Sequence.Search.find sequenceTail suppliedContracts = none := rfl
+example : Static.Sequence.Search.lower overwriteDiamond sequenceEntry suppliedContracts overwriteInput =
+    .ok ⟨⟨cutPlan, sequenceTail⟩, Entry.lowerPair overwriteDiamond sequenceEntry sequenceTail overwriteInput⟩ := rfl
+
+private def runDiscovered (entry : Memory.Graph args) (contracts : List (Static.AddressContract args))
+    (valuation : Tuple (Val 4) args) (guard : Bool) :
+    Option (List Nat × Option (Word × Word × List Word × List Word)) :=
+  match Static.Sequence.Search.lower overwriteDiamond entry contracts valuation with
+  | .error .invalidContracts => none
+  | .ok emission => some (emission.plan.map (·.version), runEntryPrograms emission.programs guard 3)
+
+/-- info: some ([1, 1], some (33#64, 33#64, [33#64, 33#64, 33#64, 3#64, 55#64], [33#64, 33#64, 33#64, 3#64, 55#64])) -/
+#guard_msgs in
+#eval runDiscovered sequenceEntry suppliedContracts overwriteInput false
+
+#guard runDiscovered sequenceEntry suppliedContracts overwriteInput false == some ([1, 1], runCutPlan cutPlan false 3)
+#guard runDiscovered sequenceEntry suppliedContracts overwriteInput true == some ([1, 1], runCutPlan cutPlan true 3)
+
+-- The first same-wire deletion succeeds. A Load through rightPort then
+-- observes the retained head Store, so the checker stops at that table.
+private def blockedResidual : Memory.Graph args := middleStore.prepend (overwriteTail rightPort)
+
+example : Static.Sequence.Search.discover (overwriteEntry rightPort) [addressFacts] =
+    ⟨[firstStep], blockedResidual⟩ := rfl
+example : Static.Sequence.Search.find blockedResidual [addressFacts] = none := rfl
+#guard runDiscovered (overwriteEntry rightPort) [addressFacts] overwriteInput false ==
+  some ([1], some (99, 99, [99, 99, 99, 3, 55], [99, 99, 99, 3, 55]))
+
+-- An already blocked valid table yields an empty plan and runs normally.
+-- A false contract, even on that table, is an explicit invocation error.
+example : Static.Sequence.Search.lower overwriteDiamond blockedResidual [addressFacts] overwriteInput =
+    .ok ⟨⟨[], blockedResidual⟩, Entry.lowerPair overwriteDiamond blockedResidual blockedResidual overwriteInput⟩ := rfl
+example : Static.Sequence.Search.lower overwriteDiamond blockedResidual [addressFacts] input =
+    .error .invalidContracts := rfl
+#guard runDiscovered blockedResidual [addressFacts] overwriteInput false ==
+  some ([], some (99, 99, [99, 99, 99, 3, 55], [99, 99, 99, 3, 55]))
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore

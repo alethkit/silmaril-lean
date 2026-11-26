@@ -505,3 +505,45 @@ diamond entries, with the pinned Store rule as its source reference.
 ```sh
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Discover a static entry plan
+
+`Static.Sequence.Search.find entry contracts` tries the current one-based
+Store versions in ascending table order. At each version it tries the
+supplied typed contracts in list order. Every attempt uses the existing
+first-overwrite checker, including its check for a Load that observes the
+nominated cell before the overwrite. `discover` restarts this search on
+each edited table and records the resulting versions in a replayable
+`Sequence.Plan`.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Static/Sequence/Search/Defs.lean)
+
+Simple chapter 10's `StoreNode.idealize` examines the previous memory
+Store, requires the same pointer node and field, and checks for other
+users before bypassing the earlier write. The correspondence here is
+bypassing an unobserved overwritten Store on a memory chain. This
+ordered-table finder checks supplied cell facts and intervening Loads,
+and retries by scanning the current table after each edit.
+[Pinned Simple chapter 10 Store rule](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65)
+
+`Search.lower` validates all supplied contracts at the invocation. A
+false contract yields `.error .invalidContracts`. A valid invocation
+with no eligible cut yields `.ok` with an empty plan and an unchanged
+entry. Each accepted cut decreases the Store count by exactly one, so
+the original Store count suffices to exhaust the search. Exhaustion
+means every remaining version and supplied contract pair fails this
+first-overwrite checker. The emitted pair is exactly the result of
+replaying the discovered plan through `Sequence.lower`. The actual
+MemRef CFGs agree on the successor packet and full entry buffer, and on
+the returned word and every final cell for either predicate, any
+initialized buffer, and every CF budget.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Static/Sequence/Search/Thms.lean)
+
+The fixture discovers two cuts at current versions `[1, 1]`, preserving
+a retained Load after the first overwrite. A must-alias Load blocks
+another fixture after its first cut, and both CFGs return the observed
+`99` with matching full-buffer readback.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```

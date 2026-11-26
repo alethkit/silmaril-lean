@@ -22,6 +22,11 @@ theorem DeletesStores.trans {removed more : Nat} {source middle target : List (O
     DeletesStores (removed + more) source target :=
   Proofs.compose first next
 
+theorem DeletesStores.storeCount_eq {graph rewritten : Graph args} {removed : Nat}
+    (deletes : DeletesStores removed (operations graph) (operations rewritten)) :
+    storeCount rewritten + removed = storeCount graph :=
+  Proofs.deletes_storeCount deletes
+
 /-- Renumbering memory edges preserves the complete ordered operation list. -/
 theorem reindex_operations {past : List (List ValueSort)} {version : Nat}
     (body : Body args past version) (live : Nat) :
