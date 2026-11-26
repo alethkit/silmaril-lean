@@ -4,8 +4,8 @@ Build `Split.Index.build graph` once and pass it to
 `Split.Index.run model input index` or `Split.Index.solve model input index`.
 The index stores the Φ destinations that read each typed carried coordinate.
 Construction shares the ranked producer support table across destinations.
-At notification time the index compares carried facts and unions the reader
-sets for changed coordinates when feedback is enabled. Changes to the entry or
+For arbitrary state pairs, `Index.wake` compares carried facts and unions
+the reader sets for changed coordinates when feedback is enabled. Changes to the entry or
 feedback mark notify every Φ, since both marks are part of every Φ watch.
 Control and result keep their original entry- and exit-gated whole-bank watches.
 [Definitions](../../Silmaril/SSA/SeaOfNodes/Loop/SCCP/Worklist/Split/Index/Defs.lean)
@@ -47,6 +47,6 @@ the exit fact. [Checked regressions](../../Silmaril/Proofs/SSA/SeaOfNodes/Loop/S
 Click's *Combining Analyses, Combining Optimizations*, §3.5 (printed p. 25),
 uses variable changes to requeue users. This index applies that rule to
 the typed Φ support of the pure single-loop
-profile. The indexed path compares the carried bank to find changed
-coordinates. The reference `Split` API remains available for comparison.
-[Typed Φ support](rice-loop-sccp-phi-support.md) · [Rice dissertation](https://hdl.handle.net/1911/16807)
+profile. The bounded runner uses the popped job to locate its changed
+coordinate. The reference `Split` API remains available for comparison.
+[Typed Φ support](rice-loop-sccp-phi-support.md) · [Specialized pop](rice-loop-sccp-index-step.md) · [Rice dissertation](https://hdl.handle.net/1911/16807)
