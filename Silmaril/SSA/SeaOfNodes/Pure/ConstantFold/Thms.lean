@@ -7,15 +7,25 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Pure.ConstantFold
 
-open Diamond (Model Signature Val ValueSort dataPorts)
+open Diamond (Model Signature Ty Val ValueSort dataPorts)
 open SubZero (model)
-open RVSDG (Tuple)
+open RVSDG (Locals Tuple)
 
 variable {inputs : List (ValueSort Unit)} {out : ValueSort Unit}
 
 namespace Scan
 
 variable {Op : Signature Unit} {m : Model Op}
+
+/-- Extending the producer store preserves earlier facts and records any
+sound fact for the new result. -/
+theorem Literals.push_agrees {args : List (Ty Unit)} {past : List (List (Ty Unit))}
+    {known : Literals m args past} {entry : Tuple (Val m.value) args}
+    {locals : Locals (Val m.value) past} (agree : known.Agrees entry locals)
+    {actual : Val m.value (.value out)} {hint : Option (Val m.value (.value out))}
+    (sound : ∀ value, hint = some value → actual = value) :
+    Literals.Agrees (known.push hint) entry (locals.snoc (.cons actual .nil)) :=
+  Silmaril.Proofs.SSA.SeaOfNodes.Pure.ConstantFold.push_agrees agree sound
 
 /-- The certified scan preserves all final producer slots at every input. -/
 theorem fold_locals_eq (rules : Rules m) (program : Program Op inputs out)
