@@ -5,6 +5,8 @@ import Silmaril.Languages.Starlark.Frontend.Checks
 meta import Silmaril.Languages.Starlark.Frontend.Checks
 import Silmaril.Languages.Starlark.Frontend.Module.Checks
 meta import Silmaril.Languages.Starlark.Frontend.Module.Checks
+import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
+meta import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 
 open Lean Silmaril.Languages.Starlark.Frontend
 open Silmaril.Languages.Starlark.Frontend.Module (Observation controls)
@@ -21,6 +23,21 @@ private def moduleObservation (expected : Observation) : Json :=
     | .uninitializedGlobal name => ("runtime", s!"global variable {name} referenced before assignment")
   Json.mkObj [("phase", toJson phase), ("want", toJson want)]
 
+private def loaderFixture (control : Silmaril.Languages.Starlark.Frontend.Module.Loader.Control) : Json :=
+  let label := Silmaril.Languages.Starlark.Frontend.Module.Loader.label
+  let producer := Silmaril.Languages.Starlark.Frontend.Module.Loader.producer
+  let (phase, want, marker) := match control.expected with
+    | .exportedInt value => ("publication", toString value, "")
+    | .missingExport name => ("runtime", s!"name {name} not found in module {label}", "")
+    | .lateLoad => ("runtime", s!"name absent not found in module {label}", "99")
+    | .privateImport name => ("validation", s!"names with leading underscores are not exported: {name}", "")
+    | .emptyLoad => ("parse", "load statement must import at least 1 symbol", "")
+    | .loadInFunction => ("validation", "load statement within a function", "")
+  let loader := Json.mkObj [("phase", toJson phase), ("want", toJson want),
+    ("marker", toJson marker), ("label", toJson label), ("producer", toJson producer)]
+  Json.mkObj [("name", toJson control.name), ("source", toJson control.source),
+    ("accepts", toJson (phase != "parse")), ("loader", loader)]
+
 public def main (args : List String) : IO Unit := do
   let [output] := args | throw (IO.userError "expected one fixture output path")
   let entries := fixtures.toArray.map fun fixture => Json.mkObj
@@ -29,4 +46,5 @@ public def main (args : List String) : IO Unit := do
   let modules := controls.toArray.map fun control =>
     Json.mkObj [("name", toJson control.name), ("source", toJson control.source),
       ("accepts", toJson true), ("module", moduleObservation control.expected)]
-  IO.FS.writeFile output (Json.arr (entries ++ modules)).compress
+  let loaders := Silmaril.Languages.Starlark.Frontend.Module.Loader.controls.toArray.map loaderFixture
+  IO.FS.writeFile output (Json.arr (entries ++ modules ++ loaders)).compress

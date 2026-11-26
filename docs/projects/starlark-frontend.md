@@ -49,13 +49,13 @@ proofs still begin at the resolved scalar AST, and static and dynamic failures
 retain their existing types. Parser soundness and completeness remain open.
 [Lean checks](../../Silmaril/Languages/Starlark/Frontend/Checks.lean)
 
-## Load-free module initialization
+## Module initialization
 
 `Frontend.Module.parseUtf8` and `Frontend.Module.parse` lower complete files
 to located `Modules.Resolve.Command`s. The module profile accepts top-level
 scalar assignments and expression statements, multiline `def` declarations
-with positional parameters and optional scalar defaults, and call assignments
-of the form `name = function(arg, ...)`. The call is the entire right-hand side, and both
+with positional parameters and optional scalar defaults, call assignments
+of the form `name = function(arg, ...)`, and leading load statements. The call is the entire right-hand side, and both
 names are bare identifiers. The adapter reuses the logical-line, parameter,
 and suite parsers. It emits a normalized declaration for each `def` and a
 normalized `.call` expression for each call assignment. A top-level `pass`
@@ -82,9 +82,8 @@ The module body uses the same admitted scalar statement forms as the standalone
 function parser. Its expressions, defaults, and call operands use integer
 literals, names, `and`, `or`, and conditional expressions. Unary and binary
 operators produce an unsupported diagnostic spanning the containing statement,
-default, or argument. Calls in function bodies and other expression positions,
-keyword-only and variadic parameters, and loads remain outside this entry
-point.
+default, or argument. The profile excludes calls in function bodies and other
+expression positions, plus keyword-only and variadic parameters.
 
 ### Defaults and call operands
 
@@ -127,6 +126,61 @@ and reached errors, including omission of a definition-time default and a
 positional/named binding collision. A general parser or source-to-normalized
 adequacy theorem remains open. [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
 
+### Leading loads and UTF-8 graphs
+
+The module frontend accepts `load("label", "export")` and renamed imports
+such as `load("label", local_name="export")`. A load requires at least one
+import, preserves operand order, and permits a trailing comma. Labels and
+export spellings use simple unescaped single- or double-quoted strings.
+Export and alias names use the frontend's ASCII identifier profile. Parsed
+syntax retains half-open spans for each load, its label, and the exported and
+local names. The normalized command retains the whole load span. The existing
+validator rejects private exports and conflicting bindings.
+
+`Frontend.Module.Loader.prepare` accepts an array of UTF-8 texts and a caller-
+supplied label-to-module-ID table for each text. Array positions are module
+IDs. The adapter parses and resolves every supplied text in array order,
+appending declarations to one table and retaining the spanned commands.
+Frontend and validation errors identify the entry. Label lookup, export
+lookup, any reached runtime error, and initialization of dependencies are
+handled by the finite loader when a prepared module is requested. The adapter
+treats label spellings as opaque strings. Filesystem access and path resolution
+belong to the caller. The single-module `Frontend.Module.runUtf8` uses an empty
+catalog. Use `Frontend.Module.Loader.loadUtf8` to prepare a graph and start a
+cold load, or `Prepared.load` to reuse the matching loader session.
+[UTF-8 loader](../../Silmaril/Languages/Starlark/Frontend/Module/Loader/Defs.lean)
+
+For module 0, the producer text is
+
+```starlark
+# 雪
+def id(x):
+  return x
+```
+
+For module 1, the consumer supplies the label table `[("pkg:dep", 0)]` and
+uses this text
+
+```starlark
+load("pkg:dep", imported="id")
+out = imported(7)
+```
+
+The kernel-checked cold load publishes only `out = 7` from the consumer. A
+missing export in the leading load leaves only the successful producer in the
+cache and the consumer's first body assignment unexecuted. The Go controls
+exercise both cases. They also run a late load with a missing export and
+observe the preceding assignment. The frontend rejects late loads as outside
+this leading-load profile. Nested loads, empty import lists, and private export
+names have separate diagnostics or validation errors.
+[Loader checks](../../Silmaril/Languages/Starlark/Frontend/Module/Loader/Checks.lean)
+
+`Frontend.Module.Loader.runs_iff_load` reuses the existing agreement theorem
+after preparation, on the normalized manifest and shared declaration table.
+The two-module examples exercise specific source texts. General text adequacy
+and a correspondence between Go's partial globals and the Lean session remain
+open. [Loader theorem](../../Silmaril/Languages/Starlark/Frontend/Module/Loader/Thms.lean)
+
 ## Logical lines and layout
 
 - LF, CRLF, and bare CR each end one physical line. Blank and comment-only
@@ -168,8 +222,8 @@ module publication remain outside the standalone function entry point. The
 existing [Lean quotation](starlark-functions.md#quoting-an-expression-in-lean)
 targets the normalized function language and uses Lean syntax.
 
-The lexer retains the contents of simple unescaped quoted strings for mapping
-spread keys. It identifies the closing delimiter and defers content and escape
+The lexer retains the contents of simple unescaped quoted strings for load
+operands and mapping spread keys. It identifies the closing delimiter and defers content and escape
 validation for other quoted literals. Non-ASCII characters outside
 comments and quoted literals are possible name characters pending Unicode
 category checks. `exhausted` is an internal recursion guard bounded from input
@@ -179,7 +233,8 @@ length and token count.
 
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
-  +Silmaril.Languages.Starlark.Frontend.Module.Checks +Silmaril.Languages.Starlark.Checks
+  +Silmaril.Languages.Starlark.Frontend.Module.Checks \
+  +Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks +Silmaril.Languages.Starlark.Checks
 scripts/starlark/frontend/run.sh
 ```
 
@@ -209,8 +264,8 @@ reports those errors at its source boundary.
 
 - Add inline suites and use the layout tokens for `for` and nested definitions.
   Extend the normalized module adapter with keyword-only and variadic
-  parameters and additional call positions. Connect load syntax when the
-  loader has a stable source adapter.
+  parameters and additional call positions. Broader load spellings and
+  positions can extend the leading-load profile.
 - Extend expressions with tuple and collection displays, calls, attributes,
   indexing and slices. Add membership, the remaining operator levels,
   comprehensions, and lambdas as their target AST forms become available.

@@ -95,12 +95,14 @@ private def lowerCommand (source : LocatedFileCommand) :
     | .simple _ => .error ⟨.unsupported .compoundStatement, source.span⟩
     | .define fn => pure (some (← lowerFunction fn))
     | .assignCall target callee arguments => pure (some (.assign target (← lowerCall callee arguments)))
+    | .load label imports =>
+      pure (some (.load label.text (imports.map fun item => ⟨item.exported.text, item.localName.text⟩)))
   return command.map (⟨source.span, ·⟩)
 
 private def lowerCommands (source : List LocatedFileCommand) : Except Diagnostic ParsedModule := do
   return ⟨(← source.mapM lowerCommand).filterMap id⟩
 
-/-- Parse and normalize a file for the load-free module entry point. -/
+/-- Parse a file and produce the normalized module commands with their source spans. -/
 def parse (source : String) : Except Diagnostic ParsedModule := do
   lowerCommands (← parseFile source)
 
@@ -108,7 +110,7 @@ def parse (source : String) : Except Diagnostic ParsedModule := do
 def parseUtf8 (source : ByteArray) : Except Diagnostic ParsedModule := do
   lowerCommands (← parseFileUtf8 source)
 
-/-- Initialize and publish a closed module through the normalized module API. -/
+/-- Initialize a module with an empty import catalog. Use the finite loader for load graphs. -/
 @[expose] def ParsedModule.run (parsed : ParsedModule) : Modules.Resolve.Result :=
   Modules.Resolve.runModule parsed.toCommands (fun _ => none) {}
 
