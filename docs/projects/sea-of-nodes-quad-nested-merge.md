@@ -12,7 +12,9 @@ is Rice TR CRPC-TR93366-S (October 18, 1993), SHA-256
 true edge enters a second split. The inner true, inner false and outer
 false occurrences run along disjoint jump segments to one common merge,
 in that column order. A direct edge contributes the split itself as
-predecessor, with the definitions after its ordered quads. The merge
+predecessor, with the definitions after its ordered quads. Both inner
+arms may enter the merge directly and contribute separate occurrences
+from the same block. The merge
 jumps to a distinct tested latch whose true edge feeds back to the
 header and whose false edge returns. The discovered blocks must cover
 the table exactly once. An inner edge that skips the common merge and
@@ -495,6 +497,46 @@ It traverses predecessors `[3, 2, 4]` and returns `16` at source, CF,
 and θ budgets `14/15/3`. The same compiled pair exhausts one unit
 below. The regression checks `.shape` for the edge that skips the merge
 and `.headerProjection` for a recognized full-bank header.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/DeadProducer/Iteration/Backends/Regression.lean)
+
+### Parallel inner edges into the common merge
+
+The two empty inner arms exercise §3.1's rule to inspect every path to
+the merge. They carry the same latest definitions because both leave
+the inner split immediately after its writes. `Program.incomingEdge`
+identifies each incoming occurrence by its original predecessor and
+outgoing slot. `Program.parallel_inner_merge` proves that the post-inner
+predicate selects slot 0 or 1, that the selected compiled column gives
+the full post-inner bank, and that reaching the merge costs two source
+visits. The disjoint-block check still refuses two arms sharing a
+nonempty segment, and exact table coverage remains mandatory.
+[Occurrence law](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Thms.lean)
+
+Build the same `Backends.Example.Defs` module as above. Paste into
+`QuadNestedParallel.lean` and run
+`lake env lean -DautoImplicit=false -DwarningAsError=true QuadNestedParallel.lean`.
+
+```lean
+module
+
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.DeadProducer.Iteration.Backends.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.DeadProducer.Iteration.Backends
+
+#eval (compile Example.parallelInner 0).map fun targets =>
+  (Example.parallelTrace targets, Example.runAt targets 13 14 3, Example.runAt targets 12 13 2)
+#eval (compile Example.sharedInnerArm 0).map fun _ => ()
+```
+
+The three activations select `(2, 0)`, `(2, 1)`, and `(3, 0)`, with
+guard and exit packets `(true, 6)`, `(true, 7)`, and `(false, 14)`.
+The emitted CF keeps both slots of the original conditional. The source,
+CF and numbered θ return `14` at budgets `13/14/3` and exhaust one unit
+below. The existing completion theorem gives a finite coloured completion
+for the same numbered graph. The shared nonempty arm is refused as
+`.shape`. The extension covers parallel edges that go directly into the
+existing common merge. Reconvergence through a shared jump segment
+before that merge remains open.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/DeadProducer/Iteration/Backends/Regression.lean)
 
 ## Complete the emitted loop by coloured firing

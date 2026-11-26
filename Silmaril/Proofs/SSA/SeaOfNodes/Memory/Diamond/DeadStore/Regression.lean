@@ -1174,4 +1174,49 @@ example : (Final.LoadTail.lower (finalStoreDiamond .onFalse) beforeSameCellLoad 
 #guard runLoadTail (finalStoreDiamond .onFalse) beforeSameCellLoad input tailFacts false 3 ==
     some (some 99, some 99, some (99, 99, [11, 33, 11, 33, 55], [11, 33, 11, 33, 55]))
 
+private def chainTailFacts : Memory.Forwarding.Disjoint.Certificate args := ⟨headPort, [leftPort, rightPort]⟩
+
+private def twoReadsAfterLastStore (second : Port args .address) (returnFirst : Bool) : Memory.Graph args :=
+  let returned : Origin args [[.word], [.word]] .word :=
+    if returnFirst then .output (1 : Fin 2) .head else .output (0 : Fin 2) .head
+  sideStore.prepend (.store (.latest 0) (.arg headPort) (.arg entryWord)
+    (.load (.latest 1) (.arg leftPort)
+      (.load (.latest 1) (.arg second) (.ret (.latest 1) returned))))
+
+private def entryWithTrailingReads (second : Port args .address) (returnFirst : Bool) : Memory.Graph args :=
+  (⟨leftPort, entryWord⟩ : PrefixStore args).prepend (twoReadsAfterLastStore second returnFirst)
+
+example : (Final.LoadTail.lower (finalStoreDiamond .onFalse) (entryWithTrailingReads rightPort false)
+    input chainTailFacts).map (fun result => (result.entryOnly.plan.map (·.version), result.routes.isSome)) =
+    .ok ([1], true) := rfl
+
+-- Return can observe either Load. Both original and optimized emitted
+-- entry bodies preserve the first 11 and the second 3.
+#guard runLoadTail (finalStoreDiamond .onFalse) (entryWithTrailingReads rightPort true)
+    input chainTailFacts false 3 ==
+    some (some 11, some 11, some (99, 7, [11, 33, 11, 33, 55], [11, 33, 11, 33, 55]))
+#guard runLoadTail (finalStoreDiamond .onTrue) (entryWithTrailingReads rightPort false)
+    input chainTailFacts true 3 ==
+    some (some 3, some 3, some (99, 7, [11, 11, 11, 3, 55], [11, 11, 11, 3, 55]))
+#guard runLoadTail (finalStoreDiamond .onFalse) (entryWithTrailingReads rightPort false)
+    input chainTailFacts false 2 == some (some 3, some 3, none)
+
+-- The first reader is covered. A later same-port read or missing fact
+-- refuses the cut and keeps the precise entry-only emitted pair.
+example : Final.LoadTail.cut chainTailFacts 2 (twoReadsAfterLastStore headPort false) = none := rfl
+example : Final.LoadTail.cut tailFacts 2 (twoReadsAfterLastStore rightPort false) = none := rfl
+example : (Final.LoadTail.lower (finalStoreDiamond .onFalse) (entryWithTrailingReads headPort false)
+    input chainTailFacts).map (·.programs) =
+    .ok (Entry.lowerPair (finalStoreDiamond .onFalse) (entryWithTrailingReads headPort false)
+      (twoReadsAfterLastStore headPort false) input) := rfl
+#guard runLoadTail (finalStoreDiamond .onFalse) (entryWithTrailingReads headPort false)
+    input chainTailFacts false 3 ==
+    some (some 99, some 99, some (99, 99, [11, 33, 11, 33, 55], [11, 33, 11, 33, 55]))
+
+-- A later symbolic reader may alias at a concrete invocation as well.
+example : (Final.LoadTail.lower (finalStoreDiamond .onFalse) (entryWithTrailingReads rightPort false)
+    overwriteInput chainTailFacts).map (·.programs) =
+    .ok (Entry.lowerPair (finalStoreDiamond .onFalse) (entryWithTrailingReads rightPort false)
+      (twoReadsAfterLastStore rightPort false) overwriteInput) := rfl
+
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore

@@ -947,6 +947,34 @@ typed provider block, and resumption through the client suffix. A
 same-signature import with a stale capture fails admission.
 [Provider composition fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Provider/Regression.lean)
 
+### Looking up demand indices in a checked provider assembly
+
+`CheckedProviderAssembly.lookup name ty` returns a `LookupReceipt` indexed by
+the assembly, name and requested port type. Its `values` projection supplies
+the exact left and right closure with membership in the accumulated dispatch
+families. `LookupReceipt.values_left` and `values_right` identify these
+values with the original exports at the requested type.
+`LookupReceipt.checkImports` can certify equality when a client already
+has materialized imports.
+
+`LookupReceipt.entry.provider` retains the original
+`CheckedProviderReceipt`, including its typed `port`, full `outcomeL` and
+`outcomeR`, and `chain.checked.linkedL` and `linkedR`.
+`CheckedProviderReceipt.selectedL` and `selectedR` are singleton outcomes
+at that provider's own post-link stores. With a summary for `provider.fn`,
+use them as the indices of `Export actions summary` for the selected
+closure. The lookup supplies the indices and exact import values. The demand
+certificate still supplies the summary, static dispatch and common-store
+evidence. These projections read stored link results.
+
+`LookupReceipt.entry.traceL` and `traceR` are
+`AllocationHistory.Segment` witnesses with exact entry and exit stores.
+Use `AllocationHistory.Segment.reassemble` with the provider's own
+`chain.historyL` or `historyR` to recover the full trace. The witnesses
+cover certified links in disjoint allocation histories. Opaque allocations
+and shared ancestors are outside this interface.
+[Typed provider lookup](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/Isomorphism/RecursiveCall/Numbered/Admission/Prefix/Graph/Import/Allocation/Thms.lean)
+
 ### Synthesizing direct call resolution
 
 `Plan.lambdaDirect` and `Plan.finishDirect` construct the existing local

@@ -1,6 +1,6 @@
 module
 
-import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Reindex.Thms
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
 
@@ -255,5 +255,53 @@ example :
       (Sentence.eq (Institution.scope exitAccepted) (Institution.scope accepted))) :=
   fun satisfies => differs ((Institution.rtl_equation_at_iff exitAccepted accepted spin mem).mp
     ((Institution.rtl_room_equation_holds_iff exitAccepted accepted mem).mpr satisfies spin))
+
+private def swapCaptures : InputPermutation 3 := Equiv.swap 0 2
+private def swappedSource := reindexCaptures swapCaptures source
+private def swappedTargets : Checked.Phi.Targets := (lowerChecked swappedSource).get (by cbv)
+private theorem swappedAccepted : lowerChecked swappedSource = some swappedTargets := by cbv
+
+example : (swappedTargets.1.block? 0 0).map (·.ops) =
+    some [.binary .sub (.arg 6) (.arg 2) (.arg 0), .binary .add (.arg 7) (.arg 6) (.arg 1)] := by cbv
+example : (swappedTargets.1.block? 0 0).map (·.term) = some (.jump 1 [.arg 6, .arg 7, .arg 0]) := by cbv
+example : swappedTargets.1.block? 0 1 = targets.1.block? 0 1 := by cbv
+
+private def swappedInput := bank 5 2 6
+private def swappedSpin := bank 1 1 0
+
+example : swapCaptures.pull swappedInput = input := by cbv
+private theorem pullSpin : swapCaptures.pull swappedSpin = spin := by cbv
+example : swappedTargets.1.runMain 10 0 (words swappedInput) mem = .returned [7] mem := by cbv
+example : Generic.Fuel.run model (inputEnv model swappedInput) 2 swappedTargets.2 =
+    some (0, Generic.packResult model (out := word) (7 : Word)) := by cbv
+example : targets.1.runMain 7 0 (words swappedSpin) mem = .returned [3] mem := by cbv
+
+example :
+    Behavior.diverges ∈ Institution.rtlBehaviors swappedSpin mem swappedTargets.1 ∧
+      Observation.diverge mem ∈ ssaBeh 1
+        (inputModel (P := Rows.wordSignature) model Memory swappedSpin) (Institution.scope swappedAccepted) := by
+  have agree := observations_reindex swapCaptures accepted swappedAccepted swappedSpin mem
+  rw [pullSpin] at agree
+  have old := (Institution.room_diverges_iff accepted spin mem).mpr spinAbsent
+  exact ⟨agree.1 ▸ ((Institution.rtl_room_observation_iff accepted spin (.diverge mem)).mp old),
+    agree.2 ▸ old⟩
+
+private def swappedExitTargets : Checked.Phi.Targets :=
+  (lowerChecked (reindexCaptures swapCaptures exitAtSpin)).get (by cbv)
+
+private theorem swappedExitAccepted :
+    lowerChecked (reindexCaptures swapCaptures exitAtSpin) = some swappedExitTargets := by cbv
+
+example : swappedExitTargets.1.runMain 7 0 (words swappedSpin) mem = .returned [3] mem := by cbv
+
+example :
+    ¬ (Sentence.eq swappedExitTargets.1 swappedTargets.1).Holds
+      (Institution.rtlBehaviors swappedSpin mem) := by
+  have agrees := reindex_equation_at_iff swapCaptures exitAccepted accepted
+    swappedExitAccepted swappedAccepted swappedSpin mem
+  intro holds
+  have pulled := agrees.1.mp holds
+  rw [pullSpin] at pulled
+  exact differs pulled
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table

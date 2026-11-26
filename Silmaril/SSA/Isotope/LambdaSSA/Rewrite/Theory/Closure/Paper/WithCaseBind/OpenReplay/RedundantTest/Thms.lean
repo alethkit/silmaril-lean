@@ -21,6 +21,11 @@ local instance redundantTestHasTy : HasTy signature.Instr (Ty Empty) := signatur
 
 local notation "E" => Paper.Extension.Eqv Seed
 
+/-- Equal regions stay equal below the same ordered emit prefix. -/
+theorem prependEmits_congr {Γ L : List (Ty Empty)} {r s : Region signature.Instr}
+    (bits : List Bool) (h : E Γ r s L) : E Γ (prependEmits bits r) (prependEmits bits s) L :=
+  RedundantSelectedTest.prependEmits_congr bits h
+
 /-- The selected terminal executes its emits before entering the terminal on
 the original input, in the order of the supplied list. -/
 theorem terminal_prefix {X : Ty Empty} {L : List (Ty Empty)} {n : Nat}
@@ -66,5 +71,16 @@ arrows from the two-reply product to the same tagged exit interface. -/
 theorem packed_second_quote {L : List (Ty Empty)} (pos : Position L) (bits : List Bool) :
     packed (.ret (n := 2) bits pos 1) = packed (.retExpr bits pos (Finite.Expr.quote 2 (fun env => env 1))) :=
   RedundantSelectedTest.packed_second_quote pos bits
+
+/-- Constructor substitution of a tagged two-reply packet into a full
+quote reduces to the literal row at the given ordered position. -/
+theorem quoted_packet {Γ L : List (Ty Empty)} (pos : Position L) (table : Finite.Table 2)
+    (order : Fin 2 → Fin 2) (older newer : Bool) {u x y : Tm signature.Instr}
+    (hu : Tm.BranchValue Γ u unit) (hx : Tm.BranchValue Γ x unit) (hy : Tm.BranchValue Γ y unit) :
+    E Γ ((selectTerminal pos (Finite.Expr.quote 2 table) (readReply 2 ∘ order) []).elaborate.val.substVars
+      (Tm.singleSubst (.pair (.pair u (if older then .inr x else .inl x)) (if newer then .inr y else .inl y))))
+      (.let₁ .unit (.br pos.1 (if table (Fin.cases newer (fun _ => older) ∘ order)
+        then .inr (.var 0) else .inl (.var 0)))) L :=
+  RedundantSelectedTest.quoted_packet pos table order older newer hu hx hy
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.OpenReplay

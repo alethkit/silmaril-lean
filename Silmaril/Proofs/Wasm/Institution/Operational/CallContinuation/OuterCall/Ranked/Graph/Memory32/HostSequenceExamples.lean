@@ -968,7 +968,7 @@ private theorem nativeExit (kind : BranchKind) : Step (host kind) (cfg kind (atF
   have move := Step.frame (Step.pure (host := host kind) (live kind (firstBytes true)) active
     (.labelBranch 1 [] (scratch kind) (payload kind) [.source (.call nextSite.index)] (payloadCount kind))) 1 caller
   simpa only [cfg, atFunction, resultFrame, Sequence.render, Sequence.afterLabel, Sequence.context, Sequence.insert,
-    OpenLabel.results, List.head?_nil, Option.map_none, Option.getD_none, Execution.Runtime.EvalCtx.comp,
+    OpenLabel.labelArity, Execution.Runtime.EvalCtx.comp,
     Execution.Runtime.EvalCtx.plug, Memory32.render, values_append, List.append_assoc, List.singleton_append,
     expression, List.map_nil, List.append_nil] using! move
 
@@ -1022,14 +1022,16 @@ private abbrev allocation := allocationFor body
 private abbrev live := liveFor body
 private def scope : OpenLabel Nat := .loop savedPrefix (iteration target) tail
 
-private def host : HostSemantics Nat := fun id store operands answer =>
+private def hostForBody (region : Source Nat) : HostSemantics Nat := fun id store operands answer =>
   (id = first.target ∧ operands = rootArgs ∧
-    ((store = live initial.data ∧ answer = .returned (live (firstBytes false)) (.values [i32 1])) ∨
-      (store = live (firstBytes false) ∧
-        (answer = .returned (live (firstBytes true)) (.values [i32 0]) ∨
-          answer = .returned (live (firstBytes true)) .trap)))) ∨
-  (id = nextSite.target ∧ store = live (firstBytes true) ∧ operands = savedPrefix ++ rootArgs ∧
+    ((store = liveFor region initial.data ∧ answer = .returned (liveFor region (firstBytes false)) (.values [i32 1])) ∨
+      (store = liveFor region (firstBytes false) ∧
+        (answer = .returned (liveFor region (firstBytes true)) (.values [i32 0]) ∨
+          answer = .returned (liveFor region (firstBytes true)) .trap)))) ∨
+  (id = nextSite.target ∧ store = liveFor region (firstBytes true) ∧ operands = savedPrefix ++ rootArgs ∧
     answer = .returned store (.values [i32 (word true)]))
+
+private abbrev host := hostForBody body
 
 private theorem siteOf {site : HostCall.V1.Site Nat} (used : site ∈ entry.sourceSites body) :
     site = first ∨ site = nextSite := by
@@ -1044,9 +1046,11 @@ private theorem admitted : entry.Checked .fixed graph slot .ranked allocation ca
 
 private abbrev layout := layoutFor body
 
-private theorem contract : entry.Contract host .fixed slot initial allocation body := by
+private theorem contractForBody (region : Source Nat)
+    (sites : ∀ site ∈ entry.sourceSites region, site = first ∨ site = nextSite) :
+    entry.Contract (hostForBody region) .fixed slot initial (allocationFor region) region := by
   intro site used bytes _ operands _ after result outcome
-  have signature : site.signature.results = [.int .i32] := by rcases siteOf used with rfl | rfl <;> rfl
+  have signature : site.signature.results = [.int .i32] := by rcases sites site used with rfl | rfl <;> rfl
   rcases outcome with ⟨_, _, ⟨store, equal⟩ | ⟨store, equal | trap⟩⟩ | ⟨_, store, _, equal⟩
   · cases equal
     rw [store, signature]
@@ -1060,6 +1064,9 @@ private theorem contract : entry.Contract host .fixed slot initial allocation bo
   · cases equal
     rw [store, signature]
     exact ⟨rfl, firstBytes true, firstBytes true, rfl, rfl, rfl⟩
+
+private theorem contract : entry.Contract host .fixed slot initial allocation body :=
+  contractForBody body (fun _ => siteOf)
 
 private abbrev Runs := entry.Runs host .fixed graph slot allocation initial initial.data caller rootArgs
 private abbrev cfg := entry.render allocation slot initial initial.data caller rootArgs
@@ -1157,6 +1164,135 @@ private abbrev check := entry.checkSource (Prefix.stackTypes savedPrefix) branch
 
 example : check (region { target with depth := ⟨2⟩ }) = false := rfl
 example : check (region { target with results := [.int .i32] }) = false := rfl
+
+
+namespace ScalarLoop
+
+private def iteration (branch : ForwardBranch) : Source Nat :=
+  .hostsThen ⟨[.get ⟨0⟩, .get ⟨0⟩], first⟩ [] (test branch)
+private def tail : Source Nat := .hosts ⟨[], nextSite⟩ []
+private def body : Source Nat := .loopThen (iteration target) tail scalar
+private abbrev allocation := allocationFor body
+private abbrev live := liveFor body
+private abbrev host := hostForBody body
+private def scope : OpenLabel Nat := .loop savedPrefix (iteration target) tail scalar
+
+private theorem sites {site : HostCall.V1.Site Nat} (used : site ∈ entry.sourceSites body) :
+    site = first ∨ site = nextSite := by
+  change site ∈ [first, nextSite] at used
+  simpa using used
+
+private theorem admitted : entry.Checked .fixed graph slot .ranked allocation caller rootArgs body :=
+  admittedFor body (fun _ used => (sites used).imp id Or.inr) rfl (by
+    refine ⟨trivial, ?_⟩
+    intro _ used
+    cases used)
+
+private abbrev layout := layoutFor body
+private theorem contract : entry.Contract host .fixed slot initial allocation body :=
+  contractForBody body (fun _ => sites)
+
+private abbrev Runs := entry.Runs host .fixed graph slot allocation initial initial.data caller rootArgs
+private abbrev cfg := entry.render allocation slot initial initial.data caller rootArgs
+private def launch : Config Nat := ⟨live initial.data, caller, values rootArgs ++ [.source (.call ⟨0⟩)]⟩
+
+private theorem ready {phase : Phase} (run : Runs (.call body) phase) : entry.Ready .fixed graph slot .ranked initial phase body := by
+  induction run with
+  | refl => rfl
+  | tail _ step ih => exact step.ready rfl admitted layout rfl contract ih
+
+private theorem native {phase : Phase} (run : Runs (.call body) phase) : Steps host launch (cfg phase) :=
+  (Sequence.v1_call_run_iff rfl admitted layout trivial rfl contract).mpr ⟨phase, run, ready run, rfl⟩
+
+private def pending (bytes : ByteArray) : Phase := .pending bytes rootArgs rootArgs first [] [scope] (some (test target))
+
+private theorem entersIteration {bytes : ByteArray}
+    (run : Runs (.call body) (.loop bytes savedPrefix (iteration target) tail [] scalar)) :
+    Runs (.call body) (pending bytes) :=
+  (((run.tail .openLoop).tail (.numeric (.get rfl))).tail (.numeric (.get rfl))).tail (.hostResolve rfl)
+
+private theorem firstRun : Runs (.call body) (pending initial.data) :=
+  entersIteration ((Relation.ReflTransGen.single .resolve).tail .enter)
+
+private def selected : Phase := .branching (firstBytes false) rootArgs target [] [scope]
+
+private theorem takesBranch : Runs (.call body) selected := by
+  have returned : host first.target (live initial.data) rootArgs
+      (.returned (live (firstBytes false)) (.values [i32 1])) := .inl ⟨rfl, rfl, .inl ⟨rfl, rfl⟩⟩
+  have tests : Runs (.call body)
+      (.branchTest (firstBytes false) (rootArgs ++ [i32 1]) target (.plain []) [scope]) :=
+    firstRun.tail (.returned returned rfl)
+  exact tests.tail (.branchNonzero (condition := 1) (by decide))
+
+private def sourceLoop : Wasm.V1.Instr := .loop scalar (entry.sourceCode (iteration target))
+private def restart : Phase := .loop (firstBytes false) savedPrefix (iteration target) tail [] scalar
+
+-- Despite the scalar result and the i32 below the condition, the restarted
+-- label accepts zero values. The native successor reinstalls the source loop.
+private theorem nativeRestart : Step host (cfg selected) (cfg restart) :=
+  .frame (.label (.context (.pure _ _ (.labelBranch 0 [sourceLoop] rootArgs [] [] rfl))
+    savedPrefix (expression (entry.sourceCode tail))) 1 []) 1 caller
+
+example := (Sequence.v1_loop_restart_iff.mp nativeRestart)
+
+private theorem secondRun : Runs (.call body) (pending (firstBytes false)) :=
+  entersIteration (takesBranch.tail .restartLoop)
+
+example : Steps host launch ⟨live (firstBytes false), caller, [.frame 1 active [.label 1 []
+    (values savedPrefix ++ .label 0 [sourceLoop]
+      (values (rootArgs ++ rootArgs) ++ [.invoke first.address, .source (.brIf ⟨0⟩)]) ::
+      expression (entry.sourceCode tail))]]⟩ :=
+  native secondRun
+
+private def completed : Phase := .completed (firstBytes true) rootArgs scope []
+
+private theorem finishes : Runs (.call body) completed := by
+  have returned : host first.target (live (firstBytes false)) rootArgs
+      (.returned (live (firstBytes true)) (.values [i32 0])) := .inl ⟨rfl, rfl, .inr ⟨rfl, .inl rfl⟩⟩
+  have tests : Runs (.call body)
+      (.branchTest (firstBytes true) (rootArgs ++ [i32 0]) target (.plain []) [scope]) :=
+    secondRun.tail (.returned returned rfl)
+  exact tests.tail (.branchZero (saved := rootArgs))
+
+private def tailComputing : Phase := .computing (firstBytes true) (savedPrefix ++ rootArgs) [] nextSite []
+
+-- Normal completion of the same zero-arity label delivers one scalar
+-- above the saved outer operand and retains the live post-host store.
+private theorem nativeFallthrough : Step host (cfg completed) (cfg tailComputing) :=
+  .frame (.label (.context (.pure _ _ (.labelDone 0 [sourceLoop] rootArgs))
+    savedPrefix (expression (entry.sourceCode tail))) 1 []) 1 caller
+
+example := (Sequence.v1_loop_fallthrough_iff (ready finishes)).mp nativeFallthrough
+
+private theorem reachesTail :
+    Runs (.call body) (.pending (firstBytes true) [] (savedPrefix ++ rootArgs) nextSite []) := by
+  have resumed : Runs (.call body) tailComputing := finishes.tail (.closeLabel rfl)
+  exact resumed.tail (.hostResolve (saved := []) rfl)
+
+example : Steps host launch ⟨live (firstBytes true), caller, [.frame 1 active [.label 1 []
+    (values (savedPrefix ++ rootArgs) ++ [.invoke nextSite.address])]]⟩ :=
+  native reachesTail
+
+example : Steps host launch ⟨live (firstBytes true), caller, values [i32 (word true)]⟩ := by
+  have returned : host nextSite.target (live (firstBytes true)) (savedPrefix ++ rootArgs)
+      (.returned (live (firstBytes true)) (.values [i32 (word true)])) := .inr ⟨rfl, rfl, rfl, rfl⟩
+  have delivered := reachesTail.tail (.returned returned rfl)
+  exact native ((delivered.tail (.graph (.frame (.pure (.labelDone 1 [] [i32 (word true)])) 1 caller)))
+    |>.tail (.graph (.pure (.frameDone 1 active [i32 (word true)] rfl))))
+
+private abbrev check := entry.checkSource (Prefix.stackTypes savedPrefix) branchFn.declaration.results branchFn.entryLabels
+
+-- An i32 is available below the condition and is the declared result.
+-- The restart signature must still be empty.
+example : check (.loopThen (iteration { target with results := [.int .i32] }) tail scalar) = false := rfl
+
+-- The adjusted tail accepts an i64 result. The loop body supplies i32.
+private def i64Tail : Source Nat :=
+  .hosts ⟨[], { nextSite with signature.params := [.int .i64, .int .i64] }⟩ []
+
+example : check (.loopThen (iteration target) i64Tail (some (.int .i64))) = false := rfl
+
+end ScalarLoop
 
 end VoidLoop
 

@@ -285,29 +285,35 @@ since CPython can share a constant across literal sites.
 The opt-in `legacyTupleIdentitySeed` supplies the Boolean `___assertTrue`
 helper. The helper's receipt records `None` on success and
 `AssertionError(False)` on a false result. A failed callee or operand read
-preserves the reached heaps and prior receipts. In the unchanged
-`tuple-constructors.py`, lowering reaches the nonempty list argument at line 7.
-The exact four-statement prefix completes with the stock constructor and
+preserves the reached heaps and prior receipts. The exact four-statement
+prefix of `tuple-constructors.py` completes with the stock constructor and
 helper, including the positive identity on line 5. The tuple-chain regression
 checks the retained descriptor, exact helper receipts, rebound aliases,
 independent equal-content closed origins, and the canonical empty case.
 
 
-A checked `tuple([])` may be a direct module call or the first positional
-argument of a named module call. The shared constructor rule resolves the
-callee before allocating the empty list in the existing list heap. A
-noncallable mask keeps the reached list and reports `TypeError` before any
-later argument is evaluated. A missing callee leaves the list heap as it was.
-The stock descriptor returns the canonical empty tuple. Seeded execution
-retains the constructor receipt even if a later argument fails, then uses
-the existing ordered argument and outer-call path. Ordinary execution
-preserves its list heap across calls and retains any reached argument list
-when a present callee falls outside its explicit namespace profile.
+A checked stock `tuple` call can consume a new closed flat list
+display, either as a direct module call or as the first positional
+argument of a named module call. Each element is an exact integer or
+Boolean literal, or the singleton `None`. The constructor resolves the callee before it allocates
+the display. A present noncallable mask retains that allocation and
+reports `TypeError` before any later argument is evaluated. A missing
+callee leaves the list heap as it was.
 
-The five-statement prefix of `tuple-constructors.py` completes in both
-stock helper placements. Nonempty list conversion remains outside the
-checked source profile. The list heap currently records allocations and
-has no mutation rule for a snapshot comparison.
+Stock conversion reads the freshly allocated list at its address in the
+reached list heap. Empty contents return the canonical empty tuple.
+Nonempty contents create a fresh tuple in the closure heap with the
+same ordered scalar tags. The result is a tuple reference, and separate
+nonempty conversions have distinct addresses. This rule reads the fresh
+display immediately. The source profile leaves named lists and mutation
+out of this conversion. Seeded execution retains the constructor receipt
+and both reached heaps if a later operand fails. Ordinary execution
+retains any reached list on a mask in its explicit namespace.
+
+The six-statement prefix of `tuple-constructors.py` completes with stock
+tuple and the helper in either placement. The text conversion on line 8
+lowers and stops at dispatch. The tuple of text elements on line 9 is the
+first rejected source expression.
 
 A scalar comparison chain has at least two links. Every link uses one of
 `==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact

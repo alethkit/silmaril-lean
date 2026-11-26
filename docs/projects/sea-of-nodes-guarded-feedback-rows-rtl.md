@@ -360,7 +360,7 @@ evaluates entry outside its budget and needs `b + 1` header visits.
 [Checked regression][table-regression]
 
 ```lean
-import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Reindex.Thms
 
 open Silmaril.Isotope.Institution.Observational (Observation ssaBeh)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution.Fiber (inputModel)
@@ -449,6 +449,17 @@ example {targets : Checked.Phi.Targets} (accepted : Table.lowerChecked dependent
       (Table.Institution.scope accepted) ↔
     Behavior.diverges ∈ Table.Institution.rtlBehaviors (bank 0 1 1) initial targets.1 :=
   Table.Institution.rtl_room_observation_iff accepted (bank 0 1 1) (.diverge initial)
+
+#eval do
+  let swap : Rows.InputPermutation 3 := Equiv.swap 0 2
+  let (rtl, ssa) ← Table.lowerChecked (Table.reindexCaptures swap dependent)
+  let input := bank 5 2 6
+  let mem := Memory.ofList 4 [29, 71, 53, 11]
+  let machine := (rtl.runMain 10 0 (words input) mem).returnedValues?
+  let typed := (Generic.Fuel.run model (inputEnv model input) 2 ssa).bind fun (_, packet) =>
+    (Generic.Fuel.decodeArgs model [word] packet).map fun fields => Silmaril.SSA.RVSDG.Tuple.get fields .head
+  pure (machine.map (List.map BitVec.toInt), typed.map BitVec.toInt)
+-- some (some [7], some 7)
 ```
 
 The two results are `6 - 5 = 1` and `1 + 2 = 3`, so the bank enters as
@@ -550,6 +561,30 @@ emitted region diverges. [Checked regression][table-regression]
 These comparisons are at the concrete dependent-preheader word signature.
 `terminates_holds_iff` relates the native termination sentence to a
 nonempty return set at every typed input.
+
+### Permuting dependent-preheader captures
+
+`Table.reindexCaptures` uses the typed `Rows.InputPermutation` on external
+reads in the preheader producer table and the entry column. Earlier producer
+references, header bank slots and incoming occurrences retain their identity.
+`Table.initial_reindex` proves the whole entry latch commutes with
+`perm.pull`. `Table.denote_reindex` extends this to the native partial
+result of a recognized graph.
+
+Run the ordinary `Table.lowerChecked` on the mapped graph to re-emit both
+targets. Given both successful checks, `Table.observations_reindex` equates
+the actual RTL behaviour sets and full λSSA room observations at the
+corresponding valuations. This includes exact returns with unchanged memory
+and actual divergence. The theorem takes the new check as evidence. A proof
+that every permutation passes that check is outside the current API.
+
+`Table.reindex_equation_at_iff` compares each re-emitted equation at the
+pulled valuation. The all-input law covers every old valuation because
+`InputPermutation.pull_symm` supplies an inverse. In the regression,
+swapping captures 0 and 2 reverses the subtraction operands and redirects
+the entry limit. Input `(5, 2, 6)` now returns 7, and `(1, 1, 0)` reaches
+the fixed point on both targets. The original machine returns 3 at
+`(1, 1, 0)`. [Checked regression][table-regression]
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \

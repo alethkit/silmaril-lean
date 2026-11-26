@@ -31,6 +31,15 @@ inductive AllocationHistory (actions : Actions m σ) : List Nat → σ → σ �
       (ran : Executable.link actions unit graph inputs before = .linked values after) :
       AllocationHistory actions (unit :: units) start after
 
+/-- A contiguous segment of a certified trace. The segment's own history
+is supplied by its provider receipt. The surrounding histories fix its
+position and both exact store boundaries. -/
+def AllocationHistory.Segment (actions : Actions m σ) (whole units : List Nat)
+    (initial final entered exited : σ) : Prop :=
+  ∃ before after : List Nat,
+    whole = after ++ units ++ before ∧
+      AllocationHistory actions before initial entered ∧ AllocationHistory actions after exited final
+
 /-- The client allocates one global and exports the following λ. An
 optional empty φ before δ fixes the other supported numbering. -/
 structure AllocatingClient (Op : Dialect.{u, v} (ValueSort V S) S)

@@ -1,5 +1,7 @@
 module
 
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.MixedContinuation.Reverse.Thms
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.MixedContinuation.Reverse.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.MixedContinuation.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.PurePrefix.Thms
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.MixedContinuation.Defs
@@ -2055,7 +2057,7 @@ private theorem head_returns (coherent : Coherent) (pureFirst : Bool) :
   simp only [instruction, StateT.run_pure, Part.pure_eq_some, Part.map_some, Part.bind_some]
   rfl
 
-example (coherent : Coherent) (pureFirst : Bool) :
+private theorem linked_recovered_returns (coherent : Coherent) (pureFirst : Bool) :
     NestedTheta.Partial.observe (Translation.PureGamma.model (τ := Ty) (Φ := Op) (ε := Bool) (σ := Nat))
       (linkedRecovered pureFirst) (Translation.PureGamma.entry (selectLeft 0) (2 : Nat)) =
         Part.some (ExplicitRuntime.exitTuple (A := number)
@@ -2083,6 +2085,57 @@ example (coherent : Coherent) (pureFirst : Bool) :
     | _, _ => throw (IO.userError "the translated suffix did not receive the selected arm's data and token")
     unless (run (selectLeft 98)).isNone do
       throw (IO.userError "the ordered suffix returned after a blocked mixed child")
+
+namespace Pipeline
+
+open Translation.MixedContinuation.Reverse (Fibre candidate recover)
+
+example (coherent : Coherent) (order : Bool) (f : Fibre (linkedRecovered order)) :
+    (Region.denote (ε := Bool) (m := Runtime) f.fragment.typing
+      (PUnit.unit, selectLeft 0)).run 2 =
+      Part.some ((.inl (2780 : Nat) : LabelDen [number,number]), 27774) := by
+  have observed := f.region_observe coherent (PUnit.unit, selectLeft 0) 2
+  rw [linked_recovered_returns coherent order] at observed
+  exact (Translation.mapped_exit_iff _ _ _).mp observed.symm
+
+private theorem head_no_return (coherent : Coherent) (order : Bool) :
+    NestedTheta.Partial.observe (Translation.PureGamma.model (τ := Ty) (Φ := Op) (ε := Bool) (σ := Nat))
+      (headGraph order) (Translation.PureGamma.entry (selectLeft 98) (2 : Nat)) = Part.none := by
+  have loop := mixedLoop.region_observe order coherent (PUnit.unit, (98 : Nat)) 2
+  rw [flat_theta_no_return coherent, Part.map_none] at loop
+  unfold NestedTheta.Partial.observe at loop
+  unfold NestedTheta.Partial.observe headGraph
+  generalize (MixedThetaReverse.recoveredTheta order).checked = loopCheck
+  rw [NestedTheta.Term.toTerm_toGraph (headCode loopCheck).1]
+  simp only [headCode, NestedTheta.ExplicitRuntime.PurePrefix.gamma_denote]
+  change (((NestedTheta.ExplicitRuntime.PurePrefix.Splice.appendOrdered carrierBridge.2
+      loopCheck).1.denoteOpenWith Translation.PureGamma.model (point (98 : Nat) 2) PUnit.unit)).bind _ = _
+  rw [NestedTheta.ExplicitRuntime.PurePrefix.Splice.append_denote, loop]
+  simp only [Part.bind_eq_bind, Part.bind_none]
+
+example (coherent : Coherent) (order : Bool) (f : Fibre (linked order)) :
+    (Region.denote (ε := Bool) (m := Runtime) f.fragment.typing
+      (PUnit.unit, selectLeft 98)).run 2 = Part.none := by
+  apply (f.no_return_iff coherent (PUnit.unit, selectLeft 98) 2).mp
+  rw [linked, Translation.MixedContinuation.compile_observe, head_no_return coherent]
+  exact Part.bind_none _
+
+#eval show IO Unit from do
+  for order in [false, true] do
+    let graph := linked order
+    unless (recover graph).isSome && (recover (linkedRecovered order)).isSome do
+      throw (IO.userError "could not recover the flat pipeline from its numbered graph")
+    let bypass := (NestedTheta.Partial.Executable.run gammaActions graph 1
+      (Translation.PureGamma.entry (selectRight 1) (2 : Nat))).map fun r =>
+        (show (Nat ⊕ Nat) ⊕ Nat from r.get .head, show Nat from r.get (.tail .head))
+    match bypass with
+    | some (.inl (.inl 7), 2) => pure ()
+    | _ => throw (IO.userError "the completed carrier did not bypass the consumer action")
+    let stale := (staleContinuation graph.toTerm).toGraph
+    unless (candidate stale).isSome && (recover stale).isNone do
+      throw (IO.userError "the recovered whole pipeline accepted a stale suffix token")
+
+end Pipeline
 
 end CheckedContinuation
 

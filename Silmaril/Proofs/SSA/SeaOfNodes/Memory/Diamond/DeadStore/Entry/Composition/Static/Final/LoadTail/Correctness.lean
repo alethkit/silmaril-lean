@@ -25,29 +25,55 @@ open SeaOfNodes.Memory.MLIR.MemRef (observe lower_run)
 variable {args : List ValueSort} {cells : Nat}
 variable {facts : Certificate args} {input : Tuple (Val cells) args}
 
+private theorem checkTail_readers {past : List (List ValueSort)} {live : Nat}
+    {tail : Memory.Body args past live} {readers : List (Port args .address)}
+    (store : PrefixStore args) (valid : facts.Valid input)
+    (accepted : checkTail facts store tail = true) (listed : readPorts tail = some readers) :
+    ∀ reader ∈ readers, cell input store.address ≠ cell input reader := by
+  simp only [checkTail, listed, Bool.and_eq_true_iff] at accepted
+  obtain ⟨anchor, _, checked⟩ := accepted
+  have readersSafe := List.all_eq_true.mp checked
+  intro reader member
+  have covered := (Bool.and_eq_true_iff.mp (readersSafe reader member)).2
+  have matched : cell input store.address = cell input facts.observed :=
+    facts.matches_read (.arg store.address : Origin args [] .address) anchor input PUnit.unit
+  rw [matched]
+  exact facts.covers_read (.arg reader : Origin args [] .address) covered input PUnit.unit valid
+
+private theorem readPorts_safe {past : List (List ValueSort)} {live : Nat}
+    {tail : Memory.Body args past live} {readers : List (Port args .address)}
+    (store : PrefixStore args) (listed : readPorts tail = some readers)
+    (distinct : ∀ reader ∈ readers, cell input store.address ≠ cell input reader) :
+    Retained.Load.checkTail store input tail = true := by
+  induction tail generalizing readers with
+  | ret => rfl
+  | store => contradiction
+  | load _ address rest ih =>
+    cases address with
+    | output => contradiction
+    | arg reader =>
+      obtain ⟨remaining, checked, packed⟩ := Option.map_eq_some_iff.mp listed
+      cases packed
+      have first := distinct reader (List.mem_cons_self ..)
+      have next := ih checked (fun port member => distinct port (List.mem_cons_of_mem _ member))
+      simp [Retained.Load.checkTail, first, next]
+
 private theorem checkTail_safe {past : List (List ValueSort)} {live : Nat}
     (tail : Memory.Body args past live) (store : PrefixStore args)
     (safe : checkTail facts store tail = true) (valid : facts.Valid input) :
     Retained.Load.checkTail store input tail = true := by
-  cases tail with
-  | ret => contradiction
-  | store => contradiction
-  | load _ address rest =>
-    cases address with
-    | output => contradiction
-    | arg reader =>
-      cases rest with
-      | load => contradiction
-      | store => contradiction
-      | ret =>
-        obtain ⟨anchor, readerCheck⟩ := Bool.and_eq_true_iff.mp safe
-        have covered := (Bool.and_eq_true_iff.mp readerCheck).2
-        have matched : cell input store.address = cell input facts.observed :=
-          facts.matches_read (.arg store.address : Origin args [] .address) anchor input PUnit.unit
-        have distinct : cell input store.address ≠ cell input reader := by
-          rw [matched]
-          exact facts.covers_read (.arg reader : Origin args [] .address) covered input PUnit.unit valid
-        simp [Retained.Load.checkTail, distinct]
+  cases listed : readPorts tail with
+  | none => simp [checkTail, listed] at safe
+  | some readers => exact readPorts_safe store listed (checkTail_readers store valid safe listed)
+
+theorem checkTail_read_word {past : List (List ValueSort)} {live : Nat}
+    {tail : Memory.Body args past live} {readers : List (Port args .address)}
+    (store : PrefixStore args) (valid : facts.Valid input)
+    (accepted : checkTail facts store tail = true) (listed : readPorts tail = some readers)
+    (reader : Port args .address) (member : reader ∈ readers) (initial : Heap cells) :
+    ((store.table.denote input initial).2).read (cell input reader) = initial.read (cell input reader) :=
+  initial.read_write_other (cell input store.address) (cell input reader)
+    (input.get store.value) (checkTail_readers store valid accepted listed reader member).symm
 
 theorem checkTail_load_word {past : List (List ValueSort)} {live : Nat}
     {memory returnedMemory : MemoryInput live} {reader : Port args .address}
@@ -55,12 +81,8 @@ theorem checkTail_load_word {past : List (List ValueSort)} {live : Nat}
     (store : PrefixStore args) (valid : facts.Valid input)
     (accepted : checkTail facts store (.load memory (.arg reader) (.ret returnedMemory returned)) = true)
     (initial : Heap cells) :
-    ((store.table.denote input initial).2).read (cell input reader) = initial.read (cell input reader) := by
-  have safe := checkTail_safe _ store accepted valid
-  have distinct : cell input store.address ≠ cell input reader :=
-    of_decide_eq_true (Bool.and_eq_true_iff.mp safe).1
-  exact initial.read_write_other (cell input store.address) (cell input reader)
-    (input.get store.value) distinct.symm
+    ((store.table.denote input initial).2).read (cell input reader) = initial.read (cell input reader) :=
+  checkTail_read_word store valid accepted (show readPorts _ = some [reader] from rfl) reader (.head _) initial
 
 theorem cut_preserves {entry retained : Memory.Graph args} {version : Nat} {store : PrefixStore args}
     (accepted : cut facts version entry = some (store, retained)) (valid : facts.Valid input) (initial : Heap cells) :

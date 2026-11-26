@@ -4,9 +4,11 @@ import Silmaril.SSA.PEG.Bridge.Theta.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.Tuple.Thms
 import Silmaril.SSA.Peggy.Bridge.Theta.LambdaSSA.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Thms
+import Silmaril.SSA.PEG.Bridge.Theta.Region.MLIR.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Thms
 meta import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Defs
 meta import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Schedule.Defs
+meta import Silmaril.SSA.PEG.Bridge.Theta.Region.MLIR.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Defs
 
 namespace Silmaril.SSA.PEG.Bridge.Theta.Tests
@@ -432,6 +434,94 @@ example : (nativeEquation.map rename).native.Holds markedModel ↔
     (nativeEquation.map rename).peg.Holds markedModel :=
   Silmaril.Logic.Institution.Inst.CoHom.satisfaction (peggyToNative Unit) markedSignature
     (Discrete.mk markedModel) (nativeEquation.map rename)
+
+open Silmaril.MLIR.Arith (Env Width)
+
+private def wordProfile : Region.MLIR.Profile Unit where
+  countWidth := ⟨8, by decide⟩
+  dataWidth _ := ⟨16, by decide⟩
+
+private def wordOps : Silmaril.MLIR.Pure.Eval (Region.MLIR.Opcode wordProfile Op)
+  | _, _, .apply .pred, .cons n .nil => n - 1
+  | _, _, .apply .nonzero, .cons n .nil => BitVec.ofBool (n != 0)
+  | _, _, .apply .not, .cons flag .nil => ~~~flag
+  | _, _, .apply .add, .cons x (.cons y .nil) => x + y
+  | _, _, .apply .addAlt, .cons x (.cons y .nil) => x + y + 1
+
+private abbrev wordModel := Region.MLIR.model wordProfile wordOps
+private abbrev wordLoop := Region.MLIR.lower wordProfile bundle
+
+private def wordStore (n a b : Nat) : Env (wordProfile.widths carried) :=
+  .cons (BitVec.ofNat 8 n) (.cons (BitVec.ofNat 16 a) (.cons (BitVec.ofNat 16 b) .nil))
+
+private theorem bitNegation (flag : Bool) :
+    wordModel.run bundle.scalar.descriptor.negate (.cons ⟨flag⟩ .nil) = ⟨!flag⟩ := by
+  cases flag <;> rfl
+
+private def wordOpcodeName : {args : List Width} → {out : Width} →
+    Region.MLIR.Opcode wordProfile Op args out → String
+  | _, _, .apply .pred => "pred"
+  | _, _, .apply .nonzero => "nonzero"
+  | _, _, .apply .not => "not"
+  | _, _, .apply .add => "add"
+  | _, _, .apply .addAlt => "addAlt"
+
+private def opNames {Term : List Width → Type} : {Γ : List Width} →
+    Silmaril.MLIR.Pure.Code (Region.MLIR.Opcode wordProfile Op) Term Γ → List String
+  | _, .terminator _ => []
+  | _, .letOp op _ rest => wordOpcodeName op :: opNames rest
+
+private def branchesToBefore : {Γ : List Width} → Silmaril.MLIR.CF.Block
+    (Region.MLIR.Opcode wordProfile Op) (Silmaril.MLIR.SCF.Label wordLoop.State wordLoop.Payload)
+    Γ (wordProfile.widths carried) → Bool
+  | _, .terminator (.br ⟨.before, _⟩) => true
+  | _, .terminator _ => false
+  | _, .letOp _ _ rest => branchesToBefore rest
+
+-- Inspect the emitted regions and the actual typed CF latch.
+private def scfShape : Bool :=
+  opNames wordLoop.before == ["nonzero"] &&
+  opNames wordLoop.after == ["pred", "add"] &&
+  branchesToBefore (wordLoop.lower.block .after)
+
+example : scfShape = true := rfl
+
+example : wordLoop.run wordOps 2 (wordStore 2 10 1) = none := rfl
+example : wordLoop.run wordOps 3 (wordStore 2 10 1) = some (wordStore 0 11 12) := rfl
+example : wordLoop.lower.run wordOps 6 (wordStore 2 10 1) = none := rfl
+example : wordLoop.lower.run wordOps 7 (wordStore 2 10 1) = some (wordStore 0 11 12) := rfl
+
+-- Initially false: the update would decrement zero modulo 256, but the
+-- before region goes directly to the return with the old tuple.
+example : wordLoop.run wordOps 1 (wordStore 0 10 1) = some (wordStore 0 10 1) := rfl
+example : wordLoop.lower.run wordOps 3 (wordStore 0 10 1) = some (wordStore 0 10 1) := rfl
+
+-- The data primitive uses its actual i16 modular interpretation.
+example : wordLoop.run wordOps 2 (wordStore 1 65535 2) = some (wordStore 0 2 1) := rfl
+
+example (idx : Index 1) :
+    bundledGraph.observe wordModel.toPEG
+      (bundledGraph.denote wordModel.toPEG (wordProfile.decode carried (wordStore 2 10 1))
+        bundle.demandWellFounded) idx =
+      (wordProfile.decode carried (wordStore 0 11 12)).map (fun _ => some) :=
+  (Region.MLIR.cf_returns_iff_observe wordProfile wordOps bundle bitNegation _ _ idx).mp ⟨7, rfl⟩
+
+example (idx : Index 1) :
+    bundledGraph.observe wordModel.toPEG
+      (bundledGraph.denote wordModel.toPEG (wordProfile.decode carried (wordStore 0 10 1))
+        bundle.demandWellFounded) idx =
+      (wordProfile.decode carried (wordStore 0 10 1)).map (fun _ => some) :=
+  (Region.MLIR.returns_iff_observe wordProfile wordOps bundle bitNegation _ _ idx).mp ⟨1, rfl⟩
+
+private def unpackWords : Env (wordProfile.widths carried) → Nat × Nat × Nat
+  | .cons n (.cons x (.cons y .nil)) => (n.toNat, x.toNat, y.toNat)
+
+set_option interpreter.prefer_native false in
+/-- info: (true, some (0, 11, 12), some (0, 11, 12), some (0, 10, 1)) -/
+#guard_msgs in
+#eval (scfShape, (wordLoop.run wordOps 3 (wordStore 2 10 1)).map unpackWords,
+  (wordLoop.lower.run wordOps 7 (wordStore 2 10 1)).map unpackWords,
+  (wordLoop.lower.run wordOps 3 (wordStore 0 10 1)).map unpackWords)
 
 end Silmaril.SSA.PEG.Bridge.Theta.Region.Tests
 
