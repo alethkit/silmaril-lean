@@ -99,11 +99,16 @@ def projectPacket (mask : Mask regs) {F : Ty Data → Type w} :
     Tuple F (bodyPorts regs) → Tuple F (bodyPorts mask.kept)
   | .cons tag bank => .cons tag (mask.project bank)
 
+def routeProjectedWith (again : Port (dataPorts regs) (.value .predicate)) (mask : Mask regs)
+    {args : List (Ty Data)} {past : List (List (Ty Data))} (bank : Wires args past (dataPorts regs)) :
+    Term (Opcode Op) args past [bodyPorts regs] (bodyPorts mask.kept) :=
+  .bind (.ofBase (latchNodeFor again bank)) (fun i => i.elim0)
+    (.ret (projectPacket mask (lastBank past (bodyPorts regs))))
+
 def routeProjected (p : Program src entry) (mask : Mask regs) {args : List (Ty Data)}
     {past : List (List (Ty Data))} (bank : Wires args past (dataPorts regs)) :
     Term (Opcode Op) args past [bodyPorts regs] (bodyPorts mask.kept) :=
-  .bind (.ofBase (p.latchNode bank)) (fun i => i.elim0)
-    (.ret (projectPacket mask (lastBank past (bodyPorts regs))))
+  routeProjectedWith p.again mask bank
 
 /-- The smaller θ argument bank is expanded by the header producers.
 The γ regions and their selected merge column are reused verbatim. -/
@@ -112,12 +117,19 @@ def Checked.thetaBody :
   thenBase (lowerFlow checked.flow checked.outgoing) fun current =>
     p.afterHeader current (routeProjected p mask)
 
+/-- Bind the projected entry and feedback bank in θ and read the retained
+return slot of the stopping activation. -/
+def thetaThenReturn (mask : Mask regs) {sigs : List (List (Ty Data))} {past : List (List (Ty Data))}
+    (body : Term (Opcode Op) (dataPorts mask.kept) [] sigs (bodyPorts mask.kept))
+    (result : Port (dataPorts mask.kept) (.value out)) (bank : Wires (dataPorts regs) past (dataPorts regs)) :
+    Term (Opcode Op) (dataPorts regs) past [dataPorts mask.kept] [.value out] :=
+  .bind ⟨_, .theta (dataPorts mask.kept), mask.project bank, fun _ => sigs⟩
+    (fun _ => body) (.ret (.cons ((lastBank past (dataPorts mask.kept)).get result) .nil))
+
 def Checked.iterateThenReturn {past : List (List (Ty Data))}
     (bank : Wires (dataPorts regs) past (dataPorts regs)) :
     Term (Opcode Op) (dataPorts regs) past [dataPorts mask.kept] [.value out] :=
-  .bind ⟨_, .theta (dataPorts mask.kept), mask.project bank, fun _ => p.bodySigs⟩
-    (fun _ => checked.thetaBody)
-    (.ret (.cons ((lastBank past (dataPorts mask.kept)).get checked.result) .nil))
+  thetaThenReturn mask checked.thetaBody checked.result bank
 
 def Checked.lowerTerm :
     Term (Opcode Op) (dataPorts regs) [] ((src entry).body.producers ++ [dataPorts mask.kept]) [.value out] :=
