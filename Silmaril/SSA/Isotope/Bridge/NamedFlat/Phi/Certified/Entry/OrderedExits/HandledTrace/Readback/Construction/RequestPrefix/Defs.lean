@@ -10,31 +10,20 @@ namespace Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Rea
 
 open LambdaSSA (FiniteCFG Region Tm)
 open Silmaril.SSA.LambdaRTL (Val)
-open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link (Label)
 open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible
-  (Expr PacketType PrimitiveSignature Slot elaborateArg elaborateExpr readLabel)
+  (Branch Expr PacketType PrimitiveSignature Slot elaborateArg elaborateBranch)
 
 variable {F : Type} {exits blocks captures count : Nat} {Γ : List PacketType}
   {sig : PrimitiveSignature F} {packets : Fin blocks → PacketType} {outputs : Fin exits → PacketType}
 
-/-- A case leaf carries a structural packet at the exact type of its label. -/
-structure Jump (packets : Fin blocks → PacketType) (outputs : Fin exits → PacketType)
-    (Γ : List PacketType) where
-  label : Label blocks exits
-  packet : Expr Γ (Sum.elim packets outputs label)
-
-/-- The two arms bind their own payload types and independently target
-an old block or an ordered outward exit. -/
-structure CaseTail (packets : Fin blocks → PacketType) (outputs : Fin exits → PacketType)
-    (Γ : List PacketType) where
-  leftType : PacketType
-  rightType : PacketType
-  test : Expr Γ (.coprod leftType rightType)
-  left : Jump packets outputs (leftType :: Γ)
-  right : Jump packets outputs (rightType :: Γ)
+/-- A finite tree of structural sum cases and literal, typed jumps in the
+public branch grammar. The leaves target old blocks or ordered exits. -/
+abbrev CaseTail (packets : Fin blocks → PacketType) (outputs : Fin exits → PacketType)
+    (Γ : List PacketType) :=
+  Branch (Sum.elim packets outputs) Γ
 
 /-- Each request extends the scope with exactly its typed reply. The tail
-supplies a structural packet directly or selects between two typed jump leaves. -/
+supplies a structural packet directly or selects through a typed branch tree. -/
 inductive Row (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) : List PacketType → Type
   | exit {Γ : List PacketType} (port : Fin exits) (value : Expr Γ (outputs port)) : Row sig packets outputs Γ
@@ -61,30 +50,19 @@ def operand (atSlot : Positions Γ) : {ty : PacketType} → Expr Γ ty → Tm F
   | _, .unit => .unit
   | _, .pair x y => .pair (operand atSlot x) (operand atSlot y)
 
-def Jump.erase {newBlocks : Nat} (old : Fin blocks → Fin newBlocks)
-    (layout : Positions Γ) (leaf : Jump packets outputs Γ) : Region F :=
-  .br (Sum.elim (fun i => (old i).val) (fun port => newBlocks + port.val) leaf.label)
-    (operand layout leaf.packet)
-
-def CaseTail.erase {newBlocks : Nat} (old : Fin blocks → Fin newBlocks)
-    (layout : Positions Γ) (tail : CaseTail packets outputs Γ) : Region F :=
-  .case (operand layout tail.test) (tail.left.erase old (bindPosition layout))
-    (tail.right.erase old (bindPosition layout))
+def CaseTail.erase {newBlocks : Nat} (old : Fin blocks → Fin newBlocks) :
+    {Γ : List PacketType} → Positions Γ → CaseTail packets outputs Γ → Region F
+  | _, layout, .jump label packet =>
+    .br (Sum.elim (fun i => (old i).val) (fun port => newBlocks + port.val) label) (operand layout packet)
+  | _, layout, .case test left right =>
+    .case (operand layout test) (CaseTail.erase old (bindPosition layout) left)
+      (CaseTail.erase old (bindPosition layout) right)
 
 def Row.erase : {Γ : List PacketType} → Row sig packets outputs Γ → Region F
   | _, .exit i value => .br (blocks + i.val) (operand position value)
   | _, .jump i value => .br i.val (operand position value)
-  | _, .branch tail => tail.erase id position
+  | _, .branch tail => CaseTail.erase id position tail
   | _, .request op arg tail => .let₁ (.op op (operand position arg)) tail.erase
-
-/-- Read only literal jumps at case leaves, with packet type determined by
-the existing positional label reader. -/
-def readJump (packets : Fin blocks → PacketType) (outputs : Fin exits → PacketType)
-    (Γ : List PacketType) : Region F → Option (Jump packets outputs Γ)
-  | .br index value => do
-    let label ← readLabel blocks exits index
-    return ⟨label, ← elaborateArg Γ (Sum.elim packets outputs label) value⟩
-  | _ => none
 
 /-- Read structural operands with the existing public expression elaborator. -/
 def readRow (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType) (outputs : Fin exits → PacketType) :
@@ -97,11 +75,8 @@ def readRow (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType) (
       let port : Fin exits := ⟨label - blocks, h⟩
       return .exit port (← elaborateArg Γ (outputs port) value)
     else none
-  | Γ, .case test left right => do
-    let ⟨.coprod a b, discr⟩ ← elaborateExpr Γ test | none
-    let left ← readJump packets outputs (a :: Γ) left
-    let right ← readJump packets outputs (b :: Γ) right
-    return .branch ⟨a, b, discr, left, right⟩
+  | Γ, .case test left right =>
+    (elaborateBranch (Sum.elim packets outputs) Γ (.case test left right)).map Row.branch
   | Γ, .let₁ (.op op arg) tail => do
     return .request op (← elaborateArg Γ (sig.argument op) arg)
       (← readRow sig packets outputs (sig.reply op :: Γ) tail)
@@ -160,7 +135,7 @@ def Row.cells {newBlocks : Nat} (old : Fin blocks → Fin newBlocks) :
   | _, .jump target value, frame, _, _ =>
     (frame.packet, frame.unpack 0 (.br (old target).val (operand (frame.position 0) value)))
   | _, .branch tail, frame, _, _ =>
-    (frame.packet, frame.unpack 0 (tail.erase old (frame.position 0)))
+    (frame.packet, frame.unpack 0 (CaseTail.erase old (frame.position 0) tail))
   | _, .request op arg tail, frame, labels, i =>
     Fin.cases
       (frame.packet, frame.unpack 0 (.let₁ (.op op (operand (frame.position 0) arg))
@@ -277,21 +252,20 @@ def Frame.load : {Γ : List PacketType} → Frame Γ → Values Γ α → Env α
     let older : Values _ α := fun slot => values (.there slot)
     prev.load older (extend (extend env (prev.pack older)) (values .here))
 
-def Jump.transfer (leaf : Jump packets outputs Γ) (values : Values Γ α) :
-    Transfer α ⊕ BlockInput α blocks :=
-  let value := evalOperand values leaf.packet
-  match leaf.label with
-  | .inl target => .inr (target, value)
-  | .inr port => .inl (port.val, value)
-
-/-- Interpret the structural case on its actual payload. The raw evaluator
-can still diverge if supplied a malformed value for the sum. -/
-def CaseTail.run (tail : CaseTail packets outputs Γ) (values : Values Γ α) :
-    Tree E (Transfer α ⊕ BlockInput α blocks) :=
-  match evalOperand values tail.test with
-  | .inl value => pure (tail.left.transfer (bindReply values value))
-  | .inr value => pure (tail.right.transfer (bindReply values value))
-  | _ => diverge
+/-- Interpret a pure tail using the payload of each selected case. The raw
+evaluator diverges on an ill-shaped sum just as the flat evaluator does. -/
+def CaseTail.run :
+    {Γ : List PacketType} → Values Γ α → CaseTail packets outputs Γ → Tree E (Transfer α ⊕ BlockInput α blocks)
+  | _, values, .jump label packet =>
+    let value := evalOperand values packet
+    match label with
+    | .inl target => pure (.inr (target, value))
+    | .inr port => pure (.inl (port.val, value))
+  | _, values, .case test left right =>
+    match evalOperand values test with
+    | .inl payload => CaseTail.run (bindReply values payload) left
+    | .inr payload => CaseTail.run (bindReply values payload) right
+    | _ => diverge
 
 /-- The finite row semantics uses the same primitive trees as the flat
 evaluator. It returns either the relative ordered exit or an old block transfer. -/
@@ -299,7 +273,7 @@ def Row.run (instr : Primitive E F α) :
     {Γ : List PacketType} → Row sig packets outputs Γ → Values Γ α → Tree E (Transfer α ⊕ BlockInput α blocks)
   | _, .exit port value, values => pure (.inl (port.val, evalOperand values value))
   | _, .jump target value, values => pure (.inr (target, evalOperand values value))
-  | _, .branch tail, values => tail.run values
+  | _, .branch tail, values => CaseTail.run values tail
   | _, .request op arg tail, values =>
     instr op (evalOperand values arg) >>= fun reply => tail.run instr (bindReply values reply)
 
