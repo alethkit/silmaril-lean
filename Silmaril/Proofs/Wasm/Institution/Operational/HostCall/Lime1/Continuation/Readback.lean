@@ -115,6 +115,16 @@ private theorem branch_read {stack : List Value} {depth : LabelIdx} {ops : List 
           simp only [render, Phase.renderCode, Phase.renderIn, scopeFor, framed,
             code, expr, Op.instr, expression, List.map_cons, values_append, List.append_assoc, List.singleton_append]⟩
 
+private theorem i32_suffix {stack : List Value} {types : List NumType}
+    (typed : stack.map Value.type = types ++ [.int .i32]) :
+    ∃ (operands : List Value) (test : BitVec 32), stack = operands ++ [Value.int .i32 test] ∧ operands.map Value.type = types := by
+  obtain ⟨operands, suffix, rfl, operandsTyped, testTyped⟩ := List.map_eq_append_iff.mp typed
+  obtain ⟨v, rest, rfl, vt, testEmpty⟩ := List.map_eq_cons_iff.mp testTyped
+  obtain rfl := List.map_eq_nil_iff.mp testEmpty
+  rcases v with ⟨type, bits⟩
+  cases vt
+  exact ⟨operands, bits, rfl, operandsTyped⟩
+
 private theorem source_read {stack : List Value} {ops : List (Op H)}
     (ready : Ready mem host active results (.source stack ops) labels)
     (move : Internal (render mem outer active results ⟨bytes, .source stack ops, labels⟩) dst) :
@@ -167,11 +177,7 @@ private theorem source_read {stack : List Value} {ops : List (Op H)}
     | br depth => exact (branch ⟨depth, rfl⟩).elim
     | brIf depth =>
       obtain ⟨_, _, typed, _, _⟩ := checked_brIf ready.2.1
-      obtain ⟨operands, test, rfl, _, testTyped⟩ := List.map_eq_append_iff.mp typed
-      obtain ⟨v, rem, rfl, vt, testEmpty⟩ := List.map_eq_cons_iff.mp testTyped
-      obtain rfl := List.map_eq_nil_iff.mp testEmpty
-      rcases v with ⟨vt', guard⟩
-      cases vt
+      obtain ⟨operands, guard, rfl, _⟩ := i32_suffix typed
       have taken := (Computed.lime_br_if_iff (saved := operands) (condition := guard)
         (depth := depth) (rest := code ops)).mp inside
       refine ⟨_, .brIf, ?_⟩
@@ -180,14 +186,16 @@ private theorem source_read {stack : List Value} {ops : List (Op H)}
       · simp only [render, Phase.renderCode, Phase.renderIn, ite_eq_left zero, List.append_nil]
       · simp only [render, Phase.renderCode, Phase.renderIn, Phase.branch, code, expr, Op.instr, expression,
           List.map_cons, ite_eq_right zero, List.append_assoc, List.singleton_append]
+    | brTable depths fallback =>
+      obtain ⟨_, _, typed, _, _⟩ := checked_brTable ready.2.1
+      obtain ⟨operands, selector, rfl, _⟩ := i32_suffix typed
+      obtain rfl := (Computed.lime_br_table_iff (saved := operands) (selector := selector)
+        (depths := depths) (fallback := fallback) (rest := code ops)).mp inside
+      exact ⟨_, .brTable, rfl⟩
     | if_ type left right =>
       obtain ⟨_, typed, _, _, _, _⟩ := checked_if ready.2.1
-      obtain ⟨operands, test, rfl, operandsTyped, guardTyped⟩ := List.map_eq_append_iff.mp typed
+      obtain ⟨operands, guard, rfl, operandsTyped⟩ := i32_suffix typed
       obtain ⟨saved, args, rfl, _, argsTyped⟩ := List.map_eq_append_iff.mp operandsTyped
-      obtain ⟨v, rem, rfl, vt, testEmpty⟩ := List.map_eq_cons_iff.mp guardTyped
-      obtain rfl := List.map_eq_nil_iff.mp testEmpty
-      rcases v with ⟨vt', guard⟩
-      cases vt
       have taken := (Computed.lime_if_iff (saved := saved ++ args) (condition := guard) (bt := type.blockType)
         (thenBody := expr left) (elseBody := expr right) (rest := code ops)).mp inside
       refine ⟨⟨bytes, .block ⟨type, saved, ops⟩ args (select guard left right), labels⟩, .if_ argsTyped, ?_⟩
@@ -329,6 +337,10 @@ private theorem sound {a b : State H} (ready : Ready mem host active results a.p
         List.map_cons, ite_eq_left zero, List.append_nil] using move
     · simpa only [render, Phase.renderCode, Phase.renderIn, Phase.branch, code, expr, Op.instr, expression,
         List.map_cons, ite_eq_right zero, List.append_assoc, List.singleton_append] using move
+  | @brTable bytes stack selector depths fallback ops labels =>
+    have branch := (Computed.lime_br_table_iff (s := mem.store bytes) (f := active)
+      (saved := stack) (selector := selector) (depths := depths) (fallback := fallback) (rest := code ops)).mpr rfl
+    exact Step.of_internal (framed_step (.label branch (labelResults results labels).length []))
   | @branchLower bytes stack depth ops label labels positive =>
     have lower : Step host ⟨mem.store bytes, active, [.label label.type.signature.results.length []
         (values stack ++ .source (.br depth) :: code ops)]⟩

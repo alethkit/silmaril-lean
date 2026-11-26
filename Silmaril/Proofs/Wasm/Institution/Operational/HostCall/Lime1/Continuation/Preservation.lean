@@ -49,6 +49,15 @@ theorem checked_brIf {depth : LabelIdx}
   cases h with
   | brIf target tail => exact ⟨_, _, rfl, target, tail⟩
 
+theorem checked_brTable {depths : List LabelIdx} {fallback : LabelIdx}
+    (h : Checked base active.module (active.locals.map Value.type) targets results types
+      (.brTable depths fallback :: ops)) :
+    ∃ scratch payload, types = (scratch ++ payload) ++ [.int .i32] ∧
+      (∀ depth ∈ depths, targets[depth.toNat]? = some payload) ∧
+      targets[fallback.toNat]? = some payload := by
+  cases h with
+  | brTable listed defaultTarget => exact ⟨_, _, rfl, listed, defaultTarget⟩
+
 theorem checked_if {type : IfType} {left right : List (Op H)}
     (h : Checked base active.module (active.locals.map Value.type) targets results types (.if_ type left right :: ops)) :
     ∃ saved, types = (saved ++ type.signature.params) ++ [.int .i32] ∧ type.Resolved active.module ∧
@@ -59,9 +68,8 @@ theorem checked_if {type : IfType} {left right : List (Op H)}
   | if_ resolved left right tail => exact ⟨_, rfl, resolved, left, right, tail⟩
 
 private theorem contract_tail {op : Op H} (contract : Contract mem host (op :: ops))
-    (notBranch : ∀ depth, op ≠ .br depth) : Contract mem host ops := by
-  cases contract <;> try assumption
-  exact (notBranch _ rfl).elim
+    (continues : match op with | .br _ | .brTable .. => False | _ => True) : Contract mem host ops := by
+  cases contract <;> first | assumption | exact False.elim continues
 
 private theorem contract_call (contract : Contract mem host (.call index site :: ops)) : site.Contract mem host := by
   cases contract with
@@ -77,19 +85,28 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
     obtain ⟨type, lookup, tail⟩ := checked_get ready.2.1
     rw [List.getElem?_map, found] at lookup
     cases lookup
-    exact ⟨ready.1, by simpa only [List.map_append, List.map_cons, List.map_nil] using tail, contract_tail ready.2.2 (by simp)⟩
+    exact ⟨ready.1, by simpa only [List.map_append, List.map_cons, List.map_nil] using tail, contract_tail ready.2.2 trivial⟩
   | drop =>
     obtain ⟨_, _, split, tail⟩ := checked_drop ready.2.1
     simp only [List.map_append, List.map_cons, List.map_nil] at split
     have same := (List.append_inj' split rfl).1
-    exact ⟨ready.1, same ▸ tail, contract_tail ready.2.2 (by simp)⟩
+    exact ⟨ready.1, same ▸ tail, contract_tail ready.2.2 trivial⟩
   | brIf =>
     obtain ⟨scratch, payload, stackEq, target, tail⟩ := checked_brIf ready.2.1
     simp only [List.map_append, List.map_cons, List.map_nil, Value.int] at stackEq
     have operands := List.append_cancel_right stackEq
     split
-    · exact ⟨ready.1, operands.symm ▸ tail, contract_tail ready.2.2 (by simp)⟩
+    · exact ⟨ready.1, operands.symm ▸ tail, contract_tail ready.2.2 trivial⟩
     · exact ⟨ready.1, operands.symm ▸ Checked.br target, .br⟩
+  | @brTable bytes stack selector depths fallback ops labels =>
+    obtain ⟨scratch, payload, stackEq, listed, defaultTarget⟩ := checked_brTable ready.2.1
+    simp only [List.map_append, List.map_cons, List.map_nil, Value.int] at stackEq
+    have operands := List.append_cancel_right stackEq
+    have selected : (targetTypes results labels)[(depths[selector.toNat]?.getD fallback).toNat]? = some payload := by
+      cases found : depths[selector.toNat]? with
+      | none => exact defaultTarget
+      | some depth => exact listed depth (List.mem_of_getElem? found)
+    exact ⟨ready.1, operands.symm ▸ Checked.br selected, .br⟩
   | @branchLower bytes stack depth ops label labels positive =>
     obtain ⟨scratch, payload, typed, target⟩ := checked_br ready.2.1
     cases ready.1 with
@@ -139,7 +156,7 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
     simp only [List.map_append] at split
     rw [show _ = _ from typed] at split
     have same := List.append_cancel_right split
-    exact ⟨ready.1, allocated, typed, contract_call ready.2.2, same ▸ tail, contract_tail ready.2.2 (by simp)⟩
+    exact ⟨ready.1, allocated, typed, contract_call ready.2.2, same ▸ tail, contract_tail ready.2.2 trivial⟩
   | returned _ typed _ =>
     refine ⟨ready.1, ?_, ready.2.2.2.2.2⟩
     simpa only [List.map_append, show _ = _ from typed] using ready.2.2.2.2.1

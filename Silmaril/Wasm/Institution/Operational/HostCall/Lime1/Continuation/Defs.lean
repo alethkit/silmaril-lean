@@ -37,6 +37,7 @@ inductive Op (H : Type) where
   | call (index : FuncIdx) (site : Site H)
   | br (depth : LabelIdx)
   | brIf (depth : LabelIdx)
+  | brTable (depths : List LabelIdx) (fallback : LabelIdx)
   | if_ (type : IfType) (thenArm elseArm : List (Op H))
 
 mutual
@@ -46,6 +47,7 @@ def Op.instr {H : Type} : Op H → Wasm.Lime1.Instr
   | .call index _ => .call index
   | .br depth => .br depth
   | .brIf depth => .brIf depth
+  | .brTable depths fallback => .brTable depths fallback
   | .if_ type left right => .if_ type.blockType (expr left) (expr right)
 
 def expr {H : Type} : List (Op H) → Wasm.Lime1.Expr
@@ -79,6 +81,14 @@ inductive Checked {H : Type} (base : Store H) (module : ModuleInst)
       (target : targets[depth.toNat]? = some payload)
       (tail : Checked base module locals targets results (scratch ++ payload) ops) :
       Checked base module locals targets results ((scratch ++ payload) ++ [.int .i32]) (.brIf depth :: ops)
+  /-- Every depth must deliver the same ordered payload, including depths
+  the runtime selector does not choose. -/
+  | brTable {targets} {depths : List LabelIdx} {fallback : LabelIdx}
+      {results scratch payload : List NumType} {ops : List (Op H)}
+      (listed : ∀ depth ∈ depths, targets[depth.toNat]? = some payload)
+      (defaultTarget : targets[fallback.toNat]? = some payload) :
+      Checked base module locals targets results ((scratch ++ payload) ++ [.int .i32])
+        (.brTable depths fallback :: ops)
   | if_ {targets} {results saved : List NumType} {type : IfType} {left right ops : List (Op H)}
       (resolved : type.Resolved module)
       (thenArm : Checked base module locals (type.signature.results :: targets)
@@ -98,6 +108,7 @@ inductive Contract {H : Type} {base : Store H} (mem : Memory32 base) (host : Hos
       Contract mem host (.call index site :: ops)
   | br {depth ops} : Contract mem host (.br depth :: ops)
   | brIf {depth ops} (tail : Contract mem host ops) : Contract mem host (.brIf depth :: ops)
+  | brTable {depths fallback ops} : Contract mem host (.brTable depths fallback :: ops)
   | if_ {type left right ops} (thenArm : Contract mem host left) (elseArm : Contract mem host right)
       (tail : Contract mem host ops) : Contract mem host (.if_ type left right :: ops)
 
@@ -227,6 +238,10 @@ inductive Edge {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSem
   | brIf {bytes stack guard depth ops labels} :
       Edge mem host active results ⟨bytes, .source (stack ++ [Value.int .i32 guard]) (.brIf depth :: ops), labels⟩
         ⟨bytes, if guard = 0 then .source stack ops else .branch stack depth ops, labels⟩
+  | brTable {bytes stack selector depths fallback ops labels} :
+      Edge mem host active results
+        ⟨bytes, .source (stack ++ [Value.int .i32 selector]) (.brTable depths fallback :: ops), labels⟩
+        ⟨bytes, .branch stack (depths[selector.toNat]?.getD fallback) ops, labels⟩
   | branchLower {bytes stack depth ops label labels} (positive : 0 < depth.toNat) :
       Edge mem host active results ⟨bytes, .branch stack depth ops, label :: labels⟩
         ⟨bytes, .branch (label.saved ++ stack) (lowerLabel depth) label.tail, labels⟩
