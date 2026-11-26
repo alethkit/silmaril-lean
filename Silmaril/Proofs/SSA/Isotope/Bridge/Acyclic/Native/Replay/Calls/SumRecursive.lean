@@ -81,6 +81,20 @@ private theorem replay_let {Γ : VCtx (Ty α)} {A D : Ty α} {a b : Tm Φ} {p q 
   rw [append_return] at composed
   exact ⟨s, paths, scheduled, (unary pe (.fuse ha hb)).symm.trans (composed.trans done)⟩
 
+private theorem replay_let₂ {Γ : VCtx (Ty α)} {A B D : Ty α} {a b : Tm Φ} {p q : Region Φ}
+    {before after : List (List Φ × Nat)}
+    (ha : Tm.HasType Γ a (product A B)) (hb : Tm.HasType (B :: A :: Γ) b D)
+    (hp : Schedule Γ p [product A B] before) (hq : Schedule (B :: A :: Γ) q [D] after)
+    (ep : Continuation.Eqv pe Γ (returnOnce a) p [product A B])
+    (eq : Continuation.Eqv pe (B :: A :: Γ) (returnOnce b) q [D]) :
+    ∃ s paths, Schedule Γ s [D] paths ∧ Continuation.Eqv pe Γ (returnOnce (.let₂ a b)) s [D] := by
+  have unpack : Schedule (product A B :: Γ) (ProductBind.unpack q) [D] after :=
+    .unpackVar (slot := 0) rfl (Continuation.rename_schedule hq (((Ren.wk Γ (product A B)).lift A).lift B))
+  have replay := ProductBind.bind_replay_with (seed := Continuation.Seed pe)
+    (fun e => .inl (.inl (.inr e))) ha hp.valueBranches ep eq
+  obtain ⟨s, paths, scheduled, _, done⟩ := splice_schedule_proof (pe := pe) hp unpack rfl
+  exact ⟨s, paths, scheduled, (Continuation.split_let₂ ha hb).trans (replay.trans done)⟩
+
 private theorem replay_pair {Γ : VCtx (Ty α)} {A B : Ty α} {a b : Tm Φ} {p q : Region Φ}
     {before after : List (List Φ × Nat)}
     (ha : Tm.HasType Γ a A) (hb : Tm.HasType Γ b B)
@@ -173,7 +187,11 @@ theorem normalize_proof {n : Nat} {β : BoundCtx (Ty α) n} {t : LetCase.Locally
     obtain ⟨_, _, hr, er⟩ := ihr shape.2.2
     exact replay_case pe (erase_hasType e.toHasType) (erase_hasType l.toHasType) (erase_hasType r.toHasType)
       he hl hr ee el er
-  | let₂ | abort => exact shape.elim
+  | let₂ a b iha ihb =>
+    obtain ⟨_, _, ha, ea⟩ := iha shape.1
+    obtain ⟨_, _, hb, eb⟩ := ihb shape.2
+    exact replay_let₂ pe (erase_hasType a.toHasType) (erase_hasType b.toHasType) ha hb ea eb
+  | abort => exact shape.elim
 
 private theorem singleton_labels {D : Ty α} {L : LCtx (Ty α)} {i : Nat} (out : At L i D) :
     Ren [D] L (fun _ => i) :=
@@ -218,7 +236,11 @@ private theorem reify {n : Nat} {β : BoundCtx (Ty α) n}
     have split := Continuation.split_return (pe := pe) he (erase_hasType dl.toHasType) (erase_hasType dr.toHasType)
     exact (split.renameLabels (singleton_labels out)).trans
       (Extension.Eqv.case he (ihl shape.2.1 out) (ihr shape.2.2 out))
-  | let₂ | abort => exact shape.elim
+  | let₂ da db _ ihb =>
+    have ha := erase_hasType da.toHasType
+    have split := Continuation.split_let₂ (pe := pe) ha (erase_hasType db.toHasType)
+    exact (split.renameLabels (singleton_labels out)).trans (Extension.Eqv.let₂ ha (ihb shape.2 out))
+  | abort => exact shape.elim
   | bv => exact reflexive_return pe .bv out
   | unit => exact reflexive_return pe .unit out
   | op a _ => exact reflexive_return pe (.op a) out

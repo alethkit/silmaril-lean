@@ -17,13 +17,16 @@ universe u v w
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
-/-- Expose a returned case as a region case at its singleton result
-interface. The discriminator and both arms can have effects. -/
+/-- Expose a returned case or product destructure as a region binder at the
+same singleton result interface. The operands can have effects. -/
 inductive ReturnStep : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop where
   | split {Γ : VCtx τ} {A B D : τ} {e l r : Tm Φ}
       (he : Tm.HasType Γ e (coprod A B)) (hl : Tm.HasType (A :: Γ) l D)
       (hr : Tm.HasType (B :: Γ) r D) :
       ReturnStep Γ (returnOnce (.case e l r)) (.case e (returnOnce l) (returnOnce r)) [D]
+  | splitPair {Γ : VCtx τ} {A B D : τ} {a b : Tm Φ}
+      (ha : Tm.HasType Γ a (product A B)) (hb : Tm.HasType (B :: A :: Γ) b D) :
+      ReturnStep Γ (returnOnce (.let₂ a b)) (.let₂ a (returnOnce b)) [D]
 
 abbrev Seed {ε : Type w} [HasEff Φ ε] (pe : ε)
     (Γ : VCtx τ) (p q : Region Φ) (L : LCtx τ) : Prop :=

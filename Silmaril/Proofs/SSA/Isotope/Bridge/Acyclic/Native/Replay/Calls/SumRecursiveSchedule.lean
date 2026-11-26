@@ -53,6 +53,19 @@ private theorem specialize_arm (p : Region Φ) (θ : Nat → Tm Φ) (a : Tm Φ) 
     rw [Tm.subst_rename]
     exact Tm.subst_var _
 
+private theorem specialize_fields (p : Region Φ) (θ : Nat → Tm Φ) (a b : Tm Φ) :
+    (p.substVars (Tm.liftSubst (Tm.liftSubst θ))).substVars (Tm.consSubst b (Tm.singleSubst a)) =
+      p.substVars (Tm.consSubst b (Tm.consSubst a θ)) := by
+  rw [Region.substVars_comp]
+  congr 1
+  funext i
+  match i with
+  | 0 | 1 => rfl
+  | j + 2 =>
+    change (((θ j).rename Nat.succ).rename Nat.succ).subst (Tm.consSubst b (Tm.singleSubst a)) = θ j
+    rw [Tm.subst_rename, Tm.subst_rename]
+    exact Tm.subst_var _
+
 private theorem specialize_schedule (h : Schedule Γ p L paths)
     (typed : ∀ ⦃i T⦄, At Γ i T → Tm.BranchValue Δ (θ i) T) :
     ∃ s routes, Schedule Δ s L routes ∧ List.Sublist routes paths ∧
@@ -89,6 +102,22 @@ private theorem specialize_schedule (h : Schedule Γ p L paths)
       have beta := Continuation.ofSums (constructor_right (pe := pe) value leftTyped rightTyped)
       rw [specialize_arm] at beta
       exact ⟨s, routes, out, sub.trans (List.sublist_append_right ..), beta.trans replay⟩
+  | @unpackVar Γ L slot A B r paths hi hr ih =>
+    have lifted := value_lift B (value_lift A typed)
+    have packet := typed hi
+    change ∃ s routes, Schedule Δ s L routes ∧ List.Sublist routes paths ∧
+      Continuation.Eqv pe Δ (.let₂ (θ slot) (r.substVars (Tm.liftSubst (Tm.liftSubst θ)))) s L
+    generalize hpacket : θ slot = packetTerm at packet ⊢
+    cases packet with
+    | var value =>
+      obtain ⟨s, routes, out, sub, replay⟩ := ih lifted
+      exact ⟨_, routes, .unpackVar value out, sub, .let₂ (.var value) replay⟩
+    | pair left right =>
+      obtain ⟨s, routes, out, sub, replay⟩ := ih (value_cons right (value_cons left typed))
+      have bodyTyped := hr.valueBranches.hasType.substVars (fun _ _ h => (lifted h).hasType)
+      have beta := Continuation.ofSums (SumBind.ofProducts (ProductBind.constructor_beta (pe := pe) left right bodyTyped))
+      rw [specialize_fields] at beta
+      exact ⟨s, routes, out, sub, beta.trans replay⟩
 
 theorem splice_schedule_proof (producer : Schedule Γ p K before) (body : Schedule (D :: Γ) q L after)
     (single : K = [D]) :
@@ -113,6 +142,11 @@ theorem splice_schedule_proof (producer : Schedule Γ p K before) (body : Schedu
     obtain ⟨r', rs, rp, rsub, rr⟩ := ihr (Continuation.rename_schedule body ((Ren.wk Γ B).lift D)) single
     exact ⟨_, _, .caseVar value lp rp, by simpa only [appendPaths, List.flatMap_append] using lsub.append rsub,
       .case (.var value) lr rr⟩
+  | @unpackVar Γ _ _ A B _ _ value _ ih =>
+    have left := Continuation.rename_schedule body ((Ren.wk Γ A).lift D)
+    obtain ⟨s, routes, out, sub, replay⟩ :=
+      ih (Continuation.rename_schedule left ((Ren.wk (A :: Γ) B).lift D)) single
+    exact ⟨_, _, .unpackVar value out, sub, .let₂ (.var value) replay⟩
 
 theorem retarget_schedule_proof {i : Nat} (out : At L i D) (h : Schedule Γ p K paths)
     (single : K = [D]) :
@@ -127,5 +161,6 @@ theorem retarget_schedule_proof {i : Nat} (out : At L i D) (h : Schedule Γ p K 
     simpa only [Region.renameLabels, List.map_map, Function.comp_def] using Schedule.call value (ih single)
   | caseVar value _ _ ihl ihr =>
     simpa only [Region.renameLabels, List.map_append] using Schedule.caseVar value (ihl single) (ihr single)
+  | unpackVar value _ ih => exact .unpackVar value (ih single)
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Native.SumBind.Recursive
