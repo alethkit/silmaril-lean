@@ -2,11 +2,15 @@ module
 
 public import Silmaril.SSA.Isotope.LetSeq.StraightLine.Defs
 
+import Silmaril.SSA.Isotope.LetSeq.StraightLine.Binders.Thms
+
 public section
 
 namespace Silmaril.Isotope.LetSeq.StraightLine
 
 open LocallyNameless (Derivation Equiv HasType Pure Tm TypedSubst)
+
+open Binders
 
 set_option backward.isDefEq.respectTransparency false
 
@@ -26,21 +30,11 @@ theorem assembly_pure {n : Nat} {β : BoundCtx Types n} {A : Types} (v : Assembl
   | unit => exact .unit
   | pair _ _ iha ihb => exact .pair iha ihb
 
-private theorem instantiate_up {n m : Nat}
-    (σ : Fin n → Term m) (body : Term (n + 1)) (value : Term m) :
-    Tm.instantiate (body.bsubst (Tm.upSub σ)) value = body.bsubst (Fin.cases value σ) := by
-  rw [Tm.instantiate, Tm.bsubst_comp]
-  apply Tm.bsubst_congr
-  intro i
-  refine Fin.cases rfl (fun j => ?_) i
-  simp only [Fin.cases_succ, Tm.upSub_succ, Tm.lift, Tm.bsubst_rename]
-  exact Tm.bsubst_id _
-
 theorem instantiate_assembly {n m : Nat}
     {source : BoundCtx Types n} {target : BoundCtx Types m} {A : Types}
     (σ : AssemblyEnv source target) (body : Term (n + 1)) (v : Assembly target A) :
     Tm.instantiate (body.bsubst (Tm.upSub σ.terms)) v.term = body.bsubst (extend σ v).terms := by
-  rw [instantiate_up]
+  rw [instantiate_bsubst_up]
   exact Tm.bsubst_congr (Fin.cases rfl (fun _ => rfl)) _
 
 private theorem instantiate_pair_assembly {n m : Nat}
@@ -49,7 +43,7 @@ private theorem instantiate_pair_assembly {n m : Nat}
     (b : Assembly target B) :
     Tm.instantiate (Tm.instantiate (body.bsubst (Tm.upSub (Tm.upSub σ.terms))) b.term.lift)
         a.term = body.bsubst (extend (extend σ a) b).terms := by
-  rw [instantiate_up, Tm.instantiate, Tm.bsubst_comp]
+  rw [instantiate_bsubst_up, Tm.instantiate, Tm.bsubst_comp]
   apply Tm.bsubst_congr
   intro i
   refine Fin.cases ?_ (Fin.cases rfl (fun j => ?_)) i
