@@ -25,8 +25,8 @@ variable {F : Type} {E : Type w → Type w} {α : Type u} {blocks exits captures
 theorem fresh_labels_injective : Function.Injective (freshLabel blocks : Fin n → Fin (blocks + n)) :=
   fun _ _ same => Fin.ext (Nat.add_left_cancel (congrArg Fin.val same))
 
-/-- At each case, the two child allocations are disjoint under an
-injective parent allocation. -/
+/-- Splitting an injective allocation into consecutive ranges gives
+disjoint labels for the two ranges. -/
 theorem left_right_disjoint {l r : Nat} {L : Type} {labels : Fin (l + r) → L}
     (injective : Function.Injective labels) (i : Fin l) (j : Fin r) :
     labels (i.castAdd r) ≠ labels (j.natAdd l) :=
@@ -37,9 +37,9 @@ theorem EntryTree.old_packet {Γ : List PacketType} (tree : EntryTree sig packet
     tree.profile (oldLabel n i) = packets i := by
   simp [EntryTree.profile, oldLabel, appendTable_left]
 
-/-- Each request leaf uses the same prefix simulation, and each case
-continues with the selected checked subtree. Old iterations and ordered
-exit payloads are preserved. -/
+/-- Each request uses the shared prefix step and restores the reply
+scope for its checked continuation. Cases preserve the selected payload,
+and old iterations and ordered exit payloads are preserved. -/
 theorem Outlined.preserves_run (outlined : Outlined sig context packets outputs source)
     (instr : Primitive E F α) (env : Env α) :
     region instr env source.erase = region instr env outlined.emitted.code.erase :=
