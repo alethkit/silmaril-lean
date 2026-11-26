@@ -37,6 +37,16 @@ theorem compile_chain_linked {globals : List String} {program : Program}
           EmittedProgram program (head :: rest)) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Forwarding.compile_chain_linked accepted
 
+/-- Compilation identifies the lexical block used by the emitted leaf. -/
+theorem compile_chain_scoped {globals : List String} {program : Program}
+    {outer : List (List String)} {chain : Chain} (accepted : Accepted globals program outer chain) :
+    ∃ head rest, Emits globals outer chain (head :: rest) ∧ Links program chain (head :: rest) ∧
+      ScopedLeaves globals outer chain (head :: rest) ∧
+      compileBody (parentContext globals outer) chain.definition program =
+        .ok (⟨.define (fileSlot chain.name) (EmittedProgram program rest).size, head.free.map FreeName.source⟩,
+          EmittedProgram program (head :: rest)) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Forwarding.compile_chain_scoped accepted
+
 theorem emitted_declaration (program : Program) (frames : List Frame) (frame : Frame)
     (present : frame ∈ frames) : ∃ id : Nat, (EmittedProgram program frames)[id]? = some frame.declaration :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Forwarding.emitted_declaration program frames frame present

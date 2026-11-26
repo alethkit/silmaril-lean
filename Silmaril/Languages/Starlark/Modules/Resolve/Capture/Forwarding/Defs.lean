@@ -109,6 +109,18 @@ inductive Links (seed : Program) : Chain → List Frame → Prop where
       Links seed child (childFrame :: rest) →
       Links seed (.wrapper name parameters child) (frame :: childFrame :: rest)
 
+/-- The linked leaf uses the exact lexical scopes collected along the
+emitted chain. The enclosing scopes are kept in nearest-first order. -/
+inductive ScopedLeaves (globals : List String) : List (List String) → Chain → List Frame → Prop where
+  | mixed {outer : List (List String)} {name : String} {params : List String} {body : MixedBody}
+      {frame : Frame} :
+      LeafCode ⟨frame.owned, outer.flatten, globals⟩ body frame.code →
+      ScopedLeaves globals outer (.mixed name params body) [frame]
+  | wrapper {outer : List (List String)} {name : String} {params : List String} {child : Chain}
+      {frame : Frame} {rest : List Frame} :
+      ScopedLeaves globals (frame.owned :: outer) child rest →
+      ScopedLeaves globals outer (.wrapper name params child) (frame :: rest)
+
 /-- Compiler capture entries use the same lexical name at each frame. -/
 abbrev reference (binding : Binding) : FreeName := ⟨binding, binding⟩
 

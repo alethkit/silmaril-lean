@@ -406,9 +406,8 @@ execution and the denotation for both outcomes. Independent
 publication collects initialized declared globals in order, exports
 public names, and freezes the heap reachable from all collected
 values. A reached error restores the caller with the residual heap
-and yields no publication. Whole-trace construction for every
-accepted normalized module, wider bodies and leaf operands, defaults,
-loads, and text-level source correctness remain open.
+and yields no publication. The next theorem constructs this trace
+for a stated subset of checked modules.
 
 The Lean fixtures check the exact success exports, freezing, and a
 late uninitialized read that preserves a mutation before failure.
@@ -420,6 +419,47 @@ Go's `Program.Init` exposes a mutable partial namespace on failure.
 checked Lean failure result contains the restored caller and the
 retained heap.
 [Source judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Checks.lean) · [Pinned Go fixture](../../scripts/starlark/mixed-leaf.go)
+
+### Constructing the bounded module trace
+
+`Trace.checked_source_module` takes a static `Profile` over normalized
+commands and successful checked compilation. It derives declaration
+collection, lexical evidence, each reached command position and each live
+closure cell, starting from the actual module entry. The initial caller
+and linked table can be supplied by the host. Module entry allocates
+fresh globals, including those in a suffix that may be skipped.
+
+The profile has one leading definition with any finite number of
+required-positional define-and-return wrappers. Each reached wrapper
+call stores its child in a module name. Each next call names that
+result directly. Setup assignments can occur between the calls and
+after the leaf call. While a closure is pending, setup must write a
+different name. The operands admit integer and string literals,
+declared module reads, and recursive subscripts. Setup also admits
+list and tuple displays over those operands. The mixed leaf
+uses identifier reads in all operand positions. Its local declarations
+and nearest capture owners follow the existing checked block layout.
+The ordinary validator still rejects invalid emitted signatures and
+duplicate module names.
+
+The proof constructs the trace by induction on the source schedule.
+It uses independent operand evaluation, argument binding, wrapper
+allocation and leaf rules. No execution premise about the reached
+commands is needed. An operand error precedes binding, and an arity
+error skips activation. At the first error, the trace stops with the
+heap from the reached step, including any earlier leaf writes. The
+publication rules derive the exact ordered exports, freezing from all
+initialized globals including private ones, or caller restoration with
+the retained heap and no published mapping.
+
+The fixtures instantiate the theorem from the static profile for
+success and two error cases. The corresponding evaluator checks cover
+a frozen private tuple, an uninitialized read after a shared write,
+and an index error before surplus-argument rejection. The broader
+normalized grammar still needs trace construction for independent
+or repeated calls, unrelated top-level definitions, wider bodies and
+operands, defaults, and loads. Text-level correctness remains separate.
+[Profile](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Checks.lean)
 
 ## Finite-manifest loader
 
@@ -480,7 +520,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Modules.Checks \
   +Silmaril.Languages.Starlark.Modules.Loader.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.LoopChecks \
-  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Leaf.Checks
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Leaf.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.

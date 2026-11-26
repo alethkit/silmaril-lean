@@ -37,6 +37,32 @@ theorem checked_chain_site (before after : List Command) (chain : Forwarding.Cha
   Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.checked_chain_site
     before after chain globals linked resolved binders checked accepted suffixProfile
 
+/-- The checked site links the whole chain and records the leaf's actual lexical block. -/
+theorem checked_chain_scoped_site (after : List Command) (chain : Forwarding.Chain) (globals : List String)
+    (linked : Program) (resolved : ResolvedModule)
+    (binders : ModuleBinders (.define chain.name (.required chain.parameters) chain.body :: after) globals)
+    (checked : resolve (.define chain.name (.required chain.parameters) chain.body :: after) linked =
+      .ok resolved)
+    (accepted : ∀ program, Forwarding.Accepted globals program [] chain) (suffixProfile : Segment globals after) :
+    ∃ seed head frames, Forwarding.Emits globals [] chain (head :: frames) ∧ Forwarding.Links seed chain (head :: frames) ∧
+      Forwarding.ScopedLeaves globals [] chain (head :: frames) ∧
+      resolved.source.commands[0]? = some (.exec (.define chain.name (Forwarding.EmittedProgram seed frames).size)) ∧
+      (∀ (index : Nat) (declaration : Functions.Declaration), (Forwarding.EmittedProgram seed (head :: frames))[index]? = some declaration →
+        resolved.program[index]? = some declaration) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.checked_chain_scoped_site
+    [] after chain globals linked resolved binders checked accepted suffixProfile
+
+/-- A successful operand resolution identifies the checked assignment at its source position. -/
+theorem checked_assign_site (before after : List Command) (destination : String)
+    (source : NormalizedExpr) (code : ResolvedExpr) (reads : List Binding)
+    (globals : List String) (linked : Program) (resolved : ResolvedModule)
+    (binders : ModuleBinders (before ++ .assign destination source :: after) globals)
+    (checked : resolve (before ++ .assign destination source :: after) linked = .ok resolved)
+    (operand : Lowering.Resolve.resolveTracked ⟨[], globals⟩ source = .ok (code, reads)) :
+    resolved.source.commands[before.length]? = some (.exec (.assignExpr destination code)) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.checked_assign_site
+    before after destination source code reads globals linked resolved binders checked operand
+
 /-- The source command position identifies the root definition and its
 actual declaration table entry after compiling the suffix. -/
 theorem checked_root_site (before after : List Command) (chain : Forwarding.Chain) (globals : List String)
@@ -62,6 +88,11 @@ theorem checked_writes_site (before after : List Command) {source : List Command
   Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.checked_writes_site
     before after writes binders checked
 
+theorem operand_total {globals : List String} {source : NormalizedExpr} {code : ResolvedExpr}
+    (related : Operand globals source code) (state : State) :
+    ∃ out, Evaluates state source out ∧ Lists.Iteration.finishState out = state :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.operand_total related state
+
 /-- Admitted operands produce ordered values or the reached operand
 error in the same state. -/
 theorem operands_total {globals : List String} {source : List NormalizedExpr} {resolved : List ResolvedExpr}
@@ -70,6 +101,20 @@ theorem operands_total {globals : List String} {source : List NormalizedExpr} {r
       ∃ error, EvaluatesOperands state source (.error error state) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.operands_total
     related state
+
+/-- Entering a module gives distinct owned addresses. -/
+theorem enter_distinct (source : Modules.Source) (caller : State) : DistinctOwned (enter source caller) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.enter_distinct source caller
+
+/-- Writing a different name preserves the live closure and its binding. -/
+theorem write_keeps_live (state : State) (name destination : String) (value : Lists.Value)
+    {address : Address} {id : Nat} {captures : List Capture} {frozen : Bool}
+    (distinct : DistinctOwned state) (live : Live state name address id captures frozen)
+    (unrelated : destination ≠ name) :
+    DistinctOwned (state.write (globalSlot destination) value) ∧
+      Live (state.write (globalSlot destination) value) name address id captures frozen :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.write_keeps_live state name destination value
+    distinct live unrelated
 
 /-- Successful intervening assignments run with exactly the source
 state and preserve the callee binding and closure cell. -/
@@ -197,6 +242,17 @@ theorem checked_invocation_expr {commands : List Command} {linked : Program} {re
         | .error error final => .error error (restoreCaller state final)) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.checked_invocation_expr
     checked callee arguments binding cell found evaluated binds out bodyRun
+
+theorem resolves_operand {globals : List String} {source : NormalizedExpr} {code : ResolvedExpr}
+    (related : Operand globals source code) :
+    ∃ reads, Lowering.Resolve.resolveTracked ⟨[], globals⟩ source = .ok (code, reads) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.resolves_operand related
+
+theorem resolves_display {globals : List String} {items : List NormalizedExpr} {codes : List ResolvedExpr}
+    (related : InOrder (Operand globals) items codes) :
+    ∃ reads, Lowering.Resolve.resolveTracked ⟨[], globals⟩ (.list items) = .ok (.list codes, reads) ∧
+      Lowering.Resolve.resolveTracked ⟨[], globals⟩ (.tuple items) = .ok (.tuple codes, reads) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.resolves_display related
 
 theorem evaluates_operand (program : Program) (available : List DeclarationId) (calls : Lowering.ClosureRuns available)
     {globals : List String} {state : State} {source : NormalizedExpr} {code : ResolvedExpr} {out : Outcome Lists.Value}

@@ -32,6 +32,14 @@ theorem leaf_sound (program : Program) (available : List DeclarationId) (plan : 
     program available plan state legal clean runs
   ⟨(exec_iff_denoteBody _ _ _ _ _).mpr same, same⟩
 
+/-- Activation with source identifiers leaves compiler-private slots unused. -/
+theorem activate_no_private (state : State) (frame : Forwarding.Frame) (captures : List Capture)
+    (arguments : List (Binding × Value))
+    (owned : ∀ name ∈ frame.owned, name.toList.head? ≠ some '$')
+    (free : ∀ capture ∈ captures, capture.binding.name.toList.head? ≠ some '$') :
+    noPrivateSlots (activate state frame.declaration captures arguments) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Leaf.activate_no_private state frame captures arguments owned free
+
 /-- The wrapper and mixed leaf rules derive the checked body from an
 activated call and determine the exact caller-restored outcome. -/
 theorem body_sound (program : Program) (available : List DeclarationId) (caller : State)
