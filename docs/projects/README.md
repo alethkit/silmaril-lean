@@ -41,6 +41,7 @@
 | UDP | Socket-level UDP over an explicit packet network (loss, duplication, reordering, off-path injection as environment choices) with exact trace characterizations and port isolation; the UDP institution (satisfaction condition, reliability sentences proved to fail); QUIC DATAGRAM frames and HTTP/3 datagrams over UDP, conditional on a parameterized packet-protection integrity hypothesis | [UDP](udp.md) |
 | Silmaril projects | Records for artifacts, values, problems and the problem DAG; format adapters and shapes; the `sil project` CLI (check, SQLite, explorer) | [Silmaril projects](silmaril-projects.md) |
 | SQLite virtual tables | Read-only planning, cursor lifecycle, checked omit and ordering claims, and a proved integer query with a pinned native comparison | [SQLite virtual tables](sqlite-virtual-tables.md) |
+| SQLite tables over numbered pages | Typed table and database representations over fixed-size page arrays, ordered replay and trace projection laws | [SQLite page database](sqlite-page-database.md) |
 | SQLite VFS-file read | Typed `xRead` request and handler law; verified dispatch at one call site in the pinned x86-64 SQLite ELF | [SQLite VFS-file read](sqlite-vfs-read.md) |
 | SQLite file control | Source-derived Lean port of one locked VFS forwarding branch, with trace refinement and a pinned C probe | [SQLite file control](sqlite-control.md) |
 | Abstract SQLite VFS | Dependent read-only and bounded read-write file contracts, with concrete byte backings and container machine traces | [Abstract SQLite VFS](sqlite-vfs.md) |
