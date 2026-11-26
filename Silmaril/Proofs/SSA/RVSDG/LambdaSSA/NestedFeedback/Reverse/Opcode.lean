@@ -33,7 +33,7 @@ private theorem packed_injective {p q : Packed (τ := τ) Φ}
     (h : opcodeKey p.toOpcode.2.2 = opcodeKey q.toOpcode.2.2) : p = q := by
   obtain ⟨i, o, a, b, op⟩ := p
   obtain ⟨i', o', a', b', op'⟩ := q
-  cases op <;> cases op' <;> simp [Packed.toOpcode, opcodeKey] at h
+  cases op <;> cases op' <;> simp [Packed.toOpcode, opcodeKey, effectKey] at h
   all_goals
     first
     | obtain ⟨rfl, rfl, rfl, rfl, op⟩ := h
