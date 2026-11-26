@@ -13,30 +13,32 @@ public section
 
 namespace Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports
 
-open Functions (Program DeclarationId prepareExpanded activate)
+open Functions (Program DeclarationId Actual BoundArguments prepareExpanded activate)
 open Defaults.Nested.Sequence (PreservesDeclarations)
 open Defaults.Nested.Sequence.Recursive.Call (ClosureAt)
+open Defaults.Nested.Sequence.Recursive.Call.Named (SiteBinding)
 open Lists (State)
 open Loader (Session)
 
 /-- The independent positional binder supplies the wrapper's own slots
 in declaration order. Required positional formals introduce no defaults. -/
 theorem wrapper_positional_binding {importName aliases globals}
-    (relay : WrapperDeclaration importName aliases globals) (requiredOnly : relay.parameters.optional = [])
+    (relay : WrapperDeclaration importName aliases globals) (positionalOnly : relay.keywordOnly = [])
+    (requiredOnly : relay.parameters.optional = [])
     {values : List Lists.Value}
     {result : Except Lists.Error (List (Binding × Lists.Value))}
     (checked : relay.site.declaration.signature.validate = .ok ())
     (source : Entry.Binds relay.parameters.required values result) :
     Functions.bindArguments relay.site.declaration.signature [] ⟨values, []⟩ =
       result.map (fun bound => ⟨bound, [], []⟩) := by
-  rw [Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.wrapper_required_signature relay requiredOnly] at checked ⊢
+  rw [Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.wrapper_required_signature relay positionalOnly requiredOnly] at checked ⊢
   exact Entry.required_binds checked source
 
 /-- Preparing a positional call uses the actual saved values of the reached
 wrapper. Omitted arguments, explicit overrides and arity failures use the
 ordinary binder, with the original capture vector on success. -/
 theorem wrapper_prepare_saved {importName aliases globals}
-    (relay : WrapperDeclaration importName aliases globals)
+    (relay : WrapperDeclaration importName aliases globals) (positionalOnly : relay.keywordOnly = [])
     {commands : List Command} {seed : Program} {resolved : ResolvedModule}
     (checked : resolve commands seed = .ok resolved) (id : DeclarationId)
     (available : List DeclarationId) (permitted : id ∈ available)
@@ -50,7 +52,25 @@ theorem wrapper_prepare_saved {importName aliases globals}
       | .ok assigned => .ok (.closure ⟨id, permitted, relay.site.declaration.body⟩)
         (activate state relay.site.declaration record.captures assigned) :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.wrapper_prepare_saved
-    relay checked id available permitted found record source
+    relay positionalOnly checked id available permitted found record source
+
+/-- The ordinary named binder prepares the reached wrapper using its saved
+defaults. A binding failure leaves the operand state intact. Success
+activates the original capture vector without either collector allocation. -/
+theorem wrapper_prepare_named {importName aliases globals}
+    (relay : WrapperDeclaration importName aliases globals) (program : Program)
+    (id : DeclarationId) (available : List DeclarationId) (permitted : id ∈ available)
+    (found : program[id]? = some relay.site.declaration)
+    {state defining : State} {address : Nat} (record : ClosureAt relay.site id defining state address)
+    (actual : Actual) {result : Except Lists.Error BoundArguments}
+    (binding : SiteBinding relay.site record.defaults actual result) :
+    prepareExpanded program available actual (.function address) state =
+      match result with
+      | .error error => .error error state
+      | .ok assigned => .ok (.closure ⟨id, permitted, relay.site.declaration.body⟩)
+        (activate state relay.site.declaration record.captures assigned.named) :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.wrapper_prepare_named
+    relay program id available permitted found record actual binding
 
 /-- The importer elaborates in source order and appends each declaration to the linked table. -/
 theorem consumer_layout (plan : Consumer) {program : Program} {consumer : ResolvedModule}

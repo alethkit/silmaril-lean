@@ -8,7 +8,7 @@ namespace Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Im
 
 open Assignment (LexicalBlock)
 open Defaults
-open Defaults.Nested.Sequence.Recursive (Site)
+open Defaults.Nested.Sequence.Recursive (Site parameterNames)
 open Defaults.Nested.Sequence.Recursive.Call (Arguments)
 open Defaults.Nested.Sequence.Recursive.Call.Named
   (Mapping Operands RunsAt Spread expressionAt spreadReads mappingReads)
@@ -42,9 +42,22 @@ structure Wrapper where
 @[expose] def Wrapper.parent (wrapper : Wrapper) : LexicalBlock :=
   block [wrapper.alias] [wrapper.name, wrapper.destination]
 
-@[expose] def Wrapper.declaration (wrapper : Wrapper) : WrapperDeclaration wrapper.alias [wrapper.alias] [wrapper.name, wrapper.destination] :=
-  ⟨wrapper.name, by simp, by simp, wrapper.legalAlias, ⟨[], []⟩, by simp [Parameters.names], [], .nil, wrapper.arguments, wrapper.codes, wrapper.reads,
-    wrapper.operands, wrapper.keywords, wrapper.star, wrapper.mapping, wrapper.selects⟩
+@[expose] def Wrapper.declaration (wrapper : Wrapper) :
+    WrapperDeclaration wrapper.alias [wrapper.alias] [wrapper.name, wrapper.destination] where
+  name := wrapper.name
+  target := by simp
+  visible := by simp
+  legalAlias := wrapper.legalAlias
+  parameters := ⟨[], []⟩
+  keywordOnly := []
+  arguments := wrapper.arguments
+  codes := wrapper.codes
+  reads := wrapper.reads
+  operands := wrapper.operands
+  keywords := wrapper.keywords
+  star := wrapper.star
+  mapping := wrapper.mapping
+  selects := wrapper.selects
 
 @[expose] def Wrapper.expression (wrapper : Wrapper) : Functions.Lowering.Resolve.SourceExpr := wrapper.declaration.expression
 

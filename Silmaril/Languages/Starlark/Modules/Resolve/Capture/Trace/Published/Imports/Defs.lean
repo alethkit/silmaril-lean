@@ -11,7 +11,7 @@ namespace Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Im
 open Assignment (LexicalBlock)
 open Defaults
 open Defaults.Nested.Sequence (PreservesDeclarations)
-open Defaults.Nested.Sequence.Recursive (Site parameterNames)
+open Defaults.Nested.Sequence.Recursive (Site KeywordLexical parameterNames)
 open Defaults.Nested.Sequence.Recursive.Call (Arguments ClosureAt)
 open Lists.Iteration (Flow)
 open Defaults.Nested.Sequence.Recursive.Call.Named (Mapping Operands RunsAt Spread expressionAt spreadReads mappingReads)
@@ -50,10 +50,11 @@ structure Invocation (aliases : List String) (globals : List String) where
   expressionAt (readSlot aliases call.callee) call.codes call.keywords.codes
     (call.star.map Spread.code) (call.mapping.map Mapping.code)
 
-/-- The wrapper owns its positional slots, with no body
+/-- The wrapper owns its parameter slots, with no body
 locals, and resolves the imported callee in the enclosing alias block. -/
-@[expose] def wrapperBlock (parameters : Parameters) (aliases globals : List String) : LexicalBlock :=
-  ⟨parameterNames parameters [] none none ++ [], aliases ++ [], globals⟩
+@[expose] def wrapperBlock (parameters : Parameters) (keywordOnly : List PlainKeywordParameter)
+    (aliases globals : List String) : LexicalBlock :=
+  ⟨parameterNames parameters keywordOnly none none ++ [], aliases ++ [], globals⟩
 
 /-- An importer declaration returns a checked call through the immutable
 file-local import. Its only capture is that binding's address. -/
@@ -63,17 +64,20 @@ structure WrapperDeclaration (alias : String) (aliases globals : List String) wh
   visible : alias ∈ aliases
   legalAlias : alias.toList.head? ≠ some '$'
   parameters : Parameters := ⟨[], []⟩
-  unshadowed : alias ∉ parameters.names := by simp [Parameters.names]
+  keywordOnly : List PlainKeywordParameter := []
+  unshadowed : alias ∉ parameterNames parameters keywordOnly none none := by
+    simp [Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.parameterNames, Parameters.names]
   defaults : List PlainPositionalDefault := []
   lexical : Lexical.Elaborates (block aliases globals) parameters.optional defaults := by exact .nil
+  keywordLexical : KeywordLexical (block aliases globals) keywordOnly := by exact .nil
   arguments : List Expr
   codes : List Lowering.Expr
   reads : List Binding
-  operands : Arguments (wrapperBlock parameters aliases globals) arguments codes reads
-  keywords : Operands (wrapperBlock parameters aliases globals)
-  star : Option (Spread (wrapperBlock parameters aliases globals)) := none
-  mapping : Option (Mapping (wrapperBlock parameters aliases globals)) := none
-  selects : Selects (wrapperBlock parameters aliases globals)
+  operands : Arguments (wrapperBlock parameters keywordOnly aliases globals) arguments codes reads
+  keywords : Operands (wrapperBlock parameters keywordOnly aliases globals)
+  star : Option (Spread (wrapperBlock parameters keywordOnly aliases globals)) := none
+  mapping : Option (Mapping (wrapperBlock parameters keywordOnly aliases globals)) := none
+  selects : Selects (wrapperBlock parameters keywordOnly aliases globals)
     (fileSlot alias :: (reads ++ keywords.reads ++ spreadReads star ++ mappingReads mapping))
     [⟨fileSlot alias, fileSlot alias⟩]
 
@@ -84,7 +88,7 @@ structure WrapperDeclaration (alias : String) (aliases globals : List String) wh
 @[expose] def WrapperDeclaration.code {alias aliases globals} (relay : WrapperDeclaration alias aliases globals) : Lowering.Expr :=
   expressionAt (fileSlot alias) relay.codes relay.keywords.codes (relay.star.map Spread.code) (relay.mapping.map Mapping.code)
 
-@[expose] def WrapperDeclaration.site {alias aliases globals} (relay : WrapperDeclaration alias aliases globals) : Site (block aliases globals) [] none none .global where
+@[expose] def WrapperDeclaration.site {alias aliases globals} (relay : WrapperDeclaration alias aliases globals) : Site (block aliases globals) relay.keywordOnly none none .global where
   name := relay.name
   target := relay.target
   parameters := relay.parameters
@@ -117,7 +121,7 @@ inductive Callee where
 @[expose] def Callee.layout : Callee → Callable
   | .regular callee => callee
   | .wrapper (aliases := aliases) (globals := globals) declaration id _ =>
-    ⟨block aliases globals, .global, [], none, none, declaration.site, id, none⟩
+    ⟨block aliases globals, .global, declaration.keywordOnly, none, none, declaration.site, id, none⟩
 
 @[expose] def Callee.BodyRuns : Callee → State → Outcome Flow → Prop
   | .regular callee => callee.BodyRuns
