@@ -6,6 +6,7 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Staged.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Thms
@@ -19,6 +20,7 @@ meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Staged.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Defs
@@ -952,5 +954,58 @@ example : (Discovery.discoverSlot ⟨middleStore, samePortDiamond .onFalse (some
     ArmOverwrite.readers = some [rightPort] := rfl
 example : (Discovery.rewrite ⟨middleStore, samePortDiamond .onFalse (some rightPort)⟩ input).isSome = true := rfl
 example : Entry.Composition.Static.lower 4 (samePortDiamond .onFalse (some rightPort)) preparedRouteEntry = none := rfl
+
+open Entry.Composition.Static
+
+-- Start from the two-Store input. The old version two is the singleton
+-- seen by the route stage after the first Store is deleted.
+example (first : Projection) :
+    (Staged.lower (samePortDiamond first) beforeRouteCut input).map
+      (fun result => (result.entryOnly.plan.map (·.version), result.entryOnly.entry)) =
+      .ok ([1], preparedRouteEntry) := by
+  cases first <;> rfl
+
+example (first : Projection) :
+    (Staged.lower (samePortDiamond first) beforeRouteCut input).map
+      (fun result => match result.route with | .applied _ => true | _ => false) = .ok true := by
+  cases first <;> rfl
+
+private def runStaged (graph : Graph args) (entry : Memory.Graph args)
+    (valuation : Tuple (Val 4) args) (guard : Bool) (fuel : Nat) :
+    Option (Word × Word × List Word × List Word) := do
+  let result ← (Staged.lower graph entry valuation).toOption
+  runEntryPrograms result.programs guard fuel
+
+/-- info: some (99#64, 7#64, [33#64, 33#64, 2#64, 33#64, 55#64], [33#64, 33#64, 2#64, 33#64, 55#64]) -/
+#guard_msgs in
+#eval runStaged (samePortDiamond .onFalse) beforeRouteCut input false 3
+
+#guard runStaged (samePortDiamond .onFalse) beforeRouteCut input true 3 == runStaticRoutes input true 3
+#guard runStaged (samePortDiamond .onTrue) beforeRouteCut input false 3 == runStaticRoutes input false 3
+#guard runStaged (samePortDiamond .onTrue) beforeRouteCut input true 3 == runStaticRoutes input true 3
+#guard runStaged (samePortDiamond .onTrue) beforeRouteCut overwriteInput false 3 ==
+  runStaticRoutes overwriteInput false 3
+#guard runStaged (samePortDiamond .onFalse) beforeRouteCut input true 2 == none
+
+-- One branch observes the remaining Store. The first deletion stays
+-- committed, with exactly the entry-only artifact supplying the pair.
+example : (Staged.lower observingRoute beforeRouteCut input).map (·.route) = .ok .routesRefused := rfl
+example : (Staged.lower observingRoute beforeRouteCut input).map (·.programs) =
+    .ok (Entry.lowerPair observingRoute beforeRouteCut preparedRouteEntry input) := rfl
+#guard runStaged observingRoute beforeRouteCut input false 3 ==
+  some (99, 99, [99, 33, 2, 3, 55], [99, 33, 2, 3, 55])
+
+-- A different symbolic reader also blocks the route stage.
+example : (Staged.lower (samePortDiamond .onFalse (some rightPort)) beforeRouteCut input).map (·.route) =
+    .ok .routesRefused := rfl
+
+-- A successful entry plan may leave a larger table. This outcome is
+-- distinct from a refusal on an eligible singleton shape.
+example : (Staged.lower (samePortDiamond .onFalse) inferredEntry input).map (·.route) =
+    .ok .entryNotSingleton := rfl
+example : (Staged.lower (samePortDiamond .onFalse) inferredEntry input).map (·.programs) =
+    .ok (Entry.lowerPair (samePortDiamond .onFalse) inferredEntry inferredFinal input) := rfl
+#guard runStaged (samePortDiamond .onFalse) inferredEntry input true 3 ==
+  some (33, 33, [11, 11, 99, 33, 55], [11, 11, 99, 33, 55])
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
