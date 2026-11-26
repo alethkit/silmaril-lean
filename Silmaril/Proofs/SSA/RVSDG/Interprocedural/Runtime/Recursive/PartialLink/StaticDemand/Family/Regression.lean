@@ -1,6 +1,7 @@
 module
 
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Synthesis.Thms
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Synthesis.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Defs
 
@@ -75,35 +76,39 @@ private def count : Port entry num := .tail (.tail (.tail .head))
 private def payload : Port entry num := .tail (.tail (.tail (.tail .head)))
 private def spare : Port entry num := .tail (.tail (.tail (.tail (.tail .head))))
 
-private def baseArm (first : Bool) : Code Op entry [] [[]] pair true (some summaries) :=
+private def baseArm (first : Bool) (relay : Bool := false) : Code Op entry [] [[]] pair true (some summaries) :=
   .primitive .probe (.cons (.arg capture) .nil)
-    (.ret (if first then .cons (.arg payload) (.cons (.arg spare) .nil)
+    (.ret (if relay then
+      .cons (.arg count) (.cons (.arg (if first then payload else count)) .nil)
+      else if first then .cons (.arg payload) (.cons (.arg spare) .nil)
       else .cons (.arg spare) (.cons (.arg payload) .nil)))
 
 -- The two members expose payload at different result ports.
-private def afterCall : Code Op entry [pair] [[]] pair true (some summaries) :=
+private def afterCall (swap : Bool) : Code Op entry [pair] [[]] pair true (some summaries) :=
   .primitive .after .nil
-    (.ret (.cons (.output (0 : Fin 2) (.tail .head)) (.cons (.output (0 : Fin 2) .head) .nil)))
+    (.ret (if swap then
+      .cons (.output (0 : Fin 2) (.tail .head)) (.cons (.output (0 : Fin 2) .head) .nil)
+      else .cons (.output (0 : Fin 2) .head) (.cons (.output (0 : Fin 2) (.tail .head)) .nil)))
 
-private def recursiveArm (first : Bool) : Code Op entry [] [pair, []] pair true (some summaries) :=
+private def recursiveArm (first : Bool) (relay : Bool := false) : Code Op entry [] [pair, []] pair true (some summaries) :=
   let captured : Wires entry [] single := .cons (.arg capture) .nil
   let args : Wires entry [] fn.args := .cons (.arg count) (.cons (.arg payload) (.cons (.arg spare) .nil))
-  if first then .familyCall (table := summaries) 1 (.tail .head) captured args afterCall
-  else .familyCall (table := summaries) 0 .head captured args afterCall
+  if first then .familyCall (table := summaries) 1 (.tail .head) captured args (afterCall true)
+  else .familyCall (table := summaries) 0 .head captured args (afterCall (!relay))
 
 private def armSigs : Fin 2 → List (Ports T) := Fin.cases [[]] (fun _ => [pair, []])
 
-private def arms (first : Bool) (i : Fin 2) : Code Op entry [] (armSigs i) pair true (some summaries) :=
+private def arms (first relay : Bool) (i : Fin 2) : Code Op entry [] (armSigs i) pair true (some summaries) :=
   Fin.cases (motive := fun j => Code Op entry [] (armSigs j) pair true (some summaries))
-    (baseArm first) (fun _ => recursiveArm first) i
+    (baseArm first relay) (fun _ => recursiveArm first relay) i
 
-private def body (first : Bool) : Code Op entry [] [decision, pair] pair true (some summaries) :=
+private def body (first : Bool) (relay : Bool := false) : Code Op entry [] [decision, pair] pair true (some summaries) :=
   let captures : Wires entry [decision] entry :=
     .cons (.arg .head) (.cons (.arg (.tail .head))
       (.cons (.arg capture) (.cons (.output (0 : Fin 1) (.tail .head))
         (.cons (.arg payload) (.cons (.arg spare) .nil)))))
   .primitive (.route first) (.cons (.arg count) .nil)
-    (.gamma 0 armSigs (.output (0 : Fin 1) .head) captures (arms first)
+    (.gamma 0 armSigs (.output (0 : Fin 1) .head) captures (arms first relay)
       (.ret (.cons (.output (1 : Fin 2) .head) (.cons (.output (1 : Fin 2) (.tail .head)) .nil))))
 
 private theorem body_live (first : Bool) (d : Demand) :
@@ -124,7 +129,7 @@ private theorem closedBody (first : Bool) (d : Demand) :
     simp [required, h0, h1, List.mem_cons] <;>
       exact ⟨by intro p hp; omega, by intro p hp; omega⟩
 
-private def family : Family Op summaries single where
+private def template (relay : Bool) : Family.Template Op summaries single where
   context := single
   captures := .cons (.arg .head) .nil
   memberWires := Fin.cases
@@ -132,7 +137,14 @@ private def family : Family Op summaries single where
     (Fin.cases (.cons (.output (0 : Fin 1) .head)
       (.cons (.arg (.tail (.tail .head))) (.cons (.arg .head) .nil))) (fun j => j.elim0))
   sigs := fun _ => [decision, pair]
-  body := Fin.cases (body true) (Fin.cases (body false) (fun j => j.elim0))
+  body := Fin.cases (body true relay) (Fin.cases (body false relay) (fun j => j.elim0))
+
+private def family : Family Op summaries single where
+  context := (template false).context
+  captures := (template false).captures
+  memberWires := (template false).memberWires
+  sigs := (template false).sigs
+  body := (template false).body
   closed := by
     intro i d
     refine Fin.cases (closedBody true d) (fun j => ?_) i
@@ -271,5 +283,75 @@ example (spare : Nat) : InfiniteTrace (Step actions.toPrimitives) (repeated spar
   intro fuel
   obtain ⟨next, step⟩ := keepsStepping spare fuel 20 .halt
   exact Continuation.Partial.Executable.observe_suspended.2 ⟨next, step_iff.2 step⟩
+
+-- Here A's first exit reads B's second, and B's second reads A's second.
+-- Only A's second result has a direct use of the payload at the base case.
+private def afterRounds (n : Nat) : Family.Rows summaries :=
+  (Family.Template.round (template true))^[n] ∅
+
+private def needsPayload (rows : Family.Rows summaries) (member : Fin 2) (demand : Demand) : Bool :=
+  (Family.inputAddresses (Family.row summaries rows member (Family.demandMask demand))).contains (.arg 2)
+
+#guard needsPayload (afterRounds 1) 0 requestedSecond
+#guard !(needsPayload (afterRounds 1) 1 requestedSecond)
+#guard needsPayload (afterRounds 2) 1 requestedSecond
+#guard !(needsPayload (afterRounds 2) 0 requested)
+#guard needsPayload (afterRounds 3) 0 requested
+#guard (template true).summaries.live (0 : Fin 2) requested == [.arg 0, .arg 1, .arg 2]
+#guard (template true).summaries.live (1 : Fin 2) requestedSecond == [.arg 0, .arg 1, .arg 2]
+#guard (template true).summaries.live (0 : Fin 2) (fun _ => true) == [.arg 0, .arg 1, .arg 2]
+
+private theorem relaySafe : (template true).ReferenceSafe := by
+  unfold Family.Template.ReferenceSafe
+  decide
+
+private def inferred := (template true).admit relaySafe
+
+private theorem relayReady (cap : Nat) : inferred.Ready (m := machine) (one cap) := by
+  intro i
+  refine Fin.cases ?_ (fun j => ?_) i
+  · refine ⟨rfl, fun params => ⟨?_, trivial⟩⟩
+    intro locals arm
+    refine Fin.cases ?_ (fun _ => ?_) arm
+    · trivial
+    · exact ⟨⟨rfl, rfl⟩, trivial⟩
+  · obtain rfl := Fin.eq_zero j
+    refine ⟨rfl, fun params => ⟨?_, trivial⟩⟩
+    intro locals arm
+    refine Fin.cases ?_ (fun _ => ?_) arm
+    · trivial
+    · exact ⟨⟨rfl, rfl⟩, trivial⟩
+
+private theorem relayAgreed (cap count : Nat) :
+    inferred.AgreesOnInputs (0 : Fin 2) requested (one cap) (one cap) (args count 41 4) (args count 41 40) := by
+  intro ty p live
+  cases p with
+  | head => rfl
+  | tail p =>
+    cases p with
+    | head => rfl
+    | tail p =>
+      cases p with
+      | head => rfl
+      | tail p =>
+        cases p with
+        | head => exact False.elim ((by decide : Address.arg 3 ∉ (template true).summaries.live (0 : Fin 2) requested) live)
+        | tail p => nomatch p
+
+private def runInferred (fuel cap count spare : Nat) :=
+  inferred.run (0 : Fin 2) actions fuel 83 (one cap) (args count 41 spare) 20
+
+example (fuel after cap count : Nat) :
+    ∃ left right, runInferred fuel cap count 4 = .ok left ∧ runInferred fuel cap count 40 = .ok right ∧
+      PrefixObservationsAgree actions requested after left right :=
+  (template true).linked_prefixes_agree relaySafe (0 : Fin 2) actions requested fuel after 83 (one cap) (one cap)
+    (args count 41 4) (args count 41 40) 20 (relayReady cap) (relayReady cap) (relayAgreed cap count)
+
+#guard (runInferred 64 2 2 4).toOption.bind returnedValues == some (41, 0, 46)
+#guard (runInferred 64 2 2 40).toOption.bind returnedValues == some (41, 0, 46)
+#guard probeBlock (runInferred 64 0 2 4)
+#guard probeBlock (runInferred 64 0 2 40)
+#guard (resume (runInferred 64 0 2 4)).bind returnedValues == some (41, 0, 70)
+#guard (resume (runInferred 64 0 2 40)).bind returnedValues == some (41, 0, 70)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Regression
