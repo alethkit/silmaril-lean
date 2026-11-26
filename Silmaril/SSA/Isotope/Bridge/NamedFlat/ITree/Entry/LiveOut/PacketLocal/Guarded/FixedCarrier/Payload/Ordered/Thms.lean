@@ -23,6 +23,17 @@ open PayloadRecognition (Incoming packetTree)
 attribute [local instance] requestTypes
 
 /-- The scoped return row evaluates the original ordered fields. -/
+theorem Fields.eval_row_at {Φ : Type} {d : Nat} {hasBit : Bool} (literals : Φ → Option Bool)
+    (f : Fields Φ hasBit) (agrees : f.Agrees literals) (tag : Tag) (env : LambdaSSA.Semantics.Env Runtime)
+    (input : Syntax.Payload (if hasBit then Bit else .unit)) (caller : Syntax.Bindings [Bit]) :
+    LambdaSSA.Semantics.Interaction.region (LiveBit.rawWithLiterals literals)
+        (LambdaSSA.Semantics.extend env (.pair (Recognize.encodeValue ULift.up input.val) .unit)) (f.rowAt (d := d) tag).erase =
+      pure (tag.natAdd d |>.val, Recognize.encodeValue ULift.up (f.output.eval (caller.push input)).val) :=
+  Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.OrderedLiveOut.eval_fields
+    literals f agrees tag env input caller
+
+
+/-- The scoped return row evaluates the original ordered fields. -/
 theorem Fields.eval_row {Φ : Type} {hasBit : Bool} (literals : Φ → Option Bool)
     (f : Fields Φ hasBit) (agrees : f.Agrees literals) (tag : Tag) (env : LambdaSSA.Semantics.Env Runtime)
     (input : Syntax.Payload (if hasBit then Bit else .unit)) (caller : Syntax.Bindings [Bit]) :

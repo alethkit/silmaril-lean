@@ -30,26 +30,20 @@ universe u v
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R : List Syntax.Ty} {σ : Type v}
 
-private def silentRows (g : OpenOperands.Silent.Table S R) (i : Fin R.length) :
-    Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.Row R.length R.length 1 :=
-  match g.row i with
-  | .jump j _ => .repeat j
-  | .guarded _ => .stop (.ret i 0)
-
-private theorem resolve_none_iff (g : Table S R) (fuel : Nat) (i : Fin R.length) :
-    g.resolve fuel i = none ↔ search (silentRows g) fuel i = none := by
+theorem resolve_none_iff (g : Table S R) (fuel : Nat) (i : Fin R.length) :
+    g.resolve fuel i = none ↔ search (g.labelRows) fuel i = none := by
   induction fuel generalizing i with
   | zero => simp [OpenOperands.Silent.Table.resolve, search]
   | succ fuel ih =>
     cases row : g.row i with
-    | guarded _ => simp [OpenOperands.Silent.Table.resolve, search, silentRows, row]
-    | jump j _ => simp [OpenOperands.Silent.Table.resolve, search, silentRows, row, ih]
+    | guarded _ => simp [OpenOperands.Silent.Table.resolve, search, Table.labelRows, row]
+    | jump j _ => simp [OpenOperands.Silent.Table.resolve, search, Table.labelRows, row, ih]
 
 private theorem silent_replay (g : Table S R) (caller : Payload (R.get g.entry)) (prim : StatePrimitives Φ σ)
     (p : Packet R) (s : σ) (exhausted : g.resolve R.length p.1 = none) :
     ∃ path : Nat → Packet R, path 0 = p ∧
       ∀ n, Branch (g.feedback caller prim) (blockPoint (path n) s) (blockPoint (path (n + 1)) s) := by
-  obtain ⟨orbit, entry, steps⟩ := scan_exhausted_path (silentRows g) p.1 ((resolve_none_iff g _ _).mp exhausted)
+  obtain ⟨orbit, entry, steps⟩ := scan_exhausted_path (g.labelRows) p.1 ((resolve_none_iff g _ _).mp exhausted)
   let At (n : Nat) := { q : Packet R // q.1 = orbit n }
   have advance (n : Nat) (x : At n) :
       ∃ next : At (n + 1), Branch (g.feedback caller prim) (blockPoint x.val s) (blockPoint next.val s) := by
@@ -58,9 +52,9 @@ private theorem silent_replay (g : Table S R) (caller : Payload (R.get g.entry))
     subst i
     have rowStep := steps n
     cases row : g.row (orbit n) with
-    | guarded code => simp [silentRows, row] at rowStep
+    | guarded code => simp [Table.labelRows, row] at rowStep
     | jump j arg =>
-      have nextEq : j = orbit (n + 1) := by simpa [silentRows, row] using rowStep
+      have nextEq : j = orbit (n + 1) := by simpa [Table.labelRows, row] using rowStep
       exact ⟨⟨⟨j, arg.eval ((g.visible.bindings caller).push incoming)⟩, nextEq⟩,
         jump_branch g caller prim row incoming s⟩
   let orbitTyped : (n : Nat) → At n :=
