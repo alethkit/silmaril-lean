@@ -1,6 +1,7 @@
 module
 
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Reindex.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Thms
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
 
@@ -9,13 +10,14 @@ open Silmaril.Isotope.Institution.Observational (Observation ssaBeh)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution.Fiber (fiberRoom inputModel)
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.RTL (Frame)
-open Silmaril.Machine.RTL.SSA (Behavior)
-open Silmaril.Machine.SeaOfNodes.Diamond.RTL (model word)
+open Silmaril.Machine.RTL.SSA (Behavior Prog Result State Step Steps run step)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (Reg model word)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA (encodeTuple inputEnv instruction)
 open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
 open Silmaril.SSA.SeaOfNodes
 open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
 open Silmaril.Logic.Institution.Observational (Sentence)
+open Silmaril.Isotope.LambdaSSA.Semantics (Diverges)
 open Silmaril.Isotope.LambdaSSA.Semantics.Region (Eval)
 
 private def capture (slot : Fin 3) := argumentPort 3 slot
@@ -424,5 +426,104 @@ example :
   have laws := mapCaptures_equation_holds_iff identify accepted aliasAccepted
     contractedAccepted aliasMappedAccepted mem
   exact ⟨laws.1.mpr agreeOnImage, laws.2.mpr agreeOnImage⟩
+
+private def removeCapture : InputMap 3 2 := fun slot => if slot = 1 then 1 else 0
+private def narrowGraph : Width.Source 2 3 Entry Header := Width.mapCaptures removeCapture source
+private def narrowTargets : Checked.Phi.Targets := (Width.lowerChecked removeCapture source).get (by cbv)
+private theorem narrowAccepted : Width.lowerChecked removeCapture source = some narrowTargets := by cbv
+
+example : (narrowTargets.1.func? 0).map (·.sig.params) = some 2 := by cbv
+example : (narrowTargets.1.block? 0 0).map (·.ops) =
+    some [.binary .sub (.arg 5) (.arg 0) (.arg 0), .binary .add (.arg 6) (.arg 5) (.arg 1)] := by cbv
+example : (narrowTargets.1.block? 0 0).map (·.term) = some (.jump 1 [.arg 5, .arg 6, .arg 0]) := by cbv
+example : (narrowTargets.1.block? 0 1).map (fun b => (b.params, b.term)) =
+    some ([.arg 2, .arg 3, .arg 4], .cond (.node 1) 1 [.node 0, .arg 3, .arg 4] 2 [.node 0]) := by cbv
+
+private def pair (a b : Word) : WordTuple 2 := .cons a (.cons b .nil)
+private def narrowInput := pair 5 2
+private def identifyPair : InputMap 2 1 := fun _ => 0
+
+example (input : WordTuple 1) :
+    InputMap.pull (identifyPair ∘ removeCapture) input = removeCapture.pull (identifyPair.pull input) :=
+  InputMap.pull_comp removeCapture identifyPair input
+
+example : removeCapture.pull narrowInput = bank 5 2 5 := by cbv
+example : narrowGraph.initial model narrowInput = bank 0 2 5 := by cbv
+example : narrowTargets.1.runMain 13 0 (words narrowInput) mem = .returned [6] mem := by cbv
+example : narrowTargets.1.runMain 13 0 [5, 2, 5] mem = .stuck := by cbv
+example : Generic.Fuel.run model (inputEnv model narrowInput) 3 narrowTargets.2 =
+    some (0, Generic.packResult model (out := word) (6 : Word)) := by cbv
+
+private def narrowSpin := pair 1 0
+
+example : Diverges (instruction model) (.region (inputEnv model narrowSpin) narrowTargets.2 mem) :=
+  (Width.lambda_diverges_iff narrowAccepted narrowSpin mem).mpr
+    ((show removeCapture.pull narrowSpin = equalCaptures by cbv).symm ▸ equalCapturesAbsent)
+
+private def runningState? : Result Reg → Option (State Reg)
+  | .running state => some state
+  | _ => none
+
+private def narrowStart : State Reg := (narrowTargets.1.start 0 (words narrowSpin) mem).get (by cbv)
+private def narrowHeader : State Reg := (runningState? (run narrowTargets.1 6 narrowStart)).get (by cbv)
+private theorem reachesNarrowHeader : run narrowTargets.1 6 narrowStart = .running narrowHeader := by cbv
+
+private theorem narrowCycle : run narrowTargets.1 3 narrowHeader = .running narrowHeader := by
+  cbv
+  congr 3
+  funext r
+  by_cases fourth : r = Reg.arg 4
+  · simp [fourth]
+  by_cases third : r = Reg.arg 3
+  · simp [third]
+  by_cases second : r = Reg.arg 2
+  · simp [second]
+  by_cases guard : r = Reg.node 1
+  · simp [guard]
+  by_cases value : r = Reg.node 0 <;> simp [fourth, third, second, guard, value]
+
+private theorem steps_of_run {program : Prog Reg} {n : Nat} {s t : State Reg}
+    (ran : run program n s = .running t) : Steps program s t := by
+  induction n generalizing s with
+  | zero =>
+    have same : s = t := Result.running.inj ran
+    exact same ▸ .refl
+  | succ n ih =>
+    unfold run at ran
+    cases stepEq : step program s with
+    | running next =>
+      rw [stepEq] at ran
+      exact .head stepEq (ih ran)
+    | returned _ _ | trapped _ | stuck => rw [stepEq] at ran; cases ran
+
+private theorem trace_of_cycle {program : Prog Reg} {s : State Reg} {n : Nat}
+    (cycle : run program (n + 1) s = .running s) : Silmaril.Machine.RTL.SSA.Diverges program s := by
+  let pending (t : State Reg) := ∃ k, run program k t = .running s
+  have next {t : State Reg} {k : Nat} (path : run program (k + 1) t = .running s) :
+      ∃ u, Step program t u ∧ pending u := by
+    unfold run at path
+    cases stepEq : step program t with
+    | running u => rw [stepEq] at path; exact ⟨u, stepEq, k, path⟩
+    | returned _ _ | trapped _ | stuck => rw [stepEq] at path; cases path
+  apply InfiniteTrace.coinduct pending _ ⟨0, rfl⟩
+  rintro t ⟨k, path⟩
+  cases k with
+  | zero =>
+    have same : t = s := Result.running.inj path
+    exact same.symm ▸ next cycle
+  | succ k => exact next path
+
+example : narrowTargets.1.divOracle 0 (words narrowSpin) mem :=
+  ⟨narrowStart, by cbv, InfiniteTrace.of_steps (steps_of_run reachesNarrowHeader) (trace_of_cycle narrowCycle)⟩
+
+example : (∀ args : WordTuple 2,
+    narrowGraph.denote model args = (Width.mapCaptures removeCapture aliasSubtraction).denote model args) :=
+  (Width.equation_on_image removeCapture source aliasSubtraction).mpr (by
+    rintro _ ⟨args, rfl⟩
+    have compared : Width.mapCaptures removeCapture source =
+        Width.mapCaptures removeCapture aliasSubtraction := by cbv
+    exact (Width.denote_mapCaptures removeCapture source model args).symm.trans
+      ((congrArg (fun graph => graph.denote model args) compared).trans
+        (Width.denote_mapCaptures removeCapture aliasSubtraction model args)))
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table

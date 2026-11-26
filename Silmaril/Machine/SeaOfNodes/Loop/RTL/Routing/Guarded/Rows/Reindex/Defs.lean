@@ -13,8 +13,9 @@ open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy)
 open Silmaril.SSA.SeaOfNodes.Diamond (Val)
 open Silmaril.SSA.RVSDG (Origin Port Tuple Wires renameVertex)
 
-/-- A typed map of external word slots within the same capture interface. -/
-abbrev InputMap (arity : Nat) := Fin arity → Fin arity
+/-- An old external slot reads a new slot of the same word sort.
+The target interface defaults to the original width. -/
+abbrev InputMap (arity : Nat) (target : Nat := arity) := Fin arity → Fin target
 
 abbrev InputPermutation (arity : Nat) := Fin arity ≃ Fin arity
 
@@ -53,24 +54,35 @@ def pullTuple {F : PortTy → Type w} {target : List PortTy} :
 
 end InputPermutation
 
+def mapOrigin {source target : List PortTy} {past : List (List PortTy)}
+    (map : ∀ {t}, Port source t → Port target t) {t : PortTy} :
+    Origin source past t → Origin target past t
+  | .arg p => .arg (map p)
+  | .output i p => .output i p
+
+/-- Transport argument origins at their declared sorts and keep producer origins. -/
+def mapColumn {source target ports : List PortTy} {past : List (List PortTy)}
+    (map : ∀ {t}, Port source t → Port target t) (wires : Wires source past ports) :
+    Wires target past ports :=
+  wires.map fun _ wire => mapOrigin (fun p => map p) wire
+
 namespace InputMap
 
+variable {target : Nat}
+
 /-- Map an external capture address at its original sort. -/
-def port (mapping : InputMap arity) {t : PortTy} (old : Port (wordPorts arity) t) :
-    Port (wordPorts arity) t :=
-  (InputPermutation.slotSort old).symm ▸ argumentPort arity (mapping (InputPermutation.slot old))
+def port (mapping : InputMap arity target) {t : PortTy} (old : Port (wordPorts arity) t) :
+    Port (wordPorts target) t :=
+  (InputPermutation.slotSort old).symm ▸ argumentPort target (mapping (InputPermutation.slot old))
 
 /-- Map argument origins and keep producer origins in their typed prefix. -/
-def column (mapping : InputMap arity) {ports : List PortTy} {past : List (List PortTy)}
-    (wires : Wires (wordPorts arity) past ports) : Wires (wordPorts arity) past ports :=
-  wires.map fun _ wire =>
-    match wire with
-    | .arg src => .arg (mapping.port src)
-    | .output i p => .output i p
+def column (mapping : InputMap arity target) {ports : List PortTy} {past : List (List PortTy)}
+    (wires : Wires (wordPorts arity) past ports) : Wires (wordPorts target) past ports :=
+  mapColumn (fun p => mapping.port p) wires
 
 /-- The old valuation reads every old slot at its image in the new tuple. -/
-def pull {value : Unit → Type w} (mapping : InputMap arity)
-    (input : Tuple (Val value) (wordPorts arity)) : Tuple (Val value) (wordPorts arity) :=
+def pull {value : Unit → Type w} (mapping : InputMap arity target)
+    (input : Tuple (Val value) (wordPorts target)) : Tuple (Val value) (wordPorts arity) :=
   InputPermutation.pullTuple (fun p => mapping.port p) input
 
 end InputMap

@@ -4,6 +4,8 @@ public import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.P
 public import Silmaril.Logic.Institution.Observational.Sentence
 import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Satisfaction
 
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Thms
+
 public section
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Proofs
@@ -12,7 +14,7 @@ open CategoryTheory (Discrete)
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy model word)
 open Silmaril.SSA.SeaOfNodes
-open Diamond.LambdaSSA (Atom encodeTuple inputEnv instruction instruction_deterministic)
+open Diamond.LambdaSSA (Atom inputEnv instruction instruction_deterministic)
 open Diamond.LambdaSSA.Institution.Fiber (fiberRoom inputModel)
 open Loop.LambdaSSA
 open Silmaril.Isotope (Value)
@@ -45,32 +47,6 @@ theorem room_fault_absent (accepted : lowerChecked left = some leftTargets)
       ssaBeh 1 (inputModel (P := Rows.wordSignature) model Memory input) (scope accepted) :=
   fun member => (fault_mem_ssaBeh.mp member).false
 
--- A bank from which no counted return is possible must take a backedge.
--- The emitted header executes that backedge and the next bank has the same property.
-private theorem lower_diverges_of_absent (g : SourceWithEntry arity entrySigs sigs)
-    (input : WordTuple arity) (initial : Memory) (absent : g.denote model input = Part.none) :
-    Diverges (instruction model) (.region (inputEnv model input) (Generic.lower g) initial) := by
-  let env := inputEnv model input
-  have follows (old : WordTuple arity) (noReturn : ∀ count value, ¬ g.ReturnsAfter model input count old value) :
-      Diverges (instruction model) (.follow env (Generic.blocks g) 0 (encodeTuple model old) initial) := by
-    let R := fun (config : Config (Atom model) _ Memory) => ∃ bank : WordTuple arity,
-      config = .follow env (Generic.blocks g) 0 (encodeTuple model bank) initial ∧
-        ∀ count value, ¬ g.ReturnsAfter model input count bank value
-    apply Diverges.coinduct R _ ⟨old, rfl, noReturn⟩
-    rintro _ ⟨bank, rfl, absentFromBank⟩
-    have packet := Generic.header_eval g model input bank initial
-    cases taken : g.step model input bank with
-    | inl value => exact (absentFromBank 0 value (.exit taken)).elim
-    | inr next =>
-      rw [taken] at packet
-      exact .follow_next (by decide : 0 < 1) packet
-        ⟨next, rfl, fun count value run => absentFromBank (count + 1) value (.backedge taken run)⟩
-  apply Diverges.fold (.cfg_follow (Generic.entry_eval g model input initial) ?_)
-  apply follows
-  intro count value run
-  exact (Part.eq_none_iff'.mp absent) (Part.dom_iff_mem.mpr
-    ⟨value, (g.returns_iff_mem_denote model input value).mp ⟨count, run⟩⟩)
-
 theorem room_diverges_iff (accepted : lowerChecked left = some leftTargets)
     (input : WordTuple arity) (initial : Memory) :
     Observation.diverge initial ∈
@@ -94,7 +70,7 @@ theorem room_diverges_iff (accepted : lowerChecked left = some leftTargets)
     change External.Diverges (instruction model) (fun _ _ _ => False)
       (.region (inputEnv model input) leftTargets.2 initial)
     rw [same]
-    exact External.Diverges.of_internal (lower_diverges_of_absent left input initial absent)
+    exact External.Diverges.of_internal (Width.lower_diverges_of_absent left input initial absent)
 
 theorem room_equation_at_iff (leftChecked : lowerChecked left = some leftTargets)
     (rightChecked : lowerChecked right = some rightTargets) (input : WordTuple arity) (initial : Memory) :
