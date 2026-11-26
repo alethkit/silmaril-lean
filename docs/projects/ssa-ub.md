@@ -1494,6 +1494,24 @@ shared state-changing request that reaches a silent cycle on one side and
 an ordered return on the other.
 [Silent head normalization][ssa-ub-open-guarded-silent]
 
+`OrderedLiveOut.Silent.compare?` connects the silent terminal to the
+original packet-local named RTL runner. Either of the two non-request
+rows may be an ordinary ordered return or an identity self-transfer.
+A successful versioned readback checks the leading decoder, self label,
+and unchanged packet variable. The named iterator consumes that
+self-transfer forever. The native readback represents it by the
+certified silent terminal, with no request or store update.
+
+The check uses the existing payload-aware reachable cutoff. The supplied
+typed caller must agree with the seed in both named stores. Failed
+recognition, caller agreement, or exact native readback yields unknown.
+The observations retain the two ordered fields and final state on
+ordinary returns and preserve the selected UB order. The regression
+takes a state-changing shared reply to a silent loop on one side and a
+return on the other. An extra request would fault under the witness
+handler. The actual loop produces ordinary divergence.
+[Named silent terminal transport][ssa-ub-named-ordered-liveout-silent]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1668,6 +1686,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-ranked-cutoff]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Ranked/Thms.lean
 [ssa-ub-open-guarded-reachable-cutoff]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Reachable/Thms.lean
 [ssa-ub-named-ordered-liveout-reachable]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Reachable/Thms.lean
+[ssa-ub-named-ordered-liveout-silent]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Silent/Thms.lean
 [ssa-ub-open-guarded-silent]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean

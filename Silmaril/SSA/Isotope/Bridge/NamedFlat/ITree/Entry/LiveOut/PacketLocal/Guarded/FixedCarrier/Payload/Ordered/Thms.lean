@@ -22,6 +22,17 @@ open PayloadRecognition (Incoming packetTree)
 
 attribute [local instance] requestTypes
 
+/-- The scoped return row evaluates the original ordered fields. -/
+theorem Fields.eval_row {Φ : Type} {hasBit : Bool} (literals : Φ → Option Bool)
+    (f : Fields Φ hasBit) (agrees : f.Agrees literals) (tag : Tag) (env : LambdaSSA.Semantics.Env Runtime)
+    (input : Syntax.Payload (if hasBit then Bit else .unit)) (caller : Syntax.Bindings [Bit]) :
+    LambdaSSA.Semantics.Interaction.region (LiveBit.rawWithLiterals literals)
+        (LambdaSSA.Semantics.extend env (.pair (Recognize.encodeValue ULift.up input.val) .unit)) (f.row tag).erase =
+      pure (tag.natAdd 3 |>.val, Recognize.encodeValue ULift.up (f.output.eval (caller.push input)).val) :=
+  Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.OrderedLiveOut.eval_fields
+    literals f agrees tag env input caller
+
+
 variable {κ V K : Type 1} [DecidableEq V] [DecidableEq K] {P : FlatInstitution.Signature.{0, 0} κ}
   {seed first second : V} {names : Fin 5 ≃ K} {source target : CFG V K P.Instr}
   {a : Admission P (interface seed names) (fields first second) source}

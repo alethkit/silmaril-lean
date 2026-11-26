@@ -31,7 +31,7 @@ open PayloadRecognition (Incoming rowTransfer packetValue packetTree unfold_retu
 
 attribute [local instance] requestTypes
 
-private theorem eval_fields {Φ : Type} {hasBit : Bool} (literals : Φ → Option Bool)
+theorem eval_fields {Φ : Type} {hasBit : Bool} (literals : Φ → Option Bool)
     (f : Fields Φ hasBit) (agrees : f.Agrees literals) (tag : Tag) (env : Env Runtime)
     (input : Syntax.Payload (if hasBit then Bit else .unit)) (caller : Syntax.Bindings [Bit]) :
     region (rawWithLiterals literals) (extend env (.pair (encodeValue ULift.up input.val) .unit)) (f.row tag).erase =
