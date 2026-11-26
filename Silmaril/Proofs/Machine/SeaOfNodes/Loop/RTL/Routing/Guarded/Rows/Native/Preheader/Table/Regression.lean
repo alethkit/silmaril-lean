@@ -1,6 +1,6 @@
 module
 
-import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Denotation.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Thms
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
 
@@ -9,7 +9,9 @@ open Silmaril.Machine.RTL (Frame)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (model word)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA (encodeTuple inputEnv instruction)
 open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
+open Silmaril.SSA.SeaOfNodes
 open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
+open Silmaril.Logic.Institution.Observational (Sentence)
 open Silmaril.Isotope.LambdaSSA.Semantics.Region (Eval)
 
 private def capture (slot : Fin 3) := argumentPort 3 slot
@@ -87,7 +89,7 @@ example : Eval (instruction model) (inputEnv model input) targets.2 mem
 private theorem rtlDenoted : rtlDenote targets.1 input mem = Part.some (7, mem) :=
   Part.eq_some_iff.mpr ((mem_rtlDenote_iff_runMain _ _ _ _ _).mpr ⟨10, rtlObserved⟩)
 
-example : nativeDenote source input mem = Part.some (7, mem) :=
+private theorem nativeDenoted : nativeDenote source input mem = Part.some (7, mem) :=
   (denotations_eq accepted input mem).1.symm.trans rtlDenoted
 
 example : lambdaDenote targets.2 input mem = Part.some (7, mem) :=
@@ -112,5 +114,52 @@ example :
 example : rtlDenote targets.1 spin mem = Part.none ∧ lambdaDenote targets.2 spin mem = Part.none :=
   let absence := denotations_none_iff accepted spin mem
   ⟨absence.1.mpr spinAbsent, absence.2.mpr spinAbsent⟩
+
+example : (7, mem) ∈ Rows.rtlObservation targets.1 input mem ∧
+    (7, mem) ∈ Institution.lambdaReturns input mem (Institution.scope accepted) := by
+  have agree := Institution.observations_eq accepted input mem
+  rw [agree.1, agree.2]
+  exact ⟨Part.eq_some_iff.mp nativeDenoted, Part.eq_some_iff.mp nativeDenoted⟩
+
+private def exitAtSpin : SourceWithEntry 3 Entry Header :=
+  { source with
+    preheader :=
+      .cons .add (.cons (.arg (capture 0)) (.cons (.arg (capture 2)) .nil))
+        (.cons .add (.cons (.output (0 : Fin 1) .head) (.cons (.arg (capture 1)) .nil)) .nil) }
+
+private def exitTargets : Checked.Phi.Targets := (lowerChecked exitAtSpin).get (by cbv)
+private theorem exitAccepted : lowerChecked exitAtSpin = some exitTargets := by cbv
+
+example : exitTargets.1.runMain 7 0 (words spin) mem = .returned [3] mem := by cbv
+
+private theorem differs : exitAtSpin.denote model spin ≠ source.denote model spin := by
+  rw [spinAbsent]
+  intro absent
+  have returned : exitAtSpin.Returns model spin (3 : Word) := ⟨0, .exit (by cbv)⟩
+  have present := (exitAtSpin.returns_iff_mem_denote model spin (3 : Word)).mp returned
+  rw [absent] at present
+  exact Part.not_none_dom (Part.dom_iff_mem.mpr ⟨_, present⟩)
+
+private theorem equationFails :
+    ¬ (Loop.Institution.Sentence.equation (Institution.equation exitAtSpin source)).Holds model :=
+  fun holds => differs (holds spin)
+
+example :
+    ¬ (∀ args : WordTuple 3, (Sentence.eq exitTargets.1 targets.1).Holds
+        (fun target => Rows.rtlObservation target args mem)) ∧
+    ¬ (∀ args : WordTuple 3, (Sentence.eq (Institution.scope exitAccepted) (Institution.scope accepted)).Holds
+        (Institution.lambdaReturns args mem)) := by
+  have agrees := Institution.equation_holds_iff exitAccepted accepted mem
+  exact ⟨equationFails ∘ agrees.1.mp, equationFails ∘ agrees.2.1.mp⟩
+
+private theorem terminationFails :
+    ¬ (Loop.Institution.Sentence.terminates (Institution.program source)).Holds model :=
+  fun holds => (Part.eq_none_iff'.mp spinAbsent) (holds spin)
+
+example :
+    ¬ (∀ args : WordTuple 3, (Rows.rtlObservation targets.1 args mem).Nonempty) ∧
+    ¬ (∀ args : WordTuple 3, (Institution.lambdaReturns args mem (Institution.scope accepted)).Nonempty) := by
+  have agrees := Institution.terminates_holds_iff accepted mem
+  exact ⟨terminationFails ∘ agrees.1.mp, terminationFails ∘ agrees.2.mp⟩
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table

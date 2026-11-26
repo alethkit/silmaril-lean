@@ -72,6 +72,14 @@ every finite return. The native equation therefore fails at this
 valuation, and `equation_at_iff` carries the distinction to the
 emitted targets. [Checked regression][regression]
 
+## Checked dependent preheaders
+
+The native observation sentences also apply to checked dependent-preheader
+graphs. `Table.Institution.equation_holds_iff` relates the existing native
+equation to equality of the emitted RTL and λSSA finite return sets.
+`terminates_holds_iff` uses nonemptiness of those sets at each typed input.
+[Bridge and runnable example](sea-of-nodes-guarded-feedback-rows-rtl.md#satisfaction-of-observation-equations)
+
 ## Permuting the external input interface
 
 `InputPermutation n` maps each old input slot to its new position.

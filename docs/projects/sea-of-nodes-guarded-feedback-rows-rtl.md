@@ -360,13 +360,15 @@ evaluates entry outside its budget and needs `b + 1` header visits.
 [Checked regression][table-regression]
 
 ```lean
-import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Denotation.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Thms
 
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (model word)
 open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
 open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader
 open Silmaril.Machine.SeaOfNodes.Loop.RTL
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded
+open Silmaril.SSA.SeaOfNodes
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA (inputEnv)
 open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
 
@@ -404,6 +406,26 @@ example {targets : Checked.Phi.Targets} (accepted : Table.lowerChecked dependent
     Table.rtlDenote targets.1 input initial = Table.nativeDenote dependent input initial ∧
       Table.lambdaDenote targets.2 input initial = Table.nativeDenote dependent input initial :=
   Table.denotations_eq accepted input initial
+
+def bank (x y z : Word) : WordTuple 3 := .cons x (.cons y (.cons z .nil))
+
+theorem spinAbsent : dependent.denote model (bank 0 1 1) = Part.none := by
+  rw [Part.eq_none_iff', Part.dom_iff_mem]
+  rintro ⟨value, present⟩
+  exact dependent.not_returns_of_backedge_invariant model (bank 0 1 1) value
+    (· = bank (-1) 0 1) (by cbv)
+    (fun old fixed => fixed.symm ▸ ⟨bank (-1) 0 1, by cbv, rfl⟩)
+    ((dependent.returns_iff_mem_denote model _ _).mpr present)
+
+example {targets : Checked.Phi.Targets} (accepted : Table.lowerChecked dependent = some targets)
+    (initial : Memory) :
+    ¬ (∀ input : WordTuple 3, (Rows.rtlObservation targets.1 input initial).Nonempty) ∧
+    ¬ (∀ input : WordTuple 3,
+        (Table.Institution.lambdaReturns input initial (Table.Institution.scope accepted)).Nonempty) := by
+  have absent : ¬ (Loop.Institution.Sentence.terminates (Table.Institution.program dependent)).Holds model :=
+    fun holds => (Part.eq_none_iff'.mp spinAbsent) (holds (bank 0 1 1))
+  have agrees := Table.Institution.terminates_holds_iff accepted initial
+  exact ⟨absent ∘ agrees.1.mp, absent ∘ agrees.2.mp⟩
 ```
 
 The two results are `6 - 5 = 1` and `1 + 2 = 3`, so the bank enters as
@@ -413,8 +435,7 @@ column and a literal in the producer table both fail the check.
 
 ## Unbounded partial observations
 
-Import `Rows.Native.Preheader.Table.Denotation.Thms` with the full module
-path shown above. `Table.denotations_eq` identifies each checked target's
+`Table.denotations_eq` in `Table.Denotation.Thms` identifies each checked target's
 `Part (Word × Memory)` with the native partial word paired with the whole
 initial memory. The RTL observer selects a singleton return from the
 program's call oracle. The λSSA observer selects an exit-zero packet and
@@ -429,6 +450,26 @@ In the regression, input `(0, 1, 1)` initializes `(-1, 0, 1)`.
 That bank takes a backedge to itself on every activation, so both target
 observations are undefined. The observers describe finite word returns
 in this profile. [Return and fixed-point checks][table-regression]
+
+## Satisfaction of observation equations
+
+`Table.Institution.program` and `equation` package checked graphs at the
+existing native word signature. The two sides share their typed input
+and result sorts. Their producer signatures can differ internally.
+`equation_holds_iff` compares the native equation with the existing
+`Observational.Sentence.eq` on the emitted RTL and scoped λSSA.
+At each typed input and common initial memory, the observations contain
+each returned word and its entire final memory. The same theorem gives
+a cross-backend comparison, and `equation_at_iff` states the pointwise law.
+
+The λSSA observation projects the packed returns from the existing
+observational room. Full room satisfaction also compares fault and
+divergence observations. The bridge uses the concrete word model at a
+fixed signature. `terminates_holds_iff` relates the native termination
+sentence to a nonempty return set at every typed input. On input
+`(0, 1, 1)`, changing the first preheader producer from subtraction to
+addition makes the alternative graph return 3. The original remains at
+its fixed point, so both target equations fail. [Checked regression][table-regression]
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
