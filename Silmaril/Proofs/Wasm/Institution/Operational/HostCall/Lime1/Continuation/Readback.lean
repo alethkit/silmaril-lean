@@ -2,10 +2,10 @@ module
 
 public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Defs
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Preservation
+import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Context
 import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Thms
 import Silmaril.Wasm.Lime1.Execution.Callout.Properties
-import Silmaril.Wasm.Institution.Operational.Blocks.Context.Thms
 
 @[expose] public section
 
@@ -19,7 +19,9 @@ open CallContinuation.OuterCall
 set_option backward.isDefEq.respectTransparency false
 
 variable {H : Type} {base : Store H} {mem : Memory32 base} {host : HostSemantics H}
-  {outer active : Frame} {scope : Option LabelContext} {results : List NumType} {bytes : ByteArray} {dst : Config H}
+  {outer active : Frame} {labels : List (Label H)} {results : List NumType}
+  {bytes : ByteArray} {dst : Config H}
+
 
 private theorem withoutCallout {src : Config H} (absent : decompose? src = none) :
     Step host src dst ↔ Internal src dst := by
@@ -28,62 +30,18 @@ private theorem withoutCallout {src : Config H} (absent : decompose? src = none)
   have found := exists_callout_iff.mp ⟨call, located⟩
   simp [absent] at found
 
-@[simp] private theorem framed_none (arity : Nat) (active : Frame) (body : List Admin) :
-    framed none arity active body = [.frame arity active body] :=
-  rfl
-
-@[simp] private theorem framed_some (context : LabelContext) (arity : Nat) (active : Frame) (body : List Admin) :
-    framed (some context) arity active body =
-      [.frame context.arity active [.label context.arity [] (values context.saved ++ body ++ context.tail)]] :=
-  rfl
-
-private theorem plug_invoke {saved : List Value} {ops : List (Op H)} {body : List Admin} :
-    (invokeContextIn scope results.length active saved ops).plug value body =
-      framed scope results.length active [.label results.length [] (values saved ++ body ++ code ops)] := by
-  rw [invokeContextIn, EvalCtx.plug_comp]
-  rfl
-
-private theorem framed_step {s s' : Store H} {body next : List Admin}
-    (move : Step host ⟨s, active, body⟩ ⟨s', active, next⟩) :
-    Step host ⟨s, outer, framed scope results.length active body⟩
-      ⟨s', outer, framed scope results.length active next⟩ :=
-  Step.plug_activeFrame (frameContext scope results.length active) outer (by cases scope <;> exact move)
-
-private theorem body_cases {body : List Admin}
-    (move : Internal ⟨mem.store bytes, outer, framed scope results.length active [.label results.length [] body]⟩ dst) :
-    (∃ mid, Internal ⟨mem.store bytes, active, body⟩ mid ∧ dst =
-      ⟨mid.store, outer, framed scope results.length mid.frame [.label results.length [] mid.code]⟩) ∨
-    ∃ out, PureStep active.module.types [.label results.length [] body] out ∧
-      dst = ⟨mem.store bytes, outer, framed scope results.length active out⟩ := by
-  cases scope with
-  | none => exact Computed.lime_body_step_cases move
-  | some context =>
-    change Step CallFrame.limeNoHost _ _ at move
-    have native : Step CallFrame.limeNoHost ⟨mem.store bytes, outer,
-        [.frame context.arity active [.label context.arity [] (values context.saved ++
-          .label results.length [] body :: context.tail)]]⟩ dst := by
-      simpa only [framed_some, List.append_assoc, List.singleton_append] using move
-    have outerBody := Computed.lime_body_step_cases native
-    rcases outerBody with ⟨mid, inside, rfl⟩ | ⟨out, pop, _⟩
-    · have inner := Blocks.Context.lime_label_cont_iff (s := mem.store bytes) (f := active) (dst := mid) (saved := context.saved)
-        (rest := context.tail) (n := results.length) (cont := []) (body := body)
-      rcases inner.mp inside with ⟨next, step, rfl⟩ | ⟨out, pop, rfl⟩
-      · exact .inl ⟨next, step, by simp only [framed_some, List.append_assoc, List.singleton_append]⟩
-      · exact .inr ⟨out, pop, rfl⟩
-    · exact (Computed.lime_label_stays (stack := context.saved) rfl (by simp) (by simp) (by simp) pop).elim
-
 private theorem underLabel {body : List Admin}
-    (stays : ∀ out, ¬ PureStep active.module.types [.label results.length [] body] out)
-    (move : Internal ⟨mem.store bytes, outer, framed scope results.length active [.label results.length [] body]⟩ dst) :
+    (stays : ∀ out, ¬ PureStep active.module.types [.label (labelResults results labels).length [] body] out)
+    (move : Internal ⟨mem.store bytes, outer, framed active [.label (labelResults results labels).length [] body] (scopeFor results labels)⟩ dst) :
     ∃ mid, Internal ⟨mem.store bytes, active, body⟩ mid ∧ dst =
-      ⟨mid.store, outer, framed scope results.length mid.frame [.label results.length [] mid.code]⟩ := by
+      ⟨mid.store, outer, framed mid.frame [.label (labelResults results labels).length [] mid.code] (scopeFor results labels)⟩ := by
   rcases body_cases move with inside | ⟨out, exiting, _⟩
   · exact inside
   · exact (stays out exiting).elim
 
 private theorem closeLabel {r : Result}
-    (move : Internal ⟨mem.store bytes, outer, framed scope results.length active [.label results.length [] (result r)]⟩ dst) :
-    dst = ⟨mem.store bytes, outer, framed scope results.length active (result r)⟩ := by
+    (move : Internal ⟨mem.store bytes, outer, framed active [.label (labelResults results labels).length [] (result r)] (scopeFor results labels)⟩ dst) :
+    dst = ⟨mem.store bytes, outer, framed active (result r) (scopeFor results labels)⟩ := by
   cases r with
   | values vs =>
     rcases body_cases move with ⟨_, inside, _⟩ | ⟨_, pop, rfl⟩
@@ -98,178 +56,254 @@ private theorem closeLabel {r : Result}
 
 private theorem located {site : Site H} {args saved : List Value} {ops : List (Op H)}
     (allocated : site.Allocated base) (typed : site.Arguments args) :
-    CalloutAt (renderIn mem outer active scope results.length ⟨bytes, .invoke saved site args ops⟩)
-      (site.callout (invokeContextIn scope results.length active saved ops) args) :=
+    CalloutAt (render mem outer active results ⟨bytes, .invoke saved site args ops, labels⟩)
+      (site.callout (invokeContext (scopeFor results labels) (labelResults results labels).length active saved ops) args) :=
   ⟨rfl, allocated, by simpa [Site.callout] using congrArg List.length typed⟩
 
 private theorem invoke_read {saved args : List Value} {site : Site H} {ops : List (Op H)}
-    (ready : Ready mem host active results (.invoke saved site args ops)) (live : mem.Live bytes)
-    (move : Step host (renderIn mem outer active scope results.length ⟨bytes, .invoke saved site args ops⟩) dst) :
-    ∃ next, Edge mem host active ⟨bytes, .invoke saved site args ops⟩ next ∧
-      dst = renderIn mem outer active scope results.length next := by
-  obtain ⟨allocated, typed, contract, _, _⟩ := ready
+    (ready : Ready mem host active results (.invoke saved site args ops) labels) (live : mem.Live bytes)
+    (move : Step host (render mem outer active results ⟨bytes, .invoke saved site args ops, labels⟩) dst) :
+    ∃ next, Edge mem host active ⟨bytes, .invoke saved site args ops, labels⟩ next ∧
+      dst = render mem outer active results next := by
+  obtain ⟨_, allocated, typed, contract, _, _⟩ := ready
   have exactStep := Site.step_iff (dst := dst) (outer := outer)
-    (context := invokeContextIn scope results.length active saved ops) allocated contract live typed
+    (context := invokeContext (scopeFor results labels) (labelResults results labels).length active saved ops) allocated contract live typed
   rcases exactStep.mp move with ⟨next, out, nLive, nTyped, answer, rfl⟩ | ⟨diverges, rfl⟩
   · cases out with
-    | values vs => exact ⟨⟨next, .source (saved ++ vs) ops⟩, .returned nLive nTyped answer,
-        by simp [renderIn, Phase.renderIn, plug_invoke, result, List.append_assoc]⟩
-        | trap => exact ⟨⟨next, .trapped saved (code ops)⟩, .trapped nLive answer,
-        by simp [renderIn, Phase.renderIn, plug_invoke, result]⟩
+    | values vs => exact ⟨⟨next, .source (saved ++ vs) ops, labels⟩, .returned nLive nTyped answer,
+        by simp [render, Phase.renderCode, Phase.renderIn, plug_invoke, result, List.append_assoc]⟩
+    | trap => exact ⟨⟨next, .trapped saved (code ops), labels⟩, .trapped nLive answer,
+        by simp [render, Phase.renderCode, Phase.renderIn, plug_invoke, result]⟩
   · exact ⟨_, .diverged diverges, rfl⟩
 
 private theorem source_read {stack : List Value} {ops : List (Op H)}
-    (ready : Ready mem host active results (.source stack ops))
-    (move : Internal (renderIn mem outer active scope results.length ⟨bytes, .source stack ops⟩) dst) :
-    ∃ next, Edge mem host active ⟨bytes, .source stack ops⟩ next ∧
-      dst = renderIn mem outer active scope results.length next := by
+    (ready : Ready mem host active results (.source stack ops) labels)
+    (move : Internal (render mem outer active results ⟨bytes, .source stack ops, labels⟩) dst) :
+    ∃ next, Edge mem host active ⟨bytes, .source stack ops, labels⟩ next ∧
+      dst = render mem outer active results next := by
   cases ops with
   | nil =>
-    have move' : Internal ⟨mem.store bytes, outer, framed scope results.length active [.label results.length [] (result (.values stack))]⟩ dst := by
-      simpa [renderIn, Phase.renderIn, code, expression, result] using move
-    exact ⟨⟨bytes, .frameResult (.values stack)⟩, .labelResult, closeLabel (r := .values stack) move'⟩
+    have step : Internal ⟨mem.store bytes, outer, framed active [.label (labelResults results labels).length [] (result (.values stack))] (scopeFor results labels)⟩ dst := by
+      simpa [render, Phase.renderCode, Phase.renderIn, code, expr, expression, result] using move
+    have exit := closeLabel (r := .values stack) step
+    cases labels with
+    | nil => exact ⟨⟨bytes, .frameResult (.values stack), []⟩, .labelResult, exit⟩
+    | cons label rest =>
+      exact ⟨⟨bytes, .source (label.saved ++ stack) label.tail, rest⟩, .armResult,
+        by simpa [render, Phase.renderCode, Phase.renderIn, framed, scopeFor, result, List.append_assoc] using exit⟩
   | cons op ops =>
     have stay (out : List Admin) : ¬ PureStep active.module.types
-        [.label results.length [] (values stack ++ .source op.instr :: code ops)] out :=
+        [.label (labelResults results labels).length [] (values stack ++ .source op.instr :: code ops)] out :=
       Computed.lime_label_stays (by cases op <;> rfl) (by cases op <;> simp [Op.instr])
         (by cases op <;> simp [Op.instr]) (by simp)
     obtain ⟨mid, inside, rfl⟩ := underLabel stay move
     cases op with
     | get i =>
-      obtain ⟨type, lookup, _⟩ := checked_get ready.1
+      obtain ⟨type, lookup, _⟩ := checked_get ready.2.1
       rw [List.getElem?_map] at lookup
       obtain ⟨v, found, _⟩ := Option.map_eq_some_iff.mp lookup
       obtain rfl := (Computed.lime_local_get_iff (stack := stack) (rest := code ops) found).mp inside
-      exact ⟨⟨bytes, .source (stack ++ [v]) ops⟩, .get found,
-        by simp [renderIn, Phase.renderIn, List.append_assoc, values]⟩
+      exact ⟨⟨bytes, .source (stack ++ [v]) ops, labels⟩, .get found,
+        by simp [render, Phase.renderCode, Phase.renderIn, List.append_assoc, values]⟩
     | drop =>
-      obtain ⟨savedTypes, type, split, _⟩ := checked_drop ready.1
+      obtain ⟨savedTypes, type, split, _⟩ := checked_drop ready.2.1
       obtain ⟨kept, dropped, rfl, _, droppedType⟩ := List.map_eq_append_iff.mp split
       obtain ⟨v, rest, rfl, _, restNil⟩ := List.map_eq_cons_iff.mp droppedType
       obtain rfl := List.map_eq_nil_iff.mp restNil
       obtain rfl := (Computed.lime_drop_iff (stack := kept) (v := v) (rest := code ops)).mp inside
-      exact ⟨⟨bytes, .source kept ops⟩, .drop, rfl⟩
+      exact ⟨⟨bytes, .source kept ops, labels⟩, .drop, rfl⟩
     | call i site =>
-      obtain ⟨_, split, resolved, _, _⟩ := checked_call ready.1
+      obtain ⟨_, split, resolved, _, _⟩ := checked_call ready.2.1
       obtain ⟨saved, args, rfl, _, typed⟩ := List.map_eq_append_iff.mp split
       obtain rfl := (Computed.lime_direct_call_iff (stack := saved ++ args) (tail := code ops) resolved).mp inside
-      exact ⟨⟨bytes, .invoke saved site args ops⟩, .resolve typed,
-        by simp [renderIn, Phase.renderIn, plug_invoke, List.append_assoc]⟩
+      exact ⟨⟨bytes, .invoke saved site args ops, labels⟩, .resolve typed,
+        by simp [render, Phase.renderCode, Phase.renderIn, plug_invoke, List.append_assoc]⟩
+    | if_ type left right =>
+      obtain ⟨_, typed, _, _, _⟩ := checked_if ready.2.1
+      obtain ⟨saved, args, rfl, _, guardTyped⟩ := List.map_eq_append_iff.mp typed
+      obtain ⟨v, rem, rfl, vt, argEmpty⟩ := List.map_eq_cons_iff.mp guardTyped
+      obtain rfl := List.map_eq_nil_iff.mp argEmpty
+      rcases v with ⟨vt', guard⟩
+      cases vt
+      have taken := (Computed.lime_if_iff (saved := saved) (condition := guard) (bt := .value type)
+        (thenBody := expr left) (elseBody := expr right) (rest := code ops)).mp inside
+      refine ⟨⟨bytes, .block ⟨type, saved, ops⟩ (select guard left right), labels⟩, .if_, ?_⟩
+      have blockCode :
+          (if guard = 0 then expr right else expr left) = expr (select guard left right) := by
+        by_cases zero : guard = (0 : BitVec 32)
+        · have chosen : select guard left right = right := ite_eq_left zero
+          rw [ite_eq_left zero, chosen]
+        · have chosen : select guard left right = left := ite_eq_right zero
+          rw [ite_eq_right zero, chosen]
+      rw [blockCode] at taken
+      cases taken
+      rfl
+
+private theorem block_read {label : Label H} {arm : List (Op H)}
+    (move : Internal (render mem outer active results ⟨bytes, .block label arm, labels⟩) dst) :
+    ∃ next, Edge mem host active ⟨bytes, .block label arm, labels⟩ next ∧
+      dst = render mem outer active results next := by
+  have stays (out : List Admin) :
+      ¬ PureStep active.module.types [.label (labelResults results labels).length [] (values label.saved ++
+        .source (.block (.value label.type) (expr arm)) :: code label.tail)] out :=
+    Computed.lime_label_stays rfl (by simp) (by simp) (by simp)
+  obtain ⟨mid, inside, rfl⟩ := underLabel stays move
+  obtain rfl := (Computed.lime_block_iff (s := mem.store bytes) (f := active) (result := some label.type)
+    (stack := label.saved) (body := expr arm) (rest := code label.tail)).mp inside
+  exact ⟨⟨bytes, .source [] arm, label :: labels⟩, .block, by
+    simp [render, Phase.renderCode, Phase.renderIn, framed, scopeFor, labelResults, code, values,
+      List.append_assoc]⟩
 
 private theorem trap_read {stack : List Value} {rest : List Admin}
-    (move : Internal (renderIn mem outer active scope results.length ⟨bytes, .trapped stack rest⟩) dst) :
-    ∃ next, Edge mem host active ⟨bytes, .trapped stack rest⟩ next ∧
-      dst = renderIn mem outer active scope results.length next := by
+    (move : Internal (render mem outer active results ⟨bytes, .trapped stack rest, labels⟩) dst) :
+    ∃ next, Edge mem host active ⟨bytes, .trapped stack rest, labels⟩ next ∧
+      dst = render mem outer active results next := by
   by_cases someCode : stack ≠ [] ∨ rest ≠ []
   · have stays (out : List Admin) :
-        ¬ PureStep active.module.types [.label results.length [] (values stack ++ .trap :: rest)] out :=
+        ¬ PureStep active.module.types [.label (labelResults results labels).length [] (values stack ++ .trap :: rest)] out :=
       Computed.lime_label_stays rfl (by simp) (by simp) (fun _ => someCode)
     obtain ⟨mid, inside, rfl⟩ := underLabel stays move
     have erase := Computed.lime_trap_front_iff (s := mem.store bytes) (f := active) (dst := mid)
       (stack := stack) (tail := rest)
     obtain ⟨kept, removed, cut, next, split, suffix, activeTrap, rfl⟩ := erase.mp inside
-    exact ⟨⟨bytes, .trapped kept next⟩, .erase split suffix activeTrap, rfl⟩
+    exact ⟨⟨bytes, .trapped kept next, labels⟩, .erase split suffix activeTrap, rfl⟩
   · obtain ⟨emptyStack, emptyRest⟩ := not_or.mp someCode
     have stackNil : stack = [] := not_not.mp emptyStack
     have restNil : rest = [] := not_not.mp emptyRest
     subst stack rest
-    exact ⟨⟨bytes, .frameResult .trap⟩, .labelTrap, closeLabel (r := .trap) move⟩
+    have exit := closeLabel (r := .trap) move
+    cases labels with
+    | nil => exact ⟨⟨bytes, .frameResult .trap, []⟩, .labelTrap, exit⟩
+    | cons label rest =>
+      exact ⟨⟨bytes, .trapped label.saved (code label.tail), rest⟩, .armTrap,
+        by simpa [render, Phase.renderCode, Phase.renderIn, framed, scopeFor, result, List.append_assoc] using exit⟩
 
 private theorem frame_read {r : Result}
-    (move : Internal (renderIn mem outer active none results.length ⟨bytes, .frameResult r⟩) dst) :
-    dst = renderIn mem outer active none results.length ⟨bytes, .done r⟩ := by
+    (move : Internal (render mem outer active results ⟨bytes, .frameResult r, []⟩) dst) :
+    dst = render mem outer active results ⟨bytes, .done r, []⟩ := by
   cases r with
   | values vs => exact Nested.lime_frame_result (r := .values vs) move
   | trap => exact Nested.lime_frame_result (r := .trap) move
 
-private theorem read {a : State H} (admittedScope : scope = none ∨ a.phase.InLabel) (ready : Ready mem host active results a.phase) (live : mem.Live a.bytes)
-    (move : Step host (renderIn mem outer active scope results.length a) dst) :
-    ∃ next, Edge mem host active a next ∧ dst = renderIn mem outer active scope results.length next := by
-  rcases a with ⟨bytes, phase⟩
+private theorem read {a : State H} (ready : Ready mem host active results a.phase a.labels) (live : mem.Live a.bytes)
+    (move : Step host (render mem outer active results a) dst) :
+    ∃ next, Edge mem host active a next ∧ dst = render mem outer active results next := by
+  rcases a with ⟨bytes, phase, labels⟩
   cases phase with
   | source stack ops =>
-    have absent : decompose? (renderIn mem outer active scope results.length ⟨bytes, .source stack ops⟩) = none := by
-      cases ops with
-      | nil => cases scope <;> simp [decompose?, renderIn, Phase.renderIn, code, expression, List.append_assoc]
-      | cons op ops => cases scope <;> cases op <;> simp [decompose?, renderIn, Phase.renderIn, code, Op.instr, expression, asValue?, List.append_assoc]
+    have absent : decompose? (render mem outer active results ⟨bytes, .source stack ops, labels⟩) = none :=
+      noLabelCallout (by
+        cases ops with
+        | nil => simp [code, expr, expression]
+        | cons op ops => cases op <;> simp [code, expr, Op.instr, expression, asValue?])
     exact source_read ready ((withoutCallout absent).mp move)
+  | block label arm =>
+    have absent : decompose? (render mem outer active results ⟨bytes, .block label arm, labels⟩) = none :=
+      noLabelCallout (by simp [asValue?])
+    exact block_read ((withoutCallout absent).mp move)
   | invoke saved site args ops => exact invoke_read ready live move
   | trapped stack rest =>
-    have absent : decompose? (renderIn mem outer active scope results.length ⟨bytes, .trapped stack rest⟩) = none := by
-      cases scope <;> simp [decompose?, renderIn, Phase.renderIn, List.append_assoc]
+    have absent : decompose? (render mem outer active results ⟨bytes, .trapped stack rest, labels⟩) = none :=
+      noLabelCallout (by simp)
     exact trap_read ((withoutCallout absent).mp move)
   | frameResult out =>
-    rcases admittedScope with rfl | impossible
-    swap
-    · exact impossible.elim
-    have absent : decompose? (renderIn mem outer active none results.length ⟨bytes, .frameResult out⟩) = none := by
-      cases out <;> simp [decompose?, renderIn, Phase.renderIn, result]
-    exact ⟨⟨bytes, .done out⟩, .frameDone, frame_read ((withoutCallout absent).mp move)⟩
+    have noLabels : labels = [] := ready.2.1
+    subst labels
+    have absent : decompose? (render mem outer active results ⟨bytes, .frameResult out, []⟩) = none := by
+      cases out <;> simp [decompose?, render, Phase.renderCode, Phase.renderIn, scopeFor, framed, result]
+    exact ⟨⟨bytes, .done out, []⟩, .frameDone, frame_read ((withoutCallout absent).mp move)⟩
   | done out =>
-    have absent : decompose? (renderIn mem outer active scope results.length ⟨bytes, .done out⟩) = none := by
-      cases out <;> simp [decompose?, renderIn, Phase.renderIn, result]
+    have absent : decompose? (render mem outer active results ⟨bytes, .done out, labels⟩) = none := by
+      cases out <;> simp [decompose?, render, Phase.renderCode, Phase.renderIn, result]
     have internal := (withoutCallout absent).mp move
     cases out with
     | values vs => exact (Nested.lime_result_stuck (r := .values vs) internal).elim
     | trap => exact (Nested.lime_result_stuck (r := .trap) internal).elim
 
-private theorem sound {a b : State H} (admittedScope : scope = none ∨ a.phase.InLabel) (ready : Ready mem host active results a.phase) (edge : Edge mem host active a b) :
-    Step host (renderIn mem outer active scope results.length a) (renderIn mem outer active scope results.length b) := by
+private theorem sound {a b : State H} (ready : Ready mem host active results a.phase a.labels) (edge : Edge mem host active a b) :
+    Step host (render mem outer active results a) (render mem outer active results b) := by
   cases edge with
-  | @get bytes stack index v ops found =>
+  | @get bytes stack index v ops labels found =>
     have get := (Computed.lime_local_get_iff (s := mem.store bytes) (stack := stack) (rest := code ops) found).mpr rfl
-    have move := framed_step (scope := scope) (results := results) (outer := outer) (.label get results.length [])
+    have move := framed_step (scope := (scopeFor results labels)) (outer := outer) (.label get (labelResults results labels).length [])
     apply Step.of_internal
     change Step CallFrame.limeNoHost _ _
-    simpa [renderIn, Phase.renderIn, code, Op.instr, expression, values, List.append_assoc] using move
-  | @drop bytes stack v ops =>
+    simpa [render, Phase.renderCode, Phase.renderIn, code, expr, Op.instr, expression, values, List.append_assoc] using move
+  | @drop bytes stack v ops labels =>
     have drop := (Computed.lime_drop_iff (s := mem.store bytes) (f := active) (stack := stack)
       (v := v) (rest := code ops)).mpr rfl
-    exact Step.of_internal (framed_step (.label drop results.length []))
-  | @resolve bytes saved args index site ops typed =>
-    obtain ⟨_, _, resolved, _, _⟩ := checked_call ready.1
-    have call := (Computed.lime_direct_call_iff (s := mem.store bytes) (stack := saved ++ args)
-      (tail := code ops) resolved).mpr rfl
-    have move := framed_step (scope := scope) (results := results) (outer := outer) (.label call results.length [])
+    exact Step.of_internal (framed_step (.label drop (labelResults results labels).length []))
+  | @if_ bytes saved guard type left right ops labels =>
+    have branch : Internal ⟨mem.store bytes, active, values (saved ++ [Value.int .i32 guard]) ++
+        .source (.if_ (.value type) (expr left) (expr right)) :: code ops⟩
+        ⟨mem.store bytes, active, values saved ++ .source (.block (.value type) (expr (select guard left right))) :: code ops⟩ := by
+      apply (Computed.lime_if_iff (saved := saved) (condition := guard) (bt := .value type)
+        (thenBody := expr left) (elseBody := expr right) (rest := code ops)).mpr
+      by_cases zero : guard = (0 : BitVec 32)
+      · have chosen : select guard left right = right := ite_eq_left zero
+        rw [ite_eq_left zero, chosen]
+      · have chosen : select guard left right = left := ite_eq_right zero
+        rw [ite_eq_right zero, chosen]
+    exact Step.of_internal (framed_step (.label branch (labelResults results labels).length []))
+  | @block bytes label arm labels =>
+    have block := (Computed.lime_block_iff (s := mem.store bytes) (f := active) (result := some label.type)
+      (stack := label.saved) (body := expr arm) (rest := code label.tail)).mpr rfl
+    have move := framed_step (scope := (scopeFor results labels)) (outer := outer) (.label block (labelResults results labels).length [])
     apply Step.of_internal
     change Step CallFrame.limeNoHost _ _
-    simpa [renderIn, Phase.renderIn, plug_invoke, code, Op.instr, expression, List.append_assoc, values] using move
-  | @returned bytes next saved site args ops vs _ _ answer =>
-    have atHost := located (mem := mem) (scope := scope) (results := results) (outer := outer) (active := active)
-      (bytes := bytes) (saved := saved) (ops := ops) ready.1 ready.2.1
+    simpa [render, Phase.renderCode, Phase.renderIn, framed, scopeFor, labelResults, code, values,
+      List.append_assoc, Blocks.limeType] using move
+  | @resolve bytes saved args index site ops labels typed =>
+    obtain ⟨_, _, resolved, _, _⟩ := checked_call ready.2.1
+    have call := (Computed.lime_direct_call_iff (s := mem.store bytes) (stack := saved ++ args)
+      (tail := code ops) resolved).mpr rfl
+    have move := framed_step (scope := (scopeFor results labels)) (outer := outer) (.label call (labelResults results labels).length [])
+    apply Step.of_internal
+    change Step CallFrame.limeNoHost _ _
+    simpa [render, Phase.renderCode, Phase.renderIn, plug_invoke, code, expr, Op.instr, expression, List.append_assoc, values] using move
+  | @returned bytes next saved site args ops vs labels _ _ answer =>
+    have atHost := located (mem := mem) (labels := labels) (results := results) (outer := outer) (active := active)
+      (bytes := bytes) (saved := saved) (ops := ops) ready.2.1 ready.2.2.1
     have move := Step.callout_returned atHost answer
-    simpa [resume, renderIn, Phase.renderIn, Site.callout,
+    simpa [resume, render, Phase.renderCode, Phase.renderIn, Site.callout,
       Execution.Runtime.Callout.fill, plug_invoke, result, List.append_assoc] using move
-  | @trapped bytes next saved site args ops _ answer =>
-    have atHost := located (mem := mem) (scope := scope) (results := results) (outer := outer) (active := active)
-      (bytes := bytes) (saved := saved) (ops := ops) ready.1 ready.2.1
+  | @trapped bytes next saved site args ops labels _ answer =>
+    have atHost := located (mem := mem) (labels := labels) (results := results) (outer := outer) (active := active)
+      (bytes := bytes) (saved := saved) (ops := ops) ready.2.1 ready.2.2.1
     have move := Step.callout_returned atHost answer
-    simpa [resume, renderIn, Phase.renderIn, Site.callout, Execution.Runtime.Callout.fill, plug_invoke, result] using move
-  | diverged answer => exact Step.callout_diverged (located (scope := scope) (results := results) ready.1 ready.2.1) answer
-  | @erase bytes stack kept removed before cut rest split suffix activeTrap =>
+    simpa [resume, render, Phase.renderCode, Phase.renderIn, Site.callout, Execution.Runtime.Callout.fill, plug_invoke, result] using move
+  | @diverged bytes saved site args ops labels answer => exact Step.callout_diverged (located (labels := labels) (results := results) ready.2.1 ready.2.2.1) answer
+  | @erase bytes stack kept removed before cut rest labels split suffix activeTrap =>
     have move : Internal ⟨mem.store bytes, active, values stack ++ .trap :: before⟩
         ⟨mem.store bytes, active, values kept ++ .trap :: rest⟩ :=
       Computed.lime_trap_front_iff.mpr ⟨kept, removed, cut, rest, split, suffix, activeTrap, rfl⟩
-    exact Step.of_internal (framed_step (.label move results.length []))
-  | labelTrap => exact framed_step (.pure _ _ (.labelTrap results.length []))
+    exact Step.of_internal (framed_step (.label move (labelResults results labels).length []))
+  | @armTrap bytes label labels =>
+    have move := framed_step (scope := scopeFor results (label :: labels)) (outer := outer)
+      (.pure (host := host) (mem.store bytes) active (.labelTrap 1 []))
+    simpa [render, Phase.renderCode, Phase.renderIn, labelResults, scopeFor, framed, values, List.append_assoc] using move
+  | @armResult bytes stack label labels =>
+    have move := framed_step (scope := scopeFor results (label :: labels)) (outer := outer)
+      (.pure (host := host) (mem.store bytes) active (.labelDone 1 [] stack))
+    simpa [render, Phase.renderCode, Phase.renderIn, labelResults, scopeFor, framed, code, expr, expression,
+      List.append_assoc] using move
+  | labelTrap => exact .frame (.pure _ _ (.labelTrap results.length [])) results.length outer
   | @labelResult bytes stack =>
-    have move := framed_step (scope := scope) (results := results) (outer := outer)
-      (.pure (host := host) (mem.store bytes) active (.labelDone results.length [] stack))
-    simpa [renderIn, Phase.renderIn, code, expression, result] using move
+    have move := Step.frame (.pure (host := host) (mem.store bytes) active (.labelDone results.length [] stack))
+      results.length outer
+    simpa [render, Phase.renderCode, Phase.renderIn, scopeFor, labelResults, framed, code, expr, expression, result]
+      using move
   | @frameDone _ out =>
-    rcases admittedScope with rfl | impossible
-    swap
-    · exact impossible.elim
     cases out with
     | trap => exact .pure _ _ (.frameTrap _ active)
     | values vs =>
-      exact .pure _ _ (.frameDone _ active vs (by simpa using congrArg List.length ready))
+      exact .pure _ _ (.frameDone _ active vs (by simpa using congrArg List.length ready.2.2))
 
-theorem step_iff {a : State H} (admittedScope : scope = none ∨ a.phase.InLabel) (ready : Ready mem host active results a.phase) (live : mem.Live a.bytes) :
-    Step host (renderIn mem outer active scope results.length a) dst ↔
-      ∃ next, Edge mem host active a next ∧ dst = renderIn mem outer active scope results.length next := by
-  refine ⟨read admittedScope ready live, ?_⟩
+theorem step_iff {a : State H} (ready : Ready mem host active results a.phase a.labels) (live : mem.Live a.bytes) :
+    Step host (render mem outer active results a) dst ↔
+      ∃ next, Edge mem host active a next ∧ dst = render mem outer active results next := by
+  refine ⟨read ready live, ?_⟩
   rintro ⟨_, edge, rfl⟩
-  exact sound admittedScope ready edge
+  exact sound ready edge
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Proofs

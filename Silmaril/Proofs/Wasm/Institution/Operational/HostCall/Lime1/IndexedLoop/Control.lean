@@ -5,7 +5,6 @@ import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed
 import Silmaril.Wasm.Institution.Operational.Blocks.Context.Thms
 import Silmaril.Wasm.Institution.Operational.Loops.Indexed.Thms
 import Silmaril.Wasm.Lime1.Execution.Callout.Properties
-import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Conditional.Thms
 
 @[expose] public section
 
@@ -116,7 +115,7 @@ theorem pending_producer {input : BitVec 64} (checked : p.Checked mem outer inde
       (p.producer.callout (p.producerContext arg) [i64 input]) :=
   ⟨rfl, checked.producer, rfl⟩
 
-theorem internal_iff (checked : p.Checked mem outer index) (a : Phase H) (beforeContinuation : ∀ q, a ≠ .continuation q) :
+theorem internal_iff (checked : p.Checked mem outer index) (a : Phase H) (beforeContinuation : ∀ q labels, a ≠ .continuation q labels) :
     Internal (p.render mem outer index arg ⟨bytes, a⟩) dst ↔
       ∃ next, Control arg p.saved p.continuation a next ∧ dst = p.render mem outer index arg ⟨bytes, next⟩ := by
   cases a with
@@ -176,9 +175,6 @@ theorem internal_iff (checked : p.Checked mem outer index) (a : Phase H) (before
     · exact Computed.lime_drop_iff (stack := [i32 res]) (v := i64 input) (rest := [])
   | loopResult res =>
     apply one ?_ (.loopResult res) (fun edge => by cases edge; rfl)
-    change Internal (p.render mem outer index arg ⟨bytes, .loopResult res⟩) dst ↔
-      dst = ⟨mem.store bytes, outer, (p.continuation.start [i64 p.saved] res).renderCode 1 (p.active arg)⟩
-    rw [Continuation.Conditional.Plan.start_code]
     apply function_iff (code := p.loopCode (values [i32 res]))
     · intro out
       exact stay (saved := [i64 p.saved]) rfl (by simp) (by simp) (by simp)
@@ -208,6 +204,6 @@ theorem internal_iff (checked : p.Checked mem outer index) (a : Phase H) (before
         | eraseLoop split active =>
           exact ⟨_, (Computed.lime_trap_front_iff (stack := []) (tail := instr :: tail)).mpr
             ⟨[], [], _, _, rfl, split, .inr active, rfl⟩, rfl⟩
-  | continuation q => exact (beforeContinuation q rfl).elim
+  | continuation q labels => exact (beforeContinuation q labels rfl).elim
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.IndexedLoop.Proofs

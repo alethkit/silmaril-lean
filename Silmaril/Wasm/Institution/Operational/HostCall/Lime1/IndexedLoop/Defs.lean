@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Conditional.Defs
+public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Defs
 public import Silmaril.Wasm.Institution.Operational.Loops.Indexed.Defs
 
 /-!
@@ -35,7 +35,7 @@ structure Program (H : Type) where
   producerIndex : FuncIdx
   producerAddress : FuncAddr
   producerCode : H
-  continuation : Continuation.Conditional.Plan H
+  continuation : List (Continuation.Op H)
   saved : BitVec 64
 
 namespace Program
@@ -49,7 +49,7 @@ def loop (p : Program H) : Loops.LimeIndexedLoop :=
 
 def function (p : Program H) : Wasm.Lime1.Func :=
   ⟨p.loopIndex, [], [.intConst .i64 p.saved, .localGet ⟨0⟩, p.loop.instr] ++
-    p.continuation.expr⟩
+    Continuation.expr p.continuation⟩
 
 def active (p : Program H) (arg : BitVec 64) : Frame := ⟨[i64 arg], p.module⟩
 
@@ -63,12 +63,13 @@ structure Checked (p : Program H) {base : Store H} (memory : Memory32 base)
   loopIndex : p.module.types[p.loopIndex.toNat]? = some signature
   producerIndex : p.module.funcs[p.producerIndex.toNat]? = some p.producerAddress
   producer : p.producer.Allocated base
-  continuation : p.continuation.Checked base p.module [.int .i64] signature.results [.int .i64]
+  continuation : Continuation.Checked base p.module [.int .i64] signature.results
+    [.int .i64, .int .i32] p.continuation
   memorySlot : p.module.memories = [memory.address]
 
 def Contract (p : Program H) {base : Store H} (memory : Memory32 base)
     (host : HostSemantics H) : Prop :=
-  p.producer.Contract memory host ∧ p.continuation.Contract memory host
+  p.producer.Contract memory host ∧ Continuation.Contract memory host p.continuation
 
 end Program
 
@@ -84,7 +85,7 @@ inductive Phase (H : Type) where
   | dropInput (res : BitVec 32) (input : BitVec 64)
   | loopResult (res : BitVec 32)
   | loopTrap (tail : List Admin)
-  | continuation (phase : Continuation.Conditional.Phase H)
+  | continuation (phase : Continuation.Phase H) (labels : List (Continuation.Label H))
 
 structure State (H : Type) where
   bytes : ByteArray
@@ -95,7 +96,7 @@ namespace Program
 variable {H : Type} (p : Program H)
 
 def afterProducer : List Admin := [.source (.brIf ⟨0⟩), .source .drop]
-def afterLoop : List Admin := expression p.continuation.expr
+def afterLoop : List Admin := Continuation.code p.continuation
 def loopCode (inner : List Admin) : List Admin :=
   value (i64 p.saved) :: .label 1 [p.loop.instr] inner :: p.afterLoop
 
@@ -123,36 +124,36 @@ def code (index : FuncIdx) (arg : BitVec 64) : Phase H → List Admin
   | .dropInput res input => p.functionCode arg (p.loopCode (values [i32 res, i64 input] ++ [.source .drop]))
   | .loopResult res => p.functionCode arg (p.loopCode (values [i32 res]))
   | .loopTrap tail => p.functionCode arg (p.loopCode (.trap :: tail))
-  | .continuation phase => phase.renderCode 1 (p.active arg)
+  | .continuation phase labels => phase.renderCode signature.results (p.active arg) labels
 
 def render {base : Store H} (memory : Memory32 base) (caller : Frame)
     (index : FuncIdx) (arg : BitVec 64) (state : State H) : Config H :=
   ⟨memory.store state.bytes, caller, p.code index arg state.phase⟩
 
 def Ready {base : Store H} (mem : Memory32 base) (host : HostSemantics H) (arg : BitVec 64) : Phase H → Prop
-  | .continuation phase => Continuation.Conditional.Ready mem host (p.active arg) signature.results phase
+  | .continuation phase labels => Continuation.Ready mem host (p.active arg) signature.results phase labels
   | _ => True
 
 end Program
 
 /-- Steps before the handoff to the checked continuation preserve the live store. -/
-inductive Control {H : Type} (arg saved : BitVec 64) (plan : Continuation.Conditional.Plan H) :
+inductive Control {H : Type} (arg saved : BitVec 64) (ops : List (Continuation.Op H)) :
     Phase H → Phase H → Prop where
-  | resolve : Control arg saved plan .source .invoke
-  | enter : Control arg saved plan .invoke .localGet
-  | readLocal : Control arg saved plan .localGet (.enterLoop arg)
-  | openLoop (input : BitVec 64) : Control arg saved plan (.enterLoop input) (.producerCall input)
-  | resolveProducer (input : BitVec 64) : Control arg saved plan (.producerCall input) (.producerInvoke input)
+  | resolve : Control arg saved ops .source .invoke
+  | enter : Control arg saved ops .invoke .localGet
+  | readLocal : Control arg saved ops .localGet (.enterLoop arg)
+  | openLoop (input : BitVec 64) : Control arg saved ops (.enterLoop input) (.producerCall input)
+  | resolveProducer (input : BitVec 64) : Control arg saved ops (.producerCall input) (.producerInvoke input)
   | test (res : BitVec 32) (next : BitVec 64) (condition : BitVec 32) :
-      Control arg saved plan (.test res next condition) (if condition = 0 then .dropInput res next else .restart res next)
-  | restart (scratch : BitVec 32) (next : BitVec 64) : Control arg saved plan (.restart scratch next) (.enterLoop next)
-  | dropInput (res : BitVec 32) (input : BitVec 64) : Control arg saved plan (.dropInput res input) (.loopResult res)
+      Control arg saved ops (.test res next condition) (if condition = 0 then .dropInput res next else .restart res next)
+  | restart (scratch : BitVec 32) (next : BitVec 64) : Control arg saved ops (.restart scratch next) (.enterLoop next)
+  | dropInput (res : BitVec 32) (input : BitVec 64) : Control arg saved ops (.dropInput res input) (.loopResult res)
   | loopResult (res : BitVec 32) :
-      Control arg saved plan (.loopResult res) (.continuation (plan.start [i64 saved] res))
+      Control arg saved ops (.loopResult res) (.continuation (.source [i64 saved, i32 res] ops) [])
   | eraseLoop {before cut tail : List Admin} (split : before = cut ++ tail) (active : cut ≠ []) :
-      Control arg saved plan (.loopTrap before) (.loopTrap tail)
-  | exitLoop : Control arg saved plan (.loopTrap [])
-      (.continuation (.tail (.trapped [i64 saved] (expression plan.expr))))
+      Control arg saved ops (.loopTrap before) (.loopTrap tail)
+  | exitLoop : Control arg saved ops (.loopTrap [])
+      (.continuation (.trapped [i64 saved] (Continuation.code ops)) [])
 
 inductive Edge {H : Type} (p : Program H) {base : Store H} (memory : Memory32 base)
     (host : HostSemantics H) (arg : BitVec 64) : State H → State H → Prop where
@@ -167,7 +168,8 @@ inductive Edge {H : Type} (p : Program H) {base : Store H} (memory : Memory32 ba
       Edge p memory host arg ⟨bytes, .producerInvoke input⟩ ⟨next, .loopTrap Program.afterProducer⟩
   | producerDiverges {bytes input} (answer : host p.producerCode (memory.store bytes) [i64 input] .diverged) :
       Edge p memory host arg ⟨bytes, .producerInvoke input⟩ ⟨bytes, .producerInvoke input⟩
-  | continuation {bytes next a b} (move : Continuation.Conditional.Edge memory host (p.active arg) ⟨bytes, a⟩ ⟨next, b⟩) :
-      Edge p memory host arg ⟨bytes, .continuation a⟩ ⟨next, .continuation b⟩
+  | continuation {bytes next a b labels rest}
+      (move : Continuation.Edge memory host (p.active arg) ⟨bytes, a, labels⟩ ⟨next, b, rest⟩) :
+      Edge p memory host arg ⟨bytes, .continuation a labels⟩ ⟨next, .continuation b rest⟩
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.IndexedLoop

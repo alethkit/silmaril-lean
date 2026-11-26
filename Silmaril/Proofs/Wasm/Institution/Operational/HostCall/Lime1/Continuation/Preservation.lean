@@ -36,36 +36,79 @@ theorem checked_call
   cases h with
   | call resolved allocated tail => exact ⟨_, rfl, resolved, allocated, tail⟩
 
-private theorem contract_tail {op : Op H} (contract : Contract mem host (op :: ops)) : Contract mem host ops :=
-  fun _ _ atSite => contract _ _ (List.mem_cons_of_mem _ atSite)
+theorem checked_if {type : NumType} {left right : List (Op H)}
+    (h : Checked base active.module (active.locals.map Value.type) results types (.if_ type left right :: ops)) :
+    ∃ saved, types = saved ++ [.int .i32] ∧
+      Checked base active.module (active.locals.map Value.type) [type] [] left ∧
+      Checked base active.module (active.locals.map Value.type) [type] [] right ∧
+      Checked base active.module (active.locals.map Value.type) results (saved ++ [type]) ops := by
+  cases h with
+  | if_ left right tail => exact ⟨_, rfl, left, right, tail⟩
+
+private theorem contract_tail {op : Op H} (contract : Contract mem host (op :: ops)) : Contract mem host ops := by
+  cases contract <;> assumption
+
+private theorem contract_call (contract : Contract mem host (.call index site :: ops)) : site.Contract mem host := by
+  cases contract with
+  | call contract _ => exact contract
 
 theorem live_step {a b : State H} (edge : Edge mem host active a b) (live : mem.Live a.bytes) : mem.Live b.bytes := by
   cases edge <;> assumption
 
 theorem ready_step {a b : State H} (edge : Edge mem host active a b)
-    (ready : Ready mem host active results a.phase) : Ready mem host active results b.phase := by
+    (ready : Ready mem host active results a.phase a.labels) : Ready mem host active results b.phase b.labels := by
   cases edge with
   | get found =>
-    obtain ⟨type, lookup, tail⟩ := checked_get ready.1
+    obtain ⟨type, lookup, tail⟩ := checked_get ready.2.1
     rw [List.getElem?_map, found] at lookup
     cases lookup
-    exact ⟨by simpa only [List.map_append, List.map_cons, List.map_nil] using tail, contract_tail ready.2⟩
+    exact ⟨ready.1, by simpa only [List.map_append, List.map_cons, List.map_nil] using tail, contract_tail ready.2.2⟩
   | drop =>
-    obtain ⟨_, _, split, tail⟩ := checked_drop ready.1
+    obtain ⟨_, _, split, tail⟩ := checked_drop ready.2.1
     simp only [List.map_append, List.map_cons, List.map_nil] at split
     have same := (List.append_inj' split rfl).1
-    exact ⟨same ▸ tail, contract_tail ready.2⟩
+    exact ⟨ready.1, same ▸ tail, contract_tail ready.2.2⟩
+  | @if_ bytes saved guard type left right ops labels =>
+    obtain ⟨savedTypes, stackEq, leftChecked, rightChecked, tail⟩ := checked_if ready.2.1
+    have split : saved.map Value.type ++ [.int .i32] = savedTypes ++ [.int .i32] := by
+      simpa only [List.map_append, List.map_cons, List.map_nil, Value.int] using stackEq
+    obtain same := List.append_cancel_right split
+    obtain ⟨labelReady, _, contract⟩ := ready
+    cases contract with
+    | if_ leftContract rightContract tailContract =>
+      refine ⟨labelReady, ?_⟩
+      change Checked base active.module (active.locals.map Value.type) [type] [] (select guard left right) ∧
+        Contract mem host (select guard left right) ∧
+        Checked base active.module (active.locals.map Value.type) (labelResults results labels)
+          (saved.map Value.type ++ [type]) ops ∧ Contract mem host ops
+      rw [same]
+      by_cases zero : guard = 0
+      · rw [show select guard left right = right from ite_eq_left zero]
+        exact ⟨rightChecked, rightContract, tail, tailContract⟩
+      · rw [show select guard left right = left from ite_eq_right zero]
+        exact ⟨leftChecked, leftContract, tail, tailContract⟩
+  | block =>
+    exact ⟨.cons ready.2.2.2.1 ready.2.2.2.2 ready.1, ready.2.1, ready.2.2.1⟩
   | resolve typed =>
-    obtain ⟨_, split, _, allocated, tail⟩ := checked_call ready.1
+    obtain ⟨_, split, _, allocated, tail⟩ := checked_call ready.2.1
     simp only [List.map_append] at split
     rw [show _ = _ from typed] at split
     have same := List.append_cancel_right split
-    exact ⟨allocated, typed, ready.2 _ _ (List.mem_cons_self ..), same ▸ tail, contract_tail ready.2⟩
+    exact ⟨ready.1, allocated, typed, contract_call ready.2.2, same ▸ tail, contract_tail ready.2.2⟩
   | returned _ typed _ =>
-    refine ⟨?_, ready.2.2.2.2⟩
-    simpa only [List.map_append, show _ = _ from typed] using ready.2.2.2.1
-  | trapped | erase | labelTrap => trivial
+    refine ⟨ready.1, ?_, ready.2.2.2.2.2⟩
+    simpa only [List.map_append, show _ = _ from typed] using ready.2.2.2.2.1
+  | trapped | erase => exact ⟨ready.1, trivial⟩
+  | armResult =>
+    have typed := checked_nil ready.2.1
+    cases ready.1 with
+    | cons tail contract outer =>
+      exact ⟨outer, by simpa only [List.map_append, typed, labelResults] using tail, contract⟩
+  | armTrap =>
+    cases ready.1 with
+    | cons _ _ outer => exact ⟨outer, trivial⟩
+  | labelTrap => exact ⟨.nil, rfl, trivial⟩
   | diverged | frameDone => exact ready
-  | labelResult => exact checked_nil ready.1
+  | labelResult => exact ⟨.nil, rfl, checked_nil ready.2.1⟩
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Proofs
