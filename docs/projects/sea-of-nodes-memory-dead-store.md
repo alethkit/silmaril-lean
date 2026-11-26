@@ -102,3 +102,39 @@ lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.DeadStore.Search.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Regression
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.DeadStore.Regression
 ```
+
+## Infer the reader certificate
+
+`DeadStore.Search.Selection.Readers.rewrite` uses the same oldest-first
+Store order and needs only the graph and its typed input tuple. For each
+candidate, `Readers.discover` takes the removed Store's original address
+argument and lists each Load's original address port, in table order,
+strictly between that Store and the first later Store on the same wire.
+It refuses a Load with no original address port or a missing overwrite.
+Loads before the removed Store and after the overwrite contribute no
+obligations. This uses the latest-version chain in the ordered native
+graph to locate uses relevant to the initial write.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/DeadStore/Search/Selection/Readers/Defs.lean)
+
+The list fills `Disjoint.Certificate.writers`, which the deletion
+checker uses for readers. The existing validator checks each concrete
+cell disequality because distinct ports may resolve to the same cell.
+The existing overwrite and reader checks decide whether to delete
+the Store, and the proof identifies the returned graph with that exact
+rewrite. It preserves all remaining operations in order and preserves
+the returned word and entire final heap for any initial heap at the
+checked input. The caller-supplied selector also remains available.
+The scope is one deletion in initialized straight-line memory.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/DeadStore/Search/Selection/Readers/Thms.lean)
+
+The fixture reads the overwritten cell on both sides of the Store pair
+and a disjoint cell between the Stores. It checks the rewritten graph
+and prints `some (1, 2)`. At an aliasing input the rewrite refuses the
+same inferred certificate, and the fixture shows the change in returned
+word that an unchecked deletion would cause.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/DeadStore/Search/Selection/Readers/Regression.lean)
+
+```sh
+make check CHECK_TARGETS='+Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Readers.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.DeadStore.Regression'
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/DeadStore/Search/Selection/Readers/Regression.lean
+```
