@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Search.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Refinement.Checker.Interface.Thms
@@ -428,6 +428,60 @@ private def exitPairs : List (Packet Packets × Packet Packets) :=
 
 example : source.checkProduct marked left left enumeration exitPairs = true := rfl
 example : marked.checkProduct source left left enumeration exitPairs = false := rfl
+
+private def unitCaller : CallerEnumeration (.unit : Syntax.Ty) where
+  packets := [unitPayload]
+  complete input := by
+    obtain ⟨_, typed⟩ := input
+    cases typed
+    exact List.Mem.head _
+
+private def perLabel : (i : Fin Packets.length) → CallerEnumeration (Packets.get i) :=
+  Fin.cases (motive := fun i => CallerEnumeration (Packets.get i)) callers
+    (Fin.cases (motive := fun i => CallerEnumeration (Packets.get i.succ)) callers (fun i => by
+      obtain rfl := Fin.eq_zero i
+      exact unitCaller))
+
+private def inventory : ConfigurationEnumeration Packets where
+  configs := (List.finRange Packets.length).flatMap fun i =>
+    (perLabel i).packets.map fun input => ⟨i, input⟩
+  complete := fun ⟨i, input⟩ =>
+    List.mem_flatMap.mpr ⟨i, List.mem_finRange i,
+      List.mem_map.mpr ⟨input, (perLabel i).complete input, rfl⟩⟩
+
+-- The backedges revisit both labels. The result lists each distinct typed
+-- pair only once and includes the changed payload.
+example : backedge.searchProduct secondLoop left left enumeration inventory inventory =
+    .accepted shiftedPairs.reverse := rfl
+
+private def adversePath : List (ProductEdge sig Packets Packets) :=
+  [(⟨.flip, ⟨0, right⟩⟩, loopNext, loopNext)]
+
+example : backedge.searchProduct literalLoop left left enumeration inventory inventory =
+    .mismatch (loopNext, loopNext) adversePath := rfl
+
+example : ProductPath (backedge.productEdges literalLoop left left enumeration)
+      (loopStart, loopStart) adversePath (loopNext, loopNext) ∧
+    backedge.productLocal literalLoop left left enumeration (loopNext, loopNext) = false := by
+  have checked := backedge.searchProduct_correct literalLoop left left enumeration inventory inventory
+  rwa [show backedge.searchProduct literalLoop left left enumeration inventory inventory =
+    .mismatch (loopNext, loopNext) adversePath from rfl] at checked
+
+example : ∃ pairs, backedge.checkProduct secondLoop left left enumeration pairs = true :=
+  (backedge.searchProduct_accepts_iff secondLoop left left enumeration inventory inventory).mp
+    ⟨shiftedPairs.reverse, rfl⟩
+
+example : ¬ ∃ pairs, backedge.checkProduct literalLoop left left enumeration pairs = true := by
+  rw [← backedge.searchProduct_accepts_iff literalLoop left left enumeration inventory inventory]
+  rintro ⟨_, impossible⟩
+  change ProductSearch.Result.mismatch (loopNext, loopNext) adversePath = .accepted _ at impossible
+  cases impossible
+
+/-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Table.searchProduct_accepts_iff' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound] -/
+#guard_msgs in
+#print axioms Table.searchProduct_accepts_iff
 
 /-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Table.checkProduct_sound' depends on axioms: [propext,
  Classical.choice,
