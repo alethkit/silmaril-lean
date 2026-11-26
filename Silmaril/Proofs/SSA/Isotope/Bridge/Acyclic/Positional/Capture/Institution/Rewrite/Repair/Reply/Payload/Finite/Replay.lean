@@ -119,6 +119,11 @@ theorem tree_replay_proof {L : List Sorts} {n : Nat} (p : Tree L n)
   | emit _ _ ih => exact .let₁ (.refl (.op .unit)) (ih (slots.weaken U))
   | request req bound _ _ ihl ihr =>
     exact request_replay req bound _ _ _ _ (ihl slots.bind) (ihr slots.bind)
+  | testRequest test low lowBound highBound _ _ _ _ ihll ihlr ihhl ihhr =>
+    let scope := ((slots.without test).weaken U).bind
+    exact .case (.refl (slots.read test).2.toHasType)
+      (request_replay low lowBound _ _ _ _ (ihll scope) (ihlr scope))
+      (request_replay (!low) highBound _ _ _ _ (ihhl scope) (ihhr scope))
 
 theorem derive_normal_proof (H : Sorts) (L : List Sorts) (p q : Tree (H :: L) 0)
     (h : p.normal = q.normal) : Derivable false (equation H L p q) := by
