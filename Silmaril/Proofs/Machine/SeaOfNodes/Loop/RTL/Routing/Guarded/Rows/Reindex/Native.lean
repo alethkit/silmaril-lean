@@ -28,6 +28,37 @@ private theorem get_pullTuple {F : PortTy → Type w} {source target : List Port
   | head => rfl
   | tail p ih => exact ih (fun p => rename (.tail p))
 
+private theorem argumentPort_slot {n : Nat} (p : Port (wordPorts n) wordPort) :
+    argumentPort n (InputPermutation.slot p) = p := by
+  induction n with
+  | zero => cases p
+  | succ n ih =>
+    cases p with
+    | head => rfl
+    | tail p => exact congrArg Port.tail (ih p)
+
+private theorem port_symm (perm : InputPermutation arity) (p : Port (wordPorts arity) t) :
+    InputPermutation.port perm.symm (perm.port p) = p := by
+  have sameSort := InputPermutation.slotSort p
+  subst t
+  simpa only [InputPermutation.port, InputPermutation.slot_argumentPort, Equiv.symm_apply_apply]
+    using argumentPort_slot p
+
+private theorem tuple_ext {F : PortTy → Type w} {outputs : List PortTy} (xs ys : Tuple F outputs)
+    (agree : ∀ {s} (p : Port outputs s), xs.get p = ys.get p) : xs = ys := by
+  induction xs with
+  | nil => cases ys; rfl
+  | cons head tail ih =>
+    cases ys with
+    | cons y rest => exact congrArg₂ Tuple.cons (agree .head) (ih rest (fun p => agree (.tail p)))
+
+theorem pull_symm {value : Unit → Type w} (perm : InputPermutation arity)
+    (input : Tuple (Val value) (wordPorts arity)) :
+    perm.pull (InputPermutation.pull perm.symm input) = input := by
+  apply tuple_ext
+  intro _ p
+  simp only [InputPermutation.pull, get_pullTuple, port_symm]
+
 private theorem read_column (perm : InputPermutation arity) {F : PortTy → Type w}
     (input : Tuple F (wordPorts arity)) {outputs : List PortTy}
     (wires : Wires (wordPorts arity) [] outputs) :
@@ -213,5 +244,20 @@ theorem denote_reindex (p : Plan arity) (perm : InputPermutation arity)
     (p.reindexInputs perm).program.graph.denote m input =
       p.program.graph.denote m (perm.pull input) := by
   simp only [Plan.program, Graph.denote, initial_reindex, step_reindex]
+
+theorem equation_reindex_holds_iff (left right : Plan arity) (perm : InputPermutation arity) :
+    ((left.reindexInputs perm).equation (right.reindexInputs perm)).Holds m ↔
+      (left.equation right).Holds m := by
+  change (∀ input : Tuple (Val m.value) (wordPorts arity),
+    (left.reindexInputs perm).program.graph.denote m input =
+      (right.reindexInputs perm).program.graph.denote m input) ↔ _
+  simp only [denote_reindex]
+  constructor
+  · intro holds input
+    have observes := holds (InputPermutation.pull perm.symm input)
+    rw [pull_symm (value := m.value) perm input] at observes
+    exact observes
+  · intro holds input
+    exact holds (perm.pull input)
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Proofs.Reindex

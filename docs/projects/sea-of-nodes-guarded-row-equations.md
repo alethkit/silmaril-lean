@@ -21,8 +21,9 @@ accepted by `checkPlan`.
 [Whole-loop lowering][fuel] · [Occurrence alignment][occurrences]
 
 ```lean
-import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Institution.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Reindex.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms
+import Mathlib.Logic.Equiv.Basic
 
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (model word)
@@ -37,10 +38,10 @@ def exitRow : Spec :=
 def spinRow : Spec :=
   { exitRow with entry := [0, 0], updates := [⟨.add, 0, 0, 1⟩, ⟨.sub, 1, 1, 1⟩] }
 
-def sample (spec : Spec) (backedges : Nat) := do
+def sample (spec : Spec) (backedges : Nat)
+    (input : WordTuple 2 := .cons (0 : Word) (.cons (1 : Word) .nil)) := do
   let p ← checkPlan 2 spec
   let (rtl, ssa) ← lowerChecked 2 spec
-  let input : WordTuple 2 := .cons (0 : Word) (.cons (1 : Word) .nil)
   let initial := Memory.ofList 4 [29, 71, 53, 11]
   let native := p.graph.evalBackedges model backedges input
   let machine := (rtl.runMain (p.rtlFuel backedges) 0 (words input) initial).returnedValues?
@@ -50,6 +51,15 @@ def sample (spec : Spec) (backedges : Nat) := do
   pure (native.map BitVec.toNat, machine.map (List.map BitVec.toNat), typed.map BitVec.toNat)
 
 #eval (sample exitRow 1, sample spinRow 1, sample exitRow 2, sample spinRow 2)
+-- (some (none, none, none), some (none, none, none),
+--  some (some 2, some [2], some 2), some (none, none, none))
+
+#eval
+  let perm : InputPermutation 2 := Equiv.swap 0 1
+  let onSwappedInput (spec : Spec) (budget : Nat) :=
+    sample (spec.reindexInputs perm) budget (.cons (1 : Word) (.cons (0 : Word) .nil))
+  (onSwappedInput exitRow 1, onSwappedInput spinRow 1,
+    onSwappedInput exitRow 2, onSwappedInput spinRow 2)
 -- (some (none, none, none), some (none, none, none),
 --  some (some 2, some [2], some 2), some (none, none, none))
 ```
@@ -75,6 +85,16 @@ targets of the typed map. `denote_mapGraph_reindex` composes that input map
 with native opcode relabelling and reduct. The emitted-target theorems use
 the concrete word model and compare unbounded finite returns, whole memory,
 and undefinedness at the pulled valuation. [Reindexing API][reindex]
+
+For a pair of checked re-emissions, `reindex_equation_at_iff` compares
+the left RTL and right λSSA observations at the new input with the
+original native equation at `perm.pull input`. The two-row example
+above re-emits both specs and retains the distinction at `(1, 0)`.
+`reindex_equation_holds_iff` lifts this comparison to all valuations.
+`InputPermutation.pull_symm` supplies a new valuation for every old
+one. When the native equation is also opcode-relabelled,
+`equation_reindex_map_holds_iff` uses `Sentence.satisfaction` to
+compare it in the reduct model. [Equation regression][regression]
 
 ```lean
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Reindex.Thms
