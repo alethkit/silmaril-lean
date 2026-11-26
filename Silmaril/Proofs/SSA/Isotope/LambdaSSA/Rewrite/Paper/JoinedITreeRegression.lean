@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturnsAndUnitEta.Denotation.ITree.Iteration.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturnsAndUnitEta.Denotation.Functor.ITree.Thms
 
 /-! The chosen iterator preserves an empty-exit polling loop and a two-phase
 polling loop that repeats once before returning a tagged result. -/
@@ -13,7 +14,9 @@ open Silmaril.Isotope.LambdaSSA.Semantics (Env extend)
 open Silmaril.Isotope.LambdaSSA.Semantics.Interaction
 open Silmaril.Isotope.LambdaSSA.Semantics.Interaction.Typed
 open Silmaril.Isotope.LetIter.ProofRelevant.Semantics (InstructionModel)
-open Paper.WithProjectionReturnsAndUnitEta (denoteITree denoteITree_tree denoteITree_canonicalIterate)
+open Paper.WithProjectionReturnsAndUnitEta
+  (denoteITree denoteITree_tree denoteITree_canonicalIterate weakITreeFunctor weakITreeFunctorCoprodIso
+    weakITreeFunctor_preservesFiniteCoproducts weakITreeFunctor_map_canonicalIterate)
 open Paper.WithProjectionReturnsAndUnitEta.Reification (canonicalIterate)
 open Paper.Extension.Singleton (ofType ofRegion sumIso projectStep projectStep_comp_sumIso_inv)
 
@@ -193,6 +196,16 @@ private theorem phaseStep_image (s : PhaseValue) :
 private noncomputable def phaseChosen : Obj Phase ⟶ Obj Phase ⨿ Obj Phase :=
   projectStep JoinedSeed (Paper.TypeCategory.ofRegion phaseBody_typed ≫
     (Paper.TypeCategory.sumIso Phase Phase).hom)
+
+example : IsIso (initialComparison (weakITreeFunctor raw compatible)) := by
+  have := weakITreeFunctor_preservesFiniteCoproducts raw compatible
+  infer_instance
+
+example :
+    (weakITreeFunctor raw compatible).map (canonicalIterate phaseChosen) =
+      CategoryTheory.iterate ((weakITreeFunctor raw compatible).map phaseChosen ≫
+        (weakITreeFunctorCoprodIso raw compatible Phase Phase).hom) :=
+  weakITreeFunctor_map_canonicalIterate raw compatible phaseChosen
 
 set_option backward.isDefEq.respectTransparency false in
 private theorem phaseSelected_image (s : PhaseValue) :
