@@ -61,6 +61,14 @@ def trans (first : Embedding small large) (second : Embedding large larger) :
   forest := second.forest.trans first.forest
   classes a b h := second.classes _ _ (first.classes a b h)
 
+theorem refl_address (state : State P params results n l) (i : Fin n) :
+    (refl state).vertices.address i = i := by unfold refl; rfl
+
+theorem trans_address (first : Embedding small large) (second : Embedding large larger) (i : Fin n) :
+    (trans first second).vertices.address i = second.vertices.address (first.vertices.address i) := by
+  unfold trans
+  rfl
+
 theorem append_address_old (e : Embedding small large) (row : Row small.graph) (i : Fin n) :
     (e.appendVertices row).address i.castSucc = (e.vertices.address i).castSucc := by
   simp [Embedding.appendVertices]
@@ -132,6 +140,13 @@ def step (receipt : Step small) : Embedding small receipt.apply where
   roots := rfl
   forest := rfl
   classes _ _ := receipt.extends
+
+theorem step_address (receipt : Step small) (i : Fin n) :
+    (step receipt).vertices.address i = i.castSucc := by unfold step; rfl
+
+theorem step_vertices (receipt : Step small) : (step receipt).vertices = receipt.row.vertices := by
+  unfold step
+  rfl
 
 theorem embedding_size_le (e : Embedding small large) : n ≤ k := by
   simpa only [Fintype.card_fin] using

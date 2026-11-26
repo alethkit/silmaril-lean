@@ -27,6 +27,14 @@ def Embedding.trans (first : Embedding small large) (second : Embedding large la
     Embedding small larger :=
   Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison.trans first second
 
+theorem Embedding.refl_address (state : State P params results n l) (i : Fin n) :
+    (Embedding.refl state).vertices.address i = i :=
+  Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison.refl_address state i
+
+theorem Embedding.trans_address (first : Embedding small large) (second : Embedding large larger)
+    (i : Fin n) : (first.trans second).vertices.address i = second.vertices.address (first.vertices.address i) :=
+  Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison.trans_address first second i
+
 theorem Comparable.refl (state : Output P params results l) : Comparable state state :=
   ⟨Embedding.refl state.2⟩
 
@@ -47,6 +55,13 @@ theorem Comparable.trans {a b c : Output P params results l}
 /-- Equation (4.1) as a concrete state embedding for any append receipt. -/
 def Step.embedding (step : Step small) : Embedding small step.apply :=
   Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison.step step
+
+theorem Step.embedding_address (step : Step small) (i : Fin n) :
+    step.embedding.vertices.address i = i.castSucc :=
+  Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison.step_address step i
+
+theorem Step.embedding_vertices (step : Step small) : step.embedding.vertices = step.row.vertices :=
+  Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison.step_vertices step
 
 theorem ZeroSample.transport_row (e : Embedding small large) (found : ZeroSample small.graph site zero) :
     (found.transport e).row = e.mapRow found.row :=
