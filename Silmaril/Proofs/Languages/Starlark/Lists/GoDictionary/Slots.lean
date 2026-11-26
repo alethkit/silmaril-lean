@@ -82,7 +82,7 @@ theorem candidates_slots (bucket : Bucket) (hash : UInt32) :
     List.nil_append, List.filterMap_map]
   exact congrFun (List.filterMap_eq_filter (p := fun row : Row => row.hash == hash)).symm bucket.rows
 
-private theorem probe_hit_mem {α : Type} (test : α → Except Silmaril.Languages.Starlark.Lists.Error Bool)
+theorem probe_hit_mem {α : Type} (test : α → Except Silmaril.Languages.Starlark.Lists.Error Bool)
     (candidates : List α) (hit : α) (found : Silmaril.Languages.Starlark.Lists.Comparison.probe test candidates = .ok (some hit)) :
     hit ∈ candidates := by
   induction candidates with

@@ -1,4 +1,4 @@
-# Pinned-Go dictionary bucket
+# Pinned-Go dictionary profiles
 
 `Silmaril.Languages.Starlark.Lists.GoDictionary.Thms` exposes a separate
 executable dictionary profile. `Bucket.empty` and `set` build an eight-slot
@@ -51,18 +51,62 @@ supplied value comparator. A deep key collision can produce a raw error
 before the cyclic value is reached. The paired fixtures exercise this case.
 [Pinned membership][membership] · [Pinned dictionary equality][equality] · [Lean fixtures](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Checks.lean)
 
-The table profile is restricted to instances built from empty with successful
-inserts and replacements. Growth, deletion, multi-bucket and overflow
-ordering, function and builtin identity, string hashing, and recursive
-Go-profile dictionary values remain outside it. The Go fixture uses a
-host-only trace key to observe slot order and separate ordinary numeric keys
-to test collisions and replacement.
-[Go fixture](../../scripts/starlark/go-dictionary/check.go)
+## First rehash
+
+`GoDictionary.Growth.Thms` exposes a separate table that starts at one
+bucket and can grow to two. Go hashes the query, then scans the selected
+primary bucket and its overflow links in ascending slot order. It compares
+only matching full stored hashes. An error aborts the insertion, and a hit
+updates only the value. A miss at eight entries requests the first grow. A
+miss at thirteen entries in a two-bucket table requests a second grow in Go
+and returns a capacity error in this profile. A hit can replace its value
+at either threshold.
+[Pinned insertion][insert] · [Pinned overload and rehash][grow]
+
+The model derives each home chain from chronological entries. Rehash uses
+the low bit of the stored hash for the new home. A new entry takes the last
+vacant slot in the chain. When every slot is occupied, the first entry of a
+new overflow block goes in slot zero. Subsequent entries fill that block's
+suffix from the end. The profile's bound allows at most one overflow block
+per home. `slots_wellFormed` proves the occupied-slot permutation and chain
+size. The append theorems give the physical updates, and `candidates_slots`
+proves that the probe consumes the matching occupied slots in order.
+[Growth definitions](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Growth/Defs.lean) · [Growth theorems](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Growth/Thms.lean)
+
+Go reinserts in linked insertion order and recomputes each key's hash. For
+every prefix of the eight original rows there is no overflow, and the
+candidates for each full hash are the same indexed rows in reverse
+chronological order at both widths. `reinserts_two` lifts a successful
+stable-hash replay to the wider table, and `reinsert_run` relates those
+steps to actual insertions. The model can therefore derive the new
+placement directly from those stored rows. `lookup_grow` preserves the
+entire raw lookup result across a split before the ninth row is appended.
+`set_first_grow` gives the miss, split and retry result, and replacement
+preserves each row's stored hash and key at the same chronological index.
+These results concern the no-deletion layout and replay rules with stable
+key reads. Go's mutable pointers are outside the model.
+[Pinned rehash][grow] · [Growth theorems](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Growth/Thms.lean)
+
+Both membership and outer equality use the grown table's lookup. Paired
+Lean and Go controls exercise a reached key-depth error before growth and
+after growth, where equality treats it as a miss before reaching a cyclic
+value. Ordinary numeric keys check the low-bit split, collisions, and key
+identity across float alias replacement and rehash. Oracle-only trace keys
+observe the actual probe order and recomputation of the eight stored
+hashes.
+[Growth fixtures](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Growth/Checks.lean) · [Go fixture](../../scripts/starlark/go-dictionary/check.go)
+
+The profiles start empty and assume an unfrozen table without active
+iterators and immutable tuple key fields. Further growth, deletion,
+process-dependent string hashing, callable keys, recursive Go-profile
+dictionary values, and resolved interpreter integration are outside this
+slice.
 
 ## Reproduction
 
 ```sh
-lake build --wfail +Silmaril.Languages.Starlark.Lists.GoDictionary.Checks
+lake build --wfail +Silmaril.Languages.Starlark.Lists.GoDictionary.Checks \
+  +Silmaril.Languages.Starlark.Lists.GoDictionary.Growth.Checks
 fixture="$(pwd)/scripts/starlark/go-dictionary/check.go"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
@@ -75,6 +119,7 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 [float-hash]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L476-L491
 [tuple-hash]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L1186-L1199
 [insert]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L78-L150
+[grow]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L153-L175
 [lookup]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L177-L201
 [membership]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1030-L1048
 [equality]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L921-L951
