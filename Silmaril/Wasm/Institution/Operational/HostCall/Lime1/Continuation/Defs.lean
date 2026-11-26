@@ -259,7 +259,7 @@ def Ready {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantic
       Checked base active.module (active.locals.map Value.type) targets delivered
         (saved.map Value.type ++ site.signature.results) ops ∧ Contract mem host ops
   | .memory saved site callee phase ops => callee.Allocated base ∧
-      site.memoryLookup callee.address = some callee.fn ∧ site.MemoryLinked mem host ∧
+      site.memoryLookup callee.address = some callee.fn ∧ site.MemoryLinked mem host .recursive ∧
       (∀ out, phase ≠ .done out) ∧ MemoryCallee.Ready mem host site callee phase ∧
       Checked base active.module (active.locals.map Value.type) targets delivered
         (saved.map Value.type ++ callee.fn.declaration.results) ops ∧ Contract mem host ops

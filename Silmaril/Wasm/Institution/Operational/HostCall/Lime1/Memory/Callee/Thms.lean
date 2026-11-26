@@ -15,7 +15,7 @@ variable {H : Type} {base : Store H} {mem : Memory32 base} {host : HostSemantics
   {caller : Frame} {saved : List Value} {tail : List Admin} {bytes written : ByteArray} {phase next : Phase H}
   {dst : Config H}
 
-theorem ready_step (linked : site.MemoryLinked mem host)
+theorem ready_step (linked : site.MemoryLinked mem host .recursive)
     (registered : site.memoryLookup callee.address = some callee.fn) (move : Edge mem host site callee bytes phase written next)
     (ready : Ready mem host site callee phase) : Ready mem host site callee next :=
   Proofs.ready_step linked registered move ready
@@ -26,7 +26,7 @@ theorem live_step (move : Edge mem host site callee bytes phase written next) (l
 /-- A callee step preserves the live extent guard and the full ordered
 argument and result checks for the active callee and suspended callers.
 Returned host outcomes reestablish the same store representation. -/
-theorem preserves (linked : site.MemoryLinked mem host)
+theorem preserves (linked : site.MemoryLinked mem host .recursive)
     (registered : site.memoryLookup callee.address = some callee.fn) (move : Edge mem host site callee bytes phase written next)
     (ready : Ready mem host site callee phase) (live : mem.Live bytes) : Ready mem host site callee next ∧ mem.Live written :=
   ⟨Proofs.ready_step linked registered move ready, Proofs.live_step move live⟩
@@ -36,14 +36,15 @@ theorem extent_mono (move : Edge mem Execution.Runtime.noHostCalls site callee b
   Proofs.extent_mono move
 
 /-- Exact native steps of the reached callee in the caller's operand and
-instruction context, including rank-decreasing direct and indirect Wasm
-children. Direct resolution uses the checked function index to leave a
+instruction context, including direct and indirect Wasm children. The proof
+uses the finite continuation stack and requires allocation links without
+rank descent. Direct resolution uses the checked function index to leave a
 pending invocation. Indirect lookup also consumes the live selector and can
 trap with the current bytes. Both host paths share a pending phase that uses
 the embedding contract to recover the returned store, with a self-step for
 declared divergence. Native label and frame exits are distinct. A child's
 frame exit restores the checked suffix or exposes a trap for cleanup. -/
-theorem step_iff (linked : site.MemoryLinked mem host)
+theorem step_iff (linked : site.MemoryLinked mem host .recursive)
     (registered : site.memoryLookup callee.address = some callee.fn) (allocated : callee.Allocated base)
     (ready : Ready mem host site callee phase) (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out) :
     Step host (config mem caller saved tail callee bytes phase) dst ↔

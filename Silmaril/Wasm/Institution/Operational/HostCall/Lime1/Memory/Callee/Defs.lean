@@ -39,7 +39,7 @@ def Ready {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantic
       ∀ op ∈ ops, op ∈ callee.fn.code
   | .child args saved child phase rest =>
       args.map Value.type = callee.fn.declaration.params ∧
-      site.memoryLookup child.address = some child.fn ∧ child.Allocated base ∧ child.fn.rank < callee.fn.rank ∧
+      site.memoryLookup child.address = some child.fn ∧ child.Allocated base ∧
       (∀ out, phase ≠ .done out) ∧ Ready mem host site child phase ∧
       rest.all (MemoryTarget.supportedOp mem.extent.growthEnabled) = true ∧
       (∀ op ∈ rest, op ∈ callee.fn.code) ∧
@@ -127,7 +127,6 @@ inductive Edge {H : Type} {base : Store H} (mem : Memory32 base)
         bytes (.hostInvoke args saved (Site.directTarget target hostCode) operands rest)
   | callIndirect {callee child bytes args saved operands index signature selector rest}
       (lookup : (site.memorySite index signature).Lookup base selector (some (.memory child)))
-      (smaller : child.fn.rank < callee.fn.rank)
       (typed : operands.map Value.type = signature.params) :
       Edge mem host site callee bytes (.body args ((saved ++ operands) ++ [Value.int .i32 selector])
         (.callIndirect index signature :: rest)) bytes (.child args saved child (.invoke operands) rest)

@@ -42,6 +42,13 @@ theorem answer_under {inner wrapped : Config H} {call : Execution.Runtime.Callou
       dst = ⟨mid.store, wrapped.frame, context.plug value mid.code⟩ :=
   Proofs.answer_under plugged store decomposed located answer
 
+/-- Forget rank descent after checking the graph under the selected policy.
+The native successor proof uses only the retained allocation and type links. -/
+theorem IndirectSite.MemoryLinked.forFiniteRun {indirect : IndirectSite}
+    {calls : CallContinuation.OuterCall.Ranked.Graph.Memory32.CallMode}
+    (linked : indirect.MemoryLinked memory host calls) : indirect.MemoryLinked memory host .recursive :=
+  Proofs.memoryLinked_forFiniteRun linked
+
 /-- Resolution consumes the selector in one internal step and preserves the
 current store, frame, operands and suffix. Success leaves a pending host or
 checked Wasm invocation. Bounds, null and signature failures leave a native trap. -/
