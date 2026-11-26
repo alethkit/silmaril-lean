@@ -136,6 +136,15 @@ theorem path_vis_inv {E : Sig.{u}} {Y : Type (u + 1)} {R : Type u} {e : SigEv E 
     ∃ n cs', cs = ⟨e.1, cast e.2.symm n⟩ :: cs' ∧ Path (k n) cs' r :=
   Silmaril.Proofs.Wasm.Abstract.BodyTrace.path_vis_inv h
 
+/-- A pending observation of a visible node either stops at its request or
+follows its continuation after an answer. -/
+theorem pend_vis_inv {E : Sig.{u}} {Y : Type (u + 1)} {R : Type u} {e : SigEv E R}
+    {k : R → Silmaril.Elgot.ITree.Tree (SigEv E) Y} {cs : List (Call E)} {m : E.Op}
+    (h : Pend (Silmaril.Elgot.ITree.vis e k) cs m) :
+    (cs = [] ∧ m = e.1) ∨
+      ∃ n cs', cs = ⟨e.1, cast e.2.symm n⟩ :: cs' ∧ Pend (k n) cs' m :=
+  Silmaril.Proofs.Wasm.Abstract.BodyTrace.pend_vis_inv h
+
 /-- A body that returns at once denotes its one immediate behaviour. -/
 theorem toAFun_of_run_ret {E : Sig.{u}} {S T A B : Type (u + 1)} {f : Hom E S T A B} {s : S}
     {a : A} {v : Except T (B × S)} (h : ((f a).run s).run = Silmaril.Elgot.ITree.ret v) :
