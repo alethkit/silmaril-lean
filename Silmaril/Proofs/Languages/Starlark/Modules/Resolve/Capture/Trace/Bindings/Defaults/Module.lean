@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Defaults.State
+public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Defaults.Escape
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Leaf.Publication
 
 public section
@@ -39,6 +39,10 @@ private theorem static {globals : List String} {entries : Entries} {commands : L
       obtain ⟨codes, emission, _, _⟩ := Defaults.definition_emission admitted
       exact ⟨.cons (.define _ _ _) ih.1, .emit ⟨definition.emitted codes, emission⟩ ih.2.1,
         cons_legal visible.2 ih.2.2⟩
+    | escaping wrapper =>
+      exact ⟨.cons (.define _ _ _) ih.1, .emitPair ⟨wrapper.child.emitted wrapper.codes,
+        (fun id => (wrapper.frame id).declaration), Defaults.Escape.emission wrapper admitted globals⟩ ih.2.1,
+        cons_legal visible.2 ih.2.2⟩
   | setup visible _ _ ih | copy _ visible _ _ ih | invoke _ visible _ _ _ ih =>
     exact ⟨.cons (.assign _ _) ih.1, .assign _ _ ih.2.1, cons_legal visible.2 ih.2.2⟩
 
@@ -75,6 +79,11 @@ private theorem schedule_trace {globals : List String} {entries : Entries} {comm
       intro next success
       obtain ⟨written, live⟩ := progress next success
       exact update layout pool written (fun code same => by cases same; exact live)
+    | escaping wrapper =>
+      obtain ⟨next, step, written, live⟩ := define_wrapper declared checked admitted suffix visible layout
+      exact ⟨_, step, fun _ success => by
+        cases success
+        exact update layout pool written (fun _ same => by cases same; exact live)⟩
   | @setup entries name source rest visible allowed tail ih =>
     obtain ⟨out, step, progress⟩ := setup_step declared checked allowed state
     apply Bindings.advanceWith (steps := Step resolved globals)
@@ -109,6 +118,12 @@ private theorem schedule_trace {globals : List String} {entries : Entries} {comm
       exact ⟨_, step, fun final success => by
         cases success
         exact update layout pool written (fun _ same => by cases same; exact live)⟩
+    | escaping wrapper =>
+      obtain ⟨_, ⟨root⟩⟩ := pool source (.escaping wrapper) selected
+      obtain ⟨next, step, written, live⟩ := alias_wrapper declared checked src dst root layout
+      exact ⟨_, step, fun _ success => by
+        cases success
+        exact update layout pool written (fun _ same => by cases same; exact live)⟩
   | @invoke entries callee destination body arguments rest src dst selected args tail ih =>
     apply Bindings.advanceWith (steps := Step resolved globals)
       (invariant := fun next => ModuleSlots globals next ∧ LiveBindings globals resolved.program (entries.write destination body.returned) next)
@@ -132,6 +147,12 @@ private theorem schedule_trace {globals : List String} {entries : Entries} {comm
       obtain ⟨out, step, progress⟩ := call_step declared checked src args saved
       exact ⟨out, step, fun next success =>
         update layout pool (progress next success) (fun _ impossible => nomatch impossible)⟩
+    | escaping wrapper =>
+      obtain ⟨_, ⟨root⟩⟩ := pool callee (.escaping wrapper) selected
+      obtain ⟨out, step, progress⟩ := call_wrapper declared checked src dst args root layout
+      exact ⟨out, step, fun next success => by
+        obtain ⟨written, live⟩ := progress next success
+        exact update layout pool written (fun _ same => by cases same; exact live)⟩
 
 theorem checked_trace {commands : List Command} (profile : Profile commands)
     {linked : Program} {resolved : ResolvedModule} (checked : resolve commands linked = .ok resolved)
