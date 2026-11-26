@@ -9,7 +9,6 @@ import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Prefix.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Prefix.Insert.Thms
-import Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF.Thms
 import Silmaril.SSA.MLIR.CF.SwitchAssert.Thms
 import Silmaril.SSA.MLIR.CF.SwitchAssert.Denotation.Thms
 
@@ -27,7 +26,7 @@ open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout
 open AfterReorder.Second (Candidate checkPrefixCut findCaptured?)
 open AfterReorder.Second.Emit (emitAt?_entry liftCode liftCode_eval liftCode_targets_congr)
-open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (Program TargetOp evalOp model lower_run)
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (Program TargetOp evalOp lower)
 
 variable {Input extra : List Width} {saved carried result : Width}
 variable {state : State Input saved carried result extra} {request : Nomination} {moved : Move state}
@@ -224,7 +223,7 @@ theorem state_denotePart (valid : Invariant state) (input : Env Input) :
   intro value
   simp only [Cfg.mem_denotePart_iff, Cfg.embed_run, state_run_eq valid]
 
-theorem run_fromTwo_budget {entrySigs headerSigs : List (List (Diamond.Ty Width))}
+theorem run_fromTwo_run_eq {entrySigs headerSigs : List (List (Diamond.Ty Width))}
     {g : Program Input carried result entrySigs headerSigs}
     {header : List Header.Pair.Request} {record : First Input carried result} {producer consumer : Nomination}
     {two : AfterReorder.Second.Emit.Emission Input carried result}
@@ -232,14 +231,11 @@ theorem run_fromTwo_budget {entrySigs headerSigs : List (List (Diamond.Ty Width)
     {requests : List Nomination} {out : Output Input two.prepared.intermediate.1 carried result}
     (seed : replay g header [producer, consumer] = .ok (.two record consumer two))
     (initialized : initial? (Step.fromTwo record consumer two) = some state)
-    (accepted : run state 2 requests = .ok out) (input : Env Input) (budget : Nat) :
-    out.2.cfg.run evalOp (budget + 3) input =
-      (g.evalBackedges model budget (Silmaril.SSA.SeaOfNodes.MLIR.sourceInputs input)).map
-        (fun value => Env.cons value .nil) := by
+    (accepted : run state 2 requests = .ok out) (input : Env Input) (fuel : Nat) :
+    out.2.cfg.run evalOp fuel input = (lower g).run evalOp fuel input := by
   obtain ⟨same, valid⟩ := initial?_spec initialized
   obtain ⟨final, trace⟩ := run_spec valid accepted
   rw [same] at trace
-  exact (state_run_eq final input _).trans
-    ((Step.fromTwo_run_eq seed trace input _).trans (lower_run g input budget))
+  exact (state_run_eq final input fuel).trans (Step.fromTwo_run_eq seed trace input fuel)
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout

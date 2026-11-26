@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Defs
 public import Silmaril.SSA.MLIR.CF.SwitchAssert.Denotation.Defs
 import Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Correctness
+import Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF.Thms
 
 public section
 
@@ -11,7 +12,7 @@ namespace Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout
 open Silmaril.MLIR.Arith (Env Var Width)
 open Silmaril.MLIR.CF (Cfg)
 open AfterReorder.Second (Candidate checkPrefixCut findCaptured?)
-open Loop.MLIR.CF (Program TargetOp evalOp model)
+open Loop.MLIR.CF (Program TargetOp evalOp lower model)
 
 variable {Input extra : List Width} {saved carried result : Width}
 variable {state : State Input saved carried result extra} {request : Nomination} {moved : Move state}
@@ -117,6 +118,20 @@ theorem run_packets
       Saved.Prefix.Matches out.2.reference.cfg.entry input finalValues :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.run_packets valid prior matched accepted
 
+/-- Replay from a checked two-save seed preserves the original lowering's
+    observation at every block fuel, including fuel exhaustion. -/
+theorem run_fromTwo_run_eq {entrySigs headerSigs : List (List (Diamond.Ty Width))}
+    {g : Program Input carried result entrySigs headerSigs}
+    {header : List Header.Pair.Request} {record : First Input carried result} {producer consumer : Nomination}
+    {two : AfterReorder.Second.Emit.Emission Input carried result}
+    {state : State Input two.prepared.intermediate.1 carried result [two.prepared.consumer.width]}
+    {requests : List Nomination} {out : Output Input two.prepared.intermediate.1 carried result}
+    (seed : replay g header [producer, consumer] = .ok (.two record consumer two))
+    (initialized : initial? (Step.fromTwo record consumer two) = some state)
+    (accepted : run state 2 requests = .ok out) (input : Env Input) (fuel : Nat) :
+    out.2.cfg.run evalOp fuel input = (lower g).run evalOp fuel input :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.run_fromTwo_run_eq seed initialized accepted input fuel
+
 /-- A checked two-save seed relates block fuel to native backedge budget
     with the existing three-block offset. -/
 theorem run_fromTwo_budget {entrySigs headerSigs : List (List (Diamond.Ty Width))}
@@ -131,6 +146,6 @@ theorem run_fromTwo_budget {entrySigs headerSigs : List (List (Diamond.Ty Width)
     out.2.cfg.run evalOp (budget + 3) input =
       (g.evalBackedges model budget (Silmaril.SSA.SeaOfNodes.MLIR.sourceInputs input)).map
         (fun value => Env.cons value .nil) :=
-  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.run_fromTwo_budget seed initialized accepted input budget
+  (run_fromTwo_run_eq seed initialized accepted input _).trans (Loop.MLIR.CF.lower_run g input budget)
 
 end Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout
