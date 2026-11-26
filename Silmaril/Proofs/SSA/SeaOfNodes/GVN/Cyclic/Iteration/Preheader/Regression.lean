@@ -1,7 +1,8 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Thms
-import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Theta.Thms
+import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Theta.Petri.Thms
+import Silmaril.SSA.RVSDG.NestedTheta.Petri.Thms
 import Silmaril.SSA.SeaOfNodes.Loop.Theta.Thms
 import Silmaril.SSA.SeaOfNodes.Loop.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Thms
@@ -9,19 +10,22 @@ import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Thms
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Regression
 
 open Silmaril.SSA.SeaOfNodes
-open Diamond (Ty ValueSort dataPorts)
+open Diamond (Ty Val ValueSort dataPorts)
 open GVN.Cyclic.Activation (Inputs headerInput headerLatch inputSlot)
 open GVN.Cyclic.Builder (Built build?)
 open GVN.Cyclic.Builder.Preheader (Native prepare)
 open GVN.Cyclic.Pass (proposals tryProposal?)
 open GVN.Cyclic.Deletion (DeletedLoop)
 open GVN.Cyclic.Iteration.Preheader
-open GVN.Cyclic.Iteration.Preheader.Theta (Program emit emit_entry emit_observe entryPrefix)
-open Loop (thetaRuntime)
-open Silmaril.SSA.RVSDG.NestedTheta (MonadicModel)
+open GVN.Cyclic.Iteration.Preheader.Theta (Program emit emit_entry emit_observe entryPrefix
+  petri_no_completion_iff_observe_none)
+open Loop (ThetaOpcode thetaRuntime)
+open Silmaril.SSA.RVSDG.NestedTheta (MonadicModel Node)
 open Silmaril.SSA.RVSDG.NestedTheta.Partial (observe)
+open Silmaril.SSA.RVSDG.NestedTheta.Petri (Finishes activate finishes_iff primitive)
+open Silmaril.SSA.RVSDG.Petri (Tokens read)
 open Pure.SubZero (Opcode model word wordPort)
-open Silmaril.SSA.RVSDG (Port Wires extend)
+open Silmaril.SSA.RVSDG (Port Tuple Wires extend)
 open scoped Pure.WordNormalize
 
 private abbrev inputs : List (ValueSort Unit) := [.predicate, .predicate, word, word]
@@ -215,5 +219,49 @@ theorem numbered_executions_observe_absence :
       exact no_native_return value (((fixture true).lowerTheta_observe_eq_some model nonReturningInput value).mpr
         (Part.eq_some_iff.mpr returned))
   exact ⟨absent, (emit_observe (fixture true) nonReturningInput).trans absent⟩
+
+private def publishPreheaderNode {past : List (List (Ty Unit))} {ports : List (Ty Unit)}
+    (node : Node (ThetaOpcode Opcode) (dataPorts inputs) past ports)
+    (colours : Tokens (Val model.value) past) : Option (Tokens (Val model.value) (past ++ [ports])) := do
+  let ready ← read node.inputs input colours
+  let published ← primitive (thetaRuntime model) node.kind ready
+  return colours.snoc (published.map fun _ => some)
+
+/-- Read the fourth root node using the colours published by the three
+actual preheader primitives, then activate its existing θ child. -/
+private def colouredEntry (program : Program inputs carried entrySigs word) :
+    Σ ports : List (Ty Unit), Option (Tuple (Val model.value) ports) :=
+  let node := program.nodes (3 : Fin 5)
+  ⟨node.kind.entry, do
+    let first ← publishPreheaderNode (program.nodes (0 : Fin 5)) PUnit.unit
+    let second ← publishPreheaderNode (program.nodes (1 : Fin 5)) first
+    let third ← publishPreheaderNode (program.nodes (2 : Fin 5)) second
+    let ready ← read node.inputs input third
+    (activate (thetaRuntime model) node.kind ready).map Prod.snd⟩
+
+private def received : Tuple (Val model.value) (Loop.headerPorts inputs carried) :=
+  let latches : Inputs model carried :=
+    .cons ⟨true⟩ (.cons (7 : BitVec 64) (.cons (7 : BitVec 64) (.cons (7 : BitVec 64) .nil)))
+  Loop.appendTuple latches input
+
+theorem both_coloured_entries_read_the_complete_packet :
+    colouredEntry (fixture true).lowerTheta = ⟨_, some received⟩ ∧
+      colouredEntry (emit (fixture true)) = ⟨_, some received⟩ := by
+  refine ⟨rfl, ?_⟩
+  unfold emit
+  rw [run_result]
+  rfl
+
+theorem both_coloured_traces_complete_with_99 :
+    Finishes (thetaRuntime model) (fixture true).lowerTheta input (.cons (99 : BitVec 64) .nil) ∧
+      Finishes (thetaRuntime model) (emit (fixture true)) input (.cons (99 : BitVec 64) .nil) :=
+  ⟨(finishes_iff _ _ _ _).mpr ⟨2, numbered_executions_return_99.1⟩,
+    (finishes_iff _ _ _ _).mpr ⟨3, numbered_executions_return_99.2⟩⟩
+
+theorem neither_coloured_graph_completes_on_closed_guard :
+    (∀ packet, ¬ Finishes (thetaRuntime model) (fixture true).lowerTheta nonReturningInput packet) ∧
+      ∀ packet, ¬ Finishes (thetaRuntime model) (emit (fixture true)) nonReturningInput packet :=
+  ⟨(petri_no_completion_iff_observe_none _ _).mpr numbered_executions_observe_absence.1,
+    (petri_no_completion_iff_observe_none _ _).mpr numbered_executions_observe_absence.2⟩
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Regression
