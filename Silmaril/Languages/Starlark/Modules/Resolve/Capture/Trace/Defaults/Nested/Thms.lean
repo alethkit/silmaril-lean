@@ -32,6 +32,17 @@ theorem compile_definition {parent : LexicalBlock} {source : Source} (plan : Pla
       .ok (⟨.define (fileSlot source.name) seed.size, plan.reads⟩, seed.push plan.declaration) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.compile_definition plan seed
 
+/-- Child capture demands are resolved in the parent before deciding
+which bindings terminate there and which are inherited. -/
+theorem definition_read_origins {parent : LexicalBlock} {owned : List String}
+    {bodyReads : List Binding} {free : List FreeName}
+    (child : Selects ⟨owned, parent.owned ++ parent.enclosing, parent.globals⟩ bodyReads free)
+    {optionals : List (String × Lowering.Resolve.SourceExpr)} {items : List PlainPositionalDefault}
+    (lexical : Lexical.Elaborates parent optionals items) :
+    ∀ binding ∈ items.flatMap PlainPositionalDefault.reads ++ free.map FreeName.source,
+      ∃ origin, ReadOrigin parent binding origin :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.definition_read_origins child lexical
+
 theorem read_origins {parent : LexicalBlock} {source : Source} (plan : Plan parent source) :
     ∀ binding ∈ plan.reads, ∃ origin, ReadOrigin parent binding origin :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.read_origins plan
@@ -43,6 +54,27 @@ theorem selects_parent {parent : LexicalBlock} {source : Source} (plan : Plan pa
     (surrounding : ∀ binding ∈ before ++ after, ∃ origin, ReadOrigin parent binding origin) :
     ∃ free, Selects parent (before ++ plan.reads ++ after) free :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.selects_parent plan surrounding
+
+theorem installs_from_frame {parent : LexicalBlock} {owned : List String}
+    {bodyReads parentReads : List Binding} {childFree parentFree : List FreeName}
+    (child : Selects ⟨owned, parent.owned ++ parent.enclosing, parent.globals⟩ bodyReads childFree)
+    (selected : Selects parent parentReads parentFree)
+    (requested : ∀ entry ∈ childFree, entry.source ∈ parentReads)
+    {state : State} {floor : Nat} (frame : Body.Frame parent parentFree floor state) :
+    ∃ captures, Installs state childFree captures ∧ Body.CaptureCells state captures :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.installs_from_frame child selected requested frame
+
+/-- Activation uses the original cell, whether owned or inherited by the defining frame. -/
+theorem activate_address {block : LexicalBlock} {reads : List Binding} {declaration : Declaration}
+    (selected : Selects block reads declaration.free)
+    (slots : declaration.signature.slots ++ declaration.locals = block.owned.map fileSlot)
+    {defining : State} {captures : List Lists.Capture} (installed : Installs defining declaration.free captures)
+    (caller : State) (assigned : List (Binding × Lists.Value))
+    (binding : Binding) (address : Nat) (present : (⟨binding, binding⟩ : FreeName) ∈ declaration.free)
+    (origin : Forwarding.HasAddress defining binding address) :
+    (activate caller declaration captures assigned).slots binding = some (.captured address (binding.scope == .local)) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.activate_address
+    selected slots installed caller assigned binding address present origin
 
 /-- Select the child's captures from the reached parent frame. A local
 declared in the parent supplies its owned address. Other requests use
