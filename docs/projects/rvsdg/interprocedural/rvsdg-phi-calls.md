@@ -842,13 +842,24 @@ proof. `Plan.phiWithEarlier` still checks the actual linked capture
 positions and uses supplied typed resolution.
 [Ordered synthesis API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Groups/Synthesis/Thms.lean)
 
-The cross-group fixture uses the computed later summary. It takes an
-earlier φ member from a typed capture, recurses once in the later φ group,
-then calls the earlier member. GenKill makes the payload formal live
-only when the export result is requested. The blocking capture and recursion counter stay live even
-with empty result demand. Varying an unrelated dead formal preserves
-the exact return, the earlier member's block, and the resumed return
-through both non-tail suffixes.
+To compute each group in link order, write it as a
+`Scope.GroupTemplate` and use `Scope.synthesizeGroup`. The template
+gets the earlier table from the current scope. Each admitted group
+extends that scope with its computed summaries and typed member
+positions. Use `Plan.analyzeNumberedFromOrdinary` to start at ordinary
+imports with an empty dispatch and admit λ and φ bindings using the
+existing plan. This entry point covers the plan's λ/φ fragment.
+[Ordered template API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Synthesis/Defs.lean)
+
+The cross-group fixture starts with a λ and synthesizes both groups'
+summaries in order. The exported λ calls the second group and then
+uses the leading λ for its saved suffix. The second group takes a
+member of the first from a typed capture, recurses once, then calls
+that member. GenKill makes the payload formal live only when the
+export result is requested. The blocking capture and recursion counter
+stay live even with empty result demand. Varying an unrelated dead
+formal preserves the exact return, the first group's block, and the
+resumed return through both non-tail suffixes.
 [Cross-group fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Groups/EarlierRegression.lean)
 
 `GraphPlan` and `admitGraph` certify paired numbered runtime behavior.
