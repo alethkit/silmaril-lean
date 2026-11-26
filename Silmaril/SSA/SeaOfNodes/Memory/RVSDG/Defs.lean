@@ -69,25 +69,26 @@ def argumentPort {sort : ValueSort} :
 /-- Source scalar origins route to the target arguments or Load results.
 Stores have no scalar result. -/
 abbrev Routing (args : List ValueSort) (past : List (List ValueSort))
-    (target : List (List (Ty ValueSort))) :=
-  ∀ {sort}, Origin args past sort → Origin (Threaded (dataPorts args)) target (.value sort)
+    (target : List (List (Ty ValueSort))) (entry : List (Ty ValueSort) := dataPorts args) :=
+  ∀ {sort}, Origin args past sort → Origin (Threaded entry) target (.value sort)
 
 variable {target : List (List (Ty ValueSort))}
-
 def Routing.entry (args : List ValueSort) : Routing args [] []
   | _, .arg p => .arg (argumentPort p)
   | _, .output i _ => i.elim0
 
-def Routing.afterStore (routing : Routing args past target) :
-    Routing args past (target ++ [Threaded []]) :=
+variable {entry : List (Ty ValueSort)}
+
+def Routing.afterStore (routing : Routing args past target entry) :
+    Routing args past (target ++ [Threaded []]) entry :=
   fun wire => weaken (Threaded []) (routing wire)
 
-def Routing.afterLoad (routing : Routing args past target) :
-    Routing args ([.word] :: past) (target ++ [Threaded wordPorts])
+def Routing.afterLoad (routing : Routing args past target entry) :
+    Routing args ([.word] :: past) (target ++ [Threaded wordPorts]) entry
   | _, .arg p => weaken (Threaded wordPorts) (routing (.arg p))
   | sort, .output i p =>
     Fin.cases (motive := fun j => Port ([.word] :: past)[j] sort →
-        Origin (Threaded (dataPorts args)) (target ++ [Threaded wordPorts]) (.value sort))
+        Origin (Threaded entry) (target ++ [Threaded wordPorts]) (.value sort))
       (fun port => match port with
         | .head => .output (newestIndex (Threaded wordPorts) target) (newestPort .head target)
         | .tail p => nomatch p)
@@ -100,34 +101,41 @@ def Body.targetSigs : {past : List (List ValueSort)} → {version : Nat} →
   | _, _, .store _ _ _ rest => Threaded [] :: rest.targetSigs
 
 /-- A term with the existing ordered-runtime check at the current origin. -/
-structure Lowered (args : List ValueSort) (target sigs : List (List (Ty ValueSort)))
-    (live : Origin (Threaded (dataPorts args)) target runtime) where
-  term : RVSDG.Term (Opcode NoPure Effect) (Threaded (dataPorts args)) target sigs (Threaded wordPorts)
-  checked : Checked NoPure Effect (inputData args) wordData live term
+structure LoweredAt {entry : List (Ty ValueSort)} (data : Data entry)
+    (target sigs : List (List (Ty ValueSort))) (live : Origin (Threaded entry) target runtime) where
+  term : RVSDG.Term (Opcode NoPure Effect) (Threaded entry) target sigs (Threaded wordPorts)
+  checked : Checked NoPure Effect data wordData live term
+
+abbrev Lowered (args : List ValueSort) := LoweredAt (inputData args)
 
 /-- Thread the target runtime through every node in source order. The source
 memory input is already required to name the latest version. A Load extends
 the target edge chain while preserving that version's heap value. -/
-def Body.lowerFrom : {past : List (List ValueSort)} → {version : Nat} →
+def Body.lowerAt (data : Data entry) : {past : List (List ValueSort)} → {version : Nat} →
     {target : List (List (Ty ValueSort))} →
-    (body : Body args past version) → Routing args past target →
-    (live : Origin (Threaded (dataPorts args)) target runtime) →
-      Lowered args target body.targetSigs live
+    (body : Body args past version) → Routing args past target entry →
+    (live : Origin (Threaded entry) target runtime) →
+      LoweredAt data target body.targetSigs live
   | _, _, _, .ret _ value, routing, live =>
     let results := Tuple.cons (routing value) .nil
     ⟨.ret (withRuntime live results), .ret live results⟩
   | _, _, _, .load _ address rest, routing, live =>
     let wires := Tuple.cons (routing address) .nil
-    let tail := rest.lowerFrom routing.afterLoad (nextRuntime _ wordPorts)
+    let tail := rest.lowerAt data routing.afterLoad (nextRuntime _ wordPorts)
     let op : Instruction NoPure Effect [.value .address] wordPorts := .effect .load
     ⟨.bind (primitiveNode live (.value .nil) wordData op wires) (fun i => i.elim0) tail.term,
       .bind live (.value .nil) wordData op wires tail.checked⟩
   | _, _, _, .store _ address value rest, routing, live =>
     let wires := Tuple.cons (routing address) (.cons (routing value) .nil)
-    let tail := rest.lowerFrom routing.afterStore (nextRuntime _ [])
+    let tail := rest.lowerAt data routing.afterStore (nextRuntime _ [])
     let op : Instruction NoPure Effect [.value .address, .value .word] [] := .effect .store
     ⟨.bind (primitiveNode live (.value (.value .nil)) .nil op wires) (fun i => i.elim0) tail.term,
       .bind live (.value (.value .nil)) .nil op wires tail.checked⟩
+
+def Body.lowerFrom (body : Body args past version) (routing : Routing args past target)
+    (live : Origin (Threaded (dataPorts args)) target runtime) :
+    Lowered args target body.targetSigs live :=
+  body.lowerAt (inputData args) routing live
 
 def Graph.lowered (graph : Graph args) :
     Lowered args [] graph.targetSigs (.arg (runtimePort (dataPorts args))) :=
