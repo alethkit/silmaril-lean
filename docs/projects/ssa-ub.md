@@ -751,6 +751,28 @@ return after a state-changing backedge. A successful finite check therefore
 certifies satisfaction for the supplied models.
 [Institutional specification and witnesses][ssa-ub-native-packed-institution]
 
+### Designated UB exits of native packed CFGs
+
+A typed overlay continuation can send selected ordered exits of a recognized
+native CFG to literal UB. Each other continuation forwards its payload to
+the same exit at the incoming state. The checker reuses the native finite
+execution and changes only a terminal return to a selected exit into fresh
+top. Its classification theorem equates this result with the installed
+label-substitution observation on the original typed CFG and entry.
+
+The decision compares the lifted shaped order for the supplied deterministic
+finite-state primitives and coded captures. With no selected exits, the
+wrapper agrees with the native observation in every shaped model. The native
+institution's sentences range over native CFGs. The explicit continuation
+endpoints use the existing overlay denotation and order.
+
+The regression reaches a selected exit after a state-changing backedge.
+It checks ordinary-to-top refinement and a counterexample in the reverse
+direction. An equal payload at another exit keeps its ordered return.
+Silent replay and primitive divergence remain ordinary, and a fault
+retains its final state.
+[Decision and witnesses for designated exits][ssa-ub-native-exit-ub]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -892,3 +914,4 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-native-packed-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Regression.lean
 [ssa-ub-native-router-normalize]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Normalize/Thms.lean
 [ssa-ub-native-packed-institution]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Institution/Thms.lean
+[ssa-ub-native-exit-ub]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/ExitUB/Thms.lean

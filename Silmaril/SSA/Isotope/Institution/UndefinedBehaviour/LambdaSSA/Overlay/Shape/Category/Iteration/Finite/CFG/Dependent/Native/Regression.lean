@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Institution.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.ExitUB.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Typing.Thms
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Syntax.Adequacy
 import Mathlib.Tactic.FinCases
@@ -332,6 +333,51 @@ private theorem missing_ordered_return :
   rw [normalized_exit_after_backedge, distinct_entry_exit]
   simp [Behaviour.possible]
 
+private def firstExit (i : Fin External.length) : Bool := i == 0
+private def noExit (_ : Fin External.length) : Bool := false
+
+private noncomputable abbrev observedExitUB (raw : Native.Typed Instr [U] External)
+    (selected : Fin External.length → Bool) (s : State) :=
+  Shape.denote (Native.withExitUB raw selected) (model primitive env) s
+
+private theorem selected_exit_is_top :
+    observedExitUB twicePaddedCFG firstExit 0 = ⊤ :=
+  (Native.classify_exitUB recognizes_nested_unused_binders firstExit codes primitive 0 0).trans rfl
+
+private theorem same_payload_at_other_exit :
+    observedExitUB target firstExit 0 = WithTop.some {Outcome.ret 1 .unit (2 : State)} :=
+  (Native.classify_exitUB recognizes_other_entry firstExit codes primitive 0 0).trans rfl
+
+private theorem exit_ub_preserves_replay :
+    observedExitUB twicePaddedCFG firstExit 3 = WithTop.some ({Outcome.diverge} : Set (Outcome 2 Unit State)) :=
+  (Native.classify_exitUB recognizes_nested_unused_binders firstExit codes primitive 0 3).trans rfl
+
+private theorem exit_ub_preserves_fault_state :
+    observedExitUB twicePaddedCFG firstExit 4 = WithTop.some {Outcome.fault (5 : State)} :=
+  (Native.classify_exitUB recognizes_nested_unused_binders firstExit codes primitive 0 4).trans rfl
+
+private theorem exit_ub_preserves_primitive_divergence :
+    observedExitUB twicePaddedCFG firstExit 5 = WithTop.some ({Outcome.diverge} : Set (Outcome 2 Unit State)) :=
+  (Native.classify_exitUB recognizes_nested_unused_binders firstExit codes primitive 0 5).trans rfl
+
+private theorem accepts_ub_on_right (s : State) :
+    observed twicePaddedCFG s ≤ observedExitUB twicePaddedCFG firstExit s := by
+  calc
+    observed twicePaddedCFG s = observedExitUB twicePaddedCFG noExit s :=
+      (Native.denote_noExitUB twicePaddedCFG (model primitive env) s).symm
+    _ ≤ _ := (Native.checkExitUB_iff recognizes_nested_unused_binders recognizes_nested_unused_binders
+      noExit firstExit codes primitive).mp (by decide) 0 s
+
+private theorem rejects_ub_on_left :
+    Native.checkExitUB readSource readSource firstExit noExit codes primitive = false := by decide
+
+private theorem ub_on_left_counterexample :
+    ¬ observedExitUB twicePaddedCFG firstExit 0 ≤ observed twicePaddedCFG 0 := by
+  intro le
+  have rejected := Native.counterexampleExitUB_point recognizes_nested_unused_binders
+    recognizes_nested_unused_binders firstExit noExit codes primitive (c := 0) (s := 0) rfl
+  exact rejected (le.trans (Native.denote_noExitUB twicePaddedCFG (model primitive env) 0).ge)
+
 #print axioms Native.recognized_eq
 #print axioms Native.readback_agrees
 #print axioms Native.generated_native_row
@@ -376,5 +422,18 @@ private theorem missing_ordered_return :
 #print axioms actual_entry_counterexample
 #print axioms refutes_all_models
 #print axioms missing_ordered_return
+
+#print axioms Native.denote_noExitUB
+#print axioms Native.classify_exitUB
+#print axioms Native.checkExitUB_iff
+#print axioms Native.counterexampleExitUB_point
+#print axioms selected_exit_is_top
+#print axioms same_payload_at_other_exit
+#print axioms exit_ub_preserves_replay
+#print axioms exit_ub_preserves_fault_state
+#print axioms exit_ub_preserves_primitive_divergence
+#print axioms accepts_ub_on_right
+#print axioms rejects_ub_on_left
+#print axioms ub_on_left_counterexample
 
 end LambdaSSAUBNativePackedRegression
