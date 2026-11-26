@@ -168,3 +168,39 @@ input the Load reads `99` from the first Store and the checker refuses
 before emission. The original emitted program returns `99` in that case.
 This edit establishes the overwrite within the entry table.
 [Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+## Select a Store in a longer entry table
+
+`Entry.rewriteSelected entry version input` takes the one-based original
+Store version to remove. The existing straight-line search finds the
+first later Store on the same original typed address wire. The checker
+validates each intervening Load's inferred reader obligation against the
+concrete input cells. Refusal returns `none`. On success the result gives
+the two original versions, the certificate, and the edited table. Its
+operation theorem counts one deletion and keeps the operands and relative
+order of all retained Loads, Stores, and the entry Return.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Defs.lean) ·
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Thms.lean) ·
+[Pinned Simple Store user check](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65)
+
+`Entry.lowerSelected` shares the two-Store entry emitter. The #3895
+entry-buffer theorem gives equality of the emitted successor frame and
+whole entry buffer. Both CFGs preserve the word and entire final buffer
+at either predicate and arbitrary initial buffer at the checked input.
+Both need three CF block steps, independent of which Store is removed
+inside entry. The scope is one deletion with an overwrite in the same
+entry table.
+[Entry buffer law](#reuse-the-emitted-entry-buffer)
+
+The three-Store fixture selects version 2, checks the exact edited table,
+and runs both emitted artifacts. The false arm preserves `11` in the
+cell written by the retained side Store. A second table checks deletion
+with the side Store between the selected version and its overwrite. When
+the intervening reader aliases, the original emitted artifact returns
+`99` and the checker refuses to emit an edited pair.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+make check CHECK_TARGETS='+Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Readers.Repeat.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.MLIR.MemRef.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.CF.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.MLIR.Finite.Regression'
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```
