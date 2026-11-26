@@ -1,12 +1,14 @@
 module
 
-public import Silmaril.Machine.MulticoreVM.Placed.Thms
+public import Silmaril.Machine.MulticoreVM.Placed.Institution.Thms
 public import Silmaril.Machine.MulticoreVM.Toy.Thms
 public import Silmaril.Semantics.ConcurrentTrace.Thms
 
 namespace Silmaril.Machine.MulticoreVM.Placed
 
-open Silmaril.Semantics.ConcurrentTrace (ofWord ofWord_eq_iff swap swap_eq_iff)
+open CategoryTheory
+open Institution (Sig)
+open Silmaril.Semantics.ConcurrentTrace (Word ofWord ofWord_eq_iff swap swap_eq_iff)
 
 private abbrev Rig (n : Nat) := Config (Fin n) Toy.ThreadId Unit Toy.Core
 
@@ -73,6 +75,41 @@ example : (oneIdle.threads, [.sync [0, 1], .event 1 9]) ∈
 
 example : coreWord oneWord = [.event 0 none, .event 0 (some 9)] ∧ oneIdle.placement 0 = none :=
   ⟨rfl, rfl⟩
+
+example : (oneIdle.threads, ofWord ([.sync [0, 1], .event 1 9] : Word Toy.ThreadId Nat)) ∈
+    observeQuotient '' namedOutcomes (run Toy.step 3) oneBoot.threads :=
+  observeThreadQuotient_image_subset_run (ofThreadStep_refines Toy.step) oneSchedule oneBoot
+    (Set.mem_image_of_mem observeThreadQuotient (show (oneIdle, oneWord) ∈
+      taggedOutcomes instruction oneSchedule oneBoot from oneRun))
+
+-- The abstract scheduler can select the waiting child. The concrete schedule cannot.
+example : let child := (addedThreads, ofWord ([] : Word Toy.ThreadId Nat))
+    child ∈ observeQuotient '' namedOutcomes (run Toy.step 1) oneSpawned.threads ∧
+    child ∉ observeThreadQuotient '' taggedOutcomes instruction [.execute 0 1 none] oneSpawned := by
+  have add : MulticoreVM.Scheduled Toy.step [⟨1, none⟩] oneSpawned.threads [] addedThreads :=
+    .cons (fragment := []) rfl (.nil addedThreads)
+  refine ⟨Set.mem_image_of_mem observeQuotient
+    ((mem_run_iff_exists_schedule 1).mpr ⟨_, rfl, add⟩), ?_⟩
+  rintro ⟨⟨final, word⟩, concrete, _⟩
+  change Scheduled instruction [.execute 0 1 none] oneSpawned word final at concrete
+  cases concrete with
+  | cons first _ => cases first with
+    | execute resident _ => cases resident
+
+private abbrev oneSig : Sig := ⟨Toy.ThreadId, Fin 1, Nat⟩
+private abbrev renamedSig : Sig := ⟨Option Nat, Bool, Bool⟩
+
+private noncomputable def renameOne : oneSig ⟶ renamedSig where
+  core := fun _ => true
+  thread := ⟨some, fun _ _ => Option.some.inj⟩
+  event := fun value => value == 9
+
+-- Typed renaming takes the original participant list through the institution and quotient.
+example : (institutionForgetCore ≫ institutionNamedQuotient).app renamedSig
+      (Sig.Hom.mapCore renameOne (toInstitutionCoreWord oneWord)) =
+    ofWord ([.sync [some 0, some 1], .event (some 1) true] : renamedSig.NamedWord) := by
+  rw [← toInstitutionCoreWord_mapTaggedWord renameOne, threadTrace_eq_institution]
+  rfl
 
 private def pairThreads : Toy.Config := Toy.put (Toy.init 0 ⟨4, [.emit]⟩) 1 ⟨9, [.emit]⟩
 

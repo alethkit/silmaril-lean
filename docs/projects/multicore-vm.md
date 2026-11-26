@@ -59,6 +59,19 @@ thread store and the thread word. `Scheduled.mem_threadRun` places the result in
 the abstract run at the filtered length, counting every instruction, including
 silent ones, and omitting placement commands.
 
+`taggedOutcomes` collects pairs of final configurations and tagged words.
+`forgetCore` projects a pair to the final thread store and its thread-named
+word. `observeThreadQuotient` projects directly to the final thread store and
+the concurrent thread trace. `observeThreadQuotient_image` identifies this
+direct image with the image under `forgetCore` followed by `observeQuotient`.
+`observeThreadQuotient_image_subset_scheduledOutcomes` and
+`observeThreadQuotient_image_subset_run` include this common image in the
+abstract quotient outcomes of the projected schedule and the filtered-length
+runner, respectively. The waiting-child regression witnesses strict inclusion
+for the runner. The fixed-schedule inclusion also composes with abstract
+quotient-outcome equality under the local diamond hypothesis in
+`ScheduleEquivalent.quotient_outcomes_eq`. [Abstract scheduler swaps][swaps]
+
 Each emitted letter carries the executing core and thread. `threadWord` recovers
 the thread event or the original sync participants. `coreWord` keeps the executing
 core and encodes a payload as `some value` and a sync as `none`, an opaque marker on
@@ -67,6 +80,16 @@ trace quotient, a projection would have to respect the swaps generating the sour
 quotient. Two threads time-sharing a core give commuting thread events whose core
 images can be dependent. Moving one thread between cores can give the opposite
 discrepancy. [Placement regressions][placed-tests]
+
+`mapTaggedWord` commutes with both raw projections. It also commutes with
+`threadTrace` when the thread renaming is injective. The
+`Placed.Institution.Thms` adapter exposes the core-tagged to named and named to
+concurrent projections as natural transformations over typed signature
+morphisms. `threadTrace_eq_institution` identifies their composite on a C8
+word with `threadTrace`. The adapter separately includes the state-erased
+concrete images in the institution's abstract named and concurrent VM models.
+The institution's core-tagged word keeps the sync participant list and the
+emitting core, while the raw `coreWord` keeps an opaque marker. [Institution adapter][placed-inst] · [Institution profiles][inst]
 
 ## Register VM and adapters
 
@@ -96,7 +119,7 @@ registers, output, and spawn. [Machine traces][machine] · [Process.Mt][process]
 ## Checks
 
 ```sh
-make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Toy.Thms +Silmaril.Proofs.Machine.MulticoreVM.Regression +Silmaril.Proofs.Semantics.ConcurrentTrace.Regression +Silmaril.Machine.MulticoreVM.Placed.Thms +Silmaril.Proofs.Machine.MulticoreVM.Placed.Regression'
+make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Toy.Thms +Silmaril.Proofs.Machine.MulticoreVM.Regression +Silmaril.Proofs.Semantics.ConcurrentTrace.Regression +Silmaril.Machine.MulticoreVM.Placed.Institution.Thms +Silmaril.Proofs.Machine.MulticoreVM.Placed.Regression +Silmaril.Proofs.Machine.MulticoreVM.Institution.Regression'
 ```
 
 [defs]: ../../Silmaril/Machine/MulticoreVM/Defs.lean
@@ -104,6 +127,9 @@ make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Toy.Thms +Silmaril.Proof
 [placed]: ../../Silmaril/Machine/MulticoreVM/Placed/Defs.lean
 [placed-thms]: ../../Silmaril/Machine/MulticoreVM/Placed/Thms.lean
 [placed-tests]: ../../Silmaril/Proofs/Machine/MulticoreVM/Placed/Regression.lean
+[placed-inst]: ../../Silmaril/Machine/MulticoreVM/Placed/Institution/Thms.lean
+[inst]: multicore-vm-institution.md
+[swaps]: multicore-vm-swaps.md
 [toy]: ../../Silmaril/Machine/MulticoreVM/Toy/Defs.lean
 [toy-thms]: ../../Silmaril/Machine/MulticoreVM/Toy/Thms.lean
 [tests]: ../../Silmaril/Proofs/Machine/MulticoreVM/Regression.lean

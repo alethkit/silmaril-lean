@@ -8,9 +8,9 @@ public import Silmaril.Machine.MulticoreVM.Defs
 
 namespace Silmaril.Machine.MulticoreVM.Placed
 
-open Silmaril.Semantics.ConcurrentTrace (Letter Word)
+open Silmaril.Semantics.ConcurrentTrace (Letter Word Trace ofWord)
 
-universe u
+universe u v
 
 variable {CoreId ThreadId Core Thread Choice Event : Type u}
 
@@ -45,6 +45,21 @@ inductive TaggedLetter (CoreId ThreadId Event : Type u) where
 
 abbrev TaggedWord (CoreId ThreadId Event : Type u) := List (TaggedLetter CoreId ThreadId Event)
 
+abbrev TaggedOutcome (CoreId ThreadId Core Thread Event : Type u) :=
+  Config CoreId ThreadId Core Thread × TaggedWord CoreId ThreadId Event
+
+/-- Relabel both executing tags, the payload, and every synchronization participant. -/
+def TaggedLetter.map {CoreId' ThreadId' Event' : Type v} (core : CoreId → CoreId')
+    (thread : ThreadId → ThreadId') (event : Event → Event') :
+    TaggedLetter CoreId ThreadId Event → TaggedLetter CoreId' ThreadId' Event'
+  | .event c t value => .event (core c) (thread t) (event value)
+  | .sync c t participants => .sync (core c) (thread t) (participants.map thread)
+
+def mapTaggedWord {CoreId' ThreadId' Event' : Type v} (core : CoreId → CoreId')
+    (thread : ThreadId → ThreadId') (event : Event → Event')
+    (word : TaggedWord CoreId ThreadId Event) : TaggedWord CoreId' ThreadId' Event' :=
+  word.map (TaggedLetter.map core thread event)
+
 /-- Attribute every letter in an instruction fragment to its executing core and thread. -/
 def tagFragment (core : CoreId) (thread : ThreadId) (fragment : Fragment ThreadId Event) :
     TaggedWord CoreId ThreadId Event :=
@@ -68,6 +83,20 @@ def threadWord (word : TaggedWord CoreId ThreadId Event) : Word ThreadId Event :
 
 def coreWord (word : TaggedWord CoreId ThreadId Event) : Word CoreId (Option Event) :=
   word.map TaggedLetter.dropThread
+
+/-- Observe the concurrent thread trace of a tagged chronological word. -/
+def threadTrace (word : TaggedWord CoreId ThreadId Event) : Trace ThreadId Event :=
+  ofWord (threadWord word)
+
+/-- Project to the abstract named outcome by keeping the thread store and thread word. -/
+def forgetCore (outcome : TaggedOutcome CoreId ThreadId Core Thread Event) :
+    Outcome (ThreadId → Option Thread) ThreadId Event :=
+  (outcome.1.threads, threadWord outcome.2)
+
+/-- The projected final thread store paired with the concurrent thread trace. -/
+def observeThreadQuotient (outcome : TaggedOutcome CoreId ThreadId Core Thread Event) :
+    (ThreadId → Option Thread) × Trace ThreadId Event :=
+  (outcome.1.threads, threadTrace outcome.2)
 
 /-- A scheduled instruction names the executing pair and its auxiliary choice. Placement
 commands carry the cores and threads needed to check and apply the update. -/
@@ -145,5 +174,12 @@ inductive Scheduled [DecidableEq CoreId]
   | cons {action schedule initial fragment next tail final} :
       Step instruction action initial fragment next → Scheduled instruction schedule next tail final →
       Scheduled instruction (action :: schedule) initial (fragment ++ tail) final
+
+/-- The certified final configurations and tagged words of a successful concrete schedule. -/
+def taggedOutcomes [DecidableEq CoreId]
+    (instruction : Instruction CoreId ThreadId Core Thread Choice Event)
+    (schedule : Schedule CoreId ThreadId Choice) (initial : Config CoreId ThreadId Core Thread) :
+    Set (TaggedOutcome CoreId ThreadId Core Thread Event) :=
+  { outcome | Scheduled instruction schedule initial outcome.2 outcome.1 }
 
 end Silmaril.Machine.MulticoreVM.Placed
