@@ -477,6 +477,11 @@ globs = ["tests.ssa.LetIterWeakTreeSoundness"]
 name = "PEGCoreTests"
 globs = ["tests.ssa.PEG", "tests.ssa.PEGSimple"]
 
+# Check the PEG bridge against the Figure 11, ordered RVSDG and MLIR evaluators.
+[[lean_lib]]
+name = "PEGIRBridgeTests"
+globs = ["tests.ssa.PEGIRBridge"]
+
 # Check open PEG equations and composition of Peggy opcode translations.
 [[lean_lib]]
 name = "PeggyDialectTests"
