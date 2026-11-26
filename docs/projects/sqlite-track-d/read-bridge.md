@@ -7,14 +7,17 @@ uses both the Machine read adapter and the Semantics statement executor.
 
 ## Pinned inputs
 
-- Track A's stateful adapter from PR #3623 at
-  `4d69c29875c1d3ab722ac9ca0a43f8203a845d1b`.
-  [Adapter contract](../sqlite-track-a/typed-read-adapter.md) · [Commit](https://github.com/hiloopai/silmaril-lean/commit/4d69c29875c1d3ab722ac9ca0a43f8203a845d1b)
-- Track D3's catalog integration at `c1ff954cf62ff228357470fad3c152c1f1941478`
-  includes PR #3645 at `eedbe97f3af123fc7f88773daa4115cad1824dfc` and D2 at
-  `5dd76d0c384c4d621fa0c63f3de3a0392bd3286d`. Track C's merged foundations
-  are at `611702d27cc6e43cbb7f3ec74013246d39d322ef`.
-  [Statement executor](statement-executor.md) · [Catalog model](../sqlite-relational-d2.md) · [Relational foundations](../relational.md)
+- Track A's stateful adapter from PR #3623, merged at
+  `26a59ab4f3131bde9cee45053d678fa5b961886f` from
+  `4994778f84b9bee57c8624e37b2deb618567881c`.
+  [Adapter contract](../sqlite-track-a/typed-read-adapter.md) · [Merge](https://github.com/hiloopai/silmaril-lean/commit/26a59ab4f3131bde9cee45053d678fa5b961886f)
+- Track D3's catalog executor from PR #3745 at
+  `2c710eda48f3eebf3bbed580f79fe2fa9fd8a40b`, checked in a local assembly
+  while that PR is open. It uses the statement executor from PR #3645,
+  merged at `fb129a1cab5eb2108bb24224943538885b87838a`, and D2 from PR #3688,
+  merged at `d99abfe5131eec3697fa32e41b7d1b0962bcaac9`. Track C's merged
+  foundations are at `611702d27cc6e43cbb7f3ec74013246d39d322ef`.
+  [Catalog executor](https://github.com/hiloopai/silmaril-lean/pull/3745) · [Statement executor](statement-executor.md) · [Catalog model](../sqlite-relational-d2.md) · [Relational foundations](../relational.md)
 
 The source reference is SQLite **3.54.1**, source ID
 `2026-10-16 14:45:20 555e07ef33f69a0957d24d8e555b702464a131d6f1607f4c3c1e4551e8e6ca76`.
@@ -78,7 +81,11 @@ The fixture writes a two-page image through the existing Lean writer and
 uses a checked catalog snapshot for `sample.amount`. It checks rowid 42
 returning 7, absent rowid 41, cold/warm cache and exchange history, and a
 short read that returns a changed backing state. It also covers an unbound
-parameter, an out-of-range bind, a present NULL and NaN rejection.
+parameter, an out-of-range bind, a present NULL and NaN rejection. The
+catalog-only execution agrees on the found and absent results and retains
+the session while erasing the exchange history. A separate example proves
+that connections with distinct file bytes and size exchanges map to the
+same catalog connection and give the same successful lookup.
 [Checked examples and axiom audit](../../../Silmaril/Machine/SQLite/Relational/Bridge/Checks.lean)
 
 ```sh

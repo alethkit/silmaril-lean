@@ -78,11 +78,13 @@ private def coldWarmCheck (key : Int64) (cell : Option SqlValue) : Bool :=
       after.backing == db.backing && after.cache 0 == some (.resident page payload) &&
         after.cache 1 == none && after.session == db.session &&
         checkExchange 1024 (.ok payload) after.exchanges
-    match out.1.completed, out.1.failure with
-    | [(first, cold), (second, warm)], none =>
-      decide (first = expected) && decide (second = expected) &&
-        checkState cold && checkState warm && checkState out.2
-    | _, _ => false
+    let projected := CatalogExecutor.execute semantics (forgetStorage db) (call key)
+    match out.1.completed, out.1.failure, projected.1 with
+    | [(first, cold), (second, warm)], none, .statement (.ok result) =>
+      decide (first = expected) && decide (second = expected) && decide (result = expected) &&
+        checkState cold && checkState warm && checkState out.2 &&
+        projected.2.session == out.2.session && projected.2.exchanges.isEmpty
+    | _, _, _ => false
 
 -- The backing retires the handle when handling the read. A short read must
 -- keep that poststate and can neither install a slot nor enter a second call.
@@ -118,6 +120,17 @@ example : execute retireAfterRead locate (connection []) { call 42 with binding 
 
 example : execute retireAfterRead locate (connection []) { call 42 with binding := some (2, 42) } =
     (.statement (.error (.bind .range)), connection []) := rfl
+
+-- Distinct files and completed size exchanges collapse to the same catalog observation.
+example : connection [] ≠ connection [0] := by
+  intro same
+  have sameSize := congrArg (fun db => db.backing.bytes.length) same
+  cases sameSize
+
+example : forgetStorage (connection []) = forgetStorage (connection [0]) := rfl
+
+example : CatalogExecutor.execute semantics (forgetStorage (connection [0])) (call 42) =
+    (.statement (.ok ⟨"amount", some (.integer 7)⟩), forgetStorage (connection [])) := rfl
 
 #print axioms execute_corresponds
 #print axioms execute_cold_warm
