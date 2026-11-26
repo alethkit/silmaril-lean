@@ -11,7 +11,8 @@ table-packing quotient. `Valid` is equality in every supported model.
 the four-reply policy. On spellings of polls the three agree with equality
 of reflected tree keys. On the whole fragment only the implications
 `key → Eqv → Valid → observations` are proved. Equal observations do not
-give equal keys there. Whether they give `Valid` is not decided.
+give equal keys there, and by `Prefix.askSpin_not_valid` they do not give
+`Valid` either.
 -/
 
 public section
@@ -137,8 +138,8 @@ theorem askSpin_observations (label g : Bool) : loopObservations (askSpin label)
 
 /-- A loop that sends a request on every round and a loop that sends none
 have the same complete runs, namely none. Their steps differ in this
-quotient. Whether the two loops are equal in it, or valid in every model,
-is not decided here. -/
+quotient. `Prefix.askSpin_not_valid` shows that the two loops are not
+valid, in a model that also observes pending requests. -/
 theorem trace_test_not_reflecting (label : Bool) :
     (∀ g, loopObservations (askSpin label) g = loopObservations spin g) ∧
       stepArrow (askSpin label) ≠ stepArrow spin :=

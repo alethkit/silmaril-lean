@@ -5,7 +5,11 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extens
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Categorical.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Dispatcher.Singleton.Thms
 
-/-! # The literal loop in the ordered-trace Kleisli model -/
+/-! # The literal loop in ordered-trace Kleisli models
+
+The first part holds for every coherent instruction interpretation on the
+ordered-trace Kleisli category. The last part fixes the four-reply model.
+-/
 
 public section
 
@@ -29,14 +33,8 @@ open scoped MonoidalCategory
 
 local notation "J" => _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Kleisli.J (m := Trace)
 local notation "M" => _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Kleisli.types
-noncomputable local instance : InstructionModel J M signature.Instr := instructions model
-local instance : RegionTypingCoherent (Φ := signature.Instr) J M := modelCoherent
 local notation "T" => Coordinates.ofModel (τ := Ty Empty) J M
 local notation "N" => WithGuardedTablePacking.Step (τ := Ty Empty) (Φ := signature.Instr) false
-
-/-- The quotient's interpretation in the fixed trace model. -/
-noncomputable abbrev F :=
-  WithGuardedTablePacking.denoteFunctor (Φ := signature.Instr) false J M (fun _ _ => ⟨rfl, rfl⟩)
 
 set_option backward.isDefEq.respectTransparency false in
 private theorem sumIso_coprodIsoSum (A B : Ty Empty) :
@@ -66,6 +64,38 @@ private theorem sumIso_coprodIsoSum (A B : Ty Empty) :
   exact (J).map_id _
 
 set_option backward.isDefEq.respectTransparency false in
+private theorem packedInject_apply (x : value Bit) :
+    (packedLabelInject M 0 (rfl : At [Bit] 0 Bit)) x = (Sum.inl x : value State) := by
+  simp only [packedLabelInject, eqToHom_refl, Category.id_comp]
+  exact ConcreteCategory.congr_hom (Types.binaryCoproductIso_inl_comp_hom
+    (value Bit) (value (packedExitType ([] : LCtx (Ty Empty))))) x
+
+theorem stepArrow_eq (p : Program) :
+    stepArrow p = ofRegion N unpack_typed ≫ ofRegion N p.typed.packExits :=
+  (congrArg (projection N).map
+    (Paper.TypeCategory.ofRegion_comp unpack_typed p.typed.packExits (step_typed p))).symm.trans
+    ((projection N).map_comp _ _)
+
+theorem loopArrow_eq (p : Program) : loopArrow p = iterateSum N (stepArrow p) :=
+  ((iterateSum_map N (Paper.TypeCategory.ofRegion (step_typed p))).trans
+    (congrArg (projection N).map (Paper.TypeCategory.iterateSum_ofRegion (step_typed p)))).symm
+
+section Coherent
+
+-- The instruction interpretation is the parameter of this section.
+set_option linter.concreteInstances false
+
+variable [inst : InstructionModel J M signature.Instr] [RegionTypingCoherent (Φ := signature.Instr) J M]
+
+/-- The quotient's interpretation in a coherent trace model. -/
+noncomputable abbrev F :=
+  WithGuardedTablePacking.denoteFunctor (Φ := signature.Instr) false J M (fun _ _ => ⟨rfl, rfl⟩)
+
+/-- The step of a program at the exact packed representative. -/
+@[expose] noncomputable def stepIn (p : Program) : value State → Trace (value Bit ⊕ value State) :=
+  fun s => (denoteSingletonRegion J M p.typed.packExits.hasType).of (Sum.elim id PEmpty.elim s)
+
+set_option backward.isDefEq.respectTransparency false in
 /-- Guarded feedback of the quotient is the model's iterator on values. -/
 theorem map_iterateSum_of {A B : Ty Empty} (s : ofType N A ⟶ ofType N (Silmaril.coprod B A))
     (a : value A) :
@@ -82,13 +112,6 @@ theorem map_iterateSum_of {A B : Ty Empty} (s : ofType N A ⟶ ofType N (Silmari
     _ = _ := by
       rw [Kleisli.Type.iterate_of, Category.assoc, sumIso_coprodIsoSum, Category.comp_id]
       rfl
-
-set_option backward.isDefEq.respectTransparency false in
-private theorem packedInject_apply (x : value Bit) :
-    (packedLabelInject M 0 (rfl : At [Bit] 0 Bit)) x = (Sum.inl x : value State) := by
-  simp only [packedLabelInject, eqToHom_refl, Category.id_comp]
-  exact ConcreteCategory.congr_hom (Types.binaryCoproductIso_inl_comp_hom
-    (value Bit) (value (packedExitType ([] : LCtx (Ty Empty))))) x
 
 set_option backward.isDefEq.respectTransparency false in
 /-- The native decoder returns the Bit held by the state. -/
@@ -113,18 +136,8 @@ theorem unpack_run (x : value Bit) :
   rw [← e, ← (J).map_comp, ← (J).map_comp, collapse, ← packedInject_apply]
   exact congrArg (pure (f := Trace)) value
 
-theorem stepArrow_eq (p : Program) :
-    stepArrow p = ofRegion N unpack_typed ≫ ofRegion N p.typed.packExits :=
-  (congrArg (projection N).map
-    (Paper.TypeCategory.ofRegion_comp unpack_typed p.typed.packExits (step_typed p))).symm.trans
-    ((projection N).map_comp _ _)
-
-theorem loopArrow_eq (p : Program) : loopArrow p = iterateSum N (stepArrow p) :=
-  ((iterateSum_map N (Paper.TypeCategory.ofRegion (step_typed p))).trans
-    (congrArg (projection N).map (Paper.TypeCategory.iterateSum_ofRegion (step_typed p)))).symm
-
 set_option backward.isDefEq.respectTransparency false in
-theorem step_run (p : Program) (s : value State) : ((F).map (stepArrow p)).of s = stepModel p s := by
+theorem step_run_in (p : Program) (s : value State) : ((F).map (stepArrow p)).of s = stepIn p s := by
   let U : (J).obj ((M).obj State) ⟶ (J).obj ((M).obj Bit) :=
     denoteSingletonRegion J M unpack_typed.hasType
   let P : (J).obj ((M).obj Bit) ⟶ (J).obj ((M).obj (packedExitType Exits)) :=
@@ -149,21 +162,36 @@ theorem step_run (p : Program) (s : value State) : ((F).map (stepArrow p)).of s 
 
 set_option backward.isDefEq.respectTransparency false in
 /-- The literal loop runs the model's iterator on the step. -/
-theorem loop_run (p : Program) (s : value State) :
+theorem loop_run_in (p : Program) (s : value State) :
     (denoteSingletonRegion J M (loop_typed p).hasType).of s =
-      Silmaril.Elgot.iter (m := Trace) (stepModel p) s := by
+      Silmaril.Elgot.iter (m := Trace) (stepIn p) s := by
   have literal : (F).map (loopArrow p) = denoteSingletonRegion J M (loop_typed p).hasType :=
     Paper.Extension.Singleton.denoteFunctor_map_ofRegion J M (fun _ _ => ⟨rfl, rfl⟩)
       (WithGuardedTablePacking.seedDenotes false J M (fun _ _ => ⟨rfl, rfl⟩)) (loop_typed p)
   have steps : (fun x : value State =>
-      (((F).map (stepArrow p)).of x : Trace (value Bit ⊕ value State))) = stepModel p :=
-    funext (step_run p)
+      (((F).map (stepArrow p)).of x : Trace (value Bit ⊕ value State))) = stepIn p :=
+    funext (step_run_in p)
   have iterated : (F).map (iterateSum N (stepArrow p)) =
       denoteSingletonRegion J M (loop_typed p).hasType :=
     (congrArg (F).map (loopArrow_eq p)).symm.trans literal
   exact ((congrArg (fun g : (J).obj ((M).obj State) ⟶ (J).obj ((M).obj Bit) => g.of s) iterated).symm.trans
     (map_iterateSum_of (stepArrow p) s)).trans
       (congrArg (fun f => Silmaril.Elgot.iter (m := Trace) f s) steps)
+
+end Coherent
+
+/-! ## The four-reply model -/
+
+noncomputable local instance : InstructionModel J M signature.Instr := instructions model
+local instance : RegionTypingCoherent (Φ := signature.Instr) J M := modelCoherent
+
+theorem step_run (p : Program) (s : value State) : ((F).map (stepArrow p)).of s = stepModel p s :=
+  step_run_in p s
+
+theorem loop_run (p : Program) (s : value State) :
+    (denoteSingletonRegion J M (loop_typed p).hasType).of s =
+      Silmaril.Elgot.iter (m := Trace) (stepModel p) s :=
+  loop_run_in p s
 
 /-- On a Bit state the step has the outcomes of the reflected request tree. -/
 theorem stepModel_outcomes (p : Program) (g : Bool) :
