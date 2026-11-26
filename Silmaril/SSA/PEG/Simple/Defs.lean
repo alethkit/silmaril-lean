@@ -78,6 +78,23 @@ end
 def Expr.eval (store : Tuple model.Value vars) (e : Expr P vars t) : Option (model.Value t) :=
   (e.evalLift model store).down
 
+/-- Execute a loop-free statement using the interpretation's partial primitives.
+A branch executes the arm selected by its guard. -/
+def Stmt.runLoopFree : {vars outs : List (Ty Data)} → (s : Stmt P false vars outs) →
+    Tuple model.Value vars → Option (Tuple model.Value outs)
+  | _, _, .assign rhs, store => (rhs.eval model store).map fun value => .cons value store
+  | _, _, .project slots, store => some (slots.map fun _ p => store.get p)
+  | _, _, .seq first second, store => (runLoopFree first store).bind (runLoopFree second)
+  | _, _, .branch guard yes no, store =>
+    (guard.eval model store).bind fun flag =>
+      if flag.down then runLoopFree yes store else runLoopFree no store
+  | _, _, .while impossible _ _, _ => nomatch impossible
+termination_by structural _ _ s _ => s
+
+def Program.runLoopFree (p : Program P false vars t) (input : Tuple model.Value vars) :
+    Option (model.Value t) :=
+  (p.body.runLoopFree model input).map fun final => final.get p.retvar
+
 /-- Finite source executions. Here `none` is a finite evaluation failure.
 Nontermination has no finite execution derivation. The source treats primitive
 `none` as finite failure, with no trap detail supplied by the interpretation. -/

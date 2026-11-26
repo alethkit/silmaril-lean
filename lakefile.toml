@@ -472,10 +472,10 @@ globs = ["tests.ssa.LetIterPackingImports.+"]
 name = "LetIterWeakTreeSoundnessTests"
 globs = ["tests.ssa.LetIterWeakTreeSoundness"]
 
-# Check the typed PEG core and the paper guard counterexample.
+# Check the typed PEG core, the paper guard counterexample, and SIMPLE translation and reversion.
 [[lean_lib]]
 name = "PEGCoreTests"
-globs = ["tests.ssa.PEG", "tests.ssa.PEGSimple"]
+globs = ["tests.ssa.PEG", "tests.ssa.PEGSimple", "tests.ssa.PEGRevert"]
 
 # Check the PEG bridge against the Figure 11, ordered RVSDG and MLIR evaluators.
 [[lean_lib]]
