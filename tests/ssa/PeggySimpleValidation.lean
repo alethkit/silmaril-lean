@@ -9,6 +9,7 @@ import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Combined.
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
 import Silmaril.SSA.PEG.Thms
 import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Thms
+import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Multi.Thms
 meta import Silmaril.SSA.Peggy.SimpleValidation.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Defs
@@ -17,6 +18,7 @@ meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Combined.Defs
 meta import Silmaril.SSA.PEG.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Defs
+meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Multi.Defs
 
 namespace Silmaril.SSA.Peggy.SimpleValidation.Tests
 
@@ -667,6 +669,60 @@ private def runGeneratedSelection :
 #guard runGeneratedSelection == some ([.zeroSample 13, .evalScale 14], .fixed, [7, 7, 6], 6, (3, 2), true, [2, 17, 2])
 #guard (Cost.Bundle.Worklist.Combined.check taggedOps 1 taggedSource ⟨[.zeroSample 13], .exhausted⟩).isSome
 #guard (Cost.Bundle.Worklist.Combined.check taggedOps 1 taggedSource ⟨[.zeroSample 13], .fixed⟩).isNone
+
+open EPEG.Saturation.Extension in
+private def multiSource (joinPasses : Bool) : Output Op bundleParams bundleResults 1 :=
+  ⟨12, ⟨bundleGraph, if joinPasses then bundleClasses else EPEG.Classes.discrete⟩⟩
+
+-- Put both output evals after the two candidate pass rows. A choice is
+-- made for each eval's pass edge, and both must use the same pass address.
+private def multiLayout {n : Nat} (g : Graph Op bundleParams bundleResults n 1) :
+    Option (Cost.Bundle.Worklist.Generate.Multi.Layout g) := do
+  let firstEval ← Ref.check g.sort .count 9
+  let secondEval ← Ref.check g.sort .count 10
+  let alternatePass ← Ref.check g.sort .count 11
+  let rep (i : Fin n) := if i = firstEval.id then alternatePass.id
+    else if i = alternatePass.id then firstEval.id else i
+  if first : 1 < (g.node (rep alternatePass.id)).inputs.length then
+    if second : 1 < (g.node (rep secondEval.id)).inputs.length then
+      some ⟨n, rep, [⟨alternatePass.id, ⟨1, first⟩⟩, ⟨secondEval.id, ⟨1, second⟩⟩]⟩
+    else none
+  else none
+
+-- The test objective charges the pass edge span at each ordered result port.
+private def passSpan {n : Nat} {g : Graph Op bundleParams bundleResults n 1} (c : Cost.Candidate g) : Nat :=
+  let span (r : Ref c.graph.sort .count) :=
+    match c.graph.node r.id with
+    | ⟨_, .eval _, .cons _ (.cons pass .nil)⟩ => r.id.val - pass.id.val + (pass.id.val - r.id.val)
+    | _ => 0
+  span (c.graph.roots.get .head) + span (c.graph.roots.get (.tail .head)) +
+    span (c.graph.roots.get (.tail (.tail .head)))
+
+open EPEG.Saturation.Extension Cost.Bundle.Worklist in
+private def runMulti (joinPasses : Bool) : Option (List (Option Nat) × Nat × Nat × List Nat) := do
+  let receipt ← Combined.check taggedOps 0 (multiSource joinPasses) ⟨[], .fixed⟩
+  let layout ← multiLayout receipt.endpoint.2.graph
+  let pool := Generate.Multi.pool receipt.endpoint.2.classes [layout]
+  let admitted := pool.map fun c => (Cost.Bundle.check receipt.endpoint.2.classes c).map fun _ => passSpan c
+  let chosen ← Generate.Multi.select receipt passSpan [layout]
+  let out ← chosen.reversion.runFuel model 3 bundleInput
+  return (admitted, passSpan chosen.candidate, chosen.reversion.scalar.descriptor.pass.id.val, returnedCounts out)
+
+-- Either single change splits the passes and fails admission. Changing
+-- both makes the nearer pass usable, and the ordered result is unchanged.
+#guard runMulti true == some ([some 8, none, none, some 5], 5, 9, [2, 17, 2])
+#guard runMulti false == some ([some 8], 8, 8, [2, 17, 2])
+
+example (receipt : Cost.Bundle.Worklist.Combined.CheckedReceipt taggedOps 0 (multiSource true))
+    (chosen : Cost.Bundle.Accepted receipt.endpoint.2.graph receipt.endpoint.2.classes) (idx : Index 1)
+    (neg : ∀ b : Bool, model.run chosen.reversion.scalar.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (ran : chosen.reversion.runFuel model 3 bundleInput = some (.cons ⟨2⟩ (.cons ⟨17⟩ (.cons ⟨2⟩ .nil)))) :
+    bundleGraph.observe model (bundleGraph.denote model bundleInput bundleWF) idx =
+      .cons (some ⟨2⟩) (.cons (some ⟨17⟩) (.cons (some ⟨2⟩) .nil)) :=
+  let valid := passRows.merge_sound (bundleGraph.denote_solves model bundleInput bundleWF)
+    EPEG.Classes.discrete_valid (by decide)
+  receipt.observe_of_exec chosen bundleWF valid rfl ⟨⟨1⟩, rfl, fun _ => rfl⟩ neg idx
+    (chosen.reversion.runFuel_exec 3 ran)
 
 private theorem doubleStepWF : WellFounded doubleStep.Demand :=
   doubleStep.demandWellFounded_of_check (PEG.Simple.Revert.While.Region.Automatic.inferDemandRank doubleStep)

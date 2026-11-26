@@ -72,10 +72,11 @@ def bindOperand (classes : Classes n) (layout : Skeleton g) (choice : Option (Fi
 /-- Resolve the ordered wires and materialize a typed candidate with
 common-row evidence. Admission still checks rank, class wiring and
 SIMPLE reversion independently. -/
-def materialize (classes : Classes n) (layout : Skeleton g) (choice : Option (Fin layout.size)) :
+def materializeWith (classes : Classes n) (layout : Skeleton g)
+    (resolve : ∀ {t}, Fin layout.size → Nat → Ref g.sort t → Option (Ref (g.sort ∘ layout.rep) t)) :
     Option (Candidate g) := do
   let args (i : Fin layout.size) :=
-    bindTuple layout (fun slot => bindOperand classes layout choice i slot) 0 (g.node (layout.rep i)).args
+    bindTuple layout (resolve i) 0 (g.node (layout.rep i)).args
   let some roots := bindTuple layout (fun _ => bindFirst classes layout) 0 g.roots | none
   if wired : (List.finRange layout.size).all (fun i => (args i).isSome) = true then
     let operands i := (args i).get (List.all_eq_true.mp wired i (List.mem_finRange i))
@@ -89,6 +90,10 @@ def materialize (classes : Classes n) (layout : Skeleton g) (choice : Option (Fi
       ⟨row.inputs, row.label, row.args, operands i, HEq.rfl,
         by exact Silmaril.Proofs.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.cached_node graph i⟩⟩
   else none
+
+def materialize (classes : Classes n) (layout : Skeleton g) (choice : Option (Fin layout.size)) :
+    Option (Candidate g) :=
+  materializeWith classes layout (bindOperand classes layout choice)
 
 /-- Enumerate every materializable point in the supplied finite layout
 space. There is no candidate cap. -/
