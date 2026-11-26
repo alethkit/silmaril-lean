@@ -1,7 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.State.Thms
-import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
+public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Probe.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Rank.Thms
 
 public section
@@ -16,9 +15,7 @@ open Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtr
 open Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration
 open Silmaril.Isotope.LambdaSSA.Acyclic.Positional
 open CFG.Dependent (Packet unpack)
-open ScheduleSearch (StateInventory)
 open Syntax (Payload StatePrimitives Primitives)
-open Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.TwoRequest (result_order)
 
 universe u v
 
@@ -43,10 +40,6 @@ private theorem below_next (g : Table S R) (caller : Payload (R.get g.entry))
     have down := Rank.ranked_successor g.targets bound.1 edge
     exact ⟨down.1, down.2.trans_le (Nat.le_of_lt_succ bound.2)⟩
 
-private def test [DecidableEq Φ] {n : Nat} (key : Option (Φ × Value Unit)) :
-    Primitives Φ n :=
-  fun f a s => if key = some (f, a.val) then .fault s else .diverge
-
 private theorem probe [DecidableEq Φ] (g : Table S R) (h : Table S T)
     (a : Payload (R.get g.entry)) (b : Payload (T.get h.entry))
     (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
@@ -56,6 +49,7 @@ private theorem probe [DecidableEq Φ] (g : Table S R) (h : Table S T)
       (¬ g.observeAt a prim p s ≤ h.observeAt b prim q s) →
       ∃ (other : Primitives Φ fuel) (t : Fin fuel),
         ¬ g.observeAt a other p t ≤ h.observeAt b other q t := by
+  classical
   intro fuel
   induction fuel with
   | zero =>
@@ -63,35 +57,29 @@ private theorem probe [DecidableEq Φ] (g : Table S R) (h : Table S T)
     exact (bound.elim (fun h => Nat.not_lt_zero _ h.2) (fun h => Nat.not_lt_zero _ h.2)).elim
   | succ fuel ih =>
     intro p q s bound failed
-    cases upper : h.head b q with
-    | exit j selected =>
-      cases selected with
-      | true =>
-        rw [h.observe_state_step b prim q s, upper] at failed
-        exact (failed le_top).elim
-      | false =>
+    by_cases agreement : (g.head a p).Matches (fun _ _ => True) (h.head b q)
+    · cases upper : h.head b q with
+      | exit j selected =>
+        cases selected with
+        | true =>
+          rw [h.observe_state_step b prim q s, upper] at failed
+          exact (failed le_top).elim
+        | false =>
+          cases lower : g.head a p with
+          | exit i marked =>
+            cases marked with
+            | true => simp [lower, upper, Head.Matches] at agreement
+            | false =>
+              have same : i = j := by simpa [lower, upper, Head.Matches] using agreement
+              rw [g.observe_state_step a prim p s, h.observe_state_step b prim q s, lower, upper, same] at failed
+              exact (failed le_rfl).elim
+          | request => simp [lower, upper, Head.Matches] at agreement
+      | request k operand route =>
         cases lower : g.head a p with
-        | exit i marked =>
-          have mismatch : ¬ (marked = false ∧ i = j) := by
-            rintro ⟨rfl, rfl⟩
-            rw [g.observe_state_step a prim p s, h.observe_state_step b prim q s, lower, upper] at failed
-            exact failed le_rfl
-          refine ⟨test none, 0, ?_⟩
-          rw [g.observe_step a _ p 0, h.observe_step b _ q 0, lower, upper]
-          cases marked <;> simp_all [Head.execute, result_order, Result.refines]
+        | exit => simp [lower, upper, Head.Matches] at agreement
         | request f arg next =>
-          refine ⟨test none, 0, ?_⟩
-          rw [g.observe_step a _ p 0, h.observe_step b _ q 0, lower, upper]
-          simp [Head.execute, test, result_order, Result.refines]
-    | request k operand route =>
-      cases lower : g.head a p with
-      | exit i marked =>
-        refine ⟨test none, 0, ?_⟩
-        rw [g.observe_step a _ p 0, h.observe_step b _ q 0, lower, upper]
-        cases marked <;> simp [Head.execute, test, result_order, Result.refines]
-      | request f arg next =>
-        by_cases query : (f, arg.val) = (k, operand.val)
-        · obtain ⟨rfl, values⟩ := Prod.mk.inj query
+          rw [lower, upper] at agreement
+          obtain ⟨rfl, values, _⟩ := agreement
           have eq : arg = operand := Subtype.ext values
           subst operand
           rw [g.observe_state_step a prim p s, h.observe_state_step b prim q s, lower, upper] at failed
@@ -106,30 +94,10 @@ private theorem probe [DecidableEq Φ] (g : Table S R) (h : Table S T)
             have smaller := bound.imp (fun rank => below_next g a p lower rank answer)
               (fun rank => below_next h b q upper rank answer)
             obtain ⟨other, t, bad⟩ := ih _ _ final smaller tail
-            -- Reserve zero for this query. Mapped answers stay in the suffix image.
-            let e : Fin fuel ↪ Fin (fuel + 1) := ⟨Fin.succ, Fin.succ_injective _⟩
-            let extended : Primitives Φ (fuel + 1) := fun op input state =>
-              Fin.cases
-                (if same : f = op ∧ arg.val = input.val then
-                  .ret (same.1 ▸ payload) (e t)
-                else .diverge)
-                (fun old => (other op input old).mapState e) state
-            have hit : extended f arg 0 = .ret payload (e t) := by
-              simp [extended]
-            have agree (op : Φ) (input : Payload (instrSrc op)) (old : Fin fuel) :
-                extended op input (e old) = (other op input old).mapState e := rfl
-            refine ⟨extended, 0, ?_⟩
-            rw [g.observe_step a extended p 0, h.observe_step b extended q 0, lower, upper]
-            simp only [Head.execute, hit]
-            let stores : StateInventory fuel := ⟨List.finRange fuel, List.mem_finRange⟩
-            rw [g.observeAt_mapState e a other extended agree left stores,
-              h.observeAt_mapState e b other extended agree right stores, Behaviour.mapState_le_iff]
-            exact bad
-        · have different : ¬ (f = k ∧ arg.val = operand.val) :=
-            fun ⟨op, value⟩ => query (Prod.ext op value)
-          refine ⟨test (some (f, arg.val)), 0, ?_⟩
-          rw [g.observe_step a _ p 0, h.observe_step b _ q 0, lower, upper]
-          simp [Head.execute, test, different, result_order, Result.refines]
+            obtain ⟨extended, under⟩ := prepend_refutation g h a b left right p q lower upper answer other t bad
+            exact ⟨extended, 0, under⟩
+    · obtain ⟨test, separates⟩ := local_mismatch_refutes g h a b p q fuel agreement
+      exact ⟨test, 0, separates⟩
 
 theorem point_witness [DecidableEq Φ] (g : Table S R) (h : Table S T)
     (a : Payload (R.get g.entry)) (b : Payload (T.get h.entry))

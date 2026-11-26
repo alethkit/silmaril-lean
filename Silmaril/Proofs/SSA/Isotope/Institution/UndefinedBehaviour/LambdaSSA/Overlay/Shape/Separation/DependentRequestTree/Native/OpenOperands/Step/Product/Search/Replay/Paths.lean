@@ -22,33 +22,6 @@ variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R T : Lis
   {g : Table S R} {h : Table S T}
   {caller : Payload (R.get g.entry)} {caller' : Payload (T.get h.entry)}
 
-private theorem edge_forms [DecidableEq Φ] (replies : ReplyEnumeration S)
-    {p : ProductConfig R T} {edge : ProductEdge S R T}
-    (listed : edge ∈ g.productEdges h caller caller' replies p) :
-    ∃ (f : Φ) (arg : Payload (instrSrc f))
-      (next : (i : Fin (S.replies f).length) → Payload ((S.replies f).get i) → Packet R)
-      (next' : (i : Fin (S.replies f).length) → Payload ((S.replies f).get i) → Packet T)
-      (reply : Packet (S.replies f)),
-      g.head caller p.1 = .request f arg next ∧ h.head caller' p.2 = .request f arg next' ∧
-      edge = (⟨f, reply⟩, next reply.1 reply.2, next' reply.1 reply.2) := by
-  unfold Table.productEdges at listed
-  cases lower : g.head caller p.1 with
-  | exit => simp [lower, Head.productEdges] at listed
-  | request f arg next =>
-    cases upper : h.head caller' p.2 with
-    | exit => simp [lower, upper, Head.productEdges] at listed
-    | request op' operand' next' =>
-      rw [lower, upper, Head.productEdges] at listed
-      split at listed
-      · rename_i matchQuery
-        obtain ⟨keys, values⟩ := Prod.mk.inj matchQuery
-        subst op'
-        have operands : arg = operand' := Subtype.ext values
-        subst operand'
-        obtain ⟨reply, _, rfl⟩ := List.mem_map.mp listed
-        exact ⟨f, arg, next, next', reply, rfl, rfl, rfl⟩
-      · simp at listed
-
 theorem schedule_path [DecidableEq Φ] {replies : ReplyEnumeration S} {start point : ProductConfig R T}
     {path : List (ProductEdge S R T)}
     (walk : ProductPath (g.productEdges h caller caller' replies) start path point)
@@ -68,7 +41,7 @@ theorem schedule_path [DecidableEq Φ] {replies : ReplyEnumeration S} {start poi
       simpa using (congrArg List.length parts).trans length
     obtain ⟨s, rows, scheduled⟩ := ih stores.dropLast priorLength
     obtain ⟨f, arg, next, next', reply, lower, upper, rfl⟩ :=
-      edge_forms (g := g) (h := h) (caller := caller) (caller' := caller') replies listed
+      Table.product_edge_forms replies listed
     exact ⟨_, _, parts ▸ scheduled.step lower upper reply (stores.getLast nonempty)⟩
 
 private theorem execute_success {X : List Syntax.Ty} (prim : Primitives Φ states)
