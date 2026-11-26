@@ -167,7 +167,7 @@ private theorem read_initial (m : Model.{u, v, w} Op)
     (congrArg (fun origin => Diamond.read (past := []) m origin entry PUnit.unit)
       (initial_get port))
 
-private theorem lowerFrom_eval (code : Code Op regs out) (m : Model.{u, v, w} Op)
+theorem lowerFrom_eval (code : Code Op regs out) (m : Model.{u, v, w} Op)
     (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
     (current : Wires args past (dataPorts regs)) :
     (code.lowerFrom current).eval m.toRVSDG entry locals =

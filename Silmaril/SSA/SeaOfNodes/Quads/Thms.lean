@@ -9,7 +9,7 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Quads
 
-open RVSDG (Port PortType Tuple Origin Wires)
+open RVSDG (Port PortType Tuple Origin Wires Locals)
 open Diamond (Ty ValueSort Signature Model Val dataPorts)
 
 universe u v w
@@ -47,5 +47,13 @@ theorem Code.lower_run (code : Code Op regs out) (m : Model.{u, v, w} Op)
     (entry : Tuple (Val m.value) (dataPorts regs)) :
     code.lower.run m.toRVSDG entry = .cons (code.eval m entry) .nil :=
   Proofs.lower_run code m entry
+
+/-- The straight-line evaluator also agrees under a typed map into an open graph prefix. -/
+theorem Code.lowerFrom_eval (code : Code Op regs out) (m : Model.{u, v, w} Op)
+    (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
+    (current : Wires args past (dataPorts regs)) :
+    (code.lowerFrom current).eval m.toRVSDG entry locals =
+      .cons (code.eval m (current.read entry locals)) .nil :=
+  Proofs.lowerFrom_eval code m entry locals current
 
 end Silmaril.SSA.SeaOfNodes.Quads
