@@ -1129,13 +1129,48 @@ Search succeeds exactly when some accepted certificate exists.
 A rejection reports a reached pair, the failing local comparison and
 the shared reply path in forward order. The path records the opcode,
 reply position and typed payload at each edge. This is a syntactic
-certificate. A semantic completeness proof would have to realize the
-whole path in one deterministic interpreter, including repeated queries
-and their machine states. Exact native readback is the separate premise
+certificate. The scheduled feasibility result below gives conditions
+for realizing such a path in one deterministic interpreter. Exact native readback is the separate premise
 when applying the existing semantic soundness theorem to an accepted
 certificate. The regressions exercise a changed packet on a revisit and
 the later payload at the same reply tag.
 [Product search and correctness][ssa-ub-open-guarded-search]
+
+### Interpreter feasibility of a scheduled product path
+
+The installed `Syntax.Primitives` domain is the opcode, its exact typed
+argument and the current finite machine state. Its answers are a typed
+return at a final state, a fault at a final state, or ordinary
+divergence. The finite script compares the opcode, evaluated argument
+and incoming state together. Equal keys must agree on their entire
+typed answer, including the final state. `InterpreterScript.feasible_iff`
+proves necessity and sufficiency. Executable first-match lookup extends
+the consistent rows with any total typed fallback. Ordinary divergence
+provides a fallback even for an opcode with no inhabited reply type.
+
+`Table.schedule_rejection` records the synchronized queries of a reported
+path for a supplied initial state and one reply state per edge. It uses
+the actual typed reply packet at each edge. `ScheduledPath.feasible_iff`
+characterizes realization of that schedule by one interpreter. Under
+realization the installed observation on each side agrees with the
+observation at its reached configuration and final state.
+
+At two reached exits, a different ordinary return position or a source
+designated UB exit refutes refinement against an ordinary target exit.
+A pending-query mismatch uses a different test. Appending a source
+fault and target divergence must give a consistent script with the
+successful prefix. Query disagreement alone supplies no such script at
+the chosen final state. These directed rules use the actual native
+observations after exact readback. They cover specific semantic
+rejections of the guarded fragment.
+
+The regression schedules the search's later-payload rejection and
+reconstructs one interpreter that exposes fault versus divergence.
+A repeated query at the same state with two requested payloads is
+impossible. The same opcode and argument at different states can
+produce different replies. A separate fixture distinguishes two
+ordered exits carrying unit.
+[Scheduled interpreter feasibility][ssa-ub-open-guarded-replay]
 
 ## Coverage and gaps
 
@@ -1300,5 +1335,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-step]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Thms.lean
 [ssa-ub-open-guarded-product]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Thms.lean
 [ssa-ub-open-guarded-search]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Search/Thms.lean
+[ssa-ub-open-guarded-replay]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Search/Replay/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
