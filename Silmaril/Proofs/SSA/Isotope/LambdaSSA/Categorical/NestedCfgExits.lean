@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Exits.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.Defs
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Live.Square.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Case.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.LabelRenaming.Restriction.Thms
 
@@ -17,6 +18,8 @@ namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgExits
 open Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
+open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (caseWithContext contextualLoop)
+open CartesianMonoidalCategory (snd)
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel case_postcomp)
 
 variable {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C]
@@ -96,5 +99,25 @@ theorem dispatch {Γ : VCtx (Ty κ)} {L K : LCtx (Ty κ)} {n : Nat} (R : Fin (n 
   rw [← entry_eq, all_map]
   simpa only [Category.assoc] using cfgDispatch_postmap J out (e ≫ cut)
     (J.map ((𝟙 (ctxObj M Γ)) ⊗ₘ labelObjToFinite M R) ≫ all ≫ cut)
+
+theorem dispatch_exit_state_square {E A B D X : V} (out : B ⟶ D) (h : A ⟶ X)
+    (entry : J.obj E ⟶ J.obj (B ⨿ A))
+    (small : J.obj (E ⊗ A) ⟶ J.obj (B ⨿ A))
+    (wide : J.obj (E ⊗ X) ⟶ J.obj (D ⨿ X))
+    (comm : small ≫ J.map (coprod.map out h) = J.map (E ◁ h) ≫ wide) :
+    caseWithContext J (entry ≫ J.map (coprod.map out h)) (J.map (snd E D)) (contextualLoop J wide) =
+      caseWithContext J entry (J.map (snd E B)) (contextualLoop J small) ≫ J.map out := by
+  have routing : J.map (coprod.map out (𝟙 A)) ≫ J.map (coprod.map (𝟙 D) h) =
+      J.map (coprod.map out h) := by
+    rw [← J.map_comp]
+    congr 1
+    apply coprod.hom_ext <;> simp only [coprod.inl_map, coprod.inr_map,
+      coprod.inl_map_assoc, coprod.inr_map_assoc, Category.id_comp]
+  have step : (small ≫ J.map (coprod.map out (𝟙 A))) ≫ J.map (coprod.map (𝟙 D) h) =
+      J.map (E ◁ h) ≫ wide := by
+    rw [Category.assoc, routing, comm]
+  have replay := cfgDispatch_of_state_square J h (entry ≫ J.map (coprod.map out (𝟙 A))) _ wide step
+  rw [Category.assoc, routing] at replay
+  exact replay.symm.trans (cfgDispatch_postmap J out entry small)
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgExits

@@ -1,7 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Exits.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Exits.Restriction.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.TakenTag.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.LabelRenaming.Restriction.Thms
@@ -39,35 +38,102 @@ instance : HasEff Op Bool := ⟨fun _ => true⟩
 
 private def entry : Region Op := .br 0 .unit
 private def wideEntry : Region Op := .br 0 (.inl .unit)
-private def innerEntry : Region Op := .br 0 (.var 0)
 
-private def innerStep (tag : Bool) : Region Op :=
-  .case (.op Op.route (.var 0)) (.br 0 (.var 1))
-    (.case (.var 0) (.br 1 (if tag then .inl (.var 2) else .var 2))
+private def tagPayload (tag : Bool) (a : Tm Op) : Tm Op := if tag then .inl a else a
+
+private def guarded (body : Region Op) : Region Op :=
+  .case (.var 0) (body.renameVars (Silmaril.DeBruijn.lift Nat.succ)) (.br 0 (.var 1))
+
+private theorem guard_prunes (body : Region Op) : Region.PruneConstructorTests
+    ((guarded body).substVars (Tm.replaceNewest (.inl (.var 0)))) body := by
+  apply Region.PruneConstructorTests.inl
+  have cancel : ((body.renameVars (Silmaril.DeBruijn.lift Nat.succ)).substVars
+      (Tm.liftSubst (Tm.replaceNewest (.inl (.var 0))))).substVars (Tm.singleSubst (.var 0)) = body := by
+    rw [Region.substVars_renameVars, Region.substVars_comp]
+    have subst_eq : (fun i =>
+        ((Tm.liftSubst (Tm.replaceNewest (.inl (.var 0)))) (Silmaril.DeBruijn.lift Nat.succ i)).subst
+          (Tm.singleSubst (.var 0))) = (Tm.var : Nat → Tm Op) := by
+      funext i
+      cases i <;> rfl
+    simp only [Function.comp_apply, subst_eq, Region.substVars_var]
+  rw [cancel]
+  exact .keep _
+
+private theorem guard_typed {Γ : VCtx (Ty Empty)} {L : LCtx (Ty Empty)} {D : Ty Empty}
+    {body : Region Op} (h : body.HasType (U :: Γ) L) (target : At L 0 (tagged D)) :
+    (guarded body).HasType (tagged D :: Γ) L :=
+  .case (.var rfl) (h.renameVars ((Ren.wk Γ (tagged D)).lift U)) (.br target (.var rfl))
+
+private def innerEntry (loopTag : Bool) : Region Op := .br 0 (tagPayload loopTag (.var 0))
+
+private def innerStep (outerTag loopTag : Bool) : Region Op :=
+  .case (.op Op.route (.var 0)) (.br 0 (tagPayload loopTag (.var 1)))
+    (.case (.var 0) (.br 1 (tagPayload outerTag (.var 2)))
       (.case (.var 0) (.br 2 (.var 0)) (.br 3 (.pair (.var 0) (.var 4)))))
 
-private abbrev inner (tag : Bool) : Region Op := .cfg innerEntry 1 (fun _ => innerStep tag)
+private def innerRow (outerTag loopTag : Bool) : Region Op :=
+  if loopTag then guarded (innerStep outerTag true) else innerStep outerTag false
 
-private def wideRow : Region Op := .case (.var 0) (inner true) (.br 0 (.var 1))
-private abbrev common : Region Op := .cfg entry 1 (fun _ => inner false)
-private abbrev original : Region Op := .cfg wideEntry 1 (fun _ => wideRow)
+private def keep : Fin 1 ↪ Fin 2 := ⟨fun _ => 0, by intro a b _; exact Subsingleton.elim a b⟩
+private def innerStates (live dead : Ty Empty) : Fin 2 → Ty Empty := Fin.cases live (fun _ => dead)
+private def innerRows (outerTag loopTag : Bool) : Fin 2 → Region Op :=
+  Fin.cases (innerRow outerTag loopTag) (fun _ => .br 2 .unit)
 
-private theorem prunes : Region.PruneConstructorTests
-    (wideRow.substVars (Tm.replaceNewest (.inl (.var 0)))) (inner true) :=
-  .inl (.keep _)
+private abbrev actualInnerEntry (loopTag : Bool) :=
+  (innerEntry loopTag).renameLabels (retainLabelIndex keep)
+private abbrev actualInnerRows (outerTag loopTag : Bool) (i : Fin 2) :=
+  (innerRows outerTag loopTag i).renameLabels (retainLabelIndex keep)
+private abbrev inner (outerTag loopTag : Bool) : Region Op :=
+  .cfg (actualInnerEntry loopTag) 2 (actualInnerRows outerTag loopTag)
 
-private theorem inner_family {A : Ty Empty} {tag : Bool} :
-    LabelsDetermined [U] (labels A) innerEntry (fun _ => innerStep tag) (slots U) := by
-  intro S he _
-  have head : S 0 = U := by
-    cases he with
-    | br hit typed =>
-        cases typed with
-        | var hv =>
-            have atHead : At (List.ofFn S ++ labels A) 0 (S 0) := by simp [At]
-            exact (Option.some.inj (atHead.symm.trans hit)).trans (Option.some.inj hv).symm
-  funext i
-  refine Fin.cases head ?_ i
+private abbrev wideRow (loopTag : Bool) : Region Op := guarded (inner true loopTag)
+private abbrev original (loopTag : Bool) : Region Op := .cfg wideEntry 1 (fun _ => wideRow loopTag)
+
+private theorem inner_entry_scope (loopTag : Bool) : (innerEntry loopTag).LabelsBound 4 := by
+  change 0 < 4
+  decide
+
+private theorem inner_rows_scope (outerTag loopTag : Bool) (i : Fin 2) :
+    (innerRows outerTag loopTag i).LabelsBound 4 := by
+  refine Fin.cases ?_ (fun _ => ?_) i
+  · cases loopTag
+    · change 0 < 4 ∧ (1 < 4 ∧ (2 < 4 ∧ 3 < 4))
+      decide
+    · change (0 < 4 ∧ (1 < 4 ∧ (2 < 4 ∧ 3 < 4))) ∧ 0 < 4
+      decide
+  · change 2 < 4
+    decide
+
+private theorem inner_family {S : Fin 2 → Ty Empty} {A : Ty Empty}
+    (he : (actualInnerEntry false).HasType [U] (List.ofFn S ++ labels A)) : S 0 = U := by
+  change (Region.br 0 (.var 0) : Region Op).HasType [U] (List.ofFn S ++ labels A) at he
+  cases he with
+  | br hit typed =>
+      cases typed with
+      | var hv =>
+          have atHead : At (List.ofFn S ++ labels A) 0 (S 0) := by simp [At]
+          exact (Option.some.inj (atHead.symm.trans hit)).trans (Option.some.inj hv).symm
+
+private theorem inner_wide_family {S : Fin 2 → Ty Empty} {A : Ty Empty}
+    (he : (actualInnerEntry true).HasType [U] (List.ofFn S ++ labels A)) :
+    ∃ D : Ty Empty, S 0 = tagged D := by
+  change (Region.br 0 (.inl (.var 0)) : Region Op).HasType [U] (List.ofFn S ++ labels A) at he
+  cases he with
+  | br hit typed =>
+      have atHead : At (List.ofFn S ++ labels A) 0 (S 0) := by simp [At]
+      have eq := Option.some.inj (atHead.symm.trans hit)
+      cases typed with
+      | inl value =>
+          cases value with
+          | var hv =>
+              cases Option.some.inj hv
+              exact ⟨_, eq⟩
+
+private theorem innerStates_of_first {S : Fin 2 → Ty Empty} {A : Ty Empty} (h : S 0 = A) :
+    ∃ D : Ty Empty, S = innerStates A D := by
+  refine ⟨S 1, funext ?_⟩
+  intro i
+  refine Fin.cases h (Fin.cases rfl ?_) i
   intro j
   exact Fin.elim0 j
 
@@ -88,24 +154,53 @@ private theorem outer_family {S : Fin 1 → Ty Empty}
   intro j
   exact Fin.elim0 j
 
-private theorem innerEntry_typed (Γ : VCtx (Ty Empty)) (A : Ty Empty) :
-    innerEntry.HasType (U :: Γ) (pathLabels A) := .br rfl (.var rfl)
+private abbrev innerType (loopTag : Bool) (D : Ty Empty) := if loopTag then tagged D else U
 
-private theorem innerStep_small : (innerStep false).HasType [U, U] (pathLabels U) :=
-  .case (.op (.var rfl)) (.br rfl (.var rfl))
-    (.case (.var rfl) (.br rfl (.var rfl))
-      (.case (.var rfl) (.br rfl (.var rfl)) (.br rfl (.pair (.var rfl) (.var rfl)))))
+private theorem innerEntry_typed (Γ : VCtx (Ty Empty)) (A : Ty Empty) (loopTag : Bool) (D : Ty Empty) :
+    (innerEntry loopTag).HasType (U :: Γ) (List.ofFn (slots (innerType loopTag D)) ++ labels A) := by
+  cases loopTag
+  · exact .br rfl (.var rfl)
+  · exact .br rfl (.inl (.var rfl))
 
-private theorem innerStep_wide (Γ : VCtx (Ty Empty)) (D : Ty Empty) :
-    (innerStep true).HasType (U :: U :: Γ) (pathLabels (tagged D)) :=
-  .case (.op (.var rfl)) (.br rfl (.var rfl))
-    (.case (.var rfl) (.br rfl (.inl (.var rfl)))
-      (.case (.var rfl) (.br rfl (.var rfl)) (.br rfl (.pair (.var rfl) (.var rfl)))))
+private theorem innerStep_typed (Γ : VCtx (Ty Empty)) (outerTag loopTag : Bool) (D E : Ty Empty) :
+    (innerStep outerTag loopTag).HasType (U :: U :: Γ)
+      (List.ofFn (slots (innerType loopTag E)) ++ labels (innerType outerTag D)) := by
+  refine .case (.op (.var rfl)) ?_ (.case (.var rfl) ?_
+    (.case (.var rfl) (.br rfl (.var rfl)) (.br rfl (.pair (.var rfl) (.var rfl)))))
+  · cases loopTag
+    · exact .br rfl (.var rfl)
+    · exact .br rfl (.inl (.var rfl))
+  · cases outerTag
+    · exact .br rfl (.var rfl)
+    · exact .br rfl (.inl (.var rfl))
 
-private theorem wideRow_typed (D : Ty Empty) : wideRow.HasType [tagged D] (labels (tagged D)) :=
-  .case (.var rfl)
-    (.cfg (slots U) (innerEntry_typed [tagged D] (tagged D)) (fun _ => innerStep_wide [tagged D] D))
-    (.br rfl (.var rfl))
+private theorem exactInnerEntry (Γ : VCtx (Ty Empty)) (A : Ty Empty) (loopTag : Bool) (D dead : Ty Empty) :
+    (actualInnerEntry loopTag).HasType (U :: Γ)
+      (List.ofFn (innerStates (innerType loopTag D) dead) ++ labels A) :=
+  (innerEntry_typed Γ A loopTag D).renameLabels (retainLabelRen keep _ _)
+
+private theorem exactInnerRows (Γ : VCtx (Ty Empty)) (outerTag loopTag : Bool) (D E dead : Ty Empty)
+    (i : Fin 2) : (actualInnerRows outerTag loopTag i).HasType
+      (innerStates (innerType loopTag E) dead i :: U :: Γ)
+      (List.ofFn (innerStates (innerType loopTag E) dead) ++ labels (innerType outerTag D)) := by
+  have ren := retainLabelRen keep (innerStates (innerType loopTag E) dead) (labels (innerType outerTag D))
+  refine Fin.cases ?_ (fun _ => ?_) i
+  · cases loopTag
+    · exact (innerStep_typed Γ outerTag false D E).renameLabels ren
+    · exact (guard_typed (innerStep_typed Γ outerTag true D E) rfl).renameLabels ren
+  · have h : (Region.br 2 .unit : Region Op).HasType (dead :: U :: Γ)
+        (List.ofFn (slots (innerType loopTag E)) ++ labels (innerType outerTag D)) := .br rfl .unit
+    exact h.renameLabels ren
+
+private theorem inner_typed (Γ : VCtx (Ty Empty)) (outerTag loopTag : Bool) (D E dead : Ty Empty) :
+    (inner outerTag loopTag).HasType (U :: Γ) (labels (innerType outerTag D)) :=
+  .cfg (innerStates (innerType loopTag E) dead)
+    (exactInnerEntry Γ (innerType outerTag D) loopTag E dead)
+    (exactInnerRows Γ outerTag loopTag D E dead)
+
+private theorem wideRow_typed (loopTag : Bool) (D E dead : Ty Empty) :
+    (wideRow loopTag).HasType [tagged D] (labels (tagged D)) :=
+  guard_typed (inner_typed [] true loopTag D E dead) rfl
 
 section ValueMaps
 
@@ -213,45 +308,66 @@ private theorem post_split (D : Ty Empty) : post M D ≫ outerCut M (tagged D) =
       rfl
   exact point j A h
 
-private noncomputable abbrev innerCut (A : Ty Empty) :=
-  labelAppendSplit M (List.ofFn (slots U)) (labels A)
+private noncomputable abbrev innerCut (state outward : Ty Empty) :=
+  labelAppendSplit M (List.ofFn (slots state)) (labels outward)
 
-private noncomputable abbrev innerLeft (D : Ty Empty) :=
-  innerCut M U ≫ coprod.map (post M D) (𝟙 (labelObj M (List.ofFn (slots U))))
+private noncomputable abbrev innerLeft (D : Ty Empty) {A : Ty Empty}
+    (stateMap : labelObj M (List.ofFn (slots U)) ⟶ labelObj M (List.ofFn (slots A))) :=
+  innerCut M U U ≫ coprod.map (post M D) stateMap
+
+@[reassoc] private theorem innerCut_head (A B : Ty Empty) :
+    labelInject M 0 (rfl : At (List.ofFn (slots A) ++ labels B) 0 A) ≫ innerCut M A B =
+      labelInject M 0 (rfl : At (List.ofFn (slots A)) 0 A) ≫ coprod.inr :=
+  labelAppendSplit_local M (slots A) (labels B) 0 rfl rfl
 
 private theorem local_route (D : Ty Empty) :
-    labelInject M 0 (rfl : At (pathLabels U) 0 U) ≫ innerLeft M D =
-      labelInject M 0 (rfl : At (pathLabels (tagged D)) 0 U) ≫ innerCut M (tagged D) := by
-  erw [← Category.assoc, labelAppendSplit_local M (slots U) (labels U) 0 rfl rfl,
-    Category.assoc, coprod.inr_map, Category.id_comp,
-    labelAppendSplit_local M (slots U) (labels (tagged D)) 0 rfl rfl]
+    labelInject M 0 (rfl : At (pathLabels U) 0 U) ≫ innerLeft M D (𝟙 _) =
+      labelInject M 0 (rfl : At (pathLabels (tagged D)) 0 U) ≫ innerCut M U (tagged D) := by
+  simp only [innerCut_head, innerCut_head_assoc, coprod.inr_map, Category.id_comp]
 
-private theorem exit_route (D : Ty Empty) {i : Nat} {A B : Ty Empty}
+private theorem local_route_wide (D E : Ty Empty) :
+    labelInject M 0 (rfl : At (pathLabels U) 0 U) ≫
+        innerLeft M D (embedLabels M (slots U) (slots E)) =
+      inLeft M E ≫
+        labelInject M 0 (rfl : At (List.ofFn (slots (tagged E)) ++ labels (tagged D)) 0 (tagged E)) ≫
+        innerCut M (tagged E) (tagged D) := by
+  simp only [innerCut_head, innerCut_head_assoc, coprod.inr_map, embed_head_assoc, Category.assoc]
+  rfl
+
+private theorem exit_route (D : Ty Empty) {state : Ty Empty}
+    (stateMap : labelObj M (List.ofFn (slots U)) ⟶ labelObj M (List.ofFn (slots state)))
+    {i : Nat} {A B : Ty Empty}
     (hl : At (labels U) i A) (hr : At (labels (tagged D)) i B) (payload : M.obj A ⟶ M.obj B)
     (atExit : labelInject M i hl ≫ post M D = payload ≫ labelInject M i hr)
-    (sl : At (pathLabels U) (1 + i) A) (sr : At (pathLabels (tagged D)) (1 + i) B) :
-    labelInject M (1 + i) sl ≫ innerLeft M D =
-      payload ≫ labelInject M (1 + i) sr ≫ innerCut M (tagged D) := by
+    (sl : At (pathLabels U) (1 + i) A)
+    (sr : At (List.ofFn (slots state) ++ labels (tagged D)) (1 + i) B) :
+    labelInject M (1 + i) sl ≫ innerLeft M D stateMap =
+      payload ≫ labelInject M (1 + i) sr ≫ innerCut M state (tagged D) := by
   rw [← Category.assoc, labelAppendSplit_exit M (slots U) (labels U) hl, Category.assoc,
     coprod.inl_map, ← Category.assoc, atExit, Category.assoc,
-    labelAppendSplit_exit M (slots U) (labels (tagged D)) hr]
+    labelAppendSplit_exit M (slots state) (labels (tagged D)) hr]
 
-private theorem innerRoutes (D : Ty Empty) :
-    RegionConstructorRoutes M (innerLeft M D) (innerCut M (tagged D)) [U, U]
-      (innerStep false) (innerStep true) := by
-  refine .case (fun _ h => ?_) (.op (.var rfl)) (.br rfl rfl (.var rfl) (local_route M D)) ?_
+private theorem innerRoutes (D : Ty Empty) {state : Ty Empty}
+    (stateMap : labelObj M (List.ofFn (slots U)) ⟶ labelObj M (List.ofFn (slots state))) (tag : Bool)
+    (repeatRoute : RegionConstructorRoutes M (innerLeft M D stateMap) (innerCut M state (tagged D))
+      [U, U, U] (.br 0 (.var 1)) (.br 0 (tagPayload tag (.var 1)))) :
+    RegionConstructorRoutes M (innerLeft M D stateMap) (innerCut M state (tagged D)) [U, U]
+      (innerStep false false) (innerStep true tag) := by
+  refine .case (fun _ h => ?_) (.op (.var rfl)) repeatRoute ?_
   · cases h
     rfl
   refine .case (fun _ h => ?_) (.var rfl)
-    (.inl rfl rfl (.var rfl) (exit_route M D rfl rfl (inLeft M D) (post_head M D) rfl rfl)) ?_
+    (.inl rfl rfl (.var rfl) (exit_route M D stateMap rfl rfl (inLeft M D) (post_head M D) rfl rfl)) ?_
   · cases h with | var h => exact (Option.some.inj h).symm
   refine .case (fun _ h => ?_) (.var rfl) (.br rfl rfl (.var rfl) ?_)
     (.br rfl rfl (.pair (.var rfl) (.var rfl)) ?_)
   · cases h with | var h => exact (Option.some.inj h).symm
-  · have eq := exit_route M D rfl rfl (𝟙 (M.obj U)) (by rw [Category.id_comp, post_unit]) rfl rfl
+  · have eq := exit_route M D stateMap rfl rfl (𝟙 (M.obj U))
+      (by rw [Category.id_comp, post_unit]) rfl rfl
     rw [Category.id_comp] at eq
     exact eq
-  · have eq := exit_route M D rfl rfl (𝟙 (M.obj Pair)) (by rw [Category.id_comp, post_pair]) rfl rfl
+  · have eq := exit_route M D stateMap rfl rfl (𝟙 (M.obj Pair))
+      (by rw [Category.id_comp, post_pair]) rfl rfl
     rw [Category.id_comp] at eq
     exact eq
 
@@ -267,42 +383,92 @@ variable {V C : Type} [Category V] [Category C]
   [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
   (M : TypeModel (Ty Empty) V) [InstructionModel J M Op]
 
-/-- The actual inner arrow at the changed label list is the original inner
-arrow followed by the retained-tag injection and the two unchanged exits. -/
-private theorem inner_compare (D : Ty Empty) {t : (inner false).HasType [U] (labels U)}
-    {t' : (inner true).HasType [U] (labels (tagged D))}
+private theorem guard_denotes {Γ : VCtx (Ty Empty)} {L : LCtx (Ty Empty)} {D : Ty Empty}
+    {body : Region Op} {t : (guarded body).HasType (tagged D :: Γ) L}
+    {f : J.obj (ctxObj M (tagged D :: Γ)) ⟶ J.obj (labelObj M L)}
+    (wide : RegionDenotes J M t f) :
+    ∃ h : body.HasType (U :: Γ) L,
+      RegionDenotes J M h (J.map (ctxObj M Γ ◁ inLeft M D) ≫ f) := by
+  have arg : Denotes J M (.inl (.var rfl) (B := D) :
+      (Tm.inl (.var 0) : Tm Op).HasType (U :: Γ) (tagged D))
+      (J.map (snd (ctxObj M Γ) (M.obj U) ≫ inLeft M D)) := by
+    rw [J.map_comp]
+    exact .inl (.var rfl)
+  obtain ⟨_, restricted⟩ := wide.replaceNewest J M arg
+  exact (guard_prunes body).denotes J M restricted
+
+/-- Compare the two original inner arrows. Both omit the untargeted
+internal slot. In the tagged variant the live slot is also restricted
+to its left payload before the outward tag is added. -/
+private theorem inner_compare (roll : IterationRolling C) (loopTag : Bool) (D : Ty Empty)
+    {t : (inner false false).HasType [U] (labels U)} {t' : (inner true loopTag).HasType [U] (labels (tagged D))}
     {f : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (labels U))}
     {g : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (labels (tagged D)))}
-    (small : RegionDenotes J M t f) (wide : RegionDenotes J M t' g) : g = f ≫ J.map (post M D) := by
-  have ds := small.cfg_readback_of_labels_determined J M inner_family
-  have dw := wide.cfg_readback_of_labels_determined J M inner_family
-  have entryRoute : RegionConstructorRoutes M (innerLeft M D) (innerCut M (tagged D))
-      [U] innerEntry innerEntry := .br rfl rfl (.var rfl) (local_route M D)
-  exact CfgDenotesAt.postmap_of_routes J M (slots U) (post M D)
-    (entryRoute.denotes J) (fun _ => (innerRoutes M D).denotes J) ds dw
+    (left : RegionDenotes J M t f) (right : RegionDenotes J M t' g) : g = f ≫ J.map (post M D) := by
+  obtain ⟨S, small⟩ := left.cfg_readback J M
+  obtain ⟨T, wide⟩ := right.cfg_readback J M
+  have smallShape : ∃ dead, S = innerStates U dead := by
+    obtain ⟨he, _⟩ := small
+    exact innerStates_of_first (inner_family he)
+  obtain ⟨dead, rfl⟩ := smallShape
+  cases loopTag with
+  | false =>
+      have wideShape : ∃ dead', T = innerStates U dead' := by
+        obtain ⟨he, _⟩ := wide
+        exact innerStates_of_first (inner_family he)
+      obtain ⟨dead', rfl⟩ := wideShape
+      have ent : RegionConstructorRoutes M (innerLeft M D (𝟙 _)) (innerCut M U (tagged D))
+          [U] (innerEntry false) (innerEntry false) := .br rfl rfl (.var rfl) (local_route M D)
+      have row := innerRoutes M D (𝟙 _) false (.br rfl rfl (.var rfl) (local_route M D))
+      exact CfgDenotesAt.postmap_of_restricted_routes J M keep
+        (S := innerStates U dead) (T := innerStates U dead') rfl roll (post M D)
+        (inner_entry_scope false) (inner_entry_scope false)
+        (inner_rows_scope false false) (inner_rows_scope true false)
+        (ent.denotes J) (fun _ => row.denotes J) small wide
+  | true =>
+      have wideShape : ∃ E dead', T = innerStates (tagged E) dead' := by
+        obtain ⟨he, _⟩ := wide
+        obtain ⟨E, live⟩ := inner_wide_family he
+        obtain ⟨dead', shape⟩ := innerStates_of_first live
+        exact ⟨E, dead', shape⟩
+      obtain ⟨E, dead', rfl⟩ := wideShape
+      have slim := CfgDenotesAt.restrict J M keep (innerStates U dead) (L := labels U)
+        roll (inner_entry_scope false) (inner_rows_scope false false) small
+      have slim' := CfgDenotesAt.restrict J M keep (innerStates (tagged E) dead') (L := labels (tagged D))
+        roll (inner_entry_scope true) (inner_rows_scope true true) wide
+      let stateMap := embedLabels M (slots U) (slots E)
+      have ent : RegionConstructorRoutes M (innerLeft M D stateMap) (innerCut M (tagged E) (tagged D))
+          [U] (innerEntry false) (innerEntry true) :=
+        .inl rfl rfl (.var rfl) (local_route_wide M D E)
+      have row := innerRoutes M D stateMap true (.inl rfl rfl (.var rfl) (local_route_wide M D E))
+      refine CfgDenotesAt.postmap_of_taken_tag_squares J M (slots E) (post M D) ?_ ?_ slim slim'
+      · intro _ _ _ _ de dw
+        have eq := RegionConstructorRoutes.denotes J M ent de dw
+        rw [J.map_comp] at eq
+        exact eq.symm
+      · intro _ _ _ _ _ ds dw
+        obtain ⟨_, selected⟩ := guard_denotes J M (Γ := [U]) (D := E) dw
+        have eq := RegionConstructorRoutes.denotes J M row ds selected
+        rw [J.map_comp, Category.assoc] at eq
+        exact eq.symm
 
-private theorem row_square (D : Ty Empty) {t : (inner false).HasType [U] (labels U)}
-    {t' : wideRow.HasType [tagged D] (labels (tagged D))}
+private theorem row_square (roll : IterationRolling C) (loopTag : Bool) (D : Ty Empty)
+    {t : (inner false false).HasType [U] (labels U)}
+    {t' : (wideRow loopTag).HasType [tagged D] (labels (tagged D))}
     {f : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (labels U))}
     {g : J.obj (ctxObj M [tagged D]) ⟶ J.obj (labelObj M (labels (tagged D)))}
     (small : RegionDenotes J M t f) (wide : RegionDenotes J M t' g) :
     J.map (ctxObj M [] ◁ inLeft M D) ≫ g ≫ J.map (outerCut M (tagged D)) =
       f ≫ J.map (outerCut M U) ≫ J.map (outerMap M D) := by
-  have arg : Denotes J M (.inl (.var rfl) (B := D) :
-      (Tm.inl (.var 0) : Tm Op).HasType [U] (tagged D))
-      (J.map (snd (ctxObj M []) (M.obj U) ≫ inLeft M D)) := by
-    rw [J.map_comp]
-    exact .inl (.var rfl)
-  obtain ⟨_, restricted⟩ := wide.replaceNewest J M arg
-  obtain ⟨_, selected⟩ := prunes.denotes J M restricted
-  have innerEq := inner_compare J M D small selected
+  obtain ⟨_, selected⟩ := guard_denotes J M wide
+  have innerEq := inner_compare J M roll loopTag D small selected
   rw [← Category.assoc, innerEq, Category.assoc, ← J.map_comp, post_split, J.map_comp]
 
 local notation "Arrow" => J.obj (ctxObj M []) ⟶ J.obj (labelObj M exits)
 
-private theorem compare_with_common {f g : Arrow}
-    (small : CfgDenotesAt J M (slots U) entry (fun _ => inner false) f)
-    {ht : original.HasType [] exits} (wide : RegionDenotes J M ht g) : f = g := by
+private theorem compare_with_common (roll : IterationRolling C) (loopTag : Bool) {f g : Arrow}
+    (small : CfgDenotesAt J M (slots U) entry (fun _ => inner false false) f)
+    {ht : (original loopTag).HasType [] exits} (wide : RegionDenotes J M ht g) : f = g := by
   obtain ⟨S, actual⟩ := wide.cfg_readback J M
   have shape : ∃ D : Ty Empty, S = family (slots U) (some (slots D)) := by
     obtain ⟨typed, _⟩ := actual
@@ -316,36 +482,56 @@ private theorem compare_with_common {f g : Arrow}
       rw [← post_split]
       erw [Category.assoc (coprod.inl : M.obj U ⟶ M.obj U ⨿ M.obj D) (M.coprodIso U D).inv]
       exact post_head_assoc M D (outerCut M (tagged D))
-    have comparison := RegionConstructorRoutes.denotes J M route
-    have eq := comparison de dw
+    have eq := RegionConstructorRoutes.denotes J M route de dw
     rw [J.map_comp] at eq
     exact eq.symm
   · intro _ _ _ _ _ ds dw
-    exact row_square J M D ds dw
+    exact row_square J M roll loopTag D ds dw
 
-private theorem original_functional {t t' : original.HasType [] exits} {f g : Arrow}
+private theorem original_functional (roll : IterationRolling C) {loopTag : Bool}
+    {t t' : (original loopTag).HasType [] exits} {f g : Arrow}
     (left : RegionDenotes J M t f) (right : RegionDenotes J M t' g) : f = g := by
   obtain ⟨_, small⟩ := CfgDenotesAt.exists_of_typing J M (slots U)
-    (.br rfl .unit : entry.HasType [] (labels U))
-    (fun _ => .cfg (slots U) (innerEntry_typed [] U) (fun _ => innerStep_small))
-  exact (compare_with_common J M small left).symm.trans (compare_with_common J M small right)
+    (.br rfl .unit : entry.HasType [] (labels U)) (fun _ => inner_typed [] false false U U .empty)
+  exact (compare_with_common J M roll loopTag small left).symm.trans
+    (compare_with_common J M roll loopTag small right)
 
-/-- Both original witnesses start in the live slot, whose right summand
-differs. A request can repeat internally, transfer to the outer slot, or
-return at either ordered outward label. -/
-example :
+/-- The original selected inner witnesses differ at the untargeted slot.
+Turning on the inner tag also changes the live state. Both comparisons
+retain their native inner iterate and the map to the live outer label. -/
+example (roll : IterationRolling C) (loopTag : Bool) :
+    ∃ (f : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (labels U)))
+      (g : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (labels (tagged .empty)))),
+      CfgDenotesAt J M (innerStates U U) (actualInnerEntry false) (actualInnerRows false false) f ∧
+      CfgDenotesAt J M (innerStates (innerType loopTag U) .empty)
+        (actualInnerEntry loopTag) (actualInnerRows true loopTag) g ∧
+      g = f ≫ J.map (post M .empty) := by
+  obtain ⟨f, left⟩ := CfgDenotesAt.exists_of_typing J M (innerStates U U)
+    (exactInnerEntry [] U false U U) (exactInnerRows [] false false U U U)
+  obtain ⟨g, right⟩ := CfgDenotesAt.exists_of_typing J M (innerStates (innerType loopTag U) .empty)
+    (exactInnerEntry [] (tagged .empty) loopTag U .empty)
+    (exactInnerRows [] true loopTag .empty U .empty)
+  have dl : RegionDenotes J M (inner_typed [] false false U U U) f := left.denotes J M
+  have dr : RegionDenotes J M (inner_typed [] true loopTag .empty U .empty) g := right.denotes J M
+  exact ⟨f, g, left, right, inner_compare J M roll loopTag .empty dl dr⟩
+
+/-- Both original witnesses start in the live outer slot, whose right
+summand differs. The nested request can repeat internally, transfer to the
+outer slot, or return at either ordered outward label. -/
+example (roll : IterationRolling C) (loopTag : Bool) :
     tagged U ≠ tagged .empty ∧
-      ∃ f g : Arrow, CfgDenotesAt J M (slots (tagged U)) wideEntry (fun _ => wideRow) f ∧
-        CfgDenotesAt J M (slots (tagged .empty)) wideEntry (fun _ => wideRow) g ∧ f = g := by
+      ∃ f g : Arrow, CfgDenotesAt J M (slots (tagged U)) wideEntry (fun _ => wideRow loopTag) f ∧
+        CfgDenotesAt J M (slots (tagged .empty)) wideEntry (fun _ => wideRow loopTag) g ∧ f = g := by
   obtain ⟨f, left⟩ := CfgDenotesAt.exists_of_typing J M (slots (tagged U))
-    (.br rfl (.inl .unit) : wideEntry.HasType [] (labels (tagged U))) (fun _ => wideRow_typed U)
+    (.br rfl (.inl .unit) : wideEntry.HasType [] (labels (tagged U))) (fun _ => wideRow_typed loopTag U U U)
   obtain ⟨g, right⟩ := CfgDenotesAt.exists_of_typing J M (slots (tagged .empty))
-    (.br rfl (.inl .unit) : wideEntry.HasType [] (labels (tagged .empty))) (fun _ => wideRow_typed .empty)
-  have typed (D : Ty Empty) : original.HasType [] exits :=
-    .cfg (slots (tagged D)) (.br rfl (.inl .unit)) (fun _ => wideRow_typed D)
+    (.br rfl (.inl .unit) : wideEntry.HasType [] (labels (tagged .empty)))
+    (fun _ => wideRow_typed loopTag .empty .empty .empty)
+  have typed (D : Ty Empty) : (original loopTag).HasType [] exits :=
+    .cfg (slots (tagged D)) (.br rfl (.inl .unit)) (fun _ => wideRow_typed loopTag D D D)
   have dl : RegionDenotes J M (typed U) f := left.denotes J M
   have dr : RegionDenotes J M (typed .empty) g := right.denotes J M
-  refine ⟨?_, f, g, left, right, original_functional J M dl dr⟩
+  refine ⟨?_, f, g, left, right, original_functional J M roll dl dr⟩
   intro eq
   cases (Ty.coprod.inj eq).2
 
