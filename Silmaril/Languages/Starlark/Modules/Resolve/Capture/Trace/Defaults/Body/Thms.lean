@@ -202,6 +202,16 @@ theorem keeps_trans {floor : Nat} {first middle last : State}
     (head : Keeps floor first middle) (tail : Keeps floor middle last) : Keeps floor first last :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.keeps_trans head tail
 
+/-- The return boundary keeps the caller's original slots and cells. -/
+theorem returned_keeps (caller : State) (declaration : Declaration) (captures : List Capture)
+    (assigned : List (Binding × Lists.Value)) (out : Outcome Flow)
+    (kept : Keeps caller.heap.size (activate caller declaration captures assigned)
+      (finishState out)) :
+    Keeps caller.heap.size caller
+      (finishState (Leaf.returnTo caller out)) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.returned_keeps
+    caller declaration captures assigned out kept
+
 /-- Each reached assignment extends the trace once. A reached error
 retains the prior heap and stops the body. The final frame is preserved
 and the source outcome agrees exactly with execution and denotation. -/

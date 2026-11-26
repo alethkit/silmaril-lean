@@ -108,44 +108,50 @@ func checkRecursive(opts *syntax.FileOptions) {
 	fmt.Println("PASS first reached suite error skips the escaped call and later module commands")
 }
 
-func aliasedCallSource(arguments string) string {
-	return fmt.Sprintf(`def factory(x, index):
+func aliasedCallSource(arguments string, index int) string {
+	return fmt.Sprintf(`values = [11, 22]
+def factory(x, index):
+    outer_mark = [17]
     def relay():
         def leaf(saved=x):
-            offset = index
-            return saved[offset]
+            alias = [x]
+            return saved[index]
         copy = leaf
         value = copy(%s)
         after = [value]
         return after[0]
-    return relay
-relay_fn = factory([11, 22], 1)
-result = relay_fn()
+    relay_copy = relay
+    outer_value = relay_copy()
+    outer_after = [outer_value]
+    return outer_after[0]
+result = factory(values, %d)
 finished = [99]
-`, arguments)
+`, arguments, index)
 }
 
 func checkAliasedCalls(opts *syntax.FileOptions) {
 	globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread),
-		"aliased-positional-call.star", aliasedCallSource(""), nil)
-	require(err == nil && globals["result"].String() == "22", globals)
-	fmt.Println("PASS the suite uses an alias call result after reading the saved default and forwarded index")
+		"aliased-positional-call.star", aliasedCallSource("", 1), nil)
+	require(err == nil && globals["result"].String() == "22" && globals["finished"].String() == "[99]", globals)
+	fmt.Println("PASS two local alias calls return through the saved default and forwarded index")
 
 	for _, test := range []struct {
 		arguments string
+		index     int
 		errorText string
 	}{
-		{"[73], [0][1], [99]", "index 1 out of range"},
-		{"[73], [74]", "positional argument (2 given)"},
+		{"[73], [0][1], [99]", 1, "index 1 out of range"},
+		{"[73], [74]", 1, "positional argument (2 given)"},
+		{"", 3, "index 3 out of range"},
 	} {
 		_, compiled, err := starlark.SourceProgramOptions(opts, "aliased-call-error.star",
-			aliasedCallSource(test.arguments), func(string) bool { return false })
+			aliasedCallSource(test.arguments, test.index), func(string) bool { return false })
 		require(err == nil, err)
 		partial, err := compiled.Init(new(starlark.Thread), nil)
 		require(err != nil && strings.Contains(err.Error(), test.errorText), err)
-		require(partial["relay_fn"] != nil && partial["result"] == nil && partial["finished"] == nil, partial)
+		require(partial["factory"] != nil && partial["result"] == nil && partial["finished"] == nil, partial)
 	}
-	fmt.Println("PASS reached operand error precedes binding, and surplus operands cause an arity error")
+	fmt.Println("PASS operand error precedes arity, and a reached inner body error skips the module tail")
 }
 
 func main() {

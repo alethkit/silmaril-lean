@@ -24,7 +24,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.S
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call
 open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Lists (State Outcome Value Capture Cell)
-open Silmaril.Languages.Starlark.Lists.Iteration (finishState)
+open Silmaril.Languages.Starlark.Lists.Iteration (Flow finishState)
 
 local notation "NormalizedExpr" => Lowering.Resolve.SourceExpr
 
@@ -74,19 +74,20 @@ theorem callee_error {parent block : LexicalBlock} (site : Site parent) (id : De
       Lowering.EvaluatesManyWith.headError (tail := codes) (Body.evaluates_with program available _ read)
   exact ⟨.calleeError read, agreement native⟩
 
-theorem runs_preserving {parent block : LexicalBlock} (site : Site parent) {seed final : Program} {emissions : Emissions}
-    (profile : Elaborates site.block site.source seed site.body final emissions)
+theorem runs_preserving_with {parent block : LexicalBlock} (site : Site parent)
+    (bodyRuns : State → Outcome Flow → Prop)
     {commands : List Command} {linked : Program} {resolved : ResolvedModule}
-    (checked : resolve commands linked = .ok resolved) (table : PreservesDeclarations final resolved.program)
+    (checked : resolve commands linked = .ok resolved)
     (id : DeclarationId) (found : resolved.program[id]? = some site.declaration)
     (available : List DeclarationId) (permitted : id ∈ available)
+    (enterBody : BodyEntry site resolved.program available id bodyRuns)
     {name : String} {state defining : State} {address : Nat}
     (callee : Body.Evaluates block state (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
       (.ok (.function address) state))
     (record : ClosureAt site id defining state address)
     {arguments : List NormalizedExpr} {codes : List Lowering.Expr} {reads : List Binding}
     (related : Arguments block arguments codes reads) :
-    ∃ out, Runs site block id name arguments codes state out ∧
+    ∃ out, RunsWith site bodyRuns block id name arguments codes state out ∧
       ExecExpr resolved.program available state (expression name codes) out ∧
       Lowering.denoteExpr resolved.program available (expression name codes) state = out ∧
       Body.Keeps state.heap.size state (finishState out) := by
@@ -126,10 +127,8 @@ theorem runs_preserving {parent block : LexicalBlock} (site : Site parent) {seed
       have ⟨native, meaning⟩ := agreement (applyCall ran (length _ _ rfl) (.reject ready))
       exact ⟨_, .bindingError callee ran reached binds, native, meaning, kept⟩
     | ok assigned =>
-      obtain ⟨out, bodyRun, _, executable, _, restored⟩ :=
-        Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.runs_activated
-          site profile program table (withoutDeclaration available id) actualState defining reached.captures
-          reached.installed reached.live assigned
+      obtain ⟨out, bodyRun, executable, restored⟩ :=
+        enterBody actualState defining reached.captures reached.installed reached.live assigned
       have dispatch : Lowering.DispatchesWith program available calls actualState (.function address)
           ⟨values, []⟩ (Leaf.returnTo actualState out) := by
         cases out with
@@ -138,7 +137,40 @@ theorem runs_preserving {parent block : LexicalBlock} (site : Site parent) {seed
       have ⟨native, meaning⟩ := agreement (applyCall ran (length _ _ rfl) dispatch)
       refine ⟨_, .invoked callee ran reached binds bodyRun, native, meaning, restored.1.trans kept.1, ?_⟩
       intro address cell low found
-      exact restored.2.2 address cell (kept.2 address cell low found)
+      exact restored.2 address cell (Array.getElem?_eq_some_iff.mp (kept.2 address cell low found)).choose
+        (kept.2 address cell low found)
+
+private theorem recursive_entry {parent : LexicalBlock} (site : Site parent)
+    {seed final : Program} {emissions : Emissions}
+    (profile : Elaborates site.block site.source seed site.body final emissions)
+    (program : Program) (table : PreservesDeclarations final program) (available : List DeclarationId) (id : DeclarationId) :
+    BodyEntry site program available id (fun state out =>
+      Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Runs
+        site.block state site.source site.body.code out) := by
+  intro caller defining captures installed live assigned
+  obtain ⟨out, source, _, native, _, restored⟩ :=
+    Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.runs_activated
+      site profile program table (withoutDeclaration available id) caller defining captures installed live assigned
+  exact ⟨out, source, native, restored.1, fun address cell _ stored => restored.2.2 address cell stored⟩
+
+theorem runs_preserving {parent block : LexicalBlock} (site : Site parent) {seed final : Program} {emissions : Emissions}
+    (profile : Elaborates site.block site.source seed site.body final emissions)
+    {commands : List Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved) (table : PreservesDeclarations final resolved.program)
+    (id : DeclarationId) (found : resolved.program[id]? = some site.declaration)
+    (available : List DeclarationId) (permitted : id ∈ available)
+    {name : String} {state defining : State} {address : Nat}
+    (callee : Body.Evaluates block state (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
+      (.ok (.function address) state))
+    (record : ClosureAt site id defining state address)
+    {arguments : List NormalizedExpr} {codes : List Lowering.Expr} {reads : List Binding}
+    (related : Arguments block arguments codes reads) :
+    ∃ out, Runs site block id name arguments codes state out ∧
+      ExecExpr resolved.program available state (expression name codes) out ∧
+      Lowering.denoteExpr resolved.program available (expression name codes) state = out ∧
+      Body.Keeps state.heap.size state (finishState out) :=
+  runs_preserving_with site _ checked id found available permitted
+    (recursive_entry site profile resolved.program table available id) callee record related
 
 theorem runs {parent block : LexicalBlock} (site : Site parent) {seed final : Program} {emissions : Emissions}
     (profile : Elaborates site.block site.source seed site.body final emissions)
@@ -179,6 +211,38 @@ private theorem installed_cells {parent : LexicalBlock} (site : Site parent)
       exact ⟨value, frozen, by simp [grown, Array.getElem?_push, Nat.ne_of_lt within, reached]⟩
     exact Body.capture_cells_written grown (fileSlot site.name) (.function evaluated.heap.size) live
 
+theorem runs_installed_alias_preserving_with {parent : LexicalBlock} (site : Site parent)
+    (bodyRuns : State → Outcome Flow → Prop)
+    {commands : List Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved)
+    (id : DeclarationId) (found : resolved.program[id]? = some site.declaration)
+    (available : List DeclarationId) (permitted : id ∈ available)
+    (enterBody : BodyEntry site resolved.program available id bodyRuns)
+    {defining installed : State} {captures : List Capture}
+    (step : Nested.SiteResult parent site.name site.parameters site.defaults id captures defining (.ok .next installed))
+    (receipts : Installs defining site.free captures) (cells : Body.CaptureCells defining captures)
+    {name : String} (owned : name ∈ parent.owned) (legal : name.toList.head? ≠ some '$')
+    {free : List FreeName} {floor : Nat} (frame : Body.Frame parent free floor installed)
+    {arguments : List NormalizedExpr} {codes : List Lowering.Expr} {reads : List Binding}
+    (related : Arguments parent arguments codes reads) :
+    ∃ address out, Body.Evaluates parent installed (.scalar (.read site.name)) (Leaf.readOperand (fileSlot site.name))
+        (.ok (.function address) installed) ∧
+      (let copied := installed.write (fileSlot name) (.function address)
+       (Lowering.Resolve.resolveTracked parent.context (.call (.scalar (.read name)) arguments [] none none) =
+          .ok (expression name codes, fileSlot name :: reads)) ∧
+       RunsWith site bodyRuns parent id name arguments codes copied out ∧
+       ExecExpr resolved.program available copied (expression name codes) out ∧
+       Lowering.denoteExpr resolved.program available (expression name codes) copied = out ∧ Body.Keeps copied.heap.size copied (finishState out)) := by
+  obtain ⟨address, saved, evaluated, evaluatedDefaults, first, read, exactRecord⟩ :=
+    Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.reads_installed_alias_defaults
+      site.target owned frame step
+  let origin : ClosureAt site id defining (installed.write (fileSlot name) (.function address)) address :=
+    ⟨captures, saved, false, Lexical.evaluated_length site.lexical evaluatedDefaults, exactRecord, receipts,
+      Body.capture_cells_written installed (fileSlot name) (.function address) (installed_cells site step cells)⟩
+  obtain ⟨out, ran, operated, denoted, kept⟩ :=
+    runs_preserving_with site bodyRuns checked id found available permitted enterBody read origin related
+  exact ⟨address, out, first, resolves legal owned related, ran, operated, denoted, kept⟩
+
 theorem runs_installed_alias_preserving {parent : LexicalBlock} (site : Site parent)
     {seed final : Program} {emissions : Emissions}
     (profile : Elaborates site.block site.source seed site.body final emissions)
@@ -200,16 +264,9 @@ theorem runs_installed_alias_preserving {parent : LexicalBlock} (site : Site par
           .ok (expression name codes, fileSlot name :: reads)) ∧
        Runs site parent id name arguments codes copied out ∧
        ExecExpr resolved.program available copied (expression name codes) out ∧
-       Lowering.denoteExpr resolved.program available (expression name codes) copied = out ∧ Body.Keeps copied.heap.size copied (finishState out)) := by
-  obtain ⟨address, saved, evaluated, evaluatedDefaults, first, read, exactRecord⟩ :=
-    Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.reads_installed_alias_defaults
-      site.target owned frame step
-  let origin : ClosureAt site id defining (installed.write (fileSlot name) (.function address)) address :=
-    ⟨captures, saved, false, Lexical.evaluated_length site.lexical evaluatedDefaults, exactRecord, receipts,
-      Body.capture_cells_written installed (fileSlot name) (.function address) (installed_cells site step cells)⟩
-  obtain ⟨out, ran, operated, denoted, kept⟩ :=
-    runs_preserving site profile checked table id found available permitted read origin related
-  exact ⟨address, out, first, resolves legal owned related, ran, operated, denoted, kept⟩
+       Lowering.denoteExpr resolved.program available (expression name codes) copied = out ∧ Body.Keeps copied.heap.size copied (finishState out)) :=
+  runs_installed_alias_preserving_with site _ checked id found available permitted
+    (recursive_entry site profile resolved.program table available id) step receipts cells owned legal frame related
 
 theorem runs_installed_alias {parent : LexicalBlock} (site : Site parent)
     {seed final : Program} {emissions : Emissions}

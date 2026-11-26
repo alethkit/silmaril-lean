@@ -217,20 +217,26 @@ private inductive CallCase where
   | operandError
   | arityError
 
+private def chainBlock : LexicalBlock :=
+  ⟨["x", "index", "outerMark", "relay", "relayCopy", "outerValue", "outerAfter"], enclosingBlock.owned, []⟩
+
 private def callRelayBlock : LexicalBlock :=
-  ⟨["leaf", "copy", "value", "after"], relayBlock.enclosing, []⟩
+  ⟨["leaf", "copy", "value", "after"], chainBlock.owned ++ chainBlock.enclosing, []⟩
+
+private def callLeafSuite : Body.Suite :=
+  .assign "offset" starlark%[index] (.assign "alias" starlark%[[x]] (.ret starlark%[saved[offset]]))
 
 private def callLeafSite : Site callRelayBlock where
   name := "leaf"
   target := by decide
   parameters := leafParameters
-  source := leafSuite.source
+  source := callLeafSuite.source
   binders := ["offset", "alias"]
   locals := ["offset", "alias"]
   collects := .seq (.assign _ _) (.seq (.assign _ _) (.ret _))
   localOrder := .keep (by decide) (.keep (by decide) .nil)
   body := ⟨.seq (.assignExpr (fileSlot "offset") (localRead "index"))
-    (.seq (.assignExpr (fileSlot "alias") (localRead "x"))
+    (.seq (.assignExpr (fileSlot "alias") (.list [localRead "x"]))
      (.returnExpr (.index (localRead "saved") (localRead "offset")))),
     [fileSlot "index", fileSlot "x", fileSlot "saved", fileSlot "offset"]⟩
   free := [⟨fileSlot "index", fileSlot "index"⟩, ⟨fileSlot "x", fileSlot "x"⟩]
@@ -245,7 +251,7 @@ private theorem callLeafBody (seed : Program) :
   .straight (.assign (by decide)
     (.read (by decide) (.enclosing (by decide) (by decide)) (.enclosing (by decide) (by decide)))
     (.assign (by decide)
-      (.read (by decide) (.enclosing (by decide) (by decide)) (.enclosing (by decide) (by decide)))
+      (.list (.read (by decide) (.enclosing (by decide) (by decide)) (.enclosing (by decide) (by decide))))
       (.ret (.index (.read (by decide) (.owned (by decide)) (.owned (by decide)))
         (.read (by decide) (.owned (by decide)) (.owned (by decide)))))))
 
@@ -299,7 +305,7 @@ private theorem callProfile (mode : CallCase) (seed : Program) :
   have tail : Body.Elaborates callRelayBlock callTail callTailCode.code callTailCode.reads :=
     .assign (by decide) (.list (.read (by decide) (.owned (by decide)) (.owned (by decide))))
       (.ret (.index (.read (by decide) (.owned (by decide)) (.owned (by decide))) (.int 0)))
-  exact .call callLeafSite (by decide) (callAssignment mode) (callLeafBody seed) (.plain (.straight tail))
+  exact .call callLeafSite (by decide) (callAssignment mode) (.plain (callLeafBody seed)) (.plain (.straight tail))
 
 example (mode : CallCase) (seed : Program) :
     compileBody ⟨callRelayBlock.context, .local⟩ (relayCallSource mode) seed =
@@ -323,16 +329,85 @@ example (mode : CallCase) (seed : Program) {cmds : List Command} {linked : Progr
       exact guarded) selection state frame
   exact ⟨out, trace, denoted⟩
 
-private def callCommands (mode : CallCase) : List Command :=
-  let relay := Statement.define "relay" (.required []) (relayCallSource mode)
-  let factory := Command.define "factory" (.required ["x", "index"])
-    (.seq relay factoryTail.source)
+private def relayCallSite (mode : CallCase) (seed : Program) : Site chainBlock where
+  name := "relay"
+  target := by decide
+  parameters := ⟨[], []⟩
+  source := relayCallSource mode
+  binders := ["leaf", "copy", "value", "after"]
+  locals := ["leaf", "copy", "value", "after"]
+  collects := .seq (.define _ _ _) (.seq (.assign _ _) (.seq (.assign _ _) (.seq (.assign _ _) (.ret _))))
+  localOrder := .keep (by decide) (.keep (by decide) (.keep (by decide) (.keep (by decide) .nil)))
+  body := relayCallCode mode seed.size
+  free := [⟨fileSlot "x", fileSlot "x"⟩, ⟨fileSlot "index", fileSlot "index"⟩]
+  selects := .enclosing (.enclosing (by decide) (by decide))
+    (.enclosing (.enclosing (by decide) (by decide))
+      (.owned (.owned (by decide)) (.owned (.owned (by change "copy" ∈ callRelayBlock.owned; decide))
+        (.owned (.owned (by decide)) (.owned (.owned (by decide)) .nil)))))
+  defaults := []
+  lexical := .nil
+
+private def chainAssignment : Call.Suite.Assignment chainBlock :=
+  ⟨"relayCopy", by decide, by decide, "outerValue", by decide, [], [], [], .nil⟩
+
+private def chainTail : Body.Suite :=
+  .assign "outerAfter" starlark%[[outerValue]] (.ret starlark%[outerAfter[0]])
+
+private def chainTailCode : ResolvedBody :=
+  ⟨.seq (.assignExpr (fileSlot "outerAfter") (.list [localRead "outerValue"]))
+    (.returnExpr (.index (localRead "outerAfter") (.atom (.scalar (.int 0))))),
+    [fileSlot "outerValue", fileSlot "outerAfter"]⟩
+
+private def chainSource (mode : CallCase) : Statement :=
+  Body.prependSource [("outerMark", starlark%[[17]])]
+    (.seq (relayCallSite mode #[]).statement (chainAssignment.source "relay" chainTail.source))
+
+private def chainCode (mode : CallCase) (seed : Program) : ResolvedBody :=
+  let site := relayCallSite mode seed
+  ⟨Body.prependCode [("outerMark", boxed 17)]
+    (.seq (.define (fileSlot "relay") (seed.size + 1)) (chainAssignment.code "relay" chainTailCode.code)),
+    site.reads ++ (chainAssignment.reads "relay" ++ chainTailCode.reads)⟩
+
+private theorem chainProfile (mode : CallCase) (seed : Program) :
+    Call.Suite.Elaborates chainBlock (chainSource mode) seed (chainCode mode seed)
+      ((seed.push callLeafSite.declaration).push (relayCallSite mode seed).declaration)
+      [(seed.size, callLeafSite.declaration), (seed.size + 1, (relayCallSite mode seed).declaration)]
+      [seed.size + 1, seed.size] := by
+  have ending : Body.Elaborates chainBlock chainTail chainTailCode.code chainTailCode.reads :=
+    .assign (by decide) (.list (.read (by decide) (.owned (by decide)) (.owned (by decide))))
+      (.ret (.index (.read (by decide) (.owned (by decide)) (.owned (by decide))) (.int 0)))
+  have leading : Body.ElaboratesPrefix chainBlock [("outerMark", starlark%[[17]])] [("outerMark", boxed 17)] [] :=
+    .cons (by decide) (.list (.int 17)) .nil
+  simpa [chainSource, chainCode, relayCallSite, Site.statement, Site.block, callRelayBlock,
+    Parameters.names, Array.size_push] using
+    (Call.Suite.Elaborates.assignments leading
+      (.call (relayCallSite mode seed) (by change "relay".toList.head? ≠ some '$'; decide)
+        chainAssignment (callProfile mode seed) (.plain (.straight ending))))
+
+-- The same source proof covers the two reached calls under different
+-- available sets as well as the failure cases in the inner suite.
+example (mode : CallCase) (seed : Program) {cmds : List Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve cmds linked = .ok resolved)
+    (table : PreservesDeclarations ((seed.push callLeafSite.declaration).push (relayCallSite mode seed).declaration)
+      resolved.program)
+    (available : List Nat) (guarded : List.Subset [seed.size + 1, seed.size] available)
+    {free : List FreeName} (selected : Selects chainBlock (chainCode mode seed).reads free)
+    (state : Lists.State) (floor : Nat) (frame : Body.Frame chainBlock free floor state) :
+    ∃ out, Call.Suite.Runs chainBlock state (chainSource mode) (chainCode mode seed).code out ∧
+      Functions.denoteBody resolved.program available (chainCode mode seed).code state = out := by
+  have selection : Selects chainBlock ([] ++ (chainCode mode seed).reads ++ []) free := by simpa using selected
+  obtain ⟨out, trace, _, _, _, denoted⟩ :=
+    Call.Suite.runs (chainProfile mode seed) checked table available guarded selection state frame
+  exact ⟨out, trace, denoted⟩
+
+private def callCommands (mode : CallCase) (index : Int := 1) : List Command :=
+  let factory := Command.define "factory" (.required ["x", "index"]) (chainSource mode)
   [noise, .assign "values" starlark%[[11,22]], factory,
-   .assign "relay_fn" starlark%[factory(values,1)], .assign "result" starlark%[relay_fn()],
+   .assign "result" (.call starlark%[factory] [starlark%[values], .scalar (.int index)] [] none none),
    .assign "finished" starlark%[[99]]]
 
--- The escaped relay calls through its own local alias. The child's
--- captures must still use the relay's inherited addresses.
+-- The factory calls the relay, which calls the leaf through its local
+-- copy. The leaf uses the relay's inherited cell addresses.
 #guard
   match runModule (callCommands .defaults) (fun _ => none) {} with
   | .ok (.ok published final) =>
@@ -341,13 +416,24 @@ private def callCommands (mode : CallCase) : List Command :=
       | .function closure => if closure.declaration == id then some closure.captures else none
       | _ => none
     published.exports.lookup "result" == some (.scalar (.int 22)) &&
-    final.heap.any (fun cell => cell.contents == .list [.scalar (.int 22)]) &&
+    (final.heap.filter (fun cell => cell.contents == .list [.scalar (.int 22)])).size == 2 &&
     (match captures 2, captures 1 with
     | some [x, index], some [index', x'] =>
       x == x' && index == index' &&
-      final.heap[index.address]? == some ⟨.binding (some (.scalar (.int 1))), true⟩
+      final.heap[index.address]? == some ⟨.binding (some (.scalar (.int 1))), false⟩
     | _, _ => false)
   | _ => false
+
+private def outerTailUnreached (heap : Array Lists.Cell) : Bool :=
+  match heap.toList.findIdx? (fun cell =>
+    match cell.contents with
+    | .function closure => closure.declaration == 3
+    | _ => false) with
+  | some factory =>
+    heap[factory + 6]? == some ⟨.binding none, false⟩ &&
+    heap[factory + 7]? == some ⟨.binding none, false⟩ &&
+    heap[factory + 8]? == some ⟨.list [.scalar (.int 17)], false⟩
+  | none => false
 
 private def stoppedBeforeActivation (mode : CallCase) (error : Lists.Error) (last : Int) : Bool :=
   let cmds := callCommands mode
@@ -356,7 +442,7 @@ private def stoppedBeforeActivation (mode : CallCase) (error : Lists.Error) (las
   | .ok resolved, .ok (.error (.runtime reached) final) =>
     let entered := enter resolved.source caller
     let moduleCell name := (entered.slots (globalSlot name)).bind (fun slot => final.heap[slot.address]?)
-    reached == error &&
+    reached == error && outerTailUnreached final.heap &&
     (match final.heap[final.heap.size - 3]? with
     | some ⟨.function closure, false⟩ => closure.declaration == 1
     | _ => false) &&
@@ -371,5 +457,33 @@ private def stoppedBeforeActivation (mode : CallCase) (error : Lists.Error) (las
 
 #guard stoppedBeforeActivation .operandError (.indexRange 1 1) 0
 #guard stoppedBeforeActivation .arityError (.arity 1 2) 74
+
+-- This time the leaf activates and allocates before its return operand
+-- fails. Both callers retain that allocation and skip their destinations.
+#guard
+  let cmds := callCommands .defaults 3
+  let caller : Lists.State := { iterators := [123] }
+  match resolve cmds, runModule cmds (fun _ => none) caller with
+  | .ok resolved, .ok (.error (.runtime (.indexRange 3 2)) final) =>
+    let entered := enter resolved.source caller
+    let moduleCell name := (entered.slots (globalSlot name)).bind (fun slot => final.heap[slot.address]?)
+    let retained :=
+      match moduleCell "values", final.heap.back? with
+      | some ⟨.binding (some (.list values)), false⟩, some ⟨.list [.list saved], false⟩ => saved == values
+      | _, _ => false
+    let relayTailUnreached :=
+      match final.heap.toList.findIdx? (fun cell =>
+        match cell.contents with
+        | .function closure => closure.declaration == 1
+        | _ => false) with
+      | some leaf =>
+        final.heap[leaf - 2]? == some ⟨.binding none, false⟩ &&
+        final.heap[leaf - 1]? == some ⟨.binding none, false⟩
+      | none => false
+    retained && relayTailUnreached && outerTailUnreached final.heap &&
+    moduleCell "result" == some ⟨.binding none, false⟩ &&
+    moduleCell "finished" == some ⟨.binding none, false⟩ &&
+    (final.slots (globalSlot "factory")).isNone && final.iterators == [123]
+  | _, _ => false
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive

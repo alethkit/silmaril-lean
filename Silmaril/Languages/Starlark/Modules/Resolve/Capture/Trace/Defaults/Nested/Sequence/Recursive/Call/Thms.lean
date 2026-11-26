@@ -13,7 +13,7 @@ open Assignment (LexicalBlock)
 open Functions
 open Functions.Lowering.Resolve (resolveTracked)
 open Lists (State Outcome Capture)
-open Lists.Iteration (finishState)
+open Lists.Iteration (Flow finishState)
 
 local notation "NormalizedExpr" => Lowering.Resolve.SourceExpr
 
@@ -121,5 +121,31 @@ theorem runs_installed_alias_preserving {parent : LexicalBlock} (site : Site par
        Lowering.denoteExpr resolved.program available (expression name codes) copied = out ∧ Body.Keeps copied.heap.size copied (finishState out)) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.runs_installed_alias_preserving
     site profile checked table id found available permitted step receipts cells owned legal frame related
+
+/-- Reuse the guarded alias call with a body derivation at the reduced set. -/
+theorem runs_installed_alias_preserving_with {parent : LexicalBlock} (site : Site parent)
+    (bodyRuns : State → Outcome Flow → Prop)
+    {commands : List Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved)
+    (id : DeclarationId) (found : resolved.program[id]? = some site.declaration)
+    (available : List DeclarationId) (permitted : id ∈ available)
+    (enterBody : BodyEntry site resolved.program available id bodyRuns)
+    {defining installed : State} {captures : List Capture}
+    (step : Nested.SiteResult parent site.name site.parameters site.defaults id captures defining (.ok .next installed))
+    (receipts : Installs defining site.free captures) (cells : Body.CaptureCells defining captures)
+    {name : String} (owned : name ∈ parent.owned) (legal : name.toList.head? ≠ some '$')
+    {free : List FreeName} {floor : Nat} (frame : Body.Frame parent free floor installed)
+    {arguments : List NormalizedExpr} {codes : List Lowering.Expr} {reads : List Binding}
+    (related : Arguments parent arguments codes reads) :
+    ∃ address out, Body.Evaluates parent installed (.scalar (.read site.name)) (Leaf.readOperand (fileSlot site.name))
+        (.ok (.function address) installed) ∧
+      (let copied := installed.write (fileSlot name) (.function address)
+       (Lowering.Resolve.resolveTracked parent.context (.call (.scalar (.read name)) arguments [] none none) =
+          .ok (expression name codes, fileSlot name :: reads)) ∧
+       RunsWith site bodyRuns parent id name arguments codes copied out ∧
+       ExecExpr resolved.program available copied (expression name codes) out ∧
+       Lowering.denoteExpr resolved.program available (expression name codes) copied = out ∧ Body.Keeps copied.heap.size copied (finishState out)) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.runs_installed_alias_preserving_with
+    site bodyRuns checked id found available permitted enterBody step receipts cells owned legal frame related
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call

@@ -881,13 +881,10 @@ caller restoration after activation. An operand error skips binding
 and activation. A binding error leaves the state reached after the
 operands, including their allocations.
 
-The controls call a grandchild through a local alias in an escaped
-relay. The omitted parameter uses the saved default and the
-grandchild reads the original forwarded index cell. A reached index
-error takes precedence over surplus arity, while successfully
-evaluated surplus operands yield an arity error. Lean checks that
-both errors retain the reached lists and add no callee frame. Pinned
-Go checks the observable result and error ordering.
+The nested suite controls below exercise this preparation rule.
+They distinguish a reached index error from surplus arity and check
+that both failures retain the operand lists without adding an
+activation frame.
 
 The expression theorem uses the body's declaration lookup in a
 checked table and membership in the available declaration set.
@@ -912,25 +909,31 @@ exactly with resolved execution and denotation, including the
 return or first reached error and residual state. `runs_activated`
 obtains the suite frame from live captures and bound arguments.
 
-The guard is membership of this activation's call IDs in the
-current available declaration set. The child executes using the
-existing removal of its declaration ID. Invoked children use the
-already proved recursive suite without call statements. An
-ordinary definition can contain a call-bearing suite for a separate
-activation, but the call-assignment rule cannot dispatch to such a
-body. This keeps dispatch within the proved finite profile.
+The guard requires that the current available declaration set
+contain the call IDs in the suite and its invoked descendants.
+`child_available` shows that the child's own call IDs survive
+removing the child declaration ID because those declarations were
+emitted earlier. Removing a present ID strictly reduces the
+available list's length. The proof applies the same suite theorem
+under that smaller list to the child body and follows the
+caller tail structurally under the original list. This covers a
+finite chain of these calls at any depth.
 
-The Lean and pinned Go regression invokes the grandchild through
-the escaped relay's immediate alias, then consumes the result in
-a later assignment and return. The operand and arity errors stop
-before that continuation. Lean additionally checks the forwarded
-addresses, retained operand allocations, and absence of callee
-activation on those errors.
+In Lean and pinned Go, a factory calls a relay through an immediate
+alias, and the relay calls a leaf through another immediate alias.
+The leaf uses a saved default and reads the original forwarded
+index cell. Both callers consume their call results in later
+assignments and returns. The inner operand and arity failures stop
+before the leaf body. A reached index error inside the leaf stops
+both callers before they assign their destinations. Lean checks the
+forwarded addresses, retained allocations, unassigned destinations
+and restored caller state.
 
-Later callee provenance across intervening statements, invoking
-call-bearing children within this rule, other expression positions,
-keywords and spreads, general dispatch, loads, text parsing, and
-module publication remain outside the suite theorem.
+The suite theorem covers the immediate owned-name copy and the
+existing lexical, integer, index and singleton-list positional
+operands. Later callee provenance across intervening statements,
+other expression positions, keywords and spreads, general
+dispatch, loads, text parsing and module publication remain open.
 [Suite rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
 
 ## Finite-manifest loader
