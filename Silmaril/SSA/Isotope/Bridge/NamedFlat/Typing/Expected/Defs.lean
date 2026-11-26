@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Typing.Defs
 
-/-! # Check written injections using their expected sum types -/
+/-! # Check written injections and case operands -/
 
 @[expose] public section
 
@@ -34,6 +34,10 @@ def inferAt : {n : Nat} → BoundCtx (Ty Base) n → Option (Ty Base) → Tm Emp
     if inferAt ctx (some A) a = some A then some (.coprod A B) else none
   | _, ctx, some (.coprod A B), .inr b =>
     if inferAt ctx (some B) b = some B then some (.coprod A B) else none
+  | _, ctx, expected, .case test left right => do
+    let .coprod A B ← inferAt ctx none test | none
+    let C ← inferAt (.snoc ctx A) expected left
+    if inferAt (.snoc ctx B) expected right = some C ∧ expected.getD C = C then some C else none
   | _, _, _, _ => none
 
 def inferExpected {n : Nat} (ctx : BoundCtx (Ty Base) n) (expr : Tm Empty F n) : Option (Ty Base) :=
