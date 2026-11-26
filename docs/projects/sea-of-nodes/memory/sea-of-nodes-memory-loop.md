@@ -1398,6 +1398,36 @@ heap `[11, 73, 11, 3, 91, 22]`.
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.CompositionRegression
 ```
 
+##### Checking coverage of composed capture maps
+
+`checkCompositeCoverage h k cells` decides whether every source
+valuation at that cell count has a compatible intermediate lift.
+For each sort with distinct values, it checks that `h` is injective
+and that `k` is injective on the typed image of `h`. The second check
+enumerates only intermediate slots used by the first map. At one
+cell, addresses are singletons and the check only needs word
+injectivity. At zero cells, coverage is vacuous for an uninhabited
+source. An inhabited source needs an inhabited final signature.
+[`checkCompositeCoverage_iff_lifts` and the image test](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/ReductImage/Check/Thms.lean)
+
+`checkCompositeExpansive h k` tests zero and two cells and decides
+model expansiveness for the composed generated corridor.
+`Sentence.room_satisfaction_comp_of_check` uses coverage at a chosen
+cell count to relate staged re-emission truth to satisfaction at
+every source valuation for that count. With incomplete coverage,
+the existing satisfaction law ranges over the reduct image.
+[Generated corridor and satisfaction laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/Satisfaction/Institution/Thms.lean)
+
+The spare-word fixture above passes composite coverage even though
+the second map alone fails. When the second map identifies the two
+used store ports instead, the composite check fails and the source
+tuple holding `11` and `22` at those positions has no lift.
+[Runnable regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/ReductImage/Check/CompositionRegression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.CompositionRegression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for

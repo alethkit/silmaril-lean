@@ -83,6 +83,8 @@ private def zeroInput : Tuple (Val 0) wordOnly.args := .cons (7 : Word) .nil
 #guard checkCoverage insertAddress 1
 #guard !checkExpansive insertAddress
 #guard !(liftInput? insertAddress zeroInput).isSome
+#guard !checkCompositeCoverage (𝟙 wordOnly) insertAddress 0
+#guard checkCompositeCoverage (𝟙 wordOnly) insertAddress 1
 
 private abbrev twoAddresses : EntrySignature := ⟨[.address, .address]⟩
 private abbrev oneAddress : EntrySignature := ⟨[.address]⟩
@@ -103,5 +105,8 @@ private def distinctInput : Tuple (Val 2) twoAddresses.args :=
 #guard !checkCoverage identifyAddress 2
 #guard (liftInput? identifyAddress singletonInput).isSome
 #guard !(liftInput? identifyAddress distinctInput).isSome
+#guard checkCompositeCoverage (𝟙 twoAddresses) identifyAddress 0
+#guard checkCompositeCoverage (𝟙 twoAddresses) identifyAddress 1
+#guard !checkCompositeCoverage (𝟙 twoAddresses) identifyAddress 2
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage
