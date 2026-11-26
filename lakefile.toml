@@ -475,7 +475,7 @@ globs = ["tests.ssa.LetIterWeakTreeSoundness"]
 # Check the typed PEG core and the paper guard counterexample.
 [[lean_lib]]
 name = "PEGCoreTests"
-globs = ["tests.ssa.PEG"]
+globs = ["tests.ssa.PEG", "tests.ssa.PEGSimple"]
 
 # Check open PEG equations and composition of Peggy opcode translations.
 [[lean_lib]]
