@@ -399,3 +399,39 @@ refuses the second deletion and preserves the observed `99`.
 ```sh
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Emit the same entry edit for multiple valuations
+
+`Entry.Composition.Retained.Load.Static.lower cells graph entry version facts prior`
+emits the original and optimized MemRef CFGs from the native table and typed
+address facts alone. The contract anchors the existing disjointness
+certificate at the nominated Store's original address port and lists ports
+that must denote that same cell. The anchor is its own alias. The ordered
+check needs explicit disjointness for every access before the first proven
+same-cell Store. Missing facts and contradictory classifications refuse
+the cut. An invocation can validate its concrete addresses separately
+with `AddressContract.check`.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Static/Defs.lean) ·
+[Pinned Simple chapter 10 Store rule](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65)
+
+`cut_agrees` reduces an accepted static edit to the exact existing concrete
+cut at every satisfying valuation. Its proof uses the original first-overwrite
+theorem to preserve scalar operands, access order, and the whole heap.
+The emitted pair shares the original diamond. Both artifacts agree on the
+entry successor packet and buffer, and on the returned word and every final
+cell at either predicate, every initialized buffer and every CF budget.
+All address facts refer to original typed address ports.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Static/Thms.lean)
+
+The optional prior edit uses the existing same-wire checker with an empty
+reader list. It is checked independently of the address contract. Nominate
+the second edit's one-based Store version in the table after that cleanup.
+Refusal leaves that table in the optimized artifact. The runnable example
+executes the same pair at two valuations with different cells and words.
+A pre-overwrite Load of a must-alias cell refuses the second edit while
+keeping the first.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```
