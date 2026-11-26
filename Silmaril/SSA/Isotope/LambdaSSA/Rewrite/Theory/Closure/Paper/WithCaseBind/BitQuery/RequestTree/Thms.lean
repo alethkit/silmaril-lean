@@ -18,6 +18,12 @@ theorem packed_outcomes (t : Tree 1) (input : Bool) :
     t.observations input = t.outcomes (fun _ => input) :=
   BitQueryTreeExecution.packed_outcomes t input
 
+/-- The forwarded operand carries its bound Bit to the same validated
+ordered-trace interpreter. -/
+theorem written_packed_outcomes (t : Tree 1) (input : Bool) :
+    t.writtenObservations input = t.outcomes (fun _ => input) :=
+  BitQueryTreeExecution.written_packed_outcomes t input
+
 /-- Strip one ordered event at its exact tag and payload to advance the environment. -/
 theorem outcome_with_head {n : Nat} (env : Assignment n) (label : Bool) (query : Expr n)
     (l r : Tree (n + 1)) (e : Event) (tail : Word) (result : Except Bool Result) :
