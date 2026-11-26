@@ -30,17 +30,33 @@ private def emptyHistory : History TaggedId ObjectFields := History.empty
 private theorem freshVfs : emptyHistory.Fresh vfs.tagged := History.lookup_empty vfs.tagged
 
 private def history := emptyHistory.allocate vfs.tagged .vfs fields freshVfs
-private def raw : AllocationHistory TaggedId Nat Unit :=
-  (∅ : AllocationHistory TaggedId Nat Unit).insert vfs.tagged (.live 128)
-private def combined : AllocatorStore TaggedId TaggedId ObjectFields Nat Unit := ⟨history, raw⟩
+
+private abbrev AllocationFixture := Allocator.State TaggedId TaggedId ObjectFields Unit Unit
+private def scope : Allocator.Scope Unit Unit := ⟨(), (), 64, by decide⟩
+private def block := scope.block 64 128 (by decide) (by decide)
+private def before : AllocationFixture := ⟨history, ∅⟩
+private def combined : AllocationFixture := before.writeAllocation vfs.tagged (.live block)
+
+private def alloc : Semantics.Resource.Contract AllocationFixture
+    (Allocator.Call TaggedId) (Allocator.Reply TaggedId) (StoreId TaggedId TaggedId) :=
+  Allocator.contract scope
+
+private theorem allocated : alloc.step (.malloc 64) before (.pointer (some vfs.tagged)) combined :=
+  .mallocSuccess (by decide) (by decide) (by decide) (AllocationHistory.lookup_empty vfs.tagged)
 
 private theorem present : combined.objectHistory.lookup vfs.tagged =
     some (.present ⟨.vfs, .live, fields⟩) :=
   emptyHistory.lookup_allocate_self vfs.tagged .vfs fields freshVfs
 
--- A raw token and the VFS can have the same underlying tagged value.
-example : combined.lookup (.allocation vfs.tagged) = some (.allocation (.live 128)) := by
-  simp [combined, AllocatorStore.lookup, raw]
+-- Malloc issues a raw token whose value coincides with the already visible VFS.
+example : combined.lookup (.allocation vfs.tagged) = some (.allocation (.live block)) := by
+  change (combined.lookupAllocation vfs.tagged).map StoreEntry.allocation = _
+  rw [combined, Allocator.lookup_write_self]
+  rfl
+
+example : combined.lookup (.object vfs.tagged) = before.lookup (.object vfs.tagged) := by
+  have frames : alloc.Frames AllocatorStore.lookup := Allocator.frames
+  exact frames allocated (.object vfs.tagged) (by decide)
 
 example : combined.toObjects.lookupTagged (.object vfs.tagged : StoreId TaggedId TaggedId) =
     some ⟨.vfs, .live, fields⟩ := by

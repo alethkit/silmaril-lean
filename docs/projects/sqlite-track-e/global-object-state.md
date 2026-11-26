@@ -1,7 +1,8 @@
 # SQLite global object state
 
 Import `Silmaril.Machine.SQLite.GlobalState.All` for object histories, typed
-struct payloads, checked views, and the named-file adapter. Use
+struct payloads, checked views, the named-file adapter, and the allocator
+resource contract. Use
 `Silmaril.Machine.SQLite.Architecture.All` separately for Track E's component
 diagram and its Interface, compiler, VM and backend contracts. The global-state
 package assembles cross-component state and resource observations. The
@@ -18,6 +19,8 @@ architecture aggregate follows the four groups of the diagram.
 | Read selected source fields through kind-indexed maps | `Silmaril.Machine.SQLite.GlobalState.StructThms` | [Source fields and indexed maps](object-structs.md) |
 | Use typed structs as state payloads | `Silmaril.Machine.SQLite.GlobalState.StatePayload` | [Struct-to-state bridge](object-state-payloads.md) |
 | Follow a Pager's named main file into a read premise | `Silmaril.Machine.SQLite.GlobalState.StructObservations` | [Named-file adapter](object-structs.md#checked-laws-and-adapter) |
+| Specify initialized public allocator calls and ownership | `Silmaril.Machine.SQLite.Allocator.Thms` | [Allocator model and replay](allocator-resources.md) |
+| Compose resource steps and preserve untouched observations | `Silmaril.Semantics.Resource.Thms` | [Reusable resource API](allocator-resources.md#reusable-resource-api) |
 
 The source reference is SQLite **3.54.1**, Fossil check-in
 `555e07ef33f69a0957d24d8e555b702464a131d6f1607f4c3c1e4551e8e6ca76` and mirror commit
@@ -114,8 +117,8 @@ differs from a failed lookup of an existing token.
 
 ## Resource contracts and refinement boundary
 
-The reusable resource interface in [allocator PR #4198][allocator-pr]
-uses `Silmaril.Semantics.Resource.Thms`. `Contract.Frames` preserves a
+The reusable `Silmaril.Semantics.Resource.Thms` interface is
+re-exported through `Allocator.Thms`. `Contract.Frames` preserves a
 chosen key observation outside the writes for the input and reply.
 `Contract.seq` passes the first reply into the second operation and
 concatenates their write lists, so `Contract.seq_frames` preserves keys
@@ -125,13 +128,14 @@ A predicate about a reference and its target needs the relevant
 observations for both. An unrelated-key map frame alone gives no guarantee
 about the lifetime of a referenced object.
 
-The allocator PR's public import is `Silmaril.Machine.SQLite.Allocator.Thms`.
-It models initialized public calls with explicit family, owner, requested
-and usable sizes. Its `Allocator.frames` uses full
-tagged store lookup, and `objects_preserved` preserves the entire object
-history. The allocator and handle/VFS contract imports will be added to
-the aggregate once their dependency PRs land.
-[Allocator model and replay at the reviewed draft head][allocator-guide]
+`Allocator.State` specializes the raw lane with family, owner, and
+requested and usable sizes. `Allocator.frames` uses full tagged store
+lookup, and `objects_preserved` preserves the entire object history.
+`malloc_success_lookup` establishes freshness and ownership.
+`realloc_failure_preserves` keeps the original block on a failed positive
+resize, and `realloc_success_lookup` distinguishes in-place resize from a
+move that retires the old token. The handle/VFS contract remains a
+separate integration dependency. [Allocator model and replay](allocator-resources.md)
 
 The verified algebra concerns finite lookup, erasure and modeled
 transitions. The source guides justify the choice of observations. A
@@ -150,21 +154,26 @@ remain separate from these proofs. [Source inventory](object-structs.md) · [Tra
 Use the pinned [Lean toolchain](../../../lean-toolchain) and
 [Lake manifest](../../../lake-manifest.json). The aggregate fixture imports
 only `GlobalState.All`. It follows a typed VFS descriptor through the
-state and kind bridge to the default root, and checks that coincident raw
-and object IDs stay distinct across erasure.
+state and kind bridge to the default root. A successful malloc issues a
+raw token with the same underlying value as the VFS ID. The fixture
+checks the object frame and raw-block exclusion from erasure.
 
 ```bash
 set -euo pipefail
 root=Silmaril.Machine.SQLite.GlobalState
+allocator=Silmaril.Machine.SQLite.Allocator
+resource=Silmaril.Semantics.Resource
 lake build --wfail +"$root".{AggregateChecks,Checks,Store.Checks} \
-    +"$root".{Store.Allocator.Checks,StructChecks,StatePayloadChecks}
+    +"$root".{Store.Allocator.Checks,StructChecks,StatePayloadChecks} +"$allocator".Checks
 lake env lean -DautoImplicit=false -DwarningAsError=true \
     Silmaril/Machine/SQLite/GlobalState/AggregateChecks.lean
 make check CHECK_TARGETS=+"$root".AggregateChecks
 for module in "$root".{All,AggregateChecks,Defs,Roots,Thms,Checks} \
     "$root".Store.{Defs,Thms,Checks,Allocator.Defs,Allocator.Thms,Allocator.Checks} \
     "$root".{Structs,Indexed,StructThms,StructObservations,StructChecks,StatePayload,StatePayloadChecks} \
-    Silmaril.Proofs.Machine.SQLite.GlobalState.{Store.Erasure,Indexed}; do
+    Silmaril.Proofs.Machine.SQLite.GlobalState.{Store.Erasure,Indexed} \
+    "$allocator".{Defs,Thms,Checks} Silmaril.Proofs.Machine.SQLite.Allocator.Laws \
+    "$resource".{Defs,Thms} Silmaril.Proofs.Semantics.Resource.Laws; do
   SILMARIL_REPLAY_MODULE="$module" lake env lean -DwarningAsError=true \
     tools/compiler-explorer/Replay.lean
 done
@@ -184,6 +193,7 @@ each increment, with reproduction commands in its guide.
 | [Structs and indexed store #4202][pr4202] | `a621f14437fe129710eb5b8219897afcce8c9f48` | `46f1bc26c238b0088458c77fdf9e2b2e464e8621` | [CI][ci4202] · 6 modules · [Replay](object-structs.md#replay) |
 | [Struct/state bridge #4218][pr4218] | `73089cef088fe86eaeebf69d24ebbba4375db373` | `de3ed0cedf63daf83bfdb2b1f75052fbe3b948f5` | [CI][ci4218] · 2 modules · [Replay](object-state-payloads.md) |
 | [Raw blocks and object updates #4223][pr4223] | `01a39e10e1f80ea53a21c517dc67289fa02a37be` | `1b8cc147d75a596e95aec1053cfd46b8aebc6ff3` | [CI][ci4223] · 11 modules · [Replay][replay4223] |
+| [Allocator and Resource API #4198][allocator-pr] | `c337f7ca0de0efbbd2ec9f4dced3da203bc9107f` | `744fd86fcc88726306ab80c7674d7e584a20dc12` | [CI][ci4198] · [168.2 s of 300][budget4198] · 7 modules and 20 axiom audits · [Replay](allocator-resources.md#build-and-replay) |
 
 [api]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/sqlite.h.in
 [registry]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/os.c#L352-L447
@@ -195,7 +205,8 @@ each increment, with reproduction commands in its guide.
 [btree]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/btreeInt.h#L345-L460
 [cache]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pcache.c#L26-L54
 [allocator-pr]: https://github.com/hiloopai/silmaril-lean/pull/4198
-[allocator-guide]: https://github.com/hiloopai/silmaril-lean/blob/744fd86fcc88726306ab80c7674d7e584a20dc12/docs/projects/sqlite-track-e/allocator-resources.md
+[ci4198]: https://github.com/hiloopai/silmaril-lean/actions/runs/45810337339
+[budget4198]: https://github.com/hiloopai/silmaril-lean/actions/runs/45810337339/job/139878042412
 [pr4179]: https://github.com/hiloopai/silmaril-lean/pull/4179
 [ci4179]: https://github.com/hiloopai/silmaril-lean/actions/runs/45805693035
 [replay4179]: https://github.com/hiloopai/silmaril-lean/blob/2d772052ee99a47ce14ec7c0b2fc7704f529496c/docs/projects/sqlite-track-e/global-object-state.md#replay
