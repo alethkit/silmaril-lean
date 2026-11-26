@@ -42,10 +42,10 @@ execution and nontermination under absence of a finite return.
   CFG is computed from this decomposition. The certificate has no
   LambdaSSA region field.
 
-The interface checks supplied cuts. It leaves discovery of cuts in an
-unmarked graph, renumbering, nested θ inside a leaf body, and structuring
-CFGs with nonserial edges or more general reducible control flow to
-separate developments. The binary law can also be applied to other
+This interface checks supplied cuts. The [serial recognizer](rvsdg-serial-recognition.md)
+recovers them from the emitted alternating layout. Renumbering, nested θ
+inside a leaf body, and structuring CFGs with nonserial edges or more
+general reducible control flow are separate developments. The binary law can also be applied to other
 codes with this carrier interface and an independently established
 component agreement.
 
