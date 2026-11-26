@@ -328,16 +328,29 @@ Profile failures stop outside Python exception transfer.
 Both runners settle the reached bindings before returning the final completion.
 The suites preserve both heaps, seeded builtins and earlier call receipts.
 
-An exceptional suite can also raise the result of calling a named stock
-`Exception` class with one positional text literal or live text read. The
-runner saves the resolved class before evaluating the argument. A module
-binding masks the builtin fallback. An alias preserves the stock class
-descriptor across rebinding. The defined error carries its exact text argument
-as code points, including surrogates. The constructor immediately raises
-and emits no separate module call receipt. A missing name and a reached
-noncallable mask produce their defined errors. Other callable constructors,
-nontext stock arguments and explicit causes remain outside this checked
-path.
+An exceptional suite can raise a named stock exception class, call that
+class with zero positional arguments and immediately raise the result, or
+raise an already supplied exact exception instance. Class normalization and
+the explicit zero-argument constructor deliver the same class and empty
+argument tuple. A supplied instance carries its exact payload through name
+reads and aliases. The checked instance payload covers empty arguments for
+the supported stock classes and one exact text argument for `Exception`.
+Exception identity and traceback observations are outside this profile.
+
+The runner saves the live callee before evaluating any argument. A module
+binding masks the builtin fallback, and a saved alias survives rebinding.
+A missing name or invalid named raise operand produces its defined error.
+An explicit call to a known noncallable value produces the call's own
+defined error. Immediate constructors emit no separate module receipt.
+General callable constructors, standalone instance construction, nontext
+stock arguments and explicit causes remain outside this checked path.
+
+The unchanged `testassert1.py` uses the existing scalar truth rule for
+its opening direct Boolean assertion. The protected assertion failure
+precedes the named raise. The ordinary and empty seeded profiles reach
+`NameError:AssertionError` during handler lookup, and both fixed supplied
+profiles finish with `x = 5`. Run the differential with
+`python3.13 -I scripts/check-python-named-exception-raise.py --upstream /path/to/pinned/rigorous`.
 
 A named handler resolves its class from the reached namespace only after a
 defined error. Lookup stops at the first matching arm or first failed class

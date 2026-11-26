@@ -88,7 +88,7 @@ def run {state failure action : Type} (suite : state → List action → Outcome
   runCleanup suite isPythonError pending plan.cleanup
 
 open Source (ExceptHandler Expr Name Scope Stmt)
-open Core.Closure (ExceptionClass RuntimeError)
+open Core.Closure (ExceptionClass ExceptionInstance RuntimeError)
 
 inductive HandlerClass where
   | stock (kind : ExceptionClass)
@@ -144,58 +144,103 @@ def raiseArgument? (scope : Scope) :
     (globalReference? scope name).map fun reference => ⟨.read name reference, .read name reference⟩
   | _ => none
 
+structure RaiseName (scope : Scope) where
+  name : Name
+  reference : GlobalReference scope name
+
+inductive RaiseName.Translation (scope : Scope) : Stmt → RaiseName scope → Prop where
+  | named (name : Name) (reference : GlobalReference scope name) :
+      Translation scope (.raise_ (some (.name name)) none) ⟨name, reference⟩
+
+def raiseName? (scope : Scope) : (source : Stmt) → Option {operand // RaiseName.Translation scope source operand}
+  | .raise_ (some (.name name)) none =>
+    (globalReference? scope name).map fun reference => ⟨⟨name, reference⟩, .named name reference⟩
+  | _ => none
+
 structure RaiseCall (scope : Scope) where
   name : Name
   reference : GlobalReference scope name
-  argument : RaiseArgument scope
+  argument : Option (RaiseArgument scope)
 
 inductive RaiseCall.Translation (scope : Scope) : Stmt → RaiseCall scope → Prop where
   | positional {name reference source argument} (checked : RaiseArgument.Translation scope source argument) :
       Translation scope (.raise_ (some (.callWith (.name name) [(.positional, source)])) none)
-        ⟨name, reference, argument⟩
+        ⟨name, reference, some argument⟩
   | plain {name reference source argument} (checked : RaiseArgument.Translation scope source argument) :
-      Translation scope (.raise_ (some (.call (.name name) [source])) none) ⟨name, reference, argument⟩
+      Translation scope (.raise_ (some (.call (.name name) [source])) none) ⟨name, reference, some argument⟩
+  | positionalEmpty (name : Name) (reference : GlobalReference scope name) :
+      Translation scope (.raise_ (some (.callWith (.name name) [])) none) ⟨name, reference, none⟩
+  | plainEmpty (name : Name) (reference : GlobalReference scope name) :
+      Translation scope (.raise_ (some (.call (.name name) [])) none) ⟨name, reference, none⟩
 
 def raiseCall? (scope : Scope) : (source : Stmt) → Option {call // RaiseCall.Translation scope source call}
   | .raise_ (some (.callWith (.name name) [(.positional, source)])) none => do
     let reference ← globalReference? scope name
     let checked ← raiseArgument? scope source
-    return ⟨⟨name, reference, checked.val⟩, .positional checked.property⟩
+    return ⟨⟨name, reference, some checked.val⟩, .positional checked.property⟩
   | .raise_ (some (.call (.name name) [source])) none => do
     let reference ← globalReference? scope name
     let checked ← raiseArgument? scope source
-    return ⟨⟨name, reference, checked.val⟩, .plain checked.property⟩
+    return ⟨⟨name, reference, some checked.val⟩, .plain checked.property⟩
+  | .raise_ (some (.callWith (.name name) [])) none =>
+    (globalReference? scope name).map fun reference => ⟨⟨name, reference, none⟩, .positionalEmpty name reference⟩
+  | .raise_ (some (.call (.name name) [])) none =>
+    (globalReference? scope name).map fun reference => ⟨⟨name, reference, none⟩, .plainEmpty name reference⟩
   | _ => none
 
-inductive RaiseCallee where
-  | stockException
+inductive RaiseValue where
+  | stockClass (kind : ExceptionClass)
+  | exceptionInstance (value : ExceptionInstance)
   | nonCallable
-  | outsideProfile
+  | otherCallable
+
+/-- A class normalizes to an empty-argument exception payload. An
+instance supplies its already constructed payload. -/
+def RaiseValue.normalize : RaiseValue → RuntimeError
+  | .stockClass kind => .raisedInstance (.empty kind)
+  | .exceptionInstance value => .raisedInstance value
+  | .nonCallable | .otherCallable => .invalidRaiseOperand
+
+def RaiseName.error {scope : Scope} {Value : Type} (operand : RaiseName scope)
+    (lookup : Name → Option Value) (classify : Value → RaiseValue) : RuntimeError :=
+  (lookup operand.name).elim (.nameError operand.name) (fun value => (classify value).normalize)
+
+inductive RaiseArguments where
+  | empty
+  | one (text : Option Core.Text)
 
 def RaiseArgument.eval {scope : Scope} {Value : Type} (lookup : Name → Option Value)
     (text? : Value → Option Core.Text) : RaiseArgument scope → Except RuntimeError (Option Core.Text)
   | .text value => .ok (some value)
   | .read name _ => (lookup name).elim (.error (.nameError name)) (.ok ∘ text?)
 
-def RaiseCallee.construct : RaiseCallee → Option Core.Text → Option RuntimeError
-  | .stockException, argument => argument.map .explicitException
-  | .nonCallable, _ => some .notCallable
-  | .outsideProfile, _ => none
+def RaiseCall.evalArguments {scope : Scope} {Value : Type} (call : RaiseCall scope)
+    (lookup : Name → Option Value) (text? : Value → Option Core.Text) : Except RuntimeError RaiseArguments :=
+  match call.argument with
+  | none => .ok .empty
+  | some argument => (argument.eval lookup text?).map .one
+
+def RaiseValue.construct : RaiseValue → RaiseArguments → Option RuntimeError
+  | .stockClass kind, .empty => some (.raisedInstance (.empty kind))
+  | .stockClass .exception, .one (some message) => some (.explicitException message)
+  | .stockClass _, .one _ | .otherCallable, _ => none
+  | .exceptionInstance _, _ | .nonCallable, _ => some .notCallable
 
 /-- Save the live callee before reading the argument. Dispatch occurs only
-after the argument succeeds. The constructed exception is immediately raised. -/
+after argument evaluation. The constructed exception is immediately raised. -/
 def RaiseCall.error {scope : Scope} {Value : Type} (call : RaiseCall scope)
-    (lookup : Name → Option Value) (classify : Value → RaiseCallee) (text? : Value → Option Core.Text) :
+    (lookup : Name → Option Value) (classify : Value → RaiseValue) (text? : Value → Option Core.Text) :
     Option RuntimeError :=
   match lookup call.name with
   | none => some (.nameError call.name)
   | some callee =>
-    match call.argument.eval lookup text? with
+    match call.evalArguments lookup text? with
     | .error error => some error
-    | .ok argument => (classify callee).construct argument
+    | .ok arguments => (classify callee).construct arguments
 
 inductive Step (scope : Scope) where
   | scalar (action : Action scope)
+  | raiseName (operand : RaiseName scope)
   | raiseCall (call : RaiseCall scope)
   | raiseInactive
 
@@ -207,6 +252,9 @@ inductive Suite (scope : Scope) (allowInactiveRaise : Bool) : List Stmt → List
       (code : ModuleEntry.Translation scope [source] actions)
       (remaining : Suite scope allowInactiveRaise rest tail) :
       Suite scope allowInactiveRaise (source :: rest) ((actions.map (Step.scalar ∘ Action.inLiteralArm)) ++ tail)
+  | raiseName {source rest operand tail} (checked : RaiseName.Translation scope source operand)
+      (remaining : Suite scope allowInactiveRaise rest tail) :
+      Suite scope allowInactiveRaise (source :: rest) (.raiseName operand :: tail)
   | raiseCall {source rest call tail} (checked : RaiseCall.Translation scope source call)
       (remaining : Suite scope allowInactiveRaise rest tail) :
       Suite scope allowInactiveRaise (source :: rest) (.raiseCall call :: tail)
@@ -231,8 +279,11 @@ def suite? (scope : Scope) (allowInactiveRaise : Bool) :
           some ⟨.raiseInactive :: tail.val, .raiseInactive form inactive tail.property⟩
         else none
       | _ =>
-        let checked ← raiseCall? scope statement
-        return ⟨.raiseCall checked.val :: tail.val, .raiseCall checked.property tail.property⟩
+        if let some checked := raiseName? scope statement then
+          some ⟨.raiseName checked.val :: tail.val, .raiseName checked.property tail.property⟩
+        else
+          let checked ← raiseCall? scope statement
+          return ⟨.raiseCall checked.val :: tail.val, .raiseCall checked.property tail.property⟩
 
 inductive Handlers (scope : Scope) : List ExceptHandler → List (Arm (Step scope)) → Prop where
   | nil : Handlers scope [] []

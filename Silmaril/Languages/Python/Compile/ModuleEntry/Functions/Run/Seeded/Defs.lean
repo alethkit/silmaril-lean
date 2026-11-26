@@ -169,7 +169,7 @@ def truth : Value → Bool
   | .text value => value.truth
   | .none => false
   | .listObject object => !object.contents.isEmpty
-  | .exceptionClass _ | .helper _ | .builtin _ => true
+  | .exceptionClass _ | .exceptionInstance _ | .helper _ | .builtin _ => true
   | .function closure => (Core.Closure.Value.function closure).truth
   | .returnedTuple items => !items.isEmpty
   | .tupleObject object => !object.contents.isEmpty
@@ -228,6 +228,7 @@ def ordinaryValue? : Value → Option Core.Closure.Value
   | .tupleObject object => some (.tupleObject object)
   | .dictionary object => some (.dictionary object)
   | .exceptionClass .exception => some .stockException
+  | .exceptionInstance value => some (.exceptionInstance value)
   | .exceptionClass _ | .helper _ | .builtin _ | .listObject _ => none
 
 def seededValue : Core.Closure.Value → Value
@@ -236,6 +237,7 @@ def seededValue : Core.Closure.Value → Value
   | .float64 value => .float64 value
   | .text value => .text value
   | .exceptionClass kind => .exceptionClass kind
+  | .exceptionInstance value => .exceptionInstance value
   | .none => .none
   | .function closure => .function closure
   | .tuple items => .returnedTuple items
@@ -396,6 +398,7 @@ def observeFactory (space : Namespace) (state : Core.Closure.Executor.State) :
   match state with
   | .finished heap (.ok (.int _)) | .finished heap (.ok (.bool _)) | .finished heap (.ok .none)
   | .finished heap (.ok (.float64 _)) | .finished heap (.ok (.exceptionClass _))
+  | .finished heap (.ok (.exceptionInstance _))
   | .finished heap (.ok (.text _)) | .finished heap (.ok (.tuple _)) | .finished heap (.ok (.tupleObject _))
   | .finished heap (.ok (.dictionary _)) =>
     (.ok ⟨.error .unsupported, none⟩, heap)
@@ -629,7 +632,7 @@ def readSequenceLength (space : Namespace) (length : Nat) : Except Failure Int :
   | none => .error (.raised (.runtime (.nameError "len")))
   | some (.builtin .len) => .ok (Int.ofNat length)
   | some (.int _) | some (.bool _) | some (.float64 _) | some (.text _) | some .none | some (.returnedTuple _)
-  | some (.tupleObject _) | some (.dictionary _) =>
+  | some (.tupleObject _) | some (.exceptionInstance _) | some (.dictionary _) =>
     .error (.raised (.runtime .notCallable))
   | some _ => .error .unsupported
 
@@ -707,7 +710,8 @@ def constructList (space : Namespace) (heap : ListHeap) (argument : ListConstruc
     | .builtin .list =>
       let (object, updated) := reached.allocate contents
       (.ok object, updated)
-    | .int _ | .bool _ | .float64 _ | .text _ | .none | .listObject _ | .returnedTuple _ | .tupleObject _ | .dictionary _ =>
+    | .int _ | .bool _ | .float64 _ | .text _ | .none | .listObject _ | .returnedTuple _
+    | .tupleObject _ | .exceptionInstance _ | .dictionary _ =>
       (.error (.raised (.runtime .notCallable)), reached)
     | _ => (.error .unsupported, reached)
 
@@ -747,7 +751,8 @@ def tupleBinding (space : Namespace) : Option Core.Module.TupleDispatch.TypeBind
   (space.lookupGlobal "tuple").map fun
     | .builtin .tuple => .stockTuple
     | .none => .noneValue
-    | .int _ | .bool _ | .float64 _ | .text _ | .returnedTuple _ | .listObject _ | .tupleObject _ | .dictionary _ => .nonCallable
+    | .int _ | .bool _ | .float64 _ | .text _ | .returnedTuple _ | .listObject _
+    | .tupleObject _ | .exceptionInstance _ | .dictionary _ => .nonCallable
     | .exceptionClass _ | .helper _ | .builtin _ | .function _ => .outsideProfile
 
 def tupleLookup (space : Namespace) : TupleChain.Lookup :=
@@ -864,9 +869,10 @@ def ModuleFailure.isPythonError : ModuleFailure → Bool
   | .raised _ => true
   | _ => false
 
-def raiseCallee : Value → ExceptionalTry.RaiseCallee
-  | .exceptionClass .exception => .stockException
-  | .exceptionClass _ | .helper _ | .builtin _ | .function _ => .outsideProfile
+def raiseValue : Value → ExceptionalTry.RaiseValue
+  | .exceptionClass kind => .stockClass kind
+  | .exceptionInstance value => .exceptionInstance value
+  | .helper _ | .builtin _ | .function _ => .otherCallable
   | _ => .nonCallable
 
 def raiseText? : Value → Option Core.Text
@@ -875,8 +881,9 @@ def raiseText? : Value → Option Core.Text
 
 def exceptionalStep {scope : Scope} (space : Namespace) : ExceptionalTry.Step scope → Except ModuleFailure Namespace
   | .scalar action => scalarStep space action
+  | .raiseName operand => .error (.raised (.runtime (operand.error space.lookupGlobal raiseValue)))
   | .raiseCall call =>
-    .error ((call.error space.lookupGlobal raiseCallee raiseText?).elim .unsupported (.raised ∘ .runtime))
+    .error ((call.error space.lookupGlobal raiseValue raiseText?).elim .unsupported (.raised ∘ .runtime))
   | .raiseInactive => .error (.raised (.runtime .noActiveException))
 
 def handlerClass : Value → ExceptionalTry.HandlerClass

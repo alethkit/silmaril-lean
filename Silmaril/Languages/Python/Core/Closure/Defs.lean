@@ -83,6 +83,16 @@ instance (expected actual : ExceptionClass) : Decidable (expected.catches actual
   unfold ExceptionClass.catches
   infer_instance
 
+/-- Exact stock exception payloads for the checked raise forms. -/
+inductive ExceptionInstance where
+  | empty (kind : ExceptionClass)
+  | text (message : Core.Text)
+  deriving DecidableEq, Repr
+
+def ExceptionInstance.classify : ExceptionInstance → ExceptionClass
+  | .empty kind => kind
+  | .text _ => .exception
+
 inductive Value where
   | none
   | int (value : Int)
@@ -90,6 +100,7 @@ inductive Value where
   | float64 (value : Silmaril.Numeric.Ieee754.F64.Finite)
   | text (value : Core.Text)
   | exceptionClass (kind : ExceptionClass)
+  | exceptionInstance (value : ExceptionInstance)
   | function (value : Function)
   | tuple (items : List Core.Module.TupleDispatch.Element)
   | tupleObject (object : Core.Module.TupleDispatch.Object)
@@ -104,7 +115,7 @@ def Value.truth : Value → Bool
   | .bool value => value
   | .float64 value => !value.val.isZero
   | .text value => value.truth
-  | .exceptionClass _ | .function _ => true
+  | .exceptionClass _ | .exceptionInstance _ | .function _ => true
   | .tuple items => !items.isEmpty
   | .tupleObject object => !object.contents.isEmpty
   | .dictionary object => !object.entries.isEmpty
@@ -113,7 +124,8 @@ def Value.scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
   | .none => some .none
-  | .float64 _ | .text _ | .exceptionClass _ | .function _ | .tuple _ | .tupleObject _ | .dictionary _ => Option.none
+  | .float64 _ | .text _ | .exceptionClass _ | .exceptionInstance _ | .function _ | .tuple _ | .tupleObject _
+  | .dictionary _ => Option.none
 
 def Value.ofScalar : Core.Module.Value → Value
   | .int value => .int value
@@ -183,23 +195,27 @@ inductive RuntimeError where
   | additionTypeError
   | multiplicationTypeError
   | assertionError
-  | explicitException (message : Core.Text)
+  | raisedInstance (value : ExceptionInstance)
+  | invalidRaiseOperand
   | invalidHandlerClass
   | noActiveException
   | arithmetic (error : Exception)
   | overflowError
   deriving DecidableEq, Repr
 
+@[match_pattern] abbrev RuntimeError.explicitException (message : Core.Text) : RuntimeError :=
+  .raisedInstance (.text message)
+
 @[simp] def RuntimeError.classify : RuntimeError → ExceptionClass
   | .assertionError => .assertionError
   | .unboundLocal _ | .unboundOwned _ => .unboundLocalError
   | .unboundCapture _ | .nameError _ => .nameError
   | .positionalArity .. | .notCallable | .additionTypeError | .multiplicationTypeError
-  | .tupleArgumentNotIterable | .invalidHandlerClass => .typeError
+  | .tupleArgumentNotIterable | .invalidHandlerClass | .invalidRaiseOperand => .typeError
   | .zeroSliceStep => .valueError
   | .arithmetic .zeroDivisionError => .zeroDivisionError
   | .overflowError => .overflowError
-  | .explicitException _ => .exception
+  | .raisedInstance instanceValue => instanceValue.classify
   | .noActiveException => .runtimeError
 
 /-- Invalid runtime references are distinct from defined Python exceptions. -/
@@ -217,7 +233,8 @@ def Value.asInt? : Value → Option Int
   | .int value => some value
   | .bool false => some 0
   | .bool true => some 1
-  | .none | .float64 _ | .text _ | .exceptionClass _ | .function _ | .tuple _ | .tupleObject _ | .dictionary _ => Option.none
+  | .none | .float64 _ | .text _ | .exceptionClass _ | .exceptionInstance _ | .function _ | .tuple _ | .tupleObject _
+  | .dictionary _ => Option.none
 
 /-- Integer equality is checked before a comparison can consume a float. -/
 def Value.equalInt : Value → Int → Except Failure Value
@@ -225,7 +242,8 @@ def Value.equalInt : Value → Int → Except Failure Value
   | .int value, right => .ok (.bool (decide (value = right)))
   | .bool false, right => .ok (.bool (decide (0 = right)))
   | .bool true, right => .ok (.bool (decide (1 = right)))
-  | .none, _ | .text _, _ | .exceptionClass _, _ | .function _, _ | .tuple _, _ | .tupleObject _, _ | .dictionary _, _ => .ok (.bool false)
+  | .none, _ | .text _, _ | .exceptionClass _, _ | .exceptionInstance _, _ | .function _, _ | .tuple _, _ | .tupleObject _, _
+  | .dictionary _, _ => .ok (.bool false)
 
 inductive IntegerOp where
   | add

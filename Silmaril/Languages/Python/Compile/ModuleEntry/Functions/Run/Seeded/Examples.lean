@@ -230,4 +230,28 @@ private def typedHandlerEvidence : Bool := Id.run do
 
 #guard typedHandlerEvidence
 
+private def namedRaiseEvidence (explicit : Bool) : Bool := Id.run do
+  let operand := if explicit then Source.Expr.callWith (.name "saved") [] else .name "saved"
+  let statement := Source.Stmt.try_ [.assign "before" (.integer 7), .raise_ (some operand) none]
+    [] [] [.assign "after" (.name "before")]
+  let source : Source.Module := ⟨[
+    .assign "saved" (.name "TypeError"), .assign "TypeError" .none_, statement]⟩
+  let .ok compiled := Run.compile source | return false
+  let initial := (Run.seed .empty).bindGlobal "TypeError" (.exceptionClass .typeError)
+  let (events, state) := Run.runPrefix compiled.table 10 (.ready initial compiled.instructions)
+  let .finished ordinary completion := state | return false
+  let space : Namespace := ⟨[], [("TypeError", .exceptionClass .typeError)]⟩
+  let seeded := run space compiled
+  let raised : Core.Closure.RuntimeError := .raisedInstance (.empty .typeError)
+  return completion == .raised raised && events.isEmpty &&
+    (ordinary.globals "saved").map seededValue == some (.exceptionClass .typeError) &&
+    (ordinary.globals "after").map seededValue == some (.int 7) &&
+    seeded.completion == .error (.raised (.runtime raised)) &&
+    seeded.residual.moduleGlobals == [("after", .int 7), ("before", .int 7), ("TypeError", .none),
+      ("saved", .exceptionClass .typeError)] && seeded.residual.builtins == space.builtins &&
+    seeded.calls.isEmpty
+
+#guard namedRaiseEvidence false
+#guard namedRaiseEvidence true
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

@@ -46,6 +46,7 @@ theorem dispatch_sound (launched : dispatch table callee arguments heap caller s
   | text value => simp [dispatch] at launched
   | tuple items | tupleObject items | dictionary items => simp [dispatch] at launched
   | exceptionClass kind => simp [dispatch] at launched
+  | exceptionInstance value => simp [dispatch] at launched
   | function fn =>
     cases resolved : resolve table fn.code with
     | error error => simp [dispatch, resolved] at launched
