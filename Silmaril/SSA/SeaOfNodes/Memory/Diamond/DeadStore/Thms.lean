@@ -37,6 +37,17 @@ theorem rewrite_shape (input : Tuple (Val cells) args)
     rewritten.merge = source.diamond.merge ∧ rewritten.suffix = source.diamond.suffix :=
   Proofs.rewrite_shape input success
 
+/-- A checked path exports the same packet and reads the same Loads when
+the common entry Store is bypassed. -/
+theorem rewriteArm_observations {store : PrefixStore args} {arm edited : Memory.Graph args}
+    {witness : ArmOverwrite args} (input : Tuple (Val cells) args)
+    (success : rewriteArm store arm witness input = some edited) (initial : Heap cells) :
+    let entered := (store.table.denote input initial).2
+    edited.denote input initial = arm.denote input entered ∧
+      ∀ index, Memory.DeadStore.readAt edited index input PUnit.unit initial =
+        Memory.DeadStore.readAt arm index input PUnit.unit entered :=
+  Proofs.rewriteArm_observations input success initial
+
 /-- At each checked occurrence the two arm executions agree on all Loads
 and on the exact exported word and heap, with the entry Store run only
 in the original. -/
@@ -47,7 +58,7 @@ theorem rewrite_arm_observations (input : Tuple (Val cells) args)
     (rewritten.arm edge).denote input initial = (source.diamond.arm edge).denote input entered ∧
       ∀ index, Memory.DeadStore.readAt (rewritten.arm edge) index input PUnit.unit initial =
         Memory.DeadStore.readAt (source.diamond.arm edge) index input PUnit.unit entered :=
-  Proofs.rewrite_arm_observations input success arrival initial
+  rewriteArm_observations input (rewrite_occurrence input success arrival) initial
 
 /-- Each Region slot latches the same packet from the arrival, or sees
 no publication at that slot in both executions. -/
