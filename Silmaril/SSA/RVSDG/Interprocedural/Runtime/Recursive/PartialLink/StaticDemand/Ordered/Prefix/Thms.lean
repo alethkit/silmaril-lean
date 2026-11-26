@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Defs
+public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Direct.Thms
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Link
 
 public section
@@ -71,6 +71,15 @@ from the plan's guards to the guards computed by the ordered admission. -/
     some ⟨state, guards.1.trans (congrArg (fun g => binding.extendGuard g inputsL scope.localsL) checked.left),
       guards.2.trans (congrArg (fun g => binding.extendGuard g inputsR scope.localsR) checked.right)⟩
 
+/-- Use the same admission step with a synthesized local certificate. -/
+@[expose] def Scope.Checked.addDirect (checked : scope.Checked actions)
+    (binding : Binding Op scope.table imports scope.past fn) (inputsL inputsR : Tuple m.Val imports)
+    (routes : Direct.Routes inputsL inputsR scope) :
+    Option ((scope.add binding inputsL inputsR).Checked actions) :=
+  match Direct.synthesize checked routes binding.captures (fn := fn) binding.body with
+  | none => none
+  | some resolved => checked.add binding inputsL inputsR resolved.down.1 resolved.down.2
+
 @[expose] def Scope.Checked.skip (checked : scope.Checked actions)
     (definition : LambdaTerm Op imports scope.past fn) (inputsL inputsR : Tuple m.Val imports) :
     (scope.skip definition inputsL inputsR).Checked actions :=
@@ -104,24 +113,34 @@ linker membership table. -/
     (store : σ) : {scope : Scope m} → {summary : MemberSummary V S} → {sigs : List (Ports (Ty V S))} →
     {tail : ModuleTerm Op imports scope.past sigs [summary.fn.port]} →
     (plan : Plan inputsL inputsR scope summary tail) → scope.Checked actions →
+    (routes : Direct.Routes inputsL inputsR scope := fun _ => none) →
     Option (Export actions summary (Isomorphism.RecursiveCall.Numbered.Prefix.linkTerm actions unitId inputsL scope.localsL tail store)
       (Isomorphism.RecursiveCall.Numbered.Prefix.linkTerm actions unitId inputsR scope.localsR tail store))
-  | _, _, _, _, .finish binding left right, checked =>
+  | _, _, _, _, .finish binding left right, checked, _ =>
     (checked.add binding inputsL inputsR left right).map fun added =>
       Scope.Checked.export binding inputsL inputsR added unitId store
-  | scope, _, _, _, .lambda binding left right (rest := rest) next, checked => do
+  | scope, _, _, _, .lambda binding left right (rest := rest) next, checked, routes => do
     let added ← checked.add binding inputsL inputsR left right
-    let receipt ← walk actions unitId inputsL inputsR store next added
+    let receipt ← walk actions unitId inputsL inputsR store next added (routes.add binding)
     pure (receipt.relink (binding.link_step actions unitId inputsL scope.localsL rest store)
       (binding.link_step actions unitId inputsR scope.localsR rest store))
-  | scope, _, _, _, .skipLambda definition (rest := rest) next, checked =>
-    (walk actions unitId inputsL inputsR store next (checked.skip definition inputsL inputsR)).map fun receipt =>
+  | _, _, _, _, .finishDirect binding, checked, routes =>
+    (checked.addDirect binding inputsL inputsR routes).map fun added =>
+      Scope.Checked.export binding inputsL inputsR added unitId store
+  | scope, _, _, _, .lambdaDirect binding (rest := rest) next, checked, routes => do
+    let added ← checked.addDirect binding inputsL inputsR routes
+    let receipt ← walk actions unitId inputsL inputsR store next added (routes.add binding)
+    pure (receipt.relink (binding.link_step actions unitId inputsL scope.localsL rest store)
+      (binding.link_step actions unitId inputsR scope.localsR rest store))
+  | scope, _, _, _, .skipLambda definition (rest := rest) next, checked, routes =>
+    (walk actions unitId inputsL inputsR store next (checked.skip definition inputsL inputsR) (routes.skip definition)).map fun receipt =>
       receipt.relink (link_skip definition actions unitId inputsL scope.localsL rest store)
         (link_skip definition actions unitId inputsR scope.localsR rest store)
-termination_by structural _ _ _ _ plan _ => plan
+termination_by structural _ _ _ _ plan _ _ => plan
 
 /-- Recover the computed ordered table and exact successful link outcomes
-at the selected λ export. Local resolution is explicit in the plan. -/
+at the selected λ export. The plan chooses supplied or synthesized local
+resolution for each checked binding. -/
 @[expose] def Plan.admit (family : StaticDemand.Family Op table imports) (actions : Actions m σ)
     (unitId : Nat) (inputsL inputsR : Tuple m.Val imports) (store : σ)
     {summary : MemberSummary V S} {tail : ModuleTerm Op imports [memberPorts table.members] sigs [summary.fn.port]}
@@ -133,7 +152,7 @@ at the selected λ export. Local resolution is explicit in the plan. -/
   let checked : (Scope.seed family inputsL inputsR).Checked actions :=
     ⟨CheckedPrefix.seed actions family (family.captures.read inputsL PUnit.unit)
       (family.captures.read inputsR PUnit.unit) readyL readyR, rfl, rfl⟩
-  (plan.walk actions unitId inputsL inputsR store checked).map fun receipt =>
+  (plan.walk actions unitId inputsL inputsR store checked (Direct.Routes.seed family inputsL inputsR)).map fun receipt =>
     receipt.relink (link_seededGraph family actions unitId inputsL tail store)
       (link_seededGraph family actions unitId inputsR tail store)
 

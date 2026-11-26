@@ -787,8 +787,9 @@ both λ suffixes and both φ suffixes to store `90`.
 
 `Ordered.Prefix.Plan` follows the typed module tail after a checked φ
 seed. It admits selected λ bindings with `addLambda` and leaves skipped
-positions empty in the existing typed linker table. The plan supplies
-local body-resolution proofs. The fold constructs the intermediate
+positions empty in the existing typed linker table. Each checked binding
+can supply a local body-resolution proof or request the direct-call
+check. The fold constructs the intermediate
 membership tables, attaches the computed summaries, and uses the existing
 linker equations to identify both successful link results and the final
 export's captures. `Export.linked_prefixes_agree` consumes that result
@@ -796,14 +797,31 @@ directly.
 [Whole-prefix API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Thms.lean)
 
 This slice compares two links of the same φ/λ module with a common
-initial store and exports the last checked λ. Static resolution
-remains explicit, including for direct captured calls. The
-λ→λ→φ regression uses the fold for both checked bindings and retains
+initial store and exports the last checked λ. The
+λ→λ→φ regression uses the direct-call check for both checked bindings and retains
 its demand, return, block, and resumption checks. A second plan links
 a same-signature copy of the first λ at a skipped position and
 redirects the last λ's capture there. The runner can call that copy,
-while admission rejects the unchecked position.
+while admission rejects the unchecked position. It also rejects a site
+that takes its callable from a formal input.
 [Linked fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
+
+### Synthesizing direct call resolution
+
+`Plan.lambdaDirect` and `Plan.finishDirect` construct the existing local
+`ResolvedWith` proofs for straight-line bodies. The checker projects the
+typed call operand and capture witnesses through the λ's capture wiring.
+It compares their linker addresses with the stored sources for the
+specified slot and checks callable membership at the actual position
+in both runs. Matching typed addresses imply equality of the wires.
+Primitive bindings and returns use the usual shared syntax.
+
+The φ seed can describe member capture witnesses that project directly
+through its outer context. The checker rejects missing source descriptions,
+formal callees, local outputs, inline closure descriptions, and γ or θ
+forwarding. The explicit plan constructors remain available for bodies
+with supplied resolution proofs. Invocation uses the same linked runner.
+[Direct resolution API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Direct/Thms.lean)
 
 ### Single-call admission
 

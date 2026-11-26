@@ -89,6 +89,15 @@ inductive Plan (inputsL inputsR : Tuple m.Val imports) :
       {rest : ModuleTerm Op imports (scope.past ++ [[fn.port]]) sigs [exported.fn.port]}
       (next : Plan inputsL inputsR (scope.add binding inputsL inputsR) exported rest) :
       Plan inputsL inputsR scope exported (.bind (.lambda binding.term) rest)
+  | finishDirect {scope : Scope m} {fn : Function V S}
+      (binding : Binding Op scope.table imports scope.past fn) :
+      Plan inputsL inputsR scope binding.summary (.bind (.lambda binding.term) (.ret (lastExport scope.past fn)))
+  | lambdaDirect {scope : Scope m} {exported : MemberSummary V S} {fn : Function V S}
+      {sigs : List (Ports (Ty V S))}
+      (binding : Binding Op scope.table imports scope.past fn)
+      {rest : ModuleTerm Op imports (scope.past ++ [[fn.port]]) sigs [exported.fn.port]}
+      (next : Plan inputsL inputsR (scope.add binding inputsL inputsR) exported rest) :
+      Plan inputsL inputsR scope exported (.bind (.lambda binding.term) rest)
   | skipLambda {scope : Scope m} {exported : MemberSummary V S} {fn : Function V S}
       {sigs : List (Ports (Ty V S))}
       (definition : LambdaTerm Op imports scope.past fn)

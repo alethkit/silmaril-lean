@@ -489,13 +489,9 @@ private def firstScope (cap : Nat) :=
   (Scope.seed inferred (one cap) (one cap)).add firstBinding (one cap) (one cap)
 
 private def orderedPlan (cap : Nat) :
-    Plan (one cap) (one cap) (Scope.seed inferred (one cap) (one cap)) laterBinding.summary orderedLambdas := by
-  refine Plan.lambda (scope := Scope.seed inferred (one cap) (one cap)) firstBinding ?_ ?_ ?_
-  · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
-  · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
-  · refine Plan.finish (scope := firstScope cap) laterBinding ?_ ?_
-    · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
-    · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
+    Plan (one cap) (one cap) (Scope.seed inferred (one cap) (one cap)) laterBinding.summary orderedLambdas :=
+  Plan.lambdaDirect (scope := Scope.seed inferred (one cap) (one cap)) firstBinding
+    (Plan.finishDirect (scope := firstScope cap) laterBinding)
 
 private def admitted (cap : Nat) :=
   (orderedPlan cap).admit inferred actions 83 (one cap) (one cap) 20 (relayReady cap) (relayReady cap)
@@ -585,14 +581,10 @@ private def rejectedLambdas :
     (.bind (.lambda rejectedBinding.term) (.ret (lastExport skippedSigs exportFn))))
 
 private def rejectedPlan (cap : Nat) :
-    Plan (one cap) (one cap) (Scope.seed inferred (one cap) (one cap)) rejectedBinding.summary rejectedLambdas := by
-  refine Plan.lambda (scope := Scope.seed inferred (one cap) (one cap)) firstBinding ?_ ?_ ?_
-  · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
-  · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
-  · refine Plan.skipLambda (scope := firstScope cap) uncheckedLambda ?_
-    refine Plan.finish (scope := (firstScope cap).skip uncheckedLambda (one cap) (one cap)) rejectedBinding ?_ ?_
-    · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
-    · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
+    Plan (one cap) (one cap) (Scope.seed inferred (one cap) (one cap)) rejectedBinding.summary rejectedLambdas :=
+  Plan.lambdaDirect (scope := Scope.seed inferred (one cap) (one cap)) firstBinding
+    (Plan.skipLambda (scope := firstScope cap) uncheckedLambda
+      (Plan.finishDirect (scope := (firstScope cap).skip uncheckedLambda (one cap) (one cap)) rejectedBinding))
 
 example (cap : Nat) :
     (rejectedPlan cap).admit inferred actions 83 (one cap) (one cap) 20 (relayReady cap) (relayReady cap) = none :=
@@ -600,5 +592,33 @@ example (cap : Nat) :
 
 #guard (Executable.run actions 80 83 (seededGraph inferred rejectedLambdas) (one 2) .head (args 2 41 4) 20
   |>.toOption.bind wrapperResult) == some (41, 66)
+
+-- The site still names an earlier slot, but its target operand is one
+-- of the caller's formal arguments rather than a captured linker source.
+private abbrev formalFn : Function Unit Unit := ⟨exportFn.port :: exportFn.args, single⟩
+
+private def formalBinding : Ordered.Binding Op firstSlots single firstSigs formalFn where
+  context := [fn.port, num]
+  captures := .cons (.output (0 : Fin 2) .head) (.cons (.arg .head) .nil)
+  sigs := [single]
+  body := .familyCall (table := firstSlots) (0 : Fin 3) (.tail (.tail .head))
+    (.cons (.arg .head) (.cons (.arg (.tail .head)) .nil))
+    (.cons (.arg (.tail (.tail (.tail .head))))
+      (.cons (.arg (.tail (.tail (.tail (.tail .head)))))
+        (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head)))))) .nil)))
+    (.ret (.cons (.output (0 : Fin 1) .head) .nil))
+
+private def formalLambdas : ModuleTerm Op single seedSigs [[exportFn.port], [formalFn.port]] [formalFn.port] :=
+  .bind (.lambda firstBinding.term)
+    (.bind (.lambda formalBinding.term) (.ret (lastExport firstSigs formalFn)))
+
+private def formalPlan (cap : Nat) :
+    Plan (one cap) (one cap) (Scope.seed inferred (one cap) (one cap)) formalBinding.summary formalLambdas :=
+  Plan.lambdaDirect (scope := Scope.seed inferred (one cap) (one cap)) firstBinding
+    (Plan.finishDirect (scope := firstScope cap) formalBinding)
+
+example (cap : Nat) :
+    (formalPlan cap).admit inferred actions 83 (one cap) (one cap) 20 (relayReady cap) (relayReady cap) = none :=
+  rfl
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Regression
