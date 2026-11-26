@@ -20,8 +20,8 @@ theorem refines_iff {Γ : VCtx τ} {L : LCtx τ} (r s : Typed (Φ := Φ) Γ L) :
       ∀ M : Model.{u,w,x} Φ Γ.length, observe M r ⊆ observe M s :=
   (lambdaSSA.{u,w,x} Φ L.length).obsLe_iff _ _
 
-/-- At the empty-label boundary, typing requires at least one local block.
-A primitive can supply an expression for a let or branch argument only. -/
+/-- At the empty-label boundary, typing requires at least one local block,
+even when expressions may call the fresh primitive. -/
 theorem not_noLocalBlocks (Γ : VCtx τ) (r : Typed (Φ := Φ) Γ []) : ¬ r.val.NoLocalBlocks :=
   fun h => Proofs.Isotope.LambdaSSA.UB.noLocalBlocks_not_scoped h r.property.scoped
 
