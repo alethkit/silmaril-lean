@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Relational.UB.Defs
+public import Silmaril.Semantics.Relational.UB.Defs
 
 public section
 

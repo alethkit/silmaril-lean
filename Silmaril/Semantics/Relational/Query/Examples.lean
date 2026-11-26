@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Relational.Query.All
+public import Silmaril.Semantics.Relational.Query.All
 
 /-! Checked examples using only the public query interface. -/
 

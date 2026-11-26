@@ -1,8 +1,8 @@
 module
 
-public import Silmaril.Relational.Query.Defs
+public import Silmaril.Semantics.Relational.Query.Defs
 public import Mathlib.Data.Set.Insert
-import Silmaril.Proofs.Relational.Query.Conversions
+import Silmaril.Proofs.Semantics.Relational.Query.Conversions
 
 @[expose] public section
 

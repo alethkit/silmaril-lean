@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Relational.UB.All
+public import Silmaril.Semantics.Relational.UB.All
 
 /-! Checked examples using only the public UB interface. -/
 

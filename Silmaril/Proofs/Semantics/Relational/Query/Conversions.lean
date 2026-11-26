@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Relational.Query.Defs
+public import Silmaril.Semantics.Relational.Query.Defs
 import Mathlib.Data.Set.Insert
 
 public section

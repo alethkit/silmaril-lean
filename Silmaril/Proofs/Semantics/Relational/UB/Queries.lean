@@ -1,8 +1,8 @@
 module
 
-public import Silmaril.Relational.UB.QueryDefs
-public import Silmaril.Relational.UB.Thms
-public import Silmaril.Relational.Query.Thms
+public import Silmaril.Semantics.Relational.UB.QueryDefs
+public import Silmaril.Semantics.Relational.UB.Thms
+public import Silmaril.Semantics.Relational.Query.Thms
 
 public section
 

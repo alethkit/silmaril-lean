@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Relational.Query.Result
+public import Silmaril.Semantics.Relational.Query.Result
 public import Mathlib.Logic.Embedding.Basic
 
 /-!

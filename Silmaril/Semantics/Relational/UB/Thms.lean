@@ -1,8 +1,8 @@
 module
 
-public import Silmaril.Relational.UB.Defs
+public import Silmaril.Semantics.Relational.UB.Defs
 public import Mathlib.Order.GaloisConnection.Basic
-import Silmaril.Proofs.Relational.UB.Algebra
+import Silmaril.Proofs.Semantics.Relational.UB.Algebra
 
 public section
 

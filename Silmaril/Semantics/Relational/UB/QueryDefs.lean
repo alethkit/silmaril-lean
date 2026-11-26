@@ -1,7 +1,7 @@
 module
 
-public import Silmaril.Relational.Query.Defs
-public import Silmaril.Relational.UB.Defs
+public import Silmaril.Semantics.Relational.Query.Defs
+public import Silmaril.Semantics.Relational.UB.Defs
 
 /-!
 # UB indexed by database and query
