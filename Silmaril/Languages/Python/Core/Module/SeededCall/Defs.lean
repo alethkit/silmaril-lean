@@ -28,6 +28,7 @@ inductive AssertionArgument where
   | booleanPair (left right : Bool)
   | textPair (left right : Core.Text)
   | tuplePair (left right : List Core.Module.TupleDispatch.Element)
+  | dictionaryPair (left right : List Core.Module.Dictionary.Entry)
   | emptyTuple
   | listObject (object : Core.Module.ListObject)
   deriving DecidableEq, Repr
@@ -127,6 +128,15 @@ inductive Failure where
   deriving DecidableEq, Repr
 
 abbrev Result := Except Failure Value
+/-- Read both exact payloads from the reached heap. An invalid handle
+cannot supply a value for a checked helper call. -/
+def assertDictionaryEqual (heap : Core.Closure.Heap) (left right : Core.Module.Dictionary.Object) : Result :=
+  match heap.dictionaryEntries? left, heap.dictionaryEntries? right with
+  | some lhs, some rhs =>
+    if Core.Module.Dictionary.equalContents lhs rhs then .ok .none
+    else .error (.raised (.assertionError (.dictionaryPair lhs rhs)))
+  | _, _ => .error .unsupported
+
 abbrev Bindings := List (String × Value)
 
 def lookupBinding (bindings : Bindings) (name : String) : Option Value :=

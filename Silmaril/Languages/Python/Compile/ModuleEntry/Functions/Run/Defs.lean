@@ -22,6 +22,7 @@ open Core.Module.Functions (Invocation Session TopFunction)
 inductive Argument where
   | scalar (operand : Core.Module.Functions.Operand)
   | dictionaryGet (test : Core.Module.Dictionary.Get)
+  | dictionaryDisplay (entries : List Core.Module.Dictionary.Entry)
   | call (name : String) (arguments : List Core.Module.Functions.Operand)
 
 inductive Instruction (scope : Scope) where
@@ -84,6 +85,7 @@ def callValue? {scope : Scope} : CallValue scope → Option Core.Module.Function
 
 def callArgument? {scope : Scope} : CallArgument scope → Option Argument
   | .dictionaryGet test => some (.dictionaryGet test)
+  | .dictionaryDisplay entries => some (.dictionaryDisplay entries)
   | .value (.scalar .none_) => some (.scalar (.literal .none))
   | .value operand => (callValue? operand).map .scalar
   | .call name _ operands => (operands.mapM callValue?).map (.call name)
@@ -289,11 +291,13 @@ decreasing_by
     | have smaller := Core.Module.Identity.sizeOf_operand_lt link.property
       omega
 
-def Argument.emit {layout : Layout} (destination : Slot layout) (next : Body layout) :
+def Argument.emit {layout : Layout} (destination : Fin layout.locals) (next : Body layout) :
     Argument → Body layout
-  | .scalar operand => .store destination operand.lower next
-  | .dictionaryGet test => .store destination (.dictionaryGet test) next
-  | .call name arguments => .call destination (.readGlobal name) (arguments.map Core.Module.Functions.Operand.lower) next
+  | .scalar operand => .store (.local destination) operand.lower next
+  | .dictionaryGet test => .store (.local destination) (.dictionaryGet test) next
+  | .dictionaryDisplay entries => .storeDictionary destination entries next
+  | .call name arguments => .call (.local destination) (.readGlobal name)
+      (arguments.map Core.Module.Functions.Operand.lower) next
 
 /-- Save the outer callable first and evaluate each argument once in source
 order. The scratch slots are private to this frame and use no shared cells. -/
@@ -302,9 +306,9 @@ def prepareNestedCall (session : Session) (destination : Core.Module.Functions.D
   let layout : Layout := ⟨arguments.length + 2, 0, 0⟩
   let callee : Slot layout := .local ⟨0, by change 0 < arguments.length + 2; omega⟩
   let result : Slot layout := .local ⟨1, by change 1 < arguments.length + 2; omega⟩
-  let slots : List (Slot layout) := (List.finRange arguments.length).map fun i =>
-    .local ⟨i.val + 2, Nat.add_lt_add_right i.isLt 2⟩
-  let invoke := Body.call result (.read callee) (slots.map .read) (.ret (.read result))
+  let slots : List (Fin layout.locals) := (List.finRange arguments.length).map fun i =>
+    ⟨i.val + 2, Nat.add_lt_add_right i.isLt 2⟩
+  let invoke := Body.call result (.read callee) (slots.map fun slot => .read (.local slot)) (.ret (.read result))
   let body := (slots.zip arguments).foldr (fun (slot, argument) next => argument.emit slot next) invoke
   let frame : Frame layout := ⟨fun _ => none, Fin.elim0, Fin.elim0⟩
   ⟨session.globals, destination, .running session.heap frame (.store callee (.readGlobal name) body) [], session.lists⟩

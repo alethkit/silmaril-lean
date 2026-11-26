@@ -993,6 +993,20 @@ theorem observeNestedCallIn_failedArguments {space : Namespace} {context : CallC
     observeNestedCallIn space context destination name arguments = (⟨.error error, calls, none⟩, heap) := by
   simp [observeNestedCallIn, observeRemainingCallIn, found, failed]
 
+theorem observeArgumentIn_dictionaryDisplay (space : Namespace) (context : CallContext)
+    (display : List Core.Module.Dictionary.Entry) (allowEscaped : Bool) :
+    let (object, reached) := context.heap.materializeDictionary display
+    observeArgumentIn space context (.dictionaryDisplay display) allowEscaped =
+      (.ok (.dictionary object), [], reached) := rfl
+
+theorem invokeDescriptor_dictionaryEqual (heap : Heap) (left right : Core.Module.Dictionary.Object)
+    {lhs rhs : List Core.Module.Dictionary.Entry}
+    (leftLive : heap.dictionaryEntries? left = some lhs) (rightLive : heap.dictionaryEntries? right = some rhs) :
+    invokeDescriptor heap (.helper .assertEqual) [.dictionary left, .dictionary right] =
+      (⟨if Core.Module.Dictionary.equalContents lhs rhs then .ok .none
+        else .error (.raised (.assertionError (.dictionaryPair lhs rhs))), none⟩, heap) := by
+  simp [invokeDescriptor, Core.Module.SeededCall.assertDictionaryEqual, leftLive, rightLive]
+
 theorem observeNestedCallIn_settledArguments {space : Namespace} {context : CallContext}
     {destination : Core.Module.Functions.Destination} {name : String} {callee : Value}
     {arguments : List Argument} {values : List Value} {calls : List CallEvent} {heap : Heap}

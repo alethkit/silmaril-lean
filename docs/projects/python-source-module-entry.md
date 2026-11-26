@@ -286,11 +286,27 @@ positional arguments are looked up in order before a stock arity error.
 A missing or unsupported receiver stops before argument preparation.
 Failure leaves the reached heap and namespace intact. The unchanged
 `dict-clear.py` prefix through line 2 completes in all four fixed runner
-profiles. Its next cutoff is the dictionary equality assertion on line 3.
+profiles.
 Escaping bound methods, keyword or expanded arguments, and `update` are
 outside the checked slice.
 Run the pinned differential with
 `python3.13 -I scripts/check-python-dictionary-clear.py --upstream /path/to/pinned/rigorous`.
+
+Exact dictionary displays can also supply a direct positional call
+argument. Both runners resolve the callee first and allocate an admitted
+display when its operand is reached. Earlier allocations survive a later
+argument or invocation failure. A named argument retains its dictionary
+handle. The live stock equality helper reads the reached entries behind
+both handles. It compares exact key/value pairs independent of insertion
+order and retains both ordered entry lists on an assertion failure.
+
+Both stock helper placements complete the unchanged `dict-clear.py`
+prefix through line 3. Ordinary and empty-seeded execution clear the
+original handle and stop at the missing helper before allocating the
+second display. Line 5 passes a bound method as a callback and remains a
+compiler cutoff. The equality rule covers flat exact dictionaries.
+Run the pinned differential with
+`python3.13 -I scripts/check-python-dictionary-arguments.py --upstream /path/to/pinned/rigorous`.
 
 The function-aware checker can omit an `if` whose closed guard selects an
 empty arm or an arm of `pass` statements. The otherwise unsupported arm

@@ -267,6 +267,7 @@ theorem advance_of_step {source target : State} {label : Option Event}
   | retError eval => simp [advanceIn, eval_eq eval]
   | store eval wrote => simp [advanceIn, eval_eq eval, store_eq wrote]
   | storeError eval => simp [advanceIn, eval_eq eval]
+  | storeDictionary wrote => simp [advanceIn, store_eq wrote]
   | assertTrue eval holds => simp [advanceIn, eval_eq eval, holds]
   | assertFalse eval fails => simp [advanceIn, eval_eq eval, fails]
   | assertError eval => simp [advanceIn, eval_eq eval]
@@ -314,6 +315,10 @@ theorem step_of_advance {source : State} {transition : Transition}
         simp only [advanceIn, evaluated, Option.some.injEq] at advanced
         subst transition
         exact .storeError (evaluated ▸ eval_rule operand)
+    | storeDictionary destination entries next =>
+      simp only [advanceIn, Option.some.injEq] at advanced
+      subst transition
+      exact .storeDictionary (store_rule (.local destination) _ next stack)
     | assert test next =>
       cases evaluated : test.evalIn globals heap frame with
       | error error =>

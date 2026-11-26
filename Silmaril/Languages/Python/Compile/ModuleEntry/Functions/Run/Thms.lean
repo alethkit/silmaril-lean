@@ -111,6 +111,15 @@ theorem advance_bindDictionary {scope : Source.Scope} (table : Core.Closure.Exec
     advance table (.ready session (.bindDictionary name display :: rest)) =
       ([], .ready { session.bindGlobal name (.dictionary object) with heap } rest) := rfl
 
+theorem prepareNestedCall_missing {session : Core.Module.Functions.Session}
+    (table : Core.Closure.Executor.CodeTable) (destination : Core.Module.Functions.Destination)
+    (name : String) (arguments : List Argument) (missing : session.globals name = none) :
+    let invocation := prepareNestedCall session destination name arguments
+    Core.Closure.Executor.advanceIn table invocation.globals invocation.state =
+      some (none, .delivering session.heap [] (.error (.nameError name))) := by
+  simp [prepareNestedCall, Core.Closure.Executor.advanceIn, Core.Closure.Executor.Operand.evalIn,
+    Core.Closure.Executor.NameRead.evalIn, Core.Closure.Executor.fail, missing]
+
 theorem advance_clearDictionary_ok {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     {session : Core.Module.Functions.Session} {target : Option String} {call : Core.Module.Dictionary.Clear}
     {heap : Core.Closure.Heap} (rest : List (Instruction scope))

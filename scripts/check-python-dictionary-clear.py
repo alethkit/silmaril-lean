@@ -160,12 +160,11 @@ tail = 9
         assert lines[4].rstrip() == "___assertRaises(TypeError, d.clear, None)"
         test, observed = fixture("".join(lines[:2]), "normal", (("d", "clear", None),))
         tests.append(test)
-        tests.append(("".join(lines[:3]), rejects))
         tests.append((source, rejects))
         assert DICTIONARY["cpython"](source, "builtin")[0] == "normal"
         observations["unchanged pin prefix"] = {
             "sha256": SHA256, "completed_through": 2, "profiles": observed,
-            "next_line": lines[2].rstrip(), "later_line": lines[4].rstrip(),
+            "following_line": lines[2].rstrip(), "later_line": lines[4].rstrip(),
         }
     return tests, observations
 

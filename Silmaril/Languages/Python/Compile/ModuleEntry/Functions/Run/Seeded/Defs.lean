@@ -352,6 +352,8 @@ def invokeDescriptor (heap : Heap) (callee : Value) (arguments : List Value) : C
   | .builtin .tuple, [.text text] =>
     let (value, reached) := heap.materializeFreshTuple (text.singletons.map .text)
     (⟨.ok (seededValue value), none⟩, reached)
+  | .helper .assertEqual, [.dictionary left, .dictionary right] =>
+    (⟨Core.Module.SeededCall.assertDictionaryEqual heap left right, none⟩, heap)
   | _, _ => (Core.Module.SeededCall.invokeObserved callee arguments, heap)
 
 def invokeCall (space : Namespace) (context : CallContext) (callee : Value) (arguments : List Value) :
@@ -486,6 +488,7 @@ def observeDictionaryGet (space : Namespace) (heap : Heap) (test : Core.Module.D
   ⟨test.receiver ++ ".get", ⟨evalDictionaryGet space heap test, none⟩⟩
 
 def observeArgument (space : Namespace) : Argument → Result × List CallEvent
+  | .dictionaryDisplay _ => (.error .unsupported, [])
   | .dictionaryGet test =>
     let event := observeDictionaryGet space .empty test
     (event.observation.result, [event])
@@ -559,6 +562,9 @@ def observeArgumentIn (space : Namespace) (context : CallContext) (argument : Ar
   match argument with
   | .scalar operand =>
     (((lowerCallOperand operand).eval space #v[]).mapError .ofCall, [], context.heap)
+  | .dictionaryDisplay entries =>
+    let (object, heap) := context.heap.materializeDictionary entries
+    (.ok (.dictionary object), [], heap)
   | .dictionaryGet test =>
     let event := observeDictionaryGet space context.heap test
     (event.observation.result.mapError .ofCall, [event], context.heap)

@@ -64,6 +64,7 @@ or discard their returned value. -/
 inductive Body (layout : Layout) where
   | ret (value : Operand layout)
   | store (destination : Slot layout) (value : Operand layout) (next : Body layout)
+  | storeDictionary (destination : Fin layout.locals) (entries : List Core.Module.Dictionary.Entry) (next : Body layout)
   | assert (test : Operand layout) (next : Body layout)
   | assertFreevars (test : FreevarsTest layout) (next : Body layout)
   | assertCellvars (test : CellvarsTest layout) (next : Body layout)
@@ -312,6 +313,9 @@ def advanceIn (table : CodeTable) (globals : GlobalLookup) : State → Option Tr
     some <| match operand.evalIn globals heap frame with
     | .ok value => resumeStore heap frame destination value next stack
     | .error error => fail heap stack error
+  | .running heap frame (.storeDictionary destination entries next) stack =>
+    let (object, reached) := heap.materializeDictionary entries
+    some (resumeStore reached frame (.local destination) (.dictionary object) next stack)
   | .running heap frame (.assert test next) stack =>
     some <| match test.evalIn globals heap frame with
     | .ok value =>
@@ -492,6 +496,10 @@ inductive StepIn (table : CodeTable) (globals : GlobalLookup) : State → Option
       EvaluatesIn globals heap frame operand (.error error) →
       StepIn table globals (.running heap frame (.store destination operand next) stack)
         (fail heap stack error).1 (fail heap stack error).2
+  | storeDictionary {heap stack layout} {frame : Frame layout} {destination entries next transition} :
+      Stores (heap.materializeDictionary entries).2 frame (.local destination)
+        (.dictionary (heap.materializeDictionary entries).1) next stack transition →
+      StepIn table globals (.running heap frame (.storeDictionary destination entries next) stack) transition.1 transition.2
   | assertTrue {heap stack layout} {frame : Frame layout} {test next value} :
       EvaluatesIn globals heap frame test (.ok value) → value.truth heap = true →
       StepIn table globals (.running heap frame (.assert test next) stack) none (.running heap frame next stack)
