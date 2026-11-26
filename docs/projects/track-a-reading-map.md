@@ -69,112 +69,110 @@ the statements and checks.
   Whole SQL execution, C or native refinement, WAL, contention, durability
   and crash recovery are outside these claims. [Operation paths][operations] · [Read case][read-case] · [Write case][write-case]
 
-## Review status
+## Implementation on main
 
-The ten-slice candidate is assembled locally. After #3543 and the single
-concrete read patch from #3555, it takes `Read.Interaction` from #3572 and
-the net `Read.Adapter` delta from #3623. The exact #3623 pin passed
-independent technical re-review and CI. The historical snapshot records
-the earlier #3583 scope, including `lowered_observations_eq`.
-[Open typed read][pr-typed-read] · [Stateful read adapter][pr-read-adapter] · [Historical snapshot][historical-integration]
+Implementation pin `f4e150fb9424a0c030c6a662d18d078adbbbdd82` contains all ten
+merges below. On the read path, #3555 supplies the concrete read,
+#3572 adds `Read.Interaction`, and #3623 adds the stateful `Read.Adapter`.
 
-The linked source revisions are immutable because the component changes
-are under review, with some based on other component branches. The map
-covers the pinned statements and their stated premises. The component PRs
-record publication and check status. [Inventory][pr-inventory] · [SC][pr-sc] · [Interaction][pr-interaction] · [Projection][pr-projection] · [Operators][pr-operators] · [Read][pr-read] · [Open typed read][pr-typed-read] · [Handled read adapter][pr-read-adapter] · [Institutions and Elgot][pr-institution] · [Write][pr-write]
+| Slice | Merge on main |
+| --- | --- |
+| [SQLite source inventory #3531][pr-inventory] | `36dac76adaee65c557c00ab2d9df372851495898` |
+| [Primitive SC and races #3539][pr-sc] | `59e2500ddc9e3b59f393e134259081c80392ab71` |
+| [Interaction and refinement #3543][pr-interaction] | `9c5d64ca9f1d4fbb36f213bd634d608b58dc6642` |
+| [Concrete SQLite read #3555][pr-read] | `ea34d1ac0d0e4c7471c049769a10f38b6dacb932` |
+| [Open typed read #3572][pr-typed-read] | `f20bc085ccf72ba77bfd882823a11deb60556a38` |
+| [Stateful read adapter #3623][pr-read-adapter] | `26a59ab4f3131bde9cee45053d678fa5b961886f` |
+| [SC projection #3559][pr-projection] | `905623e5ac5c74564e86daba44920e58ff63cd69` |
+| [Sequential interface operators #3564][pr-operators] | `abff074efabd68b7df45ed9fe87f6c7a37b9ed21` |
+| [Institutions and guarded Elgot interpretation #3576][pr-institution] | `ce7eb116bab0b7f4365b4aec1174a483abf4518a` |
+| [Rollback-mode SQLite write #3580][pr-write] | `f4e150fb9424a0c030c6a662d18d078adbbbdd82` |
 
-## Reproduce the checked integration
+## Validate the implementation pin
 
-Use Bash from a clone with the repository's pinned Lean toolchain. The
-local integration commit was `ffd634f262a50e8b8e83ba9c7bd38bc29151ec45` with
-tree `999ee9c79e3ed5fbed31d07cb3d79a8e99304012`. The ordered picks apply #3555 once,
-then use the exact #3623 file delta above #3572. Git's path list gives the
-52 targets in the order passed to Lake. Kernel replay checks each module
-over its loaded imports.
+The commands select 52 Lean modules from the first-parent deltas of
+these ten merges. The build treats warnings as errors and `make check`
+runs the repository source gates with that target list. Kernel replay
+checks each selected module over its loaded imports.
 
 ```bash
 set -euo pipefail
-base=1d04e3f7eb9552860b15ff35f7d23b76eed172cc
-adapter_base=b71f7df50b00679ab5e3784ba694621d54731920
-adapter_head=4d69c29875c1d3ab722ac9ca0a43f8203a845d1b
-before_adapter=(
-  627432c060169951a08c2454b1c524831ce48793
-  c43ef4a85c5948119be11834f4feebce75dc4991
-  0558a414b2117057e9b4ea638a8ceb1a3015827e
-  b93f7a72e2ad4a244ffd17bb5e94858a2c73fc3b
-  61d4a44f4514730e0779c4180a768abc21086ed7
-  9c76bcfd3e7f9266327e065191b1d39ddb423f68
-  ccff3448ed27e150d1d3fc510e050efd208df6f6
-  99cd8a9f92531530e3bd865036946844c90fa69c
-  41ca3399fba70945bb895e999d2a01f6fe92d24f
-  d9cb51eb8351f6c9c50b0a947e3b533da072644a
-  97c5db795d8422bcf4bd5dca780f9c818ec8f48a
-  852fe2dcb8628565856abe1074273abd96ce27ff
-  b71f7df50b00679ab5e3784ba694621d54731920
+implementation=f4e150fb9424a0c030c6a662d18d078adbbbdd82
+merges=(
+  36dac76adaee65c557c00ab2d9df372851495898
+  59e2500ddc9e3b59f393e134259081c80392ab71
+  9c5d64ca9f1d4fbb36f213bd634d608b58dc6642
+  ea34d1ac0d0e4c7471c049769a10f38b6dacb932
+  f20bc085ccf72ba77bfd882823a11deb60556a38
+  26a59ab4f3131bde9cee45053d678fa5b961886f
+  905623e5ac5c74564e86daba44920e58ff63cd69
+  abff074efabd68b7df45ed9fe87f6c7a37b9ed21
+  ce7eb116bab0b7f4365b4aec1174a483abf4518a
+  f4e150fb9424a0c030c6a662d18d078adbbbdd82
 )
-after_adapter=(
-  5e08c16a7b9d14127a9686f600039089fee36027
-  8cfa681d25aff2c6e7f198ee752984d2bf8e752f
-  fadfe8d9f01588812bc404b1bf86320805bbcc15
-  7a71c189fa30a0c00c60927ef002d6988a2af05f
-  814bed538f10118fb9b0810d3e78902c99395040
-  3a003ec4f8e5e1305e3980fbef6a7eb373931fcd
-)
-git fetch --no-tags origin "$base" "${before_adapter[@]}" "$adapter_head" "${after_adapter[@]}"
-git worktree add --detach ../track-a-check "$base"
-cd ../track-a-check
-git cherry-pick -x "${before_adapter[@]}"
-git diff --binary "$adapter_base" "$adapter_head" | git apply --index
-git commit -m 'Integrate exact SQLite Track A read adapter delta from #3623' \
-  -m "Source delta: $adapter_base..$adapter_head"
-git cherry-pick -x "${after_adapter[@]}"
-test "$(git rev-parse HEAD^{tree})" = 999ee9c79e3ed5fbed31d07cb3d79a8e99304012
+git fetch --no-tags origin "$implementation"
+git worktree add --detach ../track-a-main-check "$implementation"
+cd ../track-a-main-check
+test "$(git rev-parse HEAD^{tree})" = dc875a869d582c207f387cf50e85d4e89d698086
 
-mapfile -t modules < <(git diff --name-only --diff-filter=AM "$base"..HEAD -- '*.lean' |
-  sed -e 's/\.lean$//' -e 's@/@.@g')
+paths=$(mktemp)
+trap 'rm -f "$paths"' EXIT
+for merge in "${merges[@]}"; do
+  git merge-base --is-ancestor "$merge" "$implementation"
+  git diff --name-only --diff-filter=ACMR "$merge^1" "$merge" -- '*.lean'
+done > "$paths"
+mapfile -t modules < <(LC_ALL=C sort -u "$paths" | sed -e 's/\.lean$//' -e 's@/@.@g')
+test "${#modules[@]}" -eq 52
 targets=("${modules[@]/#/+}")
-test "${#targets[@]}" -eq 52
-LEAN_NUM_THREADS=12 lake build --wfail "${targets[@]}"
-LEAN_NUM_THREADS=12 make check "CHECK_TARGETS=${targets[*]}"
+export LEAN_NUM_THREADS=12
+lake build --wfail "${targets[@]}"
+make check "CHECK_TARGETS=${targets[*]}"
 printf '%s\n' "${modules[@]}" | xargs -r -P 6 -n 1 bash -c '
   LEAN_NUM_THREADS=1 SILMARIL_REPLAY_MODULE="$1" \
     lake env lean -DwarningAsError=true tools/compiler-explorer/Replay.lean
 ' _
 ```
 
-[interaction]: https://github.com/hiloopai/silmaril-lean/blob/9c76bcfd3e7f9266327e065191b1d39ddb423f68/docs/projects/track-a-interaction.md
-[interaction-thms]: https://github.com/hiloopai/silmaril-lean/blob/9c76bcfd3e7f9266327e065191b1d39ddb423f68/Silmaril/Semantics/TrackA/Interaction/Thms.lean
-[interaction-check]: https://github.com/hiloopai/silmaril-lean/blob/9c76bcfd3e7f9266327e065191b1d39ddb423f68/Silmaril/Proofs/Semantics/TrackA/Interaction/Regression.lean
-[guarded-thms]: https://github.com/hiloopai/silmaril-lean/blob/9c76bcfd3e7f9266327e065191b1d39ddb423f68/Silmaril/Semantics/TrackA/Interaction/Guarded/Thms.lean
-[weak-thms]: https://github.com/hiloopai/silmaril-lean/blob/9c76bcfd3e7f9266327e065191b1d39ddb423f68/Silmaril/Semantics/TrackA/Interaction/WeakITree/Thms.lean
-[ub-thms]: https://github.com/hiloopai/silmaril-lean/blob/9c76bcfd3e7f9266327e065191b1d39ddb423f68/Silmaril/Semantics/TrackA/Interaction/UB/Thms.lean
-[institution]: https://github.com/hiloopai/silmaril-lean/blob/fadfe8d9f01588812bc404b1bf86320805bbcc15/docs/projects/track-a-interaction-institution.md
-[institution-thms]: https://github.com/hiloopai/silmaril-lean/blob/fadfe8d9f01588812bc404b1bf86320805bbcc15/Silmaril/Logic/TrackA/Interaction/Thms.lean
-[institution-check]: https://github.com/hiloopai/silmaril-lean/blob/fadfe8d9f01588812bc404b1bf86320805bbcc15/Silmaril/Proofs/Logic/TrackA/Interaction/Regression.lean
-[relabel-thms]: https://github.com/hiloopai/silmaril-lean/blob/fadfe8d9f01588812bc404b1bf86320805bbcc15/Silmaril/Semantics/TrackA/Interaction/Relabel/Thms.lean
-[elgot-thms]: https://github.com/hiloopai/silmaril-lean/blob/fadfe8d9f01588812bc404b1bf86320805bbcc15/Silmaril/Semantics/TrackA/Interaction/Elgot/Thms.lean
-[sc]: https://github.com/hiloopai/silmaril-lean/blob/b93f7a72e2ad4a244ffd17bb5e94858a2c73fc3b/docs/projects/track-a-concurrency.md
-[sc-thms]: https://github.com/hiloopai/silmaril-lean/blob/b93f7a72e2ad4a244ffd17bb5e94858a2c73fc3b/Silmaril/Semantics/TrackA/Concurrency/Thms.lean
-[sc-check]: https://github.com/hiloopai/silmaril-lean/blob/b93f7a72e2ad4a244ffd17bb5e94858a2c73fc3b/Silmaril/Proofs/Semantics/TrackA/Concurrency/Examples.lean
-[sc-projection]: https://github.com/hiloopai/silmaril-lean/blob/41ca3399fba70945bb895e999d2a01f6fe92d24f/docs/projects/track-a-concurrency.md#interface-observations
-[projection-thms]: https://github.com/hiloopai/silmaril-lean/blob/41ca3399fba70945bb895e999d2a01f6fe92d24f/Silmaril/Semantics/TrackA/Concurrency/Projection/Thms.lean
-[projection-check]: https://github.com/hiloopai/silmaril-lean/blob/41ca3399fba70945bb895e999d2a01f6fe92d24f/Silmaril/Proofs/Semantics/TrackA/Concurrency/Projection/Examples.lean
-[operators]: https://github.com/hiloopai/silmaril-lean/blob/97c5db795d8422bcf4bd5dca780f9c818ec8f48a/docs/projects/track-a-interface.md
-[operators-thms]: https://github.com/hiloopai/silmaril-lean/blob/97c5db795d8422bcf4bd5dca780f9c818ec8f48a/Silmaril/Semantics/TrackA/Interface/Thms.lean
-[operators-check]: https://github.com/hiloopai/silmaril-lean/blob/97c5db795d8422bcf4bd5dca780f9c818ec8f48a/Silmaril/Proofs/Semantics/TrackA/Interface/Regression.lean
-[inventory]: https://github.com/hiloopai/silmaril-lean/blob/c43ef4a85c5948119be11834f4feebce75dc4991/docs/projects/sqlite-track-a/header-inventory/README.md
-[operations]: https://github.com/hiloopai/silmaril-lean/blob/c43ef4a85c5948119be11834f4feebce75dc4991/docs/projects/sqlite-track-a/header-inventory/operations.md
-[read-case]: https://github.com/hiloopai/silmaril-lean/blob/852fe2dcb8628565856abe1074273abd96ce27ff/docs/projects/sqlite-track-a/read-case.md
-[read-thms]: https://github.com/hiloopai/silmaril-lean/blob/852fe2dcb8628565856abe1074273abd96ce27ff/Silmaril/Machine/SQLite/TrackA/Read/Thms.lean
-[read-check]: https://github.com/hiloopai/silmaril-lean/blob/852fe2dcb8628565856abe1074273abd96ce27ff/Silmaril/Machine/SQLite/TrackA/Read/Checks.lean
-[typed-read]: https://github.com/hiloopai/silmaril-lean/blob/b71f7df50b00679ab5e3784ba694621d54731920/docs/projects/sqlite-track-a/read-interaction.md
-[typed-read-thms]: https://github.com/hiloopai/silmaril-lean/blob/b71f7df50b00679ab5e3784ba694621d54731920/Silmaril/Machine/SQLite/TrackA/Read/Interaction/Thms.lean
-[typed-read-check]: https://github.com/hiloopai/silmaril-lean/blob/b71f7df50b00679ab5e3784ba694621d54731920/Silmaril/Machine/SQLite/TrackA/Read/Interaction/Checks.lean
-[read-adapter]: https://github.com/hiloopai/silmaril-lean/blob/4d69c29875c1d3ab722ac9ca0a43f8203a845d1b/docs/projects/sqlite-track-a/typed-read-adapter.md
-[read-adapter-thms]: https://github.com/hiloopai/silmaril-lean/blob/4d69c29875c1d3ab722ac9ca0a43f8203a845d1b/Silmaril/Machine/SQLite/TrackA/Read/Adapter/Thms.lean
-[read-adapter-check]: https://github.com/hiloopai/silmaril-lean/blob/4d69c29875c1d3ab722ac9ca0a43f8203a845d1b/Silmaril/Machine/SQLite/TrackA/Read/Adapter/Checks.lean
-[write-case]: https://github.com/hiloopai/silmaril-lean/blob/3a003ec4f8e5e1305e3980fbef6a7eb373931fcd/docs/projects/sqlite-track-a-write.md
-[write-thms]: https://github.com/hiloopai/silmaril-lean/blob/3a003ec4f8e5e1305e3980fbef6a7eb373931fcd/Silmaril/Machine/SqliteVfs/TrackA/Write/Thms.lean
+## Historical checks
+
+The detached integration recipes predate the merges on main. The earlier
+#3583 snapshot includes `lowered_observations_eq`. The #3623 candidate
+snapshot records the stateful adapter and its scoped checks before the
+implementation merges. [Historical #3583 recipe][historical-integration] · [Historical #3623 recipe][historical-stateful-integration]
+
+[interaction]: track-a-interaction.md
+[interaction-thms]: ../../Silmaril/Semantics/TrackA/Interaction/Thms.lean
+[interaction-check]: ../../Silmaril/Proofs/Semantics/TrackA/Interaction/Regression.lean
+[guarded-thms]: ../../Silmaril/Semantics/TrackA/Interaction/Guarded/Thms.lean
+[weak-thms]: ../../Silmaril/Semantics/TrackA/Interaction/WeakITree/Thms.lean
+[ub-thms]: ../../Silmaril/Semantics/TrackA/Interaction/UB/Thms.lean
+[institution]: track-a-interaction-institution.md
+[institution-thms]: ../../Silmaril/Logic/TrackA/Interaction/Thms.lean
+[institution-check]: ../../Silmaril/Proofs/Logic/TrackA/Interaction/Regression.lean
+[relabel-thms]: ../../Silmaril/Semantics/TrackA/Interaction/Relabel/Thms.lean
+[elgot-thms]: ../../Silmaril/Semantics/TrackA/Interaction/Elgot/Thms.lean
+[sc]: track-a-concurrency.md
+[sc-thms]: ../../Silmaril/Semantics/TrackA/Concurrency/Thms.lean
+[sc-check]: ../../Silmaril/Proofs/Semantics/TrackA/Concurrency/Examples.lean
+[sc-projection]: track-a-concurrency.md#interface-observations
+[projection-thms]: ../../Silmaril/Semantics/TrackA/Concurrency/Projection/Thms.lean
+[projection-check]: ../../Silmaril/Proofs/Semantics/TrackA/Concurrency/Projection/Examples.lean
+[operators]: track-a-interface.md
+[operators-thms]: ../../Silmaril/Semantics/TrackA/Interface/Thms.lean
+[operators-check]: ../../Silmaril/Proofs/Semantics/TrackA/Interface/Regression.lean
+[inventory]: sqlite-track-a/header-inventory/README.md
+[operations]: sqlite-track-a/header-inventory/operations.md
+[read-case]: sqlite-track-a/read-case.md
+[read-thms]: ../../Silmaril/Machine/SQLite/TrackA/Read/Thms.lean
+[read-check]: ../../Silmaril/Machine/SQLite/TrackA/Read/Checks.lean
+[typed-read]: sqlite-track-a/read-interaction.md
+[typed-read-thms]: ../../Silmaril/Machine/SQLite/TrackA/Read/Interaction/Thms.lean
+[typed-read-check]: ../../Silmaril/Machine/SQLite/TrackA/Read/Interaction/Checks.lean
+[read-adapter]: sqlite-track-a/typed-read-adapter.md
+[read-adapter-thms]: ../../Silmaril/Machine/SQLite/TrackA/Read/Adapter/Thms.lean
+[read-adapter-check]: ../../Silmaril/Machine/SQLite/TrackA/Read/Adapter/Checks.lean
+[write-case]: sqlite-track-a-write.md
+[write-thms]: ../../Silmaril/Machine/SqliteVfs/TrackA/Write/Thms.lean
 [pr-inventory]: https://github.com/hiloopai/silmaril-lean/pull/3531
 [pr-sc]: https://github.com/hiloopai/silmaril-lean/pull/3539
 [pr-interaction]: https://github.com/hiloopai/silmaril-lean/pull/3543
@@ -186,3 +184,4 @@ printf '%s\n' "${modules[@]}" | xargs -r -P 6 -n 1 bash -c '
 [pr-read-adapter]: https://github.com/hiloopai/silmaril-lean/pull/3623
 [pr-write]: https://github.com/hiloopai/silmaril-lean/pull/3580
 [historical-integration]: https://github.com/hiloopai/silmaril-lean/blob/f3b9c32dbb606bca3afd0fc97eb80bc584768411/docs/projects/track-a-reading-map.md#reproduce-the-checked-integration
+[historical-stateful-integration]: https://github.com/hiloopai/silmaril-lean/blob/61349da9ca21e4e405e0f70386c3d72590bdcebf/docs/projects/track-a-reading-map.md#reproduce-the-checked-integration
