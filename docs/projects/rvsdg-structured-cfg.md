@@ -89,11 +89,41 @@ the γ payload. The label parser still returns the original candidate and
 certification rejects the graph.
 [Reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/Reverse/Thms.lean)
 
+## Compile through the outer normal form
+
+`Normalization.normalize` covers every admitted structured source. It
+passes a serial suffix through a preceding sequence and into a fork's
+existing shared continuation. The two arm scopes stay local to the fork.
+The type of the operation preserves the boundary carrier types and the
+ordered vertex signature table. Applying it to a source already written
+in `Reverse.Normal` returns that normal form.
+
+`denote_normalize` proves equality of the repository's flat
+`Region.denote` in the coherent monadic Elgot interface. The proof uses
+the actual flat fork and flat link laws and reassociates binds. In the
+partial-state model, `compile_returns_iff` and `compile_undefined_iff`
+compare the original flat CFG with the newly emitted graph, including
+the typed exit and exact final token. Every result of reverse recovery
+on that emission has the original CFG's partial denotation.
+
+`Normalization.compile` emits the explicit normal layout. The existing
+recognizer is complete on its output for every `Syntax` witness.
+`decideNumbering` uses full typed graph equality to check the earlier and
+normal emissions for a particular source. The regression checks literal
+equality on a fork followed by a composite suffix, where stages 8 and 9
+move into the fork's continuation after stage 7. On input 0 the graph
+returns payload 123357 and token 12335789. Input 99 has no finite return.
+The compiler and round-trip theorem apply independently of the per-source
+comparison. A universal equality theorem for the two emissions would
+require a syntactic associativity law for checked splice and origin
+relocation. The existing splice law gives denotational composition.
+[Normalization API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/Normalization/Thms.lean)
+
 ## Reproduce
 
 ```sh
-make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression'
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression'
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms
 ```
 
 ## Sources

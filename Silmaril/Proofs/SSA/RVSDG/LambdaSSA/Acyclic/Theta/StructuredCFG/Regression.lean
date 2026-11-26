@@ -1,7 +1,8 @@
 module
 
-import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms
 meta import Silmaril.SSA.Isotope.Types.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Defs
 
 namespace Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression
@@ -342,5 +343,70 @@ example : Reverse.candidate leftSerial.graph = some rightSerial :=
     throw (IO.userError "could not recover the right-associated serial view")
   unless (Reverse.candidate stale).isSome && (Reverse.recognize stale).isNone do
     throw (IO.userError "structured recovery failed to certify the stale token")
+
+-- The outer fork owns only stage 7 in the source. The suffix is itself a
+-- serial composition, so normalization must move both stages after 7.
+private def regrouped :=
+  Syntax.link (Syntax.branch (X := number) (Z := number) (gate 3 1) inner
+    (.loop (stage 6)) (.loop (stage 7))) (.link (.loop (stage 8)) (.loop (stage 9)))
+
+private def extended := Syntax.link exampleCFG (.loop (stage 9))
+
+example : Normalization.normalize regrouped =
+    Normal.branch (gate 3 1) normalInner (.loop (stage 6))
+      (.link (stage 7) (.link (stage 8) (.loop (stage 9)))) := rfl
+
+-- Compare the actual numbered graphs at the common typed signature.
+example : regrouped.graph = Normalization.compile regrouped := rfl
+
+private theorem regrouped_run (coherent : Coherent) (n : TyDen number) (token : Nat) :
+    (Region.denote (ε := Bool) (m := Runtime) regrouped.source.typing (PUnit.unit,n)).run token =
+      ((Region.denote (ε := Bool) (m := Runtime) lowered.2.typing (PUnit.unit,n)).run token).bind
+        (fun out => (runStage 9 (merge out.1)).run out.2) := by
+  have same : Region.denote (ε := Bool) (m := Runtime) regrouped.source.typing (PUnit.unit,n) =
+      Region.denote (ε := Bool) (m := Runtime) extended.source.typing (PUnit.unit,n) :=
+    (Normalization.denote_normalize regrouped coherent (PUnit.unit,n)).symm.trans
+      (Normalization.denote_normalize extended coherent (PUnit.unit,n))
+  refine (congrArg (fun action : Runtime Exits => action.run token) same).trans ?_
+  have linked := Flat.denote_link exampleCFG.source (.loop (stage 9)) coherent (PUnit.unit,n)
+  refine (congrArg (fun action : Runtime Exits => action.run token) linked).trans ?_
+  rw [StateT.run_bind, Part.bind_eq_bind]
+  congr 1
+  funext out
+  let input : Env [number] := (PUnit.unit, merge out.1)
+  have iteration := (congrFun (Flat.Fragment.loop_denote (ε := Bool) (m := Runtime) (stage 9)) input).trans
+    (ExplicitRuntime.denote_rounds (stage 9) coherent input)
+  exact congrArg (fun action : Runtime Exits => action.run out.2) iteration
+
+example (coherent : Coherent) :
+    returns (ε := Bool) (Normalization.compile regrouped) (0 : Nat) 0 (exit 123357) 12335789 := by
+  apply (Normalization.compile_returns_iff regrouped coherent
+    (PUnit.unit, (0 : Nat)) (exit 123357) 0 12335789).mpr
+  refine (regrouped_run coherent _ _).trans ?_
+  rw [(lowered.2.region_returns_iff coherent (PUnit.unit, (0 : Nat)) (exit 123357) 0 1233578).mp
+      (leftReturns coherent), Part.bind_some]
+  exact stage_returns 9 123357 1233578 (by decide) (by decide)
+
+example (coherent : Coherent) :
+    observe (ε := Bool) (Normalization.compile regrouped) (99 : Nat) 0 = Part.none := by
+  apply (Normalization.compile_undefined_iff regrouped coherent (PUnit.unit, (99 : Nat)) 0).mpr
+  refine (regrouped_run coherent _ _).trans ?_
+  rw [(lowered.2.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) 0).mp (noReturn coherent), Part.bind_none]
+
+private def normalizedRecovery : Reverse.Fibre (Normalization.compile regrouped) :=
+  (Reverse.recover (Normalization.compile regrouped)).get (Normalization.compile_recover regrouped)
+
+example (coherent : Coherent) (n : TyDen number) (token : Nat) :
+    (Region.denote (ε := Bool) (m := Runtime) normalizedRecovery.2.typing (PUnit.unit,n)).run token =
+      (Region.denote (ε := Bool) (m := Runtime) regrouped.source.typing (PUnit.unit,n)).run token :=
+  Normalization.recover_denote regrouped
+    (Option.some_get (Normalization.compile_recover regrouped)).symm coherent (PUnit.unit,n) token
+
+#eval show IO Unit from do
+  unless (Reverse.recover (Normalization.compile regrouped)).isSome do
+    throw (IO.userError "could not recover the fork after folding its composite suffix")
+  match Normalization.decideNumbering regrouped with
+  | .isTrue _ => pure ()
+  | .isFalse _ => throw (IO.userError "numbered wiring changed in the composite suffix fixture")
 
 end Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression
