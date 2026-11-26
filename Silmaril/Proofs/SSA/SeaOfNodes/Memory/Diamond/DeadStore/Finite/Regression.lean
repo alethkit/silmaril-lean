@@ -2,9 +2,11 @@ module
 
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.FinalEntry.Thms
 
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.FinalEntry.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.MLIR.MemRef.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite
@@ -162,5 +164,64 @@ private def transportedSelections : List (Option (Nat × List Nat × List Nat)) 
 #guard (MemRef.CF.lower preds fits shared (arms headPort) witnesses suffix input).isNone
 example : MemRef.CF.lower preds fits shared (arms headPort) witnesses suffix input = none :=
   MemRef.CF.lower_eq_none_iff.mpr ⟨1, rfl⟩
+
+private def entryPrefix (lastWriter : Port Args .address) (tail : Memory.Body Args [[.word]] 2) :
+    Memory.Graph Args :=
+  .load (.latest 0) (.arg headPort)
+    (.store (.latest 0) (.arg sidePort) loaded
+      (.store (.latest 1) (.arg lastWriter) (.arg firstWord) tail))
+
+private def sourceEntry (lastWriter : Port Args .address := headPort) : Memory.Graph Args :=
+  entryPrefix lastWriter (.store (.latest 2) (.arg headPort) (.arg entryWord) (.ret (.latest 3) loaded))
+
+private def retainedEntry : Memory.Graph Args := entryPrefix headPort (.ret (.latest 2) loaded)
+
+private theorem cutAccepted :
+    Entry.Composition.Static.Final.cut 3 sourceEntry = some (shared, retainedEntry) := rfl
+
+private def entryPrograms :=
+  MemRef.CF.FinalEntry.lower preds fits sourceEntry 3 (arms sidePort) witnesses suffix input
+
+private def entryBuffers (programs : MemRef.CF.Programs 3 Args preds) : List Nat × List Nat :=
+  let before := MemRef.CF.entryTransition programs.original programs.input 1 initial
+  let after := MemRef.CF.entryTransition programs.optimized programs.input 1 initial
+  (List.ofFn (fun i => (before.2.cell i).toNat), List.ofFn (fun i => (after.2.cell i).toNat))
+
+-- The side Store still uses the original Load. The retained write to
+-- the head is observable on the edge to the switch arm.
+#guard entryPrograms.map entryBuffers == some ([99, 7, 55], [11, 7, 55])
+#guard readback (observe sourceEntry input initial) == [7, 99, 7, 55]
+#guard readback (observe retainedEntry input initial) == [7, 11, 7, 55]
+
+private def runEntrySwitch (arrival : Occurrence preds) (fuel : Nat) :
+    Option (Nat × List Nat × List Nat) := do
+  let programs ← entryPrograms
+  let before ← inspectSwitch programs.original arrival fuel
+  let after ← inspectSwitch programs.optimized arrival fuel
+  if before == after then some after else none
+
+#guard (List.ofFn fun i => runEntrySwitch i 3) ==
+  [some (0, [7, 11, 7, 55], [11, 11, 7, 55]),
+   some (1, [7, 22, 22, 55], [22, 22, 7, 55]),
+   some (2, [99, 99, 7, 55], [99, 99, 99, 55])]
+#guard (runEntrySwitch 1 2).isNone
+
+#guard Memory.DeadStore.readAt (arms headPort 1) 0 input PUnit.unit
+    (sourceEntry.denote input initial.cell).2 == some 99
+#guard Memory.DeadStore.readAt (arms headPort 1) 0 input PUnit.unit
+    (retainedEntry.denote input initial.cell).2 == some 11
+#guard (MemRef.CF.FinalEntry.lower preds fits sourceEntry 3 (arms headPort) witnesses suffix input).isNone
+example : MemRef.CF.FinalEntry.lower preds fits sourceEntry 3 (arms headPort) witnesses suffix input = none :=
+  (MemRef.CF.FinalEntry.lower_eq_none_iff cutAccepted).mpr ⟨1, rfl⟩
+#guard (MemRef.CF.FinalEntry.lower preds fits sourceEntry 2 (arms sidePort) witnesses suffix input).isNone
+
+-- The last retained Store can also reach the head through a distinct
+-- address port. These arms overwrite before doing any read.
+private def aliasInput : Tuple (Val 3) Args :=
+  .cons (0 : Address 3) (.cons (0 : Address 3)
+    (.cons (99 : Word) (.cons (11 : Word) (.cons (22 : Word) .nil))))
+
+#guard (MemRef.CF.FinalEntry.lower preds fits (sourceEntry sidePort) 3 (fun _ => last)
+    (fun _ => ⟨1, []⟩) suffix aliasInput).map entryBuffers == some ([99, 3, 55], [11, 3, 55])
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite

@@ -131,6 +131,33 @@ emission. The continuation makes the selected word observable through
 a side-cell Store.
 [Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Regression.lean)
 
+## Keep the typed entry prefix before the switch
+
+`DeadStore.Finite.MemRef.CF.FinalEntry.lower` takes a one-based Store
+nomination in the native entry table. It reuses `Static.Final.cut`,
+which admits original argument address and data operands on the
+nominated Store immediately before Return. The preceding typed
+Loads and Stores execute in their original order in both emitted
+CFGs. A retained Store can consume a loaded word or write the same
+concrete cell as the nominated Store.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/FinalEntry/Defs.lean) ·
+[Pinned Simple memory Phi](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#memory-is-an-ssa-variable)
+
+The entry keeps its scalar result and its exact switch occurrence.
+Reapplying the removed Store to the optimized entry buffer recovers
+the original entry buffer. The finite checker validates the overwrite
+and reader evidence at each occurrence. The selected emitted arms
+then send the same word and complete buffer to the join, and the
+two CFGs agree on the native return for every CF budget and every
+initialized buffer at the certified input.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/FinalEntry/Thms.lean)
+
+The fixture keeps a Load-fed side write and an aliasing prefix write.
+It reads the entry buffers, join packets and final buffers across all
+three occurrences, including repeated predecessor IDs. A read of
+the overwritten cell on the middle path refuses emission.
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Regression.lean)
+
 ## Bypass a single-user Store inside one arm
 
 `DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter
