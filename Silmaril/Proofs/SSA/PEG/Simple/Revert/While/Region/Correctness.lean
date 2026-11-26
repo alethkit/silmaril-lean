@@ -9,7 +9,7 @@ namespace Silmaril.SSA.PEG.Simple.Revert.While.Region.Proofs
 
 set_option backward.isDefEq.respectTransparency false
 
-open RVSDG (Tuple)
+open RVSDG (Port Tuple)
 
 universe u v w
 
@@ -92,7 +92,8 @@ private structure Prefix (i k : Nat) (final : Tagged m carried) : Prop where
   last : At cert (values := values) (i + k) final
   stop : flags cert values (i + k) = some true
   earlier : ∀ j < k, flags cert values (i + j) = some false
-  defined : ∀ j < k, (samples cert values (i + j)).isSome
+  defined : ∀ j < k, ∀ t (p : Port carried t),
+    (read values (clock (i + j)) (cert.descriptor.theta.get p)).isSome
 
 private theorem tracePrefix {k : Nat} {tagged final : Tagged m carried}
     (trace : Trace cert m k tagged final) (i : Nat) (entry : At cert (values := values) i tagged) :
@@ -109,16 +110,15 @@ private theorem tracePrefix {k : Nat} {tagged final : Tagged m carried}
       cases j with
       | zero => exact flagAt cert solves neg entry test
       | succ j => rw [offset]; exact after.earlier j (by omega)
-    · intro j lt
+    · intro j lt t p
       cases j with
       | zero =>
-        change (samples cert values i).isSome
-        unfold samples
-        have sample := entry result (.tail cert.descriptor.returnSlot)
+        change (read values (clock i) (cert.descriptor.theta.get p)).isSome
+        have sample := entry t (.tail p)
         rw [Descriptor.guardRoots, Tuple.get] at sample
         rw [sample]
         rfl
-      | succ j => rw [offset]; exact after.defined j (by omega)
+      | succ j => rw [offset]; exact after.defined j (by omega) t p
 
 private theorem traceOfFlags (total : cert.Total m)
     (i k : Nat) {tagged : Tagged m carried} (entry : At cert (values := values) i tagged)
@@ -150,22 +150,42 @@ private theorem unpack {value : m.Value result} (success : cert.revert.Returns m
     exact ⟨k, _, final, Exec.deterministic (cert.guard.lower.runLoopFree_enableWhile env) first,
       trace, returned⟩
 
-theorem observe_of_returns (i : Index 1) {value : m.Value result}
-    (success : cert.revert.Returns m env value) :
-    g.observe m values i = .cons (some value) .nil := by
-  obtain ⟨k, tagged, final, guard, trace, returned⟩ := unpack cert success
+theorem traceObservation (i : Index 1) {k : Nat} {tagged final : Tagged m carried}
+    (guard : cert.guard.lower.runLoopFree m env = some tagged) (trace : Trace cert m k tagged final) :
+    cert.TraceObservation m values i k final := by
   have ran := tracePrefix cert solves neg trace 0 (start cert solves guard)
   have first : firstTrue (flags cert values) = some k :=
     (firstTrue_eq_some_iff_samples _ _).mpr
       ⟨by simpa only [Nat.zero_add] using ran.stop,
         fun j hj => by simpa only [Nat.zero_add] using ran.earlier j hj⟩
-  rw [observation cert solves, pass cert solves, first]
+  refine ⟨?_, ?_, ?_⟩
+  · change read values i cert.descriptor.pass = some ⟨k⟩
+    rw [pass cert solves, first]
+    rfl
+  · intro t p
+    change read values (clock k) (cert.descriptor.theta.get p) = _
+    have last : read values (clock (0 + k)) (cert.descriptor.theta.get p) = some (final.get (.tail p)) :=
+      ran.last t (.tail p)
+    rw [Nat.zero_add] at last
+    exact last
+  · intro j hj t p
+    change (read values (clock j) (cert.descriptor.theta.get p)).isSome
+    have defined := ran.defined j hj t p
+    rw [Nat.zero_add] at defined
+    exact defined
+
+theorem observe_of_returns (i : Index 1) {value : m.Value result}
+    (success : cert.revert.Returns m env value) :
+    g.observe m values i = .cons (some value) .nil := by
+  obtain ⟨k, tagged, final, guard, trace, returned⟩ := unpack cert success
+  have ran := traceObservation cert solves neg i guard trace
+  have picked : read values i cert.descriptor.pass = some ⟨k⟩ := ran.pass
+  rw [observation cert solves, picked]
   change Tuple.cons (F := fun t => Option (m.Value t)) (monotonize (samples cert values) k) .nil = _
   congr 1
   apply (monotonize_eq_some_iff _ _ _).mpr
-  have sample := (ran.last result (.tail cert.descriptor.returnSlot)).trans (congrArg some returned)
-  exact ⟨by simpa only [samples, Nat.zero_add, Descriptor.guardRoots, Tuple.get] using sample,
-    fun j hj => by simpa only [Nat.zero_add] using ran.defined j hj⟩
+  exact ⟨(ran.sample result cert.descriptor.returnSlot).trans (congrArg some returned),
+    fun j hj => ran.definedBefore j hj result cert.descriptor.returnSlot⟩
 
 theorem exitWitness_of_defined (total : cert.Total m) (i : Index 1)
     {value : m.Value result} (defined : g.observe m values i = .cons (some value) .nil) :

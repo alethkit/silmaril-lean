@@ -25,6 +25,16 @@ theorem Certificate.runFuel_returns (fuel : Nat) {value : m.Value result}
     (ran : cert.runFuel m fuel input = some value) : cert.revert.Returns m input value :=
   Proofs.runFuel_returns cert fuel ran
 
+/-- A single successful reversion trace identifies the first pass and the
+defined Figure 11 prefixes at all carried ports simultaneously. -/
+theorem Certificate.traceObservation
+    (neg : ∀ b : Bool, m.run cert.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (idx : Index 1) {k : Nat} {start final : Tuple m.Value (.bool :: carried)}
+    (guard : cert.guard.lower.runLoopFree m input = some start)
+    (trace : WhileTrace m (.var .head) cert.body.enableWhile k start final) :
+    cert.TraceObservation m (g.denote m input cert.demandWellFounded) idx k final :=
+  Proofs.traceObservation cert (g.denote_solves m input _) neg idx guard trace
+
 /-- Every successful emitted SIMPLE execution defines the original PEG
 return. The negation opcode implements the exit test. -/
 theorem Certificate.observe_of_returns

@@ -1,7 +1,7 @@
 module
 
 import Silmaril.SSA.PEG.Bridge.Theta.Thms
-import Silmaril.SSA.PEG.Bridge.Theta.Region.Thms
+import Silmaril.SSA.PEG.Bridge.Theta.Region.Tuple.Thms
 
 namespace Silmaril.SSA.PEG.Bridge.Theta.Tests
 
@@ -87,7 +87,7 @@ end Silmaril.SSA.PEG.Bridge.Theta.Tests
 
 namespace Silmaril.SSA.PEG.Bridge.Theta.Region.Tests
 
-open RVSDG (Tuple)
+open RVSDG (Port Tuple)
 open Simple.Revert.While.Region (Certificate Descriptor)
 
 private abbrev num : Ty Unit := .data ()
@@ -98,6 +98,7 @@ private inductive Op : InstructionSet Unit
   | nonzero : Op [.count] .bool
   | not : Op [.bool] .bool
   | add : Op [num, num] num
+  deriving DecidableEq
 
 private def total : TotalModel Op where
   carrier _ := Nat
@@ -107,15 +108,15 @@ private def total : TotalModel Op where
     | .not, .cons b .nil => ⟨!b.down⟩
     | .add, .cons a (.cons b .nil) => Nat.add a b
 
-private def sorts (i : Fin 12) : Ty Unit :=
+private def sorts (i : Fin 16) : Ty Unit :=
   match i.val with
-  | 1 | 2 | 8 | 9 => .count
+  | 1 | 2 | 8 | 9 | 12 | 14 => .count
   | 5 | 6 => .bool
   | _ => num
 
 -- Parameters, θs, test and updates are interleaved. The next first
 -- accumulator is the old second one, which also feeds the sum.
-private def graph : Graph Op carried [num] 12 1 where
+private def bundledGraph : Graph Op carried carried 16 1 where
   forest := ⟨fun _ => none⟩
   sort := sorts
   node
@@ -131,7 +132,15 @@ private def graph : Graph Op carried [num] 12 1 where
     | 9 => .ofLabel (.param .head) .nil
     | 10 => .ofLabel (.param (.tail (.tail .head))) .nil
     | 11 => .ofLabel (.param (.tail .head)) .nil
-  roots := .cons ⟨4, rfl⟩ .nil
+    | 12 => .ofLabel (.eval 0) (.cons ⟨1, rfl⟩ (.cons ⟨2, rfl⟩ .nil))
+    | 13 => .ofLabel (.eval 0) (.cons ⟨7, rfl⟩ (.cons ⟨2, rfl⟩ .nil))
+    | 14 => .ofLabel (.pass 0) (.cons ⟨6, rfl⟩ .nil)
+    | 15 => .ofLabel (.eval 0) (.cons ⟨7, rfl⟩ (.cons ⟨14, rfl⟩ .nil))
+    | ⟨i + 16, h⟩ => False.elim (by omega)
+  roots := .cons ⟨12, rfl⟩ (.cons ⟨13, rfl⟩ (.cons ⟨4, rfl⟩ .nil))
+
+private abbrev anchor : Port carried num := .tail (.tail .head)
+private abbrev graph := Ordered.scalarView bundledGraph anchor
 
 private def descriptor : Descriptor graph where
   theta := .cons ⟨1, rfl⟩ (.cons ⟨7, rfl⟩ (.cons ⟨3, rfl⟩ .nil))
@@ -143,8 +152,11 @@ private def descriptor : Descriptor graph where
   pass := ⟨2, rfl⟩
   returnSlot := .tail (.tail .head)
 
-private def rank : DemandRank 12 1 :=
-  [.phase (fun i => if i = 4 then 2 else if i = 2 then 1 else 0), .counter 0,
+private def rank : DemandRank 16 1 :=
+  [.phase (fun i => match i.val with
+    | 4 | 12 | 13 | 15 => 2
+    | 2 | 14 => 1
+    | _ => 0), .counter 0,
     .phase (fun i => match i.val with
       | 6 => 3
       | 0 | 5 | 8 => 2
@@ -205,5 +217,29 @@ example (idx : Index 1) : graph.observe total.toPEG
     .cons (some (12 : Nat)) .nil :=
   (Region.returns_iff_observe cert total (store 2 10 1) (fun _ => rfl) idx (12 : Nat)).mp
     ⟨store 0 11 12, returned, rfl⟩
+
+private def bundle : Ordered.Bundle bundledGraph anchor :=
+  (Ordered.check bundledGraph anchor cert).get (by decide)
+
+private theorem observedTuple (idx : Index 1) : bundledGraph.observe total.toPEG
+    (bundledGraph.denote total.toPEG (store 2 10 1) bundle.demandWellFounded) idx =
+      (store 0 11 12).map (fun _ => some) :=
+  (bundle.returns_iff_observe total (store 2 10 1) (fun _ => rfl) idx (store 0 11 12)).mp returned
+
+example (idx : Index 1) : bundle.compile.Returns values (entry 2 10 1) (entry 0 11 12) :=
+  (bundle.returns_iff_observe total (store 2 10 1) (fun _ => rfl) idx (store 0 11 12)).mpr
+    (observedTuple idx)
+
+-- Row 15 is well typed and uses the same sampled slot, but names another pass row.
+private def wrongPass : Graph Op carried carried 16 1 :=
+  bundledGraph.withRoots (.cons ⟨12, rfl⟩ (.cons ⟨15, rfl⟩ (.cons ⟨4, rfl⟩ .nil)))
+
+example : (Ordered.check wrongPass anchor cert).isNone = true := by decide
+
+-- Repeating the last eval root puts a same-sort value in the wrong output slot.
+private def wrongSlot : Graph Op carried carried 16 1 :=
+  bundledGraph.withRoots (.cons ⟨12, rfl⟩ (.cons ⟨4, rfl⟩ (.cons ⟨4, rfl⟩ .nil)))
+
+example : (Ordered.check wrongSlot anchor cert).isNone = true := by decide
 
 end Silmaril.SSA.PEG.Bridge.Theta.Region.Tests
