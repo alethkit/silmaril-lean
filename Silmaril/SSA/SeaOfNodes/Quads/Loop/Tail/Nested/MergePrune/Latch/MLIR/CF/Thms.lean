@@ -10,7 +10,8 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.MLIR.CF
 
-open SeaOfNodes.Diamond (ValueSort)
+open SeaOfNodes.Diamond (Dataflow ValueSort dataPorts)
+open RVSDG (Wires extend)
 open SeaOfNodes.Loop.MLIR.CF (Op model evalOp)
 open SeaOfNodes.MLIR.Lowering (encodeValues valueBits valueWidth)
 open Silmaril.MLIR.Arith (Width Env)
@@ -23,6 +24,17 @@ variable {regs : List (ValueSort Width)} {out : ValueSort Width} {size : Nat}
 variable {src : Source Op regs out size} {entry : Fin size} {carry merge atLatch : Mask regs}
 variable (p : Program src entry) (projected : HeaderProjection (src p.header).body carry)
 variable (checked : Split.Checked p carry merge atLatch)
+
+/-- Executing the emitted latch reads the full outgoing packet before
+selecting its successor. -/
+theorem latchCode_eval {sigs : List (List (SeaOfNodes.Diamond.Ty Width))}
+    (flow : Dataflow Op (dataPorts atLatch.kept) [] sigs)
+    (packet : Wires (dataPorts atLatch.kept) (extend [] sigs) (packetPorts out carry))
+    (input : Bank (regs := regs) model) (old : Bank (regs := atLatch.kept) model) :
+    (latchCode (carry := carry) (merge := merge) (atLatch := atLatch) p flow packet).eval evalOp (fun term env => term.eval env)
+        ((encodeValues old).append (encodeValues input)) =
+      .inl (packetFrame p (packet.read old (flow.eval model old PUnit.unit))) :=
+  Proofs.latchCode_eval p flow packet input old
 
 /-- The emitted merge passes exactly the latch’s projected post-merge versions. -/
 theorem merge_frame (input old : Bank (regs := regs) model) :
@@ -71,6 +83,21 @@ theorem lower_run (fuel : Nat) (input : Bank (regs := regs) model) :
     (lower p projected checked).run evalOp (fuel + 1) (encodeValues input) =
       (src.runFrom model fuel entry input).map (fun word => Env.cons (valueBits word) .nil) :=
   Proofs.lower_run p projected checked fuel input
+
+/-- A replacement with identical latch frames preserves the same CF
+visit accounting and source observation. -/
+theorem withLatch_lower_run
+    (block : LatchBlock (carry := carry) (merge := merge) (atLatch := atLatch) p)
+    (input : Bank (regs := regs) model)
+    (agrees : ∀ old : Bank (regs := regs) model,
+      block.eval evalOp (fun term env => term.eval env)
+          ((encodeValues (atLatch.project old)).append (encodeValues input)) =
+        ((lower p projected checked).block .latch).eval evalOp (fun term env => term.eval env)
+          ((encodeValues (atLatch.project old)).append (encodeValues input)))
+    (fuel : Nat) :
+    (withLatch p (lower p projected checked) block).run evalOp (fuel + 1) (encodeValues input) =
+      (src.runFrom model fuel entry input).map (fun word => Env.cons (valueBits word) .nil) :=
+  Proofs.withLatch_lower_run p projected checked block input agrees fuel
 
 /-- Finite source and CF returns give the same encoded result, with a witness in each runner’s own budget. -/
 theorem source_returns_iff (input : Bank (regs := regs) model) (output : Env [valueWidth out]) :

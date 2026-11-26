@@ -9,7 +9,7 @@ public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.MLIR.CF.
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.MLIR.CF
 
-open SeaOfNodes.Diamond (ValueSort sortValue)
+open SeaOfNodes.Diamond (Dataflow Val ValueSort dataPorts sortValue)
 open SeaOfNodes.Loop.MLIR.CF (Op TargetOp model opcode)
 open SeaOfNodes.MLIR (Word)
 open SeaOfNodes.MLIR.Lowering (Scope encodeValues lowerCode operands valueWidth)
@@ -18,7 +18,7 @@ open Silmaril.MLIR.CF (Cfg Edge Frame)
 open Diamond.MLIR.CF (Widths JumpTo blockNames entryNames lowerBlockWith returnFrame)
 open Diamond.MLIR.CF.Pruned (lowerProjectedBlockWith)
 open Diamond.Prune (HeaderProjection)
-open RVSDG (Wires)
+open RVSDG (Tuple Wires extend)
 open Blocks (Bank)
 open Blocks.Prune (Mask)
 
@@ -97,6 +97,35 @@ def latchTerminator {args : List (SeaOfNodes.Diamond.Ty Width)} {past : List (Li
     .condBr (scope.resolveValue test) ⟨.base .header, operands scope feedback⟩
       ⟨.base .exit, .cons (scope.resolveValue returned) .nil⟩
 
+/-- The observed guard chooses between two already resolved packets. -/
+def packetFrame (packet : Tuple (Val Word) (packetPorts out carry)) :
+    Frame (Label p.header p.join p.latch carry merge atLatch out) :=
+  match packet with
+  | .cons test (.cons returned feedback) =>
+    if test.down then headerFrame p feedback else exitFrame p returned
+
+abbrev LatchBlock :=
+  Silmaril.MLIR.CF.Block TargetOp (Label p.header p.join p.latch carry merge atLatch out)
+    (Widths atLatch.kept ++ Widths regs) [valueWidth out]
+
+/-- The latch terminator accepts any scoped table with the checked packet
+interface, including a table with fewer pure producers. -/
+def latchCode {sigs : List (List (SeaOfNodes.Diamond.Ty Width))}
+    (flow : Dataflow Op (dataPorts atLatch.kept) [] sigs)
+    (packet : Wires (dataPorts atLatch.kept) (extend [] sigs) (packetPorts out carry)) :
+    LatchBlock (carry := carry) (merge := merge) (atLatch := atLatch) p :=
+  lowerCode opcode flow ⟨blockNames (Widths regs) atLatch.kept, PUnit.unit⟩
+    fun scope => latchTerminator p scope packet
+
+/-- Replace the tested latch's code at the same typed label. -/
+def withLatch (cfg : Target (carry := carry) (merge := merge) (atLatch := atLatch) p)
+    (block : LatchBlock (carry := carry) (merge := merge) (atLatch := atLatch) p) :
+    Target (carry := carry) (merge := merge) (atLatch := atLatch) p where
+  entry := cfg.entry
+  block
+    | .latch => block
+    | .base label => cfg.block (.base label)
+
 /-- Emit two original blocks. The common merge branches with the latch's
 typed inputs, and the latch resolves both outgoing packets in its own scope. -/
 def lower (projected : HeaderProjection (src p.header).body carry)
@@ -110,8 +139,6 @@ def lower (projected : HeaderProjection (src p.header).body carry)
     | .base (.site id _ _) => lowerBlockWith (jump p) (.base .exit) (src id)
         ⟨blockNames (Widths regs) regs, PUnit.unit⟩
     | .base .exit => .terminator (.ret (.cons .here .nil))
-    | .latch =>
-      lowerCode opcode checked.latchTransfer.flow ⟨blockNames (Widths regs) atLatch.kept, PUnit.unit⟩
-        fun scope => latchTerminator p scope checked.latchTransfer.outgoing
+    | .latch => latchCode p checked.latchTransfer.flow checked.latchTransfer.outgoing
 
 end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.MLIR.CF

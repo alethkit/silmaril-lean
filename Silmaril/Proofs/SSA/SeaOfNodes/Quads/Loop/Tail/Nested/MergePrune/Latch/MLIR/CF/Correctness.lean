@@ -14,7 +14,7 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.MLIR.CF.Proofs
 
-open SeaOfNodes.Diamond (Val ValueSort dataPorts)
+open SeaOfNodes.Diamond (Dataflow Val ValueSort dataPorts)
 open SeaOfNodes.Loop.MLIR.CF (Op TargetOp model opcode opcode_eval evalOp)
 open SeaOfNodes.MLIR (Word)
 open SeaOfNodes.MLIR.Lowering
@@ -102,18 +102,12 @@ theorem merge_frame (input old : Bank (regs := regs) model) :
   · exact congrArg (fun bank => Sum.inl (latchFrame (carry := carry) (merge := merge) p bank))
       (Split.Checked.merge_agrees checked model old)
 
-private def selectPacket (packet : Tuple (Val Word) (packetPorts out carry)) :
-    Frame (Label p.header p.join p.latch carry merge atLatch out) :=
-  match packet with
-  | .cons test (.cons returned feedback) =>
-    if test.down then headerFrame p feedback else exitFrame p returned
-
 private theorem latchTerminator_eval {Γ : List Width} {args : List (SeaOfNodes.Diamond.Ty Width)}
     {past : List (List (SeaOfNodes.Diamond.Ty Width))} {scope : Scope args past Γ} {env : Env Γ}
     {inputs : Tuple (Val Word) args} {locals : Locals (Val Word) past}
     (ok : scope.Agrees env inputs locals) (packet : Wires args past (packetPorts out carry)) :
     (latchTerminator (merge := merge) (atLatch := atLatch) p scope packet).eval env =
-      .inl (selectPacket p (packet.read inputs locals)) := by
+      .inl (packetFrame p (packet.read inputs locals)) := by
   cases packet with
   | cons test rest =>
     cases rest with
@@ -132,19 +126,28 @@ private theorem latchTerminator_eval {Γ : List Width} {args : List (SeaOfNodes.
       erw [guard, feedbackBank, returnedWord]
       rfl
 
+theorem latchCode_eval {sigs : List (List (SeaOfNodes.Diamond.Ty Width))}
+    (flow : Dataflow Op (dataPorts atLatch.kept) [] sigs)
+    (packet : Wires (dataPorts atLatch.kept) (extend [] sigs) (packetPorts out carry))
+    (input : Bank (regs := regs) model) (old : Bank (regs := atLatch.kept) model) :
+    (latchCode (carry := carry) (merge := merge) (atLatch := atLatch) p flow packet).eval evalOp (fun term env => term.eval env)
+        ((encodeValues old).append (encodeValues input)) =
+      .inl (packetFrame p (packet.read old (flow.eval model old PUnit.unit))) :=
+  lowerCode_eval opcode evalOp model.run opcode_eval flow _ _ old (past := []) PUnit.unit
+    ⟨blockNames_agree (encodeValues input) old, trivial⟩
+    (fun scope => latchTerminator p scope packet) (fun term env => term.eval env) _
+    (fun _ _ ok => latchTerminator_eval p ok packet)
+
 /-- Execute the original tested latch with the certified smaller input. -/
 theorem latch_frame (input old : Bank (regs := regs) model) :
     ((lower p projected checked).block .latch).eval evalOp (fun term env => term.eval env)
         ((encodeValues (atLatch.project old)).append (encodeValues input)) =
       let next := (src p.latch).body.eval model old
       .inl (if (next.get p.again).down then headerFrame p (carry.project next) else exitFrame p (next.get p.result)) := by
-  refine (emit_transfer p checked.latchTransfer (atLatch.project old) input
-    (fun scope => latchTerminator p scope checked.latchTransfer.outgoing)
-    (selectPacket p) ?_).trans ?_
-  · intro _ _ _ ok
-    exact latchTerminator_eval p ok checked.latchTransfer.outgoing
-  · exact congrArg (fun packet => Sum.inl (selectPacket (merge := merge) (atLatch := atLatch) p packet))
-      (Split.Checked.latch_agrees checked model old)
+  exact (latchCode_eval (merge := merge) p checked.latchTransfer.flow checked.latchTransfer.outgoing
+    input (atLatch.project old)).trans
+    (congrArg (fun packet => Sum.inl (packetFrame (merge := merge) (atLatch := atLatch) p packet))
+      (Split.Checked.latch_agrees checked model old))
 
 theorem site_frame (input old : Bank (regs := regs) model) (id : Fin size) :
     let current := siteFrame (carry := carry) (merge := merge) (atLatch := atLatch) p id old
@@ -247,6 +250,38 @@ theorem lower_run (fuel : Nat) (input : Bank (regs := regs) model) :
       (src.runFrom model fuel entry input).map (fun word => Env.cons (valueBits word) .nil) :=
   runBlock_eq_of_frames_with (lower p projected checked) (encodeValues input) (siteFrame p) (.base .exit)
     (fun id old => site_frame p projected checked input old id) rfl fuel entry input _ _
+    (block_eval_with (jump_agrees p) (src entry) _ _ _ (entryNames_agree input))
+
+/-- Reuse the source visit proof when the replacement latch supplies the
+same actual successor frame for every projected source bank. -/
+theorem withLatch_lower_run
+    (block : LatchBlock (carry := carry) (merge := merge) (atLatch := atLatch) p)
+    (input : Bank (regs := regs) model)
+    (agrees : ∀ old : Bank (regs := regs) model,
+      block.eval evalOp (fun term env => term.eval env)
+          ((encodeValues (atLatch.project old)).append (encodeValues input)) =
+        ((lower p projected checked).block .latch).eval evalOp (fun term env => term.eval env)
+          ((encodeValues (atLatch.project old)).append (encodeValues input)))
+    (fuel : Nat) :
+    (withLatch p (lower p projected checked) block).run evalOp (fuel + 1) (encodeValues input) =
+      (src.runFrom model fuel entry input).map (fun word => Env.cons (valueBits word) .nil) := by
+  let cfg := withLatch p (lower p projected checked) block
+  have frameEq (id : Fin size) (old : Bank (regs := regs) model) :
+      let current := siteFrame (carry := carry) (merge := merge) (atLatch := atLatch) p id old
+      (cfg.block current.label).eval evalOp (fun term env => term.eval env)
+          (current.args.append (encodeValues input)) =
+        ((lower p projected checked).block current.label).eval evalOp (fun term env => term.eval env)
+          (current.args.append (encodeValues input)) := by
+    dsimp only
+    by_cases same : id = p.latch
+    · subst id
+      rw [siteFrame, ite_eq_left rfl]
+      exact agrees old
+    · rw [siteFrame, ite_eq_right same]
+      rfl
+  exact runBlock_eq_of_frames_with cfg (encodeValues input) (siteFrame p) (.base .exit)
+    (fun id old => (frameEq id old).trans (site_frame p projected checked input old id))
+    rfl fuel entry input _ _
     (block_eval_with (jump_agrees p) (src entry) _ _ _ (entryNames_agree input))
 
 theorem source_returns_iff (input : Bank (regs := regs) model) (output : Env [valueWidth out]) :
