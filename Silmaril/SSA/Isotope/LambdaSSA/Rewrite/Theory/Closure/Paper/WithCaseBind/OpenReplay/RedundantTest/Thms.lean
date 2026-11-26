@@ -133,4 +133,37 @@ theorem forwardUnit_at {Γ L : List (Ty Empty)} {X : Ty Empty} {v u : Tm signatu
       (prependEmits emits (r.substVars (Tm.singleSubst (.pair (.pair v u) u)))) L :=
   RedundantSelectedTest.forwardUnit_at emits hv hu hr
 
+/-- Compare the open case arms after constructor substitution of their
+retained packet. The shared discriminator is evaluated by the original case. -/
+theorem packed_case_congr_at {Γ L : List (Ty Empty)} {X A B : Ty Empty}
+    (a : Term signature.Instr X (coprod A B)) {packet : Tm signature.Instr}
+    (hp : Tm.BranchValue Γ packet X) {l r l' r' : Region signature.Instr}
+    (hl : ValueBranches [product X A] l L) (hr : ValueBranches [product X B] r L)
+    (hl' : ValueBranches [product X A] l' L) (hr' : ValueBranches [product X B] r' L)
+    (left : E (A :: Γ) (l.substVars (Tm.singleSubst (.pair (packet.rename Nat.succ) (.var 0))))
+      (l'.substVars (Tm.singleSubst (.pair (packet.rename Nat.succ) (.var 0)))) L)
+    (right : E (B :: Γ) (r.substVars (Tm.singleSubst (.pair (packet.rename Nat.succ) (.var 0))))
+      (r'.substVars (Tm.singleSubst (.pair (packet.rename Nat.succ) (.var 0)))) L) :
+    E Γ ((Region.case a.elaborate.val (Paper.PackedBody.applyPacked l) (Paper.PackedBody.applyPacked r)).substVars
+        (Tm.singleSubst packet))
+      ((Region.case a.elaborate.val (Paper.PackedBody.applyPacked l') (Paper.PackedBody.applyPacked r')).substVars
+        (Tm.singleSubst packet)) L :=
+  RedundantSelectedTest.packed_case_congr_at a hp hl hr hl' hr' left right
+
+/-- At a constructor packet for the prior case, the new reply can remain
+a variable. Both transported projections read their original values. -/
+theorem framed_case_afterReply_at {Γ L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    (slot : ReplyFrame.Slot frame) (emits : List Bool) (v : ReplyFrame.Value Γ frame)
+    {l r : Region signature.Instr}
+    (hl : ValueBranches [product (product (product X unit) Bit) unit] l L)
+    (hr : ValueBranches [product (product (product X unit) Bit) unit] r L) :
+    let transported := retainSlot (A := Bit) (retainSlot (A := unit) slot.term)
+    let packet := Tm.pair (.pair (v.elaborate.val.rename Nat.succ)
+      ((slot.read v).2.val.rename Nat.succ)) (.var 0)
+    E (Bit :: Γ) ((Region.case (emitPrefix emits transported).elaborate.val
+        (Paper.PackedBody.applyPacked l) (Paper.PackedBody.applyPacked r)).substVars (Tm.singleSubst packet))
+      ((prependEmits emits (.let₁ (priorCaseUnit X).elaborate.val
+        (Paper.PackedBody.applyPacked (if (slot.read v).1 then r else l)))).substVars (Tm.singleSubst packet)) L :=
+  RedundantSelectedTest.framed_case_afterReply_at slot emits v hl hr
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.OpenReplay

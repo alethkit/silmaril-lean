@@ -16,4 +16,14 @@ def prependEmits : List Bool → Region signature.Instr → Region signature.Ins
   | b :: bs, r => .let₁ (.op (show signature.Instr from Op.emit b) .unit)
       ((prependEmits bs r).renameVars Nat.succ)
 
+open Silmaril
+open Paper.WithComputedProductProducers.Intrinsic (Term)
+
+local instance priorCaseUnitHasTy : HasTy signature.Instr (Ty Empty) := signature.hasTy
+
+/-- Read the prior case's unit payload through the intervening reply field. -/
+def priorCaseUnit (X : Ty Empty) :
+    Term signature.Instr (product (product X unit) Bit) unit :=
+  .seq (.fst (product X unit) Bit) (.snd X unit)
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.OpenReplay
