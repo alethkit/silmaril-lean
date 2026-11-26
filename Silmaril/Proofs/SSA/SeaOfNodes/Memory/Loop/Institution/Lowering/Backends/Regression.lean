@@ -2,6 +2,10 @@ module
 
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Backends.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.CF.Thms
+meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.CF.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.Theta.Defs
+meta import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Regression
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Regression
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Backends
@@ -14,6 +18,7 @@ open Memory.Diamond.Institution renaming Signature → EntrySignature, Model →
 open Memory.Diamond.LambdaSSA (packet)
 open Memory.Diamond.MLIR.Finite (Profile)
 open Memory.Diamond.MLIR.Finite renaming encodeResult → encodeCFResult
+open Silmaril.MLIR.MemRef (Buffer)
 
 private def sig : EntrySignature := ⟨args⟩
 private def model : EntryModel sig := ⟨3, input⟩
@@ -30,6 +35,35 @@ example : lambdaReturns (lowerLambda shift) model (initial 1) 0 (packet 0) atExi
 
 example : thetaObservation shift model (initial 1) = Part.some (Memory.encodeResult 0 atExit) :=
   (theta_observation_iff_mlir shift model (initial 1) 0 atExit).2 shiftCF
+
+private def summarize (word : Word) (heap : Heap 3) : Word × Word × Word × Word :=
+  (word, heap 0, heap 1, heap 2)
+
+private def memrefResult (fuel : Nat) : Option (Word × Word × Word × Word) :=
+  let (output, buffer) := (MLIR.MemRef.CF.lower 3 shift).run (MLIR.MemRef.CF.evalBody input)
+    fuel .nil ⟨initial 1⟩
+  output.map fun values => summarize (values.get .here) buffer.cell
+
+private def thetaResult (fuel : Nat) : Option (Word × Word × Word × Word) :=
+  (shift.lowerTheta.run (thetaRuntime 3) fuel (Memory.encodeInput (initial 1) input)).map fun result =>
+    summarize (result.get .head) (result.get (.tail .head))
+
+-- Both emitters execute two backedges. The first two cells change and
+-- the last remains at its original value.
+#guard (memrefResult 4).isNone
+#guard (thetaResult 2).isNone
+#guard memrefResult 5 == some (0, 0, 0, 99)
+#guard thetaResult 3 == some (0, 0, 0, 99)
+
+private theorem shiftMemRefRun :
+    (MLIR.MemRef.CF.lower 3 shift).run (MLIR.MemRef.CF.evalBody input) 5 .nil ⟨initial 1⟩ =
+      (some (.cons 0 .nil), Buffer.mk atExit) :=
+  (MLIR.MemRef.CF.cfg_run_eq_some_iff_returnsAfter shift input 5 (initial 1) 0 atExit).mpr
+    ⟨2, by decide, (shift.returnsAfter_iff_evalAfter input (initial 1) 2 0 atExit).mpr (by cbv)⟩
+
+example : MLIR.MemRef.CF.Institution.observe (P := sig) shift model (initial 1) = Part.some (0, atExit) :=
+  (memref_observation_iff_theta_returns (P := sig) shift model (initial 1) 0 atExit).mpr
+    ((memref_run_iff_theta_run (P := sig) shift model (initial 1) 0 atExit).mp ⟨5, shiftMemRefRun⟩)
 
 private def clearTail : Graph args :=
   ⟨.load (.latest 0) headWire
@@ -63,9 +97,6 @@ private theorem noCF : MLIR.Institution.observe clearTail model cycling = Part.n
 example : ∀ label payload final, ¬ lambdaReturns (lowerLambda clearTail) model cycling label payload final :=
   (lambda_no_return_iff_mlir clearTail model cycling).2 noCF
 
-example : thetaObservation clearTail model cycling = Part.none :=
-  (theta_no_return_iff_mlir clearTail model cycling).2 noCF
-
 private def equation : Equation sig := ⟨shift, clearTail⟩
 private def shiftHeap : Heap 3 := update (initial 0) 2
 private def clearedHeap : Heap 3 := (initial 0).write tailCell 0
@@ -90,6 +121,9 @@ private theorem noMemRef : MLIR.MemRef.CF.Institution.observe (P := sig) clearTa
   (MLIR.MemRef.CF.Institution.observe_eq (P := sig) clearTail model cycling).trans
     ((mlir_no_return_iff clearTail model cycling).mp noCF)
 
+example : thetaObservation clearTail model cycling = Part.none :=
+  (theta_no_return_iff_memref (P := sig) clearTail model cycling).mpr noMemRef
+
 example : MLIR.Institution.observe (P := sig) clearTail model cycling = Part.none :=
   (mlir_observation_eq_map_memref (P := sig) clearTail model cycling).trans (by rw [noMemRef, Part.map_none])
 
@@ -102,5 +136,9 @@ private def swap : sig ⟶ sig :=
 example : MLIR.MemRef.CF.Institution.observe (mapGraph swap shift) model (initial 0) =
     MLIR.MemRef.CF.Institution.observe shift (reduct swap model) (initial 0) :=
   MLIR.MemRef.CF.Institution.observe_mapGraph swap shift model (initial 0)
+
+example : thetaHolds (equation.map swap) model ↔ MLIR.MemRef.CF.Institution.Holds equation (reduct swap model) :=
+  (theta_satisfaction_iff_memref (equation.map swap) model).trans
+    (MLIR.MemRef.CF.Institution.satisfaction_reindex swap equation model)
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Backends

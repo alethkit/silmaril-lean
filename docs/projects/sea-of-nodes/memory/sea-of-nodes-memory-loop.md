@@ -224,6 +224,26 @@ and different final heaps, and checks the absence of a finite return.
 [Backend theorem](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Thms.lean) ·
 [Equation regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Regression.lean)
 
+### Compare emitted MemRef CF and numbered θ
+
+At the same native typed valuation and initial heap,
+`memref_observation_eq_map_theta` reads the emitted θ result's word and
+whole heap wire into the MemRef CFG's partial observation.
+`memref_observation_iff_theta_returns` relates a defined observation
+to an actual finite return of the numbered graph.
+`memref_run_iff_theta_run` converts successful execution witnesses in
+both directions. A common native return after `k` backedges admits
+`k + 3` CF block steps and `k + 1` θ activations.
+`theta_no_return_iff_memref` matches absence of a finite return.
+`theta_satisfaction_iff_memref` compares satisfaction and composes with
+the existing typed reindexing laws on either backend.
+
+The regression executes the three-cell shift with two backedges in both
+backends. It checks the word, two changed cells, and the untouched cell,
+and exercises the no-return case and typed address reindexing.
+[Backend comparison](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Thms.lean) ·
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Regression.lean)
+
 Save this example to a Lean file and run `lake env lean <file>`. The
 activation results list the selector, word, and both final cells. The
 feedback and CFG results list the word and both final cells on return.

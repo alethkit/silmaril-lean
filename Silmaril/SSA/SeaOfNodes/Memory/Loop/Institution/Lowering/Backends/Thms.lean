@@ -4,6 +4,7 @@ public import Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Thms
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.Institution.Thms
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.CF.Institution.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.Theta.Thms
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Backends.Observation
 
 /-! Compare emitted λSSA, numbered θ, scalar CF, and MemRef CF
@@ -78,6 +79,36 @@ theorem mlir_observation_eq_map_memref (graph : Graph P.args) (model : EntryMode
         Outcome.returned (encodeCFResult (Profile.ofCells model.cells) result.1 result.2)) := by
   rw [MLIR.MemRef.CF.Institution.observe_eq, MLIR.Institution.observe_eq]
 
+/-- Decode the emitted θ tuple's word and whole heap wire into the
+MemRef CFG's partial observation. -/
+theorem memref_observation_eq_map_theta (graph : Graph P.args) (model : EntryModel P)
+    (initial : Heap model.cells) :
+    MLIR.MemRef.CF.Institution.observe graph model initial =
+      (thetaObservation graph model initial).map (fun result => (result.get .head, result.get (.tail .head))) := by
+  erw [MLIR.MemRef.CF.Institution.observe_eq, theta_observation, Part.map_map]
+  exact (Part.map_id' (fun _ => rfl) _).symm
+
+/-- A complete MemRef observation is equivalent to a finite execution
+of the numbered program with the same word and final heap wire. -/
+theorem memref_observation_iff_theta_returns (graph : Graph P.args) (model : EntryModel P)
+    (initial : Heap model.cells) (word : Word) (final : Heap model.cells) :
+    MLIR.MemRef.CF.Institution.observe graph model initial = Part.some (word, final) ↔
+      graph.lowerTheta.Returns (thetaRuntime model.cells) (Memory.encodeInput initial model.input)
+        (Memory.encodeResult word final) := by
+  rw [MLIR.MemRef.CF.Institution.observe_eq, Part.eq_some_iff, ← graph.returns_iff_mem_denote]
+  exact graph.lowerTheta_returns_iff model.input initial word final
+
+/-- A successful run determines a matching finite witness for the other
+backend. A native return after `k` backedges supplies `k + 3` CF blocks
+or `k + 1` θ activations. -/
+theorem memref_run_iff_theta_run (graph : Graph P.args) (model : EntryModel P)
+    (initial : Heap model.cells) (word : Word) (final : Heap model.cells) :
+    (∃ fuel, (MLIR.MemRef.CF.lower model.cells graph).run (MLIR.MemRef.CF.evalBody model.input)
+      fuel .nil ⟨initial⟩ = (some (.cons word .nil), ⟨final⟩)) ↔
+    ∃ fuel, graph.lowerTheta.run (thetaRuntime model.cells) fuel (Memory.encodeInput initial model.input) =
+      some (Memory.encodeResult word final) :=
+  Proofs.memref_run_iff_theta_run graph model initial word final
+
 theorem mlir_no_return_iff (graph : Graph P.args) (model : EntryModel P) (initial : Heap model.cells) :
     MLIR.Institution.observe graph model initial = Part.none ↔ graph.denote model.input initial = Part.none :=
   Proofs.mlir_no_return_iff graph model initial
@@ -91,6 +122,15 @@ theorem lambda_no_return_iff_mlir (graph : Graph P.args) (model : EntryModel P) 
 theorem theta_no_return_iff_mlir (graph : Graph P.args) (model : EntryModel P) (initial : Heap model.cells) :
     thetaObservation graph model initial = Part.none ↔ MLIR.Institution.observe graph model initial = Part.none :=
   (theta_no_return_iff graph model initial).trans (mlir_no_return_iff graph model initial).symm
+
+theorem theta_no_return_iff_memref (graph : Graph P.args) (model : EntryModel P) (initial : Heap model.cells) :
+    thetaObservation graph model initial = Part.none ↔ MLIR.MemRef.CF.Institution.observe graph model initial = Part.none := by
+  rw [MLIR.MemRef.CF.Institution.observe_eq]
+  exact theta_no_return_iff graph model initial
+
+theorem theta_satisfaction_iff_memref (e : Equation P) (model : EntryModel P) :
+    thetaHolds e model ↔ MLIR.MemRef.CF.Institution.Holds e model :=
+  (theta_satisfaction e model).trans (MLIR.MemRef.CF.Institution.satisfaction e model).symm
 
 theorem lambda_satisfaction_iff_mlir (e : Equation P) (model : EntryModel P) :
     lambdaHolds e model ↔ MLIR.Institution.Holds e model :=
