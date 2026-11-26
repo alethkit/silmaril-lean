@@ -122,9 +122,9 @@ example : ReplayEqv false ambient.toList ((forward false).packedSSA 0 input) (ba
   rw [forwardBody, backwardBody]
   exact .refl (((Code.ofLetCase ((Code.join (.br input) (body false).encode).toLetCase.2)).guardedSSA_valueBranches rfl).hasType)
 
-example (beta : PureLetBetaReplay (Ψ := Op) (α := Empty) false) :
+example :
     ReplayEqv false ambient.toList ((forward false).packedSSA 0 inputLet) (backward.packedSSA 2 input) [Result] :=
-  ((forward false).packed_replay_iff_equiv backward (forwardOk false) backwardOk 0 2 inputLet input context beta).mpr
+  ((forward false).packed_replay_iff_equiv_finite backward (forwardOk false) backwardOk 0 2 inputLet input context).mpr
     emitted_equiv
 
 open LambdaSSA.Semantics.Categorical (denoteRegion)
@@ -201,5 +201,47 @@ private def pureGuard : LetCase.LocallyNameless.Tm Empty Op 1 :=
 grammar. The transported β premise covers such expressions. -/
 example : Pure false pureGuard ∧ ¬ LambdaSSA.Tm.BranchValue ambient.toList (Morphism.CaseSSA.erase pureGuard) Bit :=
   ⟨.case .bv (.inl .unit) (.inr .unit), fun h => by cases h⟩
+
+open Region.Paper.RetainedLet (returnOnce)
+open Morphism.CaseSSA (erase erase_hasType)
+local notation "CaseTerm" => LetCase.LocallyNameless.Tm Empty Op
+
+/-- The continuation uses the argument again after the first request. -/
+private def useTwice {n : Nat} : CaseTerm (n + 1) :=
+  .let₁ (.op .left (.bv 0)) (.op .right (.bv 1))
+
+private def useTwiceTyped {n : Nat} {β : BoundCtx Types n} :
+    Derivation Op Γ₀ (β.snoc Bit) useTwice Bit :=
+  .let₁ (.op .bv) (.op .bv)
+
+/-- The exact guard from the old premise audit substitutes at both uses in
+an effectful continuation. The proof uses unit and sum η directly. -/
+example :
+    ReplayEqv false ambient.toList (returnOnce (erase (.let₁ pureGuard useTwice)))
+      (returnOnce (erase (useTwice.instantiate pureGuard))) [Bit] := by
+  rw [Morphism.CaseSSA.erase_instantiate]
+  exact unit_case_letBeta (Tm.HasType.var (i := 0) rfl) (erase_hasType (useTwiceTyped (β := ambient)).toHasType)
+
+private abbrev nestedAmbient : BoundCtx Types 2 := ambient.snoc (Ty.product Bit Bit)
+
+private def nestedGuard : CaseTerm 2 :=
+  .let₂ (.bv 0) (.case (.case (.bv 1) (.inr .unit) (.inl .unit)) (.bv 1) (.bv 4))
+
+private def nestedTyped : Derivation Op Γ₀ nestedAmbient nestedGuard Bit :=
+  .let₂ .bv (.case (.case .bv (.inr .unit) (.inl .unit)) .bv .bv)
+
+private noncomputable def nestedInlinedTyped :
+    Derivation Op Γ₀ nestedAmbient (useTwice.instantiate nestedGuard) Bit :=
+  Classical.choice (Derivation.ofHasType (useTwiceTyped.toHasType.instantiate nestedTyped.toHasType))
+
+/-- A nested test below two field binders can return the second field or an
+older capture. Pure let β reaches the actual guarded reifier at both ends. -/
+example :
+    let t := Derivation.let₁ nestedTyped useTwiceTyped
+    let u := nestedInlinedTyped
+    ReplayEqv false nestedAmbient.toList ((Code.ofLetCase t).guardedSSA 0) ((Code.ofLetCase u).guardedSSA 0) [Bit] :=
+  reify_equiv_finite _ _
+    (Equiv.letBeta (.let₂ .bv (.case (.case .bv (.inr .unit) (.inl .unit)) .bv .bv))
+      nestedTyped.toHasType useTwiceTyped.toHasType)
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.ComparisonTests
