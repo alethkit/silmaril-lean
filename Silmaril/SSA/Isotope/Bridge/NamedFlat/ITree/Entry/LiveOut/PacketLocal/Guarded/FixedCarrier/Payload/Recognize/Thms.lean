@@ -80,6 +80,25 @@ theorem named_tree_of_readback (readback : Recognize.Readback a target)
   Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.PayloadRecognition.named_tree_of_readback
     readback g caller entryBit store entryShape seedValue row
 
+/-- Replay exact self-transfers as ordinary divergence through the existing compiled
+packet-local named execution and the original mutable live-out projection. -/
+theorem named_tree_of_self_loops (readback : Recognize.Readback a target)
+    (g : Endpoint (Recognize.signature P.Instr) Incoming A)
+    (caller : Syntax.Payload (Incoming.get g.control.entry)) (entryBit : Syntax.Payload Bit)
+    (store : V → Value Runtime)
+    (entryShape : target.entry = .br 0 (.pair (.bv 0) .unit))
+    (seedValue : store seed = encodeValue ULift.up entryBit.val)
+    (row : ∀ (p : Packet Incoming) (env : Env Runtime),
+      region (rawWithLiterals literals) (extend env (.pair (encodeValue ULift.up p.2.val) .unit))
+        (target.block p.1).erase =
+        match g.control.head caller p with
+        | .diverge => pure (p.1.val, .pair (encodeValue ULift.up p.2.val) .unit)
+        | _ => rowTransfer g caller p) :
+    LiveOut.observeRaw (rawWithLiterals literals) (interface (κ := κ) seed names).exits
+      (fun k => (fields k).map Prod.fst) source store = packetTree g caller ⟨0, entryBit⟩ :=
+  Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.PayloadRecognition.named_tree_of_self_loops
+    readback g caller entryBit store entryShape seedValue row
+
 end Replay
 
 variable {κ V K : Type 1} [DecidableEq V] [DecidableEq K] {P : FlatInstitution.Signature.{0, 0} κ}

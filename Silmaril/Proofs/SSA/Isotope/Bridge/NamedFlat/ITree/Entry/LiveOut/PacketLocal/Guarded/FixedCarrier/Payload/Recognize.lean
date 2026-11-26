@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Payload.Recognize.Defs
+import Silmaril.Semantics.Elgot.Partition.Thms
 import Mathlib.Tactic.FinCases
 
 public section
@@ -14,8 +15,8 @@ open Silmaril.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded
 open Silmaril.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier
 open Silmaril.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.PayloadRecognition
 open Silmaril.SSA.LambdaRTL (CFG)
-open Silmaril.Elgot (iter mapReturn liftPure)
-open Silmaril.Elgot.ITree (Tree iterate_fixpoint vis_bind)
+open Silmaril.Elgot (iter mapReturn liftPure partitionStep iter_partition iter_partition_outer)
+open Silmaril.Elgot.ITree (Tree iterate_fixpoint iterate_uniformity iterate_pure_loop vis_bind diverge)
 open LambdaSSA (Flat FiniteCFG)
 open LambdaSSA.Semantics (Env extend)
 open LambdaSSA.Semantics.Interaction (Transfer region)
@@ -136,6 +137,41 @@ private theorem restore_exit {K : Type 1} (names : Fin 5 ≃ K) (i : Tag) (p : V
   unfold Recognize.restore
   rw [dite_eq_left (i.natAdd 3).isLt]
 
+/-- Replacing a divergent body by a pure edge to its own state preserves
+the complete run. The inner iterator consumes precisely those self-edges. -/
+private theorem replay_self_loops {E : Type → Type} {C B : Type 1}
+    (body : C → Tree E (B ⊕ C)) (stops : C → Bool)
+    (silent : ∀ c, stops c = true → body c = diverge) :
+    iter (fun c => if stops c then pure (.inr c) else body c) = iter body := by
+  let replay (c : C) := if stops c then (pure (.inr c) : Tree E (B ⊕ C)) else body c
+  change iter replay = iter body
+  rw [← iter_partition replay stops]
+  congr 1
+  funext c
+  cases mark : stops c with
+  | false =>
+    rw [iter_partition_outer replay stops c mark]
+    simp [replay, mark]
+  | true =>
+    let loop (_ : ULift.{1} Unit) : Tree E ((B ⊕ C) ⊕ ULift.{1} Unit) := pure (.inr ⟨()⟩)
+    have commute : (loop >=> liftPure (Sum.map id (fun _ => c))) =
+        (liftPure (fun _ : ULift.{1} Unit => c) >=> partitionStep replay stops) := by
+      funext state
+      change (pure (.inr ⟨()⟩) >>= liftPure (Sum.map id (fun _ : ULift.{1} Unit => c))) =
+        (pure c >>= partitionStep replay stops)
+      simp [liftPure, partitionStep, replay, mark]
+    have same := congrFun (iterate_uniformity loop (partitionStep replay stops) (fun _ => c) commute) ⟨()⟩
+    change iter loop ⟨()⟩ = (pure c >>= iter (partitionStep replay stops)) at same
+    rw [pure_bind] at same
+    exact same.symm.trans ((iterate_pure_loop (fun _ : ULift.{1} Unit => ⟨()⟩) ⟨()⟩).trans (silent c mark).symm)
+
+private def isSilent {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signature Φ) Incoming A)
+    (caller : Syntax.Payload (Incoming.get g.control.entry)) : Phase A → Bool
+  | ⟨.inl _⟩ => false
+  | ⟨.inr p⟩ => match g.control.head caller p with
+    | .diverge => true
+    | _ => false
+
 section Replay
 
 variable {κ V K : Type 1} [DecidableEq V] [DecidableEq K] {P : FlatInstitution.Signature.{0, 0} κ}
@@ -163,32 +199,66 @@ private theorem named_entry (entryShape : target.entry = .br 0 (.pair (.bv 0) .u
     LambdaSSA.Semantics.Interaction.term, pure_bind]
   rfl
 
+private def replayStep (loops : Bool) (phase : Phase A) :=
+  if loops && isSilent g caller phase then pure (.inr phase) else payloadStep g caller phase
+
 include readback in
-private theorem named_step (row : ∀ (p : Packet Incoming) (env : Env Runtime),
-    region instr (extend env (.pair (encodeValue ULift.up p.2.val) .unit)) (target.block p.1).erase =
-      rowTransfer g caller p) (phase : Phase A) :
-    (payloadStep g caller phase >>= liftPure (Sum.map id (encodePhase names))) =
+private theorem named_step (loops : Bool)
+    (row : ∀ (p : Packet Incoming) (env : Env Runtime),
+      region instr (extend env (.pair (encodeValue ULift.up p.2.val) .unit)) (target.block p.1).erase =
+        match g.control.head caller p with
+        | .diverge => if loops then pure (p.1.val, .pair (encodeValue ULift.up p.2.val) .unit) else diverge
+        | _ => rowTransfer g caller p) (phase : Phase A) :
+    (replayStep g caller loops phase >>= liftPure (Sum.map id (encodePhase names))) =
       mapReturn (CFG.Cyclic.stepSSA (treeModel instr) a.versioned.source.blocks initial) (liftPure packed)
         (encodePhase names phase) := by
   rcases phase with ⟨p | p⟩
-  · simp only [payloadStep, pure_bind, liftPure, Function.comp_apply, Sum.map_inl, id_eq]
+  · simp only [replayStep, isSilent, Bool.and_false, Bool.false_eq_true, ↓reduceIte, payloadStep, pure_bind, liftPure, Function.comp_apply, Sum.map_inl, id_eq]
     exact (readback.exit_eval instr initial (packetValue p) p.1).symm
   · let env : Env Runtime := fun _ => .unit
     change _ = mapReturn (CFG.Cyclic.stepSSA (treeModel instr) a.versioned.source.blocks initial)
       (liftPure packed) (names (p.1.castAdd 2), .pair (encodeValue ULift.up p.2.val) .unit)
     unfold mapReturn
-    rw [readback.block_eval instr initial env, row p env, rowTransfer]
-    unfold payloadStep
-    dsimp only
-    cases (g).control.head caller p with
+    rw [readback.block_eval instr initial env, row p env]
+    cases head : g.control.head caller p with
     | exit i _ =>
-      simp only [pure_bind, liftPure, Function.comp_apply, Sum.map_inr, Sum.elim_inr, encodePhase, restore_exit]
+      simp only [replayStep, isSilent, head, Bool.and_false, Bool.false_eq_true, ↓reduceIte,
+        payloadStep, rowTransfer, pure_bind, liftPure, Function.comp_apply, Sum.map_inr, Sum.elim_inr,
+        encodePhase, restore_exit]
       rfl
     | diverge =>
-      simp only [Silmaril.Elgot.ITree.diverge_bind]
+      cases loops
+      · simp only [replayStep, Bool.false_and, Bool.false_eq_true, ↓reduceIte, payloadStep, head]
+        simp only [Silmaril.Elgot.ITree.diverge_bind]
+      · simp [replayStep, isSilent, head, liftPure, encodePhase, restore_block]
     | request f arg next =>
-      simp only [bind_assoc, pure_bind, liftPure, Function.comp_apply, Sum.map_inr, Sum.elim_inr,
+      simp only [replayStep, isSilent, head, Bool.and_false, Bool.false_eq_true, ↓reduceIte,
+        payloadStep, rowTransfer, bind_assoc, pure_bind, liftPure, Function.comp_apply, Sum.map_inr, Sum.elim_inr,
         encodePhase, restore_block]
+
+include readback in
+private theorem named_tree_replay (loops : Bool)
+    (entryShape : target.entry = .br 0 (.pair (.bv 0) .unit))
+    (seedValue : store seed = encodeValue ULift.up entryBit.val)
+    (row : ∀ (p : Packet Incoming) (env : Env Runtime),
+      region instr (extend env (.pair (encodeValue ULift.up p.2.val) .unit)) (target.block p.1).erase =
+        match g.control.head caller p with
+        | .diverge => if loops then pure (p.1.val, .pair (encodeValue ULift.up p.2.val) .unit) else diverge
+        | _ => rowTransfer g caller p) :
+    LiveOut.observeRaw instr (I).exits (fun k => (fields k).map Prod.fst) source store =
+      packetTree g caller ⟨0, entryBit⟩ := by
+  unfold packetTree
+  have named := Guarded.observe_eq_of_steps (a := a) (input := initial) (⟨.inr ⟨0, entryBit⟩⟩ : Phase A)
+    (replayStep g caller loops) (encodePhase names) (named_entry readback entryBit store entryShape seedValue)
+    (named_step readback g caller store loops row)
+  rw [named]
+  cases loops
+  · rfl
+  · have terminal (c : Phase A) (mark : isSilent g caller c = true) : payloadStep g caller c = diverge := by
+      rcases c with ⟨p | p⟩
+      · contradiction
+      · cases head : g.control.head caller p <;> simp [isSilent, head, payloadStep] at mark ⊢
+    exact congrFun (replay_self_loops (payloadStep g caller) (isSilent g caller) terminal) _
 
 include readback in
 theorem named_tree_of_readback
@@ -199,10 +269,23 @@ theorem named_tree_of_readback
         rowTransfer g caller p) :
     LiveOut.observeRaw instr (I).exits (fun k => (fields k).map Prod.fst) source store =
       packetTree g caller ⟨0, entryBit⟩ := by
-  unfold packetTree
-  exact Guarded.observe_eq_of_steps (a := a) (input := initial) (⟨.inr ⟨0, entryBit⟩⟩ : Phase A)
-    (payloadStep g caller) (encodePhase names) (named_entry readback entryBit store entryShape seedValue)
-    (named_step readback g caller store row)
+  apply named_tree_replay readback g caller entryBit store false entryShape seedValue
+  intro p env
+  rw [row p env]
+  cases head : g.control.head caller p <;> simp [rowTransfer, head]
+
+include readback in
+theorem named_tree_of_self_loops
+    (entryShape : target.entry = .br 0 (.pair (.bv 0) .unit))
+    (seedValue : store seed = encodeValue ULift.up entryBit.val)
+    (row : ∀ (p : Packet Incoming) (env : Env Runtime),
+      region instr (extend env (.pair (encodeValue ULift.up p.2.val) .unit)) (target.block p.1).erase =
+        match g.control.head caller p with
+        | .diverge => pure (p.1.val, .pair (encodeValue ULift.up p.2.val) .unit)
+        | _ => rowTransfer g caller p) :
+    LiveOut.observeRaw instr (I).exits (fun k => (fields k).map Prod.fst) source store =
+      packetTree g caller ⟨0, entryBit⟩ :=
+  named_tree_replay readback g caller entryBit store true entryShape seedValue row
 
 end Replay
 

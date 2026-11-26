@@ -1,5 +1,6 @@
 module
 
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Payload.Ordered.Silent.Thms
 import Mathlib.Tactic.FinCases
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.LiveBit.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Payload.Recognize.Thms
@@ -1022,6 +1023,158 @@ example : FixedCarrier.OrderedLiveOut.compareReachable? (inferred? false true) (
     · exact ⟨rfl, .inr rfl⟩
   · simp at live
   · trivial
+
+namespace SilentCycle
+
+open FixedCarrier.OrderedLiveOut.Silent (compare? compare_acceptance_iff compare_rejection_iff compare_none_iff)
+open FixedCarrier.OrderedLiveOut.Silent (Checked recognize)
+open FixedCarrier.OrderedLiveOut (observeNamedOn)
+
+private def source (loop : Bool) : CFG Reg Label signature.Instr :=
+  let g := orderedSource false
+  { g with blocks := g.blocks.map fun (label, row) =>
+      if loop && label == .left then (label, ⟨.left, .term (.br .left (.var .left))⟩) else (label, row) }
+
+private def admitted (loop : Bool) :
+    Admission signature ports (FixedCarrier.OrderedLiveOut.fields Reg.alt Reg.left) (source loop) :=
+  (PacketLocal.admit ports (FixedCarrier.OrderedLiveOut.fields Reg.alt Reg.left)
+    (source loop) argumentTypes).get (by cases loop <;> decide +kernel)
+
+private def checked? (loop : Bool) := recognize (admitted loop) .poll literalValues
+
+private def checked (loop : Bool) : Checked (admitted loop) .poll literalValues :=
+  (checked? loop).get (by cases loop <;> decide +kernel)
+
+private theorem checked_eq (loop : Bool) : checked? loop = some (checked loop) := by
+  cases loop <;> rfl
+
+private abbrev originalNative (loop : Bool) (selected : Tag → Bool) :
+    Endpoint nativeSig Incoming outputType :=
+  let g := nativeEndpoint false selected
+  { g with control := { g.control with
+      row := Fin.cases (motive := fun i : Fin 3 => Row nativeSig Incoming [Incoming.get i, Bit])
+        (g.control.row 0) (Fin.cases (if loop then .diverge else g.control.row 1)
+          (Fin.cases (g.control.row 2) (fun i => Fin.elim0 i))) } }
+
+private theorem exact (loop : Bool) (selected : Tag → Bool) :
+    ((checked loop).profile.endpoint .poll selected).checkNative (originalNative loop selected).native = true := by
+  have same : ((checked loop).profile.endpoint .poll noSelection).checkNative
+      (originalNative loop noSelection).native = true := by
+    cases loop <;> decide +kernel
+  cases loop <;> exact same
+
+private def handler (bitReply : Bool) : Syntax.StatePrimitives signature.Instr Nat :=
+  fun _ _ n => if n = 0 then
+    .ret (pack (L := Replies) (if bitReply then ⟨0, rightBit⟩ else ⟨1, unitPacket⟩)) 1
+  else .fault n
+
+private noncomputable def observe (loop bitReply : Bool) (selected : Tag → Bool) :=
+  observeNamedOn (source loop) labels .alt .left seedStore literalValues (handler bitReply) 0 selected
+
+private theorem observe_exact (loop bitReply : Bool) (selected : Tag → Bool) :
+    observe loop bitReply selected =
+      ((checked loop).profile.endpoint .poll selected).observeAt leftBit (handler bitReply) ⟨0, leftBit⟩ 0 :=
+  ((checked loop).observe_native_on selected leftBit seedStore rfl _ (exact loop selected) (handler bitReply) 0).trans
+    (((checked loop).profile.endpoint .poll selected).observe_entry_state _
+      (exact loop selected) leftBit (handler bitReply) 0)
+
+-- The shared reply changes the packet and state. Another request would fault.
+private theorem diverges (selected : Tag → Bool) :
+    observe true true selected = WithTop.some {Outcome.diverge} := by
+  rw [observe_exact, Endpoint.observe_state_step]
+  rw [show Head.execute (handler true) _ 0 =
+    .repeat (⟨1, rightBit⟩ : Packet Incoming) 1 from rfl]
+  dsimp only
+  rw [Endpoint.observe_state_step]
+  rfl
+
+private theorem ordinary :
+    observe false true noSelection = WithTop.some {Outcome.ret (0 : Tag) (projected 0 true true).2.val 1} := by
+  rw [observe_exact, Endpoint.observe_state_step]
+  rw [show Head.execute (handler true) _ 0 =
+    .repeat (⟨1, rightBit⟩ : Packet Incoming) 1 from rfl]
+  dsimp only
+  rw [Endpoint.observe_state_step]
+  rfl
+
+private theorem selected : observe false true firstSelected = ⊤ := by
+  rw [observe_exact, Endpoint.observe_state_step]
+  rw [show Head.execute (handler true) _ 0 =
+    .repeat (⟨1, rightBit⟩ : Packet Incoming) 1 from rfl]
+  dsimp only
+  rw [Endpoint.observe_state_step]
+  rfl
+
+private theorem ordinaryMismatch : ¬ observe true true noSelection ≤ observe false true noSelection := by
+  rw [diverges, ordinary]
+  simp [WithTop.coe_le_coe]
+
+private theorem reverseUB : ¬ observe false true firstSelected ≤ observe true true noSelection := by
+  rw [selected, diverges]
+  simp
+
+-- A unit reply still returns both fields at the ordinary alternate exit.
+example : observe true false firstSelected = WithTop.some {Outcome.ret (1 : Tag) (projected 1 true false).2.val 1} := by
+  rw [observe_exact, Endpoint.observe_state_step]
+  rw [show Head.execute (handler false) _ 0 =
+    .repeat (⟨2, unitPacket⟩ : Packet Incoming) 1 from rfl]
+  dsimp only
+  rw [Endpoint.observe_state_step]
+  rfl
+
+
+-- At the reached silent packet, the tree has no request root.
+example :
+    FixedCarrier.PayloadRecognition.packetTree ((checked true).profile.endpoint .poll noSelection)
+      leftBit ⟨1, rightBit⟩ = Silmaril.Elgot.ITree.diverge :=
+  FixedCarrier.PayloadRecognition.roots ((checked true).profile.endpoint .poll noSelection) leftBit ⟨1, rightBit⟩
+
+example : compare? (checked? true) (checked? false)
+    (originalNative true noSelection).native (originalNative false noSelection).native
+    noSelection noSelection leftBit seedStore seedStore = some false := by
+  rw [checked_eq true, checked_eq false]
+  apply (compare_rejection_iff (checked true) (checked false) leftBit seedStore seedStore
+    _ _ noSelection noSelection rfl rfl (exact true noSelection) (exact false noSelection)).mpr
+  exact ⟨Nat, handler true, 0, ordinaryMismatch⟩
+
+example : compare? (checked? false) (checked? true)
+    (originalNative false firstSelected).native (originalNative true noSelection).native
+    firstSelected noSelection leftBit seedStore seedStore = some false := by
+  rw [checked_eq false, checked_eq true]
+  apply (compare_rejection_iff (checked false) (checked true) leftBit seedStore seedStore
+    _ _ firstSelected noSelection rfl rfl (exact false firstSelected) (exact true noSelection)).mpr
+  exact ⟨Nat, handler true, 0, reverseUB⟩
+
+example : compare? (checked? true) (checked? false)
+    (originalNative true noSelection).native (originalNative false firstSelected).native
+    noSelection firstSelected leftBit seedStore seedStore = some true := by
+  rw [checked_eq true, checked_eq false]
+  apply (compare_acceptance_iff (checked true) (checked false) leftBit seedStore seedStore
+    _ _ noSelection firstSelected rfl rfl (exact true noSelection) (exact false firstSelected)).mpr
+  intro σ prim state
+  rw [(checked true).observe_native_on noSelection leftBit seedStore rfl _ (exact true noSelection),
+    (checked false).observe_native_on firstSelected leftBit seedStore rfl _ (exact false firstSelected),
+    Endpoint.observe_entry_state _ _ (exact true noSelection),
+    Endpoint.observe_entry_state _ _ (exact false firstSelected)]
+  apply ((checked true).profile.endpoint .poll noSelection).closed_relation_sound
+    ((checked false).profile.endpoint .poll firstSelected) leftBit leftBit prim Eq _ rfl state
+  rintro p q rfl
+  obtain ⟨i, packet⟩ := p
+  fin_cases i
+  · exact ⟨rfl, rfl, fun _ => rfl⟩
+  · trivial
+  · rfl
+
+-- An otherwise checked pair with the wrong runtime seed stays unknown.
+example : compare? (checked? true) (checked? false)
+    (originalNative true noSelection).native (originalNative false firstSelected).native
+    noSelection firstSelected leftBit seedStore (fun _ => .inr .unit) = none := by
+  rw [checked_eq true, checked_eq false]
+  apply (compare_none_iff (checked true) (checked false) leftBit seedStore (fun _ => .inr .unit)
+    _ _ noSelection firstSelected).mpr
+  exact .inr (.inl rfl)
+
+end SilentCycle
 
 end Ordered
 
