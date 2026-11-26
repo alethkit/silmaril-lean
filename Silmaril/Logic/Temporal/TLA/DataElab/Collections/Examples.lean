@@ -3,9 +3,12 @@ module
 import Silmaril.Logic.Temporal.TLA.DataElab.Collections.Tagged
 import all Silmaril.Logic.Temporal.TLA.DataElab.Collections.Defs
 import all Silmaril.Logic.Temporal.TLA.DataElab.Defs
+import Silmaril.Logic.Temporal.TLA.Data.Tagged.Collections.Binders.Thms
 import Silmaril.Logic.Temporal.TLA.Data.Tagged.Collections.RecordSet.Thms
 import Silmaril.Logic.Temporal.TLA.Data.Tagged.Except.Thms
+import Silmaril.Logic.Temporal.TLA.Data.Thms
 public import Silmaril.Logic.Temporal.TLA.Resolution.Names
+public import Silmaril.Logic.Temporal.TLA.DataElab.Semantics
 meta import Silmaril.Logic.Temporal.TLA.DataElab.Collections.Defs
 meta import Silmaril.Logic.Temporal.TLA.Surface.Parser.Defs
 public import Lean
@@ -44,6 +47,20 @@ BadGraphDomain == DOMAIN FALSE
 BadUpdate == [TRUE EXCEPT ![FALSE] = @]
 Whole == <<(f[k])', (DOMAIN f)', ([f EXCEPT ![k] = @])'>>
 Mixed == [f EXCEPT ![k'] = IF @ THEN v' ELSE v]
+Flat == [i, j \in BOOLEAN, a \in {FALSE} |-> <<i, j, a>>]
+NestedKey == [<<i, j>> \in {<<TRUE, FALSE>>}, a \in {FALSE} |-> <<i, j, a>>]
+TupleKey == [<<i>> \in {<<FALSE>>, <<TRUE, FALSE>>, TRUE} |-> i]
+GroupedImage == {<<i, j, a>> : i, j \in BOOLEAN, a \in {FALSE}}
+TupleImage == {i : <<i>> \in {<<FALSE>>, <<TRUE, FALSE>>}}
+ForAll == \A <<i, j>> \in {<<TRUE, FALSE>>, <<TRUE, TRUE, FALSE>>, FALSE}, a \in {FALSE} : j = a
+Exists == \E <<i>> \in {<<FALSE, TRUE>>, FALSE} : TRUE
+Filter == {<<i>> \in {<<TRUE>>, <<FALSE>>, <<TRUE, FALSE>>, TRUE} : i}
+Choose == CHOOSE <<i, j>> \in {<<TRUE, FALSE>>, TRUE} : i
+ChooseNone == CHOOSE <<i>> \in {<<TRUE, FALSE>>, TRUE} : TRUE
+ChooseUnbounded == CHOOSE <<i>> : i = TRUE
+BadProduct == [i, j \in BOOLEAN, a \in FALSE |-> i]
+EmptyProduct == [i, j \in BOOLEAN, a \in {} |-> <<i, j, a>>]
+PrimeBound == \E <<i>> \in k', a \in {FALSE} : i = a
 ====
 "#
 
@@ -75,12 +92,36 @@ private meta def rejects (definition : String) (path : Path) (kind : DiagnosticK
 
 #guard rejects "[a |-> TRUE, a |-> FALSE]" [.field 1] (.duplicateField "a")
 #guard rejects "[a : BOOLEAN, a : {TRUE}]" [.field 1] (.duplicateField "a")
-#guard rejects "[i, j \\in BOOLEAN |-> i]" [.bound 0] (.unsupported .functionBounds)
-#guard rejects "[i \\in BOOLEAN, j \\in BOOLEAN |-> i]" [] (.unsupported .functionBounds)
-#guard rejects "[<<i, j>> \\in BOOLEAN |-> i]" [.bound 0] (.unsupported .tupleBinder)
 #guard rejects "[a |-> TRUE][1.0]" [.operand 1] (.unsupported .literal)
 #guard rejects "[[a |-> TRUE] EXCEPT ![TRUE, 1.0] = @]"
   [.update 0, .updateComponent 0, .argument 1] (.unsupported .literal)
+
+private meta def rejectsName (expression : String) (path : Path) (kind : Resolution.DiagnosticKind) : Bool :=
+  match Surface.Parser.parseModule s!"---- MODULE Rejected ----\nOut == {expression}\n====" with
+  | .ok parsed =>
+    match Resolution.resolve [("client", .parsed parsed [])] "client" with
+    | .error diagnostic => diagnostic = ⟨⟨"client", [.unit 0, .body] ++ path⟩, kind⟩
+    | _ => false
+  | _ => false
+
+#guard rejectsName "[i \\in BOOLEAN, j \\in {i} |-> j]" [.bound 1, .domain, .operand 0]
+  (.unknownName (.ident "i"))
+#guard rejectsName "{i : <<i, j>> \\in BOOLEAN, i \\in BOOLEAN}" [.bound 1, .binder 0]
+  (.conflictingName (.ident "i") (.declared ⟨"client", [.unit 0, .body, .bound 0, .binder 0]⟩))
+
+#guard match registryFor source with
+  | .ok registry =>
+    match select registry "PrimeBound" with
+    | .ok (.declared site) =>
+      match Collections.lowerState registry [] noPrimitives 40 (.declared site), lower "PrimeBound" true with
+      | .error (.wrongLevel body .state .action), .ok checked =>
+        body = site.child .body ∧ checked.term.firstPrime = some (body.child (.bound 0) |>.child .domain)
+      | _, _ => false
+    | _ => false
+  | _ => false
+
+#guard !(Term.bounded (signature := noPrimitives) rfl (.map .function)
+  [([.name 0], .booleanSet), ([.name 1], .witness 0)] (.witness 1)).isWellFormed []
 
 #guard match Surface.Parser.parseExpr "[f EXCEPT ![] = @]" with
   | .error diagnostic => diagnostic.kind == .syntax
@@ -137,6 +178,10 @@ deriving instance ToExpr for Resolution.Name
 deriving instance ToExpr for Step
 deriving instance ToExpr for Site
 deriving instance ToExpr for BindingId
+deriving instance ToExpr for Surface.Quantifier
+deriving instance ToExpr for BinderMap
+deriving instance ToExpr for BinderPattern
+deriving instance ToExpr for Bounded
 
 -- Stage the actual expansion. The kernel checks the quoted syntax and its scope.
 private partial def quoteTerm (term : Term noPrimitives .collections) :
@@ -159,11 +204,22 @@ private partial def quoteTerm (term : Term noPrimitives .collections) :
   | .boolean b => return node ``Term.boolean #[toExpr b]
   | .booleanSet => return node ``Term.booleanSet #[]
   | .ite c y n => return node ``Term.ite #[← quoteTerm c, ← quoteTerm y, ← quoteTerm n]
+  | .eq negated lhs rhs => return node ``Term.eq #[toExpr negated, ← quoteTerm lhs, ← quoteTerm rhs]
   | .prime site arg => return node ``Term.prime #[toExpr site, ← quoteTerm arg]
   | .enum values => return node ``Term.enum #[← terms values]
   | .function _ site binder slot domain body =>
     return node ``Term.function #[enabled, toExpr site, toExpr binder, toExpr slot,
       ← quoteTerm domain, ← quoteTerm body]
+  | .chooseTuple _ slots bound body =>
+    let domain ← match bound with
+      | none => Meta.mkAppOptM ``Option.none #[some type]
+      | some domain => Meta.mkAppM ``Option.some #[← quoteTerm domain]
+    return node ``Term.chooseTuple #[enabled, toExpr slots, domain, ← quoteTerm body]
+  | .bounded _ kind groups body =>
+    let groupType ← Meta.mkAppM ``Prod #[toTypeExpr (List BinderPattern), type]
+    let domains ← groups.mapM fun (patterns, domain) => do
+      Meta.mkAppM ``Prod.mk #[toExpr patterns, ← quoteTerm domain]
+    return node ``Term.bounded #[enabled, toExpr kind, ← Meta.mkListLit groupType domains, ← quoteTerm body]
   | .functionSet _ site domain range =>
     return node ``Term.functionSet #[enabled, toExpr site, ← quoteTerm domain, ← quoteTerm range]
   | .record _ site values => return node ``Term.record #[enabled, toExpr site, ← fields values]
@@ -212,6 +268,19 @@ private noncomputable def badGraphDomain : CheckedExpr noPrimitives .collections
 private noncomputable def badUpdate : CheckedExpr noPrimitives .collections := by_elab emit "BadUpdate"
 private noncomputable def whole : Collections.CheckedAction noPrimitives := by_elab emit "Whole" true
 private noncomputable def mixed : Collections.CheckedAction noPrimitives := by_elab emit "Mixed" true
+private noncomputable def flat : CheckedExpr noPrimitives .collections := by_elab emit "Flat"
+private noncomputable def nestedKey : CheckedExpr noPrimitives .collections := by_elab emit "NestedKey"
+private noncomputable def tupleKey : CheckedExpr noPrimitives .collections := by_elab emit "TupleKey"
+private noncomputable def groupedImage : CheckedExpr noPrimitives .collections := by_elab emit "GroupedImage"
+private noncomputable def tupleImage : CheckedExpr noPrimitives .collections := by_elab emit "TupleImage"
+private noncomputable def forallExpr : CheckedExpr noPrimitives .collections := by_elab emit "ForAll"
+private noncomputable def existsExpr : CheckedExpr noPrimitives .collections := by_elab emit "Exists"
+private noncomputable def filterExpr : CheckedExpr noPrimitives .collections := by_elab emit "Filter"
+private noncomputable def chooseExpr : CheckedExpr noPrimitives .collections := by_elab emit "Choose"
+private noncomputable def chooseNone : CheckedExpr noPrimitives .collections := by_elab emit "ChooseNone"
+private noncomputable def chooseUnbounded : CheckedExpr noPrimitives .collections := by_elab emit "ChooseUnbounded"
+private noncomputable def badProduct : CheckedExpr noPrimitives .collections := by_elab emit "BadProduct"
+private noncomputable def emptyProduct : CheckedExpr noPrimitives .collections := by_elab emit "EmptyProduct"
 
 universe u
 variable (policy : Tagged.Policy.{u}) (invalid : Tagged.CollectionPolicy.{u})
@@ -440,5 +509,244 @@ private theorem mixed_endpoint_eq (e : Endpoints.EndpointValuation Value.{u}) (g
     (fun old => conditional policy.booleans old (e.target vId) (e.source vId)) = _
   rw [hf, Value.updatePath_single, Value.apply_function _ h, Value.update_function]
   simp [conditional, Tagged.Policy.booleans, Booleans.IsBoolean]
+
+private abbrev t : Value.{u} := .boolean true
+private abbrev f : Value.{u} := .boolean false
+
+private theorem cartesian_values (a b c : SetData.{u}) :
+    Value.cartesian [.set a, .set b, .set c] = some (.set (SetData.cartesian [a, b, c])) :=
+  Value.cartesian_sets [a, b, c]
+
+private theorem untuple_wrong_length {arity : Nat} {xs : List Value.{u}} (h : xs.length ≠ arity) :
+    (Value.tuple xs).untuple arity = none := by
+  rw [Value.untuple_eq_none]
+  rintro ⟨ys, hlen, heq⟩
+  exact h ((Graph.tuple_injective (Value.function_injective heq)) ▸ hlen)
+
+private theorem untuple_boolean (arity : Nat) (b : Bool) : (Value.boolean.{u} b).untuple arity = none :=
+  Value.untuple_eq_none.mpr fun ⟨_, _, h⟩ => Value.function_ne_boolean _ _ h
+
+private theorem flat_function (state : Valuation Value.{u}) :
+    ∃ g : Graph.{u}, atState policy invalid flat state = .function g ∧
+      g.domain = SetData.cartesian [boolSet, boolSet, SetData.enum [f]] ∧
+      g.lookup (Value.tuple [t, f, f]) = some (Value.tuple [t, f, f]) := by
+  have key : (SetData.cartesian [boolSet, boolSet, SetData.enum [f]]).mem (Value.tuple [t, f, f]) :=
+    SetData.mem_cartesian.mpr ⟨[t, f, f], by repeat first | apply List.Forall₂.cons | apply List.Forall₂.nil | simp [boolSet], rfl⟩
+  simp only [atState, CheckedExpr.eval, flat, Term.eval, Term.evalBounds, Term.evalList,
+    Operations.collection, BinderMap.eval, Bounded.axes, Tagged.Policy.collectionOperations,
+    Tagged.Policy.operations, Tagged.Policy.booleans, List.flatMap_cons, List.flatMap_nil,
+    List.map_cons, List.map_nil, List.nil_append, List.cons_append, List.length_cons, List.length_nil, Nat.reduceAdd,
+    cast_eq, Bool.false_eq_true, ite_false, show SetData.enum [t, f] = boolSet from rfl,
+    cartesian_values, Value.asSet_set]
+  refine ⟨_, rfl, Graph.domain_ofFn _ _, ?_⟩
+  rw [Graph.lookup_ofFn key, show (Value.tuple [t, f, f]).untuple 3 = some [t, f, f] from Value.untuple_tuple [t, f, f]]
+  rfl
+
+private theorem grouped_image (state : Valuation Value.{u}) :
+    (Value.tuple [f, t, f]).mem (atState policy invalid groupedImage state) := by
+  have key : (SetData.cartesian [boolSet, boolSet, SetData.enum [f]]).mem (Value.tuple [f, t, f]) :=
+    SetData.mem_cartesian.mpr ⟨[f, t, f], by repeat first | apply List.Forall₂.cons | apply List.Forall₂.nil | simp [boolSet], rfl⟩
+  simp only [atState, CheckedExpr.eval, groupedImage, Term.eval, Term.evalBounds, Term.evalList,
+    Operations.collection, BinderMap.eval, Bounded.axes, Tagged.Policy.collectionOperations,
+    Tagged.Policy.operations, Tagged.Policy.booleans, List.flatMap_cons, List.flatMap_nil,
+    List.map_cons, List.map_nil, List.nil_append, List.cons_append, List.length_cons, List.length_nil, Nat.reduceAdd,
+    cast_eq, Bool.false_eq_true, ite_false, show SetData.enum [t, f] = boolSet from rfl,
+    cartesian_values, Value.asSet_set, Value.mem_set]
+  rw [SetData.mem_image]
+  refine ⟨_, key, ?_⟩
+  rw [show (Value.tuple [f, t, f]).untuple 3 = some [f, t, f] from Value.untuple_tuple [f, t, f]]
+  rfl
+
+private theorem nested_key (state : Valuation Value.{u}) :
+    ∃ g : Graph.{u}, atState policy invalid nestedKey state = .function g ∧
+      g.domain = SetData.cartesian [SetData.enum [Value.tuple [t, f]], SetData.enum [f]] ∧
+      g.lookup (Value.tuple [Value.tuple [t, f], f]) = some (Value.tuple [t, f, f]) := by
+  let pair := Value.tuple [t, f]
+  let left := SetData.enum [pair]
+  let right := SetData.enum [f]
+  have product : Value.cartesian [.set left, .set right] = some (.set (SetData.cartesian [left, right])) :=
+    Value.cartesian_sets [left, right]
+  have key : (SetData.cartesian [left, right]).mem (Value.tuple [pair, f]) :=
+    SetData.mem_cartesian.mpr ⟨[pair, f], .cons (by simp [left]) (.cons (by simp [right]) .nil), rfl⟩
+  simp only [atState, CheckedExpr.eval, nestedKey, Term.eval, Term.evalBounds, Term.evalList,
+    Operations.collection, BinderMap.eval, Bounded.axes, Tagged.Policy.collectionOperations,
+    Tagged.Policy.operations, Tagged.Policy.booleans, List.flatMap_cons, List.flatMap_nil,
+    List.map_cons, List.map_nil, List.nil_append, List.cons_append, List.length_cons, List.length_nil, Nat.reduceAdd,
+    cast_eq, Bool.false_eq_true, ite_true, ite_false, show Value.tuple [t, f] = pair from rfl,
+    show SetData.enum [pair] = left from rfl, show SetData.enum [f] = right from rfl]
+  rw [product]
+  simp only [Value.asSet_set]
+  refine ⟨_, rfl, Graph.domain_ofFn _ _, ?_⟩
+  rw [Graph.lookup_ofFn key,
+    show (Value.tuple [pair, f]).untuple 2 = some [pair, f] from Value.untuple_tuple [pair, f]]
+  change some (Value.tuple [_, _, f]) = _
+  simp only [List.zip_cons_cons, List.zip_nil_left, List.foldl_cons, List.foldl_nil,
+    BinderPattern.bindTotal, List.length_cons, List.length_nil, Nat.reduceAdd, show pair.untuple 2 = some [t, f] from Value.untuple_tuple [t, f], Option.getD_some]
+  rfl
+
+private theorem tuple_key_keeps_domain (state : Valuation Value.{u}) :
+    ∃ g : Graph.{u}, atState policy invalid tupleKey state = .function g ∧
+      g.domain = SetData.enum [Value.tuple [f], Value.tuple [t, f], t] ∧
+      g.lookup (Value.tuple [f]) = some f ∧
+      g.lookup (Value.tuple [t, f]) = some (Value.apply policy.numeric policy.choice.noWitness (.integer 1)) := by
+  simp only [atState, CheckedExpr.eval, tupleKey, Term.eval, Term.evalBounds, Term.evalList,
+    Operations.collection, BinderMap.eval, Bounded.axes, Tagged.Policy.collectionOperations,
+    Tagged.Policy.operations, Tagged.Policy.booleans, cast_eq, List.flatMap_cons, List.flatMap_nil,
+    List.map_cons, List.map_nil, List.cons_append, List.nil_append,
+    Bool.false_eq_true, ite_true, ite_false, Value.asSet_set]
+  refine ⟨_, rfl, Graph.domain_ofFn _ _, ?_, ?_⟩
+  · rw [Graph.lookup_ofFn (by simp)]
+    simp only [BinderPattern.bindTotal, List.length_cons, List.length_nil, Nat.reduceAdd,
+      show (Value.tuple [f]).untuple 1 = some [f] from Value.untuple_tuple [f], Option.getD_some]
+    rfl
+  · rw [Graph.lookup_ofFn (by simp)]
+    simp only [BinderPattern.bindTotal, List.length_cons, List.length_nil, Nat.reduceAdd,
+      untuple_wrong_length.{u} (xs := [t, f]) (arity := 1) (by decide), Option.getD_none]
+    rfl
+
+private theorem tuple_image_keeps_member (state : Valuation Value.{u}) :
+    (Value.apply policy.numeric policy.choice.noWitness (.integer 1)).mem
+      (atState policy invalid tupleImage state) := by
+  simp only [atState, CheckedExpr.eval, tupleImage, Term.eval, Term.evalBounds, Term.evalList,
+    Operations.collection, BinderMap.eval, Bounded.axes, Tagged.Policy.collectionOperations,
+    Tagged.Policy.operations, Tagged.Policy.booleans, cast_eq, List.flatMap_cons, List.flatMap_nil,
+    List.map_cons, List.map_nil, List.cons_append, List.nil_append,
+    Bool.false_eq_true, ite_true, ite_false, Value.asSet_set, Value.mem_set, SetData.mem_image]
+  refine ⟨Value.tuple [t, f], by simp, ?_⟩
+  simp only [BinderPattern.bindTotal, List.length_cons, List.length_nil, Nat.reduceAdd,
+    untuple_wrong_length.{u} (xs := [t, f]) (arity := 1) (by decide), Option.getD_none]
+  rfl
+
+private theorem tuple_forall (state : Valuation Value.{u}) :
+    atState policy invalid forallExpr state = t := by
+  change policy.booleans.holds (policy.booleans.ofProp _)
+  apply (Booleans.holds_ofProp _ _).mpr
+  change ∀ (x : Value.{u}) env, x.mem (.set (SetData.enum [Value.tuple [t, f], Value.tuple [t, t, f], f])) →
+    (x.untuple 2).map (withWitnesses (fun _ => Value.set (SetData.enum [])) [0, 1]) = some env →
+    ∀ (y : Value.{u}) next, y.mem (.set (SetData.enum [f])) → some (withWitness env 2 y) = some next →
+      policy.booleans.holds (policy.booleans.ofProp (next 1 = next 2))
+  intro x env hx henv
+  simp only [Value.mem_set, SetData.mem_enum, List.mem_cons, List.not_mem_nil, or_false] at hx
+  rcases hx with rfl | rfl | rfl
+  · rw [show (Value.tuple [t, f]).untuple 2 = some [t, f] from Value.untuple_tuple [t, f]] at henv
+    cases henv
+    intro y next hy hnext
+    simp only [Value.mem_set, SetData.mem_enum, List.mem_singleton] at hy
+    cases hy
+    cases hnext
+    exact (Booleans.holds_ofProp _ _).mpr rfl
+  · simp [untuple_wrong_length.{u} (xs := [t, t, f]) (arity := 2) (by decide)] at henv
+  · simp [untuple_boolean] at henv
+
+private theorem tuple_exists (state : Valuation Value.{u}) :
+    atState policy invalid existsExpr state = f := by
+  change policy.booleans.ofProp _ = policy.booleans.falseValue
+  apply ite_eq_right
+  change ¬ ∃ (x : Value.{u}) (env : Nat → Value.{u}), x.mem (.set (SetData.enum [Value.tuple [f, t], f])) ∧
+    (x.untuple 1).map (withWitnesses (fun _ => Value.set (SetData.enum [])) [0]) = some env ∧ _
+  simp only [Value.mem_set, SetData.mem_enum, List.mem_cons, List.not_mem_nil, or_false]
+  rintro ⟨x, env, rfl | rfl, he, _⟩
+  · simp [untuple_wrong_length.{u} (xs := [f, t]) (arity := 1) (by decide)] at he
+  · simp [untuple_boolean] at he
+
+private theorem tuple_filter (state : Valuation Value.{u}) :
+    atState policy invalid filterExpr state = .set (SetData.enum [Value.tuple [t]]) := by
+  let bound := SetData.enum [Value.tuple [t], Value.tuple [f], Value.tuple [t, f], t]
+  simp only [atState, CheckedExpr.eval, filterExpr, Term.eval, Term.evalBounds, Term.evalList,
+    Operations.collection, Operations.base, Tagged.Policy.collectionOperations, Tagged.Policy.operations,
+    Tagged.Policy.booleans, cast_eq, Bool.false_eq_true, ite_true, ite_false, Value.asSet_set]
+  apply congrArg Value.set
+  apply SetData.ext
+  intro key
+  rw [SetData.mem_sep]
+  change bound.mem key ∧ (∃ env, (key.untuple 1).map (withWitnesses (fun _ => Value.set (SetData.enum [])) [0]) = some env ∧ env 0 = t) ↔ _
+  simp only [bound, SetData.mem_enum, List.mem_cons, List.not_mem_nil, or_false]
+  constructor
+  · rintro ⟨rfl | rfl | rfl | rfl, env, he, hv⟩
+    · rfl
+    · rw [show (Value.tuple [f]).untuple 1 = some [f] from Value.untuple_tuple [f]] at he
+      cases he
+      exact (Bool.false_ne_true (Value.boolean_injective hv)).elim
+    · simp [untuple_wrong_length.{u} (xs := [t, f]) (arity := 1) (by decide)] at he
+    · simp [untuple_boolean] at he
+  · rintro rfl
+    exact ⟨.inl rfl, _, by rw [show (Value.tuple [t]).untuple 1 = some [t] from Value.untuple_tuple [t]]; rfl, rfl⟩
+
+private theorem tuple_choose (state : Valuation Value.{u}) :
+    atState policy invalid chooseExpr state = Value.tuple [t, f] := by
+  let predicate (x : Value.{u}) := x.mem (.set (SetData.enum [Value.tuple [t, f], t])) ∧ ∃ env,
+    (x.untuple 2).map (withWitnesses (fun _ => Value.set (SetData.enum [])) [0, 1]) = some env ∧ env 0 = t
+  change policy.choice.choose predicate = _
+  have witness : predicate (Value.tuple [t, f]) := by
+    refine ⟨by simp, withWitnesses (fun _ => .set (SetData.enum [])) [0, 1] [t, f], ?_, rfl⟩
+    rw [show (Value.tuple [t, f]).untuple 2 = some [t, f] from Value.untuple_tuple [t, f]]
+    rfl
+  obtain ⟨hm, env, he, _⟩ := policy.choice.witness ⟨_, witness⟩
+  simp only [Value.mem_set, SetData.mem_enum, List.mem_cons, List.not_mem_nil, or_false] at hm
+  rcases hm with h | h
+  · exact h
+  · simp [h, untuple_boolean] at he
+
+private theorem tuple_choose_without_witness (state : Valuation Value.{u}) :
+    atState policy invalid chooseNone state = policy.choice.noWitness := by
+  change policy.choice.choose _ = _
+  apply Data.ChoicePolicy.choose_of_no_witness
+  change ¬ ∃ (x : Value.{u}), x.mem (.set (SetData.enum [Value.tuple [t, f], t])) ∧ ∃ env,
+    (x.untuple 1).map (withWitnesses (fun _ => Value.set (SetData.enum [])) [0]) = some env ∧ _
+  simp only [Value.mem_set, SetData.mem_enum, List.mem_cons, List.not_mem_nil, or_false]
+  rintro ⟨x, rfl | rfl, env, h, _⟩
+  · simp [untuple_wrong_length.{u} (xs := [t, f]) (arity := 1) (by decide)] at h
+  · simp [untuple_boolean] at h
+
+private theorem unbounded_tuple_choose (state : Valuation Value.{u}) :
+    atState policy invalid chooseUnbounded state = Value.tuple [t] := by
+  change policy.choice.choose _ = _
+  rw [show policy.choice.choose _ = policy.choice.choose (fun x => x = Value.tuple [t]) from
+    Data.ChoicePolicy.congr _ (fun x => by
+      change (True ∧ ∃ env, (x.untuple 1).map (withWitnesses (fun _ => Value.set (SetData.enum [])) [0]) = some env ∧
+        policy.booleans.holds (policy.booleans.ofProp (env 0 = t))) ↔ _
+      rw [true_and]
+      constructor
+      · rintro ⟨env, he, ht⟩
+        obtain ⟨xs, hx, rfl⟩ := Option.map_eq_some_iff.mp he
+        obtain ⟨hlen, rfl⟩ := Value.untuple_eq_some.mp hx
+        match xs with
+        | [value] =>
+          have h : value = t := (Booleans.holds_ofProp _ _).mp ht
+          rw [h]
+        | [] | _ :: _ :: _ => simp at hlen
+      · rintro rfl
+        refine ⟨_, by rw [show (Value.tuple [t]).untuple 1 = some [t] from Value.untuple_tuple [t]]; rfl, ?_⟩
+        exact (Booleans.holds_ofProp _ _).mpr rfl)]
+  exact policy.choice.witness (p := fun x => x = Value.tuple [t]) ⟨_, rfl⟩
+
+private theorem malformed_product (state : Valuation Value.{u}) :
+    atState policy invalid badProduct state = invalid (.binderBounds .function [Value.set boolSet, f]) := by
+  have product : Value.cartesian [.set boolSet, .set boolSet, Value.boolean false] = none := by
+    simp [Value.cartesian, List.mapM_cons]
+  simp only [atState, CheckedExpr.eval, badProduct, Term.eval, Term.evalBounds,
+    Operations.collection, BinderMap.eval, Bounded.axes, Tagged.Policy.collectionOperations,
+    Tagged.Policy.operations, Tagged.Policy.booleans, cast_eq, List.flatMap_cons, List.flatMap_nil,
+    List.map_cons, List.map_nil, List.cons_append, List.nil_append, Bool.false_eq_true, ite_false,
+    show SetData.enum [t, f] = boolSet from rfl]
+  rw [product]
+
+private theorem empty_product (state : Valuation Value.{u}) :
+    Value.domain policy.numeric (atState policy invalid emptyProduct state) = .set .empty := by
+  simp only [atState, CheckedExpr.eval, emptyProduct, Term.eval, Term.evalBounds, Term.evalList,
+    Operations.collection, BinderMap.eval, Bounded.axes, Tagged.Policy.collectionOperations,
+    Tagged.Policy.operations, Tagged.Policy.booleans, List.flatMap_cons, List.flatMap_nil,
+    List.map_cons, List.map_nil, List.cons_append, List.nil_append, cast_eq,
+    show SetData.enum [t, f] = boolSet from rfl, cartesian_values, Value.asSet_set, Value.domain_function,
+    Graph.domain_ofFn]
+  apply congrArg Value.set
+  apply SetData.ext
+  intro key
+  rw [SetData.mem_cartesian]
+  simp only [SetData.empty, SetData.mem, ZFSet.notMem_empty, iff_false]
+  rintro ⟨xs, h, _⟩
+  have hlen : xs.length = 3 := h.length_eq
+  have hh := h.get (i := 2) (by omega) (by decide)
+  exact ZFSet.notMem_empty _ hh
 
 end Silmaril.Logic.Temporal.TLA.DataElab.Collections.Examples
