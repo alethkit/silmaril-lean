@@ -872,6 +872,24 @@ suffix. A same-payload global from another vertex fails the witness
 equality.
 [Leading δ fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Delta/Regression.lean)
 
+For repeated initializers, `LinkedRemainder.start` indexes the actual
+numbered link by the remaining source. `checkDelta` runs the next δ
+against the current typed locals and store on both sides. On success
+it appends the initialized rows and carries the callable dispatch
+unchanged. The returned scope is available for the next step, including
+group synthesis. `addGroup` reuses the checked group admission and
+`analyze` runs the existing demand plan on the remaining λ/φ suffix.
+Each δ must succeed at a common post-step store. The δ initialization
+itself is outside the invocation liveness guarantee.
+[Composable prefix API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Remainder/Thms.lean)
+
+The interleaved δ→φ→δ→λ regression reads the first initialized
+global in the second initializer and reuses the φ dispatch after
+the second δ. It checks both initialized captures are live under
+empty result demand, exact return and resumption, and rejection
+when the received stores diverge at the second initializer.
+[Interleaved δ fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Delta/Regression.lean)
+
 The cross-group fixture starts with a λ and synthesizes both groups'
 summaries in order. The exported λ calls the second group and then
 uses the leading λ for its saved suffix. The second group takes a

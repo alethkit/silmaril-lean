@@ -19,6 +19,18 @@ variable {inputsL inputsR : Tuple m.Val imports} {initial : σ}
 variable {init : DeltaTerm Op imports [] value}
 variable {summary : MemberSummary V S} {sigs : List (Ports (Ty V S))}
 
+/-- Advance one side of the numbered linker from an actual successful
+vertex outcome. The same equation applies before and after callable bindings. -/
+theorem link_step {past : List (Ports (Ty V S))} {ports outs : Ports (Ty V S)}
+    (inputs : Tuple m.Val imports) (locals : Locals m.Val past) (node : VertexTerm Op imports past ports)
+    (tail : ModuleTerm Op imports (past ++ [ports]) sigs outs)
+    {values : Tuple m.Val ports} {store : σ}
+    (ran : Executable.linkVertex actions unitId inputs locals node.toGraph initial = .linked values store) :
+    Isomorphism.RecursiveCall.Numbered.Prefix.linkTerm actions unitId inputs locals (.bind node tail) initial =
+      Isomorphism.RecursiveCall.Numbered.Prefix.linkTerm actions unitId inputs (locals.snoc values) tail store := by
+  refine (linkTerm_bind actions unitId inputs locals node tail initial).trans ?_
+  simp only [ran]
+
 theorem link_delta {outs : Ports (Ty V S)} (inputs : Tuple m.Val imports)
     (tail : ModuleTerm Op imports [[.value (.global value)]] sigs outs)
     {values : Tuple m.Val [.value (.global value)]} {store : σ}
@@ -26,10 +38,8 @@ theorem link_delta {outs : Ports (Ty V S)} (inputs : Tuple m.Val imports)
       .linked values store) :
     Executable.link actions unitId (OmegaTerm.toGraph ⟨.bind (.delta init) tail⟩) inputs initial =
       Isomorphism.RecursiveCall.Numbered.Prefix.linkTerm (past := [[.value (.global value)]])
-      actions unitId inputs (values, PUnit.unit) tail store := by
-  refine (linkTerm_bind (past := []) actions unitId inputs PUnit.unit (.delta init) tail initial).trans ?_
-  simp only [VertexTerm.toGraph, ran, Locals.snoc]
-  rfl
+      actions unitId inputs (values, PUnit.unit) tail store :=
+  link_step (past := []) inputs PUnit.unit (.delta init) tail ran
 
 /-- Analyze a numbered δ→λ/φ module from a checked initializer receipt.
 The existing walk starts with the actual initialized locals and common
