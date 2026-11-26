@@ -3,6 +3,8 @@ module
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.WholeRun.Defs
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.Thms
 import Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.WholeRun
+import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Version.Thms
+import Silmaril.Semantics.Elgot.Thms
 
 /-! # Finite execution from a named table to the typed packed dispatcher -/
 
@@ -63,5 +65,25 @@ theorem packed_run_iff {τ : Type v} [TypeFormers τ] [HasTy F τ] {β : BoundCt
       Eval (instr prim) ambient (FiniteCFG.packedExecutionRegion typed)
         () 0 (Region.packedExitValue out value) () :=
   (compile_run_iff accepted inputs).trans (Capture.packed_eval_at typed closure packet).symm
+
+/-- Finite exits of the mutable source agree with the packed dispatcher after
+observing the exit label and payload. The shared tagged-value model satisfies
+the pair law required by cyclic versioning. -/
+theorem mutable_packed_run_iff {τ : Type v} [TypeFormers τ] [HasTy F τ] {β : BoundCtx τ n}
+    {R : Fin (CFG.Cyclic.Versioning.compile source).blocks.length → τ}
+    {E : Fin exits.length → τ} {input : Tm Empty F 0} {ambient : Env α}
+    {closed : FiniteCFG F (CFG.Cyclic.Versioning.compile source).blocks.length exits.length 0}
+    (accepted : compile source exits captures = some target)
+    (inputs : ∀ i : Fin n, env i.val = store (captures i, 0))
+    (typed : closed.HasType .nil R E) (closure : Capture.Closes β input target closed)
+    (packet : ∀ v state,
+      LambdaSSA.Semantics.Tm.Eval (instr prim) ambient (Morphism.CaseSSA.erase input) () v state ↔
+        v = Capture.packEnv n env ∧ state = ()) :
+    (out, value) ∈ ((obs <$> CFG.Cyclic.run (model prim) source (fun r => store (r, 0))) >>=
+      numberExit exits) ↔
+      Eval (instr prim) ambient (FiniteCFG.packedExecutionRegion typed)
+        () 0 (Region.packedExitValue out value) () := by
+  rw [CFG.Cyclic.Versioning.run_commutes (model prim) ⟨fun _ _ => rfl⟩]
+  exact packed_run_iff accepted inputs typed closure packet
 
 end Silmaril.Isotope.Bridge.NamedFlat

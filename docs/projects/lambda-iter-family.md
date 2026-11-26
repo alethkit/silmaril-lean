@@ -211,12 +211,45 @@ of the exact original capture packet, `packed_run_iff` gives exit zero with
 injection of the original payload. The finite proof observes primitive outcomes. Divergence and ITree events
 require different observations.
 
+`mutable_packed_run_iff` composes `Versioning.run_commutes` with
+`packed_run_iff`. The shared tagged-value `Part` model satisfies the pair
+law because its destructor immediately returns the two fields of a
+constructed pair. The source starts with the version-zero store, and
+`obs` retains its exit label and payload. The Isotope hypotheses remain
+accepted elaboration, capture agreement, and the exact state-preserving
+capture packet.
+[Mutable source corollary](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/WholeRun/Thms.lean)
+
 The classified countdown uses the actual compiled graph and both captures.
 The named runner exits at label 99 with payload 2, which the open graph reports
 at external slot zero and the packed graph reports with its sum tag. Five
 named step calls leave the jump to 99 pending. The sixth call observes the
-exit because table lookup misses.
+exit because table lookup misses. The packed evaluation also reflects back
+to the mutable source's numbered exit with the same payload.
 [Checked named and packed countdown](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Examples/Thms.lean)
+
+### Edge arguments for a normalized φ port
+
+`Versioning.encode` and `Versioning.step_commutes` show the current
+destination-packet contract. On a hit, `Versioning.slots` orders the
+stored fields for the destination, and `Version.enc` pairs the original
+argument with a right-nested tuple of those fields terminated by unit.
+On a miss, the original argument is the exit payload. `Cyclic.stepSSA`
+gives the chosen block one packet argument in a fresh lexical invocation.
+A lowering of normalized φ rows can supply packets to this same lexical
+interface. Its transfer proof needs to show that encoding the incoming
+predecessor's row before binding any destinations gives the same values
+as simultaneous φ assignment. Predecessor and parallel-edge conditions
+belong to that lowering, as described in the thesis crosswalk.
+[Edge encoding](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/Defs.lean)
+· [Step theorem](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/Thms.lean)
+· [Thesis crosswalk](lambdassa-theorem-crosswalk.md#conventional-φ-nodes-and-block-arguments)
+
+`NamedFlat.run_iff` applies to an accepted named lexical table with those
+packet arguments, with the same shared `Part` primitives and capture
+agreement. This endpoint is independent of which lowering produced the
+table.
+[Lexical whole-run theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/WholeRun/Thms.lean)
 
 ```sh
 lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.WholeRun.Thms \
