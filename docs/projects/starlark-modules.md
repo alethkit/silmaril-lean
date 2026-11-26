@@ -706,15 +706,48 @@ definition that forwards a capture uses the enclosing slot's address
 through the same rule. The wrapper proof derives its module addresses
 from actual module cells and its child's captures from reached locals.
 
-The next obligation for deeper defaulted source is to derive the
-layout, ordered free references and `Installs` evidence at each
-reached nested definition and keep that evidence through arbitrary
-admitted body sequencing and dispatch. The lexical rule covers the
-existing read-only operands and singleton list allocation. Wider
-default expressions and effects, deeper checked wrapper traces,
-arbitrary callable provenance, keywords and spreads, loads, and text
-parsing remain outside this integration.
+The lexical rule covers read-only operands and singleton list allocation.
+Calls and wider effects in defaults remain outside this rule.
 [Lexical rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Lexical/Defs.lean) · [Default and definition theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Lexical/Thms.lean)
+
+### Reached nested definitions and forwarded cells
+
+`Defaults.Nested.plan_of_body` builds a local definition plan from the
+independent binder, body and default judgments. The child body is a
+straight-line assignment and return suite. `compile_definition` links
+its ordered local slots and free references to the declaration at the
+next code-table index. The enclosing compiler sees the defaults' reads,
+followed by the child body's free references. `selects_parent` composes
+these demands with surrounding reads, even when the parent makes no
+direct read of the forwarded name.
+
+`installs` derives the ordered capture vector and its live binding
+cells from the reached parent frame. A name owned by that frame uses
+its own cell, including under shadowing. An inherited request uses
+the address already in that frame's capture slot. `activate_forwarded`
+preserves that address in the child's activation. `reached` composes
+these facts with the lexical-default theorem to give exact source,
+operational and denotational agreement on installation with saved
+values and on the first default error with its reached heap.
+
+The Lean and pinned Go controls escape a child through an intermediate
+definition. One call observes the saved list and the outer owner's
+later rebinding of the live index. A shadowing parameter redirects the
+same reads to the nearer owner. An uninitialized forwarded read stops
+installation, preserves the earlier mutation, and prevents publication.
+Lean also inspects the original capture address and the allocation
+from the first default in the residual heap.
+
+The module trace still derives reached frames and stable declaration
+IDs only for its existing shapes. The next obligation is to compose
+local definition steps with a source body judgment that admits nested
+definitions and sequencing, then carry the resulting closure provenance
+into dispatch and publication. The local theorem takes independent
+source elaboration, the compiled declaration lookup, and a reached
+parent frame invariant. Wider default expressions, arbitrary callable
+provenance, keywords and spreads, loads, and text parsing remain outside
+this integration.
+[Local source rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
 
 ## Finite-manifest loader
 

@@ -168,7 +168,7 @@ theorem compile_nested {globals enclosing : List String} {definition : Definitio
   rw [signature, emitted, optional]
   simp [Plan.declaration, Defaults.Parameters.signature, layout, readNames, capture]
 
-private theorem operand_origins {block : LexicalBlock} {source : SourceExpr} {code : Lowering.Expr}
+theorem operand_origins {block : LexicalBlock} {source : SourceExpr} {code : Lowering.Expr}
     {reads : List Binding} (related : Operand block source code reads) :
     ∀ binding ∈ reads, ∃ origin, ReadOrigin block binding origin := by
   induction related with

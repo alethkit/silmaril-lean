@@ -32,6 +32,14 @@ theorem evaluates_agree (program : Program) (available : List DeclarationId)
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Lexical.evaluates_agree
     program available bodyMeaning ran
 
+/-- Evaluating the bounded operands only extends the heap and preserves
+the defining slot map, including when a later operand fails. -/
+theorem evaluates_keeps {block : LexicalBlock} {source : List (String × Lowering.Resolve.SourceExpr)}
+    {items : List PlainPositionalDefault} (related : Elaborates block source items) {state : State}
+    {result : Outcome (List Lists.Value)} (evaluated : Evaluates block state items result) :
+    Body.Keeps state.heap.size state (Lists.Iteration.finishState result) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Lexical.evaluates_keeps related evaluated
+
 /-- A reached definition agrees with native execution and denotation. The
 installed environment can forward existing addresses from the defining frame. -/
 theorem defines_agree (program : Program) (available : List DeclarationId) (target : Binding)

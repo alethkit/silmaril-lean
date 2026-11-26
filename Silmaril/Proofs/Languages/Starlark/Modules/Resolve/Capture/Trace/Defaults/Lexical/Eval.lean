@@ -87,6 +87,14 @@ theorem total {block : LexicalBlock} {source : List (String × SourceExpr)} {ite
       | error => exact ⟨_, .next first tail, kept, fun _ _ h => nomatch h⟩
       | ok values final => exact ⟨_, .next first tail, kept, fun _ _ h => by cases h; simp [count _ _ rfl]⟩
 
+theorem evaluates_keeps {block : LexicalBlock} {source : List (String × SourceExpr)}
+    {items : List PlainPositionalDefault} (related : Elaborates block source items) {state : State}
+    {result : Outcome (List Value)} (evaluated : Evaluates block state items result) :
+    Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Keeps state.heap.size state (finishState result) := by
+  obtain ⟨_, canonical, extended, _⟩ := total related state
+  rw [unique canonical evaluated] at extended
+  exact ⟨extended.1, fun address cell _ found => extended.2 address cell found⟩
+
 theorem defines_sound (program : Program) (available : List DeclarationId) (target : Binding)
     (id : Nat) (parameters : Parameters) (declaration : Declaration)
     {block : LexicalBlock} {items : List PlainPositionalDefault}
