@@ -1,11 +1,9 @@
 module
 
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturnsAndUnitEta.Denotation.ITree.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturnsAndUnitEta.Reification.Iteration.Defs
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Iteration.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturnsAndUnitEta.Denotation.ITree.Iteration.Thms
 
-/-! The chosen iterator on an actual joined step emits a primitive request
-on each pass. This loop has a typed empty result. -/
+/-! The chosen iterator preserves an empty-exit polling loop and a two-phase
+polling loop that repeats once before returning a tagged result. -/
 
 open Silmaril Silmaril.Isotope Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
 open CategoryTheory CategoryTheory.Limits
@@ -15,10 +13,9 @@ open Silmaril.Isotope.LambdaSSA.Semantics (Env extend)
 open Silmaril.Isotope.LambdaSSA.Semantics.Interaction
 open Silmaril.Isotope.LambdaSSA.Semantics.Interaction.Typed
 open Silmaril.Isotope.LetIter.ProofRelevant.Semantics (InstructionModel)
-open Paper.WithProjectionReturnsAndUnitEta (denoteITree denoteITree_tree)
+open Paper.WithProjectionReturnsAndUnitEta (denoteITree denoteITree_tree denoteITree_canonicalIterate)
 open Paper.WithProjectionReturnsAndUnitEta.Reification (canonicalIterate)
-open Paper.Extension.Singleton (ofType ofRegion sumIso iterateSum iterateSum_map)
-open SyntacticCategory (iterationBody iterationDispatch iterateRegion iterateRegion_valueBranches)
+open Paper.Extension.Singleton (ofType ofRegion sumIso projectStep projectStep_comp_sumIso_inv)
 
 private abbrev Atom := PEmpty.{2}
 
@@ -78,26 +75,19 @@ private def step : Region Op :=
 private theorem step_typed : ValueBranches [U] step [Silmaril.coprod Z U] :=
   .let₁ (.op .unit) (.br rfl (.inr .unit))
 
-private noncomputable abbrev selected : Obj U ⟶ Obj Z :=
-  canonicalIterate (ofRegion JoinedSeed step_typed ≫ (sumIso JoinedSeed Z U).hom)
+private noncomputable def chosen {A B : Ty Atom} (f : Obj A ⟶ Obj (Silmaril.coprod B A)) :
+    Obj A ⟶ Obj B ⨿ Obj A :=
+  f ≫ (sumIso JoinedSeed B A).hom
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem selected_rep :
-    selected = ofRegion JoinedSeed (iterateRegion_valueBranches step_typed) := by
-  change iterateSum JoinedSeed ((ofRegion JoinedSeed step_typed ≫ (sumIso JoinedSeed Z U).hom) ≫
-    (sumIso JoinedSeed Z U).inv) = _
-  rw [Category.assoc, Iso.hom_inv_id, Category.comp_id]
-  change iterateSum JoinedSeed
-    ((Paper.WithProjectionReturnsAndUnitEta.projection).map (Paper.TypeCategory.ofRegion step_typed)) = _
-  rw [iterateSum_map, Paper.TypeCategory.iterateSum_ofRegion]
+private theorem chosen_normalize {A B : Ty Atom} (f : Obj A ⟶ Obj (Silmaril.coprod B A)) :
+    chosen f ≫ (sumIso JoinedSeed B A).inv = f := by
+  simp only [chosen, Category.assoc, Iso.hom_inv_id, Category.comp_id]
+
+private noncomputable abbrev selected : Obj U ⟶ Obj Z :=
+  canonicalIterate (chosen (ofRegion JoinedSeed step_typed))
 
 private abbrev RawValue := Sigma Atoms
-private abbrev RawState := BlockInput RawValue 1
-
-private def enter : RawState := (⟨0, by decide⟩, .unit)
-
-private def rawStep (_ : RawState) : TM (Transfer RawValue ⊕ RawState) :=
-  vis .poll (fun _ => pure (Sum.inr enter))
 
 private def modelStep (_ : PUnit.{2}) : TM (PEmpty.{2} ⊕ PUnit.{2}) :=
   InstructionModel.denote (τ := Ty Atom) (ε := Bool) (m := TM) Op.poll PUnit.unit >>=
@@ -133,76 +123,12 @@ private theorem step_image (s : PUnit.{2}) :
   exact (cancel (denoteITree raw compatible (ofRegion JoinedSeed step_typed) s)).symm.trans
     ((congrArg (fun t : TM (Transfer RawValue) => t >>= decode) encoded).trans (cancel (modelStep s)))
 
-private theorem rawBlock (env : Env RawValue) :
-    region raw env ((iterationBody step).renameVars (Silmaril.DeBruijn.lift Nat.succ)) =
-      vis .poll (fun _ => pure (0, .unit)) := by
-  change region raw env (.let₁ (.op .poll .unit)
-    (.case (.inr .unit) (.br 1 (.var 0)) (.br 0 (.var 0)))) = _
-  simp only [region, term, raw, vis_bind, pure_bind, extend]
-
-private theorem rawLoop (env : Env RawValue) :
-    region raw (extend env .unit) (iterateRegion U step) = Silmaril.Elgot.iter rawStep enter := by
-  have transfer : ∀ s : RawState,
-      (region raw (extend (extend env .unit) s.2)
-          ((iterationBody step).renameVars (Silmaril.DeBruijn.lift Nat.succ)) >>=
-        fun exit => pure (splitTransfer 1 exit)) = rawStep s := by
-    intro s
-    rw [rawBlock]
-    simp only [rawStep, vis_bind, pure_bind]
-    rfl
-  simp only [iterateRegion, feedbackRegion, cfgEntryContinuations, List.length_singleton, region, term,
-    pure_bind, extend]
-  change Silmaril.Elgot.iter (fun s : RawState =>
-    region raw (extend (extend env .unit) s.2)
-        ((iterationBody step).renameVars (Silmaril.DeBruijn.lift Nat.succ)) >>=
-      fun exit => pure (splitTransfer 1 exit)) enter = _
-  rw [funext transfer]
-
-private def encodeExit (b : PEmpty.{2}) : TM (Transfer RawValue) :=
-  pure (0, encodeValue Atoms Z b)
-
-private theorem encodedModelLoop :
-    (Silmaril.Elgot.iter modelStep PUnit.unit >>= encodeExit) = Silmaril.Elgot.iter rawStep enter := by
-  let packed := Silmaril.Elgot.mapReturn modelStep encodeExit
-  let packState : PUnit.{2} → RawState := fun _ => enter
-  have commute :
-      (packed >=> Silmaril.Elgot.liftPure (Sum.map id packState)) =
-        (Silmaril.Elgot.liftPure packState >=> rawStep) := by
-    funext s
-    simp only [packed, Silmaril.Elgot.mapReturn, Bind.kleisliRight, Silmaril.Elgot.liftPure,
-      Function.comp_apply, modelStep_eq, vis_bind, pure_bind (m := TM), Sum.elim_inr,
-      Sum.map_inr, rawStep, packState]
-  calc
-    _ = Silmaril.Elgot.iter packed PUnit.unit :=
-      congrFun (iterate_naturality modelStep encodeExit) PUnit.unit
-    _ = _ := by
-      simpa only [packState, Bind.kleisliRight, Silmaril.Elgot.liftPure, Function.comp_apply, pure_bind (m := TM)]
-        using congrFun (iterate_uniformity packed rawStep packState commute) PUnit.unit
-
+set_option backward.isDefEq.respectTransparency false in
 private theorem selected_image :
     denoteITree raw compatible selected PUnit.unit = Silmaril.Elgot.iter modelStep PUnit.unit := by
-  let env : Env RawValue := fun _ => .unit
-  have selectedEncoded : (denoteITree raw compatible selected PUnit.unit >>= encodeExit) =
-      Silmaril.Elgot.iter rawStep enter := by
-    rw [selected_rep]
-    exact (denoteITree_tree raw compatible (iterateRegion_valueBranches step_typed) PUnit.unit env).trans
-      (rawLoop env)
-  let restore : Transfer RawValue → TM PEmpty.{2} := fun _ => diverge
-  have restoreEmpty (c : TM PEmpty.{2}) : ((c >>= encodeExit) >>= restore) = c := by
-    rw [bind_assoc, show (fun b => encodeExit b >>= restore) = pure from funext fun b => b.elim]
-    exact bind_pure _
-  have encoded :
-      (denoteITree raw compatible selected PUnit.unit >>= encodeExit) =
-        (Silmaril.Elgot.iter modelStep PUnit.unit >>= encodeExit) :=
-    selectedEncoded.trans encodedModelLoop.symm
-  have restored := congrArg (fun c : TM (Transfer RawValue) => c >>= restore) encoded
-  exact (restoreEmpty (denoteITree raw compatible selected PUnit.unit)).symm.trans
-    (restored.trans (restoreEmpty (Silmaril.Elgot.iter modelStep PUnit.unit)))
-
-example :
-    denoteITree raw compatible selected PUnit.unit =
-      Silmaril.Elgot.iter (denoteITree raw compatible (ofRegion JoinedSeed step_typed)) PUnit.unit :=
-  selected_image.trans (congrArg (fun f => Silmaril.Elgot.iter f PUnit.unit) (funext step_image)).symm
+  have agree := denoteITree_canonicalIterate raw compatible (chosen (ofRegion JoinedSeed step_typed)) PUnit.unit
+  rw [chosen_normalize, funext step_image] at agree
+  exact agree
 
 private theorem selected_observes_poll :
     out (denoteITree raw compatible selected PUnit.unit) =
@@ -218,3 +144,76 @@ example : denoteITree raw compatible selected PUnit.unit ≠ (diverge : TM PEmpt
   intro same
   exact Part.some_ne_none _ (selected_observes_poll.symm.trans
     ((congrArg (fun t : TM PEmpty.{2} => out t) same).trans (out_diverge (E := Request) (A := PEmpty.{2}))))
+
+private abbrev Phase := Ty.coprod U U
+private abbrev PhaseValue := PUnit.{2} ⊕ PUnit.{2}
+
+private def phaseBody : Region Op :=
+  .let₁ (.op .poll .unit)
+    (.case (.var 1) (.br 0 (.inr (.inr .unit))) (.br 0 (.inl (.inr .unit))))
+
+private theorem phaseBody_typed : ValueBranches [Phase] phaseBody [Silmaril.coprod Phase Phase] :=
+  .let₁ (.op .unit) (.case (.var (i := 1) rfl)
+    (.br rfl (.inr (.inr .unit))) (.br rfl (.inl (.inr .unit))))
+
+private def phaseStep (s : PhaseValue) : TM (PhaseValue ⊕ PhaseValue) :=
+  vis .poll fun _ => pure (match s with
+    | .inl _ => .inr (.inr PUnit.unit)
+    | .inr _ => .inl (.inr PUnit.unit))
+
+set_option backward.isDefEq.respectTransparency false in
+private theorem phaseStep_image (s : PhaseValue) :
+    denoteITree raw compatible (ofRegion JoinedSeed phaseBody_typed) s = phaseStep s := by
+  let encode : PhaseValue ⊕ PhaseValue → TM (Transfer RawValue) :=
+    fun b => pure (0, encodeValue Atoms (Silmaril.coprod Phase Phase) b)
+  let decode : Transfer RawValue → TM (PhaseValue ⊕ PhaseValue) := fun p => pure
+    (match p.2 with
+     | .inr (.inr _) => .inr (.inr PUnit.unit)
+     | .inr _ => .inr (.inl PUnit.unit)
+     | .inl (.inr _) => .inl (.inr PUnit.unit)
+     | _ => .inl (.inl PUnit.unit))
+  have inverse (b : PhaseValue ⊕ PhaseValue) : (encode b >>= decode) = pure b := by
+    rcases b with (⟨⟩ | ⟨⟩) | (⟨⟩ | ⟨⟩) <;> exact pure_bind (m := TM) _ _
+  have cancel (c : TM (PhaseValue ⊕ PhaseValue)) : ((c >>= encode) >>= decode) = c := by
+    rw [bind_assoc, funext inverse]
+    exact bind_pure _
+  let env : Env RawValue := fun _ => .unit
+  have encoded :
+      (denoteITree raw compatible (ofRegion JoinedSeed phaseBody_typed) s >>= encode) =
+        (phaseStep s >>= encode) := by
+    change (denoteITree raw compatible (ofRegion JoinedSeed phaseBody_typed) s >>= fun b =>
+      pure (0, encodeValue Atoms (Silmaril.coprod Phase Phase) b)) = _
+    rw [denoteITree_tree raw compatible phaseBody_typed s env]
+    rcases s with ⟨⟩ | ⟨⟩ <;> (
+      simp only [phaseBody, phaseStep, encode, region, term, raw, vis_bind, pure_bind,
+        extend, encodeValue]; rfl)
+  exact (cancel (denoteITree raw compatible (ofRegion JoinedSeed phaseBody_typed) s)).symm.trans
+    ((congrArg (fun t : TM (Transfer RawValue) => t >>= decode) encoded).trans (cancel (phaseStep s)))
+
+private noncomputable def phaseChosen : Obj Phase ⟶ Obj Phase ⨿ Obj Phase :=
+  projectStep JoinedSeed (Paper.TypeCategory.ofRegion phaseBody_typed ≫
+    (Paper.TypeCategory.sumIso Phase Phase).hom)
+
+set_option backward.isDefEq.respectTransparency false in
+private theorem phaseSelected_image (s : PhaseValue) :
+    denoteITree raw compatible (canonicalIterate phaseChosen) s = Silmaril.Elgot.iter phaseStep s := by
+  have agree := denoteITree_canonicalIterate raw compatible phaseChosen s
+  rw [phaseChosen, projectStep_comp_sumIso_inv, Category.assoc, Iso.hom_inv_id, Category.comp_id] at agree
+  change _ = Silmaril.Elgot.iter (denoteITree raw compatible (ofRegion JoinedSeed phaseBody_typed)) s at agree
+  rw [funext phaseStep_image] at agree
+  exact agree
+
+example :
+    denoteITree raw compatible (canonicalIterate phaseChosen) (Sum.inl PUnit.unit) =
+      vis Request.poll (fun _ => vis Request.poll (fun _ => pure (Sum.inr PUnit.unit))) := by
+  refine (phaseSelected_image (Sum.inl PUnit.unit)).trans ?_
+  have firstPoll : Silmaril.Elgot.iter phaseStep (Sum.inl PUnit.unit) =
+      vis Request.poll (fun _ => Silmaril.Elgot.iter phaseStep (Sum.inr PUnit.unit)) := by
+    simpa only [phaseStep, vis_bind, pure_bind (m := TM), Sum.elim_inr] using
+      congrFun (iterate_fixpoint phaseStep) (Sum.inl PUnit.unit)
+  have secondPoll : Silmaril.Elgot.iter phaseStep (Sum.inr PUnit.unit) =
+      vis Request.poll (fun _ => pure (Sum.inr PUnit.unit)) := by
+    simpa only [phaseStep, vis_bind, pure_bind (m := TM), Sum.elim_inl] using
+      congrFun (iterate_fixpoint phaseStep) (Sum.inr PUnit.unit)
+  rw [firstPoll, secondPoll]
+  rfl
