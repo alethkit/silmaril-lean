@@ -25,7 +25,7 @@ variable {τ Φ : Type u} [TypeFormers τ] [HasTy Φ τ]
 variable {args input outs : Ports (OrderedRuntime.Structured.Ty τ)}
 variable {past sigs target after : List (Ports (OrderedRuntime.Structured.Ty τ))}
 
-private theorem scan_relocate {a : Data input} {b : Data outs} {c : Data args}
+theorem scan_relocate {a : Data input} {b : Data outs} {c : Data args}
     {live : Origin (Threaded input) past runtime}
     {t : NestedTheta.Term (Wires.Op Φ) (Threaded input) past sigs (Threaded outs)}
     (route : Routing (Threaded input) past (Threaded args) target)

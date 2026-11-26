@@ -1,11 +1,11 @@
 module
 
 import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Thms
-import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Thms
-import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Thms
 meta import Silmaril.SSA.Isotope.Types.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Defs
 
 namespace Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression
@@ -350,33 +350,91 @@ private theorem mixedUndefined (coherent : Coherent) :
     Flat.Serial.observe (ε := Bool) mixed.1 (99 : Nat) 0 = Part.none :=
   (mixed.2.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) 0).mpr (composedUndefined coherent)
 
-private def recoverMixed :=
-  WithNestedFeedback.recoverLink lowered.1 tailNormal.toSyntax.graph mixed.1
+private theorem tailSupported : StructuredCFG.Reverse.Supported tailNormal :=
+  .instruction (op .tailBody)
 
-private theorem cutAccepted : recoverMixed = some ⟨composed.source.region, mixed.2⟩ := by
-  have left : Reverse.recognize lowered.1 = some ⟨⟨innerPayload, number, program⟩, rfl⟩ := by
-    change Reverse.recognize (graph program) = _
-    simp [Reverse.recognize, Reverse.candidate_generated, Reverse.certify]
-  have right := StructuredCFG.Reverse.recognize_generated tailNormal
-    (show StructuredCFG.Reverse.Supported tailNormal from .instruction (op .tailBody))
-  change WithNestedFeedback.recoverLink lowered.1 tailNormal.toSyntax.graph mixed.1 = _
-  exact WithNestedFeedback.recoverLink_of_matches left right ⟨rfl⟩
+private theorem cutAccepted :
+    WithNestedFeedback.Reverse.recover mixed.1 = some ⟨composed.source.region, mixed.2⟩ :=
+  WithNestedFeedback.Reverse.recover_generated program tailNormal tailSupported
 
 private def recoveredMixed : WithNestedFeedback.Fibre mixed.1 :=
-  recoverMixed.get (by rw [cutAccepted]; rfl)
+  (WithNestedFeedback.Reverse.recover mixed.1).get (by rw [cutAccepted]; rfl)
+
+private theorem recoveredAccepted : WithNestedFeedback.Reverse.recover mixed.1 = some recoveredMixed :=
+  (Option.some_get _).symm
 
 example (coherent : Coherent) :
     (Region.denote (ε := Bool) (m := Runtime) recoveredMixed.2.typing (PUnit.unit, (0 : Nat))).run 0 =
       Part.some ((.inl (13454345 : Nat) : LabelDen [number,number]), 122312234) :=
-  (recoveredMixed.2.region_returns_iff coherent (PUnit.unit, (0 : Nat)) _ 0 122312234).mp (mixedReturn coherent)
+  (WithNestedFeedback.Reverse.recover_returns_iff recoveredAccepted
+    coherent (PUnit.unit, (0 : Nat)) _ 0 122312234).mp (mixedReturn coherent)
 
 example (coherent : Coherent) :
     (Region.denote (ε := Bool) (m := Runtime) recoveredMixed.2.typing (PUnit.unit, (99 : Nat))).run 0 = Part.none :=
-  (recoveredMixed.2.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) 0).mp (mixedUndefined coherent)
+  (WithNestedFeedback.Reverse.recover_undefined_iff recoveredAccepted
+    coherent (PUnit.unit, (99 : Nat)) 0).mp (mixedUndefined coherent)
+
+private abbrev MixedGraph := Flat.Serial.Graph Op number number number number number number
+  (Flat.Serial.Joined number number number (WithNestedFeedback.Leaf.Sigs number number)
+    [Flat.Serial.WirePorts number number number])
+
+private def staleLinkToken {past : List (Ports (OrderedRuntime.Structured.Ty Ty))}
+    {t : OrderedRuntime.Structured.Ty Ty}
+    (wire : Origin (Flat.Serial.WirePorts number number number) past t) :
+    Origin (Flat.Serial.WirePorts number number number) past t :=
+  if token : runtime = t then token ▸ (.arg (.tail .head) :
+    Origin (Flat.Serial.WirePorts number number number) past runtime) else wire
+
+private abbrev MixedTerm :=
+  NestedTheta.Term (Wires.Op Op) (Flat.Serial.WirePorts number number number) []
+    (Flat.Serial.Joined number number number (WithNestedFeedback.Leaf.Sigs number number)
+      [Flat.Serial.WirePorts number number number]) (Flat.Serial.WirePorts number number number)
+
+-- Retain the exit adapter's payload. Read the original input token at the
+-- connector instead of the token returned by that adapter.
+private def staleMixedTerm (term : MixedTerm) : MixedTerm :=
+  match term with
+  | .bind enter entries (.bind nested body (.bind exit exits (.bind cut children rest))) =>
+    let inputs := cut.inputs.map (fun _ wire => staleLinkToken wire)
+    .bind enter entries (.bind nested body (.bind exit exits (.bind {cut with inputs} children rest)))
+
+private def staleMixed : MixedGraph := (staleMixedTerm mixed.1.toTerm).toGraph
+
+private theorem staleRead (term : MixedTerm) :
+    WithNestedFeedback.Reverse.readTerm (staleMixedTerm term) = WithNestedFeedback.Reverse.readTerm term := by
+  cases term with
+  | bind _ _ term =>
+    cases term with
+    | bind _ _ term =>
+      cases term with
+      | bind _ _ term =>
+        cases term with
+        | bind cut _ _ => cases cut; rfl
+
+private theorem staleMixedParses : WithNestedFeedback.Reverse.candidate staleMixed = some composed := by
+  have same : WithNestedFeedback.Reverse.read staleMixed = WithNestedFeedback.Reverse.read mixed.1 := by
+    simp only [WithNestedFeedback.Reverse.read, staleMixed, NestedTheta.Term.toTerm_toGraph, staleRead]
+  unfold WithNestedFeedback.Reverse.candidate
+  rw [same]
+  exact WithNestedFeedback.Reverse.candidate_generated program tailNormal tailSupported
+
+private def cutAddresses (g : MixedGraph) : List Address :=
+  match g.toTerm with
+  | .bind _ _ (.bind _ _ (.bind _ _ (.bind cut _ _))) => cut.inputs.addresses
+
+example : WithNestedFeedback.Reverse.recover staleMixed = none := by
+  apply WithNestedFeedback.Reverse.reject_wiring composed staleMixedParses
+  intro eq
+  have addresses := congrArg cutAddresses eq
+  change [Address.output 2 0, Address.output 2 1] = [Address.output 2 0, Address.arg 1] at addresses
+  cases addresses
 
 #eval show IO Unit from do
-  unless recoverMixed.isSome do
-    throw (IO.userError "could not certify the nested feedback and acyclic loop cut")
+  unless (WithNestedFeedback.Reverse.recover mixed.1).isSome do
+    throw (IO.userError "could not recover the mixed serial graph without supplied views")
+  unless (WithNestedFeedback.Reverse.candidate staleMixed).isSome &&
+      (WithNestedFeedback.Reverse.recover staleMixed).isNone do
+    throw (IO.userError "the mixed serial recognizer failed to certify the cross-cut token")
 
 end Composition
 

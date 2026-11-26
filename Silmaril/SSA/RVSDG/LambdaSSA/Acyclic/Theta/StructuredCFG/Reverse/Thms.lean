@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Defs
 public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Thms
 import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Complete
+import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Scan
 
 /-! # Completeness at the emitted numbering and soundness of recovered CFGs -/
 
@@ -20,6 +21,28 @@ variable {τ Φ : Type u} [TypeFormers τ] [HasTy Φ τ] [DecidableEq τ] [Decid
 variable {A X Z L E D : τ}
 variable {sigs : List (Ports (OrderedRuntime.Structured.Ty τ))}
 variable {g : Sequential.Flat.Serial.Graph Φ A X Z L E D sigs}
+
+open NestedTheta.ExplicitRuntime (Checked)
+open NestedTheta.ExplicitRuntime.Splice (Routing relocate)
+open OrderedRuntime.Structured (Data Threaded runtime)
+
+omit [DecidableEq τ] [DecidableEq Φ] in
+/-- Relocating a checked continuation changes wire addresses and retains
+its local label layout, including all child scopes. -/
+theorem scan_relocate {args input outs : Ports (OrderedRuntime.Structured.Ty τ)}
+    {past target suffix : List (Ports (OrderedRuntime.Structured.Ty τ))}
+    {a : Data input} {b : Data outs} {c : Data args} {live : Origin (Threaded input) past runtime}
+    {term : NestedTheta.Term (Sequential.Wires.Op Φ) (Threaded input) past suffix (Threaded outs)}
+    (route : Routing (Threaded input) past (Threaded args) target)
+    (h : Checked (TwoBlock.TwoExit.Pure τ) (Sequential.Wires.Effect Φ) a b live term) :
+    scan (relocate (c := c) route h).1 = scan term :=
+  Proofs.scan_relocate route h
+
+omit [DecidableEq τ] [DecidableEq Φ] in
+/-- The existing local association convention preserves the checked code. -/
+theorem associate_bodies (n : Normal Φ A X Z L E D sigs) :
+    ∃ out : Normal Φ A X Z L E D sigs, Supported out ∧ out.toSyntax.code = n.toSyntax.code :=
+  Proofs.associate_bodies n
 
 omit [DecidableEq Φ] in
 theorem candidate_generated (n : Normal Φ A X Z L E D sigs) (h : Supported n) :

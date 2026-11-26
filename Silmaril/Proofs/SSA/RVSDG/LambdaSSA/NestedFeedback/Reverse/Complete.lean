@@ -19,12 +19,16 @@ private theorem instructionAt_of {X Y : τ} (p : TwoBlock.Instruction Φ X Y) :
   obtain ⟨op, input, output⟩ := p
   simp [instructionAt, input, output]
 
+theorem decode_generated (s : Loop Φ A B K D) :
+    decode (.enter A B K D s.enter.op, .inner B K s.inner.op, .finish A B K D s.finish.op) =
+      some ⟨B, K, s⟩ := by
+  cases s
+  simp [decode, instructionAt_of]
+
 theorem candidate_generated (s : Loop Φ A B K D) :
     candidate (graph s) = some ⟨B, K, s⟩ := by
   rw [candidate, read, graph, NestedTheta.Term.toTerm_toGraph]
-  change decode (.enter A B K D s.enter.op, .inner B K s.inner.op, .finish A B K D s.finish.op) = _
-  cases s
-  simp [decode, instructionAt_of]
+  exact decode_generated s
 
 variable [DecidableEq Φ]
 
