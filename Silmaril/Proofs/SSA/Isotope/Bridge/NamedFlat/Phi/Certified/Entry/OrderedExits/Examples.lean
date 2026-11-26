@@ -5,7 +5,7 @@ import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi.OrderedExits.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Thms
 import Silmaril.SSA.LambdaRTL.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.UniformReadback.Thms
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.ReverseAcceptance.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.Relocation.Thms
 
 /-! # A checked φ split with two distinct declared exits -/
 
@@ -24,7 +24,7 @@ open Silmaril.Isotope.Semantics (encodeValue)
 open NamedFlat.Entry.Record (Input field)
 open NamedFlat.Entry.Reverse.Straight (admitWithCaptures keepsEntryCapture keepsEntryCaptures checks encode_captures)
 open NamedFlat.Entry.Reverse (Lowered Registers lower withLiveOut lower_attached_count
-  lowerChecked_eq_of_readback elaborateAt_packetClosed)
+  elaborateAt_packetClosed)
 open NamedFlat.Entry (store store_at inputEnv)
 
 private abbrev SortName := ULift.{1} Unit
@@ -315,11 +315,10 @@ example : (baseAdmission.generateSplit splitPlan).isNone ∧
 example : splitTypes baseAdmission = false ∧ splitTypes oneOlderAdmission = false ∧
     splitTypes onlyYAdmission = false ∧ splitTypes wrongTypeAdmission = false := by decide
 
--- The two additional packet fields introduce four binders. Keep the
--- live-out register numbers by allocating fresh names to the extra depths.
-private def splitRegisters : NamedFlat.Entry.Reverse.Registers Reg where
-  parameter := registers.parameter
-  localAt depth := if depth < 4 then ⟨100 + depth⟩ else registers.localAt (depth - 4)
+private def originalSeed : ReverseSeed admitted :=
+  ⟨registers, fun i => some ⟨i.val⟩, lowered, (Option.some_get _).symm⟩
+
+private def splitRegisters : Registers Reg := (generated.relocatedRegisters originalSeed).get (by decide)
 
 private abbrev RTL := CFG Reg (Option Key) signature.Instr
 
@@ -328,20 +327,32 @@ private def splitLabels (i : Fin 3) : Option Key := some ⟨i.val⟩
 private def emitSplit (allocation : Registers Reg) : Option RTL :=
   lower allocation ports.names splitLabels (fun i => ports.exits[i]) splitAdmitted.code
 
-private def splitSource : RTL := (emitSplit splitRegisters).get (by decide)
+private def splitRTL : Lowered ports fields splitAdmitted.code :=
+  (generated.reverseRelocated originalSeed splitLabels).get (by decide)
 
-private theorem splitEmitted : emitSplit splitRegisters = some splitSource :=
+private theorem splitInferred : generated.relocatedRegisters originalSeed = some splitRegisters :=
   (Option.some_get _).symm
 
-private theorem splitReadback :
-    NamedFlat.elaborateAt (withLiveOut fields splitSource) ports.exits ports.names _
-      (lower_attached_count (I := ports) fields splitEmitted) = some splitAdmitted.code := by rfl
+private theorem splitAccepted : generated.reverseRelocated originalSeed splitLabels = some splitRTL :=
+  (Option.some_get _).symm
 
-private def splitRTL : Lowered ports fields splitAdmitted.code :=
-  .ofReadback splitSource (lower_attached_count (I := ports) fields splitEmitted) splitReadback
+private theorem splitRequests : generated.relocationDemands originalSeed =
+    some [(12, ⟨14⟩), (14, ⟨16⟩), (16, ⟨18⟩), (17, ⟨19⟩)] := by decide
 
-example : splitAdmitted.reverseChecked splitRegisters splitLabels = some splitRTL :=
-  lowerChecked_eq_of_readback splitEmitted splitReadback
+example : Relocation.Valid 5 registers.parameter (Relocation.writtenRegisters originalSeed.output.source)
+    [(12, ⟨14⟩), (14, ⟨16⟩), (16, ⟨18⟩), (17, ⟨19⟩)] splitRegisters := by
+  obtain ⟨_, requests, valid⟩ := generated.relocatedRegisters_valid originalSeed splitInferred
+  rw [splitRequests] at requests
+  cases Option.some.inj requests
+  exact valid
+
+example : emitSplit splitRegisters = some splitRTL.source ∧
+    NamedFlat.elaborateAt (withLiveOut fields splitRTL.source) ports.exits ports.names _ splitRTL.count =
+      some splitAdmitted.code := by
+  obtain ⟨allocation, inferred, emitted, readback⟩ :=
+    generated.reverseRelocated_spec originalSeed splitLabels splitAccepted
+  have same := Option.some.inj (inferred.symm.trans splitInferred)
+  exact ⟨same ▸ emitted, readback⟩
 
 -- The original reverse allocation was accepted before the split. The
 -- generated packet puts the live-out binders at different local depths.
@@ -353,6 +364,9 @@ private def swappedRegisters : Registers Reg :=
   { splitRegisters with localAt := fun i =>
       let name := splitRegisters.localAt i
       if name = ⟨14⟩ then ⟨16⟩ else if name = ⟨16⟩ then ⟨14⟩ else name }
+
+example : (generated.relocationDemands originalSeed).any (Relocation.satisfies swappedRegisters) =
+    false := by decide
 
 private def swappedSource : RTL := (emitSplit swappedRegisters).get (by decide)
 private theorem swappedEmitted : emitSplit swappedRegisters = some swappedSource := (Option.some_get _).symm

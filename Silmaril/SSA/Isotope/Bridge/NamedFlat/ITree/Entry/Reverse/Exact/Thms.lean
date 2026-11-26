@@ -47,4 +47,11 @@ theorem lowerChecked_iff_readback
   ⟨Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Exact.exact_of_accept emitted,
     fun readback => by rw [lowerChecked_eq_of_readback emitted readback]; rfl⟩
 
+/-- The certificate returned by the exact checker names the actual RTL
+table emitted at that allocation. -/
+theorem lowerChecked_emitted {output : Lowered I fields code}
+    (accepted : lowerChecked I fields registers internal code = some output) :
+    lower registers I.names internal (fun i => I.exits[i]) code = some output.source :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Exact.emitted_of_accept accepted
+
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse

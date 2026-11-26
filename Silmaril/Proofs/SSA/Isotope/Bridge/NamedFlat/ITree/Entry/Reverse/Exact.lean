@@ -63,4 +63,14 @@ theorem exact_of_accept
     · contradiction
   · contradiction
 
+theorem emitted_of_accept {output : Lowered I fields code}
+    (accepted : lowerChecked I fields registers internal code = some output) :
+    lower registers I.names internal (fun i => I.exits[i]) code = some output.source := by
+  obtain ⟨actual, emitted, checked⟩ := Option.bind_eq_some_iff.mp accepted
+  dsimp only at checked
+  split at checked <;> try contradiction
+  split at checked <;> try contradiction
+  split at checked <;> try contradiction
+  exact emitted.trans (congrArg (fun result => some result.source) (Option.some.inj checked))
+
 end Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Exact
