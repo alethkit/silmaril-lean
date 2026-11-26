@@ -34,6 +34,26 @@ and forwards the value with the reached heap without writing a local or
 cell. A defined error propagates through the existing saved-caller rule.
 Shared-cell callees require a separate final-call rule.
 
+A module can bind a lambda with required, fixed positional parameters.
+The plan checks the lambda's analyzed function block and the declared
+parameter order, then publishes it with the existing code-table path.
+A body can return a nested lambda directly. Its lexical child row
+uses the same parameter destinations and capture layout as a named
+function. The return constructs the descriptor from the current owned
+and forwarded cells. It delivers that descriptor and the same heap
+before any call to the child's body. Entry allocates the child's owned
+cells and initializes its checked parameter destinations.
+
+The checked profile covers terminal lambda chains whose leaf is an
+existing checked return expression. Default expressions, variadic and
+keyword-only signatures, and calls through lambda expressions require
+their own checks. The seeded factory runner uses its same-run descriptor
+ledger and the same positional and receipt rules for returned lambdas.
+The controls check that repeated calls share forwarded cells where
+expected and allocate distinct owned cells even with equal arguments.
+[Lowering and return theorems](../../Silmaril/Languages/Python/Compile/Closure/Run/Thms.lean)
+[Entry and capture theorems](../../Silmaril/Languages/Python/Compile/Closure/Call/Thms.lean)
+
 Message-free body assertions lower to the existing executor assertion
 when the test passes the ordinary runner operand check. They preserve
 the continuation's lexical child paths and code keys. The executor

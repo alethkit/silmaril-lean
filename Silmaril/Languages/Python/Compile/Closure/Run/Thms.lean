@@ -55,6 +55,17 @@ theorem run_path {source : Source.Module} {compiled : Compiled source} {argument
     simpa [run, started] using observed
   simpa only [exactRun] using Core.Closure.Executor.run_path compiled.table fuel initial
 
+/-- Returning a newly created closure reads only the current frame to
+build its descriptor. The next state delivers that descriptor and the same heap. -/
+theorem returnClosure_delivers {layout : Layout} (table : Core.Closure.Executor.CodeTable)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap)
+    (frame : Core.Closure.Frame layout) (ref : CodeRef)
+    (captures : Fin ref.layout.captures → Core.Closure.CaptureSlot layout)
+    (stack : Core.Closure.Executor.Stack) :
+    Core.Closure.Executor.StepIn table globals (.running heap frame (.ret (.closure ref captures)) stack)
+      none (.delivering heap stack (.ok (.function (frame.closure ref captures)))) :=
+  .ret (.closure ref captures)
+
 /-- After successful call delivery, the returned value occupies the
 private local and the remaining body returns that value. -/
 theorem returnedLocalCall_resume {layout : Layout} (heap : Core.Closure.Heap)

@@ -133,13 +133,14 @@ compiled inputs. Of these, 176 contain a function declaration or lambda.
 The ranking below uses complete ASTs and CPython 3.13.5 execution. The
 ordinary reference and empty-seed reference both omit helper bindings.
 The checked factory path now covers the two successive result bindings
-in rank 1. Closure arithmetic and final global-call lowering also close
-the named-definition input.
+in rank 1. Closure arithmetic and final global-call lowering close the
+named-definition input. Checked nested lambda lowering uses the same
+factory path for the lambda input.
 
 | Rank | Pinned shapes | Whole-input outcome and remaining prerequisites |
 | ---: | --- | --- |
-| 1 | `mixed-freevars-and-cellvars.py` and `lambda4.py` each assign the result of a three-integer factory, then call that saved result with three integers to obtain a second closure. | The empty reference raises the missing-helper `NameError` after both writes. Builtin and preamble references finish normally. The named-definition row uses checked closure multiplication and a final call through a live global. The remaining lambda row needs nested lambda lowering and ends with a zero-argument escaped call inside the equality helper. |
-| 2 | `lambda1.py`, `lambda2.py` and `lambda3.py` construct factories with lambdas. | Both supplied references finish normally. The empty reference reaches the missing helper. The first needs nested lambda lowering. The second also calls a lambda expression directly. The third passes `None` as a factory argument and needs a compatible fixed argument profile. |
+| 1 | `mixed-freevars-and-cellvars.py` and `lambda4.py` each assign the result of a three-integer factory, then call that saved result with three integers to obtain a second closure. | The empty reference raises the missing-helper `NameError` after both writes. Builtin and preamble references finish normally. The named-definition row uses closure multiplication and a final call through a live global. The lambda row lowers three nested function blocks and uses a zero-argument escaped call inside the equality helper. |
+| 2 | `lambda1.py`, `lambda2.py` and `lambda3.py` construct factories with lambdas. | Both supplied references finish normally. The empty reference reaches the missing helper. The first uses a fixed nested lambda chain. The second calls a lambda expression directly. The third passes `None` as a factory argument and needs a compatible fixed argument profile. |
 | 3 | `nesting-plus-free-ref-to-global.py` assigns a declared global in an outer factory. | The two returned closures see the last write. The supplied references finish normally and the empty reference reaches the missing helper. The compiler needs declared-global writes and child lookup of that global. Executor namespace effects must survive return and failure. |
 | 4 | `testfunctions8.py` compares named call results in assertions. `testscope1.py` immediately calls a returned closure inside an assertion. | Both complete normally in every reference. They need checked call results as comparison operands. The first also uses a standalone Boolean assignment in the seeded namespace. The second needs a call-result callee and the assertion-message evaluation rule. |
 | 5 | `testfunctions11.py` omits two trailing literal positional defaults after six supplied values. | All references finish normally. It needs a saved-default positional binder, a conjunctive assertion, and a seeded ordinary discard with the completed argument list. Larger default and unpacking rows also require tuple, mapping or exception semantics. |
