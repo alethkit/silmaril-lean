@@ -30,6 +30,7 @@ inductive Instruction (scope : Scope) where
   | bindText (name : String) (value : Core.Text)
   | bindDictionary (name : String) (display : List Core.Module.Dictionary.Entry)
   | readDictionary (name : String) (test : Core.Module.Dictionary.Get)
+  | clearDictionary (destination : Option String) (call : Core.Module.Dictionary.Clear)
   | bindTuple (name : String) (items : List Core.Closure.GlobalTupleItem) (trackClosed : Bool := false)
   | assertNot (condition : Operand scope)
   | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
@@ -117,6 +118,9 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .readDictionary name _ test :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.readDictionary name test :: instructions, blocks)
+  | .clearDictionary destination call :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.clearDictionary destination call :: instructions, blocks)
   | .bindTuple name _ items :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.bindTuple name items :: instructions, blocks)
@@ -229,7 +233,7 @@ def tupleBinding (session : Session) : Option Core.Module.TupleDispatch.TypeBind
   (session.globals "tuple").map fun
     | .none => .noneValue
     | .int _ | .bool _ | .float64 _ | .text _ | .tuple _ | .tupleObject _
-    | .exceptionInstance _ | .dictionary _ => .nonCallable
+    | .exceptionInstance _ | .dictionary _ | .dictionaryData _ => .nonCallable
     | .exceptionClass _ | .function _ => .outsideProfile
 
 def tupleLookup (session : Session) : TupleChain.Lookup :=
@@ -313,7 +317,7 @@ inductive State (scope : Scope) where
 def checkAssertion {scope : Scope} (session : Session) (operand : Operand scope)
     (expectedTruth : Bool) : Except Completion Unit :=
   (evaluate session operand).bind fun value =>
-    if Core.Module.Functions.truth value = expectedTruth then .ok () else .error .assertionError
+    if Core.Module.Functions.truth value session.heap = expectedTruth then .ok () else .error .assertionError
 
 def assertOperand {scope : Scope} (session : Session) (operand : Operand scope)
     (expectedTruth : Bool) (remaining : List (Instruction scope)) : State scope :=
@@ -490,6 +494,17 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
     | .readDictionary name test => ([], match Core.Closure.evalDictionaryGet session.heap session.globals test with
       | .ok value => .ready (session.bindGlobal name value) rest
       | .error error => .finished session (operandFailure error))
+    | .clearDictionary destination call =>
+      match Core.Closure.clearDictionary session.heap (fun name => (session.globals name).map Value.dictionaryRead) call with
+      | .ok heap =>
+        let reached := { session with heap }
+        let bound := destination.elim reached fun name => reached.bindGlobal name .none
+        ([.complete (.ok .none)], .ready bound rest)
+      | .error error =>
+        let events := match error with
+          | .clearArity actual => [.complete (.error (.positionalArity 0 actual))]
+          | _ => []
+        (events, .finished session (operandFailure (Core.Closure.dictionaryFailure error)))
     | .bindTuple name items trackClosed => ([], match bindTuple session name items trackClosed with
       | .ok updated => .ready updated rest
       | .error error => .finished session error)

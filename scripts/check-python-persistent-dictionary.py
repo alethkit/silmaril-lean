@@ -31,26 +31,32 @@ private def initialHeap : Core.Closure.Heap :=
   ⟨1, fun address => if address = 0 then some (.int 23) else none⟩
 private def initialLists : Core.Module.ListHeap := ⟨#[[.int 31]]⟩
 
-private def heapMatches (heap : Core.Closure.Heap) (objects : List Core.Module.Dictionary.Object) : Bool :=
+private def heapMatches (heap : Core.Closure.Heap) (objects : List (Core.Module.Dictionary.Object × List Core.Module.Dictionary.Entry)) : Bool :=
   heap.next == 1 + objects.length && (heap.contents 0).map
     Compile.ModuleEntry.Functions.Run.Seeded.seededValue == some (.int 23) &&
-    objects.all fun object => heap.dictionaryEntries? object == some object.entries
+    objects.all fun (object, entries) => heap.dictionaryEntries? object == some entries
 
 private def ordinaryDictionary (source : Source.Module) (completion : Completion)
-    (values : Bindings) (absent : List String) (objects : List Core.Module.Dictionary.Object)
-    (eventCount : Nat) : Bool := Id.run do
+    (values : Bindings) (absent : List String) (objects : List (Core.Module.Dictionary.Object × List Core.Module.Dictionary.Entry))
+    (eventCount : Nat) (clearReturns : Nat := 0) (clearArity : Option Nat := none) : Bool := Id.run do
   let .ok compiled := compile source | return false
   let (events, result) := runPrefix compiled.table 200 (.ready
     { seed .empty initialHeap with lists := initialLists } compiled.instructions)
   let .finished residual reached := result | return false
   let lookup := fun name => (residual.globals name).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue
-  return reached == completion && events.length == eventCount && heapMatches residual.heap objects &&
+  let clears := events.filterMap fun
+    | .complete (.ok .none) => some (none : Option Nat)
+    | .complete (.error (.positionalArity 0 actual)) => some (some actual)
+    | _ => none
+  let expected := List.replicate clearReturns none ++ clearArity.toList.map some
+  return reached == completion && events.length == eventCount && clears == expected &&
+    heapMatches residual.heap objects &&
     residual.lists == initialLists && values.all (fun (name, value) => lookup name == some value) &&
     absent.all (fun name => (lookup name).isNone)
 
 private def seededDictionary (source : Source.Module) (space : Namespace)
     (completion : Except Compile.ModuleEntry.Functions.Run.Seeded.ModuleFailure Unit)
-    (values : Bindings) (objects : List Core.Module.Dictionary.Object) (calls : List (String × Result)) : Bool := Id.run do
+    (values : Bindings) (objects : List (Core.Module.Dictionary.Object × List Core.Module.Dictionary.Entry)) (calls : List (String × Result)) : Bool := Id.run do
   let .ok compiled := compile source | return false
   let result := Compile.ModuleEntry.Functions.Run.Seeded.run space compiled initialHeap (lists := initialLists)
   let expected := values ++ space.moduleGlobals
@@ -79,19 +85,19 @@ def scalar(value):
 
 def object_term(address, entries):
     pairs = ", ".join(f"({atom(key)}, {atom(value)})" for key, value in entries.items())
-    return f"⟨{address}, [{pairs}]⟩"
+    return f"(⟨{address}⟩, [{pairs}])"
 
 
 def value_term(value, objects):
     if type(value) is dict:
         position = next(i for i, item in enumerate(objects, start=1) if item is value)
-        return f".dictionary ({object_term(position, value)})"
+        return f".dictionary ⟨{position}⟩"
     if type(value) is str:
         return atom(value)
     return scalar(value)
 
 
-def cpython(source, profile):
+def cpython(source, profile, method_events=None):
     objects, helpers, reached_get = [], [], []
     builtins = {}
     namespace = {"__builtins__": builtins}
@@ -106,9 +112,12 @@ def cpython(source, profile):
         return trace
 
     def profile_call(frame, event, arg):
-        if (frame.f_code.co_filename == FILENAME and event == "c_call" and
-                getattr(arg, "__name__", None) == "get" and type(getattr(arg, "__self__", None)) is dict):
+        if frame.f_code.co_filename != FILENAME or type(getattr(arg, "__self__", None)) is not dict:
+            return
+        if event == "c_call" and arg.__name__ == "get":
             reached_get.append(arg.__self__)
+        if method_events is not None and arg.__name__ in ("get", "clear") and event in ("c_return", "c_exception"):
+            method_events.append((arg.__name__, event))
 
     def assert_is(left, right):
         assert left is right
@@ -118,9 +127,9 @@ def cpython(source, profile):
         assert type(left) is type(right) and left == right
         helpers.append(("___assertEqual", left))
 
-    def assert_raises(expected, callback):
+    def assert_raises(expected, callback, *arguments):
         try:
-            callback()
+            callback(*arguments)
         except expected:
             helpers.append(("___assertRaises", expected.__name__))
         else:
@@ -143,6 +152,11 @@ def cpython(source, profile):
             status = f"NameError:{error.name}"
         except AttributeError as error:
             status = f"AttributeError:{error.name}"
+        except TypeError as error:
+            status = "TypeError"
+            if method_events is None:
+                raise
+            method_events.append(("TypeError", str(error)))
         finally:
             sys.settrace(original_trace)
             sys.setprofile(original_profile)

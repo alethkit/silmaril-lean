@@ -23,12 +23,15 @@ def build (display : List Entry) : List Entry :=
 
 structure Object where
   address : Nat
-  entries : List Entry
   deriving DecidableEq, Repr
 
 inductive Argument where
   | literal (value : Atom)
   | global (name : String)
+
+structure Clear where
+  receiver : String
+  arguments : List Argument
 
 structure Get where
   receiver : String
@@ -42,6 +45,7 @@ inductive ReadValue where
 
 inductive Failure where
   | missingName (name : String)
+  | clearArity (actual : Nat)
   | unsupported
 
 def readName (globals : String → Option ReadValue) (name : String) :
@@ -51,6 +55,17 @@ def readName (globals : String → Option ReadValue) (name : String) :
 def Argument.read (globals : String → Option ReadValue) : Argument → Except Failure ReadValue
   | .literal value => .ok (.atom value)
   | .global name => readName globals name
+
+/-- Resolve the stock method before preparing arguments. Positional arguments
+are read in order even when their count will fail the stock arity check. -/
+def Clear.prepare (call : Clear) (globals : String → Option ReadValue)
+    (resolve : Object → Option (List Entry)) : Except Failure Object := do
+  let .object object ← readName globals call.receiver | throw .unsupported
+  let some _ := resolve object | throw .unsupported
+  let arguments ← call.arguments.mapM (Argument.read globals)
+  match arguments with
+  | [] => return object
+  | _ :: _ => throw (.clearArity arguments.length)
 
 /-- The live receiver selects the stock method before argument preparation.
 Even on a hit the default is read before lookup. The object table validates

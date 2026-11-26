@@ -150,7 +150,7 @@ private theorem rejected_eq (rejected : Rejects table args heap callee failure) 
   | nonCallableBool value => rfl
   | nonCallableFloat value => rfl
   | nonCallableText value => rfl
-  | nonCallableTuple items | nonCallableTupleObject items | nonCallableDictionary items => rfl
+  | nonCallableTuple items | nonCallableTupleObject items | nonCallableDictionary items | dictionaryData items => rfl
   | unsupportedCallable kind | nonCallableInstance value => rfl
   | missing fn absent => simp [Dispatch.dispatch, Dispatch.resolve_missing absent]
   | mismatch fn entry found different => simp [Dispatch.dispatch, Dispatch.resolve_layout_mismatch found different]
@@ -205,6 +205,10 @@ private theorem rejected_rule (rejected : Dispatch.dispatch table callee args he
     simp [Dispatch.dispatch] at rejected
     subst failure
     exact .nonCallableInstance value
+  | dictionaryData entries =>
+    simp [Dispatch.dispatch] at rejected
+    subst failure
+    exact .dictionaryData entries
   | exceptionClass kind =>
     simp [Dispatch.dispatch] at rejected
     subst failure
@@ -317,7 +321,7 @@ theorem step_of_advance {source : State} {transition : Transition}
         subst transition
         exact .assertError (evaluated ▸ eval_rule test)
       | ok value =>
-        cases truth : value.truth with
+        cases truth : value.truth heap with
         | false =>
           simp [advanceIn, evaluated, truth] at advanced
           subst transition

@@ -55,7 +55,7 @@ private theorem selected {invocation : Invocation} {observation : Observation}
         subst observation
         exact .assigned heap name value
       | «assert» =>
-        cases tested : truth value with
+        cases tested : truth value heap with
         | false =>
           simp [Invocation.finish?, tested] at ran
           subst observation

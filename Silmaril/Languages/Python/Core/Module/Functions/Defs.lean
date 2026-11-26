@@ -115,7 +115,7 @@ structure Observation where
   completion : Completion
   residual : Session
 
-def truth : Closure.Value → Bool := Closure.Value.truth
+def truth (value : Closure.Value) (heap : Heap) : Bool := value.truth heap
 
 /-- Commit the destination only after terminal success. A raised error or
 fault retains the residual heap and leaves all module bindings untouched. -/
@@ -127,7 +127,7 @@ def Invocation.finish? (invocation : Invocation) : Option Observation :=
     | .discard => some ⟨.returned value, session⟩
     | .bindGlobal name => some ⟨.returned value, session.bindGlobal name value⟩
     | .assert =>
-      if truth value then some ⟨.returned value, session⟩ else some ⟨.assertionError, session⟩
+      if truth value heap then some ⟨.returned value, session⟩ else some ⟨.assertionError, session⟩
   | .finished heap (.error error) => some ⟨.raised error, ⟨invocation.globals, heap, invocation.lists⟩⟩
   | .faulted heap _ error => some ⟨.fault error, ⟨invocation.globals, heap, invocation.lists⟩⟩
   | _ => none
@@ -140,9 +140,9 @@ inductive Settles (globals : GlobalLookup) (lists : ListHeap) : Destination → 
   | assigned (heap : Heap) (name : GlobalName) (value : Closure.Value) :
       Settles globals lists (.bindGlobal name) (.finished heap (.ok value))
         ⟨.returned value, (Session.mkWithLists globals heap lists).bindGlobal name value⟩
-  | assertTrue (heap : Heap) (value : Closure.Value) (holds : truth value = true) :
+  | assertTrue (heap : Heap) (value : Closure.Value) (holds : truth value heap = true) :
       Settles globals lists .assert (.finished heap (.ok value)) ⟨.returned value, ⟨globals, heap, lists⟩⟩
-  | assertFalse (heap : Heap) (value : Closure.Value) (fails : truth value = false) :
+  | assertFalse (heap : Heap) (value : Closure.Value) (fails : truth value heap = false) :
       Settles globals lists .assert (.finished heap (.ok value)) ⟨.assertionError, ⟨globals, heap, lists⟩⟩
   | raised (destination : Destination) (heap : Heap) (error : RuntimeError) :
       Settles globals lists destination (.finished heap (.error error)) ⟨.raised error, ⟨globals, heap, lists⟩⟩

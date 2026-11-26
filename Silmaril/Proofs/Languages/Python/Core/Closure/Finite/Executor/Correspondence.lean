@@ -74,7 +74,7 @@ theorem advanceIn_project (rows : CodeRows) (globals : GlobalLookup) (source : S
     | assert test next =>
       simp only [advanceIn, coreAdvance, State.project, Option.map_some]
       cases test.evalIn globals environment.heap.project environment.frame with
-      | ok value => cases truth : value.truth <;> simp [truth, Transition.project, State.project]
+      | ok value => cases truth : value.truth environment.heap.project <;> simp [truth, Transition.project, State.project]
       | error failure => exact congrArg some (fail_project environment.heap stack failure)
     | assertFreevars test next =>
       simp only [advanceIn, coreAdvance, State.project, Option.map_some]

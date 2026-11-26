@@ -97,6 +97,27 @@ def dictionaryBinding? (scope : Scope) (statement : Source.Stmt) : Option (Dicti
   | some test => some ⟨name, source, test, binding, checked⟩
   | none => none
 
+inductive DictionaryClearSite (scope : Scope) : Source.Stmt → Option Name → Core.Module.Dictionary.Clear → Prop where
+  | discard {source call} (checked : Dictionary.checkedClear? scope source = some call) :
+      DictionaryClearSite scope (.expression source) none call
+  | store {statement name source call} (binding : Binding statement name source)
+      (reference : GlobalReference scope name) (checked : Dictionary.checkedClear? scope source = some call) :
+      DictionaryClearSite scope statement (some name) call
+
+def dictionaryClearSite? (scope : Scope) (statement : Source.Stmt) :
+    Option {site : Option Name × Core.Module.Dictionary.Clear // DictionaryClearSite scope statement site.1 site.2} :=
+  match statement with
+  | .expression source =>
+    match checked : Dictionary.checkedClear? scope source with
+    | some call => some ⟨(none, call), .discard checked⟩
+    | none => none
+  | statement => do
+    let ⟨(name, source), binding⟩ ← binding? statement
+    let reference ← globalReference? scope name
+    match checked : Dictionary.checkedClear? scope source with
+    | some call => some ⟨(some name, call), .store binding reference checked⟩
+    | none => none
+
 def lowerDestination (scope : Scope) : (source : Placement) →
     Except Error {target : Destination scope // target.placement = source}
   | .discard => .ok ⟨.discard, rfl⟩
@@ -722,6 +743,7 @@ inductive Action (scope : Scope) where
   | bindDictionary (name : Name) (reference : GlobalReference scope name)
       (display : List Core.Module.Dictionary.Entry)
   | readDictionary (name : Name) (reference : GlobalReference scope name) (test : Core.Module.Dictionary.Get)
+  | clearDictionary (destination : Option Name) (call : Core.Module.Dictionary.Clear)
   | bindTuple (name : Name) (reference : GlobalReference scope name) (items : List Core.Closure.GlobalTupleItem)
   | assertNot (condition : Operand scope)
   | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
@@ -778,6 +800,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (binding : Binding statement name source) (checked : Dictionary.checkedGet? tree.scope source = some test)
       (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.readDictionary name reference test :: tail)
+  | clearDictionary {index statement rest destination call tail}
+      (site : DictionaryClearSite tree.scope statement destination call)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.clearDictionary destination call :: tail)
   | bindTuple {index statement rest name elements reference items tail}
       (binding : Binding statement name (.tuple elements)) (checked : FlatTupleItems tree.scope elements items)
       (remaining : Translation tree index rest tail) :
@@ -983,6 +1009,9 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
       let tail ← lowerPlan tree index rest
       return ⟨.readDictionary get.name reference get.test :: tail.val,
         .readDictionary get.binding get.checked tail.property⟩
+    else if let some ⟨(destination, call), site⟩ := dictionaryClearSite? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.clearDictionary destination call :: tail.val, .clearDictionary site tail.property⟩
     else if let some ⟨(target, name, arguments), site⟩ := callSite? statement then
       let destination ← lowerDestination tree.scope target
       let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)

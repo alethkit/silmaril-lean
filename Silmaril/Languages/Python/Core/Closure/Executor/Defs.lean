@@ -192,7 +192,7 @@ def readMetadata (field : MetadataField) (table : CodeTable) : Value → Except 
       | some names => .ok names
       | none => .error (field.unavailable fn.code definition)
   | .int _ | .bool _ | .none | .float64 _ | .text _ | .exceptionClass _ | .exceptionInstance _ | .tuple _ | .tupleObject _
-  | .dictionary _ => .error .nonFunction
+  | .dictionary _ | .dictionaryData _ => .error .nonFunction
 
 abbrev readFreevars := readMetadata .freevars
 abbrev readCellvars := readMetadata .cellvars
@@ -315,7 +315,7 @@ def advanceIn (table : CodeTable) (globals : GlobalLookup) : State → Option Tr
   | .running heap frame (.assert test next) stack =>
     some <| match test.evalIn globals heap frame with
     | .ok value =>
-      if value.truth then (none, .running heap frame next stack)
+      if value.truth heap then (none, .running heap frame next stack)
       else (none, .delivering heap stack (.error .assertionError))
     | .error error => fail heap stack error
   | .running heap frame (.assertFreevars test next) stack =>
@@ -451,6 +451,8 @@ inductive Rejects (table : CodeTable) (arguments : List Value) (heap : Heap) :
       Rejects table arguments heap (.dictionary object) (.call (.defined .notCallable))
   | nonCallableInstance (value : ExceptionInstance) :
       Rejects table arguments heap (.exceptionInstance value) (.call (.defined .notCallable))
+  | dictionaryData (entries : List Core.Module.Dictionary.Entry) :
+      Rejects table arguments heap (.dictionaryData entries) (.call (.defined .notCallable))
   | unsupportedCallable (kind : ExceptionClass) :
       Rejects table arguments heap (.exceptionClass kind) (.call .unsupportedCallable)
   | missing (fn : Function) (absent : table fn.code.key = none) :
@@ -491,10 +493,10 @@ inductive StepIn (table : CodeTable) (globals : GlobalLookup) : State → Option
       StepIn table globals (.running heap frame (.store destination operand next) stack)
         (fail heap stack error).1 (fail heap stack error).2
   | assertTrue {heap stack layout} {frame : Frame layout} {test next value} :
-      EvaluatesIn globals heap frame test (.ok value) → value.truth = true →
+      EvaluatesIn globals heap frame test (.ok value) → value.truth heap = true →
       StepIn table globals (.running heap frame (.assert test next) stack) none (.running heap frame next stack)
   | assertFalse {heap stack layout} {frame : Frame layout} {test next value} :
-      EvaluatesIn globals heap frame test (.ok value) → value.truth = false →
+      EvaluatesIn globals heap frame test (.ok value) → value.truth heap = false →
       StepIn table globals (.running heap frame (.assert test next) stack) none
         (.delivering heap stack (.error .assertionError))
   | assertError {heap stack layout} {frame : Frame layout} {test next error} :
