@@ -5,6 +5,7 @@ import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorph
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Invocation.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Feedback.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Isomorphism.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Thms
@@ -1986,16 +1987,16 @@ private theorem reachesSelectedCall {sigs : List (Ports T)} (leaf : Gamma.LoopBo
   exact (((selected.head entry).tail (.of_next_some rfl)).tail (.of_next_some rfl)).tail (.of_next_some rfl)
 
 private theorem invokeLeaf {sigs : List (Ports T)} {leaf : Gamma.LoopBody Op carried sigs}
-    {n store : Nat} {outcome : Continuation.Partial.Outcome machine Nat bodyResults}
-    (body : Eval primitives (.region leaf (carry 0 n) PUnit.unit) store outcome) :
-    Eval primitives (.call (leafValue leaf) (carry 0 n)) store outcome := by
-  have opened : Job.openClosure machine (leafValue leaf) (carry 0 n) = .region leaf (carry 0 n) PUnit.unit :=
-    congrArg (fun code => Job.region (m := machine) (past := []) code (carry 0 n) PUnit.unit)
+    {n store : Nat} {mode : Fin 2} {outcome : Continuation.Partial.Outcome machine Nat bodyResults}
+    (body : Eval primitives (.region leaf (carry mode n) PUnit.unit) store outcome) :
+    Eval primitives (.call (leafValue leaf) (carry mode n)) store outcome := by
+  have opened : Job.openClosure machine (leafValue leaf) (carry mode n) = .region leaf (carry mode n) PUnit.unit :=
+    congrArg (fun code => Job.region (m := machine) (past := []) code (carry mode n) PUnit.unit)
       (NestedTheta.Term.toTerm_toGraph leaf)
   exact .call (opened.symm ▸ body)
 
-private theorem firstChoiceReturnsAt (n store : Nat) :
-    Eval primitives (.region firstChoice (carry 0 n) PUnit.unit) store (.returned (bodyOut 0 0 n) (2 * store + 7)) :=
+private theorem firstChoiceReturnsAt (n store : Nat) (mode : Fin 2 := 0) :
+    Eval primitives (.region firstChoice (carry mode n) PUnit.unit) store (.returned (bodyOut mode mode n) (2 * store + 7)) :=
   .bind (node := Gamma.primitiveVertex (Op.finish 7) firstOperands) (value := output n n) (middle := 2 * store + 7)
     (.primitive (Gamma.primitiveSite (Op.finish 7) (output n n)) (_root_.Part.mem_some _)) (.ret firstResults _ _ _)
 
@@ -2710,6 +2711,210 @@ private theorem chosenCallInThetaRegression :
     chosenThetaReturns leafL 0 0 51 109 2 2 first second, chosenThetaReturns leafR 0 0 51 109 2 2 first second,
     chosenThetaReturns leafL 1 0 25 28 3 4 firstL secondL, chosenThetaReturns leafR 1 0 25 28 3 4 firstR secondR,
     chosenThetaBlockPath leafL chosenThetaBlock.evals.1, chosenThetaBlockPath leafR chosenThetaBlock.evals.2⟩
+
+private abbrev switchCarry : Ports T := choiceCaptures ++ Gamma.FamilyArgs loopCalleeFn 0 outerCarry
+private abbrev afterSwitch : List (Ports T) := beforeChosenTheta ++ [switchCarry]
+
+private def switchInitial : Wires choiceEntryPorts beforeChosenTheta outerCarry :=
+  .cons (.output (0 : Fin 2) .head)
+    (.cons (.output (0 : Fin 2) .head) (.cons (.output (0 : Fin 2) (.tail (.tail .head))) .nil))
+
+private def switchArguments : Wires switchCarry [] carried :=
+  .cons (.arg (Gamma.parameterPort choiceCaptures (.tail (.tail (.tail .head)))))
+    (.cons (.arg (Gamma.parameterPort choiceCaptures (.tail (.tail (.tail (.tail .head)))))) .nil)
+
+private def nextMember : Origin switchCarry [bodyResults] (.control 2) :=
+  .output (0 : Fin 1) .head
+
+private def switchAgain : Origin switchCarry [bodyResults, chosenPorts] (.control 2) :=
+  .arg (Gamma.parameterPort choiceCaptures (.tail (.tail .head)))
+
+private def switchOrdinary : Wires switchCarry [bodyResults, chosenPorts] outerCarry :=
+  .cons (.arg (Gamma.parameterPort choiceCaptures .head))
+    (.cons (.arg (Gamma.parameterPort choiceCaptures .head))
+      (.cons (.output (0 : Fin 2) (.tail (.tail .head))) .nil))
+
+private abbrev switchBody := Gamma.familyBody (Op := Op) loopCalleeFn choicePorts switchArguments nextMember switchAgain switchOrdinary
+
+private def switchExitWires : Wires choiceEntryPorts afterSwitch results :=
+  .cons (.output (2 : Fin 3) (Gamma.parameterPort choiceCaptures (.tail (.tail (.tail (.tail .head))))))
+    (.cons (.arg (.tail (.tail (.tail (.tail .head))))) .nil)
+
+private def switchOutputs : Wires choiceEntryPorts (afterSwitch ++ [results]) results :=
+  .cons (.output (3 : Fin 4) .head) (.cons (.output (3 : Fin 4) (.tail .head)) .nil)
+
+private abbrev switchSuffix := Gamma.bindPrimitive (Op.finish 5) switchExitWires (.ret switchOutputs)
+
+private abbrev switchCode :=
+  Gamma.bindPrimitive Op.loopAdvance phaseWires
+    (Gamma.switchTheta loopCalleeFn chosenSelector choicePorts switchInitial switchBody switchSuffix)
+
+private def switchBodyMap : Renaming :=
+  .region (Equiv.refl _) (fun _ member => if member = 1 then numbering else .identity)
+
+private def switchMap : Renaming :=
+  .region (Equiv.refl _) (fun vertex _ => if vertex = 2 then switchBodyMap else .identity)
+
+private theorem switchPlan :
+    Gamma.RankedPlan machine Eq 1 switchMap (choiceValues leafL) (choiceValues leafR) switchCode switchCode :=
+  .primitive (context := choiceCaptures) (params := outerCarry) (past := []) Op.loopAdvance phaseWires
+    (.switchTheta (context := choiceCaptures) (params := outerCarry) (fn := loopCalleeFn) (past := [bodyResults])
+      (extra := 0) chosenSelector choicePorts switchInitial switchArguments nextMember switchAgain switchOrdinary
+      choiceFamily (fun _ => 0) (two rfl rfl) (two rfl rfl) (two .nil .nil) (fun _ => by decide)
+      (two firstChoicePlan secondChoicePlan)
+      (.primitive (context := choiceCaptures) (params := outerCarry) (past := afterSwitch) (Op.finish 5) switchExitWires
+        (.suffix (context := choiceCaptures) (params := outerCarry) (past := afterSwitch ++ [results])
+          (left := .ret switchOutputs) (right := .ret switchOutputs) (.ret switchOutputs switchOutputs rfl))))
+
+private abbrev switchSource {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (n : Nat) :=
+  choiceSourceFor switchCode leaf 0 n 20
+
+private theorem switchDispatch (n : Nat) :
+    Gamma.CallPair primitives Eq switchMap results (switchSource leafL n) (switchSource leafR n) :=
+  choiceDispatchFor switchMap switchCode switchPlan 0 n 20
+
+private theorem openSwitch {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (n : Nat) :
+    Job.openClosure machine (choiceClosureFor switchCode leaf) (input 0 0 n) =
+      .region switchCode (choiceEntry leaf 0 n) PUnit.unit :=
+  congrArg (fun code => Job.region (m := machine) (past := []) code (choiceEntry leaf 0 n) PUnit.unit)
+    (NestedTheta.Term.toTerm_toGraph switchCode)
+
+private abbrev switchVertex :=
+  Gamma.thetaVertex (Op := Op) (Gamma.familyWires loopCalleeFn chosenSelector switchInitial) [bodyResults, chosenPorts]
+
+private def switchValue {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (member flag mode : Fin 2) (n : Nat) : Tuple machine.Val switchCarry :=
+  Gamma.familyValue choicePorts (choiceValues leaf) member (input flag mode n)
+
+private abbrev switchCallInputs := Gamma.familyApplicationInputs loopCalleeFn switchArguments
+private abbrev switchTail := Gamma.familyTail (Op := Op) loopCalleeFn choicePorts nextMember switchAgain switchOrdinary
+private abbrev switchBodyOutputs := Gamma.familyOutputs loopCalleeFn nextMember switchAgain switchOrdinary
+private abbrev selectNextVertex := Gamma.vertex (Op := Op) (returned := chosenPorts)
+  (Gamma.chooserInputs nextMember) (fun _ => [])
+
+private theorem switchBodyReturns {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (member next flag mode resultMode : Fin 2) (n nextN store middle : Nat)
+    (called : Eval primitives (.call (selectedValue leaf member) (carry mode n)) store
+      (.returned (bodyOut next resultMode nextN) middle)) :
+    Eval primitives (.region switchBody (switchValue leaf member flag mode n) PUnit.unit) store
+      (.returned (.cons (.control flag) (switchValue leaf next member member nextN)) middle) :=
+  .bind (node := Gamma.applicationVertex loopCalleeFn switchCallInputs) (.apply (fn := loopCalleeFn) called)
+    (.bind (node := selectNextVertex)
+      (.gamma (tag := next) (.ret (past := []) (.cons (.arg (choicePorts next)) .nil) (choiceValues leaf) PUnit.unit middle))
+      (.ret switchBodyOutputs (switchValue leaf member flag mode n) _ middle))
+
+private theorem switchesToB {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (n : Nat) :
+    Feedback.Iteration primitives switchBody (switchValue leaf 0 1 1 (n + 1), 22) (switchValue leaf 1 0 0 (n + 1), 51) :=
+  ⟨.control 1, switchBodyReturns leaf 0 1 1 1 1 (n + 1) (n + 1) 22 51
+    (invokeLeaf (firstChoiceReturnsAt (n + 1) 22 1)), rfl⟩
+
+private def switchEntry {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (member flag mode : Fin 2) (n current store : Nat) : Config machine Nat results :=
+  let outer := Continuation.Stack.resume switchSuffix (choiceEntry leaf 0 n) (chosenLocals leaf 0 n) .halt
+  let call := Continuation.Stack.resume (past := []) switchTail (switchValue leaf member flag mode current)
+    PUnit.unit (.loop switchBody outer)
+  ⟨.eval (.call (selectedValue leaf member) (carry mode current)) call, store⟩
+
+private theorem reachesSwitchEntry {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (member flag mode : Fin 2) (n current store : Nat) (defined : (phaseValue n, 22) ∈ loopAction 0 n 20)
+    (completed : ReflTransGen (Feedback.Iteration primitives switchBody)
+      (switchValue leaf 0 1 1 (n + 1), 22) (switchValue leaf member flag mode current, store)) :
+    ReflTransGen (Step primitives) (switchSource leaf n) (switchEntry leaf member flag mode n current store) := by
+  let target : Feedback.Restart machine Nat :=
+    ⟨switchCarry, [bodyResults, chosenPorts], switchBody, (switchValue leaf member flag mode current, store)⟩
+  let pending : Pending machine switchCarry results :=
+    .bind switchSuffix (choiceEntry leaf 0 n) (chosenLocals leaf 0 n) .empty
+  have region : Feedback.Reaches primitives (.region switchCode (choiceEntry leaf 0 n) PUnit.unit) 20 target pending :=
+    .later (node := phaseVertex) (phaseEval leaf 0 n defined)
+      (.later (node := chosenVertex) (chosenEval leaf 0 n)
+        (.inside (node := switchVertex) (.theta (.restart (current := target.input) completed))))
+  have call : Feedback.Reaches primitives (.call (choiceClosureFor switchCode leaf) (input 0 0 n)) 20 target pending :=
+    .call ((openSwitch leaf n).symm ▸ region)
+  exact (((call.steps .halt).tail (.of_next_some rfl)).tail (.of_next_some rfl)).tail (.of_next_some rfl)
+
+private theorem switchReturns {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (calledB : Eval primitives (.call (selectedValue leaf 1) (carry 0 3)) 51 (.returned (bodyOut 0 0 4) 54)) :
+    TerminalPath primitives (switchSource leaf 2) ⟨.returned (output 4 2) .halt, 113⟩ := by
+  obtain ⟨tag, first, feeds⟩ := switchesToB leaf 2
+  have loop : Eval primitives (.iteration switchBody (switchValue leaf 0 1 1 3)) 22
+      (.returned (switchValue leaf 0 1 1 4) 54) :=
+    .again first feeds (.stop (switchBodyReturns leaf 1 0 0 0 0 3 4 51 54 calledB) rfl)
+  have whole : Eval primitives (.region switchCode (choiceEntry leaf 0 2) PUnit.unit) 20 (.returned (output 4 2) 113) :=
+    .bind (node := phaseVertex) (phaseEval leaf 0 2 (_root_.Part.mem_some _))
+      (.bind (node := chosenVertex) (chosenEval leaf 0 2)
+        (.bind (node := switchVertex) (.theta loop)
+          (.bind (node := Gamma.primitiveVertex (Op.finish 5) switchExitWires)
+            (.primitive (Gamma.primitiveSite (Op.finish 5) (output 4 2)) (_root_.Part.mem_some _))
+            (.ret switchOutputs (choiceEntry leaf 0 2) _ 113))))
+  have ran := Eval.call ((openSwitch leaf 2).symm ▸ whole)
+  exact ⟨ran.steps .halt, fun _ step => _root_.Part.notMem_none _ step⟩
+
+private def switchedBodyStop {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (pending : Pending machine bodyResults bodyResults) : Gamma.Block machine Nat (Theta.BodyResults switchCarry) :=
+  ⟨advanceSite 0 1, .bind (past := []) switchTail (switchValue leaf 1 0 0 1) PUnit.unit pending, 51⟩
+
+private def switchStop {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (pending : Pending machine bodyResults bodyResults) : Gamma.Block machine Nat results :=
+  ⟨advanceSite 0 1, .bind switchSuffix (choiceEntry leaf 0 0) (chosenLocals leaf 0 0)
+    (.loop switchBody (switchedBodyStop leaf pending).pending), 51⟩
+
+private def pairedSwitchValue (member flag mode : Fin 2) (n store : Nat) : Carries machine Eq Nat switchCarry :=
+  ⟨switchValue leafL member flag mode n, switchValue leafR member flag mode n,
+    have family : TupleRelated machine Eq (choiceValues leafL) (choiceValues leafR) :=
+      .cons (.closure .nil (NestedTheta.Graph.Isomorphic.refl firstChoice.toGraph)) (.cons (.closure .nil embeddedIso) .nil)
+    .cons (family.get .head) (.cons (family.get (.tail .head)) (.cons (.control member)
+      (.cons (family.get (choicePorts member)) (.cons (.control flag) (carry_related mode n))))),
+    store⟩
+
+private theorem switchBlocks :
+    Gamma.BlockPair primitives Eq switchMap switchCode switchCode (choiceEntry leafL 0 0) (choiceEntry leafR 0 0) 20
+      (.atLoop 2 (.chosenCall 0 1 (.acyclic (.here 1)))) (.atLoop 2 (.chosenCall 0 1 (.acyclic (.here 0))))
+      (switchStop leafL pendingL) (switchStop leafR pendingR) := by
+  have stopped : Gamma.BlockPair primitives Eq numbering leafL leafR (carry 0 1) (carry 0 1) 51
+      (.acyclic (.here 1)) (.acyclic (.here 0)) ⟨advanceSite 0 1, pendingL, 51⟩ ⟨advanceSite 0 1, pendingR, 51⟩ :=
+    .acyclic (.here 1) (.same (carry_related 0 1)) (blockedL 51) (blockedR 51)
+  have body : Gamma.BlockPair primitives Eq switchBodyMap switchBody switchBody (switchValue leafL 1 0 0 1)
+      (switchValue leafR 1 0 0 1) 51 (.chosenCall 0 1 (.acyclic (.here 1))) (.chosenCall 0 1 (.acyclic (.here 0)))
+      (switchedBodyStop leafL pendingL) (switchedBodyStop leafR pendingR) :=
+    .atChosenCall (map := switchBodyMap) (fn := loopCalleeFn) (captured := []) (left := leafL) (right := leafR)
+      (captL := .nil) (captR := .nil) (stopL := ⟨advanceSite 0 1, pendingL, 51⟩) (stopR := ⟨advanceSite 0 1, pendingR, 51⟩)
+      1 switchCallInputs switchTail switchTail rfl rfl stopped
+  have completed : Gamma.IterationPair primitives switchBody switchBody (pairedSwitchValue 0 1 1 1 22)
+      (pairedSwitchValue 1 0 0 1 51) :=
+    ⟨switchesToB leafL 0, switchesToB leafR 0⟩
+  exact .later (nodeL := phaseVertex) (nodeR := phaseVertex) (phaseEval leafL 0 0 (_root_.Part.mem_some _))
+    (phaseEval leafR 0 0 (_root_.Part.mem_some _))
+    (.later (nodeL := chosenVertex) (nodeR := chosenVertex) (chosenEval leafL 0 0) (chosenEval leafR 0 0)
+      (.atLoop (map := switchMap) switchVertex.inputs rfl rfl rfl (.single completed) body))
+
+private theorem switchBlockPath {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    {stop : Gamma.Block machine Nat results}
+    (ran : Eval primitives (.region switchCode (choiceEntry leaf 0 0) PUnit.unit) 20 stop.outcome) :
+    TerminalPath primitives (switchSource leaf 0) (stop.outcome.atStack .halt) := by
+  cases stop
+  have ran := Eval.call ((openSwitch leaf 0).symm ▸ ran)
+  exact ⟨ran.steps .halt, fun _ => (ran.blocks .halt).no_step⟩
+
+/-- Initial γ picks A. A's result sets the body γ to B, and the fresh
+activation actually dispatches B under its own address map. -/
+private theorem switchCallRegression :
+    (∀ n, Gamma.CallPair primitives Eq switchMap results (switchSource leafL n) (switchSource leafR n)) ∧
+    ReflTransGen (Step primitives) (switchSource leafL 2) (switchEntry leafL 0 1 1 2 3 22) ∧
+    ReflTransGen (Step primitives) (switchSource leafR 2) (switchEntry leafR 0 1 1 2 3 22) ∧
+    ReflTransGen (Step primitives) (switchSource leafL 2) (switchEntry leafL 1 0 0 2 3 51) ∧
+    ReflTransGen (Step primitives) (switchSource leafR 2) (switchEntry leafR 1 0 0 2 3 51) ∧
+    TerminalPath primitives (switchSource leafL 2) ⟨.returned (output 4 2) .halt, 113⟩ ∧
+    TerminalPath primitives (switchSource leafR 2) ⟨.returned (output 4 2) .halt, 113⟩ ∧
+    TerminalPath primitives (switchSource leafL 0) ((switchStop leafL pendingL).outcome.atStack .halt) ∧
+    TerminalPath primitives (switchSource leafR 0) ((switchStop leafR pendingR).outcome.atStack .halt) :=
+  ⟨switchDispatch,
+    reachesSwitchEntry leafL 0 1 1 2 3 22 (_root_.Part.mem_some _) .refl,
+    reachesSwitchEntry leafR 0 1 1 2 3 22 (_root_.Part.mem_some _) .refl,
+    reachesSwitchEntry leafL 1 0 0 2 3 51 (_root_.Part.mem_some _) (.single (switchesToB leafL 2)),
+    reachesSwitchEntry leafR 1 0 0 2 3 51 (_root_.Part.mem_some _) (.single (switchesToB leafR 2)),
+    switchReturns leafL (invokeLeaf (bodyReturnsL 0 3 51 (_root_.Part.mem_some _))),
+    switchReturns leafR (invokeLeaf (bodyReturnsR 0 3 51 (_root_.Part.mem_some _))),
+    switchBlockPath leafL switchBlocks.evals.1, switchBlockPath leafR switchBlocks.evals.2⟩
 
 end JoinedCallChoice
 

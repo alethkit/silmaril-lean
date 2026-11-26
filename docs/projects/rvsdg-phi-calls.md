@@ -532,3 +532,178 @@ after a completed feedback iteration with a linked return.
 lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.ThetaReach.Thms
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.ThetaReach.Thms'
 ```
+
+## Demand through a static linked application
+
+`StaticDemand.Code` is the compositional admission. It supports finite
+primitive bindings, γ arms, and statically resolved applications, including
+calls in callees and arms. Each application references a callee body and maps
+its live entry ports through typed argument and capture wires. A single callee
+can be used at multiple sites with different demands. The executable
+`Code.liveIn` computes the corresponding shared `GenKill` least may solution.
+[Compositional API](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Thms.lean)
+
+The application witness takes its callable from a typed entry port and
+identifies the closure's captures with typed origins in the caller's entry.
+`Code.Resolved` checks that identification against the actual closure. It
+governs the callable slot, which the erased term still passes to `apply`. For
+nested calls it requires the callee's own static targets to be resolved for
+every formal argument tuple. The admission erases to the runtime's normal
+numbered term. A γ checks the static targets of its arms for the capture
+tuples wired from preceding locals. The default member index admits acyclic
+calls. The singleton extension below admits one checked self-edge.
+
+`Code.linked_runs_agree` starts from actual successful linkage at a common
+store and relates the runner's demanded returns and exact stores, or its exact
+typed blocked attempts and stores. The proof constructs matching transitions
+from the checked code and produces a common settling budget. After a block,
+the saved stacks can take a shared hypothetical result and store and continue
+with the same guarantee, including at a later block.
+
+The linked γ uses the native demand transfer. It applies the γ binding's
+exit demand to each arm, joins their live captures through the typed wires,
+and retains the selector. The runtime enters the selected arm with fresh
+locals and a saved γ suffix. The proof relates the suffixes using the arm's
+demanded results, including when a blocked callee is supplied a common
+hypothetical result and store.
+
+The γ fixture pins different capture demands for its calling and fallback
+arms. At a block in the callee it observes three saved frames. After supplying
+the same value and store to both invocations, the γ suffix returns demanded
+value `60` and exact store `55`, even though the second exit differs.
+[Linked γ regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/GammaRegression.lean)
+
+The fixture applies one two-binding λ twice. The first call's computed result
+feeds the second, which demands a different output port. The second probe
+can block even though its computed data result is dead. The fixture also
+resumes a saved stack from a first-call block and checks the later call.
+[Compositional regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Regression.lean)
+
+### θ feedback through static calls
+
+Enable θ with the `loops` index of `StaticDemand.Code`. The native
+feedback solver computes the least carried mask for the body summary. It
+seeds the exit demand and continuation decision, and closes the mask through
+the body's typed feedback result wires. At every restart, the proof relates
+the carried values at those live ports. The resolution check may rely on
+entry values that the body forwards directly through the same carried port,
+including its linked callable and capture witnesses.
+
+`Code.linked_prefixes_agree` compares actual runner observations at every
+finite fuel. A return preserves demanded ports and the exact store. A block
+preserves the exact typed attempt and store, and admits any desired observation
+depth after supplying a common hypothetical result and store to the saved
+stacks. Those stacks can continue through a restart or through the enclosing
+suffix. Both runs are suspended at the same budgets, including when neither
+has a finite endpoint. The `finite_return` and `finite_block` theorems
+transport finite partial evaluation derivations through the same prefix
+certificate using the runner's adequacy lemmas.
+
+The θ fixture uses a seed that becomes live only through feedback. The first
+probe advances the store to `22`, then the seed feeds a new request that blocks
+after restart. Resuming at store `40` exits through an effectful suffix and
+returns demanded value `50` and store `45`. Resuming at store `50` restarts
+and reaches the same typed block at that store.
+[Linked θ regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/ThetaRegression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Regression
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.GammaRegression
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.ThetaRegression
+```
+
+### Singleton recursive φ
+
+`MemberSummary.live` supplies monotone demand summaries for a single
+member's captures and formals. A `Code.memberCall` passes the demand from
+its result users to that summary and maps live ports through its typed
+argument and capture wires. `Singleton.closed` checks that the supplied
+summary covers the body's shared `GenKill` liveness at every demand.
+The self reference is admitted as a static call target.
+[Singleton API](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Singleton/Thms.lean)
+
+`Singleton.Ready` checks the member's actual λ capture wiring and requires
+every recursive call to resolve to the group's member with the witnessed
+captures. The proof uses a real dispatch step before reusing the summary at
+a smaller observation depth. `Singleton.calls_prefix` works at every depth
+and feeds the existing finite return and blocked derivation theorems.
+`linked_prefixes_agree` compares the actual linked runner at any fuel and
+arbitrary observation depth after resumption. It preserves typed attempts,
+exact stores, demanded results, and absence of a finite endpoint.
+Mutual recursion, dynamic target selection, and synthesis of a joint least
+summary are outside this admission.
+
+The fixture passes a demanded payload only through the recursive edge and
+varies a dead argument. It checks an effectful non-tail return, a probe
+blocked after descent at store `22`, and resumption through the saved
+frames to store `60`. A separate input repeatedly descends through the same
+linked member. The regression proves productive execution for that input
+using actual runner transitions.
+[Singleton regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Singleton/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Singleton.Regression
+```
+
+### Finite recursive groups
+
+`StaticDemand.Family` takes a finite typed `MemberSummaries` table and
+builds a linked φ group with an export for any chosen member.
+`Family.closed` checks every body's shared transfer at every output demand.
+A `Code.familyCall` names a member index and maps its summary through the
+typed capture and argument wires. The suffix's reads of actual result
+ports determine the callee's demand. `Family.Ready` checks that each
+recursive target and its capture witnesses agree with the resolver's
+actual member and λ capture wires. The family reference prefix is
+reserved for static dispatch.
+[Family API](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Thms.lean)
+
+`Family.calls_prefix` proves agreement at every finite observation depth
+by consuming an actual resolver step before applying the induction
+hypothesis to any member in the group. `Family.linked_prefixes_agree`
+replays the linked runner. The shared prefix theorems give demanded
+returns with exact store, exact typed primitive attempts and attempt stores
+at a block, and observational agreement of pending suffixes under common
+resumption. Suspension at every finite budget transfers in both directions.
+Summaries are supplied. Joint synthesis and dynamic recursive targets
+remain outside the admission.
+
+The two-member fixture passes demand from the first result of A to the
+second result of B and back to the first result of A. The unrelated result
+varies while the payload and store agree. A zero capture blocks after both
+call edges, and resumption runs both saved non-tail suffixes. A separate
+input productively alternates between the same two linked members.
+[Family regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Regression
+```
+
+### Single-call admission
+
+`DirectCall` admits a two-λ module by construction. Its exported caller
+captures the linked callee and invokes it at an actual application node. The
+callee executes one primitive before returning through wired results. The
+caller forwards selected results and may also return its own arguments.
+The admission uses only λ vertices and this single static application.
+Dynamic targets, recursive calls and partial initializers are outside it.
+[API](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/Demand/Thms.lean)
+
+The requested caller results select the callee result demand. The shared
+least may solution identifies the live entry ports of that callee. The
+analysis maps them through the actual capture and argument wires, and keeps
+the caller arguments read directly by a demanded result.
+
+Agreement on those imports and arguments, with the same initial store,
+preserves demanded returns and exact store after ten invocation microsteps.
+A block retains the exact typed primitive site, operands, and attempt store.
+The saved stacks are related by what their two return suffixes do when
+supplied a common hypothetical primitive result and store. Those stacks can
+contain different dead values. The regression resumes a suspended invocation
+and checks a block with two saved frames. Changing the live capture at that
+same call makes the primitive return and change the store.
+[Regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/Demand/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Demand.Regression
+```

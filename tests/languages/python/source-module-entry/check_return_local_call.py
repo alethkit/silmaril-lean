@@ -100,6 +100,18 @@ ORDINARY = """def outer():
     return saved(4)
 answer = outer()
 """
+ORDINARY_PRODUCT = """def target(value):
+    return value
+def factory(n):
+    def leaf(flag):
+        return target((n * n) * flag)
+    return leaf
+saved = factory(9)
+def target(value):
+    return value + 3
+answer = saved(True)
+"""
+
 CAPTURES = """def f():
     owned = 4
     def leaf():
@@ -142,6 +154,9 @@ def reference(source, placement):
 if __name__ == "__main__":
     shared = runpy.run_path(str(Path(__file__).resolve().parent.parent / "source-scope/check_intake.py"))
     arity = ORDINARY.replace("saved(4)", "saved()")
+    assert reference(ORDINARY_PRODUCT, "empty") == (("normal", None), 84)
+    none_product = ORDINARY_PRODUCT.replace("answer = saved(True)", "flag = None\nanswer = saved(flag)")
+    assert reference(none_product, "empty") == (("TypeError", None), None)
     assert reference(ORDINARY, "empty") == (("normal", None), 4)
     assert reference(arity, "empty") == (("TypeError", None), None)
     assert reference(SUCCESS, "empty") == (("NameError", "___assertEqual"), None)
@@ -150,6 +165,8 @@ if __name__ == "__main__":
         assert reference(LATE_MISSING, placement) == (("NameError", "missing"), None)
         assert reference(MASKED, placement) == (("TypeError", None), None)
     fixtures = (
+        (ORDINARY_PRODUCT, "#guard checkOrdinary pythonSource .normal (some 84)"),
+        (none_product, "#guard checkOrdinary pythonSource (.raised .multiplicationTypeError) none"),
         (ORDINARY, "#guard checkOrdinary pythonSource .normal (some 4)"),
         (arity, "#guard checkOrdinary pythonSource (.raised (.positionalArity 1 0)) none"),
         (SUCCESS, """
@@ -162,8 +179,8 @@ if __name__ == "__main__":
 #guard checkSeeded pythonSource (.error (.raised (.runtime (.nameError "missing"))))
   [("f", .ok (.int 4))] [37, 4] none
 """),
-        ("def outside(): return global_target()\n", """
-#guard (match compile pythonSource with | .error (.functionBody (.bodyProfile [0])) => true | _ => false)
+        ("def outside(): return global_target()\nanswer = outside()\n", """
+#guard checkOrdinary pythonSource (.raised (.nameError "global_target")) none
 """),
         ("""def outside():
     target = global_target

@@ -38,8 +38,22 @@ entailment over all behaviors, so it can also be applied on any suffix.
 | SF1 | `sf1` uses the same step premises and the temporal premise `□P ∧ □[N]_f ∧ □F ⇒ ◇ENABLED ⟨A⟩_f`. Applying this premise on every suffix that stays in `P` yields recurrent enabledness. The checked example includes an alternating behavior that meets the step and temporal assumptions with weak fairness and fails the leads-to conclusion. |
 | WF2 | `wf2` takes the barred action, observation, and target enabledness separately. Its four premises keep the Figure 5 simulation, guarded progress (including `P′` and target enabledness), enablement implication, and eventual stabilization of `P` when no changing `B` steps occur and target enabledness eventually holds continuously. |
 | SF2 | `sf2` uses recurrent target enabledness in the stabilization premise and drops the enabledness guard from step progress, as in Figure 5. Its conclusion uses recurrent target steps or eventual continuous target disabledness, following equation (18). The pinned PDF's barred SF line in equation (53) prints `□◇` on disabledness and `◇□` on the step disjunct. Equation (18), the Figure 5 recurrent-enablement premise, and the §7.2.2 explanation give the strong-fairness reading used here. |
-| STL1–STL6 | Lean's propositional logic and suffix semantics can discharge individual instances. STL1's criterion for propositional provability needs a representation of propositional derivations. Named semantic rules for STL2–STL6 remain open. |
-| Lattice | The well-founded temporal descent rule over the family `H_c` remains open. |
+| STL1 | `stl1` uses `PropDerives`, classical natural deduction in the `¬, ∧` basis, and its pointwise soundness theorem. Temporal formulas can stand for opaque propositions. An empty context gives tautologies. For Note 11's derivations from previously proved formulas, the caller supplies each context formula's validity on every behavior. Examples check excluded middle and modus ponens from such a context. |
+| STL2 | `stl2` derives `F` from `□F` at the current instant. |
+| STL3 | `stl3` gives the equivalence `□□F ≡ □F`. |
+| STL4 | `stl4` lifts the validity of `F ⇒ G` to `□F ⇒ □G` by applying the premise to each suffix. |
+| STL5 | `stl5` gives the equivalence `□(F ∧ G) ≡ (□F) ∧ (□G)`. |
+| STL6 | `stl6` gives the equivalence `(◇□F) ∧ (◇□G) ≡ ◇□(F ∧ G)`. The later of the two stabilization times witnesses the common tail. |
+| Lattice | `lattice` derives `(∃ c, H_c) ↝ G` under `F` from `H_c ↝ (G ∨ ∃ d, c ≻ d ∧ H_d)` for each `c` under the same `F`. Well-founded induction uses the smaller-rank instance at the later witness time of the original behavior. The example combines WF1 with Lattice on a run that passes through two ranks before reaching zero. `F` holds initially and fails at the second rank. |
+
+Lattice represents the paper's set by an index type, so `c : ι` carries the
+membership premise. The quantified families are written as Lean existentials
+at the relevant instants, using the same witness semantics as leads-to. This
+allows arbitrary temporal members without extending the Simple TLA grammar.
+The relation argument `smaller d c` expresses the printed `c ≻ d`. Lean requires
+well-foundedness alone, which also permits strict relations without transitivity.
+The rule retains the printed, unboxed `F` at the start of the behavior. The
+leads-to premises already quantify over all later instants of that behavior.
 
 For WF2 and SF2, `weakFair_map_iff` and `strongFair_map_iff` identify ordinary
 fairness of the mapped behavior with the explicit-enabledness formulas for the
@@ -50,8 +64,14 @@ enabledness of the pulled-back action fails. The SF2 example also checks that
 positive even counter states enable a target step and odd states disable it.
 
 [Figure 5 statements](../../Silmaril/Logic/Temporal/TLA/Rules/Figure5/Thms.lean)
-· [Checked examples](../../Silmaril/Logic/Temporal/TLA/Rules/Figure5/Examples.lean)
+· [STL and Lattice statements](../../Silmaril/Logic/Temporal/TLA/Rules/Figure5/Temporal/Thms.lean)
+· [Action and fairness examples](../../Silmaril/Logic/Temporal/TLA/Rules/Figure5/Examples.lean)
+· [STL and Lattice examples](../../Silmaril/Logic/Temporal/TLA/Rules/Figure5/Temporal/Examples.lean)
 · [Pinned PDF, Figure 5](https://lamport.azurewebsites.net/pubs/lamport-actions.pdf#page=17)
+
+```sh
+lake build --wfail +Silmaril.Logic.Temporal.TLA.Rules.Figure5.Temporal.Examples
+```
 
 ## General TLA and Figure 9
 
@@ -59,7 +79,7 @@ positive even counter states enable a target step and odd states disable it.
 | --- | --- | --- |
 | §2.6 and Fig. 9, rigid variables and quantification | `General.Scope`, `Model`, `Expr.rigid`, `Expr.flex`, `Action.existsRigid`, `StatePred.existsRigid`, `Formula.existsRigid` and their evaluation clauses | Direct typed semantics. One rigid valuation is used throughout a behavior and at both ends of an action. A rigid binder extends that valuation once, choosing from one sort's carrier. The paper uses a common value domain. |
 | §8.2 and Fig. 9, general formula grammar | `General.Formula`, `Formula.Sat`, `Formula.Holds`, `Formula.rename`; `Context.old`, `Context.fresh`, `Scope.Rename.underFlex`, `underRigid` | Scoped temporal syntax with denotational leaves and binders that add a fresh name of a selected sort. The Lean grammar also allows box directly over a quantified formula. Fig. 9's displayed General production only inherits box through its Simple-formula alternative. Renaming preserves the fresh name under binders. |
-| §8.2, equations (48)–(49), and Fig. 9, stuttering and agreement away from the hidden name | `Retiming`, `StutterEquiv`, `StutterEquiv.retime`, `trans`, `map`, `hide_iff_lamport` | The code uses common expansions in place of the paper's canonical reduction `#`, and equality after projection in place of `=_x`. It proves equivalence-relation laws and the product-state form of (49) for stutter-invariant operands, phrased with `StutterEquiv`. A Lean definition of (48) and a theorem identifying equality of its reductions with `StutterEquiv` are absent. |
+| §8.2, equations (48)–(49), and Fig. 9, stuttering and agreement away from the hidden name | `Behavior.canonicalReduction`, `canonicalReduction_eq48`, `eq_canonicalReduction_of_eq48`, `canonicalReduction_eq_iff_stutterEquiv`, `hide_iff_lamport_reduction` | The reduction takes the first state of each maximal constant block and repeats the final state forever if the changes end. It satisfies all three stream equations in (48), which uniquely determine it. Equality of reductions is equivalent to the existing `Retiming`-based common expansion relation `StutterEquiv`. The product-state form of (49) uses equality of full-state reductions and equality after visible projection for `=_x`, for stutter-invariant operands. |
 | Equation (49), flexible witnesses; §8.2, invariance | `hide`, `General.Formula.existsFlex`, `Formula.sat_existsFlex`, `Formula.sat_stutterInvariant`, `Formula.holds_retime` | The core projects a full witness and compares its visible run up to stuttering. `sat_existsFlex` derives the clause in extended valuation coordinates. Whole-state stuttering invariance holds for every scoped formula, including nested binders. `forallFlex` and `forallRigid` and their satisfaction characterizations are derived by duality. |
 | E1, introduction with a state function | `General.Formula.existsFlex_intro` | The premise evaluates the body after extending the valuation at each instant with `f ρ s`. The term can depend on the outer rigid environment and visible state. That extension witnesses the quantifier without a change of clock. The unresolved syntactic result is a capture-avoiding operation `F(f/x)` on a chosen expression grammar and a theorem equating its satisfaction with this evaluation premise, including for nested binders and `ENABLED`. |
 | E2, elimination with a fresh conclusion | `General.Formula.existsFlex_elim`, `Scope.Rename.weakenFlex`, using `Formula.sat_rename` and `sat_stutterInvariant` | The conclusion is typed in the outer scope. Its weakening forces independence from the fresh name. The proof transfers the weakened consequence along the witness's projected stuttering equivalence. A formulation for named syntax would need free-name analysis and a theorem that any syntactically fresh conclusion factors through weakening. |
@@ -69,6 +89,22 @@ positive even counter states enable a target step and odd states disable it.
 [General definitions](../../Silmaril/Logic/Temporal/TLA/General/Defs.lean)
 · [General theorems](../../Silmaril/Logic/Temporal/TLA/General/Thms.lean)
 · [Semantic rule statements](../../Silmaril/Logic/Temporal/TLA/Rules/Thms.lean)
+
+Each input behavior is a retiming of its canonical reduction. The proof's
+clock counts changes before the last block and advances at every instant
+inside an infinite last block to stay cofinal. In the other direction,
+retiming preserves the first changed state of every block, so two behaviors
+with a common expansion have equal reductions.
+
+The checked examples reduce `0, 0, 1, 1, 2, 2, …` to `0, 1, 2, 2, …` and
+`0, 0, 1, 1, 0, 0, 1, 1, …` to `0, 1, 0, 1, …`.
+[Stutter reduction statements](../../Silmaril/Logic/Temporal/TLA/StutterReduction/Thms.lean)
+· [Checked examples](../../Silmaril/Logic/Temporal/TLA/StutterReduction/Examples.lean)
+· [Pinned PDF, equations (48)–(49)](https://lamport.azurewebsites.net/pubs/lamport-actions.pdf#page=33)
+
+```sh
+lake build --wfail +Silmaril.Logic.Temporal.TLA.StutterReduction.Examples
+```
 
 ## Auxiliary variables and refinement
 
@@ -100,17 +136,11 @@ positive even counter states enable a target step and odd states disable it.
 
 ## Next PRs
 
-1. State and prove the remaining STL rules and the Lattice descent rule. The
-   latter must handle arbitrary well-founded orders and preserve the paper's
-   temporal hypothesis `F` throughout the leads-to reasoning.
-2. Define the canonical stutter reduction from equation (48) and prove its
-   equality criterion against common expansions, including behaviors with an
-   infinite final block. Use it to state (49) with the paper's relation verbatim.
-3. On a specified expression grammar, prove capture-avoiding substitution under
+1. On a specified expression grammar, prove capture-avoiding substitution under
    priming, quantifiers and `ENABLED` and connect it to E1/F1 evaluation and to
    barring. Prove the free-name weakening criteria for E2/F2 in the same
    representation.
-4. Formalize machine closure and identify the remaining premises of the paper's
+2. Formalize machine closure and identify the remaining premises of the paper's
    relative completeness result (§8.3.2 and Note 12).
 
 Build both sets of standalone rule examples with

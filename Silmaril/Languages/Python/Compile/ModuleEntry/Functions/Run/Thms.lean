@@ -13,14 +13,16 @@ theorem seed_lookup (globals : Core.Module.Globals) (heap : Core.Closure.Heap) (
 theorem evaluate_conditionalResult {scope : Source.Scope} (session : Core.Module.Functions.Session)
     (operand : Operand scope) : evaluate session operand.conditionalResult = evaluate session operand := by
   cases operand with
-  | boolean value => cases value <;> rfl
+  | boolean value => cases value <;> simp [Operand.conditionalResult, Operand.booleanResult, evaluate] <;> rfl
   | _ => rfl
 
 theorem evaluate_scalarResult {scope : Source.Scope} (session : Core.Module.Functions.Session)
     (value : Core.Module.Value) : evaluate session (Operand.scalarResult (scope := scope) value) = .ok (embed value) := by
   cases value with
-  | int value => rfl
-  | bool value => exact evaluate_conditionalResult session (.boolean value)
+  | int value => simp [Operand.scalarResult, evaluate, embed]
+  | bool value => simpa [Operand.scalarResult, Operand.conditionalResult, evaluate, embed] using
+      (evaluate_conditionalResult (scope := scope) session (.boolean value))
+  | none => simp [Operand.scalarResult, evaluate, embed]
 
 theorem advance_scalarResultAssign {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (name : Source.Name) (reference : GlobalReference scope name)
@@ -68,13 +70,29 @@ theorem advance_literalArmBoolean {scope : Source.Scope} (table : Core.Closure.E
     (session : Core.Module.Functions.Session) (value : Bool) (rest : List (Instruction scope)) :
     advance table (.ready session (.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: rest)) =
       ([], if value then .ready session rest else .finished session .assertionError) := by
-  cases value <;> rfl
+  cases value <;> simp [Action.inLiteralArm, advance, assertOperand, evaluate, Core.Module.Functions.truth] <;> rfl
 
 theorem advance_adjacentKeywordDiscard {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (name : String) (value : Int)
     (remaining : List (Instruction scope)) :
     advance table (.ready session (.adjacentKeywordDiscard name value :: remaining)) =
       ([], .calling (session.prepareCall .discard (.readGlobal name) [.literal (.int value)]) remaining) := rfl
+
+theorem lowerInstructions_assertSequenceLength {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)
+    (test : SequenceLengthTest scope) (rest : List (Functions.Action scope)) :
+    lowerInstructions tree key (.assertSequenceLength test :: rest) =
+      (lowerInstructions tree key rest).map fun (instructions, rows) =>
+        (.assertSequenceLength test :: instructions, rows) := by
+  rw [lowerInstructions]
+  cases lowerInstructions tree key rest with | error _ => rfl | ok result => cases result; rfl
+
+theorem advance_assertSequenceLength {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (test : SequenceLengthTest scope) (rest : List (Instruction scope)) :
+    advance table (.ready session (.assertSequenceLength test :: rest)) =
+      ([], .finished session (match session.globals "len" with
+        | none => .raised (.nameError "len")
+        | some (.function _) => .scalarProfile
+        | some _ => .raised .notCallable)) := rfl
 
 theorem advance_assertVarNames {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (receiver : String) (needle : List UInt32)

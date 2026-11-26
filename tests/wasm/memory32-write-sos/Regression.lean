@@ -1,9 +1,11 @@
 module
 
 import Silmaril.Wasm.Institution.Operational.MemoryWrite.Native.Thms
+import Silmaril.Wasm.Institution.Operational.MemoryQuery.Native.Thms
 
 open Silmaril.Wasm
 open Silmaril.Wasm.Execution
+open Silmaril.Wasm.Institution.Operational
 open Silmaril.Wasm.Institution.Operational.MemoryWrite
 open Silmaril.Wasm.SingleThreaded.Det (noHost)
 open Silmaril.Wasm.Logic.Core (bytesAt Region)
@@ -66,3 +68,81 @@ example {target : Core.Config Unit}
   obtain ⟨out, run, guard, eq⟩ := (core_run_iff (memory32_toCore limeFound) ready).mp h
   exact ⟨out, run, by rw [v1_to_lime, lime_to_core _ _ _ _ guard, eq],
     by rw [eq]; cases out <;> rfl⟩
+
+section Offset
+
+private def immediate : V1.MemArg := ⟨2, 2⟩
+private def before : ByteArray := ⟨#[0xaa, 0xbb, 0xcc, 0, 0, 0, 0, 0xdd]⟩
+private def after : ByteArray := ⟨#[0xaa, 0xbb, 0xcc, 0x44, 0x33, 0x22, 0x11, 0xdd]⟩
+private def initial : Runtime.MemInst := ⟨before, some 3⟩
+private def updated : Runtime.MemInst := { initial with data := after }
+private def initialStore : V1.Execution.Store Unit := { memories := [other, initial] }
+private def updatedStore := V1.Execution.setMemory initialStore addr updated
+private def updatedLime := updatedStore.mapCode V1.Func.toLime
+private def updatedCore := updatedLime.toCore
+
+private theorem initialFound : V1.Execution.frameMemory initialStore frame = some (addr, initial) := rfl
+private theorem updatedFound : V1.Execution.frameMemory updatedStore frame = some (addr, updated) := rfl
+private theorem updatedLimeFound : Lime1.Execution.frameMemory updatedLime frame = some (addr, updated) := rfl
+private theorem updatedCoreFound : CoreMemory32 updatedCore frame.toCore addr.value updated.toCore :=
+  memory32_toCore updatedLimeFound
+
+-- The alignment hint is 4 bytes. The four-byte access starts at byte 3.
+private theorem offsetWrite : EdgeAt before 2 (.store 1 0x11223344) (.written after) :=
+  fact_at (.write 1 _ after (by decide))
+
+example : V1.Execution.Step host (v1ConfigAt immediate initialStore frame addr initial (.store 1 0x11223344))
+    ⟨updatedStore, frame, []⟩ :=
+  v1_sound_at immediate initialFound offsetWrite
+
+example : updatedStore.memories = [other, updated] := rfl
+
+example : Memory.load after 3 4 = some 0x11223344 := read_after_write_at offsetWrite
+
+example : Memory.load after 1 4 = some 0x3344ccbb := by decide
+
+private theorem offsetLoad : MemoryQuery.EdgeAt after 2 (.load 1) (.value 0x11223344) :=
+  MemoryQuery.fact_at (.load 1 _ (read_after_write_at offsetWrite))
+
+example : Lime1.Execution.Step limeHost (MemoryQuery.limeConfigAt immediate updatedLime frame (.load 1))
+    ⟨updatedLime, frame, [.source (.intConst .i32 0x11223344)]⟩ :=
+  MemoryQuery.lime_sound_at immediate updatedLimeFound offsetLoad
+
+-- Native Core independently reads the same bytes. Reflect this step into SOS.
+example : ∃ out, MemoryQuery.EdgeAt after 2 (.load 1) out ∧
+    (⟨updatedCore, frame.toCore, [.plain (.intConst .i32 0x11223344)]⟩ : Core.Config Unit) =
+      MemoryQuery.coreConfigAt immediate updatedCore frame.toCore out :=
+  (MemoryQuery.core_step_iff_at (P := Numerics.Profile.spec) immediate updatedCoreFound.1 rfl).mp
+    (.memory (.loadIntVal (t := .i32) (arg := immediate.toCore)
+      (a := .i32) (i := 1) (c := 0x11223344) updatedCoreFound.1 (by decide)))
+
+-- Both address computations use a natural sum. Byte 1 would have been in bounds.
+example : Core.effAddr (0xffffffff : BitVec 32).toNat immediate.toCore = 4294967297 :=
+  MemoryQuery.core_effective_address _ _
+
+example : V1.Execution.Step host (MemoryQuery.v1ConfigAt immediate updatedStore frame (.load 0xffffffff))
+    ⟨updatedStore, frame, [.trap]⟩ :=
+  (MemoryQuery.v1_step_iff_at immediate updatedFound).mpr
+    ⟨.trap, MemoryQuery.load_trap_iff_at.mpr (by decide), rfl⟩
+
+-- The start is inside the buffer but the write would cross its end. The full
+-- native trap target preserves both memories, including the successful write.
+example : Core.Steps Numerics.Profile.spec noHost
+    (coreConfigAt immediate updatedCore frame.toCore addr.value updated.toCore (.store 3 0))
+    ⟨updatedCore, frame.toCore, [.trap]⟩ :=
+  (core_run_iff_at immediate updatedCoreFound (a := .store 3 0) trivial).mpr
+    ⟨.trap, .single (store_trap_iff_at.mpr (by decide)), trivial, rfl⟩
+
+example : ∃ out, RunsAt after 2 (.store 3 0) out ∧ Admitted after out ∧
+    (⟨updatedLime, frame, [.trap]⟩ : Lime1.Execution.Config Unit) =
+      limeConfigAt immediate updatedLime frame addr updated out :=
+  (lime_run_iff_at (host := limeHost) immediate updatedLimeFound (a := .store 3 0) trivial).mp
+    (.single (.intStoreTrap _ _ _ _ _ _ _ addr updated rfl (by decide)))
+
+example : ∃ out, RunsAt after 2 (.store 0xffffffff 0) out ∧ Admitted after out ∧
+    (⟨updatedStore, frame, [.trap]⟩ : V1.Execution.Config Unit) =
+      v1ConfigAt immediate updatedStore frame addr updated out :=
+  (v1_run_iff_at (host := host) immediate updatedFound (a := .store 0xffffffff 0) trivial).mp
+    (.single (.intStoreTrap _ _ _ _ _ _ _ addr updated rfl (by decide)))
+
+end Offset

@@ -193,9 +193,47 @@ structure DefinitionTranslation (tree : ScopeTree) (index : Nat) (declaration : 
     declaration.map Source.Parameter.name
   functionBody : Compile.Closure.Body.Translation child 0 body code
 
+def lengthEquality? : Source.Comparison → Option Bool
+  | .eq => some true
+  | .ne => some false
+  | _ => none
+
+structure SequenceLengthTest (scope : Scope) where
+  reference : GlobalReference scope "len"
+  length : Nat
+  right : Operand scope
+  expectedEqual : Bool
+
+/-- Only the sequence argument is closed. The callee and right operand
+still use their live namespace at this assertion. -/
+inductive SequenceLengthTranslation (scope : Scope) : Source.Stmt → SequenceLengthTest scope → Prop where
+  | assertion {left source right operator sequence reference operand equal}
+      (call : CallExpression left "len" [(.positional, source)])
+      (argument : ClosedSequence.ValueOf source sequence)
+      (comparison : lengthEquality? operator = some equal)
+      (expected : OperandTranslation scope right operand) (scalar : operand.comparable = true) :
+      SequenceLengthTranslation scope (.assert_ (.comparison left [(operator, right)]) none)
+        ⟨reference, sequence.values.length, operand, equal⟩
+
+def sequenceLengthTest? (scope : Scope) : (statement : Source.Stmt) →
+    Option {test // SequenceLengthTranslation scope statement test}
+  | .assert_ (.comparison left [(operator, right)]) none => do
+    let ⟨("len", [(.positional, source)]), call⟩ ← callExpression? left | none
+    let ⟨sequence, checked⟩ ← checkClosedSequence source
+    let reference ← globalReference? scope "len"
+    let operand ← (lowerOperand scope right).toOption
+    if scalar : operand.val.comparable = true then
+      match comparison : lengthEquality? operator with
+      | some equal => some ⟨⟨reference, sequence.values.length, operand.val, equal⟩,
+          .assertion call checked comparison operand.property scalar⟩
+      | none => none
+    else none
+  | _ => none
+
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | assertNot (condition : Operand scope)
+  | assertSequenceLength (test : SequenceLengthTest scope)
   /-- Read the current module binding once at this assertion. -/
   | assertVarNames (receiver : Name) (reference : GlobalReference scope receiver) (needle : List UInt32)
   | define (name : Name) (reference : GlobalReference scope name) (child : ScopeTree)
@@ -216,6 +254,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (translated : TestTranslation tree.scope condition operand)
       (remaining : Translation tree index rest tail) :
       Translation tree index (.assert_ (.unary .not_ condition) none :: rest) (.assertNot operand :: tail)
+  | assertSequenceLength {index statement test rest tail}
+      (checked : SequenceLengthTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.assertSequenceLength test :: tail)
   | assertVarNames {index receiver needle rest tail} (reference : GlobalReference tree.scope receiver)
       (remaining : Translation tree index rest tail) :
       Translation tree index
@@ -235,6 +277,11 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (remaining : Translation tree (index + 1) rest tail) :
       Translation tree index (.functionDef name declaration body [] none :: rest)
         (.define name reference child parameters code :: tail)
+  | defineLambda {index statement name declaration body rest child reference parameters code tail}
+      (binding : Compile.Closure.Body.Assignment statement name (.lambda declaration body))
+      (definition : DefinitionTranslation tree index declaration [.return_ (some body)] child parameters code)
+      (remaining : Translation tree (index + 1) rest tail) :
+      Translation tree index (statement :: rest) (.define name reference child parameters code :: tail)
   | defineLiteralKeywordDefault {index name declaration body rest child reference parameter slot value code tail}
       (located : tree.children[index]? = some child)
       (path : child.scope.context.path = tree.scope.context.path ++ [index])
@@ -301,7 +348,27 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     let tail ← lowerPlan tree index rest
     return ⟨.assertNot operand.val :: tail.val, .assertNot operand.property tail.property⟩
   | statement :: rest => do
-    if let some ⟨(target, name, arguments), site⟩ := callSite? statement then
+    if let some test := sequenceLengthTest? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.assertSequenceLength test.val :: tail.val, .assertSequenceLength test.property tail.property⟩
+    else if let some ⟨(name, .lambda declaration body), binding⟩ := Compile.Closure.Body.assignment? statement then
+      unless declaration.all Compile.Closure.Body.fixed do throw (.functionBody .parameterProfile)
+      let path := tree.scope.context.path ++ [index]
+      match located : tree.children[index]? with
+      | none => throw (.functionScope path)
+      | some child =>
+        if scopeMatches : child.scope.context.path = path ∧ child.scope.context.kind = .function then
+          let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
+          let parameters ← (Compile.Closure.Body.checkParameters child.scope declaration).mapError .functionBody
+          let code ← (Compile.Closure.Body.lowerBodyWith child true 0 [.return_ (some body)]).mapError .functionBody
+          let tail ← lowerPlan tree (index + 1) rest
+          let definition : DefinitionTranslation tree index declaration [.return_ (some body)] child
+              parameters.val code.val :=
+            ⟨located, scopeMatches.1, scopeMatches.2, parameters.property.1, parameters.property.2, code.property⟩
+          return ⟨.define name reference child parameters.val code.val :: tail.val,
+            .defineLambda binding definition tail.property⟩
+        else throw (.functionScope path)
+    else if let some ⟨(target, name, arguments), site⟩ := callSite? statement then
       let destination ← lowerDestination tree.scope target
       let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
       match lowerArguments tree.scope arguments with

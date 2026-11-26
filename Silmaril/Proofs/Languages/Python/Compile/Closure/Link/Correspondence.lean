@@ -78,6 +78,20 @@ private theorem link_targets {layout : Layout} (tree : Source.ScopeTree) (first 
       · exact hasNested (nestedTargets.1 ref own)
       · exact hasNested (nestedTargets.2 ref innerBlock)
       · exact hasLater (laterTargets.2 ref laterBlock)
+  | returnClosure path childLayout parameters captures child _ inner =>
+    let nested := linkBody (first + 1) tree child
+    let entry : Entry Code := ⟨childLayout, { parameters, body := nested.code }⟩
+    let newBlock := (((Block.mk path entry).withFreeVars tree).withCellVars tree).withCodeNames tree
+    have targets := inner (first + 1)
+    constructor
+    · intro ref member
+      change ref ∈ [(path, ⟨first, childLayout⟩)] at member
+      obtain rfl := List.mem_singleton.mp member
+      exact ⟨0, newBlock, (Nat.add_zero _).symm, rfl, rfl, rfl⟩
+    · intro ref member
+      change ref ∈ blockReferences (newBlock :: nested.children) at member
+      rw [blockReferences, List.flatMap_cons, List.mem_append] at member
+      exact (member.elim (targets.1 ref) (targets.2 ref)).cons newBlock
 
 private theorem link_paths {layout : Layout} (tree : Source.ScopeTree) (first : Nat)
     (code : Body.Code layout) :
@@ -89,6 +103,8 @@ private theorem link_paths {layout : Layout} (tree : Source.ScopeTree) (first : 
     simpa [linkBody, Body.Code.childPaths] using tail first
   | closure _ _ _ _ _ _ _ inner tail =>
     simp [linkBody, Block.withFreeVars, Block.withCellVars, Block.withCodeNames, Body.Code.childPaths, inner, tail]
+  | returnClosure _ _ _ _ _ _ inner =>
+    simp [linkBody, Block.withFreeVars, Block.withCellVars, Block.withCodeNames, Body.Code.childPaths, inner]
 
 theorem paths {source : Source.Module} (compiled : Body.Compiled source) :
     (link compiled).blocks.map Block.path = compiled.paths := by

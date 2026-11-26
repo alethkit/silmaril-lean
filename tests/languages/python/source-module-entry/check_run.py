@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Compare actual Python modules with source lowering and the Core runner."""
 
+import ast
 import json
 from pathlib import Path
 import runpy
@@ -113,6 +114,52 @@ after = 9
 result = (0 or -2) == (missing + (1 // 0))
 after = 9
 """, {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
+    ("none_scalar_rebind", """result = None
+assert result == None
+assert result != 0
+result = 3
+assert None != result
+assert False == 0
+""", {}, {"result": 3}, "normal", ".normal", 3),
+    ("none_right_read_failure", """result = 7
+result = None != missing
+after = 9
+""", {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
+    ("none_arithmetic_read_precedes_profile", """result = 7
+result = None + missing
+after = 9
+""", {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
+    ("singleton_identity_typed", """result = None is False
+after = False is not True is (1 == True)
+assert None is None
+""", {}, {"result": False, "after": True}, "normal", ".normal", 3),
+    ("singleton_identity_skips_missing", """result = False is True is (missing == 0)
+""", {}, {"result": False}, "normal", ".normal", 2),
+    ("singleton_identity_reached_missing", """result = 7
+result = False is not True is (missing == 0)
+after = 9
+""", {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
+    ("boolean_dead_suffix", """result = True and False and (5 / 0) and (1 // 0 + (False or -2))
+after = False or True or (5 / 0)
+assert (False and (True and (1 / 0))) is False
+""", {}, {"result": False, "after": True}, "normal", ".normal", 3),
+    ("boolean_dead_suffix_integer_tag", """result = 0 and (5 / 0)
+after = 7 or (5 / 0)
+""", {}, {"result": 0, "after": 7}, "normal", ".normal", 3),
+    ("closed_sequence_typed", """result = [] + [True] + [-2, False] == [1, -2, 0]
+after = (True,) + (False,) != (1, 0)
+assert [1, 2] != (1, 2)
+assert [1] != [1, 1]
+assert ([4, 3] + []) == [4, 3]
+""", {}, {"result": True, "after": False}, "normal", ".normal", 3),
+    ("closed_sequence_assertion_failure", """result = 7
+assert ([1, 2] + [3]) == [1, 3, 2]
+after = 9
+""", {}, {"result": 7, "after": None}, "AssertionError", ".raised .assertionError", 2),
+    ("closed_sequence_enclosing_lookup", """result = 7
+result = (([1] + [2]) == [1, 2]) == missing
+after = 9
+""", {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
 )
 
 UNSUPPORTED_INDEXING = (
@@ -143,7 +190,9 @@ REJECTED_BRANCHES = (
     ("result = f() if False else 3\n", ".expressionProfile"),
     ("result = 1 if True else [3][1]\n", ".expressionProfile"),
     ("result = (1, unknown) == (1, 2)\n", ".expressionProfile"),
-    ("result = (1,) == [1]\n", ".expressionProfile"),
+    ("result = (1,) + (2,)\n", ".expressionProfile"),
+    ("result = ([1] + [2]) in ([1, 2],)\n", ".expressionProfile"),
+    ("result = ([1],) == ([1],)\n", ".expressionProfile"),
     ("result = (1,) in ((1,),)\n", ".expressionProfile"),
     ("result = 1 in (*other,)\n", ".expressionProfile"),
     ("result = 1 in (f(),)\n", ".expressionProfile"),
@@ -155,12 +204,21 @@ REJECTED_BRANCHES = (
     ("result = 0 < probe() < 2\n", ".expressionProfile"),
     ("result = 0 < 1\n", ".expressionProfile"),
     ("result = False and missing\n", ".expressionProfile"),
-    ("result = True or (5 / 0)\n", ".expressionProfile"),
+    ("result = True or (False and missing)\n", ".expressionProfile"),
+    ("result = True or (5 / (lambda: 0))\n", ".expressionProfile"),
+    ("result = False and (5 / probe())\n", ".expressionProfile"),
     ("assert (missing,)\n", ".expressionProfile"),
     ("assert [probe()]\n", ".expressionProfile"),
-    ("result = None\n", ".expressionProfile"),
     ("result = (1,)\n", ".expressionProfile"),
     ("assert [()]\n", ".expressionProfile"),
+    ("result = 1 is 1\n", ".expressionProfile"),
+    ('result = "same" is "same"\n', ".expressionProfile"),
+    ("result = 1000 is 1000\n", ".expressionProfile"),
+    ("result = 'text' is 'text'\n", ".expressionProfile"),
+    ("result = False is True is 1\n", ".expressionProfile"),
+    ("result = False is True is (5 / 0 == 0)\n", ".expressionProfile"),
+    ("result = False is True < False\n", ".expressionProfile"),
+    ("result = current is None\n", ".expressionProfile"),
 )
 
 CPYTHON = """
@@ -224,12 +282,84 @@ def check_chain_order():
         ("probe(1) < probe(0) < probe(-1)", False, [1, 0]),
         ("0 > 1 < missing", False, []),
         ("0 > 1 < (1 // 0)", False, []),
+        ("probe(False) is not probe(True) is probe(True)", True, [False, True, True]),
+        ("probe(False) is probe(True) is probe(None)", False, [False, True]),
     )
     for source, result, expected_visits in cases:
         visits.clear()
         expression = compile(source, "<comparison chain>", "eval", dont_inherit=True, optimize=0)
         assert eval(expression, namespace) is result, source
         assert visits == expected_visits, source
+
+
+REACHED_DIVISION = (
+    ("True and 5 / 0", ZeroDivisionError, None),
+    ("False or 5 / 0", ZeroDivisionError, None),
+    ("False or False or (5 / 0)", ZeroDivisionError, None),
+    ("True and (True and 5 / 0) and False", ZeroDivisionError, None),
+    ("True and 5 / 2", None, 2.5),
+    ("False or 5 // 0", ZeroDivisionError, None),
+)
+
+
+def check_boolean_rejections(shared, python_file, lean_file, imports):
+    for expression, error, expected in REACHED_DIVISION:
+        source = f"before = 7\nresult = {expression}\nafter = 9\n"
+        namespace = {"__builtins__": {}}
+        try:
+            exec(compile(source, "<reached Boolean operand>", "exec", optimize=0), namespace)
+        except ZeroDivisionError as raised:
+            assert type(raised) is error and namespace == {"__builtins__": {}, "before": 7}
+        else:
+            assert error is None and type(namespace["result"]) is float and namespace["result"] == expected
+        shared["emit"](python_file, lean_file, source)
+        shared["check_lean"](lean_file, LEAN + "#guard rejection pythonSource == some .expressionProfile\n",
+                             extra_imports=imports)
+
+    shared["emit"](python_file, lean_file, "result = True or 5 / 0\n")
+    guards = ""
+    for arity in (0, 1):
+        tree = ast.parse("result = True or False")
+        values = [ast.Constant(value=False)] * arity
+        tree.body[0].value.values[1] = ast.BoolOp(op=ast.And(), values=values)
+        try:
+            compile(ast.fix_missing_locations(tree), "<malformed dead operand>", "exec", optimize=0)
+        except ValueError as raised:
+            assert str(raised) == "BoolOp with less than 2 values"
+        else:
+            raise AssertionError("CPython accepted a malformed Boolean node")
+        operands = "[.boolean false]" if arity else "[]"
+        guards += (
+            f'#guard rejection ⟨[.assign "result" (.booleanOp .or_ [.boolean true,'
+            f' .booleanOp .and_ {operands}])]⟩ == some .expressionProfile\n'
+            f'#guard rejection ⟨[.assign "result" (.booleanOp .and_ {operands})]⟩ == some .expressionProfile\n'
+        )
+    shared["check_lean"](lean_file, LEAN + guards, extra_imports=imports)
+
+
+SEQUENCE_ERRORS = (
+    ("([0] + [left_missing]) == (right_missing,)", NameError, "left_missing"),
+    ("([0] + [1]) == (right_missing,)", NameError, "right_missing"),
+    ("([0] + [left_missing]) == [1]", NameError, "left_missing"),
+    ("([0] + (1,)) == [right_missing]", TypeError, None),
+    ("([0] + [1 // 0]) == [3]", ZeroDivisionError, None),
+)
+
+
+def check_sequence_rejections(shared, python_file, lean_file, imports):
+    for expression, error, name in SEQUENCE_ERRORS:
+        source = f"result = 7\nresult = {expression}\nafter = 9\n"
+        namespace = {"__builtins__": {}}
+        try:
+            exec(compile(source, "<open sequence comparison>", "exec", optimize=0), namespace)
+        except error as raised:
+            assert type(raised) is error and getattr(raised, "name", None) == name
+            assert namespace == {"__builtins__": {}, "result": 7}
+        else:
+            raise AssertionError(f"CPython completed {expression!r}")
+        shared["emit"](python_file, lean_file, source)
+        shared["check_lean"](lean_file, LEAN + "#guard rejection pythonSource == some .expressionProfile\n",
+                             extra_imports=imports)
 
 
 if __name__ == "__main__":
@@ -270,4 +400,6 @@ if __name__ == "__main__":
             shared["emit"](python_file, lean_file, source)
             shared["check_lean"](lean_file, LEAN + f"#guard rejection pythonSource == some ({error})\n",
                                  extra_imports=imports)
+        check_boolean_rejections(shared, python_file, lean_file, imports)
+        check_sequence_rejections(shared, python_file, lean_file, imports)
     print(json.dumps({"cpython": sys.version.split()[0], "observations": observations}))

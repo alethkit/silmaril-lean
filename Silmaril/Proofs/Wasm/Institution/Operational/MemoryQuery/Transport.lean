@@ -10,12 +10,12 @@ namespace Silmaril.Wasm.Institution.Operational.MemoryQuery.Proofs
 open Silmaril.Wasm.Execution
 open Silmaril.Wasm.Execution.Runtime (Frame MemAddr MemInst)
 
-theorem run_iff {C : Type} (emit : State → C) (native : C → C → Prop) (bytes : ByteArray)
-    (sound : ∀ {a b}, Edge bytes a b → native (emit a) (emit b))
-    (readback : ∀ {a b}, native (emit a) b → ∃ out, Edge bytes a out ∧ b = emit out)
+theorem run_iff {C : Type} (emit : State → C) (native : C → C → Prop) (bytes : ByteArray) (offset : Nat)
+    (sound : ∀ {a b}, EdgeAt bytes offset a b → native (emit a) (emit b))
+    (readback : ∀ {a b}, native (emit a) b → ∃ out, EdgeAt bytes offset a out ∧ b = emit out)
     {a : State} {b : C} :
     Relation.ReflTransGen native (emit a) b ↔
-      ∃ out, Relation.ReflTransGen (Edge bytes) a out ∧ b = emit out := by
+      ∃ out, Relation.ReflTransGen (EdgeAt bytes offset) a out ∧ b = emit out := by
   constructor
   · intro path
     induction path with

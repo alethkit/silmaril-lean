@@ -40,6 +40,15 @@ variable {V : Type u₁} {C : Type u₂}
 include shared
 
 set_option backward.isDefEq.respectTransparency false in
+theorem denoteRegion_packExits_valueBranches_proof {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
+    (hr : Region.ValueBranches Γ r L) :
+    denoteRegion J M hr.hasType.packExits = denoteRegion J M hr.hasType ≫ J.map (packLabelExit M L) := by
+  have h := denoteRegion_lsubst_sharedTensor J M shared hr.hasType hr.hasType.packExits
+    (PureBranches.of_valueBranches J M hr) (packContinuation_denotes J M Γ L)
+  simpa only [Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.bind, J.map_comp,
+    ← Category.assoc, extend_snd J (FreydCategory.CentralUnit.unit_central (J := J))] using h
+
+set_option backward.isDefEq.respectTransparency false in
 theorem denoteRegion_packUnpack_bound_sharedTensor_proof {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
     (hr : Region.HasType Γ r [packedExitType L])
     (hd : Region.HasType Γ (r.bindBranchArguments.lsubst (fun _ => unpackExits L)) L)
