@@ -18,6 +18,13 @@ theorem drop_weakening (r : Region signature.Instr) (a : Tm signature.Instr) :
     (r.renameVars Nat.succ).substVars (Tm.singleSubst a) = r :=
   BitQueryQuotation.drop_weakening r a
 
+/-- Expose both constructors of the exact live Bit slot and retain each
+branch's original unit payload. -/
+theorem native_focus_bit {Γ L : List (Ty Empty)} {r : Region signature.Instr} {i : Nat}
+    (hi : At Γ i Bit) (hr : HasType Γ r L) :
+    SubstitutionEquiv Γ (.case (.var i) (r.substVars (focus i false)) (r.substVars (focus i true))) r L :=
+  BitQueryQuotation.expand_bit hi hr
+
 /-- The query comparison in native `SubstitutionEquiv`. The proof uses
 constructor case beta, focused case expansion, and pure let beta. -/
 theorem native_choose_eq {n : Nat} {Γ L : List (Ty Empty)} (slots : Slots Γ n) (e f : Expr n)

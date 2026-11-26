@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.BitQuery.RequestTree.Default.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.BitQuery.RequestTree.Readback.Decision.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.BitQuery.RequestTree.Reflection.Defs
 
 /-! # Read back a typed outward Bit region as a selected request tree -/
@@ -18,11 +19,6 @@ def slots (n : Nat) : Slots (Live n) n where
   index := Fin.val
   typed i := by simp [At, Live, i.isLt]
   distinct := Fin.val_injective
-
-def literalQuery : Tm signature.Instr → Option Bool
-  | .inl .unit => some false
-  | .inr .unit => some true
-  | _ => none
 
 /-- Decode the physical binder after CFG entry has substituted its incoming
 argument. The live scope is the newest-first list of typed Bit replies. -/
@@ -55,10 +51,19 @@ def enter? (k : Nat) (entry : Region signature.Instr) (rows : Fin k → Region s
   | none =>
     if hk : k = 1 then some (entry.lsubst (cfgEntryContinuations (hk ▸ rows))) else none
 
+inductive QueryMode where
+  | literals
+  | forwarded
+  | decisions
+
+def QueryMode.allowVariables : QueryMode → Bool
+  | .forwarded => true
+  | _ => false
+
 /-- Follow tagged requests, typed variable returns and variable lets.
 A table can leave directly at either outward exit, follow a local branch,
 or use one-block entry substitution. Fuel bounds local unfolding. -/
-def readWith (written : Bool) : Nat → (n : Nat) → Nat → Region signature.Instr → Option (Tree n)
+def readMode (mode : QueryMode) : Nat → (n : Nat) → Nat → Region signature.Instr → Option (Tree n)
   | 0, _, _, _ => none
   | _fuel + 1, n, offset, .br i (.var j) => do
     let slot ← if h : j < n then some (⟨j, h⟩ : Fin n) else none
@@ -66,18 +71,26 @@ def readWith (written : Bool) : Nat → (n : Nat) → Nat → Region signature.I
     else if i = offset + 1 then some (.ret true slot)
     else none
   | fuel + 1, n, offset, .case (.op (.ask label) arg) left right => do
-    let query ← readQuery written n arg
-    let l ← readWith written fuel (n + 1) offset left
-    let r ← readWith written fuel (n + 1) offset right
+    let query ← readQuery mode.allowVariables n arg
+    let l ← readMode mode fuel (n + 1) offset left
+    let r ← readMode mode fuel (n + 1) offset right
     some (.ask label query l r)
   | fuel + 1, n, offset, .let₁ (.var j) body =>
-    readWith written fuel n offset (body.substVars (Tm.singleSubst (.var j)))
+    readMode mode fuel n offset (body.substVars (Tm.singleSubst (.var j)))
   | fuel + 1, n, offset, .cfg entry k rows =>
-    (readWith written fuel n (k + offset) entry).orElse fun _ =>
-      (enter? k entry rows).bind (readWith written fuel n offset)
+    (readMode mode fuel n (k + offset) entry).orElse fun _ =>
+      (enter? k entry rows).bind (readMode mode fuel n offset)
+  | fuel + 1, n, offset, raw@(.case (.var _) _ _) => do
+    let .decisions := mode | none
+    let d ← readDecision n raw
+    let l ← readMode mode fuel (n + 1) offset d.left
+    let r ← readMode mode fuel (n + 1) offset d.right
+    some (.ask d.label d.query l r)
   | _, _, _, _ => none
 
-abbrev read := readWith false
+def readWith (written : Bool) := readMode (if written then .forwarded else .literals)
+
+abbrev read := readMode .literals
 
 /-- The original outward region with its exact typing, before literal exit packing. -/
 abbrev Candidate := {r : Region signature.Instr // ValueBranches [Bit] r Exits}
@@ -95,6 +108,10 @@ def Candidate.read (p : Candidate) (fuel : Nat) : Option (Tree 1) :=
 argument, including the payload hidden by the Boolean trace observation. -/
 def Candidate.readWithVariables (p : Candidate) (fuel : Nat) : Option (Tree 1) :=
   readWith true fuel 1 0 p.val
+
+/-- Read a staged pure query decision before the effectful request. -/
+def Candidate.readWithDecisions (p : Candidate) (fuel : Nat) : Option (Tree 1) :=
+  readMode .decisions fuel 1 0 p.val
 
 /-- A table or constructor outside the recognized scope, or insufficient fuel,
 is reported as unknown. A difference uses a reachable all-replies history. -/
@@ -116,6 +133,9 @@ def compare (fuel : Nat) (p q : Candidate) : Verdict :=
 
 def compareWithVariables (fuel : Nat) (p q : Candidate) : Verdict :=
   compareTrees (p.readWithVariables fuel) (q.readWithVariables fuel)
+
+def compareWithDecisions (fuel : Nat) (p q : Candidate) : Verdict :=
+  compareTrees (p.readWithDecisions fuel) (q.readWithDecisions fuel)
 
 namespace Example
 
@@ -176,5 +196,62 @@ def witness : Difference :=
   ⟨false, false, ⟨[event false false (true, true), event true true (false, false)], true, false⟩⟩
 
 end VariableExample
+
+namespace DecisionExample
+
+inductive Shape where
+  | plain
+  | redundant
+  | changed
+
+def request (query : Bool) (offset : Nat) : Region signature.Instr :=
+  requestRegion true query (.br (offset + 1) (.var 0)) (.br (offset + 1) (.var 0))
+
+/-- The most recent reply is the first test. A second test uses the caller
+Bit after weakening through the most recent test's unit payload. -/
+def staged (shape : Shape) (offset : Nat) : Region signature.Instr :=
+  let low := request false offset
+  let high := request true offset
+  .case (.var 0) low
+    (match shape with
+     | .plain => high
+     | .redundant => .case (.var 2) high high
+     | .changed => .case (.var 2) low high)
+
+def entry (shape : Shape) : Region signature.Instr :=
+  requestRegion false false (request false 2) (staged shape 2)
+
+def numbered (renumbered : Bool) (shape : Shape) : Region signature.Instr :=
+  if renumbered then
+    .cfg (.br 1 (.var 0)) 2 (Fin.cases (entry shape) (fun _ => .br 0 (.var 0)))
+  else
+    .cfg (.br 0 (.var 0)) 2 (Fin.cases (.br 1 (.var 0)) (fun _ => entry shape))
+
+def rightQuery (shape : Shape) : Expr 2 :=
+  .split (.literal false)
+    (match shape with
+     | .plain => .literal true
+     | .redundant => .split (.literal true) (.literal true)
+     | .changed => .split (.literal false) (.literal true))
+
+def selectedQuery (shape : Shape) (tag : Bool) : Expr 2 :=
+  if tag then rightQuery shape else .literal false
+
+def expected (shape : Shape) : Tree 1 :=
+  .ask false (.literal false)
+    (.ask true (selectedQuery shape false) (.ret true 0) (.ret true 0))
+    (.ask true (selectedQuery shape true) (.ret true 0) (.ret true 0))
+
+def witness : Difference :=
+  ⟨false, false, ⟨[event false false (true, true), event true true (false, false)], true, false⟩⟩
+
+/-- The term-level spelling puts the pure test inside the opcode operand. -/
+def termCase : Region signature.Instr :=
+  call false (caseOperand (.var 0))
+
+def quotedTermCase : Tree 1 :=
+  .ask false (.read 0) (.ret false 0) (.ret true 0)
+
+end DecisionExample
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.BitQuery.RequestTree.Readback
