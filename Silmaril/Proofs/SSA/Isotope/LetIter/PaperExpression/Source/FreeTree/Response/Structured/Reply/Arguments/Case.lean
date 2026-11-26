@@ -4,7 +4,7 @@ public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Respo
 import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Arguments.Arguments
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Reflection.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Case.Thms
-import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Equations.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.CallByValue.Thms
 
 public section
 
@@ -25,6 +25,25 @@ theorem case_eqv_bind [Preorder ε] [OrderBot ε] {s : Expr Φ} (hs : Wf Γ s (.
     (hl : Wf ((A, ⊥) :: Γ) l C e) (hr : Wf ((B, ⊥) :: Γ) r C e) :
     Eqv Γ C e (.case s l r) (.let₁ s (.case (.var 0) l.wk1 r.wk1)) :=
   .step (.rewrite (.case hs hl hr) (.let₁ hs (source_wf hl hr)) (.case_bind _ _ _))
+
+private theorem wk1_typed [Preorder ε] [OrderBot ε] (R : Ty α) (h : Wf ((A, ⊥) :: Γ) k B e) :
+    Wf ((A, ⊥) :: (R, ⊥) :: Γ) k.wk1 B e := by
+  rw [Expr.wk1, Expr.wk_eq_subst]
+  exact h.subst_typed (wk1_subst_typed R)
+
+theorem let_case_eqv [Preorder ε] [OrderBot ε] {D : Ty α}
+    (hs : Wf Γ a (.coprod A B) e)
+    (hl : Wf ((A, ⊥) :: Γ) l C e) (hr : Wf ((B, ⊥) :: Γ) r C e)
+    (hk : Wf ((C, ⊥) :: Γ) k D e) :
+    Eqv Γ D e (.let₁ (.case a l r) k) (.case a (.let₁ l k.wk1) (.let₁ r k.wk1)) :=
+  .step (.rewrite (.let₁ (.case hs hl hr) hk)
+    (.case hs (.let₁ hl (wk1_typed A hk)) (.let₁ hr (wk1_typed B hk))) (.let1_case _ _ _ _))
+
+private theorem let_assoc_eqv [Preorder ε] [OrderBot ε] {b : Expr Φ}
+    (ha : Wf Γ a A e) (hb : Wf ((A, ⊥) :: Γ) b B e)
+    (hk : Wf ((B, ⊥) :: Γ) k C e) :
+    Eqv Γ C e (.let₁ (.let₁ a b) k) (.let₁ a (.let₁ b k.wk1)) :=
+  .step (.rewrite (.let₁ (.let₁ ha hb) hk) (.let₁ ha (.let₁ hb (wk1_typed A hk))) (.let1_let1 _ _ _))
 
 variable [PartialOrder ε] [OrderBot ε]
 
@@ -49,11 +68,6 @@ private theorem covered_subst (h : Covered Γ A e a) {σ : Nat → Expr Φ}
   intro Ξ θ atomic hw hl
   rw [Expr.subst_comp]
   exact h atomic (fun i => (ht i).subst_typed hw) (fun i => leaf_subst (hs i) hl)
-
-private theorem wk1_typed (R : Ty α) (h : Wf ((A, ⊥) :: Γ) k B e) :
-    Wf ((A, ⊥) :: (R, ⊥) :: Γ) k.wk1 B e := by
-  rw [Expr.wk1, Expr.wk_eq_subst]
-  exact h.subst_typed (wk1_subst_typed R)
 
 private theorem covered_wk1 (R : Ty α) (h : Covered ((A, ⊥) :: Γ) B e k) :
     Covered ((A, ⊥) :: (R, ⊥) :: Γ) B e k.wk1 := by
@@ -99,8 +113,7 @@ private theorem covered_bind (ha : Sequenced e Γ A a) (hk : Wf ((A, ⊥) :: Γ)
       have req := Wf.op bound (typed.weakenEffect bot_le)
       have hp := sequenced_wf bodySeq
       have hw := wk1_typed (instrTrg f) hk
-      have head := Eqv.step (.rewrite (.let₁ (.let₁ req hp) hk)
-        (.let₁ req (.let₁ hp hw)) (.let1_let1 _ _ _))
+      have head := let_assoc_eqv req hp hk
       intro Δ σ atomic ht hs
       exact covered_of_eqv head
         (covered_call visible bound typed leaf (.let₁ hp hw) (ih hw (covered_wk1 (instrTrg f) body)))
@@ -169,31 +182,68 @@ private theorem covered_case (profile : Profile (α := α) Φ ε)
     exact written_of_eqv (beta.trans (.step (.let1_beta typed right)))
       (covered_subst cr (lift_typed hσ _) (lift_leaf leaves) atomic (subst0_typed typed) (subst0_leaf pl))
 
-private theorem case_raw_covered (profile : Profile (α := α) Φ ε) (h : CaseRaw e Γ A a) :
-    Wf Γ a A e ∧ Covered Γ A e a := by
+/-- A computation can expose its calls before any covered continuation.
+The result binder retains its original type as the local context grows. -/
+private def CoversBind (Γ : EffectCtx (Ty α) ε) (A : Ty α) (e : ε) (a : Expr Φ) : Prop :=
+  ∀ {B : Ty α} {k : Expr Φ}, Wf ((A, ⊥) :: Γ) k B e →
+    Covered ((A, ⊥) :: Γ) B e k → Covered Γ B e (.let₁ a k)
+
+private theorem covered_case_bind (profile : Profile (α := α) Φ ε)
+    (hs : Wf Γ a (.coprod A B) e) (scrutinee : CoversBind Γ (.coprod A B) e a)
+    (hl : Wf ((A, ⊥) :: Γ) l C e) (hr : Wf ((B, ⊥) :: Γ) r C e)
+    (cl : Covered ((A, ⊥) :: Γ) C e l) (cr : Covered ((B, ⊥) :: Γ) C e r) :
+    Covered Γ C e (.case a l r) := by
+  have body : Covered ((Ty.coprod A B, ⊥) :: Γ) C e (onHead l r) :=
+    covered_case profile (.var 0 le_rfl) (.var 0) (wk1_typed _ hl) (wk1_typed _ hr)
+      (covered_wk1 _ cl) (covered_wk1 _ cr)
+  intro Δ σ atomic ht leaves
+  exact covered_of_eqv (case_eqv_bind hs hl hr) (scrutinee (source_wf hl hr) body)
+    atomic ht leaves
+
+private theorem case_raw_coversBind (profile : Profile (α := α) Φ ε) (h : CaseRaw e Γ A a) :
+    Wf Γ a A e ∧ CoversBind Γ A e a := by
   induction h with
   | straight raw =>
       obtain ⟨_, eq, seq⟩ := normalize raw
-      exact ⟨eq.endpoints_wf.1, covered_of_eqv eq (fun _ => written_subst seq)⟩
-  | let1 raw _ ih =>
-      obtain ⟨_, eq, seq⟩ := normalize raw
-      exact ⟨.let₁ eq.endpoints_wf.1 ih.1,
-        covered_of_eqv (.let1 eq (.refl ih.1)) (covered_bind seq ih.1 ih.2)⟩
-  | @case Γ' X Y Z s l r raw _ _ il ir =>
-      obtain ⟨p, eq, seq⟩ := normalize raw
-      have hp := sequenced_wf seq
-      have hk := source_wf il.1 ir.1
-      have bind := case_eqv_bind hp il.1 ir.1
-      have body : Covered ((Ty.coprod X Y, ⊥) :: Γ') Z e (onHead l r) :=
-        covered_case profile (.var 0 le_rfl) (.var 0) (wk1_typed _ il.1) (wk1_typed _ ir.1)
-          (covered_wk1 _ il.2) (covered_wk1 _ ir.2)
-      exact ⟨.case eq.endpoints_wf.1 il.1 ir.1,
-        covered_of_eqv ((Eqv.case eq (.refl il.1) (.refl ir.1)).trans bind) (covered_bind seq hk body)⟩
+      refine ⟨eq.endpoints_wf.1, ?_⟩
+      intro B k hk rest
+      exact covered_of_eqv (.let1 eq (.refl hk)) (covered_bind seq hk rest)
+  | @bind Γ' X Y a k _ _ ia ik =>
+      refine ⟨.let₁ ia.1 ik.1, ?_⟩
+      intro Z tail ht rest Δ σ atomic hσ leaves
+      have ht' := wk1_typed X ht
+      exact covered_of_eqv (let_assoc_eqv ia.1 ik.1 ht)
+        (ia.2 (.let₁ ik.1 ht') (ik.2 ht' (covered_wk1 X rest))) atomic hσ leaves
+  | @branch Γ' X Y Z s l r _ _ _ is il ir =>
+      refine ⟨.case is.1 il.1 ir.1, ?_⟩
+      intro D k hk rest Δ σ atomic hσ leaves
+      have kl := wk1_typed X hk
+      have kr := wk1_typed Y hk
+      exact covered_of_eqv (let_case_eqv is.1 il.1 ir.1 hk)
+        (covered_case_bind profile is.1 is.2 (.let₁ il.1 kl) (.let₁ ir.1 kr)
+          (il.2 kl (covered_wk1 X rest)) (ir.2 kr (covered_wk1 Y rest))) atomic hσ leaves
+  | @call Γ' f a visible bound _ ia =>
+      refine ⟨.op bound ia.1, ?_⟩
+      intro B k hk rest Δ σ atomic hσ leaves
+      have arg : Wf ((instrSrc f, ⊥) :: Γ') (.var 0 : Expr Φ) (instrSrc f) ⊥ := .var 0 le_rfl
+      have request := Wf.op (f := f) bound (arg.weakenEffect bot_le)
+      have hk' := wk1_typed (instrSrc f) hk
+      have seq := (Eqv.let1 (CallByValue.op_bind bound ia.1) (.refl hk)).trans
+        (let_assoc_eqv ia.1 request hk)
+      exact covered_of_eqv seq
+        (ia.2 (.let₁ request hk') (covered_call visible bound arg (.var 0) hk'
+          (covered_wk1 (instrSrc f) rest))) atomic hσ leaves
 
 theorem case_raw_written (profile : Profile (α := α) Φ ε)
     (atomic : ∀ i : Fin Γ.length, ∃ x, (Γ.get i).1 = Ty.base x) (h : CaseRaw e Γ A a) :
     ReplyReflection.Written A e Γ a := by
-  have cover : Covered Γ A e a := (case_raw_covered profile h).2
+  obtain ⟨typed, accepts⟩ := case_raw_coversBind profile h
+  have result : Wf ((A, ⊥) :: Γ) (.var 0 : Expr Φ) A (⊥ : ε) := .var 0 le_rfl
+  have resultCovered : Covered ((A, ⊥) :: Γ) A e (.var 0 : Expr Φ) :=
+    fun _ ht hs => ReplyReflection.Written.of_leaf (result.subst_typed ht) (hs 0)
+  have identity := result.weakenEffect (show (⊥ : ε) ≤ e from bot_le)
+  have eta := Eqv.step (.rewrite (.let₁ typed identity) typed (.let1_eta a))
+  have cover : Covered Γ A e a := covered_of_eqv eta.symm (accepts identity resultCovered)
   simpa only [Expr.subst_var] using cover (σ := Expr.var) atomic (fun i => .var i le_rfl) .var
 
 end Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyArguments.Proofs
