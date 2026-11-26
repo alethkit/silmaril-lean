@@ -29,6 +29,12 @@ def Key.matches : Key args → Key args → Bool
     decide (lop = rop) && lhs.matches otherLhs && rhs.matches otherRhs
   | _, _ => false
 
+/-- Replace typed argument leaves, preserving every literal and ordered opcode. -/
+def Key.substitute (argument : Port args wordPort → Key args) : Key args → Key args
+  | .argument port => argument port
+  | .literal bits => .literal bits
+  | .binary op lhs rhs => .binary op (lhs.substitute argument) (rhs.substitute argument)
+
 /-- Interpret a structural number under a concrete typed entry. -/
 def Key.eval (entry : Tuple (Val Pure.SubZero.model.value) args) : Key args → BitVec 64
   | .argument port => entry.get port

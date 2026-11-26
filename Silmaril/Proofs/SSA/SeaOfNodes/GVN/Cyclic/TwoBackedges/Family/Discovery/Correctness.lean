@@ -4,19 +4,20 @@ public import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.D
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.FixedPoint.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.WordNumber.Thms
+import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Thms
 
 public section
 
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery
 
 open Silmaril.SSA.SeaOfNodes
-open Diamond (ValueSort)
+open Diamond (ValueSort dataPorts)
 open GVN.Cyclic (classesOf classesOf_eq_iff classesOf_preserves_key)
 open GVN.Cyclic.Activation (inputSlot)
 open GVN.Cyclic.Builder (argumentPorts)
-open GVN.Cyclic.TwoBackedges (WordSlot)
+open GVN.Cyclic.TwoBackedges (Keys WordSlot)
 open GVN.Cyclic.FixedPoint (Refines classCount classCount_le_vertices classCount_lt_of_split)
-open GVN.Cyclic.TwoBackedges.Family (Equation Holds entryMatches feedbackMatches)
+open GVN.Cyclic.TwoBackedges.Family (Equation Holds entryMatches feedbackMatches seed seed_interprets seed_matches)
 open GVN.Cyclic.TwoBackedges.Family.Discovery
 open Pure.SubZero (word)
 open Pure.ConstantFold.Comparison (Opcode model)
@@ -153,9 +154,10 @@ theorem equations_feedback (p : Program Opcode regs word) (classes : Classes reg
   · exact matches_of_eq (congrArg Prod.snd paired)
   · exact matches_of_eq (congrArg Prod.fst paired)
 
-private theorem member_read (classes : Classes regs) (i : Lane regs)
-    (bank : Bank (regs := regs) model) (holds : Holds (equations classes) bank) :
-    bank.get (slot (classesOf classes.labels.get i)) = bank.get (slot i) := by
+private theorem member_read {A : Type*} (classes : Classes regs) (i : Lane regs)
+    (read : WordSlot regs → A)
+    (holds : ∀ eq ∈ equations classes, read eq.representative = read eq.member) :
+    read (slot (classesOf classes.labels.get i)) = read (slot i) := by
   by_cases own : classesOf classes.labels.get i = i
   · rw [own]
   · apply holds ⟨slot (classesOf classes.labels.get i), slot i⟩
@@ -163,11 +165,60 @@ private theorem member_read (classes : Classes regs) (i : Lane regs)
     dsimp only
     rw [get_ofFn, ite_eq_right own]
 
+private theorem class_reads {A : Type*} (classes : Classes regs) {i j : Lane regs}
+    (read : WordSlot regs → A)
+    (holds : ∀ eq ∈ equations classes, read eq.representative = read eq.member)
+    (same : classes i = classes j) : read (slot i) = read (slot j) := by
+  have representative := (classesOf_eq_iff classes.labels.get i j).mpr same
+  exact (member_read classes i read holds).symm.trans
+    ((congrArg (fun lane => read (slot lane)) representative).trans (member_read classes j read holds))
+
 theorem class_values (classes : Classes regs) {i j : Lane regs}
     (bank : Bank (regs := regs) model) (holds : Holds (equations classes) bank)
-    (same : classes i = classes j) : bank.get (slot i) = bank.get (slot j) := by
-  have representative := (classesOf_eq_iff classes.labels.get i j).mpr same
-  exact (member_read classes i bank holds).symm.trans
-    ((congrArg (fun lane => bank.get (slot lane)) representative).trans (member_read classes j bank holds))
+    (same : classes i = classes j) : bank.get (slot i) = bank.get (slot j) :=
+  class_reads classes (fun port => bank.get port) holds same
+
+private theorem seed_coarsens {fine coarse : Classes regs} (related : Refines fine coarse) :
+    ∀ port : WordSlot regs, ((seed (equations fine)).get port).substitute
+      (fun arg => (seed (equations coarse)).get arg) = (seed (equations coarse)).get port := by
+  let values := fun port : WordSlot regs => (seed (equations coarse)).get port
+  refine seed_interprets (equations fine) (GVN.WordNumber.Key.substitute values) values (fun _ => rfl) ?_
+  intro eq mem
+  obtain ⟨i, rfl⟩ := equation_of_mem fine mem
+  exact class_reads coarse values
+    (fun equation found => GVN.WordNumber.Key.eq_of_matches (List.all_eq_true.mp (seed_matches _) equation found))
+    (related _ _ (classesOf_preserves_key fine.labels.get i))
+
+theorem feedback_coarsens (p : Program Opcode regs word) {fine coarse : Classes regs}
+    (related : Refines fine coarse) (i : Lane regs) :
+    let rename := GVN.WordNumber.Key.substitute (fun arg => (seed (equations coarse)).get arg)
+    Prod.map rename rename (feedbackKeys p fine i) = feedbackKeys p coarse i := by
+  let arguments := fun port : WordSlot regs => (seed (equations coarse)).get port
+  have header := Keys.substitute_block p.header arguments (seed_coarsens related)
+  have branch (side : Bool) := Keys.substitute_block (p.feedback side) arguments header (slot i)
+  simp only [feedbackKeys, feedbackTable, get_ofFn, Prod.map]
+  exact congrArg₂ Prod.mk (branch true) (branch false)
+
+theorem refine_monotone (p : Program Opcode regs word) {fine coarse : Classes regs}
+    (related : Refines fine coarse) : Refines (refine p fine) (refine p coarse) := by
+  intro i j same
+  obtain ⟨prior, feedback⟩ := (refine_eq p fine i j).mp same
+  refine (refine_eq p coarse i j).mpr ⟨related i j prior, ?_⟩
+  rw [← feedback_coarsens p related i, ← feedback_coarsens p related j, feedback]
+
+theorem stable_refines_round (p : Program Opcode regs word) {fine coarse : Classes regs}
+    (stable : Stable p fine) (related : Refines fine coarse) : Refines fine (refine p coarse) :=
+  fun i j same => refine_monotone p related i j ((refine_eq p fine i j).mpr ⟨same, stable i j same⟩)
+
+theorem stable_refines_run (p : Program Opcode regs word) {fine : Classes regs}
+    (stable : Stable p fine) (fuel : Nat) (classes : Classes regs)
+    (related : Refines fine classes) : Refines fine (run p fuel classes) := by
+  induction fuel generalizing classes with
+  | zero => exact related
+  | succ fuel ih =>
+    rw [run]
+    split
+    · exact related
+    · exact ih _ (stable_refines_round p stable related)
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery

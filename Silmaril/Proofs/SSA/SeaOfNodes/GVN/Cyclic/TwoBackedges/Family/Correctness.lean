@@ -10,10 +10,10 @@ public section
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family
 
 open Silmaril.SSA.SeaOfNodes
-open Diamond (ValueSort)
+open Diamond (ValueSort dataPorts)
 open GVN.Cyclic.TwoBackedges (Invariant Keys WordSlot numbering)
 open GVN.Cyclic.TwoBackedges.Family
-open GVN.WordNumber (Key)
+open GVN.WordNumber (Key entryKeys entryKeys_get)
 open Pure.SubZero (word)
 open Pure.ConstantFold.Comparison (Opcode model)
 open Quads.Loop.Blocks (Bank)
@@ -58,29 +58,35 @@ theorem seed_matches (equations : Equations regs) : matchesAll equations (seed e
     fold_equates equations _ eq mem]
   exact Key.matches_self _
 
-private theorem merge_reads {keys : Keys regs} {old : Bank (regs := regs) model} (eq : Equation regs)
-    (reads : Keys.Reads old keys old) (same : old.get eq.representative = old.get eq.member) :
-    Keys.Reads old (mergeKeys keys eq) old := by
-  intro port
-  rw [merge_get]
-  split
-  · rename_i matched
-    have equal := Keys.reads_match reads (first := port) (second := eq.member) matched
-    exact (reads eq.representative).trans (same.trans equal.symm)
-  · exact reads port
-
-private theorem fold_reads (equations : Equations regs) (keys : Keys regs) (old : Bank (regs := regs) model)
-    (reads : Keys.Reads old keys old) (assumes : Holds equations old) :
-    Keys.Reads old (equations.foldl mergeKeys keys) old := by
+private theorem fold_interprets {A : Type*} (equations : Equations regs) (keys : Keys regs)
+    (interpret : Key (dataPorts regs) → A) (values : WordSlot regs → A)
+    (reads : ∀ port : WordSlot regs, interpret (keys.get port) = values port)
+    (holds : ∀ eq ∈ equations, values eq.representative = values eq.member) :
+    ∀ port : WordSlot regs, interpret ((equations.foldl mergeKeys keys).get port) = values port := by
   induction equations generalizing keys with
   | nil => exact reads
   | cons eq tail ih =>
-    exact ih (mergeKeys keys eq) (merge_reads eq reads (assumes eq (List.mem_cons_self ..)))
-      (fun next mem => assumes next (List.mem_cons_of_mem eq mem))
+    refine ih (mergeKeys keys eq) ?_ (fun other mem => holds other (List.mem_cons_of_mem eq mem))
+    intro port
+    rw [merge_get]
+    split
+    · rename_i matched
+      have related := (reads port).symm.trans
+        ((congrArg interpret (Key.eq_of_matches matched)).trans (reads eq.member))
+      exact (reads eq.representative).trans ((holds eq (List.mem_cons_self ..)).trans related.symm)
+    · exact reads port
+
+theorem seed_interprets {A : Type*} (equations : Equations regs)
+    (interpret : Key (dataPorts regs) → A) (values : WordSlot regs → A)
+    (arguments : ∀ port : WordSlot regs, interpret (.argument port) = values port)
+    (holds : ∀ eq ∈ equations, values eq.representative = values eq.member) :
+    ∀ port : WordSlot regs, interpret ((seed equations).get port) = values port :=
+  fold_interprets equations (entryKeys regs) interpret values
+    (fun port => (congrArg interpret (entryKeys_get port)).trans (arguments port)) holds
 
 private theorem seed_reads (equations : Equations regs) (old : Bank (regs := regs) model)
     (assumes : Holds equations old) : Keys.Reads old (seed equations) old :=
-  fold_reads equations _ old (Keys.reads_entry old) assumes
+  seed_interprets equations (Key.eval old) (fun port => old.get port) (fun _ => rfl) assumes
 
 private theorem holds_of_matches {equations : Equations regs} {keys : Keys regs}
     {anchor values : Bank (regs := regs) model} (reads : Keys.Reads anchor keys values)
