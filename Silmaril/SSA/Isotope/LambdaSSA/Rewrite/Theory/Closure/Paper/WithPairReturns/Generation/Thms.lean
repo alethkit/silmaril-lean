@@ -27,17 +27,27 @@ local notation "Seed" => JoinedStep (τ := τ) (Φ := Φ) pe
 /-- Returning the direct first projection is the guarded first projection arrow. -/
 theorem returnFst_eq_productFst (A B : τ) :
     ofRegion Seed (returnRegion_typed (WithProjectionReturns.fstTerm A B)) = productFst Seed A B :=
-  PairReturnFragment.returnFst_eq_productFst pe A B
+  PairReturnFragment.returnFst_eq_productFst pe Seed (fun step => step) A B
 
 /-- Returning the direct second projection is the guarded second projection arrow. -/
 theorem returnSnd_eq_productSnd (A B : τ) :
     ofRegion Seed (returnRegion_typed (WithProjectionReturns.sndTerm A B)) = productSnd Seed A B :=
-  PairReturnFragment.returnSnd_eq_productSnd pe A B
+  PairReturnFragment.returnSnd_eq_productSnd pe Seed (fun step => step) A B
+
+/-- A contextual seed with the ordered-pair rules generates the fragment.
+The computed-call constructor uses the exact call equation when enabled. -/
+theorem generated_returnFragment_of
+    (S : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop)
+    (includeJoin : ∀ {Γ : VCtx τ} {r s : Region Φ} {L : LCtx τ}, Seed Γ r s L → S Γ r s L)
+    {computedCalls : Bool} (calls : computedCalls = true → CallReturnAgreement S)
+    {X D : τ} {t : Tm Φ} {ht : Tm.HasType [X] t D}
+    (h : ReturnFragmentWithCalls pe computedCalls ht) : Generated S (ofRegion S (returnRegion_typed ht)) :=
+  PairReturnFragment.generated_returnFragment pe S includeJoin calls h
 
 /-- Recursive singleton returns in the fragment denote generated arrows in the
 pair-return join. -/
 theorem generated_returnFragment {X D : τ} {t : Tm Φ} {ht : Tm.HasType [X] t D}
     (h : ReturnFragment pe ht) : Generated Seed (ofRegion Seed (returnRegion_typed ht)) :=
-  PairReturnFragment.generated_returnFragment pe h
+  generated_returnFragment_of pe Seed (fun step => step) (computedCalls := false) (fun enabled => nomatch enabled) h
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns
