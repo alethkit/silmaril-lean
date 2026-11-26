@@ -124,4 +124,46 @@ theorem denote_graph (e : Embedding small large) (frame : Heap large) (graph : M
     graph.denote (input e inputs) (extend e frame initial) = result e frame (graph.denote inputs initial) :=
   denote_body e frame inputs graph PUnit.unit initial
 
+variable {middle : Nat}
+
+theorem input_trans (e : Embedding small middle) (f : Embedding middle large)
+    (values : Tuple (Val small) args) :
+    input (e.trans f) values = input f (input e values) := by
+  induction values with
+  | nil => rfl
+  | @cons sort _ head tail ih =>
+    cases sort <;> simp only [input, Tuple.map, value] at ih ⊢ <;> rw [ih] <;> rfl
+
+theorem sameFrame_trans (e : Embedding small middle) (f : Embedding middle large)
+    (initial final : Heap large) :
+    SameFrame (e.trans f) initial final ↔
+      SameFrame f initial final ∧ SameFrame e (restrict f initial) (restrict f final) := by
+  constructor
+  · intro frame
+    refine ⟨fun a outside => frame a (fun ⟨b, equal⟩ => outside ⟨e b, equal⟩), ?_⟩
+    intro a outside
+    exact frame (f a) (fun ⟨b, equal⟩ => outside ⟨b, f.injective equal⟩)
+  · rintro ⟨outer, inner⟩ a outside
+    by_cases hit : ∃ b, f b = a
+    · obtain ⟨b, rfl⟩ := hit
+      exact inner b (fun ⟨c, equal⟩ => outside ⟨c, congrArg f equal⟩)
+    · exact outer a hit
+
+theorem extend_trans (e : Embedding small middle) (f : Embedding middle large)
+    (inner : Heap middle) (outer : Heap large) (source : Heap small) :
+    extend (e.trans f) (extend f outer inner) source = extend f outer (extend e inner source) := by
+  symm
+  apply (eq_extend_iff (e.trans f) (extend f outer inner) _ source).mpr
+  constructor
+  · funext a
+    change extend f outer (extend e inner source) (f (e a)) = _
+    rw [extend_apply_image, extend_apply_image]
+  · apply (sameFrame_trans e f _ _).mpr
+    constructor
+    · intro a outside
+      rw [extend_apply_outside f _ _ a outside, extend_apply_outside f _ _ a outside]
+    · intro a outside
+      change extend f outer (extend e inner source) (f a) = extend f outer inner (f a)
+      rw [extend_apply_image, extend_apply_image, extend_apply_outside e _ _ a outside]
+
 end Silmaril.SSA.SeaOfNodes.Memory.CellEmbedding.Proofs

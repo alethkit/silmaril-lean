@@ -48,4 +48,29 @@ theorem denote_graph (e : Embedding small large) (frame : Heap large) (graph : M
     graph.denote (input e inputs) (extend e frame initial) = result e frame (graph.denote inputs initial) :=
   Proofs.denote_graph e frame graph inputs initial
 
+variable {middle : Nat}
+
+theorem input_trans (e : Embedding small middle) (f : Embedding middle large)
+    (values : Tuple (Val small) args) :
+    input (e.trans f) values = input f (input e values) :=
+  Proofs.input_trans e f values
+
+theorem restrict_trans (e : Embedding small middle) (f : Embedding middle large) (heap : Heap large) :
+    restrict (e.trans f) heap = restrict e (restrict f heap) :=
+  rfl
+
+/-- Separate the unchanged cells outside the outer image from the
+unchanged cells inside that image but outside the inner image. -/
+theorem sameFrame_trans (e : Embedding small middle) (f : Embedding middle large)
+    (initial final : Heap large) :
+    SameFrame (e.trans f) initial final ↔
+      SameFrame f initial final ∧ SameFrame e (restrict f initial) (restrict f final) :=
+  Proofs.sameFrame_trans e f initial final
+
+/-- Combine independent inner and outer frames for a composite embedding. -/
+theorem extend_trans (e : Embedding small middle) (f : Embedding middle large)
+    (inner : Heap middle) (outer : Heap large) (source : Heap small) :
+    extend (e.trans f) (extend f outer inner) source = extend f outer (extend e inner source) :=
+  Proofs.extend_trans e f inner outer source
+
 end Silmaril.SSA.SeaOfNodes.Memory.CellEmbedding
