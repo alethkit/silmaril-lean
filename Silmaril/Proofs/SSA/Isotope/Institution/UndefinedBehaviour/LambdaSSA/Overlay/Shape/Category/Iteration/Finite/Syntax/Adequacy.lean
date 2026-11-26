@@ -26,7 +26,7 @@ private theorem push_values (env : Bindings Γ) (a : Payload A) :
   funext i
   exact Fin.cases rfl (fun _ => rfl) i
 
-private theorem denote_push (prim : Primitives Φ states) (env : Bindings Γ) (a : Payload A)
+theorem denote_push (prim : Primitives Φ states) (env : Bindings Γ) (a : Payload A)
     {L : List (Silmaril.Ty Empty)} (body : Region Φ (A :: Γ) L) (s : Fin states) :
     denote body (extendModel (model prim env).raw a.val) s =
       denote body (model prim (env.push a)).raw s := by
@@ -34,14 +34,14 @@ private theorem denote_push (prim : Primitives Φ states) (env : Bindings Γ) (a
     denote body (rawModel prim bound) s
   exact congrArg run (push_values env a)
 
-private theorem fault_bind {α : Type w} {σ : Type x} {n m : Nat} (s : σ)
+theorem fault_bind {α : Type w} {σ : Type x} {n m : Nat} (s : σ)
     (k : Fin n → Value α → σ → Behaviour m α σ) :
     Behaviour.bind (WithTop.some ({Outcome.fault s} : Set (Outcome n α σ))) k = WithTop.some {Outcome.fault s} := by
   simp [Behaviour.bind, Behaviour.possible, WithTop.untopD_coe]
   ext o
   cases o <;> simp [Outcome.bind]
 
-private theorem diverge_bind {α : Type w} {σ : Type x} {n m : Nat}
+theorem diverge_bind {α : Type w} {σ : Type x} {n m : Nat}
     (k : Fin n → Value α → σ → Behaviour m α σ) :
     Behaviour.bind (WithTop.some ({Outcome.diverge} : Set (Outcome n α σ))) k = WithTop.some {Outcome.diverge} := by
   simp [Behaviour.bind, Behaviour.possible, WithTop.untopD_coe]
@@ -71,7 +71,7 @@ theorem observe_eval (prim : Primitives Φ states) (body : Program Φ Γ A) (env
       refine (return_bind 1 b.val s _).trans ?_
       exact (denote_push prim env b right.region s).trans (ihr (env.push b) s)
 
-private theorem row_behaviour (codes : Codes X A B captures seeds results) (prim : Primitives Φ states)
+theorem row_behaviour (codes : Codes X A B captures seeds results) (prim : Primitives Φ states)
     (answer : Answer (.coprod B A) states) :
     (answer.row codes).behaviour (codes.carrier prim) = answer.behaviour := by
   cases answer with

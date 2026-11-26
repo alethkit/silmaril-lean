@@ -90,17 +90,23 @@ private theorem exact_return {L : List (Silmaril.Ty Empty)} (r : LambdaSSA.UB.Ty
   | fault t => exact ⟨fun h => (noFault t h).elim, fun h => by cases h⟩
   | diverge => exact ⟨fun h => (noDiv h).elim, fun h => by cases h⟩
 
-theorem observe_return (a : Expr Γ A) (s : Fin states) :
-    denote (.native (Program.returnRegion (Φ := Φ) a)) (model prim env).raw s =
-      returnPayload (a.eval env).val s := by
+theorem observe_branch {L : List (Silmaril.Ty Empty)} (i : Fin L.length)
+    (a : Expr Γ (L.get i)) (s : Fin states) :
+    denote (.native ⟨.br i a.term, .br (List.getElem?_eq_getElem i.isLt) a.typed⟩)
+      (model prim env).raw s = WithTop.some {Outcome.ret i (a.eval env).val s} := by
   apply congrArg WithTop.some
-  apply exact_return prim env (Program.returnRegion a) s s 0 _ (.br (expr_eval prim env a s))
+  apply exact_return prim env _ s s i _ (.br (expr_eval prim env a s))
   · intro t h
     cases h with | br arg => exact expr_no_fault prim env a arg
   · intro h
     cases h.unfold with
     | br arg => exact expr_no_diverge prim env a arg
     | core step => cases step
+
+theorem observe_return (a : Expr Γ A) (s : Fin states) :
+    denote (.native (Program.returnRegion (Φ := Φ) a)) (model prim env).raw s =
+      returnPayload (a.eval env).val s :=
+  observe_branch prim env (0 : Fin [A].length) a s
 
 private theorem branch_var_no_div {e : Env Unit} {i : Nat} {s : Fin states} :
     ¬ External.Diverges (model prim env).raw.instr (model prim env).raw.prim (.region e (.br i (.var 0)) s) := by

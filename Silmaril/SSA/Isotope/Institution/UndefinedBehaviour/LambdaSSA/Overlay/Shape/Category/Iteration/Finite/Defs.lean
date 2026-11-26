@@ -87,6 +87,26 @@ def Row.behaviour (C : Carrier M X A B captures points results states) :
   | .stop .diverge => WithTop.some {Outcome.diverge}
   | .stop .ub => ⊤
 
+/-- Interpret a generated row at a positional CFG interface. The invocation
+decoder supplies the destination label, incoming payload and machine state. -/
+def Row.positional {R : List (Ty κ)}
+    (C : Carrier M X A B captures points results states)
+    (invocation : Fin points → Fin R.length × Value M.raw.α × M.raw.σ) :
+    Row points results states → Behaviour (R ++ [B]).length M.raw.α M.raw.σ
+  | .repeat q =>
+    let (i, a, s) := invocation q
+    WithTop.some {Outcome.ret (Feedback.internal R [B] i) a s}
+  | .stop (.ret b t) => WithTop.some {Feedback.external R [B] (.ret 0 (C.result b).val (C.final t))}
+  | .stop (.fault t) => WithTop.some {Outcome.fault (C.final t)}
+  | .stop .diverge => WithTop.some {Outcome.diverge}
+  | .stop .ub => ⊤
+
+/-- Decode a finite invocation code as a feedback block point. -/
+def invocationPoint {n : Nat} {α : Type w} {σ : Type x}
+    (invocation : Fin points → Fin n × Value α × σ) (p : Fin points) : Feedback.Point n α σ :=
+  let (i, a, s) := invocation p
+  .block i a s
+
 /-- Every row must match the complete observation of the actual typed overlay
 step. The certificate excludes extra outcomes and uncertified successors. -/
 def Certified (C : Carrier M X A B captures points results states)

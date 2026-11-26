@@ -640,6 +640,33 @@ observations. Recursive native CFGs and arbitrary overlay representatives
 are outside this executable step grammar.
 [Syntax and certificates][ssa-ub-finite-syntax] [Generated comparison][ssa-ub-finite-syntax-regression]
 
+### Packet-local cyclic overlay CFGs
+
+A positional overlay CFG can use a finite table of these acyclic blocks.
+All internal labels accept the same exact payload type. The entry is a
+native jump with a constructor expression, and each block sees its incoming
+payload and the original capture. A successful block chooses the external
+exit or a packet carrying a destination label and its next payload. Native
+case and branch atoms decode that packet at the reply's final machine state.
+The empty alternative used to terminate the packet type cannot carry a
+shaped value.
+
+The bounded traversal of generated rows classifies both the actual positional
+`Region.feedback` observation and the exact-sum iterator that dispatches to
+the same typed block denotations. The agreement includes fresh UB, return
+and fault states, primitive divergence, and infinite replay. At each coded
+capture, the existing Boolean checker decides refinement at every common
+entry label, typed constructor input and initial state. The fragment uses
+deterministic finite-state primitives, homogeneous internal labels, one
+external label and a fixed capture. It elaborates to the existing evaluator
+and does not accept arbitrary native CFG representatives.
+
+The regression follows label zero to label one and back, changing the
+machine state at each jump before reaching literal UB. It also exercises a
+return after the same backedge, an unaffected external exit, a two-label
+silent cycle, and a fault with a distinct final state.
+[CFG agreement and decision][ssa-ub-finite-cfg] [Two-label regression][ssa-ub-finite-cfg-regression]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -682,6 +709,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Capture.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Syntax.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -770,3 +798,5 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-finite-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Regression.lean
 [ssa-ub-finite-syntax]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Syntax/Thms.lean
 [ssa-ub-finite-syntax-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Syntax/Regression.lean
+[ssa-ub-finite-cfg]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Thms.lean
+[ssa-ub-finite-cfg-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Regression.lean
