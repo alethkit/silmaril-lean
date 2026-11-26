@@ -613,10 +613,40 @@ zero and leave `[0, 5, 0, 42]`.
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Petri.Regression
 ```
 
-Two-lane MemRef CFG emission remains open. Its typed header would need
-a frame carrying both address values, a checked conversion to and from
-the MLIR block operands, and a feedback edge that reads both values from
-the completed activation before installing the next frame.
+The same source lowers through `TwoAddress.MemRef.lower` to an ordered
+typed CFG with entry, header, and exit blocks. The two header block
+arguments are signless integers of width `cells.log2 + 1`. The checked
+decoder recovers in-bounds MemRef indices before any memory effect.
+Both feedback operands are read from the old header bank before the
+conditional branch installs its successor frame. The emitted
+`memref.load`, `memref.store`, and tail comparison reuse the existing
+ordered activation. The initialized rank-one buffer lives in the shared
+state and the invariant typed captures are supplied to the evaluator.
+[Emitter](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/MemRef/Defs.lean)
+
+`decodeAddresses_eq_some` characterizes the admitted address frames.
+`header_transition` identifies the actual feedback pair or exit word
+and the entire post-store buffer. `run_eq_evalWithin` uses `b + 3`
+blocks for a native allowance of `b` backedges (entry, the initial
+header, the further headers, and exit). `returns_iff` and
+`no_return_iff` compare all finite returns and their absence.
+`petri_finishes_iff_runFuel` and `petri_no_finishes_iff_no_return`
+compose these laws with coloured Petri using independent witnesses.
+[MemRef theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/MemRef/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.MemRef.Thms
+```
+
+The shared fixture returns with the same full buffers in both backends.
+The double swap needs five CFG block steps, and the coincident pair
+needs four. One fewer block yields no return in each case. A raw
+out-of-bounds second operand is also refused by the emitted header.
+[Runnable MemRef regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/MemRef/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.MemRef.Regression
+```
 
 ### Equations for coloured Petri completion
 
