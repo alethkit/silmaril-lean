@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.KnownGuard.AcrossReply.Defs
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.Frames.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.RedundantTest.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.KnownGuard.RequestContext.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Roundtrip.Thms
 
 /-! # Native replay of a carried case fact through one request -/
@@ -57,75 +58,18 @@ private theorem transported_term {L : List (Ty Empty)} {n : Nat} {X : Ty Empty} 
   exact map_eq.symm.trans (congrArg ReplyFrame.Slot.term survives)
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem guard_at {Γ L : List (Ty Empty)} {n : Nat} {X : Ty Empty} {frame : ReplyFrame X}
-    (p : GuardAcrossReply L n) (slots : Fin (n + 1) → ReplyFrame.Slot frame) (survives : p.Survives slots)
-    (v : ReplyFrame.Value Γ frame) (g : GuardRequest L (n + 2)) :
-    let slot := slots p.beforeTest
-    let scope := bindReply (fun j => retainSlot (A := unit) (slots j).term)
-    let packet := Tm.pair (.pair (v.elaborate.val.rename Nat.succ) ((slot.read v).2.val.rename Nat.succ)) (.var 0)
-    E (Bit :: Γ) (((g.tree p.afterTest).selectedWith scope).elaborate.val.substVars (Tm.singleSubst packet))
-      ((g.prunedAfterReply p.afterTest scope (slot.read v).1).substVars (Tm.singleSubst packet)) L := by
-  let slot := slots p.beforeTest
-  let scope := bindReply (fun j => retainSlot (A := unit) (slots j).term)
-  let left := (g.live p.afterTest scope false).elaborate
-  let right := (g.live p.afterTest scope true).elaborate
-  have eq := framed_case_afterReply_at slot g.emits v left.property right.property
-  have projection : scope p.afterTest = retainSlot (A := Bit) (retainSlot (A := unit) slot.term) :=
-    transported_term p slots survives
-  rw [← projection] at eq
-  let packet := Tm.pair (.pair (v.elaborate.val.rename Nat.succ)
-    ((slot.read v).2.val.rename Nat.succ)) (.var 0)
-  change E (Bit :: Γ)
-    (((g.tree p.afterTest).selectedWith scope).elaborate.val.substVars (Tm.singleSubst packet))
-    ((g.prunedAfterReply p.afterTest scope (slot.read v).1).substVars (Tm.singleSubst packet)) L
-  cases tag : (slot.read v).1
-  · simp only [tag, Bool.false_eq_true, ↓reduceIte] at eq
-    exact eq
-  · simp only [tag, ↓reduceIte] at eq
-    exact eq
-
-set_option backward.isDefEq.respectTransparency false in
-private theorem request_at {Γ L : List (Ty Empty)} {n : Nat} {X : Ty Empty} {frame : ReplyFrame X}
-    (p : GuardAcrossReply L n) (slots : Fin (n + 1) → ReplyFrame.Slot frame) (survives : p.Survives slots)
-    (v : ReplyFrame.Value Γ frame) (r : RequestBeforeGuard L (n + 2)) :
-    let slot := slots p.beforeTest
-    let retained := fun j => retainSlot (A := unit) (slots j).term
-    let packet := Tm.pair v.elaborate.val (slot.read v).2.val
-    E Γ (((r.tree p.afterTest).selectedWith retained).elaborate.val.substVars (Tm.singleSubst packet))
-      ((r.prunedWith p.afterTest retained (slot.read v).1).substVars (Tm.singleSubst packet)) L := by
-  let slot := slots p.beforeTest
-  let retained := fun j => retainSlot (A := unit) (slots j).term
-  let scope := bindReply retained
-  let oldLeft := ((r.onLeft.tree p.afterTest).selectedWith scope).elaborate
-  let oldRight := ((r.onRight.tree p.afterTest).selectedWith scope).elaborate
-  let newLeft := guard_typed r.onLeft p.afterTest scope (slot.read v).1
-  let newRight := guard_typed r.onRight p.afterTest scope (slot.read v).1
-  exact packed_case_congr_at
-    (emitPrefix r.emits (.call (show signature.Instr from Op.ask r.label) .unit))
-    (.pair v.elaborate.property (slot.read v).2.property)
-    oldLeft.property oldRight.property newLeft newRight
-    (guard_at p slots survives v r.onLeft) (guard_at p slots survives v r.onRight)
-
-set_option backward.isDefEq.respectTransparency false in
 theorem eq_pruned {L : List (Ty Empty)} {n : Nat} {X : Ty Empty} {frame : ReplyFrame X}
     (p : GuardAcrossReply L n) (slots : Fin (n + 1) → ReplyFrame.Slot frame) (survives : p.Survives slots) :
     E [X] (p.sourceWith (fun j => (slots j).term)).elaborate.val
       (p.prunedWith (fun j => (slots j).term)) L := by
-  let retained := fun j => retainSlot (A := unit) (slots j).term
-  let oldFalse := ((p.onFalse.tree p.afterTest).selectedWith retained).elaborate
-  let oldTrue := ((p.onTrue.tree p.afterTest).selectedWith retained).elaborate
-  let newFalse := request_typed p.onFalse p.afterTest retained false
-  let newTrue := request_typed p.onTrue p.afterTest retained true
-  apply frame_case_ext frame (p.sourceWith _).elaborate.property.hasType (pruned_typed p _).hasType
-  intro Γ v
-  have source := framed_case_at (slots p.beforeTest) p.emits v oldFalse.property oldTrue.property
-  have target := framed_case_at (slots p.beforeTest) p.emits v newFalse newTrue
-  refine source.trans ((prependEmits_congr p.emits ?_).trans target.symm)
-  cases tag : ((slots p.beforeTest).read v).1
-  · simp only [Bool.false_eq_true, ↓reduceIte]
-    simpa only [tag] using request_at p slots survives v p.onFalse
-  · simp only [↓reduceIte]
-    simpa only [tag] using request_at p slots survives v p.onTrue
+  have projection := transported_term p slots survives
+  let certificate : KnownGuardSplit L (fun j => (slots j).term) :=
+    ⟨p.beforeTest, p.emits,
+      .request p.onFalse.emits p.onFalse.label (.prune p.afterTest p.onFalse.onLeft projection)
+        (.prune p.afterTest p.onFalse.onRight projection),
+      .request p.onTrue.emits p.onTrue.label (.prune p.afterTest p.onTrue.onLeft projection)
+        (.prune p.afterTest p.onTrue.onRight projection)⟩
+  exact KnownGuardSplit.eq_pruned slots certificate
 
 theorem packed_eq_pruned {L : List (Ty Empty)} {n : Nat} (p : GuardAcrossReply L n)
     (survives : p.Survives (ReplyFrame.standardSlots (n + 1))) :

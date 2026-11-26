@@ -191,7 +191,7 @@ private theorem liftedFrameSubst {Γ : List (Ty Empty)} {X : Ty Empty} {a : Tm s
   | zero => cases Option.some.inj hj; exact .var (i := 0) rfl
   | succ j => exact weaken_value (constructorSubst ha hj)
 
-private theorem slot_return_rename {X : Ty Empty} (t : Term signature.Instr X Bit) (a : Tm signature.Instr) :
+private theorem slot_return_rename {X D : Ty Empty} (t : Term signature.Instr X D) (a : Tm signature.Instr) :
     ((t.elaborate.val.subst (Tm.singleSubst a)).rename Nat.succ) =
       t.elaborate.val.subst (Tm.singleSubst (a.rename Nat.succ)) := by
   rw [Tm.rename_subst]
@@ -643,6 +643,47 @@ theorem forwardUnit_at {Γ L : List (Ty Empty)} {X : Ty Empty} {v u : Tm signatu
       (prependEmits emits (r.substVars (Tm.singleSubst (.pair (.pair v u) u)))) L :=
   framed_unit_bind_by_return (.snd X unit) emits (.pair hv hu) hu (snd_returnOnce hv hu) hr
 
+/-- Carry a return fact through one new field, with the field left as an open binder. -/
+theorem retain_return_under_binder {Γ : List (Ty Empty)} {X A D : Ty Empty}
+    (t : Term signature.Instr X D) {packet result : Tm signature.Instr}
+    (hp : Tm.BranchValue Γ packet X) (h : ReturnsAt (Γ := Γ) t packet result) :
+    ReturnsAt (Γ := A :: Γ) (Term.seq (.fst X A) t) (.pair (packet.rename Nat.succ) (.var 0))
+      (result.rename Nat.succ) := by
+  have weakened := h.renameVars (Ren.wk Γ A)
+  change E (A :: Γ) (returnOnce ((t.elaborate.val.subst (Tm.singleSubst packet)).rename Nat.succ))
+    (.br 0 (result.rename Nat.succ)) [D] at weakened
+  rw [slot_return_rename] at weakened
+  exact (retained_returnOnce t (weaken_value hp) (.var (i := 0) rfl)).trans weakened
+
+/-- Initialize both return facts from the prior case's constructor packet. -/
+theorem prior_guard_returns {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    (slot : ReplyFrame.Slot frame) (v : ReplyFrame.Value Γ frame) :
+    let (b, u) := slot.read v
+    let packet := Tm.pair v.elaborate.val u.val
+    ReturnsAt (Γ := Γ) (retainSlot (A := unit) slot.term) packet (if b then .inr u.val else .inl u.val) ∧
+      ReturnsAt (Γ := Γ) (Term.snd (Φ := signature.Instr) X unit) packet u.val :=
+  ⟨(retained_returnOnce slot.term v.elaborate.property (slot.read v).2.property).trans (frameSlot_return slot v),
+    snd_returnOnce v.elaborate.property (slot.read v).2.property⟩
+
+set_option backward.isDefEq.respectTransparency false in
+/-- Prune the known case under the original packet and forward its unit payload. -/
+theorem framed_prune_at {Γ L : List (Ty Empty)} {X : Ty Empty}
+    (test : Term signature.Instr X Bit) (payload : Term signature.Instr X unit)
+    (emits : List Bool) {packet u : Tm signature.Instr}
+    (hp : Tm.BranchValue Γ packet X) (hu : Tm.BranchValue Γ u unit) (b : Bool)
+    (known : ReturnsAt (Γ := Γ) test packet (if b then .inr u else .inl u))
+    (forward : ReturnsAt (Γ := Γ) payload packet u)
+    {l r : Region signature.Instr}
+    (hl : ValueBranches [product X unit] l L) (hr : ValueBranches [product X unit] r L) :
+    E Γ ((Region.case (emitPrefix emits test).elaborate.val
+        (Paper.PackedBody.applyPacked l) (Paper.PackedBody.applyPacked r)).substVars (Tm.singleSubst packet))
+      ((prependEmits emits (.let₁ payload.elaborate.val
+        (Paper.PackedBody.applyPacked (if b then r else l)))).substVars (Tm.singleSubst packet)) L := by
+  refine (framed_case_by_return test emits hp hu b known hl hr).trans ?_
+  cases b
+  · exact (framed_unit_bind_by_return payload emits hp hu forward hl).symm
+  · exact (framed_unit_bind_by_return payload emits hp hu forward hr).symm
+
 /-- At a constructor packet for the prior case, the new reply can remain
 a variable. Both transported projections read their original values. -/
 theorem framed_case_afterReply_at {Γ L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
@@ -658,29 +699,15 @@ theorem framed_case_afterReply_at {Γ L : List (Ty Empty)} {X : Ty Empty} {frame
       ((prependEmits emits (.let₁ (priorCaseUnit X).elaborate.val
         (Paper.PackedBody.applyPacked (if (slot.read v).1 then r else l)))).substVars (Tm.singleSubst packet)) L := by
   let u := (slot.read v).2
-  let b := (slot.read v).1
-  have old : Tm.BranchValue (Bit :: Γ) (v.elaborate.val.rename Nat.succ) X :=
-    weaken_value v.elaborate.property
-  have previous : Tm.BranchValue (Bit :: Γ) (u.val.rename Nat.succ) unit := weaken_value u.property
-  have newest : Tm.BranchValue (Bit :: Γ) (.var 0 : Tm signature.Instr) Bit := .var (i := 0) rfl
-  have packed := Tm.BranchValue.pair (.pair old previous) newest
-  have tagReturn := (frameSlot_return slot v).renameVars (Ren.wk Γ Bit)
-  change E (Bit :: Γ) (returnOnce ((slot.term.elaborate.val.subst
-    (Tm.singleSubst v.elaborate.val)).rename Nat.succ)) (.br 0 ((tag b u.val).rename Nat.succ)) [Bit] at tagReturn
-  rw [slot_return_rename] at tagReturn
-  have tagRenamed : (tag b u.val).rename Nat.succ = tag b (u.val.rename Nat.succ) := by cases b <;> rfl
+  have packet := Tm.BranchValue.pair v.elaborate.property u.property
+  have tagReturn := retain_return_under_binder _ (A := Bit) packet (prior_guard_returns slot v).1
+  have unitReturn := retain_return_under_binder _ (A := Bit) packet (prior_guard_returns slot v).2
+  have tagRenamed : (if (slot.read v).1 then Tm.inr (slot.read v).2.val else .inl (slot.read v).2.val).rename Nat.succ =
+      (if (slot.read v).1 then .inr ((slot.read v).2.val.rename Nat.succ)
+        else .inl ((slot.read v).2.val.rename Nat.succ)) := by cases (slot.read v).1 <;> rfl
   rw [tagRenamed] at tagReturn
-  have carried := (retained_returnOnce (retainSlot (A := unit) slot.term) (.pair old previous) newest).trans
-    ((retained_returnOnce slot.term old previous).trans tagReturn)
-  have unitReturn := (retained_returnOnce (.snd X unit) (.pair old previous) newest).trans
-    (snd_returnOnce old previous)
-  refine (framed_case_by_return _ emits packed previous b carried hl hr).trans ?_
-  cases h : b
-  · have bit : (slot.read v).1 = false := h
-    simp only [bit, Bool.false_eq_true, ↓reduceIte]
-    exact (framed_unit_bind_by_return (priorCaseUnit X) emits packed previous unitReturn hl).symm
-  · have bit : (slot.read v).1 = true := h
-    simp only [bit, ↓reduceIte]
-    exact (framed_unit_bind_by_return (priorCaseUnit X) emits packed previous unitReturn hr).symm
+  exact framed_prune_at _ (priorCaseUnit X) emits
+    (.pair (weaken_value packet) (.var (i := 0) rfl)) (weaken_value u.property)
+    (slot.read v).1 tagReturn unitReturn hl hr
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.RedundantSelectedTest
