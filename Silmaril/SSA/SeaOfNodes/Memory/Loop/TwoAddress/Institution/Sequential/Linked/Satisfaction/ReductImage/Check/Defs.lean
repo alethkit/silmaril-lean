@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Defs
+public import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Institution.RuntimeEntry.Defs
 public import Silmaril.SSA.SeaOfNodes.Quads.Defs
 
 /-! Executable lifts for typed capture reducts. -/
@@ -11,9 +12,10 @@ namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.
 
 open CategoryTheory
 open RVSDG (Port Tuple)
+open CarriedAddress.Institution.RuntimeEntry (Entry)
 open Memory.Diamond.Institution renaming Signature → EntrySignature
 
-variable {P Q : EntrySignature} {cells : Nat}
+variable {P Q R : EntrySignature} {cells : Nat}
 
 def portsOf : (sort : ValueSort) → (args : List ValueSort) → List (Port args sort)
   | _, [] => []
@@ -67,6 +69,14 @@ def fill (h : P ⟶ Q) (input : Tuple (Val cells) P.args) (fallback : Tuple (Val
 def liftInput? (h : P ⟶ Q) (input : Tuple (Val cells) P.args) : Option (Tuple (Val cells) Q.args) := do
   let fallback ← defaultInput? cells Q.args
   if checkFibres h input then some (fill h input fallback) else none
+
+/-- Lift along the composite, then take the second reduct to recover
+an intermediate entry compatible with the chosen target. -/
+def liftThrough? (h : P ⟶ Q) (k : Q ⟶ R) (entry : Entry P.args cells) :
+    Option (Entry Q.args cells × Entry R.args cells) :=
+  (liftInput? (h ≫ k) entry.input).map fun input =>
+    let target : Entry R.args cells := ⟨input, entry.heap⟩
+    (target.reduct k, target)
 
 /-- Check whether every typed source valuation at this count has a target
 lift. At one cell, address ports have just one possible value. -/

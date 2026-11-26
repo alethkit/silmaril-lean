@@ -3,6 +3,8 @@ module
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Defs
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Lift
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Coverage
+import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Composition
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Thms
 
 /-! Exact executable coverage and lifts for canonical typed valuations. -/
 
@@ -12,10 +14,11 @@ namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.
 
 open CategoryTheory
 open RVSDG (Port Tuple)
+open CarriedAddress.Institution.RuntimeEntry (Entry)
 open Memory.Diamond.Institution (reduct)
 open Memory.Diamond.Institution renaming Signature → EntrySignature
 
-variable {P Q : EntrySignature} {cells : Nat}
+variable {P Q R : EntrySignature} {cells : Nat}
 
 theorem admitsInput_iff (cells : Nat) (args : List ValueSort) :
     admitsInput cells args = true ↔ Nonempty (Tuple (Val cells) args) :=
@@ -46,6 +49,27 @@ theorem liftInput?_sound (h : P ⟶ Q) {input : Tuple (Val cells) P.args} {targe
 theorem liftInput?_isSome_iff (h : P ⟶ Q) (input : Tuple (Val cells) P.args) :
     (liftInput? h input).isSome = true ↔ InReductImage h input :=
   Proofs.liftInput?_isSome_iff h input
+
+/-- Composite image membership requires some compatible intermediate
+valuation, which the second checked lift accepts. -/
+theorem inReductImage_comp_iff_lift (h : P ⟶ Q) (k : Q ⟶ R) (input : Tuple (Val cells) P.args) :
+    InReductImage (h ≫ k) input ↔
+      ∃ between : Tuple (Val cells) Q.args, (liftInput? k between).isSome = true ∧
+        reduct h ⟨cells, between⟩ = ⟨cells, input⟩ :=
+  (in_image_comp h k input).trans
+    (exists_congr fun between => and_congr_left' (liftInput?_isSome_iff k between).symm)
+
+theorem liftThrough?_isSome_iff (h : P ⟶ Q) (k : Q ⟶ R) (entry : Entry P.args cells) :
+    (liftThrough? h k entry).isSome = true ↔ InReductImage (h ≫ k) entry.input := by
+  simpa only [liftThrough?, Option.isSome_map] using liftInput?_isSome_iff (h ≫ k) entry.input
+
+/-- The returned entries reduce along both maps, with the original heap
+included in each equality. -/
+theorem liftThrough?_sound (h : P ⟶ Q) (k : Q ⟶ R) {entry : Entry P.args cells}
+    {between : Entry Q.args cells} {target : Entry R.args cells}
+    (lifted : liftThrough? h k entry = some (between, target)) :
+    between.reduct h = entry ∧ target.reduct k = between :=
+  Proofs.liftThrough?_sound h k lifted
 
 theorem checkCoverage_iff (h : P ⟶ Q) (cells : Nat) :
     checkCoverage h cells = true ↔ ∀ input : Tuple (Val cells) P.args, InReductImage h input :=
