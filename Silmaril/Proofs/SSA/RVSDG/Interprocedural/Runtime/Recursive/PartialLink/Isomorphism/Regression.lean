@@ -2,7 +2,7 @@ module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Thms
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Check.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Thms
@@ -651,11 +651,6 @@ private def branchBody {sigs : List (Ports T)} (base : RecursiveCall.Code Op cap
   .bind (RecursiveCall.gammaNode (extra := 0) (entry := captured) (outs := [num])
     branchWires (branchSigs sigs)) (branchChildren base) addAfter
 
-private def baseNumbering : Local.Renaming := .region memberVertices (fun _ _ => .identity)
-
-private def branchNumbering : Local.Renaming :=
-  .region (Equiv.refl Nat) (fun _ arm => if arm = 0 then baseNumbering else .identity)
-
 local instance : DecidableEq (Ty Unit Unit) := RecursiveCall.Numbered.decidePort
 
 private def opcodeCode : NestedTheta.Equality.OpcodeCode Op where
@@ -726,8 +721,7 @@ private theorem checkedBranchFamily :
     intro _ _ _ _ left right _
     cases left
     cases right
-    exact RecursiveCall.Numbered.checkResolved_sound (keys := instructionKeys)
-      (mapping := branchNumbering) (by cbv)
+    exact RecursiveCall.Numbered.inferResolved_sound (keys := instructionKeys) (by cbv)
 
 private theorem branchFamily : ClosedFamily primitives ids (Supported branchRefL) (Supported branchRefR) :=
   checkedBranchFamily.toClosed
@@ -826,7 +820,7 @@ example : NestedTheta.Graph.Isomorphic (Instruction Op) seedThenFinish.toGraph f
   · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
   · exact Fin.cases (fun i => i.elim0) (Fin.cases (fun i => i.elim0) (fun i => i.elim0))
 
-example : (RecursiveCall.Numbered.check instructionKeys baseNumbering
+example : (RecursiveCall.Numbered.infer instructionKeys
     seedThenFinish.toGraph finishThenSeed.toGraph).isSome = false := by cbv
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests
