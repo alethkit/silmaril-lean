@@ -53,8 +53,8 @@ theorem embed_iff_native_proof {n : Nat} {β : BoundCtx Types n} {t u : Term n}
   exact (native_iff_normal_proof p q d e ρ fresh sep).mpr
     ((run_eq_iff_normal_proof p q d e ρ fresh sep).mp runs)
 
-theorem entry_run_proof {body : Term 3}
-    (d : Derivation Request Γ₀ ((input.snoc Atom).snoc Atom) body Atom) (x y : Nat) :
+theorem entry_run_proof {body : Term 3} {A : Types}
+    (d : Derivation Request Γ₀ ((input.snoc Atom).snoc Atom) body A) (x y : Nat) :
     run (entry d) (packetEnv (x, y)) =
       run d (((packetEnv (x, y)).snoc (A := Atom) x).snoc (A := Atom) y) := by
   simp only [run, entry, Derivation.denote, pure_bind]
@@ -66,7 +66,7 @@ private theorem packet_no_atom (x : Slot input) : False := by
   rw [index] at sort
   cases sort
 
-private theorem input_separating : Separating (packetEnv (0, 1)) 0 :=
+theorem input_separating : Separating (packetEnv (0, 1)) 0 :=
   ⟨fun x _ _ => (packet_no_atom x).elim, fun x => (packet_no_atom x).elim⟩
 
 theorem entry_iff_normal_proof {t u : Term 3}
