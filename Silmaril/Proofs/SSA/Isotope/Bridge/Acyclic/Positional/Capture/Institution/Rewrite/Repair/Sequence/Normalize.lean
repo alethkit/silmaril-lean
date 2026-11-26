@@ -6,11 +6,12 @@ public section
 
 namespace Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Sequence
 
-open Isotope.LetCase.LocallyNameless (AbortCongr Derivation)
+open Isotope.LetCase.LocallyNameless (AbortCongr Derivation Tm)
+open LambdaSSA.Acyclic (Operand)
 
 set_option backward.isDefEq.respectTransparency false
 
-private theorem normalize_operand (p : Body) {n : Nat} (β : BoundCtx Sorts n) :
+theorem normalize_operand (p : Body) {n : Nat} (β : BoundCtx Sorts n) :
     AbortCongr (Ctx.nil : Ctx Empty Sorts) (p.operand β).2 (p.canonical.operand β).2 := by
   induction p generalizing n with
   | returnUnit => exact .refl _
@@ -21,6 +22,26 @@ private theorem normalize_operand (p : Body) {n : Nat} (β : BoundCtx Sorts n) :
     · let d : Derivation signature.Instr (Ctx.nil : Ctx Empty Sorts) β (.op (.stop bit) .unit) Ty.empty :=
         .op .unit
       exact (AbortCongr.sequence (A := Ty.unit) d).symm
+
+theorem operand_bsubst_proof (p : Body) {n m : Nat} (β : BoundCtx Sorts n) (δ : BoundCtx Sorts m)
+    (σ : Fin n → Tm Empty signature.Instr m) :
+    (p.operand β).1.bsubst σ = (p.operand δ).1 := by
+  induction p generalizing n m with
+  | returnUnit => rfl
+  | emit bit next ih =>
+    simp only [Body.operand, Tm.bsubst, ih (β.snoc Ty.unit) (δ.snoc Ty.unit)]
+  | stop bit sequenced => cases sequenced <;> rfl
+
+theorem operand_rename_proof (p : Body) {n m : Nat} {β : BoundCtx Sorts n} {δ : BoundCtx Sorts m}
+    (ρ : BoundCtx.Renaming β δ) :
+    (⟨_, (p.operand β).2.rename ρ⟩ : Operand signature.Instr δ Ty.unit) = p.operand δ := by
+  induction p generalizing n m with
+  | returnUnit => rfl
+  | emit bit next ih =>
+    exact congrArg (fun b : Operand signature.Instr (δ.snoc Ty.unit) Ty.unit => show
+      Operand signature.Instr δ Ty.unit from
+      ⟨.let₁ (.op (.emit bit) .unit) b.1, .let₁ (.op .unit) b.2⟩) (ih (ρ.up Ty.unit))
+  | stop bit sequenced => cases sequenced <;> rfl
 
 private theorem normalize_packed (tail : List Sorts) (p : Body) :
     AbortCongr (Ctx.nil : Ctx Empty Sorts) (Rewrite.returnUnit tail (p.operand .nil)).toLetCase.2

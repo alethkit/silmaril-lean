@@ -10,14 +10,13 @@ open CategoryTheory
 open Isotope.Semantics (BoundEnv)
 open Isotope.LetCase.LocallyNameless (AbortEquiv Derivation Tm)
 open LambdaSSA.Region (packedExitType)
-open LetIter.Semantics.Categorical (denoteOfType denoteOfType_eq denoteOfType_eq_of_abortEquiv)
+open LetIter.Semantics.Categorical (boundEnv boundObj denoteOfType denoteOfType_eq denoteOfType_eq_of_abortEquiv)
 open Morphism.CaseIter (derivation denote_derivation)
 open Silmaril.Elgot
 
 set_option backward.isDefEq.respectTransparency false
 
 local notation "Γ₀" => (Ctx.nil : Ctx Empty Sorts)
-private def noFree : Isotope.Semantics.FreeEnv value Γ₀ := fun v => v.elim
 
 private theorem embed_denote {n : Nat} {β : BoundCtx Sorts n}
     {t : Tm Empty signature.Instr n} {A : Sorts} (h : Derivation signature.Instr Γ₀ β t A) :
@@ -56,25 +55,21 @@ private theorem run_emit {A : Type} (bit : Bool) (k : PUnit → Trace A) :
   rw [Part.bind_eq_bind, Part.bind_some]
   rfl
 
-private def terminal {A : Type} (a : A) : Option Bool → Except Bool A
-  | none => .ok a
-  | some b => .error b
-
-private theorem operand_run (p : Body) {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β) :
-    ((p.operand β).2.denote value model noFree ρ).run.run =
-      Part.some (terminal PUnit.unit p.normal.2, FreeMonoid.ofList p.normal.1) := by
+theorem operand_run_proof (p : Body) {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β) :
+    run (p.operand β).2 ρ = p.normal.observe PUnit.unit := by
   induction p generalizing n with
   | returnUnit => rfl
   | emit bit next ih =>
-    simp only [Body.operand, Derivation.denote, pure_bind, Body.normal, FreeMonoid.ofList_cons]
+    simp only [run, Body.operand, Derivation.denote, pure_bind, Body.normal, Normal.observe, FreeMonoid.ofList_cons]
     change ((model.eval (Op.emit bit) PUnit.unit >>= fun u =>
       (next.operand (β.snoc Ty.unit)).2.denote value model noFree (ρ.snoc u)).run.run) = _
-    rw [run_emit, ih (ρ.snoc (A := Ty.unit) PUnit.unit), Part.map_eq_map, Part.map_some]
+    rw [run_emit, ← run, ih (ρ.snoc (A := Ty.unit) PUnit.unit)]
+    simp only [Normal.observe, Part.map_eq_map, Part.map_some]
   | stop bit seq =>
-    cases seq <;> simp only [Body.operand, Derivation.denote, pure_bind, Body.normal,
-      terminal, FreeMonoid.ofList_nil] <;> exact run_stop bit _
+    cases seq <;> simp only [run, Body.operand, Derivation.denote, pure_bind, Body.normal,
+      Normal.observe, Option.elim, FreeMonoid.ofList_nil] <;> exact run_stop bit _
 
-private theorem sum_tag_run {B : Type} (a : Trace PUnit) :
+theorem sum_tag_run_proof {B : Type} (a : Trace PUnit) :
     ((a >>= fun u => (pure (.inl u) : Trace (PUnit ⊕ B))).run.run) =
       (fun (result, word) => (result.map Sum.inl, word)) <$> a.run.run := by
   change (a.run.run >>= fun (res, w) =>
@@ -94,56 +89,65 @@ private theorem sum_tag_run {B : Type} (a : Trace PUnit) :
       Part.some (Except.ok (Sum.inl u), w)
     simp [Part.map_some]
 
+theorem observe_injective_proof {A : Type} (a : A) :
+    Function.Injective (fun nf : Normal => nf.observe a) := by
+  intro p q h
+  have unpacked := Part.some_injective h
+  apply Prod.ext
+  · exact congrArg (fun x => (FreeMonoid.toList x.2)) unpacked
+  · have terminal := congrArg Prod.fst unpacked
+    cases hp : p.2 <;> cases hq : q.2 <;> simp_all [Option.elim]
+
 set_option maxHeartbeats 800000 in
 private theorem pack_run (tail : List Sorts) (p : Body) (ρ : BoundEnv value .nil) :
-    ((Rewrite.returnUnit tail (p.operand .nil)).toLetCase.2.denote value model noFree ρ).run.run =
-      Part.some (terminal (Sum.inl PUnit.unit : PUnit ⊕ value (packedExitType tail)) p.normal.2, FreeMonoid.ofList p.normal.1) := by
+    run (Rewrite.returnUnit tail (p.operand .nil)).toLetCase.2 ρ =
+      p.normal.observe (Sum.inl PUnit.unit : PUnit ⊕ value (packedExitType tail)) := by
   let entry := (p.operand .nil).2
   change (Derivation.denote value model
     (.let₁ entry (.let₁ (.bv (ι := 0)) (.inl (.bv (ι := 0))))) noFree ρ).run.run = _
   simp only [Derivation.denote, pure_bind]
   change (((entry.denote value model noFree ρ) >>= fun u =>
     (pure (Sum.inl u) : Trace (PUnit ⊕ value (packedExitType tail)))).run.run) = _
-  refine (sum_tag_run (B := value (packedExitType tail))
+  refine (sum_tag_run_proof (B := value (packedExitType tail))
     (show Trace PUnit from entry.denote value model noFree ρ)).trans ?_
   change ((fun (result, word) => (result.map Sum.inl, word)) <$>
     ((p.operand .nil).2.denote value model noFree ρ).run.run) = _
-  rw [operand_run, Part.map_eq_map, Part.map_some]
+  rw [← run, operand_run_proof]
+  simp only [Normal.observe, Part.map_eq_map, Part.map_some]
   cases p.normal.2 <;> rfl
 
-theorem traceSat_normal_proof (tail : List Sorts) (p q : Body) :
-    ((LetCase.inst Γ₀).obj signature).Sat traceAlgebra (grammarCase (equation tail p q)) →
-      p.normal = q.normal := by
-  let d := (grammarCase (equation tail p q)).2.1.2
-  let e := (grammarCase (equation tail p q)).2.2.2
-  intro sat
-  have eq := (LetCase.sat_iff Γ₀ signature traceAlgebra d e).mp sat
+theorem traceSat_run_proof (e : GrammarEquation signature)
+    (sat : ((LetCase.inst Γ₀).obj signature).Sat traceAlgebra (grammarCase e))
+    (ρ : boundObj traceTypes e.1.bound) :
+    run (grammarCase e).2.1.2 (boundEnv value ρ) =
+      run (grammarCase e).2.2.2 (boundEnv value ρ) := by
+  let d := (grammarCase e).2.1.2
+  let d' := (grammarCase e).2.2.2
+  have eq := (LetCase.sat_iff Γ₀ signature traceAlgebra d d').mp sat
   let _ := traceInstructions
   change Isotope.LetCase.LocallyNameless.Models.denote
       (freydCaseAlgebra traceJ traceTypes traceInstructions) d =
-    Isotope.LetCase.LocallyNameless.Models.denote (freydCaseAlgebra traceJ traceTypes traceInstructions) e at eq
+    Isotope.LetCase.LocallyNameless.Models.denote (freydCaseAlgebra traceJ traceTypes traceInstructions) d' at eq
   rw [freydCaseAlgebra_denote, freydCaseAlgebra_denote, embed_denote, embed_denote] at eq
   have obs := congrArg (fun f =>
-    (show Trace (value (packedExitType (Ty.unit :: tail))) from
-      f.of (PUnit.unit, PUnit.unit)).run.run) eq
-  simp only [denoteOfType_eq, denote_derivation] at obs
+    (show Trace (value (packedExitType e.1.exits)) from f.of (PUnit.unit, ρ)).run.run) eq
   have free : LetIter.Semantics.Categorical.freeEnv value (Γ := Γ₀) PUnit.unit = noFree := by
     funext x
     exact x.elim
-  rw [free] at obs
-  let ρ := LetIter.Semantics.Categorical.boundEnv value (β := .nil) PUnit.unit
-  have unpacked := Part.some_injective
-    ((pack_run tail p ρ).symm.trans (obs.trans (pack_run tail q ρ)))
-  apply Prod.ext
-  · exact congrArg (fun x => (FreeMonoid.toList x.2)) unpacked
-  · have h := congrArg Prod.fst unpacked
-    cases hp : p.normal.2 <;> cases hq : q.normal.2 <;> simp_all [terminal]
+  simp only [denoteOfType_eq, denote_derivation, free] at obs
+  exact obs
 
-theorem traceSat_of_repaired_proof (tail : List Sorts) (p q : Body)
-    (h : Repaired false (equation tail p q)) :
-    ((LetCase.inst Γ₀).obj signature).Sat traceAlgebra (grammarCase (equation tail p q)) := by
-  let d := (grammarCase (equation tail p q)).2.1.2
-  let e := (grammarCase (equation tail p q)).2.2.2
+theorem traceSat_normal_proof (tail : List Sorts) (p q : Body)
+    (sat : ((LetCase.inst Γ₀).obj signature).Sat traceAlgebra (grammarCase (equation tail p q))) :
+    p.normal = q.normal := by
+  have obs := traceSat_run_proof (equation tail p q) sat PUnit.unit
+  exact observe_injective_proof _
+    ((pack_run tail p _).symm.trans (obs.trans (pack_run tail q _)))
+
+theorem traceSat_of_repaired_proof (s : GrammarEquation signature) (h : Repaired false s) :
+    ((LetCase.inst Γ₀).obj signature).Sat traceAlgebra (grammarCase s) := by
+  let d := (grammarCase s).2.1.2
+  let e := (grammarCase s).2.2.2
   apply (LetCase.sat_iff Γ₀ signature traceAlgebra d e).mpr
   let _ := traceInstructions
   change Isotope.LetCase.LocallyNameless.Models.denote
