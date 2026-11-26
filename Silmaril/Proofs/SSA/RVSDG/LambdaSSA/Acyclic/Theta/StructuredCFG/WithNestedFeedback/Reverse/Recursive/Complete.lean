@@ -50,7 +50,7 @@ private theorem cons_append (head : Option (Entry τ Φ)) (rest tail : Option (L
       (do let xs ← (do let h ← head; pure (h :: (← rest))); let ys ← tail; pure (xs ++ ys)) := by
   cases head <;> cases rest <;> cases tail <;> rfl
 
-private theorem scan_append {a : Data args} {b : Data input} {c : Data outs}
+theorem scan_append {a : Data args} {b : Data input} {c : Data outs}
     {live : Origin (Threaded args) past runtime}
     {p : NestedTheta.Term (Wires.Op Φ) (Threaded args) past sigs (Threaded input)}
     {q : NestedTheta.Term (Wires.Op Φ) (Threaded input) [] after (Threaded outs)}
@@ -240,6 +240,11 @@ private theorem parse_emitted (n : Normal Φ A X Z L E D ps) (h : n.Supported)
       have tk : weight (emitted k) ≤ fuel := by omega
       simp [emitted, parse, cutEntry, split_snoc, hp left fuel lp,
         hq right fuel rq, hk tail fuel tk, expect, pack]
+
+theorem scan_parse_generated (n : Normal Φ A X Z L E D ps) (h : n.Supported) :
+    ∃ labels, scan n.toSyntax.code.1 = some labels ∧
+      parse (weight labels) A X Z labels = some (pack n) :=
+  ⟨emitted n, scan_emitted n, parse_emitted n h _ (Nat.le_refl _)⟩
 
 theorem candidate_generated (n : Normal Φ A X Z L E D ps) (h : n.Supported) :
     candidate n.toSyntax.graph = some n := by

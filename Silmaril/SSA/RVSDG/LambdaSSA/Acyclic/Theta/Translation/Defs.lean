@@ -26,14 +26,15 @@ variable {sigs : List (Ports (OrderedRuntime.Structured.Ty τ))}
 
 /-- The selected decoder determines the supported layout at the typed
 graph boundary. Mixed links use homogeneous joins and may include nested
-feedback. Routed links have a producer θ and a γ with a bypass arm and
-either a consumer θ or a canonical mixed consumer in the other arm. -/
+feedback. Routed links end in a γ with a bypass arm and a consumer arm. The
+mixed routed layout permits canonical mixed regions on both sides of the cut. -/
 inductive Layout (τ : Type u) [TypeFormers τ] :
     τ → τ → τ → τ → τ → τ → List (Ports (OrderedRuntime.Structured.Ty τ)) → Type u where
   | mixed {A X Z L E D : τ} {sigs : List (Ports (OrderedRuntime.Structured.Ty τ))} :
       Layout τ A X Z L E D sigs
   | routed {A E M D : τ} : Layout τ A E M M E D (Routed.Signatures A E M D)
-  | routedMixed {A E M D : τ} : Layout τ A E M M E D (Routed.Signatures A E M D)
+  | routedMixed {A E M D : τ} {ps : List (Ports (OrderedRuntime.Structured.Ty τ))} :
+      Layout τ A E M M E D (ps ++ Routed.Selection M E D)
 
 /-- The admitted source syntax determines the layout and the typed boundaries. -/
 inductive Source (Φ : Type u) [HasTy Φ τ] :
@@ -42,8 +43,9 @@ inductive Source (Φ : Type u) [HasTy Φ τ] :
       WithNestedFeedback.Syntax Φ A X Z L E D sigs → Source Φ A X Z L E D sigs
   | routed {A B K E M C J D : τ} :
       Routed.Source Φ A B K M C J E D → Source Φ A E M M E D (Routed.Signatures A E M D)
-  | routedMixed {A E M D : τ} (s : Routed.Mixed.Components Φ A E M D) :
-      s.Supported → Source Φ A E M M E D (Routed.Signatures A E M D)
+  | routedMixed {A E M D : τ} {ps : List (Ports (OrderedRuntime.Structured.Ty τ))}
+      (s : Routed.Mixed.Components Φ A E M D ps) :
+      s.Supported → Source Φ A E M M E D (ps ++ Routed.Selection M E D)
 
 def Source.layout (source : Source Φ A X Z L E D sigs) : Layout τ A X Z L E D sigs :=
   match source with
