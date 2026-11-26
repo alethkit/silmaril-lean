@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Defs
 
-/-! Admission for standalone λ exports and fixed φ member groups. -/
+/-! Admission for λ exports and fixed φ member groups. -/
 
 @[expose] public section
 
@@ -55,6 +55,12 @@ inductive StandaloneIn (root : m.Val (.value (.function args outs))) : Family m 
   | ordinary {port : Ty V S} (value : m.Val port) (plain : ordinaryPort port = true) : StandaloneIn root value
   | exported : StandaloneIn root root
 
+/-- Extend a callable family with an exact exported value. For the checked
+capture case the earlier family is the fixed group captured by the λ. -/
+inductive WithExport (earlier : Family m) (root : m.Val (.value (.function args outs))) : Family m where
+  | inherited {port : Ty V S} {value : m.Val port} (known : earlier value) : WithExport earlier root value
+  | exported : WithExport earlier root root
+
 def isStandaloneLambda {port : Ty V S} : m.Val port → Bool
   | .closure _ _ => true
   | _ => false
@@ -79,6 +85,36 @@ def exportGroup : {port : Ty V S} → (value : m.Val port) → Option (ExportGro
     some ⟨members, ⟨_, values, definitions⟩, .member slot⟩
   | _, _ => none
 
+def memberSlot {port : Ty V S} : m.Val port → Option Nat
+  | .member _ _ slot => some slot.val
+  | _ => none
+
+/-- This capture policy admits a single direct member among ordinary
+captures. It records membership in that member's actual linked group. -/
+inductive GroupCaptures {members : List (Function V S)} (group : Group m members) :
+    {ports : Ports (Ty V S)} → Tuple m.Val ports → Prop where
+  | member {port : Ty V S} {ports : Ports (Ty V S)} {value : m.Val port} {rest : Tuple m.Val ports}
+      (known : group.In value) (plain : ordinaryPorts ports = true) : GroupCaptures group (.cons value rest)
+  | ordinary {port : Ty V S} {ports : Ports (Ty V S)} {value : m.Val port} {rest : Tuple m.Val ports}
+      (plain : ordinaryPort port = true) (captures : GroupCaptures group rest) : GroupCaptures group (.cons value rest)
+
+structure CapturedGroup {ports : Ports (Ty V S)} (values : Tuple m.Val ports) where
+  members : List (Function V S)
+  group : Group m members
+  slot : Option Nat
+  captures : GroupCaptures group values
+
+/-- Extract the actual captured member and its definition table. Ordinary
+captures before or after it are admitted by their port types. -/
+def capturedGroup : {ports : Ports (Ty V S)} → (values : Tuple m.Val ports) → Option (CapturedGroup values)
+  | _, .nil => none
+  | _, .cons (t := port) (ts := ports) value rest =>
+    if ordinary : ordinaryPort port = true then
+      (capturedGroup rest).map fun found => ⟨found.members, found.group, found.slot, .ordinary ordinary found.captures⟩
+    else if plain : ordinaryPorts ports = true then
+      (exportGroup value).map fun found => ⟨found.members, found.group, memberSlot value, .member found.known plain⟩
+    else none
+
 variable [DecidableEq (Ty V S)]
 
 /-- Check all slots, including members that are reachable by recursion but
@@ -90,24 +126,34 @@ def checkGroups (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
     (List.ofFn (fun slot : Fin members.length =>
       (inferResolved keys (resolve m (left.ref slot)) (resolve m (right.ref slot))).isSome)).all id
 
+/-- Compare the exact member signatures in slot order before using the
+common table-indexed checker. -/
+def checkGroupPair (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
+    {membersL membersR : List (Function V S)} (left : Group m membersL) (right : Group m membersR) : Bool :=
+  letI : DecidableEq (Function V S) := fun a b =>
+    decidable_of_iff (a.args = b.args ∧ a.results = b.results) (by cases a; cases b; simp)
+  if same : membersL = membersR then checkGroups keys left (same.symm ▸ right) else false
+
+def checkCapturedGroups (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
+    {portsL portsR : Ports (Ty V S)} (left : Tuple m.Val portsL) (right : Tuple m.Val portsR) : Bool :=
+  match capturedGroup left, capturedGroup right with
+  | some left, some right => left.slot == right.slot && checkGroupPair keys left.group right.group
+  | _, _ => false
+
 /-- Select the finite families directly from two actual exported values.
-The checker accepts paired standalone λ closures or paired φ exports
-with ordinary outer captures. Paired invocation also uses linker
-provenance and compatible primitives. -/
+Paired λ closures admit ordinary captures or one matched φ member each.
+The φ groups must have ordinary outer captures. Paired invocation also
+uses linker provenance and compatible primitives. -/
 def checkExport (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
     (left right : m.Val (.value (.function args outs))) : Bool :=
   if isStandaloneLambda left && isStandaloneLambda right then
     let bodyL := resolve m left
     let bodyR := resolve m right
-    ordinaryPorts bodyL.context && ordinaryPorts bodyR.context && (inferResolved keys bodyL bodyR).isSome
+    (ordinaryPorts bodyL.context && ordinaryPorts bodyR.context ||
+      checkCapturedGroups keys bodyL.values bodyR.values) && (inferResolved keys bodyL bodyR).isSome
   else
-    letI : DecidableEq (Function V S) := fun a b =>
-      decidable_of_iff (a.args = b.args ∧ a.results = b.results) (by cases a; cases b; simp)
     match exportGroup left, exportGroup right with
-    | some left, some right =>
-      if same : left.members = right.members then
-        checkGroups keys left.group (same.symm ▸ right.group)
-      else false
+    | some left, some right => checkGroupPair keys left.group right.group
     | _, _ => false
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered
