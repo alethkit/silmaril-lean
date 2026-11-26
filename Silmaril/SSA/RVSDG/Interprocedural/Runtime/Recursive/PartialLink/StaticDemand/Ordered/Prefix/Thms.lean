@@ -71,6 +71,30 @@ from the plan's guards to the guards computed by the ordered admission. -/
     some ⟨state, guards.1.trans (congrArg (fun g => binding.extendGuard g inputsL scope.localsL) checked.left),
       guards.2.trans (congrArg (fun g => binding.extendGuard g inputsR scope.localsR) checked.right)⟩
 
+/-- Read actual checked capture positions and add the disjoint demand
+slots of a group with its own closed summaries. -/
+@[expose] def Scope.Checked.addGroup {later : MemberSummaries V S} (checked : scope.Checked actions)
+    (binding : GroupBinding Op later imports scope.past) (inputsL inputsR : Tuple m.Val imports)
+    (readyL : binding.family.Ready (binding.read inputsL scope.localsL))
+    (readyR : binding.family.Ready (binding.read inputsR scope.localsR)) :
+    Option ((scope.addGroup binding inputsL inputsR).Checked actions) :=
+  if (Isomorphism.RecursiveCall.Numbered.checkWires
+      (checked.state.left.available (entry := inputsL) Known.ordinary) binding.captures).isSome &&
+      (Isomorphism.RecursiveCall.Numbered.checkWires
+      (checked.state.right.available (entry := inputsR) Known.ordinary) binding.captures).isSome then
+    let left := binding.read inputsL scope.localsL
+    let right := binding.read inputsR scope.localsR
+    let group := (CheckedPrefix.seed actions binding.family left right readyL readyR).dispatch
+    let dispatch := checked.state.dispatch.combine group
+    let extendedL := (checked.state.left.lift (Known.oldSlot group.left)).snoc
+      (binding.checkedRow checked.state.dispatch.left left)
+    let extendedR := (checked.state.right.lift (Known.oldSlot group.right)).snoc
+      (binding.checkedRow checked.state.dispatch.right right)
+    some ⟨⟨dispatch, extendedL, extendedR⟩,
+      congrArg (fun guard => guard.combine group.left) checked.left,
+      congrArg (fun guard => guard.combine group.right) checked.right⟩
+  else none
+
 /-- Use the same admission step with a synthesized local certificate. -/
 @[expose] def Scope.Checked.addDirect (checked : scope.Checked actions)
     (binding : Binding Op scope.table imports scope.past fn) (inputsL inputsR : Tuple m.Val imports)
@@ -130,6 +154,11 @@ linker membership table. -/
   | scope, _, _, _, .lambdaDirect binding (rest := rest) next, checked, routes => do
     let added ← checked.addDirect binding inputsL inputsR routes
     let receipt ← walk actions unitId inputsL inputsR store next added (routes.add binding)
+    pure (receipt.relink (binding.link_step actions unitId inputsL scope.localsL rest store)
+      (binding.link_step actions unitId inputsR scope.localsR rest store))
+  | scope, _, _, _, .phi binding readyL readyR (rest := rest) next, checked, _ => do
+    let added ← checked.addGroup binding inputsL inputsR readyL readyR
+    let receipt ← walk actions unitId inputsL inputsR store next added
     pure (receipt.relink (binding.link_step actions unitId inputsL scope.localsL rest store)
       (binding.link_step actions unitId inputsR scope.localsR rest store))
   | scope, _, _, _, .skipLambda definition (rest := rest) next, checked, routes =>
