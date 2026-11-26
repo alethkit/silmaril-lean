@@ -43,6 +43,7 @@ return. The zero-trip case also succeeds with the probe disabled.
 [Regression](../../tests/ssa/PEGSimple.lean)
 
 This models the extra completion obligation with a separate, input-specific
-check over a certified finite prefix. The Figure 18 token translation and its
-preservation theorem remain open, as do completion for discarded or nested
-loops and preservation of divergence or faults.
+check over a certified finite prefix. The corresponding emitted marker is
+available for [straight-line loop bodies](peggy-figure18-token.md).
+Completion for discarded or nested loops and preservation of divergence or
+faults remain open.
