@@ -60,6 +60,9 @@ binding and uses the certified length only with the exact stock `len`
 descriptor. It records the call result before checking the right operand.
 This path uses the existing explicit seed that already supplies `len`.
 
+Run the CPython 3.13.5 controls and the fixed original inputs with
+`python3.13 -I scripts/check-python-sequence-length.py --upstream /path/to/pinned/rigorous`.
+
 A scalar comparison chain has at least two links. Every link uses one of
 `==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact
 Boolean or integer literal, including unary minus on an integer literal.

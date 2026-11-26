@@ -49,22 +49,6 @@ def check_lean(destination, regression, *, extra_imports=(), capture_output=Fals
     return result
 
 
-def check_lean_batch(source_path, destination, fixtures, regression, *, extra_imports=()):
-    """Check each emitted fixture in its own namespace in one Lean process."""
-    header = None
-    cases = []
-    for index, (source, guard) in enumerate(fixtures):
-        emit(source_path, destination, source)
-        prefix, declaration, body = destination.read_text(encoding="utf-8").partition("public def pythonSource")
-        assert declaration and (header is None or header == prefix)
-        header = prefix
-        namespace = f"Fixture{index}"
-        cases.append(f"namespace {namespace}\n{declaration}{body}\n{guard}\nend {namespace}\n")
-    assert header is not None
-    destination.write_text(header + regression + "\n" + "\n".join(cases), encoding="utf-8")
-    check_lean(destination, "", extra_imports=extra_imports)
-
-
 def check_scope_intake():
     with tempfile.TemporaryDirectory() as tmp:
         source = Path(tmp) / "Example.py"
