@@ -1,10 +1,12 @@
 # Peggy paper coverage and reproduction
 
 Silmaril proves the repaired Figure 11 denotation and structured SIMPLE
-forward preservation. It checks selected cyclic rewrites and reverts some
-single- and two-level loops. A worked replay goes from Figure 6(b) to
-executable SIMPLE. Reversion for arbitrary structured graphs, the full
-Peggy engine and the historical Java experiments remain open.
+forward preservation. It also proves successful completion for the
+Figure 18 compiler fragments through one conditional child. Checked
+worklist replay can feed ordered SIMPLE selection, and checked reversion
+covers single loops, a parent/child form and a pair of sibling loops.
+General reversion, the full Peggy engine and the historical Java
+experiments remain open.
 
 The reference is Ross Tate, Michael Stepp, Zachary Tatlock and Sorin Lerner,
 *Equality Saturation: A New Approach to Optimization*, LMCS 7(1:10), 2011,
@@ -18,7 +20,7 @@ Page links use PDF page numbers. PEG denotes **Program Expression Graph**.
 acceptance boundary. **Open** marks outstanding work. This map records
 declarations on the audited main revision. PR links identify where each
 result landed. Module names omit `Silmaril.SSA.` where clear.
-[Audited main commit](https://github.com/hiloopai/silmaril-lean/tree/f3286c67dbdbe495b67d54c13dfd2722277e2240)
+[Audited main commit](https://github.com/hiloopai/silmaril-lean/tree/c135a1e05290a98c24a966d79bc8ba00fc35187b)
 
 ## Graphs, forward translation and examples
 
@@ -54,14 +56,49 @@ discarded infinite-loop case. The Lean source `Exec` distinguishes finite
 primitive failure from divergence (absence of a finite execution). A PEG
 root has one bottom, and it can also be defined despite source failure in
 an assignment outside the return's demanded dependencies. The loop-free
-fixture checks the latter. Section 6's Figure 18 completion/effect-token
-encoding has no delivered Lean preservation theorem here. The authors'
-Coq `PEGSem.v` samples eval's selected index directly. Lean uses the
-Figure 11 defined-prefix rule, so an undefined earlier sample can prevent
-a defined later sample from being observed.
+fixture checks the latter. Figure 18 adds a separate observation, covered
+by the compiler fragments below. The authors' Coq `PEGSem.v` samples
+eval's selected index directly. Figure 11 and Lean require a defined
+prefix up to that index.
 [Thm. 2 and Fig. 18](https://arxiv.org/pdf/1012.1802v3#page=36) ·
 [Coq source](https://cseweb.ucsd.edu/groups/progsys/peg-coq-proof/PEGSem.v) ·
 [Source semantics and comparison](peg-simple.md#comparison-with-the-authors-coq)
+
+### Figure 18 completion
+
+The completion compiler adds a second ordered root to a returned data
+value. Its fresh Boolean seed is true. Each strict assignment links its
+value and the previous marker with an `after` operation, even when a
+later projection discards that value. A branch joins the marker and live
+slots with the same lazy φ guard. Each while samples its carried marker
+at the ordinary Figure 11 first pass. This uses the existing pass and
+eval operators to encode completion. The paper sketches an extra token
+argument and result on pass itself.
+[§6.4 and Fig. 18](https://arxiv.org/pdf/1012.1802v3#page=39) ·
+[Token compiler](../../Silmaril/SSA/PEG/Simple/Structured/Completion/Token/Defs.lean#L124)
+
+For the compiled fragments below, a successful original SIMPLE return
+defines `[some value, some true]`. A **defined marker alone** guarantees a
+finite successful execution of the original source with the corresponding
+data result. `translate_demandWellFounded` supplies the native Figure 11
+denotation, and the proofs assume the Boolean negation law. They allow
+partial source primitives. Source failure and divergence both leave the
+marker bottom. Data can still be defined. Java exceptions, failure
+causes and observable traces require richer observations.
+
+| Landed fragment | API and fixture |
+| --- | --- |
+| Precursor for the ordinary translation | `Structured.translate_while_returns_of_checkedPrefix` constructs a successful original return from a defined ordinary pass and data root plus `checkWhilePrefix` for the guard and full loop-free body along the finite prefix. The prefix check is a premise of this theorem. [Theorem](../../Silmaril/SSA/PEG/Simple/Structured/Completion/Thms.lean#L41) · [Discarded failure fixture](../../tests/ssa/PEGSimple.lean#L631) · [#4615](https://github.com/hiloopai/silmaril-lean/pull/4615) |
+| One while with a loop-free body, including branches | `Token.translate` compiles assignments, projections, sequences and conditionals via `Body.ofStmt`. `Token.observe_of_returns` and `Token.returns_of_completion` prove both directions. The fixture exercises selected and unselected failing assignments and zero trips. [Forward theorem](../../Silmaril/SSA/PEG/Simple/Structured/Completion/Token/Thms.lean#L41) · [Converse](../../Silmaril/SSA/PEG/Simple/Structured/Completion/Token/Thms.lean#L51) · [Conditional fixture](../../tests/ssa/PEGSimple.lean#L904) · [#4650](https://github.com/hiloopai/silmaril-lean/pull/4650) · [#4683](https://github.com/hiloopai/silmaril-lean/pull/4683) |
+| One unconditional child per continuing parent step | `Token.Nested.Form.translate` uses projection-only captures, a loop-free child body and a loop-free outer commit. The child marker starts from the current outer marker. `Form.trace_of_completion` returns an actual outer `WhileTrace`, its exact pass count and a finite child pass and completion witness at every continuing outer coordinate. `Form.returns_of_completion` reconstructs the original return. The countdown uses child lengths two and one and returns `4`. [Compiler](../../Silmaril/SSA/PEG/Simple/Structured/Completion/Token/Nested/Defs.lean#L64) · [Return theorem](../../Silmaril/SSA/PEG/Simple/Structured/Completion/Token/Nested/Thms.lean#L54) · [Trace theorem](../../Silmaril/SSA/PEG/Simple/Structured/Completion/Token/Nested/Thms.lean#L45) · [Fixture](../../tests/ssa/PEGSimple.lean#L493) · [#4718](https://github.com/hiloopai/silmaril-lean/pull/4718) |
+| One child in a selected outer arm | `Token.Nested.Conditional.Form.translate` adds a decision on the old outer store. The take arm runs the captured child and commit. The skip arm runs a loop-free update. `Form.trace_of_completion` gives the outer trace and a defined decision at each continuing coordinate, with child pass and marker evidence only for a true decision. `Form.observe_of_returns` and `Form.returns_of_completion` give the return equivalence for this form. The fixture takes, skips, then takes with child lengths three and one and returns `7`. A second fixture shows a discarded partial child computation blocks completion when taken and is undemanded when skipped. [Compiler](../../Silmaril/SSA/PEG/Simple/Structured/Completion/Token/Nested/Conditional/Defs.lean#L69) · [Activation predicate](../../Silmaril/SSA/PEG/Simple/Structured/Completion/Token/Nested/Conditional/Defs.lean#L87) · [Forward theorem](../../Silmaril/SSA/PEG/Simple/Structured/Completion/Token/Nested/Conditional/Thms.lean#L35) · [Trace theorem](../../Silmaril/SSA/PEG/Simple/Structured/Completion/Token/Nested/Conditional/Thms.lean#L45) · [Converse](../../Silmaril/SSA/PEG/Simple/Structured/Completion/Token/Nested/Conditional/Thms.lean#L54) · [Mixed-trace fixture](../../tests/ssa/PEGSimple.lean#L537) · [Partial-child fixture](../../tests/ssa/PEGSimple.lean#L1211) · [#4762](https://github.com/hiloopai/silmaril-lean/pull/4762) |
+
+These equivalences are proved for their respective compiler inputs.
+A recursive completion compiler and proof for arbitrary typed structured
+SIMPLE, preservation through general reversion, and a richer effect or
+fault observation remain open.
+[Compiler walkthrough](peggy-figure18-token.md) ·
+[Conditional child walkthrough](peggy-figure18-conditional-child.md)
 
 ## Figure 19 and cyclic reversion (§7)
 
@@ -106,42 +143,65 @@ Definition 5.1 legality are separate obligations for an arbitrary graph.
 
 ### Graph-local parent/child schedules
 
-`Nested.Region.check` takes a typed descriptor and demand rank for one
-parentless loop and one immediate child. It checks the parent links,
-ordered θ initializers and feedback, the shared pass within each loop,
-the child's eval bundle, and the designated outer eval. Outer
-initializers match typed input ports. The primitive scheduler checks
-the outer exit test over the old outer θ vector, the child initializer
-over that same vector, the child test and feedback over the child θ
-vector plus the retained outer values, and the outer commit over the
-child exit bundle plus the old outer values. The check uses the supplied
-rows directly and permits independent numbering of rows and loop keys.
+`Nested.Region.check` checks a supplied descriptor and demand rank on
+the original table. It checks each shared pass, the ordered parent and
+child θ bundles, child eval roots and the designated parent eval.
+Primitive schedules initialize the child from the current outer store
+and commit simultaneously from child exits and old outer captures.
+`Accepted.activation_observation` fixes the outer coordinates and starts
+the child at its own zero index. `Accepted.observe_of_returns` recovers
+the Figure 11 observation from a successful emitted SIMPLE run under the
+negation law. [Checker](../../Silmaril/SSA/PEG/Simple/Revert/While/Nested/Region/Defs.lean#L92) ·
+[Activation theorem](../../Silmaril/SSA/PEG/Simple/Revert/While/Nested/Region/Thms.lean#L25) ·
+[#4412](https://github.com/hiloopai/silmaril-lean/pull/4412)
 
-The emitted outer body builds a fresh child store before its inner
-`while`. `Accepted.activation_observation` fixes the enclosing coordinates,
-starts the child's θ streams at zero, and derives one least child pass
-and the defined eval prefix from the finite child trace. Its returned
-store realizes both the child evals and the retained outer captures at
-the caller's index. The outer proof establishes the capture premise
-uniformly at each outer iteration, invokes the child theorem, and
-replays the entire simultaneous commit. `Accepted.observe_of_returns`
-then relates an actual successful nested SIMPLE return to Figure 11.
-The checked demand rank supplies the valuation, the negation law connects
-the tests, and the successful trace supplies primitive definedness and
-child termination. Returning from a PEG exit alone remains open for
-this adapter. It requires a way to obtain each continuing activation's
-child exit and the full commit's definedness.
+`Accepted.trace_of_exits` and `Accepted.returns_iff_exits` give the
+converse under `Accepted.DefinedSlices` and the negation law. The PEG
+premises are a finite parent first pass, a finite child first pass at
+**each continuing outer coordinate**, and a defined designated value
+for the return theorem. The child counts can vary by activation. The
+child premise is vacuous for zero outer trips. The slice premise covers
+the full guard, capture initialization, child update and outer commit
+where used. Total primitives discharge the slice premise. Finite child exits remain
+separate hypotheses. This is a different converse from the
+Figure 18 compiler's defined-marker theorem.
+[Trace](../../Silmaril/SSA/PEG/Simple/Revert/While/Nested/Region/Thms.lean#L78) ·
+[Return equivalence](../../Silmaril/SSA/PEG/Simple/Revert/While/Nested/Region/Thms.lean#L101) ·
+[#4489](https://github.com/hiloopai/silmaril-lean/pull/4489)
 
-The regression uses a hand-wired graph with 16 rows and two loop keys.
-Its first two child activations take two and one steps and commit
-accumulators 3 and 4. A well-ranked initializer that reads the original
-parameter in place of the current outer θ is rejected by the slice
-checker. A mismatched child pass is also rejected. The result covers
-the supplied two-level primitive shape. Boundary discovery, arbitrary
-nesting, and effects remain open for this adapter.
-[Graph-local checker](../../Silmaril/SSA/PEG/Simple/Revert/While/Nested/Region/Defs.lean) ·
-[Activation and return theorems](../../Silmaril/SSA/PEG/Simple/Revert/While/Nested/Region/Thms.lean) ·
-[Regression fixture](../../tests/ssa/PEGCanonicalWhile.lean)
+`Nested.Region.Automatic.extract` recovers a descriptor from the graph,
+a supplied demand rank and the negation opcode, then runs the same
+checker on the original numbered table. It needs a singleton outer eval
+root, a unique child and child pass, one outer θ per input initializer,
+and exactly one child eval projection per child θ at the shared pass.
+`Recovered.returns_iff_exits` exposes the same conditional finite-return
+contract. The fixture recovers the two-level region after row and loop
+renumbering, rejects a stale capture and a mismatched pass, and derives
+the emitted trace for zero and two parent trips (child counts two and
+one). General discovery or extraction for arbitrary loop forests and
+effects remains open.
+[Extractor](../../Silmaril/SSA/PEG/Simple/Revert/While/Nested/Region/Automatic/Defs.lean#L91) ·
+[Recovered contract](../../Silmaril/SSA/PEG/Simple/Revert/While/Nested/Region/Automatic/Thms.lean#L33) ·
+[Regression](../../tests/ssa/PEGCanonicalWhile.lean#L969) ·
+[Trace from PEG equations](../../tests/ssa/PEGCanonicalWhile.lean#L1192) ·
+[#4520](https://github.com/hiloopai/silmaril-lean/pull/4520)
+
+### Sequential sibling loops
+
+`While.Siblings.check` accepts a supplied pair of checked parentless
+primitive loop certificates with a typed projection between them. It
+checks their row correspondence, port order and demand rank against the
+original two-key graph. `Accepted.exec_iff_observations` compares a
+successful emitted sequence with both first passes and both ordered
+observations. The converse uses each stage's whole-slice totality and the
+zero, tick and negation laws. The fixture checks the intermediate
+`[3, 10, 2, 3]`, final `[13, 3, 3, 13]` and rejection of mismatched
+same-sort handoff ports. This interface takes two stages and their
+wiring as input.
+[Checker](../../Silmaril/SSA/PEG/Simple/Revert/While/Siblings/Defs.lean#L104) ·
+[Correspondence](../../Silmaril/SSA/PEG/Simple/Revert/While/Siblings/Thms.lean#L51) ·
+[Regression](../../tests/ssa/PeggyEgg.lean#L2047) ·
+[#4460](https://github.com/hiloopai/silmaril-lean/pull/4460)
 
 ## Saturation, selection and worked optimization
 
@@ -151,7 +211,8 @@ nesting, and effects remain open for this adapter.
 | --- | --- |
 | (4.1) and (4.2) | `NormalForms.Inflationary` says each analysis step extends its source. `MonotoneSimulation` says that after enlarging the source, the **same analysis** has a step whose result covers the smaller step's result. A simulated step may stutter. For concrete E-PEG append receipts, `Step.embedding` proves (4.1). The comparison uses typed injections preserving rows, ordered roots, forest and old class equalities. `ZeroSampleAnalysis.inflationary` and `ZeroSampleAnalysis.monotone` verify both assumptions for fresh zero-sample generation. [Abstract definitions](../../Silmaril/SSA/Peggy/EPEG/Saturation/NormalForms/Defs.lean) · [Concrete proofs](../../Silmaril/SSA/Peggy/EPEG/Saturation/Extension/Comparison/Thms.lean) · [#4072](https://github.com/hiloopai/silmaril-lean/pull/4072) · [#4096](https://github.com/hiloopai/silmaril-lean/pull/4096) |
 | (4.3) and (4.4) | `NormalForms.delayed_step` needs simulation of the delayed analysis and inflationarity of the intervening analysis. `stableNormalForm_least` and `stableNormalForm_unique` assume a reflexive, transitive comparison and inflationarity plus simulation for **every** family member. Every step out of a stable state is covered by that state. Two reachable stable states mutually compare. `paperNormalForm_unique` additionally assumes antisymmetry and proves literal equality for the paper's identity-filtered terminal forms. The E-PEG embedding corollary gives mutual embeddings. These are conditional uniqueness results. `ZeroSample.no_stable` shows that fresh appending from a matched site leaves strict progress in every reachable state. [Abstract proofs](../../Silmaril/SSA/Peggy/EPEG/Saturation/NormalForms/Thms.lean) · [E-PEG specialization](../../Silmaril/SSA/Peggy/EPEG/Saturation/Extension/Comparison/Thms.lean) · [§4](https://arxiv.org/pdf/1012.1802v3#page=19) · [#4111](https://github.com/hiloopai/silmaril-lean/pull/4111) |
-| Executable closure (§8.2) | `Saturation.saturate` closes a supplied finite table of ground obligations. `saturate_least`, `saturate_perm` and `run_denote_sound` cover that fixed table, with semantic validity of rule obligations. `Extension.Plan.run` replays a supplied prefix that appends typed rows, with soundness under the corresponding receipt laws. `Extension.Dedup.close` reuses or appends the exact zero-sample RHS for a caller-supplied site list. `close_checked` requires initial eligibility, `close_fixed` proves re-running a checked closed scope stutters, and `close_sound` uses the zero law. A worklist that discovers all new redexes and a Rete implementation/refinement for a substantial analysis family remain open. [Fixed table](../../Silmaril/SSA/Peggy/EPEG/Saturation/Thms.lean) · [Append replay](../../Silmaril/SSA/Peggy/EPEG/Saturation/Extension/Thms.lean) · [Scoped closure](../../Silmaril/SSA/Peggy/EPEG/Saturation/Extension/Dedup/Thms.lean) · [#3313](https://github.com/hiloopai/silmaril-lean/pull/3313) · [#4138](https://github.com/hiloopai/silmaril-lean/pull/4138) |
+| Executable closure (§8.2) | `Saturation.saturate` closes a supplied finite table of ground obligations. `saturate_least`, `saturate_perm` and `run_denote_sound` cover that fixed table, with semantic validity of rule obligations. `Extension.Plan.run` replays a supplied prefix that appends typed rows, with soundness under the corresponding receipt laws. `Extension.Dedup.close` reuses or appends the exact zero-sample RHS for a caller-supplied site list. `close_checked` requires initial eligibility, `close_fixed` proves re-running a checked closed scope stutters, and `close_sound` uses the zero law. [Fixed table](../../Silmaril/SSA/Peggy/EPEG/Saturation/Thms.lean) · [Append replay](../../Silmaril/SSA/Peggy/EPEG/Saturation/Extension/Thms.lean) · [Scoped closure](../../Silmaril/SSA/Peggy/EPEG/Saturation/Extension/Dedup/Thms.lean) · [#3313](https://github.com/hiloopai/silmaril-lean/pull/3313) · [#4138](https://github.com/hiloopai/silmaril-lean/pull/4138) |
+| Zero-sample worklist (§8.2) | `Dedup.Worklist.run` scans the current table for enabled zero-sample visits, including newly appended redexes. `check_normalForm` proves reachable stability for a checked `.fixed` receipt in the `Visits` family. `check_exhausted` certifies budget use with an enabled site remaining. Termination to closure, uniqueness for this visit policy and reusable worklist/Rete refinement for a broader rule family remain open. [Worklist entry](../../Silmaril/SSA/Peggy/EPEG/Saturation/Extension/Dedup/Worklist/Defs.lean#L58) · [Closure theorem](../../Silmaril/SSA/Peggy/EPEG/Saturation/Extension/Dedup/Worklist/Thms.lean#L86) · [Worklist fixture](../../tests/ssa/PeggyEgg.lean#L1180) · [#4408](https://github.com/hiloopai/silmaril-lean/pull/4408) |
 
 ### Selection cycle legality
 
@@ -172,6 +233,7 @@ nesting, and effects remain open for this adapter.
   [§8.3](https://arxiv.org/pdf/1012.1802v3#page=64) ·
   [#3284](https://github.com/hiloopai/silmaril-lean/pull/3284) ·
   [#4129](https://github.com/hiloopai/silmaril-lean/pull/4129)
+
 ### Discovery and profitability (§§8.3–8.4)
 
 - Bounded single-root and contextual acyclic discovery have checked
@@ -196,6 +258,48 @@ nesting, and effects remain open for this adapter.
   [#3626](https://github.com/hiloopai/silmaril-lean/pull/3626) ·
   [#3924](https://github.com/hiloopai/silmaril-lean/pull/3924) ·
   [#3957](https://github.com/hiloopai/silmaril-lean/pull/3957)
+
+### From a worklist receipt to ordered SIMPLE
+
+`Cost.selectWith` checks candidates from a supplied finite list. Its
+legality checks combine row/class and root alignment, native demand
+rank, and the actual feedback-edge rank. The emitter is another admission
+gate. `selectWith_min` ranges only over entries admitted by these gates
+at the supplied cost. `Cost.Bundle.select` adds an ordered emitter for a
+primitive, parentless single loop with direct carried-slot eval roots
+sharing one pass. It preserves order, duplicates and partial PEG values.
+[Selector](../../Silmaril/SSA/Peggy/SimpleValidation/Cyclic/Cost/Defs.lean#L85) ·
+[Minimum theorem](../../Silmaril/SSA/Peggy/SimpleValidation/Cyclic/Cost/Thms.lean#L66) ·
+[Ordered emitter](../../Silmaril/SSA/Peggy/SimpleValidation/Cyclic/Cost/Bundle/Defs.lean#L25) · [Bundle selector](../../Silmaril/SSA/Peggy/SimpleValidation/Cyclic/Cost/Bundle/Defs.lean#L34) ·
+[#4463](https://github.com/hiloopai/silmaril-lean/pull/4463) ·
+[#4505](https://github.com/hiloopai/silmaril-lean/pull/4505)
+
+`Cost.Bundle.Worklist.check` reconstructs the exact endpoint graph and
+partition from the original state and the zero-sample address receipt.
+`CheckedReceipt.select` takes a pool typed at that endpoint and its
+`select_min` compares all admitted pool entries. Both a checked
+`.fixed` receipt and a checked `.exhausted` receipt can feed selection.
+Closure of the current table for this rule and minimum cost in the
+supplied pool are independent claims. Selection keeps the first admitted
+minimum in pool order and returns `none` if no entry passes.
+
+`CheckedReceipt.observe_eq` preserves the original ordered Figure 11
+tuple, including bottom, under the defined-zero law, source demand
+well-foundedness and initial class validity. `observe_of_exec` transports
+a successful emitted SIMPLE execution to that original observation under
+the negation law. `exec_iff_observe` gives the finite-execution converse
+for a fully defined tuple with total guard and complete update. The
+regression checks `[2, 17, 2]` after either stop status and rejects the
+same redirected index with singleton classes. General candidate
+enumeration and the paper's global profitability and reversion
+guarantees remain open.
+[Receipt check](../../Silmaril/SSA/Peggy/SimpleValidation/Cyclic/Cost/Bundle/Worklist/Defs.lean#L30) ·
+[Receipt selector](../../Silmaril/SSA/Peggy/SimpleValidation/Cyclic/Cost/Bundle/Worklist/Defs.lean#L42) ·
+[Pool minimum](../../Silmaril/SSA/Peggy/SimpleValidation/Cyclic/Cost/Bundle/Worklist/Thms.lean#L36) ·
+[Observation equality](../../Silmaril/SSA/Peggy/SimpleValidation/Cyclic/Cost/Bundle/Worklist/Thms.lean#L53) ·
+[Execution equivalence](../../Silmaril/SSA/Peggy/SimpleValidation/Cyclic/Cost/Bundle/Worklist/Thms.lean#L78) ·
+[Regression](../../tests/ssa/PeggySimpleValidation.lean#L547) ·
+[#4537](https://github.com/hiloopai/silmaril-lean/pull/4537)
 
 ### Figure 6(b) to executable SIMPLE
 
@@ -278,6 +382,33 @@ guard/update schedules.
 [#3229](https://github.com/hiloopai/silmaril-lean/pull/3229) ·
 [#3380](https://github.com/hiloopai/silmaril-lean/pull/3380)
 
+### Signatures that change data sorts
+
+`Peggy.SortMap.inst` uses signatures carrying their own data sorts.
+An arrow maps data sorts (possibly identifying them) and opcodes at the
+mapped ordered profiles. Boolean and count sorts stay fixed. On the
+reusable PEG side, `Graph.mapData` transports ordered ports by position.
+`Graph.observe_denote_mapData` transports every optional root at every
+index. The reduct pulls target carriers back along the sort function.
+`Peggy.SortMap.Equation.holds_map` is exact satisfaction of mapped open
+equations in the target model versus the reduct.
+`Peggy.SortMap.fixedComparison` is the bundled comorphism from a
+fixed-sort Peggy institution to this one, using the same local sentences
+and models on identity-sort arrows. The regression identifies two
+distinct source sorts and retains two ordered inputs `2` and `9` and
+ordered results `11` and `9` at iteration one. The theorem is about
+transport by profiles and pullback carriers. It supplies no arbitrary
+carrier conversion or new IR endpoint.
+[Graph transport](../../Silmaril/SSA/PEG/SortMap/Defs.lean#L87) ·
+[Observation theorem](../../Silmaril/SSA/PEG/SortMap/Thms.lean#L80) ·
+[Satisfaction](../../Silmaril/SSA/Peggy/Institution/SortMap/Thms.lean#L46) ·
+[Institution](../../Silmaril/SSA/Peggy/Institution/SortMap/Thms.lean#L65) ·
+[Comorphism](../../Silmaril/SSA/Peggy/Institution/SortMap/Thms.lean#L89) ·
+[Regression](../../tests/ssa/PeggySortMap.lean#L112) ·
+[#4574](https://github.com/hiloopai/silmaril-lean/pull/4574)
+
+### IR bridges
+
 | Route | Theorem, interface and observation |
 | --- | --- |
 | Many-sorted equational logic → total-primitive Peggy | `Equational.comorphism`, `exact_satisfaction`, `modelExpansive` and `entails_compile_iff` give entailment equivalence in the stated total-primitive subinstitution. [Theorems](../../Silmaril/SSA/Peggy/Bridge/Equational/Thms.lean) · [#3414](https://github.com/hiloopai/silmaril-lean/pull/3414) |
@@ -289,10 +420,15 @@ guard/update schedules.
 | Checked PEG loop → typed cyclic λRTL | `Region.LambdaRTL.lower` emits the mutable-register CFG, and `observeFuel` runs the target steps. `observeFuel_eq` relates target fuel `f` to `f / 2` numbered activations. `returns_iff_observe` compares the packed ordered tuple at the exit under totality and negation, projecting away the scratch store. [λRTL theorems](../../Silmaril/SSA/PEG/Bridge/Theta/Region/LambdaRTL/Thms.lean) · [#4295](https://github.com/hiloopai/silmaril-lean/pull/4295) |
 | Exact 64-bit SCF image → machine RTL SSA | `Silmaril.Machine.PEG.CountedLoop.lower` requires an `Image` witness of the exact three-word `[count, left, right]` SCF template. `returns_iff_observe_bank` assumes correct nonzero, modular decrement/addition, and PEG negation. It characterizes finite `runMain` returns with the exact ordered bank and unchanged memory. The latch transfers `[count-1, right, left+right]` in parallel. This is a verified specialization over all admitted bank inputs and initial memories. Generic instruction selection, arbitrary schedules, physical register allocation and external ABI are outside its scope. The bridge goes through SCF, while the typed λRTL route is separate. [Template and lowering](../../Silmaril/Machine/PEG/CountedLoop/Defs.lean) · [Agreement](../../Silmaril/Machine/PEG/CountedLoop/Thms.lean) · [#4347](https://github.com/hiloopai/silmaril-lean/pull/4347) |
 
-These loop bridges compare complete finite returns. General divergence,
-trapping and effect correspondence require additional observations. General nested/effectful IR comorphisms would need their
-own model and observation proofs. The structured target regressions check
-two trips and zero trips; the machine fixture also checks modular wrap.
+The regionless, marked θ and marked native λSSA arrows named above are
+bundled comorphisms with satisfaction and model comparison. The SCF/CF,
+scoped feedback MLIR, λRTL and exact machine RTL entries give semantic
+lowering theorems for the stated profiles. The bundled IR arrows use
+their own fixed-sort signatures. The loop bridges compare finite complete
+returns. General nesting needs additional lowering proofs, and
+divergence, traps and effects need richer observations. The structured
+target regressions check two trips and zero trips. The machine fixture
+also checks modular wrap.
 [Target regressions](../../tests/ssa/PEGStructuredTheta.lean)
 
 ## Java profile and experiments (§§8.1, 9 and Appendix A)
@@ -363,59 +499,54 @@ writers is rejected with `Rejection.reversion`.
 Use the audited main revision and its pinned Lean and Lake manifest.
 `PeggyEggTests` checks the Figure 6 run, typed external-input discovery,
 feedback legality, and scoped closure. `PEGCoreTests` and
-`PEGCanonicalWhileTests` exercise structured admission and reversion.
+`PEGCanonicalWhileTests` exercise structured admission, Figure 18
+completion and checked parent/child reversion.
+`PeggySimpleValidationTests` checks receipt-to-selection and emitted
+execution, and `PeggySortMapTests` checks non-injective sort transport.
 `PEGStructuredThetaTests` runs the checked ordered loop through the
 target evaluators above.
 
 ```sh
-lake build --wfail PeggyEggTests PEGCoreTests PEGCanonicalWhileTests PEGStructuredThetaTests
+lake build --wfail PeggyEggTests PEGCoreTests PEGCanonicalWhileTests PeggySimpleValidationTests PeggySortMapTests PEGStructuredThetaTests
 lake env leanchecker tests.ssa.PeggyEgg
 lake env leanchecker tests.ssa.PEGStructuredTheta
 ```
 
 ## Remaining work in priority order
 
-1. **Compose cyclic selection with reversion across a larger structure.**
-   `Structured.translate_figure19` already covers arbitrary structured
-   frontend syntax. `Nested.Reindexed.Automatic.Accepted.returns_iff_observe`
-   covers a recompiled two-level shape, and
-   `Closed.Automatic.Recovered.exec_iff_firstExit` covers typed inputs
-   for one loop under slice totality and the role laws. Build outward from
-   those interfaces with checked placement, phase-correct boundaries
-   and retained first-exit prefixes. General
-   fusion and the paper's more advanced CFG reversion depend on this work.
-2. **Connect executable saturation and profitability to their semantic
-   specifications.** The abstract `NormalForms.paperNormalForm_unique`
-   and the concrete `ZeroSampleAnalysis.monotone` proof are available.
-   Coverage of a supplied finite `Dedup.close` scope leaves discovery
-   and closure over new redexes to prove. Build the executable
-   match/worklist refinement and independently checked cost-based
-   selection. Extend guarded rule coverage with a definedness contract
-   for each rule family needed by the remaining paper examples.
-3. **Address completion and effects separately from Theorem 2.** A
-   defined PEG return can leave an undefined or diverging source
-   computation undemanded.
-   Specify the additional completion or fault observation of Figure 18,
-   then prove preservation through compilation and reversion for it.
-   `FieldHeap.Linearize.run_eq_observe` is a starting point for one
-   explicit effect chain, with general Java and §9 reproduction further
-   downstream.
+1. **Make completion recursive over typed SIMPLE.** Lift the tokenized
+   store invariant from `Token.Body.lower` to `Stmt P true` by reusing
+   the existing structured builders. Prove one scope-indexed
+   correspondence for a statement with an incoming token, first for
+   composition and then for a `while` whose body uses that same theorem
+   recursively. Test it by deriving both existing child forms from the
+   common compiler. This targets a single successful-completion
+   equivalence for arbitrary typed programs. Distinguishing finite
+   failure from divergence needs a richer observation and belongs in a
+   separate theorem.
+2. **Give reversion a typed, recursive schedule.** Refactor the checked
+   sibling handoff and the parent/child activation into schedule
+   constructors with ordered input and output ports and explicit
+   observations at the enclosing coordinates. Prove composition for a
+   sequence of any length from `Siblings.Accepted.exec_iff_observations`
+   and reuse `Nested.Region.Accepted.trace_of_exits` for a loop region.
+   Put existing examples through the same checker before extending
+   branch placement and automating descriptor discovery. This is a
+   step toward reversion from inward Figure 19 evidence. General
+   schedule existence, loop and branch fusion, and the paper's
+   placement completeness still need proofs.
+3. **Generalize replay before broadening profitability.** Parameterize
+   the checked `Dedup.Worklist` driver by a rule's match, extension,
+   class update, coverage and preservation interfaces. Instantiate it
+   with zero sampling and one independently proved guarded rule.
+   Relate checked closure to stability for their combined visit family.
+   The conditions of (4.1)–(4.4) must be proved for that family before
+   using its uniqueness theorem. Then connect a finite enumeration of
+   legal candidates to `Cost.selectWith_min`, with coverage of that
+   enumeration stated explicitly. The paper's Rete engine, general
+   weighted pseudo-Boolean selection, and the remaining Appendix A
+   rules stay separate obligations.
 
-Three small implementation slices for the next round:
-
-1. Add checked sequential composition of **two sibling loops** with a
-   typed projected interface. Reuse single-loop `Region` or `Closed`
-   schedules and prove first exits at the original coordinates for both
-   loops. Include a zero-trip sibling and a repeated output. This extends
-   extraction while staying within structured control flow.
-2. Add a bounded worklist for `Extension.Dedup.close` that discovers
-   eligible sites and checks newly generated rows. Distinguish exhausted
-   fuel from a closed worklist. Prove that a closed result covers every
-   eligible site in the resulting table and preserves observations under
-   the zero law.
-3. Add bounded representative enumeration with an explicit additive
-   cost and a minimum theorem over the enumerated **legal** candidates.
-   Require checked row equality, `FeedbackRank`, and the applicable
-   Figure 19/demand/schedule witnesses for each candidate. Use a small
-   cyclic graph where the cheapest unchecked representative is illegal.
-   This gives a reference for checking a later pseudo-Boolean encoding.
+The Java frontend, general effect/token semantics and the historical
+evaluation remain downstream. Those results require source and target
+observations for effects, plus separate benchmark reproduction.
