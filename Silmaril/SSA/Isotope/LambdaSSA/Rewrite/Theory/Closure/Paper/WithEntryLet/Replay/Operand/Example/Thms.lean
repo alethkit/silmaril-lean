@@ -11,10 +11,22 @@ public section
 namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithEntryLet.OperandExample
 
 open CategoryTheory CategoryTheory.Limits
+open EntryLetObstruction
+open Paper.TypeCategory (ofRegion discardArrow sumIso)
 open Extension.Singleton (projection projectStep iterateChosen)
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper
 
 local notation "J" => projection Seed
+
+/-- Forgetting either recurrent tag leaves the same computation on Unit. -/
+theorem taggedSource_forget (q : X ⟶ X) :
+    taggedSource q ≫ coprod.map (𝟙 X) forget = forget ≫ q ≫ discardArrow U ≫ coprod.inr :=
+  EntryLetOperandExample.taggedSource_forget q
+
+theorem movedTarget_eq :
+    ofRegion movedStep_typed ≫ (sumIso U U).hom =
+      ofRegion movedRequest_typed ≫ discardArrow U ≫ coprod.inr :=
+  EntryLetOperandExample.movedTarget_eq
 
 /-- Forgetting the tag is a structural constructor return. -/
 theorem forget_structural : Extension.Singleton.StructuralValues.HomProperty Seed ((J).map forget) :=

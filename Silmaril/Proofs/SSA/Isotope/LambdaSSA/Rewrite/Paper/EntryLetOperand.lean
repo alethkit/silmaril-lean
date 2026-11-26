@@ -133,6 +133,31 @@ theorem move_pullback (site : Site) {Γ : VCtx τ} {L : LCtx τ}
   exact ⟨q, he, rfl, move_sound site hr he⟩
 
 
+theorem moveAll_pullback (sites : List Site) {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
+    (hr : ValueBranches Γ r L) (θ : Nat → Tm Φ)
+    (hm : Site.moveAll sites (r.substVars θ) = some s) :
+    ∃ q, Site.moveAll sites r = some q ∧ s = q.substVars θ ∧
+      ValueBranches Γ q L ∧ Paper.WithEntryLet.Eqv Γ r q L := by
+  induction sites generalizing r s with
+  | nil =>
+    change some (r.substVars θ) = some s at hm
+    exact ⟨r, rfl, (Option.some.inj hm).symm, hr, .paper (.refl hr.hasType)⟩
+  | cons site sites ih =>
+    cases he : site.move (r.substVars θ) with
+    | none => simp [Site.moveAll, List.foldlM, he] at hm
+    | some next =>
+      obtain ⟨q, hq, hnext, htyped, eq⟩ := move_pullback site hr θ he
+      have hrest : Site.moveAll sites (q.substVars θ) = some s := by
+        change (site.move (r.substVars θ) >>= Site.moveAll sites) = some s at hm
+        rw [he] at hm
+        change Site.moveAll sites next = some s at hm
+        rwa [hnext] at hm
+      obtain ⟨out, hout, heq, ht, erest⟩ := ih htyped hrest
+      refine ⟨out, ?_, heq, ht, .trans eq erest⟩
+      change (site.move r >>= Site.moveAll sites) = some out
+      rw [hq]
+      exact hout
+
 open CategoryTheory CategoryTheory.Limits
 open Paper.TypeCategory (ofType ofRegion sumIso)
 open Paper.Extension.Singleton (projection projectStep iterateChosen)
@@ -156,18 +181,18 @@ theorem comp_constructor {C : τ} {q : Region Φ} (ha : Tm.BranchValue [A] a D)
   rw [e]
   exact .refl ht.hasType
 
-theorem repairTarget (site : Site) (ha : Tm.BranchValue [A] a D)
+theorem repairTargetMoves (sites : List Site) (ha : Tm.BranchValue [A] a D)
     (hr : ValueBranches [D] r [Silmaril.coprod B D])
     (f : Obj A ⟶ Obj B ⨿ Obj A)
     (hs : ValueBranches [A] s [Silmaril.coprod B D])
-    (hm : site.move (r.substVars (Tm.singleSubst a ∘ lift Nat.succ)) = some s)
+    (hm : Site.moveAll sites (r.substVars (Tm.singleSubst a ∘ lift Nat.succ)) = some s)
     (comm : f ≫ coprod.map (𝟙 (Obj B)) (ofRegion (.br (ℓ := 0) rfl ha)) =
       ofRegion hs ≫ (sumIso B D).hom) :
     let h := ofRegion (.br (ℓ := 0) rfl ha)
     ∃ g : Obj D ⟶ Obj B ⨿ Obj D,
       projectStep Seed g = projectStep Seed (ofRegion hr ≫ (sumIso B D).hom) ∧
       f ≫ coprod.map (𝟙 (Obj B)) h = h ≫ g := by
-  obtain ⟨q, _, rfl, hq, eq⟩ := move_pullback site hr _ hm
+  obtain ⟨q, _, rfl, hq, eq⟩ := moveAll_pullback sites hr _ hm
   refine ⟨ofRegion hq ≫ (sumIso B D).hom, ?_, ?_⟩
   · have ec := (Paper.Extension.Singleton.ofRegion_eq_iff Seed hr hq).2 eq
     unfold projectStep
@@ -175,17 +200,17 @@ theorem repairTarget (site : Site) (ha : Tm.BranchValue [A] a D)
     exact congrArg (fun k => (k ≫ (projection Seed).map (sumIso B D).hom) ≫ _) ec.symm
   · rwa [← Category.assoc, comp_constructor]
 
-theorem uniformity_of_target_move (site : Site) (ha : Tm.BranchValue [A] a D)
+theorem uniformity_of_target_moves (sites : List Site) (ha : Tm.BranchValue [A] a D)
     (hr : ValueBranches [D] r [Silmaril.coprod B D])
     (f : Obj A ⟶ Obj B ⨿ Obj A)
     (hs : ValueBranches [A] s [Silmaril.coprod B D])
-    (hm : site.move (r.substVars (Tm.singleSubst a ∘ lift Nat.succ)) = some s)
+    (hm : Site.moveAll sites (r.substVars (Tm.singleSubst a ∘ lift Nat.succ)) = some s)
     (comm : f ≫ coprod.map (𝟙 (Obj B)) (ofRegion (.br (ℓ := 0) rfl ha)) =
       ofRegion hs ≫ (sumIso B D).hom) :
     iterateChosen Seed (projectStep Seed f) =
       (projection Seed).map (ofRegion (.br (ℓ := 0) rfl ha)) ≫
         iterateChosen Seed (projectStep Seed (ofRegion hr ≫ (sumIso B D).hom)) := by
-  obtain ⟨g, hg, native⟩ := repairTarget site ha hr f hs hm comm
+  obtain ⟨g, hg, native⟩ := repairTargetMoves sites ha hr f hs hm comm
   rw [← hg]
   exact Paper.Extension.Singleton.uniformity_of_constructor_square Seed ⟨a, ha, rfl⟩ f g native
 

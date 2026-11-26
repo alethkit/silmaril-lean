@@ -41,6 +41,19 @@ def flatRecurringRequest : Region Instruction :=
 def movedRecurringRequest : Region Instruction :=
   compLSubst (fun _ => movedRequest) (fun _ => .br 0 (.inr .unit)) 0
 
+/-- Sequence two requests through an outward-only one-label continuation. -/
+def sequenceRequests (p q : Region Instruction) : Region Instruction :=
+  CfgEta.singleCfg p
+    ((q.renameVars (Silmaril.DeBruijn.lift Nat.succ)).renameLabels Nat.succ)
+
+def twoFlatRequests : Region Instruction := sequenceRequests flatRequest flatRecurringRequest
+
+def firstRequestMoved : Region Instruction := sequenceRequests movedRequest flatRecurringRequest
+
+def secondRequestMoved : Region Instruction := sequenceRequests flatRequest movedRecurringRequest
+
+def bothRequestsMoved : Region Instruction := sequenceRequests movedRequest movedRecurringRequest
+
 def unaryBlock : Region Instruction := .br 1 (.var 0)
 
 /-- Run the request under a unary binder before the two local transfers. -/

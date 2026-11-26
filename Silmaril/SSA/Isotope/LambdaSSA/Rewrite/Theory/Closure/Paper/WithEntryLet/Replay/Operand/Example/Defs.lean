@@ -29,11 +29,13 @@ theorem flatStep_typed : ValueBranches [U] flatRecurringRequest [Bit] :=
 theorem movedStep_typed : ValueBranches [U] movedRecurringRequest [Bit] :=
   CfgEta.TypeCategory.seqValueBranches movedRequest_typed (.br rfl (.inr .unit))
 
-/-- Each tag runs the request and returns to that same tag. -/
-noncomputable def source : D ⟶ X ⨿ D :=
-  let arm (inject : X ⟶ D) := discardArrow U ≫ ofRegion movedRequest_typed ≫
+/-- Run the supplied computation on either tag and recur with that tag. -/
+noncomputable def taggedSource (run : X ⟶ X) : D ⟶ X ⨿ D :=
+  let arm (inject : X ⟶ D) := discardArrow U ≫ run ≫
     discardArrow U ≫ inject ≫ (coprod.inr : D ⟶ X ⨿ D)
   (sumIso U U).hom ≫ coprod.desc (arm (sumCofan U U).inl) (arm (sumCofan U U).inr)
+
+noncomputable def source : D ⟶ X ⨿ D := taggedSource (ofRegion movedRequest_typed)
 
 /-- The written target still has the request inside its flat table. -/
 noncomputable def target : X ⟶ X ⨿ X := ofRegion flatStep_typed ≫ (sumIso U U).hom
