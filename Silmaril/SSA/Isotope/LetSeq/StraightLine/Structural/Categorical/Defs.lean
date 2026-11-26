@@ -15,7 +15,11 @@ open LocallyNameless (Derivation)
 open LetIter.Semantics.Categorical (ofTypeModel ofInstructionModel)
 open scoped Structural
 
-variable {α Φ : Type} [Signature α Φ]
+variable {α Φ : Type}
+
+section Native
+
+variable [Signature α Φ]
 
 /-- The actual native typed inclusion into the existing categorical interpreter. -/
 def asIter {n : Nat} {β : Context α n} {t : Term Φ n} {A : Ty α}
@@ -28,12 +32,17 @@ abbrev Valid {n : Nat} {β : Context α n} {t u : Term Φ n} {A : Ty α}
     (d : Derivation Φ Γ₀ β t A) (e : Derivation Φ Γ₀ β u A) : Prop :=
   LetIter.Semantics.Categorical.Syntactic.RepairedLocallySmallValidity false (asIter d) (asIter e)
 
+end Native
+
+variable [HasTy Φ (Ty α)] in
 abbrev traceJ := Kleisli.Adjunction.toKleisli (ofTypeMonad (Trace α Φ))
 
 noncomputable abbrev traceTypes (α : Type) := ofTypeModel (Value (α := α))
 
+variable [HasTy Φ (Ty α)] in
 abbrev traceInstructions := ofInstructionModel (Value (α := α)) (model (Φ := Φ))
 
+variable [Signature α Φ] in
 /-- The categorical arrow in the actual ordered trace Kleisli category. -/
 noncomputable def traceArrow {n : Nat} {β : Context α n} {t : Term Φ n} {A : Ty α}
     (d : Derivation Φ Γ₀ β t A) :=
