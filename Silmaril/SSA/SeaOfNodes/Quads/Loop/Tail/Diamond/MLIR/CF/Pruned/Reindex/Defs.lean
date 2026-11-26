@@ -27,6 +27,14 @@ the same sort, with the inverse covering every new position. -/
 abbrev Permutation {T : Type u} (old new : List T) :=
   ∀ t, Port old t ≃ Port new t
 
+def Permutation.refl {T : Type u} (ports : List T) : Permutation ports ports :=
+  fun t => Equiv.refl (Port ports t)
+
+/-- Apply the first port map, then the second port map. -/
+def Permutation.trans {T : Type u} {old mid new : List T}
+    (first : Permutation old mid) (second : Permutation mid new) : Permutation old new :=
+  fun t => (first t).trans (second t)
+
 def Permutation.symm {T : Type u} {old new : List T} (order : Permutation old new) : Permutation new old :=
   fun t => (order t).symm
 
