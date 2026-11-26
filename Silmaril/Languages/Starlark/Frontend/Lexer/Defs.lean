@@ -24,7 +24,7 @@ structure Span where
 inductive Feature where
   | nonAsciiName
   | floatLiteral | quotedLiteral
-  | compoundStatement | loadStatement | functionControl
+  | compoundStatement | loadStatement | lateLoad | functionControl
   | inlineSuite | parameters | functionFile
   | augmentedAssignment | spreadKey
   | tuple | collection | lambda | call | callArguments | subscript | attribute | operator
@@ -44,7 +44,8 @@ inductive DiagnosticKind where
   | unexpectedCloser (found : String)
   | mismatchedCloser (expected found : String)
   | unclosedDelimiter (expected : String)
-  | topLevelIf | topLevelReturn | duplicateParameter (name : String)
+  | topLevelIf | topLevelReturn | loadInFunction | duplicateParameter (name : String)
+  | invalidImportName (name : String)
   | reservedWord (word : String)
   | expected (description : String)
   | chainedComparison | invalidAssignmentTarget
@@ -61,7 +62,7 @@ structure Diagnostic where
 inductive TokenKind where
   | name (text : String)
   | integer (value : Nat)
-  /-- Unescaped text for mapping spread display keys. -/
+  /-- Unescaped text for load operands and mapping spread keys. -/
   | plainString (value : String)
   | keyword (text : String)
   | symbol (text : String)
@@ -115,15 +116,31 @@ private def containsPrefix (s : Cursor) (p : String) : Bool := p.toList.isPrefix
 private def failAt {α : Type} (kind : DiagnosticKind) (start stop : Position) :
     Except Diagnostic α := .error ⟨kind, ⟨start, stop⟩⟩
 
-private def nameStart (c : Char) : Bool := c.isAlpha || c == '_' || c.toNat ≥ 128
+private def reservedWords : List String :=
+  ["as", "assert", "async", "await", "class", "del", "except", "finally", "from", "global",
+   "import", "is", "nonlocal", "raise", "try", "while", "with", "yield"]
+
+private def keywords : List String :=
+  ["and", "break", "continue", "def", "elif", "else", "for", "if", "in", "lambda",
+   "load", "not", "or", "pass", "return"]
+
+private def asciiNameStart (c : Char) : Bool := c.isAlpha || c == '_'
+
+/-- Check the ASCII identifier spellings admitted by the text frontend. -/
+def isAsciiIdentifier (name : String) : Bool :=
+  match name.toList with
+  | [] => false
+  | first :: rest =>
+    asciiNameStart first && rest.all (fun c => asciiNameStart c || c.isDigit) &&
+      !reservedWords.contains name && !keywords.contains name
+
+private def nameStart (c : Char) : Bool := asciiNameStart c || c.toNat ≥ 128
 
 private def word (s : Cursor) : Except Diagnostic (TokenKind × Cursor) := do
   let (name, next) := s.take (fun c => nameStart c || c.isDigit)
-  if ["as", "assert", "async", "await", "class", "del", "except", "finally", "from", "global",
-      "import", "is", "nonlocal", "raise", "try", "while", "with", "yield"].contains name then
+  if reservedWords.contains name then
     failAt (.reservedWord name) s.pos next.pos
-  else if ["and", "break", "continue", "def", "elif", "else", "for", "if", "in", "lambda",
-      "load", "not", "or", "pass", "return"].contains name then
+  else if keywords.contains name then
     return (.keyword name, next)
   else if name.toList.any (fun c => c.toNat ≥ 128) then
     return (.outside .nonAsciiName, next)

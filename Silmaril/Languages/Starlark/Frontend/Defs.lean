@@ -63,11 +63,20 @@ structure LocatedCallArguments where
   star : Option LocatedPositionalSpread := none
   starStar : Option LocatedMappingSpread := none
 
+structure LocatedString where
+  span : Span
+  text : String
+
+structure LocatedImport where
+  exported : LocatedString
+  localName : LocatedString
+
 /-- The source forms consumed by the normalized module adapter. -/
 inductive FileCommand where
   | simple (stmt : SourceStmt)
   | define (fn : LocatedFunction)
   | assignCall (target callee : String) (arguments : LocatedCallArguments)
+  | load (label : LocatedString) (imports : List LocatedImport)
 
 structure LocatedFileCommand where
   span : Span
@@ -216,7 +225,8 @@ private def parseSmallStmt (exprFuel : Nat) (inFunction : Bool) (s : Stream) :
     Except Diagnostic (SourceStmt × Stream) := do
   match s.peek.kind with
   | .indent => failAt .unexpectedIndent s
-  | .keyword "load" => failAt (.unsupported .loadStatement) s
+  | .keyword "load" =>
+    if inFunction then failAt .loadInFunction s else failAt (.unsupported .loadStatement) s
   | .keyword "break" | .keyword "continue" => failAt (.unsupported .functionControl) s
   | .keyword "return" =>
     unless inFunction do return ← failAt .topLevelReturn s
@@ -473,36 +483,72 @@ private def parseFileSmall (exprFuel : Nat) (s : Stream) : Except Diagnostic (Fi
     else return (.assignCall target callee arguments, rest)
   | _ => (parseSmallStmt exprFuel false s).map fun (stmt, rest) => (.simple stmt, rest)
 
+private def parseLoadString (description : String) (s : Stream) :
+    Except Diagnostic (LocatedString × Stream) :=
+  match s.peek.kind with
+  | .plainString value => .ok (⟨s.peek.span, value⟩, s.pop)
+  | .outside .quotedLiteral => failAt (.unsupported .quotedLiteral) s
+  | _ => expect description s
+
+private def parseLoadExport (s : Stream) : Except Diagnostic (LocatedString × Stream) := do
+  let (name, rest) ← parseLoadString "a quoted export name" s
+  if name.text.toList.any (fun c => c.toNat ≥ 128) then
+    return ← failAt (.unsupported .nonAsciiName) s
+  unless isAsciiIdentifier name.text do return ← failAt (.invalidImportName name.text) s
+  return (name, rest)
+
+private def parseLoadImport (s : Stream) : Except Diagnostic (LocatedImport × Stream) := do
+  match s.peek.kind with
+  | .name alias =>
+    let (name, rest) ← parseLoadExport (← consumeSymbol "=" s.pop)
+    return (⟨name, ⟨s.peek.span, alias⟩⟩, rest)
+  | .outside .nonAsciiName => failAt (.unsupported .nonAsciiName) s
+  | _ =>
+    let (name, rest) ← parseLoadExport s
+    return (⟨name, name⟩, rest)
+
+private def parseLoad (fuel : Nat) (s : Stream) : Except Diagnostic (FileCommand × Stream) := do
+  let (label, rest) ← parseLoadString "a quoted module label" (← consumeSymbol "(" s.pop)
+  if rest.peek.kind = .symbol ")" then return ← expect "an imported name" rest
+  let next ← consumeSymbol "," rest
+  if next.peek.kind = .symbol ")" then return ← expect "an imported name" next
+  let (imports, rest) ← parseDisplayItems parseLoadImport ")" fuel next []
+  return (.load label imports, rest)
+
 private def parseFileCommands (exprFuel : Nat) :
-    Nat → Bool → Stream → List LocatedFileCommand → Except Diagnostic (List LocatedFileCommand)
-  | 0, _, s, _ => failAt .exhausted s
-  | fuel + 1, lineStart, s, commands => do
+    Nat → Bool → Bool → Stream → List LocatedFileCommand → Except Diagnostic (List LocatedFileCommand)
+  | 0, _, _, s, _ => failAt .exhausted s
+  | fuel + 1, lineStart, leading, s, commands => do
     match s.peek.kind with
     | .eof => return commands.reverse
-    | .newline => parseFileCommands exprFuel fuel true s.pop commands
+    | .newline => parseFileCommands exprFuel fuel true leading s.pop commands
     | .keyword "def" =>
       unless lineStart do return ← expect "a simple statement" s
       let (fn, rest) ← parseFunctionAt exprFuel true s
-      parseFileCommands exprFuel fuel true rest (⟨fn.span, .define fn⟩ :: commands)
+      parseFileCommands exprFuel fuel true false rest (⟨fn.span, .define fn⟩ :: commands)
     | .keyword "if" | .keyword "for" =>
       unless lineStart do return ← expect "a simple statement" s
       if s.peek.kind = .keyword "if" then failAt .topLevelIf s
       else failAt (.unsupported .compoundStatement) s
     | _ =>
-      let (command, rest) ← parseFileSmall exprFuel s
+      let isLoad := s.peek.kind == .keyword "load"
+      let (command, rest) ← if isLoad then do
+          unless leading do return ← failAt (.unsupported .lateLoad) s
+          parseLoad exprFuel s
+        else parseFileSmall exprFuel s
       let located := ⟨⟨s.peek.span.start, rest.lastEnd⟩, command⟩
       let (lineStart, next) ← finishSmallStmt rest
-      parseFileCommands exprFuel fuel lineStart next (located :: commands)
+      parseFileCommands exprFuel fuel lineStart isLoad next (located :: commands)
 
 private def parseFileTokens (tokens : List Token) : Except Diagnostic (List LocatedFileCommand) :=
   let fuel := parserFuel tokens
-  parseFileCommands fuel fuel true ⟨tokens, {}⟩ []
+  parseFileCommands fuel fuel true true ⟨tokens, {}⟩ []
 
-/-- Parse a scalar file with definitions and direct call assignments. -/
+/-- Parse a scalar file with leading loads, definitions and direct call assignments. -/
 def parseFile (source : String) : Except Diagnostic (List LocatedFileCommand) := do
   parseFileTokens (← lex source)
 
-/-- Parse a scalar file with definitions and direct call assignments from UTF-8 bytes. -/
+/-- Parse a scalar file with leading loads, definitions and direct call assignments from UTF-8 bytes. -/
 def parseFileUtf8 (source : ByteArray) : Except Diagnostic (List LocatedFileCommand) := do
   parseFileTokens (← lexUtf8 source)
 
