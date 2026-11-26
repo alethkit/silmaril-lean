@@ -10,7 +10,8 @@ namespace Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step
 
 open Silmaril.MLIR.Arith (Env Width)
 open Silmaril.MLIR.CF (Cfg)
-open AfterReorder.Second (checkConsumer findCandidate?)
+open Silmaril.MLIR.Pure (Operands)
+open AfterReorder.Second (checkConsumer findCaptured? valueAt?)
 open AfterReorder.Second.Emit (emitAt?)
 open Loop.MLIR.CF (Program TargetOp evalOp lower model)
 
@@ -22,7 +23,7 @@ variable {moved : Emission Input saved carried result extra}
 theorem emit_spec (accepted : emit state request = .ok moved) :
     request.cut = (extra ++ [saved]).length ∧
     state.origins[moved.index]? = some request.origin ∧
-    findCandidate? moved.index 0 (Saved.origins (extra ++ [saved])) (state.cfg.block .header) =
+    findCaptured? moved.index 0 (Saved.origins (extra ++ [saved])) (state.cfg.block .header) =
       some moved.candidate ∧ checkConsumer state.cfg moved.candidate = true ∧
     emitAt? state.cfg moved.index moved.candidate.op moved.candidate.inputs = some moved.next.cfg ∧
     moved.next.origins = state.origins.eraseIdx moved.index ∧ moved.next.slots = .cons request.origin state.slots :=
@@ -32,6 +33,39 @@ theorem emit_spec (accepted : emit state request = .ok moved) :
 theorem emit_legal (accepted : emit state request = .ok moved) :
     Legal state.cfg moved.candidate.operands moved.candidate.uses ⟨none, request.cut⟩ :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.emit_legal accepted
+
+/-- On the actual current header the selected binding has the same value
+for every latch argument with the given saved values and immutable inputs. -/
+theorem emit_header_value (accepted : emit state request = .ok moved)
+    (input : Env Input) (values : Env (extra ++ [saved])) (latch : BitVec carried.val) :
+    valueAt? moved.index (state.cfg.block .header) ((values.append (.cons latch .nil)).append input) =
+      some ⟨moved.candidate.width, evalOp moved.candidate.op (moved.candidate.inputs.eval (values.append input))⟩ :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.emit_header_value accepted input values latch
+
+/-- The append cut is legal, immutable operands come from cut zero, and
+the value on the actual header depends only on those inputs. -/
+theorem emit_immutable (accepted : emit state request = .ok moved)
+    {inputs : Operands Input moved.candidate.args} (immutable : moved.candidate.immutableInputs? = some inputs) :
+    Legal state.cfg moved.candidate.operands moved.candidate.uses ⟨none, request.cut⟩ ∧
+    (∀ operand ∈ moved.candidate.operands, operand = ⟨none, 0⟩) ∧
+    ∀ (input : Env Input) (values : Env (extra ++ [saved])) (latch : BitVec carried.val),
+      valueAt? moved.index (state.cfg.block .header) ((values.append (.cons latch .nil)).append input) =
+        some ⟨moved.candidate.width, evalOp moved.candidate.op (inputs.eval input)⟩ :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.emit_immutable accepted immutable
+
+/-- A successful prior saved-dependent check gives exactly the same
+candidate, CFG, and origin update under the enriched emitter. -/
+theorem emit_of_saved_capture {index : Nat}
+    {candidate : AfterReorder.Second.Candidate Input saved carried result extra}
+    {target : Cfg TargetOp (Label saved carried result (candidate.width :: extra)) Input [result]}
+    (cut : request.cut = (extra ++ [saved]).length) (located : state.origins.idxOf? request.origin = some index)
+    (found : AfterReorder.Second.findCandidate? index 0 (Saved.origins (extra ++ [saved]))
+      (state.cfg.block .header) = some candidate)
+    (checked : checkConsumer state.cfg candidate = true)
+    (edited : emitAt? state.cfg index candidate.op candidate.inputs = some target) :
+    emit state request = .ok ⟨index, candidate, ⟨target, state.origins.eraseIdx index,
+      .cons request.origin state.slots⟩⟩ :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.emit_of_saved_capture cut located found checked edited
 
 /-- The checked step extends both the typed packet and its entry-prefix witness. -/
 theorem emit_invariant

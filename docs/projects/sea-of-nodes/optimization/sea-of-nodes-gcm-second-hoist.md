@@ -16,9 +16,9 @@ plan, and the consumer's original header binding identity. It replays the
 header requests, resolves the producer on that reordered header, and
 runs the existing corridor hoist. It removes the producer from the
 tracked order and resolves the consumer on the resulting header. The
-consumer must read the producer's saved header argument. Its other
-operands may read that argument or immutable inputs. A latch argument or
-any remaining local result causes refusal. The saved operand's
+consumer can capture the producer's saved header argument and immutable
+inputs, including the case where all operands come from inputs. A latch
+argument or any remaining local result causes refusal. The saved operand's
 definition is at preheader cut one, and immutable inputs are at cut
 zero. The existing exact CFG cut checker tests cut one against those
 definitions and the newly scanned uses, including exact branch slots and

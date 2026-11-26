@@ -4,6 +4,7 @@ public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Defs
 public import Silmaril.SSA.MLIR.CF.SwitchAssert.Denotation.Defs
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.Thms
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.Dominance.Placement.Thms
 import Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF.Thms
@@ -16,13 +17,14 @@ namespace Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step
 
 open Silmaril.MLIR.Arith (Env Width)
 open Silmaril.MLIR.CF (Cfg)
+open Silmaril.MLIR.Pure (Operands)
 open Silmaril.SSA.SeaOfNodes
 open Silmaril.SSA.SeaOfNodes.GCM
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step
-open AfterReorder.Second (checkConsumer findCandidate?)
+open AfterReorder.Second (checkConsumer findCaptured? findCaptured?_immutable findCaptured?_value valueAt?)
 open AfterReorder.Second.Emit (emitAt? emitAt?_step)
 open Loop.MLIR.CF (Program TargetOp evalOp lower lower_run model)
 
@@ -33,7 +35,7 @@ variable {moved : Emission Input saved carried result extra}
 theorem emit_spec (accepted : Step.emit state request = .ok moved) :
     request.cut = (extra ++ [saved]).length ∧
     state.origins[moved.index]? = some request.origin ∧
-    findCandidate? moved.index 0 (Saved.origins (extra ++ [saved])) (state.cfg.block .header) =
+    findCaptured? moved.index 0 (Saved.origins (extra ++ [saved])) (state.cfg.block .header) =
       some moved.candidate ∧ checkConsumer state.cfg moved.candidate = true ∧
     emitAt? state.cfg moved.index moved.candidate.op moved.candidate.inputs = some moved.next.cfg ∧
     moved.next.origins = state.origins.eraseIdx moved.index ∧ moved.next.slots = .cons request.origin state.slots := by
@@ -41,7 +43,7 @@ theorem emit_spec (accepted : Step.emit state request = .ok moved) :
   · cases located : state.origins.idxOf? request.origin with
     | none => simp [Step.emit, valid, located] at accepted
     | some index =>
-      cases found : findCandidate? index 0 (Saved.origins (extra ++ [saved])) (state.cfg.block .header) with
+      cases found : findCaptured? index 0 (Saved.origins (extra ++ [saved])) (state.cfg.block .header) with
       | none => simp [Step.emit, valid, located, found] at accepted
       | some candidate =>
         cases check : checkConsumer state.cfg candidate with
@@ -63,6 +65,36 @@ theorem emit_legal (accepted : Step.emit state request = .ok moved) :
   obtain ⟨cut, _, _, checked, _⟩ := emit_spec accepted
   rw [cut]
   exact (Dominance.Placement.checkCut_iff.mp checked).2
+
+theorem emit_header_value (accepted : Step.emit state request = .ok moved)
+    (input : Env Input) (values : Env (extra ++ [saved])) (latch : BitVec carried.val) :
+    valueAt? moved.index (state.cfg.block .header) ((values.append (.cons latch .nil)).append input) =
+      some ⟨moved.candidate.width, evalOp moved.candidate.op (moved.candidate.inputs.eval (values.append input))⟩ :=
+  findCaptured?_value (emit_spec accepted).2.2.1 _ _ (Saved.origins_agree values latch input)
+
+theorem emit_immutable (accepted : Step.emit state request = .ok moved)
+    {inputs : Operands Input moved.candidate.args} (immutable : moved.candidate.immutableInputs? = some inputs) :
+    Legal state.cfg moved.candidate.operands moved.candidate.uses ⟨none, request.cut⟩ ∧
+    (∀ operand ∈ moved.candidate.operands, operand = ⟨none, 0⟩) ∧
+    ∀ (input : Env Input) (values : Env (extra ++ [saved])) (latch : BitVec carried.val),
+      valueAt? moved.index (state.cfg.block .header) ((values.append (.cons latch .nil)).append input) =
+        some ⟨moved.candidate.width, evalOp moved.candidate.op (inputs.eval input)⟩ := by
+  obtain ⟨sites, evaluates⟩ := findCaptured?_immutable (emit_spec accepted).2.2.1 immutable
+  refine ⟨emit_legal accepted, sites, fun input values latch => ?_⟩
+  rw [emit_header_value accepted input values latch, evaluates input values]
+
+theorem emit_of_saved_capture {index : Nat}
+    {candidate : AfterReorder.Second.Candidate Input saved carried result extra}
+    {target : Cfg TargetOp (Label saved carried result (candidate.width :: extra)) Input [result]}
+    (cut : request.cut = (extra ++ [saved]).length) (located : state.origins.idxOf? request.origin = some index)
+    (found : AfterReorder.Second.findCandidate? index 0 (Saved.origins (extra ++ [saved]))
+      (state.cfg.block .header) = some candidate)
+    (checked : checkConsumer state.cfg candidate = true)
+    (edited : emitAt? state.cfg index candidate.op candidate.inputs = some target) :
+    Step.emit state request = .ok ⟨index, candidate, ⟨target, state.origins.eraseIdx index,
+      .cons request.origin state.slots⟩⟩ := by
+  have coordinate : request.cut = extra.length + 1 := by simpa using cut
+  simp [Step.emit, coordinate, located, AfterReorder.Second.findCandidate?_capture found, checked, edited]
 
 theorem emit_invariant
     {base : Cfg TargetOp (SourceLabel carried result) Input [result]}
