@@ -650,11 +650,12 @@ example : multiBuilt.outlined.count = 4 := by decide +kernel
 
 -- Compare the actual packed erasure at each request label with its
 -- literal row, including the distinct continuation labels.
-private def packedRowMatches {blocks exits captures : Nat} {signature : PrimitiveSignature Bool}
+private def packedRowMatches {F : Type} [DecidableEq F] {blocks exits captures : Nat}
+    {signature : PrimitiveSignature F}
     {context : BoundCtx PacketType captures} {inputs : Fin blocks → PacketType} {outputs : Fin exits → PacketType}
-    {source : FiniteCFG Bool blocks exits captures}
+    {source : FiniteCFG F blocks exits captures}
     (build : Option (EffectfulEntry.Multiple.Compiled signature context inputs outputs source))
-    (index : Nat) (expected : LambdaSSA.Region Bool) : Bool :=
+    (index : Nat) (expected : LambdaSSA.Region F) : Bool :=
   match build with
   | none => false
   | some built =>
@@ -977,13 +978,13 @@ example : computedRowMatches 4
       (.case (.var 2) (.br 0 (.var 0)) (.br 7 (.pair (.var 0) (.var 2)))))) = true :=
   by decide +kernel
 
--- The effect may occur in either product field. Two effects in a
--- computed operand are outside this checker.
+-- This checker accepts applications in either product field. A
+-- written let inside the operand remains outside the expression grammar.
 example : (EffectfulEntry.Multiple.Computed.readOperand recursiveSig [bit]
     (.pair (.var 0) (.op false (.pair (.var 0) (.var 0))))).isSome = true := rfl
 
 example : (EffectfulEntry.Multiple.Computed.readOperand recursiveSig [bit]
-    (.pair (.op false (.pair (.var 0) (.var 0))) (.op false (.pair (.var 0) (.var 0))))).isNone = true := rfl
+    (.let₁ (.op false (.pair (.var 0) (.var 0))) (.var 0))).isNone = true := rfl
 
 private def outerKey (innerReply : Denote bit) : recursiveSig.Request := ⟨true, (innerReply, first)⟩
 
@@ -998,8 +999,8 @@ private theorem outer_call (innerReply : Denote bit) :
     (recursiveSig.argument true) argument]
   rfl
 
-private def computedArgument : Operand recursiveSig [bit] false (.product bit bit) :=
-  .left (.call false (.pair (.var .here) (.var .here))) (.var .here)
+private def computedArgument : Operand recursiveSig [bit] (.product bit bit) :=
+  .pair (.call false (.pure (.pair (.var .here) (.var .here)))) (.pure (.var .here))
 
 private theorem computed_entry :
     region recursiveSig.primitive (env first) computedPolling.entry.erase =
@@ -1011,8 +1012,15 @@ private theorem computed_entry :
   change (region recursiveSig.primitive (env first)
     (.let₁ (.op true computedArgument.written) (.case (.var 0)
       (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))))) = _
+  have emitted : computedArgument.schedule.term =
+      .let₁ (.op false (.pair (.var 0) (.var 0))) (.pair (.var 0) (.var 1)) := rfl
   rw [region, LambdaSSA.Semantics.Interaction.term,
-    computedArgument.preserves_run recursiveSig.primitive (env first)]
+    computedArgument.preserves_run recursiveSig.primitive (env first), emitted,
+    LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.Interaction.term]
+  have innerArg : LambdaSSA.Semantics.Interaction.term recursiveSig.primitive (env first)
+      (.pair (.var 0) (.var 0)) = pure (.pair (bit.encode first) (bit.encode first)) := by
+    simp [LambdaSSA.Semantics.Interaction.term, env]
+  rw [innerArg, pure_bind]
   change (((recursiveSig.primitive false (.pair (bit.encode first) (bit.encode first)) >>= fun reply =>
     LambdaSSA.Semantics.Interaction.term recursiveSig.primitive (LambdaSSA.Semantics.extend (env first) reply)
       (.pair (.var 0) (.var 1))) >>= recursiveSig.primitive true) >>= _) = _
@@ -1080,5 +1088,180 @@ theorem computed_packed
   (built.public_run (env first) _ _ id recursive_primitive_agreement (codec_id _).symm).symm.trans computed_source
 
 example := computed_packed computedBuilt
+
+private def scheduleSig : PrimitiveSignature (Fin 3) :=
+  ⟨fun op => if op.val = 2 then .product bit (.product replyType bit) else bit,
+    fun op => if op.val = 0 then bit else replyType⟩
+private abbrev ScheduleEvents := Event scheduleSig.Request scheduleSig.Reply
+
+-- An application can itself take a scheduled argument at the right type.
+example : (EffectfulEntry.Multiple.Computed.readOperand scheduleSig [bit]
+    (.op 1 (.op 0 (.var 0)))).isSome = true := rfl
+
+example : (EffectfulEntry.Multiple.Computed.readOperand scheduleSig [bit]
+    (.op 1 (.op 1 (.var 0)))).isNone = true := rfl
+
+-- The right field reads the older capture after the left request. The
+-- outer argument contains the left reply, the right reply, and that
+-- capture. Its outward continuation also reads the original capture.
+private def schedulePolling : FiniteCFG (Fin 3) 1 2 1 where
+  entry := .let₁ (.op 2 (.pair (.op 0 (.bv 0)) (.pair (.op 1 (.bv 0)) (.bv 0))))
+    (.case (.bv 0) (.br 0 (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 2))))
+  block _ := .br 1 .unit
+
+private def scheduleBuild :=
+  EffectfulEntry.Multiple.Computed.compile scheduleSig (.snoc .nil bit) packets exits schedulePolling
+
+private def scheduleBuilt :
+    EffectfulEntry.Multiple.Computed.Compiled scheduleSig (.snoc .nil bit) packets exits schedulePolling :=
+  scheduleBuild.get (by decide +kernel)
+
+private def scheduleRowMatches (index : Nat) (expected : LambdaSSA.Region (Fin 3)) : Bool :=
+  match scheduleBuild with
+  | none => false
+  | some built => packedRowMatches (some built.checked) index expected
+
+example : scheduleRowMatches 1 (.let₁ (.op 0 (.var 0)) (.br 2 (.pair (.var 1) (.var 0)))) = true :=
+  by decide +kernel
+
+example : scheduleRowMatches 2 (.let₂ (.var 0) (.br 3 (.pair (.var 1) (.var 0)))) = true :=
+  by decide +kernel
+
+example : scheduleRowMatches 3
+    (.let₂ (.var 0) (.let₁ (.op 1 (.var 1)) (.br 4 (.pair (.var 3) (.var 0))))) = true :=
+  by decide +kernel
+
+example : scheduleRowMatches 4
+    (.let₂ (.var 0) (.let₂ (.var 1) (.br 5 (.pair (.pair (.var 1) (.var 0)) (.var 2))))) = true :=
+  by decide +kernel
+
+example : scheduleRowMatches 5
+    (.let₂ (.var 0) (.let₂ (.var 1)
+      (.let₁ (.op 2 (.pair (.var 0) (.pair (.var 2) (.var 1)))) (.br 6 (.pair (.var 5) (.var 0)))))) = true :=
+  by decide +kernel
+
+example : scheduleRowMatches 6
+    (.let₂ (.var 0) (.let₂ (.var 1) (.let₂ (.var 1)
+      (.case (.var 4) (.br 0 (.var 0)) (.br 9 (.pair (.var 0) (.var 2))))))) = true :=
+  by decide +kernel
+
+private def scheduleLeft : scheduleSig.Request := ⟨0, first⟩
+private def scheduleRight : scheduleSig.Request := ⟨1, first⟩
+private def scheduleOuter (left : Denote bit) (right : Denote replyType) : scheduleSig.Request :=
+  ⟨2, (left, right, first)⟩
+
+private theorem schedule_call (key : scheduleSig.Request) :
+    scheduleSig.primitive key.1 ((scheduleSig.argument key.1).encode key.2) =
+      vis (.ask key) (fun (reply : scheduleSig.Reply key) => pure ((scheduleSig.reply key.1).encode reply)) := by
+  cases key with
+  | mk op arg =>
+    unfold PrimitiveSignature.primitive
+    rw [Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.PacketType.decode_encode]
+
+private theorem schedule_vis_congr (key : scheduleSig.Request)
+    {left right : scheduleSig.Reply key → Tree ScheduleEvents (Transfer Atom)}
+    (agree : ∀ reply, left reply = right reply) :
+    vis (.ask key) left = vis (.ask key) right := congrArg (vis (.ask key)) (funext agree)
+
+private def scheduledArgument : Operand scheduleSig [bit] (scheduleSig.argument 2) :=
+  .pair (.call 0 (.pure (.var .here))) (.pair (.call 1 (.pure (.var .here))) (.pure (.var .here)))
+
+private theorem scheduled_entry :
+    region scheduleSig.primitive (env first) schedulePolling.entry.erase =
+      vis (.ask scheduleLeft) (fun (left : scheduleSig.Reply scheduleLeft) =>
+        vis (.ask scheduleRight) (fun (right : scheduleSig.Reply scheduleRight) =>
+          vis (.ask (scheduleOuter left right)) (fun (reply : scheduleSig.Reply (scheduleOuter left right)) =>
+            match reply with
+            | .inl payload => pure (0, bit.encode payload)
+            | .inr payload => pure (2, .pair (bit.encode payload) (bit.encode first))))) := by
+  change (region scheduleSig.primitive (env first)
+    (.let₁ (.op 2 scheduledArgument.written) (.case (.var 0)
+      (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))))) = _
+  have scheduled : scheduledArgument.schedule.term =
+      .let₁ (.op 0 (.var 0)) (.let₁ (.op 1 (.var 1)) (.pair (.var 1) (.pair (.var 0) (.var 2)))) := rfl
+  rw [region, LambdaSSA.Semantics.Interaction.term,
+    scheduledArgument.preserves_run scheduleSig.primitive (env first), scheduled]
+  simp only [LambdaSSA.Semantics.Interaction.term, bind_assoc, pure_bind, LambdaSSA.Semantics.extend_zero,
+    LambdaSSA.Semantics.extend_succ]
+  change (scheduleSig.primitive scheduleLeft.1 ((scheduleSig.argument scheduleLeft.1).encode scheduleLeft.2) >>= _) = _
+  rw [schedule_call scheduleLeft, vis_bind]
+  simp only [pure_bind]
+  apply schedule_vis_congr scheduleLeft
+  intro left
+  change (scheduleSig.primitive scheduleRight.1 ((scheduleSig.argument scheduleRight.1).encode scheduleRight.2) >>= _) = _
+  rw [schedule_call scheduleRight, vis_bind]
+  simp only [pure_bind]
+  apply schedule_vis_congr scheduleRight
+  intro right
+  let key := scheduleOuter left right
+  change (scheduleSig.primitive key.1 ((scheduleSig.argument key.1).encode key.2) >>= _) = _
+  rw [schedule_call key, vis_bind]
+  simp only [pure_bind]
+  apply schedule_vis_congr key
+  intro reply
+  cases reply with
+  | inl payload =>
+    change region scheduleSig.primitive (LambdaSSA.Semantics.extend (env first) (.inl (bit.encode payload)))
+      (.case (.var 0) (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))) = _
+    simp only [region, LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.extend_zero, pure_bind]
+  | inr payload =>
+    change region scheduleSig.primitive (LambdaSSA.Semantics.extend (env first) (.inr (bit.encode payload)))
+      (.case (.var 0) (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))) = _
+    simp only [region, LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.extend_zero,
+      LambdaSSA.Semantics.extend_succ, pure_bind, env]
+
+private noncomputable def scheduleWritten : Tree ScheduleEvents (Transfer Atom) :=
+  resultCodec id <$> (region scheduleSig.primitive (env first) schedulePolling.erase >>=
+    fun out => pure (FiniteCFG.packedTreeOutput out))
+
+private noncomputable def scheduleExpected : Tree ScheduleEvents (Transfer Atom) :=
+  vis (.ask scheduleLeft) fun (left : scheduleSig.Reply scheduleLeft) =>
+    vis (.ask scheduleRight) fun (right : scheduleSig.Reply scheduleRight) =>
+      vis (.ask (scheduleOuter left right)) fun (reply : scheduleSig.Reply (scheduleOuter left right)) =>
+        match reply with
+        | .inl _ => pure firstExit
+        | .inr payload => pure (output payload first)
+
+/-- Both operand requests run in written order. The outer key records
+both replies in separate fields and retains the older capture. -/
+private theorem schedule_source : scheduleWritten = scheduleExpected := by
+  unfold scheduleWritten scheduleExpected
+  rw [show schedulePolling.erase = .cfg schedulePolling.entry.erase 1
+    (fun i => (schedulePolling.block i).erase) from rfl, region, scheduled_entry]
+  simp only [map_eq_pure_bind, bind_assoc, vis_bind]
+  apply schedule_vis_congr scheduleLeft
+  intro left
+  apply schedule_vis_congr scheduleRight
+  intro right
+  apply schedule_vis_congr (scheduleOuter left right)
+  intro reply
+  cases reply with
+  | inl payload =>
+    let step (p : LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :
+        Tree ScheduleEvents (Transfer Atom ⊕ LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :=
+      region scheduleSig.primitive (LambdaSSA.Semantics.extend (env first) p.2)
+        (schedulePolling.block p.1).erase >>= fun out => pure (LambdaSSA.Semantics.Interaction.splitTransfer 1 out)
+    have oldExit : Elgot.ITree.iterate step (0, bit.encode payload) = pure (0, .unit) := by
+      change Elgot.iter step (0, bit.encode payload) = _
+      rw [congrFun (iterate_fixpoint step) (0, bit.encode payload)]
+      simp [step, schedulePolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+        LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.Interaction.splitTransfer]
+    simp only [pure_bind]
+    change (Elgot.ITree.iterate step (0, bit.encode payload) >>= _) = _
+    rw [oldExit]
+    simp only [pure_bind]
+    rfl
+  | inr payload =>
+    simp [LambdaSSA.Semantics.Interaction.splitTransfer, output, resultCodec, codec_id]
+
+theorem schedule_packed
+    (built : EffectfulEntry.Multiple.Computed.Compiled scheduleSig (.snoc .nil bit) packets exits schedulePolling) :
+    built.checked.publicReadback.packed.observe (env first) recursiveRecord = scheduleExpected := by
+  have primitives : PrimitivesAgree scheduleSig.primitive scheduleSig.primitive id := by
+    intro op value
+    rw [codec_id, show valueCodec (id : Atom → Atom) = id from funext codec_id, id_map]
+  exact (built.public_run (env first) _ _ id primitives (codec_id _).symm).symm.trans schedule_source
+
+example := schedule_packed scheduleBuilt
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.CaseExamples
