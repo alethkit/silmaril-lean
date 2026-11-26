@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.BranchEntry.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Packed.Thms
 meta import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Defs
 
@@ -345,6 +345,117 @@ theorem nested_leaves :
       run_result nestedDispatcher (result := ⟨⟨1, (first, second)⟩⟩) rfl]
     exact out_ret _
   rw [nested_source_packed, nested_packed_state]
+  exact ⟨trace, trace⟩
+
+-- The caller can skip the loop and return at exit 1, carrying both the
+-- entry case payload and an older capture. The other arm starts the loop.
+private def branchPolling : FiniteCFG Bool 1 2 2 where
+  entry := .case (.bv 0) (.br 0 (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 2)))
+  block _ := .let₁ (.op true (.pair (.bv 0) (.bv 0)))
+    (.case (.bv 0) (.br 0 (.bv 0)) (.br 1 .unit))
+
+private def branchContext : BoundCtx PacketType 2 := .snoc (.snoc .nil bit) replyType
+
+private def branchBuilt : BranchEntry.Compiled sig branchContext packets exits branchPolling :=
+  (BranchEntry.compile sig branchContext packets exits branchPolling 0).get (by decide)
+
+-- The ordinary type checker accepts this entry, but the public structural
+-- entry checker rejects a primitive in a case leaf.
+private def effectfulEntry : FiniteCFG Bool 1 2 2 where
+  entry := .case (.bv 0)
+    (.let₁ (.op false (.bv 0)) (.br 0 (.bv 0))) (.br 2 (.pair (.bv 0) (.bv 2)))
+  block := branchPolling.block
+
+example : letI := sig.typing; NamedFlat.check effectfulEntry branchContext packets exits = true := rfl
+example : (BranchEntry.prepare sig branchContext packets exits effectfulEntry).isNone = true := rfl
+
+private def branchPublic := branchBuilt.publicReadback
+private def branchDispatcher := branchPublic.program
+
+example : (branchPublic.packed.target.block ((1 : Fin 3).cast branchPublic.provenance.count)).erase =
+    .let₂ (.var 0) (.let₂ (.var 1)
+      (.case (.var 2) (.br 0 (.var 0)) (.br 4 (.pair (.var 0) (.var 1))))) :=
+  (Constructed.row_erasure sig _ exits branchPublic 1).symm.trans rfl
+
+private def branchEnv (choice : Denote replyType) (saved : Denote bit) : Env Atom
+  | 0 => replyType.encode choice
+  | _ => bit.encode saved
+
+private def callerPacket (choice : Denote replyType) (saved : Denote bit) :
+    Denote ((branchBuilt.split.shape.table branchPublic.start).1) := ((⟨⟩, saved), choice)
+
+private def branchRecord (choice : Denote replyType) (saved : Denote bit) : Env Atom :=
+  fun _ => NamedFlat.Capture.packEnv 2 (branchEnv choice saved)
+
+private noncomputable def writtenBranch (choice : Denote replyType) (saved : Denote bit) :
+    Tree Events (Transfer Atom) :=
+  resultCodec id <$> (region sig.primitive (branchEnv choice saved) branchPolling.erase >>=
+    fun out => pure (FiniteCFG.packedTreeOutput out))
+
+private theorem branch_agreement (choice : Denote replyType) (saved : Denote bit) :
+    writtenBranch choice saved = branchPublic.packed.observe (branchEnv choice saved) (branchRecord choice saved) :=
+  branchBuilt.public_run (branchEnv choice saved) _ _ id primitivesAgree (codec_id _).symm
+
+private theorem branch_packed_state (choice : Denote replyType) (saved : Denote bit) :
+    branchPublic.packed.observe (branchEnv choice saved) (branchRecord choice saved) =
+      runState branchDispatcher (branchDispatcher.start 0 (callerPacket choice saved)) := by
+  rw [branchPublic.packed.observe_eq (callerPacket choice saved) _ _ (fun _ => rfl)]
+  change (branchDispatcher.observe 0 (callerPacket choice saved) >>= fun out =>
+    pure (FiniteCFG.packedTreeOutput out)) = _
+  rw [branchDispatcher.observe_eq 0 (callerPacket choice saved)]
+  simp only [runState, bind_assoc, pure_bind]
+
+private def branchRow (input : Denote bit) : branchDispatcher.State := by
+  refine ⟨⟨.inl ⟨0, by decide⟩, ?_⟩⟩
+  change Denote bit
+  exact input
+
+private def branchResume (input : Denote bit) (reply : Denote replyType) : branchDispatcher.State := by
+  refine ⟨⟨.inl ⟨2, by decide⟩, ?_⟩⟩
+  change Denote bit × Denote replyType
+  exact (input, reply)
+
+/-- The bypass arm returns directly at the second ordered exit with the
+case payload and older capture, with no visible requests. -/
+theorem branch_bypasses_requests (payload saved : Denote bit) :
+    writtenBranch (.inr payload) saved = pure (output payload saved) ∧
+      branchPublic.packed.observe (branchEnv (.inr payload) saved) (branchRecord (.inr payload) saved) =
+        pure (output payload saved) := by
+  rw [branch_agreement (.inr payload) saved, branch_packed_state (.inr payload) saved]
+  have bypass : branchDispatcher.step (branchDispatcher.start 0 (callerPacket (.inr payload) saved)) =
+      .inr ⟨⟨.inr 1, (payload, saved)⟩⟩ := rfl
+  rw [run_jump branchDispatcher bypass,
+    run_result branchDispatcher (result := ⟨⟨1, (payload, saved)⟩⟩) rfl]
+  exact ⟨rfl, rfl⟩
+
+private def firstExit : Transfer Atom := FiniteCFG.packedTreeOutput (0, .unit)
+
+private def entryLoopTrace : Trace Events (Transfer Atom) :=
+  .exchange (.ask (pollKey first first)) (.inl second)
+    (.exchange (.ask (pollKey second second)) (.inr first) (.result firstExit))
+
+/-- The entry case payload supplies the first request. The first reply
+changes the next request on the backedge, and the second reply exits. -/
+theorem branch_enters_cycle :
+    HasTrace (writtenBranch (.inl first) second) entryLoopTrace ∧
+      HasTrace (branchPublic.packed.observe (branchEnv (.inl first) second)
+        (branchRecord (.inl first) second)) entryLoopTrace := by
+  rw [branch_agreement (.inl first) second, branch_packed_state (.inl first) second]
+  have enter : branchDispatcher.step (branchDispatcher.start 0 (callerPacket (.inl first) second)) =
+      .inr (branchRow first) := rfl
+  have request (input : Denote bit) : branchDispatcher.step (branchRow input) =
+      .inl (.request (pollKey input input) (branchResume input)) := rfl
+  have again : branchDispatcher.step (branchResume first (.inl second)) = .inr (branchRow second) := rfl
+  have exit : branchDispatcher.step (branchResume second (.inr first)) = .inr ⟨⟨.inr 0, ⟨⟩⟩⟩ := rfl
+  have trace : HasTrace (runState branchDispatcher (branchDispatcher.start 0 (callerPacket (.inl first) second)))
+      entryLoopTrace := by
+    unfold entryLoopTrace
+    rw [run_jump branchDispatcher enter, run_request branchDispatcher _ _ (request first)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump branchDispatcher again, run_request branchDispatcher _ _ (request second)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump branchDispatcher exit, run_result branchDispatcher (result := ⟨⟨0, ⟨⟩⟩⟩) rfl]
+    exact out_ret _
   exact ⟨trace, trace⟩
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.CaseExamples
