@@ -20,6 +20,14 @@ theorem memberValues_related (members : List (Function V S))
   | nil => exact .nil
   | cons first rest ih => exact .cons (related 0) (ih _ _ fun i => related i.succ)
 
+theorem phiMembers_related {context : Ports (Ty V S)} {members : List (Function V S)}
+    {left right : Tuple m.Val context} {tableL tableR : MemberTable Op context members}
+    (captures : TupleRelated m ids left right)
+    (definitions : ∀ i, (tableL i).Renumbered id (tableR i)) :
+    TupleRelated m ids (memberValues members (Colour.member left tableL))
+      (memberValues members (Colour.member right tableR)) :=
+  memberValues_related members _ _ (fun slot => .member captures definitions slot)
+
 private theorem memberPrefix_related (members : List (Function V S)) (count : Nat)
     (left right : (i : Fin members.length) → m.Val members[i].port)
     (related : ∀ i, ValueRelated m ids (left i) (right i)) :
