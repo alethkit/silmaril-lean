@@ -41,7 +41,7 @@ theorem source_of_check (accepted : src.check = some p) : p.source = src := by
     next => contradiction
   next => contradiction
 
-private theorem append_outgoing {args : List (Ty Data)} {past : List (List (Ty Data))}
+theorem append_outgoing {args : List (Ty Data)} {past : List (List (Ty Data))}
     (first second : Block Op regs) (current : Wires args past (dataPorts regs)) :
     HEq (CFG.compileBlock (first ++ second) current).outgoing
       (CFG.compileBlock second (CFG.compileBlock first current).outgoing).outgoing := by

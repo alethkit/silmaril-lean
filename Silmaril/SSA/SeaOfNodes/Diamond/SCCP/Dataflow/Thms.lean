@@ -9,7 +9,7 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Diamond.SCCP
 
-open RVSDG (Tuple Locals Origin)
+open RVSDG (Tuple Locals Origin Wires)
 
 universe u v w
 
@@ -43,5 +43,18 @@ theorem readLocal_cover {t : Ty Data} (wire : Origin args past t)
     (hargs : TupleCovers facts entry) (hlocals : LocalsCover abstract locals) :
     (readLocal facts abstract wire).Covers (read m wire entry locals) := by
   cases wire with | arg p => exact hargs p | output i p => exact hlocals i p
+
+theorem readWires_mono {ports : List (Ty Data)} (wires : Wires args past ports)
+    {lhsArgs rhsArgs : Tuple (Fact m.value) args} {lhs rhs : Locals (Fact m.value) past}
+    (hargs : TupleLE lhsArgs rhsArgs) (hlocals : LocalsLE lhs rhs) :
+    TupleLE (wires.read lhsArgs lhs) (wires.read rhsArgs rhs) :=
+  Proofs.readWires_mono wires hargs hlocals
+
+theorem readWires_cover {ports : List (Ty Data)} (wires : Wires args past ports)
+    {facts : Tuple (Fact m.value) args} {entry : Tuple (Val m.value) args}
+    {abstract : Locals (Fact m.value) past} {locals : Locals (Val m.value) past}
+    (hargs : TupleCovers facts entry) (hlocals : LocalsCover abstract locals) :
+    TupleCovers (wires.read facts abstract) (wires.read entry locals) :=
+  Proofs.readWires_cover wires hargs hlocals
 
 end Silmaril.SSA.SeaOfNodes.Diamond.SCCP

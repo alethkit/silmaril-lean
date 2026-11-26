@@ -359,4 +359,93 @@ example : pickSliceAndHoist? (sliceLoop true) (sliceTree true) 2 = none := rfl
 example : pickSliceAndHoist? (sliceLoop false) (sliceTree false) 0 = none := rfl
 
 
+private abbrev acrossSigs : List (List (Diamond.Ty Width)) := [[byte], [byte], [byte], [byte], [pred], [byte]]
+
+-- The gap computes latch + prerequisite, then adds stride. Both bindings
+-- remain in the header and their result drives feedback after hoisting.
+private def acrossLoop (tainted missing : Bool) : Program Input i8 i8 entrySigs acrossSigs where
+  preheader := (loop false).preheader
+  header :=
+    .cons (.arithmetic (.binary .addi))
+      (.cons (.arg (if tainted then .tail (.tail (.tail .head)) else .tail (.tail .head)))
+        (.cons (.arg (.tail (.tail .head))) .nil))
+      (.cons (.arithmetic (.binary .addi))
+        (.cons (.arg (.tail (.tail (.tail .head)))) (.cons (.output (0 : Fin 1) .head) .nil))
+        (.cons (.arithmetic (.binary .addi))
+          (.cons (.output (1 : Fin 2) .head) (.cons (.arg (.tail (.tail .head))) .nil))
+          (.cons (.arithmetic (.binary .addi))
+            (.cons (if missing then .arg (.tail (.tail .head)) else .output (0 : Fin 3) .head)
+              (.cons (.arg (.tail (.tail .head))) .nil))
+            (.cons (.ult i8)
+              (.cons (.arg (.tail (.tail (.tail .head)))) (.cons (.arg (.tail .head)) .nil))
+              (.cons (.arithmetic (.binary .addi))
+                (.cons (.output (2 : Fin 5) .head) (.cons (.output (3 : Fin 5) .head) .nil))
+                .nil)))))
+  phiInputs
+    | .entry => (loop false).phiInputs .entry
+    | .backedge => .cons (.output (5 : Fin 6) .head) .nil
+  predicate := .output (4 : Fin 6) .head
+  result := .output (0 : Fin 6) .head
+
+private def acrossTree (tainted missing : Bool) : DominatorTree (lower (acrossLoop tainted missing)) :=
+  stageTree (lower (acrossLoop tainted missing))
+    (by cases tainted <;> cases missing <;> rfl) (by cases tainted <;> cases missing <;> rfl)
+    (by
+      intro src dst slot edge
+      cases tainted <;> cases missing <;>
+        (rcases src with _ | ⟨_, label⟩
+         · cases slot <;> cases edge <;> decide
+         · cases label <;> cases slot <;> cases edge <;> decide))
+
+private def acrossSlice : Slice Input (i8 :: Input) i8 i8 i8 i8 :=
+  let found := findSliceAcross 0 2 0 headerOrigins ((lower (acrossLoop false false)).block .header)
+  (found.get (by rfl)).2.2
+
+private def acrossOutput : SliceOutput Input i8 i8 :=
+  emitSlice (lower (acrossLoop false false)).entry acrossSlice
+
+private theorem selectedAcross : pickSliceAcrossAndHoist? (acrossLoop false false) (acrossTree false false) 0 2 =
+    some acrossOutput := by cbv
+
+example : pickSliceAndHoist? (acrossLoop false false) (acrossTree false false) 3 = none := rfl
+
+example : acrossSlice.consumerInputs = .cons .here (.cons (.there (.there (.there .here))) .nil) := rfl
+example : acrossSlice.prerequisiteUses =
+    [.ordinary ⟨headerId, 1⟩, .ordinary ⟨headerId, 3⟩, .phi headerId .onFalse 0] := rfl
+example : acrossSlice.consumerUses = [.ordinary ⟨headerId, 5⟩] := rfl
+example : (shape acrossOutput.cfg none).bindings = 4 := rfl
+example : (shape (lower (acrossLoop false false)) headerId).bindings = 6 := rfl
+example : (shape acrossOutput.cfg (some ⟨_, .header⟩)).bindings = 4 := rfl
+
+example : acrossOutput.cfg.entry.eval evalOp (fun term vals => term.eval vals) laterMany =
+    .inl (⟨.header, .cons 3 (.cons 2 (.cons 3 .nil))⟩ : Frame (Label i8 i8 i8 [i8])) := rfl
+example : (acrossOutput.cfg.block .header).eval evalOp (fun term vals => term.eval vals)
+    (.cons 3 (.cons 2 (.cons 3 laterMany))) =
+    .inl (⟨.header, .cons 3 (.cons 2 (.cons 9 .nil))⟩ : Frame (Label i8 i8 i8 [i8])) := rfl
+example : (acrossOutput.cfg.block .header).eval evalOp (fun term vals => term.eval vals)
+    (.cons 3 (.cons 2 (.cons 9 laterMany))) =
+    .inl (⟨.header, .cons 3 (.cons 2 (.cons 15 .nil))⟩ : Frame (Label i8 i8 i8 [i8])) := rfl
+example : (acrossOutput.cfg.block .header).eval evalOp (fun term vals => term.eval vals)
+    (.cons 3 (.cons 2 (.cons 15 laterMany))) =
+    .inl (⟨.exit, .cons 2 .nil⟩ : Frame (Label i8 i8 i8 [i8])) := rfl
+
+example : (lower (acrossLoop false false)).run evalOp 3 laterZero = some (.cons 6 .nil) := rfl
+example : acrossOutput.cfg.run evalOp 3 laterZero = some (.cons 6 .nil) := rfl
+example : (lower (acrossLoop false false)).run evalOp 5 laterMany = some (.cons 2 .nil) := rfl
+example : acrossOutput.cfg.run evalOp 5 laterMany = some (.cons 2 .nil) := rfl
+example : acrossOutput.cfg.run evalOp 4 laterMany = none := rfl
+
+example (budget : Nat) :
+    acrossOutput.cfg.run evalOp (budget + 3) laterMany =
+      ((acrossLoop false false).evalBackedges model budget
+        (Silmaril.SSA.SeaOfNodes.MLIR.sourceInputs laterMany)).map
+        (fun value => Env.cons value .nil) :=
+  pickSliceAcrossAndHoist?_budget selectedAcross laterMany budget
+
+-- An unused prerequisite, an out-of-bounds consumer, and a latch read.
+example : pickSliceAcrossAndHoist? (acrossLoop false true) (acrossTree false true) 0 2 = none := rfl
+example : pickSliceAcrossAndHoist? (acrossLoop false false) (acrossTree false false) 0 6 = none := rfl
+example : pickSliceAcrossAndHoist? (acrossLoop true false) (acrossTree true false) 0 2 = none := rfl
+
+
 end Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Regression

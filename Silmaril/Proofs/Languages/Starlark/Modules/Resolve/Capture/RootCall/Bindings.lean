@@ -75,11 +75,11 @@ private theorem write_function_cell (state : State) (binding : Binding) (value :
   · exact (write_other_cell state binding value address owner).trans cell
 
 theorem write_keeps_live (state : State) (name destination : String) (value : Value)
-    {address : Address} {id : Nat} {captures : List Capture} {frozen : Bool}
-    (distinct : DistinctOwned state) (live : Live state name address id captures frozen)
+    {address : Address} {id : Nat} {captures : List Capture} {frozen : Bool} {defaults : List (Binding × Value)}
+    (distinct : DistinctOwned state) (live : Live state name address id captures frozen defaults)
     (unrelated : destination ≠ name) :
     DistinctOwned (state.write (globalSlot destination) value) ∧
-      Live (state.write (globalSlot destination) value) name address id captures frozen := by
+      Live (state.write (globalSlot destination) value) name address id captures frozen defaults := by
   obtain ⟨⟨owner, slot⟩, read, cell⟩ := live
   have other : state.slots (globalSlot destination) ≠ some (.owned owner) := by
     intro found

@@ -186,6 +186,14 @@ theorem checked_finish {commands : List Command} {linked : Program} {resolved : 
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Wrapper.checked_finish
     checked host caller sound reached
 
+/-- Activation and a local write leave pre-existing heap addresses intact. -/
+theorem activated_write_preserves (caller : State) (frame : Forwarding.Frame) (captures : List Capture)
+    (assigned : List (Binding × Lists.Value)) (target : Binding) (value : Lists.Value) (index : Nat)
+    (low : index < caller.heap.size) :
+    ((activate caller frame.declaration captures assigned).write target value).heap[index]? = caller.heap[index]? :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Wrapper.activated_write_preserves
+    caller frame captures assigned target value index low
+
 /-- A successful wrapper call preserves the caller slots and every cell
 that was in the heap before activation. -/
 theorem returned_preserves {seed : Program} {caller : State}

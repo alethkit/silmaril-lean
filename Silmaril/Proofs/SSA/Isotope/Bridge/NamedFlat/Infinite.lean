@@ -94,19 +94,29 @@ private theorem internal_path_iff :
         (⟨(trace i).val.1, (Classical.choose_spec (next (trace i))).choose⟩, (trace i).val.2)
       exact ⟨path, entered, fun i => (Classical.choose_spec (next (trace i))).choose_spec⟩
 
+theorem flat_diverges_iff_of_eval {G : Type u} {m : Nat}
+    {other : FiniteCFG G blocks exits m} {env' : Env α}
+    {instr' : G → Value α → σ → Value α → σ → Prop}
+    (entry : ∀ out value finish, Eval instr env target.entry.erase start out value finish ↔
+      Eval instr' env' other.entry.erase start out value finish)
+    (blocks : ∀ i current state out value finish,
+      Eval instr (extend env current) (target.block i).erase state out value finish ↔
+        Eval instr' (extend env' current) (other.block i).erase state out value finish) :
+    Diverges instr (.region env target.erase start) ↔ Diverges instr' (.region env' other.erase start) := by
+  rw [← internal_path_iff, ← internal_path_iff]
+  constructor <;> rintro ⟨path, entered, steps⟩
+  · exact ⟨path, (entry _ _ _).mp entered, fun i => (blocks _ _ _ _ _ _).mp (steps i)⟩
+  · exact ⟨path, (entry _ _ _).mpr entered, fun i => (blocks _ _ _ _ _ _).mpr (steps i)⟩
+
 variable {τ : Type u} {β : BoundCtx τ n} {input : Tm Empty F 0}
   {closed : FiniteCFG F blocks exits 0} {ambient : Env α}
 
 theorem closure_diverges_iff (h : Capture.Closes β input target closed)
     (packet : ∀ v state, LambdaSSA.Semantics.Tm.Eval instr ambient (Morphism.CaseSSA.erase input)
       start v state ↔ v = Capture.packEnv n env ∧ state = start) :
-    Diverges instr (.region ambient closed.erase start) ↔ Diverges instr (.region env target.erase start) := by
-  rw [← internal_path_iff, ← internal_path_iff]
-  constructor <;> rintro ⟨path, entry, steps⟩
-  · exact ⟨path, (Capture.entry_eval_iff h packet).mp entry,
-      fun i => (Capture.block_eval_iff h _ _).mp (steps i)⟩
-  · exact ⟨path, (Capture.entry_eval_iff h packet).mpr entry,
-      fun i => (Capture.block_eval_iff h _ _).mpr (steps i)⟩
+    Diverges instr (.region ambient closed.erase start) ↔ Diverges instr (.region env target.erase start) :=
+  flat_diverges_iff_of_eval (fun _ _ _ => Capture.entry_eval_iff h packet)
+    (fun i current _ _ _ _ => Capture.block_eval_iff h i current)
 
 end Isotope
 

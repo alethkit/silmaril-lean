@@ -44,6 +44,16 @@ try {
   if (source) check(source.n > 0, `the page knows its sources: ${source.repo} at ${source.rev}, ${source.n} modules`);
   else console.log("skip the page has no sources (generated without --source-url): no source or byte views to check");
 
+  await go("#/summary");
+  const docs = p.getByRole("link", { name: "Project documentation", exact: true });
+  if (source?.repo.toLowerCase() === "https://github.com/hiloopai/silmaril-lean") {
+    check(await docs.getAttribute("href") === `${source.repo}/blob/${source.rev}/docs/projects/README.md`,
+      "the Summary links to the project documentation at the source commit");
+  } else {
+    check(await docs.count() === 0, "the Silmaril documentation link is absent on other builds");
+  }
+  await go("#/graph");
+
   // 1. the grouped graph
   await p.waitForFunction(() => window.explore.graph, null, { timeout: 30000 });
   const g = await p.evaluate(() => Object.assign({}, window.explore.graph, { nodes: cy.nodes().length,

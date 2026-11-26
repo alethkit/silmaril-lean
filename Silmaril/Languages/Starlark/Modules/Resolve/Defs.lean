@@ -824,6 +824,79 @@ theorem elaborateCommand_requiredDefinition (block : BlockContext) (writes : Sco
         bind, StateT.bind, lift_ok, get_build, set_build, read_required, plain_required, required_reads,
         Except.bind, pure, StateT.pure, Except.pure]
 
+/-- One resolved plain default together with its normalized source and reads. -/
+structure PlainPositionalDefault where
+  name : String
+  source : Lowering.Resolve.SourceExpr
+  value : Lowering.Expr
+  reads : List Binding
+
+@[expose] def PlainPositionalDefault.parameter (item : PlainPositionalDefault) : SourceParameter :=
+  ⟨item.name, some (.plain item.source)⟩
+
+@[expose] def PlainPositionalDefault.resolved (item : PlainPositionalDefault) : Functions.Parameter :=
+  ⟨fileSlot item.name, some item.value⟩
+
+private theorem read_plain_positionals (context : Context) (parameters : List PlainPositionalDefault)
+    (checked : ∀ item ∈ parameters, resolveTracked context item.source = .ok (item.value, item.reads))
+    (program : Program) :
+    ((parameters.map PlainPositionalDefault.parameter).mapM (readParameter context)) program =
+      .ok (parameters.map (fun item => ⟨fileSlot item.name, some (.plain item.value), item.reads⟩), program) := by
+  induction parameters with
+  | nil => rfl
+  | cons head rest ih =>
+    have read := checked head List.mem_cons_self
+    have tail := ih (fun item present => checked item (List.mem_cons_of_mem _ present))
+    simp only [List.map_cons, List.mapM_cons]
+    simp only [bind, StateT.bind, Except.bind, pure, StateT.pure, Except.pure]
+    have headRead : readParameter context head.parameter program =
+        .ok (⟨fileSlot head.name, some (.plain head.value), head.reads⟩, program) := by
+      simp [readParameter, PlainPositionalDefault.parameter, compileCompExpr.eq_def, readExpr,
+        bind, StateT.bind, Except.bind, lift_ok, read, Except.mapError, pure, StateT.pure, Except.pure]
+    simp [headRead, tail]
+
+private theorem plain_optional (parameters : List PlainPositionalDefault) :
+    (parameters.map (fun item : PlainPositionalDefault =>
+      (⟨fileSlot item.name, some (.plain item.value), item.reads⟩ : ResolvedParameter))).mapM ResolvedParameter.plain =
+        some (parameters.map PlainPositionalDefault.resolved) := by
+  rw [List.mapM_map]
+  change (parameters.mapM fun item => pure item.resolved) = _
+  rw [List.mapM_pure]
+  rfl
+
+/-- Plain positional defaults leave their direct expressions in the emitted
+signature, using the defining context. The definition command stays native. -/
+theorem elaborateCommand_plainPositionalDefinition (block : BlockContext) (name : String) (required : List String)
+    (defaults : List PlainPositionalDefault) (body : Statement) (program next : Program)
+    (layout : FunctionLayout) (compiled : ResolvedBody)
+    (closed : ∀ item ∈ defaults, resolveTracked block.reads item.source = .ok (item.value, item.reads))
+    (collected : collectFunctionLayout block.reads
+      { positional := required.map (fun name => ⟨name, none⟩) ++ defaults.map PlainPositionalDefault.parameter } body =
+      .ok layout)
+    (bodyCode : compileBody layout.block body program = .ok (compiled, next)) :
+    let source : SourceSignature :=
+      { positional := required.map (fun name => ⟨name, none⟩) ++ defaults.map PlainPositionalDefault.parameter }
+    let signature : Functions.Signature :=
+      { positional := (requiredSignature required).positional ++ defaults.map PlainPositionalDefault.resolved }
+    let captures := captureNames (source.parameterNames ++ layout.locals) compiled.reads
+    elaborateCommand block (.define name source body) program =
+      .ok (.exec (.define name next.size), next.push ⟨signature, layout.locals.map fileSlot, captures, compiled.code⟩) := by
+  have optionalRead := read_plain_positionals block.reads defaults closed program
+  rw [List.mapM_map] at optionalRead
+  have optionalPlain := plain_optional defaults
+  rw [List.mapM_map] at optionalPlain
+  have requiredPlain := plain_required required
+  simp [elaborateCommand, collected, compileDefinition, List.mapM_append, List.mapM_map,
+    read_required, optionalRead, requiredPlain, optionalPlain, requiredSignature,
+    bind, StateT.bind, Except.bind, lift_ok, get_build, set_build, pure, StateT.pure, Except.pure, bodyCode]
+
+/-- A plain return reads its operand in the collected function context. -/
+theorem compileBody_plainReturn (block : BlockContext) (source : Lowering.Resolve.SourceExpr)
+    (value : Lowering.Expr) (reads : List Binding) (program : Program)
+    (operand : resolveTracked block.reads source = .ok (value, reads)) :
+    compileBody block (.ret (some source)) program = .ok (⟨.returnExpr value, reads⟩, program) := by
+  simp [compileBody, readExpr, operand, Except.mapError, bind, StateT.bind, Except.bind, lift_ok, pure, StateT.pure, Except.pure]
+
 /-- Elaborate in source order, appending declarations to the supplied linked
 table. Call `resolve` for checked intake. -/
 @[expose] def elaborateCommands (commands : List Command) (linked : Program := #[]) :

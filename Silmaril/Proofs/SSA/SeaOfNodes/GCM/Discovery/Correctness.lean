@@ -53,7 +53,7 @@ private theorem available_check {tree : DominatorTree cfg} (complete : tree.Comp
 
 private theorem check_of_legal {tree : DominatorTree cfg} (complete : tree.Complete)
     (legal : Legal cfg operands uses candidate) : checkPlacement tree operands uses candidate = true := by
-  simp only [checkPlacement, Bool.and_eq_true, List.all_eq_true]
+  simp only [checkPlacement, checkPlacementWith, Bool.and_eq_true, List.all_eq_true]
   refine ⟨⟨valid_check complete legal.candidate_valid, ?_⟩, ?_⟩
   · intro operand member
     obtain ⟨valid, available⟩ := legal.operands_available operand member

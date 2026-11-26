@@ -17,12 +17,17 @@ universe u v w
 variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)}
 variable {entry results : Ports (Ty V S)} {sigs : List (Ports (Ty V S))} {loops : Bool}
-variable {member : Option (MemberSummary V S)}
+variable {member : Option (MemberSummaries V S)}
 
 /-- The executable summary computes the least shared may solution at entry. -/
 theorem Code.mem_liveIn_iff (code : Code Op entry [] sigs results loops member) (demand : Demand) (a : Address) :
     a ∈ code.liveIn demand ↔ a ∈ (code.liveness demand).mayOut 0 :=
   Proofs.mem_liveIn_iff code demand a
+
+/-- Increasing output demand enlarges the input reads of the shared plan. -/
+theorem Code.plan_mono {past : List (Ports (Ty V S))} (code : Code Op entry past sigs results loops member) {low high : Demand}
+    (more : ∀ p, low p = true → high p = true) : (code.plan low).live ⊆ (code.plan high).live :=
+  Proofs.plan_mono code more
 
 /-- The linked body's feedback transfer uses the native finite least fixed point. -/
 theorem Code.feedbackLive_isLeast {carried : Ports (Ty V S)}

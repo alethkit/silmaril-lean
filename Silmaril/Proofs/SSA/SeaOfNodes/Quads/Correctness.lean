@@ -58,7 +58,7 @@ theorem rebind_other (current : Wires args past (dataPorts regs))
     (rebind current dest).get source = keep (current.get source) :=
   (get_write_other dest source _ _ different).trans (get_map _ current source)
 
-private theorem map_write {T : Type u} {F : T → Type v} {G : T → Type w}
+theorem map_write {T : Type u} {F : T → Type v} {G : T → Type w}
     {ts : List T} {t : T} (f : ∀ t, F t → G t) (dest : Port ts t)
     (value : F t) (bank : Tuple F ts) :
     (write dest value bank).map f = write dest (f t value) (bank.map f) := by

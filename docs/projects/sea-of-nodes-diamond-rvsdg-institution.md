@@ -12,7 +12,7 @@ fixes the synthetic `dispatch` opcode. The functor laws are
 `mapSignature_id` and `mapSignature_comp`.
 [Definitions](../../Silmaril/SSA/SeaOfNodes/Diamond/Institution/ToRVSDG/Defs.lean) ·
 [Theorems](../../Silmaril/SSA/SeaOfNodes/Diamond/Institution/ToRVSDG/Thms.lean) ·
-[Native diamond institution](sea-of-nodes-diamond-institution.md) ·
+[Native diamond institution](sea-of-nodes/control-flow/sea-of-nodes-diamond-institution.md) ·
 [γ lowering (#3135)](https://github.com/hiloopai/silmaril-lean/pull/3135)
 
 `lowerEquation` applies the original `Diamond.Graph.lower` to both sides
