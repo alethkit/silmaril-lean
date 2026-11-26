@@ -97,29 +97,21 @@ check:
 	$(MAKE) -j$(CHECK_JOBS) $(CHECK_GROUPS)
 	$(if $(filter SilmarilLogicGraphData,$(CHECK_TARGETS)),$(MAKE) logic-graph-check)
 
-# The checks that read the completed build run as independent groups, CHECK_JOBS at a time;
-# make lets the running groups finish and fails if any failed. Each group keeps its lines in
-# order and owns its generated outputs (temporary directories; build/wasm-checks.json and
-# build/bin for release-check; .lake/compiler-explorer). `check-prebuild` has already built
-# every target their `lake build` lines name, so the overlapping groups only read the build.
-# logic-graph-check edits a records file and rebuilds its loader, so it runs alone after them.
-# The default, 2, is the overlap `make check` had before: fork runners have four cores and the
-# prove workers admit sessions by measured memory. The slots take CHECK_GROUPS in order, so it
-# lists the groups by their measured duration, longest first.
+# The checks that read the completed build run as groups, CHECK_JOBS at a time. Each group keeps
+# its lines in order and owns its outputs. logic-graph-check edits a records file and rebuilds
+# its loader, so it runs alone afterwards. Two slots is the overlap `make check` had before.
 CHECK_JOBS ?= 2
 CHECK_INTEGRATION_GROUPS := check-integrations-ssa check-integrations-operational \
 	check-integrations-python check-integrations-python-functions check-integrations-tools
-CHECK_GROUPS := check-runtime check-integrations-python check-integrations-python-functions \
-	check-integrations-operational check-integrations-tools check-integrations-ssa
+CHECK_GROUPS := check-runtime $(CHECK_INTEGRATION_GROUPS)
 
-# Every target the selected groups' recipe lines build, in one Lake process: no two Lake
-# processes then write the same outputs, no group reads a module another is building, and a
-# line that relied on an earlier line's build in the serial order finds it built. The builds
-# inside the scripts the groups call (TLA+ parser, SQLite virtual table, Binaryen intrinsic,
-# compiler explorer) are not listed: in the full check they are in the main build already.
+# Every target the groups' recipe lines build, in one Lake process, so that the groups only read
+# the build. The TLA+, SQLite virtual table, Binaryen and compiler explorer scripts build their
+# own targets, as they did before the split.
 check-prebuild:
 	@case '$(CHECK_JOBS)' in ''|*[!0-9]*|0*) echo 'CHECK_JOBS must be a positive integer' >&2; exit 1;; esac
-	LAKE="$(LAKE)" scripts/check-prebuild.sh $(CHECK_GROUPS)
+	@targets=$$(scripts/check-build-targets.sh $(CHECK_GROUPS)) || exit; \
+	if [ -n "$$targets" ]; then echo $(LAKE) build --wfail $$targets; $(LAKE) build --wfail $$targets; fi
 
 # Runtime observations read the completed build.
 .PHONY: check-prebuild check-runtime check-integrations $(CHECK_INTEGRATION_GROUPS) tla-import-check
@@ -240,7 +232,6 @@ arrow-ipc-metadata-check:
 	$(LAKE) build --wfail +Silmaril.Formats.Arrow.Framing.Thms +Silmaril.Formats.Arrow.Layout.Thms +Silmaril.Formats.Arrow.Body.Thms +Silmaril.Formats.Arrow.Writer.Thms +Silmaril.Formats.Arrow.MetadataWriter.Thms +Silmaril.Formats.Arrow.StreamWriter.Thms
 	$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/formats/arrow-ipc/Axioms.lean
 
-# Every integration suite, the groups one after another, then logic-graph-check.
 check-integrations:
 	$(MAKE) -j1 $(CHECK_INTEGRATION_GROUPS)
 	$(if $(filter SilmarilLogicGraphData,$(CHECK_TARGETS)),$(MAKE) logic-graph-check)
@@ -575,7 +566,7 @@ help:
 	@echo 'make tools    Build seven native Wasm tools and stage build/bin/sil'
 	@echo 'make library  Check every included Lean library module'
 	@echo 'make cache    Restore dependencies; with LAKE_CI_BUCKET, the seed of main and the check targets'
-	@echo 'make check    Build library, tools and proof roots; run native regressions (CHECK_JOBS groups at once, default 2)'
+	@echo 'make check    Build library, tools and proof roots; run native regressions (CHECK_JOBS=2)'
 	@echo 'make project-tool   Build sil project (Cargo) and stage it in build/bin'
 	@echo 'make project-registry  Run the sil project checks that need no Lean: init, lock, lint'
 	@echo 'make compiler-explorer-serve  Browse compiler fixtures locally (127.0.0.1:8765)'
