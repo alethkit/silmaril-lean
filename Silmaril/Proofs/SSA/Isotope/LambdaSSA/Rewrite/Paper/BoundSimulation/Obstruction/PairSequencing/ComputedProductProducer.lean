@@ -29,8 +29,8 @@ open _root_.Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.
 private def productObservation : TermObservation (α := Atom) Op where
   computedRegionLet₂ := true
   evaluateCallOperand := true
-  unitCall _ := true
-  unitCall_typed _ _ _ := .base
+  callResult _ := some .unit
+  callResult_typed _ _ _ h := Option.some.inj h ▸ .base
 
 private theorem computedCall_same {Γ L : List (Ty Atom)} {r s : Region Op}
     (step : Paper.WithComputedCallReturns.Step Γ r s L) : SameWith productObservation Γ r s := by
@@ -40,7 +40,7 @@ private theorem computedCall_same {Γ L : List (Ty Atom)} {r s : Region Op}
     let inner : Tm.HasType (instrSrc p :: Γ) (.op p (.var 0)) (instrTrg p) := .op (.var rfl)
     rw [evalReturnRegion (.op ha) he, evalReturnRegion (.let₁ ha inner) he]
     simp only [evalTermWith, show productObservation.evaluateCallOperand = true from rfl,
-      show productObservation.unitCall p = true from rfl, ite_true, extend]
+      show productObservation.callResult p = some .unit from rfl, ite_true, extend]
     cases evalTermWith productObservation a env <;> rfl
 
 private theorem productDestructure_same {Γ L : List (Ty Atom)} {r s : Region Op}
