@@ -1,7 +1,8 @@
 module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.SingleTheta.Thms
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.ClosedFamily.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Invocation.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Feedback.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Isomorphism.Thms
@@ -366,16 +367,35 @@ private theorem returnedCalls :
     TerminalPath primitives (source right 0 2) ⟨.returned (output 26 2) .halt, 28⟩ :=
   ⟨replayExit left finishesExited.eval.1, replayExit right finishesExited.eval.2⟩
 
-open RecursiveCall (Family TupleIn Closed ClosedFamily Admitted ResolvedSchedule)
+open RecursiveCall (Family TupleIn Closed ClosedFamily Admitted)
 
-private theorem loopSchedule :
-    RecursiveCall.Schedule Op (Equiv.refl Nat) (code initial left outputs) (code initial right outputs) := by
-  apply RecursiveCall.Schedule.theta initial initial rfl rfl (bodyVertices := Equiv.swap 0 1)
-  · change RecursiveCall.Schedule Op (Equiv.swap 0 1) (embed left.toTerm) (embed right.toTerm)
-    rw [Term.toTerm_toGraph, Term.toTerm_toGraph]
-    exact .emptyLeft idle.inputs (.bind (.primitive Op.advance) initial initial rfl rfl
-      (.emptyRight idle.inputs (.ret tailL tailR rfl)))
-  · exact .ret outputs outputs rfl
+private def loopNumbering : Renaming := .region (Equiv.refl Nat) (fun _ _ => numbering)
+
+private theorem orderedBody :
+    RecursiveCall.Numbered.Ordered Op numbering (embed left.toTerm).toGraph (embed right.toTerm).toGraph := by
+  rw [Term.toTerm_toGraph, Term.toTerm_toGraph]
+  exact .emptyLeft idle.inputs (.bind (.base (.simple (.primitive Op.advance))) initial initial rfl rfl
+    (fun i => i.elim0) (.emptyRight idle.inputs (.ret tailL tailR rfl)))
+
+private theorem orderedLoop : RecursiveCall.Numbered.Ordered Op loopNumbering
+    (code initial left outputs).toGraph (code initial right outputs).toGraph := by
+  refine .bind (.theta carried) initial initial rfl rfl ?_ (.ret outputs outputs rfl)
+  intro i
+  exact orderedBody
+
+-- The modified selector is still a well-typed control wire, but it reads
+-- the original mode rather than the primitive's feedback discriminant.
+private def wrongFeedback : Term Op carried [] [bodyResults, []] bodyResults :=
+  .bind advance (fun i => i.elim0) (.bind idle (fun _ => .ret .nil)
+    (.ret (.cons (.arg .head) (.cons (.output (0 : Fin 2) (.tail .head))
+      (.cons (.output (0 : Fin 2) (.tail (.tail .head))) .nil)))))
+
+example (map : Renaming) :
+    ¬ RecursiveCall.Numbered.Ordered Op map (embed termL).toGraph (embed wrongFeedback).toGraph := by
+  intro accepted
+  have wires := accepted.results_related
+  change Address.output (map.vertices 1) 0 :: _ = Address.arg 0 :: _ at wires
+  cases (List.cons.inj wires).1
 
 private inductive LoopFamily (callee : machine.Val fn.port) : Family machine where
   | data (n : Nat) : LoopFamily callee (.data (t := ()) n)
@@ -395,18 +415,19 @@ private theorem loopClosed {sigs : List (Ports T)} (body : Body Op carried sigs)
     | .cons (.control feedback) (.cons (.control mode) (.cons (.data n) .nil)) =>
       exact ⟨.control feedback, .control mode, .data n, trivial⟩
 
-private theorem loopFamily :
-    ClosedFamily primitives Eq (LoopFamily (callable left)) (LoopFamily (callable right)) where
+private theorem numberedFamily :
+    RecursiveCall.Numbered.CheckedFamily primitives Eq (LoopFamily (callable left)) (LoopFamily (callable right)) where
   closedL := loopClosed left
   closedR := loopClosed right
-  schedule := by
+  graphs := by
     intro _ _ _ _ leftMember rightMember _
     cases leftMember
     cases rightMember
-    apply ResolvedSchedule.intro (vertices := Equiv.refl Nat)
-    change RecursiveCall.Schedule Op (Equiv.refl Nat)
-      (code initial left outputs).toGraph.toTerm (code initial right outputs).toGraph.toTerm
-    simpa only [NestedTheta.Term.toTerm_toGraph] using loopSchedule
+    exact .intro orderedLoop
+
+private theorem loopFamily :
+    ClosedFamily primitives Eq (LoopFamily (callable left)) (LoopFamily (callable right)) :=
+  numberedFamily.toClosed
 
 private theorem loopAdmitted (mode : Fin 2) (n : Nat) :
     Admitted machine Eq (LoopFamily (callable left)) (LoopFamily (callable right))
@@ -472,5 +493,16 @@ example : ∃ target,
     RecursiveCall.ReachedTerminal primitives Eq (source left 0 0) (source right 0 0)
       (blockEndpoint left pendingL) target ∧ target.Blocked primitives :=
   (ClosedFamily.blocks respects loopFamily (loopAdmitted 0 0)).1 _ blockedCalls.1.1 ⟨_, rfl, rfl⟩
+
+-- The linked entry point consumes the actual partial linker's export
+-- relation. Clients supply graph evidence through the checked family.
+example :
+    (∃ endL endR, RecursiveCall.ReachedTerminal primitives Eq (source left 0 4) (source right 0 4) endL endR) ∨
+      (InfiniteTrace (Step primitives) (source left 0 4) ∧ InfiniteTrace (Step primitives) (source right 0 4)) := by
+  have related := link_related (unitL := 17) (unitR := 17) respects moduleIso moduleSchedule
+    (fun i => by simp [renameVertex, modulePositions]) .nil 20
+  rw [outcome_unique link_spec (linked left), outcome_unique link_spec (linked right)] at related
+  exact numberedFamily.runs_at_export respects .head related .linked .linked (carry_related 0 4)
+    ⟨.control 0, .data 4, trivial⟩ ⟨.control 0, .data 4, trivial⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.SingleTheta.Tests

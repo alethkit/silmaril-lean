@@ -2,7 +2,7 @@ module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Thms
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.ClosedFamily.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Thms
@@ -651,20 +651,27 @@ private def branchBody {sigs : List (Ports T)} (base : RecursiveCall.Code Op cap
   .bind (RecursiveCall.gammaNode (extra := 0) (entry := captured) (outs := [num])
     branchWires (branchSigs sigs)) (branchChildren base) addAfter
 
-private theorem addAfterSchedule {entry : Ports T} :
-    Schedule Op (Equiv.refl Nat) (addAfter (entry := entry)) addAfter :=
-  .bind (.primitive Op.seed) _ _ rfl rfl (.ret _ _ rfl)
+private def baseNumbering : Local.Renaming := .region memberVertices (fun _ _ => .identity)
 
-private theorem bodySchedule :
-    Schedule Op (Equiv.refl Nat) (branchBody baseL) (branchBody baseR) := by
-  refine .gamma branchWires branchWires rfl rfl (arms := Fin.cases memberVertices fun _ => Equiv.refl Nat)
-    ?_ addAfterSchedule
+private def branchNumbering : Local.Renaming :=
+  .region (Equiv.refl Nat) (fun _ arm => if arm = 0 then baseNumbering else .identity)
+
+private theorem addAfterOrdered {entry : Ports T} :
+    RecursiveCall.Numbered.Ordered Op .identity (addAfter (entry := entry)).toGraph addAfter.toGraph :=
+  .bind (.base (.simple (.primitive Op.seed))) _ _ rfl rfl (fun i => i.elim0) (.ret _ _ rfl)
+
+private theorem branchOrdered :
+    RecursiveCall.Numbered.Ordered Op branchNumbering (branchBody baseL).toGraph (branchBody baseR).toGraph := by
+  have after : RecursiveCall.Numbered.Ordered Op branchNumbering (addAfter (entry := branchEntry)).toGraph addAfter.toGraph :=
+    .bind (.base (.simple (.primitive Op.seed))) _ _ rfl rfl (fun i => i.elim0) (.ret _ _ rfl)
+  refine .bind (.base (.gamma (entry := captured) (exit := [num]) 0)) branchWires branchWires rfl rfl ?_ after
   intro arm
   refine Fin.cases ?_ (fun i => ?_) arm
-  · change Schedule Op memberVertices baseL baseR
-    exact .emptyRight _ (.bind (.primitive Op.finish) _ _ rfl rfl (.emptyLeft _ (.ret _ _ rfl)))
-  · change Schedule Op (Equiv.refl Nat) recurArm recurArm
-    exact .bind (.apply branchFn) _ _ rfl rfl addAfterSchedule
+  · change RecursiveCall.Numbered.Ordered Op baseNumbering baseL.toGraph baseR.toGraph
+    exact .emptyRight _ (.bind (.base (.simple (.primitive Op.finish))) _ _ rfl rfl
+      (fun i => i.elim0) (.emptyLeft _ (.ret _ _ rfl)))
+  · change RecursiveCall.Numbered.Ordered Op .identity recurArm.toGraph recurArm.toGraph
+    exact .bind (.base (.simple (.apply branchFn))) _ _ rfl rfl (fun i => i.elim0) addAfterOrdered
 
 private theorem baseIso : NestedTheta.Graph.Isomorphic (Instruction Op) baseL.toGraph baseR.toGraph := by
   refine .intro rfl rfl (Equiv.swap (0 : Fin 2) 1) ?_ ?_ rfl ?_
@@ -708,7 +715,8 @@ private theorem branchRefs : ValueRelated machine ids branchRefL branchRefR := b
     (tableR := branchGroupR.toGraph.definitions) (.cons capture .nil) ?_ 0
   exact Fin.cases ⟨⟨rfl, rfl⟩, branchBodyIso⟩ (fun i => i.elim0)
 
-private theorem branchFamily : ClosedFamily primitives ids (Supported branchRefL) (Supported branchRefR) where
+private theorem checkedBranchFamily :
+    RecursiveCall.Numbered.CheckedFamily primitives ids (Supported branchRefL) (Supported branchRefR) where
   closedL := primitivesClosed branchRefL (by
     intro _ _ _ member
     cases member
@@ -717,13 +725,14 @@ private theorem branchFamily : ClosedFamily primitives ids (Supported branchRefL
     intro _ _ _ member
     cases member
     exact ⟨.capture 73 1 8, .self, trivial⟩)
-  schedule := by
+  graphs := by
     intro _ _ _ _ left right _
     cases left
     cases right
-    apply ResolvedSchedule.intro (vertices := Equiv.refl Nat)
-    change Schedule Op (Equiv.refl Nat) (branchBody baseL).toGraph.toTerm (branchBody baseR).toGraph.toTerm
-    simpa only [NestedTheta.Term.toTerm_toGraph] using bodySchedule
+    exact .intro branchOrdered
+
+private theorem branchFamily : ClosedFamily primitives ids (Supported branchRefL) (Supported branchRefR) :=
+  checkedBranchFamily.toClosed
 
 private def branchArgs (flag : Nat) : Tuple machine.Val branchFn.args :=
   .cons (.data flag) (.cons (.control 1) (.cons (.control 0) .nil))
