@@ -59,17 +59,20 @@ private theorem row_word_reads {arity : Nat} (p : Plan arity) (input old : WordT
   | arg port => exact agree port
   | output i _ => exact i.elim0
 
+private theorem row_producer_reads {arity : Nat} (p : Plan arity) (old : WordTuple arity)
+    (fr : Frame Reg) (index : Fin p.updates.length) :
+    (p.rowFrame fr old).get (register (p.producerWire index).address) =
+      some (p.updates[index].evalAt (argumentPort arity) old) := by
+  change (p.rowFrame fr old).get (.node index.val) = _
+  simpa only [Nat.zero_add, Plan.rowFrame] using rowFrameAt_read (argumentPort arity) old p.updates 0 fr index
+
 private theorem producer_read {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
     (fr : Frame Reg) (agree : ArgsMatch fr (appendTuple old input)) (index : Fin p.updates.length) :
     read model (p.producerWire index) (appendTuple old input)
       (p.row.eval model (appendTuple old input) PUnit.unit) =
-        p.updates[index].evalAt (argumentPort arity) old := by
-  have observed := row_word_reads p input old fr agree (p.producerWire index)
-  change (p.rowFrame fr old).get (.node index.val) = _ at observed
-  have computed : (p.rowFrame fr old).get (.node index.val) =
-      some (p.updates[index].evalAt (argumentPort arity) old) := by
-    simpa only [Nat.zero_add, Plan.rowFrame] using rowFrameAt_read (argumentPort arity) old p.updates 0 fr index
-  exact Option.some.inj (observed.symm.trans computed)
+        p.updates[index].evalAt (argumentPort arity) old :=
+  Option.some.inj ((row_word_reads p input old fr agree (p.producerWire index)).symm.trans
+    (row_producer_reads p old fr index))
 
 private theorem exit_read {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
     (fr : Frame Reg) (agree : ArgsMatch fr (appendTuple old input)) :
@@ -83,16 +86,20 @@ private theorem exit_read {arity : Nat} (p : Plan arity) (input old : WordTuple 
     simpa only [Plan.exitWire, Plan.exitValue, selected, Option.elim] using
       producer_read p input old fr agree index
 
-private theorem setup_rhs_read {arity : Nat} {past : List (List PortTy)} (limit : Word)
-    (slot : Option (Fin arity)) (input old : WordTuple arity) (locals : Locals (Val model.value) past) :
+private theorem setup_rhs_read {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
+    (fr : Frame Reg) (agree : ArgsMatch fr (appendTuple old input))
+    (operand : GuardOperand arity p.updates.length) :
     let args := appendTuple old input
-    read model (guardRhsWire (past := past) slot) args ((guardSetup limit slot).eval model args locals) =
-      slot.elim limit (fun i => old.get (argumentPort arity i)) := by
-  cases slot with
-  | none =>
-    let literal : Tuple (Val model.value) [wordPort] := .cons limit .nil
-    exact read_newest .head model (appendTuple old input) locals literal
-  | some slot => exact suffix_get input old (argumentPort arity slot)
+    let locals := p.row.eval model args PUnit.unit
+    read model (guardRhsWire p.producerWire operand) args ((guardSetup p.limit operand).eval model args locals) =
+      GuardOperand.eval p.updates p.limit old operand := by
+  cases operand with
+  | limit =>
+    let args := appendTuple old input
+    let literal : Tuple (Val model.value) [wordPort] := .cons p.limit .nil
+    exact read_newest .head model args (p.row.eval model args PUnit.unit) literal
+  | bank slot => exact suffix_get input old (argumentPort arity slot)
+  | computed index => exact producer_read p input old fr agree index
 
 private theorem read_column {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
     {ports : List PortTy} (column : Wires (bankArgs arity) p.rowPast ports) :
@@ -135,11 +142,11 @@ theorem native_step {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
     refine (read_newest .head model args ready result).trans ?_
     have left := (read_keepOrigin p.guardSetup p.guardWire model args locals).trans
       (producer_read p input old fr agree p.guardIndex)
-    have right : read model (guardRhsWire p.guardSlot) args ready = p.guardRhsValue old :=
-      setup_rhs_read p.limit p.guardSlot input old locals
+    have right : read model p.guardRhsWire args ready = p.guardRhsValue old :=
+      setup_rhs_read p input old fr agree p.guardOperand
     change model.run p.comparison.source
       (.cons (read model (keepOrigin p.guardSetup p.guardWire) args ready)
-        (.cons (read model (guardRhsWire p.guardSlot) args ready) .nil)) = _
+        (.cons (read model p.guardRhsWire args ready) .nil)) = _
     rw [left, right]
     cases p.comparison <;> rfl
   have exit : read model p.graph.result args (p.graph.header.eval model args PUnit.unit) = p.exitValue old :=
@@ -167,19 +174,21 @@ private theorem row_length {arity : Nat} (p : Plan arity) : p.rowPast.length = p
   simp [extend_rowSigs]
 
 private theorem compare_length {arity : Nat} (p : Plan arity) : p.comparePast.length = p.compareIndex := by
-  cases selected : p.guardSlot <;>
+  cases selected : p.guardOperand <;>
     simp [Plan.comparePast, Plan.compareIndex, selected, guardSetupSigs, extend, row_length]
 
-private theorem setup_ops {arity : Nat} {past : List (List PortTy)} (limit : Word)
-    (slot : Option (Fin arity)) :
-    emitOpsWith (fun p => .arg p.index) (guardSetup (past := past) limit slot) =
-      slot.elim [.const (.node past.length) limit] (fun _ => []) := by
-  cases slot <;> rfl
+private theorem setup_ops {arity producers : Nat} {past : List (List PortTy)} (limit : Word)
+    (operand : GuardOperand arity producers) :
+    emitOpsWith (fun p => .arg p.index) (guardSetup (past := past) limit operand) =
+      (match operand with
+        | .limit => [.const (.node past.length) limit]
+        | .bank _ | .computed _ => []) := by
+  cases operand <;> rfl
 
 private theorem setup_length {arity : Nat} (p : Plan arity) :
-    (emitOpsWith (fun p => .arg p.index) p.guardSetup).length = (guardSetupSigs p.guardSlot).length := by
+    (emitOpsWith (fun p => .arg p.index) p.guardSetup).length = (guardSetupSigs p.guardOperand).length := by
   rw [Plan.guardSetup, setup_ops]
-  cases p.guardSlot <;> rfl
+  cases p.guardOperand <;> rfl
 
 private theorem emit_comparison {args : List PortTy} {past : List (List PortTy)}
     (cmp : Guard) (dest : Reg) (left right : Origin args past wordPort) :
@@ -189,13 +198,13 @@ private theorem emit_comparison {args : List PortTy} {past : List (List PortTy)}
 
 private def comparisonOp {arity : Nat} (p : Plan arity) : Op Reg :=
   .binary (.cmp p.comparison.target) (.node p.compareIndex) (.node p.guardIndex.val)
-    (register (guardRhsWire (past := p.rowPast) p.guardSlot).address)
+    (register p.guardRhsWire.address)
 
 private theorem emitted_ops {arity : Nat} (p : Plan arity) :
     (bankHeader p.graph).ops = emitOpsWith (fun p => .arg p.index) p.row ++
       (emitOpsWith (fun p => .arg p.index) p.guardSetup ++ [comparisonOp p]) := by
   let left := keepOrigin p.guardSetup p.guardWire
-  let right := guardRhsWire (past := p.rowPast) p.guardSlot
+  let right := p.guardRhsWire
   have leftReg : register left.address = .node p.guardIndex.val := keep_register p.guardSetup p.guardWire
   change emitOpsWith (fun p => .arg p.index)
     (appendFlow p.row (appendFlow p.guardSetup (.cons p.comparison.source p.guardOperands .nil))) = _
@@ -217,10 +226,20 @@ private theorem prefix_ops_length {arity : Nat} (p : Plan arity) :
 theorem guard_compare_operand {arity : Nat} (p : Plan arity) :
     (bankHeader p.graph).ops[p.compareIndex]? =
       some (.binary (.cmp p.comparison.target) (.node p.compareIndex) (.node p.guardIndex.val)
-        (register (guardRhsWire (past := p.rowPast) p.guardSlot).address)) := by
+        (register p.guardRhsWire.address)) := by
   change _ = some (comparisonOp p)
   rw [emitted_ops, ← List.append_assoc, List.getElem?_append_right (by rw [prefix_ops_length]),
     prefix_ops_length, Nat.sub_self]
+  rfl
+
+theorem guard_compare_computed {arity : Nat} (p : Plan arity) (right : Fin p.updates.length)
+    (selected : p.guardOperand = .computed right) :
+    (bankHeader p.graph).ops[p.compareIndex]? =
+      some (.binary (.cmp p.comparison.target) (.node p.compareIndex) (.node p.guardIndex.val) (.node right.val)) := by
+  rw [guard_compare_operand]
+  change some (Op.binary (.cmp p.comparison.target) (.node p.compareIndex) (.node p.guardIndex.val)
+    (register (guardRhsWire p.producerWire p.guardOperand).address)) = _
+  rw [selected]
   rfl
 
 private theorem column_registers {arity : Nat} (p : Plan arity) {ports : List PortTy}
@@ -257,7 +276,7 @@ private theorem guard_register {arity : Nat} (p : Plan arity) :
     _ = register p.testPredicate.address :=
       joined_register (past := []) (sigs := rowSigs p.updates) (tail := p.guardSigs) p.testPredicate
     _ = register last.address :=
-      joined_register (past := p.rowPast) (sigs := guardSetupSigs p.guardSlot) (tail := [[.value .predicate]]) last
+      joined_register (past := p.rowPast) (sigs := guardSetupSigs p.guardOperand) (tail := [[.value .predicate]]) last
     _ = .node p.comparePast.length := newest_register .head
     _ = .node p.compareIndex := congrArg Reg.node (compare_length p)
 
@@ -273,11 +292,11 @@ private theorem set_after_row {arity : Nat} (p : Plan arity) (fr : Frame Reg) (v
 private theorem setup_frame_read {arity : Nat} (p : Plan arity) (fr : Frame Reg)
     (wire : Origin (bankArgs arity) p.rowPast wordPort) :
     (p.guardSetupFrame fr).get (register wire.address) = fr.get (register wire.address) := by
-  cases selected : p.guardSlot with
-  | none =>
-    simpa only [Plan.guardSetupFrame, selected, Option.elim] using
+  cases selected : p.guardOperand with
+  | limit =>
+    simpa only [Plan.guardSetupFrame, selected] using
       set_after_row p fr p.limit p.updates.length (Nat.le_refl _) wire
-  | some _ => simp [Plan.guardSetupFrame, selected]
+  | bank _ | computed _ => simp [Plan.guardSetupFrame, selected]
 
 private theorem test_frame_read {arity : Nat} (p : Plan arity) (fr : Frame Reg)
     (old : WordTuple arity) (wire : Origin (bankArgs arity) p.rowPast wordPort) :
@@ -341,38 +360,44 @@ private theorem counted_append {program : Prog Reg} {n k : Nat} {s middle finish
 private theorem machine_rhs_read {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
     (fr : Frame Reg) (agree : ArgsMatch fr (appendTuple old input)) :
     (p.guardSetupFrame (p.rowFrame fr old)).get
-      (register (guardRhsWire (past := p.rowPast) p.guardSlot).address) = some (p.guardRhsValue old) := by
-  cases selected : p.guardSlot with
-  | none =>
-    have reg : register (guardRhsWire (past := p.rowPast) (none : Option (Fin arity))).address =
+      (register p.guardRhsWire.address) = some (p.guardRhsValue old) := by
+  change (p.guardSetupFrame (p.rowFrame fr old)).get
+    (register (guardRhsWire p.producerWire p.guardOperand).address) = _
+  cases selected : p.guardOperand with
+  | limit =>
+    have reg : register (guardRhsWire p.producerWire .limit).address =
         .node p.updates.length := by
       change register (newest (past := p.rowPast) (head := [wordPort]) .head :
         Origin (bankArgs arity) _ wordPort).address = _
       rw [newest_register, row_length]
     rw [reg]
-    simp [Plan.guardSetupFrame, Plan.guardRhsValue, selected, Option.elim]
-  | some slot =>
+    simp [Plan.guardSetupFrame, Plan.guardRhsValue, selected, GuardOperand.eval]
+  | bank slot =>
     let wire : Origin (bankArgs arity) p.rowPast wordPort :=
       .arg (suffixPort (wordPorts arity) (argumentPort arity slot))
     change (p.guardSetupFrame (p.rowFrame fr old)).get (register wire.address) = _
     exact (setup_frame_read p (p.rowFrame fr old) wire).trans
       ((row_word_reads p input old fr agree wire).trans (congrArg some
         ((suffix_get input old (argumentPort arity slot)).trans
-          (by simp [Plan.guardRhsValue, selected, Option.elim]))))
+          (by simp [Plan.guardRhsValue, selected, GuardOperand.eval]))))
+  | computed index =>
+    exact (setup_frame_read p (p.rowFrame fr old) (p.producerWire index)).trans
+      (by simpa only [Plan.guardRhsValue, selected, GuardOperand.eval] using
+        row_producer_reads p old fr index)
 
 private theorem guard_setup_steps {arity : Nat} (p : Plan arity) (old : WordTuple arity)
     (fr : Frame Reg) (mem : Memory) :
-    StepsNWithin (lowerBank p.graph) [] (guardSetupSigs p.guardSlot).length
+    StepsNWithin (lowerBank p.graph) [] (guardSetupSigs p.guardOperand).length
       ⟨⟨0, 1, p.updates.length⟩, p.rowFrame fr old, [], mem⟩
       ⟨⟨0, 1, p.compareIndex⟩, p.guardSetupFrame (p.rowFrame fr old), [], mem⟩ := by
-  cases selected : p.guardSlot with
-  | none =>
+  cases selected : p.guardOperand with
+  | limit =>
     let pc := p.updates.length
     let row := p.rowFrame fr old
     let literal : Op Reg := .const (.node pc) p.limit
     have block : (lowerBank p.graph).block? 0 1 = some (bankHeader p.graph) := rfl
     have setup : emitOpsWith (fun p => .arg p.index) p.guardSetup = [literal] := by
-      simp only [Plan.guardSetup, setup_ops, selected, Option.elim, row_length, literal, pc]
+      simp only [Plan.guardSetup, setup_ops, selected, row_length, literal, pc]
     have rowSize : (emitOpsWith (fun p => .arg p.index) p.row).length = pc :=
       emit_row_length (argumentPort arity) [] p.updates
     have fetched : (bankHeader p.graph).ops[pc]? = some literal := by
@@ -386,9 +411,9 @@ private theorem guard_setup_steps {arity : Nat} (p : Plan arity) (old : WordTupl
         ⟨⟨0, 1, pc + 1⟩, row.set (.node pc) p.limit, [], mem⟩ :=
       .head ⟨moved.step_eq, List.nil_suffix⟩ .refl
     simpa [pc, row, Plan.compareIndex, Plan.guardSetupFrame, guardSetupSigs, selected] using path
-  | some slot =>
+  | bank _ | computed _ =>
     simp only [selected, guardSetupSigs, List.length_nil, Plan.compareIndex, Plan.guardSetupFrame,
-      Option.elim, Nat.add_zero]
+      Nat.add_zero]
     exact .refl
 
 theorem header_activation_steps {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
@@ -408,12 +433,10 @@ theorem header_activation_steps {arity : Nat} (p : Plan arity) (input old : Word
   have length : (bankHeader p.graph).ops.length = p.compareIndex + 1 := by
     rw [emitted_ops, ← List.append_assoc, List.length_append, prefix_ops_length]
     rfl
-  have selected : row.get (.node p.guardIndex.val) = some (p.guardValue old) := by
-    simpa only [Nat.zero_add, row, Plan.rowFrame, Plan.guardValue] using rowFrameAt_read (argumentPort arity) old p.updates 0 fr p.guardIndex
   have leftRead : ready.get (.node p.guardIndex.val) = some (p.guardValue old) :=
-    (setup_frame_read p row p.guardWire).trans selected
+    (setup_frame_read p row p.guardWire).trans (row_producer_reads p old fr p.guardIndex)
   have rightRead := machine_rhs_read p input old fr agree
-  change ready.get (register (guardRhsWire (past := p.rowPast) p.guardSlot).address) = _ at rightRead
+  change ready.get (register p.guardRhsWire.address) = _ at rightRead
   have cmpExec : cmp.exec ready mem = some (p.testFrame fr old, mem) := by
     simp only [cmp, comparisonOp, Op.exec, leftRead, rightRead]
     rfl

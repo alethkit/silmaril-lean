@@ -33,7 +33,8 @@ private def spinPlan : Plan 2 :=
     entry := .cons (.arg .head) (.cons (.arg .head) .nil)
     updates := [⟨.add, 0, 0, 1⟩, ⟨.sub, 1, 1, 1⟩]
     guardIndex := 0
-    exitProducer := none }
+    exitProducer := none
+    guardOperand := .limit }
 
 private def exitTargets : Checked.Phi.Targets :=
   (lowerBank exitPlan.graph, Generic.lower exitPlan.graph)

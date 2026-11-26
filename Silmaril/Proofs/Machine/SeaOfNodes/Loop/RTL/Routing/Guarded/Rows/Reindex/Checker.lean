@@ -50,12 +50,12 @@ theorem checkPlan_reindex (perm : InputPermutation arity) (spec : Spec) :
         cases guardCheck : checkProducer updates spec.guardOrigin spec.guardDestination with
         | none => simp [guardCheck]
         | some guard =>
-          cases rhsCheck : spec.guardRhs.mapM (checkBankOperand arity) with
-          | none => simp
+          cases rhsCheck : checkGuardOperand updates guard spec.guardRhs with
+          | none => simp [guardCheck, rhsCheck]
           | some rhs =>
             by_cases exit : spec.exitSlot < arity
             · cases exitCheck : spec.exitOrigin.mapM (fun origin => checkProducer updates origin spec.exitSlot) <;>
-                simp [guardCheck, exit, exitCheck, Plan.reindexInputs]
+                simp [guardCheck, rhsCheck, exit, exitCheck, Plan.reindexInputs]
             · simp [exit]
 
 private theorem column_info {scope width : Nat} {raw : List Nat} {wires : ArgumentColumn scope width}
