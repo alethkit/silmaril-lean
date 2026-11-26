@@ -57,12 +57,12 @@ reconstruction are outside the theorem.
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.PEG.Bridge.LambdaSSA.Thms PEGCoreTests PEGIRBridgeTests'
-lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/PEGLambdaSSA.lean
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/PEGIRBridge.lean
 for module in \
   Silmaril.SSA.PEG.Bridge.LambdaSSA.Defs \
   Silmaril.Proofs.SSA.PEG.Bridge.LambdaSSA.Source \
   Silmaril.Proofs.SSA.PEG.Bridge.LambdaSSA.Correctness \
-  Silmaril.SSA.PEG.Bridge.LambdaSSA.Thms tests.ssa.PEGLambdaSSA; do
+  Silmaril.SSA.PEG.Bridge.LambdaSSA.Thms tests.ssa.PEGIRBridge; do
   SILMARIL_REPLAY_MODULE="$module" LEAN_NUM_THREADS=1 \
     lake env lean -DwarningAsError=true tools/compiler-explorer/Replay.lean
 done
@@ -73,4 +73,4 @@ arm computations, a mixed-sort join packet, a repeated result and a shared
 operand. It checks predecessor occurrence identity, rejects an out-of-scope
 arm reference, and rules out the internal join label and a changed state as
 external observations.
-[Regression](../../tests/ssa/PEGLambdaSSA.lean)
+[Regression](../../tests/ssa/PEGIRBridge.lean)
