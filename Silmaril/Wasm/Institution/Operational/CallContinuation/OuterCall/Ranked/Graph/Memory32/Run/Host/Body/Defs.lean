@@ -19,14 +19,19 @@ open Execution.Runtime (Frame Value)
 open Computed
 open Wasm.V1.Execution
 
+/-- Check a numeric prefix and feed the host's declared results above the
+saved operand prefix to a continuation checker. -/
+def checkHostPrefixWith (locals stack : List NumType) (ops : List Prefix.Op)
+    (signature : Wasm.V1.FuncType) (resume : List NumType → Bool) : Bool :=
+  ((Prefix.check locals stack ops).map fun operands =>
+    decide (operands.take signature.params.length = signature.params.reverse) &&
+      resume (signature.results.reverse ++ operands.drop signature.params.length)).getD false
+
 def Function.checkHostPrefix (fn : Function) (stack : List NumType) (ops : List Prefix.Op)
     (signature : Wasm.V1.FuncType) (tail : List Op) (fallthrough : List NumType)
     (labels : List (List NumType)) : Bool :=
-  let locals := fn.declaration.params ++ fn.declaration.locals
-  ((Prefix.check locals stack ops).map fun operands =>
-    decide (operands.take signature.params.length = signature.params.reverse) &&
-      fn.checkRegion (signature.results.reverse ++ operands.drop signature.params.length)
-        fallthrough tail labels).getD false
+  checkHostPrefixWith (fn.declaration.params ++ fn.declaration.locals) stack ops signature
+    (fun next => fn.checkRegion next fallthrough tail labels)
 
 /-- The running prefix and its checked continuation share the current activation.
 The actual argument values need only be recovered when the prefix is exhausted. -/
