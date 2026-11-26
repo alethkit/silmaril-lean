@@ -31,7 +31,7 @@ private theorem checkColumn_reindex (perm : InputPermutation arity) (width : Nat
         simp only [List.map_cons, InputPermutation.index, renameVertex, dite_eq_left h,
           checkColumn, dite_eq_left valid, ih]
         cases checkColumn arity width rest <;>
-          simp [InputPermutation.column, InputMap.column, Tuple.map, argument_reindex, Option.map]
+          simp [InputPermutation.column, InputMap.column, mapColumn, mapOrigin, Tuple.map, argument_reindex, Option.map]
       · simp [InputPermutation.index, renameVertex, h, checkColumn]
 
 theorem checkPlan_reindex (perm : InputPermutation arity) (spec : Spec) :

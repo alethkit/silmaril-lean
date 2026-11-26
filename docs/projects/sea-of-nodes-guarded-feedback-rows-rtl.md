@@ -361,6 +361,7 @@ evaluates entry outside its budget and needs `b + 1` header visits.
 
 ```lean
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Reindex.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Thms
 
 open Silmaril.Isotope.Institution.Observational (Observation ssaBeh)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution.Fiber (inputModel)
@@ -476,6 +477,18 @@ example {targets : Checked.Phi.Targets} (accepted : Table.lowerChecked dependent
     (Generic.Fuel.decodeArgs model [word] packet).map fun fields => Silmaril.SSA.RVSDG.Tuple.get fields .head
   pure (machine.map (List.map BitVec.toInt), typed.map BitVec.toInt)
 -- some (some [6], some 6)
+
+#eval do
+  let contract : Rows.InputMap 3 2 := fun slot => if slot = 1 then 1 else 0
+  let (rtl, ssa) ← Table.Width.lowerChecked contract dependent
+  let input : WordTuple 2 := .cons (5 : Word) (.cons (2 : Word) .nil)
+  let mem := Memory.ofList 4 [29, 71, 53, 11]
+  let machine := (rtl.runMain 13 0 (words input) mem).returnedValues?
+  let typed := (Generic.Fuel.run model (inputEnv model input) 3 ssa).bind fun (_, packet) =>
+    (Generic.Fuel.decodeArgs model [word] packet).map fun fields => Silmaril.SSA.RVSDG.Tuple.get fields .head
+  let params := (rtl.func? 0).map (fun fn : Silmaril.Machine.RTL.SSA.Func _ => fn.sig.params)
+  pure (params, machine.map (List.map BitVec.toInt), typed.map BitVec.toInt)
+-- some (some 2, some [6], some 6)
 ```
 
 The two results are `6 - 5 = 1` and `1 + 2 = 3`, so the bank enters as
@@ -630,6 +643,37 @@ identification they agree at every new valuation because pulled slots 0
 and 2 are equal. At new input `(5, 2, 6)` both emitted targets return 6
 with the whole initial memory. At `(1, 0, 42)` both diverge at the fixed
 point. [Checked regression][table-regression]
+
+### Changing the capture width
+
+`Rows.InputMap old new` sends each old slot to a new slot of the same word
+sort. Its second width defaults to the first for the same-width API.
+`InputMap.pull_comp` composes valuation pullbacks. `Table.Width.Source`
+separates capture count from carried-bank width. `Width.mapCaptures`
+renames external reads in both scopes. `Width.headerPort_bank` shows that
+each bank operand still names its original bank position. The producer table
+order and incoming occurrences stay fixed.
+
+`Width.lowerChecked` checks the original table, emits a native function
+at the new arity, and validates that function with the ordinary RTL.SSA
+well-formedness check. Entry has two parameters in the three-to-two
+example. Its jump and the backedge both pass the three bank fields.
+The λSSA implementation uses the same generic CFG emitter at the new
+typed input context.
+
+`Width.denote_mapCaptures` proves native partial-result agreement under
+pullback, and `Width.equation_on_image` compares the original equation
+on just the pulled valuations. `Width.lambda_return_iff` and
+`Width.lambda_diverges_iff` give exact λSSA returns with unchanged memory
+and actual divergence for checked re-emissions. The regression calls both
+emitted targets with two arguments and observes return 6 with the full
+initial memory. The RTL runner rejects a three-argument call to the new function.
+At input `(1, 0)`, the λSSA proof observes divergence and the RTL
+regression exhibits a reachable three-instruction machine cycle.
+Generic RTL checker acceptance and loop observation transport at the new
+register layout are the remaining obligations. The previous
+`Table.lowerChecked` and its same-width transport laws use a shared
+capture and bank width. [Checked regression][table-regression]
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \

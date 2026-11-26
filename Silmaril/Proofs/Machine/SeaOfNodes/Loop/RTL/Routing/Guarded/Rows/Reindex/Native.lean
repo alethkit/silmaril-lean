@@ -21,7 +21,7 @@ universe w
 
 variable {arity : Nat} {past sigs ports : List (List PortTy)} {t : PortTy}
 
-private theorem get_pullTuple {F : PortTy → Type w} {source target : List PortTy}
+theorem get_pullTuple {F : PortTy → Type w} {source target : List PortTy}
     (rename : ∀ {t}, Port source t → Port target t) (input : Tuple F target) (p : Port source t) :
     (InputPermutation.pullTuple (fun p => rename p) input).get p = input.get (rename p) := by
   induction p with
@@ -62,23 +62,36 @@ theorem pull_symm {value : Unit → Type w} (perm : InputPermutation arity)
   simp only [InputPermutation.pull, InputMap.pull, get_pullTuple]
   exact congrArg input.get (port_symm perm p)
 
-theorem read_column (mapping : InputMap arity) {F : PortTy → Type w}
-    (input : Tuple F (wordPorts arity)) {outputs : List PortTy}
-    (wires : Wires (wordPorts arity) past outputs) (locals : Locals F past) :
-    (mapping.column wires).read input locals =
-      wires.read (InputPermutation.pullTuple (fun p => mapping.port p) input) locals := by
+theorem read_mapColumn {F : PortTy → Type w} {source target out : List PortTy}
+    (map : ∀ {t}, Port source t → Port target t) (input : Tuple F target)
+    (wires : Wires source past out) (locals : Locals F past) :
+    (mapColumn (fun p => map p) wires).read input locals =
+      wires.read (InputPermutation.pullTuple (fun p => map p) input) locals := by
   induction wires with
   | nil => rfl
   | cons wire rest ih =>
     cases wire with
-    | arg p =>
-      exact congrArg₂ Tuple.cons (get_pullTuple (fun p => mapping.port p) input p).symm ih
+    | arg p => exact congrArg₂ Tuple.cons (get_pullTuple (fun p => map p) input p).symm ih
     | output _ _ => exact congrArg (fun tail => Tuple.cons _ tail) ih
+
+theorem pull_comp {middle target : Nat} {value : Unit → Type w}
+    (first : InputMap arity middle) (second : InputMap middle target)
+    (input : Tuple (Val value) (wordPorts target)) :
+    InputMap.pull (second ∘ first) input = first.pull (second.pull input) := by
+  apply tuple_ext
+  intro sort p
+  have sameSort := InputPermutation.slotSort p
+  subst sort
+  simp only [InputMap.pull, get_pullTuple]
+  change input.get (argumentPort target (second (first (InputPermutation.slot p)))) =
+    input.get (argumentPort target
+      (second (InputPermutation.slot (argumentPort middle (first (InputPermutation.slot p))))))
+  rw [InputPermutation.slot_argumentPort]
 
 theorem initial_reindex (p : Plan arity) (perm : InputPermutation arity)
     (m : Model WordOp) (input : Tuple (Val m.value) (wordPorts arity)) :
     (p.reindexInputs perm).graph.initial m input = p.graph.initial m (perm.pull input) :=
-  read_column (fun i => perm i) input p.entry PUnit.unit
+  read_mapColumn (fun p => perm.port p) input p.entry PUnit.unit
 
 -- Every header operand names an old bank slot or a producer.
 private def Local (wire : Origin (bankArgs arity) past t) : Prop :=

@@ -26,7 +26,7 @@ private theorem computed_reindex (mapping : InputMap arity) {past : List (List P
   induction entry with
   | nil => rfl
   | cons w _ ih =>
-    cases w <;> simp only [InputMap.column, Tuple.map, Wires.addresses, Origin.address,
+    cases w <;> simp only [InputMap.column, mapColumn, mapOrigin, Tuple.map, Wires.addresses, Origin.address,
       List.any_cons, isComputedEntry] at ih ⊢ <;> rw [ih]
 
 theorem port_index_lt {n : Nat} {t : PortTy} (port : Port (wordPorts n) t) :
