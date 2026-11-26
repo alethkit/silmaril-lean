@@ -19,6 +19,14 @@ variable {index : Nat} {cut : Point (SourceLabel carried result)}
 variable {cfg out : Cfg TargetOp (SourceLabel carried result) Input [result]}
 variable {before after : Block TargetOp (SourceLabel carried result) Γ [result]}
 
+/-- A successful adjacent swap exchanges exactly two operation symbols. -/
+theorem swapAt?_order {target : Nat} (swapped : swapAt? target before = some after) :
+    ∃ (prefixOps : List Operation) (left right : Operation) (suffixOps : List Operation),
+      prefixOps.length = target ∧
+      operations before = prefixOps ++ (left :: right :: suffixOps) ∧
+      operations after = prefixOps ++ (right :: left :: suffixOps) :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Earlier.swapAt?_order swapped
+
 /-- Every successful sequence of swaps removes the nominated operation from
 after the crossed sequence and reinserts it ahead of that sequence. -/
 theorem moveEarlier?_order {target extraSteps : Nat}

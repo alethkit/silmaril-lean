@@ -35,7 +35,7 @@ private theorem renameSuffix_operations (rename : Rename Γ Δ)
   | terminator => rfl
   | letOp _ _ _ ih => simp only [renameSuffix, operations, ih]
 
-private theorem swapAt?_order {target : Nat} (swapped : swapAt? target before = some after) :
+theorem swapAt?_order {target : Nat} (swapped : swapAt? target before = some after) :
     ∃ (prefixOps : List Operation) (left right : Operation) (suffixOps : List Operation),
       prefixOps.length = target ∧
       operations before = prefixOps ++ (left :: right :: suffixOps) ∧
