@@ -2082,22 +2082,30 @@ example (right : Bool) : (match linkedClientRun right 3 1 with
 private abbrev allocatingImports : Ports T := [branchFn.port, num]
 private abbrev allocatingEntry : Ports T := [branchFn.port, global] ++ branchFn.args
 
-private def allocatingBody : RecursiveCall.Code Op allocatingEntry [] [[num], [num]] [num] :=
+private def allocatingWith {sigs : List (Ports T)}
+    (suffix : RecursiveCall.Code Op allocatingEntry [[num], [num]] sigs [num]) :
+    RecursiveCall.Code Op allocatingEntry [] ([num] :: [num] :: sigs) [num] :=
   .bind (RecursiveCall.simple (.apply branchFn)
     (.cons (.arg .head) (.cons (.arg (.tail (.tail .head)))
       (.cons (.arg (.tail (.tail (.tail .head)))) (.cons (.arg (.tail (.tail (.tail (.tail .head))))) .nil))))
     (fun i => i.elim0)) (fun i => i.elim0) <|
   .bind (RecursiveCall.simple (.primitive Op.finish)
     (.cons (.arg (.tail .head)) (.cons (.output (0 : Fin 1) .head) .nil)) (fun i => i.elim0))
-    (fun i => i.elim0) (.ret (.cons (.output (1 : Fin 2) .head) .nil))
+    (fun i => i.elim0) suffix
 
-private def allocatingClient : (shifted : Bool) → AllocatingClient Op allocatingImports branchFn (.data ()) shifted
+private def allocatingBody := allocatingWith (.ret (.cons (.output (1 : Fin 2) .head) .nil))
+
+private def allocatingClientWith {sigs : List (Ports T)}
+    (body : RecursiveCall.Code Op allocatingEntry [] sigs [num]) :
+    (shifted : Bool) → AllocatingClient Op allocatingImports branchFn (.data ()) shifted
   | false => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail .head)) .nil, _, seedTerm⟩),
       (LambdaTerm.toGraph ⟨[branchFn.port, global], .cons (.arg .head) (.cons (.output (0 : Fin 1) .head) .nil),
-        _, allocatingBody⟩)⟩
+        _, body⟩)⟩
   | true => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail .head)) .nil, _, seedTerm⟩),
       (LambdaTerm.toGraph ⟨[branchFn.port, global], .cons (.arg .head) (.cons (.output (1 : Fin 2) .head) .nil),
-        _, allocatingBody⟩)⟩
+        _, body⟩)⟩
+
+private abbrev allocatingClient := allocatingClientWith allocatingBody
 
 private def allocatingInputs (callee : machine.Val branchFn.port) : Tuple machine.Val allocatingImports :=
   .cons callee (number 3)
@@ -2146,6 +2154,68 @@ example (shifted : Bool) : (match allocatingRun shifted 3 1 with
     | _ => none
   | _ => none) = some ([0], 26, some (number 11, 36)) := by
   cases shifted <;> cbv
+
+private def rootChain := checkedProvider.allocationChain
+
+private def extendMiddle :=
+  rootChain.extend actions ordinaryOutputs exactLambdas 74 74
+    (allocatingInputs (rootChain.checked.valuesL.get crossPort))
+    (allocatingInputs (rootChain.checked.valuesR.get crossPort))
+    (allocatingClient false) (allocatingClient true)
+
+private def finalBody : RecursiveCall.Code Op allocatingEntry [] [[num], [num], [num]] [num] :=
+  allocatingWith <| .bind (RecursiveCall.simple (.primitive Op.seed)
+    (.cons (.output (1 : Fin 2) .head) .nil) (fun i => i.elim0)) (fun i => i.elim0)
+    (.ret (.cons (.output (2 : Fin 3) .head) .nil))
+
+private abbrev finalClient := allocatingClientWith finalBody
+
+private def finalInputs (middle : machine.Val branchFn.port) : Tuple machine.Val allocatingImports :=
+  .cons middle (number 5)
+
+private def nestedExact : RecursiveCall.Numbered.ExactValueCheck machine :=
+  RecursiveCall.Numbered.ExactValueCheck.lambda instructionKeys fun left right =>
+    exactFirstOrder left right <|> exactLambdas left right
+
+private def checkFinalRun (callee : machine.Val branchFn.port) (store vertex : Nat) : Bool :=
+  let success := Continuation.Partial.Executable.run actions 6 (.call callee (branchArgs 1)) store
+  let blocked := Continuation.Partial.Executable.run actions 60 (.call callee (branchArgs 0)) store
+  let resumed := match success with
+    | .suspended config =>
+      match config.control, (runFor actions 60 config).result with
+      | .eval (.call _ _) stack, some (.cons (.data n) .nil, stopped) =>
+        let result : Nat := n
+        savedVertices stack == [0, 0] && config.store == 29 && result == 20 && stopped == 47
+      | _, _ => false
+    | _ => false
+  let attempted := match crossAttempt blocked with
+    | some (frames, .cons g (.cons flag .nil), attemptedStore) =>
+      frames == [0, 0, 0] && attemptedStore == 29 &&
+        (exactFirstOrder g (globalValue vertex 8)).isSome && (exactFirstOrder flag ((number 0).get .head)).isSome
+    | none => false
+  store == 29 && resumed && attempted
+
+-- Both runs start from the exact exports and stores returned by admission.
+private def checkFinal (unitL unitR : Nat) (stale : Bool := false) :=
+  extendMiddle.bind fun middle =>
+    let rightImport := if stale then providerRef 1 else middle.checked.valuesR.get crossPort
+    (middle.extend actions ordinaryOutputs nestedExact unitL unitR
+      (finalInputs (middle.checked.valuesL.get crossPort)) (finalInputs rightImport)
+      (finalClient false) (finalClient true)).map fun final =>
+        checkFinalRun (final.checked.valuesL.get crossPort) final.checked.storeL 0 &&
+        checkFinalRun (final.checked.valuesR.get crossPort) final.checked.storeR 1
+
+#guard (checkFinal 75 75).getD false
+#guard (checkFinal 73 75).isNone
+#guard (checkFinal 75 73).isNone
+#guard (checkFinal 75 75 true).isNone
+
+-- A previously reserved unit would collide with the root allocation,
+-- even though the immediate provider still has unit 74.
+example : Executable.link actions 73 (finalClient false).toGraph
+    (finalInputs (allocatedClosure 74 0)) 26 =
+    .linked (.cons (.closure (.cons (allocatedClosure 74 0)
+      (.cons (.global 73 0 (.data (12 : Nat))) .nil)) finalBody.toGraph) .nil) 29 := by cbv
 
 open RecursiveCall.Numbered (GroupProfile LabelCode memberProfile memberProfile_eq)
 
