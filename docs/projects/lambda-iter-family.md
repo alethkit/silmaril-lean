@@ -163,12 +163,38 @@ allows the generated table to check. Its entry and the `20 → 10`
 transfer agree at the numbered label and updated packet.
 [Countdown interface regression](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Examples/Thms.lean)
 
-The adapted countdown has two entry captures. Applying a capture-free
-guarded dispatcher requires a separate input-closing step. Isotope
-divergence and the comparison with typed monadic denotations are outside
-the finite, operational interface here.
+### Closing the generated entry for the dispatcher
+
+`NamedFlat.Capture.close` takes a checked graph and a closed expression of
+the exact type `Region.packedInputType β.toList`, where `β` is the graph's
+capture profile. The graph evaluates that expression once and destructures
+its result before entering the original code. The input can come from a
+caller-supplied primitive. The adapter retains the same block labels and
+erased bodies and checks the blocks again in scopes containing only their
+typed incoming parameters. It returns an `Option` whose successful result
+carries `HasType .nil R E` and the erasure equations. Its execution proofs
+use those equations. Acceptance is checked for each supplied graph and packet
+producer.
+[Capture closure and finite execution](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Capture/Thms.lean)
+
+When the packet expression has exactly the original environment's packed
+values and the initial primitive state as its sole finite outcome,
+`entry_eval_iff` preserves and reflects entry evaluation. `graph_eval_iff`
+uses `Follow.map_block` to extend this to whole finite Isotope runs.
+`packed_eval_at` then compares the packed dispatcher with the original open
+graph, preserving the exit index in the packed sum, the payload, and the
+final primitive state. The classified countdown exercise closes the actual
+compiled graph over both captures, follows two back edges, and returns
+payload 2 at external slot zero.
+[Closed countdown regression](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Examples/Thms.lean)
+
+The named comparison still covers entry and each internal step under shared
+stateless `Part` primitives. Relating named `Part.iter` to the Isotope
+`Follow` relation is a separate whole-run theorem. ITree event correspondence
+would additionally relate an event signature and handlers. The closure
+theorems here concern finite evaluations.
 
 ```sh
-lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.Thms \
+lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.Thms \
   Silmaril.SSA.LambdaRTL.CFG.Cyclic.Examples.Thms
 ```

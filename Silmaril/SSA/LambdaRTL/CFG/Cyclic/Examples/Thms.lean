@@ -4,7 +4,7 @@ public import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Version.Thms
 import Silmaril.Semantics.Elgot.Thms
 import Mathlib.Data.Nat.Pairing
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.Thms
 
 /-! The edge from block 20 to block 10 is taken twice. Block 10 stops when the
 countdown reaches zero and returns the number of visits to block 20. -/
@@ -142,6 +142,7 @@ example (store : Bool → Nat) :
 
 open Silmaril.Isotope (Value BoundCtx)
 open Silmaril.Isotope.Bridge
+open Silmaril.Isotope.LambdaSSA (FiniteCFG Region)
 open Silmaril.Isotope.LambdaSSA.Semantics (Env extend)
 
 private def captures : Fin 2 → Bool := Fin.cases false (fun _ => true)
@@ -208,12 +209,18 @@ example (count visits : Ty Unit) (inputTypes : BoundCtx (Ty Unit) 2)
 private inductive Primitive
   | classify
   | increment
+  | readCaptures
+
+private def capturePacketType : Ty Unit := Region.packedInputType (captureTypes num).toList
 
 private instance : HasTy Primitive (Ty Unit) where
-  src _ := num
+  src
+    | .readCaptures => .unit
+    | _ => num
   trg
     | .classify => .coprod num num
     | .increment => num
+    | .readCaptures => capturePacketType
 
 -- Keep the same source table and back edge, exposing the numeric split as a
 -- typed primitive that returns a tagged sum.
@@ -229,12 +236,6 @@ private def admitted :=
 example : admitted.val.HasType (captureTypes num) (fun _ => packet num) (fun _ => num) :=
   admitted.property.2
 
-private def prim : Primitive → Value Nat → Part (Value Nat)
-  | .classify, .atom 0 => Part.some (.inl (.atom 0))
-  | .classify, .atom (n + 1) => Part.some (.inr (.atom n))
-  | .increment, .atom n => Part.some (.atom (n + 1))
-  | _, _ => Part.none
-
 private def taggedStore (count visits : Nat) : Bool → Value Nat
   | false => .atom count
   | true => .atom visits
@@ -243,12 +244,21 @@ private def namedInput : Bool × Nat → Value Nat := fun name => taggedStore 2 
 
 private def capturedEnv : Env Nat := fun index => if index = 0 then .atom 2 else .atom 0
 
+private def primWithInput (original : Env Nat) : Primitive → Value Nat → Part (Value Nat)
+  | .classify, .atom 0 => Part.some (.inl (.atom 0))
+  | .classify, .atom (n + 1) => Part.some (.inr (.atom n))
+  | .increment, .atom n => Part.some (.atom (n + 1))
+  | .readCaptures, .unit => Part.some (NamedFlat.Capture.packEnv 2 original)
+  | _, _ => Part.none
+
+private def prim := primWithInput capturedEnv
+
 private def payload (count visits : Nat) : Value Nat :=
   .pair (.atom count) (.pair (.atom visits) .unit)
 
 -- Entry goes to numeric slot zero (the first occurrence of label 10).
-example : Silmaril.Isotope.LambdaSSA.Semantics.Region.Eval (NamedFlat.instr prim) capturedEnv
-    admitted.val.entry.erase () 0 (payload 2 0) () := by
+private theorem entry_eval : Silmaril.Isotope.LambdaSSA.Semantics.Region.Eval
+    (NamedFlat.instr prim) capturedEnv admitted.val.entry.erase () 0 (payload 2 0) () := by
   apply (NamedFlat.entry_iff prim (Versioning.compile profiledLoop) [99]
     (fun i => (captures i, 0)) admitted.property.1 namedInput capturedEnv ?_ 0 (payload 2 0)).mp
   · change (0, payload 2 0) ∈ (Part.some (10, payload 2 0) >>=
@@ -261,13 +271,13 @@ example : Silmaril.Isotope.LambdaSSA.Semantics.Region.Eval (NamedFlat.instr prim
 private def backEdgeIndex : Fin (Versioning.compile profiledLoop).blocks.length :=
   ⟨1, by decide⟩
 
-private theorem backEdge_eval : Silmaril.Isotope.LambdaSSA.Semantics.Region.Eval
-    (NamedFlat.instr prim) (extend capturedEnv (payload 1 0))
-    (admitted.val.block backEdgeIndex).erase () 0 (payload 1 1) () := by
+private theorem backEdge (count visits : Nat) : Silmaril.Isotope.LambdaSSA.Semantics.Region.Eval
+    (NamedFlat.instr prim) (extend capturedEnv (payload count visits))
+    (admitted.val.block backEdgeIndex).erase () 0 (payload count (visits + 1)) () := by
   change Silmaril.Isotope.LambdaSSA.Semantics.Region.Eval (NamedFlat.instr prim)
-    (extend capturedEnv (payload 1 0))
+    (extend capturedEnv (payload count visits))
     (.let₂ (.var 0) (.let₂ (.var 0) (.let₁ (.op .increment (.var 1))
-      (.br 0 (.pair (.var 4) (.pair (.var 0) .unit)))))) () 0 (payload 1 1) ()
+      (.br 0 (.pair (.var 4) (.pair (.var 0) .unit)))))) () 0 (payload count (visits + 1)) ()
   exact .let₂ .var (.let₂ .var (.let₁ (.op .var (Part.mem_some _)) (.br (.pair .var (.pair .var .unit)))))
 
 -- The same finite transfer is a hit in the compiled named lexical table.
@@ -277,6 +287,73 @@ example :
         (20, payload 1 0) >>= Sum.elim (fun _ => Part.none)
           (NamedFlat.number (NamedFlat.labelIndex (Versioning.compile profiledLoop).blocks [99]))) :=
   (NamedFlat.step_iff prim (Versioning.compile profiledLoop) [99] (fun i => (captures i, 0))
-    admitted.property.1 20 backEdgeIndex rfl namedInput capturedEnv (payload 1 0) 0 (payload 1 1)).mpr backEdge_eval
+    admitted.property.1 20 backEdgeIndex rfl namedInput capturedEnv (payload 1 0) 0 (payload 1 1)).mpr (backEdge 1 0)
+
+/-! ## Closing both captures and running the packed dispatcher -/
+
+open Silmaril.Isotope.Morphism
+open Silmaril.Isotope.LetCase.LocallyNameless (Tm HasType)
+open Silmaril.Isotope.LambdaSSA.Semantics.Region (Eval)
+
+private def readCaptures : Tm Empty Primitive 0 := .op .readCaptures .unit
+
+private def closed := (NamedFlat.Capture.close (captureTypes num)
+  (fun _ => packet num) (fun _ => num) admitted.val admitted.property.2
+  readCaptures (show HasType Primitive .nil .nil readCaptures capturePacketType from
+    .op .unit)).get (by decide)
+
+private def ambient : Env Nat := fun _ => .unit
+
+private theorem read_packet (original : Env Nat) (v : Value Nat) (state : Unit) :
+    Silmaril.Isotope.LambdaSSA.Semantics.Tm.Eval (NamedFlat.instr (primWithInput original)) ambient
+      (CaseSSA.erase readCaptures) () v state ↔
+      v = NamedFlat.Capture.packEnv 2 original ∧ state = () := by
+  cases state
+  constructor
+  · intro run
+    cases run with
+    | op arg result =>
+      cases arg
+      exact ⟨Part.mem_some_iff.mp result, rfl⟩
+  · rintro ⟨rfl, _⟩
+    exact .op .unit (Part.mem_some _)
+
+example : closed.val.HasType .nil (fun _ => packet num) (fun _ => num) := closed.property.1
+
+example : Eval (NamedFlat.instr prim) ambient closed.val.entry.erase () 0 (payload 2 0) () :=
+  (NamedFlat.Capture.entry_eval_iff closed.property.2 (read_packet capturedEnv)).mpr entry_eval
+
+private def headerIndex : Fin (Versioning.compile profiledLoop).blocks.length := ⟨0, by decide⟩
+
+private theorem header_more_eval (count visits : Nat) :
+    Eval (NamedFlat.instr prim) (extend capturedEnv (payload (count + 1) visits))
+      (admitted.val.block headerIndex).erase () 1 (payload count visits) () := by
+  change Eval (NamedFlat.instr prim) (extend capturedEnv (payload (count + 1) visits))
+    (.let₂ (.var 0) (.let₂ (.var 0) (.case (.op .classify (.var 3)) (.br 2 (.var 2))
+      (.br 1 (.pair (.var 0) (.pair (.var 2) .unit)))))) () 1 (payload count visits) ()
+  exact .let₂ .var (.let₂ .var (.case_inr (.op .var (Part.mem_some _))
+    (.br (.pair .var (.pair .var .unit)))))
+
+private theorem header_done_eval (visits : Nat) :
+    Eval (NamedFlat.instr prim) (extend capturedEnv (payload 0 visits))
+      (admitted.val.block headerIndex).erase () 2 (.atom visits) () := by
+  change Eval (NamedFlat.instr prim) (extend capturedEnv (payload 0 visits))
+    (.let₂ (.var 0) (.let₂ (.var 0) (.case (.op .classify (.var 3)) (.br 2 (.var 2))
+      (.br 1 (.pair (.var 0) (.pair (.var 2) .unit)))))) () 2 (.atom visits) ()
+  exact .let₂ .var (.let₂ .var (.case_inl (.op .var (Part.mem_some _)) (.br .var)))
+
+-- The captured entry enters block 10. The dispatcher follows 20 → 10 twice
+-- and returns visits = 2 at external slot zero.
+example : Eval (NamedFlat.instr prim) ambient (FiniteCFG.packedExecutionRegion closed.property.1)
+    () 0 (Region.packedExitValue 0 (.atom 2)) () := by
+  apply (NamedFlat.Capture.packed_eval_at closed.property.1 closed.property.2
+    (read_packet capturedEnv)).mpr
+  exact .cfg entry_eval <|
+    .step (by decide) (header_more_eval 1 0) <|
+    .step (by decide) (backEdge 1 0) <|
+    .step (by decide) (header_more_eval 0 1) <|
+    .step (by decide) (backEdge 0 1) <|
+    .step (by decide) (header_done_eval 2) <|
+    .exit (by decide)
 
 end Silmaril.SSA.LambdaRTL.CFG.Cyclic.Examples
