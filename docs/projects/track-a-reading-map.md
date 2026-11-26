@@ -41,8 +41,8 @@ the statements and checks.
   already generated history. [Guarded header][guarded-thms] · [Iteration header][elgot-thms] · [Operator guide][operators] · [Projection guide][sc-projection]
 - **UB and ordinary errors.** A racing SC prefix is the raw trace through
   the attempted racing extension. The interaction UB marker denotes a
-  completed run returning `none` at a chosen boundary, and saturation may
-  extend that whole row. The correspondences here supply no translation
+  completed run returning `none` at a chosen boundary, and saturation
+  admits every trace in that row when the marker is present. The correspondences here supply no translation
   from SC race prefixes to catastrophic rows. A modeled VFS error or
   rejected short read is an ordinary return. Handling the Pager and exposing
   the lower VFS use different observation points. [SC header][sc-thms] · [UB header][ub-thms] · [Typed read guide][typed-read] · [Write case][write-case]
@@ -55,8 +55,8 @@ the statements and checks.
   example illustrates. [SC and race guide][sc] · [Examples][sc-check]
 - **SQLite admission.** The read starts at acquisition of a designated
   512-byte packed rowid leaf with an open handle. The Lean model rejects
-  short reads, while the pinned C main-file path can pass a zero-filled
-  buffer to page-format admission. The write starts after transaction setup
+  short reads, while the pinned C main-file path can pass the buffer with
+  its unread suffix zero-filled to page-format admission. The write starts after transaction setup
   with an admitted cursor, resident leaf and open journal in the canonical
   two-page model. In pinned C, journal opening precedes the dirty mark,
   and preimage recording precedes marking the page writable. The model
