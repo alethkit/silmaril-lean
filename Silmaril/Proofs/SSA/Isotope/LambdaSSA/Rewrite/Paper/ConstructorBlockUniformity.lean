@@ -1,7 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Blocks.Thms
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Uniformity.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Blocks.Constructor.Defs
 
 public section
 
@@ -62,7 +61,7 @@ theorem iterate_coprod_rows {A D B : P}
   exact (cancel_epi iso.hom).mp equation
 
 private theorem iterate_rows_uniform {A C D E B : P} {h : A ⟶ C} {k : D ⟶ E}
-    (hh : ConstructorReturn h) (hk : ConstructorReturn k)
+    (hh : UniformStateMap h) (hk : UniformStateMap k)
     (left : A ⟶ (B ⨿ A) ⨿ D) (right : D ⟶ (B ⨿ A) ⨿ D)
     (left' : C ⟶ (B ⨿ C) ⨿ E) (right' : E ⟶ (B ⨿ C) ⨿ E)
     (ls : left ≫ coprod.map (coprod.map (𝟙 B) h) k = h ≫ left')
@@ -74,7 +73,7 @@ private theorem iterate_rows_uniform {A C D E B : P} {h : A ⟶ C} {k : D ⟶ E}
   let tail' := iterate right'
   have tailEq : tail ≫ over = k ≫ tail' := by
     rw [iterate_naturality]
-    apply iterate_uniformity_ofConstructorReturn hk
+    apply hk
     simpa only [Category.assoc, coprod.map_map, Category.id_comp, Category.comp_id] using rs
   let cut := left ≫ coprod.desc (𝟙 (B ⨿ A)) tail
   let cut' := left' ≫ coprod.desc (𝟙 (B ⨿ C)) tail'
@@ -82,7 +81,7 @@ private theorem iterate_rows_uniform {A C D E B : P} {h : A ⟶ C} {k : D ⟶ E}
       coprod.map over k ≫ coprod.desc (𝟙 (B ⨿ C)) tail' := by
     rw [coprod.desc_comp, coprod.map_desc, Category.id_comp, Category.comp_id, tailEq]
   have headEq : iterate cut = h ≫ iterate cut' := by
-    apply iterate_uniformity_ofConstructorReturn hh
+    apply hh
     change (left ≫ coprod.desc (𝟙 (B ⨿ A)) tail) ≫ over =
       h ≫ left' ≫ coprod.desc (𝟙 (B ⨿ C)) tail'
     rw [Category.assoc, combined, ← Category.assoc left, ls, Category.assoc]
@@ -98,7 +97,7 @@ private theorem iterate_rows_uniform {A C D E B : P} {h : A ⟶ C} {k : D ⟶ E}
   rw [coprod.map_desc, tailWhole, headEq]
 
 theorem iterate_uniformity {A C D E B : P}
-    {h : A ⟶ C} {k : D ⟶ E} (hh : ConstructorReturn h) (hk : ConstructorReturn k)
+    {h : A ⟶ C} {k : D ⟶ E} (hh : UniformStateMap h) (hk : UniformStateMap k)
     (f : A ⨿ D ⟶ B ⨿ (A ⨿ D)) (g : C ⨿ E ⟶ B ⨿ (C ⨿ E))
     (square : f ≫ coprod.map (𝟙 B) (coprod.map h k) = coprod.map h k ≫ g) :
     iterate f = coprod.map h k ≫ iterate g := by
@@ -120,5 +119,13 @@ theorem iterate_uniformity {A C D E B : P}
     apply coprod.hom_ext <;> simp
   simpa only [pack, frows, grows, Category.assoc, Iso.inv_hom_id, Category.comp_id] using
     iterate_rows_uniform hh hk _ _ _ _ ls rs
+
+theorem constructor_coproduct_uniform {A D : P} {h : A ⟶ D} (tree : ConstructorCoproduct h) :
+    UniformStateMap h := by
+  induction tree with
+  | leaf h => exact iterate_uniformity_ofConstructorReturn h
+  | sum _ _ ih ik =>
+    intro B f g square
+    exact iterate_uniformity ih ik f g square
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ConstructorBlockUniformity

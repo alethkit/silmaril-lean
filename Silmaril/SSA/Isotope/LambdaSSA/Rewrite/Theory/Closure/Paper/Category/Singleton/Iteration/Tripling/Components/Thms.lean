@@ -19,6 +19,27 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 local notation "P" => TypeCategory (τ := τ) Φ
 local notation "T" => BitState (τ := τ) (Φ := Φ)
 
+/-- Read the written three-phase schedule from its first injection. -/
+theorem iterate_cycle_at_first {A B : P} (g : A ⟶ B ⨿ A) :
+    coprod.inl ≫ iterate (cycle g) = iterate (thenOnRepeat g (thenOnRepeat g g)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ComponentTripling.triple_at_first g
+
+/-- An isomorphism of state objects transports the native iterate at the
+same outward object. -/
+theorem iterate_change_state {A D B : P} (e : A ≅ D) (g : A ⟶ B ⨿ A) :
+    iterate g = e.hom ≫ iterate (e.inv ≫ g ≫ coprod.map (𝟙 B) e.hom) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ComponentTripling.iteration_change e g
+
+/-- Running a second round on recurrence commutes with state transport. -/
+theorem transport_thenOnRepeat {A D B : P} (e : A ≅ D) (g h : D ⟶ B ⨿ D) :
+    thenOnRepeat (transport e g) (transport e h) = transport e (thenOnRepeat g h) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ComponentTriplingProjection.transport_batch e g h
+
+/-- Iterate a round in transported state coordinates. -/
+theorem iterate_transport {A D B : P} (e : A ≅ D) (f : D ⟶ B ⨿ D) :
+    iterate (transport e f) = e.hom ≫ iterate f :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ComponentTriplingProjection.iterate_transport e f
+
 /-- Either tag may take any recursive or outward route. Reset absorption
 only concerns the two Unit payloads of the Bit. -/
 theorem iterate_triple {B : P} (g : T ⟶ B ⨿ T)
@@ -44,6 +65,12 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
 local notation "Q" => TypeCategory Seed
 local notation "Bit" => ofType Seed (Silmaril.coprod (Silmaril.unit : τ) Silmaril.unit)
+
+/-- Projecting a short-circuit sequence preserves both of its written rounds. -/
+theorem projectStep_thenOnRepeat {A B : Paper.TypeCategory (τ := τ) Φ} (g h : A ⟶ B ⨿ A) :
+    projectStep Seed (Paper.TypeCategory.ComponentTripling.thenOnRepeat g h) =
+      projectStep Seed g ≫ coprod.desc coprod.inl (projectStep Seed h) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ComponentTriplingProjection.project_batch Seed g h
 
 /-- Unit η lets the native component proof apply to every quotient round
 at the exact Bit state, including rounds with mixed effectful recurrence. -/

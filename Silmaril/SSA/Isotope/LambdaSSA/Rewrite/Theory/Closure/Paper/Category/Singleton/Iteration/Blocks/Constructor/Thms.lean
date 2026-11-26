@@ -1,7 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Blocks.Thms
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Uniformity.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Blocks.Constructor.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ConstructorBlockUniformity
 
 /-! # Native uniformity for separate constructor maps on two blocks -/
@@ -33,6 +32,13 @@ theorem iterate_uniformity_of_coprod_constructor {A C D E B : P}
     (f : A ⨿ D ⟶ B ⨿ (A ⨿ D)) (g : C ⨿ E ⟶ B ⨿ (C ⨿ E))
     (square : f ≫ coprod.map (𝟙 B) (coprod.map h k) = coprod.map h k ≫ g) :
     iterate f = coprod.map h k ≫ iterate g :=
-  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ConstructorBlockUniformity.iterate_uniformity hh hk f g square
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ConstructorBlockUniformity.iterate_uniformity
+    (iterate_uniformity_ofConstructorReturn hh) (iterate_uniformity_ofConstructorReturn hk) f g square
+
+/-- Constructor leaves and Bekić at every sum node prove uniformity on the
+entire typed tree, with the same arbitrary outward object on both sides. -/
+theorem ConstructorCoproduct.uniform {A D : P} {h : A ⟶ D} (tree : ConstructorCoproduct h) :
+    UniformStateMap h :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ConstructorBlockUniformity.constructor_coproduct_uniform tree
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.TypeCategory
