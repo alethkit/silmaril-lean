@@ -4,6 +4,7 @@ import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheade
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
 
@@ -710,5 +711,106 @@ private def singletonSource : Width.Dispatch.Family.Source 3 3 Entry Header 0 :=
 example : (Width.Dispatch.Family.lowerChecked widenCaptures singletonSource).map
     (fun program => (program.runMain 11 0 (words wideInput) mem).returnedValues?) =
     some (some [7]) := by cbv
+
+section ExtractedPhi
+
+open Silmaril.Machine.RTL (Opcode packValues)
+open Silmaril.Machine.RTL.SSA (toLambdaSSA)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.Isotope.LambdaSSA.Semantics (Env)
+open Silmaril.SSA.PhiView (latch)
+
+private def familyFunction := (familyProg.func? 0).get (by rfl)
+private def familyPhi : Family.Phi.Checked familyFunction 2 :=
+  ⟨by decide⟩
+
+example : Family.Phi.extract familyFunction 2 = some familyPhi := by
+  have wf : familyFunction.WellFormed := Family.lowerFunc_wellFormed _
+  simp [Family.Phi.extract, wf, familyPhi.present]
+
+-- Four original occurrences target the same three-word header.
+example : (List.finRange 4).map Family.Phi.key = [(0, 0), (3, 0), (4, 0), (5, 0)] := by decide
+
+example : (List.finRange 4).map familyPhi.reemit = [
+    some (1, [.arg 7, .arg 8, .arg 3]),
+    some (1, [.node 0, .arg 5, .arg 6]),
+    some (1, [.node 0, .arg 6, .arg 5]),
+    some (1, [.node 0, .arg 6, .arg 4])] := by
+  change [familyPhi.reemit 0, familyPhi.reemit 1, familyPhi.reemit 2, familyPhi.reemit 3] = _
+  simp only [← Family.Phi.reemit_roundTrip]
+  rfl
+
+example : (Family.Phi.extract familyFunction 3).isNone := by
+  unfold Family.Phi.extract
+  split
+  · split
+    · rename_i present
+      have absent : Family.Phi.readColumn familyFunction (Family.Phi.key (4 : Fin 5)) = none := rfl
+      have impossible := present (4 : Fin 5)
+      rw [absent] at impossible
+      cases impossible
+    · rfl
+  · rfl
+
+private def extractedAt (fuel : Nat) (input : WordTuple 4) (slot : Fin 3) := do
+  let state ← runningState? (familyProg.runMain fuel 0 (words input) mem)
+  let incoming := slot.succ
+  if state.point.label = (Family.Phi.key incoming).1 then
+    some (latch familyPhi.view (familyPhi.edge incoming) (Family.Phi.snapshot familyFunction.allDefs state.frame),
+      state.mem)
+  else none
+
+example : extractedAt 6 wideInput 0 = some (packValues [4, 3, 5], mem) := by cbv
+example : extractedAt 7 middleInput 1 = some (packValues [-9, 5, -4], mem) := by cbv
+example : extractedAt 8 defaultInput 2 = some (packValues [-10, 5, -5], mem) := by cbv
+example : extractedAt 7 middleInput 0 = none := by cbv
+
+private def machineEnv (input : WordTuple 4) : Env Word :=
+  fun _ => packValues (words input)
+
+example : Eval (Opcode.step (sigs := [⟨4, 1⟩]) familyProg.oracle) (machineEnv defaultInput)
+    (toLambdaSSA [⟨4, 1⟩] familyFunction) mem 0 (packValues [-5]) mem :=
+  (Family.Phi.region_return_iff widenCaptures familySource familyAccepted defaultInput _ rfl mem mem [-5]).mpr
+    ((Family.rtl_return_iff widenCaptures familySource familyAccepted defaultInput mem mem [-5]).mpr
+      ⟨[2], -5, defaultReturns, rfl, rfl⟩)
+
+private def fixedSource : Family.Source 3 3 Entry Header 2 :=
+  { familySource with
+    rows := .test (.arg (prefixPort (capture 1))) (familySource.rows.column 0)
+      (.test (.arg (prefixPort (capture 0))) (familySource.rows.column 1)
+        (.last (familySource.rows.column 2))) }
+
+private def fixedProg := Family.lowerRTL (Family.mapCaptures widenCaptures fixedSource)
+
+private theorem fixedAccepted : Family.lowerChecked widenCaptures fixedSource = some fixedProg :=
+  Family.lowerChecked_of_accepted widenCaptures fixedSource
+    (Family.lowerChecked_sound widenCaptures familySource familyAccepted).1
+
+private def familyFixedBank := source.initial model (widenCaptures.pull wideSpin)
+
+private theorem fixedStep : fixedSource.step (widenCaptures.pull wideSpin) familyFixedBank =
+    .inr (0, familyFixedBank) := by cbv
+
+private theorem fixedCannotReturn {slots : List (Fin 3)} {carried : WordTuple 3} {value : Word}
+    (trace : fixedSource.ReturnsAlong (widenCaptures.pull wideSpin) slots carried value)
+    (atFixed : carried = familyFixedBank) : False := by
+  induction trace with
+  | exit taken =>
+    rw [atFixed, fixedStep] at taken
+    cases taken
+  | feedback taken _ ih =>
+    rw [atFixed, fixedStep] at taken
+    exact ih (congrArg Prod.snd (Sum.inr.inj taken)).symm
+
+example : ¬ ∃ value final, Eval (Opcode.step (sigs := [⟨4, 1⟩]) fixedProg.oracle) (machineEnv wideSpin)
+    (toLambdaSSA [⟨4, 1⟩] (Family.lowerFunc (Family.mapCaptures widenCaptures fixedSource)))
+    mem 0 value final := by
+  apply (Family.Phi.region_no_return_iff widenCaptures fixedSource fixedAccepted wideSpin _ rfl mem).mpr
+  rintro ⟨returned, final, run⟩
+  obtain ⟨_, _, trace, _, _⟩ :=
+    (Family.rtl_return_iff widenCaptures fixedSource fixedAccepted wideSpin mem final returned).mp run
+  exact fixedCannotReturn trace rfl
+
+end ExtractedPhi
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
