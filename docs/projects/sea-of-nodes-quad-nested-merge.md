@@ -938,6 +938,69 @@ operand list. The original run returns `152` at `25/26/3`
 source/CF/θ fuel and exhausts at `24/25/2`.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/MLIR/CF/InnerPhi/Regression.lean)
 
+### Observe the join packets in coloured markings
+
+`Outer.Numbered.Petri.Boundaries.Thms` adds observations to the actual
+numbered θ body. A typed `Cut` shares the emitted vertices and child
+terms, and its observer reads the colours at the existing result wires.
+The cut lifts legal prefix firings into the same continuation. The
+outer witness has the γ output places marked. The inner witness is
+inside the live selected outer-true child, with the outer γ still
+waiting. The outer-false witness enters the actual bypass child
+and reads `none` at the inner boundary.
+[Typed marking cut](../../Silmaril/SSA/RVSDG/NestedTheta/Petri/Cut/Thms.lean) ·
+[Quad boundary laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Boundaries/Thms.lean)
+
+Both observations compare complete typed banks with the CF/Φ readback.
+The fixture uses separate finite firing witnesses for each activation
+boundary and for the whole θ's return. Source and CF bounds count block
+visits, the numbered bound counts activations, and each legal firing
+witness has its own length. The packets printed below come from the
+existing CF/Φ fixture. The Lean example proves their marking witnesses
+and the coloured completion with word `152`.
+
+Build both imports with `lake build --wfail`, prefixing each module
+with `+`. Paste into `QuadSharedPetriBoundaries.lean` and run
+`lake env lean -DautoImplicit=false -DwarningAsError=true QuadSharedPetriBoundaries.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri.Boundaries.Thms
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri.Boundaries.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.MLIR.CF.InnerPhi.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered (petri_finishes_iff)
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri.Example
+  (activation completion)
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Example (plan)
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Example (input width)
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.MLIR.CF.InnerPhi.Example (rows)
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.MLIR.CF.Phi.Example renaming rows → outerRows
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (model)
+open Silmaril.SSA.SeaOfNodes.MLIR (Word)
+
+set_option maxHeartbeats 1000000 in
+example : completion := by
+  unfold completion
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩
+  · intro i
+    obtain ⟨bank, marked, _, packet⟩ := outer_packet plan input (activation i) outerRows
+    exact ⟨bank, marked, packet⟩
+  · exact inner_waiting_packet plan input (activation 0) rows (by rfl)
+  · exact inner_waiting_packet plan input (activation 1) rows (by rfl)
+  · exact bypass plan (activation 2) (by rfl)
+  · exact (petri_finishes_iff plan model input (152 : Word width)).mpr ⟨25, rfl⟩
+
+#eval Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.MLIR.CF.InnerPhi.Example.trace
+```
+
+The first two activations read inner result slots `7` and `36` and
+outer slots `15` and `73`. The third prints `none` at the inner
+boundary and `150` at the outer boundary.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Boundaries/Regression.lean)
+
 ## Complete the emitted loop by coloured firing
 
 The `Backends/Petri/Thms` import adds completion laws for the numbered
