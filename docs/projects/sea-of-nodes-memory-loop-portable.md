@@ -49,3 +49,46 @@ heap. The numbered checks use bounds (0,1) and (2,3), respectively.
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Loop.Portable.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Portable.Regression'
 ```
+
+## Native equations and emitted programs
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Thms
+```
+
+The native `Institution.inst` uses the memory diamond's typed entry
+interfaces and models. A signature map sends each address or word port
+to a port of the same sort. It renames the ordered body's entry uses
+and the invariant stop port. Model reduct pulls back that valuation
+and keeps the cell count. `Equation.satisfaction` gives the law for
+these maps. At a model, an equation compares the partial returned word
+and entire final heap at every initial heap.
+[Native API](../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Thms.lean)
+
+`lambda_observation_iff` characterizes every finite execution of the
+emitted, typed λSSA region. Its exit is zero, its payload is the packed
+native word, and its final state is the same whole heap. The preservation
+direction uses `Graph.returns_iff_portable`. `theta_observation` uses the
+existing numbered RVSDG partial observation on `Graph.lowerTheta`,
+with the original typed inputs and initial heap on the runtime wire.
+The output is the native partial result encoded as the word/heap tuple.
+
+`lambda_satisfaction` and `theta_satisfaction` preserve and reflect
+native equations at the given valuation. The reindexing laws apply
+to re-emission at mapped typed entry interfaces and the corresponding
+model reducts. `lambda_no_return_iff` and `theta_no_return_iff` identify
+absence of finite observations at an individual initial heap. The
+comparison uses finite returns and the canonical initialized-cell
+memory interpretation.
+[Backend API](../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Thms.lean) ·
+[RVSDG partial observation API](../../Silmaril/SSA/RVSDG/NestedTheta/Partial/Thms.lean)
+
+The equation regression compares two loops that load zero and return
+zero after different stores. It checks the output heaps on both targets,
+swaps the two address ports, and checks a fixed-backedge input with
+empty finite observations.
+[Equation regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Regression.lean)
+
+```sh
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Regression'
+```
