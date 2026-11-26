@@ -13,10 +13,25 @@ namespace Silmaril.Isotope.Bridge.NamedFlat
 
 open Silmaril.SSA.LambdaRTL
 open LambdaSSA (FiniteCFG)
-open LambdaSSA.Semantics (Diverges Env)
+open LambdaSSA.Semantics (Diverges Env extend)
+open LambdaSSA.Semantics.Region (Eval)
 open LetCase.LocallyNameless (Tm)
 
 universe u v w x
+
+/-- Flat graphs with the same successful entry and internal transfers have
+the same atomic divergence. Instruction signatures and capture contexts may differ. -/
+theorem flat_diverges_iff_of_eval {F : Type v} {G : Type u} {α : Type w} {σ : Type x}
+    {blocks exits n m : Nat} {target : FiniteCFG F blocks exits n} {other : FiniteCFG G blocks exits m}
+    {env env' : Env α} {start : σ}
+    {instr : F → Value α → σ → Value α → σ → Prop} {instr' : G → Value α → σ → Value α → σ → Prop}
+    (entry : ∀ out value finish, Eval instr env target.entry.erase start out value finish ↔
+      Eval instr' env' other.entry.erase start out value finish)
+    (blocks : ∀ i current state out value finish,
+      Eval instr (extend env current) (target.block i).erase state out value finish ↔
+        Eval instr' (extend env' current) (other.block i).erase state out value finish) :
+    Diverges instr (.region env target.erase start) ↔ Diverges instr' (.region env' other.erase start) :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.flat_diverges_iff_of_eval entry blocks
 
 /-- Capture closure transports infinite internal execution with the exact
 state-preserving packet. Both the open and closed tables have flat bodies. -/

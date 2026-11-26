@@ -116,3 +116,26 @@ sides use the same primitive implementation.
 The visible backedge regression uses these checked outputs directly. A wrong
 Isotope return type rejects the same graph with its valid source certificate.
 [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/ITree/Examples.lean)
+
+## Canonical pure capture
+
+`Certified.PureCapture.close` takes the existing admission and synthesizes
+its closed packet expression. The target signature adds an input read for
+each finite capture slot, with the slot's type from the admitted profile.
+The generated expression supplies unit to each read and assembles the same
+newest-on-the-right product as `packedInputType`. The original graph's
+operations retain their signatures and interpretations. [Generator](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Defs.lean)
+
+The slot interpreter reads the existing version-zero projection of the
+source store. The packet proofs yield exactly `Capture.packEnv` of that
+projection, with no visible event and unchanged atomic state. This is an
+agreement about the supplied tagged values. Static slot typing comes from
+the profile. The execution theorems take the successful pure closure,
+the source store and the shared primitives, and cover weak trees, finite
+atomic returns and atomic infinite paths. Custom effectful producers use the
+explicit packet contract above. [Pure endpoint](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Thms.lean)
+
+The visible regression starts with a tick under pure capture and uses its
+reply as the next tick operand. The atomic regression selects two distinct
+inputs in reversed positional order and returns them in source order.
+[Visible regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/ITree/Examples.lean) · [Atomic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Examples.lean)
