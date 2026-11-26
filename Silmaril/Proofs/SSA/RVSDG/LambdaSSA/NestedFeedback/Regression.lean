@@ -1,5 +1,6 @@
 module
 
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Serial.Routed.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Renumbered.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.Isomorphism.Thms
@@ -863,8 +864,10 @@ private def routingProducer : Acyclic.Theta.Loop Op number number number .unit n
 private def routingConsumer : Acyclic.Theta.Loop Op number number number .unit number :=
   ⟨op .routingHeader, .instruction (op .consumeBody), op .finish⟩
 
-private def routed : Flat.Fragment Op number .unit number :=
-  Flat.linkBy (.loop routingProducer) (.loop routingConsumer) ⟨.first, .consumer⟩
+private def routed : Flat.Serial.Routed.Source Op number number number number number number .unit number :=
+  ⟨routingProducer, routingConsumer⟩
+
+private def wiredRoute := Flat.Serial.Routed.lower routed
 
 private abbrev RoutedExit := LabelDen [(.unit : Ty),number]
 
@@ -913,12 +916,12 @@ private theorem routingConsumerUndefined :
   | done h | more h _ => rw [blocked] at h; exact Part.notMem_none _ h
 
 private theorem routed_run (coherent : Coherent) (input : Nat) :
-    Region.denote (ε := Bool) (m := Runtime) routed.typing (PUnit.unit,input) =
+    Region.denote (ε := Bool) (m := Runtime) routed.source.typing (PUnit.unit,input) =
       iter (ExplicitRuntime.round (ε := Bool) routingProducer) input >>= fun
         | .inl result => pure (.inl result)
         | .inr (.inl payload) => iter (ExplicitRuntime.round (ε := Bool) routingConsumer) payload
         | .inr (.inr impossible) => nomatch impossible := by
-  rw [routed, Flat.denote_linkBy _ _ _ coherent]
+  rw [Flat.Serial.Routed.Source.source, Flat.denote_linkBy _ _ _ coherent]
   simp only [Flat.Fragment.loop_denote, ExplicitRuntime.denote_rounds _ coherent]
   congr 1
   funext exit
@@ -929,23 +932,36 @@ private theorem routed_run (coherent : Coherent) (input : Nat) :
 
 -- The unit label skips the consumer. The numeric label enters it after
 -- feedback with the exact state returned by the producer.
-example (coherent : Coherent) :
-    (Region.denote (ε := Bool) (m := Runtime) routed.typing (PUnit.unit,(0 : Nat))).run 0 =
+private theorem routedBypass (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) routed.source.typing (PUnit.unit,(0 : Nat))).run 0 =
       Part.some ((.inl PUnit.unit : RoutedExit), 1) := by
   rw [routed_run coherent, StateT.run_bind, routingBypass]
   simp only [Part.bind_eq_bind, Part.bind_some, StateT.run_pure, Part.pure_eq_some]
 
-example (coherent : Coherent) :
-    (Region.denote (ε := Bool) (m := Runtime) routed.typing (PUnit.unit,(1 : Nat))).run 0 =
+private theorem routedConsumerReturns (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) routed.source.typing (PUnit.unit,(1 : Nat))).run 0 =
       Part.some ((.inr (.inl (9 : Nat)) : RoutedExit), 93) := by
   rw [routed_run coherent, StateT.run_bind, routingProducerReturns 1 (by decide)]
   exact (Part.bind_some _ _).trans routingConsumerReturns
 
-example (coherent : Coherent) :
-    (Region.denote (ε := Bool) (m := Runtime) routed.typing (PUnit.unit,(99 : Nat))).run 0 =
+private theorem routedConsumerUndefined (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) routed.source.typing (PUnit.unit,(99 : Nat))).run 0 =
       Part.none := by
   rw [routed_run coherent, StateT.run_bind, routingProducerReturns 99 (by decide)]
   exact (Part.bind_some _ _).trans routingConsumerUndefined
+
+-- The outputs of the actual numbered graph expose both labels and their
+-- differently typed payloads. The second route observes producer feedback.
+example (coherent : Coherent) :
+    Flat.Serial.returns (ε := Bool) wiredRoute.1 (0 : Nat) 0 (.inl PUnit.unit) 1 :=
+  (wiredRoute.2.region_returns_iff coherent (PUnit.unit, (0 : Nat)) _ 0 1).mpr (routedBypass coherent)
+
+example (coherent : Coherent) :
+    Flat.Serial.returns (ε := Bool) wiredRoute.1 (1 : Nat) 0 (.inr (.inl (9 : Nat))) 93 :=
+  (wiredRoute.2.region_returns_iff coherent (PUnit.unit, (1 : Nat)) _ 0 93).mpr (routedConsumerReturns coherent)
+
+example (coherent : Coherent) : Flat.Serial.observe (ε := Bool) wiredRoute.1 (99 : Nat) 0 = Part.none :=
+  (wiredRoute.2.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) 0).mpr (routedConsumerUndefined coherent)
 
 end Composition
 
