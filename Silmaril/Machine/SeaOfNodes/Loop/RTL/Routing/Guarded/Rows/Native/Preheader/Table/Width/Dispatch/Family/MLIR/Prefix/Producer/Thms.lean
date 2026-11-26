@@ -9,7 +9,7 @@ import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.P
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer
 
-open Silmaril.Machine.Lir (Memory)
+open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.RTL (Frame)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg model)
 open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
@@ -58,6 +58,16 @@ theorem entry_frame (compiled : Compiled mapping source origins) (input : WordTu
     compiled.setup.cf.entry.eval evalOp (fun term env => term.eval env) (wordEnv input) =
       .inl (headerFrame _ _ (source.primary.initial model (mapping.pull input))) :=
   Proofs.entry_frame compiled.setup compiled.translated input
+
+/-- The emitted CF false successor carries the word read from the same typed
+origin as the actual RTL false successor. -/
+theorem header_exit (compiled : Compiled mapping source origins)
+    (input : WordTuple new) (carried : WordTuple old) (value : Word)
+    {before ready : Frame Reg} {mem : Memory}
+    (cut : Family.ExitCut (mapCaptures mapping source) compiled.rtl input carried before ready mem value) :
+    (compiled.setup.cf.block .header).eval evalOp (fun term env => term.eval env)
+      ((wordEnv carried).append (wordEnv input)) = .inl ⟨.exit, .cons value .nil⟩ :=
+  Proofs.header_exit compiled.setup compiled.translated input carried value cut
 
 /-- Compose real CF/RTL feedback steps and explicit-Φ latches along the native
 prefix. Only the starting frame relation and native occurrence choices are

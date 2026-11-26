@@ -156,9 +156,7 @@ private theorem detailed_activation (p : Source captures bank entrySigs sigs tes
     (agree : ArgsMatch fr (appendTuple carried input)) :
     match p.step input carried with
     | .inl value =>
-      ∃ ready, StepsNWithin (lowerRTL p) [] (sigs.length + 1)
-        ⟨⟨0, 1, 0⟩, fr, [], mem⟩ ⟨⟨0, 2, 0⟩, ready, [], mem⟩ ∧
-        step (lowerRTL p) ⟨⟨0, 2, 0⟩, ready, [], mem⟩ = .returned [value] mem
+      ∃ ready, ExitCut p (lowerRTL p) input carried fr ready mem value
     | .inr (slot, next) =>
       ∃ ready latched block, FeedbackCut p (lowerRTL p) input carried fr ready latched mem slot next block := by
   have found : (lowerRTL p).block? 0 1 = some (header p) := rfl
@@ -189,7 +187,8 @@ private theorem detailed_activation (p : Source captures bank entrySigs sigs tes
     have ret : step (lowerRTL p) ⟨⟨0, 2, 0⟩, ready.set .phi value, [], mem⟩ = .returned [value] mem := by
       simp [step, Prog.fetch, exit, exitBlock, Frame.readAll]
     simp only [Bool.false_eq_true, ite_false]
-    exact ⟨_, Width.Proofs.append_step path leave, ret⟩
+    exact ⟨ready, path, taken, rfl, by simp [guard, taken], by rw [found]; rfl,
+      by simp [Frame.readAll, resultRead, value, args, locals]; rfl, (fun wire => reads (.arg wire)), leave, ret⟩
   | true =>
     have enters : step (lowerRTL p) ⟨⟨0, 1, sigs.length⟩, ready, [], mem⟩ =
         .running ⟨⟨0, 3, 0⟩, ready, [], mem⟩ := by
@@ -212,7 +211,10 @@ theorem activation (p : Source captures bank entrySigs sigs tests) (input : Word
   have detailed := detailed_activation p input carried fr mem agree
   unfold Activation
   cases run : p.step input carried with
-  | inl value => simpa only [run] using detailed
+  | inl value =>
+    rw [run] at detailed
+    obtain ⟨ready, cut⟩ := detailed
+    exact ⟨ready.set .phi value, Width.Proofs.append_step cut.produced cut.branch, cut.returned⟩
   | inr feedback =>
     obtain ⟨slot, next⟩ := feedback
     rw [run] at detailed
@@ -226,6 +228,17 @@ theorem checked_feedback_cut (mapping : InputMap old new) (p : Source old old en
     (agree : ArgsMatch fr (appendTuple carried input)) (slot : Fin (tests + 1)) (next : WordTuple old)
     (taken : p.step (mapping.pull input) carried = .inr (slot, next)) :
     ∃ ready latched block, FeedbackCut (mapCaptures mapping p) prog input carried fr ready latched mem slot next block := by
+  obtain ⟨_, rfl, _, _⟩ := lowerChecked_sound mapping p accepted
+  have detailed := detailed_activation (mapCaptures mapping p) input carried fr mem agree
+  rw [step_mapCaptures mapping p input carried, taken] at detailed
+  exact detailed
+
+theorem checked_exit_cut (mapping : InputMap old new) (p : Source old old entrySigs sigs tests)
+    {prog : Prog Reg} (accepted : lowerChecked mapping p = some prog)
+    (input : WordTuple new) (carried : WordTuple old) (fr : Frame Reg) (mem : Memory)
+    (agree : ArgsMatch fr (appendTuple carried input)) (value : Word)
+    (taken : p.step (mapping.pull input) carried = .inl value) :
+    ∃ ready, ExitCut (mapCaptures mapping p) prog input carried fr ready mem value := by
   obtain ⟨_, rfl, _, _⟩ := lowerChecked_sound mapping p accepted
   have detailed := detailed_activation (mapCaptures mapping p) input carried fr mem agree
   rw [step_mapCaptures mapping p input carried, taken] at detailed

@@ -7,7 +7,7 @@ import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheade
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Thms
-import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Thms
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
 
@@ -817,6 +817,8 @@ example : ¬ ∃ value final, Eval (Opcode.step (sigs := [⟨4, 1⟩]) fixedProg
 end ExtractedPhi
 
 section CFDispatch
+open Silmaril.Machine.RTL (Opcode packValues)
+open Silmaril.Machine.RTL.SSA (toLambdaSSA)
 
 open Silmaril.Machine.SeaOfNodes.Loop.RTL.MLIR.CF (i64)
 open Silmaril.MLIR.Arith (Env Width)
@@ -972,16 +974,37 @@ example : prefixSetup.cf.entry.eval evalOp (fun term env => term.eval env) (cfIn
     .inl (Family.MLIR.Prefix.headerFrame 6 2 prefixStart) :=
   Family.MLIR.Prefix.Producer.entry_frame compiledPrefix prefixInput
 
--- The composed cut starts at the frame created by the actual checked RTL entry.
+open Family.MLIR.Prefix.Producer.Exit (Taken)
+open Family.MLIR.Prefix.Producer
+
+private def prefixFn := Family.lowerFunc (Family.mapCaptures widenCaptures prefixSource)
+
+-- The zero successor must name the computed sum, even though the capture is also an i64.
+example : Exit.check prefixFn (.node 0) = true := by decide
+example : Exit.check prefixFn (.arg 0) = false := by decide
+
+private theorem twoThenExit :
+    prefixSource.ReturnsAlong (widenCaptures.pull prefixInput) [0, 1] prefixStart 6 :=
+  .feedback (next := prefixMiddle) (by cbv)
+    (.feedback (next := prefixFinish) (by cbv) (.exit (by cbv)))
+
+-- The actual checked entry and both feedback visits lead to the computed exit.
 example : ∃ before after,
     StepsNWithin prefixSetup.rtl [] 3
       ⟨⟨0, 0, 0⟩, bindWords 0 Frame.empty prefixInput, [], mem⟩ ⟨⟨0, 1, 0⟩, before, [], mem⟩ ∧
-    Family.MLIR.Prefix.Realized prefixSetup prefixInput mem [0, 1] prefixStart before prefixFinish after := by
+    Family.MLIR.Prefix.Realized prefixSetup prefixInput mem [0, 1] prefixStart before prefixFinish after ∧
+    Taken compiledPrefix prefixInput mem prefixFinish after 6 := by
   obtain ⟨_, before, entered, matched⟩ :=
     Family.entry_packet widenCaptures prefixSource compiledPrefix.accepted prefixInput mem
-  obtain ⟨after, path⟩ :=
-    Family.MLIR.Prefix.Producer.prefix_correct compiledPrefix prefixInput mem twoVisits before matched
-  exact ⟨before, after, entered, path⟩
+  obtain ⟨after, realized, exit, _, _⟩ :=
+    Exit.after_prefix compiledPrefix prefixInput mem before 6 matched twoVisits (by cbv)
+  exact ⟨before, after, entered, realized, exit⟩
+
+example : compiledPrefix.rtl.runMain 16 0 (words prefixInput) mem = .returned [6] mem ∧
+    prefixSetup.cf.run evalOp 8 (cfInput 4 2) = some (.cons 6 .nil) ∧
+    Eval (Opcode.step (sigs := [⟨4, 1⟩]) compiledPrefix.rtl.oracle) (machineEnv prefixInput)
+      (toLambdaSSA [⟨4, 1⟩] prefixFn) mem 0 (packValues [6]) mem :=
+  Exit.returns compiledPrefix prefixInput mem twoThenExit (machineEnv prefixInput) rfl
 
 private def reachedBank (fuel : Nat) : Option (Nat × List Word × Memory) := do
   let s ← runningState? (prefixRTL.runMain fuel 0 (words prefixInput) mem)

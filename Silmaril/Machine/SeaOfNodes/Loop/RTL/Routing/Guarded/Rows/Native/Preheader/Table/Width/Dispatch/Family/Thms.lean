@@ -99,6 +99,16 @@ theorem checked_feedback_cut (mapping : InputMap old new) (p : Source old old en
     ∃ ready latched block, FeedbackCut (mapCaptures mapping p) prog input carried fr ready latched mem slot next block :=
   Proofs.checked_feedback_cut mapping p accepted input carried fr mem agree slot next taken
 
+/-- Expose the exact false-successor operands, exit frame and return of one
+actual checked RTL header visit. -/
+theorem checked_exit_cut (mapping : InputMap old new) (p : Source old old entrySigs sigs tests)
+    {prog : Prog Reg} (accepted : lowerChecked mapping p = some prog)
+    (input : WordTuple new) (carried : WordTuple old) (fr : Frame Reg) (mem : Memory)
+    (agree : ArgsMatch fr (appendTuple carried input)) (value : Word)
+    (taken : p.step (mapping.pull input) carried = .inl value) :
+    ∃ ready, ExitCut (mapCaptures mapping p) prog input carried fr ready mem value :=
+  Proofs.checked_exit_cut mapping p accepted input carried fr mem agree value taken
+
 /-- Independent machine fuel and source slot sequences agree through their exact instruction cost. -/
 theorem rtl_runMain_fuel_iff (mapping : InputMap old new) (p : Source old old entrySigs sigs tests)
     {prog : Prog Reg} (accepted : lowerChecked mapping p = some prog)
