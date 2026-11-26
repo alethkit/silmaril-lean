@@ -48,6 +48,32 @@ theorem guardSlots_injective {X : Ty Empty} {frame : ReplyFrame X} {n : Nat}
     Function.Injective (ReplyFrame.guardSlots slots test) :=
   OrderedTerminalTables.guardSlots_injective slots distinct test
 
+/-- The test fact stays valid after forwarding the actual payload and
+opening a fresh reply. -/
+theorem guardFacts_hold {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    {v : ReplyFrame.Value Γ frame} {known : CompactTerminal.Known frame} (valid : FactsHold known v)
+    (slot : ReplyFrame.Slot frame) (tag reply : Bool) (chosen : (slot.read v).1 = tag) :
+    FactsHold (guardFacts known slot tag) (extendReply (.unit v (slot.read v).2) reply) :=
+  OrderedTerminalTables.guardFacts_hold valid slot tag reply chosen
+
+/-- Replay both reply arms under their two actual constructor packets. -/
+theorem request_regions_at {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    {L : List (Ty Empty)} (emits : List Bool) (label : Bool) (v : ReplyFrame.Value Γ frame)
+    {l r l' r' : Region signature.Instr}
+    (hl : ValueBranches [product X Bit] l L) (hr : ValueBranches [product X Bit] r L)
+    (hl' : ValueBranches [product X Bit] l' L) (hr' : ValueBranches [product X Bit] r' L)
+    (left : ∀ b, Paper.Extension.Eqv Seed (unit :: Bit :: Γ)
+      (l.substVars (Tm.singleSubst (extendReply v b).elaborate.val))
+      (l'.substVars (Tm.singleSubst (extendReply v b).elaborate.val)) L)
+    (right : ∀ b, Paper.Extension.Eqv Seed (unit :: Bit :: Γ)
+      (r.substVars (Tm.singleSubst (extendReply v b).elaborate.val))
+      (r'.substVars (Tm.singleSubst (extendReply v b).elaborate.val)) L) :
+    Paper.Extension.Eqv Seed Γ ((KnownGuardTraversal.requestRegion
+      (KnownGuardTraversal.requestTerm (X := X) emits label) l r).substVars (Tm.singleSubst v.elaborate.val))
+      ((KnownGuardTraversal.requestRegion (KnownGuardTraversal.requestTerm (X := X) emits label) l' r').substVars
+        (Tm.singleSubst v.elaborate.val)) L :=
+  OrderedTerminalTables.request_regions_at emits label v hl hr hl' hr' left right
+
 /-- Residual terminal rows agree on every constructor packet satisfying
 the supplied facts about its exact structural projections. -/
 theorem reindexWithFacts_sound {X : Ty Empty} {frame : ReplyFrame X} {Γ : List (Ty Empty)} {n m : Nat}

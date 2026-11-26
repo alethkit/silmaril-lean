@@ -29,18 +29,6 @@ local instance : HasTy signature.Instr (Ty Empty) := signature.hasTy
 
 local notation "E" => Paper.Extension.Eqv Seed
 
-private theorem rename_branch {Γ Δ : List (Ty Empty)} {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ)
-    {a : Tm signature.Instr} {X : Ty Empty} (h : Tm.BranchValue Γ a X) :
-    Tm.BranchValue Δ (a.rename ρ) X := by
-  rw [Tm.rename_eq_subst]
-  exact h.subst (fun _ _ hi => .var (hρ hi))
-
-private def renameFrame {Γ Δ : List (Ty Empty)} {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ) :
-    {X : Ty Empty} → {frame : ReplyFrame X} → ReplyFrame.Value Γ frame → ReplyFrame.Value Δ frame
-  | _, _, .base u => .base ⟨_, rename_branch hρ u.property⟩
-  | _, _, .unit v u => .unit (renameFrame hρ v) ⟨_, rename_branch hρ u.property⟩
-  | _, _, .bit v b u => .bit (renameFrame hρ v) b ⟨_, rename_branch hρ u.property⟩
-
 private theorem renameFrame_elaborate {Γ Δ : List (Ty Empty)} {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ)
     {X : Ty Empty} {frame : ReplyFrame X} (v : ReplyFrame.Value Γ frame) :
     (renameFrame hρ v).elaborate.val = v.elaborate.val.rename ρ := by
@@ -57,12 +45,6 @@ private theorem read_renameFrame {Γ Δ : List (Ty Empty)} {ρ : Nat → Nat} (h
   | retainUnit _ ih => cases v; exact ih _
   | retainBit _ ih => cases v; exact ih _
 
-/-- The complete constructor packet in a selected reply arm after opening
-the Bit variable with its fresh unit payload. -/
-private def extendReply {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
-    (v : ReplyFrame.Value Γ frame) (b : Bool) : ReplyFrame.Value (unit :: Bit :: Γ) (.bit frame) :=
-  .bit (renameFrame ((Ren.wk Γ Bit).comp (Ren.wk (Bit :: Γ) unit)) v) b ⟨.var 0, .var rfl⟩
-
 private theorem replyFacts_hold {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
     {v : ReplyFrame.Value Γ frame} {known : CompactTerminal.Known frame} (valid : FactsHold known v)
     (b : Bool) : FactsHold (replyFacts known) (extendReply v b) := by
@@ -74,7 +56,7 @@ private theorem replyFacts_hold {Γ : List (Ty Empty)} {X : Ty Empty} {frame : R
     rw [read_renameFrame]
     exact valid old tag found
 
-private theorem guardFacts_hold {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+theorem guardFacts_hold {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
     {v : ReplyFrame.Value Γ frame} {known : CompactTerminal.Known frame} (valid : FactsHold known v)
     (slot : ReplyFrame.Slot frame) (tag reply : Bool) (chosen : (slot.read v).1 = tag) :
     FactsHold (guardFacts known slot tag) (extendReply (.unit v (slot.read v).2) reply) := by
@@ -104,12 +86,12 @@ private abbrev atFrame {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame
   p.elaborate.val.substVars (Tm.singleSubst v.elaborate.val)
 
 private theorem opened_reply {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
-    {L : List (Ty Empty)} (p : CaseTree signature.Instr (product X Bit) L)
+    {L : List (Ty Empty)} {r : Region signature.Instr} (hr : ValueBranches [product X Bit] r L)
     (v : ReplyFrame.Value Γ frame) (b : Bool) :
-    ((p.elaborate.val.substVars (Tm.singleSubst (.pair (v.elaborate.val.rename Nat.succ) (.var 0)))).substVars
-      (bitBranch 0 b)) = atFrame p (extendReply v b) := by
+    ((r.substVars (Tm.singleSubst (.pair (v.elaborate.val.rename Nat.succ) (.var 0)))).substVars
+      (bitBranch 0 b)) = r.substVars (Tm.singleSubst (extendReply v b).elaborate.val) := by
   rw [substVars_comp]
-  apply Paper.SingletonReification.SingleCfg.singleton_subst p.elaborate.property.hasType
+  apply Paper.SingletonReification.SingleCfg.singleton_subst hr.hasType
   have shifted : (v.elaborate.val.rename Nat.succ).subst (bitBranch 0 b) =
       v.elaborate.val.rename (Nat.succ ∘ Nat.succ) := by
     rw [Tm.subst_rename, Tm.rename_eq_subst]
@@ -118,26 +100,43 @@ private theorem opened_reply {Γ : List (Ty Empty)} {X : Ty Empty} {frame : Repl
     shifted, bitBranch, replyBitTag] <;>
     exact (renameFrame_elaborate ((Ren.wk Γ Bit).comp (Ren.wk (Bit :: Γ) unit)) v).symm
 
+theorem request_regions_at {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    {L : List (Ty Empty)} (emits : List Bool) (label : Bool) (v : ReplyFrame.Value Γ frame)
+    {l r l' r' : Region signature.Instr}
+    (hl : ValueBranches [product X Bit] l L) (hr : ValueBranches [product X Bit] r L)
+    (hl' : ValueBranches [product X Bit] l' L) (hr' : ValueBranches [product X Bit] r' L)
+    (left : ∀ b, E (unit :: Bit :: Γ) (l.substVars (Tm.singleSubst (extendReply v b).elaborate.val))
+      (l'.substVars (Tm.singleSubst (extendReply v b).elaborate.val)) L)
+    (right : ∀ b, E (unit :: Bit :: Γ) (r.substVars (Tm.singleSubst (extendReply v b).elaborate.val))
+      (r'.substVars (Tm.singleSubst (extendReply v b).elaborate.val)) L) :
+    E Γ ((KnownGuardTraversal.requestRegion (KnownGuardTraversal.requestTerm (X := X) emits label) l r).substVars
+        (Tm.singleSubst v.elaborate.val))
+      ((KnownGuardTraversal.requestRegion (KnownGuardTraversal.requestTerm (X := X) emits label) l' r').substVars
+        (Tm.singleSubst v.elaborate.val)) L := by
+  have arm {p q : Region signature.Instr}
+      (hp : ValueBranches [product X Bit] p L) (hq : ValueBranches [product X Bit] q L)
+      (rows : ∀ b, E (unit :: Bit :: Γ) (p.substVars (Tm.singleSubst (extendReply v b).elaborate.val))
+        (q.substVars (Tm.singleSubst (extendReply v b).elaborate.val)) L) :
+      E (Bit :: Γ) (p.substVars (Tm.singleSubst (.pair (v.elaborate.val.rename Nat.succ) (.var 0))))
+        (q.substVars (Tm.singleSubst (.pair (v.elaborate.val.rename Nat.succ) (.var 0)))) L := by
+    have packet : Tm.BranchValue (Bit :: Γ) (.pair (v.elaborate.val.rename Nat.succ) (.var 0)) (product X Bit) :=
+      .pair (rename_branch (Ren.wk Γ Bit) v.elaborate.property) (.var rfl)
+    apply bit_case_ext (i := 0) rfl (hp.substVars (single_values packet)).hasType
+      (hq.substVars (single_values packet)).hasType
+    intro b
+    rw [opened_reply hp v b, opened_reply hq v b]
+    exact rows b
+  exact packed_case_congr_at (KnownGuardTraversal.requestTerm (X := X) emits label) v.elaborate.property
+    hl hr hl' hr' (arm hl hl' left) (arm hr hr' right)
+
 private theorem request_at {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
     {L : List (Ty Empty)} (emits : List Bool) (label : Bool) (v : ReplyFrame.Value Γ frame)
     {l r l' r' : CaseTree signature.Instr (product X Bit) L}
     (left : ∀ b, E (unit :: Bit :: Γ) (atFrame l (extendReply v b)) (atFrame l' (extendReply v b)) L)
     (right : ∀ b, E (unit :: Bit :: Γ) (atFrame r (extendReply v b)) (atFrame r' (extendReply v b)) L) :
-    E Γ (atFrame (selectRequest emits label l r) v) (atFrame (selectRequest emits label l' r') v) L := by
-  have arm {p q : CaseTree signature.Instr (product X Bit) L}
-      (rows : ∀ b, E (unit :: Bit :: Γ) (atFrame p (extendReply v b)) (atFrame q (extendReply v b)) L) :
-      E (Bit :: Γ) (p.elaborate.val.substVars (Tm.singleSubst (.pair (v.elaborate.val.rename Nat.succ) (.var 0))))
-        (q.elaborate.val.substVars (Tm.singleSubst (.pair (v.elaborate.val.rename Nat.succ) (.var 0)))) L := by
-    have packet : Tm.BranchValue (Bit :: Γ) (.pair (v.elaborate.val.rename Nat.succ) (.var 0)) (product X Bit) :=
-      .pair (rename_branch (Ren.wk Γ Bit) v.elaborate.property) (.var rfl)
-    apply bit_case_ext (i := 0) rfl
-      (p.elaborate.property.substVars (single_values packet)).hasType
-      (q.elaborate.property.substVars (single_values packet)).hasType
-    intro b
-    rw [opened_reply p v b, opened_reply q v b]
-    exact rows b
-  exact packed_case_congr_at (KnownGuardTraversal.requestTerm emits label) v.elaborate.property
-    l.elaborate.property r.elaborate.property l'.elaborate.property r'.elaborate.property (arm left) (arm right)
+    E Γ (atFrame (selectRequest emits label l r) v) (atFrame (selectRequest emits label l' r') v) L :=
+  request_regions_at emits label v l.elaborate.property r.elaborate.property l'.elaborate.property
+    r'.elaborate.property left right
 
 private theorem guard_at {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
     {L : List (Ty Empty)} (slot : ReplyFrame.Slot frame) (emits : List Bool) (v : ReplyFrame.Value Γ frame)
