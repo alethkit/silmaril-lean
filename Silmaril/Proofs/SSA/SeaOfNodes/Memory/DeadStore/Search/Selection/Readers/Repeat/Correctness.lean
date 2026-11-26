@@ -18,7 +18,7 @@ theorem keepsAll (ops : List (Operation args)) : DeletesStores 0 ops ops := by
   | nil => exact .nil
   | cons op _ ih => exact .keep op ih
 
-private theorem compose {removed more : Nat} {source middle target : List (Operation args)}
+theorem compose {removed more : Nat} {source middle target : List (Operation args)}
     (first : DeletesStores removed source middle) (next : DeletesStores more middle target) :
     DeletesStores (removed + more) source target := by
   induction first generalizing more target with

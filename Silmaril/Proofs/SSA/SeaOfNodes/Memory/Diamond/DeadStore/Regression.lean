@@ -9,6 +9,7 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retain
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Reindex.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Sequence.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Defs
@@ -18,6 +19,7 @@ meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.R
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Reindex.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Sequence.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
@@ -718,5 +720,59 @@ private def runReindexed (rename : PortMap args args) (valuation : Tuple (Val 4)
 #guard runReindexed identifyAliases input false 3 == runReindexed swapAddressPorts swapInput false 3
 #guard runReindexed identifyAliases input true 3 == runReindexed swapAddressPorts swapInput true 3
 #guard runReindexed identifyDisjoint input false 3 == none
+
+private def sequenceTail : Memory.Graph args :=
+  .store (.latest 0) (.arg rightPort) (.arg rightWord)
+    (.load (.latest 1) (.arg headPort)
+      (.store (.latest 1) (.arg leftPort) loaded (.ret (.latest 2) loaded)))
+
+private def sequenceMiddle : Memory.Graph args := sideStore.prepend sequenceTail
+private def sequenceEntry : Memory.Graph args := middleStore.prepend sequenceMiddle
+
+private def firstStep : Static.Sequence.Step args := ⟨1, addressFacts⟩
+private def secondStep : Static.Sequence.Step args := ⟨1, ⟨⟨leftPort, [headPort, rightPort]⟩, []⟩⟩
+private def cutPlan : Static.Sequence.Plan args := [firstStep, secondStep]
+private def staleStep : Static.Sequence.Step args := { secondStep with version := 2 }
+
+-- First remove the head Store through a must-alias address, then remove
+-- the left Store through its own port. The intervening Load of the head
+-- cell supplies the retained left Store's value.
+example : Static.cut firstStep.facts 1 sequenceEntry = some (middleStore, sequenceMiddle) := rfl
+example : Static.cut secondStep.facts 1 sequenceMiddle = some (sideStore, sequenceTail) := rfl
+example : cutPlan.rewrite sequenceEntry = some sequenceTail := rfl
+example : cutPlan.check overwriteInput = true := rfl
+example : Static.Sequence.lower overwriteDiamond sequenceEntry cutPlan overwriteInput =
+    some (Entry.lowerPair overwriteDiamond sequenceEntry sequenceTail overwriteInput) := rfl
+
+private def runCutPlan (plan : Static.Sequence.Plan args) (guard : Bool) (fuel : Nat) :
+    Option (Word × Word × List Word × List Word) := do
+  let programs ← Static.Sequence.lower overwriteDiamond sequenceEntry plan overwriteInput
+  runEntryPrograms programs guard fuel
+
+/-- info: some [33, 33, 33, 3, 55] -/
+#guard_msgs in
+#eval (runCutPlan cutPlan false 3).map (fun (_, _, original, _) => original.map BitVec.toNat)
+
+#guard runCutPlan cutPlan false 3 == some (33, 33, [33, 33, 33, 3, 55], [33, 33, 33, 3, 55])
+#guard runCutPlan cutPlan true 3 == some (33, 33, [33, 11, 11, 3, 55], [33, 11, 11, 3, 55])
+#guard runCutPlan cutPlan true 2 == none
+
+-- Version two is valid in the original table. After the first successful
+-- cut it denotes the retained head-cell overwrite, so the whole plan refuses.
+example : (Static.Sequence.Plan.rewrite [staleStep] sequenceEntry).isSome = true := rfl
+example : Static.Sequence.Plan.check [firstStep, staleStep] overwriteInput = true := rfl
+example : Static.Sequence.Plan.rewrite [firstStep, staleStep] sequenceEntry = none := rfl
+example : Static.Sequence.lower overwriteDiamond sequenceEntry [firstStep, staleStep] overwriteInput = none := rfl
+example : Static.Sequence.lower overwriteDiamond sequenceEntry cutPlan input = none := rfl
+
+private def runMappedPlan (guard : Bool) : Option (Word × Word × List Word × List Word) := do
+  let plan ← cutPlan.transport swapAddressPorts
+  let h : entrySignature ⟶ entrySignature := ⟨swapAddressPorts⟩
+  let programs ← Static.Sequence.lower (mapGraph h overwriteDiamond)
+    (mapBody swapAddressPorts sequenceEntry) plan swapInput
+  runEntryPrograms programs guard 3
+
+#guard runMappedPlan false == runCutPlan cutPlan false 3
+#guard runMappedPlan true == runCutPlan cutPlan true 3
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
