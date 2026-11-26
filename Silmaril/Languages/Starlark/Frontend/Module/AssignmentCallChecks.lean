@@ -72,9 +72,6 @@ example : assignmentSpans = some (⟨⟨24, 3, 3⟩, ⟨38, 3, 17⟩⟩, [
     (⟨⟨32, 3, 11⟩, ⟨38, 3, 17⟩⟩, ⟨⟨32, 3, 11⟩, ⟨35, 3, 14⟩⟩, [⟨⟨36, 3, 15⟩, ⟨37, 3, 16⟩⟩]),
     (⟨⟨32, 3, 11⟩, ⟨35, 3, 14⟩⟩, ⟨⟨32, 3, 11⟩, ⟨33, 3, 12⟩⟩, [])]) := by decide +kernel
 
-example : frontendDiagnostic "def relay(f):\n  f()\n  return 7" =
-    some ⟨.unsupported .call, ⟨⟨17, 2, 4⟩, ⟨18, 2, 5⟩⟩⟩ := by decide +kernel
-
 example : frontendDiagnostic "def relay(f):\n  saved=f() or 0\n  return saved" =
     some ⟨.unsupported .call, ⟨⟨26, 2, 13⟩, ⟨28, 2, 15⟩⟩⟩ := by decide +kernel
 

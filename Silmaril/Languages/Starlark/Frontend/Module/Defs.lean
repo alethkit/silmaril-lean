@@ -27,10 +27,10 @@ structure LocatedCommand where
   /-- Applications in source statement order and preorder within each expression. -/
   applications : List ApplicationSpans := []
 
-/-- The outer application of a call assignment. -/
+/-- The outer application of a top-level call assignment or call statement. -/
 def LocatedCommand.application (command : LocatedCommand) : Option ApplicationSpans :=
   match command.command with
-  | .assign .. => command.applications.head?
+  | .assign .. | .eval .. => command.applications.head?
   | _ => none
 
 def LocatedCommand.callSpans (command : LocatedCommand) : Option CallSpans :=
@@ -167,6 +167,9 @@ private def lowerBodyStmt (span : Span) (source : FunctionStmt) : Except Diagnos
   | .assignCall target value =>
     let call ← lowerOperand value
     return ⟨.assign target call.expression, call.applications⟩
+  | .evalCall value =>
+    let call ← lowerOperand value
+    return ⟨.eval call.expression, call.applications⟩
   | .branch test yes no =>
     let test ← lowerExpr span test
     let yes ← yes.attach.mapM fun ⟨stmt, member⟩ => do
@@ -204,6 +207,9 @@ private def lowerCommand (source : LocatedFileCommand) :
   | .assignCall target value =>
     let call ← lowerOperand value
     return some ⟨source.span, .assign target call.expression, call.applications⟩
+  | .evalCall value =>
+    let call ← lowerOperand value
+    return some ⟨source.span, .eval call.expression, call.applications⟩
   | .load label imports =>
     return located (.load label.text (imports.map fun item => ⟨item.exported.text, item.localName.text⟩))
 

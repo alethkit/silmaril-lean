@@ -54,14 +54,13 @@ retain their existing types. Parser soundness and completeness remain open.
 `Frontend.Module.parseUtf8` and `Frontend.Module.parse` lower complete files
 to located `Modules.Resolve.Command`s. The module profile accepts top-level
 scalar assignments and expression statements, multiline `def` declarations
-with positional parameters and optional scalar defaults, call assignments
-whose right-hand side is a postfix application chain, and leading load
-statements. Top-level name assignments also accept the collection displays
+with positional parameters and optional scalar defaults, postfix call
+assignments and expression statements, and leading load statements. Top-level name assignments also accept the collection displays
 of the call profile. An application chain starts with a bare identifier or a
-parenthesized scalar expression. Module function returns and name assignments
-can use the same application chain. The adapter reuses the logical-line, parameter, and
+parenthesized scalar expression. Module-function returns, name assignments,
+and expression statements can use the same application chain. The adapter reuses the logical-line, parameter, and
 suite parsers. It emits a normalized declaration for each `def` and a
-normalized `.call` expression for each call assignment. A top-level `pass`
+normalized `.call` expression for each application. A top-level `pass`
 produces no command. [Module adapter](../../Silmaril/Languages/Starlark/Frontend/Module/Defs.lean)
 
 ```starlark
@@ -85,8 +84,8 @@ The module body uses the same admitted scalar statement forms as the standalone
 function parser. Its expressions, defaults, and call operands use integer
 literals, names, `and`, `or`, and conditional expressions. Unary and binary
 operators produce an unsupported diagnostic spanning the containing statement,
-default, or argument. Module functions admit calls at the root of a return
-expression or a name assignment RHS. Other body expression positions,
+default, or argument. Module functions admit calls at the root of a return,
+name assignment RHS, or expression statement. Other body expression positions,
 keyword-only parameters, and variadic parameters remain outside this profile.
 
 ### Defaults and call operands
@@ -162,8 +161,8 @@ source-to-normalized adequacy theorem remains open. [Theorems](../../Silmaril/La
 
 ### Postfix applications
 
-A postfix chain is available at the root of a module or function name
-assignment, a module function return, or a call operand. The head can be
+A postfix chain is available at the root of a name assignment, a return,
+an expression statement, or a call operand in the module profile. The head can be
 a bare name or a parenthesized scalar expression, such as `(f if flag else g)`. The parser consumes each parenthesized argument
 group before advancing to the next suffix. Each suffix uses the expression
 parsed so far as its callee, so `factory(a)(b)(c)` associates to the left.
@@ -245,10 +244,32 @@ and exact UTF-8 application spans.
 In the failing fixture, the first call error preserves an earlier local
 value and suppresses the later assignments. Lean checks the residual heap.
 A Go-only mutation control observes the effect of the first assignment's
-operand and confirms that the next RHS is skipped. Call expression
-statements, calls inside scalar operators, and non-name assignment targets
-remain outside this slice.
+operand and confirms that the next RHS is skipped. Calls inside scalar
+operators and non-name assignment targets remain outside this slice.
 [Assignment call checks](../../Silmaril/Languages/Starlark/Frontend/Module/AssignmentCallChecks.lean) · [Go effect controls](../../scripts/starlark/frontend/spreads.go)
+
+### Call expression statements
+
+Module and module-function suites admit a postfix chain as a whole
+expression statement, including on either side of a semicolon. The
+frontend lowers it to the existing normalized `.eval` command or body
+statement. The checked evaluator keeps the state produced by the call
+and discards its result. The call introduces no assignment target.
+
+The kernel checks the normalized discard nodes and exact UTF-8 statement,
+application, callee, and operand spans in both positions. Lean verifies
+that a function branch containing only call statements adds no locals
+and that the published module contains only its source bindings. Two
+discarded list copies leave allocations in left-to-right order. A skipped
+branch contributes no allocations.
+
+Shared Lean and pinned Go fixtures observe an argument failure before the
+following semicolon-separated statement. Lean checks that the first
+allocation survives while the later allocation and writes are skipped.
+Go-only mutation controls observe ordering and suppression directly.
+Calls inside scalar operators and calls in the standalone scalar parser
+remain outside this profile.
+[Call statement checks](../../Silmaril/Languages/Starlark/Frontend/Module/CallStatementChecks.lean) · [Go effect controls](../../scripts/starlark/frontend/spreads.go)
 
 ### Leading loads and UTF-8 graphs
 
@@ -374,7 +395,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.SpreadChecks \
   +Silmaril.Languages.Starlark.Frontend.Module.ComputedCallChecks \
   +Silmaril.Languages.Starlark.Frontend.Module.ReturnCallChecks \
-  +Silmaril.Languages.Starlark.Frontend.Module.AssignmentCallChecks +Silmaril.Languages.Starlark.Checks
+  +Silmaril.Languages.Starlark.Frontend.Module.AssignmentCallChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.CallStatementChecks +Silmaril.Languages.Starlark.Checks
 scripts/starlark/frontend/run.sh
 ```
 
