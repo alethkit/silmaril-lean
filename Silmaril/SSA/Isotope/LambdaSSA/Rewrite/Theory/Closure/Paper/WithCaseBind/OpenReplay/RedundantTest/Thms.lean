@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.RedundantTest.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.PacketCases.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Values.Discard.Syntax.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.RedundantSelectedTest
 
@@ -71,6 +72,17 @@ arrows from the two-reply product to the same tagged exit interface. -/
 theorem packed_second_quote {L : List (Ty Empty)} (pos : Position L) (bits : List Bool) :
     packed (.ret (n := 2) bits pos 1) = packed (.retExpr bits pos (Finite.Expr.quote 2 (fun env => env 1))) :=
   RedundantSelectedTest.packed_second_quote pos bits
+
+/-- A full quote reduces at a tagged constructor packet to its selected
+Boolean row at the original ordered position. -/
+theorem quoted_replyPacket {Γ L : List (Ty Empty)} {n : Nat}
+    (pos : Position L) (table : Finite.Table n) (order : Fin n → Fin n)
+    (env : Finite.Assignment n) (payload : Fin n → Tm signature.Instr) {base : Tm signature.Instr}
+    (hb : Tm.BranchValue Γ base unit) (hp : ∀ j, Tm.BranchValue Γ (payload j) unit) :
+    E Γ ((selectTerminal pos (Finite.Expr.quote n table) (readReply n ∘ order) []).elaborate.val.substVars
+      (Tm.singleSubst (replyPacket env payload base)))
+      (.let₁ .unit (.br pos.1 (if table (env ∘ order) then .inr (.var 0) else .inl (.var 0)))) L :=
+  RedundantSelectedTest.quoted_replyPacket pos table order env payload hb hp
 
 /-- Constructor substitution of a tagged two-reply packet into a full
 quote reduces to the literal row at the given ordered position. -/
