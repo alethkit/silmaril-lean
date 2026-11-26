@@ -49,6 +49,50 @@ proofs still begin at the resolved scalar AST, and static and dynamic failures
 retain their existing types. Parser soundness and completeness remain open.
 [Lean checks](../../Silmaril/Languages/Starlark/Frontend/Checks.lean)
 
+## Load-free module initialization
+
+`Frontend.Module.parseUtf8` and `Frontend.Module.parse` lower complete files
+to located `Modules.Resolve.Command`s. The module profile accepts top-level
+scalar assignments and expression statements, multiline `def` declarations
+with required positional names, and call assignments of the form
+`name = function(arg, ...)`. The call is the entire right-hand side, and both
+names are bare identifiers. The adapter reuses the logical-line, parameter,
+and suite parsers. It emits a normalized declaration for each `def` and a
+normalized `.call` expression for each call assignment. A top-level `pass`
+produces no command. [Module adapter](../../Silmaril/Languages/Starlark/Frontend/Module/Defs.lean)
+
+```starlark
+# 雪
+def id(x):
+  return x
+out = id(7)
+```
+
+`Frontend.Module.runUtf8` uses the existing `Modules.Resolve.runModule` with
+an empty catalog, initial state, and linked table. The example publishes an
+integer `out` with value `7`. Calling `id()` reaches a missing-argument error.
+Using `id(missing)` rejects the undefined name during validation. The
+result distinguishes a spanned frontend diagnostic, a normalized validation
+error, and a runtime result with the existing residual state and publication
+rules. Parsed commands retain half-open source spans. Backend errors retain
+their native payloads because the normalized evaluator has no token-level
+provenance. [Module checks](../../Silmaril/Languages/Starlark/Frontend/Module/Checks.lean)
+
+The module body uses the same admitted scalar statement forms as the standalone
+function parser. Its expressions are limited to integer literals, names,
+`and`, `or`, and conditional expressions, matching the normalized scalar
+lowerer. Unary and binary operators produce an unsupported diagnostic spanning
+the containing statement or positional argument. Calls in function bodies or
+other expression positions, keyword and spread arguments, and loads are
+outside this entry point.
+
+`Frontend.Module.initializes_iff_run` applies the existing module agreement
+theorem to the normalized commands. It covers the existing operational and
+denotational outcomes at that boundary. Lean checks this export, the
+missing-argument runtime failure, and the undefined-name validation failure
+from source bytes with kernel-checked proofs. A general parser or
+source-to-normalized adequacy theorem remains open. [Theorem](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+
 ## Logical lines and layout
 
 - LF, CRLF, and bare CR each end one physical line. Blank and comment-only
@@ -99,7 +143,8 @@ length and token count.
 ## Pinned parser comparison
 
 ```sh
-lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks +Silmaril.Languages.Starlark.Checks
+lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
+  +Silmaril.Languages.Starlark.Frontend.Module.Checks +Silmaril.Languages.Starlark.Checks
 scripts/starlark/frontend/run.sh
 ```
 
@@ -108,7 +153,12 @@ Go the same fixture strings as Lean and checks syntax acceptance with
 zero-value `syntax.FileOptions`. The fixtures cover delimiter continuations,
 explicit joining with LF, CRLF, and CR, ignored blank and comment lines,
 multiple EOF outdents, and mismatched dedents. Both parsers accept inline tabs
-and reject form feed and a backslash followed by a space.
+and reject form feed and a backslash followed by a space. The module controls
+also compile the same Go syntax trees and run successful programs with an
+empty host. They compare the integer `out`, an undefined-name validation
+error, and a missing-argument runtime error with `out` still unbound. They
+compare selected observations and error phases, with no comparison of Go's
+partial globals against the Lean residual heap.
 
 The pinned Go scanner accepts significant tabs. The fixtures observe one tab
 or a space plus a tab aligned with eight spaces, and two tabs aligned with
@@ -123,8 +173,8 @@ reports those errors at its source boundary.
 ## Next parser boundary
 
 - Add inline suites and use the layout tokens for `for` and nested definitions.
-  Connect parsed function definitions, parameters, and loads to the existing
-  normalized module and function adapters.
+  Extend the normalized module adapter with more parameter forms, loads, and
+  additional call positions.
 - Extend expressions with tuple and collection displays, calls, attributes,
   indexing and slices. Add membership, the remaining operator levels,
   comprehensions, and lambdas as their target AST forms become available.
