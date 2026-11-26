@@ -133,9 +133,14 @@ payload and receipt. Other descriptors keep their own call rules.
 
 Line 28 of `test_int_float_primitives.py`, `___assertEqual(5 / 2, 2.5)`,
 completes in isolation in both helper placements. Ordinary and empty-seeded
-execution report the missing helper. The full original still reports
-`expressionProfile`, and its isolated first assertion reports `callOperand`
-at the positional addition. Run the equality differential with
+execution report the missing helper. The closed integer checker also lowers
+the exact sum in line 1, `___assertEqual(4 + 2, 6)`, to an integer call
+operand. That assertion completes in both helper placements. The first
+two statements check. With the Boolean helper and stock type descriptors
+supplied, execution reaches the existing unsupported `isinstance(int, int)`
+case on line 2. Line 3, `___assertEqual(4 + 2.0, 6.0)`, is the first rejected
+prefix and the full file still reports `expressionProfile`.
+Run the equality and positional addition differential with
 `python3.13 -I scripts/check-python-finite-numeric-equality.py --upstream /path/to/pinned/rigorous`.
 Run the transport differential with
 `python3.13 -I scripts/check-python-division-call-transport.py --upstream /path/to/pinned/rigorous`.

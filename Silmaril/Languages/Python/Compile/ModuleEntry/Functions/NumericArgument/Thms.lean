@@ -6,6 +6,11 @@ import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.NumericArg
 public section
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument
 
+theorem check_add {left right : Source.Expr} {lhs rhs : Int}
+    (leftChecked : integer? left = some lhs) (rightChecked : integer? right = some rhs) :
+    check (.binary .add left right) = some (.integer (lhs + rhs)) := by
+  simp [check, integer?, leftChecked, rightChecked, binary?]
+
 theorem power_iff {base exponent result : Int} :
     power? base exponent = some result ↔
       0 ≤ exponent ∧ (base.natAbs.log2 + 1) * exponent.toNat ≤ 4096 ∧ result = base ^ exponent.toNat := by

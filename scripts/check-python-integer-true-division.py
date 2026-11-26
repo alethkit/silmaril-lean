@@ -73,9 +73,7 @@ def pinned_operand(checkout):
 #guard (match Compile.ModuleEntry.Functions.Run.compile original with
   | .error (.source (.scalar .expressionProfile)) => true
   | _ => false)
-#guard (match Compile.ModuleEntry.Functions.Run.compile firstCall with
-  | .error .callOperand => true
-  | _ => false)
+#guard (Compile.ModuleEntry.Functions.Run.compile firstCall).isOk
 #guard (Compile.ModuleEntry.Functions.Run.compile divisionCall).isOk
 """)
     return (expression.left.value, expression.right.value), "\n".join(declarations)
