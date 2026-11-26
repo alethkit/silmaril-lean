@@ -26,8 +26,8 @@ private def outerTail : List (Op Nat) := [.call ⟨3⟩ outerJoin]
 private def innerControl : List (Op Nat) := .if_ innerIf directArm conditionalArm :: outerTail
 private def outerArm : List (Op Nat) := .get ⟨0⟩ :: .call ⟨1⟩ prepare :: innerControl
 private def rootTail : List (Op Nat) := [.call ⟨4⟩ finalJoin]
-private def outerLabel : Label Nat := ⟨.scalar num32, [i64 42], rootTail⟩
-private def innerLabel : Label Nat := ⟨innerIf, [i64 55], outerTail⟩
+private def outerLabel : Label Nat := ⟨.scalar num32, [i64 42], rootTail, none⟩
+private def innerLabel : Label Nat := ⟨innerIf, [i64 55], outerTail, none⟩
 
 private def program : Program Nat where
   module := {
@@ -131,7 +131,7 @@ private theorem inOuter : BodyPath ⟨bytes 1, .source [] outerArm, [outerLabel]
   have exit : BodyPath ⟨bytes 1, .source [i64 42, i32 1] program.continuation, []⟩ :=
     (((producer.tail returned).tail (.control (.test 1 88 0))).tail
       (.control (.dropInput 1 88))).tail (.control (.loopResult 1))
-  exact (exit.step (.if_ (saved := [i64 42]) (args := []) (guard := 1) rfl)).step .block
+  exact (exit.step (.if_ (saved := [i64 42]) (args := []) (guard := 1) rfl)).step (.block rfl)
 
 private theorem inArm (guard : BitVec 32) (direct : Bool) :
     BodyPath ⟨bytes 2, .source (carried ++ [i32 guard]) (if direct then directArm else conditionalArm),
@@ -143,8 +143,8 @@ private theorem inArm (guard : BitVec 32) (direct : Bool) :
       innerControl, [outerLabel]⟩ :=
     pending.step (.returned (vs := i64 55 :: carried ++ [i32 guard, i32 arm]) rfl rfl ⟨rfl, rfl, guard, arm, rfl⟩)
   cases direct
-  · exact (returned.step (.if_ (saved := [i64 55]) (args := carried ++ [i32 guard]) (guard := 0) rfl)).step .block
-  · exact (returned.step (.if_ (saved := [i64 55]) (args := carried ++ [i32 guard]) (guard := 1) rfl)).step .block
+  · exact (returned.step (.if_ (saved := [i64 55]) (args := carried ++ [i32 guard]) (guard := 0) rfl)).step (.block rfl)
+  · exact (returned.step (.if_ (saved := [i64 55]) (args := carried ++ [i32 guard]) (guard := 1) rfl)).step (.block rfl)
 
 private theorem atDirect : BodyPath ⟨bytes 2, .branch carried ⟨2⟩ innerTail, [innerLabel, outerLabel]⟩ :=
   (inArm 0 true).step (.drop (stack := carried) (v := i32 0))

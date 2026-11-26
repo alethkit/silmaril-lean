@@ -20,7 +20,7 @@ private def armTail : List (Op Nat) := [.drop]
 private def table : List (Op Nat) := .brTable [⟨0⟩] ⟨1⟩ :: armTail
 private def arm : List (Op Nat) := .get ⟨0⟩ :: .call ⟨1⟩ choose :: table
 private def rootTail : List (Op Nat) := [.call ⟨2⟩ follow]
-private def label : Label Nat := ⟨armType, [i64 42], rootTail⟩
+private def label : Label Nat := ⟨armType, [i64 42], rootTail, none⟩
 
 private def program : Program Nat where
   module := {
@@ -107,7 +107,7 @@ private theorem atTable (selector : BitVec 32) :
     (((producer.tail returned).tail (.control (.test 1 88 0))).tail
       (.control (.dropInput 1 88))).tail (.control (.loopResult 1))
   have inside : BodyPath ⟨bytes 1, .source [] arm, [label]⟩ :=
-    (exit.step (.if_ (saved := [i64 42]) (args := []) (guard := 1) rfl)).step .block
+    (exit.step (.if_ (saved := [i64 42]) (args := []) (guard := 1) rfl)).step (.block rfl)
   have choosing : BodyPath ⟨bytes 1, .invoke [] choose [i64 7] table, [label]⟩ :=
     (inside.step (.get rfl)).step (.resolve (saved := []) (args := [i64 7]) rfl)
   exact choosing.step (.returned (vs := carried ++ [i32 selector]) rfl rfl ⟨rfl, rfl, selector, rfl⟩)
@@ -132,7 +132,7 @@ example : Steps host launch ⟨memory.store (bytes 2), caller, [.frame 2 (progra
 
 example : Steps host launch ⟨memory.store (bytes 3), caller, values [i64 88, i32 33]⟩ := by
   have delivered : BodyPath ⟨bytes 2, .source (i64 42 :: payload) rootTail, []⟩ :=
-    (selectTable 0).step (.branchDeliver (scratch := [i32 99]) (payload := payload) rfl rfl)
+    (selectTable 0).step (.branchDeliver (scratch := [i32 99]) (payload := payload) rfl rfl rfl)
   have invoked : BodyPath ⟨bytes 2, .invoke [] follow (i64 42 :: payload) [], []⟩ :=
     delivered.step (.resolve (saved := []) (args := i64 42 :: payload) rfl)
   have returned : BodyPath ⟨bytes 3, .source [i64 88, i32 33] [], []⟩ :=

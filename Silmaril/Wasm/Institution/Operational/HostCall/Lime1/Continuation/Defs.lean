@@ -6,7 +6,8 @@ public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Defs
 
 Each conditional checks both arms against its resolved signature. An entered
 arm starts with the declared parameters and retains the enclosing operand
-prefix and continuation until the label exits.
+prefix and continuation until the label exits. Loops use the same scope
+structure and carry their source body for restart.
 -/
 
 @[expose] public section
@@ -16,6 +17,7 @@ namespace Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation
 open Execution.Runtime (EvalCtx Frame ModuleInst Result Value)
 open Wasm.Lime1.Execution
 
+/-- Scalar or indexed control signature used by conditionals and loops. -/
 inductive IfType where
   | scalar (type : NumType)
   | indexed (index : TypeIdx) (signature : Wasm.Lime1.FuncType)
@@ -38,6 +40,7 @@ inductive Op (H : Type) where
   | br (depth : LabelIdx)
   | brIf (depth : LabelIdx)
   | brTable (depths : List LabelIdx) (fallback : LabelIdx)
+  | loop (type : IfType) (body : List (Op H))
   | if_ (type : IfType) (thenArm elseArm : List (Op H))
 
 mutual
@@ -48,6 +51,7 @@ def Op.instr {H : Type} : Op H → Wasm.Lime1.Instr
   | .br depth => .br depth
   | .brIf depth => .brIf depth
   | .brTable depths fallback => .brTable depths fallback
+  | .loop type body => .loop type.blockType (expr body)
   | .if_ type left right => .if_ type.blockType (expr left) (expr right)
 
 def expr {H : Type} : List (Op H) → Wasm.Lime1.Expr
@@ -58,7 +62,9 @@ end
 def code {H : Type} (ops : List (Op H)) : List Admin := expression (expr ops)
 
 /-- Static checks use the entered module, base allocation and active local types.
-The first index lists label results from the innermost label to the function label.
+The first index lists branch payload signatures from innermost to outermost.
+It uses parameters for loop targets and results for conditional and function
+targets.
 The next indices give the delivered result types and the initial stack types.
 Each operand stack is ordered bottom to top. -/
 inductive Checked {H : Type} (base : Store H) (module : ModuleInst)
@@ -89,6 +95,12 @@ inductive Checked {H : Type} (base : Store H) (module : ModuleInst)
       (defaultTarget : targets[fallback.toNat]? = some payload) :
       Checked base module locals targets results ((scratch ++ payload) ++ [.int .i32])
         (.brTable depths fallback :: ops)
+  | loop {targets} {results saved : List NumType} {type : IfType} {body ops : List (Op H)}
+      (resolved : type.Resolved module)
+      (bodyChecked : Checked base module locals (type.signature.params :: targets)
+        type.signature.results type.signature.params body)
+      (tail : Checked base module locals targets results (saved ++ type.signature.results) ops) :
+      Checked base module locals targets results (saved ++ type.signature.params) (.loop type body :: ops)
   | if_ {targets} {results saved : List NumType} {type : IfType} {left right ops : List (Op H)}
       (resolved : type.Resolved module)
       (thenArm : Checked base module locals (type.signature.results :: targets)
@@ -109,14 +121,29 @@ inductive Contract {H : Type} {base : Store H} (mem : Memory32 base) (host : Hos
   | br {depth ops} : Contract mem host (.br depth :: ops)
   | brIf {depth ops} (tail : Contract mem host ops) : Contract mem host (.brIf depth :: ops)
   | brTable {depths fallback ops} : Contract mem host (.brTable depths fallback :: ops)
+  | loop {type body ops} (bodyContract : Contract mem host body) (tail : Contract mem host ops) :
+      Contract mem host (.loop type body :: ops)
   | if_ {type left right ops} (thenArm : Contract mem host left) (elseArm : Contract mem host right)
       (tail : Contract mem host ops) : Contract mem host (.if_ type left right :: ops)
 
-/-- An open conditional arm retains the enclosing operand prefix and code. -/
+/-- A label retains the enclosing operands and tail. A loop also retains the
+body needed to re-enter with a new parameter suffix. -/
 structure Label (H : Type) where
   type : IfType
   saved : List Value
   tail : List (Op H)
+
+  restart : Option (List (Op H))
+
+def Label.branchTypes {H : Type} (label : Label H) : List NumType :=
+  match label.restart with
+  | none => label.type.signature.results
+  | some _ => label.type.signature.params
+
+def Label.continuation {H : Type} (label : Label H) : Wasm.Lime1.Expr :=
+  match label.restart with
+  | none => []
+  | some body => [.loop label.type.blockType (expr body)]
 
 inductive Phase (H : Type) where
   | source (stack : List Value) (ops : List (Op H))
@@ -145,7 +172,23 @@ def labelResults {H : Type} (results : List NumType) : List (Label H) → List N
 
 def targetTypes {H : Type} (results : List NumType) : List (Label H) → List (List NumType)
   | [] => [results]
-  | label :: rest => label.type.signature.results :: targetTypes results rest
+  | label :: rest => label.branchTypes :: targetTypes results rest
+
+def labelBranchTypes {H : Type} (results : List NumType) : List (Label H) → List NumType
+  | [] => results
+  | label :: _ => label.branchTypes
+
+def labelContinuation {H : Type} : List (Label H) → Wasm.Lime1.Expr
+  | [] => []
+  | label :: _ => label.continuation
+
+def Label.RestartReady {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantics H)
+    (active : Frame) (targets : List (List NumType)) (label : Label H) : Prop :=
+  match label.restart with
+  | none => True
+  | some body => label.type.Resolved active.module ∧
+      Checked base active.module (active.locals.map Value.type) (label.type.signature.params :: targets)
+        label.type.signature.results label.type.signature.params body ∧ Contract mem host body
 
 inductive LabelsReady {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantics H)
     (active : Frame) (results : List NumType) : List (Label H) → Prop where
@@ -155,6 +198,7 @@ inductive LabelsReady {H : Type} {base : Store H} (mem : Memory32 base) (host : 
         (targetTypes results rest) (labelResults results rest)
         (label.saved.map Value.type ++ label.type.signature.results) label.tail)
       (contract : Contract mem host label.tail)
+      (restart : label.RestartReady mem host active (targetTypes results rest))
       (outer : LabelsReady mem host active results rest) :
       LabelsReady mem host active results (label :: rest)
 
@@ -166,7 +210,7 @@ def Ready {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantic
   match phase with
   | .source stack ops => Checked base active.module (active.locals.map Value.type) targets delivered
       (stack.map Value.type) ops ∧ Contract mem host ops
-  | .block label args arm => label.type.Resolved active.module ∧
+  | .block label args arm => label.restart = none ∧ label.type.Resolved active.module ∧
       args.map Value.type = label.type.signature.params ∧
       Checked base active.module (active.locals.map Value.type)
         (label.type.signature.results :: targets) label.type.signature.results (args.map Value.type) arm ∧ Contract mem host arm ∧
@@ -182,41 +226,42 @@ def Ready {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantic
 the enclosing function frame. -/
 inductive Scope where
   | function (arity : Nat)
-  | label (arity : Nat) (saved : List Value) (tail : List Admin) (outer : Scope)
+  | label (arity : Nat) (cont : Wasm.Lime1.Expr) (saved : List Value) (tail : List Admin) (outer : Scope)
 
 def scopeFor {H : Type} (results : List NumType) : List (Label H) → Scope
   | [] => .function results.length
-  | label :: rest => .label (labelResults results rest).length label.saved (code label.tail) (scopeFor results rest)
+  | label :: rest => .label (labelBranchTypes results rest).length (labelContinuation rest)
+      label.saved (code label.tail) (scopeFor results rest)
 
 def frameContext (active : Frame) : Scope → EvalCtx Wasm.Lime1.Instr
   | .function arity => .frame arity active .hole
-  | .label arity saved tail outer =>
-      (frameContext active outer).comp (.label arity [] (.seq saved .hole tail))
+  | .label arity cont saved tail outer =>
+      (frameContext active outer).comp (.label arity cont (.seq saved .hole tail))
 
 def framed (active : Frame) (body : List Admin) : Scope → List Admin
   | .function arity => [.frame arity active body]
-  | .label arity saved tail outer => framed active [.label arity [] (values saved ++ body ++ tail)] outer
+  | .label arity cont saved tail outer => framed active [.label arity cont (values saved ++ body ++ tail)] outer
 
 def entered (arity : Nat) (active : Frame) (body : List Admin) : List Admin :=
   [.frame arity active [.label arity [] body]]
 
-def invokeContext {H : Type} (scope : Scope) (arity : Nat) (active : Frame)
+def invokeContext {H : Type} (scope : Scope) (arity : Nat) (cont : Wasm.Lime1.Expr) (active : Frame)
     (saved : List Value) (ops : List (Op H)) : EvalCtx Wasm.Lime1.Instr :=
-  (frameContext active scope).comp (.label arity [] (.seq saved .hole (code ops)))
+  (frameContext active scope).comp (.label arity cont (.seq saved .hole (code ops)))
 
-def Phase.renderIn {H : Type} (scope : Scope) (arity : Nat) (active : Frame) : Phase H → List Admin
-  | .source stack ops => framed active [.label arity [] (values stack ++ code ops)] scope
-  | .block label args arm => framed active [.label arity [] (values (label.saved ++ args) ++
+def Phase.renderIn {H : Type} (scope : Scope) (arity : Nat) (cont : Wasm.Lime1.Expr) (active : Frame) : Phase H → List Admin
+  | .source stack ops => framed active [.label arity cont (values stack ++ code ops)] scope
+  | .block label args arm => framed active [.label arity cont (values (label.saved ++ args) ++
       .source (.block label.type.blockType (expr arm)) :: code label.tail)] scope
-  | .invoke saved site args ops => (invokeContext scope arity active saved ops).plug value
+  | .invoke saved site args ops => (invokeContext scope arity cont active saved ops).plug value
       (values args ++ [.invoke site.address])
-  | .trapped saved rest => framed active [.label arity [] (values saved ++ .trap :: rest)] scope
+  | .trapped saved rest => framed active [.label arity cont (values saved ++ .trap :: rest)] scope
   | .frameResult out => framed active (result out) scope
   | .done out => result out
 
 def Phase.renderCode {H : Type} (results : List NumType) (active : Frame)
     (phase : Phase H) (labels : List (Label H)) : List Admin :=
-  phase.renderIn (scopeFor results labels) (labelResults results labels).length active
+  phase.renderIn (scopeFor results labels) (labelBranchTypes results labels).length (labelContinuation labels) active
 
 def render {H : Type} {base : Store H} (mem : Memory32 base) (outer active : Frame)
     (results : List NumType) (state : State H) : Config H :=
@@ -246,18 +291,25 @@ inductive Edge {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSem
       Edge mem host active results ⟨bytes, .branch stack depth ops, label :: labels⟩
         ⟨bytes, .branch (label.saved ++ stack) (lowerLabel depth) label.tail, labels⟩
   | branchDeliver {bytes scratch payload depth ops label labels} (zero : depth.toNat = 0)
-      (typed : payload.map Value.type = label.type.signature.results) :
+      (exits : label.restart = none) (typed : payload.map Value.type = label.type.signature.results) :
       Edge mem host active results ⟨bytes, .branch (scratch ++ payload) depth ops, label :: labels⟩
         ⟨bytes, .source (label.saved ++ payload) label.tail, labels⟩
+  | branchRestart {bytes scratch args depth ops label body labels} (zero : depth.toNat = 0)
+      (loopBody : label.restart = some body) (typed : args.map Value.type = label.type.signature.params) :
+      Edge mem host active results ⟨bytes, .branch (scratch ++ args) depth ops, label :: labels⟩
+        ⟨bytes, .source (label.saved ++ args) (.loop label.type body :: label.tail), labels⟩
   | functionBranch {bytes scratch payload depth ops} (zero : depth.toNat = 0)
       (typed : payload.map Value.type = results) :
       Edge mem host active results ⟨bytes, .branch (scratch ++ payload) depth ops, []⟩
         ⟨bytes, .frameResult (.values payload), []⟩
   | if_ {bytes saved args guard type left right ops labels} (typed : args.map Value.type = type.signature.params) :
       Edge mem host active results ⟨bytes, .source ((saved ++ args) ++ [Value.int .i32 guard]) (.if_ type left right :: ops), labels⟩
-        ⟨bytes, .block ⟨type, saved, ops⟩ args (select guard left right), labels⟩
-  | block {bytes label args arm labels} :
+        ⟨bytes, .block ⟨type, saved, ops, none⟩ args (select guard left right), labels⟩
+  | block {bytes label args arm labels} (exits : label.restart = none) :
       Edge mem host active results ⟨bytes, .block label args arm, labels⟩ ⟨bytes, .source args arm, label :: labels⟩
+  | loop {bytes saved args type body ops labels} (typed : args.map Value.type = type.signature.params) :
+      Edge mem host active results ⟨bytes, .source (saved ++ args) (.loop type body :: ops), labels⟩
+        ⟨bytes, .source args body, ⟨type, saved, ops, some body⟩ :: labels⟩
   | resolve {bytes saved args index site ops labels} (typed : site.Arguments args) :
       Edge mem host active results ⟨bytes, .source (saved ++ args) (.call index site :: ops), labels⟩
         ⟨bytes, .invoke saved site args ops, labels⟩
