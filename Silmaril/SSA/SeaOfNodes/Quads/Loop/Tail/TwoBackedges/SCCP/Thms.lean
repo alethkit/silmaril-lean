@@ -1,0 +1,77 @@
+module
+
+public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Defs
+import Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Correctness
+
+/-! Least solution and native coverage for a pure quad loop with two backedges. -/
+
+@[expose] public section
+
+namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP
+
+open Diamond (Model Signature ValueSort dataPorts sortValue)
+open Diamond.SCCP (Fact TupleCovers)
+open SeaOfNodes.Loop.SCCP (BankFacts BankDecidableEq BankCovers)
+open Blocks (Bank)
+open Join (Block)
+open RVSDG (Tuple)
+
+universe u v w
+
+variable {Data : Type u} {Op : Signature.{u, v} Data}
+variable {regs : List (ValueSort Data)} {out : ValueSort Data}
+variable {m : Model.{u, v, w} Op}
+
+/-- The compiled abstract block covers the actual ordered source block. -/
+theorem blockFacts_cover (block : Block Op regs)
+    {facts : Tuple (Fact m.value) (dataPorts regs)} {old : Bank (regs := regs) m}
+    (covers : TupleCovers facts old) : TupleCovers (blockFacts m block facts) (block.eval m old) :=
+  Proofs.blockFacts_cover block covers
+
+/-- The Φ result is the least upper bound of the individually marked columns. -/
+theorem phiFacts_le_iff {value : Data → Type w} [BankDecidableEq value (dataPorts regs)]
+    (marks : Marked) (column : Incoming → BankFacts value (dataPorts regs))
+    (upper : BankFacts value (dataPorts regs)) :
+    phiFacts marks column ≤ upper ↔ ∀ edge, incomingIndex edge ∈ marks → column edge ≤ upper :=
+  Proofs.phiFacts_le_iff marks column upper
+
+variable (m) (p : Program Op regs out) [BankDecidableEq m.value (dataPorts regs)]
+variable (input : Tuple (Fact m.value) (dataPorts regs))
+
+theorem transfer_mono : Monotone (transfer m p input) :=
+  Proofs.transfer_mono
+
+def transferHom : State m.value regs out →o State m.value regs out :=
+  ⟨transfer m p input, transfer_mono m p input⟩
+
+/-- Run the existing finite-height iterator from optimistic bottom. -/
+def solve : State m.value regs out :=
+  (height m.value regs out).solve (transferHom m p input)
+
+theorem solve_fixed : transfer m p input (solve m p input) = solve m p input :=
+  (height m.value regs out).solve_fixed (transferHom m p input)
+
+theorem solve_isLeast : IsLeast {state | transfer m p input state = state} (solve m p input) :=
+  (height m.value regs out).solve_isLeast (transferHom m p input)
+
+attribute [local irreducible] solve
+
+variable {input} {concrete : Bank (regs := regs) m}
+
+/-- Every finite native header arrival has its exact incoming occurrence
+marked and its entire bank covered. -/
+theorem solve_arrives (covered : TupleCovers input concrete)
+    {via : Incoming} {count : Nat} {old : Bank (regs := regs) m}
+    (arrived : p.Arrives m concrete via count old) :
+    incomingIndex via ∈ (solve m p input).1 ∧ BankCovers (solve m p input).2.1 old :=
+  Proofs.fixed_arrives (solve_fixed m p input) covered arrived
+
+/-- Every actual bounded source return marks exit and is covered by the
+inferred result. The source fuel counts native blocks. -/
+theorem solve_source_return (covered : TupleCovers input concrete)
+    {fuel : Nat} {result : sortValue m.value out}
+    (returned : p.source.runFrom m fuel 0 concrete = some result) :
+    exitIndex ∈ (solve m p input).1 ∧ (solve m p input).2.2.Covers result :=
+  Proofs.fixed_source_return (solve_fixed m p input) covered returned
+
+end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP
