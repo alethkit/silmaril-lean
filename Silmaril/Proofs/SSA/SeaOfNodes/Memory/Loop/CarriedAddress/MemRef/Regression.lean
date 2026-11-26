@@ -1,33 +1,44 @@
 module
 
+public import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Defs
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.MemRef.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.MemRef.Defs
 
-namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.MemRef
+@[expose] public section
+
+namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Fixture
 
 open RVSDG (Tuple)
-open RVSDG.NestedTheta.Petri (Finishes)
-open Silmaril.MLIR.CF.Ordered (Block)
-open Silmaril.MLIR.MemRef (Buffer)
 
-private abbrev args : List ValueSort := [.address, .address, .word, .word]
+abbrev args : List ValueSort := [.address, .address, .word, .word]
 
-private def body : Memory.Graph (.address :: args) :=
+def body : Memory.Graph (.address :: args) :=
   .load (.latest 0) (.arg .head)
     (.store (.latest 0) (.arg .head) (.arg (.tail (.tail (.tail .head))))
       (.ret (.latest 1) (.output 0 .head)))
 
-private def graph : Graph args :=
+def graph : Graph args :=
   ⟨⟨body, rfl, .tail (.tail (.tail (.tail .head)))⟩, .head, .tail .head⟩
 
-private def input (feedback : Address 3) : Tuple (Val 3) args :=
+def input (feedback : Address 3) : Tuple (Val 3) args :=
   .cons (0 : Address 3) (.cons feedback (.cons (9 : Word) (.cons (0 : Word) .nil)))
 
-private def initial (first : Word) : Heap 3 :=
+def initial (first : Word) : Heap 3 :=
   fun cell => if cell = 0 then first else if cell = 1 then 0 else 99
 
-private def afterEntry : Heap 3 := (initial 7).write 0 9
-private def afterFeedback : Heap 3 := afterEntry.write 1 9
+def afterEntry : Heap 3 := (initial 7).write 0 9
+def afterFeedback : Heap 3 := afterEntry.write 1 9
+
+end Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Fixture
+
+end
+
+namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.MemRef
+
+open Fixture
+open RVSDG.NestedTheta.Petri (Finishes)
+open Silmaril.MLIR.CF.Ordered (Block)
+open Silmaril.MLIR.MemRef (Buffer)
 
 private theorem entryHeader : Block.eval (evalBody graph (input 1)) ((lower 3 graph).block .header)
     (arrivalEnv .entry) ⟨initial 7⟩ =
@@ -42,7 +53,7 @@ private theorem feedbackHeader : Block.eval (evalBody graph (input 1)) ((lower 3
   rfl
 
 -- The existing coloured activation uses the selected operands at each
--- occurrence. The CFG alone connects these activations by its self edge.
+-- occurrence. These checks seed the two activations independently.
 example : Finishes (thetaRuntime 3) graph.activation.activation
     (Memory.encodeInput (initial 7) (graph.operands (input 1) .entry))
     (.cons ⟨1⟩ (Memory.encodeInput afterEntry (graph.operands (input 1) .entry))) :=
