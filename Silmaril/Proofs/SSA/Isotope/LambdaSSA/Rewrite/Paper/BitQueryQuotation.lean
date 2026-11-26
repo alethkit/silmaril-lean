@@ -16,7 +16,7 @@ open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload 
 open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload.Finite (Expr Assignment)
 
 local notation "U" => (Ty.unit : Ty Empty)
-local notation "E" => Paper.Extension.Eqv Seed
+local notation "E" => SubstitutionEquiv
 
 theorem drop_weakening (r : Region signature.Instr) (a : Tm signature.Instr) :
     (r.renameVars Nat.succ).substVars (Tm.singleSubst a) = r := by
@@ -55,14 +55,13 @@ private theorem select_case {Γ L : List (Ty Empty)} {a : Tm signature.Instr} {l
     (hl : ValueBranches (U :: Γ) l L) (hr : ValueBranches (U :: Γ) r L) :
     E Γ (.case (constructorBit b a) l r) (.let₁ a (if b then r else l)) L := by
   cases b
-  · exact .paper (.cfgEta (.native (.base (.caseInl ha hl.hasType hr.hasType))))
-  · exact .paper (.cfgEta (.native (.base (.caseInr ha hl.hasType hr.hasType))))
+  · exact .base (.caseInl ha hl.hasType hr.hasType)
+  · exact .base (.caseInr ha hl.hasType hr.hasType)
 
 private theorem erase_binder {Γ L : List (Ty Empty)} {a : Tm signature.Instr} {r : Region signature.Instr}
     (ha : Tm.BranchValue Γ a U) (hr : ValueBranches Γ r L) :
     E Γ (.let₁ a (r.renameVars Nat.succ)) r L := by
-  have h := Paper.Extension.Eqv.paper (Seed := Seed)
-    (.cfgEta (.native (.letValue ha (hr.renameVars (Ren.wk Γ U)).hasType)))
+  have h := SubstitutionEquiv.letValue ha (hr.renameVars (Ren.wk Γ U)).hasType
   rwa [drop_weakening] at h
 
 private theorem choose_known {n : Nat} (e : Expr n) (env : Assignment n)
@@ -74,8 +73,8 @@ private theorem choose_known {n : Nat} (e : Expr n) (env : Assignment n)
   induction e generalizing Γ l r with
   | literal b =>
     cases b
-    · exact .refl hl.hasType
-    · exact .refl hr.hasType
+    · exact .base (.refl hl.hasType)
+    · exact .base (.refl hr.hasType)
   | read i =>
     refine (select_case (env i) (hp i).hasType (hl.renameVars (Ren.wk Γ U))
       (hr.renameVars (Ren.wk Γ U))).trans ?_
@@ -99,12 +98,12 @@ private theorem choose_known {n : Nat} (e : Expr n) (env : Assignment n)
       (choose_typed hi hbit wl wr)).trans ?_
     cases h : env 0
     · simp only [Expr.eval, h, Bool.false_eq_true, ite_false]
-      refine (Paper.Extension.Eqv.let₁ (hp 0).hasType (ihl env.tail older ht wl wr)).trans ?_
+      refine (SubstitutionEquiv.let₁ (hp 0).hasType (ihl env.tail older ht wl wr)).trans ?_
       cases lo.eval env.tail
       · exact erase_binder (hp 0) hl
       · exact erase_binder (hp 0) hr
     · simp only [Expr.eval, h, ite_true]
-      refine (Paper.Extension.Eqv.let₁ (hp 0).hasType (ihr env.tail older ht wl wr)).trans ?_
+      refine (SubstitutionEquiv.let₁ (hp 0).hasType (ihr env.tail older ht wl wr)).trans ?_
       cases hi.eval env.tail
       · exact erase_binder (hp 0) hl
       · exact erase_binder (hp 0) hr
@@ -136,8 +135,7 @@ theorem expand_bit {Γ L : List (Ty Empty)} {r : Region signature.Instr} {i : Na
     congr
     funext j
     by_cases e : j = i <;> simp [ρ, focus, e, Tm.replaceNewest, Tm.consSubst]
-  have step := Paper.Extension.Eqv.paper (Seed := Seed) (.cfgEta (.native
-    (.caseValue (.var hi) (hr.renameVars hρ))))
+  have step := SubstitutionEquiv.caseValue (.var hi) (hr.renameVars hρ)
   rw [identity] at step
   erw [branch false, branch true] at step
   exact step
@@ -227,7 +225,7 @@ private theorem row_ext {n : Nat} {Γ L : List (Ty Empty)} {r s : Region signatu
       simpa only [rowCtx_succ, rowSubst, tail_push, Assignment.push, Fin.cases_zero] using
         rows (env.push b)
     exact (expand_bit (typed 0) hr).symm.trans
-      ((Paper.Extension.Eqv.case (.var (typed 0)) (arm false) (arm true)).trans (expand_bit (typed 0) hs))
+      ((SubstitutionEquiv.case (.var (typed 0)) (arm false) (arm true)).trans (expand_bit (typed 0) hs))
 
 theorem choose_eq {n : Nat} {Γ L : List (Ty Empty)} (slots : Slots Γ n) (e f : Expr n)
     {l r : Region signature.Instr} (hl : ValueBranches Γ l L) (hr : ValueBranches Γ r L)
@@ -249,19 +247,25 @@ theorem choose_eq {n : Nat} {Γ L : List (Ty Empty)} (slots : Slots Γ n) (e f :
   rw [equal env] at left
   exact left.trans right.symm
 
+private theorem rename_eqv {Γ Δ L : List (Ty Empty)} {l r : Region signature.Instr}
+    (h : E Γ l r L) {ρ : Nat → Nat} (typed : Ren Γ Δ ρ) :
+    E Δ (l.renameVars ρ) (r.renameVars ρ) L := by
+  simpa only [renameVars_eq_substVars] using
+    h.substVars (σ := Tm.var ∘ ρ) (fun _ _ hi => Tm.BranchValue.var (typed hi))
+
 theorem eqv_choose {n : Nat} {Γ L : List (Ty Empty)} (e : Expr n) {slots : Fin n → Tm signature.Instr}
     (typed : ∀ i, Tm.HasType Γ (slots i) Bit) {l r l' r' : Region signature.Instr}
     (hl : E Γ l l' L) (hr : E Γ r r' L) :
     E Γ (choose e slots l r) (choose e slots l' r') L := by
   induction e generalizing Γ l r l' r' with
   | literal b => cases b; exact hl; exact hr
-  | read i => exact .case (typed i) (hl.renameVars (Ren.wk Γ U)) (hr.renameVars (Ren.wk Γ U))
+  | read i => exact .case (typed i) (rename_eqv hl (Ren.wk Γ U)) (rename_eqv hr (Ren.wk Γ U))
   | split lo hi ihl ihr =>
     exact .case (typed 0)
       (ihl (fun i => (typed i.succ).rename (Ren.wk Γ U))
-        (hl.renameVars (Ren.wk Γ U)) (hr.renameVars (Ren.wk Γ U)))
+        (rename_eqv hl (Ren.wk Γ U)) (rename_eqv hr (Ren.wk Γ U)))
       (ihr (fun i => (typed i.succ).rename (Ren.wk Γ U))
-        (hl.renameVars (Ren.wk Γ U)) (hr.renameVars (Ren.wk Γ U)))
+        (rename_eqv hl (Ren.wk Γ U)) (rename_eqv hr (Ren.wk Γ U)))
 
 theorem quote_choose {n : Nat} {Γ L : List (Ty Empty)} (slots : Slots Γ n) (e : Expr n)
     {l r : Region signature.Instr} (hl : ValueBranches Γ l L) (hr : ValueBranches Γ r L) :
@@ -271,7 +275,7 @@ theorem quote_choose {n : Nat} {Γ L : List (Ty Empty)} (slots : Slots Γ n) (e 
 theorem region_replay {n : Nat} (t : Tree n) {Γ : VCtx (Ty Empty)} (slots : Slots Γ n) :
     E Γ (t.region slots) (t.key.region slots) Exits := by
   induction t generalizing Γ with
-  | ret right i => exact .refl ((Tree.ret right i).typed slots).hasType
+  | ret right i => exact .base (.refl ((Tree.ret right i).typed slots).hasType)
   | ask label query l r ihl ihr =>
     let left := l.key.typed slots.bind
     let right := r.key.typed slots.bind
@@ -283,18 +287,15 @@ theorem region_replay {n : Nat} (t : Tree n) {Γ : VCtx (Ty Empty)} (slots : Slo
       (quote_choose slots query (request_typed label false left right) (request_typed label true left right))
 
 theorem packed_unguarded (t : Tree 1) :
-    t.packed = Paper.Extension.Singleton.ofRegion Seed (t.typed inputSlots).packExits := by
-  have eq : E [Bit] t.guarded (t.region inputSlots) Exits := expand_bit (i := 0) rfl (t.typed inputSlots).hasType
-  exact (Paper.Extension.Singleton.ofRegion_eq_iff Seed _ _).mpr
-    (eq.lsubstPost t.guarded_typed (t.typed inputSlots) (fun _ _ hi =>
-      (packExits_valueFamily (Φ := signature.Instr) [Bit] Exits hi).hasType))
+    E [Bit] t.guarded.packExits (t.region inputSlots).packExits [packedExitType Exits] :=
+  (expand_bit (i := 0) rfl (t.typed inputSlots).hasType).lsubst
+    (fun _ _ hi => (packExits_valueFamily (Φ := signature.Instr) [Bit] Exits hi).hasType)
 
-theorem packed_replay (t : Tree 1) : t.packed = t.key.packed := by
-  have same := region_replay t inputSlots
-  have packed := (Paper.Extension.Singleton.ofRegion_eq_iff Seed
-    (t.typed inputSlots).packExits (t.key.typed inputSlots).packExits).mpr
-    (same.lsubstPost (t.typed inputSlots) (t.key.typed inputSlots) (fun _ _ hi =>
-      (packExits_valueFamily (Φ := signature.Instr) [Bit] Exits hi).hasType))
-  exact (packed_unguarded t).trans (packed.trans (packed_unguarded t.key).symm)
+theorem packed_replay (t : Tree 1) :
+    E [Bit] t.guarded.packExits t.key.guarded.packExits [packedExitType Exits] := by
+  have source := expand_bit (i := 0) rfl (t.typed inputSlots).hasType
+  have target := expand_bit (i := 0) rfl (t.key.typed inputSlots).hasType
+  exact (source.trans ((region_replay t inputSlots).trans target.symm)).lsubst
+    (fun _ _ hi => (packExits_valueFamily (Φ := signature.Instr) [Bit] Exits hi).hasType)
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BitQueryQuotation
