@@ -445,6 +445,28 @@ Both calls settle successful `None` receipts. Profiles without the
 helper reach its first missing-name lookup. The two statements leave
 both modeled heaps intact and add no user bindings.
 
+A direct named call can take one flat list display or its negation as
+its sole positional argument. Entries are checked integer, Boolean, and
+`None` literals and live names that read those exact scalar values. Callee
+lookup comes first. Entries evaluate left to right before the existing list
+table allocates the display. A failed entry leaves that table intact. A
+noncallable binding reports its error after the argument is prepared.
+Negation allocates the display and supplies its Boolean emptiness result.
+
+The stock `___assertTrue` descriptor accepts the existing list carrier. It
+tests nonemptiness, and a failed assertion carries the same empty list
+descriptor as its argument. A saved helper alias remains callable after
+rebinding its original name. An alias of a supplied list retains its
+descriptor and incurs no allocation on read. This profile covers direct
+operand construction and seeded list values with their reached list tables.
+Ordinary linked functions can receive the Boolean negation. Raw list values
+remain outside ordinary closure binding.
+
+The two calls in unchanged `test_list_truth.py` complete with the stock
+helper in both opt-in placements. Their allocations are ordered as `[]`
+and `[42]`. They deliver `True` and `[42]` and settle two `None` receipts.
+Without the helper, the first name lookup fails before allocating a list.
+
 A scalar comparison chain has at least two links. Every link uses one of
 `==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact
 Boolean or integer literal, including unary minus on an integer literal.

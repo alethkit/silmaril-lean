@@ -402,6 +402,37 @@ theorem observeTupleFromListDisplay_mask (space : Namespace) (heap : Heap) (list
   simp [observeTupleFromListDisplay, tupleBinding, masked,
     (Core.Module.TupleDispatch.constructFromListDisplay_mask lists contents).1, TupleChain.runtimeError?]
 
+theorem observeListDisplayCall_missing (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (display : ListDisplay.Display) (lists : ListHeap)
+    {name : String} (missing : space.lookupGlobal name = none) :
+    observeListDisplayCall space context destination name display lists =
+      ((acceptObservation destination name ⟨.error (.raised (.runtime (.nameError name))), none⟩,
+        context.heap), lists) := by
+  simp [observeListDisplayCall, missing]
+
+theorem observeListDisplayCall_prepared (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (display : ListDisplay.Display) (lists : ListHeap)
+    {name : String} {callee : Value} {contents : List Core.Module.Value}
+    (resolved : space.lookupGlobal name = some callee)
+    (evaluated : display.items.mapM (ListDisplay.Item.eval (readListItem space)) = .ok contents) :
+    observeListDisplayCall space context destination name display lists =
+      (observeRemainingCallIn space context destination name callee
+        [listDisplayArgument display (lists.allocate contents).1] [], (lists.allocate contents).2) := by
+  simp only [observeListDisplayCall, resolved, display.prepare_allocated _ _ _ evaluated]
+
+theorem observeListDisplayCall_assertTrue (space : Namespace) (context : CallContext)
+    (name : String) (items : List ListDisplay.Item) (lists : ListHeap) (contents : List Core.Module.Value)
+    (resolved : space.lookupGlobal name = some (.helper .assertTrue))
+    (evaluated : items.mapM (ListDisplay.Item.eval (readListItem space)) = .ok contents) :
+    let object := (lists.allocate contents).1
+    let result := if contents.isEmpty then .error (.raised (.assertionError (.listObject object))) else .ok .none
+    observeListDisplayCall space context .discard name ⟨items, false⟩ lists =
+      ((acceptObservation .discard name ⟨result, none⟩, context.heap), (lists.allocate contents).2) := by
+  rw [observeListDisplayCall_prepared space context .discard ⟨items, false⟩ lists resolved evaluated]
+  simp [observeRemainingCallIn, observeArgumentsIn, listDisplayArgument, invokeNestedTarget, invokeDescriptor,
+    Core.Module.SeededCall.invokeObserved, Core.Module.SeededCall.Request.decode,
+    Core.Module.SeededCall.invoke_assertTrue_listObject, Core.Module.ListHeap.allocate]
+
 theorem observeTupleFromListDisplayCall_outer_missing (space : Namespace) (context : CallContext)
     (destination : Core.Module.Functions.Destination) (lists : ListHeap) {name : String}
     (contents : List Core.Module.Value) (remaining : List Argument) (missing : space.lookupGlobal name = none) :

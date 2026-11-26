@@ -35,6 +35,7 @@ inductive AssertionArgument where
   | textPair (left right : Core.Text)
   | tuplePair (left right : List Core.Module.TupleDispatch.Element)
   | emptyTuple
+  | listObject (object : Core.Module.ListObject)
   deriving DecidableEq, Repr
 
 inductive Raised where
@@ -256,6 +257,7 @@ calling an exception class would construct an object outside this profile. -/
 inductive Request (arity : Nat) where
   | assertBoolean (value : Bool)
   | assertTuple (nonempty : Bool)
+  | assertList (object : Core.Module.ListObject)
   | compare (left right : Int)
   | compareNumeric (left right : NumericOperand)
   | compareText (left right : Core.Text)
@@ -278,6 +280,7 @@ inductive Request (arity : Nat) where
 def Request.decode (callee : Value) (arguments : List Value) : Request arguments.length :=
   match callee, arguments with
   | .helper .assertTrue, [.bool result] => .assertBoolean result
+  | .helper .assertTrue, [.listObject object] => .assertList object
   | .helper .assertTrue, [.returnedTuple items]
   | .helper .assertTrue, [.tupleObject ⟨_, items⟩] => .assertTuple (!items.isEmpty)
   | .helper .assertEqual, [.int left, .int right] => .compare left right
@@ -324,6 +327,8 @@ def invoke (callee : Value) (arguments : List Value) : Result :=
   | .assertBoolean false => .error (.raised (.assertionError (.boolean false)))
   | .assertTuple true => .ok .none
   | .assertTuple false => .error (.raised (.assertionError .emptyTuple))
+  | .assertList object =>
+    if object.contents.isEmpty then .error (.raised (.assertionError (.listObject object))) else .ok .none
   | .compare left right =>
     if left = right then .ok .none else .error (.raised (.assertionError (.integerPair left right)))
   | .compareNumeric left right =>
@@ -358,6 +363,10 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
   | tupleAsserted {arity : Nat} : Executes (arity := arity) (.assertTuple true) (.ok .none)
   | tupleAssertionFailed {arity : Nat} :
       Executes (arity := arity) (.assertTuple false) (.error (.raised (.assertionError .emptyTuple)))
+  | listAsserted {arity : Nat} (object : Core.Module.ListObject) (nonempty : object.contents.isEmpty ≠ true) :
+      Executes (arity := arity) (.assertList object) (.ok .none)
+  | listAssertionFailed {arity : Nat} (object : Core.Module.ListObject) (empty : object.contents.isEmpty = true) :
+      Executes (arity := arity) (.assertList object) (.error (.raised (.assertionError (.listObject object))))
   | equal {arity : Nat} (left right : Int) (same : left = right) :
       Executes (arity := arity) (.compare left right) (.ok .none)
   | unequal {arity : Nat} (left right : Int) (different : left ≠ right) :
