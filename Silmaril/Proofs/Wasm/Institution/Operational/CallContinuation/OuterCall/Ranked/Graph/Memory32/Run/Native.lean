@@ -3,6 +3,9 @@ module
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Run.Defs
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Run.Guard
+import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Thms
+import Silmaril.Wasm.Institution.Operational.CallContinuation.Native.Thms
+import Silmaril.Wasm.Versions.Lime1.Execution.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryQuery.Native.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryWrite.Native.Thms
 
@@ -204,5 +207,35 @@ theorem run_iff {H : Type} {p : Program} {m : MemAddr} {base : Store H} {initial
       exact ⟨next, trace.tail edge, nextGuarded, eq⟩
   · rintro ⟨out, trace, _, rfl⟩
     exact Relation.ReflTransGen.lift (render base m initial) (fun _ _ h => sound checked layout h) _ _ trace
+
+theorem if_select_iff {H : Type} {s : Store H} {f : Frame} {saved : List Value}
+    {condition : BitVec 32} {result : Option NumType} {left right : Wasm.V1.Expr}
+    {tail : List Admin} {dst : Config H} :
+    Step CallFrame.v1NoHost
+      ⟨s, f, values (saved ++ [Value.int .i32 condition]) ++ .source (.if_ result left right) :: tail⟩ dst ↔
+    dst = ⟨s, f, values saved ++ .source (.block result (if condition = 0 then right else left)) :: tail⟩ := by
+  constructor
+  · intro move
+    have projected := move.toLime (target := CallFrame.limeNoHost) (fun _ _ _ _ h => h)
+    have mapped := (Computed.lime_if_iff (bt := Wasm.V1.BlockType.toLime result) (thenBody := left.toLime) (elseBody := right.toLime)
+      (condition := condition) (saved := saved) (rest := codeToLime tail)).mp
+      (by simpa only [Config.toLime, codeToLime_append, map_values, codeToLime_cons,
+        Execution.Runtime.AdminInstr.map, Wasm.V1.Instr.toLime] using projected)
+    apply CallContinuation.config_toLime_injective H
+    by_cases zero : condition = 0 <;>
+      simpa only [zero, ite_true, ite_false, Config.toLime, codeToLime_append, map_values,
+        codeToLime_cons, Execution.Runtime.AdminInstr.map, Wasm.V1.Instr.toLime] using mapped
+  · rintro rfl
+    rw [values_append, List.append_assoc]
+    by_cases zero : condition = 0
+    · rw [ite_eq_left zero, zero]
+      simpa only [values, List.map_cons, List.map_nil, List.append_assoc, List.cons_append,
+        List.nil_append] using!
+        Step.context (Step.pure (host := CallFrame.v1NoHost) s f (.ifZero result left right)) saved tail
+    · rw [ite_eq_right zero]
+      simpa only [values, List.map_cons, List.map_nil, List.append_assoc, List.cons_append,
+        List.nil_append] using
+        Step.context (Step.pure (host := CallFrame.v1NoHost) s f
+          (.ifNonzero result left right condition zero)) saved tail
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.RunProofs

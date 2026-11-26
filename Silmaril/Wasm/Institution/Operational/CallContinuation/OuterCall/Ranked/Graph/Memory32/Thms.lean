@@ -10,6 +10,7 @@ namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranke
 
 open Execution.Runtime (Frame FuncAddr MemAddr MemInst Value)
 open Wasm.V1.Execution
+open Computed
 
 /-- An admitted load has an i32 address and preserves the continuation's stack types. -/
 theorem Function.load_typed {fn : Function} {stack : List Value} {offset : Fin (2 ^ 32)} {rest : List Op}
@@ -25,6 +26,16 @@ theorem Function.store_typed {fn : Function} {stack : List Value} {offset : Fin 
     ∃ (saved : List Value) (address word : BitVec 32),
       stack = saved ++ [Value.int .i32 address, Value.int .i32 word] ∧ fn.WellTyped saved rest :=
   Proofs.store_typed checked
+
+/-- Both arms have the same declared fallthrough types. The continuation resumes above the saved prefix. -/
+theorem Function.if_typed {fn : Function} {stack : List Value} {result : Option NumType}
+    {left right rest : List Op} {fallthrough : List NumType}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.if_ result left right :: rest) = true) :
+    ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] ∧
+      fn.checkRegion [] result.toList left = true ∧ fn.checkRegion [] result.toList right = true ∧
+      ∀ delivered : List Value, delivered.map Value.type = result.toList →
+        fn.checkRegion (Prefix.stackTypes (saved ++ delivered)) fallthrough rest = true :=
+  Proofs.if_typed checked
 
 /-- The rank table is derived from the declared bodies. -/
 theorem Program.lookup_table (program : Program) (address : FuncAddr) :

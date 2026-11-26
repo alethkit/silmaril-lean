@@ -69,4 +69,13 @@ theorem v1_call_run_iff {H : Type} {p : Program} {m : MemAddr} {base : Store H} 
   have exactRun := v1_run_iff (dst := dst) checked layout (call_ready found resolved args initial.data)
   simpa only [render, layout.initial_store] using exactRun
 
+/-- Selection consumes the i32 condition and retains only the selected block. -/
+theorem v1_if_select_iff {H : Type} {s : Store H} {f : Frame} {saved : List Value}
+    {condition : BitVec 32} {result : Option NumType} {left right : Wasm.V1.Expr}
+    {tail : List Admin} {dst : Config H} :
+    Step CallFrame.v1NoHost
+      ⟨s, f, values (saved ++ [Value.int .i32 condition]) ++ .source (.if_ result left right) :: tail⟩ dst ↔
+    dst = ⟨s, f, values saved ++ .source (.block result (if condition = 0 then right else left)) :: tail⟩ :=
+  RunProofs.if_select_iff
+
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32
