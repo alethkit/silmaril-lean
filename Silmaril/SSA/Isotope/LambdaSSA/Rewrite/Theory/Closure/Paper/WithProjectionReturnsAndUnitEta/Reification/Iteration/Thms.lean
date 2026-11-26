@@ -15,8 +15,8 @@ namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithProjectionReturnsAndUnitEt
 open Silmaril Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
 open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
-open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Singleton (sumIso sumCofan whiskerLeft whiskerLeftFunctor)
-open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification (packedWhiskerRight packedWhiskerLeft)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Singleton (sumIso sumCofan whiskerLeft whiskerLeftFunctor whiskerRight diagonalArrow)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification (packedWhiskerRight packedWhiskerLeft packedDiagonal)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification.SingleCfg
   (guardedCfg_typed realizePackedStep_typed blockComputation retagPacked_typed exitSum exitDecoder_typed)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification.SingleCfg.Model
@@ -110,6 +110,52 @@ theorem carriedRoute_of_distributor_injections (X S D : τ)
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedCarriedIteration.carriedRoute_of_distributor_injections
     J M objIso X S D outputInl outputInr decoder inputInl inputInr
 
+/-- Once the distributor and chosen output sum agree, the exact remaining
+comparison is left retention of the packed exit decoder. -/
+theorem carriedRoute_eq_iff_retainedDecoder (X S D : τ)
+    (coordinates : CarriedDistributorCoordinates J M objIso X S D) :
+    (carriedRoute J M objIso X S D =
+      Lit (retagPacked_typed X S D) ≫ (sumIso (Seed) (product X D) (product X S)).hom) ↔
+    reindexHom J M objIso (J.map (packedWhiskerLeft M X _ _ (exitSum M S D))) =
+      whiskerLeft (Seed) (Obj X) (Lit (exitDecoder_typed S D)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedCarriedIteration.carriedRoute_eq_iff_retainedDecoder
+    J M objIso X S D coordinates
+
+/-- Derive the carried route from the distributor coordinates and the packed
+decoder's repeat and result tags and retained source coordinates. -/
+theorem carriedRoute_eq_of_coordinates (X S D : τ)
+    (coordinates : CarriedDistributorCoordinates J M objIso X S D)
+    (packedSum : SumInjectionsAgree J M objIso S (coprod D Silmaril.empty))
+    (resultTag :
+      reindexHom J M objIso (J.map (inlMap M D Silmaril.empty)) = (sumCofan (Seed) D Silmaril.empty).inl)
+    (packedTensor : RetainedTensorAgrees J M objIso X (packedExitType [S, D])) :
+    carriedRoute J M objIso X S D =
+      Lit (retagPacked_typed X S D) ≫ (sumIso (Seed) (product X D) (product X S)).hom :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedCarriedIteration.carriedRoute_eq_of_coordinates
+    J M objIso X S D coordinates packedSum resultTag packedTensor
+
+/-- Compare the retained decoder using the coproduct coordinates induced by the packed exit tags. -/
+theorem retainedExitDecoder_eq_of_packedExitIso (X S D : τ)
+    (exits : SumInjectionsAgree J M objIso D S)
+    (target : RetainedTensorAgrees J M objIso X (coprod D S))
+    (packed : RetainedPackedExitsAgree J M objIso X S D) :
+    reindexHom J M objIso (J.map (packedWhiskerLeft M X (packedExitType [S, D]) (coprod D S) (exitSum M S D))) =
+      whiskerLeft (Seed) (Obj X) (Lit (exitDecoder_typed S D)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedCarriedIteration.retainedExitDecoder_eq_of_packedExitIso
+    J M objIso X S D exits target packed
+
+/-- Compare the actual route using the induced packed exit and chosen output sums. -/
+theorem carriedRoute_eq_of_packedExitIso (X S D : τ)
+    (exits : SumInjectionsAgree J M objIso D S)
+    (tensorState : RetainedTensorAgrees J M objIso X S)
+    (tensorResult : RetainedTensorAgrees J M objIso X D)
+    (tensorExits : RetainedTensorAgrees J M objIso X (coprod D S))
+    (packed : RetainedPackedExitsAgree J M objIso X S D) :
+    carriedRoute J M objIso X S D =
+      Lit (retagPacked_typed X S D) ≫ (sumIso (Seed) (product X D) (product X S)).hom :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedCarriedIteration.carriedRoute_eq_of_packedExitIso
+    J M objIso X S D exits tensorState tensorResult tensorExits packed
+
 end Retained
 
 section Model
@@ -155,6 +201,69 @@ theorem actualCarriedIteration_eq {X S D : τ} {b : Region Φ}
     state.inv ≫ CategoryTheory.iterate actual ≫ result.hom =
       Lit (iterateRegion_valueBranches (realizePackedStep_typed hb)) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedCarriedIteration.actualCarriedIteration_eq J M objIso cmp iteration
+
+/-- Reify the actual transported iteration from local route coordinates and the
+remaining comparisons at the block and its iterator. -/
+theorem actualCarriedIteration_eq_of_route_coordinates {X S D : τ} {b : Region Φ}
+    {hb : ValueBranches [product X S] b [packedExitType [S, D]]}
+    (coordinates : CarriedDistributorCoordinates J M objIso X S D)
+    (packedSum : SumInjectionsAgree J M objIso S (coprod D Silmaril.empty))
+    (resultTag :
+      reindexHom J M objIso (J.map (inlMap M D Silmaril.empty)) = (sumCofan (Seed) D Silmaril.empty).inl)
+    (packedTensor : RetainedTensorAgrees J M objIso X (packedExitType [S, D]))
+    (fstProducer :
+      reindexHom J M objIso (J.map (fstMap M X S)) = Lit (productFstBranches X S))
+    (diagonal : let P := product X S
+      reindexHom J M objIso (J.map (packedDiagonal M P)) = diagonalArrow (Seed) (Obj P))
+    (fstWhisker : let P := product X S
+      reindexHom J M objIso (J.map (packedWhiskerRight M P P X (fstMap M X S))) =
+        whiskerRight (Seed) (reindexHom J M objIso (J.map (fstMap M X S))) (Obj P))
+    (block : let P := product X S
+      let K := packedExitType [S, D]
+      reindexHom J M objIso (J.map (M.productIso X P).hom ≫
+        retainLeft J (R := M.obj X) (denoteSingletonRegion J M hb.hasType) ≫
+          J.map (M.productIso X K).inv) = whiskerLeft (Seed) (Obj X) (Lit hb))
+    (iteration : TransportedIterationAgrees J M objIso hb) :
+    let actual := contextualStep J (blockComputation M J X S D (denoteSingletonRegion J M hb.hasType))
+    let state := carrier J M objIso X S
+    let result := carrier J M objIso X D
+    state.inv ≫ CategoryTheory.iterate actual ≫ result.hom =
+      Lit (iterateRegion_valueBranches (realizePackedStep_typed hb)) :=
+  actualCarriedIteration_eq J M objIso
+    ⟨fstProducer, diagonal, fstWhisker, block,
+      carriedRoute_eq_of_coordinates J M objIso X S D coordinates packedSum resultTag packedTensor⟩
+    iteration
+
+/-- Reify the actual transported iteration using the induced packed exit and chosen output sums. -/
+theorem actualCarriedIteration_eq_of_packedExitIso {X S D : τ} {b : Region Φ}
+    {hb : ValueBranches [product X S] b [packedExitType [S, D]]}
+    (exits : SumInjectionsAgree J M objIso D S)
+    (tensorState : RetainedTensorAgrees J M objIso X S)
+    (tensorResult : RetainedTensorAgrees J M objIso X D)
+    (tensorExits : RetainedTensorAgrees J M objIso X (coprod D S))
+    (packed : RetainedPackedExitsAgree J M objIso X S D)
+    (fstProducer :
+      reindexHom J M objIso (J.map (fstMap M X S)) = Lit (productFstBranches X S))
+    (diagonal : let P := product X S
+      reindexHom J M objIso (J.map (packedDiagonal M P)) = diagonalArrow (Seed) (Obj P))
+    (fstWhisker : let P := product X S
+      reindexHom J M objIso (J.map (packedWhiskerRight M P P X (fstMap M X S))) =
+        whiskerRight (Seed) (reindexHom J M objIso (J.map (fstMap M X S))) (Obj P))
+    (block : let P := product X S
+      let K := packedExitType [S, D]
+      reindexHom J M objIso (J.map (M.productIso X P).hom ≫
+        retainLeft J (R := M.obj X) (denoteSingletonRegion J M hb.hasType) ≫
+          J.map (M.productIso X K).inv) = whiskerLeft (Seed) (Obj X) (Lit hb))
+    (iteration : TransportedIterationAgrees J M objIso hb) :
+    let actual := contextualStep J (blockComputation M J X S D (denoteSingletonRegion J M hb.hasType))
+    let state := carrier J M objIso X S
+    let result := carrier J M objIso X D
+    state.inv ≫ CategoryTheory.iterate actual ≫ result.hom =
+      Lit (iterateRegion_valueBranches (realizePackedStep_typed hb)) :=
+  actualCarriedIteration_eq J M objIso
+    ⟨fstProducer, diagonal, fstWhisker, block,
+      carriedRoute_eq_of_packedExitIso J M objIso X S D exits tensorState tensorResult tensorExits packed⟩
+    iteration
 
 /-- Canonical assembly uses the actual block denotation and the given syntactic entry. -/
 theorem canonicalAssembly_actual_eq {X S D : τ} {e b : Region Φ}

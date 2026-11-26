@@ -98,14 +98,71 @@ theorem structurallyEmpty_of_tagged_branches_eq (P : Ty α)
     cases observed
   · exact hEmpty
 
-private def quote : Val → Tm Empty
+omit [HasTy Φ (Ty α)] in
+private theorem closed_has_distinct_values {Γ : VCtx (Ty α)} {w : Tm Φ} {P : Ty α}
+    (hw : Tm.BranchValue Γ w P) (emptyCtx : Γ = []) :
+    ∃ x y, ValTy x P ∧ ValTy y P ∧ x ≠ y := by
+  induction hw with
+  | var hi => subst Γ; cases hi
+  | unit => exact ⟨.unit, .inl .unit, .unit, .alternateUnit rfl, by intro eq; cases eq⟩
+  | pair _ _ ihL ihR =>
+    obtain ⟨x, y, hx, hy, ne⟩ := ihL
+    obtain ⟨z, _, hz, _, _⟩ := ihR
+    exact ⟨.pair x z, .pair y z, .pair hx hz, .pair hy hz, fun eq => ne (Value.pair.inj eq).1⟩
+  | inl _ ih =>
+    obtain ⟨x, y, hx, hy, ne⟩ := ih
+    exact ⟨.inl x, .inl y, .inl hx, .inl hy, fun eq => ne (Value.inl.inj eq)⟩
+  | inr _ ih =>
+    obtain ⟨x, y, hx, hy, ne⟩ := ih
+    exact ⟨.inr x, .inr y, .inr hx, .inr hy, fun eq => ne (Value.inr.inj eq)⟩
+
+omit [HasTy Φ (Ty α)] in
+private theorem eval_closed_independent {Γ : VCtx (Ty α)} {w : Tm Φ} {P : Ty α}
+    (hw : Tm.BranchValue Γ w P) (emptyCtx : Γ = []) (env other : Env) :
+    evalTermWith {} w env = evalTermWith {} w other := by
+  induction hw with
+  | var hi => subst Γ; cases hi
+  | unit => rfl
+  | pair _ _ ihL ihR => simp only [evalTermWith, ihL, ihR]
+  | inl _ ih => simp only [evalTermWith, ih]
+  | inr _ ih => simp only [evalTermWith, ih]
+
+private theorem singleton_env {P : Ty α} {v : Val} (hv : ValTy v P) : EnvTy [P] (fun _ => v) := by
+  intro i A hi
+  cases i with
+  | zero => cases Option.some.inj hi; exact hv
+  | succ i => cases i <;> contradiction
+
+theorem reset_ne_forward {P : Ty α} {w : Tm Φ} (hw : Tm.BranchValue [] w P) :
+    ¬ Paper.WithConstructorSequencing.Eqv [P] (.br 0 w) (.br 0 (.var 0)) [P] := by
+  intro h
+  obtain ⟨x, y, hx, hy, ne⟩ := closed_has_distinct_values hw rfl
+  have seen (v : Val) (hv : ValTy v P) : evalTermWith {} w (fun _ => v) = some v := by
+    have e := sequencing_same h (fun _ => v) (singleton_env hv)
+    cases run : evalTermWith {} w (fun _ => v) <;>
+      simp_all only [evalRegionWith, evalTermWith, Result.jump.injEq, true_and]
+    contradiction
+  exact ne (Option.some.inj ((seen x hx).symm.trans ((eval_closed_independent hw rfl _ _).trans (seen y hy))))
+
+theorem reset_left_ne_right {P : Ty α} {w : Tm Φ} (hw : Tm.BranchValue [] w P) :
+    ¬ Paper.WithConstructorSequencing.Eqv [P] (.br 0 (.inl w)) (.br 0 (.inr w)) [.coprod P P] := by
+  intro h
+  obtain ⟨v, _, hv, _, _⟩ := closed_has_distinct_values hw rfl
+  have e := sequencing_same h (fun _ => v) (singleton_env hv)
+  have ctx : EnvTy ([] : VCtx (Ty α)) (fun _ => v) := fun _ _ hi => by cases hi
+  obtain ⟨x, eval, _⟩ := evalValue (observation := {}) hw ctx
+  simp only [evalRegionWith, evalTermWith, eval, Option.map_some, Result.jump.injEq, true_and] at e
+  cases e
+
+private def quote : Val → Tm Φ
   | .atom a => a.elim
   | .unit => .unit
   | .pair v w => .pair (quote v) (quote w)
   | .inl v => .inl (quote v)
   | .inr v => .inr (quote v)
 
-private theorem eval_quote {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
+omit [HasTy Φ (Ty α)] in
+private theorem eval_quote {Γ : VCtx (Ty α)} {t : Tm Φ} {A : Ty α}
     (ht : Tm.BranchValue Γ t A) (env : Env) :
     (evalTermWith {} t env).map quote = some (t.subst (quote ∘ env)) := by
   induction ht with
@@ -122,8 +179,9 @@ private theorem eval_quote {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
     obtain ⟨v, ev, hv⟩ := Option.map_eq_some_iff.mp ih
     simp [evalTermWith, ev, quote, Tm.subst, hv]
 
-private theorem closed_subst {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
-    (ht : Tm.BranchValue Γ t A) (hΓ : Γ = []) (θ : Nat → Tm Empty) : t.subst θ = t := by
+omit [HasTy Φ (Ty α)] in
+private theorem closed_subst {Γ : VCtx (Ty α)} {t : Tm Φ} {A : Ty α}
+    (ht : Tm.BranchValue Γ t A) (hΓ : Γ = []) (θ : Nat → Tm Φ) : t.subst θ = t := by
   induction ht with
   | var hi => subst Γ; cases hi
   | unit => rfl
@@ -131,21 +189,24 @@ private theorem closed_subst {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty
   | inl _ ih => simp only [Tm.subst, ih]
   | inr _ ih => simp only [Tm.subst, ih]
 
-private theorem singleton_branch_observation {P : Ty Empty} {Γ Δ : VCtx (Ty Empty)} {t u : Tm Empty} {A : Ty Empty}
+private theorem singleton_branch_observation {P : Ty α} {Γ Δ : VCtx (Ty α)} {t u : Tm Φ} {A : Ty α}
     (ht : Tm.BranchValue Γ t A) (hu : Tm.BranchValue Δ u A)
     (h : Paper.WithConstructorSequencing.Eqv [P] (.br 0 t) (.br 0 u) [A])
     (v : Val) (hv : ValTy v P) :
     t.subst (fun _ => quote v) = u.subst (fun _ => quote v) := by
-  have env : EnvTy [P] (fun _ => v) := by
-    intro i A hi
-    cases i with
-    | zero => cases Option.some.inj hi; exact hv
-    | succ i => cases i <;> contradiction
-  have observed := sequencing_same h (fun _ => v) env
+  have observed := sequencing_same h (fun _ => v) (singleton_env hv)
   obtain ⟨x, ex, hx⟩ := Option.map_eq_some_iff.mp (eval_quote ht (fun _ => v))
   obtain ⟨y, ey, hy⟩ := Option.map_eq_some_iff.mp (eval_quote hu (fun _ => v))
   simp only [evalRegionWith, ex, ey, Result.jump.injEq, true_and] at observed
   exact hx.symm.trans (observed ▸ hy)
+
+
+theorem closed_resets_injective {P : Ty α} {x y : Tm Φ}
+    (hx : Tm.BranchValue [] x P) (hy : Tm.BranchValue [] y P)
+    (h : Paper.WithConstructorSequencing.Eqv [P] (.br 0 x) (.br 0 y) [P]) : x = y := by
+  have env : EnvTy ([] : VCtx (Ty α)) (fun _ => .unit) := fun _ _ hi => by cases hi
+  obtain ⟨v, _, hv⟩ := evalValue (observation := {}) hx env
+  simpa only [closed_subst hx rfl, closed_subst hy rfl] using singleton_branch_observation hx hy h v hv
 
 theorem branch_observation_of_closed_input {t u w : Tm Empty} {A P : Ty Empty}
     (ht : Tm.BranchValue [P] t A) (hu : Tm.BranchValue [P] u A)

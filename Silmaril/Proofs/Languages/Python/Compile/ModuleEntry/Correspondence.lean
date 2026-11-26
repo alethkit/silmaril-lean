@@ -16,7 +16,7 @@ theorem global_reference {scope : Source.Scope} {name : Source.Name}
   · subst declared
     simp [globalReference?, resolved]
 
-theorem chain_iff (left : Core.Module.Value) (links : List (ScalarComparison × Core.Module.Value))
+theorem chain_iff (left : Int) (links : List (ScalarComparison × Int))
     (value : Bool) : ScalarComparison.chain left links = value ↔ ScalarComparison.EvaluatesChain left links value := by
   induction links generalizing left value with
   | nil =>
@@ -45,10 +45,10 @@ theorem chain_iff (left : Core.Module.Value) (links : List (ScalarComparison × 
 theorem literalComparisonChain_iff (left : Source.Expr) (first second : Source.Comparison × Source.Expr)
     (rest : List (Source.Comparison × Source.Expr)) (result : Bool) :
     literalComparisonChain? left (first :: second :: rest) = some result ↔
-      ∃ initial links, scalarLiteral? left = some initial ∧
+      ∃ initial links, numericLiteral? left = some initial ∧
         (first :: second :: rest).mapM literalComparisonLink? = some links ∧
         ScalarComparison.EvaluatesChain initial links result := by
-  cases initial : scalarLiteral? left <;>
+  cases initial : numericLiteral? left <;>
     cases links : (first :: second :: rest).mapM literalComparisonLink? <;>
     simp [literalComparisonChain?, initial, links, chain_iff]
 
@@ -97,6 +97,7 @@ theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand 
   induction translated with
   | integer => simp [lowerOperand]
   | boolean => simp [lowerOperand]
+  | none_ => simp [lowerOperand]
   | negativeInteger => simp [lowerOperand]
   | literalSubscript selected =>
     rw [lowerOperand]
@@ -118,6 +119,9 @@ theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand 
       cases folded.symm.trans notFolded
     · rw [left, right]
       rfl
+  | notEqual _ _ left right =>
+    simp [lowerOperand, literalTupleComparison?, left, right]
+    rfl
   | literalTupleComparison checked =>
     rw [lowerOperand]
     split

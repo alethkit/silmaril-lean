@@ -46,4 +46,24 @@ theorem structurallyEmpty_of_tagged_branches_eq {α : Type*} {Φ : Type*} [HasTy
       (.br 0 (.inr (.var 0))) [.coprod P P]) : Paper.StructurallyEmpty P :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Observer.structurallyEmpty_of_tagged_branches_eq P h
 
+/-- A closed constructor reset is distinguishable from forwarding at the same type. -/
+theorem reset_ne_forward {α Φ : Type*} [HasTy Φ (Ty α)] {P : Ty α} {w : Tm Φ}
+    (hw : Tm.BranchValue [] w P) :
+    ¬ Paper.WithConstructorSequencing.Eqv [P] (.br 0 w) (.br 0 (.var 0)) [P] :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Observer.reset_ne_forward hw
+
+/-- Opposite sum tags remain distinct when both carry the same closed constructor value. -/
+theorem reset_left_ne_right {α Φ : Type*} [HasTy Φ (Ty α)] {P : Ty α} {w : Tm Φ}
+    (hw : Tm.BranchValue [] w P) :
+    ¬ Paper.WithConstructorSequencing.Eqv [P] (.br 0 (.inl w)) (.br 0 (.inr w)) [.coprod P P] :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Observer.reset_left_ne_right hw
+
+/-- Equality of returns of two closed constructors at the same type identifies
+their constructor syntax. A single typed input suffices for this observation. -/
+theorem closed_resets_injective {α Φ : Type*} [HasTy Φ (Ty α)] {P : Ty α} {x y : Tm Φ}
+    (hx : Tm.BranchValue [] x P) (hy : Tm.BranchValue [] y P)
+    (h : Paper.WithConstructorSequencing.Eqv [P] (.br 0 x) (.br 0 y) [P]) : x = y :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Observer.closed_resets_injective
+    hx hy h
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction.PairSequencing

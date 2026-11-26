@@ -61,6 +61,16 @@ theorem evaluateScalar_scalarResult {scope : Source.Scope} (space : Namespace) (
   cases value with
   | int value => rfl
   | bool value => exact evaluateScalar_booleanResult space equalityOperand value
+  | none => rfl
+
+theorem evaluateScalar_notEqual {scope : Source.Scope} (space : Namespace) (context : Bool)
+    (left right : ModuleEntry.Operand scope) :
+    evaluateScalar space context (.binary .notEqual left right) = (do
+      let first ← evaluateScalar space true left
+      let second ← evaluateScalar space true right
+      let some first := scalar? first | throw .unsupported
+      let some second := scalar? second | throw .unsupported
+      return .bool (!first.equal second)) := rfl
 
 theorem effect_scalarResultAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (name : Source.Name) (reference : ModuleEntry.GlobalReference scope name) (value : Core.Module.Value) :
@@ -138,7 +148,7 @@ theorem invokeCall_published {space : Namespace} {context : CallContext} {closur
         [.exceptionClass expectation.expected, .function closure] =
       invokeCallback space context expectation closure := by
   cases expectation
-  simp [invokeCall, CallContext.acceptsPublishedCall, Core.Module.SeededCall.Request.decode, published, resolved,
+  simp [invokeCall, CallContext.acceptsPublishedCall, CallContext.acceptsCallFrom, Core.Module.SeededCall.Request.decode, published, resolved,
     noParameters]
 
 theorem callback_fault (space : Namespace) (expectation : Expectation) (heap : Heap)
@@ -222,6 +232,32 @@ theorem effect_assertVarNames {scope : Source.Scope} (space : Namespace) (contex
 
 /-- The guarded call follows the ordinary executor state. A settled
 call contributes one receipt, with heap and tail behavior from that state. -/
+theorem factoryOperands_iff {values : List Value} {operands : List Core.Module.Functions.Operand} :
+    factoryOperands values = some operands ↔
+      ∃ integers : List Int, integers.length ≤ 3 ∧ values = integers.map .int ∧
+        operands = integers.map (fun value => .literal (.int value)) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.factoryOperands_iff
+
+theorem acceptsFactory_escaped {context : CallContext} {closure : Function} {arity : Nat}
+    {definition : Core.Closure.Dispatch.Definition Core.Closure.Executor.Body closure.code.layout}
+    (recorded : closure ∈ context.escaped)
+    (resolved : Core.Closure.Dispatch.resolve context.table closure.code = .ok definition)
+    (slots : definition.parameters.slots.length = arity)
+    (shape : factoryCode context.table closure.code 2 = true) :
+    context.acceptsFactory closure arity = true := by
+  have known : closure ∈ context.published ++ context.escaped := List.mem_append_right _ recorded
+  simp [CallContext.acceptsFactory, CallContext.acceptsCallFrom, known, resolved, slots, shape]
+
+theorem run_factory_unrecorded {scope : Source.Scope} {space : Namespace} {context : CallContext}
+    {name target : String} {closure : Function} {arguments : List Core.Module.Functions.Operand}
+    {values : List Value} {rest : List (Instruction scope)}
+    (resolved : Core.Module.SeededCall.resolveCall space #v[] (.global name)
+      (arguments.map lowerCallOperand) = .ok (.function closure, values))
+    (unpublished : closure ∉ context.published) (unescaped : closure ∉ context.escaped) :
+    runInstructionsIn space context (.call (.bindGlobal target) name arguments :: rest) =
+      ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], context.heap⟩ :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.run_factory_unrecorded resolved unpublished unescaped
+
 theorem run_factory {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name target : String} {closure : Function} {arguments operands : List Core.Module.Functions.Operand}
     {values : List Value} {rest : List (Instruction scope)}
@@ -288,6 +324,18 @@ theorem observeArgumentIn_escaped {space : Namespace} {context : CallContext}
       | (.error error, heap) => (.error error, [], heap) := by
   simp only [observeArgumentIn, resolved, admitted, Bool.and_self, ite_true]
   cases observeDirectCall space (ordinaryCall space context closure [.literal (.int value)]); rfl
+
+theorem observeArgumentIn_escapedZero {space : Namespace} {context : CallContext}
+    {name : String} {closure : Function}
+    (found : space.lookupGlobal name = some (.function closure))
+    (admitted : context.acceptsEscapedArgument closure 0 = true) :
+    observeArgumentIn space context (.call name []) true =
+      match observeDirectCall space (ordinaryCall space context closure []) with
+      | (.ok observed, heap) => (observed.result.mapError .ofCall, [⟨name, observed⟩], heap)
+      | (.error error, heap) => (.error error, [], heap) := by
+  simp [observeArgumentIn, Core.Module.SeededCall.resolveCall, Core.Module.SeededCall.Operand.eval,
+    Core.Module.SeededCall.Operand.evalList, Except.bind, Except.map, found, admitted]
+  cases observeDirectCall space (ordinaryCall space context closure []); rfl
 
 theorem observeArgumentsIn_stop {space : Namespace} {context : CallContext} {allowEscaped : Bool}
     {argument : Argument} {rest : List Argument} {error : ModuleFailure} {calls : List CallEvent} {heap : Heap}

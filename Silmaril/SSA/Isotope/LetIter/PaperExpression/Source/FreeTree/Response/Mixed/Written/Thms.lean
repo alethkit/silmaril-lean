@@ -23,6 +23,25 @@ variable {α Φ Ψ : Type u} (S : Signature α Φ) (T : SumSignature α Ψ)
   {ε : Type r} [HasEff Φ ε] [HasEff Ψ ε] [SemilatticeSup ε] [OrderBot ε]
   {Γ : EffectCtx (Ty α) ε} {ss : Fin Γ.length → α} {c : α} {a b : Expr (Φ ⊕ Ψ)}
 
+/-- Normalize a written expression at any result type to a finite request
+tree with typed constructor values at its return leaves. -/
+theorem normalize {A : Ty α} (hΓ : Γ.Pure) (hs : ∀ i, (Γ.get i).1 = .base (ss i)) (e : ε)
+    (ha : letI := endpoints S T; letI : HasEff (Φ ⊕ Ψ) ε := effects; Wf Γ a A e) :
+    letI := endpoints S T
+    letI : HasEff (Φ ⊕ Ψ) ε := effects
+    ∃ p : Code S T A ss, p.WellTyped S T e ∧ Eqv Γ A e a p.source :=
+  Proofs.normalize S T hΓ hs e ha
+
+/-- The mixed signature and a pure atomic input context admit no written
+computation of empty result. -/
+theorem not_wf_empty (hΓ : Γ.Pure) (hs : ∀ i, (Γ.get i).1 = .base (ss i)) (e : ε) :
+    letI := endpoints S T
+    letI : HasEff (Φ ⊕ Ψ) ε := effects
+    ¬ Wf Γ a .empty e := by
+  intro h
+  obtain ⟨p, _, _⟩ := normalize S T hΓ hs e h
+  exact Proofs.no_empty_code S T p
+
 /-- Normalize written syntax compositionally at its typing bound. Intermediate
 leaves carry constructor values, so a retained sum can pass through a product
 or let before its tag is inspected. -/

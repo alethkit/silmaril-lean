@@ -97,43 +97,47 @@ theorem core_operand_trap_run_iff (ready : entry.Checked program tables outer in
 theorem core_trap_run_via
     {states : List OperandState} {stack : List Value}
     (ready : entry.AtSite program tables outer index args states stack active)
-    (start : Core.Config H) (front : List (Core.Config H))
-    (enters : (start :: front ++ [entry.coreBody s outer args]).IsChain
+    (entrance : Entrance) (start : Core.Config H) (front : List (Core.Config H))
+    (enters : (start :: front ++ [entry.coreEntrance s outer args entrance]).IsChain
       (fun a b => ∀ dst, Core.Step P noHost a dst ↔ dst = b))
     (tablesFound : Source.Tables.CoreAllocated tables s)
     (targets : active.binding.site.CoreAllocated program s) {out : Outcome}
     (resolved : active.resolve program = some out) (trap : LookupTrap out) {dst : Core.Config H} :
     Core.Steps P noHost start dst ↔
-      dst ∈ ((start :: front) ++ entry.coreSitePath s outer args active out states).dropLast ∨
+      dst ∈ ((start :: front) ++ entry.coreSitePath s outer args active out states entrance).dropLast ∨
       ∃ phase, CleanupRuns (entry.coreTrapStart active out) phase ∧ dst = entry.coreCleanup s outer active.caller phase :=
-  Proofs.core_trap_run_via ready start front enters tablesFound targets resolved trap
+  Proofs.core_trap_run_via ready entrance start front enters tablesFound targets resolved trap
 
 theorem core_operand_trap_run_via
-    (start : Core.Config H) (front : List (Core.Config H))
-    (enters : (start :: front ++ [entry.coreBody s outer args]).IsChain
+    (entrance : Entrance) (start : Core.Config H) (front : List (Core.Config H))
+    (enters : (start :: front ++ [entry.coreEntrance s outer args entrance]).IsChain
       (fun a b => ∀ dst, Core.Step P noHost a dst ↔ dst = b))
     {states : List OperandState} {saved : List Value} {rest : List CallContinuation.OuterCall.Computed.Prefix.Op}
     (trace : entry.OperandTrace args states (.trap saved rest)) {dst : Core.Config H} :
     Core.Steps P noHost start dst ↔
-      dst ∈ (start :: front) ++ entry.coreInside s outer args states ∨
+      dst ∈ (start :: front) ++ entry.coreInside s outer args states entrance ∨
       ∃ phase, CleanupRuns (entry.siteTrap Graph.coreEmit saved (entry.coreSiteCode rest)) phase ∧
         dst = entry.coreCleanup s outer (entry.frame args) phase :=
-  Proofs.core_operand_trap_run_via start front enters trace
+  Proofs.core_operand_trap_run_via entrance start front enters trace
 
 theorem core_run_via {states : List OperandState} {stack : List Value}
     (ready : entry.AtSite program tables outer index args states stack active)
-    (start : Core.Config H) (front : List (Core.Config H))
-    (enters : (start :: front ++ [entry.coreBody s outer args]).IsChain
+    (entrance : Entrance) (start : Core.Config H) (front : List (Core.Config H))
+    (enters : (start :: front ++ [entry.coreEntrance s outer args entrance]).IsChain
       (fun a b => ∀ dst, Core.Step P noHost a dst ↔ dst = b))
     (tablesFound : Source.Tables.CoreAllocated tables s)
     (targets : active.binding.site.CoreAllocated program s)
     (links : program.CoreLinksAllocated s)
     {call : Context.Invocation} (invoked : active.invocation program = some call) {dst : Core.Config H} :
     Core.Steps P noHost start dst ↔
-      dst ∈ (start :: front) ++ entry.coreSitePath s outer args active (.resolved call.address) states ∨
+      dst ∈ (start :: front) ++ entry.coreSitePath s outer args active (.resolved call.address) states entrance ∨
       ∃ phase, Context.Resume.Runs program call entry.cont (.callee call.entered) phase ∧
         dst = entry.cont.coreConfig call s outer phase :=
-  Proofs.Core.run_via ready start front enters tablesFound targets links invoked
+  Proofs.Core.run_via ready entrance start front enters tablesFound targets links invoked
+
+theorem core_site_code (entry : Entry) :
+    Core.expression entry.siteBody.core = entry.coreSiteCode entry.before :=
+  Proofs.Core.site_code entry
 
 end Core
 
@@ -191,43 +195,47 @@ theorem lime_operand_trap_run_iff (ready : entry.Checked program tables outer in
 theorem lime_trap_run_via
     {states : List OperandState} {stack : List Value}
     (ready : entry.AtSite program tables outer index args states stack active)
-    (start : Config H) (front : List (Config H))
-    (enters : (start :: front ++ [entry.limeBody s outer args]).IsChain
+    (entrance : Entrance) (start : Config H) (front : List (Config H))
+    (enters : (start :: front ++ [entry.limeEntrance s outer args entrance]).IsChain
       (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b))
     (tablesFound : Source.Tables.LimeAllocated tables s)
     (targets : active.binding.site.LimeAllocated program s) {out : Outcome}
     (resolved : active.resolve program = some out) (trap : LookupTrap out) {dst : Config H} :
     Steps CallFrame.limeNoHost start dst ↔
-      dst ∈ ((start :: front) ++ entry.limeSitePath s outer args active out states).dropLast ∨
+      dst ∈ ((start :: front) ++ entry.limeSitePath s outer args active out states entrance).dropLast ∨
       ∃ phase, CleanupRuns (entry.limeTrapStart active) phase ∧ dst = entry.limeCleanup s outer active.caller phase :=
-  Proofs.lime_trap_run_via ready start front enters tablesFound targets resolved trap
+  Proofs.lime_trap_run_via ready entrance start front enters tablesFound targets resolved trap
 
 theorem lime_operand_trap_run_via
-    (start : Config H) (front : List (Config H))
-    (enters : (start :: front ++ [entry.limeBody s outer args]).IsChain
+    (entrance : Entrance) (start : Config H) (front : List (Config H))
+    (enters : (start :: front ++ [entry.limeEntrance s outer args entrance]).IsChain
       (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b))
     {states : List OperandState} {saved : List Value} {rest : List CallContinuation.OuterCall.Computed.Prefix.Op}
     (trace : entry.OperandTrace args states (.trap saved rest)) {dst : Config H} :
     Steps CallFrame.limeNoHost start dst ↔
-      dst ∈ (start :: front) ++ entry.limeInside s outer args states ∨
+      dst ∈ (start :: front) ++ entry.limeInside s outer args states entrance ∨
       ∃ phase, CleanupRuns (entry.siteTrap Graph.limeEmit saved (entry.limeSiteCode rest)) phase ∧
         dst = entry.limeCleanup s outer (entry.frame args) phase :=
-  Proofs.lime_operand_trap_run_via start front enters trace
+  Proofs.lime_operand_trap_run_via entrance start front enters trace
 
 theorem lime_run_via {states : List OperandState} {stack : List Value}
     (ready : entry.AtSite program tables outer index args states stack active)
-    (start : Config H) (front : List (Config H))
-    (enters : (start :: front ++ [entry.limeBody s outer args]).IsChain
+    (entrance : Entrance) (start : Config H) (front : List (Config H))
+    (enters : (start :: front ++ [entry.limeEntrance s outer args entrance]).IsChain
       (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b))
     (tablesFound : Source.Tables.LimeAllocated tables s)
     (targets : active.binding.site.LimeAllocated program s)
     (links : program.LimeLinksAllocated s)
     {call : Context.Invocation} (invoked : active.invocation program = some call) {dst : Config H} :
     Steps CallFrame.limeNoHost start dst ↔
-      dst ∈ (start :: front) ++ entry.limeSitePath s outer args active (.resolved call.address) states ∨
+      dst ∈ (start :: front) ++ entry.limeSitePath s outer args active (.resolved call.address) states entrance ∨
       ∃ phase, Context.Resume.Runs program call entry.cont (.callee call.entered) phase ∧
         dst = entry.cont.limeConfig call s outer phase :=
-  Proofs.Lime1.run_via ready start front enters tablesFound targets links invoked
+  Proofs.Lime1.run_via ready entrance start front enters tablesFound targets links invoked
+
+theorem lime_site_code (entry : Entry) :
+    expression entry.siteBody.lime = entry.limeSiteCode entry.before :=
+  Proofs.Lime1.site_code entry
 
 end Lime1
 

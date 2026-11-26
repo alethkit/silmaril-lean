@@ -12,6 +12,7 @@ open Silmaril.Languages.Python.Compile.ModuleEntry
 private def describe {scope : Scope} : Operand scope → String
   | .integer value => toString value
   | .boolean value => toString value
+  | .none_ => "None"
   | .read name reference =>
     match reference.access with
     | .declaredGlobal => "declared read " ++ name

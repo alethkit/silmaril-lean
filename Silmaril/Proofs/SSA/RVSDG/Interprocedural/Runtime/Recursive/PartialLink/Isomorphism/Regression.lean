@@ -1,13 +1,15 @@
 module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Thms
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests
 
-open Continuation.Partial (Eval Primitives Site)
+open Continuation.Partial (Config Eval Primitives Site)
+open Continuation.Partial.Executable (Actions runFor)
 open Continuation.Descent (Pending)
 
 private abbrev T := Ty Unit Unit
@@ -29,12 +31,14 @@ private def machine : Machine Op where
 
 private def number (n : Nat) : Tuple machine.Val [num] := .cons (.data n) .nil
 
-private def primitives : Primitives machine Nat where
+private def actions : Actions machine Nat where
   step
-    | .seed, .cons (.data n) .nil => fun store => .some (number ((show Nat from n) + 7), store + 3)
+    | .seed, .cons (.data n) .nil => fun store => some (number ((show Nat from n) + 7), store + 3)
     | .finish, .cons (.global _ _ (.data n)) (.cons (.data flag) .nil) => fun store =>
       let test : Nat := flag
-      if test = 0 then .none else .some (number ((show Nat from n) + 1), store + 5)
+      if test = 0 then none else some (number ((show Nat from n) + 1), store + 5)
+
+private def primitives : Primitives machine Nat := actions.toPrimitives
 
 private def positions : Fin 3 ≃ Fin 3 :=
   (Equiv.swap 0 1).trans (Equiv.swap 0 2)
@@ -66,8 +70,8 @@ private theorem respects : ActionsRespect primitives ids := by
               cases tail
               let test : Nat := flag
               change ActionRelated machine ids Nat [num]
-                (if test = 0 then .none else .some (number ((show Nat from n) + 1), store + 5))
-                (if test = 0 then .none else .some (number ((show Nat from n) + 1), store + 5))
+                (_root_.Part.ofOption (if test = 0 then none else some (number ((show Nat from n) + 1), store + 5)))
+                (_root_.Part.ofOption (if test = 0 then none else some (number ((show Nat from n) + 1), store + 5)))
               split
               · exact .undefined
               · exact .returned (.cons (.data _) .nil) (store + 5)
@@ -265,5 +269,117 @@ example : ∃ right, link primitives 73 rightTerm.toGraph (number 1) 20 = .linke
   cases related with
   | linked exports =>
     exact ⟨_, rfl, matchingGlobal 0 8 (exports.get .head), matchingGlobal 1 9 (exports.get (.tail .head))⟩
+
+private abbrev fn : Function Unit Unit := ⟨[num, .control 2], [num]⟩
+private abbrev bodyInput : Ports T := [global, fn.port, num, .control 2]
+
+private abbrev effect {past : List (Ports T)} : NestedTheta.Node (Instruction Op) bodyInput past [num] :=
+  ⟨[global, num], .base (.simple (.primitive .finish)),
+    .cons (.arg .head) (.cons (.arg (.tail (.tail .head))) .nil), fun i => i.elim0⟩
+
+private abbrev emptyBranch {past : List (Ports T)} : NestedTheta.Node (Instruction Op) bodyInput past [] :=
+  ⟨[.control 2], .base (.gamma (entry := []) (exit := []) 0),
+    .cons (.arg (.tail (.tail (.tail .head)))) .nil, fun _ => []⟩
+
+private abbrev callSelf {past : List (Ports T)} : NestedTheta.Node (Instruction Op) bodyInput past [num] :=
+  ⟨fn.port :: fn.args, .base (.simple (.apply fn)),
+    .cons (.arg (.tail .head)) (.cons (.arg (.tail (.tail .head)))
+      (.cons (.arg (.tail (.tail (.tail .head)))) .nil)), fun i => i.elim0⟩
+
+-- The caller retains the finish result across the recursive application.
+-- The independent empty γ moves, but the effect still precedes the call.
+private def memberBodyL : NestedTheta.Term (Instruction Op) bodyInput [] [[num], [], [num]] [num] :=
+  .bind effect (fun i => i.elim0) <| .bind emptyBranch (fun _ => .ret .nil) <|
+    .bind callSelf (fun i => i.elim0) (.ret (.cons (.output (0 : Fin 3) .head) .nil))
+
+private def memberBodyR : NestedTheta.Term (Instruction Op) bodyInput [] [[], [num], [num]] [num] :=
+  .bind emptyBranch (fun _ => .ret .nil) <| .bind effect (fun i => i.elim0) <|
+    .bind callSelf (fun i => i.elim0) (.ret (.cons (.output (1 : Fin 3) .head) .nil))
+
+private def bodyPositions : Fin 3 ≃ Fin 3 := Equiv.swap 0 1
+
+private theorem memberBodyIso :
+    NestedTheta.Graph.Isomorphic (Instruction Op) memberBodyL.toGraph memberBodyR.toGraph := by
+  refine .intro rfl rfl bodyPositions ?_ ?_ rfl ?_
+  · exact Fin.cases rfl (Fin.cases rfl (Fin.cases rfl (fun i => i.elim0)))
+  · exact Fin.cases rfl (Fin.cases rfl (Fin.cases rfl (fun i => i.elim0)))
+  · refine Fin.cases (fun j => j.elim0) (Fin.cases ?_ (Fin.cases (fun j => j.elim0) (fun i => i.elim0)))
+    intro arm
+    exact .intro rfl rfl (Equiv.refl _) (fun i => i.elim0) (fun i => i.elim0) rfl (fun i => i.elim0)
+
+private def selfGroup {past sigs : List (Ports T)} (source : Origin args past global)
+    (body : NestedTheta.Term (Instruction Op) bodyInput [] sigs [num]) : PhiTerm Op args past [fn] :=
+  ⟨[global], .cons source .nil,
+    .cons ⟨[global, fn.port], .cons (.arg .head) (.cons (.arg (.tail .head)) .nil), sigs, body⟩ .nil⟩
+
+private def groupL := selfGroup (.output (0 : Fin 1) .head : Origin args [[global]] global) memberBodyL
+private def groupR := selfGroup (.output (1 : Fin 2) .head : Origin args [[], [global]] global) memberBodyR
+
+private def recursiveL : OmegaTerm Op args [fn.port] [[global], [fn.port], []] :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.phi groupL) <| .bind (.phi (emptyPhi Op args _)) <|
+    .ret (.cons (.output (1 : Fin 3) .head) .nil)⟩
+
+private def recursiveR : OmegaTerm Op args [fn.port] [[], [global], [fn.port]] :=
+  ⟨.bind (.phi (emptyPhi Op args [])) <| .bind (.delta (seedDelta [[]])) <| .bind (.phi groupR) <|
+    .ret (.cons (.output (2 : Fin 3) .head) .nil)⟩
+
+private theorem groupsIso : groupL.Renumbered (renameVertex positions) groupR :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, memberBodyIso⟩ (fun i => i.elim0)⟩
+
+private theorem recursiveIso : recursiveL.toGraph.RenumberedBy recursiveR.toGraph positions :=
+  (recursiveL.renumberedBy_toGraph_iff recursiveR positions).2
+    ⟨Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+      (Fin.cases (.phi groupsIso) (Fin.cases (.phi ⟨⟨rfl, rfl⟩, fun i => i.elim0⟩) (fun i => i.elim0))), rfl⟩
+
+private theorem recursiveOrder : Ordered Op (renameVertex positions) args [fn.port]
+    recursiveL.toGraph.toTerm.region recursiveR.toGraph.toTerm.region := by
+  rw [OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+  exact .emptyRight (.bind rfl (.delta ⟨rfl, rfl⟩ seedTerm)
+    (.bind rfl (.phi groupsIso) (.emptyLeft (.ret _ _))))
+
+private def refL : machine.Val fn.port :=
+  .member (.cons (globalValue 0 8) .nil) groupL.toGraph.definitions 0
+
+private def refR : machine.Val fn.port :=
+  .member (.cons (globalValue 1 8) .nil) groupR.toGraph.definitions 0
+
+private theorem recursiveLinksL :
+    link primitives 73 recursiveL.toGraph (number 1) 20 = .linked (.cons refL .nil) 23 :=
+  (Executable.link_eq actions 73 recursiveL.toGraph (number 1) 20).symm.trans (by cbv)
+
+private theorem recursiveLinksR :
+    link primitives 73 recursiveR.toGraph (number 1) 20 = .linked (.cons refR .nil) 23 :=
+  (Executable.link_eq actions 73 recursiveR.toGraph (number 1) 20).symm.trans (by cbv)
+
+-- Slot zero sees its own linked reference and the relocated δ in capture order.
+example : resolve machine refL =
+    ⟨[global, fn.port], .cons (globalValue 0 8) (.cons refL .nil), _, memberBodyL.toGraph⟩ := rfl
+
+example : resolve machine refR =
+    ⟨[global, fn.port], .cons (globalValue 1 8) (.cons refR .nil), _, memberBodyR.toGraph⟩ := rfl
+
+example : TupleRelated machine ids (resolve machine refL).values (resolve machine refR).values ∧
+    NestedTheta.Graph.Isomorphic (Instruction Op) (resolve machine refL).body (resolve machine refR).body := by
+  have imports : TupleRelated machine ids (number 1) (number 1) :=
+    .cons (ValueRelated.data (m := machine) (ids := ids) (t := ()) (1 : Nat)) .nil
+  have paired := link_related (unitL := 73) (unitR := 73) respects recursiveIso recursiveOrder
+    (fun _ => ⟨rfl, rfl⟩) imports 20
+  rw [recursiveLinksL, recursiveLinksR] at paired
+  cases paired with
+  | linked exports => exact resolve_related (exports.get .head)
+
+private def recursivePrefix {sigs : List (Ports T)} (graph : Omega Op args [fn.port] sigs) :
+    Option (Config machine Nat [num]) :=
+  let arguments : Tuple machine.Val fn.args := .cons (.data (1 : Nat)) (.cons (.control 0) .nil)
+  (Executable.start actions 73 graph (number 1) .head arguments 20).toOption.map (runFor actions 20)
+
+private def secondCallStore : Option (Config machine Nat [num]) → Option Nat
+  | some ⟨.eval (.call _ _) (.resume _ _ _ (.resume _ _ _ .halt)), store⟩ => some store
+  | _ => none
+
+-- The two effects ran at their respective addresses, and the next call
+-- has two caller suffixes pending. This is a check of a finite prefix.
+example : secondCallStore (recursivePrefix recursiveL.toGraph) = some 33 := by cbv
+example : secondCallStore (recursivePrefix recursiveR.toGraph) = some 33 := by cbv
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests

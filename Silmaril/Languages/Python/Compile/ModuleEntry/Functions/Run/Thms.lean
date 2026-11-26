@@ -21,6 +21,7 @@ theorem evaluate_scalarResult {scope : Source.Scope} (session : Core.Module.Func
   cases value with
   | int value => rfl
   | bool value => exact evaluate_conditionalResult session (.boolean value)
+  | none => rfl
 
 theorem advance_scalarResultAssign {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (name : Source.Name) (reference : GlobalReference scope name)

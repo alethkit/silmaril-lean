@@ -12,12 +12,12 @@ private def caller : Frame callerLayout :=
   { initial.2 with locals := fun slot => if slot.val = 1 then some (.int 19) else none }
 private def cell : CellId := caller.owned ⟨0, by decide⟩
 private def next : Body callerLayout := .ret (.read output)
-private def saved : Call.Saved Continuation := ⟨callerLayout, caller, ⟨.store output, next⟩⟩
+private def saved : Call.Saved Continuation := ⟨callerLayout, caller, some (.store output, next)⟩
 
 private def olderLayout : Layout := ⟨1, 0, 0⟩
 private def olderOutput : Slot olderLayout := .local ⟨0, by decide⟩
 private def older : Call.Saved Continuation :=
-  ⟨olderLayout, (Frame.fresh Heap.empty Fin.elim0).2, ⟨.store olderOutput, .ret (.read olderOutput)⟩⟩
+  ⟨olderLayout, (Frame.fresh Heap.empty Fin.elim0).2, some (.store olderOutput, .ret (.read olderOutput))⟩
 
 private def calleeCode : CodeRef := ⟨17, ⟨2, 0, 1⟩⟩
 private def parameter : Fin calleeCode.layout.locals := ⟨0, by decide⟩
@@ -176,7 +176,7 @@ example : discardUnwinds := rfl
 private def noSlots : Layout := ⟨0, 0, 0⟩
 private def noSlotFrame : Frame noSlots := (Frame.fresh Heap.empty Fin.elim0).2
 private def noSlotTail : Body noSlots := .ret (.literal .none)
-private def noSlotSaved : Call.Saved Continuation := ⟨noSlots, noSlotFrame, ⟨.discard, noSlotTail⟩⟩
+private def noSlotSaved : Call.Saved Continuation := ⟨noSlots, noSlotFrame, some (.discard, noSlotTail)⟩
 
 example : Step (table (.read capture))
     (.receiving initial.1 noSlotSaved [older] (.ok (.int 42))) none

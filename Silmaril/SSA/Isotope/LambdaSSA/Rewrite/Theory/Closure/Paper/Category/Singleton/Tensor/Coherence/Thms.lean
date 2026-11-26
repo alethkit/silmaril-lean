@@ -20,6 +20,19 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 local notation "Obj" => ofType (τ := τ) (Φ := Φ)
 local infixr:70 " ×ₜ " => product
 
+/-- The guarded associate arrow is the tuple of its three projections. -/
+theorem associate_eq_pair (A B C : τ) :
+    associate (Φ := Φ) A B C =
+      pairArrows (ofRegion (productFstBranches (A ×ₜ B) C) ≫ ofRegion (productFstBranches A B))
+        (pairArrows (ofRegion (productFstBranches (A ×ₜ B) C) ≫ ofRegion (productSndBranches A B))
+          (ofRegion (productSndBranches (A ×ₜ B) C))) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.PremonoidalCoherence.associate_eq_pair A B C
+
+/-- The guarded braid is the pairing of the projections in reverse order. -/
+theorem braid_eq_pair (A B : τ) :
+    braid (Φ := Φ) A B = pairArrows (ofRegion (productSndBranches A B)) (ofRegion (productFstBranches A B)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.PremonoidalCoherence.braid_eq_pair A B
+
 /-- Guarded reassociation is central and preserves the diagonal. -/
 theorem centralCopies_associate (A B C : τ) : CentralCopies (associate (Φ := Φ) A B C) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.PremonoidalCoherence.centralCopies_associate A B C
