@@ -19,7 +19,7 @@ namespace Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Stru
 universe u r
 
 variable {α Φ : Type u} [HasTy Φ (Ty α)] {ε : Type r} [HasEff Φ ε]
-  {Γ Δ : EffectCtx (Ty α) ε} {A B C : Ty α} {e : ε} {a k l r : Expr Φ}
+  {Γ Δ : EffectCtx (Ty α) ε} {A B C : Ty α} {e : ε} {a b k l r : Expr Φ}
 
 theorem case_eqv_bind [Preorder ε] [OrderBot ε] {s : Expr Φ} (hs : Wf Γ s (.coprod A B) e)
     (hl : Wf ((A, ⊥) :: Γ) l C e) (hr : Wf ((B, ⊥) :: Γ) r C e) :
@@ -44,6 +44,40 @@ private theorem let_assoc_eqv [Preorder ε] [OrderBot ε] {b : Expr Φ}
     (hk : Wf ((B, ⊥) :: Γ) k C e) :
     Eqv Γ C e (.let₁ (.let₁ a b) k) (.let₁ a (.let₁ b k.wk1)) :=
   .step (.rewrite (.let₁ (.let₁ ha hb) hk) (.let₁ ha (.let₁ hb (wk1_typed A hk))) (.let1_let1 _ _ _))
+
+private theorem wk2_subst_typed [Preorder ε] [OrderBot ε] (R : Ty α) :
+    ∀ i : Fin ((B, (⊥ : ε)) :: (A, ⊥) :: Γ).length,
+      Wf ((B, ⊥) :: (A, ⊥) :: (R, ⊥) :: Γ)
+        (Expr.var (Expr.liftWk (Expr.liftWk Nat.succ) i.val) : Expr Φ)
+        (((B, (⊥ : ε)) :: (A, ⊥) :: Γ).get i).1 (((B, (⊥ : ε)) :: (A, ⊥) :: Γ).get i).2 := by
+  intro i
+  refine Fin.cases (.var 0 le_rfl) (fun j => ?_) i
+  refine Fin.cases (.var 1 le_rfl) (fun t => ?_) j
+  exact Wf.var (Γ := (B, ⊥) :: (A, ⊥) :: (R, ⊥) :: Γ) t.succ.succ.succ le_rfl
+
+private theorem wk2_typed [Preorder ε] [OrderBot ε] (R : Ty α)
+    (h : Wf ((B, ⊥) :: (A, ⊥) :: Γ) k C e) :
+    Wf ((B, ⊥) :: (A, ⊥) :: (R, ⊥) :: Γ) k.wk2 C e := by
+  rw [Expr.wk2, Expr.wk_eq_subst]
+  exact h.subst_typed (wk2_subst_typed R)
+
+theorem let2_bind_eqv [Preorder ε] [OrderBot ε] (ha : Wf Γ a (.product A B) e)
+    (hk : Wf ((B, ⊥) :: (A, ⊥) :: Γ) k C e) :
+    Eqv Γ C e (.let₂ a k) (.let₁ a (.let₂ (.var 0) k.wk2)) :=
+  .step (.rewrite (.let₂ ha hk) (.let₁ ha (.let₂ (.var 0 bot_le) (wk2_typed _ hk))) (.let2_bind _ _))
+
+theorem let2_pair_eqv [Preorder ε] [OrderBot ε] (ha : Wf Γ a A e) (hb : Wf Γ b B e)
+    (hk : Wf ((B, ⊥) :: (A, ⊥) :: Γ) k C e) :
+    Eqv Γ C e (.let₂ (.pair a b) k) (.let₁ a (.let₁ b.wk0 k)) :=
+  .step (.rewrite (.let₂ (.pair ha hb) hk)
+    (.let₁ ha (.let₁ (CallByValue.wf_wk0 hb (A, ⊥)) hk)) (.let2_pair _ _ _))
+
+private theorem let_let2_eqv [Preorder ε] [OrderBot ε] {D : Ty α}
+    (ha : Wf Γ a (.product A B) e) (hb : Wf ((B, ⊥) :: (A, ⊥) :: Γ) b C e)
+    (hk : Wf ((C, ⊥) :: Γ) k D e) :
+    Eqv Γ D e (.let₁ (.let₂ a b) k) (.let₂ a (.let₁ b k.wk1.wk1)) :=
+  .step (.rewrite (.let₁ (.let₂ ha hb) hk)
+    (.let₂ ha (.let₁ hb (wk1_typed B (wk1_typed A hk)))) (.let1_let2 _ _ _))
 
 variable [PartialOrder ε] [OrderBot ε]
 
@@ -73,6 +107,11 @@ private theorem covered_wk1 (R : Ty α) (h : Covered ((A, ⊥) :: Γ) B e k) :
     Covered ((A, ⊥) :: (R, ⊥) :: Γ) B e k.wk1 := by
   rw [Expr.wk1, Expr.wk_eq_subst]
   exact covered_subst h (wk1_subst_typed R) (fun _ => .var _)
+
+private theorem covered_wk2 (R : Ty α) (h : Covered ((B, ⊥) :: (A, ⊥) :: Γ) C e k) :
+    Covered ((B, ⊥) :: (A, ⊥) :: (R, ⊥) :: Γ) C e k.wk2 := by
+  rw [Expr.wk2, Expr.wk_eq_subst]
+  exact covered_subst h (wk2_subst_typed R) (fun _ => .var _)
 
 omit [HasTy Φ (Ty α)] [HasEff Φ ε] in
 private theorem atomic_fields (atomic : Atomic Γ) {n : Nat} (sorts : Fin n → α) :
@@ -159,6 +198,66 @@ private theorem leaf_sum {s : Expr Φ} (profile : Profile (α := α) Φ ε) (ato
           cases hsum
           exact .inr ⟨_, rfl, p, leaf⟩
 
+private theorem leaf_product (profile : Profile (α := α) Φ ε) (atomic : Atomic Γ)
+    (leaf : ConstructorLeaf a) (typed : Wf Γ a (.product A B) (⊥ : ε)) :
+    ∃ p q, a = .pair p q ∧ Wf Γ p A (⊥ : ε) ∧ Wf Γ q B (⊥ : ε) ∧
+      ConstructorLeaf p ∧ ConstructorLeaf q := by
+  generalize hprod : Ty.product A B = P at typed
+  cases leaf with
+  | var _ =>
+      cases typed with
+      | var i _ =>
+          obtain ⟨x, hx⟩ := atomic i
+          rw [hx] at hprod
+          cases hprod
+  | op _ =>
+      cases typed with
+      | op bound _ =>
+          have pure : IsPure (⊥ : ε) _ := le_antisymm bound bot_le
+          cases profile _ pure with
+          | atom x eq =>
+              rw [eq] at hprod
+              cases hprod
+          | unit eq =>
+              rw [eq] at hprod
+              cases hprod
+  | unit =>
+      cases typed
+      cases hprod
+  | inl _ =>
+      cases typed
+      cases hprod
+  | inr _ =>
+      cases typed
+      cases hprod
+  | pair pl ql =>
+      cases typed with
+      | pair hp hq =>
+          cases hprod
+          exact ⟨_, _, rfl, hp, hq, pl, ql⟩
+
+private theorem covered_let2 (profile : Profile (α := α) Φ ε)
+    (ht : Wf Γ a (.product A B) (⊥ : ε)) (leaf : ConstructorLeaf a)
+    (hk : Wf ((B, ⊥) :: (A, ⊥) :: Γ) k C e) (body : Covered ((B, ⊥) :: (A, ⊥) :: Γ) C e k) :
+    Covered Γ C e (.let₂ a k) := by
+  intro Δ σ atomic hσ leaves
+  change ReplyReflection.Written C e Δ (.let₂ (a.subst σ) (k.subst (Expr.liftSubst (Expr.liftSubst σ))))
+  have hslot := lift_typed (lift_typed hσ (A, ⊥)) (B, ⊥)
+  have fields := hk.subst_typed hslot
+  have code : Covered ((B, ⊥) :: (A, ⊥) :: Δ) C e (k.subst (Expr.liftSubst (Expr.liftSubst σ))) :=
+    covered_subst body hslot (lift_leaf (lift_leaf leaves))
+  obtain ⟨p, q, eq, hp, hq, pl, ql⟩ :=
+    leaf_product profile atomic (leaf_subst leaf leaves) (ht.subst_typed hσ)
+  rw [eq]
+  have qw := CallByValue.wf_wk0 hq (A, ⊥)
+  have afterLeft : Covered ((A, ⊥) :: Δ) C e (.let₁ q.wk0 (k.subst (Expr.liftSubst (Expr.liftSubst σ)))) :=
+    covered_bind (.leaf qw (leaf_wk ql Nat.succ)) fields code
+  have afterBoth : Covered Δ C e (.let₁ p (.let₁ q.wk0 (k.subst (Expr.liftSubst (Expr.liftSubst σ))))) :=
+    covered_bind (.leaf hp pl) (.let₁ (qw.weakenEffect bot_le) fields) afterLeft
+  have step := let2_pair_eqv (hp.weakenEffect bot_le) (hq.weakenEffect bot_le) fields
+  apply written_of_eqv step
+  simpa only [Expr.subst_var] using afterBoth (σ := Expr.var) atomic (fun i => .var i le_rfl) .var
+
 private theorem covered_case (profile : Profile (α := α) Φ ε)
     (ht : Wf Γ a (.coprod A B) (⊥ : ε)) (leaf : ConstructorLeaf a)
     (hl : Wf ((A, ⊥) :: Γ) l C e) (hr : Wf ((B, ⊥) :: Γ) r C e)
@@ -200,44 +299,102 @@ private theorem covered_case_bind (profile : Profile (α := α) Φ ε)
   exact covered_of_eqv (case_eqv_bind hs hl hr) (scrutinee (source_wf hl hr) body)
     atomic ht leaves
 
-private theorem case_raw_coversBind (profile : Profile (α := α) Φ ε) (h : CaseRaw e Γ A a) :
-    Wf Γ a A e ∧ CoversBind Γ A e a := by
-  induction h with
+private theorem covered_let2_bind (profile : Profile (α := α) Φ ε)
+    (ha : Wf Γ a (.product A B) e) (init : CoversBind Γ (.product A B) e a)
+    (hk : Wf ((B, ⊥) :: (A, ⊥) :: Γ) k C e) (body : Covered ((B, ⊥) :: (A, ⊥) :: Γ) C e k) :
+    Covered Γ C e (.let₂ a k) := by
+  intro Δ σ atomic hσ leaves
+  have var : Wf ((Ty.product A B, ⊥) :: Γ) (.var 0 : Expr Φ) (.product A B) ⊥ := .var 0 le_rfl
+  have hw := wk2_typed (Ty.product A B) hk
+  exact covered_of_eqv (let2_bind_eqv ha hk) (init (.let₂ (var.weakenEffect bot_le) hw)
+    (covered_let2 profile var (.var 0) hw (covered_wk2 (Ty.product A B) body))) atomic hσ leaves
+
+/-- Keep the induction stable under typed constructor substitutions. In the
+pair case, the right operand is interpreted after weakening its substitution
+past the slot retaining the left result. -/
+private theorem case_raw_coversBind (profile : Profile (α := α) Φ ε) (h : CaseRaw e Γ A a)
+    {σ : Nat → Expr Φ}
+    (ht : ∀ i : Fin Γ.length, Wf Δ (σ i.val) (Γ.get i).1 (Γ.get i).2)
+    (hs : ∀ i, ConstructorLeaf (σ i)) :
+    Wf Δ (a.subst σ) A e ∧ CoversBind Δ A e (a.subst σ) := by
+  induction h generalizing Δ σ with
   | straight raw =>
       obtain ⟨_, eq, seq⟩ := normalize raw
-      refine ⟨eq.endpoints_wf.1, ?_⟩
+      have eq' := eq.subst_typed ht
+      refine ⟨eq'.endpoints_wf.1, ?_⟩
       intro B k hk rest
-      exact covered_of_eqv (.let1 eq (.refl hk)) (covered_bind seq hk rest)
+      exact covered_of_eqv (.let1 eq' (.refl hk)) (covered_bind (sequenced_subst seq ht hs) hk rest)
   | @bind Γ' X Y a k _ _ ia ik =>
-      refine ⟨.let₁ ia.1 ik.1, ?_⟩
-      intro Z tail ht rest Δ σ atomic hσ leaves
-      have ht' := wk1_typed X ht
-      exact covered_of_eqv (let_assoc_eqv ia.1 ik.1 ht)
-        (ia.2 (.let₁ ik.1 ht') (ik.2 ht' (covered_wk1 X rest))) atomic hσ leaves
+      obtain ⟨ha, ca⟩ := ia ht hs
+      obtain ⟨hk, ck⟩ := ik (lift_typed ht (X, ⊥)) (lift_leaf hs)
+      refine ⟨.let₁ ha hk, ?_⟩
+      intro Z tail htail rest Ξ θ atomic hθ leaves
+      have hw := wk1_typed X htail
+      exact covered_of_eqv (let_assoc_eqv ha hk htail)
+        (ca (.let₁ hk hw) (ck hw (covered_wk1 X rest))) atomic hθ leaves
   | @branch Γ' X Y Z s l r _ _ _ is il ir =>
-      refine ⟨.case is.1 il.1 ir.1, ?_⟩
-      intro D k hk rest Δ σ atomic hσ leaves
+      obtain ⟨hs', cs⟩ := is ht hs
+      obtain ⟨hl, cl⟩ := il (lift_typed ht (X, ⊥)) (lift_leaf hs)
+      obtain ⟨hr, cr⟩ := ir (lift_typed ht (Y, ⊥)) (lift_leaf hs)
+      refine ⟨.case hs' hl hr, ?_⟩
+      intro D k hk rest Ξ θ atomic hθ leaves
       have kl := wk1_typed X hk
       have kr := wk1_typed Y hk
-      exact covered_of_eqv (let_case_eqv is.1 il.1 ir.1 hk)
-        (covered_case_bind profile is.1 is.2 (.let₁ il.1 kl) (.let₁ ir.1 kr)
-          (il.2 kl (covered_wk1 X rest)) (ir.2 kr (covered_wk1 Y rest))) atomic hσ leaves
+      exact covered_of_eqv (let_case_eqv hs' hl hr hk)
+        (covered_case_bind profile hs' cs (.let₁ hl kl) (.let₁ hr kr)
+          (cl kl (covered_wk1 X rest)) (cr kr (covered_wk1 Y rest))) atomic hθ leaves
   | @call Γ' f a visible bound _ ia =>
-      refine ⟨.op bound ia.1, ?_⟩
-      intro B k hk rest Δ σ atomic hσ leaves
-      have arg : Wf ((instrSrc f, ⊥) :: Γ') (.var 0 : Expr Φ) (instrSrc f) ⊥ := .var 0 le_rfl
+      obtain ⟨ha, ca⟩ := ia ht hs
+      refine ⟨.op bound ha, ?_⟩
+      intro B k hk rest Ξ θ atomic hθ leaves
+      have arg : Wf ((instrSrc f, ⊥) :: Δ) (.var 0 : Expr Φ) (instrSrc f) ⊥ := .var 0 le_rfl
       have request := Wf.op (f := f) bound (arg.weakenEffect bot_le)
       have hk' := wk1_typed (instrSrc f) hk
-      have seq := (Eqv.let1 (CallByValue.op_bind bound ia.1) (.refl hk)).trans
-        (let_assoc_eqv ia.1 request hk)
+      have seq := (Eqv.let1 (CallByValue.op_bind bound ha) (.refl hk)).trans
+        (let_assoc_eqv ha request hk)
       exact covered_of_eqv seq
-        (ia.2 (.let₁ request hk') (covered_call visible bound arg (.var 0) hk'
-          (covered_wk1 (instrSrc f) rest))) atomic hσ leaves
+        (ca (.let₁ request hk') (covered_call visible bound arg (.var 0) hk'
+          (covered_wk1 (instrSrc f) rest))) atomic hθ leaves
+  | @pair Γ' X Y a b _ _ ia ib =>
+      obtain ⟨ha, ca⟩ := ia ht hs
+      have hb := (ib ht hs).1
+      have right : Wf ((X, ⊥) :: Δ) (b.subst σ).wk0 Y e ∧
+          CoversBind ((X, ⊥) :: Δ) Y e (b.subst σ).wk0 := by
+        rw [Expr.wk0, Expr.wk_subst]
+        exact ib (fun i => CallByValue.wf_wk0 (ht i) (X, ⊥))
+          (fun i => leaf_wk (hs i) Nat.succ)
+      refine ⟨.pair ha hb, ?_⟩
+      intro Z k hk rest Ξ θ atomic hθ leaves
+      have value : Wf ((Y, ⊥) :: (X, ⊥) :: Δ) (.pair (.var 1) (.var 0) : Expr Φ) (.product X Y) ⊥ :=
+        .pair (.var 1 le_rfl) (.var 0 le_rfl)
+      have k' := wk1_typed X hk
+      have k'' := wk1_typed Y k'
+      have tail : Covered ((Y, ⊥) :: (X, ⊥) :: Δ) Z e (.let₁ (.pair (.var 1) (.var 0)) k.wk1.wk1) :=
+        covered_bind (.leaf value (.pair (.var 1) (.var 0))) k'' (covered_wk1 Y (covered_wk1 X rest))
+      have eq := (Eqv.let1 (CallByValue.pair_bind ha hb) (.refl hk)).trans
+        ((let_assoc_eqv ha (.let₁ right.1 (value.weakenEffect bot_le)) hk).trans
+          (.let1 (.refl ha) (let_assoc_eqv right.1 (value.weakenEffect bot_le) k')))
+      exact covered_of_eqv eq
+        (ca (.let₁ right.1 (.let₁ (value.weakenEffect bot_le) k'')) (right.2
+          (.let₁ (value.weakenEffect bot_le) k'') tail)) atomic hθ leaves
+  | @let2 Γ' X Y Z a k _ _ ia ik =>
+      obtain ⟨ha, ca⟩ := ia ht hs
+      obtain ⟨hk, ck⟩ := ik (lift_typed (lift_typed ht (X, ⊥)) (Y, ⊥))
+        (lift_leaf (lift_leaf hs))
+      refine ⟨.let₂ ha hk, ?_⟩
+      intro D tail htail rest Ξ θ atomic hθ leaves
+      have hw := wk1_typed Y (wk1_typed X htail)
+      exact covered_of_eqv (let_let2_eqv ha hk htail)
+        (covered_let2_bind profile ha ca (.let₁ hk hw) (ck hw
+          (covered_wk1 Y (covered_wk1 X rest)))) atomic hθ leaves
 
 theorem case_raw_written (profile : Profile (α := α) Φ ε)
     (atomic : ∀ i : Fin Γ.length, ∃ x, (Γ.get i).1 = Ty.base x) (h : CaseRaw e Γ A a) :
     ReplyReflection.Written A e Γ a := by
-  obtain ⟨typed, accepts⟩ := case_raw_coversBind profile h
+  have typedAndBind : Wf Γ a A e ∧ CoversBind Γ A e a := by
+    simpa only [Expr.subst_var] using
+      case_raw_coversBind profile h (σ := Expr.var) (fun i => .var i le_rfl) .var
+  obtain ⟨typed, accepts⟩ := typedAndBind
   have result : Wf ((A, ⊥) :: Γ) (.var 0 : Expr Φ) A (⊥ : ε) := .var 0 le_rfl
   have resultCovered : Covered ((A, ⊥) :: Γ) A e (.var 0 : Expr Φ) :=
     fun _ ht hs => ReplyReflection.Written.of_leaf (result.subst_typed ht) (hs 0)
