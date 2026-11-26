@@ -104,9 +104,28 @@ or absence of finite return, including at empty data demand. The nested
 effectful regression checks a carried value that remains dead and a separate
 input that becomes live only after feedback. It checks payload `12` and token
 `5` on the returning path and an infinite sequence of completed body
-activations on the non-returning path. Dead-binding elimination and partial
-blocking outcomes are outside this contract.
+activations on the non-returning path.
 [Feedback regression](../../Silmaril/Proofs/SSA/RVSDG/NestedTheta/Liveness/Demand/FeedbackRegression.lean)
+
+### Demand with partial primitives
+
+The same γ and θ demand solver supplies the input agreement for the existing
+partial explicit-wire semantics. Every primitive keeps all operand origins,
+including its runtime wire, even when its data result has no readers.
+`returnsDemand_iff` matches finite returns on demanded data and exact state.
+`abnormal_iff_of_live` matches the exact blocked record or the productive
+divergence observation. The block record stores the numbered path and vertex,
+indexed opcode, typed operands, and state at attempt. Saved continuation
+frames are outside this endpoint model. Productive divergence uses actual
+completed restarts, including inside a selected child. Linked calls and
+elimination of dead bindings are outside this analysis.
+[API](../../Silmaril/SSA/RVSDG/NestedTheta/Liveness/Demand/Partial/Thms.lean)
+
+The regression selects a θ inside γ. A probe with unused data output blocks on
+its second attempt with operand `7` and token `5`. The unrelated carried value
+is dead. With operand `8` the graph returns counter `2` and token `8`, and a
+later starting counter produces infinitely many completed restarts.
+[Regression](../../Silmaril/Proofs/SSA/RVSDG/NestedTheta/Liveness/Demand/Partial/Regression.lean)
 
 ## Reproduce the checks
 
@@ -122,6 +141,7 @@ lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGIsomorph
 lake build --wfail +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Regression
 lake build --wfail +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.Regression
 lake build --wfail +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.FeedbackRegression
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.Partial.Regression
 make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.Isomorphism.Petri.Thms
 ```
 

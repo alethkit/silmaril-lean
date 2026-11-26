@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.RVSDG.NestedTheta.Liveness.Demand.Defs
 import Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.Correct
 import Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.Feedback
+import Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.Wiring
 
 public section
 
