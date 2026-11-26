@@ -87,19 +87,22 @@ structure Prepared (Input : List Width) (carried result : Width) where
   index : Nat
   consumer : Candidate Input intermediate.1 carried result
 
-/-- Replay the first plan, delete the first original identity, and check the
-second request at cut one of the actual intermediate preheader. -/
-def prepare? (g : Program Input carried result entrySigs headerSigs)
-    (first : AfterReorder.Plan) (consumerOrigin : Nat) : Option (Prepared Input carried result) := do
-  let state ← Header.Sequence.run? (Header.Sequence.initial (lower g)) first.header
-  let firstIndex ← Header.Priority.resolve? state first.hoistOrigin
-  let (_, intermediate) ←
-    hoistCodeWith? state.cfg.entry (state.cfg.block .header) firstIndex (chooseCfgCut? state.cfg)
-  let origins := state.origins.eraseIdx firstIndex
+/-- Check the consumer at cut one using the actual one-save CFG and its
+remaining header order. -/
+def prepareOn? (intermediate : Output Input carried result) (origins : List Nat)
+    (consumerOrigin : Nat) : Option (Prepared Input carried result) := do
   let index ← origins.idxOf? consumerOrigin
   let consumer ← findCandidate? index 0 savedOrigins (intermediate.2.block .header)
   if checkConsumer intermediate.2 consumer then
     pure ⟨intermediate, origins, index, consumer⟩
   else none
+
+/-- Replay the first plan, delete the first original identity, and check the
+second request at cut one of the actual intermediate preheader. -/
+def prepare? (g : Program Input carried result entrySigs headerSigs)
+    (first : AfterReorder.Plan) (consumerOrigin : Nat) : Option (Prepared Input carried result) := do
+  let state ← Header.Sequence.run? (Header.Sequence.initial (lower g)) first.header
+  let (firstIndex, _, intermediate) ← AfterReorder.resolveMove? state first.hoistOrigin
+  prepareOn? intermediate (state.origins.eraseIdx firstIndex) consumerOrigin
 
 end Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second

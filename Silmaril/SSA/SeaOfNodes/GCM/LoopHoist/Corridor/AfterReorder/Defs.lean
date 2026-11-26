@@ -26,10 +26,14 @@ structure Plan where
 existing corridor must select preheader cut zero and the binding must
 have captured operands. The input state comes from a header-only plan
 on the native loop's lowering, which has the canonical exit. -/
-def finish? (state : State Input carried result) (origin : Nat) :
-    Option (Output Input carried result) := do
+def resolveMove? (state : State Input carried result) (origin : Nat) :
+    Option (Nat × Point (SourceLabel carried result) × Output Input carried result) := do
   let index ← Header.Priority.resolve? state origin
-  (hoistCodeWith? state.cfg.entry (state.cfg.block .header) index (chooseCfgCut? state.cfg)).map Prod.snd
+  let (cut, output) ← hoistCodeWith? state.cfg.entry (state.cfg.block .header) index (chooseCfgCut? state.cfg)
+  pure (index, cut, output)
+
+def finish? (state : State Input carried result) (origin : Nat) : Option (Output Input carried result) :=
+  (resolveMove? state origin).map fun (_, _, output) => output
 
 def replay? (g : Program Input carried result entrySigs headerSigs) (plan : Plan) :
     Option (Output Input carried result) := do

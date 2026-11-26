@@ -92,6 +92,33 @@ private theorem rewrite_operations {index cut : Nat} {origins : Origins Input Γ
       simp only [Binding.prepend, operations, List.eraseIdx_cons_succ,
         ih selected (under rename) (.there keep)]
 
+theorem hoistCodeWith?_operations
+    {entry : Block TargetOp (SourceLabel carried result) Input [result]}
+    {header : Block TargetOp (SourceLabel carried result) (carried :: Input) [result]}
+    {choose : List (Point (SourceLabel carried result)) → List (Use (SourceLabel carried result)) →
+      Option (Point (SourceLabel carried result))}
+    {index : Nat} {cut : Point (SourceLabel carried result)} {output : Output Input carried result}
+    (moved : hoistCodeWith? entry header index choose = some (cut, output)) :
+    operations (output.2.block .header) = (operations header).eraseIdx index := by
+  obtain ⟨binding, found, _, _, _, _, code⟩ := hoistCodeWith?_spec moved
+  rw [code]
+  exact rewrite_operations found Var.there .here
+
+theorem prepareOn?_spec {intermediate : Output Input carried result} {origins : List Nat}
+    (accepted : prepareOn? intermediate origins consumerOrigin = some prepared) :
+    prepared.intermediate = intermediate ∧ prepared.origins = origins ∧
+    prepared.origins.idxOf? consumerOrigin = some prepared.index ∧
+    findCandidate? prepared.index 0 savedOrigins (prepared.intermediate.2.block .header) =
+      some prepared.consumer ∧ checkConsumer prepared.intermediate.2 prepared.consumer = true := by
+  obtain ⟨index, located, next⟩ := Option.bind_eq_some_iff.mp accepted
+  obtain ⟨consumer, found, next⟩ := Option.bind_eq_some_iff.mp next
+  cases checked : checkConsumer intermediate.2 consumer with
+  | false => simp [checked] at next
+  | true =>
+    simp [checked] at next
+    subst prepared
+    exact ⟨rfl, rfl, located, found, checked⟩
+
 private theorem prepare?_spec (accepted : prepare? g first consumerOrigin = some prepared) :
     ∃ (state : State Input carried result) (firstIndex : Nat) (cut : Point (SourceLabel carried result)),
       Header.Sequence.run? (Header.Sequence.initial (lower g)) first.header = some state ∧
@@ -104,21 +131,15 @@ private theorem prepare?_spec (accepted : prepare? g first consumerOrigin = some
         some prepared.consumer ∧
       checkConsumer prepared.intermediate.2 prepared.consumer = true := by
   obtain ⟨state, ran, next⟩ := Option.bind_eq_some_iff.mp accepted
-  obtain ⟨firstIndex, resolved, next⟩ := Option.bind_eq_some_iff.mp next
-  obtain ⟨⟨cut, intermediate⟩, moved, next⟩ := Option.bind_eq_some_iff.mp next
-  obtain ⟨index, located, next⟩ := Option.bind_eq_some_iff.mp next
-  obtain ⟨consumer, found, next⟩ := Option.bind_eq_some_iff.mp next
-  cases checked : checkConsumer intermediate.2 consumer with
-  | false => simp [checked] at next
-  | true =>
-    simp [checked] at next
-    subst prepared
-    exact ⟨state, firstIndex, cut, ran, resolved, moved, rfl, located, found, checked⟩
+  obtain ⟨⟨firstIndex, cut, intermediate⟩, firstMoved, next⟩ := Option.bind_eq_some_iff.mp next
+  obtain ⟨resolved, moved⟩ := AfterReorder.resolveMove?_spec firstMoved
+  obtain ⟨same, origins, located, found, checked⟩ := prepareOn?_spec next
+  exact ⟨state, firstIndex, cut, ran, resolved, same ▸ moved, origins, located, found, checked⟩
 
 theorem prepare?_replay_first (accepted : prepare? g first consumerOrigin = some prepared) :
     AfterReorder.replay? g first = some prepared.intermediate := by
   obtain ⟨_, _, _, ran, resolved, moved, _⟩ := prepare?_spec accepted
-  simp [AfterReorder.replay?, AfterReorder.finish?, ran, resolved, moved]
+  simp [AfterReorder.replay?, AfterReorder.finish?, AfterReorder.resolveMove?, ran, resolved, moved]
 
 theorem prepare?_placement (accepted : prepare? g first consumerOrigin = some prepared) :
     ∃ (state : State Input carried result) (firstIndex : Nat),
@@ -136,11 +157,7 @@ theorem prepare?_placement (accepted : prepare? g first consumerOrigin = some pr
   have secondAt : prepared.origins[prepared.index]? = some consumerOrigin := by
     obtain ⟨bound, eq, _⟩ := List.idxOf?_eq_some_iff.mp located
     exact List.getElem?_eq_some_iff.mpr ⟨bound, eq⟩
-  obtain ⟨binding, found, _, _, _, _, code⟩ := hoistCodeWith?_spec moved
-  have sameOrder : operations (prepared.intermediate.2.block .header) =
-      (operations (state.cfg.block .header)).eraseIdx firstIndex := by
-    rw [code]
-    exact rewrite_operations found Var.there .here
+  have sameOrder := hoistCodeWith?_operations moved
   have aligned : prepared.origins.map (fun origin => (operations ((lower g).block .header))[origin]?) =
       (operations (prepared.intermediate.2.block .header)).map some := by
     rw [erased, ← List.eraseIdx_map, tracked.2.1, List.eraseIdx_map, sameOrder]

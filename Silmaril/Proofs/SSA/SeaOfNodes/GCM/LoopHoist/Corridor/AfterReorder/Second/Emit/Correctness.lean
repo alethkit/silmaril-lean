@@ -21,6 +21,7 @@ open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit
+open Header.Earlier (operations)
 open Loop.MLIR.CF (Program TargetOp evalOp lower model)
 
 variable {Input Γ Δ : List Width} {saved consumer carried result : Width}
@@ -28,6 +29,34 @@ variable {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 variable {g : Program Input carried result entrySigs headerSigs}
 variable {first : AfterReorder.Plan} {consumerOrigin : Nat}
 variable {prepared : Prepared Input carried result} {moved : Emission Input carried result}
+
+private theorem liftCode_operations (code : Block TargetOp (Label saved carried result) Γ [result])
+    (rename : Rename Γ Δ) (keep : Var Δ consumer) :
+    operations (liftCode rename keep code) = operations code := by
+  induction code generalizing Δ with
+  | terminator => rfl
+  | letOp _ _ _ ih => simp only [liftCode, operations, ih]
+
+theorem rewriteAt?_operations {code : Block TargetOp (Label saved carried result) Γ [result]}
+    {index : Nat} {rename : Rename Γ Δ} {keep : Var Δ consumer}
+    {out : Block TargetOp (Label saved carried result [consumer]) Δ [result]}
+    (done : rewriteAt? index rename keep code = some out) :
+    operations out = (operations code).eraseIdx index := by
+  induction code generalizing index Δ with
+  | terminator => simp [rewriteAt?] at done
+  | @letOp _ _ width op operands rest ih =>
+    cases index with
+    | zero =>
+      by_cases same : width = consumer
+      · subst width
+        simp [rewriteAt?] at done
+        rw [← done]
+        exact liftCode_operations rest (replaceBinding rename keep) keep
+      · simp [rewriteAt?, same] at done
+    | succ index =>
+      simp only [rewriteAt?, Option.map_eq_some_iff] at done
+      obtain ⟨next, edited, rfl⟩ := done
+      simp only [operations, List.eraseIdx_cons_succ, ih edited]
 
 private theorem liftEdge_eval (rename : Rename Γ Δ) (keep : Var Δ consumer)
     (edge : Edge (Label saved carried result) Γ) (source : Env Γ) (target : Env Δ)
@@ -227,6 +256,12 @@ theorem replay?_routes (accepted : replay? g first consumerOrigin = some moved) 
   rw [emitted] at edit
   cases edit
   exact ⟨args, producer, operands, tail, entry, newEntry, header, exit, routed⟩
+
+theorem replay?_header_operations (accepted : replay? g first consumerOrigin = some moved) :
+    operations (moved.cfg.block .header) =
+      (operations (moved.prepared.intermediate.2.block .header)).eraseIdx moved.prepared.index := by
+  obtain ⟨_, _, _, _, _, _, rewritten, _⟩ := replay?_routes accepted (zeroEnv Input)
+  exact rewriteAt?_operations rewritten
 
 theorem replay?_run_eq (accepted : replay? g first consumerOrigin = some moved)
     (input : Env Input) (fuel : Nat) :
