@@ -145,4 +145,114 @@ example : ∃ out, RunsAt after 2 (.store 0xffffffff 0) out ∧ Admitted after o
   (v1_run_iff_at (host := host) immediate updatedFound (a := .store 0xffffffff 0) trivial).mp
     (.single (.intStoreTrap _ _ _ _ _ _ _ addr updated rfl (by decide)))
 
+section Activation
+
+open V1.Execution (Step Steps values)
+
+private def writerAddr : Runtime.FuncAddr := ⟨0⟩
+private def writerModule : Runtime.ModuleInst := { memories := [addr] }
+private def writerType : V1.FuncType := ⟨[], []⟩
+private def writer : V1.Func :=
+  ⟨⟨0⟩, [.int .i64], [.intConst .i32 1, .intConst .i32 0x11223344, .intStore .i32 none immediate]⟩
+private def writerFrame : Runtime.Frame := ⟨[.int .i64 0], writerModule⟩
+private def writerStore : V1.Execution.Store Unit :=
+  { initialStore with funcs := [.wasm writerType writerModule writer] }
+private def writtenStore := V1.Execution.setMemory writerStore addr updated
+private def reader : Runtime.Frame := { frame with module := { frame.module with funcs := [writerAddr] } }
+private def readerSaved : List Runtime.Value := [.int .i64 7, .int .i32 1]
+private def readerTail : List V1.Execution.Admin := [.source (.intLoad .i32 none immediate)]
+private def writerCode := v1ConfigAt immediate writerStore writerFrame addr initial (.store 1 0x11223344)
+
+private theorem writerMemory : V1.Execution.frameMemory writerStore writerFrame = some (addr, initial) := rfl
+private theorem readerMemory : V1.Execution.frameMemory writerStore reader = some (addr, initial) := rfl
+private theorem afterWrite : V1.Execution.frameMemory writtenStore reader = some (addr, updated) :=
+  v1_frameMemory_setBytes readerMemory after
+
+private theorem activeWrite : Step host
+    ⟨writerStore, reader, v1ActivationCode none writerFrame readerSaved readerTail writerCode.code⟩
+    ⟨writtenStore, reader, v1ActivationCode none writerFrame readerSaved readerTail []⟩ :=
+  (v1_activation_store_step_iff_at (immediate := immediate) (saved := []) (tail := []) writerMemory).mpr
+    ⟨.written after, offsetWrite, rfl⟩
+
+-- The ordinary invocation enters its own function label. The caller retains
+-- its i64 operand beneath the address and observes the shared write after return.
+example : Steps host
+    ⟨writerStore, reader, values readerSaved ++ [.source (.call ⟨0⟩)] ++ readerTail⟩
+    ⟨writtenStore, reader, values [.int .i64 7, .int .i32 0x11223344]⟩ := by
+  apply Relation.ReflTransGen.head
+    (b := ⟨writerStore, reader, values readerSaved ++ [.invoke writerAddr] ++ readerTail⟩)
+    (Step.context (.call writerStore reader ⟨0⟩ writerAddr rfl) readerSaved readerTail)
+  apply Relation.ReflTransGen.head
+    (b := ⟨writerStore, reader, v1ActivationCode none writerFrame readerSaved readerTail writerCode.code⟩)
+    (Step.context (.invokeWasm writerStore reader writerAddr writerType writerModule writer [] rfl rfl
+      (by decide)) readerSaved readerTail)
+  apply Relation.ReflTransGen.head activeWrite
+  apply Relation.ReflTransGen.head
+    (b := ⟨writtenStore, reader, values readerSaved ++ [.frame 0 writerFrame []] ++ readerTail⟩)
+    (Step.context (.frame (.pure writtenStore writerFrame (.labelDone 0 [] [])) 0 reader) readerSaved readerTail)
+  apply Relation.ReflTransGen.head
+    (b := ⟨writtenStore, reader, values readerSaved ++ readerTail⟩)
+    (Step.context (.pure writtenStore reader (.frameDone 0 writerFrame [] rfl)) readerSaved readerTail)
+  exact .single ((v1_context_load_step_iff_at (immediate := immediate) (saved := [.int .i64 7])
+    (tail := []) afterWrite).mpr ⟨.value 0x11223344, offsetLoad, rfl⟩)
+
+example : writtenStore.funcs = writerStore.funcs ∧ writtenStore.memories = [other, updated] := ⟨rfl, rfl⟩
+
+private def unallocatedCaller : Runtime.Frame := ⟨frame.locals, {}⟩
+
+example : Step host
+    ⟨writtenStore, unallocatedCaller, v1ActivationCode (some (.int .i32)) reader [] []
+      (MemoryQuery.v1CodeAt immediate (.load 1))⟩
+    ⟨writtenStore, unallocatedCaller, v1ActivationCode (some (.int .i32)) reader [] []
+      (MemoryQuery.v1CodeAt immediate (.value 0x11223344))⟩ :=
+  (v1_activation_load_step_iff_at (saved := []) (tail := []) afterWrite).mpr
+    ⟨.value 0x11223344, offsetLoad, rfl⟩
+
+private def calleeSaved : List Runtime.Value := [.int .i64 19]
+private def calleeTail : List V1.Execution.Admin := [.source .nop]
+private def failing := v1ConfigAt immediate writtenStore writerFrame addr updated (.store 3 0)
+private def trappedCode : List V1.Execution.Admin := values calleeSaved ++ [.trap] ++ calleeTail
+private theorem writerMemoryAfter : V1.Execution.frameMemory writtenStore writerFrame = some (addr, updated) :=
+  v1_frameMemory_setBytes writerMemory after
+
+-- The supplied bounds trap is native. The theorem reads it back while both
+-- frames still retain their pending continuations.
+private theorem boundsStep : Step host
+    ⟨writtenStore, reader, v1ActivationCode none writerFrame readerSaved readerTail
+      (values calleeSaved ++ failing.code ++ calleeTail)⟩
+    ⟨writtenStore, reader, v1ActivationCode none writerFrame readerSaved readerTail trappedCode⟩ :=
+  .context (.frame (.label (.context
+    (.intStoreTrap writtenStore writerFrame .i32 none immediate 3 0 addr updated
+      writerMemoryAfter (by decide)) calleeSaved calleeTail) 0 []) 0 reader) readerSaved readerTail
+
+example : ∃ out, EdgeAt after 2 (.store 3 0) out ∧
+    let next := v1ConfigAt immediate writtenStore writerFrame addr updated out
+    (⟨writtenStore, reader, v1ActivationCode none writerFrame readerSaved readerTail trappedCode⟩ :
+      V1.Execution.Config Unit) =
+      ⟨next.store, reader, v1ActivationCode none next.frame readerSaved readerTail
+        (values calleeSaved ++ next.code ++ calleeTail)⟩ :=
+  (v1_activation_store_step_iff_at (immediate := immediate) (saved := calleeSaved)
+    (tail := calleeTail) writerMemoryAfter).mp boundsStep
+
+-- Native discard removes the callee suffix, then the label and frame. Only
+-- then does it discard the caller's operands and skip its pending load.
+example : Steps host
+    ⟨writtenStore, reader, v1ActivationCode none writerFrame readerSaved readerTail
+      (values calleeSaved ++ failing.code ++ calleeTail)⟩
+    ⟨writtenStore, reader, [.trap]⟩ := by
+  apply Relation.ReflTransGen.head boundsStep
+  apply Relation.ReflTransGen.head
+    (b := ⟨writtenStore, reader, v1ActivationCode none writerFrame readerSaved readerTail [.trap]⟩)
+    (Step.context (.frame (.label (.pure writtenStore writerFrame (.trapValues (.int .i64 19) []
+      calleeTail)) 0 []) 0 reader) readerSaved readerTail)
+  apply Relation.ReflTransGen.head
+    (b := ⟨writtenStore, reader, values readerSaved ++ [.frame 0 writerFrame [.trap]] ++ readerTail⟩)
+    (Step.context (.frame (.pure writtenStore writerFrame (.labelTrap 0 [])) 0 reader) readerSaved readerTail)
+  apply Relation.ReflTransGen.head
+    (b := ⟨writtenStore, reader, values readerSaved ++ [.trap] ++ readerTail⟩)
+    (Step.context (.pure writtenStore reader (.frameTrap 0 writerFrame)) readerSaved readerTail)
+  exact .single (.pure writtenStore reader (.trapValues (.int .i64 7) [.int .i32 1] readerTail))
+
+end Activation
+
 end Offset

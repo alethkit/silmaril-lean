@@ -35,6 +35,15 @@ abbrev v1Config {H : Type} := v1ConfigAt (H := H) MemoryQuery.arg
 abbrev limeConfig {H : Type} := limeConfigAt (H := H) MemoryQuery.arg
 abbrev coreConfig {H : Type} := coreConfigAt (H := H) MemoryQuery.arg
 
+/-- An entered V1 function frame with its implicit function label. The scalar
+result type fixes the native arity, and the caller's operands and tail stay
+outside the callee. -/
+def v1ActivationCode (result : Option NumType) (callee : Frame)
+    (saved : List Execution.Runtime.Value) (tail body : List Wasm.V1.Execution.Admin) :
+    List Wasm.V1.Execution.Admin :=
+  let arity := result.toList.length
+  Wasm.V1.Execution.values saved ++ .frame arity callee [.label arity [] body] :: tail
+
 /-- The allocated slot selected by the module's zero index has a 32-bit address type. -/
 def CoreMemory32 {H : Type} (s : Core.Store H) (f : Core.Frame) (a : Nat) (m : Core.MemInst) : Prop :=
   s.mem? f MemoryQuery.index = some (a, m) ∧ m.type.address = .i32
