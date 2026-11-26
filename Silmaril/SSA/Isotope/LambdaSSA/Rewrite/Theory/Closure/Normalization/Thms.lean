@@ -11,7 +11,17 @@ universe u v
 
 namespace Silmaril.Isotope.LambdaSSA.Region
 
-variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
+variable {Φ : Type v}
+
+theorem bindBranchArguments_substVars (r : Region Φ) (σ : Nat → Tm Φ) :
+    (r.substVars σ).bindBranchArguments = r.bindBranchArguments.substVars σ :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.bindBranchArguments_substVars r σ
+
+theorem bindBranchArguments_renameLabels (r : Region Φ) (ρ : Nat → Nat) :
+    (r.renameLabels ρ).bindBranchArguments = r.bindBranchArguments.renameLabels ρ :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.bindBranchArguments_renameLabels r ρ
+
+variable {τ : Type u} [TypeFormers τ] [HasTy Φ τ]
 
 /-- Branch normalization preserves native rewrite equivalence at any exact
 input and exit contexts. -/

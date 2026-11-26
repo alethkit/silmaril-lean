@@ -12,6 +12,12 @@ universe u v
 
 namespace Silmaril.Isotope.LambdaSSA.Region
 
+/-- Branch binding commutes with weakening the captures of a continuation family. -/
+theorem bindBranchArguments_liftLSubstVars {Φ : Type v} (σ : Nat → Region Φ) :
+    (fun i => (liftLSubstVars σ i).bindBranchArguments) =
+      liftLSubstVars (fun i => (σ i).bindBranchArguments) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.normalizeLiftVars σ
+
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
   {Γ : VCtx τ} {L K P : LCtx τ}
 
