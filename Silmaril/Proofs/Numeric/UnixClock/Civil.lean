@@ -199,6 +199,24 @@ theorem unixSeconds_whole (ticks : Int) :
     unixSeconds (⟨ticks⟩ : Ticks .utcInstant .second) = (ticks : ℝ) := by
   simp [unixSeconds, Ticks.denote, TickUnit.nanosecondsPerTick]
 
+theorem unixSeconds_nanoseconds_eq_iff (stamp : Ticks .utcInstant .nanosecond) (seconds : ℝ) :
+    unixSeconds stamp = seconds ↔ (stamp.ticks : ℝ) = seconds * 1000000000 := by
+  simpa [unixSeconds, Ticks.denote, TickUnit.nanosecondsPerTick] using
+    (div_eq_iff (by norm_num : (1000000000 : ℝ) ≠ 0) :
+      (stamp.ticks : ℝ) / 1000000000 = seconds ↔ (stamp.ticks : ℝ) = seconds * 1000000000)
+
+theorem existsUnique_unixSeconds_nanosecond_iff (seconds : ℝ) :
+    (∃! stamp : Ticks .utcInstant .nanosecond, unixSeconds stamp = seconds) ↔
+      ∃ ticks : Int, (ticks : ℝ) = seconds * 1000000000 := by
+  constructor
+  · rintro ⟨stamp, h, _⟩
+    exact ⟨stamp.ticks, (unixSeconds_nanoseconds_eq_iff stamp seconds).mp h⟩
+  · rintro ⟨n, hn⟩
+    refine ⟨⟨n⟩, (unixSeconds_nanoseconds_eq_iff ⟨n⟩ seconds).mpr hn, ?_⟩
+    rintro ⟨m⟩ hm
+    have hcast := ((unixSeconds_nanoseconds_eq_iff ⟨m⟩ seconds).mp hm).trans hn.symm
+    exact congrArg (fun k : Int => (⟨k⟩ : Ticks .utcInstant .nanosecond)) (Int.cast_injective hcast)
+
 theorem iersToTAI_eq_some_iff {label : CivilLabel} {t : ℝ} :
     iersToTAI? label = some t ↔ t ∈ iersDomain ∧ iersSchedule.toTAI? label = some t := by
   cases h : iersSchedule.toTAI? label with

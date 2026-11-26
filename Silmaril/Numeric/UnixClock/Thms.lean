@@ -266,6 +266,17 @@ theorem unixSeconds_eq_of_denote_eq {source target : Timestamp.TickUnit}
     (h : a.denote = b.denote) : unixSeconds a = unixSeconds b :=
   congrArg (fun stamp : Timestamp.Ticks .utcInstant .nanosecond => (stamp.ticks : ℝ) / 1000000000) h
 
+/-- Exact handoff from nominal seconds to a signed nanosecond Unix timestamp. -/
+theorem unixSeconds_nanoseconds_eq_iff (stamp : Timestamp.Ticks .utcInstant .nanosecond)
+    (seconds : ℝ) : unixSeconds stamp = seconds ↔ (stamp.ticks : ℝ) = seconds * 1000000000 :=
+  Proofs.Numeric.UnixClock.unixSeconds_nanoseconds_eq_iff stamp seconds
+
+/-- A nominal reading has a unique exact timestamp precisely on the nanosecond grid. -/
+theorem existsUnique_unixSeconds_nanosecond_iff (seconds : ℝ) :
+    (∃! stamp : Timestamp.Ticks .utcInstant .nanosecond, unixSeconds stamp = seconds) ↔
+      ∃ ticks : Int, (ticks : ℝ) = seconds * 1000000000 :=
+  Proofs.Numeric.UnixClock.existsUnique_unixSeconds_nanosecond_iff seconds
+
 /-- The historical encoder accepts exactly the valid labels in the published interval. -/
 theorem iersToTAI_eq_some_iff {label : CivilLabel} {t : ℝ} :
     iersToTAI? label = some t ↔ t ∈ iersDomain ∧ iersSchedule.toTAI? label = some t :=

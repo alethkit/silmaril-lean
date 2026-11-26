@@ -36,6 +36,21 @@ example :
   apply Timestamp.Ticks.rescale_eq_some_iff.mp
   decide +kernel
 
+example :
+    unixSeconds (⟨-1⟩ : Timestamp.Ticks .utcInstant .nanosecond) = -1 / 1000000000 := by
+  apply (unixSeconds_nanoseconds_eq_iff _ _).mpr
+  norm_num
+
+example : ¬ ∃ stamp : Timestamp.Ticks .utcInstant .nanosecond,
+    unixSeconds stamp = 1 / 2000000000 := by
+  rintro ⟨stamp, h⟩
+  have hn := (unixSeconds_nanoseconds_eq_iff stamp _).mp h
+  have h0 : (0 : ℝ) < stamp.ticks := by linarith
+  have h1 : (stamp.ticks : ℝ) < 1 := by linarith
+  have hi0 : (0 : Int) < stamp.ticks := by exact_mod_cast h0
+  have hi1 : stamp.ticks < (1 : Int) := by exact_mod_cast h1
+  omega
+
 private def iersRows : List (CivilDate × Int) :=
   [(⟨1972, 1, 1⟩, 10), (⟨1972, 7, 1⟩, 11), (⟨1973, 1, 1⟩, 12), (⟨1974, 1, 1⟩, 13),
    (⟨1975, 1, 1⟩, 14), (⟨1976, 1, 1⟩, 15), (⟨1977, 1, 1⟩, 16), (⟨1978, 1, 1⟩, 17),

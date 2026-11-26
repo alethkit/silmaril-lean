@@ -24,6 +24,30 @@ system's current epoch count and actual UTC unspecified. `Schedule.sharp` implem
 the right-edge fold defined below as one particular projection.
 [POSIX.1-2024, §4.19](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap04.html#tag_04_19)
 
+## Composing with a timezone conversion
+
+The handoff type is `Timestamp.Ticks .utcInstant .nanosecond`. Its signed count
+`n` denotes `n / 10^9` nominal seconds from 1970-01-01 00:00:00 UTC. A physical
+instant first goes through the selected `Convention.forward`, such as
+`iersUnix.forward`, to obtain nominal seconds `y`. An ordinary Gregorian label
+can instead use `civilToUnix?`.
+
+For exact composition, pass `⟨n⟩` to the timezone model with the equality
+`(n : ℝ) = y * 10^9`. The laws `unixSeconds_nanoseconds_eq_iff` and
+`existsUnique_unixSeconds_nanosecond_iff` establish exact denotation and
+uniqueness. An existing integral Unix timestamp in a different unit can use
+`Timestamp.Ticks.denote` to obtain the same nanosecond type directly. For
+off-grid readings, the caller supplies an explicit quantization rule and passes
+the resulting signed nanosecond count. In the reverse direction `unixSeconds`
+embeds any selected nominal timestamp exactly.
+
+A timezone conversion produces `Timestamp.Ticks .localReading .nanosecond`.
+On reverse conversion, the timezone layer relates that local reading to nominal
+Unix candidates. Each nominal candidate can then be passed through
+`unixSeconds` and into the physical `Convention.fiber` for the chosen leap
+projection. The timezone relation and the leap relation each retain their own
+folds and gaps.
+
 ## Signed leap schedule and published support
 
 A schedule keys each signed unit adjustment by the Gregorian epoch day of the
