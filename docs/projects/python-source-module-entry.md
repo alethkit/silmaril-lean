@@ -149,17 +149,31 @@ finite profile at that operand. A decimal literal conversion that produces
 infinity fails checking. Both addition paths use the existing ordered call
 preparation and seeded receipt delivery.
 
+Subtraction checks two closed integer expressions with exact unbounded
+integer arithmetic. A positional subtraction with a finite decimal
+literal on at least one side keeps the source operand order and defers
+evaluation until argument preparation. The runner first rounds the
+integer operand, if present, to binary64. It then negates the right
+operand's exact dyadic value, flips its sign bit for the zero rule, and
+rounds the sum once. In particular, `-0.0 - 0` yields negative zero and
+`-0.0 - -0.0` yields positive zero. Integer conversion failure raises
+`OverflowError`. A finite-operand difference that rounds to infinity
+stops at the operand outside the runtime profile. Nonfinite literals
+and nonnumeric pairs remain outside the checked source profile.
+
 Line 28 of `test_int_float_primitives.py`, `___assertEqual(5 / 2, 2.5)`,
 completes in isolation in both helper placements. Ordinary and empty-seeded
 execution report the missing helper. The closed integer checker also lowers
 the exact sum in line 1, `___assertEqual(4 + 2, 6)`, to an integer call
 operand. Lines 1, 3 and 5 complete in isolation in both helper placements.
-The first eight unchanged lines complete with `legacyNumericIsinstanceSeed`
+The first seventeen unchanged lines complete with `legacyNumericIsinstanceSeed`
 in both helper placements. It installs the stock `float` class in the
 builtin table and the Boolean assertion helper in the selected placement.
-The probes on lines 2, 4, 6 and 8 record exact Boolean `True` before the
-outer helper's `None` receipt. The two mixed sums and the float–float sum
-supply finite binary64 `6.0`. Instance dispatch uses the live module-first
+All eight probes record exact Boolean `True` before the outer helper's
+`None` receipt. The two mixed sums and the float–float sum supply finite
+binary64 `6.0`. The mixed and float–float differences supply finite
+binary64 `2.0` and the integer difference yields integer `2`.
+Instance dispatch uses the live module-first
 descriptors. A saved class alias still works after rebinding `float`, and an `int` or `bool`
 mask yields exact `False` before the assertion fails. The checked pairs use
 exact Boolean, integer and finite float values against stock `bool`,
@@ -170,11 +184,11 @@ Ordinary and empty-seeded runs stop at the missing equality helper on
 line 1. The fixed stock profiles reach the missing Boolean assertion
 helper on line 2. Supplying that helper and only the integer and Boolean
 classes leaves the `float` lookup on line 4 undefined. The first
-rejected compiler prefix is line 10, `___assertEqual(4 - 2, 2)`,
+rejected compiler prefix is line 19, `___assertEqual(4 * 2, 8)`,
 and the full file reports `expressionProfile`.
-Run the binary64 addition differential with
+Run the binary64 addition and subtraction differential with
 `python3.13 -I scripts/check-python-mixed-finite-addition.py --upstream /path/to/pinned/rigorous`.
-Run the equality and positional addition differential with
+Run the equality and positional arithmetic differential with
 `python3.13 -I scripts/check-python-finite-numeric-equality.py --upstream /path/to/pinned/rigorous`.
 Run the transport differential with
 `python3.13 -I scripts/check-python-division-call-transport.py --upstream /path/to/pinned/rigorous`.

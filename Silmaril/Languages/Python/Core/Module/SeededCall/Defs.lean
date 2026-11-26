@@ -156,6 +156,7 @@ inductive Operand (slots : Nat) where
   | intTrueDiv (numerator divisor : Int)
   | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite)
+  | floatSub (operands : Core.Binary64.FloatOperands)
   | local (slot : Fin slots)
   | global (name : String)
   | tuple (items : List Core.Closure.GlobalTupleItem)
@@ -174,16 +175,20 @@ def evalTupleContents (space : Namespace) (items : List Core.Closure.GlobalTuple
     Except Failure (List Core.Module.TupleDispatch.Element) :=
   Core.Closure.assembleFlatTuple (readTupleItem space) Value.tupleElement? .unsupported items
 
+def floatArithmeticResult
+    (result : Except Core.Binary64.FloatArithmeticError Silmaril.Numeric.Ieee754.F64.Finite) : Result :=
+  result.map Value.float64 |>.mapError fun
+    | .conversionOverflow => .raised (.runtime .overflowError)
+    | .nonfiniteResult => .unsupported
+
 def Operand.eval {slots : Nat} (space : Namespace) (locals : Locals slots) : Operand slots → Result
   | .literal value => .ok value
   | .intTrueDiv numerator divisor =>
     (Core.Closure.trueDivideInt numerator divisor).map Value.float64 |>.mapError (Failure.raised ∘ .runtime)
-  | .mixedAdd integer floating =>
-    (Core.Binary64.mixedAdd integer floating).map Value.float64 |>.mapError fun
-      | .conversionOverflow => .raised (.runtime .overflowError)
-      | .nonfiniteResult => .unsupported
+  | .mixedAdd integer floating => floatArithmeticResult (Core.Binary64.mixedAdd integer floating)
   | .floatAdd left right =>
     (Core.Binary64.addFinite? left right).elim (.error .unsupported) (.ok ∘ Value.float64)
+  | .floatSub operands => floatArithmeticResult (Core.Binary64.subtract operands)
   | .local slot =>
     (locals.get slot).elim (.error (.raised (.runtime (.unboundLocal slot.val)))) .ok
   | .global name =>

@@ -55,20 +55,34 @@ def intToFinite? (integer : Int) : Option F64.Finite :=
   F64.Finite.ofRaw? (F64.ofBits (roundSigned (decide (integer < 0)) (integer.natAbs : ℚ)))
 
 /-- A zero sum is negative only for two negative zeros under nearest-even. -/
+def sumSign (leftNegative rightNegative : Bool) (sum : ℚ) : Bool :=
+  decide (sum < 0) || (decide (sum = 0) && (leftNegative && rightNegative))
+
 def sumNegative (left right : F64.Finite) (sum : ℚ) : Bool :=
-  decide (sum < 0) || (decide (sum = 0) && (left.val.signBit && right.val.signBit))
+  sumSign left.val.signBit right.val.signBit sum
+
+def roundSum? (leftNegative rightNegative : Bool) (sum : ℚ) : Option F64.Finite :=
+  F64.Finite.ofRaw? (F64.ofBits (roundSigned (sumSign leftNegative rightNegative sum) |sum|))
 
 /-- Round the exact dyadic sum once. The finite profile excludes overflow. -/
 def addFinite? (left right : F64.Finite) : Option F64.Finite := do
   let lhs ← left.val.toRat?
   let rhs ← right.val.toRat?
-  let sum := lhs + rhs
-  F64.Finite.ofRaw? (F64.ofBits (roundSigned (sumNegative left right sum) |sum|))
+  roundSum? left.val.signBit right.val.signBit (lhs + rhs)
 
+/-- Negate the exact right addend and invert its sign, including for zero. -/
+def subFinite? (left right : F64.Finite) : Option F64.Finite := do
+  let lhs ← left.val.toRat?
+  let rhs ← right.val.toRat?
+  roundSum? left.val.signBit (!right.val.signBit) (lhs - rhs)
+
+/-- Conversion and result errors shared by floating-point arithmetic. -/
 inductive MixedAddError where
   | conversionOverflow
   | nonfiniteResult
   deriving DecidableEq, Repr
+
+abbrev FloatArithmeticError := MixedAddError
 
 /-- Coercion overflow is a defined exception. A nonfinite sum is outside
 the checked result profile. -/
@@ -76,6 +90,23 @@ def mixedAdd (integer : Int) (floating : F64.Finite) : Except MixedAddError F64.
   match intToFinite? integer with
   | none => .error .conversionOverflow
   | some converted => (addFinite? converted floating).elim (.error .nonfiniteResult) .ok
+
+/-- Ordered exact operands with at least one finite float. -/
+inductive FloatOperands where
+  | intFloat (left : Int) (right : F64.Finite)
+  | floatInt (left : F64.Finite) (right : Int)
+  | floatFloat (left right : F64.Finite)
+
+def FloatOperands.convert? : FloatOperands → Option (F64.Finite × F64.Finite)
+  | .intFloat left right => (intToFinite? left).map (·, right)
+  | .floatInt left right => (intToFinite? right).map (left, ·)
+  | .floatFloat left right => some (left, right)
+
+/-- Convert the integer, if any, before the exact subtraction rounds. -/
+def subtract (operands : FloatOperands) : Except FloatArithmeticError F64.Finite :=
+  match operands.convert? with
+  | none => .error .conversionOverflow
+  | some (left, right) => (subFinite? left right).elim (.error .nonfiniteResult) .ok
 
 inductive DivisionError where
   | zeroDivisionError

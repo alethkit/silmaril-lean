@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Replay finite binary64 addition in checked call operands against CPython."""
+"""Replay finite binary64 addition and subtraction in call operands against CPython."""
 
 import argparse
 import hashlib
@@ -24,6 +24,7 @@ observe = EQUALITY["observe"]
 MAX_FINITE_INTEGER = (2**53 - 1) * 2**971
 CONVERSION_MIDPOINT = 2**1024 - 2**970
 FLOAT_OVERFLOW = "1.7976931348623157e308 + 9.9792015476736e291"
+SUB_OVERFLOW = "1.7976931348623157e308 - -9.9792015476736e291"
 
 
 def nonfinite_control(expression, expected_bits):
@@ -82,6 +83,74 @@ def float_controls():
     fixtures.extend((
         nonfinite_control(FLOAT_OVERFLOW, "7ff0000000000000"),
         nonfinite_control("-1.7976931348623157e308 + -9.9792015476736e291", "fff0000000000000"),
+    ))
+    return fixtures, observations, expected_bits
+
+
+def subtraction_controls():
+    cases = {
+        "mixed_left": ("4 - 2.0", "4000000000000000"),
+        "mixed_right": ("2.0 - 4", "c000000000000000"),
+        "floats_reversed": ("2.0 - 4.0", "c000000000000000"),
+        "integer_left_rounding": ("9007199254740993 - 9007199254740992.0", "0000000000000000"),
+        "integer_right_rounding": ("9007199254740992.0 - 9007199254740993", "0000000000000000"),
+        "negative_zero": ("-0.0 - 0.0", "8000000000000000"),
+        "negative_zero_int": ("-0.0 - 0", "8000000000000000"),
+        "subtract_negative_zero": ("0 - -0.0", "0000000000000000"),
+        "two_negative_zeros": ("-0.0 - -0.0", "0000000000000000"),
+        "subnormal": ("2.2250738585072014e-308 - 2.225073858507201e-308", "0000000000000001"),
+        "negative_subnormal": ("5e-324 - 1e-323", "8000000000000001"),
+        "lower_tie": ("1.0 - -1.1102230246251565e-16", "3ff0000000000000"),
+        "upper_tie": ("1.0 - -3.3306690738754696e-16", "3ff0000000000002"),
+        "below_overflow_midpoint": ("1.7976931348623157e308 - -9.979201547673598e291", "7fefffffffffffff"),
+        "integer_below_conversion_midpoint": (f"{CONVERSION_MIDPOINT - 1} - 0.0", "7fefffffffffffff"),
+    }
+    finite = PREFIX + "".join(f"{name} = relay({expression})\n" for name, (expression, _) in cases.items())
+    expected_bits = {name: result for name, (_, result) in cases.items()}
+    namespace = EQUALITY["cpython"](finite, "ordinary")[2]
+    assert {name: bits(namespace[name]) for name in cases} == expected_bits
+
+    missing = "NameError:___assertEqual"
+    fixtures = []
+    observations = {}
+    integer_differences = PREFIX + (
+        "___assertEqual(-3 - -2, -1)\n___assertEqual(2 - (3 - 4), 3)\n"
+        "___assertEqual((2**1024 - 1) - (2**1024 - 2), 1)\n"
+    )
+    fixture, observed = observe(integer_differences, expect(missing, "normal"), {"empty": HELPER})
+    fixtures.append(fixture)
+    observations["exact integer differences"] = observed
+
+    for label, source, expected in (
+        ("subtraction bits", finite, expect("normal", "normal")),
+        ("left integer conversion overflow", PREFIX +
+         f"bad = relay({CONVERSION_MIDPOINT} - 1.7976931348623157e308)\ntail = 9\n",
+         expect("OverflowError", "OverflowError")),
+        ("right integer conversion overflow", PREFIX +
+         f"bad = relay(1.7976931348623157e308 - {CONVERSION_MIDPOINT})\ntail = 9\n",
+         expect("OverflowError", "OverflowError")),
+        ("subtraction conversion before right lookup and mask", PREFIX + "___assertEqual = 0\n"
+         f"___assertEqual(1.0 - {CONVERSION_MIDPOINT}, missing)\ntail = 9\n",
+         expect("OverflowError", "OverflowError")),
+        ("subtraction operand lookup before noncallable mask", PREFIX + "___assertEqual = 0\n"
+         "___assertEqual(4.0 - 2.0, missing)\ntail = 9\n", expect("NameError:missing", "NameError:missing")),
+        ("subtraction mask after preparation", PREFIX + "___assertEqual = 0\n"
+         "___assertEqual(4.0 - 2.0, 2.0)\ntail = 9\n", expect("TypeError", "TypeError")),
+        ("missing callee before subtraction conversion", PREFIX +
+         f"___assertEqual({CONVERSION_MIDPOINT} - 1.0, missing)\ntail = 9\n",
+         expect(missing, "OverflowError")),
+        ("left lookup before right subtraction overflow", PREFIX +
+         f"___assertEqual(missing, {SUB_OVERFLOW})\ntail = 9\n", expect(missing, "NameError:missing")),
+        ("subtraction receipt before right lookup", PREFIX +
+         "___assertEqual(relay(2.0 - 4), missing)\ntail = 9\n", expect(missing, "NameError:missing")),
+    ):
+        fixture, observed = observe(source, expected)
+        fixtures.append(fixture)
+        observations[label] = observed
+
+    fixtures.extend((
+        nonfinite_control(SUB_OVERFLOW, "7ff0000000000000"),
+        nonfinite_control("-1.7976931348623157e308 - 9.9792015476736e291", "fff0000000000000"),
     ))
     return fixtures, observations, expected_bits
 
@@ -161,12 +230,20 @@ def controls(upstream):
     float_fixtures, float_observations, float_bits = float_controls()
     fixtures.extend(float_fixtures)
     observations.update(float_observations)
+    sub_fixtures, sub_observations, sub_bits = subtraction_controls()
+    fixtures.extend(sub_fixtures)
+    observations.update(sub_observations)
     rejected = """#guard (match compile pythonSource with
   | .error (.source (.scalar .expressionProfile)) => true
   | _ => false)"""
     fixtures.extend((f"relay({expression})\n", rejected) for expression in
                     ("(4 + 2.0) + 1", "(4.0 + 2.0) + 1.0", "4 + 1e999", "4.0 + 1e999", "1e999 + 2.0"))
-    return fixtures, observations, expected_bits, float_bits
+    for expression in ("None - 2", "1.0 - None"):
+        source = PREFIX + f"relay({expression})\n"
+        assert EQUALITY["cpython"](source, "ordinary")[0] == "TypeError"
+        fixtures.append((source, rejected))
+    fixtures.extend((f"relay({expression})\n", rejected) for expression in ("1e999 - 2.0", "2.0 - 1e999"))
+    return fixtures, observations, expected_bits, float_bits, sub_bits
 
 
 if __name__ == "__main__":
@@ -179,13 +256,15 @@ if __name__ == "__main__":
         assert sys.version_info[:3] == (3, 13, 5), sys.version
         revision = subprocess.check_output(["git", "-C", str(args.upstream), "rev-parse", "HEAD"], text=True).strip()
         assert revision == QUOTIENT["UPSTREAM"]
-    fixtures, observed, result_bits, float_bits = controls(args.upstream)
+    fixtures, observed, result_bits, float_bits, sub_bits = controls(args.upstream)
     with tempfile.TemporaryDirectory() as directory:
         source, lean = Path(directory) / "Fixture.py", Path(directory) / "Fixtures.lean"
         INTAKE["check_lean_batch"](source, lean, fixtures, EQUALITY["LEAN"], extra_imports=TRANSPORT["SUITE"]["IMPORTS"])
     print(json.dumps({"cpython": ".".join(map(str, sys.version_info[:3])), "upstream": revision,
                       "fixtures": len(fixtures), "result_bits": result_bits, "float_result_bits": float_bits,
-                      "observations": observed,
+                      "subtraction_bits": sub_bits, "observations": observed,
                       "nonfinite_result": {"cpython_bits": "7ff0000000000000", "lean": "unsupported"},
                       "float_overflow": {"cpython_bits": ["7ff0000000000000", "fff0000000000000"],
-                                         "lean": "unsupported"}}))
+                                         "lean": "unsupported"},
+                      "subtraction_overflow": {"cpython_bits": ["7ff0000000000000", "fff0000000000000"],
+                                               "lean": "unsupported"}}))
