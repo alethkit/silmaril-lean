@@ -126,6 +126,11 @@ def linkBody {layout : Layout} (first : Nat) (tree : ScopeTree) : Body.Code layo
     let entry : Entry Code := ⟨childLayout, { parameters, body := nested.code }⟩
     ⟨.closure slot path ⟨first, childLayout⟩ captures tail.code,
       (((Block.mk path entry).withFreeVars tree).withCellVars tree).withCodeNames tree :: (nested.children ++ tail.children)⟩
+  | .returnClosure path childLayout parameters captures child =>
+    let nested := linkBody (first + 1) tree child
+    let entry : Entry Code := ⟨childLayout, { parameters, body := nested.code }⟩
+    ⟨.returnClosure path ⟨first, childLayout⟩ captures,
+      (((Block.mk path entry).withFreeVars tree).withCellVars tree).withCodeNames tree :: nested.children⟩
 
 structure Program where
   entry : CodeRef

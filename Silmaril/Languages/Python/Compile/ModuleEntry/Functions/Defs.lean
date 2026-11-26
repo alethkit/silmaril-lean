@@ -235,6 +235,11 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (remaining : Translation tree (index + 1) rest tail) :
       Translation tree index (.functionDef name declaration body [] none :: rest)
         (.define name reference child parameters code :: tail)
+  | defineLambda {index statement name declaration body rest child reference parameters code tail}
+      (binding : Compile.Closure.Body.Assignment statement name (.lambda declaration body))
+      (definition : DefinitionTranslation tree index declaration [.return_ (some body)] child parameters code)
+      (remaining : Translation tree (index + 1) rest tail) :
+      Translation tree index (statement :: rest) (.define name reference child parameters code :: tail)
   | defineLiteralKeywordDefault {index name declaration body rest child reference parameter slot value code tail}
       (located : tree.children[index]? = some child)
       (path : child.scope.context.path = tree.scope.context.path ++ [index])
@@ -301,7 +306,24 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     let tail ← lowerPlan tree index rest
     return ⟨.assertNot operand.val :: tail.val, .assertNot operand.property tail.property⟩
   | statement :: rest => do
-    if let some ⟨(target, name, arguments), site⟩ := callSite? statement then
+    if let some ⟨(name, .lambda declaration body), binding⟩ := Compile.Closure.Body.assignment? statement then
+      unless declaration.all Compile.Closure.Body.fixed do throw (.functionBody .parameterProfile)
+      let path := tree.scope.context.path ++ [index]
+      match located : tree.children[index]? with
+      | none => throw (.functionScope path)
+      | some child =>
+        if scopeMatches : child.scope.context.path = path ∧ child.scope.context.kind = .function then
+          let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
+          let parameters ← (Compile.Closure.Body.checkParameters child.scope declaration).mapError .functionBody
+          let code ← (Compile.Closure.Body.lowerBodyWith child true 0 [.return_ (some body)]).mapError .functionBody
+          let tail ← lowerPlan tree (index + 1) rest
+          let definition : DefinitionTranslation tree index declaration [.return_ (some body)] child
+              parameters.val code.val :=
+            ⟨located, scopeMatches.1, scopeMatches.2, parameters.property.1, parameters.property.2, code.property⟩
+          return ⟨.define name reference child parameters.val code.val :: tail.val,
+            .defineLambda binding definition tail.property⟩
+        else throw (.functionScope path)
+    else if let some ⟨(target, name, arguments), site⟩ := callSite? statement then
       let destination ← lowerDestination tree.scope target
       let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
       match lowerArguments tree.scope arguments with

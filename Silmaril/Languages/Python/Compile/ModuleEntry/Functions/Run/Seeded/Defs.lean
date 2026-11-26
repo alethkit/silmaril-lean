@@ -225,6 +225,7 @@ def CallContext.acceptsPublishedCall (context : CallContext) (closure : Function
 forward the result of a closure created in this frame. -/
 def returnsClosure {layout : Core.Closure.Layout} (forwards : CodeRef → Bool) :
     Core.Closure.Executor.Body layout → (Fin layout.locals → Option CodeRef) → Bool
+  | .ret (.closure ..), _ => true
   | .ret (.read (.local slot)), locals => (locals slot).isSome
   | .store (.local slot) value rest, locals =>
     let ref := match value with

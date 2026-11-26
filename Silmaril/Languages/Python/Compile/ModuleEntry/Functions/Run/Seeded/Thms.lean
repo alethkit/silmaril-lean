@@ -280,6 +280,17 @@ theorem acceptsFactory_escaped {context : CallContext} {closure : Function} {ari
   have known : closure ∈ context.published ++ context.escaped := List.mem_append_right _ recorded
   simp [CallContext.acceptsFactory, CallContext.acceptsCallFrom, known, resolved, slots, shape]
 
+theorem acceptsFactory_returnClosure {context : CallContext} {closure : Function} {arity : Nat}
+    {definition : Core.Closure.Dispatch.Definition Core.Closure.Executor.Body closure.code.layout}
+    {ref : Core.Closure.CodeRef} {captures : Fin ref.layout.captures → Core.Closure.CaptureSlot closure.code.layout}
+    (recorded : closure ∈ context.published ++ context.escaped)
+    (resolved : Core.Closure.Dispatch.resolve context.table closure.code = .ok definition)
+    (slots : definition.parameters.slots.length = arity)
+    (body : definition.body = .ret (.closure ref captures)) :
+    context.acceptsFactory closure arity = true := by
+  simp [CallContext.acceptsFactory, CallContext.acceptsCallFrom, recorded, resolved, slots,
+    factoryCode, body, returnsClosure]
+
 theorem run_factory_unrecorded {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name target : String} {closure : Function} {arguments : List Core.Module.Functions.Operand}
     {values : List Value} {rest : List (Instruction scope)}
