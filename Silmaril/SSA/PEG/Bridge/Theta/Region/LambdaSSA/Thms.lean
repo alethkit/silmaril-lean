@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Defs
+public import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Schedule.Thms
 public import Silmaril.SSA.PEG.Bridge.Theta.Region.Tuple.Thms
 public import Silmaril.SSA.RVSDG.LambdaSSA.Theta.Operational.Thms
 import Silmaril.Proofs.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Correctness
@@ -13,6 +14,7 @@ open RVSDG (Port Tuple)
 open Silmaril.SSA.PEG.Bridge.Theta.Region.Ordered (Bundle)
 open RVSDG.LambdaSSA.Theta
 open Isotope (Value)
+open Isotope.LambdaSSA.Semantics (Env extend)
 open Isotope.LambdaSSA.Semantics.Region (Eval)
 
 universe u
@@ -24,14 +26,32 @@ variable (b : Bundle g slot allowInvariant) (m : TotalModel P)
 variable (input : Tuple m.toPEG.Value carried)
 
 theorem lower_hasType : (lower b).HasType [Packet carried] [Packet carried] :=
-  Operational.lower_hasType b.compile
+  Proofs.lower_hasType b
+
+/-- One native header visit reproduces the selector and ordered payload of
+one numbered θ body activation, preserving ambient state. -/
+theorem header_eval (env : Env (Atom m))
+    (input output : Tuple (Region.model m).Val (valuePorts carried)) (again : Bool)
+    (body : b.compile.body.run (Region.model m) input = RVSDG.Theta.bodyResult (Region.model m) again output)
+    (state : σ) :
+    Eval (instruction m) (extend env (Operational.pack (Region.model m) input)) (header b)
+      state (if again then 0 else 1) (Operational.pack (Region.model m) output) state :=
+  Proofs.header_eval b m env input output again body state
+
+/-- Compare every successful λSSA execution to a finite numbered θ return. -/
+theorem lower_eval_iff_returns (start finish : σ) (label : Nat) (payload : Value (Atom m)) :
+    Eval (instruction m) (Operational.inputEnv (Region.model m) (encode m input)) (lower b)
+      start label payload finish ↔
+      ∃ output, b.compile.Returns (Region.model m) (encode m input) output ∧
+        label = 0 ∧ payload = Operational.pack (Region.model m) output ∧ finish = start :=
+  Proofs.lower_eval_iff_returns b m input start finish label payload
 
 /-- Every finite target execution has the same ordered defined PEG result,
 with the unique external exit and unchanged ambient state, and conversely. -/
 theorem lower_eval_iff
     (neg : ∀ flag : Bool, m.run b.scalar.descriptor.negate (.cons ⟨flag⟩ .nil) = ⟨!flag⟩)
     (idx : Index 1) (start finish : σ) (label : Nat) (payload : Value (Operational.Atom (Region.model m))) :
-    Eval (Operational.instruction (Region.model m))
+    Eval (instruction m)
       (Operational.inputEnv (Region.model m) (encode m input)) (lower b) start label payload finish ↔
       ∃ output : Tuple m.toPEG.Value carried,
         g.observe m.toPEG (g.denote m.toPEG input b.demandWellFounded) idx = output.map (fun _ => some) ∧
@@ -43,7 +63,7 @@ defined eval prefixes from the single checked loop trace. -/
 theorem firstExit_of_eval
     (neg : ∀ flag : Bool, m.run b.scalar.descriptor.negate (.cons ⟨flag⟩ .nil) = ⟨!flag⟩)
     (idx : Index 1) (output : Tuple m.toPEG.Value carried) (state : σ)
-    (ran : Eval (Operational.instruction (Region.model m))
+    (ran : Eval (instruction m)
       (Operational.inputEnv (Region.model m) (encode m input)) (lower b)
       state 0 (Operational.pack (Region.model m) (encode m output)) state) :
     ∃ (k : Nat) (final : Tuple m.toPEG.Value (.bool :: carried)),

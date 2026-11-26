@@ -13,7 +13,7 @@ open Isotope (Value)
 open Isotope.LambdaSSA (Region)
 open Isotope.LambdaSSA.Semantics (Env)
 
-universe u v w x
+universe u v w x y
 
 variable {V S : Type u} {Op : Dialect.{u,v} V S}
 variable {carried ports : List (PortType V S)} {sigs : List (List (PortType V S))}
@@ -34,10 +34,15 @@ def step (g : RVSDG.Theta.Graph Op carried sigs) :
     LambdaSSA.Theta.Step (Instruction Op carried) (Packed carried) :=
   ⟨⟨sigs, g.body⟩, rfl, rfl⟩
 
+/-- Enter the single header at local label zero with the input packet.
+The header uses label zero for feedback and label one for external exit zero. -/
+def loop {Φ : Type y} (header : Region Φ) : Region Φ :=
+  .cfg (.br 0 (.var 0)) 1 (fun _ => header)
+
 /-- The existing CFG jumps to local label zero at entry and on continuation.
 Its other branch exits with the whole packet. -/
 def lower (g : RVSDG.Theta.Graph Op carried sigs) : Region (Instruction Op carried) :=
-  LambdaSSA.Theta.region (step g).op
+  loop (LambdaSSA.Theta.block (step g).op)
 
 variable (m : Model.{u,v,w} Op)
 
