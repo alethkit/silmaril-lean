@@ -271,3 +271,41 @@ shape check.
 ```sh
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Keep a live Store in a two-Store residual entry
+
+`Entry.Composition.Retained.lower graph entry version input` runs the
+existing entry-local pass. It then accepts a residual table of two
+argument-addressed Stores of argument words, followed by Return. The
+version is either 1 or 2 in that residual table. The checker compares the
+Stores' concrete cells at the supplied input. When they differ, either
+Store can be treated as the final write for purposes of proving the edit,
+since the two updates commute. The other Store stays in the emitted
+entry block. The residual table admits no entry Loads. Every Load before
+the nominated Store's overwrite on either route must pass the existing
+reader checker at that same input.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Defs.lean) ·
+[Pinned Simple Store user check](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65) ·
+[Pinned Simple memory Φ](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#memory-is-an-ssa-variable)
+
+The existing discovery checks the actual Region slots, including the
+original address wire at each overwrite. After a successful check, the
+optimized entry forwards the entire buffer produced by the retained
+Store. The original and optimized CFGs return the same word and all final
+cells for either predicate and any initial buffer at the checked input.
+Three CF block steps suffice for both artifacts. A shape, cell, or route
+refusal keeps the emitted entry-local result.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Thms.lean)
+
+The runnable fixture deletes an overwritten Store in the original
+three-Store entry, then nominates version 1 of the residual table. The
+false route leaves the side Store's `33` visible in the final buffer.
+When the false reader aliases the nominated cell, the first deletion stays
+committed and the second is refused. The false route then returns `99`.
+The fixture also checks nomination of version 2 with the residual order
+reversed.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```

@@ -5,11 +5,13 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
 
@@ -343,5 +345,46 @@ example : Entry.Composition.rewriteResidual (source .onFalse).diamond residualEn
 example : (lowerComposed headCell).programs =
     (Entry.lowerRepeated (source .onFalse).diamond composedEntry (input headCell)).programs := rfl
 #guard runComposed headCell false 3 == (1, false, some (99, 99, [99, 33, 2, 3, 55], [99, 33, 2, 3, 55]))
+
+private def liveStore : PrefixStore args := ⟨leftPort, rightWord⟩
+private def residualWithSide : Memory.Graph args := (source .onFalse).store.prepend liveStore.table
+private def entryWithLiveStore : Memory.Graph args :=
+  (⟨headPort, leftWord⟩ : PrefixStore args).prepend residualWithSide
+
+private def lowerWithLiveStore (rightAddress : Address 4) : Entry.Composition.Result 4 args :=
+  Entry.Composition.Retained.lower (source .onFalse).diamond entryWithLiveStore 1 (input rightAddress)
+
+example : (Entry.lowerRepeated (source .onFalse).diamond entryWithLiveStore input).entry = residualWithSide := rfl
+example : Entry.Composition.Retained.rewrite (source .onFalse).diamond
+    (liveStore.prepend (source .onFalse).store.table) 2 input =
+      some ⟨liveStore, ⟨inferred .onFalse, target .onFalse⟩⟩ := rfl
+example : Entry.Composition.Retained.rewrite (source .onFalse).diamond residualWithSide 3 input = none := rfl
+
+private def runWithLiveStore (rightAddress : Address 4) (guard : Bool) :
+    Nat × Bool × List Nat × Option (List Nat × List Nat) :=
+  let result := lowerWithLiveStore rightAddress
+  let programs := result.programs
+  let entered := (Discovery.MemRef.CF.entryTransition programs.optimized programs.input guard ⟨initial⟩).2
+  let returned := (runEntryPrograms programs guard 3).map fun (_, _, before, after) =>
+    (before.map BitVec.toNat, after.map BitVec.toNat)
+  (result.entryDeleted, result.allPathDeleted, (List.finRange 4).map (fun i => (entered.cell i).toNat), returned)
+
+-- Version 1 moves past the disjoint side Store for checking. The emitted
+-- entry keeps that Store and the false arm leaves its 33 in cell one.
+/-- info: (1, true, [7, 33, 3, 55], some ([3, 33, 33, 33, 55], [3, 33, 33, 33, 55])) -/
+#guard_msgs in
+#eval runWithLiveStore rightCell false
+
+#guard runWithLiveStore rightCell true ==
+  (1, true, [7, 33, 3, 55], some ([33, 11, 11, 3, 55], [33, 11, 11, 3, 55]))
+
+-- Only the false path reads the nominated cell at this valuation. The
+-- earlier entry deletion stays committed and the false route returns 99.
+example : Entry.Composition.Retained.rewrite (source .onFalse).diamond residualWithSide 1
+    (input headCell) = none := rfl
+example : (lowerWithLiveStore headCell).programs =
+    (Entry.lowerRepeated (source .onFalse).diamond entryWithLiveStore (input headCell)).programs := rfl
+#guard runWithLiveStore headCell false ==
+  (1, false, [99, 33, 3, 55], some ([99, 33, 33, 3, 55], [99, 33, 33, 3, 55]))
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
