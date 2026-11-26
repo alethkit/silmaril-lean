@@ -19,6 +19,29 @@ theorem compile_suite {block : LexicalBlock} {source : Suite} {code : Functions.
     compileBody ⟨block.context, .local⟩ source.source program = .ok (⟨code, reads⟩, program) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.compile_suite related program
 
+theorem resolves_at {block : LexicalBlock} {source : Lowering.Resolve.SourceExpr}
+    {code : Lowering.Expr} {reads : List Binding} (related : Operand block source code reads)
+    (initial : List Binding) :
+    Lowering.Resolve.resolveExpr block.context source initial = .ok (code, reads.reverse ++ initial) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.resolves_at related initial
+
+theorem evaluates_with (program : Program) (available : List DeclarationId) (calls : Lowering.ClosureRuns available)
+    {block : LexicalBlock} {state : State} {source : Lowering.Resolve.SourceExpr}
+    {code : Lowering.Expr} {out : Outcome Lists.Value} (ran : Evaluates block state source code out) :
+    Lowering.EvaluatesWith program available calls (fun _ => True) state code out :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.evaluates_with program available calls ran
+
+theorem operand_total {block : LexicalBlock} {source : Lowering.Resolve.SourceExpr} {code : Lowering.Expr}
+    {reads : List Binding} (related : Operand block source code reads) (state : State) :
+    ∃ out, Evaluates block state source code out ∧ Keeps state.heap.size state (finishState out) := by
+  obtain ⟨out, ran, extendsHeap⟩ :=
+    Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.operands_total related state
+  exact ⟨out, ran, Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.extends_keeps _ extendsHeap⟩
+
+theorem capture_cells_written (state : State) (target : Binding) (value : Lists.Value) {captures : List Capture}
+    (live : CaptureCells state captures) : CaptureCells (state.write target value) captures :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.capture_cells_written state target value live
+
 /-- Each tracked operand read has a declarative lexical origin. -/
 theorem operand_origins {block : LexicalBlock} {source : Lowering.Resolve.SourceExpr}
     {code : Lowering.Expr} {reads : List Binding} (related : Operand block source code reads) :

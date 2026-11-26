@@ -1,6 +1,6 @@
 module
 
-import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Thms
+import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Thms
 import Silmaril.Languages.Starlark.Functions.Lowering.Quote.Defs
 meta import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Defs
 meta import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Defs
@@ -210,5 +210,71 @@ private def checks (shadowed : Bool) : Bool :=
     moduleCell "result" == some ⟨.binding none, false⟩ &&
     (final.slots (globalSlot "factory")).isNone && final.iterators == [123]
   | _, _ => false
+
+private inductive CallCase where
+  | defaults
+  | operandError
+  | arityError
+
+private def localCall : CallCase → Functions.Lowering.Resolve.SourceExpr
+  | .defaults => starlark%[copy()]
+  | .operandError => starlark%[copy([73], [0][1], [99])]
+  | .arityError => starlark%[copy([73], [74])]
+
+private def callRelayBlock : LexicalBlock := ⟨["leaf", "copy"], relayBlock.enclosing, []⟩
+
+example :
+    Functions.Lowering.Resolve.resolveTracked callRelayBlock.context (localCall .arityError) =
+      .ok (Call.expression "copy" [.list [.atom (.scalar (.int 73))], .list [.atom (.scalar (.int 74))]],
+        [fileSlot "copy"]) :=
+  Call.resolves (by decide) (by decide) (.cons (.list (.int 73)) (.cons (.list (.int 74)) .nil))
+
+private def callCommands (mode : CallCase) : List Command :=
+  let relay := Statement.define "relay" (.required [])
+    (.seq leafSite.statement
+      (.seq (.assign "copy" starlark%[leaf]) (.ret (some (localCall mode)))))
+  let factory := Command.define "factory" (.required ["x", "index"])
+    (.seq relay factoryTail.source)
+  [noise, .assign "values" starlark%[[11,22]], factory,
+   .assign "relay_fn" starlark%[factory(values,1)], .assign "result" starlark%[relay_fn()],
+   .assign "finished" starlark%[[99]]]
+
+-- The escaped relay calls through its own local alias. The child's
+-- captures must still use the relay's inherited addresses.
+#guard
+  match runModule (callCommands .defaults) (fun _ => none) {} with
+  | .ok (.ok published final) =>
+    let captures (id : Nat) := final.heap.toList.findSome? fun cell =>
+      match cell.contents with
+      | .function closure => if closure.declaration == id then some closure.captures else none
+      | _ => none
+    published.exports.lookup "result" == some (.scalar (.int 22)) &&
+    (match captures 2, captures 1 with
+    | some [x, index], some [index', x'] =>
+      x == x' && index == index' &&
+      final.heap[index.address]? == some ⟨.binding (some (.scalar (.int 1))), true⟩
+    | _, _ => false)
+  | _ => false
+
+private def stoppedBeforeActivation (mode : CallCase) (error : Lists.Error) (last : Int) : Bool :=
+  let cmds := callCommands mode
+  let caller : Lists.State := { iterators := [123] }
+  match resolve cmds, runModule cmds (fun _ => none) caller with
+  | .ok resolved, .ok (.error (.runtime reached) final) =>
+    let entered := enter resolved.source caller
+    let moduleCell name := (entered.slots (globalSlot name)).bind (fun slot => final.heap[slot.address]?)
+    reached == error &&
+    (match final.heap[final.heap.size - 3]? with
+    | some ⟨.function closure, false⟩ => closure.declaration == 1
+    | _ => false) &&
+    final.heap[final.heap.size - 2]? == some ⟨.list [.scalar (.int 73)], false⟩ &&
+    final.heap.back? == some ⟨.list [.scalar (.int last)], false⟩ &&
+    moduleCell "result" == some ⟨.binding none, false⟩ &&
+    moduleCell "finished" == some ⟨.binding none, false⟩ &&
+    (final.slots (globalSlot "factory")).isNone && final.iterators == [123]
+  | _, _ => false
+
+#guard stoppedBeforeActivation .operandError (.indexRange 1 1) 0
+#guard stoppedBeforeActivation .arityError (.arity 1 2) 74
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive

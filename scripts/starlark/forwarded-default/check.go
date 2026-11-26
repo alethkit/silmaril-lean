@@ -108,6 +108,44 @@ func checkRecursive(opts *syntax.FileOptions) {
 	fmt.Println("PASS first reached suite error skips the escaped call and later module commands")
 }
 
+func aliasedCallSource(arguments string) string {
+	return fmt.Sprintf(`def factory(x, index):
+    def relay():
+        def leaf(saved=x):
+            offset = index
+            return saved[offset]
+        copy = leaf
+        return copy(%s)
+    return relay
+relay_fn = factory([11, 22], 1)
+result = relay_fn()
+finished = [99]
+`, arguments)
+}
+
+func checkAliasedCalls(opts *syntax.FileOptions) {
+	globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread),
+		"aliased-positional-call.star", aliasedCallSource(""), nil)
+	require(err == nil && globals["result"].String() == "22", globals)
+	fmt.Println("PASS local alias call uses a saved default and the escaped relay's forwarded index")
+
+	for _, test := range []struct {
+		arguments string
+		errorText string
+	}{
+		{"[73], [0][1], [99]", "index 1 out of range"},
+		{"[73], [74]", "positional argument (2 given)"},
+	} {
+		_, compiled, err := starlark.SourceProgramOptions(opts, "aliased-call-error.star",
+			aliasedCallSource(test.arguments), func(string) bool { return false })
+		require(err == nil, err)
+		partial, err := compiled.Init(new(starlark.Thread), nil)
+		require(err != nil && strings.Contains(err.Error(), test.errorText), err)
+		require(partial["relay_fn"] != nil && partial["result"] == nil && partial["finished"] == nil, partial)
+	}
+	fmt.Println("PASS reached operand error precedes binding, and surplus operands cause an arity error")
+}
+
 func main() {
 	opts := &syntax.FileOptions{}
 	for _, test := range []struct {
@@ -137,4 +175,5 @@ func main() {
 	fmt.Println("PASS uninitialized forwarded default retains the earlier visible mutation and prevents publication")
 
 	checkRecursive(opts)
+	checkAliasedCalls(opts)
 }

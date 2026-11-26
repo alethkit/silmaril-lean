@@ -20,10 +20,10 @@ open Silmaril.Languages.Starlark.Lists (State Cell Slot Outcome Value)
 open Silmaril.Languages.Starlark.Lists.Iteration (Flow finishState)
 open Silmaril.Languages.Starlark.Functions.Lowering.Resolve (SourceExpr)
 
-theorem evaluates (program : Program) (available : List DeclarationId)
+theorem evaluates_with (program : Program) (available : List DeclarationId) (calls : Lowering.ClosureRuns available)
     {block : LexicalBlock} {state : State} {source : SourceExpr} {code : Lowering.Expr}
     {out : Outcome Value} (ran : Evaluates block state source code out) :
-    Lowering.EvaluatesWith program available (fun _ _ _ => False) (fun _ => True) state code out := by
+    Lowering.EvaluatesWith program available calls (fun _ => True) state code out := by
   induction ran with
   | read => exact .atom trivial .read
   | int => exact .atom trivial .scalar
@@ -33,6 +33,12 @@ theorem evaluates (program : Program) (available : List DeclarationId)
     cases out with
     | error => exact .list (.headError ih)
     | ok => exact .list (.cons ih .empty)
+
+theorem evaluates (program : Program) (available : List DeclarationId)
+    {block : LexicalBlock} {state : State} {source : SourceExpr} {code : Lowering.Expr}
+    {out : Outcome Value} (ran : Evaluates block state source code out) :
+    Lowering.EvaluatesWith program available (fun _ _ _ => False) (fun _ => True) state code out :=
+  evaluates_with program available (fun _ _ _ => False) ran
 
 theorem runs_sound (program : Program) (available : List DeclarationId)
     {block : LexicalBlock} {state : State} {source : Suite} {code : Silmaril.Languages.Starlark.Functions.Body}

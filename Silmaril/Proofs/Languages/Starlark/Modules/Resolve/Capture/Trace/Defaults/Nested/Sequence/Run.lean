@@ -141,6 +141,44 @@ theorem runs {block : LexicalBlock} {source : Statement} {seed final : Program} 
       obtain ⟨out, ran, reached, kept, native, _⟩ := ih linked selectedTail active entered
       exact ⟨out, ran, reached, kept, native⟩
 
+theorem reads_installed_alias_defaults {block : LexicalBlock} {name aliasName : String} {parameters : Parameters}
+    {items : List PlainPositionalDefault} {id : DeclarationId} {captures : List Silmaril.Languages.Starlark.Lists.Capture}
+    {start installed : State} {free : List FreeName} {floor : Nat}
+    (target : name ∈ block.owned) (destination : aliasName ∈ block.owned)
+    (frame : Body.Frame block free floor installed)
+    (result : Nested.SiteResult block name parameters items id captures start (.ok .next installed)) :
+    ∃ address saved evaluated,
+      Lexical.Evaluates block start items (.ok saved evaluated) ∧
+      Body.Evaluates block installed (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
+        (.ok (.function address) installed) ∧
+      (let copied := installed.write (fileSlot aliasName) (.function address)
+       Body.Evaluates block copied (.scalar (.read aliasName)) (Leaf.readOperand (fileSlot aliasName))
+          (.ok (.function address) copied) ∧
+        copied.heap[address]? = some ⟨.function ⟨id, captures,
+          (parameters.optional.map (fileSlot ∘ Prod.fst)).zip saved⟩, false⟩) := by
+  cases result with
+  | @installed saved _ evaluated defaults _ bound recorded =>
+    let address := evaluated.heap.size
+    obtain ⟨slot, old, frozen, _, owns, stored⟩ := frame.owned aliasName destination
+    let copied := installed.write (fileSlot aliasName) (.function address)
+    have valid := (Array.getElem?_eq_some_iff.mp stored).choose
+    have separate : slot ≠ address := by
+      intro same
+      rw [same, recorded] at stored
+      cases stored
+    have reads : copied.bindingValue (fileSlot aliasName) = .ok (.function address) := by
+      simp only [copied, State.write, owns, stored, State.bindingValue, Slot.address,
+        Array.getElem?_setIfInBounds_self_of_lt valid]
+    refine ⟨address, saved, evaluated, defaults, ?_, ?_, ?_⟩
+    · have evaluated : Body.Evaluates block installed (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
+          (installed.read (.bound (fileSlot name))) := .read (.owned target)
+      simpa only [State.read, bound] using evaluated
+    · have evaluated : Body.Evaluates block copied (.scalar (.read aliasName)) (Leaf.readOperand (fileSlot aliasName))
+          (copied.read (.bound (fileSlot aliasName))) := .read (.owned destination)
+      simpa only [State.read, reads] using evaluated
+    · simp only [State.write, owns, stored, Array.getElem?_setIfInBounds_ne separate]
+      exact recorded
+
 theorem reads_installed_alias {block : LexicalBlock} {name aliasName : String} {parameters : Parameters}
     {items : List PlainPositionalDefault} {id : DeclarationId} {captures : List Silmaril.Languages.Starlark.Lists.Capture}
     {start installed : State} {free : List FreeName} {floor : Nat}
@@ -155,28 +193,8 @@ theorem reads_installed_alias {block : LexicalBlock} {name aliasName : String} {
           (.ok (.function address) copied) ∧
         copied.heap[address]? = some ⟨.function ⟨id, captures,
           (parameters.optional.map (fileSlot ∘ Prod.fst)).zip saved⟩, false⟩) := by
-  cases result with
-  | @installed saved _ evaluated _ _ bound recorded =>
-    let address := evaluated.heap.size
-    obtain ⟨slot, old, frozen, _, owns, stored⟩ := frame.owned aliasName destination
-    let copied := installed.write (fileSlot aliasName) (.function address)
-    have valid := (Array.getElem?_eq_some_iff.mp stored).choose
-    have separate : slot ≠ address := by
-      intro same
-      rw [same, recorded] at stored
-      cases stored
-    have reads : copied.bindingValue (fileSlot aliasName) = .ok (.function address) := by
-      simp only [copied, State.write, owns, stored, State.bindingValue, Slot.address,
-        Array.getElem?_setIfInBounds_self_of_lt valid]
-    refine ⟨address, saved, ?_, ?_, ?_⟩
-    · have evaluated : Body.Evaluates block installed (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
-          (installed.read (.bound (fileSlot name))) := .read (.owned target)
-      simpa only [State.read, bound] using evaluated
-    · have evaluated : Body.Evaluates block copied (.scalar (.read aliasName)) (Leaf.readOperand (fileSlot aliasName))
-          (copied.read (.bound (fileSlot aliasName))) := .read (.owned destination)
-      simpa only [State.read, reads] using evaluated
-    · simp only [State.write, owns, stored, Array.getElem?_setIfInBounds_ne separate]
-      exact recorded
+  obtain ⟨address, saved, _, _, direct, copied⟩ := reads_installed_alias_defaults target destination frame result
+  exact ⟨address, saved, direct, copied⟩
 
 theorem installation {block : LexicalBlock} {child : Body.Definition} (plan : Nested.Plan block child)
     {id : DeclarationId} {captures : List Silmaril.Languages.Starlark.Lists.Capture} {start installed : State}
