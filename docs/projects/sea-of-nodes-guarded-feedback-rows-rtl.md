@@ -362,6 +362,8 @@ evaluates entry outside its budget and needs `b + 1` header visits.
 ```lean
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Thms
 
+open Silmaril.Isotope.Institution.Observational (Observation ssaBeh)
+open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution.Fiber (inputModel)
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (model word)
 open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
@@ -426,6 +428,13 @@ example {targets : Checked.Phi.Targets} (accepted : Table.lowerChecked dependent
     fun holds => (Part.eq_none_iff'.mp spinAbsent) (holds (bank 0 1 1))
   have agrees := Table.Institution.terminates_holds_iff accepted initial
   exact ⟨absent ∘ agrees.1.mp, absent ∘ agrees.2.mp⟩
+
+example {targets : Checked.Phi.Targets} (accepted : Table.lowerChecked dependent = some targets)
+    (initial : Memory) :
+    Observation.diverge initial ∈ ssaBeh 1
+      (inputModel (P := Rows.wordSignature) model Memory (bank 0 1 1))
+      (Table.Institution.scope accepted) :=
+  (Table.Institution.room_diverges_iff accepted (bank 0 1 1) initial).mpr spinAbsent
 ```
 
 The two results are `6 - 5 = 1` and `1 + 2 = 3`, so the bank enters as
@@ -462,14 +471,33 @@ At each typed input and common initial memory, the observations contain
 each returned word and its entire final memory. The same theorem gives
 a cross-backend comparison, and `equation_at_iff` states the pointwise law.
 
-The λSSA observation projects the packed returns from the existing
-observational room. Full room satisfaction also compares fault and
-divergence observations. The bridge uses the concrete word model at a
-fixed signature. `terminates_holds_iff` relates the native termination
-sentence to a nonempty return set at every typed input. On input
-`(0, 1, 1)`, changing the first preheader producer from subtraction to
-addition makes the alternative graph return 3. The original remains at
-its fixed point, so both target equations fail. [Checked regression][table-regression]
+`room_ret_iff` describes every return in the existing λSSA room. Its exit
+is zero, the payload packs the native word, and the final memory equals
+the initial memory. `room_other_exit_absent` and `room_fault_absent` give
+the corresponding exclusions. The concrete word room model has no
+primitive faults.
+
+`room_diverges_iff` identifies the room's divergence observation with
+undefined native denotation. From a bank with no finite return, the total
+header must choose a backedge and the next bank still has no finite return.
+The proof coinducts on these actual λSSA transitions using the entry and
+header packet laws. Deterministic finite evaluation excludes divergence in
+the other direction.
+
+`room_equation_at_iff` and `room_equation_holds_iff` compare native equations
+with the full room at the concrete word signature, pointwise and across all
+typed inputs respectively. Room satisfaction compares all initial and final
+memories. The initial memory passed to the theorem supplies one witness for
+reflection through the return projection. On `(6, 2, 5)` the room observes
+return 7 with unchanged memory. On `(0, 1, 1)` it observes divergence.
+Changing the first preheader subtraction to addition makes the alternative
+graph return 3 at that same input, so the room equation fails.
+[Checked regression][table-regression]
+
+`terminates_holds_iff` still relates the native termination sentence to
+a nonempty return set at every typed input. The full room theorem is
+scoped to checked dependent-preheader CFGs in their concrete λSSA word
+models. RTL remains covered through its finite-return projection.
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
