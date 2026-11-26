@@ -8,6 +8,7 @@ import Silmaril.SSA.Peggy.Bridge.Figure11.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Thms
+import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Thms
 import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 import Silmaril.SSA.Peggy.Optimizer.Thms
 import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
@@ -20,6 +21,7 @@ meta import Silmaril.SSA.Peggy.EPEG.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.ZeroSample
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Defs
+meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Defs
 meta import Silmaril.Logic.Egg.Core.Replay.Defs
 meta import Silmaril.SSA.PEG.Builder
 meta import Silmaril.SSA.Peggy.Optimizer.Defs
@@ -1084,6 +1086,78 @@ example : ∃ next, ZeroSampleAnalysis Op.zero ⟨6, matched.step.apply⟩ next 
 -- match permits another fresh append and prevents stability.
 example : ¬ NormalForms.Stable Comparable (ZeroSampleFamily Op.zero) ⟨8, delayedResult⟩ :=
   delayedMatch.no_stable (.single delayedMatch.progress.1)
+
+private def secondRedex : Row source.graph :=
+  ⟨_, _, .eval 0, pair 0 3⟩
+
+private def twoSites : State Op [] outputs 6 1 := ⟨secondRedex.append, Classes.discrete⟩
+private def scope : List Nat := [4, 5]
+private def firstVisit := Dedup.visit Op.zero ⟨6, twoSites⟩ 4
+private def closed := Dedup.close Op.zero ⟨6, twoSites⟩ scope
+
+#guard evalOperands twoSites.graph == [[0, 3], [0, 3]]
+#guard firstVisit.1 == 7
+#guard evalOperands firstVisit.2.graph == [[0, 3], [0, 3], [1, 3]]
+#guard Dedup.checkDone Op.zero firstVisit 4
+#guard !(Dedup.checkDone Op.zero firstVisit 5)
+#guard closed.1 == 7
+#guard evalOperands closed.2.graph == [[0, 3], [0, 3], [1, 3]]
+#guard closed.2.classes ⟨4, by decide⟩ == closed.2.classes ⟨6, by decide⟩
+#guard closed.2.classes ⟨5, by decide⟩ == closed.2.classes ⟨6, by decide⟩
+#guard Dedup.checkClosed Op.zero closed scope
+#guard refNumbers closed.2.graph.roots == [4, 0, 4]
+
+private theorem scopedEligible : ∀ address ∈ scope, Dedup.EligibleAt Op.zero ⟨6, twoSites⟩ address := by
+  intro address member
+  have sites : address = 4 ∨ address = 5 := by simpa [scope] using member
+  rcases sites with rfl | rfl
+  · exact ⟨4, rfl, ⟨(ZeroSample.matchAt (g := twoSites.graph) 4 .zero).get (by decide)⟩⟩
+  · exact ⟨5, rfl, ⟨(ZeroSample.matchAt (g := twoSites.graph) 5 .zero).get (by decide)⟩⟩
+
+example : Dedup.close Op.zero closed scope = closed :=
+  Dedup.close_fixed closed scope (Dedup.close_checked ⟨6, twoSites⟩ scope scopedEligible)
+
+example (initial : Option (ULift Nat)) :
+    ∃ after : WellFounded closed.2.graph.Demand,
+      closed.2.classes.Valid (closed.2.graph.denote (arithmetic initial) .nil after) ∧
+      closed.2.graph.observe (arithmetic initial) (closed.2.graph.denote (arithmetic initial) .nil after)
+        clockZero = .cons initial (.cons initial (.cons initial .nil)) := by
+  have before := secondRedex.demandWellFounded wf
+  obtain ⟨after, valid, observed⟩ := Dedup.close_sound (m := arithmetic initial) (env := .nil)
+    ⟨6, twoSites⟩ scope (zero := Op.zero) rfl before Classes.discrete_valid
+  exact ⟨after, valid, (observed clockZero).trans
+    ((secondRedex.observe_eq wf before clockZero).trans (initially initial))⟩
+
+/-- The roots anchor a redex and two exact RHS copies to distinct addresses. -/
+private def anchored : Graph Op [] outputs 7 1 :=
+  { biggerGraph with
+    node := fun i => if i = 4 then .ofLabel (.eval 0) (biggerPair 1 3) else biggerGraph.node i
+    roots := .cons (biggerRef 6) (biggerPair 4 5) }
+
+private def anchoredSmall : State Op [] outputs 7 1 := ⟨anchored, Classes.discrete⟩
+private def anchoredLarge : State Op [] outputs 7 1 := ⟨anchored, Classes.discrete.merge 6 5⟩
+private def anchoredMatch : ZeroSample anchored 6 .zero :=
+  (ZeroSample.matchAt (g := anchored) 6 .zero).get (by decide)
+
+-- The smaller pass joins 6 to its first RHS, 4. The larger pass keeps
+-- the existing join with 5. Ordered roots prevent swapping the copies.
+example : Comparable ⟨7, anchoredSmall⟩ ⟨7, anchoredLarge⟩ ∧
+    ¬ Comparable (Dedup.ensure (s := anchoredSmall) anchoredMatch)
+      (Dedup.ensure (s := anchoredLarge) anchoredMatch) := by
+  constructor
+  · refine ⟨{ Embedding.refl anchoredSmall with classes := ?_ }⟩
+    intro a b h
+    rw [show a = b from h]
+  · change ¬ Comparable
+      ⟨7, ⟨anchored, Classes.discrete.merge 6 4⟩⟩ ⟨7, anchoredLarge⟩
+    rintro ⟨e⟩
+    have redex : e.vertices.address 6 = 6 :=
+      (congrArg (fun roots => (roots.get .head).id) e.roots).symm
+    have rhs : e.vertices.address 4 = 4 :=
+      (congrArg (fun roots => (roots.get (.tail .head)).id) e.roots).symm
+    have clash := e.classes 6 4 (Classes.merge_equates Classes.discrete 6 4)
+    rw [redex, rhs] at clash
+    exact (by decide : anchoredLarge.classes 6 ≠ anchoredLarge.classes 4) clash
 
 end Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Tests
 
