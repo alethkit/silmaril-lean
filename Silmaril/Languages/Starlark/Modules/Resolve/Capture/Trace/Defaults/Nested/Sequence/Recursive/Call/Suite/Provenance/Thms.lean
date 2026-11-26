@@ -82,8 +82,8 @@ theorem runs {block : LexicalBlock} {source : Statement} {seed final : Program}
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance.runs profile checked table available guarded selected state frame distinct
 
 /-- The reached activation provides fresh distinct locals and the original live capture cells. -/
-theorem runs_activated {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent formals varargs kwargs) {seed final : Program} {emissions : Emissions}
+theorem runs_activated {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope) {seed final : Program} {emissions : Emissions}
     (profile : Elaborates site.block empty site.source seed site.body final emissions)
     {commands : List Command} {linked : Program} {resolved : ResolvedModule}
     (checked : resolve commands linked = .ok resolved) (table : PreservesDeclarations final resolved.program)

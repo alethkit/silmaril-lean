@@ -972,8 +972,9 @@ caller on failure.
 
 Callable provenance from parameters, captures, module names, heap
 reads or returned values, calls through untracked values, other
-expression positions, general dispatch, loads, text parsing and
-module publication remain outside the profile.
+expression positions, untracked dispatch, loads and text parsing
+remain outside the suite profile. The load-free module theorem below
+connects this suite to publication.
 [Provenance rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
 
 ### Explicit named arguments at tracked local calls
@@ -1194,9 +1195,53 @@ with both spreads. Go's duplicate-display instruction checks uniqueness
 after setting the entry in its private temporary. Lean rejects without
 replacing the accepted prefix. The differential checks compare visible
 errors and effects, while the Lean checks inspect that private prefix and
-the exact retained state. Arbitrary carrier expressions, untracked
-dispatch and module publication remain separate.
+the exact retained state. Arbitrary carrier expressions and untracked
+dispatch remain separate. The module theorem below uses the same
+argument rules for reached global aliases.
 [Call and mapping theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/MappingChecks.lean) · [Pinned prose](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Go resolver](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L737-L798) · [Go call instruction](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L298-L380) · [Go dictionary insertion](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L469-L487) · [Differential controls](../../scripts/starlark/forwarded-default/check.go)
+
+### Checked source calls through module publication
+
+The checked load-free plan composes source definition, assignment,
+closure copy and call assignment across an arbitrary finite command
+sequence in this profile. Its global declarations come from the source
+binder order. Each root is linked to the declaration index following
+its checked recursive suite's emissions. Later definitions preserve
+the earlier table entries.
+
+At module entry, the proof derives the global cells and their distinct
+addresses. At a reached definition it selects the module captures
+from those live cells, evaluates defaults in the defining frame, and
+keeps the saved values and captured addresses in the installed closure
+record. The invariant relates each tracked global or explicit alias to
+its actual reached record. Calls through that invariant use the same
+lexical read, argument, binder, collector and guarded activation rules
+as local calls. A write may update a captured binding while preserving
+its address.
+
+`module_agrees` derives the independent source command trace and the
+same resolved operational trace. The existing exact initialization
+result then gives ordered public exports and the reachable frozen heap,
+or the first reached error with the exact retained heap and restored
+caller. The proof begins at actual module entry and uses the checked
+normalized resolver. The premises contain independent source plans and
+checked resolution. They require no reached closure, frame, binder or
+body-execution witnesses.
+
+The Lean and pinned Go checks publish a capturing function and its
+alias after a call using named arguments and both spreads. The captured
+global is initialized after the function is defined. The checks also
+distinguish a duplicate binding before packing from an error in the
+body after packing. Lean observes the captured global slot and exact
+residual allocations. Publication freezes the reachable values and
+leaves the module binding cell itself outside closure-local freezing.
+
+The next provenance obligation is to derive a callable certificate
+from a returned or imported value at its actual address. General
+carrier expressions need corresponding evidence of their reached
+kind. Arbitrary dispatch, broader command and body forms, and
+source-level composition across the loader remain separate.
+[Module theorem](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Checks.lean) · [Pinned Go controls](../../scripts/starlark/published-checked/check.go)
 
 ## Finite-manifest loader
 

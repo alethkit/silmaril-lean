@@ -806,23 +806,34 @@ theorem elaborateCommand_eval (block : BlockContext) (value : Lowering.Resolve.S
   cases operand : resolveTracked block.reads value <;>
     simp [elaborateCommand, readExpr, operand, Except.mapError, bind, StateT.bind, Except.bind, lift_ok, pure, StateT.pure, Except.map] <;> rfl
 
+/-- A direct definition uses the same signature, body and declaration table at either destination scope. -/
+theorem elaborateCommand_nativeDefinition (block : BlockContext) (writes : Scope) (name : String)
+    (signature : SourceSignature) (body : Statement) (seed next : Program) (id : DeclarationId)
+    (reads : List Binding)
+    (compiled : compileBody block (.define name signature body) seed =
+      .ok (⟨.define (fileSlot name) id, reads⟩, next)) :
+    elaborateCommand { block with writes } (.define name signature body) seed =
+      .ok (.exec (.define name id), next) := by
+  cases layoutEq : collectFunctionLayout block.reads signature body with
+  | error error =>
+    simp [compileBody, layoutEq, bind, StateT.bind, Except.bind, monadLift, MonadLift.monadLift, StateT.lift] at compiled
+  | ok layout =>
+    cases built : compileDefinition block.reads signature layout (fun inner => compileBody inner body) seed with
+    | error error =>
+      simp [compileBody, layoutEq, built, bind, StateT.bind, Except.bind, lift_ok] at compiled
+    | ok output =>
+      obtain ⟨⟨emitted, defaults, foundReads⟩, table⟩ := output
+      cases defaults <;>
+        simp_all [compileBody, elaborateCommand, bind, StateT.bind, Except.bind, lift_ok,
+          pure, StateT.pure, Except.pure, Comprehensions.definitionWithDefaults]
+
 theorem elaborateCommand_requiredDefinition (block : BlockContext) (writes : Scope) (name : String) (parameters : List String)
     (body : Statement) (program next : Program) (id : DeclarationId) (reads : List Binding)
     (compiled : compileBody block (.define name (.required parameters) body) program =
       .ok (⟨.define (fileSlot name) id, reads⟩, next)) :
     elaborateCommand { block with writes } (.define name (.required parameters) body) program =
-      .ok (.exec (.define name id), next) := by
-  cases layoutEq : collectFunctionLayout block.reads (.required parameters) body with
-  | error error =>
-    simp only [SourceSignature.required] at layoutEq
-    simp [compileBody, layoutEq, bind, StateT.bind, Except.bind, SourceSignature.required] at compiled
-    exact nomatch compiled
-  | ok layout =>
-    simp only [SourceSignature.required] at layoutEq
-    cases inner : compileBody layout.block body program <;>
-      simp_all [compileBody, elaborateCommand, compileDefinition, SourceSignature.required, required_names,
-        bind, StateT.bind, lift_ok, get_build, set_build, read_required, plain_required, required_reads,
-        Except.bind, pure, StateT.pure, Except.pure]
+      .ok (.exec (.define name id), next) :=
+  elaborateCommand_nativeDefinition block writes name (.required parameters) body program next id reads compiled
 
 /-- One resolved plain default together with its normalized source and reads. -/
 structure PlainPositionalDefault where

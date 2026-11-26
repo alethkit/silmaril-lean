@@ -6,7 +6,7 @@ public section
 
 namespace Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named
 
-open Silmaril.Languages.Starlark (Binding)
+open Silmaril.Languages.Starlark (Binding Scope)
 open Silmaril.Languages.Starlark.Modules (fileSlot)
 open Silmaril.Languages.Starlark.Modules.Resolve (PlainKeywordParameter)
 open Silmaril.Languages.Starlark.Modules.Resolve.Assignment (LexicalBlock)
@@ -273,8 +273,8 @@ theorem packed_both {positional keyword : Binding} {caller packed : State} {boun
       refine ⟨by simp, ?_, dictionary⟩
       simp [tupleElements, projectCell, getCell, bind, EStateM.bind, pure, EStateM.pure, Array.getElem?_push]
 
-theorem prepare_exact {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent formals varargs kwargs) (program : Program) (available : List DeclarationId)
+theorem prepare_exact {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope) (program : Program) (available : List DeclarationId)
     (id : DeclarationId) (permitted : id ∈ available) (found : program[id]? = some site.declaration)
     {defining state : State} {address : Nat} (record : ClosureAt site id defining state address)
     (actual : Actual) {result : Except Error BoundArguments} (binding : SiteBinding site record.defaults actual result) :

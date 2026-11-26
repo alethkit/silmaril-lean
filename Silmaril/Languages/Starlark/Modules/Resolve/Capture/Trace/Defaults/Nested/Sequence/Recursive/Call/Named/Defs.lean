@@ -257,9 +257,13 @@ inductive ExpandsMapping (state : State) : Option Nat → Lists.Outcome Keywords
       ExpandsMapping state (some address) (.error error state)
 
 
+@[expose] def expressionAt (slot : Binding) (positional : List Lowering.Expr)
+    (keywords : List (String × Lowering.Expr)) (star starStar : Option Lowering.Expr) : Lowering.Expr :=
+  .call (Leaf.readOperand slot) positional keywords star starStar
+
 @[expose] def expression (name : String) (positional : List Lowering.Expr)
     (keywords : List (String × Lowering.Expr)) (star starStar : Option Lowering.Expr := none) : Lowering.Expr :=
-  .call (Leaf.readOperand (fileSlot name)) positional keywords star starStar
+  expressionAt (fileSlot name) positional keywords star starStar
 
 /-- The operand phase records both terminal carriers before validating either. -/
 structure OperandValues where
@@ -308,10 +312,22 @@ abbrev Actuals (block : LexicalBlock) (source : List Expr) (codes : List Lowerin
   Call.ReachesActual (EvaluatesActualOperands block source codes star mapping)
     (fun state values => ExpandsActuals positional keywords state values)
 
-abbrev SiteBinding {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent formals varargs kwargs) : Call.BindingRule BoundArguments :=
+abbrev SiteBinding {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope) : Call.BindingRule BoundArguments :=
   fun defaults => Binds site.declaration.signature.positional site.declaration.signature.named
     site.declaration.signature.varargs site.declaration.signature.kwargs (site.defaultKeys.zip defaults)
+
+abbrev RunsAt {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope) (bodyRuns : State → Lists.Outcome Flow → Prop)
+    (block : LexicalBlock) (id : DeclarationId) (name : String) (slot : Binding)
+    (arguments : List Expr) (codes : List Lowering.Expr) (keywords : List (String × Expr))
+    (compiled : List (String × Lowering.Expr)) (star : Option (Spread block) := none)
+    (mapping : Option (Mapping block) := none) :=
+  Call.RunsActual site bodyRuns block id name slot
+    (Actuals block (arguments ++ keywords.map Prod.snd) (codes ++ compiled.map Prod.snd)
+      codes.length (compiled.map Prod.fst) star mapping)
+    (SiteBinding site)
+    (Packs site.declaration.signature.varargs site.declaration.signature.kwargs)
 
 abbrev RunsWith {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
     (site : Site parent formals varargs kwargs) (bodyRuns : State → Lists.Outcome Flow → Prop)
@@ -319,10 +335,6 @@ abbrev RunsWith {parent : LexicalBlock} {formals : List PlainKeywordParameter} {
     (arguments : List Expr) (codes : List Lowering.Expr) (keywords : List (String × Expr))
     (compiled : List (String × Lowering.Expr)) (star : Option (Spread block) := none)
     (mapping : Option (Mapping block) := none) :=
-  Call.RunsActual site bodyRuns block id name
-    (Actuals block (arguments ++ keywords.map Prod.snd) (codes ++ compiled.map Prod.snd)
-      codes.length (compiled.map Prod.fst) star mapping)
-    (SiteBinding site)
-    (Packs site.declaration.signature.varargs site.declaration.signature.kwargs)
+  RunsAt site bodyRuns block id name (fileSlot name) arguments codes keywords compiled star mapping
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named

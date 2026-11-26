@@ -102,6 +102,18 @@ theorem keyword_entries_exact {entries : List Lists.Entry} {result : Except Erro
     source
 
 /-- Normalized resolution keeps the callee, positional reads and named reads in their source order. -/
+theorem resolves_at {block : LexicalBlock} {name : String}
+    {positional : List Lowering.Resolve.SourceExpr} {posCodes : List Lowering.Expr} {posReads : List Binding}
+    (slot : Binding) (callee : Body.Operand block (.scalar (.read name)) (Leaf.readOperand slot) [slot])
+    (related : Positional block positional posCodes posReads) (keywords : Operands block)
+    (star : Option (Spread block) := none) (mapping : Option (Mapping block) := none) :
+    resolveTracked block.context
+      (.call (.scalar (.read name)) positional keywords.source (star.map Spread.source) (mapping.map Mapping.source)) =
+      .ok (expressionAt slot posCodes keywords.codes (star.map Spread.code) (mapping.map Mapping.code),
+        slot :: ((posReads ++ keywords.reads) ++ spreadReads star ++ mappingReads mapping)) :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.resolves_at
+    slot callee related keywords star mapping
+
 theorem resolves {block : LexicalBlock} {name : String}
     {positional : List Lowering.Resolve.SourceExpr} {posCodes : List Lowering.Expr} {posReads : List Binding}
     (legal : name.toList.head? ≠ some '$') (owned : name ∈ block.owned)
@@ -111,8 +123,7 @@ theorem resolves {block : LexicalBlock} {name : String}
       (.call (.scalar (.read name)) positional keywords.source (star.map Spread.source) (mapping.map Mapping.source)) =
       .ok (expression name posCodes keywords.codes (star.map Spread.code) (mapping.map Mapping.code),
         fileSlot name :: ((posReads ++ keywords.reads) ++ spreadReads star ++ mappingReads mapping)) :=
-  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.resolves
-    legal owned related keywords star mapping
+  resolves_at (fileSlot name) (.read legal (.owned owned) (.owned owned)) related keywords star mapping
 
 theorem spread_origins {block : LexicalBlock} (star : Option (Spread block)) :
     ∀ binding ∈ spreadReads star, ∃ origin, Silmaril.Languages.Starlark.Modules.Resolve.Capture.ReadOrigin block binding origin :=
@@ -139,6 +150,27 @@ theorem rejects_duplicate (name : String) (positional : List Lowering.Expr)
     name positional keywords duplicate repeated
 
 /-- The reached closure uses its saved defaults and live captures under the same declaration guard. -/
+theorem runs_at {parent block : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope)
+    (bodyRuns : State → Outcome Flow → Prop)
+    {commands : List Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved) (id : DeclarationId)
+    (found : resolved.program[id]? = some site.declaration)
+    (available : List DeclarationId) (permitted : id ∈ available)
+    (enterBody : BodyEntry site resolved.program available id bodyRuns)
+    {name : String} (slot : Binding) {state defining : State} {address : Nat}
+    (callee : Body.Evaluates block state (.scalar (.read name)) (Leaf.readOperand slot)
+      (.ok (.function address) state))
+    (record : ClosureAt site id defining state address)
+    {arguments : List Lowering.Resolve.SourceExpr} {codes : List Lowering.Expr} {reads : List Binding}
+    (related : Positional block arguments codes reads) (keywords : Operands block) (star : Option (Spread block) := none) (mapping : Option (Mapping block) := none) :
+    ∃ out, RunsAt site bodyRuns block id name slot arguments codes keywords.source keywords.codes star mapping state out ∧
+      ExecExpr resolved.program available state (expressionAt slot codes keywords.codes (star.map Spread.code) (mapping.map Mapping.code)) out ∧
+      Lowering.denoteExpr resolved.program available (expressionAt slot codes keywords.codes (star.map Spread.code) (mapping.map Mapping.code)) state = out ∧
+      Body.Keeps state.heap.size state (finishState out) :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.runs_at
+    site bodyRuns checked id found available permitted enterBody slot callee record related keywords star mapping
+
 theorem runs {parent block : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
     (site : Site parent formals varargs kwargs)
     (bodyRuns : State → Outcome Flow → Prop)
@@ -157,7 +189,6 @@ theorem runs {parent block : LexicalBlock} {formals : List PlainKeywordParameter
       ExecExpr resolved.program available state (expression name codes keywords.codes (star.map Spread.code) (mapping.map Mapping.code)) out ∧
       Lowering.denoteExpr resolved.program available (expression name codes keywords.codes (star.map Spread.code) (mapping.map Mapping.code)) state = out ∧
       Body.Keeps state.heap.size state (finishState out) :=
-  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.runs
-    site bodyRuns checked id found available permitted enterBody callee record related keywords star mapping
+  runs_at site bodyRuns checked id found available permitted enterBody (fileSlot name) callee record related keywords star mapping
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named
