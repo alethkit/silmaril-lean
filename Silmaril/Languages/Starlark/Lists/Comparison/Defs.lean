@@ -28,6 +28,18 @@ def SequenceKind.locate : Value → Option (SequenceKind × Address)
   | .tuple address => some (.tuple, address)
   | _ => none
 
+inductive MembershipTarget where
+  | sequence (kind : SequenceKind) (address : Address)
+  | dictionary (address : Address)
+  | unsupported
+
+def MembershipTarget.ofValue : Value → MembershipTarget
+  | .dict address => .dictionary address
+  | value =>
+    match SequenceKind.locate value with
+    | some (kind, address) => .sequence kind address
+    | none => .unsupported
+
 /-- Read the live elements of a reached sequence. Tuple key caches and list
 mutation guards are irrelevant to this read. -/
 def SequenceKind.elements (kind : SequenceKind) (heap : Heap) (address : Address) : Except Error (List Value) :=
@@ -79,6 +91,28 @@ def dictionaryEntries (heap : Heap) (address : Address) : Except Error (List Ent
   | some ⟨.dict entries, _⟩ => .ok entries
   | some _ => .error (.wrongCellKind address)
 
+/-- Canonical lookup uses the same validation and key-code search as indexing.
+A miss has its own result, separate from a reached error. -/
+def lookupDictionary (heap : Heap) (address : Address) (key : Value) : Except Error (Option Entry) := do
+  let entries ← dictionaryEntries heap address
+  let code ← ({ heap := heap } : State).keyOf key
+  pure (findEntry code entries)
+
+/-- Search supplied candidates in order, stopping at the first hit or error. -/
+def probe {α : Type} (test : α → Except Error Bool) : List α → Except Error (Option α)
+  | [] => .ok none
+  | candidate :: later =>
+    match test candidate with
+    | .error error => .error error
+    | .ok true => .ok (some candidate)
+    | .ok false => probe test later
+
+/-- Go's mapping membership and dictionary equality project a failed lookup
+to the same observation as a miss. -/
+def lookupOrMiss {α : Type} : Except Error (Option α) → Option α
+  | .ok found => found
+  | .error _ => none
+
 /-- Each canonical key code names at most one entry of a dictionary table. -/
 def UniqueKeyCodes (entries : List Entry) : Prop :=
   entries.Pairwise fun left right => left.keyCode ≠ right.keyCode
@@ -115,13 +149,21 @@ def equalAt (heap : Heap) : Nat → Value → Value → Except Error Bool
         scan (compareEntry (equalAt heap depth) ys) false xs
       else pure false
 
-/-- Test a sequence's elements in order, using each element as the left operand. -/
+/-- Probe a supplied candidate order with a fresh full comparison per key.
+The caller supplies the candidates selected by the table's hash and bucket rules. -/
+def probeKeys (heap : Heap) (depth : Nat) (key : Value) (candidates : List Entry) :
+    Except Error (Option Entry) :=
+  probe (fun entry => equalAt heap depth key entry.key) candidates
+
+/-- Sequences test their elements in order. Dictionaries test key presence
+and retain the checked lookup error. -/
 def containsAt (heap : Heap) (depth : Nat) (needle target : Value) : Except Error Bool :=
-  match SequenceKind.locate target with
-  | some (kind, address) => do
+  match MembershipTarget.ofValue target with
+  | .sequence kind address => do
     let fields ← kind.elements heap address
     scan (fun field => equalAt heap depth field needle) true fields
-  | none => .error (.membershipTarget target)
+  | .dictionary address => Option.isSome <$> lookupDictionary heap address needle
+  | .unsupported => .error (.membershipTarget target)
 
 def evaluate (heap : Heap) (op : ComparisonOp) (left right : Value) : Except Error Bool :=
   match op with
