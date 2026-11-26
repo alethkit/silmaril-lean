@@ -73,3 +73,20 @@ The emitted-CFG checks exercise the three-cell shift with zero and
 two backedges, a removed store that preserves the word and changes the
 final heap, and a fixed backedge with no finite return.
 [CFG regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/MLIR/Regression.lean)
+
+### Equations at typed entry valuations
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.Institution.Thms
+```
+
+`MLIR.Institution.satisfaction` compares the two emitted CFGs using
+the canonical scalar profile at the native model's cell count. It
+preserves and reflects agreement on every initial heap, including
+the absence of a finite return. `observe_mapGraph` and
+`satisfaction_reindex` relate re-emission after a typed entry port map
+to pullback of the native valuation, with the same heap and cell count.
+These laws compare observations of generated CFGs over the existing
+native models.
+[Native institution](../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Thms.lean) ·
+[MLIR equation theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Loop/MLIR/Institution/Thms.lean)
