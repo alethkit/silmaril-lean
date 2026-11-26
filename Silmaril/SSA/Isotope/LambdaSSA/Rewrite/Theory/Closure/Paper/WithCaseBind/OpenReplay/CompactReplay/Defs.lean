@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.Defs
 
-/-! # Compact terminals over a shared finite request skeleton -/
+/-! # Compact terminals over a shared finite guarded request skeleton -/
 
 @[expose] public section
 
@@ -34,36 +34,56 @@ def OrderedExpr.selected {n : Nat} {L : List (Ty Empty)} (e : OrderedExpr n)
     (emits : List Bool) (pos : Position L) : CaseTree signature.Instr (replyContext n) L :=
   selectTerminal pos e.expr (readReply n ∘ e.order) emits
 
-/-- A shared tree of effectful requests and terminal emits. Each terminal fixes its typed outward position. -/
+/-- A shared tree of effectful requests, retained-bit tests, and terminal emits. Each terminal fixes its typed outward position. -/
 inductive RequestSkeleton (L : List (Ty Empty)) : Nat → Type where
   | ret {n : Nat} (emits : List Bool) (pos : Position L) : RequestSkeleton L n
   | request {n : Nat} (emits : List Bool) (label : Bool)
       (left right : RequestSkeleton L (n + 1)) : RequestSkeleton L n
+  | testRequest {n : Nat} (emits : List Bool) (test : Fin (n + 1)) (low : Bool)
+      (falseLeft falseRight trueLeft trueRight : RequestSkeleton L (n + 1)) : RequestSkeleton L (n + 1)
 
 /-- Supply a compact expression and independent slot order at each terminal. -/
 def RequestSkeleton.Leaves {L : List (Ty Empty)} : {n : Nat} → RequestSkeleton L n → Type
   | n, .ret _ _ => OrderedExpr n
   | _, .request _ _ left right => left.Leaves × right.Leaves
+  | _, .testRequest _ _ _ fl fr tl tr => fl.Leaves × fr.Leaves × tl.Leaves × tr.Leaves
 
-/-- Compile the compact terminals at the packet reached by their request path. -/
-def RequestSkeleton.selected {L : List (Ty Empty)} : {n : Nat} → (s : RequestSkeleton L n) →
-    s.Leaves → CaseTree signature.Instr (replyContext n) L
-  | _, .ret emits pos, e => e.selected emits pos
-  | _, .request emits label left right, leaves =>
-    selectRequest emits label (left.selected leaves.1) (right.selected leaves.2)
+/-- Compile compact leaves against the slot map reached by their request path. -/
+def RequestSkeleton.selectedWith {L : List (Ty Empty)} : {n : Nat} → (s : RequestSkeleton L n) →
+    s.Leaves → {X : Ty Empty} → (Fin n → Term signature.Instr X Bit) → CaseTree signature.Instr X L
+  | _, .ret emits pos, e, _, slots => selectTerminal pos e.expr (slots ∘ e.order) emits
+  | _, .request emits label left right, leaves, _, slots =>
+    selectRequest emits label (left.selectedWith leaves.1 (bindReply slots))
+      (right.selectedWith leaves.2 (bindReply slots))
+  | _, .testRequest emits test low fl fr tl tr, leaves, _, slots =>
+    let scope := guardReplies slots test
+    .case unit unit (emitPrefix emits (slots test))
+      (selectRequest [] low (fl.selectedWith leaves.1 scope) (fr.selectedWith leaves.2.1 scope))
+      (selectRequest [] (!low) (tl.selectedWith leaves.2.2.1 scope) (tr.selectedWith leaves.2.2.2 scope))
 
-/-- A standard-order witnessed tree of the same request shape, with its terminal tables in physical coordinates. -/
+/-- Compile the shared guarded skeleton from the standard reply packet. -/
+def RequestSkeleton.selected {L : List (Ty Empty)} {n : Nat} (s : RequestSkeleton L n)
+    (leaves : s.Leaves) : CaseTree signature.Instr (replyContext n) L :=
+  s.selectedWith leaves (readReply n)
+
+/-- Keep the same guarded request shape and quote each terminal in the order
+of its live slot map. -/
 def RequestSkeleton.quoted {L : List (Ty Empty)} : {n : Nat} → (s : RequestSkeleton L n) →
     s.Leaves → ReadTree L n
   | n, .ret emits pos, e => .retExpr emits pos (Finite.Expr.quote n e.packetEval)
   | _, .request emits label left right, leaves =>
     .request emits label false (left.quoted leaves.1) (right.quoted leaves.2)
+  | _, .testRequest emits test low fl fr tl tr, leaves =>
+    .testRequest emits test low false false (fl.quoted leaves.1) (fr.quoted leaves.2.1)
+      (tl.quoted leaves.2.2.1) (tr.quoted leaves.2.2.2)
 
 /-- Require extensional agreement separately at each terminal of the common skeleton. -/
 def RequestSkeleton.Agrees {L : List (Ty Empty)} : {n : Nat} → (s : RequestSkeleton L n) →
     s.Leaves → s.Leaves → Prop
   | _, .ret _ _, e, f => e.Agrees f
   | _, .request _ _ left right, l, r => left.Agrees l.1 r.1 ∧ right.Agrees l.2 r.2
+  | _, .testRequest _ _ _ fl fr tl tr, l, r =>
+    fl.Agrees l.1 r.1 ∧ fr.Agrees l.2.1 r.2.1 ∧ tl.Agrees l.2.2.1 r.2.2.1 ∧ tr.Agrees l.2.2.2 r.2.2.2
 
 /-- Pack the actual compact elaboration at the original input and exit interface. -/
 def RequestSkeleton.packed {L : List (Ty Empty)} {n : Nat} (s : RequestSkeleton L n)
