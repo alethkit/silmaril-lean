@@ -310,6 +310,37 @@ first two. A separate stale address witness also refuses. Run it with
 `lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Replay/Regression.lean`.
 [Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Replay/Regression.lean)
 
+### Discover the finite-switch plan on the retained entry
+
+`PrefixWord.Sequence.Replay.Search.lower` uses the same ascending
+`storeVersions` order as the static entry finder. It scans the
+current native table and continues past a refused candidate. For each
+version, it enumerates the actual trailing Load ports and discovers the
+first same-port overwrite and its ordered reader obligations within
+each original predecessor occurrence. The existing typed emitter then
+checks the proposal at the saved input, including concrete address
+separation. An accepted cut restarts the scan on its retained entry.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Replay/Search/Defs.lean) ·
+[Pinned Simple memory model](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#one-memory-value)
+
+Each accepted step deletes one Store, so the original Store count
+suffices for exhaustion. The terminal law covers every surviving Store
+version under this deterministic inference and the trailing-Load
+profile. The returned request list replays through `Replay.lower` to
+the exact emitted artifacts with no pending requests. Its existing
+laws give equal selected occurrences, full join packets, returned
+words and complete buffers at common CF budgets, and equal retained
+entry Load readbacks.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Replay/Search/Thms.lean)
+
+The fixture first refuses version one because a later Store is still
+present, admits version two, and then admits version one on the
+updated table. It also tests exhaustion with a surviving, observed
+Store and checks a concrete alias refusal on just the middle
+occurrence. Run it with
+`lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Replay/Search/Regression.lean`.
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Replay/Search/Regression.lean)
+
 ## Bypass a single-user Store inside one arm
 
 `DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter
