@@ -2,6 +2,7 @@ module
 
 import Mathlib.Tactic.IntervalCases
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Classification.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Divergence.Thms
 import Silmaril.Foundations.InfiniteTrace.Deterministic
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Extraction.Thms
@@ -33,10 +34,12 @@ private def machine : Machine Op where
     | .tick, .cons (.state n) .nil => .cons (.state (n + 1)) .nil
     | .undefined, input => input
 
-private def primitives : Primitives machine Nat where
+private def fixtureActions : Executable.Actions machine Nat where
   step
-    | .tick, input => fun store => .some (machine.primitive .tick input, store + 1)
-    | .undefined, _ => fun _ => _root_.Part.none
+    | .tick, input => fun store => some (machine.primitive .tick input, store + 1)
+    | .undefined, _ => fun _ => none
+
+private abbrev primitives := fixtureActions.toPrimitives
 
 private def stateValue (n : Nat) : Tuple machine.Val answer := .cons (.state n) .nil
 
@@ -422,57 +425,22 @@ example : ∃ (micro : Nat → Config machine Nat answer) (indices : Nat → Nat
   obtain ⟨micro, indices, checked⟩ := descentRun.checkpoints descentHalt
   exact ⟨micro, indices, checked, checked.atEntry 2⟩
 
--- Compute the finite interval from the machine, with an Option presentation
--- of these concrete primitive actions for executable fixture stepping.
-private def fixtureAction {ins outs : Ports T} (opcode : Op ins outs)
-    (input : Tuple machine.Val ins) (store : Nat) : Option (Tuple machine.Val outs × Nat) :=
-  match opcode with
-  | .tick => some (machine.primitive .tick input, store + 1)
-  | .undefined => none
-
-private theorem fixtureAction_eq {ins outs : Ports T} (opcode : Op ins outs)
-    (input : Tuple machine.Val ins) (store : Nat) :
-    _root_.Part.ofOption (fixtureAction opcode input store) = (primitives.step opcode input).run store := by
-  cases opcode <;> rfl
-
-private def fixtureNext (source : Config machine Nat answer) : Option (Config machine Nat answer) :=
-  match selectedPrimitive source.control with
-  | some active =>
-    (fixtureAction active.site.opcode active.site.input source.store).map
-      fun (output, store) => ⟨.returned output active.stack, store⟩
-  | none => source.control.next.map fun next => ⟨next, source.store⟩
-
-private theorem fixtureNext_eq (source : Config machine Nat answer) :
-    _root_.Part.ofOption (fixtureNext source) = source.next primitives := by
-  unfold fixtureNext Config.next
-  cases selectedPrimitive source.control with
-  | none => rfl
-  | some active =>
-    have map_eq {A B : Type} (result : Option A) (f : A → B) :
-        _root_.Part.ofOption (result.map f) = (_root_.Part.ofOption result).map f := by
-      cases result with
-      | none => exact (_root_.Part.map_none f).symm
-      | some => rfl
-    rw [map_eq, fixtureAction_eq]
-
 -- The opened region is normalized once by the closure-opening equation.
 -- Every later configuration is obtained by the fixture's actual next function.
 private def descentTrace : Nat → Config machine Nat answer
   | 0 => (descentEntry 7 20).config .halt
   | 1 => ⟨.eval (.region descentBody (descentInputs 7) PUnit.unit) .halt, 20⟩
-  | n + 2 => (fixtureNext (descentTrace (n + 1))).getD (descentTrace (n + 1))
+  | n + 2 => (Executable.next? fixtureActions (descentTrace (n + 1))).getD (descentTrace (n + 1))
 
 private theorem descentTraceSteps (i : Nat) (before : i < 15) :
     Step primitives (descentTrace i) (descentTrace (i + 1)) := by
-  apply Step.of_next_some
-  rw [← fixtureNext_eq]
-  have picked : fixtureNext (descentTrace i) = some (descentTrace (i + 1)) := by
-    interval_cases i <;> try rfl
-    change some (Config.mk (.eval (Job.openClosure machine descentCallee (args 0 7)) .halt) 20) =
-      some (Config.mk (.eval (.region descentBody (descentInputs 7) PUnit.unit) .halt) 20)
-    rw [descentOpened]
-  rw [picked]
-  rfl
+  apply Executable.step_iff.mpr
+  show Executable.next? fixtureActions (descentTrace i) = some (descentTrace (i + 1))
+  interval_cases i <;> try rfl
+  change some (Config.mk (.eval (Job.openClosure machine descentCallee (args 0 7)) .halt) 20) =
+    some (Config.mk (.eval (.region descentBody (descentInputs 7) PUnit.unit) .halt) 20)
+  rw [descentOpened]
+
 
 private theorem descentTraceLive :
     Descent.BeforeReturn (fun i => (descentTrace i).control) 1 15 (.halt : Stack machine answer answer) := by
@@ -808,5 +776,30 @@ example : Divergence.Diverges (feedbackPrimitives none) (outcomeEntry 1) ∧
     47 linked.toGraph .nil (.tail .head) (args 1 7) 20
   exact ⟨outcomeDiverges, fun returned => (classified.return_exclusive returned).2 outcomeDiverges,
     fun blocked => classified.block_excludes_divergence blocked outcomeDiverges⟩
+
+-- The executable driver takes the selected arm and updates the state wire
+-- and store. Its alternate call reports the exact blocked continuation.
+example : Executable.run fixtureActions 64 (entry 0) 20 = .returned (stateValue 8) 21 := by cbv
+
+private def undefinedOperand {ins outs : Ports T} : Op ins outs → Tuple machine.Val ins → Option Nat
+  | .undefined, .cons (.state wire) .nil => some wire
+  | .tick, _ => none
+
+private def blockedOperand : Executable.Observation machine Nat answer → Option (Nat × Nat)
+  | .blocked active store => (undefinedOperand active.site.opcode active.site.input).map (fun wire => (wire, store))
+  | _ => none
+
+example : blockedOperand (Executable.run fixtureActions 64 (entry 1) 20) = some (8, 21) := by cbv
+
+example : ∃ fuel, Executable.run fixtureActions fuel (entry 1) 20 =
+    .blocked ⟨undefinedSite 8, savedFrames.push .halt⟩ 21 :=
+  Executable.blocks_iff_run.mp ⟨savedFrames, blockRoot, rfl⟩
+
+-- The live non-tail recursive export retains its exact continuation
+-- at every finite budget.
+example (fuel : Nat) :
+    let reached := Executable.runFor fixtureActions fuel (descentRoot.config (.halt : Stack machine answer answer))
+    Executable.observe fixtureActions reached = .suspended reached :=
+  Executable.infinite_iff_all_suspended.mp (descentRun.infinite descentHalt) fuel
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Tests

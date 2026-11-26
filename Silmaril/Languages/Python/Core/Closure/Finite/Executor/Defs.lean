@@ -100,11 +100,11 @@ def advanceIn (rows : CodeRows) (globals : GlobalLookup) : State → Option Tran
     | .ok true => (none, .running source next stack)
     | .ok false => (none, .delivering source.heap stack (.error .assertionError))
     | .error error => failMetadata .codeNames source.heap stack error
-  | .running source (.callTo destination callee arguments next) stack =>
+  | .running source (.invoke callee arguments continuation) stack =>
     some <| match Closure.Executor.evalCallIn globals source.heap.project source.frame callee arguments with
     | .error error => fail source.heap stack error
     | .ok (value, values) =>
-      match Dispatch.dispatch rows value values source.heap ⟨_, source.frame, ⟨destination, next⟩⟩ stack with
+      match Dispatch.dispatch rows value values source.heap ⟨_, source.frame, continuation⟩ stack with
       | .ok active => (some (.enter value), enter active)
       | .error error => failDispatch source.heap stack error
   | .delivering heap stack result =>
@@ -113,9 +113,10 @@ def advanceIn (rows : CodeRows) (globals : GlobalLookup) : State → Option Tran
     | .terminal observed => (some (.complete observed), .finished exit.heap observed)
     | .resume caller observed => (some (.resume observed), .receiving exit.heap caller exit.stack observed)
   | .receiving heap caller stack (.ok value) =>
-    some <| match caller.continuation.destination with
-    | .store slot => resumeStore ⟨heap, caller.frame⟩ slot value caller.continuation.body stack
-    | .discard => (none, .running ⟨heap, caller.frame⟩ caller.continuation.body stack)
+    some <| match caller.continuation with
+    | some (.store slot, body) => resumeStore ⟨heap, caller.frame⟩ slot value body stack
+    | some (.discard, body) => (none, .running ⟨heap, caller.frame⟩ body stack)
+    | none => (none, .delivering heap stack (.ok value))
   | .receiving heap _ stack (.error error) => some (none, .delivering heap stack (.error error))
   | .finished .. | .faulted .. => none
 

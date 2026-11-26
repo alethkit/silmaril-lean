@@ -68,6 +68,12 @@ def BodyView.decode : {xs : List (Vertex τ Φ)} → {A B : τ} → BodyView Φ 
   | _, _, _, .sequence left right => .sequence left.decode right.decode
   | _, _, _, .gamma p l r => .choice p l.decode r.decode
 
+/-- The label tree emitted by the acyclic body compiler and its typed parse. -/
+def BodyView.ofBody : {A B : τ} → Body Φ A B → Σ xs, BodyView Φ xs A B
+  | _, _, .instruction p => ⟨_, .call p⟩
+  | _, _, .sequence l r => ⟨_, .sequence (ofBody l).2 (ofBody r).2⟩
+  | _, _, .choice p l r => ⟨_, .gamma p (ofBody l).2 (ofBody r).2⟩
+
 /-- The source-free target parse fixes the wrapper and its two ordered arms. -/
 inductive LoopView (Φ : Type u) [HasTy Φ τ] : List (Vertex τ Φ) → τ → τ → τ → τ → τ → Type u where
   | loop {A B K E D : τ} {xs : List (Vertex τ Φ)}

@@ -84,7 +84,7 @@ theorem entry_iff (checked : call.Checked program)
       (rest := cont.code.map Graph.limeEmit) allocated checked.found checked.resolved checked.typed) dst
   exact entry.trans (by rw [Context.Proofs.Lime1.entered_config]; rfl)
 
-private theorem plug_code (blocks : List Block) (saved : List Value) (body : Graph.Body)
+theorem plug_code (blocks : List Block) (saved : List Value) (body : Graph.Body)
     (cfg : Config H) (code : cfg.code = body.render Graph.limeAdmin) :
     (Context.limeNest (Block.scopes blocks saved) cfg).code =
       (Block.plug blocks saved body).render Graph.limeAdmin := by

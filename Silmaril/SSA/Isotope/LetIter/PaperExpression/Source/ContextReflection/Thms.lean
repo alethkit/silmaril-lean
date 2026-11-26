@@ -17,7 +17,30 @@ open Silmaril.Isotope.LetIter.PaperExpression.Source
 
 namespace Silmaril.Isotope.LetIter.PaperExpression.Source.ContextReflection
 
-universe u w
+universe u v w
+
+section Cover
+
+variable {α : Type u} {Φ : Type v} [HasTy Φ (Ty α)]
+  {ε : Type w} [HasEff Φ ε] [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε]
+
+/-- Transport reflection through the recursive cover by pure atomic contexts. -/
+theorem reflect_of_atomic (lo e : ε) (hle : lo ≤ e) {C : Ty α}
+    (atomic : ∀ {Γ : EffectCtx (Ty α) ε} {slots : Fin Γ.length → α}
+      {a b : Expr Φ} {t s : Tm Empty Φ Γ.length},
+      Γ.Pure → (∀ i, (Γ.get i).1 = .base (slots i)) →
+      Wf Γ a C lo → Wf Γ b C lo →
+      a.toLetIter Γ.length = some t → b.toLetIter Γ.length = some s →
+      AbortEquiv (⊥ : ε) (.nil : Ctx Empty (Ty α)) Γ.toBoundCtx t s C →
+      Eqv Γ C e a b)
+    {Γ : EffectCtx (Ty α) ε} {a b : Expr Φ} {t s : Tm Empty Φ Γ.length}
+    (hΓ : Γ.Pure) (ha : Wf Γ a C lo) (hb : Wf Γ b C lo)
+    (ht : a.toLetIter Γ.length = some t) (hs : b.toLetIter Γ.length = some s)
+    (hn : AbortEquiv (⊥ : ε) (.nil : Ctx Empty (Ty α)) Γ.toBoundCtx t s C) :
+    Eqv Γ C e a b :=
+  Proofs.reflect_of_atomic lo e hle atomic hΓ ha hb ht hs hn
+
+end Cover
 
 variable {α Φ : Type u} (S : FreeTree.Signature α Φ)
   {ε : Type w} [HasEff Φ ε] [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε]

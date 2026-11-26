@@ -28,13 +28,44 @@ def globalReference? (scope : Scope) (name : Name) : Option (GlobalReference sco
   else none
 
 inductive BinaryOp where
-  | add | floorDiv | equal
+  | add | floorDiv | equal | notEqual
 
 inductive Operand (scope : Scope) where
   | integer (value : Int)
   | boolean (value : Bool)
+  | none_
   | read (name : Name) (reference : GlobalReference scope name)
   | binary (op : BinaryOp) (left right : Operand scope)
+  | identityChain (left : Operand scope) (links : List (Core.Module.IdentityOperator × Operand scope))
+
+def identityOperator? : Comparison → Option Core.Module.IdentityOperator
+  | .is_ => some .is_
+  | .isNot => some .isNot
+  | _ => none
+
+/-- These operands share the existing ordinary and seeded scalar path.
+Reads can still fail or yield a value outside that profile. -/
+def Operand.comparable {scope : Scope} : Operand scope → Bool
+  | .integer _ | .boolean _ | .none_ | .read .. => true
+  | .binary .equal left right | .binary .notEqual left right => left.comparable && right.comparable
+  | .binary _ _ _ => false
+  | .identityChain left links =>
+    left.comparable && links.attach.all (fun link => link.val.2.comparable)
+termination_by operand => sizeOf operand
+decreasing_by
+  all_goals simp_wf
+  all_goals
+    first
+    | omega
+    | have smaller := Core.Module.Identity.sizeOf_operand_lt link.property
+      omega
+
+/-- A successful evaluation on this checked path has a singleton result. -/
+def Operand.singletonResult {scope : Scope} : Operand scope → Bool
+  | .boolean _ | .none_ => true
+  | operand@(.identityChain ..) => operand.comparable
+  | operand@(.binary .equal ..) | operand@(.binary .notEqual ..) => operand.comparable
+  | _ => false
 
 def integerLiteral? : Expr → Option Int
   | .integer value => some value
@@ -63,6 +94,9 @@ def scalarLiteral? : Expr → Option Core.Module.Value
   | .boolean value => some (.bool value)
   | expression => (integerLiteral? expression).map .int
 
+def numericLiteral? (source : Expr) : Option Int :=
+  (scalarLiteral? source).bind Core.Module.Value.asInt?
+
 inductive ScalarComparison where
   | eq | ne | lt | le | gt | ge
 
@@ -75,41 +109,41 @@ def ScalarComparison.ofSource? : Comparison → Option ScalarComparison
   | .ge => some .ge
   | _ => none
 
-/-- Only exact integers and Booleans enter this numeric comparison. -/
-def ScalarComparison.test (operator : ScalarComparison) (left right : Core.Module.Value) : Bool :=
+/-- The source checker supplies the integer projections of exact numeric literals. -/
+def ScalarComparison.test (operator : ScalarComparison) (left right : Int) : Bool :=
   match operator with
-  | .eq => left.equal right
-  | .ne => !left.equal right
-  | .lt => decide (left.asInt < right.asInt)
-  | .le => decide (left.asInt ≤ right.asInt)
-  | .gt => decide (left.asInt > right.asInt)
-  | .ge => decide (left.asInt ≥ right.asInt)
+  | .eq => decide (left = right)
+  | .ne => decide (left ≠ right)
+  | .lt => decide (left < right)
+  | .le => decide (left ≤ right)
+  | .gt => decide (left > right)
+  | .ge => decide (left ≥ right)
 
 /-- Each reached right value also supplies the next comparison's left value.
 A false link stops the comparison scan. -/
-def ScalarComparison.chain (left : Core.Module.Value) : List (ScalarComparison × Core.Module.Value) → Bool
+def ScalarComparison.chain (left : Int) : List (ScalarComparison × Int) → Bool
   | [] => true
   | (operator, right) :: rest =>
     if operator.test left right then chain right rest else false
 
 inductive ScalarComparison.EvaluatesChain :
-    Core.Module.Value → List (ScalarComparison × Core.Module.Value) → Bool → Prop where
-  | done (left : Core.Module.Value) : EvaluatesChain left [] true
+    Int → List (ScalarComparison × Int) → Bool → Prop where
+  | done (left : Int) : EvaluatesChain left [] true
   | stop {left operator right rest} (failed : operator.test left right = false) :
       EvaluatesChain left ((operator, right) :: rest) false
   | next {left operator right rest result} (passed : operator.test left right = true)
       (tail : EvaluatesChain right rest result) : EvaluatesChain left ((operator, right) :: rest) result
 
-def literalComparisonLink? (link : Comparison × Expr) : Option (ScalarComparison × Core.Module.Value) := do
+def literalComparisonLink? (link : Comparison × Expr) : Option (ScalarComparison × Int) := do
   let operator ← ScalarComparison.ofSource? link.1
-  let value ← scalarLiteral? link.2
+  let value ← numericLiteral? link.2
   return (operator, value)
 
 /-- Validate the whole chain before scanning for the first false comparison. -/
 def literalComparisonChain? (left : Expr) (links : List (Comparison × Expr)) : Option Bool :=
   match links with
   | _ :: _ :: _ => do
-    let value ← scalarLiteral? left
+    let value ← numericLiteral? left
     let checked ← links.mapM literalComparisonLink?
     return ScalarComparison.chain value checked
   | _ => none
@@ -119,18 +153,19 @@ def scalarTuple? : Expr → Option (List Core.Module.Value)
   | _ => none
 
 /-- These literals can be used for truth tests without representing a container
-or `None` as a scalar runtime value. Every element must pass the literal check. -/
+as a runtime value. Every element must pass the literal check. -/
 def nonScalarLiteralTruth? : Expr → Option Bool
-  | .none_ => some false
   | .tuple elements | .list_ elements => do
     let values ← elements.mapM scalarLiteral?
     return !values.isEmpty
   | _ => none
 
-def literalNegation? (source : Expr) : Option Bool :=
-  match scalarLiteral? source with
-  | some value => some (!value.truth)
-  | none => (nonScalarLiteralTruth? source).map (! ·)
+def literalNegation? : Expr → Option Bool
+  | .none_ => some (!Core.Module.Value.none.truth)
+  | source =>
+    match scalarLiteral? source with
+    | some value => some (!value.truth)
+    | none => (nonScalarLiteralTruth? source).map (! ·)
 
 def continuesSelection (operator : BooleanOperator) (value : Core.Module.Value) : Bool :=
   match operator with
@@ -160,6 +195,52 @@ def literalBooleanOp? (operator : BooleanOperator) : List Expr → Option Core.M
     return selectScalar operator value values
   | _ => none
 
+/-- Syntax allowed in a dead Boolean suffix. The grammar is binder-free:
+scalar literals, unary and binary expressions, and nested Boolean expressions
+of arity at least two. It checks structure without evaluating any operator. -/
+def skippedScalarSyntax : Expr → Bool
+  | .integer _ | .boolean _ | .none_ => true
+  | .unary _ operand => skippedScalarSyntax operand
+  | .binary _ left right => skippedScalarSyntax left && skippedScalarSyntax right
+  | .booleanOp _ (first :: second :: rest) =>
+    skippedScalarSyntax first && skippedScalarSyntax second &&
+      rest.attach.all (fun operand => skippedScalarSyntax operand.val)
+  | _ => false
+termination_by source => sizeOf source
+decreasing_by
+  all_goals simp_wf
+  all_goals
+    first
+    | omega
+    | have smaller := List.sizeOf_lt_of_mem operand.property
+      omega
+
+/-- Each reached source operand has a closed scalar certificate. The stop
+rule certifies that the entire remaining syntax is unreachable. -/
+inductive SelectsSourceScalar (operator : BooleanOperator) :
+    Core.Module.Value → List Expr → Core.Module.Value → Prop where
+  | last (value : Core.Module.Value) : SelectsSourceScalar operator value [] value
+  | stop {value next rest} (decided : continuesSelection operator value = false)
+      (syntaxChecked : (next :: rest).all skippedScalarSyntax = true) :
+      SelectsSourceScalar operator value (next :: rest) value
+  | next {value source rest operand result} (continued : continuesSelection operator value = true)
+      (literal : scalarLiteral? source = some operand)
+      (tail : SelectsSourceScalar operator operand rest result) :
+      SelectsSourceScalar operator value (source :: rest) result
+
+def selectSourceScalar? (operator : BooleanOperator) (value : Core.Module.Value) :
+    List Expr → Option Core.Module.Value
+  | [] => some value
+  | next :: rest =>
+    if continuesSelection operator value then
+      (scalarLiteral? next).bind fun operand => selectSourceScalar? operator operand rest
+    else if (next :: rest).all skippedScalarSyntax then some value else none
+
+def checkedBooleanOp? (operator : BooleanOperator) : List Expr → Option Core.Module.Value
+  | first :: second :: rest =>
+    (scalarLiteral? first).bind fun value => selectSourceScalar? operator value (second :: rest)
+  | _ => none
+
 def literalTupleMember? (left right : Expr) : Option Bool := do
   let needle ← scalarLiteral? left
   let elements ← scalarTuple? right
@@ -177,6 +258,57 @@ def literalTupleComparison? (left : Expr) (operator : Comparison) (right : Expr)
   | .notIn => (literalTupleMember? left right).map (! ·)
   | _ => none
 
+inductive SequenceKind where
+  | list | tuple
+  deriving DecidableEq
+
+structure ClosedSequence where
+  kind : SequenceKind
+  values : List Core.Module.Value
+
+/-- Source evidence for a flat scalar sequence. A concatenation validates
+both operands and preserves their order and common sequence kind. -/
+inductive ClosedSequence.ValueOf : Expr → ClosedSequence → Prop where
+  | list {elements values} (checked : elements.mapM scalarLiteral? = some values) :
+      ValueOf (.list_ elements) ⟨.list, values⟩
+  | tuple {elements values} (checked : elements.mapM scalarLiteral? = some values) :
+      ValueOf (.tuple elements) ⟨.tuple, values⟩
+  | append {left right lhs rhs} (first : ValueOf left lhs) (second : ValueOf right rhs)
+      (sameKind : lhs.kind = rhs.kind) :
+      ValueOf (.binary .add left right) ⟨lhs.kind, lhs.values ++ rhs.values⟩
+
+def checkClosedSequence : (source : Expr) → Option {value // ClosedSequence.ValueOf source value}
+  | .list_ elements =>
+    match checked : elements.mapM scalarLiteral? with
+    | none => none
+    | some values => some ⟨⟨.list, values⟩, .list checked⟩
+  | .tuple elements =>
+    match checked : elements.mapM scalarLiteral? with
+    | none => none
+    | some values => some ⟨⟨.tuple, values⟩, .tuple checked⟩
+  | .binary .add left right => do
+    let lhs ← checkClosedSequence left
+    let rhs ← checkClosedSequence right
+    if sameKind : lhs.val.kind = rhs.val.kind then
+      some ⟨⟨lhs.val.kind, lhs.val.values ++ rhs.val.values⟩, .append lhs.property rhs.property sameKind⟩
+    else none
+  | _ => none
+termination_by source => sizeOf source
+
+def ClosedSequence.equal (left right : ClosedSequence) : Bool :=
+  decide (left.kind = right.kind) && left.values.isEqv right.values Core.Module.Value.equal
+
+/-- Equality and inequality compare two checked operands. Tuple membership
+uses the existing literal profile. -/
+def closedSequenceComparison? (left : Expr) (operator : Comparison) (right : Expr) : Option Bool :=
+  match operator with
+  | .eq | .ne => do
+    let lhs ← checkClosedSequence left
+    let rhs ← checkClosedSequence right
+    let equal := lhs.val.equal rhs.val
+    return if let .ne := operator then !equal else equal
+  | _ => literalTupleComparison? left operator right
+
 /-- Deliver a computed Boolean through the existing typed scalar equality. -/
 def Operand.booleanResult {scope : Scope} (value : Bool) : Operand scope :=
   .binary .equal (.boolean value) (.boolean true)
@@ -184,14 +316,17 @@ def Operand.booleanResult {scope : Scope} (value : Bool) : Operand scope :=
 def Operand.scalarResult {scope : Scope} : Core.Module.Value → Operand scope
   | .int value => .integer value
   | .bool value => .booleanResult value
+  | .none => .none_
 
 def Operand.conditionalResult {scope : Scope} : Operand scope → Operand scope
   | .boolean value => .booleanResult value
   | value => value
 
+mutual
 inductive OperandTranslation (scope : Scope) : Expr → Operand scope → Prop where
   | integer (value : Int) : OperandTranslation scope (.integer value) (.integer value)
   | boolean (value : Bool) : OperandTranslation scope (.boolean value) (.boolean value)
+  | none_ : OperandTranslation scope .none_ .none_
   | negativeInteger (value : Int) :
       OperandTranslation scope (.unary .negative (.integer value)) (.integer (-value))
   | literalSubscript {source index value} (selected : literalSubscript? source index = some value) :
@@ -207,21 +342,39 @@ inductive OperandTranslation (scope : Scope) : Expr → Operand scope → Prop w
   | equal {left right lhs rhs} (first : OperandTranslation scope left lhs)
       (second : OperandTranslation scope right rhs) :
       OperandTranslation scope (.comparison left [(.eq, right)]) (.binary .equal lhs rhs)
-  | literalTupleComparison {left operator right value}
-      (checked : literalTupleComparison? left operator right = some value) :
+  | notEqual {left right lhs rhs} (first : OperandTranslation scope left lhs)
+      (second : OperandTranslation scope right rhs) :
+      OperandTranslation scope (.comparison left [(.ne, right)]) (.binary .notEqual lhs rhs)
+  | closedSequenceComparison {left operator right value}
+      (checked : closedSequenceComparison? left operator right = some value) :
       OperandTranslation scope (.comparison left [(operator, right)]) (.booleanResult value)
   | literalComparisonChain {left first second rest value}
       (checked : literalComparisonChain? left (first :: second :: rest) = some value) :
       OperandTranslation scope (.comparison left (first :: second :: rest)) (.booleanResult value)
   | literalNegation {source value} (checked : literalNegation? source = some value) :
       OperandTranslation scope (.unary .not_ source) (.booleanResult value)
-  | literalBooleanOp {operator operands value} (checked : literalBooleanOp? operator operands = some value) :
+  | literalBooleanOp {operator operands value} (checked : checkedBooleanOp? operator operands = some value) :
       OperandTranslation scope (.booleanOp operator operands) (.scalarResult value)
   | literalConditional {condition yes no decision lhs rhs}
       (guard : literalGuard? condition = some decision)
       (positive : OperandTranslation scope yes lhs) (negative : OperandTranslation scope no rhs) :
       OperandTranslation scope (.conditional condition yes no)
         (if decision then lhs else rhs).conditionalResult
+  | identityChain {left firstLink rest lhs rhs operator}
+      (identified : identityOperator? firstLink.1 = some operator)
+      (first : OperandTranslation scope left lhs) (singleton : lhs.singletonResult = true)
+      (links : IdentityLinksTranslation scope (firstLink :: rest) rhs) :
+      OperandTranslation scope (.comparison left (firstLink :: rest)) (.identityChain lhs rhs)
+
+inductive IdentityLinksTranslation (scope : Scope) :
+    List (Comparison × Expr) → List (Core.Module.IdentityOperator × Operand scope) → Prop where
+  | done : IdentityLinksTranslation scope [] []
+  | cons {operator right rest op value tail}
+      (identified : identityOperator? operator = some op)
+      (operand : OperandTranslation scope right value) (singleton : value.singletonResult = true)
+      (remaining : IdentityLinksTranslation scope rest tail) :
+      IdentityLinksTranslation scope ((operator, right) :: rest) ((op, value) :: tail)
+end
 
 inductive Action (scope : Scope) where
   | assign (name : Name) (reference : GlobalReference scope name) (value : Operand scope)
@@ -236,16 +389,18 @@ inductive Error where
   | statementProfile
   deriving BEq, DecidableEq, Repr
 
+mutual
 def lowerOperand (scope : Scope) : (source : Expr) → Except Error {value // OperandTranslation scope source value}
   | .integer value => .ok ⟨.integer value, .integer value⟩
   | .boolean value => .ok ⟨.boolean value, .boolean value⟩
+  | .none_ => .ok ⟨.none_, .none_⟩
   | .unary .negative (.integer value) => .ok ⟨.integer (-value), .negativeInteger value⟩
   | .unary .not_ operand =>
     match folded : literalNegation? operand with
     | some value => .ok ⟨.booleanResult value, .literalNegation folded⟩
     | none => .error .expressionProfile
   | .booleanOp operator operands =>
-    match folded : literalBooleanOp? operator operands with
+    match folded : checkedBooleanOp? operator operands with
     | some value => .ok ⟨.scalarResult value, .literalBooleanOp folded⟩
     | none => .error .expressionProfile
   | .subscript source index =>
@@ -263,20 +418,34 @@ def lowerOperand (scope : Scope) : (source : Expr) → Except Error {value // Op
     let lhs ← lowerOperand scope left
     let rhs ← lowerOperand scope right
     return ⟨.binary .floorDiv lhs.val rhs.val, .floorDiv lhs.property rhs.property⟩
-  | .comparison left [(operator, right)] =>
-    match folded : literalTupleComparison? left operator right with
-    | some value => .ok ⟨.booleanResult value, .literalTupleComparison folded⟩
+  | .comparison left (first :: rest) =>
+    match identified : identityOperator? first.1 with
+    | some _ => do
+      let lhs ← lowerOperand scope left
+      if singleton : lhs.val.singletonResult = true then
+        let rhs ← lowerIdentityLinks scope (first :: rest)
+        return ⟨.identityChain lhs.val rhs.val, .identityChain identified lhs.property singleton rhs.property⟩
+      else throw .expressionProfile
     | none =>
-      match operator with
-      | .eq => do
-        let lhs ← lowerOperand scope left
-        let rhs ← lowerOperand scope right
-        return ⟨.binary .equal lhs.val rhs.val, .equal lhs.property rhs.property⟩
-      | _ => .error .expressionProfile
-  | .comparison left (first :: second :: rest) =>
-    match folded : literalComparisonChain? left (first :: second :: rest) with
-    | some value => .ok ⟨.booleanResult value, .literalComparisonChain folded⟩
-    | none => .error .expressionProfile
+      match first, rest with
+      | (operator, right), [] =>
+        match folded : closedSequenceComparison? left operator right with
+        | some value => .ok ⟨.booleanResult value, .closedSequenceComparison folded⟩
+        | none =>
+          match operator with
+          | .eq => do
+            let lhs ← lowerOperand scope left
+            let rhs ← lowerOperand scope right
+            return ⟨.binary .equal lhs.val rhs.val, .equal lhs.property rhs.property⟩
+          | .ne => do
+            let lhs ← lowerOperand scope left
+            let rhs ← lowerOperand scope right
+            return ⟨.binary .notEqual lhs.val rhs.val, .notEqual lhs.property rhs.property⟩
+          | _ => .error .expressionProfile
+      | first, second :: rest =>
+        match folded : literalComparisonChain? left (first :: second :: rest) with
+        | some value => .ok ⟨.booleanResult value, .literalComparisonChain folded⟩
+        | none => .error .expressionProfile
   | .conditional condition yes no =>
     match guard : literalGuard? condition with
     | none => .error .expressionProfile
@@ -287,6 +456,21 @@ def lowerOperand (scope : Scope) : (source : Expr) → Except Error {value // Op
         .literalConditional guard positive.property negative.property⟩
   | _ => .error .expressionProfile
 termination_by source => sizeOf source
+
+def lowerIdentityLinks (scope : Scope) : (source : List (Comparison × Expr)) →
+    Except Error {links // IdentityLinksTranslation scope source links}
+  | [] => .ok ⟨[], .done⟩
+  | (operator, right) :: rest => do
+    match identified : identityOperator? operator with
+    | none => throw .expressionProfile
+    | some op =>
+      let operand ← lowerOperand scope right
+      if singleton : operand.val.singletonResult = true then
+        let tail ← lowerIdentityLinks scope rest
+        return ⟨(op, operand.val) :: tail.val, .cons identified operand.property singleton tail.property⟩
+      else throw .expressionProfile
+termination_by source => sizeOf source
+end
 
 inductive TestTranslation (scope : Scope) : Expr → Operand scope → Prop where
   | operand {source value} (translated : OperandTranslation scope source value) :

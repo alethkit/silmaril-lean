@@ -1,0 +1,43 @@
+module
+
+public import Silmaril.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Defs
+import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Correctness
+import Silmaril.SSA.SeaOfNodes.Memory.Thms
+
+/-! # Disjoint-Store forwarding preserves the word and entire heap -/
+
+public section
+
+namespace Silmaril.SSA.SeaOfNodes.Memory.Forwarding.Disjoint
+
+open RVSDG (Tuple)
+
+variable {args : List ValueSort} {cells : Nat}
+variable {graph rewritten : Graph args} {candidate : Candidate} {certificate : Certificate args}
+
+/-- The concrete check certifies exactly the listed typed address facts. -/
+theorem Certificate.check_iff_valid (certificate : Certificate args) (input : Tuple (Val cells) args) :
+    certificate.check input = true ↔ certificate.Valid input :=
+  Proofs.check_iff_valid certificate input
+
+/-- A rewrite can be reused at each input satisfying its certificate and
+at every initial heap for those inputs. -/
+theorem rewriteWith_denote (success : rewriteWith graph candidate certificate = some rewritten)
+    (input : Tuple (Val cells) args) (heap : Heap cells) (valid : certificate.Valid input) :
+    rewritten.denote input heap = graph.denote input heap :=
+  Proofs.rewriteWith_denote success input heap valid
+
+theorem rewrite_denote (input : Tuple (Val cells) args) (heap : Heap cells)
+    (success : rewrite graph candidate certificate input = some rewritten) :
+    rewritten.denote input heap = graph.denote input heap :=
+  Proofs.rewrite_denote input heap success
+
+/-- The checked rewrite preserves and reflects the full explicit-edge
+observation at the input used to check its certificate. -/
+theorem rewrite_returns_iff (input : Tuple (Val cells) args) (heap : Heap cells)
+    (success : rewrite graph candidate certificate input = some rewritten)
+    (word : Word) (final : Heap cells) :
+    rewritten.Returns input heap word final ↔ graph.Returns input heap word final := by
+  rw [rewritten.returns_iff_denote, graph.returns_iff_denote, rewrite_denote input heap success]
+
+end Silmaril.SSA.SeaOfNodes.Memory.Forwarding.Disjoint

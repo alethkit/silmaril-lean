@@ -41,6 +41,13 @@ theorem wf_split (i : Fin Γ.length) (ht : (Γ.get i).1 = product A B)
     Wf (splitCtx Γ i A B) (split i a) C e :=
   Proofs.wf_split i ht he ha
 
+/-- A pair let rebuilds related continuations in a split product context. -/
+theorem eqv_pairLet (i : Fin Γ.length) (ht : (Γ.get i).1 = product A B)
+    (he : (Γ.get i).2 = ⊥) (h : Eqv (splitCtx Γ i A B) C e a b) :
+    Eqv Γ C e (.let₂ (.var i) (a.wk (Expr.liftWk (SumSplit.toFront i))))
+      (.let₂ (.var i) (b.wk (Expr.liftWk (SumSplit.toFront i)))) :=
+  Proofs.eqv_pairLet i ht he h
+
 /-- Equality in the specialized context characterizes original-bound source equality. -/
 theorem eqv_iff_split (i : Fin Γ.length) (ht : (Γ.get i).1 = product A B)
     (he : (Γ.get i).2 = ⊥) (ha : Wf Γ a C e) (hb : Wf Γ b C e) :

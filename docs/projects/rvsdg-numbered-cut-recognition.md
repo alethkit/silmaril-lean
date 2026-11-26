@@ -22,35 +22,60 @@ result addresses. Opcode and sort equality must be decidable.
 [Parser and certification](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/Sequential/Flat/Numbered/Recognize/Check/Defs.lean)
 · [Typed graph equality](../../Silmaril/SSA/RVSDG/NestedTheta/Equality/Decision/Defs.lean)
 
-Every successful match carries the exact wiring equation and supplies
-the existing joint decomposition. The recovered flat CFG agrees with
-the actual numbered graph on finite typed exit, payload, and exact
-token in coherent `StateT σ Part` models, and on absence of a finite
-return. The SSA observation leaves blocking and divergence
-indistinguishable. The recognition proof guarantees acceptance
-whenever the deterministic parse reconstructs the supplied wiring.
-Completeness is proved for all generated graphs whose two loop
-bodies each consist of one instruction, independent of the chosen
-opcodes and payload sorts. More general sequences and choices are
-parsed and checked, with no whole-class completeness theorem.
-The matcher does not identify a unique original sequence tree or
-cover arbitrary numbering or CFGs.
-[Certification and soundness](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/Sequential/Flat/Numbered/Recognize/Thms.lean)
-· [Completeness theorem](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/Sequential/Flat/Numbered/Recognize/Atomic/Thms.lean)
+## Analysis boundary
 
-The existing example with feedback in both loops has a checked
-successful match. The recovered CFG returns the second exit payload
-`(3, 11)` and the exact accumulated token. A typed stale data edge
-retains the correct token but reads from the classifier instead of γ.
-The cut rejects it. A second typed mutation keeps the cut and label
-parse but resets γ's token. The executable comparison rejects it.
+Import
+`Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Thms`.
+`recognize` runs on the actual typed numbered graph and returns
+`Option (Match g)`. A match provides:
+
+- `Match.checked`, an admission witness for the input graph's wires.
+- `Match.recover`, the flat LambdaSSA CFG and its typing. The existing
+  forward compiler is `Numbered.compile` on the two typed components.
+- `Match.region_returns_iff` and `Match.region_undefined_iff`, which compare
+  the graph with the recovered region's actual denotation in coherent
+  `StateT σ Part` models. Finite observations include the typed external
+  exit, its payload and the exact final token. The SSA observation treats
+  blocking and divergence as the same absence of a finite return.
+
+[Recognition API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/Sequential/Flat/Numbered/Recognize/Thms.lean)
+
+`Recognize.Structured.Thms` proves that every graph from `Numbered.compile`
+is accepted, including sequences of arbitrary length and binary γ arms
+nested to arbitrary depth in either θ body. The proof counts the generated
+vertices and region returns to establish the existing parser's fuel bound.
+Right-associating the sequences leaves the entire emitted code unchanged,
+including producer addresses and token wiring. The exact checker therefore
+accepts the parsed graph even if the source body grouped sequences
+differently. On already right-associated input the parser recovers both
+typed component specs exactly.
+
+[Generated-family completeness](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/Sequential/Flat/Numbered/Recognize/Structured/Thms.lean)
+
+The accepted family still has the fixed outer conditional θ, carrier
+conversion and consumer θ. The producer offers two exits with the same
+handoff payload type. The consumer has two typed external exits. Each
+loop has an acyclic single-entry body with binary choice reconverging at
+a typed continuation, and one terminal feedback-or-exit decision.
+Recognition requires the compiler's numbered layout and typed opcode
+vocabulary, with decidable equality of sorts and opcodes. Arbitrary
+renumberings, other cut layouts, nested θ inside these bodies and general
+CFG lowering require additional work. The recovered CFG uses the parser's
+canonical grouping of sequences.
+
+The regression runs the executable recognizer on a compound graph with
+nested γ, sequencing in both loops and noncanonical source association.
+It also checks that the corresponding right-associated input recovers
+the typed CFG and wire certificate. The existing feedback fixture retains
+its exact-token observation, as well as rejection of both a stale handoff
+data edge and a stale γ token edge.
 [Fixture](../../tests/ssa/RVSDGLambdaSSAAcyclicSequentialTheta.lean)
 
 ## Reproduce
 
 ```sh
-make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Atomic.Thms
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Atomic.Thms
+make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Structured.Thms
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Structured.Thms
 ```
 
 ## Sources
