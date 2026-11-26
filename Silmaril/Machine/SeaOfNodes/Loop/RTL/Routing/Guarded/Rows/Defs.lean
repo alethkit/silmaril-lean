@@ -15,9 +15,15 @@ open Silmaril.Machine.RTL.SSA (State)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg WordOp model)
 open Silmaril.SSA.RVSDG (Address Origin Port Wires extend)
 open Silmaril.SSA.SeaOfNodes.Diamond (Dataflow)
-open Silmaril.SSA.SeaOfNodes.GVN (keepOrigin newest weaken)
+open Silmaril.SSA.SeaOfNodes.GVN (keepOrigin newest)
 open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
 open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
+
+/-- The right operand is a literal, an old bank field, or a row result. -/
+inductive GuardOperand (arity producers : Nat) where
+  | limit
+  | bank (slot : Fin arity)
+  | computed (producer : Fin producers)
 
 structure Plan (arity : Nat) where
   entry : ArgumentColumn arity arity
@@ -28,7 +34,7 @@ structure Plan (arity : Nat) where
   limit : Word
   exitSlot : Fin arity
   exitProducer : Option (Fin updates.length) := none
-  guardSlot : Option (Fin arity) := none
+  guardOperand : GuardOperand arity updates.length := .limit
 
 /-- Copies read old bank slots. The guard names a producer and its
 destination. Exit reads the old slot by default or a producer checked
@@ -43,31 +49,44 @@ structure Spec where
   limit : Word
   exitSlot : Nat
   exitOrigin : Option Address := none
-  /-- A bank-local argument address. Absence selects the fixed limit. -/
+  /-- A bank-local argument or a distinct row producer's word output.
+  Absence selects the fixed limit. -/
   guardRhs : Option Address := none
 
-/-- Decode the single result port of an update and check its destination. -/
+/-- Decode the single word result port of a typed update. -/
+def checkResultPort {arity : Nat} (updates : List (FeedbackUpdate arity))
+    (origin : Address) : Option (Fin updates.length) := do
+  let .output index 0 := origin | none
+  if inside : index < updates.length then some ⟨index, inside⟩ else none
+
+/-- Decode the result port and check its declared bank destination. -/
 def checkProducer {arity : Nat} (updates : List (FeedbackUpdate arity))
     (origin : Address) (destination : Nat) : Option (Fin updates.length) := do
-  let .output index 0 := origin | none
-  if inside : index < updates.length then
-    if updates[index].destination.val = destination then some ⟨index, inside⟩ else none
-  else none
+  let index ← checkResultPort updates origin
+  if updates[index].destination.val = destination then some index else none
 
 /-- Decode an old bank operand in bank-local numbering. -/
 def checkBankOperand (arity : Nat) (origin : Address) : Option (Fin arity) := do
   let .arg slot := origin | none
   if inside : slot < arity then some ⟨slot, inside⟩ else none
 
+def checkGuardOperand {arity : Nat} (updates : List (FeedbackUpdate arity))
+    (left : Fin updates.length) : Option Address → Option (GuardOperand arity updates.length)
+  | none => some .limit
+  | some (.arg slot) => (checkBankOperand arity (.arg slot)).map .bank
+  | some (.output index port) => do
+    let producer ← checkResultPort updates (.output index port)
+    if producer = left then none else some (.computed producer)
+
 def checkPlan (arity : Nat) (spec : Spec) : Option (Plan arity) := do
   let entry ← checkColumn arity arity spec.entry
   let copies ← checkColumn arity arity spec.copies
   let updates ← checkFeedbackRow arity spec.updates
   let guardIndex ← checkProducer updates spec.guardOrigin spec.guardDestination
-  let guardSlot ← spec.guardRhs.mapM (checkBankOperand arity)
+  let guardOperand ← checkGuardOperand updates guardIndex spec.guardRhs
   if exit : spec.exitSlot < arity then
     let exitProducer ← spec.exitOrigin.mapM fun origin => checkProducer updates origin spec.exitSlot
-    some ⟨entry, copies, updates, guardIndex, spec.comparison, spec.limit, ⟨spec.exitSlot, exit⟩, exitProducer, guardSlot⟩
+    some ⟨entry, copies, updates, guardIndex, spec.comparison, spec.limit, ⟨spec.exitSlot, exit⟩, exitProducer, guardOperand⟩
   else none
 
 theorem extend_append (past sigs tail : List (List PortTy)) :
@@ -95,26 +114,34 @@ theorem extend_rowSigs {fields : Nat} (updates : List (FeedbackUpdate fields)) (
     rw [rowSigs, extend, ih, List.length_cons, List.replicate_succ, List.append_assoc]
     rfl
 
-def guardSetupSigs {arity : Nat} : Option (Fin arity) → List (List PortTy)
-  | none => [[wordPort]]
-  | some _ => []
+def guardSetupSigs {arity producers : Nat} : GuardOperand arity producers → List (List PortTy)
+  | .limit => [[wordPort]]
+  | .bank _ | .computed _ => []
 
-def guardSetup {arity : Nat} {past : List (List PortTy)} (limit : Word) :
-    (slot : Option (Fin arity)) → Dataflow WordOp (bankArgs arity) past (guardSetupSigs slot)
-  | none => .cons (.const limit) .nil .nil
-  | some _ => .nil
+def guardSetup {arity producers : Nat} {past : List (List PortTy)} (limit : Word) :
+    (operand : GuardOperand arity producers) → Dataflow WordOp (bankArgs arity) past (guardSetupSigs operand)
+  | .limit => .cons (.const limit) .nil .nil
+  | .bank _ | .computed _ => .nil
 
-def guardRhsWire {arity : Nat} {past : List (List PortTy)} :
-    (slot : Option (Fin arity)) → Origin (bankArgs arity) (extend past (guardSetupSigs slot)) wordPort
-  | none => newest .head
-  | some slot => .arg (suffixPort (wordPorts arity) (argumentPort arity slot))
+def guardRhsWire {arity producers : Nat} {past : List (List PortTy)}
+    (result : Fin producers → Origin (bankArgs arity) past wordPort) :
+    (operand : GuardOperand arity producers) → Origin (bankArgs arity) (extend past (guardSetupSigs operand)) wordPort
+  | .limit => newest .head
+  | .bank slot => .arg (suffixPort (wordPorts arity) (argumentPort arity slot))
+  | .computed producer => result producer
+
+def GuardOperand.eval {arity : Nat} (updates : List (FeedbackUpdate arity))
+    (limit : Word) (old : WordTuple arity) : GuardOperand arity updates.length → Word
+  | .limit => limit
+  | .bank slot => old.get (argumentPort arity slot)
+  | .computed producer => updates[producer].evalAt (argumentPort arity) old
 
 variable {arity : Nat} (p : Plan arity)
 
 abbrev Plan.rowPast := extend [] (rowSigs p.updates)
 
-abbrev Plan.comparePast := extend p.rowPast (guardSetupSigs p.guardSlot)
-abbrev Plan.guardSigs := guardSetupSigs p.guardSlot ++ [[.value .predicate]]
+abbrev Plan.comparePast := extend p.rowPast (guardSetupSigs p.guardOperand)
+abbrev Plan.guardSigs := guardSetupSigs p.guardOperand ++ [[.value .predicate]]
 abbrev Plan.sigs := rowSigs p.updates ++ p.guardSigs
 
 def Plan.row : Dataflow WordOp (bankArgs arity) [] (rowSigs p.updates) :=
@@ -135,17 +162,20 @@ def Plan.guardWire : Origin (bankArgs arity) p.rowPast wordPort :=
 def Plan.exitWire : Origin (bankArgs arity) p.rowPast wordPort :=
   p.exitProducer.elim (.arg (suffixPort (wordPorts arity) (argumentPort arity p.exitSlot))) p.producerWire
 
-def Plan.guardSetup : Dataflow WordOp (bankArgs arity) p.rowPast (guardSetupSigs p.guardSlot) :=
-  Rows.guardSetup p.limit p.guardSlot
+def Plan.guardSetup : Dataflow WordOp (bankArgs arity) p.rowPast (guardSetupSigs p.guardOperand) :=
+  Rows.guardSetup p.limit p.guardOperand
+
+abbrev Plan.guardRhsWire : Origin (bankArgs arity) p.comparePast wordPort :=
+  Rows.guardRhsWire p.producerWire p.guardOperand
 
 def Plan.guardOperands : Wires (bankArgs arity) p.comparePast [wordPort, wordPort] :=
-  .cons (keepOrigin p.guardSetup p.guardWire) (.cons (guardRhsWire p.guardSlot) .nil)
+  .cons (keepOrigin p.guardSetup p.guardWire) (.cons p.guardRhsWire .nil)
 
 def Plan.test : Dataflow WordOp (bankArgs arity) p.rowPast p.guardSigs :=
   appendFlow p.guardSetup (.cons p.comparison.source p.guardOperands .nil)
 
 def Plan.testPredicate : Origin (bankArgs arity) (extend p.rowPast p.guardSigs) (.value .predicate) :=
-  joinedOrigin (past := p.rowPast) (sigs := guardSetupSigs p.guardSlot)
+  joinedOrigin (past := p.rowPast) (sigs := guardSetupSigs p.guardOperand)
     (tail := [[.value .predicate]]) (newest .head)
 
 def Plan.feedbackColumn : Wires (bankArgs arity) p.rowPast (wordPorts arity) :=
@@ -168,7 +198,7 @@ def Plan.guardValue (old : WordTuple arity) : Word :=
   p.updates[p.guardIndex].evalAt (argumentPort arity) old
 
 def Plan.guardRhsValue (old : WordTuple arity) : Word :=
-  p.guardSlot.elim p.limit (fun slot => old.get (argumentPort arity slot))
+  GuardOperand.eval p.updates p.limit old p.guardOperand
 
 def Plan.guardWord (old : WordTuple arity) : Word :=
   ofBool (p.comparison.target.eval (p.guardValue old) (p.guardRhsValue old))
@@ -186,9 +216,11 @@ def Plan.rowFrame (fr : Frame Reg) (old : WordTuple arity) : Frame Reg :=
   rowFrameAt (argumentPort arity) old 0 fr p.updates
 
 def Plan.guardSetupFrame (fr : Frame Reg) : Frame Reg :=
-  p.guardSlot.elim (fr.set (.node p.updates.length) p.limit) (fun _ => fr)
+  match p.guardOperand with
+  | .limit => fr.set (.node p.updates.length) p.limit
+  | .bank _ | .computed _ => fr
 
-def Plan.compareIndex : Nat := p.updates.length + (guardSetupSigs p.guardSlot).length
+def Plan.compareIndex : Nat := p.updates.length + (guardSetupSigs p.guardOperand).length
 
 def Plan.testFrame (fr : Frame Reg) (old : WordTuple arity) : Frame Reg :=
   (p.guardSetupFrame (p.rowFrame fr old)).set (.node p.compareIndex) (p.guardWord old)

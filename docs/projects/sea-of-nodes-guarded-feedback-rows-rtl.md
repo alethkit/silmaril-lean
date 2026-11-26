@@ -7,8 +7,9 @@ reads two old bank slots and writes a fresh temporary. Destinations are
 distinct. The guard names one computed producer and its destination.
 The checker requires them to agree. The guard compares that producer
 with `eq` or `ne` against `limit` by default. Set
-`guardRhs := some (.arg slot)` to read an old bank slot instead. Exit
-reads the old `exitSlot` by default. Set
+`guardRhs := some (.arg slot)` to read an old bank slot, or
+`guardRhs := some (.output producer 0)` to read a distinct row result.
+Exit reads the old `exitSlot` by default. Set
 `exitOrigin := some (.output producer 0)` to return a computed result
 from that activation. The checker requires that producer's destination
 to be `exitSlot`. Positional `Spec` literals take `exitOrigin` followed
@@ -63,8 +64,8 @@ and feedback branches in either predecessor order. The two orders
 recover the same branch terms of the emitted CFG. [Activation theorems][thms]
 
 For a row with `k` computations, `activationSteps` is `k + 3`
-with a fixed limit and `k + 2` with a bank operand. Both execute the
-row, comparison and branch. The fixed limit adds one literal.
+with a fixed limit and `k + 2` with an old-bank or computed operand.
+Both execute the row, comparison and branch. The fixed limit adds one literal.
 A return after `b` backedges needs exactly
 `activationSteps * (b + 1) + 2` RTL steps including entry and return,
 and `b + 1` λSSA visits. The fixed-limit example needs 17 RTL steps
@@ -121,6 +122,10 @@ def observe (spec : Spec) (input : WordTuple 3) := do
 #eval observe { subtractOnExit with limit := 42, guardRhs := some (.arg 2) }
   (.cons (0 : Word) (.cons (1 : Word) (.cons (5 : Word) .nil)))
 -- some (some [2], some 2)
+
+#eval observe { subtractOnExit with guardRhs := some (.output 1 0) }
+  (.cons (0 : Word) (.cons (1 : Word) (.cons (6 : Word) .nil)))
+-- some (some [3], some 3)
 ```
 
 At `(0, 1, 10)` two backedges lead to old bank `(2, 1, 8)`.
@@ -140,9 +145,22 @@ slot as the right operand. In the second call above, two backedges lead
 to `(2, 1, 3)`. The guard compares the next counter 3 with old slot 2's
 value 3. The subtraction has already computed 2 for that slot, and
 the exit passes that computed word. The return takes 14 RTL steps and
-3 λSSA visits. The checker rejects a producer address or an out-of-range
-slot for `guardRhs`. Reindexing the external inputs leaves that bank-local
-operand in place. [Native loop example][native-result] · [Bank operand regression][operand-regression]
+3 λSSA visits. The checker rejects an out-of-range `.arg` slot for
+`guardRhs`. Reindexing the external inputs leaves that bank-local
+operand in place. [Native loop example][native-result] · [Operand regressions][operand-regression]
+
+## Compare two row results
+
+Simple's chapter 13 loop regression has a continuation branch that
+compares two arithmetic expressions. The last call above uses the same
+operand shape with a single `ne` guard over an add and a subtraction.
+Both producers read the old bank. At `(2, 1, 4)` the computed words
+are both 3, so the loop exits. Using the old value 4 as the RHS would
+take the backedge. `guard_compare_computed` identifies the two actual
+RTL producer registers. The regression also inspects the emitted λSSA
+operands and branch packets, then checks both returns under an external
+input swap. A producer outside the update row, a port other than 0,
+and reuse of the left producer are refused. [Simple loop branch][simple-two-expressions] · [Operand regressions][operand-regression]
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
@@ -164,3 +182,4 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 [operand-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Fuel/BankOperandRegression.lean
 [native-result]: ../../Silmaril/Proofs/SSA/SeaOfNodes/Loop/Regression.lean
 [institution-thms]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Institution/Thms.lean
+[simple-two-expressions]: https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter13/src/test/java/com/seaofnodes/simple/Chapter13Test.java#L169-L173
