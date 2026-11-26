@@ -36,41 +36,53 @@ def wordBankEq : (widths : List Width) → BankDecidableEq model.value (dataPort
 instance (widths : List Width) : BankDecidableEq model.value (dataPorts (inputSorts widths)) :=
   wordBankEq widths
 
-/-- Require a marked exit and an unmarked backedge at the simultaneous fixed point. -/
-def ExitOnly (g : Loop.MLIR.CF.Bank.Program Γ carried result entrySigs headerSigs) (facts : InputFacts Γ) : Prop :=
+/-- The simultaneous solution marks the chosen successor and excludes the other. -/
+def OnlySuccessor (feedback : Bool) (g : Loop.MLIR.CF.Bank.Program Γ carried result entrySigs headerSigs)
+    (facts : InputFacts Γ) : Prop :=
   let edges := (solve model g facts).1
-  exitIndex ∈ edges ∧ incomingIndex .backedge ∉ edges
+  let backedge := incomingIndex .backedge
+  (if feedback then backedge else exitIndex) ∈ edges ∧
+    (if feedback then exitIndex else backedge) ∉ edges
 
-instance (g : Loop.MLIR.CF.Bank.Program Γ carried result entrySigs headerSigs) (facts : InputFacts Γ) :
-    Decidable (ExitOnly g facts) :=
-  inferInstanceAs (Decidable (exitIndex ∈ (solve model g facts).1 ∧
-    incomingIndex .backedge ∉ (solve model g facts).1))
+instance (feedback : Bool) (g : Loop.MLIR.CF.Bank.Program Γ carried result entrySigs headerSigs)
+    (facts : InputFacts Γ) : Decidable (OnlySuccessor feedback g facts) := by
+  unfold OnlySuccessor
+  infer_instance
+
+abbrev ExitOnly := @OnlySuccessor Γ carried result entrySigs headerSigs false
 
 def isHeader {args : List Width} : Loop.MLIR.CF.Bank.Label carried result args → Bool
   | .header => true
   | .exit => false
 
-/-- Specialize the header conditional using its exact false edge and operands. -/
-def pruneTerm {Δ : List Width} : Terminator (Loop.MLIR.CF.Bank.Label carried result) [result] Δ →
+/-- Keep the selected edge and its exact operands in the emitted header shape. -/
+def selectTerm {Δ : List Width} (feedback : Bool) :
+    Terminator (Loop.MLIR.CF.Bank.Label carried result) [result] Δ →
     Terminator (Loop.MLIR.CF.Bank.Label carried result) [result] Δ
   | .condBr test yes no =>
-    if isHeader yes.label && !isHeader no.label then .br no else .condBr test yes no
+    if isHeader yes.label && !isHeader no.label then .br (if feedback then yes else no)
+    else .condBr test yes no
   | term => term
 
-/-- Unchecked syntax transformation. The entry and exit blocks are shared with
-the original lowering. Only the terminator of the header is changed. -/
-def directExit (g : Loop.MLIR.CF.Bank.Program Γ carried result entrySigs headerSigs) :
+abbrev pruneTerm {Δ : List Width} :=
+  @selectTerm carried result Δ false
+
+/-- Change only the header terminator of the emitted loop. -/
+def selectHeader (feedback : Bool) (g : Loop.MLIR.CF.Bank.Program Γ carried result entrySigs headerSigs) :
     Cfg TargetOp (Loop.MLIR.CF.Bank.Label carried result) Γ [result] :=
   let cfg := Loop.MLIR.CF.Bank.lower g
   { cfg with
     block := fun
-      | .header => (cfg.block .header).mapTerm pruneTerm
+      | .header => (cfg.block .header).mapTerm (selectTerm feedback)
       | .exit => cfg.block .exit }
 
-/-- Emit the direct-branch CFG only when the analysis admits the rewrite. -/
-def rewrite (g : Loop.MLIR.CF.Bank.Program Γ carried result entrySigs headerSigs) (facts : InputFacts Γ) :
-    Option (Cfg TargetOp (Loop.MLIR.CF.Bank.Label carried result) Γ [result]) :=
-  if ExitOnly g facts then some (directExit g) else none
+/-- Emit the direct branch only when the analysis admits the rewrite. -/
+def rewriteSelected (feedback : Bool) (g : Loop.MLIR.CF.Bank.Program Γ carried result entrySigs headerSigs)
+    (facts : InputFacts Γ) : Option (Cfg TargetOp (Loop.MLIR.CF.Bank.Label carried result) Γ [result]) :=
+  if OnlySuccessor feedback g facts then some (selectHeader feedback g) else none
+
+abbrev directExit := @selectHeader Γ carried result entrySigs headerSigs false
+abbrev rewrite := @rewriteSelected Γ carried result entrySigs headerSigs false
 
 end Bank
 

@@ -15,12 +15,12 @@ open SeaOfNodes.MLIR (Word sourceInputs)
 open SeaOfNodes.MLIR.Lowering (lowerCode)
 open Loop.MLIR.CF (TargetOp evalOp model opcode)
 open Silmaril.MLIR.Arith (Env Width)
-open Silmaril.MLIR.CF (Cfg)
+open Silmaril.MLIR.CF (Cfg Frame)
 open Silmaril.MLIR.CF.SwitchAssert (Outcome)
 
 namespace Bank
 
-open Loop.MLIR.CF.Bank (Label Values bankEnv headerScope lower)
+open Loop.MLIR.CF.Bank (Label Values bankEnv bankOperands headerScope lower)
 
 variable {Γ carried : List Width} {result : Width} {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 variable {g : Loop.MLIR.CF.Bank.Program Γ carried result entrySigs headerSigs} {facts : InputFacts Γ}
@@ -28,13 +28,39 @@ variable {input : Env Γ} {cfg : Cfg TargetOp (Label carried result) Γ [result]
 
 attribute [local irreducible] solve
 
+theorem rewriteSelected_eq_some_iff (feedback : Bool) :
+    rewriteSelected feedback g facts = some cfg ↔ OnlySuccessor feedback g facts ∧ cfg = selectHeader feedback g :=
+  Proofs.rewriteSelected_eq_some_iff g facts feedback
+
+theorem rewriteSelected_eq_none_iff (feedback : Bool) :
+    rewriteSelected feedback g facts = none ↔ ¬ OnlySuccessor feedback g facts := by
+  unfold rewriteSelected
+  split <;> simp_all
+
 theorem rewrite_eq_some_iff : rewrite g facts = some cfg ↔ ExitOnly g facts ∧ cfg = directExit g :=
-  Proofs.rewrite_eq_some_iff g facts
+  rewriteSelected_eq_some_iff false
 
 /-- A feasible feedback edge or unmarked exit prevents specialization. -/
-theorem rewrite_eq_none_iff : rewrite g facts = none ↔ ¬ ExitOnly g facts := by
-  unfold rewrite
-  split <;> simp_all
+theorem rewrite_eq_none_iff : rewrite g facts = none ↔ ¬ ExitOnly g facts :=
+  rewriteSelected_eq_none_iff false
+
+/-- Specialization drops one successor and retains the other operand list in its original order. -/
+theorem selected_header_shape (feedback : Bool) (g : Loop.MLIR.CF.Bank.Program Γ carried result entrySigs headerSigs) :
+    (selectHeader feedback g).block .header =
+      lowerCode opcode g.header (headerScope Γ carried)
+        (fun scope =>
+          if feedback then .br ⟨.header, bankOperands scope (g.phiInputs .backedge)⟩
+          else .br ⟨.exit, .cons (scope.resolveValue g.result) .nil⟩) :=
+  Proofs.selected_header_shape g feedback
+
+/-- When the header actually takes the retained edge, specialization preserves the entire successor frame. -/
+theorem selected_header_frame (feedback : Bool) (old : Values carried) (frame : Frame (Label carried result))
+    (selected : isHeader frame.label = feedback)
+    (taken : ((lower g).block .header).eval evalOp (fun term env => term.eval env) ((bankEnv old).append input) =
+      .inl frame) :
+    ((selectHeader feedback g).block .header).eval evalOp (fun term env => term.eval env)
+      ((bankEnv old).append input) = .inl frame :=
+  Proofs.selected_header_frame g input feedback old frame selected taken
 
 /-- The preheader retains its original branch and entry Φ operands. -/
 theorem entry_eq (g : Loop.MLIR.CF.Bank.Program Γ carried result entrySigs headerSigs) :
