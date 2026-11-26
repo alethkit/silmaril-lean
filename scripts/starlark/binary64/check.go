@@ -147,7 +147,18 @@ func checkNumericDictionaryUpdates() {
 	_, err := starlark.Eval(&starlark.Thread{}, "numeric-keys.star", `{original: "first", duplicate: "second"}`,
 		starlark.StringDict{"original": negZero, "duplicate": zero})
 	require(err != nil && strings.Contains(err.Error(), "duplicate key"), fmt.Sprintf("want duplicate key, got %v", err))
-	fmt.Println("PASS numeric dictionary insert, lookup, replacement order, nested tuple keys and duplicate display")
+
+	var deepOriginal, deepAlternate starlark.Value = negZero, zero
+	for range starlark.CompareLimit {
+		deepOriginal, deepAlternate = starlark.Tuple{deepOriginal}, starlark.Tuple{deepAlternate}
+	}
+	deep := starlark.NewDict(0)
+	require(deep.SetKey(deepOriginal, starlark.True) == nil, "deep tuple insertion failed")
+	_, _, err = deep.Get(deepAlternate)
+	require(err != nil && strings.Contains(err.Error(), "comparison exceeded maximum recursion depth"),
+		fmt.Sprintf("want Go's tuple comparison depth error, got %v", err))
+
+	fmt.Println("PASS numeric dictionary updates, nested tuple keys, duplicate display and Go's depth limit")
 }
 
 func checkOrder(left, right starlark.Value, order int) {

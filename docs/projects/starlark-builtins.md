@@ -169,8 +169,11 @@ canonical codes in its entry list and gives no language `hash` operation.
 Both reject an equivalent second key in a dictionary display, as the
 spec requires. Go writes the second value into its private dictionary
 before raising the duplicate error. The Lean evaluator retains the first
-value in the accepted prefix of the reached heap.
-[Pinned display rules][spec-dict-display] · [Pinned Go display][go-key-display] · [Go float hashing][go-float-values]
+value in the accepted prefix of the reached heap. With Go's default
+comparison depth limit of 10, a lookup through ten nested singleton tuples
+can fail before comparing their numeric leaves. Lean compares the flattened
+cache without a recursive comparison depth limit.
+[Pinned display rules][spec-dict-display] · [Pinned Go display][go-key-display] · [Go float hashing][go-float-values] · [Go comparison limit][go-key-depth]
 
 The `float()` conversion, source literals and float arithmetic require
 separate rules. The Go controls distinguish finite-input conversion overflow,
@@ -264,3 +267,4 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 [go-float]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L391-L446
 [go-key-insert]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L78-L143
 [go-key-display]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L473-L486
+[go-key-depth]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L1511-L1550

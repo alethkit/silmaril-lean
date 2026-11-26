@@ -173,6 +173,18 @@ private def checksOrder (lhs rhs : Value) (order : Ordering) : Bool :=
     pure (found, keys)
   result (action {}) = .ok (.string "updated", [.tuple 1])
 
+-- The flattened code can match beyond the pinned Go oracle's recursive comparison limit.
+#guard
+  let nested := fun leaf : Lists.Value =>
+    (List.range 10).foldlM (fun key _ => Lists.allocateTuple [key]) leaf
+  let action : Lists.Meaning Lists.Value := do
+    let first ← nested (value 0x8000000000000000)
+    let second ← nested (integer 0)
+    let dict ← Lists.allocateDict []
+    Lists.writeIndex dict first (.string "deep")
+    Lists.readIndex dict second
+  result (action {}) = .ok (.string "deep")
+
 -- A duplicate checked display retains its private accepted prefix.
 #guard
   let original := value 0x8000000000000000
