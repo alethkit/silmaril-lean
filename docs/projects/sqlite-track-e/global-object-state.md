@@ -1,8 +1,8 @@
 # SQLite global object state
 
-Import `Silmaril.Machine.SQLite.GlobalState.Thms` for the kind store, its
-lookup laws and the VFS roots. This is a separate layer beside the components
-exposed by `Silmaril.Machine.SQLite.Architecture.All`. The starting boundaries
+Import `Silmaril.Machine.SQLite.GlobalState.Store.Thms` for finite snapshots,
+checked projections, the kind store and the VFS roots. This layer sits beside
+the components exposed by `Silmaril.Machine.SQLite.Architecture.All`. The starting boundaries
 are those in the [Track E coverage inventory at `9aeb8467`][coverage].
 
 ## Object store
@@ -16,8 +16,8 @@ identity. `lookup_insert_of_ne` and `lookup_erase_of_ne` give the frame at
 every other identity. `ext` identifies stores with the same lookups. `HasKind`
 expresses a successful classification, `hasKind_unique` checks uniqueness,
 and `Ref` packages classification evidence for one snapshot. Map edits are
-mathematical operations. Allocators, pointer representations, identity reuse
-and object lifetime are outside this model.
+mathematical operations. The kind store records present objects and carries
+no allocation history.
 
 The kind names refer to these SQLite 3.54.1 objects.
 
@@ -37,12 +37,88 @@ object link established during open. Name resolution, registration transitions
 and the lifetime of a selected VFS across unregistration remain to be modeled.
 [Registry][os] · [Connection open][main]
 
+## Finite snapshots and erasure
+
+`Objects ObjectId Payload` and `History ObjectId Payload` are finite
+`Std.ExtHashMap` snapshots keyed by the same abstract identities as
+`ObjectStore`. Each present `Object Payload` carries its kind, its
+`PresentState`, and a value of `Payload kind`. The kind-indexed family
+can also be constant. `toStates` instantiates it with `Unit`, giving
+`StateStore` or `StateHistory`. `Objects.toKinds` erases the state and
+payload into the existing objects-only `ObjectStore`.
+
+| Snapshot status | `History.lookup` | `History.toObjects.lookup` |
+| --- | --- | --- |
+| Allocated, in the ordinary open or live state | `some (.present object)` with state `.live` | `some object` |
+| Zombie, still present | `some (.present object)` with state `.zombie` | `some object` |
+| Freed, with allocated kind retained | `some (.freed kind)` | `none` |
+| Never bound in this history | `none` | `none` |
+
+`live` describes ordinary presence at this abstraction level. For
+example, a live file object still needs the relevant open mode and access
+grant in a file operation contract. `lookupLive` restricts the observation
+to live objects. SQLite's `sqlite3_close_v2` can leave a connection
+allocated as a zombie until its outstanding statements, BLOB handles and
+backups are released. This motivates the separate state. Which snapshots
+are reachable, including which kinds a resource contract can mark zombie,
+is left to that contract. A nullable reference can be an `Option ObjectId`
+in the payload. Its `none` records a null field inside a present object.
+[Close API][close] · [Zombie disposal][main]
+
+`History.allocate` requires `Fresh` (a missing history binding) and records
+a live object. `History.free` requires a present allocation and replaces its
+record with a tombstone. `fresh_allocate_iff` removes just the allocated ID
+from the fresh IDs and `fresh_free_iff` preserves freshness at every ID.
+Together these prevent reuse across these edits on a retained history.
+`toObjects_free` equates forgetting a tombstone with deleting the binding
+in the objects-only snapshot. `toObjects_not_injective` exhibits the
+obstruction to reversing that erasure. The same objects can come from a
+history with a tombstone or one where the ID was never bound. These edits
+are operations on finite maps. Resource families, address reuse, and
+SQLite API transitions belong to subsequent resource contracts.
+
+## Checked component views
+
+`KindView.supports` defines four filters. Each keeps the original IDs of
+all present objects whose kind it supports.
+
+| View | Included kinds | Source rationale |
+| --- | --- | --- |
+| `.vfs` | `vfs`, `file` | The VFS registry and OS-interface file-handle ABI. [Registry][os] · [C API][api] |
+| `.publicHandles` | `connection`, `statement`, `blob`, `backup` | Opaque database-operation handles in the C API. [C API][api] |
+| `.cache` | `pageCache`, `pager`, `file` | Pager manages its `PCache` with file handles for its database and journals. [Pager][pager] · [Page cache][cache] |
+| `.btree` | `btree`, `pager` | The B-tree handle reaches its backing Pager through `BtShared`. [B-tree structures][btree] |
+
+The VFS and cache policies share `file`. The cache and B-tree policies
+share `pager`. The public-handle policy covers database operations, while
+the VFS extension ABI has its own view. The filters are kind policies for
+whole snapshots. Exact reachability from a registered VFS, a particular
+connection, a B-tree, or a cache requires roots and object links. For
+example, the VFS filter admits an unregistered VFS and the cache filter admits
+files unrelated to any given Pager. `PCache` identifies the cache object,
+while Track E's `PageRead.Cache` observes page slots.
+
+`lookup_toObjects`, `lookup_map`, `lookup_toKinds` and `lookup_restrict`
+give the pointwise erasures and filters. `toObjects_map` commutes forgetting
+the history with kind-indexed payload mapping. `map_restrict` commutes
+that mapping with the view filter. `toKinds_map` preserves kinds through
+payload mapping, and `toKinds_restrict` commutes erasing to kinds with
+restricting the view.
+
+For a fixed finite `Objects` snapshot and a `KindView`, `PresentId` is
+the subtype of IDs with a successful supported lookup. It includes zombies.
+`checkId` tests membership for a raw ID, and `get` is total on that
+subtype. `checkId_isSome` agrees with the projected kind map on admission.
+`lookup_get` and `lookup_kind_get` agree with the source object and
+projected kind, respectively. These laws cover the supported present
+carrier of the given snapshot.
+
 ## Boundaries for later increments
 
-- Put state or struct payloads behind kind-specific lookups when a component
-  needs fields. For an indexed store, prove that erasing payloads preserves
-  each lookup in the kind store. Prove frame laws for updates to the new fields
-  and preserve root references explicitly when moving between snapshots.
+- Use the `Object` payload family for source struct fields. A later per-kind
+  store can recover or refine the indexed payload at the required kind.
+  Frame laws for updates to new fields and preservation of root references
+  are obligations when moving between snapshots.
 - Reuse `Interface.Connection`, `Session` and `Prepared` for D3 observations.
   Relate a file identity to `VFS.Opened` through its path and backing-local
   generation. `VFS.FileMap` observes backing by path, and `PageRead.Cache`
@@ -60,17 +136,26 @@ and the lifetime of a selected VFS across unregistration remain to be modeled.
 
 ```bash
 root=Silmaril.Machine.SQLite.GlobalState
-lake build --wfail +"$root".Checks
-lake env lean -DautoImplicit=false -DwarningAsError=true \
-  Silmaril/Machine/SQLite/GlobalState/Checks.lean
-for part in Defs Roots Thms Checks; do
-  SILMARIL_REPLAY_MODULE="$root.$part" \
+lake build --wfail +"$root".Checks +"$root".Store.Checks
+for check in Checks Store/Checks; do
+  lake env lean -DautoImplicit=false -DwarningAsError=true \
+    "Silmaril/Machine/SQLite/GlobalState/$check.lean" || exit 1
+done
+for module in "$root".{Defs,Roots,Thms,Checks,Store.Defs,Store.Thms,Store.Checks} \
+    Silmaril.Proofs.Machine.SQLite.GlobalState.Store.Erasure; do
+  SILMARIL_REPLAY_MODULE="$module" \
     lake env lean -DwarningAsError=true tools/compiler-explorer/Replay.lean || exit 1
 done
 ```
 
+The check modules print the public theorem axiom dependencies for comparison
+with [the axiom policy](../../../policy.toml). The store checks exercise the
+two policy overlaps, checked admission, a zombie with a null payload field,
+and a freed ID versus a never-bound ID.
+
 [coverage]: https://github.com/hiloopai/silmaril-lean/blob/9aeb8467ad1e1f962f9f166965e9fabc4e7e03b4/docs/projects/sqlite-track-e/coverage-v1.md
 [api]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/sqlite.h.in
+[close]: https://www.sqlite.org/c3ref/close.html
 [vdbeapi]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/vdbeapi.c
 [blob]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/vdbeblob.c
 [backup]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/backup.c
