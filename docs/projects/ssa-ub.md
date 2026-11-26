@@ -50,11 +50,35 @@ instruction spelling. [LetCase typing][case-typing] [LambdaSSA syntax][ssa-synta
   [Ordered algebra and quotient][models]
   [Initial model][spec]
 
+## Ordered LetCase bridge
+
+`refinement_iff` preserves and reflects refinement between literal-unit
+endpoints. `quotientIso` identifies the explicit quotient by mutual
+refinement with the quotient of canonical native terms by the inherited
+native order. The native presentation uses the full well-typed extended
+dialect as syntax. Its generators are the relabelled original sentences and
+`t ⊑ op (ub A) unit` for every native `t : A`. The proof uses monotone
+constructor operations, retains the chosen primitive effect, and imposes no
+purity requirement on it. Canonical elaboration always supplies literal unit,
+so it never erases an effectful operand. Readback on arbitrary operands is
+used internally to compare these generated axioms. [Bridge][case-refinement]
+
+With the original sentences taken from `caseTheory`, `preserves_native`
+also gives a derivation in LetCase's full native refinement calculus with
+the transported primitive rules and the top rule. Reflection into the
+original free extension fails for that stronger target. Native case beta
+drops an unselected branch containing UB, even with effectful UB and
+canonical endpoints. The Boolean occurrence model validates the interpreted
+axioms and distinguishes the two terms. Its `true` is greatest and
+`encode_eval` gives agreement with the induced explicit interpretation.
+The flag includes both branches and describes UB occurrence in syntax.
+[Model][case-model] [Checked counterexample][case-regression]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
 |---|---|---|
-| LetCase | The exact typed preorder gives `caseTheory` and ordered algebra models. The separate operational institution observes results, faults and divergence. | Instantiate the ordered monad with `casePSig` or the specification of `caseTheory`. `typedEquiv` proves both typed round trips between explicit UB and native terms generated with `op (ub A) unit`, including under binders. Arbitrary unit-typed operands can have effects. A larger semantic equivalence needs to preserve their evaluation and justify the sequencing and UB laws in the chosen observation model. [Ordered theory][let-theory] [Typed round trip][case] [Observations][obs] |
+| LetCase | The exact typed preorder gives `caseTheory` and ordered algebra models. The separate operational institution observes results, faults and divergence. | Instantiate the ordered monad with `casePSig` or the specification of `caseTheory`. `typedEquiv` proves both typed round trips between explicit UB and native terms generated with `op (ub A) unit`, including under binders. The interpreted order preserves and reflects on these endpoints. Arbitrary unit-typed operands can have effects, and an operational equivalence needs to preserve their evaluation and justify the sequencing and UB laws in the chosen observation model. [Ordered theory][let-theory] [Typed round trip][case] [Ordered bridge][case-refinement] [Observations][obs] |
 | LetIter | `iterTheory` gives ordered refinement models. The separate quantitative `Refinement.Thms` also has categorical initiality and singleton-input completeness. Operational stuckness yields an undefined outcome, while the observational institution tracks returns, faults and divergence. | The ordered monad applies to `iterPSig`. A native spelling round trip would extend the LetCase constructor proof with the iteration binder. For the quantitative calculus the unit operand requires `Γ.Discardable`; a literal UB at a linear context needs a new typing rule or a resource-consuming encoding and a proof of the directed effect and iteration laws. [Ordered theory][let-theory] [Quantitative typing][quant-typing] [Categorical initiality][quant] [Undefined outcome][iter-beh] |
 | LambdaSSA | Typed terms use unary instructions and regions have separate value and label contexts. The typed CFG quotient uses `RewriteEquiv`. The observational institution has inclusion of outcomes, with an observational isomorphism to LetIter for single-exit regions. | The primitive monad supplies a unit-taking expression instruction. A top **region** needs a constructor or a terminating encoding at every label context, including an empty one, plus a typed ordered presentation and compatible label substitution and feedback. The observational isomorphism does not give these typing or top laws. [Typing][ssa-typing] [Rewrite quotient][ssa-rewrite] [Observational isomorphism][ssa-obs] |
 | LambdaRTL | The acyclic model interprets unary applications in a monad; its alphabet institution takes the observation relation as a parameter. It distinguishes lexical SSA, projected RTL and full RTL store observations. The separate machine RTL adapter reports stuckness as an undefined outcome. | A top region needs a chosen store/label observation order and a typed result and continuation interface. Its interpretation must dominate all observations for every environment at the selected boundary. An instruction relabelling or a lawful monad supplies no such law. [Syntax and model][rtl] [Institution][rtl-inst] [Machine RTL outcomes][rtl-beh] |
@@ -74,6 +98,7 @@ provide that UB order or its sequencing laws. [Effect system][effects]
 
 ```sh
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetCase.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetCase.Refinement.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -89,6 +114,9 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetCase.
 [models]: ../../Silmaril/Raw/SSA/Isotope/Logic/Metatheory/Theory/OrderedModel.lean
 [case-typing]: ../../Silmaril/Raw/SSA/Isotope/LetCase/LocallyNameless/Typing.lean
 [ssa-syntax]: ../../Silmaril/SSA/Isotope/LambdaSSA/Defs.lean
+[case-refinement]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LetCase/Refinement/Thms.lean
+[case-model]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LetCase/Model/Thms.lean
+[case-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LetCase/Refinement/Regression.lean
 [case]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LetCase/Thms.lean
 [let-theory]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Isotope.lean
 [quant-typing]: ../../Silmaril/Raw/SSA/Isotope/Refinement/Typing.lean
