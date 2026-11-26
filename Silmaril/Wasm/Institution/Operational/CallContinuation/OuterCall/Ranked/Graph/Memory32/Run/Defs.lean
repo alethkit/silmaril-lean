@@ -4,7 +4,7 @@ public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.R
 public import Silmaril.Wasm.Institution.Operational.MemoryQuery.Native.Defs
 
 /-!
-# Finite ranked V1 Memory32 execution
+# Finite checked V1 Memory32 execution
 
 Administrative code retains the native operand, label and frame structure.
 The machine carries the selected memory's bytes once, outside that structure.
@@ -25,74 +25,74 @@ structure State where
   frame : Frame
   code : List Admin
 
-/-- Source instructions admitted at a given module and rank ceiling. Branch
+/-- Source instructions admitted in the current module and call profile. Branch
 payload types are checked at source entry. This administrative guard admits
 native depth lowering under entered labels. -/
-inductive SourceAllowedAt (mode : MemoryMode) (program : Program) (memory : MemAddr) (rank : Nat) (module : ModuleInst) :
+inductive SourceAllowedFor (mode : MemoryMode) (program : Program) (memory : MemAddr) (calls : CallMode) (rank : Nat) (module : ModuleInst) :
     Wasm.V1.Instr → Prop where
-  | intConst (t : IntType) (bits : BitVec t.width) : SourceAllowedAt mode program memory rank module (.intConst t bits)
-  | floatConst (t : FloatType) (bits : BitVec t.width) : SourceAllowedAt mode program memory rank module (.floatConst t bits)
-  | get (i : LocalIdx) : SourceAllowedAt mode program memory rank module (.localGet i)
-  | set (i : LocalIdx) : SourceAllowedAt mode program memory rank module (.localSet i)
-  | tee (i : LocalIdx) : SourceAllowedAt mode program memory rank module (.localTee i)
-  | bin (t : IntType) (op : IntBinOp) : SourceAllowedAt mode program memory rank module (.intBinOp t op)
+  | intConst (t : IntType) (bits : BitVec t.width) : SourceAllowedFor mode program memory calls rank module (.intConst t bits)
+  | floatConst (t : FloatType) (bits : BitVec t.width) : SourceAllowedFor mode program memory calls rank module (.floatConst t bits)
+  | get (i : LocalIdx) : SourceAllowedFor mode program memory calls rank module (.localGet i)
+  | set (i : LocalIdx) : SourceAllowedFor mode program memory calls rank module (.localSet i)
+  | tee (i : LocalIdx) : SourceAllowedFor mode program memory calls rank module (.localTee i)
+  | bin (t : IntType) (op : IntBinOp) : SourceAllowedFor mode program memory calls rank module (.intBinOp t op)
   | call {i : FuncIdx} {a : FuncAddr} {fn : Function}
       (resolved : module.funcs[i.toNat]? = some a) (found : program.lookup a = some fn)
-      (decreases : fn.rank < rank) : SourceAllowedAt mode program memory rank module (.call i)
+      (permitted : calls.permits rank fn.rank) : SourceAllowedFor mode program memory calls rank module (.call i)
   | load (offset : Fin (2 ^ 32)) (slot : module.memories[0]? = some memory) :
-      SourceAllowedAt mode program memory rank module (.intLoad .i32 none (immediate offset))
+      SourceAllowedFor mode program memory calls rank module (.intLoad .i32 none (immediate offset))
   | store (offset : Fin (2 ^ 32)) (slot : module.memories[0]? = some memory) :
-      SourceAllowedAt mode program memory rank module (.intStore .i32 none (immediate offset))
+      SourceAllowedFor mode program memory calls rank module (.intStore .i32 none (immediate offset))
   | memorySize {maximum : Option Nat} (enabled : mode = .growing maximum)
       (slot : module.memories[0]? = some memory) :
-      SourceAllowedAt mode program memory rank module .memorySize
+      SourceAllowedFor mode program memory calls rank module .memorySize
   | memoryGrow {maximum : Option Nat} (enabled : mode = .growing maximum)
       (slot : module.memories[0]? = some memory) :
-      SourceAllowedAt mode program memory rank module .memoryGrow
+      SourceAllowedFor mode program memory calls rank module .memoryGrow
   | if_ {result : Option NumType} {left right : Wasm.V1.Expr}
-      (thenBody : ∀ i ∈ left, SourceAllowedAt mode program memory rank module i)
-      (elseBody : ∀ i ∈ right, SourceAllowedAt mode program memory rank module i) :
-      SourceAllowedAt mode program memory rank module (.if_ result left right)
+      (thenBody : ∀ i ∈ left, SourceAllowedFor mode program memory calls rank module i)
+      (elseBody : ∀ i ∈ right, SourceAllowedFor mode program memory calls rank module i) :
+      SourceAllowedFor mode program memory calls rank module (.if_ result left right)
   -- Source blocks and selected conditional arms open the same kind of native label.
   | block {result : Option NumType} {body : Wasm.V1.Expr}
-      (guard : ∀ i ∈ body, SourceAllowedAt mode program memory rank module i) :
-      SourceAllowedAt mode program memory rank module (.block result body)
+      (guard : ∀ i ∈ body, SourceAllowedFor mode program memory calls rank module i) :
+      SourceAllowedFor mode program memory calls rank module (.block result body)
   | loop {result : Option NumType} {body : Wasm.V1.Expr}
-      (guard : ∀ i ∈ body, SourceAllowedAt mode program memory rank module i) :
-      SourceAllowedAt mode program memory rank module (.loop result body)
-  | br (depth : LabelIdx) : SourceAllowedAt mode program memory rank module (.br depth)
-  | brIf (depth : LabelIdx) : SourceAllowedAt mode program memory rank module (.brIf depth)
+      (guard : ∀ i ∈ body, SourceAllowedFor mode program memory calls rank module i) :
+      SourceAllowedFor mode program memory calls rank module (.loop result body)
+  | br (depth : LabelIdx) : SourceAllowedFor mode program memory calls rank module (.br depth)
+  | brIf (depth : LabelIdx) : SourceAllowedFor mode program memory calls rank module (.brIf depth)
   | brTable (depths : List LabelIdx) (fallback : LabelIdx) :
-      SourceAllowedAt mode program memory rank module (.brTable depths fallback)
-  | unreachable : SourceAllowedAt mode program memory rank module .unreachable
-  | return_ : SourceAllowedAt mode program memory rank module .return_
+      SourceAllowedFor mode program memory calls rank module (.brTable depths fallback)
+  | unreachable : SourceAllowedFor mode program memory calls rank module .unreachable
+  | return_ : SourceAllowedFor mode program memory calls rank module .return_
 
-/-- The active module and rank are local to a frame. Label entry retains both.
-An external caller may have its own module and an arbitrary rank ceiling. -/
-inductive AllowedAt (mode : MemoryMode) (program : Program) (memory : MemAddr) : Nat → ModuleInst → Admin → Prop where
-  | source {rank module i} (guard : SourceAllowedAt mode program memory rank module i) :
-      AllowedAt mode program memory rank module (.source i)
-  | trap {rank module} : AllowedAt mode program memory rank module .trap
+/-- The active module and, in the ranked profile, the rank ceiling are local
+to a frame. The recursive case is still inductive on finite administrative code. -/
+inductive AllowedFor (mode : MemoryMode) (program : Program) (memory : MemAddr) (calls : CallMode) : Nat → ModuleInst → Admin → Prop where
+  | source {rank module i} (guard : SourceAllowedFor mode program memory calls rank module i) :
+      AllowedFor mode program memory calls rank module (.source i)
+  | trap {rank module} : AllowedFor mode program memory calls rank module .trap
   | invoke {rank module address fn} (found : program.lookup address = some fn)
-      (decreases : fn.rank < rank) : AllowedAt mode program memory rank module (.invoke address)
-  | label {rank module n body} (scalar : n ≤ 1) (inside : ∀ x ∈ body, AllowedAt mode program memory rank module x) :
-      AllowedAt mode program memory rank module (.label n [] body)
+      (permitted : calls.permits rank fn.rank) : AllowedFor mode program memory calls rank module (.invoke address)
+  | label {rank module n body} (scalar : n ≤ 1) (inside : ∀ x ∈ body, AllowedFor mode program memory calls rank module x) :
+      AllowedFor mode program memory calls rank module (.label n [] body)
   | loopLabel {rank module result loopBody body}
-      (restart : SourceAllowedAt mode program memory rank module (.loop result loopBody))
-      (inside : ∀ x ∈ body, AllowedAt mode program memory rank module x) :
-      AllowedAt mode program memory rank module (.label 0 [.loop result loopBody] body)
+      (restart : SourceAllowedFor mode program memory calls rank module (.loop result loopBody))
+      (inside : ∀ x ∈ body, AllowedFor mode program memory calls rank module x) :
+      AllowedFor mode program memory calls rank module (.label 0 [.loop result loopBody] body)
   | frame {rank module n callee body address fn} (found : program.lookup address = some fn)
-      (decreases : fn.rank < rank) (scope : callee.module = fn.declaration.module)
+      (permitted : calls.permits rank fn.rank) (scope : callee.module = fn.declaration.module)
       (arity : n = fn.declaration.results.length)
-      (inside : ∀ x ∈ body, AllowedAt mode program memory fn.rank callee.module x) :
-      AllowedAt mode program memory rank module (.frame n callee body)
+      (inside : ∀ x ∈ body, AllowedFor mode program memory calls fn.rank callee.module x) :
+      AllowedFor mode program memory calls rank module (.frame n callee body)
 
-abbrev CodeAllowedAt (mode : MemoryMode) (program : Program) (memory : MemAddr) (rank : Nat) (module : ModuleInst)
+abbrev CodeAllowedFor (mode : MemoryMode) (program : Program) (memory : MemAddr) (calls : CallMode) (rank : Nat) (module : ModuleInst)
     (code : List Admin) : Prop :=
-  ∀ x ∈ code, AllowedAt mode program memory rank module x
+  ∀ x ∈ code, AllowedFor mode program memory calls rank module x
 
-def ReadyAt (mode : MemoryMode) (program : Program) (memory : MemAddr) (rank : Nat) (extent : Nat) (state : State) : Prop :=
-  mode.extent extent state.bytes ∧ CodeAllowedAt mode program memory rank state.frame.module state.code
+def ReadyFor (mode : MemoryMode) (program : Program) (memory : MemAddr) (calls : CallMode) (rank : Nat) (extent : Nat) (state : State) : Prop :=
+  mode.extent extent state.bytes ∧ CodeAllowedFor mode program memory calls rank state.frame.module state.code
 
 /-- One native administrative operation at a time. The frame and context
 congruences thread the same bytes into and out of their premises. -/
@@ -156,6 +156,11 @@ inductive EdgeAt (mode : MemoryMode) (program : Program) (memory : MemAddr) : St
 
 abbrev RunsAt (mode : MemoryMode) (program : Program) (memory : MemAddr) :=
   Relation.ReflTransGen (EdgeAt mode program memory)
+
+abbrev SourceAllowedAt mode program memory := SourceAllowedFor mode program memory .ranked
+abbrev AllowedAt mode program memory := AllowedFor mode program memory .ranked
+abbrev CodeAllowedAt mode program memory := CodeAllowedFor mode program memory .ranked
+abbrev ReadyAt mode program memory := ReadyFor mode program memory .ranked
 
 abbrev SourceAllowed := SourceAllowedAt .fixed
 abbrev Allowed := AllowedAt .fixed

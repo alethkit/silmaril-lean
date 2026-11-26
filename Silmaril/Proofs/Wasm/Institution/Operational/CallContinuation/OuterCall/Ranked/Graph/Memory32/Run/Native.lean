@@ -30,8 +30,19 @@ private theorem update_bytes {H : Type} (base : Store H) (m : MemAddr) (initial 
       storeWithBytes base m initial after := by
   simp [storeWithBytes, setMemory, List.set_set]
 
-theorem sound {H : Type} {mode : MemoryMode} {p : Program} {m : MemAddr} {base : Store H} {initial : MemInst}
-    (checked : p.checkV1 m mode = true) (layout : Layout p base m initial)
+theorem enter_rendered {H : Type} {p : Program} {m : MemAddr} {base : Store H} {initial : MemInst}
+    (layout : Layout p base m initial) {address : FuncAddr} {fn : Function}
+    (found : p.lookup address = some fn) (arity : fn.declaration.results.length ≤ 1)
+    {suspended : Frame} {bytes : ByteArray} {args : List Value}
+    (count : args.length = fn.declaration.params.length) :
+    Step CallFrame.v1NoHost (render base m initial ⟨bytes, suspended, values args ++ [.invoke address]⟩)
+      (render base m initial ⟨bytes, suspended, [.frame fn.declaration.results.length (fn.declaration.frame args)
+        [.label fn.declaration.results.length [] (expression fn.v1Func.body)]]⟩) :=
+  .invokeWasm _ _ address fn.declaration.type fn.declaration.module fn.v1Func args
+    (layout.functions address fn found) count arity
+
+theorem sound {H : Type} {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {base : Store H} {initial : MemInst}
+    (checked : p.checkV1 m mode calls = true) (layout : Layout p base m initial)
     (matched : mode.matches initial) {src dst : State}
     (move : EdgeAt mode p m src dst) :
     Step CallFrame.v1NoHost (render base m initial src) (render base m initial dst) := by
@@ -44,9 +55,7 @@ theorem sound {H : Type} {mode : MemoryMode} {p : Program} {m : MemAddr} {base :
   | get found => exact .localGet _ _ _ _ found
   | set found => exact .localSet _ _ _ _ _ found
   | resolve found => exact .call _ _ _ _ found
-  | @enter bytes f address fn args found count =>
-    exact .invokeWasm _ _ address fn.declaration.type fn.declaration.module fn.v1Func args
-      (layout.functions address fn found) count (p.function_checked checked found).1
+  | enter found count => exact enter_rendered layout found (p.function_checked checked found).1 count
   | load slot rule =>
     exact (MemoryWrite.v1_context_load_step_iff_at (saved := []) (tail := []) (selected layout slot _)).mpr
       ⟨_, rule, by simp [render, values]⟩
@@ -97,16 +106,16 @@ private theorem reflect_store {H : Type} {mode : MemoryMode} {p : Program} {m : 
   | write => exact ⟨_, .store slot edge, by simpa [render, MemoryWrite.v1ConfigAt, values, update_bytes] using eq⟩
   | trap => exact ⟨_, .storeTrap slot edge, eq⟩
 
-private theorem source_last {mode : MemoryMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
+private theorem source_last {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
     {code : List Admin} {op : Wasm.V1.Instr}
-    (guard : CodeAllowedAt mode p m rank mod code) (last : code.getLast? = some (.source op)) :
-    SourceAllowedAt mode p m rank mod op :=
+    (guard : CodeAllowedFor mode p m calls rank mod code) (last : code.getLast? = some (.source op)) :
+    SourceAllowedFor mode p m calls rank mod op :=
   source_allowed (guard _ (List.mem_of_getLast? last))
 
-theorem readback {H : Type} {mode : MemoryMode} {p : Program} {m : MemAddr} {base : Store H} {initial : MemInst}
+theorem readback {H : Type} {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {base : Store H} {initial : MemInst}
     (layout : Layout p base m initial) (matched : mode.matches initial) {src dst : Config H} (move : Step CallFrame.v1NoHost src dst)
     (bytes : ByteArray) (same : src.store = storeWithBytes base m initial bytes)
-    {rank : Nat} (ready : CodeAllowedAt mode p m rank src.frame.module src.code) :
+    {rank : Nat} (ready : CodeAllowedFor mode p m calls rank src.frame.module src.code) :
     ∃ out, EdgeAt mode p m ⟨bytes, src.frame, src.code⟩ out ∧ dst = render base m initial out := by
   induction move generalizing bytes rank with
   | pure s f move => exact ⟨_, .pure move, by simp [render, ← same]⟩
@@ -129,7 +138,7 @@ theorem readback {H : Type} {mode : MemoryMode} {p : Program} {m : MemAddr} {bas
         (fun c : Config H => (⟨c.store, c.frame, [.label 0 [.loop result body] c.code]⟩ : Config H)) eq⟩
   | frame move n outer ih =>
     have guard := single_allowed.mp ready
-    cases guard with | frame found smaller scope arity inside =>
+    cases guard with | frame found permitted scope arity inside =>
       obtain ⟨next, rule, eq⟩ := ih bytes same inside
       exact ⟨_, .frame rule n outer, congrArg
         (fun c : Config H => (⟨c.store, outer, [.frame n c.frame c.code]⟩ : Config H)) eq⟩
@@ -139,7 +148,7 @@ theorem readback {H : Type} {mode : MemoryMode} {p : Program} {m : MemAddr} {bas
   | invokeWasm s f address ty mod fn args found count arity =>
     have guard := single_allowed.mp (append_allowed.mp ready).2
     cases guard with
-    | invoke declared smaller =>
+    | invoke declared permitted =>
       change s = storeWithBytes base m initial bytes at same
       rw [same] at found
       change base.funcs[address.value]? = some (.wasm ty mod fn) at found
@@ -224,11 +233,11 @@ theorem initial_store {H : Type} {p : Program} {m : MemAddr} {base : Store H} {i
   unfold setMemory
   rw [← allocated, List.set_getElem_self]
 
-theorem step_iff {H : Type} {mode : MemoryMode} {p : Program} {m : MemAddr} {base : Store H} {initial : MemInst}
-    (checked : p.checkV1 m mode = true) (layout : Layout p base m initial) (matched : mode.matches initial) {src : State} {rank : Nat}
-    (ready : ReadyAt mode p m rank initial.data.size src) {dst : Config H} :
+theorem step_iff {H : Type} {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {base : Store H} {initial : MemInst}
+    (checked : p.checkV1 m mode calls = true) (layout : Layout p base m initial) (matched : mode.matches initial) {src : State} {rank : Nat}
+    (ready : ReadyFor mode p m calls rank initial.data.size src) {dst : Config H} :
     Step CallFrame.v1NoHost (render base m initial src) dst ↔
-      ∃ out, EdgeAt mode p m src out ∧ ReadyAt mode p m rank initial.data.size out ∧ dst = render base m initial out := by
+      ∃ out, EdgeAt mode p m src out ∧ ReadyFor mode p m calls rank initial.data.size out ∧ dst = render base m initial out := by
   constructor
   · intro step
     obtain ⟨out, edge, eq⟩ := readback layout matched step src.bytes rfl ready.2
@@ -236,11 +245,11 @@ theorem step_iff {H : Type} {mode : MemoryMode} {p : Program} {m : MemAddr} {bas
   · rintro ⟨out, edge, _, rfl⟩
     exact sound checked layout matched edge
 
-theorem run_iff {H : Type} {mode : MemoryMode} {p : Program} {m : MemAddr} {base : Store H} {initial : MemInst}
-    (checked : p.checkV1 m mode = true) (layout : Layout p base m initial) (matched : mode.matches initial) {src : State} {rank : Nat}
-    (ready : ReadyAt mode p m rank initial.data.size src) {dst : Config H} :
+theorem run_iff {H : Type} {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {base : Store H} {initial : MemInst}
+    (checked : p.checkV1 m mode calls = true) (layout : Layout p base m initial) (matched : mode.matches initial) {src : State} {rank : Nat}
+    (ready : ReadyFor mode p m calls rank initial.data.size src) {dst : Config H} :
     Steps CallFrame.v1NoHost (render base m initial src) dst ↔
-      ∃ out, RunsAt mode p m src out ∧ ReadyAt mode p m rank initial.data.size out ∧ dst = render base m initial out := by
+      ∃ out, RunsAt mode p m src out ∧ ReadyFor mode p m calls rank initial.data.size out ∧ dst = render base m initial out := by
   constructor
   · intro run
     induction run with
@@ -280,6 +289,15 @@ theorem function_branch_exit {H : Type} {s : Store H} {caller callee : Frame}
       Step.context (Step.frame (Step.pure (host := CallFrame.v1NoHost) s callee
         (.labelBranch results.length [] extra payload bodyTail arity)) results.length caller) saved callerTail
   · exact .context (.pure _ _ (.frameDone _ callee payload arity)) saved callerTail
+
+theorem function_fallthrough {H : Type} {s : Store H} {caller callee : Frame}
+    {saved payload : List Value} {tail : List Admin} {arity : Nat} (count : payload.length = arity) :
+    let done := (⟨s, caller, values saved ++ [.frame arity callee (values payload)] ++ tail⟩ : Config H)
+    Step CallFrame.v1NoHost
+      ⟨s, caller, values saved ++ [.frame arity callee [.label arity [] (values payload)]] ++ tail⟩ done ∧
+    Step CallFrame.v1NoHost done ⟨s, caller, values saved ++ values payload ++ tail⟩ :=
+  ⟨.context (.frame (.pure _ _ (.labelDone arity [] payload)) arity caller) saved tail,
+    .context (.pure _ _ (.frameDone arity callee payload count)) saved tail⟩
 
 theorem br_table_select_iff {H : Type} {s : Store H} {f : Frame} {saved : List Value}
     {selector : BitVec 32} {depths : List LabelIdx} {fallback : LabelIdx} {tail : List Admin} {dst : Config H} :

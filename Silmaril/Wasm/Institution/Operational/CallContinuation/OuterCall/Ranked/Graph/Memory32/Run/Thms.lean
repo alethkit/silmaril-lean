@@ -16,6 +16,28 @@ theorem Layout.initial_store {H : Type} {p : Program} {m : MemAddr} {base : Stor
     (layout : Layout p base m initial) : storeWithBytes base m initial initial.data = base :=
   RunProofs.initial_store layout
 
+/-- Entry depends on allocation and V1 arity. The caller frame and the live
+store survive unchanged, including when the caller invokes its own address. -/
+theorem Layout.enter_rendered {H : Type} {p : Program} {m : MemAddr} {base : Store H} {initial : MemInst}
+    (layout : Layout p base m initial) {address : FuncAddr} {fn : Function}
+    (found : p.lookup address = some fn) (arity : fn.declaration.results.length ≤ 1)
+    {suspended : Frame} {bytes : ByteArray} {args : List Value}
+    (count : args.length = fn.declaration.params.length) :
+    Step CallFrame.v1NoHost (render base m initial ⟨bytes, suspended, values args ++ [.invoke address]⟩)
+      (render base m initial ⟨bytes, suspended, [.frame fn.declaration.results.length (fn.declaration.frame args)
+        [.label fn.declaration.results.length [] (expression fn.v1Func.body)]]⟩) :=
+  RunProofs.enter_rendered layout found arity count
+
+/-- Fallthrough first closes the function label, then delivers the results
+above the saved operands and resumes the caller on the current live store. -/
+theorem v1_function_fallthrough {H : Type} {s : Store H} {caller callee : Frame}
+    {saved payload : List Value} {tail : List Admin} {arity : Nat} (count : payload.length = arity) :
+    let done := (⟨s, caller, values saved ++ [.frame arity callee (values payload)] ++ tail⟩ : Config H)
+    Step CallFrame.v1NoHost
+      ⟨s, caller, values saved ++ [.frame arity callee [.label arity [] (values payload)]] ++ tail⟩ done ∧
+    Step CallFrame.v1NoHost done ⟨s, caller, values saved ++ values payload ++ tail⟩ :=
+  RunProofs.function_fallthrough count
+
 theorem call_ready {p : Program} {m : MemAddr} {addr : FuncAddr} {fn : Function}
     {caller : Frame} {index : FuncIdx} (found : p.lookup addr = some fn)
     (resolved : caller.module.funcs[index.toNat]? = some addr) (args : List Value) (bytes : ByteArray) :
@@ -80,33 +102,53 @@ theorem RunsAt.extent_mono {mode : MemoryMode} {p : Program} {m : MemAddr} {src 
   | refl => exact Nat.le_refl _
   | tail _ edge ih => exact ih.trans edge.extent_mono
 
-theorem EdgeAt.ready {mode : MemoryMode} {p : Program} {m : MemAddr} {src dst : State} {rank minimum : Nat}
-    (edge : EdgeAt mode p m src dst) (checked : p.checkV1 m mode = true)
-    (ready : ReadyAt mode p m rank minimum src) : ReadyAt mode p m rank minimum dst :=
+theorem EdgeAt.ready {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {src dst : State}
+    {rank minimum : Nat} (edge : EdgeAt mode p m src dst) (checked : p.checkV1 m mode calls = true)
+    (ready : ReadyFor mode p m calls rank minimum src) : ReadyFor mode p m calls rank minimum dst :=
   ⟨RunProofs.extent_preserved edge ready.1, RunProofs.preserve checked edge ready.2⟩
 
 theorem render_growing {H : Type} {p : Program} {m : MemAddr} {base : Store H} {initial : MemInst}
-    {src : State} {rank : Nat} (ready : ReadyAt (.growing initial.max) p m rank initial.data.size src) :
+    {calls : CallMode} {src : State} {rank : Nat}
+    (ready : ReadyFor (.growing initial.max) p m calls rank initial.data.size src) :
     GrowingStore base m initial (render base m initial src).store :=
   ⟨src.bytes, ready.1, rfl⟩
 
-/-- Exact successors in either profile. Growth has separate success and failure edges. -/
-theorem v1_step_iff_at {H : Type} {mode : MemoryMode} {p : Program} {m : MemAddr}
-    {base : Store H} {initial : MemInst} (checked : p.checkV1 m mode = true) (layout : Layout p base m initial)
-    (matched : mode.matches initial) {src : State} {rank : Nat} (ready : ReadyAt mode p m rank initial.data.size src)
-    {dst : Config H} :
+/-- Exact successors in either call or memory profile. Growth has separate
+success and failure edges. -/
+theorem v1_step_iff_at {H : Type} {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr}
+    {base : Store H} {initial : MemInst} (checked : p.checkV1 m mode calls = true) (layout : Layout p base m initial)
+    (matched : mode.matches initial) {src : State} {rank : Nat}
+    (ready : ReadyFor mode p m calls rank initial.data.size src) {dst : Config H} :
     Step CallFrame.v1NoHost (render base m initial src) dst ↔
-      ∃ out, EdgeAt mode p m src out ∧ ReadyAt mode p m rank initial.data.size out ∧ dst = render base m initial out :=
+      ∃ out, EdgeAt mode p m src out ∧ ReadyFor mode p m calls rank initial.data.size out ∧
+        dst = render base m initial out :=
   RunProofs.step_iff checked layout matched ready
 
 /-- Relational finite-prefix correspondence, including native allocation failure. -/
-theorem v1_run_iff_at {H : Type} {mode : MemoryMode} {p : Program} {m : MemAddr}
-    {base : Store H} {initial : MemInst} (checked : p.checkV1 m mode = true) (layout : Layout p base m initial)
-    (matched : mode.matches initial) {src : State} {rank : Nat} (ready : ReadyAt mode p m rank initial.data.size src)
-    {dst : Config H} :
+theorem v1_run_iff_at {H : Type} {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr}
+    {base : Store H} {initial : MemInst} (checked : p.checkV1 m mode calls = true) (layout : Layout p base m initial)
+    (matched : mode.matches initial) {src : State} {rank : Nat}
+    (ready : ReadyFor mode p m calls rank initial.data.size src) {dst : Config H} :
     Steps CallFrame.v1NoHost (render base m initial src) dst ↔
-      ∃ out, RunsAt mode p m src out ∧ ReadyAt mode p m rank initial.data.size out ∧ dst = render base m initial out :=
+      ∃ out, RunsAt mode p m src out ∧ ReadyFor mode p m calls rank initial.data.size out ∧
+        dst = render base m initial out :=
   RunProofs.run_iff checked layout matched ready
+
+/-- Read back every finite prefix from ordinary entry. The recursive policy
+checks direct links independently of rank, and the growing memory profile
+reflects both native choices of an in-limit grow. -/
+theorem v1_call_run_iff_at {H : Type} {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr}
+    {base : Store H} {initial : MemInst} (checked : p.checkV1 m mode calls = true)
+    (layout : Layout p base m initial) (matched : mode.matches initial)
+    (extent : mode.extent initial.data.size initial.data)
+    {root : FuncAddr} {fn : Function} {caller : Frame} {index : FuncIdx} {args : List Value}
+    (found : p.lookup root = some fn) (resolved : caller.module.funcs[index.toNat]? = some root)
+    {dst : Config H} :
+    Steps CallFrame.v1NoHost ⟨base, caller, values args ++ [.source (.call index)]⟩ dst ↔
+      ∃ out, RunsAt mode p m ⟨initial.data, caller, values args ++ [.source (.call index)]⟩ out ∧
+        ReadyFor mode p m calls (fn.rank + 1) initial.data.size out ∧ dst = render base m initial out := by
+  have ready := RunProofs.initial_call (calls := calls) (m := m) found resolved args initial.data extent
+  simpa only [render, layout.initial_store] using v1_run_iff_at (dst := dst) checked layout matched ready
 
 /-- A growing graph starts with a page-aligned, in-limit allocation. -/
 theorem v1_growing_call_run_iff {H : Type} {p : Program} {m : MemAddr} {base : Store H} {initial : MemInst}
@@ -117,10 +159,9 @@ theorem v1_growing_call_run_iff {H : Type} {p : Program} {m : MemAddr} {base : S
     {dst : Config H} :
     Steps CallFrame.v1NoHost ⟨base, caller, values args ++ [.source (.call index)]⟩ dst ↔
       ∃ out, RunsAt (.growing initial.max) p m ⟨initial.data, caller, values args ++ [.source (.call index)]⟩ out ∧
-        ReadyAt (.growing initial.max) p m (fn.rank + 1) initial.data.size out ∧ dst = render base m initial out := by
-  have ready := RunProofs.initial_call (mode := .growing initial.max) (m := m) found resolved args initial.data
-    (show GrowthExtent initial initial.data from ⟨Nat.le_refl _, extent⟩)
-  simpa only [render, layout.initial_store] using v1_run_iff_at (dst := dst) checked layout rfl ready
+        ReadyAt (.growing initial.max) p m (fn.rank + 1) initial.data.size out ∧ dst = render base m initial out :=
+  v1_call_run_iff_at checked layout rfl (show GrowthExtent initial initial.data from ⟨Nat.le_refl _, extent⟩)
+    found resolved
 
 /-- A depth-zero backedge restores the loop source. Re-entry then opens a
 new zero-input label with the same current frame and store. -/
