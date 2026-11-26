@@ -280,8 +280,10 @@ modules and expressions. Its coverage table describes the supported syntax and
 the remaining productions. The [source elaborator](tla-elaborator.md) checks
 scalar state predicates and actions as well as temporal conjunctions with
 bracket modalities and WF/SF clauses. The [source import path](tla-quint-import.md)
-connects both stages on intact Quint exports and a temporal example. TLC
-configuration, PlusCal translation and proof checking are separate work.
+connects both stages on intact Quint exports and a temporal example.
+The [mathematical data bridge for named formulas](tla-data-temporal.md)
+adds Simple TLA denotations and a progress proof from intact LiveHourClock.
+TLC configuration, PlusCal translation and proof checking are separate work.
 
 ### Checked surface examples
 
