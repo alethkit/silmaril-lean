@@ -1,6 +1,8 @@
 module
 
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.TypeChange.Comparison.Thms
+import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Expansion.TypeChange.Thms
+import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Pullback.Witness.Lift.Thms
 import Silmaril.Semantics.Calco2019.Maybe.Types.Thms
 
 /-! # Forward transport through a case and local join in the Maybe Kleisli category -/
@@ -110,6 +112,41 @@ example :
   let _ := pullbackInstructions collapse instructions
   exact mapRegionWitness collapse types instructions (denoteRegion_spec J _ typing)
 
+-- The carrier identifications in the actual algebra reduct support readback
+-- even when the type map identifies distinct payload types.
+example (K : ValidatedCaseAlgebra J target) :
+    (K.reduct collapse).expand =
+      K.expand.pullbackOfWitness collapse (regionWitnessPullback collapse K.expand) :=
+  ValidatedCaseAlgebra.expand_reduct collapse K
+
+private def mismatchedBranch : LambdaSSA.Region source.Instr := .br 0 (.var 0)
+
+private theorem mismatchedBranch_untyped :
+    ¬ LambdaSSA.Region.HasType [A] mismatchedBranch [B] := by
+  intro h
+  cases h with
+  | br hl ha =>
+    cases ha with
+    | var hv =>
+      have e : A = B := (Option.some.inj hv).trans (Option.some.inj hl).symm
+      cases e
+
+private theorem mismatchedBranch_image :
+    LambdaSSA.Region.HasType ([A].map collapse.ty) (mismatchedBranch.mapInstr collapse.instr)
+      ([B].map collapse.ty) :=
+  .br rfl (.var rfl)
+
+-- The mapped branch has a witness in the same non-thin Kleisli category;
+-- no arrow can witness its preimage at the specified source interfaces.
+example :
+    (letI := instructions; ∃ a, RegionDenotes J types mismatchedBranch_image a) ∧
+      ¬ LambdaSSA.Region.HasType [A] mismatchedBranch [B] := by
+  let _ := instructions
+  exact ⟨regionDenotes_exists J types mismatchedBranch_image, mismatchedBranch_untyped⟩
+
+example (K : CoherentRegionModel J target) : ¬ RegionWitnessLifts collapse K :=
+  fun lift => mismatchedBranch_untyped ((regionWitnessLifts_iff collapse K).mp lift mismatchedBranch_image)
+
 section Composite
 
 private abbrev Wide : Ty Nat := .base 7
@@ -138,6 +175,51 @@ local instance : widen.PreservesProducts where
 local instance : widen.PreservesSums where
   coprod _ _ := rfl
   empty := rfl
+
+private def narrow : SignatureMap widened.Instr target.Instr (Ty Nat) (Ty Unit) Bool Unit where
+  instr := id
+  ty := Ty.map (fun _ => ())
+  eff := fun _ => ()
+  source f := by cases f; rfl
+  target f := by cases f; rfl
+  effect f := by cases f; rfl
+
+local instance : narrow.PreservesProducts where
+  product _ _ := rfl
+  unit := rfl
+
+local instance : narrow.PreservesSums where
+  coprod _ _ := rfl
+  empty := rfl
+
+-- This nonidentity map reflects typing via a constructor-preserving retraction.
+example : RegionTypingReflects widen := by
+  have types : Function.LeftInverse narrow.ty widen.ty := by
+    intro T
+    change Ty.map (fun _ : Nat => ()) (Ty.map (fun _ : Unit => 7) T) = T
+    rw [Ty.map_map]
+    exact Ty.map_id T
+  intro Γ r L h
+  exact regionTypingReflects_of_split widen narrow types (fun _ => rfl) h
+
+private def exitsImmediately : LambdaSSA.Region target.Instr :=
+  .cfg (.br 1 .unit) 1 (fun _ => .br 1 .unit)
+
+private abbrev targetLayout : Fin 1 → Ty Nat := fun _ => .base 8
+
+-- The same judgement admits a source layout and a target-only layout because
+-- the local parameter is unused. The latter layout itself has no preimage.
+example : LambdaSSA.Region.HasType ([] : List (Ty Unit)) exitsImmediately [unit] :=
+  .cfg (fun _ => (unit : Ty Unit)) (.br rfl .unit) (fun _ => .br rfl .unit)
+
+example : LambdaSSA.Region.HasType ([] : List (Ty Nat))
+    (exitsImmediately.mapInstr widen.instr) [unit] :=
+  .cfg targetLayout (.br rfl .unit) (fun _ => .br rfl .unit)
+
+example : ¬ ∃ R : Fin 1 → Ty Unit, widen.ty ∘ R = targetLayout := by
+  rintro ⟨R, h⟩
+  have e := congrFun h 0
+  cases hR : R 0 <;> simp [widen, Function.comp_apply, hR] at e
 
 private abbrev p : TypeSignature := ⟨Ty Bool, Unit, source⟩
 private abbrev q : TypeSignature := ⟨Ty Unit, Unit, target⟩

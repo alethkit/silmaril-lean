@@ -404,7 +404,6 @@ The continuation cannot jump back to its own label.
   On the included primitive maps, both signature actions and the
   reification components agree with the fixed-type comorphism.
   The comparison uses forward transport of source witnesses.
-  Reconstruction of arbitrary target witnesses remains separate.
   [Type-changing comorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/TypeChange/Comparison/Thms.lean)
 - Given a chosen distributive Freyd interpretation of the types, the
   exact LetCase arrow carriers determine where to read back each primitive
@@ -420,6 +419,25 @@ The continuation cannot jump back to its own label.
   expansion preserves exact satisfaction. Reification reflects equational
   consequence on the class of algebras in the image of the reduct.
   [Expansion criterion and section](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Thms.lean)
+- A validated LetCase algebra carries this presentation and coherence on
+  chosen types. Its reduct uses the existing LetCase operation map, with
+  carriers identified by the dependent type pullback. Primitive readback
+  after reduct gives exactly the restricted instruction model. Expanding
+  the reduced algebra therefore gives the same coherent SSA model as
+  expanding first and applying the witnessed SSA pullback.
+  [Object-level expansion square](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/TypeChange/Thms.lean)
+- At fixed source syntax, value context, and exits, lifting all target
+  denotation witnesses up to equality of transported arrows is equivalent
+  to reflection of region typing. Once the source judgement is typable,
+  forward transport and target coherence give the arrow equality. A
+  type-former-preserving reverse signature map that is a left inverse on
+  types and primitives suffices for reflection. A collapsing type map
+  makes a branch between distinct source types well-typed at the target.
+  Even for a split map, a target typing can choose an unused local
+  parameter outside the image. Reflection recovers the judgement, and
+  that particular local layout has no preimage.
+  [Witness lifting criterion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Pullback/Witness/Lift/Thms.lean) ·
+  [Split and collapsing probes](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/TypeChange/Thms.lean)
 - In a distributive Freyd interpretation with central unit, binding a term
   and returning the newest variable satisfies let-η. The exact LetCase room
   also contains a Boolean operation algebra that rejects the closed unit
