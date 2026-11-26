@@ -15,7 +15,7 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mix
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Context.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Reconstruction.Thms
-import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Arguments.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Arguments.EffectWeakening.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.CallByValue.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.AtomicSequence.Thms
@@ -3239,3 +3239,132 @@ example : Eqv ΔRight .unit bound (rightReply.specialize Γ productReply)
   pairReplyOrder specializeRight
 
 end LetIterSharedReplyReflectionFixture
+
+namespace LetIterCaseRawWeakeningFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues (Profile)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyArguments
+  (CaseRaw instructionBound instructionBound_le packed_weaken_eq_iff_at packed_weaken_eq_iff_join)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyReflection
+  (call_request_inversion)
+
+set_option backward.isDefEq.respectTransparency false
+
+private abbrev T := Ty Unit
+private abbrev Eff := Bool × Bool × Bool × Bool
+private abbrev kept : Eff := (true, false, false, false)
+
+private inductive Instr
+  | read | write | unusedLeft | unusedRight
+
+private instance : HasTy Instr T := ⟨fun _ => .unit, fun _ => .unit⟩
+private instance : HasEff Instr Eff where
+  eff
+    | .read | .write => kept
+    | .unusedLeft => (false, true, false, false)
+    | .unusedRight => (false, false, true, false)
+
+local instance : EffectIteration Eff := EffectIteration.complete Eff
+
+private theorem visible (i : Instr) : ¬ IsPure (⊥ : Eff) i := by
+  change (instrEff i : Eff) ≠ ⊥
+  cases i <;> decide
+
+private def profile : Profile (α := Unit) Instr Eff := fun i h => (visible i h).elim
+
+private abbrev Γ : EffectCtx T Eff := []
+private theorem pureCtx : Γ.Pure := fun i => i.elim0
+private abbrev slots : Fin Γ.length → Unit := Fin.elim0
+private theorem slotTy : ∀ i : Fin Γ.length, (Γ.get i).1 = .base (slots i) := fun i => i.elim0
+
+private abbrev selected : Expr Instr := .let₁ (.op .read .unit) (.op .write .unit)
+
+private abbrev withUnused (i : Instr) : Expr Instr :=
+  .case (.inl .unit) selected (.op i .unit)
+
+private theorem selectedWf (Δ : EffectCtx T Eff) {e : Eff} (h : kept ≤ e) :
+    Wf Δ selected .unit e :=
+  .let₁ (.op h (.unit _ _)) (.op h (.unit _ _))
+
+private theorem withUnusedEqv (i : Instr) {e : Eff} (h : kept ≤ e) (h' : instrEff i ≤ e) :
+    Eqv Γ .unit e (withUnused i) selected := by
+  have tag : Wf Γ (.inl .unit : Expr Instr) (.coprod .unit .unit) e := .inl (.unit _ _)
+  have left := selectedWf ((.unit, ⊥) :: Γ) h
+  have right : Wf ((.unit, ⊥) :: Γ) (.op i .unit) .unit e := .op h' (.unit _ _)
+  exact (Eqv.step (.reduce (.case tag left right) (.let₁ (.unit _ _) left) (.case_inl _ _ _))).trans
+    (.step (.let1_beta (.unit _ _) left))
+
+private theorem emitRaw (Δ : EffectCtx T Eff) {e : Eff} (i : Instr) (h : instrEff i ≤ e) :
+    CaseRaw e Δ .unit (.op i .unit) :=
+  .call (visible i) h (.straight (.leaf (.unit _ _) .unit))
+
+private theorem topCode (i : Instr) : CaseRaw (⊤ : Eff) Γ .unit (withUnused i) :=
+  .branch (A := .unit) (B := .unit) (.straight (.leaf (.inl (.unit _ _)) (.inl .unit)))
+    (.bind (emitRaw _ .read le_top) (emitRaw _ .write le_top)) (emitRaw _ i le_top)
+
+private abbrev eLeft : Eff := instructionBound (withUnused Instr.unusedLeft)
+private abbrev eRight : Eff := instructionBound (withUnused Instr.unusedRight)
+private abbrev eBoth : Eff := eLeft ⊔ eRight
+
+private theorem leftRaw : CaseRaw eLeft Γ .unit (withUnused .unusedLeft) :=
+  (topCode .unusedLeft).at_bound_iff.mpr le_rfl
+
+private theorem rightRaw : CaseRaw eRight Γ .unit (withUnused .unusedRight) :=
+  (topCode .unusedRight).at_bound_iff.mpr le_rfl
+
+private abbrev leftTerm : TypedExpr Instr Γ .unit eLeft := ⟨_, leftRaw.wf⟩
+private abbrev rightTerm : TypedExpr Instr Γ .unit eRight := ⟨_, rightRaw.wf⟩
+private abbrev common : Hom Instr (packType Γ) .unit (⊤ : Eff) :=
+  weakenEffect le_top (denote rightTerm)
+
+-- The independently inferred bounds are incomparable. Their join is still below top.
+example : eLeft < eBoth ∧ eRight < eBoth ∧ eBoth < (⊤ : Eff) :=
+  ⟨lt_of_le_of_ne le_sup_left (fun h => Bool.noConfusion (congrArg (fun x => x.2.2.1) h)),
+   lt_of_le_of_ne le_sup_right (fun h => Bool.noConfusion (congrArg (fun x => x.2.1) h)),
+   lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg (fun x => x.2.2.2) h))⟩
+
+private theorem bothEqv : Eqv Γ .unit eBoth leftTerm.val rightTerm.val :=
+  (withUnusedEqv .unusedLeft (by decide) (by decide)).trans
+    (withUnusedEqv .unusedRight (by decide) (by decide)).symm
+
+private theorem commonEq : weakenEffect le_top (denote leftTerm) = common :=
+  (packed_weaken_eq_iff_join profile pureCtx slotTy leftTerm rightTerm leftRaw rightRaw le_top le_top).mpr bothEqv
+
+-- An endpoint presented directly at the larger bound still reflects at the lower join.
+example : Eqv Γ .unit eBoth leftTerm.val rightTerm.val := by
+  let leftHi : TypedExpr Instr Γ .unit (⊤ : Eff) := ⟨leftTerm.val, wf_weakenEffect leftTerm.prop le_top⟩
+  exact (packed_weaken_eq_iff_at profile pureCtx slotTy leftHi rightTerm
+    (leftRaw.weakenEffect le_sup_left) (rightRaw.weakenEffect le_sup_right) le_rfl le_top le_top).mp commonEq
+
+-- The right program's untaken instruction still contributes to source typing.
+-- Equality in the common hom cannot reflect to the left bound alone.
+example : ¬ Eqv Γ .unit eLeft leftTerm.val rightTerm.val := by
+  intro eq
+  exact (by decide : ¬ eRight ≤ eLeft) (instructionBound_le eq.endpoints_wf.2)
+
+example : ¬ Eqv Γ .unit eRight leftTerm.val rightTerm.val := by
+  intro eq
+  exact (by decide : ¬ eLeft ≤ eRight) (instructionBound_le eq.endpoints_wf.1)
+
+private abbrev reversed : Expr Instr := .let₁ (.op .write .unit) (.op .read .unit)
+private theorem reversedRaw : CaseRaw kept Γ .unit reversed :=
+  .bind (emitRaw _ .write le_rfl) (emitRaw _ .read le_rfl)
+private abbrev reverseTerm : TypedExpr Instr Γ .unit kept := ⟨_, reversedRaw.wf⟩
+
+-- Widening still distinguishes two visible requests executed in the wrong order.
+example : weakenEffect le_top (denote reverseTerm) ≠ common := by
+  intro eq
+  have low := (packed_weaken_eq_iff_join profile pureCtx slotTy reverseTerm rightTerm
+    reversedRaw rightRaw le_top le_top).mp eq
+  have order := low.trans (withUnusedEqv .unusedRight (by decide) (by decide))
+  have native := order.toLetIter
+    (rfl : reversed.toLetIter 0 = some (.let₁ (.op .write .unit) (.op .read .unit)))
+    (rfl : selected.toLetIter 0 = some (.let₁ (.op .read .unit) (.op .write .unit)))
+  obtain ⟨head, _⟩ := call_request_inversion profile pureCtx slotTy (e := kept ⊔ eRight)
+    (f := Instr.write) (g := Instr.read) (arg := .unit) (arg' := .unit)
+    (k := .op .read .unit) (l := .op .write .unit)
+    (visible _) (visible _) (.unit _ _) (.unit _ _) .unit .unit
+    (.op (by decide) (.unit _ _)) (.op (by decide) (.unit _ _)) rfl rfl native
+  cases head
+
+end LetIterCaseRawWeakeningFixture
