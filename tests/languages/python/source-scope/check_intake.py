@@ -2,6 +2,7 @@
 """Check the Python AST emitter, source scope and supported compiler profiles."""
 
 import argparse
+import functools
 import inspect
 import json
 import os
@@ -16,46 +17,19 @@ ROOT = Path(__file__).resolve().parents[4]
 EMITTER = ROOT / "tools/python-source/source_ast.py"
 LAKE = os.environ.get("LAKE", "lake")
 
-# Run the first fixture through Lake and snapshot its child environment without
-# sending the snapshot through the fixture's stdout or stderr.
-_CAPTURE_AND_EXEC = """
-import json
-import os
-import signal
-import sys
-
-with open(sys.argv[1], "w", encoding="ascii") as snapshot:
-    json.dump([os.getcwd(), dict(os.environ)], snapshot)
-# Match the signal defaults restored by subprocess for the later fixtures.
-for name in ("SIGPIPE", "SIGXFZ", "SIGXFSZ"):
-    if hasattr(signal, name):
-        signal.signal(getattr(signal, name), signal.SIG_DFL)
-os.execvp(sys.argv[2], sys.argv[2:])
-"""
-_lean_context = None
+# The snapshot goes through a file so nothing Lake prints can corrupt it.
+LAKE_ENVIRONMENT = ("import json, os, pathlib, sys; "
+                    "pathlib.Path(sys.argv[1]).write_text(json.dumps(dict(os.environ)))")
 
 
-def _run_lean(destination, *, capture_output):
-    global _lean_context
-    command = ["lean", "-DautoImplicit=false", "-DwarningAsError=true", str(destination)]
-    options = {"capture_output": capture_output, "text": True}
-    if os.name != "posix":
-        return subprocess.run([LAKE, "env", *command], cwd=ROOT, **options)
-    if _lean_context is not None:
-        cwd, env = _lean_context
-        return subprocess.run(command, cwd=cwd, env=env, **options)
-
+@functools.cache
+def lake_environment():
+    """Return the environment Lake gives its children, entering Lake once per driver."""
     with tempfile.TemporaryDirectory() as tmp:
         snapshot = Path(tmp) / "environment.json"
-        result = subprocess.run(
-            [LAKE, "env", sys.executable, "-I", "-S", "-c", _CAPTURE_AND_EXEC, str(snapshot), *command],
-            cwd=ROOT,
-            **options,
-        )
-        if result.returncode == 0:
-            # Each driver loads its own copy of this helper via runpy.
-            _lean_context = json.loads(snapshot.read_text(encoding="ascii"))
-        return result
+        subprocess.run([LAKE, "env", sys.executable, "-I", "-S", "-c", LAKE_ENVIRONMENT, str(snapshot)],
+                       cwd=ROOT, check=True)
+        return json.loads(snapshot.read_text())
 
 
 def emit(source, destination, text, *, check=True):
@@ -78,7 +52,13 @@ def check_lean(destination, regression, *, extra_imports=(), capture_output=Fals
         original.replace(f"public import {syntax}", imports, 1) + "\n" + regression,
         encoding="utf-8",
     )
-    result = _run_lean(destination, capture_output=capture_output)
+    result = subprocess.run(
+        ["lean", "-DautoImplicit=false", "-DwarningAsError=true", str(destination)],
+        cwd=ROOT,
+        env=lake_environment(),
+        capture_output=capture_output,
+        text=True,
+    )
     if capture_output and result.returncode:
         sys.stderr.write(result.stdout + result.stderr)
     result.check_returncode()
