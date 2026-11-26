@@ -496,3 +496,54 @@ and θ budgets `14/15/3`. The same compiled pair exhausts one unit
 below. The regression checks `.shape` for the edge that skips the merge
 and `.headerProjection` for a recognized full-bank header.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/DeadProducer/Iteration/Backends/Regression.lean)
+
+## Complete the emitted loop by coloured firing
+
+The `Backends/Petri/Thms` import adds completion laws for the numbered
+graph returned by `Backends.compile`. `NestedTheta.Petri.initial` puts
+pending tokens on that graph's vertices. Its existing firing relation
+uses the original typed input bank as the root colours. The result
+decoder reads the single returned port with `get .head`.
+[Firing model](../../Silmaril/SSA/RVSDG/NestedTheta/Petri/Defs.lean)
+
+`Targets.petri_finishes_iff` relates complete output tuples to finite
+source returns. `Targets.petri_firing_iff` gives the same result as a
+reachable marking with the decoded word. `Targets.petri_no_completion_iff`
+covers absence of a finite completion at every output. A firing trace
+has its own length. The source, CF and θ bounds retain the meanings
+given above. These laws concern existential finite completions of the
+existing pure nested profile.
+[Completion laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/DeadProducer/Iteration/Backends/Petri/Thms.lean)
+
+Build both imports with `lake build --wfail` using a `+` before each
+module name. Paste into `QuadNestedPetri.lean` and run
+`lake env lean -DwarningAsError=true QuadNestedPetri.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.DeadProducer.Iteration.Backends.Petri.Thms
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.DeadProducer.Iteration.Backends.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.DeadProducer.Iteration.Backends
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Example (input width)
+open Silmaril.SSA.SeaOfNodes.MLIR (Word)
+open Silmaril.SSA.RVSDG.NestedTheta.Petri (Step initial result)
+
+private def firingModel :=
+  Silmaril.SSA.SeaOfNodes.Quads.Join.model Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF.model
+
+private def targets : Targets Example.source 0 := ((compile Example.source 0).toOption).get (by rfl)
+
+example : ∃ final, Relation.ReflTransGen (Step firingModel targets.numbered input)
+    (initial firingModel targets.numbered) final ∧
+    (result firingModel targets.numbered input final).map (fun packet => packet.get .head) =
+      some (16 : Word width) :=
+  (targets.petri_firing_iff input (16 : Word width)).mpr ⟨14, rfl⟩
+```
+
+The proof uses the fixture's source bound `14` to obtain a finite
+firing witness through the actual emitted graph. The regression also
+rules out a completion with word `17` at any firing length and checks
+the original shape refusal.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/DeadProducer/Iteration/Backends/Petri/Regression.lean)
