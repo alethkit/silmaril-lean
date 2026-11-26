@@ -7,7 +7,7 @@ import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheade
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Thms
-import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
 
@@ -1000,11 +1000,52 @@ example : ∃ before after,
     Exit.after_prefix compiledPrefix prefixInput mem before 6 matched twoVisits (by cbv)
   exact ⟨before, after, entered, realized, exit⟩
 
+private theorem returnSlots_unique {input : WordTuple 3} {carried : WordTuple 3} {value : Word}
+    {slots other : List (Fin 3)}
+    (left : prefixSource.ReturnsAlong input slots carried value)
+    (right : prefixSource.ReturnsAlong input other carried value) : slots = other := by
+  induction left generalizing other with
+  | exit taken =>
+    cases right with
+    | exit _ => rfl
+    | feedback continued _ => cases taken.symm.trans continued
+  | feedback continued _ ih =>
+    cases right with
+    | exit taken => cases continued.symm.trans taken
+    | feedback otherContinued rest =>
+      obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Sum.inr.inj (continued.symm.trans otherContinued))
+      exact congrArg (List.cons _) (ih rest)
+
+-- Invert an actual CF return with one extra block of fuel. The recovered
+-- route is checked against the independent expected sequence.
 example : compiledPrefix.rtl.runMain 16 0 (words prefixInput) mem = .returned [6] mem ∧
     prefixSetup.cf.run evalOp 8 (cfInput 4 2) = some (.cons 6 .nil) ∧
     Eval (Opcode.step (sigs := [⟨4, 1⟩]) compiledPrefix.rtl.oracle) (machineEnv prefixInput)
-      (toLambdaSSA [⟨4, 1⟩] prefixFn) mem 0 (packValues [6]) mem :=
-  Exit.returns compiledPrefix prefixInput mem twoThenExit (machineEnv prefixInput) rfl
+      (toLambdaSSA [⟨4, 1⟩] prefixFn) mem 0 (packValues [6]) mem := by
+  have observed : prefixSetup.cf.run evalOp 9 (cfInput 4 2) = some (.cons 6 .nil) := rfl
+  obtain ⟨slots, route, _, rtl, cf, region⟩ :=
+    Exit.Inversion.reflect compiledPrefix prefixInput mem 9 6 observed (machineEnv prefixInput) rfl
+  have same : slots = [0, 1] := returnSlots_unique route twoThenExit
+  subst slots
+  exact ⟨rtl, cf, region⟩
+
+private def immediateInput : WordTuple 4 := .cons (8 : Word) (bank 2 99 5)
+
+-- Entry, header and exit use the entire three-block budget. No dispatcher ran.
+example : compiledPrefix.rtl.runMain 7 0 (words immediateInput) mem = .returned [8] mem ∧
+    Eval (Opcode.step (sigs := [⟨4, 1⟩]) compiledPrefix.rtl.oracle) (machineEnv immediateInput)
+      (toLambdaSSA [⟨4, 1⟩] prefixFn) mem 0 (packValues [8]) mem := by
+  have observed : prefixSetup.cf.run evalOp 3 (cfInput 8 2) = some (.cons 8 .nil) := rfl
+  obtain ⟨slots, _, bound, rtl, _, region⟩ :=
+    Exit.Inversion.reflect compiledPrefix immediateInput mem 3 8 observed (machineEnv immediateInput) rfl
+  have empty : slots = [] := by
+    cases slots with
+    | nil => rfl
+    | cons head tail =>
+      simp only [Family.MLIR.Prefix.cfCost, List.map_cons, List.sum_cons] at bound
+      omega
+  subst slots
+  exact ⟨rtl, region⟩
 
 private def reachedBank (fuel : Nat) : Option (Nat × List Word × Memory) := do
   let s ← runningState? (prefixRTL.runMain fuel 0 (words prefixInput) mem)

@@ -1074,11 +1074,65 @@ and at λSSA exit zero. The exit check refuses the first capture as the
 operand in place of the sum.
 [Checked regression][table-regression]
 
+### Recover the exit from an observed CF return
+
+`Producer.Exit.Inversion.from_entry` starts with a successful
+`Producer.compile` result and a return from the actual emitted CF
+runner at typed inputs. The checked entry constructs the initial
+RTL frame and bank relation. Inverting the remaining CF budget
+recovers, in order, the reached feedback occurrences and the first
+taken exit. The resulting certificate includes each actual CF and RTL
+feedback path, its full explicit-Φ latch, and the final exit packet.
+`from_header` also works from a caller-provided matched header frame.
+[Inversion API][cf-exit-inversion]
+
+`reflect` gives the same CF result at the recovered path's block cost,
+the bounded RTL return at its own instruction cost, and the typed λSSA
+return at exit zero. The λSSA environment must supply the packed typed
+captures at index zero. RTL and λSSA preserve the full initial memory.
+The theorem applies to the checked single-exit i64 family described above.
+[Inversion API][cf-exit-inversion]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.RTL (packValues)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Family.MLIR.Prefix (cfCost rtlCost wordEnv)
+open Family.MLIR.Prefix.Producer (Compiled)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    {mapping : InputMap old new} {source : Family.Source old old entry header tests}
+    {origins : List (HeaderWord new old header)}
+    (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    (fuel : Nat) (value : Word)
+    (observed : compiled.setup.cf.run evalOp fuel (wordEnv input) = some (.cons value .nil)) :
+    ∃ slots : List (Fin (tests + 1)), cfCost slots + 2 + 1 ≤ fuel ∧
+      compiled.rtl.runMain (entry.length + 1 + (rtlCost header.length slots + (header.length + 2)))
+        0 (words input) mem = .returned [value] mem := by
+  obtain ⟨slots, _, bound, rtl, _, _⟩ :=
+    Family.MLIR.Prefix.Producer.Exit.Inversion.reflect compiled input mem fuel value observed
+      (fun _ => packValues (words input)) rfl
+  exact ⟨slots, bound, rtl⟩
+```
+
+The three-to-four fixture returns `8` in three CF blocks and seven RTL
+instructions on an immediate exit. The mixed run returns `6` with CF
+budget nine. Inversion recovers slots `[0, 1]` and certifies the return
+at eight CF blocks and sixteen RTL instructions. Both regressions start
+from the emitted CF result.
+[Checked regression][table-regression]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
   +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms \
   +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms \
-  +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Thms \
+  +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Regression \
@@ -1118,3 +1172,4 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 [cf-producer]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Producer/Thms.lean
 [cf-exit]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Producer/Exit/Thms.lean
 [cf-exit-defs]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Producer/Exit/Defs.lean
+[cf-exit-inversion]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Producer/Exit/Inversion/Thms.lean
