@@ -68,6 +68,39 @@ quotient. Two threads time-sharing a core give commuting thread events whose cor
 images can be dependent. Moving one thread between cores can give the opposite
 discrepancy. [Placement regressions][placed-tests]
 
+## Physical scheduler policies
+
+`Scheduler.CorePolicy` grants an execution opportunity to a present physical
+core. Selection leaves the configuration unchanged and may select an idle core.
+`Scheduler.ThreadPolicy` decides what to do on that selected core. It can leave
+the core idle, keep its resident, assign an unplaced thread (possibly replacing a
+resident), or migrate a thread from another core onto the selected idle core.
+Every selected thread must be allocated and runnable. Dispatch preserves both
+stores and the resulting placement is certified by C8.
+
+An advance executes the dispatched thread using a C8 instruction. The lifecycle
+can inspect its fragment and thread states. On a voluntary release or when the
+executing thread becomes non-runnable, the advance clears its slot. Otherwise it
+preserves placement. A wake can make a waiting thread eligible while it remains
+unplaced until an ensuing dispatch.
+
+A scheduling-only round preserves both stores and emits the empty word. An
+executing round takes one abstract step, even when the instruction is silent.
+`Scheduler.Scheduled.refines` uses C8's `Scheduled.refinesBy` to erase placement
+and core attribution while preserving the projected state and named thread word.
+The state observation can read both physical stores, and the instruction must
+refine the abstract transition under that observation. The abstract run length
+counts the executing rounds. These results concern successful finite prefixes
+under the supplied policies. [Scheduler API][scheduler]
+
+In the one-core witness, the first thread yields and regains the slot through a
+placement-only round, then parks on a matching futex word and releases the slot.
+The second thread takes the slot, stores to the shared word and wakes the first.
+The wake leaves the waker resident and its recipient eligible but unplaced. A
+later dispatch reassigns the slot and the woken thread advances silently. The
+six rounds project to five transitions of the keyed wait/wake VM, with the final
+shared word and the wake's participant list preserved. [Witness][scheduler-witness]
+
 ## Register VM and adapters
 
 A configuration in the original register VM is `ThreadId → Option Core`. Each slot owns a natural-number
@@ -97,6 +130,7 @@ registers, output, and spawn. [Machine traces][machine] · [Process.Mt][process]
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Toy.Thms +Silmaril.Proofs.Machine.MulticoreVM.Regression +Silmaril.Proofs.Semantics.ConcurrentTrace.Regression +Silmaril.Machine.MulticoreVM.Placed.Thms +Silmaril.Proofs.Machine.MulticoreVM.Placed.Regression'
+make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Scheduler.Thms +Silmaril.Proofs.Machine.MulticoreVM.Scheduler.ThreadSyncWitness +Silmaril.Proofs.Machine.MulticoreVM.Placed.Regression +Silmaril.Proofs.Machine.MulticoreVM.ThreadSync.Regression +Silmaril.Proofs.Machine.MulticoreVM.Regression +Silmaril.Proofs.Semantics.ConcurrentTrace.Regression'
 ```
 
 [defs]: ../../Silmaril/Machine/MulticoreVM/Defs.lean
@@ -104,6 +138,8 @@ make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Toy.Thms +Silmaril.Proof
 [placed]: ../../Silmaril/Machine/MulticoreVM/Placed/Defs.lean
 [placed-thms]: ../../Silmaril/Machine/MulticoreVM/Placed/Thms.lean
 [placed-tests]: ../../Silmaril/Proofs/Machine/MulticoreVM/Placed/Regression.lean
+[scheduler]: ../../Silmaril/Machine/MulticoreVM/Scheduler/Thms.lean
+[scheduler-witness]: ../../Silmaril/Proofs/Machine/MulticoreVM/Scheduler/ThreadSyncWitness.lean
 [toy]: ../../Silmaril/Machine/MulticoreVM/Toy/Defs.lean
 [toy-thms]: ../../Silmaril/Machine/MulticoreVM/Toy/Thms.lean
 [tests]: ../../Silmaril/Proofs/Machine/MulticoreVM/Regression.lean

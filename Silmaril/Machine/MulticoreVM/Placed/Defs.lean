@@ -109,6 +109,19 @@ def Instruction.Refines (instruction : Instruction CoreId ThreadId Core Thread C
     instruction core thread choice initial fragment next →
     step thread choice initial.threads fragment next.threads
 
+/-- A state observation may read both stores, which are preserved by placement commands. -/
+abbrev StoreView (CoreId ThreadId Core Thread State : Type u) :=
+  (CoreId → Option Core) → (ThreadId → Option Thread) → State
+
+/-- The instruction obligation for an abstract state read from the two stores. -/
+def Instruction.RefinesBy {State : Type u}
+    (instruction : Instruction CoreId ThreadId Core Thread Choice Event)
+    (view : StoreView CoreId ThreadId Core Thread State) (step : Transition State ThreadId Choice Event) :
+    Prop :=
+  ∀ ⦃core thread choice initial fragment next⦄, initial.placement core = some thread →
+    instruction core thread choice initial fragment next →
+    step thread choice (view initial.cores initial.threads) fragment (view next.cores next.threads)
+
 /-- Idle clears a configured core. Assign installs a waiting thread on a configured core,
 leaving any displaced thread allocated. Migrate moves a resident thread atomically to a
 configured idle core and leaves the source idle. All three commands leave the stores intact. -/
