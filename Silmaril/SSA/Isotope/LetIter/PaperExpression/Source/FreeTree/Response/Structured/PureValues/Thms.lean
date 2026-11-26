@@ -146,6 +146,21 @@ theorem empty_reply_reflection
       Eqv Γ A e (.let₁ (.op f p.source) k) (.let₁ (.op g q.source) l) :=
   Proofs.empty_reply_reflection profile hΓ hs hf hg emptyReply atBound p q hk hl ht hs'
 
+/-- Equality at the canonical valuation reflects the original-bound source
+equations of raw bottom-typed constructor expressions. -/
+theorem constructor_denote_iff
+    (hΓ : Γ.Pure) (hs : ∀ i, (Γ.get i).1 = .base (slots i)) (e : ε)
+    {a b : Expr Φ} (ha : Wf Γ a A (⊥ : ε)) (hb : Wf Γ b A (⊥ : ε))
+    (hLeafA : ConstructorLeaf a) (hLeafB : ConstructorLeaf b)
+    {t s : Tm Empty Φ Γ.length} (ht : a.toLetIter Γ.length = some t) (hs' : b.toLetIter Γ.length = some s)
+    (da : Derivation Φ Γ₀ Γ.toBoundCtx t A) (db : Derivation Φ Γ₀ Γ.toBoundCtx s A) :
+    let hslots := fun i => (EffectCtx.get_toBoundCtx Γ i).trans (hs i)
+    let ρ := variableEnv (Φ := Φ) (ε := ε) slots hslots
+    da.denote (Ty.denote (Lifted (Atom (Φ := Φ) (ε := ε) slots))) (instructions (Atom (Φ := Φ) (ε := ε) slots) (pureMaps slots profile)) (fun x => x.elim) ρ =
+      db.denote (Ty.denote (Lifted (Atom (Φ := Φ) (ε := ε) slots))) (instructions (Atom (Φ := Φ) (ε := ε) slots) (pureMaps slots profile))
+        (fun x => x.elim) ρ ↔ Eqv Γ A e a b :=
+  Proofs.constructor_denote_iff profile hΓ hs e ha hb hLeafA hLeafB ht hs' da db
+
 include profile in
 /-- Reflect native equality between bottom-typed written constructor leaves
 without supplied constructor normal forms. -/

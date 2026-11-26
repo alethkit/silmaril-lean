@@ -300,6 +300,31 @@ public theorem empty_reply_reflection
     · simp only [Expr.toLetIter, lowers p, ht, Option.map_some, Option.bind_some]
     · simp only [Expr.toLetIter, lowers q, hs', Option.map_some, Option.bind_some]
 
+public theorem constructor_denote_iff
+    (hΓ : Γ.Pure) (hs : ∀ i, (Γ.get i).1 = .base (slots i)) (e : ε)
+    {a b : Expr Φ} (ha : Wf Γ a A (⊥ : ε)) (hb : Wf Γ b A (⊥ : ε))
+    (hLeafA : ConstructorLeaf a) (hLeafB : ConstructorLeaf b)
+    {t s : Tm Empty Φ Γ.length} (ht : a.toLetIter Γ.length = some t) (hs' : b.toLetIter Γ.length = some s)
+    (da : Derivation Φ Γ₀ Γ.toBoundCtx t A) (db : Derivation Φ Γ₀ Γ.toBoundCtx s A) :
+    let hslots := fun i => (EffectCtx.get_toBoundCtx Γ i).trans (hs i)
+    let ρ := variableEnv (Φ := Φ) (ε := ε) slots hslots
+    da.denote (Ty.denote (Lifted (Atom (Φ := Φ) (ε := ε) slots))) (instructions (Atom (Φ := Φ) (ε := ε) slots) (pureMaps slots profile)) (fun x => x.elim) ρ =
+      db.denote (Ty.denote (Lifted (Atom (Φ := Φ) (ε := ε) slots))) (instructions (Atom (Φ := Φ) (ε := ε) slots) (pureMaps slots profile))
+        (fun x => x.elim) ρ ↔ Eqv Γ A e a b := by
+  let hslots := fun i => (EffectCtx.get_toBoundCtx Γ i).trans (hs i)
+  let ρ := variableEnv (Φ := Φ) (ε := ε) slots hslots
+  let V := Atom (Φ := Φ) (ε := ε) slots
+  let P := pureMaps slots profile
+  refine ⟨fun h => ?_, fun eq => sound V P (eq.toLetIter ht hs') da db ρ⟩
+  obtain ⟨p, hp⟩ := normalize_leaf profile ha hLeafA hΓ hs e
+  obtain ⟨q, hq⟩ := normalize_leaf profile hb hLeafB hΓ hs e
+  have hP := sound V P (hp.toLetIter ht (lowers p)) da (p.derivation hslots) ρ
+  have hQ := sound V P (hq.toLetIter hs' (lowers q)) db (q.derivation hslots) ρ
+  have hsVal := (hP.symm.trans h).trans hQ
+  rw [denote_value profile hslots p, denote_value profile hslots q, ITree.ret_inj] at hsVal
+  have eq := encode_injective ((toSmall V A).symm.injective hsVal)
+  exact hp.trans (eq ▸ hq.symm)
+
 include profile in
 public theorem constructor_reflection
     (hΓ : Γ.Pure) (hs : ∀ i, (Γ.get i).1 = .base (slots i)) (e : ε)
@@ -308,12 +333,11 @@ public theorem constructor_reflection
     {t s : Tm Empty Φ Γ.length} (ht : a.toLetIter Γ.length = some t) (hs' : b.toLetIter Γ.length = some s) :
     AbortEquiv (⊥ : ε) Γ₀ Γ.toBoundCtx t s A ↔ Eqv Γ A e a b := by
   refine ⟨fun h => ?_, fun eq => eq.toLetIter ht hs'⟩
-  obtain ⟨p, hp⟩ := normalize_leaf profile ha hLeafA hΓ hs e
-  obtain ⟨q, hq⟩ := normalize_leaf profile hb hLeafB hΓ hs e
-  have nP := hp.toLetIter ht (lowers p)
-  have nQ := hq.toLetIter hs' (lowers q)
-  have normal := (leaf_reflection profile hΓ hs e p q).mp (.trans (.trans nP.symm h) nQ)
-  exact hp.trans (normal.trans hq.symm)
+  obtain ⟨da⟩ := Derivation.ofHasType h.hasType.1
+  obtain ⟨db⟩ := Derivation.ofHasType h.hasType.2
+  let ρ := variableEnv (Φ := Φ) (ε := ε) slots (fun i => (EffectCtx.get_toBoundCtx Γ i).trans (hs i))
+  exact (constructor_denote_iff profile hΓ hs e ha hb hLeafA hLeafB ht hs' da db).mp
+    (sound (Atom (Φ := Φ) (ε := ε) slots) (pureMaps slots profile) h da db ρ)
 
 omit [HasTy Φ (Ty α)] [DecidableEq α] [HasEff Φ ε] [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε] in
 private theorem lower_let_op {a k : Expr Φ} {f : Φ}
