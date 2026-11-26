@@ -231,15 +231,29 @@ def Heap.allocate (heap : Heap) (value : Value) : CellId × Heap :=
   (identity, { reached with contents := fun address =>
     if address = identity.address then some value else reached.contents address })
 
-/-- A nonempty display with a live item read builds a new object each
-time. A closed nonempty display can share a CPython constant, so it
-retains only its exact contents here. Empty tuples need no heap slot. -/
+/-- Save a positive witness for the evaluated constant. Its heap slot
+records the descriptor itself, so it is distinct from a fresh-object slot
+holding a tuple payload. Two such witnesses may refer to one Python constant. -/
+def Heap.saveTupleOrigin (heap : Heap) (head : Core.Module.Value) (tail : List Core.Module.Value) :
+    Core.Module.TupleDispatch.Object × Heap :=
+  let descriptor : Core.Module.TupleDispatch.Object := ⟨some heap.next, head :: tail⟩
+  (descriptor, (heap.allocate (.tupleObject descriptor)).2)
+
+/-- A display with a live item read builds a fresh object. A closed
+nonempty display can save its origin when identity is observed. Empty
+tuples need no heap slot. -/
 def Heap.materializeModuleTuple (heap : Heap) (items : List GlobalTupleItem)
-    (contents : List Core.Module.Value) : Value × Heap :=
-  if !contents.isEmpty && items.any GlobalTupleItem.isRead then
-    let (reference, reached) := heap.allocate (.tuple contents)
-    (.tupleObject ⟨some reference.address, contents⟩, reached)
-  else (.tuple contents, heap)
+    (contents : List Core.Module.Value) (trackClosed : Bool := false) : Value × Heap :=
+  match contents with
+  | [] => (.tuple [], heap)
+  | head :: tail =>
+    if items.any GlobalTupleItem.isRead then
+      let (reference, reached) := heap.allocate (.tuple contents)
+      (.tupleObject ⟨some reference.address, contents⟩, reached)
+    else if trackClosed then
+      let (descriptor, reached) := heap.saveTupleOrigin head tail
+      (.tupleObject descriptor, reached)
+    else (.tuple contents, heap)
 
 structure Frame (layout : Layout) where
   locals : Fin layout.locals → Option Value

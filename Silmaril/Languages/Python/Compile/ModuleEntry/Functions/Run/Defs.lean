@@ -25,7 +25,7 @@ inductive Argument where
 
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
-  | bindTuple (name : String) (items : List Core.Closure.GlobalTupleItem)
+  | bindTuple (name : String) (items : List Core.Closure.GlobalTupleItem) (trackClosed : Bool := false)
   | assertNot (condition : Operand scope)
   | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
   | assertBoolIdentity (test : BoolIdentityTest scope)
@@ -132,6 +132,19 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
         profiled :: (nested.children ++ blocks))
     else throw (.incomingCaptures child.scope.context.path)
 
+def Instruction.observesTupleIdentity {scope : Scope} : Instruction scope → Bool
+  | .callTupleIdentity .. => true
+  | _ => false
+
+/-- Only modules observing tuple identity need a witness for closed
+nonempty tuples. Bindings, aliases, and calls share the same carrier. -/
+def retainTupleOrigins {scope : Scope} (instructions : List (Instruction scope)) : List (Instruction scope) :=
+  if instructions.any Instruction.observesTupleIdentity then
+    instructions.map fun
+      | .bindTuple name items _ => .bindTuple name items true
+      | instruction => instruction
+  else instructions
+
 structure Compiled (source : Source.Module) where
   checked : Functions.Checked source
   instructions : List (Instruction checked.tree.scope)
@@ -147,7 +160,7 @@ def compile (source : Source.Module) : Except CompileError (Compiled source) := 
   let (instructions, blocks) ← lowerInstructions checked.tree 0 checked.actions
   let linked := Compile.Closure.VarNames.attach checked.tree blocks
   let table ← (Compile.Closure.Run.lowerTable linked).mapError .functionBody
-  return ⟨checked, instructions, linked, table.val, table.property⟩
+  return ⟨checked, retainTupleOrigins instructions, linked, table.val, table.property⟩
 
 def embed : Core.Module.Value → Value
   | .int value => .int value
@@ -294,11 +307,11 @@ def evaluateTuple (session : Session) (items : List Core.Closure.GlobalTupleItem
   let frame : Frame ⟨0, 0, 0⟩ := ⟨Fin.elim0, Fin.elim0, Fin.elim0⟩
   Core.Closure.Executor.evalTupleContentsIn session.globals session.heap frame items
 
-def bindTuple (session : Session) (name : String) (items : List Core.Closure.GlobalTupleItem) :
-    Except Completion Session :=
+def bindTuple (session : Session) (name : String) (items : List Core.Closure.GlobalTupleItem)
+    (trackClosed : Bool := false) : Except Completion Session :=
   match evaluateTuple session items with
   | .ok contents =>
-    let (value, heap) := session.heap.materializeModuleTuple items contents
+    let (value, heap) := session.heap.materializeModuleTuple items contents trackClosed
     .ok ({ session with heap := heap }.bindGlobal name value)
   | .error (.defined error) => .error (.raised error)
   | .error (.danglingCell identity) => .error (.executorFault (.danglingCell identity))
@@ -320,7 +333,7 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
     | .scalar (.assign name _ operand) => ([], match evaluate session operand with
       | .ok value => .ready (session.bindGlobal name value) rest
       | .error error => .finished session error)
-    | .bindTuple name items => ([], match bindTuple session name items with
+    | .bindTuple name items trackClosed => ([], match bindTuple session name items trackClosed with
       | .ok updated => .ready updated rest
       | .error error => .finished session error)
     | .scalar (.assertion operand) => ([], assertOperand session operand true rest)

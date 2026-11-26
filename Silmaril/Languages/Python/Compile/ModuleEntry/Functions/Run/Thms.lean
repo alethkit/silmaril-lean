@@ -14,6 +14,11 @@ theorem callOperand_numericArgument (scope : Source.Scope) (result : NumericArgu
       | .boolean value => .bool value)) := by
   cases result <;> rfl
 
+theorem retainTupleOrigins_unobserved {scope : Source.Scope} (instructions : List (Instruction scope))
+    (unobserved : instructions.any Instruction.observesTupleIdentity = false) :
+    retainTupleOrigins instructions = instructions := by
+  simp [retainTupleOrigins, unobserved]
+
 theorem seed_lookup (globals : Core.Module.Globals) (heap : Core.Closure.Heap) (name : String) :
     (seed globals heap).globals name = (globals.lookup name).map embed := rfl
 
@@ -46,19 +51,19 @@ theorem assertOperand_scalarResult {scope : Source.Scope} (session : Core.Module
   cases value <;> rfl
 
 theorem advance_bindTuple_ok {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
-    {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem}
+    {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool}
     {values : List Core.Module.Value} {rest : List (Instruction scope)}
     (evaluated : evaluateTuple session items = .ok values) :
-    let (value, heap) := session.heap.materializeModuleTuple items values
-    advance table (.ready session (.bindTuple name items :: rest)) =
+    let (value, heap) := session.heap.materializeModuleTuple items values trackClosed
+    advance table (.ready session (.bindTuple name items trackClosed :: rest)) =
       ([], .ready ({ session with heap := heap }.bindGlobal name value) rest) := by
   simp [advance, bindTuple, evaluated]
 
 theorem advance_bindTuple_failure {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
-    {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem}
+    {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool}
     {error : Completion} {rest : List (Instruction scope)}
-    (failed : bindTuple session name items = .error error) :
-    advance table (.ready session (.bindTuple name items :: rest)) = ([], .finished session error) := by
+    (failed : bindTuple session name items trackClosed = .error error) :
+    advance table (.ready session (.bindTuple name items trackClosed :: rest)) = ([], .finished session error) := by
   simp [advance, failed]
 
 theorem advance_conditionalAssign {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)

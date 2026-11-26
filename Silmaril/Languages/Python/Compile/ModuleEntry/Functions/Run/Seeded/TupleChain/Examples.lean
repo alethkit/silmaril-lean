@@ -89,4 +89,27 @@ private def constructorIdentityEvidence (placement : SeedPlacement) : Bool := Id
 #guard constructorIdentityEvidence .builtin
 #guard constructorIdentityEvidence .preamble
 
+private def closedOriginEvidence (placement : SeedPlacement) : Bool := Id.run do
+  let call name arguments := Source.Expr.call (.name name) arguments
+  let test := Source.Expr.comparison (.name "original") [(.is_, .name "alias")]
+  let source : Source.Module := ⟨[
+    .expression (call "___assertEqual" [call "tuple" [], .tuple []]),
+    .assign "original" (.tuple [.integer 7]),
+    .assign "alias" (call "tuple" [.name "original"]),
+    .expression (call "___assertTrue" [test])]⟩
+  let .ok compiled := Run.compile source | return false
+  let space := legacyTupleIdentitySeed placement
+  let observed := run space compiled
+  let original : Core.Module.SeededCall.Value := .tupleObject ⟨some 0, [.int 7]⟩
+  return observed.completion == .ok () && observed.heap.next == 1 &&
+    (observed.heap.contents 0).map seededValue == some original &&
+    observed.residual.lookupGlobal "original" == some original &&
+    observed.residual.lookupGlobal "alias" == some original &&
+    observed.calls.map (fun event => (event.callee, event.observation.result, event.observation.caught)) ==
+      [("tuple", .ok (.returnedTuple []), none), ("___assertEqual", .ok .none, none),
+        ("tuple", .ok original, none), ("___assertTrue", .ok .none, none)]
+
+#guard closedOriginEvidence .builtin
+#guard closedOriginEvidence .preamble
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

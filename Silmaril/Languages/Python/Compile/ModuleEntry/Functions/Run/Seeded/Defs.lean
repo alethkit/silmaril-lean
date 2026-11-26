@@ -732,11 +732,11 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
   | .scalar (.assign name _ operand) =>
     (⟨((evaluateScalar space false operand).map fun value => some (name, value)).mapError ModuleFailure.ofCall,
       []⟩, context.heap)
-  | .bindTuple name items =>
+  | .bindTuple name items trackClosed =>
     match Core.Module.SeededCall.evalTupleContents space items with
     | .error error => (⟨.error (.ofCall error), []⟩, context.heap)
     | .ok contents =>
-      let (value, reached) := context.heap.materializeModuleTuple items contents
+      let (value, reached) := context.heap.materializeModuleTuple items contents trackClosed
       (⟨.ok (some (name, seededValue value)), []⟩, reached)
   | .scalar (.assertion operand) => (assertOperand space operand true, context.heap)
   | .assertNot operand => (assertOperand space operand false, context.heap)

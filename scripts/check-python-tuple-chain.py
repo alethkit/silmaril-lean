@@ -32,7 +32,7 @@ open Compile.ModuleEntry.Functions.Run.Seeded (legacyListSeed legacyTupleSeed le
 
 private def tupleOutcome (source : Source.Module) (space : Namespace) (status : String)
     (bindings : Bindings) (calls : List (String × Core.Module.SeededCall.Result))
-    (allocated : List (List Core.Module.Value) := []) : Bool := Id.run do
+    (allocated : List Value := []) : Bool := Id.run do
   let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
   let heap : Core.Closure.Heap := ⟨1, fun address => if address == 0 then some (.int 23) else none⟩
   let lists : Core.Module.ListHeap := ⟨#[[.int 31]]⟩
@@ -46,9 +46,8 @@ private def tupleOutcome (source : Source.Module) (space : Namespace) (status : 
   return completion == status && result.residual.moduleGlobals == bindings &&
     result.residual.builtins == space.builtins && result.lists == lists &&
     result.heap.next == allocated.length + 1 &&
-    (allocated.zipIdx 1).all (fun (items, address) =>
-      (result.heap.contents address).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue ==
-        some (.returnedTuple items)) &&
+    (allocated.zipIdx 1).all (fun (value, address) =>
+      (result.heap.contents address).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue == some value) &&
     result.calls.map (fun event => (event.callee, event.observation.result)) == calls &&
     result.calls.all (·.observation.caught.isNone) &&
     (result.heap.contents 0).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue == some (.int 23)
@@ -353,8 +352,9 @@ private def firstConstructorStatement : Source.Module := ⟨pythonSource.body.ta
                           '[("tuple", .error (.raised (.runtime .notCallable)))]', first))
     check(source, source_path, lean_path, *guards)
 
-    # Inspect the exact first four statements of the raw fixture.
-    prefix = ast.Module(body=ast.parse(source).body[:4], type_ignores=[])
+    # Replay the raw prefix through the original fourth statement.
+    prefix_end = ast.parse(source).body[3].end_lineno
+    prefix = "".join(source.splitlines(keepends=True)[:prefix_end])
     seen = []
 
     def observe_identity(value):
@@ -362,9 +362,14 @@ private def firstConstructorStatement : Source.Module := ⟨pythonSource.body.ta
         assert_true(value)
 
     bound = {"t0_3": (0, 1, 2, 3), "t0_3_bis": (0, 1, 2, 3)}
-    assert execute(prefix, {**both, "___assertTrue": observe_identity}, expected=bound) == "normal"
-    assert seen == [True] and seen[0] is True
+    helper = {"___assertTrue": observe_identity}
+    assert execute(prefix, {**both, **helper}, expected=bound) == "normal"
+    preamble = {"___assertEqual": equal_empty, **helper}
+    assert execute(prefix, {"tuple": tuple}, preamble, {**preamble, **bound}) == "normal"
+    assert len(seen) == 2 and all(value is True for value in seen)
     assert execute(prefix, both, expected=bound) == "NameError:___assertTrue"
+    masked_helper = {"___assertTrue": None}
+    assert execute(prefix, {**both, **helper}, masked_helper, {**masked_helper, **bound}) == "TypeError"
     guards = ["""
 private def identityPrefix : Source.Module := ⟨pythonSource.body.take 4⟩
 #guard (match Compile.ModuleEntry.Functions.Run.compile identityPrefix with
@@ -376,18 +381,24 @@ private def identityPrefix : Source.Module := ⟨pythonSource.body.take 4⟩
 #guard ordinaryTuple identityPrefix == some ("NameError:___assertEqual", "absent", "absent")
 """]
     items = "[.int 0, .int 1, .int 2, .int 3]"
-    bindings = f'[("t0_3_bis", .returnedTuple {items}), ("t0_3", .returnedTuple {items})]'
+    origin = f".tupleObject ⟨some 1, {items}⟩"
+    bindings = f'[("t0_3_bis", {origin}), ("t0_3", {origin})]'
     calls = ('[("tuple", .ok (.returnedTuple [])), ("___assertEqual", .ok .none), '
-             f'("tuple", .ok (.returnedTuple {items}))]')
+             f'("tuple", .ok ({origin}))]')
+    identity_call = '[("___assertTrue", .ok .none)]'
     for placement in ("builtin", "preamble"):
         unseeded_helper = f"(legacyTupleSeed .{placement})"
         stock_helper = f"(legacyTupleIdentitySeed .{placement})"
         guards.extend((
             outcome(unseeded_helper, "NameError:___assertTrue",
-                    f"({bindings} ++ {unseeded_helper}.moduleGlobals)", calls, "identityPrefix"),
-            outcome(stock_helper, "unsupported", f"({bindings} ++ {stock_helper}.moduleGlobals)",
-                    calls, "identityPrefix"),
+                    f"({bindings} ++ {unseeded_helper}.moduleGlobals)", calls, "identityPrefix", f"[{origin}]"),
+            outcome(stock_helper, "normal", f"({bindings} ++ {stock_helper}.moduleGlobals)",
+                    f"({calls} ++ {identity_call})", "identityPrefix", f"[{origin}]"),
         ))
+    masked = '((legacyTupleIdentitySeed .builtin).bindGlobal "___assertTrue" .none)'
+    failed_call = '[("___assertTrue", .error (.raised (.runtime .notCallable)))]'
+    guards.append(outcome(masked, "TypeError", f"({bindings} ++ {masked}.moduleGlobals)",
+                          f"({calls} ++ {failed_call})", "identityPrefix", f"[{origin}]"))
     check(source, source_path, lean_path, *guards)
 
     alias = "saved = tuple\ntuple = 7\nanswer = saved()\nbad = tuple()\n"
@@ -397,7 +408,7 @@ private def identityPrefix : Source.Module := ⟨pythonSource.body.take 4⟩
         STOCK, "TypeError", '[("answer", .returnedTuple []), ("tuple", .int 7), ("saved", .builtin .tuple)]',
         '[("saved", .ok (.returnedTuple [])), ("tuple", .error (.raised (.runtime .notCallable)))]'))
     return {"sha256": CONSTRUCTORS_SHA, "inner": "canonical empty tuple",
-            "stock_seeded_prefix": "normal", "identity_prefix": "unsupported closed tuple origin",
+            "stock_seeded_prefix": "normal", "identity_prefix": "normal with saved origin",
             "whole_source": "rejected at list operand on line 6"}
 
 
@@ -552,13 +563,13 @@ def tuple_identity_controls(source_path, lean_path):
     expected = {"n": 5, "x": value, "alias": value, "mirror": value, "saved": tuple, "tuple": 0}
     calls = f'[("saved", .ok ({first})), ("___assertTrue", .ok .none), ("___assertTrue", .ok .none)]'
     assert execute(source, python_seed, expected=expected) == "normal"
-    check(source, source_path, lean_path, outcome(seed, "normal", bindings, calls, allocated=f"[{items}, {items}]"))
+    check(source, source_path, lean_path, outcome(seed, "normal", bindings, calls, allocated=f"[.returnedTuple {items}, .returnedTuple {items}]"))
 
     failure = source + "___assertTrue(x is alias)\ntail = 9\n"
     assert execute(failure, python_seed, expected=expected) == "AssertionError:bool:False"
     failure_call = '[("___assertTrue", .error (.raised (.assertionError (.boolean false))))]'
     check(failure, source_path, lean_path, outcome(seed, "AssertionError:bool:False", bindings,
-          f"({calls} ++ {failure_call})", allocated=f"[{items}, {items}]"))
+          f"({calls} ++ {failure_call})", allocated=f"[.returnedTuple {items}, .returnedTuple {items}]"))
 
     empty = "x = ()\ny = tuple()\n___assertTrue(x is y)\n___assertTrue(y is ())\n"
     assert execute(empty, python_seed, expected={"x": (), "y": ()}, identity_warning=True) == "normal"
@@ -583,17 +594,40 @@ def tuple_identity_controls(source_path, lean_path):
     check("___assertTrue(dangling is dangling)", source_path, lean_path,
           outcome(dangling, "unsupported", f"{dangling}.moduleGlobals"))
 
+    seven = ".tupleObject ⟨some 1, [.int 7]⟩"
     closed = "x = (7,)\n___assertTrue(x is x)\n"
     assert execute(closed, python_seed, expected={"x": (7,)}) == "normal"
     check(closed, source_path, lean_path, outcome(seed, "normal",
-          '[("x", .returnedTuple [.int 7])]', '[("___assertTrue", .ok .none)]'))
+          f'[("x", {seven})]', '[("___assertTrue", .ok .none)]', allocated=f"[{seven}]"))
 
-    separate_literals = "x = (7,)\ny = (7,)\n___assertTrue(x is y)\n"
-    assert execute(separate_literals, python_seed, expected={"x": (7,), "y": (7,)}) == "normal"
-    check(separate_literals, source_path, lean_path, outcome(
-        seed, "unsupported", '[("y", .returnedTuple [.int 7]), ("x", .returnedTuple [.int 7])]'))
+    separate_literals = "x = (7,)\ny = (7,)\n___assertTrue(x is{} y)\n"
+    equal_payload = ".tupleObject ⟨some 2, [.int 7]⟩"
+    for negation, status in (("", "normal"), (" not", "AssertionError:bool:False")):
+        code = separate_literals.format(negation)
+        assert execute(code, python_seed, expected={"x": (7,), "y": (7,)}) == status
+        check(code, source_path, lean_path, outcome(seed, "unsupported",
+              f'[("y", {equal_payload}), ("x", {seven})]', allocated=f"[{seven}, {equal_payload}]"))
     check("x = (7,)\n___assertTrue(x is (7,))", source_path, lean_path,
           "#guard (Compile.ModuleEntry.Functions.Run.compile pythonSource).isOk == false")
+
+    rebinding = (
+        "x = (7,)\nsaved = tuple\ntuple = None\nfirst = saved(x)\nx = (8,)\n"
+        "alias = first\nfinal = saved(alias)\n___assertTrue(final is first)\n"
+    )
+    values = {"x": (8,), "saved": tuple, "tuple": None, "first": (7,), "alias": (7,), "final": (7,)}
+    assert execute(rebinding, python_seed, expected=values) == "normal"
+    eight = ".tupleObject ⟨some 2, [.int 8]⟩"
+    residual = (f'[("final", {seven}), ("alias", {seven}), ("x", {eight}), ("first", {seven}), '
+                '("tuple", .none), ("saved", .builtin .tuple)]')
+    constructor_receipts = f'[("saved", .ok ({seven})), ("saved", .ok ({seven}))]'
+    truth_receipt = '[("___assertTrue", .ok .none)]'
+    check(rebinding, source_path, lean_path, outcome(seed, "normal", residual,
+          f"({constructor_receipts} ++ {truth_receipt})", allocated=f"[{seven}, {eight}]"))
+
+    wrong_witness = f'({seed}.bindGlobal "wrong" (.tupleObject ⟨some 1, [.int 8]⟩))'
+    bad_alias = "x = (7,)\n___assertTrue(x is wrong)\n"
+    check(bad_alias, source_path, lean_path, outcome(wrong_witness, "unsupported",
+          f'([("x", {seven})] ++ {wrong_witness}.moduleGlobals)', allocated=f"[{seven}]"))
 
     ordinary = "def receive(flag):\n    return flag\nn = 7\nx = (n,)\ny = x\ntail = receive(x is y)\n"
     namespace = {"__builtins__": {}}
@@ -604,10 +638,12 @@ def tuple_identity_controls(source_path, lean_path):
 
     mask = "tuple = 0\nx = (1,)\ny = tuple(missing)\n___assertTrue(x is y)\n"
     assert execute(mask, python_seed, expected={"tuple": 0, "x": (1,)}) == "NameError:missing"
+    one = ".tupleObject ⟨some 1, [.int 1]⟩"
     check(mask, source_path, lean_path, outcome(seed, "NameError:missing",
-          '[("x", .returnedTuple [.int 1]), ("tuple", .int 0)]',
-          '[("tuple", .error (.raised (.runtime (.nameError "missing"))))]'))
-    return {"tracked_constructor_alias": True, "canonical_empty": True, "failure_payload_and_order": True}
+          f'[("x", {one}), ("tuple", .int 0)]',
+          '[("tuple", .error (.raised (.runtime (.nameError "missing"))))]', allocated=f"[{one}]"))
+    return {"tracked_constructor_alias": True, "canonical_empty": True, "failure_payload_and_order": True,
+            "closed_origin_alias": True, "independent_closed_origins_unknown": True}
 
 
 if __name__ == "__main__":

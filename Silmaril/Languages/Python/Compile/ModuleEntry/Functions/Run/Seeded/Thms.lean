@@ -466,20 +466,27 @@ theorem tupleOperand_read_failure {space : Namespace} {items : List Core.Closure
   simp [Core.Module.SeededCall.Operand.eval, Core.Module.SeededCall.evalTupleContents,
     Core.Closure.assembleFlatTuple, failed, Except.bind, Except.map]
 
+theorem invokeFlatCall_tuple_reference (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (descriptor : Core.Module.TupleDispatch.Object) :
+    invokeFlatCall space context destination (.builtin .tuple) [.tupleObject descriptor] =
+      (.ok ⟨.ok (.tupleObject descriptor), none⟩, context.heap) := by
+  cases destination <;> simp [invokeFlatCall, invokeCall, Core.Module.SeededCall.Request.decode,
+    Core.Module.SeededCall.invokeObserved, Core.Module.SeededCall.invoke_tuple_reference]
+
 theorem run_bindTuple_ok {scope : Source.Scope} {space : Namespace} {context : CallContext}
-    {name : String} {items : List Core.Closure.GlobalTupleItem} {values : List Core.Module.Value}
+    {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool} {values : List Core.Module.Value}
     {rest : List (Instruction scope)} {lists : ListHeap}
     (evaluated : Core.Module.SeededCall.evalTupleContents space items = .ok values) :
-    let (value, heap) := context.heap.materializeModuleTuple items values
-    runInstructionsIn space context (.bindTuple name items :: rest) lists =
+    let (value, heap) := context.heap.materializeModuleTuple items values trackClosed
+    runInstructionsIn space context (.bindTuple name items trackClosed :: rest) lists =
       runInstructionsIn (space.bindGlobal name (seededValue value)) { context with heap := heap } rest lists := by
   simp [runInstructionsIn, effectWithLists, effect, evaluated]
 
 theorem run_bindTuple_failure {scope : Source.Scope} {space : Namespace} {context : CallContext}
-    {name : String} {items : List Core.Closure.GlobalTupleItem} {error : Failure}
+    {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool} {error : Failure}
     {rest : List (Instruction scope)} {lists : ListHeap}
     (failed : Core.Module.SeededCall.evalTupleContents space items = .error error) :
-    runInstructionsIn space context (.bindTuple name items :: rest) lists =
+    runInstructionsIn space context (.bindTuple name items trackClosed :: rest) lists =
       ⟨space, .error (.ofCall error), [], context.heap, lists⟩ := by
   simp [runInstructionsIn, effectWithLists, effect, failed]
 
