@@ -13,6 +13,7 @@ def typeName : Lists.Value → String
   | .scalar .none => "NoneType"
   | .scalar (.bool _) => "bool"
   | .scalar (.int _) => "int"
+  | .scalar (.float _) => "float"
   | .string _ => "string"
   | .range _ => "range"
   | .list _ => "list"
@@ -59,6 +60,7 @@ def boolValue (value : Bool) : Lists.Value := .scalar (.bool value)
 
 def absValue : Lists.Value → Meaning Lists.Value
   | .scalar (.int value) => pure (countValue value.natAbs)
+  | .scalar (.float value) => pure (.scalar (.float (Binary64.abs value)))
   | value => throw (.builtinType .abs value)
 
 /-- Test yielded values in order. A decisive truth value or an error ends the scan. -/

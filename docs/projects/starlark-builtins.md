@@ -34,7 +34,7 @@ declaration-stack entry.
 | `list` | Zero or one | Allocates a fresh mutable list. The optional iterable is a list, tuple, dictionary or range. |
 | `tuple` | Zero or one | Returns an immutable tuple over the same iterable domain. The internal tuple cell carries its structural key when hashable. |
 | `range` | One to three | Checks integer parameters in order, rejects a zero step, and returns an immutable range without allocating a heap cell. |
-| `abs` | Exactly one | Returns the exact absolute value of an integer. Other represented values, including Booleans, give a type error. |
+| `abs` | Exactly one | Returns exact integer magnitude or clears the sign of a binary64 input. Booleans and other nonnumeric arguments give a type error. |
 | `any` | Exactly one | Returns `True` at the first truthy item of a list, tuple, dictionary or range. Exhaustion gives `False`. |
 | `all` | Exactly one | Returns `False` at the first falsy item of the same iterable types. Exhaustion gives `True`. |
 
@@ -92,13 +92,49 @@ The pinned spec and Go agree on the results for the common input domain.
 Go's positional unpacker rejects expanded keywords before arity and type.
 The spec describes the results in terms of collection elements, while Go
 accepts any value implementing `Iterable`, including element views and host
-types. Float `abs` is specified and implemented by Go. The Lean profile still
-needs a float value carrier for that arm and an iterable-view carrier for
-`string.elems()` and other views. Sets, bytes, iterable views and host
-values are absent. Ranges use exact integers and counts in Lean, and Go's
-range constructor uses host-width integers. The fixtures compare range
-results within that shared domain and exercise a larger lazy range only in Lean.
+types. Sets, bytes, iterable views such as `string.elems()`, and host
+values are absent from the Lean profile. Ranges use exact integers and
+counts in Lean, and Go's range constructor uses host-width integers.
+The fixtures compare range results within that shared domain and exercise
+a larger lazy range only in Lean.
 [Pinned spec for abs][abs] · [Pinned spec for any and all][any] · [Pinned Go argument checks][go-unpack] · [Pinned Go range][go-range]
+
+## Resolved binary64 values
+
+A resolved client can supply `Starlark.Value.float bits` through the scalar
+value branch of the existing store. The `UInt64` is the binary64 interchange
+encoding. Lean's structural equality distinguishes all different bit
+patterns, including the two zero signs and distinct NaN payloads. This
+low-dependency carrier preserves the same bits as Silmaril's IEEE `F64`.
+[Value definitions](../../Silmaril/Languages/Starlark/Defs.lean) · [IEEE model](../../Silmaril/Numeric/Ieee754.lean)
+
+`abs` clears the sign bit and preserves the exponent and fraction, including
+a NaN's payload and quiet bit. Both zeros become positive zero, negative
+infinity becomes positive infinity, and the largest finite magnitude stays
+finite. This operation needs no rounding, overflow handling, or host
+floating-point environment. The specification does not pin a NaN payload
+policy for `abs`. The raw-bit rule follows pinned Go's `math.Abs`.
+Both signed zeros are false, and every other encoding is true. The same
+truth test applies in `bool`, `any`, `all` and existing conditionals.
+`type` returns `"float"`. The operator rules characterize magnitude by
+remainder modulo `2^63` and give exact truth results.
+[Pinned floats][spec-floats] · [Pinned abs][abs] · [Go abs][go-abs] · [Operator theorems](../../Silmaril/Languages/Starlark/Binary64/Thms.lean)
+
+The full spec and Go equate the two zeros, equate all NaNs and order them
+above infinity, and compare floats to arbitrary integers exactly. Go
+accepts float keys, including inside tuples, and gives equal numeric keys
+equal hashes. The resolved slice gives `binaryType` for any comparison
+involving a float, including `==` and `!=`. A float used as a dictionary
+key gives `unhashableKey` on insertion or lookup. Tuple allocation
+propagates the absence of a key through nested tuples. These guards keep
+structural bit equality out of language comparisons and dictionary lookup.
+[Pinned comparisons][spec-floats] · [Pinned keys][spec-dicts] · [Go float comparison and hashing][go-float-values] · [Go mixed comparisons][go-compare]
+
+The `float()` conversion, source literals and float arithmetic require
+separate rules. The Go controls distinguish finite-input conversion overflow,
+which gives an error, from explicit infinity and arithmetic overflow, which
+can give infinity. The Lean slice only observes an already supplied encoding.
+[Go conversion][go-float] · [Pinned float conversion][spec-float-conversion] · [Go controls](../../scripts/starlark/binary64/check.go)
 
 ## Agreement
 
@@ -128,8 +164,8 @@ guides.
 
 Calls can [spread ranges as positional arguments](starlark-functions.md#argument-binding).
 Loops can [unpack items into nested name patterns](starlark-functions.md#loop-target-patterns).
-Additional value types include bytes, sets and iterable views,
-floats and host values. The other pinned universal
+Additional value types include bytes, sets, iterable views and host values.
+The other pinned universal
 functions are `bytes`, `dict`, `dir`,
 `enumerate`, `fail`, `float`, `getattr`, `hasattr`, `hash`, `int`,
 `max`, `min`, `print`, `repr`, `reversed`, `set`,
@@ -141,7 +177,8 @@ resolved collection syntax. The coverage guide lists the remaining methods.
 ## Checks
 
 ```sh
-lake build --wfail +Silmaril.Languages.Starlark.Functions.Builtins.Checks
+lake build --wfail +Silmaril.Languages.Starlark.Functions.Builtins.Checks \
+  +Silmaril.Languages.Starlark.Binary64.Checks
 ```
 
 Run from the repository root with Go 1.25 or newer.
@@ -152,10 +189,11 @@ oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$repo/examples/starlark/builtins/check.go" &&
-  go run "$repo/scripts/starlark/builtins/check.go")
+  go run "$repo/scripts/starlark/builtins/check.go" &&
+  go run "$repo/scripts/starlark/binary64/check.go")
 ```
 
-[Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Builtins/Checks.lean) · [Go call and constructor fixtures](../../examples/starlark/builtins/check.go) · [Go magnitude and truth fixtures](../../scripts/starlark/builtins/check.go)
+[Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Builtins/Checks.lean) · [Go call and constructor fixtures](../../examples/starlark/builtins/check.go) · [Go magnitude and truth fixtures](../../scripts/starlark/builtins/check.go) · [Go binary64 controls](../../scripts/starlark/binary64/check.go)
 
 [builtins]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#built-in-constants-and-functions
 [names]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#name-resolution
@@ -171,3 +209,10 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 [go-unpack]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/unpack.go#L207-L239
 [go-range]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L827-L879
 [go-library]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go
+[spec-floats]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#floating-point-numbers
+[spec-dicts]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#dictionaries
+[spec-float-conversion]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#float
+[go-abs]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L178-L195
+[go-float-values]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L473-L521
+[go-compare]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L1547-L1609
+[go-float]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L391-L446

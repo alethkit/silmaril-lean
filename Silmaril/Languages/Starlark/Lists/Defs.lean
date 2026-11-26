@@ -262,10 +262,14 @@ def dictEntries (address : Address) : Meaning (List Entry) :=
     | _ => none
 
 /-- Mutable container keys are disallowed, including when frozen. A tuple's
-cached key is computed from its fields at construction. -/
+cached key is computed from its fields at construction. Float keys require
+numeric equality across float and integer values and are outside this profile. -/
 def State.keyOf (state : State) (value : Value) : Except Error Key :=
   match value with
-  | .scalar scalar => .ok [.scalar scalar]
+  | .scalar scalar =>
+    match scalar with
+    | .float _ => .error (.unhashableKey (.scalar scalar))
+    | _ => .ok [.scalar scalar]
   | .tuple address =>
     match state.heap[address]? with
     | none => .error (.danglingAddress address)

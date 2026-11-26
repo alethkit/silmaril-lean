@@ -1,5 +1,7 @@
 module
 
+public import Silmaril.Languages.Starlark.Binary64.Defs
+
 /-!
 # Scalar Starlark syntax and domain
 
@@ -49,12 +51,15 @@ inductive Value where
   | none
   | bool (value : Bool)
   | int (value : Int)
+  /-- A supplied binary64 encoding. Structural equality compares its bits. -/
+  | float (bits : UInt64)
   deriving DecidableEq, Repr
 
 def Value.truth : Value → Bool
   | .none => false
   | .bool b => b
   | .int n => n != 0
+  | .float value => Binary64.truth value
 
 def LogicalOp.runsRight (op : LogicalOp) (left : Value) : Bool :=
   match op with
@@ -100,7 +105,10 @@ def Value.orderedCompare : Value → Value → Option Ordering
   | .bool lhs, .bool rhs => some (compare lhs rhs)
   | _, _ => Option.none
 
+/-- Float comparisons fail until the language equality and ordering laws are available. -/
 def applyBinary : BinaryOp → Value → Value → Result Value
+  | .eq, .float _, _ | .eq, _, .float _ => .error (.binaryType .eq)
+  | .ne, .float _, _ | .ne, _, .float _ => .error (.binaryType .ne)
   | .eq, lhs, rhs => .ok (.bool (decide (lhs = rhs)))
   | .ne, lhs, rhs => .ok (.bool (decide (lhs ≠ rhs)))
   | .lt, lhs, rhs => ordered .lt (· == .lt) lhs rhs
