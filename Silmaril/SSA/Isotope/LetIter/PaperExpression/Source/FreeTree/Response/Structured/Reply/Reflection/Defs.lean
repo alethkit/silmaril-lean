@@ -3,7 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Observation.Defs
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues.Defs
 
-/-! # Written continuation pairs with shared visible requests -/
+/-! # Finite written programs and comparison trees with recursive replies -/
 
 @[expose] public section
 
@@ -35,5 +35,22 @@ inductive Shared (A : Ty α) (e : ε) : EffectCtx (Ty α) ε → Expr Φ → Exp
   | normalize {Γ : EffectCtx (Ty α) ε} {a b a' b' : Expr Φ}
       (ha : Eqv Γ A e a a') (hb : Eqv Γ A e b b') (next : Shared A e Γ a' b') :
       Shared A e Γ a b
+
+/-- Recognize a written endpoint independently of any expression it may
+be compared with. Each node records its own source equation to the exposed
+leaf or call at the original bound. The children are the raw continuations
+after reply-shape substitution. -/
+inductive Written (A : Ty α) (e : ε) : EffectCtx (Ty α) ε → Expr Φ → Prop
+  | leaf {Γ : EffectCtx (Ty α) ε} {a value : Expr Φ}
+      (head : Eqv Γ A e a value) (typed : Wf Γ value A ⊥) (leaf : ConstructorLeaf value) :
+      Written A e Γ a
+  | call {Γ : EffectCtx (Ty α) ε} {a arg k : Expr Φ} {f : Φ}
+      (head : Eqv Γ A e a (.let₁ (.op f arg) k))
+      (visible : ¬ IsPure (⊥ : ε) f) (bound : instrEff f ≤ e)
+      (typed : Wf Γ arg (instrSrc f) ⊥) (leaf : ConstructorLeaf arg)
+      (hk : Wf ((instrTrg f, ⊥) :: Γ) k A e)
+      (children : ∀ {n : Nat} {sorts : Fin n → α} (shape : ReplyShape sorts (instrTrg f)),
+        Written A e (ReplyShape.fieldCtx sorts Γ) (shape.specialize Γ k)) :
+      Written A e Γ a
 
 end Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyReflection
