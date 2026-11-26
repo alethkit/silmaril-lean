@@ -221,8 +221,8 @@ def CallContext.acceptsCallFrom (context : CallContext) (ledger : List Function)
 def CallContext.acceptsPublishedCall (context : CallContext) (closure : Function) (arity : Nat := 0) : Bool :=
   context.acceptsCallFrom context.published closure arity
 
-/-- Track only private locals assigned fresh closures. A final call can
-forward the result of a closure created in this frame. -/
+/-- Recognize returned closures and follow final calls to lexical children.
+Track child code references through private locals assigned fresh closures. -/
 def returnsClosure {layout : Core.Closure.Layout} (forwards : CodeRef → Bool) :
     Core.Closure.Executor.Body layout → (Fin layout.locals → Option CodeRef) → Bool
   | .ret (.closure ..), _ => true
@@ -236,6 +236,8 @@ def returnsClosure {layout : Core.Closure.Layout} (forwards : CodeRef → Bool) 
     returnsClosure forwards rest locals
   | .callTo (.store (.local destination)) (.read (.local callee)) arguments (.ret (.read (.local result))), locals =>
     decide (destination = result ∧ arguments.length ≤ 1) && (locals callee).any forwards
+  | .invoke (.closure ref _) arguments none, _ =>
+    decide (arguments.length ≤ 1) && forwards ref
   | _, _ => false
 
 /-- The pinned factory profile forwards through at most two lexical

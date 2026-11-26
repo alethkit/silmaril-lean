@@ -50,7 +50,7 @@ variable {args : List (Ty Data)} {past sigs target : List (List (Ty Data))}
 variable {out : ValueSort Data}
 variable (m : Model.{u,v,w} Op) (entry : Tuple (Val m.value) args)
 
-private theorem read_splitOrigin {head : List (Ty Data)} {t : Ty Data}
+theorem read_splitOrigin {head : List (Ty Data)} {t : Ty Data}
     (wire : Origin args (past ++ [head]) t) (locals : Locals (Val m.value) past)
     (next : Tuple (Val m.value) head) :
     (match splitOrigin head wire with
@@ -133,7 +133,7 @@ private theorem drop_agrees (replacement : Origin args past (.value out))
       simpa only [dropNewest, split] using splitRead.symm.trans same
     | tail empty => nomatch empty
 
-private theorem erase_agrees {flow : Dataflow Op args past sigs} (candidate : Producer flow out)
+theorem erase_agrees {flow : Dataflow Op args past sigs} (candidate : Producer flow out)
     (replacement : Origin args (operandScope candidate) (.value out)) (locals : Locals (Val m.value) past)
     (equal : Diamond.read m candidate.origin entry (flow.eval m entry locals) =
       Diamond.read m (inFinal candidate replacement) entry (flow.eval m entry locals)) :
@@ -153,7 +153,7 @@ private theorem erase_agrees {flow : Dataflow Op args past sigs} (candidate : Pr
       (drop_agrees m entry prior locals next localRead)
   | later _ ih => exact ih replacement _ equal
 
-private theorem erase_size {flow : Dataflow Op args past sigs} (candidate : Producer flow out)
+theorem erase_size {flow : Dataflow Op args past sigs} (candidate : Producer flow out)
     (replacement : Origin args (operandScope candidate) (.value out)) :
     (erase candidate replacement).sigs'.length + 1 = sigs.length := by
   induction candidate with

@@ -17,6 +17,17 @@ variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)} {ids : GlobalRel}
 variable {args outs final : Ports (Ty V S)} {family familyL familyR : Family m} {primitives : Primitives m σ}
 variable {a b : Config m σ final}
 
+theorem TupleIn.read {ports : Ports (Ty V S)} {past : List (Ports (Ty V S))}
+    (wires : Wires args past ports) {entry : Tuple m.Val args} {locals : Locals m.Val past}
+    (inputs : TupleIn family entry) (values : LocalsIn family locals) :
+    TupleIn family (wires.read entry locals) :=
+  ClosedFamilyProofs.read_wires wires inputs values
+
+theorem TupleIn.prepend {context : Ports (Ty V S)} {arguments : Tuple m.Val args}
+    {captured : Tuple m.Val context} (params : TupleIn family arguments)
+    (values : TupleIn family captured) : TupleIn family (prependContext arguments captured) :=
+  ClosedFamilyProofs.prepend params values
+
 /-- Membership of every live value persists along the real machine,
 including after resolving a call, saving a frame or binding a return. -/
 theorem Closed.steps (closed : Closed primitives family) (initial : StateIn family a.control)

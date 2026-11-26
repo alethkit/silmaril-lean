@@ -32,7 +32,7 @@ private theorem locals_get {past : List (Ports (Ty V S))} (i : Fin past.length)
     · exact admitted.1
     · exact ih j admitted.2
 
-private theorem read_wires {args ports : Ports (Ty V S)} {past : List (Ports (Ty V S))}
+theorem read_wires {args ports : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     (wires : Wires args past ports) {entry : Tuple m.Val args} {locals : Locals m.Val past}
     (inputs : TupleIn family entry) (values : LocalsIn family locals) : TupleIn family (wires.read entry locals) := by
   induction wires with
@@ -49,7 +49,7 @@ private theorem snoc {past : List (Ports (Ty V S))} {ports : Ports (Ty V S)}
   | nil => exact ⟨result, trivial⟩
   | cons _ _ ih => exact ⟨admitted.1, ih admitted.2⟩
 
-private theorem prepend {args context : Ports (Ty V S)}
+theorem prepend {args context : Ports (Ty V S)}
     {arguments : Tuple m.Val args} {captured : Tuple m.Val context}
     (params : TupleIn family arguments) (values : TupleIn family captured) :
     TupleIn family (prependContext arguments captured) := by
@@ -138,6 +138,8 @@ theorem dispatch_ready (closed : ClosedFamily primitives ids familyL familyR) {a
   | region => intro _ _ _ _ _ _ _ _ equal _; cases equal
   | instruction => intro _ _ _ _ _ _ _ _ equal _; cases equal
   | gamma => intro _ _ _ _ _ _ _ _ equal _; cases equal
+  | theta => intro _ _ _ _ _ _ _ _ equal _; cases equal
+  | iteration => intro _ _ _ _ _ _ _ _ equal _; cases equal
   | returned => intro _ _ _ _ _ _ _ _ equal _; cases equal
   | call _ callees _ _ =>
     exact DispatchReady.call (closed.schedule memberL.1.1 memberR.1.1 callees)

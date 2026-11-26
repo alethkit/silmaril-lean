@@ -171,9 +171,29 @@ theorem checkedBooleanOp_closed (operator : Source.BooleanOperator) (operands : 
     subst value
     simpa [checkedBooleanOp?, head] using (selectSourceScalar_closed operator (second :: rest) _ tail _).2
 
-private theorem scalarTuple_none {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
-    (translated : OperandTranslation scope source operand) : scalarTuple? source = none := by
-  cases translated <;> rfl
+theorem checkClosedSequence_complete {source : Source.Expr} {value : ClosedSequence}
+    (checked : ClosedSequence.ValueOf source value) :
+    checkClosedSequence source = some ⟨value, checked⟩ := by
+  induction checked with
+  | list checked | tuple checked =>
+    rw [checkClosedSequence]
+    split
+    · rename_i missing
+      cases checked.symm.trans missing
+    · rename_i values found
+      cases found.symm.trans checked
+      rfl
+  | append _ _ sameKind first second =>
+    rw [checkClosedSequence, first, second]
+    simp [bind, Option.bind, sameKind]
+
+private theorem closedSequence_none {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
+    (translated : OperandTranslation scope source operand) : checkClosedSequence source = none := by
+  cases translated with
+  | add left _ =>
+    simp [checkClosedSequence, closedSequence_none left, bind, Option.bind]
+  | _ => simp [checkClosedSequence]
+termination_by sizeOf source
 
 mutual
 theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
@@ -196,20 +216,26 @@ theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand 
   | add left right => simp [lowerOperand, operand_complete left, operand_complete right]; rfl
   | floorDiv left right => simp [lowerOperand, operand_complete left, operand_complete right]; rfl
   | @equal sourceLeft sourceRight _ _ left right =>
-    have notFolded : literalTupleComparison? sourceLeft .eq sourceRight = none := by
-      simp [literalTupleComparison?, scalarTuple_none left]
+    have notFolded : closedSequenceComparison? sourceLeft .eq sourceRight = none := by
+      simp [closedSequenceComparison?, closedSequence_none left]
     simp only [lowerOperand, identityOperator?]
     split
     · rename_i value folded
       cases folded.symm.trans notFolded
     · rw [operand_complete left, operand_complete right]
       rfl
-  | notEqual left right =>
-    simp [lowerOperand, identityOperator?, literalTupleComparison?, operand_complete left, operand_complete right]
-    rfl
-  | @literalTupleComparison left operator right value checked =>
+  | @notEqual sourceLeft sourceRight _ _ left right =>
+    have notFolded : closedSequenceComparison? sourceLeft .ne sourceRight = none := by
+      simp [closedSequenceComparison?, closedSequence_none left]
+    simp only [lowerOperand, identityOperator?]
+    split
+    · rename_i value folded
+      cases folded.symm.trans notFolded
+    · rw [operand_complete left, operand_complete right]
+      rfl
+  | @closedSequenceComparison left operator right value checked =>
     have ordinary : identityOperator? operator = none := by
-      cases operator <;> first | rfl | simp [literalTupleComparison?] at checked
+      cases operator <;> first | rfl | simp [closedSequenceComparison?, literalTupleComparison?] at checked
     rw [lowerOperand]
     split
     · rename_i op recognized

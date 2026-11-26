@@ -81,15 +81,21 @@ def Stored.ofStore (address : Origin args past .address) (value : Origin args pa
 def Stored.underLoad (stored : Stored args past) : Stored args ([.word] :: past) :=
   ⟨stored.address, raise stored.value⟩
 
-def forwardLoad {version : Nat} (storeVersion : Nat) (memory : MemoryInput version)
-    (address : Origin args past .address) (rest : Body args ([.word] :: past) version)
-    (latest : Option (Stored args past)) : Option (Body args past version) :=
+/-- Select the scalar wire of the exact Store observed at this memory edge. -/
+def forwardValue {version : Nat} (storeVersion : Nat) (memory : MemoryInput version)
+    (address : Origin args past .address) (latest : Option (Stored args past)) :
+    Option (Origin args past .word) :=
   if memory.producer.val = storeVersion then
     match address, latest with
     | .arg port, some stored =>
-      if port.index = stored.address.index then some (rewire rest (dropLoad stored.value)) else none
+      if port.index = stored.address.index then some stored.value else none
     | _, _ => none
   else none
+
+def forwardLoad {version : Nat} (storeVersion : Nat) (memory : MemoryInput version)
+    (address : Origin args past .address) (rest : Body args ([.word] :: past) version)
+    (latest : Option (Stored args past)) : Option (Body args past version) :=
+  (forwardValue storeVersion memory address latest).map (fun value => rewire rest (dropLoad value))
 
 /-- Scan the original table. Each Store replaces the known producer, and
 a Load leaves the tracked memory version in place. -/
@@ -106,5 +112,27 @@ def rewriteAt (storeVersion : Nat) : {past : List (List ValueSort)} → {version
 /-- Check the designated Store and Load and produce the rewritten graph. -/
 def rewrite (graph : Graph args) (candidate : Candidate) : Option (Graph args) :=
   rewriteAt candidate.storeVersion graph candidate.loadIndex none
+
+def originKey (wire : Origin args past sort) : Nat ⊕ (Nat × Nat) :=
+  match wire with
+  | .arg port => .inl port.index
+  | .output node port => .inr (node.val, port.index)
+
+/-- The last Store must match the exported memory edge, and its value
+must be the exact scalar origin exported alongside that edge. -/
+def checkExitAt (storeVersion : Nat) (address : Port args .address) :
+    {past : List (List ValueSort)} → {version : Nat} →
+    Body args past version → Option (Stored args past) → Bool
+  | _, _, .ret memory word, latest =>
+    match forwardValue storeVersion memory (.arg address) latest with
+    | some value => originKey value == originKey word
+    | none => false
+  | _, _, .load _ _ rest, latest =>
+    checkExitAt storeVersion address rest (latest.map Stored.underLoad)
+  | _, _, .store _ target value rest, _ =>
+    checkExitAt storeVersion address rest (Stored.ofStore target value)
+
+def checkExit (graph : Graph args) (address : Port args .address) (storeVersion : Nat) : Bool :=
+  checkExitAt storeVersion address graph none
 
 end Silmaril.SSA.SeaOfNodes.Memory.Forwarding

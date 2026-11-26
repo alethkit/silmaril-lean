@@ -2,6 +2,8 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Iteration.Chosen.Laws.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Uniformity.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Initial.Defs
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Initial.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Uniformity.Thms
 
 /-! # Project the ordinary Paper iteration equations through the chosen coproducts -/
@@ -38,7 +40,7 @@ private theorem c_map {X Y X' Y' : P} (f : X ⟶ X') (g : Y ⟶ Y') :
       ← Functor.map_comp, coprod.inl_map, coprod.inr_map]
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem sumIso_map (A B : τ) :
+theorem sumIso_map (A B : τ) :
     (proj).mapIso (Paper.TypeCategory.sumIso A B) =
       sumIso Seed A B ≪≫ c (Paper.TypeCategory.ofType A) (Paper.TypeCategory.ofType B) := by
   apply Iso.ext
@@ -55,15 +57,21 @@ private theorem sumIso_map (A B : τ) :
       PreservesColimitPair.iso_hom, inr_coprodComparison]
 
 set_option backward.isDefEq.respectTransparency false in
-theorem iterateChosen_projectStep {X Y : P} (f : X ⟶ Y ⨿ X) :
-    iterateChosen Seed (projectStep Seed f) = (proj).map (Paper.TypeCategory.iterate f) := by
+theorem projectStep_comp_sumIso_inv {X Y : P} (f : X ⟶ Y ⨿ X) :
+    projectStep Seed f ≫ (sumIso Seed ((proj).obj Y).as ((proj).obj X).as).inv =
+      (proj).map (f ≫ (Paper.TypeCategory.sumIso (show τ from Y) (show τ from X)).inv) := by
   have e : (c Y X).inv ≫ (sumIso Seed ((proj).obj Y).as ((proj).obj X).as).inv =
       (proj).map (Paper.TypeCategory.sumIso (show τ from Y) (show τ from X)).inv :=
     (congrArg Iso.inv (sumIso_map Seed (show τ from Y) (show τ from X))).symm
-  unfold iterateChosen Paper.TypeCategory.iterate
-  rw [Category.assoc, e, ← Functor.map_comp, iterateSum_map]
+  rw [projectStep, Category.assoc, e, ← Functor.map_comp]
 
-private theorem exists_projectStep {X Y : Q} (f : X ⟶ Y ⨿ X) :
+set_option backward.isDefEq.respectTransparency false in
+theorem iterateChosen_projectStep {X Y : P} (f : X ⟶ Y ⨿ X) :
+    iterateChosen Seed (projectStep Seed f) = (proj).map (Paper.TypeCategory.iterate f) := by
+  unfold iterateChosen Paper.TypeCategory.iterate
+  rw [projectStep_comp_sumIso_inv, iterateSum_map]
+
+theorem exists_projectStep {X Y : Q} (f : X ⟶ Y ⨿ X) :
     ∃ f₀ : X.as ⟶ Y.as ⨿ X.as, projectStep Seed f₀ = f := by
   obtain ⟨f₀, hf⟩ := (proj).map_surjective (f ≫ (c Y.as X.as).hom)
   exact ⟨f₀, by rw [show projectStep Seed f₀ = (proj).map f₀ ≫ (c Y.as X.as).inv from rfl,
@@ -83,7 +91,7 @@ theorem iterateChosen_fixpoint {X Y : Q} (f : X ⟶ Y ⨿ X) :
         coprod.desc (𝟙 Y) ((proj).map (Paper.TypeCategory.iterate f₀))
       rw [← (show (proj).map (𝟙 Y.as) = 𝟙 Y from (proj).map_id Y.as), c_desc, Category.assoc, Iso.inv_hom_id_assoc]
 
-private theorem c_inv_map {X Y X' Y' : P} (f : X ⟶ X') (g : Y ⟶ Y') :
+theorem c_inv_map {X Y X' Y' : P} (f : X ⟶ X') (g : Y ⟶ Y') :
     (c X Y).inv ≫ coprod.map ((proj).map f) ((proj).map g) =
       (proj).map (coprod.map f g) ≫ (c X' Y').inv := by
   apply (cancel_mono (c X' Y').hom).1
@@ -192,6 +200,57 @@ theorem uniformity_of_constructor_square {A B D : P} {h : A ⟶ D}
     iterateChosen Seed (projectStep Seed f) = (proj).map h ≫ iterateChosen Seed (projectStep Seed g) := by
   rw [iterateChosen_projectStep Seed, iterateChosen_projectStep Seed, ← Functor.map_comp]
   exact congrArg (proj).map (Paper.TypeCategory.iterate_uniformity_ofConstructorReturn hh f g comm)
+
+local notation "I" => iterateChosen Seed
+
+theorem uniformity_of_composed_squares {A D E B : Q}
+    (h : A ⟶ D) (k : D ⟶ E)
+    (f : A ⟶ B ⨿ A) (middle : D ⟶ B ⨿ D) (g : E ⟶ B ⨿ E)
+    (left : f ≫ coprod.map (𝟙 B) h = h ≫ middle)
+    (right : middle ≫ coprod.map (𝟙 B) k = k ≫ g)
+    (uniformLeft : f ≫ coprod.map (𝟙 B) h = h ≫ middle → I f = h ≫ I middle)
+    (uniformRight : middle ≫ coprod.map (𝟙 B) k = k ≫ g → I middle = k ≫ I g) :
+    f ≫ coprod.map (𝟙 B) (h ≫ k) = (h ≫ k) ≫ g ∧
+      I f = (h ≫ k) ≫ I g := by
+  constructor
+  · rw [← Category.id_comp (𝟙 B), ← coprod.map_map, ← Category.assoc, left,
+      Category.assoc, right, Category.assoc]
+  · rw [uniformLeft left, uniformRight right, Category.assoc]
+
+theorem iterate_solution_of_square {A D B : Q} (p : A ⟶ D)
+    (f : A ⟶ B ⨿ A) (g : D ⟶ B ⨿ D)
+    (square : f ≫ coprod.map (𝟙 B) p = p ≫ g) :
+    p ≫ I g = f ≫ coprod.desc (𝟙 B) (p ≫ I g) := by
+  calc
+    p ≫ I g = p ≫ g ≫ coprod.desc (𝟙 B) (I g) :=
+      congrArg (fun a => p ≫ a) (iterateChosen_fixpoint Seed g)
+    _ = (f ≫ coprod.map (𝟙 B) p) ≫ coprod.desc (𝟙 B) (I g) := by
+      rw [← Category.assoc, square]
+    _ = _ := by rw [Category.assoc, coprod.map_desc, Category.id_comp]
+
+theorem iterate_reset_of_square {A D B : Q} (p : A ⟶ D) (i : D ⟶ A) (sectionEq : i ≫ p = 𝟙 D)
+    (f : A ⟶ B ⨿ A) (g : D ⟶ B ⨿ D)
+    (square : f ≫ coprod.map (𝟙 B) p = p ≫ g) :
+    I (f ≫ coprod.map (𝟙 B) (p ≫ i)) = p ≫ I g := by
+  have expand : coprod.map (𝟙 B) (p ≫ i) = coprod.map (𝟙 B) p ≫ coprod.map (𝟙 B) i := by
+    rw [coprod.map_map, Category.id_comp]
+  apply uniformity_of_factorization Seed p _ g (g ≫ coprod.map (𝟙 B) i)
+  · rw [expand, ← Category.assoc, square, Category.assoc]
+  · rw [Category.assoc, coprod.map_map, sectionEq, Category.id_comp, coprod.map_id_id, Category.comp_id]
+
+theorem uniformity_iff_reset {A D B : Q} (p : A ⟶ D) (i : D ⟶ A) (sectionEq : i ≫ p = 𝟙 D)
+    (f : A ⟶ B ⨿ A) (g : D ⟶ B ⨿ D)
+    (square : f ≫ coprod.map (𝟙 B) p = p ≫ g) :
+    I f = p ≫ I g ↔ I f = I (f ≫ coprod.map (𝟙 B) (p ≫ i)) := by
+  rw [iterate_reset_of_square Seed p i sectionEq f g square]
+
+theorem uniformity_of_empty_source {A : τ} (hA : Paper.StructurallyEmpty A) {D B : Q}
+    (h : ofType Seed A ⟶ D) (f : ofType Seed A ⟶ B ⨿ ofType Seed A) (g : D ⟶ B ⨿ D) :
+    I f = h ≫ I g := by
+  obtain ⟨initial⟩ := Paper.StructurallyEmpty.initial (Φ := Φ) hA
+  obtain ⟨a, ea⟩ := (projection Seed).map_surjective (X := Paper.TypeCategory.ofType A) (Y := B.as) (I f)
+  obtain ⟨b, eb⟩ := (projection Seed).map_surjective (X := Paper.TypeCategory.ofType A) (Y := B.as) (h ≫ I g)
+  exact ea.symm.trans ((congrArg (projection Seed).map (initial.hom_ext a b)).trans eb)
 
 theorem guardedElgot :
     letI := Paper.Extension.Singleton.guardedIteration Seed

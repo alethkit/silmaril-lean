@@ -41,6 +41,57 @@ def reify {P : InstrSig τ ε} (e : CaseEquation P) : SSAEquation P :=
 def compile {P : InstrSig τ ε} (e : SSAEquation P) : CaseEquation P :=
   ⟨e.1, e.2.1.toLetCase, e.2.2.toLetCase⟩
 
+local notation "Γ₀" => (Ctx.nil : Ctx Empty τ)
+local notation "bindArrow" => LetIter.ProofRelevant.Semantics.Categorical.bind
+local notation "pairArrow" => LetIter.ProofRelevant.Semantics.Categorical.pair
+
+/-- The operation algebra of the exact LetCase room at the empty named context. -/
+abbrev CaseAlgebra (P : InstrSig τ ε) :=
+  TheoryModel.Algebra.{0, 0, 0} (Models.signature P.Instr Γ₀)
+
+section FreydModels
+
+variable {V C : Type 1} [Category.{0} V] [Category.{0} C]
+  [CartesianMonoidalCategory V] [SymmetricCategory V]
+  [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts C]
+  [DistributiveTensor V] [DistributivePremonoidalCategory C]
+  (J : V ⥤ C) [DistributiveFreydCategory J] {P : InstrSig τ ε}
+
+/-- The carrier of a LetCase sort in a chosen value and computation model. -/
+abbrev freydCaseArrow (M : TypeModel τ V) (i : TypingIndex τ) :=
+  J.obj (envObj M Γ₀ i.bound) ⟶ J.obj (M.obj i.result)
+
+/-- Interpret the exact LetCase operations in the chosen distributive Freyd model. -/
+noncomputable def freydCaseOperation (M : TypeModel τ V) (I : InstructionModel J M P.Instr) :
+    {i : TypingIndex τ} → (o : Models.Operation (Φ := P.Instr) Γ₀ i) →
+      ((j : Fin o.arity) → freydCaseArrow J M (o.argSort j)) → freydCaseArrow J M i
+  | _, .fv h, _ => J.map (freeLookup M _ h)
+  | _, .bv i, _ => J.map (boundVar M i)
+  | _, .op f, a => a 0 ≫ I.denote f
+  | _, .let₁ (β := β) A _, a =>
+      bindArrow J (a 0) (J.map (envSnocIso M Γ₀ β A).hom ≫ a 1)
+  | _, .unit, _ => J.map (CartesianMonoidalCategory.toUnit _ ≫ M.unitIso.inv)
+  | _, .pair A B, a => pairArrow J (a 0) (a 1) ≫ J.map (M.productIso A B).inv
+  | _, .let₂ (β := β) A B _, a =>
+      bindArrow J (a 0) (J.map (𝟙 _ ⊗ₘ (M.productIso A B).hom) ≫
+        J.map (envPairHom M Γ₀ β A B) ≫ a 1)
+  | _, .inl A B, a => a 0 ≫ J.map (coprod.inl ≫ (M.coprodIso A B).inv)
+  | _, .inr A B, a => a 0 ≫ J.map (coprod.inr ≫ (M.coprodIso A B).inv)
+  | _, .case (β := β) A B _, a =>
+      caseWithContext J (a 0 ≫ J.map (M.coprodIso A B).hom)
+        (J.map (envSnocIso M Γ₀ β A).hom ≫ a 1)
+        (J.map (envSnocIso M Γ₀ β B).hom ≫ a 2)
+  | _, .abort A, a => a 0 ≫ J.map (M.emptyIsInitial.to (M.obj A))
+
+/-- The exact categorical LetCase algebra uses sequencing and coproducts. -/
+noncomputable def freydCaseAlgebra (M : TypeModel τ V) (I : InstructionModel J M P.Instr) :
+    CaseAlgebra P where
+  Carrier := freydCaseArrow J M
+  op := freydCaseOperation J M I
+
+end FreydModels
+
 section Models
 
 variable {V C : Type 1} [Category.{0} V] [Category.{0} C]
@@ -61,38 +112,19 @@ structure CoherentRegionModel (P : InstrSig τ ε) where
 
 variable {J} {P : InstrSig τ ε}
 
-local notation "Γ₀" => (Ctx.nil : Ctx Empty τ)
-local notation "bindArrow" => LetIter.ProofRelevant.Semantics.Categorical.bind
-local notation "pairArrow" => LetIter.ProofRelevant.Semantics.Categorical.pair
-
 abbrev caseArrow (K : CoherentRegionModel J P) (i : TypingIndex τ) :=
-  J.obj (envObj K.types Γ₀ i.bound) ⟶ J.obj (K.types.obj i.result)
+  freydCaseArrow J K.types i
 
-noncomputable def caseOperation (K : CoherentRegionModel J P) :
-    {i : TypingIndex τ} → (o : Models.Operation (Φ := P.Instr) Γ₀ i) →
-      ((j : Fin o.arity) → caseArrow K (o.argSort j)) → caseArrow K i
-  | _, .fv h, _ => J.map (freeLookup K.types _ h)
-  | _, .bv i, _ => J.map (boundVar K.types i)
-  | _, .op f, a => a 0 ≫ K.instructions.denote f
-  | _, .let₁ (β := β) A _, a =>
-      bindArrow J (a 0) (J.map (envSnocIso K.types Γ₀ β A).hom ≫ a 1)
-  | _, .unit, _ => J.map (CartesianMonoidalCategory.toUnit _ ≫ K.types.unitIso.inv)
-  | _, .pair A B, a => pairArrow J (a 0) (a 1) ≫ J.map (K.types.productIso A B).inv
-  | _, .let₂ (β := β) A B _, a =>
-      bindArrow J (a 0) (J.map (𝟙 _ ⊗ₘ (K.types.productIso A B).hom) ≫
-        J.map (envPairHom K.types Γ₀ β A B) ≫ a 1)
-  | _, .inl A B, a => a 0 ≫ J.map (coprod.inl ≫ (K.types.coprodIso A B).inv)
-  | _, .inr A B, a => a 0 ≫ J.map (coprod.inr ≫ (K.types.coprodIso A B).inv)
-  | _, .case (β := β) A B _, a =>
-      caseWithContext J (a 0 ≫ J.map (K.types.coprodIso A B).hom)
-        (J.map (envSnocIso K.types Γ₀ β A).hom ≫ a 1)
-        (J.map (envSnocIso K.types Γ₀ β B).hom ≫ a 2)
-  | _, .abort A, a => a 0 ≫ J.map (K.types.emptyIsInitial.to (K.types.obj A))
+/-- The LetCase operations supplied by a coherent SSA model. -/
+noncomputable def caseOperation (K : CoherentRegionModel J P)
+    {i : TypingIndex τ} (o : Models.Operation (Φ := P.Instr) Γ₀ i)
+    (a : (j : Fin o.arity) → caseArrow K (o.argSort j)) : caseArrow K i :=
+  freydCaseOperation J K.types K.instructions o a
 
 /-- The reduct of a coherent region model to an actual LetCase institution
 model. Every operator acts by the exact categorical LetCase combinators. -/
 noncomputable def CoherentRegionModel.caseAlgebra (K : CoherentRegionModel J P) :
-    TheoryModel.Algebra.{0, 0, 0} (Models.signature P.Instr Γ₀) where
+    CaseAlgebra P where
   Carrier := caseArrow K
   op := caseOperation K
 
