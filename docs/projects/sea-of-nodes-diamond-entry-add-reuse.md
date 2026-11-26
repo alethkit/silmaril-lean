@@ -43,12 +43,15 @@ extra equivalences and iterative GVN are outside the profile.
 module
 
 import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.Thms
+import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.Discovery.Thms
 meta import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.Defs
+meta import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.Discovery.Defs
 
 open Silmaril.SSA.SeaOfNodes.Diamond
 open AddPhi.Rotate.Pair.Dispatch (Refusal)
 open AddPhi.Rotate.Pair.Dispatch.Materialize (rewrite)
 open AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse (rewriteAt?)
+open AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.Discovery (discoverAndRewrite?)
 open Silmaril.SSA.SeaOfNodes.Pure.SubZero (model word wordPort)
 open Silmaril.SSA.RVSDG (Tuple)
 
@@ -72,6 +75,16 @@ def run (guard : Bool) : Except Refusal (Option (Nat × BitVec 64)) :=
 #eval (run false, run true)
 
 example : (run false, run true) = (.ok (some (2, 9)), .ok (some (2, 9))) := rfl
+
+def discover : Except Refusal (Option (List Silmaril.SSA.RVSDG.Address × Nat)) :=
+  (rewrite sample (.tail (.tail .head)) .left).map fun result => do
+    let .materialized .right _ emitted := result | none
+    let target ← discoverAndRewrite? emitted
+    pure ((target.diamond.arms .first).outputs.addresses, target.suffix.sigs.length)
+
+#eval discover
+
+example : discover = .ok (some ([.output 1 0, .arg 1], 2)) := rfl
 ```
 
 The regression additionally uses unequal arm scopes and checks a
@@ -80,7 +93,31 @@ only on the second arm and a Φ that reads a different input on that
 occurrence.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Diamond/AddPhi/Rotate/Pair/Dispatch/Materialize/EntryReuse/Regression.lean)
 
+## Discover a representative
+
+`EntryReuse.Discovery.discoverAndRewrite?` takes the emitted program
+and needs no producer nomination. It scans typed word producers in the
+common entry table using the existing GVN enumeration. The first
+producer in definition order whose exact operands pass both occurrence
+checks wins. The call delegates to `EntryReuse.rewrite?` for the suffix
+shape check and emission. Failure means that every typed shared producer
+would be refused by that nomination API, which also covers suffixes
+outside the right-materialized profile.
+
+`findRepresentative?_eq_some_iff` characterizes the tie-break and
+`discoverAndRewrite?_eq_none_iff` states the scope of search failure.
+`discoverAndRewrite?_packet_eq` and
+`materialize_then_discover_returns_iff` reuse the checked emitter's
+packet and finite-return laws. The discovery regression skips an earlier
+add with reversed operands and checks that the earlier of two accepted
+adds supplies the new join column on both actual occurrences. The same
+fixture exercises wrapping arithmetic and refuses an arm-local-only
+match and a mismatched second occurrence. This scan covers one
+right-materialized join suffix and its shared entry table.
+[Discovery theorems](../../Silmaril/SSA/SeaOfNodes/Diamond/AddPhi/Rotate/Pair/Dispatch/Materialize/EntryReuse/Discovery/Thms.lean) ·
+[Discovery regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Diamond/AddPhi/Rotate/Pair/Dispatch/Materialize/EntryReuse/Discovery/Regression.lean)
+
 ```sh
 topic=SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse
-make check CHECK_TARGETS="+Silmaril.$topic.Thms +Silmaril.Proofs.$topic.Regression"
+make check CHECK_TARGETS="+Silmaril.$topic.Discovery.Thms +Silmaril.Proofs.$topic.Discovery.Regression +Silmaril.Proofs.$topic.Regression"
 ```
