@@ -50,7 +50,8 @@ theorem Program.arm_body (occurrence : Fin 2) :
 /-- The γ tag preserves which occurrence the source conditional selects. -/
 theorem Program.selected_predecessor (bank : Bank (regs := regs) m) :
     p.predecessor (p.stage.choice.eval bank) =
-      (if (bank.get p.condition).down then p.trueArm.lastBlock else p.falseArm.lastBlock) :=
+      (if (bank.get p.condition).down then p.trueArm.predecessor p.header
+        else p.falseArm.predecessor p.header) :=
   Proofs.selected_predecessor p m bank
 
 /-- The actual γ merge produces all reaching values from the selected
