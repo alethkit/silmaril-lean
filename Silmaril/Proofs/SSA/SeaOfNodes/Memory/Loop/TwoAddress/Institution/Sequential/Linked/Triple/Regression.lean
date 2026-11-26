@@ -1,28 +1,16 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Thms
-import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Fixture
+import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Fixture
 import Silmaril.SSA.RVSDG.NestedTheta.Petri.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Defs
-meta import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Fixture
+meta import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Fixture
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple
 
-open Memory.Diamond.Institution renaming Model → EntryModel
-open Sequential.Fixture (captures graph initial right)
+open Sequential.Fixture (captures graph initial)
 open Linked.Fixture (combined first wiring inputs)
-
--- The third loop uses the second loop's store capture as its stop word
--- and uses the second return as its own store payload.
-private def thirdWiring : Boundary.Wiring captures.args captures.args :=
-  .forward .head (.forward (.tail .head) (.forward (.tail (.tail (.tail .head)))
-    (.word fun p => nomatch p)))
-
-private def entryModel : EntryModel combined := ⟨6, inputs⟩
-
-private def afterFirst : Heap 6 := (initial.write 0 11).write 2 11
-private def afterSecond : Heap 6 := (afterFirst.write 3 22).write 5 22
-private def expected : Result 6 := (3, 3, 22, afterSecond.write (right 0) 3)
+open Triple.Fixture (thirdWiring entryModel afterFirst afterSecond expected thirdInput)
 
 private def run (fuel : Nat) : Option (Word × Word × Word × List Word) :=
   ((program first graph graph wiring thirdWiring).graph.run (thetaRuntime 6) fuel (encodeInput initial inputs)).map
@@ -32,8 +20,6 @@ private def run (fuel : Nat) : Option (Word × Word × Word × List Word) :=
 
 #guard (run 1).isNone
 #guard run 2 == some (3, 3, 22, [11, 73, 11, 3, 91, 22])
-
-private def thirdInput := thirdWiring.select (3 : Word) (wiring.select (3 : Word) inputs)
 
 -- The same typed captures and budget cannot return from the stale heap.
 #guard ((Petri.lower graph).run (thetaRuntime 6) 2 (encodeInput initial thirdInput)).isNone

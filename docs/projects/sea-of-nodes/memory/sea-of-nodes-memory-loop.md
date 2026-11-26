@@ -1191,8 +1191,8 @@ independent of numbered fuel. The `no_returns_iff_numbered` and
 `no_finishes_iff_numbered` laws cover absence of finite observations.
 `Triple.program` supplies the three-word program to the existing
 runtime observation syntax. The comparison is proved at canonical
-encoded entries. The linked-pair room and typed MemRef CFG linker
-remain two-stage APIs.
+encoded entries. The linked-pair satisfaction room keeps its
+two-word result type.
 [Observation laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/Thms.lean)
 
 ```lean
@@ -1208,6 +1208,42 @@ third-stage inputs, and a finite linked coloured completion.
 
 ```sh
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Regression
+```
+
+##### Linking three loops in typed MemRef CF
+
+`Linked.Triple.MemRef.lower` reuses the linked pair's ordered CF
+blocks and the standalone third loop's blocks. The pair exit jumps
+to the third entry with both words. That entry seeds the two address
+arguments using the same typed Boundary selections as the numbered
+triple. Both words remain block arguments across third-stage feedback
+and exit. The existing CF runner threads one initialized rank-one
+MemRef buffer through all three loops at one cell count.
+[Typed CFG emitter](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/MemRef/Defs.lean)
+
+`pair_exit_transition` and `third_entry_transition` give the exact
+edge arguments and full buffer at the splice. The
+`returns_iff_pair_then_third` law factors a finite CF run through the
+actual pair's two words and post-buffer, followed by the third run
+at that buffer. `returns_iff_numbered` compares all three words and
+every final cell with the linked numbered graph at the same typed
+input. Each backend has its own finite witness.
+`no_return_iff_numbered` compares absence across all finite budgets.
+[Splice and observation laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/MemRef/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.MemRef.Thms
+```
+
+The shared fixture returns `(3, 3, 22)` and
+`[11, 73, 11, 3, 91, 22]` in eleven CF block steps. Ten steps
+exhaust the budget. With the same third-stage captures and three
+block steps, the post-buffer yields `22` and the stale initial
+buffer yields no result within that budget.
+[Runnable MemRef regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/MemRef/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.MemRef.Regression
 ```
 
 ### Equations for coloured Petri completion
