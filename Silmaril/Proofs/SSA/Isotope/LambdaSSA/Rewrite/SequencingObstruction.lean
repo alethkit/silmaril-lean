@@ -34,9 +34,12 @@ structure Exit where
   ⟨label, v, effect, false⟩
 
 /-- The native diagnostic and the Paper diagnostic share their finite-run
-calculus and choose different arities at which to add marks. -/
+calculus and choose different arities at which to add marks. Suppressing
+unary bind and case effects lets the same diagnostic test entry-let
+extensions while retaining effects of product destructuring. -/
 class MarkArity where
   enabled : Nat → Bool
+  keepUnaryEffect : Bool := true
 
 section
 set_option linter.concreteInstances false
@@ -57,16 +60,16 @@ inductive Follow {n : Nat} (block : Fin n → Val → Exit → Prop) :
       Follow block first (count + 1)
         (out.prepend first.effect (markAt n first count))
 
-@[expose] def withTerm (env : Env) (a : Tm Instruction) (body : Val → Exit → Prop) (out : Exit) : Prop :=
-  ∃ v e, term env a = some (v, e) ∧ ∃ x, body v x ∧ out = x.prepend e false
+@[expose] def withTerm (keepEffect : Bool) (env : Env) (a : Tm Instruction) (body : Val → Exit → Prop) (out : Exit) : Prop :=
+  ∃ v e, term env a = some (v, e) ∧ ∃ x, body v x ∧ out = x.prepend (keepEffect && e) false
 
 @[expose] def observe (env : Env) : Region Instruction → Exit → Prop
   | .br i a => fun out => ∃ v e, term env a = some (v, e) ∧ out = Exit.branch i v e
-  | .let₁ a r => withTerm env a (fun v => observe (extend env v) r)
-  | .let₂ a r => withTerm env a (fun
+  | .let₁ a r => withTerm MarkArity.keepUnaryEffect env a (fun v => observe (extend env v) r)
+  | .let₂ a r => withTerm true env a (fun
       | .pair v w => observe (extend (extend env v) w) r
       | _ => fun _ => False)
-  | .case a l r => withTerm env a (fun
+  | .case a l r => withTerm MarkArity.keepUnaryEffect env a (fun
       | .inl v => observe (extend env v) l
       | .inr w => observe (extend env w) r
       | _ => fun _ => False)
@@ -75,10 +78,10 @@ inductive Follow {n : Nat} (block : Fin n → Val → Exit → Prop) :
         Follow (fun i v => observe (extend env v) (blocks i)) first count out
 
 omit [MarkArity] in
-private theorem withTerm_congr {env env' : Env} {a a' : Tm Instruction}
+private theorem withTerm_congr {keepEffect : Bool} {env env' : Env} {a a' : Tm Instruction}
     {f g : Val → Exit → Prop} (ht : term env a = term env' a')
     (h : ∀ v e, term env' a' = some (v, e) → f v = g v) :
-    withTerm env a f = withTerm env' a' g := by
+    withTerm keepEffect env a f = withTerm keepEffect env' a' g := by
   funext out
   apply propext
   unfold withTerm
@@ -128,9 +131,9 @@ omit [MarkArity] in
   cases o; rfl
 
 omit [MarkArity] in
-theorem withTerm_value {env : Env} {a : Tm Instruction} {v : Val}
+theorem withTerm_value {keepEffect : Bool} {env : Env} {a : Tm Instruction} {v : Val}
     (h : term env a = some (v, false)) (body : Val → Exit → Prop) :
-    withTerm env a body = body v := by
+    withTerm keepEffect env a body = body v := by
   funext out
   simp [withTerm, h]
 
@@ -181,9 +184,9 @@ private theorem follow_rename {n : Nat} {f g : Fin n → Val → Exit → Prop}
       exact (h _ _ _).mpr ⟨_, head, rfl⟩
 
 omit [MarkArity] in
-private theorem withTerm_rename {env : Env} {a : Tm Instruction} {f g : Val → Exit → Prop}
+private theorem withTerm_rename {keepEffect : Bool} {env : Env} {a : Tm Instruction} {f g : Val → Exit → Prop}
     (ρ : Nat → Nat) (h : ∀ v x, g v x ↔ ∃ y, f v y ∧ x = y.relabel ρ) (x : Exit) :
-    withTerm env a g x ↔ ∃ y, withTerm env a f y ∧ x = y.relabel ρ := by
+    withTerm keepEffect env a g x ↔ ∃ y, withTerm keepEffect env a f y ∧ x = y.relabel ρ := by
   constructor
   · rintro ⟨v, e, hv, z, hz, rfl⟩
     obtain ⟨y, hy, rfl⟩ := (h v z).mp hz
@@ -369,7 +372,7 @@ private theorem observe_cfg_local {n : Nat} {env : Env} {a : Tm Instruction} {v 
   apply propext
   change (∃ x k, observe env (.br i a) x ∧
     Follow (fun j w => observe (extend env w) (blocks j)) x k out) ↔
-      ∃ x k, withTerm env a (fun w => observe (extend env w) (blocks i)) x ∧
+      ∃ x k, withTerm MarkArity.keepUnaryEffect env a (fun w => observe (extend env w) (blocks i)) x ∧
         Follow (fun j w => observe (extend env w) (blocks j)) x k out
   rw [observe_br h, withTerm_value h]
   constructor
@@ -406,16 +409,16 @@ private theorem observe_caseValue {Γ : VCtx (Ty Empty)} {A B : Ty Empty} {a : T
   obtain ⟨v, hv⟩ := value_term ha env
   have ht := term_typed ha.hasType he hv
   rw [observe_subst _ (single_realizes hv)]
-  change withTerm env a _ = _
+  change withTerm MarkArity.keepUnaryEffect env a _ = _
   rw [withTerm_value hv]
   cases ht with
   | inl ht => exact observe_subst r (replace_realizes env _).1
   | inr ht => exact observe_subst r (replace_realizes env _).2
 
 omit [MarkArity] in
-private theorem withTerm_result {env : Env} {a : Tm Instruction} {v : Val} {e : Bool}
+private theorem withTerm_result {keepEffect : Bool} {env : Env} {a : Tm Instruction} {v : Val} {e : Bool}
     (h : term env a = some (v, e)) (body : Val → Exit → Prop) (out : Exit) :
-    withTerm env a body out ↔ ∃ x, body v x ∧ out = x.prepend e false := by
+    withTerm keepEffect env a body out ↔ ∃ x, body v x ∧ out = x.prepend (keepEffect && e) false := by
   cases e <;> simp [withTerm, h]
 
 private theorem observe_acyclic_arm {n : Nat} {f : Fin n → Val → Exit → Prop}
@@ -460,9 +463,9 @@ private theorem observe_cfg_dispatch {n : Nat} {entry next : Region Instruction}
 private theorem observe_case_entry (env : Env) (a : Tm Instruction) (v : Val) (e : Bool)
     (left : Bool) (h : term env a = some ((if left then Value.inl v else Value.inr v), e)) :
     observe env (.case a (.br 0 (.var 0)) (.br 1 (.var 0))) =
-      (· = Exit.branch (if left then 0 else 1) v e) := by
+      (· = Exit.branch (if left then 0 else 1) v (MarkArity.keepUnaryEffect && e)) := by
   funext out
-  change withTerm env a _ out = _
+  change withTerm MarkArity.keepUnaryEffect env a _ out = _
   apply propext
   rw [withTerm_result h]
   cases left <;> simp [observe_br (env := extend env v) (a := .var 0) rfl, Exit.branch, Exit.prepend]
@@ -474,14 +477,14 @@ private theorem observe_caseCfg {Γ : VCtx (Ty Empty)} {A B : Ty Empty}
   obtain ⟨v, e, hv, ht⟩ := term_total ha he
   funext out
   apply propext
-  change withTerm env a _ out ↔ _
+  change withTerm MarkArity.keepUnaryEffect env a _ out ↔ _
   rw [withTerm_result hv]
   unfold Region.caseCfg
   cases ht with
   | inl ht =>
-    exact (observe_cfg_dispatch env (0 : Fin 2) _ e rfl (observe_case_entry env a _ e true hv) out).symm
+    exact (observe_cfg_dispatch env (0 : Fin 2) _ (MarkArity.keepUnaryEffect && e) rfl (observe_case_entry env a _ e true hv) out).symm
   | inr ht =>
-    exact (observe_cfg_dispatch env (1 : Fin 2) _ e rfl (observe_case_entry env a _ e false hv) out).symm
+    exact (observe_cfg_dispatch env (1 : Fin 2) _ (MarkArity.keepUnaryEffect && e) rfl (observe_case_entry env a _ e false hv) out).symm
 
 private theorem observe_caseInl {Γ : VCtx (Ty Empty)} {A : Ty Empty}
     {a : Tm Instruction} {l r : Region Instruction} (ha : Tm.HasType Γ a A) :
@@ -491,7 +494,8 @@ private theorem observe_caseInl {Γ : VCtx (Ty Empty)} {A : Ty Empty}
   have hl : term env (.inl a) = some (.inl v, e) := by simp [term, h]
   funext out
   apply propext
-  change withTerm env (.inl a) _ out ↔ withTerm env a _ out
+  change withTerm MarkArity.keepUnaryEffect env (.inl a) _ out ↔
+    withTerm MarkArity.keepUnaryEffect env a _ out
   rw [withTerm_result hl, withTerm_result h]
 
 private theorem observe_caseInr {Γ : VCtx (Ty Empty)} {B : Ty Empty}
@@ -502,7 +506,8 @@ private theorem observe_caseInr {Γ : VCtx (Ty Empty)} {B : Ty Empty}
   have hr : term env (.inr b) = some (.inr v, e) := by simp [term, h]
   funext out
   apply propext
-  change withTerm env (.inr b) _ out ↔ withTerm env b _ out
+  change withTerm MarkArity.keepUnaryEffect env (.inr b) _ out ↔
+    withTerm MarkArity.keepUnaryEffect env b _ out
   rw [withTerm_result hr, withTerm_result h]
 
 private theorem observe_cfgEquiv {Γ : VCtx (Ty Empty)} {L : LCtx (Ty Empty)}
@@ -589,9 +594,9 @@ private theorem follow_unique {n : Nat} {blocks : Fin n → Val → Exit → Pro
       exact ⟨rfl, rfl⟩
 
 omit [MarkArity] in
-private theorem withTerm_unique {env : Env} {a : Tm Instruction} {f : Val → Exit → Prop}
+private theorem withTerm_unique {keepEffect : Bool} {env : Env} {a : Tm Instruction} {f : Val → Exit → Prop}
     (h : ∀ v x y, f v x → f v y → x = y)
-    {x y : Exit} (hx : withTerm env a f x) (hy : withTerm env a f y) : x = y := by
+    {x y : Exit} (hx : withTerm keepEffect env a f x) (hy : withTerm keepEffect env a f y) : x = y := by
   obtain ⟨v, e, hv, u, hu, rfl⟩ := hx
   obtain ⟨w, d, hw, z, hz, rfl⟩ := hy
   have eq := Option.some.inj (hv.symm.trans hw)
@@ -654,16 +659,16 @@ private theorem followFuel_sound {n : Nat} {f : Fin n → Val → Option Exit}
       obtain ⟨rfl, rfl⟩ := run
       exact .exit (Nat.le_of_not_gt inside)
 
-@[expose] def executeTerm (env : Env) (a : Tm Instruction) (body : Val → Option Exit) : Option Exit :=
-  (term env a).bind fun (v, e) => (body v).map (fun x => x.prepend e false)
+@[expose] def executeTerm (keepEffect : Bool) (env : Env) (a : Tm Instruction) (body : Val → Option Exit) : Option Exit :=
+  (term env a).bind fun (v, e) => (body v).map (fun x => x.prepend (keepEffect && e) false)
 
 @[expose] def execute (fuel : Nat) (env : Env) : Region Instruction → Option Exit
   | .br i a => (term env a).map (fun (v, e) => Exit.branch i v e)
-  | .let₁ a r => executeTerm env a (fun v => execute fuel (extend env v) r)
-  | .let₂ a r => executeTerm env a (fun
+  | .let₁ a r => executeTerm MarkArity.keepUnaryEffect env a (fun v => execute fuel (extend env v) r)
+  | .let₂ a r => executeTerm true env a (fun
       | .pair v w => execute fuel (extend (extend env v) w) r
       | _ => none)
-  | .case a l r => executeTerm env a (fun
+  | .case a l r => executeTerm MarkArity.keepUnaryEffect env a (fun
       | .inl v => execute fuel (extend env v) l
       | .inr w => execute fuel (extend env w) r
       | _ => none)
@@ -671,10 +676,10 @@ private theorem followFuel_sound {n : Nat} {f : Fin n → Val → Option Exit}
     (followFuel (fun i v => execute fuel (extend env v) (blocks i)) fuel first).map Prod.snd
 
 omit [MarkArity] in
-private theorem executeTerm_sound {env : Env} {a : Tm Instruction} {f : Val → Option Exit}
+private theorem executeTerm_sound {keepEffect : Bool} {env : Env} {a : Tm Instruction} {f : Val → Option Exit}
     {g : Val → Exit → Prop} (h : ∀ v x, f v = some x → g v x)
-    {out : Exit} (he : executeTerm env a f = some out) :
-    withTerm env a g out := by
+    {out : Exit} (he : executeTerm keepEffect env a f = some out) :
+    withTerm keepEffect env a g out := by
   simp only [executeTerm, Option.bind_eq_some_iff, Option.map_eq_some_iff] at he
   obtain ⟨⟨v, e⟩, ht, x, hx, rfl⟩ := he
   exact ⟨v, e, ht, x, h v x hx, rfl⟩
