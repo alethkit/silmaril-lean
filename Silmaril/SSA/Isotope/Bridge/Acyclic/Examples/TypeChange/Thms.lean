@@ -4,6 +4,7 @@ import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.TypeChange.Comparison.Thm
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Expansion.TypeChange.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Expansion.Institution.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Expansion.Institution.Quotient.Thms
+import Silmaril.SSA.Isotope.Bridge.Acyclic.TwoExit.Institution.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Pullback.Witness.Lift.Thms
 import Silmaril.Semantics.Calco2019.Maybe.Types.Thms
 
@@ -16,7 +17,7 @@ open Silmaril.Calco2019
 open Silmaril.SSA.LambdaRTL.Quotient (semSetoid)
 open LetIter.Semantics.Categorical (TypeModel InstructionModel)
 open LambdaSSA.Semantics.Categorical
-open LambdaSSA.Acyclic (Code)
+open LambdaSSA.Acyclic (Code TwoExit)
 open Morphism (SignatureMap)
 
 private inductive Op | flip
@@ -149,6 +150,53 @@ example :
 
 example (K : CoherentRegionModel J target) : ¬ RegionWitnessLifts collapse K :=
   fun lift => mismatchedBranch_untyped ((regionWitnessLifts_iff collapse K).mp lift mismatchedBranch_image)
+
+private def twoBranches : TwoExit source.Instr A B ctx :=
+  .case ⟨.bv 0, .bv⟩ (.left ⟨.bv 0, .bv⟩) (.right ⟨.bv 0, .bv⟩)
+
+-- The two paths have different native exits and different source types.
+example : twoBranches.toSSA = .case (.var 0) (.br 0 (.var 0)) (.br 1 (.var 0)) := rfl
+
+example : LambdaSSA.Region.HasType ctx.toList twoBranches.toSSA [A, B] :=
+  twoBranches.toSSA_hasType
+
+example (step : source.Instr → Value Bool → Unit → Value Bool → Unit → Prop) :
+    LambdaSSA.Semantics.Region.Eval step (fun _ => .inl (.atom false))
+      twoBranches.toSSA () 0 (.atom false) () :=
+  .case_inl .var (.br .var)
+
+example (step : source.Instr → Value Bool → Unit → Value Bool → Unit → Prop) :
+    LambdaSSA.Semantics.Region.Eval step (fun _ => .inr (.atom true))
+      twoBranches.toSSA () 1 (.atom true) () :=
+  .case_inr .var (.br .var)
+
+-- The decoder block can only jump out of its own CFG.
+example : (TwoExit.decode twoBranches.encode).toSSA =
+    .cfg (twoBranches.encode.toSSA 0) 1
+      (fun _ => .case (.var 0) (.br 1 (.var 0)) (.br 2 (.var 0))) := rfl
+
+-- Even when both types map to Bit, their label positions stay distinct.
+example : (twoBranches.mapSignature collapse).toSSA =
+    .case (.var 0) (.br 0 (.var 0)) (.br 1 (.var 0)) := rfl
+
+private def twoExitEquation : TwoExitEquation source :=
+  ⟨⟨1, ctx, A, B⟩, twoBranches, TwoExit.decode twoBranches.encode⟩
+
+example (K : CoherentRegionModel J target) :
+    K.satTwoExit (mapTwoExit collapse twoExitEquation) :=
+  (satTwoExit_map collapse K twoExitEquation).mpr
+    (denoteTwoExit_roundtrip (K.pullbackOfWitness collapse (regionWitnessPullback collapse K))
+      twoBranches).symm
+
+example (K : ValidatedCaseAlgebra J target) :
+    ((LetCase.inst (Ctx.nil : Ctx Empty (Ty Unit))).obj target).Sat K.algebra
+      (mapCaseSignature collapse (compileTwoExit twoExitEquation)) := by
+  rw [← compileTwoExit_map]
+  exact (sat_compileTwoExit_validated K _).mpr
+    ((satTwoExit_map collapse K.expand _).mpr
+      (denoteTwoExit_roundtrip
+        (K.expand.pullbackOfWitness collapse (regionWitnessPullback collapse K.expand))
+          twoBranches).symm)
 
 section Composite
 
