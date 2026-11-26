@@ -30,6 +30,20 @@ variable {τ : Type u} [TypeFormers τ]
   (M : TypeModel τ V)
   {X A B D : τ}
 
+variable [DistributiveTensor V] in
+theorem packedDistributor_inl (X A B : τ) :
+    (M.productIso X A).hom ≫ (M.obj X ◁ inlMap M A B) ≫
+      (M.productIso X (Silmaril.coprod A B)).inv ≫ packedDistributor M X A B =
+    inlMap M (Silmaril.product X A) (Silmaril.product X B) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgEta.Retained.packedDistributor_inl M X A B
+
+variable [DistributiveTensor V] in
+theorem packedDistributor_inr (X A B : τ) :
+    (M.productIso X B).hom ≫ (M.obj X ◁ inrMap M A B) ≫
+      (M.productIso X (Silmaril.coprod A B)).inv ≫ packedDistributor M X A B =
+    inrMap M (Silmaril.product X A) (Silmaril.product X B) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgEta.Retained.packedDistributor_inr M X A B
+
 variable {C : Type u₂} [Category.{v₂} C] [SymmetricCategory V]
   [PremonoidalCategory C] [SymmetricPremonoidalCategory C] [HasFiniteCoproducts C]
   [DistributiveTensor V] [DistributivePremonoidalCategory C]

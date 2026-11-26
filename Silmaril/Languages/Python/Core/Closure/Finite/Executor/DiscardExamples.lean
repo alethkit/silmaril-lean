@@ -16,7 +16,7 @@ private def residual : HeapTable := heap.bind cell (.int 7) (by decide)
 private def frame : Frame callerLayout := ⟨fun _ => some (.int 41), fun _ => cell, Fin.elim0⟩
 private def observedCell : Slot callerLayout := .owned 0
 private def next : Closure.Executor.Body callerLayout := .ret (.read observedCell)
-private def caller : Call.Saved Continuation := ⟨callerLayout, frame, ⟨.discard, next⟩⟩
+private def caller : Call.Saved Continuation := ⟨callerLayout, frame, some (.discard, next)⟩
 private def ref : CodeRef := ⟨17, calleeLayout⟩
 private def selected : Fin calleeLayout.captures → CaptureSlot callerLayout := fun _ => .owned 0
 private def callee : Value := .function (frame.closure ref selected)
