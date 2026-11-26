@@ -1172,6 +1172,25 @@ produce different replies. A separate fixture distinguishes two
 ordered exits carrying unit.
 [Scheduled interpreter feasibility][ssa-ub-open-guarded-replay]
 
+`Table.searchSchedule` takes a reported shared path, a fixed initial
+machine state and an exhaustive inventory of the states of a fixed
+`Fin n` carrier. Each branch assigns the next store and checks agreement
+on the whole typed reply, including the final store, before continuing.
+Optional terminal tests are chosen at the reached store and checked in
+the same script. The returned witness reconstructs one total typed
+interpreter for the successful replies and the tests. For a certified
+product path, success is equivalent to the existence of such a schedule.
+Failure establishes infeasibility for that path, initial store, carrier
+and tests. It gives no refinement verdict for the two programs.
+
+The repeated-key fixture needs two stores for the prefix and three when
+its final fault-versus-divergence test is included. When the carrier can
+grow, a finite prefix can always use a fresh store for each successful
+hop. This removes conflicts with prior keys, including at a fresh
+terminal store. A fault and divergence still conflict if the two terminal
+queries have the same opcode and argument at that store.
+[Fixed-carrier schedule search][ssa-ub-open-guarded-schedule]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1336,5 +1355,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-product]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Thms.lean
 [ssa-ub-open-guarded-search]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Search/Thms.lean
 [ssa-ub-open-guarded-replay]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Search/Replay/Thms.lean
+[ssa-ub-open-guarded-schedule]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Search/Replay/Schedule/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean

@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Search.Replay.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Search.Replay.Schedule.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Refinement.Checker.Interface.Thms
@@ -560,6 +560,66 @@ example : InterpreterScript.Realizes twoStoreInterpreter [advanceStore, changeAt
   intro row mem
   simp only [List.mem_cons, List.not_mem_nil, or_false] at mem
   rcases mem with rfl | rfl <;> rfl
+
+private def stores (n : Nat) : ScheduleSearch.StateInventory n :=
+  ⟨List.finRange n, List.mem_finRange⟩
+
+private theorem adverseWalk : ProductPath (backedge.productEdges literalLoop left left enumeration)
+    (loopStart, loopStart) adversePath (loopNext, loopNext) := by
+  have checked := backedge.searchProduct_correct literalLoop left left enumeration inventory inventory
+  rw [show backedge.searchProduct literalLoop left left enumeration inventory inventory =
+    .mismatch (loopNext, loopNext) adversePath from rfl] at checked
+  exact checked.1
+
+private theorem repeatedWalk : ProductPath (backedge.productEdges literalLoop left left enumeration)
+    (loopStart, loopStart) repeatedPath (loopNext, loopNext) := by
+  have first : ProductPath (backedge.productEdges literalLoop left left enumeration)
+      (loopStart, loopStart) [(⟨.flip, ⟨0, left⟩⟩, loopStart, loopStart)] (loopStart, loopStart) :=
+    .step .start (by decide)
+  exact first.step (by decide)
+
+example : backedge.searchSchedule left (loopStart, loopStart) repeatedPath 0 (stores 1) = none := rfl
+
+example : ¬ ∃ schedule final rows,
+    ScheduledPath backedge literalLoop left left (loopStart, loopStart) (0 : Fin 1)
+      repeatedPath schedule (loopNext, loopNext) final rows ∧ InterpreterScript.Consistent rows := by
+  simpa using (Table.searchSchedule_none_iff (initial := 0) (inventory := stores 1)
+    (tests := fun _ => []) repeatedWalk).mp rfl
+
+example : (backedge.searchSchedule left (loopStart, loopStart) repeatedPath 0 (stores 2)).map
+    ScheduleSearch.Witness.stores = some [1, 0] := rfl
+
+private def withQueryTests (n : Nat) (initial : Fin n) (path : List (ProductEdge sig Packets Packets)) :
+    Option (ScheduleSearch.Witness Op n) := do
+  let tests ← backedge.queryTests? literalLoop left left (loopNext, loopNext) initial
+  backedge.searchSchedule left (loopStart, loopStart) path initial (stores n) tests
+
+-- The prefix fits two states, but its final divergence test conflicts at
+-- either state. The third state gives the terminal queries fresh keys.
+example : withQueryTests 2 0 repeatedPath = none := rfl
+example : (withQueryTests 3 0 repeatedPath).map ScheduleSearch.Witness.stores = some [1, 2] := rfl
+
+private def adverseWitness : ScheduleSearch.Witness Op 2 :=
+  ⟨[1], 1, [advanceReply], [⟨⟨.flip, right, 1⟩, .fault 0⟩, divergeTest]⟩
+
+example : withQueryTests 2 0 adversePath = some adverseWitness := rfl
+
+example : (adverseWitness.interpreter Op.flip right 1, adverseWitness.interpreter Op.flip left 1) =
+    (.fault 0, .diverge) := rfl
+
+example : ∃ prim : Syntax.Primitives Op 2,
+    ¬ Shape.denote (withExitUB backedge.native backedge.selected)
+        (Syntax.model prim (backedge.bindings left)) 0 ≤
+      Shape.denote (withExitUB literalLoop.native literalLoop.selected)
+        (Syntax.model prim (literalLoop.bindings left)) 0 := by
+  let tests : Fin 2 → List (InterpreterScript.Row Op 2) :=
+    fun final => [⟨⟨.flip, right, final⟩, .fault 0⟩, ⟨⟨.flip, left, final⟩, .diverge⟩]
+  obtain ⟨scheduled, terminal, realized⟩ :=
+    Table.searchSchedule_sound (initial := 0) (inventory := stores 2) (tests := tests)
+      adverseWalk (w := adverseWitness) rfl
+  rw [terminal] at realized
+  exact scheduled.refutes_queries (raw := backedge.native) (raw' := literalLoop.native)
+    rfl rfl rfl rfl 0 ((InterpreterScript.feasible_iff _).mp ⟨_, realized⟩)
 
 private def terminalTable (i : Tag) : Table sig [.unit] where
   entry := 0
