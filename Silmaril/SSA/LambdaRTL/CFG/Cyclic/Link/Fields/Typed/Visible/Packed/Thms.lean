@@ -8,7 +8,7 @@ public import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Boolean.Visible.Pack
 
 namespace Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Program
 
-open Silmaril.Elgot.ITree (TraceLE eq_iff_traceLE hasTrace_bind_pure_map_iff)
+open Silmaril.Elgot.ITree (HasTrace TraceLE eq_iff_traceLE hasTrace_bind_pure_map_iff)
 open Silmaril.Isotope.LambdaSSA
 open Silmaril.Isotope.LambdaSSA.Semantics.Interaction (region)
 open Silmaril.Isotope.Bridge.NamedFlat
@@ -64,6 +64,42 @@ theorem PackedEntry.observe_eq {p : Program signature inputs outputs} {input : F
     entry.observe ambient original =
       (p.observe input packet >>= fun result => pure (FiniteCFG.packedTreeOutput result)) :=
   p.packed_observe input packet entry.captures entry.accepted entry.typed ambient original agrees
+
+/-- Independent start packets are compared through their actual checked
+packed dispatchers and the same ordered result encoding. -/
+theorem refinementBetween?_iff_packed [DecidableEq F]
+    {c : Nat} {rightInputs : Fin c → PacketType} (right : Program signature rightInputs outputs)
+    {leftInput : Fin a} {rightInput : Fin c}
+    (leftPacket : Denote (inputs leftInput)) (rightPacket : Denote (rightInputs rightInput))
+    (leftEntry : PackedEntry program leftInput) (rightEntry : PackedEntry right rightInput)
+    (leftAmbient rightAmbient leftRecord rightRecord : Semantics.Env Atom)
+    (leftAgrees : leftEntry.recordAgrees leftPacket leftRecord)
+    (rightAgrees : rightEntry.recordAgrees rightPacket rightRecord) :
+    program.refinementBetween? right leftInput leftPacket rightInput rightPacket = true ↔
+      TraceLE (leftEntry.observe leftAmbient leftRecord) (rightEntry.observe rightAmbient rightRecord) := by
+  rw [leftEntry.observe_eq _ _ _ leftAgrees, rightEntry.observe_eq _ _ _ rightAgrees,
+    TraceLE.bind_pure_iff
+      Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Boolean.Visible.Program.packedTreeOutput_injective]
+  exact program.refinementBetween?_iff right leftInput leftPacket rightInput rightPacket
+
+/-- Transport a directed witness at independent starts through both actual
+packed runners, retaining the ordered exit tag inside the packed result. -/
+theorem explainRefinementBetween?_sound_packed [DecidableEq F]
+    {c : Nat} {rightInputs : Fin c → PacketType} {right : Program signature rightInputs outputs}
+    {leftInput : Fin a} {rightInput : Fin c}
+    {leftPacket : Denote (inputs leftInput)} {rightPacket : Denote (rightInputs rightInput)}
+    {trace : ObservationTrace signature}
+    (found : program.explainRefinementBetween? right leftInput leftPacket rightInput rightPacket = some trace)
+    (leftEntry : PackedEntry program leftInput) (rightEntry : PackedEntry right rightInput)
+    (leftAmbient rightAmbient leftRecord rightRecord : Semantics.Env Atom)
+    (leftAgrees : leftEntry.recordAgrees leftPacket leftRecord)
+    (rightAgrees : rightEntry.recordAgrees rightPacket rightRecord) :
+    HasTrace (leftEntry.observe leftAmbient leftRecord) (trace.map FiniteCFG.packedTreeOutput) ∧
+      ¬ HasTrace (rightEntry.observe rightAmbient rightRecord) (trace.map FiniteCFG.packedTreeOutput) := by
+  rw [leftEntry.observe_eq _ _ _ leftAgrees, rightEntry.observe_eq _ _ _ rightAgrees]
+  simpa only [hasTrace_bind_pure_map_iff
+    Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Boolean.Visible.Program.packedTreeOutput_injective] using
+    (program.explainRefinementBetween?_spec right leftInput leftPacket rightInput rightPacket).2 trace found
 
 theorem weakEq?_iff_packedOutput [DecidableEq F] (right : Program signature inputs outputs) :
     program.weakEq? right = true ↔ ∀ input packet,

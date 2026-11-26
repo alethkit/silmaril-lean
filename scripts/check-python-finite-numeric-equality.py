@@ -20,6 +20,7 @@ QUOTIENT = TRANSPORT["QUOTIENT"]
 HELPER = "___assertEqual"
 ALIAS = "compare_numbers"
 RAISES = "___assertRaises"
+TRUTH = "___assertTrue"
 FILENAME = "<finite numeric equality>"
 
 LEAN = TRANSPORT["LEAN"] + """
@@ -29,7 +30,8 @@ private def equalitySeed (placement : Compile.ModuleEntry.Functions.Run.Seeded.S
 
 private def integerTypeSeed (placement : Compile.ModuleEntry.Functions.Run.Seeded.SeedPlacement) : Namespace :=
   let space := Compile.ModuleEntry.Functions.Run.Seeded.legacyTupleIdentitySeed placement
-  { space with builtins := [("isinstance", .builtin .isinstance), ("int", .builtin .int)] ++ space.builtins }
+  { space with builtins := [("isinstance", .builtin .isinstance), ("int", .builtin .int),
+    ("bool", .builtin .bool)] ++ space.builtins }
 """
 
 PROFILES = (
@@ -51,6 +53,10 @@ def numeric_operand(value):
     if type(value) is int:
         return f".integer ({value})"
     return lean_value(value)
+
+def numeric_tag(value):
+    assert type(value) in (int, bool, float)
+    return f"float64:{bits(value)}" if type(value) is float else f"{type(value).__name__}:{value}"
 
 
 def assertion_error(left, right):
@@ -116,12 +122,12 @@ def cpython(source, profile):
     return status, error, namespace, calls
 
 
-def observe(source, expected, lookup_receipts=None):
+def observe(source, expected, lookup_receipts=None, profiles=PROFILES):
     writes = {node.id for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Name)
               and isinstance(node.ctx, ast.Store)}
     guards = []
     summary = {}
-    for profile, space in (("ordinary", None), *PROFILES):
+    for profile, space in (("ordinary", None), *profiles):
         status, error, namespace, calls = cpython(source, profile)
         assert status == expected[profile], (profile, status, expected[profile], source)
         values, functions = TRANSPORT["state"](namespace)
@@ -194,21 +200,188 @@ def addition_controls(first):
     return fixtures, observations
 
 
-def prefix_control(first_two):
-    observed = []
-    exec(compile(first_two, FILENAME, "exec", dont_inherit=True, optimize=0),
-         {"__builtins__": {HELPER: lambda left, right: observed.append((left, right)),
-                          "___assertTrue": observed.append, "isinstance": isinstance, "int": int}})
-    assert observed == [(6, 6), True] and type(observed[1]) is bool
-    calls = '[("___assertEqual", .ok .none), ("isinstance", .error .unsupported)]'
-    guards = [TRANSPORT["seeded"](f"(integerTypeSeed .{placement})", ".error .unsupported", "[]", "[]", calls)
-              for placement in ("builtin", "preamble")]
-    return (first_two, "\n".join(guards))
+def instance_case(source, expected, probes, *, failed_call=None, probe_name="isinstance", truth_name=TRUTH,
+                  numeric=False, unsupported_class=False):
+    guards = []
+    observed = {}
+    for placement in ("builtin", "preamble"):
+        calls = []
+        tested = []
+        compared = []
+
+        def assert_equal(left, right):
+            assert left == right and type(left) is type(right)
+            compared.append((numeric_tag(left), numeric_tag(right)))
+            calls.append(success_receipt(HELPER, None))
+
+        def probe(value, classinfo):
+            result = isinstance(value, classinfo)
+            assert any(classinfo is kind for kind in (int, bool, float))
+            tested.append((numeric_tag(value), classinfo.__name__, result))
+            calls.append(receipt(probe_name, f".ok (.bool {str(result).lower()})"))
+            return result
+
+        def assert_true(value):
+            assert type(value) is bool
+            if not value:
+                calls.append(receipt(truth_name, ".error (.raised (.assertionError (.boolean false)))"))
+                raise AssertionError(value)
+            calls.append(success_receipt(truth_name, None))
+
+        builtins = {"isinstance": probe, "int": int, "bool": bool}
+        if numeric:
+            builtins["float"] = float
+        namespace = {"__builtins__": builtins}
+        helpers = builtins if placement == "builtin" else namespace
+        helpers.update({HELPER: assert_equal, TRUTH: assert_true})
+        with redirect_stdout(StringIO()) as stdout, redirect_stderr(StringIO()) as stderr:
+            try:
+                exec(compile(source, FILENAME, "exec", dont_inherit=True, optimize=0), namespace)
+                status, error = "normal", None
+            except NameError as failure:
+                status, error = f"NameError:{failure.name}", f".runtime (.nameError {json.dumps(failure.name)})"
+            except ZeroDivisionError:
+                status, error = "ZeroDivisionError", ".runtime (.arithmetic .zeroDivisionError)"
+            except TypeError:
+                status, error = "TypeError", ".runtime .notCallable"
+            except AssertionError as failure:
+                assert len(failure.args) == 1 and failure.args[0] is False
+                status, error = "AssertionError", ".assertionError (.boolean false)"
+        assert stdout.getvalue() == stderr.getvalue() == ""
+        assert (status, tested) == (expected, probes), (source, placement, status, tested)
+        failure = None
+        if error is not None:
+            failure = ".unsupported" if unsupported_class else f".raised ({error})"
+        if failed_call is not None:
+            assert failure is not None
+            calls.append(receipt(failed_call, f".error ({failure})"))
+
+        assert namespace.pop("__builtins__") is builtins
+        for name, helper in ((HELPER, assert_equal), (TRUTH, assert_true)):
+            if namespace.get(name) is helper:
+                del namespace[name]
+        descriptors = {int: ".builtin .int", bool: ".builtin .bool", float: ".builtin .float",
+                       probe: ".builtin .isinstance", assert_true: ".helper .assertTrue"}
+        bindings = literal_list(f"({json.dumps(name)}, {descriptors[value] if value in descriptors else lean_value(value)})"
+                                for name, value in namespace.items())
+        completion = ".ok ()" if failure is None else f".error ({failure})"
+        seed = "Compile.ModuleEntry.Functions.Run.Seeded.legacyNumericIsinstanceSeed" if numeric else "integerTypeSeed"
+        guards.append(TRANSPORT["seeded"](f"({seed} .{placement})", completion, bindings,
+                                          "[]", literal_list(calls)))
+        observed[placement] = {"status": status, "probes": tested, "compared": compared,
+                               "bindings": bindings, "receipts": calls}
+        if unsupported_class:
+            observed[placement]["lean_status"] = "unsupported"
+    return (source, "\n".join(guards)), observed
+
+
+def instance_controls(lines):
+    successful = [("int:6", "int", True)]
+    kept = lines[0] + "kept = 7\n"
+    default_call = lines[1]
+    fixtures = []
+    observations = {}
+    for label, source, status, probes, options in (
+        ("unchanged three-line prefix", "".join(lines[:3]), "normal", successful, {}),
+        ("integer seed runtime cutoff", "".join(lines[:4]), "NameError:float", successful, {"failed_call": "isinstance"}),
+        ("live aliases", kept + "probe = isinstance\nkind = int\ncheck = ___assertTrue\n"
+         "isinstance = 0\nint = bool\n___assertTrue = 0\ncheck(probe(4 + 2, kind))\ntail = 9\n",
+         "normal", successful, {"probe_name": "probe", "truth_name": "check"}),
+        ("class mask", kept + "int = bool\n" + default_call + "tail = 9\n",
+         "AssertionError", [("int:6", "bool", False)], {}),
+        ("probe mask", kept + "isinstance = 0\n" + default_call + "tail = 9\n",
+         "TypeError", [], {"failed_call": "isinstance"}),
+        ("class lookup before callability", kept + "isinstance = 0\n___assertTrue(isinstance(4 + 2, missing_class))\ntail = 9\n",
+         "NameError:missing_class", [], {"failed_call": "isinstance"}),
+        ("outer mask retains inner success", kept + "___assertTrue = 0\n" + default_call + "tail = 9\n",
+         "TypeError", successful, {"failed_call": TRUTH}),
+        ("operand order", kept + "___assertTrue(isinstance(missing_value, missing_class))\ntail = 9\n",
+         "NameError:missing_value", [], {"failed_call": "isinstance"}),
+        ("outer lookup first", kept + "missing_helper(isinstance(missing_value, missing_class))\ntail = 9\n",
+         "NameError:missing_helper", [], {}),
+    ):
+        fixture, observed = instance_case(source, status, probes, **options)
+        fixtures.append(fixture)
+        observations[label] = observed
+
+    prefix = "".join(lines[:6])
+    addition_prefix = "".join(lines[:8])
+    fixed = (
+        PROFILES[0],
+        *((placement, f"(Compile.ModuleEntry.Functions.Run.Seeded.legacyTextSeed .{placement})")
+          for placement in ("builtin", "preamble")),
+    )
+    fixture, observed = observe(addition_prefix, expect("NameError:___assertEqual", "NameError:___assertTrue"),
+                                {"empty": HELPER}, profiles=fixed)
+    fixtures.append(fixture)
+    observations["eight-line prefix in fixed profiles"] = observed
+
+    mixed = "float64:4018000000000000"
+    for label, source, status, probes, options in (
+        ("unchanged six-line numeric prefix", prefix, "normal",
+         successful + [(mixed, "float", True), (mixed, "float", True)], {}),
+        ("live float class alias", kept + "kind = float\nfloat = int\n"
+         "___assertTrue(isinstance(4 + 2.0, kind))\ntail = 9\n", "normal", [(mixed, "float", True)], {}),
+        ("float class masked by int", kept + "float = int\n" + lines[3] + "tail = 9\n",
+         "AssertionError", [(mixed, "int", False)], {}),
+        ("float class masked by bool", kept + "float = bool\n" + lines[3] + "tail = 9\n",
+         "AssertionError", [(mixed, "bool", False)], {}),
+        ("nonclass float mask", kept + "float = 0\n" + lines[3] + "tail = 9\n",
+         "TypeError", [], {"failed_call": "isinstance", "unsupported_class": True}),
+        ("int tested with the float class", kept + "___assertTrue(isinstance(6, float))\ntail = 9\n",
+         "AssertionError", [("int:6", "float", False)], {}),
+        ("bool tested with the float class", kept + "___assertTrue(isinstance(True, float))\ntail = 9\n",
+         "AssertionError", [("bool:True", "float", False)], {}),
+        ("zero and subnormal float instances", kept + "___assertTrue(isinstance(-0.0, float))\n"
+         "___assertTrue(isinstance(5e-324, float))\n", "normal",
+         [("float64:8000000000000000", "float", True), ("float64:0000000000000001", "float", True)], {}),
+        ("float instance receipt before outer mask", kept + "___assertTrue = 0\n" + lines[3] + "tail = 9\n",
+         "TypeError", [(mixed, "float", True)], {"failed_call": TRUTH}),
+        ("arithmetic error before class lookup and callability", kept + "isinstance = 0\n"
+         "___assertTrue(isinstance(1 / 0, missing_class))\ntail = 9\n",
+         "ZeroDivisionError", [], {"failed_call": "isinstance"}),
+        ("inner lookup before arithmetic", kept + "___assertTrue(missing_probe(1 / 0, float))\ntail = 9\n",
+         "NameError:missing_probe", [], {"failed_call": "missing_probe"}),
+    ):
+        fixture, observed = instance_case(source, status, probes, numeric=True, **options)
+        fixtures.append(fixture)
+        observations[label] = observed
+
+    (source, guards), observed = instance_case(addition_prefix, "normal",
+                                               successful + [(mixed, "float", True)] * 3, numeric=True)
+    assert all(profile["compared"] == [("int:6", "int:6")] + [(mixed, mixed)] * 3
+               for profile in observed.values())
+    guards += """
+#guard (match compile pythonSource with
+  | .ok compiled => match compiled.instructions.drop 6 with
+    | [.nestedCall .discard "___assertEqual"
+         [.scalar (.floatAdd left right), .scalar (.literal (.float64 expected))],
+       .nestedCall .discard "___assertTrue" [.call "isinstance" [.floatAdd first second, .readGlobal "float"]]] =>
+      left.val.bits == 0x4010000000000000 && right.val.bits == 0x4000000000000000 &&
+        first.val.bits == left.val.bits && second.val.bits == right.val.bits &&
+        expected.val.bits == 0x4018000000000000 &&
+        (Core.Binary64.addFinite? left right).map (fun result => result.val.bits) == some expected.val.bits
+    | _ => false
+  | _ => false)
+"""
+    fixtures.append((source, guards))
+    observations["unchanged eight-line numeric prefix"] = observed
+    return fixtures, observations
 
 
 def controls(upstream):
     original = "___assertEqual(5 / 2, 2.5)\n"
     first = "___assertEqual(4 + 2, 6)\n"
+    instance_prefix = [
+        first,
+        "___assertTrue(isinstance(4 + 2, int))\n",
+        "___assertEqual(4 + 2.0, 6.0)\n",
+        "___assertTrue(isinstance(4 + 2.0, float))\n",
+        "___assertEqual(4.0 + 2, 6.0)\n",
+        "___assertTrue(isinstance(4.0 + 2, float))\n",
+        "___assertEqual(4.0 + 2.0, 6.0)\n",
+        "___assertTrue(isinstance(4.0 + 2.0, float))\n",
+    ]
     full = None
     if upstream is not None:
         raw = (upstream / QUOTIENT["PIN"]).read_bytes()
@@ -218,6 +391,8 @@ def controls(upstream):
         first_line = full.splitlines(keepends=True)[0]
         assert first_line == first
         first = first_line
+        assert full.splitlines(keepends=True)[:8] == instance_prefix
+        instance_prefix = full.splitlines(keepends=True)[:8]
     missing = "NameError:___assertEqual"
     through_literal = (
         "def relay(value):\n    return value\n"
@@ -228,6 +403,9 @@ def controls(upstream):
         "underflow = relay(-1e-400)\n"
     )
     fixtures, observations = addition_controls(first)
+    instance_fixtures, instance_observations = instance_controls(instance_prefix)
+    fixtures.extend(instance_fixtures)
+    observations.update(instance_observations)
     for label, source, expected in (
         ("isolated pin", original, expect(missing, "normal")),
         ("signed zeros", PREFIX + "positive = relay(+0.0)\nnegative = relay(-0.0)\n"
@@ -272,16 +450,16 @@ def controls(upstream):
     if full is not None:
         lines = full.splitlines(keepends=True)
         fixtures.append((full, rejected))
-        fixtures.append(prefix_control("".join(lines[:2])))
         assert lines[2] == "___assertEqual(4 + 2.0, 6.0)\n"
-        assert lines[6] == "___assertEqual(4.0 + 2.0, 6.0)\n"
-        fixtures.append(("".join(lines[:6]), "#guard (compile pythonSource).isOk"))
-        fixtures.append(("".join(lines[:7]), rejected))
+        assert lines[8] == "\n" and lines[9] == "___assertEqual(4 - 2, 2)\n"
+        fixtures.append(("".join(lines[:9]), "#guard (compile pythonSource).isOk"))
+        fixtures.append(("".join(lines[:10]), rejected))
         observations["first prefix cutoffs"] = {
-            "first_rejected_compiler_prefix": 7,
-            "source": lines[6].rstrip("\n"),
-            "seeded_runtime_line": 2,
-            "seeded_runtime_cutoff": "unsupported isinstance(int, int)",
+            "first_rejected_compiler_prefix": 10,
+            "source": lines[9].rstrip("\n"),
+            "numeric_seed_completed_through": 8,
+            "integer_seed_runtime_line": 4,
+            "integer_seed_runtime_cutoff": "NameError:float",
         }
         corpus = (upstream / QUOTIENT["PIN"]).parents[1]
         for path, sha256, expected, lookup_receipts in (

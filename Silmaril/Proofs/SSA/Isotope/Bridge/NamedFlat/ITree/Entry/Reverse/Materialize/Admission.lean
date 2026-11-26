@@ -35,13 +35,13 @@ local notation "exitTypes" => Interface.external (LiveOut.exitInterface ports fi
 local notation "A" => Region.packedInputType context.toList
 local notation "C" => AtomValues.carrier (κ := κ)
 
-theorem packed_observe (typed : g.HasType context R exitTypes)
+theorem lowered_packed_observe (typed : g.HasType context R exitTypes)
     (M : Model (κ := κ) Events P.Instr)
-    (c : CompiledFlat (context := context) (external := external) (fields := fields)
+    (c : Lowered ports fields
       (Capture.Carry.graphList (graph g) (Capture.Carry.inferSlots (graph g))))
     (x : Record.Input context) (ambient : Env (Sigma C)) :
     region M.raw (extend ambient (encodeValue C A x)) (Program.ofCFGEntry typed).code =
-      LiveOut.observe M ports fields c.lowered.source x := by
+      LiveOut.observe M ports fields c.source x := by
   let env := inputEnv context x
   let carried := Capture.Carry.graphList (graph g) (Capture.Carry.inferSlots (graph g))
   let admittedType := Capture.Carry.graphList_hasType (graph_hasType typed) (Capture.Carry.inferSlots (graph g))
@@ -58,6 +58,6 @@ theorem packed_observe (typed : g.HasType context R exitTypes)
   have same := (Capture.Carry.graphList_tree M.raw (graph g) (Capture.Carry.inferSlots (graph g)) env).trans
     (graph_tree M.raw g env)
   rw [same] at compiled
-  exact original.trans (compiled.symm.trans (c.lowered.packed_observe M admittedType x ambient))
+  exact original.trans (compiled.symm.trans (c.packed_observe M admittedType x ambient))
 
 end Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Materialize

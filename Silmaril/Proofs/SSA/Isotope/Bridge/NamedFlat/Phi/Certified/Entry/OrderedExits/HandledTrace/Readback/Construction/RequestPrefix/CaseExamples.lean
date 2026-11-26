@@ -1,0 +1,627 @@
+module
+
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Thms
+import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Packed.Thms
+meta import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Defs
+
+namespace Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.CaseExamples
+
+open LambdaSSA (FiniteCFG)
+open LambdaSSA.Semantics (Env)
+open LambdaSSA.Semantics.Interaction (Transfer region)
+open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible
+  (Atom Denote PacketType PrimitiveSignature Program)
+open Silmaril.Elgot.ITree (Tree Trace HasTrace ret vis iterate_fixpoint vis_bind hasTrace_vis_exchange_iff out_ret)
+open Silmaril.Elgot.ITree.Finite (Event evaluate transition)
+
+private def bit : PacketType := .coprod .unit .unit
+private def replyType : PacketType := .coprod bit bit
+private def sig : PrimitiveSignature Bool :=
+  ⟨fun poll => if poll then .product bit bit else bit, fun poll => if poll then replyType else bit⟩
+private abbrev Events := Event sig.Request sig.Reply
+
+private def packets (_ : Fin 1) : PacketType := bit
+private def exits (i : Fin 2) : PacketType := if i.val = 0 then .unit else .product bit bit
+
+-- The second reply makes the selected row either revisit itself with
+-- a new argument, or return the case payload paired with this visit's input.
+private def polling : FiniteCFG Bool 1 2 1 where
+  entry := .br 0 (.bv 0)
+  block _ := .let₁ (.op false (.bv 0)) (.let₁ (.op true (.pair (.bv 1) (.bv 0)))
+    (.case (.bv 0) (.br 0 (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 3)))))
+
+private def checked : Checked sig (.snoc .nil bit) packets exits polling :=
+  (check sig (.snoc .nil bit) packets exits polling).get (by decide)
+
+private def built :=
+  (construct sig (fun i => (checked.shape.table i).1) exits checked.emitted.code).get (by decide)
+
+example : checked.shape.row.requests = 2 := rfl
+example : (checked.emitted.code.block 2).erase =
+    .let₂ (.var 0) (.let₂ (.var 1)
+      (.case (.var 2) (.br 0 (.var 0)) (.br 4 (.pair (.var 0) (.var 2))))) := rfl
+
+-- A request inside a case leaf still falls outside the literal jump grammar.
+example : (readRow sig packets exits [replyType] (.case (.var 0)
+    (.let₁ (.op false (.var 0)) (.br 0 (.var 0))) (.br 2 (.pair (.var 0) (.var 0))))).isNone = true := rfl
+
+private def dispatcher := built.program
+
+private def primeKey (input : Denote bit) : sig.Request := ⟨false, input⟩
+private def pollKey (input prime : Denote bit) : sig.Request := ⟨true, (input, prime)⟩
+
+private def afterPrime (input prime : Denote bit) : dispatcher.State := by
+  refine ⟨⟨.inl ⟨1, by decide⟩, ?_⟩⟩
+  change Denote bit × Denote bit
+  exact (input, prime)
+
+private def afterPoll (input prime : Denote bit) (reply : Denote replyType) : dispatcher.State := by
+  refine ⟨⟨.inl ⟨2, by decide⟩, ?_⟩⟩
+  change (Denote bit × Denote bit) × Denote replyType
+  exact ((input, prime), reply)
+
+private def returned (payload input : Denote bit) : dispatcher.State := ⟨⟨.inr 1, (payload, input)⟩⟩
+
+private theorem prime_step (input : Denote bit) :
+    dispatcher.step (dispatcher.start 0 input) = .inl (.request (primeKey input) (afterPrime input)) := rfl
+
+private theorem poll_step (input prime : Denote bit) :
+    dispatcher.step (afterPrime input prime) = .inl (.request (pollKey input prime) (afterPoll input prime)) := rfl
+
+private theorem repeat_step (input prime next : Denote bit) :
+    dispatcher.step (afterPoll input prime (.inl next)) = .inr (dispatcher.start 0 next) := rfl
+
+private theorem exit_step (input prime payload : Denote bit) :
+    dispatcher.step (afterPoll input prime (.inr payload)) = .inr (returned payload input) := rfl
+
+private theorem ret_eq_pure {A : Type 1} (value : A) : ret (E := Events) value = pure value := rfl
+
+section Execution
+
+variable {inputs : Fin 1 → PacketType} (program : Program sig inputs exits)
+
+private noncomputable def runState (state : program.State) : Tree Events (Transfer Atom) :=
+  evaluate program.step state >>= fun r => pure (FiniteCFG.packedTreeOutput (Program.renderResult r))
+
+private theorem run_request {state : program.State} (key : sig.Request)
+    (resume : sig.Reply key → program.State) (step : program.step state = .inl (.request key resume)) :
+    runState program state = vis (.ask key) (fun reply => runState program (resume reply)) := by
+  unfold runState evaluate
+  rw [congrFun (iterate_fixpoint (transition program.step)) state]
+  simp only [transition, step, vis_bind, ret_eq_pure, pure_bind, Sum.elim_inr]
+
+private theorem run_jump {here next : program.State} (step : program.step here = .inr next) :
+    runState program here = runState program next := by
+  unfold runState evaluate
+  rw [congrFun (iterate_fixpoint (transition program.step)) here]
+  simp only [transition, step, ret_eq_pure, pure_bind, Sum.elim_inr]
+
+private theorem run_result {state : program.State} {result : Program.Result exits}
+    (step : program.step state = .inl (.result result)) :
+    runState program state = pure (FiniteCFG.packedTreeOutput (Program.renderResult result)) := by
+  unfold runState evaluate
+  rw [congrFun (iterate_fixpoint (transition program.step)) state]
+  simp only [transition, step, ret_eq_pure, pure_bind, Sum.elim_inl]
+
+end Execution
+
+private def output (payload input : Denote bit) : Transfer Atom :=
+  FiniteCFG.packedTreeOutput (1, .pair (bit.encode payload) (bit.encode input))
+
+private theorem run_exit (payload input : Denote bit) :
+    runState dispatcher (returned payload input) = pure (output payload input) :=
+  run_result dispatcher (result := ⟨⟨1, (payload, input)⟩⟩) rfl
+
+private def env (input : Denote bit) : Env Atom := fun _ => bit.encode input
+
+private theorem codec_id (value : Value Atom) : valueCodec id value = value := by
+  induction value <;> simp_all only [valueCodec, id_eq]
+
+private theorem primitivesAgree : PrimitivesAgree sig.primitive sig.primitive id := by
+  intro op value
+  rw [codec_id, show valueCodec (id : Atom → Atom) = id from funext codec_id, id_map]
+
+private noncomputable def original {blocks : Nat} (graph : FiniteCFG Bool blocks 2 1)
+    (input : Denote bit) : Tree Events (Transfer Atom) :=
+  resultCodec id <$> (region sig.primitive (env input) graph.erase >>=
+    fun out => pure (FiniteCFG.packedTreeOutput out))
+
+private theorem source_packed (input : Denote bit) :
+    original polling input = built.packed.observe (env input) (env input) :=
+  checked.emitted.public_run built (env input) (env input) (env input) id primitivesAgree (codec_id _).symm
+
+private theorem packed_state (input : Denote bit) :
+    built.packed.observe (env input) (env input) = runState dispatcher (dispatcher.start 0 input) := by
+  rw [built.packed.observe_eq input _ _ (fun _ => rfl)]
+  change (dispatcher.observe 0 input >>= fun out => pure (FiniteCFG.packedTreeOutput out)) = _
+  rw [dispatcher.observe_eq 0 input]
+  simp only [runState, bind_assoc, pure_bind]
+
+private def first : Denote bit := .inl ⟨⟩
+private def second : Denote bit := .inr ⟨⟩
+
+private def repeatThenExit : Trace Events (Transfer Atom) :=
+  .exchange (.ask (primeKey first)) second
+    (.exchange (.ask (pollKey first second)) (.inl second)
+      (.exchange (.ask (primeKey second)) first
+        (.exchange (.ask (pollKey second first)) (.inr first) (.result (output first second)))))
+
+/-- Each visit completes both requests. The final reply selects the exit
+and its payload survives alongside the second visit's input. -/
+theorem repeat_then_exit :
+    HasTrace (original polling first) repeatThenExit ∧
+      HasTrace (built.packed.observe (env first) (env first)) repeatThenExit := by
+  have trace : HasTrace (runState dispatcher (dispatcher.start 0 first)) repeatThenExit := by
+    unfold repeatThenExit
+    rw [run_request dispatcher _ _ (prime_step first)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_request dispatcher _ _ (poll_step first second)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump dispatcher (repeat_step first second second), run_request dispatcher _ _ (prime_step second)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_request dispatcher _ _ (poll_step second first)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump dispatcher (exit_step second first first), run_exit]
+    exact out_ret _
+  rw [source_packed, packed_state]
+  exact ⟨trace, trace⟩
+
+-- Both leaves stay within the old table. Block one receives only the
+-- case payload and feeds it back. Block two receives the case payload
+-- and the pre-request input, then returns that pair on the second exit.
+private def internalPackets (i : Fin 3) : PacketType :=
+  if i.val = 2 then .product bit bit else bit
+
+private def internalPolling : FiniteCFG Bool 3 2 1 where
+  entry := .br 0 (.bv 0)
+  block i :=
+    if i.val = 0 then .let₁ (.op true (.pair (.bv 0) (.bv 0)))
+      (.case (.bv 0) (.br 1 (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 2))))
+    else if i.val = 1 then .br 0 (.bv 0)
+    else .br 4 (.bv 0)
+
+private def internalChecked : Checked sig (.snoc .nil bit) internalPackets exits internalPolling :=
+  (check sig (.snoc .nil bit) internalPackets exits internalPolling).get (by decide)
+
+private def internalBuilt :=
+  (construct sig (fun i => (internalChecked.shape.table i).1) exits internalChecked.emitted.code).get (by decide)
+
+private def internalDispatcher := internalBuilt.program
+
+example : (internalBuilt.packed.target.block ((3 : Fin 4).cast internalBuilt.provenance.count)).erase =
+    .let₂ (.var 0) (.case (.var 0) (.br 1 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))) :=
+  (Constructed.row_erasure sig _ exits internalBuilt 3).symm.trans rfl
+
+private def internalTail (input : Denote bit) (reply : Denote replyType) : internalDispatcher.State := by
+  refine ⟨⟨.inl ⟨3, by decide⟩, ?_⟩⟩
+  change Denote bit × Denote replyType
+  exact (input, reply)
+
+private def feedback (payload : Denote bit) : internalDispatcher.State := by
+  refine ⟨⟨.inl ⟨1, by decide⟩, ?_⟩⟩
+  exact payload
+
+private def forward (payload input : Denote bit) : internalDispatcher.State := by
+  refine ⟨⟨.inl ⟨2, by decide⟩, ?_⟩⟩
+  change Denote bit × Denote bit
+  exact (payload, input)
+
+private def internalReturn (payload input : Denote bit) : internalDispatcher.State :=
+  ⟨⟨.inr 1, (payload, input)⟩⟩
+
+private theorem internal_request (input : Denote bit) :
+    internalDispatcher.step (internalDispatcher.start 0 input) =
+      .inl (.request (pollKey input input) (internalTail input)) := rfl
+
+private theorem internal_left (input payload : Denote bit) :
+    internalDispatcher.step (internalTail input (.inl payload)) = .inr (feedback payload) := rfl
+
+private theorem internal_right (input payload : Denote bit) :
+    internalDispatcher.step (internalTail input (.inr payload)) = .inr (forward payload input) := rfl
+
+private theorem feedback_step (payload : Denote bit) :
+    internalDispatcher.step (feedback payload) = .inr (internalDispatcher.start 0 payload) := rfl
+
+private theorem forward_step (payload input : Denote bit) :
+    internalDispatcher.step (forward payload input) = .inr (internalReturn payload input) := rfl
+
+private theorem internal_source_packed (input : Denote bit) :
+    original internalPolling input = internalBuilt.packed.observe (env input) (env input) :=
+  internalChecked.emitted.public_run internalBuilt (env input) (env input) (env input) id primitivesAgree
+    (codec_id _).symm
+
+private theorem internal_packed_state (input : Denote bit) :
+    internalBuilt.packed.observe (env input) (env input) =
+      runState internalDispatcher (internalDispatcher.start 0 input) := by
+  rw [internalBuilt.packed.observe_eq input _ _ (fun _ => rfl)]
+  change (internalDispatcher.observe 0 input >>= fun out => pure (FiniteCFG.packedTreeOutput out)) = _
+  rw [internalDispatcher.observe_eq 0 input]
+  simp only [runState, bind_assoc, pure_bind]
+
+private def pollTwiceTrace : Trace Events (Transfer Atom) :=
+  .exchange (.ask (pollKey first first)) (.inl second)
+    (.exchange (.ask (pollKey second second)) (.inr first) (.result (output first second)))
+
+/-- The two internal jumps carry different packet types. The first
+causes another visit and the second carries the distinct return fields. -/
+theorem two_internal_leaves :
+    HasTrace (original internalPolling first) pollTwiceTrace ∧
+      HasTrace (internalBuilt.packed.observe (env first) (env first)) pollTwiceTrace := by
+  have trace : HasTrace (runState internalDispatcher (internalDispatcher.start 0 first)) pollTwiceTrace := by
+    unfold pollTwiceTrace
+    rw [run_request internalDispatcher _ _ (internal_request first)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump internalDispatcher (internal_left first second), run_jump internalDispatcher (feedback_step second),
+      run_request internalDispatcher _ _ (internal_request second)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump internalDispatcher (internal_right second first), run_jump internalDispatcher (forward_step first second),
+      run_result internalDispatcher (result := ⟨⟨1, (first, second)⟩⟩) rfl]
+    exact out_ret _
+  rw [internal_source_packed, internal_packed_state]
+  exact ⟨trace, trace⟩
+
+private def outwardPolling : FiniteCFG Bool 1 2 1 where
+  entry := .br 0 (.bv 0)
+  block _ := .let₁ (.op true (.pair (.bv 0) (.bv 0)))
+    (.case (.bv 0) (.br 1 .unit) (.br 2 (.pair (.bv 0) (.bv 2))))
+
+private def outwardChecked : Checked sig (.snoc .nil bit) packets exits outwardPolling :=
+  (check sig (.snoc .nil bit) packets exits outwardPolling).get (by decide)
+
+example : (construct sig (fun i => (outwardChecked.shape.table i).1) exits
+    outwardChecked.emitted.code).isSome = true := by decide
+
+-- The backedge and second exit both run through two case binders.
+-- The inner test uses the outer payload on the left and the saved input
+-- on the right. The outward leaf reads both values across the inner binder.
+private def nestedPolling : FiniteCFG Bool 1 2 1 where
+  entry := .br 0 (.bv 0)
+  block _ := .let₁ (.op true (.pair (.bv 0) (.bv 0)))
+    (.case (.bv 0)
+      (.case (.bv 0) (.br 1 (.bv 0)) (.br 0 (.bv 1)))
+      (.case (.bv 2) (.br 1 (.bv 0)) (.br 2 (.pair (.bv 1) (.bv 3)))))
+
+private def nestedChecked : Checked sig (.snoc .nil bit) packets exits nestedPolling :=
+  (check sig (.snoc .nil bit) packets exits nestedPolling).get (by decide)
+
+private def nestedBuilt :=
+  (construct sig (fun i => (nestedChecked.shape.table i).1) exits nestedChecked.emitted.code).get (by decide)
+
+private def nestedDispatcher := nestedBuilt.program
+
+example : (nestedBuilt.packed.target.block ((1 : Fin 2).cast nestedBuilt.provenance.count)).erase =
+    .let₂ (.var 0) (.case (.var 0)
+      (.case (.var 0) (.br 2 (.var 0)) (.br 0 (.var 1)))
+      (.case (.var 2) (.br 2 (.var 0)) (.br 3 (.pair (.var 1) (.var 3))))) :=
+  (Constructed.row_erasure sig _ exits nestedBuilt 1).symm.trans rfl
+
+-- The innermost payload here is unit, so it cannot feed the old bit packet.
+example : (readRow sig packets exits [replyType]
+    (.case (.var 0) (.case (.var 0) (.br 0 (.var 0)) (.br 0 (.var 1))) (.br 1 .unit))).isNone = true := rfl
+
+private def nestedTail (input : Denote bit) (reply : Denote replyType) : nestedDispatcher.State := by
+  refine ⟨⟨.inl ⟨1, by decide⟩, ?_⟩⟩
+  change Denote bit × Denote replyType
+  exact (input, reply)
+
+private def nestedReturn (payload input : Denote bit) : nestedDispatcher.State := ⟨⟨.inr 1, (payload, input)⟩⟩
+
+private theorem nested_request (input : Denote bit) :
+    nestedDispatcher.step (nestedDispatcher.start 0 input) =
+      .inl (.request (pollKey input input) (nestedTail input)) := rfl
+
+private theorem nested_repeat :
+    nestedDispatcher.step (nestedTail first (.inl second)) =
+      .inr (nestedDispatcher.start 0 second) := rfl
+
+private theorem nested_exit (payload : Denote bit) :
+    nestedDispatcher.step (nestedTail second (.inr payload)) = .inr (nestedReturn payload second) := rfl
+
+private theorem nested_source_packed (input : Denote bit) :
+    original nestedPolling input = nestedBuilt.packed.observe (env input) (env input) :=
+  nestedChecked.emitted.public_run nestedBuilt (env input) (env input) (env input) id primitivesAgree
+    (codec_id _).symm
+
+private theorem nested_packed_state (input : Denote bit) :
+    nestedBuilt.packed.observe (env input) (env input) =
+      runState nestedDispatcher (nestedDispatcher.start 0 input) := by
+  rw [nestedBuilt.packed.observe_eq input _ _ (fun _ => rfl)]
+  change (nestedDispatcher.observe 0 input >>= fun out => pure (FiniteCFG.packedTreeOutput out)) = _
+  rw [nestedDispatcher.observe_eq 0 input]
+  simp only [runState, bind_assoc, pure_bind]
+
+/-- The outer payload crosses an inner binder on the backedge and on the
+exit. The second visit's retained input is also part of the exit packet. -/
+theorem nested_leaves :
+    HasTrace (original nestedPolling first) pollTwiceTrace ∧
+      HasTrace (nestedBuilt.packed.observe (env first) (env first)) pollTwiceTrace := by
+  have trace : HasTrace (runState nestedDispatcher (nestedDispatcher.start 0 first)) pollTwiceTrace := by
+    unfold pollTwiceTrace
+    rw [run_request nestedDispatcher _ _ (nested_request first)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump nestedDispatcher nested_repeat, run_request nestedDispatcher _ _ (nested_request second)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump nestedDispatcher (nested_exit first),
+      run_result nestedDispatcher (result := ⟨⟨1, (first, second)⟩⟩) rfl]
+    exact out_ret _
+  rw [nested_source_packed, nested_packed_state]
+  exact ⟨trace, trace⟩
+
+-- The caller can skip the loop and return at exit 1, carrying both the
+-- entry case payload and an older capture. The other arm starts the loop.
+private def branchPolling : FiniteCFG Bool 1 2 2 where
+  entry := .case (.bv 0) (.br 0 (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 2)))
+  block _ := .let₁ (.op true (.pair (.bv 0) (.bv 0)))
+    (.case (.bv 0) (.br 0 (.bv 0)) (.br 1 .unit))
+
+private def branchContext : BoundCtx PacketType 2 := .snoc (.snoc .nil bit) replyType
+
+private def branchBuilt : BranchEntry.Compiled sig branchContext packets exits branchPolling :=
+  (BranchEntry.compile sig branchContext packets exits branchPolling 0).get (by decide)
+
+-- The ordinary type checker accepts this entry, but the public structural
+-- entry checker rejects a primitive in a case leaf.
+private def effectfulEntry : FiniteCFG Bool 1 2 2 where
+  entry := .case (.bv 0)
+    (.let₁ (.op false (.bv 0)) (.br 0 (.bv 0))) (.br 2 (.pair (.bv 0) (.bv 2)))
+  block := branchPolling.block
+
+example : letI := sig.typing; NamedFlat.check effectfulEntry branchContext packets exits = true := rfl
+example : (BranchEntry.prepare sig branchContext packets exits effectfulEntry).isNone = true := rfl
+
+private def branchPublic := branchBuilt.publicReadback
+private def branchDispatcher := branchPublic.program
+
+example : (branchPublic.packed.target.block ((1 : Fin 3).cast branchPublic.provenance.count)).erase =
+    .let₂ (.var 0) (.let₂ (.var 1)
+      (.case (.var 2) (.br 0 (.var 0)) (.br 4 (.pair (.var 0) (.var 1))))) :=
+  (Constructed.row_erasure sig _ exits branchPublic 1).symm.trans rfl
+
+private def branchEnv (choice : Denote replyType) (saved : Denote bit) : Env Atom
+  | 0 => replyType.encode choice
+  | _ => bit.encode saved
+
+private def callerPacket (choice : Denote replyType) (saved : Denote bit) :
+    Denote ((branchBuilt.split.shape.table branchPublic.start).1) := ((⟨⟩, saved), choice)
+
+private def branchRecord (choice : Denote replyType) (saved : Denote bit) : Env Atom :=
+  fun _ => NamedFlat.Capture.packEnv 2 (branchEnv choice saved)
+
+private noncomputable def writtenBranch (choice : Denote replyType) (saved : Denote bit) :
+    Tree Events (Transfer Atom) :=
+  resultCodec id <$> (region sig.primitive (branchEnv choice saved) branchPolling.erase >>=
+    fun out => pure (FiniteCFG.packedTreeOutput out))
+
+private theorem branch_agreement (choice : Denote replyType) (saved : Denote bit) :
+    writtenBranch choice saved = branchPublic.packed.observe (branchEnv choice saved) (branchRecord choice saved) :=
+  branchBuilt.public_run (branchEnv choice saved) _ _ id primitivesAgree (codec_id _).symm
+
+private theorem branch_packed_state (choice : Denote replyType) (saved : Denote bit) :
+    branchPublic.packed.observe (branchEnv choice saved) (branchRecord choice saved) =
+      runState branchDispatcher (branchDispatcher.start 0 (callerPacket choice saved)) := by
+  rw [branchPublic.packed.observe_eq (callerPacket choice saved) _ _ (fun _ => rfl)]
+  change (branchDispatcher.observe 0 (callerPacket choice saved) >>= fun out =>
+    pure (FiniteCFG.packedTreeOutput out)) = _
+  rw [branchDispatcher.observe_eq 0 (callerPacket choice saved)]
+  simp only [runState, bind_assoc, pure_bind]
+
+private def branchRow (input : Denote bit) : branchDispatcher.State := by
+  refine ⟨⟨.inl ⟨0, by decide⟩, ?_⟩⟩
+  change Denote bit
+  exact input
+
+private def branchResume (input : Denote bit) (reply : Denote replyType) : branchDispatcher.State := by
+  refine ⟨⟨.inl ⟨2, by decide⟩, ?_⟩⟩
+  change Denote bit × Denote replyType
+  exact (input, reply)
+
+/-- The bypass arm returns directly at the second ordered exit with the
+case payload and older capture, with no visible requests. -/
+theorem branch_bypasses_requests (payload saved : Denote bit) :
+    writtenBranch (.inr payload) saved = pure (output payload saved) ∧
+      branchPublic.packed.observe (branchEnv (.inr payload) saved) (branchRecord (.inr payload) saved) =
+        pure (output payload saved) := by
+  rw [branch_agreement (.inr payload) saved, branch_packed_state (.inr payload) saved]
+  have bypass : branchDispatcher.step (branchDispatcher.start 0 (callerPacket (.inr payload) saved)) =
+      .inr ⟨⟨.inr 1, (payload, saved)⟩⟩ := rfl
+  rw [run_jump branchDispatcher bypass,
+    run_result branchDispatcher (result := ⟨⟨1, (payload, saved)⟩⟩) rfl]
+  exact ⟨rfl, rfl⟩
+
+private def firstExit : Transfer Atom := FiniteCFG.packedTreeOutput (0, .unit)
+
+private def entryLoopTrace : Trace Events (Transfer Atom) :=
+  .exchange (.ask (pollKey first first)) (.inl second)
+    (.exchange (.ask (pollKey second second)) (.inr first) (.result firstExit))
+
+/-- The entry case payload supplies the first request. The first reply
+changes the next request on the backedge, and the second reply exits. -/
+theorem branch_enters_cycle :
+    HasTrace (writtenBranch (.inl first) second) entryLoopTrace ∧
+      HasTrace (branchPublic.packed.observe (branchEnv (.inl first) second)
+        (branchRecord (.inl first) second)) entryLoopTrace := by
+  rw [branch_agreement (.inl first) second, branch_packed_state (.inl first) second]
+  have enter : branchDispatcher.step (branchDispatcher.start 0 (callerPacket (.inl first) second)) =
+      .inr (branchRow first) := rfl
+  have request (input : Denote bit) : branchDispatcher.step (branchRow input) =
+      .inl (.request (pollKey input input) (branchResume input)) := rfl
+  have again : branchDispatcher.step (branchResume first (.inl second)) = .inr (branchRow second) := rfl
+  have exit : branchDispatcher.step (branchResume second (.inr first)) = .inr ⟨⟨.inr 0, ⟨⟩⟩⟩ := rfl
+  have trace : HasTrace (runState branchDispatcher (branchDispatcher.start 0 (callerPacket (.inl first) second)))
+      entryLoopTrace := by
+    unfold entryLoopTrace
+    rw [run_jump branchDispatcher enter, run_request branchDispatcher _ _ (request first)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump branchDispatcher again, run_request branchDispatcher _ _ (request second)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump branchDispatcher exit, run_result branchDispatcher (result := ⟨⟨0, ⟨⟩⟩⟩) rfl]
+    exact out_ret _
+  exact ⟨trace, trace⟩
+
+
+private def entryChoice : PacketType := .coprod replyType bit
+private def effectContext : BoundCtx PacketType 2 := .snoc (.snoc .nil bit) entryChoice
+private def effectPackets (i : Fin 2) : PacketType := if i.val = 0 then bit else replyType
+
+-- Two enclosing case binders precede the selected request. Its argument
+-- uses the inner payload and a saved capture. Its right reply can return
+-- the original inner payload, while its left reply feeds the old cycle.
+private def effectPolling : FiniteCFG Bool 2 2 2 where
+  entry := .case (.bv 0)
+    (.case (.bv 0)
+      (.let₁ (.op true (.pair (.bv 0) (.bv 3)))
+        (.case (.bv 0) (.br 0 (.bv 0)) (.br 3 (.pair (.bv 0) (.bv 2)))))
+      (.br 2 .unit))
+    (.br 3 (.pair (.bv 0) (.bv 2)))
+  block i := if i.val = 0 then
+    .let₁ (.op true (.pair (.bv 0) (.bv 0))) (.br 1 (.bv 0))
+  else
+    .case (.bv 0) (.br 0 (.bv 0)) (.br 2 .unit)
+
+private def effectBuilt : EffectfulEntry.Compiled sig effectContext effectPackets exits effectPolling :=
+  (EffectfulEntry.compile sig effectContext effectPackets exits effectPolling [false, false]).get (by decide)
+
+private def effectPublic := effectBuilt.publicReadback
+private def effectDispatcher := effectPublic.program
+
+example : (effectPublic.packed.target.block ((2 : Fin 5).cast effectPublic.provenance.count)).erase =
+    .let₂ (.var 0) (.let₂ (.var 1) (.let₂ (.var 1)
+      (.let₁ (.op true (.pair (.var 4) (.var 1))) (.br 3 (.pair (.var 7) (.var 0)))))) :=
+  (Constructed.row_erasure sig _ exits effectPublic 2).symm.trans rfl
+
+example : (effectPublic.packed.target.block ((3 : Fin 5).cast effectPublic.provenance.count)).erase =
+    .let₂ (.var 0) (.let₂ (.var 1) (.let₂ (.var 1) (.let₂ (.var 1)
+      (.case (.var 6) (.br 0 (.var 0)) (.br 6 (.pair (.var 0) (.var 5))))))) :=
+  (Constructed.row_erasure sig _ exits effectPublic 3).symm.trans rfl
+
+-- A second primitive in the selected leaf and an effect in an off-path
+-- arm are both outside the admitted grammar.
+example : (EffectfulEntry.read sig effectPackets exits [bit] []
+    (.let₁ (.op false (.var 0)) (.let₁ (.op false (.var 0)) (.br 0 (.var 0))))).isNone = true := rfl
+
+example : (EffectfulEntry.read sig effectPackets exits [replyType] [false]
+    (.case (.var 0) (.let₁ (.op false (.var 0)) (.br 0 (.var 0)))
+      (.let₁ (.op false (.var 0)) (.br 0 (.var 0))))).isNone = true := rfl
+
+private def effectEnv (choice : Denote entryChoice) (saved : Denote bit) : Env Atom
+  | 0 => entryChoice.encode choice
+  | _ => bit.encode saved
+
+private def effectRecord (choice : Denote entryChoice) (saved : Denote bit) : Env Atom :=
+  fun _ => NamedFlat.Capture.packEnv 2 (effectEnv choice saved)
+
+private def effectPacket (choice : Denote entryChoice) (saved : Denote bit) :
+    Denote (BranchEntry.profile effectContext effectBuilt.outlined.selection.request.profile effectPublic.start) :=
+  ((⟨⟩, saved), choice)
+
+private noncomputable def effectWritten (choice : Denote entryChoice) (saved : Denote bit) :
+    Tree Events (Transfer Atom) :=
+  resultCodec id <$> (region sig.primitive (effectEnv choice saved) effectPolling.erase >>=
+    fun out => pure (FiniteCFG.packedTreeOutput out))
+
+private theorem effect_agreement (choice : Denote entryChoice) (saved : Denote bit) :
+    effectWritten choice saved = effectPublic.packed.observe (effectEnv choice saved) (effectRecord choice saved) :=
+  effectBuilt.public_run (effectEnv choice saved) _ _ id primitivesAgree (codec_id _).symm
+
+private theorem effect_packed_state (choice : Denote entryChoice) (saved : Denote bit) :
+    effectPublic.packed.observe (effectEnv choice saved) (effectRecord choice saved) =
+      runState effectDispatcher (effectDispatcher.start 0 (effectPacket choice saved)) := by
+  rw [effectPublic.packed.observe_eq (effectPacket choice saved) _ _ (fun _ => rfl)]
+  change (effectDispatcher.observe 0 (effectPacket choice saved) >>= fun out =>
+    pure (FiniteCFG.packedTreeOutput out)) = _
+  rw [effectDispatcher.observe_eq 0 (effectPacket choice saved)]
+  simp only [runState, bind_assoc, pure_bind]
+
+/-- Bypassing the selected leaf returns at the second outward exit
+with the caller payload and saved capture, with no primitive request. -/
+theorem effectful_entry_bypass (payload saved : Denote bit) :
+    effectWritten (.inr payload) saved = pure (output payload saved) ∧
+      effectPublic.packed.observe (effectEnv (.inr payload) saved) (effectRecord (.inr payload) saved) =
+        pure (output payload saved) := by
+  rw [effect_agreement (.inr payload) saved, effect_packed_state (.inr payload) saved]
+  have bypass : effectDispatcher.step (effectDispatcher.start 0 (effectPacket (.inr payload) saved)) =
+      .inr ⟨⟨.inr 1, (payload, saved)⟩⟩ := rfl
+  rw [run_jump effectDispatcher bypass,
+    run_result effectDispatcher (result := ⟨⟨1, (payload, saved)⟩⟩) rfl]
+  exact ⟨rfl, rfl⟩
+
+private def effectChoice : Denote entryChoice := .inl (.inl first)
+
+private def effectStart : effectDispatcher.State :=
+  effectDispatcher.start 0 (effectPacket effectChoice second)
+
+private def effectLeaf : effectDispatcher.State := by
+  refine ⟨⟨.inl ⟨2, by decide⟩, ?_⟩⟩
+  change ((Denote bit × Denote entryChoice) × Denote replyType) × Denote bit
+  exact (((second, effectChoice), .inl first), first)
+
+private def effectReply (reply : Denote replyType) : effectDispatcher.State := by
+  refine ⟨⟨.inl ⟨3, by decide⟩, ?_⟩⟩
+  change (((Denote bit × Denote entryChoice) × Denote replyType) × Denote bit) × Denote replyType
+  exact ((((second, effectChoice), .inl first), first), reply)
+
+private def effectOld (input : Denote bit) : effectDispatcher.State := by
+  refine ⟨⟨.inl ⟨0, by decide⟩, ?_⟩⟩
+  change Denote bit
+  exact input
+
+private def effectOldReply (reply : Denote replyType) : effectDispatcher.State := by
+  refine ⟨⟨.inl ⟨1, by decide⟩, ?_⟩⟩
+  change Denote replyType
+  exact reply
+
+private theorem effect_enter : effectDispatcher.step effectStart = .inr effectLeaf := rfl
+
+private theorem effect_request :
+    effectDispatcher.step effectLeaf = .inl (.request (pollKey first second) effectReply) := rfl
+
+private theorem old_request (input : Denote bit) :
+    effectDispatcher.step (effectOld input) = .inl (.request (pollKey input input) effectOldReply) := rfl
+
+private def effectCycleTrace : Trace Events (Transfer Atom) :=
+  .exchange (.ask (pollKey first second)) (.inl second)
+    (.exchange (.ask (pollKey second second)) (.inl first)
+      (.exchange (.ask (pollKey first first)) (.inr second) (.result firstExit)))
+
+/-- The entry request sees the two bound operands. Its left reply passes
+the reply payload to the old cycle, which takes a backedge before exiting. -/
+theorem effectful_entry_cycle :
+    HasTrace (effectWritten effectChoice second) effectCycleTrace ∧
+      HasTrace (effectPublic.packed.observe (effectEnv effectChoice second)
+        (effectRecord effectChoice second)) effectCycleTrace := by
+  rw [effect_agreement, effect_packed_state]
+  have intoCycle : effectDispatcher.step (effectReply (.inl second)) = .inr (effectOld second) := rfl
+  have backedge : effectDispatcher.step (effectOldReply (.inl first)) = .inr (effectOld first) := rfl
+  have exit : effectDispatcher.step (effectOldReply (.inr second)) = .inr ⟨⟨.inr 0, ⟨⟩⟩⟩ := rfl
+  have trace : HasTrace (runState effectDispatcher effectStart) effectCycleTrace := by
+    unfold effectCycleTrace
+    rw [run_jump effectDispatcher effect_enter, run_request effectDispatcher _ _ effect_request]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump effectDispatcher intoCycle, run_request effectDispatcher _ _ (old_request second)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump effectDispatcher backedge, run_request effectDispatcher _ _ (old_request first)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump effectDispatcher exit, run_result effectDispatcher (result := ⟨⟨0, ⟨⟩⟩⟩) rfl]
+    exact out_ret _
+  exact ⟨trace, trace⟩
+
+private def effectOutwardTrace : Trace Events (Transfer Atom) :=
+  .exchange (.ask (pollKey first second)) (.inr second) (.result (output second first))
+
+/-- The other reply returns at the second outward exit with its own
+payload and the entry leaf's original case payload. -/
+theorem effectful_entry_reply_exits :
+    HasTrace (effectWritten effectChoice second) effectOutwardTrace ∧
+      HasTrace (effectPublic.packed.observe (effectEnv effectChoice second)
+        (effectRecord effectChoice second)) effectOutwardTrace := by
+  rw [effect_agreement, effect_packed_state]
+  have exit : effectDispatcher.step (effectReply (.inr second)) = .inr ⟨⟨.inr 1, (second, first)⟩⟩ := rfl
+  have trace : HasTrace (runState effectDispatcher effectStart) effectOutwardTrace := by
+    unfold effectOutwardTrace
+    rw [run_jump effectDispatcher effect_enter, run_request effectDispatcher _ _ effect_request]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump effectDispatcher exit, run_result effectDispatcher (result := ⟨⟨1, (second, first)⟩⟩) rfl]
+    exact out_ret _
+  exact ⟨trace, trace⟩
+
+end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.CaseExamples

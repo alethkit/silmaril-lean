@@ -51,8 +51,8 @@ inductive Evaluates (block : LexicalBlock) :
 /-- Evidence for the actual record reached at a function value. The
 defining frame supplies the addresses and the current heap supplies the
 live cells and still-stored default values. -/
-structure ClosureAt {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs)
+structure ClosureAt {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope)
     (id : DeclarationId) (defining state : State) (address : Nat) where
   captures : List Lists.Capture
   defaults : List Value
@@ -64,8 +64,8 @@ structure ClosureAt {parent : LexicalBlock} {keywords : List PlainKeywordParamet
   live : Body.CaptureCells state captures
 
 /-- The body proof operates at the callee's reduced declaration set. -/
-abbrev BodyEntry {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) (program : Program)
+abbrev BodyEntry {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) (program : Program)
     (available : List DeclarationId) (id : DeclarationId) (bodyRuns : State → Outcome Flow → Prop) : Prop :=
   ∀ (caller defining : State) (captures : List Lists.Capture), Installs defining site.free captures →
     Body.CaptureCells caller captures → ∀ (assigned : List (Binding × Lists.Value)),
@@ -80,57 +80,58 @@ abbrev PackRule (Bound : Type) := State → Bound → List (Binding × Value) �
 abbrev Unpacked : PackRule (List (Binding × Value)) :=
   fun caller bound assigned packed => assigned = bound ∧ packed = caller
 
-/-- Successful ordinary operands reach expansion; an operand error skips it. -/
-inductive ReachesActual (operands : State → Outcome (List Value) → Prop)
-    (expand : State → List Value → Outcome Actual → Prop) : State → Outcome Actual → Prop where
+/-- All operands must succeed before expansion. An operand error skips expansion. -/
+inductive ReachesActual {Operands : Type} (operands : State → Outcome Operands → Prop)
+    (expand : State → Operands → Outcome Actual → Prop) : State → Outcome Actual → Prop where
   | operandError {state final : State} {error : Lists.Error} :
       operands state (.error error final) → ReachesActual operands expand state (.error error final)
-  | expanded {state reached : State} {values : List Value} {out : Outcome Actual} :
+  | expanded {state reached : State} {values : Operands} {out : Outcome Actual} :
       operands state (.ok values reached) → expand reached values out → ReachesActual operands expand state out
 
 abbrev NativeActuals (program : Program) (available : List DeclarationId) (positional : List Lowering.Expr)
-    (keywords : List (String × Lowering.Expr)) (star : Option Lowering.Expr) :=
+    (keywords : List (String × Lowering.Expr)) (star starStar : Option Lowering.Expr) :=
   ReachesActual
     (fun state => Lowering.EvaluatesManyWith program available (Lowering.coreClosureRuns program available)
-      (fun _ => True) state (Lowering.argumentExprs positional keywords star none))
-    (fun reached values => Lowering.Expands ((Lowering.argumentShape positional keywords star none).collect values) reached)
+      (fun _ => True) state (Lowering.argumentExprs positional keywords star starStar))
+    (fun reached values =>
+      Lowering.Expands ((Lowering.argumentShape positional keywords star starStar).collect values) reached)
 
 /-- A call reads the callee before the argument phase. Only a successful
 argument phase can reach binding, packing and activation. -/
-inductive RunsActual {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) (bodyRuns : State → Outcome Flow → Prop)
-    (block : LexicalBlock) (id : DeclarationId) (callee : String)
+inductive RunsActual {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) (bodyRuns : State → Outcome Flow → Prop)
+    (block : LexicalBlock) (id : DeclarationId) (callee : String) (slot : Binding)
     {Bound : Type} (actuals : State → Outcome Actual → Prop) (binds : BindingRule Bound) (packs : PackRule Bound) :
     State → Outcome Value → Prop where
   | calleeError {state next : State} {error : Lists.Error} :
-      Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.error error next) →
-      RunsActual site bodyRuns block id callee actuals binds packs state (.error error next)
+      Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand slot) (.error error next) →
+      RunsActual site bodyRuns block id callee slot actuals binds packs state (.error error next)
   | argumentError {state next : State} {address : Nat} {error : Lists.Error} :
-      Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.ok (.function address) state) →
+      Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand slot) (.ok (.function address) state) →
       actuals state (.error error next) →
-      RunsActual site bodyRuns block id callee actuals binds packs state (.error error next)
+      RunsActual site bodyRuns block id callee slot actuals binds packs state (.error error next)
   | bindingError {state actualState defining : State} {address : Nat} {actual : Actual} {error : Lists.Error} :
-      Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.ok (.function address) state) →
+      Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand slot) (.ok (.function address) state) →
       actuals state (.ok actual actualState) →
       (record : ClosureAt site id defining actualState address) →
       binds record.defaults actual (.error error) →
-      RunsActual site bodyRuns block id callee actuals binds packs state (.error error actualState)
+      RunsActual site bodyRuns block id callee slot actuals binds packs state (.error error actualState)
   | invoked {state actualState defining packed : State} {address : Nat} {actual : Actual} {bodyOut : Outcome Flow}
       {bound : Bound} {assigned : List (Binding × Value)} :
-      Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.ok (.function address) state) →
+      Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand slot) (.ok (.function address) state) →
       actuals state (.ok actual actualState) →
       (record : ClosureAt site id defining actualState address) →
       binds record.defaults actual (.ok bound) →
       packs actualState bound assigned packed →
       bodyRuns (activate packed site.declaration record.captures assigned) bodyOut →
-      RunsActual site bodyRuns block id callee actuals binds packs state (Leaf.returnTo actualState bodyOut)
+      RunsActual site bodyRuns block id callee slot actuals binds packs state (Leaf.returnTo actualState bodyOut)
 
 abbrev RunsPacked {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
     (site : Site parent keywords varargs kwargs) (bodyRuns : State → Outcome Flow → Prop)
     (block : LexicalBlock) (id : DeclarationId) (callee : String) (arguments : List NormalizedExpr)
     (codes : List Lowering.Expr) {Bound : Type} (collect : List Value → Actual)
     (binds : BindingRule Bound) (packs : PackRule Bound) :=
-  RunsActual site bodyRuns block id callee
+  RunsActual site bodyRuns block id callee (fileSlot callee)
     (ReachesActual (fun state => Evaluates block state arguments codes)
       (fun reached values out => out = .ok (collect values) reached)) binds packs
 

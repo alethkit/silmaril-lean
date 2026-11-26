@@ -3,6 +3,7 @@ module
 public import Silmaril.Languages.Python.Core.Closure.Defs
 public import Silmaril.Languages.Python.Core.Module.ListObject.Defs
 public import Silmaril.Languages.Python.Core.Module.TupleDispatch.Defs
+public import Silmaril.Languages.Python.Core.Text.Slice.Defs
 
 /-! # Closed callables for explicitly seeded module entry -/
 
@@ -19,6 +20,7 @@ inductive ExceptionClass where
   | nameError
   | unboundLocalError
   | typeError
+  | valueError
   | zeroDivisionError
   | overflowError
   deriving DecidableEq, Repr
@@ -31,7 +33,8 @@ inductive AssertionArgument where
   | boolean (value : Bool)
   | booleanPair (left right : Bool)
   | textPair (left right : Core.Text)
-  | tuplePair (left right : List Core.Module.Value)
+  | tuplePair (left right : List Core.Module.TupleDispatch.Element)
+  | emptyTuple
   deriving DecidableEq, Repr
 
 inductive Raised where
@@ -45,6 +48,7 @@ def Raised.classify : Raised → ExceptionClass
   | .runtime (.unboundCapture _) | .runtime (.nameError _) => .nameError
   | .runtime (.positionalArity ..) | .runtime .notCallable | .runtime .additionTypeError
   | .runtime .multiplicationTypeError | .runtime .tupleArgumentNotIterable => .typeError
+  | .runtime .zeroSliceStep => .valueError
   | .runtime (.arithmetic .zeroDivisionError) => .zeroDivisionError
   | .runtime .overflowError => .overflowError
 
@@ -66,6 +70,7 @@ inductive Helper where
 inductive Builtin where
   | int
   | bool
+  | float
   | callable
   | len
   | ord
@@ -82,7 +87,7 @@ inductive Value where
   | text (value : Core.Text)
   | none
   | listObject (object : Core.Module.ListObject)
-  | returnedTuple (items : List Core.Module.Value)
+  | returnedTuple (items : List Core.Module.TupleDispatch.Element)
   | tupleObject (object : Core.Module.TupleDispatch.Object)
   | exceptionClass (kind : ExceptionClass)
   | helper (descriptor : Helper)
@@ -101,6 +106,14 @@ def Value.ofScalar : Core.Module.Value → Value
   | .int value => .int value
   | .bool value => .bool value
   | .none => .none
+
+def Value.tupleElement? : Value → Option Core.Module.TupleDispatch.Element
+  | .text value => some (.text value)
+  | value => value.scalar?.map .scalar
+
+def Value.ofTupleElement : Core.Module.TupleDispatch.Element → Value
+  | .scalar value => Value.ofScalar value
+  | .text value => .text value
 
 def Value.stockStr? : Value → Option Core.Text
   | .int value => Core.Text.decimal? value
@@ -142,22 +155,24 @@ inductive Operand (slots : Nat) where
   | literal (value : Value)
   | intTrueDiv (numerator divisor : Int)
   | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite)
+  | floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite)
   | local (slot : Fin slots)
   | global (name : String)
   | tuple (items : List Core.Closure.GlobalTupleItem)
+  | textSlice (receiver : Core.Text) (bounds : Core.SliceBounds)
   | unsupported
 
 abbrev Locals (slots : Nat) := Vector (Option Value) slots
 
 def readTupleItem (space : Namespace) : Core.Closure.GlobalTupleItem → Result
-  | .literal value => .ok (Value.ofScalar value)
+  | .literal value => .ok (Value.ofTupleElement value)
   | .global name =>
     (space.lookupGlobal name).elim (.error (.raised (.runtime (.nameError name)))) .ok
   | .read (.local slot) | .read (.owned slot) | .read (.capture slot) => Fin.elim0 slot
 
 def evalTupleContents (space : Namespace) (items : List Core.Closure.GlobalTupleItem) :
-    Except Failure (List Core.Module.Value) :=
-  Core.Closure.assembleFlatTuple (readTupleItem space) Value.scalar? .unsupported items
+    Except Failure (List Core.Module.TupleDispatch.Element) :=
+  Core.Closure.assembleFlatTuple (readTupleItem space) Value.tupleElement? .unsupported items
 
 def Operand.eval {slots : Nat} (space : Namespace) (locals : Locals slots) : Operand slots → Result
   | .literal value => .ok value
@@ -167,12 +182,16 @@ def Operand.eval {slots : Nat} (space : Namespace) (locals : Locals slots) : Ope
     (Core.Binary64.mixedAdd integer floating).map Value.float64 |>.mapError fun
       | .conversionOverflow => .raised (.runtime .overflowError)
       | .nonfiniteResult => .unsupported
+  | .floatAdd left right =>
+    (Core.Binary64.addFinite? left right).elim (.error .unsupported) (.ok ∘ Value.float64)
   | .local slot =>
     (locals.get slot).elim (.error (.raised (.runtime (.unboundLocal slot.val)))) .ok
   | .global name =>
     (space.lookupGlobal name).elim (.error (.raised (.runtime (.nameError name)))) .ok
   | .tuple items =>
     (evalTupleContents space items).map .returnedTuple
+  | .textSlice receiver bounds =>
+    (receiver.slice? bounds).elim (.error (.raised (.runtime .zeroSliceStep))) (fun result => .ok (.text result))
   | .unsupported => .error .unsupported
 
 structure Expectation where
@@ -213,24 +232,29 @@ def CallableProbe.result : CallableProbe → Bool
   | .len => true
   | .integer => false
 
-/-- The three value and stock type pairs used by the restricted instance check. -/
+/-- Exact Boolean, integer, and finite float values against the stock numeric classes. -/
 inductive InstanceProbe where
   | boolAgainstBool
   | boolAgainstInt
   | intAgainstBool
+  | intAgainstInt
+  | floatAgainstFloat
+  | floatAgainstBoolOrInt
+  | boolOrIntAgainstFloat
 
 def InstanceProbe.result : InstanceProbe → Bool
-  | .boolAgainstBool | .boolAgainstInt => true
-  | .intAgainstBool => false
+  | .boolAgainstBool | .boolAgainstInt | .intAgainstInt | .floatAgainstFloat => true
+  | .intAgainstBool | .floatAgainstBoolOrInt | .boolOrIntAgainstFloat => false
 
 /-- Decoding identifies the admitted typed call shapes. In particular,
 calling an exception class would construct an object outside this profile. -/
 inductive Request (arity : Nat) where
   | assertBoolean (value : Bool)
+  | assertTuple (nonempty : Bool)
   | compare (left right : Int)
   | compareNumeric (left right : NumericOperand)
   | compareText (left right : Core.Text)
-  | compareTuple (left right : List Core.Module.Value)
+  | compareTuple (left right : List Core.Module.TupleDispatch.Element)
   | textConversion (result : Core.Text)
   | truthConversion (result : Bool)
   | intFromBool (value : Bool)
@@ -239,7 +263,7 @@ inductive Request (arity : Nat) where
   | boolIdentity (left right : Bool)
   | distinctIntBool
   | emptyTuple
-  | copyTuple (items : List Core.Module.Value)
+  | copyTuple (items : List Core.Module.TupleDispatch.Element)
   | copyTupleObject (object : Core.Module.TupleDispatch.Object)
   | expect (expectation : Expectation) (callback : Value) (arguments : List Value)
       (shorter : arguments.length < arity)
@@ -249,6 +273,8 @@ inductive Request (arity : Nat) where
 def Request.decode (callee : Value) (arguments : List Value) : Request arguments.length :=
   match callee, arguments with
   | .helper .assertTrue, [.bool result] => .assertBoolean result
+  | .helper .assertTrue, [.returnedTuple items]
+  | .helper .assertTrue, [.tupleObject ⟨_, items⟩] => .assertTuple (!items.isEmpty)
   | .helper .assertEqual, [.int left, .int right] => .compare left right
   | .helper .assertEqual, [.float64 left, .float64 right] => .compareNumeric (.float64 left) (.float64 right)
   | .helper .assertEqual, [.float64 left, .int right] => .compareNumeric (.float64 left) (.integer right)
@@ -269,6 +295,12 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   | .builtin .isinstance, [.bool _, .builtin .bool] => .isinstance .boolAgainstBool
   | .builtin .isinstance, [.bool _, .builtin .int] => .isinstance .boolAgainstInt
   | .builtin .isinstance, [.int _, .builtin .bool] => .isinstance .intAgainstBool
+  | .builtin .isinstance, [.int _, .builtin .int] => .isinstance .intAgainstInt
+  | .builtin .isinstance, [.float64 _, .builtin .float] => .isinstance .floatAgainstFloat
+  | .builtin .isinstance, [.float64 _, .builtin .bool]
+  | .builtin .isinstance, [.float64 _, .builtin .int] => .isinstance .floatAgainstBoolOrInt
+  | .builtin .isinstance, [.bool _, .builtin .float]
+  | .builtin .isinstance, [.int _, .builtin .float] => .isinstance .boolOrIntAgainstFloat
   | .helper .assertIs, [.bool left, .bool right] => .boolIdentity left right
   | .helper .assertIsNot, [.int _, .bool _] | .helper .assertIsNot, [.bool _, .int _] => .distinctIntBool
   | .helper (.assertRaises onReturn), .exceptionClass expected :: callback :: arguments =>
@@ -285,6 +317,8 @@ def invoke (callee : Value) (arguments : List Value) : Result :=
   match Request.decode callee arguments with
   | .assertBoolean true => .ok .none
   | .assertBoolean false => .error (.raised (.assertionError (.boolean false)))
+  | .assertTuple true => .ok .none
+  | .assertTuple false => .error (.raised (.assertionError .emptyTuple))
   | .compare left right =>
     if left = right then .ok .none else .error (.raised (.assertionError (.integerPair left right)))
   | .compareNumeric left right =>
@@ -316,6 +350,9 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
   | asserted {arity : Nat} : Executes (arity := arity) (.assertBoolean true) (.ok .none)
   | assertionFailed {arity : Nat} :
       Executes (arity := arity) (.assertBoolean false) (.error (.raised (.assertionError (.boolean false))))
+  | tupleAsserted {arity : Nat} : Executes (arity := arity) (.assertTuple true) (.ok .none)
+  | tupleAssertionFailed {arity : Nat} :
+      Executes (arity := arity) (.assertTuple false) (.error (.raised (.assertionError .emptyTuple)))
   | equal {arity : Nat} (left right : Int) (same : left = right) :
       Executes (arity := arity) (.compare left right) (.ok .none)
   | unequal {arity : Nat} (left right : Int) (different : left ≠ right) :
@@ -330,9 +367,9 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
   | unequalText {arity : Nat} (left right : Core.Text) (different : left ≠ right) :
       Executes (arity := arity) (.compareText left right)
         (.error (.raised (.assertionError (.textPair left right))))
-  | equalTuple {arity : Nat} (left right : List Core.Module.Value) (same : equalContents left right = true) :
+  | equalTuple {arity : Nat} (left right : List Core.Module.TupleDispatch.Element) (same : equalContents left right = true) :
       Executes (arity := arity) (.compareTuple left right) (.ok .none)
-  | unequalTuple {arity : Nat} (left right : List Core.Module.Value) (different : equalContents left right ≠ true) :
+  | unequalTuple {arity : Nat} (left right : List Core.Module.TupleDispatch.Element) (different : equalContents left right ≠ true) :
       Executes (arity := arity) (.compareTuple left right)
         (.error (.raised (.assertionError (.tuplePair left right))))
   | textConversion {arity : Nat} (value : Core.Text) :
@@ -354,7 +391,7 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
         (.error (.raised (.assertionError (.booleanPair left right))))
   | distinctIntBool {arity : Nat} : Executes (arity := arity) .distinctIntBool (.ok .none)
   | emptyTuple {arity : Nat} : Executes (arity := arity) .emptyTuple (.ok (.returnedTuple []))
-  | copyTuple {arity : Nat} (items : List Core.Module.Value) :
+  | copyTuple {arity : Nat} (items : List Core.Module.TupleDispatch.Element) :
       Executes (arity := arity) (.copyTuple items) (.ok (.returnedTuple items))
   | copyTupleObject {arity : Nat} (object : Core.Module.TupleDispatch.Object) :
       Executes (arity := arity) (.copyTupleObject object) (.ok (.tupleObject object))

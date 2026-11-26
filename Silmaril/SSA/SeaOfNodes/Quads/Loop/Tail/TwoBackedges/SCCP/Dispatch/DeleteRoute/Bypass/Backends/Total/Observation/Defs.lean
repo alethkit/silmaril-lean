@@ -100,18 +100,28 @@ noncomputable def sourcePart (p : Program Op regs (.data result)) (input : Bank 
     Part (Word result) :=
   ⟨∃ value budget, runSource p input budget = some value, fun h => Classical.choose h⟩
 
-/-- Read the word from the actual CF denotation. The pure embedding has no aborts. -/
-noncomputable def Execution.cfPart (execution : Execution regs result) (input : Bank (regs := regs) model) :
+/-- Read the word from an actual pure CF denotation. -/
+noncomputable def observeCF {Label : List Width → Type}
+    (target : Cfg TargetOp Label (Widths regs) [result]) (input : Bank (regs := regs) model) :
     Part (Word result) :=
-  ((SwitchAssert.Cfg.embed execution.cfTarget.2).denotePart evalOp (encodeValues input)).bind fun
+  ((SwitchAssert.Cfg.embed target).denotePart evalOp (encodeValues input)).bind fun
     | .returned env => Part.some (env.get .here)
     | .aborted => Part.none
 
-/-- Observe the actual numbered graph in the partial semantics with total primitives. -/
-noncomputable def Execution.numberedPart (execution : Execution regs result) (input : Bank (regs := regs) model) :
-    Part (Word result) :=
-  (Partial.observe (MonadicModel.ofRuntime (Join.model model)) execution.numberedTarget.2 input).map
+/-- Read the word from a numbered graph in the partial semantics with total primitives. -/
+noncomputable def observeNumbered {sigs}
+    (target : Graph (Join.Opcode Op) (dataPorts regs) [] sigs [.value (.data result)])
+    (input : Bank (regs := regs) model) : Part (Word result) :=
+  (Partial.observe (MonadicModel.ofRuntime (Join.model model)) target input).map
     (fun values => values.get .head)
+
+noncomputable def Execution.cfPart (execution : Execution regs result) (input : Bank (regs := regs) model) :
+    Part (Word result) :=
+  observeCF execution.cfTarget.2 input
+
+noncomputable def Execution.numberedPart (execution : Execution regs result)
+    (input : Bank (regs := regs) model) : Part (Word result) :=
+  observeNumbered execution.numberedTarget.2 input
 
 noncomputable def Outcome.cfPart (outcome : Outcome p) (input : Bank (regs := regs) model) :
     Part (Word result) :=

@@ -107,9 +107,14 @@ def Table.extract (g : Table S R) (ok : g.entryCheck = true)
   g.expand input ((g.ranks.get g.entry).getD 0 + 1) g.entry
     (Rank.ranked_of_checkFrom g.targets ok (by simp)) (Nat.lt_succ_self _) input
 
+/-- Exact re-emission of the typed table, independent of control-flow rank. -/
+def Table.checkNative [DecidableEq Φ] (g : Table S R)
+    (raw : CFG.Dependent.Native.Typed Φ [R.get g.entry] Exits) : Bool :=
+  CFG.Dependent.Native.sameRegion raw.val g.native.val
+
 def Table.check [DecidableEq Φ] (g : Table S R) (raw : CFG.Dependent.Native.Typed Φ [R.get g.entry] Exits) :
     Bool :=
-  CFG.Dependent.Native.sameRegion raw.val g.native.val && g.entryCheck
+  g.checkNative raw && g.entryCheck
 
 theorem Table.checked_rank [DecidableEq Φ] {g : Table S R}
     {raw : CFG.Dependent.Native.Typed Φ [R.get g.entry] Exits} (ok : g.check raw = true) :

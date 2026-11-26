@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Public.Construction.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Public.Stores.Footprint.Thms
 meta import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Defs
 
 namespace Silmaril.Isotope.Bridge.NamedFlat.Entry.Public
@@ -114,5 +114,138 @@ example :
 
 example : (seedBuilt true).checkSeed (fun _ => .pair .unit .unit) ⟨⟩ = true := by decide
 example : (seedBuilt false).checkSeed (fun _ => .pair .unit .unit) ⟨⟩ = false := by decide
+
+private def branchCapture (second : Bool) : Name := if second then ⟨15⟩ else capture
+
+-- The two captures are in the same store. Only the register named by the
+-- right entry changes. Both targets bind the selected live-out to unit.
+private def branchSeedGraph (second : Bool) : CFG Name Name Unit :=
+  ⟨.term (.br ⟨9⟩ (.var (branchCapture second))),
+    [(⟨9⟩, ⟨⟨7⟩, .term (.case (.val (.var ⟨7⟩))
+      ⟨6⟩ (.br ⟨22⟩ .unit) ⟨6⟩ (.br ⟨11⟩ .unit))⟩)]⟩
+
+private def branchBuilt (second : Bool) :
+    Seeded signature (branchSeedGraph second) exits seedFields (branchCapture second) bit seedExits :=
+  (constructSeeded signature (branchSeedGraph second) exits seedFields (branchCapture second)
+    bit (fun _ => bit) seedExits).get (by cases second <;> decide)
+
+private def seedStore : Name → Value Atom :=
+  upd (upd (fun _ => .unit) (branchCapture false) (.inl .unit)) (branchCapture true) (.inr .unit)
+
+example : (seedBuilt true).seed? seedStore = some ⟨⟩ := by decide
+example : (branchBuilt false).seed? seedStore = some (.inl ⟨⟩) := by decide
+example : (branchBuilt true).seed? seedStore = some (.inr ⟨⟩) := by decide
+private theorem malformedStore :
+    (seedBuilt true).refinementFromStore? (branchBuilt false) (fun _ => .unit) = none := by decide
+
+private abbrev branchInclusion (second : Bool) (initial : Name → Value Atom) :=
+  ∀ policy : Silmaril.Logic.ITree.Model.{0,0} signature.traceSignature.toSignature,
+    ∀ x, policy.initial x → ∀ trace,
+      Silmaril.Elgot.ITree.HandledTrace policy.step x
+        (LiveOut.observeRaw signature.primitive exits seedFields (seededGraph true) initial) trace →
+      Silmaril.Elgot.ITree.HandledTrace policy.step x
+        (LiveOut.observeRaw signature.primitive exits seedFields (branchSeedGraph second) initial) trace
+
+private theorem branchDecision (second : Bool) (verdict : Bool)
+    (computed : (seedBuilt true).refinementFromStore? (branchBuilt second) seedStore = some verdict) :
+    verdict = true ↔ branchInclusion second seedStore :=
+  (((seedBuilt true).refinementFromStore?_eq_some_iff (branchBuilt second) seedStore verdict).mp computed).2.2
+
+set_option maxHeartbeats 1000000 in
+private theorem branchAccepts :
+    (seedBuilt true).program.refinementBetween? (branchBuilt false).program 0 ⟨⟩ 0 (.inl ⟨⟩) = true := by cbv
+
+set_option maxHeartbeats 1000000 in
+private theorem branchRejects :
+    (seedBuilt true).program.refinementBetween? (branchBuilt true).program 0 ⟨⟩ 0 (.inr ⟨⟩) = false := by cbv
+
+private theorem storeVerdict (second : Bool) (initial : Name → Value Atom) (pkt : Denote bit) (verdict : Bool)
+    (constant : (seedBuilt true).seed? initial = some ⟨⟩)
+    (seed : (branchBuilt second).seed? initial = some pkt)
+    (compared : (seedBuilt true).program.refinementBetween? (branchBuilt second).program 0 ⟨⟩ 0 pkt = verdict) :
+    (seedBuilt true).refinementFromStore? (branchBuilt second) initial = some verdict := by
+  change ((seedBuilt true).seed? initial).bind (fun leftPacket => ((branchBuilt second).seed? initial).bind
+    fun rightPacket => some ((seedBuilt true).program.refinementBetween? (branchBuilt second).program
+      0 leftPacket 0 rightPacket)) = some verdict
+  rw [constant, seed]
+  exact congrArg some compared
+
+private theorem firstStorePasses :
+    (seedBuilt true).refinementFromStore? (branchBuilt false) seedStore = some true :=
+  storeVerdict false seedStore (.inl ⟨⟩) true (by decide) (by decide) branchAccepts
+
+example : branchInclusion false seedStore := (branchDecision false true firstStorePasses).mp rfl
+
+example : ¬ branchInclusion true seedStore :=
+  fun included => Bool.noConfusion
+    ((branchDecision true false
+      (storeVerdict true seedStore (.inr ⟨⟩) false (by decide) (by decide) branchRejects)).mpr included)
+
+-- Keep both RTL tables fixed. The second store varies only the right
+-- capture, whose different typed bit leads to the second ordered exit.
+private def laterStore : Name → Value Atom := upd seedStore (branchCapture false) (.inr .unit)
+
+private theorem laterStoreFails :
+    (seedBuilt true).refinementFromStore? (branchBuilt false) laterStore = some false :=
+  storeVerdict false laterStore (.inr ⟨⟩) false (by decide) (by decide) branchRejects
+
+private def finiteStores : Fin 2 → Name → Value Atom :=
+  Fin.cases seedStore (fun _ => laterStore)
+
+example : (seedBuilt true).refinementOverStores? (branchBuilt false) (fun _ : Fin 1 => seedStore) = some true := by
+  simp only [Seeded.refinementOverStores?, List.ofFn_succ, List.ofFn_zero, firstStorePasses]
+  rfl
+
+private theorem finiteFails : (seedBuilt true).refinementOverStores? (branchBuilt false) finiteStores = some false := by
+  simp only [Seeded.refinementOverStores?, List.ofFn_succ, List.ofFn_zero, finiteStores,
+    Fin.cases_zero, Fin.cases_succ, firstStorePasses, laterStoreFails]
+  rfl
+
+example : ¬ ∀ i, branchInclusion false (finiteStores i) :=
+  fun valid => Bool.noConfusion
+    ((((seedBuilt true).refinementOverStores?_eq_some_iff (branchBuilt false) finiteStores false).mp
+      finiteFails).2.mpr valid)
+
+private def mixedStores : Fin 3 → Name → Value Atom :=
+  Fin.cases seedStore (Fin.cases laterStore (fun _ _ => .unit))
+
+-- An ill-typed store invalidates the finite interface even after a valid failure.
+example : (seedBuilt true).refinementOverStores? (branchBuilt false) mixedStores = none := by
+  simp only [Seeded.refinementOverStores?, List.ofFn_succ, List.ofFn_zero, mixedStores,
+    Fin.cases_zero, Fin.cases_succ, firstStorePasses, laterStoreFails, malformedStore]
+  rfl
+
+private theorem branchCaptures : (branchBuilt false).initialCaptures = {capture} := by decide
+
+-- Register six is a selected live-out. Both branches bind it from the
+-- incoming packet, so its value in the initial store can vary.
+private def changedLiveOut : Name → Value Atom := upd seedStore ⟨6⟩ (.pair .unit .unit)
+
+example :
+    LiveOut.observeRaw signature.primitive exits seedFields (branchSeedGraph false) seedStore =
+      LiveOut.observeRaw signature.primitive exits seedFields (branchSeedGraph false) changedLiveOut := by
+  apply (branchBuilt false).observe_eq_of_capture_agree _ (by decide)
+  intro v mem
+  have same : v = capture := by simpa only [branchCaptures, Finset.mem_singleton] using mem
+  subst v
+  decide
+
+-- A live-out with no definition or incoming packet slot is rejected by
+-- packet closure after attachment.
+example :
+    (constructSeeded signature constantSeed exits (fun _ => [⟨99⟩]) capture .unit
+      (fun _ => .unit) seedExits).isNone = true := by decide
+
+-- Two occurrences of one capture must have the same value in a shared store.
+example : ((branchBuilt false).footprintStores (branchBuilt false)).length = 2 := by decide
+example : ((branchBuilt false).footprintStores (branchBuilt true)).length = 4 := by decide
+
+example : (seedBuilt true).refinementOverCaptures? (branchBuilt false) = some false := by
+  apply ((seedBuilt true).refinementOverCaptures?_eq_some_iff (branchBuilt false) false).mpr
+  refine ⟨by decide, by decide, ?_⟩
+  refine ⟨fun impossible => Bool.noConfusion impossible, fun holds => ?_⟩
+  have atLater := holds laterStore (by decide) (by decide)
+  exact (((seedBuilt true).refinementFromStore?_eq_some_iff (branchBuilt false) laterStore false).mp
+    laterStoreFails).2.2.mpr atLater
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Public

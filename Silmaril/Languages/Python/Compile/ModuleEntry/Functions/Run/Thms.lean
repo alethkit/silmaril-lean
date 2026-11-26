@@ -4,6 +4,7 @@ public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Defs
 public import Silmaril.Languages.Python.Core.Module.Functions.Thms
 public import Silmaril.Languages.Python.Core.Module.TupleDispatch.Thms
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleIdentity.Thms
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TextSlice.Thms
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Prefix
 
 public section
@@ -14,6 +15,15 @@ theorem callOperand_numericArgument (scope : Source.Scope) (result : NumericArgu
       | .integer value => .int value
       | .boolean value => .bool value)) := by
   cases result <;> rfl
+
+theorem callOperand_literalBooleanEquality {scope : Source.Scope}
+    (session : Core.Module.Functions.Session) (left right : Bool) :
+    let operand : Operand scope := .binary .equal (.boolean left) (.boolean right)
+    callOperand? operand = some (.literal (.bool (left == right))) ∧
+      evaluate session operand = .ok (.bool (left == right)) := by
+  refine ⟨rfl, ?_⟩
+  simp only [evaluate]
+  cases left <;> cases right <;> rfl
 
 theorem retainTupleOrigins_unobserved {scope : Source.Scope} (instructions : List (Instruction scope))
     (unobserved : instructions.any Instruction.observesTupleIdentity = false) :
@@ -51,9 +61,32 @@ theorem assertOperand_scalarResult {scope : Source.Scope} (session : Core.Module
   simp only [assertOperand, evaluate_scalarResult]
   cases value <;> rfl
 
+theorem advance_textSliceGuard {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (test : TextSlice.Guard) (rest : List (Instruction scope)) :
+    advance table (.ready session (.textSliceGuard test :: rest)) =
+      ([], match checkTextSliceGuard session test with
+        | .ok () => .ready session rest
+        | .error error => .finished session error) := rfl
+
+theorem advance_bindText {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (name : Source.Name)
+    (value : Core.Text) (rest : List (Instruction scope)) :
+    advance table (.ready session (.bindText name value :: rest)) =
+      ([], .ready (session.bindGlobal name (.text value)) rest) := rfl
+
+theorem advance_readAssign {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) {name source : Source.Name}
+    (target : GlobalReference scope name) (reference : GlobalReference scope source)
+    (rest : List (Instruction scope)) :
+    advance table (.ready session (.scalar (.assign name target (.read source reference)) :: rest)) =
+      ([], match session.globals source with
+        | some value => .ready (session.bindGlobal name value) rest
+        | none => .finished session (.raised (.nameError source))) := by
+  cases found : session.globals source <;> simp [advance, evaluate, found]
+
 theorem advance_bindTuple_ok {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool}
-    {values : List Core.Module.Value} {rest : List (Instruction scope)}
+    {values : List Core.Module.TupleDispatch.Element} {rest : List (Instruction scope)}
     (evaluated : evaluateTuple session items = .ok values) :
     let (value, heap) := session.heap.materializeModuleTuple items values trackClosed
     advance table (.ready session (.bindTuple name items trackClosed :: rest)) =

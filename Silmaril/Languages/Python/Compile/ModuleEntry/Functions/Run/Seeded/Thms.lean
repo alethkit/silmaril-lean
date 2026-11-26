@@ -4,6 +4,8 @@ public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Thms
 import Silmaril.Languages.Python.Compile.ModuleEntry.Thms
 public import Silmaril.Languages.Python.Core.Module.Functions.Thms
+public import Silmaril.Languages.Python.Core.Text.Thms
+import Silmaril.Languages.Python.Core.Text.Slice.Thms
 public import Silmaril.Languages.Python.Core.Module.SeededCall.Thms
 public import Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Thms
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
@@ -21,6 +23,57 @@ open Core.Module.Functions (TopFunction)
 open Core.Closure (Function Heap)
 open Core.Module (ListHeap ListObject)
 open Core.Closure.Executor (Fault labelledIn)
+
+theorem legacyNumericIsinstanceSeed_float (placement : SeedPlacement) :
+    (legacyNumericIsinstanceSeed placement).lookupGlobal "float" = some (.builtin .float) := by
+  cases placement <;> rfl
+
+theorem legacyNumericIsinstanceSeed_assertTrue (placement : SeedPlacement) :
+    (legacyNumericIsinstanceSeed placement).lookupGlobal "___assertTrue" = some (.helper .assertTrue) := by
+  cases placement <;> rfl
+
+/-- Observe the exact stock instance result before the helper settles. The
+class is the descriptor read from the live namespace, including any shadow. -/
+theorem observeNestedCallIn_instance {space : Namespace} {context : CallContext}
+    {outer inner className : String} {operand : Core.Module.Functions.Operand}
+    {value : Value} {kind : Core.Module.SeededCall.Builtin} {result : Bool}
+    (helper : space.lookupGlobal outer = some (.helper .assertTrue))
+    (probe : space.lookupGlobal inner = some (.builtin .isinstance))
+    (evaluated : (lowerCallOperand operand).eval space #v[] = .ok value)
+    (classBinding : space.lookupGlobal className = some (.builtin kind))
+    (tested : Core.Module.SeededCall.invoke (.builtin .isinstance) [value, .builtin kind] =
+      .ok (.bool result)) :
+    observeNestedCallIn space context .discard outer [.call inner [operand, .readGlobal className]] =
+      (⟨if result then .ok none else .error (.raised (.assertionError (.boolean false))),
+        [⟨inner, ⟨.ok (.bool result), none⟩⟩,
+         ⟨outer, ⟨if result then .ok .none else .error (.raised (.assertionError (.boolean false))), none⟩⟩]⟩,
+        context.heap) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCallIn_instance
+    helper probe evaluated classBinding tested
+
+/-- Invoke both live descriptors, recording the Boolean before the assertion helper result. -/
+theorem observeNestedCallIn_intInstance {space : Namespace} {context : CallContext}
+    {outer inner className : String} (value : Int)
+    (helper : space.lookupGlobal outer = some (.helper .assertTrue))
+    (probe : space.lookupGlobal inner = some (.builtin .isinstance))
+    (classBinding : space.lookupGlobal className = some (.builtin .int)) :
+    observeNestedCallIn space context .discard outer
+      [.call inner [.literal (.int value), .readGlobal className]] =
+      (⟨.ok none, [⟨inner, ⟨.ok (.bool true), none⟩⟩, ⟨outer, ⟨.ok .none, none⟩⟩]⟩, context.heap) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCallIn_intInstance
+    value helper probe classBinding
+
+/-- A failed inner preparation records the inner failure and skips the
+outer invocation, including when its saved value is noncallable. -/
+theorem observeNestedCallIn_innerPreparationError {space : Namespace} {context : CallContext}
+    {outer inner : String} {operands : List Core.Module.Functions.Operand} {callee : Value} {error : Failure}
+    (outerFound : space.lookupGlobal outer = some callee)
+    (failed : Core.Module.SeededCall.resolveCall space #v[] (.global inner) (operands.map lowerCallOperand) =
+      .error error) :
+    observeNestedCallIn space context .discard outer [.call inner operands] =
+      (⟨.error (.ofCall error), [⟨inner, ⟨.error error, none⟩⟩]⟩, context.heap) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCallIn_innerPreparationError
+    outerFound failed
 
 theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
@@ -43,6 +96,17 @@ theorem mixedAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespac
           | _ => .unsupported) :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.mixedAdd_operand_agrees
     space globals heap frame integer floating
+
+theorem floatAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
+    (left right : Silmaril.Numeric.Ieee754.F64.Finite) :
+    (lowerCallOperand (.floatAdd left right)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatAdd left right).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.floatAdd_operand_agrees
+    space globals heap frame left right
 
 theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     {values : Except Failure (List Value)} {calls : List CallEvent} :
@@ -144,6 +208,14 @@ theorem evaluate_closedSequenceComparison {scope : Source.Scope} (session : Core
   rw [lower_closedSequenceComparison checked]
   simp only [Except.map, Except.ok.injEq]
   exact ⟨Run.evaluate_scalarResult session (.bool value), evaluateScalar_booleanResult space context value⟩
+
+theorem literalBooleanEquality_call_agrees {scope : Source.Scope}
+    (space : Namespace) (context left right : Bool) :
+    let operand : Operand scope := .binary .equal (.boolean left) (.boolean right)
+    (callOperand? operand).map (fun value => (lowerCallOperand value).eval space #v[]) =
+      some (evaluateScalar space context operand) := by
+  simp only [evaluateScalar]
+  cases left <;> cases right <;> rfl
 
 theorem evaluateScalar_notEqual {scope : Source.Scope} (space : Namespace) (context : Bool)
     (left right : ModuleEntry.Operand scope) :
@@ -287,9 +359,20 @@ theorem observeTupleIdentityCall_helper (space : Namespace) (context : CallConte
   simp only [observeTupleIdentityCall, saved, evaluated]
   rfl
 
+theorem invokeDescriptor_tuple_text_empty (heap : Heap) {text : Core.Text} (empty : text.points = []) :
+    invokeDescriptor heap (.builtin .tuple) [.text text] = (⟨.ok (.returnedTuple []), none⟩, heap) := by
+  simp [invokeDescriptor, Core.Text.singletons_empty empty, Heap.materializeFreshTuple, seededValue]
+
+theorem invokeDescriptor_tuple_text_fresh (heap : Heap) {text first : Core.Text} {tail : List Core.Text}
+    (split : text.singletons = first :: tail) :
+    let items : List Core.Module.TupleDispatch.Element := .text first :: tail.map .text
+    invokeDescriptor heap (.builtin .tuple) [.text text] =
+      (⟨.ok (.tupleObject ⟨some heap.next, items⟩), none⟩, (heap.allocate (.tuple items)).2) := by
+  simp [invokeDescriptor, split, Heap.materializeFreshTuple, Heap.allocate, seededValue]
+
 theorem observeTupleFromListDisplay_stock (space : Namespace) (heap : Heap) (lists : ListHeap)
     (contents : List Core.Module.Value) (stock : space.lookupGlobal "tuple" = some (.builtin .tuple)) :
-    let (value, reached) := heap.materializeFreshTuple contents
+    let (value, reached) := heap.materializeFreshTuple (contents.map .scalar)
     observeTupleFromListDisplay space heap lists contents =
       ((⟨.ok (seededValue value), none⟩, reached), (lists.allocate contents).2) := by
   simp [observeTupleFromListDisplay, tupleBinding, stock, Core.Module.TupleDispatch.constructFromListDisplay_stock]
@@ -509,11 +592,36 @@ theorem invokeFlatCall_tuple_reference (space : Namespace) (context : CallContex
     (destination : Core.Module.Functions.Destination) (descriptor : Core.Module.TupleDispatch.Object) :
     invokeFlatCall space context destination (.builtin .tuple) [.tupleObject descriptor] =
       (.ok ⟨.ok (.tupleObject descriptor), none⟩, context.heap) := by
-  cases destination <;> simp [invokeFlatCall, invokeCall, Core.Module.SeededCall.Request.decode,
+  cases destination <;> simp [invokeFlatCall, invokeCall, invokeDescriptor, Core.Module.SeededCall.Request.decode,
     Core.Module.SeededCall.invokeObserved, Core.Module.SeededCall.invoke_tuple_reference]
 
+theorem run_textSliceGuard {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (test : TextSlice.Guard) (rest : List (Instruction scope)) (lists : ListHeap) :
+    runInstructionsIn space context (.textSliceGuard test :: rest) lists =
+      match checkTextSliceGuard space test with
+      | .ok () => runInstructionsIn space context rest lists
+      | .error error => ⟨space, .error (.ofCall error), [], context.heap, lists⟩ := by
+  cases checked : checkTextSliceGuard space test <;>
+    simp [runInstructionsIn, effectWithLists, effect, checked, Except.map, Except.mapError]
+
+theorem run_bindText {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (name : Source.Name) (value : Core.Text) (rest : List (Instruction scope)) (lists : ListHeap) :
+    runInstructionsIn space context (.bindText name value :: rest) lists =
+      runInstructionsIn (space.bindGlobal name (.text value)) context rest lists := rfl
+
+theorem run_readAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    {name source : Source.Name} (target : GlobalReference scope name) (reference : GlobalReference scope source)
+    (rest : List (Instruction scope)) (lists : ListHeap) :
+    runInstructionsIn space context (.scalar (.assign name target (.read source reference)) :: rest) lists =
+      match space.lookupGlobal source with
+      | some value => runInstructionsIn (space.bindGlobal name value) context rest lists
+      | none => ⟨space, .error (.raised (.runtime (.nameError source))), [], context.heap, lists⟩ := by
+  cases found : space.lookupGlobal source <;>
+    simp [runInstructionsIn, effectWithLists, effect, evaluateScalar, lowerScalarOperand,
+      Core.Module.SeededCall.Operand.eval, found, Except.map, Except.mapError, ModuleFailure.ofCall]
+
 theorem run_bindTuple_ok {scope : Source.Scope} {space : Namespace} {context : CallContext}
-    {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool} {values : List Core.Module.Value}
+    {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool} {values : List Core.Module.TupleDispatch.Element}
     {rest : List (Instruction scope)} {lists : ListHeap}
     (evaluated : Core.Module.SeededCall.evalTupleContents space items = .ok values) :
     let (value, heap) := context.heap.materializeModuleTuple items values trackClosed
@@ -699,8 +807,34 @@ theorem observeArgumentIn_resolutionFailure {space : Namespace} {context : CallC
       (.error (.ofCall error), [⟨name, ⟨.error error, none⟩⟩], context.heap) := by
   simp [observeArgumentIn, failed, argumentObservation, Except.mapError]
 
+theorem textSliceOperand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
+    (receiver : Core.Text) (bounds : Core.SliceBounds) :
+    (lowerCallOperand (.textSlice receiver bounds)).eval space #v[] =
+      (((Core.Module.Functions.Operand.textSlice receiver bounds).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) := by
+  cases sliced : receiver.slice? bounds <;>
+    simp [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
+      Core.Closure.Executor.Operand.evalIn, sliced, Except.map, Except.mapError, seededValue]
+
+theorem observeArgumentIn_textSlice {space : Namespace} {context : CallContext}
+    {receiver result : Core.Text} {bounds : Core.SliceBounds} (allowEscaped : Bool)
+    (sliced : receiver.slice? bounds = some result) :
+    observeArgumentIn space context (.scalar (.textSlice receiver bounds)) allowEscaped =
+      (.ok (.text result), [], context.heap) := by
+  simp [observeArgumentIn, lowerCallOperand, Core.Module.SeededCall.Operand.eval, sliced, Except.mapError]
+
+theorem observeArgumentIn_textSlice_zero {space : Namespace} {context : CallContext}
+    (receiver : Core.Text) {bounds : Core.SliceBounds} (allowEscaped : Bool) (zero : bounds.step = some 0) :
+    observeArgumentIn space context (.scalar (.textSlice receiver bounds)) allowEscaped =
+      (.error (.raised (.runtime .zeroSliceStep)), [], context.heap) := by
+  simp [observeArgumentIn, lowerCallOperand, Core.Module.SeededCall.Operand.eval,
+    Core.Text.slice_zero receiver bounds zero, Except.mapError, ModuleFailure.ofCall]
+
 theorem argumentObservation_tuple (space : Namespace) (name : String) (heap : Heap)
-    (items : List Core.Module.Value) :
+    (items : List Core.Module.TupleDispatch.Element) :
     argumentObservation name (observeDirectCall space (.finished heap (.ok (.tuple items)))) =
       (.ok (.returnedTuple items), [⟨name, ⟨.ok (.returnedTuple items), none⟩⟩], heap) := rfl
 

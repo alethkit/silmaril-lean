@@ -16,4 +16,14 @@ def partitionStep {m : Type u → Type v} [Functor m] {A B : Type u}
     (body : A → m (B ⊕ A)) (inner : A → Bool) (state : A) : m ((B ⊕ A) ⊕ A) :=
   if inner state then Sum.map Sum.inl id <$> body state else Sum.inl <$> body state
 
+/-- Route feedback according to the destination state. An exit is always
+returned to the outer iterator. -/
+def partitionTransfer {A B : Type u} (inner : A → Bool) : B ⊕ A → (B ⊕ A) ⊕ A
+  | .inl result => .inl (.inl result)
+  | .inr next => if inner next then .inr next else .inl (.inr next)
+
+def partitionStepByTarget {m : Type u → Type v} [Functor m] {A B : Type u}
+    (body : A → m (B ⊕ A)) (inner : A → Bool) (state : A) : m ((B ⊕ A) ⊕ A) :=
+  partitionTransfer inner <$> body state
+
 end Silmaril.Elgot

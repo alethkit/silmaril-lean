@@ -42,19 +42,51 @@ theorem lowerChecked_reindex {spec : Spec} {targets : Checked.Phi.Targets}
         some (lowerBank (p.reindexInputs perm).graph, Generic.lower (p.reindexInputs perm).graph) :=
   Proofs.Reindex.lowerChecked_reindex perm accepted
 
-/-- In any producer prefix, renamed capture wires read the pulled valuation;
-earlier producer values come from the same locals. -/
+theorem InputPermutation.get_pullTuple {F : PortTy → Type w} {source target : List PortTy}
+    {t : PortTy} (map : ∀ {t}, Port source t → Port target t) (input : Tuple F target) (p : Port source t) :
+    (pullTuple (fun p => map p) input).get p = input.get (map p) :=
+  Proofs.Reindex.get_pullTuple (fun p => map p) input p
+
+theorem read_mapColumn {F : PortTy → Type w} {source target out : List PortTy}
+    {past : List (List PortTy)} (map : ∀ {t}, Port source t → Port target t)
+    (input : Tuple F target) (wires : Wires source past out) (locals : Locals F past) :
+    (mapColumn (fun p => map p) wires).read input locals =
+      wires.read (InputPermutation.pullTuple (fun p => map p) input) locals :=
+  Proofs.Reindex.read_mapColumn (fun p => map p) input wires locals
+
+/-- In any producer prefix, mapped capture wires read the pulled valuation.
+Earlier producer values come from the same locals. -/
+theorem InputMap.read_column {target : Nat} (mapping : InputMap arity target) {F : PortTy → Type w}
+    {past : List (List PortTy)} {outputs : List PortTy} (input : Tuple F (wordPorts target))
+    (wires : Wires (wordPorts arity) past outputs) (locals : Locals F past) :
+    (mapping.column wires).read input locals =
+      wires.read (InputPermutation.pullTuple (fun p => mapping.port p) input) locals :=
+  read_mapColumn (fun p => mapping.port p) input wires locals
+
+/-- Pulling along a composition first pulls along the second leg. -/
+theorem InputMap.pull_comp {middle target : Nat} {value : Unit → Type w}
+    (first : InputMap arity middle) (second : InputMap middle target)
+    (input : Tuple (Val value) (wordPorts target)) :
+    InputMap.pull (second ∘ first) input = first.pull (second.pull input) :=
+  Proofs.Reindex.pull_comp first second input
+
 theorem InputPermutation.read_column (perm : InputPermutation arity) {F : PortTy → Type w}
     {past : List (List PortTy)} {outputs : List PortTy} (input : Tuple F (wordPorts arity))
     (wires : Wires (wordPorts arity) past outputs) (locals : Locals F past) :
     (perm.column wires).read input locals =
       wires.read (pullTuple (fun p => perm.port p) input) locals :=
-  Proofs.Reindex.read_column perm input wires locals
+  InputMap.read_column (fun i => perm i) input wires locals
 
 theorem initial_reindex (p : Plan arity) (perm : InputPermutation arity)
     (m : Model.{0, 0, w} WordOp) (input : Tuple (Val m.value) (wordPorts arity)) :
     (p.reindexInputs perm).graph.initial m input = p.graph.initial m (perm.pull input) :=
   Proofs.Reindex.initial_reindex p perm m input
+
+/-- The checked header reads the carried bank and its local producers. -/
+theorem step_capture_congr (p : Plan arity) (m : Model.{0, 0, w} WordOp)
+    (left right old : Tuple (Val m.value) (wordPorts arity)) :
+    p.graph.step m left old = p.graph.step m right old :=
+  Proofs.Reindex.step_capture_congr m left right old p
 
 theorem step_reindex (p : Plan arity) (perm : InputPermutation arity)
     (m : Model.{0, 0, w} WordOp) (input old : Tuple (Val m.value) (wordPorts arity)) :

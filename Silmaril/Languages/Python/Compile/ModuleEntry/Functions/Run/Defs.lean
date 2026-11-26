@@ -25,12 +25,14 @@ inductive Argument where
 
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
+  | bindText (name : String) (value : Core.Text)
   | bindTuple (name : String) (items : List Core.Closure.GlobalTupleItem) (trackClosed : Bool := false)
   | assertNot (condition : Operand scope)
   | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
   | assertBoolIdentity (test : BoolIdentityTest scope)
   | assertListConstruction (test : ListConstructionTest scope)
   | assertTupleChain (test : TupleChainTest scope)
+  | textSliceGuard (test : TextSlice.Guard)
   | assertVarNames (receiver : String) (needle : List UInt32)
   | publish (name : String) (function : TopFunction)
   | call (destination : Core.Module.Functions.Destination) (name : String) (operands : List Core.Module.Functions.Operand)
@@ -55,15 +57,18 @@ def callOperand? {scope : Scope} : Operand scope → Option Core.Module.Function
   | .integer value => some (.literal (.int value))
   | .boolean value => some (.literal (.bool value))
   | .read name _ => some (.readGlobal name)
+  | .binary .equal (.boolean left) (.boolean right) => some (.literal (.bool (left == right)))
   | .none_ | .binary .. | .identityChain .. => none
 
 def callValue? {scope : Scope} : CallValue scope → Option Core.Module.Functions.Operand
   | .scalar operand => callOperand? operand
   | .intTrueDiv numerator divisor => some (.intTrueDiv numerator divisor)
   | .mixedAdd integer floating => some (.mixedAdd integer floating)
+  | .floatAdd left right => some (.floatAdd left right)
   | .float64 value => some (.literal (.float64 value))
   | .tuple items => some (.tuple items)
   | .text value => some (.literal (.text value))
+  | .textSlice receiver bounds => some (.textSlice receiver bounds)
 
 def callArgument? {scope : Scope} : CallArgument scope → Option Argument
   | .value operand => (callValue? operand).map .scalar
@@ -87,6 +92,9 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .scalar action :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.scalar action :: instructions, blocks)
+  | .bindText name _ value :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.bindText name value :: instructions, blocks)
   | .bindTuple name _ items :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.bindTuple name items :: instructions, blocks)
@@ -105,6 +113,9 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .assertTupleChain test :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertTupleChain test :: instructions, blocks)
+  | .textSliceGuard test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.textSliceGuard test :: instructions, blocks)
   | .assertVarNames receiver _ needle :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertVarNames receiver needle :: instructions, blocks)
@@ -203,6 +214,14 @@ def checkTupleChain {scope : Scope} (session : Session) (test : TupleChainTest s
   | .ok true => .ok ()
   | .ok false => .error .assertionError
   | .error error => .error ((TupleChain.runtimeError? error).elim .scalarProfile .raised)
+
+def checkTextSliceGuard (session : Session) (test : TextSlice.Guard) : Except Completion Unit :=
+  (test.eval session.globals (fun
+    | .text value => some value
+    | _ => none)).mapError fun
+      | .missingName name => .raised (.nameError name)
+      | .zeroStep => .raised .zeroSliceStep
+      | .outsideTextProfile | .reachedRaise => .scalarProfile
 
 def scalar? : Value → Option Core.Module.Value := Value.scalar?
 
@@ -311,7 +330,7 @@ def boolIdentityCompletion {scope : Scope} (session : Session) (test : BoolIdent
       | _ => .raised .notCallable
 
 def evaluateTuple (session : Session) (items : List Core.Closure.GlobalTupleItem) :
-    Except Core.Closure.Failure (List Core.Module.Value) :=
+    Except Core.Closure.Failure (List Core.Module.TupleDispatch.Element) :=
   let frame : Frame ⟨0, 0, 0⟩ := ⟨Fin.elim0, Fin.elim0, Fin.elim0⟩
   Core.Closure.Executor.evalTupleContentsIn session.globals session.heap frame items
 
@@ -358,6 +377,7 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
     | .scalar (.assign name _ operand) => ([], match evaluate session operand with
       | .ok value => .ready (session.bindGlobal name value) rest
       | .error error => .finished session error)
+    | .bindText name value => ([], .ready (session.bindGlobal name (.text value)) rest)
     | .bindTuple name items trackClosed => ([], match bindTuple session name items trackClosed with
       | .ok updated => .ready updated rest
       | .error error => .finished session error)
@@ -373,6 +393,9 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
       | some (.function _) => .scalarProfile
       | some _ => .raised .notCallable))
     | .assertTupleChain test => ([], match checkTupleChain session test with
+      | .ok () => .ready session rest
+      | .error error => .finished session error)
+    | .textSliceGuard test => ([], match checkTextSliceGuard session test with
       | .ok () => .ready session rest
       | .error error => .finished session error)
     | .assertVarNames receiver needle => ([], match checkVarNames table session receiver needle with

@@ -11,8 +11,8 @@ abbrev Address := Nat
 
 /-- Universal callables supported by the resolved shared-store profile. -/
 inductive Builtin where
-  | bool | len | type | list | tuple | range
-  deriving DecidableEq, BEq, Repr
+  | bool | len | type | list | tuple | range | abs | any | all
+  deriving DecidableEq, BEq, ReflBEq, LawfulBEq, Repr
 
 def Builtin.name : Builtin → String
   | .bool => "bool"
@@ -21,10 +21,14 @@ def Builtin.name : Builtin → String
   | .list => "list"
   | .tuple => "tuple"
   | .range => "range"
+  | .abs => "abs"
+  | .any => "any"
+  | .all => "all"
 
 /-- Resolve a name after lexical lookup has ruled out a shadowing binding. -/
 def Builtin.resolve (name : String) : Option Builtin :=
-  ([.bool, .len, .type, .list, .tuple, .range] : List Builtin).find? (fun id => id.name == name)
+  ([.bool, .len, .type, .list, .tuple, .range, .abs, .any, .all] : List Builtin).find?
+    (fun id => id.name == name)
 
 /-- A checked immutable range, represented without an element list or heap cell. -/
 structure RangeValue where
@@ -63,15 +67,30 @@ def Value.address? : Value → Option Address
   | .list address | .tuple address | .dict address | .function address => some address
   | .scalar _ | .builtin _ | .string _ | .range _ => none
 
+/-- Canonical scalar dictionary codes. Integers and floats share the numeric tag. -/
+inductive ScalarKey where
+  | none
+  | bool (value : Bool)
+  | number (value : Binary64.Number)
+  deriving DecidableEq, BEq, ReflBEq, LawfulBEq, Repr
+
+abbrev ScalarKey.int (value : Int) : ScalarKey := .number (.ofInt value)
+
+def ScalarKey.ofValue : Starlark.Value → ScalarKey
+  | .none => .none
+  | .bool value => .bool value
+  | .int value => .int value
+  | .float bits => .number (Binary64.decode bits)
+
 /-- Canonical key encoding for tagged scalars and well-bracketed tuples. -/
 inductive KeyPart where
-  | scalar (value : Starlark.Value)
+  | scalar (value : ScalarKey)
   | openTuple
   | closeTuple
   | function (address : Address)
   | builtin (id : Builtin)
   | string (text : String)
-  deriving DecidableEq, BEq, Repr
+  deriving DecidableEq, BEq, ReflBEq, LawfulBEq, Repr
 
 abbrev Key := List KeyPart
 
@@ -258,10 +277,11 @@ def dictEntries (address : Address) : Meaning (List Entry) :=
     | _ => none
 
 /-- Mutable container keys are disallowed, including when frozen. A tuple's
-cached key is computed from its fields at construction. -/
+cached key is computed from its fields at construction. Numeric leaves use
+the same exact observation as scalar comparison. -/
 def State.keyOf (state : State) (value : Value) : Except Error Key :=
   match value with
-  | .scalar scalar => .ok [.scalar scalar]
+  | .scalar scalar => .ok [.scalar (ScalarKey.ofValue scalar)]
   | .tuple address =>
     match state.heap[address]? with
     | none => .error (.danglingAddress address)

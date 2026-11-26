@@ -132,19 +132,19 @@ theorem runs_installed_alias_preserving {parent : LexicalBlock} (site : Site par
     site profile checked table id found available permitted step receipts cells owned legal frame related
 
 /-- Continue from an independently reached argument result, including an expansion failure. -/
-theorem runs_actual {parent block : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent formals varargs kwargs)
+theorem runs_actual {parent block : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope)
     (bodyRuns : State → Outcome Flow → Prop)
     (program : Program) (id : DeclarationId) (available : List DeclarationId) (permitted : id ∈ available)
     (enterBody : BodyEntry site program available id bodyRuns)
-    {name : String} {state defining : State} {address : Nat}
-    (callee : Body.Evaluates block state (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
+    {name : String} (slot : Binding) {state defining : State} {address : Nat}
+    (callee : Body.Evaluates block state (.scalar (.read name)) (Leaf.readOperand slot)
       (.ok (.function address) state))
     (record : ClosureAt site id defining state address)
-    (positional : List Lowering.Expr) (keywords : List (String × Lowering.Expr)) (star : Option Lowering.Expr)
+    (positional : List Lowering.Expr) (keywords : List (String × Lowering.Expr)) (star starStar : Option Lowering.Expr)
     (actuals : State → Outcome Actual → Prop)
     (reaches : ∀ state, ∃ out, actuals state out ∧
-      NativeActuals program available positional keywords star state out ∧
+      NativeActuals program available positional keywords star starStar state out ∧
       Body.Keeps state.heap.size state (finishState out))
     {Bound : Type} (binds : BindingRule Bound) (packs : PackRule Bound)
     (total : ∀ defaults actual, ∃ result, binds defaults actual result)
@@ -158,12 +158,12 @@ theorem runs_actual {parent block : LexicalBlock} {formals : List PlainKeywordPa
           prepareExpanded program available actual (.function address) reached =
             .ok (.closure ⟨id, permitted, site.declaration.body⟩)
               (activate packed site.declaration closure.captures assigned)) :
-    let code := Lowering.Expr.call (Leaf.readOperand (fileSlot name)) positional keywords star none
-    ∃ out, RunsActual site bodyRuns block id name actuals binds packs state out ∧
+    let code := Lowering.Expr.call (Leaf.readOperand slot) positional keywords star starStar
+    ∃ out, RunsActual site bodyRuns block id name slot actuals binds packs state out ∧
       ExecExpr program available state code out ∧ Lowering.denoteExpr program available code state = out ∧
       Body.Keeps state.heap.size state (finishState out) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.runs_actual
-    site bodyRuns program id available permitted enterBody callee record positional keywords star
+    site bodyRuns program id available permitted enterBody slot callee record positional keywords star starStar
     actuals reaches binds packs total prepare
 
 theorem runs_packed {parent block : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}

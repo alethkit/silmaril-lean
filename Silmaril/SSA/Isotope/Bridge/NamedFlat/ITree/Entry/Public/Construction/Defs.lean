@@ -120,10 +120,34 @@ def checkCapture (capture : V)
     (initial : V → Value Atom) (packet : Denote inputType) : Bool :=
   decide (initial capture = packetRecord packet 0)
 
+def Seeded.evalSeed (built : Seeded signature source exits fields capture inputType outputs)
+    (initial : V → Value Atom) : Value Atom :=
+  packetValue (fun _ => initial capture) built.provenance.seed
+
 /-- Compare the source entry's evaluated seed in the actual initial store
 with the encoded public packet. The provenance fixes their common label. -/
 def Seeded.checkSeed (built : Seeded signature source exits fields capture inputType outputs)
     (initial : V → Value Atom) (packet : Denote inputType) : Bool :=
-  decide (packetValue (fun _ => initial capture) built.provenance.seed = packetRecord packet built.provenance.slot.val)
+  decide (built.evalSeed initial = packetRecord packet built.provenance.slot.val)
+
+/-- Recover this entry's typed packet and check its exact encoding against
+the evaluated seed. -/
+def decodeSeed? (ty : PacketType) (seed : Value Atom) : Option (Denote ty) := do
+  let packet ← PacketType.decode ty seed
+  if seed = PacketType.encode ty packet then some packet else none
+
+def Seeded.seed? (built : Seeded signature source exits fields capture inputType outputs)
+    (initial : V → Value Atom) : Option (Denote inputType) :=
+  decodeSeed? inputType (built.evalSeed initial)
+
+/-- Evaluate both seeds at one initial store. Failure to decode either
+packet leaves the comparison undefined. -/
+def Seeded.refinementFromStore? [DecidableEq F] {target : CFG V K F} {rightCapture : V} {rightType : PacketType}
+    (left : Seeded signature source exits fields capture inputType outputs)
+    (right : Seeded signature target exits fields rightCapture rightType outputs) (initial : V → Value Atom) :
+    Option Bool := do
+  let leftPacket ← left.seed? initial
+  let rightPacket ← right.seed? initial
+  return left.program.refinementBetween? right.program 0 leftPacket 0 rightPacket
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Public

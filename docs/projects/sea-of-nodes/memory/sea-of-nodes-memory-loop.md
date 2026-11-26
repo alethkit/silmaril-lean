@@ -815,6 +815,278 @@ import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.PetriRoom.Thms
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.PetriRoom.Regression
 ```
 
+#### Permuting heap cells in the two-address profile
+
+`CellRelabel.heap σ` moves the old cell at `a` to `σ a` for a
+permutation `σ` of the in-bounds addresses at a fixed cell count.
+`CellRelabel.input σ` moves every address-valued capture and leaves words
+unchanged. The capture signature and the generated programs stay fixed.
+`read_heap`, `write_heap` and `denote_graph` transport the ordered memory
+body. [Load, store and body laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/CellRelabel/Thms.lean)
+
+`Graph.feedback_relabel` moves both live address lanes computed from the
+same old bank. `Graph.evalWithin_relabel`, `Graph.returns_relabel` and
+`Graph.no_return_relabel` transport the returned word, every final cell
+and the absence of a finite return.
+[Native loop laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/CellRelabel/Thms.lean)
+
+The generated numbered and coloured observers map their partial results
+through `relabelOutput`. The typed MemRef CFG has corresponding
+`returns_relabel` and `no_return_relabel` laws. The `holds_relabel`
+theorems preserve and reflect equations and universal finite termination
+over all initial heaps at the transported valuation. These laws use
+canonical initialized runtimes and keep CFG fuel and finite firing
+witnesses independent.
+[Observer and satisfaction laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/CellRelabel/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.CellRelabel.Thms
+```
+
+The regression swaps cells 0 and 1 and keeps the two lanes distinct.
+With one backedge, the emitted MemRef CFG returns word 0 with final
+heap `[7, 0]` from lanes `(0, 1)` and heap `[7, 5]`, and word 0 with
+final heap `[0, 7]` from lanes `(1, 0)` and heap `[5, 7]`. It checks
+both executions with zero backedges and transports a heap-sensitive
+equation that the coloured observer rejects.
+[Runnable regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/CellRelabel/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.CellRelabel.Regression
+```
+
+#### Embedding the two-address loop in a larger heap
+
+`CellEmbedding.Embedding small large` injects `Fin small` into
+`Fin large`. `CellEmbedding.input` transports the typed addresses and
+preserves words. `extend e frame source` uses the source heap on the
+image and the arbitrary initialized frame elsewhere. `restrict e`
+reads the source cells back. `read_extend`, `write_extend` and
+`denote_graph` prove transport for loads, stores and ordered bodies.
+[Heap and body laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/CellEmbedding/Thms.lean)
+
+`Graph.feedback_embed` transports both operands read from the same old
+header bank. `Graph.returns_embed_iff` characterizes an exact larger-heap
+return by the source return of the same word and restricted final heap,
+together with preservation of every cell outside the image.
+`Graph.no_return_embed` covers absence of any finite return.
+[Native loop laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/CellEmbedding/Thms.lean)
+
+`observe_embed` and `petriObserve_embed` map the partial observations of
+the actual numbered θ and linked coloured net to the larger result
+type. The emitted MemRef CFG has `returns_embed_iff` and
+`no_return_embed` laws with the whole buffer. The witnesses remain
+independent across backends. The `holds_embed` laws compare equations
+and universal finite termination for a source valuation and its
+embedded valuation. Each side ranges over all initialized heaps at
+its count. The target valuations in this comparison have every
+address capture in the image.
+[Observer and satisfaction laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/CellEmbedding/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.CellEmbedding.Thms
+```
+
+The runnable regression embeds cells `(0, 1)` into `(0, 2)`. The
+first activation swaps the two distinct lanes on feedback. The
+emitted MemRef CFG needs one backedge and returns word 0 with heap
+`[11, 73, 11]`, preserving the sentinel in cell 1.
+[Runnable regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/CellEmbedding/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.CellEmbedding.Regression
+```
+
+##### Typed bindings and nested heap embeddings
+
+`reduct_embed` commutes typed capture pullback with cell embedding.
+It applies to the port maps built by `bindAddress`, including binding
+both address lanes. Cell counts belong to the model and heap. The
+signature map reindexes the typed capture ports.
+[Reduct and observer laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/CellEmbedding/Composition/Thms.lean)
+
+`CellEmbedding.extend_trans` combines independent inner and outer
+frames. `sameFrame_trans` splits preservation into the cells outside
+the outer image and the cells inside it but outside the inner image.
+After typed re-emission, `observe_map_embed_trans` and
+`petriObserve_map_embed_trans` identify the exact composite observation
+with mapping the source partial result twice. The emitted MemRef CFG
+law `returns_map_embed_trans_iff` preserves the word, the twice-restricted
+heap, and both parts of the frame.
+[Heap composition laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/CellEmbedding/Thms.lean)
+
+The numbered, coloured and MemRef `holds_map_embed` laws compare
+equations and universal finite termination over all initial heaps at
+the embedded target valuation and its source reduct. With a port map
+that identifies captures, source truth is restricted to valuations
+supplied by that reduct. The observers retain independent finite
+witnesses.
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.CellEmbedding.Composition.Thms
+```
+
+The regression reverses both address bindings and embeds 4 cells into
+5 and then 6. The emitted MemRef CFG takes two backedges, returns word
+0, and leaves `[73, 0, 0, 0, 42, 91]`. Both embedding paths produce
+this result. The coloured observer agrees with the twice-extended
+source completion, including both new frame values and the source
+sentinel 42.
+[Runnable regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/CellEmbedding/Composition/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.CellEmbedding.Composition.Regression
+```
+
+#### Sequential observations in a shared heap
+
+`Sequential.numbered` decodes the first emitted θ's result and passes
+its entire returned heap to the second emitted θ. The caller supplies
+the first typed valuation and a function `next` that selects the
+second typed tuple from the first returned word and any fixed captures.
+The result contains both words and the second returned heap.
+`Sequential.coloured` follows the same interface using actual finite
+coloured completions. `coloured_eq_some_iff` exposes two witnesses with
+the same intermediate heap.
+[Sequential observer API](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Thms.lean)
+
+If the two address embeddings have disjoint images, `numbered_eq_local`
+and `coloured_eq_local` factor this observation into two local
+updates. The second local heap is the restriction of the original
+ambient heap. Its valuation still uses the first returned word.
+`CellEmbedding.extend_disjoint_spec` gives the exact restrictions of
+the final heap and preserves every cell outside both images.
+`observe_eq_none_iff` and `localObserve_eq_none_iff` characterize
+absence at the relevant intermediate state. The result concerns
+ordered execution and existence of finite observations.
+[Disjoint heap laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/CellEmbedding/Thms.lean)
+
+The API sequences observations of separately emitted graphs. The
+checked numbered splice consumes the producer's returned tuple as
+the entire consumer entry. See the boundary adapter below for the
+entry packet of a checked consumer.
+[Checked splice boundary](../../../../Silmaril/SSA/RVSDG/NestedTheta/ExplicitRuntime/Splice/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Thms
+```
+
+The regression runs two actual numbered graphs on images `(0, 2)`
+and `(3, 5)`. Each loop takes one backedge and writes its own cells.
+The first return word `3` is the second loop's stop value. The final
+result contains words `(3, 3)` and heap `[11, 73, 11, 22, 91, 22]`.
+The coloured observation has matching finite completions and the
+ambient sentinel cells retain `73` and `91`. A second fixture proves
+absence of any finite sequential return when the first loop returns
+and the selected second loop always takes its feedback edge.
+[Runnable regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Regression
+```
+
+##### Checked numbered boundary adapter
+
+`Boundary.Wiring` chooses one typed word capture to read the first
+return and forwards all other captures from named ambient ports.
+`Boundary.adapter` takes the first return word, ambient captures, and
+the full post-heap. Its numbered return keeps the first word in a
+separate lane, supplies the second capture tuple, and forwards the
+same live heap. `Wiring.select_word` names the dependent capture,
+while `adapter_run`, `adapter_observe`, and `adapter_finishes_iff`
+give the exact packet in the existing runtime and firing semantics.
+[Boundary API](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Boundary/Thms.lean)
+
+`splice_observe` and `splice_finishes_iff` establish the behaviour of
+the actual splice with any consumer admitted at the routed packet.
+The whole-loop splice below supplies that consumer.
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Boundary.Thms
+```
+
+The disjoint-write fixture feeds the first emitted θ's returned heap
+`[11, 73, 11, 9, 91, 3]` to the adapter. The adapter routes the word
+`3` to the second stop capture and retains another lane for the first
+result. The second emitted θ returns with heap
+`[11, 73, 11, 22, 91, 22]`. The fixture also runs the actual splice
+with a checked return consumer that reads the reserved word and
+the selected stop capture.
+[Runnable boundary regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Boundary/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Boundary.Regression
+```
+
+##### One linked numbered graph and coloured net
+
+`Wrapper.producer` returns the original ambient captures with the
+first θ's word and live heap. `Wrapper.consumer` reads the routed
+captures and heap, retaining the reserved first word outside its θ.
+Both wrappers use the existing emitted activation as their child and
+are admitted by the explicit-runtime check. Their `*_observe` and
+`*_absent_iff` laws compare each full boundary with its original θ.
+[Wrapper API](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Wrapper/Thms.lean)
+
+`Linked.lower` uses the checked splice twice to emit one graph with
+two θ vertices. The first graph's input is the ambient bank. The
+caller supplies the second program and a `Boundary.Wiring` that
+selects one dependent word capture and fixes the ambient port for
+every other capture. `observe_eq_numbered` compares the linked graph
+to `Sequential.numbered` at this wiring, including both words, the
+whole heap, and absence. `returns_iff_numbered`,
+`finishes_iff_coloured`, and the two absence laws use finite
+observations with independent witnesses.
+[Linked graph and completion laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Thms
+```
+
+The disjoint-write regression runs the single linked graph. Each θ
+takes one backedge and the result retains words `(3, 3)` and heap
+`[11, 73, 11, 22, 91, 22]`. The linked firing law concerns existence
+of finite completion at that same typed entry.
+[Runnable linked regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Regression
+```
+
+##### One linked typed MemRef CFG
+
+`Linked.MemRef.lower` reuses both emitted ordered MemRef CFGs and
+their body interpreter. The first exit branches to the second entry
+with the returned word and the same live buffer. The second entry
+uses `Boundary.Wiring` to pick the two initial addresses and the
+remaining typed captures. Every second-stage edge, including
+feedback, carries the first word as a block argument. The final exit
+returns both words and the complete buffer.
+[Typed CFG and transition laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/MemRef/Thms.lean)
+
+`returns_iff_stages` relates the single CFG to the two separate MemRef
+emitters at their own fuels, with the exact intermediate buffer.
+`returns_iff_numbered` and `returns_iff_coloured` compare its complete
+result with the linked θ graph and linked net. The two
+`no_return_iff_*` laws quantify over all finite observations and
+leave the backend witnesses independent. The profile uses one
+initialized, statically sized rank-one buffer and typed in-bounds
+addresses.
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.MemRef.Thms
+```
+
+The shared disjoint-write fixture runs the single MemRef CFG. It
+returns words `(3, 3)` and buffer `[11, 73, 11, 22, 91, 22]` at eight
+block steps. Seven steps are insufficient. Each θ in the numbered
+fixture takes one backedge.
+[Runnable MemRef regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/MemRef/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.MemRef.Regression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for

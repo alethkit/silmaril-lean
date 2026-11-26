@@ -967,6 +967,28 @@ closure. The lookup supplies the indices and exact import values. The demand
 certificate still supplies the summary, static dispatch and common-store
 evidence. These projections read stored link results.
 
+`matchNamedExport` checks that an existing demand receipt belongs to
+the selected closure and its original store on each side. Use those
+equalities to reindex the receipt as a `NamedDemand`. `NamedImports`
+combines the checked dispatches in typed import order and checks the
+materialized tuple with each name's `checkImports`. The allocating
+entry point takes a successful client initializer receipt at the
+assembly's common final store and returns the usual `ExportAnalysis`.
+The client still supplies static resolution for its checked imports.
+[Named provider demand API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Provider/Named/Thms.lean)
+
+`NamedImports.analyzeLayouts` accepts independent typed initializer and
+capture layouts for the same λ body. It checks each import against its
+actual named export, reads the captures from the corresponding successful
+initializer row, and computes one GenKill summary. The two rows share a
+post-link store and the client supplies static resolution for each side.
+Pass the resulting receipt for both sides of
+`ExportAnalysis.relocated_substituted_starts` with the existing related-link
+and dispatch certificates. The two-provider fixture moves the second
+provider and client allocations to vertex 1 on the right, checks exact
+return, typed block and non-tail resumption, and rejects the stale provider
+closure with the same payload from vertex 0.
+
 `LookupReceipt.entry.traceL` and `traceR` are
 `AllocationHistory.Segment` witnesses with exact entry and exit stores.
 Use `AllocationHistory.Segment.reassemble` with the provider's own

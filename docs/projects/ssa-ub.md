@@ -1005,6 +1005,215 @@ also distinguish reached literal UB from an ordinary return and failed
 extraction from a rejected comparison.
 [Executable refinement checker][ssa-ub-open-operand-checker]
 
+### Executable refinement over a finite caller interface
+
+`CallerEnumeration` supplies a list of all shaped packets at the shared
+entry type and a proof of exhaustiveness. `Table.compareInterface?`
+checks both original CFGs once, then scans the caller packets using the
+pointwise checker. An absent verdict reports failed exact readback or
+ranking, including at an empty caller interface. After successful
+readback, acceptance is equivalent to shaped refinement at every typed
+caller packet and on every deterministic finite-state primitive
+interpreter and initial state.
+
+Rejection returns a caller packet and the actual pointwise prefix.
+`Table.compareInterface_counterexample` certifies membership in the caller
+list, feasibility in both extracted trees, the existing rank bound, and
+failure of refinement between the original endpoints in the prefix model.
+The regression compares a second request that reads the caller with one
+that uses a literal. The first listed caller packet agrees for every
+reply. The later packet fails after a shared reply. An empty caller list
+and an exact table with a reachable request backedge exercise the
+readback boundary.
+[Finite caller checker][ssa-ub-open-caller-interface]
+
+### Rank dependence of a future cyclic product comparison
+
+| Obligation | Current checked use of rank | Requirement for a cyclic product comparison |
+|---|---|---|
+| Readback and extraction | Exact re-emission uses `sameRegion_eq` independently of rank. `Table.entryCheck` ranks the entry-reachable graph of written reply tags, including tags with no inhabited payload. Unreachable rows still participate in exact syntax comparison. `Table.expand` follows each typed reply edge at a strictly smaller rank. This is what permits an exhaustive tree rather than a cyclic graph. | Use exact re-emission and the rank-free one-step certificate below. Retain cyclic continuations as graph edges. |
+| Termination and witness length | `Tree.compare` recurses structurally on its left tree. The reply and caller lists bound their respective scans. Rank supplies the tree and its `Fits` bound, which bounds the length of the certified common prefix. | Use a worklist over finite pairs of exact configurations, including each label and incoming payload with the caller held fixed. Exhaustive reply enumeration gives finite successors. A shortest path in a certified finite product could bound a counterexample, with one additional test state. |
+| Semantic soundness and completeness | `Table.observe_extract` proves agreement by induction on extraction fuel. Tree soundness and prefix separation recurse on trees. The native feedback bridge and its finite-UB and infinite-divergence characterizations have no rank premise. | Prove that product steps match actual typed routing at a shared machine state and preserve each reply's final state. Account for finite exits, faults, divergence within a request, and infinite replay of matching requests. Check reachable literal UB in the installed order. A completeness proof also needs the handler to realize each chosen typed reply at its recorded argument and state. |
+
+For a universal comparison over the current primitive interface, a common
+query can use the same action on both sides. The witness allocates fresh
+handler states along the chosen path. A checker for a single fixed
+interpreter instead needs to represent its machine state in the
+configurations. The existing cyclic native checker proves an agreement
+theorem for a supplied finite deterministic interpreter and coded starts.
+The finite caller checker here still requires the entry rank on both
+sides.
+[Rank checker][ssa-ub-open-ranks] [Native feedback][ssa-ub-feedback]
+[Fixed-interpreter cyclic checker][ssa-ub-cyclic-native-checker]
+
+### Rank-free steps for request-guarded native tables
+
+`Table.head?` checks exact re-emission and reads one label and incoming
+payload from an existing typed table witness. It uses the same positional
+`Packet` as the finite CFG machinery. The caller packet stays fixed.
+The step records the opcode, evaluated argument, and the successor for
+each exact reply position and payload. `Head.execute` needs a
+deterministic shaped primitive interpreter and the current machine state.
+It neither follows the successor nor needs an entry rank.
+
+`Table.feedback_step` identifies the complete local native observation.
+`Table.feedback_step_iff` identifies every internal feedback edge with
+the computed successful reply, including the destination label, typed
+payload and final state. The local native observation retains an outward
+exit's ordered position. `Table.observe_step` applies the actual exit
+continuation at that position, so a designated exit yields fresh top.
+Faults keep their state, and in-request divergence remains ordinary.
+`Table.observe_entry` connects the initial typed point to the original
+decorated CFG after exact re-emission.
+
+The entry is one caller-forwarding jump. Each represented block either
+exits or makes one request before any internal edge. The readback
+regression rejects a well-typed silent self-cycle. The guarded regression
+reaches a backedge with a changed payload and state. It also constructs an infinite replay of
+successful requests with ordinary divergence in the installed feedback.
+A supplied exhaustive `ReplyEnumeration` makes the possible typed
+successors a finite list.
+[Guarded step and correspondence][ssa-ub-open-guarded-step]
+
+### Soundness of a closed guarded product certificate
+
+`Table.checkProduct` checks a supplied finite list of paired exact
+configurations. The entry pair must be listed. Each listed pair uses the
+acyclic checker's local clauses for the two evaluated requests or the
+ordered exits. Matching requests agree on the opcode and evaluated
+argument. Every typed reply in the exhaustive enumeration must route to
+another listed pair, including pairs of terminal rows. An immediate
+designated exit on the right permits any left head. Other terminal pairs
+must return at the same ordinary exit.
+
+`Table.checkProduct_sound` uses the same deterministic shaped interpreter
+on both exact-readback endpoints at their supplied caller packets and a
+common initial machine state. An equal request sees the same reply or
+fault and its state, or the same in-request divergence. No machine-state
+enumeration is needed in the certificate because the proof synchronizes
+the actual reply state under every admitted interpreter. A hypothetical
+violation at a related pair would have to advance through matched
+successful replies forever. `close_infinite_of_singleton` proves that
+each of those native feedback closures is the ordinary singleton
+divergence observation. Fresh top still requires a reached designated
+exit.
+
+The cyclic fixture pairs two different loop labels and needs the pair with
+the changed incoming packet.
+A second fixture omits the shared successor reached by the later
+payload at the same reply tag. Adding that pair exposes different next
+arguments. Its concrete prefix makes one native runner fault and the
+other diverge. The checker validates supplied relations in the
+request-guarded grammar. Search and completeness are separate from this
+soundness result.
+[Product certificate][ssa-ub-open-guarded-product]
+
+### Reachable search for a guarded product certificate
+
+`Table.searchProduct` starts at the pair of typed entries. Each side
+supplies an exhaustive list of exact label-and-payload configurations,
+and the opcode signature supplies exhaustive typed reply packets.
+Discovering a pair removes its copies from the remaining Cartesian
+inventory. The initial inventory length bounds the number of discoveries.
+The search uses the label and evaluated payload as its configuration key,
+so a backedge can revisit the same label with a new packet.
+
+The local test is `Head.checkPair` with the successor predicate always
+true. The outgoing edges enumerate the paired successors of equal
+requests. The factorization theorem recovers the entire `Head.checkPair`
+check by testing the local clause and the successor predicate on each
+edge. A successful search returns a certificate accepted by
+`Table.checkProduct`, and every listed pair has a path from the entry.
+Search succeeds exactly when some accepted certificate exists.
+
+A rejection reports a reached pair, the failing local comparison and
+the shared reply path in forward order. The path records the opcode,
+reply position and typed payload at each edge. This is a syntactic
+certificate. The scheduled feasibility result below gives conditions
+for realizing such a path in one deterministic interpreter. Exact native readback is the separate premise
+when applying the existing semantic soundness theorem to an accepted
+certificate. The regressions exercise a changed packet on a revisit and
+the later payload at the same reply tag.
+[Product search and correctness][ssa-ub-open-guarded-search]
+
+### Interpreter feasibility of a scheduled product path
+
+The installed `Syntax.Primitives` domain is the opcode, its exact typed
+argument and the current finite machine state. Its answers are a typed
+return at a final state, a fault at a final state, or ordinary
+divergence. The finite script compares the opcode, evaluated argument
+and incoming state together. Equal keys must agree on their entire
+typed answer, including the final state. `InterpreterScript.feasible_iff`
+proves necessity and sufficiency. Executable first-match lookup extends
+the consistent rows with any total typed fallback. Ordinary divergence
+provides a fallback even for an opcode with no inhabited reply type.
+
+`Table.schedule_rejection` records the synchronized queries of a reported
+path for a supplied initial state and one reply state per edge. It uses
+the actual typed reply packet at each edge. `ScheduledPath.feasible_iff`
+characterizes realization of that schedule by one interpreter. Under
+realization the installed observation on each side agrees with the
+observation at its reached configuration and final state.
+
+At two reached exits, a different ordinary return position or a source
+designated UB exit refutes refinement against an ordinary target exit.
+A pending-query mismatch uses a different test. Appending a source
+fault and target divergence must give a consistent script with the
+successful prefix. Query disagreement alone supplies no such script at
+the chosen final state. These directed rules use the actual native
+observations after exact readback. They cover specific semantic
+rejections of the guarded fragment.
+
+The regression schedules the search's later-payload rejection and
+reconstructs one interpreter that exposes fault versus divergence.
+A repeated query at the same state with two requested payloads is
+impossible. The same opcode and argument at different states can
+produce different replies. A separate fixture distinguishes two
+ordered exits carrying unit.
+[Scheduled interpreter feasibility][ssa-ub-open-guarded-replay]
+
+`Table.searchSchedule` takes a reported shared path, a fixed initial
+machine state and an exhaustive inventory of the states of a fixed
+`Fin n` carrier. Each branch assigns the next store and checks agreement
+on the whole typed reply, including the final store, before continuing.
+Optional terminal tests are chosen at the reached store and checked in
+the same script. The returned witness reconstructs one total typed
+interpreter for the successful replies and the tests. For a certified
+product path, success is equivalent to the existence of such a schedule.
+Failure establishes infeasibility for that path, initial store, carrier
+and tests. It gives no refinement verdict for the two programs.
+
+The repeated-key fixture needs two stores for the prefix and three when
+its final fault-versus-divergence test is included. When the carrier can
+grow, a finite prefix can always use a fresh store for each successful
+hop. This removes conflicts with prior keys, including at a fresh
+terminal store. A fault and divergence still conflict if the two terminal
+queries have the same opcode and argument at that store.
+[Fixed-carrier schedule search][ssa-ub-open-guarded-schedule]
+
+`Table.checkAllInterpreters?` decides the pointwise shaped refinement of
+two original exact-readback guarded CFGs at supplied typed caller packets,
+for all total deterministic primitive interpreters and all initial states
+of the same fixed `Fin n` carrier. A failed readback returns `none`.
+The support is the union of both programs' opcode, evaluated argument and
+incoming state keys over their exhaustive typed configuration and state
+inventories. At each distinct key the checker enumerates typed successful
+replies with their final state, faults with their final state, and ordinary
+divergence. The reply packet lists must be exhaustive at each opcode. The
+script extension uses ordinary divergence off this support.
+
+For each script the two runners execute independently. The existing
+positional feedback classifier bounds a run by the length of its
+configuration–state inventory. Exhausting the bound by internal transfers
+gives an actual infinite replay and ordinary divergence. A selected ordered
+exit produces fresh top. Ordinary singletons compare by exact outcome,
+including ordered exit and final state, and every result refines target
+top. The regression exercises a state-changing cycle and a failing
+comparison whose initial evaluated arguments already differ. Enumeration
+has worst-case exponential size in the number of keys. The result applies
+to the guarded grammar at fixed callers and the supplied carrier.
+[Fixed-carrier refinement][ssa-ub-open-guarded-fixed-carrier]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1164,3 +1373,12 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-operand-extraction]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Thms.lean
 [ssa-ub-open-operand-refinement]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Thms.lean
 [ssa-ub-open-operand-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Checker/Thms.lean
+[ssa-ub-open-caller-interface]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Checker/Interface/Thms.lean
+[ssa-ub-open-guarded-step]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Thms.lean
+[ssa-ub-open-guarded-product]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Thms.lean
+[ssa-ub-open-guarded-search]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Search/Thms.lean
+[ssa-ub-open-guarded-replay]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Search/Replay/Thms.lean
+[ssa-ub-open-guarded-schedule]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Search/Replay/Schedule/Thms.lean
+[ssa-ub-open-guarded-fixed-carrier]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Thms.lean
+[ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
+[ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean

@@ -52,21 +52,15 @@ def rewrite (graph : Graph args) (version : Nat) : Option (Graph args) := do
     DeadStore.rewriteWith graph ⟨version, version + 1⟩ ⟨address, []⟩
   else none
 
-/-- Cut the table at a zero-based Load occurrence and return that Load's
-word. Stores and preceding Loads keep their original operands. -/
-def throughLoad :
+/-- Cut the table at a zero-based Load occurrence for readback. -/
+abbrev throughLoad :
     {past : List (List ValueSort)} → {live : Nat} →
-      Body args past live → Nat → Option (Body args past live)
-  | _, _, .ret _ _, _ => none
-  | _, _, .store memory address word rest, index =>
-    (throughLoad rest index).map (.store memory address word)
-  | _, _, .load memory address _, 0 => some (.load memory address (.ret memory (.output 0 .head)))
-  | _, _, .load memory address rest, index + 1 =>
-    (throughLoad rest index).map (.load memory address)
+      Body args past live → Nat → Option (Body args past live) :=
+  DeadStore.throughLoad
 
 /-- Observe the selected Load using the native denotation of its prefix. -/
-def readAt (body : Body args past live) (index : Nat) (input : Tuple (Val cells) args)
+abbrev readAt (body : Body args past live) (index : Nat) (input : Tuple (Val cells) args)
     (locals : Locals (Val cells) past) (initial : Heap cells) : Option Word :=
-  (throughLoad body index).map fun selected => (selected.denote input locals initial).1
+  DeadStore.readAt body index input locals initial
 
 end Silmaril.SSA.SeaOfNodes.Memory.DeadStore.SingleUser

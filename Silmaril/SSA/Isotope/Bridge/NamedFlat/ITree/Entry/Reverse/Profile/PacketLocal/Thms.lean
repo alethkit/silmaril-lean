@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.PacketLocal.Defs
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.CaptureDemand.Thms
-import Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.PacketLocal
+public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Thms
 
 public section
 
@@ -46,7 +46,7 @@ theorem Admission.packed_tree (M : Model (κ := κ) Events P.Instr) (admission :
     (x : Ty.denote C A) (ambient : Env (Sigma C)) :
     region M.raw (extend ambient (encodeValue C A x)) admission.program.code =
       LiveOut.observe M ports fields a.source x :=
-  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.PacketLocal.packed_tree M admission x ambient
+  LiveOut.PacketLocal.Admission.packed_tree M ⟨a.closed, admission.versioned, admission.compiled⟩ x ambient
 
 /-- Compare the original typed program with the actual opt-in reversion at
 the shared entry and ordered exit interface. -/

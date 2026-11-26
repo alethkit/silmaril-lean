@@ -9,12 +9,15 @@ import Silmaril.SSA.Peggy.EPEG.Saturation.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Thms
+import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Worklist.Thms
 import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 import Silmaril.SSA.Peggy.Optimizer.Thms
 import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
 import Silmaril.SSA.Peggy.Worked.EvalScale.Thms
 import Silmaril.SSA.Peggy.Worked.StrengthReduction.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Automatic.Thms
+import Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Thms
+import Silmaril.SSA.PEG.Simple.Thms
 import Silmaril.SSA.PEG.Projection.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Cyclic.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Selection.Legality.Defs
@@ -26,6 +29,7 @@ meta import Silmaril.SSA.Peggy.EPEG.Saturation.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.ZeroSample
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Defs
+meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Worklist.Defs
 meta import Silmaril.Logic.Egg.Core.Replay.Defs
 meta import Silmaril.SSA.PEG.Builder
 meta import Silmaril.SSA.Peggy.Optimizer.Defs
@@ -34,6 +38,7 @@ meta import Silmaril.SSA.Peggy.Optimizer.Extension.Defs
 meta import Silmaril.SSA.Peggy.Worked.EvalScale.Defs
 meta import Silmaril.SSA.Peggy.Worked.StrengthReduction.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Automatic.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Defs
 meta import Silmaril.SSA.PEG.Projection.Defs
 meta import Mathlib.Tactic.FinCases
 
@@ -1136,6 +1141,77 @@ example (initial : Option (ULift Nat)) :
   exact ⟨after, valid, (observed clockZero).trans
     ((secondRedex.observe_eq wf before clockZero).trans (initially initial))⟩
 
+private def twoSiteInput : Output Op [] outputs 1 := ⟨6, twoSites⟩
+private def twoSiteRun := Dedup.Worklist.run Op.zero 2 twoSiteInput
+private def oneVisit := Dedup.Worklist.run Op.zero 1 twoSiteInput
+
+#guard twoSiteRun.report.sites == [4, 5]
+#guard twoSiteRun.report.stop == .fixed
+#guard twoSiteRun.state.1 == 7
+#guard oneVisit.report.sites == [4]
+#guard oneVisit.report.stop == .exhausted
+#guard Dedup.Worklist.enabledAt Op.zero oneVisit.state 5
+#guard (Dedup.Worklist.check Op.zero 1 twoSiteInput oneVisit.report).isSome
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[4, 5], .exhausted⟩).isNone
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[5, 4], .fixed⟩).isSome
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[4], .fixed⟩).isNone
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[6], .exhausted⟩).isNone
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[4, 4], .exhausted⟩).isNone
+#guard (Dedup.Worklist.check Op.zero 1 twoSiteInput twoSiteRun.report).isNone
+
+private abbrev nestedSort (_ : Fin 4) : Ty Unit := .count
+private def nestedRef (i : Fin 4) : Ref nestedSort .count := ⟨i, rfl⟩
+private def nestedPair (a b : Fin 4) : Tuple (Ref nestedSort) [.count, .count] :=
+  .cons (nestedRef a) (.cons (nestedRef b) .nil)
+
+/-- Sampling the outer theta at zero generates a new sample of the inner
+theta. Both thetas use live self-feedback on the same loop clock. -/
+private def nested : Graph Op [] outputs 4 1 where
+  forest := ⟨fun _ => none⟩
+  sort := nestedSort
+  node i := match i with
+    | 0 => .ofLabel (.op .zero) .nil
+    | 1 => .ofLabel (.theta 0) (nestedPair 0 1)
+    | 2 => .ofLabel (.theta 0) (nestedPair 1 2)
+    | _ => .ofLabel (.eval 0) (nestedPair 2 0)
+  roots := .cons (nestedRef 3) (nestedPair 2 1)
+
+private def nestedInput : Output Op [] outputs 1 := ⟨4, ⟨nested, Classes.discrete⟩⟩
+private def nestedPrefix := Dedup.Worklist.run Op.zero 1 nestedInput
+private def nestedRun := Dedup.Worklist.run Op.zero 2 nestedInput
+
+#guard evalOperands nested == [[2, 0]]
+#guard Dedup.Worklist.next Op.zero nestedInput == some ⟨3, by decide⟩
+#guard (Dedup.Worklist.run Op.zero 0 nestedInput).report.stop == .exhausted
+#guard nestedPrefix.report.sites == [3]
+#guard nestedPrefix.report.stop == .exhausted
+#guard nestedPrefix.state.1 == 5
+#guard (Dedup.close Op.zero nestedInput [3]).1 == 5
+#guard Dedup.Worklist.enabledAt Op.zero (Dedup.close Op.zero nestedInput [3]) 4
+#guard nestedRun.report.sites == [3, 4]
+#guard nestedRun.report.stop == .fixed
+#guard nestedRun.state.1 == 6
+#guard evalOperands nestedRun.state.2.graph == [[2, 0], [1, 0], [0, 0]]
+#guard refNumbers nestedRun.state.2.graph.roots == [3, 2, 1]
+#guard (Dedup.Worklist.run Op.zero 0 nestedRun.state).report.stop == .fixed
+#guard (Dedup.Worklist.check Op.zero 2 nestedInput nestedRun.report).isSome
+
+private theorem nestedWF : WellFounded nested.Demand :=
+  nested.demandWellFounded_of_check
+    [.phase (fun i => if i = 3 then 1 else 0), .counter 0,
+      .phase (fun i => if i = 2 then 2 else if i = 1 then 1 else 0)]
+    (by decide)
+
+example (initial : Option (ULift Nat)) :
+    ∃ after : WellFounded nestedRun.state.2.graph.Demand,
+      nestedRun.state.2.classes.Valid (nestedRun.state.2.graph.denote (arithmetic initial) .nil after) ∧
+      ∀ idx, nestedRun.state.2.graph.observe (arithmetic initial)
+        (nestedRun.state.2.graph.denote (arithmetic initial) .nil after) idx =
+        nested.observe (arithmetic initial) (nested.denote (arithmetic initial) .nil nestedWF) idx := by
+  have preserved : Dedup.Preserves (arithmetic initial) .nil nestedInput nestedRun.state :=
+    Dedup.Worklist.check_sound (Dedup.Worklist.run_checked (zero := Op.zero) 2 nestedInput) rfl
+  exact preserved nestedWF Classes.discrete_valid
+
 /-- The roots anchor a redex and two exact RHS copies to distinct addresses. -/
 private def anchored : Graph Op [] outputs 7 1 :=
   { biggerGraph with
@@ -1677,9 +1753,11 @@ private def parameterLoop : Graph Op external parameterResults 16 1 where
     | ⟨k + 16, bounded⟩ => False.elim (by omega)
   roots := .cons ⟨14, rfl⟩ (.cons (c 13 rfl) (.cons (c 4 rfl) (two (c 12 rfl) (c 13 rfl))))
 
-private def parameterInput (limit base delta : Nat) (echo : Bool) :
-    Tuple (model false).Value external :=
+private def parameterInputFor (m : Interpretation.{0,0,0} Op) (limit base delta : Nat)
+    (echo : Bool) : Tuple m.Value external :=
   .cons ⟨limit⟩ (.cons ⟨echo⟩ (.cons ⟨base⟩ (.cons ⟨delta⟩ .nil)))
+
+private abbrev parameterInput := parameterInputFor (model false)
 
 private def inferredParameters := Closed.Automatic.extract parameterLoop roles
 
@@ -1714,6 +1792,240 @@ example (recovered : Closed.Automatic.Recovered parameterLoop roles) (idx : Inde
       output.map (fun _ => some) :=
   recovered.observe_of_exec figure6Laws input idx (recovered.certificate.exec_of_runFuel fuel input ran)
 
+private theorem parameterCounter {m : Interpretation.{0,0,0} Op}
+    {input : Tuple m.Value external} {vs : parameterLoop.Valuation m}
+    (solved : parameterLoop.Solves m input vs) (laws : roles.Laws m) (k : Nat) :
+    Rules.readRef vs (c 0 rfl) (clock k) = some ⟨k⟩ := by
+  induction k with
+  | zero =>
+    rw [Rules.theta_zero solved (r := c 0 rfl) (initial := c 1 rfl) (feedback := c 2 rfl)
+      (loop := 0) HEq.rfl rfl]
+    exact (solved (1, clock 0)).trans laws.zero
+  | succ k ih =>
+    rw [Rules.theta_succ solved (r := c 0 rfl) (initial := c 1 rfl) (feedback := c 2 rfl)
+      (loop := 0) HEq.rfl (k := k) rfl, reset,
+      Rules.unary_at solved (r := c 2 rfl) (arg := c 0 rfl) (op := Op.succ) HEq.rfl,
+      ih]
+    exact laws.tick k
+
+set_option backward.isDefEq.respectTransparency false in
+private theorem parameterPass {m : Interpretation.{0,0,0} Op}
+    {limit base delta : Nat} {echo : Bool}
+    {vs : parameterLoop.Valuation m}
+    (solved : parameterLoop.Solves m (parameterInputFor m limit base delta echo) vs)
+    (laws : roles.Laws m)
+    (ge : ∀ k : Nat, m.run Op.atLeast (.cons ⟨k⟩ (.cons ⟨limit⟩ .nil)) =
+      some ⟨decide (limit ≤ k)⟩) (idx : Index 1) :
+    Rules.readRef vs (c 4 rfl) idx = some ⟨limit⟩ := by
+  let predRef : Ref parameterSort .bool := ⟨3, rfl⟩
+  have flags (j : Nat) : Rules.readRef vs predRef (clock j) = some ⟨decide (limit ≤ j)⟩ := by
+    have inputRead : Rules.readRef vs (c 6 rfl) (clock j) = some ⟨limit⟩ :=
+      solved (6, clock j)
+    rw [Rules.at_label solved (r := predRef)
+      (label := .op Op.atLeast) (args := two (c 0 rfl) (c 6 rfl)) HEq.rfl]
+    simp only [Label.interpret, two, collect, portAt, Fin.cases_zero, Fin.cases_succ, Option.elim]
+    have left : Rules.readRef vs ((two (c 0 rfl) (c 6 rfl)).get .head) (clock j) = some ⟨j⟩ :=
+      parameterCounter solved laws j
+    have right : Rules.readRef vs ((two (c 0 rfl) (c 6 rfl)).get (.tail .head))
+        (clock j) = some ⟨limit⟩ := inputRead
+    erw [left, right]
+    exact ge j
+  have samples : (fun j => (Rules.readRef vs predRef (idx.set 0 j)).map ULift.down) =
+      fun j => some (decide (limit ≤ j)) := by
+    funext j
+    rw [reset, flags]
+    rfl
+  rw [Rules.pass_at solved (r := c 4 rfl) (cond := predRef) (loop := 0) HEq.rfl, samples]
+  have first : firstTrue (fun j => some (decide (limit ≤ j))) = some limit :=
+    (PEG.Simple.firstTrue_eq_some_iff_samples _ _).mpr
+      ⟨by simp, fun j lt => by simp [Nat.not_le_of_lt lt]⟩
+  rw [first]
+  rfl
+
+private def accAt (base delta : Nat) : Nat → Nat
+  | 0 => base + delta
+  | k + 1 => accAt base delta k + delta + k
+
+private theorem parameterAccumulator {limit base delta : Nat} {echo : Bool}
+    {vs : parameterLoop.Valuation (model false)}
+    (solved : parameterLoop.Solves (model false) (parameterInput limit base delta echo) vs)
+    (k : Nat) :
+    Rules.readRef vs (c 5 rfl) (clock k) = some ⟨accAt base delta k⟩ := by
+  have increment (i : Index 1) : Rules.readRef vs (c 8 rfl) i = some ⟨delta⟩ := solved (8, i)
+  induction k with
+  | zero =>
+    have seed : Rules.readRef vs (c 7 rfl) (clock 0) = some ⟨base⟩ := solved (7, clock 0)
+    rw [Rules.theta_zero solved (r := c 5 rfl) (initial := c 9 rfl) (feedback := c 11 rfl)
+      (loop := 0) HEq.rfl rfl,
+      binary_at solved (r := c 9 rfl) (a := c 7 rfl) (b := c 8 rfl) (op := Op.add) HEq.rfl,
+      seed, increment]
+    rfl
+  | succ k ih =>
+    rw [Rules.theta_succ solved (r := c 5 rfl) (initial := c 9 rfl) (feedback := c 11 rfl)
+      (loop := 0) HEq.rfl (k := k) rfl, reset,
+      binary_at solved (r := c 11 rfl) (a := c 10 rfl) (b := c 0 rfl) (op := Op.add) HEq.rfl,
+      binary_at solved (r := c 10 rfl) (a := c 5 rfl) (b := c 8 rfl) (op := Op.add) HEq.rfl,
+      ih, increment, parameterCounter solved figure6Laws k]
+    rfl
+
+private def parameterOutput (limit base delta : Nat) (echo : Bool) :
+    Tuple (model false).Value parameterResults :=
+  let acc := accAt base delta limit
+  .cons ⟨echo⟩
+    (.cons ⟨acc + delta⟩ (.cons ⟨limit⟩ (.cons ⟨acc⟩ (.cons ⟨acc + delta⟩ .nil))))
+
+private theorem parameterObserved {limit base delta : Nat} {echo : Bool}
+    {vs : parameterLoop.Valuation (model false)}
+    (solved : parameterLoop.Solves (model false) (parameterInput limit base delta echo) vs)
+    (idx : Index 1) :
+    parameterLoop.observe (model false) vs idx =
+      (parameterOutput limit base delta echo).map (fun _ => some) := by
+  have pass := parameterPass solved figure6Laws (fun _ => rfl) idx
+  have sampled : Rules.readRef vs (c 12 rfl) idx = some ⟨accAt base delta limit⟩ := by
+    rw [Rules.eval_at solved (r := c 12 rfl) (source := c 5 rfl) (count := c 4 rfl) (loop := 0)
+      HEq.rfl, pass]
+    change monotonize (fun j => Rules.readRef vs (c 5 rfl) (idx.set 0 j)) limit = _
+    simp only [reset]
+    exact (monotonize_eq_some_iff _ _ _).mpr
+      ⟨parameterAccumulator solved limit, fun j _ => by rw [parameterAccumulator solved]; rfl⟩
+  have inc : Rules.readRef vs (c 15 rfl) idx = some ⟨delta⟩ := solved (15, idx)
+  have sum : Rules.readRef vs (c 13 rfl) idx = some ⟨accAt base delta limit + delta⟩ := by
+    rw [binary_at solved (r := c 13 rfl) (a := c 12 rfl) (b := c 15 rfl) (op := Op.add)
+      HEq.rfl, sampled, inc]
+    rfl
+  have flag : Rules.readRef vs (⟨14, rfl⟩ : Ref parameterSort .bool) idx = some ⟨echo⟩ :=
+    solved (14, idx)
+  change Tuple.cons (F := fun t => Option ((model false).Value t))
+    (Rules.readRef vs (⟨14, rfl⟩ : Ref parameterSort .bool) idx)
+    (.cons (Rules.readRef vs (c 13 rfl) idx) (.cons (Rules.readRef vs (c 4 rfl) idx)
+      (.cons (Rules.readRef vs (c 12 rfl) idx) (.cons (Rules.readRef vs (c 13 rfl) idx) .nil)))) = _
+  rw [flag, sum, pass, sampled]
+  rfl
+
+private theorem parameterTotal : ∀ {ins out} (op : Op ins out) args,
+    ∃ val, (model false).run op args = some val
+  | _, _, .zero, .nil => ⟨_, rfl⟩
+  | _, _, .five, .nil => ⟨_, rfl⟩
+  | _, _, .succ, .cons _ .nil => ⟨_, rfl⟩
+  | _, _, .exit, .cons _ .nil => ⟨_, rfl⟩
+  | _, _, .negate, .cons _ .nil => ⟨_, rfl⟩
+  | _, _, .atLeast, .cons _ (.cons _ .nil) => ⟨_, rfl⟩
+  | _, _, .add, .cons _ (.cons _ .nil) => ⟨_, rfl⟩
+  | _, _, .mul, .cons _ (.cons _ .nil) => ⟨_, rfl⟩
+
+private def isPass {t : Ty Unit} (row : Node Op external (Fin 1) parameterSort t) : Bool :=
+  match t, row with
+  | .count, ⟨_, .pass _, _⟩ => true
+  | _, _ => false
+
+private theorem isPass_cast {a b : Ty Unit} (h : a = b)
+    (row : Node Op external (Fin 1) parameterSort a) : isPass (h ▸ row) = isPass row := by
+  cases h
+  rfl
+
+private theorem parameterPassRef {r : Ref parameterSort .count} {guard : Ref parameterSort .bool}
+    (wired : Closed.nodeAt parameterLoop r = .ofLabel (.pass 0) (.cons guard .nil)) :
+    r = c 4 rfl := by
+  have shape (i : Fin 16) : isPass (parameterLoop.node i) = decide (i = 4) := by
+    fin_cases i <;> rfl
+  have label : isPass (parameterLoop.node r.id) = true :=
+    (isPass_cast r.typed (parameterLoop.node r.id)).symm.trans (congrArg isPass wired)
+  have addr := of_decide_eq_true ((shape r.id).symm.trans label)
+  obtain ⟨i, typed⟩ := r
+  change i = 4 at addr
+  subst i
+  rfl
+
+private theorem runFromPEG (recovered : Closed.Automatic.Recovered parameterLoop roles)
+    (limit base delta : Nat) (echo : Bool) :
+    recovered.certificate.runFuel (model false) limit (parameterInput limit base delta echo) =
+      some (parameterOutput limit base delta echo) := by
+  let cert := recovered.certificate
+  let inputs := parameterInput limit base delta echo
+  have solved := parameterLoop.denote_solves (model false) inputs cert.demandWellFounded
+  have pass : cert.FirstExit (model false)
+      (parameterLoop.denote (model false) inputs cert.demandWellFounded) (clock 0) limit := by
+    unfold Closed.Accepted.FirstExit
+    rw [parameterPassRef cert.boundary.pass]
+    exact parameterPass solved figure6Laws (fun _ => rfl) _
+  exact recovered.runFuel_of_firstExit figure6Laws (cert.total_of_primitives parameterTotal)
+    inputs (clock 0) limit pass (parameterObserved solved _)
+
+/-- Each successful discovery carries a SIMPLE derivation proved from
+the PEG pass and ordered observations. -/
+private def certifiedParameterRun (limit base delta : Nat) (echo : Bool) :
+    Option {a : Closed.Automatic.Recovered parameterLoop roles //
+      Exec (model false) a.certificate.revert (parameterInput limit base delta echo)
+        (some (parameterOutput limit base delta echo))} :=
+  inferredParameters.map fun a =>
+    ⟨a, a.certificate.exec_of_runFuel limit _ (runFromPEG a limit base delta echo)⟩
+
+#guard (certifiedParameterRun 0 2 4 false).isSome
+#guard (certifiedParameterRun 3 2 4 true).isSome
+
+-- Returning only the pass leaves the accumulator unobserved in Figure 11.
+-- SIMPLE still commits the entire vector, whose first update adds 6 and 4.
+private def passOnly := parameterLoop.withRoots (.cons (c 4 rfl) .nil)
+
+private def partialUpdate : Interpretation.{0,0,0} Op where
+  carrier := (model false).carrier
+  run instr args := match instr, args with
+    | .add, .cons a (.cons b .nil) =>
+      if a.down = 6 ∧ b.down = 4 then none else some ⟨a.down + b.down⟩
+    | instr, args => (model false).run instr args
+
+private abbrev partialInput := parameterInputFor partialUpdate 3 2 4 true
+
+private noncomputable def partialValues (a : Closed.Automatic.Recovered passOnly roles) :=
+  passOnly.denote partialUpdate partialInput a.certificate.demandWellFounded
+
+private theorem partialPass (a : Closed.Automatic.Recovered passOnly roles) :
+    Rules.readRef (partialValues a) (c 4 rfl) (clock 0) = some ⟨3⟩ :=
+  parameterPass (passOnly.denote_solves partialUpdate partialInput a.certificate.demandWellFounded)
+    (⟨rfl, fun _ => rfl, fun _ => rfl⟩ : roles.Laws partialUpdate) (fun _ => rfl) (clock 0)
+
+private theorem partialObservations (a : Closed.Automatic.Recovered passOnly roles) :
+    a.certificate.FirstExit partialUpdate (partialValues a) (clock 0) 3 ∧
+    passOnly.observe partialUpdate (partialValues a) (clock 0) = .cons (some ⟨3⟩) .nil := by
+  refine ⟨?_, ?_⟩
+  · unfold Closed.Accepted.FirstExit
+    rw [parameterPassRef a.certificate.boundary.pass]
+    exact partialPass a
+  · change Tuple.cons (F := fun t => Option (partialUpdate.Value t))
+      (Rules.readRef (partialValues a) (c 4 rfl) (clock 0)) .nil = _
+    rw [partialPass]
+
+private theorem noSuccessfulRun (a : Closed.Automatic.Recovered passOnly roles)
+    {store : Tuple partialUpdate.Value a.certificate.storeTypes}
+    (start : a.certificate.startCode.runLoopFree partialUpdate partialInput = some store)
+    (test : a.certificate.test.eval partialUpdate store = some ⟨true⟩)
+    (update : a.certificate.body.runLoopFree partialUpdate store = none) :
+    ¬ ∃ out, Exec partialUpdate a.certificate.revert partialInput (some out) := by
+  rintro ⟨_, ran⟩
+  have failure : Exec partialUpdate a.certificate.revert partialInput none :=
+    .seq (start ▸ a.certificate.startCode.runLoopFree_enableWhile partialInput)
+      (.firstFailed (.whileBodyFailed test (update ▸ a.certificate.body.runLoopFree_enableWhile store)))
+  have impossible := Exec.deterministic failure ran
+  cases impossible
+
+private def partialCounterexample :
+    Option {a : Closed.Automatic.Recovered passOnly roles //
+      (a.certificate.FirstExit partialUpdate (partialValues a) (clock 0) 3 ∧
+        passOnly.observe partialUpdate (partialValues a) (clock 0) = .cons (some ⟨3⟩) .nil) ∧
+        ¬ ∃ out, Exec partialUpdate a.certificate.revert partialInput (some out)} := do
+  let a ← Closed.Automatic.extract passOnly roles
+  match start : a.certificate.startCode.runLoopFree partialUpdate partialInput with
+  | none => none
+  | some store =>
+    match test : a.certificate.test.eval partialUpdate store with
+    | some ⟨true⟩ =>
+      match update : a.certificate.body.runLoopFree partialUpdate store with
+      | none => some ⟨a, partialObservations a, noSuccessfulRun a start test update⟩
+      | some _ => none
+    | _ => none
+
+#guard partialCounterexample.isSome
+
 private def wrongAdd : Interpretation.{0,0,0} Op where
   carrier := (model false).carrier
   run instr args := match instr, args with
@@ -1731,3 +2043,169 @@ example : Law wrongAdd Op.five Op.mul ∧ ¬ Nonempty (StrengthReduction.Law wro
   omega
 
 end Silmaril.SSA.Peggy.Worked.EvalScale.Tests
+
+namespace Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Tests
+
+open RVSDG (Port Tuple)
+open Simple.Revert.While.Region
+
+private inductive Op : InstructionSet Unit where
+  | zero : Op [] .count
+  | succ : Op [.count] .count
+  | atLeast : Op [.count, .count] .bool
+  | add : Op [.count, .count] .count
+  | not : Op [.bool] .bool
+  deriving DecidableEq
+
+private def model : Interpretation Op where
+  carrier _ := Unit
+  run
+    | .zero, .nil => some ⟨0⟩
+    | .succ, .cons n .nil => some ⟨n.down + 1⟩
+    | .atLeast, .cons a (.cons b .nil) => some ⟨decide (b.down ≤ a.down)⟩
+    | .add, .cons a (.cons b .nil) => some ⟨a.down + b.down⟩
+    | .not, .cons b .nil => some ⟨!b.down⟩
+
+private abbrev inputs := ([.count, .count] : List (Ty Unit))
+private abbrev outputs := ([.count, .count, .count, .count] : List (Ty Unit))
+
+private def pair {F : Ty Unit → Type} (a b : F .count) : Tuple F inputs :=
+  .cons a (.cons b .nil)
+
+private def four {F : Ty Unit → Type} (a b c d : F .count) : Tuple F outputs :=
+  .cons a (.cons b (pair c d))
+
+private def stageSort (i : Fin 9) : Ty Unit := if i = 3 then .bool else .count
+private def s (i : Fin 9) (h : stageSort i = .count) : Ref stageSort .count := ⟨i, h⟩
+
+-- The first stage returns succ(eval clock), the forwarded seed, the
+-- pass count, and a repeated first result. The second uses the first
+-- result as its limit and adds the seed to its own final counter.
+private def stage (second : Bool) : Graph Op inputs outputs 9 1 where
+  forest := ⟨fun _ => none⟩
+  sort := stageSort
+  node i := match i with
+    | 0 => .ofLabel (.theta 0) (pair (s 1 rfl) (s 2 rfl))
+    | 1 => .ofLabel (.op .zero) .nil
+    | 2 => .ofLabel (.op .succ) (.cons (s 0 rfl) .nil)
+    | 3 => .ofLabel (.op .atLeast) (pair (s 0 rfl) (s 6 rfl))
+    | 4 => .ofLabel (.pass 0) (.cons ⟨3, rfl⟩ .nil)
+    | 5 => .ofLabel (.eval 0) (pair (s 0 rfl) (s 4 rfl))
+    | 6 => .ofLabel (.param .head) .nil
+    | 7 => .ofLabel (.param (.tail .head)) .nil
+    | 8 =>
+      if second then .ofLabel (.op .add) (pair (s 5 rfl) (s 7 rfl))
+      else .ofLabel (.op .succ) (.cons (s 5 rfl) .nil)
+  roots := if second then four (s 8 rfl) (s 4 rfl) (s 6 rfl) (s 8 rfl)
+    else four (s 8 rfl) (s 7 rfl) (s 4 rfl) (s 8 rfl)
+
+private def sort (i : Fin 16) : Ty Unit := if i = 3 ∨ i = 12 then .bool else .count
+private def r (i : Fin 16) (h : sort i = .count) : Ref sort .count := ⟨i, h⟩
+
+-- These are the actual original wires. The second guard uses row 8,
+-- which is the first stage's computed exit observation. Row 7 is shared.
+private def graph : Graph Op inputs outputs 16 2 where
+  forest := ⟨fun _ => none⟩
+  sort := sort
+  node i := match i with
+    | 0 => .ofLabel (.theta 0) (pair (r 1 rfl) (r 2 rfl))
+    | 1 => .ofLabel (.op .zero) .nil
+    | 2 => .ofLabel (.op .succ) (.cons (r 0 rfl) .nil)
+    | 3 => .ofLabel (.op .atLeast) (pair (r 0 rfl) (r 6 rfl))
+    | 4 => .ofLabel (.pass 0) (.cons ⟨3, rfl⟩ .nil)
+    | 5 => .ofLabel (.eval 0) (pair (r 0 rfl) (r 4 rfl))
+    | 6 => .ofLabel (.param .head) .nil
+    | 7 => .ofLabel (.param (.tail .head)) .nil
+    | 8 => .ofLabel (.op .succ) (.cons (r 5 rfl) .nil)
+    | 9 => .ofLabel (.theta 1) (pair (r 10 rfl) (r 11 rfl))
+    | 10 => .ofLabel (.op .zero) .nil
+    | 11 => .ofLabel (.op .succ) (.cons (r 9 rfl) .nil)
+    | 12 => .ofLabel (.op .atLeast) (pair (r 9 rfl) (r 8 rfl))
+    | 13 => .ofLabel (.pass 1) (.cons ⟨12, rfl⟩ .nil)
+    | 14 => .ofLabel (.eval 1) (pair (r 9 rfl) (r 13 rfl))
+    | 15 => .ofLabel (.op .add) (pair (r 14 rfl) (r 7 rfl))
+    | ⟨k + 16, bound⟩ => False.elim (by omega)
+  roots := four (r 15 rfl) (r 13 rfl) (r 8 rfl) (r 15 rfl)
+
+private def layout : Layout graph (stage false) (stage true) where
+  first i := match i with
+    | 0 => r 0 rfl
+    | 1 => r 1 rfl
+    | 2 => r 2 rfl
+    | 3 => ⟨3, rfl⟩
+    | 4 => r 4 rfl
+    | 5 => r 5 rfl
+    | 6 => r 6 rfl
+    | 7 => r 7 rfl
+    | 8 => r 8 rfl
+  second i := match i with
+    | 0 => r 9 rfl
+    | 1 => r 10 rfl
+    | 2 => r 11 rfl
+    | 3 => ⟨12, rfl⟩
+    | 4 => r 13 rfl
+    | 5 => r 14 rfl
+    | 6 => r 8 rfl
+    | 7 => r 7 rfl
+    | 8 => r 15 rfl
+  inputs := pair (r 6 rfl) (r 7 rfl)
+  route := pair .head (.tail .head)
+
+private def rank : DemandRank 16 2 :=
+  [.phase (fun i => if 9 ≤ i.val then 1 else 0),
+   .phase (fun i => match i.val with
+      | 8 | 15 => 3 | 5 | 14 => 2 | 4 | 13 => 1 | _ => 0),
+   .counter 0, .counter 1,
+   .phase (fun i => match i.val with | 2 | 3 | 11 | 12 => 2 | 0 | 9 => 1 | _ => 0)]
+
+private def roles : Closed.Automatic.Roles Op := ⟨.zero, .succ, .not⟩
+private theorem laws : roles.Laws model := ⟨rfl, fun _ => rfl, fun _ => rfl⟩
+
+private structure Linked where
+  first : Closed.Automatic.Recovered (stage false) roles
+  second : Closed.Automatic.Recovered (stage true) roles
+  accepted : Accepted graph first.certificate second.certificate
+
+private def linked (d : Layout graph (stage false) (stage true)) : Option Linked := do
+  let first ← Closed.Automatic.extract (stage false) roles
+  let second ← Closed.Automatic.extract (stage true) roles
+  let accepted ← check graph first.certificate second.certificate d rank
+  return ⟨first, second, accepted⟩
+
+private def input (limit : Nat) : Tuple model.Value inputs := pair ⟨limit⟩ ⟨10⟩
+
+private def run (fuel₁ fuel₂ limit : Nat) : Option (List Nat) := do
+  let a ← linked layout
+  let .cons x (.cons y (.cons z (.cons w .nil))) ← a.accepted.runFuel model fuel₁ fuel₂ (input limit)
+  return [x.down, y.down, z.down, w.down]
+
+private def runFirst : Option (List Nat) := do
+  let a ← linked layout
+  let .cons x (.cons y (.cons z (.cons w .nil))) ← a.first.certificate.runFuel model 2 (input 2)
+  return [x.down, y.down, z.down, w.down]
+
+#guard runFirst == some [3, 10, 2, 3]
+#guard rank.check graph
+#guard run 2 3 2 == some [13, 3, 3, 13]
+#guard (run 1 3 2).isNone
+#guard (run 2 2 2).isNone
+#guard run 1 2 1 == some [12, 2, 2, 12]
+-- Both arguments are counts, so a type-only check would allow this swap.
+#guard (linked { layout with route := pair (.tail .head) .head }).isNone
+
+private def certifiedRun :
+    Option {a : Linked //
+      Exec model a.accepted.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ idx, ∃ mid, a.accepted.Observations model
+        (graph.denote model (input 2) a.accepted.demandWellFounded) idx mid (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)} := do
+  let a ← linked layout
+  match result : a.accepted.runFuel model 2 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    have ran := a.accepted.exec_of_runFuel 2 3 (input 2) result
+    return ⟨a, ran, fun idx => a.accepted.observations_of_exec
+      (a.first.laws laws) (a.second.laws laws) (input 2) idx ran⟩
+  | _ => none
+
+#guard certifiedRun.isSome
+
+end Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Tests

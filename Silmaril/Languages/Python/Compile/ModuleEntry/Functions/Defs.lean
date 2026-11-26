@@ -4,6 +4,7 @@ public import Silmaril.Languages.Python.Compile.Closure.Body.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuard.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TextSlice.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleIdentity.Defs
 
@@ -115,8 +116,12 @@ def lowerArguments (scope : Scope) : (source : List (Source.ArgumentKind × Sour
     return ⟨operand.val :: tail.val, .cons operand.property tail.property⟩
   | _ => .error .argumentProfile
 
+def flatTupleElementLiteral? : Source.Expr → Option Core.Module.TupleDispatch.Element
+  | .text points => (Core.Text.ofPoints? points).map .text
+  | source => (tupleScalar? source).map .scalar
+
 inductive FlatTupleItem (scope : Scope) : Source.Expr → Core.Closure.GlobalTupleItem → Prop where
-  | literal {source value} (checked : tupleScalar? source = some value) :
+  | literal {source value} (checked : flatTupleElementLiteral? source = some value) :
       FlatTupleItem scope source (.literal value)
   | read (name : Name) (reference : GlobalReference scope name) :
       FlatTupleItem scope (.name name) (.global name)
@@ -127,7 +132,7 @@ def lowerFlatTupleItem (scope : Scope) : (source : Source.Expr) →
     let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
     return ⟨.global name, .read name reference⟩
   | source =>
-    match checked : tupleScalar? source with
+    match checked : flatTupleElementLiteral? source with
     | some value => .ok ⟨.literal value, .literal checked⟩
     | none => .error (.scalar .expressionProfile)
 
@@ -150,9 +155,11 @@ inductive CallValue (scope : Scope) where
   | scalar (operand : Operand scope)
   | intTrueDiv (numerator divisor : Int)
   | mixedAdd (integer : Int) (floating : F64.Finite)
+  | floatAdd (left right : F64.Finite)
   | float64 (value : F64.Finite)
   | tuple (items : List Core.Closure.GlobalTupleItem)
   | text (value : Core.Text)
+  | textSlice (receiver : Core.Text) (bounds : Core.SliceBounds)
 
 /-- Recognize a decimal token with at most one source unary sign. -/
 def decimalCallLiteral? : Source.Expr → Option (Bool × Nat × Int)
@@ -186,12 +193,19 @@ inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope
   | floatIntAdd {left right integer floating}
       (lhs : DecimalCallLiteral left floating) (rhs : NumericArgument.integer? right = some integer) :
       CallValueTranslation scope (.binary .add left right) (.mixedAdd integer floating)
+  | floatAdd {left right first second}
+      (lhs : DecimalCallLiteral left first) (rhs : DecimalCallLiteral right second) :
+      CallValueTranslation scope (.binary .add left right) (.floatAdd first second)
   | float64 {source value} (literal : DecimalCallLiteral source value) :
       CallValueTranslation scope source (.float64 value)
   | tuple {elements items} (checked : FlatTupleItems scope elements items) :
       CallValueTranslation scope (.tuple elements) (.tuple items)
   | text {points value} (checked : Core.Text.ofPoints? points = some value) :
       CallValueTranslation scope (.text points) (.text value)
+  | textSlice {points start stop step receiver bounds}
+      (text : Core.Text.ofPoints? points = some receiver)
+      (bounded : TextSlice.bounds? start stop step = some bounds) :
+      CallValueTranslation scope (.slice (.text points) start stop step) (.textSlice receiver bounds)
 
 def lowerScalarCallValue (scope : Scope) (source : Source.Expr) :
     Except Error {value // CallValueTranslation scope source value} :=
@@ -209,14 +223,22 @@ def lowerCallValue (scope : Scope) : (source : Source.Expr) →
   | .binary .add left right =>
     match lhs : NumericArgument.integer? left, lowerDecimalCallLiteral? right with
     | some integer, some floating => .ok ⟨.mixedAdd integer floating.val, .intFloatAdd lhs floating.property⟩
-    | _, _ =>
-      match lowerDecimalCallLiteral? left, rhs : NumericArgument.integer? right with
-      | some floating, some integer => .ok ⟨.mixedAdd integer floating.val, .floatIntAdd floating.property rhs⟩
-      | _, _ => lowerScalarCallValue scope (.binary .add left right)
+    | _, rightFloat =>
+      match lowerDecimalCallLiteral? left, rightFloat, rhs : NumericArgument.integer? right with
+      | some first, some second, _ => .ok ⟨.floatAdd first.val second.val, .floatAdd first.property second.property⟩
+      | some floating, none, some integer => .ok ⟨.mixedAdd integer floating.val, .floatIntAdd floating.property rhs⟩
+      | _, _, _ => lowerScalarCallValue scope (.binary .add left right)
   | .text points =>
     match checked : Core.Text.ofPoints? points with
     | some value => .ok ⟨.text value, .text checked⟩
     | none => .error (.scalar .expressionProfile)
+  | .slice (.text points) start stop step =>
+    match text : Core.Text.ofPoints? points with
+    | none => .error (.scalar .expressionProfile)
+    | some receiver =>
+      match bounded : TextSlice.bounds? start stop step with
+      | some bounds => .ok ⟨.textSlice receiver bounds, .textSlice text bounded⟩
+      | none => .error (.scalar .expressionProfile)
   | source =>
     match lowerDecimalCallLiteral? source with
     | some literal => .ok ⟨.float64 literal.val, .float64 literal.property⟩
@@ -578,14 +600,40 @@ def listConstructionTest? (scope : Scope) : (statement : Source.Stmt) →
     | none => none
   | _ => none
 
+inductive TextSliceGuardTranslation (scope : Scope) : Source.Stmt → TextSlice.Guard → Prop where
+  | conditional {left right lhs rhs call name points message}
+      (first : TextSlice.OperandTranslation scope left lhs) (second : TextSlice.OperandTranslation scope right rhs)
+      (sliced : (lhs.bounds.isSome || rhs.bounds.isSome) = true)
+      (constructor : CallExpression call name [(.positional, .text points)])
+      (reference : GlobalReference scope name) (checked : Core.Text.ofPoints? points = some message) :
+      TextSliceGuardTranslation scope
+        (.if_ (.unary .not_ (.comparison left [(.eq, right)])) [.raise_ (some call) none] []) ⟨lhs, rhs, name⟩
+
+def textSliceGuard? (scope : Scope) : (statement : Source.Stmt) →
+    Option {guard // TextSliceGuardTranslation scope statement guard}
+  | .if_ (.unary .not_ (.comparison left [(.eq, right)])) [.raise_ (some call) none] [] => do
+    let lhs ← TextSlice.operand? scope left
+    let rhs ← TextSlice.operand? scope right
+    let ⟨(name, [(.positional, .text points)]), constructor⟩ ← callExpression? call | none
+    let reference ← globalReference? scope name
+    if sliced : (lhs.val.bounds.isSome || rhs.val.bounds.isSome) = true then
+      match checked : Core.Text.ofPoints? points with
+      | some _ => some ⟨⟨lhs.val, rhs.val, name⟩,
+          .conditional lhs.property rhs.property sliced constructor reference checked⟩
+      | none => none
+    else none
+  | _ => none
+
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
+  | bindText (name : Name) (reference : GlobalReference scope name) (value : Core.Text)
   | bindTuple (name : Name) (reference : GlobalReference scope name) (items : List Core.Closure.GlobalTupleItem)
   | assertNot (condition : Operand scope)
   | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
   | assertBoolIdentity (test : BoolIdentityTest scope)
   | assertListConstruction (test : ListConstructionTest scope)
   | assertTupleChain (test : TupleChainTest scope)
+  | textSliceGuard (test : TextSlice.Guard)
   /-- Read the current module binding once at this assertion. -/
   | assertVarNames (receiver : Name) (reference : GlobalReference scope receiver) (needle : List UInt32)
   | define (name : Name) (reference : GlobalReference scope name) (child : ScopeTree)
@@ -609,6 +657,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
   | scalar {index statement rest actions tail}
       (first : ModuleEntry.Translation tree.scope [statement] actions) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
+  | bindText {index statement rest name points reference value tail}
+      (binding : Binding statement name (.text points)) (checked : Core.Text.ofPoints? points = some value)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.bindText name reference value :: tail)
   | bindTuple {index statement rest name elements reference items tail}
       (binding : Binding statement name (.tuple elements)) (checked : FlatTupleItems tree.scope elements items)
       (remaining : Translation tree index rest tail) :
@@ -633,6 +685,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (checked : TupleChainTranslation tree.scope statement test)
       (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.assertTupleChain test :: tail)
+  | textSliceGuard {index statement test rest tail}
+      (checked : TextSliceGuardTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.textSliceGuard test :: tail)
   | omittedIf {index statement value rest tail}
       (first : ClosedGuard.Omitted statement value) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) tail
@@ -750,6 +806,16 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     else if let some test := tupleChainTest? tree.scope statement then
       let tail ← lowerPlan tree index rest
       return ⟨.assertTupleChain test.val :: tail.val, .assertTupleChain test.property tail.property⟩
+    else if let some test := textSliceGuard? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.textSliceGuard test.val :: tail.val, .textSliceGuard test.property tail.property⟩
+    else if let some ⟨(name, .text points), binding⟩ := binding? statement then
+      let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
+      match checked : Core.Text.ofPoints? points with
+      | some value =>
+        let tail ← lowerPlan tree index rest
+        return ⟨.bindText name reference value :: tail.val, .bindText binding checked tail.property⟩
+      | none => throw (.scalar .expressionProfile)
     else if let some ⟨(name, .tuple elements), binding⟩ := binding? statement then
       let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
       let items ← lowerFlatTupleItems tree.scope elements

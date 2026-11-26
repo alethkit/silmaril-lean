@@ -361,6 +361,7 @@ evaluates entry outside its budget and needs `b + 1` header visits.
 
 ```lean
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Reindex.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Thms
 
 open Silmaril.Isotope.Institution.Observational (Observation ssaBeh)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution.Fiber (inputModel)
@@ -465,6 +466,29 @@ example {targets : Checked.Phi.Targets} (accepted : Table.lowerChecked dependent
     (Generic.Fuel.decodeArgs model [word] packet).map fun fields => Silmaril.SSA.RVSDG.Tuple.get fields .head
   pure (machine.map (List.map BitVec.toInt), typed.map BitVec.toInt)
 -- some (some [7], some 7)
+
+#eval do
+  let identify : Rows.InputMap 3 := fun slot => if slot = 2 then 0 else slot
+  let (rtl, ssa) ← Table.lowerChecked (Table.mapCaptures identify dependent)
+  let input := bank 5 2 6
+  let mem := Memory.ofList 4 [29, 71, 53, 11]
+  let machine := (rtl.runMain 13 0 (words input) mem).returnedValues?
+  let typed := (Generic.Fuel.run model (inputEnv model input) 3 ssa).bind fun (_, packet) =>
+    (Generic.Fuel.decodeArgs model [word] packet).map fun fields => Silmaril.SSA.RVSDG.Tuple.get fields .head
+  pure (machine.map (List.map BitVec.toInt), typed.map BitVec.toInt)
+-- some (some [6], some 6)
+
+#eval do
+  let contract : Rows.InputMap 3 2 := fun slot => if slot = 1 then 1 else 0
+  let (rtl, ssa) ← Table.Width.lowerChecked contract dependent
+  let input : WordTuple 2 := .cons (5 : Word) (.cons (2 : Word) .nil)
+  let mem := Memory.ofList 4 [29, 71, 53, 11]
+  let machine := (rtl.runMain 13 0 (words input) mem).returnedValues?
+  let typed := (Generic.Fuel.run model (inputEnv model input) 3 ssa).bind fun (_, packet) =>
+    (Generic.Fuel.decodeArgs model [word] packet).map fun fields => Silmaril.SSA.RVSDG.Tuple.get fields .head
+  let params := (rtl.func? 0).map (fun fn : Silmaril.Machine.RTL.SSA.Func _ => fn.sig.params)
+  pure (params, machine.map (List.map BitVec.toInt), typed.map BitVec.toInt)
+-- some (some 2, some [6], some 6)
 ```
 
 The two results are `6 - 5 = 1` and `1 + 2 = 3`, so the bank enters as
@@ -598,6 +622,169 @@ the fixed point on both targets. The original machine returns 3 at
 `(1, 1, 0)`. A typed table whose entry uses only raw captures is refused
 before and after permutation. [Checked regression][table-regression]
 
+### Identifying dependent-preheader captures
+
+`Rows.InputMap` maps old word slots to new slots in the same typed interface.
+`Table.mapCaptures` applies it to the dependent producer reads and entry
+column. The carried bank retains its width and occurrence routing. In the
+example, old slots 0 and 2 both read new slot 0, leaving new slot 2 unused.
+
+`Table.lowerChecked_mapCaptures` proves forward acceptance through the
+ordinary checker. `Table.reemit_mapped_observations` uses that check to
+compare actual RTL and λSSA observations at the pulled valuation, including
+returns with the whole initial memory and genuine divergence. The inverse
+acceptance and global equation laws above apply to permutations.
+
+`Table.mapCaptures_equation_holds_iff` tests the original equation only on
+the image of `InputMap.pull`. The fixture compares two dependent preheaders
+whose first subtractions read `0 - 2` and `2 - 2`, where the numbers name
+capture slots. At `(6, 2, 5)` they originally return 7 and 6. After capture
+identification they agree at every new valuation because pulled slots 0
+and 2 are equal. At new input `(5, 2, 6)` both emitted targets return 6
+with the whole initial memory. At `(1, 0, 42)` both diverge at the fixed
+point. [Checked regression][table-regression]
+
+### Changing the capture width
+
+`Rows.InputMap old new` sends each old slot to a new slot of the same word
+sort. Its second width defaults to the first for the same-width API.
+`InputMap.pull_comp` composes valuation pullbacks. `Table.Width.Source`
+separates capture count from carried-bank width. `Width.mapCaptures`
+renames external reads in both scopes. `Width.headerPort_bank` shows that
+each bank operand still names its original bank position. The producer table
+order and incoming occurrences stay fixed.
+
+`Width.lowerChecked` checks the original table, emits a native function
+at the new arity, and validates that function with the ordinary RTL.SSA
+well-formedness check. `Width.lowerFunc_wellFormed` proves that check
+succeeds for the typed emission. `Width.layout_disjoint` separates the
+capture prefix, carried parameters, preheader results, and header
+producer registers. Only the capture width changes. Entry and feedback
+still pass one complete carried bank to the header.
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Thms
+
+open Silmaril.Machine.SeaOfNodes.Loop.RTL
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy)
+open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
+
+example {entrySigs sigs : List (List PortTy)}
+    (source : SourceWithEntry 3 entrySigs sigs) (mapping : InputMap 3 2)
+    {before : Checked.Phi.Targets} (accepted : Table.lowerChecked source = some before) :
+    Table.Width.lowerChecked mapping source =
+      some (Table.Width.lowerRTL (Table.Width.mapCaptures mapping source),
+        Generic.lower (Table.Width.mapCaptures mapping source)) :=
+  Table.Width.lowerChecked_of_accepted mapping accepted
+```
+
+`Width.denote_mapCaptures` proves native partial-result agreement under
+pullback, and `Width.equation_on_image` compares the original equation
+on just the pulled valuations. `Width.lambda_return_iff` and
+`Width.lambda_diverges_iff` give exact λSSA returns with unchanged memory
+and actual divergence for checked re-emissions. The three-to-two
+regression calls both targets and returns 6 with the initial memory. Its
+RTL runner rejects the old three-argument call. For input `(1, 0)` the
+λSSA proof observes divergence and RTL reaches a three-instruction
+machine cycle. The separate three-to-four regression routes the third
+capture to slot four and checks the emitted entry and header registers
+and both target returns. [Checked regression][table-regression]
+
+`Width.checked_entry_packet` starts the actual resized RTL function at
+the new arity and matches the native initial bank at the pulled inputs.
+`Width.header_producers` executes the operations emitted by
+`Diamond.RTL.emitOpsWith`, taking one instruction per producer and
+establishing the word and guard reads for `Width.header_terminator`.
+`Width.header_activation` includes the branch. It rebinds the whole
+feedback tuple from the predecessor frame and restores the bank
+invariant, or reaches the exit and returns the exact word on the next
+instruction. The full memory is preserved on both paths.
+
+For a native return after `k` backedges, the minimum RTL fuel is
+`Width.rtlFuel entrySigs sigs k`. It counts the entry producers and jump,
+`k + 1` visits of the header producers and branch, and one return
+instruction. `Width.rtl_runMain_fuel_iff` accepts arbitrary RTL fuel.
+`Width.rtl_runMain_backedges_iff` uses the corresponding native bound
+directly, as in this three-to-four call.
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy model)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader
+
+example {entrySigs sigs : List (List PortTy)} {source : SourceWithEntry 3 entrySigs sigs}
+    {mapping : InputMap 3 4} {targets : Checked.Phi.Targets}
+    (accepted : Table.Width.lowerChecked mapping source = some targets)
+    (input : WordTuple 4) (mem : Memory) (k : Nat) (word : Word)
+    (observed : source.evalBackedges model k (mapping.pull input) = some word) :
+    targets.1.runMain (Table.Width.rtlFuel entrySigs sigs k) 0 (words input) mem =
+      .returned [word] mem :=
+  (Table.Width.rtl_runMain_backedges_iff accepted input mem mem [word] k).mpr
+    ⟨word, observed, rfl, rfl⟩
+```
+
+`Width.rtl_return_iff` and `Width.rtl_no_finite_return_iff` compare unbounded
+finite observations at the pulled valuation. `Width.rtl_divOracle_iff`
+uses productive machine backedges to prove actual divergence from native
+undefinedness. The constrained input and opcode admission is the same
+checked pure, single-header dependent-preheader profile. The regressions
+cover zero, one, and two backedges, RTL fuel one instruction below a
+return, and genuinely nonreturning inputs.
+
+### Two feedback successor occurrences
+
+`Width.Dispatch.Source` shares one admitted dependent preheader, one pure
+header producer table, the continue guard, and the exit projection.
+Its alternate column is checked by the ordinary row recognizer as a
+second native graph projection. An independent typed word selects a
+column on a continuing visit. Each projection still has the existing
+explicit-Φ view, and `Dispatch.phi_feedback` identifies its latch with
+the corresponding column. [Resized entry and header proofs][resized-rtl]
+
+The RTL ABI uses the mapped capture count and the original bank width.
+The header branches to a dispatcher whose successors both target the
+header. Slot 0 carries the nonzero selector's column and slot 1 carries
+the zero selector's column. `Dispatch.checked_activation` proves the
+fetched terminator, the slot selected by the actual frame read, and
+all operand values before rebinding. The original native step at the
+pulled captures selects the same occurrence and whole packet. The
+transfer and return preserve all memory.
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Thms
+
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader
+
+example {entrySigs sigs : List (List PortTy)} (mapping : InputMap 3 2)
+    (source : Table.Width.Dispatch.Source 3 3 entrySigs sigs) {a b : Checked.Phi.Targets}
+    (primary : Table.lowerChecked (source.row true) = some a)
+    (other : Table.lowerChecked (source.row false) = some b) :
+    Table.Width.Dispatch.lowerChecked mapping source =
+      some (Table.Width.Dispatch.lowerRTL (Table.Width.Dispatch.mapCaptures mapping source)) :=
+  Table.Width.Dispatch.lowerChecked_of_accepted mapping source primary other
+```
+
+`Dispatch.rtl_runMain_fuel_iff` and `Dispatch.rtl_return_iff` relate
+independent finite return witnesses. A return after `k` feedback transfers
+uses `entrySigs.length + 1 + (sigs.length + 2) * (k + 1)` instructions.
+A visit ends with either the dispatch transfer or the return instruction.
+The three-to-two regression observes different packets at the same
+header, rejects a duplicate producer in the alternate row, and checks
+returns after one or two feedbacks on nonempty memory.
+[Checked regression][table-regression]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Regression \
@@ -629,3 +816,5 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 [simple-latch]: https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter08/src/main/java/com/seaofnodes/simple/GraphEvaluator.java#L93-L110
 [preheader-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Regression.lean
 [table-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Regression.lean
+
+[resized-rtl]: https://github.com/hiloopai/silmaril-lean/pull/4456

@@ -46,6 +46,15 @@ theorem addFinite_none_iff {left right : F64.Finite} {lhs rhs : ℚ}
   · simp [addFinite?, leftValue, rightValue, F64.Finite.ofRaw?, finite.mpr below, not_le_of_gt below]
   · simp [addFinite?, leftValue, rightValue, F64.Finite.ofRaw?, mt finite.mp below, le_of_not_gt below]
 
+theorem addFinite_ok_iff {left right result : F64.Finite} {lhs rhs : ℚ}
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs) :
+    addFinite? left right = some result ↔ |lhs + rhs| < overflowThreshold ∧
+      result.val = F64.ofBits (roundSigned (sumNegative left right (lhs + rhs)) |lhs + rhs|) := by
+  have finite := rounded_finite_iff (sumNegative left right (lhs + rhs)) (abs_nonneg (lhs + rhs))
+  by_cases below : |lhs + rhs| < overflowThreshold
+  · simp [addFinite?, leftValue, rightValue, F64.Finite.ofRaw?, finite.mpr below, below, Subtype.ext_iff, eq_comm]
+  · simp [addFinite?, leftValue, rightValue, F64.Finite.ofRaw?, mt finite.mp below, below]
+
 theorem addFinite_nearestEven {left right result : F64.Finite} {lhs rhs : ℚ}
     (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs)
     (added : addFinite? left right = some result) :

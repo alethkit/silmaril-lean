@@ -49,12 +49,15 @@ structure ArmOverwrite (args : List ValueSort) where
 /-- Each Region input occurrence has its own overwrite and reader evidence. -/
 abbrev Candidate (args : List ValueSort) := Slot → ArmOverwrite args
 
+/-- Check one closed path from the common entry Store to its export. -/
+def rewriteArm (store : PrefixStore args) (arm : Memory.Graph args) (witness : ArmOverwrite args)
+    (input : Tuple (Val cells) args) : Option (Memory.Graph args) :=
+  Memory.DeadStore.rewrite (store.prepend arm) ⟨1, witness.storeVersion + 1⟩
+    ⟨store.address, witness.readers⟩ input
+
 def rewriteSlot (source : Prefixed args) (candidate : Candidate args) (input : Tuple (Val cells) args)
     (arrival : Slot) : Option (Memory.Graph args) :=
-  let witness := candidate arrival
-  let arm := source.diamond.arm (source.diamond.merge.predecessor arrival)
-  Memory.DeadStore.rewrite (source.store.prepend arm) ⟨1, witness.storeVersion + 1⟩
-    ⟨source.store.address, witness.readers⟩ input
+  rewriteArm source.store (source.diamond.arm (source.diamond.merge.predecessor arrival)) (candidate arrival) input
 
 /-- Assemble the two accepted arm tables in their original Region slots. -/
 def rewriteUsing (source : Prefixed args) (check : Slot → Option (Memory.Graph args)) :

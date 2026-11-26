@@ -35,9 +35,9 @@ abbrev KeywordLexical (block : LexicalBlock) (keywords : List PlainKeywordParame
 /-- The evidence for a single definition site, including the child's
 whole-block binder order and the independently selected free references. -/
 structure Site (parent : LexicalBlock) (keywords : List PlainKeywordParameter := [])
-    (varargs : Option String := none) (kwargs : Option String := none) where
+    (varargs : Option String := none) (kwargs : Option String := none) (scope : Scope := .local) where
   name : String
-  target : name ∈ parent.owned
+  target : name ∈ (match scope with | .local => parent.owned | .global => parent.globals)
   parameters : Parameters
   source : Statement
   binders : List String
@@ -50,20 +50,20 @@ structure Site (parent : LexicalBlock) (keywords : List PlainKeywordParameter :=
   defaults : List PlainPositionalDefault
   lexical : Lexical.Elaborates parent parameters.optional defaults
 
-@[expose] def Site.block {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) : LexicalBlock :=
+@[expose] def Site.block {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) : LexicalBlock :=
   ⟨parameterNames site.parameters keywords varargs kwargs ++ site.locals, parent.owned ++ parent.enclosing, parent.globals⟩
 
-@[expose] def Site.sourceSignature {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) : SourceSignature :=
+@[expose] def Site.sourceSignature {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) : SourceSignature :=
   { site.parameters.source with keywordOnly := keywords.map PlainKeywordParameter.source, varargs := varargs, kwargs := kwargs }
 
-@[expose] def Site.statement {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) : Statement :=
+@[expose] def Site.statement {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) : Statement :=
   .define site.name site.sourceSignature site.source
 
-@[expose] def Site.declaration {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) : Declaration :=
+@[expose] def Site.declaration {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) : Declaration :=
   let signature := site.parameters.signature (site.defaults.map PlainPositionalDefault.value)
   ⟨{ signature with
       keywordOnly := keywords.map PlainKeywordParameter.resolved
@@ -71,26 +71,26 @@ structure Site (parent : LexicalBlock) (keywords : List PlainKeywordParameter :=
       kwargs := kwargs.map fileSlot },
     site.locals.map fileSlot, site.free, site.body.code⟩
 
-@[expose] def Site.defaultSources {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) : List (String × Expr) :=
+@[expose] def Site.defaultSources {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) : List (String × Expr) :=
   match keywords with
   | [] => site.parameters.optional
   | first :: rest => site.parameters.optional ++ (keywordDefaults (first :: rest)).map (fun item => (item.name, item.source))
 
-@[expose] def Site.defaultKeys {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) : List Binding :=
+@[expose] def Site.defaultKeys {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) : List Binding :=
   site.defaultSources.map (fileSlot ∘ Prod.fst)
 
-@[expose] def Site.defaultsInOrder {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) : List PlainPositionalDefault :=
+@[expose] def Site.defaultsInOrder {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) : List PlainPositionalDefault :=
   match keywords with
   | [] => site.defaults
   | first :: rest => site.defaults ++ keywordDefaults (first :: rest)
 
 /-- The parent reads defaults at the definition site and supplies the
 body's capture demands in first-occurrence order. -/
-@[expose] def Site.reads {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) : List Binding :=
+@[expose] def Site.reads {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) : List Binding :=
   site.defaultsInOrder.flatMap PlainPositionalDefault.reads ++ site.free.map Functions.FreeName.source
 
 abbrev Emissions := List (DeclarationId × Declaration)

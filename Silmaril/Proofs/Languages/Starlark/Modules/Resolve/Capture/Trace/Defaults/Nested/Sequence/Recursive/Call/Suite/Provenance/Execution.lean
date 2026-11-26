@@ -9,7 +9,7 @@ public section
 
 namespace Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance
 
-open Silmaril.Languages.Starlark (Binding)
+open Silmaril.Languages.Starlark (Binding Scope)
 open Silmaril.Languages.Starlark.Modules (fileSlot)
 open Silmaril.Languages.Starlark.Modules.Resolve
 open Silmaril.Languages.Starlark.Modules.Resolve.Assignment (LexicalBlock)
@@ -18,7 +18,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Capture.RootCall (DistinctOwned
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence (PreservesDeclarations)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive (Site Emissions site_slots lexical_defaults default_layout)
-open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call (BodyEntry)
+open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call (BodyEntry BindingRule PackRule RunsActual)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite (Runs)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance
 open Silmaril.Languages.Starlark.Functions
@@ -45,17 +45,17 @@ private theorem ready_updated {block : LexicalBlock} {program : Program} {availa
 
 private abbrev Correspondence (program : Program) (available : List DeclarationId) : Prop :=
   ∀ {block : LexicalBlock} {locals : Locals block} {source : Statement} {seed final : Program}
-    {code : ResolvedBody} {emissions : Emissions},
-    Elaborates block locals source seed code final emissions → PreservesDeclarations final program →
+    {code : ResolvedBody} {emissions : Emissions} {returned : Option (Entry block)},
+    Elaborates block locals source seed code final emissions returned → PreservesDeclarations final program →
     List.Subset (emissions.map Prod.fst) available → Ready program available locals →
     ∀ {before after : List Binding} {free : List FreeName},
     Selects block (before ++ code.reads ++ after) free →
     ∀ (state : State) {floor : Nat}, Body.Frame block free floor state → DistinctOwned state → Live locals state →
     ∃ out, Runs block state source code.code out ∧ Body.Frame block free floor (finishState out) ∧
-      Body.Keeps floor state (finishState out) ∧ Exec program available state code.code out
+      Body.Keeps floor state (finishState out) ∧ Exec program available state code.code out ∧ Returns returned out
 
-private theorem activate_frame {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent formals varargs kwargs) (caller defining : State)
+private theorem activate_frame {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope) (caller defining : State)
     (captures : List Capture) (installed : Installs defining site.free captures)
     (live : Body.CaptureCells caller captures) (assigned : List (Binding × Value)) :
     Body.Frame site.block site.free caller.heap.size (activate caller site.declaration captures assigned) :=
@@ -76,15 +76,22 @@ private theorem runs_guarded {commands : List Command} {linked : Program} {resol
     Correspondence resolved.program available := by
   induction available using withoutDeclaration_induction with
   | step available smaller =>
-    intro block locals source seed final code emissions profile table guarded ready before after free stateSelection state floor frame distinct live
+    intro block locals source seed final code emissions returned profile table guarded ready before after free stateSelection state floor frame distinct live
     let program := resolved.program
     induction profile generalizing before after free state with
     | plain ordinary =>
       obtain ⟨out, trace, nextFrame, kept, exec, _⟩ :=
         Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.runs
           ordinary program table available stateSelection state frame
-      exact ⟨out, .plain trace, nextFrame, kept, exec⟩
-    | @assign block locals name source rhs reads entry rest seed tail final emissions owned operand tracked _ ih =>
+      exact ⟨out, .plain trace, nextFrame, kept, exec, trivial⟩
+    | returnLocal owned _ tracked =>
+      obtain ⟨address, defining, ran, record⟩ := evaluated_local live tracked owned
+      have evaluates : ExecExpr program available state (Leaf.readOperand (fileSlot _)) (.ok (.function address) state) :=
+        .evaluates (calls := fun _ _ _ => False) (fun _ _ _ impossible => impossible.elim)
+          (Body.evaluates_with _ _ _ ran)
+      exact ⟨.ok (.returned (.function address)) state, .plain (.straight (.ret ran)), frame,
+        ⟨rfl, fun _ _ _ found => found⟩, .returnExpr evaluates, ⟨address, defining, rfl, record⟩⟩
+    | @assign block locals name source rhs reads entry rest seed tail final emissions returned owned operand tracked _ ih =>
       have selection : Selects block ((before ++ reads) ++ tail.reads ++ after) free := by
         simpa only [List.append_assoc] using stateSelection
       obtain ⟨result, trace, kept⟩ := Body.operand_total operand state
@@ -96,7 +103,7 @@ private theorem runs_guarded {commands : List Command} {linked : Program} {resol
       | error error stopped =>
         have sourceTrace := Runs.assignments (leading := [(name, source)]) (code := [(name, rhs)])
           (rest := rest) (tail := tail.code) (.failed trace) (out := .error error stopped) (fun _ no => nomatch no)
-        exact ⟨_, sourceTrace, reached, trim_keep kept, .seqError (.assignExpr evaluates)⟩
+        exact ⟨_, sourceTrace, reached, trim_keep kept, .seqError (.assignExpr evaluates), by cases returned <;> trivial⟩
       | ok value middle =>
         have nextLive := assigned_live tracked trace kept live distinct reached owned
         have nextReady : Ready program available (setLocal locals name entry) :=
@@ -107,13 +114,13 @@ private theorem runs_guarded {commands : List Command} {linked : Program} {resol
         have ⟨written, keptWrite⟩ := Body.written_frame owned value reached
         have retained := Body.keeps_trans (trim_keep kept) keptWrite
         have nextDistinct : DistinctOwned (middle.write (fileSlot name) value) := distinct_of_slots retained.1 distinct
-        obtain ⟨out, tailTrace, finalFrame, last, tailExec⟩ :=
+        obtain ⟨out, tailTrace, finalFrame, last, tailExec, resultRecord⟩ :=
           ih table guarded nextReady selection _ written nextDistinct nextLive
         have sourceTrace := Runs.assignments (leading := [(name, source)]) (code := [(name, rhs)])
           (rest := rest) (tail := tail.code) (.cons trace .nil)
           (fun _ same => by cases same; exact tailTrace)
-        exact ⟨out, sourceTrace, finalFrame, Body.keeps_trans retained last, .seq (.assignExpr evaluates) tailExec⟩
-    | @define block locals rest seed childTable tail final descendants later formals varargs kwargs site kw child suffix _ ih =>
+        exact ⟨out, sourceTrace, finalFrame, Body.keeps_trans retained last, .seq (.assignExpr evaluates) tailExec, resultRecord⟩
+    | @define block locals rest seed childTable tail final descendants later returned formals varargs kwargs site kw child suffix _ ih =>
       have selectedDefinition : Selects block (before ++ site.reads ++ (tail.reads ++ after)) free := by
         simpa only [List.append_assoc] using stateSelection
       have selectedTail : Selects block ((before ++ site.reads) ++ tail.reads ++ after) free := by
@@ -140,7 +147,7 @@ private theorem runs_guarded {commands : List Command} {linked : Program} {resol
         have activeFrame := activate_frame site caller defining captures installed liveCells assigned
         have childSelection : Selects site.block ([] ++ site.body.reads ++ []) site.free := by
           simpa [Site.block] using site.selects
-        obtain ⟨out, trace, _, kept, exec⟩ :=
+        obtain ⟨out, trace, _, kept, exec, _⟩ :=
           smaller childTable.size permitted child childLinked childGuard (fun _ _ no => nomatch no)
             childSelection _ activeFrame (RootCall.activation_distinct _ _ _ _) (empty_live _)
         exact ⟨out, trace, exec, Body.returned_keeps caller site.declaration captures assigned out kept⟩
@@ -159,42 +166,42 @@ private theorem runs_guarded {commands : List Command} {linked : Program} {resol
       have ⟨reached, kept⟩ := Nested.site_result_frame_for site.target lexical frame step
       cases result with
       | error error stopped =>
-        exact ⟨_, .define receipts step (out := .error error stopped) (fun _ no => nomatch no), reached, kept, .seqError exec⟩
+        exact ⟨_, .define receipts step (out := .error error stopped) (fun _ no => nomatch no), reached, kept, .seqError exec, by cases returned <;> trivial⟩
       | ok flow installed =>
         have next : flow = .next := by cases step; rfl
         subst flow
         have nextDistinct : DistinctOwned installed := distinct_of_slots kept.1 distinct
-        obtain ⟨out, trace, finalFrame, last, tailExec⟩ :=
+        obtain ⟨out, trace, finalFrame, last, tailExec, resultRecord⟩ :=
           ih table tailGuard nextReady selectedTail installed reached nextDistinct
             (installed_live site kw _ receipts cells step live distinct frame)
         exact ⟨out, .define receipts step (fun _ same => by cases same; exact trace),
-          finalFrame, Body.keeps_trans kept last, .seq exec tailExec⟩
-    | @invoke block locals rest seed tail final emissions call entry tracked _ ih =>
+          finalFrame, Body.keeps_trans kept last, .seq exec tailExec, resultRecord⟩
+    | @invoke block locals rest seed tail final emissions returned call entry tracked _ ih =>
       have selectedTail : Selects block ((before ++ call.reads) ++ tail.reads ++ after) free := by
         simpa only [List.append_assoc] using stateSelection
       obtain ⟨found, permitted, enter⟩ := ready call.callee entry tracked
       obtain ⟨address, defining, callee, ⟨record⟩⟩ := evaluated_local live tracked call.calleeOwned
       obtain ⟨result, ran, exec, _, kept⟩ :=
         Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.runs
-          entry.site _ checked entry.id found available permitted enter callee record call.operands call.keywords call.star
+          entry.site _ checked entry.id found available permitted enter callee record call.operands call.keywords call.star call.mapping
       have reached := Body.frame_preserved frame kept
       cases result with
       | error error stopped =>
-        exact ⟨_, .invoke (star := call.star) ran (fun _ _ child => child) (out := .error error stopped) (fun _ _ no => nomatch no),
-          reached, trim_keep kept, .seqError (.assignExpr exec)⟩
-      | ok value returned =>
+        exact ⟨_, .invoke (star := call.star) (mapping := call.mapping) ran (fun _ _ child => child) (out := .error error stopped) (fun _ _ no => nomatch no),
+          reached, trim_keep kept, .seqError (.assignExpr exec), by cases returned <;> trivial⟩
+      | ok value callerState =>
         have nextReady := ready_updated ready call.destination none (fun _ no => nomatch no)
-        have returnedDistinct : DistinctOwned returned := distinct_of_slots kept.1 distinct
+        have returnedDistinct : DistinctOwned callerState := distinct_of_slots kept.1 distinct
         have ⟨written, keptWrite⟩ := Body.written_frame call.destinationOwned value reached
         have retained := Body.keeps_trans (trim_keep kept) keptWrite
-        have nextDistinct : DistinctOwned (returned.write (fileSlot call.destination) value) :=
+        have nextDistinct : DistinctOwned (callerState.write (fileSlot call.destination) value) :=
           distinct_of_slots retained.1 distinct
         have nextLive := write_live (name := call.destination) (entry := none) value returnedDistinct
           (keeps_live live kept) (fun _ no => nomatch no)
-        obtain ⟨out, trace, finalFrame, last, tailExec⟩ :=
+        obtain ⟨out, trace, finalFrame, last, tailExec, resultRecord⟩ :=
           ih table guarded nextReady selectedTail _ written nextDistinct nextLive
-        exact ⟨out, .invoke (star := call.star) ran (fun _ _ child => child) (fun _ _ same => by cases same; exact trace),
-          finalFrame, Body.keeps_trans retained last, .seq (.assignExpr exec) tailExec⟩
+        exact ⟨out, .invoke (star := call.star) (mapping := call.mapping) ran (fun _ _ child => child) (fun _ _ same => by cases same; exact trace),
+          finalFrame, Body.keeps_trans retained last, .seq (.assignExpr exec) tailExec, resultRecord⟩
 
 theorem runs {block : LexicalBlock} {source : Statement} {seed final : Program}
     {code : ResolvedBody} {emissions : Emissions} (profile : Elaborates block empty source seed code final emissions)
@@ -206,12 +213,57 @@ theorem runs {block : LexicalBlock} {source : Statement} {seed final : Program}
     ∃ out, Runs block state source code.code out ∧ Body.Frame block free floor (finishState out) ∧
       Body.Keeps floor state (finishState out) ∧ Exec resolved.program available state code.code out ∧
       denoteBody resolved.program available code.code state = out := by
-  obtain ⟨out, trace, lastFrame, kept, exec⟩ :=
+  obtain ⟨out, trace, lastFrame, kept, exec, _⟩ :=
     runs_guarded checked available profile table guarded (fun _ _ no => nomatch no) selected state frame distinct (empty_live _)
   exact ⟨out, trace, lastFrame, kept, exec, (exec_iff_denoteBody _ _ _ _ _).mp exec⟩
 
-theorem runs_activated {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent formals varargs kwargs) {seed final : Program} {emissions : Emissions}
+theorem invoked_value_at {parent block : LexicalBlock} {formals : List PlainKeywordParameter}
+    {varargs kwargs : Option String} {scope : Scope} {site : Site parent formals varargs kwargs scope}
+    {entry : Entry site.block} {bodyRuns : State → Outcome Flow → Prop} {id : DeclarationId} {name : String}
+    {slot : Binding} {Bound : Type} {actuals : State → Outcome Actual → Prop}
+    {binds : BindingRule Bound} {packs : PackRule Bound} {state reached : State} {value : Value}
+    (ran : RunsActual site (fun active out => bodyRuns active out ∧ Returns (some entry) out)
+      block id name slot actuals binds packs state (.ok value reached)) :
+    ValueAt entry value reached := by
+  generalize outcome : (EStateM.Result.ok value reached : Outcome Value) = out at ran
+  cases ran with
+  | calleeError | argumentError | bindingError => cases outcome
+  | @invoked _ _ _ _ _ bodyOut _ _ _ _ _ _ _ body =>
+    have provenance := body.2
+    cases bodyOut with
+    | error => cases outcome
+    | ok flow state =>
+      cases flow <;> try contradiction
+      cases outcome
+      obtain ⟨address, defining, equal, ⟨record⟩⟩ := provenance
+      exact ⟨address, defining, equal, ⟨⟨record.captures, record.defaults, record.frozen,
+        record.length, record.recorded, record.installed, record.live⟩⟩⟩
+
+theorem runs_activated_for {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope) {seed final : Program} {emissions : Emissions}
+    {returned : Option (Entry site.block)}
+    (profile : Elaborates site.block empty site.source seed site.body final emissions returned)
+    {commands : List Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved) (table : PreservesDeclarations final resolved.program)
+    (available : List DeclarationId) (guarded : List.Subset (emissions.map Prod.fst) available)
+    (caller defining : State) (captures : List Capture) (installed : Installs defining site.free captures)
+    (live : Body.CaptureCells caller captures) (assigned : List (Binding × Value)) :
+    let active := activate caller site.declaration captures assigned
+    ∃ out, Runs site.block active site.source site.body.code out ∧
+      Body.Frame site.block site.free caller.heap.size (finishState out) ∧
+      Body.Keeps caller.heap.size active (finishState out) ∧
+      Exec resolved.program available active site.body.code out ∧
+      denoteBody resolved.program available site.body.code active = out ∧ Returns returned out := by
+  have selected : Selects site.block ([] ++ site.body.reads ++ []) site.free := by
+    simpa [Site.block] using site.selects
+  obtain ⟨out, source, reached, kept, exec, resultRecord⟩ :=
+    runs_guarded checked available profile table guarded (fun _ _ no => nomatch no) selected _
+      (activate_frame site caller defining captures installed live assigned)
+      (RootCall.activation_distinct _ _ _ _) (empty_live _)
+  exact ⟨out, source, reached, kept, exec, (exec_iff_denoteBody _ _ _ _ _).mp exec, resultRecord⟩
+
+theorem runs_activated {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope) {seed final : Program} {emissions : Emissions}
     (profile : Elaborates site.block empty site.source seed site.body final emissions)
     {commands : List Command} {linked : Program} {resolved : ResolvedModule}
     (checked : resolve commands linked = .ok resolved) (table : PreservesDeclarations final resolved.program)
@@ -224,9 +276,8 @@ theorem runs_activated {parent : LexicalBlock} {formals : List PlainKeywordParam
       Body.Keeps caller.heap.size active (finishState out) ∧
       Exec resolved.program available active site.body.code out ∧
       denoteBody resolved.program available site.body.code active = out := by
-  have selected : Selects site.block ([] ++ site.body.reads ++ []) site.free := by
-    simpa [Site.block] using site.selects
-  exact runs profile checked table available guarded selected _
-    (activate_frame site caller defining captures installed live assigned) (RootCall.activation_distinct _ _ _ _)
+  obtain ⟨out, source, reached, kept, exec, denoted, _⟩ :=
+    runs_activated_for site profile checked table available guarded caller defining captures installed live assigned
+  exact ⟨out, source, reached, kept, exec, denoted⟩
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance

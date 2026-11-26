@@ -244,7 +244,8 @@ returns no CFG. Successful execution agrees with checked append at the same
 CFG block fuel and in partial denotation. From the checked two-save native
 seed, `run_fromTwo_budget` relates fuel `b + 3` to backedge budget `b`. The
 supported profile is a pure, total single-latch loop with an existing saved
-prefix. The finite driver leaves cut selection and discovery to the caller.
+prefix. `Layout.run` consumes explicit nominations. The opt-in driver below
+discovers those nominations on the current physical layout.
 
 The fixture replays `(5, 1)`, `(6, 2)`, and `(7, 3)`. Origin 7 reads the
 results of both earlier moves at physical cuts `3, 2`, with logical append
@@ -267,6 +268,112 @@ open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Example
 LEAN
 lake env lean -DwarningAsError=true /tmp/gcm-layout-replay.lean
 lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Thms
+```
+
+## Discovering placements on the physical layout
+
+`Replay.Step.Layout.Discovery.discover` starts with an existing canonical
+saved state, such as the checked two-save replay result. It checks the
+typed prefix, the entry and header successor occurrences, the exit, and
+the live header inventory. A failed prefix check returns `.prefix`. A
+shape or inventory outside the admitted profile returns `.shape`. The
+search uses `collect` after initialization, which can also run on a layout
+already certified by `Layout.Invariant`. [Definitions][layout-discovery-defs]
+
+On each current CFG, the default search visits physical preheader cuts in
+ascending order. At each cut it visits surviving origins in current header order
+using the existing candidate enumeration. The first successful `Layout.emit?`
+supplies both the request and its exact emitted state. That check combines
+physical operand availability with the current ordinary and exact incoming
+Φ uses. Each new search uses the updated header and physical slot map.
+This is a greedy local cut policy inside one preheader. It implements the
+input and use constraints from Click §§2.2–2.3 in this fixed-block profile.
+The block and loop-depth ranking in §2.4 belongs to the wider chooser.
+[PLDI ’95 proceedings][paper] · [Theorems][layout-discovery-thms]
+
+`choose?_legal` certifies the selected physical cut. `discover_spec` proves
+every emitted request replays to the exact returned state. The plan's
+`.fixedPoint` excludes every request accepted by `Layout.emit?` on that
+terminal layout. `.bound` means the budget was used up and a further legal
+move still exists. A budget at least the starting live header size suffices
+for a fixed point because each accepted move removes one live identity.
+This is exhaustion after the choices made, within the supported profile.
+
+`discover_append_replay` identifies the exact checked append reference for
+the same identities. The packet theorem transports the certified base's
+logical packets to the emitted layout. The emitted and append CFGs agree
+at common block fuel and in partial denotation. From the checked two-save
+seed, `discover_fromTwo_budget` uses CFG fuel `b + 3` for native backedge
+budget `b`. [Theorems][layout-discovery-thms]
+
+The fixture discovers `(5, 1)`, `(6, 2)`, and `(7, 3)`. The second and third
+requests read values saved by earlier requests. A two-move budget reports
+`.bound`, while three reaches `.fixedPoint` with three surviving
+latch-dependent origins. The fixture checks entry, two feedback packets,
+the exact exit and finite runs. It also exercises both pre-search errors.
+[Example][layout-discovery-example] · [Regression][layout-discovery-regression]
+
+```sh
+lake build --wfail +Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery.Thms \
+  +Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery.Regression
+cat >/tmp/gcm-layout-discovery.lean <<'LEAN'
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery.Example.Defs
+open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery.Example
+#eval observe 2
+#eval observe 3
+#eval refused
+LEAN
+lake env lean -DwarningAsError=true /tmp/gcm-layout-discovery.lean
+lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery.Thms
+```
+
+## Comparing earliest and latest physical cuts
+
+Click's Schedule Early and Schedule Late use operand definitions and exact
+use occurrences to bound the legal blocks (§§2.2–2.3). Section 2.4 chooses
+the most control-dependent block in the shallowest loop nest. Here the
+typed emitter supports cuts within the anonymous entry preheader. Within
+that block, `acceptedCuts` filters all physical prefix cuts through the
+actual checker and emitter for an original identity. `mem_acceptedCuts_iff`
+proves exact membership for a checked layout. This characterization uses
+the accepted set directly, with no interval assumption.
+[PLDI ’95 proceedings][paper] · [Theorems][layout-discovery-thms]
+
+`discoverWith` uses the same transition and bounded rescan for `.earliest`
+and `.latest`. `chooseWith?_extremal` proves the selected cut is smallest
+or largest among the accepted candidates, respectively. At an equal cut,
+both policies use the current header order. The existing `discover` entry
+point keeps earliest-first behavior.
+
+Depth comes from the actual CFG's natural-loop forest. For a checked
+forest with complete dominance, `preheader_depth_eq_zero` proves that no
+natural loop contains the anonymous entry. Every supported cut therefore
+ties at depth zero. `chooseLatest_minimal` then gives the latest physical
+cut among these minimum-depth candidates. This is a local ordering within
+one block. Click's choice between blocks and loop depths stays in the
+separate corridor chooser.
+
+The fixture synthesizes dominance and checks the actual forest. Entry,
+header, and exit have depths `0, 1, 0`. Origin 5 has accepted cuts `1, 2`,
+and the two policies choose different cuts there and in the two subsequent
+dependent moves. Both outputs carry the same entry, feedback, and exit
+packets and agree at common block fuel. `discoverWith_packets` and the
+finite and partial observation laws apply to either policy. When the
+policies choose the same origin order, `discoverWith_reference_eq` gives
+the identical checked append reference, and
+`discoverWith_sameOrigins_run_eq` compares the emitted CFGs directly.
+[Example][layout-discovery-example] · [Regression][layout-discovery-regression]
+
+```sh
+cat >/tmp/gcm-layout-policy.lean <<'LEAN'
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery.Example.Defs
+open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery.Example
+#eval originFiveCuts
+#eval modeledDepths
+#eval observeWith .earliest 3
+#eval observeWith .latest 3
+LEAN
+lake env lean -DwarningAsError=true /tmp/gcm-layout-policy.lean
 ```
 
 [paper]: https://doi.org/10.1145/207110.207154
@@ -292,3 +399,7 @@ lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.
 [layout-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Layout/Thms.lean
 [layout-example]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Layout/Example/Defs.lean
 [layout-regression]: ../../../../Silmaril/Proofs/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Layout/Regression.lean
+[layout-discovery-defs]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Layout/Discovery/Defs.lean
+[layout-discovery-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Layout/Discovery/Thms.lean
+[layout-discovery-example]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Layout/Discovery/Example/Defs.lean
+[layout-discovery-regression]: ../../../../Silmaril/Proofs/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Layout/Discovery/Regression.lean

@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.RedundantTest.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.Frames.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.PacketCases.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Values.Discard.Syntax.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.RedundantSelectedTest
@@ -94,5 +95,121 @@ theorem quoted_packet {Γ L : List (Ty Empty)} (pos : Position L) (table : Finit
       (.let₁ .unit (.br pos.1 (if table (Fin.cases newer (fun _ => older) ∘ order)
         then .inr (.var 0) else .inl (.var 0)))) L :=
   RedundantSelectedTest.quoted_packet pos table order older newer hu hx hy
+
+/-- A selected quote on structural projections reduces at an actual
+constructor frame to its Boolean row. -/
+theorem quote_frameValue {Γ L : List (Ty Empty)} {n : Nat} {X : Ty Empty} {frame : ReplyFrame X}
+    (pos : Position L) (table : Finite.Table n) (slots : Fin n → ReplyFrame.Slot frame)
+    (v : ReplyFrame.Value Γ frame) :
+    E Γ ((selectTerminal pos (Finite.Expr.quote n table) (fun j => (slots j).term) []).elaborate.val.substVars
+      (Tm.singleSubst v.elaborate.val))
+      (.let₁ .unit (.br pos.1 (if table (fun j => ((slots j).read v).1)
+        then .inr (.var 0) else .inl (.var 0)))) L :=
+  RedundantSelectedTest.quote_frameValue pos table slots v
+
+/-- A prefix of typed emits preserves the outward interface. -/
+theorem prependEmits_typed {Γ L : List (Ty Empty)} {r : Region signature.Instr}
+    (emits : List Bool) (hr : ValueBranches Γ r L) : ValueBranches Γ (prependEmits emits r) L :=
+  RedundantSelectedTest.prependEmits_typed emits hr
+
+/-- Select the actual framed branch at a constructor packet, preserving the prefix and its payload. -/
+theorem framed_case_at {Γ L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    (slot : ReplyFrame.Slot frame) (emits : List Bool) (v : ReplyFrame.Value Γ frame)
+    {l r : Region signature.Instr}
+    (hl : ValueBranches [product X unit] l L) (hr : ValueBranches [product X unit] r L) :
+    E Γ ((Region.case (emitPrefix emits slot.term).elaborate.val
+        (Paper.PackedBody.applyPacked l) (Paper.PackedBody.applyPacked r)).substVars
+      (Tm.singleSubst v.elaborate.val))
+      (prependEmits emits ((if (slot.read v).1 then r else l).substVars
+        (Tm.singleSubst (.pair v.elaborate.val (slot.read v).2.val)))) L :=
+  RedundantSelectedTest.framed_case_at slot emits v hl hr
+
+/-- Forward the incoming unit into the new frame and retain the ordered emit prefix. -/
+theorem forwardUnit_at {Γ L : List (Ty Empty)} {X : Ty Empty} {v u : Tm signature.Instr}
+    (emits : List Bool) (hv : Tm.BranchValue Γ v X) (hu : Tm.BranchValue Γ u unit)
+    {r : Region signature.Instr} (hr : ValueBranches [product (product X unit) unit] r L) :
+    E Γ ((prependEmits emits (.let₁ (Term.snd (Φ := signature.Instr) X unit).elaborate.val
+        (Paper.PackedBody.applyPacked r))).substVars (Tm.singleSubst (.pair v u)))
+      (prependEmits emits (r.substVars (Tm.singleSubst (.pair (.pair v u) u)))) L :=
+  RedundantSelectedTest.forwardUnit_at emits hv hu hr
+
+/-- Compare the open case arms after constructor substitution of their
+retained packet. The shared discriminator is evaluated by the original case. -/
+theorem packed_case_congr_at {Γ L : List (Ty Empty)} {X A B : Ty Empty}
+    (a : Term signature.Instr X (coprod A B)) {packet : Tm signature.Instr}
+    (hp : Tm.BranchValue Γ packet X) {l r l' r' : Region signature.Instr}
+    (hl : ValueBranches [product X A] l L) (hr : ValueBranches [product X B] r L)
+    (hl' : ValueBranches [product X A] l' L) (hr' : ValueBranches [product X B] r' L)
+    (left : E (A :: Γ) (l.substVars (Tm.singleSubst (.pair (packet.rename Nat.succ) (.var 0))))
+      (l'.substVars (Tm.singleSubst (.pair (packet.rename Nat.succ) (.var 0)))) L)
+    (right : E (B :: Γ) (r.substVars (Tm.singleSubst (.pair (packet.rename Nat.succ) (.var 0))))
+      (r'.substVars (Tm.singleSubst (.pair (packet.rename Nat.succ) (.var 0)))) L) :
+    E Γ ((Region.case a.elaborate.val (Paper.PackedBody.applyPacked l) (Paper.PackedBody.applyPacked r)).substVars
+        (Tm.singleSubst packet))
+      ((Region.case a.elaborate.val (Paper.PackedBody.applyPacked l') (Paper.PackedBody.applyPacked r')).substVars
+        (Tm.singleSubst packet)) L :=
+  RedundantSelectedTest.packed_case_congr_at a hp hl hr hl' hr' left right
+
+/-- At a constructor packet for the prior case, the new reply can remain
+a variable. Both transported projections read their original values. -/
+theorem framed_case_afterReply_at {Γ L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    (slot : ReplyFrame.Slot frame) (emits : List Bool) (v : ReplyFrame.Value Γ frame)
+    {l r : Region signature.Instr}
+    (hl : ValueBranches [product (product (product X unit) Bit) unit] l L)
+    (hr : ValueBranches [product (product (product X unit) Bit) unit] r L) :
+    let transported := retainSlot (A := Bit) (retainSlot (A := unit) slot.term)
+    let packet := Tm.pair (.pair (v.elaborate.val.rename Nat.succ)
+      ((slot.read v).2.val.rename Nat.succ)) (.var 0)
+    E (Bit :: Γ) ((Region.case (emitPrefix emits transported).elaborate.val
+        (Paper.PackedBody.applyPacked l) (Paper.PackedBody.applyPacked r)).substVars (Tm.singleSubst packet))
+      ((prependEmits emits (.let₁ (priorCaseUnit X).elaborate.val
+        (Paper.PackedBody.applyPacked (if (slot.read v).1 then r else l)))).substVars (Tm.singleSubst packet)) L :=
+  RedundantSelectedTest.framed_case_afterReply_at slot emits v hl hr
+
+/-- Carry a return fact through one new field, with the field left as an open binder. -/
+theorem retain_return_under_binder {Γ : List (Ty Empty)} {X A D : Ty Empty}
+    (t : Term signature.Instr X D) {packet result : Tm signature.Instr}
+    (hp : Tm.BranchValue Γ packet X) (h : ReturnsAt (Γ := Γ) t packet result) :
+    ReturnsAt (Γ := A :: Γ) (Term.seq (.fst X A) t) (.pair (packet.rename Nat.succ) (.var 0))
+      (result.rename Nat.succ) :=
+  RedundantSelectedTest.retain_return_under_binder t hp h
+
+/-- Initialize both return facts from the prior case's constructor packet. -/
+theorem prior_guard_returns {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    (slot : ReplyFrame.Slot frame) (v : ReplyFrame.Value Γ frame) :
+    let (b, u) := slot.read v
+    let packet := Tm.pair v.elaborate.val u.val
+    ReturnsAt (Γ := Γ) (retainSlot (A := unit) slot.term) packet (if b then .inr u.val else .inl u.val) ∧
+      ReturnsAt (Γ := Γ) (Term.snd (Φ := signature.Instr) X unit) packet u.val :=
+  RedundantSelectedTest.prior_guard_returns slot v
+
+/-- Prune the known case under the original packet and forward its unit payload. -/
+theorem framed_prune_at {Γ L : List (Ty Empty)} {X : Ty Empty}
+    (test : Term signature.Instr X Bit) (payload : Term signature.Instr X unit)
+    (emits : List Bool) {packet u : Tm signature.Instr}
+    (hp : Tm.BranchValue Γ packet X) (hu : Tm.BranchValue Γ u unit) (b : Bool)
+    (known : ReturnsAt (Γ := Γ) test packet (if b then .inr u else .inl u))
+    (forward : ReturnsAt (Γ := Γ) payload packet u)
+    {l r : Region signature.Instr}
+    (hl : ValueBranches [product X unit] l L) (hr : ValueBranches [product X unit] r L) :
+    E Γ ((Region.case (emitPrefix emits test).elaborate.val
+        (Paper.PackedBody.applyPacked l) (Paper.PackedBody.applyPacked r)).substVars (Tm.singleSubst packet))
+      ((prependEmits emits (.let₁ payload.elaborate.val
+        (Paper.PackedBody.applyPacked (if b then r else l)))).substVars (Tm.singleSubst packet)) L :=
+  RedundantSelectedTest.framed_prune_at test payload emits hp hu b known forward hl hr
+
+/-- Open the packed unary continuation under its actual binder. The same
+ordered prefix and bound computation surround both continuations. -/
+theorem packed_let_congr_at {Γ L : List (Ty Empty)} {X A : Ty Empty}
+    (emits : List Bool) (a : Term signature.Instr X A) {packet : Tm signature.Instr}
+    (hp : Tm.BranchValue Γ packet X) {r s : Region signature.Instr}
+    (hr : ValueBranches [product X A] r L) (hs : ValueBranches [product X A] s L)
+    (body : E (A :: Γ) (r.substVars (Tm.singleSubst (.pair (packet.rename Nat.succ) (.var 0))))
+      (s.substVars (Tm.singleSubst (.pair (packet.rename Nat.succ) (.var 0)))) L) :
+    E Γ ((prependEmits emits (.let₁ a.elaborate.val (Paper.PackedBody.applyPacked r))).substVars
+        (Tm.singleSubst packet))
+      ((prependEmits emits (.let₁ a.elaborate.val (Paper.PackedBody.applyPacked s))).substVars
+        (Tm.singleSubst packet)) L :=
+  RedundantSelectedTest.packed_let_congr_at emits a hp hr hs body
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.OpenReplay

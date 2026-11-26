@@ -135,24 +135,44 @@ Mixed addition in a positional operand accepts one checked closed integer
 and one signed finite decimal literal in either order. After live callee
 lookup, the runner first rounds the integer to binary64, ties to even.
 Integer conversion overflow raises `OverflowError`. The exact dyadic sum
-of the converted operands is then rounded once. Opposite signs cancel to
-positive zero, and sums on the subnormal grid retain their magnitude bits.
-The core addition rule also preserves the sum of two negative zeros.
-A nonfinite sum stops outside the finite profile. The addition path uses
-the same ordered argument preparation and seeded receipt delivery as the
-division path.
+of the converted operands is then rounded once.
+
+Float–float addition in a positional operand accepts two signed decimal
+literals whose checked conversions produce finite binary64 operands. The
+compiler preserves their source order. Both runners defer the exact dyadic
+sum until argument preparation and round it once to nearest, ties to even.
+Exact cancellation and opposite zero signs produce positive zero. The sum
+of two negative zeros is negative zero, and a sum on the subnormal grid
+retains its magnitude bits and sign. At the overflow midpoint or beyond,
+CPython produces an infinity. Both runners explicitly stop outside the
+finite profile at that operand. A decimal literal conversion that produces
+infinity fails checking. Both addition paths use the existing ordered call
+preparation and seeded receipt delivery.
 
 Line 28 of `test_int_float_primitives.py`, `___assertEqual(5 / 2, 2.5)`,
 completes in isolation in both helper placements. Ordinary and empty-seeded
 execution report the missing helper. The closed integer checker also lowers
 the exact sum in line 1, `___assertEqual(4 + 2, 6)`, to an integer call
 operand. Lines 1, 3 and 5 complete in isolation in both helper placements.
-The unchanged line 2, `___assertTrue(isinstance(4 + 2, int))`, checks.
-With the Boolean helper and stock type descriptors supplied, execution
-reaches the existing unsupported `isinstance(int, int)` case. The first
-rejected compiler prefix is line 7, `___assertEqual(4.0 + 2.0, 6.0)`.
-The full file still reports `expressionProfile`.
-Run the mixed addition differential with
+The first eight unchanged lines complete with `legacyNumericIsinstanceSeed`
+in both helper placements. It installs the stock `float` class in the
+builtin table and the Boolean assertion helper in the selected placement.
+The probes on lines 2, 4, 6 and 8 record exact Boolean `True` before the
+outer helper's `None` receipt. The two mixed sums and the float–float sum
+supply finite binary64 `6.0`. Instance dispatch uses the live module-first
+descriptors. A saved class alias still works after rebinding `float`, and an `int` or `bool`
+mask yields exact `False` before the assertion fails. The checked pairs use
+exact Boolean, integer and finite float values against stock `bool`,
+`int` and `float` classes. Class tuples, arbitrary subclasses, nonclass
+arguments and calling `float` as a constructor are outside this profile.
+
+Ordinary and empty-seeded runs stop at the missing equality helper on
+line 1. The fixed stock profiles reach the missing Boolean assertion
+helper on line 2. Supplying that helper and only the integer and Boolean
+classes leaves the `float` lookup on line 4 undefined. The first
+rejected compiler prefix is line 10, `___assertEqual(4 - 2, 2)`,
+and the full file reports `expressionProfile`.
+Run the binary64 addition differential with
 `python3.13 -I scripts/check-python-mixed-finite-addition.py --upstream /path/to/pinned/rigorous`.
 Run the equality and positional addition differential with
 `python3.13 -I scripts/check-python-finite-numeric-equality.py --upstream /path/to/pinned/rigorous`.
@@ -191,12 +211,61 @@ Stock conversion covers zero arguments or one scalar or text argument.
 Text and Boolean results retain their exact tags. An integer rendered by
 `str` must fit within 640 decimal digits, the minimum enabled CPython
 3.13.5 digit limit. Text helper equality compares code points and a failure
-carries both exact text operands. The text value represents contents.
-Identity tests on text require a separate object model.
+carries both exact text operands.
+
+A module assignment can bind a checked text literal. A name assignment
+reads the live binding and keeps its exact text value across subsequent
+rebinding of the source name. An unsuccessful alias read keeps the
+destination's prior binding. These assignments leave the closure and
+list heaps intact and produce zero receipts. The text carrier represents
+contents. Identity on text aliases and on separately evaluated literals
+requires provenance outside this profile.
+
+The complete unchanged `immutable-alias.py` finishes with the legacy
+equality helper in either stock placement. Each run keeps all six user
+bindings and ten successful helper receipts. The ordinary and empty seeded
+profiles reach the first missing equality helper with `x = 2` and
+`y = 1` still bound.
 
 Run the unchanged conversion pins and CPython 3.13.5 lookup and diagnostic
 controls with
 `python3.13 -I scripts/check-python-text-conversions.py --upstream /path/to/pinned/rigorous`.
+
+A checked module guard of the form `if not (left == right): raise E("message")`
+can compare exact text operands when at least one is a slice. Receivers and
+plain operands are live module names or validated text literals. Bounds and
+step are omitted, `None`, or integer literals with optional unary minus.
+Negative explicit bounds are relative to the code-point length and clip to the direction's
+valid endpoints. A negative step has default stop `-1`, which differs from
+an explicit `-1`. Selection keeps the indices at exact stride offsets from
+the normalized start, in increasing or decreasing order.
+
+The guard evaluates operands from left to right. A reached zero step on
+text raises `ValueError("slice step cannot be zero")` before later operands.
+Equality skips the entire raise arm. Inequality checks the exception name
+and reports a missing name. A reached exception constructor remains outside
+the profile. The checked operation changes neither heap and creates zero
+receipts. It uses code-point indices and exact content equality.
+
+Both runners complete the unchanged `test_string_slices.py` through its
+last comparison with only `a` bound. The pinned replay and CPython 3.13.5
+controls also check clipping, reverse defaults and explicit stops, non-ASCII
+code points, and the residual state after a failed read or zero step.
+
+A positional call operand can use the same slice core with a validated
+literal text receiver and the same literal bounds and step. Both runners
+evaluate the operand after the live callee lookup, within the usual
+left-to-right argument scan. Successful evaluation delivers the exact
+text tag and code points. A reached zero step keeps previous argument
+receipts and stops before later operands or invocation. The operand itself
+leaves both heaps intact and emits zero receipts.
+
+The unchanged `slice1.py` completes all seven equality-helper calls in
+both stock helper placements. Each emits one successful `None` receipt.
+Ordinary and empty seeded execution reach the first missing helper with
+no user bindings or receipts. Live slice receivers in call operands,
+slice assignment and composition remain outside this profile. Live text
+receivers in a slice equality guard use the existing guard rule.
 
 A message-free assertion can use `bool()` or `bool(scalar)` on the left
 of a single `is` or `is not` link. The checker certifies the optional
@@ -296,9 +365,9 @@ same closure heap and follows the descriptor through assignment and stock
 closed origins leave both identity operators undefined in this profile,
 since CPython can share a constant across literal sites.
 
-The opt-in `legacyTupleIdentitySeed` supplies the Boolean `___assertTrue`
-helper. The helper's receipt records `None` on success and
-`AssertionError(False)` on a false result. A failed callee or operand read
+The opt-in `legacyTupleIdentitySeed` supplies the stock `___assertTrue`
+helper. For a Boolean argument, the helper's receipt records `None` on success
+and `AssertionError(False)` on a false result. A failed callee or operand read
 preserves the reached heaps and prior receipts. The exact four-statement
 prefix of `tuple-constructors.py` completes with the stock constructor and
 helper, including the positive identity on line 5. The tuple-chain regression
@@ -324,10 +393,43 @@ out of this conversion. Seeded execution retains the constructor receipt
 and both reached heaps if a later operand fails. Ordinary execution
 retains any reached list on a mask in its explicit namespace.
 
-The six-statement prefix of `tuple-constructors.py` completes with stock
-tuple and the helper in either placement. The text conversion on line 8
-lowers and stops at dispatch. The tuple of text elements on line 9 is the
-first rejected source expression.
+A resolved stock `tuple` descriptor also accepts one checked text value.
+Empty text returns the canonical empty tuple without allocating. Nonempty
+text creates a fresh tuple in the closure heap with one singleton text
+value for each stored Python code point, in order. The checked carrier
+covers U+0000 through U+10FFFF, including lone surrogates represented by
+escapes in Python source. The source adapter passes code points from the
+decoded Python AST. This conversion does not decode bytes, normalize
+text, or segment grapheme clusters.
+
+Checked flat tuple displays and the equality helper accept these text
+elements alongside the existing scalar tags. Text elements compare by
+code-point sequence, and text and scalar elements compare unequal.
+The literal's source site provides no separate identity evidence. When
+a later argument fails, seeded execution preserves the conversion's
+reached heap and receipt, with no outer helper receipt.
+
+The unchanged `tuple-constructors.py` completes in both opt-in
+`legacyTupleIdentitySeed` placements. It reaches the missing equality
+helper in ordinary and empty seeded execution, and the missing stock
+`tuple` in the two legacy helper placements that omit it. The
+CPython 3.13.5 differential also exercises separate fresh conversions,
+constructor aliases, masks, combining marks, a non-BMP point, and
+a lone surrogate.
+
+A checked Boolean equality on two literal Booleans can be lowered to
+a Boolean positional operand. This includes the canonical Boolean result
+of a checked `not` expression, such as `not ()`. A tuple display in a
+positional operand delivers an exact tuple. The live seeded
+`___assertTrue` descriptor tests the contents' nonemptiness for either
+a tuple payload or a tracked tuple reference. A false Boolean retains
+`False` as its assertion payload, and a false tuple retains `()`.
+
+The unchanged `tuple-truth.py` sends `True` and then `(42,)` to the
+existing stock helper in both `legacyTupleIdentitySeed` placements.
+Both calls settle successful `None` receipts. Profiles without the
+helper reach its first missing-name lookup. The two statements leave
+both modeled heaps intact and add no user bindings.
 
 A scalar comparison chain has at least two links. Every link uses one of
 `==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact
