@@ -2918,7 +2918,7 @@ example : Eqv Γ .unit bound nestedArgs splitArgs := by
     ((nestedArgs_order.toLetIter rfl lowers).trans (splitArgs_order.toLetIter rfl lowers).symm)
 
 open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyArguments
-  (CaseRaw case_reflection let_case_eqv)
+  (CaseRaw case_reflection let_case_eqv let2_pair_eqv)
 
 private abbrev branchLeft : Expr Instruction :=
   .op .sendTagged (.pair (.inl (.var 0)) .unit)
@@ -3015,7 +3015,7 @@ private abbrev ΔRight := fieldCtx (fun _ : Fin 1 => ()) Γ
 private abbrev rightPayload : Expr Instruction := .pair .unit (.var 0)
 
 -- The other tag instead selects send with its own payload.
-example : Eqv ΔRight .unit bound
+private theorem specializeRight : Eqv ΔRight .unit bound
     (rightReply.specialize Γ (.case (.var 0) branchLeft branchRight))
     (.op .send (.inr rightPayload)) := by
   have hp : Wf ΔRight rightPayload (.product .unit X) (⊥ : Eff) :=
@@ -3151,5 +3151,91 @@ example : Eqv ΔRight .unit bound (rightReply.specialize Γ boundReply)
     ((Eqv.case (.refl (.inr hw)) (returnLeftPost ΔRight) (returnRightPost ΔRight)).trans
       ((Eqv.step (.reduce (.case (.inr hw) left right) (.let₁ hw right) (.case_inr _ _ _))).trans
         (.step (.let1_beta hp right))))
+
+private abbrev rightChoice : Expr Instruction :=
+  .case (.inl .unit) (.op .receive .unit) (.op .receive (.op .tick .unit))
+
+private theorem rightChoiceRaw (Δ : EffectCtx T Eff) : CaseRaw bound Δ R rightChoice :=
+  .branch (A := .unit) (B := .unit) (.straight (.leaf (.inl (.unit _ _)) (.inl .unit)))
+    (.straight (receiveRaw _)) (.straight (.call receiveVisible le_rfl (tickRaw _)))
+
+private theorem rightChoiceEqv (Δ : EffectCtx T Eff) :
+    Eqv Δ R bound rightChoice (.op .receive .unit) := by
+  have scrutinee : Wf Δ (.inl .unit : Expr Instruction) (.coprod .unit .unit) bound := .inl (.unit _ _)
+  have left : Wf ((.unit, ⊥) :: Δ) (.op Instruction.receive .unit) R bound := .op le_rfl (.unit _ _)
+  have right : Wf ((.unit, ⊥) :: Δ) (.op Instruction.receive (.op .tick .unit)) R bound :=
+    .op le_rfl (.op le_rfl (.unit _ _))
+  exact (Eqv.step (.reduce (.case scrutinee left right) (.let₁ (.unit _ _) left)
+    (.case_inl _ _ _))).trans (.step (.let1_beta (.unit _ _) left))
+
+-- Newest is the right result. Both fields occur exactly once in the request.
+private abbrev useBoth : Expr Instruction :=
+  .op .sendTagged (.pair (.var 0) (.var 1))
+
+private theorem useBothWf (Δ : EffectCtx T Eff) :
+    Wf ((R, ⊥) :: (.unit, ⊥) :: Δ) useBoth .unit bound :=
+  .op le_rfl (.pair (.var 0 bot_le) (.var 1 bot_le))
+
+private theorem useBothRaw (Δ : EffectCtx T Eff) :
+    CaseRaw bound ((R, ⊥) :: (.unit, ⊥) :: Δ) .unit useBoth :=
+  .straight (.call taggedVisible le_rfl
+    (.leaf (.pair (.var 0 le_rfl) (.var 1 le_rfl)) (.pair (.var 0) (.var 1))))
+
+private abbrev destructPair : Expr Instruction :=
+  .let₂ (.pair branchDirect rightChoice) useBoth
+private abbrev pairAsLets : Expr Instruction :=
+  .let₁ branchDirect (.let₁ rightChoice useBoth)
+
+private theorem destructPairRaw : CaseRaw bound Γ .unit destructPair :=
+  .let2 (.pair branchDirectRaw (rightChoiceRaw Γ)) (useBothRaw Γ)
+
+private theorem pairAsLetsRaw : CaseRaw bound Γ .unit pairAsLets :=
+  .bind branchDirectRaw (.bind (rightChoiceRaw _) (useBothRaw Γ))
+
+private abbrev nativeRightChoice {n : Nat} : Tm Empty Instruction n :=
+  .case (.inl .unit) (.op .receive .unit) (.op .receive (.op .tick .unit))
+
+private theorem nativeRightChoiceWf {n : Nat} (β : BoundCtx T n) :
+    HasType Instruction .nil β nativeRightChoice R :=
+  .case (B := .unit) (.inl .unit) (.op .unit) (.op (.op .unit))
+
+private abbrev nativeUseBoth : Tm Empty Instruction 2 :=
+  .op .sendTagged (.pair (.bv 0) (.bv 1))
+
+-- Both operands branch. The native pair rule supplies the premise between
+-- the independently recognized endpoints at the original strict bound.
+example : Eqv Γ .unit bound destructPair pairAsLets := by
+  have left : HasType Instruction .nil Γ.toBoundCtx nativeDirect .unit :=
+    .case (.op (.op .unit)) (.op (.pair (.inl .bv) .unit)) (.op (.inr .bv))
+  have consume : HasType Instruction .nil ((Γ.toBoundCtx.snoc .unit).snoc R) nativeUseBoth .unit :=
+    .op (.pair .bv .bv)
+  have native : AbortEquiv (⊥ : Eff) (Ctx.nil : Ctx Empty T) Γ.toBoundCtx
+      (.let₂ (.pair nativeDirect nativeRightChoice) nativeUseBoth)
+      (.let₁ nativeDirect (.let₁ nativeRightChoice nativeUseBoth)) .unit :=
+    .equiv (.ax (.structural (.pairBeta nativeDirect nativeRightChoice nativeUseBoth))
+      (.let₂ (.pair left (nativeRightChoiceWf _)) consume)
+      (.let₁ left (.let₁ (nativeRightChoiceWf _) consume)))
+  exact (case_reflection profile pureCtx slotTy destructPairRaw pairAsLetsRaw rfl rfl).mp native
+
+private abbrev productReply : Expr Instruction :=
+  .let₂ (.pair (.case (.var 0) branchLeft branchRight) rightChoice) useBoth
+
+private theorem pairReplyOrder {Δ : EffectCtx T Eff} {a b : Expr Instruction}
+    (chosen : Eqv Δ .unit bound a b) :
+    Eqv Δ .unit bound (.let₂ (.pair a rightChoice) useBoth)
+      (.let₁ b (.let₁ (.op .receive .unit) useBoth)) :=
+  (let2_pair_eqv chosen.endpoints_wf.1 (rightChoiceEqv Δ).endpoints_wf.1 (useBothWf Δ)).trans
+    (.let1 chosen (.let1 (rightChoiceEqv _) (.refl (useBothWf Δ))))
+
+-- Either reply executes the left branch request, then the right operand's
+-- receive, then one request that consumes the two results.
+example : Eqv ΔLeft .unit bound (leftReply.specialize Γ productReply)
+    (.let₁ selectedLeft (.let₁ (.op .receive .unit) useBoth)) :=
+  pairReplyOrder (specializeLeft (body := .case (.var 0) branchLeft branchRight)
+    (.op le_rfl (.inr (.var 0 bot_le))) rfl)
+
+example : Eqv ΔRight .unit bound (rightReply.specialize Γ productReply)
+    (.let₁ (.op .send (.inr rightPayload)) (.let₁ (.op .receive .unit) useBoth)) :=
+  pairReplyOrder specializeRight
 
 end LetIterSharedReplyReflectionFixture

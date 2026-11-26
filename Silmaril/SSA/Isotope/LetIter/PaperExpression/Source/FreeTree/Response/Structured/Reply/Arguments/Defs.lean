@@ -29,8 +29,8 @@ inductive Raw (e : ε) : EffectCtx (Ty α) ε → Ty α → Expr Φ → Prop
   | pair {Γ : EffectCtx (Ty α) ε} {A B : Ty α} {a b : Expr Φ}
       (left : Raw e Γ A a) (right : Raw e Γ B b) : Raw e Γ (.product A B) (.pair a b)
 
-/-- A finite branching expression. Sum scrutinees, let initializers and
-visible arguments may compute their results by branching. -/
+/-- A finite branching expression. Computations may branch in scrutinees,
+let initializers, visible arguments, and either operand of an ordered pair. -/
 inductive CaseRaw (e : ε) : EffectCtx (Ty α) ε → Ty α → Expr Φ → Prop
   | straight {Γ : EffectCtx (Ty α) ε} {A : Ty α} {a : Expr Φ}
       (body : Raw e Γ A a) : CaseRaw e Γ A a
@@ -43,6 +43,11 @@ inductive CaseRaw (e : ε) : EffectCtx (Ty α) ε → Ty α → Expr Φ → Prop
   | call {Γ : EffectCtx (Ty α) ε} {f : Φ} {a : Expr Φ}
       (visible : ¬ IsPure (⊥ : ε) f) (bound : instrEff f ≤ e)
       (argument : CaseRaw e Γ (instrSrc f) a) : CaseRaw e Γ (instrTrg f) (.op f a)
+  | pair {Γ : EffectCtx (Ty α) ε} {A B : Ty α} {a b : Expr Φ}
+      (left : CaseRaw e Γ A a) (right : CaseRaw e Γ B b) : CaseRaw e Γ (.product A B) (.pair a b)
+  | let2 {Γ : EffectCtx (Ty α) ε} {A B C : Ty α} {a k : Expr Φ}
+      (init : CaseRaw e Γ (.product A B) a)
+      (body : CaseRaw e ((B, ⊥) :: (A, ⊥) :: Γ) C k) : CaseRaw e Γ C (.let₂ a k)
 
 /-- A straight-line initializer is a special case of a branching bind. -/
 theorem CaseRaw.let1 {e : ε} {Γ : EffectCtx (Ty α) ε} {A B : Ty α} {a k : Expr Φ}
