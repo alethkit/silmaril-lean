@@ -18,7 +18,7 @@ variable {H : Type} {base : Store H} {mem : Memory32 base} {host : HostSemantics
 theorem ready_step (linked : site.MemoryLinked mem host .recursive)
     (registered : site.memoryLookup callee.address = some callee.fn) (move : Edge mem host site callee bytes phase written next)
     (ready : Ready mem host site callee phase) : Ready mem host site callee next :=
-  Proofs.ready_step_at linked registered move ready
+  Proofs.ready_step_at linked registered move rfl ready
 
 theorem live_step (move : Edge mem host site callee bytes phase written next) (live : mem.Live bytes) : mem.Live written :=
   Proofs.live_step move live
@@ -29,7 +29,7 @@ Returned host outcomes reestablish the same store representation. -/
 theorem preserves (linked : site.MemoryLinked mem host .recursive)
     (registered : site.memoryLookup callee.address = some callee.fn) (move : Edge mem host site callee bytes phase written next)
     (ready : Ready mem host site callee phase) (live : mem.Live bytes) : Ready mem host site callee next ∧ mem.Live written :=
-  ⟨Proofs.ready_step_at linked registered move ready, Proofs.live_step move live⟩
+  ⟨Proofs.ready_step_at linked registered move rfl ready, Proofs.live_step move live⟩
 
 /-- Host-free callee steps preserve or increase the extent. -/
 theorem extent_mono (move : Edge mem Execution.Runtime.noHostCalls site callee bytes phase written next) : bytes.size ≤ written.size :=
@@ -44,9 +44,13 @@ trap with the current bytes. Both host paths share a pending phase that uses
 the embedding contract to recover the returned store, with a self-step for
 declared divergence. Parameterless conditionals select a source block and
 enter its arm label in distinct native steps. The arm uses its own result
-signature and the same live frame and store. Native label and frame exits
-are distinct. A child's
-frame exit restores the checked suffix or exposes a trap for cleanup. -/
+signature and the same live frame and store. A checked depth-zero `br_if`
+inside an arm consumes its i32 guard. A nonzero guard leaves a pending
+native branch, whose separate label exit delivers the typed payload above
+the saved operands and skips the remaining arm code. A zero guard keeps the
+operands and continues inside the arm. Native label and frame exits are
+distinct. A child's frame exit restores the checked suffix or exposes a
+trap for cleanup. -/
 theorem step_iff (linked : site.MemoryLinked mem host .recursive)
     (registered : site.memoryLookup callee.address = some callee.fn) (allocated : callee.Allocated base)
     (ready : Ready mem host site callee phase) (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out) :
