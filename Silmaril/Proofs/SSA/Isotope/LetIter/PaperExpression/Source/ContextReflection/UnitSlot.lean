@@ -108,6 +108,10 @@ public theorem wf_specializeUnit (i : Fin Γ.length) (ht : (Γ.get i).1 = unit)
     (he : (Γ.get i).2 = ⊥) (ha : Wf Γ a C e) :
     Wf (eraseCtx Γ i) (specializeUnit i a) C e := ha.subst_typed (unitSubst_typed i ht he)
 
+public theorem eqv_insertUnit (i : Fin Γ.length) (h : Eqv (eraseCtx Γ i) C e a b) :
+    Eqv Γ C e (a.wk (insertIndex i)) (b.wk (insertIndex i)) :=
+  h.wk_typed (eraseCtx_rename i)
+
 public theorem eqv_iff_specializeUnit (i : Fin Γ.length) (ht : (Γ.get i).1 = unit)
     (he : (Γ.get i).2 = ⊥) (ha : Wf Γ a C e) (hb : Wf Γ b C e) :
     Eqv Γ C e a b ↔ Eqv (eraseCtx Γ i) C e (specializeUnit i a) (specializeUnit i b) := by
@@ -116,7 +120,7 @@ public theorem eqv_iff_specializeUnit (i : Fin Γ.length) (ht : (Γ.get i).1 = u
     exact h.subst_typed (unitSubst_typed i ht he)
   · intro h
     exact (unit_eta_rebuild i ht he ha).trans
-      ((h.wk_typed (eraseCtx_rename i)).trans (unit_eta_rebuild i ht he hb).symm)
+      ((eqv_insertUnit i h).trans (unit_eta_rebuild i ht he hb).symm)
 
 end Source
 

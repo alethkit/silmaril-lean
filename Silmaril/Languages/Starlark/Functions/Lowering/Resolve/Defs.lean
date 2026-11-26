@@ -35,22 +35,24 @@ inductive Error where
   | unsupportedBinary (op : BinaryOp)
   deriving DecidableEq, Repr
 
-private abbrev Tracked := StateT (List Binding) (Except Error)
+abbrev Tracked := StateT (List Binding) (Except Error)
 
-private def resolveRead (context : Context) (name : String) : Tracked Expr := do
+@[expose] def resolveReadValue (context : Context) (name : String) : Except Error (Expr × Option Binding) :=
   if name.toList.head? = some '$' then
-    throw (.reservedName name)
-  match Starlark.resolveName context.locals context.globals name with
-  | .ok (.bound binding) =>
-    modify (binding :: ·)
-    return .atom (.read (.bound binding))
-  | .ok (.predeclared value) => return .atom (.read (.predeclared value))
-  | .error error =>
-    match Lists.Builtin.resolve name with
-    | some builtin => return .atom (.builtin builtin)
-    | none => throw (.lexical error)
+    .error (.reservedName name)
+  else
+    match Starlark.resolveName context.locals context.globals name with
+    | .ok (.bound binding) => .ok (.atom (.read (.bound binding)), some binding)
+    | .ok (.predeclared value) => .ok (.atom (.read (.predeclared value)), none)
+    | .error error =>
+      match Lists.Builtin.resolve name with
+      | some builtin => .ok (.atom (.builtin builtin), none)
+      | none => .error (.lexical error)
 
-private def resolveScalar (context : Context) : Starlark.SourceExpr → Tracked Expr
+@[expose] def resolveRead (context : Context) (name : String) : Tracked Expr := fun reads =>
+  (resolveReadValue context name).map fun (value, slot) => (value, slot.elim reads (· :: reads))
+
+@[expose] def resolveScalar (context : Context) : Starlark.SourceExpr → Tracked Expr
   | .int value => pure (.atom (.scalar (.int value)))
   | .read name => resolveRead context name
   | .unary op _ => throw (.unsupportedUnary op)
@@ -61,7 +63,8 @@ private def resolveScalar (context : Context) : Starlark.SourceExpr → Tracked 
     return .branch (← resolveScalar context test) (← resolveScalar context yes)
       (← resolveScalar context no)
 
-private def resolveExpr (context : Context) : SourceExpr → Tracked Expr
+/-- Thread the reversed read accumulator. Use `resolveTracked` for source-order reads. -/
+@[expose] def resolveExpr (context : Context) : SourceExpr → Tracked Expr
   | .scalar expression => resolveScalar context expression
   | .string text => pure (.atom (.string text))
   | .list elements => do
@@ -109,7 +112,7 @@ decreasing_by all_goals (simp_all <;> omega)
 
 /-- Resolve all operands and both branches, reporting lexical reads for closure
 capture. Predeclared constants and built-ins have no slot to capture. -/
-def resolveTracked (context : Context) (expression : SourceExpr) : Except Error (Expr × List Binding) :=
+@[expose] def resolveTracked (context : Context) (expression : SourceExpr) : Except Error (Expr × List Binding) :=
   (resolveExpr context expression []).map fun (resolved, reads) => (resolved, reads.reverse)
 
 /-- Resolve a normalized expression in an already collected lexical context.

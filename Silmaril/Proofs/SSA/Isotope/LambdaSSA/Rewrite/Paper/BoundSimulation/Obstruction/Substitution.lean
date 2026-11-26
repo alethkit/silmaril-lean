@@ -69,7 +69,7 @@ theorem eval_liftLSubstVars (σ : Nat → Region Empty) (i : Nat) (env : Env) (u
     (extend_rename (env := env) (env' := extend env u) (ρ := Nat.succ) (fun _ => rfl) v)
 
 omit [UnitPayloadPolicy] in
-theorem liftLSubstN_local (n : Nat) (σ : Nat → Region Empty) {i : Nat} (hi : i < n) :
+theorem liftLSubstN_local {Φ : Type*} (n : Nat) (σ : Nat → Region Φ) {i : Nat} (hi : i < n) :
     liftLSubstN n σ i = labelId i := by
   induction n generalizing i with
   | zero => omega
@@ -82,7 +82,7 @@ theorem liftLSubstN_local (n : Nat) (σ : Nat → Region Empty) {i : Nat} (hi : 
       rfl
 
 omit [UnitPayloadPolicy] in
-theorem liftLSubstN_out (n : Nat) (σ : Nat → Region Empty) (i : Nat) :
+theorem liftLSubstN_out {Φ : Type*} (n : Nat) (σ : Nat → Region Φ) (i : Nat) :
     liftLSubstN n σ (n + i) = (σ i).renameLabels (n + ·) := by
   induction n with
   | zero =>
@@ -189,7 +189,7 @@ theorem evalRegion_lsubst {Γ : VCtx (Ty Empty)} {r : Region Empty} {L : LCtx (T
       (step_typed R K (fun i _ hv => evalRegion_typed (hb i).hasType (h.extend hv)))
       hc (enter n start) (enter_typed R (evalRegion_typed he.hasType h))
 
-theorem mapOut_congr {L : LCtx (Ty Empty)} {x : Result}
+theorem mapOut_congr {α : Type*} {L : LCtx (Ty α)} {x : Result}
     (hx : ResultTy L x) {f g : Nat → Val → Result}
     (h : ∀ i A, At L i A → ∀ v, ValTy v A → f i v = g i v) :
     mapOut f x = mapOut g x := by

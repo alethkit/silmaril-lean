@@ -164,25 +164,31 @@ set_option linter.concreteInstances false
 
 variable [policy : UnitPayloadPolicy]
 
-inductive ValTy : Val → Ty Empty → Prop where
+universe u
+
+variable {α : Type u}
+
+inductive ValTy : Val → Ty α → Prop where
+  /-- The observer gives each atomic sort one inhabitant. -/
+  | base {a : α} : ValTy .unit (.base a)
   | unit : ValTy .unit .unit
   /-- An additional unit payload for tests of equations that would require unit canonicity. -/
   | alternateUnit (allowed : policy.allowAlternate = true) : ValTy (.inl .unit) .unit
-  | pair {a b : Val} {A B : Ty Empty} :
+  | pair {a b : Val} {A B : Ty α} :
       ValTy a A → ValTy b B → ValTy (.pair a b) (.product A B)
-  | inl {a : Val} {A B : Ty Empty} : ValTy a A → ValTy (.inl a) (.coprod A B)
-  | inr {b : Val} {A B : Ty Empty} : ValTy b B → ValTy (.inr b) (.coprod A B)
+  | inl {a : Val} {A B : Ty α} : ValTy a A → ValTy (.inl a) (.coprod A B)
+  | inr {b : Val} {A B : Ty α} : ValTy b B → ValTy (.inr b) (.coprod A B)
 
-theorem ValTy.eq_unit {v : Val} (h : ValTy v .unit) (canonical : policy.allowAlternate = false) :
+theorem ValTy.eq_unit {v : Val} (h : ValTy v (Ty.unit : Ty α)) (canonical : policy.allowAlternate = false) :
     v = .unit := by
   cases h with
   | unit => rfl
   | alternateUnit allowed => rw [canonical] at allowed; cases allowed
 
-def EnvTy (Γ : VCtx (Ty Empty)) (env : Env) : Prop :=
+def EnvTy (Γ : VCtx (Ty α)) (env : Env) : Prop :=
   ∀ ⦃i A⦄, At Γ i A → ValTy (env i) A
 
-theorem EnvTy.extend {Γ : VCtx (Ty Empty)} {A : Ty Empty} {env : Env} {v : Val}
+theorem EnvTy.extend {Γ : VCtx (Ty α)} {A : Ty α} {env : Env} {v : Val}
     (h : EnvTy Γ env) (hv : ValTy v A) : EnvTy (A :: Γ) (extend env v) := by
   intro i D hi
   cases i with
@@ -248,16 +254,16 @@ theorem evalValue {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
     obtain ⟨x, hx, hxt⟩ := it
     exact ⟨_, by simp [evalTerm, hx], .inr hxt⟩
 
-def ResultTy (L : LCtx (Ty Empty)) : Result → Prop
+def ResultTy (L : LCtx (Ty α)) : Result → Prop
   | .jump i v => ∃ A, At L i A ∧ ValTy v A
   | .diverges => True
   | .fault => True
 
-def FrameTy {n : Nat} (R : Fin n → Ty Empty) (L : LCtx (Ty Empty)) : Frame n → Prop
+def FrameTy {n : Nat} (R : Fin n → Ty α) (L : LCtx (Ty α)) : Frame n → Prop
   | .inl r => ResultTy L r
   | .inr (i, v) => ValTy v (R i)
 
-theorem enter_typed {n : Nat} (R : Fin n → Ty Empty) {L : LCtx (Ty Empty)} {r : Result}
+theorem enter_typed {n : Nat} (R : Fin n → Ty α) {L : LCtx (Ty α)} {r : Result}
     (h : ResultTy (List.ofFn R ++ L) r) : FrameTy R L (enter n r) := by
   cases r with
   | jump i v =>
@@ -278,7 +284,7 @@ theorem enter_typed {n : Nat} (R : Fin n → Ty Empty) {L : LCtx (Ty Empty)} {r 
   | diverges => trivial
   | fault => trivial
 
-theorem step_typed {n : Nat} (R : Fin n → Ty Empty) (L : LCtx (Ty Empty))
+theorem step_typed {n : Nat} (R : Fin n → Ty α) (L : LCtx (Ty α))
     {bs : Fin n → Val → Result} (hbs : ∀ i v, ValTy v (R i) → ResultTy (List.ofFn R ++ L) (bs i v))
     (s : Frame n) (hs : FrameTy R L s) : FrameTy R L (step bs s) := by
   cases s with
@@ -287,7 +293,7 @@ theorem step_typed {n : Nat} (R : Fin n → Ty Empty) (L : LCtx (Ty Empty))
     obtain ⟨i, v⟩ := s
     exact enter_typed R (hbs i v hs)
 
-theorem cfgRun_typed {n : Nat} (R : Fin n → Ty Empty) (L : LCtx (Ty Empty))
+theorem cfgRun_typed {n : Nat} (R : Fin n → Ty α) (L : LCtx (Ty α))
     {bs : Fin n → Val → Result} {r : Result}
     (he : ResultTy (List.ofFn R ++ L) r)
     (hb : ∀ i v, ValTy v (R i) → ResultTy (List.ofFn R ++ L) (bs i v)) :
@@ -345,7 +351,7 @@ theorem evalRegion_typed {Γ : VCtx (Ty Empty)} {r : Region Empty} {L : LCtx (Ty
 omit [UnitPayloadPolicy] in
 theorem mapTerminal_id {n : Nat} (s : Frame n) : mapTerminal id s = s := by cases s <;> rfl
 
-theorem cfgRun_congr {n : Nat} (R : Fin n → Ty Empty) (L : LCtx (Ty Empty))
+theorem cfgRun_congr {n : Nat} (R : Fin n → Ty α) (L : LCtx (Ty α))
     {bs bs' : Fin n → Val → Result} {r : Result}
     (he : ResultTy (List.ofFn R ++ L) r)
     (typed : ∀ i v, ValTy v (R i) → ResultTy (List.ofFn R ++ L) (bs i v))

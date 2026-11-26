@@ -5,7 +5,7 @@ public import Silmaril.Languages.Python.Compile.Closure.Thms
 /-! # Source closure bodies awaiting code linking
 
 The fixed positional profile lowers nested declarations, name reads and
-writes, integer addition and calls. A child declaration retains its
+writes, integer addition, integer multiplication and calls. A child declaration retains its
 analyzed path, distinct parameter destinations and ordered capture
 operands so a code linker can choose the numeric key.
 -/
@@ -32,6 +32,7 @@ inductive Expr (layout : Core.Closure.Layout) where
   /-- Equality against an integer literal in a message-free assertion. -/
   | eqInt (left : Expr layout) (right : Int)
   | add (left right : Expr layout)
+  | mul (left right : Expr layout)
   | call (callee : Expr layout) (arguments : List (Expr layout))
   deriving Repr
 
@@ -59,6 +60,9 @@ mutual
     | add {left right lhs rhs} (leftTranslation : ExprTranslation scope left lhs)
         (rightTranslation : ExprTranslation scope right rhs) :
         ExprTranslation scope (.binary .add left right) (.add lhs rhs)
+    | mul {left right lhs rhs} (leftTranslation : ExprTranslation scope left lhs)
+        (rightTranslation : ExprTranslation scope right rhs) :
+        ExprTranslation scope (.binary .mul left right) (.mul lhs rhs)
     | call {callee arguments targetCallee targetArguments}
         (function : ExprTranslation scope callee targetCallee)
         (positional : ArgumentsTranslation scope arguments targetArguments) :
@@ -102,6 +106,10 @@ mutual
       let lhs ← lowerExprWith scope allowGlobals left
       let rhs ← lowerExprWith scope allowGlobals right
       return ⟨.add lhs.val rhs.val, .add lhs.property rhs.property⟩
+    | .binary .mul left right => do
+      let lhs ← lowerExprWith scope allowGlobals left
+      let rhs ← lowerExprWith scope allowGlobals right
+      return ⟨.mul lhs.val rhs.val, .mul lhs.property rhs.property⟩
     | .call callee arguments => do
       let function ← lowerExprWith scope allowGlobals callee
       let positional ← lowerArgumentsWith scope allowGlobals arguments
@@ -154,12 +162,17 @@ inductive Code : Core.Closure.Layout → Type where
       (parameters : Parameters childLayout) (captures : Fin childLayout.captures → CaptureSlot layout)
       (child : Code childLayout) (next : Code layout) : Code layout
 
+  | returnClosure {layout} (path : BlockPath) (childLayout : Core.Closure.Layout)
+      (parameters : Parameters childLayout) (captures : Fin childLayout.captures → CaptureSlot layout)
+      (child : Code childLayout) : Code layout
+
 /-- Child code paths in lexical preorder. -/
 def Code.childPaths {layout : Core.Closure.Layout} : Code layout → List BlockPath
   | .ret _ => []
   | .assign _ _ next | .assert _ next | .assertFreeVars _ _ _ next
   | .assertCellVars _ _ next | .assertCodeNames _ _ next | .discardCall _ next => next.childPaths
   | .closure _ path _ _ _ child next => path :: (child.childPaths ++ next.childPaths)
+  | .returnClosure path _ _ _ child => path :: child.childPaths
 
 def fixed (parameter : Source.Parameter) : Bool :=
   parameter.defaultValue.isNone && parameter.annotation.isNone &&
@@ -303,10 +316,43 @@ inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
         (.closure slot (tree.scope.context.path ++ [index]) (frameLayout child.scope) parameters
           (captureOperands captures) code next)
 
+  | returnLambda {tree index declaration body child parameters code}
+      (ordinary : tree.scope.context.containsYield = false) (complete : index + 1 = tree.children.length)
+      (found : tree.children[index]? = some child)
+      (path : child.scope.context.path = tree.scope.context.path ++ [index])
+      (kind : child.scope.context.kind = .function)
+      (fixedPosition : declaration.all fixed = true)
+      (parameterOrder : parameters.slots.map (parameterName child.scope) = declaration.map Source.Parameter.name)
+      (captures : Source.Closure.Layout tree.scope child.scope.captures)
+      (translated : Translation child 0 [.return_ (some body)] code) :
+      Translation tree index [.return_ (some (.lambda declaration body))]
+        (.returnClosure (tree.scope.context.path ++ [index]) (frameLayout child.scope)
+          parameters (captureOperands captures) code)
+
 private def lowerOrdinaryBody (tree : ScopeTree) (allowGlobals : Bool)
     (ordinary : tree.scope.context.containsYield = false) (childIndex : Nat) :
     (body : List Source.Stmt) →
     Except Error {target // Translation tree childIndex body target}
+  | [.return_ (some (.lambda declaration body))] => do
+    unless declaration.all fixed do throw .parameterProfile
+    let path := tree.scope.context.path ++ [childIndex]
+    match found : tree.children[childIndex]? with
+    | none => throw (.scopeTree path)
+    | some child =>
+      if scopeMatches : child.scope.context.path = path ∧ child.scope.context.kind = .function then
+        if complete : childIndex + 1 = tree.children.length then
+          let childOrdinary ← if clear : child.scope.context.containsYield = false then
+            pure (PLift.up clear)
+          else throw (.unsupportedGenerator path)
+          let slots ← checkParameters child.scope declaration
+          let some captures := Source.Closure.layout? tree.scope child.scope.captures
+            | throw (.captureLayout path)
+          let code ← lowerOrdinaryBody child allowGlobals childOrdinary.down 0 [.return_ (some body)]
+          return ⟨.returnClosure path (frameLayout child.scope) slots.val (captureOperands captures) code.val,
+            .returnLambda ordinary complete found scopeMatches.1 scopeMatches.2
+              slots.property.1 slots.property.2 captures code.property⟩
+        else throw (.scopeTree path)
+      else throw (.scopeTree path)
   | [.return_ (some value)] => do
     if complete : childIndex = tree.children.length then
       let target ← lowerExprWith tree.scope allowGlobals value

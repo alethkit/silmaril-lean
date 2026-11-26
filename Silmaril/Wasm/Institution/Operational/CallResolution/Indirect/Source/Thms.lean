@@ -127,6 +127,15 @@ theorem lime_nest_step {H : Type} {a : Config H}
 
 /-- Exact pending Core steps under already-entered scalar block labels.
 Lookup ends at the first native trap or the pending successful invocation. -/
+theorem core_resolution_allocated {H : Type} {P : Numerics.Profile} {s : Core.Store H}
+    {active : Activation} {program : Graph.Program} {tables : Tables} {out : Outcome}
+    (ready : active.Checked program tables) (allocated : active.binding.site.CoreAllocated program s)
+    (tableAllocated : Tables.CoreAllocated tables s) (resolved : active.resolve program = some out)
+    (scopes : List (Scope Graph.Op)) (tail : List Graph.Op) :
+    out.coreTrace.IsChain (fun a b => ∀ dst,
+      Core.Step P noHost (active.coreConfig s scopes tail a) dst ↔ dst = active.coreConfig s scopes tail b) :=
+  Proofs.core_resolution_allocated ready allocated tableAllocated resolved scopes tail
+
 theorem core_resolution {H : Type} {P : Numerics.Profile} {s : Core.Store H}
     {active : Activation} {program : Graph.Program} {tables : Tables} {out : Outcome}
     (ready : active.Checked program tables) (allocated : program.CoreAllocated s)
@@ -134,7 +143,7 @@ theorem core_resolution {H : Type} {P : Numerics.Profile} {s : Core.Store H}
     (scopes : List (Scope Graph.Op)) (tail : List Graph.Op) :
     out.coreTrace.IsChain (fun a b => ∀ dst,
       Core.Step P noHost (active.coreConfig s scopes tail a) dst ↔ dst = active.coreConfig s scopes tail b) :=
-  Proofs.core_resolution ready allocated tableAllocated resolved scopes tail
+  core_resolution_allocated ready (fun addr fn _ found => allocated addr fn found) tableAllocated resolved scopes tail
 
 theorem core_entry {H : Type} {P : Numerics.Profile} {s : Core.Store H}
     {active : Activation} {program : Graph.Program} {tables : Tables} {call : Context.Invocation}
@@ -147,13 +156,22 @@ theorem core_entry {H : Type} {P : Numerics.Profile} {s : Core.Store H}
   Proofs.core_entry ready allocated invoked scopes tail dst
 
 open Wasm.Lime1.Execution in
+theorem lime_resolution_allocated {H : Type} {s : Store H} {active : Activation} {program : Graph.Program}
+    {tables : Tables} {out : Outcome}
+    (ready : active.Checked program tables) (allocated : active.binding.site.LimeAllocated program s)
+    (tableAllocated : Tables.LimeAllocated tables s) (resolved : active.resolve program = some out)
+    (scopes : List (Scope Graph.Op)) (tail : List Graph.Op) (dst : Config H) :
+    Step CallFrame.limeNoHost (active.limeSource s scopes tail) dst ↔ dst = active.limeResolved s scopes tail out :=
+  Proofs.lime_resolution_allocated ready allocated tableAllocated resolved scopes tail dst
+
+open Wasm.Lime1.Execution in
 theorem lime_resolution {H : Type} {s : Store H} {active : Activation} {program : Graph.Program}
     {tables : Tables} {out : Outcome}
     (ready : active.Checked program tables) (allocated : program.LimeAllocated s)
     (tableAllocated : Tables.LimeAllocated tables s) (resolved : active.resolve program = some out)
     (scopes : List (Scope Graph.Op)) (tail : List Graph.Op) (dst : Config H) :
     Step CallFrame.limeNoHost (active.limeSource s scopes tail) dst ↔ dst = active.limeResolved s scopes tail out :=
-  Proofs.lime_resolution ready allocated tableAllocated resolved scopes tail dst
+  lime_resolution_allocated ready (fun addr fn _ found => allocated addr fn found) tableAllocated resolved scopes tail dst
 
 open Wasm.Lime1.Execution in
 theorem lime_entry {H : Type} {s : Store H} {active : Activation} {program : Graph.Program}

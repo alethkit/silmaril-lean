@@ -11,6 +11,9 @@ that machine function" against definitions a reviewer can read.
 
 Every module is in the root `Silmaril` library; there is no executable.
 
+The [LambdaIter family matrix](lambda-iter-family.md) records the assumptions of
+the semantics comparisons and the forward flat SSA/RTL commuting square.
+
 ## The calculi and translations
 
 ```mermaid
@@ -66,6 +69,7 @@ bridge relates the two.
 | LetIter denotational soundness | `Silmaril.SSA.Isotope.LetIter.Thms` | proof-relevant typed equations preserve direct monadic denotations and the corresponding categorical arrows in the Kleisli model of a lawful Elgot monad |
 | λSSA categorical semantics | `Silmaril.SSA.Isotope.LambdaSSA.Categorical.{Defs,Thms}` | expression and region denotation graphs, totality for exact typing, and uniqueness under the respective coherence hypotheses |
 | Let-family institutions | `Silmaril.SSA.Isotope.Institution.Thms` | re-exports the Raw equational institutions of let-seq, let-case and let-iter, inclusion comorphisms with borrowing, syntactic initiality, refinement institutions and `eqToRef`, observational institutions and `iterSSAIso` |
+| Free UB | [Construction and coverage](ssa-ub.md) | Fresh instruction symbols, a monad on ordered specifications, greatest elements in the initial syntax quotient, and a typed LetCase translation |
 | Thesis initiality | `Silmaril.SSA.Thesis.Thms` | re-exports the Raw port of the thesis λiter and λcase (`Silmaril.Raw.SSA.Thesis`): `Syn.isInitial` in `Alg S`, equational completeness |
 | Thesis categorical models | `Silmaril.SSA.Thesis.Categorical.Thms` | λiter derivations denoted in strong Elgot Freyd categories, `Alg.ofCategorical`, initiality into those models, non-vacuity of `Alg S` |
 | Thesis Kleisli model | `Silmaril.SSA.Thesis.Kleisli.Thms` | the Kleisli category of a lawful Elgot monad as a λiter model: `TypingCoherent` and `LawfulModel` instances, initiality into it, and the instance at `Part` |
@@ -254,6 +258,106 @@ axiom schemes), `equiv_iff` (in every free context), and `semantic_iff_semantic`
 (closed terms: validity in every Isotope equational model iff validity in every
 thesis algebra).
 
+### Structured acyclic λSSA and LetCase
+
+[`Silmaril.SSA.Isotope.Bridge.Acyclic.Thms`](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Thms.lean)
+compares exact, single-exit λSSA with LetCase over the same typed instruction
+alphabet. It admits open positional contexts, nested cases and nested joins.
+Each join has one local label. Its entry transfers to that label, and the
+continuation receives the passed payload and the context captured at the join.
+The continuation cannot jump back to its own label.
+
+- `Code.toSSA_hasType` checks the embedding in the existing λSSA syntax.
+  `Code.toLetCase` replaces a join by one let. `Code.ofLetCase` reifies
+  LetCase and `Code.toLetCase_ofLetCase` recovers its exact derivation.
+  In the other direction `Code.eval_roundtrip_iff` gives equivalence of finite
+  observations, since reification may change the placement of SSA binders.
+- `Code.eval_iff_denote` is the finite-outcome square. At matching inputs, an SSA
+  execution to the requested external label with a given payload and final state
+  exists exactly when that outcome belongs to the translated LetCase
+  `StateT σ SetM` denotation. Primitive instructions must agree on finite
+  outcomes at typed inputs. `Code.denote_ofLetSeq` composes the same translation
+  with the existing LetSeq inclusion in any shared typed monadic model.
+  The [branch/join regression](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/Thms.lean)
+  checks both tags, the captured value and the order of their effects.
+- The square gives preservation and reflection of finite outcomes for this
+  observation class. Equational completeness is a separate result relative to
+  the operation algebras in
+  [`Isotope.Institution.Thms`](../../Silmaril/SSA/Isotope/Institution/Thms.lean)
+  and to the thesis λcase [`Alg S`](../../Silmaril/SSA/Thesis/Thms.lean).
+  The [quantitative categorical results](../../Silmaril/SSA/Isotope/Refinement/Models/Initiality/Thms.lean)
+  concern the quantitative syntax at a fixed signature, with completeness for
+  singleton-input judgments.
+- `denote_underBinder` proves that weakening a continuation drops the arm's
+  payload and retains its newly bound result. `denote_bindLetCase` then
+  validates the exact [`bindLetCase` equation](../../Silmaril/Raw/SSA/Isotope/LetCase/LocallyNameless/Equiv.lean#L172)
+  in the distributive Freyd model. It uses centrality of
+  `J.map (duplicate E) ≫ (tensorIso E E).inv` at the original environment
+  `E`, because the bind retains that environment across effectful branches.
+  The LetCase law uses distributive Freyd structure and this local condition.
+  A shared tensor comparison supplies centrality by
+  `denote_bindLetCase_of_sharedTensor`. Agreement of independently chosen
+  typing derivations uses the separate `TypingCoherent` hypothesis.
+  [Exact LetCase denotation and laws](../../Silmaril/SSA/Isotope/LetCase/Categorical/Thms.lean)
+- `Code.denote_toSSA` relates the compiled LetCase arrow to the existing
+  categorical denotation of `Code.toSSA`, with a map of environments on
+  input and the selected label injection on output. The latter semantics uses
+  strong Elgot iteration, so the proof unfolds the one-block dispatcher and
+  shows that the block immediately exits it. This comparison uses a central
+  unit and region typing coherence. With the same local diagonal condition
+  as LetCase, `Code.denote_toSSA_distributeJoin` proves equality of the
+  original and rewritten λSSA regions.
+  [Categorical comparison](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Categorical/Realization/Thms.lean)
+- The [central-unit Freyd counterexample](../../Silmaril/SSA/Isotope/LetIter/Counterexample/Diagonal/Thms.lean)
+  shows that a central unit alone can fail to centralize the transported
+  diagonal in a plain Freyd category. The checked shared-tensor hypothesis
+  gives a sufficient condition in the distributive setting.
+
+### Exact equations and signature change
+
+- `Code.toLetCase_mapSignature` and `Code.ofLetCase_mapSignature` commute
+  with primitive and type translation, including the exact derivations.
+  `Code.toSSA_mapSignature` identifies the resulting positional code with
+  the existing λSSA instruction map. These statements use preservation of
+  unit, products, sums and the empty type. [Typed signature change](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Signature/Thms.lean)
+- The existing [LetCase institution](../../Silmaril/Raw/SSA/Isotope/Institution/LetCase.lean#L61)
+  has exact equation sentences and operation-algebra models over
+  `InstrSig τ ε`. Its primitive maps fix types and effects.
+  `reify_mapSentence` commutes with its actual sentence map in positional
+  syntax. Reification into positional code is independent of the typing
+  derivation. The more general type-changing `SignatureMap` acts on syntax
+  and contexts outside that fixed-type signature category.
+  [Signature category](../../Silmaril/Raw/SSA/Isotope/Institution/InstrSig.lean)
+- For small signatures and an empty named context, `reifyCorridor` sends
+  LetCase equations to the exact structured SSA room at each signature.
+  The model functor goes back from the discrete class of
+  `CoherentRegionModel` objects to LetCase operation algebras. The class
+  uses a fixed strong Elgot Freyd category with central unit and locally
+  small arrows, with interpretations satisfying region typing coherence.
+  `sat_compile_iff` and `sat_reify_iff` give satisfaction in both directions
+  under this reduct. `denote_eq_of_sameTerm` gives agreement for independently
+  chosen exact derivations in this class.
+  [Exact equation comparison](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Thms.lean)
+- `ssaInst` extends these rooms to the primitive signature category.
+  `mapEquation` preserves the actual typed operand derivations chosen by
+  the LetCase algebra fold. The model reduct restricts primitive arrows
+  and transports their domains and codomains along the signature map's
+  type equalities. Relabelling the region denotation witnesses transfers
+  typing coherence from the target model. Both maps preserve identity
+  and composition, and `ssaSat_map_iff` gives satisfaction invariance.
+  `reifyComorphism` bundles reification and the LetCase algebra reduct
+  over the identity signature functor. Its model class is the stated
+  coherent region model class; expansion of arbitrary LetCase algebras
+  is a separate question.
+  [Exact institution and comorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Functor/Thms.lean)
+- The existing [λSSA observational institution](../../Silmaril/Raw/SSA/Isotope/Institution/Observational/Calculi.lean#L160)
+  uses scoped operational sentences over discrete scope signatures.
+  Extending the exact comparison to type-changing maps requires indexing
+  the signature category over type universes and showing that transport
+  of context and label objects preserves region denotation witnesses and
+  the LetCase algebra operations. Soundness of the full exact equational
+  presentation remains separate.
+
 ## Guarded iteration and resumptions
 
 CALCO 2019 article 13, Definition 19, identifies ordinary Elgot monads with the
@@ -322,7 +426,10 @@ lake build --wfail Silmaril.SSA.LambdaRTL.Thms Silmaril.SSA.LambdaRTL.CFG.Thms \
   Silmaril.SSA.Isotope.Bridge.Categorical.Thms Silmaril.SSA.Thesis.Categorical.Thms \
   Silmaril.SSA.Isotope.LetIter.Thms Silmaril.SSA.Isotope.LambdaSSA.Categorical.Thms \
   Silmaril.SSA.Isotope.LambdaSSA.Kleisli.Thms \
-  Silmaril.SSA.Thesis.Kleisli.Thms Silmaril.SSA.Isotope.Refinement.Thms
+  Silmaril.SSA.Thesis.Kleisli.Thms Silmaril.SSA.Isotope.Refinement.Thms \
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.Thms \
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Categorical.Realization.Thms \
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Functor.Thms
 ```
 
 The root target `lake build --wfail Silmaril` builds all of them.
