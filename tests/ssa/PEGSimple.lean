@@ -4,8 +4,11 @@ import Silmaril.SSA.PEG.Simple.Thms
 import Silmaril.SSA.PEG.Simple.While.Thms
 import Silmaril.SSA.PEG.Simple.Structured.Thms
 import Silmaril.SSA.PEG.Thms
+import Silmaril.SSA.PEG.Simple.Structured.Completion.Thms
+import Silmaril.SSA.PEG.Rules.Thms
 meta import Silmaril.SSA.PEG.Defs
 meta import Silmaril.SSA.PEG.Simple.Structured.Defs
+meta import Silmaril.SSA.PEG.Simple.Structured.Completion.Defs
 meta import Silmaril.SSA.PEG.Simple.While.Defs
 meta import Silmaril.SSA.PEG.Simple.Defs
 
@@ -533,3 +536,145 @@ example : (Structured.translate nestedIdentity .not).forest.StrictlyEncloses (ne
   rwa [onlyOuter] at encloses
 
 end Silmaril.SSA.PEG.Simple.Tests
+
+namespace Silmaril.SSA.PEG.Simple.Structured.Completion.Tests
+
+open RVSDG (Tuple)
+open Rules (readRef)
+
+set_option backward.isDefEq.respectTransparency false
+
+private inductive Op : InstructionSet Unit
+  | positive : Op [.count] .bool
+  | not : Op [.bool] .bool
+  | pred : Op [.count] .count
+  | probe : Op [.bool] .count
+
+private def model : Interpretation Op where
+  carrier _ := Unit
+  run
+    | .positive, .cons x .nil => some ⟨decide (0 < x.down)⟩
+    | .not, .cons x .nil => some ⟨!x.down⟩
+    | .pred, .cons x .nil => some ⟨x.down - 1⟩
+    | .probe, .cons x .nil => if x.down then some ⟨0⟩ else none
+
+private abbrev vars : List (Ty Unit) := [.count, .bool]
+
+private def guard : Expr Op vars .bool := .op .positive (.cons (.var .head) .nil)
+
+/-- The old counter feeds its update. The result of the strict probe is discarded. -/
+private def body : Stmt Op false vars vars :=
+  .seq (.assign (.op .probe (.cons (.var (.tail .head)) .nil)))
+    (.seq (.assign (.op .pred (.cons (.var (.tail .head)) .nil)))
+      (.project (.cons .head (.cons (.tail (.tail (.tail .head))) .nil))))
+
+private def source := whileProgram guard body.enableWhile .head
+private def graph : Graph Op vars [.count] 11 11 := translate source .not
+private def input (count : Nat) (permit : Bool) : Tuple model.Value vars :=
+  .cons ⟨count⟩ (.cons ⟨permit⟩ .nil)
+
+private def key : Fin 11 := 2
+private def base : Index 11 := fun _ => 0
+private def sample (k : Nat) : Index 11 := base.set key k
+
+private theorem setSample (a b : Nat) : (sample a).set key b = sample b := by
+  funext j
+  by_cases h : j = key <;> simp [sample, Index.set, h]
+
+private def r (i : Fin 11) {t : Ty Unit} (typed : graph.sort i = t) : Ref graph.sort t :=
+  ⟨i, typed⟩
+
+private noncomputable def values (n : Nat) (permit : Bool) : graph.Valuation model :=
+  graph.denote model (input n permit) (translate_demandWellFounded source .not)
+
+private theorem solved (n : Nat) (permit : Bool) :
+    graph.Solves model (input n permit) (values n permit) :=
+  graph.denote_solves model (input n permit) _
+
+-- Compute the live loop from the compiler's equations, independently of
+-- source execution and for either value of the discarded probe's input.
+private theorem countdown (n : Nat) (permit : Bool) (k : Nat) :
+    readRef (values n permit) (r 7 (t := .count) rfl) (sample k) = some ⟨n - k⟩ := by
+  have eq := solved n permit
+  induction k with
+  | zero =>
+    rw [Rules.theta_zero eq (r := r 7 (t := .count) rfl) (initial := r 9 rfl) (feedback := r 4 rfl)
+      (loop := key) HEq.rfl rfl]
+    exact Rules.at_label eq (r := r 9 rfl) (label := .param .head) (args := .nil) HEq.rfl _
+  | succ k ih =>
+    rw [Rules.theta_succ eq (r := r 7 (t := .count) rfl) (initial := r 9 rfl) (feedback := r 4 rfl)
+      (loop := key) HEq.rfl rfl,
+      setSample, Rules.unary_at eq (r := r 4 rfl) (arg := r 7 rfl) (op := Op.pred) HEq.rfl, ih]
+    change some (ULift.up (n - k - 1)) = some (ULift.up (n - (k + 1)))
+    congr 2
+
+private theorem exitFlag (n : Nat) (permit : Bool) (j : Nat) :
+    readRef (values n permit) (r 3 rfl) (sample j) = some ⟨decide (n ≤ j)⟩ := by
+  have eq := solved n permit
+  rw [Rules.unary_at eq (r := r 3 rfl) (arg := r 6 rfl) (op := Op.not) HEq.rfl,
+    Rules.unary_at eq (r := r 6 rfl) (arg := r 7 rfl) (op := Op.positive) HEq.rfl, countdown]
+  change some (ULift.up (!decide (0 < n - j))) = some (ULift.up (decide (n ≤ j)))
+  by_cases h : n ≤ j
+  · simp [h, Nat.sub_eq_zero_of_le h]
+  · have pos : 0 < n - j := by omega
+    simp [h, pos]
+
+private theorem firstPass (n : Nat) (permit : Bool) :
+    readWhilePass guard body.enableWhile .head .not model (values n permit) base =
+      some ⟨n⟩ := by
+  change readRef (values n permit) (r 2 (t := .count) rfl) base = _
+  rw [Rules.pass_at (solved n permit) (r := r 2 rfl) (cond := r 3 rfl) (loop := key) HEq.rfl]
+  have stream : (fun j => (readRef (values n permit) (r 3 rfl) (sample j)).map ULift.down) =
+      fun j => some (decide (n ≤ j)) := by
+    funext j
+    rw [exitFlag]
+    rfl
+  change (firstTrue (fun j => (readRef (values n permit) (r 3 rfl) (sample j)).map ULift.down)).map
+    ULift.up = _
+  have first : firstTrue (fun j => some (decide (n ≤ j))) = some n :=
+    (firstTrue_eq_some_iff_samples _ n).mpr ⟨by simp, fun j lt => by simp [Nat.not_le_of_lt lt]⟩
+  rw [stream, first]
+  rfl
+
+private theorem observed (n : Nat) (permit : Bool) :
+    graph.observe model (values n permit) base = .cons (some ⟨0⟩) .nil := by
+  have pass := firstPass n permit
+  change readRef (values n permit) (r 2 (t := .count) rfl) base = _ at pass
+  have evaluated := Rules.eval_at (solved n permit) (r := r 0 rfl) (source := r 7 rfl)
+    (count := r 2 rfl) (loop := key) HEq.rfl base
+  rw [pass] at evaluated
+  change readRef (values n permit) (r 0 rfl) base =
+    monotonize (fun j => readRef (values n permit) (r 7 rfl) (sample j)) n at evaluated
+  have result := (monotonize_eq_some_iff
+    (fun j => readRef (values n permit) (r 7 (t := .count) rfl) (sample j)) n (ULift.up 0)).mpr
+    ⟨by rw [countdown, Nat.sub_self], fun j _ => by rw [countdown]; rfl⟩
+  change Tuple.cons (F := fun t => Option (model.Value t)) (t := .count)
+    (readRef (values n permit) (r 0 rfl) base) .nil = _
+  rw [evaluated, result]
+
+#guard checkWhilePrefix model guard body 2 (input 2 true)
+#guard !checkWhilePrefix model guard body 2 (input 2 false)
+#guard checkWhilePrefix model guard body 0 (input 0 false)
+
+private theorem returnsFromPEG {n : Nat} {permit : Bool}
+    (checked : checkWhilePrefix model guard body n (input n permit) = true) :
+    source.Returns model (input n permit) ⟨0⟩ :=
+  translate_while_returns_of_checkedPrefix guard body .head .not
+    model (input n permit) (fun _ => rfl) base (firstPass n permit) checked (observed n permit)
+
+example : source.Returns model (input 2 true) ⟨0⟩ := returnsFromPEG rfl
+example : source.Returns model (input 0 false) ⟨0⟩ := returnsFromPEG rfl
+
+private theorem fails : source.Fails model (input 2 false) :=
+  .whileBodyFailed rfl (.firstFailed (.assignFailed rfl))
+
+/-- A defined first pass and return survive the discarded probe's failure.
+Figure 11's value observation alone cannot give a successful source run. -/
+example : graph.observe model (values 2 false) base = .cons (some ⟨0⟩) .nil ∧
+    readWhilePass guard body.enableWhile .head .not model (values 2 false) base = some ⟨2⟩ ∧
+    ¬ source.Returns model (input 2 false) ⟨0⟩ := by
+  refine ⟨observed 2 false, firstPass 2 false, ?_⟩
+  rintro ⟨_, run, _⟩
+  cases fails.deterministic run
+
+end Silmaril.SSA.PEG.Simple.Structured.Completion.Tests
