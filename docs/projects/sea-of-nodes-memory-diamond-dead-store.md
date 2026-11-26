@@ -730,3 +730,38 @@ candidate.
 ```sh
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Retain one certified Load after the last Store
+
+`Static.Final.LoadTail.lower graph entry input facts` is the opt-in
+staged driver for an argument-Store prefix followed by one
+argument-addressed Load and Return. It runs equality-only entry
+discovery first, then checks the last Store in the actual residual
+table. The existing disjointness certificate must name that Store's
+port and cover the reader. The driver validates the supplied facts
+at the invocation. A missing or false fact, ineligible shape, or
+route refusal keeps the exact entry-only emitted pair.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Static/Final/LoadTail/Defs.lean)
+
+The existing typed suffix cut reconnects memory while keeping the
+Load and Return wires. Suffix replay preserves the entry word and
+recovers the original entry heap by applying the removed write to
+the retained heap. The static two-route checker then requires the
+same-port overwrite and an empty reader list on each Region
+occurrence. The actual emitted CFGs agree on the successor packet,
+returned word, and full final buffer for either predicate, each
+satisfying typed input, every initialized buffer, and every CF budget.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Static/Final/LoadTail/Thms.lean) ·
+[Pinned Simple chapter 10 Store rule](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65)
+
+The entry body's Return exports the retained Load in the fixture.
+`entryWord` reads that value from the actual emitted code, and the
+separate CF runner exercises the complete diamond. The CF entry
+forwards the buffer with the selected successor packet. The fixture
+also checks that a same-port reader and a reader with unknown or
+invalid separation keep the exact first optimized artifact.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```

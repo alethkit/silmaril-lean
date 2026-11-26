@@ -11,6 +11,10 @@ import tempfile
 
 
 FIXTURES = (
+    ("closed_positional_addition", """def identity(value):
+    return value
+observed = identity(1 + 2)
+""", "normal", ".normal", 3, None),
     ("none_literal_preserved", """observed = None
 assert observed == None
 assert observed != False
@@ -443,7 +447,7 @@ if __name__ == "__main__":
                 test += NESTED_TRACE
             fixtures.append((source, test))
             observations[name] = {"completion": completion, "observed": observed, "kept": kept, "bound_none": bound_none}
-        fixtures.append(("def identity(x): return x\nidentity(1 + 2)\n", """
+        fixtures.append(("def identity(x): return x\nidentity(missing + 2)\n", """
 #guard (match compile pythonSource with | .error .callOperand => true | _ => false)
 """))
         for source in (
@@ -466,7 +470,7 @@ if __name__ == "__main__":
             ("outer(inner(child(1)))", ".source (.scalar .expressionProfile)"),
             ("outer(inner(value=1))", ".source (.scalar .expressionProfile)"),
             ("outer(inner(*values))", ".source (.scalar .expressionProfile)"),
-            ("outer(inner(1 + 2))", ".callOperand"),
+            ("outer(inner(missing + 2))", ".callOperand"),
         ):
             fixtures.append((source + "\n", f"""
 #guard (match compile pythonSource with | .error ({error}) => true | _ => false)

@@ -222,4 +222,38 @@ example :
     ¬ (Sentence.eq exitTargets.1 targets.1).Holds (Institution.rtlBehaviors spin mem) :=
   differs ∘ (Institution.rtl_equation_at_iff exitAccepted accepted spin mem).mp
 
+example :
+    Behavior.returned [7] mem ∈ Institution.rtlBehaviors input mem targets.1 ∧
+      Observation.ret mem (0, Generic.packResult model (out := word) (7 : Word)) mem ∈
+        ssaBeh 1 (inputModel (P := Rows.wordSignature) model Memory input) (Institution.scope accepted) := by
+  have rtl : Behavior.returned [7] mem ∈ Institution.rtlBehaviors input mem targets.1 :=
+    (mem_rtlDenote_iff _ _ _ _ _).mp (Part.eq_some_iff.mp rtlDenoted)
+  exact ⟨rtl, (Institution.rtl_room_return_iff accepted input mem mem 7).mp rtl⟩
+
+example :
+    Behavior.diverges ∈ Institution.rtlBehaviors spin mem targets.1 ∧
+      Observation.diverge mem ∈
+        ssaBeh 1 (inputModel (P := Rows.wordSignature) model Memory spin) (Institution.scope accepted) := by
+  have diverged := (Institution.room_diverges_iff accepted spin mem).mpr spinAbsent
+  exact ⟨(Institution.rtl_room_observation_iff accepted spin (.diverge mem)).mp diverged, diverged⟩
+
+example :
+    Behavior.returned [3] mem ∈ Institution.rtlBehaviors spin mem exitTargets.1 ∧
+      Observation.ret mem (0, Generic.packResult model (out := word) (3 : Word)) mem ∉
+        ssaBeh 1 (inputModel (P := Rows.wordSignature) model Memory spin) (Institution.scope accepted) := by
+  have returns : exitAtSpin.Returns model spin (3 : Word) := ⟨0, .exit (by cbv)⟩
+  refine ⟨(rtl_return_iff exitAccepted spin mem mem [3]).mpr ⟨3, returns, rfl, rfl⟩, ?_⟩
+  intro roomReturn
+  have rtlReturn := (Institution.rtl_room_return_iff accepted spin mem mem 3).mpr roomReturn
+  obtain ⟨value, present, _, _⟩ :=
+    (Institution.rtl_behavior_iff accepted spin mem (.returned [3] mem)).mp rtlReturn
+  exact (Part.eq_none_iff'.mp spinAbsent) (Part.dom_iff_mem.mpr ⟨value, present⟩)
+
+example :
+    ¬ (∀ args : WordTuple 3, (fiberRoom Rows.wordSignature (wordSorts 3).length).Sat
+      (Discrete.mk (inputModel (P := Rows.wordSignature) model Memory args))
+      (Sentence.eq (Institution.scope exitAccepted) (Institution.scope accepted))) :=
+  fun satisfies => differs ((Institution.rtl_equation_at_iff exitAccepted accepted spin mem).mp
+    ((Institution.rtl_room_equation_holds_iff exitAccepted accepted mem).mpr satisfies spin))
+
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table

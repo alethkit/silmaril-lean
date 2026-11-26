@@ -20,6 +20,11 @@ theorem Prefix.wrap_eval (leading : Prefix Input Γ)
       tail.eval evalOp (fun term env => Terminator.eval env term) (leading.eval input) :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Prefix.wrap_eval leading tail input
 
+theorem Prefix.wrap_targets (leading : Prefix Input Γ)
+    (tail : Block TargetOp (Label saved carried result extra) Γ [result]) :
+    (shape.ofBlock (leading.wrap tail)).target = (shape.ofBlock tail).target :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Prefix.wrap_targets leading tail
+
 theorem splitPrefix?_wrap {widths : List Width}
     {code : Block TargetOp (Label saved carried result extra) Input [result]}
     {leading : Prefix Input (widths ++ Input)}

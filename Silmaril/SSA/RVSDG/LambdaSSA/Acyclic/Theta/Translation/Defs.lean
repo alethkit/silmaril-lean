@@ -71,6 +71,21 @@ certificate for this particular input graph. -/
 abbrev Fibre (layout : Layout τ A X Z L E D sigs) (g : Flat.Serial.Graph Φ A X Z L E D sigs) :=
   Σ r : Region Φ, Related layout g r
 
+/-- Keep the typed block table represented by the recovered region.
+It can be relocated by the existing flat link and fork operations. -/
+def Fibre.fragment {layout : Layout τ A X Z L E D sigs} {g : Flat.Serial.Graph Φ A X Z L E D sigs}
+    (f : Fibre layout g) : Flat.Fragment Φ A E D := by
+  rcases f with ⟨r, witness⟩
+  cases layout with
+  | mixed => cases witness with | generated source => exact source.source
+  | routed => cases witness with | routed source _ => exact source.source
+  | routedMixed => cases witness with | generated source _ => exact source.source
+
+theorem Fibre.fragment_region {layout : Layout τ A X Z L E D sigs}
+    {g : Flat.Serial.Graph Φ A X Z L E D sigs} (f : Fibre layout g) : f.fragment.region = f.1 := by
+  rcases f with ⟨r, witness⟩
+  cases layout <;> cases witness <;> rfl
+
 theorem Fibre.typing {layout : Layout τ A X Z L E D sigs} {g : Flat.Serial.Graph Φ A X Z L E D sigs}
     (f : Fibre layout g) : Region.HasType [A] f.1 [E,D] := by
   cases layout with

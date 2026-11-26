@@ -24,14 +24,18 @@ structure Emission (Input : List Width) (saved carried result : Width) (extra : 
   splice : Saved.Prefix.Insertion Input ((extra ++ [saved]) ++ Input) append.candidate.width
   tail : Block TargetOp (Label saved carried result extra) ((extra ++ [saved]) ++ Input) [result]
 
+def Emission.entryTail (moved : Emission Input saved carried result extra) :
+    Block TargetOp (Label saved carried result (moved.append.candidate.width :: extra)) moved.splice.physical [result] :=
+  liftCode moved.splice.previous moved.splice.inserted moved.tail
+
 def Emission.cfg (moved : Emission Input saved carried result extra) :
     Cfg TargetOp (Label saved carried result (moved.append.candidate.width :: extra)) Input [result] :=
   { moved.append.next.cfg with
-    entry := moved.splice.leading.wrap (liftCode moved.splice.previous moved.splice.inserted moved.tail) }
+    entry := moved.splice.leading.wrap moved.entryTail }
 
 /-- Check the nomination on the current CFG at the requested earlier cut.
     The append result is the reference for routing and keeps the regular
-    replay API available. The earlier CFG is a terminal output. -/
+    replay API available. The earlier CFG carries the physical slot map. -/
 def emit? (state : State Input saved carried result extra) (request : Nomination) :
     Option (Emission Input saved carried result extra) := do
   let widths := extra ++ [saved]

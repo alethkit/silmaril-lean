@@ -10,10 +10,10 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier
 
-open Silmaril.MLIR.Arith (Env Width)
-open Silmaril.MLIR.CF (Terminator)
+open Silmaril.MLIR.Arith (Env Var Width)
+open Silmaril.MLIR.CF (Cfg Terminator)
 open AfterReorder.Second (checkPrefixCut)
-open Loop.MLIR.CF (Program evalOp model)
+open Loop.MLIR.CF (Program TargetOp evalOp model)
 
 variable {Input extra : List Width} {saved carried result : Width}
 variable {state : Step.State Input saved carried result extra} {request : Nomination}
@@ -55,6 +55,23 @@ theorem emit?_entry_eq (accepted : emit? state request = some moved) (input : En
     moved.cfg.entry.eval evalOp (fun term env => Terminator.eval env term) input =
       moved.append.next.cfg.entry.eval evalOp (fun term env => Terminator.eval env term) input :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.emit?_entry_eq accepted input
+
+/-- The physical map reads the logical environment of the actual append prefix. -/
+theorem emit?_prefix_agree (accepted : emit? state request = some moved) :
+    ∃ leading tail,
+      Saved.splitPrefix? moved.append.next.cfg.entry ((moved.append.candidate.width :: extra) ++ [saved]) =
+        some (leading, tail) ∧
+      ∀ (input : Env Input) {w} (ref : Var _ w),
+        (moved.splice.leading.eval input).get (moved.splice.toPhysical ref) = (leading.eval input).get ref :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.emit?_prefix_agree accepted
+
+theorem run_eq_of_entry {Labels : List Width → Type}
+    (left right : Cfg TargetOp Labels Input [result]) (input : Env Input) (fuel : Nat)
+    (entry : left.entry.eval evalOp (fun term env => Terminator.eval env term) input =
+      right.entry.eval evalOp (fun term env => Terminator.eval env term) input)
+    (blocks : ∀ {args} (label : Labels args), left.block label = right.block label) :
+    left.run evalOp fuel input = right.run evalOp fuel input :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.run_eq_of_entry left right input fuel entry blocks
 
 /-- On the current prefix values, entry and feedback prepend the same
     saved word to the old packet. The exact exit payload is preserved. -/

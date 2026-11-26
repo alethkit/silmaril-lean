@@ -60,7 +60,7 @@ theorem links {block : LexicalBlock} {locals : Locals block} {source : Statement
   | plain ordinary => exact Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.links ordinary
   | assign _ _ _ _ rest => exact rest
   | invoke _ _ _ _ rest => exact rest
-  | @define block locals rest seed childTable tail final descendants later formals varargs site _ _ _ child tailLinks =>
+  | @define block locals rest seed childTable tail final descendants later formals varargs kwargs site _ _ _ child tailLinks =>
     have retained : PreservesDeclarations childTable final := by
       intro id entry found
       have below := (Array.getElem?_eq_some_iff.mp found).choose

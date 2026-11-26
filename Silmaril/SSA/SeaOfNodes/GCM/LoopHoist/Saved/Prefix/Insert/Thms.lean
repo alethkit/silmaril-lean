@@ -15,6 +15,10 @@ variable {Input Γ args : List Width} {w : Width}
 variable {leading : Prefix Input Γ} {op : TargetOp args w} {operands : Operands Γ args}
 variable {trailing : Nat} {edit : Insertion Input Γ w}
 
+theorem insert?_length (done : leading.insert? op trailing operands = some edit) :
+    edit.physical.length = Γ.length + 1 :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Prefix.insert?_length done
+
 /-- Physical references record the exact crossing distance of the new let
     and the shift of each retained definition or input. -/
 theorem insert?_indices (done : leading.insert? op trailing operands = some edit) :

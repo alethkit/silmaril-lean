@@ -34,6 +34,15 @@ theorem Routing.push_agrees {route : Routing args past target} {m : Model.{u,v,w
     Routing.Agrees (route.push head) m entry (old.snoc next) (new.snoc next) :=
   Silmaril.Proofs.SSA.SeaOfNodes.GVN.Elimination.push_agrees m entry agree next
 
+/-- Pointwise agreement across two argument banks preserves the whole ordered packet. -/
+theorem Routing.wires_read_between {targetArgs ports : List (Ty Data)}
+    {route : Routing args past target targetArgs} (m : Model.{u,v,w} Op)
+    (entry : Tuple (Val m.value) args) (entry' : Tuple (Val m.value) targetArgs)
+    (old : Locals (Val m.value) past) (new : Locals (Val m.value) target)
+    (agree : route.AgreesBetween m entry entry' old new) (wires : Wires args past ports) :
+    wires.read entry old = (route.wires wires).read entry' new :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.Elimination.wires_read m entry agree wires
+
 /-- Redirecting the newest singleton to an equal prefix read preserves all reads. -/
 theorem dropNewest_agrees (replacement : Origin args past (.value out))
     (m : Model.{u,v,w} Op) (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)

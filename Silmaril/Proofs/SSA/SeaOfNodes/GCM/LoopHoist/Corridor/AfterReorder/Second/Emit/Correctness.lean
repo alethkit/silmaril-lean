@@ -19,6 +19,7 @@ open Silmaril.MLIR.CF (Block Cfg Edge Frame Terminator)
 open Silmaril.MLIR.Pure (Code Operands)
 open Silmaril.MLIR.SCF (For)
 open Silmaril.SSA.SeaOfNodes
+open Silmaril.SSA.SeaOfNodes.GCM (EdgeSlot Target shape)
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second
@@ -119,6 +120,36 @@ theorem liftCode_eval (code : Block TargetOp (Label saved carried result extra) 
     | here => rfl
     | there ref => exact same ref
 
+private def liftTarget : Target (Label saved carried result extra) → Target (Label saved carried result (consumer :: extra))
+  | ⟨_, .header⟩ => ⟨_, .header⟩
+  | ⟨_, .exit⟩ => ⟨_, .exit⟩
+
+private theorem liftCode_target (code : Block TargetOp (Label saved carried result extra) Γ [result])
+    (rename : Rename Γ Δ) (keep : Var Δ consumer) (slot : EdgeSlot) :
+    (shape.ofBlock (liftCode rename keep code)).target slot =
+      ((shape.ofBlock code).target slot).map liftTarget := by
+  induction code generalizing Δ with
+  | letOp op operands rest ih => exact ih (under rename) (.there keep)
+  | terminator term =>
+    cases term with
+    | ret => cases slot <;> rfl
+    | br edge =>
+      rcases edge with ⟨label, _⟩
+      cases label <;> cases slot <;> rfl
+    | condBr test onTrue onFalse =>
+      rcases onTrue with ⟨positive, _⟩
+      rcases onFalse with ⟨negative, _⟩
+      cases positive <;> cases negative <;> cases slot <;> rfl
+
+theorem liftCode_targets_congr {Γ' Δ' : List Width}
+    (left : Block TargetOp (Label saved carried result extra) Γ [result])
+    (right : Block TargetOp (Label saved carried result extra) Γ' [result])
+    (rename : Rename Γ Δ) (keep : Var Δ consumer) (rename' : Rename Γ' Δ') (keep' : Var Δ' consumer)
+    (same : (shape.ofBlock left).target = (shape.ofBlock right).target) :
+    (shape.ofBlock (liftCode rename keep left)).target = (shape.ofBlock (liftCode rename' keep' right)).target := by
+  funext slot
+  rw [liftCode_target, liftCode_target, same]
+
 theorem rewriteAt?_eval {code : Block TargetOp (Label saved carried result extra) Γ [result]}
     {index cut : Nat} {origins : Origins ((extra ++ [saved]) ++ Input) Γ}
     {candidate : Candidate Input saved carried result extra}
@@ -167,6 +198,29 @@ theorem rewriteAt?_eval {code : Block TargetOp (Label saved carried result extra
 private theorem header_agrees (first : BitVec saved.val) (old : BitVec carried.val) (input : Env Input) :
     CapturesAgree savedOrigins (.cons first (.cons old input)) (.cons first input) :=
   Saved.origins_agree (.cons first .nil) old input
+
+theorem emitAt?_entry {args : List Width} {op : TargetOp args consumer}
+    {operands : Operands ((extra ++ [saved]) ++ Input) args}
+    {cfg : Cfg TargetOp (Label saved carried result extra) Input [result]}
+    {index : Nat} {target : Cfg TargetOp (Label saved carried result (consumer :: extra)) Input [result]}
+    {leading : Saved.Prefix Input ((extra ++ [saved]) ++ Input)}
+    {tail : Block TargetOp (Label saved carried result extra) ((extra ++ [saved]) ++ Input) [result]}
+    (split : Saved.splitPrefix? cfg.entry (extra ++ [saved]) = some (leading, tail))
+    (emitted : emitAt? cfg index op operands = some target) :
+    target.entry = leading.wrap (.letOp op operands (liftCode Var.there .here tail)) := by
+  cases rewritten : rewriteAt? (consumer := consumer) index Var.there .here (cfg.block .header) with
+  | none => simp [emitAt?, split, rewritten] at emitted
+  | some header =>
+    cases exit : cfg.block .exit with
+    | letOp => simp [emitAt?, split, rewritten, exit] at emitted
+    | terminator term =>
+      cases term with
+      | br => simp [emitAt?, split, rewritten, exit] at emitted
+      | condBr => simp [emitAt?, split, rewritten, exit] at emitted
+      | ret returns =>
+        simp [emitAt?, split, rewritten, exit] at emitted
+        cases emitted
+        rfl
 
 theorem emitAt?_step
     {cfg : Cfg TargetOp (Label saved carried result extra) Input [result]}

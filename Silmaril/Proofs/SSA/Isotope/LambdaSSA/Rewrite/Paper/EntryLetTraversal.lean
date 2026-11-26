@@ -111,5 +111,75 @@ theorem rewriteAt_guarded (root : Region Φ → Option (Region Φ))
               (Paper.Extension.Eqv.paper (Seed := Seed) (.refl (hb j).hasType))
       next _ => contradiction
     | _ => simp [Site.rewriteAt] at hm
+theorem rewriteAt_exact (root : Region Φ → Option (Region Φ))
+    (sound : ∀ {Γ : VCtx τ} {L : LCtx τ} {r s}, HasType Γ r L → root r = some s →
+      HasType Γ s L ∧ Extension.Eqv Seed Γ r s L)
+    (site : Site) {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
+    (hr : HasType Γ r L) (hm : site.rewriteAt root r = some s) :
+    HasType Γ s L ∧ Extension.Eqv Seed Γ r s L := by
+  induction site generalizing Γ L r s with
+  | here => exact sound hr hm
+  | unaryBody next ih =>
+    cases hr with
+    | let₁ ha hb =>
+      simp only [Site.rewriteAt] at hm
+      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
+      obtain ⟨ht, eq⟩ := ih hb hbody
+      exact ⟨.let₁ ha ht, .let₁ ha eq⟩
+    | _ => simp [Site.rewriteAt] at hm
+  | binaryBody next ih =>
+    cases hr with
+    | let₂ ha hb =>
+      simp only [Site.rewriteAt] at hm
+      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
+      obtain ⟨ht, eq⟩ := ih hb hbody
+      exact ⟨.let₂ ha ht, .let₂ ha eq⟩
+    | _ => simp [Site.rewriteAt] at hm
+  | leftArm next ih =>
+    cases hr with
+    | case ha hl hr =>
+      simp only [Site.rewriteAt] at hm
+      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
+      obtain ⟨ht, eq⟩ := ih hl hbody
+      exact ⟨.case ha ht hr, .case ha eq (.paper (.refl hr))⟩
+    | _ => simp [Site.rewriteAt] at hm
+  | rightArm next ih =>
+    cases hr with
+    | case ha hl hr =>
+      simp only [Site.rewriteAt] at hm
+      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
+      obtain ⟨ht, eq⟩ := ih hr hbody
+      exact ⟨.case ha hl ht, .case ha (.paper (.refl hl)) eq⟩
+    | _ => simp [Site.rewriteAt] at hm
+  | entry next ih =>
+    cases hr with
+    | cfg R he hb =>
+      simp only [Site.rewriteAt] at hm
+      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
+      obtain ⟨ht, eq⟩ := ih he hbody
+      exact ⟨.cfg R ht hb, .cfg R eq (fun i => .paper (.refl (hb i)))⟩
+    | _ => simp [Site.rewriteAt] at hm
+  | block i next ih =>
+    cases hr with
+    | cfg R he hb =>
+      simp only [Site.rewriteAt] at hm
+      split at hm
+      next hi =>
+        obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
+        obtain ⟨ht, eq⟩ := ih (hb ⟨i, hi⟩) hbody
+        refine ⟨.cfg R he ?_, .cfg R (.paper (.refl he)) ?_⟩
+        · intro j
+          by_cases h : j = ⟨i, hi⟩
+          · subst j
+            simpa using ht
+          · simpa [Function.update_apply, h] using hb j
+        · intro j
+          by_cases h : j = ⟨i, hi⟩
+          · subst j
+            simpa using eq
+          · simpa [Function.update_apply, h] using
+              (Paper.Extension.Eqv.paper (Seed := Seed) (.refl (hb j)))
+      next _ => contradiction
+    | _ => simp [Site.rewriteAt] at hm
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.EntryLetTraversal
