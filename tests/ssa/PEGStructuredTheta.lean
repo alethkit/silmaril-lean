@@ -2,6 +2,7 @@ module
 
 import Silmaril.SSA.PEG.Bridge.Theta.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.Tuple.Thms
+import Silmaril.SSA.Peggy.Bridge.Theta.Thms
 
 namespace Silmaril.SSA.PEG.Bridge.Theta.Tests
 
@@ -98,6 +99,7 @@ private inductive Op : InstructionSet Unit
   | nonzero : Op [.count] .bool
   | not : Op [.bool] .bool
   | add : Op [num, num] num
+  | addAlt : Op [num, num] num
   deriving DecidableEq
 
 private def total : TotalModel Op where
@@ -107,6 +109,7 @@ private def total : TotalModel Op where
     | .nonzero, .cons c .nil => ⟨c.down != 0⟩
     | .not, .cons b .nil => ⟨!b.down⟩
     | .add, .cons a (.cons b .nil) => Nat.add a b
+    | .addAlt, .cons a (.cons b .nil) => Nat.succ (Nat.add a b)
 
 private def sorts (i : Fin 16) : Ty Unit :=
   match i.val with
@@ -241,5 +244,67 @@ private def wrongSlot : Graph Op carried carried 16 1 :=
   bundledGraph.withRoots (.cons ⟨12, rfl⟩ (.cons ⟨4, rfl⟩ (.cons ⟨4, rfl⟩ .nil)))
 
 example : (Ordered.check wrongSlot anchor cert).isNone = true := by decide
+
+open CategoryTheory
+open Silmaril.SSA.Peggy.Bridge.Theta
+  (Model Side opMap thetaModel peggyToTheta restrictThetaModels)
+
+private def markedSignature : Peggy.Bridge.Theta.Signature Unit := ⟨⟨Op⟩, .not⟩
+
+private def rename : markedSignature ⟶ markedSignature :=
+  ⟨Silmaril.SSA.Peggy.Dialect.FixedSortSignature.ofOpcodeMap (fun
+    | .pred => .pred
+    | .nonzero => .nonzero
+    | .not => .not
+    | .add | .addAlt => .addAlt), rfl⟩
+
+private def markedModel : Model markedSignature := ⟨total, fun _ => rfl⟩
+
+private def side : Side markedSignature carried := Side.ofBundle bundle rfl
+
+private def equation : Peggy.Bridge.Theta.Equation markedSignature := ⟨carried, side, side.map rename⟩
+
+private abbrev renamed := (Relabel.bundle (opMap rename) bundle).compile
+
+-- The replacement opcode adds one to the second accumulator at each step.
+private theorem renamedFirst : renamed.body.run values (entry 2 10 1) =
+    RVSDG.Theta.bodyResult values true (entry 1 1 12) := rfl
+
+private theorem renamedSecond : renamed.body.run values (entry 1 1 12) =
+    RVSDG.Theta.bodyResult values true (entry 0 12 14) := rfl
+
+private theorem renamedStop : renamed.body.run values (entry 0 12 14) =
+    RVSDG.Theta.bodyResult values false (entry 0 12 14) := rfl
+
+private theorem renamedReturns : renamed.Returns values (entry 2 10 1) (entry 0 12 14) :=
+  RVSDG.Theta.Iterate.again renamedFirst
+    (RVSDG.Theta.Iterate.again renamedSecond (RVSDG.Theta.Iterate.stop renamedStop))
+
+-- The model distinguishes the two sides before identifying the opcodes.
+example : ¬ equation.Holds markedModel := by
+  intro holds
+  let idx : Index 1 := fun _ => 0
+  have old := observedTuple idx
+  have replaced := ((Relabel.bundle (opMap rename) bundle).returns_iff_observe total
+    (store 2 10 1) (fun _ => rfl) idx (store 0 12 14)).mp renamedReturns
+  have fromEquation := (holds (store 2 10 1) idx (store 0 11 12)).mp old
+  have mismatch : (store 0 12 14).map (fun _ => some) = (store 0 11 12).map (fun _ => some) :=
+    replaced.symm.trans fromEquation
+  have impossible : some (14 : Nat) = some 12 :=
+    congrArg (fun xs => xs.get anchor) mismatch
+  contradiction
+
+example : (equation.map rename).translate =
+    equation.translate.map (Relabel.opcode (opMap rename)) :=
+  equation.translate_map rename
+
+example : (equation.map rename).translate.Holds (thetaModel markedModel) ↔
+    (equation.map rename).Holds markedModel :=
+  Silmaril.Logic.Institution.Inst.CoHom.satisfaction (peggyToTheta Unit) markedSignature
+    (Discrete.mk markedModel) (equation.map rename)
+
+example :
+    ((restrictThetaModels Unit).ρ.app markedSignature).mod.obj (Discrete.mk markedModel) =
+      Discrete.mk (thetaModel markedModel) := rfl
 
 end Silmaril.SSA.PEG.Bridge.Theta.Region.Tests
