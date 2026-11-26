@@ -382,14 +382,35 @@ accepting a use-count profile.
 
 ## Graph objects and extraction
 
-A portable labeled directed multigraph can use ordered vertex records
-with shallow data and ordered edge rows `[tail, head, data]`. A
-directed hypergraph replaces tail and head by ordered vertex lists.
-Position identifies an occurrence, so parallel rows and empty
-incidence are legal. Check ranges against an explicit vertex table.
-Open variants carry ordered boundary leg maps. These are suggested
-graph schemas; the core diagram is a special finite incidence structure
-with an orientation and unique producers.
+The proposed graph codecs use the following exact tagged tuples.
+
+| Object | DASL tuple |
+| --- | --- |
+| Directed multigraph | `["directed-graph/v1", vertices, edges]` |
+| Directed hypergraph | `["directed-hypergraph/v1", vertices, hyperedges]` |
+| Open multigraph | `["open-directed-graph/v1", graph, domain, codomain]` |
+| Open hypergraph | `["open-directed-hypergraph/v1", hypergraph, domain, codomain]` |
+
+The inner object of an open variant must have the corresponding closed
+tag. `vertices` is an ordered array of shallow DASL labels. An edge is
+exactly `[tail, head, data]`, with `tail` and `head` each a vertex index.
+A hyperedge is exactly `[tails, heads, data]`, with ordered arrays of
+vertex indices. The data field is a shallow DASL value. All structural
+array lengths must fit in nonnegative I64. For $V$ vertex rows, every
+vertex index is an I64 in `[0,V)`. Parallel edge rows retain separate
+occurrences, even if their data agree. Self-edges and repeated indices
+within or across hyperedge endpoint lists are legal. Empty lists,
+including both lists of a nullary hyperedge, are legal. With no vertices,
+ordinary edge rows are impossible and every hyperedge endpoint list is
+empty.
+
+`domain` and `codomain` are arrays of vertex indices into the same
+table. These define functions from the position sets
+`[0,len(domain))` and `[0,len(codomain))` to `[0,V)`, respectively.
+They can repeat or share vertices. The two position sets distinguish
+boundary roles even when their legs map to the same vertex. Isolated
+vertices remain in the table. Injectivity, typing, linearity and
+acyclicity are additional profiles.
 
 - The **box hypergraph** has wire vertices indexed by sources. Each
   box is a labeled directed hyperedge whose tail is the sequence of
@@ -398,12 +419,18 @@ with an orientation and unique producers.
   boundary leg is the export table. Retain all vertices, even when
   unused, and all hyperedges, including nullary ones. The ordered
   variant recovers the core if every wire vertex is produced exactly
-  once by the left boundary or an output position, and their indices
-  follow that enumeration. The inverse reads the arities from each
-  hyperedge and its tail into the flat table. Arbitrary vertex IDs
-  yield an inverse up to the induced renaming. Dropping hyperedge
-  order gives the symmetric incidence quotient up to boundary-fixing
-  isomorphism and forgets a selected schedule. Open hypergraphs with
+  once by the left boundary or an output position, and the core's
+  count and sum bounds hold. The inverse enumerates producers by
+  taking the domain followed by the concatenated heads. This order
+  is a bijection from source ordinals to vertices. The inverse reads
+  each hyperedge's arities and uses the inverse bijection on the
+  concatenated tails and the codomain. Encoding back recovers the
+  incidence up to that vertex renaming, with hyperedge and leg
+  positions fixed. For an exact round trip into the bare core, use
+  source order for vertices and `null` vertex labels. Other vertex
+  labels need a side table, such as the type annotation. Dropping
+  hyperedge order gives the symmetric incidence quotient up to
+  boundary-fixing isomorphism and forgets a selected schedule. Open hypergraphs with
   multiple producers, undriven vertices, or repeated left legs lie
   outside this image. Feedback without vertices needs a separate loop
   multiset, or a graph convention with marked loop vertices.
@@ -443,7 +470,7 @@ An arbitrary cyclic graph does not certify a cyclic proof's progress
 condition. Compare the [SSA](projects/ssa.md), [PEG](projects/peggy.md)
 and [DASL proof syntax](dasl-logic-syntax.md) developments.
 
-## Storage, indices and equivalence under a theory
+## Storage and indices
 
 Canonical DRISL already encodes nonnegative I64 arguments compactly.
 The core needs $O(B+K+m)$ integer cells and $B$ labels. It need not
@@ -522,7 +549,7 @@ translations applied when extracting subdiagrams or reordering boxes.
 | --- | --- |
 | Signature, types and shapes | Label/shape/generator admission, colors, boundary profiles and selected overloads |
 | Order, geometry and trace | Effect sequence, planar gaps/slices, braid words, feedback cuts, and standalone loops |
-| Rewrites and evidence | Versioned theory, typed equations, rewrite matches, checked equality witnesses and side conditions |
+| Theory and refinement | Theory equations and the evidence records specified below |
 | Origins and display | Stable box/boundary IDs, spans, titles, styles, region paths, coordinates, chosen layout and renderer hints |
 
 Display metadata can be attached to a diagram revision as a sidecar by
@@ -534,20 +561,168 @@ interactive renderer can use the source index to highlight uses. A
 metadata-sensitive comparison needs an explicit policy and the
 transport of metadata along its box and boundary maps.
 
+## Theory, equality evidence and refinement
+
 Byte equality, shallow tree equality, profile isomorphism, and equality
-under a chosen theory are different relations. A CID names serialized
-bytes under a specific codec and hash policy. Content naming supplies
-neither a generic equality proof for the graph quotient nor one CID per
-equivalence class. For a theory, generate the least well-typed
-congruence containing its equations and the structural laws of the
-profile, under composition and the permitted structural operations,
-including trace where admitted. Soundness in a target requires the
-equations and side conditions in that target. Termination/confluence of
-oriented rewrites or soundness of a quotient decision procedure require
-independent arguments. Equality saturation may retain checkable
-witnesses without promising completeness or termination. Repository
-precedents include [named DASL languages](atproto-dasl-languages.md)
-and the [DASL e-graph bridge](dasl-egraph-bridge.md).
+under a theory are different relations. A CID names serialized bytes
+under a specific codec and hash policy. Distinct representations of
+one diagram may each have a CID.
+
+The following tuples specify versioned proof records. Each named field
+in the table is an object link except for the ordered type words,
+the equation array, and witness payloads. Object links must resolve
+to their declared kind with authenticated bytes under the selected CID
+policy. Use exact linked keys throughout a judgment.
+
+| Object | DASL tuple |
+| --- | --- |
+| Interface | `["string-diagram/interface/v1", inputTypes, exportTypes]` |
+| Theory | `["string-diagram/theory/v1", profile, signature, equations]` |
+| Equality claim | `["string-diagram/equivalence/v1", theory, interface, lhs, rhs, verifier, witness]` |
+| Refinement claim | `["string-diagram/refinement/v1", theory, model, relation, interface, source, target, verifier, witness]` |
+
+An interface contains ordered color words in the signature's type
+identifier domain. Use one `null` per slot for a unityped signature.
+Its two words must agree with the decoded diagram boundary, including
+order and length. Thus both endpoints have the same interface in v1.
+A future profile with interface change needs an explicit typed adapter
+or a relation schema with two interface keys. An equation is exactly
+`[interface, lhs, rhs]`, with linked operands valid under the theory's
+profile and signature and at that interface. Equation keys are
+nonnegative I64 row ordinals into the immutable theory's equation
+array, whose length must fit in nonnegative I64. The list contains
+concrete typed equations without metavariables. The theory denotes
+the least well-typed congruence containing these equations and the
+admitted structural laws, closed under the profile's operations.
+Orienting an equation for replay
+does not change that congruence.
+
+### Equality evidence
+
+One verifier scheme uses `["string-diagram/equational-chain/v1", steps]`.
+Starting with the claim's `lhs`, replay each step against the current
+diagram and set the current diagram to its `next` link after successful
+validation. The last link must be `rhs`. An empty list therefore
+certifies a claim with the same endpoint key on both sides.
+
+- `["iso", next, boxMap]` checks structural isomorphism. For the
+  symmetric incidence profiles, `boxMap` lists one target box index per
+  current box and must be a bijection. Check label and chosen generator
+  equality, arities, type and slot preservation, the wiring after
+  translating producer and consumer positions, and both ordered
+  boundaries. Also check the noncentral order in the premonoidal
+  profile and loop multiplicities by color in the traced profile,
+  as applicable. A placement or braid profile requires its own
+  geometric evidence scheme before accepting such a structural step.
+- `["equation", next, row, direction, context]` looks up `row` in the
+  theory and takes its sides in the given order. `direction` is exactly
+  `"forward"` or `"reverse"`. The verifier reconstructs the current and
+  next diagram by placing the respective sides in the same typed
+  one-hole context. Both reconstructed presentations must agree with
+  the respective decoded diagrams. Explicit `iso` steps can bridge
+  different isomorphic presentations.
+
+A context is one of `["hole"]`, `["before", diagram, context]`,
+`["after", context, diagram]`, `["tensor-left", diagram, context]`,
+`["tensor-right", context, diagram]`, `["whisker-left", types, context]`,
+`["whisker-right", context, types]`, or `["trace", context, types]`.
+`diagram` is an object link and `types` is an ordered color word.
+Before and after specify composition in the indicated order.
+Tensor and whiskering place the other operand or object on the
+indicated side. Trace closes a matching suffix of the input and
+output words against the specified feedback word. Check typing and
+the availability of each operation at every constructor. The
+verifier scheme fixes the result row order and normalization for
+these operations. It must reject overflow of the transport bounds.
+
+Induction over the replay proves soundness for the theory
+congruence. The initial diagram is equal to itself. An isomorphism
+step uses a structural law of the profile, and an equation step
+uses congruence in the reconstructed context. Transitivity yields
+the final equality. Soundness in a target model also requires that
+the interpretation validate the theory's equations and structural
+laws. Replay checks a supplied derivation. Completeness of search,
+termination of oriented rewriting and completeness of saturation
+are separate claims. The repository's
+[DASL e-graph bridge](dasl-egraph-bridge.md) uses a related
+replay-then-validate contract for class tables.
+
+### Directed refinement evidence
+
+Read the refinement claim as an arrow from `source` (the baseline or
+specification) to `target` (the candidate refinement). The relation key
+selects a versioned predicate on that ordered pair in the linked
+theory, model and interface. A model key fixes the interpretation
+and its observation policy. A relation implementation must declare
+its direction and domain, and the verifier must validate that the
+model supports the theory, relation and interface as required by
+that predicate. Model satisfaction of the theory is required if
+the predicate is defined on theory classes.
+
+For example, a relation for finite behaviors can require
+`Obs(model, interface, target) ⊆ Obs(model, interface, source)`.
+One witness format is
+`["string-diagram/finite-observations/v1", sourceObs, targetObs]`.
+The two observation arrays must encode finite sets in the registered
+model's observation domain. The verifier must establish that each
+set is exactly the model's observations of the indicated operand,
+for example by replaying exhaustive evaluation, then check inclusion.
+Checking inclusion of supplied samples alone does not establish
+the claim. If a specification can emit either Boolean and a candidate
+always emits false on the same interface, a checked refinement from
+specification to candidate has observation arrays `[false,true]` and
+`[false]`. The reverse claim fails inclusion, even with the two
+correct sets. This example fixes a direction for one relation key.
+Other keys can define simulation, cost bounds or other judgments.
+
+Formally the checked relation relates the ordered endpoint keys when
+there exists a witness accepted by an authorized verifier for the
+fixed context `(theory, model, relation, interface)`. Acceptance
+must be sound for that context's declared predicate. A reader may
+compose refinement claims only with a shared middle endpoint in
+the same context, or with checked transport, and a rule establishing
+transitivity for that relation. Symmetry and reflexivity likewise
+require rules. Equality evidence is reversible in its theory
+congruence. Opposite refinements establish two directed judgments.
+Any inference of theory equality from them requires a separate rule.
+Substituting an equal endpoint in refinement requires a compatibility
+result for the selected model and predicate.
+
+### Validation and versioning
+
+A verifier link identifies an immutable scheme, including the version
+of its witness grammar and checking rules. Registry descriptors can
+use the following exact tuples.
+
+| Linked object | DASL tuple |
+| --- | --- |
+| Model | `["string-diagram/model/v1", scheme, parameters]` |
+| Relation | `["string-diagram/relation/v1", scheme, parameters]` |
+| Verifier | `["string-diagram/verifier/v1", scheme, parameters]` |
+
+`scheme` is a nonempty string registered for that descriptor kind and
+version, and `parameters` is shallow DASL validated by that scheme.
+For a verifier those parameters select a witness grammar and
+checking rules. A profile and signature are likewise resolved under
+their declared schemas. Readers select an authorized local
+implementation for the exact keys and check their compatibility.
+Check exact tags and tuple arities, resolve the context and operands, check profile,
+signature and interfaces, and validate the witness against those exact
+keys. A failed witness is a rejected claim, not a proof of its negation.
+Distinguish malformed objects and missing dependencies from an
+unsupported tag, context or verifier. Only successful replay contributes
+to a checked relation.
+
+Future tags, model and relation keys, and witness grammars can coexist
+in a store. An older reader may preserve an unrecognized object
+opaquely and report it as unsupported, without validating a judgment
+from it. A new revision of a theory or model has a new key. Transferring
+an old claim requires another check or an explicit, verified transport
+rule. A relational index uses `(theory, interface, lhs, rhs)` for
+equality and `(theory, model, relation, interface, source, target)` for
+refinement, with evidence links as witnesses. Several witnesses may
+justify the same judgment. Keep the orientation in the refinement
+index and treat stored claims as candidates until verification.
 
 ## Worked examples and verification
 
@@ -563,6 +738,20 @@ and the [DASL e-graph bridge](dasl-egraph-bridge.md).
   hypergraph has tail and head lists `([0],[2,3])`, `([3,1],[4])`,
   and `([],[])`, with left and right legs `[0,1]` and `[2,4]`.
   The nullary box stays in the header and contributes no quads.
+  The exact open hypergraph is
+
+  ```json
+  ["open-directed-hypergraph/v1",
+    ["directed-hypergraph/v1", [null, null, null, null, null],
+      [[[0], [2,3], "f"], [[3,1], [4], {"op":"g"}], [[], [], null]]],
+    [0,1], [2,4]]
+  ```
+
+- `["open-directed-graph/v1",["directed-graph/v1",["x"],[[0,0,null],[0,0,null]]],[0,0],[]]`
+  is a graph with two self-edge occurrences, two domain positions at
+  vertex zero and an empty codomain. A domain index of 1 is out of
+  range. This graph needs extra conditions to be read as a string
+  diagram's box hypergraph.
 - With two noncentral nullary generators on an empty boundary,
   interpreting them as assignments of 0 and 1 to a shared cell gives
   final states 1 and 0 in the two execution orders. Both orders have
@@ -591,7 +780,5 @@ exercise the codec with opaque labels and malformed inputs.
 make check CHECK_TARGETS='+Silmaril.Formats.Dasl.StringDiagram.Examples'
 ```
 
-The remaining layout inverses and categorical claims above are
-specification arguments. The Lean slice does not implement a byte
-serializer, signature inference, placement or loop codec, graph
-canonicalizer, or a checker for theory equations.
+The graph and claim tuples, evidence replay, remaining layout inverses,
+and categorical claims above are specified at the document level.
