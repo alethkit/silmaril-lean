@@ -25,7 +25,7 @@ open ScheduleSearch (StateInventory)
 open Syntax (Payload Primitives model)
 open Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.TwoRequest (Tag)
 
-universe u
+universe u v
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R T : List Syntax.Ty}
   {A : Syntax.Ty} {states results : Nat}
@@ -38,16 +38,10 @@ private theorem returnPacket_value (g : Endpoint S R A) (caller : Payload (R.get
     (g.returnPacket caller p i).2.val = ((g.output p.1).eval ((g.control.bindings caller).push p.2)).val :=
   cast_value (exit_type (A := A) i).symm _
 
-def routed {R : List Syntax.Ty} (g : Endpoint S R A) (caller : Payload (R.get g.control.entry))
-    (p : Packet R) : Transition R states → Behaviour (R ++ Exits A).length Unit (Fin states)
-  | .exit i _ t => WithTop.some {Feedback.external R (Exits A) (.ret i (g.returnPacket caller p i).2.val t)}
-  | .repeat next t => WithTop.some {Outcome.ret (Feedback.internal R (Exits A) next.1) next.2.val t}
-  | .fault t => WithTop.some {Outcome.fault t}
-  | .diverge => WithTop.some {Outcome.diverge}
-
-theorem raw_step (g : Endpoint S R A) (caller : Payload (R.get g.control.entry)) (prim : Primitives Φ states)
-    (config : Packet R) (s : Fin states) :
-    g.feedback caller prim (blockPoint config s) = routed g caller config ((g.control.head caller config).execute prim s) := by
+theorem raw_step {σ : Type v} (g : Endpoint S R A)
+    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ)
+    (config : Packet R) (s : σ) :
+    g.feedback caller prim (blockPoint config s) = g.route caller config ((g.control.head caller config).execute prim s) := by
   obtain ⟨i, incoming⟩ := config
   rw [Table.head]
   split
@@ -102,7 +96,7 @@ theorem close_classifies (g : Endpoint S R A) (codec : Fin results ≃ Packet (E
     dsimp only
     cases (g.control.head caller input.1).execute prim input.2 with
     | exit i _ t =>
-      simp only [routed, Row.routed, D, carrier, Function.Embedding.trans_apply, Equiv.coe_toEmbedding,
+      simp only [Endpoint.route, Row.routed, D, carrier, Function.Embedding.trans_apply, Equiv.coe_toEmbedding,
         Function.Embedding.refl_apply, Equiv.apply_symm_apply]
       rfl
     | «repeat» next t =>
@@ -143,12 +137,11 @@ theorem decorate_result (g : Endpoint S R A) (codec : Fin results ≃ Packet (Ex
     cases o <;> simp [Outcome.bind]
   | ub => simp [Endpoint.markExit, resultBehaviour]
 
-theorem observe_entry [DecidableEq Φ] (g : Endpoint S R A) (codec : Fin results ≃ Packet (Exits A))
+theorem observe_entry_state [DecidableEq Φ] {σ : Type v} (g : Endpoint S R A)
     (raw : CFG.Dependent.Native.Typed Φ [R.get g.control.entry] (Exits A)) (readback : g.checkNative raw = true)
-    (caller : Payload (R.get g.control.entry)) (prim : Primitives Φ states)
-    (configs : ConfigurationEnumeration R) (stores : StateInventory states) (s : Fin states) :
+    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ) (s : σ) :
     Shape.denote (withExitUB raw g.control.selected) (model prim (g.control.bindings caller)) s =
-      resultBehaviour codec (g.runFinite codec caller prim configs stores ⟨g.control.entry, caller⟩ s) := by
+      g.observeAt caller prim ⟨g.control.entry, caller⟩ s := by
   have same : raw = g.native := Subtype.ext (CFG.Dependent.Native.sameRegion_eq readback)
   subst raw
   have start : g.feedback caller prim (.entry s) =
@@ -162,7 +155,44 @@ theorem observe_entry [DecidableEq Φ] (g : Endpoint S R A) (codec : Fin results
   change (Feedback.close (g.feedback caller prim) (.entry s)).bind _ = _
   rw [close_branch start]
   change (Feedback.close (g.feedback caller prim) (blockPoint ⟨g.control.entry, caller⟩ s)).bind _ = _
-  rw [close_classifies g codec caller prim configs stores]
+  rfl
+
+theorem observe_state_step {σ : Type v} (g : Endpoint S R A)
+    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ)
+    (p : Packet R) (s : σ) :
+    g.observeAt caller prim p s =
+      match (g.control.head caller p).execute prim s with
+      | .exit i _ t => if g.control.selected i then ⊤ else WithTop.some {Outcome.ret i (g.returnPacket caller p i).2.val t}
+      | .repeat next t => g.observeAt caller prim next t
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge} := by
+  have run := raw_step g caller prim p s
+  cases now : (g.control.head caller p).execute prim s <;> rw [now] at run
+  · rename_i i marked t
+    rw [Endpoint.observeAt, close_terminal run]
+    simp only [denote_exitContinuation]
+    cases selected : g.control.selected i <;> simp [selected, Behaviour.bind, Behaviour.possible]
+    ext o
+    cases o <;> simp [Outcome.bind, selected]
+  · rw [Endpoint.observeAt, close_branch run]
+    rfl
+  · rw [Endpoint.observeAt, close_terminal (o := .fault _) run]
+    simp [Behaviour.bind, Behaviour.possible]
+    ext o
+    cases o <;> simp [Outcome.bind]
+  · rw [Endpoint.observeAt, close_terminal (o := .diverge) run]
+    simp [Behaviour.bind, Behaviour.possible]
+    ext o
+    cases o <;> simp [Outcome.bind]
+
+theorem observe_entry [DecidableEq Φ] (g : Endpoint S R A) (codec : Fin results ≃ Packet (Exits A))
+    (raw : CFG.Dependent.Native.Typed Φ [R.get g.control.entry] (Exits A)) (readback : g.checkNative raw = true)
+    (caller : Payload (R.get g.control.entry)) (prim : Primitives Φ states)
+    (configs : ConfigurationEnumeration R) (stores : StateInventory states) (s : Fin states) :
+    Shape.denote (withExitUB raw g.control.selected) (model prim (g.control.bindings caller)) s =
+      resultBehaviour codec (g.runFinite codec caller prim configs stores ⟨g.control.entry, caller⟩ s) := by
+  rw [observe_entry_state g raw readback caller prim s, Endpoint.observeAt,
+    close_classifies g codec caller prim configs stores]
   exact decorate_result g codec caller prim _
 
 theorem result_order (codec : Fin results ≃ Packet (Exits A)) (r t : Result results states) :
