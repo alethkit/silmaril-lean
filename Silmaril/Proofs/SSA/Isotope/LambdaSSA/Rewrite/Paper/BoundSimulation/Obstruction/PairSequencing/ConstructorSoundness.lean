@@ -37,17 +37,17 @@ theorem sequence_pair {observation : TermObservation (α := α) Φ} (unmarked : 
       (env' := extend env v) (ρ := Nat.succ) (fun _ => rfl)]
     cases evalTermWith observation b env <;> rfl
 
-private theorem sequence_inl (a : Tm Φ) (env : Env) :
-    evalRegionWith plain (returnOnce (.inl a)) env =
-      evalRegionWith plain (inlSequence a) env := by
+private theorem sequence_inl (observation : TermObservation (α := α) Φ) (a : Tm Φ) (env : Env) :
+    evalRegionWith observation (returnOnce (.inl a)) env =
+      evalRegionWith observation (inlSequence a) env := by
   simp only [returnOnce, inlSequence, evalRegionWith, evalTermWith]
-  cases evalTermWith plain a env <;> rfl
+  cases evalTermWith observation a env <;> rfl
 
-private theorem sequence_inr (a : Tm Φ) (env : Env) :
-    evalRegionWith plain (returnOnce (.inr a)) env =
-      evalRegionWith plain (inrSequence a) env := by
+private theorem sequence_inr (observation : TermObservation (α := α) Φ) (a : Tm Φ) (env : Env) :
+    evalRegionWith observation (returnOnce (.inr a)) env =
+      evalRegionWith observation (inrSequence a) env := by
   simp only [returnOnce, inrSequence, evalRegionWith, evalTermWith]
-  cases evalTermWith plain a env <;> rfl
+  cases evalTermWith observation a env <;> rfl
 
 section
 
@@ -55,15 +55,22 @@ set_option linter.concreteInstances false
 
 variable [UnitPayloadPolicy]
 
+/-- The sequencing generators preserve observations that leave pair assembly
+unmarked. The common operand observations can still inspect calls. -/
+theorem constructorStep_same {observation : TermObservation (α := α) Φ}
+    (unmarked : observation.pairLet = false)
+    {Γ L : List (Ty α)} {r s : Region Φ} (h : Paper.WithConstructorSequencing.Step Γ r s L) :
+    SameWith observation Γ r s := by
+  cases h with
+  | pair ha hb => exact fun env _ => sequence_pair unmarked _ _ env
+  | inl ha => exact fun env _ => sequence_inl observation _ env
+  | inr ha => exact fun env _ => sequence_inr observation _ env
+
 /-- Opt-in constructor sequencing preserves the unmarked observation. -/
 theorem sequencing_same {Γ L : List (Ty α)} {r s : Region Φ}
     (h : Paper.WithConstructorSequencing.Eqv Γ r s L) : SameWith {} Γ r s :=
-  extension_same (observation := plain) (fun e =>
-    Or.elim e unary_fusion_same (fun h => by
-      cases h with
-      | pair ha hb => exact fun env _ => sequence_pair (observation := plain) rfl _ _ env
-      | inl ha => exact fun env _ => sequence_inl _ env
-      | inr ha => exact fun env _ => sequence_inr _ env)) h
+  extension_same (observation := plain)
+    (fun e => Or.elim e unary_fusion_same (constructorStep_same rfl)) h
 
 end
 
