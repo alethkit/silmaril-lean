@@ -1,5 +1,9 @@
 module
 
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PurePrefix.Thms
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PurePrefix.Defs
+meta import Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.PurePrefix.Defs
+
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Renumbered.Thms
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Renumbered.Defs
 meta import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Check.Defs
@@ -69,18 +73,18 @@ local instance : TypeModel Ty where
   coe := coerceValue
 
 private inductive Op | enter | inner | finish | tailHeader | tailBody | forkGate
-  | routingHeader | routingJoin | consumeBody
+  | routingHeader | routingJoin | consumeBody | addOne
   deriving DecidableEq
 
 local instance : HasTy Op Ty :=
   ⟨fun | .inner => innerPayload | _ => number,
    fun | .enter => innerPayload | .inner => .coprod number innerPayload
        | .finish | .tailHeader | .routingJoin => .coprod number number
-       | .tailBody | .consumeBody => number
+       | .tailBody | .consumeBody | .addOne => number
        | .routingHeader => .coprod .unit number
        | .forkGate => .coprod (.coprod number number) number⟩
 
-local instance : HasEff Op Bool := ⟨fun _ => true⟩
+local instance : HasEff Op Bool := ⟨fun | .addOne => false | _ => true⟩
 
 private abbrev Runtime := StateT Nat Part
 private def instruction : (op : Op) → Value (instrSrc op) → Runtime (Value (instrTrg op))
@@ -100,11 +104,14 @@ private def instruction : (op : Op) → Value (instrSrc op) → Runtime (Value (
   | .consumeBody, n => StateT.mk fun token =>
     if (show Nat from n) = 99 then Part.none else Part.some ((show Nat from n) + token, token + 4)
   | .forkGate, n => pure (if (show Nat from n) = 1 then .inl (.inl (7 : Nat)) else .inr n)
+  | .addOne, n => pure ((show Nat from n) + 1)
 
 local instance : InstructionModel Op Ty Bool Runtime where
   denote := instruction
-  denotePure _ h := False.elim (by change true = false at h; cases h)
-  denote_pure _ h _ := False.elim (by change true = false at h; cases h)
+  denotePure f h n := by
+    cases f <;> first | exact False.elim (by change true = false at h; cases h) | exact (show Nat from n) + 1
+  denote_pure f h n := by
+    cases f <;> first | rfl | exact False.elim (by change true = false at h; cases h)
 
 private def op (f : Op) : TwoBlock.Instruction Op (instrSrc (τ := Ty) f) (instrTrg (τ := Ty) f) :=
   ⟨f, rfl, rfl⟩
@@ -1505,6 +1512,53 @@ example (coherent : Coherent)
   match runPipeline checkedActual 1 with
   | some (.inl (.inr 122598), 1225983) => pure ()
   | _ => throw (IO.userError "the input numbered graph returned the wrong payload or token")
+
+private def pureSetup : Translation.PurePrefix.Prefix Op Bool number number number :=
+  ⟨op .consumeBody, op .addOne, rfl⟩
+
+private def pureBody := Translation.Source.mixed (WithNestedFeedback.Syntax.nested program)
+private def prefixed (pureFirst : Bool) := Translation.PurePrefix.compile pureSetup pureBody pureFirst
+
+private def prefixActions := Translation.PurePrefix.actions (B := number) (X := number) (Z := number) runnerActions
+
+private def prefixOpcodeCode :
+    NestedTheta.Equality.OpcodeCode (Translation.PurePrefix.Op Op Bool number number number) :=
+  NestedTheta.ExplicitRuntime.PurePrefix.opcodeCode
+    (Flat.Numbered.Recognize.opcodeCode (τ := Ty) (Φ := Op))
+    (Translation.PurePrefix.entryCode (τ := Ty) (Φ := Op) (ε := Bool))
+
+private def prefixMatch :=
+  letI : DecidableEq prefixOpcodeCode.Key := inferInstanceAs (DecidableEq (Flat.Numbered.Recognize.OpcodeKey Ty Op ⊕ Op))
+  NestedTheta.Isomorphism.check prefixOpcodeCode swappedRoot (prefixed false) (prefixed true)
+
+private def runPrefix (pureFirst : Bool) (input : Nat) :=
+  NestedTheta.Partial.Executable.run prefixActions (prefixed pureFirst) 2 (point (A := number) input 0)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) (Translation.PurePrefix.typing pureSetup pureBody)
+      (PUnit.unit, (0 : Nat))).run 0 = Part.some ((.inl (4122 : Nat) : Exits), 41223) := by
+  rw [Translation.PurePrefix.region_denote pureSetup pureBody coherent]
+  simp only [StateT.run_bind, Part.bind_eq_bind]
+  change ((TwoBlock.call (ε := Bool) (m := Runtime) (op .consumeBody) (0 : Nat)).run 0).bind _ = _
+  rw [call_eq]
+  change (Part.some ((0 : Nat), (4 : Nat))).bind _ = _
+  rw [Part.bind_some]
+  change (Region.denote (ε := Bool) (m := Runtime) (WithNestedFeedback.Leaf.source program).typing
+    (PUnit.unit,(1 : Nat))).run 4 = _
+  rw [WithNestedFeedback.Leaf.source_rounds _ coherent]
+  simp [feedbackReturnsFirstRound 1 4 (by decide) (by decide)]
+
+#eval show IO Unit from do
+  unless prefixMatch.isSome do
+    throw (IO.userError "the checker rejected relocating the pure entry row")
+  for pureFirst in [false, true] do
+    unless (runPrefix pureFirst 99).isNone do
+      throw (IO.userError "the undefined ordered prefix reached the nested body")
+    let result := (runPrefix pureFirst 0).map fun output =>
+      ((show (Nat ⊕ Nat) ⊕ Nat from output.get .head), (show Nat from output.get (.tail .head)))
+    match result with
+    | some (.inl (.inl 4122), 41223) => pure ()
+    | _ => throw (IO.userError "the nested body did not receive the pure value and exact prefix token")
 
 end Composition
 
