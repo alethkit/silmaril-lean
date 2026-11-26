@@ -20,9 +20,12 @@ variable {Φ : Type u} [HasTy Φ Syntax.Ty] [DecidableEq Φ]
   {S : RequestSignature Φ} {R : List Syntax.Ty}
   {g : Table S R} {raw : CFG.Dependent.Native.Typed Φ [R.get g.entry] Exits}
 
+theorem Table.checked_reemission (ok : g.checkNative raw = true) : raw = g.native :=
+  Subtype.ext (CFG.Dependent.Native.sameRegion_eq ok)
+
 theorem Table.checked_native (ok : g.check raw = true) : raw = g.native := by
   simp only [Table.check, Bool.and_eq_true] at ok
-  exact Subtype.ext (CFG.Dependent.Native.sameRegion_eq ok.1)
+  exact g.checked_reemission ok.1
 
 /-- Execution of the extracted tree retains the complete shaped observation
 of the original native endpoint at the supplied typed entry value. -/

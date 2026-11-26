@@ -19,6 +19,18 @@ variable {M : Shape.Model.{u,v,w,x} Φ ([] : List (Ty κ))}
 variable {captures points results states : Nat}
 variable (C : Carrier M X A B captures points results states)
 
+theorem step_of_branch_iff {R L : List (Ty κ)} {α : Type w} {σ : Type x} {f : Feedback.Run R L α σ}
+    {p q : Feedback.Point R.length α σ} {i : Fin R.length} {a : Value α} {s : σ}
+    (run : f p = WithTop.some {Outcome.ret (Feedback.internal R L i) a s}) :
+    Feedback.Step f p q ↔ q = .block i a s :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.branch_only run
+
+theorem no_step_of_terminal {R L : List (Ty κ)} {α : Type w} {σ : Type x} {f : Feedback.Run R L α σ}
+    {p q : Feedback.Point R.length α σ} {o : Outcome L.length α σ}
+    (run : f p = WithTop.some {Feedback.external R L o}) :
+    ¬ Feedback.Step f p q :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.no_step_of_terminal run
+
 /-- A deterministic internal jump contributes exactly the destination's
 complete feedback observation at its carried payload and final state. -/
 theorem close_branch {R L : List (Ty κ)} {α : Type w} {σ : Type x} {f : Feedback.Run R L α σ}

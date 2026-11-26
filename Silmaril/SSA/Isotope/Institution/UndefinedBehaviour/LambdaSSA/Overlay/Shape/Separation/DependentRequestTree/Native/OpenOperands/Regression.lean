@@ -1,11 +1,13 @@
 module
 
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Refinement.Checker.Interface.Thms
 
 namespace Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands
 
 open Category.FiniteIteration
-open Category.FiniteIteration.CFG.Dependent (pack)
+open Category.FiniteIteration.CFG.Dependent (Packet pack)
 open Category.FiniteIteration.CFG.Dependent.Native (withExitUB)
 open LambdaSSA.Region (packedExitType)
 open TwoRequest (Tag)
@@ -293,6 +295,82 @@ example : backedge.entryCheck = false := rfl
 
 example : backedge.compareInterface? source enumeration backedge.native source.native rfl callers =
     none := rfl
+
+private abbrev loopStart : Packet Packets := ⟨0, left⟩
+private abbrev loopNext : Packet Packets := ⟨0, right⟩
+private abbrev exitPoint : Packet Packets := ⟨2, unitPayload⟩
+
+example : backedge.checkNative backedge.native = true := rfl
+
+example : backedge.head? source.native left loopStart = none := rfl
+
+private def silentBlock (i : Fin Packets.length) :
+    CFG.Dependent.Native.Typed Op [Packets.get i, Bit] (Packets ++ TwoRequest.Exits) :=
+  CFG.Dependent.Native.jump (Feedback.internal Packets TwoRequest.Exits i)
+    (CFG.Dependent.internal_type i) (.var 0)
+
+private def silentCycle : CFG.Dependent.Native.Typed Op [Bit] TwoRequest.Exits :=
+  ⟨nativeFeedback backedge.entryRegion silentBlock, nativeFeedback_hasType backedge.entryRegion silentBlock⟩
+
+example : backedge.head? silentCycle left loopStart = none := rfl
+
+example : (backedge.head? backedge.native left loopStart).map (fun h => h.execute primitives 0) =
+    some (.repeat loopNext 1) := rfl
+
+example : (backedge.head left loopStart).successors enumeration = [loopStart, loopNext] := rfl
+
+example : Feedback.Step (backedge.feedback left primitives) (blockPoint loopStart 0) (blockPoint loopNext 1) :=
+  (backedge.feedback_step_iff left primitives loopStart 0 _).mpr ⟨loopNext, 1, rfl, rfl⟩
+
+example : Shape.denote (withExitUB backedge.native backedge.selected)
+    (Syntax.model primitives (backedge.bindings left)) 0 = WithTop.some {Outcome.diverge} :=
+  (backedge.observe_entry backedge.native rfl left primitives 0).trans
+    ((backedge.observe_step left primitives loopStart 0).trans
+      (backedge.observe_step left primitives loopNext 1))
+
+example : source.observeAt left primitives exitPoint 2 =
+    WithTop.some {Outcome.ret (0 : Fin 2) Value.unit (2 : Fin 3)} :=
+  source.observe_step left primitives exitPoint 2
+
+example : otherExit.observeAt left primitives exitPoint 2 =
+    WithTop.some {Outcome.ret (1 : Fin 2) Value.unit (2 : Fin 3)} :=
+  otherExit.observe_step left primitives exitPoint 2
+
+example : marked.observeAt left primitives exitPoint 2 = ⊤ :=
+  marked.observe_step left primitives exitPoint 2
+
+example : marked.observeAt left primitives ⟨(1 : Fin 3), left⟩ 1 =
+    WithTop.some {Outcome.fault (2 : Fin 3)} :=
+  marked.observe_step left primitives ⟨(1 : Fin 3), left⟩ 1
+
+private def returnsForever : Syntax.Primitives Op 3 := fun f _ _ =>
+  match f with
+  | .flip => .ret (pack (L := replies .flip) ⟨0, right⟩) 1
+  | .test => .diverge
+
+/-- Every replay step is a successful request. The first one changes the
+packet, and the typed successor then repeats indefinitely. -/
+private theorem infiniteReplay :
+    Feedback.Infinite (backedge.feedback left returnsForever) (blockPoint loopStart 0) := by
+  refine ⟨fun j => Nat.casesOn j (blockPoint loopStart 0) (fun _ => blockPoint loopNext 1), rfl, ?_⟩
+  intro j
+  cases j with
+  | zero =>
+    exact (backedge.feedback_step_iff left returnsForever loopStart 0 _).mpr ⟨loopNext, 1, rfl, rfl⟩
+  | succ j =>
+    exact (backedge.feedback_step_iff left returnsForever loopNext 1 _).mpr ⟨loopNext, 1, rfl, rfl⟩
+
+example : (Feedback.close (backedge.feedback left returnsForever) (blockPoint loopStart 0)).Ordinary .diverge := by
+  apply Feedback.ordinary_close_iff.mpr
+  refine ⟨?_, Or.inr ⟨rfl, infiniteReplay⟩⟩
+  rintro ⟨q, _, top⟩
+  cases q <;> exact WithTop.coe_ne_top top
+
+/-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Table.observe_entry' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound] -/
+#guard_msgs in
+#print axioms Table.observe_entry
 
 /-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Table.compareInterface_accepts_iff' depends on axioms: [propext,
  Classical.choice,
