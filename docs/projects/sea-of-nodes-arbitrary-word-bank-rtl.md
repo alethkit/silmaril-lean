@@ -106,12 +106,53 @@ last slot reads the old first payload as well. Reversing the row exchanges the
 temporary indices in the branch and gives the same tested return. The
 zero-counter case takes the first exit and returns the entry payload `20`. [Row regression][row]
 
+## Check once and lower to RTL and explicit-φ λSSA
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Phi.Thms
+
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+
+def crossed := checkFeedbackPlan 3 [1, 2, 3] [5, 6, 5] 1
+  [⟨.sub, 0, 1, 2⟩, ⟨.add, 1, 0, 1⟩]
+
+def crossedTargets := crossed.map fun plan => (plan.rtl, plan.ssa)
+
+#eval crossedTargets.isSome
+```
+
+The shared checker uses the same route, distinct-destination and RTL
+well-formedness tests as `lowerFeedbackRowChecked`. An accepted plan
+exposes the native graph as `plan.graph`, the ordinary λSSA CFG as
+`plan.ssa`, and its occurrence-indexed explicit φ table as `plan.phiView`.
+The compiler and its total primitive model are the existing generic
+single-loop lowering. [RTL row baseline][row-baseline] ·
+[Generic loop lowering][generic-phi]
+
+- `FeedbackPlan.feedback_slot_transfer_iff` selects the actual backedge
+  through any predecessor order. Its branch reads the whole next bank from
+  the scheduled old environment.
+- `FeedbackPlan.feedback_agrees` pairs the exact RTL branch successor with
+  execution of the emitted λSSA header and its transfer of that same native
+  tuple. `FeedbackPlan.returns_iff` relates either finite observation to
+  the other with the same returned word and entire memory. λSSA carries
+  memory as ambient state for these pure operations. [Theorem header][phi-thms]
+
+The checked example runs the reversed predecessor order, accepts the packet
+`[0, -10, 30, 10]`, and rejects the clobbered packet `[0, -10, 10, -10]`.
+The actual RTL runs with one and zero backedges give the λSSA returns
+`30` and `20` with the same nonempty memory. [Paired regression][phi-regression]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Thms \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.ArityRegression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.ComputedRegression \
-  +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.RowRegression
+  +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.RowRegression \
+  +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Phi.Thms \
+  +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Phi.Regression \
+  +Silmaril.Proofs.SSA.PhiView.Regression \
+  +Silmaril.Proofs.SSA.SeaOfNodes.Loop.LambdaSSA.Generic.Regression
 lake env leanchecker Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Frame
 lake env leanchecker Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Execution
 ```
@@ -125,3 +166,7 @@ lake env leanchecker Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Executi
 [emitter]: ../../Silmaril/Machine/SeaOfNodes/Diamond/RTL/Defs.lean
 [computed]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/ComputedRegression.lean
 [row]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/RowRegression.lean
+[row-baseline]: https://github.com/hiloopai/silmaril-lean/pull/3608
+[generic-phi]: sea-of-nodes/control-flow/sea-of-nodes-loop-lambdassa-generic.md
+[phi-thms]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Phi/Thms.lean
+[phi-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Phi/Regression.lean

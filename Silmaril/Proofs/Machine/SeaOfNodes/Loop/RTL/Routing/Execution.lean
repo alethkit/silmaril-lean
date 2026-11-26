@@ -166,7 +166,7 @@ private theorem row_guard (r : BankRoutes payloads) (updates : List (FeedbackUpd
     Val model.value (.value .predicate)) = _
   rw [counter_read]
 
-private theorem source_step (r : BankRoutes payloads) (updates : List (FeedbackUpdate payloads))
+theorem source_step (r : BankRoutes payloads) (updates : List (FeedbackUpdate payloads))
     (input old : WordTuple (payloads + 1)) :
     (r.graphWithRow updates).step model input old =
       if counter old = 0 then .inl (r.returnWord old) else .inr (r.nextBankWithRow updates input old) := by
@@ -452,16 +452,54 @@ theorem checkFeedbackRow_eq_some_iff (payloads : Nat) (specs : List FeedbackSpec
       intro eq
       simpa [← eq] using distinct
 
+theorem checkFeedbackPlan_eq_some_iff (payloads : Nat) (entry feedback : List Nat)
+    (result : Nat) (specs : List FeedbackSpec) (plan : FeedbackPlan payloads) :
+    checkFeedbackPlan payloads entry feedback result specs = some plan ↔
+      checkFeedbackRow payloads specs = some plan.updates ∧
+        checkBankRoutes payloads entry feedback result = some plan.routes ∧
+        (plan.routes.lowerFuncWithRow plan.updates).WellFormed := by
+  rcases plan with ⟨routes, updates⟩
+  cases row : checkFeedbackRow payloads specs with
+  | none => simp [checkFeedbackPlan, row]
+  | some us =>
+    cases checked : checkBankRoutes payloads entry feedback result with
+    | none => simp [checkFeedbackPlan, row, checked]
+    | some r =>
+      by_cases wf : (r.lowerFuncWithRow us).WellFormed
+      · simp [checkFeedbackPlan, row, checked, wf]
+        constructor
+        · rintro ⟨rfl, rfl⟩
+          exact ⟨rfl, rfl, wf⟩
+        · rintro ⟨rfl, rfl, _⟩
+          exact ⟨rfl, rfl⟩
+      · simp [checkFeedbackPlan, row, checked, wf]
+        rintro rfl rfl
+        exact wf
+
 theorem lowerFeedbackRowChecked_eq_some_iff (payloads : Nat) (entry feedback : List Nat)
     (result : Nat) (specs : List FeedbackSpec) (target : Prog Reg) :
     lowerFeedbackRowChecked payloads entry feedback result specs = some target ↔
       ∃ updates, checkFeedbackRow payloads specs = some updates ∧
         ∃ r, checkBankRoutes payloads entry feedback result = some r ∧
           (r.lowerFuncWithRow updates).WellFormed ∧ target = r.lowerWithRow updates := by
-  simp only [lowerFeedbackRowChecked, Option.bind_eq_some_iff]
-  exact exists_congr (fun updates => and_congr_right (fun _ =>
-    exists_congr (fun r => and_congr_right (fun _ => by
-      by_cases wf : (r.lowerFuncWithRow updates).WellFormed <;> simp [wf, eq_comm]))))
+  rw [lowerFeedbackRowChecked, Option.map_eq_some_iff]
+  constructor
+  · rintro ⟨⟨routes, updates⟩, ok, rfl⟩
+    obtain ⟨row, checked, wf⟩ := (checkFeedbackPlan_eq_some_iff _ _ _ _ _ _).mp ok
+    exact ⟨updates, row, routes, checked, wf, rfl⟩
+  · rintro ⟨updates, row, routes, checked, wf, rfl⟩
+    exact ⟨⟨routes, updates⟩, (checkFeedbackPlan_eq_some_iff _ _ _ _ _ _).mpr ⟨row, checked, wf⟩, rfl⟩
+
+theorem lowerFeedbackRowChecked_nil (payloads : Nat) (entry feedback : List Nat) (result : Nat) :
+    lowerFeedbackRowChecked payloads entry feedback result [] =
+      lowerBankChecked payloads entry feedback result := by
+  have empty : checkFeedbackRow payloads [] = some [] := rfl
+  cases checked : checkBankRoutes payloads entry feedback result with
+  | none => simp [lowerFeedbackRowChecked, checkFeedbackPlan, empty, lowerBankChecked, checked]
+  | some r =>
+    by_cases wf : r.lowerFunc.WellFormed
+    · simp [lowerFeedbackRowChecked, checkFeedbackPlan, FeedbackPlan.rtl, empty, lowerBankChecked, checked, wf]
+    · simp [lowerFeedbackRowChecked, checkFeedbackPlan, empty, lowerBankChecked, checked, wf]
 
 theorem lowerComputedChecked_eq_some_iff (payloads : Nat) (entry feedback : List Nat)
     (result : Nat) (spec : FeedbackSpec) (target : Prog Reg) :
@@ -470,7 +508,7 @@ theorem lowerComputedChecked_eq_some_iff (payloads : Nat) (entry feedback : List
         ∃ r, checkBankRoutes payloads entry feedback result = some r ∧
           (r.lowerFuncWith (some update)).WellFormed ∧ target = r.lowerWith (some update) := by
   cases checked : spec.check payloads with
-  | none => simp [lowerComputedChecked, lowerFeedbackRowChecked, checkFeedbackRow, checked]
+  | none => simp [lowerComputedChecked, lowerFeedbackRowChecked, checkFeedbackPlan, checkFeedbackRow, checked]
   | some u =>
     have row : checkFeedbackRow payloads [spec] = some [u] := by
       simp [checkFeedbackRow, checked]
