@@ -12,6 +12,30 @@ open Execution.Runtime (EvalCtx Frame MemAddr MemInst Value)
 open Computed
 open Wasm.V1.Execution
 
+/-- A successful numeric step preserves the check for any typed continuation. -/
+theorem check_prefix_preserves {locals stack next : List Value} {op : Prefix.Op}
+    {rest : List Prefix.Op} {signature : Wasm.V1.FuncType} {resume : List NumType → Bool}
+    (checked : checkHostPrefixWith (locals.map Value.type) (Prefix.stackTypes stack) (op :: rest) signature resume = true)
+    (move : Prefix.Reduce locals stack op (.values next)) :
+    checkHostPrefixWith (locals.map Value.type) (Prefix.stackTypes next) rest signature resume = true :=
+  HostProofs.check_prefix_preserves checked move
+
+/-- The graph continuation receives result types above the actual saved stack. -/
+theorem check_prefix_resume {locals : List NumType} {saved args : List Value}
+    {signature : Wasm.V1.FuncType} {resume : List NumType → Bool}
+    (checked : checkHostPrefixWith locals (Prefix.stackTypes (saved ++ args)) [] signature resume = true)
+    (typed : args.map Value.type = signature.params) :
+    resume (signature.results.reverse ++ Prefix.stackTypes saved) = true :=
+  HostProofs.check_prefix_resume checked typed
+
+/-- The exhausted prefix exposes the ordered argument suffix and its typed continuation. -/
+theorem check_prefix_arguments {locals : List NumType} {stack : List Value}
+    {signature : Wasm.V1.FuncType} {resume : List NumType → Bool}
+    (checked : checkHostPrefixWith locals (Prefix.stackTypes stack) [] signature resume = true) :
+    ∃ saved args, stack = saved ++ args ∧ args.map Value.type = signature.params ∧
+      resume (signature.results.reverse ++ Prefix.stackTypes saved) = true :=
+  HostProofs.check_prefix_arguments checked
+
 /-- Typed parameters and initialized defaults establish the active local types. -/
 theorem HostPrefixTyped.entry {fn : Function} {args stack : List Value} {ops : List Prefix.Op}
     {signature : Wasm.V1.FuncType} {tail : List Op} {fallthrough : List NumType}

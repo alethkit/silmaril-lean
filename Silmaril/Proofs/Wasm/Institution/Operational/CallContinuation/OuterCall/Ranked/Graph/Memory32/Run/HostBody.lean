@@ -21,17 +21,47 @@ theorem prefix_entry {fn : Function} {args stack : List Value} {ops : List Prefi
   refine ⟨rfl, ?_, checked⟩
   simp [Declaration.frame, parameters, Value.zero, List.map_map, Function.comp_def]
 
+theorem check_prefix_preserves {locals stack next : List Value} {op : Prefix.Op}
+    {rest : List Prefix.Op} {signature : Wasm.V1.FuncType} {resume : List NumType → Bool}
+    (checked : checkHostPrefixWith (locals.map Value.type) (Prefix.stackTypes stack) (op :: rest) signature resume = true)
+    (move : Prefix.Reduce locals stack op (.values next)) :
+    checkHostPrefixWith (locals.map Value.type) (Prefix.stackTypes next) rest signature resume = true := by
+  simpa only [checkHostPrefixWith, Prefix.check, Prefix.checkOp_result move, Option.bind_some] using checked
+
+theorem check_prefix_resume {locals : List NumType} {saved args : List Value}
+    {signature : Wasm.V1.FuncType} {resume : List NumType → Bool}
+    (checked : checkHostPrefixWith locals (Prefix.stackTypes (saved ++ args)) [] signature resume = true)
+    (typed : args.map Value.type = signature.params) :
+    resume (signature.results.reverse ++ Prefix.stackTypes saved) = true := by
+  have count : (Prefix.stackTypes args).length = signature.params.length := by
+    simpa [Prefix.stackTypes] using congrArg List.length typed
+  have split : Prefix.stackTypes (saved ++ args) = Prefix.stackTypes args ++ Prefix.stackTypes saved := by
+    simp [Prefix.stackTypes]
+  simp only [checkHostPrefixWith, Prefix.check, Option.map_some, Option.getD_some, Bool.and_eq_true_iff,
+    split, ← count, List.drop_left] at checked
+  exact checked.2
+
+theorem check_prefix_arguments {locals : List NumType} {stack : List Value}
+    {signature : Wasm.V1.FuncType} {resume : List NumType → Bool}
+    (checked : checkHostPrefixWith locals (Prefix.stackTypes stack) [] signature resume = true) :
+    ∃ saved args, stack = saved ++ args ∧ args.map Value.type = signature.params ∧
+      resume (signature.results.reverse ++ Prefix.stackTypes saved) = true := by
+  have shape := checked
+  simp only [checkHostPrefixWith, Prefix.check, Option.map_some, Option.getD_some,
+    Bool.and_eq_true_iff, decide_eq_true_eq] at shape
+  obtain ⟨saved, args, rfl, argTypes⟩ := Graph.SuffixTyped.split shape.1
+  exact ⟨saved, args, rfl, argTypes, check_prefix_resume checked argTypes⟩
+
 theorem prefix_preserves {fn : Function} {caller : Frame} {stack next : List Value}
     {op : Prefix.Op} {rest : List Prefix.Op} {signature : Wasm.V1.FuncType}
     {tail : List Op} {fallthrough : List NumType} {labels : List (List NumType)}
     (typed : HostPrefixTyped fn caller stack (op :: rest) signature tail fallthrough labels)
     (move : Prefix.Reduce caller.locals stack op (.values next)) :
     HostPrefixTyped fn caller next rest signature tail fallthrough labels := by
-  have checked := typed.code
-  have head := Prefix.checkOp_result move
-  rw [typed.locals] at head
-  simp only [Function.checkHostPrefix, Prefix.check, head, Option.bind_some] at checked
-  exact ⟨typed.scope, typed.locals, checked⟩
+  refine ⟨typed.scope, typed.locals, ?_⟩
+  unfold Function.checkHostPrefix
+  rw [← typed.locals]
+  exact check_prefix_preserves (by simpa only [Function.checkHostPrefix, typed.locals] using typed.code) move
 
 theorem host_arguments {H : Type} {fn : Function} {caller : Frame} {stack : List Value}
     {site : HostCall.V1.Site H} {s : Store H} {tail : List Op}
@@ -43,20 +73,11 @@ theorem host_arguments {H : Type} {fn : Function} {caller : Frame} {stack : List
     ∃ saved args, stack = saved ++ args ∧ site.Checked s caller args ∧
       ∀ payload : List Value, payload.map Value.type = site.signature.results →
         fn.checkRegion (Prefix.stackTypes (saved ++ payload)) fallthrough tail labels = true := by
-  have checked := typed.code
-  simp only [Function.checkHostPrefix, Prefix.check, Option.map_some, Option.getD_some,
-    Bool.and_eq_true_iff, decide_eq_true_eq] at checked
-  obtain ⟨saved, args, rfl, argTypes⟩ := Graph.SuffixTyped.split checked.1
+  have check := typed.code
+  unfold Function.checkHostPrefix at check
+  obtain ⟨saved, args, rfl, argTypes, resume⟩ := check_prefix_arguments check
   refine ⟨saved, args, rfl, ⟨typed.scope ▸ linked, allocated, argTypes, scalar⟩, ?_⟩
   intro payload payloadTypes
-  have count : args.length = site.signature.params.length := by
-    simpa using congrArg List.length argTypes
-  have split : Prefix.stackTypes (saved ++ args) = Prefix.stackTypes args ++ Prefix.stackTypes saved := by
-    simp [Prefix.stackTypes]
-  have len : (Prefix.stackTypes args).length = site.signature.params.length := by
-    simpa [Prefix.stackTypes] using count
-  have resume := checked.2
-  rw [split, ← len, List.drop_left] at resume
   simpa [Prefix.stackTypes, payloadTypes] using resume
 
 theorem prefix_step_iff {H : Type} {host : HostSemantics H} {s : Store H} {caller : Frame}

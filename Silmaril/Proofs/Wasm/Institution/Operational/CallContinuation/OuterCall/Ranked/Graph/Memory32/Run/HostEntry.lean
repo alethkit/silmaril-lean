@@ -18,7 +18,7 @@ open Execution.Runtime (AdminInstr EvalCtx Frame FuncAddr MemAddr MemInst Value 
 open Computed
 open Wasm.V1.Execution
 
-private theorem invoke_exact {H : Type} {host : HostSemantics H} {s : Store H} {outer : Frame}
+theorem invoke_exact {H : Type} {host : HostSemantics H} {s : Store H} {outer : Frame}
     {address : FuncAddr} {decl : Declaration} {fn : Wasm.V1.Func} {args : List Value} {dst : Config H}
     (allocated : s.funcs[address.value]? = some (.wasm decl.type decl.module fn))
     (arity : args.length = decl.params.length) (scalar : decl.results.length ≤ 1) :
@@ -141,28 +141,121 @@ private theorem discard_step_iff {H : Type} {host : HostSemantics H} {s : Store 
     have found := exists_callout_iff.mp ⟨c, hc⟩
     simp [decompose?] at found
 
+theorem literal_expression (stack : List Value) :
+    expression (stack.map Graph.v1CodeSyntax.ops.value) = values stack := by
+  induction stack with
+  | nil => rfl
+  | cons v rest ih =>
+    cases v with
+    | mk type bits => cases type <;> exact congrArg (List.cons _) ih
+
+theorem numeric_expression (ops : List Prefix.Op) :
+    expression (ops.map (Prefix.emit Graph.v1CodeSyntax.ops)) = ops.map (Prefix.emit v1Syntax) := by
+  induction ops with
+  | nil => rfl
+  | cons op ops ih =>
+    cases op <;> simp only [List.map_cons, expression, Prefix.emit, Graph.v1CodeSyntax, v1Syntax]
+    all_goals exact congrArg (List.cons _) ih
+
 private theorem entry_body {H : Type} (entry : HostEntry H) :
     expression entry.v1Func.body = values entry.function.initial ++
       entry.operands.map (Prefix.emit v1Syntax) ++ .source (.call entry.site.index) :: entry.tail := by
-  have literals : expression (entry.function.initial.map Graph.v1CodeSyntax.ops.value) =
-      values entry.function.initial := by
-    have unfolded := Function.body_expression { entry.function with code := [] }
-    change expression (entry.function.initial.map Graph.v1CodeSyntax.ops.value ++ []) =
-      values entry.function.initial ++ [] at unfolded
-    simpa using unfolded
-  have numeric : ∀ ops : List Prefix.Op, expression (ops.map (Prefix.emit Graph.v1CodeSyntax.ops)) =
-      ops.map (Prefix.emit v1Syntax) := by
-    intro ops
-    induction ops with
-    | nil => rfl
-    | cons op ops ih =>
-      cases op <;> simp only [List.map_cons, expression, Prefix.emit, Graph.v1CodeSyntax, v1Syntax]
-      all_goals exact congrArg (List.cons _) ih
   change expression (entry.function.initial.map Graph.v1CodeSyntax.ops.value ++
       entry.operands.map (Prefix.emit Graph.v1CodeSyntax.ops) ++
       .call entry.site.index :: v1Code entry.function.code) = _
-  rw [expression_append, expression_append, literals, numeric]
+  rw [expression_append, expression_append, literal_expression, numeric_expression]
   rfl
+
+/-- Numeric steps preserve the enclosing frame, function label and source tail. -/
+theorem framed_numeric_step {H : Type} {host : HostSemantics H} {s : Store H}
+    {outer f : Frame} {n : Nat} {stack : List Value} {op : Prefix.Op} {tail : List Admin} {dst : Config H} :
+    Step host ⟨s, outer, [.frame n f [.label n [] (values stack ++ Prefix.emit v1Syntax op :: tail)]]⟩ dst ↔
+      (∃ next, Prefix.Reduce f.locals stack op (.values next) ∧
+        dst = ⟨s, outer, [.frame n f [.label n [] (values next ++ tail)]]⟩) ∨
+      (∃ saved, Prefix.Reduce f.locals stack op (.trap saved) ∧
+        dst = ⟨s, outer, [.frame n f [.label n [] (values saved ++ .trap :: tail)]]⟩) := by
+  rw [frame_label_step]
+  constructor
+  · rintro (⟨nextStore, nextFrame, body, step, eq⟩ | ⟨after, premature, eq⟩)
+    · obtain ⟨out, moves, state⟩ := v1_host_prefix_step_iff.mp step
+      obtain ⟨rfl, rfl, rfl⟩ := Execution.Runtime.Config.mk.inj state
+      cases out with
+      | values next => exact .inl ⟨next, moves, eq⟩
+      | trap saved => exact .inr ⟨saved, moves, eq⟩
+    · exfalso
+      cases op <;> apply label_source_live premature
+      all_goals first
+        | exact first_source stack _ _ rfl
+        | intro depth eq; cases eq
+        | intro eq; cases eq
+  · rintro (⟨next, move, rfl⟩ | ⟨saved, move, rfl⟩)
+    · exact .inl ⟨_, _, _, v1_host_prefix_step_iff.mpr ⟨.values next, move, rfl⟩, rfl⟩
+    · exact .inl ⟨_, _, _, v1_host_prefix_step_iff.mpr ⟨.trap saved, move, rfl⟩, rfl⟩
+
+theorem framed_direct_step {H : Type} {host : HostSemantics H} {s : Store H}
+    {outer f : Frame} {n : Nat} {stack : List Value} {index : FuncIdx} {address : FuncAddr}
+    {tail : List Admin} {dst : Config H} (linked : f.module.funcs[index.toNat]? = some address) :
+    Step host ⟨s, outer, [.frame n f [.label n [] (values stack ++ .source (.call index) :: tail)]]⟩ dst ↔
+      dst = ⟨s, outer, [.frame n f [.label n [] (values stack ++ .invoke address :: tail)]]⟩ := by
+  rw [frame_label_step]
+  constructor
+  · rintro (⟨nextStore, nextFrame, body, step, eq⟩ | ⟨after, premature, _⟩)
+    · have same := (HostCall.V1.direct_step_iff linked).mp step
+      obtain ⟨rfl, rfl, rfl⟩ := Execution.Runtime.Config.mk.inj same
+      exact eq
+    · exact (label_source_live premature (first_source _ _ _ rfl)
+        (fun _ impossible => by cases impossible) (by intro impossible; cases impossible)).elim
+  · rintro rfl
+    exact .inl ⟨_, _, _, (HostCall.V1.direct_step_iff linked).mpr rfl, rfl⟩
+
+theorem framed_trapped_step {H : Type} {host : HostSemantics H} {s : Store H}
+    {outer f : Frame} {n : Nat} {saved : List Value} {tail : List Admin} {dst : Config H} :
+    Step host ⟨s, outer, [.frame n f [.label n [] (values saved ++ .trap :: tail)]]⟩ dst ↔
+      (∃ kept rest, Prefix.Discard saved tail kept rest ∧
+        dst = ⟨s, outer, [.frame n f [.label n [] (values kept ++ .trap :: rest)]]⟩) ∨
+      (saved = [] ∧ tail = [] ∧ dst = ⟨s, outer, [.frame n f [.trap]]⟩) := by
+  rw [frame_label_step]
+  constructor
+  · rintro (⟨nextStore, nextFrame, body, step, eq⟩ | ⟨after, closes, eq⟩)
+    · obtain ⟨kept, rest, discard, state⟩ := discard_step_iff.mp step
+      obtain ⟨rfl, rfl, rfl⟩ := Execution.Runtime.Config.mk.inj state
+      exact .inl ⟨kept, rest, discard, eq⟩
+    · obtain ⟨rfl, rfl, rfl⟩ := label_trapped closes
+      exact .inr ⟨rfl, rfl, eq⟩
+  · rintro (⟨kept, rest, discard, rfl⟩ | ⟨rfl, rfl, rfl⟩)
+    · exact .inl ⟨_, _, _, discard_step_iff.mpr ⟨kept, rest, discard, rfl⟩, rfl⟩
+    · exact .inr ⟨_, .labelTrap n [], rfl⟩
+
+/-- Lift an exact step correspondence with a preserved ready predicate to
+arbitrary finite endpoints. -/
+theorem finite_run_iff {H : Type} {A : Type} {host : HostSemantics H} (render : A → Config H)
+    (edge : A → A → Prop) (ready : A → Prop)
+    (exactStep : ∀ {src dst}, ready src → (Step host (render src) dst ↔
+      ∃ next, edge src next ∧ ready next ∧ dst = render next))
+    (preserved : ∀ {src dst}, edge src dst → ready src → ready dst)
+    {src : A} (initial : ready src) {dst : Config H} :
+    Steps host (render src) dst ↔
+      ∃ next, Relation.ReflTransGen edge src next ∧ ready next ∧ dst = render next := by
+  constructor
+  · intro run
+    generalize eq : render src = initialCfg at run
+    induction run using Relation.ReflTransGen.head_induction_on generalizing src with
+    | refl => exact ⟨src, .refl, initial, eq.symm⟩
+    | head step rest ih =>
+      rw [← eq] at step
+      obtain ⟨middle, first, midReady, midEq⟩ := (exactStep initial).mp step
+      obtain ⟨next, steps, finalReady, finalEq⟩ := ih midReady midEq.symm
+      exact ⟨next, steps.head first, finalReady, finalEq⟩
+  · rintro ⟨next, run, finalReady, rfl⟩
+    clear finalReady
+    have both : Steps host (render src) (render next) ∧ ready next := by
+      induction run with
+      | refl => exact ⟨.refl, initial⟩
+      | tail _ move ih =>
+        obtain ⟨steps, midReady⟩ := ih
+        have nextReady := preserved move midReady
+        exact ⟨steps.tail ((exactStep midReady).mpr ⟨_, move, nextReady, rfl⟩), nextReady⟩
+    exact both.1
 
 section Execution
 
@@ -196,56 +289,21 @@ private theorem numeric_step {stack : List Value} {op : Prefix.Op} {rest : List 
       (∃ saved, Prefix.Reduce (active).locals stack op (.trap saved) ∧
         dst = renderPhase (.trapped saved (rest.map (Prefix.emit v1Syntax) ++ .source (.call entry.site.index) :: entry.tail))) := by
   simp only [render, context, EvalCtx.plug, List.map_cons, List.append_assoc, List.cons_append]
-  rw [frame_label_step]
-  constructor
-  · rintro (⟨nextStore, nextFrame, body, step, eq⟩ | ⟨after, premature, eq⟩)
-    · obtain ⟨out, moves, state⟩ := v1_host_prefix_step_iff.mp step
-      obtain ⟨rfl, rfl, rfl⟩ := Execution.Runtime.Config.mk.inj state
-      cases out with
-      | values next => exact .inl ⟨next, moves, eq⟩
-      | trap saved => exact .inr ⟨saved, moves, eq⟩
-    · exfalso
-      cases op <;> apply label_source_live premature
-      all_goals first
-        | exact first_source stack _ _ rfl
-        | intro depth eq; cases eq
-        | intro eq; cases eq
-  · rintro (⟨next, move, rfl⟩ | ⟨saved, move, rfl⟩)
-    · exact .inl ⟨_, _, _, v1_host_prefix_step_iff.mpr ⟨.values next, move, rfl⟩, rfl⟩
-    · exact .inl ⟨_, _, _, v1_host_prefix_step_iff.mpr ⟨.trap saved, move, rfl⟩, rfl⟩
+  exact framed_numeric_step
 
 private theorem host_resolve_step {saved actual : List Value} {dst : Config H}
     (checked : entry.Checked mode program memory calls base outer args) :
     Step host (renderPhase (.computing (saved ++ actual) [])) dst ↔ dst = renderPhase (.pending saved actual) := by
-  simp only [render, context, EvalCtx.plug, HostCall.V1.Site.pending, List.map_nil, List.append_nil]
-  rw [frame_label_step]
-  constructor
-  · rintro (⟨nextStore, nextFrame, body, step, eq⟩ | ⟨after, premature, _⟩)
-    · have same := (HostCall.V1.direct_step_iff checked.linkedHost).mp step
-      obtain ⟨rfl, rfl, rfl⟩ := Execution.Runtime.Config.mk.inj same
-      exact eq
-    · exact (label_source_live premature (first_source _ _ _ rfl)
-        (fun _ impossible => by cases impossible) (by intro impossible; cases impossible)).elim
-  · rintro rfl
-    exact .inl ⟨_, _, _, (HostCall.V1.direct_step_iff checked.linkedHost).mpr rfl, rfl⟩
+  simpa only [render, context, EvalCtx.plug, HostCall.V1.Site.pending, List.map_nil, List.append_nil] using
+    (framed_direct_step (n := arity) (f := active) (s := live) (outer := outer)
+      (stack := saved ++ actual) (tail := entry.tail) (host := host) (dst := dst) checked.linkedHost)
 
 private theorem trapped_step {saved : List Value} {tail : List Admin} {dst : Config H} :
     Step host (renderPhase (.trapped saved tail)) dst ↔
       (∃ kept rest, Prefix.Discard saved tail kept rest ∧ dst = renderPhase (.trapped kept rest)) ∨
       (saved = [] ∧ tail = [] ∧
-        dst = renderPhase (.graph ⟨bytes, outer, [.frame arity active [.trap]]⟩)) := by
-  simp only [render, context, EvalCtx.plug, Memory32.render]
-  rw [frame_label_step]
-  constructor
-  · rintro (⟨nextStore, nextFrame, body, step, eq⟩ | ⟨after, closes, eq⟩)
-    · obtain ⟨kept, rest, discard, state⟩ := discard_step_iff.mp step
-      obtain ⟨rfl, rfl, rfl⟩ := Execution.Runtime.Config.mk.inj state
-      exact .inl ⟨kept, rest, discard, eq⟩
-    · obtain ⟨rfl, rfl, rfl⟩ := label_trapped closes
-      exact .inr ⟨rfl, rfl, eq⟩
-  · rintro (⟨kept, rest, discard, rfl⟩ | ⟨rfl, rfl, rfl⟩)
-    · exact .inl ⟨_, _, _, discard_step_iff.mpr ⟨kept, rest, discard, rfl⟩, rfl⟩
-    · exact .inr ⟨_, .labelTrap arity [], rfl⟩
+        dst = renderPhase (.graph ⟨bytes, outer, [.frame arity active [.trap]]⟩)) :=
+  framed_trapped_step
 
 private theorem checked_site {actual : List Value}
     (checked : entry.Checked mode program memory calls base outer args)
@@ -280,7 +338,7 @@ private theorem wrap_checked (checked : entry.Checked mode program memory calls 
   exact RunProofs.single_allowed.mpr
     (.enteredFrame checked.scalar rank (RunProofs.single_allowed.mpr (.label checked.scalar guard)))
 
-private theorem bytes_unique (layout : Layout program base memory initial) {left right : ByteArray}
+theorem bytes_unique (layout : Layout program base memory initial) {left right : ByteArray}
     (same : storeWithBytes base memory initial left = storeWithBytes base memory initial right) :
     left = right := by
   have memoryEq := congrArg (fun s : Store H => s.memories[memory.value]?) same
@@ -291,16 +349,8 @@ private theorem exhausted_ready {saved actual : List Value}
     (ready : entry.Ready mode program memory calls initial args (.computing (saved ++ actual) []))
     (typed : actual.map Value.type = entry.site.signature.params) :
     entry.Ready mode program memory calls initial args (.pending saved actual) := by
-  refine ⟨typed, ?_⟩
-  have exhausted := (show HostPrefixTyped .. from ready).code
-  simp only [Function.checkHostPrefix, Prefix.check, Option.map_some, Option.getD_some,
-    Bool.and_eq_true_iff, decide_eq_true_eq] at exhausted
-  have n : (Prefix.stackTypes actual).length = entry.site.signature.params.length := by
-    simpa [Prefix.stackTypes] using congrArg List.length typed
-  have split : Prefix.stackTypes (saved ++ actual) = Prefix.stackTypes actual ++ Prefix.stackTypes saved := by
-    simp [Prefix.stackTypes]
-  rw [split, ← n, List.drop_left] at exhausted
-  exact exhausted.2
+  exact ⟨typed, check_prefix_resume (show HostPrefixTyped .. from ready).code typed⟩
+
 
 theorem preserves (graphChecked : program.checkV1 memory mode calls = true)
     (checked : entry.Checked mode program memory calls base outer args)
@@ -426,7 +476,7 @@ private theorem prefix_progress (checked : entry.Checked mode program memory cal
       (Prefix.stackTypes stack) (op :: rest) = result
     have computed : ∃ types, result = some types := by
       cases result with
-      | none => simp [Function.checkHostPrefix, shape] at checkedCode
+      | none => simp [Function.checkHostPrefix, checkHostPrefixWith, shape] at checkedCode
       | some types => exact ⟨types, rfl⟩
     obtain ⟨types, eq⟩ := computed
     have wellTyped : Prefix.WellTyped (active).locals stack (op :: rest) types.reverse := by
@@ -464,29 +514,10 @@ theorem run_iff (graphChecked : program.checkV1 memory mode calls = true)
     {src : Phase} (ready : entry.Ready mode program memory calls initial args src) {dst : Config H} :
     Steps host (renderPhase src) dst ↔
       ∃ next, entry.Runs host mode program memory base initial bytes outer args src next ∧
-        entry.Ready mode program memory calls initial args next ∧ dst = renderPhase next := by
-  constructor
-  · intro run
-    generalize eq : renderPhase src = initialCfg at run
-    induction run using Relation.ReflTransGen.head_induction_on generalizing src with
-    | refl => exact ⟨src, .refl, ready, eq.symm⟩
-    | head step rest ih =>
-      rw [← eq] at step
-      obtain ⟨middle, first, midReady, midEq⟩ :=
-        (step_iff graphChecked checked layout matched extent contract ready).mp step
-      obtain ⟨next, steps, finalReady, finalEq⟩ := ih midReady midEq.symm
-      exact ⟨next, steps.head first, finalReady, finalEq⟩
-  · rintro ⟨next, run, finalReady, rfl⟩
-    clear finalReady
-    have both : Steps host (renderPhase src) (renderPhase next) ∧
-        entry.Ready mode program memory calls initial args next := by
-      induction run with
-      | refl => exact ⟨.refl, ready⟩
-      | tail _ edge ih =>
-        obtain ⟨steps, midReady⟩ := ih
-        exact ⟨steps.tail (sound graphChecked checked layout matched edge midReady),
-          preserves graphChecked checked layout extent contract edge midReady⟩
-    exact both.1
+        entry.Ready mode program memory calls initial args next ∧ dst = renderPhase next :=
+  finite_run_iff renderPhase _ _
+    (fun {_ _} h => step_iff graphChecked checked layout matched extent contract h)
+    (fun step h => preserves graphChecked checked layout extent contract step h) ready
 
 end Execution
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.HostEntry.Proofs
