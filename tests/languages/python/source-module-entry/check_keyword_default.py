@@ -164,11 +164,11 @@ if __name__ == "__main__":
     )
     with tempfile.TemporaryDirectory() as directory:
         src, lean = Path(directory) / "Example.py", Path(directory) / "Example.lean"
+        checks = []
         for source, expected, guard in fixtures:
             for placement in ("empty", "builtin", "preamble"):
                 assert reference(source, placement) == expected
-            shared["emit"](src, lean, source)
-            shared["check_lean"](lean, LEAN + "\n" + guard + "\n", extra_imports=IMPORTS)
+            checks.append((source, guard))
         for placement in ("empty", "builtin", "preamble"):
             assert reference(EXPLICIT_KEYWORD, placement) == ("normal", [4], [3], None, None)
         for source, diagnostic in (
@@ -179,9 +179,9 @@ if __name__ == "__main__":
             ("def probe(*, value=3, other=4): assert value == 3\n", ".functionBody .parameterProfile"),
             ("def probe(*, value: int=3): assert value == 3\n", ".functionBody .parameterProfile"),
         ):
-            shared["emit"](src, lean, source)
             guard = f"""
 #guard (match compile pythonSource with | .error (.source ({diagnostic})) => true | _ => false)
 """
-            shared["check_lean"](lean, LEAN + guard, extra_imports=IMPORTS)
+            checks.append((source, guard))
+        shared["check_lean_batch"](src, lean, checks, LEAN, extra_imports=IMPORTS)
     print(f"CPython {sys.version.split()[0]} and Lean checked omitted keyword-only literal defaults.")

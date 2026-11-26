@@ -109,6 +109,23 @@ instructions, runtime allocations or receipts. Run the four pinned inputs and th
 CPython 3.13.5 controls with
 `python3.13 -I scripts/check-python-closed-guards.py --upstream /path/to/pinned/rigorous`.
 
+Checked call operands can carry exact text code points, including
+surrogates. The ordinary executor transports that tag through argument
+preparation. The seeded runner uses its existing live module-first lookup
+and call order. The `legacyTextSeed` profile supplies stock `str` and
+`bool` alongside the equality and Boolean identity helpers.
+
+Stock conversion covers zero arguments or one scalar or text argument.
+Text and Boolean results retain their exact tags. An integer rendered by
+`str` must fit within 640 decimal digits, the minimum enabled CPython
+3.13.5 digit limit. Text helper equality compares code points and a failure
+carries both exact text operands. The text value represents contents.
+Identity tests on text require a separate object model.
+
+Run the unchanged conversion pins and CPython 3.13.5 lookup and diagnostic
+controls with
+`python3.13 -I scripts/check-python-text-conversions.py --upstream /path/to/pinned/rigorous`.
+
 A message-free assertion can use `bool()` or `bool(scalar)` on the left
 of a single `is` or `is not` link. The checker certifies the optional
 positional operand in the shared scalar profile and the right operand in

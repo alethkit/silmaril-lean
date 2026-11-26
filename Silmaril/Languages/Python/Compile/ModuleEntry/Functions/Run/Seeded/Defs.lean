@@ -76,11 +76,17 @@ def legacyOrdSeed (placement : SeedPlacement) : Namespace :=
   let seed := legacySeed placement
   { seed with builtins := ("ord", .builtin .ord) :: seed.builtins }
 
+/-- Opt into stock text conversion alongside the Boolean identity helper. -/
+def legacyTextSeed (placement : SeedPlacement) : Namespace :=
+  let seed := legacyBoolIsinstanceSeed placement
+  { seed with builtins := ("str", .builtin .str) :: seed.builtins }
+
 def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.Operand 0
   | .readGlobal name => .global name
   | .tuple items => .tuple items
   | .literal (.int value) => .literal (.int value)
   | .literal (.bool value) => .literal (.bool value)
+  | .literal (.text value) => .literal (.text value)
   | .literal _ => .unsupported
 
 def lowerScalarOperand {scope : Scope} : ModuleEntry.Operand scope → Core.Module.SeededCall.Operand 0
@@ -130,6 +136,7 @@ decreasing_by
 def truth : Value → Bool
   | .int value => decide (value ≠ 0)
   | .bool value => value
+  | .text value => value.truth
   | .none => false
   | .listObject object => !object.contents.isEmpty
   | .exceptionClass _ | .helper _ | .builtin _ => true
@@ -175,6 +182,7 @@ structure Effect where
 def ordinaryValue? : Value → Option Core.Closure.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
+  | .text value => some (.text value)
   | .none => some .none
   | .function closure => some (.function closure)
   | .returnedTuple items => some (.tuple items)
@@ -183,6 +191,7 @@ def ordinaryValue? : Value → Option Core.Closure.Value
 def seededValue : Core.Closure.Value → Value
   | .int value => .int value
   | .bool value => .bool value
+  | .text value => .text value
   | .none => .none
   | .function closure => .function closure
   | .tuple items => .returnedTuple items
@@ -321,7 +330,7 @@ def observeFactory (space : Namespace) (state : Core.Closure.Executor.State) :
     Except ModuleFailure CallObservation × Heap :=
   match state with
   | .finished heap (.ok (.int _)) | .finished heap (.ok (.bool _)) | .finished heap (.ok .none)
-  | .finished heap (.ok (.tuple _)) =>
+  | .finished heap (.ok (.text _)) | .finished heap (.ok (.tuple _)) =>
     (.ok ⟨.error .unsupported, none⟩, heap)
   | _ => observeDirectCall space state
 
@@ -518,7 +527,7 @@ def readSequenceLength (space : Namespace) (length : Nat) : Except Failure Int :
   match space.lookupGlobal "len" with
   | none => .error (.raised (.runtime (.nameError "len")))
   | some (.builtin .len) => .ok (Int.ofNat length)
-  | some (.int _) | some (.bool _) | some .none | some (.returnedTuple _) =>
+  | some (.int _) | some (.bool _) | some (.text _) | some .none | some (.returnedTuple _) =>
     .error (.raised (.runtime .notCallable))
   | some _ => .error .unsupported
 
@@ -596,7 +605,7 @@ def constructList (space : Namespace) (heap : ListHeap) (argument : ListConstruc
     | .builtin .list =>
       let (object, updated) := reached.allocate contents
       (.ok object, updated)
-    | .int _ | .bool _ | .none | .listObject _ | .returnedTuple _ =>
+    | .int _ | .bool _ | .text _ | .none | .listObject _ | .returnedTuple _ =>
       (.error (.raised (.runtime .notCallable)), reached)
     | _ => (.error .unsupported, reached)
 
@@ -636,7 +645,7 @@ def tupleBinding (space : Namespace) : Option Core.Module.TupleDispatch.TypeBind
   (space.lookupGlobal "tuple").map fun
     | .builtin .tuple => .stockTuple
     | .none => .noneValue
-    | .int _ | .bool _ | .returnedTuple _ | .listObject _ => .nonCallable
+    | .int _ | .bool _ | .text _ | .returnedTuple _ | .listObject _ => .nonCallable
     | .exceptionClass _ | .helper _ | .builtin _ | .function _ => .outsideProfile
 
 def checkTupleChain {scope : Scope} (space : Namespace) (test : TupleChainTest scope) : Except Failure Unit :=

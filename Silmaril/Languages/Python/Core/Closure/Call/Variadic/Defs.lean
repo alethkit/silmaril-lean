@@ -20,17 +20,18 @@ inductive PositionalOperand (Operand : Type) where
 inductive PositionalInputFailure where
   | operand (failure : Failure)
   | notIterable
+  | unsupportedIterable
   deriving DecidableEq, Repr
 
 /-- A checked operand can update the caller state, including on failure. -/
 abbrev ReadOperand (Operand State : Type) := Operand → State → Except Failure Value × State
 
-/-- The closure profile has scalar tuples and the known noniterable
-values None, integers, Booleans and plain functions. Other Python
-iterables require a frontend and value profile that represent them. -/
+/-- Expand scalar tuples. Text is iterable, and its expansion is outside
+this positional operand profile. -/
 def expandPositional : Value → Except PositionalInputFailure (List Value)
   | .tuple items => .ok (items.map Value.ofScalar)
   | .none | .int _ | .bool _ | .function _ => .error .notIterable
+  | .text _ => .error .unsupportedIterable
 
 def PositionalOperand.evaluate {Operand State : Type} (read : ReadOperand Operand State)
     (part : PositionalOperand Operand) (state : State) :

@@ -147,17 +147,24 @@ def lowerFlatTupleItems (scope : Scope) : (elements : List Source.Expr) →
 inductive CallValue (scope : Scope) where
   | scalar (operand : Operand scope)
   | tuple (items : List Core.Closure.GlobalTupleItem)
+  | text (value : Core.Text)
 
 inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope → Prop where
   | scalar {source operand} (checked : ArgumentOperandTranslation scope source operand) :
       CallValueTranslation scope source (.scalar operand)
   | tuple {elements items} (checked : FlatTupleItems scope elements items) :
       CallValueTranslation scope (.tuple elements) (.tuple items)
+  | text {points value} (checked : Core.Text.ofPoints? points = some value) :
+      CallValueTranslation scope (.text points) (.text value)
 
 def lowerCallValue (scope : Scope) : (source : Source.Expr) →
     Except Error {value // CallValueTranslation scope source value}
   | .tuple elements =>
     (lowerFlatTupleItems scope elements).map fun items => ⟨.tuple items.val, .tuple items.property⟩
+  | .text points =>
+    match checked : Core.Text.ofPoints? points with
+    | some value => .ok ⟨.text value, .text checked⟩
+    | none => .error (.scalar .expressionProfile)
   | source =>
     ((lowerArgumentOperand scope source).mapError .scalar).map fun operand =>
       ⟨.scalar operand.val, .scalar operand.property⟩
