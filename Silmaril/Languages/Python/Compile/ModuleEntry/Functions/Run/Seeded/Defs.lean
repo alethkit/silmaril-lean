@@ -636,7 +636,8 @@ def tupleBinding (space : Namespace) : Option Core.Module.TupleDispatch.TypeBind
   (space.lookupGlobal "tuple").map fun
     | .builtin .tuple => .stockTuple
     | .none => .noneValue
-    | _ => .outsideProfile
+    | .int _ | .bool _ | .returnedTuple _ | .listObject _ => .nonCallable
+    | .exceptionClass _ | .helper _ | .builtin _ | .function _ => .outsideProfile
 
 def checkTupleChain {scope : Scope} (space : Namespace) (test : TupleChainTest scope) : Except Failure Unit :=
   let compared := (TupleChain.evaluate (fun _ => tupleBinding space) test).result
