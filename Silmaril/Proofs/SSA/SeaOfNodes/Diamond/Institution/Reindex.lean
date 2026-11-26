@@ -15,13 +15,13 @@ variable {Data : Type u} {P Q R : Signature.{u, v} Data}
 variable {args : List (Ty Data)} {past sigs : List (List (Ty Data))}
 variable {inputs : List (ValueSort Data)} {out : ValueSort Data}
 
-private theorem mapDataflow_id (t : Dataflow P.op args past sigs) :
+theorem mapDataflow_id (t : Dataflow P.op args past sigs) :
     mapDataflow (𝟙 P) t = t := by
   induction t with
   | nil => rfl
   | cons _ _ _ ih => simp only [mapDataflow, ih]; rfl
 
-private theorem mapDataflow_comp (h : P ⟶ Q) (k : Q ⟶ R) (t : Dataflow P.op args past sigs) :
+theorem mapDataflow_comp (h : P ⟶ Q) (k : Q ⟶ R) (t : Dataflow P.op args past sigs) :
     mapDataflow (h ≫ k) t = mapDataflow k (mapDataflow h t) := by
   induction t with
   | nil => rfl

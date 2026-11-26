@@ -18,6 +18,14 @@ variable {Data : Type u} {P Q R : Signature.{u, v} Data}
 variable {args : List (Ty Data)} {past sigs : List (List (Ty Data))}
 variable {inputs : List (ValueSort Data)} {out : ValueSort Data}
 
+@[simp] theorem mapDataflow_id (t : Dataflow P.op args past sigs) :
+    mapDataflow (𝟙 P) t = t :=
+  Proofs.mapDataflow_id t
+
+theorem mapDataflow_comp (h : P ⟶ Q) (k : Q ⟶ R) (t : Dataflow P.op args past sigs) :
+    mapDataflow (h ≫ k) t = mapDataflow k (mapDataflow h t) :=
+  Proofs.mapDataflow_comp h k t
+
 @[simp] theorem mapGraph_id (g : Graph P.op inputs sigs out) : mapGraph (𝟙 P) g = g :=
   Proofs.mapGraph_id g
 
