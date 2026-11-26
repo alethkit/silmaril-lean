@@ -50,10 +50,10 @@ private theorem step_same {Γ L : VCtx (Ty Empty)} {r s : Region Op}
     (h : S Γ r s L) : SameWith observation Γ r s := by
   rcases h with ((old | constructors) | call)
   · exact old.elim projectionUnitSeed_same
-      (fun h => h.elim unary_fusion_same (caseReturnSeed_same rfl))
+      (fun h => h.elim (unary_fusion_same rfl) (caseReturnSeed_same rfl))
   · exact constructorStep_same_of_guard (fun h _ => by
       rw [constructor_not_call h]
-      simp only [Bool.and_false, Bool.false_and]) constructors
+      simp only [Bool.and_false, Bool.false_and]) rfl constructors
   · exact call_same call
 
 theorem call_pair_fails :

@@ -18,7 +18,7 @@ open BoundSimulation.Obstruction.PairSequencing
   (projectionUnitSeed_same caseReturnJoin_same caseReturnSeed_same)
 open BoundSimulation.Obstruction.PairSequencing.Observer
   (TermObservation SameWith evalTermWith evalRegionWith evalRegion_typed evalRegion_lsubst
-    eval_liftLSubstVars extension_same)
+    eval_liftLSubstVars extension_same startsLet)
 
 universe u v w
 variable {α : Type u} {Φ : Type v} [HasTy Φ (Ty α)] {ε : Type w} [HasEff Φ ε] {pe : ε}
@@ -42,8 +42,9 @@ include unmarked in
 private theorem eval_bound_fold {X : Ty α} {v : Val} (hv : ValTy v (.coprod X X)) (env : Env) :
     evalRegion (.let₁ (foldTerm (Φ := Φ)) (.br 0 (.var 0))) (extend env v) =
       Result.jump 0 (untag v) := by
-  rw [evalRegionWith, eval_fold unmarked hv env]
-  simp [evalRegionWith, evalTermWith, extend]
+  have shape : startsLet (foldTerm (Φ := Φ)) = false := rfl
+  simp only [evalRegionWith, shape, Bool.false_and, Bool.false_eq_true, ite_false, eval_fold unmarked hv env]
+  rfl
 
 private theorem zero_payload {A : Ty α} {L : LCtx (Ty α)} {r : Result}
     (typed : ResultTy (A :: L) r) {v : Val} (eq : r = .jump 0 v) : ValTy v A := by

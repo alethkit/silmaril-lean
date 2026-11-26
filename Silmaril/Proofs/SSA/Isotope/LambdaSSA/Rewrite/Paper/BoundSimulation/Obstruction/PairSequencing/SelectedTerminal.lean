@@ -74,7 +74,7 @@ theorem selected_closed_ne :
 
 private theorem caseUnarySeed_same {Γ L : List (Ty Empty)} {r s : Region signature.Instr}
     (step : Paper.WithCaseAndUnaryReturns.JoinedStep false Γ r s L) : SameWith observation Γ r s :=
-  step.elim projectionUnitSeed_same (fun returns => returns.elim unary_fusion_same (caseReturnSeed_same rfl))
+  step.elim projectionUnitSeed_same (fun returns => returns.elim (unary_fusion_same rfl) (caseReturnSeed_same rfl))
 
 theorem selected_packed_caseUnary_ne :
     ¬ Paper.Extension.Eqv (Paper.WithCaseAndUnaryReturns.JoinedStep false) [Ty.unit]

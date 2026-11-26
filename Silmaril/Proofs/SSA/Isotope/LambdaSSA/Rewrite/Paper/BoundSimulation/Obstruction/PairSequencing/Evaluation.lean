@@ -95,6 +95,8 @@ structure TermObservation (Φ : Type v) {α : Type u} [HasTy Φ (Ty α)] where
   /-- Mark an expression-level binary let whose body starts with a unary let. -/
   binaryLetBody : Bool := false
   caseTerm : Bool := false
+  /-- Mark term unary lets used as region scrutinees or as sum injection payloads. -/
+  boundUnaryLet : Bool := false
   computedRegionLet₂ : Bool := false
   /-- Evaluate the argument before returning the selected call payload. -/
   evaluateCallOperand : Bool := false
@@ -159,8 +161,12 @@ def evalTermWith (observation : TermObservation (α := α) Φ) : Tm Φ → Env �
       else do
         let .pair v w ← evalTermWith observation x env | none
         evalTermWith observation t (extend (extend env v) w)
-  | .inl x, env => (evalTermWith observation x env).map Value.inl
-  | .inr x, env => (evalTermWith observation x env).map Value.inr
+  | .inl x, env =>
+      if startsLet x && observation.boundUnaryLet then none
+      else (evalTermWith observation x env).map Value.inl
+  | .inr x, env =>
+      if startsLet x && observation.boundUnaryLet then none
+      else (evalTermWith observation x env).map Value.inr
   | .case x l r, env =>
       if observation.caseTerm then none else
         match evalTermWith observation x env with
@@ -173,9 +179,11 @@ noncomputable def evalRegionWith (observation : TermObservation (α := α) Φ) :
   | .br i t, env => match evalTermWith observation t env with
       | some v => .jump i v
       | none => .fault
-  | .let₁ x r, env => match evalTermWith observation x env with
-      | some v => evalRegionWith observation r (extend env v)
-      | _ => .fault
+  | .let₁ x r, env =>
+      if startsLet x && observation.boundUnaryLet then .fault
+      else match evalTermWith observation x env with
+        | some v => evalRegionWith observation r (extend env v)
+        | _ => .fault
   | .let₂ x r, env =>
       if observation.computedRegionLet₂ && computes x then .fault
       else match evalTermWith observation x env with
@@ -213,8 +221,8 @@ theorem evalTerm_rename (t : Tm Φ) {env env' : Env} {ρ : Nat → Nat}
       | some v =>
         cases v <;> try rfl
         exact it (extend_rename (extend_rename h _) _)
-  | inl _ ix => simp only [Tm.rename, evalTermWith, ix h]
-  | inr _ ix => simp only [Tm.rename, evalTermWith, ix h]
+  | inl _ ix => simp only [Tm.rename, evalTermWith, startsLet_rename, ix h]
+  | inr _ ix => simp only [Tm.rename, evalTermWith, startsLet_rename, ix h]
   | case x l r ix il ir =>
     by_cases hm : observation.caseTerm
     · simp [Tm.rename, evalTermWith, hm]
@@ -270,8 +278,10 @@ theorem evalTerm_subst (t : Tm Φ) {env env' : Env} {θ : Nat → Tm Φ}
       | some v =>
         cases v <;> try rfl
         exact it ((h.lift _).lift _)
-  | inl _ ix => simp only [Tm.subst, evalTermWith, ix h]
-  | inr _ ix => simp only [Tm.subst, evalTermWith, ix h]
+  | inl t ix =>
+    simp only [Tm.subst, evalTermWith, startsLet_subst t θ (fun i => startsLet_of_not_computed (h i).2), ix h]
+  | inr t ix =>
+    simp only [Tm.subst, evalTermWith, startsLet_subst t θ (fun i => startsLet_of_not_computed (h i).2), ix h]
   | case x l r ix il ir =>
     by_cases hm : observation.caseTerm
     · simp [Tm.subst, evalTermWith, hm]
@@ -286,10 +296,13 @@ theorem evalRegion_subst (r : Region Φ) {env env' : Env} {θ : Nat → Tm Φ}
   induction r generalizing env env' θ with
   | br i t => simp only [substVars, evalRegionWith, evalTerm_subst t h]
   | let₁ x r ih =>
-    simp only [substVars, evalRegionWith, evalTerm_subst x h]
-    cases evalTerm x env' with
-    | none => rfl
-    | some v => exact ih (h.lift v)
+    simp only [substVars, evalRegionWith, evalTerm_subst x h,
+      startsLet_subst x θ (fun i => startsLet_of_not_computed (h i).2)]
+    split
+    · rfl
+    · cases evalTerm x env' with
+      | none => rfl
+      | some v => exact ih (h.lift v)
   | let₂ x r ih =>
     simp only [substVars, evalRegionWith, evalTerm_subst x h, computes_subst x θ (fun i => (h i).2)]
     split
@@ -367,19 +380,23 @@ theorem evalTerm_typed {Γ : VCtx (Ty α)} {t : Tm Φ} {A : Ty α}
         cases ix h hx with
         | pair ha hb => exact it ((h.extend ha).extend hb) (by simpa [evalTermWith, guard, hx] using he)
   | @inl _ a _ _ _ it =>
-    cases hx : evalTerm a env with
-    | none => simp [evalTermWith, hx] at he
-    | some x =>
-      simp [evalTermWith, hx] at he
-      subst v
-      exact .inl (it h hx)
+    by_cases marked : (startsLet a && observation.boundUnaryLet) = true
+    · simp [evalTermWith, marked] at he
+    · cases hx : evalTerm a env with
+      | none => simp [evalTermWith, marked, hx] at he
+      | some x =>
+        simp [evalTermWith, marked, hx] at he
+        subst v
+        exact .inl (it h hx)
   | @inr _ a _ _ _ it =>
-    cases hx : evalTerm a env with
-    | none => simp [evalTermWith, hx] at he
-    | some x =>
-      simp [evalTermWith, hx] at he
-      subst v
-      exact .inr (it h hx)
+    by_cases marked : (startsLet a && observation.boundUnaryLet) = true
+    · simp [evalTermWith, marked] at he
+    · cases hx : evalTerm a env with
+      | none => simp [evalTermWith, marked, hx] at he
+      | some x =>
+        simp [evalTermWith, marked, hx] at he
+        subst v
+        exact .inr (it h hx)
   | @case _ a _ _ _ _ _ _ _ _ ix il ir =>
     by_cases hm : observation.caseTerm
     · simp [evalTermWith, hm] at he
@@ -401,12 +418,12 @@ theorem evalValue {Γ : VCtx (Ty α)} {t : Tm Φ} {A : Ty α}
     obtain ⟨x, hx, hxt⟩ := ix
     obtain ⟨y, hy, hyt⟩ := iy
     exact ⟨_, by simp [evalTermWith, value_startsLet ha, value_startsLet hb, hx, hy], .pair hxt hyt⟩
-  | inl _ it =>
+  | inl ht it =>
     obtain ⟨x, hx, hxt⟩ := it
-    exact ⟨_, by simp [evalTermWith, hx], .inl hxt⟩
-  | inr _ it =>
+    exact ⟨_, by simp [evalTermWith, value_startsLet ht, hx], .inl hxt⟩
+  | inr ht it =>
     obtain ⟨x, hx, hxt⟩ := it
-    exact ⟨_, by simp [evalTermWith, hx], .inr hxt⟩
+    exact ⟨_, by simp [evalTermWith, value_startsLet ht, hx], .inr hxt⟩
 
 theorem evalRegion_typed {Γ : VCtx (Ty α)} {r : Region Φ} {L : LCtx (Ty α)}
     (hr : HasType Γ r L) {env : Env} (h : EnvTy Γ env) : ResultTy L (evalRegion r env) := by
@@ -419,8 +436,10 @@ theorem evalRegion_typed {Γ : VCtx (Ty α)} {r : Region Φ} {L : LCtx (Ty α)}
   | let₁ ht _ ih =>
     rw [evalRegionWith]
     split
-    · exact ih (h.extend (evalTerm_typed ht h (by assumption)))
     · trivial
+    · split
+      · exact ih (h.extend (evalTerm_typed ht h (by assumption)))
+      · trivial
   | let₂ ht _ ih =>
     rw [evalRegionWith]
     split
@@ -492,8 +511,12 @@ theorem evalTerm_substOn {Γ : VCtx (Ty α)} {t : Tm Φ} {A : Ty α}
       | some v =>
         cases v <;> try rfl
         exact it ((h.lift A _).lift B _)
-  | inl _ it => simp only [Tm.subst, evalTermWith, it h]
-  | inr _ it => simp only [Tm.subst, evalTermWith, it h]
+  | inl ht it =>
+    simp only [Tm.subst, evalTermWith,
+      startsLet_substOn ht (fun i A hi => startsLet_of_not_computed (h i A hi).2), it h]
+  | inr ht it =>
+    simp only [Tm.subst, evalTermWith,
+      startsLet_substOn ht (fun i A hi => startsLet_of_not_computed (h i A hi).2), it h]
   | @case _ a _ _ A B _ _ _ _ ix il ir =>
     by_cases hm : observation.caseTerm
     · simp [Tm.subst, evalTermWith, hm]
@@ -510,10 +533,13 @@ theorem evalRegion_substOn {Γ : VCtx (Ty α)} {r : Region Φ} {L : LCtx (Ty α)
   induction hr generalizing env env' θ with
   | br hi ht => simp only [substVars, evalRegionWith, evalTerm_substOn ht h]
   | @let₁ _ _ a _ A ht _ ih =>
-    simp only [substVars, evalRegionWith, evalTerm_substOn ht h]
-    cases evalTerm a env' with
-    | none => rfl
-    | some v => exact ih (h.lift A v)
+    simp only [substVars, evalRegionWith, evalTerm_substOn ht h,
+      startsLet_substOn ht (fun i A hi => startsLet_of_not_computed (h i A hi).2)]
+    split
+    · rfl
+    · cases evalTerm a env' with
+      | none => rfl
+      | some v => exact ih (h.lift A v)
   | @let₂ _ _ a _ A B ht _ ih =>
     simp only [substVars, evalRegionWith, evalTerm_substOn ht h,
       computes_substOn ht (fun i A hi => (h i A hi).2)]
