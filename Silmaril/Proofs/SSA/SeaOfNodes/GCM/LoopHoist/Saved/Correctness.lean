@@ -73,6 +73,31 @@ theorem origins_agree (values : Env widths) (latch : BitVec carried.val) (input 
         subst capture
         exact ih ref prior h
 
+theorem immutableOrigins_agree (values : Env widths) (input : Env Input) :
+    CapturesAgree (immutableOrigins widths) (values.append input) input := by
+  induction values with
+  | nil =>
+    intro _ ref captured found
+    cases found
+    rfl
+  | cons value values ih =>
+    intro _ ref captured found
+    cases ref with
+    | here => cases found
+    | there ref => exact ih ref captured found
+
+theorem immutableOrigins_cut (ref : Var (widths ++ Input) w) {captured : Var Input w}
+    (found : immutableOrigins widths ref = .inl captured) : definitionCut widths ref = 0 := by
+  induction widths with
+  | nil => exact Nat.zero_sub _
+  | cons width widths ih =>
+    cases ref with
+    | here => cases found
+    | there ref =>
+      change (widths.length + 1) - (ref.index + 1) = 0
+      rw [Nat.succ_sub_succ_eq_sub]
+      exact ih ref found
+
 theorem prefixRef_get (ref : Var widths w) (values : Env widths) (suffix : Env Input) :
     (values.append suffix).get (prefixRef Input ref) = values.get ref := by
   induction ref with

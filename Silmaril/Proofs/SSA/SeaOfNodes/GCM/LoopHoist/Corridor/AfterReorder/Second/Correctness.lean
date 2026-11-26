@@ -25,7 +25,7 @@ open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Earlier (operations)
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Sequence (State)
 open Loop.MLIR.CF (Program TargetOp evalOp lower)
 
-variable {Input Γ Δ : List Width} {saved carried result : Width}
+variable {Input Γ Δ extra : List Width} {saved carried result : Width}
 variable {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 variable {g : Program Input carried result entrySigs headerSigs}
 variable {first : AfterReorder.Plan} {consumerOrigin : Nat} {prepared : Prepared Input carried result}
@@ -34,32 +34,80 @@ private theorem savedOrigins_agree (value : BitVec saved.val) (old : BitVec carr
     (input : Env Input) : CapturesAgree savedOrigins (.cons value (.cons old input)) (.cons value input) :=
   Saved.origins_agree (.cons value .nil) old input
 
-theorem findCandidate?_value {index cut : Nat}
-    {origins : Origins (saved :: Input) Γ} {code : Block TargetOp (Label saved carried result) Γ [result]}
-    {candidate : Candidate Input saved carried result}
-    (found : findCandidate? index cut origins code = some candidate)
-    (env : Env Γ) (inputs : Env (saved :: Input)) (agree : CapturesAgree origins env inputs) :
+theorem findCaptured?_value {index cut : Nat}
+    {origins : Origins ((extra ++ [saved]) ++ Input) Γ}
+    {code : Block TargetOp (Label saved carried result extra) Γ [result]}
+    {candidate : Candidate Input saved carried result extra}
+    (found : findCaptured? index cut origins code = some candidate)
+    (env : Env Γ) (inputs : Env ((extra ++ [saved]) ++ Input)) (agree : CapturesAgree origins env inputs) :
     valueAt? index code env = some ⟨candidate.width, evalOp candidate.op (candidate.inputs.eval inputs)⟩ := by
   induction code generalizing index cut with
-  | terminator => simp [findCandidate?] at found
+  | terminator => simp [findCaptured?] at found
   | letOp op operands rest ih =>
     cases index with
     | zero =>
       cases capture : captureOrigins? origins operands with
-      | none => simp [findCandidate?, capture] at found
+      | none => simp [findCaptured?, capture] at found
       | some captured =>
-        cases reads : readsSaved captured 1 with
-        | false => simp [findCandidate?, capture, reads] at found
-        | true =>
-          simp [findCandidate?, capture, reads] at found
-          subst candidate
-          simp only [valueAt?, evalCaptureOrigins origins operands capture env inputs agree]
+        simp [findCaptured?, capture] at found
+        subst candidate
+        simp only [valueAt?, evalCaptureOrigins origins operands capture env inputs agree]
     | succ index =>
       apply ih found (.cons (evalOp op (operands.eval env)) env)
       intro _ ref captured fromOrigin
       cases ref with
       | here => cases fromOrigin
       | there ref => exact agree ref captured fromOrigin
+
+private theorem findCaptured?_sites {index cut : Nat}
+    {origins : Origins ((extra ++ [saved]) ++ Input) Γ}
+    {code : Block TargetOp (Label saved carried result extra) Γ [result]}
+    {candidate : Candidate Input saved carried result extra}
+    (found : findCaptured? index cut origins code = some candidate) :
+    candidate.operands = prefixSites candidate.inputs := by
+  induction code generalizing index cut with
+  | terminator => simp [findCaptured?] at found
+  | letOp op operands rest ih =>
+    cases index with
+    | zero =>
+      cases capture : captureOrigins? origins operands with
+      | none => simp [findCaptured?, capture] at found
+      | some inputs =>
+        simp only [findCaptured?, capture] at found
+        cases found
+        rfl
+    | succ index => exact ih found
+
+private theorem immutable_sites {args : List Width} (operands : Operands ((extra ++ [saved]) ++ Input) args)
+    {captured : Operands Input args}
+    (found : captureOrigins? (Saved.immutableOrigins (extra ++ [saved])) operands = some captured) :
+    ∀ operand ∈ prefixSites (carried := carried) (result := result) operands, operand = ⟨none, 0⟩ := by
+  induction operands with
+  | nil => simp [prefixSites]
+  | cons ref tail ih =>
+    cases origin : Saved.immutableOrigins (extra ++ [saved]) ref with
+    | inr unavailable => simp [captureOrigins?, origin] at found
+    | inl input =>
+      simp only [captureOrigins?, origin, Option.map_eq_some_iff] at found
+      obtain ⟨remaining, matched, _⟩ := found
+      intro operand member
+      simp only [prefixSites, List.mem_cons] at member
+      rcases member with rfl | later
+      · rw [Saved.immutableOrigins_cut ref origin]
+      · exact ih matched operand later
+
+theorem findCaptured?_immutable {index cut : Nat}
+    {origins : Origins ((extra ++ [saved]) ++ Input) Γ}
+    {code : Block TargetOp (Label saved carried result extra) Γ [result]}
+    {candidate : Candidate Input saved carried result extra} {inputs : Operands Input candidate.args}
+    (found : findCaptured? index cut origins code = some candidate) (immutable : candidate.immutableInputs? = some inputs) :
+    (∀ operand ∈ candidate.operands, operand = ⟨none, 0⟩) ∧
+    ∀ (input : Env Input) (values : Env (extra ++ [saved])),
+      candidate.inputs.eval (values.append input) = inputs.eval input := by
+  refine ⟨?_, fun input values => evalCaptureOrigins _ _ immutable _ _
+    (Saved.immutableOrigins_agree values input)⟩
+  rw [findCaptured?_sites found]
+  exact immutable_sites candidate.inputs immutable
 
 private theorem routeCode_operations (code : Block TargetOp (SourceLabel carried result) Γ [result])
     (rename : Rename Γ Δ) (kept : Operands Δ [saved]) :
@@ -104,7 +152,7 @@ theorem prepareOn?_spec {intermediate : Output Input carried result} {origins : 
     (accepted : prepareOn? intermediate origins consumerOrigin = some prepared) :
     prepared.intermediate = intermediate ∧ prepared.origins = origins ∧
     prepared.origins.idxOf? consumerOrigin = some prepared.index ∧
-    findCandidate? prepared.index 0 savedOrigins (prepared.intermediate.2.block .header) =
+    findCaptured? prepared.index 0 savedOrigins (prepared.intermediate.2.block .header) =
       some prepared.consumer ∧ checkConsumer prepared.intermediate.2 prepared.consumer = true := by
   obtain ⟨index, located, next⟩ := Option.bind_eq_some_iff.mp accepted
   obtain ⟨consumer, found, next⟩ := Option.bind_eq_some_iff.mp next
@@ -123,7 +171,7 @@ private theorem prepare?_spec (accepted : prepare? g first consumerOrigin = some
         some (cut, prepared.intermediate) ∧
       prepared.origins = state.origins.eraseIdx firstIndex ∧
       prepared.origins.idxOf? consumerOrigin = some prepared.index ∧
-      findCandidate? prepared.index 0 savedOrigins (prepared.intermediate.2.block .header) =
+      findCaptured? prepared.index 0 savedOrigins (prepared.intermediate.2.block .header) =
         some prepared.consumer ∧
       checkConsumer prepared.intermediate.2 prepared.consumer = true := by
   obtain ⟨state, ran, next⟩ := Option.bind_eq_some_iff.mp accepted
@@ -145,7 +193,7 @@ theorem prepare?_placement (accepted : prepare? g first consumerOrigin = some pr
       prepared.origins[prepared.index]? = some consumerOrigin ∧
       prepared.origins.map (fun origin => (operations ((lower g).block .header))[origin]?) =
         (operations (prepared.intermediate.2.block .header)).map some ∧
-      findCandidate? prepared.index 0 savedOrigins (prepared.intermediate.2.block .header) =
+      findCaptured? prepared.index 0 savedOrigins (prepared.intermediate.2.block .header) =
         some prepared.consumer ∧
       Legal prepared.intermediate.2 prepared.consumer.operands prepared.consumer.uses ⟨none, 1⟩ := by
   obtain ⟨state, firstIndex, _, ran, resolved, moved, erased, located, foundConsumer, checked⟩ := prepare?_spec accepted
@@ -177,7 +225,7 @@ theorem prepare?_available (accepted : prepare? g first consumerOrigin = some pr
   · rw [code]
     rfl
   · intro input old
-    exact findCandidate?_value found _ _ (savedOrigins_agree _ old input)
+    exact findCaptured?_value found _ _ (savedOrigins_agree _ old input)
 
 theorem prepare?_first_replay_routes (accepted : prepare? g first consumerOrigin = some prepared)
     (input : Env Input) :

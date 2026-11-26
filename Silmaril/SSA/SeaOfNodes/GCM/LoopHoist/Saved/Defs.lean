@@ -56,6 +56,14 @@ def origins : (widths : List Width) → {w : Width} →
     | .here => .inl .here
     | .there ref => (origins rest ref).map Var.there id
 
+/-- Project immutable inputs out of a saved-prefix scope. A reference
+to any saved slot remains local to that scope. -/
+def immutableOrigins : (widths : List Width) → {w : Width} →
+    Var (widths ++ Input) w → Var Input w ⊕ Nat
+  | [], _, ref => .inl ref
+  | _ :: _, _, .here => .inr 0
+  | _ :: rest, _, .there ref => immutableOrigins rest ref
+
 /-- Extend the header packet and preserve the old arguments in order.
 An exit keeps its complete argument tuple. -/
 def prependFrame (value : BitVec w.val) :

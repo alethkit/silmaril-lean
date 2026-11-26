@@ -39,7 +39,7 @@ theorem emitAt?_step {saved : Width} {extra : List Width}
     {target : Cfg TargetOp (Label saved carried result (candidate.width :: extra)) Input [result]}
     {input : Env Input} {values : Env (extra ++ [saved])}
     (matched : Saved.Prefix.Matches cfg.entry input values)
-    (found : findCandidate? index 0 (Saved.origins (extra ++ [saved])) (cfg.block .header) = some candidate)
+    (found : findCaptured? index 0 (Saved.origins (extra ++ [saved])) (cfg.block .header) = some candidate)
     (emitted : emitAt? cfg index candidate.op candidate.inputs = some target) :
     let value := evalOp candidate.op (candidate.inputs.eval (values.append input))
     Saved.StepRoutes cfg target input values value ∧

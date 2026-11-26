@@ -17,6 +17,12 @@ open AfterReorder.Second.Example (first)
 def chain : Except Refusal (Plan Inputs word word) :=
   discover Step.Example.loop first.header
 
+def immutableSecond : Except Refusal (Plan Inputs word word) :=
+  discover (Step.Example.loopWith true false) first.header
+
+def immutableLater : Except Refusal (Plan Inputs word word) :=
+  discover (Step.Example.loopWith false true) first.header
+
 def varying : Except Refusal (Plan Inputs word word) :=
   discover (AfterReorder.Second.Example.loop true) first.header
 

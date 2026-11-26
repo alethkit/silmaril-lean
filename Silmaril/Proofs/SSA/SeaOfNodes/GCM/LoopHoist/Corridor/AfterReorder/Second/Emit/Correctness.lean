@@ -122,7 +122,7 @@ private theorem liftCode_eval (code : Block TargetOp (Label saved carried result
 theorem rewriteAt?_eval {code : Block TargetOp (Label saved carried result extra) Γ [result]}
     {index cut : Nat} {origins : Origins ((extra ++ [saved]) ++ Input) Γ}
     {candidate : Candidate Input saved carried result extra}
-    (found : findCandidate? index cut origins code = some candidate)
+    (found : findCaptured? index cut origins code = some candidate)
     (inputs : Env ((extra ++ [saved]) ++ Input)) (source : Env Γ) (agree : CapturesAgree origins source inputs)
     (rename : Rename Γ Δ) (keep : Var Δ candidate.width) (target : Env Δ)
     (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref)
@@ -132,25 +132,22 @@ theorem rewriteAt?_eval {code : Block TargetOp (Label saved carried result extra
         (code.eval evalOp (fun term env => Terminator.eval env term) source).map
           (Saved.prependFrame (target.get keep)) id := by
   induction code generalizing index cut Δ with
-  | terminator => simp [findCandidate?] at found
+  | terminator => simp [findCaptured?] at found
   | letOp op operands rest ih =>
     cases index with
     | zero =>
       cases capture : captureOrigins? origins operands with
-      | none => simp [findCandidate?, capture] at found
+      | none => simp [findCaptured?, capture] at found
       | some captured =>
-        cases reads : readsSaved captured (extra.length + 1) with
-        | false => simp [findCandidate?, capture, reads] at found
-        | true =>
-          simp [findCandidate?, capture, reads] at found
-          subst candidate
-          refine ⟨liftCode (replaceBinding rename keep) keep rest, by simp [rewriteAt?], ?_⟩
-          rw [Code.eval, evalCaptureOrigins origins operands capture source inputs agree, ← value]
-          apply liftCode_eval
-          intro _ ref
-          cases ref with
-          | here => rfl
-          | there ref => exact same ref
+        simp [findCaptured?, capture] at found
+        subst candidate
+        refine ⟨liftCode (replaceBinding rename keep) keep rest, by simp [rewriteAt?], ?_⟩
+        rw [Code.eval, evalCaptureOrigins origins operands capture source inputs agree, ← value]
+        apply liftCode_eval
+        intro _ ref
+        cases ref with
+        | here => rfl
+        | there ref => exact same ref
     | succ index =>
       have nextAgree : CapturesAgree (afterBinding origins (cut + 1))
           (.cons (evalOp op (operands.eval source)) source) inputs := by
@@ -177,7 +174,7 @@ theorem emitAt?_step
     {target : Cfg TargetOp (Label saved carried result (candidate.width :: extra)) Input [result]}
     {input : Env Input} {values : Env (extra ++ [saved])}
     (matched : Saved.Prefix.Matches cfg.entry input values)
-    (found : findCandidate? index 0 (Saved.origins (extra ++ [saved])) (cfg.block .header) = some candidate)
+    (found : findCaptured? index 0 (Saved.origins (extra ++ [saved])) (cfg.block .header) = some candidate)
     (emitted : emitAt? cfg index candidate.op candidate.inputs = some target) :
     let value := evalOp candidate.op (candidate.inputs.eval (values.append input))
     Saved.StepRoutes cfg target input values value ∧

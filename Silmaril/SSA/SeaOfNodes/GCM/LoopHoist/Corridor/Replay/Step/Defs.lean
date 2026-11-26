@@ -39,7 +39,7 @@ def emit (state : State Input saved carried result extra) (request : Nomination)
   if request.cut = widths.length then
     let attempt : Option (Emission Input saved carried result extra) := do
       let index ← state.origins.idxOf? request.origin
-      let candidate ← AfterReorder.Second.findCandidate? index 0 (Saved.origins widths) (state.cfg.block .header)
+      let candidate ← AfterReorder.Second.findCaptured? index 0 (Saved.origins widths) (state.cfg.block .header)
       if AfterReorder.Second.checkConsumer state.cfg candidate then
         let cfg ← AfterReorder.Second.Emit.emitAt? state.cfg index candidate.op candidate.inputs
         pure ⟨index, candidate, ⟨cfg, state.origins.eraseIdx index, .cons request.origin state.slots⟩⟩

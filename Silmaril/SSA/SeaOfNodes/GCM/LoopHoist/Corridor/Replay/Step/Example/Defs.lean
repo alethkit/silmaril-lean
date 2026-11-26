@@ -18,9 +18,9 @@ open Replay.Example (producer consumer)
 
 abbrev Schedule : List (List (Diamond.Ty Width)) := [[byte], [byte], [byte], [predicate], [byte], [byte]]
 
-/-- Bindings 1 and 2 are the existing producer and consumer. Binding 5
-adds those two results, so its operands are saved at different cuts. -/
-def loop : Program Inputs word word entrySigs Schedule where
+/-- Bindings 2 and 5 can read the prior results or use immutable inputs.
+The all-dependent variant uses both prior saved results in binding 5. -/
+def loopWith (immutableSecond immutableThird : Bool) : Program Inputs word word entrySigs Schedule where
   preheader := (AfterReorder.Second.Example.loop false).preheader
   header :=
     .cons (.arithmetic (.binary .addi))
@@ -28,18 +28,23 @@ def loop : Program Inputs word word entrySigs Schedule where
       (.cons (.arithmetic (.binary .addi))
         (.cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail .head))) .nil))
         (.cons (.arithmetic (.binary .addi))
-          (.cons (.output (1 : Fin 2) .head) (.cons (.arg (.tail (.tail .head))) .nil))
+          (.cons (if immutableSecond then .arg .head else .output (1 : Fin 2) .head)
+            (.cons (if immutableSecond then .arg .head else .arg (.tail (.tail .head))) .nil))
           (.cons (.ult word)
             (.cons (.arg (.tail (.tail (.tail .head)))) (.cons (.arg (.tail .head)) .nil))
             (.cons (.arithmetic (.binary .addi))
               (.cons (.output (0 : Fin 4) .head) (.cons (.output (2 : Fin 4) .head) .nil))
               (.cons (.arithmetic (.binary .addi))
-                (.cons (.output (2 : Fin 5) .head) (.cons (.output (1 : Fin 5) .head) .nil)) .nil)))))
+                (.cons (if immutableThird then .arg .head else .output (2 : Fin 5) .head)
+                  (.cons (if immutableThird then .arg (.tail (.tail .head)) else .output (1 : Fin 5) .head)
+                    .nil)) .nil)))))
   phiInputs
     | .entry => (AfterReorder.Second.Example.loop false).phiInputs .entry
     | .backedge => .cons (.output (4 : Fin 6) .head) .nil
   predicate := .output (3 : Fin 6) .head
   result := .output (5 : Fin 6) .head
+
+def loop := loopWith false false
 
 def third : Nomination := ⟨5, 2⟩
 

@@ -20,8 +20,8 @@ it returns the checked reordered CFG. [API][defs]
 The first move resolves its identity in the reordered header and records the
 corridor's actual typed cut zero and the CFG returned by the existing emitter.
 The second move resolves its identity in the remaining order and checks cut one
-on that emitted CFG. The consumer must read the saved producer and may read
-immutable inputs. The checker scans its current regular and Φ uses, keeping the
+on that emitted CFG. The consumer may read the saved producer, immutable
+inputs, or both. The checker scans its current regular and Φ uses, keeping the
 branch occurrence and argument index. The emitter remaps those uses, prepends
 the consumer to the existing header packets, and preserves the exit tuple.
 Each snapshot exposes its typed CFG and the origin order of its current header.
@@ -95,8 +95,10 @@ the new saved parameter for the removed header value in typed reads and edge
 arguments. The checked cut is the end of the current contiguous saved prefix.
 This cut can grow as replay advances. Earlier cuts and cuts inside the remaining
 preheader tail are outside this profile, even when some operands would be
-available there. Subsequent moves in this corridor must read at least one saved
-value and may also read immutable inputs. [Splice and routing theorems][emit-thms]
+available there. Subsequent moves capture operands from the existing saved
+slots and immutable inputs. A move whose operands all come from immutable
+inputs still uses the current prefix-end cut for insertion.
+[Splice and routing theorems][emit-thms] · [Discovery guide][discovery]
 
 `emitAt?_step` proves the actual entry and block transfers and the evaluation
 witness for the next prefix. `emit_invariant` applies `Saved.Invariant.extend`
@@ -166,6 +168,7 @@ lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.
 [saved]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Saved/Defs.lean
 [saved-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Saved/Thms.lean
 [emit-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/AfterReorder/Second/Emit/Thms.lean
+[discovery]: sea-of-nodes-gcm-hoist-discovery.md
 [prefix]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Saved/Prefix/Defs.lean
 [step]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Defs.lean
 [step-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Thms.lean

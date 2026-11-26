@@ -35,6 +35,15 @@ theorem origins_agree (values : Env widths) (latch : BitVec carried.val) (input 
       (values.append input) :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Saved.origins_agree values latch input
 
+/-- A captured immutable reference agrees with the input under any saved prefix. -/
+theorem immutableOrigins_agree (values : Env widths) (input : Env Input) :
+    CapturesAgree (immutableOrigins widths) (values.append input) input :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Saved.immutableOrigins_agree values input
+
+theorem immutableOrigins_cut (ref : Var (widths ++ Input) w) {captured : Var Input w}
+    (found : immutableOrigins widths ref = .inl captured) : definitionCut widths ref = 0 :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Saved.immutableOrigins_cut ref found
+
 theorem prefixRef_get (ref : Var widths w) (values : Env widths) (suffix : Env Input) :
     (values.append suffix).get (prefixRef Input ref) = values.get ref :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Saved.prefixRef_get ref values suffix

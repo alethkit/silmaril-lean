@@ -25,7 +25,7 @@ local, and the remaining arguments as the immutable inputs. -/
 def savedOrigins : Origins (saved :: Input) (saved :: carried :: Input) :=
   Saved.origins [saved]
 
-/-- A candidate reads the saved value and immutable inputs in this scope. -/
+/-- A candidate captures its operands in the current saved-prefix scope. -/
 structure Candidate (Input : List Width) (saved carried result : Width) (extra : List Width := []) where
   width : Width
   args : List Width
@@ -47,22 +47,33 @@ def readsSaved {args : List Width} (operands : Operands Γ args) : Nat → Bool
   | 0 => false
   | n + 1 => !(positions n operands 0).isEmpty || readsSaved operands n
 
-/-- Read the current typed binding and require a genuine use of the already
-hoisted producer. Preceding header bindings still create local origins. -/
-def findCandidate? : (index cut : Nat) → {Γ : List Width} → Origins ((extra ++ [saved]) ++ Input) Γ →
+/-- Recover the original typed operands for a capture that reads only
+immutable inputs. -/
+def Candidate.immutableInputs? (candidate : Candidate Input saved carried result extra) :
+    Option (Operands Input candidate.args) :=
+  captureOrigins? (Saved.immutableOrigins (extra ++ [saved])) candidate.inputs
+
+/-- Read the current typed binding. Capture accepts saved slots and
+immutable inputs. The latch and preceding header bindings are local. -/
+def findCaptured? : (index cut : Nat) → {Γ : List Width} → Origins ((extra ++ [saved]) ++ Input) Γ →
     Block TargetOp (Label saved carried result extra) Γ [result] →
     Option (Candidate Input saved carried result extra)
   | 0, cut, _, origins, .letOp op operands rest => do
     let inputs ← captureOrigins? origins operands
-    if readsSaved inputs (extra ++ [saved]).length then
-      pure ⟨_, _, op, inputs, prefixSites inputs, useSitesAt savedHeader 0 (cut + 1) rest⟩
-    else none
+    pure ⟨_, _, op, inputs, prefixSites inputs, useSitesAt savedHeader 0 (cut + 1) rest⟩
   | index + 1, cut, _, origins, .letOp _ _ rest =>
-    findCandidate? index (cut + 1) (afterBinding origins (cut + 1)) rest
+    findCaptured? index (cut + 1) (afterBinding origins (cut + 1)) rest
   | _, _, _, _, .terminator _ => none
 
+/-- Restrict the capture to the original saved-dependent admission profile. -/
+def findCandidate? (index cut : Nat) {Γ : List Width} (origins : Origins ((extra ++ [saved]) ++ Input) Γ)
+    (code : Block TargetOp (Label saved carried result extra) Γ [result]) :
+    Option (Candidate Input saved carried result extra) :=
+  (findCaptured? index cut origins code).filter fun candidate =>
+    readsSaved candidate.inputs (extra ++ [saved]).length
+
 /-- Return the value of the nominated binding in a single header activation. -/
-def valueAt? : Nat → {Γ : List Width} → Block TargetOp (Label saved carried result) Γ [result] →
+def valueAt? : Nat → {Γ : List Width} → Block TargetOp (Label saved carried result extra) Γ [result] →
     Env Γ → Option ((w : Width) × BitVec w.val)
   | 0, _, .letOp op operands _, env => some ⟨_, evalOp op (operands.eval env)⟩
   | index + 1, _, .letOp op operands rest, env =>
@@ -101,7 +112,7 @@ remaining header order. -/
 def prepareOn? (intermediate : Output Input carried result) (origins : List Nat)
     (consumerOrigin : Nat) : Option (Prepared Input carried result) := do
   let index ← origins.idxOf? consumerOrigin
-  let consumer ← findCandidate? index 0 savedOrigins (intermediate.2.block .header)
+  let consumer ← findCaptured? index 0 savedOrigins (intermediate.2.block .header)
   if checkConsumer intermediate.2 consumer then
     pure ⟨intermediate, origins, index, consumer⟩
   else none

@@ -38,17 +38,31 @@ fuel, native backedge budgets, and partial denotation.
 [Theorem header][thms]
 
 The search is greedy and local to the supported replay profile. The initial
-corridor's existing block choice still applies. Later moves read at least one
-saved slot and may also read immutable inputs. Exhaustion refers to the
-terminal CFG reached by the choices actually made. Other starting choices,
-placements in other blocks, and global scheduling quality are outside the
-claim.
+corridor's existing block choice still applies. Later moves can read only
+immutable inputs, saved slots, or a mix. Exhaustion refers to the terminal CFG
+reached by the choices actually made. Other starting choices, placements in
+other blocks, and global scheduling quality are outside the claim.
+
+For an immutable-only capture, `findCaptured?_immutable` identifies every
+operand's definition at entry cut 0 and proves that its typed value agrees
+with the original input under any saved prefix. `Step.emit_immutable` proves
+legality at the actual append cut and equality with the binding's value on
+the current header for every latch argument. The input definitions satisfy
+Click's early constraint at the supported append cut. Current ordinary and
+Φ reads supply the late-use checks for that position. A latch argument or
+another unhoisted header result is a local origin and fails operand capture.
+The new scanner returns the same
+candidate and use sites for earlier saved-dependent successes, and
+`prepareOn?_of_saved_capture` and `emit_of_saved_capture` retain their exact
+handoff and emission. [Capture theorems][captures] · [Checked step][step]
 
 The runnable chain discovers origin/cut pairs `(1, 0)`, `(2, 1)`, and
-`(5, 2)`. The third binding needs both earlier results. A variant with a
-latch-dependent operand stops after `(1, 0)`, and a loop whose candidates
-all depend on the latch stops before the first move. The regressions check
-those outcomes and the current checker's refusal of the varying consumer.
+`(5, 2)`. The third binding needs both earlier results. Two variants keep
+the same plan with an immutable-only binding at cut 1 or cut 2. A variant
+with a latch-dependent operand stops after `(1, 0)`, and a loop whose
+candidates all depend on the latch stops before the first move. The
+regressions check the cut-zero operand sites and the current checker's
+refusal of the varying consumer.
 [Example][example] · [Regression][regression]
 
 ```sh
@@ -58,6 +72,8 @@ cat >/tmp/gcm-hoist-discovery-example.lean <<'LEAN'
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Discovery.Example.Defs
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Discovery.Example
 #eval observe chain
+#eval observe immutableSecond
+#eval observe immutableLater
 #eval observe varying
 #eval observe unsaved
 LEAN
@@ -74,3 +90,5 @@ lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Disco
 [thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Discovery/Thms.lean
 [example]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Discovery/Example/Defs.lean
 [regression]: ../../../../Silmaril/Proofs/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Discovery/Regression.lean
+[captures]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/AfterReorder/Second/Thms.lean
+[step]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Thms.lean
