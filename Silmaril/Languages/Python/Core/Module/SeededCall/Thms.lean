@@ -117,6 +117,17 @@ theorem invoke_isinstance_int_bool (value : Int) :
     invoke (.builtin .isinstance) [.int value, .builtin .bool] = .ok (.bool false) :=
   invoke_iff.mpr (.isinstance .intAgainstBool)
 
+theorem invoke_isinstance_int_int (value : Int) :
+    invoke (.builtin .isinstance) [.int value, .builtin .int] = .ok (.bool true) :=
+  invoke_iff.mpr (.isinstance .intAgainstInt)
+
+theorem resolveCall_firstOperandError {slots : Nat} {space : Namespace} {locals : Locals slots}
+    {callee operand : Operand slots} {tail : List (Operand slots)} {function : Value} {error : Failure}
+    (found : callee.eval space locals = .ok function)
+    (failed : operand.eval space locals = .error error) :
+    resolveCall space locals callee (operand :: tail) = .error error := by
+  simp [resolveCall, Operand.evalList, Except.bind, Except.map, found, failed]
+
 theorem invoke_assertIs_bool (left right : Bool) :
     invoke (.helper .assertIs) [.bool left, .bool right] =
       if BoolIdentity.ofBool left = BoolIdentity.ofBool right then .ok .none
