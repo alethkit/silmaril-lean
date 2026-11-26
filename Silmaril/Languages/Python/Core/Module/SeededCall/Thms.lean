@@ -37,6 +37,14 @@ theorem invoke_tuple_empty :
     invoke (.builtin .tuple) [] = .ok (.returnedTuple []) :=
   invoke_iff.mpr .emptyTuple
 
+theorem invoke_tuple_exact (items : List Core.Module.Value) :
+    invoke (.builtin .tuple) [.returnedTuple items] = .ok (.returnedTuple items) :=
+  invoke_iff.mpr (.copyTuple items)
+
+theorem invoke_tuple_reference (object : Core.Module.TupleDispatch.Object) :
+    invoke (.builtin .tuple) [.tupleObject object] = .ok (.tupleObject object) :=
+  invoke_iff.mpr (.copyTupleObject object)
+
 theorem invoke_int_bool (value : Bool) :
     invoke (.builtin .int) [.bool value] = .ok (.int (Int.ofNat value.toNat)) :=
   invoke_iff.mpr (.intFromBool value)

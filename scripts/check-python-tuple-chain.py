@@ -319,7 +319,7 @@ private def firstConstructorStatement : Source.Module := ⟨pythonSource.body.ta
   | .error (.source (.scalar .expressionProfile)) => true
   | _ => false)
 #guard ordinaryTuple firstConstructorStatement == some ("NameError:___assertEqual", "absent", "absent")
-#guard Core.Module.SeededCall.invoke (.builtin .tuple) [.returnedTuple []] == .error .unsupported
+#guard Core.Module.SeededCall.invoke (.builtin .tuple) [.int 1] == .error .unsupported
 """, outcome("Namespace.empty", "NameError:___assertEqual", "[]", source=first)]
     for placement in ("builtin", "preamble"):
         base = f'(initial "legacy_{placement}")'

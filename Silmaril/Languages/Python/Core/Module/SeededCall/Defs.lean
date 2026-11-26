@@ -76,6 +76,7 @@ inductive Value where
   | none
   | listObject (object : Core.Module.ListObject)
   | returnedTuple (items : List Core.Module.Value)
+  | tupleObject (object : Core.Module.TupleDispatch.Object)
   | exceptionClass (kind : ExceptionClass)
   | helper (descriptor : Helper)
   | builtin (descriptor : Builtin)
@@ -86,8 +87,8 @@ def Value.scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
   | .none => some .none
-  | .text _ | .exceptionClass _ | .helper _ | .builtin _ | .function _ | .listObject _ | .returnedTuple _ =>
-    Option.none
+  | .text _ | .exceptionClass _ | .helper _ | .builtin _ | .function _ | .listObject _
+  | .returnedTuple _ | .tupleObject _ => Option.none
 
 def Value.ofScalar : Core.Module.Value → Value
   | .int value => .int value
@@ -145,6 +146,10 @@ def readTupleItem (space : Namespace) : Core.Closure.GlobalTupleItem → Result
     (space.lookupGlobal name).elim (.error (.raised (.runtime (.nameError name)))) .ok
   | .read (.local slot) | .read (.owned slot) | .read (.capture slot) => Fin.elim0 slot
 
+def evalTupleContents (space : Namespace) (items : List Core.Closure.GlobalTupleItem) :
+    Except Failure (List Core.Module.Value) :=
+  Core.Closure.assembleFlatTuple (readTupleItem space) Value.scalar? .unsupported items
+
 def Operand.eval {slots : Nat} (space : Namespace) (locals : Locals slots) : Operand slots → Result
   | .literal value => .ok value
   | .local slot =>
@@ -152,7 +157,7 @@ def Operand.eval {slots : Nat} (space : Namespace) (locals : Locals slots) : Ope
   | .global name =>
     (space.lookupGlobal name).elim (.error (.raised (.runtime (.nameError name)))) .ok
   | .tuple items =>
-    (Core.Closure.assembleFlatTuple (readTupleItem space) Value.scalar? .unsupported items).map .returnedTuple
+    (evalTupleContents space items).map .returnedTuple
   | .unsupported => .error .unsupported
 
 structure Expectation where
@@ -217,6 +222,8 @@ inductive Request (arity : Nat) where
   | boolIdentity (left right : Bool)
   | distinctIntBool
   | emptyTuple
+  | copyTuple (items : List Core.Module.Value)
+  | copyTupleObject (object : Core.Module.TupleDispatch.Object)
   | expect (expectation : Expectation) (callback : Value) (arguments : List Value)
       (shorter : arguments.length < arity)
   | nonCallable
@@ -227,6 +234,9 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   | .helper .assertEqual, [.int left, .int right] => .compare left right
   | .helper .assertEqual, [.text left, .text right] => .compareText left right
   | .helper .assertEqual, [.returnedTuple left, .returnedTuple right] => .compareTuple left right
+  | .helper .assertEqual, [.tupleObject left, .returnedTuple right] => .compareTuple left.contents right
+  | .helper .assertEqual, [.returnedTuple left, .tupleObject right] => .compareTuple left right.contents
+  | .helper .assertEqual, [.tupleObject left, .tupleObject right] => .compareTuple left.contents right.contents
   | .builtin .str, [] => .textConversion (Core.Text.ofString "")
   | .builtin .str, [value] => (value.stockStr?).elim .unsupported .textConversion
   | .builtin .bool, [] => .truthConversion false
@@ -242,8 +252,10 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   | .helper .assertIsNot, [.int _, .bool _] | .helper .assertIsNot, [.bool _, .int _] => .distinctIntBool
   | .helper (.assertRaises onReturn), .exceptionClass expected :: callback :: arguments =>
     .expect ⟨expected, onReturn⟩ callback arguments (by simp only [List.length_cons]; omega)
-  | .none, _ | .int _, _ | .bool _, _ | .text _, _
-  | .listObject _, _ | .returnedTuple _, _ => .nonCallable
+  | .builtin .tuple, [.returnedTuple items] => .copyTuple items
+  | .builtin .tuple, [.tupleObject object] => .copyTupleObject object
+  | .none, _ | .int _, _ | .bool _, _ | .text _, _ | .listObject _, _ | .returnedTuple _, _
+  | .tupleObject _, _ => .nonCallable
   | _, _ => .unsupported
 
 /-- Invoking an expectation calls the supplied closed callable using the
@@ -267,6 +279,8 @@ def invoke (callee : Value) (arguments : List Value) : Result :=
     else .error (.raised (.assertionError (.booleanPair left right)))
   | .distinctIntBool => .ok .none
   | .emptyTuple => .ok (.returnedTuple [])
+  | .copyTuple items => .ok (.returnedTuple items)
+  | .copyTupleObject object => .ok (.tupleObject object)
   | .expect expectation callback args _shorter =>
     expectation.deliver (invoke callback args)
   | .nonCallable => .error (.raised (.runtime .notCallable))
@@ -307,6 +321,10 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
         (.error (.raised (.assertionError (.booleanPair left right))))
   | distinctIntBool {arity : Nat} : Executes (arity := arity) .distinctIntBool (.ok .none)
   | emptyTuple {arity : Nat} : Executes (arity := arity) .emptyTuple (.ok (.returnedTuple []))
+  | copyTuple {arity : Nat} (items : List Core.Module.Value) :
+      Executes (arity := arity) (.copyTuple items) (.ok (.returnedTuple items))
+  | copyTupleObject {arity : Nat} (object : Core.Module.TupleDispatch.Object) :
+      Executes (arity := arity) (.copyTupleObject object) (.ok (.tupleObject object))
   | expected {arity : Nat} {expectation : Expectation} {callback : Value} {arguments : List Value}
       {shorter : arguments.length < arity} {inner outer : Result} :
       Executes (Request.decode callback arguments) inner → Delivers expectation inner outer →

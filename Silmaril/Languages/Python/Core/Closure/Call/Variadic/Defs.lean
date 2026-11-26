@@ -30,6 +30,7 @@ abbrev ReadOperand (Operand State : Type) := Operand → State → Except Failur
 this positional operand profile. -/
 def expandPositional : Value → Except PositionalInputFailure (List Value)
   | .tuple items => .ok (items.map Value.ofScalar)
+  | .tupleObject object => .ok (object.contents.map Value.ofScalar)
   | .none | .int _ | .bool _ | .function _ => .error .notIterable
   | .text _ => .error .unsupportedIterable
 

@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Languages.Python.Core.Module.Defs
+public import Silmaril.Languages.Python.Core.Module.TupleDispatch.Defs
 public import Silmaril.Languages.Python.Core.Text.Defs
 
 /-! # Slot and cell interfaces for lowered Python closures -/
@@ -69,6 +69,7 @@ inductive Value where
   | text (value : Core.Text)
   | function (value : Function)
   | tuple (items : List Core.Module.Value)
+  | tupleObject (object : Core.Module.TupleDispatch.Object)
   deriving Repr
 
 def Value.truth : Value → Bool
@@ -78,24 +79,32 @@ def Value.truth : Value → Bool
   | .text value => value.truth
   | .function _ => true
   | .tuple items => !items.isEmpty
+  | .tupleObject object => !object.contents.isEmpty
 
 /-- Compare a value in this closed closure profile with an integer literal. -/
 def Value.equalInt : Value → Int → Bool
   | .int value, right => decide (value = right)
   | .bool false, right => decide (0 = right)
   | .bool true, right => decide (1 = right)
-  | .none, _ | .text _, _ | .function _, _ | .tuple _, _ => false
+  | .none, _ | .text _, _ | .function _, _ | .tuple _, _ | .tupleObject _, _ => false
 
 def Value.scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
   | .none => some .none
-  | .text _ | .function _ | .tuple _ => Option.none
+  | .text _ | .function _ | .tuple _ | .tupleObject _ => Option.none
 
 def Value.ofScalar : Core.Module.Value → Value
   | .int value => .int value
   | .bool value => .bool value
   | .none => .none
+
+/-- Only the canonical empty tuple and tuples allocated by the checked
+module path expose an identity. An address refers to the originating run. -/
+def Value.tupleObject? : Value → Option Core.Module.TupleDispatch.Object
+  | .tuple [] => some ⟨Option.none, []⟩
+  | .tupleObject object => some object
+  | _ => Option.none
 
 /-- The checked items of a flat tuple return. -/
 inductive TupleItem (layout : Layout) where
@@ -112,6 +121,10 @@ def GlobalTupleItem.lower {layout : Layout} : GlobalTupleItem → TupleItem layo
   | .literal value => .literal value
   | .global name => .global name
   | .read (.local slot) | .read (.owned slot) | .read (.capture slot) => Fin.elim0 slot
+
+def GlobalTupleItem.isRead : GlobalTupleItem → Bool
+  | .global _ => true
+  | _ => false
 
 /-- Complete the ordered reads before checking that every reached value
 can be retained as an exact scalar item. -/
@@ -150,7 +163,7 @@ def Value.asInt? : Value → Option Int
   | .int value => some value
   | .bool false => some 0
   | .bool true => some 1
-  | .none | .text _ | .function _ | .tuple _ => Option.none
+  | .none | .text _ | .function _ | .tuple _ | .tupleObject _ => Option.none
 
 inductive IntegerOp where
   | add
@@ -194,6 +207,24 @@ def Heap.write (heap : Heap) (identity : CellId) (value : Value) : Option Heap :
   if identity.address < heap.next then
     some ⟨heap.next, fun address => if address = identity.address then some value else heap.contents address⟩
   else none
+
+/-- Append one initialized slot using the same monotone frontier as
+owned cells. The previous slots retain their contents and addresses. -/
+def Heap.allocate (heap : Heap) (value : Value) : CellId × Heap :=
+  let identity : CellId := ⟨heap.next⟩
+  let reached := heap.reserve 1
+  (identity, { reached with contents := fun address =>
+    if address = identity.address then some value else reached.contents address })
+
+/-- A nonempty display with a live item read builds a new object each
+time. A closed nonempty display can share a CPython constant, so it
+retains only its exact contents here. Empty tuples need no heap slot. -/
+def Heap.materializeModuleTuple (heap : Heap) (items : List GlobalTupleItem)
+    (contents : List Core.Module.Value) : Value × Heap :=
+  if !contents.isEmpty && items.any GlobalTupleItem.isRead then
+    let (reference, reached) := heap.allocate (.tuple contents)
+    (.tupleObject ⟨some reference.address, contents⟩, reached)
+  else (.tuple contents, heap)
 
 structure Frame (layout : Layout) where
   locals : Fin layout.locals → Option Value
