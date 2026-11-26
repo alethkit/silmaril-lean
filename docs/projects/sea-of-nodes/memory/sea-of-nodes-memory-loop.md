@@ -395,6 +395,44 @@ valuation it holds for every heap. Swapping the typed ports and pulling back
 the valuation transports the comparison.
 [Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/Regression.lean)
 
+#### Validated runtime entries for address Phi equations
+
+`RuntimeEntry.RawEntry` is the numbered program's typed argument tuple.
+Each address is a `Fin cells`, and the heap port contains a word for every
+cell at the same size. `decode` accepts occurrence zero and recovers the
+scalar tuple and full heap. It refuses feedback colour one. The encode
+and decode laws characterize the accepted tuples exactly. A decoded
+entry may have an absent finite observation, represented by `Part.none`.
+[Entry definitions](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/RuntimeEntry/Defs.lean)
+
+`Agrees` compares existing nested RVSDG programs at this exact typed
+boundary in the canonical memory runtime, over all admissible raw
+entries at a fixed cell count. For the emitted graphs, `satisfaction`
+identifies this comparison with source equation satisfaction at every
+typed scalar valuation and initialized heap. The `observe_eq_some_iff_native`
+and `observe_eq_none_iff_native` laws transfer complete finite results
+and their absence at a decoded entry.
+[Entry and equation theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/RuntimeEntry/Thms.lean)
+
+`decode_reindex` commutes with the typed source reduct and preserves the
+occurrence and heap. `observe_mapGraph` compares re-emission with that
+raw entry pullback. `satisfaction_reindex` ranges over pullbacks of target
+valuations. These maps act on typed entry ports of this profile. The
+general nested RVSDG room ranges over every raw tuple for its dialect.
+[Runtime observation room](../../../../Silmaril/SSA/RVSDG/NestedTheta/Institution/RuntimeObservation/Defs.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Institution.RuntimeEntry.Thms
+```
+
+The regression rejects a feedback-coloured root before and after an
+address-port swap, recovers the full entry on a successful round-trip,
+and observes the same result after reindexing. An equation whose two
+sides return zero with different heaps fails on an admissible entry.
+An admissible entry with coincident ports observes `Part.none` once
+the heap is fixed at an existing backedge state.
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/RuntimeEntry/Regression.lean)
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for

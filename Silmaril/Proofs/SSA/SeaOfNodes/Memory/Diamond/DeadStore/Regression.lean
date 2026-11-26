@@ -6,12 +6,14 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
 
@@ -35,11 +37,11 @@ private def leftArm (readPort : Port args .address) : Memory.Graph args :=
     (.store (.latest 0) (.arg headPort) (.arg leftWord)
       (.store (.latest 1) (.arg leftPort) (.arg leftWord) (.ret (.latest 2) loaded)))
 
-private def rightArm (overwrite : Bool) : Memory.Graph args :=
+private def rightArm (overwrite : Bool) (readPort : Port args .address := rightPort) : Memory.Graph args :=
   let finish : Memory.Body args [[.word]] 1 :=
     if overwrite then .store (.latest 1) (.arg headPort) (.arg rightWord) (.ret (.latest 2) loaded)
     else .ret (.latest 1) loaded
-  .load (.latest 0) (.arg rightPort) (.store (.latest 0) (.arg rightPort) (.arg rightWord) finish)
+  .load (.latest 0) (.arg readPort) (.store (.latest 0) (.arg rightPort) (.arg rightWord) finish)
 
 private def source (first : Projection) (rightOverwrite : Bool := true)
     (leftRead : Port args .address := leftPort) : Prefixed args where
@@ -453,5 +455,89 @@ example : (Entry.Composition.Retained.lower chainDiamond suffixAliasEntry 2 nomi
     (Entry.lowerRepeated chainDiamond suffixAliasEntry nominatedAliases).programs := rfl
 #guard runChain suffixAliasEntry nominatedAliases false ==
   (1, false, [11, 2, 33, 55], some ([33, 33, 2, 33, 55], [33, 33, 2, 33, 55]))
+
+private def retainedLoadEntry : Memory.Graph args :=
+  .load (.latest 0) (.arg rightPort)
+    (.store (.latest 0) (.arg leftPort) loaded (.ret (.latest 1) loaded))
+
+private def residualLoadEntry : Memory.Graph args := middleStore.prepend retainedLoadEntry
+private def entryLoading : Memory.Graph args :=
+  (⟨headPort, leftWord⟩ : PrefixStore args).prepend residualLoadEntry
+
+private def loadDiamond : Graph args :=
+  { (source .onFalse).diamond with
+    arm := fun edge => match edge with
+      | .onTrue => leftArm leftPort
+      | .onFalse => rightArm true leftPort }
+
+example : (Entry.lowerRepeated loadDiamond entryLoading input).entry = residualLoadEntry := rfl
+example : Entry.Composition.Retained.Load.cut 1 input residualLoadEntry =
+    some (middleStore, retainedLoadEntry) := rfl
+example : Entry.Composition.Retained.Load.cut 2 input (sideStore.prepend residualLoadEntry) =
+    some (middleStore, sideStore.prepend retainedLoadEntry) := rfl
+
+private def runLoadEdit (valuation : Tuple (Val 4) args) (guard : Bool) :
+    Nat × Bool × Option (List Nat × List Nat) :=
+  let result := Entry.Composition.Retained.Load.lower loadDiamond entryLoading 1 valuation
+  let returned := (runEntryPrograms result.programs guard 3).map fun (_, _, before, after) =>
+    (before.map BitVec.toNat, after.map BitVec.toNat)
+  (result.entryDeleted, result.allPathDeleted, returned)
+
+-- The entry Load supplies the retained Store operand. The false arm reads
+-- 3 from the copied cell and leaves that cell unchanged at exit.
+/-- info: (1, true, some ([3, 33, 3, 33, 55], [3, 33, 3, 33, 55])) -/
+#guard_msgs in
+#eval runLoadEdit input false
+
+#guard runLoadEdit input true == (1, true, some ([3, 11, 11, 3, 55], [3, 11, 11, 3, 55]))
+
+-- Both routes still overwrite and satisfy their own reader checks. The
+-- entry Load is the reason to refuse, and the previous deletion survives.
+example : (Discovery.rewrite ⟨middleStore, loadDiamond⟩ (input headCell)).isSome = true := rfl
+example : Entry.Composition.Retained.Load.cut 1 (input headCell) residualLoadEntry = none := rfl
+example : (Entry.Composition.Retained.Load.lower loadDiamond entryLoading 1 (input headCell)).programs =
+    (Entry.lowerRepeated loadDiamond entryLoading (input headCell)).programs := rfl
+#guard runLoadEdit (input headCell) false == (1, false, some ([99, 33, 99, 3, 55], [99, 33, 99, 3, 55]))
+
+private def twoReadTail : Memory.Graph args :=
+  .load (.latest 0) (.arg rightPort)
+    (.load (.latest 0) (.arg leftPort)
+      (.store (.latest 0) (.arg rightPort) (.output (0 : Fin 2) .head)
+        (.ret (.latest 1) (.output (1 : Fin 2) .head))))
+
+private def twoReadResidual : Memory.Graph args := middleStore.prepend twoReadTail
+private def entryWithTwoReads : Memory.Graph args :=
+  (⟨headPort, leftWord⟩ : PrefixStore args).prepend twoReadResidual
+
+example : (Entry.lowerRepeated chainDiamond entryWithTwoReads input).entry = twoReadResidual := rfl
+example : Entry.Composition.Retained.Load.cut 1 input twoReadResidual = some (middleStore, twoReadTail) := rfl
+
+-- The entry Return uses the older binding. The Store uses the newer one.
+example : twoReadTail.denote input initial = (3, initial.write rightCell 2) := by cbv
+
+private def runTwoReadEdit (valuation : Tuple (Val 4) args) (guard : Bool) :
+    Nat × Bool × Option (List Nat × List Nat) :=
+  let result := Entry.Composition.Retained.Load.lower chainDiamond entryWithTwoReads 1 valuation
+  let returned := (runEntryPrograms result.programs guard 3).map fun (_, _, before, after) =>
+    (before.map BitVec.toNat, after.map BitVec.toNat)
+  (result.entryDeleted, result.allPathDeleted, returned)
+
+/-- info: (1, true, some ([2, 33, 2, 33, 55], [2, 33, 2, 33, 55])) -/
+#guard_msgs in
+#eval runTwoReadEdit input false
+
+#guard runTwoReadEdit input true == (1, true, some ([2, 11, 11, 2, 55], [2, 11, 11, 2, 55]))
+
+-- At this input only the later Load aliases the nominated cell. The
+-- first Load, retained Store, and the two route certificates still pass.
+example : Entry.Composition.Retained.Load.checkTail middleStore nominatedAliases
+    (.load (.latest 0) (.arg rightPort)
+      (.store (.latest 0) (.arg rightPort) loaded (.ret (.latest 1) loaded))) = true := rfl
+example : (Discovery.rewrite ⟨middleStore, chainDiamond⟩ nominatedAliases).isSome = true := rfl
+example : Entry.Composition.Retained.Load.cut 1 nominatedAliases twoReadResidual = none := rfl
+example : (Entry.Composition.Retained.Load.lower chainDiamond entryWithTwoReads 1 nominatedAliases).programs =
+    (Entry.lowerRepeated chainDiamond entryWithTwoReads nominatedAliases).programs := rfl
+#guard runTwoReadEdit nominatedAliases true ==
+  (1, false, some ([99, 11, 2, 99, 55], [99, 11, 2, 99, 55]))
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore

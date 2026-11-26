@@ -1,0 +1,268 @@
+module
+
+public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.Defs
+public import Silmaril.SSA.MLIR.CF.SwitchAssert.Denotation.Defs
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Thms
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Thms
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Thms
+import Silmaril.SSA.MLIR.CF.SwitchAssert.Thms
+import Silmaril.SSA.MLIR.CF.SwitchAssert.Denotation.Thms
+
+public section
+
+namespace Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit
+
+open Silmaril.MLIR.Arith (Env Var Width)
+open Silmaril.MLIR.CF (Block Cfg Edge Frame Terminator)
+open Silmaril.MLIR.Pure (Code Operands)
+open Silmaril.MLIR.SCF (For)
+open Silmaril.SSA.SeaOfNodes
+open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist
+open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor
+open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second
+open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit
+open Loop.MLIR.CF (Program TargetOp evalOp lower model)
+
+variable {Input Γ Δ : List Width} {saved consumer carried result : Width}
+variable {entrySigs headerSigs : List (List (Diamond.Ty Width))}
+variable {g : Program Input carried result entrySigs headerSigs}
+variable {first : AfterReorder.Plan} {consumerOrigin : Nat}
+variable {prepared : Prepared Input carried result} {moved : Emission Input carried result}
+
+private theorem liftEdge_eval (rename : Rename Γ Δ) (keep : Var Δ consumer)
+    (edge : Edge (Label saved carried result) Γ) (source : Env Γ) (target : Env Δ)
+    (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref) :
+    (liftEdge rename keep edge).eval target = carryConsumer (target.get keep) (edge.eval source) := by
+  rcases edge with ⟨label, args⟩
+  cases label
+  · change (⟨.header, .cons (target.get keep) ((For.renameOperands rename args).eval target)⟩ :
+        Frame (Label saved carried result [consumer])) = ⟨.header, .cons (target.get keep) (args.eval source)⟩
+    rw [evalRenameOperands _ _ _ same]
+  · change (⟨.exit, (For.renameOperands rename args).eval target⟩ :
+        Frame (Label saved carried result [consumer])) = ⟨.exit, args.eval source⟩
+    rw [evalRenameOperands _ _ _ same]
+
+private theorem liftTerm_eval (rename : Rename Γ Δ) (keep : Var Δ consumer)
+    (term : Terminator (Label saved carried result) [result] Γ) (source : Env Γ) (target : Env Δ)
+    (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref) :
+    (liftTerm rename keep term).eval target = (term.eval source).map (carryConsumer (target.get keep)) id := by
+  cases term with
+  | br edge => simp [liftTerm, Terminator.eval, Sum.map, liftEdge_eval _ _ _ _ _ same]
+  | ret args => simp [liftTerm, Terminator.eval, Sum.map, evalRenameOperands _ _ _ same]
+  | condBr test onTrue onFalse =>
+    simp only [liftTerm, Terminator.eval, same, liftEdge_eval _ _ _ _ _ same]
+    cases (source.get test).getLsbD 0 <;> rfl
+
+private theorem liftCode_eval (code : Block TargetOp (Label saved carried result) Γ [result])
+    (rename : Rename Γ Δ) (keep : Var Δ consumer) (source : Env Γ) (target : Env Δ)
+    (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref) :
+    (liftCode rename keep code).eval evalOp (fun term env => Terminator.eval env term) target =
+      (code.eval evalOp (fun term env => Terminator.eval env term) source).map (carryConsumer (target.get keep)) id := by
+  induction code generalizing Δ with
+  | terminator term => exact liftTerm_eval rename keep term source target same
+  | letOp op operands rest ih =>
+    simp only [liftCode, Code.eval, evalRenameOperands _ _ _ same]
+    apply ih
+    intro _ ref
+    cases ref with
+    | here => rfl
+    | there ref => exact same ref
+
+private theorem rewriteAt?_eval {code : Block TargetOp (Label saved carried result) Γ [result]}
+    {index cut : Nat} {origins : Origins (saved :: Input) Γ}
+    {candidate : Candidate Input saved carried result}
+    (found : findCandidate? index cut origins code = some candidate)
+    (inputs : Env (saved :: Input)) (source : Env Γ) (agree : CapturesAgree origins source inputs)
+    (rename : Rename Γ Δ) (keep : Var Δ candidate.width) (target : Env Δ)
+    (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref)
+    (value : target.get keep = evalOp candidate.op (candidate.inputs.eval inputs)) :
+    ∃ rewritten, rewriteAt? index rename keep code = some rewritten ∧
+      rewritten.eval evalOp (fun term env => Terminator.eval env term) target =
+        (code.eval evalOp (fun term env => Terminator.eval env term) source).map (carryConsumer (target.get keep)) id := by
+  induction code generalizing index cut Δ with
+  | terminator => simp [findCandidate?] at found
+  | letOp op operands rest ih =>
+    cases index with
+    | zero =>
+      cases capture : captureOrigins? origins operands with
+      | none => simp [findCandidate?, capture] at found
+      | some captured =>
+        by_cases empty : positions 0 captured 0 = []
+        · simp [findCandidate?, capture, empty] at found
+        · simp [findCandidate?, capture, empty] at found
+          subst candidate
+          refine ⟨liftCode (replaceBinding rename keep) keep rest, by simp [rewriteAt?], ?_⟩
+          rw [Code.eval, evalCaptureOrigins origins operands capture source inputs agree, ← value]
+          apply liftCode_eval
+          intro _ ref
+          cases ref with
+          | here => rfl
+          | there ref => exact same ref
+    | succ index =>
+      have nextAgree : CapturesAgree (afterBinding origins (cut + 1))
+          (.cons (evalOp op (operands.eval source)) source) inputs := by
+        intro _ ref cap fromOrigin
+        cases ref with
+        | here => cases fromOrigin
+        | there ref => exact agree ref cap fromOrigin
+      obtain ⟨rewritten, rewrite, evaluated⟩ := ih found _ nextAgree (under rename) (.there keep)
+        (.cons (evalOp op (operands.eval source)) target) (by
+          intro _ ref
+          cases ref with
+          | here => rfl
+          | there ref => exact same ref) value
+      exact ⟨.letOp op (For.renameOperands rename operands) rewritten, by simp [rewriteAt?, rewrite], by
+        simpa only [Code.eval, Env.get, evalRenameOperands _ _ _ same] using evaluated⟩
+
+private theorem header_agrees (first : BitVec saved.val) (old : BitVec carried.val) (input : Env Input) :
+    CapturesAgree savedOrigins (.cons first (.cons old input)) (.cons first input) := by
+  intro _ ref cap fromOrigin
+  cases ref with
+  | here => cases fromOrigin; rfl
+  | there ref =>
+    cases ref with
+    | here => cases fromOrigin
+    | there ref => cases fromOrigin; rfl
+
+private theorem carryBoth (first : BitVec saved.val) (second : BitVec consumer.val)
+    (frame : Frame (SourceLabel carried result)) :
+    carryConsumer second (carryFrame first frame) =
+      carryFrameWith (extra := [consumer]) (.cons second (.cons first .nil)) frame := by
+  rcases frame with ⟨label, args⟩
+  cases label <;> rfl
+
+private theorem mapFirst {first : BitVec saved.val} {second : BitVec consumer.val}
+    (out : Frame (SourceLabel carried result) ⊕ Env [result]) :
+    (out.map (carryFrame first) id).map (carryConsumer second) id =
+      out.map (carryFrameWith (extra := [consumer]) (.cons second (.cons first .nil))) id := by
+  rcases out with frame | returned
+  · exact congrArg Sum.inl (carryBoth first second frame)
+  · rfl
+
+private theorem emit_exists_and_routes (accepted : prepare? g first consumerOrigin = some prepared)
+    (input : Env Input) :
+    ∃ (target : TargetCfg prepared) (source : Cfg TargetOp (SourceLabel carried result) Input [result])
+      (args : List Width) (producer : TargetOp args prepared.intermediate.1) (operands : Operands Input args)
+      (tail : Block TargetOp (Label prepared.intermediate.1 carried result)
+        (prepared.intermediate.1 :: Input) [result]),
+      emit? prepared = some target ∧
+      prepared.intermediate.2.entry = .letOp producer operands tail ∧
+      target.entry = .letOp producer operands
+        (.letOp prepared.consumer.op prepared.consumer.inputs (liftCode Var.there .here tail)) ∧
+      rewriteAt? prepared.index Var.there .here (prepared.intermediate.2.block .header) =
+        some (target.block .header) ∧
+      target.block .exit = .terminator (.ret (.cons .here .nil)) ∧
+      let saved := evalOp producer (operands.eval input)
+      let value := evalOp prepared.consumer.op (prepared.consumer.inputs.eval (.cons saved input))
+      Routes source prepared.intermediate.2 input saved ∧
+      StepRoutes prepared.intermediate.2 target input saved value := by
+  obtain ⟨_, _, _, _, _, _, _, found, _⟩ := prepare?_placement accepted
+  obtain ⟨source, args, producer, operands, tail, entry, exit, routed⟩ := prepare?_first_routes accepted input
+  let saved := evalOp producer (operands.eval input)
+  let value := evalOp prepared.consumer.op (prepared.consumer.inputs.eval (.cons saved input))
+  have header (old : BitVec carried.val) :=
+    rewriteAt?_eval found (.cons saved input) (.cons saved (.cons old input)) (header_agrees saved old input)
+      Var.there .here (.cons value (.cons saved (.cons old input))) (fun _ => rfl) rfl
+  obtain ⟨rewritten, rewrite, _⟩ := header 0
+  let target : TargetCfg prepared :=
+    { entry := .letOp producer operands
+        (.letOp prepared.consumer.op prepared.consumer.inputs (liftCode Var.there .here tail))
+      block
+        | .header => rewritten
+        | .exit => .terminator (.ret (.cons .here .nil)) }
+  refine ⟨target, source, args, producer, operands, tail, ?_, entry, rfl, rewrite, rfl, routed, ?_, ?_⟩
+  · simp [emit?, entry, rewrite, exit, target]; rfl
+  · rw [entry]
+    exact liftCode_eval tail Var.there .here (.cons saved input) (.cons value (.cons saved input))
+      (fun _ => rfl)
+  · rintro ⟨label, packet⟩
+    cases label with
+    | exit =>
+      change _ = ((prepared.intermediate.2.block .exit).eval evalOp
+        (fun term env => Terminator.eval env term) (packet.append input)).map (carryConsumer value) id
+      rw [exit]
+      rfl
+    | header =>
+      cases packet with
+      | cons old tail =>
+        cases tail
+        obtain ⟨code, foundCode, evaluation⟩ := header old
+        rw [rewrite] at foundCode
+        cases foundCode
+        exact evaluation
+
+theorem replay?_spec (accepted : replay? g first consumerOrigin = some moved) :
+    prepare? g first consumerOrigin = some moved.prepared ∧
+      emit? moved.prepared = some moved.cfg ∧ AfterReorder.replay? g first = some moved.prepared.intermediate := by
+  obtain ⟨prepared, checked, rest⟩ := Option.bind_eq_some_iff.mp accepted
+  obtain ⟨cfg, emitted, eq⟩ := Option.bind_eq_some_iff.mp rest
+  cases eq
+  exact ⟨checked, emitted, prepare?_replay_first checked⟩
+
+private def zeroEnv : (widths : List Width) → Env widths
+  | [] => .nil
+  | _ :: widths => .cons 0 (zeroEnv widths)
+
+theorem prepare?_emits (accepted : prepare? g first consumerOrigin = some prepared) :
+    ∃ target, emit? prepared = some target := by
+  obtain ⟨target, _, _, _, _, _, emitted, _⟩ := emit_exists_and_routes accepted (zeroEnv Input)
+  exact ⟨target, emitted⟩
+
+theorem replay?_routes (accepted : replay? g first consumerOrigin = some moved) (input : Env Input) :
+    ∃ (args : List Width) (producer : TargetOp args moved.prepared.intermediate.1)
+      (operands : Operands Input args) (tail : Block TargetOp (Label moved.prepared.intermediate.1 carried result)
+        (moved.prepared.intermediate.1 :: Input) [result]),
+      moved.prepared.intermediate.2.entry = .letOp producer operands tail ∧
+      moved.cfg.entry = .letOp producer operands
+        (.letOp moved.prepared.consumer.op moved.prepared.consumer.inputs (liftCode Var.there .here tail)) ∧
+      rewriteAt? moved.prepared.index Var.there .here (moved.prepared.intermediate.2.block .header) =
+        some (moved.cfg.block .header) ∧
+      moved.cfg.block .exit = .terminator (.ret (.cons .here .nil)) ∧
+      let saved := evalOp producer (operands.eval input)
+      let value := evalOp moved.prepared.consumer.op (moved.prepared.consumer.inputs.eval (.cons saved input))
+      StepRoutes moved.prepared.intermediate.2 moved.cfg input saved value := by
+  obtain ⟨checked, emitted, _⟩ := replay?_spec accepted
+  obtain ⟨target, _, args, producer, operands, tail, edit, entry, newEntry, header, exit, _, routed⟩ :=
+    emit_exists_and_routes checked input
+  rw [emitted] at edit
+  cases edit
+  exact ⟨args, producer, operands, tail, entry, newEntry, header, exit, routed⟩
+
+theorem replay?_run_eq (accepted : replay? g first consumerOrigin = some moved)
+    (input : Env Input) (fuel : Nat) :
+    moved.cfg.run evalOp fuel input = moved.prepared.intermediate.2.run evalOp fuel input := by
+  obtain ⟨checked, emitted, _⟩ := replay?_spec accepted
+  obtain ⟨target, source, _, producer, operands, _, edit, _, _, _, _, prior, step⟩ :=
+    emit_exists_and_routes checked input
+  rw [emitted] at edit
+  cases edit
+  let saved := evalOp producer (operands.eval input)
+  let value := evalOp moved.prepared.consumer.op (moved.prepared.consumer.inputs.eval (.cons saved input))
+  have both : RoutesWith source moved.cfg input (.cons value (.cons saved .nil)) := by
+    constructor
+    · rw [step.entry, prior.entry, mapFirst]
+    · intro frame
+      have routed := step.block frame
+      dsimp only at routed
+      rw [prior.block frame, mapFirst, carryBoth] at routed
+      exact routed
+  exact (routesWith_run_eq both fuel).trans (routes_run_eq prior fuel).symm
+
+theorem replay?_budget (accepted : replay? g first consumerOrigin = some moved)
+    (input : Env Input) (budget : Nat) :
+    moved.cfg.run evalOp (budget + 3) input =
+      (g.evalBackedges model budget (Silmaril.SSA.SeaOfNodes.MLIR.sourceInputs input)).map
+        (fun value => Env.cons value .nil) :=
+  (replay?_run_eq accepted input _).trans (AfterReorder.replay?_budget (replay?_spec accepted).2.2 input budget)
+
+open Silmaril.MLIR.CF.SwitchAssert (Cfg) in
+theorem replay?_denotePart (accepted : replay? g first consumerOrigin = some moved) (input : Env Input) :
+    (Cfg.embed moved.cfg).denotePart evalOp input = (Cfg.embed (lower g)).denotePart evalOp input := by
+  calc
+    _ = (Cfg.embed moved.prepared.intermediate.2).denotePart evalOp input := by
+      apply Part.ext
+      intro outcome
+      simp only [Cfg.mem_denotePart_iff, Cfg.embed_run, replay?_run_eq accepted]
+    _ = _ := AfterReorder.replay?_denotePart (replay?_spec accepted).2.2 input
+
+end Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit

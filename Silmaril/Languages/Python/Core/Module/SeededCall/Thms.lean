@@ -58,6 +58,14 @@ theorem invoke_assertEqual_text (left right : Core.Text) :
   · exact invoke_iff.mpr (.equalText left right ‹_›)
   · exact invoke_iff.mpr (.unequalText left right ‹_›)
 
+theorem invoke_assertEqual_tuple (left right : List Core.Module.Value) :
+    invoke (.helper .assertEqual) [.returnedTuple left, .returnedTuple right] =
+      if Core.Module.TupleDispatch.equalContents left right then .ok .none
+      else .error (.raised (.assertionError (.tuplePair left right))) := by
+  split
+  · exact invoke_iff.mpr (.equalTuple left right ‹_›)
+  · exact invoke_iff.mpr (.unequalTuple left right ‹_›)
+
 theorem invoke_assertIsNot_int_bool (integer : Int) (truth : Bool) :
     invoke (.helper .assertIsNot) [.int integer, .bool truth] = .ok .none :=
   invoke_iff.mpr .distinctIntBool

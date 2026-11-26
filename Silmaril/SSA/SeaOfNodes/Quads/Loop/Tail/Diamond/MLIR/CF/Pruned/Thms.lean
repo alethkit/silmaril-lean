@@ -12,9 +12,10 @@ namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned
 
 open SeaOfNodes.Diamond (ValueSort dataPorts)
 open SeaOfNodes.Loop.MLIR.CF (Op model evalOp)
-open SeaOfNodes.MLIR.Lowering (Names NamesAgree encodeValues valueBits)
+open SeaOfNodes.MLIR.Lowering (Names NamesAgree encodeValues valueBits valueWidth)
 open Silmaril.MLIR.Arith (Width Env)
 open RVSDG (Tuple)
+open Silmaril.MLIR.CF (Frame)
 open Blocks (Bank)
 open Blocks.Prune (Mask)
 open Diamond.Prune (Checked HeaderProjection)
@@ -22,6 +23,18 @@ open Diamond.Prune (Checked HeaderProjection)
 variable {regs : List (ValueSort Width)} {out : ValueSort Width} {size : Nat}
 variable {src : Source Op regs out size} {entry : Fin size}
 variable {p : Program src entry} {mask : Mask regs}
+/-- A projected block reconstructs the same outgoing source frame. -/
+theorem projectedBlock_eval {Labels : List Width → Type}
+    {jumpTo : JumpTo regs size Labels} {frame : Fin size → Bank (regs := regs) model → Frame Labels}
+    (routes : JumpAgrees jumpTo frame) (exit : Labels [valueWidth out]) (block : SourceBlock Op regs out size)
+    (projected : HeaderProjection block.body mask) {Γ : List Width} (env : Env Γ)
+    (old : Bank (regs := regs) model) :
+    (lowerProjectedBlockWith jumpTo exit block projected Γ).eval evalOp (fun term env => term.eval env)
+        ((encodeValues (mask.project old)).append env) =
+      let next := block.body.eval model old
+      .inl (destinationFrameWith frame (returnFrame exit) next (block.terminator.select model next)) :=
+  Proofs.projectedBlock_eval routes exit block projected env old
+
 section Source
 
 variable {header : Fin size} (projected : HeaderProjection (src header).body mask)

@@ -97,6 +97,31 @@ theorem activate_forwarded {parent : LexicalBlock} {source : Source} (plan : Pla
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.activate_forwarded plan installed
     caller assigned name address present forwarded
 
+theorem reached_site {parent : LexicalBlock} {name : String} {parameters : Parameters}
+    {items : List PlainPositionalDefault} (target : name ∈ parent.owned)
+    (lexical : Lexical.Elaborates parent parameters.optional items)
+    (program : Program) (available : List DeclarationId) (id : DeclarationId)
+    (declaration : Declaration) (found : program[id]? = some declaration)
+    (signature : declaration.signature = parameters.signature (items.map PlainPositionalDefault.value))
+    {state : State} {free : List FreeName} {floor : Nat} (frame : Body.Frame parent free floor state)
+    (captures : List Lists.Capture) (supplied : Installs state declaration.free captures) :
+    ∃ out, Lexical.Defines parent (fileSlot name) id declaration.free parameters items state out ∧
+      Exec program available state (.define (fileSlot name) id) out ∧
+      denoteBody program available (.define (fileSlot name) id) state = out ∧
+      SiteResult parent name parameters items id captures state out :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.reached_site
+    target lexical program available id declaration found signature frame captures supplied
+
+theorem site_result_frame {parent : LexicalBlock} {name : String} {parameters : Parameters}
+    {items : List PlainPositionalDefault} (target : name ∈ parent.owned)
+    (lexical : Lexical.Elaborates parent parameters.optional items)
+    {id : DeclarationId} {captures : List Lists.Capture} {state : State} {free : List FreeName} {floor : Nat}
+    (frame : Body.Frame parent free floor state) {out : Lists.Outcome Lists.Iteration.Flow}
+    (result : SiteResult parent name parameters items id captures state out) :
+    Body.Frame parent free floor (Lists.Iteration.finishState out) ∧
+      Body.Keeps floor state (Lists.Iteration.finishState out) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.site_result_frame target lexical frame result
+
 /-- A definition preserves the owned and inherited slot layout on
 either exit. Successful installation only writes the owned target. -/
 theorem result_frame {parent : LexicalBlock} {source : Source} (plan : Plan parent source)

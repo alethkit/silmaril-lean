@@ -317,3 +317,43 @@ the false route.
 ```sh
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Keep an ordered suffix of entry Loads and Stores
+
+`Entry.Composition.Retained.Load.lower graph entry version input`
+runs the entry-local pass, then checks a one-based Store version in
+the residual table. The supported entry has an argument-Store prefix
+up to and including the nominated Store. Its suffix is an ordered
+sequence of Loads and Stores ending in Return. Every suffix access
+must use an original address argument whose concrete cell differs from
+the nominated cell. Store data and Return can use any in-scope word,
+including earlier Loads. The cut removes one Store and preserves the
+order and scalar operands of every retained operation.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Defs.lean) ·
+[Pinned Simple Store user check](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65) ·
+[Pinned Simple load/store order](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#executing-the-graph)
+
+Each checked Load binds the same word in both executions. Each checked
+Store uses the same live scalar bindings, and its disjoint update
+commutes with the nominated write. The induction maintains that replaying
+the nominated Store reconstructs the source heap at every suffix step.
+The existing discovery then checks the overwrite and intervening readers
+independently at both Region occurrences.
+The optimized MemRef entry emits the original successor frame and the
+retained table's full buffer. Both emitted CFGs return the same word and
+all final cells at any initial buffer and either predicate at the checked
+input. Three CF block steps suffice for both artifacts.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Thms.lean) ·
+[Pinned Simple memory Φ](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#memory-is-an-ssa-variable)
+
+The original one-Load fixture still runs. The two-Load fixture returns
+the older binding at the native entry boundary and uses the newer binding
+in a retained Store. Both emitted routes read that Store's value. When
+only the later Load aliases the nominated cell, the suffix check refuses
+even though both route checks pass. The earlier entry-local deletion stays
+committed and the emitted CFGs preserve the observed `99`.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```

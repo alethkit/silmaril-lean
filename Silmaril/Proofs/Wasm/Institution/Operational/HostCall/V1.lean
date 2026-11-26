@@ -9,31 +9,37 @@ import Silmaril.Wasm.Versions.Lime1.Execution.Thms
 
 namespace Silmaril.Wasm.Institution.Operational.HostCall.V1.Proofs
 
-open Execution.Runtime (Callout Frame Value)
+open Execution.Runtime (Callout Frame FuncAddr Value)
 open Wasm.V1.Execution
 open CallContinuation.OuterCall.Computed (lime_direct_call_iff)
+
+theorem direct_step_iff {H : Type} {host : HostSemantics H} {index : FuncIdx} {address : FuncAddr} {s : Store H}
+    {caller : Frame} {stack : List Value} {tail : List Admin} {dst : Config H}
+    (resolved : caller.module.funcs[index.toNat]? = some address) :
+    Step host (⟨s, caller, values stack ++ .source (.call index) :: tail⟩ : Config H) dst ↔ dst = ⟨s, caller, values stack ++ .invoke address :: tail⟩ := by
+  constructor
+  · intro move
+    have noCallout (c : Callout H Wasm.V1.Instr) : ¬ CalloutAt (⟨s, caller, values stack ++ .source (.call index) :: tail⟩ : Config H) c := by
+      intro located
+      obtain ⟨d, computed, _⟩ := decompose?_complete located
+      simp [decompose?, asValue?] at computed
+    have internal := (Step.internal_iff_of_not_callout noCallout).mp move
+    have mapped := internal.toLime (target := CallFrame.limeNoHost) (fun _ _ _ _ impossible => impossible)
+    have decoded := (lime_direct_call_iff (stack := stack) (tail := codeToLime tail) resolved).mp
+      (by simpa only [Config.toLime, codeToLime_append, map_values, codeToLime_cons,
+        Execution.Runtime.AdminInstr.map, Wasm.V1.Instr.toLime] using mapped)
+    apply CallContinuation.config_toLime_injective H
+    simpa only [Config.toLime, codeToLime_append, map_values, codeToLime_cons,
+      Execution.Runtime.AdminInstr.map] using decoded
+  · rintro rfl
+    simpa only [List.append_assoc, List.singleton_append] using
+      Step.context (Step.call (host := host) s caller index address resolved) stack tail
 
 theorem source_step_iff {H : Type} {host : HostSemantics H} {site : Site H} {s : Store H}
     {caller : Frame} {saved args : List Value} {tail : List Admin} {dst : Config H}
     (resolved : caller.module.funcs[site.index.toNat]? = some site.address) :
-    Step host (site.source s caller saved args tail) dst ↔ dst = site.pending s caller saved args tail := by
-  constructor
-  · intro move
-    have noCallout (c : Callout H Wasm.V1.Instr) : ¬ CalloutAt (site.source s caller saved args tail) c := by
-      intro located
-      obtain ⟨d, computed, _⟩ := decompose?_complete located
-      simp [decompose?, Site.source, asValue?] at computed
-    have internal := (Step.internal_iff_of_not_callout noCallout).mp move
-    have mapped := internal.toLime (target := CallFrame.limeNoHost) (fun _ _ _ _ impossible => impossible)
-    have decoded := (lime_direct_call_iff (stack := saved ++ args) (tail := codeToLime tail) resolved).mp
-      (by simpa only [Site.source, Config.toLime, codeToLime_append, map_values, codeToLime_cons,
-        Execution.Runtime.AdminInstr.map, Wasm.V1.Instr.toLime] using mapped)
-    apply CallContinuation.config_toLime_injective H
-    simpa only [Site.pending, Config.toLime, codeToLime_append, map_values, codeToLime_cons,
-      Execution.Runtime.AdminInstr.map] using decoded
-  · rintro rfl
-    simpa only [Site.source, Site.pending, List.append_assoc, List.singleton_append] using
-      Step.context (Step.call (host := host) s caller site.index site.address resolved) (saved ++ args) tail
+    Step host (site.source s caller saved args tail) dst ↔ dst = site.pending s caller saved args tail :=
+  direct_step_iff resolved
 
 theorem callout_at {H : Type} {site : Site H} {s : Store H} {caller : Frame}
     {saved args : List Value} {tail : List Admin} (checked : site.Checked s caller args) :

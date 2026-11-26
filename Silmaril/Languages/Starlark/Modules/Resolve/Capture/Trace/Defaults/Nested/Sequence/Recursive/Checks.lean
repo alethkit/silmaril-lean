@@ -12,9 +12,11 @@ open scoped Functions.Lowering.Quote
 open Assignment (LexicalBlock)
 open Functions (FreeName Program)
 
-private def factoryBlock : LexicalBlock := ⟨["x", "index", "relay"], [], []⟩
+private def enclosingBlock : LexicalBlock := ⟨["factory"], [], []⟩
 
-private def relayBlock : LexicalBlock := ⟨["leaf"], factoryBlock.owned, []⟩
+private def factoryBlock : LexicalBlock := ⟨["x", "index", "relay", "copy"], enclosingBlock.owned, []⟩
+
+private def relayBlock : LexicalBlock := ⟨["leaf"], factoryBlock.owned ++ factoryBlock.enclosing, []⟩
 
 private def localRead (name : String) : Functions.Lowering.Expr := Leaf.readOperand (fileSlot name)
 
@@ -77,19 +79,42 @@ private theorem relayBody (seed : Program) :
       (seed.push leafSite.declaration) [(seed.size, leafSite.declaration)] :=
   .define leafSite .nil (leafBody seed) (.straight (.ret (.read (by decide) (.owned (by decide)) (.owned (by decide)))))
 
+private def factoryTail : Body.Suite := .assign "copy" starlark%[relay] (.ret starlark%[copy])
+
+private def factorySite (seed : Program) : Site enclosingBlock where
+  name := "factory"
+  target := by decide
+  parameters := ⟨["x", "index"], []⟩
+  source := .seq (relaySite seed).statement factoryTail.source
+  binders := ["relay", "copy"]
+  locals := ["relay", "copy"]
+  collects := .seq (.define _ _ _) (.seq (.assign _ _) (.ret _))
+  localOrder := .keep (by decide) (.keep (by decide) .nil)
+  body := ⟨.seq (.define (fileSlot "relay") (seed.size + 1))
+    (.seq (.assignExpr (fileSlot "copy") (localRead "relay")) (.returnExpr (localRead "copy"))),
+    [fileSlot "x", fileSlot "index", fileSlot "relay", fileSlot "copy"]⟩
+  free := []
+  selects := .owned (.owned (by decide)) (.owned (.owned (by decide))
+    (.owned (.owned (by decide)) (.owned (.owned (by decide)) .nil)))
+  defaults := []
+  lexical := .nil
+
+private def factoryTable (seed : Program) : Program :=
+  (seed.push leafSite.declaration).push (relaySite seed).declaration
+
 private theorem factoryBody (seed : Program) :
-    Elaborates factoryBlock (.seq (relaySite seed).statement (returnName "relay")) seed
-      ⟨.seq (.define (fileSlot "relay") (seed.size + 1)) (.returnExpr (localRead "relay")),
-        (relaySite seed).reads ++ [fileSlot "relay"]⟩
-      ((seed.push leafSite.declaration).push (relaySite seed).declaration)
+    Elaborates (factorySite seed).block (factorySite seed).source seed (factorySite seed).body (factoryTable seed)
       [(seed.size, leafSite.declaration), (seed.size + 1, (relaySite seed).declaration)] := by
-  have last : Body.Elaborates factoryBlock (.ret starlark%[relay]) (.returnExpr (localRead "relay")) [fileSlot "relay"] :=
-    .ret (.read (by decide) (.owned (by decide)) (.owned (by decide)))
-  simpa [Array.size_push, Body.prependSource, Body.prependCode, returnName, Body.Suite.source, relaySite] using
+  have last : Body.Elaborates factoryBlock factoryTail
+      (.seq (.assignExpr (fileSlot "copy") (localRead "relay")) (.returnExpr (localRead "copy")))
+      [fileSlot "relay", fileSlot "copy"] :=
+    .assign (by decide) (.read (by decide) (.owned (by decide)) (.owned (by decide)))
+      (.ret (.read (by decide) (.owned (by decide)) (.owned (by decide))))
+  simpa [Array.size_push, Body.prependSource, Body.prependCode, relaySite, factorySite, factoryTable, Site.reads, Site.block, factoryBlock, Parameters.names, enclosingBlock] using
     (Elaborates.define (relaySite seed) .nil (relayBody seed) (.straight last))
 
 example (seed : Program) :
-    let final := (seed.push leafSite.declaration).push (relaySite seed).declaration
+    let final := factoryTable seed
     PreservesDeclarations seed final ∧ final[seed.size]? = some leafSite.declaration ∧
       final[seed.size + 1]? = some (relaySite seed).declaration := by
   obtain ⟨stable, emitted⟩ := links (factoryBody seed)
@@ -97,23 +122,40 @@ example (seed : Program) :
     emitted (seed.size + 1, (relaySite seed).declaration) (by simp)⟩
 
 example (seed : Program) :
-    compileBody ⟨factoryBlock.context, .local⟩ (.seq (relaySite seed).statement (returnName "relay")) seed =
-      .ok (⟨.seq (.define (fileSlot "relay") (seed.size + 1)) (.returnExpr (localRead "relay")),
-          [fileSlot "x", fileSlot "index", fileSlot "relay"]⟩,
-        (seed.push leafSite.declaration).push (relaySite seed).declaration) :=
+    compileBody ⟨factoryBlock.context, .local⟩ (factorySite seed).source seed =
+      .ok ((factorySite seed).body, factoryTable seed) :=
   compiles (factoryBody seed)
+
+-- The activation supplies every owned slot and uses the generic recursive
+-- execution rule, even though the relay to be returned has a nested body.
+example (seed : Program) (caller : Lists.State) (x : Lists.Value) (index : Int) :
+    let site := factorySite seed
+    let program := factoryTable seed
+    let active := Functions.activate caller site.declaration []
+      [(fileSlot "x", x), (fileSlot "index", .scalar (.int index))]
+    ∃ out, Runs factoryBlock active site.source site.body.code out ∧
+      Functions.denoteBody program (List.range program.size) site.body.code active = out ∧
+      (Lists.Iteration.finishState (Leaf.returnTo caller out)).slots = caller.slots := by
+  obtain ⟨out, ran, _, _, meaning, restored, _, _⟩ :=
+    runs_activated (factorySite seed) (factoryBody seed) (factoryTable seed) (fun _ _ same => same)
+      (List.range (factoryTable seed).size) caller caller [] .nil (by simp [Body.CaptureCells])
+      [(fileSlot "x", x), (fileSlot "index", .scalar (.int index))]
+  exact ⟨out, ran, meaning, restored⟩
 
 private def noise : Command := .define "noise" (.required []) (.ret (some starlark%[0]))
 
-private def factory (shadowed malformed : Bool) : Command :=
+private def factory (shadowed malformed : Bool) (failed : Bool := false) : Command :=
   let parameters := if malformed then { leafParameters with required := ["saved"] } else leafParameters
   let relay := Statement.define "relay" (.required (if shadowed then ["x"] else []))
     (.seq (.define "leaf" parameters.source leafSuite.source) (returnName "leaf"))
-  .define "factory" (.required ["x", "index"]) (.seq relay (returnName "relay"))
+  let leading := if failed then
+    [("marker", starlark%[[73]]), ("broken", starlark%[marker[1]]), ("later", starlark%[[99]])]
+    else []
+  .define "factory" (.required ["x", "index"]) (.seq relay (Body.prependSource leading factoryTail.source))
 
-private def commands (shadowed malformed : Bool) : List Command :=
+private def commands (shadowed malformed : Bool) (failed : Bool := false) : List Command :=
   [noise, .assign "values" starlark%[[11,22]], .assign "near" starlark%[[33,44]],
-   factory shadowed malformed, .assign "relay_fn" starlark%[factory(values,1)],
+   factory shadowed malformed failed, .assign "relay_fn" starlark%[factory(values,1)],
    .assign "leaf_fn" (if shadowed then starlark%[relay_fn(near)] else starlark%[relay_fn()]),
    .assign "result" starlark%[leaf_fn()]]
 
@@ -148,5 +190,25 @@ private def checks (shadowed : Bool) : Bool :=
   match resolve (commands false true) with
   | .error (.validation (.syntax (.duplicateParameter "saved"))) => true
   | _ => false
+
+-- A reached index error after installing the relay retains that closure
+-- and the marker allocation. Later statements and the relay call never run.
+#guard
+  let cmds := commands false false true
+  let caller : Lists.State := { iterators := [123] }
+  match resolve cmds, runModule cmds (fun _ => none) caller with
+  | .ok resolved, .ok (.error (.runtime (.indexRange 1 1)) final) =>
+    let entered := enter resolved.source caller
+    let moduleCell name := (entered.slots (globalSlot name)).bind (fun slot => final.heap[slot.address]?)
+    let reached := final.heap.toList.filterMap fun cell => match cell.contents with
+      | .function closure => some closure.declaration
+      | _ => none
+    reached == [0, 3, 2] &&
+    final.heap.back? == some ⟨.list [.scalar (.int 73)], false⟩ &&
+    moduleCell "relay_fn" == some ⟨.binding none, false⟩ &&
+    moduleCell "leaf_fn" == some ⟨.binding none, false⟩ &&
+    moduleCell "result" == some ⟨.binding none, false⟩ &&
+    (final.slots (globalSlot "factory")).isNone && final.iterators == [123]
+  | _, _ => false
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive

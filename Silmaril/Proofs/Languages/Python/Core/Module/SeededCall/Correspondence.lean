@@ -7,6 +7,7 @@ public section
 namespace Silmaril.Proofs.Languages.Python.Core.Module.SeededCall
 
 open Silmaril.Languages.Python.Core.Module.SeededCall
+open Silmaril.Languages.Python.Core.Module.TupleDispatch (equalContents)
 
 theorem delivers_iff {expectation : Expectation} {input output : Result} :
     expectation.deliver input = output ↔ Delivers expectation input output := by
@@ -48,6 +49,14 @@ private theorem unique {arity : Nat} {request : Request arity} {first second : R
     cases right with
     | equalText _ _ same => contradiction
     | unequalText => rfl
+  | equalTuple left right same =>
+    cases right with
+    | equalTuple => rfl
+    | unequalTuple _ _ different => contradiction
+  | unequalTuple left right different =>
+    cases right with
+    | equalTuple _ _ same => contradiction
+    | unequalTuple => rfl
   | textConversion | truthConversion | intFromBool | callable | isinstance | distinctIntBool => cases right; rfl
   | sameBool left right same =>
     cases right with
@@ -87,6 +96,13 @@ private theorem computed (callee : Value) (arguments : List Value) :
         exact .equalText _ _ rfl
       · simp [same]
         exact .unequalText _ _ same
+    | compareTuple left right =>
+      rw [invoke, decoded]
+      by_cases same : equalContents left right = true
+      · simp [same]
+        exact .equalTuple _ _ same
+      · simp [same]
+        exact .unequalTuple _ _ same
     | textConversion value =>
       rw [invoke, decoded]
       exact .textConversion value

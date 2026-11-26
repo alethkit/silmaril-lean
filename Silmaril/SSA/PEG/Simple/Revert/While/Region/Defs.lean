@@ -351,6 +351,17 @@ structure Certificate.ExitWitness (cert : Certificate g allowInvariant allowBran
   definedBefore : ∀ j < k, let ref := cert.descriptor.theta.get cert.descriptor.returnSlot
     (ref.read m.carrier (values (ref.id, fun _ => j))).isSome
 
+/-- One pass count for the entire carried boundary of a successful trace.
+Every carried sample is defined throughout the Figure 11 eval prefix. -/
+structure Certificate.TraceObservation (cert : Certificate g allowInvariant)
+    (m : Interpretation.{u,v,w} P) (values : g.Valuation m) (idx : Index 1) (k : Nat)
+    (final : Tuple m.Value (.bool :: carried)) : Prop where
+  pass : cert.descriptor.pass.read m.carrier (values (cert.descriptor.pass.id, idx)) = some ⟨k⟩
+  sample : ∀ t (p : Port carried t), let ref := cert.descriptor.theta.get p
+    ref.read m.carrier (values (ref.id, fun _ => k)) = some (final.get (.tail p))
+  definedBefore : ∀ j < k, ∀ t (p : Port carried t), let ref := cert.descriptor.theta.get p
+    (ref.read m.carrier (values (ref.id, fun _ => j))).isSome
+
 /-- The guard schedule and the entire update vector must succeed on every
 defined old store. The interpretation makes the operations pure. -/
 structure Certificate.Total (cert : Certificate g allowInvariant allowBranch) (m : Interpretation.{u,v,w} P) : Prop where

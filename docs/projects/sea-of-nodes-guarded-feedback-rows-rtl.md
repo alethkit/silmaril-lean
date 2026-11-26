@@ -6,7 +6,7 @@ indices are zero-based and checked against the full bank. Each computation
 reads two old bank slots and writes a fresh temporary. Destinations are
 distinct. The guard names one computed producer and its destination.
 The checker requires them to agree. The guard compares that producer
-with `eq` or `ne` against `limit` by default. Set
+with `eq`, `ne`, or signed `slt` against `limit` by default. Set
 `guardRhs := some (.arg slot)` to read an old bank slot, or
 `guardRhs := some (.output producer 0)` to read a distinct row result.
 Exit reads the old `exitSlot` by default. Set
@@ -126,6 +126,15 @@ def observe (spec : Spec) (input : WordTuple 3) := do
 #eval observe { subtractOnExit with guardRhs := some (.output 1 0) }
   (.cons (0 : Word) (.cons (1 : Word) (.cons (6 : Word) .nil)))
 -- some (some [3], some 3)
+
+def signedCrossing : Spec :=
+  { subtractOnExit with
+    updates := [⟨.add, 0, 0, 1⟩, ⟨.add, 2, 2, 1⟩]
+    comparison := .slt
+    guardRhs := some (.output 1 0) }
+
+#eval observe signedCrossing (.cons (-2 : Word) (.cons (1 : Word) (.cons (0x7fff_ffff_ffff_fffe : Word) .nil)))
+-- some (some [9223372036854775808], some 9223372036854775808)
 ```
 
 At `(0, 1, 10)` two backedges lead to old bank `(2, 1, 8)`.
@@ -140,8 +149,8 @@ Selecting guard producer 0 as the exit origin while retaining
 ## Compare with an old bank slot
 
 The source swap loop's comparison with a runtime input motivates this
-two-operand guard. The checked profile uses `eq` or `ne` and an old bank
-slot as the right operand. In the second call above, two backedges lead
+two-operand guard. An old bank slot can supply the right operand of
+any supported comparison. In the second call above, two backedges lead
 to `(2, 1, 3)`. The guard compares the next counter 3 with old slot 2's
 value 3. The subtraction has already computed 2 for that slot, and
 the exit passes that computed word. The return takes 14 RTL steps and
@@ -162,8 +171,23 @@ operands and branch packets, then checks both returns under an external
 input swap. A producer outside the update row, a port other than 0,
 and reuse of the left producer are refused. [Simple loop branch][simple-two-expressions] · [Operand regressions][operand-regression]
 
+## Signed less-than
+
+Simple's pinned `BoolNode.LT` compares signed Java `long` operands.
+For `comparison := .slt`, RTL emits `cmp lts lhs rhs` and λSSA
+interprets the typed `WordOp.slt` in the native word model. In
+`signedCrossing`, the first comparison is `-1 < 2^63 - 1` and takes
+feedback. The next RHS wraps to `-2^63`, so `0 < -2^63` is false and
+the computed RHS is returned. Unsigned order or swapped operands
+would exit on the first visit. The regression checks both actual
+branch packets, the whole memory, and no finite return for a zero
+stride. It also checks re-emission after swapping inputs 0 and 1
+using `Rows.Reindex.Thms`.
+[Simple comparison class][simple-lt] · [Signed guard regression][signed-regression]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
+  +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.SignedGuardRegression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.BankOperandRegression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.ComputedExitRegression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Regression \
@@ -183,3 +207,5 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 [native-result]: ../../Silmaril/Proofs/SSA/SeaOfNodes/Loop/Regression.lean
 [institution-thms]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Institution/Thms.lean
 [simple-two-expressions]: https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter13/src/test/java/com/seaofnodes/simple/Chapter13Test.java#L169-L173
+[simple-lt]: https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter13/src/main/java/com/seaofnodes/simple/node/BoolNode.java#L72
+[signed-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Fuel/SignedGuardRegression.lean

@@ -152,6 +152,17 @@ theorem activate_frame (block : LexicalBlock) (declaration : Declaration)
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.activate_frame
     block declaration slots caller captures assigned selected
 
+/-- Reconstruct the lexical frame from the declaration layout and live
+captures at activation. The defining activation can have returned. -/
+theorem selected_frame (block : LexicalBlock) (declaration : Declaration)
+    (slots : declaration.signature.slots ++ declaration.locals = block.owned.map fileSlot)
+    {reads : List Binding} (selected : Selects block reads declaration.free) (caller owner : State)
+    (captures : List Capture) (installed : Installs owner declaration.free captures)
+    (cells : CaptureCells caller captures) (assigned : List (Binding × Lists.Value)) :
+    Frame block declaration.free caller.heap.size (activate caller declaration captures assigned) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.selected_frame block declaration slots
+    selected caller owner captures installed cells assigned
+
 /-- Each reached assignment extends the trace once. A reached error
 retains the prior heap and stops the body. The final frame is preserved
 and the source outcome agrees exactly with execution and denotation. -/

@@ -13,7 +13,7 @@ open Memory.Forwarding.Disjoint (Certificate)
 
 variable {args : List ValueSort} {cells : Nat}
 
-private theorem keepsAll (ops : List (Operation args)) : DeletesStores 0 ops ops := by
+theorem keepsAll (ops : List (Operation args)) : DeletesStores 0 ops ops := by
   induction ops with
   | nil => exact .nil
   | cons op _ ih => exact .keep op ih
@@ -55,7 +55,7 @@ theorem deletes_storeCount {graph rewritten : Graph args} {removed : Nat}
     storeCount rewritten + removed = storeCount graph := by
   simpa only [countStores_operations] using countStores_deletes deletes
 
-private theorem reindex_operations {past : List (List ValueSort)} {version : Nat}
+theorem reindex_operations {past : List (List ValueSort)} {version : Nat}
     (body : Body args past version) (live : Nat) :
     operations (reindexMemory body live) = operations body := by
   induction body generalizing live <;> simp [reindexMemory, operations, *]

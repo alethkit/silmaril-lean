@@ -172,6 +172,7 @@ finite tables. This compares syntax rather than following control-flow edges. -/
 def sameRegion (r t : LambdaSSA.Region Φ) : Bool :=
   match r, t with
   | .br i a, .br j b => decide (i = j) && decide (a = b)
+  | .let₁ a body, .let₁ b body' => decide (a = b) && sameRegion body body'
   | .case a left right, .case b left' right' =>
     decide (a = b) && sameRegion left left' && sameRegion right right'
   | .cfg e n blocks, .cfg e' m blocks' =>

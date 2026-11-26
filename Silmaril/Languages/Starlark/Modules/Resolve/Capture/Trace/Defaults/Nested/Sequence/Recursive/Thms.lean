@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Defs
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Thms
-import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Elaboration
+import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Execution
 
 public section
 
@@ -11,7 +11,7 @@ namespace Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nes
 open Assignment (LexicalBlock)
 open Functions (FreeName Program DeclarationId Exec activate denoteBody)
 open Lists (State Capture Outcome)
-open Lists.Iteration (Flow)
+open Lists.Iteration (Flow finishState)
 
 /-- Independent recursive elaboration agrees with the normalized compiler. -/
 theorem compiles {block : LexicalBlock} {source : Statement} {seed final : Program}
@@ -97,5 +97,38 @@ theorem reached {parent : LexicalBlock} (site : Site parent)
           ((site.parameters.optional.map (fileSlot ∘ Prod.fst)).zip values) evaluated) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.reached
     site selected program available id found frame
+
+/-- Execute the full recursive suite from its reached frame. Definitions
+use the appended declaration at each site and leave their child bodies
+for invocation. The first error stops the tail with the exact heap. -/
+theorem runs {block : LexicalBlock} {source : Statement} {seed final : Program}
+    {resolved : ResolvedBody} {emissions : Emissions}
+    (profile : Elaborates block source seed resolved final emissions) (program : Program)
+    (linked : PreservesDeclarations final program) (available : List DeclarationId)
+    {before after : List Binding} {free : List FreeName} (selection : Selects block (before ++ resolved.reads ++ after) free)
+    (state : State) {floor : Nat} (frame : Body.Frame block free floor state) :
+    ∃ out, Runs block state source resolved.code out ∧ Body.Frame block free floor (finishState out) ∧
+      Body.Keeps floor state (finishState out) ∧ Exec program available state resolved.code out ∧
+      denoteBody program available resolved.code state = out :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.runs
+    profile program linked available selection state frame
+
+/-- Activate the actual declaration from bound arguments and live captured
+cells. The independent suite trace and denotation agree before caller
+restoration. The returned or failed observation retains caller cells. -/
+theorem runs_activated {parent : LexicalBlock} (site : Site parent) {seed final : Program}
+    {emissions : Emissions} (profile : Elaborates site.block site.source seed site.body final emissions)
+    (program : Program) (linked : PreservesDeclarations final program) (available : List DeclarationId)
+    (caller defining : State) (captures : List Capture) (installed : Installs defining site.free captures)
+    (cells : Body.CaptureCells caller captures) (assigned : List (Binding × Lists.Value)) :
+    let active := activate caller site.declaration captures assigned
+    ∃ out, Runs site.block active site.source site.body.code out ∧
+      Body.Frame site.block site.free caller.heap.size (finishState out) ∧
+      Exec program available active site.body.code out ∧ denoteBody program available site.body.code active = out ∧
+      (let returned := finishState (Leaf.returnTo caller out)
+       returned.slots = caller.slots ∧ returned.bindings = caller.bindings ∧
+        ∀ (address : Nat) (cell : Lists.Cell), caller.heap[address]? = some cell → returned.heap[address]? = some cell) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.runs_activated
+    site profile program linked available caller defining captures installed cells assigned
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive

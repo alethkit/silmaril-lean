@@ -89,6 +89,7 @@ def execute(source, error_name=None, supply=False):
         assert type(left) is tuple and type(right) is tuple
         assert [(type(x), x) for x in left] == [(int, 7), (bool, True), (type(None), None), (bool, False), (int, -2)]
         assert [(type(x), x) for x in right] == [(int, 9), (bool, False), (type(None), None)]
+        assert left == right, (left, right)
 
     namespace = {"__builtins__": {"___assertEqual": equal} if supply else {}}
     try:
@@ -108,9 +109,16 @@ def main():
     assert actual["alias"] == () and actual["current"] == (9,)
     assert [(type(x), x) for x in execute(ORDINARY)["answer"]] == [(int, 9), (type(None), None), (bool, True)]
     execute(LINKED, "___assertEqual")
-    execute(LINKED, supply=True)
+    try:
+        execute(LINKED, supply=True)
+    except AssertionError as error:
+        assert error.args == (((7, True, None, False, -2), (9, False, None)),)
+    else:
+        raise AssertionError("tuple mismatch completed")
     original = '[("saved", .returnedTuple [.int 9]), ("present", .returnedTuple [.int 1])]'
-    snapshot = '.returnedTuple [.int 7, .bool true, .none, .bool false, .int (-2)]'
+    contents = '[.int 7, .bool true, .none, .bool false, .int (-2)]'
+    snapshot = f'.returnedTuple {contents}'
+    mismatch = f'.raised (.assertionError (.tuplePair {contents} [.int 9, .bool false, .none]))'
     controls = [
         (SNAPSHOTS, f'''
 #guard ordinary pythonSource .normal
@@ -124,8 +132,8 @@ def main():
 '''),
         (LINKED, f'''
 #guard ordinary pythonSource (.raised (.nameError "___assertEqual")) [("snapshot", {snapshot})]
-#guard seeded pythonSource (.error .unsupported) [("snapshot", {snapshot})]
-  [("read", .ok ({snapshot})), ("___assertEqual", .error .unsupported)]
+#guard seeded pythonSource (.error ({mismatch})) [("snapshot", {snapshot})]
+  [("read", .ok ({snapshot})), ("___assertEqual", .error ({mismatch}))]
   [Seeded.legacySeed .builtin, Seeded.legacySeed .preamble]
 #guard resolvedTupleOperands pythonSource
 '''),

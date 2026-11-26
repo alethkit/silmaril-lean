@@ -31,11 +31,6 @@ variable {regs : List (ValueSort Data)} {out : ValueSort Data} {size : Nat}
 variable {src : Source Op regs out size} {entry : Fin size}
 variable (p : Program src entry) (m : Model.{u, v, w} Op)
 
-private def branchBank (header : Bank (regs := regs) m) :=
-  if (header.get p.outerTest).down then
-    (innerPlan p).eval m ((src p.inner).body.eval m header)
-  else p.outerFalse.quads.eval m header
-
 private theorem inner_run (fuel : Nat) (header : Bank (regs := regs) m) :
     (innerRegion p).run (model m) fuel header =
       some ((innerPlan p).eval m ((src p.inner).body.eval m header)) := by
@@ -48,7 +43,7 @@ private theorem inner_run (fuel : Nat) (header : Bank (regs := regs) m) :
     intro _ _
     rfl
 
-private theorem outerArm_run (fuel : Nat) (bank : Bank (regs := regs) m) :
+theorem outerArm_run (fuel : Nat) (bank : Bank (regs := regs) m) :
     (outerArm p ((outerChoice p).eval bank)).run (model m) fuel bank =
       some (branchBank p m bank) := by
   by_cases yes : (bank.get p.outerTest).down = true
@@ -63,6 +58,33 @@ private theorem outerArm_run (fuel : Nat) (bank : Bank (regs := regs) m) :
     erw [Block.lowerFrom_eval, read_initial]
     rfl
 
+theorem afterOuterWith_eval {args outputs results : List (Ty Data)} {past suffix : List (List (Ty Data))}
+    (arms : (i : Fin 2) → Term (Opcode Op) (dataPorts regs) [] (outerSigs p i) outputs)
+    (current : Wires args past (dataPorts regs))
+    (finish : Wires args (extend past [routePorts regs, outputs]) outputs →
+      Term (Opcode Op) args (extend past [routePorts regs, outputs]) suffix results)
+    (fuel : Nat) (input : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
+    (selected : Bank (regs := regs) m → Tuple (Val m.value) outputs)
+    (arm_agrees : ∀ bank, (arms ((outerChoice p).eval bank)).run (model m) fuel bank = some (selected bank))
+    (observe : Tuple (Val m.value) outputs → Option (Tuple (Val m.value) results))
+    (agrees : ∀ wires locals', (finish wires).eval (model m) fuel input locals' =
+      observe (wires.read input locals')) :
+    (afterOuterWith p arms current finish).eval (model m) fuel input locals =
+      observe (selected (current.read input locals)) := by
+  let bank := current.read input locals
+  let tagged := (model m).run (.route (outerChoice p)) bank
+  let frames := locals.snoc tagged
+  change (Kind.eval (model m) fuel (.base (.gamma 0) : Kind (Opcode Op) (routePorts regs) outputs)
+    (fun i value => (arms i).run (model m) fuel value)
+    ((lastBank past (routePorts regs)).read input frames)).bind
+      (fun merged => (finish (lastBank (past ++ [routePorts regs]) outputs)).eval
+        (model m) fuel input (frames.snoc merged)) = _
+  rw [lastBank_read m]
+  change ((arms ((outerChoice p).eval bank)).run (model m) fuel bank).bind _ = _
+  rw [arm_agrees]
+  change (finish _).eval (model m) fuel input (frames.snoc (selected bank)) = _
+  exact (agrees _ _).trans (congrArg observe (lastBank_read m input frames (selected bank)))
+
 private theorem afterOuter_eval {args results : List (Ty Data)} {past suffix : List (List (Ty Data))}
     (current : Wires args past (dataPorts regs))
     (finish : Wires args (extend past (splitSigs regs)) (dataPorts regs) →
@@ -72,22 +94,11 @@ private theorem afterOuter_eval {args results : List (Ty Data)} {past suffix : L
     (agrees : ∀ wires locals', (finish wires).eval (model m) fuel input locals' =
       observe (wires.read input locals')) :
     (afterOuter p current finish).eval (model m) fuel input locals =
-      observe (branchBank p m (current.read input locals)) := by
-  let bank := current.read input locals
-  let tagged := (model m).run (.route (outerChoice p)) bank
-  let frames := locals.snoc tagged
-  change (Kind.eval (model m) fuel (.base (.gamma 0) : Kind (Opcode Op) (routePorts regs) (dataPorts regs))
-    (fun i value => (outerArm p i).run (model m) fuel value)
-    ((lastBank past (routePorts regs)).read input frames)).bind
-      (fun merged => (finish (lastBank (past ++ [routePorts regs]) (dataPorts regs))).eval
-        (model m) fuel input (frames.snoc merged)) = _
-  rw [lastBank_read m]
-  change ((outerArm p ((outerChoice p).eval bank)).run (model m) fuel bank).bind _ = _
-  rw [outerArm_run p m]
-  change (finish _).eval (model m) fuel input (frames.snoc (branchBank p m bank)) = _
-  exact (agrees _ _).trans (congrArg observe (lastBank_read m input frames (branchBank p m bank)))
+      observe (branchBank p m (current.read input locals)) :=
+  afterOuterWith_eval p m (outerArm p) current finish fuel input locals
+    (branchBank p m) (outerArm_run p m fuel) observe agrees
 
-private theorem branchBank_agrees (old : Bank (regs := regs) m) :
+theorem branchBank_agrees (old : Bank (regs := regs) m) :
     branchBank p m ((src p.header).body.eval m old) =
       p.mergeBank m old (p.selected m old) := by
   let outer := (src p.header).body.eval m old
@@ -165,15 +176,22 @@ private theorem iter_step (fuel : Nat) (old : Bank (regs := regs) m) :
   by_cases h : ((nextBank p m old).get p.again).down = true <;>
     simp [iterBody, RVSDG.Theta.bodyResult, h] <;> rfl
 
-private theorem iter_project (bodyFuel fuel : Nat) (old : Bank (regs := regs) m) :
-    iterate ((thetaBody p projected).run (model m) bodyFuel) (fun tag => tag.down.val == 1)
+variable {bodySigs : List (List (Ty Data))}
+variable (body : Term (Opcode Op) (dataPorts mask.kept) [] bodySigs (bodyPorts mask.kept))
+
+private theorem iter_project
+    (activation : ∀ fuel old, body.run (model m) fuel (mask.project old) =
+      let next := nextBank p m old
+      some (RVSDG.Theta.bodyResult (model m) (next.get p.again).down (mask.project next)))
+    (bodyFuel fuel : Nat) (old : Bank (regs := regs) m) :
+    iterate (body.run (model m) bodyFuel) (fun tag => tag.down.val == 1)
         fuel (mask.project old) =
       (iter p m fuel old).map mask.project := by
   induction fuel generalizing old with
   | zero => rfl
   | succ fuel ih =>
     rw [iter_step]
-    simp only [iterate, activation_run p m projected, RVSDG.Theta.bodyResult]
+    simp only [iterate, activation, RVSDG.Theta.bodyResult]
     by_cases h : ((nextBank p m old).get p.again).down = true
     · simp [h]
       exact ih (nextBank p m old)
@@ -181,29 +199,39 @@ private theorem iter_project (bodyFuel fuel : Nat) (old : Bank (regs := regs) m)
 
 private theorem graph_iterate (result : KeptResult p (mask := mask))
     (fuel : Nat) (input : Bank (regs := regs) m) :
-    (lower p projected result).run (model m) fuel input =
-      (iterate ((thetaBody p projected).run (model m) fuel) (fun tag => tag.down.val == 1)
+    (lowerWith p result body).run (model m) fuel input =
+      (iterate (body.run (model m) fuel) (fun tag => tag.down.val == 1)
         fuel (mask.project ((src entry).body.eval m input))).map (fun bank => .cons (bank.get result.val) .nil) := by
-  rw [lower, ← RVSDG.NestedTheta.Graph.run_toTerm, Term.toTerm_toGraph]
-  unfold lowerTerm Term.run
+  rw [lowerWith, ← RVSDG.NestedTheta.Graph.run_toTerm, Term.toTerm_toGraph]
+  unfold lowerTermWith Term.run
   erw [thenBase_eval (observe := fun bank =>
-    (iterate ((thetaBody p projected).run (model m) fuel) (fun tag => tag.down.val == 1)
+    (iterate (body.run (model m) fuel) (fun tag => tag.down.val == 1)
       fuel (mask.project bank)).map (fun done => .cons (done.get result.val) .nil))]
   · erw [Block.lowerFrom_eval, read_initial]
     rfl
   · intro wires locals
-    exact thetaThenReturn_eval m (thetaBody p projected) result.val wires fuel input locals
+    exact thetaThenReturn_eval m body result.val wires fuel input locals
 
-private theorem lower_iterate (result : KeptResult p (mask := mask))
+private theorem lowerWith_iterate
+    (activation : ∀ fuel old, body.run (model m) fuel (mask.project old) =
+      let next := nextBank p m old
+      some (RVSDG.Theta.bodyResult (model m) (next.get p.again).down (mask.project next)))
+    (result : KeptResult p (mask := mask))
     (fuel : Nat) (input : Bank (regs := regs) m) :
-    (lower p projected result).run (model m) fuel input =
+    (lowerWith p result body).run (model m) fuel input =
       (iter p m fuel ((src entry).body.eval m input)).map (fun bank => .cons (bank.get p.result) .nil) := by
-  rw [graph_iterate, iter_project]
+  rw [graph_iterate, iter_project _ _ _ activation]
   cases iter p m fuel ((src entry).body.eval m input) with
   | none => rfl
   | some bank =>
     exact congrArg (fun x => some (Tuple.cons (F := Val m.value) (t := .value out) x .nil))
       (mask.project_get bank p.result result.val result.property)
+
+private theorem lower_iterate (result : KeptResult p (mask := mask))
+    (fuel : Nat) (input : Bank (regs := regs) m) :
+    (lower p projected result).run (model m) fuel input =
+      (iter p m fuel ((src entry).body.eval m input)).map (fun bank => .cons (bank.get p.result) .nil) :=
+  lowerWith_iterate p m (thetaBody p projected) (activation_run p m projected) result fuel input
 
 private theorem source_step (old : Bank (regs := regs) m) (fuel : Nat) :
     src.runFrom m (fuel + (p.mergeVisits (p.selected m old) + 2)) p.header old =
@@ -236,12 +264,21 @@ private theorem source_at_activations (old : Bank (regs := regs) m) (fuel : Nat)
     · simpa only [ite_eq_left h] using ih (nextBank p m old)
     · simp only [ite_eq_right h]; rfl
 
-theorem lower_run (result : KeptResult p (mask := mask)) (fuel : Nat) (input : Bank (regs := regs) m) :
-    (lower p projected result).run (model m) fuel input =
+theorem lowerWith_run
+    (activation : ∀ fuel old, body.run (model m) fuel (mask.project old) =
+      let next := nextBank p m old
+      some (RVSDG.Theta.bodyResult (model m) (next.get p.again).down (mask.project next)))
+    (result : KeptResult p (mask := mask)) (fuel : Nat) (input : Bank (regs := regs) m) :
+    (lowerWith p result body).run (model m) fuel input =
       (src.runFrom m (sourceVisits p m fuel input) entry input).map (fun value => .cons value .nil) := by
-  rw [lower_iterate, sourceVisits, run_entry, source_at_activations]
+  rw [lowerWith_iterate p m body activation, sourceVisits, run_entry, source_at_activations]
   erw [Option.map_map]
   rfl
+
+theorem lower_run (result : KeptResult p (mask := mask)) (fuel : Nat) (input : Bank (regs := regs) m) :
+    (lower p projected result).run (model m) fuel input =
+      (src.runFrom m (sourceVisits p m fuel input) entry input).map (fun value => .cons value .nil) :=
+  lowerWith_run p m (thetaBody p projected) (activation_run p m projected) result fuel input
 
 private theorem extend_return (extra fuel : Nat) (id : Fin size) (old : Bank (regs := regs) m)
     (value : sortValue m.value out) (h : src.runFrom m fuel id old = some value) :

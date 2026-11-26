@@ -17,7 +17,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Capture
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence
 open Silmaril.Languages.Starlark.Functions
-open Silmaril.Languages.Starlark.Lists (Outcome State)
+open Silmaril.Languages.Starlark.Lists (Outcome State Slot)
 open Silmaril.Languages.Starlark.Lists.Iteration (Flow finishState)
 
 theorem compiles {block : LexicalBlock} {source : Statement} {seed final : Program} {resolved : ResolvedBody}
@@ -66,6 +66,52 @@ private theorem keeps_trans {floor : Nat} {first middle last : State}
     Body.Keeps floor first last :=
   ⟨tail.1.trans head.1, fun key cell low stored => tail.2 key cell low (head.2 key cell low stored)⟩
 
+theorem runs_definition (program : Program) (available : List DeclarationId) {block : LexicalBlock}
+    {source : List (String × Lowering.Resolve.SourceExpr)} {leading : List (String × Lowering.Expr)}
+    {reads : List Binding} (leadingProfile : Body.ElaboratesPrefix block source leading reads)
+    {name : String} {parameters : Parameters} {items : List PlainPositionalDefault}
+    (target : name ∈ block.owned) (lexical : Lexical.Elaborates block parameters.optional items)
+    {id : DeclarationId} {child rest : Statement} {tail : Body} {childFree free : List FreeName}
+    {state : State} {floor : Nat} (frame : Body.Frame block free floor state)
+    (definition : ∀ active, Body.Frame block free floor active →
+      ∃ captures out, Installs active childFree captures ∧
+        Nested.SiteResult block name parameters items id captures active out ∧
+        Exec program available active (.define (fileSlot name) id) out)
+    (remaining : ∀ active, Body.Frame block free floor active →
+      ∃ out, Runs block active rest tail out ∧ Body.Frame block free floor (finishState out) ∧
+        Body.Keeps floor active (finishState out) ∧ Exec program available active tail out) :
+    let code := Body.prependCode leading (.seq (.define (fileSlot name) id) tail)
+    ∃ out, Runs block state (Body.prependSource source (.seq (.define name parameters.source child) rest)) code out ∧
+      Body.Frame block free floor (finishState out) ∧ Body.Keeps floor state (finishState out) ∧
+      Exec program available state code out ∧ denoteBody program available code state = out := by
+  let first : Body := .define (fileSlot name) id
+  let continuation := Body.seq first tail
+  obtain ⟨prefixOut, ranPrefix, entered, keptPrefix⟩ := Body.prefix_total leadingProfile state frame
+  have prefixSound (out : Outcome Flow)
+      (cont : ∀ active, prefixOut = .ok () active → Exec program available active continuation out) :=
+    Body.prefix_agrees program available ranPrefix continuation out
+      (fun active outcome => (exec_iff_denoteBody _ _ _ _ _).mp (cont active outcome))
+  cases prefixOut with
+  | error error stopped =>
+    obtain ⟨native, meaning⟩ := prefixSound (.error error stopped) (fun _ impossible => nomatch impossible)
+    exact ⟨_, .prefixError ranPrefix, entered, keptPrefix, native, meaning⟩
+  | ok result active =>
+    cases result
+    obtain ⟨captures, definitionOut, captured, defined, definitionExec⟩ := definition active entered
+    have ⟨afterDefinition, keptDefinition⟩ := Nested.site_result_frame target lexical entered defined
+    cases definitionOut with
+    | error error stopped =>
+      obtain ⟨native, meaning⟩ := prefixSound (.error error stopped)
+        (fun _ eq => by cases eq; exact .seqError definitionExec)
+      exact ⟨_, .definitionError ranPrefix defined, afterDefinition, keeps_trans keptPrefix keptDefinition, native, meaning⟩
+    | ok signal installed =>
+      have next : signal = .next := by cases defined; rfl
+      subst signal
+      obtain ⟨out, ranTail, reached, keptTail, nativeTail⟩ := remaining installed afterDefinition
+      obtain ⟨native, meaning⟩ := prefixSound out (fun _ eq => by cases eq; exact .seq definitionExec nativeTail)
+      exact ⟨out, .define ranPrefix captured defined ranTail, reached,
+        keeps_trans keptPrefix (keeps_trans keptDefinition keptTail), native, meaning⟩
+
 theorem runs {block : LexicalBlock} {source : Statement} {seed final : Program} {resolved : ResolvedBody}
     (profile : Elaborates block source seed resolved final) (program : Program)
     (linked : PreservesDeclarations final program) (available : List DeclarationId)
@@ -80,39 +126,57 @@ theorem runs {block : LexicalBlock} {source : Statement} {seed final : Program} 
     obtain ⟨out, ran, reached, kept, native, meaning⟩ := Body.body_agrees program available body state frame
     exact ⟨out, .straight ran, reached, kept, native, meaning⟩
   | @define leading leadingCode leadingReads child rest seed final tail leadingProfile plan remaining ih =>
-    let first : Body := .define (fileSlot child.name) seed.size
-    let continuation := Body.seq first tail.code
-    obtain ⟨prefixOut, ranPrefix, entered, keptPrefix⟩ := Body.prefix_total leadingProfile state frame
-    have prefixSound (out : Outcome Flow)
-        (cont : ∀ active, prefixOut = .ok () active → Exec program available active continuation out) :=
-      Body.prefix_agrees program available ranPrefix continuation out
-        (fun active outcome => (exec_iff_denoteBody _ _ _ _ _).mp (cont active outcome))
-    cases prefixOut with
-    | error error stopped =>
-      obtain ⟨native, meaning⟩ := prefixSound (.error error stopped) (fun _ impossible => nomatch impossible)
-      exact ⟨_, .prefixError ranPrefix, entered, keptPrefix, native, meaning⟩
-    | ok result active =>
-      cases result
-      have found := linked _ _ (preserves_declarations remaining _ _ Array.getElem?_push_size)
-      have selectedDefinition : Selects block ((before ++ leadingReads) ++ plan.reads ++ (tail.reads ++ after)) free := by
-        simpa only [List.append_assoc] using selection
-      obtain ⟨captures, definitionOut, captured, _, _, definitionExec, _, defined⟩ :=
+    have selectedDefinition : Selects block ((before ++ leadingReads) ++ plan.reads ++ (tail.reads ++ after)) free := by
+      simpa only [List.append_assoc] using selection
+    have selectedTail : Selects block ((before ++ leadingReads ++ plan.reads) ++ tail.reads ++ after) free := by
+      simpa only [List.append_assoc] using selection
+    have found := linked _ _ (preserves_declarations remaining _ _ Array.getElem?_push_size)
+    refine runs_definition program available leadingProfile plan.target plan.lexical
+      (id := seed.size) (childFree := plan.body.free) frame ?_ ?_
+    · intro active entered
+      obtain ⟨captures, out, captured, _, _, native, _, result⟩ :=
         Nested.reached plan selectedDefinition program available seed.size found entered
-      have ⟨afterDefinition, keptDefinition⟩ := Nested.result_frame plan entered defined
-      cases definitionOut with
-      | error error stopped =>
-        obtain ⟨native, meaning⟩ := prefixSound (.error error stopped)
-          (fun _ eq => by cases eq; exact .seqError definitionExec)
-        exact ⟨_, .definitionError ranPrefix defined, afterDefinition, keeps_trans keptPrefix keptDefinition, native, meaning⟩
-      | ok signal installed =>
-        have next : signal = .next := by cases defined; rfl
-        subst signal
-        have selectedTail : Selects block ((before ++ leadingReads ++ plan.reads) ++ tail.reads ++ after) free := by
-          simpa only [List.append_assoc] using selection
-        obtain ⟨out, ranTail, reached, keptTail, nativeTail, _⟩ := ih linked selectedTail installed afterDefinition
-        obtain ⟨native, meaning⟩ := prefixSound out (fun _ eq => by cases eq; exact .seq definitionExec nativeTail)
-        exact ⟨out, .define ranPrefix captured defined ranTail, reached,
-          keeps_trans keptPrefix (keeps_trans keptDefinition keptTail), native, meaning⟩
+      exact ⟨captures, out, captured, result, native⟩
+    · intro active entered
+      obtain ⟨out, ran, reached, kept, native, _⟩ := ih linked selectedTail active entered
+      exact ⟨out, ran, reached, kept, native⟩
+
+theorem reads_installed_alias {block : LexicalBlock} {name aliasName : String} {parameters : Parameters}
+    {items : List PlainPositionalDefault} {id : DeclarationId} {captures : List Silmaril.Languages.Starlark.Lists.Capture}
+    {start installed : State} {free : List FreeName} {floor : Nat}
+    (target : name ∈ block.owned) (destination : aliasName ∈ block.owned)
+    (frame : Body.Frame block free floor installed)
+    (result : Nested.SiteResult block name parameters items id captures start (.ok .next installed)) :
+    ∃ address saved,
+      Body.Evaluates block installed (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
+        (.ok (.function address) installed) ∧
+      (let copied := installed.write (fileSlot aliasName) (.function address)
+       Body.Evaluates block copied (.scalar (.read aliasName)) (Leaf.readOperand (fileSlot aliasName))
+          (.ok (.function address) copied) ∧
+        copied.heap[address]? = some ⟨.function ⟨id, captures,
+          (parameters.optional.map (fileSlot ∘ Prod.fst)).zip saved⟩, false⟩) := by
+  cases result with
+  | @installed saved _ evaluated _ _ bound recorded =>
+    let address := evaluated.heap.size
+    obtain ⟨slot, old, frozen, _, owns, stored⟩ := frame.owned aliasName destination
+    let copied := installed.write (fileSlot aliasName) (.function address)
+    have valid := (Array.getElem?_eq_some_iff.mp stored).choose
+    have separate : slot ≠ address := by
+      intro same
+      rw [same, recorded] at stored
+      cases stored
+    have reads : copied.bindingValue (fileSlot aliasName) = .ok (.function address) := by
+      simp only [copied, State.write, owns, stored, State.bindingValue, Slot.address,
+        Array.getElem?_setIfInBounds_self_of_lt valid]
+    refine ⟨address, saved, ?_, ?_, ?_⟩
+    · have evaluated : Body.Evaluates block installed (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
+          (installed.read (.bound (fileSlot name))) := .read (.owned target)
+      simpa only [State.read, bound] using evaluated
+    · have evaluated : Body.Evaluates block copied (.scalar (.read aliasName)) (Leaf.readOperand (fileSlot aliasName))
+          (copied.read (.bound (fileSlot aliasName))) := .read (.owned destination)
+      simpa only [State.read, reads] using evaluated
+    · simp only [State.write, owns, stored, Array.getElem?_setIfInBounds_ne separate]
+      exact recorded
 
 theorem installation {block : LexicalBlock} {child : Body.Definition} (plan : Nested.Plan block child)
     {id : DeclarationId} {captures : List Silmaril.Languages.Starlark.Lists.Capture} {start installed : State}

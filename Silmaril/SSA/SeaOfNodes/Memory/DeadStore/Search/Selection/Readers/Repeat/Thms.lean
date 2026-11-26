@@ -13,6 +13,15 @@ open Memory.Forwarding.Disjoint (Certificate)
 
 variable {args : List ValueSort} {cells : Nat}
 
+theorem DeletesStores.refl (ops : List (Operation args)) : DeletesStores 0 ops ops :=
+  Proofs.keepsAll ops
+
+/-- Renumbering memory edges preserves the complete ordered operation list. -/
+theorem reindex_operations {past : List (List ValueSort)} {version : Nat}
+    (body : Body args past version) (live : Nat) :
+    operations (reindexMemory body live) = operations body :=
+  Proofs.reindex_operations body live
+
 /-- A single checked deletion erases one Store and keeps the order and
 operands of every retained operation. -/
 theorem checked_operations {graph rewritten : Graph args} {candidate : Candidate} {facts : Certificate args}
