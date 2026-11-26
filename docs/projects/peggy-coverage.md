@@ -271,11 +271,12 @@ parameter initializers and return slot. It derives the placement
 context from the forest depth and the installed θ rows. The checker
 validates the inward root derivation and checks the φ at the loop depth
 under exactly those θ assumptions. The strict path transports that
-derivation from the selected arm to the shared row.
+derivation from an arm to the shared row.
 
 `StrictPath.depth_le` proves that a strict dependency on one of those
-θ rows forces the shared primitive to be typed at that loop's depth or deeper, even with Type-Reduce. The derivation at the loop
-depth supplies the matching upper bound on the minimum depth.
+θ rows forces the shared primitive to be typed at that loop's depth or
+deeper, even with Type-Reduce. The derivation at the loop depth supplies
+the matching upper bound on the minimum depth.
 `StrictPath.defined_of_phi` independently proves that a defined φ
 implies definedness of a common strict dependency at the same index.
 The path checker follows ordered primitive operands and stops at control
