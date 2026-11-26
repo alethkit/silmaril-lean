@@ -16,7 +16,7 @@ supplies another `A`. A parallel computation can appear in the seed or in
 the body, and either branch of a parallel computation can itself iterate.
 
 [Syntax and embedding](../../Silmaril/SSA/Isotope/LetParIter/Defs.lean) ·
-[Typed examples](../../tests/ssa/LetParIter.lean)
+[Typed examples](../../Silmaril/Proofs/SSA/Isotope/LetParIter/Regression/Terms.lean)
 
 ## Equations
 
@@ -88,7 +88,7 @@ its own pairing and proves the record's fields for its chosen observations.
 
 [Pairing record](../../Silmaril/Semantics/Elgot/Parallel/Defs.lean) ·
 [Soundness](../../Silmaril/SSA/Isotope/LetParIter/Thms.lean) ·
-[Model regression](../../tests/ssa/LetParPairingModel.lean)
+[Model regression](../../Silmaril/Proofs/SSA/Isotope/LetParIter/Regression/PairingModel.lean)
 
 ## Tier inclusions
 
@@ -144,6 +144,11 @@ reflection target is native `TypedEquiv.Related` at exact endpoints. The
 lower tiers' raw, independently typed equations and the iteration tier's
 aligned proof-relevant equations are different judgments.
 
-[Word separation test](../../tests/ssa/LetParPairingModel.lean)
+[Word separation test](../../Silmaril/Proofs/SSA/Isotope/LetParIter/Regression/PairingModel.lean)
 
-Run `make check CHECK_TARGETS="LetParTests LetParIterTests"` for the focused checks.
+The existing `Silmaril` build includes both regression modules. To run just
+these and the lower-tier regressions, use:
+
+```bash
+make check CHECK_TARGETS='LetParTests +Silmaril.Proofs.SSA.Isotope.LetParIter.Regression.Terms +Silmaril.Proofs.SSA.Isotope.LetParIter.Regression.PairingModel'
+```
