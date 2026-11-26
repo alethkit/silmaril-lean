@@ -10,6 +10,7 @@ namespace Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay
 
 open Diamond (Ty Val ValueSort dataPorts)
 open GVN.Cyclic.Deletion (Route)
+open GVN.Elimination (Rewrite Routing)
 open ConstantFold.RightSpine (WordWire)
 open SubZero (model)
 open RVSDG (Tuple extend)
@@ -28,6 +29,14 @@ theorem compose_agrees {first : State inputs ports block.sigs} {next : State inp
     (before : Agrees block first entry) (after : Agrees first.block next entry) :
     Agrees block (first.compose next) entry :=
   Proofs.SSA.SeaOfNodes.Pure.SuffixReplay.compose_agrees entry before after
+
+/-- Embed a certified total rewrite as a partial route on the whole packet. -/
+theorem fromRewrite_agrees (edit : Rewrite SubZero.Opcode (dataPorts inputs) [] block.sigs)
+    (entry : Tuple (Val model.value) (dataPorts inputs))
+    (agree : Routing.Agrees edit.route model entry (block.flow.eval model entry PUnit.unit)
+      (edit.flow.eval model entry PUnit.unit)) :
+    Agrees block (fromRewrite block edit) entry :=
+  Proofs.SSA.SeaOfNodes.Pure.SuffixReplay.fromRewrite_agrees entry edit agree
 
 /-- One accepted step preserves reads and the complete outgoing packet. -/
 theorem step_agrees {action : Action} {wire : WordWire (dataPorts inputs) (extend [] block.sigs)}

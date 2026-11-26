@@ -10,11 +10,11 @@ namespace Silmaril.Proofs.SSA.SeaOfNodes.Pure.SuffixReplay
 
 open Silmaril.SSA.SeaOfNodes.Diamond (Ty Val ValueSort dataPorts)
 open Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Deletion (Route)
-open Silmaril.SSA.SeaOfNodes.GVN.Elimination (Routing)
+open Silmaril.SSA.SeaOfNodes.GVN.Elimination (Rewrite Routing)
 open Silmaril.SSA.SeaOfNodes.Pure
 open Silmaril.SSA.SeaOfNodes.Pure.ConstantFold
 open Silmaril.SSA.SeaOfNodes.Pure.ConstantFold.RightSpine (WordWire)
-open Silmaril.SSA.SeaOfNodes.Pure.SubZero (model wordPort)
+open Silmaril.SSA.SeaOfNodes.Pure.SubZero (Opcode model wordPort)
 open Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay
 open Silmaril.SSA.RVSDG (Tuple Wires extend)
 
@@ -69,6 +69,17 @@ theorem compose_agrees {first : State inputs ports block.sigs} {next : State inp
     rw [wires_compose, before.2]
     exact after.2
 
+theorem fromRewrite_agrees (edit : Rewrite Opcode (dataPorts inputs) [] block.sigs)
+    (agree : Routing.Agrees edit.route model entry (block.flow.eval model entry PUnit.unit)
+      (edit.flow.eval model entry PUnit.unit)) :
+    Agrees block (fromRewrite block edit) entry := by
+  constructor
+  · intro t wire mapped found
+    have equal : edit.route wire = mapped := Option.some.inj found
+    rw [← equal]
+    exact agree t wire
+  · exact wires_total edit.route block.packet
+
 theorem step_agrees {action : Action} {wire : WordWire (dataPorts inputs) (extend [] block.sigs)}
     (accepted : step block action wire = .ok after) : Agrees block after entry := by
   cases nominated : AddIdealize.Replay.nominate block.program wire with
@@ -85,12 +96,7 @@ theorem step_agrees {action : Action} {wire : WordWire (dataPorts inputs) (exten
           have same : fromRewrite block applied.rewrite = after := by
             simpa only [step, nominated, chosen, Except.ok.injEq] using accepted
           subst after
-          constructor
-          · intro t wire mapped found
-            have equal : applied.rewrite.route wire = mapped := Option.some.inj found
-            rw [← equal]
-            exact AddIdealize.step_agrees chosen entry t wire
-          · exact wires_total applied.rewrite.route block.packet
+          exact fromRewrite_agrees entry applied.rewrite (AddIdealize.step_agrees chosen entry)
     | deleteUnused =>
       cases chosen : Deletion.delete? candidate block.packet with
       | none => simp [step, nominated, chosen] at accepted
