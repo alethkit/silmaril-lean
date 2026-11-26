@@ -73,6 +73,18 @@ def decode : (A : Ty α) → Ty.denote (Atom (Φ := Φ) (ε := ε) slots) A → 
   | .coprod A _, Sum.inl p => .inl (decode A p)
   | .coprod _ B, Sum.inr q => .inr (decode B q)
 
+/-- Evaluate the variables of a free value as atoms over another sorted context.
+Applied primitives and every constructor retain their original types. -/
+def subst {m : Nat} {modelSlots : Fin m → α}
+    (vars : (i : Fin n) → Atom (Φ := Φ) (ε := ε) modelSlots (slots i)) :
+    {A : Ty α} → Value (Φ := Φ) (ε := ε) slots A → Value (Φ := Φ) (ε := ε) modelSlots A
+  | _, .var i => vars i
+  | _, .op f hf ht arg => .op f hf ht (arg.subst vars)
+  | _, .unit => .unit
+  | _, .pair p q => .pair (p.subst vars) (q.subst vars)
+  | _, .inl p => .inl (p.subst vars)
+  | _, .inr p => .inr (p.subst vars)
+
 def source : {A : Ty α} → Value (Φ := Φ) (ε := ε) slots A → Expr Φ
   | _, .var i => .var i
   | _, .op f _ _ arg => .op f arg.source
@@ -116,9 +128,16 @@ def pureMaps (profile : Profile (α := α) Φ ε) :
         cast (congrArg (Ty.denote (Atom (Φ := Φ) (ε := ε) slots)) h.symm) (Value.op f hf (a := a) h (Value.decode _ arg))
     | .unit h => cast (congrArg (Ty.denote (Atom (Φ := Φ) (ε := ε) slots)) h.symm) PUnit.unit
 
+/-- Install arbitrary sorted free atoms in the matching native slots. -/
+def valuationEnv {m : Nat} (modelSlots : Fin m → α)
+    {β : BoundCtx (Ty α) n} (hs : ∀ i, β.get i = .base (slots i))
+    (vars : (i : Fin n) → Atom (Φ := Φ) (ε := ε) modelSlots (slots i)) :
+    BoundEnv (Ty.denote (Lifted (Atom (Φ := Φ) (ε := ε) modelSlots))) β :=
+  fun i => cast (congrArg (Ty.denote (Lifted (Atom (Φ := Φ) (ε := ε) modelSlots))) (hs i).symm) ⟨vars i⟩
+
 /-- The canonical valuation uses a distinct free generator for each slot. -/
 def variableEnv {β : BoundCtx (Ty α) n} (hs : ∀ i, β.get i = .base (slots i)) :
     BoundEnv (Ty.denote (Lifted (Atom (Φ := Φ) (ε := ε) slots))) β :=
-  fun i => cast (congrArg (Ty.denote (Lifted (Atom (Φ := Φ) (ε := ε) slots))) (hs i).symm) ⟨Value.var i⟩
+  valuationEnv slots slots hs Value.var
 
 end Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues

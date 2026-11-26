@@ -31,6 +31,11 @@ theorem decode_encode (v : Value (Φ := Φ) (ε := ε) slots A) :
 theorem encode_injective : Function.Injective (Value.encode (Φ := Φ) (ε := ε) (slots := slots) (A := A)) :=
   Proofs.encode_injective
 
+/-- The variable valuation leaves the free value unchanged. -/
+theorem subst_var (v : Value (Φ := Φ) (ε := ε) slots A) :
+    v.subst Value.var = v :=
+  Proofs.subst_var v
+
 /-- The written value lowers to its canonical native rendering. -/
 theorem lowers (v : Value (Φ := Φ) (ε := ε) slots A) :
     v.source.toLetIter n = some v.native :=
@@ -57,6 +62,18 @@ local notation "V" => Atom (Φ := Φ) (ε := ε) slots
 local notation "D" => Ty.denote (Lifted V)
 local notation "M" => instructions V (pureMaps slots profile)
 local notation "Γ₀" => (Ctx.nil : Ctx Empty (Ty α))
+
+/-- The native rendering returns the substituted value at any sorted valuation
+of free atoms. The model can have further generators, including a fresh reply. -/
+theorem denote_value_at {m : Nat} (modelSlots : Fin m → α)
+    {β : BoundCtx (Ty α) n} (hs : ∀ i, β.get i = .base (slots i))
+    (v : Value (Φ := Φ) (ε := ε) slots A)
+    (vars : (i : Fin n) → Atom (Φ := Φ) (ε := ε) modelSlots (slots i)) :
+    let W := Atom (Φ := Φ) (ε := ε) modelSlots
+    (v.derivation hs).denote (Ty.denote (Lifted W)) (instructions W (pureMaps modelSlots profile))
+      (fun z => z.elim) (valuationEnv slots modelSlots hs vars) =
+      ITree.ret ((toSmall W A).symm (v.subst vars).encode) :=
+  Proofs.denote_value_at profile modelSlots hs v vars
 
 /-- At the canonical valuation the native rendering immediately returns
 the encoded constructor value in the structured-request model. -/

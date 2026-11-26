@@ -30,6 +30,15 @@ public theorem decode_encode (v : Value (Φ := Φ) (ε := ε) slots A) :
 public theorem encode_injective : Function.Injective (Value.encode (Φ := Φ) (ε := ε) (slots := slots) (A := A)) :=
   Function.LeftInverse.injective decode_encode
 
+public theorem subst_var (v : Value (Φ := Φ) (ε := ε) slots A) :
+    v.subst Value.var = v := by
+  induction v with
+  | var _ | unit => rfl
+  | op _ _ _ _ ih => simp only [Value.subst, ih]
+  | pair _ _ ihL ihR => simp only [Value.subst, ihL, ihR]
+  | inl _ ih => simp only [Value.subst, ih]
+  | inr _ ih => simp only [Value.subst, ih]
+
 public theorem lowers (v : Value (Φ := Φ) (ε := ε) slots A) :
     v.source.toLetIter n = some v.native := by
   induction v with
@@ -83,7 +92,7 @@ private theorem pureMap_atom {f : Φ} (hf : IsPure (⊥ : ε) f) {a : α}
   · rename_i hu _
     cases h.symm.trans hu
 
-private theorem denote_cast {β : BoundCtx (Ty α) n} {t : Tm Empty Φ n} {B C : Ty α}
+private theorem denote_cast {k : Nat} {β : BoundCtx (Ty α) k} {t : Tm Empty Φ k} {B C : Ty α}
     (h : B = C) (d : Derivation Φ Γ₀ β t B) (ρ : BoundEnv D β) :
     (cast (congrArg (Derivation Φ Γ₀ β t) h) d).denote D M (fun z => z.elim) ρ =
       cast (congrArg (fun X => ITree.Tree (Event (Φ := Φ) V) (D X)) h)
@@ -107,27 +116,40 @@ private theorem ret_bind {E : Type u → Type u} {X Y : Type (u + 1)}
     (x : X) (k : X → ITree.Tree E Y) : (ITree.ret x >>= k) = k x :=
   pure_bind x k
 
-public theorem denote_value {β : BoundCtx (Ty α) n} (hs : ∀ i, β.get i = .base (slots i))
-    (v : Value (Φ := Φ) (ε := ε) slots A) :
-    (v.derivation hs).denote D M (fun z => z.elim) (variableEnv slots hs) =
-      ITree.ret ((toSmall V A).symm v.encode) := by
+section Valuation
+
+variable {m : Nat} (modelSlots : Fin m → α)
+
+local notation "Vm" => Atom (Φ := Φ) (ε := ε) modelSlots
+local notation "Dm" => Ty.denote (Lifted Vm)
+local notation "Mm" => instructions Vm (pureMaps modelSlots profile)
+
+private theorem encode_atom {a : α} (v : Vm a) : v.encode = v := by
+  cases v <;> rfl
+
+public theorem denote_value_at {β : BoundCtx (Ty α) n} (hs : ∀ i, β.get i = .base (slots i))
+    (v : Value (Φ := Φ) (ε := ε) slots A) (vars : (i : Fin n) → Vm (slots i)) :
+    (v.derivation hs).denote Dm Mm (fun z => z.elim) (valuationEnv slots modelSlots hs vars) =
+      ITree.ret ((toSmall Vm A).symm (v.subst vars).encode) := by
   classical
   induction v with
   | var i =>
-    rw [Value.derivation, denote_cast profile (hs i), Derivation.denote]
-    change cast (congrArg (fun X => ITree.Tree (Event (Φ := Φ) V) (D X)) (hs i))
-      (ITree.ret (variableEnv slots hs i)) = _
-    rw [cast_ret (hs i)]
-    change ITree.ret (cast (congrArg D (hs i)) (cast (congrArg D (hs i).symm) ⟨Value.var i⟩)) =
-      ITree.ret ⟨Value.var i⟩
+    rw [Value.derivation, denote_cast (slots := modelSlots) profile (hs i), Derivation.denote]
+    change cast (congrArg (fun X => ITree.Tree (Event (Φ := Φ) Vm) (Dm X)) (hs i))
+      (ITree.ret (valuationEnv slots modelSlots hs vars i)) = _
+    rw [cast_ret (slots := modelSlots) (hs i)]
+    simp only [Value.subst, encode_atom]
+    change ITree.ret (cast (congrArg Dm (hs i)) (cast (congrArg Dm (hs i).symm) ⟨vars i⟩)) =
+      ITree.ret ⟨vars i⟩
     simp
   | op f hf h arg ih =>
-    rw [Value.derivation, denote_cast profile h, Derivation.denote, ih]
-    change cast (congrArg (fun X => ITree.Tree (Event (Φ := Φ) V) (D X)) h)
-      ((pure ((toSmall V (instrSrc f)).symm arg.encode) >>= (M).eval f)) = _
+    rw [Value.derivation, denote_cast (slots := modelSlots) profile h, Derivation.denote, ih]
+    change cast (congrArg (fun X => ITree.Tree (Event (Φ := Φ) Vm) (Dm X)) h)
+      ((pure ((toSmall Vm (instrSrc f)).symm (arg.subst vars).encode) >>= (Mm).eval f)) = _
     rw [pure_bind]
     simp only [instructions, hf, dite_true, _root_.Equiv.apply_symm_apply]
-    rw [cast_ret h, cast_lift h, pureMap_atom profile hf h, decode_encode]
+    rw [cast_ret (slots := modelSlots) h, cast_lift (slots := modelSlots) h, pureMap_atom (slots := modelSlots) profile hf h, decode_encode]
+    rfl
   | unit => rfl
   | pair _ _ ihL ihR =>
     simp only [Value.derivation, Derivation.denote, ihL, ihR]
@@ -141,6 +163,14 @@ public theorem denote_value {β : BoundCtx (Ty α) n} (hs : ∀ i, β.get i = .b
     simp only [Value.derivation, Derivation.denote, ih]
     rw [ret_bind]
     rfl
+
+end Valuation
+
+public theorem denote_value {β : BoundCtx (Ty α) n} (hs : ∀ i, β.get i = .base (slots i))
+    (v : Value (Φ := Φ) (ε := ε) slots A) :
+    (v.derivation hs).denote D M (fun z => z.elim) (variableEnv slots hs) =
+      ITree.ret ((toSmall V A).symm v.encode) := by
+  simpa only [variableEnv, subst_var] using denote_value_at profile slots hs v Value.var
 
 include profile in
 public theorem value_eq_of_abortEquiv [DecidableEq α] {β : BoundCtx (Ty α) n}
