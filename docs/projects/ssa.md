@@ -899,6 +899,29 @@ The continuation cannot jump back to its own label.
   [Validity at chosen universes](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Defs.lean) ·
   [Kleisli adapter and comparisons](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Thms.lean) ·
   [Composites in the categorical class](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/CategoricalRegression.lean)
+- In the existing categorical ranked room, soundness and completeness are
+  stated at the original ordered-exit arrows. In every model of the room,
+  two ranked entries have the same ordered-exit arrow exactly when their
+  emitted LetCase operands have the same arrow. This uses only the checked
+  emitter factorization. Native equations between the emitted operands are
+  sound in the supported models of the room: those with coherent
+  expression typing, a tensor shared with the value category, and pure
+  interpretations of pure primitives. Membership in the room gives
+  coherence of region witnesses only, so soundness is not claimed for
+  every model of the room. For the finite structural signature the
+  ordered trace model is supported, and over a separated bound context it
+  reflects native equality. A ranked sentence then holds in all supported
+  models exactly when its emitted operands are natively equal, and
+  validity is decided at that one model. A bound context is separated when
+  it is structural, or when it is a structural older context below any
+  input type. On written graphs this validity agrees with validity in all
+  handled-trace models, and it is preserved and reflected by injective
+  renamings that keep the typed interface. The existing signature reduct
+  transfers satisfaction in all models of the room. It is not shown that
+  the reduct of a supported model is supported.
+  [Supported models and validity](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Defs.lean) ·
+  [Soundness and completeness](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Thms.lean) ·
+  [Ranked sentences in the room](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/RankedValidityRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
