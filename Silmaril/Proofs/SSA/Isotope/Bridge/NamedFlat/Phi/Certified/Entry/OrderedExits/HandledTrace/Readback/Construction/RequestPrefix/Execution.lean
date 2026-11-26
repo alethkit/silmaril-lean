@@ -652,6 +652,33 @@ private theorem tree_run (instr : Primitive E F α) (ambient : Env α)
     · intro ty slot
       rw [load_slot replyFrame replyValues _ 0 rfl]
       cases slot <;> rfl
+  | @unpack Γ a b n value frame next ih =>
+    let head := labels ((0 : Fin 1).castAdd n)
+    let childLabels := fun i : Fin n => labels (i.natAdd 1)
+    let vals : Values Γ α := readSlots position env
+    let loaded := frame.load vals (extend ambient (frame.pack vals))
+    have restored : ∀ {ty} (slot : Slot Γ ty), loaded (frame.position 0 slot) = env (position slot) :=
+      load_slot frame vals _ 0 rfl
+    have headRow : (graph.block head).erase = frame.unpack 0
+        (.let₂ (operand (frame.position 0) value)
+          (next.entryAt (oldLabel count) childLabels (bindPosition (bindPosition (frame.position 0))))) := by
+      simpa only [EntryTree.cells, appendTable_left, head, childLabels] using rows ((0 : Fin 1).castAdd n)
+    rw [EntryTree.written, EntryTree.entryAt,
+      jump_to_frame instr ambient target graph frame layout vals agree head,
+      continuation_run instr ambient graph frame vals head _ headRow]
+    have restoredValue :
+        term instr (frame.load vals (extend ambient (frame.pack vals))) (operand (frame.position 0) value) =
+          pure (evalOperand vals value) :=
+      operand_tree instr (frame.position 0) loaded vals value restored
+    simp only [region, operand_tree instr position env vals value (fun _ => rfl), restoredValue, pure_bind]
+    cases evalOperand vals value with
+    | pair left right =>
+      apply ih childLabels
+      · exact fun i => fresh (i.natAdd 1)
+      · intro i
+        simpa only [EntryTree.cells, appendTable_right, childLabels] using rows (i.natAdd 1)
+      · exact extend_agreement _ _ _ (extend_agreement env loaded _ restored left) right
+    | atom _ | unit | inl _ | inr _ => simp only [diverge_bind]
   | case test left right ihLeft ihRight =>
     simp only [EntryTree.written, EntryTree.entryAt]
     apply case_congr
@@ -711,6 +738,10 @@ private def bindRequests {β : Type u} (instr : Primitive E F α) :
   | _, _, .request op arg next, env, finish =>
     term instr env (.op op (operand position arg)) >>= fun reply =>
       bindRequests instr next (extend env reply) finish
+  | _, _, .unpack value next, env, finish =>
+    term instr env (operand position value) >>= fun
+      | .pair left right => bindRequests instr next (extend (extend env left) right) finish
+      | _ => diverge
 
 private theorem bind_append {β : Type u} (instr : Primitive E F α) (env : Env α)
     (left : Requests sig Γ Δ) (right : Requests sig Δ Θ) (finish : Env α → Tree E β) :
@@ -719,6 +750,11 @@ private theorem bind_append {β : Type u} (instr : Primitive E F α) (env : Env 
   induction left generalizing env with
   | done => rfl
   | request op arg next ih => simp only [Requests.append, bindRequests, ih]
+  | unpack value next ih =>
+    simp only [Requests.append, bindRequests]
+    apply bind_congr
+    intro result
+    cases result <;> first | exact ih _ right | rfl
 
 /-- At every completed schedule, each older ambient slot is still
 available at its shifted lexical index. -/
@@ -735,12 +771,27 @@ private theorem bind_scope_congr {β : Type u} (instr : Primitive E F α) (env :
     apply ih
     intro final older
     exact equal final (fun i => older (i + 1))
+  | unpack value next ih =>
+    simp only [bindRequests]
+    apply bind_congr
+    intro result
+    cases result with
+    | pair left right =>
+      apply ih
+      intro final older
+      exact equal final (fun i => older (i + 2))
+    | atom _ | unit | inl _ | inr _ => rfl
 
 theorem slots_position (requests : Requests sig Γ Δ) {ty : PacketType} (slot : Slot Γ ty) :
     position (requests.slots slot) = requests.shift (position slot) := by
   induction requests with
   | done => rfl
   | request op arg next ih => exact ih (.there slot)
+  | unpack value next ih => exact ih (.there (.there slot))
+
+private theorem shift_append (left : Requests sig Γ Δ) (right : Requests sig Δ Θ) (i : Nat) :
+    (left.append right).shift i = right.shift (left.shift i) := by
+  induction left generalizing i <;> simp only [Requests.append, Requests.shift, *]
 
 private theorem eval_subst (values : Substitution Γ Δ) (env target : Env α) {ty : PacketType}
     (value : Expr Γ ty)
@@ -831,21 +882,75 @@ private theorem schedule_run {β : Type u} (instr : Primitive E F α) {ty : Pack
         simpa only [Operand.written, term, bind_assoc] using
           ihValue values env target agree (fun result => term instr (extend env result) body.written >>= finish)
 
+  | @let₂ Γ a b _ value body ihValue ihBody =>
+    let initializer := value.scheduleWith values
+    let unpack : Requests sig initializer.scope (b :: a :: initializer.scope) :=
+      .unpack initializer.value .done
+    let initialized := initializer.requests.append unpack
+    let bodyValues : Substitution (b :: a :: Γ) (b :: a :: initializer.scope) :=
+      bindSubstitution (.var .here) (bindSubstitution (.var (.there .here)) (initialized.weaken values))
+    let scheduledBody := body.scheduleWith bodyValues
+    let finishInit : Value α → Tree E β := fun
+      | .pair left right => term instr (extend (extend env left) right) body.written >>= finish
+      | _ => diverge
+    change bindRequests instr ((initializer.requests.append unpack).append scheduledBody.requests) target
+      (fun final => finish (evalOperand (readSlots position final) scheduledBody.value)) = _
+    rw [bind_append, bind_append]
+    calc
+      _ = bindRequests instr initializer.requests target
+          (fun mid => finishInit (evalOperand (readSlots position mid) initializer.value)) := by
+        apply bind_scope_congr
+        intro mid older
+        simp only [unpack, bindRequests, operand_tree instr position mid (readSlots position mid)
+          initializer.value (fun _ => rfl), pure_bind, finishInit]
+        cases evalOperand (readSlots position mid) initializer.value with
+        | pair left right =>
+          apply ihBody bodyValues
+          intro t slot
+          cases slot with
+          | here => rfl
+          | there slot =>
+            cases slot with
+            | here => rfl
+            | there slot =>
+              apply (eval_weaken initialized target _ (values slot) ?_).trans (agree slot)
+              intro i
+              rw [show initialized.shift i = initializer.requests.shift i + 2 from
+                shift_append initializer.requests unpack i]
+              exact older i
+        | atom _ | unit | inl _ | inr _ => rfl
+      _ = _ := by
+        rw [ihValue values env target agree finishInit]
+        simp only [Operand.written, term, bind_assoc]
+        apply bind_congr
+        intro result
+        cases result <;> simp only [finishInit, diverge_bind]
+
 private theorem term_wrap (instr : Primitive E F α) (env : Env α)
     (requests : Requests sig Γ Δ) (body : LambdaSSA.Tm F) :
-    term instr env (requests.wrap LambdaSSA.Tm.let₁ body) =
+    term instr env (requests.wrap LambdaSSA.Tm.let₁ LambdaSSA.Tm.let₂ body) =
       bindRequests instr requests env (fun final => term instr final body) := by
   induction requests generalizing env with
   | done => rfl
   | request op arg next ih => simp only [Requests.wrap, term, bindRequests, ih]
+  | unpack value next ih =>
+    simp only [Requests.wrap, term, bindRequests]
+    apply bind_congr
+    intro result
+    cases result <;> first | exact ih _ | rfl
 
 private theorem region_wrap (instr : Primitive E F α) (env : Env α)
     (requests : Requests sig Γ Δ) (body : Region F) :
-    region instr env (requests.wrap Region.let₁ body) =
+    region instr env (requests.wrap Region.let₁ Region.let₂ body) =
       bindRequests instr requests env (fun final => region instr final body) := by
   induction requests generalizing env with
   | done => rfl
   | request op arg next ih => simp only [Requests.wrap, region, bindRequests, ih]
+  | unpack value next ih =>
+    simp only [Requests.wrap, region, bindRequests]
+    apply bind_congr
+    intro result
+    cases result <;> first | exact ih _ | rfl
 
 theorem operand_run (instr : Primitive E F α) (env : Env α) {ty : PacketType} (arg : Operand sig Γ ty) :
     term instr env arg.written = term instr env arg.schedule.term := by
