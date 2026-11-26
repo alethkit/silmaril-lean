@@ -101,22 +101,22 @@ def MemoryTarget.Allocated {H : Type} (callee : MemoryTarget) (base : Store H) :
 
 mutual
 
-def MemoryTarget.supportedOpAt (growthEnabled insideArm : Bool) : Graph.Memory32.Op → Bool
+def MemoryTarget.supportedOpAt (growthEnabled : Bool) (explicitDepth : Nat) : Graph.Memory32.Op → Bool
   | .ranked (.numeric (.get _)) | .ranked (.call _) | .load _ | .store _ | .size => true
   | .callIndirect .. => true
-  | .if_ _ left right => supportedCodeAt growthEnabled true left && supportedCodeAt growthEnabled true right
-  | .ranked (.brIf depth _) => insideArm && decide (depth = ⟨0⟩)
+  | .if_ _ left right => supportedCodeAt growthEnabled (explicitDepth + 1) left && supportedCodeAt growthEnabled (explicitDepth + 1) right
+  | .ranked (.brIf depth _) => decide (depth.toNat < explicitDepth)
   | .grow => growthEnabled
   | _ => false
 
-def MemoryTarget.supportedCodeAt (growthEnabled insideArm : Bool) : List Graph.Memory32.Op → Bool
+def MemoryTarget.supportedCodeAt (growthEnabled : Bool) (explicitDepth : Nat) : List Graph.Memory32.Op → Bool
   | [] => true
-  | op :: rest => supportedOpAt growthEnabled insideArm op && supportedCodeAt growthEnabled insideArm rest
+  | op :: rest => supportedOpAt growthEnabled explicitDepth op && supportedCodeAt growthEnabled explicitDepth rest
 
 end
 
-abbrev MemoryTarget.supportedOp (growthEnabled : Bool) := MemoryTarget.supportedOpAt growthEnabled false
-abbrev MemoryTarget.supportedCode (growthEnabled : Bool) := MemoryTarget.supportedCodeAt growthEnabled false
+abbrev MemoryTarget.supportedOp (growthEnabled : Bool) := MemoryTarget.supportedOpAt growthEnabled 0
+abbrev MemoryTarget.supportedCode (growthEnabled : Bool) := MemoryTarget.supportedCodeAt growthEnabled 0
 
 mutual
 

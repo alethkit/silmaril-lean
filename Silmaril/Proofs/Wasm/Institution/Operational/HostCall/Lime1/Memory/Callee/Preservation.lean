@@ -110,13 +110,13 @@ theorem after_child_render {H : Type} (arity : Nat) (parent child : MemoryTarget
     cases out <;>
       simp [afterChild, renderUnder, frameCode, result, values_append, List.append_assoc]
 
-private theorem tail_supported {enabled insideArm : Bool} {op : Graph.Memory32.Op} {ops : List Graph.Memory32.Op}
-    (checked : (op :: ops).all (MemoryTarget.supportedOpAt enabled insideArm) = true) :
-    ops.all (MemoryTarget.supportedOpAt enabled insideArm) = true := by
+private theorem tail_supported {enabled : Bool} {explicitDepth : Nat} {op : Graph.Memory32.Op} {ops : List Graph.Memory32.Op}
+    (checked : (op :: ops).all (MemoryTarget.supportedOpAt enabled explicitDepth) = true) :
+    ops.all (MemoryTarget.supportedOpAt enabled explicitDepth) = true := by
   exact List.all_eq_true.mpr (fun a member => List.all_eq_true.mp checked a (List.mem_cons_of_mem _ member))
 
-private theorem supportedCode_eq_all (enabled insideArm : Bool) (ops : List Graph.Memory32.Op) :
-    MemoryTarget.supportedCodeAt enabled insideArm ops = ops.all (MemoryTarget.supportedOpAt enabled insideArm) := by
+private theorem supportedCode_eq_all (enabled : Bool) (explicitDepth : Nat) (ops : List Graph.Memory32.Op) :
+    MemoryTarget.supportedCodeAt enabled explicitDepth ops = ops.all (MemoryTarget.supportedOpAt enabled explicitDepth) := by
   induction ops <;> simp [MemoryTarget.supportedCodeAt, *]
 
 theorem source_head (op : Graph.Memory32.Op) (rest : List Graph.Memory32.Op) :
@@ -126,39 +126,79 @@ private theorem tail_fromCode {callee : MemoryTarget} {op : Graph.Memory32.Op} {
     (linked : FromCode callee (op :: ops)) : FromCode callee ops :=
   fun _ member => linked (by simp [MemoryTarget.sourceOps, member])
 
+inductive LabelSuccessor {H : Type} (args : List Value) : Phase H → Prop where
+  | active {phase} (inside : InLabel args phase) : LabelSuccessor args phase
+  | exit (out : Result) : LabelSuccessor args (.exit args out)
+  | lowered (stack : List Value) (depth : LabelIdx) (result : List NumType) :
+      LabelSuccessor args (.lowered args stack depth result)
+
 theorem inLabel_next {H : Type} {base : Store H} {mem : Memory32 base} {host : HostSemantics H} {site : IndirectSite}
     {callee : MemoryTarget} {bytes written : ByteArray} {args : List Value} {phase next : Phase H}
     (entered : InLabel args phase) (move : Edge mem host site callee bytes phase written next) :
-    InLabel args next ∨ ∃ out, next = .exit args out := by
-  cases move <;> simp only [InLabel] at entered <;> try exact Or.inl entered
+    LabelSuccessor args next := by
+  cases move <;> simp only [InLabel] at entered <;> try exact .active entered
   case brIf =>
     unfold afterBrIf
-    split <;> exact .inl entered
-  case branchDone => exact .inr ⟨_, congrArg (fun current => Phase.exit current _) entered⟩
-  case labelDone => exact .inr ⟨_, congrArg (fun current => Phase.exit current _) entered⟩
-  case labelTrap => exact .inr ⟨_, congrArg (fun current => Phase.exit current _) entered⟩
+    split <;> exact .active entered
+  case branchLower => cases entered; exact .lowered ..
+  case branchDone => cases entered; exact .exit _
+  case labelDone => cases entered; exact .exit _
+  case labelTrap => cases entered; exact .exit _
   case child =>
     rename_i next rest move
     cases next with
-    | done out => cases out <;> exact .inl entered
-    | _ => exact .inl entered
+    | done out => cases out <;> exact .active entered
+    | _ => exact .active entered
   case armStep =>
     rename_i next rest active move
     cases next with
-    | exit _ out => cases out <;> exact .inl entered
-    | _ => exact .inl entered
+    | exit _ out => cases out <;> exact .active entered
+    | _ => exact .active entered
+
+theorem branch_result {callee : MemoryTarget} {types result : List NumType} {labels : List (List NumType)}
+    {stack : List Value} (head : (labels ++ callee.fn.entryLabels)[0]? = some types)
+    (typed : BranchTyped labels ⟨0⟩ result stack) : result = types := by
+  cases labels with
+  | nil => cases typed.1
+  | cons label labels => exact Option.some.inj (typed.1.symm.trans head)
+
+private theorem branch_lower {labels : List (List NumType)} {depth : LabelIdx}
+    {result : List NumType} {stack : List Value} (positive : 0 < depth.toNat)
+    (typed : BranchTyped labels depth result stack) :
+    BranchTyped labels.tail (lowerLabel depth) result stack := by
+  refine ⟨?_, typed.2⟩
+  cases labels with
+  | nil => cases typed.1
+  | cons label labels =>
+    cases depthEq : depth.toNat with
+    | zero => omega
+    | succ index =>
+      have lowered : (lowerLabel depth).toNat = index := by
+        change depth.toNat - 1 = index
+        omega
+      simpa only [depthEq, lowered, List.tail_cons, List.getElem?_cons_succ] using typed.1
+
+private theorem branch_prepend {labels : List (List NumType)} {depth : LabelIdx}
+    {result : List NumType} {stack : List Value} (saved : List Value)
+    (typed : BranchTyped labels depth result stack) :
+    BranchTyped labels depth result (saved ++ stack) := by
+  refine ⟨typed.1, ?_⟩
+  obtain ⟨scratch, payload, rfl, signature⟩ := Graph.SuffixTyped.split typed.2
+  have count : result.reverse.length = result.length := List.length_reverse
+  simp only [Graph.SuffixTyped, Prefix.stackTypes, List.map_append, List.reverse_append, signature, List.append_assoc]
+  rw [← count, List.take_left]
 
 theorem ready_step_at {H : Type} {base : Store H} {mem : Memory32 base} {callee : MemoryTarget}
     {host : HostSemantics H} {site : IndirectSite} {bytes written : ByteArray} {phase next : Phase H}
     (linked : site.MemoryLinked mem host .recursive) (registered : site.memoryLookup callee.address = some callee.fn)
     (move : Edge mem host site callee bytes phase written next)
-    {types : List NumType} {labels : List (List NumType)} {insideArm : Bool}
-    (label : labels[0]? = some types)
-    (ready : ReadyAt mem host site callee types labels insideArm phase) : ReadyAt mem host site callee types labels insideArm next := by
-  induction move generalizing types labels insideArm with
+    {types : List NumType} {labels : List (List NumType)}
+    (label : (labels ++ callee.fn.entryLabels)[0]? = some types)
+    (ready : ReadyAt mem host site callee types labels phase) : ReadyAt mem host site callee types labels next := by
+  induction move generalizing types labels with
   | enter =>
     have checked := linked.checked _ registered
-    obtain ⟨arguments, rfl, rfl, rfl⟩ := ready
+    obtain ⟨arguments, rfl, rfl⟩ := ready
     exact ⟨arguments, checked.supported, checked.body, fun _ member => member⟩
   | get found =>
     obtain ⟨v, lookup, typed⟩ := get_typed ready.1 ready.2.2.1
@@ -184,7 +224,7 @@ theorem ready_step_at {H : Type} {base : Store H} {mem : Memory32 base} {callee 
     have resume := direct_resume typed ready.2.2.1
     refine ⟨ready.1, link.registered, link.allocated, by simp, ?_,
       tail_supported ready.2.1, (tail_fromCode ready.2.2.2), ?_⟩
-    · exact ⟨by simpa only [link.declaration] using typed, rfl, rfl, rfl⟩
+    · exact ⟨by simpa only [link.declaration] using typed, rfl, rfl⟩
     · simpa only [link.declaration] using resume
   | callHost link typed =>
     exact ⟨ready.1, link.allocated, typed, link.contract, tail_supported ready.2.1,
@@ -197,7 +237,7 @@ theorem ready_step_at {H : Type} {base : Store H} {mem : Memory32 base} {callee 
       have results := congrArg (fun (ty : Wasm.Lime1.FuncType) => ty.results) signatureEq
       refine ⟨ready.1, found, allocated, by simp, ?_, tail_supported ready.2.1,
         (tail_fromCode ready.2.2.2), ?_⟩
-      · exact ⟨typed.trans params.symm, rfl, rfl, rfl⟩
+      · exact ⟨typed.trans params.symm, rfl, rfl⟩
       · exact fun vs typed => resume vs (typed.trans results)
   | @callIndirectHost callee target bytes args saved operands index signature selector rest lookup typed =>
     have resume := indirect_resume typed ready.2.2.1
@@ -216,26 +256,28 @@ theorem ready_step_at {H : Type} {base : Store H} {mem : Memory32 base} {callee 
     exact ⟨argsTyped, supported, resume _ typed, inCode⟩
   | hostTrapped => exact ready.1
   | hostDiverged => exact ready
-  | @brIf callee bytes args stack result rest guard =>
+  | @brIf callee bytes args stack depth result rest guard =>
     obtain ⟨kept, condition, split, target, payload, resume⟩ :=
       Graph.Memory32.Function.br_if_typed ready.2.2.1
     obtain ⟨rfl, _⟩ := List.append_inj' split (by simp)
-    have supported := List.all_eq_true.mp ready.2.1 (.ranked (.brIf ⟨0⟩ result)) (List.mem_cons_self ..)
-    have scope : insideArm = true := (Bool.and_eq_true_iff.mp supported).1
-    have resultEq : result = types := Option.some.inj (target.symm.trans label)
+    have supported := List.all_eq_true.mp ready.2.1 (.ranked (.brIf depth result)) (List.mem_cons_self ..)
+    have bound : depth.toNat < labels.length := of_decide_eq_true supported
+    have explicit : labels[depth.toNat]? = some result :=
+      (List.getElem?_append_left bound).symm.trans target
     unfold afterBrIf
     split
     · exact ⟨ready.1, tail_supported ready.2.1, resume, tail_fromCode ready.2.2.2⟩
-    · exact ⟨ready.1, scope, resultEq, payload⟩
-  | branchDone typed => exact ⟨ready.1, typed.trans ready.2.2.1⟩
+    · exact ⟨ready.1, explicit, payload⟩
+  | branchDone typed => exact ⟨ready.1, typed.trans (branch_result label ready.2)⟩
+  | branchLower positive => exact ⟨ready.1, branch_lower positive ready.2⟩
   | @ifSelect callee bytes args saved type left right rest guard =>
     obtain ⟨kept, condition, split, leftTyped, rightTyped, resume⟩ :=
       Graph.Memory32.Function.if_typed ready.2.2.1
     obtain ⟨rfl, _⟩ := List.append_inj' split (by simp)
-    have arms : MemoryTarget.supportedCodeAt mem.extent.growthEnabled true left = true ∧
-        MemoryTarget.supportedCodeAt mem.extent.growthEnabled true right = true :=
+    have arms : MemoryTarget.supportedCodeAt mem.extent.growthEnabled (labels.length + 1) left = true ∧
+        MemoryTarget.supportedCodeAt mem.extent.growthEnabled (labels.length + 1) right = true :=
       Bool.and_eq_true_iff.mp (List.all_eq_true.mp ready.2.1 (.if_ type left right) (List.mem_cons_self ..))
-    change ReadyAt mem host site callee types labels insideArm (.ifBlock args saved type (selectArm guard left right) rest)
+    change ReadyAt mem host site callee types labels (.ifBlock args saved type (selectArm guard left right) rest)
     by_cases zero : guard = (0 : BitVec 32)
     · have chosen : selectArm guard left right = right := ite_eq_left zero
       rw [chosen]
@@ -253,14 +295,18 @@ theorem ready_step_at {H : Type} {base : Store H} {mem : Memory32 base} {callee 
   | @armStep callee bytes written args saved type phase next rest entered move ih =>
     obtain ⟨argsTyped, _, active, supported, inCode, resume⟩ := ready
     have advanced := ih registered rfl active
-    rcases inLabel_next entered move with inside | ⟨out, rfl⟩
-    · cases next <;> first
-      | exact ⟨argsTyped, inside, advanced, supported, inCode, resume⟩
-      | change False at inside
-        exact inside.elim
-    · cases out with
+    cases inLabel_next entered move with
+    | active inside =>
+      cases next <;> first
+        | exact ⟨argsTyped, inside, advanced, supported, inCode, resume⟩
+        | change False at inside
+          exact inside.elim
+    | exit out =>
+      cases out with
       | values vs => exact ⟨argsTyped, supported, resume vs advanced.2, inCode⟩
       | trap => exact argsTyped
+    | lowered operands depth declared =>
+      exact ⟨argsTyped, branch_prepend saved advanced.2⟩
   | @child callee child bytes written args saved phase next rest move ih =>
     obtain ⟨argsTyped, found, allocated, _, childReady, supported, inCode, resume⟩ := ready
     have after := ih found rfl childReady

@@ -44,13 +44,13 @@ trap with the current bytes. Both host paths share a pending phase that uses
 the embedding contract to recover the returned store, with a self-step for
 declared divergence. Parameterless conditionals select a source block and
 enter its arm label in distinct native steps. The arm uses its own result
-signature and the same live frame and store. A checked depth-zero `br_if`
-inside an arm consumes its i32 guard. A nonzero guard leaves a pending
-native branch, whose separate label exit delivers the typed payload above
-the saved operands and skips the remaining arm code. A zero guard keeps the
-operands and continues inside the arm. Native label and frame exits are
-distinct. A child's frame exit restores the checked suffix or exposes a
-trap for cleanup. -/
+signature and the same live frame and store. A checked `br_if` can target
+an explicit arm label. Zero consumes only the guard. A nonzero guard leaves
+a pending native branch. Each crossed label lowers the depth and skips its
+own suffix, keeping the live operands for the next step. The target label
+then delivers the typed payload above its saved operands. Native label and
+frame exits are distinct. A child's frame exit restores the checked suffix
+or exposes a trap for cleanup. -/
 theorem step_iff (linked : site.MemoryLinked mem host .recursive)
     (registered : site.memoryLookup callee.address = some callee.fn) (allocated : callee.Allocated base)
     (ready : Ready mem host site callee phase) (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out) :
