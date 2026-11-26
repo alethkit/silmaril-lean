@@ -680,6 +680,19 @@ The continuation cannot jump back to its own label.
   [Grammar and certification](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Thms.lean) ·
   [Ordered-exit round trip](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Categorical/Thms.lean) ·
   [Three-exit state traces](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Regression.lean)
+- The ranked captured and witnessed LetCase equations use the existing
+  ordered finite-exit interface and discrete coherent and validated models.
+  Their forward comparison commutes with signature changes on actual typed
+  LetCase equations, including when two exit types map to the same type.
+  Either order of reverse compilation and relabelling gives the same exact
+  structured finite-exit lowering and the same native satisfaction.
+  Numbering and reading are inverse on classes of equations that hold in
+  the same models. A shared successor can be duplicated in the native
+  round trip, and the quotient establishes model-wise equivalence for this
+  grammar. Syntactic rewrite completeness is a separate question.
+  [Signature and satisfaction squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Thms.lean) ·
+  [Institution isomorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Semantic/Thms.lean) ·
+  [Shared successor and type collision](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Semantic/Regression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
