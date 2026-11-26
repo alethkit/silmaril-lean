@@ -26,7 +26,7 @@ open BoundSimulation.Obstruction.PairSequencing
   (projectionUnitSeed_same caseReturnSeed_same)
 open BoundSimulation.Obstruction.PairSequencing.Observer
   (TermObservation SameWith evalTermWith evalRegionWith evalRegion_typed evalRegion_lsubst
-   evalRegion_renameVars evalRegion_substOn eval_liftLSubstVars extension_same)
+   evalRegion_renameVars evalRegion_substOn eval_liftLSubstVars extension_same startsLet)
 open TriplingComputedCallObserver (binaryFold_same foldStep_same)
 
 universe u v w
@@ -256,10 +256,10 @@ private theorem observe_mapState {B A : TyS} {v : Val} (hv : ValTy v (B ⊕ₜ (
   cases hv with
   | inl h =>
     rw [observe_case_left]
-    simp [observe, env, evalRegionWith, evalTermWith, extend, routeState]
+    simp [observe, env, evalRegionWith, evalTermWith, startsLet, extend, routeState]
   | inr h =>
     rw [observe_case_right, observe_seq (foldRegion_typed A) h, (observe_fold h).1]
-    simp [observe, env, evalRegionWith, evalTermWith, extend, routeState, mapOut]
+    simp [observe, env, evalRegionWith, evalTermWith, startsLet, extend, routeState, mapOut]
 
 set_option backward.isDefEq.respectTransparency false in
 theorem triplingStep_same (unmarked : observation.caseTerm = false)
@@ -326,12 +326,16 @@ theorem triplingStep_same (unmarked : observation.caseTerm = false)
     rw [observe_seq (foldRegion_typed A) hv, (observe_fold hv).1, mapOut]
     exact observe_uniformity hp hq foldVal (fun _ w => (observe_fold (observation := observation) w).2) sim hv
 
+theorem withTriplingSeed_same (unmarked : observation.caseTerm = false) {Γ L : List TyS} {r s : Region Φ}
+    (step : Step (τ := TyS) (Φ := Φ) pe Γ r s L) : SameWith observation Γ r s :=
+  step.elim
+    (fun old => old.elim
+      (fun cases => cases.elim projectionUnitSeed_same (caseReturnSeed_same unmarked))
+      (foldStep_same unmarked)) (triplingStep_same pe unmarked)
+
 theorem withTripling_same (unmarked : observation.caseTerm = false) {Γ L : List TyS} {r s : Region Φ}
     (eq : Paper.Extension.Eqv (Step (τ := TyS) (Φ := Φ) pe) Γ r s L) :
     SameWith observation Γ r s :=
-  extension_same (fun step => step.elim
-    (fun old => old.elim
-      (fun cases => cases.elim projectionUnitSeed_same (caseReturnSeed_same unmarked))
-      (foldStep_same unmarked)) (triplingStep_same pe unmarked)) eq
+  extension_same (withTriplingSeed_same pe unmarked) eq
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.TriplingComputedCallFeedback

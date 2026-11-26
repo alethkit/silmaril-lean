@@ -36,9 +36,11 @@ theorem evalRegion_renameLabels (r : Region Φ) (ρ : Nat → Nat) (env : Env) :
     cases evalTerm t env <;> rfl
   | let₁ t r ih =>
     simp only [renameLabels, evalRegionWith]
-    cases evalTerm t env with
-    | none => rfl
-    | some v => exact ih ρ _
+    split
+    · rfl
+    · cases evalTerm t env with
+      | none => rfl
+      | some v => exact ih ρ _
   | let₂ t r ih =>
     simp only [renameLabels, evalRegionWith]
     split
@@ -92,15 +94,17 @@ theorem evalRegion_lsubst {Γ : VCtx (Ty α)} {r : Region Φ} {L : LCtx (Ty α)}
     rw [lsubst, evalRegion_subst _ (RealizesWith.single eq (value_not_computed ht)), evalRegionWith, eq]
     rfl
   | @let₁ _ t _ _ _ ht _ ih =>
-    cases eq : evalTerm t env with
-    | none => simp [lsubst, evalRegionWith, eq, mapOut]
-    | some v =>
-      have hv := evalTerm_typed ht h eq
-      simp only [lsubst, evalRegionWith, eq]
-      rw [ih (h.extend hv)]
-      congr 1
-      funext i w
-      exact eval_liftLSubstVars σ i env v w
+    by_cases marked : (startsLet t && observation.boundUnaryLet) = true
+    · simp [lsubst, evalRegionWith, marked, mapOut]
+    · cases eq : evalTerm t env with
+      | none => simp [lsubst, evalRegionWith, marked, eq, mapOut]
+      | some v =>
+        have hv := evalTerm_typed ht h eq
+        simp only [lsubst, evalRegionWith, marked, Bool.false_eq_true, ite_false, eq]
+        rw [ih (h.extend hv)]
+        congr 1
+        funext i w
+        exact eval_liftLSubstVars σ i env v w
   | @let₂ _ t _ _ _ _ ht _ ih =>
     by_cases marked : (observation.computedRegionLet₂ && computes t) = true
     · simp [lsubst, evalRegionWith, marked, mapOut]
