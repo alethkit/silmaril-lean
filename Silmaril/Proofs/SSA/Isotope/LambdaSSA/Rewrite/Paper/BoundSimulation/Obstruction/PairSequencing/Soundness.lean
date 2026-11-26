@@ -24,7 +24,7 @@ universe u v
 
 variable {α : Type u} {Φ : Type v} [HasTy Φ (Ty α)]
 
-variable {observation : TermObservation}
+variable {observation : TermObservation (α := α) Φ}
 
 local notation "evalTerm" => evalTermWith observation
 local notation "evalRegion" => evalRegionWith observation
@@ -52,7 +52,6 @@ set_option linter.concreteInstances false
 
 variable [UnitPayloadPolicy]
 
-omit [HasTy Φ (Ty α)] in
 theorem mapOut_localMap {Γ : VCtx (Ty α)} {A D : Ty α} {a : Tm Φ}
     (ha : Tm.BranchValue (A :: Γ) a D) {env : Env} (he : EnvTy Γ env)
     {L : LCtx (Ty α)} {x : Result} (ht : ResultTy (A :: L) x) :

@@ -1,0 +1,177 @@
+module
+
+public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Native.Defs
+public import Silmaril.Wasm.Institution.Operational.MemoryWrite.Native.Defs
+
+/-!
+# Ranked V1 source with one shared Memory32
+
+This check reuses the ranked direct-target table and the existing checker for
+numeric, local, call, exit and scalar structured instructions. Each full-width memory
+instruction supplies its own unsigned 32-bit offset. All declared activations
+resolve slot zero to the same allocated memory address.
+-/
+
+@[expose] public section
+
+namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32
+
+open Execution.Runtime (Frame FuncAddr MemAddr MemInst Value)
+open Computed
+
+/-- Full-width Memory32 operations and parameterless scalar blocks and conditionals. -/
+inductive Op where
+  | ranked (op : Graph.Op)
+  | load (offset : Fin (2 ^ 32))
+  | store (offset : Fin (2 ^ 32))
+  | block (result : Option NumType) (body : List Op)
+  | if_ (result : Option NumType) (thenBody elseBody : List Op)
+
+mutual
+
+def supportedCode : List Op → (labels : List (List NumType) := []) → Bool
+  | [], _ => true
+  | op :: rest, labels => op.supportedIn labels && supportedCode rest labels
+
+def Op.supportedIn : Op → List (List NumType) → Bool
+  | .load _, _ | .store _, _ => true
+  | .ranked (.numeric _), _ | .ranked (.set _), _ | .ranked (.tee _), _
+  | .ranked (.call _), _ | .ranked .return_, _ | .ranked .unreachable, _ => true
+  | .ranked (.br depth result), labels | .ranked (.brIf depth result), labels =>
+    decide (labels[depth.toNat]? = some result)
+  | .ranked _, _ => false
+  | .block result body, labels => supportedCode body (result.toList :: labels)
+  | .if_ result left right, labels =>
+    supportedCode left (result.toList :: labels) && supportedCode right (result.toList :: labels)
+
+end
+
+def Op.supported (op : Op) : Bool := op.supportedIn []
+
+mutual
+
+def codeTargets : List Op → List CallTarget
+  | [] => []
+  | op :: rest => op.targets ++ codeTargets rest
+
+def Op.targets : Op → List CallTarget
+  | .ranked op => op.targets
+  | .load _ | .store _ => []
+  | .block _ body => codeTargets body
+  | .if_ _ left right => codeTargets left ++ codeTargets right
+
+end
+
+/-- The full-width instruction's alignment hint stays at its natural alignment. -/
+def immediate (offset : Fin (2 ^ 32)) : Wasm.V1.MemArg := ⟨2, offset⟩
+
+mutual
+
+def v1Code : List Op → Wasm.V1.Expr
+  | [] => []
+  | op :: rest => op.v1 :: v1Code rest
+
+def Op.v1 : Op → Wasm.V1.Instr
+  | .ranked op => op.emit Graph.v1CodeSyntax
+  | .load offset => .intLoad .i32 none (immediate offset)
+  | .store offset => .intStore .i32 none (immediate offset)
+  | .block result body => .block result (v1Code body)
+  | .if_ result left right => .if_ result (v1Code left) (v1Code right)
+
+end
+
+structure Function where
+  declaration : Declaration
+  rank : Nat
+  initial : List Value
+  code : List Op
+
+def Function.targets (fn : Function) : List CallTarget := fn.code.flatMap Op.targets
+
+def Function.entry (fn : Function) : Entry := ⟨fn.declaration, fn.rank, fn.targets⟩
+
+def Function.v1Func (fn : Function) : Wasm.V1.Func :=
+  ⟨fn.declaration.typeIndex, fn.declaration.locals,
+    fn.initial.map Graph.v1CodeSyntax.ops.value ++ fn.code.map Op.v1⟩
+
+/-- Each activation starts with the empty-continuation label opened by native
+invocation. Explicit block and conditional labels extend this context. -/
+def Function.entryLabels (fn : Function) : List (List NumType) := [fn.declaration.results]
+
+def Function.supports (fn : Function) (op : Op) : Bool :=
+  op.supportedIn fn.entryLabels
+
+mutual
+
+/-- Parameterless regions start on an empty stack and check their declared fallthrough.
+Labels are innermost first. The function's results govern explicit return. -/
+def Function.checkRegion (fn : Function) (stack fallthrough : List NumType) :
+    List Op → (labels : List (List NumType) := []) → Bool
+  | [], _ => decide (stack = fallthrough.reverse)
+  | op :: rest, labels =>
+    fn.checkRegionOp stack labels (fun next => fn.checkRegion next fallthrough rest labels) op
+
+/-- The stack is top-first. A load replaces its address with an i32 result.
+A store consumes the i32 word above the i32 address. -/
+def Function.checkRegionOp (fn : Function) (stack : List NumType) (labels : List (List NumType))
+    (resume : List NumType → Bool) : Op → Bool
+  | .ranked op =>
+    Graph.checkOp fn.targets (fn.declaration.params ++ fn.declaration.locals) fn.declaration.results
+      labels stack fn.declaration.module.types resume op
+  | .load _ => Graph.checkCondition stack (fun saved => resume (.int .i32 :: saved))
+  | .store _ => Graph.checkCondition stack (fun args => Graph.checkCondition args resume)
+  | .block result body =>
+    fn.checkRegion [] result.toList body (result.toList :: labels) && resume (result.toList.reverse ++ stack)
+  | .if_ result left right =>
+    Graph.checkCondition stack fun saved =>
+      fn.checkRegion [] result.toList left (result.toList :: labels) &&
+        fn.checkRegion [] result.toList right (result.toList :: labels) &&
+        resume (result.toList.reverse ++ saved)
+
+end
+
+def Function.checkCode (fn : Function) (stack : List NumType) (code : List Op) : Bool :=
+  fn.checkRegion stack fn.declaration.results code fn.entryLabels
+
+def Function.WellTyped (fn : Function) (stack : List Value) (code : List Op) : Prop :=
+  fn.checkCode (Prefix.stackTypes stack) code = true
+
+/-- Syntax and declared branch targets are checked throughout the body. Stack
+checking follows the admitted continuations. -/
+def Function.checkV1 (fn : Function) (memory : MemAddr) : Bool :=
+  decide (fn.declaration.results.length ≤ 1) &&
+    fn.code.all fn.supports &&
+    fn.checkCode (Prefix.stackTypes fn.initial) fn.code &&
+    decide (fn.declaration.module.memories[0]? = some memory)
+
+structure Program where
+  functions : List (Option Function)
+
+def Program.lookup (program : Program) (address : FuncAddr) : Option Function :=
+  program.functions[address.value]?.join
+
+def Program.table (program : Program) : Table :=
+  ⟨program.functions.map (Option.map Function.entry)⟩
+
+def Program.checkV1 (program : Program) (memory : MemAddr) : Bool :=
+  program.table.check &&
+    program.functions.all (fun slot => (slot.map (fun fn => fn.checkV1 memory)).getD true)
+
+/-- Native allocation is fixed outside the selected memory's bytes. -/
+structure Layout {H : Type} (program : Program) (base : Wasm.V1.Execution.Store H)
+    (address : MemAddr) (initial : MemInst) : Prop where
+  memory : base.memories[address.value]? = some initial
+  functions : ∀ a fn, program.lookup a = some fn →
+    base.funcs[a.value]? = some (.wasm fn.declaration.type fn.declaration.module fn.v1Func)
+
+def storeWithBytes {H : Type} (base : Wasm.V1.Execution.Store H)
+    (address : MemAddr) (initial : MemInst) (bytes : ByteArray) : Wasm.V1.Execution.Store H :=
+  Wasm.V1.Execution.setMemory base address { initial with data := bytes }
+
+/-- The entire current store differs at most in the designated byte array.
+The memory's extent and metadata stay fixed. -/
+def SharedStore {H : Type} (base : Wasm.V1.Execution.Store H) (address : MemAddr)
+    (initial : MemInst) (live : Wasm.V1.Execution.Store H) : Prop :=
+  ∃ bytes, bytes.size = initial.data.size ∧ live = storeWithBytes base address initial bytes
+
+end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32

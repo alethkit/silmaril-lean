@@ -68,11 +68,10 @@ variable {α : Type u} {Φ : Type v} [HasTy Φ (Ty α)]
 
 -- The projection laws respect both typed unit observations.
 set_option linter.concreteInstances false in
-omit [HasTy Φ (Ty α)] in
-private theorem projection_same [Observer.UnitPayloadPolicy] {observation : Observer.TermObservation} {Γ L : List (Ty α)} {r s : Region Φ}
+private theorem projection_same [Observer.UnitPayloadPolicy] {observation : Observer.TermObservation (α := α) Φ} {Γ L : List (Ty α)} {r s : Region Φ}
     (h : Paper.WithProjectionReturns.Step Γ r s L) : Observer.SameWith observation Γ r s := by
   cases h <;> intro env _ <;> cases hx : env 0 <;>
-    simp [returnRegion, Observer.evalRegionWith, Observer.evalTermWith, hx, extend]
+    simp [returnRegion, Observer.evalRegionWith, Observer.evalTermWith, Observer.startsLet, hx, extend]
 
 open scoped Observer.AlternateUnit in
 theorem projection_unit_eta_fails :
@@ -92,8 +91,7 @@ theorem projection_unit_eta_fails :
 section
 open scoped Observer.CanonicalUnit
 
-omit [HasTy Φ (Ty α)] in
-private theorem unit_same {observation : Observer.TermObservation} {Γ L : List (Ty α)} {r s : Region Φ}
+private theorem unit_same {observation : Observer.TermObservation (α := α) Φ} {Γ L : List (Ty α)} {r s : Region Φ}
     (h : Paper.WithUnitEta.Step Γ r s L) : Observer.SameWith observation Γ r s := by
   cases h
   intro env he
@@ -101,13 +99,12 @@ private theorem unit_same {observation : Observer.TermObservation} {Γ L : List 
   have hu : env 0 = .unit := ht.eq_unit rfl
   simp [Observer.evalRegionWith, Observer.evalTermWith, hu]
 
-omit [HasTy Φ (Ty α)] in
-theorem projectionUnitSeed_same {observation : Observer.TermObservation}
+theorem projectionUnitSeed_same {observation : Observer.TermObservation (α := α) Φ}
     {Γ L : List (Ty α)} {r s : Region Φ}
     (h : Paper.WithProjectionReturnsAndUnitEta.Step Γ r s L) : Observer.SameWith observation Γ r s :=
   h.elim projection_same unit_same
 
-theorem joined_same {observation : Observer.TermObservation} {Γ L : List (Ty α)} {r s : Region Φ}
+theorem joined_same {observation : Observer.TermObservation (α := α) Φ} {Γ L : List (Ty α)} {r s : Region Φ}
     (h : Paper.Extension.Eqv Paper.WithProjectionReturnsAndUnitEta.Step Γ r s L) : Observer.SameWith observation Γ r s :=
   Observer.extension_same projectionUnitSeed_same h
 

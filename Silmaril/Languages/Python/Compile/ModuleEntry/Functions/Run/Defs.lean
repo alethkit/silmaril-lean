@@ -1,5 +1,7 @@
 module
 
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain.Eval.Defs
+
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Run.Defs
 public import Silmaril.Languages.Python.Compile.Closure.Run.Defs
@@ -24,6 +26,10 @@ inductive Argument where
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | assertNot (condition : Operand scope)
+  | assertSequenceLength (test : SequenceLengthTest scope)
+  | assertBoolIdentity (test : BoolIdentityTest scope)
+  | assertListConstruction (test : ListConstructionTest scope)
+  | assertTupleChain (test : TupleChainTest scope)
   | assertVarNames (receiver : String) (needle : List UInt32)
   | publish (name : String) (function : TopFunction)
   | call (destination : Core.Module.Functions.Destination) (name : String) (operands : List Core.Module.Functions.Operand)
@@ -69,6 +75,18 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .assertNot condition :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertNot condition :: instructions, blocks)
+  | .assertSequenceLength test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertSequenceLength test :: instructions, blocks)
+  | .assertBoolIdentity test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertBoolIdentity test :: instructions, blocks)
+  | .assertListConstruction test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertListConstruction test :: instructions, blocks)
+  | .assertTupleChain test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertTupleChain test :: instructions, blocks)
   | .assertVarNames receiver _ needle :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertVarNames receiver needle :: instructions, blocks)
@@ -133,11 +151,18 @@ inductive Completion where
   | unsupportedVarNamesReceiver
   deriving DecidableEq, Repr
 
-def scalar? : Value → Option Core.Module.Value
-  | .int value => some (.int value)
-  | .bool value => some (.bool value)
-  | .none => some .none
-  | .function _ => none
+def tupleBinding (session : Session) : Option Core.Module.TupleDispatch.TypeBinding :=
+  (session.globals "tuple").map fun
+    | .none => .noneValue
+    | _ => .outsideProfile
+
+def checkTupleChain {scope : Scope} (session : Session) (test : TupleChainTest scope) : Except Completion Unit :=
+  match (TupleChain.evaluate (fun _ => tupleBinding session) test).result with
+  | .ok true => .ok ()
+  | .ok false => .error .assertionError
+  | .error error => .error ((TupleChain.runtimeError? error).elim .scalarProfile .raised)
+
+def scalar? : Value → Option Core.Module.Value := Value.scalar?
 
 def evaluate {scope : Scope} (session : Session) : Operand scope → Except Completion Value
   | .integer value => .ok (.int value)
@@ -230,6 +255,19 @@ def checkVarNames (table : CodeTable) (session : Session) (receiver : String)
     | .code error => .codeFault error
   unless member do throw .assertionError
 
+/-- The ordinary namespace has no stock descriptor. Read the name and then
+prepare the argument before classifying a present mask. -/
+def boolIdentityCompletion {scope : Scope} (session : Session) (test : BoolIdentityTest scope) : Completion :=
+  match session.globals "bool" with
+  | none => .raised (.nameError "bool")
+  | some callee =>
+    match test.argument.mapM (evaluate session) with
+    | .error error => error
+    | .ok _ =>
+      match callee with
+      | .function _ => .scalarProfile
+      | _ => .raised .notCallable
+
 def advance {scope : Scope} (table : CodeTable) : State scope → List Event × State scope
   | .finished session completion => ([], .finished session completion)
   | .ready session [] => ([], .finished session .normal)
@@ -240,6 +278,18 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
       | .error error => .finished session error)
     | .scalar (.assertion operand) => ([], assertOperand session operand true rest)
     | .assertNot operand => ([], assertOperand session operand false rest)
+    | .assertSequenceLength _ => ([], .finished session (match session.globals "len" with
+      | none => .raised (.nameError "len")
+      | some (.function _) => .scalarProfile
+      | some _ => .raised .notCallable))
+    | .assertBoolIdentity test => ([], .finished session (boolIdentityCompletion session test))
+    | .assertListConstruction _ => ([], .finished session (match session.globals "list" with
+      | none => .raised (.nameError "list")
+      | some (.function _) => .scalarProfile
+      | some _ => .raised .notCallable))
+    | .assertTupleChain test => ([], match checkTupleChain session test with
+      | .ok () => .ready session rest
+      | .error error => .finished session error)
     | .assertVarNames receiver needle => ([], match checkVarNames table session receiver needle with
       | .ok () => .ready session rest
       | .error completion => .finished session completion)

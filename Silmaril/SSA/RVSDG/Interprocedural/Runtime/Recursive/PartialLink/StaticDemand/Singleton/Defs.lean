@@ -48,8 +48,11 @@ def entry (captured : Tuple m.Val summary.captures) (args : Tuple m.Val summary.
     Tuple m.Val (summary.fn.port :: (summary.captures ++ summary.fn.args)) :=
   .cons (family.memberValue captured) (prependContext args captured)
 
-def guard (captured : Tuple m.Val summary.captures) : MemberResolution m (some summary) :=
-  fun target actual => target = family.memberValue captured ∧ actual = captured
+def guard (captured : Tuple m.Val summary.captures) : MemberResolution m (some summary) := by
+  intro i
+  have zero : i = (0 : Fin 1) := Fin.eq_zero i
+  subst i
+  exact fun target actual => target = family.memberValue captured ∧ actual = captured
 
 /-- Check the real member capture wires and the target and capture witnesses
 of every recursive site. Formal arguments can change at each invocation. -/

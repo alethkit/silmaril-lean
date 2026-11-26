@@ -67,12 +67,31 @@ theorem denote_returnRegion_boundReturn
       denoteRegion J M (.let₁ ht (.br (L := [D]) (ℓ := 0) rfl (.var (i := 0) rfl))) :=
   ReturnFusion.denote_returnRegion_boundReturn J M copyCentral ht
 
+/-- A primitive consumes the value computed by its operand. An explicit unary
+binder followed by applying the primitive to the new variable has the same
+denotation, including when computing the operand has effects. -/
+theorem denote_op_boundReturn_sequencing {Γ : VCtx τ} {L : LCtx τ} {i : Nat}
+    {a : Tm Φ} (p : Φ) (hi : At L i (instrTrg p)) (ha : Tm.HasType Γ a (instrSrc p)) :
+    denoteRegion J M (.let₁ (.op ha) (.br hi (.var (i := 0) rfl))) =
+      denoteRegion J M (.let₁ (.let₁ ha (.op (f := p) (.var (i := 0) rfl))) (.br hi (.var (i := 0) rfl))) :=
+  ReturnFusion.denote_op_boundReturn_sequencing J M p hi ha
+
 section LoweredReturns
 
 variable (copyCentral : ∀ E : V, PremonoidalCategory.IsCentral (J.map (duplicate E) ≫
     (Functor.StrongPremonoidal.tensorIso (J := J) E E).inv))
 
 include copyCentral
+
+/-- Semantic soundness of sequencing a computed primitive argument in the
+ordinary lowered return syntax. -/
+theorem denote_op_returnRegion_sequencing {Γ : VCtx τ} {a : Tm Φ}
+    (p : Φ) (ha : Tm.HasType Γ a (instrSrc p)) :
+    denoteRegion J M (returnRegion_typed (.op ha)).hasType =
+      denoteRegion J M (returnRegion_typed (.let₁ ha (.op (f := p) (.var (i := 0) rfl)))).hasType :=
+  (denote_returnRegion_boundReturn J M copyCentral (.op ha)).trans
+    ((denote_op_boundReturn_sequencing J M p (i := 0) (L := [instrTrg p]) rfl ha).trans
+      (denote_returnRegion_boundReturn J M copyCentral (.let₁ ha (.op (f := p) (.var (i := 0) rfl)))).symm)
 
 /-- Binary-let return fusion for the existing return lowering, including nested expression lets. -/
 theorem denote_let₂_returnRegion_fusion {Γ : VCtx τ} {A B D : τ} {a b : Tm Φ}

@@ -1,0 +1,429 @@
+module
+
+import Silmaril.SSA.PEG.Simple.Revert.While.Thms
+import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms
+import Silmaril.SSA.PEG.Simple.Revert.While.Region.Thms
+import Silmaril.SSA.PEG.Simple.Thms
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Defs
+
+namespace Silmaril.SSA.PEG.Simple.Revert.While.Tests
+
+open RVSDG (Tuple)
+
+private inductive Op : InstructionSet Unit where
+  | nonzero : Op [.count] .bool
+  | pred : Op [.count] .count
+  | not : Op [.bool] .bool
+  deriving DecidableEq
+
+private def model : Interpretation Op where
+  carrier _ := Unit
+  run
+    | .nonzero, .cons n .nil => some ⟨n.down != 0⟩
+    | .pred, .cons n .nil => some ⟨n.down - 1⟩
+    | .not, .cons b .nil => some ⟨!b.down⟩
+
+private def form : Form Op .count := ⟨.nonzero, .pred, .not⟩
+
+private def store (n : Nat) : Tuple model.Value [.count] := .cons ⟨n⟩ .nil
+
+private theorem countDown (n : Nat) :
+    Exec model form.program.source.body (store n) (some (store 0)) := by
+  induction n with
+  | zero => exact .whileStop rfl
+  | succ n ih =>
+    let assigned := Tuple.cons (F := model.Value) (t := Ty.count) ⟨n⟩ (store (n + 1))
+    exact .whileStep (next := store n) rfl (.seq (next := assigned) (.assign rfl) .project) ih
+
+private theorem accepted : ∃ cert, extract form.compile = some cert ∧ cert.form = form :=
+  form.compile_extract
+
+-- The extracted SIMPLE loop returns at zero iterations and at arbitrary finite exits.
+example (n : Nat) : ∃ cert, extract form.compile = some cert ∧
+    cert.revert.Returns model (store n) ⟨0⟩ := by
+  obtain ⟨cert, checked, recovered⟩ := accepted
+  refine ⟨cert, checked, store 0, ?_, ?_⟩
+  · change Exec model cert.form.program.source.body (store n) (some (store 0))
+    rw [recovered]
+    exact countDown n
+  · change (store 0).get cert.form.program.retvar = _
+    rw [recovered]
+    rfl
+
+example (n : Nat) : ∃ cert, extract form.compile = some cert ∧
+    form.compile.observe model (form.compile.denote model (store n) cert.demandWellFounded)
+      (fun _ => 19) = .cons (some ⟨0⟩) .nil := by
+  obtain ⟨cert, checked, recovered⟩ := accepted
+  refine ⟨cert, checked, cert.observe_of_returns model (store n) ?_ ?_ _⟩
+  · rw [recovered]
+    intro b
+    rfl
+  · change cert.form.program.source.Returns model (store n) ⟨0⟩
+    rw [recovered]
+    exact ⟨store 0, countDown n, rfl⟩
+
+-- Pass reads the continuation test directly, bypassing negation. Wiring is
+-- still well sorted, but this is a different loop exit.
+private def wrongExitRaw : RawGraph Op [.count] [.count] 7 1 :=
+  { form.compile.toRaw with node := fun i =>
+    let row := form.compile.toRaw.node i
+    if i = 1 then { row with args := [4] } else row }
+
+private def wrongExit : Graph Op [.count] [.count] 7 1 := wrongExitRaw.check.get (by decide)
+
+example : extract wrongExit = none := by
+  cases h : extract wrongExit with
+  | none => rfl
+  | some cert =>
+    have mismatch := congrArg (fun g : RawGraph Op [.count] [.count] 7 1 =>
+      (g.node 1).args) cert.table
+    change [4] = [2] at mismatch
+    contradiction
+
+set_option interpreter.prefer_native false
+
+/-- info: true -/
+#guard_msgs in
+#eval (extract form.compile).isSome
+
+/-- info: true -/
+#guard_msgs in
+#eval (extract wrongExit).isNone
+
+end Silmaril.SSA.PEG.Simple.Revert.While.Tests
+
+namespace Silmaril.SSA.PEG.Simple.Revert.While.Pair.Tests
+
+open RVSDG (Tuple)
+
+private abbrev acc : Ty Unit := .data ()
+
+private inductive Op : InstructionSet Unit where
+  | positive : Op [.count] .bool
+  | pred : Op [.count] .count
+  | addOld : Op [.count, acc] acc
+  | bad : Op [.count, acc] acc
+  | not : Op [.bool] .bool
+  deriving DecidableEq
+
+private def model : Interpretation Op where
+  carrier _ := Nat
+  run
+    | .positive, .cons n .nil => some ⟨n.down != 0⟩
+    | .pred, .cons n .nil => some ⟨n.down - 1⟩
+    | .addOld, .cons n (.cons a .nil) => some ((show Nat from a) + n.down)
+    | .bad, _ => none
+    | .not, .cons flag .nil => some ⟨!flag.down⟩
+
+private def input (n a : Nat) : Tuple model.Value [.count, acc] := .cons ⟨n⟩ (.cons a .nil)
+
+private def sum : Form Op .count acc acc := ⟨.positive, .pred, .addOld, .not, .tail .head⟩
+
+private theorem sumTotal : sum.Total model where
+  guard x := ⟨x.down != 0, rfl⟩
+  leftStep x := ⟨⟨x.down - 1⟩, rfl⟩
+  rightStep store := by
+    cases store with | cons n tail =>
+    cases tail with | cons a tail =>
+    cases tail
+    exact ⟨(show Nat from a) + n.down, rfl⟩
+
+private def runExtracted (fuel n a : Nat) : Option Nat := do
+  let cert ← extract sum.compile
+  cert.form.runFuel model fuel (input n a)
+
+set_option interpreter.prefer_native false
+
+-- The additions see 3, 2 and 1, even though the counter is assigned first.
+/-- info: some 16 -/
+#guard_msgs in
+#eval runExtracted 3 3 10
+
+/-- info: some 10 -/
+#guard_msgs in
+#eval runExtracted 0 0 10
+
+/-- info: none -/
+#guard_msgs in
+#eval runExtracted 2 3 10
+
+private theorem sumPeg :
+    sum.compile.observe model
+      (sum.compile.denote model (input 3 10) (sum.program.translate_demandWellFounded sum.negate))
+      (fun _ => 17) = .cons (some (16 : Nat)) .nil :=
+  sum.program.translate_returns sum.negate model (input 3 10) (fun _ => rfl)
+    (sum.runFuel_returns model 3 (input 3 10) (value := (16 : Nat)) rfl) (fun _ => 17)
+
+private def sumCertificate : Certificate sum.compile := ⟨sum, rfl⟩
+
+example : sumCertificate.revert.Returns model (input 3 10) (16 : Nat) :=
+  sumCertificate.returns_of_defined model (input 3 10) sumTotal (fun _ => rfl) _ sumPeg
+
+example : ∃ k, sumCertificate.form.runFuel model k (input 3 10) = some (16 : Nat) := by
+  obtain ⟨k, returned, _⟩ :=
+    sumCertificate.runFuel_of_defined model (input 3 10) sumTotal (fun _ => rfl) _ sumPeg
+  exact ⟨k, returned⟩
+
+-- The right update reads the newly computed left value. This wire is well
+-- typed but changes a simultaneous update into a sequential dependency.
+private def sequentialRaw : RawGraph Op [.count, acc] [acc] 10 1 :=
+  { sum.compile.toRaw with node := fun i =>
+    let row := sum.compile.toRaw.node i
+    if i = 3 then { row with args := [4, 7] } else row }
+
+private def sequential : Graph Op [.count, acc] [acc] 10 1 :=
+  sequentialRaw.check.get (by decide)
+
+/-- info: true -/
+#guard_msgs in
+#eval (extract sequential).isNone
+
+/-- Left is the only observed slot. The partial right update is still
+executed by SIMPLE on a continuing iteration. -/
+private def discarded : Form Op .count acc .count := ⟨.positive, .pred, .bad, .not, .head⟩
+
+private theorem notTotal : ¬ discarded.Total model := by
+  intro total
+  obtain ⟨x, impossible⟩ := total.rightStep (input 1 10)
+  cases impossible
+
+private def runDiscarded : Option Nat := do
+  let cert ← extract discarded.compile
+  (cert.form.runFuel model 1 (input 1 10)).map ULift.down
+
+/-- info: (true, none) -/
+#guard_msgs in
+#eval ((extract discarded.compile).isSome, runDiscarded)
+
+private def tick (n : Nat) : Index 1 := fun _ => n
+
+private theorem setTick (idx : Index 1) (n : Nat) : idx.set 0 n = tick n := by
+  funext i
+  have h : i = 0 := Subsingleton.elim _ _
+  subst i
+  simp [Index.set, tick]
+
+private theorem collectOne {t : Ty Unit}
+    (sample : (i : Fin [t].length) → Option (model.Value [t][i])) :
+    collect [t] sample = (sample 0).map (fun x => Tuple.cons x .nil) := by
+  unfold collect
+  cases sample 0 <;> rfl
+
+-- Only the left carried stream, unary guard and exit test are demanded.
+-- The PEG can return despite the failed right update in the SIMPLE body.
+set_option backward.isDefEq.respectTransparency false in
+set_option maxHeartbeats 850000 in
+private theorem discardedPeg :
+    discarded.compile.observe model
+      (discarded.compile.denote model (input 1 10)
+        (discarded.program.translate_demandWellFounded discarded.negate)) (tick 0) =
+      .cons (some ⟨0⟩) .nil := by
+  let wf := discarded.program.translate_demandWellFounded discarded.negate
+  let values := discarded.compile.denote model (input 1 10) wf
+  have eq (v : Fin 10) (idx : Index 1) :
+      values (v, idx) = discarded.compile.equation model (input 1 10) values (v, idx) :=
+    discarded.compile.denote_solves model (input 1 10) wf (v, idx)
+  have initial : values (6, tick 0) = some ⟨1⟩ := by
+    rw [eq 6 (tick 0)]
+    change values (8, tick 0) = _
+    exact eq 8 (tick 0)
+  have update : values (4, tick 0) = some ⟨0⟩ := by
+    rw [eq 4 (tick 0)]
+    change (collect [.count] _).elim none (model.run Op.pred) = _
+    rw [collectOne]
+    change ((values (6, tick 0)).map (fun x => Tuple.cons x .nil)).elim none (model.run Op.pred) = _
+    rw [initial]
+    rfl
+  have next : values (6, tick 1) = some ⟨0⟩ := by
+    rw [eq 6 (tick 1)]
+    change values (4, (tick 1).set 0 0) = _
+    rw [setTick, update]
+  have exit (idx : Index 1) (n : Nat) (value : values (6, idx) = some ⟨n⟩) :
+      values (2, idx) = some ⟨!(n != 0)⟩ := by
+    have guard : values (5, idx) = some ⟨n != 0⟩ := by
+      rw [eq 5 idx]
+      change (collect [.count] _).elim none (model.run Op.positive) = _
+      rw [collectOne]
+      change ((values (6, idx)).map (fun x => Tuple.cons x .nil)).elim none
+        (model.run Op.positive) = _
+      rw [value]
+      rfl
+    rw [eq 2 idx]
+    change (collect [.bool] _).elim none (model.run Op.not) = _
+    rw [collectOne]
+    change ((values (5, idx)).map (fun x => Tuple.cons x .nil)).elim none (model.run Op.not) = _
+    rw [guard]
+    rfl
+  let flags := fun k => (values (2, tick k)).map ULift.down
+  have stop : flags 1 = some true := by
+    unfold flags
+    rw [exit (tick 1) 0 next]
+    rfl
+  have again : flags 0 = some false := by
+    unfold flags
+    rw [exit (tick 0) 1 initial]
+    rfl
+  have first : firstTrue flags = some 1 := by
+    apply (firstTrue_eq_some_iff _ _).mpr
+    refine ⟨(monotonize_eq_some_iff _ _ _).mpr ⟨stop, ?_⟩, ?_⟩
+    · intro j h
+      have zj : j = 0 := by omega
+      rw [zj, again]
+      rfl
+    · intro j h hit
+      have zj : j = 0 := by omega
+      have trueSample := ((monotonize_eq_some_iff _ _ _).mp hit).1
+      rw [zj, again] at trueSample
+      cases trueSample
+  have pass : values (1, tick 0) = some ⟨1⟩ := by
+    rw [eq 1 (tick 0)]
+    change (firstTrue (fun k => (values (2, (tick 0).set 0 k)).map ULift.down)).map ULift.up = _
+    have aligned : (fun k => (values (2, (tick 0).set 0 k)).map ULift.down) = flags := by
+      funext k
+      exact congrArg (fun idx => (values (2, idx)).map ULift.down) (setTick (tick 0) k)
+    rw [aligned, first]
+    rfl
+  change Tuple.cons (F := fun t => Option (model.Value t)) (values (0, tick 0)) .nil = _
+  congr 1
+  rw [eq 0 (tick 0)]
+  change (values (1, tick 0)).elim none (fun count =>
+    monotonize (fun j => values (6, (tick 0).set 0 j)) count.down) = _
+  rw [pass]
+  change monotonize (fun j => values (6, (tick 0).set 0 j)) 1 = _
+  have aligned : (fun j => values (6, (tick 0).set 0 j)) = (fun j => values (6, tick j)) := by
+    funext j
+    exact congrArg (fun idx => (show Option (model.Value .count) from values (6, idx)))
+      (setTick (tick 0) j)
+  rw [aligned]
+  apply (monotonize_eq_some_iff _ _ _).mpr
+  refine ⟨next, fun j lt => ?_⟩
+  have zj : j = 0 := by omega
+  rw [zj, initial]
+  rfl
+
+private theorem discardedFails : discarded.program.source.Fails model (input 1 10) := by
+  let updated : Tuple model.Value [.count, .count, acc] := .cons ⟨0⟩ (input 1 10)
+  exact .whileBodyFailed rfl (.seq (next := updated) (.assign rfl) (.firstFailed (.assignFailed rfl)))
+
+example : ¬ discarded.program.source.Returns model (input 1 10) ⟨0⟩ := by
+  intro success
+  obtain ⟨_, ran, _⟩ := success
+  cases Exec.deterministic ran discardedFails
+
+end Silmaril.SSA.PEG.Simple.Revert.While.Pair.Tests
+
+namespace Silmaril.SSA.PEG.Simple.Revert.While.Region.Tests
+
+open RVSDG (Tuple)
+
+private abbrev acc : Ty Unit := .data ()
+private abbrev carried : List (Ty Unit) := [.count, acc, acc]
+
+private inductive Op : InstructionSet Unit where
+  | twice : Op [.count] .count
+  | nonzero : Op [.count] .bool
+  | pred : Op [.count] .count
+  | sum : Op [acc, acc] acc
+  | addCount : Op [.count, acc] acc
+  | not : Op [.bool] .bool
+  deriving DecidableEq
+
+private def model : Interpretation Op where
+  carrier _ := Nat
+  run
+    | .twice, .cons n .nil => some ⟨2 * n.down⟩
+    | .nonzero, .cons n .nil => some ⟨n.down != 0⟩
+    | .pred, .cons n .nil => some ⟨n.down - 1⟩
+    | .sum, .cons a (.cons b .nil) => some ((show Nat from a) + (show Nat from b))
+    | .addCount, .cons n (.cons a .nil) => some (n.down + (show Nat from a))
+    | .not, .cons b .nil => some ⟨!b.down⟩
+
+private def sorts (i : Fin 15) : Ty Unit :=
+  match i.val with
+  | 1 | 2 | 6 | 12 | 13 => .count
+  | 4 | 11 => .bool
+  | _ => acc
+
+-- Rows are interleaved, the root is row 5, and both accumulator updates use
+-- row 0. Row 10 is a separate, initially unused θ with legal self-feedback.
+private def graph (crosses : Bool) : Graph Op carried [acc] 15 1 where
+  forest := ⟨fun _ => none⟩
+  sort := sorts
+  node := fun i =>
+    match i with
+    | 0 => .ofLabel (.op .sum)
+        (.cons ⟨8, rfl⟩ (.cons (if crosses then ⟨10, rfl⟩ else ⟨3, rfl⟩) .nil))
+    | 1 => .ofLabel (.theta 0) (.cons ⟨13, rfl⟩ (.cons ⟨6, rfl⟩ .nil))
+    | 2 => .ofLabel (.pass 0) (.cons ⟨11, rfl⟩ .nil)
+    | 3 => .ofLabel (.theta 0) (.cons ⟨14, rfl⟩ (.cons ⟨0, rfl⟩ .nil))
+    | 4 => .ofLabel (.op .nonzero) (.cons ⟨12, rfl⟩ .nil)
+    | 5 => .ofLabel (.eval 0) (.cons ⟨8, rfl⟩ (.cons ⟨2, rfl⟩ .nil))
+    | 6 => .ofLabel (.op .pred) (.cons ⟨1, rfl⟩ .nil)
+    | 7 => .ofLabel (.op .addCount) (.cons ⟨1, rfl⟩ (.cons ⟨0, rfl⟩ .nil))
+    | 8 => .ofLabel (.theta 0) (.cons ⟨9, rfl⟩ (.cons ⟨7, rfl⟩ .nil))
+    | 9 => .ofLabel (.param (.tail .head)) .nil
+    | 10 => .ofLabel (.theta 0) (.cons ⟨14, rfl⟩ (.cons ⟨10, rfl⟩ .nil))
+    | 11 => .ofLabel (.op .not) (.cons ⟨4, rfl⟩ .nil)
+    | 12 => .ofLabel (.op .twice) (.cons ⟨1, rfl⟩ .nil)
+    | 13 => .ofLabel (.param .head) .nil
+    | 14 => .ofLabel (.param (.tail (.tail .head))) .nil
+  roots := .cons ⟨5, rfl⟩ .nil
+
+private def phase (i : Fin 15) : Nat := if i = 5 then 2 else if i = 2 then 1 else 0
+
+private def localRank (i : Fin 15) : Nat :=
+  match i.val with
+  | 7 | 11 => 5
+  | 0 | 4 => 4
+  | 6 | 12 => 3
+  | 1 | 3 | 8 | 10 => 2
+  | _ => 1
+
+private def descriptor (crosses : Bool) : Descriptor (graph crosses) where
+  theta := .cons ⟨1, rfl⟩ (.cons ⟨8, rfl⟩ (.cons ⟨3, rfl⟩ .nil))
+  initial := .cons ⟨13, rfl⟩ (.cons ⟨9, rfl⟩ (.cons ⟨14, rfl⟩ .nil))
+  next := .cons ⟨6, rfl⟩ (.cons ⟨7, rfl⟩ (.cons ⟨0, rfl⟩ .nil))
+  guard := ⟨4, rfl⟩
+  negated := ⟨11, rfl⟩
+  negate := .not
+  pass := ⟨2, rfl⟩
+  returnSlot := .tail .head
+
+private def rank : DemandRank 15 1 := [.phase phase, .counter 0, .phase localRank]
+
+private def input (n a b : Nat) : Tuple model.Value carried := .cons ⟨n⟩ (.cons a (.cons b .nil))
+
+private def checked := checkScheduled (graph false) (descriptor false) rank
+
+private def run (fuel n a b : Nat) : Option Nat := do
+  let cert ← checked
+  cert.runFuel model fuel (input n a b)
+
+set_option interpreter.prefer_native false
+
+-- The updates read the old counter and both old accumulators. At the first
+-- step the new pair is (13, 11), and at the second it is (25, 24).
+/-- info: (some 25, some 10, none) -/
+#guard_msgs in
+#eval (run 2 2 10 1, run 0 0 10 1, run 1 2 10 1)
+
+-- Demand ranking alone admits the fourth θ. The checker refuses to read
+-- it as a same-iteration update operand because it is outside the region.
+/-- info: (true, true, true) -/
+#guard_msgs in
+#eval (rank.check (graph true), (checkScheduled (graph true) (descriptor true) rank).isNone,
+  (check (graph true) (descriptor true) ⟨[12, 4], [6, 0, 7], rank⟩).isNone)
+
+-- An operand must be in scope before its consumer is emitted.
+/-- info: true -/
+#guard_msgs in
+#eval (check (graph false) (descriptor false) ⟨[12, 4], [6, 7, 0], rank⟩).isNone
+
+-- The inferred update order includes the shared sum just once.
+/-- info: some [6, 0, 7] -/
+#guard_msgs in
+#eval sliceOrder (graph false) (descriptor false) (descriptor false).next
+
+end Silmaril.SSA.PEG.Simple.Revert.While.Region.Tests

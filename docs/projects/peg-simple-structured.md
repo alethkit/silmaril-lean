@@ -35,10 +35,26 @@ edges advance in vertex order. A sample crosses its pass cut before
 reaching the counter that it can reset. Both ends of a feedback edge
 follow their own pass, so the decrement is reached before any cut that
 could increase. The rank proof covers arbitrary samples, including eval’s
-entire prefix, and gives well-founded Figure 11 demands directly. The
-compiler also proves forest well-formedness and the feedback-cycle clause.
-An independent proof of the full `Graph.WellFormed` predicate, including
-its scope and enclosing-feedback clauses, remains separate work. [Public theorems](../../Silmaril/SSA/PEG/Simple/Structured/Thms.lean) ·
+entire prefix, and independently gives well-founded Figure 11 demands.
+
+`Structured.translate_wellFormed` proves structural admission for the
+same numbered graph. A loop region is the open interval after its pass
+and before the pre-loop table. Each interval’s pass row records its
+actual forest parent. The compiler proof tracks which intervals can
+contain an input or exit reference. An edge into an interval from
+outside it must sample that loop. If a path starts already inside the
+target region, the starting loop is that region or its descendant.
+
+An observer cycle crosses the pass cut going forward. A sample
+crosses the cut immediately after the pass, and an eval index edge
+crosses the cut at the pass. The return crossing must use a feedback
+edge whose source lies inside its own loop’s interval and whose target
+is after that loop’s pass. These bounds place the observed pass strictly
+inside the feedback loop. The interval ancestry proof turns that
+containment into a nonempty walk in the actual forest. Together with
+forest well-formedness and the feedback-cycle clause, this gives the
+`wellFormed` field for Peggy’s `Dialect.OpenGraph` and its equations.
+[Public theorems](../../Silmaril/SSA/PEG/Simple/Structured/Thms.lean) ·
 [Rank checker and Figure 11 semantics](peg-semantics.md)
 
 ## Preservation and observations
@@ -63,7 +79,11 @@ inside a branch and gives it the first loop’s result. The nested example
 uses the current outer counter as the inner trip count, so an input of
 three produces inner runs of three, two, and one steps. Both regressions
 check the compiled root with a nonzero initial index and inspect the
-generated parent table. [Tests](../../tests/ssa/PEGSimple.lean)
+generated parent table. A concrete nested cycle traverses the inner eval’s
+index edge and its pass sample. The structural theorem yields the outer
+loop as the enclosing feedback witness. The fixture also checks existence
+and uniqueness of the nested graph’s Figure 11 solution through structural
+admission. [Tests](../../tests/ssa/PEGSimple.lean)
 
 ## Replay
 

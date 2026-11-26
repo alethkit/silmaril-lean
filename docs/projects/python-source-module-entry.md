@@ -49,6 +49,83 @@ corresponding values, including Boolean and integer equality at zero and
 one. Tuple membership keeps the flat literal profile. The result is an
 exact Boolean with no runtime sequence value or allocation.
 
+A message-free assertion can compare `len(sequence)` for equality or
+inequality against a checked scalar operand. The sequence uses the closed
+list or tuple certificate above. Its elements and intermediate objects
+have no runtime uses outside the call. The plan retains the checked global
+read of `len` and the exact length. The ordinary namespace reports a missing
+`len` or an unsupported function receiver, or raises a defined error for
+a noncallable scalar. Seeded execution resolves the current module-first
+binding and uses the certified length only with the exact stock `len`
+descriptor. It records the call result before checking the right operand.
+This path uses the existing explicit seed that already supplies `len`.
+
+Run the CPython 3.13.5 controls and the fixed original inputs with
+`python3.13 -I scripts/check-python-sequence-length.py --upstream /path/to/pinned/rigorous`.
+
+A message-free assertion can use `bool()` or `bool(scalar)` on the left
+of a single `is` or `is not` link. The checker certifies the optional
+positional operand in the shared scalar profile and the right operand in
+the singleton profile. Seeded execution reads the live module-first
+`bool` binding before preparing the argument. The existing
+`legacyBoolIsinstanceSeed` supplies the exact stock type in both
+placements. A noncallable mask fails after argument preparation. The
+ordinary runner uses its explicit namespace and the same error order.
+
+The stock descriptor uses scalar truth and returns an exact Boolean.
+The receipt records that value before the right operand is evaluated.
+The identity test uses the existing singleton rule. A failure retains
+the caller bindings and both heaps, and skips the tail. Run the exact
+CPython 3.13.5 pin and controls with
+`python3.13 -I scripts/check-python-bool-identity.py --upstream /path/to/pinned/rigorous`.
+
+A message-free module assertion can compare a stock `list` construction
+with an exact flat list literal on either side of equality. The call
+accepts zero arguments or one positional flat list or tuple literal.
+The checker preserves the scalar tags and order of all elements, and
+requires a module global reference for the constructor. The independent
+`legacyListSeed` supplies the stock descriptor in both harness placements.
+
+The seeded runner evaluates the operands in source order. It looks up
+`list` before allocating a list argument and tests callability after
+preparing that argument. A stock call appends a fresh object to the list
+allocation table even when the result is empty or matches a prior list.
+The receipt records its address and contents. The comparison uses the
+closed sequence equality above. The table records reached allocations,
+including temporary lists, and keeps the closure-cell heap separate.
+An error retains the reached table and skips the tail. The ordinary
+runner has no stock list descriptor and keeps its existing namespace
+and cell heap on a missing name or noncallable mask.
+
+Run the unchanged pin and CPython 3.13.5 identity and error-order controls
+with `python3.13 -I scripts/check-python-list-construction.py --upstream /path/to/pinned/rigorous`.
+
+A checked tuple equality assertion can contain bound `__add__` on an
+exact flat tuple literal or unbound `tuple.__add__` with two such positional
+literals. The other operands are exact flat tuple literals or the addition
+of two such literals. Every link must be equality and the checker validates the
+whole chain. The runner evaluates reached operands from left to right
+and carries the middle object into the next link. A false link or error
+ends evaluation before the next operand.
+
+The unbound path resolves the live module-first `tuple` binding and its
+exact stock descriptor before preparing arguments. The separate
+`legacyTupleSeed` supplies this type. The runners raise the defined missing
+name and stop outside the profile for other bindings. The tuple evaluator
+records the absent method on a `None` mask before preparing arguments.
+The typed dispatch model returns the nonempty input when adding an
+empty tuple, uses the empty singleton for two empty operands, and records
+a fresh result for two nonempty inputs. Direct `__eq__` on an exact tuple
+with a list returns `NotImplemented`, while operator equality returns
+false. The source checker admits the exact `__add__` calls as tuple
+operands. The evaluator's literal representatives and reached operands
+are local to the assertion, and its equality compares scalar contents. The
+existing caller namespaces, closure heap, list heap and generic call
+receipts keep their separate observation rules.
+
+Run the unchanged pin and CPython 3.13.5 dispatch and sequencing controls
+with `python3.13 -I scripts/check-python-tuple-chain.py --upstream /path/to/pinned/rigorous`.
+
 A scalar comparison chain has at least two links. Every link uses one of
 `==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact
 Boolean or integer literal, including unary minus on an integer literal.

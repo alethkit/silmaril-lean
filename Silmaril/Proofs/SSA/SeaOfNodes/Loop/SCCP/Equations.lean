@@ -3,20 +3,21 @@ module
 public import Silmaril.SSA.SeaOfNodes.Diamond.SCCP.Dataflow.Thms
 public import Silmaril.SSA.SeaOfNodes.Loop.SCCP.Defs
 public import Silmaril.Semantics.Dataflow.Flat.Thms
+import Silmaril.Proofs.SSA.SeaOfNodes.Loop.SCCP.Bank
 
 public section
 
 namespace Silmaril.SSA.SeaOfNodes.Loop.SCCP.Proofs
 
 open Diamond (Model Signature Ty ValueSort dataPorts)
-open Diamond.SCCP (Fact TupleLE evalFacts_mono readLocal_mono)
-open RVSDG (PortType Tuple)
+open Diamond.SCCP (Fact TupleLE evalFacts_mono readLocal_mono readWires_mono)
+open RVSDG (Tuple)
 open Semantics.Dataflow (Flat)
 
 universe u v w
 
 variable {Data : Type u} {Op : Signature.{u, v} Data}
-variable {inputs : List (ValueSort Data)} {carry : Data}
+variable {inputs : List (ValueSort Data)} {carried : List (ValueSort Data)}
 variable {entrySigs headerSigs : List (List (Ty Data))} {out : ValueSort Data}
 variable {m : Model.{u, v, w} Op}
 
@@ -31,22 +32,15 @@ private theorem append_mono {args ports : List (Ty Data)} (input : Tuple (Fact m
     | head => exact le_rfl
     | tail p => exact ih p
 
-private theorem header_mono (g : Program Op inputs carry entrySigs headerSigs out)
-    (input : Tuple (Fact m.value) (dataPorts inputs)) {a b : Flat (m.value carry)} (le : a ≤ b) :
+private theorem header_mono (g : Graph Op inputs carried entrySigs headerSigs out)
+    (input : Tuple (Fact m.value) (dataPorts inputs)) {a b : BankFacts m.value (dataPorts carried)} (le : a ≤ b) :
     let lhs := headerFacts m g input a
     let rhs := headerFacts m g input b
     lhs.guard ≤ rhs.guard ∧ lhs.feedback ≤ rhs.feedback ∧ lhs.result ≤ rhs.result := by
-  have hLatch : TupleLE
-      (.cons (F := Fact m.value) (t := PortType.value (.data carry)) a .nil)
-      (.cons (F := Fact m.value) (t := PortType.value (.data carry)) b .nil) := by
-    intro t p
-    cases p with
-    | head => exact le
-    | tail p => cases p
-  have hargs := (append_mono input hLatch : TupleLE _ _)
+  have hargs := (append_mono input (bankTuple_mono le) : TupleLE _ _)
   have hlocals := evalFacts_mono g.header hargs (lhs := PUnit.unit) (rhs := PUnit.unit) (fun i => i.elim0)
   exact ⟨readLocal_mono g.predicate hargs hlocals,
-    readLocal_mono ((g.phiInputs .backedge).get .head) hargs hlocals,
+    tupleFacts_mono (readWires_mono (g.phiInputs .backedge) hargs hlocals),
     readLocal_mono g.result hargs hlocals⟩
 
 private theorem successors_mono : Monotone (successors.{w}) := by
@@ -92,12 +86,35 @@ theorem phiFact_le_iff {α : Type*} [DecidableEq α] (edges : Executable) (entry
     · simpa [gate, marked, Incoming.select] using h .backedge marked
     · simp [gate, marked]
 
-theorem transfer_mono [DecidableEq (m.value carry)] (g : Program Op inputs carry entrySigs headerSigs out)
+variable {value : Data → Type w} {ports : List (Ty Data)}
+
+theorem column_le_phiFacts [equal : BankDecidableEq value ports]
+    {edges : Executable} (entry feedback : BankFacts value ports) (edge : Incoming)
+    (marked : incomingIndex edge ∈ edges) :
+    edge.select entry feedback ≤ phiFacts edges entry feedback := by
+  intro i
+  have bound := @column_le_phiFact _ (equal.atPort i) edges (entry i) (feedback i) edge marked
+  cases edge <;> exact bound
+
+theorem phiFacts_le_iff [equal : BankDecidableEq value ports]
+    (edges : Executable) (entry feedback upper : BankFacts value ports) :
+    phiFacts edges entry feedback ≤ upper ↔
+      ∀ edge, incomingIndex edge ∈ edges → edge.select entry feedback ≤ upper := by
+  refine ⟨fun h edge marked => (column_le_phiFacts entry feedback edge marked).trans h, ?_⟩
+  intro h i
+  apply (@phiFact_le_iff _ (equal.atPort i) edges (entry i) (feedback i) (upper i)).mpr
+  intro edge marked
+  cases edge <;> exact h _ marked i
+
+theorem transfer_mono [equal : BankDecidableEq m.value (dataPorts carried)]
+    (g : Graph Op inputs carried entrySigs headerSigs out)
     (input : Tuple (Fact m.value) (dataPorts inputs)) : Monotone (transfer m g input) := by
   intro a b le
   have h := header_mono g input le.2.1
   refine ⟨control_mono le.1 h.1, ?_, gate_mono le.1 _ h.2.2⟩
+  intro i
+  let _ := equal.atPort i
   exact Flat.join_le ((gate_mono le.1 _ le_rfl).trans (Flat.le_join_left _ _))
-    ((gate_mono le.1 _ h.2.1).trans (Flat.le_join_right _ _))
+    ((gate_mono le.1 _ (h.2.1 i)).trans (Flat.le_join_right _ _))
 
 end Silmaril.SSA.SeaOfNodes.Loop.SCCP.Proofs

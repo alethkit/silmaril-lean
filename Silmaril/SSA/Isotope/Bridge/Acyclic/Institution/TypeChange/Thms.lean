@@ -12,6 +12,7 @@ namespace Silmaril.Isotope.Institution.Acyclic
 open CategoryTheory CategoryTheory.Limits
 open Silmaril.Logic.Institution (Inst Room)
 open Morphism (SignatureMap)
+open LambdaSSA.Acyclic (Code Operand)
 
 variable {τ υ κ ε δ ξ : Type} [TypeFormers τ] [TypeFormers υ] [TypeFormers κ]
   {P : InstrSig τ ε} {Q : InstrSig υ δ} {S : InstrSig κ ξ}
@@ -26,6 +27,34 @@ variable {τ υ κ ε δ ξ : Type} [TypeFormers τ] [TypeFormers υ] [TypeForme
 theorem mapSSASignature_comp (e : SSAEquation P) :
     mapSSASignature (h.comp g) e = mapSSASignature h (mapSSASignature g e) :=
   mapSSASignature_comp_proof g h e
+
+/-- Identity relabelling agrees with the original operand at the transported context. -/
+theorem operandSignature_id_heq {n : Nat} {β : BoundCtx τ n} {A : τ} (a : Operand P.Instr β A) :
+    HEq (a.mapSignature (SignatureMap.id (Φ := P.Instr) (τ := τ) (ε := ε))) a :=
+  mapOperand_id a
+
+/-- Composition of operand relabellings agrees after transport of the result type. -/
+theorem operandSignature_comp_cast_heq {n : Nat} {β : BoundCtx τ n} {A : τ}
+    (a : Operand P.Instr β A) {B : υ} {D : κ}
+    (eg : g.ty A = B) (eh : h.ty B = D) (ec : (h.comp g).ty A = D) :
+    HEq ((a.mapSignature (h.comp g)).castResult ec)
+      ((((a.mapSignature g).castResult eg).mapSignature h).castResult eh) :=
+  mapOperand_comp_cast g h a eg eh ec
+
+/-- Composition of operand relabellings agrees at the mapped contexts. -/
+theorem operandSignature_comp_heq {n : Nat} {β : BoundCtx τ n} {A : τ} (a : Operand P.Instr β A) :
+    HEq (a.mapSignature (h.comp g)) ((a.mapSignature g).mapSignature h) :=
+  mapOperand_comp g h a
+
+/-- Identity relabelling preserves structured single-exit code. -/
+theorem singleCodeSignature_id_heq {n : Nat} {β : BoundCtx τ n} {A : τ} (c : Code P.Instr β A) :
+    HEq (c.mapSignature (SignatureMap.id (Φ := P.Instr) (τ := τ) (ε := ε))) c :=
+  codeSignature_id_heq c
+
+/-- Relabelling single-exit code along a composite agrees with relabelling twice. -/
+theorem singleCodeSignature_comp_heq {n : Nat} {β : BoundCtx τ n} {A : τ} (c : Code P.Instr β A) :
+    HEq (c.mapSignature (h.comp g)) ((c.mapSignature g).mapSignature h) :=
+  codeSignature_comp_heq g h c
 
 section Models
 

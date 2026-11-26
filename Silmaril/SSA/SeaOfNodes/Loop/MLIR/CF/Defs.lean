@@ -4,18 +4,18 @@ public import Silmaril.SSA.SeaOfNodes.Loop.Defs
 public import Silmaril.SSA.SeaOfNodes.MLIR.Defs
 public import Silmaril.SSA.MLIR.SCF.For.Defs
 
-/-! Lower a ranked pure single loop with one word latch to typed MLIR CF. -/
+/-! Lower a ranked pure single loop with a bank of word latches to typed MLIR CF. -/
 
 @[expose] public section
 
 namespace Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF
 
-open Diamond (ValueSort dataPorts)
-open RVSDG (Tuple extend)
+open Diamond (Val ValueSort dataPorts)
+open RVSDG (Tuple Wires extend)
 open SeaOfNodes.MLIR (Word)
-open SeaOfNodes.MLIR.Lowering (Scope OpcodeMap inputNames lowerCode weaken)
-open Silmaril.MLIR.Arith (BinOp Width)
-open Silmaril.MLIR.Pure (Eval OpSignature)
+open SeaOfNodes.MLIR.Lowering (Names Scope OpcodeMap inputNames lowerCode weaken)
+open Silmaril.MLIR.Arith (BinOp Env Width)
+open Silmaril.MLIR.Pure (Eval Operands OpSignature)
 open Silmaril.MLIR.CF (Cfg Terminator)
 open Silmaril.MLIR.SCF (For)
 
@@ -52,44 +52,95 @@ def opcode : OpcodeMap Op TargetOp
 abbrev inputSorts (Γ : List Width) : List (ValueSort Width) :=
   Γ.map ValueSort.data
 
-abbrev Program (Γ : List Width) (carried result : Width)
-    (entrySigs headerSigs : List (List (Diamond.Ty Width))) :=
-  Loop.Graph Op (inputSorts Γ) [.data carried] entrySigs headerSigs (.data result)
-
-inductive Label (carried result : Width) : List Width → Type where
-  | header : Label carried result [carried]
-  | exit : Label carried result [result]
-
-variable {Γ : List Width} {carried result : Width} {entrySigs headerSigs : List (List (Diamond.Ty Width))}
-
 def entryScope (Γ : List Width) : Scope (dataPorts (inputSorts Γ)) [] Γ :=
   ⟨inputNames Γ, PUnit.unit⟩
 
-/-- Block arguments are first in the CF scope. Source header ports put the
-captured inputs first and the old latch last. -/
-def headerScope (Γ : List Width) (carried : Width) :
-    Scope (headerPorts (inputSorts Γ) [.data carried]) [] (carried :: Γ) :=
-  ⟨appendTuple (.cons .here .nil) ((inputNames Γ).map (weaken carried)), PUnit.unit⟩
+namespace Bank
 
+abbrev Program (Γ carried : List Width) (result : Width)
+    (entrySigs headerSigs : List (List (Diamond.Ty Width))) :=
+  Loop.Graph Op (inputSorts Γ) (inputSorts carried) entrySigs headerSigs (.data result)
+
+inductive Label (carried : List Width) (result : Width) : List Width → Type where
+  | header : Label carried result carried
+  | exit : Label carried result [result]
+
+abbrev Values (widths : List Width) := Tuple (Val Word) (dataPorts (inputSorts widths))
+
+/-- Encode the source latch in argument order. -/
+def bankEnv : {widths : List Width} → Values widths → Env widths
+  | [], _ => .nil
+  | _ :: _, bank =>
+    let rest := match bank with | .cons _ tail => tail
+    .cons (bank.get .head) (bankEnv rest)
+
+def bankOperands {args : List (Diamond.Ty Width)} {past : List (List (Diamond.Ty Width))}
+    {Δ : List Width} (scope : Scope args past Δ) :
+    {widths : List Width} → Wires args past (dataPorts (inputSorts widths)) → Operands Δ widths
+  | [], _ => .nil
+  | _ :: _, wires =>
+    let rest := match wires with | .cons _ tail => tail
+    .cons (scope.resolveValue (wires.get .head)) (bankOperands scope rest)
+
+def prependNames {Γ : List Width} {ports : List (Diamond.Ty Width)} :
+    (widths : List Width) → Tuple (Names Γ) ports → Tuple (Names (widths ++ Γ)) ports
+  | [], names => names
+  | w :: rest, names => (prependNames rest names).map (weaken w)
+
+def bankNames (Γ : List Width) :
+    (carried : List Width) → Tuple (Names (carried ++ Γ)) (dataPorts (inputSorts carried))
+  | [] => .nil
+  | w :: rest => .cons .here ((bankNames Γ rest).map (weaken w))
+
+/-- Block arguments precede captured inputs in CF. The source header ports
+retain their captured-input-then-latch order. -/
+def headerScope (Γ carried : List Width) :
+    Scope (headerPorts (inputSorts Γ) (inputSorts carried)) [] (carried ++ Γ) :=
+  ⟨appendTuple (bankNames Γ carried) (prependNames carried (inputNames Γ)), PUnit.unit⟩
+
+variable {Γ carried : List Width} {result : Width} {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 variable (g : Program Γ carried result entrySigs headerSigs)
 
 def entryTerm {Δ : List Width} (scope : Scope (dataPorts (inputSorts Γ)) (extend [] entrySigs) Δ) :
     Terminator (Label carried result) [result] Δ :=
-  .br ⟨.header, .cons (scope.resolveValue ((g.phiInputs .entry).get .head)) .nil⟩
+  .br ⟨.header, bankOperands scope (g.phiInputs .entry)⟩
 
 def headerTerm {Δ : List Width}
-    (scope : Scope (headerPorts (inputSorts Γ) [.data carried]) (extend [] headerSigs) Δ) :
+    (scope : Scope (headerPorts (inputSorts Γ) (inputSorts carried)) (extend [] headerSigs) Δ) :
     Terminator (Label carried result) [result] Δ :=
   .condBr (scope.resolveValue g.predicate)
-    ⟨.header, .cons (scope.resolveValue ((g.phiInputs .backedge).get .head)) .nil⟩
+    ⟨.header, bankOperands scope (g.phiInputs .backedge)⟩
     ⟨.exit, .cons (scope.resolveValue g.result) .nil⟩
 
 /-- Emit the preheader, a self-branching header, and a distinct exit block.
-The branch passes either the backedge Phi operand or the selected result. -/
+The entry and backedge each pass an entire typed Φ column in order. -/
 def lower : Cfg TargetOp (Label carried result) Γ [result] where
   entry := lowerCode opcode g.preheader (entryScope Γ) (entryTerm g)
   block
     | .header => lowerCode opcode g.header (headerScope Γ carried) (headerTerm g)
     | .exit => .terminator (.ret (.cons .here .nil))
+
+end Bank
+
+/-- The scalar API is the singleton bank specialization. -/
+abbrev Program (Γ : List Width) (carried result : Width)
+    (entrySigs headerSigs : List (List (Diamond.Ty Width))) :=
+  Bank.Program Γ [carried] result entrySigs headerSigs
+
+abbrev Label (carried result : Width) := Bank.Label [carried] result
+@[match_pattern] abbrev Label.header {carried result : Width} : Label carried result [carried] := Bank.Label.header
+@[match_pattern] abbrev Label.exit {carried result : Width} : Label carried result [result] := Bank.Label.exit
+
+variable {Γ : List Width} {carried result : Width} {entrySigs headerSigs : List (List (Diamond.Ty Width))}
+
+abbrev headerScope (Γ : List Width) (carried : Width) := Bank.headerScope Γ [carried]
+
+abbrev entryTerm (g : Program Γ carried result entrySigs headerSigs) {Δ : List Width} :=
+  @Bank.entryTerm Γ [carried] result entrySigs headerSigs g Δ
+
+abbrev headerTerm (g : Program Γ carried result entrySigs headerSigs) {Δ : List Width} :=
+  @Bank.headerTerm Γ [carried] result entrySigs headerSigs g Δ
+
+abbrev lower (g : Program Γ carried result entrySigs headerSigs) := Bank.lower g
 
 end Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF

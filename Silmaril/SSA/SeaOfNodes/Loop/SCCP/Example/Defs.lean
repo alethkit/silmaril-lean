@@ -27,6 +27,10 @@ def model : Model Op where
     | .continues, .cons next (.cons enabled .nil) =>
       ⟨enabled.down && BitVec.ult next 3⟩
 
+instance wordEq : BankDecidableEq model.value (dataPorts [ValueSort.data ()]) where
+  atPort i := Fin.cases (motive := fun j => DecidableEq (Val model.value (dataPorts [word])[j]))
+    (inferInstance : DecidableEq Byte) (fun j => j.elim0) i
+
 abbrev HeaderSigs : List (List (Ty Unit)) := [[.value word], [.value .predicate]]
 
 /-- The guard tests the updated word. Both successors use that same
@@ -50,17 +54,15 @@ def entry (start : Byte) (enabled : Bool) : Tuple (Val model.value) (dataPorts [
 
 /-- Entry, backedge, and exit marks, followed by the latch and exit facts. -/
 def report (amount : Byte) (enabled : Flat (ULift Bool)) : Bool × Bool × Bool × Flat Nat × Flat Nat :=
-  letI : DecidableEq (model.value ()) := inferInstanceAs (DecidableEq Byte)
   let state := solve model (graph amount) (facts 0 enabled)
   (decide (incomingIndex .entry ∈ state.1), decide (incomingIndex .backedge ∈ state.1),
-    decide (exitIndex ∈ state.1), state.2.1.map BitVec.toNat, state.2.2.map BitVec.toNat)
+    decide (exitIndex ∈ state.1), (state.2.1 (0 : Fin 1)).map BitVec.toNat, state.2.2.map BitVec.toNat)
 
 /-- Inspect the latch after a given number of simultaneous analysis rounds.
 This counter concerns transfer iteration, independently of concrete execution. -/
 def changingLatch (rounds : Nat) : Flat Nat :=
-  letI : DecidableEq (model.value ()) := inferInstanceAs (DecidableEq Byte)
   let state := (transfer model (graph 1) (facts 0 (.constant ⟨true⟩)))^[rounds] ⊥
-  state.2.1.map BitVec.toNat
+  (state.2.1 (0 : Fin 1)).map BitVec.toNat
 
 def run (amount : Byte) (enabled : Bool) (backedges : Nat) : Option Nat :=
   ((graph amount).evalBackedges model backedges (entry 0 enabled)).map BitVec.toNat

@@ -75,6 +75,21 @@ evaluates the arguments before invoking it. A successful closure result
 writes the module destination and records the exact descriptor and
 reached heap. Its captures keep the original cell identities.
 
+A checked closure return can construct a flat tuple from exact integer,
+Boolean and `None` literals and reads of local, captured or live global
+names. The executor visits the items in source order before checking
+that the payload is scalar. Ordinary and Finite delivery carry the
+ordered values through saved frames with the reached cell heap.
+
+Seeded result binding admits an explicitly tuple-returning body with
+the same-run publication, live callee and bounded integer argument
+checks used by the flat call adapter. The successful binding and receipt
+carry the same scalar tuple payload. This profile tracks tuple contents.
+Object identity, methods, recursive tuple contents and tuple-aware
+helper calls are separate profiles.
+Run the focused comparison with CPython 3.13.5 using
+`python3 -I scripts/check-python-closure-tuple-return.py`.
+
 A nested module call saves its outer callee before evaluating arguments.
 A direct zero-argument argument call can use the published selector.
 When the saved outer callee is the integer equality helper and its result
