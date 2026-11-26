@@ -34,6 +34,18 @@ theorem observe_get (r : Ranked g) (m : PEG.Interpretation.{0,0,0} P)
   Silmaril.Proofs.SSA.Peggy.Bridge.Figure11.observe_get m r env wf idx i
 
 open Egg in
+/-- Explained outputs have equal native observations, including certificates
+composed from several replayed steps. -/
+theorem outputs_figure11_sound
+    {rs : List (Core.Rule (signature P))} {r : Ranked g} {r' : Ranked g'}
+    (certificate : OutputsExplained rs r r')
+    (m : PEG.Interpretation.{0,0,0} P) (hrules : ∀ rule ∈ rs, rule.Holds (model (toAcyclic m)))
+    (env : Tuple m.Value params) (wf : WellFounded g.Demand) (wf' : WellFounded g'.Demand)
+    (idx : PEG.Index 0) :
+    g.observe m (g.denote m env wf) idx = g'.observe m (g'.denote m env wf') idx :=
+  Silmaril.Proofs.SSA.Peggy.Bridge.Figure11.outputs_figure11_sound m certificate hrules env wf wf' idx
+
+open Egg in
 /-- Accepted Egg receipts give equality of the actual Figure 11 root tuples.
 Rules retain their existing partial-carrier satisfaction hypotheses. -/
 theorem checkOutputs_figure11_sound [DecidableEq Data] (eqPrim : PrimitiveEq P)
@@ -44,7 +56,7 @@ theorem checkOutputs_figure11_sound [DecidableEq Data] (eqPrim : PrimitiveEq P)
     (env : Tuple m.Value params) (wf : WellFounded g.Demand) (wf' : WellFounded g'.Demand)
     (idx : PEG.Index 0) :
     g.observe m (g.denote m env wf) idx = g'.observe m (g'.denote m env wf') idx :=
-  Silmaril.Proofs.SSA.Peggy.Bridge.Figure11.checkOutputs_figure11_sound m eqPrim accepted
-    hrules env wf wf' idx
+  outputs_figure11_sound ((checkOutputs eqPrim r r' receipts).get accepted).down
+    m hrules env wf wf' idx
 
 end Silmaril.SSA.Peggy.Bridge.Figure11
