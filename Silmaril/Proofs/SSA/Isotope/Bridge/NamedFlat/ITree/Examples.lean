@@ -4,7 +4,7 @@ import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Refinement.Trace.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.Typed.Defs
 import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.PackedTrace.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.InstructionMap.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.Ordered.Flat.Institution.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.Ordered.Packed.Institution.Thms
 
 /-! # Typed requests at the captured entry and the back edge -/
 
@@ -542,5 +542,31 @@ example :
     ¬ (FlatInstitution.room Event signature).Sat (Discrete.mk model) (comparisonCorridor.sen converse) :=
   ⟨(comparisonCorridor.sat (Discrete.mk model) comparison).mpr reduct_comparisons.1,
     fun h => reduct_comparisons.2 ((comparisonCorridor.sat (Discrete.mk model) converse).mp h)⟩
+
+/-! ## Packing the cyclic comparison into the ordered singleton institution -/
+
+private abbrev packing := PackedInstitution.packingComorphism.{0, 0} Event SortName
+
+-- The packed side of the comorphism's naturality square uses the actual
+-- representative obtained by packing the relabelled closure.
+example : (packing.ρ.app signature ≫ (PackedInstitution.institution.{0, 0} Event SortName).I.map
+      relabel).sen comparison =
+    ⟨1, fun _ => num, Program.ofCFG (silentTyped.mapInstr (flatProfiles rename rename_types)),
+      Program.ofCFG closedMapped.property.1⟩ := by
+  have naturality := congrArg (fun c => c.sen comparison) (packing.ρ.naturality relabel)
+  exact naturality.symm.trans
+    (congrArg (PackedInstitution.Sentence.mk 1 (fun _ => num) _)
+      (ofCFG_congr closedMapped_eq.symm _ _))
+
+-- Apply the comorphism's satisfaction law after the noninjective relabelling.
+example :
+    (PackedInstitution.room Event signature).Sat (Discrete.mk model)
+      ((packing.ρ.app signature).sen (comparisonCorridor.sen comparison)) ∧
+    ¬ (PackedInstitution.room Event signature).Sat (Discrete.mk model)
+      ((packing.ρ.app signature).sen (comparisonCorridor.sen converse)) :=
+  ⟨(packing.satisfaction signature (Discrete.mk model) _).mpr
+      ((comparisonCorridor.sat (Discrete.mk model) comparison).mpr reduct_comparisons.1),
+    fun h => reduct_comparisons.2 ((comparisonCorridor.sat (Discrete.mk model) converse).mp
+      ((packing.satisfaction signature (Discrete.mk model) _).mp h))⟩
 
 end Silmaril.Isotope.Bridge.NamedFlat.Interaction.Examples
