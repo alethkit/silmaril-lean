@@ -1,7 +1,7 @@
 module
 
 import Silmaril.Semantics.ITree.Thms
-import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Denotation.Thms
 import Silmaril.Semantics.ITree.VisiblePrefix.Thms
 import Silmaril.SSA.Isotope.LetIter.RequestFeedback.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Syntactic.AbortSequence.Category.Model.Thms
@@ -3706,6 +3706,11 @@ namespace LetIterFiniteFeedbackReplayFixture
 open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback
 open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite
 
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured
+  (PureMaps)
+open Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic
+  (repairedDenoteInSyntax)
+
 private abbrev Bit := Code.sum .unit .unit
 private abbrev Three := Code.sum Bit .unit
 private abbrev Ops := Opcode Three Bit
@@ -3773,17 +3778,56 @@ example : ∃ h, Commutes left right h ∧ h off ≠ h on ∧
   · rw [← table s]
     exact stateMap_readback h s
 
--- A repeat changes the visible state on both machines. The returning reply
--- exits at either state. The initial equality above replays at strict.
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty (Ty Unit))
+
+private theorem ask_visible : ¬ IsPure (⊥ : Eff) (Opcode.ask : Ops) := by
+  change strict ≠ (⊥ : Eff)
+  decide
+
+private def noPure : PureMaps (Φ := Ops) (ε := Eff) carriers := by
+  intro f h
+  cases f
+  exact (ask_visible h).elim
+
+-- Repeat toggles the two live states in each renderer. The full weak
+-- observations of the actual lowered loops replay at the strict bound.
 example :
-    ∃ (a a' : Tm Empty Ops 0) (b b' : Tm Empty Ops 1),
+    ∃ (a a' : Tm Empty Ops 0) (b b' : Tm Empty Ops 1)
+      (da : Derivation Ops Γ₀ .nil a Bit.ty)
+      (db : Derivation Ops Γ₀ (.snoc .nil Bit.ty) b (Code.sum .unit Bit).ty)
+      (da' : Derivation Ops Γ₀ .nil a' Three.ty)
+      (db' : Derivation Ops Γ₀ (.snoc .nil Three.ty) b' (Code.sum .unit Three).ty),
       (Bit.literal off).toLetIter 0 = some a ∧
       (Three.literal (encode off)).toLetIter 0 = some a' ∧
       left.source.toLetIter 1 = some b ∧ right.source.toLetIter 1 = some b' ∧
-      HasTypeEffect (Ctx.nil : Ctx Empty (Ty Unit)) .nil (.iter a b) Ty.unit strict ∧
-      HasTypeEffect (Ctx.nil : Ctx Empty (Ty Unit)) .nil (.iter a' b') Ty.unit strict ∧
-      AbortEquiv (⊥ : Eff) (Ctx.nil : Ctx Empty (Ty Unit)) .nil (.iter a b) (.iter a' b') Ty.unit :=
-  replay (fun _ _ eq => eq) allReach initialObs le_rfl rfl
+      HasTypeEffect Γ₀ .nil (.iter a b) Ty.unit strict ∧
+      HasTypeEffect Γ₀ .nil (.iter a' b') Ty.unit strict ∧
+      repairedDenoteInSyntax (⊥ : Eff) (da.iter db) = repairedDenoteInSyntax (⊥ : Eff) (da'.iter db') ∧
+      AbortEquiv (⊥ : Eff) Γ₀ .nil (.iter a b) (.iter a' b') Ty.unit := by
+  obtain ⟨a, ha, ta⟩ := (Bit.literal_wf (Q := Three) (K := Bit) (e := strict) off []).toLetIter
+  obtain ⟨a', ha', ta'⟩ := (Three.literal_wf (Q := Three) (K := Bit) (e := strict) (encode off) []).toLetIter
+  obtain ⟨b, hb, tb⟩ := (left.step_wf (e := strict) le_rfl).toLetIter
+  obtain ⟨b', hb', tb'⟩ := (right.step_wf (e := strict) le_rfl).toLetIter
+  obtain ⟨da⟩ := Derivation.ofHasType ta.1
+  obtain ⟨db⟩ := Derivation.ofHasType tb.1
+  obtain ⟨da'⟩ := Derivation.ofHasType ta'.1
+  obtain ⟨db'⟩ := Derivation.ofHasType tb'.1
+  have observed := native_denote_eq_iff ha hb ha' hb' da db da' db' noPure ask_visible
+    (e := strict) le_rfl
+  have actual := observed.mpr initialObs
+  have packed := (packed_eq_iff_native_denote_eq ha hb ha' hb' da db da' db' noPure ask_visible
+    (e := strict) le_rfl rfl (fun _ _ eq => eq) allReach).mpr actual
+  have again := run_eq_of_packed_eq ha hb ha' hb' da db da' db' noPure ask_visible (e := strict) le_rfl packed
+  obtain ⟨a₀, a₁, b₀, b₁, ha₀, ha₁, hb₀, hb₁, _, _, replayed⟩ :=
+    replay (fun _ _ eq => eq) allReach again (e := strict) le_rfl rfl
+  have ea := Option.some.inj (ha₀.symm.trans ha)
+  have ea' := Option.some.inj (ha₁.symm.trans ha')
+  have eb := Option.some.inj (hb₀.symm.trans hb)
+  have eb' := Option.some.inj (hb₁.symm.trans hb')
+  subst a₀ a₁ b₀ b₁
+  exact ⟨a, a', b, b', da, db, da', db', ha, ha', hb, hb',
+    loop_typed left off (e := strict) le_rfl rfl ha hb,
+    loop_typed right (encode off) (e := strict) le_rfl rfl ha' hb', packed, replayed⟩
 
 example : strict < (⊤ : Eff) :=
   lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
