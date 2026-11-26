@@ -532,3 +532,69 @@ after a completed feedback iteration with a linked return.
 lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.ThetaReach.Thms
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.ThetaReach.Thms'
 ```
+
+## Demand through a static linked application
+
+`StaticDemand.Code` is the compositional admission. It supports an arbitrary
+finite sequence of primitive bindings and statically resolved applications,
+including calls in callees. Each application references a callee body and maps
+its live entry ports through typed argument and capture wires. A single callee
+can be used at multiple sites with different demands. The executable
+`Code.liveIn` computes the corresponding shared `GenKill` least may solution.
+[Compositional API](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Thms.lean)
+
+The application witness takes its callable from a typed entry port and
+identifies the closure's captures with typed origins in the caller's entry.
+`Code.Resolved` checks that identification against the actual closure. It
+governs the callable slot, which the erased term still passes to `apply`. For
+nested calls it requires the callee's own static targets to be resolved for
+every formal argument tuple. The admission erases to the runtime's normal
+numbered term. It currently covers straight-line call graphs with no
+dynamic target selection, recursive calls, γ or θ. The partial γ/θ analysis
+continues to cover the native wire semantics.
+
+`Code.linked_runs_agree` starts from actual successful linkage at a common
+store and relates the runner's demanded returns and exact stores, or its exact
+typed blocked attempts and stores. The proof constructs matching transitions
+from the checked code and produces a common settling budget. After a block,
+the saved stacks can take a shared hypothetical result and store and continue
+with the same guarantee, including at a later block.
+
+The fixture applies one two-binding λ twice. The first call's computed result
+feeds the second, which demands a different output port. The second probe
+can block even though its computed data result is dead. The fixture also
+resumes a saved stack from a first-call block and checks the later call.
+[Compositional regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Regression
+```
+
+### Single-call admission
+
+`DirectCall` admits a two-λ module by construction. Its exported caller
+captures the linked callee and invokes it at an actual application node. The
+callee executes one primitive before returning through wired results. The
+caller forwards selected results and may also return its own arguments.
+The admission uses only λ vertices and this single static application.
+Dynamic targets, recursive calls and partial initializers are outside it.
+[API](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/Demand/Thms.lean)
+
+The requested caller results select the callee result demand. The shared
+least may solution identifies the live entry ports of that callee. The
+analysis maps them through the actual capture and argument wires, and keeps
+the caller arguments read directly by a demanded result.
+
+Agreement on those imports and arguments, with the same initial store,
+preserves demanded returns and exact store after ten invocation microsteps.
+A block retains the exact typed primitive site, operands, and attempt store.
+The saved stacks are related by what their two return suffixes do when
+supplied a common hypothetical primitive result and store. Those stacks can
+contain different dead values. The regression resumes a suspended invocation
+and checks a block with two saved frames. Changing the live capture at that
+same call makes the primitive return and change the store.
+[Regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/Demand/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Demand.Regression
+```

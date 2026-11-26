@@ -48,6 +48,56 @@ ___assertEqual(saved(1), 4)
 after = 9
 """
 
+
+CHAIN = """def outer(a, b, c):
+    def middle(x, y, z):
+        x = x + a
+        def leaf():
+            return c + (y + b)
+        b = x + z
+        def inspect():
+            return y
+        inspect()
+        return leaf
+    return middle
+active = outer(1, 2, 3)
+result = active(2, 4, 6)
+___assertEqual(result(), 16)
+after = 9
+"""
+
+ALIASED_CHAIN = """def origin(seed):
+    def next(x):
+        def leaf(n):
+            return seed + x + n
+        return leaf
+    return next
+active = origin(5)
+saved = active
+active = origin(15)
+left = saved(1)
+right = active(4)
+___assertEqual(left(1), 7)
+___assertEqual(right(1), 20)
+after = 9
+"""
+
+FACTOR = 2 ** 100
+PRODUCT = """def target(value):
+    return value
+def make(n):
+    def leaf():
+        return target((n * n) * numeric)
+    return leaf
+saved = make({factor})
+def target(value):
+    return value + 3
+numeric = 1 == {test}
+___assertEqual(saved(), {result})
+after = 9
+"""
+
+
 LEAN = """
 private def returned (calls : List Seeded.CallEvent) : List (String × Result) :=
   calls.map fun call => (call.callee, call.observation.result)
@@ -126,6 +176,88 @@ private def escapedOutsideHelper (source : Source.Module) : Bool := Id.run do
     returned run.calls == [("make", .ok (.function result)), ("saved", .error .unsupported)] &&
     run.calls.all (fun call => call.observation.caught.isNone) &&
     run.residual.lookupGlobal "after" == none && heapInts run.heap == [some 37, some 3]
+
+private def chainSuccess (source : Source.Module) (binds : List (String × String))
+    (sums : List (String × Int)) (cells : List Int) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  return [Namespace.empty, seed .builtin, seed .preamble].all fun space =>
+    Id.run do
+      let run := Seeded.run space compiled initialHeap
+      let .some factories := binds.mapM (fun (callee, target) =>
+        match run.residual.lookupGlobal target with
+        | some (.function fn) => some (callee, (Except.ok (.function fn) : Result))
+        | _ => none) | return false
+      let seeded := (space.lookupGlobal "___assertEqual").isSome
+      let helperCalls : List (String × Result) := sums.flatMap fun (callee, value) =>
+        [(callee, .ok (.int value)), ("___assertEqual", .ok .none)]
+      let completion : Except Seeded.ModuleFailure Unit :=
+        if seeded then .ok () else .error (.raised (.runtime (.nameError "___assertEqual")))
+      return run.completion == completion && heapInts run.heap == cells.map some &&
+        run.residual.builtins == space.builtins &&
+        run.residual.lookupGlobal "after" == (if seeded then some (Value.int 9) else none) &&
+        returned run.calls == factories ++ (if seeded then helperCalls else []) &&
+        run.calls.all (fun call => call.observation.caught.isNone)
+
+private def chainStops (source : Source.Module) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  let space := seed .builtin
+  let missing : Core.Closure.Executor.CodeTable := fun key => if key == 3 then none else compiled.table key
+  let fault := Seeded.runInstructions space compiled.instructions missing initialHeap
+  let some (.function known) := fault.residual.lookupGlobal "active" | return false
+  let prior : List (String × Result) := [("outer", .ok (.function known))]
+  let cells := [some 37, some 1, some 3, some 4, some 9]
+  let earlier := Seeded.runInstructions space (compiled.instructions.take 2) compiled.table initialHeap
+  let samePrefix (run : Seeded.Observation) :=
+    run.residual.moduleGlobals == earlier.residual.moduleGlobals && run.residual.builtins == space.builtins
+  let exhausted := (List.range 20).any fun fuel =>
+    let run := Seeded.run space compiled initialHeap fuel
+    run.completion == .error .directCallFuelExhausted && samePrefix run &&
+      returned run.calls == prior && heapInts run.heap == cells
+  let later := compiled.instructions.drop 2
+  let base : Seeded.CallContext := { table := compiled.table, heap := earlier.heap, fuel := 128 }
+  let imported := Seeded.runInstructionsIn earlier.residual base later
+  let fallback := { earlier.residual with builtins := ("active", .function known) :: space.builtins }
+  let masked := fallback.bindGlobal "active" (.int 0)
+  let shadowed := Seeded.runInstructionsIn masked { base with escaped := [known] } later
+  return fault.completion == .error (.directCallFault (.missingCode 3)) &&
+    samePrefix fault && returned fault.calls == prior && heapInts fault.heap == cells &&
+    exhausted && imported.completion == .error .unsupported && samePrefix imported &&
+    returned imported.calls == [("active", .error .unsupported)] &&
+    heapInts imported.heap == heapInts earlier.heap &&
+    shadowed.completion == .error (.raised (.runtime .notCallable)) &&
+    returned shadowed.calls == [("active", .error (.raised (.runtime .notCallable)))] &&
+    shadowed.residual.moduleGlobals == masked.moduleGlobals && shadowed.residual.builtins == masked.builtins &&
+    heapInts shadowed.heap == heapInts earlier.heap
+
+private def chainException (source : Source.Module) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  let run := Seeded.run (seed .builtin) compiled initialHeap
+  let some (.function active) := run.residual.lookupGlobal "active" | return false
+  return run.completion == .error (.raised (.assertionError .empty)) &&
+    returned run.calls == [("outer", .ok (.function active)), ("active", .error (.raised (.assertionError .empty)))] &&
+    run.calls.all (fun call => call.observation.caught.isNone) &&
+    run.residual.lookupGlobal "result" == none && run.residual.lookupGlobal "after" == none &&
+    heapInts run.heap == [some 37, some 1, some 3, some 4, some 9]
+
+
+private def productOutcome (source : Source.Module) (factor : Int) (inner : Result) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  return [Namespace.empty, seed .builtin, seed .preamble].all fun space =>
+    Id.run do
+      let run := Seeded.run space compiled initialHeap
+      let some (.function saved) := run.residual.lookupGlobal "saved" | return false
+      let some (.function target) := run.residual.lookupGlobal "target" | return false
+      let seeded := (space.lookupGlobal "___assertEqual").isSome
+      let completed := (if seeded then inner else .error (.raised (.runtime (.nameError "___assertEqual"))))
+        |>.map (fun _ => ()) |>.mapError Seeded.ModuleFailure.ofCall
+      let calls := [("make", .ok (.function saved))] ++
+        (if seeded then [("saved", inner)] ++ (if inner.isOk then [("___assertEqual", .ok .none)] else []) else [])
+      return run.completion == completed && returned run.calls == calls &&
+        run.calls.all (fun call => call.observation.caught.isNone) &&
+        run.residual.lookupGlobal "after" == (if completed.isOk then some (Value.int 9) else none) &&
+        run.residual.builtins == space.builtins && heapInts run.heap == [some 37, some factor] &&
+        saved.captures.toList.map (·.address) == [1] && target.code.key == 3
+
 """
 
 
@@ -171,7 +303,45 @@ if __name__ == "__main__":
     assert reference(missing_callee, "empty")[0] == "NameError:absent"
     assert reference(masked, "empty")[0] == "NameError:missing"
     assert reference(noncallable, "empty")[0] == "TypeError"
+    for source, output, expected in ((CHAIN, "result", 16), (ALIASED_CHAIN, "left", 7)):
+        for placement in ("empty", "builtin", "preamble"):
+            completion, space = reference(source, placement)
+            assert completion == ("NameError:___assertEqual" if placement == "empty" else "normal")
+            assert space.get("after") == (None if placement == "empty" else 9)
+            assert (space[output]() if source == CHAIN else space[output](1)) == expected
+    chain_exception = CHAIN.replace("        return leaf", "        assert False\n        return leaf")
+    completion, space = reference(chain_exception, "builtin")
+    assert completion == "AssertionError" and "active" in space and "result" not in space and "after" not in space
+    product = PRODUCT.format(factor=FACTOR, test=1, result=FACTOR * FACTOR + 3)
+    zero_product = PRODUCT.format(factor=FACTOR, test=2, result=3)
+    product_failures = (
+        (product.replace("(n * n) * numeric", "n * target"), "TypeError", ".multiplicationTypeError"),
+        (product.replace("(n * n) * numeric", "(target * missing) * n"), "NameError:missing", '(.nameError "missing")'),
+        (product.replace("return target((n * n) * numeric)", "return unavailable((target * missing) * n)"),
+         "NameError:unavailable", '(.nameError "unavailable")'),
+    )
+    product_fixtures = []
+    for source, answer in ((product, FACTOR * FACTOR + 3), (zero_product, 3)):
+        for placement in ("empty", "builtin", "preamble"):
+            completion, space = reference(source, placement)
+            assert completion == ("NameError:___assertEqual" if placement == "empty" else "normal")
+            assert type(space["saved"]()) is int and space["saved"]() == answer
+        product_fixtures.append((source, f"#guard productOutcome pythonSource {FACTOR} (.ok (.int {answer}))"))
+    for source, expected, error in product_failures:
+        for placement in ("builtin", "preamble"):
+            completion, space = reference(source, placement)
+            assert completion == expected and "after" not in space
+        product_fixtures.append((source, f"#guard productOutcome pythonSource {FACTOR} (.error (.raised (.runtime {error})))"))
     fixtures = (
+        (CHAIN, """
+#guard chainSuccess pythonSource [("outer", "active"), ("active", "result")] [("result", 16)] [37, 1, 3, 4, 9]
+#guard chainStops pythonSource
+"""),
+        (ALIASED_CHAIN, """
+#guard chainSuccess pythonSource [("origin", "saved"), ("origin", "active"), ("saved", "left"), ("active", "right")]
+  [("left", 7), ("right", 20)] [37, 5, 15, 1, 4]
+"""),
+        (chain_exception, "#guard chainException pythonSource"),
         (SUCCESS, "#guard factorySuccess pythonSource"),
         (FAULT, "#guard factoryStops pythonSource"),
         (ARGUMENT, "#guard escapedFailure pythonSource"),
@@ -187,7 +357,7 @@ if __name__ == "__main__":
     )
     with tempfile.TemporaryDirectory() as tmp:
         source_path, lean_path = Path(tmp) / "Example.py", Path(tmp) / "Example.lean"
-        for source, guard in fixtures:
+        for source, guard in (*fixtures, *product_fixtures):
             shared["emit"](source_path, lean_path, source)
             shared["check_lean"](lean_path, existing["LEAN"] + LEAN + "\n" + guard + "\n",
                                  extra_imports=existing["IMPORTS"])
