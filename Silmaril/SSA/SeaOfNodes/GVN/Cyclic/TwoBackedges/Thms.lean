@@ -10,11 +10,43 @@ namespace Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges
 open Diamond (ValueSort)
 open Pure.SubZero (word)
 open Pure.ConstantFold.Comparison (Opcode model)
+open Quads.Join (Block)
 open Quads.Loop.Blocks (Bank)
 open Quads.Loop.Tail.TwoBackedges (Incoming Program)
 
 variable {regs : List (ValueSort Unit)}
 variable {p target : Program Opcode regs word} {representative member replacement : WordSlot regs}
+
+theorem Keys.reads_entry (input : Bank (regs := regs) model) :
+    Keys.Reads input (WordNumber.entryKeys regs) input :=
+  Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.entry_agrees input
+
+theorem Keys.reads_block (block : Block Opcode regs) (anchor : Bank (regs := regs) model)
+    {keys : Keys regs} {values : Bank (regs := regs) model} (prior : Keys.Reads anchor keys values) :
+    Keys.Reads anchor (block.eval (numbering regs) keys) (block.eval model values) :=
+  Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.block_agrees block anchor prior
+
+theorem Keys.reads_match {anchor values : Bank (regs := regs) model} {keys : Keys regs}
+    (reads : Keys.Reads anchor keys values) {first second : WordSlot regs}
+    (matched : (keys.get first).matches (keys.get second) = true) : values.get first = values.get second :=
+  Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.match_reads reads matched
+
+theorem Invariant.arrives {holds : Bank (regs := regs) model → Prop} (invariant : Invariant p holds)
+    {input old : Bank (regs := regs) model} {via : Incoming} {count : Nat}
+    (arrived : p.Arrives model input via count old) : holds old :=
+  Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.invariant_arrives invariant arrived
+
+theorem redirect_step_eq {old : Bank (regs := regs) model}
+    (returned : (p.header.eval model old).get p.result = (p.header.eval model old).get replacement) :
+    (redirect p replacement).step model old = p.step model old :=
+  Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.redirect_step returned
+
+theorem Invariant.redirect_run_eq {holds : Bank (regs := regs) model → Prop} (invariant : Invariant p holds)
+    (observes : ∀ old, holds old →
+      (p.header.eval model old).get p.result = (p.header.eval model old).get replacement)
+    (fuel : Nat) (input : Bank (regs := regs) model) :
+    (redirect p replacement).source.runFrom model fuel 0 input = p.source.runFrom model fuel 0 input :=
+  Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.redirect_run invariant observes fuel input
 
 /-- Check both feedback occurrences independently, including the false arm. -/
 theorem check_eq_true_iff :
