@@ -166,3 +166,33 @@ graph. At seed `4`, replies `2` and `0` each pass through the self-edge's φ
 operand to the next visit. Only the total graph requests `tick 0`, which
 witnesses strict inclusion for the packed executions.
 [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Examples.lean)
+
+## Block-local simulation
+
+`Local.Simulation` gives a sufficient rule for the trace comparison. Supply
+a relation on pending transfers at aligned block boundaries and a relation
+on the local body trees and their reply continuations. At a paired jump,
+`Local.step_jump` exposes the actual predecessor lookup and parallel φ
+assignment. It reads every operand in the outgoing store and passes the
+updated store to the block body. This is where a client can establish its
+live-register and runtime value invariants. Typed admission and matching
+external profiles are required when transporting the result to packing.
+[Local witness](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Defs.lean)
+
+A local match must find the same indexed request and relate the continuations
+for every reply, or find the same encoded exit. Paired internal transfers
+return to the boundary relation. An unpaired left transfer must take an
+actual step before consulting the relation again. Each match may follow
+finitely many silent internal transfers on the right. The proof inducts
+over the finite left normalization prefix and the finite trace, so even an
+infinite silent loop needs no global termination premise. An observable
+left prefix always requires a finite match on the right.
+[Soundness](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Thms.lean)
+
+The cyclic fixture checks separate admissions for renamed registers and
+headers. The right entry passes through a silent block with its own typed
+profile. At each header the selected operands must be the same numeric
+value. A continuing reply writes it to the backedge operand on both sides.
+The local proof yields inclusion for the actual pure packed dispatchers
+at every seed.
+[Fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Examples.lean)
