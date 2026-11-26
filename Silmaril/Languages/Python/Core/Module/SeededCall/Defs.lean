@@ -194,6 +194,7 @@ inductive Request (arity : Nat) where
   | isinstance (probe : InstanceProbe)
   | boolIdentity (left right : Bool)
   | distinctIntBool
+  | emptyTuple
   | expect (expectation : Expectation) (callback : Value) (arguments : List Value)
       (shorter : arguments.length < arity)
   | nonCallable
@@ -203,6 +204,7 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   match callee, arguments with
   | .helper .assertEqual, [.int left, .int right] => .compare left right
   | .builtin .int, [.bool value] => .intFromBool value
+  | .builtin .tuple, [] => .emptyTuple
   | .builtin .callable, [.builtin .len] => .callable .len
   | .builtin .callable, [.int _] => .callable .integer
   | .builtin .isinstance, [.bool _, .builtin .bool] => .isinstance .boolAgainstBool
@@ -228,6 +230,7 @@ def invoke (callee : Value) (arguments : List Value) : Result :=
     if BoolIdentity.ofBool left = BoolIdentity.ofBool right then .ok .none
     else .error (.raised (.assertionError (.booleanPair left right)))
   | .distinctIntBool => .ok .none
+  | .emptyTuple => .ok (.returnedTuple [])
   | .expect expectation callback args _shorter =>
     expectation.deliver (invoke callback args)
   | .nonCallable => .error (.raised (.runtime .notCallable))
@@ -253,6 +256,7 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
       Executes (arity := arity) (.boolIdentity left right)
         (.error (.raised (.assertionError (.booleanPair left right))))
   | distinctIntBool {arity : Nat} : Executes (arity := arity) .distinctIntBool (.ok .none)
+  | emptyTuple {arity : Nat} : Executes (arity := arity) .emptyTuple (.ok (.returnedTuple []))
   | expected {arity : Nat} {expectation : Expectation} {callback : Value} {arguments : List Value}
       {shorter : arguments.length < arity} {inner outer : Result} :
       Executes (Request.decode callback arguments) inner → Delivers expectation inner outer →

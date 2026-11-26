@@ -56,6 +56,7 @@ private theorem unique {arity : Nat} {request : Request arity} {first second : R
       calc
         _ = _ := (delivers_iff.mpr handled).symm
         _ = _ := equal ▸ delivers_iff.mpr delivered
+  | emptyTuple => cases right; rfl
   | nonCallable => cases right; rfl
   | unsupported => cases right; rfl
 
@@ -90,6 +91,9 @@ private theorem computed (callee : Value) (arguments : List Value) :
     | distinctIntBool =>
       rw [invoke, decoded]
       exact .distinctIntBool
+    | emptyTuple =>
+      rw [invoke, decoded]
+      exact .emptyTuple
     | expect expectation callback operands shorter =>
       rw [invoke, decoded]
       exact .expected (ih operands shorter callback) (delivers_iff.mp rfl)

@@ -31,6 +31,12 @@ theorem invoke_iff {callee : Value} {arguments : List Value} {result : Result} :
     invoke callee arguments = result ↔ Executes (Request.decode callee arguments) result :=
   Proofs.Languages.Python.Core.Module.SeededCall.invoke_iff
 
+/-- The stock zero-argument constructor returns the canonical empty tuple
+payload carried by the seeded value model. -/
+theorem invoke_tuple_empty :
+    invoke (.builtin .tuple) [] = .ok (.returnedTuple []) :=
+  invoke_iff.mpr .emptyTuple
+
 theorem invoke_int_bool (value : Bool) :
     invoke (.builtin .int) [.bool value] = .ok (.int (Int.ofNat value.toNat)) :=
   invoke_iff.mpr (.intFromBool value)
