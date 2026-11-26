@@ -86,6 +86,16 @@ def Program.outerEdgeOccurrence (taken : Bool) : Fin size × Fin 2 :=
   | true => (p.suffix.predecessor p.inner, 0)
   | false => (p.outerFalse.predecessor p.header, bif p.outerFalse.blocks.isEmpty then 1 else 0)
 
+/-- Bank at the original outer predecessor, before its final producer
+table. On the inner routes the exclusive suffix is nonempty. -/
+def Program.outerPredecessorBank (m : Model.{u, v, w} Op) (old : Bank (regs := regs) m)
+    (occurrence : Occurrence) : Bank (regs := regs) m :=
+  let header := (src p.header).body.eval m old
+  match occurrence with
+  | .outerFalse => p.outerFalse.predecessorBank m old header
+  | .innerTrue | .innerFalse =>
+    p.suffix.predecessorBank m header (p.toRoutes.prefixBank m old occurrence)
+
 /-- The common outer tail takes the selected outer γ bank as its input. -/
 def Program.outerSuffixTransfer :=
   CFG.compileBlock p.outerSuffix.quads (initial regs)

@@ -19,6 +19,17 @@ variable {regs : List (ValueSort Data)} {out : ValueSort Data} {size : Nat}
 variable {src : Source Op regs out size} {target site : Fin size}
 variable (path : Segment src target site) (m : Model.{u, v, w} Op)
 
+/-- The actual last edge transfers the complete final bank of a checked
+segment. Only a direct arrival needs a fact about the caller's branch. -/
+theorem Segment.final_edge (caller : Fin size) (beforeCaller current : Bank (regs := regs) m)
+    (direct : path.blocks = [] →
+      (src caller).terminator.select m ((src caller).body.eval m beforeCaller) = .jump site ∧
+      (src caller).body.eval m beforeCaller = current) :
+    let pred := path.predecessor caller
+    let bank := (src pred).body.eval m (path.predecessorBank m beforeCaller current)
+    (src pred).terminator.select m bank = .jump target ∧ bank = path.quads.eval m current :=
+  Segment.Proofs.final_edge path m caller beforeCaller current direct
+
 theorem Segment.run_segment (fuel : Nat) (old : Bank (regs := regs) m) :
     src.runFrom m (fuel + path.blocks.length) site old =
       src.runFrom m fuel target (path.quads.eval m old) :=
