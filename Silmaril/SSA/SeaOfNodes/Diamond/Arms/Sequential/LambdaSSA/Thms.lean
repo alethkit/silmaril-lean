@@ -9,7 +9,7 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Diamond.Arms.Sequential.LambdaSSA
 
-open Diamond.LambdaSSA (Atom encodeTuple initialContext inputEnv instruction)
+open Diamond.LambdaSSA (Atom Code Primitive encodeTuple initialContext inputEnv instruction)
 open Arms.LambdaSSA (resultCode)
 open RVSDG (Tuple)
 open Silmaril.Isotope (Value)
@@ -21,6 +21,26 @@ universe u v w x
 variable {Data : Type u} {Op : Diamond.Signature.{u,v} Data} {σ : Type x}
 variable {inputs middle results : List (ValueSort Data)}
 variable {firstSigs secondSigs : List (List (Diamond.Ty Data))}
+/-- Link one packed exit to the entire input of the next closed stage. -/
+theorem link_hasType {context exits : List (Code Data)} {first after : Region (Primitive Op)}
+    (beforeTyped : first.HasType context [resultCode middle])
+    (afterTyped : after.HasType (initialContext middle) exits) :
+    (link middle first after).HasType context exits :=
+  Proofs.SSA.SeaOfNodes.Diamond.Arms.Sequential.LambdaSSA.link_hasType beforeTyped afterTyped
+
+/-- When both stages have a finite exit-zero run with the same intermediate
+tuple, their linked CFG has exactly the second observation. -/
+theorem link_eval_iff (m : Model.{u,v,w} Op)
+    {first after : Region (Primitive Op)} {captured : Env (Atom m)}
+    {joined : Tuple (Val m.value) (dataPorts middle)} {result : Value (Atom m)}
+    {start between expected : σ}
+    (beforeRun : Semantics.Region.Eval (instruction m) captured first start 0 (encodeTuple m joined) between)
+    (afterRun : Semantics.Region.Eval (instruction m) (inputEnv m joined) after between 0 result expected)
+    (label : Nat) (payload : Value (Atom m)) (finish : σ) :
+    Semantics.Region.Eval (instruction m) captured (link middle first after) start label payload finish ↔
+      label = 0 ∧ payload = result ∧ finish = expected :=
+  Proofs.SSA.SeaOfNodes.Diamond.Arms.Sequential.LambdaSSA.link_eval_iff m beforeRun afterRun label payload finish
+
 variable (g : Graph Op inputs middle results firstSigs secondSigs)
 
 theorem lower_hasType : (lower g).HasType (initialContext inputs) [resultCode results] :=
