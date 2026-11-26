@@ -24,6 +24,14 @@ theorem GeneratedProgram.observe_eq_some_iff (program : GeneratedProgram P.args)
     program.observe model initial = Part.some result ↔ program.Returns model initial result :=
   Proofs.observe_eq_some_iff program model initial result
 
+/-- A complete finite return of the emitted program is a native return
+of the same word and every cell. -/
+theorem GeneratedProgram.observe_eq_some_iff_native (program : GeneratedProgram P.args) (model : EntryModel P)
+    (initial : Buffer model.cells) (result : Word × Buffer model.cells) :
+    program.observe model initial = Part.some result ↔
+      nativeReturns program.source model initial.cell result.1 result.2.cell :=
+  Proofs.observe_eq_some_iff_native program model initial result
+
 /-- The full buffer observation is absent exactly when there is no finite native return. -/
 theorem GeneratedProgram.observe_eq_none_iff (program : GeneratedProgram P.args) (model : EntryModel P)
     (initial : Buffer model.cells) :

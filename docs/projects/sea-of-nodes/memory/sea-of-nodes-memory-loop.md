@@ -502,6 +502,44 @@ witnesses.
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Institution.MemRefRoom.Thms
 ```
 
+#### Shared interface for generated address Phi backends
+
+`Institution.Backend` packages a generated equation family, its
+retained native sources, and its own partial observer. An instance
+supplies exact encodings of the initialized heap and whole return and
+proves finite-result adequacy. `Backend.rvsdg` and `Backend.memref` use
+the existing validated nested RVSDG and ordered MemRef observers.
+[Interface](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/Backend/Defs.lean) ·
+[Instances](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/Backend/Instances/Defs.lean)
+
+`observe_translate` compares the actual emitted partial observations
+after decoding the word and all heap cells. Two absent finite
+observations agree, and a finite result uses each backend's own
+witness. `observe_reemit` compares a forward typed port map with
+pullback of the valuation at the same cell count and initial heap.
+`holds_reemit_iff_image` characterizes global truth after re-emission
+by satisfaction exactly over the reduct image.
+[Observation and reindexing laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/Backend/Thms.lean)
+
+The shared construction gives the checked generated Room corridors
+and the native and cross-backend comorphisms over the typed entry
+signature category. The two instances recover the existing public
+Rooms and comparison maps. `rvsdg_memref_factors` identifies the
+composed native-to-RVSDG-to-MemRef comorphism with the existing
+native-to-MemRef comorphism. The shared interface is for this native
+single-address Phi source profile.
+[Coherence theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/Backend/Instances/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Institution.Backend.Instances.Thms
+```
+
+A checked address swap preserves the translated result
+`(0, [9, 9, 99])`. Identifying the two address ports restricts the
+reduct image to coincident addresses, excluding a valuation that
+distinguishes the two sides by their final heaps.
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/Backend/Regression.lean)
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
