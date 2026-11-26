@@ -28,12 +28,12 @@ theorem opcode_correct {ins : List (ValueSort Width)} {out : ValueSort Width}
   | arithmetic op =>
     cases op with
     | constant => cases input; rfl
-    | binary op =>
+    | binary =>
       cases input with | cons x tail =>
       cases tail with | cons y tail =>
       cases tail
-      cases op <;> rfl
-  | ult =>
+      rfl
+  | ult | slt =>
     cases input with | cons x tail =>
     cases tail with | cons y tail =>
     cases tail
