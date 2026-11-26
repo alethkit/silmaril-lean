@@ -7,6 +7,13 @@ public section
 
 namespace Silmaril.SSA.RVSDG.NestedTheta
 
+open Silmaril.Semantics.Dataflow
+
+/-- The backwards sweep and the shared may solution agree on every local schedule. -/
+theorem Liveness.mem_sweep_iff (reads : List (List Address)) (pc : Nat) (a : Address) :
+    a ∈ sweep (reads.drop pc) pc ↔ a ∈ (problem reads).mayOut pc :=
+  Proofs.sweep_iff reads pc a
+
 universe u v w
 variable {V S : Type u} {Op : Dialect.{u, v} V S}
 variable {args outs : Ports (PortType V S)} {sigs : List (Ports (PortType V S))}

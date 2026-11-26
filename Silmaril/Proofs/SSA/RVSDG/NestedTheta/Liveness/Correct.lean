@@ -19,7 +19,7 @@ private theorem drop_next {α : Type*} (rows : List α) (pc : Nat) :
     rows.drop (pc + 1) = (rows.drop pc).tail := by
   rw [← List.drop_drop, List.drop_one]
 
-private theorem sweep_iff (reads : List (List Address)) (pc : Nat) (a : Address) :
+theorem sweep_iff (reads : List (List Address)) (pc : Nat) (a : Address) :
     a ∈ sweep (reads.drop pc) pc ↔ a ∈ (problem reads).mayOut pc := by
   have lower : ∀ suffix n, reads.drop n = suffix →
       ∀ address, address ∈ sweep suffix n → address ∈ (problem reads).mayOut n := by
@@ -32,7 +32,7 @@ private theorem sweep_iff (reads : List (List Address)) (pc : Nat) (a : Address)
       change (problem reads).mayEquations.step (problem reads).mayOut n =
         (problem reads).mayOut n at stable
       rw [← stable, step_iff, h]
-      simp only [sweep, List.mem_append, List.mem_filter, Bool.not_eq_true'] at ha
+      simp only [sweep, transfer, List.mem_append, List.mem_filter, Bool.not_eq_true'] at ha
       exact ha.imp id fun ⟨live, preserved⟩ =>
         ⟨ih (n + 1) (by simp [drop_next, h]) address live, preserved⟩
   have safe : (problem reads).mayEquations.IsSafe
@@ -43,7 +43,7 @@ private theorem sweep_iff (reads : List (List Address)) (pc : Nat) (a : Address)
     cases dropped : reads.drop n with
     | nil => simp [drop_next, dropped, sweep] at h
     | cons row rest =>
-      simpa [drop_next, dropped, sweep] using h
+      simpa [drop_next, dropped, sweep, transfer] using h
   exact ⟨lower _ pc rfl a, fun h => (problem reads).mayEquations.least_le_of_isSafe safe pc h⟩
 
 universe u v w
@@ -81,16 +81,16 @@ private theorem eval_congr (m : Model.{u, v, w} Op) (fuel : Nat)
   induction t generalizing pc with
   | ret wires =>
     exact congrArg some (read_congr wires left right locals fun p hp =>
-      agree p (by simpa [Term.readSchedule, sweep] using hp))
+      agree p (by simpa [Term.readSchedule, sweep, transfer] using hp))
   | bind node children rest _ ih =>
     have inputs := read_congr node.inputs left right locals fun p hp =>
-      agree p (by simpa only [Term.readSchedule, sweep, List.mem_append] using Or.inl hp)
+      agree p (by simpa only [Term.readSchedule, sweep, transfer, List.mem_append] using Or.inl hp)
     simp only [Term.eval, inputs]
     congr 1
     funext result
     apply ih (pc + 1)
     intro ty p hp
-    exact agree p (by simp [Term.readSchedule, sweep, definedAt, hp])
+    exact agree p (by simp [Term.readSchedule, sweep, transfer, definedAt, hp])
 
 theorem run_congr (g : Graph Op args [] sigs outs) (m : Model.{u, v, w} Op) (fuel : Nat)
     (left right : Tuple m.Val args) (agree : g.AgreesOnLiveInputs left right) :
