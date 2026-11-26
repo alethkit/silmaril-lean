@@ -162,11 +162,7 @@ def checkTupleChain {scope : Scope} (session : Session) (test : TupleChainTest s
   | .ok false => .error .assertionError
   | .error error => .error ((TupleChain.runtimeError? error).elim .scalarProfile .raised)
 
-def scalar? : Value → Option Core.Module.Value
-  | .int value => some (.int value)
-  | .bool value => some (.bool value)
-  | .none => some .none
-  | .function _ => none
+def scalar? : Value → Option Core.Module.Value := Value.scalar?
 
 def evaluate {scope : Scope} (session : Session) : Operand scope → Except Completion Value
   | .integer value => .ok (.int value)

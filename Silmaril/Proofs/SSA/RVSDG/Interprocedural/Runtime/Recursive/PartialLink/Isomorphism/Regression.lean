@@ -12,6 +12,7 @@ import Silmaril.SSA.RVSDG.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Thms
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Defs
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests
 
@@ -1247,7 +1248,8 @@ private def captureModule (duplicate : Bool) :
   ⟨.bind (.delta (seedDelta [])) <| .bind (.delta finishL) <| .bind (.phi (emptyPhi Op args _)) <|
     .bind (.lambda (sameBodyLambda (.output (0 : Fin 3) .head))) <|
     .bind (.lambda (sameBodyLambda (if duplicate then .output (0 : Fin 4) .head else .output (1 : Fin 4) .head))) <|
-    .bind (.lambda (combined (.output (3 : Fin 5) .head) (.output (4 : Fin 5) .head))) <|
+    .bind (.lambda (if duplicate then combined (.output (4 : Fin 5) .head) (.output (3 : Fin 5) .head)
+      else combined (.output (3 : Fin 5) .head) (.output (4 : Fin 5) .head))) <|
     .ret (.cons (.output (3 : Fin 6) .head) (.cons (.output (4 : Fin 6) .head)
       (.cons (.output (5 : Fin 6) .head) .nil)))⟩
 
@@ -1279,7 +1281,7 @@ example :
   refine ⟨?_, ?_, ?_⟩ <;> cbv
 
 -- The duplicate graph links with the same initialized value captured by
--- both closures. The observer cannot separate those two bindings.
+-- both closures. A plan requiring two separate dispatch entries rejects it.
 set_option maxHeartbeats 800000 in
 example : (match Executable.link actions 73 (captureModule true).toGraph (number 1) 20 with
     | .linked exports store => exports.get .head = exports.get (.tail .head) ∧ store = 28
@@ -1288,6 +1290,42 @@ example : (match Executable.link actions 73 (captureModule true).toGraph (number
   · cbv
     exact ⟨rfl, trivial⟩
   · cbv
+
+private def exactLambdas : RecursiveCall.Numbered.ExactValueCheck machine :=
+  RecursiveCall.Numbered.ExactValueCheck.lambda instructionKeys
+    (RecursiveCall.Numbered.ExactValueCheck.firstOrder (fun _ => inferInstanceAs (DecidableEq Nat))
+      (fun _ => inferInstanceAs (DecidableEq Unit)))
+
+private def aliasPlan (duplicateL duplicateR : Bool) :
+    Plan Op args args captureExports false (captureModule duplicateL).region (captureModule duplicateR).region :=
+  .skipL (.skipR (.skipL (.skipR (.seed (.lambda (.alias 0 (.lambda .done)))))))
+
+private def aliasScan (duplicateL duplicateR : Bool) (port : Port captureExports branchFn.port) :=
+  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    (captureModule duplicateL) (captureModule duplicateR) (aliasPlan duplicateL duplicateR) (fn := branchFn)
+    port 20 20 (exactValue := exactLambdas)
+
+-- The alias can be exported directly or captured alongside the earlier
+-- binding. Both refer to the exact values entered by the actual linker.
+#guard (aliasScan true true (.tail .head)).isSome
+#guard (aliasScan true true (.tail (.tail .head))).isSome
+
+-- A duplicate only on the left fails, as does an attempt to coalesce
+-- equal-profile closures with distinct captures on both sides.
+#guard (aliasScan true false (.tail (.tail .head))).isNone
+#guard (aliasScan false false (.tail (.tail .head))).isNone
+
+-- The caller invokes the alias first. At its undefined action the callee
+-- and the caller suffix are pending. A suspended successful run can resume
+-- from that same call and finish both applications and the caller suffix.
+example : (Executable.run actions 60 73 (captureModule true).toGraph (number 1)
+    (.tail (.tail .head)) (branchArgs 0) 20 |>.toOption.bind branchAttempt) =
+      some ([0, 0], 0, 0, 28) := by cbv
+
+example : (match Executable.run actions 5 73 (captureModule true).toGraph (number 1)
+    (.tail (.tail .head)) (branchArgs 1) 20 with
+  | .ok (.suspended config) => (runFor actions 60 config).result
+  | _ => none) = some (number 16, 41) := by cbv
 
 private abbrev seedRow {past : List (Ports T)} : NestedTheta.Node (Instruction Op) [global, num] past [num] :=
   RecursiveCall.simple (.primitive Op.seed) (.cons (.arg (.tail .head)) .nil) (fun i => i.elim0)
