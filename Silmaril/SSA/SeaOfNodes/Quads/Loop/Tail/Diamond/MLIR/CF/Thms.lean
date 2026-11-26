@@ -125,6 +125,20 @@ theorem runBlock_eq_of_frames (cfg : Cfg TargetOp Labels (Widths regs) [valueWid
 
 end Emission
 
+/-- The labeled CF block uses precisely the source block's final bank and edge. -/
+theorem source_site_eval (input bank : Bank (regs := regs) model) (id : Fin size) :
+    ((lowerSource src entry).block (.site id)).eval evalOp (fun term env => term.eval env)
+        ((encodeValues bank).append (encodeValues input)) =
+      .inl (destinationFrame ((src id).body.eval model bank)
+        ((src id).terminator.select model ((src id).body.eval model bank))) :=
+  Proofs.source_site_eval input bank id
+
+/-- The source table emitter preserves each block visit and adds a return visit. -/
+theorem lowerSource_run (fuel : Nat) (input : Bank (regs := regs) model) :
+    (lowerSource src entry).run evalOp (fuel + 1) (encodeValues input) =
+      (src.runFrom model fuel entry input).map (fun value => Env.cons (valueBits value) .nil) :=
+  Proofs.lowerSource_run fuel input
+
 variable (p : Program src entry)
 
 /-- The emitted split takes the source occurrence, testing the post-header bank. -/

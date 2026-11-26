@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Dispatch.DeleteRoute.Bypass.Defs
-public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.Defs
+public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.GuardedTheta.Defs
 
 /-! Lower the checked header-tested source using an entry γ and a post-tested θ. -/
 
@@ -52,26 +52,20 @@ def thetaBody (checked : Checked m p facts) :
 /-- Arm zero reads the first header's result wire. Arm one starts θ with
 the entire first header bank and reads the same port on its stopping bank. -/
 def armSigs (regs : List (ValueSort Data)) : Fin 2 → List (List (Ty Data)) :=
-  Fin.cases [] (fun _ => [dataPorts regs])
+  GuardedTheta.armSigs regs
 
 def arm (checked : Checked m p facts) (i : Fin 2) :
     Term (Opcode Op) (dataPorts regs) [] (armSigs regs i) [.value out] :=
-  Fin.cases (motive := fun j => Term (Opcode Op) (dataPorts regs) [] (armSigs regs j) [.value out])
-    (.ret (.cons (.arg p.result) .nil))
-    (fun _ =>
-      .bind ⟨_, .theta (dataPorts regs), initial regs, fun _ => BodySigs checked⟩
-        (fun _ => thetaBody checked) (.ret (.cons ((lastBank [] (dataPorts regs)).get p.result) .nil))) i
+  GuardedTheta.arm p.result (thetaBody checked) i
 
 def guard (checked : Checked m p facts) {past : List (List (Ty Data))}
     (current : Wires (dataPorts regs) past (dataPorts regs)) :
     Term (Opcode Op) (dataPorts regs) past [bodyPorts regs, [.value out]] [.value out] :=
-  .bind (.ofBase (latchNodeFor p.again current)) (fun i => i.elim0)
-    (.bind ⟨_, .base (.gamma 0), lastBank past (bodyPorts regs), armSigs regs⟩
-      (arm checked) (.ret (lastBank (past ++ [bodyPorts regs]) [.value out])))
+  GuardedTheta.guard p.again p.result (thetaBody checked) current
 
 def lowerTerm (checked : Checked m p facts) :
     Term (Opcode Op) (dataPorts regs) [] (Sigs p) [.value out] :=
-  thenBase ((entryBlock p).lowerFrom (initial regs) .jump) (guard checked)
+  GuardedTheta.lowerTerm (entryBlock p) p.again p.result (thetaBody checked)
 
 def lower (checked : Checked m p facts) : Target p := (lowerTerm checked).toGraph
 
