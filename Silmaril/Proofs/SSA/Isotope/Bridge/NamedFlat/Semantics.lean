@@ -187,6 +187,45 @@ theorem evalBody (index : K → Option (Fin labels)) (src : CFG.Body V K F)
           Part.mem_bind ((unpair_member prim _ (left, right)).mpr rfl)
             ((ih hc (agrees_bind (agrees_bind agrees x left) y right)).mpr next)⟩
 
+private theorem term_numbered (index : K → Option (Fin labels)) (src : CFG.Term V K F)
+    {n : Nat} {names : Names V n} {target : LambdaSSA.Flat F labels n}
+    (compiled : term index names src = some target)
+    {store : V → Value α} {jump : K × Value α}
+    (ran : jump ∈ src.exec (model prim) output store) : ∃ i, index jump.1 = some i := by
+  induction src generalizing n names store with
+  | br label arg =>
+    obtain ⟨i, indexed, _⟩ := Option.bind_eq_some_iff.mp compiled
+    have eq := Part.mem_some_iff.mp ran
+    exact ⟨i, congrArg (fun p : K × Value α => index p.1) eq |>.trans indexed⟩
+  | case op x left y right ihLeft ihRight =>
+    simp only [term, Option.bind_eq_some_iff, Option.map_eq_some_iff] at compiled
+    obtain ⟨_, _, l, hl, r, hr, _⟩ := compiled
+    simp only [CFG.Term.exec, Part.bind_eq_bind, Part.bind_assoc, Part.mem_bind_iff] at ran
+    obtain ⟨_, _, tag, _, ran⟩ := ran
+    cases tag with
+    | inl => exact ihLeft hl ran
+    | inr => exact ihRight hr ran
+
+private theorem body_numbered (index : K → Option (Fin labels)) (src : CFG.Body V K F)
+    {n : Nat} {names : Names V n} {target : LambdaSSA.Flat F labels n}
+    (compiled : body index names src = some target)
+    {store : V → Value α} {jump : K × Value α}
+    (ran : jump ∈ src.evalJump (model prim) store) : ∃ i, index jump.1 = some i := by
+  induction src generalizing n names store with
+  | term tail => exact term_numbered prim index tail compiled ran
+  | let1 x op rest ih =>
+    simp only [body, Option.bind_eq_some_iff, Option.map_eq_some_iff] at compiled
+    obtain ⟨_, _, _, hc, _⟩ := compiled
+    simp only [CFG.Body.evalJump, CFG.Body.exec, Part.bind_eq_bind, Part.mem_bind_iff] at ran
+    obtain ⟨_, _, ran⟩ := ran
+    exact ih hc ran
+  | let2 x y op rest ih =>
+    simp only [body, Option.bind_eq_some_iff, Option.map_eq_some_iff] at compiled
+    obtain ⟨_, _, _, hc, _⟩ := compiled
+    simp only [CFG.Body.evalJump, CFG.Body.exec, Part.bind_eq_bind, Part.bind_assoc, Part.mem_bind_iff] at ran
+    obtain ⟨_, _, _, _, ran⟩ := ran
+    exact ih hc ran
+
 omit [DecidableEq V] in
 private theorem tabulate_at {A : Type u} {count : Nat} {f : Fin count → Option A}
     {table : Fin count → A} (elaborated : tabulate count f = some table) (i : Fin count) :
@@ -245,6 +284,34 @@ theorem lookup_index (blocks : List (K × CFG.Block V K F)) (label : K) :
     cases label == key with
     | true => simp
     | false => simp [ih, Option.map_map, Function.comp_def]
+
+/-- Every successful entry jump in an elaborated graph has a label number. -/
+theorem entry_numbered (graph : CFG V K F) (exits : List K) (captures : Fin n → V)
+    {target : LambdaSSA.FiniteCFG F graph.blocks.length exits.length n}
+    (accepted : elaborate graph exits captures = some target)
+    {store : V → Value α} {jump : K × Value α}
+    (ran : jump ∈ graph.entry.evalJump (model prim) store) :
+    ∃ i, labelIndex graph.blocks exits jump.1 = some i := by
+  obtain ⟨_, entry, _⟩ := Option.bind_eq_some_iff.mp accepted
+  exact body_numbered prim _ _ entry ran
+
+/-- Every successful continuing step in an elaborated graph has a label number. -/
+theorem step_numbered (graph : CFG V K F) (exits : List K) (captures : Fin n → V)
+    {target : LambdaSSA.FiniteCFG F graph.blocks.length exits.length n}
+    (accepted : elaborate graph exits captures = some target)
+    {store : V → Value α} {start jump : K × Value α}
+    (ran : Sum.inr jump ∈ CFG.Cyclic.stepSSA (model prim) graph.blocks store start) :
+    ∃ i, labelIndex graph.blocks exits jump.1 = some i := by
+  simp only [elaborate, Option.bind_eq_some_iff, Option.map_eq_some_iff] at accepted
+  obtain ⟨_, _, _, compiled, _⟩ := accepted
+  simp only [CFG.Cyclic.stepSSA, lookup_index] at ran
+  cases found : graph.blocks.findFinIdx? (fun item => start.1 == item.1) with
+  | none => simp [found, Part.mem_some_iff] at ran
+  | some i =>
+    simp only [found, Option.map_some] at ran
+    obtain ⟨next, executed, eq⟩ := (Part.mem_map_iff Sum.inr).mp ran
+    cases eq
+    exact body_numbered prim _ _ (tabulate_at compiled i) executed
 
 theorem step_iff (graph : CFG V K F) (exits : List K) (captures : Fin n → V)
     {target : LambdaSSA.FiniteCFG F graph.blocks.length exits.length n}

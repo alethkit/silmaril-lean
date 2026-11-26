@@ -4,7 +4,7 @@ public import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Version.Thms
 import Silmaril.Semantics.Elgot.Thms
 import Mathlib.Data.Nat.Pairing
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.WholeRun.Thms
 
 /-! The edge from block 20 to block 10 is taken twice. Block 10 stops when the
 countdown reaches zero and returns the number of visits to block 20. -/
@@ -256,17 +256,19 @@ private def prim := primWithInput capturedEnv
 private def payload (count visits : Nat) : Value Nat :=
   .pair (.atom count) (.pair (.atom visits) .unit)
 
+private theorem captureAgreement (i : Fin 2) :
+    capturedEnv i.val = namedInput (captures i, 0) :=
+  Fin.cases rfl (fun j => Fin.cases rfl (fun k => k.elim0) j) i
+
 -- Entry goes to numeric slot zero (the first occurrence of label 10).
 private theorem entry_eval : Silmaril.Isotope.LambdaSSA.Semantics.Region.Eval
     (NamedFlat.instr prim) capturedEnv admitted.val.entry.erase () 0 (payload 2 0) () := by
   apply (NamedFlat.entry_iff prim (Versioning.compile profiledLoop) [99]
-    (fun i => (captures i, 0)) admitted.property.1 namedInput capturedEnv ?_ 0 (payload 2 0)).mp
-  · change (0, payload 2 0) ∈ (Part.some (10, payload 2 0) >>=
-      NamedFlat.number (NamedFlat.labelIndex (Versioning.compile profiledLoop).blocks [99]))
-    rw [Part.bind_eq_bind, Part.bind_some]
-    exact Part.mem_some _
-  · intro i
-    exact Fin.cases rfl (fun j => Fin.cases rfl (fun k => k.elim0) j) i
+    (fun i => (captures i, 0)) admitted.property.1 namedInput capturedEnv captureAgreement 0 (payload 2 0)).mp
+  change (0, payload 2 0) ∈ (Part.some (10, payload 2 0) >>=
+    NamedFlat.number (NamedFlat.labelIndex (Versioning.compile profiledLoop).blocks [99]))
+  rw [Part.bind_eq_bind, Part.bind_some]
+  exact Part.mem_some _
 
 private def backEdgeIndex : Fin (Versioning.compile profiledLoop).blocks.length :=
   ⟨1, by decide⟩
@@ -323,37 +325,87 @@ example : closed.val.HasType .nil (fun _ => packet num) (fun _ => num) := closed
 example : Eval (NamedFlat.instr prim) ambient closed.val.entry.erase () 0 (payload 2 0) () :=
   (NamedFlat.Capture.entry_eval_iff closed.property.2 (read_packet capturedEnv)).mpr entry_eval
 
-private def headerIndex : Fin (Versioning.compile profiledLoop).blocks.length := ⟨0, by decide⟩
+private def compiledStep := Cyclic.stepSSA (NamedFlat.model prim)
+  (Versioning.compile profiledLoop).blocks namedInput
 
-private theorem header_more_eval (count visits : Nat) :
-    Eval (NamedFlat.instr prim) (extend capturedEnv (payload (count + 1) visits))
-      (admitted.val.block headerIndex).erase () 1 (payload count visits) () := by
-  change Eval (NamedFlat.instr prim) (extend capturedEnv (payload (count + 1) visits))
-    (.let₂ (.var 0) (.let₂ (.var 0) (.case (.op .classify (.var 3)) (.br 2 (.var 2))
-      (.br 1 (.pair (.var 0) (.pair (.var 2) .unit)))))) () 1 (payload count visits) ()
-  exact .let₂ .var (.let₂ .var (.case_inr (.op .var (Part.mem_some _))
-    (.br (.pair .var (.pair .var .unit)))))
+private def expectedClassifyBlock : Block (Bool × Nat) Nat Primitive :=
+  ⟨(false, 0), .let2 (false, 1) (false, 2) (.val (.var (false, 0))) <|
+    .let2 (true, 3) (true, 4) (.val (.var (false, 2))) <|
+    .term (.case (.app .classify (.var (false, 1)))
+      (false, 5) (.br 99 (.var (true, 3)))
+      (false, 5) (.br 20 (.pair (.var (false, 5)) (.pair (.var (true, 3)) .unit))))⟩
 
-private theorem header_done_eval (visits : Nat) :
-    Eval (NamedFlat.instr prim) (extend capturedEnv (payload 0 visits))
-      (admitted.val.block headerIndex).erase () 2 (.atom visits) () := by
-  change Eval (NamedFlat.instr prim) (extend capturedEnv (payload 0 visits))
-    (.let₂ (.var 0) (.let₂ (.var 0) (.case (.op .classify (.var 3)) (.br 2 (.var 2))
-      (.br 1 (.pair (.var 0) (.pair (.var 2) .unit)))))) () 2 (.atom visits) ()
-  exact .let₂ .var (.let₂ .var (.case_inl (.op .var (Part.mem_some _)) (.br .var)))
+private theorem classified_more (count visits : Nat) :
+    compiledStep (10, payload (count + 1) visits) = Part.some (.inr (20, payload count visits)) := by
+  change Sum.inr <$> expectedClassifyBlock.body.evalJump (NamedFlat.model prim)
+    (upd namedInput (false, 0) (payload (count + 1) visits)) = _
+  simp [expectedClassifyBlock, Body.evalJump, Body.exec, Term.exec, Op.eval, Val.eval,
+    NamedFlat.model, prim, primWithInput, upd, payload, Part.map_eq_map, Part.map_some,
+    Part.bind_eq_bind, Part.bind_some]
 
--- The captured entry enters block 10. The dispatcher follows 20 → 10 twice
--- and returns visits = 2 at external slot zero.
+private theorem increment_back (count visits : Nat) :
+    compiledStep (20, payload count visits) = Part.some (.inr (10, payload count (visits + 1))) := by
+  change Sum.inr <$> (expectedBackEdgeBlock.mapOp (fun _ => Primitive.increment)).body.evalJump
+    (NamedFlat.model prim) (upd namedInput (false, 0) (payload count visits)) = _
+  simp [expectedBackEdgeBlock, Block.mapOp, Body.mapOp, Term.mapOp, Op.mapOp,
+    Body.evalJump, Body.exec, Term.exec, Op.eval, Val.eval, NamedFlat.model,
+    prim, primWithInput, upd, payload, Part.map_eq_map, Part.map_some, Part.bind_eq_bind, Part.bind_some]
+
+private theorem classified_done (visits : Nat) :
+    compiledStep (10, payload 0 visits) = Part.some (.inr (99, .atom visits)) := by
+  change Sum.inr <$> expectedClassifyBlock.body.evalJump (NamedFlat.model prim)
+    (upd namedInput (false, 0) (payload 0 visits)) = _
+  simp [expectedClassifyBlock, Body.evalJump, Body.exec, Term.exec, Op.eval, Val.eval,
+    NamedFlat.model, prim, primWithInput, upd, payload, Part.map_eq_map, Part.map_some,
+    Part.bind_eq_bind, Part.bind_some]
+
+private theorem compiled_exit (visits : Nat) :
+    compiledStep (99, .atom visits) = Part.some (.inl (99, .atom visits)) := rfl
+
+private theorem named_countdown :
+    Cyclic.runSSA (NamedFlat.model prim) (Versioning.compile profiledLoop) namedInput =
+      Part.some (99, .atom 2) := by
+  have entered : (Versioning.compile profiledLoop).entry.evalJump (NamedFlat.model prim) namedInput =
+      Part.some (10, payload 2 0) := rfl
+  rw [Cyclic.runSSA, entered, Part.bind_eq_bind, Part.bind_some]
+  change Silmaril.Elgot.iter compiledStep (10, payload 2 0) = _
+  apply Part.eq_some_iff.mpr
+  apply (Silmaril.Elgot.Part.mem_iter_iff _ _ _).mpr
+  exact .more (Part.eq_some_iff.mp (classified_more 1 0)) <|
+    .more (Part.eq_some_iff.mp (increment_back 1 0)) <|
+    .more (Part.eq_some_iff.mp (classified_more 0 1)) <|
+    .more (Part.eq_some_iff.mp (increment_back 0 1)) <|
+    .more (Part.eq_some_iff.mp (classified_done 2)) <|
+    .done (Part.eq_some_iff.mp (compiled_exit 2))
+
+-- Check the named finite observation through the whole-graph correspondence.
+private theorem numbered_countdown :
+    (0, .atom 2) ∈ (Cyclic.runSSA (NamedFlat.model prim) (Versioning.compile profiledLoop) namedInput >>=
+      NamedFlat.numberExit [99]) := by
+  rw [named_countdown, Part.bind_eq_bind, Part.bind_some]
+  exact Part.mem_some _
+
+example : Eval (NamedFlat.instr prim) capturedEnv admitted.val.erase () 0 (.atom 2) () :=
+  (NamedFlat.compile_run_iff admitted.property.1 captureAgreement).mp numbered_countdown
+
+-- The two captures feed the original entry. Both named back edges are
+-- reflected in the packed dispatcher run, with the same observed payload.
 example : Eval (NamedFlat.instr prim) ambient (FiniteCFG.packedExecutionRegion closed.property.1)
-    () 0 (Region.packedExitValue 0 (.atom 2)) () := by
-  apply (NamedFlat.Capture.packed_eval_at closed.property.1 closed.property.2
-    (read_packet capturedEnv)).mpr
-  exact .cfg entry_eval <|
-    .step (by decide) (header_more_eval 1 0) <|
-    .step (by decide) (backEdge 1 0) <|
-    .step (by decide) (header_more_eval 0 1) <|
-    .step (by decide) (backEdge 0 1) <|
-    .step (by decide) (header_done_eval 2) <|
-    .exit (by decide)
+    () 0 (Region.packedExitValue 0 (.atom 2)) () :=
+  (NamedFlat.packed_run_iff admitted.property.1 captureAgreement closed.property.1
+    closed.property.2 (read_packet capturedEnv)).mp numbered_countdown
+
+private def stepWithin : Nat → Nat × Value Nat → Part (Nat × Value Nat)
+  | 0, _ => Part.none
+  | fuel + 1, jump => compiledStep jump >>= Sum.elim Part.some (stepWithin fuel)
+
+-- Five calls reach label 99 but leave no fuel for the step that reports the exit.
+example : stepWithin 5 (10, payload 2 0) = Part.none := by
+  simp only [stepWithin, classified_more, increment_back, classified_done,
+    Part.bind_eq_bind, Part.bind_some, Sum.elim_inr]
+
+example : stepWithin 6 (10, payload 2 0) = Part.some (99, .atom 2) := by
+  simp only [stepWithin, classified_more, increment_back, classified_done, compiled_exit,
+    Part.bind_eq_bind, Part.bind_some, Sum.elim_inr, Sum.elim_inl]
 
 end Silmaril.SSA.LambdaRTL.CFG.Cyclic.Examples
