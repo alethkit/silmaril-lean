@@ -45,6 +45,11 @@ noncomputable def selectedPayload (tails : Option (Fin n → Ty κ))
     M.obj (R i.val) ⟶ M.obj (S i.val) :=
   payloadChange M R tails i.val ≫ eqToHom (congrArg M.obj (shape i.val i.property).symm)
 
+set_option backward.isDefEq.respectTransparency false in
+theorem selectedPayload_none (shape : ∀ i, written i → S i = R i) (i : Subtype written) :
+    selectedPayload M written none shape i = eqToHom (congrArg M.obj (shape i.val i.property).symm) := by
+  simp only [selectedPayload, payloadChange_none, Category.id_comp]
+
 noncomputable def includeTargets (tails : Option (Fin n → Ty κ))
     (shape : ∀ i, written i → S i = family R tails i) :
     Residual M R written ⟶ labelObj M (List.ofFn S) :=
