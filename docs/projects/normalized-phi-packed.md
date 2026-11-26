@@ -92,3 +92,27 @@ becomes the next request's operand through the φ node. Either tick can
 return through the packed exit. The equation is in weak ITrees. The finite
 and infinite atomic results above are stated in `Part`.
 [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/ITree/Examples.lean)
+
+## Checked admission and closure
+
+`Certified.admit` runs the global SSA checker and the typed elaborator in
+sequence. The source witness establishes normalization, definition uniqueness
+and use availability. The target witness supplies its exact elaboration and
+typing at the given capture, block and return profiles. An admitted result can
+run `admitted.close` with a closed expression of the packed capture type.
+Successful closure supplies the closed graph's typing and its erasure relation
+to that same admitted graph. [Checked results](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Defs.lean)
+
+The end-to-end theorems consume the result of closure. They recover the
+lowering, elaboration, typing and closure premises from the returned evidence.
+The positional capture environment is derived from the source store and
+the selected version-zero names. The remaining semantic premise is that the
+capture expression produces exactly this record. In weak ITrees it runs the
+supplied producer, then packs the source store for each reply. In the atomic
+`Part` theorems it returns the record with unchanged state. In each case both
+sides use the same primitive implementation.
+[End-to-end theorems](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Thms.lean)
+
+The visible backedge regression uses these checked outputs directly. A wrong
+Isotope return type rejects the same graph with its valid source certificate.
+[Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/ITree/Examples.lean)
