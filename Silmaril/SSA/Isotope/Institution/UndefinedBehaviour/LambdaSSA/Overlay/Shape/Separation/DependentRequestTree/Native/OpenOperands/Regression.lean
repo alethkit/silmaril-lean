@@ -1100,7 +1100,60 @@ example : ¬ Shape.denote (withExitUB shortCall.native shortCall.selected)
   have impossible := (TwoRequest.result_order (.ret 0 (1 : Fin 2)) (.fault 1)).mp compared
   simp [Result.refines] at impossible
 
-example : tickLoop.checkRankedEntries? oneThenExit tickLoop.native oneThenExit.native callers id id
+private abbrev oneThenUB : Table sig Packets := { oneThenExit with selected := fun _ => true }
+
+-- The shared request can leave the ranked endpoint at an exit and the
+-- other endpoint replaying indefinitely. Its ordinary divergence is below
+-- the selected target exit, while the opposite direction fails.
+example : tickLoop.entryCheck = false := rfl
+example : oneThenUB.entryCheck = true := rfl
+example : tickLoop.rankedCutoff oneThenUB = 2 := rfl
+example : oneThenUB.rankedCutoff tickLoop = 2 := rfl
+
+private theorem cyclicToUB : tickLoop.checkRankedEntries? oneThenUB tickLoop.native oneThenUB.native
+    callers id id enumeration inventory inventory = some true := by
+  change tickLoop.checkEntries? oneThenUB tickLoop.native oneThenUB.native
+    callers id id enumeration inventory inventory (stores 2) = some true
+  refine Table.checkEntries_accepts_iff.mpr ⟨rfl, rfl, fun input prim s => ?_⟩
+  let pairs (a : Syntax.Payload Bit) : List (Packet Packets × Packet Packets) :=
+    [(⟨0, a⟩, ⟨0, a⟩), (⟨0, left⟩, ⟨1, left⟩), (⟨0, right⟩, ⟨1, right⟩)]
+  have listed : input ∈ [left, right] := callers.complete input
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at listed
+  rcases listed with rfl | rfl
+  · exact tickLoop.checkProduct_sound oneThenUB tickLoop.native oneThenUB.native rfl rfl
+      left left enumeration (pairs left) rfl prim s
+  · exact tickLoop.checkProduct_sound oneThenUB tickLoop.native oneThenUB.native rfl rfl
+      right right enumeration (pairs right) rfl prim s
+
+example : tickLoop.DeterministicRefines.{0, storeLevel} oneThenUB tickLoop.native oneThenUB.native id id :=
+  (Table.checkRankedEntries_accepts_iff rfl rfl (Or.inr rfl)).mp cyclicToUB
+
+private theorem tickingReversesUB :
+    ¬ Shape.denote (withExitUB oneThenUB.native oneThenUB.selected)
+        (Syntax.model ticking (oneThenUB.bindings right)) 0 ≤
+      Shape.denote (withExitUB tickLoop.native tickLoop.selected)
+        (Syntax.model ticking (tickLoop.bindings right)) 0 := by
+  have finite : FiniteRun oneThenUB right ticking loopNext 0 (oneReplyRows 1) (.exit 0 true 1) := by
+    refine .repeat (f := Op.flip) (arg := right) (value := tickReply) rfl rfl (.exit rfl)
+  have lower := (oneThenUB.observe_entry oneThenUB.native rfl right ticking 0).trans finite.observes
+  have upper := (tickLoop.observe_entry tickLoop.native rfl right ticking 0).trans
+    (Table.observe_infinite tickReplay.is_infinite)
+  intro ordered
+  have compared := Eq.mp (congrArg₂ (· ≤ ·) lower upper) ordered
+  simp [RunStop.behaviour] at compared
+
+example : oneThenUB.checkRankedEntries? tickLoop oneThenUB.native tickLoop.native
+    callers id id enumeration inventory inventory = some false :=
+  Table.checkRankedEntries_rejects_of_refutation rfl rfl (Or.inl rfl)
+    callers enumeration inventory inventory right ticking 0 tickingReversesUB
+
+example : tickLoop.checkRankedEntries? oneThenExit tickLoop.native oneThenExit.native
+    callers id id enumeration inventory inventory = some false := rfl
+
+example : oneThenExit.checkRankedEntries? tickLoop oneThenExit.native tickLoop.native
+    callers id id enumeration inventory inventory = some false := rfl
+
+example : tickLoop.checkRankedEntries? tickLoop tickLoop.native tickLoop.native callers id id
     enumeration inventory inventory = none := rfl
 
 example : oneThenExit.checkRankedEntries? oneThenExit source.native oneThenExit.native callers id id

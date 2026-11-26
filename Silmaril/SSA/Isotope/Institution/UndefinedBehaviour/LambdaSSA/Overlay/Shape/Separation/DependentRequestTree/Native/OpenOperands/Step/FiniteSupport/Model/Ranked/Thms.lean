@@ -41,13 +41,15 @@ variable [DecidableEq Φ]
 /-- Unknown reports a failed rank check or a failed exact readback. -/
 theorem Table.checkRankedEntries_none_iff :
     g.checkRankedEntries? h raw raw' callers decodeLeft decodeRight replies left right = none ↔
-      g.check raw = false ∨ h.check raw' = false := by
+      g.checkNative raw = false ∨ h.checkNative raw' = false ∨
+        (g.entryCheck = false ∧ h.entryCheck = false) := by
   cases hg : g.entryCheck <;> cases hh : h.entryCheck <;>
-    simp [Table.checkRankedEntries?, Table.check, Table.checkEntries_none_iff, hg, hh]
+    simp [Table.checkRankedEntries?, Table.checkEntries_none_iff, hg, hh]
 
 /-- Any arbitrary-store refutation of a ranked pair gives a rejecting
 verdict at the computed finite cutoff. -/
-theorem Table.checkRankedEntries_rejects_of_refutation (hg : g.check raw = true) (hh : h.check raw' = true)
+theorem Table.checkRankedEntries_rejects_of_refutation (hg : g.checkNative raw = true)
+    (hh : h.checkNative raw' = true) (ranked : g.entryCheck = true ∨ h.entryCheck = true)
     (callers : CallerEnumeration A) (replies : ReplyEnumeration S)
     (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
     (input : Payload A) (prim : StatePrimitives Φ σ) (s : σ)
@@ -56,14 +58,15 @@ theorem Table.checkRankedEntries_rejects_of_refutation (hg : g.check raw = true)
       Shape.denote (withExitUB raw' h.selected) (Syntax.model prim (h.bindings (decodeRight input))) s) :
     g.checkRankedEntries? h raw raw' callers decodeLeft decodeRight replies left right = some false :=
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FiniteSupport.Model.Ranked.rejects
-    hg hh callers replies left right input prim s failed
+    hg hh ranked callers replies left right input prim s failed
 
-/-- For two independently admitted entry-ranked endpoints one executable
-comparison decides their deterministic refinement across store universes. -/
-theorem Table.checkRankedEntries_accepts_iff (hg : g.check raw = true) (hh : h.check raw' = true) :
+/-- Both endpoints must pass exact readback. If either entry is ranked,
+one comparison decides deterministic refinement across store universes. -/
+theorem Table.checkRankedEntries_accepts_iff (hg : g.checkNative raw = true)
+    (hh : h.checkNative raw' = true) (ranked : g.entryCheck = true ∨ h.entryCheck = true) :
     g.checkRankedEntries? h raw raw' callers decodeLeft decodeRight replies left right = some true ↔
       g.DeterministicRefines.{u,v} h raw raw' decodeLeft decodeRight :=
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FiniteSupport.Model.Ranked.accepts_iff
-    hg hh
+    hg hh ranked
 
 end Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands
