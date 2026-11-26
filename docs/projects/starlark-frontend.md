@@ -55,10 +55,10 @@ retain their existing types. Parser soundness and completeness remain open.
 to located `Modules.Resolve.Command`s. The module profile accepts top-level
 scalar assignments and expression statements, multiline `def` declarations
 with positional parameters and optional scalar defaults, call assignments
-of the form `name = function(arg, ...)` or `name = factory(...)(...)`, and
-leading load statements. Top-level name assignments also accept the
-collection displays of the call profile. The call occupies the entire
-right-hand side and starts with a bare identifier. The adapter reuses the logical-line, parameter,
+whose right-hand side is a postfix application chain, and leading load
+statements. Top-level name assignments also accept the collection displays
+of the call profile. An application chain starts with a bare identifier or a
+parenthesized scalar expression. The adapter reuses the logical-line, parameter,
 and suite parsers. It emits a normalized declaration for each `def` and a
 normalized `.call` expression for each call assignment. A top-level `pass`
 produces no command. [Module adapter](../../Silmaril/Languages/Starlark/Frontend/Module/Defs.lean)
@@ -158,10 +158,14 @@ named/expanded binding collision, and the single allocation from evaluating
 `list(xs)` as a spread operand. A general parser or
 source-to-normalized adequacy theorem remains open. [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
 
-### Call results as callees
+### Postfix applications
 
-A bare-name call can be followed by one additional application. This form
-is available at the root of a module assignment or call operand.
+A postfix chain is available at the root of a module assignment or call
+operand. The head can be a bare name or a parenthesized scalar expression,
+such as `(f if flag else g)`. The parser consumes each parenthesized argument
+group before advancing to the next suffix. Each suffix uses the expression
+parsed so far as its callee, so `factory(a)(b)(c)` associates to the left.
+The parser's budget depends on token count, with no fixed application cap.
 
 ```starlark
 # 雪
@@ -169,28 +173,39 @@ def identity(x):
   return x
 def choose(callable):
   return callable
-out = choose(identity)(7)
+out = choose(choose)(identity)(7)
 ```
 
-The inner application returns `identity` and the outer application publishes
-`out = 7`. Both use ordinary normalized call nodes. The outer callee span
-covers all of `choose(identity)`.
+The first application returns `choose`, the second returns `identity`, and
+the final one publishes `out = 7`. Each lowers to an ordinary normalized call
+node with its own location entry. The final callee span is the entire
+`choose(choose)(identity)` prefix. A parenthesized head includes its opening
+and closing delimiters.
 
 `lowerApplication_parts` identifies the lowered callee and relates the
 application and grouped operand spans to the normalized call shape.
 `denoteCall_calleeFirst` unfolds resolved call evaluation into a single
 callee evaluation followed by the operands from its returned state.
 `denoteCall_calleeError` proves that a callee error preserves the error state
-and bypasses operands. A successfully evaluated noncallable value reaches
-the dispatch check after operand evaluation and expansion.
+and bypasses operands. These properties apply at each link in a chain.
+A successfully evaluated noncallable value reaches the dispatch check
+after operand evaluation and expansion.
 [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
 
-The UTF-8 execution fixtures check that a factory allocation occurs once
-before the outer operand allocation, and that a failed factory retains its
-allocation while skipping the outer operand. The kernel checks concrete
-normalized call nodes and original UTF-8 spans. The parser bounds chains
-to two applications and excludes parenthesized callees, attribute calls,
-and calls inside displays or conditional branches.
+The UTF-8 fixtures exercise four applications, a conditional callee with a
+skipped branch, and a failure in the second application. Lean checks that the
+first two operand allocations survive that failure and the later operands are
+skipped. Pinned Go agrees on export and error outcomes, and a Go-only
+mutation control records the effects that survive. A kernel check compares
+three left-associated normalized applications and their original UTF-8
+spans, then checks the following assignment was parsed separately.
+
+The head's parenthesized expression uses the existing call-free scalar
+profile. Attribute lookup, subscripts, and calls within conditional branches
+or displays remain outside this grammar. Function bodies still use the
+scalar suite parser. The normalized checker and evaluator handle callable
+values, binding, runtime errors, and the existing restriction on recursive
+closure invocation.
 [Computed call checks](../../Silmaril/Languages/Starlark/Frontend/Module/ComputedCallChecks.lean)
 
 ### Leading loads and UTF-8 graphs
