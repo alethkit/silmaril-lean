@@ -785,6 +785,48 @@ header, rejects a duplicate producer in the alternate row, and checks
 returns after one or two feedbacks on nonempty memory.
 [Checked regression][table-regression]
 
+### A typed family of feedback slots
+
+`Width.Dispatch.Family.Choices` indexes the number of tests, with one
+additional default column. Each `.test` checks a typed word for nonzero
+and otherwise advances. A `.last` supplies the default, including in a
+family with one slot. Each column goes through the ordinary guarded-row
+checker as a projection of the shared producer table. The emitted ABI
+uses the mapped capture width and the same carried bank.
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Thms
+
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+
+example {entrySigs sigs : List (List PortTy)} (mapping : InputMap 3 4)
+    (source : Family.Source 3 3 entrySigs sigs 2)
+    (rows : ∀ slot, ∃ prior, Table.lowerChecked (source.row slot) = some prior) :
+    Family.lowerChecked mapping source = some (Family.lowerRTL (Family.mapCaptures mapping source)) :=
+  Family.lowerChecked_of_accepted mapping source rows
+```
+
+Slot `i` is successor 0 of RTL block `3 + i`. Full packets pass to block 1.
+`Family.checked_activation` proves the actual chain reaches that
+occurrence, reading the whole packet before rebinding and preserving
+memory. `Family.selected_phi_packet` relates the same packet to the
+existing explicit-Φ view of its native projection.
+
+`Family.rtl_runMain_fuel_iff` relates RTL instructions to the native
+sequence of selected slots. Entry costs one instruction per producer
+plus its jump. A continuing visit costs one per header producer, one
+continue branch, and `i + 1` dispatch instructions for slot `i`. The
+returning visit costs one per header producer, one branch, and one
+return. `Family.rtl_return_iff` relates finite witnesses with the same
+word and whole memory. The earlier two-slot API keeps its single
+dispatch instruction and its cost law. The three-to-four regression
+checks all three packets and return costs, rejects a malformed last
+column, and exercises the one-slot family.
+[Checked regression][table-regression]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Regression \

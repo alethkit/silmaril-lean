@@ -3,6 +3,7 @@ module
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Reindex.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Thms
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
 
@@ -636,5 +637,78 @@ example : (dispatchProg.runMain 10 0 (words rightInput) mem).returnedValues? = n
 example : Width.Dispatch.lowerChecked removeCapture { dispatchSource with
     other := .cons (.output (0 : Fin 2) .head)
       (.cons (.output (0 : Fin 2) .head) (.cons (.arg (old 1)) .nil)) } = none := by cbv
+
+private def familySource : Width.Dispatch.Family.Source 3 3 Entry Header 2 :=
+  ⟨source,
+    .test (.arg (prefixPort (capture 0))) (source.phiInputs .backedge)
+      (.test (.arg (prefixPort (capture 1))) dispatchSource.other
+        (.last (.cons (.output (0 : Fin 2) .head)
+          (.cons (.arg (old 2)) (.cons (.arg (old 0)) .nil)))))⟩
+
+private def familyProg :=
+  Width.Dispatch.Family.lowerRTL (Width.Dispatch.Family.mapCaptures widenCaptures familySource)
+
+private def lastPlan : Plan 3 Entry := (recognize (familySource.row (2 : Fin 3))).get (by cbv)
+private def lastTarget : Checked.Phi.Targets := (lastPlan.rtl, Generic.lower (familySource.row (2 : Fin 3)))
+private theorem lastAccepted : lowerChecked (familySource.row (2 : Fin 3)) = some lastTarget := by cbv
+
+private theorem familyAccepted :
+    Width.Dispatch.Family.lowerChecked widenCaptures familySource = some familyProg := by
+  apply Width.Dispatch.Family.lowerChecked_of_accepted
+  intro slot
+  refine Fin.cases ?_ (fun rest => ?_) slot
+  · exact ⟨targets, accepted⟩
+  · refine Fin.cases ?_ (fun last => ?_) rest
+    · exact ⟨otherTarget, by cbv⟩
+    · have eq : last = 0 := Fin.eq_zero last
+      subst last
+      exact ⟨lastTarget, lastAccepted⟩
+
+example : (familyProg.func? 0).map (·.sig.params) = some 4 :=
+  (Width.Dispatch.Family.lowerChecked_sound widenCaptures familySource familyAccepted).2.2.2
+
+private def middleInput : WordTuple 4 := .cons (0 : Word) (bank 1 99 5)
+private def defaultInput : WordTuple 4 := .cons (0 : Word) (bank 0 99 5)
+
+private def feedbackAt (fuel : Nat) (input : WordTuple 4) : Option (Nat × List Word × Memory) := do
+  let state ← runningState? (familyProg.runMain fuel 0 (words input) mem)
+  let packet ← state.frame.readAll (paramRegs 4 3)
+  pure (state.point.label, packet, state.mem)
+
+-- The extra tests consume real instructions and leave the old bank in place.
+example : feedbackAt 6 wideInput = some (3, [1, 3, 5], mem) := by cbv
+example : feedbackAt 7 wideInput = some (1, [4, 3, 5], mem) := by cbv
+example : feedbackAt 7 middleInput = some (4, [-5, -4, 5], mem) := by cbv
+example : feedbackAt 8 middleInput = some (1, [-9, 5, -4], mem) := by cbv
+example : feedbackAt 8 defaultInput = some (5, [-5, -5, 5], mem) := by cbv
+example : feedbackAt 9 defaultInput = some (1, [-10, 5, -5], mem) := by cbv
+
+example : familyProg.runMain 11 0 (words wideInput) mem = .returned [7] mem := by cbv
+example : familyProg.runMain 12 0 (words middleInput) mem = .returned [-4] mem := by cbv
+
+private theorem defaultReturns :
+    familySource.ReturnsAlong (widenCaptures.pull defaultInput) [2]
+      (source.initial model (widenCaptures.pull defaultInput)) (-5) :=
+  .feedback (next := bank (-10) 5 (-5)) (by cbv) (.exit (by cbv))
+
+example : familyProg.runMain 13 0 (words defaultInput) mem = .returned [-5] mem :=
+  (Width.Dispatch.Family.rtl_runMain_fuel_iff widenCaptures familySource familyAccepted
+    defaultInput mem mem [-5] 13).mpr ⟨[2], -5, defaultReturns, by decide, rfl, rfl⟩
+
+example : (familyProg.runMain 12 0 (words defaultInput) mem).returnedValues? = none := by cbv
+
+-- Duplicate the same computed result within the third column.
+example : Width.Dispatch.Family.lowerChecked widenCaptures { familySource with
+    rows := .test (.arg (prefixPort (capture 0))) (source.phiInputs .backedge)
+      (.test (.arg (prefixPort (capture 1))) dispatchSource.other
+        (.last (.cons (.output (0 : Fin 2) .head)
+          (.cons (.output (0 : Fin 2) .head) (.cons (.arg (old 0)) .nil))))) } = none := by cbv
+
+private def singletonSource : Width.Dispatch.Family.Source 3 3 Entry Header 0 :=
+  ⟨source, .last (source.phiInputs .backedge)⟩
+
+example : (Width.Dispatch.Family.lowerChecked widenCaptures singletonSource).map
+    (fun program => (program.runMain 11 0 (words wideInput) mem).returnedValues?) =
+    some (some [7]) := by cbv
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table

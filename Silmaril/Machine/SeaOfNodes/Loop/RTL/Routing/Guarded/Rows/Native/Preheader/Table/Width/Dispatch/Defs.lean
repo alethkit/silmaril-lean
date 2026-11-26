@@ -33,13 +33,17 @@ structure Source (captures bank : Nat) (entrySigs sigs : List (List PortTy)) whe
 
 variable (p : Source captures bank entrySigs sigs)
 
+/-- Project one typed feedback column onto the shared native guarded table. -/
+def withFeedback (graph : Width.Source captures bank entrySigs sigs)
+    (column : Feedback captures bank sigs) : Width.Source captures bank entrySigs sigs :=
+  { graph with
+    phiInputs
+      | .entry => graph.phiInputs .entry
+      | .backedge => column }
+
 /-- Each dispatch arm has an ordinary native guarded-row projection. -/
 def Source.row (side : Bool) : Width.Source captures bank entrySigs sigs :=
-  if side then p.primary else
-    { p.primary with
-      phiInputs
-        | .entry => p.primary.phiInputs .entry
-        | .backedge => p.other }
+  if side then p.primary else withFeedback p.primary p.other
 
 def Source.column (side : Bool) : Feedback captures bank sigs := (p.row side).phiInputs .backedge
 
