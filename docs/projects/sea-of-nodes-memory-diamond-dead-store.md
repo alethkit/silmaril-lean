@@ -498,6 +498,32 @@ complete reuse of the admitted stages has no diagnostic.
 [Two-cut fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Replay/Regression.lean)
 [Occurrence reader fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Reuse/Regression.lean)
 
+### Resume discovery after a recorded refusal
+
+`MixedTail.Reuse.Chain.Recovery.lower` opts into fresh checked
+discovery if reuse refuses. It retains the original diagnostic and
+recorded pending stages and starts discovery from the last accepted
+emitted CFG and its exact typed entry. The replay uses the same
+Store-count bound as `MixedTail.Replay.discover`, with new checks on
+each residual table and every original Region occurrence at the new
+input. If discovery admits zero cuts, the recorded prefix supplies the
+exact endpoint. Full reuse skips discovery.
+
+The original and recovered CFGs agree on the selected occurrence,
+complete join packet, return word and full final buffer at every common
+CF budget for each initialized buffer at the new invocation. The
+entry theorem preserves the readbacks in order and counts both kinds
+of deletion. The laws concern this admitted finite mixed-entry profile
+and its existing discovery checker.
+
+The two-cut fixture refuses the recorded right Store and instead cuts
+the later side Store, which every route overwrites. It exercises all
+three occurrences, including repeated predecessor IDs, and shows the
+intermediate entry buffer and final readbacks. The original two-cut
+fixture also exercises a recovery attempt with no eligible fresh cut.
+[API and theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Reuse/Chain/Recovery/Thms.lean)
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Replay/Regression.lean)
+
 ## Bypass a single-user Store inside one arm
 
 `DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter
