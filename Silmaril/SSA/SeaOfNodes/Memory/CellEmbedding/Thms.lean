@@ -1,0 +1,51 @@
+module
+
+public import Silmaril.SSA.SeaOfNodes.Memory.CellEmbedding.Defs
+import Silmaril.Proofs.SSA.SeaOfNodes.Memory.CellEmbedding.Body
+
+/-! The frame is unchanged by in-image loads and stores. -/
+
+public section
+
+namespace Silmaril.SSA.SeaOfNodes.Memory.CellEmbedding
+
+open RVSDG (Port Tuple)
+
+variable {small large : Nat} {args : List ValueSort}
+
+theorem read_extend (e : Embedding small large) (frame : Heap large) (source : Heap small) (a : Address small) :
+    (extend e frame source).read (e a) = source.read a :=
+  Proofs.extend_apply_image e frame source a
+
+theorem eq_extend_iff (e : Embedding small large) (frame final : Heap large) (source : Heap small) :
+    final = extend e frame source ↔ restrict e final = source ∧ SameFrame e frame final :=
+  Proofs.eq_extend_iff e frame final source
+
+theorem restrict_extend (e : Embedding small large) (frame : Heap large) (source : Heap small) :
+    restrict e (extend e frame source) = source :=
+  ((eq_extend_iff e frame _ source).mp rfl).1
+
+theorem extend_restrict (e : Embedding small large) (heap : Heap large) :
+    extend e heap (restrict e heap) = heap :=
+  Proofs.extend_restrict e heap
+
+theorem result_injective (e : Embedding small large) (frame : Heap large) :
+    Function.Injective (result e frame) :=
+  Proofs.result_injective e frame
+
+theorem write_extend (e : Embedding small large) (frame : Heap large) (source : Heap small)
+    (a : Address small) (word : Word) :
+    (extend e frame source).write (e a) word = extend e frame (source.write a word) :=
+  Proofs.write_extend e frame source a word
+
+theorem input_get (e : Embedding small large) (values : Tuple (Val small) args)
+    {sort : ValueSort} (port : Port args sort) :
+    (input e values).get port = value e sort (values.get port) :=
+  Proofs.input_get e values port
+
+theorem denote_graph (e : Embedding small large) (frame : Heap large) (graph : Memory.Graph args)
+    (inputs : Tuple (Val small) args) (initial : Heap small) :
+    graph.denote (input e inputs) (extend e frame initial) = result e frame (graph.denote inputs initial) :=
+  Proofs.denote_graph e frame graph inputs initial
+
+end Silmaril.SSA.SeaOfNodes.Memory.CellEmbedding

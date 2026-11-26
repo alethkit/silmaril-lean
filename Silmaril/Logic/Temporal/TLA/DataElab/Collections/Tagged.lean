@@ -3,6 +3,7 @@ module
 public import Silmaril.Logic.Temporal.TLA.DataElab.Collections.Defs
 public import Silmaril.Logic.Temporal.TLA.DataElab.Tagged.Defs
 public import Silmaril.Logic.Temporal.TLA.Data.Tagged.Collections.RecordSet.Defs
+public import Silmaril.Logic.Temporal.TLA.Data.Tagged.Except.Defs
 
 /-! The tagged graph and collection adapter for checked source expressions. -/
 
@@ -25,9 +26,11 @@ abbrev CollectionPolicy := InvalidCollection.{u} → Value.{u}
 
 /-- Fix `invalid` with `policy` across valuations. The domain, range and field
 bounds must decode as sets. A malformed collection invokes `invalid` with its
-original operands in source order. -/
+original operands in source order. Graph operations use `unspecified`, with
+the same operand and path policies as the mathematical tagged operations. -/
 noncomputable def Policy.collectionOperations (policy : Policy.{u})
-    (invalid : CollectionPolicy.{u}) : CollectionOperations Value.{u} where
+    (invalid : CollectionPolicy.{u}) (unspecified : Unspecified.{u} := policy.numeric) :
+    CollectionOperations Value.{u} where
   toDataOperations := policy.operations
   function := fun bound body =>
     match bound.asSet with
@@ -43,6 +46,12 @@ noncomputable def Policy.collectionOperations (policy : Policy.{u})
       Value.record names (fun name => (fields.lookup name).getD (invalid (.record fields)))
     else invalid (.record fields)
   recordSet := Value.recordSet (fun error fields => invalid (.recordSet error fields))
+  domain := Value.domain unspecified
+  apply := Value.apply unspecified
+  tuple := Value.tuple
+  string := Value.string
+  except := fun root clauses =>
+    Value.updateClauses unspecified root (clauses.map fun (keys, replacement) => ⟨keys, replacement⟩)
 
 end
 end Silmaril.Logic.Temporal.TLA.DataElab.Tagged

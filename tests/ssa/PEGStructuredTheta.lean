@@ -6,11 +6,13 @@ import Silmaril.SSA.Peggy.Bridge.Theta.LambdaSSA.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.MLIR.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaRTL.Thms
+import Silmaril.Machine.PEG.CountedLoop.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Thms
 meta import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Defs
 meta import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Schedule.Defs
 meta import Silmaril.SSA.PEG.Bridge.Theta.Region.MLIR.Defs
 meta import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaRTL.Defs
+meta import Silmaril.Machine.PEG.CountedLoop.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Defs
 
 namespace Silmaril.SSA.PEG.Bridge.Theta.Tests
@@ -591,6 +593,96 @@ set_option interpreter.prefer_native false in
 #eval (rtlShape, rtlPacket 5 2 10 1, rtlPacket 6 2 10 1, rtlPacket 2 0 10 1)
 
 end LambdaRTL
+
+
+section MachineRTL
+
+open Silmaril.Machine.Lir (Memory)
+open Silmaril.Machine.PEG.CountedLoop (Image bank words)
+
+private abbrev nativeWord := Silmaril.Machine.PEG.CountedLoop.wordProfile Unit
+
+private def nativeOps : Silmaril.MLIR.Pure.Eval (Region.MLIR.Opcode nativeWord Op)
+  | _, _, .apply .pred, .cons n .nil => n - 1
+  | _, _, .apply .nonzero, .cons n .nil => BitVec.ofBool (n != 0)
+  | _, _, .apply .not, .cons flag .nil => ~~~flag
+  | _, _, .apply .add, .cons x (.cons y .nil) => x + y
+  | _, _, .apply .addAlt, .cons x (.cons y .nil) => x + y + 1
+
+-- The checked PEG bundle compiles to exactly the admitted SCF shape.
+private def nativeImage : Image (Region.MLIR.lower nativeWord bundle) :=
+  { nonzero := Region.MLIR.Opcode.apply (profile := nativeWord) Op.nonzero
+    pred := Region.MLIR.Opcode.apply (profile := nativeWord) Op.pred
+    add := Region.MLIR.Opcode.apply (profile := nativeWord) Op.add
+    shape := rfl }
+
+private theorem nativeAgrees : nativeImage.Agrees nativeOps where
+  nonzero n := by
+    change (BitVec.ofBool (n != 0)).getLsbD 0 = _
+    simp
+  pred _ := rfl
+  add _ _ := rfl
+
+private abbrev nativeModel := Region.MLIR.model nativeWord nativeOps
+private abbrev nativeRtl := Silmaril.Machine.PEG.CountedLoop.lower nativeImage
+
+private theorem nativeNegation (flag : Bool) :
+    nativeModel.run bundle.scalar.descriptor.negate (.cons ⟨flag⟩ .nil) = ⟨!flag⟩ := by
+  cases flag <;> rfl
+
+private def nativeMemory : Memory := Memory.ofList 2 [0xa5, 0x5a]
+
+example : Silmaril.Machine.PEG.CountedLoop.fromWords [10, 1] = none := rfl
+
+-- The latch passes right-old and left-old + right-old on the same backedge.
+example : Silmaril.Machine.PEG.CountedLoop.latch.term =
+    .jump 1 [.nextCount, .after 2, .nextRight] := rfl
+
+example : (match nativeRtl.runMain 6 0 (words (bank 2 10 1)) nativeMemory with
+  | .running s => (s.point.label, s.frame.readAll [.before 0, .before 1, .before 2])
+  | _ => (0, none)) = (1, some [1, 1, 11]) := rfl
+
+example : (nativeRtl.runMain 11 0 (words (bank 2 10 1)) nativeMemory).returnedValues? = none := rfl
+
+example : nativeRtl.runMain 12 0 (words (bank 2 10 1)) nativeMemory =
+    .returned [0, 11, 12] nativeMemory := rfl
+
+example : nativeRtl.runMain 4 0 (words (bank 0 10 1)) nativeMemory =
+    .returned [0, 10, 1] nativeMemory := rfl
+
+example : (match nativeRtl.runMain 3 0 (words (bank 0 10 1)) nativeMemory with
+  | .running s => (s.point.label, s.frame.get .nextCount, s.frame.get .nextRight)
+  | _ => (0, none, none)) = (3, none, none) := rfl
+
+example : (nativeRtl.runMain 8 0
+    (words (bank 1 0xffff_ffff_ffff_ffff 2)) nativeMemory).returnedValues? = some [0, 2, 1] := rfl
+
+example (idx : Index 1) :
+    bundledGraph.observe nativeModel.toPEG
+      (bundledGraph.denote nativeModel.toPEG (nativeWord.decode carried (bank 2 10 1))
+        bundle.demandWellFounded) idx = (nativeWord.decode carried (bank 0 11 12)).map (fun _ => some) :=
+  ((Silmaril.Machine.PEG.CountedLoop.returns_iff_observe_bank bundle nativeOps nativeImage nativeAgrees
+    nativeNegation (bank 2 10 1) (bank 0 11 12) nativeMemory nativeMemory idx).mp ⟨12, rfl⟩).1
+
+example (idx : Index 1) :
+    bundledGraph.observe nativeModel.toPEG
+      (bundledGraph.denote nativeModel.toPEG (nativeWord.decode carried (bank 0 10 1))
+        bundle.demandWellFounded) idx = (nativeWord.decode carried (bank 0 10 1)).map (fun _ => some) :=
+  ((Silmaril.Machine.PEG.CountedLoop.returns_iff_observe_bank bundle nativeOps nativeImage nativeAgrees
+    nativeNegation (bank 0 10 1) (bank 0 10 1) nativeMemory nativeMemory idx).mp ⟨4, rfl⟩).1
+
+private def runNative (fuel : Nat) (input : Env Silmaril.Machine.PEG.CountedLoop.Bank) :
+    Option (List Nat) :=
+  (nativeRtl.runMain fuel 0 (words input) nativeMemory).returnedValues?.map
+    (fun result => result.map BitVec.toNat)
+
+set_option interpreter.prefer_native false in
+/-- info: (none, some [0, 11, 12], some [0, 10, 1], some [0, 2, 1]) -/
+#guard_msgs in
+#eval (runNative 11 (bank 2 10 1), runNative 12 (bank 2 10 1), runNative 4 (bank 0 10 1),
+  runNative 8 (bank 1 0xffff_ffff_ffff_ffff 2))
+
+end MachineRTL
 
 end Silmaril.SSA.PEG.Bridge.Theta.Region.Tests
 
