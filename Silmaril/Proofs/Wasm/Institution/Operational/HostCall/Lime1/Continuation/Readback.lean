@@ -157,6 +157,14 @@ private theorem i32_suffix {stack : List Value} {types : List NumType}
   cases vt
   exact ⟨operands, bits, rfl, operandsTyped⟩
 
+private theorem render_lookup {saved args : List Value} {target : Option (Site H)} {ops : List (Op H)} :
+    render mem outer active results ⟨bytes, .afterLookup saved args target ops, labels⟩ =
+      ⟨mem.store bytes, outer, framed active [.label (labelBranchTypes results labels).length
+        (labelContinuation labels) (values (saved ++ args) ++ IndirectSite.lookupHead target :: code ops)]
+        (scopeFor results labels)⟩ := by
+  cases target <;> simp [render, Phase.afterLookup, Phase.renderCode, Phase.renderIn, IndirectSite.lookupHead,
+    plug_invoke, values_append, List.append_assoc]
+
 private theorem source_read {stack : List Value} {ops : List (Op H)}
     (ready : Ready mem host active results (.source stack ops) labels)
     (move : Internal (render mem outer active results ⟨bytes, .source stack ops, labels⟩) dst) :
@@ -206,6 +214,13 @@ private theorem source_read {stack : List Value} {ops : List (Op H)}
       obtain rfl := (Computed.lime_direct_call_iff (stack := saved ++ args) (tail := code ops) resolved).mp inside
       exact ⟨⟨bytes, .invoke saved site args ops, labels⟩, .resolve typed,
         by simp [render, Phase.renderCode, Phase.renderIn, plug_invoke, List.append_assoc]⟩
+    | callIndirect indirect =>
+      obtain ⟨_, stackTyped, linked, _⟩ := checked_indirect ready.2.1
+      obtain ⟨operands, selector, rfl, operandsTyped⟩ := i32_suffix stackTyped
+      obtain ⟨saved, args, rfl, _, typed⟩ := List.map_eq_append_iff.mp operandsTyped
+      obtain ⟨target, found, rfl⟩ := (IndirectSite.step_iff (memory := mem) (stack := saved ++ args)
+        (selector := selector) (rest := code ops) linked).mp inside
+      exact ⟨_, .callIndirect typed found, render_lookup.symm⟩
     | br depth => exact (branch ⟨depth, rfl⟩).elim
     | brIf depth =>
       obtain ⟨_, _, typed, _, _⟩ := checked_brIf ready.2.1
@@ -457,6 +472,13 @@ private theorem sound {a b : State H} (ready : Ready mem host active results a.p
     apply Step.of_internal
     change Step CallFrame.limeNoHost _ _
     simpa [render, Phase.renderCode, Phase.renderIn, plug_invoke, code, expr, Op.instr, expression, List.append_assoc, values] using move
+  | @callIndirect bytes saved args selector indirect target ops labels _ found =>
+    obtain ⟨_, _, linked, _⟩ := checked_indirect ready.2.1
+    have lookup := (IndirectSite.step_iff (memory := mem) (bytes := bytes) (stack := saved ++ args)
+      (selector := selector) (rest := code ops) linked).mpr ⟨target, found, rfl⟩
+    rw [render_lookup]
+    exact Step.of_internal (framed_step (.label lookup (labelBranchTypes results labels).length
+      (labelContinuation labels)))
   | @returned bytes next saved site args ops vs labels _ _ answer =>
     have atHost := located (mem := mem) (labels := labels) (results := results) (outer := outer) (active := active)
       (bytes := bytes) (saved := saved) (ops := ops) ready.2.1 ready.2.2.1

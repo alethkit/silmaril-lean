@@ -37,6 +37,7 @@ inductive Op (H : Type) where
   | get (index : LocalIdx)
   | drop
   | call (index : FuncIdx) (site : Site H)
+  | callIndirect (site : IndirectSite)
   | br (depth : LabelIdx)
   | brIf (depth : LabelIdx)
   | brTable (depths : List LabelIdx) (fallback : LabelIdx)
@@ -48,6 +49,7 @@ def Op.instr {H : Type} : Op H → Wasm.Lime1.Instr
   | .get index => .localGet index
   | .drop => .drop
   | .call index _ => .call index
+  | .callIndirect site => .callIndirect site.typeIndex
   | .br depth => .br depth
   | .brIf depth => .brIf depth
   | .brTable depths fallback => .brTable depths fallback
@@ -79,6 +81,11 @@ inductive Checked {H : Type} (base : Store H) (module : ModuleInst)
       (resolved : module.funcs[index.toNat]? = some site.address) (allocated : site.Allocated base)
       (tail : Checked base module locals targets results (saved ++ site.type.results) ops) :
       Checked base module locals targets results (saved ++ site.type.params) (.call index site :: ops)
+  | callIndirect {targets} {results saved : List NumType} {site : IndirectSite} {ops : List (Op H)}
+      (linked : site.Linked base module)
+      (tail : Checked base module locals targets results (saved ++ site.signature.results) ops) :
+      Checked base module locals targets results ((saved ++ site.signature.params) ++ [.int .i32])
+        (.callIndirect site :: ops)
   /-- An unconditional transfer skips the suffix in its current label. -/
   | br {targets} {depth : LabelIdx} {results scratch payload : List NumType} {ops : List (Op H)}
       (target : targets[depth.toNat]? = some payload) :
@@ -118,6 +125,8 @@ inductive Contract {H : Type} {base : Store H} (mem : Memory32 base) (host : Hos
   | drop {ops} (tail : Contract mem host ops) : Contract mem host (.drop :: ops)
   | call {index site ops} (siteContract : site.Contract mem host) (tail : Contract mem host ops) :
       Contract mem host (.call index site :: ops)
+  | callIndirect {site ops} (siteContract : site.Contract mem host) (tail : Contract mem host ops) :
+      Contract mem host (.callIndirect site :: ops)
   | br {depth ops} : Contract mem host (.br depth :: ops)
   | brIf {depth ops} (tail : Contract mem host ops) : Contract mem host (.brIf depth :: ops)
   | brTable {depths fallback ops} : Contract mem host (.brTable depths fallback :: ops)
@@ -156,6 +165,12 @@ inductive Phase (H : Type) where
 /-- Source and lowered branches share the same native instruction and suffix. -/
 abbrev Phase.branch {H : Type} (stack : List Value) (depth : LabelIdx) (ops : List (Op H)) : Phase H :=
   .source stack (.br depth :: ops)
+
+def Phase.afterLookup {H : Type} (saved args : List Value) (target : Option (Site H))
+    (ops : List (Op H)) : Phase H :=
+  match target with
+  | some callee => .invoke saved callee args ops
+  | none => .trapped (saved ++ args) (code ops)
 
 structure State (H : Type) where
   bytes : ByteArray
@@ -313,6 +328,11 @@ inductive Edge {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSem
   | resolve {bytes saved args index site ops labels} (typed : site.Arguments args) :
       Edge mem host active results ⟨bytes, .source (saved ++ args) (.call index site :: ops), labels⟩
         ⟨bytes, .invoke saved site args ops, labels⟩
+  | callIndirect {bytes saved args selector site target ops labels}
+      (typed : args.map Value.type = site.signature.params) (found : site.Lookup base selector target) :
+      Edge mem host active results
+        ⟨bytes, .source ((saved ++ args) ++ [Value.int .i32 selector]) (.callIndirect site :: ops), labels⟩
+        ⟨bytes, .afterLookup saved args target ops, labels⟩
   | returned {bytes next saved site args ops vs labels} (live : mem.Live next)
       (typed : site.TypedResult (.values vs))
       (answer : host site.code (mem.store bytes) args (.returned (mem.store next) (.values vs))) :

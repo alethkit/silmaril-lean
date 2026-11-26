@@ -1,12 +1,13 @@
 module
 
 public import Silmaril.Wasm.Lime1.Execution.Callout
+public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Defs
 
 @[expose] public section
 
 namespace Silmaril.Wasm.Institution.Operational.HostCall.Lime1
 
-open Execution.Runtime (EvalCtx Frame FuncAddr MemAddr MemInst Result Value)
+open Execution.Runtime (EvalCtx Frame FuncAddr FuncInst MemAddr MemInst ModuleInst Result Value)
 open Wasm.Lime1.Execution
 
 /-- The designated memory is allocated in the base store. Its live byte array
@@ -26,7 +27,7 @@ def Live {H : Type} {base : Store H} (memory : Memory32 base) (bytes : ByteArray
 
 end Memory32
 
-/-- One direct host target and its complete ordered numeric signature. -/
+/-- An allocated host target and its complete ordered numeric signature. -/
 structure Site (H : Type) where
   address : FuncAddr
   type : Wasm.Lime1.FuncType
@@ -57,5 +58,43 @@ def Site.callout {H : Type} (site : Site H) (context : EvalCtx Wasm.Lime1.Instr)
 def Site.pending {H : Type} (site : Site H) (s : Store H) (outer : Frame)
     (context : EvalCtx Wasm.Lime1.Instr) (args : List Value) : Config H :=
   ⟨s, outer, context.plug value (values args ++ [.invoke site.address])⟩
+
+abbrev IndirectSite := CallResolution.Indirect.Site
+
+/-- The consulted table and expected type are fixed in the active module and
+base store. All nonnull entries are allocated. Matching entries denote hosts. -/
+structure IndirectSite.Linked {H : Type} (site : IndirectSite) (base : Store H)
+    (module : ModuleInst) : Prop where
+  tableAt : frameTable base ⟨[], module⟩ = some site.table
+  signatureAt : module.types[site.typeIndex.toNat]? = some site.signature
+  entries : ∀ address, some address ∈ site.table.refs →
+    ∃ fn : FuncInst Wasm.Lime1.Func H, base.funcs[address.value]? = some fn ∧
+      (fn.type = site.signature → ∃ code, fn = .host site.signature code)
+
+/-- Each matching, allocated target supplies the ordinary host contract. -/
+def IndirectSite.Contract {H : Type} {base : Store H} (site : IndirectSite) (memory : Memory32 base)
+    (host : HostSemantics H) : Prop :=
+  ∀ address code, some address ∈ site.table.refs →
+    (⟨address, site.signature, code⟩ : Site H).Allocated base →
+    (⟨address, site.signature, code⟩ : Site H).Contract memory host
+
+/-- A single native lookup supplies an allocated host or one of the three
+trap witnesses. The selector is the unsigned i32 table index. -/
+inductive IndirectSite.Lookup {H : Type} (site : IndirectSite) (base : Store H) (selector : BitVec 32) :
+    Option (Site H) → Prop where
+  | bounds (entry : site.table.refs[selector.toNat]? = none) : site.Lookup base selector none
+  | null (entry : site.table.refs[selector.toNat]? = some none) : site.Lookup base selector none
+  | mismatch {address : FuncAddr} {fn : FuncInst Wasm.Lime1.Func H}
+      (entry : site.table.refs[selector.toNat]? = some (some address))
+      (allocated : base.funcs[address.value]? = some fn) (different : fn.type ≠ site.signature) :
+      site.Lookup base selector none
+  | host {address : FuncAddr} {code : H}
+      (entry : site.table.refs[selector.toNat]? = some (some address))
+      (allocated : (⟨address, site.signature, code⟩ : Site H).Allocated base) :
+      site.Lookup base selector (some ⟨address, site.signature, code⟩)
+
+def IndirectSite.lookupHead {H : Type} : Option (Site H) → Admin
+  | some target => .invoke target.address
+  | none => .trap
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1
