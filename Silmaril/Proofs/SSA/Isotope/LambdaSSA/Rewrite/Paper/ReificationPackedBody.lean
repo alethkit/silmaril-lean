@@ -30,16 +30,6 @@ private theorem applyPacked_eq :
   funext i
   cases i <;> rfl
 
-theorem applyPackedTerm_typed {t : Tm Φ} (ht : Tm.HasType [product X A] t D) :
-    Tm.HasType [A, X] (applyPackedTerm t) D := by
-  apply Tm.HasType.subst _ ht
-  intro i B hi
-  cases i with
-  | zero =>
-    cases Option.some.inj hi
-    exact .pair (.var (i := 1) rfl) (.var (i := 0) rfl)
-  | succ i => simp [At] at hi
-
 theorem applyPacked_typed (hp : ValueBranches [Silmaril.product X A] p [D]) :
     ValueBranches [A, X] (applyPacked p) [D] := by
   rw [applyPacked_eq]

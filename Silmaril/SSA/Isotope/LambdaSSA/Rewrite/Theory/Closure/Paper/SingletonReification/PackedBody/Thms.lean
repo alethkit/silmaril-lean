@@ -18,11 +18,6 @@ universe u v
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ] {X A D : τ} {p : Region Φ}
 
-/-- The term counterpart of supplying a packed singleton body. -/
-theorem applyPackedTerm_typed {t : Tm Φ} (ht : Tm.HasType [Silmaril.product X A] t D) :
-    Tm.HasType [A, X] (applyPackedTerm t) D :=
-  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ReificationPackedBody.applyPackedTerm_typed ht
-
 /-- The constructor pair of the two incoming variables supplies the packed body. -/
 theorem applyPacked_typed (hp : ValueBranches [Silmaril.product X A] p [D]) :
     ValueBranches [A, X] (applyPacked p) [D] :=

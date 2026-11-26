@@ -1,7 +1,6 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedLet.Defs
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Category.Values.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Soundness.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Categorical.Singleton.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.RetainedLet
@@ -45,7 +44,6 @@ open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
-open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (duplicate)
 
 universe u₁ u₂ v₁ v₂
 
@@ -66,17 +64,6 @@ theorem returnOnce_denotation (ha : Tm.HasType [X] a A)
     denoteSingletonRegion J M (returnOnce_typed ha).hasType =
       J.map ((λ_ (M.obj X)).inv : M.obj X ⟶ ctxObj M [X]) ≫ f :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.RetainedLet.returnOnce_denotation J M ha d
-
-/-- Decoding an arbitrary returned body as a region binder or as a returning
-term binder gives the same denotation. -/
-theorem unpack_return_let₂_denotation
-    (copyCentral : ∀ E : V, PremonoidalCategory.IsCentral (J.map (duplicate E) ≫
-      (Functor.StrongPremonoidal.tensorIso (J := J) E E).inv))
-    {X A D : τ} {b : Tm Φ} (hb : Tm.HasType [A, X] b D) :
-    denoteRegion J M (unpackBody_typed (returnRegion_typed hb)).hasType =
-      denoteRegion J M (returnRegion_typed (.let₂ (.var (i := 0) rfl)
-        (hb.rename (((Ren.wk [] (product X A)).lift X).lift A)))).hasType :=
-  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.RetainedLet.unpack_return_let₂_denotation J M copyCentral hb
 
 /-- Soundness in the existing Paper model interface for the arbitrary
 scrutinee syntax equation. -/
