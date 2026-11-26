@@ -31,8 +31,9 @@ variable {κ V K α : Type 1} [DecidableEq V] [DecidableEq K]
 
 local notation "I" => (interface (κ := κ) seed names)
 
-variable {a : Admission P (interface (κ := κ) seed names) (fun _ => []) source}
-  (checked : Checked a opcode) (atom : Unit → α)
+variable {fields : K → List (V × Ty κ)} {a : Admission P (interface (κ := κ) seed names) fields source}
+  {profile : LiveProfile P.Instr}
+  (checked : Checked a opcode (liveOpcodes profile)) (atom : Unit → α)
   (query : Query (signature P.Instr) E) (instr : Primitive E P.Instr α)
   (input : V × Nat → Value α)
 
@@ -82,7 +83,7 @@ private theorem bind_injective {X Y : Type 1} (f : X → Y) (g : Y → X) (inv :
   have inverse (x : X) : g (f x) = x := inv x
   simpa only [bind_assoc, pure_bind, inverse, bind_pure] using lifted
 
-private theorem treeNumber_eq (checked : Checked a opcode) (p : K × Value α) :
+private theorem treeNumber_eq (checked : Checked a opcode (liveOpcodes profile)) (p : K × Value α) :
     treeNumber (labelIndex (lexical).blocks (I).exits) p = number names p := by
   have atName := checked.numbered (names.symm p.1)
   rw [Equiv.apply_symm_apply] at atName
@@ -90,7 +91,7 @@ private theorem treeNumber_eq (checked : Checked a opcode) (p : K × Value α) :
   rw [atName]
   rfl
 
-private theorem block_hit (checked : Checked a opcode) (i : Fin 3) :
+private theorem block_hit (checked : Checked a opcode (liveOpcodes profile)) (i : Fin 3) :
     (lexical).blocks.findFinIdx? (fun item => names (i.castAdd 2) == item.1) =
       some (Fin.cast checked.count.symm i) := by
   have numbered := checked.numbered (i.castAdd 2)
@@ -105,7 +106,7 @@ private theorem block_hit (checked : Checked a opcode) (i : Fin 3) :
       simp [labelIndex, hit, ext, checked.count] at numbered
       omega
 
-private theorem exit_miss (checked : Checked a opcode) (i : TwoRequest.Tag) :
+private theorem exit_miss (checked : Checked a opcode (liveOpcodes profile)) (i : TwoRequest.Tag) :
     (lexical).blocks.lookup (names (i.natAdd 3)) = none := by
   apply List.lookup_eq_none_iff.mpr
   have noHit : (lexical).blocks.findFinIdx? (fun item => names (i.natAdd 3) == item.1) = none := by
@@ -120,9 +121,8 @@ private theorem exit_miss (checked : Checked a opcode) (i : TwoRequest.Tag) :
       omega
   simpa [List.findFinIdx?_eq_none_iff, bne] using noHit
 
-private theorem finish_number (names : Fin 5 ≃ K) (i : TwoRequest.Tag) :
-    treeExitNumber (α := α) [names 3, names 4] (names (i.natAdd 3), .pair .unit .unit) =
-      (i.val, .pair .unit .unit) := by
+private theorem finish_number (names : Fin 5 ≃ K) (i : TwoRequest.Tag) (payload : Value α) :
+    treeExitNumber [names 3, names 4] (names (i.natAdd 3), payload) = (i.val, payload) := by
   have distinct : names 4 ≠ names 3 := fun h => (by decide : (4 : Fin 5) ≠ 3) (names.injective h)
   fin_cases i <;> simp [treeExitNumber, treeNumber, List.findFinIdx?_cons, distinct]
 
@@ -139,12 +139,12 @@ private theorem cast_payload_val {A B : Syntax.Ty} (h : A = B) (p : Syntax.Paylo
     (cast (congrArg Syntax.Payload h) p).val = p.val := by cases h; rfl
 
 private theorem eval_entry (routes : Routes) (instr : Primitive E P.Instr α) (env : Env α) :
-    region instr env (expected opcode routes).entry.erase = pure (0, .pair (env 0) .unit) := by
+    region instr env (expected opcode routes (liveOpcodes profile)).entry.erase = pure (0, .pair (env 0) .unit) := by
   simp [expected, Flat.erase, Morphism.CaseSSA.erase, region, LambdaSSA.Semantics.Interaction.term]
 
 private theorem eval_loop (routes : Routes) (agrees : QueryAgreement opcode atom query instr)
     (env : Env α) (packet : Syntax.Payload Bit) :
-    region instr (extend env (.pair (encodeValue atom packet.val) .unit)) ((expected opcode routes).block 0).erase =
+    region instr (extend env (.pair (encodeValue atom packet.val) .unit)) ((expected opcode routes (liveOpcodes profile)).block 0).erase =
       (query opcode packet >>= fun r => pure ((routes.destination r.down.1).val, .pair (encodeValue atom r.down.2.val) .unit)) := by
   simp only [expected, Fin.cases_zero, Flat.erase, Morphism.CaseSSA.erase, region, LambdaSSA.Semantics.Interaction.term, pure_bind]
   change (instr opcode (encodeValue atom packet.val) >>= _) = _
@@ -156,14 +156,29 @@ private theorem eval_loop (routes : Routes) (agrees : QueryAgreement opcode atom
   fin_cases i <;> simp [replyValue, pack, extend] <;> rfl
 
 omit [DecidableEq K] in
+private theorem eval_exit (profile : LiveProfile P.Instr) (agrees : LiveAgreement profile instr)
+    (env : Env α) (incoming : Value α) (label : Fin 5) (i : TwoRequest.Tag) :
+    region instr (extend env (.pair incoming .unit)) (exitRow label (liveOpcodes profile i)).erase =
+      pure (label.val, exitPayload (liveValues profile i)) := by
+  cases h : profile i with
+  | none =>
+    simp [h, liveOpcodes, liveValues, exitRow, exitPayload, region, LambdaSSA.Semantics.Interaction.term,
+      extend, Flat.erase, Morphism.CaseSSA.erase]
+  | some action =>
+    obtain ⟨f, bit⟩ := action
+    simp [h, liveOpcodes, liveValues, exitRow, exitPayload, region, LambdaSSA.Semantics.Interaction.term,
+      extend, Flat.erase, Morphism.CaseSSA.erase, agrees i f bit h]
+
+omit [DecidableEq K] in
 private theorem eval_row (routes : Routes) (agrees : QueryAgreement opcode atom query instr)
+    (liveAgrees : LiveAgreement profile instr)
     (env : Env α) (caller : Syntax.Payload Bit) (p : Packet Packets) :
-    region instr (extend env (.pair (encodeValue atom p.2.val) .unit)) ((expected opcode routes).block p.1).erase =
-      (next query ((guardedTable opcode routes).head caller p) >>= fun t => pure (number names (encodeCursor names atom t))) := by
+    region instr (extend env (.pair (encodeValue atom p.2.val) .unit)) ((expected opcode routes (liveOpcodes profile)).block p.1).erase =
+      (next query ((guardedTable opcode routes).head caller p) >>= fun t => pure (number names (encodeCursorWith (liveValues profile) names atom t))) := by
   rcases p with ⟨i, payload⟩
   fin_cases i
   · change Syntax.Payload Bit at payload
-    change region instr (extend env (.pair (encodeValue atom payload.val) .unit)) ((expected opcode routes).block 0).erase = _
+    change region instr (extend env (.pair (encodeValue atom payload.val) .unit)) ((expected opcode routes (liveOpcodes profile)).block 0).erase = _
     rw [eval_loop atom query instr routes agrees env payload]
     change _ = ((query opcode payload >>= fun r => pure (atBlock (R := Packets)
       ⟨routes.destination r.down.1, cast (congrArg Syntax.Payload (routes.packet r.down.1).symm) r.down.2⟩)) >>= _)
@@ -172,24 +187,26 @@ private theorem eval_row (routes : Routes) (agrees : QueryAgreement opcode atom 
     funext reply
     change ULift.{1} (Packet Packets) at reply
     rw [pure_bind]
-    simp [encodeCursor, atBlock, number]
+    simp [encodeCursorWith, atBlock, number]
     exact congrArg (fun value => (pure ((routes.destination reply.down.1).val,
       .pair (encodeValue atom value) .unit) : Tree E (Transfer α)))
       (cast_payload_val (routes.packet reply.down.1).symm reply.down.2).symm
   · change region instr (extend env (.pair (encodeValue atom payload.val) .unit))
-      (.let₂ (.var 0) (.br 3 (.pair .unit .unit))) = (pure (atExit 0) >>= _)
-    simp [region, LambdaSSA.Semantics.Interaction.term, extend, number, encodeCursor, atExit]
+      (exitRow 3 (liveOpcodes profile 0)).erase = (pure (atExit 0) >>= _)
+    rw [eval_exit instr profile liveAgrees]
+    simp [number, encodeCursorWith, atExit]
   · change region instr (extend env (.pair (encodeValue atom payload.val) .unit))
-      (.let₂ (.var 0) (.br 4 (.pair .unit .unit))) = (pure (atExit 1) >>= _)
-    simp [region, LambdaSSA.Semantics.Interaction.term, extend, number, encodeCursor, atExit]
+      (exitRow 4 (liveOpcodes profile 1)).erase = (pure (atExit 1) >>= _)
+    rw [eval_exit instr profile liveAgrees]
+    simp [number, encodeCursorWith, atExit]
 
-local notation "code" => (expected opcode checked.routes)
+local notation "code" => (expected opcode checked.routes (liveOpcodes profile))
 local notation "G" => (guardedTable opcode checked.routes)
 
 include checked
 
 private theorem entry_eq (caller : Syntax.Payload Bit) (seedValue : input (seed, 0) = encodeValue atom caller.val) :
-    (lexical).entry.evalJump m input = pure (encodeCursor names atom (atBlock ⟨0, caller⟩)) := by
+    (lexical).entry.evalJump m input = pure (encodeCursorWith (liveValues profile) names atom (atBlock ⟨0, caller⟩)) := by
   let env : Env α := fun _ => encodeValue atom caller.val
   have read := entryAt lexical (I).exits (I).version.names checked.count checked.accepted instr input env
     (fun _ => seedValue.symm)
@@ -197,12 +214,13 @@ private theorem entry_eq (caller : Syntax.Payload Bit) (seedValue : input (seed,
   apply bind_injective (E := E) (number names) (restore names) (restore_number names)
   change ((lexical).entry.evalJump m input >>= fun p => pure (number names p)) = _
   rw [read]
-  exact (eval_entry checked.routes instr env).trans (by simp [env, encodeCursor, atBlock, number])
+  exact (eval_entry checked.routes instr env).trans (by simp [env, encodeCursorWith, atBlock, number])
 
 private theorem block_eq (agrees : QueryAgreement opcode atom query instr)
+    (liveAgrees : LiveAgreement profile instr)
     (caller : Syntax.Payload Bit) (p : Packet Packets) :
-    CFG.Cyclic.stepSSA m (lexical).blocks input (encodeCursor names atom (atBlock p)) =
-      (next query ((G).head caller p) >>= fun t => pure (.inr (encodeCursor names atom t))) := by
+    CFG.Cyclic.stepSSA m (lexical).blocks input (encodeCursorWith (liveValues profile) names atom (atBlock p)) =
+      (next query ((G).head caller p) >>= fun t => pure (.inr (encodeCursorWith (liveValues profile) names atom t))) := by
   let index : Fin 3 := p.1
   let payload := Value.pair (encodeValue atom p.2.val) .unit
   let env : Env α := fun _ => .unit
@@ -217,40 +235,41 @@ private theorem block_eq (agrees : QueryAgreement opcode atom query instr)
     | inl => rfl
     | inr p => exact congrArg Sum.inr (restore_number names p))
   change (_ >>= fun s => pure (Sum.map id (number names) s)) =
-    ((next query ((G).head caller p) >>= fun t => pure (Sum.inr (encodeCursor names atom t))) >>=
+    ((next query ((G).head caller p) >>= fun t => pure (Sum.inr (encodeCursorWith (liveValues profile) names atom t))) >>=
       fun s => pure (Sum.map id (number names) s))
-  rw [show CFG.Cyclic.stepSSA m (lexical).blocks input (encodeCursor names atom (atBlock p)) >>=
+  rw [show CFG.Cyclic.stepSSA m (lexical).blocks input (encodeCursorWith (liveValues profile) names atom (atBlock p)) >>=
       (fun s => pure (s.map id (number names))) = _ from read]
   change (region instr (extend env (.pair (encodeValue atom p.2.val) .unit)) ((code).block p.1).erase
     >>= fun out => pure (Sum.inr out : (K × Value α) ⊕ Transfer α)) = _
-  rw [eval_row (names := names) atom query instr checked.routes agrees env caller p]
+  rw [eval_row (names := names) atom query instr checked.routes agrees liveAgrees env caller p]
   simp only [bind_assoc, pure_bind, Sum.map_inr]
 
 theorem entry (caller : Syntax.Payload Bit) (seedValue : input (seed, 0) = encodeValue atom caller.val) :
-    (lexical).entry.evalJump m input = pure (encodeCursor names atom (atBlock ⟨(G).entry, caller⟩)) :=
+    (lexical).entry.evalJump m input = pure (encodeCursorWith (liveValues profile) names atom (atBlock ⟨(G).entry, caller⟩)) :=
   entry_eq checked atom instr input caller seedValue
 
-theorem localStep (agrees : QueryAgreement opcode atom query instr) (caller : Syntax.Payload Bit)
+theorem localStep (agrees : QueryAgreement opcode atom query instr)
+    (liveAgrees : LiveAgreement profile instr) (caller : Syntax.Payload Bit)
     (state : Cursor Packets) :
-    (step G caller query unitExit state >>= liftPure (Sum.map id (encodeCursor names atom))) =
+    (step G caller query (exitResult (liveValues profile)) state >>= liftPure (Sum.map id (encodeCursorWith (liveValues profile) names atom))) =
       mapReturn (CFG.Cyclic.stepSSA m (lexical).blocks input)
-        (liftPure fun p => FiniteCFG.packedTreeOutput (treeExitNumber (I).exits p)) (encodeCursor names atom state) := by
+        (liftPure fun p => FiniteCFG.packedTreeOutput (treeExitNumber (I).exits p)) (encodeCursorWith (liveValues profile) names atom state) := by
   rcases state with ⟨i | p⟩
-  · let pending := encodeCursor names atom (atExit i)
+  · let pending := encodeCursorWith (liveValues profile) names atom (atExit i)
     have miss : CFG.Cyclic.stepSSA m (lexical).blocks input pending = pure (.inl pending) := by
-      simp only [CFG.Cyclic.stepSSA, pending, encodeCursor, atExit, exit_miss checked i]
-    change (pure (Sum.inl (unitExit i : Transfer α) : Transfer α ⊕ Cursor Packets) >>= _) = mapReturn _ _ pending
+      simp only [CFG.Cyclic.stepSSA, pending, encodeCursorWith, atExit, exit_miss checked i]
+    change (pure (Sum.inl (exitResult (liveValues profile) i : Transfer α) : Transfer α ⊕ Cursor Packets) >>= _) = mapReturn _ _ pending
     simp only [mapReturn, miss, pure_bind, liftPure, Function.comp_apply, Sum.map_inl, id_eq, Sum.elim_inl]
-    have out := finish_number (α := α) names i
-    change pure (Sum.inl (unitExit i : Transfer α) : Transfer α ⊕ (K × Value α)) =
+    have out := finish_number names i (exitPayload (α := α) (liveValues profile i))
+    change pure (Sum.inl (exitResult (liveValues profile) i : Transfer α) : Transfer α ⊕ (K × Value α)) =
       pure (.inl (FiniteCFG.packedTreeOutput
-        (treeExitNumber [names 3, names 4] (names (i.natAdd 3), .pair .unit .unit))))
+        (treeExitNumber [names 3, names 4] (names (i.natAdd 3), exitPayload (liveValues profile i)))))
     rw [out]
     rfl
   · change (headStep query ((G).head caller p) >>= _) =
-      mapReturn _ _ (encodeCursor names atom (atBlock p))
+      mapReturn _ _ (encodeCursorWith (liveValues profile) names atom (atBlock p))
     unfold mapReturn
-    rw [headStep_eq, block_eq checked atom query instr input agrees caller p]
+    rw [headStep_eq, block_eq checked atom query instr input agrees liveAgrees caller p]
     simp only [liftPure, bind_assoc, pure_bind, Function.comp_apply, Sum.map_inr, Sum.elim_inr]
 
 end Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.Recognize

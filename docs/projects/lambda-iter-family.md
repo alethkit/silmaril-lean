@@ -1226,6 +1226,33 @@ The forward proof uses the existing guarded product certificate. Separate
 runs check retained primitive faults and a state-changing cycle.
 [Named observation and decision](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Thms.lean)
 
+#### One assigned live-out bit
+
+The packet-local guarded profile can project one register of type
+`unit + unit` at either ordered exit. The admitted terminal row assigns
+it from a typed unit-to-bit instruction immediately before branching
+with the original unit. Exact readback checks the instruction and the
+use of its freshly assigned version in the attached exit packet. The
+shared pure interpretation assigns that instruction its constructor bit.
+Only the polling query consumes interpreter replies. The caller's
+version-zero seed agrees with the input bit, and the terminal assignment
+supplies the live-out value.
+
+The named observer decodes the actual projected value into a typed
+record. At exact native control readback, a generated typed native
+continuation emits the same `unit × (bit × unit)` payload on the original
+tag. Selection uses the established UB continuation before the payload
+is emitted. The fixed-carrier comparison uses the same exhaustive
+interpreter restrictions and accounts for the checked bit at each
+terminal tag. This applies to a bit fixed by the terminal assignment,
+with no additional state in the native carrier.
+
+The regression changes the bit packet at the backedge before both
+original named programs return unit at exit zero in machine state one.
+Their projected bits differ, yielding a negative verdict. Selecting
+that exit makes both observations fresh top under the same script.
+[Typed live-out decoder and decision](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/LiveBit/Thms.lean)
+
 ### From the opt-in packet-local versioner to LetCase
 
 `PacketLocal.Admission.letCase` expands the actual flat table produced by

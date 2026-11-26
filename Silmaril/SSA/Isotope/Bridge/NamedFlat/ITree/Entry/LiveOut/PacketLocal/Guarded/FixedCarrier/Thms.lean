@@ -10,17 +10,48 @@ public section
 namespace Silmaril.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier
 
 open Silmaril.SSA.LambdaRTL (CFG)
+open Silmaril.Elgot (iter)
+open Silmaril.Elgot.ITree (Tree)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 open LambdaSSA.UB.Overlay
 open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration
 open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native (withExitUB denote_noExitUB)
+open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent (Packet)
 open LambdaSSA.UB.Overlay.Shape.TwoRequest (Exits Tag resultBehaviour)
 open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands
-  (ConfigurationEnumeration ReplyEnumeration)
+  (Table ConfigurationEnumeration ReplyEnumeration)
 open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.ScheduleSearch (StateInventory)
 open Recognize (Bit Packets guardedTable)
 
 attribute [local instance] Recognize.requestTypes
+
+theorem query_agrees {Φ : Type} (op : Φ) :
+    ∀ arg : Syntax.Payload Bit,
+      raw op (Recognize.encodeValue ULift.up arg.val) =
+        (query op arg >>= fun p => pure (Recognize.replyValue ULift.up p.down)) :=
+  Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.query_agrees op
+
+/-- Exit selection is applied after the ordinary weak-tree execution. -/
+theorem step_selected {Φ : Type} (op : Φ) (routes : Recognize.Routes) (selected : Tag → Bool)
+    (caller : Syntax.Payload Bit) (result : Tag → Nat × Value Runtime) :
+    step (withSelectedExits op routes selected) caller query result =
+      step (guardedTable op routes) caller query result :=
+  Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.step_selected
+    op routes selected caller result
+
+/-- An exact exit decoder lets the same feedback classifier retain the
+observed payload of every ordinary return. -/
+theorem observe_decoded_runFinite {Φ : Type} {states : Nat} (g : Table (Recognize.signature Φ) Packets)
+    (caller : Syntax.Payload (Packets.get g.entry)) (prim : Syntax.Primitives Φ states)
+    (configs : ConfigurationEnumeration Packets) (stores : StateInventory states)
+    (result : Tag → Nat × Value Runtime) (decode : ExitDecoder) (payload : Tag → Value Unit)
+    (decodes : ∀ i, decode (result i) = some (i, payload i))
+    (p : Packet Packets) (s : Fin states) (exitType : Syntax.Ty := .unit) :
+    decorate prim g.selected (FixedCarrier.observe prim
+      (iter (m := Tree (Request Φ)) (step g caller query result) (atBlock p)) s decode) exitType =
+      resultWithPayload payload (g.runFinite caller prim configs stores p s) :=
+  Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.observe_decoded_runFinite
+    g caller prim configs stores result decode payload decodes p s exitType
 
 /-- The original native syntax is shared by every selection. The existing
 exact readback can therefore be used for any exit continuation. -/

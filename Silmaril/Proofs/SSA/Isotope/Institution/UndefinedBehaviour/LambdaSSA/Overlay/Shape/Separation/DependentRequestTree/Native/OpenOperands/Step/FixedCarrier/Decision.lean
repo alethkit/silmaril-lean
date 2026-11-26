@@ -26,16 +26,16 @@ universe u
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] [DecidableEq Φ] {S : RequestSignature Φ} {R T : List Syntax.Ty}
   {states : Nat}
 
-theorem check_results (g : Table S R) (h : Table S T)
+theorem check_results_by (g : Table S R) (h : Table S T)
     (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
     (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
-    (stores : StateInventory states) :
-    g.checkAllInterpreters h caller caller' replies left right stores = true ↔
+    (stores : StateInventory states) (compare : Result 2 states → Result 2 states → Bool) :
+    g.checkAllInterpretersBy h caller caller' replies left right stores compare = true ↔
       ∀ (prim : Syntax.Primitives Φ states) (s : Fin states),
-        (g.runFinite caller prim left stores ⟨g.entry, caller⟩ s).refines
-          (h.runFinite caller' prim right stores ⟨h.entry, caller'⟩ s) := by
+        compare (g.runFinite caller prim left stores ⟨g.entry, caller⟩ s)
+          (h.runFinite caller' prim right stores ⟨h.entry, caller'⟩ s) = true := by
   let keys := (g.queries caller left stores ++ h.queries caller' right stores).dedup
-  simp only [Table.checkAllInterpreters, List.all_eq_true, decide_eq_true_eq]
+  simp only [Table.checkAllInterpretersBy, List.all_eq_true]
   constructor
   · intro checked prim s
     obtain ⟨script, listed, agrees⟩ := restricted replies stores keys prim
@@ -47,6 +47,17 @@ theorem check_results (g : Table S R) (h : Table S T)
     exact checked script listed s (stores.complete s)
   · intro checked script _ s _
     exact checked (InterpreterScript.interpret script) s
+
+theorem check_results (g : Table S R) (h : Table S T)
+    (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
+    (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
+    (stores : StateInventory states) :
+    g.checkAllInterpreters h caller caller' replies left right stores = true ↔
+      ∀ (prim : Syntax.Primitives Φ states) (s : Fin states),
+        (g.runFinite caller prim left stores ⟨g.entry, caller⟩ s).refines
+          (h.runFinite caller' prim right stores ⟨h.entry, caller'⟩ s) := by
+  simpa only [Table.checkAllInterpreters, decide_eq_true_eq] using
+    check_results_by g h caller caller' replies left right stores (fun result other => decide (result.refines other))
 
 theorem checkAllInterpreters_iff (g : Table S R) (h : Table S T)
     (raw : CFG.Dependent.Native.Typed Φ [R.get g.entry] Exits)
