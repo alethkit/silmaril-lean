@@ -690,6 +690,29 @@ variants that return unit at distinct exits fail comparison in both
 directions. A third exit carries a product.
 [Dependent packets and decision][ssa-ub-dependent-cfg] [Heterogeneous regression][ssa-ub-dependent-cfg-regression]
 
+### Native packed CFG readback
+
+A typed native CFG can supply the block table directly. The readback takes
+the expected capture and label interfaces and inspects a native `cfg` with a
+constructor entry jump. Each block links a packed producer to the canonical
+positional dispatcher. Producers return constructor expressions or sequence
+primitive calls through one-block native links. The final check compares the
+whole re-emitted native syntax, including every dispatcher, to the input.
+
+Successful readback gives equality of typed representatives. Native
+substitution and feedback conservativity transport the #3980 row
+certificates and complete shaped observations to the original CFG.
+The executable comparison uses each accepted CFG's actual entry, its
+deterministic finite-state primitive interpreter, and the supplied exact
+packet codebooks and coded captures. The native syntax covers ordinary
+returns, faults, and divergence. Explicit UB remains an overlay operation.
+
+The regression reads a native unit/product cycle, checks a state-changing
+backedge, and distinguishes two entries that return the same unit at different
+external positions. It also rejects a well-typed dispatcher with an extra
+native binder after the entry and producers have been read.
+[Native readback and transport][ssa-ub-native-packed-readback] [Native regression][ssa-ub-native-packed-regression]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -734,6 +757,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Syntax.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -826,3 +850,5 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-finite-cfg-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Regression.lean
 [ssa-ub-dependent-cfg]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Thms.lean
 [ssa-ub-dependent-cfg-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Regression.lean
+[ssa-ub-native-packed-readback]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
+[ssa-ub-native-packed-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Regression.lean

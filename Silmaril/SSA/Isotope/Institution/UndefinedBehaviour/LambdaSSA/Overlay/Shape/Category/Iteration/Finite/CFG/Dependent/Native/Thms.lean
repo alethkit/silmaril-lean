@@ -1,0 +1,67 @@
+module
+
+public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Defs
+import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Syntax
+import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Transport
+import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Comparison
+
+/-! # Exact transport from native readback to the installed overlay evaluator -/
+
+public section
+
+namespace Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native
+
+open Syntax (Primitives emptyBindings Bindings.push model)
+
+universe u v w
+
+variable {Φ : Type u} [HasTy Φ Syntax.Ty] {X : Syntax.Ty} {R L : List Syntax.Ty}
+variable {captures seeds results states : Nat}
+
+/-- A successful readback re-emits the original typed region exactly. -/
+theorem recognized_eq [DecidableEq Φ] {raw : Typed Φ [X] L} {readback : Readback Φ X R L}
+    (accepted : recognize R raw = some readback) : raw = readback.typed :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native.recognized_eq accepted
+
+/-- The all-native re-emission and the installed positional overlay evaluator
+agree on complete observations in any shaped observational model. -/
+theorem readback_agrees (readback : Readback Φ X R L) (M : Shape.Model.{u,0,v,w} Φ [X]) (s : M.raw.σ) :
+    Shape.denote (readback.blocks.region readback.start readback.input) M s =
+      Shape.denote (.native readback.typed) M s :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native.readback_agrees
+    readback M.raw s
+
+/-- A generated row certifies the native block recovered at that exact
+invocation, with the same final state and ordered label as in the CFG. -/
+theorem generated_native_row (readback : Readback Φ X R L) (C : Codes X R L captures seeds results)
+    (prim : Primitives Φ states) (c : Fin captures) (p : Fin (seeds * states)) :
+    let env := emptyBindings.push (C.capture c)
+    let input := C.invocation p
+    Shape.denote (.native (readback.routed input.1.1)) ((model prim env).extend input.1.2.property) input.2 =
+      (readback.blocks.generate C prim c p).routed C.carrier :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native.generated_native_row
+    readback C prim c p
+
+/-- The existing finite traversal classifies the actual native CFG at its
+original entry, including faults and both forms of ordinary divergence. -/
+theorem classify_recognized [DecidableEq Φ] {raw : Typed Φ [X] L} {readback : Readback Φ X R L}
+    (accepted : recognize R raw = some readback) (C : Codes X R L captures seeds results)
+    (prim : Primitives Φ states) (c : Fin captures) (s : Fin states) :
+    Shape.denote (.native raw) (model prim (emptyBindings.push (C.capture c))) s =
+      (readback.execute C prim c s).routed C.carrier :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native.classify_recognized
+    accepted C prim c s
+
+/-- For two successfully read native CFGs at the chosen typed interfaces,
+the Boolean result compares their actual entries at every coded start. -/
+theorem check_recognized_iff [DecidableEq Φ] {raw target : Typed Φ [X] L}
+    {left right : Readback Φ X R L}
+    (hl : recognize R raw = some left) (hr : recognize R target = some right)
+    (C : Codes X R L captures seeds results) (prim : Primitives Φ states) :
+    check left right C prim = true ↔ ∀ (c : Fin captures) (s : Fin states),
+      let M := model prim (emptyBindings.push (C.capture c))
+      Shape.denote (.native raw) M s ≤ Shape.denote (.native target) M s :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native.check_recognized_iff
+    hl hr C prim
+
+end Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native
