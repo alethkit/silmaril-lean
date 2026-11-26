@@ -502,6 +502,7 @@ private def relayDeclaration (second bad : Bool) : Imports.WrapperDeclaration "l
   target := by cases second <;> decide
   visible := by decide
   legalAlias := by decide
+  parameters := []
   arguments := []
   codes := []
   reads := []
@@ -1280,5 +1281,275 @@ private def diamondError (firstMissing lastMissing warm : Bool) (name : String) 
 #guard diamondError false true true "absentLast"
 #guard diamondError true true false "absentLast"
 #guard diamondError true true true "absentLast"
+
+private def positionalGlobals : List String := ["spare", "pick"]
+
+private def spareSite : Site (moduleLex positionalGlobals) [] none none .global where
+  name := "spare"
+  target := by decide
+  parameters := ⟨[], []⟩
+  source := .ret (some starlark%[999])
+  binders := []
+  locals := []
+  collects := .ret _
+  localOrder := .nil
+  body := ⟨.returnExpr (int 999), []⟩
+  free := []
+  selects := .nil
+  defaults := []
+  lexical := .nil
+
+private def spareRoot : Root positionalGlobals where
+  keywords := []
+  varargs := none
+  kwargs := none
+  site := spareSite
+  lexical := .nil
+  seed := #[]
+  bodyTable := #[]
+  children := []
+  suite := .plain (.straight (source := .ret starlark%[999]) (.ret (.int 999)))
+
+private def pickBody : Body.Suite :=
+  .assign "probe" starlark%[[first]] (.ret starlark%[probe[second]])
+
+private def pickSite : Site (moduleLex positionalGlobals) [] none none .global where
+  name := "pick"
+  target := by decide
+  parameters := ⟨["first", "second"], []⟩
+  source := pickBody.source
+  binders := ["probe"]
+  locals := ["probe"]
+  collects := .seq (.assign _ _) (.ret _)
+  localOrder := .keep (by decide) .nil
+  body := ⟨.seq (.assignExpr (fileSlot "probe") (.list [localRead "first"]))
+      (.returnExpr (.index (localRead "probe") (localRead "second"))),
+    [fileSlot "first", fileSlot "probe", fileSlot "second"]⟩
+  free := []
+  selects := .owned (.owned (by decide)) (.owned (.owned (by decide)) (.owned (.owned (by decide)) .nil))
+  defaults := []
+  lexical := .nil
+
+private def pickRoot : Root positionalGlobals where
+  keywords := []
+  varargs := none
+  kwargs := none
+  site := pickSite
+  lexical := .nil
+  seed := spareRoot.table
+  bodyTable := spareRoot.table
+  children := []
+  suite := .plain (.straight (source := pickBody) (.assign (by decide)
+    (.list (.read (by decide) (.owned (by decide)) (.owned (by decide))))
+    (.ret (.index (.read (by decide) (.owned (by decide)) (.owned (by decide)))
+      (.read (by decide) (.owned (by decide)) (.owned (by decide)))))))
+
+private def positionalCommands : List Resolve.Command := [spareRoot.command, pickRoot.command]
+
+private def positionalExports : Environment :=
+  update (update (fun _ => none) "spare" (some spareRoot.callable)) "pick" (some pickRoot.callable)
+
+private theorem positionalPlan : Plan (Trace.names positionalCommands) (fun _ => none)
+    positionalCommands #[] [.exec (.define "spare" 0), .exec (.define "pick" 1)] pickRoot.table positionalExports :=
+  .define spareRoot (.define pickRoot .done)
+
+private def forwardingLoad : ImportSite :=
+  ⟨"positional.star",
+    [⟨"spare", "ignored", by simp [Modules.isPublic, String.startsWith_string_eq_false_iff]⟩,
+     ⟨"pick", "loaded", by simp [Modules.isPublic, String.startsWith_string_eq_false_iff]⟩], by simp⟩
+
+private def forwardingWrapper : Imports.WrapperDeclaration "loaded" forwardingLoad.aliases ["relay"] where
+  name := "relay"
+  target := by decide
+  visible := by decide
+  legalAlias := by decide
+  parameters := ["x", "y"]
+  unshadowed := by decide
+  arguments := [starlark%[y], starlark%[x]]
+  codes := [localRead "y", localRead "x"]
+  reads := [fileSlot "y", fileSlot "x"]
+  operands := .cons (.read (by decide) (.owned (by decide)) (.owned (by decide)))
+    (.cons (.read (by decide) (.owned (by decide)) (.owned (by decide))) .nil)
+  keywords := .empty
+  selects := .enclosing (.enclosing (by decide) (by decide))
+    (.owned (.owned (by decide)) (.owned (.owned (by decide)) .nil))
+
+example (x y : Lists.Value) (checked : forwardingWrapper.site.declaration.signature.validate = .ok ()) :
+    Functions.bindArguments forwardingWrapper.site.declaration.signature [] ⟨[x, y], []⟩ =
+      .ok ⟨[(fileSlot "x", x), (fileSlot "y", y)], [], []⟩ :=
+  Imports.wrapper_positional_binding forwardingWrapper checked (.success (.cons (.cons .nil)))
+
+private def forwarder : OrderedConsumer where
+  imports := [forwardingLoad]
+  globals := ["relay"]
+  body := [.define forwardingWrapper]
+  declared := rfl
+
+private inductive ForwardTest where
+  | success | arity | body
+  deriving DecidableEq
+
+private def downstreamLoad : ImportSite :=
+  .single "forwarder.star" "relay" "bound" (by simp [Modules.isPublic, String.startsWith_string_eq_false_iff])
+
+private def downstreamGlobals : List String := ["firstResult", "marker", "out", "after"]
+
+private def downstreamCall (first : Bool) (test : ForwardTest) :
+    Imports.Invocation downstreamLoad.aliases downstreamGlobals where
+  callee := "bound"
+  declared := .inl (by decide)
+  legal := by decide
+  destination := if first then "firstResult" else "out"
+  destinationGlobal := by cases first <;> decide
+  arguments := if first then [starlark%[0], starlark%[27]]
+    else match test with
+    | .success => [starlark%[0], starlark%[53]]
+    | .arity => [starlark%[0], starlark%[39], starlark%[55]]
+    | .body => [starlark%[1], starlark%[39]]
+  codes := if first then [int 0, int 27]
+    else match test with
+    | .success => [int 0, int 53]
+    | .arity => [int 0, int 39, int 55]
+    | .body => [int 1, int 39]
+  reads := []
+  operands := by cases first <;> cases test <;> first
+    | exact .cons (.int _) (.cons (.int _) .nil)
+    | exact .cons (.int _) (.cons (.int _) (.cons (.int _) .nil))
+  keywords := .empty
+
+private def downstream (test : ForwardTest) : OrderedConsumer where
+  imports := [downstreamLoad]
+  globals := downstreamGlobals
+  body :=
+    [.invoke (downstreamCall true test),
+     .assign "marker" (by decide) (.list (.int 88)) .forget,
+     .invoke (downstreamCall false test),
+     .assign "after" (by decide) (.list (.int 199)) .forget]
+  declared := rfl
+
+private def positionalManifest (producer middle consumer : ResolvedModule) : Loader.Manifest :=
+  #[⟨producer.source, []⟩, ⟨middle.source, [("positional.star", 0)]⟩, ⟨consumer.source, [("forwarder.star", 1)]⟩]
+
+private def forwardingEnv : Imports.Tracked :=
+  Imports.track (Imports.initial "loaded" (.regular pickRoot.callable)) "ignored" (some (.regular spareRoot.callable))
+
+private def checkedForwarding (test : ForwardTest) {producer middle consumer : ResolvedModule}
+    (prod : resolve positionalCommands #[] = .ok producer)
+    (mid : resolve forwarder.commands producer.program = .ok middle)
+    (top : resolve (downstream test).commands middle.program = .ok consumer) :
+    Imports.Chain.Graph producer.program (positionalManifest producer middle consumer) := by
+  let wrapper := Callee.wrapper forwardingWrapper producer.program.size (.regular pickRoot.callable)
+  let env : Loader.ModuleId → Imports.Tracked
+    | 0 => Imports.Chain.rootExports positionalExports
+    | 1 => fun name => if name ∈ forwarder.globals then Imports.trackSuite producer.program forwardingEnv forwarder.body name else none
+    | _ => fun _ => none
+  have throughMiddle := Imports.ordered_preserves forwarder mid
+  have throughTop := Imports.ordered_preserves (downstream test) top
+  have producerSize : producer.program.size = 2 := by rw [(plan_code positionalPlan prod).2]; rfl
+  refine ⟨(downstream test).commands, middle.program, consumer, top,
+    fun index decl found => throughTop _ _ (throughMiddle index decl found), env, ?_⟩
+  intro id bound
+  have range : id = 0 ∨ id = 1 ∨ id = 2 := by change id < 3 at bound; omega
+  rcases range with rfl | rfl | rfl
+  · exact .root positionalPlan rfl prod (fun _ _ found => found) rfl
+  · refine .ordered (finalEnv := some forwardingEnv) forwarder mid (fun _ _ found => found)
+      throughTop rfl ?_ ?_
+    · exact .load (dependency := 0) (by decide) rfl
+        (.found (.regular pickRoot.callable) rfl (.found (.regular spareRoot.callable) rfl (.done _)))
+        (fun _ equal => by cases equal; exact .done _) (by simp)
+    · exact ⟨⟨.regular pickRoot.callable, rfl, by change 1 < producer.program.size; omega, trivial⟩, rfl⟩
+  · refine .ordered (finalEnv := some (Imports.initial "bound" wrapper)) (downstream test) top throughMiddle
+      (fun _ _ found => found) rfl ?_ ?_
+    · exact .load (dependency := 1) (by decide) rfl (.found wrapper rfl (.done _))
+        (fun _ equal => by cases equal; exact .done _) (by simp)
+    · refine ⟨⟨wrapper, rfl, wrapper, rfl, trivial⟩, ?_⟩
+      funext name
+      change (none : Option Callee) = _
+      by_cases isAlias : name = "bound"
+      · subst name
+        rfl
+      · simp [downstream, downstreamGlobals, downstreamCall, Imports.trackSuite, Imports.Step.advance,
+          Imports.Copy.track, Imports.initial, Imports.track, isAlias, wrapper, Callee.returned, Root.callable, pickRoot]
+
+
+example (test : ForwardTest) {producer middle consumer : ResolvedModule}
+    (prod : resolve positionalCommands #[] = .ok producer)
+    (mid : resolve forwarder.commands producer.program = .ok middle)
+    (top : resolve (downstream test).commands middle.program = .ok consumer)
+    (caller : Lists.State) (history : List Nat) (bounded : ∀ id ∈ history, id < 3) :
+    let graph := checkedForwarding test prod mid top
+    ∃ entered out, Imports.Chain.Requests graph history ⟨caller, []⟩ entered ∧
+      Imports.Chain.TraceRun (positionalManifest producer middle consumer) 2 entered out ∧
+      Loader.load consumer.program (positionalManifest producer middle consumer) 2 entered = out ∧
+      Imports.Chain.Reached producer.program consumer.program (positionalManifest producer middle consumer)
+        graph.exports 2 entered out := by
+  intro graph
+  obtain ⟨entered, requests, valid⟩ := Imports.Chain.requests graph history bounded ⟨caller, []⟩
+    (fun _ _ impossible => nomatch impossible)
+  obtain ⟨out, source, _, meaning, reached⟩ := Imports.Chain.agrees graph 2 (by change 2 < 3; decide) entered valid
+  exact ⟨entered, out, requests, source, meaning, reached⟩
+
+private def runForwarding (test : ForwardTest) (warm : Bool) :
+    Option (Loader.Result Modules.Published × Lists.State × Lists.State) := do
+  let producer ← (resolve positionalCommands).toOption
+  let middle ← (resolve forwarder.commands producer.program).toOption
+  let consumer ← (resolve (downstream test).commands middle.program).toOption
+  let manifest := positionalManifest producer middle consumer
+  let key := globalSlot "caller"
+  let cold : Loader.Session := {runtime := {
+    heap := #[⟨.binding (some (.scalar (.int 73))), false⟩]
+    slots := fun name => if name == key then some (.owned 0) else none
+    bindings := fun name => if name == key then some (.scalar (.int 7)) else none
+    iterators := [0] }}
+  let entry ← if warm then
+      match Loader.load consumer.program manifest 1 cold with
+      | .ok _ ready => some ready
+      | .error .. => none
+    else some cold
+  some (Loader.load consumer.program manifest 2 entry, enter consumer.source entry.runtime, entry.runtime)
+
+private def forwardingRecord (session : Loader.Session) : Bool :=
+  match session.cache.lookup 0, session.cache.lookup 1 with
+  | some producer, some middle =>
+    match producer.exports.lookup "spare", producer.exports.lookup "pick", middle.exports.lookup "relay" with
+    | some spare, some pick, some relay =>
+      spare != pick && capturedImport session.runtime.heap relay pick 2
+    | _, _, _ => false
+  | _, _ => false
+
+private def forwardingSuccess (warm : Bool) : Bool :=
+  match runForwarding .success warm with
+  | some (.ok published final, _, caller) =>
+    published.exports.lookup "firstResult" == some (.scalar (.int 27)) &&
+      published.exports.lookup "out" == some (.scalar (.int 53)) &&
+      final.cache.map Prod.fst == [2, 1, 0] && forwardingRecord final &&
+      callerRestored caller final.runtime && (final.runtime.slots (fileSlot "bound")).isNone
+  | _ => false
+
+private def forwardingFailure (test : ForwardTest) (warm : Bool) : Bool :=
+  match runForwarding test warm with
+  | some (.error (.initialization 2 (.runtime error)) final, frame, caller) =>
+    let selectedError := match test, error with
+      | .arity, .arity 2 3 | .body, .indexRange 1 1 => true
+      | _, _ => false
+    let listCells := final.runtime.heap.toList.filterMap fun cell => match cell.contents with
+      | .list [.scalar (.int value)] => some (value, cell.frozen)
+      | _ => none
+    selectedError &&
+      importCell frame final.runtime (globalSlot "firstResult") == some ⟨.binding (some (.scalar (.int 27))), false⟩ &&
+      [globalSlot "out", globalSlot "after"].all (fun slot =>
+        importCell frame final.runtime slot == some ⟨.binding none, false⟩) &&
+      listCells == (if test == .arity then [(27, false), (88, false)] else [(27, false), (88, false), (39, false)]) &&
+      final.runtime.heap.size == (if test == .arity then 21 else 27) &&
+      final.cache.map Prod.fst == [1, 0] && forwardingRecord final &&
+      callerRestored caller final.runtime && (final.runtime.slots (fileSlot "bound")).isNone
+  | _ => false
+
+#guard forwardingSuccess false
+#guard forwardingSuccess true
+#guard forwardingFailure .arity false
+#guard forwardingFailure .arity true
+#guard forwardingFailure .body false
+#guard forwardingFailure .body true
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published

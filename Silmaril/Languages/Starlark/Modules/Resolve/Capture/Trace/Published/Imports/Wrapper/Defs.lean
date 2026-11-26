@@ -43,7 +43,7 @@ structure Wrapper where
   block [wrapper.alias] [wrapper.name, wrapper.destination]
 
 @[expose] def Wrapper.declaration (wrapper : Wrapper) : WrapperDeclaration wrapper.alias [wrapper.alias] [wrapper.name, wrapper.destination] :=
-  ⟨wrapper.name, by simp, by simp, wrapper.legalAlias, wrapper.arguments, wrapper.codes, wrapper.reads,
+  ⟨wrapper.name, by simp, by simp, wrapper.legalAlias, [], by simp, wrapper.arguments, wrapper.codes, wrapper.reads,
     wrapper.operands, wrapper.keywords, wrapper.star, wrapper.mapping, wrapper.selects⟩
 
 @[expose] def Wrapper.expression (wrapper : Wrapper) : Functions.Lowering.Resolve.SourceExpr := wrapper.declaration.expression

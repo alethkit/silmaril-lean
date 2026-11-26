@@ -371,6 +371,79 @@ after = [199]
 	}
 }
 
+func checkPositionalWrapper(preload bool, failure string) {
+	const root = `def spare():
+    return 999
+def pick(first, second):
+    probe = [first]
+    print(first, second)
+    return probe[second]
+`
+	const forwarding = `load("positional.star", ignored="spare", loaded="pick")
+def relay(x, y):
+    return loaded(y, x)
+`
+	call := "bound(0, 53)"
+	switch failure {
+	case "arity":
+		call = "bound(0, 39, 55)"
+	case "body":
+		call = "bound(1, 39)"
+	}
+	source := fmt.Sprintf(`load("forwarder.star", bound="relay")
+firstResult = bound(0, 27)
+marker = [88]
+out = %s
+after = [199]
+`, call)
+	cache := make(map[string]starlark.StringDict)
+	var visits, hits, events []string
+	opts := &syntax.FileOptions{}
+	thread := &starlark.Thread{}
+	thread.Print = func(_ *starlark.Thread, msg string) { events = append(events, msg) }
+	thread.Load = func(_ *starlark.Thread, path string) (starlark.StringDict, error) {
+		if cached, ok := cache[path]; ok {
+			hits = append(hits, path)
+			return cached, nil
+		}
+		visits = append(visits, path)
+		body := root
+		if path == "forwarder.star" {
+			body = forwarding
+		} else {
+			require(path == "positional.star", path)
+		}
+		result, err := starlark.ExecFileOptions(opts, thread, path, body, nil)
+		if err == nil {
+			cache[path] = result
+		}
+		return result, err
+	}
+	if preload {
+		_, err := thread.Load(thread, "forwarder.star")
+		require(err == nil, err)
+	}
+	_, program, err := starlark.SourceProgramOptions(opts, "consumer.star", source, func(string) bool { return false })
+	require(err == nil, err)
+	partial, err := program.Init(thread, nil)
+	require(strings.Join(visits, ",") == "forwarder.star,positional.star", visits)
+	require((preload && strings.Join(hits, ",") == "forwarder.star") || (!preload && len(hits) == 0), hits)
+	require(cache["forwarder.star"]["relay"] != nil && partial["firstResult"] == starlark.MakeInt(27) &&
+		partial["marker"].String() == "[88]" && partial["bound"] == nil, partial)
+	switch failure {
+	case "":
+		require(err == nil, err)
+		require(partial["out"] == starlark.MakeInt(53) && partial["after"].String() == "[199]" &&
+			strings.Join(events, ",") == "27 0,53 0", partial)
+	case "arity":
+		require(err != nil && strings.Contains(err.Error(), "function relay accepts 2 positional arguments (3 given)"), err)
+		require(partial["out"] == nil && partial["after"] == nil && strings.Join(events, ",") == "27 0", events)
+	case "body":
+		require(err != nil && strings.Contains(err.Error(), "index 1 out of range"), err)
+		require(partial["out"] == nil && partial["after"] == nil && strings.Join(events, ",") == "27 0,39 1", events)
+	}
+}
+
 func main() {
 	for _, warm := range []bool{false, true} {
 		check(warm, "factory", `{"extra": 9}`)
@@ -382,6 +455,9 @@ func main() {
 		checkDeclarationSuite(warm, false)
 		checkDeclarationSuite(warm, true)
 		checkReturnedClosure(warm)
+		for _, failure := range []string{"", "arity", "body"} {
+			checkPositionalWrapper(warm, failure)
+		}
 		for _, failure := range []string{"", "first", "last", "both", "dependency"} {
 			checkDiamond(warm, failure)
 		}
@@ -402,4 +478,5 @@ func main() {
 	fmt.Println("PASS three-module re-export with cold, root-preloaded and middle-preloaded histories")
 	fmt.Println("PASS direct and nested calls through the published middle wrapper, including reached failures")
 	fmt.Println("PASS grouped diamond loads reuse one dependency per command, choose the rightmost missing export, and skip later commands")
+	fmt.Println("PASS published positional wrappers call the second alias in operand order and stop at arity or reached body errors")
 }
