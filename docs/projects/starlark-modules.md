@@ -1311,23 +1311,32 @@ observations. The child shares the producer's global cell with an
 earlier closure and owns a different captured local. A second-call
 error leaves the earlier factory and ordinary assignment effects.
 
-A checked importer can also define a parameterless wrapper that returns a call
-through the file-local import alias, followed by a module assignment from the
-wrapper call. The resolver appends the wrapper at the producer table's size.
-Every producer declaration retains its index, and removing the wrapper from
-the call guard leaves all those producer indices available. Installation captures
-the actual import cell. Activation reads that cell and uses the original
-producer closure record, saved defaults and capture addresses. This handles
-explicit named arguments and the existing checked tuple/list and dict-display
-spreads. The cold and preloaded source rules agree with loader denotation on
-publication and freezing, first error, residual heap, restored caller and cache.
-[Wrapper theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Wrapper/Thms.lean)
+The same suite now admits any finite number of parameterless consumer
+definitions whose return calls the file-local import. Elaboration appends
+each declaration at the current table size, in source order, and retains
+every earlier lookup. The reached-prefix proof carries the extended table
+and live provenance across definitions, copies, assignments and calls.
+Installing a wrapper captures the actual import cell. Every subsequent
+invocation reads that cell, and the reduced call guard retains the
+producer's declaration IDs. A tracked closure returned through the wrapper
+keeps its address and defining record when the caller frame is restored.
+The operands support the existing explicit named arguments and checked
+tuple/list and dict-display spreads.
 
-The UTF-8 adapter compiles normalized modules in manifest order and feeds the
-final linked table to the loader. The checked source theorems start at normalized
-commands and use the supported operand and body judgments. Defining and calling
-wrappers throughout the finite importer suite, multiple imports, general source
-graphs and arbitrary cache histories remain open.
+The cold and preloaded source rules agree with loader denotation on
+publication and freezing, first error, residual heap, caller restoration
+and cache. The two-definition control calls an alias copied before the
+second definition, then calls the second wrapper with an explicit default
+override. A failing override retains the first result and skips the final
+assignment. Another control invokes a fresh producer closure returned
+through the consumer wrapper.
+
+The UTF-8 adapter compiles normalized modules in manifest order and feeds
+the final linked table to the loader. The source theorem starts at
+normalized commands. Consumer parameters, defaults and other wrapper
+bodies, multiple imports, general graphs, and arbitrary cache histories
+remain open. Calls in textual function bodies belong to the frontend
+profile.
 [Suite theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/imported-checked/check.go)
 
 ## Finite-manifest loader

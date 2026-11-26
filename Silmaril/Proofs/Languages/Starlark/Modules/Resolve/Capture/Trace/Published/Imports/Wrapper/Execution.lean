@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Wrapper.Defs
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Wrapper.Link
+import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Definition
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Thms
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Thms
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Lexical.Thms
@@ -33,57 +34,6 @@ private theorem keeps_push (state : State) (cell : Cell) :
     Body.Keeps state.heap.size state {state with heap := state.heap.push cell} := by
   exact ⟨rfl, fun address _ below found => by simp [Array.getElem?_push, Nat.ne_of_lt below, found]⟩
 
-private theorem reached_return (wrapper : Wrapper) {producer : Program} {consumer : ResolvedModule}
-    (checked : resolve wrapper.commands producer = .ok consumer) {callee : Callable}
-    (known : callee.Linked producer) {installed defining : State} {origin aliasCell : Nat} {frozen : Bool}
-    (record : ClosureAt callee.site callee.id defining installed origin)
-    (aliasStored : installed.heap[aliasCell]? = some ⟨.binding (some (.function origin)), frozen⟩)
-    (packed : State) (kept : Body.Keeps installed.heap.size installed packed) (assigned : List (Binding × Lists.Value)) :
-    let capture : Capture := ⟨fileSlot wrapper.alias, aliasCell, true⟩
-    let active := activate packed wrapper.site.declaration [capture] assigned
-    ∃ out, wrapper.Returns callee active out ∧
-      Exec consumer.program (withoutDeclaration (List.range consumer.program.size) producer.size)
-        active wrapper.site.body.code out ∧
-      Body.Keeps packed.heap.size packed (finishState (Leaf.returnTo packed out)) := by
-  intro capture active
-  have ⟨extension, _, guarded⟩ := linked wrapper checked
-  let available := withoutDeclaration (List.range consumer.program.size) producer.size
-  have native := enter_callable_for checked known extension available guarded
-  have extended := linked_extends known extension
-  have present : callee.id ∈ available :=
-    guarded (List.mem_range.mpr (Array.getElem?_eq_some_iff.mp known.1).choose)
-  have captures : active.slots (fileSlot wrapper.alias) = some (.captured aliasCell true) :=
-    activate_capture packed wrapper.site.declaration [capture] capture assigned (by simp) (by change ¬ _ ∈ ([] : List Binding); simp)
-  have stored := kept.2 _ _ (Array.getElem?_eq_some_iff.mp aliasStored).choose aliasStored
-  have sameHeap (address : Nat) (cell : Cell) (found : packed.heap[address]? = some cell) :
-      active.heap[address]? = some cell :=
-    (Silmaril.Languages.Starlark.Modules.Resolve.Capture.Wrapper.activation_preserves packed
-      wrapper.site.declaration [capture] assigned address (Array.getElem?_eq_some_iff.mp found).choose).trans found
-  have aliasRead : active.bindingValue (fileSlot wrapper.alias) = .ok (.function origin) := by
-    simp [State.bindingValue, captures, Slot.address, sameHeap _ _ stored]
-  have read := Body.Evaluates.read (state := active)
-    (Assignment.ReadResolves.enclosing (block := wrapper.site.block) (name := wrapper.alias)
-      (by change ¬ _ ∈ ([] : List String); simp) (by change _ ∈ [wrapper.alias]; simp))
-  change Body.Evaluates _ _ _ _ (active.read (.bound (fileSlot wrapper.alias))) at read
-  rw [State.read, aliasRead] at read
-  obtain ⟨packedRecord⟩ := keep_record record kept
-  let reached : ClosureAt callee.site callee.id defining active origin := {
-    packedRecord with
-    recorded := sameHeap _ _ packedRecord.recorded
-    live := fun selected member => by
-      obtain ⟨value, flag, found⟩ := packedRecord.live selected member
-      exact ⟨value, flag, sameHeap _ _ found⟩ }
-  obtain ⟨result, source, exec, _, preserved⟩ :=
-    runs_at callee.site callee.BodyRuns checked callee.id extended.1 available present
-      native (fileSlot wrapper.alias) read reached wrapper.operands wrapper.keywords wrapper.star wrapper.mapping
-  have finished : finishState (result.resume (fun value => pure (Flow.returned value))) = finishState result := by
-    cases result <;> rfl
-  refine ⟨_, ⟨result, source, rfl⟩, .returnExpr exec, Body.returned_keeps packed wrapper.site.declaration
-    [capture] assigned _ ?_⟩
-  rw [finished]
-  exact ⟨preserved.1, fun address cell _ found => preserved.2 address cell
-    (Array.getElem?_eq_some_iff.mp found).choose found⟩
-
 theorem run_bound (wrapper : Wrapper) {producer : Program} {consumer : ResolvedModule}
     (checked : resolve wrapper.commands producer = .ok consumer) {callee : Callable}
     (known : callee.Linked producer) {state defining : State} {origin aliasCell targetCell : Nat}
@@ -98,7 +48,7 @@ theorem run_bound (wrapper : Wrapper) {producer : Program} {consumer : ResolvedM
       ∀ cache, Modules.Loader.Runs consumer.program manifest [1]
         (.commands 1 ((wrapper.moduleCode producer).drop 1)) ⟨state, cache⟩
         (Modules.Loader.liftResult 1 ⟨state, cache⟩ out) := by
-  have ⟨_, found, _⟩ := linked wrapper checked
+  have ⟨extension, found, _⟩ := linked wrapper checked
   let capture : Capture := ⟨fileSlot wrapper.alias, aliasCell, true⟩
   have installed : Installs state wrapper.site.free [capture] := .cons (.enclosing aliasOwned) .nil
   let cell : Cell := ⟨.function ⟨producer.size, [capture], []⟩, false⟩
@@ -141,7 +91,7 @@ theorem run_bound (wrapper : Wrapper) {producer : Program} {consumer : ResolvedM
   obtain ⟨result, called, ran, _, _⟩ := runs_at_reached wrapper.site (wrapper.Returns callee) checked
     producer.size found _ permitted (globalSlot wrapper.name) read wrapperRecord
     (fun packed kept assigned =>
-      reached_return wrapper checked known (installed := next) afterRecord aliased packed kept assigned)
+      wrapper_returns wrapper.declaration checked extension producer.size (Nat.le_refl _) known (installed := next) afterRecord aliased packed kept assigned)
     .nil .empty none none
   refine ⟨afterWrite wrapper.destination result, .invoked source called, fun cache => ?_⟩
   have invoked : Exec consumer.program (List.range consumer.program.size) next

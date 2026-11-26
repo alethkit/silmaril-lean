@@ -120,6 +120,52 @@ result = relay()
 	}
 }
 
+func checkDeclarationSuite(warm, bad bool) {
+	mapping := `{"key": [72]}`
+	if bad {
+		mapping = `{"key": 8}`
+	}
+	consumer := fmt.Sprintf(`load("prodé.star", loaded="escaped")
+def first():
+    return loaded(another=[71], *[17, 18], **{"extra": 9})
+copied = first
+marker = [88]
+def second():
+    return loaded(another=[71], *[17, 18], **%s)
+firstOut = copied()
+secondOut = second()
+after = [199]
+`, mapping)
+	partial, cached, events, err := checkConsumer(warm, consumer)
+	require(partial["first"] != nil && partial["copied"] == partial["first"] &&
+		partial["second"] != nil && partial["second"] != partial["first"], partial)
+	require(partial["firstOut"] == cached["late"] && partial["marker"].String() == "[88]", partial)
+	if bad {
+		require(err != nil && strings.Contains(err.Error(), "unhandled index operation"), err)
+		require(partial["secondOut"] == nil && partial["after"] == nil &&
+			strings.Join(events, ",") == "44,31 52,44,31 52,44", partial)
+	} else {
+		require(err == nil, err)
+		partial.Freeze()
+		require(partial["secondOut"] == cached["late"] && partial["after"].String() == "[199]" &&
+			strings.Join(events, ",") == "44,31 52,44,31 52,44,72 52", partial)
+		require(partial["firstOut"].(*starlark.List).SetIndex(0, starlark.MakeInt(2)) != nil, partial)
+	}
+}
+
+func checkReturnedClosure(warm bool) {
+	consumer := `load("prodé.star", loaded="factory")
+def make():
+    return loaded([41])
+held = make()
+result = held(17)
+`
+	partial, cached, events, err := checkConsumer(warm, consumer)
+	require(err == nil, err)
+	require(partial["held"] != nil && partial["held"] != cached["escaped"] &&
+		partial["result"] == cached["late"] && strings.Join(events, ",") == "44,31 52,44,41 52", partial)
+}
+
 func main() {
 	for _, warm := range []bool{false, true} {
 		check(warm, "factory", `{"extra": 9}`)
@@ -128,8 +174,13 @@ func main() {
 		checkWrapper(warm, "escaped", `{"extra": 9}`)
 		checkWrapper(warm, "escaped", `{"key": 8}`)
 		checkWrapper(warm, "absent", `{"extra": 9}`)
+		checkDeclarationSuite(warm, false)
+		checkDeclarationSuite(warm, true)
+		checkReturnedClosure(warm)
 	}
 	fmt.Println("PASS cold and cached importer suites retain callable returns, saved values and producer globals")
 	fmt.Println("PASS missing export stops the suite and a second-call error retains the factory and marker")
 	fmt.Println("PASS consumer-owned wrapper calls the imported closure on cold and cached loads; reached errors preserve prior effects")
+	fmt.Println("PASS interleaved importer declarations, alias calls, saved defaults, and skipped effects after the first error")
+	fmt.Println("PASS a consumer wrapper returns a fresh imported closure that remains callable")
 }
