@@ -173,4 +173,27 @@ theorem region_of_rtl (compiled : Compiled mapping source origins) (input : Word
   exact (Phi.region_return_iff mapping source compiled.accepted input env entry initial final returned).mpr
     ⟨_, started, run_returned machine⟩
 
+/-- A bounded RTL return exists exactly when an ordered dispatch route
+(the positional Φ observations recorded by `Realized`) reaches a taken
+exit with the same word. That single witness also supplies a matching
+bounded CF return, with full memory preserved by both backends. -/
+theorem returns_iff (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    (value : Word) :
+    (∃ fuel, compiled.rtl.runMain fuel 0 (words input) mem = .returned [value] mem) ↔
+    ∃ slots before finish after,
+      source.ReturnsAlong (mapping.pull input) slots (source.primary.initial model (mapping.pull input)) value ∧
+      Realized compiled.setup input mem slots (source.primary.initial model (mapping.pull input)) before finish after ∧
+      Taken compiled input mem finish after value ∧
+      compiled.rtl.runMain (rtlFuel entrySigs sigs slots) 0 (words input) mem = .returned [value] mem ∧
+      compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) := by
+  constructor
+  · rintro ⟨fuel, observed⟩
+    obtain ⟨slots, value', before, finish, after, shape, _, route, _, _, _, realized, taken, rtl, cf⟩ :=
+      from_rtl compiled input mem mem fuel [value] observed
+    have hv : value' = value := (List.cons.inj shape).1.symm
+    subst hv
+    exact ⟨slots, before, finish, after, route, realized, taken, rtl, cf⟩
+  · rintro ⟨slots, before, finish, after, route, realized, taken, rtl, cf⟩
+    exact ⟨_, rtl⟩
+
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Proofs

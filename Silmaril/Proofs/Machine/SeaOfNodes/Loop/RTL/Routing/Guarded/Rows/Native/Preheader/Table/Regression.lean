@@ -1111,6 +1111,64 @@ example : ¬ Family.MLIR.Snapshot (scope := Family.MLIR.liveRegs translatedLive)
   unfold Family.MLIR.Snapshot
   decide
 
+-- `Exit.Inversion.returns_iff` consolidates the actual-run forward law
+-- (`Exit.returns`/`after_prefix`, #4872) and its converse (`from_rtl`, #4917):
+-- one successful bounded RTL run exists exactly when an ordered dispatch
+-- route (the positional Φ observations) reaches a taken exit with the same
+-- word, which also certifies a matching bounded CF return with full memory
+-- preserved on both backends.
+
+-- The immediate fixture takes the empty route: no dispatcher ran.
+private theorem immediateReturns :
+    prefixSource.ReturnsAlong (widenCaptures.pull immediateInput) []
+      (prefixSource.primary.initial model (widenCaptures.pull immediateInput)) 8 :=
+  .exit (by cbv)
+
+example :
+    ∃ slots before finish after,
+      prefixSource.ReturnsAlong (widenCaptures.pull immediateInput) slots
+        (prefixSource.primary.initial model (widenCaptures.pull immediateInput)) 8 ∧
+      Family.MLIR.Prefix.Realized prefixSetup immediateInput mem slots
+        (prefixSource.primary.initial model (widenCaptures.pull immediateInput)) before finish after ∧
+      Taken compiledPrefix immediateInput mem finish after 8 ∧
+      compiledPrefix.rtl.runMain (Family.rtlFuel Entry Header slots) 0 (words immediateInput) mem =
+        .returned [8] mem ∧
+      prefixSetup.cf.run evalOp (Family.MLIR.Prefix.cfCost slots + 2 + 1)
+        (Family.MLIR.Prefix.wordEnv immediateInput) = some (.cons 8 .nil) := by
+  have observed : compiledPrefix.rtl.runMain 7 0 (words immediateInput) mem = .returned [8] mem := by
+    rw [compiledRTL_eq]; cbv
+  exact (Exit.Inversion.returns_iff compiledPrefix immediateInput mem 8).mp ⟨7, observed⟩
+
+-- The deterministic native selector and step make the recovered route the
+-- unique witness for this value (`Family.returnsAlong_unique`).
+example {slots : List (Fin 3)}
+    (route : prefixSource.ReturnsAlong (widenCaptures.pull immediateInput) slots
+      (prefixSource.primary.initial model (widenCaptures.pull immediateInput)) 8) :
+    slots = [] :=
+  Family.returnsAlong_unique prefixSource (widenCaptures.pull immediateInput) route immediateReturns
+
+-- The mixed-feedback fixture takes both rows, `[0, 1]`, before exiting.
+example :
+    ∃ slots before finish after,
+      prefixSource.ReturnsAlong (widenCaptures.pull prefixInput) slots
+        (prefixSource.primary.initial model (widenCaptures.pull prefixInput)) 6 ∧
+      Family.MLIR.Prefix.Realized prefixSetup prefixInput mem slots
+        (prefixSource.primary.initial model (widenCaptures.pull prefixInput)) before finish after ∧
+      Taken compiledPrefix prefixInput mem finish after 6 ∧
+      compiledPrefix.rtl.runMain (Family.rtlFuel Entry Header slots) 0 (words prefixInput) mem =
+        .returned [6] mem ∧
+      prefixSetup.cf.run evalOp (Family.MLIR.Prefix.cfCost slots + 2 + 1)
+        (Family.MLIR.Prefix.wordEnv prefixInput) = some (.cons 6 .nil) := by
+  have observed : compiledPrefix.rtl.runMain 16 0 (words prefixInput) mem = .returned [6] mem := by
+    rw [compiledRTL_eq]; cbv
+  exact (Exit.Inversion.returns_iff compiledPrefix prefixInput mem 6).mp ⟨16, observed⟩
+
+example {slots : List (Fin 3)}
+    (route : prefixSource.ReturnsAlong (widenCaptures.pull prefixInput) slots
+      (prefixSource.primary.initial model (widenCaptures.pull prefixInput)) 6) :
+    slots = [0, 1] :=
+  Family.returnsAlong_unique prefixSource (widenCaptures.pull prefixInput) route twoThenExit
+
 end CFDispatch
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
