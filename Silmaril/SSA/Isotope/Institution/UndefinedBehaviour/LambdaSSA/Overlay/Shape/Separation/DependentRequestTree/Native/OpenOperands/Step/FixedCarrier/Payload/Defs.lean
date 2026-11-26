@@ -10,11 +10,11 @@ namespace Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.Nativ
 
 open Category.FiniteIteration
 open CFG.Dependent (Packet internal_type external_type exitLabel)
-open CFG.Dependent.Native (jump packedRequestTo sameRegion)
+open CFG.Dependent.Native (jump packedRequestTo sameRegion exitContinuation)
 open ScheduleSearch (StateInventory)
 open TwoRequest (Tag)
 
-universe u
+universe u v
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R T : List Syntax.Ty}
   {A : Syntax.Ty} {states results : Nat}
@@ -87,9 +87,27 @@ def Endpoint.runFinite (g : Endpoint S R A) (codec : Fin results ≃ Packet (Exi
     Result results states :=
   g.markExit codec (execute (g.rows codec caller prim configs stores) (FixedCarrier.encode configs stores (p, s)))
 
-noncomputable def Endpoint.feedback (g : Endpoint S R A) (caller : Syntax.Payload (R.get g.control.entry))
-    (prim : Syntax.Primitives Φ states) : Feedback.Run R (Exits A) Unit (Fin states) :=
+def Endpoint.route {σ : Type v} (g : Endpoint S R A) (caller : Syntax.Payload (R.get g.control.entry))
+    (p : Packet R) : StateTransition R σ → Behaviour (R ++ Exits A).length Unit σ
+  | .exit i _ t => WithTop.some {Feedback.external R (Exits A) (.ret i (g.returnPacket caller p i).2.val t)}
+  | .repeat next t => WithTop.some {Outcome.ret (Feedback.internal R (Exits A) next.1) next.2.val t}
+  | .fault t => WithTop.some {Outcome.fault t}
+  | .diverge => WithTop.some {Outcome.diverge}
+
+noncomputable def Endpoint.feedback {σ : Type v} (g : Endpoint S R A)
+    (caller : Syntax.Payload (R.get g.control.entry))
+    (prim : Syntax.StatePrimitives Φ σ) : Feedback.Run R (Exits A) Unit σ :=
   feedbackRun (.native g.entryRegion) (fun i => .native (g.blocks i)) (Syntax.model prim (g.control.bindings caller)).raw
+
+/-- Close the installed typed rows and apply the ordered exit selection on the
+original returned packet at its final machine state. -/
+noncomputable def Endpoint.observeAt {σ : Type v} (g : Endpoint S R A)
+    (caller : Syntax.Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ)
+    (p : Packet R) (s : σ) : Behaviour (Exits A).length Unit σ :=
+  let M := (Syntax.model prim (g.control.bindings caller)).raw
+  (Feedback.close (g.feedback caller prim) (blockPoint p s)).bind fun i a t =>
+    LambdaSSA.UB.Overlay.denote
+      (exitContinuation (Γ := [R.get g.control.entry]) (L := Exits A) g.control.selected i) (extendModel M a) t
 
 def Endpoint.checkAllInterpreters [DecidableEq Φ] (g : Endpoint S R A) (h : Endpoint S T A)
     (codec : Fin results ≃ Packet (Exits A)) (caller : Syntax.Payload (R.get g.control.entry))

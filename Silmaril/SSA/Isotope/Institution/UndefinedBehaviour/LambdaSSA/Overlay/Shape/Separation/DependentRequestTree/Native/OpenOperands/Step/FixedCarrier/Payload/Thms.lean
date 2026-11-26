@@ -13,10 +13,38 @@ open CFG.Dependent.Native (withExitUB exitContinuation)
 open ScheduleSearch (StateInventory)
 open Syntax (Payload Primitives model)
 
-universe u
+universe u v
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R T : List Syntax.Ty}
   {A : Syntax.Ty} {states results : Nat}
+
+/-- One local native step retains the whole typed packet at an ordinary exit. -/
+theorem Endpoint.feedback_step {σ : Type v} (g : Endpoint S R A)
+    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ) (p : Packet R) (s : σ) :
+    g.feedback caller prim (blockPoint p s) = g.route caller p ((g.control.head caller p).execute prim s) :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload.raw_step
+    g caller prim p s
+
+/-- The exact checked native entry has the packet-sensitive observation over
+any deterministic store type. -/
+theorem Endpoint.observe_entry_state [DecidableEq Φ] {σ : Type v} (g : Endpoint S R A)
+    (raw : CFG.Dependent.Native.Typed Φ [R.get g.control.entry] (Exits A)) (checked : g.checkNative raw = true)
+    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ) (s : σ) :
+    Shape.denote (withExitUB raw g.control.selected) (model prim (g.control.bindings caller)) s =
+      g.observeAt caller prim ⟨g.control.entry, caller⟩ s :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload.observe_entry_state
+    g raw checked caller prim s
+
+theorem Endpoint.observe_state_step {σ : Type v} (g : Endpoint S R A)
+    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ) (p : Packet R) (s : σ) :
+    g.observeAt caller prim p s =
+      match (g.control.head caller p).execute prim s with
+      | .exit i _ t => if g.control.selected i then ⊤ else WithTop.some {Outcome.ret i (g.returnPacket caller p i).2.val t}
+      | .repeat next t => g.observeAt caller prim next t
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge} :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload.observe_state_step
+    g caller prim p s
 
 /-- The existing finite feedback traversal retains the typed exit payload at
 the actual terminal packet, prior to any selection. -/

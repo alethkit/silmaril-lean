@@ -1260,6 +1260,25 @@ first field, exit position, and final state equal while the second
 field witnesses a negative verdict.
 [Ordered two-field live-outs][ssa-ub-ordered-liveout]
 
+The ordered named observer also runs over arbitrary deterministic
+stores. Exact root and decoder replay agrees with the original native
+endpoint before and after exit selection. The theorem specializes to
+the existing finite named observer at an accepted readback.
+
+The fixed packet profile has entry rank one exactly when the bit reply
+leaves the request block for the bit terminal. Both unit replies go to
+the unit terminal. If either endpoint is ranked, the existing cutoff
+computes two stores. A differing root query can be tested at the first
+store. For a common successful reply, at least one continuation is
+terminal. A second store preserves a terminal packet comparison or
+lets a remaining request diverge. This gives the ranked decision for
+the original named ordered-live-out observations at a supplied typed
+caller, with complete packet and result inventories for this profile.
+The regression takes a backedge on the unranked side under a Nat store
+interpreter and distinguishes its primitive divergence from the
+ranked side's selected exit.
+[One-ranked ordered live-outs][ssa-ub-ranked-ordered-liveout]
+
 `Table.compareEntries?` lifts the fixed-carrier comparison to the
 existing exhaustive `CallerEnumeration` of a shared typed domain. Each
 caller is decoded separately into the exact entry type of each original
@@ -1565,6 +1584,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
 
 [ssa-ub-open-guarded-payload]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Payload/Thms.lean
+[ssa-ub-ranked-ordered-liveout]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Ranked/Thms.lean
 [ssa-ub-ordered-liveout]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Thms.lean
 [ssa-ub-recognized-liveout]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Recognize/Thms.lean
 [ssa-ub-named-guarded-payload]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Thms.lean
