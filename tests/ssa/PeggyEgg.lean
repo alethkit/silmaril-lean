@@ -1,8 +1,10 @@
 module
 
 import Silmaril.SSA.PEG.Builder
-import Silmaril.SSA.Peggy.Bridge.Egg.Thms
+import Silmaril.SSA.PEG.Semantics.Thms
+import Silmaril.SSA.Peggy.Bridge.Figure11.Thms
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
+meta import Silmaril.SSA.Peggy.Bridge.Figure11.Defs
 meta import Silmaril.SSA.Peggy.Acyclic.Defs
 meta import Silmaril.Logic.Egg.Core.Replay.Defs
 meta import Silmaril.SSA.PEG.Builder
@@ -19,6 +21,7 @@ open Bridge.Egg
 private inductive Op : List (Ty Unit) → Ty Unit → Type where
   | yes : Op [] .bool
   | no : Op [] .bool
+  | bottom : Op [] .bool
   | fail : Op [] .count
   | add : Op [.count, .count] .count
   deriving DecidableEq
@@ -28,18 +31,20 @@ private abbrev results : List (Ty Unit) := [.count, .count, .count, .bool]
 
 /-- The add uses the selected value twice. The first and third outputs share
 the add, and the two count parameters occupy distinct input slots. -/
-private def source : RawGraph Op params results 7 0 where
+private def sourceWith (control : Op [] .bool) : RawGraph Op params results 7 0 where
   forest := ⟨Fin.elim0⟩
   sort i := if i = 2 ∨ i = 6 then .bool else .count
   node i := match i with
     | 0 => ⟨_, .op .add, [1, 1]⟩
     | 1 => ⟨_, .phi, [2, 3, 4]⟩
-    | 2 => ⟨_, .op .yes, []⟩
+    | 2 => ⟨_, .op control, []⟩
     | 3 => ⟨_, .param (.tail .head), []⟩
     | 4 => ⟨_, .op .fail, []⟩
     | 5 => ⟨_, .param (.tail (.tail .head)), []⟩
     | 6 => ⟨_, .param .head, []⟩
   roots := [0, 5, 0, 6]
+
+private abbrev source := sourceWith .yes
 
 private def target : RawGraph Op params results 4 0 where
   forest := ⟨Fin.elim0⟩
@@ -119,13 +124,15 @@ private def swappedRanked : Ranked swapped := (Ranked.check swapped targetRank).
 
 #guard (checkOutputs opEq srcRanked swappedRanked (receipts (.refl yes))).isNone
 
-private def interp : Interpretation Op where
+private def nativeInterp : PEG.Interpretation.{0,0,0} Op where
   carrier _ := Unit
-  prim
-    | .yes, .nil => some true
-    | .no, .nil => some false
-    | .fail, .nil => none
-    | .add, .cons a (.cons b .nil) => some (Nat.add a b)
+  run
+    | .yes, .nil => some ⟨true⟩
+    | .no, .nil => some ⟨false⟩
+    | .bottom, .nil | .fail, .nil => none
+    | .add, .cons a (.cons b .nil) => some ⟨Nat.add a.down b.down⟩
+
+private def interp : Interpretation Op := Bridge.Figure11.toAcyclic nativeInterp
 
 private def input (i : Fin params.length) : interp.Partial params[i] :=
   match i with | 0 => none | 1 => some (7 : Nat) | 2 => some (3 : Nat)
@@ -150,6 +157,51 @@ example (accepted : (checkOutputs opEq srcRanked dstRanked (receipts (.refl yes)
   intro r hr
   have : r = selectTrue := List.mem_singleton.mp hr
   exact this ▸ selectTrue_holds
+
+private def nativeInputs : RVSDG.Tuple nativeInterp.Value params :=
+  .cons ⟨false⟩ (.cons ⟨7⟩ (.cons ⟨3⟩ .nil))
+
+example (accepted : (checkOutputs opEq srcRanked dstRanked (receipts (.refl yes))).isSome) :
+    src.observe nativeInterp (src.denote nativeInterp nativeInputs
+      (Bridge.Figure11.demandWellFounded srcRanked)) Fin.elim0 =
+    dst.observe nativeInterp (dst.denote nativeInterp nativeInputs
+      (Bridge.Figure11.demandWellFounded dstRanked)) Fin.elim0 := by
+  apply Bridge.Figure11.checkOutputs_figure11_sound opEq accepted nativeInterp
+  intro r hr
+  have : r = selectTrue := List.mem_singleton.mp hr
+  exact this ▸ selectTrue_holds
+
+private def variant (control : Op [] .bool) : Graph Op params results 7 0 :=
+  (sourceWith control).check.get (by rfl)
+
+private def variantRanked (control : Op [] .bool) : Ranked (variant control) :=
+  (Ranked.check (variant control) sourceRank).get (by rfl)
+
+private noncomputable def variantValues (control : Op [] .bool) :
+    (variant control).Valuation nativeInterp :=
+  (variant control).denote nativeInterp nativeInputs
+    (Bridge.Figure11.demandWellFounded (variantRanked control))
+
+private theorem variantPhi (control : Op [] .bool) :
+    variantValues control (1, Fin.elim0) = (nativeInterp.run control .nil).elim none
+      (fun flag => if flag.down then some ⟨7⟩ else none) := by
+  have step := (variant control).denote_solves nativeInterp nativeInputs
+    (Bridge.Figure11.demandWellFounded (variantRanked control))
+  have guard : variantValues control (2, Fin.elim0) = nativeInterp.run control .nil :=
+    step (2, Fin.elim0)
+  have yesArm : variantValues control (3, Fin.elim0) = some ⟨7⟩ := step (3, Fin.elim0)
+  have noArm : variantValues control (4, Fin.elim0) = none := step (4, Fin.elim0)
+  have eq := step (1, Fin.elim0)
+  change variantValues control (1, Fin.elim0) =
+    (variantValues control (2, Fin.elim0)).elim none (fun flag => if flag.down
+      then variantValues control (3, Fin.elim0) else variantValues control (4, Fin.elim0)) at eq
+  rw [guard, yesArm, noArm] at eq
+  exact eq
+
+-- The undefined arm is ignored exactly when it is unselected.
+example : variantValues .yes (1, Fin.elim0) = some ⟨7⟩ := variantPhi .yes
+example : variantValues .no (1, Fin.elim0) = none := variantPhi .no
+example : variantValues .bottom (1, Fin.elim0) = none := variantPhi .bottom
 
 -- Equal branch values do not justify dropping an undefined control operand.
 private def unsafePhi : Core.Rule (signature Op) :=
