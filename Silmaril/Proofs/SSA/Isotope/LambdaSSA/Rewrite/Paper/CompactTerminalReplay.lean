@@ -85,30 +85,41 @@ private theorem check_value {Γ : List (Ty Empty)} {X : Ty Empty} {frame : Reply
       · simp only [check, saved] at passed
         simpa [Finite.Expr.eval, tag] using! ih _ _ valid passed
 
+theorem selected_of_frame_rows {X : Ty Empty} {frame : ReplyFrame X} {L : List (Ty Empty)} {n m : Nat}
+    (e : Finite.Expr n) (out : Finite.Expr m)
+    (slots : Fin n → ReplyFrame.Slot frame) (otherSlots : Fin m → ReplyFrame.Slot frame)
+    (pos : Position L) (emits : List Bool)
+    (rows : ∀ {Γ : List (Ty Empty)} (v : ReplyFrame.Value Γ frame),
+      e.eval (fun j => ((slots j).read v).1) = out.eval (fun j => ((otherSlots j).read v).1)) :
+    selectedEq (selectTerminal pos e (fun j => (slots j).term) emits)
+      (selectTerminal pos out (fun j => (otherSlots j).term) emits) := by
+  let terms := fun j => (slots j).term
+  let otherTerms := fun j => (otherSlots j).term
+  let left := selectTerminal pos (Finite.Expr.quote n e.eval) terms
+  let right := selectTerminal pos (Finite.Expr.quote m out.eval) otherTerms
+  have bare : selectedEq (left []) (right []) := by
+    apply frame_case_ext frame (left []).elaborate.property.hasType (right []).elaborate.property.hasType
+    intro Γ v
+    have l := quote_frameValue pos e.eval slots v
+    have r := quote_frameValue pos out.eval otherSlots v
+    rw [rows v] at l
+    exact l.trans r.symm
+  have quoted := (terminal_prefix (Finite.Expr.quote n e.eval) pos terms emits).trans
+    ((prependEmits_congr emits bare).trans
+      (terminal_prefix (Finite.Expr.quote m out.eval) pos otherTerms emits).symm)
+  exact (quote_eval_selected e pos terms emits (fun j => frameSlot_discards (slots j))).symm.trans
+    (quoted.trans (quote_eval_selected out pos otherTerms emits (fun j => frameSlot_discards (otherSlots j))))
+
 theorem selected_of_check {X : Ty Empty} {frame : ReplyFrame X} {L : List (Ty Empty)} {n : Nat}
     (e : Finite.Expr n) (out : Terminal n) (slots : Fin n → ReplyFrame.Slot frame)
     (pos : Position L) (emits : List Bool)
     (passed : check e slots (fun _ => none) (out.atom slots) = true) :
     selectedEq (selectTerminal pos e (fun j => (slots j).term) emits)
       (selectTerminal pos out.expr (fun j => (slots j).term) emits) := by
-  let terms := fun j => (slots j).term
-  let left := selectTerminal pos (Finite.Expr.quote n e.eval) terms
-  let right := selectTerminal pos (Finite.Expr.quote n out.expr.eval) terms
-  have bare : selectedEq (left []) (right []) := by
-    apply frame_case_ext frame (left []).elaborate.property.hasType (right []).elaborate.property.hasType
-    intro Γ v
-    have row := check_value v e slots (fun _ => none) (out.atom slots) (by intro _ _ h; cases h) passed
-    have agree : e.eval (fun j => ((slots j).read v).1) = out.expr.eval (fun j => ((slots j).read v).1) :=
-      row.trans (by cases out <;> rfl)
-    have l := quote_frameValue pos e.eval slots v
-    have r := quote_frameValue pos out.expr.eval slots v
-    rw [agree] at l
-    exact l.trans r.symm
-  have quoted := (terminal_prefix (Finite.Expr.quote n e.eval) pos terms emits).trans
-    ((prependEmits_congr emits bare).trans
-      (terminal_prefix (Finite.Expr.quote n out.expr.eval) pos terms emits).symm)
-  exact (quote_eval_selected e pos terms emits (fun j => frameSlot_discards (slots j))).symm.trans
-    (quoted.trans (quote_eval_selected out.expr pos terms emits (fun j => frameSlot_discards (slots j))))
+  apply selected_of_frame_rows
+  intro Γ v
+  have row := check_value v e slots (fun _ => none) (out.atom slots) (by intro _ _ h; cases h) passed
+  exact row.trans (by cases out <;> rfl)
 
 theorem selected_of_infer {X : Ty Empty} {frame : ReplyFrame X} {L : List (Ty Empty)} {n : Nat}
     (e : Finite.Expr n) (out : Terminal n) (slots : Fin n → ReplyFrame.Slot frame)

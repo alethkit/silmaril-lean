@@ -32,14 +32,14 @@ private theorem assignment_mem : ∀ {n : Nat} (env : Finite.Assignment n),
     | false => exact Or.inl ⟨env.tail, tailMem, h ▸ push⟩
     | true => exact Or.inr ⟨env.tail, tailMem, h ▸ push⟩
 
-private theorem observations_agree {L : List (Ty Empty)} {n : Nat} (p q : CanonicalLive L n)
-    (h : AssignmentSearch.difference? p q = none) (env : Finite.Assignment n) :
-    p.normal.outcomes env = q.normal.outcomes env := by
-  unfold AssignmentSearch.difference? at h
+theorem trace_agrees_of_no_difference {L : List (Ty Empty)} {n : Nat} (p q : Finite.Normal L n)
+    (h : AssignmentSearch.normalDifference? p q = none) (env : Finite.Assignment n) :
+    p.traceTree env = q.traceTree env := by
+  unfold AssignmentSearch.normalDifference? at h
   have atEnv := List.findSome?_eq_none_iff.mp h env (assignment_mem env)
   split at atEnv
   · contradiction
-  · exact congrArg (Reply.Normal.outcomesWith (Reply.Exits.Exit.packed (L := L))) (Classical.not_not.mp ‹_›)
+  · exact Classical.not_not.mp ‹_›
 
 theorem compareSelected_ne_unknown {L : List (Ty Empty)} {n : Nat} (p q : SelectedAt (replyContext n) L)
     (hp : (admitSelected? p).isSome) (hq : (admitSelected? q).isSome) :
@@ -60,7 +60,9 @@ theorem compareSelected_ne_unknown {L : List (Ty Empty)} {n : Nat} (p q : Select
         cases h : AssignmentSearch.difference? left.tree right.tree with
         | none => rfl
         | some input => exact False.elim (noWitness input h)
-      have modelAgrees env := observations_agree left.tree right.tree noDifference env
+      have modelAgrees env :=
+        congrArg (Reply.Normal.outcomesWith (Reply.Exits.Exit.packed (L := L)))
+          (trace_agrees_of_no_difference left.tree.normal right.tree.normal noDifference env)
       have same := eq_of_observations left.tree right.tree (fun env =>
         (left.tree.map_outcomes env).trans ((modelAgrees env).trans (right.tree.map_outcomes env).symm))
       have compareComplete := projection_compare_iff p q left.tree right.tree left.target_eq right.target_eq

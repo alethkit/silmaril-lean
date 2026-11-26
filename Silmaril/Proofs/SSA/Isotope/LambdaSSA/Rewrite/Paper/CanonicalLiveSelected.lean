@@ -94,19 +94,26 @@ theorem normal_injective {L : List (Ty Empty)} {n : Nat} :
       rw [ifl hfl, ifr hfr, itl htl, itr htr]
     | ret | literal | emit | request => cases eq
 
-theorem map_outcomes {L : List (Ty Empty)} {n : Nat} (p : CanonicalLive L n) (env : Finite.Assignment n) :
-    ((CanonicalLive.payloadDenote.map p.target.packed).of (replyInput n env)).outcomes = p.normal.outcomes env := by
+theorem readTree_map_outcomes {L : List (Ty Empty)} {n : Nat} (p : ReadTree L n)
+    (env : Finite.Assignment n) :
+    ((CanonicalLive.payloadDenote.map (ScopedTarget.packed (X := replyContext n) (L := L)
+      p.selected.elaborate)).of (replyInput n env)).outcomes = p.witnessed.normal.outcomes env := by
   let := Kleisli.instructions model
   let := modelCoherent
   have sound : Paper.Extension.Singleton.SeedDenotes (Seed := Seed) J M :=
     Paper.WithCaseBind.SelectedTerminal.seed_denotes J M (fun _ _ => ⟨rfl, rfl⟩)
-  let rep := p.readTree.selected.elaborate.property.packExits
-  have modelEq : CanonicalLive.payloadDenote.map p.target.packed =
-      Finite.Extensional.Selected.denotation p.readTree :=
+  let rep := p.selected.elaborate.property.packExits
+  have modelEq : CanonicalLive.payloadDenote.map (ScopedTarget.packed (X := replyContext n) (L := L)
+      p.selected.elaborate) = Finite.Extensional.Selected.denotation p :=
     (Paper.Extension.Singleton.denoteFunctor_map_ofRegion J M (fun _ _ => ⟨rfl, rfl⟩) sound rep).trans
       (Paper.WithProjectionReturnsAndUnitEta.denoteArrow_ofRegion J M (fun _ _ => ⟨rfl, rfl⟩) rep).symm
-  rw [modelEq, ← witnessed_normal p]
-  exact p.readTree.packedOutcomes_at_assignment env
+  rw [modelEq]
+  exact p.packedOutcomes_at_assignment env
+
+theorem map_outcomes {L : List (Ty Empty)} {n : Nat} (p : CanonicalLive L n) (env : Finite.Assignment n) :
+    ((CanonicalLive.payloadDenote.map p.target.packed).of (replyInput n env)).outcomes = p.normal.outcomes env := by
+  rw [← witnessed_normal p]
+  exact readTree_map_outcomes p.readTree env
 
 theorem eq_of_observations {L : List (Ty Empty)} {n : Nat} (p q : CanonicalLive L n)
     (h : ∀ env, ((CanonicalLive.payloadDenote.map p.target.packed).of (replyInput n env)).outcomes =
