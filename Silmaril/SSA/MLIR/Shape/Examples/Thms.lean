@@ -56,4 +56,21 @@ theorem negative_index_cast_is_undefined : indexToSize (-1) = .undefined := rfl
 
 theorem zero_size_cast : sizeToIndex (.known 0) = .defined 0 := rfl
 
+theorem fromExtents_rank_zero : fromExtents? [] = some (.ofStatic []) := rfl
+
+theorem fromExtents_keeps_order_and_zero :
+    (fromExtents? [5, 0, 2]).bind ShapeValue.toStatic? = some [5, 0, 2] := rfl
+
+theorem fromExtents_negative_outside_profile : fromExtents? [5, -1, 2] = none := rfl
+
+theorem fromExtentTensor_empty : fromExtentTensor (extentTensor []) = .ofStatic [] :=
+  fromExtentTensor_extentTensor []
+
+theorem fromExtentTensor_single_zero : fromExtentTensor (extentTensor [0]) = .ofStatic [0] :=
+  fromExtentTensor_extentTensor [0]
+
+theorem fromExtentTensor_reads_coordinates :
+    let extents : ExtentTensor := ⟨2, fun dim => if dim.1.val = 0 then 5 else 3⟩
+    (fromExtentTensor extents).toStatic? = some [5, 3] := rfl
+
 end Silmaril.MLIR.Shape.Examples
