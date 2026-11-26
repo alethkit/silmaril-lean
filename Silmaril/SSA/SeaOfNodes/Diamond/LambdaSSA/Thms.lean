@@ -9,7 +9,7 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA
 
-open RVSDG (Tuple)
+open RVSDG (Locals Origin Port Tuple extend)
 open Silmaril.Isotope (Value)
 open Silmaril.Isotope.LambdaSSA
 open Silmaril.Isotope.LambdaSSA.Semantics (Env)
@@ -19,6 +19,57 @@ universe u v w x
 variable {Data : Type u} {Op : Signature.{u,v} Data} {σ : Type x}
 variable {inputs : List (ValueSort Data)} {sigs : List (List (Ty Data))} {out : ValueSort Data}
 variable (g : Graph Op inputs sigs out)
+
+section Schedule
+
+variable {args : List (Ty Data)} {past : List (List (Ty Data))}
+variable {context labels : List (Code Data)}
+
+theorem schedule_typed (flow : Dataflow Op args past sigs)
+    (layout : Layout args past context) {tail : Region (Primitive Op)}
+    (typed : tail.HasType (scheduledContext context sigs) labels) :
+    (schedule flow layout tail).HasType context labels :=
+  Proofs.SSA.SeaOfNodes.Diamond.LambdaSSA.schedule_typed flow layout typed
+
+theorem tuple_get_map {T : Type u} {F : T → Type v} {G : T → Type w}
+    {ports : List T} {t : T} (f : ∀ t, F t → G t) (xs : Tuple F ports) (p : Port ports t) :
+    (xs.map f).get p = f t (xs.get p) :=
+  Proofs.SSA.SeaOfNodes.Diamond.LambdaSSA.get_map f xs p
+
+variable (m : Model.{u,v,w} Op)
+
+theorem encode_injective {sort : ValueSort Data} :
+    Function.Injective (encode m (sort := sort)) :=
+  Proofs.SSA.SeaOfNodes.Diamond.LambdaSSA.encode_injective m
+
+theorem instruction_deterministic : Semantics.InstrDeterministic (instruction m (σ := σ)) :=
+  Proofs.SSA.SeaOfNodes.Diamond.LambdaSSA.instruction_deterministic m
+
+theorem inputRefs_match {ports : List (Ty Data)} (values : Tuple (Val m.value) ports) :
+    TupleMatch m (inputEnv m values) (inputRefs ports) values :=
+  Proofs.SSA.SeaOfNodes.Diamond.LambdaSSA.inputRefs_match m values
+
+theorem LayoutMatch.resolve {layout : Layout args past context}
+    {env : Env (Atom m)} {entry : Tuple (Val m.value) args} {locals : Locals (Val m.value) past}
+    (matched : LayoutMatch m layout env entry locals) {port : Ty Data}
+    (origin : Origin args past port) :
+    env (layout.resolve origin).val = encodePort m (read m origin entry locals) :=
+  Proofs.SSA.SeaOfNodes.Diamond.LambdaSSA.LayoutMatch.resolve m matched origin
+
+/-- Each producer becomes one let. The continuation receives an environment
+that agrees with source wire reads after the entire pure producer table. -/
+theorem schedule_eval (flow : Dataflow Op args past sigs)
+    {layout : Layout args past context} {env : Env (Atom m)}
+    {entry : Tuple (Val m.value) args} {locals : Locals (Val m.value) past}
+    (matched : LayoutMatch m layout env entry locals) {tail : Region (Primitive Op)}
+    {label : Nat} {payload : Value (Atom m)} (start : σ)
+    (runTail : ∀ finalEnv, LayoutMatch m (scheduleLayout flow layout) finalEnv entry
+        (flow.eval m entry locals) →
+      Semantics.Region.Eval (instruction m) finalEnv tail start label payload start) :
+    Semantics.Region.Eval (instruction m) env (schedule flow layout tail) start label payload start :=
+  Proofs.SSA.SeaOfNodes.Diamond.LambdaSSA.schedule_eval m flow matched start runTail
+
+end Schedule
 
 /-- The scheduled region has the original inputs and one typed external exit. -/
 theorem lower_hasType :

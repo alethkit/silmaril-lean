@@ -92,6 +92,23 @@ structure Layout (args : List (Ty Data)) (past : List (List (Ty Data)))
   argsRefs : Tuple (Ref context) args
   localRefs : Locals (Ref context) past
 
+variable {context : List (Code Data)}
+
+/-- Every typed variable reference reads the encoding of its source port. -/
+def TupleMatch (env : Env (Atom m)) {ports : List (Ty Data)}
+    (refs : Tuple (Ref context) ports) (values : Tuple (Val m.value) ports) : Prop :=
+  ∀ {p} (slot : Port ports p), env (refs.get slot).val = encodePort m (values.get slot)
+
+def LocalsMatch (env : Env (Atom m)) : {past : List (List (Ty Data))} →
+    Locals (Ref context) past → Locals (Val m.value) past → Prop
+  | [], _, _ => True
+  | _ :: _, refs, locals => TupleMatch m env refs.1 locals.1 ∧ LocalsMatch env refs.2 locals.2
+
+/-- The target environment represents the source inputs and all scheduled producers. -/
+def LayoutMatch (layout : Layout args past context)
+    (env : Env (Atom m)) (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) : Prop :=
+  TupleMatch m env layout.argsRefs entry ∧ LocalsMatch m env layout.localRefs locals
+
 def Layout.initial (args : List (Ty Data)) : Layout args [] (args.map portCode) :=
   ⟨inputRefs args, PUnit.unit⟩
 
