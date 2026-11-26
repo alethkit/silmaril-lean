@@ -58,6 +58,13 @@ inductive Plan (Op : Dialect.{u, v} (ValueSort V S) S) (importsL importsR export
       {restR : ModuleTerm Op importsR (pastR ++ [[fn.port]]) sigsR exports}
       (prior : Nat) (next : Plan Op importsL importsR exports true restL restR) :
       Plan Op importsL importsR exports true (.bind (.lambda left) restL) (.bind (.lambda right) restR)
+  /-- Reuse the first earlier pair whose two exact value checks succeed. -/
+  | aliasFirst {pastL sigsL pastR sigsR : List (Ports (Ty V S))} {fn : Function V S}
+      {left : LambdaTerm Op importsL pastL fn} {right : LambdaTerm Op importsR pastR fn}
+      {restL : ModuleTerm Op importsL (pastL ++ [[fn.port]]) sigsL exports}
+      {restR : ModuleTerm Op importsR (pastR ++ [[fn.port]]) sigsR exports}
+      (next : Plan Op importsL importsR exports true restL restR) :
+      Plan Op importsL importsR exports true (.bind (.lambda left) restL) (.bind (.lambda right) restR)
 
 abbrev Row (family : Family m) {ports : Ports (Ty V S)} (values : Tuple m.Val ports) :=
   ∀ {port : Ty V S} (p : Port ports port), Option (PLift (family (values.get p)))
@@ -154,6 +161,68 @@ def LambdaEntry.checkAlias [DecidableEq (Ty V S)] {familyL familyR : Family m}
       pure ⟨leftEq.down.symm ▸ entry.knownL, rightEq.down.symm ▸ entry.knownR⟩
   else none
 
+/-- A successful scan carries a bounded index in the supplied dispatch
+list, its first-success proof and the membership evidence from that pair. -/
+structure AliasMatch [DecidableEq (Ty V S)] {familyL familyR : Family m}
+    (entries : List (LambdaEntry familyL familyR)) (check : ExactValueCheck m)
+    {fn : Function V S} (left right : m.Val fn.port) where
+  index : Fin entries.length
+  first : entries.findIdx? (fun entry => (entry.checkAlias check (fn := fn) left right).isSome) = some index.val
+  known : familyL left ∧ familyR right
+
+def findAliasCandidate [DecidableEq (Ty V S)] {familyL familyR : Family m}
+    (entries : List (LambdaEntry familyL familyR)) (check : ExactValueCheck m)
+    {fn : Function V S} (left right : m.Val fn.port) : Option (Nat × PLift (familyL left ∧ familyR right)) :=
+  entries.zipIdx.findSome? fun row =>
+    (row.1.checkAlias check (fn := fn) left right).map fun known => (row.2, known)
+
+theorem findAliasCandidate_index [DecidableEq (Ty V S)] {familyL familyR : Family m}
+    (entries : List (LambdaEntry familyL familyR)) (check : ExactValueCheck m)
+    {fn : Function V S} (left right : m.Val fn.port) :
+    (findAliasCandidate entries check (fn := fn) left right).map Prod.fst =
+      entries.findIdx? (fun entry => (entry.checkAlias check (fn := fn) left right).isSome) := by
+  rw [findAliasCandidate, List.map_findSome?, List.findIdx?_eq_findSome?_zipIdx]
+  congr 1
+  funext row
+  obtain ⟨entry, _⟩ := row
+  cases checked : entry.checkAlias check (fn := fn) left right <;> simp [checked]
+
+/-- Scan in the prefix's existing order, most recent first. Each candidate
+uses the explicit alias check on one pair and retains its evidence. -/
+def findAlias [DecidableEq (Ty V S)] {familyL familyR : Family m}
+    (entries : List (LambdaEntry familyL familyR)) (check : ExactValueCheck m)
+    {fn : Function V S} (left right : m.Val fn.port) :
+    Option (AliasMatch entries check (fn := fn) left right) :=
+  match found : findAliasCandidate entries check (fn := fn) left right with
+  | none => none
+  | some (index, known) =>
+    have first := (findAliasCandidate_index entries check (fn := fn) left right).symm.trans (congrArg (Option.map Prod.fst) found)
+    some ⟨⟨index, (List.findIdx?_eq_some_iff_findIdx_eq.mp first).1⟩, first, known.down⟩
+
+theorem AliasMatch.accepted [DecidableEq (Ty V S)] {familyL familyR : Family m}
+    {entries : List (LambdaEntry familyL familyR)} {check : ExactValueCheck m}
+    {fn : Function V S} {left right : m.Val fn.port} (hit : AliasMatch entries check (fn := fn) left right) :
+    (entries[hit.index].checkAlias check (fn := fn) left right).isSome = true :=
+  (List.findIdx?_eq_some_iff_getElem.mp hit.first).choose_spec.1
+
+theorem AliasMatch.noEarlier [DecidableEq (Ty V S)] {familyL familyR : Family m}
+    {entries : List (LambdaEntry familyL familyR)} {check : ExactValueCheck m}
+    {fn : Function V S} {left right : m.Val fn.port} (hit : AliasMatch entries check (fn := fn) left right)
+    (i : Fin entries.length) (before : i < hit.index) :
+    ¬(entries[i].checkAlias check (fn := fn) left right).isSome :=
+  (List.findIdx?_eq_some_iff_getElem.mp hit.first).choose_spec.2 i before
+
+/-- A miss means every paired check failed. The statement refers to the
+supplied checker's results and requires no completeness of that checker. -/
+theorem findAlias_none_iff [DecidableEq (Ty V S)] {familyL familyR : Family m}
+    (entries : List (LambdaEntry familyL familyR)) (check : ExactValueCheck m)
+    {fn : Function V S} (left right : m.Val fn.port) :
+    findAlias entries check (fn := fn) left right = none ↔
+      ∀ entry ∈ entries, (entry.checkAlias check (fn := fn) left right).isSome = false := by
+  rw [← List.findIdx?_eq_none_iff, ← findAliasCandidate_index]
+  unfold findAlias
+  split <;> simp_all
+
 structure Checked (primitives : Primitives m σ) (ids : GlobalRel) (code : OpcodeCode (Instruction Op))
     (captureCode : CaptureCode m)
     (localsL : Locals m.Val pastL) (localsR : Locals m.Val pastR) where
@@ -164,6 +233,15 @@ structure Checked (primitives : Primitives m σ) (ids : GlobalRel) (code : Opcod
   lambdas : List (LambdaEntry familyL familyR)
   left : Table familyL localsL
   right : Table familyR localsR
+
+/-- Install both actual linked rows using membership from a checked alias. -/
+def Checked.aliasRows {code : OpcodeCode (Instruction Op)} {captureCode : CaptureCode m}
+    {localsL : Locals m.Val pastL} {localsR : Locals m.Val pastR}
+    (earlier : Checked primitives ids code captureCode localsL localsR)
+    {fn : Function V S} {left right : m.Val fn.port} (known : earlier.familyL left ∧ earlier.familyR right) :
+    Checked primitives ids code captureCode (localsL.snoc (.cons left .nil)) (localsR.snoc (.cons right .nil)) :=
+  ⟨earlier.familyL, earlier.familyR, earlier.keys, earlier.certified, earlier.lambdas,
+    earlier.left.snoc (singletonRow known.1), earlier.right.snoc (singletonRow known.2)⟩
 
 inductive State (primitives : Primitives m σ) (ids : GlobalRel) (code : OpcodeCode (Instruction Op))
     (captureCode : CaptureCode m)
@@ -286,15 +364,24 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (captureCod
       let known ← entry.checkAlias exactValue (fn := fn) calleeL calleeR
       let checked ← walk keys captureCode exactValue actions ids ordinary unitL unitR inputsL inputsR port
         (localsL.snoc (.cons calleeL .nil)) (localsR.snoc (.cons calleeR .nil)) storeL storeR next
-        (.seeded ⟨earlier.familyL, earlier.familyR, earlier.keys, earlier.certified, earlier.lambdas,
-          earlier.left.snoc (singletonRow known.down.1), earlier.right.snoc (singletonRow known.down.2)⟩)
+        (.seeded (earlier.aliasRows (fn := fn) known.down))
       pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
+  | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR,
+      .aliasFirst (fn := fn) (left := left) (right := right) next, .seeded earlier => do
+    let calleeL := linkedLambda left.toGraph inputsL localsL
+    let calleeR := linkedLambda right.toGraph inputsR localsR
+    let hit ← findAlias earlier.lambdas exactValue (fn := fn) calleeL calleeR
+    let checked ← walk keys captureCode exactValue actions ids ordinary unitL unitR inputsL inputsR port
+      (localsL.snoc (.cons calleeL .nil)) (localsR.snoc (.cons calleeR .nil)) storeL storeR next
+      (.seeded (earlier.aliasRows (fn := fn) hit.known))
+    pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
 
 /-- Check an ordered pair of complete link prefixes, then read the
 selected export from the generated membership tables. The plan contains
 only binding selections. Each λ step checks separation using actual
 capture observations as well as the body profile. An alias row requires
-certificates of actual value equality on both sides. Related successful link
+certificates of actual value equality on both sides. Use `Plan.aliasFirst`
+to select a paired entry by scanning the actual prefix. Related successful link
 outcomes and primitive compatibility remain premises for paired invocation. -/
 def admit (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : Actions m σ)
     (ids : GlobalRel) (ordinary : OrdinaryOutputs Op) (unitL unitR : Nat)

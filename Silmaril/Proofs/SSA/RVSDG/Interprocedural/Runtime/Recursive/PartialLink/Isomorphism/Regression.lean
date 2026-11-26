@@ -1327,6 +1327,65 @@ example : (match Executable.run actions 5 73 (captureModule true).toGraph (numbe
   | .ok (.suspended config) => (runFor actions 60 config).result
   | _ => none) = some (number 16, 41) := by cbv
 
+private abbrev scanExports := [branchFn.port, branchFn.port, branchFn.port, branchFn.port]
+
+private abbrev scanCaller : Port scanExports branchFn.port := .tail (.tail (.tail .head))
+
+private def scanModule (useSecond : Bool) :
+    OmegaTerm Op args scanExports [[global], [global], [], [branchFn.port], [branchFn.port],
+      [branchFn.port], [branchFn.port]] :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.delta finishL) <| .bind (.phi (emptyPhi Op args _)) <|
+    .bind (.lambda (sameBodyLambda (.output (0 : Fin 3) .head))) <|
+    .bind (.lambda (sameBodyLambda (.output (1 : Fin 4) .head))) <|
+    .bind (.lambda (sameBodyLambda (if useSecond then .output (1 : Fin 5) .head else .output (0 : Fin 5) .head))) <|
+    .bind (.lambda (combined (.output (5 : Fin 6) .head) (.output (3 : Fin 6) .head))) <|
+    .ret (.cons (.output (3 : Fin 7) .head) (.cons (.output (4 : Fin 7) .head)
+      (.cons (.output (5 : Fin 7) .head) (.cons (.output (6 : Fin 7) .head) .nil))))⟩
+
+private def scanPlan (left right : Bool) :
+    Plan Op args args scanExports false (scanModule left).region (scanModule right).region :=
+  .skipL (.skipR (.skipL (.skipR (.seed (.lambda (.lambda (.aliasFirst (.lambda .done))))))))
+
+private def inferredAlias (left right : Bool) :=
+  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    (scanModule left) (scanModule right) (scanPlan left right) (fn := branchFn) scanCaller 20 20
+    captureCode (exactValue := exactLambdas)
+
+-- The first two bindings have the same body and distinct captured values.
+-- The third row can alias either paired definition. Opposite choices have
+-- one exact match per side, but those matches belong to different pairs.
+#guard (inferredAlias false false).isSome
+#guard (inferredAlias true true).isSome
+#guard (inferredAlias false true).isNone
+
+open RecursiveCall.Numbered.Prefix (LambdaEntry findAlias)
+
+private def allLinkedValues : Family machine := fun {_} _ => True
+
+private def linkedAliasIndex (useSecond : Bool) : Option Nat :=
+  match Executable.link actions 73 (scanModule useSecond).toGraph (number 1) 20 with
+  | .linked outputs _ =>
+    let pair (port : Port scanExports branchFn.port) : LambdaEntry allLinkedValues allLinkedValues :=
+      ⟨branchFn, outputs.get port, outputs.get port, trivial, trivial⟩
+    let callee := outputs.get (.tail (.tail .head))
+    (findAlias [pair (.tail .head), pair .head, pair .head] exactLambdas (fn := branchFn) callee callee).map
+      fun hit => hit.index.val
+  | .undefined _ => none
+
+-- Test the returned index directly with real linker values, including a
+-- repeated candidate so success at the first matching index is observable.
+#guard linkedAliasIndex false == some 1
+#guard linkedAliasIndex true == some 0
+
+example : (Executable.run actions 60 73 (scanModule false).toGraph (number 1)
+    scanCaller (branchArgs 0) 20 |>.toOption.bind branchAttempt) =
+      some ([0, 0], 0, 0, 28) := by cbv
+
+example : (match Executable.run actions 5 73 (scanModule false).toGraph (number 1)
+    scanCaller (branchArgs 1) 20 with
+  | .ok (.suspended config) => (runFor actions 60 config).result
+  | _ => none) = some (number 16, 41) := by cbv
+
 private abbrev seedRow {past : List (Ports T)} : NestedTheta.Node (Instruction Op) [global, num] past [num] :=
   RecursiveCall.simple (.primitive Op.seed) (.cons (.arg (.tail .head)) .nil) (fun i => i.elim0)
 
