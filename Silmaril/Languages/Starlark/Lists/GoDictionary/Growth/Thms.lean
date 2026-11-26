@@ -75,6 +75,22 @@ theorem probe_slots_iff (heap : Heap) (table : Table) (key : Value) (hash : UInt
     probeTable heap table key hash = out.mapError Error.runtime :=
   Proofs.Languages.Starlark.Lists.GoDictionary.Growth.probe_slots_iff heap table key hash out
 
+theorem probe_miss_iff {α : Type} (test : α → Except Lists.Error Bool) (items : List α) :
+    Lists.Comparison.probe test items = .ok none ↔ ∀ item ∈ items, test item = .ok false :=
+  Proofs.Languages.Starlark.Lists.GoDictionary.Growth.probe_miss_iff test items
+
+theorem replayable_sublist (heap : Heap) {rows survivors : List Row}
+    (valid : Replayable heap rows) (kept : List.Sublist survivors rows) : Replayable heap survivors :=
+  Proofs.Languages.Starlark.Lists.GoDictionary.Growth.replayable_sublist heap valid kept
+
+theorem replayable_append (heap : Heap) (rows : List Row) (row : Row) (word : UInt32)
+    (valid : Replayable heap rows) (hashed : hashKey heap row.key = .ok word)
+    (stored : storedHash word = row.hash)
+    (miss : ∀ earlier ∈ rows, earlier.hash = row.hash →
+      Lists.Comparison.equalAt heap Lists.Comparison.defaultDepth row.key earlier.key = .ok false) :
+    Replayable heap (rows ++ [row]) :=
+  Proofs.Languages.Starlark.Lists.GoDictionary.Growth.replayable_append heap rows row word valid hashed stored miss
+
 /-- An exhausted miss tests every matching full hash with a successful false result, at any width. -/
 theorem probe_miss (heap : Heap) (width : Width) (entries : List Row) (key : Value) (hash : UInt32) :
     probeRows heap width entries key hash = .ok none ↔

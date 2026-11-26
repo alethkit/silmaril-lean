@@ -49,23 +49,37 @@ theorem rehash_run (heap : Heap) (table : Table) (valid : Replayable heap table.
   simpa only [Table.grow, List.nil_append] using reinsert_run heap table.width.double [] table.entries
     (reinserts_double heap table.width [] table.entries original) table.grow.bounded
 
+theorem replayable_sublist (heap : Heap) {rows survivors : List Row}
+    (valid : Replayable heap rows) (kept : List.Sublist survivors rows) :
+    Replayable heap survivors := by
+  obtain ⟨hashed, pairwise⟩ := (replayable_iff ..).mp valid
+  exact (replayable_iff ..).mpr ⟨fun row mem => hashed row (kept.mem mem), pairwise.sublist kept⟩
+
+theorem replayable_append (heap : Heap) (rows : List Row) (row : Row) (word : UInt32)
+    (valid : Replayable heap rows) (hashed : hashKey heap row.key = .ok word)
+    (stored : storedHash word = row.hash)
+    (miss : ∀ earlier ∈ rows, earlier.hash = row.hash →
+      Lists.Comparison.equalAt heap Lists.Comparison.defaultDepth row.key earlier.key = .ok false) :
+    Replayable heap (rows ++ [row]) := by
+  have facts := (replayable_iff ..).mp valid
+  apply (replayable_iff ..).mpr
+  constructor
+  · intro item mem
+    rcases List.mem_append.mp mem with old | new
+    · exact facts.1 item old
+    · obtain rfl := List.mem_singleton.mp new
+      exact ⟨word, hashed, stored⟩
+  · exact List.pairwise_append.mpr ⟨facts.2, List.pairwise_singleton _ _, fun earlier mem item new => by
+      obtain rfl := List.mem_singleton.mp new
+      exact miss earlier mem⟩
+
 private theorem append_replayable (heap : Heap) (table : Table) (key value : Lists.Value) (hash : UInt32)
     (valid : Replayable heap table.entries)
     (missing : lookupWithHash heap table key = .ok (hash, none)) :
     Replayable heap (table.entries ++ [⟨hash, key, value⟩]) := by
   obtain ⟨word, hashed, stored, probed⟩ := lookup_miss_parts heap table key hash missing
-  have miss := (probe_miss heap table.width table.entries key hash).mp probed
-  have facts := (replayable_iff ..).mp valid
-  apply (replayable_iff ..).mpr
-  constructor
-  · intro row mem
-    rcases List.mem_append.mp mem with old | new
-    · exact facts.1 row old
-    · obtain rfl := List.mem_singleton.mp new
-      exact ⟨word, hashed, stored⟩
-  · exact List.pairwise_append.mpr ⟨facts.2, List.pairwise_singleton _ _, fun earlier mem row new => by
-      obtain rfl := List.mem_singleton.mp new
-      exact miss earlier mem⟩
+  exact replayable_append heap table.entries ⟨hash, key, value⟩ word valid hashed stored
+    ((probe_miss ..).mp probed)
 
 theorem set_replayable (heap : Heap) (table next : Table) (key value : Lists.Value)
     (valid : Replayable heap table.entries)

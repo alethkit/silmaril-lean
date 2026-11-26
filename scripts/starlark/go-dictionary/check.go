@@ -314,6 +314,121 @@ func checkGrownDepthError() {
 	fmt.Println("PASS threshold error precedes growth and grown lookup masks a cyclic value")
 }
 
+func expectProbeOrder(dict *starlark.Dict, word uint32, expected []int) {
+	var visited []int
+	_, found, err := dict.Get(traceKey{id: -1, word: word, visits: &visited})
+	require(err == nil && !found && slices.Equal(visited, expected),
+		fmt.Sprintf("unexpected post-delete probe order %v, want %v (%v)", visited, expected, err))
+}
+
+func traceCollisions(count int) *starlark.Dict {
+	dict := starlark.NewDict(0)
+	for i := range count {
+		require(dict.SetKey(traceKey{id: i, word: 3}, starlark.MakeInt(i)) == nil, "collision fixture insertion failed")
+	}
+	return dict
+}
+
+func checkDeletionSlots() {
+	dict := traceCollisions(16)
+	for _, deletion := range []struct {
+		id      int
+		reached []int
+	}{
+		{0, []int{7, 6, 5, 4, 3, 2, 1, 0}},
+		{12, []int{7, 6, 5, 4, 3, 2, 1, 8, 15, 14, 13, 12}},
+	} {
+		var visited []int
+		value, found, err := dict.Delete(traceKey{id: deletion.id, word: 3, visits: &visited})
+		require(err == nil && found && value == starlark.MakeInt(deletion.id), "delete lost the selected value")
+		require(slices.Equal(visited, deletion.reached), fmt.Sprintf("delete reached the wrong candidates %v", visited))
+	}
+	expectProbeOrder(dict, 3, []int{7, 6, 5, 4, 3, 2, 1, 8, 15, 14, 13, 11, 10, 9})
+	for _, id := range []int{16, 0} {
+		require(dict.SetKey(traceKey{id: id, word: 3}, starlark.MakeInt(99)) == nil, "hole reuse failed")
+	}
+	expectProbeOrder(dict, 3, []int{7, 6, 5, 4, 3, 2, 1, 0, 8, 15, 14, 13, 16, 11, 10, 9})
+	want := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 0}
+	for i, key := range dict.Keys() {
+		require(key.(traceKey).id == want[i], "hole reuse changed survivor iteration order")
+	}
+
+	// An empty overflow link remains. Reusing its last slots yields 10, 9.
+	emptyLink := traceCollisions(9)
+	_, found, err := emptyLink.Delete(traceKey{id: 8, word: 3})
+	require(found && err == nil, "overflow-only removal failed")
+	for _, id := range []int{9, 10} {
+		require(emptyLink.SetKey(traceKey{id: id, word: 3}, starlark.MakeInt(id)) == nil, "empty overflow reuse failed")
+	}
+	expectProbeOrder(emptyLink, 3, []int{7, 6, 5, 4, 3, 2, 1, 0, 10, 9})
+
+	// Advance the live count in the other home so the two old holes
+	// survive until rehash. Rehash packs survivors in their original order.
+	holey := traceCollisions(13)
+	for _, id := range []int{0, 12} {
+		_, found, err := holey.Delete(traceKey{id: id, word: 3})
+		require(found && err == nil, "pre-growth delete failed")
+	}
+	for i := range 3 {
+		id := 20 + i
+		require(holey.SetKey(traceKey{id: id, word: 2}, starlark.MakeInt(id)) == nil, "post-delete grow failed")
+	}
+	expectProbeOrder(holey, 3, []int{8, 7, 6, 5, 4, 3, 2, 1, 9, 11, 10})
+	for i, key := range holey.Keys() {
+		id := i + 1
+		if i >= 11 {
+			id = i + 9
+		}
+		require(key.(traceKey).id == id, "rehash changed survivor iteration order")
+	}
+
+	// Ordinary numeric values exercise alias deletion and the newly stored key.
+	numeric := starlark.NewDict(0)
+	zeroAlias := fromBits(0x8000000000000000)
+	require(numeric.SetKey(starlark.MakeInt(0), starlark.MakeInt(17)) == nil &&
+		numeric.SetKey(starlark.MakeInt64(1<<32), starlark.MakeInt(21)) == nil, "numeric delete setup failed")
+	value, found, err := numeric.Delete(zeroAlias)
+	require(err == nil && found && value == starlark.MakeInt(17), "numeric alias deletion failed")
+	require(numeric.SetKey(zeroAlias, starlark.MakeInt(99)) == nil, "numeric alias reinsertion failed")
+	first, fits := numeric.Keys()[0].(starlark.Int).Int64()
+	require(fits && first == 1<<32 &&
+		math.Float64bits(float64(numeric.Keys()[1].(starlark.Float))) == 0x8000000000000000,
+		"numeric alias did not enter at the tail with its own identity")
+	fmt.Println("PASS primary and overflow holes, retained empty links, highest-slot reuse, survivor rehash and alias reinsertion")
+}
+
+func checkDeletionErrors() {
+	dict := starlark.NewDict(0)
+	deep := wrap(starlark.MakeInt64(1 << 32))
+	require(dict.SetKey(deep, starlark.MakeInt(7)) == nil, "delete depth setup failed")
+	before := dict.Keys()
+	value, found, err := dict.Delete(starlark.MakeInt(0))
+	require(value == starlark.None && !found && err == nil, "missing delete did not return None")
+	_, found, err = dict.Delete(starlark.NewList(nil))
+	require(!found && err != nil && strings.Contains(err.Error(), "unhashable"), "delete must report a hash error")
+	_, found, err = dict.Delete(wrap(starlark.MakeInt(0)))
+	require(!found && err != nil && strings.Contains(err.Error(), "maximum recursion depth"),
+		"delete must report the first reached depth error")
+	require(dict.Len() == 1 && dict.Keys()[0].String() == before[0].String(), "miss or error changed the table")
+
+	var calls int
+	query := traceKey{id: 42, word: 3, hashCalls: &calls}
+	iterator := dict.Iterate()
+	_, _, err = dict.Delete(query)
+	require(err != nil && strings.Contains(err.Error(), "during iteration") && calls == 0,
+		"iterator guard must precede hashing")
+	iterator.Done()
+	dict.Freeze()
+	_, _, err = dict.Delete(query)
+	require(err != nil && strings.Contains(err.Error(), "frozen") && calls == 0, "freeze guard must precede hashing")
+	var zero starlark.Dict
+	_, found, err = zero.Delete(query)
+	require(!found && err == nil && calls == 0, "unallocated Go table must return before hashing")
+	_, found, err = starlark.NewDict(0).Delete(query)
+	require(!found && err == nil && calls == 1, "initialized empty Go table must hash the key")
+	fmt.Println("PASS delete miss, hash/depth errors, and pre-hash guards outside the admitted profile")
+}
+
 func main() {
 	require(starlark.CompareLimit == 10, "pinned default comparison limit changed")
 	checkHashes()
@@ -322,4 +437,6 @@ func main() {
 	checkSecondRehash()
 	checkDepthError()
 	checkGrownDepthError()
+	checkDeletionSlots()
+	checkDeletionErrors()
 }

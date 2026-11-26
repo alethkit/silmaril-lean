@@ -70,7 +70,7 @@ private theorem candidate_mem (width : Width) (entries : List Row) (hash : UInt3
   rw [orderedCandidates, List.mem_filter, (slot_order_perm _).mem_iff, homeRows, List.mem_filter]
   by_cases same : item.1.hash = hash <;> simp [same]
 
-private theorem probe_miss_iff {α : Type} (test : α → Except Lists.Error Bool) (items : List α) :
+theorem probe_miss_iff {α : Type} (test : α → Except Lists.Error Bool) (items : List α) :
     Lists.Comparison.probe test items = .ok none ↔ ∀ item ∈ items, test item = .ok false := by
   induction items with
   | nil => simp [Lists.Comparison.probe]
