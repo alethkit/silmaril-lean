@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Syntactic.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Normalization.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Normalization.Guarded.Thms
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.SyntacticRoundTrip
 
 /-! # Syntactic round trip through the existing LetCase bridge -/
