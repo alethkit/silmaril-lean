@@ -621,4 +621,119 @@ example (cap : Nat) :
     (formalPlan cap).admit inferred actions 83 (one cap) (one cap) 20 (relayReady cap) (relayReady cap) = none :=
   rfl
 
+-- Forward the targets and witnesses through reordered γ boundary ports.
+-- The left arm calls the checked λ, while the right calls a different φ member.
+private abbrev gammaContext := [exportFn.port, fn.port, fn.port, num]
+private abbrev gammaEntry := gammaContext ++ exportFn.args
+private abbrev gammaChild := [fn.port, exportFn.port, num, fn.port, num, num, num]
+
+private def gammaWires (mismatch : Bool) : Wires gammaEntry [decision] gammaChild :=
+  .cons (.arg (if mismatch then .tail (.tail .head) else .tail .head))
+    (.cons (.arg .head)
+      (.cons (.arg (.tail (.tail (.tail .head))))
+        (.cons (.arg (.tail (.tail .head)))
+          (.cons (.arg (.tail (.tail (.tail (.tail .head)))))
+            (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head))))))
+              (.cons (.arg (.tail (.tail (.tail (.tail (.tail (.tail .head))))))) .nil))))))
+
+private def gammaArguments : Wires gammaChild [] exportFn.args :=
+  .cons (.arg (.tail (.tail (.tail (.tail .head)))))
+    (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head))))))
+      (.cons (.arg (.tail (.tail (.tail (.tail (.tail (.tail .head))))))) .nil))
+
+private def gammaArmSigs : Fin 2 → List (Ports T) := Fin.cases [single] (fun _ => [pair])
+
+private def gammaArms (i : Fin 2) : Code Op gammaChild [] (gammaArmSigs i) single true (some firstSlots) :=
+  Fin.cases (motive := fun i => Code Op gammaChild [] (gammaArmSigs i) single true (some firstSlots))
+    (.familyCall (table := firstSlots) (0 : Fin 3) (.tail .head)
+      (.cons (.arg .head) (.cons (.arg (.tail (.tail .head))) .nil)) gammaArguments
+      (.ret (.cons (.output (0 : Fin 1) .head) .nil)))
+    (fun _ => .familyCall (table := firstSlots) (2 : Fin 3) (.tail (.tail (.tail .head)))
+      (.cons (.arg (.tail (.tail .head))) .nil) gammaArguments
+      (.ret (.cons (.output (0 : Fin 1) (.tail .head)) .nil))) i
+
+private def gammaBinding (mismatch : Bool) : Ordered.Binding Op firstSlots single firstSigs exportFn where
+  context := gammaContext
+  captures := .cons (.output (1 : Fin 2) .head)
+    (.cons (.output (0 : Fin 2) .head)
+      (.cons (.output (0 : Fin 2) (.tail .head)) (.cons (.arg .head) .nil)))
+  sigs := [decision, single, []]
+  body := .primitive (.route false) (.cons (.arg (.tail (.tail (.tail (.tail .head))))) .nil)
+    (.gamma 0 gammaArmSigs (.output (0 : Fin 1) .head) (gammaWires mismatch) gammaArms
+      (.primitive .after .nil (.ret (.cons (.output (1 : Fin 3) .head) .nil))))
+
+private def gammaLambdas (mismatch : Bool) :
+    ModuleTerm Op single seedSigs [[exportFn.port], [exportFn.port]] [exportFn.port] :=
+  .bind (.lambda firstBinding.term)
+    (.bind (.lambda (gammaBinding mismatch).term) (.ret (lastExport firstSigs exportFn)))
+
+private def gammaPlan (cap : Nat) (mismatch : Bool) :
+    Plan (one cap) (one cap) (Scope.seed inferred (one cap) (one cap))
+      (gammaBinding mismatch).summary (gammaLambdas mismatch) :=
+  Plan.lambdaDirect (scope := Scope.seed inferred (one cap) (one cap)) firstBinding
+    (Plan.finishDirect (scope := firstScope cap) (gammaBinding mismatch))
+
+private def gammaAdmitted (cap : Nat) (mismatch : Bool) :=
+  (gammaPlan cap mismatch).admit inferred actions 83 (one cap) (one cap) 20 (relayReady cap) (relayReady cap)
+
+private def gammaExport (cap : Nat) := (gammaAdmitted cap false).get (by rfl)
+
+-- The left arm's λ witness is now the other checked member of the same
+-- type. Even when the right arm would run, the γ certificate is rejected.
+example (cap : Nat) : gammaAdmitted cap true = none := rfl
+
+private theorem gammaSpareDead : Address.arg 6 ∉ (gammaBinding false).summary.live requested := by decide
+
+#guard ((gammaBinding false).summary.live requested).contains (.arg 4)
+#guard ((gammaBinding false).summary.live requested).contains (.arg 5)
+
+private theorem gammaAgreed (cap count : Nat) :
+    Ordered.InputsAgree (m := machine) (gammaBinding false).summary requested
+      (prependContext (args count 41 4) (gammaExport cap).capsL)
+      (prependContext (args count 41 40) (gammaExport cap).capsR) := by
+  intro ty p live
+  let captured := (gammaBinding false).captures.read (one cap) (firstScope cap).localsL
+  change (prependContext (args count 41 4) captured).get p = (prependContext (args count 41 40) captured).get p
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  cases p with
+  | head => exact False.elim (gammaSpareDead live)
+  | tail p => nomatch p
+
+private def runGamma (mismatch : Bool) (fuel cap count spare : Nat) :=
+  Executable.run actions fuel 83 (seededGraph inferred (gammaLambdas mismatch)) (one cap) .head (args count 41 spare) 20
+
+example (fuel after cap count : Nat) :
+    ∃ left right, runGamma false fuel cap count 4 = .ok left ∧ runGamma false fuel cap count 40 = .ok right ∧
+      PrefixObservationsAgree actions requested after left right :=
+  Ordered.Prefix.Export.linked_prefixes_agree (actions := actions) (summary := (gammaBinding false).summary)
+    requested fuel after 83 (seededGraph inferred (gammaLambdas false)) (one cap) (one cap)
+    (args count 41 4) (args count 41 40) 20 (gammaExport cap) (gammaAgreed cap count)
+
+#guard (runGamma false 80 2 0 4).toOption.bind wrapperResult == some (0, 45)
+#guard (runGamma false 80 2 0 40).toOption.bind wrapperResult == some (0, 45)
+#guard (runGamma false 80 2 1 4).toOption.bind wrapperResult == some (41, 47)
+#guard (runGamma false 80 2 1 40).toOption.bind wrapperResult == some (41, 47)
+#guard (runGamma true 80 2 1 4).toOption.bind wrapperResult == some (41, 47)
+
+private def gammaBlock (count : Nat) : Option (Nat × Nat) :=
+  match runGamma false 80 0 count 4 with
+  | .ok (.blocked ⟨⟨_, _, .probe, _, _, .cons (.data cap) .nil⟩, _⟩ store) => some (cap, store)
+  | _ => none
+
+#guard gammaBlock 0 == some (0, 23)
+#guard gammaBlock 1 == some (0, 25)
+#guard (resume (runGamma false 80 0 0 4)).bind wrapperResult == some (0, 70)
+#guard (resume (runGamma false 80 0 1 4)).bind wrapperResult == some (41, 70)
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Regression
