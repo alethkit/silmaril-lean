@@ -32,11 +32,14 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
     Functor.StrongPremonoidal.tensorIso (J := J) E S = eqToIso h)
   {X A : τ} {L : LCtx τ}
 
-include shared in
 set_option backward.isDefEq.respectTransparency false in
-theorem arm_denotes (arm : CaseArm Φ X A L) :
-    RegionDenotes J M arm.elaborate.property.hasType
-      (J.map ((λ_ (M.obj X)).hom ▷ M.obj A) ≫ arm.targetArrow J M) := by
+omit [FreydCategory.CentralUnit J] in
+theorem applyPacked_denotes {p : Region Φ} {hp : HasType [product X A] p L}
+    {g : J.obj (M.obj (product X A)) ⟶ J.obj (labelObj M L)}
+    (d : RegionDenotes J M hp (J.map (λ_ (M.obj (product X A))).hom ≫ g))
+    (unpacked : HasType [A, X] (Paper.PackedBody.applyPacked p) L) :
+    RegionDenotes J M unpacked
+      (J.map ((λ_ (M.obj X)).hom ▷ M.obj A) ≫ J.map (M.productIso X A).inv ≫ g) := by
   let σ : Nat → Tm Φ := Tm.consSubst (.pair (.var 1) (.var 0)) (Tm.var ∘ (Nat.succ ∘ Nat.succ))
   let k := ((λ_ (M.obj X)).hom ▷ M.obj A) ≫ (M.productIso X A).inv
   have hPair : lift (lookup M 1 (rfl : At [A, X] 1 X)) (lookup M 0 (rfl : At [A, X] 0 A)) =
@@ -47,10 +50,20 @@ theorem arm_denotes (arm : CaseArm Φ X A L) :
     simpa only [pair_maps_eq_map_lift, ← J.map_comp, hPair, k] using
       Denotes.pair (Denotes.var (J := J) (M := M) (Φ := Φ) (rfl : At [A, X] 1 X))
         (Denotes.var (rfl : At [A, X] 0 A))
-  obtain ⟨_, body⟩ := (arm.body.targetDenotes J M shared).substSingleton J M σ dv
+  obtain ⟨_, body⟩ := d.substSingleton J M σ dv
+  simpa only [Paper.PackedBody.applyPacked, k, Category.assoc, ← J.map_comp_assoc,
+    Iso.inv_hom_id, Category.comp_id, ← J.map_comp] using body
+
+include shared in
+set_option backward.isDefEq.respectTransparency false in
+theorem arm_denotes (arm : CaseArm Φ X A L) :
+    RegionDenotes J M arm.elaborate.property.hasType
+      (J.map ((λ_ (M.obj X)).hom ▷ M.obj A) ≫ arm.targetArrow J M) := by
+  have body := applyPacked_denotes J M (arm.body.targetDenotes J M shared)
+    (Paper.PackedBody.applyPacked_typed arm.body.elaborate.property).hasType
   have renamed := body.renameLabels J M arm.exitRen
-  simpa only [CaseArm.elaborate, Paper.PackedBody.applyPacked, CaseArm.targetArrow, k, Category.assoc,
-    ← J.map_comp_assoc, Iso.inv_hom_id, Category.comp_id, ← J.map_comp, labelInject_labelMap] using renamed
+  simpa only [CaseArm.elaborate, CaseArm.targetArrow, Category.assoc,
+    ← J.map_comp, labelInject_labelMap] using renamed
 
 include shared in
 set_option backward.isDefEq.respectTransparency false in

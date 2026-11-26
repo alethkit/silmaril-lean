@@ -27,6 +27,17 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
     Functor.StrongPremonoidal.tensorIso (J := J) E S = eqToIso h)
   {X A : τ} {L : LCtx τ}
 
+omit [FreydCategory.CentralUnit J] in
+/-- Supplying a retained input and payload transports a selected body witness
+at any ordered outward interface. -/
+theorem applyPacked_denotes {p : Region Φ} {hp : HasType [product X A] p L}
+    {g : J.obj (M.obj (product X A)) ⟶ J.obj (labelObj M L)}
+    (d : RegionDenotes J M hp (J.map (λ_ (M.obj (product X A))).hom ≫ g))
+    (unpacked : HasType [A, X] (Paper.PackedBody.applyPacked p) L) :
+    RegionDenotes J M unpacked
+      (J.map ((λ_ (M.obj X)).hom ▷ M.obj A) ≫ J.map (M.productIso X A).inv ≫ g) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SelectedSumCase.applyPacked_denotes J M d unpacked
+
 include shared in
 /-- The arm's selected witness uses the actual packed substitution and outward
 label renaming of the native region. -/
