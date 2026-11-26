@@ -1337,10 +1337,11 @@ through the consumer wrapper.
 
 The UTF-8 adapter compiles normalized modules in manifest order and feeds
 the final linked table to the loader. The source theorem starts at
-normalized commands. The checked definitions admit a required positional
-header, including the nullary header. Wrapper defaults, keyword-only
-parameters, collectors and broader wrapper bodies remain separate.
-Calls in textual function bodies belong to the frontend profile.
+normalized commands. The checked wrapper header admits required positional
+parameters and a trailing list of positional defaults. Defaults use the
+existing lexical operand profile of reads, integer literals, singleton list
+allocation and indexing. Definition-time calls, keyword-only formals,
+collectors and broader wrapper bodies remain separate.
 [Suite theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/imported-checked/check.go)
 
 ### Composing checked imports
@@ -1389,21 +1390,28 @@ The checked prefix admits a nonempty group of public callable imports per load.
 Its static missing-export evidence requires the name to be outside the
 dependency's declared globals. Grouped syntax already lowers through the normal
 frontend load adapter. The positional wrapper uses the ordinary binder to
-deliver actual values to its own formals in declaration order. Its body reads
-operands in the order written at the inner call. The alias must be distinct
-from every formal, so activation preserves the actual captured import cell and
-the lower declaration-index guard. Arguments remain values and supply no
-callable provenance.
+deliver values to its own formals in header order. Its body reads operands in
+the order written at the inner call. Formal names stay distinct from the
+captured alias, preserving the original import cell and lower declaration
+index. Arguments supply no callable provenance.
 
-A three-module control publishes a wrapper that calls the second import of a
-grouped load with two integer formals in the opposite order. A downstream
-caller checks distinct results, surplus-argument rejection before activation,
-and a reached index error after the imported callee allocates a list. Lean
-checks exact retained cells, skipped publication and restored caller; pinned
-Go checks the operand order, reached errors, and visible effects. Both run
-cold and after an actual request for the wrapper module. Arbitrary incoming
-caches, untracked exports, broader bodies and dispatch through a parameter
-remain outside this proof.
+During initialization, positional defaults evaluate left to right in the
+reached defining frame. The wrapper records the resulting values, including
+addresses of allocated lists, before binding its name. Publication freezes
+reachable values and preserves those addresses. A later call or cache hit
+uses the saved record. Explicit arguments take precedence through the ordinary
+binder. A reached default error retains earlier effects and skips installation,
+the remaining defaults and commands, and importer publication.
+
+The three-module controls check a wrapper calling the second import of a
+grouped load. They cover ordered forwarding, omitted defaults, explicit
+overrides followed by another omission, missing and surplus arguments, and a
+failure after an earlier default allocates. Lean checks the retained cells,
+restored caller and cache; pinned Go checks the outcomes, call order,
+saved default identity and visible pre-error bindings. The controls run
+cold and after actual preloads. They preload the producer when the wrapper
+definition itself fails. Arbitrary incoming caches, untracked exports, broader
+bodies and dispatch through a parameter remain outside this proof.
 [Pinned compiler](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1223-L1237) · [Pinned interpreter](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L580-L617)
 
 [Chain theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Chain/Thms.lean)

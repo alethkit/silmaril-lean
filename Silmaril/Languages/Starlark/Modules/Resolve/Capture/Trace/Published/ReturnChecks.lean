@@ -502,7 +502,7 @@ private def relayDeclaration (second bad : Bool) : Imports.WrapperDeclaration "l
   target := by cases second <;> decide
   visible := by decide
   legalAlias := by decide
-  parameters := []
+  parameters := ⟨[], []⟩
   arguments := []
   codes := []
   reads := []
@@ -1363,7 +1363,7 @@ private def forwardingWrapper : Imports.WrapperDeclaration "loaded" forwardingLo
   target := by decide
   visible := by decide
   legalAlias := by decide
-  parameters := ["x", "y"]
+  parameters := ⟨["x", "y"], []⟩
   unshadowed := by decide
   arguments := [starlark%[y], starlark%[x]]
   codes := [localRead "y", localRead "x"]
@@ -1377,7 +1377,7 @@ private def forwardingWrapper : Imports.WrapperDeclaration "loaded" forwardingLo
 example (x y : Lists.Value) (checked : forwardingWrapper.site.declaration.signature.validate = .ok ()) :
     Functions.bindArguments forwardingWrapper.site.declaration.signature [] ⟨[x, y], []⟩ =
       .ok ⟨[(fileSlot "x", x), (fileSlot "y", y)], [], []⟩ :=
-  Imports.wrapper_positional_binding forwardingWrapper checked (.success (.cons (.cons .nil)))
+  Imports.wrapper_positional_binding forwardingWrapper rfl checked (.success (.cons (.cons .nil)))
 
 private def forwarder : OrderedConsumer where
   imports := [forwardingLoad]
@@ -1489,18 +1489,20 @@ example (test : ForwardTest) {producer middle consumer : ResolvedModule}
   obtain ⟨out, source, _, meaning, reached⟩ := Imports.Chain.agrees graph 2 (by change 2 < 3; decide) entered valid
   exact ⟨entered, out, requests, source, meaning, reached⟩
 
+private def forwardingCaller : Lists.State :=
+  let key := globalSlot "caller"
+  { heap := #[⟨.binding (some (.scalar (.int 73))), false⟩]
+    slots := fun name => if name == key then some (.owned 0) else none
+    bindings := fun name => if name == key then some (.scalar (.int 7)) else none
+    iterators := [0] }
+
 private def runForwarding (test : ForwardTest) (warm : Bool) :
     Option (Loader.Result Modules.Published × Lists.State × Lists.State) := do
   let producer ← (resolve positionalCommands).toOption
   let middle ← (resolve forwarder.commands producer.program).toOption
   let consumer ← (resolve (downstream test).commands middle.program).toOption
   let manifest := positionalManifest producer middle consumer
-  let key := globalSlot "caller"
-  let cold : Loader.Session := {runtime := {
-    heap := #[⟨.binding (some (.scalar (.int 73))), false⟩]
-    slots := fun name => if name == key then some (.owned 0) else none
-    bindings := fun name => if name == key then some (.scalar (.int 7)) else none
-    iterators := [0] }}
+  let cold : Loader.Session := {runtime := forwardingCaller}
   let entry ← if warm then
       match Loader.load consumer.program manifest 1 cold with
       | .ok _ ready => some ready
@@ -1551,5 +1553,244 @@ private def forwardingFailure (test : ForwardTest) (warm : Bool) : Bool :=
 #guard forwardingFailure .arity true
 #guard forwardingFailure .body false
 #guard forwardingFailure .body true
+
+private def savedGlobals : List String := ["seed", "before", "relay", "later"]
+
+private def savedParameters (bad : Bool) : Parameters :=
+  ⟨["x"], [("y", starlark%[[seed]]),
+    ("z", if bad then starlark%[[51][1]] else starlark%[[51][0]]),
+    ("t", if bad then starlark%[[72][2]] else starlark%[[72][0]])]⟩
+
+private def savedDefaults (bad : Bool) : List PlainPositionalDefault :=
+  [⟨"y", starlark%[[seed]], .list [globalRead "seed"], [globalSlot "seed"]⟩,
+   ⟨"z", if bad then starlark%[[51][1]] else starlark%[[51][0]],
+     .index (boxed 51) (int (if bad then 1 else 0)), []⟩,
+   ⟨"t", if bad then starlark%[[72][2]] else starlark%[[72][0]],
+     .index (boxed 72) (int (if bad then 2 else 0)), []⟩]
+
+private def savedWrapper (bad : Bool) : Imports.WrapperDeclaration "loaded" forwardingLoad.aliases savedGlobals where
+  name := "relay"
+  target := by decide
+  visible := by decide
+  legalAlias := by decide
+  parameters := savedParameters bad
+  unshadowed := by cases bad <;> decide
+  defaults := savedDefaults bad
+  lexical := by
+    have seedRead : Body.Operand (Imports.block forwardingLoad.aliases savedGlobals)
+        starlark%[seed] (globalRead "seed") [globalSlot "seed"] :=
+      .read (by decide) (.global (by decide) (by decide) (by decide))
+        (.module (by decide) (by decide) (by decide))
+    cases bad <;> exact .cons (.list seedRead)
+      (.cons (.index (.list (.int 51)) (.int _)) (.cons (.index (.list (.int 72)) (.int _)) .nil))
+  arguments := [starlark%[y[0]], starlark%[x]]
+  codes := [.index (localRead "y") (int 0), localRead "x"]
+  reads := [fileSlot "y", fileSlot "x"]
+  operands := by
+    cases bad <;> exact .cons (.index (.read (by decide) (.owned (by decide)) (.owned (by decide))) (.int 0))
+      (.cons (.read (by decide) (.owned (by decide)) (.owned (by decide))) .nil)
+  keywords := .empty
+  selects := by
+    cases bad <;> exact .enclosing (.enclosing (by decide) (by decide))
+      (.owned (.owned (by decide)) (.owned (.owned (by decide)) .nil))
+
+private def savedForwarder (bad : Bool) : OrderedConsumer where
+  imports := [forwardingLoad]
+  globals := savedGlobals
+  body :=
+    [.assign "seed" (by decide) (.int 27) .forget,
+     .assign "before" (by decide) (.list (.int 76)) .forget,
+     .define (savedWrapper bad),
+     .assign "later" (by decide) (.list (.int 199)) .forget]
+  declared := rfl
+
+private inductive SavedTest where
+  | success | missing | surplus | defaultError
+  deriving DecidableEq
+
+private inductive SavedActuals where
+  | omitted | explicit | missing | surplus
+
+private def savedDownstreamGlobals : List String := ["firstResult", "marker", "out", "again", "after"]
+
+private def savedCall (destination : String) (declared : destination ∈ savedDownstreamGlobals)
+    (mode : SavedActuals) : Imports.Invocation downstreamLoad.aliases savedDownstreamGlobals where
+  callee := "bound"
+  declared := .inl (by decide)
+  legal := by decide
+  destination := destination
+  destinationGlobal := declared
+  arguments := match mode with
+    | .omitted => [starlark%[0]]
+    | .explicit => [starlark%[0], starlark%[[53]]]
+    | .missing => []
+    | .surplus => [starlark%[0], starlark%[[53]], starlark%[1], starlark%[2], starlark%[3]]
+  codes := match mode with
+    | .omitted => [int 0]
+    | .explicit => [int 0, boxed 53]
+    | .missing => []
+    | .surplus => [int 0, boxed 53, int 1, int 2, int 3]
+  reads := []
+  operands := by
+    cases mode with
+    | omitted => exact .cons (.int 0) .nil
+    | explicit => exact .cons (.int 0) (.cons (.list (.int 53)) .nil)
+    | missing => exact .nil
+    | surplus => exact .cons (.int 0) (.cons (.list (.int 53)) (.cons (.int 1) (.cons (.int 2) (.cons (.int 3) .nil))))
+  keywords := .empty
+
+private def savedDownstream (test : SavedTest) : OrderedConsumer where
+  imports := [downstreamLoad]
+  globals := savedDownstreamGlobals
+  body :=
+    [.invoke (savedCall "firstResult" (by decide) .omitted),
+     .assign "marker" (by decide) (.list (.int 88)) .forget,
+     .invoke (savedCall "out" (by decide) (match test with
+       | .missing => .missing
+       | .surplus => .surplus
+       | _ => .explicit)),
+     .invoke (savedCall "again" (by decide) .omitted),
+     .assign "after" (by decide) (.list (.int 198)) .forget]
+  declared := rfl
+
+private def checkedSaved (test : SavedTest) {producer middle consumer : ResolvedModule}
+    (prod : resolve positionalCommands #[] = .ok producer)
+    (mid : resolve (savedForwarder (test = .defaultError)).commands producer.program = .ok middle)
+    (top : resolve (savedDownstream test).commands middle.program = .ok consumer) :
+    Imports.Chain.Graph producer.program (positionalManifest producer middle consumer) := by
+  let forwarder := savedForwarder (test = .defaultError)
+  let wrapper := Callee.wrapper (savedWrapper (test = .defaultError)) producer.program.size (.regular pickRoot.callable)
+  let env : Loader.ModuleId → Imports.Tracked
+    | 0 => Imports.Chain.rootExports positionalExports
+    | 1 => fun name => if name ∈ forwarder.globals then Imports.trackSuite producer.program forwardingEnv forwarder.body name else none
+    | _ => fun _ => none
+  have throughMiddle := Imports.ordered_preserves forwarder mid
+  have throughTop := Imports.ordered_preserves (savedDownstream test) top
+  have producerSize : producer.program.size = 2 := by rw [(plan_code positionalPlan prod).2]; rfl
+  refine ⟨(savedDownstream test).commands, middle.program, consumer, top,
+    fun index decl found => throughTop _ _ (throughMiddle index decl found), env, ?_⟩
+  intro id bound
+  have range : id = 0 ∨ id = 1 ∨ id = 2 := by change id < 3 at bound; omega
+  rcases range with rfl | rfl | rfl
+  · exact .root positionalPlan rfl prod (fun _ _ found => found) rfl
+  · refine .ordered (finalEnv := some forwardingEnv) forwarder mid (fun _ _ found => found)
+      throughTop rfl ?_ ?_
+    · exact .load (dependency := 0) (by decide) rfl
+        (.found (.regular pickRoot.callable) rfl (.found (.regular spareRoot.callable) rfl (.done _)))
+        (fun _ equal => by cases equal; exact .done _) (by simp)
+    · exact ⟨⟨.regular pickRoot.callable, rfl, by change 1 < producer.program.size; omega, trivial⟩, rfl⟩
+  · refine .ordered (finalEnv := some (Imports.initial "bound" wrapper)) (savedDownstream test) top throughMiddle
+      (fun _ _ found => found) rfl ?_ ?_
+    · exact .load (dependency := 1) (by decide) rfl (.found wrapper rfl (.done _))
+        (fun _ equal => by cases equal; exact .done _) (by simp)
+    · refine ⟨⟨wrapper, rfl, wrapper, rfl, wrapper, rfl, trivial⟩, ?_⟩
+      funext name
+      change (none : Option Callee) = _
+      by_cases isAlias : name = "bound"
+      · subst name
+        rfl
+      · simp [savedDownstream, savedDownstreamGlobals, savedCall, Imports.trackSuite, Imports.Step.advance,
+          Imports.Copy.track, Imports.initial, Imports.track, isAlias, wrapper, Callee.returned, Root.callable, pickRoot]
+
+example (test : SavedTest) {producer middle consumer : ResolvedModule}
+    (prod : resolve positionalCommands #[] = .ok producer)
+    (mid : resolve (savedForwarder (test = .defaultError)).commands producer.program = .ok middle)
+    (top : resolve (savedDownstream test).commands middle.program = .ok consumer)
+    (caller : Lists.State) (history : List Nat) (bounded : ∀ id ∈ history, id < 3) :
+    let graph := checkedSaved test prod mid top
+    ∃ entered out, Imports.Chain.Requests graph history ⟨caller, []⟩ entered ∧
+      Imports.Chain.TraceRun (positionalManifest producer middle consumer) 2 entered out ∧
+      Loader.load consumer.program (positionalManifest producer middle consumer) 2 entered = out ∧
+      Imports.Chain.Reached producer.program consumer.program (positionalManifest producer middle consumer)
+        graph.exports 2 entered out := by
+  intro graph
+  obtain ⟨entered, requests, valid⟩ := Imports.Chain.requests graph history bounded ⟨caller, []⟩
+    (fun _ _ impossible => nomatch impossible)
+  obtain ⟨out, source, _, meaning, reached⟩ := Imports.Chain.agrees graph 2 (by change 2 < 3; decide) entered valid
+  exact ⟨entered, out, requests, source, meaning, reached⟩
+
+private def savedRun (test : SavedTest) (warm : Bool) :
+    Option (Loader.Result Modules.Published × Lists.State × Lists.State × Lists.State) := do
+  let producer ← (resolve positionalCommands).toOption
+  let middle ← (resolve (savedForwarder (test = .defaultError)).commands producer.program).toOption
+  let consumer ← (resolve (savedDownstream test).commands middle.program).toOption
+  let manifest := positionalManifest producer middle consumer
+  let cold : Loader.Session := {runtime := forwardingCaller}
+  let entry ← if warm then
+      match Loader.load consumer.program manifest (if test = .defaultError then 0 else 1) cold with
+      | .ok _ ready => some ready
+      | .error .. => none
+    else some cold
+  let outer := enter consumer.source entry.runtime
+  let middleFrame := enter middle.source outer
+  some (Loader.load consumer.program manifest 2 entry, outer, middleFrame, entry.runtime)
+
+private def singletonInts (state : Lists.State) : List Int :=
+  state.heap.toList.filterMap fun cell => match cell.contents with
+    | .list [.scalar (.int value)] => some value
+    | _ => none
+
+private def savedRecord (session : Loader.Session) : Bool :=
+  match (session.cache.lookup 1).bind (fun value => value.exports.lookup "relay") with
+  | some (.function address) =>
+    match session.runtime.heap[address]? with
+    | some ⟨.function record, true⟩ =>
+      match record.defaults with
+      | [(first, .list saved), (second, .scalar (.int 51)), (third, .scalar (.int 72))] =>
+        first == fileSlot "y" && second == fileSlot "z" && third == fileSlot "t" &&
+          session.runtime.heap[saved]? == some ⟨.list [.scalar (.int 27)], true⟩ && forwardingRecord session
+      | _ => false
+    | _ => false
+  | _ => false
+
+private def savedSuccess (warm : Bool) : Bool :=
+  match savedRun .success warm with
+  | some (.ok published final, _, _, caller) =>
+    published.exports.lookup "firstResult" == some (.scalar (.int 27)) &&
+      published.exports.lookup "out" == some (.scalar (.int 53)) &&
+      published.exports.lookup "again" == some (.scalar (.int 27)) &&
+      singletonInts final.runtime == [76, 27, 51, 72, 199, 27, 88, 53, 53, 27, 198] &&
+      final.cache.map Prod.fst == [2, 1, 0] && savedRecord final && callerRestored caller final.runtime
+  | _ => false
+
+private def savedCallFailure (test : SavedTest) (warm : Bool) : Bool :=
+  match savedRun test warm with
+  | some (.error (.initialization 2 (.runtime error)) final, frame, _, caller) =>
+    let correct := match test, error with
+      | .missing, .missingArguments ["x"] | .surplus, .arity 4 5 => true
+      | _, _ => false
+    correct &&
+      importCell frame final.runtime (globalSlot "firstResult") == some ⟨.binding (some (.scalar (.int 27))), false⟩ &&
+      [globalSlot "out", globalSlot "again", globalSlot "after"].all (fun slot =>
+        importCell frame final.runtime slot == some ⟨.binding none, false⟩) &&
+      singletonInts final.runtime == (if test == .missing then [76, 27, 51, 72, 199, 27, 88]
+        else [76, 27, 51, 72, 199, 27, 88, 53]) &&
+      final.cache.map Prod.fst == [1, 0] && savedRecord final && callerRestored caller final.runtime
+  | _ => false
+
+private def savedDefaultFailure (warm : Bool) : Bool :=
+  match savedRun .defaultError warm with
+  | some (.error (.initialization 1 (.runtime (.indexRange 1 1))) final, outer, middle, caller) =>
+    importCell middle final.runtime (globalSlot "seed") == some ⟨.binding (some (.scalar (.int 27))), false⟩ &&
+      [globalSlot "relay", globalSlot "later"].all (fun slot =>
+        importCell middle final.runtime slot == some ⟨.binding none, false⟩) &&
+      [fileSlot "bound", globalSlot "firstResult", globalSlot "marker", globalSlot "out",
+        globalSlot "again", globalSlot "after"].all (fun slot =>
+          importCell outer final.runtime slot == some ⟨.binding none, false⟩) &&
+      singletonInts final.runtime == [76, 27, 51] &&
+      !final.runtime.heap.any (fun cell => match cell.contents with
+        | .function closure => closure.declaration == 2
+        | _ => false) &&
+      final.cache.map Prod.fst == [0] && callerRestored caller final.runtime
+  | _ => false
+
+#guard savedSuccess false
+#guard savedSuccess true
+#guard savedCallFailure .missing false
+#guard savedCallFailure .missing true
+#guard savedCallFailure .surplus false
+#guard savedCallFailure .surplus true
+#guard savedDefaultFailure false
+#guard savedDefaultFailure true
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published

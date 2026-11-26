@@ -230,43 +230,49 @@ theorem run_suite_preserving {source : List Modules.Resolve.Command} {seed produ
       obtain ⟨aliasCell, target, flag, aliasOwned, stored, targetLive⟩ := live importName imported seen
       have owned : session.runtime.slots (fileSlot importName) = some (.owned aliasCell) := by
         simpa [readSlot, declaration.visible] using aliasOwned
-      obtain ⟨grown, kept, ⟨closure⟩, source, native⟩ :=
-        wrapper_allocates declaration resolved.program prefixTable.size found owned stored
-      have arrived := keeps_frame frame kept
-      let value := Lists.Value.function session.runtime.heap.size
-      let next := grown.write (globalSlot declaration.name) value
-      have blank := keeps_blank headBlank kept
-      have captures : closure.captures = [⟨fileSlot importName, aliasCell, true⟩] := by
-        have installed : Installs session.runtime declaration.site.free [⟨fileSlot importName, aliasCell, true⟩] :=
-          .cons (.enclosing owned) .nil
-        exact Except.ok.inj ((installs_lookup _ closure.installed).symm.trans (installs_lookup _ installed))
-      have preservedAlias := kept.2 _ _ (Array.getElem?_eq_some_iff.mp stored).choose stored
-      have updated : Live aliases producer resolved.program
-          (track env declaration.name (some (.wrapper declaration prefixTable.size imported))) next := by
-        apply writes_live blank (keeps_live live kept)
-          (separate _ declaration.target) value
-        intro callee chosen
-        cases chosen
-        exact ⟨_, rfl, .wrapper found earlier closure captures preservedAlias
-          (transport_callable targetLive (closure_cells_of_keeps kept))⟩
-      have step : Modules.Loader.Runs resolved.program manifest active (.command id (.exec (.define declaration.name prefixTable.size)))
-          session (.ok () {session with runtime := next}) :=
-        .exec (code := .define declaration.name prefixTable.size) native
-      have nextPrefix : PreservesDeclarations producer nextTable :=
-        fun index entry linked => preserves_emit (.define declaration) prefixTable _ _ (producerPrefix index entry linked)
-      have preserved := Body.keeps_trans (keeps_below (floor := floor) kept)
-        (write_fresh arrived (fresh_slots fresh kept.1) declaration.target value)
-      have nextReady : ReadyFor nextTable (track env declaration.name (some (.wrapper declaration prefixTable.size imported))) tail := by
-        simpa [Step.emit, Step.advance, seen, nextTable] using remaining
-      obtain ⟨out, trace, nativeTail, tailKept, records, finished⟩ := ih nextTable nextPrefix table nextReady
-        tailUnique {session with runtime := next}
-        (writes_frame arrived (globalSlot declaration.name) value)
-        (pending_write (head := .define declaration) unique arrived pending kept value)
-        (fresh_slots fresh preserved.1) updated
-      refine ⟨out, .next (.define source) trace, .step step nativeTail, Body.keeps_trans preserved tailKept,
-        closure_cells_trans (closure_cells_of_keeps kept)
-          (closure_cells_trans (write_blank_cells blank value) records), ?_⟩
-      simpa [trackSuite, Step.emit, Step.advance, seen, nextTable] using finished
+      obtain ⟨defined, source, native, _, reached⟩ :=
+        wrapper_defines declaration resolved.program prefixTable.size found owned stored
+      cases defined with
+      | error error stopped =>
+        exact ⟨_, .failed (.define source), .failed (.exec (code := .define declaration.name prefixTable.size) native),
+          keeps_below reached, closure_cells_of_keeps reached, fun _ impossible => nomatch impossible⟩
+      | ok flow next =>
+        cases flow with
+        | breakLoop | continueLoop | returned => exact reached.elim
+        | next =>
+          obtain ⟨evaluated, _, grown, _, rfl, kept, closure, captures, _⟩ := reached
+          let value := Lists.Value.function evaluated.heap.size
+          let next := grown.write (globalSlot declaration.name) value
+          have arrived := keeps_frame frame kept
+          have blank := keeps_blank headBlank kept
+          have preservedAlias := kept.2 _ _ (Array.getElem?_eq_some_iff.mp stored).choose stored
+          have updated : Live aliases producer resolved.program
+              (track env declaration.name (some (.wrapper declaration prefixTable.size imported))) next := by
+            apply writes_live blank (keeps_live live kept)
+              (separate _ declaration.target) value
+            intro callee chosen
+            cases chosen
+            exact ⟨_, rfl, .wrapper found earlier closure captures preservedAlias
+              (transport_callable targetLive (closure_cells_of_keeps kept))⟩
+          have step : Modules.Loader.Runs resolved.program manifest active
+              (.command id (.exec (.define declaration.name prefixTable.size))) session (.ok () {session with runtime := next}) :=
+            .exec (code := .define declaration.name prefixTable.size) native
+          have nextPrefix : PreservesDeclarations producer nextTable :=
+            fun index entry linked => preserves_emit (.define declaration) prefixTable _ _ (producerPrefix index entry linked)
+          have preserved := Body.keeps_trans (keeps_below (floor := floor) kept)
+            (write_fresh arrived (fresh_slots fresh kept.1) declaration.target value)
+          have nextReady : ReadyFor nextTable
+              (track env declaration.name (some (.wrapper declaration prefixTable.size imported))) tail := by
+            simpa [Step.emit, Step.advance, seen, nextTable] using remaining
+          obtain ⟨out, trace, nativeTail, tailKept, records, finished⟩ := ih nextTable nextPrefix table nextReady
+            tailUnique {session with runtime := next}
+            (writes_frame arrived (globalSlot declaration.name) value)
+            (pending_write (head := .define declaration) unique arrived pending kept value)
+            (fresh_slots fresh preserved.1) updated
+          refine ⟨out, .next (.define source) trace, .step step nativeTail, Body.keeps_trans preserved tailKept,
+            closure_cells_trans (closure_cells_of_keeps kept)
+              (closure_cells_trans (write_blank_cells blank value) records), ?_⟩
+          simpa [trackSuite, Step.emit, Step.advance, seen, nextTable] using finished
 
 theorem run_suite {source : List Modules.Resolve.Command} {seed producer : Program} {resolved : ResolvedModule}
     (checked : resolve source seed = .ok resolved)
