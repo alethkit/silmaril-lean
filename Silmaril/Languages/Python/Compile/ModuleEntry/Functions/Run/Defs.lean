@@ -165,7 +165,8 @@ inductive Completion where
 def tupleBinding (session : Session) : Option Core.Module.TupleDispatch.TypeBinding :=
   (session.globals "tuple").map fun
     | .none => .noneValue
-    | _ => .outsideProfile
+    | .int _ | .bool _ | .tuple _ => .nonCallable
+    | .function _ => .outsideProfile
 
 def checkTupleChain {scope : Scope} (session : Session) (test : TupleChainTest scope) : Except Completion Unit :=
   match (TupleChain.evaluate (fun _ => tupleBinding session) test).result with

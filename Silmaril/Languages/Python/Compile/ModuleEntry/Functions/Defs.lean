@@ -112,10 +112,6 @@ def lowerArguments (scope : Scope) : (source : List (Source.ArgumentKind × Sour
     return ⟨operand.val :: tail.val, .cons operand.property tail.property⟩
   | _ => .error .argumentProfile
 
-def tupleScalar? : Source.Expr → Option Core.Module.Value
-  | .none_ => some .none
-  | source => scalarLiteral? source
-
 inductive FlatTupleItem (scope : Scope) : Source.Expr → Core.Closure.GlobalTupleItem → Prop where
   | literal {source value} (checked : tupleScalar? source = some value) :
       FlatTupleItem scope source (.literal value)
