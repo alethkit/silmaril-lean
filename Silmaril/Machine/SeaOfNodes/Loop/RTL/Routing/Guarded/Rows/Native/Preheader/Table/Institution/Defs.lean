@@ -4,14 +4,15 @@ public import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.P
 public import Silmaril.SSA.SeaOfNodes.Loop.Institution.Thms
 public import Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution.Fiber.Defs
 
-/-! Finite return observations at the checked word signature. -/
+/-! Observations at the checked word signature. -/
 
 @[expose] public section
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution
 
 open Silmaril.Machine.Lir (Memory)
-open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy WordOp model word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg WordOp model word)
+open Silmaril.Machine.RTL.SSA (Behavior Behaves Prog)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA (Primitive)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution.Fiber (inputModel)
 open Silmaril.SSA.SeaOfNodes.Loop.Institution (Equation Program)
@@ -45,5 +46,9 @@ def lambdaReturns (input : WordTuple arity) (initial : Memory) (region : LambdaS
     Rows.Observation :=
   { result | Observation.ret initial (0, Generic.packResult model (out := word) result.1) result.2 ∈
       ssaBeh 1 (inputModel (P := Rows.wordSignature) model Memory input) region }
+
+/-- The existing RTL.SSA behaviours from the actual start of function zero. -/
+def rtlBehaviors (input : WordTuple arity) (initial : Memory) (target : Prog Reg) : Set Behavior :=
+  { outcome | ∃ start, target.start 0 (words input) initial = some start ∧ Behaves target start outcome }
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution

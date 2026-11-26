@@ -892,6 +892,36 @@ at the witness universes. Soundness allows arbitrary shaped environments
 and value and state universes over the same free types.
 [Dependent request-tree theorems][ssa-ub-dependent-request-tree]
 
+### Extraction from rank-certified native request tables
+
+A typed table witness describes the entry packet and the literal native
+rows. A row calls a key with a fixed closed constructor argument and routes
+each typed reply to a local label, or returns unit at an ordered exit.
+The check re-emits the whole native table, including all written rows, and
+compares its exact syntax with the supplied typed CFG. The entry-reachable
+rank check then permits unfolding a shared destination at each incoming
+edge. Selected exits continue to the existing literal UB overlay.
+
+The extracted tree agrees with the original decorated native CFG for every
+deterministic shaped interpreter in the finite primitive API, including
+interpreters that inspect arguments. This preserves the selected request,
+reply payload, final state, ordinary faults and primitive divergence.
+The tree comparison is exact over that class. A failed comparison supplies
+the existing depth-bounded shaped countermodel at the original native
+entries, so it also refutes validity over all shaped models.
+
+The input is a checked typed row witness for the supported syntax. The
+current tree signature chooses one argument expression per key and exact
+context. Two different operands of the same key in the same exact context
+require per-node operands or an explicit context transport. The regression
+changes only an injection in an actual request operand. The original
+witness rejects it, and an argument-sensitive interpreter distinguishes
+return from fault. The written diamond has reply-dependent requests and
+a shared block with two predecessors. Its tests retain the ordinary exit
+position, reach literal UB on a selected exit, and transport a separating
+prefix to both original entries.
+[Native extraction theorems][ssa-ub-native-request-trees]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -941,6 +971,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.RequestTree.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -1045,3 +1076,4 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-two-request]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/TwoRequest/Thms.lean
 [ssa-ub-request-tree]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/RequestTree/Thms.lean
 [ssa-ub-dependent-request-tree]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Thms.lean
+[ssa-ub-native-request-trees]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/Thms.lean

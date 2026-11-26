@@ -838,3 +838,33 @@ row correspondence. Constructing a public dispatcher from other φ readbacks
 requires additional compilation, such as splitting a row that has several
 primitive continuations into the public checker's one-application rows.
 [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/HandledTrace/Readback/Examples.lean)
+
+#### Constructing the public dispatcher from the ordered readback
+
+`Admission.constructPublic` starts with the admitted table and its exact
+reverse readback. It recovers the structural expression carried by the
+entry jump and takes the public packet type from the destination block.
+It translates the admitted packet and live-out profiles to the finite
+structural codec, keeping source block indices and the declared exit order.
+
+The indexed traversal builds typed `Visible.Code` rows. It uses the
+existing public compiler, named elaborator, and type checker to check the
+actual emitted public table. It then reconstructs both erased rows at
+packet-only scope and compares them. Successful construction carries the
+row elaboration equations, exact public typing, and the erasure evidence
+used by `Readback.Provenance.alignment`. Capture and primitive agreement
+remain separate execution premises.
+[Construction API](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/HandledTrace/Readback/Construction/Ordered/Defs.lean)
+
+The generated fixture has two blocks in nonnumeric label order, with
+different φ packet types. The visible reply drives the second row, whose
+two paths return to distinct ordered exits with different payload types.
+The independent source observation agrees with the generated packed
+program at the fixture's supplied capture packet.
+
+The public row grammar supports product unpacking before pure branches,
+or one primitive followed by a literal jump. The regression checks a
+well-typed flat row with two consecutive primitive requests and shows
+that it falls outside that grammar. Atomic base types in the packet or
+exit profiles require a separate finite codec.
+[Generated regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/HandledTrace/Readback/Construction/Examples.lean)

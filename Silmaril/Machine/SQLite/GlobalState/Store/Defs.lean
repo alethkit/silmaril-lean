@@ -45,7 +45,7 @@ def HistoryEntry.map {Payload : ObjectKind → Type v} {Target : ObjectKind → 
 abbrev Objects (ObjectId : Type u) [BEq ObjectId] [Hashable ObjectId]
     (Payload : ObjectKind → Type v) := Std.ExtHashMap ObjectId (Object Payload)
 
-/-- Finite snapshot of allocations, including live objects, zombies and tombstones.
+/-- Finite history of object identities, including live objects, zombies and tombstones.
 A missing entry denotes an identity that has never been bound in this history. -/
 abbrev History (ObjectId : Type u) [BEq ObjectId] [Hashable ObjectId]
     (Payload : ObjectKind → Type v) := Std.ExtHashMap ObjectId (HistoryEntry Payload)
@@ -141,12 +141,19 @@ def toStates (history : History ObjectId Payload) : StateHistory ObjectId :=
 def toObjects (history : History ObjectId Payload) : Objects ObjectId Payload :=
   Std.ExtHashMap.filterMap (fun _ entry => entry.toObject) history
 
-/-- Record a new live allocation at an identity never bound in this history. -/
+/-- Record a new live object at an identity never bound in this history. -/
 def allocate (history : History ObjectId Payload) (id : ObjectId) (kind : ObjectKind)
     (payload : Payload kind) (_fresh : history.Fresh id) : History ObjectId Payload :=
   Std.ExtHashMap.insert history id (.present ⟨kind, .live, payload⟩)
 
-/-- Retire a present allocation, retaining its kind and reserving its identity. -/
+/-- Replace the state and payload of the current object at this ID, preserving
+its kind. Resource contracts supply permissions and allowed state changes. -/
+def updatePresent (history : History ObjectId Payload) (id : ObjectId) {object : Object Payload}
+    (_present : history.lookup id = some (.present object)) (state : PresentState)
+    (payload : Payload object.kind) : History ObjectId Payload :=
+  Std.ExtHashMap.insert history id (.present ⟨object.kind, state, payload⟩)
+
+/-- Retire a present object, retaining its kind and reserving its identity. -/
 def free (history : History ObjectId Payload) (id : ObjectId) {object : Object Payload}
     (_present : history.lookup id = some (.present object)) : History ObjectId Payload :=
   Std.ExtHashMap.insert history id (.freed object.kind)

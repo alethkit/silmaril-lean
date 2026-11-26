@@ -15,6 +15,7 @@ open GVN (Producer)
 open GVN.Cyclic.Deletion (Route)
 open SubZero (model word)
 open RVSDG (Tuple)
+open scoped WordNormalize
 
 variable {inputs : List (ValueSort Unit)} {ports : List (Ty Unit)}
 variable {block : Block inputs ports} {candidate : Producer block.flow word} {edit : Edit block}
@@ -49,13 +50,25 @@ theorem Edit.literalRight_progress (selected : edit.rule = .literalRight) :
       addCount edit.state.block = addCount block ∧ leftLiteralCount edit.state.block < leftLiteralCount block :=
   Proofs.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.literalRight_progress selected
 
+/-- The reused add goes through the existing exact-key representative and erasure checks. -/
+theorem reuseAdd?_checked (accepted : reuseAdd? block candidate = some edit) :
+    ∃ rewrite, isAdd candidate.key.opcode = true ∧ GVN.Pass.eliminateCandidate? candidate = some rewrite ∧
+      edit.rule = .reuseAdd ∧ edit.state = fromRewrite block rewrite :=
+  Proofs.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.reuseAdd?_checked accepted
+
+/-- An add is reusable exactly when the current table has a checker-accepted earlier representative. -/
+theorem reuseAdd?_eq_none_iff : reuseAdd? block candidate = none ↔
+    isAdd candidate.key.opcode = false ∨
+      ∀ representative : Producer block.flow word, GVN.checkRepresentative candidate representative = false :=
+  Proofs.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.reuseAdd?_eq_none_iff
+
 /-- Every hit comes from a checked nomination in the current table. -/
 theorem step?_checked (accepted : step? block = some edit) :
     ∃ candidate : Producer block.flow word,
-      add? block candidate = some edit ∨ unused? block candidate = some edit :=
+      add? block candidate = some edit ∨ reuseAdd? block candidate = some edit ∨ unused? block candidate = some edit :=
   Proofs.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.step?_checked accepted
 
-/-- A failed scan excludes both eligible rules at every current producer. -/
+/-- A failed scan excludes eligible edits at every current producer. -/
 theorem step?_eq_none_iff (block : Block inputs ports) : step? block = none ↔ NoEligible block :=
   Proofs.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.step?_eq_none_iff block
 

@@ -16,6 +16,15 @@ universe u v w
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty]
 variable {X : Syntax.Ty} {Γ R L : List Syntax.Ty} {captures seeds results states : Nat}
+/-- A selected exit exposes literal UB at the reply state. Other positions
+forward the exact payload and state. -/
+theorem denote_exitContinuation (M : Institution.Observational.Model.{u,v,w} Φ Γ.length)
+    (selected : Fin L.length → Bool) (i : Fin L.length) (a : Value M.α) (s : M.σ) :
+    Overlay.denote (exitContinuation (Γ := Γ) selected i) (extendModel M a) s =
+      if selected i then ⊤ else WithTop.some {Outcome.ret i a s} :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native.ExitUB.denote_exitContinuation
+    M selected i a s
+
 /-- Forwarding every exit recovers the unadorned native observation at
 each shaped model and initial state. -/
 theorem denote_noExitUB (raw : Typed Φ Γ L) (M : Shape.Model.{u,0,v,w} Φ Γ) (s : M.raw.σ) :

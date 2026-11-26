@@ -8,6 +8,7 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Staged.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.Staged.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Thms
@@ -23,6 +24,7 @@ meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.D
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Staged.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.Staged.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Defs
@@ -1061,5 +1063,65 @@ private def runFinalStore (first : Projection) (valuation : Tuple (Val 4) args)
 example : Final.lower 4 observingRoute finalStoreEntry 2 = none := rfl
 #guard runEntryPrograms (Entry.lowerPair observingRoute finalStoreEntry finalStoreEntry input) false 3 ==
   some (99, 99, [99, 33, 3, 3, 55], [99, 33, 3, 3, 55])
+
+private def residualWithLiveStore : Memory.Graph args := sideStore.prepend middleStore.table
+
+private def stagedFinalEntry : Memory.Graph args :=
+  (⟨leftPort, entryWord⟩ : PrefixStore args).prepend residualWithLiveStore
+
+-- The final Store moves from version three to two. The earlier live
+-- Store stays, so the residual is still a two-Store table.
+example : Final.Staged.find stagedFinalEntry = some 3 := rfl
+example : (Final.Staged.lower (finalStoreDiamond .onFalse) stagedFinalEntry input).map
+    (fun result => (result.entryOnly.plan.map (·.version), result.entryOnly.entry)) =
+      .ok ([1], residualWithLiveStore) := rfl
+
+example (first : Projection) :
+    (Final.Staged.lower (finalStoreDiamond first) stagedFinalEntry input).map
+      (fun result => match result.route with | .applied version _ => some version | _ => none) = .ok (some 2) := by
+  cases first <;> rfl
+
+private def runFinalStaged (graph : Graph args) (entry : Memory.Graph args) (guard : Bool) (fuel : Nat) :
+    Option (Word × Word × List Word × List Word) := do
+  let result ← (Final.Staged.lower graph entry input).toOption
+  runEntryPrograms result.programs guard fuel
+
+-- Both arms return the live prefix Store's 11 after overwriting headCell.
+/-- info: some (99#64, 7#64, [11#64, 33#64, 11#64, 33#64, 55#64], [11#64, 33#64, 11#64, 33#64, 55#64]) -/
+#guard_msgs in
+#eval runFinalStaged (finalStoreDiamond .onFalse) stagedFinalEntry false 3
+
+#guard runFinalStaged (finalStoreDiamond .onFalse) stagedFinalEntry true 3 ==
+    some (99, 7, [11, 11, 11, 3, 55], [11, 11, 11, 3, 55])
+#guard runFinalStaged (finalStoreDiamond .onTrue) stagedFinalEntry false 3 ==
+    runFinalStaged (finalStoreDiamond .onFalse) stagedFinalEntry false 3
+#guard runFinalStaged (finalStoreDiamond .onTrue) stagedFinalEntry true 3 ==
+    runFinalStaged (finalStoreDiamond .onFalse) stagedFinalEntry true 3
+#guard runFinalStaged (finalStoreDiamond .onFalse) stagedFinalEntry false 2 == none
+
+-- One route reads the remaining Store. Keep the actual entry-only pair.
+example : (Final.Staged.lower observingRoute stagedFinalEntry input).map (·.route) =
+    .ok (.routesRefused 2) := rfl
+example : (Final.Staged.lower observingRoute stagedFinalEntry input).map (·.programs) =
+    .ok (Entry.lowerPair observingRoute stagedFinalEntry residualWithLiveStore input) := rfl
+#guard runFinalStaged observingRoute stagedFinalEntry false 3 ==
+    some (99, 99, [99, 33, 11, 3, 55], [99, 33, 11, 3, 55])
+
+-- A trailing Load makes the final Store ineligible. The same first cut
+-- succeeds, and its retained program supplies the optimized artifact.
+private def residualWithTrailingRead : Memory.Graph args :=
+  sideStore.prepend (.store (.latest 0) (.arg headPort) (.arg entryWord)
+    (.load (.latest 1) (.arg leftPort) (.ret (.latest 1) loaded)))
+
+private def stagedWithoutFinal : Memory.Graph args :=
+  (⟨leftPort, entryWord⟩ : PrefixStore args).prepend residualWithTrailingRead
+
+example : Final.Staged.find residualWithTrailingRead = none := rfl
+example : (Final.Staged.lower (finalStoreDiamond .onFalse) stagedWithoutFinal input).map (·.route) =
+    .ok .noFinalCandidate := rfl
+example : (Final.Staged.lower (finalStoreDiamond .onFalse) stagedWithoutFinal input).map (·.programs) =
+    .ok (Entry.lowerPair (finalStoreDiamond .onFalse) stagedWithoutFinal residualWithTrailingRead input) := rfl
+#guard runFinalStaged (finalStoreDiamond .onFalse) stagedWithoutFinal false 3 ==
+    some (99, 99, [11, 33, 11, 33, 55], [11, 33, 11, 33, 55])
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore

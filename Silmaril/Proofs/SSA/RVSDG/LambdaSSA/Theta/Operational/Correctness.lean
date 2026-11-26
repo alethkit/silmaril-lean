@@ -12,7 +12,7 @@ open Isotope.LambdaSSA (Region)
 open Isotope.LambdaSSA.Semantics (Env InstrDeterministic)
 open Isotope.LambdaSSA.Semantics.Region (Eval Follow)
 
-universe u v w x
+universe u v w x y
 
 variable {V S : Type u} {Op : Dialect.{u,v} V S} {σ : Type x}
 variable {carried : List (PortType V S)} {sigs : List (List (PortType V S))}
@@ -80,28 +80,41 @@ theorem block_eval (env : Env (Atom m)) (input output : Tuple m.Val carried)
   · exact .case_inl (.op .var ran) (.br .var)
   · exact .case_inr (.op .var ran) (.br .var)
 
+section Header
+
+variable {Φ : Type y} {header : Region Φ}
+variable {instr : Φ → Value (Atom m) → σ → Value (Atom m) → σ → Prop}
+variable (headerEval : ∀ (env : Env (Atom m)) (input output : Tuple m.Val carried) (again : Bool),
+  g.body.run m input = RVSDG.Theta.bodyResult m again output → ∀ state : σ,
+  Eval instr (Isotope.LambdaSSA.Semantics.extend env (pack m input)) header
+    state (if again then 0 else 1) (pack m output) state)
+include headerEval
+
 private theorem follow_of_returns (env : Env (Atom m)) {input output : Tuple m.Val carried}
     (returned : g.Returns m input output) (start : σ) :
-    Follow (instruction m) env (fun _ : Fin 1 => LambdaSSA.Theta.block (step g).op)
+    Follow instr env (fun _ : Fin 1 => header)
       0 (pack m input) start 0 (pack m output) start := by
   change RVSDG.Theta.Iterate _ input output at returned
   induction returned with
   | stop body =>
-    exact .step (by decide) (block_eval m g env _ _ false body start) (.exit (Nat.le_refl 1))
+    exact .step (by decide) (headerEval env _ _ false body start) (.exit (Nat.le_refl 1))
   | again body _ rest =>
-    exact .step (by decide) (block_eval m g env _ _ true body start) rest
+    exact .step (by decide) (headerEval env _ _ true body start) rest
+
+variable (deterministic : InstrDeterministic instr)
+include deterministic
 
 private theorem returns_of_follow {env : Env (Atom m)} {n : Nat}
-    {blocks : Fin n → Region (Instruction Op carried)}
+    {blocks : Fin n → Region Φ}
     {first label : Nat} {current payload : Value (Atom m)} {start finish : σ}
-    (h : Follow (instruction m) env blocks first current start label payload finish)
-    (sizeEq : n = 1) (bodyEq : ∀ i, blocks i = LambdaSSA.Theta.block (step g).op)
+    (h : Follow instr env blocks first current start label payload finish)
+    (sizeEq : n = 1) (bodyEq : ∀ i, blocks i = header)
     (atHeader : first = 0) (old : Tuple m.Val carried) (currentEq : current = pack m old) :
     ∃ out, g.Returns m old out ∧ label = 0 ∧ payload = pack m out ∧ finish = start := by
   refine Follow.rec
     (motive_1 := fun _ _ _ _ _ _ _ => True)
     (motive_2 := fun _ {n} code first current start label payload finish _ =>
-      n = 1 → (∀ i, code i = LambdaSSA.Theta.block (step g).op) → first = 0 →
+      n = 1 → (∀ i, code i = header) → first = 0 →
         ∀ old, current = pack m old →
           ∃ out, g.Returns m old out ∧ label = 0 ∧ payload = pack m out ∧ finish = start)
     (by intros; trivial) (by intros; trivial) (by intros; trivial)
@@ -116,7 +129,7 @@ private theorem returns_of_follow {env : Env (Atom m)} {n : Nat}
     | mk again out =>
       have stepRan := (body_iff m g old out again).mpr resultEq
       have observed :=
-        round.deterministic (instruction_deterministic m) (block_eval m g env old out again stepRan start)
+        round.deterministic deterministic (headerEval env old out again stepRan start)
       cases again
       · obtain ⟨rfl, rfl, rfl⟩ := observed
         subst_vars
@@ -127,21 +140,29 @@ private theorem returns_of_follow {env : Env (Atom m)} {n : Nat}
         obtain ⟨value, returned, exit, packed, state⟩ := ih sizeEq bodyEq rfl out rfl
         exact ⟨value, .again stepRan returned, exit, packed, state⟩
 
-theorem lower_eval_iff (input : Tuple m.Val carried) (start finish : σ)
+theorem loop_eval_iff (input : Tuple m.Val carried) (start finish : σ)
     (label : Nat) (payload : Value (Atom m)) :
-    Eval (instruction m) (inputEnv m input) (lower g) start label payload finish ↔
+    Eval instr (inputEnv m input) (loop header) start label payload finish ↔
       ∃ output, g.Returns m input output ∧ label = 0 ∧ payload = pack m output ∧ finish = start := by
   constructor
   · intro ran
     cases ran with
     | cfg entry follow =>
       have initial :
-          Eval (instruction m (carried := carried)) (inputEnv m input) (.br 0 (.var 0)) start 0 (pack m input) start :=
+          Eval instr (inputEnv m input) (.br 0 (.var 0)) start 0 (pack m input) start :=
         .br .var
-      obtain ⟨rfl, rfl, rfl⟩ := entry.deterministic (instruction_deterministic m) initial
-      exact returns_of_follow m g follow rfl (fun _ => rfl) rfl input rfl
+      obtain ⟨rfl, rfl, rfl⟩ := entry.deterministic deterministic initial
+      exact returns_of_follow m g headerEval deterministic follow rfl (fun _ => rfl) rfl input rfl
   · rintro ⟨output, returned, rfl, rfl, rfl⟩
-    exact .cfg (.br .var) (follow_of_returns m g (inputEnv m input) returned _)
+    exact .cfg (.br .var) (follow_of_returns m g headerEval (inputEnv m input) returned _)
+
+end Header
+
+theorem lower_eval_iff (input : Tuple m.Val carried) (start finish : σ)
+    (label : Nat) (payload : Value (Atom m)) :
+    Eval (instruction m) (inputEnv m input) (lower g) start label payload finish ↔
+      ∃ output, g.Returns m input output ∧ label = 0 ∧ payload = pack m output ∧ finish = start :=
+  loop_eval_iff m g (block_eval m g) (instruction_deterministic m) input start finish label payload
 
 theorem returns_iff_runFuel (input output : Tuple m.Val carried) :
     g.Returns m input output ↔ ∃ fuel, runFuel m g fuel input = some output := by

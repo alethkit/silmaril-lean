@@ -334,4 +334,23 @@ theorem scoped_br_if_iff {host : HostSemantics H} {s : Store H} {outer : Frame}
         (Step.context (Step.pure (host := host) s (seq.root.function.declaration.frame args)
           (.brIfNonzero depth condition zero)) saved tail)
 
+theorem scoped_br_table_iff {host : HostSemantics H} {s : Store H} {outer : Frame}
+    (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H))
+    {saved : List Value} {selector : BitVec 32} {depths : List LabelIdx} {fallback : LabelIdx} {dst : Config H} :
+    Step host ⟨s, outer, (seq.context args labels).plug value
+      (values (saved ++ [Value.int .i32 selector]) ++ [.source (.brTable depths fallback)])⟩ dst ↔
+      dst = ⟨s, outer, (seq.context args labels).plug value
+        (values saved ++ [.source (.br (depths[selector.toNat]?.getD fallback))])⟩ := by
+  apply scoped_source_iff (tail := []) seq args labels rfl (by intro _ h; cases h) (by intro h; cases h)
+  intro target
+  have noCallout : ∀ call, ¬ CalloutAt
+      ⟨s, seq.root.function.declaration.frame args,
+        values (saved ++ [Value.int .i32 selector]) ++ [.source (.brTable depths fallback)]⟩ call := by
+    intro call located
+    have found := exists_callout_iff.mp ⟨call, located⟩
+    simp [decompose?, asValue?] at found
+  rw [Step.internal_iff_of_not_callout noCallout,
+    ← Step.internal_iff_of_not_callout (host := CallFrame.v1NoHost) noCallout]
+  exact v1_br_table_select_iff
+
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.HostEntry.Sequence.ControlProofs

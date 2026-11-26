@@ -31,6 +31,30 @@ private theorem rounded_finite_iff (negative : Bool) {magnitude : ℚ} (nonnegat
   norm_num only [Nat.reducePow]
   omega
 
+private theorem decimal_nonnegative (coefficient : Nat) (exponent : Int) :
+    0 ≤ decimalMagnitude coefficient exponent := by
+  unfold decimalMagnitude
+  exact mul_nonneg (Nat.cast_nonneg _) (zpow_nonneg (by decide : 0 ≤ (10 : ℚ)) exponent)
+
+theorem ofDecimal_ok_iff (negative : Bool) (coefficient : Nat) (exponent : Int) (result : F64.Finite) :
+    ofDecimal? negative coefficient exponent = some result ↔
+      decimalInProfile coefficient exponent ∧ decimalMagnitude coefficient exponent < overflowThreshold ∧
+        result.val = F64.ofBits (roundSigned negative (decimalMagnitude coefficient exponent)) := by
+  by_cases admitted : decimalInProfile coefficient exponent
+  · have finite := rounded_finite_iff negative (decimal_nonnegative coefficient exponent)
+    by_cases below : decimalMagnitude coefficient exponent < overflowThreshold
+    · simp [ofDecimal?, admitted, F64.Finite.ofRaw?, finite.mpr below, below, Subtype.ext_iff, eq_comm]
+    · simp [ofDecimal?, admitted, F64.Finite.ofRaw?, mt finite.mp below, below]
+  · simp [ofDecimal?, admitted]
+
+theorem ofDecimal_nearestEven {negative : Bool} {coefficient : Nat} {exponent : Int} {result : F64.Finite}
+    (computed : ofDecimal? negative coefficient exponent = some result) :
+    result.val.signBit = negative ∧
+      NearestEven magnitude (decimalMagnitude coefficient exponent) (magnitudeBits result.val.bits).toNat := by
+  obtain ⟨_, below, bits⟩ := (ofDecimal_ok_iff negative coefficient exponent result).mp computed
+  rw [bits]
+  exact ⟨signBit_roundSigned _ _, (roundSigned_nearestEven _ _ (decimal_nonnegative _ _) below).2⟩
+
 theorem trueDivide_zeroDivision_iff (numerator divisor : Int) :
     trueDivide numerator divisor = .error .zeroDivisionError ↔ divisor = 0 := by
   by_cases zero : divisor = 0

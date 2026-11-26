@@ -27,6 +27,13 @@ theorem close_branch {R L : List (Ty κ)} {α : Type w} {σ : Type x} {f : Feedb
     Feedback.close f p = Feedback.close f (.block i a s) :=
   Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.close_branch run
 
+/-- A singleton outward observation closes without an internal transfer. -/
+theorem close_terminal {R L : List (Ty κ)} {α : Type w} {σ : Type x} {f : Feedback.Run R L α σ}
+    {p : Feedback.Point R.length α σ} {o : Outcome L.length α σ}
+    (run : f p = WithTop.some {Feedback.external R L o}) :
+    Feedback.close f p = WithTop.some {o} :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.close_terminal run
+
 /-- The bounded scan classifies actual feedback with any external label
 interface, retaining the label of each ordinary return. -/
 theorem classify_routed {R L : List (Ty κ)} {α : Type w} {σ : Type x} {f : Feedback.Run R L α σ}

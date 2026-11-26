@@ -9,10 +9,11 @@ public section
 namespace Silmaril.SSA.RVSDG.LambdaSSA.Theta.Operational
 
 open Isotope (Value)
-open Isotope.LambdaSSA.Semantics (Env)
+open Isotope.LambdaSSA (Region)
+open Isotope.LambdaSSA.Semantics (Env InstrDeterministic)
 open Isotope.LambdaSSA.Semantics.Region (Eval)
 
-universe u v w x
+universe u v w x y
 
 variable {V S : Type u} {Op : Dialect.{u,v} V S} {σ : Type x}
 variable {carried : List (PortType V S)} {sigs : List (List (PortType V S))}
@@ -25,12 +26,30 @@ theorem pack_injective {ports : List (PortType V S)} :
     Function.Injective (pack m (ports := ports)) :=
   Proofs.pack_injective m
 
+theorem split_bodyResult (again : Bool) (output : Tuple m.Val carried) :
+    split m (RVSDG.Theta.bodyResult m again output) = (again, output) :=
+  Proofs.split_bodyResult m again output
+
 /-- The block's internal labels are zero for feedback and one for exit. -/
 theorem block_eval (env : Env (Atom m)) (input output : Tuple m.Val carried)
     (again : Bool) (body : g.body.run m input = RVSDG.Theta.bodyResult m again output) (start : σ) :
     Eval (instruction m) (Isotope.LambdaSSA.Semantics.extend env (pack m input)) (LambdaSSA.Theta.block (step g).op)
       start (if again then 0 else 1) (pack m output) start :=
   Proofs.block_eval m g env input output again body start
+
+/-- A deterministic λSSA header implementing one numbered θ activation
+also implements its finite iteration when placed in the one-block CFG. -/
+theorem loop_eval_iff {Φ : Type y} {header : Region Φ}
+    {instr : Φ → Value (Atom m) → σ → Value (Atom m) → σ → Prop}
+    (headerEval : ∀ (env : Env (Atom m)) (input output : Tuple m.Val carried) (again : Bool),
+      g.body.run m input = RVSDG.Theta.bodyResult m again output → ∀ state : σ,
+      Eval instr (Isotope.LambdaSSA.Semantics.extend env (pack m input)) header
+        state (if again then 0 else 1) (pack m output) state)
+    (deterministic : InstrDeterministic instr)
+    (input : Tuple m.Val carried) (start finish : σ) (label : Nat) (payload : Value (Atom m)) :
+    Eval instr (inputEnv m input) (loop header) start label payload finish ↔
+      ∃ output, g.Returns m input output ∧ label = 0 ∧ payload = pack m output ∧ finish = start :=
+  Proofs.loop_eval_iff m g headerEval deterministic input start finish label payload
 
 /-- Compare every finite observation of the actual λSSA CFG with a
 numbered θ return. Its sole external label is zero. -/

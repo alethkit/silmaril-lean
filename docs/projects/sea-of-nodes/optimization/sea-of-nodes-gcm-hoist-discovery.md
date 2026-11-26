@@ -72,9 +72,8 @@ occurrences (§2.3). The second and later discovery phases use it at the
 prefix end on each current CFG. `findCaptured?_checkConsumer_eq` proves the
 added interval check yields the same append decision for every typed capture.
 Schedule Late's block selection and loop-depth ranking (§§2.3–2.4) are outside
-this local interval. Even when an earlier cut passes both checks, replay
-still appends. Earlier insertion needs a typed mapping between the reordered
-preheader definitions and their saved packet slots on entry and feedback.
+this local interval. Discovery still nominates the prefix end. Explicit
+nominations can use the earlier insertion below.
 [Capture theorems][captures] · [PLDI ’95 proceedings][paper]
 
 The runnable chain discovers origin/cut pairs `(1, 0)`, `(2, 1)`, and
@@ -109,6 +108,66 @@ lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Repla
 lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Discovery.Thms
 ```
 
+## Emitting an earlier saved-prefix cut
+
+`Replay.Step.Earlier.emit?` inserts one checked pure, total header binding
+at a nominated cut strictly before the end of the current saved prefix. It
+resolves the original identity through the existing append step and runs
+`checkPrefixCut` for the nominated cut on the same input CFG. This combines
+Click's input-availability condition (§2.2) with the ordinary and exact
+incoming Φ use checks (§2.3). The original append step supplies the rewritten
+header, including both branch arms and the exact exit. [Emitter][earlier-defs]
+· [PLDI ’95 proceedings][paper]
+
+`Saved.Prefix.insert?` splits the physical insertion position by the count
+of later saves. It narrows the candidate's typed operands at each crossing,+refusing a read of the crossed value. It rebuilds the later saves in order
+and remaps their operands. `insert?_indices` relates the physical index to
+the cut and gives the index of each old reference. `insert?_eval` proves
+that reading the physical scope through `Insertion.toPhysical` returns the
+new value followed by the old logical scope. The entry tail uses that map
+to build the same packet as append, while the shared header uses its original
+logical packet order. `emit?_entry_targets` compares actual entry successor
+slots, `Emission.block_eq` preserves the labeled blocks, and `emit?_routes`
+gives the entry, feedback, and exit transfer law. [Prefix proofs][insert-thms]
+· [Emitter proofs][earlier-thms]
+
+`emit?_run_eq` and `emit?_denotePart` compare the actual earlier and append
+CFGs at every common block fuel and for partial denotation. The let order
+changes within one block, so fuel consumes the same blocks. Starting at the
+checked two-save replay of a native loop, `emit?_fromTwo_budget` compares CFG
+fuel `budget + 3` with native backedge budget `budget`.
+
+The example inserts at cut 1 between two prior saves. In chronological order,
+the three saved words are `2, 4, 3`, and the newest-first logical packet is
+`4, 3, 2` before the carried word. The later save needs the first save, so
+its input must be remapped across the insertion. Two feedback packets keep
+that order and the `.onFalse` occurrence carries the exact exit word. An
+immutable-only variant crosses both saves at cut 0. The fixture refuses cuts
+before the older or newer saved producer, a latch read, and a stale origin.
+[Example][earlier-example] · [Regression][earlier-regression]
+
+The earlier result is a terminal CFG in this pure single-latch profile.
+Append replay and discovery still use their established physical slot order.
+Continuing after an earlier splice would require threading the physical map
+into later capture and placement checks. This slice leaves cut selection to
+the caller and leaves Click's loop-depth ranking (§2.4) to the existing
+placement APIs.
+
+```sh
+lake build --wfail +Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.Thms \
+  +Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.Regression
+cat >/tmp/gcm-earlier-prefix.lean <<'LEAN'
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.Example.Defs
+open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.Example
+#eval observe
+#eval beforeBoth
+#eval refused
+LEAN
+lake env lean -DwarningAsError=true /tmp/gcm-earlier-prefix.lean
+lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Prefix.Insert.Thms
+lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.Thms
+```
+
 [paper]: https://doi.org/10.1145/207110.207154
 [pdf]: https://web.archive.org/web/20140908214434id_/https://courses.cs.washington.edu/courses/cse501/06wi/reading/click-pldi95.pdf
 [coverage]: ../coverage.md#global-code-motionglobal-value-numbering
@@ -119,3 +178,8 @@ lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Disco
 [regression]: ../../../../Silmaril/Proofs/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Discovery/Regression.lean
 [captures]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/AfterReorder/Second/Thms.lean
 [step]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Thms.lean
+[earlier-defs]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Earlier/Defs.lean
+[earlier-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Earlier/Thms.lean
+[earlier-example]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Earlier/Example/Defs.lean
+[earlier-regression]: ../../../../Silmaril/Proofs/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Earlier/Regression.lean
+[insert-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Saved/Prefix/Insert/Thms.lean

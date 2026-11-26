@@ -2241,18 +2241,23 @@ private def joinSecondBody : RecursiveCall.Code Op sameBodyInput [] [[num], [num
     .bind (RecursiveCall.simple (.primitive Op.gain) (.cons (.output (0 : Fin 1) .head) .nil)
       (fun i => i.elim0)) (fun i => i.elim0) (.ret (.cons (.output (1 : Fin 2) .head) .nil))
 
-private def joinSecondGraph : (shifted : Bool) → AllocatingClient Op args branchFn (.data ()) shifted
+private def joinProviderGraph {sigs : List (Ports T)}
+    (body : RecursiveCall.Code Op sameBodyInput [] sigs [num]) :
+    (shifted : Bool) → AllocatingClient Op args branchFn (.data ()) shifted
   | false => ⟨(seedDelta []).toGraph,
-      (LambdaTerm.toGraph ⟨[global], .cons (.output (0 : Fin 1) .head) .nil, _, joinSecondBody⟩)⟩
+      (LambdaTerm.toGraph ⟨[global], .cons (.output (0 : Fin 1) .head) .nil, _, body⟩)⟩
   | true => ⟨(seedDelta [[]]).toGraph,
-      (LambdaTerm.toGraph ⟨[global], .cons (.output (1 : Fin 2) .head) .nil, _, joinSecondBody⟩)⟩
+      (LambdaTerm.toGraph ⟨[global], .cons (.output (1 : Fin 2) .head) .nil, _, body⟩)⟩
 
-private def joinSecondPlan : GraphPlan (joinSecondGraph false).toGraph (joinSecondGraph true).toGraph :=
+private def joinProviderPlan {sigs : List (Ports T)}
+    (body : RecursiveCall.Code Op sameBodyInput [] sigs [num]) :
+    GraphPlan (joinProviderGraph body false).toGraph (joinProviderGraph body true).toGraph :=
   .skipR (.skipL (.skipR (.start (.lambda .done))))
 
 private def joinSecond (unitL unitR storeL storeR : Nat) :=
   checkGraphProvider instructionKeys joinActions ids ordinaryOutputs unitL unitR (number 3) (number 3)
-    (joinSecondGraph false).toGraph (joinSecondGraph true).toGraph joinSecondPlan
+    (joinProviderGraph joinSecondBody false).toGraph (joinProviderGraph joinSecondBody true).toGraph
+    (joinProviderPlan joinSecondBody)
     (providerFn := branchFn) crossPort storeL storeR
 
 private abbrev joinImports : Ports T := [branchFn.port, branchFn.port, num]
@@ -2325,6 +2330,95 @@ private def checkJoin (secondUnitL clientUnitR : Nat) (ordered := true) (stale :
   let first ← joinFirst 73 73 2 2
   let second ← joinFirst 74 74 first.checked.storeL first.checked.storeR
   pure ((first.allocationChain.join second.allocationChain ordinaryOutputs).isNone)) : Option Bool).getD false
+
+open RecursiveCall.Numbered.Prefix (CheckedProviderAssembly)
+
+private def assemblyThirdBody : RecursiveCall.Code Op sameBodyInput [] [[num], [num]] [num] :=
+  .bind sameBodyStep (fun i => i.elim0) <|
+    .bind (RecursiveCall.simple (.primitive Op.finish)
+      (.cons (.arg .head) (.cons (.output (0 : Fin 1) .head) .nil))
+      (fun i => i.elim0)) (fun i => i.elim0) (.ret (.cons (.output (1 : Fin 2) .head) .nil))
+
+private def assemblyThird (unitL unitR storeL storeR : Nat) :=
+  checkGraphProvider instructionKeys joinActions ids ordinaryOutputs unitL unitR (number 5) (number 5)
+    (joinProviderGraph assemblyThirdBody false).toGraph (joinProviderGraph assemblyThirdBody true).toGraph
+    (joinProviderPlan assemblyThirdBody) (providerFn := branchFn) crossPort storeL storeR
+
+private abbrev assemblyPorts : Ports T := [branchFn.port, branchFn.port, branchFn.port]
+private abbrev assemblyCaptures : Ports T := assemblyPorts ++ [global]
+private abbrev assemblyEntry : Ports T := assemblyCaptures ++ branchFn.args
+
+private def assemblyCallInputs {past : List (Ports T)} (callee : Port assemblyEntry branchFn.port)
+    (flag : Origin assemblyEntry past num) : Wires assemblyEntry past (branchFn.port :: branchFn.args) :=
+  .cons (.arg callee) (.cons flag
+    (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head))))))
+      (.cons (.arg (.tail (.tail (.tail (.tail (.tail (.tail .head))))))) .nil)))
+
+private def assemblyBody : RecursiveCall.Code Op assemblyEntry [] [[num], [num], [num], [num]] [num] :=
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (assemblyCallInputs .head (.arg (.tail (.tail (.tail (.tail .head)))))) (fun i => i.elim0)) (fun i => i.elim0) <|
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (assemblyCallInputs (.tail .head) (.output (0 : Fin 1) .head)) (fun i => i.elim0)) (fun i => i.elim0) <|
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (assemblyCallInputs (.tail (.tail .head)) (.output (1 : Fin 2) .head)) (fun i => i.elim0)) (fun i => i.elim0) <|
+  .bind (RecursiveCall.simple (.primitive Op.finish)
+    (.cons (.arg (.tail (.tail (.tail .head)))) (.cons (.output (2 : Fin 3) .head) .nil)) (fun i => i.elim0))
+    (fun i => i.elim0) (.ret (.cons (.output (3 : Fin 4) .head) .nil))
+
+private def assemblyClient (shifted : Bool) :
+    AllocatingClient Op (assemblyPorts ++ [num]) branchFn (.data ()) shifted :=
+  match shifted with
+  | false => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail (.tail (.tail .head)))) .nil, _, seedTerm⟩),
+      (LambdaTerm.toGraph ⟨assemblyCaptures, .cons (.arg .head) (.cons (.arg (.tail .head))
+        (.cons (.arg (.tail (.tail .head))) (.cons (.output (0 : Fin 1) .head) .nil))), _, assemblyBody⟩)⟩
+  | true => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail (.tail (.tail .head)))) .nil, _, seedTerm⟩),
+      (LambdaTerm.toGraph ⟨assemblyCaptures, .cons (.arg .head) (.cons (.arg (.tail .head))
+        (.cons (.arg (.tail (.tail .head))) (.cons (.output (1 : Fin 2) .head) .nil))), _, assemblyBody⟩)⟩
+
+private def assemblyFirstTwo := do
+  let first ← joinFirst 73 73 2 2
+  let second ← joinSecond 74 74 first.checked.storeL first.checked.storeR
+  let earlier := CheckedProviderAssembly.start "first" first.allocationChain
+  earlier.append "second" second.allocationChain ordinaryOutputs
+
+private def assemblyThree (unitL : Nat) (name : String) := do
+  let earlier ← assemblyFirstTwo
+  let third ← assemblyThird unitL 75 earlier.chain.checked.storeL earlier.chain.checked.storeR
+  earlier.append name third.allocationChain ordinaryOutputs
+
+private def assemblyRun (callee : machine.Val branchFn.port) (store : Nat) : Bool :=
+  match Continuation.Partial.Executable.run joinActions 90 (.call callee (branchArgs 1)) store with
+  | .returned (.cons (.data n) .nil) stopped =>
+    let result : Nat := n
+    store == 21357 && result == 76 && stopped == 21357134557
+  | _ => false
+
+private def checkAssembly (last : String := "third") : Option Bool := do
+  let assembly ← assemblyThree 75 "third"
+  let names : Tuple (fun _ : T => String) assemblyPorts :=
+    .cons "first" (.cons "second" (.cons last .nil))
+  let ⟨_, receipt⟩ ← assembly.extend ordinaryOutputs 76 76 names (number 7) (number 7)
+    (assemblyClient false) (assemblyClient true)
+  pure (assembly.unitsL == [75, 74, 73] && assembly.unitsR == [75, 74, 73] &&
+    (assembly.find "first" num).isNone &&
+    assemblyRun (receipt.checked.valuesL.get .head) receipt.checked.storeL &&
+    assemblyRun (receipt.checked.valuesR.get .head) receipt.checked.storeR)
+
+#guard (checkAssembly).getD false
+#guard (checkAssembly "missing").isNone
+#guard (assemblyThree 73 "third").isNone
+#guard (assemblyThree 75 "first").isNone
+
+-- The later provider is compatible with its immediate predecessor alone.
+-- Its dispatch collides with the non-adjacent first family.
+#guard ((do
+  let first ← joinFirst 73 73 2 2
+  let second ← joinSecond 74 74 first.checked.storeL first.checked.storeR
+  let third ← joinFirst 75 75 second.checked.storeL second.checked.storeR
+  let earlier ← (CheckedProviderAssembly.start "first" first.allocationChain).append
+    "second" second.allocationChain ordinaryOutputs
+  pure ((second.allocationChain.join third.allocationChain ordinaryOutputs).isSome &&
+    (earlier.append "third" third.allocationChain ordinaryOutputs).isNone)) : Option Bool).getD false
 
 open RecursiveCall.Numbered (GroupProfile LabelCode memberProfile memberProfile_eq)
 

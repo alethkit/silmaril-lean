@@ -277,6 +277,68 @@ value = f(observe(1), other=%s, b=observe(3))
 	fmt.Println("PASS Go evaluates explicit operands left to right once and skips the tail after an operand error")
 }
 
+func varargsSource(arguments string) string {
+	return fmt.Sprintf(`data = [0, 22]
+def factory(data, index):
+    def child(required, spare=[31], *rest, key, stage=[32], saved=data):
+        check = required[saved[key]][index]
+        return rest
+    copy = child
+    marker = [17]
+    result = copy(%s)
+    after = [99]
+    return result
+result = factory(data, 0)
+finished = [91]
+`, arguments)
+}
+
+func checkVarargs(opts *syntax.FileOptions) {
+	for _, test := range []struct {
+		arguments string
+		result    string
+	}{
+		{"[[11]], key=0", "()"},
+		{"[[11]], [74], 73, data, key=0", "(73, [0, 22])"},
+	} {
+		globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread), "tracked-varargs.star",
+			varargsSource(test.arguments), nil)
+		require(err == nil && globals["result"].String() == test.result && globals["finished"].String() == "[91]", globals)
+		if result := globals["result"].(starlark.Tuple); len(result) > 0 {
+			require(result[1] == globals["data"], globals)
+		}
+	}
+	fmt.Println("PASS the tracked alias returns empty and ordered nonempty surplus tuples with the original list alias")
+
+	for _, test := range []struct {
+		arguments string
+		errorText string
+	}{
+		{"[[11]], [74], 73, data", "missing 1 argument (key)"},
+		{"[[11]], [74], 73, data, key=[0][1], saved=[77]", "index 1 out of range"},
+		{"[[11]], [74], 73, data, key=1", "index 22 out of range"},
+	} {
+		_, compiled, err := starlark.SourceProgramOptions(opts, "tracked-varargs-error.star",
+			varargsSource(test.arguments), func(string) bool { return false })
+		require(err == nil, err)
+		partial, err := compiled.Init(new(starlark.Thread), nil)
+		require(err != nil && strings.Contains(err.Error(), test.errorText), err)
+		require(partial["result"] == nil && partial["finished"] == nil, partial)
+	}
+	fmt.Println("PASS a missing keyword, reached operand error, and reached body error stop the continuation")
+
+	globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread), "varargs-without-captures.star", `def factory():
+    def child(*rest, key):
+        return rest
+    copy = child
+    result = copy(4, 5, key=0)
+    return result
+result = factory()
+`, nil)
+	require(err == nil && globals["result"].String() == "(4, 5)", globals)
+	fmt.Println("PASS a tracked child without lexical captures accepts a required-only suffix after named *rest")
+}
+
 func main() {
 	opts := &syntax.FileOptions{}
 	for _, test := range []struct {
@@ -309,5 +371,6 @@ func main() {
 	checkAliasedCalls(opts)
 	checkLiveProvenance(opts)
 	checkKeywordOnlyDefaults(opts)
+	checkVarargs(opts)
 	checkExplicitOperandOrder(opts)
 }

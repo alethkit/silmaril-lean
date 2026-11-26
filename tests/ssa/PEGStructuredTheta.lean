@@ -6,6 +6,7 @@ import Silmaril.SSA.Peggy.Bridge.Theta.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Thms
 meta import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Defs
+meta import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Schedule.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Defs
 
 namespace Silmaril.SSA.PEG.Bridge.Theta.Tests
@@ -320,18 +321,28 @@ example : (Region.LambdaSSA.lower bundle).HasType
     [Region.LambdaSSA.Packet carried] [Region.LambdaSSA.Packet carried] :=
   Region.LambdaSSA.lower_hasType bundle
 
--- Exercise an actual branch to the local header label with the new packet.
-example : Isotope.LambdaSSA.Semantics.Region.Eval (Operational.instruction values)
-    (Isotope.LambdaSSA.Semantics.extend (ssaEnv 2 10 1) (packet 2 10 1))
-    (RVSDG.LambdaSSA.Theta.block (Operational.step bundle.compile).op)
-    (7 : Nat) 0 (packet 1 1 11) 7 :=
-  Operational.block_eval values bundle.compile _ (entry 2 10 1) (entry 1 1 11) true rfl 7
+-- Only the guard runs before the case. The ordered update has two native
+-- bindings on the feedback arm and no instruction on the exit arm.
+private def nativeHeaderShape : Bool :=
+  match Region.LambdaSSA.lower bundle with
+  | .cfg (.br 0 (.var 0)) 1 blocks =>
+    match blocks 0 with
+    | .let₁ (.op (.call .nonzero) _)
+        (.case (.op .test _) (.br 1 _)
+          (.let₁ (.op (.call .pred) _) (.let₁ (.op (.call .add) _) (.br 0 _)))) => true
+    | _ => false
+  | _ => false
+
+example : nativeHeaderShape = true := rfl
 
 private theorem ssaReturns :
-    Isotope.LambdaSSA.Semantics.Region.Eval (Operational.instruction values) (ssaEnv 2 10 1)
+    Isotope.LambdaSSA.Semantics.Region.Eval (Region.LambdaSSA.instruction total) (ssaEnv 2 10 1)
       (Region.LambdaSSA.lower bundle) (7 : Nat) 0 (packet 0 11 12) 7 :=
-  (Operational.lower_eval_iff values bundle.compile (entry 2 10 1) 7 7 0 _).mpr
-    ⟨entry 0 11 12, returned, rfl, rfl, rfl⟩
+  .cfg (.br .var) <|
+    .step (by decide) (Region.LambdaSSA.header_eval bundle total _ (entry 2 10 1) (entry 1 1 11) true rfl 7) <|
+    .step (by decide) (Region.LambdaSSA.header_eval bundle total _ (entry 1 1 11) (entry 0 11 12) true rfl 7) <|
+    .step (by decide) (Region.LambdaSSA.header_eval bundle total _ (entry 0 11 12) (entry 0 11 12) false rfl 7)
+      (.exit (Nat.le_refl 1))
 
 example (idx : Index 1) : ∃ (k : Nat) (final : Tuple total.toPEG.Value (.bool :: carried)),
     carriedValues final = store 0 11 12 ∧
@@ -341,15 +352,17 @@ example (idx : Index 1) : ∃ (k : Nat) (final : Tuple total.toPEG.Value (.bool 
     ssaReturns
 
 example (idx : Index 1) :
-    Isotope.LambdaSSA.Semantics.Region.Eval (Operational.instruction values) (ssaEnv 2 10 1)
+    Isotope.LambdaSSA.Semantics.Region.Eval (Region.LambdaSSA.instruction total) (ssaEnv 2 10 1)
       (Region.LambdaSSA.lower bundle) (7 : Nat) 0 (packet 0 11 12) 7 :=
   (Region.LambdaSSA.lower_eval_iff bundle total (store 2 10 1) (fun _ => rfl) idx 7 7 0 _).mpr
     ⟨store 0 11 12, observedTuple idx, rfl, rfl, rfl⟩
 
 -- Already false: the header executes once and exits without a backedge.
-example : Isotope.LambdaSSA.Semantics.Region.Eval (Operational.instruction values) (ssaEnv 0 10 1)
+example : Isotope.LambdaSSA.Semantics.Region.Eval (Region.LambdaSSA.instruction total) (ssaEnv 0 10 1)
     (Region.LambdaSSA.lower bundle) (7 : Nat) 0 (packet 0 10 1) 7 :=
-  (Operational.eval_iff_runFuel values bundle.compile (entry 0 10 1) (entry 0 10 1) 7).mpr ⟨1, rfl⟩
+  .cfg (.br .var) <| .step (by decide)
+    (Region.LambdaSSA.header_eval bundle total _ (entry 0 10 1) (entry 0 10 1) false rfl 7)
+    (.exit (by decide))
 
 example (idx : Index 1) : bundledGraph.observe total.toPEG
     (bundledGraph.denote total.toPEG (store 0 10 1) bundle.demandWellFounded) idx =
@@ -362,9 +375,9 @@ private def runPacket (fuel n a b : Nat) : Option (Nat × Nat × Nat) :=
     | .cons count (.cons left (.cons right .nil)) => (count.down, left, right)
 
 set_option interpreter.prefer_native false in
-/-- info: (none, some (0, 11, 12), some (0, 10, 1)) -/
+/-- info: (true, none, some (0, 11, 12), some (0, 10, 1)) -/
 #guard_msgs in
-#eval (runPacket 2 2 10 1, runPacket 3 2 10 1, runPacket 1 0 10 1)
+#eval (nativeHeaderShape, runPacket 2 2 10 1, runPacket 3 2 10 1, runPacket 1 0 10 1)
 
 end Silmaril.SSA.PEG.Bridge.Theta.Region.Tests
 

@@ -31,6 +31,16 @@ theorem liftTerm_eval {Γ Δ extra : List Width} {saved consumer : Width}
       (term.eval source).map (Saved.prependFrame (target.get keep)) id :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.liftTerm_eval rename keep term source target same
 
+/-- Remapping the entry tail and retaining a computed value extends exactly
+    the header packets. Branch choices and exit packets are preserved. -/
+theorem liftCode_eval {Γ Δ extra : List Width} {saved consumer : Width}
+    (code : Block TargetOp (Label saved carried result extra) Γ [result])
+    (rename : Rename Γ Δ) (keep : Var Δ consumer) (source : Env Γ) (target : Env Δ)
+    (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref) :
+    (liftCode rename keep code).eval evalOp (fun term env => Terminator.eval env term) target =
+      (code.eval evalOp (fun term env => Terminator.eval env term) source).map (Saved.prependFrame (target.get keep)) id :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.liftCode_eval code rename keep source target same
+
 /-- The shared splice preserves evaluated transfers and extends the checked
 entry-prefix evaluation witness for the next step. -/
 theorem emitAt?_step {saved : Width} {extra : List Width}

@@ -15,7 +15,8 @@ local notation "Expr" => Lowering.Resolve.SourceExpr
 structure Entry (block : LexicalBlock) where
   id : DeclarationId
   formals : List PlainKeywordParameter
-  site : Site block formals
+  varargs : Option String
+  site : Site block formals varargs
 
 abbrev Locals (block : LexicalBlock) := String → Option (Entry block)
 
@@ -77,10 +78,10 @@ inductive Elaborates : (block : LexicalBlock) → Locals block →
       Elaborates block locals (.seq (.assign name source) rest) seed
         ⟨.seq (.assignExpr (fileSlot name) rhs) tail.code, reads ++ tail.reads⟩ final emissions
   | define {block locals rest seed childTable tail final descendants later}
-      {formals : List PlainKeywordParameter} (site : Site block formals) :
+      {formals : List PlainKeywordParameter} {varargs : Option String} (site : Site block formals varargs) :
       KeywordLexical block formals →
       Elaborates site.block empty site.source seed site.body childTable descendants →
-      Elaborates block (setLocal locals site.name (some ⟨childTable.size, formals, site⟩))
+      Elaborates block (setLocal locals site.name (some ⟨childTable.size, formals, varargs, site⟩))
         rest (childTable.push site.declaration) tail final later →
       Elaborates block locals (.seq site.statement rest) seed
         ⟨.seq (.define (fileSlot site.name) childTable.size) tail.code, site.reads ++ tail.reads⟩ final

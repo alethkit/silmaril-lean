@@ -57,7 +57,8 @@ private def seededDivision (source : Source.Module) (space : Namespace)
   let lists : Core.Module.ListHeap := ⟨#[[.int 31]]⟩
   let result := Compile.ModuleEntry.Functions.Run.Seeded.run space compiled initialHeap (lists := lists)
   let lookup := lookupBinding result.residual.moduleGlobals
-  let expected := values ++ space.moduleGlobals
+  let overwritten := values.map Prod.fst ++ functions
+  let expected := values ++ space.moduleGlobals.filter (fun binding => !overwritten.contains binding.1)
   return result.completion == completion && retained result.heap && result.lists == lists &&
     result.residual.builtins == space.builtins &&
     result.residual.moduleGlobals.length == expected.length + functions.length &&
@@ -233,7 +234,7 @@ def controls(upstream):
         assert hashlib.sha256(raw).hexdigest() == QUOTIENT["SHA256"]
         line = raw.decode().splitlines(keepends=True)[27]
         assert "5 / 2" in line
-        fixtures.append((line, rejected))
+        fixtures.append((line, "#guard (compile pythonSource).isOk"))
     return fixtures, observed
 
 

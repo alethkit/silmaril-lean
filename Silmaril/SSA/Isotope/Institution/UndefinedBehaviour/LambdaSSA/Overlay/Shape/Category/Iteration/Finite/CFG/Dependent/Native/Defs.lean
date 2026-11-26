@@ -65,6 +65,13 @@ def routePacket : {P Γ : List Syntax.Ty} → (target : Fin P.length → Fin L.l
     select (jump (target 0) (typed 0) (.var 0))
       (routePacket (fun j => target j.succ) (fun j => typed j.succ))
 
+/-- The native spelling of a request followed by a positional packet router. -/
+def packedRequestTo (f : Φ) (arg : Expr Γ (instrSrc f)) (reply : instrTrg f = packedExitType R)
+    (target : Fin R.length → Fin L.length) (typed : ∀ i, L.get (target i) = R.get i) :
+    Typed Φ Γ L :=
+  bind (Program.requestRegion f arg)
+    (cast (congrArg (fun A => Typed Φ (A :: Γ) L) reply.symm) (routePacket target typed))
+
 def route (R L : List Syntax.Ty) {Γ : List Syntax.Ty} :
     Typed Φ (.coprod (packedExitType L) (packedExitType R) :: Γ) (R ++ L) :=
   select (routePacket (exitLabel R L) external_type)

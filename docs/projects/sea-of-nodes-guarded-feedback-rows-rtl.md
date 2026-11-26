@@ -435,6 +435,11 @@ example {targets : Checked.Phi.Targets} (accepted : Table.lowerChecked dependent
       (inputModel (P := Rows.wordSignature) model Memory (bank 0 1 1))
       (Table.Institution.scope accepted) :=
   (Table.Institution.room_diverges_iff accepted (bank 0 1 1) initial).mpr spinAbsent
+
+example {targets : Checked.Phi.Targets} (accepted : Table.lowerChecked dependent = some targets)
+    (initial : Memory) :
+    targets.1.divOracle 0 (words (bank 0 1 1)) initial :=
+  (Table.Institution.rtl_divOracle_iff accepted (bank 0 1 1) initial).mpr spinAbsent
 ```
 
 The two results are `6 - 5 = 1` and `1 + 2 = 3`, so the bank enters as
@@ -494,10 +499,32 @@ Changing the first preheader subtraction to addition makes the alternative
 graph return 3 at that same input, so the room equation fails.
 [Checked regression][table-regression]
 
-`terminates_holds_iff` still relates the native termination sentence to
-a nonempty return set at every typed input. The full room theorem is
-scoped to checked dependent-preheader CFGs in their concrete λSSA word
-models. RTL remains covered through its finite-return projection.
+### Full RTL.SSA behaviours
+
+`rtlBehaviors` collects the existing `RTL.SSA.Behaves` outcomes from
+function zero's actual start. `rtl_start_exists` certifies the start
+for every typed input and initial memory. `rtl_behavior_iff` classifies
+all outcomes. Returns contain exactly one native word with the entire
+initial memory. `rtl_no_fault` excludes both traps and stuck states.
+
+`rtl_divOracle_iff` relates native undefinedness to an infinite sequence
+of machine instructions. The proof follows the emitted entry and then
+the nonempty instruction path for each taken backedge. A header with
+no finite native return must take that backedge, and the successor
+bank still has no finite return. Determinism excludes divergence when
+the machine has a finite return. Bounded `runMain` still reports a
+running state when its instruction budget is exhausted.
+
+`rtl_equation_at_iff` and `rtl_equation_holds_iff` compare native
+equations with full RTL behaviour equations at one typed input or all
+typed inputs, with a common initial memory. The regression checks
+return 7, divergence on the fixed-point input, and a failed RTL equation
+when the other side returns 3 at that input. [Checked regression][table-regression]
+
+`terminates_holds_iff` relates the native termination sentence to a
+nonempty return set at every typed input. These RTL and λSSA results
+cover the checked dependent-preheader profile at the concrete word
+signature.
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
