@@ -917,11 +917,30 @@ The continuation cannot jump back to its own label.
   input type. On written graphs this validity agrees with validity in all
   handled-trace models, and it is preserved and reflected by injective
   renamings that keep the typed interface. The existing signature reduct
-  transfers satisfaction in all models of the room. It is not shown that
-  the reduct of a supported model is supported.
+  transfers satisfaction in all models of the room.
   [Supported models and validity](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Defs.lean) ·
   [Soundness and completeness](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Thms.lean) ·
   [Ranked sentences in the room](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/RankedValidityRegression.lean)
+- The supported models of the ranked room are closed under reducts along
+  relabellings of instruction signatures, which keep source types, target
+  types and effects. The existing reduct keeps the type interpretation and
+  reads each primitive through the map. Every relabelling is the
+  instruction map of a pulled-back signature, where the three equations
+  hold by definition. There the arrow of a derivation in the reduct is the
+  arrow of the relabelled derivation in the original model, so coherent
+  expression typing transports. The shared tensor depends on the functor
+  alone, and a pure primitive is sent to a pure primitive with the same
+  arrow. The ranked room restricted to supported models is therefore a
+  functor from relabellings to rooms, and restricting models commutes with
+  the existing ranked signature corridor. Validity in the supported models
+  is preserved by every relabelling through this model law. Relabellings
+  need not be injective. Signature maps that translate types are not
+  covered. The regression takes the reduct of the ordered trace model over
+  a two-primitive signature: it is a supported model over the
+  one-primitive signature that rejects a sentence with an older capture.
+  [Relabelling and restricted room](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Reduct/Defs.lean) ·
+  [Model law and functoriality](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Reduct/Thms.lean) ·
+  [A non-identity reduct](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/SupportedReductRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

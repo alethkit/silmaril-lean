@@ -88,8 +88,7 @@ theorem denoteRanked_eq_iff {d : Nat} {β : BoundCtx τ d} {L : List τ} (l r : 
 /-- The existing signature reduct: a ranked sentence that holds in every
 model of the room over the source signature has a translation that holds
 in every model over the target signature, for the same functor. This is
-for all models of the room. Whether the reduct of a supported model is
-supported is not known here. -/
+for all models of the room. -/
 theorem sat_mapRanked_of_all {υ δ : Type} [TypeFormers υ] {Q : InstrSig υ δ}
     (g : Morphism.SignatureMap P.Instr Q.Instr τ υ ε δ) [g.PreservesProducts] [g.PreservesSums]
     (e : RankedEquation P)
