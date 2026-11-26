@@ -17,11 +17,44 @@ open Silmaril.MLIR.Arith (Width Env)
 open RVSDG (Tuple)
 open Blocks (Bank)
 open Blocks.Prune (Mask)
-open Diamond.Prune (Checked)
+open Diamond.Prune (Checked HeaderProjection)
 
 variable {regs : List (ValueSort Width)} {out : ValueSort Width} {size : Nat}
 variable {src : Source Op regs out size} {entry : Fin size}
 variable {p : Program src entry} {mask : Mask regs}
+section Source
+
+variable {header : Fin size} (projected : HeaderProjection (src header).body mask)
+variable {Γ : List Width} (names : Tuple (Names Γ) (dataPorts regs)) (env : Env Γ)
+
+/-- Each emitted terminator selects the original source destination and
+passes its final bank, projecting only when the destination is the header. -/
+theorem source_site_frame_with (old : Bank (regs := regs) model) (id : Fin size) :
+    let current := siteFrame header mask (out := out) id old
+    let next := (src id).body.eval model old
+    ((lowerSourceWith src entry header projected names).block current.label).eval evalOp (fun term env => term.eval env)
+        (current.args.append env) =
+      .inl (destinationFrameWith (siteFrame header mask) (exitFrame header mask) next
+        ((src id).terminator.select model next)) :=
+  Proofs.source_site_frame_with (entry := entry) projected names env old id
+
+/-- From any original block the typed frame carries exactly the source
+input bank, with projection when that block is the header. -/
+theorem lowerSourceWith_from_run (fuel : Nat) (id : Fin size) (old : Bank (regs := regs) model) :
+    (lowerSourceWith src entry header projected names).runFrom evalOp (fuel + 1) env
+        (siteFrame header mask id old) =
+      (src.runFrom model fuel id old).map (fun value => Env.cons (valueBits value) .nil) :=
+  Proofs.lowerSourceWith_from_run (entry := entry) projected names env fuel id old
+
+/-- At a header-only projection, CF spends one extra visit on the typed return. -/
+theorem lowerSourceWith_run (fuel : Nat) (input : Bank (regs := regs) model)
+    (ok : NamesAgree env names input) :
+    (lowerSourceWith src entry header projected names).run evalOp (fuel + 1) env =
+      (src.runFrom model fuel entry input).map (fun value => Env.cons (valueBits value) .nil) :=
+  Proofs.lowerSourceWith_run projected names env fuel input ok
+
+end Source
+
 variable (checked : Checked p mask)
 
 include checked in

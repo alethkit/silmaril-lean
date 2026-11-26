@@ -23,6 +23,12 @@ variable {src : Source Op regs out size} {entry : Fin size}
 variable {p : Program src entry} {mask : Mask regs}
 variable (checked : Checked p mask) (m : Model.{u, v, w} Op)
 
+/-- A reconstructed bank agrees with executing the original header quads. -/
+theorem HeaderProjection.header_agrees {body : Join.Block Op regs} (projected : HeaderProjection body mask)
+    (old : Bank (regs := regs) m) :
+    projected.headerBank m (mask.project old) = body.eval m old :=
+  Proofs.header_projection_agrees m projected old
+
 /-- The reconstructed bank supplies the same tests and data to the shared γ. -/
 theorem Checked.header_agrees (old : Bank (regs := regs) m) :
     checked.headerBank m (mask.project old) = (src p.header).body.eval m old :=

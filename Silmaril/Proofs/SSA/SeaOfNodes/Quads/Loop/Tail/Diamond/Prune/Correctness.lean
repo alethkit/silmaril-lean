@@ -29,13 +29,18 @@ variable {src : Source Op regs out size} {entry : Fin size}
 variable {p : Program src entry} {mask : Mask regs}
 variable (checked : Checked p mask) (m : Model.{u, v, w} Op)
 
+theorem header_projection_agrees {body : Block Op regs} (projected : HeaderProjection body mask)
+    (old : Bank (regs := regs) m) :
+    projected.headerBank m (mask.project old) = body.eval m old := by
+  unfold HeaderProjection.headerBank
+  rw [mask.projected_flow m old (past := []) PUnit.unit _ _ projected.flow_eq]
+  rw [mask.projected_wires m old _ _ _ projected.outgoing_eq]
+  exact (CFG.compileBlock_read (past := []) body m old PUnit.unit (initial regs)).trans
+    (congrArg (Block.eval body m) (read_initial m old))
+
 theorem header_agrees (old : Bank (regs := regs) m) :
-    checked.headerBank m (mask.project old) = (src p.header).body.eval m old := by
-  unfold Checked.headerBank
-  rw [mask.projected_flow m old (past := []) PUnit.unit _ _ checked.flow_eq]
-  rw [mask.projected_wires m old _ _ _ checked.outgoing_eq]
-  exact (CFG.compileBlock_read (past := []) (src p.header).body m old PUnit.unit (initial regs)).trans
-    (congrArg (Block.eval (src p.header).body m) (read_initial m old))
+    checked.headerBank m (mask.project old) = (src p.header).body.eval m old :=
+  header_projection_agrees m checked.toHeaderProjection old
 
 theorem trace_agrees (fuel : Nat) (old : Bank (regs := regs) m) :
     checked.trace m fuel (mask.project old) = p.trace m fuel old := by
