@@ -46,6 +46,16 @@ structure ForwardBranch where
   depth : LabelIdx
   results : List NumType
 
+/-- Every listed target and the default must accept the same ordered payload. -/
+structure ForwardTable where
+  depths : List LabelIdx
+  fallback : LabelIdx
+  results : List NumType
+
+/-- The native selector is unsigned. An index outside the vector uses its default. -/
+def ForwardTable.select (table : ForwardTable) (selector : BitVec 32) : ForwardBranch :=
+  ⟨table.depths[selector.toNat]?.getD table.fallback, table.results⟩
+
 /-- Checked block and conditional arms and their enclosing continuations. -/
 inductive Source (H : Type) where
   | root
@@ -53,6 +63,7 @@ inductive Source (H : Type) where
   | hostsThen (first : HostSegment H) (later : List (HostSegment H)) (tail : Source H)
   | br (branch : ForwardBranch)
   | brIf (branch : ForwardBranch) (fallthrough : Source H)
+  | brTable (table : ForwardTable)
   | plain (code : List Op)
   | blockThen (result : Option NumType) (body tail : Source H)
   | ifThen (result : Option NumType) (condition : LocalIdx) (left right tail : Source H)
@@ -87,7 +98,7 @@ def needsResume {H : Type} : Source H → Bool
 
 def Allowed {H : Type} (mode : MemoryMode) (program : Program) (memory : MemAddr) (calls : CallMode)
     (fn : Function) : Source H → Prop
-  | .root | .hostSequence .. | .br _ => True
+  | .root | .hostSequence .. | .br _ | .brTable _ => True
   | .hostsThen _ _ tail | .brIf _ tail => Allowed mode program memory calls fn tail
   | .plain code =>
     CodeAllowedFor mode program memory calls fn.rank fn.declaration.module (expression (v1Code code))
@@ -147,6 +158,7 @@ def sourceCode (seq : Sequence H) : Source H → Wasm.V1.Expr
   | .hostsThen first later tail => encode Graph.v1CodeSyntax.ops (seq.sourceCode tail) (first :: later)
   | .br branch => [.br branch.depth]
   | .brIf branch tail => .brIf branch.depth :: seq.sourceCode tail
+  | .brTable table => [.brTable table.depths table.fallback]
   | .plain code => v1Code code
   | .blockThen result body tail => .block result (seq.sourceCode body) :: seq.sourceCode tail
   | .ifThen result condition left right tail =>
@@ -161,7 +173,7 @@ def sourceSites (seq : Sequence H) : Source H → List (HostCall.V1.Site H)
   | .hostSequence first later => first.site :: later.map HostSegment.site
   | .hostsThen first later tail => (first.site :: later.map HostSegment.site) ++ seq.sourceSites tail
   | .brIf _ tail => seq.sourceSites tail
-  | .plain _ | .br _ => []
+  | .plain _ | .br _ | .brTable _ => []
   | .blockThen _ body tail => seq.sourceSites body ++ seq.sourceSites tail
   | .ifThen _ _ left right tail => (seq.sourceSites left ++ seq.sourceSites right) ++ seq.sourceSites tail
 
@@ -206,6 +218,12 @@ def checkForward (fn : Function) (stack : List NumType) (targets : List (List Nu
     (branch : ForwardBranch) : Bool :=
   Graph.checkBranch (targets.take (targets.length - fn.entryLabels.length)) stack branch.depth branch.results
 
+def checkTable (fn : Function) (stack : List NumType) (targets : List (List NumType))
+    (table : ForwardTable) : Bool :=
+  Graph.checkCondition stack (fun saved =>
+    checkForward fn saved targets ⟨table.fallback, table.results⟩ &&
+      table.depths.all (fun depth => checkForward fn saved targets ⟨depth, table.results⟩))
+
 /-- Check each host on its ordered argument suffix and continue on the
 declared results above the preserved operands. -/
 def checkSegments (fn : Function) (finish : List NumType → Bool) (stack : List NumType) :
@@ -236,6 +254,7 @@ def checkSourceAt (seq : Sequence H) (stack fallthrough : List NumType) (targets
   | .brIf branch tail =>
     Graph.checkCondition stack (fun saved =>
       checkForward seq.root.function saved targets branch && seq.checkSourceAt saved fallthrough targets resume tail)
+  | .brTable table => checkTable seq.root.function stack targets table
   | .plain code => checkTail seq.root.function stack fallthrough targets resume code
   | .blockThen result body tail =>
     let types := result.toList
@@ -310,6 +329,7 @@ inductive Phase (H : Type) where
       (tail : Option (Source H) := none)
   | branchTest (bytes : ByteArray) (stack : List Value) (branch : ForwardBranch)
       (fallthrough : Source H) (labels : List (OpenLabel H))
+  | tableSelect (bytes : ByteArray) (stack : List Value) (table : ForwardTable) (labels : List (OpenLabel H))
   | branching (bytes : ByteArray) (stack : List Value) (branch : ForwardBranch)
       (skipped : List Admin) (labels : List (OpenLabel H))
   | completed (bytes : ByteArray) (stack : List Value) (label : OpenLabel H) (outer : List (OpenLabel H))
@@ -330,6 +350,7 @@ def beginBody (seq : Sequence H) (outer : Frame) (args : List Value) (bytes : By
   | .hostSequence first later => .computing bytes stack first.operands first.site later labels
   | .hostsThen first later tail => .computing bytes stack first.operands first.site later labels (some tail)
   | .brIf branch tail => .branchTest bytes stack branch tail labels
+  | .brTable table => .tableSelect bytes stack table labels
   | .br branch => .branching bytes stack branch [] labels
   | .plain code => seq.finish outer args bytes stack code labels
   | .blockThen result body tail => .block bytes stack result body tail labels
@@ -386,6 +407,8 @@ def render (seq : Sequence H) (base : Store H) (memory : MemAddr) (initial : Mem
     ⟨live bytes, outer, (k labels).plug value (values (saved ++ actual) ++ .invoke site.address :: seq.continuation later tail)⟩
   | .branchTest bytes stack branch tail labels =>
     ⟨live bytes, outer, (k labels).plug value (values stack ++ .source (.brIf branch.depth) :: expression (seq.sourceCode tail))⟩
+  | .tableSelect bytes stack table labels =>
+    ⟨live bytes, outer, (k labels).plug value (values stack ++ [.source (.brTable table.depths table.fallback)])⟩
   | .branching bytes stack branch skipped labels =>
     ⟨live bytes, outer, (k labels).plug value (values stack ++ .source (.br branch.depth) :: skipped)⟩
   | .completed bytes stack label rest => ⟨live bytes, outer, (k (label :: rest)).plug value (values stack)⟩
@@ -455,6 +478,8 @@ def Ready (seq : Sequence H) (mode : MemoryMode) (program : Program) (memory : M
       scopes labels ∧ seq.ContinuationReady mode program memory calls body tail
   | .branchTest bytes stack branch tail labels =>
     extent bytes ∧ seq.SourceReady mode program memory calls labels stack (.brIf branch tail) body
+  | .tableSelect bytes stack table labels =>
+    extent bytes ∧ seq.SourceReady mode program memory calls labels stack (.brTable table) body
   | .branching bytes stack branch _ labels =>
     extent bytes ∧ Graph.checkBranch (OpenLabel.signatures labels) (Prefix.stackTypes stack)
       branch.depth branch.results = true ∧ scopes labels
@@ -492,6 +517,10 @@ inductive Edge (seq : Sequence H) (host : HostSemantics H) (mode : MemoryMode)
       Edge seq host mode program memory base initial start outer args
         (.branchTest bytes (saved ++ [Value.int .i32 condition]) branch tail labels)
         (.branching bytes saved branch (expression (seq.sourceCode tail)) labels)
+  | selectTable {bytes saved selector table labels} :
+      Edge seq host mode program memory base initial start outer args
+        (.tableSelect bytes (saved ++ [Value.int .i32 selector]) table labels)
+        (.branching bytes saved (table.select selector) [] labels)
   | branchOuter {bytes stack branch skipped label rest} (outerDepth : 0 < branch.depth.toNat) :
       Edge seq host mode program memory base initial start outer args
         (.branching bytes stack branch skipped (label :: rest))

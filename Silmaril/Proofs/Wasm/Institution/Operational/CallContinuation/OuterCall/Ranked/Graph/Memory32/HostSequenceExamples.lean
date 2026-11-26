@@ -516,11 +516,13 @@ private def onZero : Source Nat := .hosts ⟨[], middleSite⟩ []
 private def testRegion (segment : HostSegment Nat) (branch : ForwardBranch) (fallthrough : Source Nat := onZero) : Source Nat :=
   .blockThen scalar (.blockThen scalar (.hostsThen segment [] (.brIf branch fallthrough)) (.plain [])) tailRegion
 private def body : Source Nat := testRegion writer target
-private def allocation : Store Nat :=
+private def allocationFor (region : Source Nat) : Store Nat :=
   { funcs := [.host hostType first.target, .host nextType nextSite.target,
-      .wasm branchFn.declaration.type branchModule (entry.v1FuncFor body), .host hostType middleSite.target],
+      .wasm branchFn.declaration.type branchModule (entry.v1FuncFor region), .host hostType middleSite.target],
     memories := [initial] }
-private def live (bytes : ByteArray) := storeWithBytes allocation slot initial bytes
+private def liveFor (region : Source Nat) (bytes : ByteArray) := storeWithBytes (allocationFor region) slot initial bytes
+private abbrev allocation := allocationFor body
+private abbrev live := liveFor body
 private def inner : OpenLabel Nat := ⟨[], scalar, .plain []⟩
 private def labels := [inner, outerLabel]
 
@@ -529,20 +531,26 @@ private def fallthroughBytes : ByteArray := ⟨#[0xaa, 0x44, 0x33, 0x22, 0x11, 0
 private def finalBytes (taken : Bool) : ByteArray := if taken then firstBytes true else fallthroughBytes
 private def resultValue (taken : Bool) : Value := i32 (if taken then 5 else 8)
 
-private def host : HostSemantics Nat := fun id store operands answer =>
-  (id = first.target ∧ store = live initial.data ∧ operands = rootArgs ∧
-    ∃ taken : Bool, answer = .returned (live (firstBytes taken)) (.values [i32 (condition taken)])) ∨
-  (id = middleSite.target ∧ store = live (firstBytes false) ∧ operands = rootArgs ∧
-    answer = .returned (live fallthroughBytes) (.values [resultValue false])) ∨
-  (id = nextSite.target ∧ ∃ taken : Bool, store = live (finalBytes taken) ∧
+private def hostFor (region : Source Nat) : HostSemantics Nat := fun id store operands answer =>
+  (id = first.target ∧ store = liveFor region initial.data ∧ operands = rootArgs ∧
+    ∃ taken : Bool, answer = .returned (liveFor region (firstBytes taken)) (.values [i32 (condition taken)])) ∨
+  (id = middleSite.target ∧ store = liveFor region (firstBytes false) ∧ operands = rootArgs ∧
+    answer = .returned (liveFor region fallthroughBytes) (.values [resultValue false])) ∨
+  (id = nextSite.target ∧ ∃ taken : Bool, store = liveFor region (finalBytes taken) ∧
     operands = savedPrefix ++ [resultValue taken] ∧ answer = .returned store (.values [i32 (word taken)]))
+
+private abbrev host := hostFor body
 
 private theorem siteOf {site : HostCall.V1.Site Nat} (used : site ∈ entry.sourceSites body) :
     site = first ∨ site = middleSite ∨ site = nextSite := by
   change site ∈ [first, middleSite, nextSite] at used
   simpa using used
 
-private theorem admitted : entry.Checked .fixed graph slot .ranked allocation caller rootArgs body where
+private theorem admittedFor (region : Source Nat)
+    (sites : ∀ site ∈ entry.sourceSites region, site = first ∨ site = middleSite ∨ site = nextSite)
+    (typed : entry.checkSource (Prefix.stackTypes branchFn.initial) branchFn.declaration.results branchFn.entryLabels region = true)
+    (guarded : Source.Allowed .fixed graph slot .ranked branchFn region) :
+    entry.Checked .fixed graph slot .ranked (allocationFor region) caller rootArgs region where
   resolved := rfl
   allocated := rfl
   parameters := rfl
@@ -550,22 +558,29 @@ private theorem admitted : entry.Checked .fixed graph slot .ranked allocation ca
   slot := rfl
   linkedHosts := by
     intro site used
-    rcases siteOf used with rfl | rfl | rfl <;> exact ⟨rfl, rfl, by decide⟩
-  typedBody := rfl
-  guardedBody := by
-    refine ⟨trivial, ?_, trivial⟩
-    intro _ used
-    cases used
+    rcases sites site used with rfl | rfl | rfl <;> exact ⟨rfl, rfl, by decide⟩
+  typedBody := typed
+  guardedBody := guarded
   supportedTail := rfl
   linkedTail := by intro _ used; cases used
 
-private theorem layout : Layout graph allocation slot initial where
+private theorem admitted : entry.Checked .fixed graph slot .ranked allocation caller rootArgs body :=
+  admittedFor body (fun _ => siteOf) rfl (by
+    refine ⟨trivial, ?_, trivial⟩
+    intro _ used
+    cases used)
+
+private theorem layoutFor (region : Source Nat) : Layout graph (allocationFor region) slot initial where
   memory := rfl
   functions := by intro _ _ found; simp [graph, Program.lookup] at found
 
-private theorem contract : entry.Contract host .fixed slot initial allocation body := by
+private abbrev layout := layoutFor body
+
+private theorem contractFor (region : Source Nat)
+    (sites : ∀ site ∈ entry.sourceSites region, site = first ∨ site = middleSite ∨ site = nextSite) :
+    entry.Contract (hostFor region) .fixed slot initial (allocationFor region) region := by
   intro site used bytes _ operands _ after result outcome
-  have signature : site.signature.results = [.int .i32] := by rcases siteOf used with rfl | rfl | rfl <;> rfl
+  have signature : site.signature.results = [.int .i32] := by rcases sites site used with rfl | rfl | rfl <;> rfl
   rcases outcome with ⟨_, store, _, taken, equal⟩ | ⟨_, store, _, equal⟩ | ⟨_, taken, store, _, equal⟩
   · cases equal
     rw [store, signature]
@@ -580,6 +595,9 @@ private theorem contract : entry.Contract host .fixed slot initial allocation bo
     cases taken
     · exact ⟨rfl, fallthroughBytes, fallthroughBytes, rfl, rfl, rfl⟩
     · exact ⟨rfl, firstBytes true, firstBytes true, rfl, rfl, rfl⟩
+
+private theorem contract : entry.Contract host .fixed slot initial allocation body :=
+  contractFor body (fun _ => siteOf)
 
 private abbrev Runs := entry.Runs host .fixed graph slot allocation initial initial.data caller rootArgs
 private abbrev cfg := entry.render allocation slot initial initial.data caller rootArgs
@@ -677,6 +695,152 @@ example : check (testRegion writer { target with depth := ⟨3⟩ }) = false := 
 example : check (testRegion { writer with site.signature.results := [.int .i64] } target) = false := rfl
 example : check (testRegion { writer with operands := [.get ⟨0⟩] } target) = false := rfl
 example : check (testRegion writer target (.hosts ⟨[], { middleSite with signature.params := [.int .i64] }⟩ [])) = false := rfl
+
+namespace TableBranch
+
+private def table : ForwardTable := ⟨[⟨1⟩], ⟨2⟩, [.int .i32]⟩
+private def skipped (result : Option NumType) : Source Nat :=
+  .hosts ⟨if result.isSome then [] else [.get ⟨0⟩], first⟩ []
+private def regionWith (branches : ForwardTable) (innerResult : Option NumType := scalar) : Source Nat :=
+  .blockThen scalar
+    (.blockThen scalar (.blockThen innerResult (.hostsThen writer [] (.brTable branches)) (skipped innerResult)) onZero)
+    tailRegion
+private def region : Source Nat := regionWith table
+private abbrev allocation := allocationFor region
+private abbrev live := liveFor region
+private abbrev host := hostFor region
+private def inner : OpenLabel Nat := ⟨[], scalar, skipped scalar⟩
+private def middle : OpenLabel Nat := ⟨[], scalar, onZero⟩
+private def labels := [inner, middle, outerLabel]
+
+private theorem siteOf {site : HostCall.V1.Site Nat} (used : site ∈ entry.sourceSites region) :
+    site = first ∨ site = middleSite ∨ site = nextSite := by
+  change site ∈ [first, first, middleSite, nextSite] at used
+  simpa using used
+
+private theorem admitted : entry.Checked .fixed graph slot .ranked allocation caller rootArgs region :=
+  admittedFor region (fun _ => siteOf) rfl ⟨trivial, trivial, trivial, trivial⟩
+private abbrev layout := layoutFor region
+private theorem contract : entry.Contract host .fixed slot initial allocation region :=
+  contractFor region (fun _ => siteOf)
+
+private abbrev Runs := entry.Runs host .fixed graph slot allocation initial initial.data caller rootArgs
+private abbrev cfg := entry.render allocation slot initial initial.data caller rootArgs
+private def launch : Config Nat := ⟨live initial.data, caller, values rootArgs ++ [.source (.call ⟨0⟩)]⟩
+
+private theorem ready {phase : Phase} (run : Runs (.call region) phase) : entry.Ready .fixed graph slot .ranked initial phase region := by
+  induction run with
+  | refl => rfl
+  | tail _ step ih => exact step.ready rfl admitted layout rfl contract ih
+
+private theorem native {phase : Phase} (run : Runs (.call region) phase) : Steps host launch (cfg phase) :=
+  (Sequence.v1_call_run_iff rfl admitted layout trivial rfl contract).mpr ⟨phase, run, ready run, rfl⟩
+
+private def selects (fallback : Bool) : Phase :=
+  .tableSelect (firstBytes fallback) (rootArgs ++ [i32 (condition fallback)]) table labels
+
+private theorem reachesTable (fallback : Bool) : Runs (.call region) (selects fallback) := by
+  have entersMiddle : Runs (.call region)
+      (.block initial.data [] scalar
+        (.blockThen scalar (.hostsThen writer [] (.brTable table)) (skipped scalar)) onZero [outerLabel]) :=
+    ((Relation.ReflTransGen.single .resolve).tail .enter).tail .openBlock
+  have entersInner : Runs (.call region)
+      (.block initial.data [] scalar (.hostsThen writer [] (.brTable table)) (skipped scalar) [middle, outerLabel]) :=
+    entersMiddle.tail .openBlock
+  have pending : Runs (.call region) (.pending initial.data rootArgs rootArgs first [] labels (some (.brTable table))) :=
+    (((entersInner.tail .openBlock).tail (.numeric (.get rfl))).tail (.numeric (.get rfl))).tail (.hostResolve rfl)
+  have returned : host first.target (live initial.data) rootArgs
+      (.returned (live (firstBytes fallback)) (.values [i32 (condition fallback)])) :=
+    .inl ⟨rfl, rfl, rfl, fallback, rfl⟩
+  exact pending.tail (.returned returned rfl)
+
+private def selected (fallback : Bool) : Phase :=
+  .branching (firstBytes fallback) rootArgs (table.select (condition fallback)) [] labels
+
+-- In the native step, the high-bit selector selects the default through
+-- unsigned toNat, and zero selects vector entry zero.
+private theorem nativeSelect (fallback : Bool) : Step host (cfg (selects fallback)) (cfg (selected fallback)) := by
+  have atSite := Step.context
+    (Step.pure (host := host) (live (firstBytes fallback)) active (.brTable table.depths table.fallback (condition fallback)))
+    rootArgs []
+  have withinMiddle := Step.label
+    (.context (.label atSite 1 []) [] [.source (.call first.index)]) 1 []
+  have withinOuter := Step.label (.context withinMiddle [] [.source (.call middleSite.index)]) 1 []
+  exact .frame (.label (.context withinOuter savedPrefix [.source (.call nextSite.index)]) 1 []) 1 caller
+
+example (fallback : Bool) :=
+  (Sequence.v1_step_iff rfl admitted layout trivial rfl contract (ready (reachesTable fallback))).mp (nativeSelect fallback)
+
+private theorem afterInner (fallback : Bool) :
+    Runs (.call region) (.branching (firstBytes fallback) rootArgs
+      ⟨⟨if fallback then 1 else 0⟩, table.results⟩ (entry.tailCode inner) [middle, outerLabel]) := by
+  have picked : Runs (.call region) (selected fallback) := (reachesTable fallback).tail .selectTable
+  cases fallback <;> exact picked.tail (.branchOuter (by decide))
+
+-- Each path first exposes the innermost label's skipped host. The native target exit or
+-- next positive-depth step discards that instruction.
+example (fallback : Bool) : Steps host launch
+    ⟨live (firstBytes fallback), caller, [.frame 1 active [.label 1 []
+      (values savedPrefix ++ [.label 1 [] [.label 1 []
+        (values rootArgs ++ [.source (.br ⟨if fallback then 1 else 0⟩), .source (.call first.index)]),
+        .source (.call middleSite.index)], .source (.call nextSite.index)])]]⟩ :=
+  native (afterInner fallback)
+
+private def indexedHost : Phase := .pending (firstBytes false) [] rootArgs middleSite [] [outerLabel]
+private theorem reachesIndexedHost : Runs (.call region) indexedHost := by
+  exact ((afterInner false).tail (.branchExit (extra := []) (payload := rootArgs) rfl)).tail
+    (.hostResolve (saved := []) rfl)
+
+example : Steps host launch
+    ⟨live (firstBytes false), caller, [.frame 1 active [.label 1 []
+      (values savedPrefix ++ [.label 1 [] (values rootArgs ++ [.invoke middleSite.address]),
+        .source (.call nextSite.index)])]]⟩ :=
+  native reachesIndexedHost
+
+private def finalPending (fallback : Bool) : Phase :=
+  .pending (finalBytes fallback) [] (savedPrefix ++ [resultValue fallback]) nextSite []
+
+private theorem reachesFinal (fallback : Bool) : Runs (.call region) (finalPending fallback) := by
+  cases fallback
+  · have returned : host middleSite.target (live (firstBytes false)) rootArgs
+        (.returned (live fallthroughBytes) (.values [resultValue false])) :=
+      .inr (.inl ⟨rfl, rfl, rfl, rfl⟩)
+    have finished : Runs (.call region) (.completed fallthroughBytes [resultValue false] outerLabel []) :=
+      reachesIndexedHost.tail (.returned returned rfl)
+    exact (finished.tail (.closeLabel rfl)).tail (.hostResolve (saved := []) rfl)
+  · have lowered : Runs (.call region)
+        (.branching (firstBytes true) rootArgs ⟨⟨0⟩, table.results⟩ (entry.tailCode middle) [outerLabel]) :=
+      (afterInner true).tail (.branchOuter (by decide))
+    exact (lowered.tail (.branchExit (extra := []) (payload := rootArgs) rfl)).tail (.hostResolve (saved := []) rfl)
+
+-- Indexed and default transfers retain the outer i64. The default skips
+-- both hosts and reaches the final host on the writer's bytes and payload.
+example (fallback : Bool) : Steps host launch
+    ⟨live (finalBytes fallback), caller, [.frame 1 active [.label 1 []
+      (values (savedPrefix ++ [resultValue fallback]) ++ [.invoke nextSite.address])]]⟩ :=
+  native (reachesFinal fallback)
+
+example (fallback : Bool) : Steps host launch ⟨live (finalBytes fallback), caller, values [i32 (word fallback)]⟩ := by
+  have returned : host nextSite.target (live (finalBytes fallback)) (savedPrefix ++ [resultValue fallback])
+      (.returned (live (finalBytes fallback)) (.values [i32 (word fallback)])) :=
+    .inr (.inr ⟨rfl, fallback, rfl, rfl, rfl⟩)
+  have delivered := (reachesFinal fallback).tail (.returned returned rfl)
+  exact native ((delivered.tail (.graph (.frame (.pure (.labelDone 1 [] [i32 (word fallback)])) 1 caller)))
+    |>.tail (.graph (.pure (.frameDone 1 active [i32 (word fallback)] rfl))))
+
+private abbrev check := entry.checkSource (Prefix.stackTypes savedPrefix) branchFn.declaration.results branchFn.entryLabels
+
+-- These malformed cases still have the valid entry selected by zero.
+example : check (regionWith { table with depths := [⟨1⟩, ⟨4⟩] }) = false := rfl
+example : check (regionWith { table with fallback := ⟨3⟩ }) = false := rfl
+
+-- The void inner label is admissible until it is listed alongside i32 targets.
+example : check (regionWith table none) = true := rfl
+example : check (regionWith { table with depths := [⟨1⟩, ⟨0⟩] } none) = false := rfl
+
+example : check (regionWith { table with depths := [] }) = true := rfl
+
+end TableBranch
 
 end ConditionalBranch
 
