@@ -1,11 +1,149 @@
 # Sea of Nodes source-to-Lean coverage
 
-C1 inventories the original Sea of Nodes design, its algorithms, and the
-official Simple tutorial. The [proof sequence](#proof-sequence) scopes the
-incremental Lean work for C2. The local coverage claims below refer to
-Silmaril at `f32f986f8780a179d01365ace2e92dfc01c0b8e9`. Every Sea of Nodes
-obligation in the source tables is open. The [existing Lean results](#existing-lean-results)
-give specific interfaces, proof patterns, and observation models to build on.
+This ledger records the C1 source inventory, C4 bridges and supporting
+Sea of Nodes results on Silmaril `main` at `a1ae0afc709748d90b0add96500fa9e6adfbfe69`.
+Each source row keeps its full obligation. The coverage column names the
+proved portion and records the remaining scope. The [proof sequence](#proof-sequence)
+continues to track the broader work. The initial Lean comparison used
+`f32f986f8780a179d01365ace2e92dfc01c0b8e9`.
+
+## Start here
+
+### Straight-line pure producers
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Pure.Thms
+import Silmaril.SSA.SeaOfNodes.MLIR.Thms
+```
+
+- Build a `Pure.Program` from a typed producer table in dependency order
+  and a single returned wire. `Program.lower_run` identifies the singleton
+  RVSDG result with source evaluation for every typed input in a total
+  primitive model. By `Equation.satisfaction`, a translated equation holds
+  in the induced RVSDG model iff the native results agree at every typed input.
+  [Definitions][son-pure-defs] · [Theorems][son-pure-thms] · [Worked example][son-pure] · [#3188][pr-pure]
+- For scalar Arith, `SeaOfNodes.MLIR.lower` takes a `Diamond.Dataflow` and a
+  selected word-valued wire. `lower_denote` identifies its value with the
+  single-block MLIR result for every typed input. This profile has
+  positive-width bitvectors, constants, add and multiply with empty overflow
+  flags. The block keeps one binding per producer, including shared producers.
+  [Definitions][son-scalar-defs] · [Theorem][son-scalar-thms] · [Worked example][son-scalar] · [#3175][pr-scalar]
+
+### Pure branch diamond
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Diamond.Thms
+import Silmaril.SSA.SeaOfNodes.Diamond.Institution.Thms
+import Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Thms
+import Silmaril.SSA.SeaOfNodes.Diamond.MLIR.Thms
+```
+
+- `Diamond.Graph` has one Boolean If, two distinct projections entering
+  one Region in either order, and a single returned Phi. Its unpinned total
+  producers are acyclic. `Graph.lower_returns_iff` preserves and reflects
+  each finite return in the generated RVSDG γ graph. `Graph.lower_denote`
+  gives the corresponding categorical equality in types.
+  [Definitions][son-diamond-defs] · [Theorems][son-diamond-thms] · [#3135][pr-diamond]
+- `Diamond.LambdaSSA.lower` emits a typed λSSA CFG in the producer table’s
+  dependency order. `edge_transfer_iff` checks the selected Phi occurrence.
+  `lower_eval_iff` characterizes every finite target evaluation by external
+  exit zero, the encoded source value and unchanged ambient state.
+  `returns_iff` relates that evaluation to the native return relation.
+  [Definitions][son-diamond-ssa-defs] · [Theorems][son-diamond-ssa-thms] · [Worked example][son-diamond-ssa] · [#3211][pr-diamond-ssa]
+- `Diamond.Institution.inst` gives native diamond equations over a fixed
+  data-sort alphabet and the Boolean predicate sort. Its signature maps
+  preserve each opcode’s ordered input sorts and single result sort.
+  `denote_mapGraph` and `Equation.satisfaction` prove the native
+  denotation and satisfaction laws for opcode relabelling and model reduct.
+  [Definitions][son-diamond-inst-defs] · [Theorems][son-diamond-inst-thms] · [Worked example][son-diamond-inst] · [#3237][pr-diamond-inst]
+- `Diamond.MLIR.lower` sends that graph through γ lowering to the project's
+  scoped dialect with isolated region bodies. `returns_iff_denote` and
+  `denote_eq` compare the one returned value with the native source.
+  `Diamond.MLIR.satisfaction` compares two lowered diamonds of the same
+  input and result types in the induced model. It is equivalent to equality
+  of native denotations at every typed input, even with different producer
+  tables. General Sea of Nodes CFGs and standard MLIR CFG or graph regions
+  remain outside this result.
+  [Definitions][son-diamond-mlir-defs] · [Theorems][son-diamond-mlir-thms] · [Worked example][son-diamond-mlir] · [#3189][pr-diamond-mlir] · [#3215][pr-diamond-eq]
+
+### Pure single loop
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Loop.Thms
+import Silmaril.SSA.SeaOfNodes.Loop.Theta.Thms
+```
+
+- `Loop.Graph` has an acyclic total preheader and header, one entry
+  occurrence and one backedge, a header test that permits zero iterations,
+  and one returned value. `Graph.latch_get` reads each selected Phi operand
+  from the same predecessor snapshot. `Graph.evalBackedges_eq_some_iff`
+  measures completed backedges. `Graph.returns_iff_mem_denote` identifies
+  finite returns with membership in the partial denotation.
+  `Graph.not_returns_of_backedge_invariant` rules out a finite return when
+  an invariant at initialization forces another backedge at every step.
+  [Definitions][son-loop-defs] · [Theorems][son-loop-thms] · [#3192][pr-loop]
+- `Graph.lowerTheta` generates a numbered RVSDG graph with one θ.
+  `Graph.lowerTheta_returns_iff`, `Graph.lowerTheta_observe_eq_some` and
+  `Graph.lowerTheta_finishes_iff` give iff statements for a finite numbered
+  return, the partial observation and the existence of a finite completed
+  Petri firing sequence in the generated model. Universal termination of
+  firing sequences and a source-loop adapter to scoped MLIR remain open.
+  [Definitions][son-theta-defs] · [Theorems][son-theta-thms] · [Regression][son-theta-regression] · [#3210][pr-theta]
+
+### Related public interfaces
+
+- `RVSDG.MLIR.Graph.lower` and `denote_lower` translate state-free acyclic
+  numbered RVSDG graphs with primitives and nested γ into isolated MLIR
+  blocks, matching the entire ordered result tuple in the induced total
+  model. `lower_map` and `model_reduct` cover signature change.
+  [Theorems][rvsdg-mlir-graph-thms] · [Profile][rvsdg-mlir-graph] · [#3162][pr-gamma]
+- `RVSDG.MLIR.Graph.Feedback.lower` covers numbered nested γ/θ graphs
+  in the stateless institution with a `NoState` witness. It targets a
+  project-defined MLIR-style block with strict bindings.
+  `returns_lower_iff` and `observe_eq_some_iff` compare finite returns
+  of the full tuple and the source’s partial observation.
+  [Theorems][rvsdg-mlir-feedback-thms] · [Profile][rvsdg-mlir-feedback] · [#3235][pr-feedback]
+- `RVSDG.MLIR.Regionless.translateGraph` and `ProfileMap.pullback` apply
+  to value-port graphs with a match for every opcode of the dialect.
+  `denote_translateGraph` compares each returned slot and `satisfaction`
+  preserves and reflects value-equation satisfaction in the pullback.
+  The graph, equation and model laws cover opcode relabelling and MLIR
+  signature change. The diamond dispatch returns a control port, so its
+  scoped lowering uses the γ interface above.
+  [Theorems][rvsdg-mlir-regionless-thms] · [Profile][rvsdg-mlir-regionless] · [#3133][pr-regionless]
+- `PhiView.ofBlockArgs` and `toBlockArgs` transpose existing typed λSSA
+  branch arguments into an occurrence-indexed Phi table and back. The
+  input certifies right-associated tuples of typed variables ending in
+  unit. `latch_eq_transfer` proves a single selected transfer agrees with
+  the simultaneous latch and leaves state unchanged. Two occurrences
+  from one block can target the same label.
+  [Definitions][phi-view-defs] · [Theorems][phi-view-thms] · [Worked example][phi-view] · [#3186][pr-phi-view]
+- `GCM.checkPlacement` checks one proposed insertion for a pure total node
+  in a typed CF graph, given operand and use positions and a sound supplied
+  dominator-tree certificate. `checkPlacement_sound` gives dominance and
+  local order for accepted cuts. `Use.phi_point?_eq_some_iff` resolves a
+  Phi use at the source terminator for its exact branch occurrence.
+  Placement discovery and execution preservation after motion remain open.
+  [Definitions][son-gcm-defs] · [Theorems][son-gcm-thms] · [Worked example][son-gcm] · [#3200][pr-placement]
+- `GVN.checkRepresentative` checks a supplied earlier producer in the same
+  typed pure table using the exact opcode and ordered operand addresses.
+  `checkRepresentative_sound` proves value equality for an accepted pair
+  in every pure total model. `redirectResult_read` preserves the value
+  when redirecting a single returned wire in that table. Discovery,
+  worklist invalidation and producer deletion stay open.
+  [Definitions][son-gvn-defs] · [Theorems][son-gvn-thms] · [Worked example][son-gvn] · [#3225][pr-gvn]
+- `Quads.Code.eval` executes one ordered block of pure assignments over a
+  fully initialized typed register bank. `Code.lower` connects uses to the
+  current definition before updating the destination. `rebind_same` and
+  `rebind_other` specify the updates, and `Code.lower_run` proves exact
+  agreement on one returned value. Joins and backedge construction stay open.
+  [Definitions][son-quads-defs] · [Theorems][son-quads-thms] · [Worked example][son-quads] · [#3233][pr-quads]
+- `Memory.Graph` orders Loads and Stores through one current memory
+  version over allocated, initialized cells of 64-bit words.
+  `Graph.returns_iff_denote` equates explicit-edge execution and current-heap
+  denotation on the returned word and final heap. Allocation, split state,
+  memory motion and an RVSDG memory lowering stay open.
+  [Definitions][son-memory-defs] · [Theorems][son-memory-thms] · [Worked example][son-memory] · [#3231][pr-memory]
 
 ## Editions and source boundaries
 
@@ -67,60 +205,60 @@ analyses account for loop feedback.
 
 ### From Quads to Graphs
 
-| Report sections | Open Lean obligation |
-| --- | --- |
-| §§1–2, introduction, quads and use-def information | Give ordered three-address execution a reference meaning. Show use-def lookup agrees with reaching values where defined. State the conservative assumptions of one-pass optimization at unresolved edges. |
-| §3, static single assignment | Track the current definition of each variable and construct predecessor-indexed join inputs. Show that SSA construction preserves the quad execution, including a loop where a provisional backedge definition is later resolved. |
-| §4, control-flow dependence | Make a definition’s execution condition explicit. Show that removing a redundant φ or contracting a control path preserves predecessor identity and the selected values. |
-| §5, engineering concerns | State the invariants of replacement, inverse-use maintenance and deletion. Treat allocation strategy and object dispatch as implementation choices unless an implementation refinement exposes them. |
-| §6, two tiers to one | Encode the CFG as control nodes, Regions and Ifs. Prove agreement with block execution, including the shared incoming-edge choice for all Phis at a Region. Track which data nodes are pinned. |
-| §7, types and pessimistic optimizations | Relate abstract type facts to concrete values, justify folding and identities on the admitted primitive semantics, and type multi-result producers and projections. |
-| §8, more engineering concerns | Give Start, execution alternatives, projections, memory and I/O states, and calls typed interfaces. Prove ordering and the selected results for each supported stateful primitive. |
-| §9, removing control information | Justify removing a computation’s control input under an explicit safety/speculation condition and reconstruct a legal execution order. Require guards for operations whose definedness depends on control. |
-| §10, optimistic transformations | Define transfer functions for control and values, including loops. Prove sparse worklist convergence, agreement with the declared fixed point and sound use of the resulting facts. |
-| §11, summary | Use the worked graphs as regression cases for the earlier obligations. |
+| Report sections | Lean obligation | Coverage on main |
+| --- | --- | --- |
+| §§1–2, introduction, quads and use-def information | Give ordered three-address execution a reference meaning. Show use-def lookup agrees with reaching values where defined. State the conservative assumptions of one-pass optimization at unresolved edges. | Partial. [`Quads.Code.eval` and `Code.lower`][son-quads-defs] cover ordered execution and reaching-value wiring in one initialized typed block. [`Code.lower_run`][son-quads-thms] proves returned-value agreement. Unresolved edges and optimization stay open. |
+| §3, static single assignment | Track the current definition of each variable and construct predecessor-indexed join inputs. Show that SSA construction preserves the quad execution, including a loop where a provisional backedge definition is later resolved. | Partial. [`Quads.rebind_same` and `rebind_other`][son-quads-thms] specify current definitions in one block. [`PhiView.ofBlockArgs`][phi-view-defs] transposes already-admitted branch arguments. Join construction across predecessors and backedge resolution stay open. |
+| §4, control-flow dependence | Make a definition’s execution condition explicit. Show that removing a redundant φ or contracting a control path preserves predecessor identity and the selected values. | Partial. [`Diamond.Merge.slot` and `Graph.Returns`][son-diamond-defs] connect a taken projection to the right Phi operand. Phi removal and control contraction stay open. |
+| §5, engineering concerns | State the invariants of replacement, inverse-use maintenance and deletion. Treat allocation strategy and object dispatch as implementation choices unless an implementation refinement exposes them. | Partial. [`GVN.redirectResult`][son-gvn-defs] redirects one selected result in the same table. General graph edits, inverse-use maintenance and deletion stay open. |
+| §6, two tiers to one | Encode the CFG as control nodes, Regions and Ifs. Prove agreement with block execution, including the shared incoming-edge choice for all Phis at a Region. Track which data nodes are pinned. | Partial. [`Diamond.Graph`][son-diamond-defs] fixes one If, Region and returned Phi. [`Loop.Graph`][son-loop-defs] latches a tuple at one loop Region. [`Diamond.LambdaSSA.returns_iff`][son-diamond-ssa-thms] covers the generated diamond CFG. General extraction and block-execution agreement stay open. |
+| §7, types and pessimistic optimizations | Relate abstract type facts to concrete values, justify folding and identities on the admitted primitive semantics, and type multi-result producers and projections. | Partial. [`Diamond.Dataflow`][son-diamond-defs] types single-result producers. [`SeaOfNodes.MLIR.Op`][son-scalar-defs] interprets modular constants, add and multiply. Abstract facts, folds and source multi-result producers stay open. |
+| §8, more engineering concerns | Give Start, execution alternatives, projections, memory and I/O states, and calls typed interfaces. Prove ordering and the selected results for each supported stateful primitive. | Partial. [`Memory.Graph` and `MemoryInput`][son-memory-defs] type one ordered Load/Store chain from Start to Return. I/O, calls and the general projection interface stay open. |
+| §9, removing control information | Justify removing a computation’s control input under an explicit safety/speculation condition and reconstruct a legal execution order. Require guards for operations whose definedness depends on control. | Partial. [`GCM.checkPlacement`][son-gcm-defs] checks a supplied placement for pure total code. Removing control inputs, reconstructing a schedule and guarded speculation stay open. |
+| §10, optimistic transformations | Define transfer functions for control and values, including loops. Prove sparse worklist convergence, agreement with the declared fixed point and sound use of the resulting facts. | Open. |
+| §11, summary | Use the worked graphs as regression cases for the earlier obligations. | Open for the report’s worked graphs. The [scoped fixtures](#start-here) exercise their corresponding profiles. |
 
 ### A Simple Graph-Based Intermediate Representation
 
-| Workshop sections | Open Lean obligation |
-| --- | --- |
-| §1, introduction | Specify the shared SSA graph invariant and relate the initial graph to a typed CFG. |
-| §§2.1–2.4, nodes, Regions, Phis, Ifs and projections | Type ordered ports and distinguish data and control. Give each incoming control occurrence its own index, including two transfers from the same block. Pair each Phi’s ordered inputs with those occurrences. Type projected results. |
-| §2.5, memory and I/O | Model memory and I/O as explicit state values. Show that independent components can be separated only with a sound independence relation and that their recombination preserves observations. |
-| §3, model of execution | Define control-token steps, branch selection and simultaneous Phi latching at joins and loop re-entry. Distinguish live graph cycles through merge/feedback from unsupported cycles among strict data dependencies. Relate node-level execution to ordered SSA execution. |
-| §§4.1–4.5, implementation | Relate node identity to structural keys, retain ordered operand slots and prove use-def/def-use coherence through insert, replace and delete. Treat object layout and allocation speed as implementation details. |
-| §5.1, optimizing through a peephole | Justify abstract value computation, identities and hash-consing, with a precondition for each fold. Prove replacement preserves graph well-formedness and behavior. |
-| §§5.2–5.3 and §§6–7 | Treat benchmark results as historical evidence and the related-work comparison as context for the graph invariant. |
+| Workshop sections | Lean obligation | Coverage on main |
+| --- | --- | --- |
+| §1, introduction | Specify the shared SSA graph invariant and relate the initial graph to a typed CFG. | Partial. [`Diamond.Dataflow` and `Graph`][son-diamond-defs] give the typed dependency and branch invariant for one diamond. [`Diamond.LambdaSSA.lower_hasType`][son-diamond-ssa-thms] types the generated CFG. General CFG correspondence stays open. |
+| §§2.1–2.4, nodes, Regions, Phis, Ifs and projections | Type ordered ports and distinguish data and control. Give each incoming control occurrence its own index, including two transfers from the same block. Pair each Phi’s ordered inputs with those occurrences. Type projected results. | Partial. [`Diamond.Projection`, `Merge` and `Phi`][son-diamond-defs] tie the control occurrence to one typed Phi operand. [`PhiView.EdgeOcc` and `Table`][phi-view-defs] distinguish same-target λSSA branch occurrences. General producer and control shapes stay open. |
+| §2.5, memory and I/O | Model memory and I/O as explicit state values. Show that independent components can be separated only with a sound independence relation and that their recombination preserves observations. | Partial. [`Memory.Graph.returns_iff_denote`][son-memory-thms] relates one explicit whole-memory chain to a threaded heap. I/O, independence and split/recombined memory stay open. |
+| §3, model of execution | Define control-token steps, branch selection and simultaneous Phi latching at joins and loop re-entry. Distinguish live graph cycles through merge/feedback from unsupported cycles among strict data dependencies. Relate node-level execution to ordered SSA execution. | Partial. [`Diamond.Graph.Returns`][son-diamond-defs] selects the predecessor operand. [`Loop.Graph.latch` and `step`][son-loop-defs] cover simultaneous feedback reads. [`Diamond.LambdaSSA.returns_iff`][son-diamond-ssa-thms] gives finite agreement for the scheduled diamond. General token steps and SSA agreement stay open. |
+| §§4.1–4.5, implementation | Relate node identity to structural keys, retain ordered operand slots and prove use-def/def-use coherence through insert, replace and delete. Treat object layout and allocation speed as implementation details. | Partial. [`GVN.Producer.key`][son-gvn-defs] records the opcode, typed profile and ordered operand addresses. Insertion, general replacement, deletion and inverse-use coherence stay open. |
+| §5.1, optimizing through a peephole | Justify abstract value computation, identities and hash-consing, with a precondition for each fold. Prove replacement preserves graph well-formedness and behavior. | Partial. [`GVN.checkRepresentative_sound` and `redirectResult_read`][son-gvn-thms] justify one checked result redirection. Abstract values, folds, algebraic identities and hash-consing stay open. |
+| §§5.2–5.3 and §§6–7 | Treat benchmark results as historical evidence and the related-work comparison as context for the graph invariant. | Historical context. |
 
 ### Rice dissertation
 
-| Dissertation chapters | Open Lean obligation |
-| --- | --- |
-| Ch. 1, introduction | Fix the source/target semantics, permitted optimization observations, and intermediate graph invariant. |
-| Ch. 2, optimistic assumption | Justify what the initial optimistic element says about unknown values and paths. Prove that iterating cyclic equations yields facts safe to use at the chosen fixed point. |
-| §§3.2–3.5, framework, constant propagation and solving | Instantiate a monotone finite-height framework with primitive transfer functions and a concretization. Establish termination and greatest fixed point in the thesis’s order, or give the order-dual statement explicitly. |
-| §§3.6–3.9, unreachable code, combined analyses and GVN | Prove value facts and executable-edge facts mutually sound, with Phi transfer over executable edges. State when the combined result improves separate analyses. Use the TOPLAS article’s §§2–4 for the framework and iteration, §§5–6 for the reachability/constant product and profitability, and §7 for adding value numbering. |
-| §§4.1–4.5, efficient combined algorithm | Specify Hopcroft-style partition refinement, splitting and the effects of executable inputs and constants. Prove the optimized solver computes its specified partition and analysis facts. Keep the complexity bound as a separate theorem with a cost model. |
-| §§4.6–4.11, identities and using the partition | Handle subtraction/comparison, leader/follower identities, and equal-input Phi/Max cases under explicit hypotheses. Prove the resulting equivalences before replacing uses and scheduling. Record any congruences the solver intentionally misses. |
-| Ch. 5, experimental data | Preserve the link to the reported ILOC experiments and leave benchmark reproduction outside semantic correctness. |
-| §§6.1–6.4, optimizing without the global schedule | Separate control removal and graph rewrites from CFG extraction, legal placement and schedule heuristics. Use the PLDI rows below for the shared scheduler proof. |
-| §§7.1–7.3, parser design and peephole optimizer | Specify current bindings, incremental use-def edges, incomplete labels/loops, Phi insertion and the contract for each rewrite while parsing. Later pruning of redundant Phis needs its own theorem. |
-| §§7.4–7.5 and Ch. 8 | Carry forward worked cases and limitations. The historical speedups and future directions serve as context. |
-| App. A §§A.1–A.3, IR design and engineering | Reuse the report/workshop graph and rewrite invariants. Include abstract types and argument ordering in the interface. |
-| App. A §§A.4–A.5, one-tier execution and engineering | Reuse control flow, Phi latching, If, Start and projections. Treat state and subroutine effects as explicit boundaries. |
-| App. A §§A.6–A.7 | Retain the comparison with related representations. Require a translation theorem for any claimed equivalence. |
+| Dissertation chapters | Lean obligation | Coverage on main |
+| --- | --- | --- |
+| Ch. 1, introduction | Fix the source/target semantics, permitted optimization observations, and intermediate graph invariant. | Partial. [The three admitted profiles](#start-here) give typed graph boundaries and returned-value observations. [`Diamond.Institution.inst`][son-diamond-inst-thms] gives the native diamond equation contract. The general optimization contract stays open. |
+| Ch. 2, optimistic assumption | Justify what the initial optimistic element says about unknown values and paths. Prove that iterating cyclic equations yields facts safe to use at the chosen fixed point. | Open. |
+| §§3.2–3.5, framework, constant propagation and solving | Instantiate a monotone finite-height framework with primitive transfer functions and a concretization. Establish termination and greatest fixed point in the thesis’s order, or give the order-dual statement explicitly. | Open. |
+| §§3.6–3.9, unreachable code, combined analyses and GVN | Prove value facts and executable-edge facts mutually sound, with Phi transfer over executable edges. State when the combined result improves separate analyses. Use the TOPLAS article’s §§2–4 for the framework and iteration, §§5–6 for the reachability/constant product and profitability, and §7 for adding value numbering. | Open. |
+| §§4.1–4.5, efficient combined algorithm | Specify Hopcroft-style partition refinement, splitting and the effects of executable inputs and constants. Prove the optimized solver computes its specified partition and analysis facts. Keep the complexity bound as a separate theorem with a cost model. | Open. |
+| §§4.6–4.11, identities and using the partition | Handle subtraction/comparison, leader/follower identities, and equal-input Phi/Max cases under explicit hypotheses. Prove the resulting equivalences before replacing uses and scheduling. Record any congruences the solver intentionally misses. | Open. |
+| Ch. 5, experimental data | Preserve the link to the reported ILOC experiments and leave benchmark reproduction outside semantic correctness. | Historical context. |
+| §§6.1–6.4, optimizing without the global schedule | Separate control removal and graph rewrites from CFG extraction, legal placement and schedule heuristics. Use the PLDI rows below for the shared scheduler proof. | Partial. [`GCM.checkPlacement`][son-gcm-defs] checks a candidate position. The PLDI rows below track the remaining scheduling and rewrite obligations. |
+| §§7.1–7.3, parser design and peephole optimizer | Specify current bindings, incremental use-def edges, incomplete labels/loops, Phi insertion and the contract for each rewrite while parsing. Later pruning of redundant Phis needs its own theorem. | Open. |
+| §§7.4–7.5 and Ch. 8 | Carry forward worked cases and limitations. The historical speedups and future directions serve as context. | Historical context and open source regressions. |
+| App. A §§A.1–A.3, IR design and engineering | Reuse the report/workshop graph and rewrite invariants. Include abstract types and argument ordering in the interface. | Partial. [`Diamond.Dataflow`][son-diamond-defs] and [`Pure.Program`][son-pure-defs] give typed ordered wires. Abstract typing and graph edit invariants stay open. |
+| App. A §§A.4–A.5, one-tier execution and engineering | Reuse control flow, Phi latching, If, Start and projections. Treat state and subroutine effects as explicit boundaries. | Partial. [`Diamond.Graph`][son-diamond-defs] and [`Loop.Graph.latch`][son-loop-defs] cover pure projection selection and latching. [`Memory.Graph`][son-memory-defs] covers one whole-memory chain. General state and subroutine effects stay open. |
+| App. A §§A.6–A.7 | Retain the comparison with related representations. Require a translation theorem for any claimed equivalence. | The [scoped translations](#start-here) cover their stated profiles. Broader representation equivalence stays open. |
 
 ### Global Code Motion/Global Value Numbering
 
-| PLDI sections | Open Lean obligation |
-| --- | --- |
-| §§1–1.2, motivation and representation | Define the floating/pinned distinction and admissible graph domain. Identify which conclusions hold for reducible CFGs and what requires different loop information. |
-| §2 and §2.1, GCM, dominators and loops | Recover reachable control and certify the dominator tree and loop information on the supported shape. Specify the handling of unreachable code and a reachable loop with no exit. |
-| §2.2, schedule early | Each floating node’s placement must be dominated by its operand definitions and permitted by its safety/control constraints. Pinned nodes retain their required placement. The paper’s footnote 6 allows faulting operations to move later under partial correctness. A profile that observes faults needs a stronger condition. |
-| §2.3, schedule late | Compute the common dominator of uses, interpreting a Phi use on its corresponding incoming edge. Prove the feasible placement interval and that moving a computation does not introduce a trap or unwanted effect. |
-| §2.4, selecting a block | Prove legality for any chosen block in the interval, including intra-block order. Then verify the shallow-loop/deep-dominator choice independently of performance claims. |
-| §§3–3.2, value numbering | Prove representative substitution for equal keys and the stated algebraic identities, including worklist invalidation. Graph replacement can leave nodes without a legal old placement. Compose the replacement proof with schedule reconstruction. Treat stronger cyclic congruence discovery as the separate thesis chapter 4 obligation. |
-| §§4–5, experiments and conclusions | Use the examples as regressions and keep the ILOC comparisons empirical. |
+| PLDI sections | Lean obligation | Coverage on main |
+| --- | --- | --- |
+| §§1–1.2, motivation and representation | Define the floating/pinned distinction and admissible graph domain. Identify which conclusions hold for reducible CFGs and what requires different loop information. | Partial. [`GCM.Legal`][son-gcm-defs] describes one proposed placement of a pure total node over typed CF. Pinned nodes and the general graph domain stay open. |
+| §2 and §2.1, GCM, dominators and loops | Recover reachable control and certify the dominator tree and loop information on the supported shape. Specify the handling of unreachable code and a reachable loop with no exit. | Partial. [`GCM.DominatorTree`][son-gcm-defs] supplies sound ancestry and reachability facts on structural paths. Tree construction, loop information and exitless scheduling stay open. |
+| §2.2, schedule early | Each floating node’s placement must be dominated by its operand definitions and permitted by its safety/control constraints. Pinned nodes retain their required placement. The paper’s footnote 6 allows faulting operations to move later under partial correctness. A profile that observes faults needs a stronger condition. | Partial. [`GCM.checkPlacement_sound`][son-gcm-thms] checks the operand constraint at a given cut. Earliest placement discovery and pinned or faulting operations stay open. |
+| §2.3, schedule late | Compute the common dominator of uses, interpreting a Phi use on its corresponding incoming edge. Prove the feasible placement interval and that moving a computation does not introduce a trap or unwanted effect. | Partial. [`GCM.Use.phi_point?_eq_some_iff`][son-gcm-thms] resolves a Phi operand at the source terminator. [`checkPlacement_sound`][son-gcm-thms] checks availability for supplied uses. Latest placement discovery and motion soundness stay open. |
+| §2.4, selecting a block | Prove legality for any chosen block in the interval, including intra-block order. Then verify the shallow-loop/deep-dominator choice independently of performance claims. | Partial. [`GCM.checkPlacement_sound`][son-gcm-thms] certifies an accepted cut, including local order. Computing the full interval and choosing within it by loop depth stay open. |
+| §§3–3.2, value numbering | Prove representative substitution for equal keys and the stated algebraic identities, including worklist invalidation. Graph replacement can leave nodes without a legal old placement. Compose the replacement proof with schedule reconstruction. Treat stronger cyclic congruence discovery as the separate thesis chapter 4 obligation. | Partial. [`GVN.Key.matches`][son-gvn-defs] compares exact keys and [`GVN.redirectResult_read`][son-gvn-thms] preserves one selected result. Algebraic identities, producer deletion, worklist invalidation and schedule reconstruction stay open. |
+| §§4–5, experiments and conclusions | Use the examples as regressions and keep the ILOC comparisons empirical. | Open for the paper’s example regressions. Performance comparisons remain empirical. |
 
 The HotSpot paper illustrates a richer instantiation. §§3–4 describe
 ordered inputs, incremental graph construction and `Ideal`, `Value`,
@@ -146,23 +284,23 @@ future features. The chapter 8 evaluator and chapter 13 scheduler are
 concrete entry points for differential fixtures. [Java snapshot][simple] ·
 [Chapter 15][s15] · [Roadmap][roadmap] · [Evaluator][evaluator] · [Scheduler][scheduler]
 
-| Java chapters | Open Lean obligation or scope boundary |
-| --- | --- |
-| [1][s01]–[4][s04] | Start and Return, integer input and arithmetic, local binding updates, comparisons and folding. Use constants, an expression with sharing and a nonconstant argument as first fixtures. Specify the chapter’s arithmetic conventions before admitting division or any other non-total operation. |
-| [5][s05]–[6][s06] | Lower branch projections and current bindings to Region/Phi joins. Check dead input pruning changes the Region and every attached Phi in step. A diamond with different results on the two paths distinguishes the indices. |
-| [7][s07]–[8][s08] | Specify eager loop Phis, lazy creation, and the edge contributions of break and continue. Prove that graph evaluation uses the previous iteration’s values for a simultaneous Phi update. Include zero iterations, feedback, and a reachable loop with no finite return. |
-| [9][s09] | Prove equality for graph-aware node keys and local rules. For iterative peepholes prove that invalidation covers all necessary users, including registered distant dependencies. State convergence for the supported rules and worklist policy. |
-| [10][s10]–[12][s12] | Begin with a whole-memory state and struct allocation, field initialization, loads, stores and null refinement. Add alias classes and lazy split/merge using `MemMerge`, `MemPhi` and `BulkMemPhi`. Prove projection and reassembly against whole memory, including joins and loop feedback. Extend the shape invariant for references and forward/recursive struct declarations. |
-| [13][s13] | Instantiate the pure scheduling proof, then prove the memory-aware extension. The `Never` edge makes an exitless loop visible to a backward scheduler walk. Prove that the edge cannot take a return and that alias-filtered anti-dependences preserve load observations across and within blocks. Test an overwrite of the same field and a store to an independent field. |
-| [14][s14]–[17b][s17b] | Specify truncation, range transfers and floating-point rounding, then array allocation, addressing and bounds-check behavior. Track constructor initialization and read-only reference permissions, including deep views. Lower syntax sugar by desugaring with the same observation. [17a][s17a] gives the permission boundary. |
-| [18][s18] | Type function entry/exit, call/result projections, memory threading and known targets. Prove call/return simulation first. Give recursion and inlining separate simulation statements covering continuation and state. |
-| [19][s19]–[22][s22] | Track machine-node selection (including memory), allocation/spills, encoding, target ABI and FFI as downstream correctness boundaries. Pin an ISA and ABI per later backend slice. The ISA emitters, ELF layout and native Hello World are outside the initial IR proof sequence. |
-| [23][s23] | Prove the admitted cyclic type comparison/rewriting invariant, method lookup and final-field facts. Keep register allocator tuning with the backend. |
-| [24a][s24a]–[24b][s24b] | Instantiate the sparse control/value solver intraprocedurally. Extend reachability across discovered call targets, recursion and unknown callers with conservative summaries. Keep the analysis theorem separate from rewriting on the result. |
-| [25][s25] | Specify provisional SSA before types are complete. Prove that resolution and graph updates preserve binding, conversion and branch-fact obligations, and give a precise rejection condition for an unresolved graph. |
-| [26][s26]–[27][s27] | Prove that private constructor state becomes observable only at publication. Track escape/exposure through memory, callbacks, known and unknown callers, and the Start/Stop boundary. |
-| [28a][s28a]–[28b][s28b] | Specify lazy initialization order and the rejection rule for cycles that would observe unfinished state. Give separate compilation a linking and shared-state contract, including effects of unknown code. |
-| [29][s29]–[31][s31] | Carry forward partial-object completion and privacy rules, stream I/O ordering, numeric defaults and intrinsic semantics where they change the observed IR. Diagnostics, text formatting, register-allocation tuning and graphics/audio demos stay outside the graph proof sequence unless used as boundary fixtures. |
+| Java chapters | Lean obligation or scope boundary | Coverage on main |
+| --- | --- | --- |
+| [1][s01]–[4][s04] | Start and Return, integer input and arithmetic, local binding updates, comparisons and folding. Use constants, an expression with sharing and a nonconstant argument as first fixtures. Specify the chapter’s arithmetic conventions before admitting division or any other non-total operation. | Partial. [`Pure.Program`][son-pure-defs] and [scalar `lower`][son-scalar-defs] cover shared typed producers and one return, with a modular constant/add/multiply instantiation. [`Quads.Code.lower`][son-quads-defs] covers typed assignment updates. Construction from Simple syntax, comparisons and folding stay open. |
+| [5][s05]–[6][s06] | Lower branch projections and current bindings to Region/Phi joins. Check dead input pruning changes the Region and every attached Phi in step. A diamond with different results on the two paths distinguishes the indices. | Partial. [`Diamond.Merge`, `Phi` and `Graph.lower`][son-diamond-defs] cover the two-path join and one Phi. Current-binding construction and dead-input pruning stay open. |
+| [7][s07]–[8][s08] | Specify eager loop Phis, lazy creation, and the edge contributions of break and continue. Prove that graph evaluation uses the previous iteration’s values for a simultaneous Phi update. Include zero iterations, feedback, and a reachable loop with no finite return. | Partial. [`Loop.Graph.latch` and `evalBackedges`][son-loop-defs] cover one entry/backedge pair, zero iterations and old-value feedback. [`Graph.not_returns_of_backedge_invariant`][son-loop-thms] covers the stated no-return case. Phi construction, break and continue stay open. |
+| [9][s09] | Prove equality for graph-aware node keys and local rules. For iterative peepholes prove that invalidation covers all necessary users, including registered distant dependencies. State convergence for the supported rules and worklist policy. | Partial. [`GVN.Producer.key`][son-gvn-defs] and [`GVN.checkRepresentative_sound`][son-gvn-thms] cover exact typed keys for ranked pure producers. Local algebraic rules, distant-dependency invalidation and iteration stay open. |
+| [10][s10]–[12][s12] | Begin with a whole-memory state and struct allocation, field initialization, loads, stores and null refinement. Add alias classes and lazy split/merge using `MemMerge`, `MemPhi` and `BulkMemPhi`. Prove projection and reassembly against whole memory, including joins and loop feedback. Extend the shape invariant for references and forward/recursive struct declarations. | Partial. [`Memory.Graph`][son-memory-defs] models total loads and stores on initialized fixed cells with final-heap observation. Allocation, initialization, null refinement, aliases and memory split/merge stay open. |
+| [13][s13] | Instantiate the pure scheduling proof, then prove the memory-aware extension. The `Never` edge makes an exitless loop visible to a backward scheduler walk. Prove that the edge cannot take a return and that alias-filtered anti-dependences preserve load observations across and within blocks. Test an overwrite of the same field and a store to an independent field. | Partial. [`GCM.checkPlacement`][son-gcm-defs] covers one certified pure placement at a supplied cut. The scheduler, synthetic `Never` edge and memory anti-dependences stay open. |
+| [14][s14]–[17b][s17b] | Specify truncation, range transfers and floating-point rounding, then array allocation, addressing and bounds-check behavior. Track constructor initialization and read-only reference permissions, including deep views. Lower syntax sugar by desugaring with the same observation. [17a][s17a] gives the permission boundary. | Open. |
+| [18][s18] | Type function entry/exit, call/result projections, memory threading and known targets. Prove call/return simulation first. Give recursion and inlining separate simulation statements covering continuation and state. | Open. |
+| [19][s19]–[22][s22] | Track machine-node selection (including memory), allocation/spills, encoding, target ABI and FFI as downstream correctness boundaries. Pin an ISA and ABI per later backend slice. The ISA emitters, ELF layout and native Hello World are outside the initial IR proof sequence. | Open. |
+| [23][s23] | Prove the admitted cyclic type comparison/rewriting invariant, method lookup and final-field facts. Keep register allocator tuning with the backend. | Open. |
+| [24a][s24a]–[24b][s24b] | Instantiate the sparse control/value solver intraprocedurally. Extend reachability across discovered call targets, recursion and unknown callers with conservative summaries. Keep the analysis theorem separate from rewriting on the result. | Open. |
+| [25][s25] | Specify provisional SSA before types are complete. Prove that resolution and graph updates preserve binding, conversion and branch-fact obligations, and give a precise rejection condition for an unresolved graph. | Open. |
+| [26][s26]–[27][s27] | Prove that private constructor state becomes observable only at publication. Track escape/exposure through memory, callbacks, known and unknown callers, and the Start/Stop boundary. | Open. |
+| [28a][s28a]–[28b][s28b] | Specify lazy initialization order and the rejection rule for cycles that would observe unfinished state. Give separate compilation a linking and shared-state contract, including effects of unknown code. | Open. |
+| [29][s29]–[31][s31] | Carry forward partial-object completion and privacy rules, stream I/O ordering, numeric defaults and intrinsic semantics where they change the observed IR. Diagnostics, text formatting, register-allocation tuning and graphics/audio demos stay outside the graph proof sequence unless used as boundary fixtures. | Open. |
 
 ### Ports and other implementations
 
@@ -188,13 +326,17 @@ outside this plan. [Official organization][org]
 | --- | --- |
 | [λRTL CFG theorems][cfg-thms] and [forward CFG validation][cfg-validation] | `run_flatten` and `run_eq_toRegion` connect the forward block model with region execution. The validator covers coherent renamings and a guarded entry contraction. Reuse the proof pattern for control extraction. Sea of Nodes adds unordered floating nodes, predecessor-indexed Phis and cyclic control. |
 | [SSA and λRTL with loops][ssa], [loop theorems][loop-thms] and [machine C-backend construction][machine-construct] | `Region.evalObs_eq_evalSSA_of_isSSA` gives lexical/store agreement in the loop model with its hypotheses. The machine construction gives maximal SSA by passing every register to each block, with a simulation in its own RTL setting. Demand-driven Phi placement remains open here. Its graph/RTL types belong to the Machine region. |
-| [λSSA forwarding cycles][cycle-cuts] | `exists_bounded_cut` and `iterate_fold` cover finite all-recurrent forwarding tables. Use them as a model-specific comparison for exitless control. SoN needs a graph-level observation theorem for feedback and for the synthetic scheduling edge. |
-| [RVSDG graph and term theorems][rvsdg-thms], [acyclic λSSA lowering][rvsdg-acyclic] and [acyclic-body θ wrapper][rvsdg-theta] | `Graph.toGraph_toTerm` and `Term.toTerm_toGraph` cover numbered RVSDG graphs. The lowering and `denoteRegion_join` cover the generated typed single-entry/single-join acyclic grammar. The θ wrapper checks a specific single-loop shape. Translate admitted SoN shapes through these interfaces. A Region/Phi pair becomes a typed join in λSSA, and γ and θ carry scoped interfaces and loop state. General SoN control graph recovery is open. |
+| [Forward λRTL CFG versioning][cfg-versioned] · [#3250][pr-versioned] | `versioned_isSSA` and `versioned_runSSA` give dominance-scoped SSA and preserve exit and payload for a generated flat versioned graph, under the forward CFG and lawful model assumptions. This result concerns λRTL CFGs. The [source-native quad slice][son-quads] has its own single-block result. Multi-predecessor Sea of Nodes construction stays open. |
+| [λSSA forwarding cycles][cycle-cuts] | `exists_bounded_cut` and `iterate_fold` cover finite all-recurrent forwarding tables. Use them as a model-specific comparison for exitless control. The [single-loop profile](#pure-single-loop) gives a separate source feedback theorem. The synthetic scheduling edge stays open. |
+| [RVSDG graph and term theorems][rvsdg-thms], [acyclic λSSA lowering][rvsdg-acyclic] and [acyclic-body θ wrapper][rvsdg-theta] | `Graph.toGraph_toTerm` and `Term.toTerm_toGraph` cover numbered RVSDG graphs. The lowering and `denoteRegion_join` cover the generated typed single-entry/single-join acyclic grammar. The θ wrapper checks a specific single-loop shape. The source-native γ and θ lowerings above carry scoped interfaces and loop state for their fixed shapes. The [scheduled diamond](#pure-branch-diamond) also has a typed λSSA lowering. A general Region/Phi translation and control graph recovery stay open. |
 | [RVSDG explicit state splice][rvsdg-splice] and [interprocedural RVSDG][rvsdg-calls] | The splice preserves finite exit, payload and exact final token in its partial model, with a witness for the component boundary. The interprocedural development provides typed function and state interfaces. Start with one SoN state token and an explicit interface mapping. Alias partitions, scheduling anti-dependence, and translation of arbitrary call graphs require new obligations. |
-| [MLIR Arith theorems][mlir-thms], [scalar profile][mlir] and [MLIR language reference][mlir-ref] | `Block.toLambdaSSA_hasType` and `Block.toLambdaSSA_eval_iff` cover the pure single-block scalar profile. Compose through the same λSSA primitive interpretations for flag-free bitvector constants, add and multiply. Multi-block SSACFG regions, typed block arguments, scoped regions with effects and MLIR graph regions require their own admission and preservation theorems. |
+| [MLIR Arith theorems][mlir-thms], [scalar profile][mlir] and [MLIR language reference][mlir-ref] | `Block.toLambdaSSA_hasType` and `Block.toLambdaSSA_eval_iff` cover the pure single-block scalar profile. The source-native scalar lowering above targets the same Arith block boundary for flag-free bitvector constants, add and multiply. Multi-block SSACFG regions, typed block arguments, scoped regions with effects and MLIR graph regions require their own admission and preservation theorems. |
 | [Guarded e-graph rebuild][egraph], [dataflow iteration][dataflow] and [checked pass contracts][compiler] | The e-graph has acyclic term witnesses and guarded merges. The iteration layer proves convergence of round-robin iteration to the least fixed point under its hypotheses. Checked passes show how to package admission and semantic preservation. A sparse worklist and SoN’s keys, facts and rewrites on control-aware cyclic graphs require separate proofs. |
 
 ## Proof sequence
+
+The sequence gives the full milestones. The coverage columns above record
+which parts have landed at a restricted profile.
 
 Each slice should publish its admitted input profile, source anchors,
 observable relation, definitions and theorem headers, and a small fixture
@@ -313,6 +455,68 @@ validation stay open at the boundaries identified above.
 [rust]: https://github.com/SeaOfNodes/Simple-Rust/tree/d75781d1c516805d3042e66ddbd48a9b34fc6878
 [rust-baseline]: https://github.com/SeaOfNodes/Simple/tree/fd5178dbf4174933798ecbfbfe06fe35de0337c4
 [cpp]: https://github.com/SeaOfNodes/Simple-Cpp/tree/49877551b4ee91c53d799523f15810470a16abbb
+[son-pure]: sea-of-nodes-pure.md
+[son-pure-defs]: ../../Silmaril/SSA/SeaOfNodes/Pure/Defs.lean
+[son-pure-thms]: ../../Silmaril/SSA/SeaOfNodes/Pure/Thms.lean
+[son-scalar]: sea-of-nodes-mlir.md
+[son-scalar-defs]: ../../Silmaril/SSA/SeaOfNodes/MLIR/Defs.lean
+[son-scalar-thms]: ../../Silmaril/SSA/SeaOfNodes/MLIR/Thms.lean
+[son-diamond-defs]: ../../Silmaril/SSA/SeaOfNodes/Diamond/Defs.lean
+[son-diamond-thms]: ../../Silmaril/SSA/SeaOfNodes/Diamond/Thms.lean
+[son-diamond-inst]: sea-of-nodes-diamond-institution.md
+[son-diamond-inst-defs]: ../../Silmaril/SSA/SeaOfNodes/Diamond/Institution/Defs.lean
+[son-diamond-inst-thms]: ../../Silmaril/SSA/SeaOfNodes/Diamond/Institution/Thms.lean
+[son-diamond-ssa]: sea-of-nodes-diamond-lambdassa.md
+[son-diamond-ssa-defs]: ../../Silmaril/SSA/SeaOfNodes/Diamond/LambdaSSA/Defs.lean
+[son-diamond-ssa-thms]: ../../Silmaril/SSA/SeaOfNodes/Diamond/LambdaSSA/Thms.lean
+[son-diamond-mlir]: sea-of-nodes-diamond-mlir.md
+[son-diamond-mlir-defs]: ../../Silmaril/SSA/SeaOfNodes/Diamond/MLIR/Defs.lean
+[son-diamond-mlir-thms]: ../../Silmaril/SSA/SeaOfNodes/Diamond/MLIR/Thms.lean
+[son-loop-defs]: ../../Silmaril/SSA/SeaOfNodes/Loop/Defs.lean
+[son-loop-thms]: ../../Silmaril/SSA/SeaOfNodes/Loop/Thms.lean
+[son-theta-defs]: ../../Silmaril/SSA/SeaOfNodes/Loop/Theta/Defs.lean
+[son-theta-thms]: ../../Silmaril/SSA/SeaOfNodes/Loop/Theta/Thms.lean
+[son-theta-regression]: ../../Silmaril/Proofs/SSA/SeaOfNodes/Loop/Theta/Regression.lean
+[son-gcm]: sea-of-nodes-gcm-legality.md
+[son-gcm-defs]: ../../Silmaril/SSA/SeaOfNodes/GCM/Defs.lean
+[son-gcm-thms]: ../../Silmaril/SSA/SeaOfNodes/GCM/Thms.lean
+[son-gvn]: sea-of-nodes-gvn.md
+[son-gvn-defs]: ../../Silmaril/SSA/SeaOfNodes/GVN/Defs.lean
+[son-gvn-thms]: ../../Silmaril/SSA/SeaOfNodes/GVN/Thms.lean
+[son-quads]: sea-of-nodes-quads.md
+[son-quads-defs]: ../../Silmaril/SSA/SeaOfNodes/Quads/Defs.lean
+[son-quads-thms]: ../../Silmaril/SSA/SeaOfNodes/Quads/Thms.lean
+[son-memory]: sea-of-nodes-memory.md
+[son-memory-defs]: ../../Silmaril/SSA/SeaOfNodes/Memory/Defs.lean
+[son-memory-thms]: ../../Silmaril/SSA/SeaOfNodes/Memory/Thms.lean
+[phi-view]: ssa-phi-view.md
+[phi-view-defs]: ../../Silmaril/SSA/PhiView/Defs.lean
+[phi-view-thms]: ../../Silmaril/SSA/PhiView/Thms.lean
+[rvsdg-mlir-graph]: rvsdg-mlir-graph.md
+[rvsdg-mlir-graph-thms]: ../../Silmaril/SSA/RVSDG/MLIR/Graph/Thms.lean
+[rvsdg-mlir-feedback]: rvsdg-mlir-feedback.md
+[rvsdg-mlir-feedback-thms]: ../../Silmaril/SSA/RVSDG/MLIR/Graph/Feedback/Thms.lean
+[rvsdg-mlir-regionless]: rvsdg-mlir-regionless.md
+[rvsdg-mlir-regionless-thms]: ../../Silmaril/SSA/RVSDG/MLIR/Regionless/Thms.lean
+[cfg-versioned]: ../../Silmaril/SSA/LambdaRTL/CFG/Version/Flat/Thms.lean
+[pr-pure]: https://github.com/hiloopai/silmaril-lean/pull/3188
+[pr-scalar]: https://github.com/hiloopai/silmaril-lean/pull/3175
+[pr-diamond]: https://github.com/hiloopai/silmaril-lean/pull/3135
+[pr-diamond-inst]: https://github.com/hiloopai/silmaril-lean/pull/3237
+[pr-diamond-ssa]: https://github.com/hiloopai/silmaril-lean/pull/3211
+[pr-diamond-mlir]: https://github.com/hiloopai/silmaril-lean/pull/3189
+[pr-diamond-eq]: https://github.com/hiloopai/silmaril-lean/pull/3215
+[pr-loop]: https://github.com/hiloopai/silmaril-lean/pull/3192
+[pr-theta]: https://github.com/hiloopai/silmaril-lean/pull/3210
+[pr-gamma]: https://github.com/hiloopai/silmaril-lean/pull/3162
+[pr-feedback]: https://github.com/hiloopai/silmaril-lean/pull/3235
+[pr-regionless]: https://github.com/hiloopai/silmaril-lean/pull/3133
+[pr-phi-view]: https://github.com/hiloopai/silmaril-lean/pull/3186
+[pr-placement]: https://github.com/hiloopai/silmaril-lean/pull/3200
+[pr-gvn]: https://github.com/hiloopai/silmaril-lean/pull/3225
+[pr-quads]: https://github.com/hiloopai/silmaril-lean/pull/3233
+[pr-memory]: https://github.com/hiloopai/silmaril-lean/pull/3231
+[pr-versioned]: https://github.com/hiloopai/silmaril-lean/pull/3250
 [cfg-thms]: ../../Silmaril/SSA/LambdaRTL/CFG/Thms.lean
 [cfg-validation]: cfg-validation.md
 [ssa]: ssa.md
