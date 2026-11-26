@@ -141,28 +141,28 @@ private noncomputable abbrev step (g : FiniteCFG Φ blocks exits n) (base : Env 
     Tree Events (Transfer α ⊕ BlockInput α blocks) :=
   region raw (extend base p.2) (g.block p.1).erase >>= fun out => pure (splitTransfer blocks out)
 
-private theorem row_tree (w : Witness g β R D) (ranked : Rank.check (localTargets g) = true)
-    (base : Env α) (i : Fin blocks) (v : Value α) :
-    term raw (extend base v) (erase (compileAt w ranked i).toLetCase.1) =
+private theorem row_tree (w : Witness g β R D) (base : Env α) (i : Fin blocks)
+    (ranked : ((ranks g).get i).isSome = true) (v : Value α) :
+    term raw (extend base v) (erase (compileRankedAt w i ranked).toLetCase.1) =
       (iter (step raw g base) (i, v) >>= fun out => pure (Region.packedExitValue out.1 out.2)) := by
-  rw [compileAt]
+  rw [compileRankedAt]
   rw [body_tree raw (w.block i) (.skip .base (R i)) base (extend base v) (fun _ => rfl)
-    (fun j _ => (compileAt w ranked j).toLetCase)
+    (fun j edge => (compileRankedAt w j (Rank.ranked_successor (localTargets g) ranked edge).1).toLetCase)
     (fun p => iter (step raw g base) p >>= fun out => pure (Region.packedExitValue out.1 out.2))
-    (fun j edge arg => row_tree w ranked base j arg)]
+    (fun j edge arg => row_tree w base j (Rank.ranked_successor (localTargets g) ranked edge).1 arg)]
   rw [congrFun (iterate_fixpoint (step raw g base)) (i, v)]
   simp only [bind_assoc, pure_bind]
   exact bind_congr fun p => by cases splitTransfer blocks p <;> simp only [Sum.elim_inl, Sum.elim_inr, pure_bind]
-termination_by ((Rank.rounds (localTargets g) blocks).get i).getD 0
-decreasing_by exact Rank.check_sound (localTargets g) ranked edge
+termination_by ((ranks g).get i).getD 0
+decreasing_by exact (Rank.ranked_successor (localTargets g) ranked edge).2
 
-theorem compile_tree (w : Witness g β R D) (ranked : Rank.check (localTargets g) = true) (base : Env α) :
-    term raw base (erase (compile w ranked).toLetCase.1) =
+theorem compileReachable_tree (w : Witness g β R D) (ranked : entryCheck g = true) (base : Env α) :
+    term raw base (erase (compileReachable w ranked).toLetCase.1) =
       (region raw base g.erase >>= fun out => pure (Region.packedExitValue out.1 out.2)) := by
-  rw [compile, body_tree raw w.entry .base base base (fun _ => rfl)
-    (fun j _ => (compileAt w ranked j).toLetCase)
+  rw [compileReachable, body_tree raw w.entry .base base base (fun _ => rfl)
+    (fun j edge => (compileRankedAt w j (Rank.ranked_of_checkFrom (localTargets g) ranked edge)).toLetCase)
     (fun p => iter (step raw g base) p >>= fun out => pure (Region.packedExitValue out.1 out.2))
-    (fun j _ arg => row_tree raw w ranked base j arg)]
+    (fun j edge arg => row_tree raw w base j (Rank.ranked_of_checkFrom (localTargets g) ranked edge) arg)]
   simp only [FiniteCFG.erase, region, bind_assoc]
   exact bind_congr fun p => by
     cases splitTransfer blocks p with

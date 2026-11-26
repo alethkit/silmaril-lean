@@ -44,6 +44,15 @@ def targets : {m : Nat} → Flat Φ (blocks + exits) m → List (Fin blocks)
 def localTargets (g : FiniteCFG Φ blocks exits n) (i : Fin blocks) : List (Fin blocks) :=
   targets (g.block i)
 
+/-- Removal rounds keep the flat table's original block indices. -/
+abbrev ranks (g : FiniteCFG Φ blocks exits n) : Vector (Option Nat) blocks :=
+  Rank.rounds (localTargets g) blocks
+
+/-- Rank only the local destinations named by the entry. A ranked block's
+successors have earlier rounds, so all reachable rows can be expanded. -/
+def entryCheck (g : FiniteCFG Φ blocks exits n) : Bool :=
+  Rank.checkFrom (localTargets g) (targets g.entry)
+
 /-- Select typed operand witnesses for the exact written table. -/
 structure Witness (g : FiniteCFG Φ blocks exits n) (β : BoundCtx τ n)
     (R : Fin blocks → τ) (D : Fin exits → τ) where
@@ -84,17 +93,28 @@ def compileBody : {m : Nat} → {γ : BoundCtx τ m} → {t : Flat Φ (blocks + 
 
 variable {g : FiniteCFG Φ blocks exits n}
 
-/-- Follow the checked ranks of the written rows. Each continuation keeps the
-original shared context and that row's exact incoming packet type. -/
-def compileAt (w : Witness g β R D) (ranked : Rank.check (localTargets g) = true) (i : Fin blocks) :
+/-- Follow the decreasing rounds from a ranked row. Each continuation keeps
+the original shared context and that row's exact incoming packet type. -/
+def compileRankedAt (w : Witness g β R D) (i : Fin blocks) (ranked : ((ranks g).get i).isSome = true) :
     Code Φ (β.snoc (R i)) Result :=
   compileBody (w.block i) (.skip .base (R i))
-    (fun j _edge => (compileAt w ranked j).toLetCase)
-termination_by ((Rank.rounds (localTargets g) blocks).get i).getD 0
-decreasing_by exact Rank.check_sound (localTargets g) ranked ‹j ∈ _›
+    (fun j edge => (compileRankedAt w j (Rank.ranked_successor (localTargets g) ranked edge).1).toLetCase)
+termination_by ((ranks g).get i).getD 0
+decreasing_by exact (Rank.ranked_successor (localTargets g) ranked edge).2
+
+/-- Expand from the actual entry without renumbering any destinations. -/
+def compileReachable (w : Witness g β R D) (ranked : entryCheck g = true) :
+    Code Φ β Result :=
+  compileBody w.entry .base (fun j edge =>
+    (compileRankedAt w j (Rank.ranked_of_checkFrom (localTargets g) ranked edge)).toLetCase)
+
+/-- The original whole-table check supplies a witness at any row. -/
+def compileAt (w : Witness g β R D) (ranked : Rank.check (localTargets g) = true) (i : Fin blocks) :
+    Code Φ (β.snoc (R i)) Result :=
+  compileRankedAt w i (Rank.ranked_of_checkFrom (localTargets g) ranked (List.mem_finRange i))
 
 def compile (w : Witness g β R D) (ranked : Rank.check (localTargets g) = true) :
     Code Φ β Result :=
-  compileBody w.entry .base (fun j _ => (compileAt w ranked j).toLetCase)
+  compileReachable w (Rank.checkFrom_of_check (localTargets g) (targets g.entry) ranked)
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.FlatLetCase

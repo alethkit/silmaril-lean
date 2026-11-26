@@ -24,19 +24,37 @@ variable {Φ : Type v} {τ : Type u} [TypeFormers τ] [HasTy Φ τ]
 theorem witness_nonempty (h : g.HasType β R D) : Nonempty (Witness g β R D) :=
   Proofs.SSA.Isotope.Bridge.Acyclic.FlatLetCase.witness_nonempty h
 
+/-- Expand the well-typed entry and its reachable rows. The entire typed
+table remains the source of the proof and interpreter. -/
+noncomputable def toLetCaseReachable (h : g.HasType β R D) (ranked : entryCheck g = true) :
+    Operand Φ β (Region.packedExitType (List.ofFn D)) :=
+  (compileReachable (witness_nonempty h).some ranked).toLetCase
+
 /-- Expand the actual written table when the finite rank check succeeds.
 Selection of operand derivations from propositional typing is noncomputable. -/
 noncomputable def toLetCase (h : g.HasType β R D) (ranked : Rank.check (localTargets g) = true) :
     Operand Φ β (Region.packedExitType (List.ofFn D)) :=
-  (compile (witness_nonempty h).some ranked).toLetCase
+  toLetCaseReachable h (Rank.checkFrom_of_check (localTargets g) (targets g.entry) ranked)
 
 /-- Rank induction removes flat feedback while preserving the weak tree,
 using the same request and reply continuations and the existing exit tags. -/
+theorem compileReachable_tree {Events : Type w → Type w} {α : Type x} (raw : Primitive Events Φ α)
+    (w : Witness g β R D) (ranked : entryCheck g = true) (env : Env α) :
+    term raw env (erase (compileReachable w ranked).toLetCase.1) =
+      (region raw env g.erase >>= fun out => pure (Region.packedExitValue out.1 out.2)) :=
+  Proofs.SSA.Isotope.Bridge.Acyclic.FlatLetCase.compileReachable_tree raw w ranked env
+
+theorem toLetCaseReachable_tree {Events : Type w → Type w} {α : Type x} (raw : Primitive Events Φ α)
+    (h : g.HasType β R D) (ranked : entryCheck g = true) (env : Env α) :
+    term raw env (erase (toLetCaseReachable h ranked).1) =
+      (region raw env g.erase >>= fun out => pure (Region.packedExitValue out.1 out.2)) :=
+  compileReachable_tree raw (witness_nonempty h).some ranked env
+
 theorem compile_tree {Events : Type w → Type w} {α : Type x} (raw : Primitive Events Φ α)
     (w : Witness g β R D) (ranked : Rank.check (localTargets g) = true) (env : Env α) :
     term raw env (erase (compile w ranked).toLetCase.1) =
       (region raw env g.erase >>= fun out => pure (Region.packedExitValue out.1 out.2)) :=
-  Proofs.SSA.Isotope.Bridge.Acyclic.FlatLetCase.compile_tree raw w ranked env
+  compileReachable_tree raw w (Rank.checkFrom_of_check (localTargets g) (targets g.entry) ranked) env
 
 theorem toLetCase_tree {Events : Type w → Type w} {α : Type x} (raw : Primitive Events Φ α)
     (h : g.HasType β R D) (ranked : Rank.check (localTargets g) = true) (env : Env α) :
