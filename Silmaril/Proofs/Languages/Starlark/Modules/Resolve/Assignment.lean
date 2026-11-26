@@ -204,6 +204,35 @@ theorem shape_sound (scope : Scope) (source : SourceOperand)
         rw [parseAssignmentPattern.eq_def] at ran
         cases ran
 
+private theorem mapM_of_inOrder {ε α β : Type} {inputs : List α} {outputs : List β}
+    (action : α → Except ε β) (relation : α → β → Prop)
+    (related : InOrder relation inputs outputs)
+    (complete : ∀ child ∈ inputs, ∀ value, relation child value → action child = .ok value) :
+    inputs.mapM action = .ok outputs := by
+  induction related with
+  | nil => rfl
+  | @cons first value rest values head tail ih =>
+    rw [List.mapM_cons, complete first (by simp) value head,
+      ih (fun child member => complete child (List.mem_cons_of_mem _ member))]
+    rfl
+
+theorem shape_complete (scope : Scope) (source : SourceOperand)
+    (result : AssignmentPattern SourceOperand × List String) (related : TargetShape scope source result) :
+    parseAssignmentPattern (fun name => ⟨scope, name⟩) source = .ok result := by
+  induction source using (measure (sizeOf : SourceOperand → Nat)).wf.induction generalizing result with
+  | h source ih =>
+    cases related with
+    | name name => rw [parseAssignmentPattern.eq_def]; rfl
+    | subscript receiver index => rw [parseAssignmentPattern.eq_def]; rfl
+    | @list children shapes related | @tuple children shapes related =>
+      rw [parseAssignmentPattern.eq_def]
+      change (children.attach.mapM
+        (fun child => parseAssignmentPattern (fun name => ⟨scope, name⟩) child.val) >>= _) = _
+      rw [mapM_attach, mapM_of_inOrder _ _ related]
+      · rfl
+      · intro child member output shaped
+        exact ih child (by simp_wf; have := List.sizeOf_lt_of_mem member; omega) output shaped
+
 theorem pattern_sound (block : LexicalBlock) (source : AssignmentPattern SourceOperand)
     (profile : PatternInProfile source) (result : AssignmentPattern × List Binding)
     (ran : resolveAssignmentOperands block.context source = .ok result) :
