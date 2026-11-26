@@ -1,8 +1,10 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.Thms
 
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.MLIR.MemRef.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite
@@ -111,5 +113,54 @@ private def runBank (order : Predecessors 2) (arm : Occurrence order → Memory.
 
 #guard runBank reversed (fun i => arms sidePort (reverseOrder i)) (fun i => witnesses (reverseOrder i)) ==
   (runBank preds (arms sidePort) witnesses).map List.reverse
+
+-- The shared suffix writes the selected word to the side cell and then
+-- returns the selected path's new head cell.
+private def suffix : Memory.Graph (.word :: Args) :=
+  .store (.latest 0) (.arg (.tail sidePort)) (.arg .head)
+    (.load (.latest 1) (.arg (.tail headPort)) (.ret (.latest 1) (.output 0 .head)))
+
+private def inspectSwitch {order : Predecessors 2} (program : MemRef.CF.Program 3 Args order)
+    (arrival : Occurrence order) (fuel : Nat) : Option (Nat × List Nat × List Nat) := do
+  let entered := MemRef.CF.entryTransition program input arrival initial
+  let .inl ⟨.arm slot, _⟩ := entered.1 | none
+  let joined := MemRef.CF.armTransition program input slot entered.2
+  let .inl ⟨.join, words⟩ := joined.1 | none
+  let final ← MemRef.CF.run program input arrival fuel initial
+  some (slot.val, readback (words.get .here, joined.2), readback final)
+
+private def runSwitch (order : Predecessors 2) (fits : MemRef.CF.Fits order)
+    (arm : Occurrence order → Memory.Graph Args) (candidate : Candidate Args order)
+    (arrival : Occurrence order) (fuel : Nat) : Option (Nat × List Nat × List Nat) := do
+  let programs ← MemRef.CF.lower order fits shared arm candidate suffix input
+  let before ← inspectSwitch programs.original arrival fuel
+  let after ← inspectSwitch programs.optimized arrival fuel
+  if before == after then some after else none
+
+private theorem fits : MemRef.CF.Fits preds := by decide
+private theorem reversedFits : MemRef.CF.Fits reversed := by decide
+
+private def originalSelections : List (Option (Nat × List Nat × List Nat)) :=
+  List.ofFn fun i => runSwitch preds fits (arms sidePort) witnesses i 3
+
+-- Each row records the actual switch slot, the join packet and the
+-- final return. Both lists start with a word followed by all cells.
+#guard originalSelections ==
+  [some (0, [3, 11, 3, 55], [11, 11, 3, 55]),
+   some (1, [3, 22, 22, 55], [22, 22, 3, 55]),
+   some (2, [99, 99, 3, 55], [99, 99, 99, 55])]
+
+private def transportedSelections : List (Option (Nat × List Nat × List Nat)) :=
+  List.ofFn fun (original : Occurrence preds) => do
+    let arrival := reverseOrder.symm original
+    let (slot, packet, final) ← runSwitch reversed reversedFits
+      (fun i => arms sidePort (reverseOrder i)) (fun i => witnesses (reverseOrder i)) arrival 3
+    if slot == arrival.val then some (original.val, packet, final) else none
+
+#guard transportedSelections == originalSelections
+#guard (runSwitch preds fits (arms sidePort) witnesses 0 2).isNone
+#guard (MemRef.CF.lower preds fits shared (arms headPort) witnesses suffix input).isNone
+example : MemRef.CF.lower preds fits shared (arms headPort) witnesses suffix input = none :=
+  MemRef.CF.lower_eq_none_iff.mpr ⟨1, rfl⟩
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite

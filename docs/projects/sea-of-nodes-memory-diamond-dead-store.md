@@ -91,19 +91,45 @@ full straight-line paths, at a scalar valuation accepted by all the
 reader checks.
 [Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Thms.lean)
 
-The fixture reads the packet from the actual emitted MemRef blocks for
-each of three paths, reverses their predecessor order, and checks that
-a Load of the old cell on only the middle path refuses. The current
-MemRef diamond CFG emitter uses two Region slots and a Boolean entry
-branch. Multiway dispatch and serialization of the full MemRef join
-remain open. The fixture uses the existing straight-line MemRef emitter
-for each path.
+The native fixture reads the packet from the existing straight-line
+MemRef emitter for each of three paths, reverses their predecessor
+order, and checks that a Load of the old cell on only the middle path
+refuses. The same fixture exercises the whole switch CFG below.
 [Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Regression.lean)
 
 ```sh
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.Regression
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Regression.lean
 ```
+
+## Emit one MemRef switch and join
+
+`DeadStore.Finite.MemRef.CF.lower` checks the finite certificate and
+emits the original and edited typed CFGs. The entry uses the existing
+`cf.switch`, with one `i64` case for each incoming position. The
+`Fits` proof ensures every admitted `Fin` selector fits the width
+without truncation. `dispatch_selector` proves the emitted switch
+chooses its exact occurrence label. That label is keyed by position,
+so repeated predecessor IDs keep separate arm blocks. The switch
+default is unreachable at a typed selector.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/Defs.lean) ·
+[Typed switch operation](../../Silmaril/SSA/MLIR/CF/SwitchAssert/Defs.lean)
+
+The existing ordered scheduler executes the switch entry, one arm
+and the shared continuation. The original entry runs the common
+Store once. The arm passes its word as the join argument and threads
+the entire MemRef buffer as state. Both emitted CFGs send the same
+word and complete buffer to the join and return the same word and
+buffer at every CF budget for the checked input and any initial
+buffer. Three block ticks suffice.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/Thms.lean)
+
+The regression checks all three selected slots, the actual join
+packets and final buffers, and reversal with the selector transported
+to its new position. An observing Load in the middle path refuses
+emission. The continuation makes the selected word observable through
+a side-cell Store.
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Regression.lean)
 
 ## Bypass a single-user Store inside one arm
 
