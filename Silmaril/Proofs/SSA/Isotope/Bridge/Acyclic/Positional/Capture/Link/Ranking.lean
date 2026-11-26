@@ -172,6 +172,13 @@ theorem carry_localTargets_proof {P : τ} (q : Table Φ (β.snoc P) K m) (i : Fi
     (carry q).localTargets i = q.localTargets i :=
   block_locals (q.block i)
 
+theorem rename_check_proof {e : Nat} {δ : BoundCtx τ e} (r : BoundCtx.Renaming β δ)
+    (q : Table Φ β K m) : (renameTable r q).check = q.check := by
+  apply congrArg Rank.check
+  funext i
+  change (renameBlock r (q.block i)).locals = (q.block i).locals
+  cases q.block i <;> rfl
+
 end Open
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Link

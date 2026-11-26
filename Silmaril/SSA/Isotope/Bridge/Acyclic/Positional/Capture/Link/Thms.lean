@@ -5,6 +5,7 @@ public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Reverse.Com
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Link.Ranking
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Link.Trace
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Link.OpenTrace
+import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Link.RenameTrace
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Link.Native
 
 /-! # Checked serial composition at written CFG endpoints
@@ -181,6 +182,11 @@ def checked (p : CheckedTable Φ β L) (q : CheckedTable Φ (β.snoc (packedExit
     CheckedTable Φ β K :=
   Link.checked p (carry q.table) ((carry_check q.table).trans q.checked) 0 (carryEntry q.entry)
 
+/-- Ambient weakening leaves the global local-edge graph unchanged. -/
+theorem rename_check {e : Nat} {δ : BoundCtx τ e} (r : BoundCtx.Renaming β δ)
+    (q : Table Φ β K m) : (renameTable r q).check = q.check :=
+  rename_check_proof r q
+
 end Rank
 
 section Finite
@@ -224,6 +230,18 @@ theorem serial_packed_replay (input : StructuralContext β) :
     (Link.leftIndex p (carry q) i) (start p q j receive i entry)).trans
     ((reify_equiv_finite _ seq.2 (serial_equiv p q hp hq i j entry receive input)).trans
       (CheckedTable.ofLetCase_packed_replay (Reverse.exits_ne_nil_of_operand input seq) seq.2).symm)
+
+/-- Adding an unused older binding keeps the actual emitter's run, with
+the newest intermediate packet and older ambient captures in place. -/
+theorem weaken_receiver_run {X Y : Ty Empty}
+    (q : Table Φ (β.snoc Y) K m) (hq : q.check = true)
+    (j : Fin (m + 1)) (a : Operand Φ (β.snoc Y) (q.types j))
+    (env : BoundEnv LetCase.Structural.Finite.Value β)
+    (source : LetCase.Structural.Finite.Value X) (value : LetCase.Structural.Finite.Value Y) :
+    let r := (BoundCtx.Renaming.succ β X).up Y
+    run ((renameTable r q).toLetCase ((rename_check r q).trans hq) j ⟨_, a.2.rename r⟩).2
+      ((env.snoc source).snoc value) = run (q.toLetCase hq j a).2 (env.snoc value) :=
+  weaken_receiver_run_proof q hq _ j a env source value
 
 end Finite
 

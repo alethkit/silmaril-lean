@@ -93,17 +93,30 @@ private theorem instantiate_pair {n : Nat} {A B : Types} (k : Term Φ (n + 1))
     .pair a.term b.term
   rw [Constructor.term_bsubst]
 
-/-- Native extensionality at one inhabited structural slot, with arbitrary
-ambient slots and effectful exact bodies. -/
-theorem constructor_ext_proof (shape : Shape) {n : Nat} {β : Context n} {D : Types}
+/-- All typed bodies in an empty slot agree by native empty initiality. -/
+theorem empty_slot_proof {n : Nat} {β : Context n} {D : Types} {t u : Term Φ (n + 1)}
+    (dt : HasType Φ Γ₀ (β.snoc .empty) t D) (du : HasType Φ Γ₀ (β.snoc .empty) u D) :
+    Equiv false Γ₀ (β.snoc .empty) t u D := by
+  have slot : HasType Φ Γ₀ (β.snoc .empty) (.bv 0) .empty := .bv
+  have abort : HasType Φ Γ₀ (β.snoc .empty) (.abort (.bv 0)) .unit := .abort slot
+  have left := Equiv.letBeta (pureEff := false) (.abort .bv) abort dt.lift
+  have right := Equiv.letBeta (pureEff := false) (.abort .bv) abort du.lift
+  rw [open_lift] at left right
+  exact left.symm.trans ((Equiv.emptyInitial (A := Ty.unit) slot dt.lift du.lift).trans right)
+
+/-- Native extensionality at one atom-free slot, including empty summands.
+The ambient context is arbitrary and the bodies may have effects. -/
+theorem constructor_ext_type_proof (X : Types) {n : Nat} {β : Context n} {D : Types}
     {t u : Term Φ (n + 1)}
-    (dt : HasType Φ Γ₀ (β.snoc shape.ty) t D) (du : HasType Φ Γ₀ (β.snoc shape.ty) u D)
-    (h : ∀ v : Constructor shape.ty,
+    (dt : HasType Φ Γ₀ (β.snoc X) t D) (du : HasType Φ Γ₀ (β.snoc X) u D)
+    (h : ∀ v : Constructor X,
       Equiv false Γ₀ β (Tm.instantiate t v.term) (Tm.instantiate u v.term) D) :
-    Equiv false Γ₀ (β.snoc shape.ty) t u D := by
-  induction shape generalizing n with
+    Equiv false Γ₀ (β.snoc X) t u D := by
+  induction X generalizing n with
+  | base a => exact a.elim
+  | empty => exact empty_slot_proof dt du
   | unit => exact (unit_replay dt).trans (((h .unit).lift (X := .unit)).trans (unit_replay du).symm)
-  | sum A B iha ihb =>
+  | coprod A B iha ihb =>
     apply (Reply.equiv_iff_specializations dt du).mpr
     refine ⟨?_, ?_⟩
     · apply iha (dt.bsubst (Fin.cases (.inl .bv) (fun _ => .bv)))
@@ -120,10 +133,10 @@ theorem constructor_ext_proof (shape : Shape) {n : Nat} {β : Context n} {D : Ty
         (Tm.instantiate (specialize u (.inr (.bv 0))) b.term) D
       rw [instantiate_inr, instantiate_inr]
       exact h (.inr b)
-  | pair A B iha ihb =>
+  | product A B iha ihb =>
     have pt := pairBody_typed dt
     have pu := pairBody_typed du
-    have parts : Equiv false Γ₀ ((β.snoc A.ty).snoc B.ty) (pairBody t) (pairBody u) D := by
+    have parts : Equiv false Γ₀ ((β.snoc A).snoc B) (pairBody t) (pairBody u) D := by
       apply ihb pt pu
       intro b
       apply iha (pt.instantiate b.typing.toHasType) (pu.instantiate b.typing.toHasType)
