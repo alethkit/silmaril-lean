@@ -506,6 +506,25 @@ The continuation cannot jump back to its own label.
   [Native encoding](../../Silmaril/SSA/Isotope/Bridge/Acyclic/TwoExit/Categorical/Thms.lean) ·
   [Two-exit satisfaction and signature squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/TwoExit/Institution/Thms.lean) ·
   [Joined guarded comparison](https://github.com/hiloopai/silmaril-lean/pull/3532)
+- The native structured fragment extends to every finite ordered label list.
+  Its branches select an index, case trees share the outward interface, and
+  single-entry joins bind one local payload with a continuation that cannot
+  jump back to that label. Encoding uses the existing right-associated sum
+  ending in the empty type. At nonempty interfaces, the acyclic decoder
+  dispatches to the original labels and uses an abort expression only on
+  the impossible empty summand. Both round trips preserve the corresponding
+  arrows in coherent models with central unit. The empty interface is
+  uninhabited by this structured syntax because every path must have an
+  outward branch. The binary embedding retains the exact native regions
+  and their arrows. The three-label probe retains all positions when their
+  types collapse and checks composite signature change.
+  The finite-exit institution evaluates its sentences using native
+  positional denotation and compares to validated LetCase by a
+  comorphism. This construction covers the stated structured region
+  forms at arbitrary finite interfaces.
+  [Finite-exit typing](../../Silmaril/SSA/Isotope/Bridge/Acyclic/FiniteExit/Thms.lean) ·
+  [Categorical round trips](../../Silmaril/SSA/Isotope/Bridge/Acyclic/FiniteExit/Categorical/Thms.lean) ·
+  [Native institution](../../Silmaril/SSA/Isotope/Bridge/Acyclic/FiniteExit/Institution/Thms.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
