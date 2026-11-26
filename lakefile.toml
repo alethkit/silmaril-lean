@@ -507,6 +507,10 @@ globs = ["tests.ssa.PeggyEgg"]
 name = "PeggyInstitutionTests"
 globs = ["tests.ssa.PeggyInstitution"]
 
+[[lean_lib]]
+name = "PeggySortMapTests"
+globs = ["tests.ssa.PeggySortMap"]
+
 # Check the ordinary many-sorted equational comorphism into total-primitive Peggy.
 [[lean_lib]]
 name = "PeggyEquationalTests"

@@ -40,7 +40,7 @@ CHECK_TARGETS += PeggyDialectTests
 CHECK_TARGETS += PeggyEggTests PeggySimpleValidationTests
 CHECK_TARGETS += PeggyFieldHeapTests PeggyFieldHeapLinearizeTests
 
-CHECK_TARGETS += PeggyInstitutionTests
+CHECK_TARGETS += PeggyInstitutionTests PeggySortMapTests
 CHECK_TARGETS += PeggyEquationalTests
 CHECK_TARGETS += PEGRulesTests
 CHECK_TARGETS += PEGCanonicalWhileTests
