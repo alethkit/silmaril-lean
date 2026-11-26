@@ -39,14 +39,14 @@ variable {Data : Type u} {Op : Signature.{u,v} Data}
 variable {args : List (Ty Data)} {past sigs : List (List (Ty Data))} {out : ValueSort Data}
 variable (m : Model.{u,v,w} Op) (entry : Tuple (Val m.value) args)
 
-private theorem read_weaken {head : List (Ty Data)} {t : Ty Data} (wire : Origin args past t)
+theorem read_weaken {head : List (Ty Data)} {t : Ty Data} (wire : Origin args past t)
     (locals : Locals (Val m.value) past) (next : Tuple (Val m.value) head) :
     Diamond.read m (weaken head wire) entry (locals.snoc next) = Diamond.read m wire entry locals := by
   cases wire with
   | arg => rfl
   | output i port => exact get_older next past i port locals
 
-private theorem read_keep {t : Ty Data} (flow : Dataflow Op args past sigs) (wire : Origin args past t)
+theorem read_keep {t : Ty Data} (flow : Dataflow Op args past sigs) (wire : Origin args past t)
     (locals : Locals (Val m.value) past) :
     Diamond.read m (keepOrigin flow wire) entry (flow.eval m entry locals) =
       Diamond.read m wire entry locals := by
@@ -54,6 +54,11 @@ private theorem read_keep {t : Ty Data} (flow : Dataflow Op args past sigs) (wir
   | nil => rfl
   | cons op inputs rest ih =>
     exact (ih (weaken _ wire) _).trans (read_weaken m entry wire locals _)
+
+theorem read_newest {head : List (Ty Data)} {t : Ty Data} (port : Port head t)
+    (locals : Locals (Val m.value) past) (next : Tuple (Val m.value) head) :
+    Diamond.read m (newest port) entry (locals.snoc next) = next.get port :=
+  get_newest next port locals
 
 private theorem read_kept_operands {head ports : List (Ty Data)}
     (rest : Dataflow Op args (past ++ [head]) sigs) (wires : Wires args past ports)

@@ -8,13 +8,35 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.GVN
 
 open Diamond (Dataflow Model Signature Ty Val ValueSort)
-open RVSDG (Locals Tuple)
+open RVSDG (Locals Origin Port Tuple)
 
 universe u v w
 
 variable {Data : Type u} {Op : Signature.{u,v} Data}
 variable {args : List (Ty Data)} {past sigs : List (List (Ty Data))} {out : ValueSort Data}
 variable {flow : Dataflow Op args past sigs}
+
+/-- Appending a binding preserves the value of each earlier wire. -/
+theorem read_weaken {head : List (Ty Data)} {t : Ty Data} (wire : Origin args past t)
+    (m : Model.{u,v,w} Op) (entry : Tuple (Val m.value) args)
+    (locals : Locals (Val m.value) past) (next : Tuple (Val m.value) head) :
+    Diamond.read m (weaken head wire) entry (locals.snoc next) = Diamond.read m wire entry locals :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.read_weaken m entry wire locals next
+
+/-- The new result wire reads the corresponding port of the appended value. -/
+theorem read_newest {head : List (Ty Data)} {t : Ty Data} (port : Port head t)
+    (m : Model.{u,v,w} Op) (entry : Tuple (Val m.value) args)
+    (locals : Locals (Val m.value) past) (next : Tuple (Val m.value) head) :
+    Diamond.read m (newest port) entry (locals.snoc next) = next.get port :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.read_newest m entry port locals next
+
+/-- A wire from the initial scope reads the same value after the suffix runs. -/
+theorem read_keepOrigin {t : Ty Data} (flow : Dataflow Op args past sigs) (wire : Origin args past t)
+    (m : Model.{u,v,w} Op) (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) :
+    Diamond.read m (keepOrigin flow wire) entry (flow.eval m entry locals) =
+      Diamond.read m wire entry locals :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.read_keep m entry flow wire locals
+
 variable [DecidableEq (ValueSort Data)] [∀ ins out, DecidableEq (Op ins out)]
 
 /-- An accepted representative produces the same typed value in every
