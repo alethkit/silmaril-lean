@@ -8,7 +8,9 @@ and retains the caller's payload family for the remaining kinds.
 store and preserves its raw allocation history. An object token identifies a
 lifetime. A tombstone keeps that token reserved after the object is destroyed.
 Backing allocations of particular handles are outside the handle relation.
-[Shared history](global-object-state.md) · [Allocator contracts](allocator-resources.md) · [SQLite release][release]
+The rendered SQLite API pages were read on 2026-11-26. The release's API
+declarations and documentation also appear in its pinned source header.
+[Shared history](global-object-state.md) · [Allocator contracts](allocator-resources.md) · [SQLite release][release] · [Pinned API header][api-src]
 
 ## Admission and disposal
 
@@ -102,6 +104,7 @@ done
 ```
 
 [release]: https://github.com/sqlite/sqlite/commit/57520227c95396ce39ba6ecaac8d475b78dd3964
+[api-src]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/sqlite.h.in
 [open]: https://www.sqlite.org/c3ref/open.html
 [open-src]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/main.c#L3721-L3746
 [prepare]: https://www.sqlite.org/c3ref/prepare.html
