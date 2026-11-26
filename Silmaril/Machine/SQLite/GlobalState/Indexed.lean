@@ -9,23 +9,23 @@ namespace Silmaril.Machine.SQLite.GlobalState
 /-- One finite map per kind. The map for a given kind uses the slot component
 of its local IDs. -/
 structure IndexedStore where
-  byKind : (kind : ObjectKind) → Std.ExtTreeMap Nat (ObjectFields kind)
+  byKind : (kind : ObjectKind) → Std.ExtTreeMap Nat (LocalFields kind)
 
 namespace IndexedStore
 
 def empty : IndexedStore := ⟨fun _ => ∅⟩
 
 def lookup (store : IndexedStore) {kind : ObjectKind} (id : LocalId kind) :
-    Option (ObjectFields kind) :=
+    Option (LocalFields kind) :=
   (store.byKind kind).get? id.slot
 
 /-- Replace one per-kind map, leaving every other kind's map in place. -/
 def setMap (store : IndexedStore) (kind : ObjectKind)
-    (entries : Std.ExtTreeMap Nat (ObjectFields kind)) : IndexedStore :=
+    (entries : Std.ExtTreeMap Nat (LocalFields kind)) : IndexedStore :=
   ⟨fun other => if h : kind = other then h ▸ entries else store.byKind other⟩
 
 def insert (store : IndexedStore) {kind : ObjectKind} (id : LocalId kind)
-    (fields : ObjectFields kind) : IndexedStore :=
+    (fields : LocalFields kind) : IndexedStore :=
   store.setMap kind ((store.byKind kind).insert id.slot fields)
 
 def erase (store : IndexedStore) {kind : ObjectKind} (id : LocalId kind) : IndexedStore :=

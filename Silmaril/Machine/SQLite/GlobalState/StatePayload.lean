@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Machine.SQLite.GlobalState.Store.Thms
 public import Silmaril.Machine.SQLite.GlobalState.StructThms
+public import Silmaril.Machine.SQLite.GlobalState.Flat.Thms
 import Std.Data.ExtHashMap.Lemmas
 
 @[expose] public section
@@ -11,7 +12,7 @@ namespace Silmaril.Machine.SQLite.GlobalState.IndexedStore
 /-- Add a caller-supplied live/zombie state to each present struct. The
 existing kind store supplies the finite set of tagged keys. -/
 def toObjects (store : IndexedStore) (state : TaggedId → PresentState) :
-    Objects TaggedId ObjectFields :=
+    Objects TaggedId LocalFields :=
   Std.ExtHashMap.filterMap (fun id _ =>
     (store.lookup id.localId).map fun fields => ⟨id.kind, state id, fields⟩) store.erasePayloads
 
@@ -36,3 +37,18 @@ theorem toObjects_toStates_toKinds (store : IndexedStore) (state : TaggedId → 
   (Objects.toKinds_map (store.toObjects state) (fun _ _ => ())).trans (store.toObjects_toKinds state)
 
 end Silmaril.Machine.SQLite.GlobalState.IndexedStore
+
+namespace Silmaril.Machine.SQLite.GlobalState.FlatStore
+
+theorem lookup_toObjects (store : FlatStore) (state : TaggedId → PresentState) (id : TaggedId) :
+    (store.toIndexed.toObjects state).lookup id =
+      (store.get? id).map (fun fields => ⟨id.kind, state id, fields⟩) := by
+  rw [IndexedStore.lookup_toObjects, lookup_toIndexed]
+
+/-- The state-store erasures agree with the kind at each original flat key. -/
+theorem lookup_toStates_toKinds (store : FlatStore) (state : TaggedId → PresentState) (id : TaggedId) :
+    (store.toIndexed.toObjects state).toStates.toKinds.lookup id =
+      (store.get? id).map (fun _ => id.kind) := by
+  rw [IndexedStore.toObjects_toStates_toKinds, IndexedStore.lookup_erasePayloads, lookup_toIndexed]
+
+end Silmaril.Machine.SQLite.GlobalState.FlatStore

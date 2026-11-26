@@ -155,8 +155,9 @@ destination-only backup contributes no busy count there.
 
 ## Checked laws and adapter
 
-`IndexedStore` stores a finite ordered map for each kind. Its key within
-that map is `LocalId.slot` and the value type is `ObjectFields kind`.
+`ObjectFields Ref` describes references in a caller-selected kind-indexed
+family. `IndexedStore` uses the `LocalId` instance and stores a finite ordered
+map per kind, keyed by `LocalId.slot` with value type `LocalFields kind`.
 `TaggedId` combines the kind and slot, so equal numeric slots in different
 kinds compare unequal. This concrete encoding needs no disjointness
 hypothesis. The kind view folds the finite tagged keys into the existing
@@ -179,12 +180,12 @@ model and the caller.
 The first scope is the connection/statement links, the VFS/Pager/file
 selection, and one buffered B-tree path. Blob and backup fields record
 their different retention mechanisms for later resource rules. The
-next state-layer adapter can supply `ObjectFields kind` through typed
-lookup and insert, with `erasePayloads` as the existing kind-store
-projection. Defer allocator and identity histories, presence and lifetime
+state-layer adapter and flat snapshot conversion are described separately.
+Defer allocator and identity histories, presence and lifetime
 invariants, state-level views, operational close transitions, ABI offsets,
 callback dynamics, shared cache, custom cache policies, mmap/WAL/SHM,
 and general multipage/index/overflow behavior.
+[State payload and flat snapshot guide](object-state-payloads.md)
 
 ## Replay
 
