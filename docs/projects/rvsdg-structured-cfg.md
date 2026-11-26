@@ -25,8 +25,8 @@ the token.
 witness. `raise` constructs the opposite fibre from a supplied
 `Decomposition` containing the grammar and exact graph equality.
 The certificates are indexed by syntax and numbered wiring.
-The reverse fibre uses supplied structure. Automatic recognition is
-available separately for the fixed loop diamond and serial families.
+The recognizer constructs that decomposition directly from the typed
+numbered graph, as described below.
 
 ## Observations
 
@@ -43,9 +43,8 @@ Every related pair has the same finite return, including the typed
 external label, payload and exact final token. Absence of finite return
 also agrees. The partial observation combines blocking and infinite
 feedback. The grammar covers generated layouts with acyclic
-loop bodies. Arbitrary reducible CFGs, arbitrary graph renumbering and
-automatic reverse recognition for this grammar remain outside the
-theorem.
+loop bodies. Arbitrary reducible CFGs and graph renumbering remain
+outside the theorem.
 
 The regression selects an inner diamond in the left outer arm and
 takes feedback in an inner loop. The outer continuation is a two-loop
@@ -56,11 +55,45 @@ returning 167 and 1678. For input 99 a primitive in the selected right arm is un
 the checked graph has no finite return from which to start the continuation.
 [Lean regression](../../Silmaril/Proofs/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/Regression.lean)
 
+## Recover from a numbered graph
+
+`Reverse.candidate` scans the actual outer vertex order and descends
+into each γ arm. It reuses the local θ parser for loop bodies. Serial
+connector opcodes identify the handoff types. The left arm's entry
+connector and the two exit connectors supply the arm and continuation
+interfaces, even when the two arms enter at different types.
+
+The emitted order of serial cuts can represent several associations.
+`Reverse.Normal` fixes a right-associated serial form in which a
+serial link starts with one θ and a fork owns the rest of its scope
+as its continuation. The parser chooses this form independently
+inside each arm. The local loop parser right-associates instruction
+sequences. Certification re-emits the candidate and compares the
+full typed graph recursively, including selector operands, captured
+arguments, results, and token origins.
+
+`recover_isSome_iff` characterizes acceptance as literal equality with
+the emitted graph of some outer normal form. It allows arbitrary sequence
+association and nested acyclic choices inside those loops. When the
+local bodies also use the parser's association, `recover_generated`
+identifies the recovered source exactly. Other outer associations can
+be accepted when their graphs coincide with the normal emission. The
+regression checks this property on a three-loop serial chain emitted
+with left association. A general graph equality theorem for rebracketing
+all outer compositions is outside the completeness statement.
+
+The recovered CFG has the same two observations and the same absence of
+a finite return as the nested-diamond fixture. A type-correct mutation
+redirects the shared tail's first token to the graph entry while retaining
+the γ payload. The label parser still returns the original candidate and
+certification rejects the graph.
+[Reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/Reverse/Thms.lean)
+
 ## Reproduce
 
 ```sh
-make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression'
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression'
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Thms
 ```
 
 ## Sources

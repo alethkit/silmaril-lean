@@ -1,6 +1,8 @@
 module
 
-import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Thms
+meta import Silmaril.SSA.Isotope.Types.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Defs
 
 namespace Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression
 
@@ -31,6 +33,7 @@ private inductive Op
   | header (stamp : Nat)
   | body
   | join
+  deriving DecidableEq
 
 local instance : HasTy Op Ty :=
   ⟨fun _ => number, fun
@@ -207,7 +210,7 @@ private theorem source_run (coherent : Coherent) (n : TyDen number) :
 private def exit (n : Nat) : Exits := .inl n
 
 -- The inner loop runs twice; both joins and the serial tail consume the accumulated token.
-example (coherent : Coherent) : returns (ε := Bool) lowered.1 (0 : Nat) 0 (exit 123357) 1233578 := by
+private theorem leftReturns (coherent : Coherent) : returns (ε := Bool) lowered.1 (0 : Nat) 0 (exit 123357) 1233578 := by
   apply (lowered.2.region_returns_iff coherent (PUnit.unit, (0 : Nat)) (exit 123357) 0 1233578).mpr
   rw [source_run coherent]
   rw [StateT.run_bind, Part.bind_eq_bind, route_left 3 1 0 0 _ _ (by decide)]
@@ -219,7 +222,7 @@ example (coherent : Coherent) : returns (ε := Bool) lowered.1 (0 : Nat) 0 (exit
   exact stage_returns 8 1 123357 (by decide) (by decide)
 
 -- The outer right arm skips all of the inner diamond's actions.
-example (coherent : Coherent) : returns (ε := Bool) lowered.1 (3 : Nat) 0 (exit 167) 1678 := by
+private theorem rightReturns (coherent : Coherent) : returns (ε := Bool) lowered.1 (3 : Nat) 0 (exit 167) 1678 := by
   apply (lowered.2.region_returns_iff coherent (PUnit.unit, (3 : Nat)) (exit 167) 0 1678).mpr
   rw [source_run coherent]
   rw [StateT.run_bind, Part.bind_eq_bind, route_right 3 1 3 0 _ _ (by decide)]
@@ -229,10 +232,115 @@ example (coherent : Coherent) : returns (ε := Bool) lowered.1 (3 : Nat) 0 (exit
   change (runStage 8 (3 : Nat)).run 167 = _
   exact stage_returns 8 3 167 (by decide) (by decide)
 
-example (coherent : Coherent) : observe (ε := Bool) lowered.1 (99 : Nat) 0 = Part.none := by
+private theorem noReturn (coherent : Coherent) : observe (ε := Bool) lowered.1 (99 : Nat) 0 = Part.none := by
   apply (lowered.2.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) 0).mpr
   rw [source_run coherent]
   rw [StateT.run_bind, Part.bind_eq_bind, route_right 3 1 99 0 _ _ (by decide)]
   rw [blocked, Part.bind_none]
+
+open Reverse (Normal Supported)
+open OrderedRuntime.Structured (runtime)
+
+private def normalInner :=
+  Normal.branch (X := number) (Z := number) (gate 1 2)
+    (.loop (stage 3)) (.loop (stage 4)) (.loop (stage 5))
+
+private def normal :=
+  Normal.branch (X := number) (Z := number) (gate 3 1) normalInner
+    (.loop (stage 6)) (.link (stage 7) (.loop (stage 8)))
+
+private theorem supported : Supported normal :=
+  ⟨⟨.instruction _, .instruction _, .instruction _⟩, .instruction _, .instruction _, .instruction _⟩
+
+private theorem recovers : Reverse.recover lowered.1 =
+    some ⟨exampleCFG.source.region, .generated exampleCFG⟩ :=
+  Reverse.recover_generated normal supported
+
+private def recovered : Reverse.Fibre lowered.1 :=
+  (Reverse.recover lowered.1).get (by rw [recovers]; rfl)
+
+private theorem accepted : Reverse.recover lowered.1 = some recovered := by
+  simp [recovered, recovers]
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recovered.2.typing (PUnit.unit, (0 : Nat))).run 0 =
+      Part.some (exit 123357, 1233578) :=
+  (Reverse.recover_returns_iff accepted coherent (PUnit.unit, (0 : Nat)) (exit 123357) 0 1233578).mp
+    (leftReturns coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recovered.2.typing (PUnit.unit, (3 : Nat))).run 0 =
+      Part.some (exit 167, 1678) :=
+  (Reverse.recover_returns_iff accepted coherent (PUnit.unit, (3 : Nat)) (exit 167) 0 1678).mp
+    (rightReturns coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recovered.2.typing (PUnit.unit, (99 : Nat))).run 0 = Part.none :=
+  (Reverse.recover_undefined_iff accepted coherent (PUnit.unit, (99 : Nat)) 0).mp (noReturn coherent)
+
+private abbrev Boundary := Flat.Serial.WirePorts number number number
+private abbrev FixtureSigs := Selection number number number number ++
+  Flat.Serial.Joined number number number [Boundary] [Boundary]
+private abbrev Graph := Flat.Serial.Graph Op number number number number number number FixtureSigs
+
+private def staleToken {past : List (Ports (OrderedRuntime.Structured.Ty Ty))}
+    {t : OrderedRuntime.Structured.Ty Ty} (wire : Origin Boundary past t) : Origin Boundary past t :=
+  if same : runtime = t then Eq.mp (congrArg (Origin Boundary past) same) (.arg (.tail .head))
+  else wire
+
+-- The first loop of the shared tail still receives the γ payload.
+-- Its token instead reads the type-correct original graph argument.
+private def stale : Graph :=
+  let term : NestedTheta.Term (Wires.Op Op) Boundary [] FixtureSigs Boundary := match lowered.1.toTerm with
+    | .bind gate gateChildren (.bind fork arms (.bind next body rest)) =>
+      let inputs := next.inputs.map (fun _ wire => staleToken wire)
+      .bind gate gateChildren (.bind fork arms (.bind {next with inputs} body rest))
+  term.toGraph
+
+private theorem sameLabels : Reverse.scan stale.toTerm = Reverse.scan lowered.1.toTerm := by
+  unfold stale
+  rw [NestedTheta.Term.toTerm_toGraph]
+  generalize lowered.1.toTerm = term
+  cases term with
+  | bind gate gateChildren rest =>
+    cases rest with
+    | bind fork arms rest =>
+      cases rest with
+      | bind next body rest =>
+        cases next
+        rfl
+
+private theorem staleParses : Reverse.candidate stale = some normal := by
+  unfold Reverse.candidate
+  rw [sameLabels]
+  exact Reverse.candidate_generated normal supported
+
+private theorem staleDifferent : normal.toSyntax.graph ≠ stale := by
+  intro eq
+  have edges := congrArg (fun g : Graph =>
+    match g with | .region nodes _ _ => (nodes (2 : Fin 5)).inputs.addresses) eq
+  change [Address.output 1 0, Address.output 1 1] = [Address.output 1 0, Address.arg 1] at edges
+  cases edges
+
+example : Reverse.recognize stale = none :=
+  Reverse.reject_wiring normal staleParses staleDifferent
+
+-- Three loops emitted with left association have the same numbered wiring
+-- as the recognizer's right-associated view in this fixture.
+private def leftSerial :=
+  Syntax.link (.link (.loop (stage 5)) (.loop (stage 7))) (.loop (stage 8))
+
+private def rightSerial := Normal.link (stage 5) (.link (stage 7) (.loop (stage 8)))
+
+example : Reverse.candidate leftSerial.graph = some rightSerial :=
+  Reverse.candidate_generated rightSerial ⟨.instruction _, .instruction _, .instruction _⟩
+
+#eval show IO Unit from do
+  unless (Reverse.recover lowered.1).isSome do
+    throw (IO.userError "could not recover the nested diamond and its serial tail")
+  unless (Reverse.recognize leftSerial.graph).isSome do
+    throw (IO.userError "could not recover the right-associated serial view")
+  unless (Reverse.candidate stale).isSome && (Reverse.recognize stale).isNone do
+    throw (IO.userError "structured recovery failed to certify the stale token")
 
 end Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression
