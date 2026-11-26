@@ -35,7 +35,7 @@ private theorem eval_lifted {k : Nat → Region Φ} {i label : Nat} {env : Env �
 @[expose] def feedbackPayload (blocks i : Nat) (v : Value α) : Value α :=
   packedExitValue (if i < blocks then i else i - blocks) v
 
-private theorem route_comp_dispatch (count i : Nat) :
+theorem route_comp_dispatch (count i : Nat) :
     compLSubst (routeExit (Φ := Φ) count) (fun _ => iterationDispatch) i =
       .case (if i < count then .inr (packedExitArg i (.var 0))
              else .inl (packedExitArg (i - count) (.var 0)))
@@ -157,5 +157,37 @@ theorem unpackExits_comp_eval {τ : Type x} [TypeFormers τ] (L : LCtx τ)
         (compLSubst (fun _ => unpackExits L) k 0) s label out t ↔
       Eval instr (extend env v) (k i) s label out t :=
   (unpackExits_apply_eval L hi (liftLSubstVars k)).trans eval_lifted
+
+section Dispatcher
+
+variable {τ : Type x} [TypeFormers τ] [HasTy Φ τ]
+  {blocks exits : Nat} {R : Fin blocks → τ} {E : Fin exits → τ}
+  {g : FiniteCFG Φ blocks exits 0}
+
+/-- The continuations applied after decoding the packed block index. -/
+def packedBlockContinuations (hg : FiniteCFG.HasType .nil R E g) : Nat → Region Φ :=
+  compLSubst (compLSubst (blockFamily hg).val (routeFamily (List.ofFn R) (List.ofFn E)).val)
+    (fun _ => iterationDispatch)
+
+theorem iterationBody_packedDispatcher (hg : FiniteCFG.HasType .nil R E g) :
+    iterationBody (packedDispatcherRegion hg) =
+      compLSubst (fun _ => unpackExits (List.ofFn R)) (packedBlockContinuations hg) 0 := by
+  let body := compLSubst (blockFamily hg).val (routeFamily (List.ofFn R) (List.ofFn E)).val
+  let ret : Nat → Region Φ := fun _ => iterationDispatch
+  have shift : liftLSubstVars ret = ret := rfl
+  have assoc : compLSubst (liftLSubstVars body) ret = liftLSubstVars (compLSubst body ret) :=
+    (congrArg (compLSubst (liftLSubstVars body)) shift).symm.trans (compLSubst_liftVars body ret)
+  change ((unpackExits (List.ofFn R)).lsubst (liftLSubstVars body)).lsubst ret = _
+  rw [lsubst_comp, assoc]
+  rfl
+
+theorem packedBlockContinuations_at (hg : FiniteCFG.HasType .nil R E g) {i : Nat} (hi : i < blocks) :
+    packedBlockContinuations hg i = iterationBody (routedFlat blocks (g.block ⟨i, hi⟩)) := by
+  have shift : liftLSubstVars (fun _ => iterationDispatch : Nat → Region Φ) =
+      fun _ => iterationDispatch := rfl
+  simp only [packedBlockContinuations, iterationBody, compLSubst, routeFamily, List.length_ofFn,
+    blockFamily, ContinuationFamily.ofTyped, dite_eq_left hi, liftLSubstVars_routeExit, shift, routedFlat]
+
+end Dispatcher
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.FlatExecution
