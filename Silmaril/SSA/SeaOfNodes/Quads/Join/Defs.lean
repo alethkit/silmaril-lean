@@ -54,12 +54,26 @@ def slotAt : Fin 2 → Slot := Fin.cases .first (fun _ => .second)
 def selected (merge : Merge) (condition : Bool) : Slot :=
   merge.slot (Projection.ofBool condition)
 
+/-- A finite choice made from the current bank. Leaves name incoming occurrences. -/
+inductive Choice (regs : List (ValueSort Data)) (arity : Nat) where
+  | take (edge : Fin arity)
+  | test (condition : Port (dataPorts regs) (.value .predicate))
+      (onTrue onFalse : Choice regs arity)
+
+def Choice.eval {arity : Nat} {value : Data → Type w}
+    (bank : Tuple (Val value) (dataPorts regs)) : Choice regs arity → Fin arity
+  | .take edge => edge
+  | .test condition onTrue onFalse =>
+    if (bank.get condition).down then onTrue.eval bank else onFalse.eval bank
+
 /-- Pure quad instructions and the selector that encodes the Region's edge order. -/
 inductive Opcode (Op : Signature.{u, v} Data) :
     RVSDG.Dialect.{u, max u v} (ValueSort Data) PEmpty.{u + 1} where
   | pure {ins : List (ValueSort Data)} {out : ValueSort Data} :
       Op ins out → Opcode Op (dataPorts ins) [.value out]
   | select (merge : Merge) : Opcode Op [.value .predicate] [.control 2]
+  | route {regs : List (ValueSort Data)} {arity : Nat} (choice : Choice regs arity) :
+      Opcode Op (dataPorts regs) (.control arity :: dataPorts regs)
 
 abbrev model (m : Model.{u, v, w} Op) : RVSDG.Model (Opcode Op) where
   value := sortValue m.value
@@ -67,6 +81,7 @@ abbrev model (m : Model.{u, v, w} Op) : RVSDG.Model (Opcode Op) where
   run
     | .pure op, input => .cons (m.run op input) .nil
     | .select merge, .cons condition .nil => .cons ⟨slotIndex (selected merge condition.down)⟩ .nil
+    | .route choice, input => .cons ⟨choice.eval input⟩ input
 
 /-- Follow the assignments to obtain the current definition of each register
 on this block's outgoing edge. -/
