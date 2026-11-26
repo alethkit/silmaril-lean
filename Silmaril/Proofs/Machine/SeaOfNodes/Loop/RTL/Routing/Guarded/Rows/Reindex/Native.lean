@@ -225,7 +225,15 @@ theorem step_reindex (p : Plan arity) (perm : InputPermutation arity)
   have sameLocals := eval_localFlow m input captured old p.graph.header
     (local_append p.row p.test (local_row p.updates []) (local_test p)) PUnit.unit
   have predLocal : Local p.graph.predicate := local_cast _ (wire := newest .head) trivial
-  have resultLocal : Local p.graph.result := ⟨argumentPort arity p.exitSlot, rfl⟩
+  have exitLocal : Local p.exitWire := by
+    cases selected : p.exitProducer with
+    | none =>
+      simpa only [Plan.exitWire, selected, Option.elim] using
+        (local_old (past := p.rowPast) (argumentPort arity p.exitSlot))
+    | some index =>
+      simp only [Plan.exitWire, selected, Option.elim]
+      trivial
+  have resultLocal : Local p.graph.result := local_cast _ (local_keep p.test exitLocal)
   change _ = locals at sameLocals
   change (if (read m p.graph.predicate (appendTuple old input)
     (p.graph.header.eval m (appendTuple old input) PUnit.unit)).down then
