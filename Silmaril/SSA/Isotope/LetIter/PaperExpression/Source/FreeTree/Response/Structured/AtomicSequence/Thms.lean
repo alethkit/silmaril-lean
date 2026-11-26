@@ -1,14 +1,16 @@
 module
 
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.AtomicSequence.Defs
+public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.ProductSplit.Defs
 import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.AtomicSequence
 
-/-! # Original-bound reflection for visible atomic-reply sequences -/
+/-! # Original-bound reflection for atomic and two-field product replies -/
 
 public section
 
 open Silmaril.Isotope Silmaril.Elgot
 open Silmaril.Isotope.LetIter.LocallyNameless (Tm AbortEquiv)
+open Silmaril.Isotope.LetIter.PaperExpression (Wf)
 open Silmaril.Isotope.LetIter.PaperExpression.Source
 open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues
 
@@ -67,6 +69,32 @@ theorem denote_next_eq {f : Φ} (visible : ¬ IsPure (⊥ : ε) f)
       q.denote profile modelSlots (replySlots hs ty) vals :=
   Proofs.denote_next_eq profile modelSlots hs visible ty arg vals h
 
+/-- A product binder consumes one visible request and installs its two
+reply fields in their respective continuation slots. -/
+theorem denote_callPair {f : Φ} (visible : ¬ IsPure (⊥ : ε) f)
+    {a b : α} (ty : (instrTrg f : Ty α) = .product (.base a) (.base b))
+    (arg : Val slots (instrSrc f)) (next : Prog A (pairSlots a b slots)) :
+    (Program.callPair f visible ty arg next).denote profile modelSlots hs vars =
+      ITree.vis (.call f (arg.subst vars).encode) (fun reply =>
+        let p := cast (congrArg (Ty.denote (Atoms modelSlots)) ty) reply
+        next.denote profile modelSlots (pairReplySlots hs a b) (pairValuation p.1 p.2 vars)) :=
+  Proofs.denote_callPair profile modelSlots hs vars visible ty arg next
+
+/-- Test product continuations at any two sorted reply fields, retaining
+the old valuation. In the extended free model the two fields can be
+tested at distinct fresh generators, even when their sorts coincide. -/
+theorem denote_nextPair_eq {f : Φ} (visible : ¬ IsPure (⊥ : ε) f)
+    {a b : α} (ty : (instrTrg f : Ty α) = .product (.base a) (.base b))
+    (arg : Val slots (instrSrc f)) {p q : Prog A (pairSlots a b slots)}
+    (vals : (i : Fin (n + 2)) → Atoms modelSlots (pairSlots a b slots i))
+    (h :
+      let retained : (i : Fin n) → Atoms modelSlots (slots i) := fun i => vals i.succ.succ
+      (Program.callPair f visible ty arg p).denote profile modelSlots hs retained =
+        (Program.callPair f visible ty arg q).denote profile modelSlots hs retained) :
+    p.denote profile modelSlots (pairReplySlots hs a b) vals =
+      q.denote profile modelSlots (pairReplySlots hs a b) vals :=
+  Proofs.denote_nextPair_eq profile modelSlots hs visible ty arg vals h
+
 end Denotation
 
 variable (profile : Profile (α := α) Φ ε)
@@ -92,6 +120,23 @@ section Source
 
 variable {α Φ : Type u} [HasTy Φ (Ty α)] {ε : Type r} [HasEff Φ ε] [Preorder ε] [OrderBot ε]
   {A : Ty α} {n : Nat} {slots : Fin n → α}
+
+/-- Decomposing the evaluated pair with a unary let followed by
+destructuring preserves the original type and effect bound. -/
+theorem pairLet_bind {Γ : EffectCtx (Ty α) ε} {a b : Ty α} {e : ε}
+    {s k : Expr Φ} (hs : Wf Γ s (.product a b) e)
+    (hk : Wf ((b, ⊥) :: (a, ⊥) :: Γ) k A e) :
+    Eqv Γ A e (.let₂ s k) (.let₁ s (.let₂ (.var 0) k.wk2)) :=
+  Proofs.pairLet_bind hs hk
+
+/-- Substitute the constructor pair of fresh slots for the product variable
+of a canonical destructuring continuation. The typed result recovers the
+body at the same bound. -/
+theorem pairLet_specialize {Γ : EffectCtx (Ty α) ε} {a b : Ty α} {e : ε}
+    {k : Expr Φ} (hk : Wf ((b, ⊥) :: (a, ⊥) :: Γ) k A e) :
+    Eqv ((b, ⊥) :: (a, ⊥) :: Γ) A e
+      (ProductSplit.split 0 (.let₂ (.var 0) k.wk2)) k :=
+  Proofs.pairLet_specialize hk
 
 /-- Rendering preserves source typing at the common original effect bound. -/
 theorem wf {Γ : EffectCtx (Ty α) ε} {slots : Fin Γ.length → α}
@@ -135,7 +180,8 @@ theorem endpoint_reflection (hΓ : Γ.Pure) (hs : ∀ i, (Γ.get i).1 = .base (s
 
 include profile in
 /-- Original-bound reflection for written finite call sequences with atomic
-replies and bottom-typed constructor arguments and returns. -/
+or destructured two-atom product replies and bottom-typed constructor
+arguments and returns. -/
 theorem written_reflection
     (hΓ : Γ.Pure) (hs : ∀ i, (Γ.get i).1 = .base (slots i)) {e : ε}
     {a b : Expr Φ} (ha : Written A e Γ a) (hb : Written A e Γ b)

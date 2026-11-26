@@ -2213,3 +2213,147 @@ example : ¬ AbortEquiv (⊥ : Eff) Γ₀ β forward.native stamped.native A := 
   cases src
 
 end LetIterStructuredAtomicRepliesFixture
+
+namespace LetIterStructuredProductRepliesFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured
+  (Event ReplyShape headRequest head_of_vis)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues
+  (Atom Value Profile)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.AtomicSequence
+
+set_option backward.isDefEq.respectTransparency false
+
+private inductive Instruction
+  | receive | publish
+
+private abbrev Eff := Bool × Bool
+private abbrev bound : Eff := (true, false)
+private abbrev A : Ty Unit := .base ()
+private abbrev P : Ty Unit := .product A A
+
+private instance : HasTy Instruction (Ty Unit) where
+  src
+    | .receive => .unit
+    | .publish => P
+  trg
+    | .receive => P
+    | .publish => A
+
+private instance : HasEff Instruction Eff where
+  eff _ := bound
+
+local instance : EffectIteration Eff := EffectIteration.complete Eff
+
+private theorem visible (f : Instruction) : ¬ IsPure (⊥ : Eff) f :=
+  fun h => Bool.noConfusion (congrArg Prod.fst h)
+
+private def profile : Profile (α := Unit) Instruction Eff :=
+  fun f hf => (visible f hf).elim
+
+private abbrev Γ : EffectCtx (Ty Unit) Eff := [(A, ⊥)]
+private abbrev fields := (A, (⊥ : Eff)) :: (A, ⊥) :: Γ
+private abbrev β := Γ.toBoundCtx
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty (Ty Unit))
+private abbrev sorts : Fin Γ.length → Unit := fun _ => ()
+private abbrev freshSorts := pairSlots () () sorts
+
+private theorem pureCtx : Γ.Pure := fun i => Fin.cases rfl (fun i => i.elim0) i
+private theorem sourceSlots : ∀ i : Fin Γ.length, (Γ.get i).1 = Ty.base (sorts i) :=
+  fun i => Fin.cases rfl (fun i => i.elim0) i
+private theorem nativeSlots : ∀ i : Fin Γ.length, β.get i = Ty.base (sorts i) :=
+  fun i => Fin.cases rfl (fun i => i.elim0) i
+
+private abbrev tail (swap : Bool) : Expr Instruction :=
+  let arg := if swap then Expr.pair (.var 0) (.var 1) else Expr.pair (.var 1) (.var 0)
+  .let₁ (.op .publish arg) (.var 3)
+
+private abbrev direct (swap : Bool) : Expr Instruction :=
+  .let₂ (.op .receive .unit) (tail swap)
+
+private abbrev factored (swap : Bool) : Expr Instruction :=
+  .let₁ (.op .receive .unit) (.let₂ (.var 0) (tail swap).wk2)
+
+private theorem tailWritten (swap : Bool) : Written A bound fields (tail swap) := by
+  cases swap
+  · exact .call (f := Instruction.publish) (visible _) rfl (.pair (.var 1 bot_le) (.var 0 bot_le))
+      (.pair (.var 1) (.var 0)) le_rfl (.ret (.var 3 bot_le) (.var 3))
+  · exact .call (f := Instruction.publish) (visible _) rfl (.pair (.var 0 bot_le) (.var 1 bot_le))
+      (.pair (.var 0) (.var 1)) le_rfl (.ret (.var 3 bot_le) (.var 3))
+
+private theorem directWritten (swap : Bool) : Written A bound Γ (direct swap) :=
+  .callPair (f := Instruction.receive) (visible _) rfl (.unit _ _) .unit le_rfl (tailWritten swap)
+
+private theorem factoredWritten (swap : Bool) : Written A bound Γ (factored swap) :=
+  .callPairViaLet (f := Instruction.receive) (visible _) rfl (.unit _ _) .unit le_rfl (tailWritten swap)
+
+private def continuation (swap : Bool) : Program (Φ := Instruction) (ε := Eff) A freshSorts :=
+  .call Instruction.publish (visible _) rfl
+    (if swap then .pair (.var 0) (.var 1) else .pair (.var 1) (.var 0)) (.ret (.var 3))
+
+private def program (swap : Bool) : Program (Φ := Instruction) (ε := Eff) A sorts :=
+  .callPair Instruction.receive (visible _) rfl .unit (continuation swap)
+
+private abbrev canonical (swap : Bool) : Tm Empty Instruction Γ.length :=
+  .let₂ (.op .receive .unit)
+    (.let₁ (.op .publish (if swap then .pair (.bv 0) (.bv 1) else .pair (.bv 1) (.bv 0))) (.bv 3))
+
+private abbrev nested : Tm Empty Instruction Γ.length :=
+  .let₁ (.op .receive .unit) (.let₂ (.bv 0) (.let₁ (.op .publish (.pair (.bv 1) (.bv 0))) (.bv 4)))
+
+example : bound < (⊤ : Eff) :=
+  lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+-- The field slots are different free generators, even at the same sort.
+example : (Value.var (Φ := Instruction) (ε := Eff) (slots := freshSorts) 1) ≠ Value.var 0 := by
+  intro h
+  cases h
+
+-- Observing the receive node at the ordered constructor reply installs the
+-- two distinct fresh slots before publish. The old slot is retained at 2.
+example :
+    let V := Atom (Φ := Instruction) (ε := Eff) freshSorts
+    let shape := ReplyShape.pair (ReplyShape.atom ()) (ReplyShape.atom ())
+    let reply := shape.denote V
+      (Fin.addCases (motive := fun _ => V ()) (fun _ => Value.var 1) (fun _ => Value.var 0))
+    ∃ k : Ty.denote V P → ITree.Tree (Event (Φ := Instruction) V) _,
+      (program false).denote profile freshSorts nativeSlots (fun _ => Value.var 2) =
+        ITree.vis (.call Instruction.receive PUnit.unit) k ∧
+      headRequest V (k reply) = Part.some (some ⟨Instruction.publish, (Value.var 1, Value.var 0)⟩) := by
+  dsimp only
+  rw [program, denote_callPair]
+  refine ⟨_, rfl, ?_⟩
+  dsimp only
+  rw [continuation, denote_call]
+  exact head_of_vis _ _ _ _
+
+private theorem tailWf : Wf fields (tail false) A bound :=
+  .let₁ (.op (f := Instruction.publish) le_rfl (.pair (.var 1 bot_le) (.var 0 bot_le)))
+    (.var 3 bot_le)
+
+-- The whole reply can be reconstructed as the pair of fields. Checked
+-- source substitution and beta recover the body, including the old slot.
+example :
+    Eqv fields A bound (ProductSplit.split 0 (.let₂ (.var 0) (tail false).wk2)) (tail false) :=
+  pairLet_specialize tailWf
+
+example : Eqv Γ A bound (direct false) (factored false) :=
+  pairLet_bind (.op (f := Instruction.receive) le_rfl (.unit _ _)) tailWf
+
+example :
+    AbortEquiv (⊥ : Eff) Γ₀ β (canonical false) nested A ↔
+      Eqv Γ A bound (direct false) (factored false) :=
+  written_reflection profile pureCtx sourceSlots (directWritten false) (factoredWritten false) rfl rfl
+
+private theorem distinct : ¬ AbortEquiv (⊥ : Eff) Γ₀ β (canonical false) (canonical true) A := by
+  intro h
+  have eq : program false = program true := eq_of_abortEquiv profile nativeSlots h
+  have src := congrArg Program.source eq
+  cases src
+
+example : ¬ Eqv Γ A bound (direct false) (direct true) := by
+  intro h
+  exact distinct ((written_reflection profile pureCtx sourceSlots
+    (directWritten false) (directWritten true) rfl rfl).mpr h)
+
+end LetIterStructuredProductRepliesFixture
