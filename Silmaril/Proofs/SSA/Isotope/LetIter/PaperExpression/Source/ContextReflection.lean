@@ -17,7 +17,7 @@ open Silmaril.Isotope.LetIter.PaperExpression.Source
 
 namespace Silmaril.Isotope.LetIter.PaperExpression.Source.ContextReflection.Proofs
 
-universe u w
+universe u v w
 
 section Measure
 
@@ -85,26 +85,32 @@ theorem unit_decreases (i : Fin Γ.length) (hty : (Γ.get i).1 = .unit) :
 
 end Measure
 
-variable {α Φ : Type u} (S : FreeTree.Signature α Φ)
-  {ε : Type w} [HasEff Φ ε] [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε]
-  [DecidableEq α]
+section Cover
 
-theorem reflect_aux (e : ε) {C : Ty α} (size : Nat) :
-    letI := S.endpoints
+variable {α : Type u} {Φ : Type v} [HasTy Φ (Ty α)]
+  {ε : Type w} [HasEff Φ ε] [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε]
+
+private theorem reflect_aux (lo e : ε) (hle : lo ≤ e) {C : Ty α} (size : Nat)
+    (atomic : ∀ {Γ : EffectCtx (Ty α) ε} {slots : Fin Γ.length → α}
+      {a b : Expr Φ} {t s : Tm Empty Φ Γ.length},
+      Γ.Pure → (∀ i, (Γ.get i).1 = .base (slots i)) →
+      Wf Γ a C lo → Wf Γ b C lo →
+      a.toLetIter Γ.length = some t → b.toLetIter Γ.length = some s →
+      AbortEquiv (⊥ : ε) (.nil : Ctx Empty (Ty α)) Γ.toBoundCtx t s C →
+      Eqv Γ C e a b) :
     ∀ {Γ : EffectCtx (Ty α) ε} {a b : Expr Φ} {t s : Tm Empty Φ Γ.length},
       contextNodes Γ = size → Γ.Pure →
-      Wf Γ a C (⊥ : ε) → Wf Γ b C (⊥ : ε) →
+      Wf Γ a C lo → Wf Γ b C lo →
       a.toLetIter Γ.length = some t → b.toLetIter Γ.length = some s →
       AbortEquiv (⊥ : ε) (.nil : Ctx Empty (Ty α)) Γ.toBoundCtx t s C →
       Eqv Γ C e a b := by
   classical
-  let instr := S.endpoints
   induction size using Nat.strong_induction_on with
   | ind size ih =>
     intro Γ a b t s hsize hΓ ha hb ht hs hn
     by_cases hats : ∀ i : Fin Γ.length, ∃ x : α, (Γ.get i).1 = .base x
     · choose sorts hsorts using hats
-      exact (FreeTree.Normalization.endpoint_reflection_atomic_inputs S hΓ hsorts e ha hb ht hs).mp hn
+      exact atomic hΓ hsorts ha hb ht hs hn
     · obtain ⟨i, hi⟩ := not_forall.mp hats
       cases htype : (Γ.get i).1 with
       | base x => exact (hi ⟨x, htype⟩).elim
@@ -115,9 +121,9 @@ theorem reflect_aux (e : ε) {C : Ty α} (size : Nat) :
           (UnitSlot.wf_specializeUnit i htype (hΓ i) ha)
           (UnitSlot.wf_specializeUnit i htype (hΓ i) hb) ht' hs' hn'
         exact (UnitSlot.eqv_iff_specializeUnit i htype (hΓ i)
-          (wf_weakenEffect ha bot_le) (wf_weakenEffect hb bot_le)).mpr he
+          (ha.weakenEffect hle) (hb.weakenEffect hle)).mpr he
       | empty =>
-        exact eqv_of_empty_slot i htype (hΓ i) (wf_weakenEffect ha bot_le) (wf_weakenEffect hb bot_le)
+        exact eqv_of_empty_slot i htype (hΓ i) (ha.weakenEffect hle) (hb.weakenEffect hle)
       | product A B =>
         have hdec : contextNodes (ProductSplit.splitCtx Γ i A B) < size :=
           hsize ▸ product_decreases i htype
@@ -125,7 +131,7 @@ theorem reflect_aux (e : ε) {C : Ty α} (size : Nat) :
         have he := ih _ hdec rfl (ProductSplit.splitCtx_pure hΓ i A B)
           (ProductSplit.wf_split i htype (hΓ i) ha) (ProductSplit.wf_split i htype (hΓ i) hb) ht' hs' hn'
         exact (ProductSplit.eqv_iff_split i htype (hΓ i)
-          (wf_weakenEffect ha bot_le) (wf_weakenEffect hb bot_le)).mpr he
+          (ha.weakenEffect hle) (hb.weakenEffect hle)).mpr he
       | coprod A B =>
         have hdecL : contextNodes (SumSplit.branchCtx Γ i A) < size := hsize ▸ sum_left_decreases i htype
         have hdecR : contextNodes (SumSplit.branchCtx Γ i B) < size := hsize ▸ sum_right_decreases i htype
@@ -138,7 +144,29 @@ theorem reflect_aux (e : ε) {C : Ty α} (size : Nat) :
         have hR := ih _ hdecR rfl (SumSplit.branchCtx_pure hΓ i B)
           haR hbR htR hsR hnR
         exact (SumSplit.eqv_iff_specializations i htype (hΓ i)
-          (wf_weakenEffect ha bot_le) (wf_weakenEffect hb bot_le)).mpr ⟨hL, hR⟩
+          (ha.weakenEffect hle) (hb.weakenEffect hle)).mpr ⟨hL, hR⟩
+
+/-- Transport reflection through the recursive cover by pure atomic contexts. -/
+public theorem reflect_of_atomic (lo e : ε) (hle : lo ≤ e) {C : Ty α}
+    (atomic : ∀ {Γ : EffectCtx (Ty α) ε} {slots : Fin Γ.length → α}
+      {a b : Expr Φ} {t s : Tm Empty Φ Γ.length},
+      Γ.Pure → (∀ i, (Γ.get i).1 = .base (slots i)) →
+      Wf Γ a C lo → Wf Γ b C lo →
+      a.toLetIter Γ.length = some t → b.toLetIter Γ.length = some s →
+      AbortEquiv (⊥ : ε) (.nil : Ctx Empty (Ty α)) Γ.toBoundCtx t s C →
+      Eqv Γ C e a b)
+    {Γ : EffectCtx (Ty α) ε} {a b : Expr Φ} {t s : Tm Empty Φ Γ.length}
+    (hΓ : Γ.Pure) (ha : Wf Γ a C lo) (hb : Wf Γ b C lo)
+    (ht : a.toLetIter Γ.length = some t) (hs : b.toLetIter Γ.length = some s)
+    (hn : AbortEquiv (⊥ : ε) (.nil : Ctx Empty (Ty α)) Γ.toBoundCtx t s C) :
+    Eqv Γ C e a b :=
+  reflect_aux lo e hle (contextNodes Γ) atomic rfl hΓ ha hb ht hs hn
+
+end Cover
+
+variable {α Φ : Type u} (S : FreeTree.Signature α Φ)
+  {ε : Type w} [HasEff Φ ε] [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε]
+  [DecidableEq α]
 
 public theorem endpoint_reflection_all_contexts {Γ : EffectCtx (Ty α) ε} {C : Ty α} {a b : Expr Φ}
     (hΓ : Γ.Pure) (e : ε)
@@ -150,6 +178,8 @@ public theorem endpoint_reflection_all_contexts {Γ : EffectCtx (Ty α) ε} {C :
     AbortEquiv (⊥ : ε) (.nil : Ctx Empty (Ty α)) Γ.toBoundCtx t s C ↔
       Eqv Γ C e a b := by
   let instr := S.endpoints
-  exact ⟨reflect_aux S e (contextNodes Γ) rfl hΓ ha hb ht hs, fun h => h.toLetIter ht hs⟩
+  refine ⟨reflect_of_atomic ⊥ e bot_le ?_ hΓ ha hb ht hs, fun h => h.toLetIter ht hs⟩
+  intro Δ slots a b t s hΔ hslots ha hb ht hs hn
+  exact (FreeTree.Normalization.endpoint_reflection_atomic_inputs S hΔ hslots e ha hb ht hs).mp hn
 
 end Silmaril.Isotope.LetIter.PaperExpression.Source.ContextReflection.Proofs
