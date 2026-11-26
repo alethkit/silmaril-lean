@@ -21,16 +21,14 @@ local notation "Ops" => Opcode Q K
 local notation "Free" => (Ctx.nil : Ctx Empty (Ty Unit))
 local notation "emptyCtx" => ([] : EffectCtx (Ty Unit) ε)
 
-theorem replay {s₀ : S.Value} {t₀ : T.Value}
-    (separates : Function.Injective R.request) (reach : ∀ s, L.Reaches s₀ s)
-    (obs : L.run s₀ = R.run t₀)
+theorem replay_commutes {s₀ : S.Value} {t₀ : T.Value}
+    {h : S.Value → T.Value} (commute : Commutes L R h) (initial : h s₀ = t₀)
     (hf : instrEff (Opcode.ask : Ops) ≤ e) (he : IsIterative e) :
     ∃ (a a' : Tm Empty Ops 0) (b b' : Tm Empty Ops 1),
       (S.literal s₀).toLetIter 0 = some a ∧ (T.literal t₀).toLetIter 0 = some a' ∧
       L.source.toLetIter 1 = some b ∧ R.source.toLetIter 1 = some b' ∧
       HasTypeEffect Free .nil (.iter a b) B.ty e ∧ HasTypeEffect Free .nil (.iter a' b') B.ty e ∧
       AbortEquiv (⊥ : ε) Free .nil (.iter a b) (.iter a' b') B.ty := by
-  obtain ⟨h, commute, initial⟩ := exists_commutes_of_initial separates reach obs
   have lhs : Wf emptyCtx (S.literal s₀ : Expr Ops) S.ty e := literal_wf S s₀
   have rhs : Wf emptyCtx (T.literal t₀ : Expr Ops) T.ty e := literal_wf T t₀
   obtain ⟨a, ha, ta⟩ := lhs.toLetIter
@@ -64,5 +62,17 @@ theorem replay {s₀ : S.Value} {t₀ : T.Value}
     some (.let₁ a m) by simp [Expr.toLetIter, ha, ml]) ha'
   exact ⟨a, a', b, b', ha, ha', hb, hb', .iter he ta tb, .iter he ta' tb',
     eq.trans (.iter initEq (.refl tb'.1))⟩
+
+theorem replay {s₀ : S.Value} {t₀ : T.Value}
+    (separates : Function.Injective R.request) (reach : ∀ s, L.Reaches s₀ s)
+    (obs : L.run s₀ = R.run t₀)
+    (hf : instrEff (Opcode.ask : Ops) ≤ e) (he : IsIterative e) :
+    ∃ (a a' : Tm Empty Ops 0) (b b' : Tm Empty Ops 1),
+      (S.literal s₀).toLetIter 0 = some a ∧ (T.literal t₀).toLetIter 0 = some a' ∧
+      L.source.toLetIter 1 = some b ∧ R.source.toLetIter 1 = some b' ∧
+      HasTypeEffect Free .nil (.iter a b) B.ty e ∧ HasTypeEffect Free .nil (.iter a' b') B.ty e ∧
+      AbortEquiv (⊥ : ε) Free .nil (.iter a b) (.iter a' b') B.ty := by
+  obtain ⟨h, commute, initial⟩ := exists_commutes_of_initial separates reach obs
+  exact replay_commutes commute initial hf he
 
 end Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Proofs

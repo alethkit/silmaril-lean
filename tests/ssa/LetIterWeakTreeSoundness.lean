@@ -1,7 +1,7 @@
 module
 
 import Silmaril.Semantics.ITree.Thms
-import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Denotation.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Cover.Thms
 import Silmaril.Semantics.ITree.VisiblePrefix.Thms
 import Silmaril.SSA.Isotope.LetIter.RequestFeedback.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Syntactic.AbortSequence.Category.Model.Thms
@@ -3709,7 +3709,7 @@ open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structure
 open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured
   (PureMaps)
 open Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic
-  (repairedDenoteInSyntax)
+  (repairedDenoteInSyntax repairedDenoteInSyntax_eq_iff)
 
 private abbrev Bit := Code.sum .unit .unit
 private abbrev Three := Code.sum Bit .unit
@@ -3831,5 +3831,87 @@ example :
 
 example : strict < (⊤ : Eff) :=
   lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+private abbrev first : Three.Value := .inl off
+private abbrev second : Three.Value := .inl on
+private abbrev third : Three.Value := .inr PUnit.unit
+
+private def rotate : Three.Value → Three.Value
+  | .inl (.inl _) => second
+  | .inl (.inr _) => third
+  | .inr _ => first
+
+private def flatLeft : Table Three Bit Bit .unit :=
+  ⟨fun _ => first, fun s r => match r with
+    | .inl _ => .inl PUnit.unit
+    | .inr _ => .inr (toggle s)⟩
+
+private def flatRight : Table Three Bit Three .unit :=
+  ⟨fun _ => first, fun s r => match r with
+    | .inl _ => .inl PUnit.unit
+    | .inr _ => .inr (rotate s)⟩
+
+private def flatOne : Table Three Bit .unit .unit :=
+  ⟨fun _ => first, fun _ r => match r with
+    | .inl _ => .inl PUnit.unit
+    | .inr _ => .inr PUnit.unit⟩
+
+private theorem flatObs : flatLeft.run off = flatRight.run first := by
+  have lhs : Commutes flatLeft flatOne (fun _ => PUnit.unit) := fun _ =>
+    ⟨rfl, fun r => by cases r <;> rfl⟩
+  have rhs : Commutes flatRight flatOne (fun _ => PUnit.unit) := fun _ =>
+    ⟨rfl, fun r => by cases r <;> rfl⟩
+  exact (runs_eq lhs off).trans (runs_eq rhs first).symm
+
+-- Neither projection can be replaced by a map directly between the tables:
+-- every repeat advances a two-cycle on the left and a three-cycle on the right.
+example : ¬ (∃ h, Commutes flatLeft flatRight h) ∧ ¬ (∃ h, Commutes flatRight flatLeft h) := by
+  constructor
+  · rintro ⟨h, square⟩
+    have next (s : Bit.Value) : h (toggle s) = rotate (h s) := Sum.inr.inj ((square s).2 on)
+    have twice : h off = rotate (rotate (h off)) := (next on).trans (congrArg rotate (next off))
+    cases eq : h off with
+    | inl b => cases b <;> rw [eq] at twice <;> cases twice
+    | inr _ =>
+        rw [eq] at twice
+        cases twice
+  · rintro ⟨h, square⟩
+    have next (s : Three.Value) : h (rotate s) = toggle (h s) := Sum.inr.inj ((square s).2 on)
+    have thrice : h first = toggle (toggle (toggle (h first))) :=
+      (next third).trans (congrArg toggle ((next second).trans (congrArg toggle (next first))))
+    cases eq : h first <;> simp [eq, toggle] at thrice
+
+example : ¬ Function.Injective flatRight.request := by
+  intro injective
+  have same : first = third := injective rfl
+  cases same
+
+-- The actual lowered native loops have equal weak observations and replay
+-- through the synchronized reachable pairs at the original strict bound.
+example :
+    ∃ (a a' : Tm Empty Ops 0) (b b' : Tm Empty Ops 1)
+      (da : Derivation Ops Γ₀ .nil a Bit.ty)
+      (db : Derivation Ops Γ₀ (.snoc .nil Bit.ty) b (Code.sum .unit Bit).ty)
+      (da' : Derivation Ops Γ₀ .nil a' Three.ty)
+      (db' : Derivation Ops Γ₀ (.snoc .nil Three.ty) b' (Code.sum .unit Three).ty),
+      (Bit.literal off).toLetIter 0 = some a ∧ (Three.literal first).toLetIter 0 = some a' ∧
+      flatLeft.source.toLetIter 1 = some b ∧ flatRight.source.toLetIter 1 = some b' ∧
+      HasTypeEffect Γ₀ .nil (.iter a b) Ty.unit strict ∧ HasTypeEffect Γ₀ .nil (.iter a' b') Ty.unit strict ∧
+      repairedDenoteInSyntax (⊥ : Eff) (da.iter db) = repairedDenoteInSyntax (⊥ : Eff) (da'.iter db') ∧
+      AbortEquiv (⊥ : Eff) Γ₀ .nil (.iter a b) (.iter a' b') Ty.unit := by
+  obtain ⟨a, ha, ta⟩ := (Bit.literal_wf (Q := Three) (K := Bit) (e := strict) off []).toLetIter
+  obtain ⟨a', ha', ta'⟩ := (Three.literal_wf (Q := Three) (K := Bit) (e := strict) first []).toLetIter
+  obtain ⟨b, hb, tb⟩ := (flatLeft.step_wf (e := strict) le_rfl).toLetIter
+  obtain ⟨b', hb', tb'⟩ := (flatRight.step_wf (e := strict) le_rfl).toLetIter
+  obtain ⟨da⟩ := Derivation.ofHasType ta.1
+  obtain ⟨db⟩ := Derivation.ofHasType tb.1
+  obtain ⟨da'⟩ := Derivation.ofHasType ta'.1
+  obtain ⟨db'⟩ := Derivation.ofHasType tb'.1
+  have actual := (native_denote_eq_iff ha hb ha' hb' da db da' db' noPure ask_visible (e := strict) le_rfl).mpr flatObs
+  have packed := (packed_eq_iff_rendered_denote_eq ha hb ha' hb' da db da' db' noPure ask_visible
+    (e := strict) le_rfl rfl).mpr actual
+  exact ⟨a, a', b, b', da, db, da', db', ha, ha', hb, hb',
+    .iter (by rfl) ta tb, .iter (by rfl) ta' tb', packed,
+    (repairedDenoteInSyntax_eq_iff (⊥ : Eff) _ _).mp packed⟩
 
 end LetIterFiniteFeedbackReplayFixture

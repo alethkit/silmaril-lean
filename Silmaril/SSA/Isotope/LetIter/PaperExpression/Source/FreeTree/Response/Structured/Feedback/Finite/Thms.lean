@@ -73,6 +73,18 @@ variable [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε]
 
 local notation "Free" => (Ctx.nil : Ctx Empty (Ty Unit))
 
+/-- Replay a supplied commuting table map by reifying it to pure case
+syntax, lowering the source square, and applying native uniformity. -/
+theorem replay_commutes {s₀ : S.Value} {t₀ : T.Value}
+    {h : S.Value → T.Value} (commute : Commutes L R h) (initial : h s₀ = t₀)
+    (hf : instrEff (Opcode.ask : Ops) ≤ e) (he : IsIterative e) :
+    ∃ (a a' : Tm Empty Ops 0) (b b' : Tm Empty Ops 1),
+      (S.literal s₀).toLetIter 0 = some a ∧ (T.literal t₀).toLetIter 0 = some a' ∧
+      L.source.toLetIter 1 = some b ∧ R.source.toLetIter 1 = some b' ∧
+      HasTypeEffect Free .nil (.iter a b) B.ty e ∧ HasTypeEffect Free .nil (.iter a' b') B.ty e ∧
+      AbortEquiv (⊥ : ε) Free .nil (.iter a b) (.iter a' b') B.ty :=
+  Proofs.replay_commutes commute initial hf he
+
 /-- Recover a finite state map from the table observations and replay it on
 the independently rendered native loops. Reachability and request
 separation are the hypotheses of the semantic recovery theorem. -/
