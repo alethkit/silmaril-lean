@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.SeaOfNodes.Pure.SubZero.Defs
 
-/-! Fold operations to literals using their actual typed operand wires.
+/-! Normalize bindings using their actual typed operand wires.
 A replacement occupies the original typed result slot. -/
 
 @[expose] public section
@@ -33,8 +33,7 @@ def Literals.push (known : Literals m args past) (value : Option (Val m.value (.
     | .inr .head => value
     | .inr (.tail port) => nomatch port
 
-/-- A folding rule preserves a literal, evaluates known operands, or
-recognizes a repeated word source with a certified constant result. -/
+/-- Each rule certifies the value of its replacement in the native model. -/
 inductive Rule (m : Model Op) : {ins : List (ValueSort Unit)} → {out : ValueSort Unit} →
     Op ins out → Type where
   | literal {out : ValueSort Unit} (op : Op [] out) : Rule m op
@@ -43,6 +42,9 @@ inductive Rule (m : Model Op) : {ins : List (ValueSort Unit)} → {out : ValueSo
       (read_encode : ∀ value, m.run (encode value) .nil = value) : Rule m op
   | sameWord {out : ValueSort Unit} (op : Op [word, word] out) (result : Op [] out)
       (read_same : ∀ value, m.run op (.cons value (.cons value .nil)) = m.run result .nil)
+      (fallback : Rule m op) : Rule m op
+  | commuteLeftLiteral {out : ValueSort Unit} (op : Op [word, word] out)
+      (read_swapped : ∀ lhs rhs, m.run op (.cons rhs (.cons lhs .nil)) = m.run op (.cons lhs (.cons rhs .nil)))
       (fallback : Rule m op) : Rule m op
 
 abbrev Rules (m : Model Op) :=
@@ -74,6 +76,19 @@ def Rule.replacement? (known : Literals m args past) :
   | _, _, _, .sameWord _ result _ fallback, operands =>
     if (operands.get .head).address = (operands.get (.tail .head)).address then some result
     else replacement? known fallback operands
+  | _, _, _, .commuteLeftLiteral _ _ fallback, operands => replacement? known fallback operands
+
+/-- Normalize a surviving binding's operand order. Only a certified
+commutative rule can move a known left literal past an unknown right wire. -/
+def Rule.orderOperands (known : Literals m args past) :
+    {ins : List (ValueSort Unit)} → {out : ValueSort Unit} → {op : Op ins out} →
+      Rule m op → Wires args past (dataPorts ins) → Wires args past (dataPorts ins)
+  | _, _, _, .literal _, operands => operands
+  | _, _, _, .operation _ _ _, operands => operands
+  | _, _, _, .sameWord _ _ _ fallback, operands => orderOperands known fallback operands
+  | _, _, _, .commuteLeftLiteral _ _ fallback, operands@(.cons lhs (.cons rhs .nil)) =>
+    if (known lhs).isSome && (known rhs).isNone then .cons rhs (.cons lhs .nil)
+    else orderOperands known fallback operands
 
 /-- Scan once in dependency order, preserving the table's output signatures. -/
 def foldDataflow (rules : Rules m) : {past sigs : List (List (Ty Unit))} →
@@ -83,7 +98,7 @@ def foldDataflow (rules : Rules m) : {past sigs : List (List (Ty Unit))} →
     match (rules op).replacement? known operands with
     | some literal =>
       .cons literal .nil (foldDataflow rules (known.push (some (m.run literal .nil))) rest)
-    | none => .cons op operands (foldDataflow rules (known.push none) rest)
+    | none => .cons op ((rules op).orderOperands known operands) (foldDataflow rules (known.push none) rest)
 
 variable {inputs : List (ValueSort Unit)}
 
@@ -101,7 +116,9 @@ def arithmeticRules : Scan.Rules model :=
   | .sub =>
     .sameWord SubZero.Opcode.sub (SubZero.Opcode.literal 0) (fun value => BitVec.sub_self value)
       (.binary SubZero.Opcode.sub SubZero.Opcode.literal (fun _ => rfl))
-  | .mul => .binary SubZero.Opcode.mul SubZero.Opcode.literal (fun _ => rfl)
+  | .mul =>
+    .commuteLeftLiteral SubZero.Opcode.mul (fun lhs rhs => BitVec.mul_comm rhs lhs)
+      (.binary SubZero.Opcode.mul SubZero.Opcode.literal (fun _ => rfl))
 
 variable {inputs : List (ValueSort Unit)} {out : ValueSort Unit}
 variable {args : List (Ty Unit)} {past sigs : List (List (Ty Unit))} {ins : List (ValueSort Unit)}
@@ -124,7 +141,7 @@ abbrev foldDataflow (known : Literals args past) (flow : Dataflow SubZero.Opcode
     Dataflow SubZero.Opcode args past sigs :=
   Scan.foldDataflow arithmeticRules known flow
 
-/-- Fold the native arithmetic program with no assumptions about its arguments. -/
+/-- Normalize the native arithmetic program with no assumptions about its arguments. -/
 def fold (program : Program SubZero.Opcode inputs out) : Program SubZero.Opcode inputs out :=
   Scan.fold arithmeticRules program
 
