@@ -168,7 +168,7 @@ private def exceptionalProfileFailureEvidence : Bool := Id.run do
   let outsideProfile := ModuleEntry.Action.assertion (scope := tree.scope) (.binary .add (.integer 1) .none_)
   let failIfReached := ModuleEntry.Action.assertion (scope := tree.scope) .none_
   let plan : Functions.ExceptionalTry.Plan (Functions.ExceptionalTry.Step tree.scope) :=
-    ⟨[.scalar outsideProfile], some [.scalar failIfReached], [], [.scalar failIfReached]⟩
+    ⟨[.scalar outsideProfile], [.bare [.scalar failIfReached]], [], [.scalar failIfReached]⟩
   let ordinary := Run.runPrefix (fun _ => none) 2
     (.ready (Run.seed .empty) [.exceptionalTry plan, .scalar failIfReached])
   let .finished _ .scalarProfile := ordinary.2 | return false
@@ -204,5 +204,30 @@ private def stockRaiseEvidence : Bool := Id.run do
       ("Exception", .none), ("saved", .exceptionClass .exception)]
 
 #guard stockRaiseEvidence
+
+private def typedHandlerEvidence : Bool := Id.run do
+  let equal name number := Source.Stmt.assert_ (.comparison (.name name) [(.eq, .integer number)]) none
+  let statement := Source.Stmt.try_ [.raise_ none none, .assert_ (.boolean false) none]
+    [⟨some (.name "RuntimeError"), none, [.assign "x" (.integer 6)]⟩]
+    [] [.assign "y" (.integer 7), equal "x" 6]
+  let source : Source.Module := ⟨[statement, equal "y" 7]⟩
+  let .ok compiled := Run.compile source | return false
+  let seed := Run.seed .empty
+  let (events, missingState) := Run.runPrefix compiled.table 10 (.ready seed compiled.instructions)
+  let .finished missing (.raised (.nameError "x")) := missingState | return false
+  let available := seed.bindGlobal "RuntimeError" (.exceptionClass .runtimeError)
+  let (_, stockState) := Run.runPrefix compiled.table 10 (.ready available compiled.instructions)
+  let .finished caught .normal := stockState | return false
+  let space : Namespace := ⟨[], [("RuntimeError", .exceptionClass .runtimeError)]⟩
+  let seeded := run space compiled
+  let unseeded := run .empty compiled
+  return events.isEmpty && (missing.globals "y").map seededValue == some (.int 7) &&
+    (caught.globals "x").map seededValue == some (.int 6) &&
+    unseeded.completion == .error (.raised (.runtime (.nameError "x"))) &&
+    unseeded.residual.moduleGlobals == [("y", .int 7)] && unseeded.calls.isEmpty &&
+    seeded.completion.isOk && seeded.residual.moduleGlobals == [("y", .int 7), ("x", .int 6)] &&
+    seeded.residual.builtins == space.builtins && seeded.calls.isEmpty
+
+#guard typedHandlerEvidence
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

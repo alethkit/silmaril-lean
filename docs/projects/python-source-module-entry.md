@@ -294,8 +294,10 @@ of the stock truth helper. Run the CPython 3.13.5 controls and exact
 pins with `python3.13 -I scripts/check-python-normal-try.py --upstream /path/to/pinned/rigorous`.
 
 Checked exceptional cleanup admits suites of passes, literal or name-read
-assignments, and assertions over the same atoms. A checked `try` can have a
-`finally` suite, a single bare handler, or both. Both module runners commit
+assignments, and assertions over the same atoms and single scalar equality
+or inequality comparisons. A checked `try` can have a `finally` suite,
+ordered named handlers followed by an optional bare handler, or both.
+Both module runners commit
 successful actions in order. A reached Python error skips `else` and selects
 the bare handler when present. Cleanup starts from the reached namespace.
 Normal cleanup restores the pending completion and a cleanup error replaces it.
@@ -312,8 +314,26 @@ descriptor across rebinding. The defined error carries its exact text argument
 as code points, including surrogates. The constructor immediately raises
 and emits no separate module call receipt. A missing name and a reached
 noncallable mask produce their defined errors. Other callable constructors,
-nontext stock arguments, explicit causes, bare raise and typed handlers
-remain outside this checked path.
+nontext stock arguments and explicit causes remain outside this checked
+path.
+
+A named handler resolves its class from the reached namespace only after a
+defined error. Lookup stops at the first matching arm or first failed class
+lookup. The checked ancestry relation uses the represented stock classes.
+Missing names and invalid class bindings replace the pending error. If
+every class misses, the original error and payload remain pending. Cleanup
+runs with that reached state and can replace the pending error. Tuple
+filters, general handler expressions, exception target binding and
+exception chaining are outside this observation profile.
+
+The protected suite of a standalone module-level try can use bare
+`raise` when no exception is active. It produces Python's no-active-exception
+`RuntimeError`. Bare re-raise from a handler or cleanup remains separate.
+The unchanged `testtry2.py` reaches `NameError:x` in cleanup under the fixed
+profiles after lookup of `RuntimeError` fails. It finishes normally when the
+stock class is supplied separately. Run the differential with
+`python3.13 -I scripts/check-python-typed-handlers.py --upstream /path/to/pinned/rigorous`.
+
 
 Both unchanged raise pins reach their bare handler and cleanup. Under the
 fixed profiles they stop at the first missing `___assertTrue`. A separate

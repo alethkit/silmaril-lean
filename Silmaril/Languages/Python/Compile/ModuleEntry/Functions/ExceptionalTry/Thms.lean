@@ -26,34 +26,81 @@ theorem runCleanup_outside_profile (suite : state → List action → Outcome st
     runCleanup suite isPythonError ⟨reached, .error error⟩ cleanup = ⟨reached, .error error⟩ := by
   simp [runCleanup, Outcome.canEnterCleanup, outside]
 
-theorem run_failed_body (suite : state → List action → Outcome state failure)
+variable (testClass : state → failure → String → Except failure Bool)
+
+theorem selectHandler_first_match (reached : state) (pending : failure) (name : String)
+    (arm : List action) (rest : List (Arm action)) (selected : testClass reached pending name = .ok true) :
+    selectHandler testClass reached pending (.named name arm :: rest) = .ok (some arm) := by
+  simp [selectHandler, selected]
+
+theorem selectHandler_continue (reached : state) (pending : failure) (name : String)
+    (arm : List action) (rest : List (Arm action)) (skipped : testClass reached pending name = .ok false) :
+    selectHandler testClass reached pending (.named name arm :: rest) =
+      selectHandler testClass reached pending rest := by
+  simp [selectHandler, skipped]
+
+theorem selectHandler_first_error (reached : state) (pending error : failure) (name : String)
+    (arm : List action) (rest : List (Arm action)) (failed : testClass reached pending name = .error error) :
+    selectHandler testClass reached pending (.named name arm :: rest) = .error error := by
+  simp [selectHandler, failed]
+
+theorem run_unmatched (suite : state → List action → Outcome state failure)
     (isPythonError : failure → Bool) (initial reached : state) (error : failure)
-    (body otherwise cleanup : List action) (failed : suite initial body = ⟨reached, .error error⟩) :
-    run suite isPythonError initial ⟨body, none, otherwise, cleanup⟩ =
+    (body otherwise cleanup : List action) (handlers : List (Arm action))
+    (failed : suite initial body = ⟨reached, .error error⟩) (defined : isPythonError error = true)
+    (unmatched : selectHandler testClass reached error handlers = .ok none) :
+    run suite isPythonError testClass initial ⟨body, handlers, otherwise, cleanup⟩ =
       runCleanup suite isPythonError ⟨reached, .error error⟩ cleanup := by
-  simp [run, afterBody, failed]
+  simp [run, afterBody, failed, defined, unmatched]
 
-theorem run_bare_handler (suite : state → List action → Outcome state failure)
+theorem run_selected (suite : state → List action → Outcome state failure)
     (isPythonError : failure → Bool) (initial reached : state) (error : failure)
-    (body handler otherwise cleanup : List action)
-    (failed : suite initial body = ⟨reached, .error error⟩) (defined : isPythonError error = true) :
-    run suite isPythonError initial ⟨body, some handler, otherwise, cleanup⟩ =
-      runCleanup suite isPythonError (suite reached handler) cleanup := by
-  simp [run, afterBody, failed, defined]
+    (body arm otherwise cleanup : List action) (handlers : List (Arm action))
+    (failed : suite initial body = ⟨reached, .error error⟩) (defined : isPythonError error = true)
+    (selected : selectHandler testClass reached error handlers = .ok (some arm)) :
+    run suite isPythonError testClass initial ⟨body, handlers, otherwise, cleanup⟩ =
+      runCleanup suite isPythonError (suite reached arm) cleanup := by
+  simp [run, afterBody, failed, defined, selected]
 
-theorem run_bare_handler_outside_profile (suite : state → List action → Outcome state failure)
+theorem run_handler_error (suite : state → List action → Outcome state failure)
+    (isPythonError : failure → Bool) (initial reached : state) (pending error : failure)
+    (body otherwise cleanup : List action) (handlers : List (Arm action))
+    (failed : suite initial body = ⟨reached, .error pending⟩) (defined : isPythonError pending = true)
+    (selectionFailed : selectHandler testClass reached pending handlers = .error error) :
+    run suite isPythonError testClass initial ⟨body, handlers, otherwise, cleanup⟩ =
+      runCleanup suite isPythonError ⟨reached, .error error⟩ cleanup := by
+  simp [run, afterBody, failed, defined, selectionFailed]
+
+theorem run_outside_profile (suite : state → List action → Outcome state failure)
     (isPythonError : failure → Bool) (initial reached : state) (error : failure)
-    (body handler otherwise cleanup : List action)
+    (body otherwise cleanup : List action) (handlers : List (Arm action))
     (failed : suite initial body = ⟨reached, .error error⟩) (outside : isPythonError error = false) :
-    run suite isPythonError initial ⟨body, some handler, otherwise, cleanup⟩ = ⟨reached, .error error⟩ := by
+    run suite isPythonError testClass initial ⟨body, handlers, otherwise, cleanup⟩ = ⟨reached, .error error⟩ := by
   simp [run, afterBody, failed, outside, runCleanup_outside_profile]
 
 theorem run_normal_body (suite : state → List action → Outcome state failure)
     (isPythonError : failure → Bool) (initial reached : state) (body otherwise cleanup : List action)
-    (handler : Option (List action)) (normal : suite initial body = ⟨reached, .ok ()⟩) :
-    run suite isPythonError initial ⟨body, handler, otherwise, cleanup⟩ =
+    (handlers : List (Arm action)) (normal : suite initial body = ⟨reached, .ok ()⟩) :
+    run suite isPythonError testClass initial ⟨body, handlers, otherwise, cleanup⟩ =
       runCleanup suite isPythonError (suite reached otherwise) cleanup := by
   simp [run, afterBody, normal]
+
+theorem matchClass_missing {Value : Type} (lookup : String → Option Value) (classOf : Value → HandlerClass)
+    (actual : Core.Closure.ExceptionClass) (name : String) (missing : lookup name = none) :
+    matchClass lookup classOf actual name = .error (some (.nameError name)) := by
+  simp [matchClass, missing]
+
+theorem matchClass_invalid {Value : Type} (lookup : String → Option Value) (classOf : Value → HandlerClass)
+    (actual : Core.Closure.ExceptionClass) (name : String) {value : Value}
+    (found : lookup name = some value) (invalid : classOf value = .invalid) :
+    matchClass lookup classOf actual name = .error (some .invalidHandlerClass) := by
+  simp [matchClass, found, invalid]
+
+theorem matchClass_stock {Value : Type} (lookup : String → Option Value) (classOf : Value → HandlerClass)
+    (actual : Core.Closure.ExceptionClass) (name : String) {value : Value} {expected : Core.Closure.ExceptionClass}
+    (found : lookup name = some value) (stock : classOf value = .stock expected) :
+    matchClass lookup classOf actual name = .ok (decide (expected.catches actual)) := by
+  simp [matchClass, found, stock]
 
 theorem RaiseCall.error_missing {scope : Source.Scope} {Value : Type} (call : RaiseCall scope)
     (lookup : Source.Name → Option Value) (classify : Value → RaiseCallee) (text? : Value → Option Core.Text)
