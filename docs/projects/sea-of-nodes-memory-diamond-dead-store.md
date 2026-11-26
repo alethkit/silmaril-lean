@@ -587,3 +587,38 @@ after two Store operands are routed to the same typed port.
 ```sh
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Check a same-port two-route cut for every valuation
+
+`Entry.Composition.Static.lower cells graph entry` checks a current
+singleton entry Store followed by Return. It reuses the existing
+occurrence-indexed overwrite discovery. Each witness must name an
+overwrite on the nominated Store's original typed address port and
+have an empty reader list. A Load before the overwrite requires a
+reader obligation and therefore refuses this all-valuations cut.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Static/Defs.lean) ·
+[Pinned Simple chapter 10 Store rule](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65) ·
+[Pinned Simple memory Φ](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#memory-is-an-ssa-variable)
+
+A successful static rewrite replays through the existing concrete
+checker at every typed valuation with the same witnesses and graph.
+The actual emitted CFGs select the same entry successor packet and
+agree on the returned word and entire final buffer for either
+predicate, every initialized buffer and every CF budget. Before the
+selected arm overwrites the cell, the original entry still exposes
+the removed write and the optimized entry forwards the input buffer.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Static/Thms.lean)
+
+The fixture explicitly supplies the singleton table left by equality-only
+entry discovery. Its surviving Store moves from version two to one.
+It exercises both occurrence orders, then runs the same emitted pair
+under different predicates and valuations. A read of the nominated cell
+on one route blocks the cut. A read through a different symbolic port
+also blocks it, even at a valuation where the concrete checker can
+certify disjointness. The API checks one supplied table. Automatic
+composition of entry discovery and cross-route nomination remains open.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```

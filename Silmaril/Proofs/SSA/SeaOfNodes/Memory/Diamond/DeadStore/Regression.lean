@@ -5,6 +5,7 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Thms
@@ -17,6 +18,7 @@ meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Defs
@@ -882,5 +884,73 @@ example : inferContracts sharedRoute = [⟨⟨headPort, []⟩, []⟩] := rfl
   some ([], some (33, 33, [33, 33, 2, 3, 55], [33, 33, 2, 3, 55]))
 #guard runInferred routedDiamond sharedRoute input false 3 ==
   some ([1], some (33, 33, [33, 33, 2, 3, 55], [33, 33, 2, 3, 55]))
+
+private def overwriteAndRead (word : Port args .word) : Memory.Graph args :=
+  .store (.latest 0) (.arg headPort) (.arg word)
+    (.load (.latest 1) (.arg headPort) (.ret (.latest 1) loaded))
+
+private def samePortDiamond (first : Projection) (earlyReader : Option (Port args .address) := none) :
+    Graph args where
+  merge := ⟨first⟩
+  arm
+    | .onTrue => overwriteAndRead leftWord
+    | .onFalse =>
+      match earlyReader with
+      | none => lastSideStore.prepend (overwriteAndRead rightWord)
+      | some reader => .load (.latest 0) (.arg reader)
+          (.store (.latest 0) (.arg headPort) (.arg rightWord) (.ret (.latest 1) loaded))
+  suffix := .ret (.latest 0) (.arg .head)
+
+private def beforeRouteCut : Memory.Graph args :=
+  (⟨headPort, leftWord⟩ : PrefixStore args).prepend middleStore.table
+
+-- Supply the table produced by the existing entry pass explicitly. The
+-- surviving Store was version two and is now the singleton at version one.
+private def preparedRouteEntry : Memory.Graph args :=
+  (Static.Sequence.Search.discover beforeRouteCut (inferContracts beforeRouteCut)).entry
+
+example : preparedRouteEntry = middleStore.table := rfl
+example : Entry.Composition.Static.lower 4 (samePortDiamond .onFalse) beforeRouteCut = none := rfl
+
+example : (Entry.Composition.Static.rewrite ⟨middleStore, samePortDiamond .onFalse⟩).map
+    (fun edit => ((edit.candidate .first).storeVersion, (edit.candidate .second).storeVersion)) =
+      some (2, 1) := rfl
+example : (Entry.Composition.Static.rewrite ⟨middleStore, samePortDiamond .onTrue⟩).map
+    (fun edit => ((edit.candidate .first).storeVersion, (edit.candidate .second).storeVersion)) =
+      some (1, 2) := rfl
+
+private def staticRoutePrograms := Entry.Composition.Static.lower 4 (samePortDiamond .onFalse) preparedRouteEntry
+
+private def runStaticRoutes (valuation : Tuple (Val 4) args) (guard : Bool) (fuel : Nat) :
+    Option (Word × Word × List Word × List Word) := do
+  let artifacts ← staticRoutePrograms
+  runEntryPrograms ⟨valuation, artifacts.original, artifacts.optimized⟩ guard fuel
+
+-- The entry buffer exposes the removed write here. The selected arm
+-- restores equality before producing the returned word and final buffer.
+/-- info: some (99#64, 7#64, [33#64, 33#64, 2#64, 33#64, 55#64], [33#64, 33#64, 2#64, 33#64, 55#64]) -/
+#guard_msgs in
+#eval runStaticRoutes input false 3
+
+#guard runStaticRoutes input true 3 == some (99, 7, [11, 11, 2, 3, 55], [11, 11, 2, 3, 55])
+#guard runStaticRoutes overwriteInput false 3 == some (99, 7, [33, 33, 2, 3, 55], [33, 33, 2, 3, 55])
+#guard runStaticRoutes input false 2 == none
+
+-- The false occurrence observes the residual Store before overwriting it.
+-- The true occurrence still has an empty reader certificate.
+private def observingRoute : Graph args := samePortDiamond .onFalse (some headPort)
+
+example : Discovery.discoverSlot ⟨middleStore, observingRoute⟩ .first = none := rfl
+example : Discovery.discoverSlot ⟨middleStore, observingRoute⟩ .second = some ⟨1, []⟩ := rfl
+example : Entry.Composition.Static.lower 4 observingRoute preparedRouteEntry = none := rfl
+#guard runEntryPrograms (Entry.lowerPair observingRoute beforeRouteCut preparedRouteEntry input) false 3 ==
+  some (99, 99, [99, 33, 2, 3, 55], [99, 33, 2, 3, 55])
+
+-- A different symbolic port also incurs a reader obligation. The
+-- concrete checker can accept it at this input, but the static cut refuses.
+example : (Discovery.discoverSlot ⟨middleStore, samePortDiamond .onFalse (some rightPort)⟩ .first).map
+    ArmOverwrite.readers = some [rightPort] := rfl
+example : (Discovery.rewrite ⟨middleStore, samePortDiamond .onFalse (some rightPort)⟩ input).isSome = true := rfl
+example : Entry.Composition.Static.lower 4 (samePortDiamond .onFalse (some rightPort)) preparedRouteEntry = none := rfl
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
