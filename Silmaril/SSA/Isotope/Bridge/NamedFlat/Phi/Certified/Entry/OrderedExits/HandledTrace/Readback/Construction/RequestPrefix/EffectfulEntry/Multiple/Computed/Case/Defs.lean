@@ -19,7 +19,7 @@ def scheduleCase (test : Operand sig Γ (.coprod a b)) (left right : Region F) :
   let scheduled := test.schedule
   let shift := Silmaril.DeBruijn.lift scheduled.requests.shift
   scheduled.requests.wrap Region.let₁ Region.let₂
-    (.case (operand position scheduled.value) (left.renameVars shift) (right.renameVars shift))
+    (.case (scheduled.value.erase position) (left.renameVars shift) (right.renameVars shift))
 
 structure CaseTest (sig : PrimitiveSignature F) (Γ : List PacketType) (written : Tm F) where
   leftType : PacketType
