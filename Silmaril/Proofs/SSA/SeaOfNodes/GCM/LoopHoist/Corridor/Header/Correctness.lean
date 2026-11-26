@@ -4,8 +4,7 @@ public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Defs
 public import Silmaril.SSA.MLIR.CF.SwitchAssert.Denotation.Defs
 import Silmaril.SSA.MLIR.CF.SwitchAssert.Thms
 import Silmaril.SSA.MLIR.CF.SwitchAssert.Denotation.Thms
-import Silmaril.SSA.SeaOfNodes.GCM.Corridor.Thms
-import Silmaril.SSA.SeaOfNodes.GCM.LoopForest.Thms
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Thms
 import Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF.Thms
 
 public section
@@ -146,12 +145,8 @@ private theorem moved_spec {cfg : Cfg TargetOp (SourceLabel carried result) Inpu
 theorem chooseCut_sound {operands : List (Point (SourceLabel carried result))}
     {uses : List (Use (SourceLabel carried result))}
     (selected : chooseCut? g operands uses = some cut) :
-    cut ∈ candidateCuts (lower g) blocks ∧ Legal (lower g) operands uses cut := by
-  let _ : DecidableEq (Target (SourceLabel carried result)) := sourceTargetDecEq carried result
-  unfold chooseCut? at selected
-  rw [Silmaril.SSA.SeaOfNodes.GCM.Corridor.chooseSynthesized?_eq] at selected
-  obtain ⟨tree, _, ranked⟩ := Option.bind_eq_some_iff.mp selected
-  exact LoopForest.choosePlacement_sound ranked
+    cut ∈ candidateCuts (lower g) blocks ∧ Legal (lower g) operands uses cut :=
+  chooseCfgCut?_sound selected
 
 theorem pickAndMove?_placement (picked : pickAndMove? g index = some (cut, out)) :
     cut.block = headerId ∧ cut.cut + 1 = index ∧ afterRemoval index cut.cut = cut.cut ∧

@@ -248,20 +248,28 @@ def findBinding : (index cut : Nat) → {Γ : List Width} → Origins Input Γ �
     (findBinding index (cut + 1) (afterBinding origins (cut + 1)) rest).map
       fun ⟨saved, binding⟩ => ⟨saved, binding.prepend op operands⟩
 
-/-- Apply the existing emitter to the chooser's exact cut for the nominated
-binding. The caller supplies the placement check through `choose`. The
-emitter accepts preheader cut zero and captured operands. -/
-def hoistBindingWith? (g : Program Input carried result entrySigs headerSigs) (index : Nat)
+/-- Apply the chooser's cut to the current entry and header code. The
+emitted profile has the canonical exit that returns its sole argument. -/
+def hoistCodeWith? (entry : Block TargetOp (SourceLabel carried result) Input [result])
+    (header : Block TargetOp (SourceLabel carried result) (carried :: Input) [result]) (index : Nat)
     (choose : List (Point (SourceLabel carried result)) → List (Use (SourceLabel carried result)) →
       Option (Point (SourceLabel carried result))) :
     Option (Point (SourceLabel carried result) × Output Input carried result) := do
-  let ⟨saved, binding⟩ ← findBinding index 0 headerOrigins ((lower g).block .header)
+  let ⟨saved, binding⟩ ← findBinding index 0 headerOrigins header
   let cut ← choose binding.operands binding.uses
   if cut.block.isNone && cut.cut == 0 then
     let captured ← binding.captured?
-    let header := binding.rewrite Var.there .here
-    pure (cut, ⟨saved, emitHeader (lower g).entry binding.op captured header⟩)
+    let rewritten := binding.rewrite Var.there .here
+    pure (cut, ⟨saved, emitHeader entry binding.op captured rewritten⟩)
   else none
+
+/-- Hoist on the native program's lowered entry and header. The caller
+supplies the placement check through `choose`. -/
+def hoistBindingWith? (g : Program Input carried result entrySigs headerSigs) (index : Nat)
+    (choose : List (Point (SourceLabel carried result)) → List (Use (SourceLabel carried result)) →
+      Option (Point (SourceLabel carried result))) :
+    Option (Point (SourceLabel carried result) × Output Input carried result) :=
+  hoistCodeWith? (lower g).entry ((lower g).block .header) index choose
 
 /-- Hoist the nominated binding when its exact use sites and operand origins
 lead the loop ranker to preheader cut zero and the operands are captured inputs. -/

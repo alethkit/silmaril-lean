@@ -168,7 +168,7 @@ private theorem withHeader_self (cfg : Cfg TargetOp (SourceLabel carried result)
   funext _ label
   cases label <;> rfl
 
-private theorem run?_header (accepted : run? state requests = some next) :
+theorem run?_header (accepted : run? state requests = some next) :
     ∃ header, next.cfg = withHeader state.cfg header ∧
       ∀ env, header.eval evalOp (fun term vals => term.eval vals) env =
         (state.cfg.block .header).eval evalOp (fun term vals => term.eval vals) env := by
