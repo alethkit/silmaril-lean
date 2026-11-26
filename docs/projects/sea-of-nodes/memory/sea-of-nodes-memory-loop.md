@@ -1511,6 +1511,40 @@ lake build --wfail \
   +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Regression
 ```
 
+##### Changing unused values in terminal lifts
+
+`Program.mapChain` re-emits a linked triple along the typed capture
+maps. Two terminal entries are in the same composite reduct fibre
+when they pull back to the same source valuation and initialized heap.
+For any two such entries, `Program.runMemRef_chain_fibre` gives equal
+`Option` outcomes at each raw MemRef block fuel. A returned result
+includes all three words and the complete buffer.
+`Program.numbered_observe_chain_fibre` compares the actual linked
+numbered observations, including absence of a finite return.
+[Program and observation laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/Satisfaction/Institution/Chain/Thms.lean)
+
+`Backend.satisfaction_chain_fibre` gives the same truth at both
+terminal valuations for equations and finite-termination sentences
+re-emitted from the source. As usual, satisfaction at a valuation
+ranges over all initialized heaps. A target-local program can read
+spare ports, so its observation can distinguish terminal entries
+that the source-translated programs treat alike.
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Institution.Chain.Thms
+```
+
+The fixture adds a spare address and a spare word. Both lifts
+return `(3, 3, 22)` with the same complete heap after re-emission.
+A target-local Boundary that reads the two spare values returns
+`(3, 3, 44)` at the second lift and writes at a different address.
+The fixture runs both actual backends at their own budgets.
+[Runnable fibre regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/Satisfaction/Institution/FibreRegression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Institution.FibreRegression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for

@@ -60,7 +60,7 @@ private theorem seed_map (h : P ⟶ Q) (graph : Graph P.args) (model : EntryMode
     (mapGraph h graph).seed model.input heap = graph.seed (reduct h model).input heap := by
   simp only [Graph.seed, mapGraph, reduct, pullInput_get]
 
-private theorem pull_operands (h : P ⟶ Q) (model : EntryModel Q) (header : Header model.cells) :
+theorem pull_operands (h : P ⟶ Q) (model : EntryModel Q) (header : Header model.cells) :
     pullInput (liftAddresses h).port (header.operands model.input) = header.operands (reduct h model).input := by
   simp only [reduct, Header.operands, pullInput, liftAddresses, liftAddress, Tuple.get, pull_tail]
   rfl

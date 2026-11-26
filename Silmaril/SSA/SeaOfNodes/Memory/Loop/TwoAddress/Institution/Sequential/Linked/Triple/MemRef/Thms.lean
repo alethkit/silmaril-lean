@@ -4,6 +4,8 @@ public import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequent
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Thms
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.MemRef.Splice
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.MemRef.Comparison
+import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.MemRef.Reindex
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Reindex.Defs
 
 /-! The pair-to-third edge, complete finite returns, and absence of finite returns. -/
 
@@ -11,12 +13,24 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.MemRef
 
+open CategoryTheory
 open RVSDG (Tuple)
 open Silmaril.MLIR.CF.Ordered (Block)
 open Silmaril.MLIR.MemRef (Buffer)
+open Memory.Diamond.Institution (reduct)
 open Memory.Diamond.Institution renaming Signature → EntrySignature, Model → EntryModel
 
 variable {cells : Nat} {ambient next last : List ValueSort} {P Q R : EntrySignature}
+
+/-- Reindexing the first loop and its outgoing Boundary preserves the
+actual triple CFG outcome at each raw block fuel. -/
+theorem runFuel_map (h : P ⟶ Q) (first : Graph P.args) (second : Graph next) (third : Graph last)
+    (f : Boundary.Wiring P.args next) (g : Boundary.Wiring next last)
+    (model : EntryModel Q) (fuel : Nat) (initial : Buffer model.cells) :
+    runFuel (TwoAddress.Institution.mapGraph h first) second third (f.map (EntrySignature.Hom.port h))
+        g model.input fuel initial =
+      runFuel first second third f g (reduct h model).input fuel initial :=
+  Proofs.runFuel_map h first second third f g model fuel initial
 
 /-- The old pair exit jumps with both words and the same post-store buffer. -/
 theorem pair_exit_transition (first : Graph ambient) (second : Graph next) (third : Graph last)
