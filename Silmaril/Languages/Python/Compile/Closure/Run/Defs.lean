@@ -42,6 +42,8 @@ inductive OperandTranslation {layout : Layout} : Body.Expr layout → Operand la
 
   | addInt {left right lhs rhs} (first : OperandTranslation left lhs) (second : OperandTranslation right rhs) :
       OperandTranslation (.add left right) (.addInt lhs rhs)
+  | mulInt {left right lhs rhs} (first : OperandTranslation left lhs) (second : OperandTranslation right rhs) :
+      OperandTranslation (.mul left right) (.binaryInt .mul lhs rhs)
 
 def operand? {layout : Layout} : (source : Body.Expr layout) →
     Option {target // OperandTranslation source target}
@@ -56,6 +58,10 @@ def operand? {layout : Layout} : (source : Body.Expr layout) →
     let lhs ← operand? left
     let rhs ← operand? right
     return ⟨.addInt lhs.val rhs.val, .addInt lhs.property rhs.property⟩
+  | .mul left right => do
+    let lhs ← operand? left
+    let rhs ← operand? right
+    return ⟨.binaryInt .mul lhs.val rhs.val, .mulInt lhs.property rhs.property⟩
   | _ => none
 
 inductive ArgumentsTranslation {layout : Layout} : List (Body.Expr layout) → List (Operand layout) → Prop where
@@ -81,6 +87,9 @@ inductive Translation {layout : Layout} :
   | retLocalCall {slot arguments operands} (translated : ArgumentsTranslation arguments operands) :
       Translation (.ret (.call (.read (.local slot)) arguments))
         (.call (.local slot) (.read (.local slot)) operands (.ret (.read (.local slot))))
+  | retGlobalCall {name arguments operands} (translated : ArgumentsTranslation arguments operands) :
+      Translation (.ret (.call (.globalName name) arguments))
+        (.returnCall (.readGlobal name) operands)
   | assert {source target rest next}
       (test : OperandTranslation source target) (tail : Translation rest next) :
       Translation (.assert source rest) (.assert target next)
@@ -113,6 +122,9 @@ def lowerCode {layout : Layout} : (code : Link.Code layout) →
     let operands ← arguments? arguments
     return ⟨.call (.local slot) (.read (.local slot)) operands.val (.ret (.read (.local slot))),
       .retLocalCall operands.property⟩
+  | .ret (.call (.globalName name) arguments) => do
+    let operands ← arguments? arguments
+    return ⟨.returnCall (.readGlobal name) operands.val, .retGlobalCall operands.property⟩
   | .ret expression => do
     let operand ← operand? expression
     return ⟨.ret operand.val, .ret operand.property⟩
