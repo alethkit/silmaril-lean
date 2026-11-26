@@ -13,7 +13,8 @@ the statements and checks.
 | What does the guarded fragment add? | `Guarded.Forest.step_vis` checks erasure of a first-order, context-indexed visible step whose reply determines the next context. `WeakITree.observes_diverge` checks the delayed adapter's representation of weak-tree divergence by a silent self-loop. [Guarded header][guarded-thms] · [Weak-tree header][weak-thms] |
 | What survives relabeling and signature change? | `Forest.observes_relabel` transports observations by direct image for signature maps with bijective response decoders. Requests may merge. The four institutions use the opposite signature category, and satisfaction checks inclusion in an allowed observation set. `tree_trace_satisfaction`, `tree_explicit_satisfaction` and `tree_catastrophic_satisfaction` relate forest satisfaction to the three trace bounds. The regression shows why dropping response bijectivity can introduce stuckness. [Institution guide][institution] · [Relabeling header][relabel-thms] · [Institution header][institution-thms] · [Regression][institution-check] |
 | Where does Elgot iteration apply? | `loop_observes_infinite` witnesses a single path from compatible replies in the request-guarded loop. `interpret_guardedLoop`, `interpret_guardedLoop_naturality` and `interpret_nestedGuardedLoop` use the existing weak ITree fold into a lawful Elgot target under the stated `Small` hypotheses. [Iteration header][elgot-thms] |
-| How is undefined behavior (UB) represented? | A finite tree observation ending in `returned none` retains its exchanges. `UB.atBoundary_ub_iff` witnesses such a run after projection to a single marker that drops its prefix. `collapse_eq_top_iff` and `val_collapse_of_safe` describe whole-row saturation and exactness on UB-free rows. `bind_eq_top_iff` locates UB in the first row or a reachable continuation row. [UB header][ub-thms] · [Boundary and relabeling][relabel-thms] |
+| How is undefined behavior (UB) represented? | A finite tree observation ending in `returned none` retains its exchanges. `UB.atBoundary_ub_iff` witnesses such a run after projection to a single marker that drops its prefix. `collapse_eq_top_iff` and `val_collapse_of_safe` describe whole-row saturation and exactness on UB-free rows. [UB header][ub-thms] · [Boundary and relabeling][relabel-thms] |
+| What are the C1 nonempty, bottom and trace transformer laws? | `addBottom_le_iff` and `addBottom_surjective` recover the catastrophic order by adjoining bottom. `Nonempty.no_common_lower_bound` rules out a common lower bound for distinct singleton outcomes in the nonempty fragment. With `[Subsingleton T]` and `t : T`, `Nonempty.pure_le_all` makes `pure t` least. `Arrow.then_assoc` and `Arrow.then_mono` give associative and monotone composition. `bind_eq_top_iff` locates UB in the first row or a reachable continuation row. [UB header][ub-thms] |
 | What is sequentially consistent (SC)? | `replay_iff` relates each finite primitive execution to its schedule. `classifyHistory_eq_some_iff` ties validation to generated executions, and a regression rejects a forged read that the raw classifier calls clean. `guarded_iff_filtered` equates ordinary guarded runs with clean raw runs. `racy_run_has_ub_prefix` and `raceUB_has_raw_run` connect raw executions to the first racing extension. The examples check a lock cycle with a separate completing schedule and a race-free run of SC atomic loads and stores that loses an update. [SC and race guide][sc] · [Header][sc-thms] · [Examples][sc-check] |
 | When can a concurrent trace be projected? | `Interface.observedRun_inter` factors filtered observations while retaining a source execution witness. `Projection.happensBefore_eq` requires retained cross-thread edge endpoints and, for the mixed profile, coverage of intervening overwrites. `Projection.classify_eq` additionally requires conflict coverage. The examples hide a handoff, overwrite or conflict, and check that repeated labels map to distinct source occurrences. [Projection guide][sc-projection] · [Header][projection-thms] · [Examples][projection-check] |
 | How are sequential interfaces combined? | `factors_iff` and `copair_eta` cover request restriction and tagged sum. `relabel_extend` checks extension and dispatch. With a typed renaming both requests and reply fibers have equivalences. `observes_hide_reply`, `observes_hide_refuse`, `observes_hide_loop` and `hide_staged` cover a state-indexed partial reply policy, including refusal and silent divergence. [Operator guide][operators] · [Header][operators-thms] · [Regression][operators-check] |
@@ -76,6 +77,53 @@ The linked source revisions are immutable because the component changes
 are under review, with some based on other component branches. The map
 covers the pinned statements and their stated premises. The component PRs
 record publication and check status. [Inventory][pr-inventory] · [SC][pr-sc] · [Interaction][pr-interaction] · [Projection][pr-projection] · [Operators][pr-operators] · [Read][pr-read] · [Open typed read][pr-typed-read] · [Handled read adapter][pr-read-adapter] · [Institutions and Elgot][pr-institution] · [Write][pr-write]
+
+## Reproduce the checked integration
+
+Use Bash from a clone with the repository's pinned Lean toolchain. The
+checked local commit was `5bf30f551b8398d0e037e4cdf2cca51ab5c0a931` with
+tree `899d8a3be98febd75a7405bf46a7d2f681a9bce2`. The ordered picks include
+one copy of the concrete #3555 patch and the distinct deltas from #3572
+and #3583. The Git path list below reproduces the 52 module targets in the
+order passed to Lake. The replay driver checks each selected module over its loaded imports.
+
+```bash
+set -euo pipefail
+base=496154c5319f0d3bda4d41eb4c37027ff35aba62
+picks=(
+  627432c060169951a08c2454b1c524831ce48793
+  c43ef4a85c5948119be11834f4feebce75dc4991
+  0558a414b2117057e9b4ea638a8ceb1a3015827e
+  b93f7a72e2ad4a244ffd17bb5e94858a2c73fc3b
+  61d4a44f4514730e0779c4180a768abc21086ed7
+  9c76bcfd3e7f9266327e065191b1d39ddb423f68
+  ccff3448ed27e150d1d3fc510e050efd208df6f6
+  99cd8a9f92531530e3bd865036946844c90fa69c
+  d9cb51eb8351f6c9c50b0a947e3b533da072644a
+  852fe2dcb8628565856abe1074273abd96ce27ff
+  b71f7df50b00679ab5e3784ba694621d54731920
+  43bb1542eea70e6199b1fd8e3af184cef5673d9c
+  5e08c16a7b9d14127a9686f600039089fee36027
+  7a71c189fa30a0c00c60927ef002d6988a2af05f
+  814bed538f10118fb9b0810d3e78902c99395040
+)
+git fetch --no-tags origin "$base" "${picks[@]}"
+git worktree add --detach ../track-a-check "$base"
+cd ../track-a-check
+git cherry-pick -x "${picks[@]}"
+test "$(git rev-parse HEAD^{tree})" = 899d8a3be98febd75a7405bf46a7d2f681a9bce2
+
+mapfile -t modules < <(git diff --name-only --diff-filter=AM "$base"..HEAD -- '*.lean' |
+  sed -e 's/\.lean$//' -e 's@/@.@g')
+targets=("${modules[@]/#/+}")
+test "${#targets[@]}" -eq 52
+LEAN_NUM_THREADS=12 lake build --wfail "${targets[@]}"
+LEAN_NUM_THREADS=12 make check "CHECK_TARGETS=${targets[*]}"
+printf '%s\n' "${modules[@]}" | xargs -r -P 6 -n 1 bash -c '
+  LEAN_NUM_THREADS=1 SILMARIL_REPLAY_MODULE="$1" \
+    lake env lean -DwarningAsError=true tools/compiler-explorer/Replay.lean
+' _
+```
 
 [interaction]: https://github.com/hiloopai/silmaril-lean/blob/9c76bcfd3e7f9266327e065191b1d39ddb423f68/docs/projects/track-a-interaction.md
 [interaction-thms]: https://github.com/hiloopai/silmaril-lean/blob/9c76bcfd3e7f9266327e065191b1d39ddb423f68/Silmaril/Semantics/TrackA/Interaction/Thms.lean
