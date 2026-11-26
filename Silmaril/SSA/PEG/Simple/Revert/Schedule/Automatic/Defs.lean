@@ -209,20 +209,40 @@ private def matchRows [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)] 
         matchRows g leaf available accept tail next.down
 termination_by structural pending _ => pending
 
+/-- A checked leaf with its original row and loop placement fixed. The
+order search may choose when to run it, with these exact input cuts. -/
+structure Anchored (g : Graph P params results n l) (roles : Roles P)
+    (args outs : List (Ty Data)) where
+  stage : Stage g args outs
+  inputs : Tuple (Ref g.sort) args
+  valid : stage.Valid inputs
+  roleMatch : RegionRoles roles stage.region
+
+private inductive Candidate (g : Graph P params results n l) (roles : Roles P) where
+  | unplaced : Leaf roles → Candidate g roles
+  | anchored {args outs : List (Ty Data)} : Anchored g roles args outs → Candidate g roles
+
 private def propose [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)] {α : Type (max u v)}
     (g : Graph P params results n l) :
-    Nat → List (Leaf roles) → {before : List (Ty Data)} → Tuple (Ref g.sort) before →
+    Nat → List (Candidate g roles) → {before : List (Ty Data)} → Tuple (Ref g.sort) before →
     ((p : Plan g before results) → PlanRoles roles p → Search (Option α)) → Search (Option α)
   | _, [], _, available, accept => do
     let some projection := projectRefs available g.roots | return none
     accept (.done projection) trivial
   | 0, _ :: _, _, _, _ => pure none
   | remaining + 1, leaves@(_ :: _), _, available, accept =>
-    leaves.zipIdx.findSomeM? fun (leaf, i) => do
+    leaves.zipIdx.findSomeM? fun (candidate, i) => do
       spend
-      matchRows g leaf available (fun s law routing =>
+      let extend {args outs : List (Ty Data)} (s : Stage g args outs)
+          (law : RegionRoles roles s.region) (routing : Tuple (Port _) args) :=
         propose g remaining (leaves.eraseIdx i) s.output fun tail laws =>
-          accept (.step routing s tail) ⟨law, laws⟩) (entryPass leaf.region :: List.finRange leaf.rows) {}
+          accept (.step routing s tail) ⟨law, laws⟩
+      match candidate with
+      | .unplaced leaf =>
+        matchRows g leaf available extend (entryPass leaf.region :: List.finRange leaf.rows) {}
+      | .anchored leaf =>
+        let some routing := projectRefs available leaf.inputs | return none
+        extend leaf.stage leaf.roleMatch routing
 termination_by structural remaining _ _ _ _ => remaining
 
 structure Found [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
@@ -233,12 +253,9 @@ structure Found [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
   checked : Schedule.check g plan inputs rank = some gate
   roleMatch : PlanRoles roles plan
 
-/-- Use every candidate once. Budget is shared across leaf choices and row
-or loop worklist requests, including backtracking. A proposed sequence
-must pass the existing schedule checker on the original table. -/
-def discover [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
+private def discoverCandidates [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
     (g : Graph P params results n l) (roles : Roles P) (rank : DemandRank n l)
-    (leaves : List (Leaf roles)) (budget : Nat) : Except Rejection (Found g roles rank) := do
+    (leaves : List (Candidate g roles)) (budget : Nat) : Except Rejection (Found g roles rank) := do
   unless rank.check g do throw .invalidRank
   let some inputs := paramsAt g (ports params) | throw .parameterRows
   let search : Search (Option (Found g roles rank)) := propose g leaves.length leaves inputs fun plan roles => do
@@ -249,5 +266,21 @@ def discover [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
   match found with
   | none => throw .noPlan
   | some result => pure result
+
+/-- Use every candidate once. Budget is shared across leaf choices and row
+or loop worklist requests, including backtracking. A proposed sequence
+must pass the existing schedule checker on the original table. -/
+def discover [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
+    (g : Graph P params results n l) (roles : Roles P) (rank : DemandRank n l)
+    (leaves : List (Leaf roles)) (budget : Nat) : Except Rejection (Found g roles rank) :=
+  discoverCandidates g roles rank (leaves.map Candidate.unplaced) budget
+
+/-- Search only for the order of fixed cuts and the typed projections
+that connect them. The budget counts attempted stage choices. -/
+def discoverAnchored [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
+    (g : Graph P params results n l) (roles : Roles P) (rank : DemandRank n l)
+    (leaves : List (Σ args outs, Anchored g roles args outs))
+    (budget : Nat) : Except Rejection (Found g roles rank) :=
+  discoverCandidates g roles rank (leaves.map fun ⟨_, _, leaf⟩ => .anchored leaf) budget
 
 end Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic
