@@ -62,6 +62,18 @@ theorem native_refines_iff (r t : UB.Typed (Φ := Φ) Γ L) :
     Refines.{u,v,w,x} (.native r) (.native t) ↔ UB.Refines.{u,v,w,x} r t :=
   Proofs.Isotope.LambdaSSA.UB.Overlay.native_refines_iff r t
 
+/-- The native observation view can use any environment agreeing with the
+model's captured variables. -/
+theorem mem_nativeOutcomes_iff (r : UB.Typed (Φ := Φ) Γ L)
+    {M : Model.{u,w,x} Φ Γ.length} {env : Semantics.Env M.α}
+    (agree : Morphism.CaseSSA.EnvAgrees env M.bound) (s : M.σ) (o : Outcome L.length M.α M.σ) :
+    o ∈ nativeOutcomes r M s ↔
+      match o with
+      | .ret i a s' => Semantics.Region.Eval M.instr env r.val s i a s'
+      | .fault s' => Semantics.Region.Fault M.instr M.faults env r.val s s'
+      | .diverge => Semantics.External.Diverges M.instr M.prim (.region env r.val s) :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.mem_nativeOutcomes r agree s o
+
 theorem nativeLsubst_hasType (r : UB.Typed (Φ := Φ) Γ L)
     (k : (i : Fin L.length) → UB.Typed (Φ := Φ) (L.get i :: Γ) K) :
     (nativeLsubst r k).HasType Γ K :=

@@ -145,15 +145,13 @@ with a model in which the instruction both faults and can diverge.
 Greatest behaviour here is a law of that model. [Fixed-model result][ssa-ub]
 [Model regression][ssa-ub-regression]
 
-### Explicit region UB with label substitution
+### Explicit region UB with substitution and feedback
 
-The independent `Overlay.Region Γ L` has three constructors. It embeds
-any exactly typed native region, adds a UB region at every interface, and
-sequences through a continuation for each exit label. Each continuation
-receives the exit payload in its own value binder and retains the original
-captured context. Native regions may contain arbitrary nested CFGs. The
-overlay has no constructor for feedback through an overlay region.
-[Overlay syntax][ssa-ub-overlay-defs]
+The independent `Overlay.Region` embeds any exactly typed native region,
+adds a UB region at every interface, and provides label substitution and
+feedback. A continuation or block receives the exit payload in its own
+value binder and retains the original captured context. Native regions may
+contain arbitrary nested CFGs. [Overlay syntax][ssa-ub-overlay-defs]
 
 For each observational model, bound environment and initial state, the
 carrier is `WithTop (Set Outcome)`. An outcome carries a scoped exit and
@@ -181,8 +179,27 @@ explicit UB at the source, yet their substituted projections differ at a
 single-exit target. Thus ordinary outcome equality at a fixed model is
 insufficient for a compositional interpretation with both native sequencing
 and absorbing UB. The lifted order retains precisely the distinction used
-in this counterexample. Feedback through overlay UB and a corresponding
-extension of the native rewrite quotients are open. [Checked obstruction][ssa-ub-overlay-regression]
+in this counterexample. [Checked obstruction][ssa-ub-overlay-regression]
+
+Feedback splits the outgoing interface as `R ++ L`. An ordinary return to
+`R` invokes the corresponding local block with the returned payload and
+machine state. A return to `L` exits. Fresh top occurs exactly when a finite
+path of ordinary internal returns reaches a component at fresh top. Below
+top, finite paths collect external returns and faults, and divergence comes
+from a finitely reached component divergence or an actual infinite
+sequence of internal returns. `feedback_mono` proves directed congruence
+in the entry and all blocks, including refinements that expose UB earlier.
+The top and ordinary parts also satisfy one-step unfolding.
+[Feedback laws][ssa-ub-feedback]
+
+For native entry and blocks, `denote_native_feedback` agrees with the
+repository's typed recursive CFG at every existing observational model.
+The regression checks a block whose first visit takes a backedge and whose
+second visit reaches UB, an immediate exit that bypasses a UB block, and a
+native self-loop whose divergence is absent from finite closure. The
+feedback laws concern the observation order. Elgot and Conway laws and
+integration with the native rewrite quotients remain open.
+[Native agreement][ssa-ub-feedback] [Regressions][ssa-ub-feedback-regression]
 
 ## Coverage and gaps
 
@@ -190,7 +207,7 @@ extension of the native rewrite quotients are open. [Checked obstruction][ssa-ub
 |---|---|---|
 | LetCase | The exact typed preorder gives `caseTheory` and ordered algebra models. The separate operational institution observes results, faults and divergence. | Instantiate the ordered monad with `casePSig` or the specification of `caseTheory`. `typedEquiv` proves both typed round trips between explicit UB and native terms generated with `op (ub A) unit`, including under binders. The interpreted order preserves and reflects on these endpoints. Arbitrary unit-typed operands can have effects, and an operational equivalence needs to preserve their evaluation and justify the sequencing and UB laws in the chosen observation model. [Ordered theory][let-theory] [Typed round trip][case] [Ordered bridge][case-refinement] [Observations][obs] |
 | LetIter | `iterTheory` gives ordered refinement models. The separate quantitative `Refinement.Thms` also has categorical initiality and singleton-input completeness. Operational stuckness yields an undefined outcome, while the observational institution tracks returns, faults and divergence. | The exact literal-unit round trip and ordered quotient comparison include the iteration binder. Quantitative literal-unit UB is limited to discardable contexts and compatible effect bounds. A linear input would require a resource-consuming encoding or a different typing rule for UB. [Ordered theory][let-theory] [Ordered bridge][iter-ub-refinement] [Quantitative typing][iter-ub-quant] [Categorical initiality][quant] [Undefined outcome][iter-beh] |
-| LambdaSSA | Typed terms use unary instructions and regions have separate value and label contexts. The typed CFG quotient uses `RewriteEquiv`. The observational institution has inclusion of outcomes, with an observational isomorphism to LetIter for single-exit regions. | The primitive monad supplies a unit-taking expression instruction. Every exact typing interface, including the empty-label boundary, has a countermodel to uniform greatest refinement by a native region. At a fixed model with the stated saturation assumptions the unit-fed prefix is greatest at the empty interface. The independent exact-typed overlay adds a distinct greatest element with monotone label substitution and exact all-native CFG agreement. Overlay feedback remains open. [Empty-label boundary][ssa-ub] [Explicit overlay][ssa-ub-overlay] [Typing][ssa-typing] [Rewrite quotient][ssa-rewrite] [Observational isomorphism][ssa-obs] |
+| LambdaSSA | Typed terms use unary instructions and regions have separate value and label contexts. The typed CFG quotient uses `RewriteEquiv`. The observational institution has inclusion of outcomes, with an observational isomorphism to LetIter for single-exit regions. | The primitive monad supplies a unit-taking expression instruction. Every exact typing interface, including the empty-label boundary, has a countermodel to uniform greatest refinement by a native region. At a fixed model with the stated saturation assumptions the unit-fed prefix is greatest at the empty interface. The independent exact-typed overlay adds a distinct greatest element with monotone substitution and feedback, each with exact all-native CFG agreement. Native rewrite quotient integration remains open. [Empty-label boundary][ssa-ub] [Explicit overlay][ssa-ub-overlay] [Feedback][ssa-ub-feedback] [Typing][ssa-typing] [Rewrite quotient][ssa-rewrite] [Observational isomorphism][ssa-obs] |
 | LambdaRTL | The acyclic model interprets unary applications in a monad; its alphabet institution takes the observation relation as a parameter. It distinguishes lexical SSA, projected RTL and full RTL store observations. The separate machine RTL adapter reports stuckness as an undefined outcome. | A top region needs a chosen store/label observation order and a typed result and continuation interface. Its interpretation must dominate all observations for every environment at the selected boundary. An instruction relabelling or a lawful monad supplies no such law. [Syntax and model][rtl] [Institution][rtl-inst] [Machine RTL outcomes][rtl-beh] |
 
 An effect bound of `⊤` permits all effects in the typing system. It does
@@ -212,6 +229,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetCase.
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetIter.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -256,3 +274,5 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-overlay-defs]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Defs.lean
 [ssa-ub-overlay]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Thms.lean
 [ssa-ub-overlay-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Regression.lean
+[ssa-ub-feedback]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Thms.lean
+[ssa-ub-feedback-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Regression.lean
