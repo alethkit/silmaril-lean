@@ -174,8 +174,9 @@ def packets (_ : Fin 1) : ReplyShape := .unit
 def rank (_ : Fin 1) : Nat := 0
 
 /-- Read a two-tag reply and pass the selected payload to label `j`. -/
-def route (j : Nat) : Region Op :=
-  .let₁ (.op .read (.var 0)) (.case (.var 0) (.br j (.var 0)) (.br j (.var 0)))
+def choose (j : Nat) : Region Op := .case (.var 0) (.br j (.var 0)) (.br j (.var 0))
+
+def route (j : Nat) : Region Op := .let₁ (.op .read (.var 0)) (choose j)
 
 def downstream (out : Nat) : Region Op := .let₁ (.op .tick (.var 0)) (.br out (.var 0))
 
@@ -194,12 +195,20 @@ def expected : Control Op .unit .unit :=
 def expectedRow : Row Op (ReplyShape.unit.Value) :=
   .call .read (fun _ => .call .tick Row.leaf)
 
+def flatBlocks : Fin 2 → Region Op := Fin.cases (route 1) (fun _ => downstream 2)
+
 /-- Put the request in a local block of a two-label flat table. -/
-def flat : Region Op := .cfg (.br 0 (.var 0)) 2 (Fin.cases (route 1) (fun _ => downstream 2))
+def flat : Region Op := .cfg (.br 0 (.var 0)) 2 flatBlocks
 
 def flatPackets (_ : Fin 2) : ReplyShape := .unit
 
 def flatRank (i : Fin 2) : Nat := 1 - i.val
+
+/-- The original table after entering its first block. -/
+def flatEntered : Region Op := .cfg (route 1) 2 flatBlocks
+
+/-- The request runs ahead of the same table, followed by its reply selection. -/
+def flatMoved : Region Op := .let₁ (.op .read (.var 0)) (.cfg (choose 1) 2 flatBlocks)
 
 end RequestExample
 
