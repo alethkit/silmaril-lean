@@ -3,11 +3,11 @@ module
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Run.Host.Entry.Defs
 
 /-!
-# A finite straight-line sequence of direct V1 host sites
+# Checked scalar control leading to direct V1 host sequences
 
-Each site follows a checked numeric prefix in the same activation. Successful
-delivery places the result above the saved operands and checks the remaining
-sites on that stack. The existing Memory32 graph handles the final tail.
+Each selected arm may open more labels or enter a checked host sequence.
+Successful delivery places the result above the saved operands. The existing
+Memory32 graph handles the host-free tails.
 -/
 
 @[expose] public section
@@ -84,24 +84,37 @@ def context (fn : Function) (args : List Value) (labels : List OpenLabel) : Eval
 
 end OpenLabel
 
-namespace PathNode
+/-- A structured region can select either host-enabled arm. Enclosing tails
+use the existing host-free graph instructions. -/
+inductive Source (H : Type) where
+  | root
+  | hosts (first : HostSegment H) (later : List (HostSegment H))
+  | plain (code : List Op)
+  | block (block : PathBlock) (body : Source H)
+  | if_ (block : PathBlock) (condition : LocalIdx) (left right : Source H)
 
-def emit (node : PathNode) (inside : Wasm.V1.Expr) : Wasm.V1.Expr :=
-  match node.choice with
-  | none => .block node.block.result inside :: v1Code node.block.tail
-  | some test =>
-    .localGet test.condition :: .if_ node.block.result inside (v1Code test.alternate) :: v1Code node.block.tail
+namespace Source
 
-def Allowed (mode : MemoryMode) (program : Program) (memory : MemAddr) (calls : CallMode)
-    (fn : Function) : List PathNode → Prop
-  | [] => True
+def ofPath {H : Type} : List PathNode → Source H
+  | [] => .root
   | node :: rest =>
-    CodeAllowedFor mode program memory calls fn.rank fn.declaration.module (expression (v1Code node.block.tail)) ∧
-    (∀ test ∈ node.choice, ∀ instr ∈ v1Code test.alternate,
-      SourceAllowedFor mode program memory calls fn.rank fn.declaration.module instr) ∧
-    Allowed mode program memory calls fn rest
+    match node.choice with
+    | none => .block node.block (ofPath rest)
+    | some test => .if_ node.block test.condition (ofPath rest) (.plain test.alternate)
 
-end PathNode
+def Allowed {H : Type} (mode : MemoryMode) (program : Program) (memory : MemAddr) (calls : CallMode)
+    (fn : Function) : Source H → Prop
+  | .root | .hosts .. => True
+  | .plain code =>
+    CodeAllowedFor mode program memory calls fn.rank fn.declaration.module (expression (v1Code code))
+  | .block scope body =>
+    CodeAllowedFor mode program memory calls fn.rank fn.declaration.module (expression (v1Code scope.tail)) ∧
+    Allowed mode program memory calls fn body
+  | .if_ scope _ left right =>
+    CodeAllowedFor mode program memory calls fn.rank fn.declaration.module (expression (v1Code scope.tail)) ∧
+    Allowed mode program memory calls fn left ∧ Allowed mode program memory calls fn right
+
+end Source
 
 namespace Sequence
 
@@ -121,15 +134,30 @@ def encode {A : Type} (ops : ArgumentSyntax A) (tail : List A) : List (HostSegme
 def hostBody (seq : Sequence H) : Wasm.V1.Expr :=
   encode Graph.v1CodeSyntax.ops (v1Code seq.root.function.code) (seq.first :: seq.later)
 
-def sourcePath (seq : Sequence H) (path : List PathNode) : Wasm.V1.Expr :=
-  path.foldr PathNode.emit seq.hostBody
+def sourceCode (seq : Sequence H) : Source H → Wasm.V1.Expr
+  | .root => seq.hostBody
+  | .hosts first later => encode Graph.v1CodeSyntax.ops (v1Code seq.root.function.code) (first :: later)
+  | .plain code => v1Code code
+  | .block block body => .block block.result (seq.sourceCode body) :: v1Code block.tail
+  | .if_ block condition left right =>
+    .localGet condition :: .if_ block.result (seq.sourceCode left) (seq.sourceCode right) :: v1Code block.tail
 
-def v1FuncAt (seq : Sequence H) (path : List PathNode) : Wasm.V1.Func :=
+def sourceSites (seq : Sequence H) : Source H → List (HostCall.V1.Site H)
+  | .root => seq.sites
+  | .hosts first later => first.site :: later.map HostSegment.site
+  | .plain _ => []
+  | .block _ body => seq.sourceSites body
+  | .if_ _ _ left right => seq.sourceSites left ++ seq.sourceSites right
+
+def v1FuncFor (seq : Sequence H) (body : Source H) : Wasm.V1.Func :=
   let fn := seq.root.function
   ⟨fn.declaration.typeIndex, fn.declaration.locals,
-    fn.initial.map Graph.v1CodeSyntax.ops.value ++ seq.sourcePath path⟩
+    fn.initial.map Graph.v1CodeSyntax.ops.value ++ seq.sourceCode body⟩
 
-def v1Func (seq : Sequence H) : Wasm.V1.Func := seq.v1FuncAt []
+def v1FuncAt (seq : Sequence H) (path : List PathNode) : Wasm.V1.Func :=
+  seq.v1FuncFor (Source.ofPath path)
+
+def v1Func (seq : Sequence H) : Wasm.V1.Func := seq.v1FuncFor .root
 
 def continuation (seq : Sequence H) (rest : List (HostSegment H)) : List Admin :=
   encode v1Syntax seq.root.tail rest
@@ -146,18 +174,26 @@ def checkRegion (fn : Function) (stack fallthrough : List NumType)
 def check (fn : Function) (stack : List NumType) (segments : List (HostSegment H)) : Bool :=
   checkRegion fn stack fn.declaration.results fn.entryLabels segments
 
-def checkPath (seq : Sequence H) (stack fallthrough : List NumType) (targets : List (List NumType)) :
-    List PathNode → Bool
-  | [] => checkRegion seq.root.function stack fallthrough targets (seq.first :: seq.later)
-  | node :: rest =>
+def checkSource (seq : Sequence H) (stack fallthrough : List NumType) (targets : List (List NumType)) :
+    Source H → Bool
+  | .root => checkRegion seq.root.function stack fallthrough targets (seq.first :: seq.later)
+  | .hosts first later => checkRegion seq.root.function stack fallthrough targets (first :: later)
+  | .plain code => OpenLabel.checkTail seq.root.function stack fallthrough targets code
+  | .block block body =>
+    let result := block.result.toList
+    OpenLabel.checkTail seq.root.function (result.reverse ++ stack) fallthrough targets block.tail &&
+    seq.checkSource [] result (result :: targets) body
+  | .if_ block condition left right =>
     let fn := seq.root.function
-    let result := node.block.result.toList
+    let result := block.result.toList
     let nested := result :: targets
-    OpenLabel.checkTail fn (result.reverse ++ stack) fallthrough targets node.block.tail &&
-    node.choice.all (fun test =>
-      decide ((fn.declaration.params ++ fn.declaration.locals)[test.condition.toNat]? = some (.int .i32)) &&
-        OpenLabel.checkTail fn [] result nested test.alternate) &&
-    seq.checkPath [] result nested rest
+    OpenLabel.checkTail fn (result.reverse ++ stack) fallthrough targets block.tail &&
+    (decide ((fn.declaration.params ++ fn.declaration.locals)[condition.toNat]? = some (.int .i32)) &&
+      (seq.checkSource [] result nested left && seq.checkSource [] result nested right))
+
+def checkPath (seq : Sequence H) (stack fallthrough : List NumType) (targets : List (List NumType))
+    (path : List PathNode) : Bool :=
+  seq.checkSource stack fallthrough targets (Source.ofPath path)
 
 structure Linked (site : HostCall.V1.Site H) (module : ModuleInst) (base : Store H) : Prop where
   resolved : module.funcs[site.index.toNat]? = some site.address
@@ -168,17 +204,17 @@ structure Linked (site : HostCall.V1.Site H) (module : ModuleInst) (base : Store
 The final tail uses the original guarded Memory32 graph. -/
 structure Checked (seq : Sequence H) (mode : MemoryMode) (program : Program) (memory : MemAddr)
     (calls : CallMode) (base : Store H) (outer : Frame) (args : List Value)
-    (path : List PathNode := []) : Prop where
+    (body : Source H := .root) : Prop where
   resolved : outer.module.funcs[seq.root.index.toNat]? = some seq.root.address
   allocated : base.funcs[seq.root.address.value]? =
-    some (.wasm seq.root.function.declaration.type seq.root.function.declaration.module (seq.v1FuncAt path))
+    some (.wasm seq.root.function.declaration.type seq.root.function.declaration.module (seq.v1FuncFor body))
   parameters : args.map Value.type = seq.root.function.declaration.params
   scalar : seq.root.function.declaration.results.length ≤ 1
   slot : seq.root.function.declaration.module.memories[0]? = some memory
-  linkedHosts : ∀ site ∈ seq.sites, Linked site seq.root.function.declaration.module base
-  typedBody : seq.checkPath (Prefix.stackTypes seq.root.function.initial) seq.root.function.declaration.results
-    seq.root.function.entryLabels path = true
-  guardedPath : PathNode.Allowed mode program memory calls seq.root.function path := by trivial
+  linkedHosts : ∀ site ∈ seq.sourceSites body, Linked site seq.root.function.declaration.module base
+  typedBody : seq.checkSource (Prefix.stackTypes seq.root.function.initial) seq.root.function.declaration.results
+    seq.root.function.entryLabels body = true
+  guardedBody : Source.Allowed mode program memory calls seq.root.function body := by trivial
   supportedTail : supportedCode seq.root.function.code seq.root.function.entryLabels mode
     (program.checkIndirect calls seq.root.function.rank seq.root.function.declaration.module) = true
   linkedTail : ∀ target ∈ seq.root.function.targets,
@@ -189,16 +225,17 @@ structure Checked (seq : Sequence H) (mode : MemoryMode) (program : Program) (me
 /-- The contract is applied at the current live store and actual typed inputs
 of each reached site. All returned outcomes, including traps, are covered. -/
 def Contract (seq : Sequence H) (host : HostSemantics H) (mode : MemoryMode) (memory : MemAddr)
-    (initial : MemInst) (base : Store H) : Prop :=
-  ∀ site ∈ seq.sites, ∀ bytes, mode.extent initial.data.size bytes →
+    (initial : MemInst) (base : Store H) (body : Source H := .root) : Prop :=
+  ∀ site ∈ seq.sourceSites body, ∀ bytes, mode.extent initial.data.size bytes →
     ∀ args : List Value, args.map Value.type = site.signature.params →
       site.ReturnContract host (HostStoreEffect mode memory initial) (storeWithBytes base memory initial bytes) args
 
 inductive Phase (H : Type) where
-  | call (path : List PathNode := [])
-  | invoke (path : List PathNode := [])
-  | path (stack : List Value) (node : PathNode) (rest : List PathNode) (labels : List OpenLabel)
-  | test (stack : List Value) (block : PathBlock) (choice : PathChoice) (rest : List PathNode)
+  | call (body : Source H := .root)
+  | invoke (body : Source H := .root)
+  | block (stack : List Value) (block : PathBlock) (body : Source H) (labels : List OpenLabel)
+  | if_ (stack : List Value) (block : PathBlock) (index : LocalIdx) (left right : Source H) (labels : List OpenLabel)
+  | test (stack : List Value) (block : PathBlock) (index : LocalIdx) (left right : Source H)
       (condition : BitVec 32) (labels : List OpenLabel)
   | computing (bytes : ByteArray) (stack : List Value) (remaining : List Prefix.Op)
       (site : HostCall.V1.Site H) (later : List (HostSegment H)) (labels : List OpenLabel := [])
@@ -207,10 +244,14 @@ inductive Phase (H : Type) where
   | trapped (bytes : ByteArray) (saved : List Value) (tail : List Admin) (labels : List OpenLabel := [])
   | graph (state : State)
 
-def beginPath (seq : Sequence H) (start : ByteArray) (stack : List Value) (labels : List OpenLabel) :
-    List PathNode → Phase H
-  | [] => .computing start stack seq.root.operands seq.root.site seq.later labels
-  | node :: rest => .path stack node rest labels
+def beginBody (seq : Sequence H) (outer : Frame) (args : List Value) (start : ByteArray)
+    (stack : List Value) (labels : List OpenLabel) : Source H → Phase H
+  | .root => .computing start stack seq.root.operands seq.root.site seq.later labels
+  | .hosts first later => .computing start stack first.operands first.site later labels
+  | .plain code => .graph ⟨start, outer, (OpenLabel.context seq.root.function args labels).plug value
+      (values stack ++ expression (v1Code code))⟩
+  | .block block body => .block stack block body labels
+  | .if_ block index left right => .if_ stack block index left right labels
 
 def resume (seq : Sequence H) (outer : Frame) (args : List Value) (bytes : ByteArray)
     (stack : List Value) (later : List (HostSegment H)) (labels : List OpenLabel := []) : Phase H :=
@@ -236,11 +277,13 @@ def render (seq : Sequence H) (base : Store H) (memory : MemAddr) (initial : Mem
   match phase with
   | .call _ => ⟨live start, outer, values args ++ [.source (.call seq.root.index)]⟩
   | .invoke _ => ⟨live start, outer, values args ++ [.invoke seq.root.address]⟩
-  | .path stack node rest labels =>
-    ⟨live start, outer, (k labels).plug value (values stack ++ expression (seq.sourcePath (node :: rest)))⟩
-  | .test stack block choice rest condition labels =>
+  | .block stack block body labels =>
+    ⟨live start, outer, (k labels).plug value (values stack ++ expression (seq.sourceCode (.block block body)))⟩
+  | .if_ stack block index left right labels =>
+    ⟨live start, outer, (k labels).plug value (values stack ++ expression (seq.sourceCode (.if_ block index left right)))⟩
+  | .test stack block _ left right condition labels =>
     ⟨live start, outer, (k labels).plug value (values (stack ++ [Value.int .i32 condition]) ++
-      .source (.if_ block.result (seq.sourcePath rest) (v1Code choice.alternate)) :: expression (v1Code block.tail))⟩
+      .source (.if_ block.result (seq.sourceCode left) (seq.sourceCode right)) :: expression (v1Code block.tail))⟩
   | .computing bytes stack ops site later labels =>
     ⟨live bytes, outer, (k labels).plug value (values stack ++ ops.map (Prefix.emit v1Syntax) ++
       .source (.call site.index) :: seq.continuation later)⟩
@@ -253,33 +296,35 @@ def ContextReady (seq : Sequence H) (mode : MemoryMode) (program : Program) (mem
     (calls : CallMode) (labels : List OpenLabel) : Prop :=
   OpenLabel.Typed seq.root.function labels ∧ OpenLabel.Allowed mode program memory calls seq.root.function labels
 
-def PathReady (seq : Sequence H) (mode : MemoryMode) (program : Program) (memory : MemAddr)
-    (calls : CallMode) (labels : List OpenLabel) (stack : List Value) (path : List PathNode) : Prop :=
+def SourceReady (seq : Sequence H) (mode : MemoryMode) (program : Program) (memory : MemAddr)
+    (calls : CallMode) (labels : List OpenLabel) (stack : List Value) (region body : Source H) : Prop :=
   seq.ContextReady mode program memory calls labels ∧
-  PathNode.Allowed mode program memory calls seq.root.function path ∧
-  seq.checkPath (Prefix.stackTypes stack) (OpenLabel.results seq.root.function labels)
-    (OpenLabel.targets seq.root.function labels) path = true
+  Source.Allowed mode program memory calls seq.root.function region ∧
+  (∀ site ∈ seq.sourceSites region, site ∈ seq.sourceSites body) ∧
+  seq.checkSource (Prefix.stackTypes stack) (OpenLabel.results seq.root.function labels)
+    (OpenLabel.targets seq.root.function labels) region = true
 
 /-- A pending site's invariant binds the actual arguments, the saved operands,
 the remaining source checks, and the current shared extent. -/
 def Ready (seq : Sequence H) (mode : MemoryMode) (program : Program) (memory : MemAddr)
-    (calls : CallMode) (initial : MemInst) (phase : Phase H) (path : List PathNode := []) : Prop :=
+    (calls : CallMode) (initial : MemInst) (phase : Phase H) (body : Source H := .root) : Prop :=
   let fn := seq.root.function
   match phase with
-  | .call current | .invoke current => current = path
-  | .path stack node rest labels => seq.PathReady mode program memory calls labels stack (node :: rest)
-  | .test stack block choice rest _ labels =>
-    seq.PathReady mode program memory calls labels stack (⟨block, some choice⟩ :: rest)
+  | .call current | .invoke current => current = body
+  | .block stack block region labels =>
+    seq.SourceReady mode program memory calls labels stack (.block block region) body
+  | .if_ stack block index left right labels | .test stack block index left right _ labels =>
+    seq.SourceReady mode program memory calls labels stack (.if_ block index left right) body
   | .computing bytes stack ops site later labels =>
-    mode.extent initial.data.size bytes ∧ site ∈ seq.sites ∧
-      (∀ piece ∈ later, piece.site ∈ seq.sites) ∧
+    mode.extent initial.data.size bytes ∧ site ∈ seq.sourceSites body ∧
+      (∀ piece ∈ later, piece.site ∈ seq.sourceSites body) ∧
       checkHostPrefixWith (fn.declaration.params ++ fn.declaration.locals)
         (Prefix.stackTypes stack) ops site.signature
         (fun next => checkRegion fn next (OpenLabel.results fn labels) (OpenLabel.targets fn labels) later) = true ∧
       seq.ContextReady mode program memory calls labels
   | .pending bytes saved actual site later labels =>
-    mode.extent initial.data.size bytes ∧ site ∈ seq.sites ∧
-      (∀ piece ∈ later, piece.site ∈ seq.sites) ∧
+    mode.extent initial.data.size bytes ∧ site ∈ seq.sourceSites body ∧
+      (∀ piece ∈ later, piece.site ∈ seq.sourceSites body) ∧
       actual.map Value.type = site.signature.params ∧
       checkRegion fn (site.signature.results.reverse ++ Prefix.stackTypes saved)
         (OpenLabel.results fn labels) (OpenLabel.targets fn labels) later = true ∧
@@ -291,24 +336,19 @@ def Ready (seq : Sequence H) (mode : MemoryMode) (program : Program) (memory : M
 inductive Edge (seq : Sequence H) (host : HostSemantics H) (mode : MemoryMode)
     (program : Program) (memory : MemAddr) (base : Store H) (initial : MemInst)
     (start : ByteArray) (outer : Frame) (args : List Value) : Phase H → Phase H → Prop where
-  | resolve {path} : Edge seq host mode program memory base initial start outer args (.call path) (.invoke path)
-  | enter {path} : Edge seq host mode program memory base initial start outer args (.invoke path)
-      (seq.beginPath start seq.root.function.initial [] path)
-  | openBlock {stack block rest labels} :
-      Edge seq host mode program memory base initial start outer args (.path stack ⟨block, none⟩ rest labels)
-        (seq.beginPath start [] (⟨stack, block⟩ :: labels) rest)
-  | readCondition {stack block choice rest condition labels}
-      (found : (seq.root.function.declaration.frame args).locals[choice.condition.toNat]? =
-        some (.int .i32 condition)) :
+  | resolve {body} : Edge seq host mode program memory base initial start outer args (.call body) (.invoke body)
+  | enter {body} : Edge seq host mode program memory base initial start outer args (.invoke body)
+      (seq.beginBody outer args start seq.root.function.initial [] body)
+  | openBlock {stack block region labels} :
+      Edge seq host mode program memory base initial start outer args (.block stack block region labels)
+        (seq.beginBody outer args start [] (⟨stack, block⟩ :: labels) region)
+  | readCondition {stack block index left right condition labels}
+      (found : (seq.root.function.declaration.frame args).locals[index.toNat]? = some (.int .i32 condition)) :
       Edge seq host mode program memory base initial start outer args
-        (.path stack ⟨block, some choice⟩ rest labels) (.test stack block choice rest condition labels)
-  | choosePath {stack block choice rest condition labels} (nonzero : condition ≠ 0) :
+        (.if_ stack block index left right labels) (.test stack block index left right condition labels)
+  | select {stack block index left right condition labels} :
       Edge seq host mode program memory base initial start outer args
-        (.test stack block choice rest condition labels) (.path stack ⟨block, none⟩ rest labels)
-  | chooseAlternate {stack block choice rest labels} :
-      Edge seq host mode program memory base initial start outer args (.test stack block choice rest 0 labels)
-        (.graph ⟨start, outer, (OpenLabel.context seq.root.function args labels).plug value
-          (values stack ++ .source (.block block.result (v1Code choice.alternate)) :: expression (v1Code block.tail))⟩)
+        (.test stack block index left right condition labels) (.block stack block (if condition = 0 then right else left) labels)
   | numeric {bytes stack next op rest site later labels}
       (move : Prefix.Reduce (seq.root.function.declaration.frame args).locals stack op (.values next)) :
       Edge seq host mode program memory base initial start outer args (.computing bytes stack (op :: rest) site later labels)
