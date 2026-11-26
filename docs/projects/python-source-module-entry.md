@@ -90,6 +90,25 @@ path and retain the existing error and result tags. Run the unchanged
 `bool-compare.py` and `bitwise_test.py` with the CPython 3.13.5 controls using
 `python3.13 -I scripts/check-python-numeric-arguments.py --upstream /path/to/pinned/rigorous`.
 
+The function-aware checker can omit an `if` whose closed guard selects an
+empty arm or an arm of `pass` statements. The otherwise unsupported arm
+must contain only passes or syntactically checked raises. Its exception
+names and calls are unreachable. A selected raise or a guard whose
+evaluation falls outside the checked profile reports `statementProfile`.
+The existing literal-arm lowering handles assignments and assertions.
+
+Closed guards compose integer operations, exact singleton identity,
+Boolean selection, and ordered comparisons. Finite float addition and
+comparison use the library's binary64 semantics. Text comparison follows
+Unicode code-point order, and truth of a literal dictionary requires a
+checked text key and literal value at every entry. Boolean selection
+retains the selected value's tag. The checker validates every operand and
+comparison link, including skipped ones. Bitwise inversion requires an
+integer because CPython 3.13.5 warns on Boolean inversion. Emission adds no
+instructions, runtime allocations or receipts. Run the four pinned inputs and the
+CPython 3.13.5 controls with
+`python3.13 -I scripts/check-python-closed-guards.py --upstream /path/to/pinned/rigorous`.
+
 A message-free assertion can use `bool()` or `bool(scalar)` on the left
 of a single `is` or `is not` link. The checker certifies the optional
 positional operand in the shared scalar profile and the right operand in

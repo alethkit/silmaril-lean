@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Python.Compile.Closure.Body.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuard.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain.Defs
 
@@ -534,6 +535,9 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (checked : TupleChainTranslation tree.scope statement test)
       (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.assertTupleChain test :: tail)
+  | omittedIf {index statement value rest tail}
+      (first : ClosedGuard.Omitted statement value) (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) tail
   | assertVarNames {index receiver needle rest tail} (reference : GlobalReference tree.scope receiver)
       (remaining : Translation tree index rest tail) :
       Translation tree index
@@ -624,7 +628,10 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     let tail ← lowerPlan tree index rest
     return ⟨.assertNot operand.val :: tail.val, .assertNot operand.property tail.property⟩
   | statement :: rest => do
-    if let some test := integerBuiltinTest? tree.scope statement then
+    if let some checked := ClosedGuard.omitted? statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨tail.val, .omittedIf checked.property tail.property⟩
+    else if let some test := integerBuiltinTest? tree.scope statement then
       let tail ← lowerPlan tree index rest
       return ⟨.assertIntegerBuiltin test.val :: tail.val, .assertIntegerBuiltin test.property tail.property⟩
     else if let some test := boolIdentityTest? tree.scope statement then

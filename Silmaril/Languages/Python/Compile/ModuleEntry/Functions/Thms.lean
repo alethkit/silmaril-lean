@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuard.Thms
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument.Thms
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Thms
 
@@ -85,7 +86,8 @@ theorem lowerPlan_literalIf {tree : Source.ScopeTree} {index : Nat}
     (remaining : lowerPlan tree index rest = .ok ⟨tail, tailTranslation⟩) :
     (lowerPlan tree index (.if_ guard yes no :: rest)).toOption.map Subtype.val =
       some (selected.map .scalar ++ tail) := by
-  simp [lowerPlan, callSite?, binding?, ModuleEntry.statements_complete checked, remaining,
+  simp [lowerPlan, ClosedGuard.ordinaryIf_omitted_none checked, callSite?, binding?,
+    ModuleEntry.statements_complete checked, remaining,
     Except.mapError, Except.toOption]
   rfl
 
