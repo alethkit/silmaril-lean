@@ -68,6 +68,12 @@ theorem normalized_phi_occurrences (built : Built (prepare loop)) (i j : Vertex 
   Proofs.SSA.SeaOfNodes.GVN.Cyclic.Builder.Preheader.normalized_phi_occurrences
     built i j entry₁ entry₂ back₁ back₂ shape₁ shape₂ same
 
+/-- Preparing any native loop in this profile produces a direct-entry
+header that the existing builder accepts, including after restoration. -/
+theorem prepare_builds (loop : Native inputs carried entrySigs headerSigs out) :
+    ∃ built, build? (prepare loop) = some built :=
+  Proofs.SSA.SeaOfNodes.GVN.Cyclic.Builder.Preheader.prepare_builds loop
+
 /-- A successful native result comes from the existing builder and pass and
 then passes the checked removal of the temporary capture arguments. -/
 theorem optimize_witness (accepted : optimize? loop = some result) :

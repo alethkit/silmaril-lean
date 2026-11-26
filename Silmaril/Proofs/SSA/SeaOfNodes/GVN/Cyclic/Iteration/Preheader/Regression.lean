@@ -8,7 +8,9 @@ namespace Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Regressi
 open Silmaril.SSA.SeaOfNodes
 open Diamond (Ty ValueSort dataPorts)
 open GVN.Cyclic.Activation (Inputs headerInput headerLatch inputSlot)
-open GVN.Cyclic.Builder.Preheader (Native)
+open GVN.Cyclic.Builder (Built build?)
+open GVN.Cyclic.Builder.Preheader (Native prepare)
+open GVN.Cyclic.Pass (proposals tryProposal?)
 open GVN.Cyclic.Deletion (DeletedLoop)
 open GVN.Cyclic.Iteration.Preheader
 open Pure.SubZero (Opcode model word wordPort)
@@ -106,6 +108,21 @@ theorem two_restored_native_steps :
   refine ⟨?_, rfl, rfl⟩
   rw [run_succ 0 (fixture true), first_accepted]
   rfl
+
+theorem both_restored_headers_rebuild :
+    (build? (prepare afterFirst.graph)).isSome = true ∧
+      (build? (prepare afterSecond.graph)).isSome = true :=
+  ⟨rfl, rfl⟩
+
+theorem twice_rewritten_header_is_saturated :
+    let prepared := prepare afterSecond.graph
+    ∃ built : Built prepared, build? prepared = some built ∧
+      ∀ proposal ∈ proposals built.view,
+        tryProposal? built.view (GVN.Cyclic.FixedPoint.normalize built.graph) proposal = none := by
+  have saturated := normalize_saturated (fixture true)
+  dsimp only at saturated
+  rw [run_result] at saturated
+  exact saturated
 
 private def input : Inputs model inputs :=
   .cons ⟨true⟩ (.cons ⟨false⟩ (.cons (3 : BitVec 64) (.cons (4 : BitVec 64) .nil)))

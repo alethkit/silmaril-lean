@@ -22,6 +22,17 @@ same-class Φ vertices.
 [Theorems](../../Silmaril/SSA/SeaOfNodes/GVN/Cyclic/Builder/Preheader/Thms.lean) ·
 [Existing builder](sea-of-nodes-gvn-cyclic-builder.md)
 
+`Builder.build_of_direct_entry` proves that the existing builder
+succeeds when each entry Φ operand is a direct fixed-argument read.
+The typed header provides every required origin. A fixed argument is
+decoded directly, each latch has a vertex before the producers, and
+each producer operand can only use outputs in its typed prefix. The
+guard, exit and all feedback reads decode in the completed table.
+`prepare_builds` supplies the direct-entry premise for any native
+graph in this profile, including the graph returned after a checked
+deletion and restoration.
+[Builder admission theorem](../../Silmaril/SSA/SeaOfNodes/GVN/Cyclic/Builder/Thms.lean)
+
 ## Native rewrite
 
 The prepared loop sends the original guard, exit, and complete feedback
