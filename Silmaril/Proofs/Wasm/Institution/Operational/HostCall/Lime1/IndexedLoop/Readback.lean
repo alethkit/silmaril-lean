@@ -3,7 +3,7 @@ module
 public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.IndexedLoop.Defs
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.IndexedLoop.Control
 import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Thms
-import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Thms
+import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Conditional.Thms
 import Silmaril.Wasm.Lime1.Execution.Callout.Properties
 
 @[expose] public section
@@ -46,12 +46,14 @@ private theorem preserves (checked : p.Checked mem outer index) (contract : p.Co
   | control control =>
     refine ⟨?_, live⟩
     cases control with
-    | loopResult => exact ⟨checked.continuation, contract.2⟩
+    | loopResult res =>
+      exact Continuation.Conditional.Plan.start_ready (active := p.active arg) (saved := [i64 p.saved])
+        (guard := res) checked.continuation contract.2
     | test => split <;> trivial
     | _ => trivial
   | producerReturns nextLive _ | producerTraps nextLive _ => exact ⟨trivial, nextLive⟩
   | producerDiverges _ => exact ⟨ready, live⟩
-  | continuation edge => exact Continuation.preserves edge ready live
+  | continuation edge => exact Continuation.Conditional.preserves edge ready live
 
 private theorem sound (checked : p.Checked mem outer index) {a b : State H}
     (ready : p.Ready mem host arg a.phase) (live : mem.Live a.bytes) (move : Edge p mem host arg a b) :
@@ -63,7 +65,7 @@ private theorem sound (checked : p.Checked mem outer index) {a b : State H}
   | producerTraps _ answer => exact Step.callout_returned (pending_producer checked) answer
   | producerDiverges answer => exact Step.callout_diverged (pending_producer checked) answer
   | @continuation bytes next a b edge =>
-    exact (Continuation.step_iff (mem := mem) (host := host) (outer := outer) (active := p.active arg)
+    exact (Continuation.Conditional.step_iff (mem := mem) (host := host) (outer := outer) (active := p.active arg)
       (results := signature.results) (a := ⟨bytes, a⟩) (dst := p.render mem outer index arg ⟨next, .continuation b⟩)
       ready live).mpr ⟨_, edge, rfl⟩
 
@@ -109,7 +111,7 @@ theorem step_iff (checked : p.Checked mem outer index) (contract : p.Contract me
   cases phase
   case producerInvoke input => exact producer_step checked contract live input move
   case continuation phase =>
-    have theoremAtTail := Continuation.step_iff (mem := mem) (host := host) (outer := outer) (active := p.active arg)
+    have theoremAtTail := Continuation.Conditional.step_iff (mem := mem) (host := host) (outer := outer) (active := p.active arg)
       (results := signature.results) (a := ⟨bytes, phase⟩) (dst := dst) ready live
     obtain ⟨next, edge, eq⟩ := theoremAtTail.mp move
     exact ⟨⟨next.bytes, .continuation next.phase⟩, .continuation edge, eq⟩

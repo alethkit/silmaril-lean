@@ -72,23 +72,56 @@ def Ready {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantic
   | .trapped _ _ => True
   | .frameResult out | .done out => ResultTyped results out
 
+/-- Saved operands and source tail outside an explicit label, inside the
+already entered function label. -/
+structure LabelContext where
+  arity : Nat
+  saved : List Value
+  tail : List Admin
+
+def frameContext (scope : Option LabelContext) (arity : Nat) (active : Frame) :
+    EvalCtx Wasm.Lime1.Instr :=
+  match scope with
+  | none => .frame arity active .hole
+  | some context => .frame context.arity active (.label context.arity [] (.seq context.saved .hole context.tail))
+
+def framed (scope : Option LabelContext) (arity : Nat) (active : Frame) (code : List Admin) : List Admin :=
+  (frameContext scope arity active).plug value code
+
 def entered (arity : Nat) (active : Frame) (body : List Admin) : List Admin :=
   [.frame arity active [.label arity [] body]]
 
+def invokeContextIn {H : Type} (scope : Option LabelContext) (arity : Nat) (active : Frame)
+    (saved : List Value) (ops : List (Op H)) : EvalCtx Wasm.Lime1.Instr :=
+  (frameContext scope arity active).comp (.label arity [] (.seq saved .hole (code ops)))
+
 def invokeContext {H : Type} (arity : Nat) (active : Frame) (saved : List Value) (ops : List (Op H)) :
     EvalCtx Wasm.Lime1.Instr :=
-  .frame arity active (.label arity [] (.seq saved .hole (code ops)))
+  invokeContextIn none arity active saved ops
 
-def Phase.renderCode {H : Type} (arity : Nat) (active : Frame) : Phase H → List Admin
-  | .source stack ops => entered arity active (values stack ++ code ops)
-  | .invoke saved site args ops => (invokeContext arity active saved ops).plug value (values args ++ [.invoke site.address])
-  | .trapped saved rest => entered arity active (values saved ++ .trap :: rest)
-  | .frameResult out => [.frame arity active (result out)]
+/-- These phases still sit behind their own native label. -/
+def Phase.InLabel {H : Type} : Phase H → Prop
+  | .source _ _ | .invoke _ _ _ _ | .trapped _ _ => True
+  | .frameResult _ | .done _ => False
+
+def Phase.renderIn {H : Type} (scope : Option LabelContext) (arity : Nat) (active : Frame) : Phase H → List Admin
+  | .source stack ops => framed scope arity active [.label arity [] (values stack ++ code ops)]
+  | .invoke saved site args ops => (invokeContextIn scope arity active saved ops).plug value
+      (values args ++ [.invoke site.address])
+  | .trapped saved rest => framed scope arity active [.label arity [] (values saved ++ .trap :: rest)]
+  | .frameResult out => framed scope arity active (result out)
   | .done out => result out
+
+def Phase.renderCode {H : Type} (arity : Nat) (active : Frame) (phase : Phase H) : List Admin :=
+  phase.renderIn none arity active
+
+def renderIn {H : Type} {base : Store H} (mem : Memory32 base) (outer active : Frame)
+    (scope : Option LabelContext) (arity : Nat) (state : State H) : Config H :=
+  ⟨mem.store state.bytes, outer, state.phase.renderIn scope arity active⟩
 
 def render {H : Type} {base : Store H} (mem : Memory32 base) (outer active : Frame)
     (arity : Nat) (state : State H) : Config H :=
-  ⟨mem.store state.bytes, outer, state.phase.renderCode arity active⟩
+  renderIn mem outer active none arity state
 
 /-- Each edge represents one native step, including resolution, answering a
 host call, erasing trapped code, and removing the label and frame. -/

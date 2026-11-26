@@ -26,6 +26,15 @@ entered function label and frame. -/
 theorem step_iff (ready : Ready mem host active results a.phase) (live : mem.Live a.bytes) :
     Step host (render mem outer active results.length a) dst ↔
       ∃ next, Edge mem host active a next ∧ dst = render mem outer active results.length next :=
-  Proofs.step_iff ready live
+  Proofs.step_iff (.inl rfl) ready live
+
+/-- The same body edges under an entered explicit label. Its completion exposes
+the saved operands and tail in the enclosing function label. -/
+theorem label_step_iff {context : LabelContext} (inside : a.phase.InLabel)
+    (ready : Ready mem host active results a.phase) (live : mem.Live a.bytes) :
+    Step host (renderIn mem outer active (some context) results.length a) dst ↔
+      ∃ next, Edge mem host active a next ∧
+        dst = renderIn mem outer active (some context) results.length next :=
+  Proofs.step_iff (.inr inside) ready live
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation
