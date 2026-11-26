@@ -50,10 +50,10 @@ structure Invocation (aliases : List String) (globals : List String) where
   expressionAt (readSlot aliases call.callee) call.codes call.keywords.codes
     (call.star.map Spread.code) (call.mapping.map Mapping.code)
 
-/-- The simple wrapper owns its required positional slots, with no body
+/-- The wrapper owns its positional slots, with no body
 locals, and resolves the imported callee in the enclosing alias block. -/
-@[expose] def wrapperBlock (parameters aliases globals : List String) : LexicalBlock :=
-  ⟨parameterNames ⟨parameters, []⟩ [] none none ++ [], aliases ++ [], globals⟩
+@[expose] def wrapperBlock (parameters : Parameters) (aliases globals : List String) : LexicalBlock :=
+  ⟨parameterNames parameters [] none none ++ [], aliases ++ [], globals⟩
 
 /-- An importer declaration returns a checked call through the immutable
 file-local import. Its only capture is that binding's address. -/
@@ -62,8 +62,10 @@ structure WrapperDeclaration (alias : String) (aliases globals : List String) wh
   target : name ∈ globals
   visible : alias ∈ aliases
   legalAlias : alias.toList.head? ≠ some '$'
-  parameters : List String := []
-  unshadowed : alias ∉ parameters := by simp
+  parameters : Parameters := ⟨[], []⟩
+  unshadowed : alias ∉ parameters.names := by simp [Parameters.names]
+  defaults : List PlainPositionalDefault := []
+  lexical : Lexical.Elaborates (block aliases globals) parameters.optional defaults := by exact .nil
   arguments : List Expr
   codes : List Lowering.Expr
   reads : List Binding
@@ -85,7 +87,7 @@ structure WrapperDeclaration (alias : String) (aliases globals : List String) wh
 @[expose] def WrapperDeclaration.site {alias aliases globals} (relay : WrapperDeclaration alias aliases globals) : Site (block aliases globals) [] none none .global where
   name := relay.name
   target := relay.target
-  parameters := ⟨relay.parameters, []⟩
+  parameters := relay.parameters
   source := .ret (some relay.expression)
   binders := []
   locals := []
@@ -95,8 +97,8 @@ structure WrapperDeclaration (alias : String) (aliases globals : List String) wh
     (relay.reads ++ relay.keywords.reads ++ spreadReads relay.star ++ mappingReads relay.mapping)⟩
   free := [⟨fileSlot alias, fileSlot alias⟩]
   selects := relay.selects
-  defaults := []
-  lexical := .nil
+  defaults := relay.defaults
+  lexical := relay.lexical
 
 /-- An independent return rule for a call through the captured import. -/
 @[expose] def WrapperDeclaration.Returns {alias aliases globals} (relay : WrapperDeclaration alias aliases globals) (callee : Callable)
@@ -368,7 +370,8 @@ inductive Executes {aliases globals : List String}
       Body.Evaluates (block aliases globals) state source code out →
       Executes program state (.assign name declared operand copy) (afterWrite name out)
   | define {alias : String} {declaration : WrapperDeclaration alias aliases globals} {out : Outcome Flow} :
-      Lexical.DefinesFor (block aliases globals) (globalSlot declaration.name) program.size declaration.site.free [] [] state out →
+      Lexical.DefinesFor (block aliases globals) (globalSlot declaration.name) program.size declaration.site.free
+        declaration.site.defaultKeys declaration.site.defaultsInOrder state out →
       Executes program state (.define declaration) (Modules.afterCode out)
   | invoke {call : Invocation aliases globals} (callee : Callee) {out : Outcome Lists.Value} :
       RunsAt callee.layout.site callee.BodyRuns (block aliases globals) callee.layout.id call.callee (readSlot aliases call.callee)

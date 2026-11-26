@@ -371,14 +371,72 @@ after = [199]
 	}
 }
 
-func checkPositionalWrapper(preload bool, failure string) {
-	const root = `def spare():
+const positionalProducer = `def spare():
     return 999
 def pick(first, second):
     probe = [first]
     print(first, second)
     return probe[second]
 `
+
+type positionalWrapperRun struct {
+	consumer, forwarder starlark.StringDict
+	cache               map[string]starlark.StringDict
+	firstDefault        starlark.Value
+	events              []string
+	err                 error
+}
+
+func initPositionalWrapper(preload, forwarding, source string) positionalWrapperRun {
+	run := positionalWrapperRun{cache: make(map[string]starlark.StringDict)}
+	var visits, hits []string
+	opts := &syntax.FileOptions{}
+	thread := &starlark.Thread{}
+	thread.Print = func(_ *starlark.Thread, msg string) { run.events = append(run.events, msg) }
+	thread.Load = func(_ *starlark.Thread, path string) (starlark.StringDict, error) {
+		if cached, ok := run.cache[path]; ok {
+			hits = append(hits, path)
+			return cached, nil
+		}
+		visits = append(visits, path)
+		body := positionalProducer
+		if path == "forwarder.star" {
+			body = forwarding
+		} else {
+			require(path == "positional.star", path)
+		}
+		_, program, err := starlark.SourceProgramOptions(opts, path, body, func(string) bool { return false })
+		require(err == nil, err)
+		values, err := program.Init(thread, nil)
+		if path == "forwarder.star" {
+			run.forwarder = values
+		}
+		if err == nil {
+			values.Freeze()
+			run.cache[path] = values
+			if relay, ok := values["relay"].(*starlark.Function); ok {
+				run.firstDefault = relay.ParamDefault(1)
+			}
+		}
+		return values, err
+	}
+	if preload != "" {
+		_, err := thread.Load(thread, preload)
+		require(err == nil, err)
+	}
+	_, program, err := starlark.SourceProgramOptions(opts, "consumer.star", source, func(string) bool { return false })
+	require(err == nil, err)
+	run.consumer, run.err = program.Init(thread, nil)
+	expectedVisits := "forwarder.star,positional.star"
+	if preload == "positional.star" {
+		expectedVisits = "positional.star,forwarder.star"
+	}
+	require(strings.Join(visits, ",") == expectedVisits && strings.Join(hits, ",") == preload, []any{visits, hits})
+	require(thread.CallStackDepth() == 0, thread.CallStack())
+	return run
+}
+
+func checkPositionalWrapper(preload bool, failure string) {
 	const forwarding = `load("positional.star", ignored="spare", loaded="pick")
 def relay(x, y):
     return loaded(y, x)
@@ -396,39 +454,13 @@ marker = [88]
 out = %s
 after = [199]
 `, call)
-	cache := make(map[string]starlark.StringDict)
-	var visits, hits, events []string
-	opts := &syntax.FileOptions{}
-	thread := &starlark.Thread{}
-	thread.Print = func(_ *starlark.Thread, msg string) { events = append(events, msg) }
-	thread.Load = func(_ *starlark.Thread, path string) (starlark.StringDict, error) {
-		if cached, ok := cache[path]; ok {
-			hits = append(hits, path)
-			return cached, nil
-		}
-		visits = append(visits, path)
-		body := root
-		if path == "forwarder.star" {
-			body = forwarding
-		} else {
-			require(path == "positional.star", path)
-		}
-		result, err := starlark.ExecFileOptions(opts, thread, path, body, nil)
-		if err == nil {
-			cache[path] = result
-		}
-		return result, err
-	}
+	preloaded := ""
 	if preload {
-		_, err := thread.Load(thread, "forwarder.star")
-		require(err == nil, err)
+		preloaded = "forwarder.star"
 	}
-	_, program, err := starlark.SourceProgramOptions(opts, "consumer.star", source, func(string) bool { return false })
-	require(err == nil, err)
-	partial, err := program.Init(thread, nil)
-	require(strings.Join(visits, ",") == "forwarder.star,positional.star", visits)
-	require((preload && strings.Join(hits, ",") == "forwarder.star") || (!preload && len(hits) == 0), hits)
-	require(cache["forwarder.star"]["relay"] != nil && partial["firstResult"] == starlark.MakeInt(27) &&
+	run := initPositionalWrapper(preloaded, forwarding, source)
+	partial, events, err := run.consumer, run.events, run.err
+	require(run.cache["forwarder.star"]["relay"] != nil && partial["firstResult"] == starlark.MakeInt(27) &&
 		partial["marker"].String() == "[88]" && partial["bound"] == nil, partial)
 	switch failure {
 	case "":
@@ -444,6 +476,69 @@ after = [199]
 	}
 }
 
+func checkSavedWrapper(warm bool, failure string) {
+	indices := []int{0, 0}
+	if failure == "default" {
+		indices = []int{1, 2}
+	}
+	forwarding := fmt.Sprintf(`load("positional.star", ignored="spare", loaded="pick")
+seed = 27
+before = [76]
+def relay(x, y=[seed], z=[51][%d], t=[72][%d]):
+    return loaded(y[0], x)
+later = [199]
+`, indices[0], indices[1])
+	call := "bound(0, [53])"
+	switch failure {
+	case "missing":
+		call = "bound()"
+	case "surplus":
+		call = "bound(0, [53], 1, 2, 3)"
+	}
+	source := fmt.Sprintf(`load("forwarder.star", bound="relay")
+firstResult = bound(0)
+marker = [88]
+out = %s
+again = bound(0)
+after = [198]
+`, call)
+	preload := ""
+	if warm {
+		preload = "forwarder.star"
+		if failure == "default" {
+			preload = "positional.star"
+		}
+	}
+	run := initPositionalWrapper(preload, forwarding, source)
+	require(run.cache["positional.star"]["pick"] != nil && run.forwarder["seed"] == starlark.MakeInt(27) &&
+		run.forwarder["before"].String() == "[76]", run.forwarder)
+	if failure == "default" {
+		require(run.err != nil && strings.Contains(run.err.Error(), "index 1 out of range"), run.err)
+		require(run.cache["forwarder.star"] == nil && run.forwarder["relay"] == nil &&
+			run.forwarder["later"] == nil && len(run.consumer) == 0 && len(run.events) == 0, run.forwarder)
+		return
+	}
+	relay := run.cache["forwarder.star"]["relay"].(*starlark.Function)
+	saved := relay.ParamDefault(1).(*starlark.List)
+	require(saved == run.firstDefault && saved.String() == "[27]" &&
+		relay.ParamDefault(2) == starlark.MakeInt(51) && relay.ParamDefault(3) == starlark.MakeInt(72), relay)
+	require(saved.SetIndex(0, starlark.MakeInt(7)) != nil, saved)
+	partial := run.consumer
+	require(partial["firstResult"] == starlark.MakeInt(27) && partial["marker"].String() == "[88]" && partial["bound"] == nil, partial)
+	if failure == "" {
+		require(run.err == nil && partial["out"] == starlark.MakeInt(53) && partial["again"] == starlark.MakeInt(27) &&
+			partial["after"].String() == "[198]" && strings.Join(run.events, ",") == "27 0,53 0,27 0", run.err)
+		return
+	}
+	message := "missing 1 argument (x)"
+	if failure == "surplus" {
+		message = "accepts at most 4 positional arguments (5 given)"
+	}
+	require(run.err != nil && strings.Contains(run.err.Error(), message), run.err)
+	require(partial["out"] == nil && partial["again"] == nil && partial["after"] == nil &&
+		strings.Join(run.events, ",") == "27 0", partial)
+}
+
 func main() {
 	for _, warm := range []bool{false, true} {
 		check(warm, "factory", `{"extra": 9}`)
@@ -457,6 +552,9 @@ func main() {
 		checkReturnedClosure(warm)
 		for _, failure := range []string{"", "arity", "body"} {
 			checkPositionalWrapper(warm, failure)
+		}
+		for _, failure := range []string{"", "missing", "surplus", "default"} {
+			checkSavedWrapper(warm, failure)
 		}
 		for _, failure := range []string{"", "first", "last", "both", "dependency"} {
 			checkDiamond(warm, failure)
@@ -479,4 +577,5 @@ func main() {
 	fmt.Println("PASS direct and nested calls through the published middle wrapper, including reached failures")
 	fmt.Println("PASS grouped diamond loads reuse one dependency per command, choose the rightmost missing export, and skip later commands")
 	fmt.Println("PASS published positional wrappers call the second alias in operand order and stop at arity or reached body errors")
+	fmt.Println("PASS wrapper defaults are saved through cache hits and overrides, and a reached default error prevents publication")
 }

@@ -13,22 +13,44 @@ public section
 
 namespace Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports
 
-open Functions (Program)
+open Functions (Program DeclarationId prepareExpanded activate)
 open Defaults.Nested.Sequence (PreservesDeclarations)
+open Defaults.Nested.Sequence.Recursive.Call (ClosureAt)
 open Lists (State)
 open Loader (Session)
 
 /-- The independent positional binder supplies the wrapper's own slots
 in declaration order. Required positional formals introduce no defaults. -/
 theorem wrapper_positional_binding {importName aliases globals}
-    (relay : WrapperDeclaration importName aliases globals) {values : List Lists.Value}
+    (relay : WrapperDeclaration importName aliases globals) (requiredOnly : relay.parameters.optional = [])
+    {values : List Lists.Value}
     {result : Except Lists.Error (List (Binding × Lists.Value))}
     (checked : relay.site.declaration.signature.validate = .ok ())
-    (source : Entry.Binds relay.parameters values result) :
+    (source : Entry.Binds relay.parameters.required values result) :
     Functions.bindArguments relay.site.declaration.signature [] ⟨values, []⟩ =
       result.map (fun bound => ⟨bound, [], []⟩) := by
-  rw [Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.wrapper_signature] at checked ⊢
+  rw [Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.wrapper_required_signature relay requiredOnly] at checked ⊢
   exact Entry.required_binds checked source
+
+/-- Preparing a positional call uses the actual saved values of the reached
+wrapper. Omitted arguments, explicit overrides and arity failures use the
+ordinary binder, with the original capture vector on success. -/
+theorem wrapper_prepare_saved {importName aliases globals}
+    (relay : WrapperDeclaration importName aliases globals)
+    {commands : List Command} {seed : Program} {resolved : ResolvedModule}
+    (checked : resolve commands seed = .ok resolved) (id : DeclarationId)
+    (available : List DeclarationId) (permitted : id ∈ available)
+    (found : resolved.program[id]? = some relay.site.declaration)
+    {state defining : State} {address : Nat} (record : ClosureAt relay.site id defining state address)
+    {actuals : List Lists.Value} {result : Except Lists.Error (List (Binding × Lists.Value))}
+    (source : Defaults.Binds (relay.parameters.slots record.defaults) actuals result) :
+    prepareExpanded resolved.program available ⟨actuals, []⟩ (.function address) state =
+      match result with
+      | .error error => .error error state
+      | .ok assigned => .ok (.closure ⟨id, permitted, relay.site.declaration.body⟩)
+        (activate state relay.site.declaration record.captures assigned) :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.wrapper_prepare_saved
+    relay checked id available permitted found record source
 
 /-- The importer elaborates in source order and appends each declaration to the linked table. -/
 theorem consumer_layout (plan : Consumer) {program : Program} {consumer : ResolvedModule}
