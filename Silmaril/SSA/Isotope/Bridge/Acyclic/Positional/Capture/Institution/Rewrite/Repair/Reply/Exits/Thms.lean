@@ -11,7 +11,37 @@ public section
 
 namespace Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Exits
 
+open Kleisli (value)
+open Isotope.Semantics (BoundEnv InstructionModel)
+open LambdaSSA (At Ren)
+open LambdaSSA.Acyclic (Operand FiniteExit)
+open LambdaSSA.Acyclic.Positional.Capture (Scope)
+open LambdaSSA.Region (packedExitType)
+
 local notation "J" => Kleisli.J (m := Trace)
+
+section Packing
+
+variable {P : InstrSig Sorts Bool} {m : Type → Type} [Monad m] [LawfulMonad m]
+  (M : InstructionModel value P.Instr m)
+
+theorem run_tag {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β)
+    (L : List Sorts) (i : Nat) {A : Sorts} (h : At L i A) (x : value A)
+    (a : Operand P.Instr β A) (ha : Kleisli.run M a.2 ρ = pure x) :
+    Kleisli.run M (FiniteExit.tag L i h a).2 ρ = pure (packAt L i h x) :=
+  tag_run_proof M ρ L i h x a ha
+
+/-- A well-formed packed input is routed to the encoded image of its
+original position with the same payload. -/
+theorem run_router {K : List Sorts} {j : Nat} {D : Sorts} (fallback : At K j D)
+    (L : List Sorts) {f : Nat → Nat} (ren : Ren L K f)
+    {n : Nat} {β : BoundCtx Sorts n} (s : Scope .nil β) (ρ : BoundEnv value β)
+    (i : Nat) {A : Sorts} (h : At L i A) (x : value A) :
+    Kleisli.run M ((router fallback L ren).render s).encode.toLetCase.2
+      (ρ.snoc (A := packedExitType L) (packAt L i h x)) = pure (packAt K (f i) (ren h) x) :=
+  router_run_proof M fallback L ren s ρ i h x
+
+end Packing
 
 /-- The packed success value determines the position and its typed payload. -/
 theorem Exit.packed_injective (L : List Sorts) : Function.Injective (@Exit.packed L) :=

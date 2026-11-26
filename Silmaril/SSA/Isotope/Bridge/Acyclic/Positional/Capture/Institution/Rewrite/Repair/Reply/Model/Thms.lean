@@ -35,6 +35,12 @@ theorem separator_sat_iff (e : GrammarEquation signature) :
 theorem model_respectsPure : InstructionModel.RespectsPure (ε := Bool) model :=
   model_pure_proof
 
+/-- Emit a single event before the continuation, preserving its trace order. -/
+theorem model_emit_bind {A : Type} (b : Bool) (k : value Ty.unit → Trace A) :
+    (model.eval (.emit b) PUnit.unit >>= k).outcomes =
+      prepend (.emit b) '' (k PUnit.unit).outcomes :=
+  model_emit_bind_proof b k
+
 /-- An injective return encoding lets the trace set recover the whole normal
 tree, including each return leaf. -/
 theorem Normal.outcomesWith_injective {R A : Type} (success : R → A)

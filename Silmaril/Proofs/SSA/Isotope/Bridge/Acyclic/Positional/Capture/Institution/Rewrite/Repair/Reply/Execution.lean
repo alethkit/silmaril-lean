@@ -23,7 +23,7 @@ theorem model_pure_proof : InstructionModel.RespectsPure (ε := Bool) model := b
   intro f h
   cases f <;> cases h
 
-private theorem emit_bind {A : Type} (bit : Bool) (k : value U → Trace A) :
+theorem model_emit_bind_proof {A : Type} (bit : Bool) (k : value U → Trace A) :
     (model.eval (.emit bit) PUnit.unit >>= k).outcomes =
       prepend (.emit bit) '' (k PUnit.unit).outcomes := by
   ext ⟨r, w⟩
@@ -89,7 +89,7 @@ theorem normal_run_with_proof {R A : Type} {B : Sorts} (ret : ReturnOperand R B)
     simp only [Normal.render, Tree.operandWith, Kleisli.run, Derivation.denote, pure_bind, bind_assoc]
     change ((model.eval (.emit bit) PUnit.unit >>= fun u =>
       Kleisli.run model (next.render.operandWith ret (β.snoc U)).2 (ρ.snoc u) >>= finish).outcomes) = _
-    rw [emit_bind, ih]
+    rw [model_emit_bind_proof, ih]
     rfl
   | stop bit =>
     simp only [Normal.render, Tree.operandWith, Kleisli.run, Derivation.denote, pure_bind, bind_assoc]
