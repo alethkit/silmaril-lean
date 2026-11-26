@@ -24,18 +24,25 @@ variable {α : Type u} {Φ : Type v} [HasTy Φ (Ty α)]
 
 local notation "plain" => ({} : TermObservation (α := α) Φ)
 
-theorem sequence_pair {observation : TermObservation (α := α) Φ} (unmarked : observation.pairLet = false)
-    (a b : Tm Φ) (env : Env) :
+theorem sequence_pair_of_guard {observation : TermObservation (α := α) Φ} (a b : Tm Φ)
+    (unmarked : (observation.pairLet && selectsPair observation.pairLetCall a &&
+      (startsLet a || startsLet b)) = false) (env : Env) :
     evalRegionWith observation (returnOnce (.pair a b)) env =
       evalRegionWith observation (pairSequence a b) env := by
   simp only [returnOnce, pairSequence, evalRegionWith, evalTermWith,
-    unmarked, Bool.false_and, Bool.false_eq_true, ↓reduceIte]
+    unmarked, Bool.false_eq_true, ↓reduceIte]
   cases evalTermWith observation a env with
   | none => rfl
   | some v =>
     simp only [evalTerm_rename b (observation := observation) (env := env)
       (env' := extend env v) (ρ := Nat.succ) (fun _ => rfl)]
-    cases evalTermWith observation b env <;> rfl
+    cases evalTermWith observation b env <;> simp [startsLet, extend]
+
+theorem sequence_pair {observation : TermObservation (α := α) Φ} (unmarked : observation.pairLet = false)
+    (a b : Tm Φ) (env : Env) :
+    evalRegionWith observation (returnOnce (.pair a b)) env =
+      evalRegionWith observation (pairSequence a b) env :=
+  sequence_pair_of_guard a b (by simp only [unmarked, Bool.false_and]) env
 
 private theorem sequence_inl (observation : TermObservation (α := α) Φ) (a : Tm Φ) (env : Env) :
     evalRegionWith observation (returnOnce (.inl a)) env =
@@ -55,16 +62,26 @@ set_option linter.concreteInstances false
 
 variable [UnitPayloadPolicy]
 
+/-- Pair observations may inspect computed operands if they leave every
+pair with a constructor-normalizing left operand unmarked. -/
+theorem constructorStep_same_of_guard {observation : TermObservation (α := α) Φ}
+    (unmarked : ∀ {Γ : VCtx (Ty α)} {a v : Tm Φ} {A : Ty α}, Normalizes Γ a v A → ∀ (b : Tm Φ),
+      (observation.pairLet && selectsPair observation.pairLetCall a &&
+        (startsLet a || startsLet b)) = false)
+    {Γ L : List (Ty α)} {r s : Region Φ} (h : Paper.WithConstructorSequencing.Step Γ r s L) :
+    SameWith observation Γ r s := by
+  cases h with
+  | pair ha hb => exact fun env _ => sequence_pair_of_guard _ _ (unmarked ha _) env
+  | inl ha => exact fun env _ => sequence_inl observation _ env
+  | inr ha => exact fun env _ => sequence_inr observation _ env
+
 /-- The sequencing generators preserve observations that leave pair assembly
 unmarked. The common operand observations can still inspect calls. -/
 theorem constructorStep_same {observation : TermObservation (α := α) Φ}
     (unmarked : observation.pairLet = false)
     {Γ L : List (Ty α)} {r s : Region Φ} (h : Paper.WithConstructorSequencing.Step Γ r s L) :
-    SameWith observation Γ r s := by
-  cases h with
-  | pair ha hb => exact fun env _ => sequence_pair unmarked _ _ env
-  | inl ha => exact fun env _ => sequence_inl observation _ env
-  | inr ha => exact fun env _ => sequence_inr observation _ env
+    SameWith observation Γ r s :=
+  constructorStep_same_of_guard (fun _ _ => by simp only [unmarked, Bool.false_and]) h
 
 /-- Opt-in constructor sequencing preserves the unmarked observation. -/
 theorem sequencing_same {Γ L : List (Ty α)} {r s : Region Φ}
