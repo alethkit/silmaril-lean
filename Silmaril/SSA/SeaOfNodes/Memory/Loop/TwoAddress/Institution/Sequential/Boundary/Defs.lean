@@ -34,6 +34,12 @@ def Wiring.port {sort : ValueSort} :
   | _, .forward p _, .head => .tail p
   | _, .forward _ wiring, .tail p => wiring.port p
 
+/-- Reindex ambient captures while retaining the designated returned-word lane. -/
+def Wiring.map {target : List ValueSort} (rename : PortMap ambient target) :
+    {next : List ValueSort} → Wiring ambient next → Wiring target next
+  | _, .word ports => .word (fun p => rename (ports p))
+  | _, .forward p rest => .forward (rename p) (rest.map rename)
+
 /-- The second capture tuple in the sequential observer of the two emitted loops. -/
 def Wiring.select (wiring : Wiring ambient next) (word : Word) (captures : Tuple (Val cells) ambient) :
     Tuple (Val cells) next :=

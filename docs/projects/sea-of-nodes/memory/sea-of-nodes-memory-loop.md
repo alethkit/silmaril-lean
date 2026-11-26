@@ -1087,6 +1087,53 @@ fixture takes one backedge.
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.MemRef.Regression
 ```
 
+##### Satisfaction for the linked pair
+
+`Linked.Satisfaction.Program` retains the first loop at its ambient
+capture signature, the second loop at its own typed boundary, and
+the static `Boundary.Wiring` between them. `emitNumbered` exposes
+the checked linked θ graph and `runMemRef` runs the linked ordered
+CFG. `numbered_observe` relates the actual numbered partial result
+to the existing sequential observation by its word-pair and heap
+codec. The MemRef and coloured return laws compare the same two
+words and every final cell, with independent finite witnesses.
+The absence laws concern absence of a finite return or completion.
+[Observation and satisfaction API](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/Thms.lean)
+
+`Program.equation` and `Program.terminates` use the existing RVSDG
+runtime sentence constructors. At the canonical runtime for a cell
+count, their satisfaction ranges over all typed capture valuations
+and initialized heaps. At a fixed valuation, `memref_agrees`,
+`coloured_agrees`, `memref_terminates` and `coloured_terminates`
+give the corresponding tests over all initial heaps.
+[Existing runtime room](../../../../Silmaril/SSA/RVSDG/NestedTheta/Institution/RuntimeObservation/Defs.lean)
+
+`Program.map` re-emits after a typed ambient port map. It pulls the
+first loop's uses and the forwarded captures through the same
+valuation reduct, with the designated first-return capture preserved.
+After port identification the satisfaction laws range over the
+reduct image of target valuations. The native sentence type covers
+one loop with one word, and the runtime institution's signature
+maps act on opcodes. The linked capture maps are re-emission and
+reduct laws on this family of runtime sentences.
+[Native sentence boundary](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Defs.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.Thms
+```
+
+The runnable fixture identifies the second store-value capture with
+the first store-value capture. Both linked MemRef runs return
+`(3, 3)`, with final buffers `[11, 73, 11, 22, 91, 22]` and
+`[11, 73, 11, 11, 91, 11]`. The existing runtime room rejects the
+equation at six cells, and the coloured observer rejects it at the
+fixture valuation.
+[Runnable satisfaction regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.Regression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
