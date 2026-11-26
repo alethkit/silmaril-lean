@@ -13,11 +13,20 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.MemRef
 
 open RVSDG (Tuple)
+open Silmaril.MLIR.Arith (Env Width)
 open Silmaril.MLIR.CF.Ordered (Block)
 open Silmaril.MLIR.MemRef (Buffer)
+open Silmaril.MLIR.Pure (Operands)
+open Loop.MLIR.MemRef.CF (wordWidth)
 open Memory.Diamond.Institution renaming Signature → EntrySignature, Model → EntryModel
 
 variable {cells : Nat} {ambient next : List ValueSort} {P Q : EntrySignature}
+
+/-- Shifting operands past a reserved word leaves their evaluation unchanged. -/
+theorem carryOperands_eval {scope delta : List Width} (word : Word) (env : Env scope)
+    (operands : Operands scope delta) :
+    (carryOperands operands).eval (Env.cons (w := wordWidth) word env) = operands.eval env :=
+  Proofs.carryOperands_eval word env operands
 
 theorem first_exit_transition (first : Graph ambient) (second : Graph next)
     (wiring : Boundary.Wiring ambient next) (input : Tuple (Val cells) ambient)
