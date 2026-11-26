@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Thms
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Normalization.Composition.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Normalization.Transport.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Family.Thms
 
@@ -26,7 +26,7 @@ private theorem native {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
 
 private theorem normalized {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
     (h : ValueBranches Γ r L) : Eqv Γ r.bindBranchArguments r L :=
-  native h.substitutionEquiv_bindBranchArguments.symm
+  native h.bindBranchArguments_equiv.symm
 
 private theorem normalized_of_guarded {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
     (hr : ValueBranches Γ r L) (hs : ValueBranches Γ s L) (h : Eqv Γ r s L) :

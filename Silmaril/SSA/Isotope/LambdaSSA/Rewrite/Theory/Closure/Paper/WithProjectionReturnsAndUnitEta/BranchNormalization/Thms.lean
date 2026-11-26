@@ -22,7 +22,7 @@ variable {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
 @[simp] theorem normalize_toRaw (q : GuardedRegionClass (Φ := Φ) Γ L) :
     normalize (toRaw q) = q :=
   Quot.inductionOn q fun r =>
-    Quot.sound (.paper (.cfgEta (.native r.property.substitutionEquiv_bindBranchArguments.symm)))
+    Quot.sound (.paper (.cfgEta (.native r.property.bindBranchArguments_equiv.symm)))
 
 theorem rawClass_eq_iff (hr : HasType Γ r L) (hs : HasType Γ s L) :
     rawClass hr = rawClass hs ↔ E Γ r s L :=

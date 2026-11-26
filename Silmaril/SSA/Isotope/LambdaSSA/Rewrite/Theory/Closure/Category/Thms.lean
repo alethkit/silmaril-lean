@@ -68,11 +68,6 @@ theorem ContinuationFamily.toHom_eq_iff {X Y : ContinuationContext Φ Γ}
       σ.toHom (X := X) (Y := Y) ≫ υ.toHom (X := Y) (Y := Z) :=
   rfl
 
-/-- For value branches, constructor β contracts each inserted binding. -/
-theorem ValueBranches.substitutionEquiv_bindBranchArguments {L : LCtx τ}
-    {r : Region Φ} (hr : ValueBranches Γ r L) : SubstitutionEquiv Γ r r.bindBranchArguments L :=
-  Proofs.SSA.Isotope.LambdaSSA.Rewrite.bindBranchArguments_equiv hr
-
 /-- Normalizing a family that already has value branches gives the same arrow. -/
 theorem ContinuationFamily.ofTyped_toHom {X Y : ContinuationContext Φ Γ}
     (σ : ContinuationFamily (Φ := Φ) Γ X.labels Y.labels) :
@@ -80,6 +75,6 @@ theorem ContinuationFamily.ofTyped_toHom {X Y : ContinuationContext Φ Γ}
       (X := X) (Y := Y) = σ.toHom (X := X) (Y := Y) := by
   apply ContinuationFamily.toHom_eq_iff.mpr
   intro ℓ A hi
-  exact (σ.property hi).substitutionEquiv_bindBranchArguments.symm
+  exact (Proofs.SSA.Isotope.LambdaSSA.Rewrite.bindBranchArguments_equiv (σ.property hi)).symm
 
 end Silmaril.Isotope.LambdaSSA.Region
