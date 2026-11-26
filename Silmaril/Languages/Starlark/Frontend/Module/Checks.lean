@@ -145,8 +145,8 @@ example : frontendDiagnostic "out = f(x=7, 8)" =
 example : frontendDiagnostic "out = f(*[7], x=8)" =
     some ⟨.callOrder .argumentAfterStar, ⟨⟨14, 1, 15⟩, ⟨15, 1, 16⟩⟩⟩ := by decide +kernel
 
-example : frontendDiagnostic "out = f(*xs())" =
-    some ⟨.unsupported .callArguments, ⟨⟨11, 1, 12⟩, ⟨12, 1, 13⟩⟩⟩ := by decide +kernel
+example : frontendDiagnostic "out = f(*xs().value)" =
+    some ⟨.unsupported .callArguments, ⟨⟨13, 1, 14⟩, ⟨14, 1, 15⟩⟩⟩ := by decide +kernel
 
 example : frontendDiagnostic "out = f(1=7)" =
     some ⟨.expected "',' or ')'", ⟨⟨9, 1, 10⟩, ⟨10, 1, 11⟩⟩⟩ := by decide +kernel

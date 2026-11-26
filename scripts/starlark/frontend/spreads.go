@@ -6,8 +6,8 @@ import (
 	"go.starlark.net/syntax"
 )
 
-// These Go-only controls use nested calls and mutation to expose operand order.
-// The shared text fixtures separately exercise a read error before expansion.
+// These Go-only controls use mutation to record evaluation order. The shared
+// text fixtures compare nested spread results and competing errors.
 func checkGoSpreadControls() (int, error) {
 	const setup = `events = []
 def mark(tag, value):
@@ -26,6 +26,8 @@ wrong = 0
 		call    string
 		control moduleControl
 	}{
+		{"callee-and-operand-effects", "mark(0, f)(mark(1, 1), c=mark(2, 3), *mark(3, xs), **mark(4, kw))",
+			moduleControl{Phase: "publication", Want: "7", Events: "[0, 1, 2, 3, 4, 5]"}},
 		{"operand-effects", "f(mark(1, 1), c=mark(2, 3), *mark(3, xs), **mark(4, kw))",
 			moduleControl{Phase: "publication", Want: "7", Events: "[1, 2, 3, 4, 5]"}},
 		{"effects-before-spread-error", "f(mark(1, 1), c=mark(2, 3), *mark(3, wrong), **mark(4, kw))",

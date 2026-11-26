@@ -104,35 +104,39 @@ assignment to `seed` after `def` and supplies an explicit named override. It
 still fails on the uninitialized default read at definition time.
 
 Call arguments use the order positional, named, optional `*`, then optional
-`**`. A call can contain at most one of each spread. Either spread accepts a
-bare name. The existing resolver binds that name, and the existing evaluator
-reads its value before expansion. A name assigned later can therefore fail
-on an uninitialized read. `*` also accepts a list or tuple display of scalar
-operands. `**` also accepts a dictionary display with simple unescaped single-
-or double-quoted string keys and scalar values. These displays can be assigned
-to module names and then passed by name.
+`**`. At the root of any operand, the parser accepts the admitted scalar
+grammar or a bare-name call whose operands use the same grammar. This admits
+calls such as `f(*identity(xs), **identity(identity(kw)))` and call-free
+expressions such as `f(*(xs if flag else ys), **(False or kw))`. At a spread
+root, `*` also accepts a list or tuple display of scalar operands and `**`
+accepts a dictionary display with simple unescaped quoted keys and scalar
+values. Module assignments can bind these displays to names.
 
 ```starlark
 # 雪
+def identity(x):
+  return x
 def f(a,b):
   return b
 xs = [1]
 kw = {'b': 7}
-out = f(*xs, **kw)
+out = f(*identity(xs), **identity(kw))
 ```
 
-The module publishes `out = 7`. Ordinary argument values, including the
-spread names, are read in source order before expansion. The normalized
-evaluator expands the mapping before expanding the iterable and then binds the
-resulting arguments. A reached collision between a named value and an expanded key is a binder
-error. For example, `f(b=3, *xs, **kw)` supplies `b` twice.
+The module publishes `out = 7`. Each nested application lowers directly to
+one existing normalized call expression. The normalized evaluator reads the
+callee first, then evaluates each operand once in source order. It expands the
+mapping before the iterable and binds the resulting arguments. An error while
+evaluating an operand preempts later operands and expansion. A collision
+between a named value and an expanded key reaches binding.
 
-The parser retains parameter, operand, and name/key spans. Lowered call
-commands also retain the positional spans, named-operand spans, and the span
-of each spread, including `*` or `**`. The parser reports a spanned diagnostic
-for order errors because a grouped normalized call cannot represent a
-misplaced operand. General spread expressions, nested calls inside operands,
-and collection displays in other positions remain outside this profile.
+Lowered commands retain outer operand spans, including the spread markers,
+and each nested application's full span, callee span, and grouped operand
+spans. The nested span records are in preorder, visiting operands in source
+order. The parser reports a spanned diagnostic where the ordering rules are
+violated. Calls under other expression forms, such as parenthesized calls,
+calls inside displays or conditional branches, and chained or attribute
+calls, remain outside the profile.
 
 The frontend preserves repeated explicit names so normalized validation can
 reject them. It also passes required-after-default signatures to normalized
@@ -148,10 +152,13 @@ successful named-operand lowering preserves explicit names in order, including
 repetitions. `lowerCall_operands` identifies the normalized call produced by a
 successful lowering, preserves the original span groups, and proves that the
 positional count, ordered keyword names, and spread presence agree with the
-normalized argument shape. The kernel checks the normalized collection
-assignments, variable reads, and operand spans for concrete UTF-8 inputs.
-Executable Lean checks exercise variable-spread publication, expansion
-failure, and a named/expanded binding collision. A general parser or
+normalized argument shape. `lowerOperand_call` ties nested operand lowering
+to that same call path and records the application location. The kernel
+checks the normalized collection
+assignments, nested call shape, and callee and operand spans for concrete
+UTF-8 inputs. Executable Lean checks cover publication, error precedence, a
+named/expanded binding collision, and the single allocation from evaluating
+`list(xs)` as a spread operand. A general parser or
 source-to-normalized adequacy theorem remains open. [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
 
 ### Leading loads and UTF-8 graphs
@@ -279,14 +286,14 @@ validation errors, and runtime errors with `out` still unbound. The
 observations cover selected bindings and error phases. The Lean residual heap
 and Go partial globals remain outside the comparison.
 
-The shared variable-spread fixtures compare a later global read failing
-before expansion, mapping expansion taking precedence when both spread values
-are invalid, and a duplicate value reaching binding. Separate Go-only
-controls use nested operand calls to record side effects. They observe the
-positional, named, `*`, and `**` operands running in order. All four effects
-survive a reached spread or binding error, and the callee body runs only in
-the success case. The controls also check Go rejects named operands after
-`*` and `*` after `**`.
+Shared fixtures check nested spread values and binding failures. Competing
+errors show that the callee read precedes operands, the named operand precedes
+`*`, `*` precedes `**`, and evaluation errors preempt expansion. Other fixtures
+show mapping expansion takes precedence when both spread values are invalid.
+Go-only controls use mutation and a call in callee position to observe the
+callee and four operand groups running once in order. Operand effects survive
+reached spread and binding errors. Go-only controls also check the rejection
+of named operands after `*` and `*` after `**`.
 [Shared spread checks](../../Silmaril/Languages/Starlark/Frontend/Module/SpreadChecks.lean) · [Go effect controls](../../scripts/starlark/frontend/spreads.go)
 
 The pinned Go scanner accepts significant tabs. The fixtures observe one tab
