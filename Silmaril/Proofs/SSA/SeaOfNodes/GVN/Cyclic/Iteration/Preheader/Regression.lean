@@ -1,6 +1,9 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Thms
+import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Theta.Thms
+import Silmaril.SSA.SeaOfNodes.Loop.Theta.Thms
+import Silmaril.SSA.SeaOfNodes.Loop.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Thms
 
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Regression
@@ -13,6 +16,10 @@ open GVN.Cyclic.Builder.Preheader (Native prepare)
 open GVN.Cyclic.Pass (proposals tryProposal?)
 open GVN.Cyclic.Deletion (DeletedLoop)
 open GVN.Cyclic.Iteration.Preheader
+open GVN.Cyclic.Iteration.Preheader.Theta (Program emit emit_entry emit_observe entryPrefix)
+open Loop (thetaRuntime)
+open Silmaril.SSA.RVSDG.NestedTheta (MonadicModel)
+open Silmaril.SSA.RVSDG.NestedTheta.Partial (observe)
 open Pure.SubZero (Opcode model word wordPort)
 open Silmaril.SSA.RVSDG (Port Wires extend)
 open scoped Pure.WordNormalize
@@ -148,5 +155,65 @@ theorem mismatched_feedback_is_an_admitted_fixed_point :
   refine ⟨rfl, ?_⟩
   change run 5 (fixture false) = _
   rw [run_succ 4 (fixture false), mismatched_feedback_step]
+
+/-- Inspect the actual numbered θ's child signature at the end of the preheader. -/
+private def emittedBodySize (program : Program inputs carried entrySigs word) : Option Nat :=
+  let node := program.nodes (3 : Fin 5)
+  if hasBody : 0 < node.kind.arity then some (node.childSigs ⟨0, hasBody⟩).length else none
+
+theorem emitted_bodies_shrink_after_both_deletions :
+    emittedBodySize (fixture true).lowerTheta = some 6 ∧
+      emittedBodySize (run 1 (fixture true)).rewrite.graph.lowerTheta = some 5 ∧
+      emittedBodySize (emit (fixture true)) = some 4 := by
+  refine ⟨rfl, ?_, ?_⟩
+  · rw [two_restored_native_steps.1]
+    rfl
+  · unfold emit
+    rw [run_result]
+    rfl
+
+theorem emitted_entry_wires_keep_every_lane :
+    (entryPrefix (emit (fixture true))).map Prod.snd =
+      [[.arg 2, .arg 3], [.arg 2, .arg 3], [.arg 2, .arg 3],
+        [.arg 0, .arg 1, .arg 2, .arg 3, .arg 0, .output 0 0, .output 1 0, .output 2 0]] := by
+  rw [emit_entry]
+  rfl
+
+theorem numbered_executions_return_99 :
+    (fixture true).lowerTheta.run (thetaRuntime model) 2 input = some (.cons (99 : BitVec 64) .nil) ∧
+      (emit (fixture true)).run (thetaRuntime model) 3 input = some (.cons (99 : BitVec 64) .nil) := by
+  refine ⟨rfl, ?_⟩
+  unfold emit
+  rw [run_result]
+  rfl
+
+private def nonReturningInput : Inputs model inputs :=
+  .cons ⟨true⟩ (.cons ⟨true⟩ (.cons (3 : BitVec 64) (.cons (4 : BitVec 64) .nil)))
+
+private theorem no_native_return (value : BitVec 64) :
+    ¬ (fixture true).Returns model nonReturningInput value := by
+  apply (fixture true).not_returns_of_backedge_invariant model nonReturningInput value
+    (fun old => (old.get .head).down = true) rfl
+  intro old guard
+  let next := (fixture true).latch model .backedge (Loop.appendTuple old nonReturningInput)
+    ((fixture true).header.eval model (Loop.appendTuple old nonReturningInput) PUnit.unit)
+  refine ⟨next, ?_, rfl⟩
+  change (if (old.get .head).down then (Sum.inr next : BitVec 64 ⊕ Inputs model carried) else _) = Sum.inr next
+  rw [guard]
+  rfl
+
+theorem numbered_executions_observe_absence :
+    observe (MonadicModel.ofRuntime (thetaRuntime model)) (fixture true).lowerTheta nonReturningInput = Part.none ∧
+      observe (MonadicModel.ofRuntime (thetaRuntime model)) (emit (fixture true)) nonReturningInput = Part.none := by
+  have absent : observe (MonadicModel.ofRuntime (thetaRuntime model))
+      (fixture true).lowerTheta nonReturningInput = Part.none := by
+    apply Part.eq_none_iff.mpr
+    intro result returned
+    cases result with
+    | cons value tail =>
+      cases tail
+      exact no_native_return value (((fixture true).lowerTheta_observe_eq_some model nonReturningInput value).mpr
+        (Part.eq_some_iff.mpr returned))
+  exact ⟨absent, (emit_observe (fixture true) nonReturningInput).trans absent⟩
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.Regression
