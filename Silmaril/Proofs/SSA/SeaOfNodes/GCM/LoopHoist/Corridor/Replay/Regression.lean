@@ -2,6 +2,8 @@ module
 
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Example.Defs
 meta import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Example.Defs
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.Example.Defs
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Thms
 
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Regression
@@ -16,6 +18,15 @@ open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (lower)
 #guard observe [] == .ok ([3, 0, 1, 2, 4], [none, none, some 3])
 #guard observe [producer] == .ok ([3, 0, 2, 4], [none, none, some 3])
 #guard observe [producer, consumer] == .ok ([3, 0, 4], [none, none, some 3])
+#guard locate [producer] 2 == .ok (some (.inl 2))
+#guard locate [producer] 1 == .ok (some (.inr (0, 1)))
+#guard locate [producer, consumer] 1 == .ok (some (.inr (1, 1)))
+#guard locate [producer, consumer] 2 == .ok (some (.inr (0, 2)))
+#guard locate [producer, consumer] 4 == .ok (some (.inl 2))
+#guard locate [producer, consumer] 5 == .ok none
+
+#guard AfterReorder.Second.Emit.Example.observe false ==
+  some (2, (4, 3), [[3, 2, 3], [3, 2, 7], [3, 2, 11], [3]])
 
 example : replay (loop false) [] [] = .ok (.zero (Header.Sequence.initial (lower (loop false)))) := rfl
 

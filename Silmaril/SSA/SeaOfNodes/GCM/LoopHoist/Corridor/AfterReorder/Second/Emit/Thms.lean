@@ -9,10 +9,11 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit
 
 open Silmaril.MLIR.Arith (Env Var Width)
-open Silmaril.MLIR.CF (Block)
+open Silmaril.MLIR.CF (Block Terminator)
 open Silmaril.MLIR.CF.SwitchAssert (Cfg)
 open Silmaril.MLIR.Pure (Operands)
 open Header.Earlier (operations)
+open Header.Sequence (State)
 open Loop.MLIR.CF (Program TargetOp evalOp lower model)
 
 variable {Input : List Width} {carried result : Width}
@@ -21,11 +22,21 @@ variable {g : Program Input carried result entrySigs headerSigs}
 variable {first : AfterReorder.Plan} {consumerOrigin : Nat}
 variable {prepared : Prepared Input carried result} {moved : Emission Input carried result}
 
+/-- The typed rewrite keeps the branch choice, extends the selected header
+packet and preserves all selected exit operands. -/
+theorem liftTerm_eval {Γ Δ extra : List Width} {saved consumer : Width}
+    (rename : Rename Γ Δ) (keep : Var Δ consumer)
+    (term : Terminator (Label saved carried result extra) [result] Γ) (source : Env Γ) (target : Env Δ)
+    (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref) :
+    (liftTerm rename keep term).eval target =
+      (term.eval source).map (Saved.prependFrame (target.get keep)) id :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.liftTerm_eval rename keep term source target same
+
 /-- Substitution and edge lifting preserve the order of every retained let. -/
-theorem rewriteAt?_operations {Γ Δ : List Width} {saved consumer : Width}
-    {code : Block TargetOp (Label saved carried result) Γ [result]}
+theorem rewriteAt?_operations {Γ Δ extra : List Width} {saved consumer : Width}
+    {code : Block TargetOp (Label saved carried result extra) Γ [result]}
     {index : Nat} {rename : Rename Γ Δ} {keep : Var Δ consumer}
-    {out : Block TargetOp (Label saved carried result [consumer]) Δ [result]}
+    {out : Block TargetOp (Label saved carried result (consumer :: extra)) Δ [result]}
     (done : rewriteAt? index rename keep code = some out) :
     operations out = (operations code).eraseIdx index :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.rewriteAt?_operations done
@@ -65,6 +76,21 @@ theorem replay?_header_operations (accepted : replay? g first consumerOrigin = s
     operations (moved.cfg.block .header) =
       (operations (moved.prepared.intermediate.2.block .header)).eraseIdx moved.prepared.index :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.replay?_header_operations accepted
+
+/-- The actual first emission establishes the old packet invariant, and
+the checked second edit is one instance of a typed packet extension. -/
+theorem replay?_packet_step (accepted : replay? g first consumerOrigin = some moved) (input : Env Input) :
+    ∃ (state : State Input carried result)
+      (args : List Width) (producer : TargetOp args moved.prepared.intermediate.1)
+      (operands : Operands Input args) (tail : Block TargetOp (Label moved.prepared.intermediate.1 carried result)
+        (moved.prepared.intermediate.1 :: Input) [result]),
+      Header.Sequence.run? (Header.Sequence.initial (lower g)) first.header = some state ∧
+      moved.prepared.intermediate.2.entry = .letOp producer operands tail ∧
+      let firstValue := evalOp producer (operands.eval input)
+      let secondValue := evalOp moved.prepared.consumer.op (moved.prepared.consumer.inputs.eval (.cons firstValue input))
+      RoutesWith state.cfg moved.prepared.intermediate.2 input (.cons firstValue .nil) ∧
+      StepRoutes moved.prepared.intermediate.2 moved.cfg input firstValue secondValue :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.replay?_packet_step accepted input
 
 /-- The second edit preserves both return and exhaustion at the same CFG fuel. -/
 theorem replay?_run_eq (accepted : replay? g first consumerOrigin = some moved)

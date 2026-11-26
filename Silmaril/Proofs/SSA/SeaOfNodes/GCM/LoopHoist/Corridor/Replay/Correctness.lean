@@ -10,6 +10,7 @@ import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Sequence.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Priority.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Thms
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Thms
 import Silmaril.SSA.MLIR.CF.SwitchAssert.Thms
 import Silmaril.SSA.MLIR.CF.SwitchAssert.Denotation.Thms
 import Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF.Thms
@@ -18,7 +19,7 @@ public section
 
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay
 
-open Silmaril.MLIR.Arith (Env Width)
+open Silmaril.MLIR.Arith (Env Var Width)
 open Silmaril.MLIR.CF.SwitchAssert (Cfg)
 open Silmaril.SSA.SeaOfNodes
 open Silmaril.SSA.SeaOfNodes.GCM
@@ -200,6 +201,91 @@ theorem replay_origins (accepted : replay g header nominations = .ok snapshot) :
     have order := AfterReorder.Second.Emit.replay?_header_operations exactReplay
     simp only [Snapshot.origins, Snapshot.headerOperations]
     rw [← List.eraseIdx_map, aligned, List.eraseIdx_map, order]
+
+theorem replay_partition (accepted : replay g header nominations = .ok snapshot) :
+    (snapshot.savedSlots.origins ++ snapshot.origins).Perm
+      (List.range (operations ((lower g).block .header)).length) := by
+  obtain ⟨before, ran, trace⟩ := replay_trace accepted
+  have original := (Header.Sequence.run?_tracked (Header.Sequence.initial_tracked (lower g)) ran).1
+  cases trace with
+  | zero => exact original
+  | one checked =>
+    obtain ⟨named, _, _, located, erased, _⟩ := first?_spec checked
+    simp only [Snapshot.savedSlots, Snapshot.origins, named, erased]
+    exact (Saved.promote_perm (w := _) .nil located).trans original
+  | two checked later =>
+    obtain ⟨named, _, _, located, erased, _⟩ := first?_spec checked
+    obtain ⟨_, remaining, current⟩ := second?_current later
+    simp only [Snapshot.savedSlots, Snapshot.origins, named, remaining]
+    exact (Saved.promote_perm (w := _) (.cons _ .nil) current).trans
+      (erased ▸ (Saved.promote_perm (w := _) .nil located).trans original)
+
+theorem locate?_header {origin index : Nat}
+    (located : snapshot.locate? origin = some (.inl index)) :
+    snapshot.origins[index]? = some origin := by
+  cases found : snapshot.origins.idxOf? origin with
+  | none => simp [Snapshot.locate?, found, Option.map_eq_some_iff] at located
+  | some current =>
+    simp [Snapshot.locate?, found] at located
+    subst current
+    obtain ⟨bound, eq, _⟩ := List.idxOf?_eq_some_iff.mp found
+    exact List.getElem?_eq_some_iff.mpr ⟨bound, eq⟩
+
+theorem locate?_saved {origin : Nat} {w : Width} {ref : Var snapshot.savedWidths w}
+    (located : snapshot.locate? origin = some (.inr ⟨w, ref⟩)) :
+    snapshot.savedSlots.origin ref = origin := by
+  cases found : snapshot.origins.idxOf? origin with
+  | some current => simp [Snapshot.locate?, found] at located
+  | none =>
+    simp only [Snapshot.locate?, found, Option.map_eq_some_iff] at located
+    obtain ⟨slot, read, eq⟩ := located
+    simp only [Sum.inr.injEq] at eq
+    subst slot
+    exact Saved.Slots.find?_origin read
+
+theorem locate?_exists {origin : Nat} (accepted : replay g header nominations = .ok snapshot)
+    (bound : origin < (operations ((lower g).block .header)).length) :
+    ∃ loc, snapshot.locate? origin = some loc := by
+  have present : origin ∈ snapshot.savedSlots.origins ++ snapshot.origins :=
+    (replay_partition accepted).mem_iff.mpr (List.mem_range.mpr bound)
+  cases found : snapshot.origins.idxOf? origin with
+  | some current => exact ⟨.inl current, by simp [Snapshot.locate?, found]⟩
+  | none =>
+    have saved : origin ∈ snapshot.savedSlots.origins :=
+      (List.mem_append.mp present).resolve_right (List.idxOf?_eq_none_iff.mp found)
+    obtain ⟨slot, read⟩ := Saved.Slots.find?_exists saved
+    exact ⟨.inr slot, by simp [Snapshot.locate?, found, read]⟩
+
+theorem replay_two_invariant (accepted : replay g header [producer, consumer] = .ok (.two first consumer moved))
+    (input : Env Input) :
+    ∃ state : State Input carried result,
+      Header.Sequence.run? (Header.Sequence.initial (lower g)) header = some state ∧
+      ∃ (firstValue : BitVec moved.prepared.intermediate.1.val),
+        let inventory := List.range (operations ((lower g).block .header)).length
+        let secondValue := evalOp moved.prepared.consumer.op (moved.prepared.consumer.inputs.eval (.cons firstValue input))
+        Saved.Invariant state.cfg moved.prepared.intermediate.2 inventory first.origins
+          (.cons first.nomination.origin .nil) input (.cons firstValue .nil) ∧
+        Saved.Invariant state.cfg moved.cfg inventory (.two first consumer moved : Snapshot Input carried result).origins
+          (.two first consumer moved : Snapshot Input carried result).savedSlots
+          input (.cons secondValue (.cons firstValue .nil)) := by
+  obtain ⟨before, ranBefore, trace⟩ := replay_trace accepted
+  obtain ⟨state, _, _, _, _, ran, _, prior, step⟩ :=
+    AfterReorder.Second.Emit.replay?_packet_step (replay_two_eq accepted) input
+  rw [ran] at ranBefore
+  have same := Option.some.inj ranBefore
+  subst before
+  cases trace with
+  | two firstChecked secondChecked =>
+    obtain ⟨named, _, _, selected, erased, _⟩ := first?_spec firstChecked
+    obtain ⟨_, remaining, current⟩ := second?_current secondChecked
+    have original := (Header.Sequence.run?_tracked (Header.Sequence.initial_tracked (lower g)) ran).1
+    have partition : ((Saved.Slots.cons (w := moved.prepared.intermediate.1) first.nomination.origin .nil).origins ++
+        first.origins).Perm (List.range (operations ((lower g).block .header)).length) := by
+      rw [named, erased]
+      exact (Saved.promote_perm (w := _) .nil selected).trans original
+    refine ⟨state, ran, _, ⟨partition, prior⟩, ?_⟩
+    simp only [Snapshot.origins, Snapshot.savedSlots, remaining]
+    exact Saved.Invariant.extend ⟨partition, prior⟩ current step
 
 theorem replay_run_eq (accepted : replay g header nominations = .ok snapshot)
     (input : Env Input) (fuel : Nat) :

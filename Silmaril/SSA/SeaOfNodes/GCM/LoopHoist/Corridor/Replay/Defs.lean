@@ -8,7 +8,7 @@ public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second
 
 namespace Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay
 
-open Silmaril.MLIR.Arith (Width)
+open Silmaril.MLIR.Arith (Var Width)
 open Silmaril.MLIR.CF (Cfg)
 open Header.Earlier (Operation operations)
 open Header.Sequence (State)
@@ -69,6 +69,26 @@ def Snapshot.headerOperations : Snapshot Input carried result → List Operation
   | .zero state => operations (state.cfg.block .header)
   | .one first => operations (first.output.2.block .header)
   | .two _ _ moved => operations (moved.cfg.block .header)
+
+def Snapshot.savedWidths : Snapshot Input carried result → List Width
+  | .zero _ => []
+  | .one first => [first.output.1]
+  | .two _ _ moved => [moved.prepared.consumer.width, moved.prepared.intermediate.1]
+
+/-- Original identities at the current CFG's typed saved positions. The
+preheader's leading lets define these slots oldest first. -/
+def Snapshot.savedSlots : (state : Snapshot Input carried result) → Saved.Slots state.savedWidths
+  | .zero _ => .nil
+  | .one first => .cons first.nomination.origin .nil
+  | .two first second _ => .cons second.origin (.cons first.nomination.origin .nil)
+
+/-- Locate an original identity in the current header or at a typed
+saved position. A saved reference also determines its preheader cut. -/
+def Snapshot.locate? (state : Snapshot Input carried result) (origin : Nat) :
+    Option (Nat ⊕ ((w : Width) × Var state.savedWidths w)) :=
+  match state.origins.idxOf? origin with
+  | some index => some (.inl index)
+  | none => (state.savedSlots.find? origin).map .inr
 
 /-- The two-save profile retains the second cut in the one-save CFG's
 label family. Its numeric coordinate is checked when advancing. -/

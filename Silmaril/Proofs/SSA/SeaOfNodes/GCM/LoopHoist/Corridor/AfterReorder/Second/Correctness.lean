@@ -4,6 +4,7 @@ public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second
 import Mathlib.Data.List.InsertIdx
 import Silmaril.SSA.SeaOfNodes.GCM.Dominance.Placement.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Thms
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Sequence.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Priority.Thms
@@ -30,14 +31,8 @@ variable {g : Program Input carried result entrySigs headerSigs}
 variable {first : AfterReorder.Plan} {consumerOrigin : Nat} {prepared : Prepared Input carried result}
 
 private theorem savedOrigins_agree (value : BitVec saved.val) (old : BitVec carried.val)
-    (input : Env Input) : CapturesAgree savedOrigins (.cons value (.cons old input)) (.cons value input) := by
-  intro _ ref capture fromOrigin
-  cases ref with
-  | here => cases fromOrigin; rfl
-  | there ref =>
-    cases ref with
-    | here => cases fromOrigin
-    | there ref => cases fromOrigin; rfl
+    (input : Env Input) : CapturesAgree savedOrigins (.cons value (.cons old input)) (.cons value input) :=
+  Saved.origins_agree (.cons value .nil) old input
 
 theorem findCandidate?_value {index cut : Nat}
     {origins : Origins (saved :: Input) Γ} {code : Block TargetOp (Label saved carried result) Γ [result]}
@@ -183,6 +178,31 @@ theorem prepare?_available (accepted : prepare? g first consumerOrigin = some pr
   · intro input old
     exact findCandidate?_value found _ _ (savedOrigins_agree _ old input)
 
+theorem prepare?_first_replay_routes (accepted : prepare? g first consumerOrigin = some prepared)
+    (input : Env Input) :
+    ∃ (state : State Input carried result)
+      (args : List Width) (producer : TargetOp args prepared.intermediate.1) (operands : Operands Input args)
+      (tail : Block TargetOp (Label prepared.intermediate.1 carried result)
+        (prepared.intermediate.1 :: Input) [result]),
+      Header.Sequence.run? (Header.Sequence.initial (lower g)) first.header = some state ∧
+      prepared.intermediate.2.entry = .letOp producer operands tail ∧
+      prepared.intermediate.2.block .exit = .terminator (.ret (.cons .here .nil)) ∧
+      Routes state.cfg prepared.intermediate.2 input (evalOp producer (operands.eval input)) := by
+  obtain ⟨state, _, _, ran, _, moved, _⟩ := prepare?_spec accepted
+  obtain ⟨binding, found, _, _, operands, captured, code⟩ := hoistCodeWith?_spec moved
+  obtain ⟨_, headerOnly, _⟩ := Header.Sequence.run?_header ran
+  have exit : state.cfg.block .exit = .terminator (.ret (.cons .here .nil)) := by
+    rw [headerOnly]
+    rfl
+  refine ⟨state, binding.args, binding.op, operands, routeCode Var.there .here state.cfg.entry,
+    ran, ?_, ?_, ?_⟩
+  · rw [code]
+    rfl
+  · rw [code]
+    rfl
+  · rw [code]
+    exact emitHeader_routes exit binding found operands captured input
+
 theorem prepare?_first_routes (accepted : prepare? g first consumerOrigin = some prepared)
     (input : Env Input) :
     ∃ (source : Cfg TargetOp (SourceLabel carried result) Input [result])
@@ -192,19 +212,8 @@ theorem prepare?_first_routes (accepted : prepare? g first consumerOrigin = some
       prepared.intermediate.2.entry = .letOp producer operands tail ∧
       prepared.intermediate.2.block .exit = .terminator (.ret (.cons .here .nil)) ∧
       Routes source prepared.intermediate.2 input (evalOp producer (operands.eval input)) := by
-  obtain ⟨state, _, _, ran, _, moved, _⟩ := prepare?_spec accepted
-  obtain ⟨binding, found, _, _, operands, captured, code⟩ := hoistCodeWith?_spec moved
-  obtain ⟨_, headerOnly, _⟩ := Header.Sequence.run?_header ran
-  have exit : state.cfg.block .exit = .terminator (.ret (.cons .here .nil)) := by
-    rw [headerOnly]
-    rfl
-  refine ⟨state.cfg, binding.args, binding.op, operands, routeCode Var.there .here state.cfg.entry,
-    ?_, ?_, ?_⟩
-  · rw [code]
-    rfl
-  · rw [code]
-    rfl
-  · rw [code]
-    exact emitHeader_routes exit binding found operands captured input
+  obtain ⟨state, args, producer, operands, tail, _, entry, exit, routed⟩ :=
+    prepare?_first_replay_routes accepted input
+  exact ⟨state.cfg, args, producer, operands, tail, entry, exit, routed⟩
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second

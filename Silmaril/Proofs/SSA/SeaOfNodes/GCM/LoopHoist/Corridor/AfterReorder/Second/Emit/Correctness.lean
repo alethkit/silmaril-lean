@@ -5,6 +5,7 @@ public import Silmaril.SSA.MLIR.CF.SwitchAssert.Denotation.Defs
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Thms
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Thms
 import Silmaril.SSA.MLIR.CF.SwitchAssert.Thms
 import Silmaril.SSA.MLIR.CF.SwitchAssert.Denotation.Thms
 
@@ -22,24 +23,25 @@ open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit
 open Header.Earlier (operations)
+open Header.Sequence (State)
 open Loop.MLIR.CF (Program TargetOp evalOp lower model)
 
-variable {Input Γ Δ : List Width} {saved consumer carried result : Width}
+variable {Input Γ Δ extra : List Width} {saved consumer carried result : Width}
 variable {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 variable {g : Program Input carried result entrySigs headerSigs}
 variable {first : AfterReorder.Plan} {consumerOrigin : Nat}
 variable {prepared : Prepared Input carried result} {moved : Emission Input carried result}
 
-private theorem liftCode_operations (code : Block TargetOp (Label saved carried result) Γ [result])
+private theorem liftCode_operations (code : Block TargetOp (Label saved carried result extra) Γ [result])
     (rename : Rename Γ Δ) (keep : Var Δ consumer) :
     operations (liftCode rename keep code) = operations code := by
   induction code generalizing Δ with
   | terminator => rfl
   | letOp _ _ _ ih => simp only [liftCode, operations, ih]
 
-theorem rewriteAt?_operations {code : Block TargetOp (Label saved carried result) Γ [result]}
+theorem rewriteAt?_operations {code : Block TargetOp (Label saved carried result extra) Γ [result]}
     {index : Nat} {rename : Rename Γ Δ} {keep : Var Δ consumer}
-    {out : Block TargetOp (Label saved carried result [consumer]) Δ [result]}
+    {out : Block TargetOp (Label saved carried result (consumer :: extra)) Δ [result]}
     (done : rewriteAt? index rename keep code = some out) :
     operations out = (operations code).eraseIdx index := by
   induction code generalizing index Δ with
@@ -59,22 +61,22 @@ theorem rewriteAt?_operations {code : Block TargetOp (Label saved carried result
       simp only [operations, List.eraseIdx_cons_succ, ih edited]
 
 private theorem liftEdge_eval (rename : Rename Γ Δ) (keep : Var Δ consumer)
-    (edge : Edge (Label saved carried result) Γ) (source : Env Γ) (target : Env Δ)
+    (edge : Edge (Label saved carried result extra) Γ) (source : Env Γ) (target : Env Δ)
     (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref) :
-    (liftEdge rename keep edge).eval target = carryConsumer (target.get keep) (edge.eval source) := by
+    (liftEdge rename keep edge).eval target = Saved.prependFrame (target.get keep) (edge.eval source) := by
   rcases edge with ⟨label, args⟩
   cases label
   · change (⟨.header, .cons (target.get keep) ((For.renameOperands rename args).eval target)⟩ :
-        Frame (Label saved carried result [consumer])) = ⟨.header, .cons (target.get keep) (args.eval source)⟩
+        Frame (Label saved carried result (consumer :: extra))) = ⟨.header, .cons (target.get keep) (args.eval source)⟩
     rw [evalRenameOperands _ _ _ same]
   · change (⟨.exit, (For.renameOperands rename args).eval target⟩ :
-        Frame (Label saved carried result [consumer])) = ⟨.exit, args.eval source⟩
+        Frame (Label saved carried result (consumer :: extra))) = ⟨.exit, args.eval source⟩
     rw [evalRenameOperands _ _ _ same]
 
-private theorem liftTerm_eval (rename : Rename Γ Δ) (keep : Var Δ consumer)
-    (term : Terminator (Label saved carried result) [result] Γ) (source : Env Γ) (target : Env Δ)
+theorem liftTerm_eval (rename : Rename Γ Δ) (keep : Var Δ consumer)
+    (term : Terminator (Label saved carried result extra) [result] Γ) (source : Env Γ) (target : Env Δ)
     (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref) :
-    (liftTerm rename keep term).eval target = (term.eval source).map (carryConsumer (target.get keep)) id := by
+    (liftTerm rename keep term).eval target = (term.eval source).map (Saved.prependFrame (target.get keep)) id := by
   cases term with
   | br edge => simp [liftTerm, Terminator.eval, Sum.map, liftEdge_eval _ _ _ _ _ same]
   | ret args => simp [liftTerm, Terminator.eval, Sum.map, evalRenameOperands _ _ _ same]
@@ -82,11 +84,11 @@ private theorem liftTerm_eval (rename : Rename Γ Δ) (keep : Var Δ consumer)
     simp only [liftTerm, Terminator.eval, same, liftEdge_eval _ _ _ _ _ same]
     cases (source.get test).getLsbD 0 <;> rfl
 
-private theorem liftCode_eval (code : Block TargetOp (Label saved carried result) Γ [result])
+private theorem liftCode_eval (code : Block TargetOp (Label saved carried result extra) Γ [result])
     (rename : Rename Γ Δ) (keep : Var Δ consumer) (source : Env Γ) (target : Env Δ)
     (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref) :
     (liftCode rename keep code).eval evalOp (fun term env => Terminator.eval env term) target =
-      (code.eval evalOp (fun term env => Terminator.eval env term) source).map (carryConsumer (target.get keep)) id := by
+      (code.eval evalOp (fun term env => Terminator.eval env term) source).map (Saved.prependFrame (target.get keep)) id := by
   induction code generalizing Δ with
   | terminator term => exact liftTerm_eval rename keep term source target same
   | letOp op operands rest ih =>
@@ -144,37 +146,17 @@ private theorem rewriteAt?_eval {code : Block TargetOp (Label saved carried resu
         simpa only [Code.eval, Env.get, evalRenameOperands _ _ _ same] using evaluated⟩
 
 private theorem header_agrees (first : BitVec saved.val) (old : BitVec carried.val) (input : Env Input) :
-    CapturesAgree savedOrigins (.cons first (.cons old input)) (.cons first input) := by
-  intro _ ref cap fromOrigin
-  cases ref with
-  | here => cases fromOrigin; rfl
-  | there ref =>
-    cases ref with
-    | here => cases fromOrigin
-    | there ref => cases fromOrigin; rfl
-
-private theorem carryBoth (first : BitVec saved.val) (second : BitVec consumer.val)
-    (frame : Frame (SourceLabel carried result)) :
-    carryConsumer second (carryFrame first frame) =
-      carryFrameWith (extra := [consumer]) (.cons second (.cons first .nil)) frame := by
-  rcases frame with ⟨label, args⟩
-  cases label <;> rfl
-
-private theorem mapFirst {first : BitVec saved.val} {second : BitVec consumer.val}
-    (out : Frame (SourceLabel carried result) ⊕ Env [result]) :
-    (out.map (carryFrame first) id).map (carryConsumer second) id =
-      out.map (carryFrameWith (extra := [consumer]) (.cons second (.cons first .nil))) id := by
-  rcases out with frame | returned
-  · exact congrArg Sum.inl (carryBoth first second frame)
-  · rfl
+    CapturesAgree savedOrigins (.cons first (.cons old input)) (.cons first input) :=
+  Saved.origins_agree (.cons first .nil) old input
 
 private theorem emit_exists_and_routes (accepted : prepare? g first consumerOrigin = some prepared)
     (input : Env Input) :
-    ∃ (target : TargetCfg prepared) (source : Cfg TargetOp (SourceLabel carried result) Input [result])
+    ∃ (target : TargetCfg prepared) (state : State Input carried result)
       (args : List Width) (producer : TargetOp args prepared.intermediate.1) (operands : Operands Input args)
       (tail : Block TargetOp (Label prepared.intermediate.1 carried result)
         (prepared.intermediate.1 :: Input) [result]),
       emit? prepared = some target ∧
+      Header.Sequence.run? (Header.Sequence.initial (lower g)) first.header = some state ∧
       prepared.intermediate.2.entry = .letOp producer operands tail ∧
       target.entry = .letOp producer operands
         (.letOp prepared.consumer.op prepared.consumer.inputs (liftCode Var.there .here tail)) ∧
@@ -183,10 +165,11 @@ private theorem emit_exists_and_routes (accepted : prepare? g first consumerOrig
       target.block .exit = .terminator (.ret (.cons .here .nil)) ∧
       let saved := evalOp producer (operands.eval input)
       let value := evalOp prepared.consumer.op (prepared.consumer.inputs.eval (.cons saved input))
-      Routes source prepared.intermediate.2 input saved ∧
+      RoutesWith state.cfg prepared.intermediate.2 input (.cons saved .nil) ∧
       StepRoutes prepared.intermediate.2 target input saved value := by
   obtain ⟨_, _, _, _, _, _, _, found, _⟩ := prepare?_placement accepted
-  obtain ⟨source, args, producer, operands, tail, entry, exit, routed⟩ := prepare?_first_routes accepted input
+  obtain ⟨state, args, producer, operands, tail, ran, entry, exit, routed⟩ :=
+    prepare?_first_replay_routes accepted input
   let saved := evalOp producer (operands.eval input)
   let value := evalOp prepared.consumer.op (prepared.consumer.inputs.eval (.cons saved input))
   have header (old : BitVec carried.val) :=
@@ -199,7 +182,8 @@ private theorem emit_exists_and_routes (accepted : prepare? g first consumerOrig
       block
         | .header => rewritten
         | .exit => .terminator (.ret (.cons .here .nil)) }
-  refine ⟨target, source, args, producer, operands, tail, ?_, entry, rfl, rewrite, rfl, routed, ?_, ?_⟩
+  refine ⟨target, state, args, producer, operands, tail, ?_, ran, entry, rfl, rewrite, rfl,
+    ⟨routed.entry, routed.block⟩, ?_, ?_⟩
   · simp [emit?, entry, rewrite, exit, target]; rfl
   · rw [entry]
     exact liftCode_eval tail Var.there .here (.cons saved input) (.cons value (.cons saved input))
@@ -251,7 +235,7 @@ theorem replay?_routes (accepted : replay? g first consumerOrigin = some moved) 
       let value := evalOp moved.prepared.consumer.op (moved.prepared.consumer.inputs.eval (.cons saved input))
       StepRoutes moved.prepared.intermediate.2 moved.cfg input saved value := by
   obtain ⟨checked, emitted, _⟩ := replay?_spec accepted
-  obtain ⟨target, _, args, producer, operands, tail, edit, entry, newEntry, header, exit, _, routed⟩ :=
+  obtain ⟨target, _, args, producer, operands, tail, edit, _, entry, newEntry, header, exit, _, routed⟩ :=
     emit_exists_and_routes checked input
   rw [emitted] at edit
   cases edit
@@ -263,25 +247,29 @@ theorem replay?_header_operations (accepted : replay? g first consumerOrigin = s
   obtain ⟨_, _, _, _, _, _, rewritten, _⟩ := replay?_routes accepted (zeroEnv Input)
   exact rewriteAt?_operations rewritten
 
-theorem replay?_run_eq (accepted : replay? g first consumerOrigin = some moved)
-    (input : Env Input) (fuel : Nat) :
-    moved.cfg.run evalOp fuel input = moved.prepared.intermediate.2.run evalOp fuel input := by
+theorem replay?_packet_step (accepted : replay? g first consumerOrigin = some moved) (input : Env Input) :
+    ∃ (state : State Input carried result)
+      (args : List Width) (producer : TargetOp args moved.prepared.intermediate.1)
+      (operands : Operands Input args) (tail : Block TargetOp (Label moved.prepared.intermediate.1 carried result)
+        (moved.prepared.intermediate.1 :: Input) [result]),
+      Header.Sequence.run? (Header.Sequence.initial (lower g)) first.header = some state ∧
+      moved.prepared.intermediate.2.entry = .letOp producer operands tail ∧
+      let firstValue := evalOp producer (operands.eval input)
+      let secondValue := evalOp moved.prepared.consumer.op (moved.prepared.consumer.inputs.eval (.cons firstValue input))
+      RoutesWith state.cfg moved.prepared.intermediate.2 input (.cons firstValue .nil) ∧
+      StepRoutes moved.prepared.intermediate.2 moved.cfg input firstValue secondValue := by
   obtain ⟨checked, emitted, _⟩ := replay?_spec accepted
-  obtain ⟨target, source, _, producer, operands, _, edit, _, _, _, _, prior, step⟩ :=
+  obtain ⟨target, state, args, producer, operands, tail, edit, ran, entry, _, _, _, prior, step⟩ :=
     emit_exists_and_routes checked input
   rw [emitted] at edit
   cases edit
-  let saved := evalOp producer (operands.eval input)
-  let value := evalOp moved.prepared.consumer.op (moved.prepared.consumer.inputs.eval (.cons saved input))
-  have both : RoutesWith source moved.cfg input (.cons value (.cons saved .nil)) := by
-    constructor
-    · rw [step.entry, prior.entry, mapFirst]
-    · intro frame
-      have routed := step.block frame
-      dsimp only at routed
-      rw [prior.block frame, mapFirst, carryBoth] at routed
-      exact routed
-  exact (routesWith_run_eq both fuel).trans (routes_run_eq prior fuel).symm
+  exact ⟨state, args, producer, operands, tail, ran, entry, prior, step⟩
+
+theorem replay?_run_eq (accepted : replay? g first consumerOrigin = some moved)
+    (input : Env Input) (fuel : Nat) :
+    moved.cfg.run evalOp fuel input = moved.prepared.intermediate.2.run evalOp fuel input := by
+  obtain ⟨_, _, _, _, _, _, _, prior, step⟩ := replay?_packet_step accepted input
+  exact Saved.extend_run_eq prior step fuel
 
 theorem replay?_budget (accepted : replay? g first consumerOrigin = some moved)
     (input : Env Input) (budget : Nat) :
