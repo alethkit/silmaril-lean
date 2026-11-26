@@ -119,3 +119,68 @@ The MLIR result in these laws uses the initialized cells carried
 as SSA values above.
 [CF evaluator](../../../../Silmaril/SSA/MLIR/CF/Basic/Defs.lean) ·
 [LLVM admission example](../../../../Silmaril/SSA/MLIR/LLVM/Examples/Thms.lean)
+
+## Typed MemRef activation
+
+`MemRef.lowerActivation` reuses the [single-buffer body lowering](sea-of-nodes-memory.md#one-initialized-rank-one-memref).
+It emits the native ordered `memref.load` and `memref.store` bindings
+and appends `arith.cmpi ne` to compare the body's returned word with
+the invariant stop operand. The comparison uses the ordered block's
+two-way control type. Selector zero requests exit and selector one
+requests a backedge. The monadic runtime carries every updated buffer
+cell in either case.
+[Activation definitions](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/MLIR/MemRef/Defs.lean) ·
+[Ordered control syntax](../../../../Silmaril/SSA/RVSDG/MLIR/Graph/Feedback/Defs.lean) ·
+[Pinned comparison operation](https://github.com/llvm/llvm-project/blob/4434dabb69916856b824f68a64b029c67175e532/mlir/include/mlir/Dialect/Arith/IR/ArithOps.td)
+
+`lowerActivation_run` identifies the emitted selector, word, and complete
+buffer. `observeActivation_eq_step` decodes the outcome and identifies it
+with the native heap-threaded step for any starting buffer. This is a
+one-activation law for one initialized, contiguous, statically sized
+rank-one `i64` buffer with `Fin n` indices. It gives a step law for a
+future effectful feedback runner: take the updated buffer from the
+restart outcome and reuse the invariant entry operands. The scalar
+MLIR CF comparison above uses its separate heap-as-SSA encoding.
+[Activation theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/MLIR/MemRef/Thms.lean)
+
+Save this example to a Lean file and run `lake env lean <file>`. Each
+result lists the selector, the loaded word, and both final cells.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.Thms
+meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.Defs
+
+open Silmaril.SSA.RVSDG (Tuple)
+open Silmaril.SSA.SeaOfNodes.Memory (Address ValueSort Val Word)
+open Silmaril.SSA.SeaOfNodes.Memory.Loop (Graph)
+open Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef (runActivation)
+
+private abbrev args : List ValueSort := [.address, .word]
+
+private def graph : Graph args where
+  body := .load (.latest 0) (.arg .head)
+    (.store (.latest 0) (.arg .head) (.arg (.tail .head))
+      (.ret (.latest 1) (.output 0 .head)))
+  effects := rfl
+  stop := .tail .head
+
+private def input : Tuple (Val 2) args :=
+  .cons (0 : Address 2) (.cons (7 : Word) .nil)
+
+private def exampleResult (old : Word) : Nat × Nat × Nat × Nat :=
+  let (.cons selector values, final) :=
+    runActivation graph input ⟨fun i => if i = 0 then old else 99⟩
+  (selector.down.val, (values.get .head : Word).toNat,
+    (final.cell 0).toNat, (final.cell 1).toNat)
+
+#eval exampleResult 7  -- (0, 7, 7, 99)
+#eval exampleResult 8  -- (1, 8, 7, 99)
+```
+
+The executable regression also passes a restart buffer into a second
+activation. Its one-cell case uses coincident indices and checks that
+the last store wins. The same fixture requires a typed address, so its
+entry valuation is uninhabited at zero cells.
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/MLIR/MemRef/Regression.lean)

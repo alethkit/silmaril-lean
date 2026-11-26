@@ -54,6 +54,13 @@ theorem row_closed (L : Table Q K S B) (s : S.Value) (σ : Nat → Expr Ops) :
     dispatch_subst K (rows := fun r => (Code.sum B S).literal (L.reply s r)) (fun v => literal_subst _ _)]
   rfl
 
+theorem reply_readback (L : Table Q K S B) (s : S.Value) (r : K.Value) :
+    Eqv ([] : EffectCtx (Ty Unit) ε) (Code.sum B S).ty e
+      ((K.dispatch (fun r => (Code.sum B S).literal (L.reply s r)) (.var 0) : Expr Ops).subst
+        (K.literal r).subst0) ((Code.sum B S).literal (L.reply s r)) := by
+  rw [dispatch_subst K (rows := fun r => (Code.sum B S).literal (L.reply s r)) (fun v => literal_subst _ _)]
+  exact dispatch_beta K r (fun v => literal_subst _ _) (fun _ => literal_wf _ _)
+
 theorem step_readback (L : Table Q K S B) (s : S.Value) (hf : instrEff (Opcode.ask : Ops) ≤ e) :
     Eqv ([] : EffectCtx (Ty Unit) ε) (Code.sum B S).ty e
       (L.source.subst (S.literal s).subst0) (L.row s) := by

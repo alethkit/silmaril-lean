@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Defs
+public import Silmaril.SSA.RVSDG.NestedTheta.Equality.Decision.Defs
 public import Mathlib.Data.Multiset.Defs
 
 /-! Admission for λ exports and fixed φ member groups. -/
@@ -158,6 +159,60 @@ def CaptureCode.tuple (code : CaptureCode m) : {ports : Ports (Ty V S)} →
     Tuple m.Val ports → List (Option (Nat ⊕ code.Key))
   | _, .nil => []
   | _, .cons head tail => code.value head :: code.tuple tail
+
+/-- An optional certificate of exact equality between actual runtime
+values. A missing certificate leaves the comparison inconclusive. -/
+abbrev ExactValueCheck (m : Machine.{u, v, w} Op) :=
+  {port : Ty V S} → (left right : m.Val port) → Option (PLift (left = right))
+
+namespace ExactValueCheck
+
+def firstOrder (dataEq : ∀ t, DecidableEq (m.Data t)) (stateEq : ∀ t, DecidableEq (m.State t)) :
+    ExactValueCheck m
+  | _, .data (t := t) left, .data right =>
+    letI := dataEq t
+    if same : left = right then some ⟨congrArg Colour.data same⟩ else none
+  | _, .state (t := t) left, .state right =>
+    letI := stateEq t
+    if same : left = right then some ⟨congrArg Colour.state same⟩ else none
+  | _, .control left, .control right =>
+    if same : left = right then some ⟨congrArg Colour.control same⟩ else none
+  | _, .global unitL vertexL left, .global unitR vertexR right =>
+    if same : unitL = unitR ∧ vertexL = vertexR then do
+      let payload ← firstOrder dataEq stateEq left right
+      pure ⟨by rw [same.1, same.2, payload.down]⟩
+    else none
+  | _, _, _ => none
+
+def tuple (check : ExactValueCheck m) : {ports : Ports (Ty V S)} →
+    (left right : Tuple m.Val ports) → Option (PLift (left = right))
+  | _, .nil, .nil => some ⟨rfl⟩
+  | _, .cons left restL, .cons right restR => do
+    let head ← check left right
+    let tail ← tuple check restL restR
+    pure ⟨congrArg₂ Tuple.cons head.down tail.down⟩
+
+/-- Compare λ bodies at their actual numbering and compare the exact
+captured values with the supplied checker. Global equality in `firstOrder`
+uses the full identity as well as the payload. -/
+def lambda [DecidableEq (Ty V S)] (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
+    (captures : ExactValueCheck m) : ExactValueCheck m
+  | _, .closure (context := contextL) (sigs := sigsL) valuesL bodyL,
+      .closure (context := contextR) (sigs := sigsR) valuesR bodyR => by
+    letI : DecidableEq (Ports (Ty V S)) := inferInstance
+    letI : DecidableEq (List (Ports (Ty V S))) := inferInstance
+    refine if context : contextL = contextR then ?_ else none
+    subst contextR
+    refine if sigs : sigsL = sigsR then ?_ else none
+    subst sigsR
+    letI := NestedTheta.Equality.decideGraph keys bodyL bodyR
+    exact if body : bodyL = bodyR then
+      (tuple captures valuesL valuesR).map fun same =>
+        ⟨by rw [body, same.down]⟩
+    else none
+  | _, _, _ => none
+
+end ExactValueCheck
 
 abbrev LambdaSummary (V S : Type u) (Key : Type v) (Capture : Type w) :=
   Ports (Ty V S) × Ports (Ty V S) × Ports (Ty V S) × List (Option (Nat ⊕ Capture)) × Multiset (LabelCode V S Key)

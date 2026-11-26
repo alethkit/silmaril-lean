@@ -51,9 +51,21 @@ inductive Plan (Op : Dialect.{u, v} (ValueSort V S) S) (importsL importsR export
       {restR : ModuleTerm Op importsR (pastR ++ [[fn.port]]) sigsR exports}
       (next : Plan Op importsL importsR exports true restL restR) :
       Plan Op importsL importsR exports true (.bind (.lambda left) restL) (.bind (.lambda right) restR)
+  /-- Reuse an earlier paired λ, indexed from most recent to oldest. Alias rows do not add entries. -/
+  | alias {pastL sigsL pastR sigsR : List (Ports (Ty V S))} {fn : Function V S}
+      {left : LambdaTerm Op importsL pastL fn} {right : LambdaTerm Op importsR pastR fn}
+      {restL : ModuleTerm Op importsL (pastL ++ [[fn.port]]) sigsL exports}
+      {restR : ModuleTerm Op importsR (pastR ++ [[fn.port]]) sigsR exports}
+      (prior : Nat) (next : Plan Op importsL importsR exports true restL restR) :
+      Plan Op importsL importsR exports true (.bind (.lambda left) restL) (.bind (.lambda right) restR)
 
 abbrev Row (family : Family m) {ports : Ports (Ty V S)} (values : Tuple m.Val ports) :=
   ∀ {port : Ty V S} (p : Port ports port), Option (PLift (family (values.get p)))
+
+def singletonRow {family : Family m} {port : Ty V S} {value : m.Val port}
+    (known : family value) : Row family (.cons value .nil) := fun p => match p with
+  | .head => some ⟨known⟩
+  | .tail p => nomatch p
 
 /-- The proof table is indexed by the linker locals it describes. Every
 cell refers to the value at that exact typed output position. -/
@@ -113,6 +125,35 @@ def exportWire {family : Family m} {entry : Tuple m.Val imports} {locals : Local
 
 variable {primitives : Primitives m σ} {ids : GlobalRel}
 
+/-- Each recorded pair consists of the two actual linked values of one
+previously admitted λ row. -/
+structure LambdaEntry (familyL familyR : Family m) where
+  fn : Function V S
+  left : m.Val fn.port
+  right : m.Val fn.port
+  knownL : familyL left
+  knownR : familyR right
+
+def LambdaEntry.inherit {familyL familyR : Family m} {fn : Function V S}
+    {calleeL calleeR : m.Val fn.port} (entry : LambdaEntry familyL familyR) :
+    LambdaEntry (WithExport familyL calleeL) (WithExport familyR calleeR) :=
+  ⟨entry.fn, entry.left, entry.right, .inherited entry.knownL, .inherited entry.knownR⟩
+
+/-- Coalesce only when both new linked values equal the corresponding
+values of the same earlier pair. Reuse its membership at the exact new values. -/
+def LambdaEntry.checkAlias [DecidableEq (Ty V S)] {familyL familyR : Family m}
+    (entry : LambdaEntry familyL familyR) (check : ExactValueCheck m) {fn : Function V S}
+    (left right : m.Val fn.port) : Option (PLift (familyL left ∧ familyR right)) :=
+  letI : DecidableEq (Function V S) := fun a b =>
+    decidable_of_iff (a.args = b.args ∧ a.results = b.results) (by cases a; cases b; simp)
+  if same : entry.fn = fn then
+    match fn, same, left, right with
+    | _, rfl, left, right => do
+      let leftEq ← check left entry.left
+      let rightEq ← check right entry.right
+      pure ⟨leftEq.down.symm ▸ entry.knownL, rightEq.down.symm ▸ entry.knownR⟩
+  else none
+
 structure Checked (primitives : Primitives m σ) (ids : GlobalRel) (code : OpcodeCode (Instruction Op))
     (captureCode : CaptureCode m)
     (localsL : Locals m.Val pastL) (localsR : Locals m.Val pastR) where
@@ -120,6 +161,7 @@ structure Checked (primitives : Primitives m σ) (ids : GlobalRel) (code : Opcod
   familyR : Family m
   keys : LambdaKeys V S code.Key captureCode.Key
   certified : LinkedFamily primitives ids code captureCode familyL familyR keys
+  lambdas : List (LambdaEntry familyL familyR)
   left : Table familyL localsL
   right : Table familyR localsR
 
@@ -134,14 +176,14 @@ def State.skipL {code : OpcodeCode (Instruction Op)} {captureCode : CaptureCode 
     {seeded : Bool} → State primitives ids code captureCode localsL localsR seeded → State primitives ids code captureCode (localsL.snoc values) localsR seeded
   | _, .unseeded => .unseeded
   | _, .seeded checked =>
-    .seeded ⟨checked.familyL, checked.familyR, checked.keys, checked.certified, checked.left.snoc (fun _ => none), checked.right⟩
+    .seeded ⟨checked.familyL, checked.familyR, checked.keys, checked.certified, checked.lambdas, checked.left.snoc (fun _ => none), checked.right⟩
 
 def State.skipR {code : OpcodeCode (Instruction Op)} {captureCode : CaptureCode m} {localsL : Locals m.Val pastL} {localsR : Locals m.Val pastR} {ports : Ports (Ty V S)}
     (values : Tuple m.Val ports) :
     {seeded : Bool} → State primitives ids code captureCode localsL localsR seeded → State primitives ids code captureCode localsL (localsR.snoc values) seeded
   | _, .unseeded => .unseeded
   | _, .seeded checked =>
-    .seeded ⟨checked.familyL, checked.familyR, checked.keys, checked.certified, checked.left, checked.right.snoc (fun _ => none)⟩
+    .seeded ⟨checked.familyL, checked.familyR, checked.keys, checked.certified, checked.lambdas, checked.left, checked.right.snoc (fun _ => none)⟩
 
 /-- The certificate is indexed by the ordinary executable link outcomes.
 A successful certificate consumes the exact exported values at the selected
@@ -177,6 +219,7 @@ variable [DecidableEq (Ty V S)]
 actual linker, including any partial δ initialization. The selected φ/λ
 rows use the exact values of the linker's non-effectful binding rules. -/
 def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (captureCode : CaptureCode m)
+    (exactValue : ExactValueCheck m)
     (actions : Actions m σ)
     (ids : GlobalRel) (ordinary : OrdinaryOutputs Op) (unitL unitR : Nat)
     (inputsL : Tuple m.Val importsL) (inputsR : Tuple m.Val importsR)
@@ -196,14 +239,14 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (captureCod
     match ran : Executable.linkVertex actions unitL inputsL localsL node.toGraph storeL with
     | .undefined _ => none
     | .linked values middle => do
-      let checked ← walk keys captureCode actions ids ordinary unitL unitR inputsL inputsR port
+      let checked ← walk keys captureCode exactValue actions ids ordinary unitL unitR inputsL inputsR port
         (localsL.snoc values) localsR middle storeR next (state.skipL values)
       pure ⟨by rw [linkTerm_bind, ran]; exact checked.down⟩
   | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR, .skipR (node := node) next, state =>
     match ran : Executable.linkVertex actions unitR inputsR localsR node.toGraph storeR with
     | .undefined _ => none
     | .linked values middle => do
-      let checked ← walk keys captureCode actions ids ordinary unitL unitR inputsL inputsR port
+      let checked ← walk keys captureCode exactValue actions ids ordinary unitL unitR inputsL inputsR port
         localsL (localsR.snoc values) storeL middle next (state.skipR values)
       pure ⟨by rw [linkTerm_bind, ran]; exact checked.down⟩
   | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR,
@@ -213,9 +256,9 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (captureCod
     let seed ← LinkedFamily.ofGroups keys actions.toPrimitives ids captureCode ordinary groupL groupR
     let leftTable := (Table.empty groupL.In localsL).snoc (memberRow membersL groupL.ref (fun slot => .member slot))
     let rightTable := (Table.empty groupR.In localsR).snoc (memberRow membersR groupR.ref (fun slot => .member slot))
-    let checked ← walk keys captureCode actions ids ordinary unitL unitR inputsL inputsR port
+    let checked ← walk keys captureCode exactValue actions ids ordinary unitL unitR inputsL inputsR port
       (localsL.snoc (memberValues membersL groupL.ref)) (localsR.snoc (memberValues membersR groupR.ref))
-      storeL storeR next (.seeded ⟨groupL.In, groupR.In, ⟨[], []⟩, seed.down, leftTable, rightTable⟩)
+      storeL storeR next (.seeded ⟨groupL.In, groupR.In, ⟨[], []⟩, seed.down, [], leftTable, rightTable⟩)
     pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
   | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR,
       .lambda (left := left) (right := right) next, .seeded earlier => do
@@ -226,23 +269,32 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (captureCod
     let calleeR := linkedLambda right.toGraph inputsR localsR
     let familyL : Family m := WithExport earlier.familyL calleeL
     let familyR : Family m := WithExport earlier.familyR calleeR
-    let rowL : Row familyL (.cons calleeL .nil) := fun p => match p with
-      | .head => some ⟨.exported⟩
-      | .tail p => nomatch p
-    let rowR : Row familyR (.cons calleeR .nil) := fun p => match p with
-      | .head => some ⟨.exported⟩
-      | .tail p => nomatch p
-    let tableL := (earlier.left.lift (fun known => WithExport.inherited known)).snoc rowL
-    let tableR := (earlier.right.lift (fun known => WithExport.inherited known)).snoc rowR
-    let checked ← walk keys captureCode actions ids ordinary unitL unitR inputsL inputsR port
+    let entry : LambdaEntry familyL familyR := ⟨_, calleeL, calleeR, .exported, .exported⟩
+    let tableL := (earlier.left.lift (fun known => WithExport.inherited known)).snoc (singletonRow entry.knownL)
+    let tableR := (earlier.right.lift (fun known => WithExport.inherited known)).snoc (singletonRow entry.knownR)
+    let checked ← walk keys captureCode exactValue actions ids ordinary unitL unitR inputsL inputsR port
       (localsL.snoc (.cons calleeL .nil)) (localsR.snoc (.cons calleeR .nil)) storeL storeR next
-      (.seeded ⟨familyL, familyR, _, certified.down, tableL, tableR⟩)
+      (.seeded ⟨familyL, familyR, _, certified.down, entry :: earlier.lambdas.map LambdaEntry.inherit, tableL, tableR⟩)
     pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
+  | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR,
+      .alias (fn := fn) (left := left) (right := right) prior next, .seeded earlier =>
+    match earlier.lambdas[prior]? with
+    | none => none
+    | some entry => do
+      let calleeL := linkedLambda left.toGraph inputsL localsL
+      let calleeR := linkedLambda right.toGraph inputsR localsR
+      let known ← entry.checkAlias exactValue (fn := fn) calleeL calleeR
+      let checked ← walk keys captureCode exactValue actions ids ordinary unitL unitR inputsL inputsR port
+        (localsL.snoc (.cons calleeL .nil)) (localsR.snoc (.cons calleeR .nil)) storeL storeR next
+        (.seeded ⟨earlier.familyL, earlier.familyR, earlier.keys, earlier.certified, earlier.lambdas,
+          earlier.left.snoc (singletonRow known.down.1), earlier.right.snoc (singletonRow known.down.2)⟩)
+      pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
 
 /-- Check an ordered pair of complete link prefixes, then read the
 selected export from the generated membership tables. The plan contains
 only binding selections. Each λ step checks separation using actual
-capture observations as well as the body profile. Related successful link
+capture observations as well as the body profile. An alias row requires
+certificates of actual value equality on both sides. Related successful link
 outcomes and primitive compatibility remain premises for paired invocation. -/
 def admit (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : Actions m σ)
     (ids : GlobalRel) (ordinary : OrdinaryOutputs Op) (unitL unitR : Nat)
@@ -250,11 +302,12 @@ def admit (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions :
     (left : OmegaTerm Op importsL exports sigsL) (right : OmegaTerm Op importsR exports sigsR)
     (plan : Plan Op importsL importsR exports false left.region right.region)
     {fn : Function V S} (port : Port exports fn.port) (storeL storeR : σ)
-    (captureCode : CaptureCode m := .controlOnly m) :
+    (captureCode : CaptureCode m := .controlOnly m)
+    (exactValue : ExactValueCheck m := fun _ _ => none) :
     Option (PLift (AdmittedExport actions.toPrimitives ids port
       (Executable.link actions unitL left.toGraph inputsL storeL)
       (Executable.link actions unitR right.toGraph inputsR storeR))) :=
-  walk keys captureCode actions ids ordinary unitL unitR inputsL inputsR port (pastL := []) (pastR := [])
+  walk keys captureCode exactValue actions ids ordinary unitL unitR inputsL inputsR port (pastL := []) (pastR := [])
     (left := left.region) (right := right.region) PUnit.unit PUnit.unit storeL storeR plan .unseeded
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Prefix

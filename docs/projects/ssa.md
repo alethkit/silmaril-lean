@@ -228,6 +228,15 @@ supported target outcome. A source return requires a target return at the same
 port. Unsupported syntax reached on either side gives `none`. With a common
 pair-lawful `Part` model, the verdict decides refinement for these graphs.
 Using a wiring graph as the target gives the same verdict as `refinement?`.
+The decision is exact for satisfaction by the compiled named SSA classes at
+every input port and initial store in each pair-lawful `Part` model. When
+compiling after primitive renaming, the same verdict applies by model reduct.
+
+Entry outcomes compose through the executable linker. A left cycle ends the
+scan in its own stage. A left return selects a right input through the matching
+handoff port, and private diagnostics use the linked address of their stage.
+The linked graph is entry-typed exactly when the left inputs are supported and
+the right inputs are supported at the intermediate ports those inputs return.
 
 Names (`Nameless.Thms`, `LocallyNameless.Thms`, `Nameless.Institution.Thms`):
 `Region.eval_toDB` (adequacy), `DB.Region.toDB_ofDB` (round trip),
@@ -606,6 +615,21 @@ The continuation cannot jump back to its own label.
   [Cycle criterion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Thms.lean) ·
   [Denotation](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Categorical/Thms.lean) ·
   [Diamond and cycle regressions](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Regression.lean)
+- Ranked positional blocks can read the shared typed ambient context as
+  well as their newest packet. The checker still uses all local targets.
+  The structured lowering projects away intervening packet binders while
+  preserving the shared values and the current packet. The native proof
+  unfolds the contextual dispatcher once at each ranked block. It retains
+  the ambient context through the current computation and then runs the
+  selected continuation. This gives the same native arrow at the ordered
+  exits in coherent strong Elgot Freyd models with central unit. Primitive
+  arrows may have ordered effects. A backward-numbered diamond reads a
+  shared bias in both arms and again at their common successor. Its
+  state-trace examples record the entry, classifier, selected arm and
+  shared computation in order.
+  [Captured tables](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Defs.lean) ·
+  [Denotation square](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Categorical/Thms.lean) ·
+  [Diamond trace](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Regression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

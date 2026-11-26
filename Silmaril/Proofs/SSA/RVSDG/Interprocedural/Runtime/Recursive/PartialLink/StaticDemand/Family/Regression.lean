@@ -1,7 +1,7 @@
 module
 
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Thms
-meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Defs
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Thms
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Defs
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Wrapper.Thms
 meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Wrapper.Defs
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Synthesis.Thms
@@ -12,7 +12,7 @@ meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Sta
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Regression
 
 open NestedTheta.Liveness
-open Isomorphism.RecursiveCall.Numbered.Prefix (linkTerm_bind)
+open Ordered.Prefix (Plan Scope lastExport seededGraph)
 open Continuation (Stack)
 open Continuation.Partial (Config Step)
 open Continuation.Partial.Executable (Actions Observation next? observe runFor runFor_add step_iff)
@@ -479,54 +479,28 @@ private def laterBinding : Ordered.Binding Op firstSlots single firstSigs export
         (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head)))))) .nil)))
     laterSuffix
 
-private abbrev laterSlots := Ordered.prepend laterBinding.summary firstSlots
-
-private def seedLocals (cap : Nat) : Locals machine.Val seedSigs :=
-  (inferred.references (one cap), PUnit.unit)
-
-private def seedChecked (cap : Nat) :=
-  Ordered.CheckedPrefix.seed actions inferred (one cap) (one cap) (relayReady cap) (relayReady cap)
-
-private def firstLocals (cap : Nat) : Locals machine.Val firstSigs :=
-  (seedLocals cap).snoc (.cons (firstBinding.value (one cap) (seedLocals cap)) .nil)
-
-private def firstChecked? (cap : Nat) : Option (Ordered.CheckedPrefix actions firstSlots
-    (firstLocals cap) (firstLocals cap)) :=
-  (seedChecked cap).addLambda firstBinding (one cap) (one cap)
-    (fun _ => ⟨⟨rfl, rfl⟩, trivial⟩) (fun _ => ⟨⟨rfl, rfl⟩, trivial⟩)
-
-private def firstChecked (cap : Nat) := (firstChecked? cap).get (by rfl)
-
-private def laterChecked? (cap : Nat) :=
-  (firstChecked cap).addLambda laterBinding (one cap) (one cap)
-    (fun _ => ⟨⟨rfl, rfl⟩, trivial⟩) (fun _ => ⟨⟨rfl, rfl⟩, trivial⟩)
-
-private def laterChecked (cap : Nat) := (laterChecked? cap).get (by rfl)
-
-private def orderedExport : ModuleTerm Op single (firstSigs ++ [[exportFn.port]]) [] [exportFn.port] :=
-  .ret (.cons (.output (2 : Fin 3) .head) .nil)
-
 private def orderedLambdas : ModuleTerm Op single seedSigs [[exportFn.port], [exportFn.port]] [exportFn.port] :=
-  .bind (.lambda firstBinding.term) (.bind (.lambda laterBinding.term) orderedExport)
+  .bind (.lambda firstBinding.term)
+    (.bind (.lambda laterBinding.term) (.ret (lastExport firstSigs exportFn)))
 
-private def orderedGraph : Omega Op single [exportFn.port] (firstSigs ++ [[exportFn.port]]) :=
-  OmegaTerm.toGraph ⟨.bind (.phi inferred.group) orderedLambdas⟩
+private def orderedGraph := seededGraph inferred orderedLambdas
 
-private def exportValues (cap : Nat) : Tuple machine.Val [exportFn.port] :=
-  .cons (laterBinding.value (one cap) (firstLocals cap)) .nil
+private def firstScope (cap : Nat) :=
+  (Scope.seed inferred (one cap) (one cap)).add firstBinding (one cap) (one cap)
 
-private def laterCaptures (cap : Nat) := laterBinding.captures.read (one cap) (firstLocals cap)
+private def orderedPlan (cap : Nat) :
+    Plan (one cap) (one cap) (Scope.seed inferred (one cap) (one cap)) laterBinding.summary orderedLambdas := by
+  refine Plan.lambda (scope := Scope.seed inferred (one cap) (one cap)) firstBinding ?_ ?_ ?_
+  · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
+  · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
+  · refine Plan.finish (scope := firstScope cap) laterBinding ?_ ?_
+    · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
+    · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
 
-private theorem linkedOrdered (cap : Nat) :
-    Executable.link actions 83 orderedGraph (one cap) 20 = .linked (exportValues cap) 20 := by
-  change Isomorphism.RecursiveCall.Numbered.Prefix.linkTerm actions 83 (one cap) (past := [])
-    PUnit.unit (.bind (.phi inferred.group) orderedLambdas) 20 = _
-  refine (linkTerm_bind (past := []) actions 83 (one cap) PUnit.unit (.phi inferred.group) orderedLambdas 20).trans ?_
-  change Isomorphism.RecursiveCall.Numbered.Prefix.linkTerm actions 83 (one cap)
-    (seedLocals cap) orderedLambdas 20 = _
-  exact (firstBinding.link_step actions 83 (one cap) (seedLocals cap)
-      (.bind (.lambda laterBinding.term) orderedExport) 20).trans
-    ((laterBinding.link_step actions 83 (one cap) (firstLocals cap) orderedExport 20).trans rfl)
+private def admitted (cap : Nat) :=
+  (orderedPlan cap).admit inferred actions 83 (one cap) (one cap) 20 (relayReady cap) (relayReady cap)
+
+private def checkedExport (cap : Nat) := (admitted cap).get (by rfl)
 
 private theorem laterReads : laterBinding.summary.live requested = [.arg 2, .arg 3, .arg 4] := by
   have usesFirst : resultDemand 0 (laterSuffix.plan requested) = requested := by
@@ -549,8 +523,8 @@ example : Address.arg 4 ∈ (laterBinding.body.liveness requested).mayOut 0 :=
 
 private theorem laterAgreed (cap count : Nat) :
     Ordered.InputsAgree (m := machine) laterBinding.summary requested
-      (prependContext (args count 41 4) (laterCaptures cap))
-      (prependContext (args count 41 40) (laterCaptures cap)) := by
+      (prependContext (args count 41 4) (checkedExport cap).capsL)
+      (prependContext (args count 41 40) (checkedExport cap).capsR) := by
   intro ty p live
   change .arg p.index ∈ laterBinding.summary.live requested at live
   rw [laterReads] at live
@@ -578,11 +552,10 @@ private def runOrdered (fuel cap count spare : Nat) :=
 
 example (fuel after cap count : Nat) :
     ∃ left right, runOrdered fuel cap count 4 = .ok left ∧ runOrdered fuel cap count 40 = .ok right ∧
-      PrefixObservationsAgree actions requested after left right := by
-  exact (laterChecked cap).dispatch.linked_prefixes_agree (0 : Fin 4) requested fuel after 83 orderedGraph
-    .head (one cap) (one cap) (args count 41 4) (args count 41 40) 20
-    (capsL := laterCaptures cap) (capsR := laterCaptures cap)
-    (linkedOrdered cap) (linkedOrdered cap) ⟨rfl, rfl⟩ ⟨rfl, rfl⟩ (laterAgreed cap count)
+      PrefixObservationsAgree actions requested after left right :=
+  Ordered.Prefix.Export.linked_prefixes_agree (actions := actions) (summary := laterBinding.summary)
+    requested fuel after 83 orderedGraph (one cap) (one cap) (args count 41 4) (args count 41 40) 20
+    (checkedExport cap) (laterAgreed cap count)
 
 #guard (runOrdered 80 2 2 4).toOption.bind wrapperResult == some (41, 66)
 #guard (runOrdered 80 2 2 40).toOption.bind wrapperResult == some (41, 66)
@@ -590,5 +563,42 @@ example (fuel after cap count : Nat) :
 #guard probeBlock (runOrdered 80 0 2 40) 8
 #guard (resume (runOrdered 80 0 2 4)).bind wrapperResult == some (41, 90)
 #guard (resume (runOrdered 80 0 2 40)).bind wrapperResult == some (41, 90)
+
+-- This skipped λ has the same signature and builds the same closure as
+-- the first one. Its linker position nevertheless carries no admission.
+private def uncheckedLambda : LambdaTerm Op single firstSigs exportFn :=
+  ⟨firstBinding.context, .cons (.output (0 : Fin 2) .head) (.cons (.arg .head) .nil),
+    firstBinding.sigs, firstBinding.body.term⟩
+
+private abbrev skippedSigs := firstSigs ++ [[exportFn.port]]
+
+private def rejectedBinding : Ordered.Binding Op firstSlots single skippedSigs exportFn where
+  context := laterBinding.context
+  captures := .cons (.output (2 : Fin 3) .head)
+    (.cons (.output (0 : Fin 3) .head) (.cons (.arg .head) .nil))
+  sigs := laterBinding.sigs
+  body := laterBinding.body
+
+private def rejectedLambdas :
+    ModuleTerm Op single seedSigs [[exportFn.port], [exportFn.port], [exportFn.port]] [exportFn.port] :=
+  .bind (.lambda firstBinding.term) (.bind (.lambda uncheckedLambda)
+    (.bind (.lambda rejectedBinding.term) (.ret (lastExport skippedSigs exportFn))))
+
+private def rejectedPlan (cap : Nat) :
+    Plan (one cap) (one cap) (Scope.seed inferred (one cap) (one cap)) rejectedBinding.summary rejectedLambdas := by
+  refine Plan.lambda (scope := Scope.seed inferred (one cap) (one cap)) firstBinding ?_ ?_ ?_
+  · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
+  · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
+  · refine Plan.skipLambda (scope := firstScope cap) uncheckedLambda ?_
+    refine Plan.finish (scope := (firstScope cap).skip uncheckedLambda (one cap) (one cap)) rejectedBinding ?_ ?_
+    · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
+    · exact fun _ => ⟨⟨rfl, rfl⟩, trivial⟩
+
+example (cap : Nat) :
+    (rejectedPlan cap).admit inferred actions 83 (one cap) (one cap) 20 (relayReady cap) (relayReady cap) = none :=
+  rfl
+
+#guard (Executable.run actions 80 83 (seededGraph inferred rejectedLambdas) (one 2) .head (args 2 41 4) 20
+  |>.toOption.bind wrapperResult) == some (41, 66)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Regression

@@ -208,6 +208,22 @@ theorem run_iff {H : Type} {p : Program} {m : MemAddr} {base : Store H} {initial
   · rintro ⟨out, trace, _, rfl⟩
     exact Relation.ReflTransGen.lift (render base m initial) (fun _ _ h => sound checked layout h) _ _ trace
 
+theorem function_branch_exit {H : Type} {s : Store H} {caller callee : Frame}
+    {saved extra payload : List Value} {bodyTail callerTail : List Admin} {results : List NumType}
+    (typed : payload.map Value.type = results) :
+    let arity := results.length
+    let done := ⟨s, caller, values saved ++ [.frame arity callee (values payload)] ++ callerTail⟩
+    Step CallFrame.v1NoHost
+      ⟨s, caller, values saved ++ [.frame arity callee [.label arity []
+        (values extra ++ values payload ++ [.source (.br ⟨0⟩)] ++ bodyTail)]] ++ callerTail⟩ done ∧
+    Step CallFrame.v1NoHost done ⟨s, caller, values saved ++ values payload ++ callerTail⟩ := by
+  have arity : payload.length = results.length := by simpa using congrArg List.length typed
+  constructor
+  · simpa only [expression, List.map_nil, List.append_nil] using
+      Step.context (Step.frame (Step.pure (host := CallFrame.v1NoHost) s callee
+        (.labelBranch results.length [] extra payload bodyTail arity)) results.length caller) saved callerTail
+  · exact .context (.pure _ _ (.frameDone _ callee payload arity)) saved callerTail
+
 theorem if_select_iff {H : Type} {s : Store H} {f : Frame} {saved : List Value}
     {condition : BitVec 32} {result : Option NumType} {left right : Wasm.V1.Expr}
     {tail : List Admin} {dst : Config H} :

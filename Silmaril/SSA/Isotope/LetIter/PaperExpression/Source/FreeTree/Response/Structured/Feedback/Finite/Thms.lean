@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Defs
+import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Codes
 import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Square
 import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Replay
 
@@ -22,6 +23,14 @@ section Source
 
 variable [Preorder ε] [OrderBot ε]
 
+theorem Code.literal_wf (c : Code) (v : c.Value) (Γ : EffectCtx (Ty Unit) ε) :
+    Wf Γ (c.literal v : Expr Ops) c.ty e :=
+  Proofs.literal_wf c v
+
+theorem Table.step_wf (M : Table Q K S B) (hf : instrEff (Opcode.ask : Ops) ≤ e) :
+    Wf [(S.ty, ⊥)] M.source (Code.sum B S).ty e :=
+  Proofs.step_wf M hf
+
 /-- The rendered state map is typed at bottom. -/
 theorem stateMap_wf (h : S.Value → T.Value) :
     Wf [(S.ty, (⊥ : ε))] (stateMap S T h : Expr Ops) T.ty ⊥ :=
@@ -41,6 +50,14 @@ theorem Table.step_readback (M : Table Q K S B) (s : S.Value) (hf : instrEff (Op
       (M.source.subst (S.literal s).subst0) (M.row s) :=
   Proofs.step_readback M s hf
 
+/-- After the request returns, its constructor reply selects exactly the
+literal return or repeat value from that row. -/
+theorem Table.reply_readback (M : Table Q K S B) (s : S.Value) (r : K.Value) :
+    Source.Eqv ([] : EffectCtx (Ty Unit) ε) (Code.sum B S).ty e
+      ((K.dispatch (fun r => (Code.sum B S).literal (M.reply s r)) (.var 0) : Expr Ops).subst
+        (K.literal r).subst0) ((Code.sum B S).literal (M.reply s r)) :=
+  Proofs.reply_readback M s r
+
 /-- A commuting table map yields a typed source equation between the two
 loop-free step expressions at the supplied effect bound. -/
 theorem source_square (h : S.Value → T.Value) (square : Commutes L R h)
@@ -55,6 +72,18 @@ end Source
 variable [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε]
 
 local notation "Free" => (Ctx.nil : Ctx Empty (Ty Unit))
+
+/-- Replay a supplied commuting table map by reifying it to pure case
+syntax, lowering the source square, and applying native uniformity. -/
+theorem replay_commutes {s₀ : S.Value} {t₀ : T.Value}
+    {h : S.Value → T.Value} (commute : Commutes L R h) (initial : h s₀ = t₀)
+    (hf : instrEff (Opcode.ask : Ops) ≤ e) (he : IsIterative e) :
+    ∃ (a a' : Tm Empty Ops 0) (b b' : Tm Empty Ops 1),
+      (S.literal s₀).toLetIter 0 = some a ∧ (T.literal t₀).toLetIter 0 = some a' ∧
+      L.source.toLetIter 1 = some b ∧ R.source.toLetIter 1 = some b' ∧
+      HasTypeEffect Free .nil (.iter a b) B.ty e ∧ HasTypeEffect Free .nil (.iter a' b') B.ty e ∧
+      AbortEquiv (⊥ : ε) Free .nil (.iter a b) (.iter a' b') B.ty :=
+  Proofs.replay_commutes commute initial hf he
 
 /-- Recover a finite state map from the table observations and replay it on
 the independently rendered native loops. Reachability and request
