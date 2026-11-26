@@ -158,12 +158,66 @@ hashing, callable keys, recursive Go-profile values, and canonical
 interpreter integration remain separate.
 [Pinned mutability guards][guards] · [Lean controls](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Deletion/Checks.lean) · [Go controls](../../scripts/starlark/go-dictionary/check.go)
 
+## Agreement with canonical dictionary operations
+
+`GoDictionary.Abstraction.Thms` connects the explicit-slot table to the
+canonical list of entries. The relation ties each live slot to one cached
+entry at the same insertion position. It preserves the original key and
+value, including a float's stored bits. The proof uses well-formed slots,
+stable replayable rows, and unique canonical codes. The resolved
+interpreter continues to use the canonical backend.
+[Abstraction definitions](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Abstraction/Defs.lean) · [Canonical coverage](starlark-lists.md#dictionary-membership-and-lookup-profiles)
+
+A coherent key profile validates each admitted key with both
+`State.keyOf` and the pinned hash. Equal codes imply equal stored hashes.
+Comparisons between candidates sharing a full hash are total and return
+exactly the code test. `lookup_agrees` then selects the same full entry or
+miss in both tables. The hash narrows the physical search, and the unique
+canonical code identifies the result regardless of slot order. All scalar
+keys satisfy these laws in any heap. The pinned scalar hash factors through
+the canonical code, including signed zero, equal integers and floats,
+NaNs, and infinities. Booleans retain their own code.
+[Abstraction theorems](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Abstraction/Thms.lean)
+
+`set_agrees` relates both branches of physical assignment to
+`putEntry`. A hit keeps the stored key and position. An insert appends
+the key, including when it first rehashes the table. `readDict_agrees`
+gives the canonical subscript value or missing-key error and its unchanged
+state. `writeDict_agrees` gives the exact canonical cell update and
+relates the successor tables when the key observations stay coherent.
+Scalar coherence holds before and after any such update. The paired
+controls cover same-hash integers, both rehashes, numeric values around
+2^53, and alias replacement through negative zero and a different NaN
+payload.
+[Lean controls](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Abstraction/Checks.lean) · [Pinned Go controls](../../scripts/starlark/go-dictionary/check.go)
+
+The physical rules still preserve the first reached error. In the
+separating control the canonical cache hits a ten-level tuple alias and
+misses an unequal tuple with the same stored hash. Physical lookup reaches
+a depth error in both cases, and Go membership observes a miss. The
+coherence proof for other tuple families needs stable agreement between
+cached codes and live fields, as well as a bound that makes every reached
+collision comparison total.
+[Paired depth controls](../../scripts/starlark/go-dictionary/check.go) · [Lean controls](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Abstraction/Checks.lean)
+
+The read theorem permits frozen cells. The write theorem assumes a live
+unfrozen dictionary and no active iterator on its address. A backend
+integration needs to preserve the canonical and Go guard order, including
+rejection before hashing, and connect physical iterator lifetimes to the
+shared store. Changing key reads across writes requires an explicit
+stability proof. Strings need the pinned short-string hash and a stable
+seed for longer keys. Functions and builtins need identity and hash laws
+covering their names and bound receivers. Dictionary displays use a
+separate duplicate-key rule.
+[Pinned mutability guards][guards] · [Pinned string hashing][string-hash] · [Pinned function hash][function-hash] · [Pinned builtin hash][builtin-hash]
+
 ## Reproduction
 
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Lists.GoDictionary.Checks \
   +Silmaril.Languages.Starlark.Lists.GoDictionary.Growth.Checks \
-  +Silmaril.Languages.Starlark.Lists.GoDictionary.Deletion.Checks
+  +Silmaril.Languages.Starlark.Lists.GoDictionary.Deletion.Checks \
+  +Silmaril.Languages.Starlark.Lists.GoDictionary.Abstraction.Checks
 fixture="$(pwd)/scripts/starlark/go-dictionary/check.go"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
@@ -182,3 +236,6 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 [lookup]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L177-L201
 [membership]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1030-L1048
 [equality]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L921-L951
+[string-hash]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L430-L450
+[function-hash]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L759-L765
+[builtin-hash]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L832-L851

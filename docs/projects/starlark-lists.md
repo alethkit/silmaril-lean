@@ -174,10 +174,30 @@ those values. `probe_cached` identifies the normal canonical search as a
 specialization of the ordered probe with the total code test. `lookupOrMiss`
 preserves a hit and projects a raw error to a miss. The fixtures exercise
 this projection for the deep-key cyclic-value case. Canonical equality and
-membership still use cached keys. The [separate Go bucket profile](starlark-go-dictionary.md)
-computes scalar and tuple hashes and selects ordered candidates in a single
-eight-slot bucket.
+membership still use cached keys. The standalone Go table computes
+scalar and tuple hashes and scans the allocated primary and overflow
+slots in order.
+[Standalone table](starlark-go-dictionary.md)
 [Theorems](../../Silmaril/Languages/Starlark/Lists/Comparison/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Lists/Comparison/Dictionary/Checks.lean)
+
+The standalone table's abstraction theorems connect live dictionary reads
+and assignments to this canonical denotation for coherent key profiles.
+The proved scalar instance covers `None`, Booleans, integers and binary64.
+The two profiles select the same stored entry or miss. Assigning a fresh
+key appends it, and assigning through an alias keeps the original key and
+position. The theorem covers the reached canonical heap update and
+physical insertion through growth. Canonical lookup still uses its key
+cache. For ten-level tuple keys the cache can decide a hit or miss where
+the physical scan reaches a depth error.
+[Abstraction and limits](starlark-go-dictionary.md#agreement-with-canonical-dictionary-operations) · [Lean controls](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Abstraction/Checks.lean)
+
+The read observation permits frozen dictionaries. The assignment proof
+requires an unfrozen cell with no active iterator and coherent key reads
+in the reached heap. Integration beyond scalar keys needs a frame result
+for live tuple fields and cached codes, a totality bound for reached tuple
+comparisons, and coherent string and callable hashes. A backend change
+also needs to transfer freeze and iterator guards before key hashing.
+[Guard and key families](starlark-go-dictionary.md#agreement-with-canonical-dictionary-operations)
 
 ## Dictionary keys and order
 
