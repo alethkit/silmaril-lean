@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Constructor.Defs
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithComputedCallReturns.ConstructorJoin.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithComputedCallReturns.OrderedPairs.Defs
 
 /-! # A typed call schedule for native operand replay -/
 
@@ -13,17 +13,21 @@ open LetCase.Structural.Finite (Context Types)
 open scoped LetCase.Structural.Finite LetSeq.StraightLine.Structural
 
 /-- Allow arbitrary unary sequencing and recursively computed primitive
-arguments. Assembly can use bound replies and pure constructor expressions. -/
-def CallOperand {Φ : Type*} (t : Tm Φ) : Prop :=
+arguments. Pair operands can each be computed when the ordered pair rule
+is enabled. Sum injection still uses constructor-only assembly. -/
+def CallOperand {Φ : Type*} (t : Tm Φ) (pairs : Bool := false) : Prop :=
   match t with
-  | .op _ a => CallOperand a
-  | .let₁ a b => CallOperand a ∧ CallOperand b
+  | .op _ a => CallOperand a pairs
+  | .let₁ a b => CallOperand a pairs ∧ CallOperand b pairs
+  | .pair a b => if pairs then CallOperand a pairs ∧ CallOperand b pairs else ConstructorOnly t
   | _ => ConstructorOnly t
 
-/-- Source order for the admitted operand grammar. -/
-def operandCalls {Φ : Type*} : Tm Φ → List Φ
-  | .op f a => operandCalls a ++ [f]
-  | .let₁ a b => operandCalls a ++ operandCalls b
+/-- Source order for the admitted operand grammar and its selected pair rule. -/
+def operandCalls {Φ : Type*} (t : Tm Φ) (pairs : Bool := false) : List Φ :=
+  match t with
+  | .op f a => operandCalls a pairs ++ [f]
+  | .let₁ a b => operandCalls a pairs ++ operandCalls b pairs
+  | .pair a b => if pairs then operandCalls a pairs ++ operandCalls b pairs else []
   | _ => []
 
 /-- A literal region whose primitive arguments are constructor values.
@@ -41,5 +45,8 @@ variable {Φ : Type} [LetCase.Structural.Finite.Signature Φ] {n : Nat} {β : Co
 
 abbrev Endpoint.CallEqv (p q : Endpoint Φ β A) : Prop :=
   Region.Paper.WithComputedCallReturns.ConstructorJoin.Eqv false β.toList p.region q.region [A]
+
+abbrev Endpoint.PairCallEqv (p q : Endpoint Φ β A) : Prop :=
+  Region.Paper.WithComputedCallReturns.OrderedPairs.Eqv false β.toList p.region q.region [A]
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Native

@@ -16,6 +16,7 @@ private inductive Op where
   | inner
   | middle
   | outer
+  | right
 
 private abbrev bit : Shape := .sum .unit .unit
 private abbrev X := bit.ty
@@ -30,7 +31,7 @@ private instance : LetCase.Structural.Finite.Signature Op where
 private def entry : Region Op :=
   .case (.op .dispatch (.var 0)) (.br 0 (.var 0)) (.br 0 .unit)
 
-private theorem entryTyped : Region.HasType [X] entry [U, X] :=
+private theorem entryTyped {A : Ty Empty} : Region.HasType [X] entry [U, A] :=
   .case (.op (.var (i := 0) rfl)) (.br (ℓ := 0) rfl (.var rfl)) (.br (ℓ := 0) rfl .unit)
 
 -- The incoming unit packet occupies slot zero. The inner call explicitly
@@ -139,5 +140,66 @@ example (ρ : BoundEnv V β) :
   simp only [bind_pure]
   exact ordered_bind (first := [.dispatch]) (rest := [.inner, .middle, .outer])
     (entry_order ρ) (fun _ => row_order (ρ 0))
+
+private abbrev Packet := Ty.product X X
+
+-- The shared row uses the captured bit in both operands, including under
+-- the left result binder when the right call is scheduled.
+private def pairOperand : Operand Op rowInput Packet :=
+  ⟨.pair operand.1 (.op .right (.bv 1)), .pair operand.2 (.op .bv)⟩
+
+private def pairCode : Code Op β Packet :=
+  .join entryCode (.let₁ pairOperand (.br ⟨.bv 0, .bv⟩))
+
+private def pairEndpoint : Endpoint Op β Packet :=
+  ⟨pairCode.toSSA 0,
+    .cfg (fun _ => U) entryTyped
+      (fun _ => .let₁ (.pair (.op (.op (.op (.var (i := 1) rfl)))) (.op (.var (i := 1) rfl)))
+        (.br (ℓ := 1) rfl (.var rfl))),
+    .join (.case _ (.br _) (.br _)) (.let₁ _ (.br _))⟩
+
+example : ∃ r : Region Op, CallSchedule [U, X] r Packet [.inner, .middle, .outer, .right] ∧
+    ∃ q : Endpoint Op β Packet,
+      q.region = .cfg entry 1 (fun _ => r.renameLabels (fun _ => 1)) ∧
+      pairEndpoint.PairCallEqv q ∧ pairEndpoint.Valid q := by
+  obtain ⟨r, ordered, replay, _⟩ := operand_pair_schedule false pairOperand ⟨trivial, trivial⟩
+  have renameExit : Ren [Packet] [U, Packet] (fun _ => 1) := by
+    intro i A hi
+    cases i with
+    | zero => cases Option.some.inj hi; rfl
+    | succ i => simp [At] at hi
+  have rewrite : OrderedPairs.Eqv false [X] pairEndpoint.region
+      (.cfg entry 1 (fun _ => r.renameLabels (fun _ => 1))) [Packet] :=
+    .cfg (fun _ => U) (.refl entryTyped) (fun _ => replay.renameLabels renameExit)
+  let q : Endpoint Op β Packet :=
+    ⟨_, rewrite.typed.2, .join (.case _ (.br _) (.br _)) (scheduledOutward ordered)⟩
+  exact ⟨r, ordered, q, rfl, rewrite, Endpoint.pair_call_sound (p := pairEndpoint) (q := q) rewrite⟩
+
+private def pairObservation (ρ : BoundEnv V β) : Trace Empty Op (V Packet) :=
+  run entryCode.toLetCase.2 ρ >>= fun _ =>
+    (((eval .inner (ρ 0) >>= eval .middle) >>= eval .outer) >>= fun l =>
+      eval .right (ρ 0) >>= fun r => pure (l, r))
+
+-- The actual compiled CFG retains the original capture for the right call
+-- and returns the left and right replies in their original positions.
+private theorem pair_observation (ρ : BoundEnv V β) :
+    run pairCode.toLetCase.2 ρ = pairObservation ρ := by
+  change (run entryCode.toLetCase.2 ρ >>= fun _ =>
+    (((((pure (ρ 0) : Trace Empty Op (V X)) >>= eval .inner) >>= eval .middle) >>= eval .outer) >>=
+      fun l => ((pure (ρ 0) : Trace Empty Op (V X)) >>= eval .right) >>= fun r => pure (l, r)) >>= pure) =
+    pairObservation ρ
+  have call (f : Op) : ((pure (ρ 0) : Trace Empty Op (V X)) >>= eval f) =
+      eval f (ρ 0) := pure_bind _ _
+  rw [call, call, bind_pure]
+  rfl
+
+example (ρ : BoundEnv V β) :
+    Ordered [.dispatch, .inner, .middle, .outer, .right] (run pairCode.toLetCase.2 ρ) := by
+  rw [pair_observation]
+  apply ordered_bind (first := [.dispatch]) (rest := [.inner, .middle, .outer, .right]) (entry_order ρ)
+  intro packet
+  apply ordered_bind (first := [.inner, .middle, .outer]) (rest := [.right]) (row_order (ρ 0))
+  intro l
+  exact ordered_bind (first := [.right]) (rest := []) (ordered_call .right (ρ 0)) (fun r => ordered_pure (l, r))
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Native
