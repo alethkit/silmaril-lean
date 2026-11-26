@@ -3,6 +3,7 @@ module
 public import Silmaril.Languages.Python.Compile.Closure.Body.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuard.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Dictionary.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ExceptionalTry.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ListDisplay.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NormalTry.Defs
@@ -82,6 +83,19 @@ inductive Error where
   | argumentProfile
   | unresolvedGlobal (name : Name)
   deriving Repr
+
+structure DictionaryBinding (scope : Scope) (statement : Source.Stmt) where
+  name : Name
+  source : Source.Expr
+  test : Core.Module.Dictionary.Get
+  binding : Binding statement name source
+  checked : Dictionary.checkedGet? scope source = some test
+
+def dictionaryBinding? (scope : Scope) (statement : Source.Stmt) : Option (DictionaryBinding scope statement) := do
+  let ⟨(name, source), binding⟩ ← binding? statement
+  match checked : Dictionary.checkedGet? scope source with
+  | some test => some ⟨name, source, test, binding, checked⟩
+  | none => none
 
 def lowerDestination (scope : Scope) : (source : Placement) →
     Except Error {target : Destination scope // target.placement = source}
@@ -336,9 +350,12 @@ def lowerCallValues (scope : Scope) : (source : List (Source.ArgumentKind × Sou
 /-- A module argument can contain one named call with flat value operands. -/
 inductive CallArgument (scope : Scope) where
   | value (operand : CallValue scope)
+  | dictionaryGet (test : Core.Module.Dictionary.Get)
   | call (name : Name) (reference : GlobalReference scope name) (arguments : List (CallValue scope))
 
 inductive ArgumentTranslation (scope : Scope) : Source.Expr → CallArgument scope → Prop where
+  | dictionaryGet {source test} (checked : Dictionary.checkedGet? scope source = some test) :
+      ArgumentTranslation scope source (.dictionaryGet test)
   | value {source operand} (translated : CallValueTranslation scope source operand) :
       ArgumentTranslation scope source (.value operand)
   | call {source name arguments reference operands}
@@ -359,8 +376,11 @@ def lowerCallArgument (scope : Scope) (source : Source.Expr) :
     let operands ← lowerCallValues scope arguments
     return ⟨.call name reference operands.val, .call shape operands.property⟩
   else
-    let operand ← lowerCallValue scope source
-    return ⟨.value operand.val, .value operand.property⟩
+    match checked : Dictionary.checkedGet? scope source with
+    | some test => return ⟨.dictionaryGet test, .dictionaryGet checked⟩
+    | none =>
+      let operand ← lowerCallValue scope source
+      return ⟨.value operand.val, .value operand.property⟩
 
 def lowerCallArguments (scope : Scope) : (source : List (Source.ArgumentKind × Source.Expr)) →
     Except Error {target // CallArguments scope source target}
@@ -699,6 +719,9 @@ inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | exceptionalTry (plan : ExceptionalTry.Plan (ExceptionalTry.Step scope))
   | bindText (name : Name) (reference : GlobalReference scope name) (value : Core.Text)
+  | bindDictionary (name : Name) (reference : GlobalReference scope name)
+      (display : List Core.Module.Dictionary.Entry)
+  | readDictionary (name : Name) (reference : GlobalReference scope name) (test : Core.Module.Dictionary.Get)
   | bindTuple (name : Name) (reference : GlobalReference scope name) (items : List Core.Closure.GlobalTupleItem)
   | assertNot (condition : Operand scope)
   | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
@@ -743,6 +766,15 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (binding : Binding statement name (.text points)) (checked : Core.Text.ofPoints? points = some value)
       (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.bindText name reference value :: tail)
+  | bindDictionary {index statement rest name entries reference display tail}
+      (binding : Binding statement name (.dictionary entries))
+      (checked : entries.mapM Dictionary.entry? = some display)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.bindDictionary name reference display :: tail)
+  | readDictionary {index statement rest name source reference test tail}
+      (binding : Binding statement name source) (checked : Dictionary.checkedGet? tree.scope source = some test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.readDictionary name reference test :: tail)
   | bindTuple {index statement rest name elements reference items tail}
       (binding : Binding statement name (.tuple elements)) (checked : FlatTupleItems tree.scope elements items)
       (remaining : Translation tree index rest tail) :
@@ -909,6 +941,13 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
         let tail ← lowerPlan tree index rest
         return ⟨.bindText name reference value :: tail.val, .bindText binding checked tail.property⟩
       | none => throw (.scalar .expressionProfile)
+    else if let some ⟨(name, .dictionary entries), binding⟩ := binding? statement then
+      let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
+      match checked : entries.mapM Dictionary.entry? with
+      | some display =>
+        let tail ← lowerPlan tree index rest
+        return ⟨.bindDictionary name reference display :: tail.val, .bindDictionary binding checked tail.property⟩
+      | none => throw (.scalar .expressionProfile)
     else if let some ⟨(name, .tuple elements), binding⟩ := binding? statement then
       let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
       let items ← lowerFlatTupleItems tree.scope elements
@@ -932,6 +971,11 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
           return ⟨.define name reference child parameters.val code.val :: tail.val,
             .defineLambda binding definition tail.property⟩
         else throw (.functionScope path)
+    else if let some get := dictionaryBinding? tree.scope statement then
+      let some reference := globalReference? tree.scope get.name | throw (.unresolvedGlobal get.name)
+      let tail ← lowerPlan tree index rest
+      return ⟨.readDictionary get.name reference get.test :: tail.val,
+        .readDictionary get.binding get.checked tail.property⟩
     else if let some ⟨(target, name, arguments), site⟩ := callSite? statement then
       let destination ← lowerDestination tree.scope target
       let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)

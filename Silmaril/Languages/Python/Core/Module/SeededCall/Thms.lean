@@ -31,6 +31,10 @@ theorem invoke_iff {callee : Value} {arguments : List Value} {result : Result} :
     invoke callee arguments = result ↔ Executes (Request.decode callee arguments) result :=
   Proofs.Languages.Python.Core.Module.SeededCall.invoke_iff
 
+theorem invoke_assertIs_none :
+    invoke (.helper .assertIs) [.none, .none] = .ok .none :=
+  invoke_iff.mpr .asserted
+
 theorem invoke_assertTrue_true : invoke (.helper .assertTrue) [.bool true] = .ok .none :=
   invoke_iff.mpr .asserted
 

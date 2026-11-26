@@ -256,6 +256,28 @@ unpacking, and dynamic keys and defaults are outside this profile.
 Run the pinned differential with
 `python3.13 -I scripts/check-python-literal-dictionary-get.py --upstream /path/to/pinned/rigorous`.
 
+The function-aware runners also bind exact dictionary displays. Entries
+use literal integers, Booleans, None or text. Construction follows display
+order and replaces an equal key's value while retaining the first key's
+tag and position. Every display, including an empty one, allocates a fresh
+handle. Aliasing copies the handle and rebinding preserves the old object
+for aliases. The shared heap validates each handle before reading entries.
+
+A direct named `get` can assign its result or supply a positional argument.
+The runner resolves the current receiver before preparing the key and
+default from literals or live global reads. It reads the explicit default
+even on a hit, then returns the stored value or the exact fallback.
+A receiver outside the exact dictionary profile stops before argument
+preparation. The seeded runner records the reached method operation and
+uses its existing helper dispatch, including the exact `None is None`
+case. The ordinary runner and empty seed stop at the missing helper on
+line 2 of `dict-get.py`. Both supplied helper placements complete its
+unchanged first eight lines with twelve receipts. Line 9 passes a bound
+method as a callback and remains a compiler cutoff. Mutating dictionary
+operations and escaping bound methods are outside this read-only profile.
+Run the pinned differential with
+`python3.13 -I scripts/check-python-persistent-dictionary.py --upstream /path/to/pinned/rigorous`.
+
 The function-aware checker can omit an `if` whose closed guard selects an
 empty arm or an arm of `pass` statements. The otherwise unsupported arm
 must contain only passes or syntactically checked raises. Its exception

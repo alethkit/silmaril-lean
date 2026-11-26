@@ -56,6 +56,25 @@ theorem Heap.allocate_frontier (heap : Heap) (value : Value) :
     (heap.allocate value).1.address = heap.next ∧ (heap.allocate value).2.next = heap.next + 1 :=
   ⟨rfl, rfl⟩
 
+theorem Heap.materializeDictionary_frontier (heap : Heap) (display : List Core.Module.Dictionary.Entry) :
+    (heap.materializeDictionary display).1.address = heap.next ∧
+      (heap.materializeDictionary display).2.next = heap.next + 1 := ⟨rfl, rfl⟩
+
+theorem Heap.materializeDictionary_keeps (heap : Heap) (display : List Core.Module.Dictionary.Entry)
+    (identity : CellId) (live : identity.address < heap.next) :
+    (heap.materializeDictionary display).2.lookup identity = heap.lookup identity :=
+  Heap.lookup_allocate_old heap _ identity live
+
+theorem Heap.materializeDictionary_entries (heap : Heap) (display : List Core.Module.Dictionary.Entry) :
+    let (object, reached) := heap.materializeDictionary display
+    reached.dictionaryEntries? object = some (Core.Module.Dictionary.build display) := by
+  let object : Core.Module.Dictionary.Object := ⟨heap.next, Core.Module.Dictionary.build display⟩
+  have found : (heap.allocate (.dictionary object)).2.lookup ⟨object.address⟩ = some (some (.dictionary object)) :=
+    Heap.lookup_allocate_new heap _
+  change (heap.allocate (.dictionary object)).2.dictionaryEntries? object = _
+  simp [Heap.dictionaryEntries?, found]
+  rfl
+
 theorem Heap.allocate_distinct (heap : Heap) (first second : Value) :
     ((heap.allocate first).2.allocate second).1 ≠ (heap.allocate first).1 := by
   simp [Heap.allocate, Heap.reserve]

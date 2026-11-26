@@ -21,12 +21,15 @@ open Core.Module.Functions (Invocation Session TopFunction)
 
 inductive Argument where
   | scalar (operand : Core.Module.Functions.Operand)
+  | dictionaryGet (test : Core.Module.Dictionary.Get)
   | call (name : String) (arguments : List Core.Module.Functions.Operand)
 
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | exceptionalTry (plan : ExceptionalTry.Plan (ExceptionalTry.Step scope))
   | bindText (name : String) (value : Core.Text)
+  | bindDictionary (name : String) (display : List Core.Module.Dictionary.Entry)
+  | readDictionary (name : String) (test : Core.Module.Dictionary.Get)
   | bindTuple (name : String) (items : List Core.Closure.GlobalTupleItem) (trackClosed : Bool := false)
   | assertNot (condition : Operand scope)
   | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
@@ -79,6 +82,8 @@ def callValue? {scope : Scope} : CallValue scope → Option Core.Module.Function
   | .textSlice receiver bounds => some (.textSlice receiver bounds)
 
 def callArgument? {scope : Scope} : CallArgument scope → Option Argument
+  | .dictionaryGet test => some (.dictionaryGet test)
+  | .value (.scalar .none_) => some (.scalar (.literal .none))
   | .value operand => (callValue? operand).map .scalar
   | .call name _ operands => (operands.mapM callValue?).map (.call name)
 
@@ -106,6 +111,12 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .bindText name _ value :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.bindText name value :: instructions, blocks)
+  | .bindDictionary name _ display :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.bindDictionary name display :: instructions, blocks)
+  | .readDictionary name _ test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.readDictionary name test :: instructions, blocks)
   | .bindTuple name _ items :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.bindTuple name items :: instructions, blocks)
@@ -217,7 +228,7 @@ inductive Completion where
 def tupleBinding (session : Session) : Option Core.Module.TupleDispatch.TypeBinding :=
   (session.globals "tuple").map fun
     | .none => .noneValue
-    | .int _ | .bool _ | .float64 _ | .text _ | .tuple _ | .tupleObject _ => .nonCallable
+    | .int _ | .bool _ | .float64 _ | .text _ | .tuple _ | .tupleObject _ | .dictionary _ => .nonCallable
     | .exceptionClass _ | .function _ => .outsideProfile
 
 def tupleLookup (session : Session) : TupleChain.Lookup :=
@@ -276,6 +287,7 @@ decreasing_by
 def Argument.emit {layout : Layout} (destination : Slot layout) (next : Body layout) :
     Argument → Body layout
   | .scalar operand => .store destination operand.lower next
+  | .dictionaryGet test => .store destination (.dictionaryGet test) next
   | .call name arguments => .call destination (.readGlobal name) (arguments.map Core.Module.Functions.Operand.lower) next
 
 /-- Save the outer callable first and evaluate each argument once in source
@@ -391,17 +403,25 @@ def evaluateTuple (session : Session) (items : List Core.Closure.GlobalTupleItem
   let frame : Frame ⟨0, 0, 0⟩ := ⟨Fin.elim0, Fin.elim0, Fin.elim0⟩
   Core.Closure.Executor.evalTupleContentsIn session.globals session.heap frame items
 
+def bindDictionary (session : Session) (name : String) (display : List Core.Module.Dictionary.Entry) : Session :=
+  let (object, heap) := session.heap.materializeDictionary display
+  { session.bindGlobal name (.dictionary object) with heap }
+
+def operandFailure : Core.Closure.Failure → Completion
+  | .defined error => .raised error
+  | .danglingCell identity => .executorFault (.danglingCell identity)
+  | .unsupportedTupleElement => .executorFault .unsupportedTupleElement
+  | .unsupportedFloatOperand => .executorFault .unsupportedFloatOperand
+  | .unsupportedDictionaryOperand => .executorFault .unsupportedDictionaryOperand
+  | .unsupportedCallable => .executorFault .unsupportedCallable
+
 def bindTuple (session : Session) (name : String) (items : List Core.Closure.GlobalTupleItem)
     (trackClosed : Bool := false) : Except Completion Session :=
   match evaluateTuple session items with
   | .ok contents =>
     let (value, heap) := session.heap.materializeModuleTuple items contents trackClosed
     .ok ({ session with heap := heap }.bindGlobal name value)
-  | .error (.defined error) => .error (.raised error)
-  | .error (.danglingCell identity) => .error (.executorFault (.danglingCell identity))
-  | .error .unsupportedTupleElement => .error (.executorFault .unsupportedTupleElement)
-  | .error .unsupportedFloatOperand => .error (.executorFault .unsupportedFloatOperand)
-  | .error .unsupportedCallable => .error (.executorFault .unsupportedCallable)
+  | .error error => .error (operandFailure error)
 
 def prepareTupleIdentityCall (session : Session) (destination : Core.Module.Functions.Destination)
     (name : String) (test : TupleIdentity.Test) : Except Completion Invocation := do
@@ -463,6 +483,10 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
         | .ok () => .ready outcome.reached rest
         | .error error => .finished outcome.reached error)
     | .bindText name value => ([], .ready (session.bindGlobal name (.text value)) rest)
+    | .bindDictionary name display => ([], .ready (bindDictionary session name display) rest)
+    | .readDictionary name test => ([], match Core.Closure.evalDictionaryGet session.heap session.globals test with
+      | .ok value => .ready (session.bindGlobal name value) rest
+      | .error error => .finished session (operandFailure error))
     | .bindTuple name items trackClosed => ([], match bindTuple session name items trackClosed with
       | .ok updated => .ready updated rest
       | .error error => .finished session error)

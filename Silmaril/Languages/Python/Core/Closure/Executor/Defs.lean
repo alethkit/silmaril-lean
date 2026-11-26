@@ -39,6 +39,7 @@ inductive Operand (layout : Layout) where
   | read (slot : Slot layout)
   | readGlobal (name : String)
   | intDivMod (op : IntDivModOp) (numerator divisor : Int)
+  | dictionaryGet (test : Core.Module.Dictionary.Get)
   | intTrueDiv (numerator divisor : Int)
   | floatDiv (operands : Core.Binary64.FloatOperands)
   | floatDivMod (op : Core.Binary64.FloatDivModOp) (operands : Core.Binary64.FloatOperands)
@@ -94,6 +95,7 @@ inductive Fault where
   | danglingCell (identity : CellId)
   | unsupportedTupleElement
   | unsupportedFloatOperand
+  | unsupportedDictionaryOperand
   | unsupportedCallable
   | missingCode (key : Nat)
   | layoutMismatch (expected actual : Layout)
@@ -189,7 +191,7 @@ def readMetadata (field : MetadataField) (table : CodeTable) : Value → Except 
       match field.select definition with
       | some names => .ok names
       | none => .error (field.unavailable fn.code definition)
-  | .int _ | .bool _ | .none | .float64 _ | .text _ | .exceptionClass _ | .tuple _ | .tupleObject _ => .error .nonFunction
+  | .int _ | .bool _ | .none | .float64 _ | .text _ | .exceptionClass _ | .tuple _ | .tupleObject _ | .dictionary _ => .error .nonFunction
 
 abbrev readFreevars := readMetadata .freevars
 abbrev readCellvars := readMetadata .cellvars
@@ -236,6 +238,7 @@ def Operand.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout)
   | .read slot => frame.read heap slot
   | .readGlobal name => (NameRead.global name).evalIn globals heap frame
   | .intDivMod op numerator divisor => (op.eval numerator divisor).map Value.int |>.mapError .defined
+  | .dictionaryGet test => evalDictionaryGet heap globals test
   | .intTrueDiv numerator divisor => (trueDivideInt numerator divisor).map Value.float64 |>.mapError .defined
   | .floatDivMod op operands => (Core.Closure.floatDivMod op operands).map Value.float64
   | .floatDiv operands => (trueDivideFloat operands).map Value.float64
@@ -270,6 +273,7 @@ def fail (heap : Heap) (stack : Stack) : Failure → Transition
   | .danglingCell identity => fault heap stack (.danglingCell identity)
   | .unsupportedTupleElement => fault heap stack .unsupportedTupleElement
   | .unsupportedFloatOperand => fault heap stack .unsupportedFloatOperand
+  | .unsupportedDictionaryOperand => fault heap stack .unsupportedDictionaryOperand
   | .unsupportedCallable => fault heap stack .unsupportedCallable
 
 def failDispatch (heap : Heap) (stack : Stack) : Dispatch.Failure → Transition
@@ -371,6 +375,8 @@ inductive EvaluatesIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layo
   | intDivMod (op : IntDivModOp) (numerator divisor : Int) :
       EvaluatesIn globals heap frame (.intDivMod op numerator divisor)
         ((op.eval numerator divisor).map Value.int |>.mapError .defined)
+  | dictionaryGet (test : Core.Module.Dictionary.Get) :
+      EvaluatesIn globals heap frame (.dictionaryGet test) (evalDictionaryGet heap globals test)
   | intTrueDiv (numerator divisor : Int) : EvaluatesIn globals heap frame (.intTrueDiv numerator divisor)
       ((trueDivideInt numerator divisor).map Value.float64 |>.mapError .defined)
   | floatDivMod (op : Core.Binary64.FloatDivModOp) (operands : Core.Binary64.FloatOperands) :
@@ -440,6 +446,8 @@ inductive Rejects (table : CodeTable) (arguments : List Value) (heap : Heap) :
       Rejects table arguments heap (.tuple items) (.call (.defined .notCallable))
   | nonCallableTupleObject (object : Core.Module.TupleDispatch.Object) :
       Rejects table arguments heap (.tupleObject object) (.call (.defined .notCallable))
+  | nonCallableDictionary (object : Core.Module.Dictionary.Object) :
+      Rejects table arguments heap (.dictionary object) (.call (.defined .notCallable))
   | unsupportedCallable (kind : ExceptionClass) :
       Rejects table arguments heap (.exceptionClass kind) (.call .unsupportedCallable)
   | missing (fn : Function) (absent : table fn.code.key = none) :

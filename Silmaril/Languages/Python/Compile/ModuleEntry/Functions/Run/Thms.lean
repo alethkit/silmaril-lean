@@ -104,6 +104,13 @@ theorem advance_readAssign {scope : Source.Scope} (table : Core.Closure.Executor
         | none => .finished session (.raised (.nameError source))) := by
   cases found : session.globals source <;> simp [advance, scalarStep, evaluate, found, Except.map]
 
+theorem advance_bindDictionary {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (name : String) (display : List Core.Module.Dictionary.Entry)
+    (rest : List (Instruction scope)) :
+    let (object, heap) := session.heap.materializeDictionary display
+    advance table (.ready session (.bindDictionary name display :: rest)) =
+      ([], .ready { session.bindGlobal name (.dictionary object) with heap } rest) := rfl
+
 theorem advance_bindTuple_ok {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool}
     {values : List Core.Module.TupleDispatch.Element} {rest : List (Instruction scope)}
