@@ -842,6 +842,33 @@ The continuation cannot jump back to its own label.
   [Directed relations](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Refinement/Defs.lean) ·
   [Bridge and collapse](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Refinement/Thms.lean) ·
   [Pending request and limits](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Refinement/Regression.lean)
+- The captured comparison is connected to the existing institutions. The
+  sentences are the existing ranked, grammar and LetCase equations at the
+  finite structural signature, each read as a directed sentence. The
+  models are the existing handled-trace models over the free requests. A
+  directed sentence holds when the existing trace-refinement sentence
+  between the two free trees holds in every environment. The existing
+  emission and readback of sentences are corridors with the identity on
+  models, and they give exactly the endpoints of the written and native
+  captured categories. On those endpoints, satisfaction is the hom order
+  under the semantic functors. A model that replays every complete
+  history from an initial state satisfies a directed captured sentence
+  exactly when its sides are natively equal, over a structural older
+  context. The model that admits every reply is of this kind, so validity
+  in all handled models is native equality. The state-flipping model
+  satisfies a sentence between two different native classes. An injective
+  renaming of primitives that keeps each argument and reply shape is a
+  morphism of the handled-trace signatures. The free tree of a renamed
+  operand is the request translation of the original tree, so a renamed
+  sentence holds in a model exactly when the original holds in the
+  reduct. The renamed sentence keeps its typing index. It is not
+  identified with the sentence maps of the existing equational
+  institutions, which also translate types, and no institution over a
+  category of renamings is assembled.
+  [Sentences, models and rooms](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Defs.lean) ·
+  [Satisfaction squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Thms.lean) ·
+  [Renamings](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Renaming/Thms.lean) ·
+  [Three models and a renaming](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Regression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
