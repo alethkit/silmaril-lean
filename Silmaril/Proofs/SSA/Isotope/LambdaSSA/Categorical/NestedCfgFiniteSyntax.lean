@@ -19,34 +19,34 @@ open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 variable {Φ : Type v} [HasTy Φ (Ty Empty)]
 
 theorem valid {k n : Nat} {keep : Fin (k + 1) ↪ Fin (n + 1)} {P : Fin (k + 1) → Ty Empty}
-    {r : Region Φ} {p : Plan Φ (k + 1) (n + 1)} (ok : check? keep P r = some p) : p.Valid keep P r := by
+    {r : Region Φ} {p : Plan Φ (k + 1) (n + 1)} {L : LCtx (Ty Empty)}
+    (ok : check? keep P r L = some p) : p.Valid keep P r L := by
   simp only [check?] at ok
   split at ok <;> try contradiction
   rename_i blocks
   simp only [Option.bind_eq_some_iff] at ok
-  obtain ⟨body, chosen, ok⟩ := ok
-  ·
-      split at ok <;> try contradiction
-      rename_i entry size rows
-      split at ok <;> try contradiction
-      rename_i sizeEq
-      subst size
-      simp only [Option.bind_eq_some_iff] at ok
-      obtain ⟨e, he, bs, hbs, ce, hce, cs, hcs, ok⟩ := ok
-      split at ok <;> try contradiction
-      rename_i all
-      cases Option.some.inj ok
-      obtain ⟨scope, restore⟩ := Region.restrictLabels?_sound he
-      have kept := fun i => Region.restrictLabels?_sound (Region.checkFamily_some hbs i)
-      refine ⟨?_, ?_, scope, fun i => (kept i).1, hce, Region.checkFamily_some hcs, ?_⟩
-      · congr 1
-        funext i
-        cases Subsingleton.elim i (0 : Fin 1)
-        rfl
-      · rw [restore, funext (fun i => (kept i).2)]
-        exact NestedCfgAdmissionSyntax.selected chosen
-      · intro i
-        simpa using (List.all_eq_true.mp all i (List.mem_finRange _))
+  obtain ⟨payload, init, body, chosen, ok⟩ := ok
+  split at ok <;> try contradiction
+  rename_i entry size rows
+  split at ok <;> try contradiction
+  rename_i sizeEq
+  subst size
+  simp only [Option.bind_eq_some_iff] at ok
+  obtain ⟨e, he, bs, hbs, ce, hce, cs, hcs, ok⟩ := ok
+  split at ok <;> try contradiction
+  rename_i all
+  cases Option.some.inj ok
+  obtain ⟨scope, restore⟩ := Region.restrictLabels?_sound he
+  have kept := fun i => Region.restrictLabels?_sound (Region.checkFamily_some hbs i)
+  refine ⟨?_, init, ?_, scope, fun i => (kept i).1, hce, Region.checkFamily_some hcs, ?_⟩
+  · congr 1
+    funext i
+    cases Subsingleton.elim i (0 : Fin 1)
+    rfl
+  · rw [restore, funext (fun i => (kept i).2)]
+    exact NestedCfgAdmissionSyntax.selected chosen
+  · intro i
+    simpa using (List.all_eq_true.mp all i (List.mem_finRange _))
 
 private theorem branch_type {Γ K : List (Ty Empty)} {i : Nat} {a : Tm Φ} {A : Ty Empty}
     (unique : TypeDetermined Γ a A) (typed : (Region.br i a).HasType Γ K) : At K i A := by
@@ -110,13 +110,13 @@ private theorem local_at {α : Type} {m : Nat} (P : Fin m → α) (L : List α) 
   simp [List.getElem?_append_left, i.isLt]
 
 theorem aligned {m n : Nat} {keep : Fin m ↪ Fin n} {P S : Fin m → Ty Empty}
-    {K : List (Ty Empty)} {entry commonEntry : Region Φ} {rows : Fin n → Region Φ}
+    {L K : LCtx (Ty Empty)} {A : Ty Empty} {entry commonEntry : Region Φ} {rows : Fin n → Region Φ}
     {commonRows : Fin m → Region Φ} (wide : Bool)
-    (er : entry.checkRoutes? (layout P) [NestedAdmission.unitTy] = some commonEntry)
-    (rr : ∀ i, (rows (keep i)).checkRoutes? (layout P) [P i, NestedAdmission.unitTy] = some (commonRows i))
-    (typedEntry : (if wide then entry else commonEntry).HasType [NestedAdmission.unitTy] (List.ofFn S ++ K))
+    (er : entry.checkRoutes? (layout P L A) [A] = some commonEntry)
+    (rr : ∀ i, (rows (keep i)).checkRoutes? (layout P L A) [P i, A] = some (commonRows i))
+    (typedEntry : (if wide then entry else commonEntry).HasType [A] (List.ofFn S ++ K))
     (typedRows : ∀ i, (if wide then rows (keep i) else commonRows i).HasType
-      [S i, NestedAdmission.unitTy] (List.ofFn S ++ K))
+      [S i, A] (List.ofFn S ++ K))
     {d : Nat} (paths : ∀ i, i ∈ anchored commonEntry commonRows d) : S = P := by
   have entryFixed (i : Fin m) (h : branchesTo i commonEntry = true) : S i = P i :=
     Option.some.inj ((local_at S K i).symm.trans
