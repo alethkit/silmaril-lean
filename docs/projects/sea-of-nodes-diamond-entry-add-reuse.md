@@ -46,10 +46,12 @@ import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.E
 import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.Discovery.Thms
 import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.Commutative.Thms
 import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.ValueNumbers.Thms
+import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.Interned.Thms
 meta import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.Defs
 meta import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.Discovery.Defs
 meta import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.Commutative.Defs
 meta import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.ValueNumbers.Defs
+meta import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse.Interned.Defs
 
 open Silmaril.SSA.SeaOfNodes.Diamond
 open AddPhi.Rotate.Pair.Dispatch (Column Refusal)
@@ -113,6 +115,17 @@ def discoverByValue {inputs : List (ValueSort Unit)} {sigs : List (List (Ty Unit
     EntryReuse.ValueNumbers.discoverAndRewrite? emitted
 
 example : (discoverByValue sample (.tail (.tail .head)) .left).map (·.isSome) = .ok true := rfl
+
+def discoverById {inputs : List (ValueSort Unit)} {sigs : List (List (Ty Unit))}
+    (g : AddPhi.Pair.Source inputs sigs) (capture : AddPhi.Rotate.InputWord inputs)
+    (first : Column) : Except Refusal (Option (AddPhi.Rotate.Program inputs sigs [word, word])) :=
+  (rewrite g capture first).map fun result => do
+    let .materialized .right _ emitted := result | none
+    EntryReuse.Interned.discoverAndRewrite? emitted
+
+#eval (discoverById sample (.tail (.tail .head)) .left).map (·.isSome)
+
+example : (discoverById sample (.tail (.tail .head)) .left).map (·.isSome) = .ok true := rfl
 ```
 
 The regression additionally uses unequal arm scopes and checks a
@@ -201,7 +214,38 @@ occurrence blocks reuse, even when one input valuation makes the
 distinct expressions agree.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Diamond/AddPhi/Rotate/Pair/Dispatch/Materialize/EntryReuse/ValueNumbers/Regression.lean)
 
+## Compare interned IDs
+
+`EntryReuse.Interned.discoverAndRewrite?` uses one append-only table
+for argument positions, word literals, and binary signatures with an
+opcode and two ordered child IDs. The evaluator numbers the typed entry
+bank and shared producers, then extends the same table through the first
+and second actual predecessor occurrences. Both arms start with the
+shared locals. Each arm contributes the ID of its own typed incoming Φ
+wire.
+
+Click’s PLDI ’95 §3.1 step 3 looks up the opcode and numbered operands.
+This executable slice looks up exact signatures in a list and compares
+IDs during representative search. The scope is the acyclic word
+profile and one right-materialized suffix. [PLDI ’95 paper pin](sea-of-nodes/optimization/sea-of-nodes-gvn-pass.md)
+
+`Decodes.id_eq_iff` states the equality law for IDs that decode in the
+same duplicate-free table. `eval_spec` preserves previous IDs and proves
+agreement with the structural keys of every typed word read. The diamond
+theorem `cuts_agree` places the entry and both actual incoming operands
+in the same final table. `discoverAndRewrite?_eq_structural` proves the
+interned search emits exactly the structural search's result, so the
+existing packet and finite-return laws apply to the emitted graph.
+[Intern evaluator theorems](../../Silmaril/SSA/SeaOfNodes/GVN/WordNumber/Intern/Thms.lean) ·
+[Diamond reuse theorems](../../Silmaril/SSA/SeaOfNodes/Diamond/AddPhi/Rotate/Pair/Dispatch/Materialize/EntryReuse/Interned/Thms.lean)
+
+The regression checks the exact table after both arms, including a
+literal introduced by the first arm and an ID shared by three
+separately computed chains. Changing the second edge's nested child
+produces a distinct ID and blocks reuse.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Diamond/AddPhi/Rotate/Pair/Dispatch/Materialize/EntryReuse/Interned/Regression.lean)
+
 ```sh
 topic=SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.EntryReuse
-make check CHECK_TARGETS="+Silmaril.$topic.ValueNumbers.Thms +Silmaril.Proofs.$topic.ValueNumbers.Regression +Silmaril.Proofs.$topic.Commutative.Regression +Silmaril.Proofs.$topic.Discovery.Regression +Silmaril.Proofs.$topic.Regression"
+make check CHECK_TARGETS="+Silmaril.$topic.Interned.Thms +Silmaril.Proofs.$topic.Interned.Regression +Silmaril.Proofs.$topic.ValueNumbers.Regression +Silmaril.Proofs.$topic.Commutative.Regression +Silmaril.Proofs.$topic.Discovery.Regression +Silmaril.Proofs.$topic.Regression"
 ```
