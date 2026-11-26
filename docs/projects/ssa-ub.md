@@ -358,14 +358,32 @@ body's branch arguments and give a constructor state map `a`. The target
 body `q` is exactly typed and may have effects. The premise equates the
 literal substitution of the lifted local map into the source body with
 substitution of the lifted target body into `br 0 a`. The shaped lemmas
-interpret that right-hand region as a single binding of `a` followed by
-`q`. They also interpret a constructor-valued left local branch as binding
-its payload before applying the state map. General uniformity still
-requires interpretation of the square on a whole source body and
-two-way transport of reachable steps and observations, including target
-successors under nondeterminism. Full `Paper.Hom` descent remains open.
-[Installed rule][ssa-ub-paper-rewrite]
-[Constructor branches][ssa-ub-paper-uniformity]
+interpret the right-hand region as a single binding of `a` followed by
+`q`. The whole left-hand region forwards each successful source exit
+at the state the source reached. The local payload passes through `a`
+and external payloads pass through unchanged. Under any nested CFG
+the protected prefix keeps its dispatch labels and payloads. This
+preserves all faults and both primitive divergence and internal replay.
+[Installed rule][ssa-ub-paper-rewrite] [Forwarding][ssa-ub-paper-uniformity]
+
+`uniform_of_observed_square` takes observational equality of the exact
+literal square as its induction premise and proves equality for the
+installed uniformity endpoints. A chosen target backedge with payload
+`d′` and final state `s′` lifts to a source backedge ending at the same
+`s′` with a payload that maps to `d′`. The typing invariant lets the
+square be applied again at that source payload, even for a non-injective
+state map. Forward transport alone permits additional target steps and can
+add internal replay. [Uniformity][ssa-ub-paper-uniformity]
+[One-way discriminator][ssa-ub-uniformity-regression]
+
+`uniform_native_square` discharges the premise when the square has a
+native `SubstitutionEquiv` derivation. The fixture checks the installed
+Paper constructor with a native let-value rewrite in its square, a
+non-injective constructor map, and effects inside a protected nested CFG.
+It observes a return at the updated state, a fault, primitive divergence
+and internal replay. Square premises using arbitrary `Paper.Eqv` derivations
+still require a soundness induction for the other Paper rules.
+[Native-square fixture][ssa-ub-paper-uniformity-regression]
 
 ## Coverage and gaps
 
@@ -463,4 +481,5 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-paper-rewrite]: ../../Silmaril/SSA/Isotope/LambdaSSA/Rewrite/Theory/Closure/Paper/Defs.lean
 [ssa-ub-paper-collapse]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Thms.lean
 [ssa-ub-paper-uniformity]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Uniformity/Thms.lean
+[ssa-ub-paper-uniformity-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Uniformity/Regression.lean
 [ssa-ub-paper-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Regression.lean
