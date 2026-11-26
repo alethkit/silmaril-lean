@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery.Defs
 public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Example.Defs
+public import Silmaril.SSA.SeaOfNodes.GCM.LoopForest.Defs
 
 /-! # Discover three physical placements, then stop with latch-local reads -/
 
@@ -9,9 +10,10 @@ public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.
 
 namespace Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery.Example
 
+open Silmaril.MLIR.Arith (Width)
 open Silmaril.MLIR.CF (Frame Terminator)
 open Loop.MLIR.CF (evalOp)
-open Corridor.Example (input)
+open Corridor.Example (input word)
 open Layout.Example (seed?)
 open Step.Example (words)
 
@@ -26,9 +28,9 @@ structure Observation where
   deriving BEq, Repr
 
 /-- Observe the actual chosen sequence, physical slots and exact transfers. -/
-def observe (budget : Nat) : Option Observation := do
+def observeWith (policy : Policy) (budget : Nat) : Option Observation := do
   let ⟨_, _, seed⟩ ← seed?
-  let .ok plan := discover seed.reference budget | none
+  let .ok plan := discoverWith policy seed.reference budget | none
   let final := plan.output.2
   let cfg := final.cfg
   let inputs := input 2 10 1
@@ -42,6 +44,37 @@ def observe (budget : Nat) : Option Observation := do
     (code.run evalOp fuel inputs).map (fun env => (env.get .here).toNat)
   pure ⟨plan.requests, plan.stop, final.reference.origins, [7, 6, 5, 2, 1].map final.physicalSlot?,
     [entry, once, twice, exit].map (fun frame => words frame.args), runs cfg, runs final.reference.cfg⟩
+
+def observe (budget : Nat) : Option Observation := observeWith .earliest budget
+
+def originFiveCuts : Option (List Nat) :=
+  seed?.map fun ⟨_, _, seed⟩ => acceptedCuts seed 5
+
+variable {saved carried result : Width} {extra : List Width}
+
+def blockNumber : BlockId (Label saved carried result extra) → Nat
+  | none => 0
+  | some ⟨_, .header⟩ => 1
+  | some ⟨_, .exit⟩ => 2
+
+def blockAt : Nat → BlockId (Label saved carried result extra)
+  | 1 => some ⟨_, .header⟩
+  | 2 => some ⟨_, .exit⟩
+  | _ => none
+
+theorem blockNumber_injective : Function.Injective (blockNumber (saved := saved) (carried := carried)
+    (result := result) (extra := extra)) :=
+  (show Function.LeftInverse blockAt blockNumber from by
+    rintro (_ | ⟨_, label⟩) <;> first | rfl | cases label <;> rfl).injective
+
+/-- Calculate the depths of entry, header and exit from the actual CFG. -/
+def modeledDepths : Option (List Nat) := do
+  let ⟨saved, second, seed⟩ ← seed?
+  let _ := AfterReorder.Second.targetDecEqWith (saved := saved) (carried := word) (result := word) (extra := [second])
+  let blocks := AfterReorder.Second.intermediateBlocks
+  let tree ← GCM.Dominance.Tree.Synthesis.synthesize? seed.cfg blocks blockNumber blockNumber_injective
+  let loops ← LoopForest.forest? tree.1 blocks
+  pure ((NaturalLoop.vertices blocks).map (LoopForest.depth tree.1 loops))
 
 /-- Origin 6 initially reads a header-local value. Discovery has to save
     origin 5 before the dependent binding can be selected. -/

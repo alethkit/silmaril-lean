@@ -280,8 +280,8 @@ shape or inventory outside the admitted profile returns `.shape`. The
 search uses `collect` after initialization, which can also run on a layout
 already certified by `Layout.Invariant`. [Definitions][layout-discovery-defs]
 
-On each current CFG, the search visits physical preheader cuts in ascending
-order. At each cut it visits surviving origins in current header order
+On each current CFG, the default search visits physical preheader cuts in
+ascending order. At each cut it visits surviving origins in current header order
 using the existing candidate enumeration. The first successful `Layout.emit?`
 supplies both the request and its exact emitted state. That check combines
 physical operand availability with the current ordinary and exact incoming
@@ -325,6 +325,55 @@ open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery
 LEAN
 lake env lean -DwarningAsError=true /tmp/gcm-layout-discovery.lean
 lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery.Thms
+```
+
+## Comparing earliest and latest physical cuts
+
+Click's Schedule Early and Schedule Late use operand definitions and exact
+use occurrences to bound the legal blocks (§§2.2–2.3). Section 2.4 chooses
+the most control-dependent block in the shallowest loop nest. Here the
+typed emitter supports cuts within the anonymous entry preheader. Within
+that block, `acceptedCuts` filters all physical prefix cuts through the
+actual checker and emitter for an original identity. `mem_acceptedCuts_iff`
+proves exact membership for a checked layout. This characterization uses
+the accepted set directly, with no interval assumption.
+[PLDI ’95 proceedings][paper] · [Theorems][layout-discovery-thms]
+
+`discoverWith` uses the same transition and bounded rescan for `.earliest`
+and `.latest`. `chooseWith?_extremal` proves the selected cut is smallest
+or largest among the accepted candidates, respectively. At an equal cut,
+both policies use the current header order. The existing `discover` entry
+point keeps earliest-first behavior.
+
+Depth comes from the actual CFG's natural-loop forest. For a checked
+forest with complete dominance, `preheader_depth_eq_zero` proves that no
+natural loop contains the anonymous entry. Every supported cut therefore
+ties at depth zero. `chooseLatest_minimal` then gives the latest physical
+cut among these minimum-depth candidates. This is a local ordering within
+one block. Click's choice between blocks and loop depths stays in the
+separate corridor chooser.
+
+The fixture synthesizes dominance and checks the actual forest. Entry,
+header, and exit have depths `0, 1, 0`. Origin 5 has accepted cuts `1, 2`,
+and the two policies choose different cuts there and in the two subsequent
+dependent moves. Both outputs carry the same entry, feedback, and exit
+packets and agree at common block fuel. `discoverWith_packets` and the
+finite and partial observation laws apply to either policy. When the
+policies choose the same origin order, `discoverWith_reference_eq` gives
+the identical checked append reference, and
+`discoverWith_sameOrigins_run_eq` compares the emitted CFGs directly.
+[Example][layout-discovery-example] · [Regression][layout-discovery-regression]
+
+```sh
+cat >/tmp/gcm-layout-policy.lean <<'LEAN'
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery.Example.Defs
+open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery.Example
+#eval originFiveCuts
+#eval modeledDepths
+#eval observeWith .earliest 3
+#eval observeWith .latest 3
+LEAN
+lake env lean -DwarningAsError=true /tmp/gcm-layout-policy.lean
 ```
 
 [paper]: https://doi.org/10.1145/207110.207154

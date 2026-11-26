@@ -19,12 +19,35 @@ def tryMove (state : Layout.State Input saved carried result extra) (request : N
   | some moved => .ok moved
   | none => .error .rejected
 
-/-- Try physical cuts in ascending order. At each cut, scan the surviving
-    identities in current header order and keep the first checked edit. -/
-def choose? (state : Layout.State Input saved carried result extra) :
+/-- Both policies visit the same physical cuts. Ties at a cut use current
+    header order. -/
+inductive Policy where
+  | earliest
+  | latest
+  deriving DecidableEq, Repr
+
+def Policy.cuts : Policy → Nat → List Nat
+  | .earliest, last => List.range (last + 1)
+  | .latest, last => (List.range (last + 1)).reverse
+
+def Policy.Preferred : Policy → Nat → Nat → Prop
+  | .earliest, a, b => a ≤ b
+  | .latest, a, b => b ≤ a
+
+/-- Enumerate exactly the cuts accepted by the typed transition for one
+    original identity. The list is in ascending physical cut order. -/
+def acceptedCuts (state : Layout.State Input saved carried result extra) (origin : Nat) : List Nat :=
+  (Policy.earliest.cuts state.savedCount).filter fun cut => (Layout.emit? state ⟨origin, cut⟩).isSome
+
+/-- At each cut in policy order, scan the surviving identities and keep
+    the first checked edit. -/
+def chooseWith? (policy : Policy) (state : Layout.State Input saved carried result extra) :
     Option (Nomination × Layout.Move state) :=
-  (List.range (state.savedCount + 1)).findSome? fun cut =>
+  (policy.cuts state.savedCount).findSome? fun cut =>
     Replay.Discovery.choose? state.reference.origins cut (tryMove state)
+
+def choose? (state : Layout.State Input saved carried result extra) : Option (Nomination × Layout.Move state) :=
+  chooseWith? .earliest state
 
 inductive Stop where
   | fixedPoint
@@ -38,15 +61,18 @@ structure Plan (Input : List Width) (saved carried result : Width) where
 
 /-- Rescan the emitted layout after each edit. At the bound, check whether
     a next move exists so that exhaustion and budget truncation are distinct. -/
-def collect : {extra : List Width} → Layout.State Input saved carried result extra → Nat →
+def collectWith (policy : Policy) : {extra : List Width} → Layout.State Input saved carried result extra → Nat →
     Plan Input saved carried result
-  | extra, state, 0 => ⟨[], ⟨extra, state⟩, if (choose? state).isNone then .fixedPoint else .bound⟩
+  | extra, state, 0 => ⟨[], ⟨extra, state⟩, if (chooseWith? policy state).isNone then .fixedPoint else .bound⟩
   | extra, state, budget + 1 =>
-    match choose? state with
+    match chooseWith? policy state with
     | none => ⟨[], ⟨extra, state⟩, .fixedPoint⟩
     | some (request, moved) =>
-      let rest := collect moved.next budget
+      let rest := collectWith policy moved.next budget
       ⟨request :: rest.requests, rest.output, rest.stop⟩
+
+def collect (state : Layout.State Input saved carried result extra) (budget : Nat) : Plan Input saved carried result :=
+  collectWith .earliest state budget
 
 /-- A fixed point excludes every request accepted by the represented
     transition. A budget stop has a checked next move. -/
@@ -72,9 +98,13 @@ def supported? (state : Layout.State Input saved carried result extra) : Bool :=
 
 /-- Opt into physical discovery from an existing canonical saved state.
     Unchecked prefixes and unsupported shapes report refusal before the search. -/
-def discover (reference : Step.State Input saved carried result extra) (budget : Nat) :
+def discoverWith (policy : Policy) (reference : Step.State Input saved carried result extra) (budget : Nat) :
     Except Unsupported (Plan Input saved carried result) := do
   let some state := Layout.initial? reference | .error .prefix
-  if supported? state then .ok (collect state budget) else .error .shape
+  if supported? state then .ok (collectWith policy state budget) else .error .shape
+
+def discover (reference : Step.State Input saved carried result extra) (budget : Nat) :
+    Except Unsupported (Plan Input saved carried result) :=
+  discoverWith .earliest reference budget
 
 end Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.Discovery
