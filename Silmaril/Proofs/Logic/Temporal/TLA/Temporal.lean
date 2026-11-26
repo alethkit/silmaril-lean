@@ -33,6 +33,7 @@ theorem holds_suffix (p : Formula S) (σ : Behavior S) (n i : Nat) :
       simpa only [he] using (ih (j - n)).mp (h (j - n) (by omega))
     · intro h j hj
       exact (ih j).mpr (h (n + j) (by omega))
+  | existsRigid _ ih => exact exists_congr (fun v => ih v i)
 
 theorem holds_disj (p q : Formula S) (σ : Behavior S) (n : Nat) :
     (p.disj q).Holds σ n ↔ p.Holds σ n ∨ q.Holds σ n := by

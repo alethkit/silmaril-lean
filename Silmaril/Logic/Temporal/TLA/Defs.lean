@@ -62,6 +62,8 @@ inductive Formula (S : Type u) where
   | neg (p : Formula S)
   | conj (p q : Formula S)
   | always (p : Formula S)
+  /-- Choose one value for the entire formula body. -/
+  | existsRigid {V : Type u} (p : V → Formula S)
 
 namespace Formula
 
@@ -71,6 +73,7 @@ def Holds (σ : Behavior S) : Formula S → Nat → Prop
   | .neg p, n => ¬ p.Holds σ n
   | .conj p q, n => p.Holds σ n ∧ q.Holds σ n
   | .always p, n => ∀ j, n ≤ j → p.Holds σ j
+  | .existsRigid p, n => ∃ v, (p v).Holds σ n
 
 def Sat (p : Formula S) (σ : Behavior S) : Prop := p.Holds σ 0
 
@@ -79,6 +82,7 @@ def Entails (p q : Formula S) : Prop := ∀ σ, p.Sat σ → q.Sat σ
 def disj (p q : Formula S) : Formula S := .neg (.conj (.neg p) (.neg q))
 
 def imp (p q : Formula S) : Formula S := .neg (.conj p (.neg q))
+def forallRigid {V : Type u} (p : V → Formula S) : Formula S := .neg (.existsRigid fun v => .neg (p v))
 
 def eventually (p : Formula S) : Formula S := .neg (.always (.neg p))
 

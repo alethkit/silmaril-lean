@@ -29,6 +29,14 @@ theorem holds_imp (p q : Formula S) (σ : Behavior S) (n : Nat) :
     (p.imp q).Holds σ n ↔ (p.Holds σ n → q.Holds σ n) :=
   Proofs.Logic.Temporal.TLA.holds_imp p q σ n
 
+theorem holds_existsRigid (p : V → Formula S) (σ : Behavior S) (n : Nat) :
+    (Formula.existsRigid p).Holds σ n ↔ ∃ v, (p v).Holds σ n := Iff.rfl
+
+theorem holds_forallRigid (p : V → Formula S) (σ : Behavior S) (n : Nat) :
+    (Formula.forallRigid p).Holds σ n ↔ ∀ v, (p v).Holds σ n := by
+  classical
+  simp only [Formula.forallRigid, Formula.Holds, not_exists, Classical.not_not]
+
 theorem holds_eventually (p : Formula S) (σ : Behavior S) (n : Nat) :
     p.eventually.Holds σ n ↔ ∃ j, n ≤ j ∧ p.Holds σ j :=
   Proofs.Logic.Temporal.TLA.holds_eventually p σ n

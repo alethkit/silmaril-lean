@@ -172,6 +172,7 @@ theorem holds_retime (p : Formula S) (σ : Behavior S) (r : Retiming) (i : Nat) 
       simpa only [hk] using (ih k).mp (h k hik)
     · intro h j hj
       exact (ih j).mpr (h (r.index j) (index_mono r hj))
+  | existsRigid _ ih => exact exists_congr (fun v => ih v i)
 
 private theorem sat_retime (p : Formula S) (σ : Behavior S) (r : Retiming) :
     p.Sat (σ.retime r) ↔ p.Sat σ := by

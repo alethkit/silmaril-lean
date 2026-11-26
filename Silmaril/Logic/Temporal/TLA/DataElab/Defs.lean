@@ -311,23 +311,32 @@ private def lowerExcept (registry : CheckedRegistry) (visit : Visit signature fr
     return (slot, keys, ← visit inner (clause.child .body) update.value)
   return .except enabled root clauses
 
-private def lowerQuant (visit : Visit signature fragment) (locals : Context signature fragment)
-    (site : Site) (kind : Surface.Quantifier) (binders : Surface.RigidBinders)
-    (body : Surface.Expr) : LowerM (Term signature fragment) := do
-  let groups ← match binders with
-    | .unbounded names => pure [(site, names, none)]
-    | .bounded groups =>
-      groups.zipIdx.mapM fun (group, i) => do
-        let groupSite := site.child (.bound i)
-        match group.names with
-        | .tuple _ => fail groupSite (.unsupported .tupleBinder)
-        | .names names => pure (groupSite, names, some (← visit locals (groupSite.child .domain)
-            group.domain))
-  let (inner, reversed) ← groups.foldlM (init := (locals, [])) fun (inner, slots)
-      (groupSite, names, domain) =>
-    names.zipIdx.foldlM (init := (inner, slots)) fun (inner, slots) (_, index) => do
-      let (slot, inner) ← bindWitness groupSite index inner
-      return (inner, (slot, domain) :: slots)
+-- All group domains are in the outer scope, as in resolution.
+private def rigidBinderGroups (site : Site) (binders : Surface.RigidBinders) :
+    Except Diagnostic (List (Site × List Surface.Ident × Option Surface.Expr)) :=
+  match binders with
+  | .unbounded names => pure [(site, names, none)]
+  | .bounded groups =>
+    groups.zipIdx.mapM fun (group, i) =>
+      let groupSite := site.child (.bound i)
+      match group.names with
+      | .tuple _ => throw ⟨groupSite, .unsupported .tupleBinder⟩
+      | .names names => pure (groupSite, names, some group.domain)
+
+private def bindRigidGroups {α : Type} (registry : CheckedRegistry)
+    (locals : Context signature fragment) (groups : List (Site × List Surface.Ident × α)) :
+    LowerM (Context signature fragment × List (Nat × α)) :=
+  groups.foldlM (init := (locals, [])) fun (inner, reversed) (groupSite, names, range) => do
+    let (slots, inner) ← bindGroup registry groupSite names inner
+    return (inner, slots.foldl (fun rev slot => (slot, range) :: rev) reversed)
+
+private def lowerQuant (registry : CheckedRegistry) (visit : Visit signature fragment)
+    (locals : Context signature fragment) (site : Site) (kind : Surface.Quantifier)
+    (binders : Surface.RigidBinders) (body : Surface.Expr) : LowerM (Term signature fragment) := do
+  let groups ← liftM (rigidBinderGroups site binders)
+  let domains ← groups.mapM fun (groupSite, names, domain) => do
+    return (groupSite, names, ← domain.mapM (visit locals (groupSite.child .domain)))
+  let (inner, reversed) ← bindRigidGroups registry locals domains
   let result ← visit inner (site.child .body) body
   return reversed.foldl (fun term (slot, domain) => .quant kind slot domain term) result
 
@@ -389,8 +398,8 @@ private def lower (registry : CheckedRegistry) (fragment : Fragment)
       if enabled : fragment = .collections then
         if let .bounded bounds := binders then
           lowerBounds registry visit locals site enabled (.quant kind) bounds body
-        else lowerQuant visit locals site kind binders body
-      else lowerQuant visit locals site kind binders body
+        else lowerQuant registry visit locals site kind binders body
+      else lowerQuant registry visit locals site kind binders body
     | .choose (.ident _) domain body =>
       let bound ← domain.mapM (visit locals (site.child .domain))
       let (slot, inner) ← bindWitness site 0 locals

@@ -72,11 +72,84 @@ private meta def badOperand (body : String) : Bool :=
 #guard badOperand "WF_x([]TRUE)"
 #guard badOperand "Next /\\ []TRUE"
 #guard badOperand "Next ~> TRUE"
+#guard badOperand r"\A a \in {x'} : [] (x = a)"
+#guard badOperand r"\E a \in {[]TRUE} : <> (x = a)"
+#guard badOperand r"\A a : [] (x' = a)"
+
+private meta def rigidScopes : Except String Bool := do
+  let checked ← registry r"
+---- MODULE RigidScopes ----
+VARIABLE x
+Pair(p, q) == p = q
+F == \A a, b \in {x}, c \in {0} : \E d \in {a} :
+       [] (Pair(d, b) /\ (\E z \in {a} : Pair(z, c)))
+G == \A a : [][x' = a]_<<x, a>>
+====
+"
+  let lower := fun index => (lowerFormula checked [] signature 32 (id index)).mapError reprStr
+  let f ← lower 2
+  let g ← lower 3
+  let .rigidQuant .forall 0 (some a)
+    (.rigidQuant .forall 1 (some b) (.rigidQuant .forall 2 (some c)
+      (.rigidQuant .exists 3 (some d) (.always (.state (.binary .and (.data lhs) (.data rhs))))))) :=
+    f.form | throw "unexpected grouped or nested rigid binders"
+  let .alwaysBracket (.data action) [_, observation] ←
+    (match g.form with
+    | .rigidQuant .forall 0 none body => pure body
+    | _ => throw "expected an unbounded rigid binder")
+    | throw "expected a quantified bracket action"
+  match a.term, b.term, c.term, d.term, lhs.term, rhs.term, action.term, observation.term with
+  | .enum [.flexible _], .enum [.flexible _], .enum [.numeral 0], .enum [.witness 0],
+    .eq false (.witness 3) (.witness 1),
+    .quant .exists 4 (some (.enum [.witness 0])) (.eq false (.witness 4) (.witness 2)),
+    .eq false (.prime _ (.flexible _)) (.witness 0), .witness 0 => return true
+  | _, _, _, _, _, _, _, _ => throw "rigid witnesses lost their lexical scope"
+
+#guard match rigidScopes with | .ok true => true | _ => false
+
+private meta def rejectsQuantifierSubstitution : Bool := Id.run do
+  let .ok checked := registry r"
+---- MODULE BadSubstitution ----
+VARIABLE x
+Quantify(S) == \A a \in S : [] (x = a)
+F == Quantify({x'})
+====
+" | return false
+  let .error (.levels ⟨site, .failedRequirement requirement⟩) :=
+    lowerFormula checked [] signature 32 (id 2) | return false
+  return site = ⟨"root", [.unit 2, .body]⟩ &&
+    requirement.origin = ⟨"root", [.unit 1, .body, .bound 0, .domain]⟩ &&
+    requirement.condition = .temporalQuantifierBound (.fixed .temporal) (.fixed .action)
+
+#guard rejectsQuantifierSubstitution
+
+private meta def rejectsFlexibleBinder : Bool := Id.run do
+  let text := "---- MODULE Hiding ----\nVARIABLE x\nF == \\EE x : [] (x = x)\n===="
+  let .ok source := Surface.Parser.parseModule text | return false
+  let .error diagnostic := resolveWith .levelSyntax [("root", .parsed source [])] "root" | return false
+  return diagnostic = ⟨⟨"root", [.unit 1, .body]⟩, .unsupported .actionOrTemporal⟩
+
+#guard rejectsFlexibleBinder
+
+private meta def rejectsTupleBinder : Bool := Id.run do
+  let .ok checked := registry "---- MODULE TupleBinder ----\nF == \\A <<a, b>> \\in {} : [] (a = b)\n===="
+    | return false
+  let .error (.data diagnostic) := lowerFormula checked [] signature 32 (id 0) | return false
+  return diagnostic = ⟨⟨"root", [.unit 0, .body, .bound 0]⟩, .unsupported .tupleBinder⟩
+
+#guard rejectsTupleBinder
 
 -- A noncontributing primitive slot may accept an action operand. Retaining
--- that prime in a state observation would read the wrong endpoint.
+-- that prime in an observation or quantifier domain would read the wrong endpoint.
 private meta def rejectsRetainedPrime : Bool := Id.run do
-  let text := "---- MODULE BadObservation ----\nEXTENDS Lib\nVARIABLE x\nF == UNCHANGED Drop(x')\n===="
+  let text := r"
+---- MODULE BadObservation ----
+EXTENDS Lib
+VARIABLE x
+F == UNCHANGED Drop(x')
+G == \A a \in Drop(x') : [] (x = a)
+====
+"
   let .ok source := Surface.Parser.parseModule text | return false
   let .ok checked := resolveWith .levelSyntax [
     ("root", .parsed source [("Lib", "lib")]),
@@ -85,7 +158,9 @@ private meta def rejectsRetainedPrime : Bool := Id.run do
   let levels : Levels.ExternalLevels := [(drop, ⟨.constant, [⟨.action, false⟩]⟩)]
   let admits : ExternalSignature := fun binding => if binding = drop then some 1 else none
   let .error (.primeInState site) := lowerAction checked levels admits 32 (id 1) | return false
-  return site = ⟨"root", [.unit 1, .body, .operand 0, .argument 0]⟩
+  let .error (.primeInState rangeSite) := lowerFormula checked levels admits 32 (id 2) | return false
+  return site = ⟨"root", [.unit 1, .body, .operand 0, .argument 0]⟩ &&
+    rangeSite = ⟨"root", [.unit 2, .body, .bound 0, .domain, .argument 0]⟩
 
 #guard rejectsRetainedPrime
 
