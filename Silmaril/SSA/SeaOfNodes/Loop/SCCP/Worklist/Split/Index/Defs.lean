@@ -60,16 +60,38 @@ def destinations [eqBank : BankDecidableEq value (dataPorts carried)] (index : I
     (Finset.univ.filter fun field => new.2.1 field ≠ old.2.1 field).biUnion
       fun field => index.readers[field.val]
 
-/-- For a state and its one-job update, a Φ job can change only its own field.
-Control and result jobs leave the bank unchanged. -/
-def destinationsAfter [eqBank : BankDecidableEq value (dataPorts carried)] (index : Index g)
-    (job : Task carried) (old new : State value carried out) : Finset (Phi.Job carried) :=
-  gateDestinations old.1 new.1 fun _ =>
+/-- A Φ pop can change only its own typed field. Control and result pops leave
+the bank unchanged. Use with a state and its one-job update. -/
+def bankChangedAfter [eqBank : BankDecidableEq value (dataPorts carried)]
+    (job : Task carried) (old new : State value carried out) : Bool :=
+  match job with
+  | .phi dst =>
+    letI := @Semantics.Dataflow.instDecidableEqFlat _ (eqBank.atPort dst)
+    decide (new.2.1 dst ≠ old.2.1 dst)
+  | .control | .result => false
+
+def destinationsFromWrite (index : Index g) (job : Task carried) (old new : Executable)
+    (bankChanged : Bool) : Finset (Phi.Job carried) :=
+  gateDestinations old new fun _ =>
     match job with
-    | .phi dst =>
-      letI := @Semantics.Dataflow.instDecidableEqFlat _ (eqBank.atPort dst)
-      if new.2.1 dst = old.2.1 dst then ∅ else index.readers[dst.val]
+    | .phi dst => if bankChanged then index.readers[dst.val] else ∅
     | .control | .result => ∅
+
+/-- For a state and its one-job update, use the one possible changed field
+and the existing Φ mark gates to find its notifications. -/
+def destinationsAfter [BankDecidableEq value (dataPorts carried)] (index : Index g)
+    (job : Task carried) (old new : State value carried out) : Finset (Phi.Job carried) :=
+  index.destinationsFromWrite job old.1 new.1 (bankChangedAfter job old new)
+
+/-- A gated whole-bank watch changes on a mark toggle or a changed bank while marked. -/
+def gatedBankChanged (mark : Fin 3) (old new : Executable) (bankChanged : Bool) : Bool :=
+  let wasMarked := decide (mark ∈ old)
+  let isMarked := decide (mark ∈ new)
+  (wasMarked != isMarked) || (isMarked && bankChanged)
+
+def wakeCandidates (destinations : Finset (Phi.Job carried)) (changed : Task carried → Bool)
+    (pending : List (Task carried)) : List (Task carried) :=
+  FIFO.wake (.control :: destinations.sort.map Job.phi ++ [.result]) changed pending
 
 variable (m : Model.{u, v, w} Op) [BankDecidableEq m.value (dataPorts carried)]
 variable (input : Tuple (Fact m.value) (dataPorts inputs))
@@ -78,8 +100,7 @@ variable (input : Tuple (Fact m.value) (dataPorts inputs))
 The control and result watches remain the original gated whole-bank watches. -/
 def wakeDestinations (destinations : Finset (Phi.Job carried)) (old new : State m.value carried out)
     (pending : List (Task carried)) : List (Task carried) :=
-  let notified := destinations.sort.map Job.phi
-  FIFO.wake (.control :: notified ++ [.result]) (fun
+  wakeCandidates destinations (fun
     | .control => decide (Worklist.dependencies new .control ≠ Worklist.dependencies old .control)
     | .phi _ => true
     | .result => decide (Worklist.dependencies new .result ≠ Worklist.dependencies old .result)) pending
@@ -95,11 +116,16 @@ def step (index : Index g) (job : Task carried) (state : State m.value carried o
   let new := Split.update m g input job state
   (new, wake m index state new pending)
 
-/-- A FIFO pop uses the job's write to locate a changed carried coordinate. -/
+/-- A FIFO pop shares one typed write check across all three classes of notification. -/
 def stepLocal (index : Index g) (job : Task carried) (state : State m.value carried out)
     (pending : List (Task carried)) : State m.value carried out × List (Task carried) :=
   let new := Split.update m g input job state
-  (new, wakeDestinations m (index.destinationsAfter job state new) state new pending)
+  let bankChanged := bankChangedAfter job state new
+  let destinations := index.destinationsFromWrite job state.1 new.1 bankChanged
+  (new, wakeCandidates destinations (fun
+    | .control => gatedBankChanged (incomingIndex .entry) state.1 new.1 bankChanged
+    | .phi _ => true
+    | .result => gatedBankChanged exitIndex state.1 new.1 bankChanged) pending)
 
 def runSteps (index : Index g) : Nat → State m.value carried out → List (Task carried) → Run m.value carried out :=
   FIFO.runSteps (stepLocal m input index)

@@ -39,6 +39,22 @@ theorem step_eq (job : Task carried) (state : State m.value carried out) (pendin
     step m input index job state pending = Split.step m g input job state pending :=
   Proofs.step_eq index job state pending
 
+/-- Comparing a pop's typed write decides whether its whole bank changed. -/
+theorem bankChangedAfter_iff (job : Task carried) (state : State m.value carried out) :
+    let new := Split.update m g input job state
+    bankChangedAfter job state new = true ↔ new.2.1 ≠ state.2.1 :=
+  Proofs.bankChangedAfter_iff (m := m) (g := g) (input := input) job state
+
+/-- Entry and exit marks and the exact bank change reproduce both reference watches. -/
+theorem gatedWatchesAfter_eq (job : Task carried) (state : State m.value carried out) :
+    let new := Split.update m g input job state
+    let changed := bankChangedAfter job state new
+    gatedBankChanged (incomingIndex .entry) state.1 new.1 changed =
+        decide (Worklist.dependencies new .control ≠ Worklist.dependencies state .control) ∧
+      gatedBankChanged exitIndex state.1 new.1 changed =
+        decide (Worklist.dependencies new .result ≠ Worklist.dependencies state .result) :=
+  Proofs.gatedWatchesAfter_eq (m := m) (g := g) (input := input) job state
+
 /-- One popped job has enough information to recover the general Φ notifications. -/
 theorem destinationsAfter_eq (job : Task carried) (state : State m.value carried out) :
     let new := Split.update m g input job state
