@@ -28,8 +28,10 @@ private def stock : Bindings := [("Exception", .exceptionClass .exception),
 private def ordinaryRaise (source : Source.Module) (seed expected : Bindings) (status : Run.Completion)
     (events : List Core.Closure.Executor.Event := []) : Bool := Id.run do
   let .ok compiled := Run.compile source | return false
-  let initial : Core.Module.Functions.Session :=
-    ⟨fun name => (lookupBinding seed name).bind Run.Seeded.ordinaryValue?, reachedHeap, reachedLists⟩
+  let lookup name := match lookupBinding seed name with
+    | some (.exceptionClass kind) => some (.exceptionClass kind)
+    | other => other.bind Run.Seeded.ordinaryValue?
+  let initial : Core.Module.Functions.Session := ⟨lookup, reachedHeap, reachedLists⟩
   let (actualEvents, state) := Run.runPrefix compiled.table 1000 (.ready initial compiled.instructions)
   let .finished result completed := state | return false
   let names := (compiled.checked.tree.scope.context.assigned ++ seed.map Prod.fst).eraseDups
@@ -66,9 +68,13 @@ def codepoints(text):
     return "[" + ", ".join(str(ord(char)) for char in text) + "]"
 
 
+STOCK_CLASSES = {Exception: "exception", AssertionError: "assertionError", NameError: "nameError",
+                 TypeError: "typeError", RuntimeError: "runtimeError"}
+
+
 def value_code(value):
-    if value is Exception:
-        return ".exceptionClass .exception"
+    if value in STOCK_CLASSES:
+        return ".exceptionClass ." + STOCK_CLASSES[value]
     if type(value) is str:
         return f".text ⟨{codepoints(value)}, by decide⟩"
     if value is None:

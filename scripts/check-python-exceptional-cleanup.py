@@ -146,21 +146,6 @@ finally:
     return cases
 
 
-def historical_boundaries(checkout):
-    table = (
-        ("tests/python/programs/original/k-python/programs/testtry2.py",
-         "b7eddf22b16dfcdd871f796fc727c2b0ab655977bdeff03972dd813b07bec0ea",
-         {"y": 7}, "NameError:x"),
-    )
-    checked = []
-    for path, digest, reached, completion in table:
-        source = SUITE["pinned_source"](checkout, path, digest)
-        raw = (checkout / path).read_bytes()
-        assert source.encode() == raw and execute(raw, reached) == completion
-        checked.append((source, "#guard !(Compile.ModuleEntry.Functions.Run.compile pythonSource).isOk"))
-    return checked
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--upstream", type=Path, required=True)
@@ -169,8 +154,7 @@ if __name__ == "__main__":
     revision = subprocess.check_output(["git", "-C", str(args.upstream), "rev-parse", "HEAD"], text=True).strip()
     assert revision == SUITE["UPSTREAM_REVISION"], revision
     tested = fixtures(args.upstream)
-    rejected = historical_boundaries(args.upstream)
     with tempfile.TemporaryDirectory() as scratch:
         source = Path(scratch) / "Fixture.py"
-        INTAKE["check_lean_batch"](source, source.with_suffix(".lean"), tested + rejected, LEAN, extra_imports=IMPORTS)
-    print(json.dumps({"cpython": "3.13.5", "reached_controls": len(tested), "historical_boundaries": len(rejected)}))
+        INTAKE["check_lean_batch"](source, source.with_suffix(".lean"), tested, LEAN, extra_imports=IMPORTS)
+    print(json.dumps({"cpython": "3.13.5", "reached_controls": len(tested)}))

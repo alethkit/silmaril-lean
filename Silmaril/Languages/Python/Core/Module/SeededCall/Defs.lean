@@ -15,16 +15,9 @@ open Core.Closure (RuntimeError)
 open Core.Binary64 (NumericOperand)
 open Core.Module.TupleDispatch (equalContents)
 
-inductive ExceptionClass where
-  | exception
-  | assertionError
-  | nameError
-  | unboundLocalError
-  | typeError
-  | valueError
-  | zeroDivisionError
-  | overflowError
-  deriving DecidableEq, Repr
+abbrev ExceptionClass := Core.Closure.ExceptionClass
+abbrev ExceptionClass.catches (expected actual : ExceptionClass) : Prop :=
+  Core.Closure.ExceptionClass.catches expected actual
 
 inductive AssertionArgument where
   | empty
@@ -45,22 +38,8 @@ inductive Raised where
   deriving DecidableEq, Repr
 
 def Raised.classify : Raised → ExceptionClass
-  | .assertionError _ | .runtime .assertionError => .assertionError
-  | .runtime (.unboundLocal _) | .runtime (.unboundOwned _) => .unboundLocalError
-  | .runtime (.unboundCapture _) | .runtime (.nameError _) => .nameError
-  | .runtime (.positionalArity ..) | .runtime .notCallable | .runtime .additionTypeError
-  | .runtime .multiplicationTypeError | .runtime .tupleArgumentNotIterable => .typeError
-  | .runtime .zeroSliceStep => .valueError
-  | .runtime (.arithmetic .zeroDivisionError) => .zeroDivisionError
-  | .runtime .overflowError => .overflowError
-  | .runtime (.explicitException _) => .exception
-
-def ExceptionClass.catches (expected actual : ExceptionClass) : Prop :=
-  expected = .exception ∨ expected = actual ∨ (expected = .nameError ∧ actual = .unboundLocalError)
-
-instance (expected actual : ExceptionClass) : Decidable (expected.catches actual) := by
-  unfold ExceptionClass.catches
-  infer_instance
+  | .assertionError _ => .assertionError
+  | .runtime error => error.classify
 
 inductive Helper where
   | assertEqual

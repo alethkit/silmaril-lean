@@ -208,7 +208,7 @@ theorem advance_assertIntegerBuiltin {scope : Source.Scope} (table : Core.Closur
     advance table (.ready session (.assertIntegerBuiltin test :: rest)) =
       ([], .finished session (match session.globals test.argument.name with
         | none => .raised (.nameError test.argument.name)
-        | some .stockException | some (.function _) => .scalarProfile
+        | some (.exceptionClass _) | some (.function _) => .scalarProfile
         | some _ => .raised .notCallable)) := rfl
 
 theorem advance_assertSequenceLength {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
@@ -216,7 +216,7 @@ theorem advance_assertSequenceLength {scope : Source.Scope} (table : Core.Closur
     advance table (.ready session (.assertSequenceLength test :: rest)) =
       ([], .finished session (match session.globals "len" with
         | none => .raised (.nameError "len")
-        | some .stockException | some (.function _) => .scalarProfile
+        | some (.exceptionClass _) | some (.function _) => .scalarProfile
         | some _ => .raised .notCallable)) := rfl
 
 theorem lowerInstructions_assertBoolIdentity {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)
@@ -245,7 +245,7 @@ theorem advance_assertListConstruction {scope : Source.Scope} (table : Core.Clos
     advance table (.ready session (.assertListConstruction test :: rest)) =
       ([], .finished session (match session.globals "list" with
         | none => .raised (.nameError "list")
-        | some .stockException | some (.function _) => .scalarProfile
+        | some (.exceptionClass _) | some (.function _) => .scalarProfile
         | some _ => .raised .notCallable)) := rfl
 
 theorem lowerInstructions_assertTupleChain {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)

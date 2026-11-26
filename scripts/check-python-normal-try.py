@@ -227,9 +227,7 @@ finally:
 
     source = "try:\n    pass\nexcept Missing:\n    handler = True\n"
     assert execute(source, {}) == "normal"
-    fixtures.append((source, """#guard (match Compile.ModuleEntry.Functions.Run.compile pythonSource with
-  | .error (.source (.scalar .statementProfile)) => true
-  | _ => false)"""))
+    fixtures.append((source, guard_pair({}, ".normal", "normal")))
     return fixtures
 
 

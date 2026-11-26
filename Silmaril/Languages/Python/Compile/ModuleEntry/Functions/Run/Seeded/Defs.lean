@@ -232,7 +232,7 @@ def seededValue : Core.Closure.Value → Value
   | .bool value => .bool value
   | .float64 value => .float64 value
   | .text value => .text value
-  | .stockException => .exceptionClass .exception
+  | .exceptionClass kind => .exceptionClass kind
   | .none => .none
   | .function closure => .function closure
   | .tuple items => .returnedTuple items
@@ -391,7 +391,7 @@ def observeFactory (space : Namespace) (state : Core.Closure.Executor.State) :
     Except ModuleFailure CallObservation × Heap :=
   match state with
   | .finished heap (.ok (.int _)) | .finished heap (.ok (.bool _)) | .finished heap (.ok .none)
-  | .finished heap (.ok (.float64 _)) | .finished heap (.ok .stockException)
+  | .finished heap (.ok (.float64 _)) | .finished heap (.ok (.exceptionClass _))
   | .finished heap (.ok (.text _)) | .finished heap (.ok (.tuple _)) | .finished heap (.ok (.tupleObject _)) =>
     (.ok ⟨.error .unsupported, none⟩, heap)
   | _ => observeDirectCall space state
@@ -857,10 +857,23 @@ def exceptionalStep {scope : Scope} (space : Namespace) : ExceptionalTry.Step sc
   | .scalar action => scalarStep space action
   | .raiseCall call =>
     .error ((call.error space.lookupGlobal raiseCallee raiseText?).elim .unsupported (.raised ∘ .runtime))
+  | .raiseInactive => .error (.raised (.runtime .noActiveException))
+
+def handlerClass : Value → ExceptionalTry.HandlerClass
+  | .exceptionClass kind => .stock kind
+  | .returnedTuple _ | .tupleObject _ => .outsideProfile
+  | _ => .invalid
+
+def matchHandler (space : Namespace) (error : ModuleFailure) (name : String) : Except ModuleFailure Bool :=
+  match error with
+  | .raised raised =>
+    (ExceptionalTry.matchClass space.lookupGlobal handlerClass raised.classify name).mapError
+      (fun failure => failure.elim .unsupported (.raised ∘ .runtime))
+  | _ => .error .unsupported
 
 def runExceptionalTry {scope : Scope} (space : Namespace) (plan : ExceptionalTry.Plan (ExceptionalTry.Step scope)) :
     ExceptionalTry.Outcome Namespace ModuleFailure :=
-  ExceptionalTry.run (ExceptionalTry.runSuite exceptionalStep) ModuleFailure.isPythonError space plan
+  ExceptionalTry.run (ExceptionalTry.runSuite exceptionalStep) ModuleFailure.isPythonError matchHandler space plan
 
 def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruction : Instruction scope)
     (lists : ListHeap := .empty) : Effect × Heap :=
