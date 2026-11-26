@@ -47,18 +47,13 @@ theorem checkPlan_reindex (perm : InputPermutation arity) (spec : Spec) :
       cases checkFeedbackRow arity spec.updates with
       | none => rfl
       | some updates =>
-        cases spec.guardOrigin with
-        | arg => rfl
-        | output producer port =>
-          cases port with
-          | succ _ => rfl
-          | zero =>
-            by_cases inside : producer < updates.length
-            · by_cases destination : updates[producer].destination.val = spec.guardDestination
-              · by_cases exit : spec.exitSlot < arity <;>
-                  simp [Option.bind, inside, destination, exit, Plan.reindexInputs]
-              · simp [Option.bind, inside, destination]
-            · simp [Option.bind, inside]
+        cases guardCheck : checkProducer updates spec.guardOrigin spec.guardDestination with
+        | none => simp [guardCheck]
+        | some guard =>
+          by_cases exit : spec.exitSlot < arity
+          · cases exitCheck : spec.exitOrigin.mapM (fun origin => checkProducer updates origin spec.exitSlot) <;>
+              simp [guardCheck, exit, exitCheck, Plan.reindexInputs]
+          · simp [exit]
 
 private theorem column_info {scope width : Nat} {raw : List Nat} {wires : ArgumentColumn scope width}
     (checked : checkColumn scope width raw = some wires) :
@@ -89,15 +84,11 @@ private theorem checkPlan_entry {spec : Spec} {p : Plan arity}
   rcases Option.bind_eq_some_iff.mp ok with ⟨entry, checked, rest⟩
   rcases Option.bind_eq_some_iff.mp rest with ⟨copies, _, rest⟩
   rcases Option.bind_eq_some_iff.mp rest with ⟨updates, _, rest⟩
+  rcases Option.bind_eq_some_iff.mp rest with ⟨guard, _, rest⟩
   split at rest
-  · split at rest
-    · split at rest
-      · split at rest
-        · cases Option.some.inj rest
-          exact checked
-        · cases rest
-      · cases rest
-    · cases rest
+  · rcases Option.bind_eq_some_iff.mp rest with ⟨exitProducer, _, rest⟩
+    cases Option.some.inj rest
+    exact checked
   · cases rest
 
 -- Only the preheader jump operands change. The control graph and all

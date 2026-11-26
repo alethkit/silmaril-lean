@@ -27,10 +27,11 @@ structure Plan (arity : Nat) where
   comparison : Guard
   limit : Word
   exitSlot : Fin arity
+  exitProducer : Option (Fin updates.length) := none
 
-/-- Copies and the exit projection use old bank slot numbers. The guard
-origin names a computed producer, whose destination must match the
-declared guard destination. -/
+/-- Copies read old bank slots. The guard names a producer and its
+destination. Exit reads the old slot by default or a producer checked
+against that slot's destination. -/
 structure Spec where
   entry : List Nat
   copies : List Nat
@@ -40,18 +41,24 @@ structure Spec where
   comparison : Guard
   limit : Word
   exitSlot : Nat
+  exitOrigin : Option Address := none
+
+/-- Decode the single result port of an update and check its destination. -/
+def checkProducer {arity : Nat} (updates : List (FeedbackUpdate arity))
+    (origin : Address) (destination : Nat) : Option (Fin updates.length) := do
+  let .output index 0 := origin | none
+  if inside : index < updates.length then
+    if updates[index].destination.val = destination then some ⟨index, inside⟩ else none
+  else none
 
 def checkPlan (arity : Nat) (spec : Spec) : Option (Plan arity) := do
   let entry ← checkColumn arity arity spec.entry
   let copies ← checkColumn arity arity spec.copies
   let updates ← checkFeedbackRow arity spec.updates
-  let .output index 0 := spec.guardOrigin | none
-  if inside : index < updates.length then
-    if updates[index].destination.val = spec.guardDestination then
-      if exit : spec.exitSlot < arity then
-        some ⟨entry, copies, updates, ⟨index, inside⟩, spec.comparison, spec.limit, ⟨spec.exitSlot, exit⟩⟩
-      else none
-    else none
+  let guardIndex ← checkProducer updates spec.guardOrigin spec.guardDestination
+  if exit : spec.exitSlot < arity then
+    let exitProducer ← spec.exitOrigin.mapM fun origin => checkProducer updates origin spec.exitSlot
+    some ⟨entry, copies, updates, guardIndex, spec.comparison, spec.limit, ⟨spec.exitSlot, exit⟩, exitProducer⟩
   else none
 
 theorem extend_append (past sigs tail : List (List PortTy)) :
@@ -90,13 +97,20 @@ abbrev Plan.sigs := rowSigs p.updates ++ guardSigs
 def Plan.row : Dataflow WordOp (bankArgs arity) [] (rowSigs p.updates) :=
   rowSuffixAt (argumentPort arity) [] p.updates
 
-def Plan.guardWire : Origin (bankArgs arity) p.rowPast wordPort :=
-  let index : Fin p.rowPast.length := ⟨p.guardIndex.val, by simp [extend_rowSigs]⟩
+def Plan.producerWire (producer : Fin p.updates.length) : Origin (bankArgs arity) p.rowPast wordPort :=
+  let index : Fin p.rowPast.length := ⟨producer.val, by simp [extend_rowSigs]⟩
   .output index (by
     have mem : p.rowPast[index] ∈ p.rowPast := List.getElem_mem _
     have replicated : p.rowPast[index] ∈ List.replicate p.updates.length [wordPort] := by
       simpa only [extend_rowSigs, List.nil_append] using mem
     exact (List.eq_of_mem_replicate replicated).symm ▸ Port.head)
+
+def Plan.guardWire : Origin (bankArgs arity) p.rowPast wordPort :=
+  p.producerWire p.guardIndex
+
+/-- The exit reads either an old bank slot or a result of this activation. -/
+def Plan.exitWire : Origin (bankArgs arity) p.rowPast wordPort :=
+  p.exitProducer.elim (.arg (suffixPort (wordPorts arity) (argumentPort arity p.exitSlot))) p.producerWire
 
 def Plan.test : Dataflow WordOp (bankArgs arity) p.rowPast guardSigs :=
   .cons (.const p.limit) .nil
@@ -116,7 +130,7 @@ def Plan.graph : BankGraph arity p.sigs where
     | .backedge => p.feedbackColumn.map fun _ wire =>
       joinedOrigin (past := []) (sigs := rowSigs p.updates) (tail := guardSigs) (keepOrigin p.test wire)
   predicate := joinedOrigin (past := []) (sigs := rowSigs p.updates) (tail := guardSigs) (newest .head)
-  result := .arg (suffixPort (wordPorts arity) (argumentPort arity p.exitSlot))
+  result := joinedOrigin (past := []) (sigs := rowSigs p.updates) (tail := guardSigs) (keepOrigin p.test p.exitWire)
 
 def Plan.guardValue (old : WordTuple arity) : Word :=
   p.updates[p.guardIndex].evalAt (argumentPort arity) old
@@ -125,7 +139,9 @@ def Plan.guardWord (old : WordTuple arity) : Word :=
   ofBool (p.comparison.target.eval (p.guardValue old) p.limit)
 
 def Plan.exitValue (old : WordTuple arity) : Word :=
-  old.get (argumentPort arity p.exitSlot)
+  match p.exitProducer with
+  | none => old.get (argumentPort arity p.exitSlot)
+  | some index => p.updates[index].evalAt (argumentPort arity) old
 
 def Plan.nextBank (input old : WordTuple arity) : WordTuple arity :=
   let args := appendTuple old input

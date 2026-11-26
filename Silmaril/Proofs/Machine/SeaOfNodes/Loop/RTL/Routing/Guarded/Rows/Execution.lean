@@ -59,15 +59,29 @@ private theorem row_word_reads {arity : Nat} (p : Plan arity) (input old : WordT
   | arg port => exact agree port
   | output i _ => exact i.elim0
 
-private theorem guard_read {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
-    (fr : Frame Reg) (agree : ArgsMatch fr (appendTuple old input)) :
-    read model p.guardWire (appendTuple old input)
-      (p.row.eval model (appendTuple old input) PUnit.unit) = p.guardValue old := by
-  have observed := row_word_reads p input old fr agree p.guardWire
-  change (p.rowFrame fr old).get (.node p.guardIndex.val) = _ at observed
-  have computed : (p.rowFrame fr old).get (.node p.guardIndex.val) = some (p.guardValue old) := by
-    simpa only [Nat.zero_add, Plan.rowFrame, Plan.guardValue] using rowFrameAt_read (argumentPort arity) old p.updates 0 fr p.guardIndex
+private theorem producer_read {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
+    (fr : Frame Reg) (agree : ArgsMatch fr (appendTuple old input)) (index : Fin p.updates.length) :
+    read model (p.producerWire index) (appendTuple old input)
+      (p.row.eval model (appendTuple old input) PUnit.unit) =
+        p.updates[index].evalAt (argumentPort arity) old := by
+  have observed := row_word_reads p input old fr agree (p.producerWire index)
+  change (p.rowFrame fr old).get (.node index.val) = _ at observed
+  have computed : (p.rowFrame fr old).get (.node index.val) =
+      some (p.updates[index].evalAt (argumentPort arity) old) := by
+    simpa only [Nat.zero_add, Plan.rowFrame] using rowFrameAt_read (argumentPort arity) old p.updates 0 fr index
   exact Option.some.inj (observed.symm.trans computed)
+
+private theorem exit_read {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
+    (fr : Frame Reg) (agree : ArgsMatch fr (appendTuple old input)) :
+    read model p.exitWire (appendTuple old input)
+      (p.row.eval model (appendTuple old input) PUnit.unit) = p.exitValue old := by
+  cases selected : p.exitProducer with
+  | none =>
+    simp only [Plan.exitWire, Plan.exitValue, selected, Option.elim]
+    exact suffix_get input old (argumentPort arity p.exitSlot)
+  | some index =>
+    simpa only [Plan.exitWire, Plan.exitValue, selected, Option.elim] using
+      producer_read p input old fr agree index
 
 private theorem read_column {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
     {ports : List PortTy} (column : Wires (bankArgs arity) p.rowPast ports) :
@@ -112,7 +126,8 @@ theorem native_step {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
     let result : Tuple (Val model.value) [(.value .predicate : PortTy)] :=
       .cons (model.run p.comparison.source operands) .nil
     refine (read_newest .head model args limited result).trans ?_
-    have left := (read_weaken p.guardWire model args locals constant).trans (guard_read p input old fr agree)
+    have left := (read_weaken p.guardWire model args locals constant).trans
+      (producer_read p input old fr agree p.guardIndex)
     have right := read_newest .head model args locals constant
     change model.run p.comparison.source
       (.cons (read model (weaken [wordPort] p.guardWire) args (locals.snoc constant))
@@ -120,7 +135,8 @@ theorem native_step {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
     rw [left, right]
     cases p.comparison <;> rfl
   have exit : read model p.graph.result args (p.graph.header.eval model args PUnit.unit) = p.exitValue old :=
-    suffix_get input old (argumentPort arity p.exitSlot)
+    (read_joined p.row p.test (keepOrigin p.test p.exitWire) args PUnit.unit).trans
+      ((read_keepOrigin p.test p.exitWire model args locals).trans (exit_read p input old fr agree))
   unfold Graph.step
   dsimp only
   rw [test, feedback_latch p input old, exit]
@@ -181,6 +197,16 @@ theorem feedback_registers {arity : Nat} (p : Plan arity) :
     bankIncoming p.graph .backedge = emitColumn (arity := arity) p.feedbackColumn :=
   column_registers p p.feedbackColumn
 
+private theorem exit_register {arity : Nat} (p : Plan arity) :
+    register p.graph.result.address = register p.exitWire.address :=
+  (joined_register (past := []) (sigs := rowSigs p.updates) (tail := guardSigs)
+    (keepOrigin p.test p.exitWire)).trans (keep_register p.test p.exitWire)
+
+theorem exit_operand {arity : Nat} (p : Plan arity) :
+    (bankHeader p.graph).term.args[1]? = some (2, [register p.exitWire.address]) := by
+  change some (2, [register p.graph.result.address]) = _
+  rw [exit_register]
+
 private theorem guard_register {arity : Nat} (p : Plan arity) :
     register p.graph.predicate.address = .node (p.updates.length + 1) := by
   let last : Origin (bankArgs arity) (extend p.rowPast guardSigs) (.value .predicate) :=
@@ -205,28 +231,27 @@ private theorem branch {arity : Nat} (p : Plan arity) (input old : WordTuple ari
     step (lowerBank p.graph) ⟨⟨0, 1, (bankHeader p.graph).ops.length⟩, p.testFrame fr old, [], mem⟩ =
       .running (p.successor input old fr mem) := by
   let after := p.testFrame fr old
-  let exitPort := suffixPort (wordPorts arity) (argumentPort arity p.exitSlot)
-  have exitRegister : register p.graph.result.address = .arg exitPort.index := rfl
+  let exitReg := register p.exitWire.address
   have testValue : (p.testFrame fr old).get (.node (p.updates.length + 1)) = some (p.guardWord old) := by
     simp [Plan.testFrame]
   have block : (lowerBank p.graph).block? 0 1 = some (bankHeader p.graph) := rfl
   have term : (bankHeader p.graph).term = .cond (.node (p.updates.length + 1))
-      1 (bankIncoming p.graph .backedge) 2 [.arg exitPort.index] := by
+      1 (bankIncoming p.graph .backedge) 2 [exitReg] := by
     unfold bankHeader
-    rw [guard_register, exitRegister]
+    rw [guard_register, exit_register]
   have fetched := Prog.fetch_term block
   simp only [step, fetched, term]
   rw [testValue]
   change transfer (lowerBank p.graph) ⟨⟨0, 1, (bankHeader p.graph).ops.length⟩, after, [], mem⟩
     (if p.guardWord old = 0 then 2 else 1)
-    (if p.guardWord old = 0 then [.arg exitPort.index] else bankIncoming p.graph .backedge) = _
+    (if p.guardWord old = 0 then [exitReg] else bankIncoming p.graph .backedge) = _
   by_cases halt : p.guardWord old = 0
   · rw [ite_eq_left halt, ite_eq_left halt]
-    have readRow := row_word_reads p input old fr agree (.arg exitPort)
-    have value : (p.rowFrame fr old).get (.arg exitPort.index) = some (p.exitValue old) :=
-      readRow.trans (congrArg some (suffix_get input old (argumentPort arity p.exitSlot)))
-    have readExit : after.get (.arg exitPort.index) = some (p.exitValue old) :=
-      (test_frame_read p fr old (.arg exitPort)).trans value
+    have readRow := row_word_reads p input old fr agree p.exitWire
+    have value : (p.rowFrame fr old).get exitReg = some (p.exitValue old) :=
+      readRow.trans (congrArg some (exit_read p input old fr agree))
+    have readExit : after.get exitReg = some (p.exitValue old) :=
+      (test_frame_read p fr old p.exitWire).trans value
     have target : (lowerBank p.graph).block? 0 2 = some exitBlock := rfl
     simp [transfer, Frame.readAll, readExit, target, exitBlock, Frame.writeAll, Plan.successor, halt]
     rfl
