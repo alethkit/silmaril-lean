@@ -10,6 +10,7 @@ import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
 import Silmaril.SSA.PEG.Thms
 import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Thms
 import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Multi.Thms
+import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Infer.Thms
 meta import Silmaril.SSA.Peggy.SimpleValidation.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Defs
@@ -19,6 +20,7 @@ meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Comb
 meta import Silmaril.SSA.PEG.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Multi.Defs
+meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Infer.Defs
 
 namespace Silmaril.SSA.Peggy.SimpleValidation.Tests
 
@@ -740,6 +742,44 @@ example {fuel : Nat} (receipt : Cost.Bundle.Worklist.Combined.CheckedReceipt tag
       .cons (some ⟨2⟩) (.cons (some ⟨17⟩) (.cons (some ⟨2⟩) .nil)) :=
   receipt.observe_of_exec a taggedSourceWF EPEG.Classes.discrete_valid rfl ⟨⟨1⟩, rfl, fun _ => rfl⟩ neg idx
     (a.reversion.runFuel_exec 3 ran)
+
+open EPEG.Saturation.Extension in
+private def inferenceSource : Output Op bundleParams bundleResults 1 :=
+  ⟨14, ⟨taggedSample.append, EPEG.Classes.discrete⟩⟩
+
+open EPEG.Saturation.Extension Cost.Bundle.Worklist.Generate in
+private def runInferred : Option (List Nat × List Nat × List (Option (Nat × Nat)) × Nat × List Nat) := do
+  let report := (Dedup.Worklist.run Op.zero 1 inferenceSource).report
+  let receipt ← Cost.Bundle.Worklist.check Op.zero 1 inferenceSource report
+  let layouts := Infer.layouts receipt.endpoint.2.graph
+  let pool := Multi.pool receipt.endpoint.2.classes layouts
+  let admitted := pool.map fun c => do
+    let a ← Cost.Bundle.check receipt.endpoint.2.classes c
+    let out ← a.reversion.runFuel model 3 taggedInput
+    if returnedCounts out = [2, 17, 2] then
+      some (c.primitiveRows, (Infer.scheduledRows a.reversion.scalar.update).length)
+    else none
+  let chosen ← Infer.select receipt Cost.Candidate.primitiveRows
+  let out ← chosen.reversion.runFuel model 3 taggedInput
+  return (receipt.report.sites, layouts.map Multi.Layout.size, admitted,
+    chosen.candidate.primitiveRows, returnedCounts out)
+
+-- Read the repeated occurrence in the checked live update. The copied
+-- layout includes a wiring with both constant computations live.
+#guard runInferred == some ([13], [11, 12], [some (4, 2), some (5, 2), some (5, 3)], 4, [2, 17, 2])
+#guard (Cost.Bundle.Worklist.Generate.Infer.layouts splitPass.graph).isEmpty
+
+private theorem inferenceSourceWF : WellFounded inferenceSource.2.graph.Demand :=
+  taggedSample.demandWellFounded (taggedZero.demandWellFounded doubleStepWF)
+
+example (receipt : Cost.Bundle.Worklist.CheckedReceipt Op.zero 1 inferenceSource)
+    (chosen : Cost.Bundle.Accepted receipt.endpoint.2.graph receipt.endpoint.2.classes) (idx : Index 1)
+    (neg : ∀ b : Bool, model.run chosen.reversion.scalar.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (ran : chosen.reversion.runFuel model 3 taggedInput = some (.cons ⟨2⟩ (.cons ⟨17⟩ (.cons ⟨2⟩ .nil)))) :
+    inferenceSource.2.graph.observe model (inferenceSource.2.graph.denote model taggedInput inferenceSourceWF) idx =
+      .cons (some ⟨2⟩) (.cons (some ⟨17⟩) (.cons (some ⟨2⟩) .nil)) :=
+  receipt.observe_of_exec chosen inferenceSourceWF EPEG.Classes.discrete_valid rfl neg idx
+    (chosen.reversion.runFuel_exec 3 ran)
 
 end Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Tests
 
