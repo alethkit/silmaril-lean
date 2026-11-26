@@ -178,3 +178,63 @@ drop the value read by the merge or the counter that crosses the
 merge to the latch. Two feedback edges lead to a return of 16 in
 all three runners, and the last line gives three exhausted runs.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Regression.lean)
+
+## Drop inputs that survive the merge
+
+Section 3.1 tracks the current definition at each incoming occurrence.
+The merge–latch check starts with those definitions and follows the
+ordered quads through the tested latch. `Latch.mergeMask` runs the
+existing backward sweep over every producer. The final reads are the
+resolved latch condition, return word and the actual θ-carried feedback
+wires. `Latch.checkMask` validates those typed wires and all producer
+operands. The pure profile retains every ordered producer.
+
+`Latch.Checked.incoming_agrees` recovers that entire packet from the
+smaller bank of any of the three occurrences. The complete post-merge
+bank can differ. `Latch.Numbered.lower` emits the smaller outer γ and
+reuses the original θ and arm routing. The checked packet proves that
+the in-scope fillers for dropped wires have no effect on the branch,
+return or retained feedback. The comparison reuses the existing
+source and CF budgets, including absence of any finite return.
+The CF endpoint uses the original full merge bank. A narrower CF
+join needs a typed merge-to-latch edge that supplies only the inputs
+needed by the latch, including any live-through values.
+[Certificate](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Thms.lean) ·
+[Numbered emitter](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Numbered/Thms.lean) ·
+[CF comparison](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Comparison/Thms.lean)
+
+Build with
+`lake build --wfail +Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Example.Defs`.
+Paste into `QuadMergeLatch.lean` and run
+`lake env lean -DwarningAsError=true QuadMergeLatch.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Example
+
+#eval columns
+#eval gammaArity
+#eval overwriteAdmission
+#eval refusesUsed
+#eval tailPackets
+#eval (runSource 14, runCF 15, runRVSDG 3)
+#eval (runSource 13, runCF 14, runRVSDG 2)
+```
+
+The routes from blocks `[3, 2, 4]` bring decrement values
+`[41, 42, 43]` and retained words `[7, 6, 10]` on the three
+probe inputs. The common merge leaves the decrement unchanged.
+The latch writes `255` before using or feeding it back. The emitted
+γ carries five of seven fields. `overwriteAdmission` reports that
+dropping only the decrement passes the packet check and fails the
+complete-bank check. `refusesUsed` checks the merge operand, a latch
+guard supplied by an incoming definition, a carried field used only
+after feedback, and the original live latch counter. The successive
+latch packets show two continuing activations and a stop returning
+`16`. All three runners return `16` at budgets `14/15/3` and
+exhaust at the smaller bounds.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Regression.lean)

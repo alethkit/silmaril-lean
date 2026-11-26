@@ -93,47 +93,48 @@ theorem merge_run (fuel : Nat) (old : Bank (regs := regs) m) :
   · intro current locals
     exact afterOuter_eval p m current .ret fuel (carry.project old) locals some (fun _ _ => rfl)
 
-private theorem tail_reconstruct {args : List (Ty Data)} {past : List (List (Ty Data))}
-    (checked : Checked p merge) (fallback : Wires args past (dataPorts regs))
-    (kept : Wires args past (dataPorts merge.kept))
-    (input : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) :
-    (Nested.Numbered.tail p).eval m (Wires.read (restore merge fallback kept) input locals) =
-      (src p.latch).body.eval m (checked.headerBank m (kept.read input locals)) := by
-  have projectedBank : merge.project (Wires.read (restore merge fallback kept) input locals) = kept.read input locals :=
-    (merge.project_read m input locals _).symm.trans
-      (congrArg (fun wires => Wires.read wires input locals) (project_restore merge fallback kept))
-  have join : (src p.join).body.eval m (Wires.read (restore merge fallback kept) input locals) =
-      checked.headerBank m (kept.read input locals) := by
-    rw [← checked.header_agrees, projectedBank]
-  change List.foldl (fun bank quad => quad.eval m bank) _ ((src p.join).body ++ (src p.latch).body) = _
-  rw [List.foldl_append]
-  exact congrArg (Block.eval (src p.latch).body m) join
+/-- It is enough for the tested latch to observe the same condition and
+carried bank on any two completions of the reduced input. -/
+theorem activation_run_for
+    (agrees : ∀ left right : Bank (regs := regs) m, merge.project left = merge.project right →
+      latchPacket p carry m ((Nested.Numbered.tail p).eval m left) =
+        latchPacket p carry m ((Nested.Numbered.tail p).eval m right))
+    (fuel : Nat) (old : Bank (regs := regs) m) :
+    (thetaBodyFor p projected merge).run (model m) fuel (carry.project old) =
+      some (latchPacket p carry m (Nested.Numbered.nextBank p m old)) := by
+  let packet (bank : Bank (regs := regs) m) := some (latchPacket p carry m bank)
+  let finish (bank : Bank (regs := merge.kept) m) :=
+    packet ((Nested.Numbered.tail p).eval m (restore merge old bank))
+  unfold thetaBodyFor Term.run
+  erw [thenBase_eval (observe := fun bank => finish (merge.project (Nested.Numbered.branchBank p m bank)))]
+  · erw [lowerFlow_eval]
+    change finish (merge.project (Nested.Numbered.branchBank p m (projected.headerBank m (carry.project old)))) = _
+    rw [projected.header_agrees, branchBank_agrees]
+    exact congrArg some (agrees _ _ (project_restore merge old _))
+  · intro current locals
+    apply afterOuter_eval p m current _ fuel (carry.project old) locals finish
+    intro kept later
+    erw [thenBase_eval (observe := packet), Block.lowerFrom_eval]
+    · apply congrArg some
+      apply agrees
+      refine (merge.project_read m _ later _).symm.trans ?_
+      exact (congrArg (fun wires => Wires.read wires (carry.project old) later)
+        (project_restore merge _ kept)).trans (project_restore merge old _).symm
+    · intro wires done
+      exact routeProjectedWith_eval m p.again wires fuel (carry.project old) done
 
 theorem activation_run (checked : Checked p merge) (fuel : Nat) (old : Bank (regs := regs) m) :
     (thetaBody p projected checked).run (model m) fuel (carry.project old) =
       let next := Nested.Numbered.nextBank p m old
       some (RVSDG.Theta.bodyResult (model m) (next.get p.again).down (carry.project next)) := by
-  let packet (bank : Bank (regs := regs) m) :=
-    some (RVSDG.Theta.bodyResult (model m) (bank.get p.again).down (carry.project bank))
-  let finish (bank : Bank (regs := merge.kept) m) :=
-    packet ((src p.latch).body.eval m (checked.headerBank m bank))
-  unfold thetaBody Term.run
-  erw [thenBase_eval (observe := fun bank => finish (merge.project (Nested.Numbered.branchBank p m bank)))]
-  · erw [lowerFlow_eval]
-    change finish (merge.project (Nested.Numbered.branchBank p m (projected.headerBank m (carry.project old)))) = _
-    rw [projected.header_agrees, branchBank_agrees]
-    unfold finish
-    rw [checked.header_agrees]
-    have next : Nested.Numbered.nextBank p m old =
-        (src p.latch).body.eval m ((src p.join).body.eval m (p.mergeBank m old (p.selected m old))) :=
-      List.foldl_append
-    rw [next]
-  · intro current locals
-    apply afterOuter_eval p m current _ fuel (carry.project old) locals finish
-    intro kept later
-    erw [thenBase_eval (observe := packet), Block.lowerFrom_eval]
-    · exact congrArg packet (tail_reconstruct p m checked _ kept (carry.project old) later)
-    · intro wires done
-      exact routeProjectedWith_eval m p.again wires fuel (carry.project old) done
+  apply activation_run_for p m projected _ fuel old
+  intro left right same
+  have join : (src p.join).body.eval m left = (src p.join).body.eval m right :=
+    (checked.header_agrees m left).symm.trans
+      ((congrArg (checked.headerBank m) same).trans (checked.header_agrees m right))
+  have afterMerge (bank : Bank (regs := regs) m) :
+      (Nested.Numbered.tail p).eval m bank =
+        (src p.latch).body.eval m ((src p.join).body.eval m bank) := List.foldl_append
+  rw [afterMerge, afterMerge, join]
 
 end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Numbered.Proofs
