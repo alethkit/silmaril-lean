@@ -19,9 +19,7 @@ structure Display where
   items : List Item
   negated : Bool
 
-def literal? : Source.Expr → Option Value
-  | .none_ => some .none
-  | source => scalarLiteral? source
+def literal? : Source.Expr → Option Value := exactScalarLiteral?
 
 inductive CheckedItem (scope : Scope) : Source.Expr → Item → Prop where
   | literal {source value} (checked : literal? source = some value) :

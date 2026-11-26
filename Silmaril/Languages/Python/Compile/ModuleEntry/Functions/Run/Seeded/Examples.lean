@@ -1,7 +1,7 @@
 module
 
 import Batteries.Data.Except
-import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms
+import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NormalTry.Thms
 meta import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Defs
 meta import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Defs
 meta import Silmaril.Languages.Python.Core.Module.Functions.Defs
@@ -111,5 +111,31 @@ private def textSliceOperandEvidence (placement : SeedPlacement) (zero : Bool) :
 
 #guard textSliceOperandEvidence .builtin false
 #guard textSliceOperandEvidence .preamble true
+
+private def normalTryEvidence : Bool := Id.run do
+  let source : Source.Module := ⟨[.assign "flag" (.boolean false),
+    .try_ [.assign "flag" (.boolean true), .pass]
+      [⟨none, none, [.assign "unreachedHandler" (.integer 9)]⟩]
+      [.assign "phase" (.integer 2)]
+      [.assign "copied" (.name "phase"), .assign "stopped" (.name "missing")],
+    .assign "unreachedTail" (.integer 11)]⟩
+  let .ok compiled := Run.compile source | return false
+  let heap : Core.Closure.Heap := ⟨1, fun x => if x = 0 then some (.int 23) else none⟩
+  let lists : Core.Module.ListHeap := ⟨#[[.int 31]]⟩
+  let result := run .empty compiled heap (lists := lists)
+  let start := { Run.seed .empty heap with lists }
+  let (events, state) := Run.runPrefix compiled.table 1000 (.ready start compiled.instructions)
+  let .finished residual completion := state | return false
+  return result.completion == .error (.raised (.runtime (.nameError "missing"))) &&
+    result.residual.moduleGlobals == [("copied", .int 2), ("phase", .int 2), ("flag", .bool true)] &&
+    result.residual.builtins.isEmpty && result.calls.isEmpty &&
+    result.lists == lists && result.heap.next == heap.next && (result.heap.contents 0).map seededValue == some (.int 23) &&
+    events.isEmpty && completion == .raised (.nameError "missing") && residual.lists == lists &&
+    residual.heap.next == heap.next && (residual.heap.contents 0).map seededValue == some (.int 23) &&
+    (residual.globals "flag").map seededValue == some (.bool true) &&
+    (residual.globals "copied").map seededValue == some (.int 2) &&
+    (residual.globals "unreachedHandler").isNone && (residual.globals "unreachedTail").isNone
+
+#guard normalTryEvidence
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

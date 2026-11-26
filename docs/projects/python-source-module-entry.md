@@ -225,6 +225,24 @@ instructions, runtime allocations or receipts. Run the four pinned inputs and th
 CPython 3.13.5 controls with
 `python3.13 -I scripts/check-python-closed-guards.py --upstream /path/to/pinned/rigorous`.
 
+A module `try` can be lowered to its normally reached statements when the
+protected and else suites contain only `pass` and exact scalar literal
+writes. The checked shape has one bare handler with the same grammar, or
+a finally-only clause. The handler contributes no writes. The protected
+writes precede the else writes, and the cleanup sees both. The cleanup
+uses the existing scalar assignment and assertion rules. A reached
+cleanup failure preserves earlier writes, stops the remaining cleanup
+and module statements, and leaves both heaps and prior receipts intact.
+Boolean literal assignment uses the existing tagged scalar result in
+both runners.
+
+The five unchanged no-exception `try` fixtures exercise the handler,
+else, and finally combinations. Their fixed profiles stop at the
+missing assertion helper after producing the exact Boolean flags.
+`try-finally-no-exception.py` also completes in both opt-in placements
+of the stock truth helper. Run the CPython 3.13.5 controls and exact
+pins with `python3.13 -I scripts/check-python-normal-try.py --upstream /path/to/pinned/rigorous`.
+
 Checked call operands can carry exact text code points, including
 surrogates. The ordinary executor transports that tag through argument
 preparation. The seeded runner uses its existing live module-first lookup
