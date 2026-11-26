@@ -4,6 +4,7 @@ public import Silmaril.Languages.Python.Compile.Closure.Body.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuard.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ListDisplay.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NormalTry.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TextSlice.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain.Defs
@@ -696,6 +697,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
   | scalar {index statement rest actions tail}
       (first : ModuleEntry.Translation tree.scope [statement] actions) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
+  | normalTry {index statement rest actions tail}
+      (selected : NormalTry.Translation tree.scope statement actions)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
   | bindText {index statement rest name points reference value tail}
       (binding : Binding statement name (.text points)) (checked : Core.Text.ofPoints? points = some value)
       (remaining : Translation tree index rest tail) :
@@ -838,6 +843,9 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     if let some checked := ClosedGuard.omitted? statement then
       let tail ← lowerPlan tree index rest
       return ⟨tail.val, .omittedIf checked.property tail.property⟩
+    else if let some selected := NormalTry.check tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨selected.val.map .scalar ++ tail.val, .normalTry selected.property tail.property⟩
     else if let some test := integerBuiltinTest? tree.scope statement then
       let tail ← lowerPlan tree index rest
       return ⟨.assertIntegerBuiltin test.val :: tail.val, .assertIntegerBuiltin test.property tail.property⟩

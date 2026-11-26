@@ -267,10 +267,11 @@ theorem assertOperand_scalarResult {scope : Source.Scope} (space : Namespace) (v
 
 theorem run_scalarResultAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (name : Source.Name) (reference : ModuleEntry.GlobalReference scope name) (value : Core.Module.Value)
-    (rest : List (Instruction scope)) :
-    runInstructionsIn space context (.scalar (.assign name reference (.scalarResult value)) :: rest) =
-      runInstructionsIn (space.bindGlobal name (seededValue (Run.embed value))) context rest := by
-  simp [runInstructionsIn, effectWithLists, effect_scalarResultAssign]
+    (rest : List (Instruction scope)) (lists : ListHeap := .empty) :
+    runInstructionsIn space context (.scalar (.assign name reference (.scalarResult value)) :: rest) lists =
+      runInstructionsIn (space.bindGlobal name (seededValue (Run.embed value))) context rest lists := by
+  simp [runInstructionsIn, effectWithLists, effect, evaluateScalar_scalarResult]
+  rfl
 
 theorem run_scalarResultAssert {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (value : Core.Module.Value) (rest : List (Instruction scope)) :
