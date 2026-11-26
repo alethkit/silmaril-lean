@@ -25,6 +25,12 @@ theorem operand_origins {block : LexicalBlock} {source : Lowering.Resolve.Source
     ∀ binding ∈ reads, ∃ origin, ReadOrigin block binding origin :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.operand_origins related
 
+theorem prefix_read_origins {block : LexicalBlock}
+    {source : List (String × Lowering.Resolve.SourceExpr)} {code : List (String × Lowering.Expr)}
+    {reads : List Binding} (related : ElaboratesPrefix block source code reads) :
+    ∀ binding ∈ reads, ∃ origin, ReadOrigin block binding origin :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.prefix_read_origins related
+
 theorem body_origins {block : LexicalBlock} {source : Suite} {code : Functions.Body} {reads : List Binding}
     (related : Elaborates block source code reads) :
     ∀ binding ∈ reads, ∃ origin, ReadOrigin block binding origin :=
@@ -45,6 +51,26 @@ theorem prefix_total {block : LexicalBlock} {free : List FreeName} {floor : Nat}
     ∃ out, RunsPrefix block state source code out ∧ Frame block free floor (finishState out) ∧
       Keeps floor state (finishState out) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.prefix_total profile state frame
+
+/-- Compile a definition once its recursively compiled body and independent
+binder and read order are known. The child table precedes its parent ID. -/
+theorem compile_nested_body {globals enclosing : List String} (name : String) (parameters : Parameters)
+    {source : Statement} {occurrences locals : List String} (collected : Block.BodyBinders source occurrences)
+    (binders : Block.LocalBinders parameters.names occurrences locals)
+    (body : ResolvedBody) {free : List FreeName}
+    (selected : Selects ⟨parameters.names ++ locals, enclosing, globals⟩ body.reads free)
+    (defaults : List PlainPositionalDefault)
+    (same : defaults.map (fun item => (item.name, item.source)) = parameters.optional)
+    (tracked : ∀ item ∈ defaults, Lowering.Resolve.resolveTracked ⟨enclosing, globals⟩ item.source = .ok (item.value, item.reads))
+    (seed middle : Program)
+    (compiled : compileBody ⟨(LexicalBlock.mk (parameters.names ++ locals) enclosing globals).context, .local⟩
+      source seed = .ok (body, middle)) :
+    compileBody ⟨⟨enclosing, globals⟩, .local⟩ (.define name parameters.source source) seed =
+      .ok (⟨.define (fileSlot name) middle.size,
+          defaults.flatMap PlainPositionalDefault.reads ++ free.map FreeName.source⟩,
+        middle.push ⟨parameters.signature (defaults.map PlainPositionalDefault.value), locals.map fileSlot, free, body.code⟩) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.compile_nested_body name parameters
+    collected binders body selected defaults same tracked seed middle compiled
 
 /-- The checked child body and resolved defaults fix the emitted declaration. -/
 theorem compile_nested {globals enclosing : List String} {definition : Definition}
@@ -99,6 +125,11 @@ theorem plan_in_scope (globals : List String) (definition : Definition) (locals 
     (related : Elaborates ⟨definition.parameters.names ++ locals, enclosing, globals⟩ definition.body code reads) :
     Nonempty (Plan globals definition enclosing) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.plan_of_suite globals definition locals enclosing binders related
+
+theorem signature_slots (parameters : Parameters) (locals : List String) (codes : List Lowering.Expr)
+    (length : codes.length = parameters.optional.length) :
+    (parameters.signature codes).slots ++ locals.map fileSlot = (parameters.names ++ locals).map fileSlot :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.signature_slots parameters locals codes length
 
 /-- The emitted signature and locals allocate exactly the lexical owned slots. -/
 theorem declaration_slots {globals enclosing : List String} {definition : Definition}

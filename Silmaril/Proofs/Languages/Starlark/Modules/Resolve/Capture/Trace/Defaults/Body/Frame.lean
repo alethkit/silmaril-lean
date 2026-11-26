@@ -79,15 +79,20 @@ theorem activate_frame (block : LexicalBlock) (declaration : Declaration)
     exact ⟨capture.address, value, frozen, below, own,
       (Wrapper.activation_preserves caller declaration captures assigned _ below).trans stored⟩
 
+theorem signature_slots (parameters : Defaults.Parameters) (locals : List String) (codes : List Lowering.Expr)
+    (length : codes.length = parameters.optional.length) :
+    (parameters.signature codes).slots ++ locals.map fileSlot = (parameters.names ++ locals).map fileSlot := by
+  have named := List.map_fst_zip (l₁ := parameters.optional.map (fileSlot ∘ Prod.fst))
+    (l₂ := codes) (by simp [length])
+  simp [Defaults.Parameters.signature, Defaults.Parameters.names,
+    Signature.slots, Signature.named, requiredSignature, List.map_map, Function.comp_def] at named ⊢
+  rw [named]
+
 theorem declaration_slots {globals enclosing : List String} {definition : Definition}
     (plan : Plan globals definition enclosing) (codes : List Lowering.Expr)
     (length : codes.length = definition.parameters.optional.length) :
-    (plan.declaration codes).signature.slots ++ (plan.declaration codes).locals = plan.block.owned.map fileSlot := by
-  have named := List.map_fst_zip (l₁ := definition.parameters.optional.map (fileSlot ∘ Prod.fst))
-    (l₂ := codes) (by simp [length])
-  simp [Plan.declaration, Plan.block, Defaults.Parameters.signature, Defaults.Parameters.names,
-    Signature.slots, Signature.named, requiredSignature, List.map_map, Function.comp_def] at named ⊢
-  rw [named]
+    (plan.declaration codes).signature.slots ++ (plan.declaration codes).locals = plan.block.owned.map fileSlot :=
+  signature_slots definition.parameters plan.locals codes length
 
 theorem selected_frame (block : LexicalBlock) (declaration : Declaration)
     (slots : declaration.signature.slots ++ declaration.locals = block.owned.map fileSlot)

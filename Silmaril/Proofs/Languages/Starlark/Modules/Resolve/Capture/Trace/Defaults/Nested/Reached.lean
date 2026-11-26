@@ -50,13 +50,18 @@ private theorem default_origins {parent : LexicalBlock} {source : List (String �
     · exact Defaults.Body.operand_origins operand binding first
     · exact ih binding rest
 
-theorem read_origins {parent : LexicalBlock} {source : Defaults.Body.Definition} (plan : Plan parent source) :
-    ∀ binding ∈ plan.reads, ∃ origin, ReadOrigin parent binding origin := by
+theorem definition_read_origins {parent : LexicalBlock} {owned : List String}
+    {bodyReads : List Binding} {free : List FreeName}
+    (child : Selects ⟨owned, parent.owned ++ parent.enclosing, parent.globals⟩ bodyReads free)
+    {optionals : List (String × Lowering.Resolve.SourceExpr)} {items : List PlainPositionalDefault}
+    (lexical : Defaults.Lexical.Elaborates parent optionals items) :
+    ∀ binding ∈ items.flatMap PlainPositionalDefault.reads ++ free.map FreeName.source,
+      ∃ origin, ReadOrigin parent binding origin := by
   intro binding member
   rcases List.mem_append.mp member with readDefault | captured
-  · exact default_origins plan.lexical binding readDefault
+  · exact default_origins lexical binding readDefault
   · obtain ⟨entry, present, rfl⟩ := List.mem_map.mp captured
-    obtain ⟨binding, rfl, origin⟩ := selected_origin plan.body.selects entry present
+    obtain ⟨binding, rfl, origin⟩ := selected_origin child entry present
     rcases origin with localName | moduleName
     · cases localName with
       | @enclosing name _ visible =>
@@ -69,6 +74,10 @@ theorem read_origins {parent : LexicalBlock} {source : Defaults.Body.Definition}
       | module _ missing declared =>
         exact ⟨.module, .module (fun own => missing (List.mem_append_left _ own))
           (fun outer => missing (List.mem_append_right _ outer)) declared⟩
+
+theorem read_origins {parent : LexicalBlock} {source : Defaults.Body.Definition} (plan : Plan parent source) :
+    ∀ binding ∈ plan.reads, ∃ origin, ReadOrigin parent binding origin :=
+  definition_read_origins plan.body.selects plan.lexical
 
 theorem selects_parent {parent : LexicalBlock} {source : Defaults.Body.Definition} (plan : Plan parent source)
     {before after : List Binding}
@@ -97,23 +106,20 @@ private theorem capture_vector {state : State} (free : List FreeName)
     · exact live
     · exact cells _ later
 
-private theorem demand {parent : LexicalBlock} {source : Defaults.Body.Definition}
-    (plan : Plan parent source) {before after : List Binding} {parentFree : List FreeName}
-    (selected : Selects parent (before ++ plan.reads ++ after) parentFree)
-    {binding : Binding} (requested : (⟨binding, binding⟩ : FreeName) ∈ plan.body.free)
-    (outside : binding.scope = .global ∨ binding.name ∉ parent.owned) :
-    (⟨binding, binding⟩ : FreeName) ∈ parentFree := by
-  have seen : binding ∈ plan.reads := List.mem_append_right _ (List.mem_map.mpr ⟨_, requested, rfl⟩)
-  exact (selected_member selected binding).mpr ⟨by simp only [List.mem_append, seen, or_true, true_or], outside⟩
-
-theorem installs {parent : LexicalBlock} {source : Defaults.Body.Definition}
-    (plan : Plan parent source) {before after : List Binding} {parentFree : List FreeName}
-    (selected : Selects parent (before ++ plan.reads ++ after) parentFree)
+theorem installs_from_frame {parent : LexicalBlock} {owned : List String}
+    {bodyReads parentReads : List Binding} {childFree parentFree : List FreeName}
+    (child : Selects ⟨owned, parent.owned ++ parent.enclosing, parent.globals⟩ bodyReads childFree)
+    (selected : Selects parent parentReads parentFree)
+    (requested : ∀ entry ∈ childFree, entry.source ∈ parentReads)
     {state : State} {floor : Nat} (frame : Defaults.Body.Frame parent parentFree floor state) :
-    ∃ captures, Installs state plan.body.free captures ∧ Defaults.Body.CaptureCells state captures := by
+    ∃ captures, Installs state childFree captures ∧ Defaults.Body.CaptureCells state captures := by
+  have demand {binding : Binding} (present : (⟨binding, binding⟩ : FreeName) ∈ childFree)
+      (outside : binding.scope = .global ∨ binding.name ∉ parent.owned) :
+      (⟨binding, binding⟩ : FreeName) ∈ parentFree :=
+    (selected_member selected binding).mpr ⟨requested _ present, outside⟩
   apply capture_vector
   intro entry member
-  obtain ⟨binding, rfl, origin⟩ := selected_origin plan.body.selects entry member
+  obtain ⟨binding, rfl, origin⟩ := selected_origin child entry member
   rcases origin with localName | moduleName
   · cases localName with
     | @enclosing name _ _ =>
@@ -121,13 +127,44 @@ theorem installs {parent : LexicalBlock} {source : Defaults.Body.Definition}
       · obtain ⟨address, value, frozen, _, slot, cell⟩ := frame.owned name owned
         exact ⟨⟨fileSlot name, address, true⟩, .enclosing slot, value, frozen, cell⟩
       · obtain ⟨address, value, frozen, _, slot, cell⟩ :=
-          frame.captured (fileSlot name) (demand plan selected member (.inr owned))
+          frame.captured (fileSlot name) (demand member (.inr owned))
         exact ⟨⟨fileSlot name, address, true⟩, .forwardedLocal slot, value, frozen, cell⟩
   · cases moduleName with
     | @module name _ _ _ =>
       obtain ⟨address, value, frozen, _, slot, cell⟩ :=
-        frame.captured (globalSlot name) (demand plan selected member (.inl rfl))
+        frame.captured (globalSlot name) (demand member (.inl rfl))
       exact ⟨⟨globalSlot name, address, false⟩, .capturedGlobal slot, value, frozen, cell⟩
+
+theorem installs {parent : LexicalBlock} {source : Defaults.Body.Definition}
+    (plan : Plan parent source) {before after : List Binding} {parentFree : List FreeName}
+    (selected : Selects parent (before ++ plan.reads ++ after) parentFree)
+    {state : State} {floor : Nat} (frame : Defaults.Body.Frame parent parentFree floor state) :
+    ∃ captures, Installs state plan.body.free captures ∧ Defaults.Body.CaptureCells state captures := by
+  apply installs_from_frame plan.body.selects selected _ frame
+  intro entry member
+  have seen : entry.source ∈ plan.reads := List.mem_append_right _ (List.mem_map.mpr ⟨_, member, rfl⟩)
+  simp only [List.mem_append, seen, or_true, true_or]
+
+theorem activate_address {block : LexicalBlock} {reads : List Binding} {declaration : Declaration}
+    (selected : Selects block reads declaration.free)
+    (slots : declaration.signature.slots ++ declaration.locals = block.owned.map fileSlot)
+    {defining : State} {captures : List Capture} (installed : Installs defining declaration.free captures)
+    (caller : State) (assigned : List (Binding × Silmaril.Languages.Starlark.Lists.Value))
+    (binding : Binding) (address : Nat) (present : (⟨binding, binding⟩ : FreeName) ∈ declaration.free)
+    (origin : Forwarding.HasAddress defining binding address) :
+    (activate caller declaration captures assigned).slots binding = some (.captured address (binding.scope == .local)) := by
+  obtain ⟨capture, found, same, receipt⟩ := Forwarding.find_receipt installed binding present
+  clear same
+  have captured : capture = ⟨binding, address, binding.scope == .local⟩ := by
+    cases receipt <;> rename_i slot <;> rcases origin with h | h <;>
+      rw [h] at slot <;> cases slot <;> rfl
+  have external : binding ∉ declaration.signature.slots ++ declaration.locals := by
+    rw [slots]
+    intro member
+    obtain ⟨name, owned, equal⟩ := List.mem_map.mp member
+    exact selected_outside_owned selected _ present name owned equal.symm
+  subst capture
+  exact activate_capture caller declaration captures ⟨binding, address, binding.scope == .local⟩ assigned found external
 
 theorem activate_forwarded {parent : LexicalBlock} {source : Defaults.Body.Definition} (plan : Plan parent source)
     {state : State} {captures : List Capture} (installed : Installs state plan.body.free captures)
@@ -136,25 +173,9 @@ theorem activate_forwarded {parent : LexicalBlock} {source : Defaults.Body.Defin
     (forwarded : state.slots (fileSlot name) = some (.captured address true)) :
     (activate caller plan.declaration captures assigned).slots (fileSlot name) =
       some (.captured address true) := by
-  obtain ⟨capture, found, _, receipt⟩ := Forwarding.find_receipt installed (fileSlot name) present
-  have captured : capture = ⟨fileSlot name, address, true⟩ := by
-    cases receipt with
-    | enclosing owned => simp [forwarded] at owned
-    | forwardedLocal slot =>
-      have equal := Option.some.inj (forwarded.symm.trans slot)
-      cases equal
-      rfl
-  have slots : plan.declaration.signature.slots ++ plan.declaration.locals = plan.body.block.owned.map fileSlot := by
-    apply Defaults.Body.declaration_slots
-    have identified := (Defaults.Lexical.translates plan.lexical).1
-    simpa using congrArg List.length identified
-  have external : fileSlot name ∉ plan.declaration.signature.slots ++ plan.declaration.locals := by
-    rw [slots]
-    rintro member
-    obtain ⟨ownedName, owned, equal⟩ := List.mem_map.mp member
-    exact selected_outside_owned plan.body.selects _ present ownedName owned equal.symm
-  subst capture
-  exact activate_capture caller plan.declaration captures ⟨fileSlot name, address, true⟩ assigned found external
+  apply activate_address plan.body.selects _ installed caller assigned (fileSlot name) address present (.inr forwarded)
+  apply Defaults.Body.declaration_slots
+  simpa using congrArg List.length (Defaults.Lexical.translates plan.lexical).1
 
 private theorem installed_record {parent : LexicalBlock} {source : Defaults.Body.Definition}
     (plan : Plan parent source) {state final : State} {floor : Nat} {parentFree : List FreeName}

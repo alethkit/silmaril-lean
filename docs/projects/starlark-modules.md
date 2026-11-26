@@ -778,14 +778,54 @@ later sibling and publication. Lean exercises the inductive rule on
 the normalized intermediate body, and the module outcomes run through
 the existing evaluator and pinned Starlark-Go.
 
-Recursive elaboration of a child's own nested suite and a source
-invocation judgment that derives provenance across escape remain open.
 The existing module theorem covers its separately documented call
-shapes. Module-wide composition of the new sequence and call rules
-through publication, wider operands, arbitrary callable provenance,
-keywords and spreads, loads, and text parsing remain outside this
-integration.
+shapes.
 [Sequence rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
+
+### Recursive elaboration of nested suites
+
+`Defaults.Nested.Sequence.Recursive.Elaborates` descends into a
+definition's child suite and the remainder of the defining suite.
+There is no fixed nesting depth. Each child collects its own
+normalized binder occurrences. The enclosing scope collects the
+child's name and any assignments in its own block. The independent
+binder order and scope judgment determine the emitted parameter and
+local slots. The enclosing reads include the default operands' reads
+followed by the child's ordered free references, even if the
+intermediate body never directly reads those names.
+
+`compiles` agrees with normalized compilation. `indices` places the
+emissions at consecutive indices after the incoming table, with
+descendants before their enclosing declaration and sibling suites in
+source order. `links` gives the exact lookup at each emitted index and
+preserves all incoming lookups. Together these results let a caller
+reuse the emitted declaration after later siblings or enclosing
+definitions have appended their entries.
+
+`installs` uses the reached parent frame to supply the ordered
+capture vector. `activate_address` preserves the address supplied by
+either an owning slot or an inherited capture. An intermediate binder
+with the same name terminates the outer demand and supplies its own
+cell. `reached` applies lexical-default evaluation and installation to
+one such definition, with exact execution and denotation on success
+or on a reached default error.
+
+The Lean control proves a grandchild suite's read order and emitted
+IDs for any incoming table. It executes a normalized module with an
+unrelated earlier declaration and checks the two closures' capture
+addresses. The shadowing variant uses the intermediate parameter's
+cell. Lean and pinned Go check both variants and rejection of a
+duplicate grandchild parameter through the existing validator.
+
+The recursive theorem covers straight-line lexical assignments,
+returns and nested definitions with the bounded positional default
+operands. Syntax validation remains in checked module resolution.
+Composing the reached steps into execution of the recursive suite,
+tracking escaped closure provenance through source call operands,
+and integrating those calls with module dispatch and publication
+remain open. Wider operands, arbitrary callable provenance, keywords
+and spreads, loads, and text parsing are outside this integration.
+[Recursive source rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
 
 ## Finite-manifest loader
 
