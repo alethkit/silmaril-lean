@@ -1,6 +1,9 @@
 module
 
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Diagnostic.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Thms
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Diagnostic.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Replay.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.MLIR.MemRef.Defs
 
@@ -126,5 +129,17 @@ private def probes (graph : Memory.Graph Args) (input : Tuple (Val 5) Args) : Li
   (facts.entry.check aliasInput, facts.arms.toList.map (fun arm => arm.check aliasInput))) ==
   some (true, [false, true, true])
 #guard (admitted.bind fun stage => reuse stage aliasInput).isNone
+
+-- Only occurrence zero has the failing read. Occurrence one shares its predecessor ID.
+private def recorded := Replay.lower preds fits entry arms suffix oldInput [.expect 1]
+private def diagnosed := Chain.Diagnostic.lower recorded entry aliasInput
+
+#guard diagnosed.checkedPrefix.replay.deleted == 0 && diagnosed.checkedPrefix.pending.length == 1
+#guard (diagnosed.refusal.map fun report =>
+  let site := match report.conflict.site with
+    | .entry _ => none
+    | .arm occurrence index => some (occurrence.val, index)
+  (report.stageIndex, report.version, report.store.index, site, report.conflict.port.index,
+    report.conflict.address.val)) == some (0, 1, 0, some (0, 0), 3, 1)
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse
