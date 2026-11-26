@@ -882,3 +882,13 @@ root = "SqliteWriteProfile"
 name = "arrow_ipc_metadata_tests"
 srcDir = "tests/formats/arrow-ipc"
 root = "MetadataTests"
+
+[[lean_exe]]
+name = "parquet-footer-regression"
+srcDir = "tools/parquet-footer"
+root = "ParquetFooterRegression"
+needs = ["parquetFooterFixture"]
+
+[[input_file]]
+name = "parquetFooterFixture"
+path = "tools/parquet-footer/fixtures/alltypes_plain.parquet"
