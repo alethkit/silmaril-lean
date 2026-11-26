@@ -51,10 +51,10 @@ def cut (g : Graph Φ A I M E D) :
 
 /-- Bound the recursive parser using the size of the actual nested term.
 The bound counts both arm and continuation terms. -/
-def budget :
+def budget {Op : Dialect (V := τ) (S := PUnit.{u+1})} :
     {args outs : Ports (OrderedRuntime.Structured.Ty τ)} →
     {past sigs : List (Ports (OrderedRuntime.Structured.Ty τ))} →
-    NestedTheta.Term (Wires.Op Φ) args past sigs outs → Nat
+    NestedTheta.Term Op args past sigs outs → Nat
   | _, _, _, _, .ret _ => 1
   | _, _, _, _, .bind node children tail =>
     1 + (List.ofFn (n := node.kind.arity) (fun i => budget (children i))).sum + budget tail

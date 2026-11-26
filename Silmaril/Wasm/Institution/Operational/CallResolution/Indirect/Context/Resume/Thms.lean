@@ -16,6 +16,15 @@ open CallContinuation
 open CallContinuation.OuterCall.Ranked
 open Wasm.SingleThreaded.Det (noHost)
 
+theorem plug_admitted {program : Graph.Program} {fn : Graph.Function}
+    {locals : List Value} {body : Graph.Body} (blocks : List Block) (saved : List Value)
+    (fallthrough : List NumType) (enclosing : Graph.EnclosingLabels)
+    (checked : Block.check fn blocks saved fallthrough enclosing = true)
+    (inside : let types := Block.context blocks fallthrough enclosing
+      Graph.AdmittedAt program fn types.1 types.2 (.label locals body)) :
+    Graph.AdmittedAt program fn fallthrough enclosing (.label locals (Block.plug blocks saved body)) :=
+  Proofs.plug_admitted blocks saved fallthrough enclosing checked inside
+
 theorem resume_admitted {cont : Continuation} {program : Graph.Program} {caller : Frame}
     {saved : List Value} {results : List NumType} {result : Nested.Result}
     (checked : cont.Checked program caller saved results)
@@ -113,6 +122,12 @@ theorem core_run_iff (checked : call.Checked program) (allocated : program.CoreA
       ∃ out, Runs program call cont (.callee call.entered) out ∧ dst = cont.coreConfig call s outer out :=
   Proofs.Core.run_iff checked allocated continuation tableFound
 
+theorem core_plug_code (blocks : List Block) (saved : List Value) (body : Graph.Body)
+    (cfg : Core.Config H) (code : cfg.code = body.render Graph.coreAdmin) :
+    (Context.coreNest (Block.scopes blocks saved) cfg).code =
+      (Block.plug blocks saved body).render Graph.coreAdmin :=
+  Proofs.Core.plug_code blocks saved body cfg code
+
 end Core
 
 section Lime1
@@ -180,6 +195,12 @@ theorem lime_run_iff (checked : call.Checked program) (allocated : program.LimeA
       dst ∈ (cont.limePrefix call s outer).dropLast ∨
       ∃ out, Runs program call cont (.callee call.entered) out ∧ dst = cont.limeConfig call s outer out :=
   Proofs.Lime1.run_iff checked allocated continuation tableFound
+
+theorem lime_plug_code (blocks : List Block) (saved : List Value) (body : Graph.Body)
+    (cfg : Config H) (code : cfg.code = body.render Graph.limeAdmin) :
+    (Context.limeNest (Block.scopes blocks saved) cfg).code =
+      (Block.plug blocks saved body).render Graph.limeAdmin :=
+  Proofs.Lime1.plug_code blocks saved body cfg code
 
 end Lime1
 

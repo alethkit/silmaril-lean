@@ -10,6 +10,106 @@ positions and mapping the sorts of the corresponding profiles. The maps can
 identify sorts or symbols. [Definitions](../../Silmaril/SSA/MLIR/Institution/Defs.lean) ·
 [Institution laws](../../Silmaril/SSA/MLIR/Institution/Thms.lean)
 
+## Typed signature category
+
+`Silmaril.SSA.MLIR.Signature.Thms` exposes the signature category on its own.
+`Signature.withRegions` is a fully faithful functor from `Signature false` to
+`Signature true`. It keeps the sorts and symbols and gives each operation zero
+region slots. `includeRegionless` gives a natural family of `Room` corridors
+along this functor. It translates equations forward and restricts models
+backward, preserving and reflecting satisfaction in each model.
+[Signature API](../../Silmaril/SSA/MLIR/Signature/Thms.lean) ·
+[Institution inclusion](../../Silmaril/SSA/MLIR/Institution/Regionless/Thms.lean)
+
+`Signature.disjointSum` is a binary coproduct for either choice of region
+policy. It tags sorts and operation symbols by dialect, including when both
+dialects start with the same sort type. The mediator can identify the images
+of two tagged sorts. `disjointSum.isColimit` checks both factorization laws
+and uniqueness in the signature category.
+
+`Signature.FixedSorts` gives the category over a specified common sort type.
+Its arrows fix each sort and act on symbols at each complete profile.
+`FixedSorts.sum` takes a disjoint sum of symbol families at each profile,
+leaving one copy of the common sorts. `FixedSorts.sum.isColimit` proves the
+universal property in that category. `FixedSorts.toSignature` reads these
+arrows as renamings with identity sort maps. Both categories provide Mathlib's
+`HasBinaryCoproducts` instance. [Fixed-sort API](../../Silmaril/SSA/MLIR/Signature/FixedSorts/Thms.lean)
+
+`Signature.Hom` renames symbols one at a time. An `Interpretation` can expand
+a regionless primitive to a target block and can forward an operation with
+regions at its mapped profile. [Typed interpretations](mlir-pure-interpretations.md)
+
+```sh
+lake build --wfail +Silmaril.SSA.MLIR.Signature.Thms \
+  +Silmaril.SSA.MLIR.Signature.FixedSorts.Thms \
+  +Silmaril.SSA.MLIR.Institution.Regionless.Thms
+```
+
+### Extending an isolated dialect at fixed sorts
+
+The fixed-sort coproduct allows fresh labels with region slots when the region
+flag is `true`. It retains the common sorts and the full ordered operand,
+result, parameter, and yield profiles. Its universal property is in the
+identity-sort fiber. Two unrestricted renamings can disagree on a shared sort,
+so they need not have a mediator from the fixed-sort sum. The disjoint-sort
+coproduct gives them separate copies of that sort.
+
+The checked example adds one execute-once label with an explicit parameter and
+a yielded result. The body uses old Arith addition and receives only the
+declared parameter. Lean identifies the coproduct mediator that keeps old
+labels and maps the fresh one to Arith's existing isolated application. It
+checks the doubled result before and after renaming at every positive width,
+including `200 : i8` yielding `144` with an unused outer input.
+[Example and theorems](../../Silmaril/SSA/MLIR/Signature/FixedSorts/Examples/Thms.lean)
+
+The example uses the pure total expression model. Upstream `scf.execute_region`
+has no entry arguments and can access dominating captures and contain multiple
+blocks. The separate `scf.while` to CF development checks successor transfers,
+finite returns, and divergence for its single-loop fragment. The fixed-sort
+result concerns symbol renamings, with separate laws for operation-to-block
+interpretations and model reducts.
+[#3167 structural lowering](https://github.com/hiloopai/silmaril-lean/pull/3167) ·
+[#3169 zero-region primitive extension](https://github.com/hiloopai/silmaril-lean/pull/3169) ·
+[Upstream SCF reference](https://mlir.llvm.org/docs/Dialects/SCFDialect/#scfexecute_region-scfexecuteregionop)
+
+```sh
+lake build --wfail +Silmaril.SSA.MLIR.Signature.FixedSorts.Examples.Thms
+make check CHECK_TARGETS=+Silmaril.SSA.MLIR.Signature.FixedSorts.Examples.Thms
+```
+
+### Freely choosing a generator map
+
+Fix a sort type, a region flag, and a generator signature `C` in
+`Signature.FixedSorts`. An object of `Under C` consists of a signature `X`
+and a chosen renaming `c : C ⟶ X`. An arrow `f : X ⟶ X'` preserves this
+choice when `c ≫ f = c'`. The forgetful functor drops the chosen renaming.
+Its left adjoint sends `S` to the left injection `C ⟶ C ⨿ S`, using the
+fixed-sort coproduct. The natural hom equivalence sends an arrow under `C`
+to its restriction to `S`. Its inverse combines the chosen map `c` with the
+given renaming from `S` by coproduct elimination.
+
+`chosenGeneratorsMonad C` is the monad induced by this adjunction on
+`FixedSorts` for the same sort type and region flag. Its functor adds `C` on
+the left and acts on a renaming `f` by `𝟙 C ⨿ f`.
+The unit is the right injection. Multiplication from `C ⨿ (C ⨿ S)` takes the
+outer copy of `C` to the inner left injection and acts as identity on the
+inner `C ⨿ S`, so the two copies choose the same generator labels. Mathlib's
+`Monad` checks naturality of the unit and multiplication, both unit laws,
+and associativity. The construction specifies chosen renamings of labels.
+Operational control still requires an execution semantics for the relevant syntax.
+[Adjunction and component laws](../../Silmaril/SSA/MLIR/Signature/FixedSorts/ChosenGenerators/Thms.lean)
+
+The fixed-sort coproduct shares the sort type and tags the labels of both
+summands. The disjoint-sort coproduct also tags the sorts. A shared-base pushout
+starts with a span `C ← B → S` and requires its two maps out to agree on the
+image of `B`. Any identifications from that span are part of the pushout data.
+
+```sh
+lake build --wfail +Silmaril.SSA.MLIR.Signature.FixedSorts.ChosenGenerators.Thms
+```
+
+## Sentences and models
+
 A block has one expression per yielded value. An application selects a result
 from a pure total operation. Each body is typed in precisely its declared
 parameter context. A set model assigns a carrier to each sort and interprets
@@ -42,14 +142,9 @@ independent width-one value still in the ambient context.
 [Arithmetic theorems](../../Silmaril/SSA/MLIR/Institution/Arith/Thms.lean) ·
 [Examples](../../Silmaril/SSA/MLIR/Institution/Arith/Examples/Thms.lean)
 
-A signature map replaces each symbol with one symbol at its mapped profile.
-An operation-to-block lowering replaces an application with a typed program.
-For example, replacing doubling by addition with materializing two and
-multiplying uses a different block shape. `Arith.Examples.double_lowering_denote`
-transfers the scalar rewrite to institution denotations for every positive
-width. Lowerings specified by target blocks would require a translation on
-syntax respecting substitution and isolated binding, with an interpretation
-hypothesis for each replacement and a contextual preservation proof.
+`Arith.Examples.double_lowering_denote` transfers the scalar rewrite from
+addition-based doubling to multiplication by two to institution denotations
+for every positive width.
 
 ## Categorical scope
 
@@ -60,18 +155,15 @@ substitution. `Syntax.denote` interprets arrows as total functions in `Type`.
 `Syntax.map` acts on contexts and blocks and `Syntax.map_denote` proves the
 reindexing square. [Syntax category](../../Silmaril/SSA/MLIR/Institution/Syntax/Defs.lean)
 
-For a category modulo a chosen equational theory, define typed equivalence
-closed under simultaneous substitution and congruence in operands and region
-bodies, then prove composition and evaluation descend. Finite products need a
-terminal empty context and the universal property of context concatenation.
-A binder interpretation outside `Type` needs a specified representation of
-region functions, for example exponentials, and their coherence laws. A
-categorical comparison with [LambdaSSA or LetIter](ssa.md) also needs a target
-fragment with matching interfaces and observation equivalence, a map of
-contexts and typed arrows respecting composition and congruence, and an
-adequacy or inverse theorem at the intended quotient. The checked comparison
-here is per arithmetic block. The [existing Elgot/Freyd model interface](../../Silmaril/SSA/Thesis/Categorical/Thms.lean)
-would require its own coherence hypotheses for an extension with effects.
+The observational quotient identifies parallel arrows that agree in selected
+models. The empty context is terminal and concatenation gives binary products.
+The arithmetic comparison relates parallel single-result arrows to typed
+return observations in LambdaSSA and LetIter. [Observational quotient and comparison](mlir-pure-interpretations.md)
+
+A binder interpretation outside `Type` needs a representation of region
+functions and coherence laws. A categorical comparison with LambdaSSA or
+LetIter also needs a target observation category and a composition-preserving
+map of contexts and arrows. [SSA categorical results](ssa.md)
 
 This expression syntax treats SSA sharing as unobservable. Coverage is pure
 total operations with isolated region bodies. It excludes captures, multiblock

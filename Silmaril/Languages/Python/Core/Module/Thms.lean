@@ -7,6 +7,11 @@ public section
 
 namespace Silmaril.Languages.Python.Core.Module
 
+theorem Identity.scan_iff {ε : Type} (left : Singleton)
+    (links : List (IdentityOperator × (Unit → Except ε Singleton))) (result : Except ε Bool) :
+    Identity.scan left links = result ↔ Identity.Scans left links result :=
+  Proofs.Languages.Python.Core.Module.identity_scan_iff left links result
+
 open Semantics.Operational
 
 theorem Globals.lookup_bind (globals : Globals) (name : GlobalName) (value : Value) :

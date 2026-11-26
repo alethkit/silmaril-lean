@@ -170,12 +170,15 @@ def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
 
 def Body.validateCalls (body : Body) : Except CallStaticError Unit := body.validateIn false
 
+def Declaration.validate (declaration : Declaration) : Except CallStaticError Unit := do
+  declaration.signature.validate
+  for (_, value) in declaration.signature.defaulted do
+    value.validateCalls
+  declaration.body.validateCalls
+
 def validate (program : Program) (body : Body) : Except CallStaticError Unit := do
   for declaration in program do
-    declaration.signature.validate
-    for (_, value) in declaration.signature.defaulted do
-      value.validateCalls
-    declaration.body.validateCalls
+    declaration.validate
   body.validateCalls
 
 def restoreCaller (caller state : State) : State :=

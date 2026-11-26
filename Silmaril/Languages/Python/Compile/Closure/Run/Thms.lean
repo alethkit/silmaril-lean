@@ -55,6 +55,56 @@ theorem run_path {source : Source.Module} {compiled : Compiled source} {argument
     simpa [run, started] using observed
   simpa only [exactRun] using Core.Closure.Executor.run_path compiled.table fuel initial
 
+/-- Returning a newly created closure reads only the current frame to
+build its descriptor. The next state delivers that descriptor and the same heap. -/
+theorem returnClosure_delivers {layout : Layout} (table : Core.Closure.Executor.CodeTable)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap)
+    (frame : Core.Closure.Frame layout) (ref : CodeRef)
+    (captures : Fin ref.layout.captures → Core.Closure.CaptureSlot layout)
+    (stack : Core.Closure.Executor.Stack) :
+    Core.Closure.Executor.StepIn table globals (.running heap frame (.ret (.closure ref captures)) stack)
+      none (.delivering heap stack (.ok (.function (frame.closure ref captures)))) :=
+  .ret (.closure ref captures)
+
+/-- The lexical descriptor uses the current frame, then operands are read
+in order. Dispatch enters the child with an ordinary return continuation. -/
+theorem returnClosureCall_enters {table : Core.Closure.Executor.CodeTable}
+    {globals : Core.Closure.Executor.GlobalLookup} {heap : Core.Closure.Heap}
+    {layout : Layout} {frame : Core.Closure.Frame layout} {ref : CodeRef}
+    {captures : Fin ref.layout.captures → Core.Closure.CaptureSlot layout}
+    {stack : Core.Closure.Executor.Stack} {operands : List (Core.Closure.Executor.Operand layout)}
+    {values : List Value} {active : Core.Closure.Dispatch.Active Core.Closure.Executor.Body
+      Core.Closure.Executor.Continuation}
+    (arguments : Core.Closure.Executor.ArgumentsIn globals heap frame operands (.ok values))
+    (entered : Core.Closure.Dispatch.Dispatches table values heap ⟨layout, frame, none⟩ stack
+      (.function (frame.closure ref captures)) active) :
+    Core.Closure.Executor.StepIn table globals
+      (.running heap frame (.returnCall (.closure ref captures) operands) stack)
+      (some (.enter (.function (frame.closure ref captures)))) (Core.Closure.Executor.enter active) :=
+  .call (.ok (.closure ref captures) arguments) entered
+
+theorem returnClosureCall_argumentError {table : Core.Closure.Executor.CodeTable}
+    {globals : Core.Closure.Executor.GlobalLookup} {heap : Core.Closure.Heap}
+    {layout : Layout} {frame : Core.Closure.Frame layout} {ref : CodeRef}
+    {captures : Fin ref.layout.captures → Core.Closure.CaptureSlot layout}
+    {stack : Core.Closure.Executor.Stack} {operands : List (Core.Closure.Executor.Operand layout)}
+    {error : Core.Closure.RuntimeError}
+    (failed : Core.Closure.Executor.ArgumentsIn globals heap frame operands (.error (.defined error))) :
+    Core.Closure.Executor.StepIn table globals
+      (.running heap frame (.returnCall (.closure ref captures) operands) stack)
+      none (.delivering heap stack (.error error)) :=
+  .callError (.argumentError (.closure ref captures) failed)
+
+theorem returnClosureCall_forwards (table : Core.Closure.Executor.CodeTable)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap)
+    {layout : Layout} (frame : Core.Closure.Frame layout) (stack : Core.Closure.Executor.Stack)
+    (result : Core.Closure.Result) :
+    Core.Closure.Executor.StepIn table globals (.receiving heap ⟨layout, frame, none⟩ stack result)
+      none (.delivering heap stack result) := by
+  cases result with
+  | ok value => exact .receiveReturn rfl
+  | error error => exact .receiveError heap _ stack error
+
 /-- After successful call delivery, the returned value occupies the
 private local and the remaining body returns that value. -/
 theorem returnedLocalCall_resume {layout : Layout} (heap : Core.Closure.Heap)

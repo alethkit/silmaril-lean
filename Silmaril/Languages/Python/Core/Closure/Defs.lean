@@ -91,6 +91,7 @@ inductive RuntimeError where
   | positionalArity (expected actual : Nat)
   | notCallable
   | additionTypeError
+  | multiplicationTypeError
   | assertionError
   | arithmetic (error : Exception)
   deriving DecidableEq, Repr
@@ -108,12 +109,27 @@ def Value.asInt? : Value → Option Int
   | .bool true => some 1
   | .none | .function _ => Option.none
 
-/-- Add already evaluated operands. The modeled nonnumeric values are
-plain functions and None, without custom numeric methods. -/
-def Value.addInt (left right : Value) : Except Failure Value :=
+inductive IntegerOp where
+  | add
+  | mul
+  deriving DecidableEq, Repr
+
+def IntegerOp.eval : IntegerOp → Int → Int → Int
+  | .add, lhs, rhs => lhs + rhs
+  | .mul, lhs, rhs => lhs * rhs
+
+def IntegerOp.typeError : IntegerOp → RuntimeError
+  | .add => .additionTypeError
+  | .mul => .multiplicationTypeError
+
+/-- Apply exact integer arithmetic after both operands have been read.
+The other modeled values are None and plain functions. -/
+def Value.binaryInt (op : IntegerOp) (left right : Value) : Except Failure Value :=
   match left.asInt?, right.asInt? with
-  | some lhs, some rhs => ((BinOp.add.eval lhs rhs).map .int).mapError (.defined ∘ .arithmetic)
-  | _, _ => .error (.defined .additionTypeError)
+  | some lhs, some rhs => .ok (.int (op.eval lhs rhs))
+  | _, _ => .error (.defined op.typeError)
+
+abbrev Value.addInt := Value.binaryInt .add
 
 abbrev Result := Except RuntimeError Value
 

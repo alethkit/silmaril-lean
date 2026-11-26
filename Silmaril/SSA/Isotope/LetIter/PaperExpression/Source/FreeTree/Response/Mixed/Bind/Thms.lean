@@ -23,6 +23,11 @@ universe u r
 variable {α Φ Ψ : Type u} (S : Signature α Φ) (T : SumSignature α Ψ) {a c : α}
   {n m : Nat} {slots : Fin n → α} {target : Fin m → α}
 
+theorem tree_subst_source (p : Tree S slots c) (σ : Sequence.TreeSubst S slots target)
+    (ξ : Nat → Expr (Φ ⊕ Ψ)) (h : ∀ i : Fin n, ξ i.val = treeSource S (σ i)) :
+    treeSource S (p.interpret S (Tree S target) Tree.op σ) = (treeSource S p).subst ξ :=
+  BindProofs.tree_subst_source S p σ ξ h
+
 theorem subst_source (p : Program S T c slots) (σ : Sequence.TreeSubst S slots target)
     (ξ : Nat → Expr (Φ ⊕ Ψ)) (h : ∀ i : Fin n, ξ i.val = treeSource S (σ i)) :
     (subst S T p σ).source = p.source.subst ξ :=

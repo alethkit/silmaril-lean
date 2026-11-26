@@ -472,10 +472,50 @@ globs = ["tests.ssa.LetIterPackingImports.+"]
 name = "LetIterWeakTreeSoundnessTests"
 globs = ["tests.ssa.LetIterWeakTreeSoundness"]
 
-# Check the typed PEG core and the paper guard counterexample.
+# Check the typed PEG core, the paper guard counterexample, and SIMPLE translation and reversion.
 [[lean_lib]]
 name = "PEGCoreTests"
-globs = ["tests.ssa.PEG", "tests.ssa.PEGSimple"]
+globs = ["tests.ssa.PEG", "tests.ssa.PEGSimple", "tests.ssa.PEGRevert"]
+
+# Check finite first-exit agreement for the actual PEG and RVSDG loop evaluators.
+[[lean_lib]]
+name = "PEGStructuredThetaTests"
+globs = ["tests.ssa.PEGStructuredTheta"]
+
+# Check the PEG bridge against the Figure 11, ordered RVSDG and MLIR evaluators.
+[[lean_lib]]
+name = "PEGIRBridgeTests"
+globs = ["tests.ssa.PEGIRBridge"]
+
+# Check PEG lowering into the existing λRTL region and flat CFG evaluators.
+[[lean_lib]]
+name = "PEGForwardCFGTests"
+globs = ["tests.ssa.PEGForwardCFG"]
+
+# Check open PEG equations and composition of Peggy opcode translations.
+[[lean_lib]]
+name = "PeggyDialectTests"
+globs = ["tests.ssa.PeggyDialect"]
+
+# Check typed acyclic PEG unfolding and sorted Egg replay.
+[[lean_lib]]
+name = "PeggyEggTests"
+globs = ["tests.ssa.PeggyEgg"]
+
+# Check fixed-sort Peggy satisfaction against guarded Figure 11 denotation.
+[[lean_lib]]
+name = "PeggyInstitutionTests"
+globs = ["tests.ssa.PeggyInstitution"]
+
+# Check the ordinary many-sorted equational comorphism into total-primitive Peggy.
+[[lean_lib]]
+name = "PeggyEquationalTests"
+globs = ["tests.ssa.PeggyEquational"]
+
+# Check guarded Figure 11 rewrites, including cyclic feedback and negative cases.
+[[lean_lib]]
+name = "PEGRulesTests"
+globs = ["tests.ssa.PEGRules"]
 
 # The component and generator tools of the Wasm release (docs/projects/wasm-components.md).
 [[lean_exe]]

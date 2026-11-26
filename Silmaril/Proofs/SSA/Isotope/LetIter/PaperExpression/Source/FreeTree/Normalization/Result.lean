@@ -16,25 +16,36 @@ open Silmaril.Isotope.LetIter.Semantics.Categorical (denote_eq_of_abortEquiv_nil
 
 namespace Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Normalization.Value.Proofs
 
-universe u r
+universe u v r
 variable {α Φ : Type u} (S : Signature α Φ) {n : Nat} {sorts : Fin n → α}
 
-def ofDenote : (A : Ty α) → Ty.denote (Tree S sorts) A → Value S sorts A
-  | .base _, t => .tree t
-  | .unit, _ => .unit
-  | .empty, z => z.elim
-  | .product A B, (x, y) => .pair (ofDenote A x) (ofDenote B y)
-  | .coprod A _, .inl x => .inl (ofDenote A x)
-  | .coprod _ B, .inr y => .inr (ofDenote B y)
-
-theorem ofDenote_denote {A : Ty α} (p : Value S sorts A) :
-    ofDenote S A (denote S p) = p := by
-  induction p <;> simp [denote, ofDenote, *]
+public theorem denoteWith_injective {F : α → Type v} (atom : ∀ {a}, Tree S sorts a → F a)
+    (hinj : ∀ a, Function.Injective (@atom a)) {A : Ty α} :
+    Function.Injective (denoteWith S atom (A := A)) := by
+  intro p
+  induction p with
+  | tree p =>
+    intro q he
+    cases q with | tree q => exact congrArg Value.tree (hinj _ he)
+  | unit => intro q _; cases q; rfl
+  | pair p q ihp ihq =>
+    intro r he
+    cases r with
+    | pair p' q' => exact congrArg₂ Value.pair (ihp (congrArg Prod.fst he)) (ihq (congrArg Prod.snd he))
+  | inl p ih =>
+    intro q he
+    cases q with
+    | inl q => exact congrArg Value.inl (ih (Sum.inl.inj he))
+    | inr q => cases he
+  | inr p ih =>
+    intro q he
+    cases q with
+    | inl q => cases he
+    | inr q => exact congrArg Value.inr (ih (Sum.inr.inj he))
 
 public theorem denote_injective {A : Ty α} :
-    Function.Injective (denote S (sorts := sorts) (A := A)) := by
-  intro p q he
-  simpa only [ofDenote_denote] using congrArg (ofDenote S A) he
+    Function.Injective (denote S (sorts := sorts) (A := A)) :=
+  denoteWith_injective S (fun t => t) (fun _ => Function.injective_id)
 
 public theorem lowers {A : Ty α} (p : Value S sorts A) :
     (p.source S).toLetIter n = some (native S p) := by

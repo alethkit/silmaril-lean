@@ -646,6 +646,35 @@ rows = [[0]]
 	fmt.Println("PASS failed RHS skips all leaves, and later unpack, receiver and store errors keep earlier writes")
 }
 
+func checkMixedTargetScope() {
+	g, err := run(`i = 8
+xs = [7]
+rows = [0, 9]
+def outer():
+    alias = xs
+    def inner():
+        (i, alias[i]) = [i for i in rows]
+        return i
+    return inner()
+out = (outer(), xs[0], i)
+item = [6]
+first = [item for item in item]
+`)
+	require(err == nil && g["out"].String() == "(0, 9, 8)" && g["first"].String() == "[6]",
+		fmt.Sprint(g, err))
+
+	g, err = run(`xs = [7]
+alias = xs
+rows = [0, 9, 10]
+(i, alias[i], xs[8]) = [item for item in rows]
+`)
+	checkError(err, "out of range")
+	require(g["i"].String() == "0" && g["xs"] == g["alias"] && g["alias"].String() == "[9]",
+		fmt.Sprint(g, err))
+	require(g["rows"].(*starlark.List).Append(starlark.None) == nil, "assignment left the RHS guard active")
+	fmt.Println("PASS local shadowing, captured receiver, enclosing first iterable, and partial module writes")
+}
+
 func main() {
 	checkLists()
 	checkDictionaries()
@@ -658,4 +687,5 @@ func main() {
 	checkDefaults()
 	checkPatternAssignment()
 	checkMixedTargets()
+	checkMixedTargetScope()
 }
