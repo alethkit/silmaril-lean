@@ -65,6 +65,8 @@ cache:
 		echo 'No remote artifact bucket configured; public dependencies are ready.'; \
 	fi
 
+CHECK_TARGETS += PEGStructuredThetaTests
+
 # The release suites run when CHECK_TARGETS holds the executables. A change scoped to a library
 # that wasm-opt imports puts only wasm-opt in scope, so the other release binaries are built first.
 RELEASE_BINARIES := wasm-opt wasm-as wasm-dis wasm-merge wasm-shell wasm-ctor-eval wasm-metadce wasm-shell-lean
