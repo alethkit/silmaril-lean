@@ -83,6 +83,11 @@ theorem replay_fact_conflict (map : PortMap S T) (p : AdmittedAt S result)
     replay map p = .error .incompatibleFacts := by
   simp [replay, (checkWrites_iff _ _).mpr safe, refused]
 
+theorem admit_fields (body : Program Op T.regs (.data result)) (facts : EntryFacts T.regs)
+    (accepted : AdmittedAt T result) (ok : @admit _ _ T.bankEq body facts = .ok accepted) :
+    @Admitted.source _ _ T.bankEq accepted = body ∧ @Admitted.facts _ _ T.bankEq accepted = facts :=
+  Proofs.admit_fields body facts accepted ok
+
 variable (map : PortMap S T) (p : AdmittedAt S result) {target : Generated T result}
 variable (ok : compile map p = .ok target)
 
@@ -101,6 +106,10 @@ theorem compile_admit :
 theorem compile_source :
     @Admitted.source _ _ T.bankEq target.source = program map (@Admitted.source _ _ S.bankEq p) :=
   Proofs.compile_source map p target ok
+
+theorem compile_facts :
+    pushFacts map (@Admitted.facts _ _ S.bankEq p) = some (@Admitted.facts _ _ T.bankEq target.source) :=
+  Proofs.compile_facts map p target ok
 
 theorem compile_coverage (input : Valuation T) :
     TupleCovers (@Admitted.facts _ _ T.bankEq target.source) input ↔
