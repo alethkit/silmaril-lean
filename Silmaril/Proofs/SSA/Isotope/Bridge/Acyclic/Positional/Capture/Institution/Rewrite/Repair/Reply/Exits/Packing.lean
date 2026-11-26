@@ -87,7 +87,8 @@ theorem exitOperand_run_proof {L : List Sorts} {n : Nat} {β : BoundCtx Sorts n}
 theorem router_run_proof (M : InstructionModel value P.Instr m)
     {K : List Sorts} {j : Nat} {D : Sorts} (fallback : At K j D)
     (L : List Sorts) {f : Nat → Nat} (ren : Ren L K f)
-    {n : Nat} {β : BoundCtx Sorts n} (s : Scope .nil β) (ρ : BoundEnv value β)
+    {k n : Nat} {γ : BoundCtx Sorts k} {β : BoundCtx Sorts n}
+    (s : Scope γ β) (ρ : BoundEnv value β)
     (i : Nat) {A : Sorts} (h : At L i A) (x : value A) :
     Kleisli.run M ((router fallback L ren).render s).encode.toLetCase.2
       (ρ.snoc (A := packedExitType L) (packAt L i h x)) = pure (packAt K (f i) (ren h) x) := by
@@ -95,7 +96,7 @@ theorem router_run_proof (M : InstructionModel value P.Instr m)
   | nil => cases i <;> contradiction
   | cons H L ih =>
     let T := packedExitType (H :: L)
-    let next := router (Φ := P.Instr)
+    let next := router (Φ := P.Instr) (β := γ)
       fallback L (ρ := fun i => f (i + 1)) (fun _ _ h => ren h)
     let left : Operand P.Instr ((β.snoc T).snoc H) (packedExitType K) :=
       FiniteExit.tag K (f 0) (ren (rfl : At (H :: L) 0 H)) ⟨.bv 0, .bv⟩

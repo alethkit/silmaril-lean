@@ -35,7 +35,8 @@ theorem run_tag {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β)
 original position with the same payload. -/
 theorem run_router {K : List Sorts} {j : Nat} {D : Sorts} (fallback : At K j D)
     (L : List Sorts) {f : Nat → Nat} (ren : Ren L K f)
-    {n : Nat} {β : BoundCtx Sorts n} (s : Scope .nil β) (ρ : BoundEnv value β)
+    {k n : Nat} {γ : BoundCtx Sorts k} {β : BoundCtx Sorts n}
+    (s : Scope γ β) (ρ : BoundEnv value β)
     (i : Nat) {A : Sorts} (h : At L i A) (x : value A) :
     Kleisli.run M ((router fallback L ren).render s).encode.toLetCase.2
       (ρ.snoc (A := packedExitType L) (packAt L i h x)) = pure (packAt K (f i) (ren h) x) :=
