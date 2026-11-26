@@ -108,14 +108,8 @@ theorem request_denote (M : Shape.Model.{0,0,v,w} Instr Γ) (f : Instr) (s : M.r
   | fault t => exact request_fault M f s t
   | diverge => exact request_diverges M f s
 
-private def exitBehaviour {α : Type v} {σ : Type w} (e : Exit) (s : σ) :
-    Behaviour Exits.length α σ :=
-  match e with
-  | .ret i => WithTop.some {Outcome.ret i .unit s}
-  | .ub => ⊤
-
-private theorem exit_denote (e : Exit) (M : Institution.Observational.Model.{0,v,w} Instr Γ.length)
-    (s : M.σ) : denote (e.region (Γ := Γ)) M s = exitBehaviour e s := by
+theorem exit_denote (e : Exit) (M : Institution.Observational.Model.{0,v,w} Instr Γ.length)
+    (s : M.σ) : denote (e.region (Γ := Γ)) M s = e.behaviour s := by
   cases e with
   | ub => rfl
   | ret i =>
@@ -149,9 +143,9 @@ private theorem exit_denote (e : Exit) (M : Institution.Observational.Model.{0,v
       · intro eq
         cases eq
 
-private theorem exit_order {α : Type v} {σ : Type w} (p q : Exit) (s : σ) :
-    (exitBehaviour p s : Behaviour Exits.length α σ) ≤ exitBehaviour q s ↔ p.Refines q := by
-  cases p <;> cases q <;> simp [Exit.Refines, exitBehaviour, WithTop.coe_le_coe]
+theorem exit_order {α : Type v} {σ : Type w} (p q : Exit) (s : σ) :
+    (p.behaviour s : Behaviour Exits.length α σ) ≤ q.behaviour s ↔ p.Refines q := by
+  cases p <;> cases q <;> simp [Exit.Refines, Exit.behaviour, WithTop.coe_le_coe]
 
 theorem shaped_sound (p q : Endpoint) (h : NormalRefines p q) (M : Shape.Model.{0,0,v,w} Instr [])
     (s : M.raw.σ) : Shape.denote p.region M s ≤ Shape.denote q.region M s := by
@@ -198,7 +192,7 @@ private theorem row_top (r : Row) (M : Shape.Model.{0,0,v,w} Instr Γ) (s : M.ra
     rw [exit_denote] at top
     refine ⟨j, t, step, ?_⟩
     cases selected : r.exit j with
-    | ret i => simp [selected, exitBehaviour] at top
+    | ret i => simp [selected, Exit.behaviour] at top
     | ub => rfl
   · rintro ⟨j, t, step, ub⟩
     refine ⟨j, .unit, t, (request_ordinary M r.key s t j .unit).mpr ⟨rfl, step⟩, ?_⟩
@@ -248,42 +242,47 @@ private theorem request_finite {n : Nat} (h : Handler n) (env : Syntax.Bindings 
   · exact ⟨Syntax.Reply.fault.inj, congrArg Syntax.Reply.fault⟩
   · rfl
 
+theorem request_bind_finite {n : Nat} (h : Handler n) (env : Syntax.Bindings Γ)
+    (f : Instr) (s : Fin n) (k : (i : Tag) → LambdaSSA.UB.Overlay.Region Instr (Exits.get i :: Γ) Exits) :
+    Shape.denote (.lsubst (.native (request f Γ)) k) (Syntax.model h.primitives env) s =
+      match h f s with
+      | .reply i t => Shape.denote (k i)
+          (Syntax.model h.primitives (env.push ⟨.unit, exit_type i ▸ .unit⟩)) t
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge} := by
+  let M := Syntax.model h.primitives env
+  let next (i : Tag) a t := denote (k i) (extendModel M.raw a) t
+  change (Shape.denote (.native (request f Γ)) M s).bind next = _
+  rw [request_finite]
+  cases h f s with
+  | reply i t =>
+    change Behaviour.bind (WithTop.some {Outcome.ret i (Value.unit : Value Unit) t}) next = _
+    rw [return_bind]
+    exact denote_push h.primitives env ⟨.unit, exit_type i ▸ .unit⟩ (k i) t
+  | fault t => exact fault_bind t next
+  | diverge => exact diverge_bind next
+
 private theorem row_finite {n : Nat} (r : Row) (h : Handler n) (env : Syntax.Bindings Γ)
     (s : Fin n) :
     Shape.denote r.region (Syntax.model h.primitives env) s = resultBehaviour (r.execute h s) := by
-  let M := Syntax.model h.primitives env
-  let k (i : Tag) a t := denote ((r.exit i).region (Γ := Exits.get i :: Γ)) (extendModel M.raw a) t
-  change (Shape.denote (.native (request r.key Γ)) M s).bind k = _
-  rw [request_finite]
-  unfold Row.execute
+  unfold Row.region Row.execute
+  rw [request_bind_finite]
   cases h r.key s with
   | reply i t =>
-    change Behaviour.bind (WithTop.some {Outcome.ret i (Value.unit : Value Unit) t}) k = _
-    rw [return_bind]
-    change denote ((r.exit i).region (Γ := Exits.get i :: Γ)) (extendModel M.raw .unit) t = _
+    change denote ((r.exit i).region (Γ := Exits.get i :: Γ))
+      (Syntax.model h.primitives (env.push ⟨.unit, exit_type i ▸ .unit⟩)).raw t =
+      resultBehaviour ((r.exit i).result t)
     rw [exit_denote]
-    change exitBehaviour (r.exit i) t = resultBehaviour ((r.exit i).result t)
     cases r.exit i <;> rfl
-  | fault t => exact fault_bind t k
-  | diverge => exact diverge_bind k
+  | fault | diverge => rfl
 
 theorem finite_observe {n : Nat} (p : Endpoint) (h : Handler n) (s : Fin n) :
     Shape.denote p.region h.model s = resultBehaviour (p.execute h s) := by
-  let k (i : Tag) a t := denote ((p.next i).region (Γ := [Exits.get i]))
-    (extendModel h.model.raw a) t
-  change (Shape.denote (.native (request p.first [])) h.model s).bind k = _
-  rw [request_finite]
-  unfold Endpoint.execute
+  unfold Endpoint.region Endpoint.execute
+  rw [request_bind_finite]
   cases h p.first s with
-  | reply i t =>
-    change Behaviour.bind (WithTop.some {Outcome.ret i (Value.unit : Value Unit) t}) k = _
-    rw [return_bind]
-    have typed : Shape.ValueTyped Syntax.atomType Value.unit (Exits.get i) := exit_type i ▸ .unit
-    have pushed := denote_push h.primitives Syntax.emptyBindings ⟨.unit, typed⟩
-      ((p.next i).region (Γ := [Exits.get i])) t
-    exact pushed.trans (row_finite (p.next i) h _ t)
-  | fault t => exact fault_bind t k
-  | diverge => exact diverge_bind k
+  | reply i t => exact row_finite (p.next i) h _ t
+  | fault | diverge => rfl
 
 theorem result_order {n : Nat} (p q : Result 2 n) :
     resultBehaviour p ≤ resultBehaviour q ↔ p.refines q := by

@@ -18,7 +18,7 @@ abbrev Exits : List (Silmaril.Ty Empty) := List.replicate 2 U
 /-- Left and right tags of the exact Boolean sum, also used as ordered exit indices. -/
 abbrev Tag := Fin 2
 
-universe v
+universe v w
 
 def bitValue {α : Type v} (i : Tag) : Value α :=
   if i = 0 then .inl .unit else .inr .unit
@@ -60,6 +60,13 @@ def Exit.region (e : Exit) {Γ : List (Silmaril.Ty Empty)} : Overlay.Region Inst
   match e with
   | .ret i => .native (Native.jump (L := Exits) i (exit_type i) .unit)
   | .ub => .ub
+
+/-- Observation of a terminal continuation at its incoming state. -/
+def Exit.behaviour {α : Type v} {σ : Type w} (e : Exit) (s : σ) :
+    Behaviour Exits.length α σ :=
+  match e with
+  | .ret i => WithTop.some {Outcome.ret i .unit s}
+  | .ub => ⊤
 
 def Row.region (r : Row) {Γ : List (Silmaril.Ty Empty)} : Overlay.Region Instr Γ Exits :=
   .lsubst (.native (request r.key Γ)) fun j => (r.exit j).region

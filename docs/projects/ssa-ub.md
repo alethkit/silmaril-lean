@@ -836,6 +836,33 @@ terminal UB. Its soundness uses arbitrary value and state universes, and its
 equivalence with all-model validity uses the finite witnesses' universes.
 [Two-request theorems][ssa-ub-two-request]
 
+### Depth-bounded separation for finite request trees
+
+The tree elaboration reuses the typed native effectful cases and terminal
+continuations from the two-request fragment. It permits any finite depth,
+including different lengths on different branches. Its signature has two
+unit-input Boolean keys, and its leaves return unit at one of two ordered
+exits or expose literal UB.
+
+The structural order accepts any tree below a literal UB leaf. Two ordinary
+leaves compare by their exit positions. Two request nodes compare when the
+keys agree and both pairs of reply branches compare recursively. All other
+pairs fail. In particular, immediate UB does not refine a pending request
+whose successful continuations are all UB. A fault or primitive divergence
+can stop the pending request before it reaches UB.
+
+Induction proves soundness for arbitrary shaped relations and also for the
+unrestricted observational relations. A failed comparison yields a
+deterministic shaped interpreter with at most one plus the smaller tree depth
+machine states. It advances once per selected common reply and uses the
+current state to expose the first mismatch. A key mismatch faults on the
+left key and diverges on the right key. A pending request can also diverge
+against a leaf. Repeated keys can reply differently at different prefix
+states. The closed all-model equivalences use the witnesses' universes,
+and the soundness theorem also accepts arbitrary ambient contexts and
+value and state universes.
+[Request-tree theorems][ssa-ub-request-tree]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -883,6 +910,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.SingleRequest.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.RequestTree.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -985,3 +1013,4 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-raw-obstruction]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/NativeQuotient/Obstruction/Thms.lean
 [ssa-ub-common-request]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Rewrite/Repair/Reply/Payload/Finite/CommonRequest/Thms.lean
 [ssa-ub-two-request]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/TwoRequest/Thms.lean
+[ssa-ub-request-tree]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/RequestTree/Thms.lean
