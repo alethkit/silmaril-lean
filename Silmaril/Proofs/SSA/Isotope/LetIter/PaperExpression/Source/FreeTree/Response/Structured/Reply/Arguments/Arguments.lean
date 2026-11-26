@@ -17,7 +17,7 @@ universe u r
 variable {α Φ : Type u} [HasTy Φ (Ty α)] {ε : Type r} [HasEff Φ ε] [Preorder ε] [OrderBot ε]
   {Γ Δ : EffectCtx (Ty α) ε} {A B : Ty α} {e : ε} {a k : Expr Φ}
 
-private theorem leaf_subst (h : ConstructorLeaf a) {σ : Nat → Expr Φ}
+theorem leaf_subst (h : ConstructorLeaf a) {σ : Nat → Expr Φ}
     (hs : ∀ i, ConstructorLeaf (σ i)) : ConstructorLeaf (a.subst σ) := by
   induction h with
   | var i => exact hs i
@@ -31,12 +31,12 @@ private theorem leaf_wk (h : ConstructorLeaf a) (ρ : Nat → Nat) : Constructor
   rw [Expr.wk_eq_subst]
   exact leaf_subst h (fun i => .var (ρ i))
 
-private theorem lift_leaf {σ : Nat → Expr Φ} (hs : ∀ i, ConstructorLeaf (σ i)) :
+theorem lift_leaf {σ : Nat → Expr Φ} (hs : ∀ i, ConstructorLeaf (σ i)) :
     ∀ i, ConstructorLeaf (Expr.liftSubst σ i)
   | 0 => .var 0
   | i + 1 => leaf_wk (hs i) Nat.succ
 
-private theorem lift_typed {σ : Nat → Expr Φ}
+theorem lift_typed {σ : Nat → Expr Φ}
     (hs : ∀ i : Fin Γ.length, Wf Δ (σ i.val) (Γ.get i).1 (Γ.get i).2)
     (slot : Ty α × ε) :
     ∀ i : Fin (slot :: Γ).length,
@@ -67,23 +67,32 @@ private theorem sequenced_wk0 (R : Ty α) (h : Sequenced e Γ A a) :
   exact sequenced_subst h (fun i => CallByValue.wf_wk0 (.var i le_rfl) (R, ⊥))
     (fun _ => .var _)
 
+theorem wk1_subst_typed (R : Ty α) :
+    ∀ i : Fin ((A, (⊥ : ε)) :: Γ).length,
+      Wf ((A, ⊥) :: (R, ⊥) :: Γ) (Expr.var (Expr.liftWk Nat.succ i.val) : Expr Φ)
+        (((A, (⊥ : ε)) :: Γ).get i).1 (((A, (⊥ : ε)) :: Γ).get i).2 := by
+  intro i
+  refine Fin.cases (.var 0 le_rfl) (fun j => ?_) i
+  exact Wf.var (Γ := (A, ⊥) :: (R, ⊥) :: Γ) j.succ.succ le_rfl
+
 private theorem sequenced_wk1 (R : Ty α) (h : Sequenced e ((A, ⊥) :: Γ) B k) :
     Sequenced e ((A, ⊥) :: (R, ⊥) :: Γ) B k.wk1 := by
-  unfold Expr.wk1
-  rw [Expr.wk_eq_subst]
-  refine sequenced_subst (Δ := (A, ⊥) :: (R, ⊥) :: Γ) h (fun i => ?_) (fun _ => .var _)
-  refine Fin.cases ?_ (fun j => ?_) i
-  · exact .var 0 le_rfl
-  · exact Wf.var (Γ := (A, ⊥) :: (R, ⊥) :: Γ) j.succ.succ le_rfl
+  rw [Expr.wk1, Expr.wk_eq_subst]
+  exact sequenced_subst h (wk1_subst_typed R) (fun _ => .var _)
+
+theorem subst0_typed (h : Wf Γ a A (⊥ : ε)) :
+    ∀ i : Fin ((A, (⊥ : ε)) :: Γ).length,
+      Wf Γ (a.subst0 i.val) (((A, (⊥ : ε)) :: Γ).get i).1 (((A, (⊥ : ε)) :: Γ).get i).2 :=
+  fun i => Fin.cases h (fun j => .var j le_rfl) i
+
+theorem subst0_leaf (h : ConstructorLeaf a) :
+    ∀ i, ConstructorLeaf (a.subst0 i)
+  | 0 => h
+  | i + 1 => .var i
 
 private theorem sequenced_subst0 {v : Expr Φ} (ht : Wf Γ v A ⊥) (hl : ConstructorLeaf v)
-    (h : Sequenced e ((A, ⊥) :: Γ) B k) : Sequenced e Γ B (k.subst v.subst0) := by
-  refine sequenced_subst h (fun i => ?_) (fun i => ?_)
-  · refine Fin.cases ht (fun j => ?_) i
-    exact .var j le_rfl
-  · cases i with
-    | zero => exact hl
-    | succ j => exact .var j
+    (h : Sequenced e ((A, ⊥) :: Γ) B k) : Sequenced e Γ B (k.subst v.subst0) :=
+  sequenced_subst h (subst0_typed ht) (subst0_leaf hl)
 
 theorem sequence (ha : Sequenced e Γ A a) (hk : Sequenced e ((A, ⊥) :: Γ) B k) :
     ∃ p, Eqv Γ B e (.let₁ a k) p ∧ Sequenced e Γ B p := by
@@ -130,7 +139,7 @@ theorem normalize (h : Raw e Γ A a) : ∃ p, Eqv Γ A e a p ∧ Sequenced e Γ 
         ((CallByValue.pair_bind (sequenced_wf sp) (sequenced_wf sq)).trans
           ((Eqv.let1 (.refl (sequenced_wf sp)) ei).trans eo)), so⟩
 
-private theorem shape_subst_typed {n : Nat} {sorts : Fin n → α} {R : Ty α}
+theorem shape_subst_typed {n : Nat} {sorts : Fin n → α} {R : Ty α}
     (shape : ReplyShape sorts R) :
     ∀ i : Fin ((R, (⊥ : ε)) :: Γ).length,
       Wf (ReplyShape.fieldCtx sorts Γ) (shape.sourceSubst Γ i.val : Expr Φ)
@@ -138,13 +147,13 @@ private theorem shape_subst_typed {n : Nat} {sorts : Fin n → α} {R : Ty α}
   fun i => shape.specialize_wf (Wf.var (Γ := (R, ⊥) :: Γ) i le_rfl)
 
 omit [HasTy Φ (Ty α)] [HasEff Φ ε] in
-private theorem shape_subst_leaf {n : Nat} {sorts : Fin n → α} {R : Ty α}
+theorem shape_subst_leaf {n : Nat} {sorts : Fin n → α} {R : Ty α}
     (shape : ReplyShape sorts R) :
     ∀ i, ConstructorLeaf (shape.sourceSubst Γ i : Expr Φ)
   | 0 => ReplyReflection.shape_constructor shape _
   | _ + 1 => .var _
 
-private theorem written_subst (h : Sequenced e Γ A a) {σ : Nat → Expr Φ}
+theorem written_subst (h : Sequenced e Γ A a) {σ : Nat → Expr Φ}
     (ht : ∀ i : Fin Γ.length, Wf Δ (σ i.val) (Γ.get i).1 (Γ.get i).2)
     (hs : ∀ i, ConstructorLeaf (σ i)) : ReplyReflection.Written A e Δ (a.subst σ) := by
   induction h generalizing Δ σ with
@@ -160,11 +169,15 @@ private theorem written_subst (h : Sequenced e Γ A a) {σ : Nat → Expr Φ}
 theorem written (h : Sequenced e Γ A a) : ReplyReflection.Written A e Γ a := by
   simpa only [Expr.subst_var] using written_subst h (σ := Expr.var) (fun i => .var i le_rfl) .var
 
-theorem raw_written (h : Raw e Γ A a) : ReplyReflection.Written A e Γ a := by
-  obtain ⟨_, eq, sp⟩ := normalize h
-  cases written sp with
+theorem written_of_eqv (eq : Eqv Γ A e a k) (h : ReplyReflection.Written A e Γ k) :
+    ReplyReflection.Written A e Γ a := by
+  cases h with
   | leaf head typed leaf => exact .leaf (eq.trans head) typed leaf
   | call head visible bound typed leaf hk children =>
       exact .call (eq.trans head) visible bound typed leaf hk children
+
+theorem raw_written (h : Raw e Γ A a) : ReplyReflection.Written A e Γ a := by
+  obtain ⟨_, eq, sp⟩ := normalize h
+  exact written_of_eqv eq (written sp)
 
 end Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyArguments.Proofs

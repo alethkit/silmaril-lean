@@ -2917,4 +2917,115 @@ example : Eqv Γ .unit bound nestedArgs splitArgs := by
   exact (raw_reflection profile pureCtx slotTy nestedArgsRaw splitArgsRaw rfl rfl).mp
     ((nestedArgs_order.toLetIter rfl lowers).trans (splitArgs_order.toLetIter rfl lowers).symm)
 
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyArguments
+  (CaseRaw case_reflection)
+
+private abbrev branchLeft : Expr Instruction :=
+  .op .sendTagged (.pair (.inl (.var 0)) .unit)
+
+private abbrev branchRight : Expr Instruction :=
+  .op .send (.inr (.var 0))
+
+private abbrev caseScrutinee : Expr Instruction :=
+  .op .receive (.op .tick .unit)
+
+private abbrev branchDirect : Expr Instruction :=
+  .case caseScrutinee branchLeft branchRight
+
+private abbrev branchBound : Expr Instruction :=
+  .let₁ caseScrutinee (.case (.var 0) branchLeft branchRight)
+
+private theorem leftRaw (Δ : EffectCtx T Eff) :
+    CaseRaw bound ((.product X X, ⊥) :: Δ) .unit branchLeft :=
+  .straight (.call taggedVisible le_rfl
+    (.leaf (.pair (.inl (.var 0 le_rfl)) (.unit _ _)) (.pair (.inl (.var 0)) .unit)))
+
+private theorem rightRaw (Δ : EffectCtx T Eff) :
+    CaseRaw bound ((.product .unit X, ⊥) :: Δ) .unit branchRight :=
+  .straight (.call sendVisible le_rfl (.leaf (.inr (.var 0 le_rfl)) (.inr (.var 0))))
+
+private theorem caseScrutineeRaw : Raw bound Γ R caseScrutinee :=
+  .call receiveVisible le_rfl (tickRaw Γ)
+
+private theorem branchDirectRaw : CaseRaw bound Γ .unit branchDirect :=
+  .case caseScrutineeRaw (leftRaw Γ) (rightRaw Γ)
+
+private theorem branchBoundRaw : CaseRaw bound Γ .unit branchBound :=
+  .let1 caseScrutineeRaw (.case (.leaf (.var 0 le_rfl) (.var 0)) (leftRaw _) (rightRaw _))
+
+private abbrev nativeScrutinee : Tm Empty Instruction 0 :=
+  .op .receive (.op .tick .unit)
+private abbrev nativeBranchL {n : Nat} : Tm Empty Instruction (n + 1) :=
+  .op .sendTagged (.pair (.inl (.bv 0)) .unit)
+private abbrev nativeBranchR {n : Nat} : Tm Empty Instruction (n + 1) :=
+  .op .send (.inr (.bv 0))
+private abbrev nativeDirect : Tm Empty Instruction 0 :=
+  .case nativeScrutinee nativeBranchL nativeBranchR
+private abbrev nativeBound : Tm Empty Instruction 0 :=
+  .let₁ nativeScrutinee (.case (.bv 0) nativeBranchL nativeBranchR)
+
+-- The independent recognizers start from raw case and raw let/case syntax.
+-- The scrutinee makes two requests before either arm can make its request.
+example : Eqv Γ .unit bound branchDirect branchBound := by
+  have native : AbortEquiv (⊥ : Eff) (Ctx.nil : Ctx Empty T) Γ.toBoundCtx nativeDirect nativeBound .unit :=
+    .equiv (.ax (.sequencing (.bindCase nativeScrutinee nativeBranchL nativeBranchR))
+      (.case (.op (.op .unit)) (.op (.pair (.inl .bv) .unit)) (.op (.inr .bv)))
+      (.let₁ (.op (.op .unit)) (.case .bv (.op (.pair (.inl .bv) .unit)) (.op (.inr .bv)))))
+  exact (case_reflection profile pureCtx slotTy branchDirectRaw branchBoundRaw rfl rfl).mp native
+
+private def leftReply : ReplyShape (fun _ : Fin 2 => ()) R :=
+  .inl (.pair (.atom ()) (.atom ()))
+
+private abbrev ΔLeft := fieldCtx (fun _ : Fin 2 => ()) Γ
+private abbrev leftPayload : Expr Instruction := .pair (.var 0) (.var 1)
+private abbrev selectedLeft : Expr Instruction :=
+  .op .sendTagged (.pair (.inl leftPayload) .unit)
+
+private theorem leftPayloadWf : Wf ΔLeft leftPayload (.product X X) (⊥ : Eff) :=
+  .pair (Wf.var (Γ := ΔLeft) ⟨0, by decide⟩ le_rfl) (Wf.var (Γ := ΔLeft) ⟨1, by decide⟩ le_rfl)
+
+private theorem specializeLeft {body arm : Expr Instruction}
+    (hw : Wf ((.product .unit X, ⊥) :: ΔLeft) arm .unit bound)
+    (eq : leftReply.specialize Γ body = (.case (.inl leftPayload) branchLeft arm)) :
+    Eqv ΔLeft .unit bound (leftReply.specialize Γ body) selectedLeft := by
+  rw [eq]
+  have hl : Wf ((.product X X, ⊥) :: ΔLeft) branchLeft .unit bound :=
+    .op le_rfl (.pair (.inl (.var 0 bot_le)) (.unit _ _))
+  have hp := leftPayloadWf.weakenEffect (show (⊥ : Eff) ≤ bound from bot_le)
+  exact (Eqv.step (.reduce (.case (.inl hp) hl hw) (.let₁ hp hl) (.case_inl _ _ _))).trans
+    (.step (.let1_beta leftPayloadWf hl))
+
+-- The reply supplies two distinct slots. The resulting continuation
+-- performs sendTagged on that pair and bypasses the right-hand send.
+example : Eqv ΔLeft .unit bound
+    (leftReply.specialize Γ (.case (.var 0) branchLeft branchRight.wk1)) selectedLeft :=
+  specializeLeft (.op le_rfl (.inr (.var 0 bot_le))) rfl
+
+-- Changing the untaken right arm to a tick preserves the left specialization.
+example : Eqv ΔLeft .unit bound
+    (leftReply.specialize Γ (.case (.var 0) branchLeft branchRight.wk1))
+    (leftReply.specialize Γ (.case (.var 0) branchLeft (.op .tick .unit))) :=
+  (specializeLeft (.op le_rfl (.inr (.var 0 bot_le))) rfl).trans
+    (specializeLeft (.op (f := Instruction.tick) le_rfl (.unit _ _)) rfl).symm
+
+private def rightReply : ReplyShape (fun _ : Fin 1 => ()) R :=
+  .inr (.pair .unit (.atom ()))
+
+private abbrev ΔRight := fieldCtx (fun _ : Fin 1 => ()) Γ
+private abbrev rightPayload : Expr Instruction := .pair .unit (.var 0)
+
+-- The other tag instead selects send with its own payload.
+example : Eqv ΔRight .unit bound
+    (rightReply.specialize Γ (.case (.var 0) branchLeft branchRight))
+    (.op .send (.inr rightPayload)) := by
+  have hp : Wf ΔRight rightPayload (.product .unit X) (⊥ : Eff) :=
+    .pair (.unit _ _) (Wf.var (Γ := ΔRight) ⟨0, by decide⟩ le_rfl)
+  have hl : Wf ((.product X X, ⊥) :: ΔRight) branchLeft .unit bound :=
+    .op le_rfl (.pair (.inl (.var 0 bot_le)) (.unit _ _))
+  have hr : Wf ((.product .unit X, ⊥) :: ΔRight) branchRight .unit bound :=
+    .op le_rfl (.inr (.var 0 bot_le))
+  have hw := hp.weakenEffect (show (⊥ : Eff) ≤ bound from bot_le)
+  exact (Eqv.step (.reduce (.case (.inr hw) hl hr) (.let₁ hw hr) (.case_inr _ _ _))).trans
+    (.step (.let1_beta hp hr))
+
 end LetIterSharedReplyReflectionFixture

@@ -3,8 +3,9 @@ module
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Arguments.Defs
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Reflection.Thms
 import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Arguments.Arguments
+import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Arguments.Case
 
-/-! # Sequencing finite effectful call arguments at their original bound -/
+/-! # Sequencing finite effectful call arguments and sum cases at their original bound -/
 
 public section
 
@@ -57,5 +58,34 @@ theorem raw_reflection [DecidableEq α] [SemilatticeSup ε] [OrderBot ε] [Effec
     (ht : a.toLetIter Γ.length = some t) (hs' : b.toLetIter Γ.length = some s) :
     AbortEquiv (⊥ : ε) (Ctx.nil : Ctx Empty (Ty α)) Γ.toBoundCtx t s A ↔ Eqv Γ A e a b :=
   ReplyReflection.independent_written_reflection profile hΓ hs left.written right.written ht hs'
+
+/-- Evaluate the scrutinee once. The case under the binder reads that
+reply, preserving its arms and the original typing bound. -/
+theorem case_eqv_bind [Preorder ε] [OrderBot ε] {C : Ty α} {s l r : Expr Φ}
+    (hs : Wf Γ s (.coprod A B) e) (hl : Wf ((A, ⊥) :: Γ) l C e)
+    (hr : Wf ((B, ⊥) :: Γ) r C e) :
+    Eqv Γ C e (.case s l r) (.let₁ s (.case (.var 0) l.wk1 r.wk1)) :=
+  Proofs.case_eqv_bind hs hl hr
+
+/-- Normalize branching raw syntax to the recursive reply recognizer.
+Sequencing exposes the scrutinee calls in order. After each reply
+specialization, a sum-valued constructor leaf selects its typed arm. -/
+theorem CaseRaw.written [PartialOrder ε] [OrderBot ε] (profile : Profile (α := α) Φ ε)
+    (atomic : ∀ i : Fin Γ.length, ∃ x, (Γ.get i).1 = Ty.base x) (h : CaseRaw e Γ A a) :
+    ReplyReflection.Written A e Γ a :=
+  Proofs.case_raw_written profile atomic h
+
+/-- Original-bound reflection for cases on a straight-line computed sum,
+with recursively branching arms. Each endpoint is recognized independently. -/
+theorem case_reflection [DecidableEq α] [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε]
+    (profile : Profile (α := α) Φ ε) (hΓ : Γ.Pure)
+    {slots : Fin Γ.length → α} (hs : ∀ i, (Γ.get i).1 = .base (slots i))
+    (left : CaseRaw e Γ A a) (right : CaseRaw e Γ A b)
+    {t s : Tm Empty Φ Γ.length}
+    (ht : a.toLetIter Γ.length = some t) (hs' : b.toLetIter Γ.length = some s) :
+    AbortEquiv (⊥ : ε) (Ctx.nil : Ctx Empty (Ty α)) Γ.toBoundCtx t s A ↔ Eqv Γ A e a b :=
+  ReplyReflection.independent_written_reflection profile hΓ hs
+    (left.written profile (fun i => ⟨slots i, hs i⟩))
+    (right.written profile (fun i => ⟨slots i, hs i⟩)) ht hs'
 
 end Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyArguments
