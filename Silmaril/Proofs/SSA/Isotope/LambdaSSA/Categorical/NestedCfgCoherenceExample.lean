@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Paths.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.BlockParameters.Thms
@@ -34,71 +35,103 @@ instance : HasTy Op (Ty Empty) where
 
 instance : HasEff Op Bool := ⟨fun _ => true⟩
 
-private def outerFamily : Fin 2 → Ty Empty := Fin.cases Flag (fun _ => Result)
-private def innerFamily (dead : Ty Empty) : Fin 2 → Ty Empty := Fin.cases Flag (fun _ => dead)
+private def outerFamilyAt (sibling : Ty Empty) : Fin 2 → Ty Empty :=
+  Fin.cases Flag (fun _ => sibling)
+
+private abbrev outerFamily := outerFamilyAt Result
+
+private def innerFamily (dead : Ty Empty) : Fin 3 → Ty Empty :=
+  Fin.cases Flag (Fin.cases Flag (fun _ => dead))
 
 private abbrev outerLabels := List.ofFn outerFamily ++ exits
 
 private def inner : Program (Φ := Op) (innerFamily U) outerLabels [Flag, U] where
   entry := .jump 0 (.var 0 rfl)
   blocks := Fin.cases
-    (.parameter (.case (.op Op.inspect (.var 0 rfl))
-      (.jump 0 (.var 1 rfl))
-      (.case (.var 0 rfl)
-        (.exit 1 rfl (.pair (.var 4 rfl) (.var 3 rfl)))
-        (.exit 2 rfl (.var 0 rfl)))))
-    (fun _ => .captured (.exit 2 rfl .unit))
+    (.parameter (.jump 1 (.var 0 rfl)))
+    (Fin.cases
+      (.parameter (.case (.op Op.inspect (.var 0 rfl))
+        (.jump 0 (.var 1 rfl))
+        (.case (.var 0 rfl)
+          (.exit 1 rfl (.pair (.var 4 rfl) (.var 2 rfl)))
+          (.exit 2 rfl (.var 0 rfl)))))
+      (fun _ => .captured (.exit 2 rfl .unit)))
 
 private def innerEntry : Region Op := .br 0 (.var 0)
 
-private def innerRows : Fin 2 → Region Op := Fin.cases
-  (.case (.op Op.inspect (.var 0)) (.br 0 (.var 1))
-    (.case (.var 0) (.br 3 (.pair (.var 4) (.var 3))) (.br 4 (.var 0))))
-  (fun _ => .br 4 .unit)
+private def innerRows : Fin 3 → Region Op := Fin.cases (.br 1 (.var 0))
+  (Fin.cases
+    (.case (.op Op.inspect (.var 0)) (.br 0 (.var 1))
+      (.case (.var 0) (.br 4 (.pair (.var 4) (.var 2))) (.br 5 (.var 0))))
+    (fun _ => .br 5 .unit))
 
-private abbrev innerRegion : Region Op := .cfg innerEntry 2 innerRows
+private abbrev innerRegion : Region Op := .cfg innerEntry 3 innerRows
 
 private theorem inner_written : inner.region = innerRegion := by
-  change inner.region = .cfg innerEntry 2 innerRows
+  change inner.region = .cfg innerEntry 3 innerRows
   unfold Program.region inner innerRows
   congr 1
   funext i
-  exact Fin.cases rfl (fun _ => rfl) i
+  exact Fin.cases rfl (Fin.cases rfl (fun _ => rfl)) i
 
-private theorem inner_reaches : inner.Reaches 0 := .entry rfl
+private theorem reachesFirst : inner.Reaches 0 := .entry rfl
 
-private theorem inner_targets {i : Fin 2} (hit : inner.targets i) : i = 0 := by
+private theorem reachesSecond : inner.Reaches 1 := .next reachesFirst rfl
+
+private theorem inner_targets {i : Fin 3} (hit : inner.targets i) : i = 0 ∨ i = 1 := by
   rcases hit with hit | ⟨j, hit⟩
-  · exact (show (0 : Fin 2) = i from hit).symm
+  · exact .inl (show (0 : Fin 3) = i from hit).symm
   · revert hit
-    refine Fin.cases ?_ (fun _ h => h.elim) j
-    rintro (h | h)
-    · exact (show (0 : Fin 2) = i from h).symm
-    · rcases h with h | h <;> exact h.elim
+    refine Fin.cases ?_ (Fin.cases ?_ (fun _ h => h.elim)) j
+    · exact fun h => .inr (show (1 : Fin 3) = i from h).symm
+    · rintro (h | h)
+      · exact .inl (show (0 : Fin 3) = i from h).symm
+      · rcases h with h | h <;> exact h.elim
 
 private theorem closed : inner.ReachableParameters where
-  targets _ hit := inner_targets hit ▸ inner_reaches
-  parameters i := Fin.cases (fun _ => inner_reaches) (fun _ h => h.elim) i
+  targets _ hit := by
+    rcases inner_targets hit with rfl | rfl
+    · exact reachesFirst
+    · exact reachesSecond
+  parameters i :=
+    Fin.cases (fun _ => reachesFirst) (Fin.cases (fun _ => reachesSecond) (fun _ h => h.elim)) i
 
 private theorem innerEntry_typed (D : Ty Empty) :
     innerEntry.HasType [Flag, U] (List.ofFn (innerFamily D) ++ outerLabels) :=
   .br rfl (.var rfl)
 
-private theorem innerRows_typed (D : Ty Empty) (i : Fin 2) :
+private theorem innerRows_typed (D : Ty Empty) (i : Fin 3) :
     (innerRows i).HasType (innerFamily D i :: [Flag, U]) (List.ofFn (innerFamily D) ++ outerLabels) :=
-  Fin.cases (.case (.op (.var rfl)) (.br rfl (.var rfl))
-    (.case (.var rfl) (.br rfl (.pair (.var rfl) (.var rfl))) (.br rfl (.var rfl))))
-    (fun _ => .br rfl .unit) i
+  Fin.cases (.br rfl (.var rfl))
+    (Fin.cases
+      (.case (.op (.var rfl)) (.br rfl (.var rfl))
+        (.case (.var rfl) (.br rfl (.pair (.var rfl) (.var rfl))) (.br rfl (.var rfl))))
+      (fun _ => .br rfl .unit)) i
 
 private def outerEntry : Region Op := .br 0 (.op Op.load (.var 0))
-private def outerRows : Fin 2 → Region Op := Fin.cases innerRegion (fun _ => .br 3 (.var 0))
+private def outerRows : Fin 2 → Region Op :=
+  Fin.cases innerRegion (fun _ => .br 3 (.pair (.var 1) (.inl .unit)))
 private abbrev outerRegion : Region Op := .cfg outerEntry 2 outerRows
 
-private theorem outerEntry_typed : outerEntry.HasType [U] outerLabels := .br rfl (.op (.var rfl))
+private theorem outerEntry_typed_at (A : Ty Empty) :
+    outerEntry.HasType [U] (List.ofFn (outerFamilyAt A) ++ exits) := .br rfl (.op (.var rfl))
+
+private theorem sibling_typed_at (A : Ty Empty) :
+    (outerRows 1).HasType [A, U] (List.ofFn (outerFamilyAt A) ++ exits) :=
+  .br rfl (.pair (.var rfl) (.inl .unit))
+
+private theorem outerEntry_typed : outerEntry.HasType [U] outerLabels := outerEntry_typed_at Result
 
 private theorem outerRows_typed (D : Ty Empty) (i : Fin 2) :
     (outerRows i).HasType (outerFamily i :: [U]) outerLabels :=
-  Fin.cases (.cfg (innerFamily D) (innerEntry_typed D) (innerRows_typed D)) (fun _ => .br rfl (.var rfl)) i
+  Fin.cases (.cfg (innerFamily D) (innerEntry_typed D) (innerRows_typed D))
+    (fun _ => sibling_typed_at Result) i
+
+/-- The outer entry and sibling block allow any sibling input type. -/
+example (A : Ty Empty) :
+    outerEntry.HasType [U] (List.ofFn (outerFamilyAt A) ++ exits) ∧
+      (outerRows 1).HasType [A, U] (List.ofFn (outerFamilyAt A) ++ exits) :=
+  ⟨outerEntry_typed_at A, sibling_typed_at A⟩
 
 private theorem outerFamily_determined : LabelsDetermined [U] exits outerEntry outerRows outerFamily := by
   intro S he hb
@@ -108,14 +141,18 @@ private theorem outerFamily_determined : LabelsDetermined [U] exits outerEntry o
         have label : At (List.ofFn S ++ exits) 0 (S 0) := by simp [At]
         cases arg
         exact Option.some.inj (label.symm.trans target)
+  have nested : inner.region.HasType [Flag, U] (List.ofFn S ++ exits) := by
+    rw [inner_written]
+    simpa only [first] using
+      (show innerRegion.HasType (S 0 :: [U]) (List.ofFn S ++ exits) from hb 0)
   have second : S 1 = Result :=
-    outward_parameter_type (L := exits) (S := S) (i := 1) (j := 1) (show At exits 1 Result from rfl) (hb 1)
+    inner.enclosing_type_at_reached reachesSecond (1 : Fin 2) (.inr (.inl ⟨rfl, rfl⟩)) nested
   funext i
   refine Fin.cases first (Fin.cases second ?_) i
   intro j
   exact Fin.elim0 j
 
-private theorem innerDead_differs : innerFamily U 1 ≠ innerFamily .empty 1 := by
+private theorem innerDead_differs : innerFamily U 2 ≠ innerFamily .empty 2 := by
   intro eq
   cases eq
 
@@ -138,7 +175,7 @@ private theorem outer_functional (roll : IterationRolling C) :
     · change RegionDenotes.Functional J M [Flag, U] innerRegion outerLabels
       rw [← inner_written]
       exact fun {_ _ _ _} d e => inner.denotes_eq J M roll closed d e
-    · exact (DeterminedRegion.br rfl (.var rfl)).functional J M
+    · exact (DeterminedRegion.br rfl (.pair (.var rfl) (.inl .unit))).functional J M
 
 local notation "Arrow" => J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M exits)
 
@@ -171,12 +208,14 @@ private theorem NestedAt.denotes {D : Ty Empty} {f : Arrow} (w : NestedAt J M D 
   intro j
   exact Fin.elim0 j
 
-/-- The inner repeat stays native. An inspect reply can also transfer to
-outer block 1 with both captures or exit directly at outward label 0.
-Outer block 1 sends its pair to outward label 1. Two independently assembled
-top-level witnesses use different types at the dead inner slot. -/
+/-- The inner entry supplies a flag that block 0 forwards to block 1.
+An inspect reply can repeat, transfer that flag paired with the ambient
+capture to outer block 1, or take outward label 0 directly. The sibling
+block supplies a fixed pair payload at outward label 1. Its input type
+comes from the inner transfer. The two exact witnesses have different
+types at the untargeted inner slot. -/
 example (roll : IterationRolling C) :
-    innerFamily U 1 ≠ innerFamily .empty 1 ∧
+    innerFamily U 2 ≠ innerFamily .empty 2 ∧
       ∃ f g : Arrow, NestedAt J M U f ∧ NestedAt J M .empty g ∧ f = g := by
   obtain ⟨f, left⟩ := nested_exists J M U
   obtain ⟨g, right⟩ := nested_exists J M .empty
