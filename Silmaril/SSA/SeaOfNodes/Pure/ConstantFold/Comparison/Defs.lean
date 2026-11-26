@@ -63,7 +63,7 @@ where
 
 variable {inputs : List (ValueSort Unit)} {out : ValueSort Unit}
 
-/-- Fold literal operations and repeated-source comparisons in dependency order. -/
+/-- Fold literal operations, same-source subtraction, and same-source comparisons in dependency order. -/
 def fold (program : Program Opcode inputs out) : Program Opcode inputs out :=
   Scan.fold rules program
 
