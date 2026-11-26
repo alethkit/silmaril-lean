@@ -12,7 +12,7 @@ namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.Prune
 open SeaOfNodes.Diamond (Dataflow Model Ty Val ValueSort dataPorts)
 open RVSDG (Port Tuple Wires extend)
 open RVSDG.NestedTheta (Term)
-open Join (Opcode)
+open Join (Block Opcode)
 open Join.Finite (lastBank)
 open Blocks (Bank)
 open Blocks.Prune (Mask readSchedule renameFlow renameWires)
@@ -22,40 +22,55 @@ universe u v w
 variable {Data : Type u} {Op : SeaOfNodes.Diamond.Signature.{u, v} Data}
 variable {regs : List (ValueSort Data)} {out : ValueSort Data} {size : Nat}
 variable {src : Source Op regs out size} {entry : Fin size}
-variable (p : Program src entry)
+def headerTransferFor (body : Block Op regs) :=
+  CFG.compileBlock body (initial regs)
 
-def headerTransfer :=
-  CFG.compileBlock (src p.header).body (initial regs)
-
-/-- All header producer reads and the complete post-header bank are roots.
-The return slot stays in the stop packet as well as in the carrier. -/
-def carriedMask : Mask regs :=
-  let flow := headerTransfer p
+/-- Keep the result slot and all input versions needed to reconstruct the
+post-header bank. The arm layout does not affect this certificate. -/
+def carriedMaskFor (body : Block Op regs) (result : Port (dataPorts regs) (.value out)) : Mask regs :=
+  let flow := headerTransferFor body
   let reads := readSchedule flow.flow ++ [flow.outgoing.addresses]
   let live := RVSDG.NestedTheta.Liveness.sweep reads 0
-  Mask.ofSlots (fun i => i == p.result.index || live.contains (.arg i)) regs
+  Mask.ofSlots (fun i => i == result.index || live.contains (.arg i)) regs
 
-/-- A smaller entry bank is safe only if it can reconstitute every
-post-header field without reading a dropped value. All later γ operands,
-latch and return tests, and feedback wires then see the original values. -/
-structure Checked (p : Program src entry) (mask : Mask regs) where
-  flow : Dataflow Op (dataPorts mask.kept) [] (src p.header).body.producers
-  outgoing : Wires (dataPorts mask.kept) (extend [] (src p.header).body.producers) (dataPorts regs)
-  result : Port (dataPorts mask.kept) (.value out)
+/-- A strictly smaller bank can reconstruct the whole post-header bank. -/
+structure HeaderProjection (body : Block Op regs) (mask : Mask regs) where
+  flow : Dataflow Op (dataPorts mask.kept) [] body.producers
+  outgoing : Wires (dataPorts mask.kept) (extend [] body.producers) (dataPorts regs)
   smaller : mask.kept.length < regs.length
-  flow_eq : renameFlow mask.rename (headerTransfer p).flow = some flow
-  outgoing_eq : renameWires mask.rename (headerTransfer p).outgoing = some outgoing
+  flow_eq : renameFlow mask.rename (headerTransferFor body).flow = some flow
+  outgoing_eq : renameWires mask.rename (headerTransferFor body).outgoing = some outgoing
+
+def checkHeader (body : Block Op regs) (mask : Mask regs) : Option (HeaderProjection body mask) :=
+  if smaller : mask.kept.length < regs.length then
+    match flow_eq : renameFlow mask.rename (headerTransferFor body).flow,
+          outgoing_eq : renameWires mask.rename (headerTransferFor body).outgoing with
+    | some flow, some outgoing => some ⟨flow, outgoing, smaller, flow_eq, outgoing_eq⟩
+    | _, _ => none
+  else none
+
+def HeaderProjection.headerBank {body : Block Op regs} {mask : Mask regs}
+    (projected : HeaderProjection body mask) (m : Model.{u, v, w} Op)
+    (old : Bank (regs := mask.kept) m) : Bank (regs := regs) m :=
+  projected.outgoing.read old (projected.flow.eval m old PUnit.unit)
+
+variable (p : Program src entry)
+
+def headerTransfer := headerTransferFor (src p.header).body
+
+def carriedMask : Mask regs := carriedMaskFor (src p.header).body p.result
+
+/-- A numbered θ must also carry the return slot in its stop packet. -/
+structure Checked (p : Program src entry) (mask : Mask regs)
+    extends HeaderProjection (src p.header).body mask where
+  result : Port (dataPorts mask.kept) (.value out)
   result_eq : mask.rename p.result = some result
 
-def checkMask (mask : Mask regs) : Option (Checked p mask) :=
-  if smaller : mask.kept.length < regs.length then
-    match flow_eq : renameFlow mask.rename (headerTransfer p).flow,
-          outgoing_eq : renameWires mask.rename (headerTransfer p).outgoing,
-          result_eq : mask.rename p.result with
-    | some flow, some outgoing, some result =>
-      some ⟨flow, outgoing, result, smaller, flow_eq, outgoing_eq, result_eq⟩
-    | _, _, _ => none
-  else none
+def checkMask (mask : Mask regs) : Option (Checked p mask) := do
+  let projected ← checkHeader (src p.header).body mask
+  match result_eq : mask.rename p.result with
+  | some result => some ⟨projected, result, result_eq⟩
+  | none => none
 
 def prune : Option (Checked p (carriedMask p)) := checkMask p (carriedMask p)
 
@@ -63,7 +78,7 @@ variable {p} {mask : Mask regs} (checked : Checked p mask)
 
 def Checked.headerBank (m : Model.{u, v, w} Op) (old : Bank (regs := mask.kept) m) :
     Bank (regs := regs) m :=
-  checked.outgoing.read old (checked.flow.eval m old PUnit.unit)
+  checked.toHeaderProjection.headerBank m old
 
 /-- Use the same trace observer and source arm order as the full bank. -/
 def Checked.trace (m : Model.{u, v, w} Op) : Nat → Bank (regs := mask.kept) m → List (Fin 2) :=
