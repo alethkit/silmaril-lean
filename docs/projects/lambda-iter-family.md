@@ -613,3 +613,40 @@ admission checker at the same profile. The named mutable trace witnesses
 strict refinement from a silent self-loop, and the composed comorphism
 transports the comparison to packed satisfaction.
 [Cyclic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+### Typed live-outs at mutable exits
+
+The existing `Versioning.run_commutes` observes the exit label and
+argument. `Cyclic.LiveOut.attach` makes selected final-store reads explicit
+in the original mutable CFG before invoking that versioner. For each
+branch to a missing label it pairs the old argument with an ordered,
+right-nested register record ending in unit. The same lookup determines
+internal edges, and their arguments are preserved. The transformation
+uses only variables, pairs, and unit.
+[Exit transformation](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/LiveOut/Defs.lean)
+
+`run_project` proves the whole-run equation with the projected original
+exit, including the same effects and final store in the underlying
+mutable execution. It uses a step square and lawful Elgot iteration.
+`versioned_run_project` applies the existing pair-law versioner to the
+transformed source. The new reads go through the versioner's existing
+register support and current-version calculation, including when a
+register was only written in the original CFG.
+[Mutable and lexical runner equations](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/LiveOut/Thms.lean)
+
+The typed checker admits the actual versioned table at the supplied
+block profiles and the enlarged external payload types. The original
+typed entry record supplies the same named store as before. For every
+accepted graph, `Admission.denote_tree` identifies the encoded typed
+packed result with the original mutable runner's projected exit.
+`satisfies_iff` gives both directions of pointwise trace comparison at a
+common projection interface. This adds a separate observation with
+selected fields alongside the existing forgetful institution.
+[Typed admission and comparison](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/Thms.lean)
+
+The fixture picks one of two fields from the same supplied record, writes
+it to a register, then jumps to a block that exits with unit. The old
+exit observations agree for every input. The packed observations at
+`(((), 7), 9)` return the distinct live-outs 7 and 9. The checker also
+rejects a unit declaration for the numeric live-out.
+[Checked fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOutExamples.lean)
