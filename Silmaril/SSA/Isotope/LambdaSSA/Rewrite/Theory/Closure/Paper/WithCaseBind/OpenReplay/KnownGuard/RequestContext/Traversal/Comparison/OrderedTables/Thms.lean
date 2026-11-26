@@ -13,6 +13,7 @@ namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.OpenReplay.Ordere
 open Silmaril
 open Paper.WithComputedProductProducers.Intrinsic
 open CaseTree.ReplyAgreement
+open Paper.WithCaseBind.SelectedTerminal (Seed)
 open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite
 open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper
@@ -46,6 +47,29 @@ theorem guardSlots_injective {X : Ty Empty} {frame : ReplyFrame X} {n : Nat}
     (slots : Fin (n + 1) → ReplyFrame.Slot frame) (distinct : Function.Injective slots) (test : Fin (n + 1)) :
     Function.Injective (ReplyFrame.guardSlots slots test) :=
   OrderedTerminalTables.guardSlots_injective slots distinct test
+
+/-- Residual terminal rows agree on every constructor packet satisfying
+the supplied facts about its exact structural projections. -/
+theorem reindexWithFacts_sound {X : Ty Empty} {frame : ReplyFrame X} {Γ : List (Ty Empty)} {n m : Nat}
+    (e : Finite.Expr m) (slots : Fin m → ReplyFrame.Slot frame)
+    (kept : Fin n → ReplyFrame.Slot frame) (known : CompactTerminal.Known frame) (table : Finite.Table n)
+    (found : reindexWithFacts? kept known e slots = some table) (v : ReplyFrame.Value Γ frame)
+    (valid : FactsHold known v) :
+    e.eval (fun j => ((slots j).read v).1) = table (fun j => ((kept j).read v).1) :=
+  OrderedTerminalTables.reindexWithFacts_sound e slots kept known table found v valid
+
+/-- Replay the recovered tree natively after substituting any exact
+constructor frame that satisfies the incoming path facts. -/
+theorem recoverTreeWithFacts_at {L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X} {n m : Nat}
+    (tree : ReadTree L m) (known : CompactTerminal.Known frame) (slots : Fin m → ReplyFrame.Slot frame)
+    (kept : Fin n → ReplyFrame.Slot frame) (normal : Finite.Normal L n)
+    (found : recoverTreeWithFacts tree known slots kept = some normal)
+    {Γ : List (Ty Empty)} (v : ReplyFrame.Value Γ frame) (valid : FactsHold known v) :
+    Paper.Extension.Eqv Seed Γ ((tree.selectedWith (fun j => (slots j).term)).elaborate.val.substVars
+        (Tm.singleSubst v.elaborate.val))
+      (((renderWith normal []).selectedWith (fun j => (kept j).term)).elaborate.val.substVars
+        (Tm.singleSubst v.elaborate.val)) L :=
+  OrderedTerminalTables.recoverTreeWithFacts_at tree known slots kept normal found v valid
 
 /-- Recover a key from the original selected program and prove native equality
 with its standard-order quotation. -/

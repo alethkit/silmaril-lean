@@ -13,9 +13,25 @@ namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.OpenReplay
 open Silmaril
 open Paper.WithComputedProductProducers.Intrinsic
 open CaseTree.ReplyAgreement
+open Paper.WithCaseBind.SelectedTerminal (Seed)
 open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload
 
 local instance : HasTy signature.Instr (Ty Empty) := signature.hasTy
+
+/-- Replay at a single constructor packet, with its original typed
+payloads and the shared emit prefix. -/
+theorem CompactTerminal.selected_of_frame_row {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    {L : List (Ty Empty)} {n m : Nat} (e : Finite.Expr n) (out : Finite.Expr m)
+    (slots : Fin n → ReplyFrame.Slot frame) (otherSlots : Fin m → ReplyFrame.Slot frame)
+    (pos : Position L) (emits : List Bool) (v : ReplyFrame.Value Γ frame)
+    (row : e.eval (fun j => ((slots j).read v).1) = out.eval (fun j => ((otherSlots j).read v).1)) :
+    Paper.Extension.Eqv Seed Γ
+      ((selectTerminal pos e (fun j => (slots j).term) emits).elaborate.val.substVars
+        (Tm.singleSubst v.elaborate.val))
+      ((selectTerminal pos out (fun j => (otherSlots j).term) emits).elaborate.val.substVars
+        (Tm.singleSubst v.elaborate.val)) L :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.CompactTerminalReplay.selected_of_frame_row
+    e out slots otherSlots pos emits v row
 
 /-- Constructor rows replay at two arbitrary exact slot maps on the same
 frame, preserving the shared emit prefix and typed exit. -/

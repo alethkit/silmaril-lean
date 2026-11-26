@@ -85,6 +85,34 @@ private theorem check_value {Γ : List (Ty Empty)} {X : Ty Empty} {frame : Reply
       · simp only [check, saved] at passed
         simpa [Finite.Expr.eval, tag] using! ih _ _ valid passed
 
+theorem selected_of_frame_row {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    {L : List (Ty Empty)} {n m : Nat} (e : Finite.Expr n) (out : Finite.Expr m)
+    (slots : Fin n → ReplyFrame.Slot frame) (otherSlots : Fin m → ReplyFrame.Slot frame)
+    (pos : Position L) (emits : List Bool) (v : ReplyFrame.Value Γ frame)
+    (row : e.eval (fun j => ((slots j).read v).1) = out.eval (fun j => ((otherSlots j).read v).1)) :
+    Paper.Extension.Eqv Seed Γ
+      ((selectTerminal pos e (fun j => (slots j).term) emits).elaborate.val.substVars
+        (Tm.singleSubst v.elaborate.val))
+      ((selectTerminal pos out (fun j => (otherSlots j).term) emits).elaborate.val.substVars
+        (Tm.singleSubst v.elaborate.val)) L := by
+  let σ := Tm.singleSubst v.elaborate.val
+  have typed : ∀ ⦃i D⦄, At [X] i D → Tm.BranchValue Γ (σ i) D := by
+    intro i D hi
+    cases i with
+    | zero => cases Option.some.inj hi; exact v.elaborate.property
+    | succ i => simp [At] at hi
+  let terms := fun j => (slots j).term
+  let otherTerms := fun j => (otherSlots j).term
+  have left := (terminal_prefix e pos terms emits).substVars typed
+  have right := (terminal_prefix out pos otherTerms emits).substVars typed
+  rw [prependEmits_subst] at left right
+  have lq := (quote_eval_selected e pos terms [] (fun j => frameSlot_discards (slots j))).symm.substVars typed
+  have rq := (quote_eval_selected out pos otherTerms [] (fun j => frameSlot_discards (otherSlots j))).substVars typed
+  have l := quote_frameValue pos e.eval slots v
+  have r := quote_frameValue pos out.eval otherSlots v
+  rw [row] at l
+  exact left.trans ((prependEmits_congr emits (lq.trans (l.trans (r.symm.trans rq)))).trans right.symm)
+
 theorem selected_of_frame_rows {X : Ty Empty} {frame : ReplyFrame X} {L : List (Ty Empty)} {n m : Nat}
     (e : Finite.Expr n) (out : Finite.Expr m)
     (slots : Fin n → ReplyFrame.Slot frame) (otherSlots : Fin m → ReplyFrame.Slot frame)
@@ -92,23 +120,10 @@ theorem selected_of_frame_rows {X : Ty Empty} {frame : ReplyFrame X} {L : List (
     (rows : ∀ {Γ : List (Ty Empty)} (v : ReplyFrame.Value Γ frame),
       e.eval (fun j => ((slots j).read v).1) = out.eval (fun j => ((otherSlots j).read v).1)) :
     selectedEq (selectTerminal pos e (fun j => (slots j).term) emits)
-      (selectTerminal pos out (fun j => (otherSlots j).term) emits) := by
-  let terms := fun j => (slots j).term
-  let otherTerms := fun j => (otherSlots j).term
-  let left := selectTerminal pos (Finite.Expr.quote n e.eval) terms
-  let right := selectTerminal pos (Finite.Expr.quote m out.eval) otherTerms
-  have bare : selectedEq (left []) (right []) := by
-    apply frame_case_ext frame (left []).elaborate.property.hasType (right []).elaborate.property.hasType
-    intro Γ v
-    have l := quote_frameValue pos e.eval slots v
-    have r := quote_frameValue pos out.eval otherSlots v
-    rw [rows v] at l
-    exact l.trans r.symm
-  have quoted := (terminal_prefix (Finite.Expr.quote n e.eval) pos terms emits).trans
-    ((prependEmits_congr emits bare).trans
-      (terminal_prefix (Finite.Expr.quote m out.eval) pos otherTerms emits).symm)
-  exact (quote_eval_selected e pos terms emits (fun j => frameSlot_discards (slots j))).symm.trans
-    (quoted.trans (quote_eval_selected out pos otherTerms emits (fun j => frameSlot_discards (otherSlots j))))
+      (selectTerminal pos out (fun j => (otherSlots j).term) emits) :=
+  frame_case_ext frame (selectTerminal pos e (fun j => (slots j).term) emits).elaborate.property.hasType
+    (selectTerminal pos out (fun j => (otherSlots j).term) emits).elaborate.property.hasType
+    (fun v => selected_of_frame_row e out slots otherSlots pos emits v (rows v))
 
 theorem selected_of_check {X : Ty Empty} {frame : ReplyFrame X} {L : List (Ty Empty)} {n : Nat}
     (e : Finite.Expr n) (out : Terminal n) (slots : Fin n → ReplyFrame.Slot frame)

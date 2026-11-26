@@ -35,46 +35,83 @@ def locate {X : Ty Empty} {frame : ReplyFrame X} {n : Nat}
   letI := ReplyFrame.Slot.decEq frame
   (List.finRange n).find? fun j => decide (slots j = slot)
 
-/-- Evaluate the original syntax in the canonical coordinates. Aliased
-source slots resolve to the same coordinate. An unavailable projection
-prevents admission if a read or a test with different arms needs it. -/
-def reindex? {X : Ty Empty} {frame : ReplyFrame X} {n : Nat} (kept : Fin n → ReplyFrame.Slot frame) :
+/-- A new reply exposes a fresh field and carries facts about older fields. -/
+def replyFacts {X : Ty Empty} {frame : ReplyFrame X} (known : CompactTerminal.Known frame) :
+    CompactTerminal.Known (.bit frame)
+  | .newest _ => none
+  | .retainBit slot => known slot
+
+/-- A selected guard binds the original unit payload, then its request binds
+a fresh reply. Remember the tag of the tested projection in the older frame. -/
+def guardFacts {X : Ty Empty} {frame : ReplyFrame X} (known : CompactTerminal.Known frame)
+    (slot : ReplyFrame.Slot frame) (tag : Bool) : CompactTerminal.Known (.bit (.unit frame)) :=
+  replyFacts fun
+    | .retainUnit old => CompactTerminal.remember known slot tag old
+
+/-- Resolve a tag only from a checked path or an available exact projection. -/
+def readWithFacts? {X : Ty Empty} {frame : ReplyFrame X} {n : Nat}
+    (kept : Fin n → ReplyFrame.Slot frame) (known : CompactTerminal.Known frame)
+    (slot : ReplyFrame.Slot frame) : Option (Finite.Table n) :=
+  match known slot with
+  | some tag => some (fun _ => tag)
+  | none => (locate kept slot).map fun j env => env j
+
+/-- Read known fields as constants and select known tests before visiting
+their arms. Otherwise a read or nonredundant test needs a retained field. -/
+def reindexWithFacts? {X : Ty Empty} {frame : ReplyFrame X} {n : Nat}
+    (kept : Fin n → ReplyFrame.Slot frame) (known : CompactTerminal.Known frame) :
     {m : Nat} → Finite.Expr m → (Fin m → ReplyFrame.Slot frame) → Option (Finite.Table n)
   | _, .literal bit, _ => some (fun _ => bit)
-  | _, .read i, slots => (locate kept (slots i)).map fun j env => env j
+  | _, .read i, slots => readWithFacts? kept known (slots i)
   | _, .split low high, slots =>
     let older := fun i => slots i.succ
-    if low = high then reindex? kept low older else do
-      let test ← locate kept (slots 0)
-      let l ← reindex? kept low older
-      let r ← reindex? kept high older
-      pure fun env => if env test then r env else l env
+    match known (slots 0) with
+    | some false => reindexWithFacts? kept known low older
+    | some true => reindexWithFacts? kept known high older
+    | none =>
+      if low = high then reindexWithFacts? kept known low older else do
+        let test ← locate kept (slots 0)
+        let l ← reindexWithFacts? kept known low older
+        let r ← reindexWithFacts? kept known high older
+        pure fun env => if env test then r env else l env
 
-/-- Follow the exact effect skeleton in canonical reply order. Guards have
-complementary request labels and delete their tested slot on both sides. -/
-def recoverTree {L : List (Ty Empty)} :
+def reindex? {X : Ty Empty} {frame : ReplyFrame X} {n m : Nat} (kept : Fin n → ReplyFrame.Slot frame)
+    (e : Finite.Expr m) (slots : Fin m → ReplyFrame.Slot frame) : Option (Finite.Table n) :=
+  reindexWithFacts? kept (fun _ => none) e slots
+
+/-- Recover the same effect skeleton while recording the constructor tag
+selected by each pure guard on the path to a terminal. -/
+def recoverTreeWithFacts {L : List (Ty Empty)} :
     {m : Nat} → ReadTree L m → {X : Ty Empty} → {frame : ReplyFrame X} →
-    (Fin m → ReplyFrame.Slot frame) → {n : Nat} → (Fin n → ReplyFrame.Slot frame) → Option (Finite.Normal L n)
-  | _, .ret emits pos i, _, _, slots, _, kept => do
-    let j ← locate kept (slots i)
-    pure (emits.foldr Finite.Normal.emit (.ret pos (fun env => env j)))
-  | _, .retExpr emits pos e, _, _, slots, _, kept => do
-    let table ← reindex? kept e slots
+      CompactTerminal.Known frame → (Fin m → ReplyFrame.Slot frame) →
+      {n : Nat} → (Fin n → ReplyFrame.Slot frame) → Option (Finite.Normal L n)
+  | _, .ret emits pos i, _, _, known, slots, _, kept => do
+    let table ← readWithFacts? kept known (slots i)
     pure (emits.foldr Finite.Normal.emit (.ret pos table))
-  | _, .request emits label _ l r, _, _, slots, _, kept => do
-    let l ← recoverTree l (ReplyFrame.bindSlots slots) (ReplyFrame.bindSlots kept)
-    let r ← recoverTree r (ReplyFrame.bindSlots slots) (ReplyFrame.bindSlots kept)
+  | _, .retExpr emits pos e, _, _, known, slots, _, kept => do
+    let table ← reindexWithFacts? kept known e slots
+    pure (emits.foldr Finite.Normal.emit (.ret pos table))
+  | _, .request emits label _ l r, _, _, known, slots, _, kept => do
+    let l ← recoverTreeWithFacts l (replyFacts known) (ReplyFrame.bindSlots slots) (ReplyFrame.bindSlots kept)
+    let r ← recoverTreeWithFacts r (replyFacts known) (ReplyFrame.bindSlots slots) (ReplyFrame.bindSlots kept)
     pure (emits.foldr Finite.Normal.emit (.request label l r))
-  | _, .testRequest emits test low _ _ fl fr tl tr, _, _, slots, _ + 1, kept => do
+  | _, .testRequest emits test low _ _ fl fr tl tr, _, _, known, slots, _ + 1, kept => do
     let i ← locate kept (slots test)
     let children := ReplyFrame.guardSlots slots test
     let retained := ReplyFrame.guardSlots kept i
-    let fl ← recoverTree fl children retained
-    let fr ← recoverTree fr children retained
-    let tl ← recoverTree tl children retained
-    let tr ← recoverTree tr children retained
+    let lowFacts := guardFacts known (slots test) false
+    let highFacts := guardFacts known (slots test) true
+    let fl ← recoverTreeWithFacts fl lowFacts children retained
+    let fr ← recoverTreeWithFacts fr lowFacts children retained
+    let tl ← recoverTreeWithFacts tl highFacts children retained
+    let tr ← recoverTreeWithFacts tr highFacts children retained
     pure (emits.foldr Finite.Normal.emit (.testRequest i low fl fr tl tr))
-  | _, .testRequest .., _, _, _, 0, _ => none
+  | _, .testRequest .., _, _, _, _, 0, _ => none
+
+def recoverTree {L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X} {n m : Nat}
+    (tree : ReadTree L m) (slots : Fin m → ReplyFrame.Slot frame) (kept : Fin n → ReplyFrame.Slot frame) :
+    Option (Finite.Normal L n) :=
+  recoverTreeWithFacts tree (fun _ => none) slots kept
 
 /-- Compare the original selected split with the canonical guard shell.
 Both branches begin with their literal complementary requests. -/
@@ -87,13 +124,21 @@ def recoverSplit {L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X} {m 
     if high = !low then do
       let children := ReplyFrame.bindSlots (fun j => ReplyFrame.Slot.retainUnit (slots j))
       let retained := ReplyFrame.guardSlots kept i
-      let fl ← recoverTree fl children retained
-      let fr ← recoverTree fr children retained
-      let tl ← recoverTree tl children retained
-      let tr ← recoverTree tr children retained
+      let lowFacts := guardFacts (fun _ => none) (slots p.test) false
+      let highFacts := guardFacts (fun _ => none) (slots p.test) true
+      let fl ← recoverTreeWithFacts fl lowFacts children retained
+      let fr ← recoverTreeWithFacts fr lowFacts children retained
+      let tl ← recoverTreeWithFacts tl highFacts children retained
+      let tr ← recoverTreeWithFacts tr highFacts children retained
       pure (p.emits.foldr Finite.Normal.emit (.testRequest i low fl fr tl tr))
     else none
   | _, _ => none
+
+/-- A path fact is valid at a packet only when its typed projection
+actually reads that constructor tag. -/
+def FactsHold {X : Ty Empty} {frame : ReplyFrame X} {Γ : List (Ty Empty)}
+    (known : CompactTerminal.Known frame) (packet : ReplyFrame.Value Γ frame) : Prop :=
+  ∀ slot tag, known slot = some tag → (slot.read packet).1 = tag
 
 /-- A canonical key with a native certificate for the actual original arrow. -/
 structure Admission {L : List (Ty Empty)} {n : Nat} (p : SelectedAt (replyContext n) L) where

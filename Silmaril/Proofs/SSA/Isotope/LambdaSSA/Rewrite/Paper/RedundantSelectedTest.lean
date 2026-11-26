@@ -560,7 +560,7 @@ theorem quote_frameValue {Γ L : List (Ty Empty)} {n : Nat} {X : Ty Empty} {fram
     (fun j => ((slots j).read v).1) (fun j => ((slots j).read v).2.val)
     (fun j => ((slots j).read v).2.property) (fun j => frameSlot_return (slots j) v)
 
-private theorem prependEmits_subst (emits : List Bool) (r : Region signature.Instr)
+theorem prependEmits_subst (emits : List Bool) (r : Region signature.Instr)
     (σ : Nat → Tm signature.Instr) :
     (prependEmits emits r).substVars σ = prependEmits emits (r.substVars σ) := by
   induction emits with
