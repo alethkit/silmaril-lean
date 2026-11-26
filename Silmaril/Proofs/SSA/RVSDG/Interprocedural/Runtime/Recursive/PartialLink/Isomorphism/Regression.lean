@@ -1232,21 +1232,30 @@ private def captureCode : RecursiveCall.Numbered.CaptureCode machine where
 
 private abbrev sameBodyInput := global :: branchFn.args
 
-private def sameBody : RecursiveCall.Code Op sameBodyInput [] [[num]] [num] :=
-  .bind (RecursiveCall.simple (.primitive Op.finish)
-    (.cons (.arg .head) (.cons (.arg (.tail .head)) .nil)) (fun i => i.elim0))
-    (fun i => i.elim0) (.ret (.cons (.output (0 : Fin 1) .head) .nil))
+private def sameBodyStep {past : List (Ports T)} :
+    NestedTheta.Node (Instruction Op) sameBodyInput past [num] :=
+  RecursiveCall.simple (.primitive Op.finish)
+    (.cons (.arg .head) (.cons (.arg (.tail .head)) .nil)) (fun i => i.elim0)
 
-private def sameBodyLambda {past : List (Ports T)} (source : Origin args past global) :
-    LambdaTerm Op args past branchFn :=
-  ⟨[global], .cons source .nil, _, sameBody⟩
+private def sameBody : RecursiveCall.Code Op sameBodyInput [] [[num]] [num] :=
+  .bind sameBodyStep (fun i => i.elim0) (.ret (.cons (.output (0 : Fin 1) .head) .nil))
+
+private def paddedSameBody : RecursiveCall.Code Op sameBodyInput [] [[], [num]] [num] :=
+  .bind (RecursiveCall.emptyGamma (extra := 0) (entry := [])
+      (.cons (.arg (.tail (.tail .head))) .nil)) (fun _ => .ret .nil)
+    (.bind sameBodyStep (fun i => i.elim0) (.ret (.cons (.output (1 : Fin 2) .head) .nil)))
+
+private def sameBodyLambda {past : List (Ports T)} (source : Origin args past global)
+    (padded : Bool := false) : LambdaTerm Op args past branchFn :=
+  if padded then ⟨[global], .cons source .nil, _, paddedSameBody⟩
+  else ⟨[global], .cons source .nil, _, sameBody⟩
 
 private abbrev captureExports := [branchFn.port, branchFn.port, branchFn.port]
 
-private def captureModule (duplicate : Bool) :
+private def captureModule (duplicate : Bool) (paddedFirst : Bool := false) :
     OmegaTerm Op args captureExports [[global], [global], [], [branchFn.port], [branchFn.port], [branchFn.port]] :=
   ⟨.bind (.delta (seedDelta [])) <| .bind (.delta finishL) <| .bind (.phi (emptyPhi Op args _)) <|
-    .bind (.lambda (sameBodyLambda (.output (0 : Fin 3) .head))) <|
+    .bind (.lambda (sameBodyLambda (.output (0 : Fin 3) .head) paddedFirst)) <|
     .bind (.lambda (sameBodyLambda (if duplicate then .output (0 : Fin 4) .head else .output (1 : Fin 4) .head))) <|
     .bind (.lambda (if duplicate then combined (.output (4 : Fin 5) .head) (.output (3 : Fin 5) .head)
       else combined (.output (3 : Fin 5) .head) (.output (4 : Fin 5) .head))) <|
@@ -1385,6 +1394,42 @@ example : (match Executable.run actions 5 73 (scanModule false).toGraph (number 
     scanCaller (branchArgs 1) 20 with
   | .ok (.suspended config) => (runFor actions 60 config).result
   | _ => none) = some (number 16, 41) := by cbv
+
+private def autoPlan (left right : Bool) :
+    Plan Op args args scanExports false (scanModule left).region (scanModule right).region :=
+  .skipL (.skipR (.skipL (.skipR (.seed (.lambdaAuto (.lambdaAuto (.lambdaAuto (.lambdaAuto .done))))))))
+
+private def automaticAlias (left right : Bool) (port : Port scanExports branchFn.port := scanCaller)
+    (observe : RecursiveCall.Numbered.CaptureCode machine := captureCode)
+    (exactCheck : RecursiveCall.Numbered.ExactValueCheck machine := exactLambdas) :=
+  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    (scanModule left) (scanModule right) (autoPlan left right) (fn := branchFn) port 20 20
+    observe (exactValue := exactCheck)
+
+-- All λ rows use the same plan constructor, including the older unique
+-- binding, the equal-body distinct capture, the exact duplicate and the caller.
+#guard (automaticAlias false false).isSome
+#guard (automaticAlias false false (.tail (.tail .head))).isSome
+#guard (automaticAlias true true).isSome
+#guard (automaticAlias false true).isNone
+#guard (automaticAlias false false (exactCheck := fun _ _ => none)).isNone
+#guard (automaticAlias false false (observe := .controlOnly machine)).isNone
+
+private def asymmetricPlan (automatic : Bool) :
+    Plan Op args args captureExports false (captureModule true).region (captureModule false true).region :=
+  .skipL (.skipR (.skipL (.skipR (.seed (.lambda
+    (if automatic then .lambdaAuto (.lambda .done) else .lambda (.lambda .done)))))))
+
+private def asymmetricScan (automatic : Bool) :=
+  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    (captureModule true) (captureModule false true) (asymmetricPlan automatic) (fn := branchFn)
+    (.tail (.tail .head)) 20 20 captureCode (exactValue := exactLambdas)
+
+-- Padding the first right body makes both cross-side freshness checks pass
+-- for the second pair. The second left value still duplicates its own first
+-- row, so the automatic policy rejects it after the bilateral alias miss.
+#guard (asymmetricScan false).isSome
+#guard (asymmetricScan true).isNone
 
 private abbrev seedRow {past : List (Ports T)} : NestedTheta.Node (Instruction Op) [global, num] past [num] :=
   RecursiveCall.simple (.primitive Op.seed) (.cons (.arg (.tail .head)) .nil) (fun i => i.elim0)
