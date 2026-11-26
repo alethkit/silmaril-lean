@@ -54,6 +54,52 @@ has a raw witness, and every raw racy execution contains a UB prefix.
 schedule can still reach UB along another schedule. There is no arbitrary
 post-UB behavior in this model.
 
+## Interface observations
+
+Import `Silmaril.Semantics.TrackA.Concurrency.Projection.Thms` for interface
+projection. An `Interface` exposes selected resources and mutexes. Its
+`observe` function filters a finite history while keeping each visible event's
+thread, operation and value. `Interface.projection` maps each visible
+position to its original occurrence in strictly increasing order. This
+distinguishes repeated labels and preserves conflicts, access modes and
+mutex synchronization between retained events.
+
+`Interface.ObservedRun` supplies a source `sc.MTr` witness with the same
+initial and final configurations. `Interface.observedRun_inter` factors
+restriction through an intermediate observation of that execution.
+`Projection.comp` composes the occurrence maps. A filtered history is used
+as an observation of the source execution. The factorization concerns
+finite traces and their source endpoints. It gives no guarantee about
+executability of the filtered history, schedules, fairness or atomicity
+of multi-step operations.
+
+For retained pairs, there are two separate comparisons.
+
+| Sufficient condition | Happens-before | Races |
+| --- | --- | --- |
+| `Projection.CoversOverwrites` in the mixed profile | Observed paths lift to the source | Retained source races remain visible |
+| `Projection.KeepsCrossThreadEdges` | Source paths remain ordered between retained endpoints | Visible races reflect source races |
+
+For the first direction, `Projection.direct_eq` compares retained direct
+edges. An overwrite of the same resource between a candidate atomic write
+and read must have a visible witness whenever the source has one. A plain
+write or a write of the same value still counts. The mutex-only profile
+requires no overwrite condition. For the other direction, every cross-thread
+direct edge keeps both endpoints. The proof compresses stretches of
+same-thread program order through hidden occurrences between the retained
+endpoints.
+
+`Interface.CoversSynchronization` gives a concrete sufficient condition
+for both directions. Expose every mutex used in the trace and, in the
+mixed profile, every resource accessed atomically. This also retains
+plain overwrites of those resources and allows hiding plain accesses on
+other resources. `Interface.racePair_eq` then compares any retained pair.
+`Projection.hasRace_to_source` reflects an observed whole-trace race
+under the cross-thread condition. The converse `hasRace_to_observed`
+also asks for `Projection.CoversConflicts`, so a source race still has
+both endpoints in the observation. Together these conditions give
+`Projection.classify_eq`.
+
 ## Checked examples and limits
 
 The examples check both disjoint-store orders, a protected increment, a
@@ -69,14 +115,21 @@ ordering and linearizability proofs are outside this development.
 The model covers finite executions without scheduler fairness or starvation
 guarantees. It leaves out allocation, byte overlap, weak memory, read-modify-write
 primitives, condition variables, reentrant mutexes, and the C and SQLite
-semantics. Projection operators are a separate development. Consumers can
-use `Event`, `Action`, `sc.MTr`, `ClassifiedRun`, `FilteredRun` and `RaceUB`
-to state projections over the same finite histories.
+semantics.
+
+The projection examples use checked raw SC schedules. Hiding the mutex
+handoff makes two retained plain writes appear to race. Hiding an
+intervening atomic write of the same value fabricates a reads-from edge
+and suppresses a race between retained payload accesses. A third example
+exposes the whole atomic resource while hiding the plain payload resource.
+Its observed trace is clean even though the source is racy.
 
 ```sh
-lake build --wfail +Silmaril.Semantics.TrackA.Concurrency.Thms \
-  +Silmaril.Proofs.Semantics.TrackA.Concurrency.Examples
-make check CHECK_TARGETS='+Silmaril.Semantics.TrackA.Concurrency.Thms +Silmaril.Proofs.Semantics.TrackA.Concurrency.Examples'
+targets='+Silmaril.Semantics.TrackA.Concurrency.Thms +Silmaril.Proofs.Semantics.TrackA.Concurrency.Examples +Silmaril.Semantics.TrackA.Concurrency.Projection.Thms +Silmaril.Proofs.Semantics.TrackA.Concurrency.Projection.Examples'
+lake build --wfail $targets
+make check CHECK_TARGETS="$targets"
+lake env leanchecker Silmaril.Semantics.TrackA.Concurrency.Projection.Thms
+lake env leanchecker Silmaril.Proofs.Semantics.TrackA.Concurrency.Projection.Examples
 ```
 
 - Leslie Lamport, *How to Make a Multiprocessor Computer That Correctly
