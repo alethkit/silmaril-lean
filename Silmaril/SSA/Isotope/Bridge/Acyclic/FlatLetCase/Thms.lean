@@ -20,6 +20,20 @@ variable {Φ : Type v} {τ : Type u} [TypeFormers τ] [HasTy Φ τ]
   {blocks exits n : Nat} {β : BoundCtx τ n} {R : Fin blocks → τ} {D : Fin exits → τ}
   {g : FiniteCFG Φ blocks exits n}
 
+/-- Encoding an outward position leaves operand evaluation intact. -/
+theorem tag_tree {Events : Type w → Type w} {α : Type x} (raw : Primitive Events Φ α)
+    {L : LCtx τ} {A : τ} {i : Nat} (hi : At L i A) (a : Operand Φ β A) (env : Env α) :
+    term raw env (erase (FiniteExit.tag L i hi a).1) =
+      (term raw env (erase a.1) >>= fun v => pure (Region.packedExitValue i v)) :=
+  Proofs.SSA.Isotope.Bridge.Acyclic.FlatLetCase.tag_tree raw hi a env
+
+/-- The erased operand only reads the image of its in-scope indices. -/
+theorem operand_rename_tree {Events : Type w → Type w} {α : Type x}
+    (raw : Primitive Events Φ α) {m : Nat} {a : LetCase.LocallyNameless.Tm Empty Φ n}
+    (ρ : Fin n → Fin m) {env env' : Env α} (agree : ∀ i, env' (ρ i).val = env i.val) :
+    term raw env' (erase (a.rename ρ)) = term raw env (erase a) :=
+  Proofs.SSA.Isotope.Bridge.Acyclic.FlatLetCase.operand_rename raw ρ agree
+
 /-- Exact flat typing supplies witnesses of the literal written operands. -/
 theorem witness_nonempty (h : g.HasType β R D) : Nonempty (Witness g β R D) :=
   Proofs.SSA.Isotope.Bridge.Acyclic.FlatLetCase.witness_nonempty h

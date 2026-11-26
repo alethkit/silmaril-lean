@@ -1047,3 +1047,37 @@ pass typed packet-local admission.
 · [Entry rank criterion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean)
 · [Exact satisfaction comparison](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocal/LetCase/Institution/Thms.lean)
 · [Ordered-exit regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
+
+### From witnessed LetCase to admitted named RTL
+
+`ResultGrammar.toTable` numbers the existing captured grammar witness for
+the written term. `CheckedTable.toFlat` materializes those rows with the
+same exact operands, numbered targets and caller context. Erasure is the
+literal native table, typing uses the original internal packet family
+and ordered exits, and the existing rank check still passes.
+`ResultGrammar.flat_tree` uses the compiler's exact syntax round trip
+and the ordinary weak-tree interpreter for this table.
+
+`PacketLocal.Witnessed.compile?` runs the existing reverse emitter on
+that materialized table with caller-supplied internal labels. It checks
+scoped readback including the attached live-out registers, packet-local
+reversion and the reachable rank check on the actual admission. It uses
+the existing packet-local fragment. Blocks read caller values through
+their incoming packets. An outward operand supplies the old payload
+and live-out record as the pair expected by the reverse emitter. Scoped
+readback checks the exact ordered register projection after reattachment.
+The named checker rejects the fixture whose live-out reads an older
+ambient variable where reattachment reads the incoming packet register.
+
+On success, the original written LetCase tree agrees at every caller
+record with the actual named run and its packed LambdaSSA reversion.
+`Compiled.satisfies` validates the equation from the written term to
+the re-expanded admission in `LetCase.inst`, with the same compatible
+typed and erased primitives. `Compiled.packed_eq` compares the two
+existing typed packed denotations. The fixture supplies a number at
+entry, uses a visible Boolean reply to select either ordered exit, and
+checks the returned live-out while the original payload is unit.
+
+[Captured table adapter](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Flat/Tree/Thms.lean)
+· [Named and institutional round trip](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocal/LetCase/Witnessed/Thms.lean)
+· [Visible branching and ambient-read rejection](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocalLetCaseWitnessedRegression.lean)
