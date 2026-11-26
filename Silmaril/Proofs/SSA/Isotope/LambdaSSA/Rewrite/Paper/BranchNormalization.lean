@@ -124,17 +124,15 @@ namespace Extension
 
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.Extension (Eqv)
 
-variable {Seed : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop}
+variable {Seed Target : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop}
+  {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
 
-theorem congr_of_guardedSeed
-    (guarded : ∀ {Γ r s L}, Seed Γ r s L → ValueBranches Γ r L ∧ ValueBranches Γ s L)
-    {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
-    (h : Eqv Seed Γ r s L) : Eqv Seed Γ r.bindBranchArguments s.bindBranchArguments L := by
+theorem congr_into (h : Eqv Seed Γ r s L)
+    (map : ∀ {Γ r s L}, Seed Γ r s L → Eqv Target Γ r.bindBranchArguments s.bindBranchArguments L) :
+    Eqv Target Γ r.bindBranchArguments s.bindBranchArguments L := by
   induction h with
   | paper h => exact .paper (paper_congr h)
-  | extra hr hs h =>
-      obtain ⟨hr', hs'⟩ := guarded h
-      exact (Eqv.paper (Seed := Seed) (normalized hr')).trans ((Eqv.extra hr hs h).trans (Eqv.paper (Seed := Seed) (normalized hs').symm))
+  | extra _ _ h => exact map h
   | symm _ ih => exact .symm ih
   | trans _ _ ih₁ ih₂ => exact .trans ih₁ ih₂
   | let₁ ha _ ih => exact .let₁ ha ih
@@ -142,18 +140,27 @@ theorem congr_of_guardedSeed
   | case ha _ _ ihl ihr => exact .case ha ihl ihr
   | cfg R _ _ ihe ihb => exact .cfg R ihe ihb
   | lsubstCongr hp recur ih =>
-      exact (Eqv.paper (Seed := Seed) (native (hp.normalize_lsubst (fun _ _ hi => (recur hi).typed.1)))).trans
+      exact (Eqv.paper (Seed := Target) (native (hp.normalize_lsubst (fun _ _ hi => (recur hi).typed.1)))).trans
         ((Eqv.lsubstCongr hp ih).trans
-          (Eqv.paper (Seed := Seed) (native (hp.normalize_lsubst (fun _ _ hi => (recur hi).typed.2)).symm)))
-  | lsubstPost h hr hs hσ _ =>
-      exact (Eqv.paper (Seed := Seed) (native (hr.normalize_lsubst hσ))).trans
-        ((Eqv.lsubstPost h hr hs
-          (fun _ _ hi => (hσ hi).bindBranchArguments.hasType)).trans
-          (Eqv.paper (Seed := Seed) (native (hs.normalize_lsubst hσ).symm)))
+          (.paper (native (hp.normalize_lsubst (fun _ _ hi => (recur hi).typed.2)).symm)))
+  | lsubstPost _ hr hs hσ ih =>
+      have unbound := (Eqv.paper (Seed := Target) (normalized hr).symm).trans
+        (ih.trans (.paper (normalized hs)))
+      exact (Eqv.paper (Seed := Target) (native (hr.normalize_lsubst hσ))).trans
+        ((Eqv.lsubstPost unbound hr hs (fun _ _ hi => (hσ hi).bindBranchArguments.hasType)).trans
+          (.paper (native (hs.normalize_lsubst hσ).symm)))
   | substVars _ hθ ih =>
       simpa only [bindBranchArguments_substVars] using ih.substVars hθ
   | renameLabels _ hρ ih =>
       simpa only [bindBranchArguments_renameLabels] using ih.renameLabels hρ
+
+theorem congr_of_guardedSeed
+    (guarded : ∀ {Γ r s L}, Seed Γ r s L → ValueBranches Γ r L ∧ ValueBranches Γ s L)
+    (h : Eqv Seed Γ r s L) : Eqv Seed Γ r.bindBranchArguments s.bindBranchArguments L :=
+  congr_into h fun step =>
+    let ⟨hr, hs⟩ := guarded step
+    (Eqv.paper (Seed := Seed) (normalized hr)).trans
+      ((Eqv.extra hr.hasType hs.hasType step).trans (.paper (normalized hs).symm))
 
 end Extension
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BranchNormalization
