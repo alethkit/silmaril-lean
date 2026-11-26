@@ -654,47 +654,67 @@ declarations.
 
 The prefix uses the straight-line body rules for local and module reads,
 integers, indexing and singleton list displays. An owned name shadows a
-module name throughout the wrapper block. Independent capture selection
-admits the remaining module references in first-read order. Module entry
-supplies the selected addresses from the reached module frame, and
-wrapper definition stores them with the module capture flag. The trace
-preserves those addresses through aliases and module assignments.
-`prefix_module_read` proves that activation reads the current module
-cell, including its uninitialized state, through the same address.
+module name throughout the wrapper block. Capture selection visits the
+prefix reads followed by the defaults' reads. Module entry supplies
+selected addresses from the reached module frame. The trace preserves
+those addresses through aliases and module statements.
+`prefix_module_read` relates an installed address to the current module
+binding, including an uninitialized cell.
 
 The prefix judgment composes with any reached continuation. It preserves
 owned slot addresses and existing caller cells. A prefix error restores
-the caller immediately with the reached heap, before any default or
-child installation. A successful prefix supplies its actual heap to the
-definition, where defaults evaluate once in order.
+the caller immediately with the reached heap, before defaults or child
+installation. A successful prefix supplies the actual defining state
+to the lexical default rule below.
 
-`returned_frame` identifies the successful prefix state and the exact
-default values evaluated there. It relates the child's capture vector
-to the same reached frame, and the escaped closure supplies those live
-addresses to later calls. `capture_order` gives one entry per selected
-child binding in declaration order. The suffix updates captured cells
-and preserves the saved defaults. The checked module theorem carries
-the closure through aliases and repeated calls and gives exact
+`returned_frame` identifies the successful prefix state, exact default
+values and child capture vector. The suffix updates the captured cells
+and preserves the saved arguments. The checked module theorem carries
+the escaped closure through aliases and repeated calls and gives exact
 operational and denotational agreement on publication and reachable
 freezing or on the first error, retained heap and restored caller.
 
-The fixture defines the wrapper before its module input is initialized.
-A checked list mutation between two wrapper calls changes what the
-second prefix reads. The original escaped child keeps its saved value. A local of the same name as another module binding
-supplies the index. The failure controls distinguish an uninitialized
-module read, a later bad index, and an uninitialized default read of a
-suffix-only local. Lean checks the capture kinds, private residual heap,
-and caller restoration. The pinned Go control compares visible results,
-failure state and freezing with its default file options. The activation
-theorem uses the current binding cell on each call. The checked module
-profile rejects repeated module name bindings through the existing
-collision check.
-
-Wider wrapper bodies and operands, direct module reads in this wrapper's
-defaults, capture of module or child-name slots by the child, deeper
-nesting, arbitrary callable provenance, keywords and spreads, loads,
-and text parsing remain outside this integration.
+The fixture defines the wrapper before module initialization. Calls
+on either side of a checked list mutation save different values read
+through the prefix. A further default reads a module name directly,
+and another reads a wrapper local that shadows a module name. The
+failure controls cover an uninitialized module read in the prefix,
+an out-of-range prefix index, an uninitialized local default and an
+uninitialized module default after a successful prefix. Lean checks
+the capture kinds, retained allocations and caller restoration. The
+pinned Go control checks visible results, failure state and freezing
+with its default file options. Checked modules reject repeated name
+bindings through the existing collision check.
 [Source rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Scoped/Defs.lean) · [Capture and frame theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Scoped/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Scoped/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/nested-default-body/check.go)
+
+## Lexical defaults and reached definitions
+
+`Defaults.Lexical.Elaborates` relates positional defaults to the same
+lexical source expressions used in the straight-line body proof.
+Parameter names label the saved results. Resolution of each operand
+uses the defining block, including local shadowing and enclosing and
+module origins. `translates` relates the lexical derivation to the
+compiler's code and ordered reads. `evaluates_agree` gives exact
+denotational agreement on the saved values or first error and its
+heap.
+
+`defines_total` constructs the reached operational and denotational
+definition from the checked operands, the emitted declaration and an
+`Installs` derivation in the actual defining frame. On success it
+identifies the exact saved values and installed address vector. A
+definition that forwards a capture uses the enclosing slot's address
+through the same rule. The wrapper proof derives its module addresses
+from actual module cells and its child's captures from reached locals.
+
+The next obligation for deeper defaulted source is to derive the
+layout, ordered free references and `Installs` evidence at each
+reached nested definition and keep that evidence through arbitrary
+admitted body sequencing and dispatch. The lexical rule covers the
+existing read-only operands and singleton list allocation. Wider
+default expressions and effects, deeper checked wrapper traces,
+arbitrary callable provenance, keywords and spreads, loads, and text
+parsing remain outside this integration.
+[Lexical rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Lexical/Defs.lean) · [Default and definition theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Lexical/Thms.lean)
 
 ## Finite-manifest loader
 

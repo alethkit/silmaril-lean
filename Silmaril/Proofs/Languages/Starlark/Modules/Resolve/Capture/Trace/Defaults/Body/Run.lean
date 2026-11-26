@@ -20,14 +20,10 @@ open Silmaril.Languages.Starlark.Lists (State Cell Slot Outcome Value)
 open Silmaril.Languages.Starlark.Lists.Iteration (Flow finishState)
 open Silmaril.Languages.Starlark.Functions.Lowering.Resolve (SourceExpr)
 
-private abbrev Direct (program : Program) (available : List DeclarationId)
-    (state : State) (code : Lowering.Expr) (out : Outcome Value) :=
-  Lowering.EvaluatesWith program available (fun _ _ _ => False) (fun _ => True) state code out
-
-private theorem evaluates (program : Program) (available : List DeclarationId)
+theorem evaluates (program : Program) (available : List DeclarationId)
     {block : LexicalBlock} {state : State} {source : SourceExpr} {code : Lowering.Expr}
     {out : Outcome Value} (ran : Evaluates block state source code out) :
-    Direct program available state code out := by
+    Lowering.EvaluatesWith program available (fun _ _ _ => False) (fun _ => True) state code out := by
   induction ran with
   | read => exact .atom trivial .read
   | int => exact .atom trivial .scalar
@@ -87,7 +83,7 @@ theorem prefix_unique {block : LexicalBlock} {state : State} {source : List (Str
 
 /-- The operand profile only extends the heap. In particular, each
 existing slot and cell still denotes the same object after an error. -/
-private def Extends (before after : State) : Prop :=
+@[expose] def Extends (before after : State) : Prop :=
   after.slots = before.slots ∧
   ∀ (address : Nat) (cell : Cell), before.heap[address]? = some cell → after.heap[address]? = some cell
 
@@ -104,7 +100,7 @@ private theorem extend_push (state : State) (cell : Cell) : Extends state { stat
   have within := (Array.getElem?_eq_some_iff.mp found).choose
   simp [Array.getElem?_push, Nat.ne_of_lt within, found]
 
-private theorem operands_total {block : LexicalBlock} {source : SourceExpr} {code : Lowering.Expr} {reads : List Binding}
+theorem operands_total {block : LexicalBlock} {source : SourceExpr} {code : Lowering.Expr} {reads : List Binding}
     (scope : Operand block source code reads) (state : State) :
     ∃ out, Evaluates block state source code out ∧ Extends state (finishState out) := by
   induction scope generalizing state with
