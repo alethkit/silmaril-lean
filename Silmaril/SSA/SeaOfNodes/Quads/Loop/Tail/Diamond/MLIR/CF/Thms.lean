@@ -111,13 +111,14 @@ theorem split_frame (input old : Bank (regs := regs) model) :
       .inl (siteFrame (p.armStart (p.selected model old)) ((src p.header).body.eval model old)) :=
   Proofs.split_frame p input old
 
-/-- The last original block of each occurrence sends its own final bank to
-the common join. The target frame contains these exact typed arguments. -/
-theorem predecessor_frame (input old : Bank (regs := regs) model) (occurrence : Fin 2) :
+/-- The original predecessor passes its final bank to the common join.
+A direct edge requires the header test to select that occurrence. -/
+theorem predecessor_frame (input old : Bank (regs := regs) model) (occurrence : Fin 2)
+    (selectDirect : (p.armPath occurrence).blocks = [] → p.selected model old = occurrence) :
     ((lower p).block (.site (p.predecessor occurrence))).eval evalOp (fun term env => term.eval env)
         ((encodeValues old).append (encodeValues input)) =
       .inl (siteFrame p.join ((src (p.predecessor occurrence)).body.eval model old)) :=
-  Proofs.predecessor_frame p input old occurrence
+  Proofs.predecessor_frame p input old occurrence selectDirect
 
 /-- Running the chosen emitted arm spends one CF visit per original arm
 block and continues at the common join with the selected arm's final bank. -/

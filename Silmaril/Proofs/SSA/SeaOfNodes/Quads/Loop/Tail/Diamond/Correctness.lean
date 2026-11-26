@@ -175,7 +175,8 @@ theorem selected_start (bank : Bank (regs := regs) m) :
 
 theorem selected_predecessor (bank : Bank (regs := regs) m) :
     p.predecessor (p.stage.choice.eval bank) =
-      (if (bank.get p.condition).down then p.trueArm.lastBlock else p.falseArm.lastBlock) := by
+      (if (bank.get p.condition).down then p.trueArm.predecessor p.header
+        else p.falseArm.predecessor p.header) := by
   by_cases h : (bank.get p.condition).down = true
   · have chosen : p.stage.choice.eval bank = (0 : Fin 2) := by
       simp [Program.stage, Join.Choice.eval, h]

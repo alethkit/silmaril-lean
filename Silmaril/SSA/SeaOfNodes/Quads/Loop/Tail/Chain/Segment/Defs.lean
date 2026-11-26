@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Chain.Defs
 
-/-! # A nonempty checked jump segment ending just before a given block -/
+/-! # A checked jump segment ending just before a given block -/
 
 @[expose] public section
 
@@ -19,31 +19,33 @@ variable {src : Source Op regs out size} {target site header : Fin size}
 
 /-- The body of the destination block is outside this segment. -/
 inductive Segment (src : Source Op regs out size) (target : Fin size) : Fin size → Type u
-  | last (site : Fin size) (edge : (src site).terminator = .transfer (.jump target)) :
-      Segment src target site
+  | empty : Segment src target target
   | jump (site : Fin size) {next : Fin size}
       (edge : (src site).terminator = .transfer (.jump next)) (rest : Segment src target next) :
       Segment src target site
 
 def Segment.blocks : {site : Fin size} → Segment src target site → List (Fin size)
-  | _, .last site _ => [site]
+  | _, .empty => []
   | _, .jump site _ rest => site :: rest.blocks
 
-def Segment.lastBlock : {site : Fin size} → Segment src target site → Fin size
-  | _, .last site _ => site
-  | _, .jump _ _ rest => rest.lastBlock
+/-- An empty segment reaches the target directly from its caller. -/
+def Segment.predecessor : {site : Fin size} → Segment src target site → Fin size → Fin size
+  | _, .empty, caller => caller
+  | _, .jump site _ rest, _ => rest.predecessor site
 
 def Segment.quads : {site : Fin size} → Segment src target site → Block Op regs
-  | _, .last site _ => (src site).body
+  | _, .empty => []
   | _, .jump site _ rest => (src site).body ++ rest.quads
 
-/-- Cut a checked jump chain at a transfer to the requested destination. -/
+/-- Cut a checked jump chain before the destination, including a chain already there. -/
 def Path.segmentTo (target : Fin size) :
     {site : Fin size} → Path src header site → Option (Segment src target site)
-  | _, .latch .. => none
-  | _, .jump site (next := next) edge rest =>
-    if ends : next = target then some (.last site (ends ▸ edge))
-    else (rest.segmentTo target).map (.jump site edge)
+  | site, path =>
+    if ends : site = target then some (ends.symm ▸ .empty)
+    else
+      match path with
+      | .latch .. => none
+      | .jump site edge rest => (rest.segmentTo target).map (.jump site edge)
 
 /-- Locate the block immediately before the tested latch on a checked path. -/
 def Path.beforeLatch : {site : Fin size} → Path src header site → Option (Fin size)

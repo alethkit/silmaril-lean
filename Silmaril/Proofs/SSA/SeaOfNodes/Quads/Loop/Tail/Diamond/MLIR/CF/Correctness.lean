@@ -227,20 +227,36 @@ theorem split_frame (input old : Bank (regs := regs) model) :
   split <;> simp_all [destinationFrame, destinationFrameWith, Program.armStart]
   rfl
 
-private theorem last_edge {join site : Fin size} (path : Chain.Segment src join site) :
-    (src path.lastBlock).terminator = .transfer (.jump join) := by
-  induction path with
-  | last _ edge => exact edge
-  | jump _ _ _ ih => exact ih
+private theorem last_edge {join site : Fin size} (path : Chain.Segment src join site)
+    (caller : Fin size) (nonempty : path.blocks ≠ []) :
+    (src (path.predecessor caller)).terminator = .transfer (.jump join) := by
+  induction path generalizing caller with
+  | empty => exact False.elim (nonempty rfl)
+  | jump site edge rest ih =>
+    cases rest with
+    | empty => exact edge
+    | jump => exact ih site (by simp [Chain.Segment.blocks])
 
-theorem predecessor_frame (input old : Bank (regs := regs) model) (occurrence : Fin 2) :
+private theorem empty_origin {join site : Fin size} (path : Chain.Segment src join site)
+    (caller : Fin size) (empty : path.blocks = []) :
+    site = join ∧ path.predecessor caller = caller := by
+  cases path with
+  | empty => exact ⟨rfl, rfl⟩
+  | jump => simp [Chain.Segment.blocks] at empty
+
+theorem predecessor_frame (input old : Bank (regs := regs) model) (occurrence : Fin 2)
+    (selectDirect : (p.armPath occurrence).blocks = [] → p.selected model old = occurrence) :
     ((lower p).block (.site (p.predecessor occurrence))).eval evalOp (fun term env => term.eval env)
         ((encodeValues old).append (encodeValues input)) =
       .inl (siteFrame p.join ((src (p.predecessor occurrence)).body.eval model old)) := by
-  have edge : (src (p.predecessor occurrence)).terminator = .transfer (.jump p.join) :=
-    last_edge (p.armPath occurrence)
-  rw [site_eval p, edge]
-  rfl
+  by_cases empty : (p.armPath occurrence).blocks = []
+  · obtain ⟨start, origin⟩ := empty_origin (p.armPath occurrence) p.header empty
+    change p.predecessor occurrence = p.header at origin
+    rw [origin, split_frame p, selectDirect empty, start]
+  · have edge : (src (p.predecessor occurrence)).terminator = .transfer (.jump p.join) :=
+      last_edge (p.armPath occurrence) p.header empty
+    rw [site_eval p, edge]
+    rfl
 
 theorem arm_run (input bank : Bank (regs := regs) model) (occurrence : Fin 2) (fuel : Nat) :
     (lower p).runFrom evalOp (fuel + (p.armPath occurrence).blocks.length + 1)
