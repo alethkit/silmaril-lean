@@ -94,8 +94,12 @@ CFG reversion and cost optimization are outside this bridge's scope.
 ```sh
 lake build --wfail +Silmaril.SSA.PEG.Thms +Silmaril.SSA.Peggy.Bridge.Egg.Thms PEGCoreTests PeggyEggTests
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/PeggyEgg.lean
-lake env leanchecker --verbose Silmaril.SSA.Peggy Silmaril.Proofs.SSA.Peggy \
-  Silmaril.Logic.Egg.Core.Replay tests.ssa.PeggyEgg
+lake env leanchecker Silmaril.Logic.Egg.Core.Replay.Defs
+lake env leanchecker Silmaril.SSA.Peggy.Acyclic.Defs
+lake env leanchecker Silmaril.SSA.Peggy.Bridge.Egg.Defs
+lake env leanchecker Silmaril.Proofs.SSA.Peggy.Bridge.Egg.Sound
+lake env leanchecker Silmaril.SSA.Peggy.Bridge.Egg.Thms
+lake env leanchecker tests.ssa.PeggyEgg
 scripts/check-layout.sh
 ```
 
