@@ -60,7 +60,7 @@ theorem cf_at_iff (lhs : Checked left leftMask) (rhs : Checked right rightMask)
     exact (cancel _).symm.trans ((congrArg (Part.map (decodeResult (w := w))) equal).trans (cancel _))
   · exact congrArg _
 
-private theorem encodeValues_surjective (regs : List (ValueSort Width)) :
+theorem encodeValues_surjective (regs : List (ValueSort Width)) :
     Function.Surjective (encodeValues (ins := regs)) := by
   induction regs with
   | nil =>

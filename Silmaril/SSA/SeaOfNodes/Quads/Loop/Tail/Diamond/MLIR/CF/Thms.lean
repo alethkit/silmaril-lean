@@ -60,6 +60,26 @@ theorem block_eval_with {Γ : List Width} (routes : JumpAgrees jump frame)
 
 /-- Reuse the source fuel proof for any emission with exact successor frames
 and the same one-block CF return. -/
+theorem runBlock_eq_of_frames_with {captures : List Width}
+    (cfg : Cfg TargetOp Labels captures [valueWidth out]) (input : Env captures)
+    (frame : Fin size → Bank (regs := regs) model → Frame Labels) (exit : Labels [valueWidth out])
+    (siteEval : ∀ id old,
+      let current := frame id old
+      let next := (src id).body.eval model old
+      (cfg.block current.label).eval evalOp (fun term env => term.eval env)
+          (current.args.append input) =
+        .inl (destinationFrameWith frame (returnFrame exit) next ((src id).terminator.select model next)))
+    (exitBlock : cfg.block exit = .terminator (.ret (.cons .here .nil)))
+    (fuel : Nat) (id : Fin size) (old : Bank (regs := regs) model)
+    {Γ : List Width} (block : Block TargetOp Labels Γ [valueWidth out]) (env : Env Γ)
+    (step :
+      let next := (src id).body.eval model old
+      block.eval evalOp (fun term env => term.eval env) env =
+        .inl (destinationFrameWith frame (returnFrame exit) next ((src id).terminator.select model next))) :
+    cfg.runBlock evalOp input (fuel + 1) block env =
+      (src.runFrom model fuel id old).map (fun value => Env.cons (valueBits value) .nil) :=
+  Proofs.runBlock_eq_of_frames_with cfg input frame exit siteEval exitBlock fuel id old block env step
+
 theorem runBlock_eq_of_frames (cfg : Cfg TargetOp Labels (Widths regs) [valueWidth out])
     (input : Bank (regs := regs) model)
     (frame : Fin size → Bank (regs := regs) model → Frame Labels) (exit : Labels [valueWidth out])
