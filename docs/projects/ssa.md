@@ -693,6 +693,20 @@ The continuation cannot jump back to its own label.
   [Signature and satisfaction squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Thms.lean) ·
   [Institution isomorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Semantic/Thms.lean) ·
   [Shared successor and type collision](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Semantic/Regression.lean)
+- Native rewrite reflection for the witnessed LetCase grammar fails at
+  effectful empty elimination. At a signature with effectful primitives
+  from unit to empty, direct abort and binding the empty result before
+  aborting give a witnessed equation valid in every validated model.
+  Let-η with a central unit, followed by the empty eliminator, forces
+  this equality already in distributive Freyd interpretations. A pure
+  case decoder removes the captured entry and first-exit tag using
+  native rewrites, so a derivation would contradict the checked
+  empty-sequencing independence proof. The native term model rejects
+  the witnessed equation and cannot have the required Freyd presentation.
+  The witness uses only outward position zero and allows any tail of the
+  ordered exit interface.
+  [Witness and model obstruction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Rewrite/Thms.lean) ·
+  [Existing independence proof](../../Silmaril/SSA/Isotope/LetIter/Categorical/Empty/Thms.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
