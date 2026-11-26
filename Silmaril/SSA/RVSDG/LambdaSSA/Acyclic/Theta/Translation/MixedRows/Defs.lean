@@ -41,6 +41,22 @@ abbrev opcodeCode : NestedTheta.Equality.OpcodeCode (Op (τ := τ) Φ ε) :=
   NestedTheta.ExplicitRuntime.PurePrefix.opcodeCode
     (Flat.Numbered.Recognize.opcodeCode (τ := τ) (Φ := Φ)) (valueCode (τ := τ) (Φ := Φ) (ε := ε))
 
+section Certification
+
+variable [DecidableEq τ] [DecidableEq Φ]
+variable {args outs : Ports (OrderedRuntime.Structured.Ty τ)}
+variable {past rows : List (Ports (OrderedRuntime.Structured.Ty τ))}
+
+/-- Exact comparison of the input and the canonical mixed graph, including
+nested tables and all numbered addresses. -/
+def decideGraph (canonical actual : NestedTheta.Graph (Op (τ := τ) Φ ε) args past rows outs) :
+    Decidable (canonical = actual) :=
+  letI : DecidableEq (opcodeCode (τ := τ) (Φ := Φ) (ε := ε)).Key :=
+    inferInstanceAs (DecidableEq (Flat.Numbered.Recognize.OpcodeKey τ Φ ⊕ Φ))
+  NestedTheta.Equality.decideGraph (opcodeCode (τ := τ) (Φ := Φ) (ε := ε)) canonical actual
+
+end Certification
+
 variable [DecidableEq τ]
 
 /-- Reconstitute a typed instruction from the opcode and the expected

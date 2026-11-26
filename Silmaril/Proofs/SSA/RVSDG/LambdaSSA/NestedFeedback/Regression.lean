@@ -1,5 +1,7 @@
 module
 
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureGamma.Reverse.Thms
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureGamma.Reverse.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureTheta.Reverse.Thms
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureTheta.Reverse.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.MixedRows.Defs
@@ -1635,6 +1637,19 @@ private theorem left_child_undefined (coherent : Coherent) :
   rw [call_eq]
   exact Part.bind_none _
 
+private theorem right_child_returns (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) mixedChild.typing (PUnit.unit, selectRight 99)).run 2 =
+      Part.some ((.inl ((100 : Nat), (99 : Nat)) : MixedExit), 2) := by
+  rw [mixedChild.region_denote coherent]
+  change (Region.denote (ε := Bool) (m := Runtime) mixedChild.right.typing (PUnit.unit, (99 : Nat))).run 2 = _
+  rw [mixedChild.right.region_denote coherent]
+  have tailCall : TwoBlock.call (ε := Bool) (m := Runtime) (op .tailBody) (99 : Nat) = pure (99 : Nat) :=
+    call_eq .tailBody _
+  change ((TwoBlock.call (ε := Bool) (m := Runtime) (op .tailBody) (99 : Nat) >>= fun _ =>
+    TwoBlock.call (ε := Bool) (m := Runtime) (op .tailBody) (99 : Nat) >>= _) : Runtime MixedExit).run 2 = _
+  rw [tailCall, pure_bind, pure_bind, StateT.run_pure]
+  rfl
+
 example (coherent : Coherent) (pureFirst : Bool) :
     ∃ fuel, NestedTheta.Partial.Executable.run gammaActions (mixedChild.compile pureFirst) fuel
       (Translation.PureGamma.entry (selectLeft 3) (2 : Nat)) =
@@ -1656,12 +1671,46 @@ private def acceptsGamma (mapping : NestedTheta.Isomorphism.Mapping)
   letI : DecidableEq gammaCode.Key := inferInstanceAs (DecidableEq (Flat.Numbered.Recognize.OpcodeKey Ty Op ⊕ Op))
   (NestedTheta.Isomorphism.check gammaCode mapping (mixedChild.compile true) other).isSome
 
+private def recoveredGamma (pureFirst : Bool) : Translation.PureGamma.Reverse.Fibre (mixedChild.compile pureFirst) :=
+  (Translation.PureGamma.Reverse.recover (mixedChild.compile pureFirst)).get
+    (by simp [Translation.PureGamma.Reverse.recover_generated])
+
+example (coherent : Coherent) (pureFirst : Bool) :
+    (Region.denote (ε := Bool) (m := Runtime) (recoveredGamma pureFirst).typing (PUnit.unit, selectLeft 3)).run 2 =
+      Part.some ((.inl ((4 : Nat), (30 : Nat)) : MixedExit), 31) :=
+  ((recoveredGamma pureFirst).run_iff runnerActions coherent (PUnit.unit, selectLeft 3) _ 2 31).mp
+    ((mixedChild.run_iff runnerActions pureFirst coherent (PUnit.unit, selectLeft 3) _ 2 31).mpr
+      (left_child_returns coherent))
+
+example (coherent : Coherent) (pureFirst : Bool) :
+    (Region.denote (ε := Bool) (m := Runtime) (recoveredGamma pureFirst).typing (PUnit.unit, selectRight 99)).run 2 =
+      Part.some ((.inl ((100 : Nat), (99 : Nat)) : MixedExit), 2) :=
+  ((recoveredGamma pureFirst).run_iff runnerActions coherent (PUnit.unit, selectRight 99) _ 2 2).mp
+    ((mixedChild.run_iff runnerActions pureFirst coherent (PUnit.unit, selectRight 99) _ 2 2).mpr
+      (right_child_returns coherent))
+
+example (coherent : Coherent) (pureFirst : Bool) :
+    (Region.denote (ε := Bool) (m := Runtime) (recoveredGamma pureFirst).typing (PUnit.unit, selectLeft 99)).run 2 =
+      Part.none := by
+  apply ((recoveredGamma pureFirst).no_return_iff coherent (PUnit.unit, selectLeft 99) 2).mp
+  rw [mixedChild.region_observe pureFirst coherent (PUnit.unit, selectLeft 99) 2, left_child_undefined coherent]
+  exact Part.map_none _
+
 #eval show IO Unit from do
   unless acceptsGamma swapChild (mixedChild.compile false) do
     throw (IO.userError "the map checker rejected moving a pure row inside the selected child")
   if acceptsGamma identityMap (staleGammaResult (mixedChild.compile true).toTerm).toGraph then
     throw (IO.userError "the map checker accepted the entry token in place of the gamma result token")
   for placement in [false, true] do
+    let graph := mixedChild.compile placement
+    let some recovered := Translation.PureGamma.Reverse.recover graph
+      | throw (IO.userError "could not recover the numbered gamma")
+    unless recovered.pureFirst == placement && recovered.middle == number do
+      throw (IO.userError "gamma recovery lost the left placement or the internal sort")
+    let stale := (staleGammaResult graph.toTerm).toGraph
+    unless (Translation.PureGamma.Reverse.candidate stale).isSome &&
+        (Translation.PureGamma.Reverse.recover stale).isNone do
+      throw (IO.userError "gamma recovery accepted a stale join token after parsing")
     let read := fun result : Tuple _ (PureRow.Output number number) =>
       (show Nat from result.get .head, show Nat from result.get (.tail .head),
         show Nat from result.get (.tail (.tail .head)))

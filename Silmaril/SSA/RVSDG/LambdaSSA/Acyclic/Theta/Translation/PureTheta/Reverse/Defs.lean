@@ -14,7 +14,6 @@ open OrderedTheta (carried carriedData)
 open OrderedRuntime.Structured (Threaded)
 open PureGamma (Op Choice)
 open NestedTheta.ExplicitRuntime.PurePrefix (EntryChecked)
-open Sequential.Flat.Numbered.Recognize (OpcodeKey)
 
 set_option backward.isDefEq.respectTransparency false
 set_option backward.isDefEq.respectTransparency.types false
@@ -86,10 +85,7 @@ variable [DecidableEq τ] [DecidableEq Φ]
 /-- Certification checks every input and result address in the actual root
 and body tables, as well as their port and opcode signatures. -/
 def certify (g : Graph Φ ε A) (c : Loop Φ ε A × Bool) : Option (Fibre g) :=
-  letI : DecidableEq (MixedRows.opcodeCode (τ := τ) (Φ := Φ) (ε := ε)).Key :=
-    inferInstanceAs (DecidableEq (OpcodeKey τ Φ ⊕ Φ))
-  letI := NestedTheta.Equality.decideGraph (MixedRows.opcodeCode (τ := τ) (Φ := Φ) (ε := ε))
-    (c.1.compile c.2) g
+  letI := MixedRows.decideGraph (c.1.compile c.2) g
   if same : c.1.compile c.2 = g then some ⟨c.1, c.2, same⟩ else none
 
 /-- Graph-only recovery for either emitted body order. -/
