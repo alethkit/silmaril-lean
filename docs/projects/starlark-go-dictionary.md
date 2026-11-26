@@ -109,15 +109,61 @@ before comparing a cyclic value after the second rehash.
 The profiles assume an unfrozen table without active iterators and stable
 tuple key reads. The mathematical layout and replay proofs quantify over
 every power-of-two width. Go correspondence assumes successful allocation
-and representable Go widths and entry counts. Deletion, mutable keys,
-process-dependent string hashing, callable keys, recursive Go-profile
-dictionary values, and resolved interpreter integration remain separate.
+and representable Go widths and entry counts.
+
+## Deletion and slot reuse
+
+`GoDictionary.Deletion.Thms` exposes the standalone table with stable slot
+addresses. The slot map stores rows, the insertion list links those same
+addresses, and the overflow counts retain allocated chains. `WellFormed`
+ties the two views together. Every occupied slot belongs to the correct
+home, is within its allocated chain, and appears exactly once in the
+insertion list. Every linked address is occupied. The live count stays
+within the width's load threshold.
+[Definitions](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Deletion/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Deletion/Thms.lean)
+
+Delete hashes the key and scans the selected chain in ascending slot order,
+testing the full-hash candidates until the first match or comparison
+error. A hit clears that one cell, returns its previous value, and unlinks
+the same address. All surviving slots, stored keys, and chronological
+positions relative to one another are preserved. Empty overflow links stay
+allocated. The linked list is represented by its addresses in order.
+`deletes_iff` proves exact agreement with the independent ordered rules,
+including the unchanged table on a miss and the raw error on failure.
+`unlink_candidates` shows that every post-delete probe sees the old order
+with the cleared address removed. Membership and dictionary equality still
+observe a reached key-depth failure as a miss.
+[Pinned deletion][delete] · [Delete rules](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Deletion/Operational/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Deletion/Thms.lean)
+
+A later insert checks overload after its initial probe, using the live
+count. With room it fills the highest vacant slot anywhere in the selected
+chain, or allocates a new link at slot zero when the chain is full. Each
+new key goes at the tail of the insertion list, including a key reinserted
+through an alias. A replacement updates only its existing value.
+`delete_replayable` preserves the stable-hash, pairwise-miss invariant
+because surviving rows form a subsequence. `grow_replay` uses the
+width-parametric replay rules to reconstruct the exact widened table from
+an empty slot map, with survivor order and key identity preserved. The
+retry uses the survivor candidates in their rebuilt physical order.
+[Pinned insertion][insert] · [Pinned rehash][grow] · [Theorems](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Deletion/Thms.lean)
+
+The paired controls cover primary and overflow holes, reuse of an empty
+retained link, alias reinsertion, and a second rehash with holes still
+present. The Go guard controls confirm that freeze and active iteration
+reject deletion before hashing, and that a never-initialized Go dictionary
+returns a miss before hashing. The admitted profile starts with an
+initialized table, as with `NewDict(0)`, and requires an unfrozen table
+without active iterators. Mutable key reads, process-dependent string
+hashing, callable keys, recursive Go-profile values, and canonical
+interpreter integration remain separate.
+[Pinned mutability guards][guards] · [Lean controls](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Deletion/Checks.lean) · [Go controls](../../scripts/starlark/go-dictionary/check.go)
 
 ## Reproduction
 
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Lists.GoDictionary.Checks \
-  +Silmaril.Languages.Starlark.Lists.GoDictionary.Growth.Checks
+  +Silmaril.Languages.Starlark.Lists.GoDictionary.Growth.Checks \
+  +Silmaril.Languages.Starlark.Lists.GoDictionary.Deletion.Checks
 fixture="$(pwd)/scripts/starlark/go-dictionary/check.go"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
@@ -131,6 +177,8 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 [tuple-hash]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L1186-L1199
 [insert]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L78-L150
 [grow]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L153-L175
+[delete]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L285-L330
+[guards]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L332-L340
 [lookup]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L177-L201
 [membership]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1030-L1048
 [equality]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L921-L951
