@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.BitQuery.RequestTree.Readback.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.BitQuery.RequestTree.Default.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.BitQuery.RequestTree.Readback.Decision.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Institution.Rewrite.Repair.Reply.Payload.Finite.Thms
 
 /-! # Native certificates for the finite Bit request readback -/
@@ -12,7 +13,7 @@ namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BitQueryTreeReadba
 
 open Silmaril Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
 open Paper.WithCaseBind.BitQuery Paper.WithCaseBind.BitQuery.RequestTree
-open Paper.WithCaseBind.BitQuery.RequestTree.Readback (Live slots literalQuery readQuery forwarding enter? Candidate Direct)
+open Paper.WithCaseBind.BitQuery.RequestTree.Readback (Live slots literalQuery readQuery forwarding enter? Candidate Direct QueryMode Decision readDecision readDecision_eq)
 open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload (Bit)
 open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload.Finite (Expr Assignment)
 
@@ -158,10 +159,10 @@ private theorem leave {Γ L : List (Ty Empty)} {k : Nat} (R : Fin k → Ty Empty
       SubstitutionEquiv.base (.entry (.cfgZero hr rows))
   | succ k => exact .cfgOutward R hr (fun i => (hb i).hasType)
 
-theorem read_sound (written : Bool) (fuel n : Nat) (pre : List (Ty Empty)) {r : Region signature.Instr} {t : Tree n}
-    (hr : ValueBranches (Live n) r (pre ++ Exits)) (h : Readback.readWith written fuel n pre.length r = some t) :
-    Paper.Eqv (Live n) r ((t.regionWithQueries written (slots n)).renameLabels (pre.length + ·)) (pre ++ Exits)
-      ∧ Direct t := by
+theorem read_sound (mode : QueryMode) (fuel n : Nat) (pre : List (Ty Empty)) {r : Region signature.Instr} {t : Tree n}
+    (hr : ValueBranches (Live n) r (pre ++ Exits)) (h : Readback.readMode mode fuel n pre.length r = some t) :
+    Paper.Eqv (Live n) r ((t.regionWithQueries mode.allowVariables (slots n)).renameLabels (pre.length + ·)) (pre ++ Exits)
+      ∧ (mode = .forwarded → Direct t) := by
   induction fuel generalizing n pre r with
   | zero => cases h
   | succ fuel ih =>
@@ -169,7 +170,7 @@ theorem read_sound (written : Bool) (fuel n : Nat) (pre : List (Ty Empty)) {r : 
     | br i a =>
       cases a
       case var j =>
-        simp only [Readback.readWith] at h
+        simp only [Readback.readMode] at h
         split at h
         · rename_i within
           change (if i = pre.length then some (.ret false ⟨j, within⟩)
@@ -177,24 +178,24 @@ theorem read_sound (written : Bool) (fuel n : Nat) (pre : List (Ty Empty)) {r : 
           split at h
           · rename_i atExit
             cases h
-            refine ⟨?_, .ret _ _⟩
+            refine ⟨?_, fun _ => .ret _ _⟩
             simpa [Tree.regionWithQueries_ret, Tree.region, Slots.terms, slots, renameLabels, atExit] using
               Paper.Eqv.refl hr.hasType
           · split at h
             · rename_i atExit
               cases h
-              refine ⟨?_, .ret _ _⟩
+              refine ⟨?_, fun _ => .ret _ _⟩
               simpa [Tree.regionWithQueries_ret, Tree.region, Slots.terms, slots, renameLabels, atExit] using
                 Paper.Eqv.refl hr.hasType
             · cases h
         · cases h
-      all_goals simp [Readback.readWith] at h
+      all_goals simp [Readback.readMode] at h
     | case a left right =>
       cases a
       case op f a =>
         cases f with
         | ask label =>
-          simp only [Readback.readWith] at h
+          simp only [Readback.readMode] at h
           obtain ⟨query, hquery, h⟩ := Option.bind_eq_some_iff.mp h
           obtain ⟨l, hl, h⟩ := Option.bind_eq_some_iff.mp h
           obtain ⟨r, hright, h⟩ := Option.bind_eq_some_iff.mp h
@@ -204,29 +205,54 @@ theorem read_sound (written : Bool) (fuel n : Nat) (pre : List (Ty Empty)) {r : 
             obtain ⟨rfl, rfl⟩ := requestType ha
             obtain ⟨el, dl⟩ := ih (n + 1) pre hleft hl
             obtain ⟨er, dr⟩ := ih (n + 1) pre hrightTyped hright
-            rcases readQuery_spec hquery with ⟨b, rfl, rfl⟩ | ⟨rfl, i, rfl, rfl⟩
-            · refine ⟨?_, .literal _ _ dl dr⟩
-              cases b <;> cases written <;>
-                simpa only [Tree.regionWithQueries_ask, queryCase, choose, requestRegion, renameLabels,
-                  nextSlot, Bool.false_eq_true, ite_false, ite_true] using Paper.Eqv.case ha el er
-            · refine ⟨?_, .var _ _ dl dr⟩
-              simpa only [Tree.regionWithQueries_ask, queryCase, ite_true, renameLabels, nextSlot] using
-                Paper.Eqv.case ha el er
-      all_goals simp [Readback.readWith] at h
+            rcases readQuery_spec hquery with ⟨b, rfl, rfl⟩ | ⟨allowed, i, rfl, rfl⟩
+            · refine ⟨?_, fun hv => .literal _ _ (dl hv) (dr hv)⟩
+              cases b <;> cases mode <;>
+                simpa only [Tree.regionWithQueries_ask, QueryMode.allowVariables, queryCase, choose,
+                  requestRegion, renameLabels, nextSlot, Bool.false_eq_true, ite_false, ite_true] using
+                  Paper.Eqv.case ha el er
+            · have mode_eq : mode = .forwarded := by cases mode <;> simp_all [QueryMode.allowVariables]
+              subst mode
+              refine ⟨?_, fun _ => .var _ _ (dl rfl) (dr rfl)⟩
+              simpa only [Tree.regionWithQueries_ask, QueryMode.allowVariables, queryCase,
+                ite_true, renameLabels, nextSlot] using Paper.Eqv.case ha el er
+      case var j =>
+        cases mode with
+        | literals => simp [Readback.readMode] at h
+        | forwarded => simp [Readback.readMode] at h
+        | decisions =>
+          simp only [Readback.readMode] at h
+          obtain ⟨d, hd, h⟩ := Option.bind_eq_some_iff.mp h
+          obtain ⟨l, hl, h⟩ := Option.bind_eq_some_iff.mp h
+          obtain ⟨r, hright, h⟩ := Option.bind_eq_some_iff.mp h
+          cases h
+          have regionEq := readDecision_eq hd
+          rw [regionEq] at hr ⊢
+          obtain ⟨hleft, hrightTyped⟩ := d.branches_typed (slots n).typed hr
+          obtain ⟨el, _⟩ := ih (n + 1) pre hleft hl
+          obtain ⟨er, _⟩ := ih (n + 1) pre hrightTyped hright
+          refine ⟨?_, fun impossible => QueryMode.noConfusion impossible⟩
+          have eq := d.replay (slots n).typed (pre.length + ·) el er
+          rw [Tree.regionWithQueries_ask, nextSlot]
+          change Paper.Eqv _ d.region
+            ((⟨d.label, d.query, l.region (slots (n + 1)), r.region (slots (n + 1))⟩ : Decision n).region.renameLabels
+              (pre.length + ·)) _
+          exact eq
+      all_goals simp [Readback.readMode] at h
     | let₁ a body =>
       cases a
       case var j =>
-        simp only [Readback.readWith] at h
+        simp only [Readback.readMode] at h
         cases hr with
         | let₁ ha hbody =>
           obtain ⟨typed, eq⟩ := dropVar ha hbody
           obtain ⟨next, admitted⟩ := ih n pre typed h
           exact ⟨eq.trans next, admitted⟩
-      all_goals simp [Readback.readWith] at h
-    | let₂ a body => simp [Readback.readWith] at h
+      all_goals simp [Readback.readMode] at h
+    | let₂ a body => simp [Readback.readMode] at h
     | cfg entry k rows =>
-      simp only [Readback.readWith] at h
-      cases found : Readback.readWith written fuel n (k + pre.length) entry with
+      simp only [Readback.readMode] at h
+      cases found : Readback.readMode mode fuel n (k + pre.length) entry with
       | none =>
         rw [found] at h
         obtain ⟨r, outward, rest⟩ := Option.bind_eq_some_iff.mp h
@@ -238,7 +264,7 @@ theorem read_sound (written : Bool) (fuel n : Nat) (pre : List (Ty Empty)) {r : 
         cases h
         cases hr with
         | cfg R he hb =>
-          have found' : Readback.readWith written fuel n (List.ofFn R ++ pre).length entry = some t := by
+          have found' : Readback.readMode mode fuel n (List.ofFn R ++ pre).length entry = some t := by
             simpa only [List.length_append, List.length_ofFn] using found
           have he' : ValueBranches (Live n) entry ((List.ofFn R ++ pre) ++ Exits) := by
             simpa only [List.append_assoc] using he
@@ -246,15 +272,17 @@ theorem read_sound (written : Bool) (fuel n : Nat) (pre : List (Ty Empty)) {r : 
           simp only [List.append_assoc, List.length_append, List.length_ofFn] at eq
           rw [← show (k + ·) ∘ (pre.length + ·) = (k + pre.length + ·) from
             funext fun j => (Nat.add_assoc k pre.length j).symm, ← renameLabels_comp] at eq
-          exact ⟨leave R hb ((t.typedWithQueries written (slots n)).hasType.renameLabels (labelShift pre)) eq,
+          exact ⟨leave R hb ((t.typedWithQueries mode.allowVariables (slots n)).hasType.renameLabels (labelShift pre)) eq,
             admitted⟩
 
 private theorem firstSlots : slots 1 = inputSlots :=
   slots_ext (funext fun i => congrArg Fin.val (Subsingleton.elim i (0 : Fin 1)))
 
-theorem packed_eq {fuel : Nat} {p : Candidate} {t : Tree 1}
-    (h : p.read fuel = some t) : p.packed = t.defaultPacked := by
-  have step := (read_sound false fuel 1 [] p.property h).1
+private theorem packed_eq_quoted {mode : QueryMode} {fuel : Nat} {p : Candidate} {t : Tree 1}
+    (quoted : mode.allowVariables = false) (h : Readback.readMode mode fuel 1 0 p.val = some t) :
+    p.packed = t.defaultPacked := by
+  have step := (read_sound mode fuel 1 [] p.property h).1
+  rw [quoted] at step
   change Paper.Eqv [Bit] p.val ((t.region (slots 1)).renameLabels (0 + ·)) Exits at step
   simp only [Nat.zero_add, show (fun j : Nat => j) = id from rfl,
     renameLabels_id, firstSlots] at step
@@ -262,6 +290,14 @@ theorem packed_eq {fuel : Nat} {p : Candidate} {t : Tree 1}
     (fun _ _ hj => (packExits_valueFamily (Φ := signature.Instr) [Bit] Exits hj).hasType)
   exact (Paper.TypeCategory.ofRegion_eq_iff p.property.packExits t.guarded_typed.packExits).mpr
     (eq.trans (.cfgEta (.native (native_packed_unguarded t).symm)))
+
+theorem packed_eq {fuel : Nat} {p : Candidate} {t : Tree 1}
+    (h : p.read fuel = some t) : p.packed = t.defaultPacked :=
+  packed_eq_quoted (mode := .literals) rfl h
+
+theorem packed_eq_decision {fuel : Nat} {p : Candidate} {t : Tree 1}
+    (h : p.readWithDecisions fuel = some t) : p.packed = t.defaultPacked :=
+  packed_eq_quoted (mode := .decisions) rfl h
 
 theorem observations_eq {fuel : Nat} {p : Candidate} {t : Tree 1}
     (h : p.read fuel = some t) (guard : Bool) : p.observations guard = t.observations guard := by
@@ -358,7 +394,7 @@ theorem compare_diff_of_ne {fuel : Nat} {p q : Candidate} {t u : Tree 1}
 
 theorem written_packed_eq {fuel : Nat} {p : Candidate} {t : Tree 1}
     (h : p.readWithVariables fuel = some t) : p.packed = t.writtenPacked := by
-  have step := (read_sound true fuel 1 [] p.property h).1
+  have step := (read_sound .forwarded fuel 1 [] p.property h).1
   simp only [List.length_nil, Nat.zero_add, show (fun j : Nat => j) = id from rfl,
     renameLabels_id, firstSlots] at step
   have eq := Paper.Eqv.lsubstPost step p.property (t.typedWithQueries true inputSlots)
@@ -424,8 +460,8 @@ theorem written_eq_iff_key {fuel : Nat} {p q : Candidate} {t u : Tree 1}
     unfold Candidate.observations
     rw [eq]
   · intro eq
-    have ht := (read_sound true fuel 1 [] p.property hp).2
-    have hu := (read_sound true fuel 1 [] q.property hq).2
+    have ht := (read_sound .forwarded fuel 1 [] p.property hp).2 rfl
+    have hu := (read_sound .forwarded fuel 1 [] q.property hq).2 rfl
     have same := eq_of_direct_key ht hu eq
     exact (written_packed_eq hp).trans ((congrArg Tree.writtenPacked same).trans (written_packed_eq hq).symm)
 
@@ -454,6 +490,43 @@ theorem compare_written_different {fuel : Nat} {p q : Candidate} {w : Difference
 theorem compare_written_different_ne {fuel : Nat} {p q : Candidate} {w : Difference}
     (h : Readback.compareWithVariables fuel p q = .different w) : p.packed ≠ q.packed :=
   diff_observation_ne (compare_written_different h).1 (compare_written_different h).2
+
+theorem observations_eq_decision {fuel : Nat} {p : Candidate} {t : Tree 1}
+    (h : p.readWithDecisions fuel = some t) (guard : Bool) : p.observations guard = t.observations guard := by
+  unfold Candidate.observations
+  rw [packed_eq_decision h]
+  rfl
+
+theorem decision_eq_iff_key {fuel : Nat} {p q : Candidate} {t u : Tree 1}
+    (hp : p.readWithDecisions fuel = some t) (hq : q.readWithDecisions fuel = some u) :
+    p.packed = q.packed ↔ t.key = u.key := by
+  rw [packed_eq_decision hp, packed_eq_decision hq]
+  exact default_eq_iff_key t u
+
+theorem compare_decision_equal_iff {fuel : Nat} {p q : Candidate} {t u : Tree 1}
+    (hp : p.readWithDecisions fuel = some t) (hq : q.readWithDecisions fuel = some u) :
+    Readback.compareWithDecisions fuel p q = .equal ↔ p.packed = q.packed := by
+  rw [packed_eq_decision hp, packed_eq_decision hq, ← separate_none_iff_default t u]
+  simp only [Readback.compareWithDecisions, Readback.compareTrees, hp, hq]
+  cases t.separate? u <;> simp
+
+theorem compare_decision_different {fuel : Nat} {p q : Candidate} {w : Difference}
+    (h : Readback.compareWithDecisions fuel p q = .different w) :
+    w.history.observation ∈ (if w.fromRight then q else p).observations w.guard ∧
+      w.history.observation ∉ (if w.fromRight then p else q).observations w.guard := by
+  unfold Readback.compareWithDecisions Readback.compareTrees at h
+  split at h
+  · rename_i t u hp hq
+    split at h
+    · cases h
+    · rename_i v found
+      cases h
+      exact transfer_difference (observations_eq_decision hp w.guard) (observations_eq_decision hq w.guard) found
+  · cases h
+
+theorem compare_decision_different_ne {fuel : Nat} {p q : Candidate} {w : Difference}
+    (h : Readback.compareWithDecisions fuel p q = .different w) : p.packed ≠ q.packed :=
+  diff_observation_ne (compare_decision_different h).1 (compare_decision_different h).2
 
 namespace Example
 
@@ -507,5 +580,56 @@ theorem effectful_query_typed : ValueBranches [Bit] effectfulQuery Exits :=
     (.var (i := 0) rfl) (.var (i := 0) rfl))
 
 end VariableExample
+
+namespace DecisionExample
+
+open Readback.DecisionExample
+
+private theorem request_row_typed (b : Bool) {Γ L : List (Ty Empty)} {offset : Nat}
+    (exit : At L (offset + 1) Bit) : ValueBranches Γ (request b offset) L :=
+  .case (.op (constructorBit_value b .unit).hasType)
+    (.br exit (.var (i := 0) rfl)) (.br exit (.var (i := 0) rfl))
+
+private theorem staged_typed (shape : Shape) {Γ L : List (Ty Empty)} {offset : Nat}
+    (exit : At L (offset + 1) Bit) : ValueBranches (Bit :: Bit :: Γ) (staged shape offset) L := by
+  cases shape
+  · exact .case (.var (i := 0) rfl) (request_row_typed false exit) (request_row_typed true exit)
+  · exact .case (.var (i := 0) rfl) (request_row_typed false exit)
+      (.case (.var (i := 2) rfl) (request_row_typed true exit) (request_row_typed true exit))
+  · exact .case (.var (i := 0) rfl) (request_row_typed false exit)
+      (.case (.var (i := 2) rfl) (request_row_typed false exit) (request_row_typed true exit))
+
+theorem numbered_typed (renumbered : Bool) (shape : Shape) :
+    ValueBranches [Bit] (numbered renumbered shape) Exits := by
+  have row : ValueBranches [Bit, Bit] (entry shape) ([Bit, Bit] ++ Exits) :=
+    .case (.op (constructorBit_value false .unit).hasType)
+      (request_row_typed false rfl) (staged_typed shape rfl)
+  cases renumbered
+  · exact .cfg (fun _ => Bit) (.br rfl (.var (i := 0) rfl))
+      (Fin.cases (.br rfl (.var (i := 0) rfl)) (fun _ => row))
+  · exact .cfg (fun _ => Bit) (.br rfl (.var (i := 0) rfl))
+      (Fin.cases row (fun _ => .br rfl (.var (i := 0) rfl)))
+
+theorem term_case_typed : ValueBranches [Bit] termCase Exits :=
+  call_typed false (.case (.var (i := 0) rfl)
+    (constructorBit_value false .unit).hasType (constructorBit_value true .unit).hasType)
+
+theorem term_case_packed_of (beta : Readback.CaseOperandBeta) :
+    Paper.TypeCategory.ofRegion term_case_typed.packExits = quotedTermCase.defaultPacked := by
+  have left : ValueBranches [Bit, Bit] (.br 0 (.var 0) : Region signature.Instr) Exits :=
+    .br rfl (.var (i := 0) rfl)
+  have right : ValueBranches [Bit, Bit] (.br 1 (.var 0) : Region signature.Instr) Exits :=
+    .br rfl (.var (i := 0) rfl)
+  have step : Paper.Eqv [Bit] termCase (quotedTermCase.region inputSlots) Exits :=
+    Readback.term_case_operand_of beta (i := 0) rfl false left right
+  have packedStep := Paper.Eqv.lsubstPost step term_case_typed (quotedTermCase.typed inputSlots)
+    (fun _ _ hj => (packExits_valueFamily (Φ := signature.Instr) [Bit] Exits hj).hasType)
+  exact (Paper.TypeCategory.ofRegion_eq_iff _ _).mpr (packedStep.trans
+    (.cfgEta (.native (native_packed_unguarded quotedTermCase).symm)))
+
+theorem expected_ne : expected .plain ≠ expected .redundant := by
+  simp [expected, selectedQuery, rightQuery]
+
+end DecisionExample
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BitQueryTreeReadback
