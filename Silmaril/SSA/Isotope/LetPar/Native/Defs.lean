@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.LetPar.Equations.Defs
+public import Silmaril.SSA.Isotope.LetPar.Defs
 public import Silmaril.Raw.SSA.Isotope.LetSeq.LocallyNameless.Derivation
 
 /-! The exact embedding of the native LetSeq calculus. -/

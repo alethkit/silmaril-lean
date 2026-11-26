@@ -7,8 +7,8 @@ public import Silmaril.SSA.Isotope.Types.Defs
 # Parallel extensions of the locally nameless let calculi
 
 All tiers share one parallel constructor. Both branches see the same ambient
-scope and return their results in an ordered binary product. The ordinary
-`pair` constructor retains its sequential meaning.
+scope and return their results in an ordered binary product. Ordinary
+`pair` evaluates its operands from left to right.
 -/
 
 @[expose] public section
