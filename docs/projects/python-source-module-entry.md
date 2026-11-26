@@ -100,6 +100,24 @@ is the float `0.25` in CPython 3.13.5. Floating-point power and reached true
 division stay outside this integer check. Run
 `python3.13 -I scripts/check-python-integer-power.py --upstream /path/to/pinned/rigorous`.
 
+The Python Core operation `Binary64.trueDivide` takes two integers and returns
+an exact finite binary64 value or a typed `ZeroDivisionError` or `OverflowError`.
+It rounds the exact quotient magnitude once to nearest, ties to even. A
+separate sign preserves negative zero, including after underflow. Overflow
+starts at the midpoint between maximum finite and the virtual value
+`2^1024`. The rule matches the arithmetic contract of CPython 3.13.5
+[`long_true_divide`](https://github.com/python/cpython/blob/v3.13.5/Objects/longobject.c#L4493-L4588).
+
+The module call path still needs a float value tag and a checked error
+delivery rule for reached division. The closure integer-equality operation
+also needs a checked float case before it can receive those values. Line 28
+of `test_int_float_primitives.py` supplies the differential's `5 / 2` witness.
+Its first assertion still stops at the positional addition operand, and the
+isolated division assertion still stops at source expression checking.
+Negative exponent power uses CPython's separate floating power path, which
+includes platform libm behavior. Run the pinned differential with
+`python3.13 -I scripts/check-python-integer-true-division.py --upstream /path/to/pinned/rigorous`.
+
 The function-aware checker can omit an `if` whose closed guard selects an
 empty arm or an arm of `pass` statements. The otherwise unsupported arm
 must contain only passes or syntactically checked raises. Its exception
