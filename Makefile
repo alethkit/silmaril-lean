@@ -97,7 +97,10 @@ check:
 .PHONY: check-runtime check-integrations tla-import-check
 check-runtime:
 	$(MAKE) process-gates
-	$(if $(filter Silmaril +Silmaril.Logic.Abstraction +Silmaril.Logic.Abstraction.% +Silmaril.Proofs.Logic.Abstraction.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Logic.Abstraction && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/logic/abstraction/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Logic.Abstraction +Silmaril.Logic.Abstraction.% +Silmaril.Proofs.Logic.Abstraction.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Logic.Abstraction && \
+		for suite in Regression Soundness Comparisons; do \
+			$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/logic/abstraction/$$suite.lean || exit $$?; \
+		done)
 	$(if $(filter arrow_ipc_metadata_tests,$(CHECK_TARGETS)),$(MAKE) arrow-ipc-metadata-check)
 	$(if $(filter Silmaril +Silmaril.Logic.Temporal.TLA.Surface.Parser.%,$(CHECK_TARGETS)),LAKE="$(LAKE)" $(PYTHON) -I tests/semantics/tla-parser/check.py)
 	$(if $(filter Silmaril +Silmaril.Logic.Temporal.TLA.Import.% +Silmaril.Logic.Temporal.TLA.Surface.Parser.% +Silmaril.Logic.Temporal.TLA.Elaborator.% +Silmaril.Logic.Temporal.TLA.Kernel.%,$(CHECK_TARGETS)),$(MAKE) tla-import-check)

@@ -1,6 +1,6 @@
 module
 
-import Silmaril.Logic.Abstraction.Soundness.Thms
+import Silmaril.Logic.Abstraction
 
 namespace Silmaril.Logic.Abstraction.SoundnessRegression
 

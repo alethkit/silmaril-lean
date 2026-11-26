@@ -1,7 +1,10 @@
 # Abstraction Logic
 
-Import `Silmaril.Logic.Abstraction` for shaped syntax, evaluation and the institution.
-`Silmaril.Logic.Abstraction.inst` is registered as `logic.abstraction.inst` in the logic graph.
+Import `Silmaril.Logic.Abstraction` for the core, deductive soundness and both comparisons.
+It is also re-exported by `Silmaril.Logic`. The smaller imports are
+`Silmaril.Logic.Abstraction.Thms`, `Silmaril.Logic.Abstraction.Soundness.Thms`,
+`Silmaril.Logic.Abstraction.FirstOrder.Thms`, and
+`Silmaril.Logic.Abstraction.Propositional.Thms`.
 
 | API | Contract |
 | --- | --- |
@@ -12,68 +15,91 @@ Import `Silmaril.Logic.Abstraction` for shaped syntax, evaluation and the instit
 | `Rule`, `Model.Sat` | A sentence has finitely many premise templates and a conclusion with no dangling local parameters. At each admissible valuation, the meet of truth values of all premises over all their parameter tuples lies below the truth value of the conclusion. The empty premise list tests truth at the top of the lattice. |
 | `Rule.map`, `Model.reduct`, `Model.satisfaction` | Translating symbols in a rule and evaluating it in the target is equivalent to evaluating it in the reduct. The reduct keeps the carrier, truth structure and admissible valuations. It is closed under source substitutions because they translate to target substitutions and commute with evaluation. |
 
-This development keeps the shared-slot declarations from the early papers and uses
-the Primer's argument-template presentation locally. For instance, the scopes
-`[{0}, {0}]` and `[{0}, {1}]` both pass two unary operations to the interpreter,
-but declare different valences and scope sets. A named surface layer could retain
-that distinction when resolving binders. Local indices already identify terms
-modulo bound-name renaming in this representation. Premises use finite lists
-as representatives. Reordering or duplicating premises does not change the
-common-lower-bound condition. The institution uses discrete model arrows,
-with hypotheses given by sets of rules via the library's existing institution
-theory API. The scope here is fixed arities and semantic consequence. A named
-parser, rule derivations, completeness and correspondence with a Practal kernel
-are outside the current development.
+The shapes `[{0}, {0}]` and `[{0}, {1}]` both pass two unary operations to the interpreter.
+They have different valences and scope sets, which the signature retains. The locally indexed
+representation identifies terms up to bound-name renaming. Premise lists are finite representatives
+of sets. Reordering or duplicating them leaves satisfaction unchanged. The unrestricted
+institution `Abstraction.inst` uses discrete model arrows and is registered as
+`logic.abstraction.inst`.
 
-## Rules for a deductive extension
+## Derivability and soundness
 
-Use Figure 4 of the pinned Primer for `Axiom`, `Assume`, `Add`, `Bind`,
-`Subst`, `VarElim` and `Infer`. Use §3.5 and Appendix C to match the
-semantic side conditions. Opening a premise for `Infer` should use fresh
-nullary names for its local parameters. The opened names must be absent from
-the free nullary occurrences of the supplying rule's premises. Use
-`ValuationSpace.update_closed` when varying their values. For `Bind`, removal
-requires that the removed parameters are unused in the premise body. For
-`VarElim`, the eliminated nullary variable must be absent from the remaining
-premises and conclusion, and its valuation can be updated to the carrier
-representative of top using `LogicalOrder.classify_include`. Use
-`Model.sat_subst` for the schematic substitution case.
+`Derives theory Γ t` is the seven-rule calculus of the pinned Primer (Figure 4). The theory
+is a set of rules, and `Rule.Derivable` uses the set of hypotheses from a sentence's premise list.
+`Derives.finite` proves that antecedents of derivations are finite. `Rule.Derivable.sound` says
+every model satisfying the theory satisfies the derived rule, with general admissible valuation
+spaces. `Rule.Derivable.entails` states the result in the institutional room.
 
-The 2022 account hard-wires modus ponens and universal introduction into its
-calculus and semantics. Obua's 2023 Practal note makes both theory rules
-and expresses the premise of universal introduction as a template. The later
-Primer uses general proof rules over rules and a logical order. With that
-calculus, object-language introductions and eliminations belong in a theory.
-Appendix L.2 gives universal introduction and instantiation, and derives
-existential elimination with a template premise. Appendix L.1 gives the
-implicative and equality presentations.
+| Primer rule | Lean constructor | Meaning and side conditions |
+| --- | --- | --- |
+| Axiom | `Derives.axiom` | Use a rule in the theory. |
+| Assume | `Derives.assume` | Conclude a term from that term as a nullary template premise. |
+| Add | `Derives.add` | Add a premise to the antecedent. |
+| Bind | `Derives.bind` | Reorder, add or remove a premise's outer parameters. Open the old and new templates with distinct names fresh for each template's free nullary occurrences. The opened bodies must agree, and each removed name must be unused in that body. |
+| Subst | `Derives.subst` | Substitute schemata simultaneously in the antecedent and conclusion. The substitution/evaluation law and closure of admissible valuations justify this step. |
+| VarElim | `Derives.varElim` | Drop a nullary variable premise whose name is absent at arity zero from the other premises and conclusion. Update that label to the carrier representative of top from `LogicalOrder`. |
+| Infer | `Derives.infer` | Discharge a template premise with a derivation of its opened body. The distinct opening names are fresh for the template and the supplying premises at arity zero. Closure of admissible valuations under nullary update allows the supplying rule to be used at each parameter tuple. |
 
-## First comparison to check
+`Term.Fresh` tracks free nullary occurrences, and `Term.openWith` exposes local
+parameters as nullary names. A schematic occurrence of the same name at positive arity
+is independent of these names. The soundness proof uses §3.5 and Appendix C.
 
-Use the existing unsorted first-order institution, `Silmaril.Logic.Institution.Examples.UFOL`.
-Translate its operations and predicate symbols to valence-zero abstractions,
-its variables to local parameters, and its universal quantifier to a unary
-abstraction with one binder slot. In a canonical model built from a UFOL structure
-with carrier `D`, use `D ⊕ Bool` with Boolean truth values and interpret the
-universal abstraction by ranging over the embedded object carrier `D`. Keeping
-truth values separate also supports singleton UFOL carriers. Check first that
-translated formulas agree with `UFOL.Formula.Holds` at every object assignment
-and that the canonical interpretations commute with signature reducts. A
-comorphism should target a profiled institution with these interpretations and
-a functor on model arrows. Arbitrary abstraction models give no fixed
-interpretation to quantification, equality or connectives.
+Obua's 2022 account hard-wires modus ponens and universal introduction into its proof
+rules and semantics. The 2023 Practal note makes both theory rules and expresses the
+premise of universal introduction as a template. The later Primer gives the
+order-theoretic semantics and general rule calculus used here. Object-language
+introductions and eliminations enter through the theory. Appendix L.2 gives universal
+introduction and instantiation and derives existential elimination with a template
+premise. The fixed-arity formalization covers nameless abstract syntax and semantic
+soundness. Named Practal parsing and kernel correspondence, plural binders and completeness
+are outside its verified scope.
 
-## Checks
+## Checked comparisons
+
+The canonical first-order profile, `FirstOrder.profileInst`, has Abstraction Logic rules
+as sentences over translated signatures and admits canonical models indexed by nonempty
+unsorted first-order (UFOL) structures. For a UFOL carrier `D`, the canonical algebra uses
+`D ⊕ Bool`, with a two-valued truth classification and a universal abstraction that
+ranges over the embedded object carrier `D`. This works even when `D` is a singleton.
+The profile uses full valuation spaces.
+
+| Graph record | Lean declaration | Sentence and model directions |
+| --- | --- | --- |
+| `logic.abstraction.first_order.from_ufol` | `FirstOrder.fromUFOL` | UFOL sentences translate to premise-free rules in the profile. Canonical profile models go back to their indexing UFOL structures. |
+| `logic.abstraction.propositional.to_profile` | `Propositional.toProfile` | Propositional formulas translate via UFOL nullary predicates to profile sentences. Profile models go back to propositional valuations by reading those predicates. |
+| `logic.abstraction.first_order.to_abstraction` | `FirstOrder.toAbstraction` | The profile-to-unrestricted morphism maps each profile model to its canonical abstraction model and reads unrestricted rules back unchanged at the corresponding signature. |
+
+Both comparison comorphisms are model-expansive. Every UFOL structure indexes a
+profile model, and every propositional valuation is represented by a profile model
+built from a singleton UFOL structure. `FirstOrder.entails_iff` and
+`Propositional.entails_iff` prove preservation and reflection of consequence for
+their translations **in this profile**. `FirstOrder.sat_sentence` and
+`Propositional.sat_sentence` state the corresponding truth equivalences.
+
+`FirstOrder.entails_of_abstraction` goes from consequence over all unrestricted
+abstraction models to UFOL consequence. The reverse implication fails for this
+translation. In the checked countermodel, the carrier is `Unit ⊕ Bool` and every
+abstraction returns false, including the symbol translating first-order truth.
+The UFOL sentence `tt` is valid, but its translation fails in that unrestricted
+model.
+
+## Examples and checks
+
+- `Regression.lean` exercises overlapping binder scopes, a nonbinding argument under an
+  outer parameter, arity-zero updates, capture-avoiding substitution, rule validity, and a
+  nonidentity signature map.
+- `Soundness.lean` uses universal introduction and instantiation at a schematic term,
+  then derives their consequence with `Infer`. It exercises freshness at different
+  arities, binder permutation and removal, and countermodels to the quantifier rules.
+- `Comparisons.lean` checks a nested quantifier formula on singleton and two-object
+  structures, the unrestricted countermodel, and evaluation after a propositional
+  variable collapse.
 
 ```sh
-lake build --wfail +Silmaril.Logic.Abstraction +Silmaril.LogicGraph.Nodes.Logic.Abstraction.Defs
-lake env lean -DautoImplicit=false -DwarningAsError=true tests/logic/abstraction/Regression.lean
+make check CHECK_TARGETS='+Silmaril.Logic.Abstraction +Silmaril.LogicGraph.Nodes.Logic.Abstraction.Defs'
+lake build --wfail +Silmaril.Logic +Silmaril.LogicGraph.Audit.Defs SilmarilLogicGraphData
+make logic-graph-check
 ```
-
-The regression checks overlapping binder scopes and a nonbinding argument under
-an outer parameter, instantiation under a binder, a pointwise premise for
-universal introduction, a countermodel for the premise-free assertion, and
-satisfaction along a nonidentity signature map.
 
 ## Primary sources
 

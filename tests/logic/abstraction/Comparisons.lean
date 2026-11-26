@@ -1,6 +1,6 @@
 module
 
-import Silmaril.Logic.Abstraction.Propositional.Thms
+import Silmaril.Logic.Abstraction
 
 namespace Silmaril.Logic.Abstraction.ComparisonRegression
 
