@@ -25,6 +25,7 @@ allocation premises.
 | [Indirect graph source entry](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Thms.lean) | One designated allocated graph address computes the ordered arguments and i32 selector with a checked local-read and integer-op prefix before a typed Table32 site. The site can be in the function label or under a finite spine of parameterless scalar blocks with a checked result and enclosing continuation at each level. Exact Core and Lime1 finite readback starts at an ordinary direct `call` and reaches caller exit or ordered trap cleanup. | Conditional entry uses the separate profile below. Paths through loops or branches, re-entry to the indirect body from graph dispatch, mutable tables or stores, host calls, whole-module execution, and V1. |
 | [Conditional indirect graph entry](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Conditional/Thms.lean) | An i32 local selects a scalar if arm at the function label. Either arm may hold the designated site under the checked block spine. Both arms and the shared continuation are typed. Exact Core and Lime1 finite readback follows the chosen arm from ordinary invocation through return or trap. The alternate arm uses the direct graph relation and needs no native table allocation. | Conditional paths below entered blocks use the recursive profile below. Loops or branches on the path to the site, recursive dispatch back to the indirect body, mutable tables or stores, host calls, and V1. |
 | [Recursive control path to an indirect site](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Control/Thms.lean) | One designated site under a finite composition of immediately nested parameterless scalar blocks and i32-local conditionals. Every conditional checks its alternate arm against the same block result and the enclosing continuation. Each selected arm lowers to one block, preserving active locals, saved operands and entered labels. Core and Lime1 read back from typed entry through either the site or the first selected alternate and its enclosing continuations. | Loop entry and restart on the source path, branch dispatch to the site, redispatch into an indirect body, mutable tables or stores, host calls, and V1. |
+| [Recurrent loop entry to an indirect site](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Loop/Thms.lean) | A parameterless void loop writes an i32 local, tests its old value with `br_if 0`, and either reinstalls the source loop or chooses the site or empty arm. Core and Lime1 exact finite readback distinguishes branch, reinstatement and re-entry, including arbitrarily many restarts. The empty arm restores the saved operands and runs the checked function tail without a native table. The site arm has exact numeric-prefix and first-lookup readback under the active loop, through a pending invocation or the first lookup trap. | Callee return and trap cleanup under the loop, repeated lookup, general loop bodies and branches around the designated site, recursive dispatch into the indirect body, mutable tables or stores, host calls, and V1. |
 | [Saved caller continuation](../../Silmaril/Wasm/Institution/Operational/CallContinuation/Native/Thms.lean) | One pending `nop` stays in the caller during a resolved invocation. Return reinstates the caller's value prefix and scalar result before `nop` executes. Trap steps discard the continuation and may discard saved values in several steps. | General instruction suffixes and caller-side state changes. |
 | [One nested non-host call](../../Silmaril/Wasm/Institution/Operational/CallContinuation/Nested/Native/Thms.lean) | Start with an already-entered outer frame and label around one allocated, resolved inner call. The inner return runs the outer `nop`, exits the label, and returns across the outer frame when the stack has its declared arity. An inner trap discards the pending instruction and propagates through both outer boundaries. | General instruction suffixes or effects, outer source typing, and arbitrary depths or recursion. |
 | [Typed outer invocation](../../Silmaril/Wasm/Institution/Operational/CallContinuation/OuterCall/Native/Thms.lean) | Starts at an ordinary direct `call`. The outer function receives its numeric arguments and default locals, supplies literal arguments to one distinct allocated non-host inner callee, and resumes at one `nop`. Exact successors and finite endpoints include both returned values and a propagated trap. | General continuations, general argument expressions, host calls, indirect calls, recursion, extra top-level stack operands, and whole-module validation. |
@@ -368,10 +369,22 @@ fixture observes a mixed-width return and an intermediate unwind where the
 outer label still holds its saved operand. The table allocation premise is
 needed only for lookup, including when the lookup itself traps.
 
-Loop entry or restart on the designated source path and branch dispatch to
-the site require additional control phases. The checked direct continuations
-retain their existing graph coverage. Recursive dispatch into a function
-allocated with an indirect body remains separate.
+The recurrent loop profile checks a parameterless void loop with an i32
+local write followed by a depth-zero conditional branch. A nonzero old value
+reinstalls the original loop in its own native step, preserving the updated
+locals and saved operands. A zero test chooses either a checked numeric
+prefix and indirect lookup or an empty arm that exits into the checked
+function tail. Finite runs use the recurrent relation, which permits any
+number of restarts. Native table allocation enters only in the lookup
+theorems. The fixture reads the updated local as the first selector after
+a restart, distinguishing the null slot from the original out-of-bounds
+index. Another path returns the saved i64 and updated i32 without a table.
+
+The site correspondence ends at the pending invocation or first lookup trap.
+Composing callee return and trap cleanup with a live loop label, executing
+an indirect site on subsequent loop trips, general loop bodies, arbitrary
+branch dispatch to the site, and recursive entry into an indirect body remain
+separate. The checked direct continuations retain their existing graph coverage.
 [Source-region theorems](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/Source/Thms.lean)
 and [graph-entry theorems](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Thms.lean)
 
