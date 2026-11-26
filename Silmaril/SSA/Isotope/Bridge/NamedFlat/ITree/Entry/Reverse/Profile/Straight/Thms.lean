@@ -5,7 +5,7 @@ public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.
 import Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Straight.Table
 import Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Straight.Values
 
-/-! # Admission of reverse lowering with uniform saved captures -/
+/-! # Admission of reverse lowering with saved entry captures -/
 
 public section
 
@@ -26,6 +26,7 @@ variable {κ K : Type (u + 1)} [DecidableEq K]
 variable (a : Lowered (numberedInterface context exits external) fields code)
 
 local notation "attached" => withLiveOut (P := P) fields a.source
+local notation "versioned" => CFG.Cyclic.Versioning.compile attached
 local notation "exitTypes" => Interface.external
   (LiveOut.exitInterface (numberedInterface context exits external) fields)
 
@@ -36,6 +37,22 @@ theorem empty_of_no_captures (closed : n = 0) (saved : a.SavesCaptures) :
   Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight.empty_of_no_captures a closed saved
 
 variable [DecidableEq κ]
+
+/-- The actual compiler reads back and typechecks when every destination
+uses its declared projection of the entry slots and each block can supply
+the saved slots required by all its outgoing jumps. -/
+theorem compiled_success_projected (R : Fin blocks → Ty κ) (saved : a.SavesCaptures)
+    (entrySlots : List (Fin n)) (layouts : Fin (versioned).blocks.length → List (Fin n))
+    (layout : ∀ i, a.savedRegisters i = (layouts i).map (fun j => (⟨j.val⟩ : Register)))
+    (projections : ∀ i, List.Sublist (layouts i) entrySlots)
+    (kept : keepsEntryCaptures a entrySlots = true)
+    (edges : checksCaptureEdges a layouts = true) (checked : checks a R = true) :
+    ∃ table, NamedFlat.compile attached exits (fun i : Fin n => (⟨i.val⟩ : Register)) = some table ∧
+      let new := SSA.FiniteSum.append (a.packetProfile R saved) exitTypes
+      checkBody new context table.entry = true ∧
+        ∀ i, checkBody new (.snoc context (a.packetProfile R saved i)) (table.block i) = true :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight.compiled_success_projected
+    a R saved entrySlots layouts layout projections kept edges checked
 
 /-- The source-local checks suffice for scoped readback and typing of the
 actual versioned table at the synthesized profile. Each block saves the
@@ -99,12 +116,32 @@ def admit (R : Fin blocks → Ty κ) (saved : a.SavesCaptures)
   admitFromReadback a R saved (compiled_success a R saved empty checked)
 
 omit [DecidableEq κ] in
-/-- A layout of numbered slots witnesses the profile's capture bound. -/
-theorem savesCaptures_of_layout (slots : List (Fin n))
-    (layout : ∀ i, a.savedRegisters i = slots.map (fun j => (⟨j.val⟩ : Register))) : a.SavesCaptures := by
+/-- Layouts of numbered slots witness the synthesized profile's capture bound. -/
+theorem savesCaptures_of_layouts (layouts : Fin (versioned).blocks.length → List (Fin n))
+    (layout : ∀ i, a.savedRegisters i = (layouts i).map (fun j => (⟨j.val⟩ : Register))) :
+    a.SavesCaptures := by
   intro i reg mem
   obtain ⟨j, _, rfl⟩ := List.mem_map.mp (layout i ▸ mem)
   exact j.isLt
+
+omit [DecidableEq κ] in
+/-- A common layout of numbered slots witnesses the profile's capture bound. -/
+theorem savesCaptures_of_layout (slots : List (Fin n))
+    (layout : ∀ i, a.savedRegisters i = slots.map (fun j => (⟨j.val⟩ : Register))) : a.SavesCaptures :=
+  savesCaptures_of_layouts a (fun _ => slots) layout
+
+/-- Admit the actual compiler result at the supplied per-destination
+projections, keeping the original entry and ordered exits. -/
+def admitWithProjections (R : Fin blocks → Ty κ)
+    (entrySlots : List (Fin n)) (layouts : Fin (versioned).blocks.length → List (Fin n))
+    (layout : ∀ i, a.savedRegisters i = (layouts i).map (fun j => (⟨j.val⟩ : Register)))
+    (projections : ∀ i, List.Sublist (layouts i) entrySlots)
+    (kept : keepsEntryCaptures a entrySlots = true)
+    (edges : checksCaptureEdges a layouts = true) (checked : checks a R = true) :
+    LiveOut.Admission P (numberedInterface context exits external) fields a.source :=
+  let saved := savesCaptures_of_layouts a layouts layout
+  admitFromReadback a R saved
+    (compiled_success_projected a R saved entrySlots layouts layout projections kept edges checked)
 
 /-- Admit the actual compiler result at the original entry and exit
 interface, using the same ordered capture layout at every destination. -/

@@ -13,6 +13,15 @@ universe v w
 variable {V K : Type w} {F : Type v} {M : Type w → Type w} {α : Type w}
   [DecidableEq V] [DecidableEq K]
 
+omit [DecidableEq K] in
+/-- A destination can request only the source's saved slots exactly when
+the source parameter is outside the graph's support or the destination
+excludes that same parameter. Both layouts filter the same ordered support. -/
+theorem slots_subset_iff (graph : CFG V K F) (source destination : Block V K F) :
+    slots graph destination ⊆ slots graph source ↔
+      source.param ∉ registers graph ∨ source.param = destination.param :=
+  Proofs.SSA.LambdaRTL.CFG.CyclicVersion.slots_subset_iff graph source destination
+
 /-- The compiled entry is SSA with the supported version-zero inputs. -/
 theorem compile_entry_isSSA (graph : CFG V K F) :
     (compile graph).entry.toRegion.IsSSA ((registers graph).map fun reg => (reg, 0)).toFinset :=

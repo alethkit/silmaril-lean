@@ -20,6 +20,25 @@ universe v w
 variable {V K : Type w} {F : Type v} {M : Type w → Type w} {α : Type w}
   [DecidableEq V] [DecidableEq K]
 
+omit [DecidableEq K] in
+theorem slots_subset_iff (graph : CFG V K F) (source destination : Block V K F) :
+    slots graph destination ⊆ slots graph source ↔
+      source.param ∉ registers graph ∨ source.param = destination.param := by
+  constructor
+  · intro subset
+    by_cases supported : source.param ∈ registers graph
+    · right
+      by_contra different
+      have member : source.param ∈ slots graph destination := by simp [slots, supported, different]
+      simpa [slots] using subset member
+    · exact Or.inl supported
+  · intro allowed reg member
+    have present : reg ∈ registers graph := (List.mem_filter.mp member).1
+    rcases allowed with absent | same
+    · have different : reg ≠ source.param := fun eq => absent (eq ▸ present)
+      simp [slots, present, different]
+    · simpa [slots, same] using member
+
 private theorem versionBody_readback (body : Body V K F) (labels : K → Option (List V))
     (live : List V) (current : V → Nat) (depth : Nat) :
     (versionBody body labels live current depth).toRegion =

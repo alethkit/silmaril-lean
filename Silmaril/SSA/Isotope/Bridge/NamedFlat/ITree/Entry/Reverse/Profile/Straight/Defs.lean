@@ -70,4 +70,17 @@ def captureFields (ctx : BoundCtx (Ty κ) n) (slots : List (Fin n)) : List (Regi
 def keepsEntryCaptures (slots : List (Fin n)) : Bool :=
   slots.all (keepsEntryCapture a)
 
+/-- Select the first matching internal destination, in the same label order
+as the actual versioner. Unmatched labels carry no saved entry slots. -/
+def destinationSlots (layouts : Fin (versioned).blocks.length → List (Fin n)) (label : K) : List (Fin n) :=
+  (((versioned).blocks.findFinIdx? (fun item => label == item.1)).map layouts).getD []
+
+/-- Every emitted internal edge asks only for slots saved by its source
+block. The jump packs those slots in the destination's checked order. -/
+def checksCaptureEdges (layouts : Fin (versioned).blocks.length → List (Fin n)) : Bool :=
+  (List.finRange (versioned).blocks.length).all fun i =>
+    let block := (attached).blocks[Fin.cast (List.length_map _) i].2
+    block.body.targets.all fun label =>
+      (destinationSlots a layouts label).all (fun slot => decide (slot ∈ layouts i))
+
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight

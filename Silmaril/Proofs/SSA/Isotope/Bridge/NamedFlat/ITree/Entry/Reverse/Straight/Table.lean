@@ -54,13 +54,16 @@ private theorem lookup_index {K : Type u} {A : Type v} [BEq K] (items : List (K 
 variable {Base V K : Type u} {F : Type v} [DecidableEq V] [DecidableEq K]
 
 private theorem routes_saved (graph : CFG V K F) (exits : List K)
-    (capture : List (V × Ty Base))
+    (captures : Fin (Versioning.compile graph).blocks.length → List (V × Ty Base))
+    (required : K → List (V × Ty Base))
     (R : Fin (Versioning.compile graph).blocks.length → Ty Base) (D : Fin exits.length → Ty Base)
-    (slots : ∀ i : Fin graph.blocks.length,
-      Versioning.slots graph graph.blocks[i].2 = capture.map Prod.fst) :
+    (slots : ∀ i : Fin graph.blocks.length, Versioning.slots graph graph.blocks[i].2 =
+      (captures (Fin.cast (List.length_map _).symm i)).map Prod.fst)
+    (selected : ∀ k i, (Versioning.compile graph).blocks.findFinIdx? (fun item => k == item.1) = some i →
+      required k = captures i) :
     Routes (labelIndex (Versioning.compile graph).blocks exits) (Versioning.destinations graph)
-      capture (SSA.FiniteSum.append R D)
-      (SSA.FiniteSum.append (fun i => .product (R i) (LiveOut.recordType capture)) D) := by
+      required (SSA.FiniteSum.append R D)
+      (SSA.FiniteSum.append (fun i => .product (R i) (LiveOut.recordType (captures i))) D) := by
   intro label i numbered
   let compiled := Versioning.compile graph
   have order : (compiled.blocks.findFinIdx? (fun item => label == item.1)).map Fin.val =
@@ -84,10 +87,13 @@ private theorem routes_saved (graph : CFG V K F) (exits : List K)
     | some j =>
       simp only [labelIndex, hCompiled, Option.some.injEq] at numbered
       subst i
+      have row : Fin.cast (List.length_map _).symm j = k :=
+        Fin.ext (by simpa [hCompiled, hSource] using order.symm)
+      have fields := selected label k hCompiled
       refine Or.inr ⟨?_, ?_⟩
-      · rw [Versioning.destinations, lookup_index, hSource]
-        exact congrArg some (slots j)
-      · rw [SSA.FiniteSum.append_left, SSA.FiniteSum.append_left]
+      · rw [Versioning.destinations, lookup_index, hSource, fields]
+        exact congrArg some ((slots j).trans (congrArg (fun i => (captures i).map Prod.fst) row))
+      · rw [SSA.FiniteSum.append_left, SSA.FiniteSum.append_left, fields]
 
 private theorem tabulate_checked {A : Type u} {count : Nat}
     {f : Fin count → Option A} {p : Fin count → A → Prop}
@@ -178,11 +184,12 @@ private theorem unpack_checked [DecidableEq Base] [HasTy F (Ty Base)]
 private theorem block_checked [DecidableEq Base] [HasTy F (Ty Base)]
     {n labels : Nat} (graph : CFG V K F) (src : CFG.Block V K F)
     (index : K → Option (Fin labels)) (old new : Fin labels → Ty Base)
-    (captures : List (V × Ty Base))
-    (routes : Routes index (Versioning.destinations graph) captures old new)
+    (required : K → List (V × Ty Base)) (captures : List (V × Ty Base))
+    (routes : Routes index (Versioning.destinations graph) required old new)
     (ctx : BoundCtx (Ty Base) n) (A : Ty Base)
     (slots : Versioning.slots graph src = captures.map Prod.fst)
     (keeps : KeepsCapture captures src.body.toRegion)
+    (supplies : Supplies required captures src.body.targets)
     (checked : sourceCheck index old (blockNames src.param) (.snoc ctx A) src.body = true) :
     ∃ flat, body index (blockNames (Versioning.compileBlock graph src).param)
       (Versioning.compileBlock graph src).body = some flat ∧
@@ -223,8 +230,8 @@ private theorem block_checked [DecidableEq Base] [HasTy F (Ty Base)]
         · simp [blockNames, bindName, same] at hit
       have saved : SavedScope versions captures names types :=
         fun r T mem => all r T (by simp [mem])
-      exact version_body index _ captures old new routes (Versioning.registers graph) src.body
-        (2 + 2 * captures.length) versions _ _ names types scope saved keeps source typed)
+      exact version_body index _ required captures old new routes (Versioning.registers graph) src.body
+        (2 + 2 * captures.length) versions _ _ names types scope saved keeps supplies source typed)
   have packet : initial (p, 0) = some 0 := by simp [initial, blockNames, bindName]
   obtain ⟨hPacket, tPacket⟩ := read_pair (packet := (p, 0)) (names := initial) (i := 0)
     (ctx := ctx0) (x := (p, 1)) (y := (p, 2)) packet
@@ -296,11 +303,30 @@ private theorem kept_body (src : CFG.Body Register Label P.Instr) (slots : List 
   cases eq
   exact kept i member
 
+omit [DecidableEq κ] in
+private theorem fields_subset (available needed : List (Fin n)) (subset : needed ⊆ available) :
+    captureFields context needed ⊆ captureFields context available := by
+  intro field member
+  obtain ⟨i, hit, eq⟩ := List.mem_map.mp member
+  exact List.mem_map.mpr ⟨i, subset hit, eq⟩
+
+omit [DecidableEq κ] in
+private theorem destination_subset
+    (entrySlots : List (Fin n)) (layouts : Fin (versioned).blocks.length → List (Fin n))
+    (projections : ∀ i, List.Sublist (layouts i) entrySlots) (label : Label) :
+    destinationSlots a layouts label ⊆ entrySlots := by
+  unfold destinationSlots
+  cases (versioned).blocks.findFinIdx? (fun item => label == item.1) with
+  | none => simp
+  | some i => exact (projections i).subset
+
 set_option maxHeartbeats 400000 in
-theorem compiled_success_captures (R : Fin blocks → Ty κ) (saved : a.SavesCaptures)
-    (slots : List (Fin n))
-    (layout : ∀ i, a.savedRegisters i = slots.map (fun j => (⟨j.val⟩ : Register)))
-    (kept : keepsEntryCaptures a slots = true)
+theorem compiled_success_projected (R : Fin blocks → Ty κ) (saved : a.SavesCaptures)
+    (entrySlots : List (Fin n)) (layouts : Fin (versioned).blocks.length → List (Fin n))
+    (layout : ∀ i, a.savedRegisters i = (layouts i).map (fun j => (⟨j.val⟩ : Register)))
+    (projections : ∀ i, List.Sublist (layouts i) entrySlots)
+    (kept : keepsEntryCaptures a entrySlots = true)
+    (edges : checksCaptureEdges a layouts = true)
     (checked : checks a R = true) :
     ∃ table, compile attached exits (fun i : Fin n => (⟨i.val⟩ : Register)) = some table ∧
       let new := SSA.FiniteSum.append (a.packetProfile R saved) exitTypes
@@ -309,27 +335,31 @@ theorem compiled_success_captures (R : Fin blocks → Ty κ) (saved : a.SavesCap
   let index := labelIndex (versioned).blocks exits
   let captures : Fin n → Register := fun i => ⟨i.val⟩
   let original := fun i => R (Fin.cast a.reversionCount i)
-  let capture := captureFields context slots
-  let expanded := fun i => Ty.product (original i) (LiveOut.recordType capture)
+  let savedFields := fun i => captureFields context (layouts i)
+  let required := fun label => captureFields context (destinationSlots a layouts label)
+  let expanded := fun i => Ty.product (original i) (LiveOut.recordType (savedFields i))
   have profile : a.packetProfile R saved = expanded :=
-    funext (fun i => packetProfile_saved a R saved slots i (layout i))
+    funext (fun i => packetProfile_saved a R saved (layouts i) i (layout i))
   rw [profile]
   let old := SSA.FiniteSum.append original exitTypes
   let new := SSA.FiniteSum.append expanded exitTypes
-  have order : slots.map (fun j => (⟨j.val⟩ : Register)) = capture.map Prod.fst := by
-    simp [capture, captureFields, Function.comp_def]
   have savedAt (i : Fin (attached).blocks.length) :
-      Versioning.slots attached (attached).blocks[i].2 = capture.map Prod.fst :=
-    (layout (Fin.cast (List.length_map _).symm i)).trans order
-  have route := routes_saved attached exits capture original exitTypes savedAt
+      Versioning.slots attached (attached).blocks[i].2 =
+        (savedFields (Fin.cast (List.length_map _).symm i)).map Prod.fst := by
+    exact (layout (Fin.cast (List.length_map _).symm i)).trans
+      (by simp [savedFields, captureFields, Function.comp_def])
+  have route := routes_saved attached exits savedFields required original exitTypes savedAt
+    (by intro k i found; simp [required, destinationSlots, found, savedFields])
   have keptAt := List.all_eq_true.mp kept
-  have entryKeeps := kept_body (context := context) (attached).entry slots fun j hit =>
+  have entryKeeps := kept_body (context := context) (attached).entry entrySlots fun j hit =>
     of_decide_eq_true (Bool.and_eq_true_iff.mp (keptAt j hit)).1
+  have entrySupplies : Supplies required (captureFields context entrySlots) (attached).entry.targets :=
+    fun k _ => fields_subset entrySlots _ (destination_subset a entrySlots layouts projections k)
   obtain ⟨sourceEntry, sourceBlocks⟩ := Bool.and_eq_true_iff.mp checked
   obtain ⟨_, read, typed⟩ := checked_source sourceEntry
-  obtain ⟨entry, hEntry, tEntry⟩ := version_body index _ capture old new route (Versioning.registers attached)
-    (attached).entry 0 (fun _ => 0) _ _ _ _ (entry_scope captures context)
-    (entry_saved (context := context) slots) entryKeeps read typed
+  obtain ⟨entry, hEntry, tEntry⟩ := version_body index _ required (captureFields context entrySlots)
+    old new route (Versioning.registers attached) (attached).entry 0 (fun _ => 0) _ _ _ _
+    (entry_scope captures context) (entry_saved (context := context) entrySlots) entryKeeps entrySupplies read typed
   have byBlock (i : Fin (versioned).blocks.length) :
       ∃ flat, body index (blockNames ((versioned).blocks[i].2.param)) (versioned).blocks[i].2.body = some flat ∧
         checkBody new (.snoc context (expanded i)) flat = true := by
@@ -342,11 +372,17 @@ theorem compiled_success_captures (R : Fin blocks → Ty κ) (saved : a.SavesCap
           rw [List.length_map]
           exact j.isLt))
     rw [row]
-    have bodyKeeps := kept_body (context := context) (attached).blocks[j].2.body slots fun k hit =>
-      of_decide_eq_true (List.all_eq_true.mp (Bool.and_eq_true_iff.mp (keptAt k hit)).2 _
+    have bodyKeeps := kept_body (context := context) (attached).blocks[j].2.body (layouts i) fun k hit =>
+      of_decide_eq_true (List.all_eq_true.mp (Bool.and_eq_true_iff.mp (keptAt k ((projections i).subset hit))).2 _
         (List.getElem_mem (l := (attached).blocks) j.isLt))
-    exact block_checked attached (attached).blocks[j].2 index old new capture route
-      context (original i) (savedAt j) bodyKeeps checkAt
+    have bodySupplies : Supplies required (savedFields i) (attached).blocks[j].2.body.targets := by
+      intro k hit
+      apply fields_subset
+      have row := List.all_eq_true.mp edges i (by simp)
+      have requested := List.all_eq_true.mp row k hit
+      exact fun slot member => of_decide_eq_true (List.all_eq_true.mp requested slot member)
+    exact block_checked attached (attached).blocks[j].2 index old new required (savedFields i) route
+      context (original i) (savedAt j) bodyKeeps bodySupplies checkAt
   obtain ⟨rows, hRows, tRows⟩ := tabulate_checked byBlock
   exact ⟨⟨entry, rows⟩, by
     unfold compile elaborate
@@ -356,6 +392,21 @@ theorem compiled_success_captures (R : Fin blocks → Ty κ) (saved : a.SavesCap
           (versioned).blocks[i].2.body)).map (FiniteCFG.mk outgoing)) = some (FiniteCFG.mk entry rows)
     rw [show body index (first fun i => (captures i, 0)) (versioned).entry = some entry from hEntry]
     exact congrArg (Option.map (FiniteCFG.mk entry)) hRows, tEntry, tRows⟩
+
+theorem compiled_success_captures (R : Fin blocks → Ty κ) (saved : a.SavesCaptures)
+    (slots : List (Fin n))
+    (layout : ∀ i, a.savedRegisters i = slots.map (fun j => (⟨j.val⟩ : Register)))
+    (kept : keepsEntryCaptures a slots = true) (checked : checks a R = true) :
+    ∃ table, compile attached exits (fun i : Fin n => (⟨i.val⟩ : Register)) = some table ∧
+      let new := SSA.FiniteSum.append (a.packetProfile R saved) exitTypes
+      checkBody new context table.entry = true ∧
+        ∀ i, checkBody new (.snoc context (a.packetProfile R saved i)) (table.block i) = true := by
+  have subset (label : Label) := destination_subset a slots (fun _ => slots)
+    (fun _ => List.Sublist.refl slots) label
+  apply compiled_success_projected a R saved slots (fun _ => slots) layout
+    (fun _ => List.Sublist.refl slots) kept _ checked
+  exact List.all_eq_true.mpr fun _ _ => List.all_eq_true.mpr fun label _ =>
+    List.all_eq_true.mpr fun slot member => decide_eq_true (subset label member)
 
 omit [DecidableEq κ] in
 theorem empty_of_no_captures (closed : n = 0) (saved : a.SavesCaptures) :
