@@ -32,8 +32,19 @@ theorem selection_typed (s : Selection g) (typed : g.HasType β R D) :
 outward interface. Only the fresh arrival receives a product parameter. -/
 theorem graph_hasType (s : Selection g) (typed : g.HasType β R D) {left right : τ}
     (arm : s.arm.HasType β (append R D) (R s.selected) left right) :
-    (graph s).HasType β (packets R s.selected left) D :=
+    (graph s).HasType β (s.packetTypes R left right) D :=
   Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Materialize.Outline.graph_hasType s typed arm
+
+/-- Each pass preserves the exact interface of its source, including
+the first appended packet when typing the second outline. -/
+theorem TwoArms.hasType (s : TwoArms g) (typed : g.HasType β R D) {left right left' right' : τ}
+    (first : s.first.arm.HasType β (append R D) (R s.first.selected) left right)
+    (second : s.second.arm.HasType β
+      (append (s.first.packetTypes R left right) D)
+      (s.first.packetTypes R left right s.second.selected) left' right') :
+    (graph s.second).HasType β
+      (s.second.packetTypes (s.first.packetTypes R left right) left' right') D :=
+  graph_hasType s.second (graph_hasType s.first typed first) second
 
 end Typing
 
@@ -43,5 +54,11 @@ theorem graph_tree {Events : Type w → Type w} {α : Type x}
     (s : Selection g) (raw : Primitive Events F α) (env : Env α) :
     region raw env (graph s).erase = region raw env g.erase :=
   Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Materialize.Outline.graph_tree raw env s
+
+/-- The two actual outlining passes compose at the same caller environment. -/
+theorem TwoArms.graph_tree {Events : Type w → Type w} {α : Type x}
+    (s : TwoArms g) (raw : Primitive Events F α) (env : Env α) :
+    region raw env (graph s.second).erase = region raw env g.erase :=
+  (Outline.graph_tree s.second raw env).trans (Outline.graph_tree s.first raw env)
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.Materialize.Outline

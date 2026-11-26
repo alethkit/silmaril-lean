@@ -2,7 +2,6 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Materialize.Outline.Thms
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Materialize.Outline.Admission.Defs
-public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Materialize.Admission.Thms
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Thms
 
 public section
@@ -35,13 +34,13 @@ local notation "exitTypes" => Interface.external (LiveOut.exitInterface ports fi
 local notation "A" => Region.packedInputType context.toList
 local notation "C" => AtomValues.carrier (κ := κ)
 
-theorem packed_observe (s : Selection g) (typed : g.HasType context R exitTypes) {left right : Ty κ}
+omit [DecidableEq K] in
+theorem packed_graph_tree (s : Selection g) (typed : g.HasType context R exitTypes) {left right : Ty κ}
     (arm : s.arm.HasType context (append R exitTypes) (R s.selected) left right)
     (M : Model (κ := κ) Events P.Instr)
-    (c : Compiled (context := context) (external := external) (fields := fields) s)
     (x : Record.Input context) (ambient : Env (Sigma C)) :
     region M.raw (extend ambient (encodeValue C A x)) (Program.ofCFGEntry typed).code =
-      LiveOut.observe M ports fields c.lowered.source x := by
+      region M.raw (extend ambient (encodeValue C A x)) (Program.ofCFGEntry (graph_hasType s typed arm)).code := by
   let env := inputEnv context x
   let target := graph_hasType s typed arm
   have source :
@@ -55,6 +54,6 @@ theorem packed_observe (s : Selection g) (typed : g.HasType context R exitTypes)
     rw [← inputEnv_packet]
     exact Capture.packed_context_tree M.raw target ambient env
   rw [graph_tree s M.raw env] at outlined
-  exact source.trans (outlined.symm.trans (Materialize.packed_observe target M c x ambient))
+  exact source.trans outlined.symm
 
 end Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Materialize.Outline
