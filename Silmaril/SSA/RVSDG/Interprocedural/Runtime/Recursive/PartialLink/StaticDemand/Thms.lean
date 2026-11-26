@@ -17,7 +17,7 @@ universe u v w
 variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)}
 variable {entry results : Ports (Ty V S)} {sigs : List (Ports (Ty V S))} {loops : Bool}
-variable {member : Option (MemberSummary V S)}
+variable {member : Option (MemberSummaries V S)}
 
 /-- The executable summary computes the least shared may solution at entry. -/
 theorem Code.mem_liveIn_iff (code : Code Op entry [] sigs results loops member) (demand : Demand) (a : Address) :
