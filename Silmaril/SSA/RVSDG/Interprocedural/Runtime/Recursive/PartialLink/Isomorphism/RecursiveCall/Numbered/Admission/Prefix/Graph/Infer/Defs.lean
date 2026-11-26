@@ -43,28 +43,26 @@ def Plan.infer [DecidableEq (Ty V S)] :
     | _, .lambda (fn := fnL) _ =>
       match (generalizing := true) headR, nodeR with
       | _, .lambda (fn := fnR) _ =>
-        match seeded with
-        | false => none
-        | true =>
-          if same : fnL = fnR then
-            (Plan.infer true restL restR).map fun rest => by
-              subst fnR
-              exact .lambda rest
-          else none
+        if same : fnL = fnR then
+          (Plan.infer true restL restR).map fun rest => by
+            subst fnR
+            cases seeded with
+            | false => exact .start (.lambda rest)
+            | true => exact .lambda rest
+        else none
       | _, .delta _ | _, .phi _ => none
   | _, _, _, _, _, _, _ => none
 termination_by structural _ _ _ _ _ left _ => left
 
-/-- Align numbered δ, nonempty φ, and post-seed λ bindings at the same
-positions. Paired δ rows use the ordinary linker. The first φ pair seeds
-admission and later φ pairs use fresh-group admission. A φ pair must have
-the same ordered member signatures. A λ pair must have the same function
-signature and uses fresh λ admission.
+/-- Align numbered δ, nonempty φ, and λ bindings at the same positions.
+Paired δ rows use the ordinary linker. The first callable pair starts
+either a φ seed or an ordinary-value family for fresh λ admission.
+Later φ and λ pairs use fresh admission. A φ pair must have the same
+ordered member signatures, and a λ pair the same function signature.
 
 The resulting `GraphPlan` selects bindings. The admission checker validates
-actual captures, bodies and dispatch separation. Use an explicit plan for
-aliases or layouts outside this policy, such as λ rows before the φ seed,
-empty φ rows, or unmatched pairs. -/
+actual captures, bodies and dispatch separation. Explicit plans can select
+alias and skip cases. -/
 def inferGraphPlan [DecidableEq (Ty V S)] (left : Omega Op importsL exports sigsL)
     (right : Omega Op importsR exports sigsR) : Option (GraphPlan left right) :=
   Plan.infer false left.toTerm.region right.toTerm.region
