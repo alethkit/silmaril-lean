@@ -11,9 +11,11 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader
 
 open Activation (Inputs)
-open Builder.Preheader (Native)
+open Builder (Built build?)
+open Builder.Preheader (Native prepare)
 open Diamond (Ty ValueSort sortValue)
 open Pure.SubZero (model)
+open scoped Pure.WordNormalize
 
 variable {inputs carried : List (ValueSort Unit)} {entrySigs headerSigs : List (List (Ty Unit))}
 variable {out : ValueSort Unit}
@@ -53,6 +55,15 @@ the returned graph finds no further accepted step. -/
 theorem normalize_stopped (loop : Native inputs carried entrySigs headerSigs out) :
     Builder.Preheader.optimize? (normalize loop).rewrite.graph = none :=
   run_stops_of_fuel headerSigs.length loop (Nat.le_refl _)
+
+/-- The final prepared graph builds, and no proposal in that view's list
+passes the shrinking check at the computed stable partition. -/
+theorem normalize_saturated (loop : Native inputs carried entrySigs headerSigs out) :
+    let prepared := prepare (normalize loop).rewrite.graph
+    ∃ built : Built prepared, build? prepared = some built ∧
+      ∀ proposal ∈ Pass.proposals built.view,
+        Pass.tryProposal? built.view (FixedPoint.normalize built.graph) proposal = none :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Preheader.normalize_saturated loop
 
 theorem normalize_evalBackedges (loop : Native inputs carried entrySigs headerSigs out)
     (input : Inputs model inputs) (budget : Nat) :
