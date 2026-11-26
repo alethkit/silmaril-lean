@@ -1275,6 +1275,41 @@ absence laws) now also certifies that the CF compiled from the same
 source never returns at any budget, and that neither does the canonical
 λSSA Region. [Checked regression][table-regression]
 
+### One fixed word, two independently bounded runners
+
+`Producer.Exit.Inversion.cf_returns_iff` closes the remaining narrow gap
+for a fixed result word: a successful bounded CF run returning that word
+exists exactly when an independent, separately bounded RTL run exists
+returning the same singleton with the initial memory preserved. It
+composes the fixed-value CF inversion (`from_entry`/`Exit.from_return_path`)
+with the actual RTL iff (`returns_iff`); neither direction reads a single
+insufficient budget as evidence of nonreturn. [Inversion API][cf-exit-inversion]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Family.MLIR.Prefix (wordEnv)
+open Family.MLIR.Prefix.Producer (Compiled)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    {mapping : InputMap old new} {source : Family.Source old old entry header tests}
+    {origins : List (HeaderWord new old header)}
+    (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory) (value : Word)
+    (observed : ∃ fuel, compiled.setup.cf.run evalOp fuel (wordEnv input) = some (.cons value .nil)) :
+    ∃ fuel, compiled.rtl.runMain fuel 0 (words input) mem = .returned [value] mem :=
+  (Family.MLIR.Prefix.Producer.Exit.Inversion.cf_returns_iff compiled input mem value).mp observed
+```
+
+In the resized fixture, the mixed run's CF return of `6` at budget nine
+directly supplies the matching bounded RTL return, without separately
+recovering the dispatch route. [Checked regression][table-regression]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
   +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms \

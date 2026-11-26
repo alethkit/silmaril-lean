@@ -1194,6 +1194,14 @@ example : ¬ ∃ value final, Eval (Opcode.step (sigs := [⟨4, 1⟩]) compiledF
   rintro ⟨slots, value, path⟩
   exact fixedCannotReturn path rfl
 
+-- `Exit.Inversion.cf_returns_iff` ties one fixed-word bounded CF return
+-- directly to an independently-bounded RTL return preserving the initial
+-- memory, composing the fixed-value CF inversion with `returns_iff`.
+example : ∃ fuel, compiledPrefix.rtl.runMain fuel 0 (words prefixInput) mem = .returned [6] mem :=
+  (Exit.Inversion.cf_returns_iff compiledPrefix prefixInput mem 6).mp
+    ⟨8, show prefixSetup.cf.run evalOp 8 (Family.MLIR.Prefix.wordEnv prefixInput) =
+      some (.cons 6 .nil) from rfl⟩
+
 end CFDispatch
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
