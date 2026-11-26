@@ -88,7 +88,9 @@ monotonic analyses, when a normal form exists. The
 [embedding comparison](peggy-node-monotonicity.md) proves (4.2) for
 the zero-sample analysis under fresh append and gives the conditional
 (4.3) theorem. General rule transport, other node-reuse policies and
-(4.4) remain separate obligations. The finite worklist's
+termination remain separate obligations. The
+[normal-form theorem](peggy-normal-forms.md) proves conditional (4.4)
+under the stated family hypotheses. The finite worklist's
 least-closure and order-independence theorems still apply per fixed
 table and obligation list. This replay may add duplicate rows and has
 no global deduplication, scheduling, closure, termination or extraction

@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Defs
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
+import Mathlib.Data.Fintype.Card
 
 public section
 
@@ -131,5 +132,9 @@ def step (receipt : Step small) : Embedding small receipt.apply where
   roots := rfl
   forest := rfl
   classes _ _ := receipt.extends
+
+theorem embedding_size_le (e : Embedding small large) : n ≤ k := by
+  simpa only [Fintype.card_fin] using
+    Fintype.card_le_of_injective e.vertices.address e.vertices.address.injective
 
 end Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison

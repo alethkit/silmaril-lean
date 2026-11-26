@@ -68,11 +68,9 @@ roots, both copies of the RHS and the remapped class.
   inflationarity of the intervening analysis. `delayed_step` states
   these premises independently. The zero-sample instantiation supplies
   its monotonicity proof.
-- **(4.4)** remains open for node generation. The fresh-append policy can
-  generate arbitrarily many duplicate rows under repeated application.
-  The preorder, match simulation and delayed-step comparison do not
-  establish termination, reachable normal forms, equivalence of
-  schedules, or a least global closure.
+- **(4.4)** is proved conditionally in the [normal-form theorem](peggy-normal-forms.md).
+  The fresh-append zero-sample family has no stable normal form from a
+  matched seed. Its retained match permits arbitrarily many duplicate rows.
 
 The comparison is structural. The semantic certification of either
 concrete transition uses `ZeroSample.holds` and `Step.sound` from the

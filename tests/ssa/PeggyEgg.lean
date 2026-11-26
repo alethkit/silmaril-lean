@@ -1003,4 +1003,120 @@ example : ∃ next, ZeroSampleAnalysis Op.zero ⟨6, matched.step.apply⟩ next 
     Comparable ⟨6, matched.step.apply⟩ next :=
   delayed_step (ZeroSampleAnalysis.monotone _) (ZeroSampleAnalysis.inflationary _) takeSample takeSample
 
+-- Even with both RHS copies already in the same class, the transported
+-- match permits another fresh append and prevents stability.
+example : ¬ NormalForms.Stable Comparable (ZeroSampleFamily Op.zero) ⟨8, delayedResult⟩ :=
+  delayedMatch.no_stable (.single delayedMatch.progress.1)
+
 end Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Tests
+
+namespace Silmaril.SSA.Peggy.EPEG.Saturation.NormalForms.Tests
+
+private abbrev Marks := Bool × Bool
+
+private def covers (a b : Marks) : Prop :=
+  (a.1 = true → b.1 = true) ∧ (a.2 = true → b.2 = true)
+
+private theorem covers_refl (a : Marks) : covers a a := ⟨id, id⟩
+
+private theorem covers_trans ⦃a b c : Marks⦄ (left : covers a b) (right : covers b c) : covers a c :=
+  ⟨right.1 ∘ left.1, right.2 ∘ left.2⟩
+
+private theorem covers_antisymm ⦃a b : Marks⦄ (left : covers a b) (right : covers b a) : a = b := by
+  rcases a with ⟨(_ | _), (_ | _)⟩ <;> rcases b with ⟨(_ | _), (_ | _)⟩ <;>
+    simp_all [covers]
+
+private def mark (chooseFirst : Bool) (a : Marks) : Marks :=
+  if chooseFirst then (true, a.2) else (a.1, true)
+
+private def marking : Family Marks Bool :=
+  fun label a b => b = a ∨ b = mark label a
+
+private theorem marking_inflationary (label : Bool) : Inflationary covers (marking label) := by
+  rintro a b (rfl | rfl)
+  · exact covers_refl _
+  · cases label <;> simp [covers, mark]
+
+private theorem marking_monotone (label : Bool) : MonotoneSimulation covers (marking label) := by
+  rintro a b next above (rfl | rfl)
+  · exact ⟨b, .inl rfl, above⟩
+  · refine ⟨mark label b, .inr rfl, ?_⟩
+    cases label with
+    | false => exact ⟨above.1, fun _ => rfl⟩
+    | true => exact ⟨fun _ => rfl, above.2⟩
+
+private theorem marking_terminal : ∀ next, ¬ PaperStep marking (true, true) next := by
+  rintro next ⟨⟨label, rfl | rfl⟩, unequal⟩
+  · exact unequal rfl
+  · exact unequal (by cases label <;> rfl)
+
+private theorem marking_first_then_second :
+    Relation.ReflTransGen (PaperStep marking) (false, false) (true, true) := by
+  have first : PaperStep marking (false, false) (true, false) := ⟨⟨true, .inr rfl⟩, by decide⟩
+  have second : PaperStep marking (true, false) (true, true) := ⟨⟨false, .inr rfl⟩, by decide⟩
+  exact (Relation.ReflTransGen.single first).tail second
+
+private theorem marking_second_then_first :
+    Relation.ReflTransGen (PaperStep marking) (false, false) (true, true) := by
+  have first : PaperStep marking (false, false) (false, true) := ⟨⟨false, .inr rfl⟩, by decide⟩
+  have second : PaperStep marking (false, true) (true, true) := ⟨⟨true, .inr rfl⟩, by decide⟩
+  exact (Relation.ReflTransGen.single first).tail second
+
+-- Both schedules take strict steps. Their common final state still admits
+-- a stuttering analysis, and every paper normal form must equal it.
+example : PaperNormalForm marking (false, false) (true, true) ∧
+    Step marking (true, true) (true, true) ∧
+    ∀ final, PaperNormalForm marking (false, false) final → final = (true, true) := by
+  have stable : PaperNormalForm marking (false, false) (true, true) :=
+    ⟨marking_first_then_second, marking_terminal⟩
+  have alternate : PaperNormalForm marking (false, false) (true, true) :=
+    ⟨marking_second_then_first, stable.2⟩
+  exact ⟨stable, ⟨true, .inl rfl⟩, fun _ normal =>
+    paperNormalForm_unique covers_refl covers_trans covers_antisymm
+      marking_inflationary marking_monotone normal alternate⟩
+
+/-- State zero is below both terminal representatives, which compare in
+both directions but have distinct identities. -/
+private def sameInfo (a b : Fin 3) : Prop := a = 0 ∨ b ≠ 0
+private def aliases : Family (Fin 3) Unit := fun _ a b => b = a ∨ a = 0
+
+private theorem sameInfo_refl (a : Fin 3) : sameInfo a a := Classical.em _
+
+private theorem sameInfo_trans ⦃a b c : Fin 3⦄ (ab : sameInfo a b) (bc : sameInfo b c) : sameInfo a c :=
+  ab.elim Or.inl fun hb => Or.inr (bc.resolve_left hb)
+
+private theorem aliases_inflationary (label : Unit) : Inflationary sameInfo (aliases label) := by
+  rintro a b (rfl | seed)
+  · exact sameInfo_refl _
+  · exact .inl seed
+
+private theorem aliases_monotone (label : Unit) : MonotoneSimulation sameInfo (aliases label) := by
+  intro a b next _ _
+  by_cases seed : b = 0
+  · exact ⟨next, .inr seed, sameInfo_refl _⟩
+  · exact ⟨b, .inl rfl, .inr seed⟩
+
+private theorem alias_terminal {a : Fin 3} (nonseed : a ≠ 0) : ∀ next, ¬ PaperStep aliases a next := by
+  rintro next ⟨⟨_, rfl | seed⟩, different⟩
+  · exact different rfl
+  · exact nonseed seed
+
+private theorem alias_paper_normal {a : Fin 3} (nonseed : a ≠ 0) : PaperNormalForm aliases 0 a :=
+  ⟨.single ⟨⟨(), .inr rfl⟩, Ne.symm nonseed⟩, alias_terminal nonseed⟩
+
+private theorem alias_stable_normal {a : Fin 3} (nonseed : a ≠ 0) : StableNormalForm sameInfo aliases 0 a := by
+  refine ⟨.single ⟨(), .inr rfl⟩, ?_⟩
+  rintro next ⟨_, rfl | seed⟩
+  · exact sameInfo_refl _
+  · exact (nonseed seed).elim
+
+-- Literal uniqueness fails if antisymmetry is dropped, even for reachable
+-- states that are terminal under the paper's inequality filter.
+example : PaperNormalForm aliases 0 1 ∧ PaperNormalForm aliases 0 2 ∧ (1 : Fin 3) ≠ 2 :=
+  ⟨alias_paper_normal (by decide), alias_paper_normal (by decide), by decide⟩
+
+example : sameInfo 1 2 ∧ sameInfo 2 1 :=
+  stableNormalForm_unique sameInfo_refl sameInfo_trans aliases_inflationary aliases_monotone
+    (alias_stable_normal (by decide)) (alias_stable_normal (by decide))
+
+end Silmaril.SSA.Peggy.EPEG.Saturation.NormalForms.Tests

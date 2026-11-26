@@ -10,6 +10,7 @@ namespace Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison
 
 open Silmaril.SSA.PEG
 open Silmaril.SSA.Peggy.EPEG
+open Silmaril.SSA.Peggy.EPEG.Saturation
 open Silmaril.SSA.Peggy.EPEG.Saturation.Extension
 open Silmaril.SSA.RVSDG (Tuple)
 
@@ -151,5 +152,39 @@ theorem zeroSample_monotone (zero : P [] .count) :
   · exact ⟨target, .inl rfl, ⟨e⟩⟩
   · obtain ⟨mapped, _⟩ := simulate e found
     exact ⟨⟨_, (found.transport e).step.apply⟩, .inr ⟨e.vertices.address site, _, rfl⟩, ⟨mapped⟩⟩
+
+theorem zeroSample_progress (found : ZeroSample small.graph site zero) :
+    NormalForms.Progress Comparable (ZeroSampleFamily zero) ⟨n, small⟩ ⟨n + 1, found.step.apply⟩ := by
+  refine ⟨⟨(), .inr ⟨site, found, rfl⟩⟩, ?_⟩
+  rintro ⟨back⟩
+  exact (Nat.not_succ_le_self n) (embedding_size_le back)
+
+theorem zeroSample_grows (found : ZeroSample small.graph site zero) (extra : Nat) :
+    ∃ target, NormalForms.Reachable (ZeroSampleFamily zero) ⟨n, small⟩ target ∧ target.1 = n + extra := by
+  induction extra generalizing n with
+  | zero => exact ⟨⟨n, small⟩, .refl, rfl⟩
+  | succ extra ih =>
+    let e := step found.step
+    obtain ⟨target, trace, size⟩ := ih (found.transport e)
+    exact ⟨target, Relation.ReflTransGen.head (zeroSample_progress found).1 trace,
+      size.trans (Nat.succ_add n extra)⟩
+
+theorem zeroSample_no_stable (found : ZeroSample small.graph site zero)
+    {target : Output P params results l}
+    (trace : NormalForms.Reachable (ZeroSampleFamily zero) ⟨n, small⟩ target) :
+    ¬ NormalForms.Stable Comparable (ZeroSampleFamily zero) target := by
+  have matchSurvives (s : Output P params results l)
+      (path : NormalForms.Reachable (ZeroSampleFamily zero) ⟨n, small⟩ s) :
+      ∃ i, Nonempty (ZeroSample s.2.graph i zero) := by
+    induction path with
+    | refl => exact ⟨site, ⟨found⟩⟩
+    | tail _ reason ih =>
+      obtain ⟨_, rfl | ⟨_, rule, rfl⟩⟩ := reason
+      · exact ih
+      · obtain ⟨i, ⟨earlier⟩⟩ := ih
+        let e := step rule.step
+        exact ⟨e.vertices.address i, ⟨earlier.transport e⟩⟩
+  obtain ⟨_, ⟨rule⟩⟩ := matchSurvives target trace
+  exact fun stable => (zeroSample_progress rule).2 (stable (zeroSample_progress rule).1)
 
 end Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison

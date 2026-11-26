@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.ZeroSample
+public import Silmaril.SSA.Peggy.EPEG.Saturation.NormalForms.Defs
 public import Mathlib.Logic.Embedding.Basic
 
 /-! # Comparing independently extended typed E-PEGs -/
@@ -124,15 +125,14 @@ def Comparable (source target : Output P params results l) : Prop :=
   Nonempty (Embedding source.2 target.2)
 
 abbrev Analysis (P : InstructionSet.{u,v} Data) (params results : List (Ty Data)) (l : Nat) :=
-  Output P params results l → Output P params results l → Prop
+  NormalForms.Analysis (Output P params results l)
 
 def Inflationary (analysis : Analysis P params results l) : Prop :=
-  ∀ ⦃source target⦄, analysis source target → Comparable source target
+  NormalForms.Inflationary Comparable analysis
 
 /-- Equation (4.2) for the embedding comparison. -/
 def MonotoneAnalysis (analysis : Analysis P params results l) : Prop :=
-  ∀ ⦃small large smallNext⦄, Comparable small large → analysis small smallNext →
-    ∃ largeNext, analysis large largeNext ∧ Comparable smallNext largeNext
+  NormalForms.MonotoneSimulation Comparable analysis
 
 /-- One successful zero-sample generation at any witnessed site. Each
 transition is precisely the existing fresh-append, one-merge-fuel step.
@@ -141,5 +141,8 @@ def ZeroSampleAnalysis (zero : P [] .count) : Analysis P params results l :=
   fun source target => target = source ∨
     ∃ (site : Fin source.1) (found : ZeroSample source.2.graph site zero),
       target = ⟨_, found.step.apply⟩
+
+abbrev ZeroSampleFamily (zero : P [] .count) : NormalForms.Family (Output P params results l) Unit :=
+  fun _ => ZeroSampleAnalysis zero
 
 end Silmaril.SSA.Peggy.EPEG.Saturation.Extension
