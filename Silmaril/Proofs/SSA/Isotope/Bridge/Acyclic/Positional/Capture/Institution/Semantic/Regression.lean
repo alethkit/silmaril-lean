@@ -95,6 +95,11 @@ example : (List.finRange 2).map (pointed.mapSignature collapse).table.localTarge
   rw [Table.localTargets_mapSignature]
   rfl
 
+/-- After both exit types collapse, the instruction is relabelled and the
+native targets still select two different outward positions. -/
+example : ((pointed.mapSignature collapse).table.block 1).toSSA =
+    .case (.op true (.var 1)) (.br 2 (.var 0)) (.br 3 (.var 0)) := rfl
+
 example : grammarCase (readGrammar (mapRanked (widen.comp collapse) equation)) =
     mapCaseSignature widen (mapCaseSignature collapse (grammarCase (readGrammar equation))) := by
   rw [mapRanked_comp, readGrammar_map, readGrammar_map, grammarCase_map, grammarCase_map]

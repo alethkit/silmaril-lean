@@ -69,7 +69,9 @@ private theorem rename_map_aux {t : LetCase.LocallyNameless.Tm Empty P.Instr d} 
     have hb := ihb ((r.up _).up _) ((s.up _).up _) (by simp [BoundCtx.Renaming.up, same])
     simp only [Derivation.rename, Derivation.mapSignature, rename_transport]
     congr! (config := .unfoldSameFun) 1
-    all_goals first | solve | simp [← same] | simpa only [eqRec_eq_cast, cast_heq_iff_heq, heq_cast_iff_heq] using ha
+    all_goals solve
+      | simp [← same]
+      | simpa only [eqRec_eq_cast, cast_heq_iff_heq, heq_cast_iff_heq] using ha
   | inl a ih =>
     have ha := ih r s same
     simp only [Derivation.rename, Derivation.mapSignature, rename_transport]
@@ -88,7 +90,9 @@ private theorem rename_map_aux {t : LetCase.LocallyNameless.Tm Empty P.Instr d} 
     have hr := ihr (r.up _) (s.up _) (by simp [BoundCtx.Renaming.up, same])
     simp only [Derivation.rename, Derivation.mapSignature, rename_transport]
     congr! (config := .unfoldSameFun) 1
-    all_goals first | solve | simp [← same] | simpa only [eqRec_eq_cast, cast_heq_iff_heq, heq_cast_iff_heq] using he
+    all_goals solve
+      | simp [← same]
+      | simpa only [eqRec_eq_cast, cast_heq_iff_heq, heq_cast_iff_heq] using he
   | abort a ih =>
     have ha := ih r s same
     simp only [Derivation.rename, Derivation.mapSignature, rename_transport]
