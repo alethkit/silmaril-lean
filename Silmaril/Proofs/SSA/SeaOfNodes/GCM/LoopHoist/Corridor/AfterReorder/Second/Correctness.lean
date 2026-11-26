@@ -13,7 +13,7 @@ public section
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second
 
 open Silmaril.MLIR.Arith (Env Var Width)
-open Silmaril.MLIR.CF (Block)
+open Silmaril.MLIR.CF (Block Cfg)
 open Silmaril.MLIR.Pure (Operands)
 open Silmaril.SSA.SeaOfNodes
 open Silmaril.SSA.SeaOfNodes.GCM
@@ -165,5 +165,29 @@ theorem prepare?_available (accepted : prepare? g first consumerOrigin = some pr
     rfl
   · intro input old
     exact findCandidate?_value found _ _ (savedOrigins_agree _ old input)
+
+theorem prepare?_first_routes (accepted : prepare? g first consumerOrigin = some prepared)
+    (input : Env Input) :
+    ∃ (source : Cfg TargetOp (SourceLabel carried result) Input [result])
+      (args : List Width) (producer : TargetOp args prepared.intermediate.1) (operands : Operands Input args)
+      (tail : Block TargetOp (Label prepared.intermediate.1 carried result)
+        (prepared.intermediate.1 :: Input) [result]),
+      prepared.intermediate.2.entry = .letOp producer operands tail ∧
+      prepared.intermediate.2.block .exit = .terminator (.ret (.cons .here .nil)) ∧
+      Routes source prepared.intermediate.2 input (evalOp producer (operands.eval input)) := by
+  obtain ⟨state, _, _, ran, _, moved, _⟩ := prepare?_spec accepted
+  obtain ⟨binding, found, _, _, operands, captured, code⟩ := hoistCodeWith?_spec moved
+  obtain ⟨_, headerOnly, _⟩ := Header.Sequence.run?_header ran
+  have exit : state.cfg.block .exit = .terminator (.ret (.cons .here .nil)) := by
+    rw [headerOnly]
+    rfl
+  refine ⟨state.cfg, binding.args, binding.op, operands, routeCode Var.there .here state.cfg.entry,
+    ?_, ?_, ?_⟩
+  · rw [code]
+    rfl
+  · rw [code]
+    rfl
+  · rw [code]
+    exact emitHeader_routes exit binding found operands captured input
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second

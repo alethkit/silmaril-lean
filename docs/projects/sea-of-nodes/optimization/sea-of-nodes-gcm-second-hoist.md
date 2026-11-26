@@ -1,4 +1,4 @@
-# Checking a dependent hoist after the first preheader move
+# Replaying a dependent hoist after the first preheader move
 
 Click's Schedule Early (§2.2) visits definitions before placing their
 consumers. Schedule Late (§2.3) uses the source of the matching incoming
@@ -36,16 +36,29 @@ successor argument indices. [Definitions][defs]
   `findCandidate?_value` is the corresponding typed capture law.
   [Theorem header][thms]
 
-The available emitters either start with the unsaved source label and
-capture only immutable inputs or discover both hoists on the original
-CFG and emit them together. The checked handoff stops at the first
-emitted CFG and the prepared consumer. The remaining emitter must
-insert the consumer after the first preheader let, extend the header's
-parameter list and its entry and feedback arguments with the second saved
-value, and replace the consumer binding's uses with that parameter.
-Its proof must preserve the exact exit tuple, same-fuel execution and
-partial denotation for this second change. [Single hoist][single] ·
-[Existing slice emitter][slice]
+## Sequential emission
+
+`AfterReorder.Second.Emit.replay?` applies the handoff to the one-save
+CFG itself. It inserts the captured consumer at preheader cut one, after
+the producer let, and removes the current header binding using a typed
+substitution for its uses. The prefix retains its existing order. The
+two-save header uses the existing slice layout `[consumer, producer, latch]`.
+Entry and each feedback edge prepend the consumer result to the existing
+packet. A remapped exit edge keeps its exact original argument values,
+and the exit block keeps its return operands. [Emitter][emitter] ·
+[Existing slice layout][slice]
+
+`replay?_spec` identifies the exact first replay and second edit.
+`prepare?_emits` proves every accepted handoff has the necessary typed
+shape. `replay?_routes` proves the concrete entry insertion and header
+rewrite with exact transfer equations against the first emission.
+`replay?_run_eq` gives the same return or exhaustion at each CFG fuel.
+`replay?_budget` transports the native law with `fuel = budget + 3`,
+and `replay?_denotePart` gives partial denotation equality with the
+native lowering. The proof uses the first hoist's invariant that the
+producer result remains in its saved slot, the typed capture law, and
+the existing two-save runner simulation. The profile is two nominated
+pure total bindings in the existing single-latch loop. [Theorem header][emit-thms]
 
 The example moves the comparison to the front and hoists producer
 identity 1. Consumer identity 2 was at position 3 after reordering
@@ -56,18 +69,26 @@ then exits with value 3. The regression also checks a stale position,
 reversed nominations, repeating the removed identity, and a consumer
 that reads a latch-derived local result. [Example][example] · [Regression][regression]
 
+The second edit changes the preheader/header binding counts from
+`(3, 4)` to `(4, 3)`. The emitted entry and two feedback packets are
+`[3, 2, 3]`, `[3, 2, 7]`, and `[3, 2, 11]`. The exit payload is `[3]`.
+Native lowering uses the true occurrence for feedback and the false
+occurrence for exit. A separate typed terminator regression routes the
+false occurrence to the header and checks both argument tuples through
+the same emitter helper. [Emitted example][emit-example] · [Emission regression][emit-regression]
+
 ```sh
-lake build --wfail +Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Thms \
-  +Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Regression
+lake build --wfail +Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.Thms \
+  +Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.Regression
 cat >/tmp/gcm-second-hoist-example.lean <<'LEAN'
-import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Example.Defs
-open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Example
-#eval observe false -- some ([3, 0, 2, 4], 2, [1, 0], [none, none, some 3])
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.Example.Defs
+open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.Example
+#eval observe false -- some (2, (4, 3), [[3, 2, 3], [3, 2, 7], [3, 2, 11], [3]])
 #eval observe true -- none
 LEAN
 lake env lean -DwarningAsError=true /tmp/gcm-second-hoist-example.lean
-lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Correctness
-lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Thms
+lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.Correctness
+lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.Thms
 ```
 
 [paper]: https://doi.org/10.1145/207110.207154
@@ -78,5 +99,8 @@ lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder
 [example]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/AfterReorder/Second/Example/Defs.lean
 [regression]: ../../../../Silmaril/Proofs/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/AfterReorder/Second/Regression.lean
 [first]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/AfterReorder/Thms.lean
-[single]: sea-of-nodes-gcm-corridor-loop-hoist.md
 [slice]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Defs.lean
+[emitter]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/AfterReorder/Second/Emit/Defs.lean
+[emit-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/AfterReorder/Second/Emit/Thms.lean
+[emit-example]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/AfterReorder/Second/Emit/Example/Defs.lean
+[emit-regression]: ../../../../Silmaril/Proofs/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/AfterReorder/Second/Emit/Regression.lean
