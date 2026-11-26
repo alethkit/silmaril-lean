@@ -9,7 +9,7 @@ The SHA-256 of the raw `spec.md` is
 ## Supported code and observations
 
 `Silmaril.Languages.Starlark.Lists.Thms` exposes the resolved code, store,
-denotation and operational rules. Resolved expressions cover three families.
+denotation and operational rules. Resolved expressions cover the following families.
 
 - Scalar values `None`, Booleans and exact integers, with resolved binding reads.
 - List, tuple and dictionary displays, with arbitrary nesting. The compiler-facing
@@ -17,6 +17,7 @@ denotation and operational rules. Resolved expressions cover three families.
 - Subscript reads from lists, tuples, dictionaries, ranges and valid UTF-8 strings,
   slice reads from lists, tuples, ranges and valid UTF-8 strings, and the one-argument
   list method `append`.
+- [Equality and tuple membership](#tuple-equality-and-membership) over the admitted recursive value profile.
 
 The statement forms are name and subscript assignment, evaluation for effects,
 `pass`, and sequencing. `Lists.Iteration.Thms` adds function-body conditionals,
@@ -48,6 +49,50 @@ index, address, key, or binding. A bad address or an address of the wrong
 kind is a model error for malformed host-supplied states. Resolved code has
 no address literal.
 [Subscripts][index] · [Assignments][assign] · [Denotation](../../Silmaril/Languages/Starlark/Lists/Denotation/Defs.lean)
+
+## Tuple equality and membership
+
+`Code.compare` admits `==`, `!=`, `in` and `not in` as resolved collection
+expressions. Both operands are evaluated left to right, and an operand failure
+retains its reached state. `AtomSafe.compare` admits a comparison of two
+call-free atoms to the existing function lowering theorem. The text and checked
+module source profiles have their own operator admission rules.
+[Comparisons][comparisons] · [Membership][membership] · [Resolved code](../../Silmaril/Languages/Starlark/Lists/Defs.lean)
+
+An equality test admits nested immutable tuples, strings and scalar values
+(`None`, Booleans, exact integers and binary64). Scalar leaves use the exact
+numeric comparator, including mixed int/float and Boolean distinctions.
+When both values belong to this profile, different types other than mixed
+numbers compare unequal. Two tuples read their cells left to right, check
+length, then test corresponding fields in order. Membership requires a tuple
+on the right and tests each field as the left operand of equality with the
+needle. Length mismatch, first unequal field and first membership hit stop
+their respective traversals. A reached out-of-profile value produces a type
+error. A reached malformed tuple address produces the corresponding store
+error. Neither operation changes the heap or iterator stack after evaluating
+its operands, including on error.
+[Exact scalar comparison](starlark-builtins.md#scalar-numeric-comparison) · [Rules](../../Silmaril/Languages/Starlark/Lists/Comparison/Operational/Defs.lean)
+
+`scans_iff_scan` proves agreement for the reusable ordered traversal given
+agreement for an individual test. `equalAt_iff`, `containsAt_iff` and
+`tests_iff_evaluate` lift that agreement through nested fields and the four
+operators. `eval_iff_denote` covers the exact result and whole reached state
+after evaluating both operands. A fixture compares and looks up separately
+allocated nested tuples with equal numeric leaves, and checks that their
+canonical key encodings agree. Comparison reads the actual fields, independently
+of the dictionary cache. Aggregate ordering, list and dictionary equality,
+and membership in other containers remain open.
+[Theorems](../../Silmaril/Languages/Starlark/Lists/Comparison/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Lists/Comparison/Checks.lean)
+
+The comparison budget models the pinned Go default of 10. Every reached
+equality comparison needs a positive budget, and each nested pair of tuple
+fields consumes one level. Nine singleton tuple levels followed by a scalar
+can compare successfully. Ten such levels reach a depth error at the scalar.
+Membership starts a fresh budget for each candidate and stops on the first
+error or hit. The spec gives no depth limit. Go’s limit is configurable and
+Go also compares list fields, which this slice rejects when reached. The Lean
+dictionary cache retains its separate unbounded key-match policy.
+[Go tuple field ordering][go-slice-compare] · [Go tuple membership][go-tuple-has] · [Go depth check][go-depth] · [Paired Go controls](../../scripts/starlark/binary64/check.go) · [Dictionary key policy](starlark-builtins.md#numeric-dictionary-keys)
 
 ## Dictionary keys and order
 
@@ -123,7 +168,8 @@ restoration of the original iterator stack for every suite exit.
 
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Checks +Silmaril.Languages.Starlark.Lists.Checks \
-  +Silmaril.Languages.Starlark.Lists.Iteration.Checks +Silmaril.Languages.Starlark.Lists.DictionaryChecks
+  +Silmaril.Languages.Starlark.Lists.Iteration.Checks +Silmaril.Languages.Starlark.Lists.DictionaryChecks \
+  +Silmaril.Languages.Starlark.Lists.Comparison.Checks
 ```
 
 The kernel-checked fixtures cover addresses and aliasing, transitive freezing,
@@ -175,6 +221,8 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 [lists]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#lists
 [tuples]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#tuples
 [dicts]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#dictionaries
+[comparisons]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#comparisons
+[membership]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#membership-tests
 [displays]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#dictionary-expressions
 [identity]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#identity-and-mutation
 [index]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#subscript-expressions
@@ -188,3 +236,6 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 [modules]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#module-execution
 [loading]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#load-statements
 [go]: https://github.com/google/starlark-go/tree/4f4267fb140d1e8b91c9bce55cee2f809e8840dd
+[go-slice-compare]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L1053-L1075
+[go-tuple-has]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L1175-L1183
+[go-depth]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L1509-L1550

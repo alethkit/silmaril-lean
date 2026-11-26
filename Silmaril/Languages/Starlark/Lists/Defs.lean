@@ -180,6 +180,9 @@ inductive Error where
   | unpackArity (expected supplied : Nat)
   | wrongCellKind (address : Address)
   | unhashableKey (value : Value)
+  | comparisonType (left right : Value)
+  | membershipTarget (value : Value)
+  | comparisonDepth
   | missingKey (key : Value)
   | duplicateKey (key : Value)
   | unknownDeclaration (declaration : Nat)
@@ -265,6 +268,13 @@ def listElements (address : Address) : Meaning (List Value) :=
   projectCell address fun
     | .list elements => some elements
     | _ => none
+
+/-- Read an immutable tuple without observing its dictionary key cache. -/
+def Heap.tupleFields (heap : Heap) (address : Address) : Except Error (List Value) :=
+  match heap[address]? with
+  | none => .error (.danglingAddress address)
+  | some ⟨.tuple fields _, _⟩ => .ok fields
+  | some _ => .error (.wrongCellKind address)
 
 def tupleElements (address : Address) : Meaning (List Value) :=
   projectCell address fun
@@ -481,6 +491,10 @@ def appendAt (address : Address) (value : Value) : Meaning Value := do
   updateCell address fun elements => .ok (elements ++ [value])
   return .scalar .none
 
+inductive ComparisonOp where
+  | eq | ne | mem | notMem
+  deriving DecidableEq, Repr
+
 /-- Resolved syntax indexed by the type of its result. The list element spine,
 expressions and statements share a structural recursion principle. -/
 inductive Code : Type → Type where
@@ -498,6 +512,7 @@ inductive Code : Type → Type where
   | cons (head : Code Value) (tail : Code (List Value)) : Code (List Value)
   | index (receiver index : Code Value) : Code Value
   | slice (operands : Code (List Value)) : Code Value
+  | compare (op : ComparisonOp) (left right : Code Value) : Code Value
   | append (receiver argument : Code Value) : Code Value
   | pass : Code Unit
   | eval (expr : Code Value) : Code Unit

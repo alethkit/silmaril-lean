@@ -231,10 +231,78 @@ func checkConversionOverflow() {
 	fmt.Println("PASS Go rejects conversion overflow and admits explicit or arithmetic infinity")
 }
 
+func checkTupleComparison() {
+	boundary := starlark.MakeInt64(1 << 53)
+	zero, one := starlark.MakeInt(0), starlark.MakeInt(1)
+	negZero := fromBits(0x8000000000000000)
+	left := starlark.Tuple{starlark.String("tag"), starlark.Tuple{boundary, zero, fromBits(0x7ff8000000000021)}}
+	right := starlark.Tuple{starlark.String("tag"), starlark.Tuple{fromBits(0x4340000000000000), negZero,
+		fromBits(0xfff0000000000001)}}
+	larger := starlark.Tuple{starlark.String("tag"), starlark.Tuple{starlark.MakeInt64((1 << 53) + 1), zero,
+		fromBits(0x7ff8000000000021)}}
+	dict := starlark.NewDict(0)
+	require(dict.SetKey(left, starlark.String("same")) == nil, "tuple key insertion failed")
+	checkDictionaryLookup(dict, right, "same")
+
+	wrap := func(levels int, value starlark.Value) starlark.Value {
+		for range levels {
+			value = starlark.Tuple{value}
+		}
+		return value
+	}
+	require(starlark.CompareLimit == 10, "pinned default comparison limit changed")
+	nine, nineFloat := wrap(9, zero), wrap(9, negZero)
+	ten, tenFloat := starlark.Tuple{nine}, starlark.Tuple{nineFloat}
+	list := starlark.NewList([]starlark.Value{one})
+	for _, tc := range []struct {
+		name        string
+		op          syntax.Token
+		left, right starlark.Value
+		want        bool
+		depthError  bool
+	}{
+		{"nested numeric aliases", syntax.EQL, left, right, true, false},
+		{"int around 2^53", syntax.NEQ, left, larger, true, false},
+		{"mixed numeric membership", syntax.IN, left, starlark.Tuple{larger, right}, true, false},
+		{"bool and int", syntax.NEQ, starlark.Tuple{starlark.False}, starlark.Tuple{zero}, true, false},
+		{"membership exhausts", syntax.NOT_IN, one, starlark.Tuple{zero, starlark.False}, true, false},
+		{"equal at depth limit", syntax.EQL, nine, nineFloat, true, false},
+		{"field exceeds limit", syntax.EQL, ten, tenFloat, false, true},
+		{"negation preserves error", syntax.NEQ, ten, tenFloat, false, true},
+		{"length before depth", syntax.EQL, starlark.Tuple{ten}, starlark.Tuple{tenFloat, zero}, false, false},
+		{"early field mismatch", syntax.EQL, starlark.Tuple{zero, ten}, starlark.Tuple{one, tenFloat}, false, false},
+		{"fresh membership limit", syntax.IN, nineFloat, ten, true, false},
+		{"first hit before deep candidate", syntax.NOT_IN, nineFloat, starlark.Tuple{nine, ten}, false, false},
+		{"reached membership depth", syntax.IN, tenFloat, starlark.Tuple{ten}, false, true},
+		{"negated membership preserves error", syntax.NOT_IN, tenFloat, starlark.Tuple{ten}, false, true},
+		{"Go also compares lists within tuples", syntax.EQL, starlark.Tuple{list}, starlark.Tuple{list}, true, false},
+	} {
+		var got bool
+		var err error
+		if tc.op == syntax.IN || tc.op == syntax.NOT_IN {
+			var value starlark.Value
+			value, err = starlark.Binary(tc.op, tc.left, tc.right)
+			if value != nil {
+				got = value == starlark.True
+			}
+		} else {
+			got, err = starlark.Compare(tc.op, tc.left, tc.right)
+		}
+		if tc.depthError {
+			require(err != nil && strings.Contains(err.Error(), "comparison exceeded maximum recursion depth"),
+				fmt.Sprintf("%s: want depth error, got %v", tc.name, err))
+		} else {
+			require(err == nil && got == tc.want, fmt.Sprintf("%s: got %v (%v)", tc.name, got, err))
+		}
+	}
+	fmt.Println("PASS tuple equality, membership, key coherence, short-circuit and Go comparison depth controls")
+}
+
 func main() {
 	checkUnary()
 	checkEqualityAndKeys()
 	checkNumericDictionaryUpdates()
 	checkScalarComparison()
+	checkTupleComparison()
 	checkConversionOverflow()
 }
