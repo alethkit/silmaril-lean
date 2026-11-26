@@ -40,6 +40,8 @@ private def rightError : Source.Expr := .comparison (.name "missing_right") [(.e
   (.error (.raised (.runtime (.nameError "missing_arg")))) (.error (.raised (.runtime (.nameError "missing_arg"))))
 #guard checkRun (stock.bindGlobal "bool" .none) (some (.integer 0)) rightError
   (.error (.raised (.runtime .notCallable))) (.error (.raised (.runtime .notCallable)))
+#guard checkRun (stock.bindGlobal "bool" (.returnedTuple [.int 1])) (some (.integer 0)) rightError
+  (.error (.raised (.runtime .notCallable))) (.error (.raised (.runtime .notCallable)))
 #guard checkRun stock (some .none_) rightError
   (.error (.raised (.runtime (.nameError "missing_right")))) (.ok (.bool false))
 #guard checkRun stock (some (.boolean false)) .none_ (.error (.raised (.assertionError .empty))) (.ok (.bool false))

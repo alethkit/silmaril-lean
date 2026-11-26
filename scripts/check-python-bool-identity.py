@@ -59,8 +59,8 @@ FALSE = ".ok (.bool false)"
 TRUE = ".ok (.bool true)"
 
 
-def cpython(source, builtins, expected):
-    namespace = {"__builtins__": builtins}
+def cpython(source, builtins, expected, initial=None):
+    namespace = dict(initial or {}, __builtins__=builtins)
     result = "normal"
     stdout, stderr = StringIO(), StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
@@ -145,6 +145,13 @@ def controls(source_path, lean_path):
                 f'#guard ordinaryBoolOutcome pythonSource {json.dumps(lean_status)} (some (.int 7)) {ordinary_mask}')
         check(source, source_path, lean_path, *guards)
         evidence[label] = {"cpython": python_status, "lean": lean_status}
+
+    source = before + "assert bool(0) is (missing_right == 0)\n" + after
+    assert cpython(source, stock, {"keep": 7, "bool": (1,)}, {"bool": (1,)}) == "TypeError"
+    check(source, source_path, lean_path, outcome(
+        f'({STOCK}.bindGlobal "bool" (.returnedTuple [.int 1]))', "TypeError",
+        '[("keep", .int 7), ("bool", .returnedTuple [.int 1])]', "[.error (.raised (.runtime .notCallable))]"))
+    evidence["returned_tuple_mask"] = {"cpython": "TypeError", "lean": "TypeError"}
 
     source = ("saved = bool\nbool = None\nbool = saved\nvalue = -7\n"
               "assert bool(value) is (value == -7)\nassert bool(None) is not None\n")

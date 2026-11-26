@@ -524,8 +524,10 @@ def readBoolCall {scope : Scope} (space : Namespace) (argument : Option (ModuleE
         match scalar? (value.getD .none) with
         | some scalar => .ok scalar.truth
         | none => .error .unsupported
-      | .int _ | .bool _ | .none | .listObject _ => .error (.raised (.runtime .notCallable))
-      | _ => .error .unsupported
+      | other =>
+        match Core.Module.SeededCall.Request.decode other value.toList with
+        | .nonCallable => .error (.raised (.runtime .notCallable))
+        | _ => .error .unsupported
 
 def checkBoolIdentityResult {scope : Scope} (space : Namespace) (test : BoolIdentityTest scope)
     (value : Bool) : Except Failure Unit := do
