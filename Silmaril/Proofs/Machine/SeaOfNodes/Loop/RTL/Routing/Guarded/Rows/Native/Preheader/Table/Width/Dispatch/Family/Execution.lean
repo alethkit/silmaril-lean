@@ -151,11 +151,16 @@ private theorem first_block (rows : Choices captures bank sigs tests) :
     ∃ b, (rows.blocks 3)[0]? = some b ∧ b.params = [] := by
   cases rows <;> exact ⟨_, rfl, rfl⟩
 
-theorem activation (p : Source captures bank entrySigs sigs tests) (input : WordTuple captures)
+private theorem detailed_activation (p : Source captures bank entrySigs sigs tests) (input : WordTuple captures)
     (carried : WordTuple bank) (fr : Frame Reg) (mem : Memory)
     (agree : ArgsMatch fr (appendTuple carried input)) :
-    Activation p (lowerRTL p) input fr mem (p.step input carried) := by
-  unfold Activation
+    match p.step input carried with
+    | .inl value =>
+      ∃ ready, StepsNWithin (lowerRTL p) [] (sigs.length + 1)
+        ⟨⟨0, 1, 0⟩, fr, [], mem⟩ ⟨⟨0, 2, 0⟩, ready, [], mem⟩ ∧
+        step (lowerRTL p) ⟨⟨0, 2, 0⟩, ready, [], mem⟩ = .returned [value] mem
+    | .inr (slot, next) =>
+      ∃ ready latched block, FeedbackCut p (lowerRTL p) input carried fr ready latched mem slot next block := by
   have found : (lowerRTL p).block? 0 1 = some (header p) := rfl
   obtain ⟨ready, path, reads⟩ :=
     Width.Proofs.header_producers_at p.primary (lowerRTL p) found rfl input carried fr mem agree
@@ -192,12 +197,39 @@ theorem activation (p : Source captures bank entrySigs sigs tests) (input : Word
       have atStart : (lowerRTL p).block? 0 3 = some b := (chain_block p 0).trans first
       simp only [step, fetched, header, guard, taken, ite_true, show (1 : Word) ≠ 0 by decide,
         ite_false, transfer, show ready.readAll [] = some [] from rfl, atStart, params, Frame.writeAll]
-    obtain ⟨b, inspected, hb, operand, packet, latch⟩ := route p.rows (lowerRTL p) 3
+    obtain ⟨b, inspected, falls, hb, operand, packet, latch⟩ := route p.rows (lowerRTL p) 3
       (chain_block p) ⟨header p, found, rfl⟩ args locals ready mem (fun w => reads w)
     have readyArgs : ArgsMatch ready args := fun port => reads (.arg port)
     simp only [ite_true]
-    exact ⟨_, _, b, append_paths (Width.Proofs.append_step path enters) inspected, hb, operand,
-      packet, latch, bank_matches_at (input_matches_at readyArgs) ((p.rows.column slot).read args locals)⟩
+    exact ⟨_, _, b, Width.Proofs.append_step path enters, taken, (fun wire => reads wire), inspected,
+      falls, hb, operand, packet, latch, bank_matches_at (input_matches_at readyArgs)
+        ((p.rows.column slot).read args locals)⟩
+
+theorem activation (p : Source captures bank entrySigs sigs tests) (input : WordTuple captures)
+    (carried : WordTuple bank) (fr : Frame Reg) (mem : Memory)
+    (agree : ArgsMatch fr (appendTuple carried input)) :
+    Activation p (lowerRTL p) input fr mem (p.step input carried) := by
+  have detailed := detailed_activation p input carried fr mem agree
+  unfold Activation
+  cases run : p.step input carried with
+  | inl value => simpa only [run] using detailed
+  | inr feedback =>
+    obtain ⟨slot, next⟩ := feedback
+    rw [run] at detailed
+    obtain ⟨ready, latched, block, cut⟩ := detailed
+    exact ⟨ready, latched, block, append_paths cut.entered cut.skipped, cut.found, cut.operand,
+      cut.packet, cut.feedback, cut.rebound⟩
+
+theorem checked_feedback_cut (mapping : InputMap old new) (p : Source old old entrySigs sigs tests)
+    {prog : Prog Reg} (accepted : lowerChecked mapping p = some prog)
+    (input : WordTuple new) (carried : WordTuple old) (fr : Frame Reg) (mem : Memory)
+    (agree : ArgsMatch fr (appendTuple carried input)) (slot : Fin (tests + 1)) (next : WordTuple old)
+    (taken : p.step (mapping.pull input) carried = .inr (slot, next)) :
+    ∃ ready latched block, FeedbackCut (mapCaptures mapping p) prog input carried fr ready latched mem slot next block := by
+  obtain ⟨_, rfl, _, _⟩ := lowerChecked_sound mapping p accepted
+  have detailed := detailed_activation (mapCaptures mapping p) input carried fr mem agree
+  rw [step_mapCaptures mapping p input carried, taken] at detailed
+  exact detailed
 
 theorem checked_activation (mapping : InputMap old new) (p : Source old old entrySigs sigs tests)
     {prog : Prog Reg} (accepted : lowerChecked mapping p = some prog)
@@ -207,5 +239,13 @@ theorem checked_activation (mapping : InputMap old new) (p : Source old old entr
   obtain ⟨_, rfl, _, _⟩ := lowerChecked_sound mapping p accepted
   rw [← step_mapCaptures mapping p input carried]
   exact activation (mapCaptures mapping p) input carried fr mem agree
+
+theorem FeedbackCut.path {p : Source captures bank entrySigs sigs tests}
+    {prog : Prog Reg} {input : WordTuple captures} {carried values : WordTuple bank}
+    {before ready latched : Frame Reg} {mem : Memory} {slot : Fin (tests + 1)} {block : Block Reg}
+    (cut : FeedbackCut p prog input carried before ready latched mem slot values block) :
+    StepsNWithin prog [] (sigs.length + 1 + (slot.val + 1))
+      ⟨⟨0, 1, 0⟩, before, [], mem⟩ ⟨⟨0, 1, 0⟩, latched, [], mem⟩ :=
+  append_paths cut.entered (Width.Proofs.append_step cut.skipped cut.feedback)
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Proofs

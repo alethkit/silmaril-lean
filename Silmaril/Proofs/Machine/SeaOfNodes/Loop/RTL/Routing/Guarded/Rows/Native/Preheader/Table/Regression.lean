@@ -6,6 +6,7 @@ import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheade
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Thms
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
 
@@ -922,6 +923,89 @@ example : Family.MLIR.StepAgreement (bank := 3) familyProg (1 : Fin 3) rtlAtMidd
     (.inl ⟨.header, .cons (-9) (.cons 5 (.cons (-4) .nil))⟩) :=
   Family.MLIR.checked_dispatch_step widenCaptures familySource familyAccepted cfBank cfLive cfPlan
     1 (cfPacket (-9) (-5) (-4) 0 1) (cfInput 0 1) rtlAtMiddle.frame mem middleSnapshot
+
+-- Unlike capture-only selectors, this uses the current first bank word.
+-- The first transfer zeros that word and causes the next visit to take row 1.
+private def prefixSource : Family.Source 3 3 Entry Header 2 :=
+  { familySource with
+    rows := .test (.arg (old 0)) (familySource.rows.column 0)
+      (.test (.arg (prefixPort (capture 1))) (familySource.rows.column 1)
+        (.last (familySource.rows.column 2))) }
+
+private def prefixFn := Family.lowerFunc (Family.mapCaptures widenCaptures prefixSource)
+private def prefixRTL := Family.lowerRTL (Family.mapCaptures widenCaptures prefixSource)
+
+private theorem prefixAccepted : Family.lowerChecked widenCaptures prefixSource = some prefixRTL :=
+  Family.lowerChecked_of_accepted widenCaptures prefixSource
+    (Family.lowerChecked_sound widenCaptures familySource familyAccepted).1
+
+private def nativeOrigins : List (HeaderWord 4 3 Header) :=
+  [.output (0 : Fin 2) .head,
+    .arg (suffixPort (wordPorts 4) (argumentPort 3 0)),
+    .arg (suffixPort (wordPorts 4) (argumentPort 3 1)),
+    .arg (suffixPort (wordPorts 4) (argumentPort 3 2)),
+    .arg (prefixPort (argumentPort 4 0)), .arg (prefixPort (argumentPort 4 1))]
+
+private def prefixSetup : Family.MLIR.Prefix.Setup widenCaptures prefixSource cfBank cfLive where
+  rtl := prefixRTL
+  accepted := prefixAccepted
+  plan := ⟨by decide⟩
+  phi := ⟨by decide⟩
+  origin i := nativeOrigins[i.val]'i.isLt
+  register_eq := by decide
+
+private def prefixInput : WordTuple 4 := .cons (4 : Word) (bank 2 99 5)
+private def prefixStart := bank (-1) 1 5
+private def prefixMiddle := bank 0 1 5
+private def prefixFinish := bank 1 5 1
+
+private theorem prefixHeadersAgree (x y z : Word) :
+    Family.MLIR.Prefix.HeaderMatch prefixSetup prefixInput (bank x y z) := by
+  unfold Family.MLIR.Prefix.HeaderMatch
+  constructor
+  · rfl
+  · intro i
+    change Fin 6 at i
+    fin_cases i <;> rfl
+
+private theorem twoVisits :
+    Family.MLIR.Prefix.Admitted prefixSetup prefixInput [0, 1] prefixStart prefixFinish :=
+  .visit (next := prefixMiddle) (prefixHeadersAgree (-1) 1 5) (by cbv)
+    (.visit (next := prefixFinish) (prefixHeadersAgree 0 1 5) (by cbv) (.stop _))
+
+-- The composed cut starts at the frame created by the actual checked RTL entry.
+example : ∃ before after,
+    StepsNWithin prefixRTL [] 3
+      ⟨⟨0, 0, 0⟩, bindWords 0 Frame.empty prefixInput, [], mem⟩ ⟨⟨0, 1, 0⟩, before, [], mem⟩ ∧
+    Family.MLIR.Prefix.Realized prefixSetup prefixInput mem [0, 1] prefixStart before prefixFinish after := by
+  obtain ⟨_, before, entered, matched⟩ :=
+    Family.entry_packet widenCaptures prefixSource prefixAccepted prefixInput mem
+  obtain ⟨after, path⟩ :=
+    Family.MLIR.Prefix.prefix_correct prefixSetup prefixInput mem twoVisits before matched
+  exact ⟨before, after, entered, path⟩
+
+private def reachedBank (fuel : Nat) : Option (Nat × List Word × Memory) := do
+  let s ← runningState? (prefixRTL.runMain fuel 0 (words prefixInput) mem)
+  let values ← s.frame.readAll (paramRegs 4 3)
+  pure (s.point.label, values, s.mem)
+
+example : reachedBank 7 = some (1, [0, 1, 5], mem) := by cbv
+example : reachedBank 12 = some (1, [1, 5, 1], mem) := by cbv
+example : prefixRTL.runMain 16 0 (words prefixInput) mem = .returned [6] mem := by cbv
+example : prefixSetup.cf.run evalOp 6 (cfInput 4 2) = none := rfl
+example : prefixSetup.cf.run evalOp 8 (cfInput 4 2) = some (.cons 6 .nil) := rfl
+
+private def secondDispatcher :=
+  (runningState? (prefixRTL.runMain 11 0 (words prefixInput) mem)).get (by cbv)
+
+example : secondDispatcher.point.label = 4 := by cbv
+
+-- Reusing the earlier frame's packet would read the wrong fresh producer word.
+example : ¬ Family.MLIR.Snapshot (scope := Family.MLIR.liveRegs cfLive) (List.length_map ..)
+    ((Family.MLIR.Prefix.livePacket cfBank cfLive prefixInput prefixStart).append (cfInput 4 2))
+    secondDispatcher.frame := by
+  unfold Family.MLIR.Snapshot
+  decide
 
 end CFDispatch
 
