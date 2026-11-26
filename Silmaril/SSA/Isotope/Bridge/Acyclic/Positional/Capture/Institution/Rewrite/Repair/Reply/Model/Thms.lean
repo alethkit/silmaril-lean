@@ -12,6 +12,7 @@ public section
 namespace Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply
 
 open Kleisli (value)
+open Isotope.Semantics (BoundEnv InstructionModel)
 open LambdaSSA.Region (packedExitType)
 open Silmaril.Semantics.NondeterministicTrace (Tagged)
 
@@ -25,6 +26,37 @@ theorem modelCoherent :
 /-- The separator is a member of the existing validated captured room. -/
 noncomputable def separator : (grammarRoom J signature).Mod :=
   Kleisli.validated model modelCoherent
+
+theorem separator_sat_iff (e : GrammarEquation signature) :
+    (grammarRoom J signature).Sat separator e ↔
+      ((LetCase.inst (Ctx.nil : Ctx Empty Sorts)).obj signature).Sat (Kleisli.algebra model) (grammarCase e) :=
+  Kleisli.validated_sat_iff model modelCoherent e
+
+theorem model_respectsPure : InstructionModel.RespectsPure (ε := Bool) model :=
+  model_pure_proof
+
+/-- An injective return encoding lets the trace set recover the whole normal
+tree, including each return leaf. -/
+theorem Normal.outcomesWith_injective {R A : Type} (success : R → A)
+    (hs : Function.Injective success) : Function.Injective (Normal.outcomesWith success) :=
+  outcomesWith_injective_proof success hs
+
+theorem Normal.afterReply_outcomesWith {R A : Type} (success : R → A) (request right : Bool)
+    (l r : Normal R) :
+    afterReply request right ((Normal.ask request l r).outcomesWith success) =
+      (if right then r else l).outcomesWith success :=
+  afterReply_outcomesWith_proof success request right l r
+
+/-- Evaluate a normal tree with a typed return operand and its actual
+continuation. Each successful leaf supplies its own observation. -/
+theorem Normal.run_with {R A : Type} {B : Sorts} (ret : ReturnOperand R B)
+    (finish : value B → Trace A) (success : R → A)
+    (onReturn : ∀ {n : Nat} (β : BoundCtx Sorts n) (ρ : BoundEnv value β) (r : R),
+      (Kleisli.run model (ret β r).2 ρ >>= finish).outcomes = {(.ok (success r), 1)})
+    (p : Normal R) {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β) :
+    (Kleisli.run model (p.render.operandWith ret β).2 ρ >>= finish).outcomes =
+      p.outcomesWith success :=
+  normal_run_with_proof ret finish success onReturn p ρ
 
 theorem Tree.programOutcomes_eq (tail : List Sorts) (p : Tree) :
     p.programOutcomes tail =
