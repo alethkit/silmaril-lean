@@ -237,7 +237,7 @@ def constructor_controls(source_path, lean_path):
     empty = ()
     assert tuple() is empty and tuple(empty) is empty
 
-    assertion = "assert tuple((True, None)) == tuple((1, None)) == tuple((1, None))\n"
+    assertion = "assert tuple((True, 1, None)) == tuple((1, True, None)) == tuple((1, 1, None))\n"
     source = "keep = 7\n" + assertion + "tail = 9\n"
     assert execute(source, {"tuple": tuple}, expected={"keep": 7, "tail": 9}) == "normal"
     assert execute(source, {}, expected={"keep": 7}) == "NameError:tuple"
@@ -249,12 +249,13 @@ def constructor_controls(source_path, lean_path):
           outcome(masked, "TypeError", '[("keep", .int 7), ("tuple", .int 0)]'),
           '#guard ordinaryTuple pythonSource == some ("NameError:tuple", "int:7", "absent")',
           f"#guard tupleTrace pythonSource {STOCK} == some (.ok true, "
-          "[.ok ⟨some 0, [.bool true, .none]⟩, .ok ⟨some 1, [.int 1, .none]⟩, "
-          ".ok ⟨some 2, [.int 1, .none]⟩], #[[.bool true, .none], [.int 1, .none], [.int 1, .none]])",
+          "[.ok ⟨some 0, [.bool true, .int 1, .none]⟩, .ok ⟨some 1, [.int 1, .bool true, .none]⟩, "
+          ".ok ⟨some 2, [.int 1, .int 1, .none]⟩], "
+          "#[[.bool true, .int 1, .none], [.int 1, .bool true, .none], [.int 1, .int 1, .none]])",
           "#guard tupleTrace pythonSource Namespace.empty == "
           "some (.error .missingType, [.error .missingType], #[])",
           f"#guard tupleTrace pythonSource {masked} == "
-          "some (.error .notCallable, [.error .notCallable], #[[.bool true, .none]])")
+          "some (.error .notCallable, [.error .notCallable], #[[.bool true, .int 1, .none]])")
 
     empty_assertion = "assert tuple() == () == tuple(())\n"
     restore = "saved = tuple\ntuple = None\ntuple = saved\n" + empty_assertion
