@@ -26,8 +26,9 @@ inductive Occurrence
   | outerFalse
   deriving DecidableEq, Repr
 
-/-- The checked shape admits disjoint linear arms, including direct edges
-to the merge. The merge jumps to the distinct tested latch. -/
+/-- The checked shape admits disjoint linear arms. Direct edges to the merge
+have no arm blocks, and the two inner transfers may both be direct.
+The merge jumps to the distinct tested latch. -/
 structure Program (src : Source Op regs out size) (entry : Fin size) where
   header : Fin size
   inner : Fin size
@@ -48,7 +49,6 @@ structure Program (src : Source Op regs out size) (entry : Fin size) where
   outerFalse : Chain.Segment src join onOuterFalse
   joinEdge : (src join).terminator = .transfer (.jump latch)
   latchEdge : (src latch).terminator = .branch again (.jump header) (.ret result)
-  innerDistinct : onInnerTrue ≠ onInnerFalse
   distinct : ([entry, header, inner] ++ innerTrue.blocks ++ innerFalse.blocks ++
     outerFalse.blocks ++ [join, latch]).Nodup
   covers : ([entry, header, inner] ++ innerTrue.blocks ++ innerFalse.blocks ++
@@ -76,10 +76,10 @@ def check (src : Source Op regs out size) (entry : Fin size) : Option (Program s
           | .branch again (.jump target) (.ret result) =>
             let order := [entry, header, inner] ++ innerTrue.blocks ++ innerFalse.blocks ++
               outerFalse.blocks ++ [join, latch]
-            if shape : target = header ∧ onInnerTrue ≠ onInnerFalse ∧ order.Nodup ∧ order.length = size then
+            if shape : target = header ∧ order.Nodup ∧ order.length = size then
               some ⟨header, inner, onInnerTrue, onInnerFalse, onOuterFalse, join, latch, outerTest, innerTest,
                 again, result, entryEdge, outerEdge, innerEdge, innerTrue, innerFalse, outerFalse, joinEdge,
-                shape.1 ▸ latchEdge, shape.2.1, shape.2.2.1, shape.2.2.2⟩
+                shape.1 ▸ latchEdge, shape.2.1, shape.2.2⟩
             else none
           | _ => none
         | _ => none
@@ -108,6 +108,16 @@ def Program.splitSite : Occurrence → Fin size
 identifies the route. A direct edge is owned by its split block. -/
 def Program.predecessor (occurrence : Occurrence) : Fin size :=
   (p.arm occurrence).predecessor (p.splitSite occurrence)
+
+/-- The original predecessor and its outgoing slot. A jump or true branch
+uses slot zero. A false branch uses slot one when it directly enters the merge. -/
+def Program.incomingEdge (occurrence : Occurrence) : Fin size × Fin 2 :=
+  (p.predecessor occurrence,
+    bif (p.arm occurrence).blocks.isEmpty then
+      match occurrence with
+      | .innerTrue => 0
+      | .innerFalse | .outerFalse => 1
+    else 0)
 
 /-- Collect exactly the executed source writes before this merge input.
 The join's own writes are outside all three incoming scopes. -/
