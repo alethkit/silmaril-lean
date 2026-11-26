@@ -28,6 +28,18 @@ inductive Origin where
   | parameter
   | local (depth : Nat)
 
+/-- Interpret symbolic binders at the actual numbered allocation. -/
+def Origin.register (allocation : Registers Register.{u}) : Origin → Register.{u}
+  | .input slot => ⟨slot⟩
+  | .parameter => allocation.parameter
+  | .local depth => allocation.localAt depth
+
+/-- Replace symbolic origins by registers in the ordered exit record. -/
+def renameValue (allocation : Registers Register.{u}) : Val Origin → Val Register.{u}
+  | .var origin => .var (origin.register allocation)
+  | .unit => .unit
+  | .pair left right => .pair (renameValue allocation left) (renameValue allocation right)
+
 /-- Decode the adapter's ordered record of direct register reads. A read of a
 fixed input or the packet parameter must already have the requested name. -/
 def readDemands (parameter : Register.{u}) :
@@ -60,18 +72,32 @@ def bodyDemands {F : Type v} {b e : Nat} (parameter : Register.{u})
   | .term tail => termDemands parameter fields tail
   | .let1 _ _ body | .let2 _ _ _ body => bodyDemands parameter fields body
 
+/-- Keep body boundaries so conflicts between individually satisfiable
+bodies can be distinguished from conflicts inside a body. -/
+structure DemandTable where
+  entry : List Demand.{u}
+  blocks : List (List Demand.{u})
+
+def DemandTable.all (table : DemandTable.{u}) : List Demand.{u} :=
+  table.entry ++ table.blocks.flatten
+
 /-- Use the reverse body's binder order with symbolic names. Keeping all
 branch arguments in this pass exposes the original ordered live-out reads. -/
-def demands {F : Type v} {b e n : Nat} (parameter : Register.{u})
+def tableDemands {F : Type v} {b e n : Nat} (parameter : Register.{u})
     (fields : Fin e → List Register.{u}) (code : FiniteCFG F b e n) :
-    Option (List Demand.{u}) := do
+    Option DemandTable.{u} := do
   let symbolic : Registers Origin := ⟨.parameter, .local⟩
   let scan := fun {depth : Nat} (names : Fin depth → Option Origin) (body : Flat F (b + e) depth) =>
     (lowerBody symbolic id (fun _ => true) names 0 body).bind (bodyDemands parameter fields)
   let entry ← scan (fun i => some (.input i.val)) code.entry
   let rows ← (List.finRange b).mapM fun i =>
     scan (Fin.cases (some Origin.parameter) (fun _ => none)) (code.block i)
-  return entry ++ rows.flatten
+  return ⟨entry, rows⟩
+
+def demands {F : Type v} {b e n : Nat} (parameter : Register.{u})
+    (fields : Fin e → List Register.{u}) (code : FiniteCFG F b e n) :
+    Option (List Demand.{u}) :=
+  (tableDemands parameter fields code).map DemandTable.all
 
 def termBinders {K : Type (u + 1)} {F : Type v} :
     CFG.Term Register.{u} K F → List Register.{u}
@@ -113,6 +139,15 @@ def compatible (captures : Nat) (parameter : Register.{u}) (needed : List Demand
     needed.all (fun (_, name) => decide (captures ≤ name.down ∧ name ≠ parameter)) &&
     needed.all fun first => needed.all fun second =>
       decide (first.2 = second.2 → first.1 = second.1)
+
+/-- The finite requests form a partial bijection between binder depths and
+local registers. The parameter and all requested registers are outside the
+numbered captures, and requested locals are distinct from the parameter. -/
+structure Constraints (captures : Nat) (parameter : Register.{u}) (needed : List Demand.{u}) : Prop where
+  parameterOutside : captures ≤ parameter.down
+  localsOutside : ∀ request ∈ needed, captures ≤ request.2.down ∧ request.2 ≠ parameter
+  oneNamePerDepth : ∀ a ∈ needed, ∀ b ∈ needed, a.1 = b.1 → a.2 = b.2
+  oneDepthPerName : ∀ a ∈ needed, ∀ b ∈ needed, a.2 = b.2 → a.1 = b.1
 
 /-- A global numbered allocation satisfying these ordered exit reads. -/
 structure Valid (captures : Nat) (parameter : Register.{u}) (previous : List Register.{u})

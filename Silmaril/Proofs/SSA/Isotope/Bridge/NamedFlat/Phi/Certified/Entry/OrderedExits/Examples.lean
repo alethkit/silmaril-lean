@@ -603,4 +603,104 @@ theorem split_readmitted_capture_irrelevant (newX newY : Atom) (chooseLeft : Boo
   generated.roundTrip_eq_of_movedCaptures splitRTL splitRecompiled model _ _ ambient
     (agreesOutsideMoved olderX olderY newX newY chooseLeft)
 
+section BranchingConflict
+
+private def returnOne (name : Reg) : Val Reg :=
+  .pair (.var name) (.pair (.var name) .unit)
+
+-- The entry's left arm exits at local depth eight. Its right arm enters
+-- the internal edge split below. Unit lets set the depth without adding
+-- any version-zero reads or changing the branch.
+private def entryPrefix : Nat → CFG.Body Reg (Option Key) Empty → CFG.Body Reg (Option Key) Empty
+  | 0, body => body
+  | n + 1, body => .let1 ⟨100 + n⟩ (.val .unit) (entryPrefix n body)
+
+private def branchingGraph : Graph Reg Key Empty :=
+  ⟨entryPrefix 8 (.term (.case (.val (.var choiceName))
+    leftReply (.br leftExit (returnOne leftReply)) rightReply (br first))),
+    [(first, ⟨[⟨x, [(none, .var seedX)]⟩], .term (br finish)⟩),
+     (finish, ⟨[⟨swappedX, [(some first, .var x)]⟩], .term (.br rightExit (returnOne swappedX))⟩)]⟩
+
+private def branchingFields (key : Option Key) : List (Reg × Ty SortName) :=
+  [(if key = leftExit then ⟨14⟩ else ⟨12⟩, num)]
+
+private def branching : Admission signature ports branchingFields captures :=
+  (admit ports branchingFields captures branchingGraph [choiceName, seedX]
+    [(first, []), (finish, [])]
+    (fun _ => .product (.product num .unit) (.product choiceType (.product num .unit)))).get (by decide)
+
+private def branchingLowered : Lowered ports branchingFields branching.code :=
+  (branching.reverseChecked registers (fun i => some ⟨i.val⟩)).get (by decide)
+
+private def branchingSeed : ReverseSeed branching :=
+  ⟨registers, fun i => some ⟨i.val⟩, branchingLowered, (Option.some_get _).symm⟩
+
+private def branchingSplit : GeneratedSplit splitPlan branching :=
+  (branching.generateSplit splitPlan).get (by decide)
+
+example : Relocation.demands registers.parameter
+    (fun i : Fin ports.exits.length => (branchingFields ports.exits[i]).map Prod.fst)
+    branching.code = some [(8, ⟨14⟩), (6, ⟨12⟩)] := rfl
+
+private def branchingRequests : Relocation.DemandTable.{0} :=
+  ⟨[(8, ⟨14⟩)], [[], [], [(8, ⟨12⟩)]]⟩
+
+example : Relocation.tableDemands registers.parameter
+    (fun i : Fin ports.exits.length => (branchingFields ports.exits[i]).map Prod.fst)
+    branchingSplit.target.code = some branchingRequests := rfl
+
+private theorem branchingRequests_found :
+    branchingSplit.relocationDemands branchingSeed = some branchingRequests.all := by decide
+
+-- Each body can allocate its requests with the same parameter and freshness
+-- policy if considered separately.
+example : ∀ requests ∈ branchingRequests.entry :: branchingRequests.blocks,
+    ∃ allocation, Relocation.Valid 5 registers.parameter
+      (Relocation.writtenRegisters branchingLowered.source) requests allocation := by
+  intro requests member
+  apply (Relocation.infer_isSome_iff_valid ..).mp
+  simp only [branchingRequests, List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl <;> decide
+
+private theorem branching_global_conflict :
+    ¬ Relocation.Constraints 5 registers.parameter branchingRequests.all := by
+  intro valid
+  have left : ((8, ⟨14⟩) : Relocation.Demand.{0}) ∈ branchingRequests.all := by
+    exact List.mem_cons_self
+  have right : ((8, ⟨12⟩) : Relocation.Demand.{0}) ∈ branchingRequests.all := by
+    exact List.mem_cons_of_mem _ List.mem_cons_self
+  have same := valid.oneNamePerDepth _ left _ right rfl
+  exact (by decide : (⟨14⟩ : Reg) ≠ ⟨12⟩) same
+
+example : ¬ ∃ allocation, Relocation.Valid 5 registers.parameter
+    (Relocation.writtenRegisters branchingLowered.source) branchingRequests.all allocation :=
+  fun ⟨_, valid⟩ => branching_global_conflict valid.constraints
+
+example : (branchingSplit.relocatedRegisters branchingSeed).isSome = false :=
+  Bool.eq_false_iff.mpr fun accepted =>
+    branching_global_conflict ((branchingSplit.relocatedRegisters_isSome_iff branchingSeed branchingRequests_found).mp accepted)
+
+end BranchingConflict
+
+-- The successful swap allocation still needs an exact label readback. The
+-- same allocator emits with these labels, but all branches resolve to the
+-- first internal block during elaboration.
+private def collidingLabels (_ : Fin 3) : Option Key := some ⟨0⟩
+
+private def collidingEmission :=
+  lower splitRegisters ports.names collidingLabels (fun i => ports.exits[i]) splitAdmitted.code
+
+private def collidingSource : RTL := collidingEmission.get (by decide)
+
+private theorem collidingEmitted : collidingEmission = some collidingSource := (Option.some_get _).symm
+
+example : NamedFlat.elaborateAt (withLiveOut fields collidingSource) ports.exits ports.names _
+    (lower_attached_count (I := ports) fields collidingEmitted) ≠ some splitAdmitted.code := by
+  intro readback
+  have accepted := (generated.reverseRelocated_iff_readback originalSeed collidingLabels
+    splitInferred collidingEmitted).mpr readback
+  have rejected : (generated.reverseRelocated originalSeed collidingLabels).isSome = false := by decide
+  rw [rejected] at accepted
+  cases accepted
+
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Examples

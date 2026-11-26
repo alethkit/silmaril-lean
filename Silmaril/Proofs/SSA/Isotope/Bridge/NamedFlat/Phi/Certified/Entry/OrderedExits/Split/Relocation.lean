@@ -7,6 +7,8 @@ public section
 namespace Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Relocation
 
 open Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse (Register Registers)
+open Silmaril.SSA.LambdaRTL (Val)
+open Silmaril.SSA.LambdaRTL.CFG.Cyclic.LiveOut (reads)
 open Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Relocation
 
 universe u
@@ -85,5 +87,89 @@ theorem infer_valid (captures : Nat) (parameter : Register.{u}) (previous : List
       have above : name.down < start := Nat.lt_succ_of_le (member_le _ mem)
       omega
   next => cases found
+
+theorem readDemands_iff {allocation : Registers Register.{u}} {parameter : Register.{u}}
+    (fixed : allocation.parameter = parameter) {value : Val Origin} {fields : List Register.{u}} :
+    renameValue allocation value = reads fields ↔
+      ∃ needed, readDemands parameter value fields = some needed ∧
+        ∀ r ∈ needed, allocation.localAt r.1 = r.2 := by
+  induction fields generalizing value with
+  | nil =>
+    cases value <;> simp [reads, renameValue, readDemands]
+  | cons name rest ih =>
+    cases value with
+    | var => simp [reads, renameValue, readDemands]
+    | unit => simp [reads, renameValue, readDemands]
+    | pair head tail =>
+      cases head with
+      | unit => simp [reads, renameValue, readDemands]
+      | pair => simp [reads, renameValue, readDemands]
+      | var origin =>
+        have tailEq := ih (value := tail)
+        cases found : readDemands parameter tail rest with
+        | none =>
+          have missing : renameValue allocation tail ≠ reads rest := by
+            simpa [found] using tailEq
+          cases origin <;> simp [reads, renameValue, readDemands, found, missing]
+        | some requests =>
+          have tailGood : renameValue allocation tail = reads rest ↔
+              ∀ r ∈ requests, allocation.localAt r.1 = r.2 := by
+            simpa [found] using tailEq
+          cases origin with
+          | input slot =>
+            by_cases h : name = ⟨slot⟩ <;>
+              simp [reads, renameValue, readDemands, Origin.register, found, tailGood, h,
+                Ne.symm]
+          | parameter =>
+            by_cases h : name = parameter <;>
+              simp [reads, renameValue, readDemands, Origin.register, fixed, found, tailGood, h,
+                Ne.symm]
+          | «local» depth =>
+            simp only [reads, renameValue, readDemands, Origin.register, found, Option.bind_eq_bind,
+              Option.bind_some, Option.some.injEq, Val.pair.injEq, Val.var.injEq,
+              tailGood]
+            exact ⟨fun h => ⟨_, rfl, List.forall_mem_cons.mpr h⟩, fun ⟨_, rfl, h⟩ =>
+              List.forall_mem_cons.mp h⟩
+
+theorem constraints_of_valid {captures : Nat} {parameter : Register.{u}} {prior : List Register.{u}}
+    {needed : List Demand.{u}} {allocation : Registers Register.{u}}
+    (valid : Valid captures parameter prior needed allocation) :
+    Constraints captures parameter needed := by
+  refine ⟨valid.sameParameter ▸ valid.parameterOutside, ?_, ?_, ?_⟩
+  · intro request member
+    simpa only [valid.reads request member, valid.sameParameter] using valid.localsOutside request.1
+  · intro a ha b hb same
+    rw [← valid.reads a ha, ← valid.reads b hb, same]
+  · intro a ha b hb same
+    exact valid.distinctLocals ((valid.reads a ha).trans (same.trans (valid.reads b hb).symm))
+
+private theorem lookup_of_consistent {needed : List Demand.{u}} {request : Demand.{u}}
+    (mem : request ∈ needed) (same : ∀ r ∈ needed, r.1 = request.1 → r.2 = request.2) :
+    needed.lookup request.1 = some request.2 := by
+  induction needed with
+  | nil => simp at mem
+  | cons r rest ih =>
+    rcases r with ⟨depth, name⟩
+    rw [List.lookup_cons]
+    by_cases hit : request.1 = depth
+    · rw [beq_iff_eq.mpr hit]
+      exact congrArg some (same (depth, name) List.mem_cons_self hit.symm)
+    · rw [beq_eq_false_iff_ne.mpr hit]
+      exact ih ((List.mem_cons.mp mem).resolve_left (fun eq => hit (congrArg Prod.fst eq)))
+        (fun other inside => same other (List.mem_cons_of_mem _ inside))
+
+theorem infer_of_constraints {captures : Nat} {parameter : Register.{u}} (prior : List Register.{u})
+    {needed : List Demand.{u}} (constraints : Constraints captures parameter needed) :
+    infer captures parameter prior needed = some (complete captures parameter prior needed) := by
+  have fits : compatible captures parameter needed = true := by
+    simp only [compatible, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq]
+    exact ⟨⟨constraints.parameterOutside, constraints.localsOutside⟩, constraints.oneDepthPerName⟩
+  have follows : satisfies (complete captures parameter prior needed) needed = true := by
+    simp only [satisfies, List.all_eq_true]
+    intro request mem
+    have hit := lookup_of_consistent mem (fun r h => constraints.oneNamePerDepth r h request mem)
+    cases request
+    exact decide_eq_true (by simp [complete, hit])
+  simp [infer, fits, follows]
 
 end Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Relocation
