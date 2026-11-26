@@ -2,9 +2,10 @@
 
 Import `Silmaril.Machine.MulticoreVM.Thms` for the generic interface or
 `Silmaril.Machine.MulticoreVM.Toy.Thms` for the runnable register VM. Import
-`Silmaril.Machine.MulticoreVM.Placed.Thms` for the layer with explicit core placement.
+`Silmaril.Machine.MulticoreVM.Placed.Thms` for the layer with explicit core placement
+and `Silmaril.Machine.MulticoreVM.Placed.Outcomes.Thms` for the outcome refinement.
 [Generic definitions][defs] · [Generic theorems][thms] · [Toy executor][toy] ·
-[Placement definitions][placed] · [Placement theorems][placed-thms]
+[Placement definitions][placed] · [Placement theorems][placed-thms] · [Outcome refinement][placed-outcomes]
 
 ## Scheduling and observations
 
@@ -59,6 +60,20 @@ thread store and the thread word. `Scheduled.mem_threadRun` places the result in
 the abstract run at the filtered length, counting every instruction, including
 silent ones, and omitting placement commands.
 
+`taggedOutcomes` collects pairs of final configurations and tagged words.
+`forgetCore view` applies `StoreView` to the final core and thread stores and
+keeps the named thread word. `observeThreadQuotient_image` equates the direct
+projection to a final state and thread trace with the image under `forgetCore`
+followed by the abstract `observeQuotient`. Under `Instruction.RefinesBy`,
+`observeThreadQuotient_image_subset_scheduledOutcomes` and
+`observeThreadQuotient_image_subset_run` include this common image in the
+abstract quotient outcomes of the projected schedule and the filtered-length
+runner, respectively. In the one-core regression, the abstract runner can
+execute a waiting child before it is placed, giving strict inclusion for that
+concrete schedule. The fixed-schedule inclusion composes with abstract
+quotient-outcome equality under the local diamond hypothesis in
+`ScheduleEquivalent.quotient_outcomes_eq`. [Abstract scheduler swaps][swaps]
+
 Each emitted letter carries the executing core and thread. `threadWord` recovers
 the thread event or the original sync participants. `coreWord` keeps the executing
 core and encodes a payload as `some value` and a sync as `none`, an opaque marker on
@@ -67,6 +82,11 @@ trace quotient, a projection would have to respect the swaps generating the sour
 quotient. Two threads time-sharing a core give commuting thread events whose core
 images can be dependent. Moving one thread between cores can give the opposite
 discrepancy. [Placement regressions][placed-tests]
+
+In the institution adapter, `placedToNamed ≫ namedToConcurrent` agrees with
+`Placed.threadTrace` and commutes with typed signature renamings. The separate
+`placedToCore` projects to chronological core-local words with opaque sync
+markers. [Institution adapter][placed-inst] · [Institution profiles][inst]
 
 ## Physical scheduler policies
 
@@ -129,7 +149,7 @@ registers, output, and spawn. [Machine traces][machine] · [Process.Mt][process]
 ## Checks
 
 ```sh
-make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Toy.Thms +Silmaril.Proofs.Machine.MulticoreVM.Regression +Silmaril.Proofs.Semantics.ConcurrentTrace.Regression +Silmaril.Machine.MulticoreVM.Placed.Thms +Silmaril.Proofs.Machine.MulticoreVM.Placed.Regression'
+make check CHECK_TARGETS='+Silmaril.Proofs.Machine.MulticoreVM.Regression +Silmaril.Proofs.Semantics.ConcurrentTrace.Regression +Silmaril.Proofs.Machine.MulticoreVM.Placed.Regression +Silmaril.Proofs.Machine.MulticoreVM.Institution.ProjectionRegression'
 make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Scheduler.Thms +Silmaril.Proofs.Machine.MulticoreVM.Scheduler.ThreadSyncWitness +Silmaril.Proofs.Machine.MulticoreVM.Placed.Regression +Silmaril.Proofs.Machine.MulticoreVM.ThreadSync.Regression +Silmaril.Proofs.Machine.MulticoreVM.Regression +Silmaril.Proofs.Semantics.ConcurrentTrace.Regression'
 ```
 
@@ -137,7 +157,11 @@ make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Scheduler.Thms +Silmaril
 [thms]: ../../Silmaril/Machine/MulticoreVM/Thms.lean
 [placed]: ../../Silmaril/Machine/MulticoreVM/Placed/Defs.lean
 [placed-thms]: ../../Silmaril/Machine/MulticoreVM/Placed/Thms.lean
+[placed-outcomes]: ../../Silmaril/Machine/MulticoreVM/Placed/Outcomes/Thms.lean
 [placed-tests]: ../../Silmaril/Proofs/Machine/MulticoreVM/Placed/Regression.lean
+[placed-inst]: ../../Silmaril/Machine/MulticoreVM/Institution/Placed/Thms.lean
+[inst]: multicore-vm-institution.md#natural-observation-projections
+[swaps]: multicore-vm-swaps.md
 [scheduler]: ../../Silmaril/Machine/MulticoreVM/Scheduler/Thms.lean
 [scheduler-witness]: ../../Silmaril/Proofs/Machine/MulticoreVM/Scheduler/ThreadSyncWitness.lean
 [toy]: ../../Silmaril/Machine/MulticoreVM/Toy/Defs.lean
