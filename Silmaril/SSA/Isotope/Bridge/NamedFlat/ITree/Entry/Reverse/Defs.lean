@@ -37,18 +37,33 @@ def lowerOperand (names : Fin n → Option V) : Tm Empty F n → Option (Op V F)
   | .op f a => (lowerValue names a).map (.app f)
   | a => (lowerValue names a).map .val
 
-/-- A product RHS is evaluated into a packet before either destination
-register is assigned. External branches retain only the old payload here.
-The admission check reconstructs and checks the ordered live-out record. -/
-def lowerBody (registers : Registers V) (target : Fin labels → K)
+/-- Named case arms are terminators. Mutually exclusive arms can use the
+same register for their separately scoped binding at the current depth.
+External branches retain only the old payload so the checker can reconstruct
+the ordered live-out record from register reads. -/
+def lowerTerm (registers : Registers V) (target : Fin labels → K)
     (internal : Fin labels → Bool) {n : Nat} (names : Fin n → Option V) (next : Nat) :
-    Flat F labels n → Option (CFG.Body V K F)
+    Flat F labels n → Option (CFG.Term V K F)
   | .br i a =>
       let value : Option (Val V) := if internal i then lowerValue names a else
         match a with
         | .pair old _ => lowerValue names old
         | _ => none
-      value.map fun arg => .term (.br (target i) arg)
+      value.map (.br (target i))
+  | .case a l r => do
+      let discr ← lowerOperand names a
+      let x := registers.localAt next
+      let scope := Fin.cases (some x) names
+      let left ← lowerTerm registers target internal scope (next + 1) l
+      let right ← lowerTerm registers target internal scope (next + 1) r
+      pure (.case discr x left x right)
+  | .let₁ .. | .let₂ .. => none
+
+/-- Lower the let prefix and its final jump or case. A product RHS is
+evaluated into a packet before either destination register is assigned. -/
+def lowerBody (registers : Registers V) (target : Fin labels → K)
+    (internal : Fin labels → Bool) {n : Nat} (names : Fin n → Option V) (next : Nat) :
+    Flat F labels n → Option (CFG.Body V K F)
   | .let₁ a b => do
       let value ← lowerOperand names a
       let x := registers.localAt next
@@ -61,7 +76,7 @@ def lowerBody (registers : Registers V) (target : Fin labels → K)
       let tail ← lowerBody registers target internal
         (Fin.cases (some y) (Fin.cases (some x) names)) (next + 2) b
       pure (.let2 x y value tail)
-  | .case .. => none
+  | tail => (lowerTerm registers target internal names next tail).map .term
 
 /-- Named blocks may read only the incoming packet and their local writes.
 The shared open context remains available in the entry. -/
