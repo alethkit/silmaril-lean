@@ -709,6 +709,28 @@ theorem discardedRecurringRequest_ne :
     (observesFlat_eq_of_paper eq env he ⟨x.label, x.value, x.effect, x.marked⟩).1 hx
   exact Bool.noConfusion (congrArg Exit.marked (observe_unique _ env hx' hy))
 
+theorem unfinishedRequests_ne_bothMoved {r : Region Instruction}
+    (hr : r = twoFlatRequests ∨ r = firstRequestMoved ∨ r = secondRequestMoved) :
+    let B := Silmaril.coprod U U
+    let θ : Nat → Tm Instruction := Tm.singleSubst .unit ∘ Silmaril.DeBruijn.lift Nat.succ
+    ¬ Paper.Eqv [B] (r.substVars θ) (bothRequestsMoved.substVars θ) [B] := by
+  intro B θ eq
+  let env : Semantics.Env Empty := fun _ => .inl .unit
+  have he : EnvTyped [B] env := by
+    intro i A h
+    cases i with
+    | zero => cases Option.some.inj h; exact .inl .unit
+    | succ i => simp [At] at h
+  let marked : Exit := ⟨0, .inr .unit, true, true⟩
+  let unmarked : Exit := ⟨0, .inr .unit, true, false⟩
+  have hx : observe env (r.substVars θ) marked := by
+    rcases hr with rfl | rfl | rfl <;> exact execute_sound 4 _ env rfl
+  have hy : observe env (bothRequestsMoved.substVars θ) unmarked :=
+    execute_sound 4 _ env rfl
+  have hx' : observe env (bothRequestsMoved.substVars θ) marked :=
+    (observesFlat_eq_of_paper eq env he ⟨marked.label, marked.value, marked.effect, marked.marked⟩).1 hx
+  exact Bool.noConfusion (congrArg Exit.marked (observe_unique _ env hx' hy))
+
 private theorem unitEnv_typed : EnvTyped [U] unitEnv := by
   intro i A hi
   cases i with

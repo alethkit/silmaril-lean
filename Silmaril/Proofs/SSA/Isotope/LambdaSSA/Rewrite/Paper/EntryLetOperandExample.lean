@@ -35,7 +35,7 @@ private theorem right_forget : (sumCofan (Φ := Instruction) U U).inr ≫ forget
   rw [sumCofan_inr]
   exact discard_comp_branchValue (.inr (.var rfl))
 
-private theorem movedTarget_eq :
+theorem movedTarget_eq :
     ofRegion movedStep_typed ≫ (sumIso U U).hom =
       ofRegion movedRequest_typed ≫ discardArrow U ≫ coprod.inr := by
   let h : ValueBranches [U] (.br 0 (.inr .unit) : Region Instruction) [Bit] :=
@@ -46,12 +46,11 @@ private theorem movedTarget_eq :
   rw [← ofRegion_comp movedRequest_typed h movedStep_typed, ← leg]
   simp
 
-private theorem repaired_square :
-    source ≫ coprod.map (𝟙 X) forget = forget ≫ ofRegion movedStep_typed ≫ (sumIso U U).hom := by
+theorem taggedSource_forget (q : X ⟶ X) :
+    taggedSource q ≫ coprod.map (𝟙 X) forget = forget ≫ q ≫ discardArrow U ≫ coprod.inr := by
   let i : X ⟶ D := (sumCofan U U).inl
   let j : X ⟶ D := (sumCofan U U).inr
   let d : X ⟶ X := discardArrow U
-  let q : X ⟶ X := ofRegion movedRequest_typed
   let e := sumIso (Φ := Instruction) U U
   let arm (k : X ⟶ D) : X ⟶ X ⨿ D := d ≫ q ≫ d ≫ k ≫ coprod.inr
   have repeat_arm (k : X ⟶ D) (hk : k ≫ forget = d) :
@@ -68,13 +67,17 @@ private theorem repaired_square :
     · rw [← Category.assoc, hl, coprod.inl_desc, left_forget]
     · rw [← Category.assoc, hr, coprod.inr_desc, right_forget]
   apply (cancel_epi e.inv).1
-  rw [movedTarget_eq]
   change e.inv ≫ (e.hom ≫ coprod.desc (arm i) (arm j)) ≫ coprod.map (𝟙 X) forget =
     e.inv ≫ forget ≫ q ≫ d ≫ coprod.inr
   rw [Category.assoc e.hom, Iso.inv_hom_id_assoc, ← Category.assoc e.inv forget, eliminate]
   apply coprod.hom_ext
   · rw [← Category.assoc, coprod.inl_desc, repeat_arm i left_forget, coprod.inl_desc_assoc]
   · rw [← Category.assoc, coprod.inr_desc, repeat_arm j right_forget, coprod.inr_desc_assoc]
+
+private theorem repaired_square :
+    source ≫ coprod.map (𝟙 X) forget = forget ≫ ofRegion movedStep_typed ≫ (sumIso U U).hom := by
+  rw [movedTarget_eq]
+  exact taggedSource_forget _
 
 private theorem move_written : Site.here.move flatRecurringRequest = some movedRecurringRequest := by
   simp only [flatRecurringRequest, flatRequest, movedRecurringRequest, movedRequest, compLSubst, lsubst, Site.move]

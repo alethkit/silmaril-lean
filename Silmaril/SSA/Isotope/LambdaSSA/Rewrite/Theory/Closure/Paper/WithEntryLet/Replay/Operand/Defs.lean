@@ -39,4 +39,9 @@ def Site.move {Φ : Type v} : Site → Region Φ → Option (Region Φ)
     else none
   | _, _ => none
 
+/-- Apply the sites in order. Each address is relative to the region
+produced by the previous move. -/
+def Site.moveAll {Φ : Type v} (sites : List Site) (r : Region Φ) : Option (Region Φ) :=
+  sites.foldlM (fun body site => site.move body) r
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithEntryLet

@@ -36,6 +36,15 @@ theorem discardedRecurringRequest_ne :
     ¬ Paper.Eqv [B] (movedRecurringRequest.substVars θ) (flatRecurringRequest.substVars θ) [B] :=
   Sequencing.discardedRecurringRequest_ne
 
+/-- The diagnostic still sees a mark when either request remains inside
+its two-transfer table. -/
+theorem unfinishedRequests_ne_bothMoved {r : Region Instruction}
+    (hr : r = twoFlatRequests ∨ r = firstRequestMoved ∨ r = secondRequestMoved) :
+    let B := Silmaril.coprod U U
+    let θ : Nat → Tm Instruction := Tm.singleSubst .unit ∘ Silmaril.DeBruijn.lift Nat.succ
+    ¬ Paper.Eqv [B] (r.substVars θ) (bothRequestsMoved.substVars θ) [B] :=
+  Sequencing.unfinishedRequests_ne_bothMoved hr
+
 theorem flatRequest_typed : ValueBranches [U] flatRequest [U] :=
   Sequencing.flatRequest_typed
 
