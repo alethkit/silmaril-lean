@@ -656,3 +656,38 @@ table reports its own refusal while preserving both earlier deletions.
 ```sh
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Keep the prefix before the final Store
+
+`Entry.Composition.Static.Final.lower cells graph entry version` takes
+the current native entry table and a one-based Store nomination. The
+selected Store must use original address and word arguments and be
+immediately followed by Return. The cut preserves every earlier native
+Load and Store, their scalar operands and order, and the Return's word
+wire. The current table may be the residual of entry-only discovery.
+The staged driver continues to use the separate singleton emitter.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Static/Final/Defs.lean)
+
+The source entry buffer is the nominated write applied to the full
+retained prefix buffer. The optimized entry passes that prefix buffer
+to the selected arm. The existing static two-occurrence check requires
+a same-port overwrite and empty reader obligations on each route, and
+its proof applies to that entire prefix buffer. Earlier prefix stores
+can alias the nominated cell. The emitted CFGs select the same
+successor packet and agree on the return and every final cell for either
+predicate, every typed valuation, every initialized buffer, and every
+CF budget. Three steps suffice for both CFGs.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Static/Final/Thms.lean) ·
+[Pinned Simple chapter 10 Store rule](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65) ·
+[Pinned Simple memory Φ](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#memory-is-an-ssa-variable)
+
+In the fixture the retained entry Load feeds an earlier Store. Both
+routes read the result after overwriting the nominated cell. A second
+valuation makes the two entry Store addresses alias and still accepts
+the same cut. A pre-overwrite read of the nominated cell on one route
+refuses the two-route cut.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```
