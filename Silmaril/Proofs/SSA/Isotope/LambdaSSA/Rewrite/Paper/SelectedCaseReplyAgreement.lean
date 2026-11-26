@@ -200,8 +200,8 @@ theorem packed_outcomes (H : Ty Empty) (L : List (Ty Empty)) (p : DirectProgram 
   rw [selected_of, Reply.Payload.programOutcomes_eq, observe_bind, boolPair_union]
   simp only [Reply.Payload.answer, Bool.false_eq_true, ↓reduceIte,
     leaf_observe _ p.property.1, leaf_observe _ p.property.2, Reply.Payload.Normal.outcomes,
-    Reply.Payload.Normal.traceTree, Reply.Payload.ProgramBody.normal, Reply.Normal.outcomesWith,
-    Set.image_union, Set.image_image, prepend, Reply.Payload.replyLog, mul_assoc]
+    Reply.Payload.Normal.traceTree, Reply.Payload.requestTree, Reply.Payload.ProgramBody.normal,
+    Reply.Normal.outcomesWith, Set.image_union, Set.image_image, prepend, Reply.Payload.replyLog, mul_assoc]
   rfl
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SelectedCaseReplyAgreement
