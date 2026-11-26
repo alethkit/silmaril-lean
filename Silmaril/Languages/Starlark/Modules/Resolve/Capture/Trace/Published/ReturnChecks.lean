@@ -1024,44 +1024,57 @@ private def wrapperChainFails (nested : Bool) (preload : Option Nat) : Bool :=
 #guard wrapperChainFails true (some 0)
 #guard wrapperChainFails true (some 1)
 
-open Imports (ImportSite OrderedConsumer)
+open Imports (ImportBinding ImportSite OrderedConsumer)
 
-private def leftLoad : ImportSite := ⟨"left.star", "relay", "left", by simp [Modules.isPublic, String.startsWith_string_eq_false_iff]⟩
+private def leftLoad : ImportSite :=
+  .single "left.star" "relay" "left" (by simp [Modules.isPublic, String.startsWith_string_eq_false_iff])
 
-private def rightLoad (missing : Bool) : ImportSite :=
-  ⟨"right.star", if missing then "absent" else "relay", "right", by cases missing <;> simp [Modules.isPublic, String.startsWith_string_eq_false_iff]⟩
+private def skippedLoad : ImportSite :=
+  .single "skip.star" "relay" "skipped" (by simp [Modules.isPublic, String.startsWith_string_eq_false_iff])
 
-private def skippedLoad : ImportSite := ⟨"skip.star", "relay", "skipped", by simp [Modules.isPublic, String.startsWith_string_eq_false_iff]⟩
+private def rightFirst (missing : Bool) : ImportBinding :=
+  ⟨if missing then "absentFirst" else "reexport", "rightExtra",
+    by cases missing <;> simp [Modules.isPublic, String.startsWith_string_eq_false_iff]⟩
 
-private def diamondLoads (missing : Bool) : List ImportSite :=
-  [leftLoad, rightLoad missing] ++ if missing then [skippedLoad] else []
+private def rightLast (missing : Bool) : ImportBinding :=
+  ⟨if missing then "absentLast" else "relay", "right",
+    by cases missing <;> simp [Modules.isPublic, String.startsWith_string_eq_false_iff]⟩
 
-private def diamondGlobals : List String := ["wrapRight", "leftResult", "rightResult", "after"]
+private def rightLoad (firstMissing lastMissing : Bool) : ImportSite :=
+  ⟨"right.star", [rightFirst firstMissing, rightLast lastMissing], by simp⟩
 
-private def diamondWrapper (missing : Bool) :
-    Imports.WrapperDeclaration "right" ((diamondLoads missing).map ImportSite.alias) diamondGlobals where
+private def diamondLoads (firstMissing lastMissing : Bool) : List ImportSite :=
+  [leftLoad, rightLoad firstMissing lastMissing] ++ if firstMissing || lastMissing then [skippedLoad] else []
+
+private def diamondGlobals : List String := ["wrapRight", "leftResult", "rightResult", "rightCopy", "after"]
+
+private def diamondWrapper (firstMissing lastMissing : Bool) :
+    Imports.WrapperDeclaration "right" ((diamondLoads firstMissing lastMissing).flatMap ImportSite.aliases) diamondGlobals where
   name := "wrapRight"
   target := by decide
-  visible := by cases missing <;> decide
+  visible := by cases firstMissing <;> cases lastMissing <;> decide
   legalAlias := by decide
   arguments := []
   codes := []
   reads := []
   operands := .nil
   keywords := .empty
-  selects := .enclosing (.enclosing (by change ¬ "right" ∈ ([] : List String); simp) (by cases missing <;> decide)) .nil
+  selects := .enclosing (.enclosing (by change ¬ "right" ∈ ([] : List String); simp) (by cases firstMissing <;> cases lastMissing <;> decide)) .nil
 
-private def diamondConsumer (missing : Bool) : OrderedConsumer where
-  imports := diamondLoads missing
+private def diamondConsumer (firstMissing lastMissing : Bool) : OrderedConsumer where
+  imports := diamondLoads firstMissing lastMissing
   globals := diamondGlobals
   body :=
-    [.define (diamondWrapper missing),
-     .invoke { callee := "left", declared := .inl (by cases missing <;> decide), legal := by decide
+    [.define (diamondWrapper firstMissing lastMissing),
+     .invoke { callee := "left", declared := .inl (by cases firstMissing <;> cases lastMissing <;> decide), legal := by decide
                destination := "leftResult", destinationGlobal := by decide
                arguments := [], codes := [], reads := [], operands := .nil, keywords := .empty },
      .invoke { callee := "wrapRight", declared := .inr (by decide), legal := by decide
                destination := "rightResult", destinationGlobal := by decide
                arguments := [], codes := [], reads := [], operands := .nil, keywords := .empty },
+     .assign "rightCopy" (by decide)
+       (.read (by decide) (.owned (by cases firstMissing <;> cases lastMissing <;> decide))
+         (.owned (by cases firstMissing <;> cases lastMissing <;> decide))) (.name "rightExtra"),
      .assign "after" (by decide) (.list (.int 199)) .forget]
   declared := rfl
 
@@ -1071,25 +1084,26 @@ private def diamondManifest (producer left right top : ResolvedModule) : Loader.
     ⟨top.source, [("left.star", 1), ("right.star", 2), ("skip.star", 3)]⟩]
 
 private def diamondEnv (left right : Callee) : Imports.Tracked :=
-  Imports.track (Imports.initial "left" left) "right" (some right)
+  Imports.track (Imports.track (Imports.initial "left" left) "right" (some right)) "rightExtra"
+    (some (.regular (.nested returned)))
 
-private def diamondExports (missing : Bool) (origin second last : Program) :
+private def diamondExports (firstMissing lastMissing : Bool) (origin second last : Program) :
     Loader.ModuleId → Imports.Tracked
   | 0 => Imports.Chain.rootExports exports
   | 1 => Imports.Chain.exportsOf middleConsumer origin (.regular (.nested returned))
   | 2 | 3 => Imports.Chain.exportsOf middleConsumer second (.regular (.nested returned))
-  | _ => if missing then fun _ => none else fun name =>
+  | _ => if firstMissing || lastMissing then fun _ => none else fun name =>
     if name ∈ diamondGlobals then
       Imports.trackSuite last
         (diamondEnv (.wrapper middleWrapper origin.size (.regular (.nested returned)))
-          (.wrapper middleWrapper second.size (.regular (.nested returned)))) (diamondConsumer false).body name
+          (.wrapper middleWrapper second.size (.regular (.nested returned)))) (diamondConsumer false false).body name
     else none
 
-private def checkedDiamond (missing : Bool) {producer left right top : ResolvedModule}
+private def checkedDiamond (firstMissing lastMissing : Bool) {producer left right top : ResolvedModule}
     (rootChecked : resolve (commands false) #[] = .ok producer)
     (leftChecked : resolve middleConsumer.commands producer.program = .ok left)
     (rightChecked : resolve middleConsumer.commands left.program = .ok right)
-    (topChecked : resolve (diamondConsumer missing).commands right.program = .ok top) :
+    (topChecked : resolve (diamondConsumer firstMissing lastMissing).commands right.program = .ok top) :
     Imports.Chain.Graph producer.program (diamondManifest producer left right top) := by
   have rootSize : producer.program.size = 2 := by
     rw [(plan_code (commands := commands false) (plan false) rootChecked).2]; rfl
@@ -1103,8 +1117,8 @@ private def checkedDiamond (missing : Bool) {producer left right top : ResolvedM
     simp
   have throughLeft := Imports.consumer_preserves middleConsumer leftChecked
   have throughRight := Imports.consumer_preserves middleConsumer rightChecked
-  have throughTop := Imports.ordered_preserves (diamondConsumer missing) topChecked
-  let linked := diamondExports missing producer.program left.program right.program
+  have throughTop := Imports.ordered_preserves (diamondConsumer firstMissing lastMissing) topChecked
+  let linked := diamondExports firstMissing lastMissing producer.program left.program right.program
   let original := Callee.regular (.nested returned)
   let leftWrapper := Callee.wrapper middleWrapper producer.program.size original
   let rightWrapper := Callee.wrapper middleWrapper left.program.size original
@@ -1112,7 +1126,7 @@ private def checkedDiamond (missing : Bool) {producer left right top : ResolvedM
       Imports.Chain.Demand middleConsumer program (Imports.Chain.rootExports exports) producer.source
         (Imports.Chain.exportsOf middleConsumer program original) :=
     .found original rfl rank ⟨original, rfl, rank, .wrapper middleWrapper program.size original, rfl, trivial⟩
-  refine ⟨(diamondConsumer missing).commands, right.program, top, topChecked,
+  refine ⟨(diamondConsumer firstMissing lastMissing).commands, right.program, top, topChecked,
     fun index decl saved => throughTop _ _ (throughRight _ _ (throughLeft index decl saved)), linked, ?_⟩
   intro id bound
   have range : id = 0 ∨ id = 1 ∨ id = 2 ∨ id = 3 ∨ id = 4 := by
@@ -1128,29 +1142,46 @@ private def checkedDiamond (missing : Bool) {producer left right top : ResolvedM
       throughTop rfl rfl (branchReady _ (by omega))
   · have prefixOrigin : Defaults.Nested.Sequence.PreservesDeclarations producer.program right.program :=
       fun _ _ seen => throughRight _ _ (throughLeft _ _ seen)
-    cases missing with
-    | false =>
-      refine .ordered (finalEnv := some (diamondEnv leftWrapper rightWrapper)) (diamondConsumer false) topChecked
+    have absentFirst : "absentFirst" ∉ right.source.globals := by
+      rw [(Imports.consumer_layout middleConsumer rightChecked).2.2.1]
+      decide
+    have absentLast : "absentLast" ∉ right.source.globals := by
+      rw [(Imports.consumer_layout middleConsumer rightChecked).2.2.1]
+      decide
+    have start {tail : List ImportSite} {final : Option Imports.Tracked}
+        (rest : Imports.Chain.ImportPlan (diamondManifest producer left right top) linked 4 bound
+          tail (Imports.initial "left" leftWrapper) final) :
+        Imports.Chain.ImportPlan (diamondManifest producer left right top) linked 4 bound (leftLoad :: tail)
+          (fun _ => none) final :=
+      .load (dependency := 1) (by decide) rfl (.found leftWrapper rfl (.done _))
+        (fun _ equal => by cases equal; exact rest) (by simp)
+    cases firstMissing <;> cases lastMissing
+    · refine .ordered (finalEnv := some (diamondEnv leftWrapper rightWrapper)) (diamondConsumer false false) topChecked
         prefixOrigin (fun _ _ seen => seen) rfl ?_ ?_
-      · exact .found (dependency := 1) (callee := leftWrapper) (by decide) rfl rfl
-          (.found (dependency := 2) (callee := rightWrapper) (by decide) rfl rfl (.done _))
+      · apply start
+        exact .load (dependency := 2) (by decide) rfl
+          (.found rightWrapper rfl (.found original rfl (.done _)))
+          (fun _ equal => by cases equal; exact .done _) (by simp)
       · exact ⟨⟨rightWrapper, rfl, by change left.program.size < right.program.size; omega,
-          leftWrapper, rfl, .wrapper (diamondWrapper false) right.program.size rightWrapper, rfl, trivial⟩, rfl⟩
-    | true =>
-      refine .ordered (finalEnv := none) (diamondConsumer true) topChecked prefixOrigin (fun _ _ seen => seen) rfl ?_ rfl
-      exact .found (dependency := 1) (callee := leftWrapper) (by decide) rfl rfl
-        (.missing (dependency := 2) (by decide) rfl (by
-          change "absent" ∉ right.source.globals
-          rw [(Imports.consumer_layout middleConsumer rightChecked).2.2.1]
-          decide))
+          leftWrapper, rfl, .wrapper (diamondWrapper false false) right.program.size rightWrapper, rfl, trivial⟩, rfl⟩
+    · refine .ordered (finalEnv := none) (diamondConsumer false true) topChecked prefixOrigin (fun _ _ seen => seen) rfl ?_ rfl
+      apply start
+      exact .load (dependency := 2) (by decide) rfl (.missing absentLast) (by simp) (fun _ => rfl)
+    · refine .ordered (finalEnv := none) (diamondConsumer true false) topChecked prefixOrigin (fun _ _ seen => seen) rfl ?_ rfl
+      apply start
+      exact .load (dependency := 2) (by decide) rfl (.found rightWrapper rfl (.missing absentFirst))
+        (by simp) (fun _ => rfl)
+    · refine .ordered (finalEnv := none) (diamondConsumer true true) topChecked prefixOrigin (fun _ _ seen => seen) rfl ?_ rfl
+      apply start
+      exact .load (dependency := 2) (by decide) rfl (.missing absentLast) (by simp) (fun _ => rfl)
 
-example (missing : Bool) {producer left right top : ResolvedModule}
+example (firstMissing lastMissing : Bool) {producer left right top : ResolvedModule}
     (rootChecked : resolve (commands false) #[] = .ok producer)
     (leftChecked : resolve middleConsumer.commands producer.program = .ok left)
     (rightChecked : resolve middleConsumer.commands left.program = .ok right)
-    (topChecked : resolve (diamondConsumer missing).commands right.program = .ok top)
+    (topChecked : resolve (diamondConsumer firstMissing lastMissing).commands right.program = .ok top)
     (caller : Lists.State) (history : List Nat) (bounded : ∀ id ∈ history, id < 5) :
-    let graph := checkedDiamond missing rootChecked leftChecked rightChecked topChecked
+    let graph := checkedDiamond firstMissing lastMissing rootChecked leftChecked rightChecked topChecked
     ∃ entered out, Imports.Chain.Requests graph history ⟨caller, []⟩ entered ∧
       Imports.Chain.TraceRun (diamondManifest producer left right top) 4 entered out ∧
       Loader.load top.program (diamondManifest producer left right top) 4 entered = out ∧
@@ -1162,14 +1193,19 @@ example (missing : Bool) {producer left right top : ResolvedModule}
   obtain ⟨out, source, _, meaning, reached⟩ := Imports.Chain.agrees graph 4 (by change 4 < 5; decide) entered valid
   exact ⟨entered, out, historyRun, source, meaning, reached⟩
 
-private def runDiamond (missing : Bool) (preload : Bool) :
+private def runDiamond (firstMissing lastMissing : Bool) (preload : Bool) :
     Option (Loader.Result Modules.Published × Lists.State × Lists.State) := do
   let producer ← (resolve (commands false)).toOption
   let left ← (resolve middleConsumer.commands producer.program).toOption
   let right ← (resolve middleConsumer.commands left.program).toOption
-  let top ← (resolve (diamondConsumer missing).commands right.program).toOption
+  let top ← (resolve (diamondConsumer firstMissing lastMissing).commands right.program).toOption
   let manifest := diamondManifest producer left right top
-  let cold : Loader.Session := {runtime := {iterators := [123]}}
+  let caller := globalSlot "caller"
+  let cold : Loader.Session := {runtime := {
+    heap := #[⟨.binding (some (.scalar (.int 73))), false⟩]
+    bindings := fun name => if name == caller then some (.scalar (.int 7)) else none
+    slots := fun name => if name == caller then some (.owned 0) else none
+    iterators := [0] }}
   let reached ← if preload then
       match Loader.load top.program manifest 1 cold with
       | .ok _ reached => some reached
@@ -1189,9 +1225,19 @@ private def capturedImport (heap : Lists.Heap) (wrapper target : Lists.Value) (i
     | _ => false
   | _ => false
 
+private def callerRestored (caller final : Lists.State) : Bool :=
+  let name := globalSlot "caller"
+  final.slots name == caller.slots name &&
+    final.bindings name == caller.bindings name &&
+    final.heap[0]? == caller.heap[0]? &&
+    final.slots (fileSlot "right") == none && final.iterators == caller.iterators
+
+private def importCell (entered final : Lists.State) (slot : Binding) : Option Lists.Cell :=
+  (entered.slots slot).bind (fun address => final.heap[address.address]?)
+
 private def diamondOK (warm : Bool) : Bool :=
-  match runDiamond false warm with
-  | some (.ok result final, _, caller) =>
+  match runDiamond false false warm with
+  | some (.ok result final, entered, caller) =>
     match final.cache.lookup 0, final.cache.lookup 1, final.cache.lookup 2 with
     | some producer, some left, some right =>
       match producer.exports.lookup "escaped", producer.exports.lookup "late", left.exports.lookup "relay",
@@ -1200,31 +1246,39 @@ private def diamondOK (warm : Bool) : Bool :=
         left != right && capturedImport final.runtime.heap left escaped 2 &&
         capturedImport final.runtime.heap right escaped 3 && capturedImport final.runtime.heap wrapper right 4 &&
         result.exports.lookup "leftResult" == some late && result.exports.lookup "rightResult" == some late &&
+        importCell entered final.runtime (fileSlot "rightExtra") == some ⟨.binding (some escaped), false⟩ &&
+        importCell entered final.runtime (fileSlot "right") == some ⟨.binding (some right), true⟩ &&
         result.exports.lookup "left" == none && result.exports.lookup "right" == none &&
-        final.cache.map Prod.fst == [4, 2, 1, 0] && final.runtime.iterators == caller.iterators
+        result.exports.lookup "rightExtra" == none && result.exports.lookup "rightCopy" == some escaped &&
+        final.cache.map Prod.fst == [4, 2, 1, 0] && callerRestored caller final.runtime
       | _, _, _, _, _ => false
     | _, _, _ => false
   | _ => false
 
-private def diamondError (warm : Bool) : Bool :=
-  match runDiamond true warm with
-  | some (.error (.initialization 4 (.missingExport "right.star" "absent")) final, frame, caller) =>
-    match final.cache.lookup 1, frame.slots (fileSlot "left"), frame.slots (fileSlot "right"),
-        frame.slots (fileSlot "skipped"), frame.slots (globalSlot "wrapRight"), frame.slots (globalSlot "after") with
-    | some left, some leftCell, some rightCell, some skipped, some wrapper, some after =>
+private def diamondError (firstMissing lastMissing warm : Bool) (name : String) : Bool :=
+  match runDiamond firstMissing lastMissing warm with
+  | some (.error (.initialization 4 (.missingExport "right.star" missing)) final, frame, caller) =>
+    match final.cache.lookup 1 with
+    | some left =>
       match left.exports.lookup "relay" with
       | some relay =>
-        final.runtime.heap[leftCell.address]? == some ⟨.binding (some relay), false⟩ &&
-        [rightCell, skipped, wrapper, after].all (fun slot =>
-          final.runtime.heap[slot.address]? == some ⟨.binding none, false⟩) &&
-        final.cache.map Prod.fst == [2, 1, 0] && final.runtime.iterators == caller.iterators
+        missing == name &&
+        importCell frame final.runtime (fileSlot "left") == some ⟨.binding (some relay), false⟩ &&
+        [fileSlot "right", fileSlot "rightExtra", fileSlot "skipped", globalSlot "wrapRight",
+          globalSlot "leftResult", globalSlot "rightResult", globalSlot "rightCopy", globalSlot "after"].all (fun slot =>
+          importCell frame final.runtime slot == some ⟨.binding none, false⟩) &&
+        final.cache.map Prod.fst == [2, 1, 0] && callerRestored caller final.runtime
       | none => false
-    | _, _, _, _, _, _ => false
+    | none => false
   | _ => false
 
 #guard diamondOK false
 #guard diamondOK true
-#guard diamondError false
-#guard diamondError true
+#guard diamondError true false false "absentFirst"
+#guard diamondError true false true "absentFirst"
+#guard diamondError false true false "absentLast"
+#guard diamondError false true true "absentLast"
+#guard diamondError true true false "absentLast"
+#guard diamondError true true true "absentLast"
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published

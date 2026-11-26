@@ -29,7 +29,11 @@ and the same linked function-declaration table. An imported value retains
 its address, so calling an imported closure uses that closure's original
 global slots. A missing catalog entry and a missing exported name are
 distinct failures. Private import names are rejected during validation.
-A single load resolves all its requested exports before binding their aliases.
+A single load calls the host once and looks up its requested exports from
+right to left, following the pinned Starlark-Go `LOAD` instruction. It writes
+aliases in that same order after every lookup succeeds. If more than one export
+is missing, the rightmost missing source item is the reached error and none of
+the command's aliases are written.
 [Load statements][loading] · [Lexical calls](starlark-functions.md)
 
 A new module begins with fresh slots and no inherited active iterators.
@@ -1344,10 +1348,12 @@ profile.
 A topologically numbered graph may contain checked load-free roots and
 consumers with an ordered list of leading loads. Each consumer supplies its
 normalized suite and checked link into the common declaration table.
-The prefix induction reads each dependency's actual publication and binds its
-exported function address to a fresh file-local alias cell. The suite inherits
-the reached importer frame and live provenance for all aliases. The single-load
-edge theorem remains available.
+The prefix induction reads each dependency's actual publication once per load
+command. The independent selection rules derive the ordered exported function
+addresses from that publication. Only full selection enables the separate
+installation proof, which fills distinct file-local alias cells. The suite
+inherits the reached importer frame and live provenance for all aliases.
+The singleton edge theorem remains available.
 
 The graph theorem follows strictly earlier dependencies. It preserves
 earlier cache entries, the original closure records and their capture
@@ -1370,16 +1376,22 @@ preserving initialized captures and function records across cache reuse.
 The three-module controls exercise direct and nested calls through a published
 wrapper. A diamond control shares one producer between two separately linked
 wrappers. It runs from an empty cache and after an actual request for the left
-branch. A missing export on the right retains both dependency publications and
-the earlier alias binding while leaving later load and body cells blank.
-The pinned Go check also exercises a right-branch initialization failure.
+branch. A downstream wrapper invokes the second alias of a grouped load under
+the same declaration-index guard. A missing first or last export retains both
+dependency publications and the earlier load's alias while leaving both alias
+cells in the failed load, later load cells and body cells blank. With both
+exports missing, the controls check that the rightmost one is reported. The
+pinned Go checks observe the error, loader calls, cache hits and public effect
+order. Lean additionally checks the residual file-local cells and restored
+caller. Go's public initialization result does not expose the file-local cells.
 
-The checked prefix admits one renamed public callable per load statement.
-An optional reached missing-export case requires the name to be absent from the
-dependency's declared globals. The ordinary loader supports multi-item loads
-with all export lookups before binding. Proof coverage for those grouped
-commands, arbitrary incoming caches, broader bodies and callable wrapper
-parameters remains open. The checked wrapper profile is nullary.
+The checked prefix admits a nonempty group of public callable imports per load.
+Its static missing-export evidence requires the name to be outside the
+dependency's declared globals. Grouped syntax already lowers through the normal
+frontend load adapter. Arbitrary incoming caches, broader bodies, untracked
+exports, and callable wrapper parameters remain open. The checked wrappers are
+nullary.
+[Pinned compiler](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1223-L1237) · [Pinned interpreter](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L580-L617)
 
 [Chain theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Chain/Thms.lean)
 
