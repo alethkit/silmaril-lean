@@ -3,6 +3,7 @@ module
 import Mathlib.Tactic.FinCases
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.LiveBit.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Payload.Recognize.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Payload.Ordered.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Payload.Thms
 
@@ -721,6 +722,151 @@ example : compare? (recognized? false true) (recognized? false true)
     (inferred_native false true noSelection) (inferred_native false true noSelection)).mpr
   intro prim s
   exact le_rfl
+
+namespace Ordered
+
+open FixedCarrier.OrderedLiveOut (bitExpr recordExpr)
+
+private abbrev projected := FixedCarrier.OrderedLiveOut.outputPacket
+
+private abbrev Out := FixedCarrier.OrderedLiveOut.Outputs
+private abbrev outputType := FixedCarrier.OrderedLiveOut.PayloadType
+
+private def orderedSource (fixed : Bool) : CFG Reg Label signature.Instr :=
+  let g := namedSource fixed false
+  { g with blocks := g.blocks.map fun (label, row) =>
+      if label = .left ∨ label = .right then
+        (label, { row with body := .let1 .alt (.app (.literal true) .unit) row.body })
+      else (label, row) }
+
+private def orderedAdmission (fixed : Bool) :
+    Admission signature ports (FixedCarrier.OrderedLiveOut.fields Reg.alt Reg.left) (orderedSource fixed) :=
+  (PacketLocal.admit ports (FixedCarrier.OrderedLiveOut.fields Reg.alt Reg.left)
+    (orderedSource fixed) argumentTypes).get (by cases fixed <;> decide +kernel)
+
+private def inferred? (fixed : Bool) :=
+  FixedCarrier.OrderedLiveOut.recognize (orderedAdmission fixed) .poll literalValues
+
+private def inferred (fixed : Bool) :
+    FixedCarrier.OrderedLiveOut.Checked (orderedAdmission fixed) .poll literalValues :=
+  (inferred? fixed).get (by cases fixed <;> decide +kernel)
+
+private theorem accepted (fixed : Bool) : inferred? fixed = some (inferred fixed) := by
+  cases fixed <;> rfl
+
+-- The first write is common; only the second field's operand changes.
+example : (inferred false).profile.atBit.first = .literal (.literal true) true := rfl
+example : (inferred false).profile.atBit.second = .read := rfl
+example : (inferred true).profile.atBit.second = .literal (.literal false) false := rfl
+
+private def retainFirstSource : CFG Reg Label signature.Instr :=
+  let g := orderedSource true
+  { g with blocks := g.blocks.map fun (label, row) =>
+      if label = .left then
+        (label, ⟨.alt, .let1 .left (.app (.literal false) .unit) (.term (.br .first .unit))⟩)
+      else (label, row) }
+
+private def retainFirstAdmission :
+    Admission signature ports (FixedCarrier.OrderedLiveOut.fields Reg.alt Reg.left) retainFirstSource :=
+  (PacketLocal.admit ports (FixedCarrier.OrderedLiveOut.fields Reg.alt Reg.left)
+    retainFirstSource argumentTypes).get (by decide +kernel)
+
+-- Retention can occupy the first slot as well as the second.
+example : ((FixedCarrier.OrderedLiveOut.recognize retainFirstAdmission .poll literalValues).map
+    (fun c => c.profile.atBit.first)) = some .read := rfl
+
+private abbrev nativeEndpoint (fixed : Bool) (selected : Tag → Bool) :
+    Endpoint nativeSig Incoming outputType where
+  control := control selected
+  output := Fin.cases (motive := fun i : Fin 3 => Syntax.Expr [Incoming.get i, Bit] outputType)
+    (recordExpr (bitExpr false) (bitExpr false))
+    (Fin.cases (motive := fun i : Fin 2 => Syntax.Expr [Incoming.get i.succ, Bit] outputType)
+      (recordExpr (bitExpr true) (if fixed then bitExpr false else .var 0))
+      (Fin.cases (recordExpr (bitExpr true) (bitExpr false)) (fun i => Fin.elim0 i)))
+
+private theorem exactNative (fixed : Bool) (selected : Tag → Bool) :
+    ((inferred fixed).profile.endpoint .poll selected).checkNative (nativeEndpoint fixed selected).native = true := by
+  have readback : ((inferred fixed).profile.endpoint .poll noSelection).checkNative
+      (nativeEndpoint fixed noSelection).native = true := by
+    cases fixed <;> decide +kernel
+  exact readback
+
+private def readBits : Value Unit → Bool × Bool
+  | .pair .unit (.pair a (.pair b .unit)) => (isRight a, isRight b)
+  | _ => (false, false)
+
+private def orderedCodes : Fin 8 ≃ Packet Out where
+  toFun i := projected ⟨i.val / 4, by omega⟩ (i.val / 2 % 2 == 1) (i.val % 2 == 1)
+  invFun p :=
+    let bits := readBits p.2.val
+    ⟨p.1.val * 4 + (if bits.1 then 2 else 0) + (if bits.2 then 1 else 0), by
+      have bound := p.1.isLt
+      change p.1.val < 2 at bound
+      split <;> split <;> omega⟩
+  left_inv := by intro i; fin_cases i <;> rfl
+  right_inv := by
+    rintro ⟨tag, value, typed⟩
+    fin_cases tag <;>
+      cases typed with
+      | pair old fields =>
+        cases old
+        cases fields with
+        | pair first rest =>
+          cases rest with
+          | pair second tail =>
+            cases tail
+            cases first <;> cases ‹ValueTyped Syntax.atomType _ .unit› <;>
+              cases second <;> cases ‹ValueTyped Syntax.atomType _ .unit› <;> rfl
+
+private noncomputable def observedNamed (fixed : Bool) (selected : Tag → Bool := noSelection) :=
+  FixedCarrier.OrderedLiveOut.observeNamed (orderedSource fixed) labels .alt .left seedStore literalValues
+    (script true) 0 selected
+
+private theorem returned (fixed : Bool) :
+    observedNamed fixed = WithTop.some {Outcome.ret (0 : Tag) (projected 0 true (!fixed)).2.val (1 : Fin 2)} := by
+  unfold observedNamed
+  rw [(inferred fixed).observe_native noSelection leftBit seedStore rfl _ (exactNative fixed noSelection)
+    orderedCodes (script true) configs states 0]
+  exact (((inferred fixed).profile.endpoint .poll noSelection).observe_entry orderedCodes _
+    (exactNative fixed noSelection) leftBit (script true) configs states 0).trans (by cases fixed <;> rfl)
+
+example : observedNamed false = WithTop.some {Outcome.ret (0 : Tag) (projected 0 true true).2.val (1 : Fin 2)} :=
+  returned false
+
+example : observedNamed true = WithTop.some {Outcome.ret (0 : Tag) (projected 0 true false).2.val (1 : Fin 2)} :=
+  returned true
+
+private theorem differentSecond : ¬ observedNamed false ≤ observedNamed true := by
+  rw [returned false, returned true]
+  simp [WithTop.coe_le_coe, projected, FixedCarrier.OrderedLiveOut.outputPacket]
+  intro same
+  cases same
+
+example : FixedCarrier.OrderedLiveOut.compare? (inferred? false) (inferred? true)
+    (nativeEndpoint false noSelection).native (nativeEndpoint true noSelection).native
+    noSelection noSelection orderedCodes leftBit leftBit replies configs states = some false := by
+  rw [accepted false, accepted true]
+  apply (FixedCarrier.OrderedLiveOut.rejection_iff (inferred false) (inferred true)
+    leftBit leftBit seedStore seedStore rfl rfl _ _ noSelection noSelection orderedCodes replies configs states
+    (exactNative false noSelection) (exactNative true noSelection)).mpr
+  exact ⟨script true, 0, differentSecond⟩
+
+-- Selected UB hides the whole ordered record, including the differing bit.
+example (fixed : Bool) : observedNamed fixed (fun i => i == 0) = ⊤ := by
+  let selected : Tag → Bool := fun i => i == 0
+  unfold observedNamed
+  rw [(inferred fixed).observe_native selected leftBit seedStore rfl _ (exactNative fixed selected)
+    orderedCodes (script true) configs states 0]
+  have observation := ((inferred fixed).profile.endpoint .poll selected).observe_entry orderedCodes _
+    (exactNative fixed selected) leftBit (script true) configs states 0
+  refine observation.trans ?_
+  have run : ((inferred fixed).profile.endpoint .poll selected).runFinite orderedCodes leftBit
+      (script true) configs states ⟨0, leftBit⟩ 0 = .ub := by
+    cases fixed <;> decide +kernel
+  rw [run]
+  rfl
+
+end Ordered
 
 end DynamicLiveOut
 

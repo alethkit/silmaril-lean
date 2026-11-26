@@ -8,6 +8,9 @@ public section
 namespace Silmaril.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.PayloadRecognition
 
 open Silmaril.SSA.LambdaRTL (CFG)
+open LambdaSSA (FiniteCFG)
+open LambdaSSA.Semantics (Env extend)
+open LambdaSSA.Semantics.Interaction (region)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration
 open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent (Packet)
@@ -29,10 +32,55 @@ theorem decode_return (p : Packet Outputs) :
 
 /-- Unfold feedback once at a request and through the pending exit at a
 return. The equation tracks every typed reply, including backedges. -/
-theorem roots {Φ : Type} (g : Endpoint (Recognize.signature Φ) Incoming PayloadType)
+theorem roots {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signature Φ) Incoming A)
     (caller : Syntax.Payload (Incoming.get g.control.entry)) :
     RootAgrees g caller (packetTree g caller) :=
   Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.PayloadRecognition.roots g caller
+
+/-- The checked request row preserves the typed reply and destination for any
+terminal payload expression. -/
+theorem request_row_transfer {κ : Type 1} {P : FlatInstitution.Signature.{0, 0} κ}
+    {A : Syntax.Ty} (literals : P.Instr → Option Bool) (op : P.Instr)
+    (routes : Recognize.TypedRoutes Incoming.get) (bitTag unitTag : Tag) (selected : Tag → Bool)
+    (output : (i : Fin 3) → Syntax.Expr [Incoming.get i, Bit] A)
+    (caller payload : Syntax.Payload Bit) (env : Env Runtime) :
+    region (rawWithLiterals literals) (extend env (.pair (encodeValue ULift.up payload.val) .unit))
+      (Recognize.requestRow op routes.destination).erase =
+      rowTransfer ⟨guardedControl routes op bitTag unitTag selected, output⟩ caller ⟨0, payload⟩ :=
+  Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.PayloadRecognition.request_row_transfer
+    (P := P) literals op routes bitTag unitTag selected output caller payload env
+
+theorem unfold_return {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signature Φ) Incoming A)
+    (caller : Syntax.Payload (Incoming.get g.control.entry)) (p : Packet Incoming) (i : Tag) :
+    packetValue (g.returnPacket caller p i) =
+      encodeValue ULift.up ((g.output p.1).eval ((g.control.bindings caller).push p.2)).val :=
+  Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.PayloadRecognition.unfold_return
+    g caller p i
+
+section Replay
+
+variable {κ V K : Type 1} [DecidableEq V] [DecidableEq K] {P : FlatInstitution.Signature.{0, 0} κ}
+  {seed : V} {names : Fin 5 ≃ K} {source : CFG V K P.Instr} {fields : K → List (V × Ty κ)}
+  {a : Admission P (interface seed names) fields source} {target : FiniteCFG P.Instr 3 2 1}
+  {A : Syntax.Ty} {literals : P.Instr → Option Bool}
+
+/-- Replay payload-sensitive row equations through the existing compiled
+packet-local named execution and the original mutable live-out projection. -/
+theorem named_tree_of_readback (readback : Recognize.Readback a target)
+    (g : Endpoint (Recognize.signature P.Instr) Incoming A)
+    (caller : Syntax.Payload (Incoming.get g.control.entry)) (entryBit : Syntax.Payload Bit)
+    (store : V → Value Runtime)
+    (entryShape : target.entry = .br 0 (.pair (.bv 0) .unit))
+    (seedValue : store seed = encodeValue ULift.up entryBit.val)
+    (row : ∀ (p : Packet Incoming) (env : Env Runtime),
+      region (rawWithLiterals literals) (extend env (.pair (encodeValue ULift.up p.2.val) .unit))
+        (target.block p.1).erase = rowTransfer g caller p) :
+    LiveOut.observeRaw (rawWithLiterals literals) (interface (κ := κ) seed names).exits
+      (fun k => (fields k).map Prod.fst) source store = packetTree g caller ⟨0, entryBit⟩ :=
+  Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.PayloadRecognition.named_tree_of_readback
+    readback g caller entryBit store entryShape seedValue row
+
+end Replay
 
 variable {κ V K : Type 1} [DecidableEq V] [DecidableEq K] {P : FlatInstitution.Signature.{0, 0} κ}
   {seed reg : V} {names : Fin 5 ≃ K} {source target : CFG V K P.Instr}

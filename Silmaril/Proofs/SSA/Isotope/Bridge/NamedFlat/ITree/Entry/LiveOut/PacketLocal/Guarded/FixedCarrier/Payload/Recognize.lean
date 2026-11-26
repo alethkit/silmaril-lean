@@ -48,7 +48,7 @@ theorem decode_return (p : Packet Outputs) :
         | inl bit => cases bit; rfl
         | inr bit => cases bit; rfl
 
-theorem roots {Φ : Type} (g : Endpoint (Recognize.signature Φ) Incoming PayloadType)
+theorem roots {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signature Φ) Incoming A)
     (caller : Syntax.Payload (Incoming.get (g).control.entry)) :
     RootAgrees g caller (packetTree g caller) := by
   intro p
@@ -57,9 +57,9 @@ theorem roots {Φ : Type} (g : Endpoint (Recognize.signature Φ) Incoming Payloa
   change (payloadStep g caller ⟨.inr p⟩ >>= Sum.elim pure (iter (payloadStep g caller))) = _
   have head : payloadStep g caller ⟨.inr p⟩ =
       (match (g).control.head caller p with
-      | .exit i _ => pure (Sum.inr (⟨.inl ((g).returnPacket caller p i)⟩ : Phase))
+      | .exit i _ => pure (Sum.inr (⟨.inl ((g).returnPacket caller p i)⟩ : Phase A))
       | .request f arg next => query f arg >>= fun r =>
-        pure (Sum.inr (⟨.inr (next r.down.1 r.down.2)⟩ : Phase))) := rfl
+        pure (Sum.inr (⟨.inr (next r.down.1 r.down.2)⟩ : Phase A))) := rfl
   rw [head]
   cases (g).control.head caller p with
   | exit i _ =>
@@ -77,6 +77,29 @@ private theorem literal_query {Φ : Type} (literals : Φ → Option Bool) (op : 
   | inl h => cases h; exact query_agrees op ⟨.inl .unit, .inl .unit⟩
   | inr h => cases h; exact query_agrees op ⟨.inr .unit, .inr .unit⟩
 
+private theorem cast_val {A B : Syntax.Ty} (h : A = B) (p : Syntax.Payload A) :
+    (cast (congrArg Syntax.Payload h) p).val = p.val := by cases h; rfl
+
+theorem request_row_transfer {κ : Type 1} {P : FlatInstitution.Signature.{0, 0} κ}
+    {A : Syntax.Ty} (literals : P.Instr → Option Bool) (op : P.Instr)
+    (routes : Recognize.TypedRoutes Incoming.get) (bitTag unitTag : Tag) (selected : Tag → Bool)
+    (output : (i : Fin 3) → Syntax.Expr [Incoming.get i, Bit] A)
+    (caller payload : Syntax.Payload Bit) (env : Env Runtime) :
+    region (rawWithLiterals literals) (extend env (.pair (encodeValue ULift.up payload.val) .unit))
+      (Recognize.requestRow op routes.destination).erase =
+      rowTransfer ⟨guardedControl routes op bitTag unitTag selected, output⟩ caller ⟨0, payload⟩ := by
+  rw [Recognize.eval_request (P := P)
+    (opcode := op) ULift.up query (rawWithLiterals literals) _ (literal_query literals op) env payload]
+  change _ = (query op payload >>= fun r => (pure ((routes.destination r.down.1).val,
+    .pair (encodeValue ULift.up (cast (congrArg Syntax.Payload (routes.packet r.down.1).symm) r.down.2).val) .unit) :
+    Tree (Request P.Instr) (Transfer Runtime)))
+  congr 1
+  funext r
+  change ULift.{1} (Packet Recognize.Packets) at r
+  exact congrArg (fun v => (pure ((routes.destination r.down.1).val,
+    .pair (encodeValue ULift.up v) .unit) : Tree (Request P.Instr) (Transfer Runtime)))
+    (cast_val (routes.packet r.down.1).symm r.down.2).symm
+
 private theorem eval_write {Φ : Type} {hasBit : Bool} (literals : Φ → Option Bool)
     (w : Write Φ hasBit) (agree : w.Agrees literals) (tag : Tag) (env : Env Runtime)
     (input : Syntax.Payload (if hasBit then Bit else .unit)) (caller : Syntax.Bindings [Bit]) :
@@ -93,10 +116,8 @@ private theorem eval_write {Φ : Type} {hasBit : Bool} (literals : Φ → Option
       Morphism.CaseSSA.erase, region, LambdaSSA.Semantics.Interaction.term, rawWithLiterals,
       lit, extend, Recognize.bitValue, Syntax.Expr.eval] <;> rfl
 
-private theorem cast_val {A B : Syntax.Ty} (h : A = B) (p : Syntax.Payload A) :
-    (cast (congrArg Syntax.Payload h) p).val = p.val := by cases h; rfl
 
-private theorem unfold_return {Φ : Type} (g : Endpoint (Recognize.signature Φ) Incoming PayloadType)
+theorem unfold_return {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signature Φ) Incoming A)
     (caller : Syntax.Payload (Incoming.get (g).control.entry)) (p : Packet Incoming) (i : Tag) :
     packetValue ((g).returnPacket caller p i) =
       encodeValue ULift.up ((g.output p.1).eval (((g).control.bindings caller).push p.2)).val :=
@@ -113,6 +134,74 @@ private theorem restore_exit {K : Type 1} (names : Fin 5 ≃ K) (i : Tag) (p : V
   unfold Recognize.restore
   rw [dite_eq_left (i.natAdd 3).isLt]
 
+section Replay
+
+variable {κ V K : Type 1} [DecidableEq V] [DecidableEq K] {P : FlatInstitution.Signature.{0, 0} κ}
+  {seed : V} {names : Fin 5 ≃ K} {source : CFG V K P.Instr} {fields : K → List (V × Ty κ)}
+  {a : Admission P (interface seed names) fields source} {target : FiniteCFG P.Instr 3 2 1}
+  {A : Syntax.Ty} {literals : P.Instr → Option Bool}
+  (readback : Recognize.Readback a target) (g : Endpoint (Recognize.signature P.Instr) Incoming A)
+  (caller : Syntax.Payload (Incoming.get g.control.entry)) (entryBit : Syntax.Payload Bit)
+  (store : V → Value Runtime)
+
+local notation "instr" => (rawWithLiterals literals)
+local notation "initial" => (fun r : V × Nat => store (Prod.fst r))
+local notation "I" => (interface (κ := κ) seed names)
+local notation "packed" => (fun p => FiniteCFG.packedTreeOutput (treeExitNumber [names 3, names 4] p))
+
+include readback in
+private theorem named_entry (entryShape : target.entry = .br 0 (.pair (.bv 0) .unit))
+    (seedValue : store seed = encodeValue ULift.up entryBit.val) :
+    a.versioned.source.entry.evalJump (treeModel instr) initial =
+      pure (encodePhase (A := A) names ⟨.inr ⟨0, entryBit⟩⟩) := by
+  let env : Env Runtime := fun _ => encodeValue ULift.up entryBit.val
+  rw [readback.entry_eval instr initial env (fun _ => seedValue.symm)]
+  rw [entryShape]
+  simp only [ Flat.erase, Morphism.CaseSSA.erase, region,
+    LambdaSSA.Semantics.Interaction.term, pure_bind]
+  rfl
+
+include readback in
+private theorem named_step (row : ∀ (p : Packet Incoming) (env : Env Runtime),
+    region instr (extend env (.pair (encodeValue ULift.up p.2.val) .unit)) (target.block p.1).erase =
+      rowTransfer g caller p) (phase : Phase A) :
+    (payloadStep g caller phase >>= liftPure (Sum.map id (encodePhase names))) =
+      mapReturn (CFG.Cyclic.stepSSA (treeModel instr) a.versioned.source.blocks initial) (liftPure packed)
+        (encodePhase names phase) := by
+  rcases phase with ⟨p | p⟩
+  · simp only [payloadStep, pure_bind, liftPure, Function.comp_apply, Sum.map_inl, id_eq]
+    exact (readback.exit_eval instr initial (packetValue p) p.1).symm
+  · let env : Env Runtime := fun _ => .unit
+    change _ = mapReturn (CFG.Cyclic.stepSSA (treeModel instr) a.versioned.source.blocks initial)
+      (liftPure packed) (names (p.1.castAdd 2), .pair (encodeValue ULift.up p.2.val) .unit)
+    unfold mapReturn
+    rw [readback.block_eval instr initial env, row p env, rowTransfer]
+    unfold payloadStep
+    dsimp only
+    cases (g).control.head caller p with
+    | exit i _ =>
+      simp only [pure_bind, liftPure, Function.comp_apply, Sum.map_inr, Sum.elim_inr, encodePhase, restore_exit]
+      rfl
+    | request f arg next =>
+      simp only [bind_assoc, pure_bind, liftPure, Function.comp_apply, Sum.map_inr, Sum.elim_inr,
+        encodePhase, restore_block]
+
+include readback in
+theorem named_tree_of_readback
+    (entryShape : target.entry = .br 0 (.pair (.bv 0) .unit))
+    (seedValue : store seed = encodeValue ULift.up entryBit.val)
+    (row : ∀ (p : Packet Incoming) (env : Env Runtime),
+      region instr (extend env (.pair (encodeValue ULift.up p.2.val) .unit)) (target.block p.1).erase =
+        rowTransfer g caller p) :
+    LiveOut.observeRaw instr (I).exits (fun k => (fields k).map Prod.fst) source store =
+      packetTree g caller ⟨0, entryBit⟩ := by
+  unfold packetTree
+  exact Guarded.observe_eq_of_steps (a := a) (input := initial) (⟨.inr ⟨0, entryBit⟩⟩ : Phase A)
+    (payloadStep g caller) (encodePhase names) (named_entry readback entryBit store entryShape seedValue)
+    (named_step readback g caller store row)
+
+end Replay
+
 section NamedTree
 
 variable {κ V K : Type 1} [DecidableEq V] [DecidableEq K] {P : FlatInstitution.Signature.{0, 0} κ}
@@ -124,43 +213,16 @@ variable {κ V K : Type 1} [DecidableEq V] [DecidableEq K] {P : FlatInstitution.
 
 local notation "g" => (ck.profile.endpoint op selected)
 local notation "instr" => (rawWithLiterals literals)
-local notation "initial" => (fun r : V × Nat => store (Prod.fst r))
 local notation "I" => (interface (κ := κ) seed names)
-local notation "packed" => (fun p => FiniteCFG.packedTreeOutput (treeExitNumber [names 3, names 4] p))
-
-include ck in
-private theorem named_entry (seedValue : store seed = encodeValue ULift.up caller.val) :
-    a.versioned.source.entry.evalJump (treeModel instr) initial =
-      pure (encodePhase names ⟨.inr ⟨0, caller⟩⟩) := by
-  let env : Env Runtime := fun _ => encodeValue ULift.up caller.val
-  rw [ck.readback.entry_eval instr initial env (fun _ => seedValue.symm)]
-  simp only [Profile.expected, Flat.erase, Morphism.CaseSSA.erase, region,
-    LambdaSSA.Semantics.Interaction.term, pure_bind]
-  rfl
 
 private theorem eval_block (p : Packet Incoming) (env : Env Runtime) :
     region instr (extend env (.pair (encodeValue ULift.up p.2.val) .unit))
       ((ck.profile.expected op).block p.1).erase =
-      match (g).control.head caller p with
-      | .exit i _ => pure ((i.natAdd 3).val, packetValue ((g).returnPacket caller p i))
-      | .request f arg next => query f arg >>= fun r =>
-        let q := next r.down.1 r.down.2
-        pure (q.1.val, .pair (encodeValue ULift.up q.2.val) .unit) := by
+      rowTransfer g caller p := by
   rcases p with ⟨i, payload⟩
   fin_cases i
-  · change Syntax.Payload Bit at payload
-    change region instr (extend env (.pair (encodeValue ULift.up payload.val) .unit))
-      (Recognize.requestRow op ck.profile.routes.destination).erase = _
-    rw [Recognize.eval_request ULift.up query instr _ (literal_query literals op) env payload]
-    change _ = (query op payload >>= fun r => (pure ((ck.profile.routes.destination r.down.1).val,
-      .pair (encodeValue ULift.up (cast (congrArg Syntax.Payload (ck.profile.routes.packet r.down.1).symm) r.down.2).val) .unit) :
-      Tree (Request P.Instr) (Transfer Runtime)))
-    congr 1
-    funext r
-    change ULift.{1} (Packet Recognize.Packets) at r
-    exact congrArg (fun v => (pure ((ck.profile.routes.destination r.down.1).val,
-      .pair (encodeValue ULift.up v) .unit) : Tree (Request P.Instr) (Transfer Runtime)))
-      (cast_val (ck.profile.routes.packet r.down.1).symm r.down.2).symm
+  · exact request_row_transfer (P := P) literals op ck.profile.routes ck.profile.bitTag ck.profile.unitTag
+      selected (g).output caller payload env
   · change _ = pure ((ck.profile.bitTag.natAdd 3).val, packetValue ((g).returnPacket caller ⟨1, payload⟩ ck.profile.bitTag))
     rw [unfold_return]
     exact eval_write literals ck.profile.fromBit ck.literals_agree.1 _ env payload _
@@ -168,34 +230,9 @@ private theorem eval_block (p : Packet Incoming) (env : Env Runtime) :
     rw [unfold_return]
     exact eval_write literals ck.profile.fromUnit ck.literals_agree.2 _ env payload _
 
-private theorem named_step (phase : Phase) :
-    (payloadStep g caller phase >>= liftPure (Sum.map id (encodePhase names))) =
-      mapReturn (CFG.Cyclic.stepSSA (treeModel instr) a.versioned.source.blocks initial) (liftPure packed)
-        (encodePhase names phase) := by
-  rcases phase with ⟨p | p⟩
-  · simp only [payloadStep, pure_bind, liftPure, Function.comp_apply, Sum.map_inl, id_eq]
-    exact (ck.readback.exit_eval instr initial (packetValue p) p.1).symm
-  · let env : Env Runtime := fun _ => .unit
-    change _ = mapReturn (CFG.Cyclic.stepSSA (treeModel instr) a.versioned.source.blocks initial)
-      (liftPure packed) (names (p.1.castAdd 2), .pair (encodeValue ULift.up p.2.val) .unit)
-    unfold mapReturn
-    rw [ck.readback.block_eval instr initial env, eval_block ck selected caller p env]
-    unfold payloadStep
-    dsimp only
-    cases (g).control.head caller p with
-    | exit i _ =>
-      simp only [pure_bind, liftPure, Function.comp_apply, Sum.map_inr, Sum.elim_inr, encodePhase, restore_exit]
-      rfl
-    | request f arg next =>
-      simp only [bind_assoc, pure_bind, liftPure, Function.comp_apply, Sum.map_inr, Sum.elim_inr,
-        encodePhase, restore_block]
-
 theorem named_tree (seedValue : store seed = encodeValue ULift.up caller.val) :
-    LiveOut.observeRaw instr (I).exits (fun _ => [reg]) source store = packetTree g caller ⟨0, caller⟩ := by
-  unfold packetTree
-  exact Guarded.observe_eq_of_steps (a := a) (input := initial) (⟨.inr ⟨0, caller⟩⟩ : Phase)
-    (payloadStep g caller) (encodePhase names) (named_entry ck caller store seedValue)
-    (named_step ck selected caller store)
+    LiveOut.observeRaw instr (I).exits (fun _ => [reg]) source store = packetTree g caller ⟨0, caller⟩ :=
+  named_tree_of_readback ck.readback g caller caller store rfl seedValue (eval_block ck selected caller)
 
 end NamedTree
 

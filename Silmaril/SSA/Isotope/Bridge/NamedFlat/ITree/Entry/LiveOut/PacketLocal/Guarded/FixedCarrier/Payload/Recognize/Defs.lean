@@ -92,15 +92,18 @@ def readProfile {Φ : Type} (literals : Φ → Option Bool) (table : FiniteCFG �
   let (unitTag, fromUnit) ← readWrite literals false (table.block 2)
   return ⟨⟨routes, bitTag, fromBit.val, unitTag, fromUnit.val⟩, fromBit.property, fromUnit.property⟩
 
+abbrev guardedControl {Φ : Type} (routes : TypedRoutes Incoming.get) (op : Φ)
+    (bitTag unitTag : Tag) (selected : Tag → Bool) : Table (Recognize.signature Φ) Incoming where
+  entry := 0
+  row := Fin.cases (motive := fun i : Fin 3 => Row (Recognize.signature Φ) Incoming [Incoming.get i, Bit])
+    (.request op (.var 0) routes.destination routes.packet)
+    (Fin.cases (motive := fun i : Fin 2 => Row (Recognize.signature Φ) Incoming [Incoming.get i.succ, Bit])
+      (.exit bitTag) (fun _ => .exit unitTag))
+  selected := selected
+
 abbrev Profile.endpoint {Φ : Type} (p : Profile Φ) (op : Φ) (selected : Tag → Bool) :
     Endpoint (Recognize.signature Φ) Incoming PayloadType where
-  control := {
-    entry := 0
-    row := Fin.cases (motive := fun i : Fin 3 => Row (Recognize.signature Φ) Incoming [Incoming.get i, Bit])
-      (.request op (.var 0) p.routes.destination p.routes.packet)
-      (Fin.cases (motive := fun i : Fin 2 => Row (Recognize.signature Φ) Incoming [Incoming.get i.succ, Bit])
-        (.exit p.bitTag) (fun _ => .exit p.unitTag))
-    selected := selected }
+  control := guardedControl p.routes op p.bitTag p.unitTag selected
   output := Fin.cases (motive := fun i : Fin 3 => Syntax.Expr [Incoming.get i, Bit] PayloadType)
     (payloadExpr false)
     (Fin.cases (motive := fun i : Fin 2 => Syntax.Expr [Incoming.get i.succ, Bit] PayloadType)
@@ -124,18 +127,18 @@ def recognize [DecidableEq P.Instr]
   (Recognize.checkReadback a (readProfile literals) (fun p => p.val.expected op)).map
     fun ⟨p, readback⟩ => ⟨p.val, readback, p.property⟩
 
-abbrev Phase := ULift.{1} (Packet Outputs ⊕ Packet Incoming)
+abbrev Phase (A : Syntax.Ty) := ULift.{1} (Packet (Exits A) ⊕ Packet Incoming)
 
-def packetValue (p : Packet Outputs) : Value Runtime := Recognize.encodeValue ULift.up p.2.val
+def packetValue {A : Syntax.Ty} (p : Packet (Exits A)) : Value Runtime := Recognize.encodeValue ULift.up p.2.val
 
-def encodePhase (names : Fin 5 ≃ K) (phase : Phase) : K × Value Runtime :=
+def encodePhase {A : Syntax.Ty} (names : Fin 5 ≃ K) (phase : Phase A) : K × Value Runtime :=
   match phase.down with
   | .inl p => (names (p.1.natAdd 3), packetValue p)
   | .inr p => (names (p.1.castAdd 2), .pair (Recognize.encodeValue ULift.up p.2.val) .unit)
 
-def payloadStep {Φ : Type} (g : Endpoint (Recognize.signature Φ) Incoming PayloadType)
-    (caller : Syntax.Payload (Incoming.get g.control.entry)) (phase : Phase) :
-    Tree (Request Φ) (Transfer Runtime ⊕ Phase) :=
+def payloadStep {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signature Φ) Incoming A)
+    (caller : Syntax.Payload (Incoming.get g.control.entry)) (phase : Phase A) :
+    Tree (Request Φ) (Transfer Runtime ⊕ Phase A) :=
   match phase.down with
   | .inl result => pure (.inl (packedReturn result))
   | .inr p =>
@@ -143,9 +146,19 @@ def payloadStep {Φ : Type} (g : Endpoint (Recognize.signature Φ) Incoming Payl
     | .exit i _ => pure (.inr ⟨.inl (g.returnPacket caller p i)⟩)
     | .request f arg next => query f arg >>= fun r => pure (.inr ⟨.inr (next r.down.1 r.down.2)⟩)
 
-noncomputable def packetTree {Φ : Type} (g : Endpoint (Recognize.signature Φ) Incoming PayloadType)
+noncomputable def packetTree {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signature Φ) Incoming A)
     (caller : Syntax.Payload (Incoming.get g.control.entry)) (p : Packet Incoming) : RunTree Φ :=
   iter (m := Tree (Request Φ)) (payloadStep g caller) ⟨.inr p⟩
+
+/-- A local row yields the numbered original transfer and its checked payload. -/
+def rowTransfer {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signature Φ) Incoming A)
+    (caller : Syntax.Payload (Incoming.get g.control.entry)) (p : Packet Incoming) :
+    Tree (Request Φ) (Transfer Runtime) :=
+  match g.control.head caller p with
+  | .exit i _ => pure ((i.natAdd 3).val, packetValue (g.returnPacket caller p i))
+  | .request f arg next => query f arg >>= fun r =>
+    let q := next r.down.1 r.down.2
+    pure (q.1.val, .pair (Recognize.encodeValue ULift.up q.2.val) .unit)
 
 def outputPacket (tag : Tag) (bit : Bool) : Packet Outputs :=
   ⟨tag, cast (congrArg Syntax.Payload (exit_type tag).symm)
