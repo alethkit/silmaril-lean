@@ -1,6 +1,7 @@
 module
 
 import Silmaril.Semantics.ITree.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Thms
 import Silmaril.Semantics.ITree.VisiblePrefix.Thms
 import Silmaril.SSA.Isotope.LetIter.RequestFeedback.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Syntactic.AbortSequence.Category.Model.Thms
@@ -3483,3 +3484,219 @@ example (state : D A) (d : Nat) :
   exact Nat.not_succ_le_self d (depth _ longer)
 
 end LetIterRequestFeedbackFixture
+
+namespace LetIterObservedFeedbackFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback
+open Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic
+  (repairedDenoteInSyntax repairedDenoteInSyntax_eq_iff)
+
+set_option backward.isDefEq.respectTransparency false
+set_option backward.isDefEq.respectTransparency.types false
+
+private abbrev U : Ty Unit := .unit
+private abbrev Bit : Ty Unit := .coprod U U
+private abbrev Eff := Bool × Bool
+private abbrev strict : Eff := (true, false)
+
+local instance : HasTy Unit (Ty Unit) := ⟨fun _ => Bit, fun _ => Bit⟩
+local instance : HasEff Unit Eff := ⟨fun _ => strict⟩
+local instance : EffectIteration Eff := EffectIteration.complete Eff
+
+private abbrev V (_ : Unit) : Type := Unit
+private abbrev D := Ty.denote (Lifted V)
+
+private def code (right : Bool) : D Bit :=
+  if right then .inr PUnit.unit else .inl PUnit.unit
+private def embed (_ : D U) : D Bit := code false
+
+private def leftTable : Machine V () (D U) (D U) :=
+  ⟨fun s => toSmall V Bit (embed s), fun _ r => (toSmall V Bit).symm r⟩
+
+private def rightTable (right : Bool) : Machine V () (D Bit) (D U) :=
+  ⟨toSmall V Bit, fun _ r => match (toSmall V Bit).symm r with
+    | .inl v => .inl v
+    | .inr _ => .inr (code right)⟩
+
+private theorem right_commutes : Commutes leftTable (rightTable false) embed := by
+  intro s
+  refine ⟨rfl, fun r => ?_⟩
+  cases r <;> rfl
+
+private theorem repeat_code_of_observation {b : Bool}
+    (obs : leftTable.run PUnit.unit = (rightTable b).run (code false)) : b = false := by
+  have reaches (s : D U) : leftTable.Reaches PUnit.unit s := by
+    cases s
+    exact .initial
+  obtain ⟨_, commute, initial⟩ :=
+    exists_commutes_of_initial (toSmall V Bit).injective reaches obs
+  have step := (commute PUnit.unit).2 (.inr PUnit.unit)
+  have next : code false = code b := initial.symm.trans (Sum.inr.inj step)
+  cases b with
+  | false => rfl
+  | true => cases next
+
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty (Ty Unit))
+private abbrev Γ : EffectCtx (Ty Unit) Eff := []
+private abbrev Δ : EffectCtx (Ty Unit) Eff := [(U, ⊥)]
+
+private abbrev bit (b : Bool) : Expr Unit := if b then .inr .unit else .inl .unit
+private abbrev nativeBit {n : Nat} (b : Bool) : Tm Empty Unit n :=
+  if b then .inr .unit else .inl .unit
+private abbrev nativeEmbed : Tm Empty Unit 1 := .inl .unit
+private abbrev bodyL : Tm Empty Unit 1 := .op () (.inl .unit)
+private abbrev bodyR (b : Bool) : Tm Empty Unit 1 :=
+  .case (.op () (.let₁ (.bv 0) (.bv 0))) (.inl (.bv 0)) (.inr (nativeBit b))
+
+private abbrev loopL : Tm Empty Unit 0 := .iter .unit bodyL
+private abbrev loopR (b : Bool) : Tm Empty Unit 0 :=
+  .iter (.let₁ .unit nativeEmbed) (bodyR b)
+
+private def bitDeriv {n : Nat} {β : BoundCtx (Ty Unit) n} (b : Bool) :
+    Derivation Unit Γ₀ β (nativeBit b) Bit := by
+  cases b
+  · exact .inl .unit
+  · exact .inr .unit
+
+private def leftDeriv : Derivation Unit Γ₀ .nil loopL U :=
+  .iter .unit (.op (.inl .unit))
+
+private def rightDeriv (b : Bool) : Derivation Unit Γ₀ .nil (loopR b) U :=
+  .iter (.let₁ .unit (.inl .unit)) (.case (.op (.let₁ .bv .bv)) (.inl .bv) (.inr (bitDeriv b)))
+
+private theorem leftTyped : HasTypeEffect Γ₀ .nil loopL U strict :=
+  ⟨leftDeriv.toHasType, .iter rfl bot_le (sup_le le_rfl bot_le)⟩
+
+private theorem rightTyped (b : Bool) : HasTypeEffect Γ₀ .nil (loopR b) U strict := by
+  refine ⟨(rightDeriv b).toHasType, ?_⟩
+  cases b <;> exact .iter rfl (sup_le bot_le bot_le)
+    (sup_le (sup_le le_rfl (sup_le bot_le bot_le)) (sup_le bot_le bot_le))
+
+private theorem visible : ¬ IsPure (⊥ : Eff) () := by
+  change strict ≠ ⊥
+  decide
+
+private def noPure : PureMaps (Φ := Unit) (ε := Eff) V := fun i h => by
+  cases i
+  exact (visible h).elim
+
+private noncomputable def obsL : ITree.Tree (Event (Φ := Unit) V) (D U) :=
+  leftDeriv.denote D (instructions V noPure) (fun x => x.elim) (fun i => i.elim0)
+
+private noncomputable def obsR (b : Bool) : ITree.Tree (Event (Φ := Unit) V) (D U) :=
+  (rightDeriv b).denote D (instructions V noPure) (fun x => x.elim) (fun i => i.elim0)
+
+private theorem observe_left : obsL = leftTable.run PUnit.unit := by
+  unfold obsL leftDeriv
+  erw [Derivation.denote]
+  simp only [Derivation.denote, pure_bind, Machine.run]
+  congr 1
+  funext state
+  change ((instructions V noPure).eval () (code false) >>= fun r => pure r) = leftTable.step state
+  rw [eval_bind_of_not_pure V noPure visible]
+  rfl
+
+private theorem denote_bit {n : Nat} {β : BoundCtx (Ty Unit) n} (b : Bool)
+    (γ : FreeEnv D Γ₀) (ρ : BoundEnv D β) :
+    (bitDeriv b).denote D (instructions V noPure) γ ρ = pure (code b) := by
+  cases b <;> simp [bitDeriv, Derivation.denote, code] <;> rfl
+
+private theorem observe_right (b : Bool) : obsR b = (rightTable b).run (code false) := by
+  unfold obsR rightDeriv
+  erw [Derivation.denote]
+  simp only [Derivation.denote, pure_bind, BoundEnv.snoc_zero, Machine.run]
+  change Silmaril.Elgot.iter _ (code false) = Silmaril.Elgot.iter _ (code false)
+  congr 1
+  funext state
+  rw [eval_bind_of_not_pure V noPure visible, ITree.vis_bind]
+  change ITree.vis _ _ = (rightTable b).step state
+  unfold Machine.step
+  congr 1
+  funext r
+  cases r with
+  | inl v =>
+      change (ITree.ret (E := Event (Φ := Unit) V) (Sum.inl PUnit.unit : D U ⊕ D Bit) >>= pure) = _
+      rw [show ITree.ret (E := Event (Φ := Unit) V) (Sum.inl PUnit.unit : D U ⊕ D Bit) =
+        pure (Sum.inl PUnit.unit : D U ⊕ D Bit) from rfl, pure_bind]
+      rfl
+  | inr v =>
+      let emptyEnv : BoundEnv D (.nil : BoundCtx (Ty Unit) 0) := fun i => i.elim0
+      let ρ : BoundEnv D ((BoundCtx.nil.snoc Bit).snoc U) := (emptyEnv.snoc state).snoc PUnit.unit
+      change (((bitDeriv b).denote D (instructions V noPure) (fun x => x.elim) ρ >>=
+        fun next => pure (Sum.inr next : D U ⊕ D Bit)) >>= pure) = ITree.ret (Sum.inr (code b))
+      rw [denote_bit, pure_bind, pure_bind]
+      rfl
+
+private abbrev squareL : Expr Unit :=
+  .case (.op () (.inl .unit)) (.inl (.var 0)) (.inr (.inl .unit))
+
+private abbrev squareR (b : Bool) : Expr Unit :=
+  .case (.op () (.let₁ (.inl .unit) (.var 0))) (.inl (.var 0)) (.inr (bit b))
+
+private theorem written_square {b : Bool} (observed : obsL = obsR b) :
+    Eqv Δ (.coprod U Bit) strict squareL (squareR b) := by
+  have sameState := repeat_code_of_observation (observe_left.symm.trans (observed.trans (observe_right b)))
+  subst b
+  have initial : Wf Δ (.inl .unit : Expr Unit) Bit (⊥ : Eff) := .inl (.unit _ _)
+  have value : Wf ((Bit, ⊥) :: Δ) (.var 0 : Expr Unit) Bit strict := .var 0 bot_le
+  have beta : Eqv Δ Bit strict (.let₁ (.inl .unit) (.var 0)) (.inl .unit) :=
+    .step (.let1_beta initial value)
+  exact .case (.op le_rfl beta.symm) (.refl (.inl (.var 0 bot_le))) (.refl (.inr (.inl (.unit _ _))))
+
+private theorem native_reflection {b : Bool} (observed : obsL = obsR b) :
+    AbortEquiv (⊥ : Eff) Γ₀ .nil loopL (loopR b) U := by
+  apply replay_written_square (Γ := Γ) (A := U) (A' := Bit) (C := U)
+    (a := .unit) (h := nativeEmbed) (b := bodyL) (b' := bodyR b)
+    .unit (.inl .unit) (.inl .unit) (.op (.inl .unit))
+    (.case (.op (.let₁ .bv .bv)) (.inl .bv) (.inr (bitDeriv b).toHasType)) rfl ?_ (written_square observed)
+  cases b <;> rfl
+
+-- Matching weak observations reflect to the native equation at strict on
+-- both sides. The independently written step terms are compared by beta.
+example {b : Bool} (observed : obsL = obsR b) :
+    HasTypeEffect Γ₀ .nil loopL U strict ∧ HasTypeEffect Γ₀ .nil (loopR b) U strict ∧
+      repairedDenoteInSyntax (⊥ : Eff) leftDeriv = repairedDenoteInSyntax (⊥ : Eff) (rightDeriv b) :=
+  ⟨leftTyped, rightTyped b, (repairedDenoteInSyntax_eq_iff (⊥ : Eff) _ _).mpr (native_reflection observed)⟩
+
+example : obsL = obsR false :=
+  observe_left.trans ((runs_eq right_commutes PUnit.unit).trans (observe_right false).symm)
+
+example : obsL ≠ obsR true := fun eq =>
+  Bool.noConfusion (repeat_code_of_observation (observe_left.symm.trans (eq.trans (observe_right true))))
+
+example {b : Bool} :
+    repairedDenoteInSyntax (⊥ : Eff) leftDeriv = repairedDenoteInSyntax (⊥ : Eff) (rightDeriv b)
+      ↔ b = false := by
+  refine ⟨fun packed => ?_, fun h => ?_⟩
+  · have native := (repairedDenoteInSyntax_eq_iff (⊥ : Eff) leftDeriv (rightDeriv b)).mp packed
+    have eq : obsL = obsR b := sound V noPure native leftDeriv (rightDeriv b) (fun i => i.elim0)
+    exact repeat_code_of_observation (observe_left.symm.trans (eq.trans (observe_right b)))
+  · subst b
+    have eq := observe_left.trans ((runs_eq right_commutes PUnit.unit).trans (observe_right false).symm)
+    exact (repairedDenoteInSyntax_eq_iff (⊥ : Eff) leftDeriv _).mpr (native_reflection eq)
+
+example : strict < (⊤ : Eff) :=
+  lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+-- The behavior at the unreachable right-tag state can differ even when the
+-- same initial observations agree. This defeats a global uniformity map.
+private def extraReturn : Machine V () (D Bit) (D U) :=
+  ⟨toSmall V Bit, fun s r => match s with
+    | .inl _ => (rightTable false).reply s r
+    | .inr _ => .inl PUnit.unit⟩
+
+example : extraReturn.run (code false) = (rightTable false).run (code false) ∧
+    ¬ ∃ h, Commutes extraReturn (rightTable false) h := by
+  have commuteLeft : Commutes leftTable extraReturn embed := by
+    intro s
+    refine ⟨rfl, fun r => ?_⟩
+    cases r <;> rfl
+  refine ⟨(runs_eq commuteLeft PUnit.unit).symm.trans (runs_eq right_commutes PUnit.unit), ?_⟩
+  rintro ⟨h, comm⟩
+  have forced : code true = h (code true) := (toSmall V Bit).injective (comm (code true)).1
+  have wrongReply := (comm (code true)).2 (.inr PUnit.unit)
+  rw [← forced] at wrongReply
+  cases wrongReply
+
+end LetIterObservedFeedbackFixture
