@@ -67,6 +67,11 @@ the statements and checks.
 
 ## Review status
 
+The local integration checked the open read in #3572 and the handled
+adapter draft in #3583 together. The replacement plan is pending. The
+immutable #3572 links preserve the revision used by downstream work.
+[Open typed read][pr-typed-read] · [Handled read adapter draft][pr-read-adapter]
+
 The linked source revisions are immutable because the component changes
 are under review, with some based on other component branches. The map
 covers the pinned statements and their stated premises. The component PRs
