@@ -41,6 +41,7 @@ inductive Operand (layout : Layout) where
   | intTrueDiv (numerator divisor : Int)
   | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite)
+  | floatSub (operands : Core.Binary64.FloatOperands)
   | eqInt (left : NameRead layout) (right : Int)
   | binaryInt (op : IntegerOp) (left right : Operand layout)
   | tuple (items : List (TupleItem layout))
@@ -232,6 +233,7 @@ def Operand.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout)
   | .intTrueDiv numerator divisor => (trueDivideInt numerator divisor).map Value.float64 |>.mapError .defined
   | .mixedAdd integer floating => Closure.mixedAdd integer floating
   | .floatAdd left right => Closure.floatAdd left right
+  | .floatSub operands => Closure.floatSub operands
   | .eqInt left right => (left.evalIn globals heap frame).bind (·.equalInt right)
   | .tuple items => evalTupleIn globals heap frame items
   | .textSlice receiver bounds =>
@@ -362,6 +364,8 @@ inductive EvaluatesIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layo
       EvaluatesIn globals heap frame (.mixedAdd integer floating) (Closure.mixedAdd integer floating)
   | floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite) :
       EvaluatesIn globals heap frame (.floatAdd left right) (Closure.floatAdd left right)
+  | floatSub (operands : Core.Binary64.FloatOperands) :
+      EvaluatesIn globals heap frame (.floatSub operands) (Closure.floatSub operands)
   | eqInt {left : NameRead layout} {right result} :
       EvaluatesIn globals heap frame left.operand result →
       EvaluatesIn globals heap frame (.eqInt left right) (result.bind (·.equalInt right))

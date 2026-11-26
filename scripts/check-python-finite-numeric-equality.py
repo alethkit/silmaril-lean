@@ -306,15 +306,16 @@ def instance_controls(lines):
 
     prefix = "".join(lines[:6])
     addition_prefix = "".join(lines[:8])
+    subtraction_prefix = "".join(lines[:17])
     fixed = (
         PROFILES[0],
         *((placement, f"(Compile.ModuleEntry.Functions.Run.Seeded.legacyTextSeed .{placement})")
           for placement in ("builtin", "preamble")),
     )
-    fixture, observed = observe(addition_prefix, expect("NameError:___assertEqual", "NameError:___assertTrue"),
+    fixture, observed = observe(subtraction_prefix, expect("NameError:___assertEqual", "NameError:___assertTrue"),
                                 {"empty": HELPER}, profiles=fixed)
     fixtures.append(fixture)
-    observations["eight-line prefix in fixed profiles"] = observed
+    observations["seventeen-line prefix in fixed profiles"] = observed
 
     mixed = "float64:4018000000000000"
     for label, source, status, probes, options in (
@@ -366,6 +367,28 @@ def instance_controls(lines):
 """
     fixtures.append((source, guards))
     observations["unchanged eight-line numeric prefix"] = observed
+
+    difference = "float64:4000000000000000"
+    probes = successful + [(mixed, "float", True)] * 3
+    probes += [("int:2", "int", True)] + [(difference, "float", True)] * 3
+    (source, guards), observed = instance_case(subtraction_prefix, "normal", probes, numeric=True)
+    comparisons = [("int:6", "int:6")] + [(mixed, mixed)] * 3
+    comparisons += [("int:2", "int:2")] + [(difference, difference)] * 3
+    assert all(profile["compared"] == comparisons for profile in observed.values())
+    guards += """
+#guard (match compile pythonSource with
+  | .ok compiled => match compiled.instructions.drop 8 with
+    | [.call .discard "___assertEqual" [.literal (.int 2), .literal (.int 2)], _,
+       .nestedCall .discard "___assertEqual" [.scalar (.floatSub (.intFloat 4 rhs)), _], _,
+       .nestedCall .discard "___assertEqual" [.scalar (.floatSub (.floatInt lhs 2)), _], _,
+       .nestedCall .discard "___assertEqual" [.scalar (.floatSub (.floatFloat left right)), _], _] =>
+        lhs.val.bits == 0x4010000000000000 && rhs.val.bits == 0x4000000000000000 &&
+          left.val.bits == lhs.val.bits && right.val.bits == rhs.val.bits
+    | _ => false
+  | _ => false)
+"""
+    fixtures.append((source, guards))
+    observations["unchanged seventeen-line numeric prefix"] = observed
     return fixtures, observations
 
 
@@ -381,6 +404,15 @@ def controls(upstream):
         "___assertTrue(isinstance(4.0 + 2, float))\n",
         "___assertEqual(4.0 + 2.0, 6.0)\n",
         "___assertTrue(isinstance(4.0 + 2.0, float))\n",
+        "\n",
+        "___assertEqual(4 - 2, 2)\n",
+        "___assertTrue(isinstance(4 - 2, int))\n",
+        "___assertEqual(4 - 2.0, 2.0)\n",
+        "___assertTrue(isinstance(4 - 2.0, float))\n",
+        "___assertEqual(4.0 - 2, 2.0)\n",
+        "___assertTrue(isinstance(4.0 - 2, float))\n",
+        "___assertEqual(4.0 - 2.0, 2.0)\n",
+        "___assertTrue(isinstance(4.0 - 2.0, float))\n",
     ]
     full = None
     if upstream is not None:
@@ -391,8 +423,8 @@ def controls(upstream):
         first_line = full.splitlines(keepends=True)[0]
         assert first_line == first
         first = first_line
-        assert full.splitlines(keepends=True)[:8] == instance_prefix
-        instance_prefix = full.splitlines(keepends=True)[:8]
+        assert full.splitlines(keepends=True)[:17] == instance_prefix
+        instance_prefix = full.splitlines(keepends=True)[:17]
     missing = "NameError:___assertEqual"
     through_literal = (
         "def relay(value):\n    return value\n"
@@ -451,13 +483,13 @@ def controls(upstream):
         lines = full.splitlines(keepends=True)
         fixtures.append((full, rejected))
         assert lines[2] == "___assertEqual(4 + 2.0, 6.0)\n"
-        assert lines[8] == "\n" and lines[9] == "___assertEqual(4 - 2, 2)\n"
-        fixtures.append(("".join(lines[:9]), "#guard (compile pythonSource).isOk"))
-        fixtures.append(("".join(lines[:10]), rejected))
+        assert lines[17] == "\n" and lines[18] == "___assertEqual(4 * 2, 8)\n"
+        fixtures.append(("".join(lines[:18]), "#guard (compile pythonSource).isOk"))
+        fixtures.append(("".join(lines[:19]), rejected))
         observations["first prefix cutoffs"] = {
-            "first_rejected_compiler_prefix": 10,
-            "source": lines[9].rstrip("\n"),
-            "numeric_seed_completed_through": 8,
+            "first_rejected_compiler_prefix": 19,
+            "source": lines[18].rstrip("\n"),
+            "numeric_seed_completed_through": 17,
             "integer_seed_runtime_line": 4,
             "integer_seed_runtime_cutoff": "NameError:float",
         }

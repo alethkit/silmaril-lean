@@ -52,6 +52,7 @@ inductive Operand where
   | intTrueDiv (numerator divisor : Int)
   | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite)
+  | floatSub (operands : Core.Binary64.FloatOperands)
   | tuple (items : List GlobalTupleItem)
   | textSlice (receiver : Core.Text) (bounds : Core.SliceBounds)
 
@@ -61,6 +62,7 @@ def Operand.lower {layout : Layout} : Operand → Executor.Operand layout
   | .intTrueDiv numerator divisor => .intTrueDiv numerator divisor
   | .mixedAdd integer floating => .mixedAdd integer floating
   | .floatAdd left right => .floatAdd left right
+  | .floatSub operands => .floatSub operands
   | .tuple items => .tuple (items.map GlobalTupleItem.lower)
   | .textSlice receiver bounds => .textSlice receiver bounds
 

@@ -213,13 +213,21 @@ def trueDivideInt (numerator divisor : Int) : Except RuntimeError Silmaril.Numer
     | .zeroDivisionError => .arithmetic .zeroDivisionError
     | .overflowError => .overflowError
 
-def mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite) : Except Failure Value :=
-  (Core.Binary64.mixedAdd integer floating).map .float64 |>.mapError fun
+def floatArithmeticResult
+    (result : Except Core.Binary64.FloatArithmeticError Silmaril.Numeric.Ieee754.F64.Finite) :
+    Except Failure Value :=
+  result.map .float64 |>.mapError fun
     | .conversionOverflow => .defined .overflowError
     | .nonfiniteResult => .unsupportedFloatOperand
 
+def mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite) : Except Failure Value :=
+  floatArithmeticResult (Core.Binary64.mixedAdd integer floating)
+
 def floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite) : Except Failure Value :=
   (Core.Binary64.addFinite? left right).elim (.error .unsupportedFloatOperand) (.ok ∘ Value.float64)
+
+def floatSub (operands : Core.Binary64.FloatOperands) : Except Failure Value :=
+  floatArithmeticResult (Core.Binary64.subtract operands)
 
 /-- A shared heap with monotone cell allocation. Only addresses below
 `next` denote allocated cells. An allocated cell may be unbound. -/
