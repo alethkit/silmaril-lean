@@ -650,28 +650,37 @@ example : multiBuilt.outlined.count = 4 := by decide +kernel
 
 -- Compare the actual packed erasure at each request label with its
 -- literal row, including the distinct continuation labels.
-private def packedRowMatches (index : Nat) (expected : LambdaSSA.Region Bool) : Bool :=
-  match multiBuild with
+private def packedRowMatches {blocks exits captures : Nat} {signature : PrimitiveSignature Bool}
+    {context : BoundCtx PacketType captures} {inputs : Fin blocks → PacketType} {outputs : Fin exits → PacketType}
+    {source : FiniteCFG Bool blocks exits captures}
+    (build : Option (EffectfulEntry.Multiple.Compiled signature context inputs outputs source))
+    (index : Nat) (expected : LambdaSSA.Region Bool) : Bool :=
+  match build with
   | none => false
   | some built =>
-    if bound : index < 1 + built.outlined.count + 1 then
-      let label := (⟨index, bound⟩ : Fin (1 + built.outlined.count + 1)).cast built.publicReadback.provenance.count
+    let count := blocks + built.outlined.count + 1
+    if bound : index < count then
+      let label := (⟨index, bound⟩ : Fin count).cast built.publicReadback.provenance.count
       let publicRow := built.publicReadback.packed.target.block label
-      (commonRow (1 + built.outlined.count + 1 + 2) publicRow.erase expected).isSome
+      (commonRow (count + exits) publicRow.erase expected).isSome
     else false
 
-example : packedRowMatches 1
+example : packedRowMatches multiBuild 1
     (.let₂ (.var 0) (.let₁ (.op true (.pair (.var 0) (.var 0))) (.br 2 (.pair (.var 3) (.var 0))))) = true :=
   by decide +kernel
 
-example : packedRowMatches 3
+example : packedRowMatches multiBuild 3
     (.let₂ (.var 0) (.let₂ (.var 1) (.let₁ (.op false (.var 2)) (.br 4 (.pair (.var 5) (.var 0)))))) = true :=
   by decide +kernel
 
--- The finite entry tree still rejects a sequential second request.
+-- A reply continuation may also request directly without a case.
 example : (EffectfulEntry.Multiple.read sig packets exits [replyType]
     (.case (.var 0) (.let₁ (.op false (.var 0)) (.let₁ (.op false (.var 0)) (.br 0 (.var 0))))
-      (.br 1 .unit))).isNone = true := rfl
+      (.br 1 .unit))).isSome = true := rfl
+
+-- A computed request operand remains outside the structural operand grammar.
+example : (EffectfulEntry.Multiple.read sig packets exits [bit]
+    (.let₁ (.op false (.op false (.var 0))) (.br 0 (.var 0)))).isNone = true := rfl
 
 private def multiEnv (choice : Denote multiChoice) : Env Atom := fun _ => multiChoice.encode choice
 
@@ -791,5 +800,143 @@ end Observations
 example := multiple_entry_bypass multiBuilt
 example := multiple_entry_left multiBuilt
 example := multiple_entry_right multiBuilt
+
+private def recursiveSig : PrimitiveSignature Bool :=
+  ⟨fun _ => .product bit bit, fun op => if op then replyType else bit⟩
+private abbrev RecursiveEvents := Event recursiveSig.Request recursiveSig.Reply
+
+-- A positive reply enables a second opcode using the case payload and
+-- the original capture. The other reply returns at the second exit.
+private def recursivePolling : FiniteCFG Bool 1 2 1 where
+  entry := .let₁ (.op true (.pair (.bv 0) (.bv 0)))
+    (.case (.bv 0)
+      (.let₁ (.op false (.pair (.bv 0) (.bv 2))) (.br 0 (.bv 0)))
+      (.br 2 (.pair (.bv 0) (.bv 2))))
+  block _ := .br 1 .unit
+
+private def recursiveBuild :=
+  EffectfulEntry.Multiple.compile recursiveSig (.snoc .nil bit) packets exits recursivePolling
+
+private def recursiveBuilt : EffectfulEntry.Multiple.Compiled recursiveSig (.snoc .nil bit) packets exits
+    recursivePolling := recursiveBuild.get (by decide +kernel)
+
+example : recursiveBuilt.outlined.count = 4 := by decide +kernel
+
+example : packedRowMatches recursiveBuild 1
+    (.let₁ (.op true (.pair (.var 0) (.var 0))) (.br 2 (.pair (.var 1) (.var 0)))) = true :=
+  by decide +kernel
+
+example : packedRowMatches recursiveBuild 2
+    (.let₂ (.var 0) (.case (.var 0)
+      (.br 3 (.pair (.pair (.var 2) (.var 1)) (.var 0))) (.br 7 (.pair (.var 0) (.var 2))))) = true :=
+  by decide +kernel
+
+example : packedRowMatches recursiveBuild 3
+    (.let₂ (.var 0) (.let₂ (.var 1)
+      (.let₁ (.op false (.pair (.var 2) (.var 1))) (.br 4 (.pair (.var 5) (.var 0)))))) = true :=
+  by decide +kernel
+
+example : packedRowMatches recursiveBuild 4
+    (.let₂ (.var 0) (.let₂ (.var 1) (.let₂ (.var 1) (.br 0 (.var 4))))) = true :=
+  by decide +kernel
+
+private def initialKey : recursiveSig.Request := ⟨true, (first, first)⟩
+private def secondaryKey (payload : Denote bit) : recursiveSig.Request := ⟨false, (payload, first)⟩
+
+private theorem recursive_primitive_agreement : PrimitivesAgree recursiveSig.primitive recursiveSig.primitive id := by
+  intro op value
+  rw [codec_id, show valueCodec (id : Atom → Atom) = id from funext codec_id, id_map]
+
+private theorem recursive_vis_congr (key : recursiveSig.Request)
+    {left right : recursiveSig.Reply key → Tree RecursiveEvents (Transfer Atom)}
+    (agree : ∀ reply, left reply = right reply) :
+    vis (.ask key) left = vis (.ask key) right := congrArg (vis (.ask key)) (funext agree)
+
+private theorem secondary_call (payload : Denote bit) :
+    recursiveSig.primitive false (.pair (bit.encode payload) (bit.encode first)) =
+      vis (.ask (secondaryKey payload))
+        (fun (reply : recursiveSig.Reply (secondaryKey payload)) => pure (bit.encode reply)) := by
+  let argument : Denote (recursiveSig.argument false) := (payload, first)
+  change recursiveSig.primitive false ((recursiveSig.argument false).encode argument) = _
+  unfold PrimitiveSignature.primitive
+  rw [Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.PacketType.decode_encode
+    (recursiveSig.argument false) argument]
+  rfl
+
+private theorem recursive_entry :
+    region recursiveSig.primitive (env first) recursivePolling.entry.erase =
+      vis (.ask initialKey) (fun (reply : recursiveSig.Reply initialKey) =>
+        match reply with
+        | .inl payload => vis (.ask (secondaryKey payload))
+            (fun (next : recursiveSig.Reply (secondaryKey payload)) => pure (0, bit.encode next))
+        | .inr payload => pure (2, .pair (bit.encode payload) (bit.encode first))) := by
+  simp only [recursivePolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+    LambdaSSA.Semantics.Interaction.term, pure_bind]
+  have initial :
+      recursiveSig.primitive true (.pair (bit.encode first) (bit.encode first)) =
+        vis (.ask initialKey) (fun (reply : recursiveSig.Reply initialKey) => pure (replyType.encode reply)) := rfl
+  change (recursiveSig.primitive true (.pair (bit.encode first) (bit.encode first)) >>= _) = _
+  rw [initial, vis_bind]
+  simp only [pure_bind]
+  apply recursive_vis_congr initialKey
+  intro reply
+  cases reply with
+  | inl payload =>
+    change (recursiveSig.primitive false (.pair (bit.encode payload) (bit.encode first)) >>= _) = _
+    rw [secondary_call, vis_bind]
+    simp only [pure_bind]
+    rfl
+  | inr payload => rfl
+
+private noncomputable def recursiveWritten : Tree RecursiveEvents (Transfer Atom) :=
+  resultCodec id <$> (region recursiveSig.primitive (env first) recursivePolling.erase >>=
+    fun out => pure (FiniteCFG.packedTreeOutput out))
+
+private noncomputable def recursiveExpected : Tree RecursiveEvents (Transfer Atom) :=
+  vis (.ask initialKey) fun (reply : recursiveSig.Reply initialKey) =>
+    match reply with
+    | .inl payload => vis (.ask (secondaryKey payload)) (fun _ => pure firstExit)
+    | .inr payload => pure (output payload first)
+
+/-- The full source tree exposes the second request only on the selected
+reply arm. That arm uses the older capture and reaches exit zero through
+the existing block. The bypass uses the reply payload at exit one. -/
+private theorem recursive_source : recursiveWritten = recursiveExpected := by
+  unfold recursiveWritten recursiveExpected
+  rw [show recursivePolling.erase = .cfg recursivePolling.entry.erase 1
+    (fun i => (recursivePolling.block i).erase) from rfl, region, recursive_entry]
+  simp only [map_eq_pure_bind, bind_assoc, vis_bind]
+  apply recursive_vis_congr initialKey
+  intro reply
+  cases reply with
+  | inl payload =>
+    simp only [vis_bind, pure_bind]
+    apply recursive_vis_congr (secondaryKey payload)
+    intro next
+    let step (p : LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :
+        Tree RecursiveEvents (Transfer Atom ⊕ LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :=
+      region recursiveSig.primitive (LambdaSSA.Semantics.extend (env first) p.2)
+        (recursivePolling.block p.1).erase >>=
+        fun out => pure (LambdaSSA.Semantics.Interaction.splitTransfer 1 out)
+    have oldExit : Elgot.ITree.iterate step (0, bit.encode next) = pure (0, .unit) := by
+      change Elgot.iter step (0, bit.encode next) = _
+      rw [congrFun (iterate_fixpoint step) (0, bit.encode next)]
+      simp [step, recursivePolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+        LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.Interaction.splitTransfer]
+    change (Elgot.ITree.iterate step (0, bit.encode next) >>= _) = _
+    rw [oldExit]
+    simp only [pure_bind]
+    rfl
+  | inr payload =>
+    simp [LambdaSSA.Semantics.Interaction.splitTransfer, output, resultCodec, codec_id]
+
+private def recursiveRecord : Env Atom := fun _ => NamedFlat.Capture.packEnv 1 (env first)
+
+theorem recursive_packed
+    (built : EffectfulEntry.Multiple.Compiled recursiveSig (.snoc .nil bit) packets exits recursivePolling) :
+    built.publicReadback.packed.observe (env first) recursiveRecord = recursiveExpected :=
+  (built.public_run (env first) _ _ id recursive_primitive_agreement (codec_id _).symm).symm.trans recursive_source
+
+example := recursive_packed recursiveBuilt
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.CaseExamples

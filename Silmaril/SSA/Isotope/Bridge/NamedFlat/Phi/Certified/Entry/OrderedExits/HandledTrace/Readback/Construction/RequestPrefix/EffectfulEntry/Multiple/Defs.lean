@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Defs
 
-/-! # Outline independent requests in a written entry tree -/
+/-! # Outline checked requests and reply continuations in a written entry tree -/
 
 @[expose] public section
 
@@ -10,18 +10,20 @@ namespace Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Rea
 
 open LambdaSSA (FiniteCFG Region)
 open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible
-  (Expr PacketType PrimitiveSignature elaborateBranch elaborateExpr)
+  (Expr PacketType PrimitiveSignature elaborateArg elaborateBranch elaborateExpr)
 
 variable {F : Type} {blocks exits captures n newBlocks : Nat} {Γ : List PacketType}
   {sig : PrimitiveSignature F} {packets : Fin blocks → PacketType} {outputs : Fin exits → PacketType}
 
 /-- A checked entry tree indexed by the number of appended rows.
-A request leaf owns two consecutive rows. Each case divides its suffix
-into disjoint left and right intervals. -/
+A request owns its application and reply rows, followed by the rows
+of its continuation. Cases divide the suffix into disjoint intervals. -/
 inductive EntryTree (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) : List PacketType → Nat → Type
   | pure {Γ : List PacketType} (tail : CaseTail packets outputs Γ) : EntryTree sig packets outputs Γ 0
   | request {Γ : List PacketType} (leaf : Request sig packets outputs Γ) : EntryTree sig packets outputs Γ 2
+  | requestThen {Γ : List PacketType} {n : Nat} (op : F) (arg : Expr Γ (sig.argument op)) (frame : Frame Γ)
+      (next : EntryTree sig packets outputs (sig.reply op :: Γ) n) : EntryTree sig packets outputs Γ (2 + n)
   | case {Γ : List PacketType} {a b : PacketType} {l r : Nat} (test : Expr Γ (.coprod a b))
       (left : EntryTree sig packets outputs (a :: Γ) l) (right : EntryTree sig packets outputs (b :: Γ) r) :
       EntryTree sig packets outputs Γ (l + r)
@@ -29,27 +31,44 @@ inductive EntryTree (sig : PrimitiveSignature F) (packets : Fin blocks → Packe
 def EntryTree.written : {Γ : List PacketType} → {n : Nat} → EntryTree sig packets outputs Γ n → Region F
   | _, _, .pure tail => CaseTail.erase id position tail
   | _, _, .request leaf => leaf.row.erase
+  | _, _, .requestThen op arg _ next => .let₁ (.op op (operand position arg)) next.written
   | _, _, .case test left right => .case (operand position test) left.written right.written
 
-def EntryTree.entry (old : Fin blocks → Fin newBlocks) :
-    {Γ : List PacketType} → {n : Nat} → EntryTree sig packets outputs Γ n → (Fin n → Fin newBlocks) → Region F
-  | _, _, .pure tail, _ => CaseTail.erase old position tail
-  | _, _, .request leaf, labels => leaf.jumpAt (labels 0)
-  | _, _, .case (r := r) test left right, labels =>
-    .case (operand position test) (left.entry old (fun i => labels (i.castAdd r)))
-      (right.entry old (fun i => labels (i.natAdd _)))
+/-- Render an entry in the current slot layout. A reply row uses the
+restored frame's positions where the written entry uses lexical positions. -/
+def EntryTree.entryAt (old : Fin blocks → Fin newBlocks) :
+    {Γ : List PacketType} → {n : Nat} → EntryTree sig packets outputs Γ n →
+      (Fin n → Fin newBlocks) → Positions Γ → Region F
+  | _, _, .pure tail, _, layout => CaseTail.erase old layout tail
+  | _, _, .request leaf, labels, layout => .br (labels 0).val (packScope leaf.frame layout)
+  | _, _, .requestThen (n := n) _ _ frame _, labels, layout =>
+    .br (labels ((0 : Fin 2).castAdd n)).val (packScope frame layout)
+  | _, _, .case (r := r) test left right, labels, layout =>
+    .case (operand layout test) (left.entryAt old (fun i => labels (i.castAdd r)) (bindPosition layout))
+      (right.entryAt old (fun i => labels (i.natAdd _)) (bindPosition layout))
+
+def EntryTree.entry (tree : EntryTree sig packets outputs Γ n) (old : Fin blocks → Fin newBlocks)
+    (labels : Fin n → Fin newBlocks) : Region F :=
+  tree.entryAt old labels position
 
 def EntryTree.cells (old : Fin blocks → Fin newBlocks) :
     {Γ : List PacketType} → {n : Nat} → EntryTree sig packets outputs Γ n →
       (Fin n → Fin newBlocks) → Fin n → PacketType × Region F
   | _, _, .pure _, _ => Fin.elim0
   | _, _, .request leaf, labels => leaf.cellsAt old labels
+  | _, _, .requestThen (n := n) op arg frame next, labels =>
+    let reply := Frame.push (sig.reply op) frame
+    let childLabels := fun i : Fin n => labels (i.natAdd 2)
+    appendTable (Fin.cases
+      (frame.packet, frame.requestCell op arg (labels ((1 : Fin 2).castAdd n)))
+      (fun _ : Fin 1 => (reply.packet, reply.unpack 0 (next.entryAt old childLabels (reply.position 0)))))
+      (next.cells old childLabels)
   | _, _, .case (r := r) _ left right, labels =>
     appendTable (left.cells old (fun i => labels (i.castAdd r))) (right.cells old (fun i => labels (i.natAdd _)))
 
-/-- Recursively check structural case tests and their typed binder scopes.
-Each request delegates to the same one-request checker as the selected
-path API. A second request in its continuation is rejected there. -/
+/-- Check both case arms and reply continuations in their extended scopes.
+The existing structural tail checker still handles a request with a pure
+continuation without allocating additional subtree rows. -/
 def read (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType) (outputs : Fin exits → PacketType) :
     (Γ : List PacketType) → Region F → Option (Σ n, EntryTree sig packets outputs Γ n)
   | Γ, .case test left right => do
@@ -57,9 +76,14 @@ def read (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType) (out
     let ⟨_, left⟩ ← read sig packets outputs (a :: Γ) left
     let ⟨_, right⟩ ← read sig packets outputs (b :: Γ) right
     return ⟨_, .case discr left right⟩
-  | Γ, .let₁ arg tail => do
-    let leaf ← readRequest sig packets outputs Γ (.let₁ arg tail)
-    return ⟨2, .request leaf⟩
+  | ty :: rest, .let₁ (.op op arg) tail => do
+    let value ← elaborateArg (ty :: rest) (sig.argument op) arg
+    let frame := scopeFrame ty rest
+    match elaborateBranch (Sum.elim packets outputs) (sig.reply op :: ty :: rest) tail with
+    | some pureTail => return ⟨2, .request ⟨op, value, pureTail, frame⟩⟩
+    | none => do
+      let ⟨n, next⟩ ← read sig packets outputs (sig.reply op :: ty :: rest) tail
+      return ⟨2 + n, .requestThen op value frame next⟩
   | Γ, .br label arg => do
     let tail ← elaborateBranch (Sum.elim packets outputs) Γ (.br label arg)
     return ⟨0, .pure tail⟩
@@ -94,7 +118,7 @@ structure Compiled (sig : PrimitiveSignature F) (context : BoundCtx PacketType c
     outputs prepared.emitted.code
 
 /-- Use the ordinary structural entry adapter and exact public row
-checker on the table with all request leaves outlined. -/
+checker on the table with all requests and reply continuations outlined. -/
 def compile [DecidableEq F] (sig : PrimitiveSignature F) (context : BoundCtx PacketType captures)
     (packets : Fin blocks → PacketType) (outputs : Fin exits → PacketType)
     (source : FiniteCFG F blocks exits captures) : Option (Compiled sig context packets outputs source) :=

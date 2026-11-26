@@ -153,6 +153,23 @@ private noncomputable def step (instr : Primitive E F α) (env : Env α)
     Tree E (Transfer α ⊕ BlockInput α blocks) :=
   region instr (extend env p.2) (graph.block p.1).erase >>= fun out => pure (splitTransfer blocks out)
 
+/-- The emitted request makes one observable call and then transfers the
+same frame paired with the reply to its assigned continuation. -/
+private theorem request_cell_step {newBlocks : Nat}
+    (instr : Primitive E F α) (ambient : Env α) (graph : FiniteCFG F newBlocks exits captures)
+    (frame : Frame Γ) (values : Values Γ α) (op : F) (arg : Expr Γ (sig.argument op))
+    (head next : Fin newBlocks) (row : (graph.block head).erase = frame.requestCell op arg next) :
+    step instr ambient graph (head, frame.pack values) =
+      (instr op (evalOperand values arg) >>= fun reply =>
+        pure (.inr (next, (Frame.push (sig.reply op) frame).pack (bindReply values reply)))) := by
+  unfold step
+  rw [row, Frame.requestCell, unpack_tree instr frame values _ 0 _ rfl]
+  have saved : frame.load values (extend ambient (frame.pack values)) frame.shift = frame.pack values := by
+    simpa only [Nat.add_zero, extend_zero] using
+      load_ambient frame values (extend ambient (frame.pack values)) 0
+  simp only [region, term, operand_tree instr _ _ values arg
+      (load_slot frame values (extend ambient (frame.pack values)) 0 rfl), bind_assoc, pure_bind, extend_succ, extend_zero, saved, local_transfer, Frame.pack, bindReply]
+
 /-- Evaluate a prefix to its first old transfer. Only a successor in the
 fresh suffix can recurse in this inner run. -/
 private theorem follow {newBlocks : Nat}
@@ -189,13 +206,11 @@ private theorem follow {newBlocks : Nat}
     simp only [Row.run, finish_old inner old oldOutside]
   | request op arg tail ih =>
     rw [congrFun (iterate_fixpoint (partitionStepByTarget (step instr env graph) inner)) (labels 0, frame.pack values)]
-    simp only [partitionStepByTarget, step, rows 0, Row.cells, Fin.cases_zero, map_eq_pure_bind, bind_assoc, pure_bind]
-    rw [unpack_tree instr frame values _ 0 _ rfl]
-    have saved : frame.load values (extend env (frame.pack values)) frame.shift = frame.pack values := by
-      simpa only [Nat.add_zero, extend_zero] using
-        load_ambient frame values (extend env (frame.pack values)) 0
-    simp only [region, term, operand_tree instr _ _ values arg (load_slot frame values (extend env (frame.pack values)) 0 rfl),
-      pure_bind, bind_assoc, extend_succ, extend_zero, saved, local_transfer, partitionTransfer, Row.run]
+    let next := labels (0 : Fin (tail.requests + 1)).succ
+    have head : (graph.block (labels 0)).erase = frame.requestCell op arg next := by
+      simpa only [Row.cells, Fin.cases_zero, next] using rows 0
+    simp only [partitionStepByTarget, request_cell_step instr env graph frame values op arg _ _ head,
+      map_eq_pure_bind, bind_assoc, pure_bind, partitionTransfer, Frame.pack, bindReply, Row.run, next]
     apply bind_congr
     intro reply
     erw [freshInside (0 : Fin (tail.requests + 1)) (.pair (frame.pack values) reply)]
@@ -443,16 +458,16 @@ private theorem pack_scope (instr : Primitive E F α) (frame : Frame Γ) (layout
     simp only [packScope, term, ih, pure_bind, Frame.pack, readSlots]
     rfl
 
-private theorem case_congr {β : Type u} (instr : Primitive E F α) (env : Env α)
-    (test : LambdaSSA.Tm F) (left right left' right' : Region F)
-    (finish finish' : Transfer α → Tree E β)
+private theorem case_congr {β : Type u} (instr : Primitive E F α) (env target : Env α)
+    (test test' : LambdaSSA.Tm F) (left right left' right' : Region F)
+    (finish finish' : Transfer α → Tree E β) (test_eq : term instr env test = term instr target test')
     (hl : ∀ value, (region instr (extend env value) left >>= finish) =
-      (region instr (extend env value) left' >>= finish'))
+      (region instr (extend target value) left' >>= finish'))
     (hr : ∀ value, (region instr (extend env value) right >>= finish) =
-      (region instr (extend env value) right' >>= finish')) :
+      (region instr (extend target value) right' >>= finish')) :
     (region instr env (.case test left right) >>= finish) =
-      (region instr env (.case test left' right') >>= finish') := by
-  simp only [region, bind_assoc]
+      (region instr target (.case test' left' right') >>= finish') := by
+  simp only [region, bind_assoc, test_eq]
   apply bind_congr
   intro value
   cases value with
@@ -464,18 +479,30 @@ private theorem pure_path_run (instr : Primitive E F α)
     (oldFinish : (Transfer α ⊕ BlockInput α blocks) → Tree E (Transfer α))
     (newFinish : (Transfer α ⊕ BlockInput α (blocks + count)) → Tree E (Transfer α))
     (routes : ∀ out, newFinish (Sum.map id (embed count) out) = oldFinish out)
-    (tail : CaseTail packets outputs Γ) (env : Env α) :
+    (tail : CaseTail packets outputs Γ) (env target : Env α) (layout : Positions Γ)
+    (agree : ∀ {ty} (slot : Slot Γ ty), target (layout slot) = env (position slot)) :
     (region instr env (CaseTail.erase id position tail) >>= fun out => oldFinish (splitTransfer blocks out)) =
-      (region instr env (CaseTail.erase (oldLabel count) position tail) >>=
+      (region instr target (CaseTail.erase (oldLabel count) layout tail) >>=
         fun out => newFinish (splitTransfer (blocks + count) out)) := by
   rw [case_tree instr id position env (readSlots position env) (fun _ => rfl),
-    case_tree instr (oldLabel count) position env (readSlots position env) (fun _ => rfl)]
+    case_tree instr (oldLabel count) layout target (readSlots position env) agree]
   apply bind_congr
   intro out
   have identity : Sum.map id (fun state : BlockInput α blocks => (id state.1, state.2)) out = out := by
     cases out <;> rfl
   rw [identity]
   exact (routes out).symm
+
+private theorem jump_to_frame (instr : Primitive E F α) (ambient target : Env α)
+    (graph : FiniteCFG F (blocks + count) exits captures)
+    (frame : Frame Γ) (layout : Positions Γ) (values : Values Γ α)
+    (agree : ∀ {ty} (slot : Slot Γ ty), target (layout slot) = values slot)
+    (label : Fin (blocks + count)) :
+    (region instr target (.br label.val (packScope frame layout)) >>= fun out =>
+      Sum.elim pure (iter (step instr ambient graph)) (splitTransfer (blocks + count) out)) =
+      iter (step instr ambient graph) (label, frame.pack values) := by
+  have slots : @readSlots Γ α layout target = @values := by funext ty slot; exact agree slot
+  simp only [region, pack_scope, slots, pure_bind, local_transfer, Sum.elim_inr]
 
 /-- The same single-leaf simulation works at any pair of suffix labels.
 A request tail reaches an old label or an exit and resumes the outer run. -/
@@ -487,9 +514,10 @@ private theorem request_run (instr : Primitive E F α) (ambient : Env α)
     (req : Request sig packets outputs Γ) (labels : Fin 2 → Fin (blocks + count))
     (fresh : ∀ i, blocks ≤ (labels i).val)
     (rows : ∀ i, (graph.block (labels i)).erase = (req.cellsAt (oldLabel count) labels i).2)
-    (env : Env α) :
+    (env target : Env α) (layout : Positions Γ)
+    (agree : ∀ {ty} (slot : Slot Γ ty), target (layout slot) = env (position slot)) :
     (region instr env req.row.erase >>= fun out => oldFinish (splitTransfer blocks out)) =
-      (region instr env (req.jumpAt (labels 0)) >>= fun out =>
+      (region instr target (.br (labels 0).val (packScope req.frame layout)) >>= fun out =>
         Sum.elim pure (iter (step instr ambient graph)) (splitTransfer (blocks + count) out)) := by
   let vals : Values Γ α := readSlots position env
   let start : BlockInput α (blocks + count) := (labels 0, req.frame.pack vals)
@@ -506,11 +534,7 @@ private theorem request_run (instr : Primitive E F α) (ambient : Env α)
         req.row.run instr vals >>= oldFinish := by
     rw [← unsplit]
     simp only [bind_assoc, pure_bind]
-  have outlined :
-      (region instr env (req.jumpAt (labels 0)) >>= fun out =>
-        Sum.elim pure (iter body) (splitTransfer (blocks + count) out)) = iter body start := by
-    simp only [Request.jumpAt, region, pack_scope, pure_bind, local_transfer, Sum.elim_inr]
-    rfl
+  have outlined := jump_to_frame instr ambient target graph req.frame layout vals agree (labels 0)
   change iter phases start = _ at chain
   rw [original, outlined, flatten, chain]
   simp only [map_eq_pure_bind, bind_assoc, pure_bind]
@@ -529,18 +553,19 @@ private theorem outlined_entry (m : Outlined sig context packets outputs source)
     | inl r => rfl
     | inr state => exact (relocated_old_run m.code m.old_eq instr ambient state).symm
   let req := m.selection.request
-  have leaf := request_run instr ambient m.code oldFinish routes req (freshLabel blocks)
-    (fun i => by simp [freshLabel]) m.leaf_eq
+  have leaf (env : Env α) := request_run instr ambient m.code oldFinish routes req (freshLabel blocks)
+    (fun i => by simp [freshLabel]) m.leaf_eq env env position (fun _ => rfl)
   have path_eq {Γ : List PacketType} (path : Path packets outputs m.selection.scope Γ) (env : Env α) :
       (region instr env (path.erase id req.row.erase) >>= fun out => oldFinish (splitTransfer blocks out)) =
       (region instr env (path.erase (oldLabel 2) req.jump) >>= fun out => newFinish (splitTransfer (blocks + 2) out)) := by
     induction path generalizing env with
     | here => exact leaf env
     | left test selected other ih =>
-      exact case_congr instr env _ _ _ _ _ _ _ (fun value => ih (extend env value))
-        (fun value => pure_path_run instr oldFinish newFinish routes other (extend env value))
+      exact case_congr instr env env _ _ _ _ _ _ _ _ rfl (fun value => ih (extend env value))
+        (fun value => pure_path_run instr oldFinish newFinish routes other (extend env value) _ position (fun _ => rfl))
     | right test other selected ih =>
-      exact case_congr instr env _ _ _ _ _ _ _ (fun value => pure_path_run instr oldFinish newFinish routes other (extend env value))
+      exact case_congr instr env env _ _ _ _ _ _ _ _ rfl
+        (fun value => pure_path_run instr oldFinish newFinish routes other (extend env value) _ position (fun _ => rfl))
         (fun value => ih (extend env value))
   change (region instr ambient source.entry.erase >>= fun out => oldFinish (splitTransfer blocks out)) =
     (region instr ambient m.code.entry.erase >>= fun out => newFinish (splitTransfer (blocks + 2) out))
@@ -563,6 +588,26 @@ namespace Multiple
 open Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple
   (EntryTree)
 
+private theorem continuation_run
+    (instr : Primitive E F α) (ambient : Env α) (graph : FiniteCFG F (blocks + count) exits captures)
+    (frame : Frame Γ) (values : Values Γ α) (label : Fin (blocks + count)) (body : Region F)
+    (row : (graph.block label).erase = frame.unpack 0 body) :
+    iter (step instr ambient graph) (label, frame.pack values) =
+      (region instr (frame.load values (extend ambient (frame.pack values))) body >>= fun out =>
+        Sum.elim pure (iter (step instr ambient graph)) (splitTransfer (blocks + count) out)) := by
+  rw [congrFun (iterate_fixpoint (step instr ambient graph)) (label, frame.pack values)]
+  simp only [step, row, bind_assoc, pure_bind]
+  rw [unpack_tree instr frame values _ 0 _ rfl]
+
+private theorem extend_agreement {ty : PacketType}
+    (env target : Env α) (layout : Positions Γ)
+    (agree : ∀ {τ} (slot : Slot Γ τ), target (layout slot) = env (position slot))
+    (payload : Value α) {τ : PacketType} (slot : Slot (ty :: Γ) τ) :
+    extend target payload (bindPosition layout slot) = extend env payload (position slot) := by
+  cases slot with
+  | here => rfl
+  | there old => exact agree old
+
 private theorem tree_run (instr : Primitive E F α) (ambient : Env α)
     (graph : FiniteCFG F (blocks + count) exits captures)
     (oldFinish : (Transfer α ⊕ BlockInput α blocks) → Tree E (Transfer α))
@@ -571,26 +616,59 @@ private theorem tree_run (instr : Primitive E F α) (ambient : Env α)
     {n : Nat} (tree : EntryTree sig packets outputs Γ n)
     (labels : Fin n → Fin (blocks + count)) (fresh : ∀ i, blocks ≤ (labels i).val)
     (rows : ∀ i, (graph.block (labels i)).erase = (tree.cells (oldLabel count) labels i).2)
-    (env : Env α) :
+    (env target : Env α) (layout : Positions Γ)
+    (agree : ∀ {ty} (slot : Slot Γ ty), target (layout slot) = env (position slot)) :
     (region instr env tree.written >>= fun out => oldFinish (splitTransfer blocks out)) =
-      (region instr env (tree.entry (oldLabel count) labels) >>= fun out =>
+      (region instr target (tree.entryAt (oldLabel count) labels layout) >>= fun out =>
         Sum.elim pure (iter (step instr ambient graph)) (splitTransfer (blocks + count) out)) := by
-  induction tree generalizing env with
-  | pure tail => exact pure_path_run instr oldFinish _ routes tail env
-  | request leaf => exact request_run instr ambient graph oldFinish routes leaf labels fresh rows env
+  induction tree generalizing env target with
+  | pure tail => exact pure_path_run instr oldFinish _ routes tail env target layout agree
+  | request leaf => exact request_run instr ambient graph oldFinish routes leaf labels fresh rows env target layout agree
+  | @requestThen Γ n op arg frame next ih =>
+    let pairLabels := fun i : Fin 2 => labels (i.castAdd n)
+    let childLabels := fun i : Fin n => labels (i.natAdd 2)
+    let replyFrame := Frame.push (sig.reply op) frame
+    let vals : Values Γ α := readSlots position env
+    have head : (graph.block (pairLabels 0)).erase = frame.requestCell op arg (pairLabels 1) := by
+      simpa only [EntryTree.cells, appendTable_left, Fin.cases_zero, pairLabels] using rows ((0 : Fin 2).castAdd n)
+    have replyRow : (graph.block (pairLabels 1)).erase =
+        replyFrame.unpack 0 (next.entryAt (oldLabel count) childLabels (replyFrame.position 0)) := by
+      simpa only [EntryTree.cells, appendTable_left, show (1 : Fin 2) = Fin.succ (0 : Fin 1) from rfl,
+        Fin.cases_succ, pairLabels, childLabels, replyFrame] using rows ((1 : Fin 2).castAdd n)
+    rw [EntryTree.written, EntryTree.entryAt]
+    rw [jump_to_frame instr ambient target graph frame layout vals agree (pairLabels 0),
+      congrFun (iterate_fixpoint (step instr ambient graph)) (pairLabels 0, frame.pack vals),
+      request_cell_step instr ambient graph frame vals op arg _ _ head]
+    simp only [region, term, operand_tree instr position env vals arg (fun _ => rfl),
+      bind_assoc, pure_bind, Sum.elim_inr]
+    apply bind_congr
+    intro reply
+    let replyValues : Values (sig.reply op :: Γ) α := bindReply vals reply
+    rw [continuation_run instr ambient graph replyFrame replyValues (pairLabels 1) _ replyRow]
+    apply ih childLabels
+    · exact fun i => fresh (i.natAdd 2)
+    · intro i
+      simpa only [EntryTree.cells, appendTable_right, childLabels] using rows (i.natAdd 2)
+    · intro ty slot
+      rw [load_slot replyFrame replyValues _ 0 rfl]
+      cases slot <;> rfl
   | case test left right ihLeft ihRight =>
-    simp only [EntryTree.written, EntryTree.entry]
+    simp only [EntryTree.written, EntryTree.entryAt]
     apply case_congr
+    · rw [operand_tree instr position env (readSlots position env) test (fun _ => rfl),
+        operand_tree instr layout target (readSlots position env) test agree]
     · intro payload
       apply ihLeft
       · exact fun i => fresh (i.castAdd _)
       · intro i
         simpa only [EntryTree.cells, appendTable_left] using rows (i.castAdd _)
+      · exact extend_agreement env target layout agree payload
     · intro payload
       apply ihRight
       · exact fun i => fresh (i.natAdd _)
       · intro i
         simpa only [EntryTree.cells, appendTable_right] using rows (i.natAdd _)
+      · exact extend_agreement env target layout agree payload
 
 open Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple
   renaming Outlined → MultiOutlined, Compiled → MultiCompiled
@@ -611,7 +689,7 @@ theorem preserves_run (m : MultiOutlined sig context packets outputs source)
     (region instr env m.emitted.code.entry.erase >>= fun out => newFinish (splitTransfer (blocks + m.count) out))
   rw [m.emitted.sourceEntry, m.emitted.entry_eq]
   exact tree_run instr env m.emitted.code oldFinish routes m.tree (freshLabel blocks)
-    (fun i => by simp [freshLabel]) m.emitted.leaf_eq env
+    (fun i => by simp [freshLabel]) m.emitted.leaf_eq env env position (fun _ => rfl)
 
 theorem compiled_seed {A : Type 1} {Events : Type → Type}
     (built : MultiCompiled sig context packets outputs source) (instr : Primitive Events F A) (env : Env A) :
