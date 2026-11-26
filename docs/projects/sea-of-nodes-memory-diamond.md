@@ -116,3 +116,32 @@ that uses the selected export and updated heap.
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Diamond.MLIR.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.MLIR.Regression'
 ```
+
+### Two-cell equations
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.MLIR.Institution.Thms
+```
+
+`translateEquation` keeps both emitted CFGs with their own predecessor
+orders. The canonical observation is the word and both final cells from
+the existing evaluator at a three-block budget. At a two-cell typed
+valuation, `translated_satisfaction` equates the compiled sentence's
+truth with native satisfaction for all guards and initial heaps.
+`behavior_mapGraph` and `satisfaction_reindex` relate re-emission after a
+typed port map to pullback of the entry valuation.
+[Equation API](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/MLIR/Institution/Thms.lean)
+
+`validity_two_cells` quantifies that satisfaction law over all typed
+valuations at cell count two. Native validity quantifies over every
+cell count. The regression separates them by reversing two swaps
+that share an address. The two orders agree on two cells for every
+valuation, and a valuation with three distinct addresses gives
+different final heaps.
+
+`MLIR.Institution.Backends.Thms` relates the same encoded return to
+the existing λSSA return observation and numbered RVSDG γ tuple. Its
+equation theorems compose with the corresponding backend satisfaction
+laws at the same two-cell valuation.
+[Backend API](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/MLIR/Institution/Backends/Thms.lean) ·
+[Equation regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/MLIR/Institution/Regression.lean)
