@@ -3,7 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithComputedProductProducers.Intrinsic.SumCase.Tree.Defs
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Institution.Rewrite.Repair.Reply.Payload.Finite.Defs
 
-/-! # Selected trees for witnessed requests that return their bound payload -/
+/-! # Selected trees for witnessed requests and terminal reply expressions -/
 
 @[expose] public section
 
@@ -51,16 +51,37 @@ def readReply : (n : Nat) → Fin n → Term signature.Instr (replyContext n) Bi
     Fin.cases (.snd (replyContext n) Bit)
       (fun older => .seq (.fst (replyContext n) Bit) (readReply n older)) i
 
+/-- The native left and right injections encode the two literal bits. -/
+def bitTag : Bool → ExitTag (unit : Ty Empty) Bit
+  | false => .inl unit unit
+  | true => .inr unit unit
+
+/-- Compile a witnessed terminal expression. Its pure cases select only
+terminal subexpressions. The initial emits run before the first test or return. -/
+def selectTerminal {L : List (Ty Empty)} (position : Position L) :
+    {n : Nat} → Finite.Expr n → {X : Ty Empty} →
+      (Fin n → Term signature.Instr X Bit) → List Bool → CaseTree signature.Instr X L
+  | _, .literal b, _, _, emits =>
+    .taggedExit position.1 position.typed (bitTag b) (emitPrefix emits .unit)
+  | _, .read i, _, slots, emits =>
+    .exit position.1 position.typed (.returned (emitPrefix emits (slots i)))
+  | _, .split low high, X, slots, emits =>
+    let older := fun i => Term.seq (.fst X unit) (slots i.succ)
+    .case unit unit (emitPrefix emits (slots 0))
+      (selectTerminal position low older []) (selectTerminal position high older [])
+
 /-- The shared finite fragment groups emits before each request or return.
-A leaf reads a retained reply at a typed ordered exit. -/
+A leaf returns a witnessed expression over retained replies at a typed ordered exit. -/
 inductive ReadTree (L : List (Ty Empty)) : Nat → Type where
   | ret {n : Nat} (emits : List Bool) (position : Position L) (index : Fin n) : ReadTree L n
+  | retExpr {n : Nat} (emits : List Bool) (position : Position L) (result : Finite.Expr n) : ReadTree L n
   | request {n : Nat} (emits : List Bool) (label bound : Bool)
       (left right : ReadTree L (n + 1)) : ReadTree L n
 
 /-- The actual source tree in the finite witnessed LetCase grammar. -/
 def ReadTree.witnessed {L : List (Ty Empty)} {n : Nat} : ReadTree L n → Finite.Tree L n
   | .ret emits position index => emits.foldr Finite.Tree.emit (.ret position (.read index))
+  | .retExpr emits position result => emits.foldr Finite.Tree.emit (.ret position result)
   | .request emits label bound left right =>
     emits.foldr Finite.Tree.emit (.request label bound left.witnessed right.witnessed)
 
@@ -69,6 +90,7 @@ def ReadTree.selected {L : List (Ty Empty)} {n : Nat} :
     ReadTree L n → CaseTree signature.Instr (replyContext n) L
   | .ret emits position index =>
     .exit position.1 position.typed (.returned (emitPrefix emits (readReply n index)))
+  | .retExpr emits position result => selectTerminal position result (readReply n) emits
   | .request emits label _ left right =>
     .case Bit Bit (emitPrefix emits (.call (show signature.Instr from Op.ask label) .unit))
       left.selected right.selected

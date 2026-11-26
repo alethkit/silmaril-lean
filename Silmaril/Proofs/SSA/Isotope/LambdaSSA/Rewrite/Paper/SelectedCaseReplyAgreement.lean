@@ -157,38 +157,41 @@ private theorem ask_of {X : Ty Empty} (request : Bool) (x : value X) :
   change Bind.bind (m := Trace) (pure PUnit.unit) (fun _ => ask request) = _
   rw [pure_bind]
 
-private theorem emittingQuery_of {X : Ty Empty} (bits : List Bool) (request : Bool) (x : value X) :
-    ((emitPrefix bits (.call (X := X) (show signature.Instr from Op.ask request) .unit)).targetArrow J M ≫
-      (J).map ((M).coprodIso Bit Bit).hom).of x =
-      (bits.foldr (fun b next => emit b >>= fun _ => next) (ask request) >>=
-        fun s => pure (((M).coprodIso Bit Bit).hom s)) := by
+private theorem emittingDiscriminator_of {X A B : Ty Empty} (bits : List Bool)
+    (test : Term signature.Instr X (coprod A B)) (x : value X) :
+    ((emitPrefix bits test).targetArrow J M ≫
+      (J).map ((M).coprodIso A B).hom).of x =
+      (bits.foldr (fun b next => emit b >>= fun _ => next) ((test.targetArrow J M).of x) >>=
+        fun s => pure (((M).coprodIso A B).hom s)) := by
   rw [Kleisli.Type.comp_of_eq_kleisliRight]
   simp only [Bind.kleisliRight]
-  erw [emitPrefix_of, ask_of]
+  erw [emitPrefix_of]
   rfl
 
-private theorem packedArm_of {X : Ty Empty} {L : List (Ty Empty)}
-    (t : CaseTree signature.Instr (product X Bit) L) (x : value X) (b : value Bit) :
-    ((((J).map ((M).productIso X Bit).inv ≫ t.targetArrow J M) ≫
+private theorem packedArm_of {X A : Ty Empty} {L : List (Ty Empty)}
+    (t : CaseTree signature.Instr (product X A) L) (x : value X) (b : value A) :
+    ((((J).map ((M).productIso X A).inv ≫ t.targetArrow J M) ≫
         (J).map (packLabel M L)).of (x, b)) = runPacked t (x, b) := by
   simp only [runPacked, Category.assoc, Kleisli.Type.comp_of_eq_kleisliRight, Bind.kleisliRight]
   change Bind.bind (m := Trace) (pure (x, b)) _ = _
   rw [pure_bind]
   rfl
 
-private theorem packedCase_of {X : Ty Empty} {L : List (Ty Empty)} (bits : List Bool)
-    (request : Bool) (l r : CaseTree signature.Instr (product X Bit) L) (x : value X) :
-    runPacked (.case Bit Bit (emitPrefix bits (.call (show signature.Instr from Op.ask request) .unit)) l r) x =
+private theorem packedCase_of {X A B : Ty Empty} {L : List (Ty Empty)} (bits : List Bool)
+    (test : Term signature.Instr X (coprod A B))
+    (l : CaseTree signature.Instr (product X A) L)
+    (r : CaseTree signature.Instr (product X B) L) (x : value X) :
+    runPacked (.case A B (emitPrefix bits test) l r) x =
       bits.foldr (fun bit next => emit bit >>= fun _ => next)
-        (ask request >>= fun | .inl a => runPacked l (x, a) | .inr b => runPacked r (x, b)) := by
+        ((test.targetArrow J M).of x >>= fun | .inl a => runPacked l (x, a) | .inr b => runPacked r (x, b)) := by
   simp only [runPacked, CaseTree.targetArrow]
   rw [case_postcomp J, caseWithContext_of (m := Trace)]
   simp only [Bind.kleisliRight]
-  erw [emittingQuery_of]
+  erw [emittingDiscriminator_of]
   rw [bind_assoc, prefix_bind]
-  have coordinate (s : value Answer) :
-      (Types.binaryCoproductIso ((M).obj Bit) ((M).obj Bit)).hom (((M).coprodIso Bit Bit).hom s) = s :=
-    ConcreteCategory.congr_hom (Types.binaryCoproductIso (value Bit) (value Bit)).inv_hom_id s
+  have coordinate (s : value (coprod A B)) :
+      (Types.binaryCoproductIso ((M).obj A) ((M).obj B)).hom (((M).coprodIso A B).hom s) = s :=
+    ConcreteCategory.congr_hom (Types.binaryCoproductIso (value A) (value B)).inv_hom_id s
   simp only [pure_bind, coordinate]
   congr 1
   congr 1
@@ -196,6 +199,69 @@ private theorem packedCase_of {X : Ty Empty} {L : List (Ty Empty)} (bits : List 
   cases reply with
   | inl a => exact packedArm_of l x a
   | inr b => exact packedArm_of r x b
+
+private theorem packedRequest_of {X : Ty Empty} {L : List (Ty Empty)} (bits : List Bool)
+    (request : Bool) (l r : CaseTree signature.Instr (product X Bit) L) (x : value X) :
+    runPacked (.case Bit Bit (emitPrefix bits (.call (show signature.Instr from Op.ask request) .unit)) l r) x =
+      bits.foldr (fun bit next => emit bit >>= fun _ => next)
+        (ask request >>= fun | .inl a => runPacked l (x, a) | .inr b => runPacked r (x, b)) := by
+  rw [packedCase_of]
+  erw [ask_of request x]
+  congr 1
+  congr 1
+  funext reply
+  cases reply <;> rfl
+
+private theorem bitTag_of (b : Bool) :
+    ((bitTag b).valueMap M) PUnit.unit = Reply.Payload.bit b := by
+  cases b
+  · exact ConcreteCategory.congr_hom
+      (Types.binaryCoproductIso_inl_comp_hom (value unit) (value unit)) PUnit.unit
+  · exact ConcreteCategory.congr_hom
+      (Types.binaryCoproductIso_inr_comp_hom (value unit) (value unit)) PUnit.unit
+
+private theorem packedLiteral_of {X : Ty Empty} {L : List (Ty Empty)} (bits : List Bool)
+    (pos : Position L) (x : value X) (b : Bool) :
+    runPacked (.taggedExit pos.1 pos.typed (bitTag b) (emitPrefix bits (.unit : Term signature.Instr X unit))) x =
+      bits.foldr (fun bit next => emit bit >>= fun _ => next) (pure ((pos.result b).packed)) := by
+  simp only [runPacked, CaseTree.targetArrow, Category.assoc, ← (J).map_comp,
+    Kleisli.Type.comp_of_eq_kleisliRight, Bind.kleisliRight]
+  change Bind.bind (m := Trace) (((emitPrefix bits (.unit : Term signature.Instr X unit)).targetArrow J M).of x)
+    (fun v => pure ((labelInject M pos.1 pos.typed ≫ packLabel M L) (((bitTag b).valueMap M) v))) = _
+  rw [emitPrefix_of, prefix_bind]
+  rw [show ((Term.unit (Φ := signature.Instr) (X := X)).targetArrow J M).of x =
+    (pure PUnit.unit : Trace (value unit)) from rfl]
+  simp only [pure_bind, bitTag_of, packed_position]
+  rfl
+
+private theorem selectTerminal_of {L : List (Ty Empty)} (pos : Position L)
+    {n : Nat} (e : Reply.Payload.Finite.Expr n) {X : Ty Empty}
+    (slots : Fin n → Term signature.Instr X Bit) (bits : List Bool) (x : value X)
+    (env : Reply.Payload.Finite.Assignment n)
+    (hslots : ∀ i, ((slots i).targetArrow J M).of x = (pure (Reply.Payload.bit (env i)) : Trace (value Bit))) :
+    runPacked (selectTerminal pos e slots bits) x =
+      bits.foldr (fun bit next => emit bit >>= fun _ => next) (pure ((pos.result (e.eval env)).packed)) := by
+  induction e generalizing X bits with
+  | literal b => exact packedLiteral_of bits pos x b
+  | read i => exact packedLeaf_of bits pos (slots i) x (env i) (hslots i)
+  | split low high ihl ihr =>
+    rw [selectTerminal, packedCase_of]
+    erw [hslots 0]
+    rw [pure_bind]
+    have older (i : Fin _) :
+        ((Term.seq (.fst X unit) (slots i.succ)).targetArrow J M).of (x, PUnit.unit) =
+          (pure (Reply.Payload.bit (env.tail i)) : Trace (value Bit)) := by
+      simp only [Term.targetArrow, Kleisli.Type.comp_of_eq_kleisliRight, Bind.kleisliRight]
+      change Bind.bind (m := Trace) (pure x) (fun y => ((slots i.succ).targetArrow J M).of y) = _
+      rw [pure_bind]
+      exact hslots i.succ
+    cases h : env 0
+    · simp only [h, Reply.Payload.bit, Reply.Payload.Finite.Expr.eval, Bool.false_eq_true, ↓reduceIte]
+      rw [ihl (X := product X unit) _ [] (x, PUnit.unit) env.tail older]
+      rfl
+    · simp only [h, Reply.Payload.bit, Reply.Payload.Finite.Expr.eval, ↓reduceIte]
+      rw [ihr (X := product X unit) _ [] (x, PUnit.unit) env.tail older]
+      rfl
 
 private theorem prepend_outcomes {D R : Type} (bits : List Bool) (start : Trace D)
     (paths : Reply.Normal R) (success : R → D) (h : start.outcomes = paths.outcomesWith success) :
@@ -236,7 +302,7 @@ theorem packed_outcomes (H : Ty Empty) (L : List (Ty Empty)) (p : DirectProgram 
     ((PJ J M (fun _ _ => ⟨rfl, rfl⟩) (pack p.selected.elaborate.property)).of PUnit.unit).outcomes =
       Reply.Payload.programOutcomes H L p.val := by
   rw [p.selected.denote_packArrow J M (fun _ _ => ⟨rfl, rfl⟩), Reply.Payload.programOutcomes_eq]
-  have h := packedCase_of [] p.val.request (payloadLeaf p.val.left.emits p.val.left.position)
+  have h := packedRequest_of [] p.val.request (payloadLeaf p.val.left.emits p.val.left.position)
     (payloadLeaf p.val.right.emits p.val.right.position) PUnit.unit
   change runPacked p.selected PUnit.unit = _ at h
   change (runPacked p.selected PUnit.unit).outcomes = _
@@ -287,8 +353,12 @@ private theorem readTree_observe {L : List (Ty Empty)} {n : Nat}
     rw [ReadTree.selected, packedLeaf_of _ _ _ _ (env i) (readReply_of env i),
       ReadTree.witnessed, Reply.Payload.Finite.Normal.outcomes, emit_traceTree]
     exact prefix_outcomes bits Reply.Exits.Exit.packed (pos.result (env i))
+  | retExpr bits pos e =>
+    rw [ReadTree.selected, selectTerminal_of pos e _ bits _ env (readReply_of env),
+      ReadTree.witnessed, Reply.Payload.Finite.Normal.outcomes, emit_traceTree]
+    exact prefix_outcomes bits Reply.Exits.Exit.packed (pos.result (e.eval env))
   | request bits req bound l r ihl ihr =>
-    rw [ReadTree.selected, packedCase_of, ReadTree.witnessed,
+    rw [ReadTree.selected, packedRequest_of, ReadTree.witnessed,
       Reply.Payload.Finite.Normal.outcomes, emit_traceTree]
     apply prepend_outcomes
     refine request_outcomes req _ _ _ _ Reply.Exits.Exit.packed ?_ ?_

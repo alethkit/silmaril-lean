@@ -46,7 +46,8 @@ theorem DirectProgram.denote_agrees (H : Ty Empty) (L : List (Ty Empty)) (p : Di
   Tagged.outcomes_injective (p.packedOutcomes_eq H L)
 
 /-- The selected fold and the actual witnessed finite tree have equal
-packed observations. Each return may read any live reply slot. -/
+packed observations. A return can compute a witnessed expression over its
+retained replies, including a finite table quoted by `Finite.Expr.quote`. -/
 theorem ReadTree.packedOutcomes_eq (H : Ty Empty) (L : List (Ty Empty)) (p : ReadTree (H :: L) 0) :
     letI := Kleisli.instructions model
     let := modelCoherent

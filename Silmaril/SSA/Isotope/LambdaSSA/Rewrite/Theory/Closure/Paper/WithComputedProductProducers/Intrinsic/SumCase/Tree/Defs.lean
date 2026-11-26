@@ -20,10 +20,17 @@ universe u v m n x y
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
+/-- The chosen sum injection at a selected outward return. -/
+inductive ExitTag : τ → τ → Type u where
+  | inl (A B : τ) : ExitTag A (coprod A B)
+  | inr (A B : τ) : ExitTag B (coprod A B)
+
 /-- A finite selected case tree. A recursive arm keeps the incoming context
-together with its new payload. Leaves use the existing intrinsic programs. -/
+together with its new payload. Leaves return an intrinsic program or tag a term result. -/
 inductive CaseTree (Φ : Type v) [HasTy Φ τ] : τ → LCtx τ → Type (max u v) where
   | exit {X D : τ} {L : LCtx τ} (slot : Nat) : At L slot D → Program Φ X D → CaseTree Φ X L
+  | taggedExit {X A D : τ} {L : LCtx τ} (slot : Nat) : At L slot D →
+      ExitTag A D → Term Φ X A → CaseTree Φ X L
   | case {X : τ} {L : LCtx τ} (A B : τ) : Term Φ X (coprod A B) →
       CaseTree Φ (product X A) L → CaseTree Φ (product X B) L → CaseTree Φ X L
 
@@ -42,6 +49,10 @@ def CaseTree.elaborate {X : τ} {L : LCtx τ} : CaseTree Φ X L → {r : Region 
         rw [renameLabels_eq_lsubst]
         exact body.elaborate.property.lsubst
           (fun _ _ hi => .br (singletonExitRen h hi) (.var (i := 0) rfl))⟩
+  | .taggedExit _ h (.inl _ _) a =>
+      ⟨_, .let₁ a.elaborate.property (.br h (.inl (.var (i := 0) rfl)))⟩
+  | .taggedExit _ h (.inr _ _) a =>
+      ⟨_, .let₁ a.elaborate.property (.br h (.inr (.var (i := 0) rfl)))⟩
   | .case _ _ a left right =>
       ⟨_, .case a.elaborate.property
         (applyPacked_typed_exits left.elaborate.property) (applyPacked_typed_exits right.elaborate.property)⟩
@@ -58,11 +69,18 @@ variable {V : Type m} {C : Type n} [Category.{x} V] [Category.{y} C]
   (J : V ⥤ C) [DistributiveFreydCategory J]
   (M : TypeModel τ V) [InstructionModel J M Φ]
 
+/-- Interpret the selected injection using the model's sum comparison. -/
+noncomputable def ExitTag.valueMap {A D : τ} : ExitTag A D → (M.obj A ⟶ M.obj D)
+  | .inl A B => coprod.inl ≫ (M.coprodIso A B).inv
+  | .inr A B => coprod.inr ≫ (M.coprodIso A B).inv
+
 /-- Fold the selected tree into contextual cases, packing the input and
 payload at each edge and using the recorded label injection at each leaf. -/
 noncomputable def CaseTree.targetArrow {X : τ} {L : LCtx τ} :
     CaseTree Φ X L → (J.obj (M.obj X) ⟶ J.obj (labelObj M L))
   | .exit slot h body => body.targetArrow J M ≫ J.map (labelInject M slot h)
+  | .taggedExit slot h tag body =>
+      body.targetArrow J M ≫ J.map (tag.valueMap M ≫ labelInject M slot h)
   | .case A B a left right =>
       caseWithContext J (a.targetArrow J M ≫ J.map (M.coprodIso A B).hom)
         (J.map (M.productIso X A).inv ≫ left.targetArrow)
