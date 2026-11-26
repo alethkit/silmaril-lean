@@ -42,29 +42,41 @@ structure LocatedFunction where
   span : Span
   body : List LocatedStmt
 
-structure LocatedNamedArgument where
+structure LocatedNamedArgument (Operand : Type := LocatedArgument) where
   nameSpan : Span
   name : String
-  value : LocatedArgument
+  value : Operand
 
 inductive CollectionDisplay where
   | sequence (isTuple : Bool) (elements : List LocatedArgument)
   | mapping (entries : List LocatedNamedArgument)
 
-inductive SpreadOperand where
-  | name (name : String)
-  | display (display : CollectionDisplay)
-
-structure LocatedSpread where
+structure LocatedSpread (Operand : Type) where
   span : Span
-  operand : SpreadOperand
+  operand : Operand
 
 /-- Groups in the source order prescribed by Starlark. -/
-structure LocatedCallArguments where
-  positional : List LocatedArgument := []
-  named : List LocatedNamedArgument := []
-  star : Option LocatedSpread := none
-  starStar : Option LocatedSpread := none
+structure CallArguments (Operand : Type) where
+  positional : List Operand := []
+  named : List (LocatedNamedArgument Operand) := []
+  star : Option (LocatedSpread Operand) := none
+  starStar : Option (LocatedSpread Operand) := none
+
+structure LocatedString where
+  span : Span
+  text : String
+
+/-- The operand grammar admits bare-name calls recursively at operand roots. -/
+inductive CallOperand where
+  | scalar (value : LocatedArgument)
+  | display (span : Span) (display : CollectionDisplay)
+  | call (span : Span) (callee : LocatedString) (arguments : CallArguments CallOperand)
+
+abbrev LocatedCallArguments := CallArguments CallOperand
+
+def CallOperand.span : CallOperand → Span
+  | .scalar value => value.span
+  | .display span _ | .call span .. => span
 
 structure CallSpans where
   positional : List Span
@@ -78,13 +90,9 @@ def CallSpans.ordered (spans : CallSpans) : List Span :=
 
 /-- Named and spread spans include their argument introducers. -/
 @[expose] def LocatedCallArguments.spans (arguments : LocatedCallArguments) : CallSpans :=
-  ⟨arguments.positional.map LocatedArgument.span,
+  ⟨arguments.positional.map CallOperand.span,
     arguments.named.map (fun item => (item.name, ⟨item.nameSpan.start, item.value.span.stop⟩)),
     arguments.star.map LocatedSpread.span, arguments.starStar.map LocatedSpread.span⟩
-
-structure LocatedString where
-  span : Span
-  text : String
 
 structure LocatedImport where
   exported : LocatedString
@@ -453,71 +461,7 @@ private def parseMappingDisplay (fuel : Nat) (s : Stream) : Except Diagnostic (C
   let (entries, rest) ← parseDisplayItems (parseMappingEntry fuel) "}" fuel s.pop []
   return (.mapping entries, rest)
 
-private def parseSpread (fuel : Nat) (mapping : Bool) (s : Stream) :
-    Except Diagnostic (LocatedSpread × Stream) := do
-  let next := s.pop
-  let (operand, rest) ← match next.peek.kind with
-    | .name name => pure (.name name, next.pop)
-    | .outside .nonAsciiName => failAt (.unsupported .nonAsciiName) next
-    | .symbol "[" => do
-      if mapping then failAt (.unsupported .callArguments) next
-      else
-        let (display, rest) ← parseListDisplay fuel next
-        pure (.display display, rest)
-    | .symbol "(" => do
-      if mapping then failAt (.unsupported .callArguments) next
-      else
-        let some (display, rest) ← parseTupleDisplay fuel next
-          | failAt (.unsupported .callArguments) next
-        pure (.display display, rest)
-    | .symbol "{" => do
-      if !mapping then failAt (.unsupported .callArguments) next
-      else
-        let (display, rest) ← parseMappingDisplay fuel next
-        pure (.display display, rest)
-    | _ => failAt (.unsupported .callArguments) next
-  if rest.peek.kind != .symbol "," && hasExprSuffix rest then
-    return ← failAt (.unsupported .callArguments) rest
-  return (⟨⟨s.peek.span.start, rest.lastEnd⟩, operand⟩, rest)
-
--- Preserve explicit names, including repetitions, for the normalized validator.
--- Reject order errors here because the grouped call AST cannot represent them.
-private def parseCallItem (fuel : Nat) (s : Stream) (args : LocatedCallArguments) :
-    Except Diagnostic (LocatedCallArguments × Stream) := do
-  match s.peek.kind, s.pop.peek.kind with
-  | .symbol "**", _ =>
-    if args.starStar.isSome then return ← failAt (.callOrder .repeatedStarStar) s
-    let (spread, rest) ← parseSpread fuel true s
-    return ({ args with starStar := some spread }, rest)
-  | .symbol "*", _ =>
-    if args.starStar.isSome then return ← failAt (.callOrder .argumentAfterStarStar) s
-    if args.star.isSome then return ← failAt (.callOrder .repeatedStar) s
-    let (spread, rest) ← parseSpread fuel false s
-    return ({ args with star := some spread }, rest)
-  | kind, next =>
-    if args.starStar.isSome then return ← failAt (.callOrder .argumentAfterStarStar) s
-    if args.star.isSome then return ← failAt (.callOrder .argumentAfterStar) s
-    if let (.name name, .symbol "=") := (kind, next) then
-      let (value, rest) ← parseLocatedExpr fuel s.pop.pop
-      return ({ args with named := ⟨s.peek.span, name, value⟩ :: args.named }, rest)
-    if !args.named.isEmpty then return ← failAt (.callOrder .positionalAfterNamed) s
-    let (value, rest) ← parseLocatedExpr fuel s
-    return ({ args with positional := value :: args.positional }, rest)
-
-private def parseCallArguments (exprFuel : Nat) :
-    Nat → Stream → LocatedCallArguments → Except Diagnostic (LocatedCallArguments × Stream)
-  | 0, s, _ => failAt .exhausted s
-  | fuel + 1, s, args => do
-    if s.peek.kind = .symbol ")" then
-      return ({ args with positional := args.positional.reverse, named := args.named.reverse }, s.pop)
-    let (args, rest) ← parseCallItem exprFuel s args
-    match rest.peek.kind with
-    | .symbol "," => parseCallArguments exprFuel fuel rest.pop args
-    | .symbol ")" =>
-      return ({ args with positional := args.positional.reverse, named := args.named.reverse }, rest.pop)
-    | _ => expect "',' or ')'" rest
-
-private def parseAssignmentDisplay (fuel : Nat) (s : Stream) :
+private def parseCollectionDisplay (fuel : Nat) (s : Stream) :
     Except Diagnostic (Option (CollectionDisplay × Stream)) :=
   match s.peek.kind with
   | .symbol "[" => some <$> parseListDisplay fuel s
@@ -525,14 +469,92 @@ private def parseAssignmentDisplay (fuel : Nat) (s : Stream) :
   | .symbol "{" => some <$> parseMappingDisplay fuel s
   | _ => pure none
 
+-- Each cycle through the call grammar consumes an opening parenthesis or
+-- a comma. The common budget also covers the handoffs between its parsers.
+mutual
+
+private def parseCallOperand (exprFuel : Nat) : Nat → Stream → Except Diagnostic (CallOperand × Stream)
+  | 0, s => failAt .exhausted s
+  | fuel + 1, s => do
+    if let (.name callee, .symbol "(") := (s.peek.kind, s.pop.peek.kind) then
+      let (arguments, rest) ← parseCallArguments exprFuel fuel s.pop.pop {}
+      if rest.peek.kind != .symbol "," && hasExprSuffix rest then
+        return ← failAt (.unsupported .callArguments) rest
+      return (.call ⟨s.peek.span.start, rest.lastEnd⟩ ⟨s.peek.span, callee⟩ arguments, rest)
+    let (value, rest) ← parseLocatedExpr exprFuel s
+    return (.scalar value, rest)
+termination_by structural fuel _ => fuel
+
+private def parseSpread (exprFuel : Nat) :
+    Nat → Bool → Stream → Except Diagnostic (LocatedSpread CallOperand × Stream)
+  | 0, _, s => failAt .exhausted s
+  | fuel + 1, mapping, s => do
+    let next := s.pop
+    let parsed ← parseCollectionDisplay exprFuel next
+    let (operand, rest) ← match parsed with
+      | some (display, rest) =>
+        pure (.display ⟨next.peek.span.start, rest.lastEnd⟩ display, rest)
+      | none => parseCallOperand exprFuel fuel next
+    if let .display _ display := operand then
+      match display with
+      | .mapping _ => unless mapping do return ← failAt (.unsupported .callArguments) next
+      | .sequence .. => if mapping then return ← failAt (.unsupported .callArguments) next
+    if rest.peek.kind != .symbol "," && hasExprSuffix rest then
+      return ← failAt (.unsupported .callArguments) rest
+    return (⟨⟨s.peek.span.start, rest.lastEnd⟩, operand⟩, rest)
+termination_by structural fuel _ _ => fuel
+
+-- Preserve explicit names, including repetitions, for the normalized validator.
+-- Reject order errors here because the grouped call AST cannot represent them.
+private def parseCallItem (exprFuel : Nat) :
+    Nat → Stream → LocatedCallArguments → Except Diagnostic (LocatedCallArguments × Stream)
+  | 0, s, _ => failAt .exhausted s
+  | fuel + 1, s, args => do
+    match s.peek.kind, s.pop.peek.kind with
+    | .symbol "**", _ =>
+      if args.starStar.isSome then return ← failAt (.callOrder .repeatedStarStar) s
+      let (spread, rest) ← parseSpread exprFuel fuel true s
+      return ({ args with starStar := some spread }, rest)
+    | .symbol "*", _ =>
+      if args.starStar.isSome then return ← failAt (.callOrder .argumentAfterStarStar) s
+      if args.star.isSome then return ← failAt (.callOrder .repeatedStar) s
+      let (spread, rest) ← parseSpread exprFuel fuel false s
+      return ({ args with star := some spread }, rest)
+    | kind, next =>
+      if args.starStar.isSome then return ← failAt (.callOrder .argumentAfterStarStar) s
+      if args.star.isSome then return ← failAt (.callOrder .argumentAfterStar) s
+      if let (.name name, .symbol "=") := (kind, next) then
+        let (value, rest) ← parseCallOperand exprFuel fuel s.pop.pop
+        return ({ args with named := ⟨s.peek.span, name, value⟩ :: args.named }, rest)
+      if !args.named.isEmpty then return ← failAt (.callOrder .positionalAfterNamed) s
+      let (value, rest) ← parseCallOperand exprFuel fuel s
+      return ({ args with positional := value :: args.positional }, rest)
+termination_by structural fuel _ _ => fuel
+
+private def parseCallArguments (exprFuel : Nat) :
+    Nat → Stream → LocatedCallArguments → Except Diagnostic (LocatedCallArguments × Stream)
+  | 0, s, _ => failAt .exhausted s
+  | fuel + 1, s, args => do
+    if s.peek.kind = .symbol ")" then
+      return ({ args with positional := args.positional.reverse, named := args.named.reverse }, s.pop)
+    let (args, rest) ← parseCallItem exprFuel fuel s args
+    match rest.peek.kind with
+    | .symbol "," => parseCallArguments exprFuel fuel rest.pop args
+    | .symbol ")" =>
+      return ({ args with positional := args.positional.reverse, named := args.named.reverse }, rest.pop)
+    | _ => expect "',' or ')'" rest
+termination_by structural fuel _ _ => fuel
+
+end
+
 private def parseFileSmall (exprFuel : Nat) (s : Stream) : Except Diagnostic (FileCommand × Stream) := do
   match s.remaining with
   | ⟨.name target, _⟩ :: ⟨.symbol "=", _⟩ :: ⟨.name callee, _⟩ :: ⟨.symbol "(", _⟩ :: _ =>
-    let (arguments, rest) ← parseCallArguments exprFuel exprFuel s.pop.pop.pop.pop {}
+    let (arguments, rest) ← parseCallArguments exprFuel (4 * exprFuel) s.pop.pop.pop.pop {}
     if hasExprSuffix rest then failAt (.unsupported .call) rest
     else return (.assignCall target callee arguments, rest)
   | ⟨.name target, _⟩ :: ⟨.symbol "=", _⟩ :: _ =>
-    if let some (display, rest) ← parseAssignmentDisplay exprFuel s.pop.pop then
+    if let some (display, rest) ← parseCollectionDisplay exprFuel s.pop.pop then
       if hasExprSuffix rest then return ← failAt (.unsupported .collection) rest
       return (.assignDisplay target display, rest)
     let (stmt, rest) ← parseSmallStmt exprFuel false s

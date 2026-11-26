@@ -9,28 +9,34 @@ namespace Silmaril.Proofs.Languages.Starlark.Frontend.Module
 
 open Silmaril.Languages.Starlark
 open Silmaril.Languages.Starlark.Frontend
-open Silmaril.Languages.Starlark.Frontend.Module (lowerNamedArguments lowerArgument lowerSpread lowerCall LoweredCall callShape)
+open Silmaril.Languages.Starlark.Frontend.Module
+  (lowerNamedArguments lowerArgument lowerGroupedCall lowerOperand lowerCall LoweredCall LoweredOperand callShape)
+
+private theorem namedMapM_names {α β : Type} (lower : α → Except Diagnostic β)
+    {arguments : List (LocatedNamedArgument α)} {lowered : List (String × β)}
+    (mapped : (arguments.mapM fun argument => do
+      return (argument.name, ← lower argument.value)) = .ok lowered) :
+    lowered.map Prod.fst = arguments.map LocatedNamedArgument.name := by
+  induction arguments generalizing lowered with
+  | nil => cases mapped; rfl
+  | cons argument rest ih =>
+    rw [List.mapM_cons] at mapped
+    cases value : lower argument.value with
+    | error _ => simp [value, bind, Except.bind] at mapped
+    | ok expr =>
+      cases tail : (rest.mapM fun item => do return (item.name, ← lower item.value)) with
+      | error _ => rw [tail] at mapped; simp [value, bind, Except.bind, pure, Except.pure] at mapped
+      | ok result =>
+        rw [tail] at mapped
+        simp [value, bind, Except.bind, pure, Except.pure] at mapped
+        subst lowered
+        simp [ih tail]
 
 theorem lowerNamedArguments_names {arguments : List LocatedNamedArgument}
     {lowered : List (String × Functions.Lowering.Resolve.SourceExpr)}
     (lowering : lowerNamedArguments arguments = .ok lowered) :
-    lowered.map Prod.fst = arguments.map LocatedNamedArgument.name := by
-  induction arguments generalizing lowered with
-  | nil => cases lowering; rfl
-  | cons argument rest ih =>
-    have foldTail : (rest.mapM fun item => do
-        return (item.name, ← lowerArgument item.value)) = lowerNamedArguments rest := rfl
-    unfold lowerNamedArguments at lowering
-    rw [List.mapM_cons, foldTail] at lowering
-    cases value : lowerArgument argument.value with
-    | error _ => simp [value, bind, Except.bind] at lowering
-    | ok expr =>
-      cases tail : lowerNamedArguments rest with
-      | error _ => simp [value, bind, Except.bind, tail, pure, Except.pure] at lowering
-      | ok result =>
-        simp [value, bind, Except.bind, tail, pure, Except.pure] at lowering
-        subst lowered
-        simp [ih tail]
+    lowered.map Prod.fst = arguments.map LocatedNamedArgument.name :=
+  namedMapM_names lowerArgument lowering
 
 private theorem listMapM_length {α β ε : Type} {f : α → Except ε β} {input : List α}
     {output : List β} (mapped : input.mapM f = .ok output) : output.length = input.length := by
@@ -56,32 +62,46 @@ private theorem optionMapM_isSome {α β ε : Type} {f : α → Except ε β} {i
     cases result : f value <;> rw [Option.mapM, result] at mapped <;> cases mapped
     rfl
 
+private theorem mapM_optionAttach {α β : Type} (input : Option α)
+    (f : α → Except Diagnostic β) :
+    input.attach.mapM (fun item => f item.val) = input.mapM f := by
+  cases input <;> rfl
+
 theorem lowerCall_operands {callee : String} {arguments : LocatedCallArguments}
     {result : LoweredCall} (lowering : lowerCall callee arguments = .ok result) :
     ∃ positional named star starStar,
       result.expression = .call (.scalar (.read callee)) positional named star starStar ∧
       result.spans = arguments.spans ∧
       callShape result.spans = Functions.Lowering.argumentShape positional named star starStar := by
-  unfold lowerCall at lowering
-  cases positions : arguments.positional.mapM lowerArgument with
-  | error _ => simp [positions, bind, Except.bind] at lowering
+  let lowerNamed (argument : LocatedNamedArgument CallOperand) : Except Diagnostic (String × LoweredOperand) := do
+    return (argument.name, ← lowerOperand argument.value)
+  let lowerSpread (spread : LocatedSpread CallOperand) := lowerOperand spread.operand
+  unfold lowerCall lowerGroupedCall at lowering
+  rw [List.mapM_subtype (g := lowerOperand) (fun _ _ => rfl), List.unattach_attach,
+    List.mapM_subtype (g := lowerNamed) (fun _ _ => rfl), List.unattach_attach,
+    mapM_optionAttach arguments.star lowerSpread, mapM_optionAttach arguments.starStar lowerSpread] at lowering
+  cases positions : arguments.positional.mapM lowerOperand with
+  | error _ => rw [positions] at lowering; cases lowering
   | ok positional =>
-    simp only [positions, bind, Except.bind] at lowering
-    cases names : lowerNamedArguments arguments.named with
-    | error _ => simp [names] at lowering
+    rw [positions] at lowering
+    cases names : arguments.named.mapM lowerNamed with
+    | error _ => rw [names] at lowering; cases lowering
     | ok named =>
-      simp only [names] at lowering
+      rw [names] at lowering
       cases spread : arguments.star.mapM lowerSpread with
-      | error _ => simp [spread] at lowering
+      | error _ => rw [spread] at lowering; cases lowering
       | ok star =>
-        simp only [spread] at lowering
+        rw [spread] at lowering
         cases mapping : arguments.starStar.mapM lowerSpread with
-        | error _ => simp [mapping] at lowering
+        | error _ => rw [mapping] at lowering; cases lowering
         | ok starStar =>
-          simp [mapping, pure, Except.pure] at lowering
-          subst result
-          refine ⟨positional, named, star, starStar, rfl, rfl, ?_⟩
-          simp [callShape, Functions.Lowering.argumentShape, LocatedCallArguments.spans, listMapM_length positions,
-            lowerNamedArguments_names names, optionMapM_isSome spread, optionMapM_isSome mapping]
+          have orderedNames : named.map Prod.fst = arguments.named.map LocatedNamedArgument.name :=
+            namedMapM_names lowerOperand names
+          rw [mapping] at lowering
+          cases lowering
+          refine ⟨_, _, _, _, rfl, rfl, ?_⟩
+          simp [callShape, Functions.Lowering.argumentShape, LocatedCallArguments.spans,
+            listMapM_length positions, ← orderedNames, List.map_map, Function.comp_def,
+            optionMapM_isSome spread, optionMapM_isSome mapping]
 
 end Silmaril.Proofs.Languages.Starlark.Frontend.Module
