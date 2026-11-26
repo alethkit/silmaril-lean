@@ -31,6 +31,16 @@ theorem merge_run (fuel : Nat) (old : Bank (regs := regs) m) :
       some (incoming p merge m old (p.selected m old)) :=
   Proofs.merge_run p m projected fuel old
 
+/-- The emitted smaller γ needs agreement only on the latch packet. -/
+theorem activation_run_for
+    (agrees : ∀ left right : Bank (regs := regs) m, merge.project left = merge.project right →
+      latchPacket p carry m ((Nested.Numbered.tail p).eval m left) =
+        latchPacket p carry m ((Nested.Numbered.tail p).eval m right))
+    (fuel : Nat) (old : Bank (regs := regs) m) :
+    (thetaBodyFor p projected merge).run (model m) fuel (carry.project old) =
+      some (latchPacket p carry m (nextBank p m old)) :=
+  Proofs.activation_run_for p m projected agrees fuel old
+
 variable (checked : Checked p merge)
 
 /-- Reconstruction recovers the exact original stop tag and feedback bank. -/

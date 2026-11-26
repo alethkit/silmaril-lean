@@ -9,13 +9,14 @@ public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Numbered.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Numbered
 
-open SeaOfNodes.Diamond (Ty ValueSort dataPorts)
+open SeaOfNodes.Diamond (Model Ty ValueSort dataPorts)
 open RVSDG (Tuple Wires)
 open RVSDG.NestedTheta (Term)
-open Join (Opcode)
+open Join (Opcode model)
 open Diamond.Prune (HeaderProjection lowerFlow routeProjectedWith)
 open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond (bodyPorts thenBase)
 open Nested.Numbered (outerSigs outerArm afterOuterWith routePorts KeptResult)
+open Blocks (Bank)
 open Blocks.Prune (Mask)
 
 universe u v w
@@ -58,9 +59,9 @@ def mergeRegion (merge : Mask regs) : Term (Opcode Op) (dataPorts header.kept) [
   thenBase (lowerFlow projected.flow projected.outgoing) fun current =>
     afterOuterWith p (arm p merge) current .ret
 
-/-- The merge certificate makes any filler for a dropped input unobservable.
-The ordinary compiler emits the original merge and latch after the smaller γ. -/
-def thetaBody (_checked : Checked p merge) : Term (Opcode Op) (dataPorts header.kept) []
+/-- Build the smaller γ and emit the original ordered tail. A client must
+validate the chosen mask against the observations of this tail. -/
+def thetaBodyFor (merge : Mask regs) : Term (Opcode Op) (dataPorts header.kept) []
     ((src p.header).body.producers ++
       (splitSigs merge ++ ((Nested.Numbered.tail p).producers ++ [bodyPorts regs])))
     (bodyPorts header.kept) :=
@@ -70,6 +71,13 @@ def thetaBody (_checked : Checked p merge) : Term (Opcode Op) (dataPorts header.
         keep (added := dataPorts merge.kept) (keep (added := routePorts regs) wire)
       thenBase ((Nested.Numbered.tail p).lowerFrom (restore merge fallback kept) .jump)
         (routeProjectedWith p.again header)
+
+/-- A complete-bank certificate makes the dropped inputs unobservable. -/
+def thetaBody (_checked : Checked p merge) :=
+  thetaBodyFor p projected merge
+
+def latchPacket (header : Mask regs) (m : Model.{u, v, w} Op) (final : Bank (regs := regs) m) :=
+  RVSDG.Theta.bodyResult (model m) (final.get p.again).down (header.project final)
 
 def lower (checked : Checked p merge) (result : KeptResult p (mask := header)) :=
   Nested.Numbered.lowerWith p result (thetaBody p projected checked)
