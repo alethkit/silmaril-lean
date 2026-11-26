@@ -34,7 +34,7 @@ structure Edit (args : List ValueSort) where
   routes : Discovery.Result args
 
 /-- The nominated version is one-based in the residual entry. Its cell
-must differ from every retained Store's cell. Retained cells may alias. -/
+must differ from each later Store's cell. The retained prefix is unchanged. -/
 def rewrite (graph : Graph args) (entry : Memory.Graph args) (version : Nat)
     (input : Tuple (Val cells) args) : Option (Edit args) :=
   match version with
@@ -43,7 +43,7 @@ def rewrite (graph : Graph args) (entry : Memory.Graph args) (version : Nat)
     let (chain, word) ← stores entry
     let selected ← chain[index]?
     let retained := chain.eraseIdx index
-    let facts : Certificate args := ⟨selected.address, retained.map PrefixStore.address⟩
+    let facts : Certificate args := ⟨selected.address, (chain.drop (index + 1)).map PrefixStore.address⟩
     if facts.check input then
       (Discovery.rewrite ⟨selected, graph⟩ input).map (Edit.mk (storeTable word 0 retained))
     else none

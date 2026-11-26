@@ -277,11 +277,12 @@ lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/Sea
 `Entry.Composition.Retained.lower graph entry version input` runs the
 existing entry-local pass. The next stage recognizes a nonempty residual
 chain of argument-addressed Stores of argument words, followed by Return.
-The version is one-based in that residual table. The checker requires the
-nominated Store's concrete cell to differ from every retained Store's cell
-at the supplied input. The proof can then move the nominated write to the
-end of the heap calculation. The emitted entry keeps every other write in
-its original order, including writes to coincident cells. The residual
+The version is one-based in that residual table. The checker compares the
+nominated cell with the cells written strictly after it. The retained
+prefix establishes the same heap before nomination and can include a
+write to that same cell. The proof moves the nominated write over the
+disjoint suffix only. The emitted entry keeps the exact prefix and suffix,
+in order, including retained writes to coincident cells. The residual
 chain admits only Stores before Return. Every Load before the nominated
 Store's overwrite on either route must pass the existing reader checker
 at the same input.
@@ -291,22 +292,26 @@ at the same input.
 
 The existing discovery checks the actual Region slots, including the
 original address wire at each overwrite. After a successful check, the
-optimized entry forwards the entire buffer produced by the retained
-table. `Edit.retained` carries that native table with consecutive memory
-versions and the original Return operand. The original and optimized
-CFGs return the same word and all final cells for either predicate and
-any initial buffer at the checked input.
+optimized entry forwards the original Region frame and the entire buffer
+produced by the retained table. `Edit.retained` carries that native table
+with consecutive memory versions and the original Return operand. The
+original and optimized CFGs return the same word and all final cells for
+either predicate and any initial buffer at the checked input.
 Three CF block steps suffice for both artifacts. A shape, cell, or route
 refusal keeps the emitted entry-local result.
 [Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Thms.lean)
 
 The runnable fixture nominates the middle Store in a three-Store residual
 table. The first and last Stores use distinct ports that resolve to the
-same cell. Both routes read the last write, `33`, from that cell. In the
-refusal case the nominated Store aliases a retained Store, even though
-both route checks would pass. The entry-local deletion stays committed.
-The two-Store fixtures also check a reader alias confined to the false
-route.
+same cell. Both routes read the last write, `33`, from that cell. Another
+valuation aliases the prefix Store and the nominated Store through
+distinct address ports. The prefix alias survives the entry-local pass,
+which finds overwrites by wire identity. The all-path step accepts and
+both emitted CFGs agree on the word and every final cell under both
+predicates. Placing the aliasing Store in the suffix refuses the all-path
+step even though both route checks pass. The entry-local deletion stays
+committed. The two-Store fixtures also check a reader alias confined to
+the false route.
 [Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
 
 ```sh

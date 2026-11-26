@@ -152,15 +152,6 @@ theorem lower_runs {source : Prefixed args} {programs : Programs cells args}
         if fuel < 3 then none else some (value.1, Buffer.mk value.2))
         (Discovery.rewrite_denote input discovered guard initial.cell))
 
-private theorem rewrite_merge {source : Prefixed args} {result : Discovery.Result args}
-    (input : Tuple (Val cells) args) (success : Discovery.rewrite source input = some result) :
-    result.graph.merge = source.diamond.merge := by
-  have checked := (Discovery.rewrite_checked input success).2
-  obtain ⟨first, _, tail⟩ := Option.bind_eq_some_iff.mp checked
-  obtain ⟨second, _, packed⟩ := Option.bind_eq_some_iff.mp tail
-  have merged := congrArg (fun graph : Graph args => graph.merge) (Option.some.inj packed)
-  exact merged.symm
-
 private theorem lowerDiamond_entry (graph : Graph args) (entryBody : Option (Memory.Graph args))
     (input : Tuple (Val cells) args) (guard : Bool) (initial : Buffer cells) :
     entryDestination (lowerDiamond cells graph entryBody) input guard initial =
@@ -179,6 +170,6 @@ theorem lower_entry_slots {source : Prefixed args} {programs : Programs cells ar
   constructor
   · exact lowerDiamond_entry source.diamond (some source.store.table) input guard initial
   · exact (lowerDiamond_entry result.graph none input guard initial).trans
-      (by rw [rewrite_merge input discovered])
+      (by rw [Discovery.rewrite_merge input discovered])
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Proofs
