@@ -36,8 +36,7 @@ emitted path to resuming at the merge with the source-computed column.
 `lower_run` preserves the return or exhaustion at source budget `n`
 and CF budget `n + 1`. The extra visit executes the typed return label.
 This profile carries the full bank at the common merge and has one
-nested split and one checked backedge. Numbered γ/θ lowering of this
-three-occurrence cyclic profile remains open.
+nested split and one checked backedge.
 [CF theorems](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MLIR/CF/Thms.lean)
 
 Build the fixture with
@@ -66,3 +65,54 @@ the three emitted merge packets, both projected feedback frames, and
 the refusal case. The overwritten predicate reduces the carried bank
 from seven fields to six.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MLIR/CF/Regression.lean)
+
+## Run the numbered γ/θ graph
+
+`Nested.Numbered.lower` emits a carried θ with the same header
+reconstruction certificate as CF. The outer γ's true region executes
+the inner split's quads and contains a second numbered γ. A direct
+inner edge forwards the post-inner bank. The outer false region
+executes its own arm quads. Neither split duplicates the common merge
+or the tested latch. `checkResult` certifies that the θ stopping packet
+retains the source return slot.
+[Numbered emitter](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Numbered/Defs.lean)
+
+`merge_run` connects the actual numbered routes to the corresponding
+`Program.incomingTransfer` column. The graph resolves names in each
+region's typed scope and supplies the same bank as the source column's
+whole-path scope. `activation_run` gives the original stop/restart tag
+and the simultaneous projected feedback bank. `returns_iff` connects
+finite source returns with finite θ returns in both directions.
+[Numbered theorems](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Numbered/Thms.lean)
+
+`Comparison.cf_returns_iff` compares the same typed input and
+the same encoded result with a separate budget witness for each
+target. `cf_at_activations` counts the visited source blocks on the
+selected paths, plus one CF return visit. `cf_diverges_iff` compares
+absence of a return at every finite budget.
+[Comparison theorems](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Numbered/Comparison/Thms.lean)
+
+Build with
+`lake build --wfail +Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Numbered.Example.Defs`.
+Paste the block into `QuadNestedNumbered.lean` and run
+`lake env lean -DwarningAsError=true QuadNestedNumbered.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Numbered.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Numbered.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested
+
+#eval Numbered.Example.incoming
+#eval Numbered.Example.thetaArity
+#eval (Numbered.Example.sourceBudget 3, MLIR.CF.Example.runCF 15, Numbered.Example.runRVSDG 3)
+#eval (MLIR.CF.Example.runCF 14, Numbered.Example.runRVSDG 2)
+```
+
+The three γ probes return `[(3, some 7), (2, some 6), (4, some 10)]`.
+The numbered θ carries six fields, down from the seven source registers.
+Three activations take two feedback edges and return 16 at CF budget 15.
+The last line shows bounded exhaustion in both targets.
+[Numbered regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Numbered/Regression.lean)

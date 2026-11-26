@@ -152,10 +152,14 @@ abbrev Program.bodySigs :=
   (src p.header).body.producers ++ (p.plan.producers ++ (p.tail.producers ++ [bodyPorts regs]))
 
 /-- Use the post-latch test to tag the complete updated bank. -/
+def latchNodeFor (again : Port (dataPorts regs) (.value .predicate))
+    {args : List (Ty Data)} {past : List (List (Ty Data))}
+    (bank : Wires args past (dataPorts regs)) : RVSDG.Node (Opcode Op) args past (bodyPorts regs) :=
+  ⟨_, .simple (.route (.test again (.take 1) (.take 0))), bank, Fin.elim0⟩
+
 def Program.latchNode {args : List (Ty Data)} {past : List (List (Ty Data))}
-    (bank : Wires args past (dataPorts regs)) :
-    RVSDG.Node (Opcode Op) args past (bodyPorts regs) :=
-  ⟨_, .simple (.route (.test p.again (.take 1) (.take 0))), bank, Fin.elim0⟩
+    (bank : Wires args past (dataPorts regs)) : RVSDG.Node (Opcode Op) args past (bodyPorts regs) :=
+  latchNodeFor p.again bank
 
 def Program.routeLatch {past : List (List (Ty Data))}
     (bank : Wires (dataPorts regs) past (dataPorts regs)) :
