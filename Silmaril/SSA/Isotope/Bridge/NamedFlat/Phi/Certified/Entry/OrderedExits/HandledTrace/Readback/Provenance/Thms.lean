@@ -27,6 +27,13 @@ theorem packet_term_tree (instr : Primitive Events F α) (env : Env α)
   Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.Provenance.packet_tree
     instr env packet
 
+/-- Reinterpret the same graph at an encoded capture environment using
+the primitive agreement, with identity routing on the numbered labels. -/
+def PrimitivesAgree.sameGraph (prim : PrimitivesAgree left right atom)
+    (graph : FiniteCFG F blocks exits captures) (env : Env α) :
+    Alignment graph graph left right env (valueCodec atom ∘ env) atom :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.Provenance.sameGraph prim graph env
+
 /-- The exact source jump and public capture read generate the same
 pending packet after encoding. -/
 theorem Provenance.entry_eq (p : Provenance source target)

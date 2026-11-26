@@ -11,17 +11,44 @@ namespace Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Rea
 open LambdaSSA (FiniteCFG Flat Region Tm)
 open Morphism.CaseSSA (erase)
 open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible
-  (Expr PacketType PrimitiveSignature Slot elaborateExpr)
+  (PacketType PrimitiveSignature Slot slotAt)
 
 variable {F : Type} {blocks exits captures labels : Nat} {Γ Δ Θ : List PacketType}
   {sig : PrimitiveSignature F} {ty : PacketType}
 
-/-- The checked operand grammar shares structural leaves with the public
-dispatcher. A primitive's argument is checked recursively at its input type. -/
+/-- Silent LambdaSSA values left after scheduling. Injection nodes retain
+both summand types even though erasure writes only the selected tag. -/
+inductive Residual (Γ : List PacketType) : PacketType → Type
+  | var {a : PacketType} : Slot Γ a → Residual Γ a
+  | unit : Residual Γ .unit
+  | pair {a b : PacketType} : Residual Γ a → Residual Γ b → Residual Γ (.product a b)
+  | inl {a b : PacketType} : Residual Γ a → Residual Γ (.coprod a b)
+  | inr {a b : PacketType} : Residual Γ b → Residual Γ (.coprod a b)
+
+def Residual.erase (layout : Positions Γ) : {a : PacketType} → Residual Γ a → Tm F
+  | _, .var slot => .var (layout slot)
+  | _, .unit => .unit
+  | _, .pair left right => .pair (left.erase layout) (right.erase layout)
+  | _, .inl value => .inl (value.erase layout)
+  | _, .inr value => .inr (value.erase layout)
+
+universe u
+
+def Residual.eval {α : Type u} (values : Values Γ α) : {a : PacketType} → Residual Γ a → Value α
+  | _, .var slot => values slot
+  | _, .unit => .unit
+  | _, .pair left right => .pair (left.eval values) (right.eval values)
+  | _, .inl value => .inl (value.eval values)
+  | _, .inr value => .inr (value.eval values)
+
+/-- The checked operand grammar uses the primitive signature and expected
+sum types to type the scheduled payloads. -/
 inductive Operand (sig : PrimitiveSignature F) : List PacketType → PacketType → Type
-  | pure {Γ : List PacketType} {a : PacketType} (value : Expr Γ a) : Operand sig Γ a
+  | pure {Γ : List PacketType} {a : PacketType} (value : Residual Γ a) : Operand sig Γ a
   | pair {Γ : List PacketType} {a b : PacketType} (left : Operand sig Γ a) (right : Operand sig Γ b) :
       Operand sig Γ (.product a b)
+  | inl {Γ : List PacketType} {a b : PacketType} (value : Operand sig Γ a) : Operand sig Γ (.coprod a b)
+  | inr {Γ : List PacketType} {a b : PacketType} (value : Operand sig Γ b) : Operand sig Γ (.coprod a b)
   | call {Γ : List PacketType} (op : F) (arg : Operand sig Γ (sig.argument op)) : Operand sig Γ (sig.reply op)
   | let₁ {Γ : List PacketType} {a b : PacketType} (value : Operand sig Γ a) (body : Operand sig (a :: Γ) b) :
       Operand sig Γ b
@@ -29,26 +56,30 @@ inductive Operand (sig : PrimitiveSignature F) : List PacketType → PacketType 
       (body : Operand sig (b :: a :: Γ) c) : Operand sig Γ c
 
 def Operand.written : {Γ : List PacketType} → {ty : PacketType} → Operand sig Γ ty → Tm F
-  | _, _, .pure value => operand position value
+  | _, _, .pure value => value.erase position
   | _, _, .pair left right => .pair left.written right.written
+  | _, _, .inl value => .inl value.written
+  | _, _, .inr value => .inr value.written
   | _, _, .call op arg => .op op arg.written
   | _, _, .let₁ value body => .let₁ value.written body.written
   | _, _, .let₂ value body => .let₂ value.written body.written
 
 abbrev SlotMap (Γ Δ : List PacketType) := ∀ {a}, Slot Γ a → Slot Δ a
 
-abbrev Substitution (Γ Δ : List PacketType) := ∀ {a}, Slot Γ a → Expr Δ a
+abbrev Substitution (Γ Δ : List PacketType) := ∀ {a}, Slot Γ a → Residual Δ a
 
-def substExpr (values : Substitution Γ Δ) : {ty : PacketType} → Expr Γ ty → Expr Δ ty
+def substExpr (values : Substitution Γ Δ) : {ty : PacketType} → Residual Γ ty → Residual Δ ty
   | _, .var slot => values slot
   | _, .unit => .unit
   | _, .pair left right => .pair (substExpr values left) (substExpr values right)
+  | _, .inl value => .inl (substExpr values value)
+  | _, .inr value => .inr (substExpr values value)
 
-def renameExpr (slots : SlotMap Γ Δ) (value : Expr Γ ty) : Expr Δ ty :=
+def renameExpr (slots : SlotMap Γ Δ) (value : Residual Γ ty) : Residual Δ ty :=
   substExpr (fun slot => .var (slots slot)) value
 
 /-- Only the body gets the initializer's residual value at slot zero. -/
-def bindSubstitution (value : Expr Δ ty) (older : Substitution Γ Δ) : Substitution (ty :: Γ) Δ :=
+def bindSubstitution (value : Residual Δ ty) (older : Substitution Γ Δ) : Substitution (ty :: Γ) Δ :=
   fun {_} slot => match slot with
   | .here => value
   | .there slot => older slot
@@ -57,9 +88,9 @@ def bindSubstitution (value : Expr Δ ty) (older : Substitution Γ Δ) : Substit
 destructuring adds the right field at slot zero and the left at slot one. -/
 inductive Requests (sig : PrimitiveSignature F) : List PacketType → List PacketType → Type
   | done {Γ : List PacketType} : Requests sig Γ Γ
-  | request {Γ Δ : List PacketType} (op : F) (arg : Expr Γ (sig.argument op))
+  | request {Γ Δ : List PacketType} (op : F) (arg : Residual Γ (sig.argument op))
       (next : Requests sig (sig.reply op :: Γ) Δ) : Requests sig Γ Δ
-  | unpack {Γ Δ : List PacketType} {a b : PacketType} (value : Expr Γ (.product a b))
+  | unpack {Γ Δ : List PacketType} {a b : PacketType} (value : Residual Γ (.product a b))
       (next : Requests sig (b :: a :: Γ) Δ) : Requests sig Γ Δ
 
 def Requests.append : {Γ Δ : List PacketType} → Requests sig Γ Δ → Requests sig Δ Θ → Requests sig Γ Θ
@@ -88,13 +119,13 @@ def Requests.shift : {Γ Δ : List PacketType} → Requests sig Γ Δ → Nat �
 def Requests.wrap {A : Type} (bind unpack : Tm F → A → A) :
     {Γ Δ : List PacketType} → Requests sig Γ Δ → A → A
   | _, _, .done, body => body
-  | _, _, .request op arg next, body => bind (.op op (operand position arg)) (next.wrap bind unpack body)
-  | _, _, .unpack value next, body => unpack (operand position value) (next.wrap bind unpack body)
+  | _, _, .request op arg next, body => bind (.op op (arg.erase position)) (next.wrap bind unpack body)
+  | _, _, .unpack value next, body => unpack (value.erase position) (next.wrap bind unpack body)
 
 structure Scheduled (sig : PrimitiveSignature F) (Γ : List PacketType) (ty : PacketType) where
   scope : List PacketType
   requests : Requests sig Γ scope
-  value : Expr scope ty
+  value : Residual scope ty
 
 /-- Compose effects in written order. Each let schedules its initializer
 once, then substitutes the residual value or binds its two fields. -/
@@ -105,6 +136,12 @@ def Operand.scheduleWith : {Γ : List PacketType} → {ty : PacketType} → Oper
     let l := left.scheduleWith values
     let r := right.scheduleWith (l.requests.weaken values)
     ⟨r.scope, l.requests.append r.requests, .pair (renameExpr r.requests.slots l.value) r.value⟩
+  | _, _, .inl value, _, values =>
+    let payload := value.scheduleWith values
+    ⟨payload.scope, payload.requests, .inl payload.value⟩
+  | _, _, .inr value, _, values =>
+    let payload := value.scheduleWith values
+    ⟨payload.scope, payload.requests, .inr payload.value⟩
   | _, _, .call op arg, _, values =>
     let result := arg.scheduleWith values
     ⟨sig.reply op :: result.scope, result.requests.append (.request op result.value .done), .var .here⟩
@@ -127,43 +164,58 @@ def Operand.schedule (arg : Operand sig Γ ty) : Scheduled sig Γ ty :=
   arg.scheduleAt (fun slot => slot)
 
 def Scheduled.term (scheduled : Scheduled sig Γ ty) : Tm F :=
-  scheduled.requests.wrap Tm.let₁ Tm.let₂ (operand position scheduled.value)
+  scheduled.requests.wrap Tm.let₁ Tm.let₂ (scheduled.value.erase position)
 
-def readOperand (sig : PrimitiveSignature F) :
-    (Γ : List PacketType) → Tm F → Option (Σ ty : PacketType, Operand sig Γ ty)
-  | Γ, .op op arg => do
-    let ⟨ty, arg⟩ ← readOperand sig Γ arg
+/-- Synthesize slots and replies. Propagate a known product or sum type
+to its fields and a known result type to a let body. -/
+def readOperandAt (sig : PrimitiveSignature F) :
+    (Γ : List PacketType) → Option PacketType → Tm F → Option (Σ ty : PacketType, Operand sig Γ ty)
+  | Γ, _, .var i => (slotAt Γ i).map fun ⟨ty, slot⟩ => ⟨ty, .pure (.var slot)⟩
+  | _, _, .unit => some ⟨.unit, .pure .unit⟩
+  | Γ, _, .op op arg => do
+    let ⟨ty, arg⟩ ← readOperandAt sig Γ (some (sig.argument op)) arg
     if typed : ty = sig.argument op then
       some ⟨sig.reply op, .call op (typed ▸ arg)⟩
     else none
-  | Γ, .pair left right => do
-    let ⟨a, left⟩ ← readOperand sig Γ left
-    let ⟨b, right⟩ ← readOperand sig Γ right
+  | Γ, expected, .pair left right => do
+    let (leftType, rightType) := match expected with
+      | some (.product a b) => (some a, some b)
+      | _ => (none, none)
+    let ⟨a, left⟩ ← readOperandAt sig Γ leftType left
+    let ⟨b, right⟩ ← readOperandAt sig Γ rightType right
     return ⟨.product a b, .pair left right⟩
-  | Γ, .let₁ value body => do
-    let ⟨a, value⟩ ← readOperand sig Γ value
-    let ⟨b, body⟩ ← readOperand sig (a :: Γ) body
+  | Γ, expected, .let₁ value body => do
+    let ⟨a, value⟩ ← readOperandAt sig Γ none value
+    let ⟨b, body⟩ ← readOperandAt sig (a :: Γ) expected body
     return ⟨b, .let₁ value body⟩
-  | Γ, .let₂ value body => do
-    let ⟨.product a b, value⟩ ← readOperand sig Γ value | none
-    let ⟨c, body⟩ ← readOperand sig (b :: a :: Γ) body
+  | Γ, expected, .let₂ value body => do
+    let ⟨.product a b, value⟩ ← readOperandAt sig Γ none value | none
+    let ⟨c, body⟩ ← readOperandAt sig (b :: a :: Γ) expected body
     return ⟨c, .let₂ value body⟩
-  | Γ, raw => do
-    let ⟨ty, value⟩ ← elaborateExpr Γ raw
-    return ⟨ty, .pure value⟩
+  | Γ, some (.coprod a b), .inl value => do
+    let ⟨ty, value⟩ ← readOperandAt sig Γ (some a) value
+    if typed : ty = a then some ⟨.coprod a b, .inl (typed ▸ value)⟩ else none
+  | Γ, some (.coprod a b), .inr value => do
+    let ⟨ty, value⟩ ← readOperandAt sig Γ (some b) value
+    if typed : ty = b then some ⟨.coprod a b, .inr (typed ▸ value)⟩ else none
+  | _, _, _ => none
+
+def readOperand (sig : PrimitiveSignature F) (Γ : List PacketType) (written : Tm F) :
+    Option (Σ ty : PacketType, Operand sig Γ ty) :=
+  readOperandAt sig Γ none written
 
 /-- Execute the schedule before the outer request. Shift the older
 slots in its continuation while keeping the outer reply at slot zero. -/
 def hoist (outer : F) (arg : Operand sig Γ (sig.argument outer)) (tail : Region F) : Region F :=
   let scheduled := arg.schedule
   scheduled.requests.wrap Region.let₁ Region.let₂
-    (.let₁ (.op outer (operand position scheduled.value))
+    (.let₁ (.op outer (scheduled.value.erase position))
       (tail.renameVars (Silmaril.DeBruijn.lift scheduled.requests.shift)))
 
 /-- Execute the operand schedule and send its residual to the same label. -/
 def scheduleJump (label : Nat) (arg : Operand sig Γ ty) : Region F :=
   let scheduled := arg.schedule
-  scheduled.requests.wrap Region.let₁ Region.let₂ (.br label (operand position scheduled.value))
+  scheduled.requests.wrap Region.let₁ Region.let₂ (.br label (scheduled.value.erase position))
 
 /-- An exact written entry boundary and its operand type. Jumps use the
 same positional block and exit profile as the shared CFG checker. -/
@@ -189,7 +241,7 @@ def Boundary.lower {labels : Nat} {context : BoundCtx PacketType captures}
 def readArgument [DecidableEq F] (sig : PrimitiveSignature F) (Γ : List PacketType)
     (expected : PacketType) (original : Tm F) :
     Option {arg : Operand sig Γ expected // original = arg.written} := do
-  let ⟨ty, arg⟩ ← readOperand sig Γ original
+  let ⟨ty, arg⟩ ← readOperandAt sig Γ (some expected) original
   if typed : ty = expected then
     let arg := typed ▸ arg
     if exactArg : original = arg.written then some ⟨arg, exactArg⟩ else none
