@@ -1031,7 +1031,7 @@ readback boundary.
 
 | Obligation | Current checked use of rank | Requirement for a cyclic product comparison |
 |---|---|---|
-| Readback and extraction | Exact re-emission uses `sameRegion_eq` independently of rank. `Table.entryCheck` ranks the entry-reachable graph of written reply tags, including tags with no inhabited payload. Unreachable rows still participate in exact syntax comparison. `Table.expand` follows each typed reply edge at a strictly smaller rank. This is what permits an exhaustive tree rather than a cyclic graph. | Keep exact re-emission and certify one local request or exit and each typed reply successor. Retain cyclic continuations as graph edges. |
+| Readback and extraction | Exact re-emission uses `sameRegion_eq` independently of rank. `Table.entryCheck` ranks the entry-reachable graph of written reply tags, including tags with no inhabited payload. Unreachable rows still participate in exact syntax comparison. `Table.expand` follows each typed reply edge at a strictly smaller rank. This is what permits an exhaustive tree rather than a cyclic graph. | Use exact re-emission and the rank-free one-step certificate below. Retain cyclic continuations as graph edges. |
 | Termination and witness length | `Tree.compare` recurses structurally on its left tree. The reply and caller lists bound their respective scans. Rank supplies the tree and its `Fits` bound, which bounds the length of the certified common prefix. | Use a worklist over finite pairs of exact configurations, including each label and incoming payload with the caller held fixed. Exhaustive reply enumeration gives finite successors. A shortest path in a certified finite product could bound a counterexample, with one additional test state. |
 | Semantic soundness and completeness | `Table.observe_extract` proves agreement by induction on extraction fuel. Tree soundness and prefix separation recurse on trees. The native feedback bridge and its finite-UB and infinite-divergence characterizations have no rank premise. | Prove that product steps match actual typed routing at a shared machine state and preserve each reply's final state. Account for finite exits, faults, divergence within a request, and infinite replay of matching requests. Check reachable literal UB in the installed order. A completeness proof also needs the handler to realize each chosen typed reply at its recorded argument and state. |
 
@@ -1045,6 +1045,38 @@ The finite caller checker here still requires the entry rank on both
 sides.
 [Rank checker][ssa-ub-open-ranks] [Native feedback][ssa-ub-feedback]
 [Fixed-interpreter cyclic checker][ssa-ub-cyclic-native-checker]
+
+### Rank-free steps for request-guarded native tables
+
+`Table.head?` checks exact re-emission and reads one label and incoming
+payload from an existing typed table witness. It uses the same positional
+`Packet` as the finite CFG machinery. The caller packet stays fixed.
+The step records the opcode, evaluated argument, and the successor for
+each exact reply position and payload. `Head.execute` needs a
+deterministic shaped primitive interpreter and the current machine state.
+It neither follows the successor nor needs an entry rank.
+
+`Table.feedback_step` identifies the complete local native observation.
+`Table.feedback_step_iff` identifies every internal feedback edge with
+the computed successful reply, including the destination label, typed
+payload and final state. The local native observation retains an outward
+exit's ordered position. `Table.observe_step` applies the actual exit
+continuation at that position, so a designated exit yields fresh top.
+Faults keep their state, and in-request divergence remains ordinary.
+`Table.observe_entry` connects the initial typed point to the original
+decorated CFG after exact re-emission.
+
+The entry is one caller-forwarding jump. Each represented block either
+exits or makes one request before any internal edge. The readback
+regression rejects a well-typed silent self-cycle. The guarded regression
+reaches a backedge with a changed payload and state. It also constructs an infinite replay of
+successful requests with ordinary divergence in the installed feedback.
+A supplied exhaustive `ReplyEnumeration` makes the possible typed
+successors a finite list. Scanning an entire product would still need
+finite configuration coverage and a proof that its acceptance preserves
+the closure, including infinite replay. This slice supplies the
+one-step correspondence.
+[Guarded step and correspondence][ssa-ub-open-guarded-step]
 
 ## Coverage and gaps
 
@@ -1206,5 +1238,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-operand-refinement]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Thms.lean
 [ssa-ub-open-operand-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Checker/Thms.lean
 [ssa-ub-open-caller-interface]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Checker/Interface/Thms.lean
+[ssa-ub-open-guarded-step]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean

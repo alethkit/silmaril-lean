@@ -47,7 +47,7 @@ private theorem external_injective :
     exact ⟨Fin.ext (Nat.add_left_cancel indices), eq.2⟩
   case fault.fault => exact eq
 
-private theorem branch_only {f : Feedback.Run R L α σ} {p q : Feedback.Point R.length α σ}
+theorem branch_only {f : Feedback.Run R L α σ} {p q : Feedback.Point R.length α σ}
     {j : Fin R.length} {a : Value α} {s : σ}
     (run : f p = WithTop.some {Outcome.ret (Feedback.internal R L j) a s}) :
     Feedback.Step f p q ↔ q = .block j a s := by
@@ -86,15 +86,19 @@ theorem close_branch {f : Feedback.Run R L α σ} {p : Feedback.Point R.length �
     · exact (branch_only run).mp edge ▸ out
   · exact fun out => .inr ⟨_, (branch_only run).mpr rfl, out⟩
 
+theorem no_step_of_terminal {f : Feedback.Run R L α σ} {p q : Feedback.Point R.length α σ}
+    {o : Outcome L.length α σ} (run : f p = WithTop.some {Feedback.external R L o}) :
+    ¬ Feedback.Step f p q := by
+  intro edge
+  cases edge with
+  | @branch i b s obs =>
+    rw [run] at obs
+    exact not_external_branch o i b s (ordinary_singleton.mp obs).symm
+
 theorem close_terminal {f : Feedback.Run R L α σ} {p : Feedback.Point R.length α σ}
     {o : Outcome L.length α σ} (run : f p = WithTop.some {Feedback.external R L o}) :
     Feedback.close f p = WithTop.some {o} := by
-  have noStep (q) : ¬ Feedback.Step f p q := by
-    intro edge
-    cases edge with
-    | @branch i b s obs =>
-      rw [run] at obs
-      exact not_external_branch o i b s (ordinary_singleton.mp obs).symm
+  have noStep (q) : ¬ Feedback.Step f p q := no_step_of_terminal run
   have safe : ¬ Feedback.ReachesUB f p := by
     rintro ⟨q, path, top⟩
     obtain rfl := (Relation.reflTransGen_iff_eq noStep).mp path
