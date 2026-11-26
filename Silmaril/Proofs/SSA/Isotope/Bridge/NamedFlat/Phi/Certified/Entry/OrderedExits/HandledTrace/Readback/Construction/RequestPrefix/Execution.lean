@@ -1060,9 +1060,11 @@ private theorem visit_unroll {newBlocks : Nat} (oldBlocks : Nat)
   simp only [partitionStepByTarget, map_eq_pure_bind, bind_assoc, pure_bind]
   rfl
 
-private theorem scheduled_visit (instr : Primitive E F α) (ambient : Env α)
+private theorem scheduled_visit {transfer : Region F} (instr : Primitive E F α) (ambient : Env α)
     (graph : FiniteCFG F (blocks + count) exits captures) (i : Fin blocks) (packet : Value α)
-    (row : ScheduledTransfer sig packets outputs (packets i) (source.block i).erase)
+    (row : ScheduledTransfer sig packets outputs (packets i) transfer)
+    (sourceRow : region instr (extend ambient packet) (source.block i).erase =
+      region instr (extend ambient packet) transfer)
     (labels : Fin row.count → Fin (blocks + count)) (fresh : ∀ j, blocks ≤ (labels j).val)
     (head : (graph.block (oldLabel count i)).erase = row.tree.entry (oldLabel count) labels)
     (rows : ∀ j, (graph.block (labels j)).erase = (row.tree.cells (oldLabel count) labels j).2) :
@@ -1076,6 +1078,8 @@ private theorem scheduled_visit (instr : Primitive E F α) (ambient : Env α)
       fun out => pure (splitTransfer blocks out))) =
     ((region instr env (graph.block (oldLabel count i)).erase >>=
       fun out => pure (splitTransfer (blocks + count) out)) >>= finish)
+  change region instr env (source.block i).erase = region instr env transfer at sourceRow
+  rw [sourceRow]
   simp only [head, row.source_eq, boundary_run row.boundary instr env, row.tree_eq, map_eq_pure_bind,
     bind_assoc, pure_bind, EntryTree.entry]
   apply tree_run instr ambient graph (fun out => pure (Sum.map id (embed count) out)) finish
@@ -1152,7 +1156,7 @@ private theorem step_square (instr : Primitive E F α) (ambient : Env α) (state
   · subst i
     let row : ScheduledTransfer sig packets outputs (packets s.selected) (source.block s.selected).erase :=
       ⟨s.boundary, s.source_eq, s.count, s.tree, s.tree_eq⟩
-    apply scheduled_visit instr ambient emitted.code s.selected packet row (freshLabel blocks)
+    apply scheduled_visit instr ambient emitted.code s.selected packet row rfl (freshLabel blocks)
     · intro j
       simp [freshLabel]
     · rw [emitted.row_eq]
@@ -1179,6 +1183,41 @@ namespace Graph
 open Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple.Computed.Block.Graph
   renaming Shape → GraphShape, Emitted → GraphEmitted, Row → GraphRow
 
+open Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple.Computed.Block.Graph
+  (transferOperand foldedTransfer)
+
+private theorem transfer_operand_run (instr : Primitive E F α) (env : Env α) (written : Region F)
+    (label : Nat) (arg : LambdaSSA.Tm F) (accepted : transferOperand written = some (label, arg)) :
+    region instr env written = region instr env (.br label arg) := by
+  induction written generalizing env label arg with
+  | br target value =>
+    cases accepted
+    rfl
+  | let₁ value tail ih =>
+    simp only [transferOperand, Option.map_eq_some_iff] at accepted
+    obtain ⟨⟨target, operand⟩, read, equal⟩ := accepted
+    cases equal
+    simp only [region, term, bind_assoc]
+    exact bind_congr fun reply => ih (extend env reply) target operand read
+  | let₂ value tail ih =>
+    simp only [transferOperand, Option.map_eq_some_iff] at accepted
+    obtain ⟨⟨target, operand⟩, read, equal⟩ := accepted
+    cases equal
+    simp only [region, term, bind_assoc]
+    apply bind_congr
+    intro reply
+    cases reply with
+    | pair left right => exact ih (extend (extend env left) right) target operand read
+    | atom _ | unit | inl _ | inr _ => simp only [diverge_bind]
+  | case _ _ _ _ _ | cfg _ _ _ _ _ => cases accepted
+
+private theorem folded_transfer_run (instr : Primitive E F α) (env : Env α) (written transfer : Region F)
+    (accepted : foldedTransfer written = some transfer) :
+    region instr env written = region instr env transfer := by
+  simp only [foldedTransfer, Option.map_eq_some_iff] at accepted
+  obtain ⟨⟨label, arg⟩, read, rfl⟩ := accepted
+  exact transfer_operand_run instr env written label arg read
+
 variable (g : GraphShape sig packets outputs source) (result : GraphEmitted g)
 
 theorem old_cell (i : Fin blocks) :
@@ -1203,7 +1242,11 @@ private theorem step_square (instr : Primitive E F α) (ambient : Env α) (state
       Sum.map id (embed g.count) <$> step instr ambient source (i, packet) =
         iter (partitionStepByTarget (step instr ambient result.code) (inFresh blocks)) (embed g.count (i, packet)) := by
     cases row with
-    | scheduled row => exact scheduled_visit instr ambient result.code i packet row labels fresh head cells
+    | scheduled row origin =>
+      refine scheduled_visit instr ambient result.code i packet row ?_ labels fresh head cells
+      rcases origin with same | folded
+      · rw [same]
+      · exact folded_transfer_run instr (extend ambient packet) _ _ folded
     | unchanged _ _ => exact unchanged_visit instr ambient result.code i packet head
   apply atRow (g.row i) (g.fresh i)
   · intro j

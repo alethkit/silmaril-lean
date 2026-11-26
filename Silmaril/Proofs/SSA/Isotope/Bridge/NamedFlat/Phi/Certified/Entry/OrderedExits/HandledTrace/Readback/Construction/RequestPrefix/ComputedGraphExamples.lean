@@ -67,17 +67,29 @@ example : rowMatches 8 (.let₂ (.var 0) (.let₂ (.var 0)
 example : rowMatches 9 (.let₂ (.var 0) (.let₂ (.var 1) (.let₂ (.var 1) (.let₂ (.var 1)
     (.br 2 (.pair (.var 4) (.var 0))))))) = true := by decide +kernel
 
-private def unsupportedRow : LambdaSSA.Flat Bool 5 3 :=
+private def twoRequestRow : LambdaSSA.Flat Bool 5 3 :=
   .let₁ (.op false (.bv 0)) (.let₁ (.op false (.bv 1)) (.br 1 (.bv 2)))
 
-private def unsupported : FiniteCFG Bool 3 2 2 :=
-  { source with block := fun i => if i.val = 0 then unsupportedRow else source.block i }
+private def twoRequests : FiniteCFG Bool 3 2 2 :=
+  { source with block := fun i => if i.val = 0 then twoRequestRow else source.block i }
+
+-- Effects inside a branch still fall outside the ordinary straight-row grammar.
+private def branchingRow : LambdaSSA.Flat Bool 5 3 :=
+  .let₂ (.bv 0) (.case (.bv 1)
+    (.let₁ (.op false (.bv 3)) (.let₁ (.op false (.bv 4)) (.br 1 (.bv 5))))
+    (.br 2 (.bv 3)))
+
+private def branching : FiniteCFG Bool 3 2 2 :=
+  { source with block := fun i => if i.val = 0 then branchingRow else source.block i }
 
 private def ambientRead : FiniteCFG Bool 3 2 2 :=
   { source with block := fun i => if i.val = 0 then .br 1 (.pair (.bv 1) (.bv 2)) else source.block i }
 
-example : let _ := sig.typing; NamedFlat.check unsupported inputs (fun _ => packet) outputs = true := rfl
-example : (compileGraph sig inputs (fun _ => packet) outputs unsupported).isNone = true := rfl
+example : (compileGraph sig inputs (fun _ => packet) outputs twoRequests).isSome = true := by decide +kernel
+example : let _ := sig.typing; NamedFlat.check branching inputs (fun _ => packet) outputs = true := rfl
+example : (compileGraph sig inputs (fun _ => packet) outputs branching).isNone = true := rfl
+example : (EffectfulEntry.Multiple.Computed.Block.Graph.Capture.compile sig inputs
+    (fun _ => packet) outputs branching).isNone = true := rfl
 example : let _ := sig.typing; NamedFlat.check ambientRead inputs (fun _ => packet) outputs = true := rfl
 example : (compileGraph sig inputs (fun _ => packet) outputs ambientRead).isNone = true := rfl
 
