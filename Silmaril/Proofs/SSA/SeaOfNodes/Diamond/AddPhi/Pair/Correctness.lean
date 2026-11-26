@@ -20,18 +20,34 @@ open RVSDG (Locals Tuple extend)
 variable {inputs : List (ValueSort Unit)} {sigs : List (List (Ty Unit))}
 variable {g : Source inputs sigs} {target : Result inputs sigs} {admit : Operands → Operands → Bool}
 
+private theorem literalRows_found {first second : Operands} (found : literalRows? g = some (first, second)) :
+    let known : Literals (dataPorts inputs) (extend [] sigs) := scanLiterals (fun _ => none) g.shared
+    armLiterals? known (g.arms .first) = some first ∧ armLiterals? known (g.arms .second) = some second := by
+  unfold literalRows? at found
+  obtain ⟨left, leftEq, found⟩ := Option.bind_eq_some_iff.mp found
+  obtain ⟨right, rightEq, found⟩ := Option.bind_eq_some_iff.mp found
+  cases Option.some.inj found
+  exact ⟨leftEq, rightEq⟩
+
+private theorem accepted_rows (accepted : rewriteWith? admit g = some target) :
+    ∃ first second, literalRows? g = some (first, second) ∧
+      admit first second = true ∧ target = emit g first second := by
+  unfold rewriteWith? at accepted
+  obtain ⟨⟨first, second⟩, found, accepted⟩ := Option.bind_eq_some_iff.mp accepted
+  dsimp only at accepted
+  split at accepted
+  · rename_i admitted
+    exact ⟨first, second, found, admitted, (Option.some.inj accepted).symm⟩
+  · contradiction
+
 theorem accepted_eq (accepted : rewriteWith? admit g = some target) :
     let known : Literals (dataPorts inputs) (extend [] sigs) := scanLiterals (fun _ => none) g.shared
     ∃ first second, armLiterals? known (g.arms .first) = some first ∧
       armLiterals? known (g.arms .second) = some second ∧
       admit first second = true ∧ target = emit g first second := by
-  unfold rewriteWith? at accepted
-  obtain ⟨first, firstEq, accepted⟩ := Option.bind_eq_some_iff.mp accepted
-  obtain ⟨second, secondEq, accepted⟩ := Option.bind_eq_some_iff.mp accepted
-  split at accepted
-  · rename_i admitted
-    exact ⟨first, second, firstEq, secondEq, admitted, (Option.some.inj accepted).symm⟩
-  · contradiction
+  obtain ⟨first, second, found, admitted, emitted⟩ := accepted_rows accepted
+  obtain ⟨firstEq, secondEq⟩ := literalRows_found found
+  exact ⟨first, second, firstEq, secondEq, admitted, emitted⟩
 
 private theorem armLiterals_eval {args : List (Ty Unit)} {past : List (List (Ty Unit))}
     {known : Literals args past} {arm : Arms.Arm SeaOfNodes.Pure.SubZero.Opcode args past [word, word]}
@@ -39,6 +55,20 @@ private theorem armLiterals_eval {args : List (Ty Unit)} {past : List (List (Ty 
     (agree : Scan.Literals.Agrees known entry locals) {operands : Operands}
     (found : armLiterals? known arm = some operands) : arm.eval model entry locals = operands :=
   Scan.literalInputs_sound (scanLiterals_agrees arm.dataflow known entry locals agree) arm.outputs found
+
+theorem literalRows_slot_eval_eq {first second : Operands} (found : literalRows? g = some (first, second))
+    (entry : Tuple (Val model.value) (dataPorts inputs)) (slot : Slot) :
+    (g.arms slot).eval model entry (g.shared.eval model entry PUnit.unit) =
+      match slot with
+      | .first => first
+      | .second => second := by
+  have facts : Scan.Literals.Agrees (scanLiterals (fun _ => none) g.shared) entry
+      (g.shared.eval model entry PUnit.unit) :=
+    scanLiterals_agrees g.shared (fun _ => none) entry PUnit.unit (by intro _ _ _ h; contradiction)
+  obtain ⟨firstEq, secondEq⟩ := literalRows_found found
+  cases slot
+  · exact armLiterals_eval facts firstEq
+  · exact armLiterals_eval facts secondEq
 
 theorem keeps_control (accepted : rewriteWith? admit g = some target) :
     target.shared = g.shared ∧ target.predicate = g.predicate ∧ target.merge = g.merge := by
@@ -49,15 +79,9 @@ theorem slot_eval_eq (accepted : rewriteWith? admit g = some target)
     (entry : Tuple (Val model.value) (dataPorts inputs)) (slot : Slot) :
     (target.arms slot).eval model entry (target.shared.eval model entry PUnit.unit) =
       .cons (sourceAt g entry slot) .nil := by
-  obtain ⟨first, second, firstEq, secondEq, _, rfl⟩ := accepted_eq accepted
-  have facts : Scan.Literals.Agrees (scanLiterals (fun _ => none) g.shared) entry
-      (g.shared.eval model entry PUnit.unit) :=
-    scanLiterals_agrees g.shared (fun _ => none) entry PUnit.unit (by intro _ _ _ h; contradiction)
-  cases slot
-  · simpa only [emit, sourceAt, armLiterals_eval facts firstEq] using
-      literalArm_eval entry (g.shared.eval model entry PUnit.unit) (add first)
-  · simpa only [emit, sourceAt, armLiterals_eval facts secondEq] using
-      literalArm_eval entry (g.shared.eval model entry PUnit.unit) (add second)
+  obtain ⟨first, second, found, _, rfl⟩ := accepted_rows accepted
+  have readRow := literalRows_slot_eval_eq found entry slot
+  cases slot <;> simp only [emit, sourceAt, readRow, literalArm_eval]
 
 theorem denote_eq (accepted : rewrite? g = some target)
     (entry : Tuple (Val model.value) (dataPorts inputs)) :

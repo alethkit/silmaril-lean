@@ -15,6 +15,12 @@ variable {inputs : List (ValueSort Unit)} {sigs : List (List (Ty Unit))}
 variable {g : AddPhi.Pair.Source inputs sigs} {x : InputWord inputs}
 variable {target : Program inputs sigs [word]}
 
+/-- The residual add to a folded row implements the original two-add suffix. -/
+theorem residualAdd_eval_spine (value : BitVec 64) (row : AddPhi.Pair.Operands) :
+    residualAdd.eval model (.cons value (.cons (AddPhi.Pair.add row) .nil)) =
+      spine.eval model (.cons value row) :=
+  Proofs.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.residual_sum_eq value row
+
 /-- Keep the original residual capture and control, and emit one suffix add. -/
 theorem rewrite?_emitted_shape (accepted : rewrite? g x = some target) :
     target.residual = x ∧ target.suffix = residualAdd ∧
