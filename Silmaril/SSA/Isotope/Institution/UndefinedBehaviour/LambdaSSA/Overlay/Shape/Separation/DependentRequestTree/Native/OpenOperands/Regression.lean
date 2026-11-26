@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Entry.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Entry.State.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Search.Replay.Schedule.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
@@ -724,6 +724,69 @@ example : (emptyTable 0).compareEntries? (terminalTable 1) (emptyTable 0).native
 example : (emptyTable 0).compareEntries? (terminalTable 1) (emptyTable 1).native (terminalTable 1).native
     emptyCallers id (fun _ => unitPayload) enumeration (singletonInventory emptyCallers)
     (singletonInventory unitCaller) (stores 1) = none := rfl
+
+private def shiftState (n : Nat) : Fin n ↪ Fin (n + 2) :=
+  ⟨fun s => ⟨s.val + 1, by omega⟩, fun a b eq => Fin.ext (by
+    have states := congrArg Fin.val eq
+    change a.val + 1 = b.val + 1 at states
+    omega)⟩
+
+example : ∃ w, readsCaller.compareEntries? readsCaller readsCaller.native readsCaller.native
+    callers id (fun _ => left) enumeration inventory inventory (stores 3) = some (.counterexample w) :=
+  (Table.compareEntries_rejection_mono (g := readsCaller) (h := readsCaller)
+    (raw := readsCaller.native) (raw' := readsCaller.native) (callers := callers)
+    (decodeLeft := id) (decodeRight := fun _ => left) (replies := enumeration)
+    (left := inventory) (right := inventory) (stores := stores 1) (w := sharedCounterexample)
+    (shiftState 1) inventory inventory (stores 3) rfl).2
+
+private def statefulWitness : EntryCounterexample Op Bit 3 where
+  input := right
+  initial := 0
+  script := [
+    InterpreterScript.Row.success (S := sig) ⟨.flip, right, 0⟩ ⟨0, left⟩ 1,
+    InterpreterScript.Row.success (S := sig) ⟨.test, right, 1⟩ ⟨0, unitPayload⟩ 2,
+    ⟨⟨.test, left, 1⟩, .fault 2⟩,
+    InterpreterScript.Row.success (S := sig) ⟨.flip, left, 1⟩ ⟨0, left⟩ 1]
+
+private abbrev shiftedWitness := statefulWitness.mapState (shiftState 3)
+
+-- Both queries move to new stores. The two programs take different
+-- second requests after the same initial reply.
+example : shiftedWitness.input = right ∧ shiftedWitness.initial = 1 := ⟨rfl, rfl⟩
+
+example : readsCaller.runFinite right shiftedWitness.interpreter inventory (stores 5) loopNext 1 =
+    .ret 0 3 := rfl
+
+example : source.runFinite right shiftedWitness.interpreter inventory (stores 5) loopNext 1 =
+    .fault 3 := rfl
+
+example : (table (.var 1) 1).runFinite right shiftedWitness.interpreter inventory (stores 5) loopNext 1 =
+    .ub := rfl
+
+example : backedge.runFinite right shiftedWitness.interpreter inventory (stores 5) loopNext 1 =
+    .diverge := rfl
+
+private theorem statefulRefutes :
+    ¬ Shape.denote (withExitUB readsCaller.native readsCaller.selected)
+        (Syntax.model statefulWitness.interpreter (readsCaller.bindings right)) 0 ≤
+      Shape.denote (withExitUB source.native source.selected)
+        (Syntax.model statefulWitness.interpreter (source.bindings right)) 0 := by
+  have lower := (readsCaller.observe_entry readsCaller.native rfl right statefulWitness.interpreter 0).trans
+    (readsCaller.observe_runFinite right statefulWitness.interpreter inventory (stores 3) loopNext 0)
+  have upper := (source.observe_entry source.native rfl right statefulWitness.interpreter 0).trans
+    (source.observe_runFinite right statefulWitness.interpreter inventory (stores 3) loopNext 0)
+  intro le
+  have compared := Eq.mp (congrArg₂ (· ≤ ·) lower upper) le
+  have impossible := (TwoRequest.result_order (.ret 0 (2 : Fin 3)) (.fault 2)).mp compared
+  simp [Result.refines] at impossible
+
+example : ¬ Shape.denote (withExitUB readsCaller.native readsCaller.selected)
+      (Syntax.model shiftedWitness.interpreter (readsCaller.bindings right)) 1 ≤
+    Shape.denote (withExitUB source.native source.selected)
+      (Syntax.model shiftedWitness.interpreter (source.bindings right)) 1 :=
+  EntryCounterexample.mapState_refutes (g := readsCaller) (h := source)
+    (raw := readsCaller.native) (raw' := source.native) (decodeLeft := id) (decodeRight := id)
+    (w := statefulWitness) (shiftState 3) rfl rfl inventory inventory (stores 3) statefulRefutes
 
 /-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.ScheduledPath.refutes_queries' depends on axioms: [propext,
  Classical.choice,
