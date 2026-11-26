@@ -117,7 +117,7 @@ private theorem nativeLsubst_diverges_iff :
 
 end Operational
 
-private theorem mem_nativeOutcomes {Δ H : List τ} (t : UB.Typed (Φ := Φ) Δ H)
+theorem mem_nativeOutcomes {Δ H : List τ} (t : UB.Typed (Φ := Φ) Δ H)
     {M : Model.{u,w,x} Φ Δ.length} {env : Env M.α}
     (agree : Morphism.CaseSSA.EnvAgrees env M.bound) (s : M.σ) (o : Outcome H.length M.α M.σ) :
     o ∈ nativeOutcomes t M s ↔
