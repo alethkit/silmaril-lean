@@ -60,10 +60,46 @@ also refuses an omitted overwrite on the false edge, where the slot
 has no instruction use and remains observable in its outgoing bank.
 [Native regressions](../../Silmaril/Proofs/SSA/SeaOfNodes/GVN/Cyclic/TwoBackedges/Family/Regression.lean)
 
+## Automatic cleanup
+
+`Deletion.Cleanup.optimize p` first redirects the carried return, then scans the
+actual emitted header in increasing index order. It removes the first write
+accepted by the same checked deletion test and starts a fresh scan on the
+residual program. Each success removes one write, so the redirected header's
+binding count is enough fuel. At the end, every remaining index fails this
+specific check. The test still requires an overwrite before any surviving
+read or full-packet export. [Discovery and cleanup laws](../../Silmaril/SSA/SeaOfNodes/GVN/Cyclic/TwoBackedges/Family/Discovery/Return/Deletion/Cleanup/Thms.lean)
+
+The three-write fixture first removes index 1. That removal eliminates the
+only read of the temporary value at index 0 and exposes the second deletion.
+The last write remains live through feedback. The actual execution yields the
+same complete packets and returns on both routes. Discovery finds no
+candidate in either of the existing false-edge refusal fixtures.
+
+```lean
+module
+import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.Return.Deletion.Cleanup.Thms
+
+open Silmaril.SSA.SeaOfNodes
+open Diamond (ValueSort)
+open GVN.Cyclic.TwoBackedges.Family.Discovery.Return.Deletion (check)
+open GVN.Cyclic.TwoBackedges.Family.Discovery.Return.Deletion.Cleanup
+open Pure.SubZero (word)
+open Pure.ConstantFold.Comparison (Opcode model)
+open Quads.Loop.Blocks (Bank)
+open Quads.Loop.Tail.TwoBackedges (Program)
+
+example {regs : List (ValueSort Unit)} (p : Program Opcode regs word)
+    (fuel : Nat) (input : Bank (regs := regs) model) :
+    (optimize p).source.runFrom model fuel 0 input = p.source.runFrom model fuel 0 input ∧
+      (∀ index < (optimize p).header.length, check (optimize p) index = false) :=
+  ⟨optimize_run_eq p fuel input, optimize_saturated p⟩
+```
+
 ```sh
 topic=SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family
-make check CHECK_TARGETS="+Silmaril.$topic.Discovery.Return.Deletion.Thms +Silmaril.Proofs.$topic.Regression"
-lake env leanchecker "Silmaril.$topic.Discovery.Return.Deletion.Thms"
+make check CHECK_TARGETS="+Silmaril.$topic.Discovery.Return.Deletion.Cleanup.Thms +Silmaril.Proofs.$topic.Regression"
+lake env leanchecker "Silmaril.$topic.Discovery.Return.Deletion.Cleanup.Thms"
 lake env leanchecker "Silmaril.Proofs.$topic.Regression"
 ```
 

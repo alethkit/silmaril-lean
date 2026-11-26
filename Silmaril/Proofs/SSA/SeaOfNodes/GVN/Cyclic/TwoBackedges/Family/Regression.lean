@@ -4,6 +4,7 @@ import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.Return.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.Return.Deletion.Thms
+import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.Return.Deletion.Cleanup.Thms
 
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Regression
 
@@ -344,5 +345,64 @@ theorem refuses_a_slot_live_only_in_the_false_full_packet :
   ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 end DeadHeaderWrite
+
+section AutomaticCleanup
+
+open Discovery.Return.Deletion (check)
+open Discovery.Return.Deletion.Cleanup
+
+private def tempWrite : Quad Opcode regs := binary .add resultA x y
+private def tempUse : Quad Opcode regs := binary .add resultTwin resultA x
+private def liveWrite : Quad Opcode regs := binary .add resultA a x
+
+/-- The last write kills the temporary version of resultA. Only the dead
+resultTwin write reads that temporary version. -/
+private def dependentWrites : Program Opcode regs word :=
+  { feedbackOverwriteFixture false with header := [tempWrite, tempUse, liveWrite] }
+
+private def firstResidual : Program Opcode regs word :=
+  { dependentWrites with header := [tempWrite, liveWrite], result := a }
+
+private def finalResidual : Program Opcode regs word :=
+  { dependentWrites with header := [liveWrite], result := a }
+
+theorem current_header_rescan_discovers_a_newly_dead_write :
+    let redirected := Discovery.Return.optimize dependentWrites
+    redirected.result = a ∧ check redirected 0 = false ∧
+      first? redirected = some 1 ∧ step? redirected = some firstResidual ∧
+      first? firstResidual = some 0 ∧ step? firstResidual = some finalResidual ∧
+      step? finalResidual = none :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+theorem automatic_cleanup_removes_two_writes :
+    optimize dependentWrites = finalResidual := rfl
+
+theorem automatic_cleanup_keeps_actual_feedback_and_returns :
+    let p := dependentWrites
+    let final := optimize p
+    (∀ side : Bool, ∃ packet,
+      p.step model (p.preheader.eval model (input side)) = .inr (side, packet) ∧
+      final.step model (p.preheader.eval model (input side)) = .inr (side, packet)) ∧
+      final.source.runFrom model 4 0 (input false) = none ∧
+      final.source.runFrom model 5 0 (input true) = some 7#64 ∧
+      final.source.runFrom model 5 0 (input false) = some (-1 : BitVec 64) := by
+  have stage (side : Bool) := optimize_step_of_arrives
+    (Program.Arrives.entry (p := dependentWrites) (m := model) (input := input side))
+  exact ⟨fun side => by cases side <;> exact ⟨_, rfl, (stage _).trans rfl⟩,
+    (optimize_run_eq dependentWrites 4 (input false)).trans rfl,
+    (optimize_run_eq dependentWrites 5 (input true)).trans rfl,
+    (optimize_run_eq dependentWrites 5 (input false)).trans rfl⟩
+
+theorem automatic_scan_refuses_the_false_edge_read :
+    let p := feedbackOverwriteFixture true
+    first? (Discovery.Return.optimize p) = none ∧ optimize p = Discovery.Return.optimize p :=
+  ⟨rfl, rfl⟩
+
+theorem automatic_scan_refuses_the_false_packet_export :
+    first? (Discovery.Return.optimize packetOnlyFixture) = none ∧
+      optimize packetOnlyFixture = Discovery.Return.optimize packetOnlyFixture :=
+  ⟨rfl, rfl⟩
+
+end AutomaticCleanup
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Regression
