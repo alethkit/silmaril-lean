@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Defs
+public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Memory.Callee.Defs
 
 /-! # Checked Lime1 continuations
 
@@ -160,6 +160,7 @@ inductive Phase (H : Type) where
   | block (label : Label H) (args : List Value) (arm : List (Op H))
   | invoke (saved : List Value) (site : Site H) (args : List Value) (ops : List (Op H))
   | wasm (saved : List Value) (site : IndirectSite) (callee : WasmTarget) (phase : Graph.Phase) (ops : List (Op H))
+  | memory (saved : List Value) (callee : MemoryTarget) (phase : MemoryCallee.Phase) (ops : List (Op H))
   | trapped (saved : List Value) (rest : List Admin)
   | frameResult (result : Result)
   | done (result : Result)
@@ -173,6 +174,7 @@ def Phase.afterLookup {H : Type} (saved args : List Value) (indirect : IndirectS
   match target with
   | some (.host callee) => .invoke saved callee args ops
   | some (.wasm callee) => .wasm saved indirect callee (.invoke args) ops
+  | some (.memory callee) => .memory saved callee (.invoke args) ops
   | none => .trapped (saved ++ args) (code ops)
 
 def Phase.afterWasm {H : Type} (saved : List Value) (site : IndirectSite) (callee : WasmTarget)
@@ -180,6 +182,12 @@ def Phase.afterWasm {H : Type} (saved : List Value) (site : IndirectSite) (calle
   | .done (.values vs) => .source (saved ++ vs) ops
   | .done .trap => .trapped saved (code ops)
   | phase => .wasm saved site callee phase ops
+
+def Phase.afterMemory {H : Type} (saved : List Value) (callee : MemoryTarget)
+    (ops : List (Op H)) : MemoryCallee.Phase → Phase H
+  | .done (.values vs) => .source (saved ++ vs) ops
+  | .done .trap => .trapped saved (code ops)
+  | phase => .memory saved callee phase ops
 
 structure State (H : Type) where
   bytes : ByteArray
@@ -250,6 +258,10 @@ def Ready {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantic
       Graph.Admitted site.graph callee.fn phase ∧
       Checked base active.module (active.locals.map Value.type) targets delivered
         (saved.map Value.type ++ site.signature.results) ops ∧ Contract mem host ops
+  | .memory saved callee phase ops => callee.Allocated base ∧ callee.Checked mem ∧
+      (∀ out, phase ≠ .done out) ∧ MemoryCallee.Ready callee phase ∧
+      Checked base active.module (active.locals.map Value.type) targets delivered
+        (saved.map Value.type ++ callee.fn.declaration.results) ops ∧ Contract mem host ops
   | .trapped _ _ => True
   | .frameResult out | .done out => labels = [] ∧ ResultTyped results out
 
@@ -288,6 +300,8 @@ def Phase.renderIn {H : Type} (scope : Scope) (arity : Nat) (cont : Wasm.Lime1.E
       (values args ++ [.invoke site.address])
   | .wasm saved _ callee phase ops =>
       framed active [.label arity cont (values saved ++ phase.render Graph.limeAdmin callee.callTarget ++ code ops)] scope
+  | .memory saved callee phase ops =>
+      framed active [.label arity cont (values saved ++ MemoryCallee.render callee phase ++ code ops)] scope
   | .trapped saved rest => framed active [.label arity cont (values saved ++ .trap :: rest)] scope
   | .frameResult out => framed active (result out) scope
   | .done out => result out
@@ -355,6 +369,10 @@ inductive Edge {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSem
       (move : site.graph.FrameEdge callee.address phase next) :
       Edge mem host active results ⟨bytes, .wasm saved site callee phase ops, labels⟩
         ⟨bytes, .afterWasm saved site callee ops next, labels⟩
+  | memory {bytes written saved callee phase next ops labels}
+      (move : MemoryCallee.Edge callee bytes phase written next) :
+      Edge mem host active results ⟨bytes, .memory saved callee phase ops, labels⟩
+        ⟨written, .afterMemory saved callee ops next, labels⟩
   | returned {bytes next saved site args ops vs labels} (live : mem.Live next)
       (typed : site.TypedResult (.values vs))
       (answer : host site.code (mem.store bytes) args (.returned (mem.store next) (.values vs))) :

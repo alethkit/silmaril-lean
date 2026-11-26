@@ -36,11 +36,14 @@ theorem indirect_step_iff {H : Type} {base : Store H} {memory : Memory32 base}
           subst actual
           exact ⟨_, .host entry allocation, by simp [IndirectSite.lookupHead, FuncInst.type]⟩
         | wasm actual module body =>
-          obtain ⟨callee, found⟩ := registered same
-          have exactAllocation := linked.graphAllocated address callee found
-          have declType := congrArg FuncInst.type (Option.some.inj (allocation.symm.trans exactAllocation))
-          exact ⟨_, .wasm (callee := ⟨address, callee⟩) entry found exactAllocation (declType.symm.trans same),
-            by simp [IndirectSite.lookupHead, same]⟩
+          rcases registered same with ⟨callee, found⟩ | ⟨callee, found, allocated⟩
+          · have exactAllocation := linked.graphAllocated address callee found
+            have declType := congrArg FuncInst.type (Option.some.inj (allocation.symm.trans exactAllocation))
+            exact ⟨_, .wasm (callee := ⟨address, callee⟩) entry found exactAllocation (declType.symm.trans same),
+              by simp [IndirectSite.lookupHead, same]⟩
+          · have declType := congrArg FuncInst.type (Option.some.inj (allocation.symm.trans allocated))
+            exact ⟨_, .memory (callee := ⟨address, callee⟩) entry found allocated (declType.symm.trans same),
+              by simp [IndirectSite.lookupHead, same]⟩
       · exact ⟨none, .mismatch entry allocation same, by simp [IndirectSite.lookupHead, same]⟩
   · rintro ⟨target, found, rfl⟩
     cases found with
@@ -53,6 +56,9 @@ theorem indirect_step_iff {H : Type} {base : Store H} {memory : Memory32 base}
         by simp [IndirectSite.lookupHead, FuncInst.type]⟩
 
     | @wasm callee entry _ allocated typed =>
+      exact .inr ⟨callee.address, _, entry, allocated, by simp [IndirectSite.lookupHead, FuncInst.type, typed]⟩
+
+    | @memory callee entry _ allocated typed =>
       exact .inr ⟨callee.address, _, entry, allocated, by simp [IndirectSite.lookupHead, FuncInst.type, typed]⟩
 
 private theorem failure_excludes_allocation {H : Type} {base : Store H} {site : IndirectSite}
@@ -82,6 +88,7 @@ private theorem lookup_trap {H : Type} {base : Store H} {site : IndirectSite}
   | bounds | null | mismatch => rfl
   | host entry allocated => exact (failure_excludes_allocation entry allocated rfl failure).elim
   | wasm entry _ allocated typed => exact (failure_excludes_allocation entry allocated typed failure).elim
+  | memory entry _ allocated typed => exact (failure_excludes_allocation entry allocated typed failure).elim
 
 theorem indirect_trap_iff {H : Type} {base : Store H} {memory : Memory32 base}
     {site : IndirectSite} {active : Frame} {bytes : ByteArray} {stack : List Value}
