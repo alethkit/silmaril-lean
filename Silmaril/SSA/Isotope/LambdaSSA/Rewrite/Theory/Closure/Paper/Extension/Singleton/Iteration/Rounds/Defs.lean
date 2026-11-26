@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Iteration.Chosen.Blocks.ThreeCycle.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Iteration.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Values.Discard.Coproducts.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Rounds.Defs
 
 /-! # Several rounds of one guarded step, and the unrolling laws of a quotient -/
 
@@ -46,6 +47,12 @@ def roundsRegion (s : Region Φ) : Nat → Region Φ
 def Unrolls (n : Nat) : Prop :=
   ∀ {A B : τ} (s : ofType Seed A ⟶ ofType Seed (Silmaril.coprod B A)),
     iterateSum Seed (rounds Seed s n) = iterateSum Seed s
+
+/-- The same law at the chosen coproduct of the quotient. -/
+def RoundsLaw (n : Nat) : Prop :=
+  ∀ {X Y : TypeCategory Seed} (g : X ⟶ Y ⨿ X),
+    iterateChosen Seed (Silmaril.Isotope.LambdaSSA.Semantics.Categorical.roundsStep g n) =
+      iterateChosen Seed g
 
 /-- The two-round law at the chosen coproduct. -/
 def Doubles : Prop :=

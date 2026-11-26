@@ -5,6 +5,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extens
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Generation.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Coproducts.Finite.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Tripling.Components.Thms
 
 public section
 
@@ -20,7 +21,8 @@ open Paper.Extension.Singleton
 open Paper.Extension.Singleton.Rounds
 open Paper.Extension.Singleton.ValueCoproducts (exactCopair)
 open Paper.Extension.Singleton.Generation (exactCopair_ofRegion)
-open Paper.Extension.Singleton.ThreeCycle (triple)
+open Paper.Extension.Singleton.ThreeCycle (triple projectStep_thenOnRepeat)
+open Semantics.Categorical (roundsStep)
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
   (Seed : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop)
@@ -131,6 +133,18 @@ theorem then_chosen :
       (congrArg (· ≫ coprod.desc coprod.inl (t ≫ (sumIso Seed B A).hom)) hr)).trans
         (coprod.inr_desc _ _)).symm
 
+theorem rounds_chosen : ∀ n,
+    rounds Seed s n ≫ (sumIso Seed B A).hom = roundsStep (s ≫ (sumIso Seed B A).hom) n
+  | 0 => rfl
+  | n + 1 => (then_chosen Seed s (rounds Seed s n)).trans
+      (congrArg (fun k => (s ≫ (sumIso Seed B A).hom) ≫ coprod.desc coprod.inl k) (rounds_chosen n))
+
+theorem projectStep_roundsStep {X Y : Paper.TypeCategory (τ := τ) Φ} (h : X ⟶ Y ⨿ X) : ∀ n,
+    projectStep Seed (roundsStep h n) = roundsStep (projectStep Seed h) n
+  | 0 => rfl
+  | n + 1 => (projectStep_thenOnRepeat Seed h (roundsStep h n)).trans
+      (congrArg (fun k => projectStep Seed h ≫ coprod.desc coprod.inl k) (projectStep_roundsStep h n))
+
 theorem iterateSum_double (d : Doubles Seed) :
     iterateSum Seed (thenExact Seed s s) = iterateSum Seed s := by
   rw [iterateSum_chosen, then_chosen, d, ← iterateSum_chosen]
@@ -139,6 +153,11 @@ theorem iterateSum_triple (d : Triples Seed) :
     iterateSum Seed (thenExact Seed s (thenExact Seed s s)) = iterateSum Seed s := by
   rw [iterateSum_chosen, then_chosen, then_chosen]
   exact (d (s ≫ (sumIso Seed B A).hom)).trans (iterateSum_chosen Seed s).symm
+
+/-- The law at the chosen coproduct gives the law at the exact sum. -/
+theorem unrolls_of_roundsLaw {n : Nat} (law : RoundsLaw Seed n) : Unrolls Seed n := by
+  intro A B s
+  rw [iterateSum_chosen, rounds_chosen, law, ← iterateSum_chosen]
 
 /-- The laws for two round counts give the law for their product. -/
 theorem unrolls_mul {m n : Nat} (hm : Unrolls Seed m) (hn : Unrolls Seed n) :
