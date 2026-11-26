@@ -144,29 +144,72 @@ private theorem bind_matches {Γ : VCtx (Ty Empty)} {n : Nat} (slots : Slots Γ 
   exact hslots j
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem run_outcomes {n : Nat} (t : Tree n) {Γ : VCtx (Ty Empty)} (slots : Slots Γ n)
+private theorem variable_request_run {Γ : VCtx (Ty Empty)} {i : Nat}
+    (label : Bool) (hi : At Γ i Bit) {l r : Region signature.Instr}
+    (hl : ValueBranches (Bit :: Γ) l Exits) (hr : ValueBranches (Bit :: Γ) r Exits) (x : ctxObj M Γ)
+    (b : Bool) (read : (lookup M i hi) x = bit b) :
+    runAt (.case (.op (f := (show signature.Instr from .ask label)) (.var hi)) hl hr) x =
+      (request label (bit b) >>= fun | .inl a => runAt hl (x, a) | .inr a => runAt hr (x, a)) := by
+  let op : signature.Instr := .ask label
+  have d : Denotes J M (.op (f := op) (.var hi))
+      ((J).map (lookup M i hi) ≫ (Kleisli.instructions model).denote op) :=
+    .op (.var hi)
+  rw [case_run d hl hr x]
+  erw [Kleisli.Type.comp_of_eq_kleisliRight]
+  change Bind.bind (m := Trace) (Bind.bind (m := Trace) (pure ((lookup M i hi) x)) (request label)) _ = _
+  rw [read, pure_bind]
+  congr 1
+  funext reply
+  cases reply <;> rfl
+
+set_option backward.isDefEq.respectTransparency false in
+private theorem query_case_run {n : Nat} (written label : Bool) (query : Expr n)
+    {Γ : VCtx (Ty Empty)} (slots : Slots Γ n) (env : Assignment n) (x : ctxObj M Γ)
+    (read : ∀ i, (lookup M (slots.index i) (slots.typed i)) x = bit (env i))
+    {l r : Region signature.Instr} (hl : ValueBranches (Bit :: Γ) l Exits)
+    (hr : ValueBranches (Bit :: Γ) r Exits) :
+    runAt (queryCase_typed written label query slots.term_typed hl hr) x =
+      (request label (bit (query.eval env)) >>= fun | .inl a => runAt hl (x, a) | .inr a => runAt hr (x, a)) := by
+  have quoted : runAt (choose_typed query slots.term_typed (request_typed label false hl hr)
+      (request_typed label true hl hr)) x =
+      (request label (bit (query.eval env)) >>= fun | .inl a => runAt hl (x, a) | .inr a => runAt hr (x, a)) := by
+    refine (choose_run query slots.index slots.typed env x read
+      (request_typed label false hl hr) (request_typed label true hl hr)).trans ?_
+    cases val : query.eval env
+    · exact request_case_run label false hl hr x
+    · exact request_case_run label true hl hr x
+  cases written
+  · exact quoted
+  · cases query with
+    | literal => exact quoted
+    | split => exact quoted
+    | read i => exact variable_request_run label (slots.typed i) hl hr x (env i) (read i)
+
+set_option backward.isDefEq.respectTransparency false in
+private theorem run_outcomes {n : Nat} (written : Bool) (t : Tree n) {Γ : VCtx (Ty Empty)} (slots : Slots Γ n)
     (x : ctxObj M Γ) (env : Assignment n)
     (hslots : ∀ i, (lookup M (slots.index i) (slots.typed i)) x = bit (env i)) :
-    (runAt (t.typed slots) x).outcomes = t.outcomes env := by
+    (runAt (t.typedWithQueries written slots) x).outcomes = t.outcomes env := by
   induction t generalizing Γ with
   | ret right i =>
-    change (runAt (.br (exit_typed right) (.var (slots.typed i))) x).outcomes = _
-    rw [branch_run x (slots.typed i) right (env i) (hslots i)]
-    rfl
+    cases written <;>
+      change (runAt (.br (exit_typed right) (.var (slots.typed i))) x).outcomes = _ <;>
+      rw [branch_run x (slots.typed i) right (env i) (hslots i)] <;> rfl
   | ask label query l r ihl ihr =>
-    let hl := l.typed slots.bind
-    let hr := r.typed slots.bind
+    let hl := l.typedWithQueries written slots.bind
+    let hr := r.typedWithQueries written slots.bind
     let finish (z : value Answer) : Trace Result :=
       match z with
       | .inl b => runAt hl (x, b)
       | .inr b => runAt hr (x, b)
-    have invoke : runAt ((Tree.ask label query l r).typed slots) x =
+    have invoke : runAt ((Tree.ask label query l r).typedWithQueries written slots) x =
         (request label (bit (query.eval env)) >>= finish) := by
-      refine (choose_run query slots.index slots.typed env x hslots
-        (request_typed label false hl hr) (request_typed label true hl hr)).trans ?_
-      cases val : query.eval env
-      · exact request_case_run label false hl hr x
-      · exact request_case_run label true hl hr x
+      let direct := queryCase_typed written label query slots.term_typed hl hr
+      have eq := denote_congr (Tree.regionWithQueries_ask written label query l r slots)
+        ((Tree.ask label query l r).typedWithQueries written slots).hasType direct.hasType
+      calc
+        _ = runAt direct x := by unfold runAt; rw [eq]
+        _ = _ := query_case_run written label query slots env x hslots hl hr
     rw [invoke]
     apply Set.ext
     rintro ⟨result, word⟩
@@ -185,7 +228,15 @@ theorem packed_outcomes (t : Tree 1) (b : Bool) :
   unfold Tree.observations
   rw [packed_unguarded]
   rw [run_packed (t.typed inputSlots) b]
-  exact run_outcomes t inputSlots (PUnit.unit, bit b) (fun _ => b) (fun _ => rfl)
+  exact run_outcomes false t inputSlots (PUnit.unit, bit b) (fun _ => b) (fun _ => rfl)
+
+theorem written_packed_outcomes (t : Tree 1) (b : Bool) :
+    t.writtenObservations b = t.outcomes (fun _ => b) := by
+  unfold Tree.writtenObservations Tree.writtenPacked
+  change ((denote.map (Paper.Extension.Singleton.ofRegion Seed (t.typedWithQueries true inputSlots).packExits)).of
+    (bit b)).outcomes = _
+  rw [run_packed (t.typedWithQueries true inputSlots) b]
+  exact run_outcomes true t inputSlots (PUnit.unit, bit b) (fun _ => b) (fun _ => rfl)
 
 private theorem word_head {a b : Event} {v w : Word}
     (h : FreeMonoid.of a * v = FreeMonoid.of b * w) : a = b ∧ v = w := by

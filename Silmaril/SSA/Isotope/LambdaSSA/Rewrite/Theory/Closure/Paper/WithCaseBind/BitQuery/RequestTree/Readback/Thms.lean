@@ -98,4 +98,90 @@ theorem variable_query_unknown : Readback.compare 16 first unsupported = .unknow
 
 end Example
 
+open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload (Bit)
+open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload.Finite (Expr)
+
+theorem readQuery_typed {written : Bool} {n : Nat} {arg : Tm signature.Instr} {query : Expr n}
+    (h : readQuery written n arg = some query) : Tm.HasType (Live n) arg Bit :=
+  BitQueryTreeReadback.readQuery_typed h
+
+/-- Readback with variables preserves the actual opcode argument at the original
+packed endpoint in unchanged Paper. -/
+theorem Candidate.packed_eq_with_variables {fuel : Nat} {p : Candidate} {t : Tree 1}
+    (h : p.readWithVariables fuel = some t) : p.packed = t.writtenPacked :=
+  BitQueryTreeReadback.written_packed_eq h
+
+theorem Candidate.observations_eq_with_variables {fuel : Nat} {p : Candidate} {t : Tree 1}
+    (h : p.readWithVariables fuel = some t) (guard : Bool) : p.observations guard = t.observations guard :=
+  BitQueryTreeReadback.written_observations_eq h guard
+
+/-- The original quotation key is complete on the admitted literal-or-variable
+grammar. Key equality identifies the original variable, including its scope. -/
+theorem eq_iff_key_with_variables {fuel : Nat} {p q : Candidate} {t u : Tree 1}
+    (hp : p.readWithVariables fuel = some t) (hq : q.readWithVariables fuel = some u) :
+    p.packed = q.packed ↔ t.key = u.key :=
+  BitQueryTreeReadback.written_eq_iff_key hp hq
+
+theorem compare_with_variables_equal_iff {fuel : Nat} {p q : Candidate} {t u : Tree 1}
+    (hp : p.readWithVariables fuel = some t) (hq : q.readWithVariables fuel = some u) :
+    Readback.compareWithVariables fuel p q = .equal ↔ p.packed = q.packed :=
+  BitQueryTreeReadback.compare_written_equal_iff hp hq
+
+theorem compare_with_variables_different {fuel : Nat} {p q : Candidate} {w : Difference}
+    (h : Readback.compareWithVariables fuel p q = .different w) :
+    w.history.observation ∈ (if w.fromRight then q else p).observations w.guard ∧
+      w.history.observation ∉ (if w.fromRight then p else q).observations w.guard :=
+  BitQueryTreeReadback.compare_written_different h
+
+theorem compare_with_variables_different_ne {fuel : Nat} {p q : Candidate} {w : Difference}
+    (h : Readback.compareWithVariables fuel p q = .different w) : p.packed ≠ q.packed :=
+  BitQueryTreeReadback.compare_written_different_ne h
+
+namespace VariableExample
+
+open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload (Bit)
+open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload.Finite (Assignment)
+
+theorem numbered_typed (renumbered altered : Bool) : ValueBranches [Bit] (numbered renumbered altered) Exits :=
+  BitQueryTreeReadback.VariableExample.numbered_typed renumbered altered
+
+theorem effectful_query_typed : ValueBranches [Bit] effectfulQuery Exits :=
+  BitQueryTreeReadback.VariableExample.effectful_query_typed
+
+@[expose] def program (renumbered altered : Bool) : Candidate :=
+  ⟨numbered renumbered altered, numbered_typed renumbered altered⟩
+
+@[expose] def unsupported : Candidate := ⟨effectfulQuery, effectful_query_typed⟩
+
+theorem reads_numbered : (program false false).readWithVariables 16 = some (expected false) := rfl
+
+theorem reads_renumbered : (program true false).readWithVariables 16 = some (expected false) := rfl
+
+theorem reads_altered : (program true true).readWithVariables 16 = some (expected true) := rfl
+
+theorem same_packed : (program false false).packed = (program true false).packed :=
+  (Candidate.packed_eq_with_variables reads_numbered).trans
+    (Candidate.packed_eq_with_variables reads_renumbered).symm
+
+/-- The query changes only in the right continuation, and exactly when the
+forwarded reply differs from the retained original guard. -/
+theorem mismatch_iff (guard tag payload : Bool) :
+    let env := Assignment.push (fun _ : Fin 1 => guard) payload
+    env (querySlot false tag) ≠ env (querySlot true tag) ↔ tag = true ∧ payload ≠ guard := by
+  cases guard <;> cases tag <;> cases payload <;> decide
+
+theorem compare_query : Readback.compareWithVariables 16 (program false false) (program true true) =
+    .different witness := rfl
+
+theorem separates_query :
+    witness.history.observation ∈ (program false false).observations witness.guard ∧
+      witness.history.observation ∉ (program true true).observations witness.guard :=
+  compare_with_variables_different (fuel := 16) (p := program false false)
+    (q := program true true) (w := witness) compare_query
+
+theorem effectful_query_unknown :
+    Readback.compareWithVariables 16 (program false false) unsupported = .unknown := rfl
+
+end VariableExample
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.BitQuery.RequestTree.Readback

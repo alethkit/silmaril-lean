@@ -116,6 +116,64 @@ theorem Tree.typed : {n : Nat} → (t : Tree n) → {Γ : VCtx (Ty Empty)} → (
     choose_typed query slots.term_typed (request_typed label false left right)
       (request_typed label true left right)
 
+/-- The written-variable mode passes the original Bit to the instruction.
+The quoted mode uses the existing continuation-parameterized choice. -/
+def queryCase {n : Nat} (written : Bool) (label : Bool) (query : Expr n)
+    (terms : Fin n → Tm signature.Instr) (left right : Region signature.Instr) : Region signature.Instr :=
+  let quoted := choose query terms (requestRegion label false left right) (requestRegion label true left right)
+  if written then
+    match query with
+    | .read i => .case (.op (.ask label) (terms i)) left right
+    | _ => quoted
+  else quoted
+
+theorem queryCase_typed {n : Nat} {Γ : VCtx (Ty Empty)} {terms : Fin n → Tm signature.Instr}
+    (written label : Bool) (query : Expr n) (ht : ∀ i, Tm.HasType Γ (terms i) Bit)
+    {left right : Region signature.Instr}
+    (hl : ValueBranches (Bit :: Γ) left Exits) (hr : ValueBranches (Bit :: Γ) right Exits) :
+    ValueBranches Γ (queryCase written label query terms left right) Exits := by
+  cases written <;> cases query <;>
+    first | exact .case (.op (ht _)) hl hr
+          | exact choose_typed _ ht (request_typed label false hl hr) (request_typed label true hl hr)
+
+def Tree.writtenRegion : {n : Nat} → Tree n → {Γ : VCtx (Ty Empty)} →
+    Slots Γ n → Region signature.Instr
+  | _, .ret right i, _, slots => (Tree.ret right i).region slots
+  | _, .ask label query l r, _, slots =>
+    queryCase true label query slots.terms (l.writtenRegion slots.bind) (r.writtenRegion slots.bind)
+
+/-- Emit direct requests for live reads, preserving each actual payload
+through the opcode. Other expressions retain the original quotation. -/
+def Tree.regionWithQueries {n : Nat} (written : Bool) (t : Tree n) {Γ : VCtx (Ty Empty)} (slots : Slots Γ n) :
+    Region signature.Instr :=
+  if written then t.writtenRegion slots else t.region slots
+
+theorem Tree.regionWithQueries_ret {n : Nat} (written right : Bool) (i : Fin n)
+    {Γ : VCtx (Ty Empty)} (slots : Slots Γ n) :
+    (Tree.ret right i).regionWithQueries written slots = (Tree.ret right i).region slots := by
+  cases written <;> rfl
+
+theorem Tree.regionWithQueries_ask {n : Nat} (written label : Bool) (query : Expr n) (l r : Tree (n + 1))
+    {Γ : VCtx (Ty Empty)} (slots : Slots Γ n) :
+    (Tree.ask label query l r).regionWithQueries written slots = queryCase written label query slots.terms
+      (l.regionWithQueries written slots.bind) (r.regionWithQueries written slots.bind) := by
+  cases written <;> rfl
+
+theorem Tree.written_typed : {n : Nat} → (t : Tree n) → {Γ : VCtx (Ty Empty)} → (slots : Slots Γ n) →
+    ValueBranches Γ (t.writtenRegion slots) Exits
+  | _, .ret right i, _, slots => (Tree.ret right i).typed slots
+  | _, .ask label query l r, _, slots =>
+    queryCase_typed true label query slots.term_typed (l.written_typed slots.bind) (r.written_typed slots.bind)
+
+theorem Tree.typedWithQueries {n : Nat} (written : Bool) (t : Tree n) {Γ : VCtx (Ty Empty)}
+    (slots : Slots Γ n) : ValueBranches Γ (t.regionWithQueries written slots) Exits := by
+  cases written
+  · exact t.typed slots
+  · exact t.written_typed slots
+
+def Tree.writtenPacked (t : Tree 1) :=
+  Paper.TypeCategory.ofRegion (t.typedWithQueries true inputSlots).packExits
+
 /-- The structural key quotes every query in fixed slot order. -/
 def Tree.key : {n : Nat} → Tree n → Tree n
   | _, .ret right i => .ret right i
@@ -158,6 +216,9 @@ def Tree.outcomes : {n : Nat} → Tree n → Assignment n → Set Observation
 
 noncomputable def Tree.observations (t : Tree 1) (input : Bool) :=
   ((denote.map t.packed).of (bit input)).outcomes
+
+noncomputable def Tree.writtenObservations (t : Tree 1) (input : Bool) : Set Observation :=
+  ((denote.map ((Paper.Extension.Singleton.projection Seed).map t.writtenPacked)).of (bit input)).outcomes
 
 namespace Example
 
