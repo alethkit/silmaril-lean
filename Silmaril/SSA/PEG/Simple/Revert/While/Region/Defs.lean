@@ -353,7 +353,7 @@ structure Certificate.ExitWitness (cert : Certificate g allowInvariant allowBran
 
 /-- One pass count for the entire carried boundary of a successful trace.
 Every carried sample is defined throughout the Figure 11 eval prefix. -/
-structure Certificate.TraceObservation (cert : Certificate g allowInvariant)
+structure Certificate.TraceObservation (cert : Certificate g allowInvariant allowBranch)
     (m : Interpretation.{u,v,w} P) (values : g.Valuation m) (idx : Index 1) (k : Nat)
     (final : Tuple m.Value (.bool :: carried)) : Prop where
   pass : cert.descriptor.pass.read m.carrier (values (cert.descriptor.pass.id, idx)) = some ⟨k⟩
