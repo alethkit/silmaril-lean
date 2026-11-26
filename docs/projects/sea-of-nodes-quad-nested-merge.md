@@ -1066,6 +1066,35 @@ The three rows show inner values `7`, `36`, and bypass, and outer
 values `15`, `73`, and `150`. The first two activations feed back and
 the third completes with `152`.
 
+### Invert supplied firings at the shared-loop cuts
+
+`Outer.Numbered.Petri.Trace.Inversion.Thms` checks the coloured packets
+of a supplied legal activation for the same *From Quads to Graphs* §3.1
+profile. `first_outer_read` takes an ordered list of markings linked
+by the original body `Fire` relation, from pending to completion. It
+identifies adjacent markings in that list where the full outer cut
+first becomes readable. The bank equals the selected CF/Φ row and the
+observed prefix marking stays fixed through the final latch. This cut
+reads the entire prefix. With interleaved independent work, the last
+publication needed for readability may occur after the outer γ fires.
+
+`completed_activation` derives the full typed latch packet from any
+reachable completed body marking. `latch_step` takes a completed
+preheader, that live body and an actual root firing. It identifies the
+exact restart or exit marking and the corresponding typed CF successor.
+`completed_child_packet` checks the retained inner bank or tagged bypass
+when the selected arm, header arguments and legal child segment are
+available. These laws use semantic packet equality across independent
+fuel witnesses. Legal schedules may differ in when a cut becomes
+readable. Extracting all activation and child segments automatically
+from an unsegmented root log remains open.
+
+The regression links three actual body segments and their root
+consumption steps. It checks two feedbacks and exit with `152`, and
+checks the completed outer-false child separately for inner bypass.
+[Inversion API](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Trace/Inversion/Thms.lean) ·
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Trace/Inversion/Regression.lean)
+
 ## Complete the emitted loop by coloured firing
 
 The `Backends/Petri/Thms` import adds completion laws for the numbered
