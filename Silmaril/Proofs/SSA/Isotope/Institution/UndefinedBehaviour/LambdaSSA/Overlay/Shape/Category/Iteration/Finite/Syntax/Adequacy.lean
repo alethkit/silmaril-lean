@@ -35,6 +35,11 @@ theorem denote_push (prim : StatePrimitives Φ σ) (env : Bindings Γ) (a : Payl
     denote body (rawModel prim bound) s
   exact congrArg run (push_values env a)
 
+theorem singleton_return_bind {α : Type w} {σ : Type x} {n m : Nat} (i : Fin n) (a : Value α) (s : σ)
+    (k : Fin n → Value α → σ → Behaviour m α σ) :
+    Behaviour.bind (WithTop.some ({Outcome.ret i a s} : Set (Outcome n α σ))) k = k i a s :=
+  return_bind i a s k
+
 theorem fault_bind {α : Type w} {σ : Type x} {n m : Nat} (s : σ)
     (k : Fin n → Value α → σ → Behaviour m α σ) :
     Behaviour.bind (WithTop.some ({Outcome.fault s} : Set (Outcome n α σ))) k = WithTop.some {Outcome.fault s} := by
