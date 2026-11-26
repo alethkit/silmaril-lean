@@ -6,22 +6,31 @@ public import Silmaril.Languages.Starlark.Lists.GoDictionary.Defs
 
 namespace Silmaril.Languages.Starlark.Lists.GoDictionary.Growth
 
-inductive Width where
-  | one | two
+/-- The number of primary buckets is a power of two. Counts use naturals;
+the profile models successful allocation and a representable Go entry count. -/
+structure Width where
+  log2 : Nat
   deriving DecidableEq, Repr
 
-/-- The entry count at which the next miss requests a grow. -/
-def Width.limit : Width → Nat
-  | .one => 8
-  | .two => 13
+def Width.one : Width := ⟨0⟩
+def Width.two : Width := ⟨1⟩
 
-def Width.home (width : Width) (hash : UInt32) : UInt32 :=
-  match width with
-  | .one => 0
-  | .two => hash &&& 1
+def Width.count (width : Width) : Nat := 2 ^ width.log2
 
-/-- The linked insertion order determines all occupied slots when keys
-are never deleted. The bound stops before the second grow. -/
+def Width.double (width : Width) : Width := ⟨width.log2 + 1⟩
+
+/-- Go requires at least eight entries and a load of at least 6.5. -/
+def Width.limit (width : Width) : Nat := max 8 ((13 * width.count + 1) / 2)
+
+theorem Width.limit_lt_double (width : Width) : width.limit < width.double.limit := by
+  have positive := Nat.two_pow_pos width.log2
+  simp only [limit, count, double, Nat.pow_succ]
+  omega
+
+def Width.home (width : Width) (hash : UInt32) : Nat :=
+  hash.toNat % width.count
+
+/-- Without deletion, the chronological rows determine all occupied slots. -/
 structure Table where
   width : Width
   entries : List Row
@@ -39,25 +48,26 @@ def homeRows (width : Width) (entries : List Row) (hash : UInt32) : List (Row ×
 def Table.homeEntries (table : Table) (hash : UInt32) : List (Row × Nat) :=
   homeRows table.width table.entries hash
 
-/-- An overflow block starts in slot zero. Later entries use its highest
-free slot. Its occupied order differs from the primary block. -/
-def overflowOrder {α : Type} : List α → List α
-  | [] => []
-  | first :: later => first :: later.reverse
-
-def slotOrder {α : Type} (entries : List α) : List α :=
-  (entries.take 8).reverse ++ overflowOrder (entries.drop 8)
-
 def primarySlots {α : Type} (entries : List α) : List (Option α) :=
   let primary := entries.take 8
   List.replicate (8 - primary.length) none ++ primary.reverse.map some
 
-def overflowSlots {α : Type} : List α → List (Option α)
+/-- An overflow block starts in slot zero. Later entries use its highest
+free slot. -/
+def overflowBlock {α : Type} (first : α) (later : List α) : List (Option α) :=
+  some first :: (List.replicate (7 - later.length) none ++ later.reverse.map some)
+
+def overflowSlots {α : Type} (entries : List α) : List (Option α) :=
+  match entries with
   | [] => []
-  | first :: later => some first :: (List.replicate (7 - later.length) none ++ later.reverse.map some)
+  | first :: later => overflowBlock first (later.take 7) ++ overflowSlots (later.drop 7)
+termination_by entries.length
 
 def physicalChain {α : Type} (entries : List α) : List (Option α) :=
   primarySlots entries ++ overflowSlots (entries.drop 8)
+
+def slotOrder {α : Type} (entries : List α) : List α :=
+  (physicalChain entries).filterMap id
 
 def Table.slots (table : Table) (hash : UInt32) : List (Option (Row × Nat)) :=
   physicalChain (table.homeEntries hash)
@@ -70,8 +80,8 @@ def Table.candidates (table : Table) (hash : UInt32) : List (Row × Nat) :=
 
 /-- The placement produced by rehashing the original insertion order at the
 wider mask. The stored rows already contain their normalized hash words. -/
-def Table.grow (table : Table) (one : table.width = .one) : Table :=
-  ⟨.two, table.entries, by have h := table.bounded; rw [one] at h; exact Nat.le_trans h (by decide)⟩
+def Table.grow (table : Table) : Table :=
+  ⟨table.width.double, table.entries, Nat.le_trans table.bounded (Nat.le_of_lt table.width.limit_lt_double)⟩
 
 def Table.insert (table : Table) (row : Row) (room : table.entries.length < table.width.limit) : Table :=
   ⟨table.width, table.entries ++ [row], by simpa using Nat.succ_le_of_lt room⟩
@@ -96,6 +106,14 @@ def lookupWithHash (heap : Heap) (table : Table) (key : Value) :
   let hit ← probeTable heap table key hash
   pure (hash, hit)
 
+/-- Replay only depends on the stored hash and original key. Each later
+key must miss every earlier key with the same full hash. -/
+def Replayable (heap : Heap) (entries : List Row) : Prop :=
+  let keys := entries.map fun row => (row.hash, row.key)
+  (∀ item ∈ keys, ∃ word, hashKey heap item.2 = .ok word ∧ storedHash word = item.1) ∧
+    keys.Pairwise (fun earlier later => earlier.1 = later.1 →
+      Comparison.equalAt heap Comparison.defaultDepth later.2 earlier.2 = .ok false)
+
 /-- Each replay step recomputes its stored hash and probes the already
 reinserted prefix before appending to the insertion list. -/
 inductive Reinserts (heap : Heap) (width : Width) : List Row → List Row → Prop where
@@ -111,25 +129,21 @@ inductive Reinserts (heap : Heap) (width : Width) : List Row → List Row → Pr
 def get (heap : Heap) (table : Table) (key : Value) : Except Error (Option Value) :=
   (lookupWithHash heap table key).map fun (_, hit) => hit.map fun item => item.1.value
 
-def commit (table : Table) (row : Row) (hit : Option (Row × Nat)) : Except Error Table :=
-  match hit with
-  | some item => .ok (table.replace item row.value)
-  | none =>
-    if room : table.entries.length < table.width.limit then .ok (table.insert row room)
-    else .error .capacity
-
-/-- Probe before checking overload. A first grow retries the same hash in
-the wider table. A miss at the second threshold is a profile rejection. -/
+/-- Probe before checking overload. Retry with the same hash after growing.
+The old count fits the doubled width, so a retry can append without growing. -/
 def set (heap : Heap) (table : Table) (key value : Value) : Except Error Table := do
   let (hash, hit) ← lookupWithHash heap table key
   let row : Row := ⟨hash, key, value⟩
   match hit with
   | some item => pure (table.replace item value)
   | none =>
-    if grow : table.width = .one ∧ table.entries.length = 8 then
-      let expanded := table.grow grow.1
-      commit expanded row (← probeTable heap expanded key hash)
-    else commit table row none
+    if room : table.entries.length < table.width.limit then
+      pure (table.insert row room)
+    else
+      let expanded := table.grow
+      match ← probeTable heap expanded key hash with
+      | some item => pure (expanded.replace item value)
+      | none => pure (expanded.insert row (Nat.lt_of_le_of_lt table.bounded table.width.limit_lt_double))
 
 def contains (heap : Heap) (table : Table) (key : Value) : Except Error Bool :=
   Option.isSome <$> observeLookup (get heap table key)
