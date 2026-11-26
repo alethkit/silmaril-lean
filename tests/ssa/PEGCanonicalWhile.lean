@@ -2,11 +2,11 @@ module
 
 import Silmaril.SSA.PEG.Simple.Revert.While.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms
-import Silmaril.SSA.PEG.Simple.Revert.While.Region.Thms
+import Silmaril.SSA.PEG.Simple.Revert.While.Region.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Thms
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Defs
-meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Automatic.Defs
 
 namespace Silmaril.SSA.PEG.Simple.Revert.While.Tests
 
@@ -346,9 +346,15 @@ private def sorts (i : Fin 15) : Ty Unit :=
   | 4 | 11 => .bool
   | _ => acc
 
+private inductive ExtraRow where
+  | theta
+  | parameter
+  | cycle
+
 -- Rows are interleaved, the root is row 5, and both accumulator updates use
--- row 0. Row 10 is a separate, initially unused θ with legal self-feedback.
-private def graph (crosses : Bool) : Graph Op carried [acc] 15 1 where
+-- row 0. The supplied-boundary regressions use an extra θ with self-feedback.
+private def graph (crosses : Bool) (extra : ExtraRow := .theta) (ambiguous : Bool := false) :
+    Graph Op carried [acc] 15 1 where
   forest := ⟨fun _ => none⟩
   sort := sorts
   node := fun i =>
@@ -357,14 +363,19 @@ private def graph (crosses : Bool) : Graph Op carried [acc] 15 1 where
         (.cons ⟨8, rfl⟩ (.cons (if crosses then ⟨10, rfl⟩ else ⟨3, rfl⟩) .nil))
     | 1 => .ofLabel (.theta 0) (.cons ⟨13, rfl⟩ (.cons ⟨6, rfl⟩ .nil))
     | 2 => .ofLabel (.pass 0) (.cons ⟨11, rfl⟩ .nil)
-    | 3 => .ofLabel (.theta 0) (.cons ⟨14, rfl⟩ (.cons ⟨0, rfl⟩ .nil))
+    | 3 => .ofLabel (.theta 0)
+        (.cons (if ambiguous then ⟨9, rfl⟩ else ⟨14, rfl⟩) (.cons ⟨0, rfl⟩ .nil))
     | 4 => .ofLabel (.op .nonzero) (.cons ⟨12, rfl⟩ .nil)
     | 5 => .ofLabel (.eval 0) (.cons ⟨8, rfl⟩ (.cons ⟨2, rfl⟩ .nil))
     | 6 => .ofLabel (.op .pred) (.cons ⟨1, rfl⟩ .nil)
     | 7 => .ofLabel (.op .addCount) (.cons ⟨1, rfl⟩ (.cons ⟨0, rfl⟩ .nil))
     | 8 => .ofLabel (.theta 0) (.cons ⟨9, rfl⟩ (.cons ⟨7, rfl⟩ .nil))
     | 9 => .ofLabel (.param (.tail .head)) .nil
-    | 10 => .ofLabel (.theta 0) (.cons ⟨14, rfl⟩ (.cons ⟨10, rfl⟩ .nil))
+    | 10 =>
+      match extra with
+      | .theta => .ofLabel (.theta 0) (.cons ⟨14, rfl⟩ (.cons ⟨10, rfl⟩ .nil))
+      | .parameter => .ofLabel (.param (.tail .head)) .nil
+      | .cycle => .ofLabel (.op .sum) (.cons ⟨10, rfl⟩ (.cons ⟨8, rfl⟩ .nil))
     | 11 => .ofLabel (.op .not) (.cons ⟨4, rfl⟩ .nil)
     | 12 => .ofLabel (.op .twice) (.cons ⟨1, rfl⟩ .nil)
     | 13 => .ofLabel (.param .head) .nil
@@ -425,5 +436,30 @@ set_option interpreter.prefer_native false
 /-- info: some [6, 0, 7] -/
 #guard_msgs in
 #eval sliceOrder (graph false) (descriptor false) (descriptor false).next
+
+-- The graph and its designated output determine the complete certificate.
+private def runInferred (fuel n a b : Nat) : Option Nat := do
+  let cert ← Automatic.extract (graph false .parameter)
+  cert.runFuel model fuel (input n a b)
+
+/-- info: (some 25, some 10, none) -/
+#guard_msgs in
+#eval (runInferred 2 2 10 1, runInferred 0 0 10 1, runInferred 1 2 10 1)
+
+-- Both accumulator θs initialize from the first accumulator's port.
+-- Matching the total θ count alone would miss the ambiguity.
+/-- info: (3, 2, true) -/
+#guard_msgs in
+#eval let bad := graph false .parameter true
+  (Automatic.thetaCount bad, (Automatic.candidates bad (.tail .head)).length,
+    (Automatic.extract bad).isNone)
+
+-- The same boundary can be read with an unused ordinary self-cycle.
+-- The assembled demand rank is checked across the entire graph.
+/-- info: (true, false, true) -/
+#guard_msgs in
+#eval let cyclic := graph false .cycle
+  ((Automatic.inferBoundary cyclic).isSome, (Automatic.inferDemandRank cyclic).check cyclic,
+    (Automatic.extract cyclic).isNone)
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Region.Tests
