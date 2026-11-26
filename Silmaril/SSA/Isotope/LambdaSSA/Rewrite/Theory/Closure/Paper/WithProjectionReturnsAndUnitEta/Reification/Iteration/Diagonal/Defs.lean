@@ -36,10 +36,16 @@ noncomputable def chosenValueDiagonal (P : τ) : Val P ⟶ Val (product P P) :=
 variable {V : Type u₁} [Category.{v₁} V] [CartesianMonoidalCategory V] [HasFiniteCoproducts V]
   (K : V ⥤ Values) (M : TypeModel τ V)
 
-/-- Normalize the product coordinate using the two interpreted packed projections. -/
+/-- Normalize a binary product coordinate using the two interpreted packed projections. -/
+noncomputable def chosenBinaryValueProductMap (A B : τ)
+    (left : K.obj (M.obj A) ≅ Val A) (right : K.obj (M.obj B) ≅ Val B) :
+    K.obj (M.obj (product A B)) ⟶ Val (product A B) :=
+  BinaryFan.IsLimit.lift (discardPreservingBinaryFanIsLimit (Seed) pe A B (fun h => Or.inl h))
+    (K.map (fstMap M A B) ≫ left.hom) (K.map (sndMap M A B) ≫ right.hom)
+
+/-- Normalize the product coordinate of a diagonal. -/
 noncomputable def chosenValueProductMap (P : τ) (e : K.obj (M.obj P) ≅ Val P) :
     K.obj (M.obj (product P P)) ⟶ Val (product P P) :=
-  BinaryFan.IsLimit.lift (discardPreservingBinaryFanIsLimit (Seed) pe P P (fun h => Or.inl h))
-    (K.map (fstMap M P P) ≫ e.hom) (K.map (sndMap M P P) ≫ e.hom)
+  chosenBinaryValueProductMap pe K M P P e e
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithProjectionReturnsAndUnitEta.Reification

@@ -54,6 +54,15 @@ value becomes the next comparison's left value. The first false comparison
 ends the scan. The result uses the same Boolean operand as a folded tuple
 comparison, with no runtime lookup, call, or allocation.
 
+Singleton identity has a separate checked chain for `is` and `is not`.
+Each operand must produce `None` or an exact Boolean if evaluation succeeds.
+This includes Boolean results of admitted scalar comparisons and nested
+identity tests. The checker validates every link and operand, including a
+suffix that execution will skip. The runners evaluate reached operands
+left to right, carry the middle singleton into the next link, and stop at
+the first false comparison or operand error. A successful test produces
+a Boolean. Integer and text identities are outside this profile.
+
 Closed `and` and `or` operands are Boolean or integer literals. The
 checker validates every operand, then selects a value in order. `and`
 stops at the first false value and `or` at the first true value, with

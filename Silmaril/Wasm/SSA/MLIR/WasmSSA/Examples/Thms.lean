@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.MLIR.WasmSSA.GC.Thms
+public import Silmaril.Wasm.SSA.MLIR.WasmSSA.Execution.Thms
 public import Silmaril.Wasm.SSA.MLIR.WasmSSA.Thms
 
 /-! The first example checks a concrete Core body, including operand order,
@@ -11,6 +12,8 @@ local numbering and reuse. The GC examples exercise both projection outcomes. -/
 namespace Silmaril.MLIR.WasmSSA.Examples
 
 open Silmaril.Wasm (Instr)
+open Silmaril.Wasm.Execution.Core
+open Silmaril.Wasm.Numerics (Profile)
 open Silmaril.Wasm.Validation (Context DefType Expand FuncOk)
 
 /-- Given local references to x and y, return x when x - y is zero and
@@ -44,6 +47,25 @@ theorem selectDifference_lowers : selectDifference.toWasm? context ⟨0⟩ = som
 
 theorem selectDifference_validates : FuncOk context expected signature :=
   selectDifference.toWasm?_funcOk rfl (Expand.iff.mpr rfl) selectDifference_lowers
+
+/-- The emitted subtraction uses the left parameter first. The nonzero
+difference wraps to 64 bits and is returned through the reused SSA binding. -/
+theorem selectDifference_returns {H : Type} (P : Profile) (host : HostSemantics H)
+    (s : Store H) (m : ModuleInst) :
+    ∃ final, Steps P host
+      ⟨s, Frame.forCall m [.i64 5, .i64 9] expected.locals, expression expectedBody⟩
+      ⟨s, final, vals [.i64 0xfffffffffffffffc] ++ [.plain .return_]⟩ := by
+  have fits : selectDifference.Fits := by decide
+  exact selectDifference.toWasm_returns context ⟨0⟩ fits (.cons 5 (.cons 9 .nil)) m P host s
+
+/-- The zero difference takes the other arm and returns the first parameter. -/
+theorem selectDifference_equal_returns {H : Type} (P : Profile) (host : HostSemantics H)
+    (s : Store H) (m : ModuleInst) :
+    ∃ final, Steps P host
+      ⟨s, Frame.forCall m [.i64 5, .i64 5] expected.locals, expression expectedBody⟩
+      ⟨s, final, vals [.i64 5] ++ [.plain .return_]⟩ := by
+  have fits : selectDifference.Fits := by decide
+  exact selectDifference.toWasm_returns context ⟨0⟩ fits (.cons 5 (.cons 5 .nil)) m P host s
 
 theorem selectDifference_roundTrip :
     ((GC.project? (GC.embed selectDifference)).bind (fun f => Func.toWasm? f context ⟨0⟩)) =

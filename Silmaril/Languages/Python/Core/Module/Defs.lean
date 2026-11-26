@@ -39,6 +39,64 @@ def Value.truth : Value → Bool
   | .bool value => value
   | .none => false
 
+/-- Exactly the singleton objects distinguished by the identity profile. -/
+inductive Singleton where
+  | none_
+  | boolean (value : Bool)
+  deriving DecidableEq
+
+def Value.singleton? : Value → Option Singleton
+  | .none => some .none_
+  | .bool value => some (.boolean value)
+  | .int _ => Option.none
+
+inductive IdentityOperator where
+  | is_ | isNot
+  deriving Repr
+
+def IdentityOperator.test (operator : IdentityOperator) (left right : Singleton) : Bool :=
+  match operator with
+  | .is_ => decide (left = right)
+  | .isNot => decide (left ≠ right)
+
+namespace Identity
+
+theorem sizeOf_operand_lt {α : Type} [SizeOf α] {links : List (IdentityOperator × α)}
+    {link : IdentityOperator × α} (member : link ∈ links) : sizeOf link.2 < sizeOf links := by
+  have smaller := List.sizeOf_lt_of_mem member
+  rcases link with ⟨operator, operand⟩
+  simp at smaller ⊢
+  omega
+
+def project {α : Type} {ε : Type} (singleton : α → Option Singleton)
+    (unsupported : ε) (read : Except ε α) : Except ε Singleton :=
+  read.bind fun value =>
+    match singleton value with
+    | some exact => .ok exact
+    | none => .error unsupported
+
+/-- Evaluate a reached right operand once. Carry that singleton into the
+next comparison on success. The suppliers after a false link stay unused. -/
+def scan {ε : Type} (left : Singleton) :
+    List (IdentityOperator × (Unit → Except ε Singleton)) → Except ε Bool
+  | [] => .ok true
+  | (operator, read) :: rest =>
+    (read ()).bind fun right =>
+      if operator.test left right then scan right rest else .ok false
+
+inductive Scans {ε : Type} :
+    Singleton → List (IdentityOperator × (Unit → Except ε Singleton)) → Except ε Bool → Prop where
+  | done (left : Singleton) : Scans left [] (.ok true)
+  | error {left operator read rest error} (failed : read () = .error error) :
+      Scans left ((operator, read) :: rest) (.error error)
+  | stop {left operator read right rest} (found : read () = .ok right)
+      (different : operator.test left right = false) : Scans left ((operator, read) :: rest) (.ok false)
+  | next {left operator read right rest result} (found : read () = .ok right)
+      (passed : operator.test left right = true) (tail : Scans right rest result) :
+      Scans left ((operator, read) :: rest) result
+
+end Identity
+
 /-- The initial namespace is supplied by the caller. Reads have no implicit
 builtin or import fallback. -/
 structure Globals where
@@ -58,6 +116,7 @@ inductive Error where
   | assertionError
   | arithmetic (error : Core.Exception)
   | unsupportedArithmetic
+  | unsupportedIdentity
   deriving DecidableEq, Repr
 
 abbrev Evaluated := Except Error Value
@@ -93,6 +152,7 @@ inductive Expr where
   | literal (value : Value)
   | readGlobal (name : GlobalName)
   | binary (op : Operator) (left right : Expr)
+  | identityChain (left : Expr) (links : List (IdentityOperator × Expr))
   deriving Repr
 
 def Expr.eval (globals : Globals) : Expr → Evaluated
@@ -103,6 +163,18 @@ def Expr.eval (globals : Globals) : Expr → Evaluated
     | none => .error (.nameError name)
   | .binary op left right =>
     (left.eval globals).bind fun first => (right.eval globals).bind (op.eval first)
+  | .identityChain left links =>
+    (Identity.project Value.singleton? .unsupportedIdentity (left.eval globals)).bind fun first =>
+      (Identity.scan first (links.attach.map fun link =>
+        (link.val.1, fun _ => Identity.project Value.singleton? .unsupportedIdentity (link.val.2.eval globals)))).map .bool
+termination_by expression => sizeOf expression
+decreasing_by
+  all_goals simp_wf
+  all_goals
+    first
+    | omega
+    | have smaller := Identity.sizeOf_operand_lt link.property
+      omega
 
 inductive Expr.Evals (globals : Globals) : Expr → Evaluated → Prop where
   | literal (value : Value) : Evals globals (.literal value) (.ok value)
@@ -114,6 +186,16 @@ inductive Expr.Evals (globals : Globals) : Expr → Evaluated → Prop where
       Evals globals right (.error error) → Evals globals (.binary op left right) (.error error)
   | binary {op left right first second result} : Evals globals left (.ok first) →
       Evals globals right (.ok second) → op.Eval first second result → Evals globals (.binary op left right) result
+
+  | identityHeadError {left links value error} :
+      Evals globals left value → Identity.project Value.singleton? .unsupportedIdentity value = .error error →
+      Evals globals (.identityChain left links) (.error error)
+  | identityChain {left links value first result} :
+      Evals globals left (.ok value) → value.singleton? = some first →
+      Identity.Scans first
+        (links.map fun link =>
+          (link.1, fun _ => Identity.project Value.singleton? .unsupportedIdentity (link.2.eval globals))) result →
+      Evals globals (.identityChain left links) (result.map .bool)
 
 inductive Stmt where
   | assignGlobal (name : GlobalName) (value : Expr)

@@ -10,6 +10,25 @@ namespace Silmaril.Proofs.Languages.Python.Core.Module
 open Silmaril.Languages.Python.Core.Module
 open Semantics.Operational
 
+theorem identity_scan_iff {ε : Type} (left : Singleton)
+    (links : List (IdentityOperator × (Unit → Except ε Singleton))) (result : Except ε Bool) :
+    Identity.scan left links = result ↔ Identity.Scans left links result := by
+  constructor
+  · intro evaluated
+    subst result
+    induction links generalizing left with
+    | nil => exact .done left
+    | cons link rest ih =>
+      obtain ⟨operator, read⟩ := link
+      cases found : read () with
+      | error error => simpa [Identity.scan, Except.bind, found] using Identity.Scans.error found
+      | ok right =>
+        cases matched : operator.test left right with
+        | false => simpa [Identity.scan, Except.bind, found, matched] using Identity.Scans.stop found matched
+        | true => simpa [Identity.scan, Except.bind, found, matched] using Identity.Scans.next found matched (ih right)
+  · intro evaluated
+    induction evaluated <;> simp_all [Identity.scan, Except.bind]
+
 private theorem operator_eq {op : Operator} {left right : Value} {result : Evaluated}
     (rule : op.Eval left right result) : op.eval left right = result := by
   cases rule with
@@ -37,22 +56,32 @@ variable {globals : Globals} {expression : Expr} {result : Evaluated}
 
 private theorem evaluated_eq (rule : expression.Evals globals result) : expression.eval globals = result := by
   induction rule with
-  | literal => rfl
+  | literal => simp [Expr.eval]
   | found found => simp [Expr.eval, found]
   | missing missing => simp [Expr.eval, missing]
   | leftError _ left => simp [Expr.eval, left, Except.bind]
   | rightError _ _ left right => simp [Expr.eval, left, right, Except.bind]
   | binary _ _ op left right => simp [Expr.eval, left, right, Except.bind, operator_eq op]
+  | identityHeadError _ failed left =>
+    simp [Expr.eval, left, failed, Except.bind]
+  | @identityChain _ links _ _ _ _ found walked left =>
+    have mapped := List.attach_map_val (l := links) (f := fun (link : IdentityOperator × Expr) =>
+      (link.1, fun _ : Unit => Identity.project Value.singleton? .unsupportedIdentity (link.2.eval globals)))
+    rw [Expr.eval, left, mapped]
+    simp only [Identity.project, Except.bind, found] at walked ⊢
+    rw [(identity_scan_iff _ _ _).mpr walked]
 
 private theorem evaluated_rule (globals : Globals) (expression : Expr) :
     expression.Evals globals (expression.eval globals) := by
-  induction expression with
-  | «literal» value => exact .literal value
+  cases expression with
+  | «literal» value => simpa [Expr.eval] using Expr.Evals.literal (globals := globals) value
   | readGlobal name =>
     cases found : globals.lookup name with
     | none => simpa [Expr.eval, found] using Expr.Evals.missing found
     | some value => simpa [Expr.eval, found] using Expr.Evals.found found
-  | binary op left right ihLeft ihRight =>
+  | binary op left right =>
+    have ihLeft := evaluated_rule globals left
+    have ihRight := evaluated_rule globals right
     cases lhs : left.eval globals with
     | error error =>
       simpa [Expr.eval, lhs, Except.bind] using
@@ -65,6 +94,31 @@ private theorem evaluated_rule (globals : Globals) (expression : Expr) :
       | ok second =>
         simpa [Expr.eval, lhs, rhs, Except.bind] using
           (Expr.Evals.binary (lhs ▸ ihLeft) (rhs ▸ ihRight) (operator_rule op first second))
+  | identityChain left links =>
+    have ihLeft := evaluated_rule globals left
+    cases lhs : left.eval globals with
+    | error error =>
+      simpa [Expr.eval, lhs, Identity.project, Except.bind] using
+        (Expr.Evals.identityHeadError (links := links) (lhs ▸ ihLeft) (rfl :
+          Identity.project Value.singleton? .unsupportedIdentity (.error error) = .error error))
+    | ok value =>
+      cases found : value.singleton? with
+      | none =>
+        have failed : Identity.project Value.singleton? Error.unsupportedIdentity (.ok value) =
+            .error .unsupportedIdentity := by simp [Identity.project, Except.bind, found]
+        simpa [Expr.eval, lhs, Identity.project, Except.bind, found] using
+          Expr.Evals.identityHeadError (links := links) (lhs ▸ ihLeft) failed
+      | some first =>
+        let suppliers : List (IdentityOperator × (Unit → Except Error Singleton)) :=
+          links.map fun link =>
+            (link.1, fun _ => Identity.project Value.singleton? Error.unsupportedIdentity (link.2.eval globals))
+        have walked := (identity_scan_iff first suppliers _).mp rfl
+        have mapped := List.attach_map_val (l := links) (f := fun (link : IdentityOperator × Expr) =>
+          (link.1, fun _ : Unit => Identity.project Value.singleton? .unsupportedIdentity (link.2.eval globals)))
+        rw [Expr.eval, lhs, mapped]
+        simpa [Identity.project, Except.bind, found, suppliers] using
+          Expr.Evals.identityChain (lhs ▸ ihLeft) found walked
+termination_by sizeOf expression
 
 theorem eval_iff : expression.eval globals = result ↔ expression.Evals globals result :=
   ⟨fun equal => equal ▸ evaluated_rule globals expression, evaluated_eq⟩

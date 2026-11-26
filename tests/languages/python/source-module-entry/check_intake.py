@@ -19,6 +19,7 @@ private def describe {scope : Scope} : Operand scope → String
     | .moduleName => "module read " ++ name
     | _ => "wrong access"
   | .binary .. => "binary operation"
+  | .identityChain .. => "singleton identity chain"
 
 private def action {scope : Scope} : Action scope → String
   | .assign name reference value =>

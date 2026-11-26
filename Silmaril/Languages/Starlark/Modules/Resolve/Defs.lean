@@ -550,11 +550,11 @@ private def ResolvedParameter.staged (parameter : ResolvedParameter) : Functions
   ⟨parameter.slot, parameter.value.map fun _ =>
     .atom (Comprehensions.readSaved (Comprehensions.defaultSlot parameter.slot))⟩
 
-private structure ResolvedBody where
+structure ResolvedBody where
   code : Body
   reads : List Binding
 
-private def captureNames (owned : List String) (reads : List Binding) : List FreeName :=
+@[expose] def captureNames (owned : List String) (reads : List Binding) : List FreeName :=
   (reads.eraseDups.filter fun binding => binding.scope == .global || !owned.contains binding.name).map
     fun binding => ⟨binding, binding⟩
 
@@ -580,7 +580,7 @@ private def compileDefinition (parent : Context) (parameters : SourceSignature) 
   -- A child needs its captures when it is defined. Its defaults also read the parent.
   return (program.size, stagedDefaults, named.flatMap ResolvedParameter.reads ++ captures.map FreeName.source)
 
-private def compileBody (block : BlockContext) (statement : Statement) : Build ResolvedBody :=
+def compileBody (block : BlockContext) (statement : Statement) : StateT Program (Except Error) ResolvedBody :=
   let context := block.reads
   match statement with
   | .pass => pure ⟨.total (.atomic .pass), []⟩
@@ -661,6 +661,77 @@ private def compileBody (block : BlockContext) (statement : Statement) : Build R
       (Comprehensions.definitionWithDefaults Comprehensions.directStages target id)
     return ⟨code, reads⟩
 termination_by structural statement
+
+/-- A required positional signature has no definition-time operands. -/
+@[expose] def SourceSignature.required (names : List String) : SourceSignature :=
+  { positional := names.map fun name => ⟨name, none⟩ }
+
+@[expose] def requiredSignature (names : List String) : Functions.Signature :=
+  { positional := names.map fun name => ⟨fileSlot name, none⟩ }
+
+private theorem lift_ok {α : Type} (value : α) (program : Program) :
+    (monadLift (Except.ok value : Except Error α) : Build α) program = .ok (value, program) := rfl
+
+private theorem get_build (program : Program) : (get : Build Program) program = .ok (program, program) := rfl
+
+private theorem set_build (before after : Program) : (set after : Build Unit) before = .ok ((), after) := rfl
+
+private def requiredParameter (name : String) : ResolvedParameter := ⟨fileSlot name, none, []⟩
+
+private theorem read_required (context : Context) (names : List String) (program : Program) :
+    (names.mapM (readParameter context ∘ fun name => ⟨name, none⟩)) program =
+      .ok (names.map requiredParameter, program) := by
+  change (names.mapM fun name => pure (requiredParameter name) : Build (List ResolvedParameter)) program = _
+  rw [List.mapM_pure]
+  rfl
+
+private theorem plain_required (names : List String) :
+    names.mapM (ResolvedParameter.plain ∘ requiredParameter) =
+      some (names.map fun name => (⟨fileSlot name, none⟩ : Functions.Parameter)) := by
+  change names.mapM (fun name => pure (⟨fileSlot name, none⟩ : Functions.Parameter)) = _
+  rw [List.mapM_pure]
+  rfl
+
+private theorem required_reads (names : List String) :
+    (names.map requiredParameter).flatMap ResolvedParameter.reads = [] := by
+  simp [List.flatMap_map, requiredParameter]
+
+private theorem required_names (names : List String) :
+    ({ positional := names.map fun name => ⟨name, none⟩ } : SourceSignature).parameterNames = names := by
+  simp [SourceSignature.parameterNames, Function.comp_def]
+
+private theorem rejectMixedTarget (scope : Scope) (name : String)
+    (receiver index : Lowering.Resolve.SourceExpr) :
+    resolveTarget (fun name => ⟨scope, name⟩) .unsupportedAssignmentTarget
+      (.tuple [.scalar (.read name), .index receiver index]) = .error .unsupportedAssignmentTarget := by
+  simp [resolveTarget, List.mapM_cons, bind, Except.bind, pure, Except.pure] <;> rfl
+
+theorem compileBody_mixedReturn (block : BlockContext) (name : String)
+    (receiver index returned : Lowering.Resolve.SourceExpr) (rhs : CompExpr)
+    (program next : Program) (assignment : ResolvedPatternAssignment) (value : Lowering.Expr)
+    (reads : List Binding)
+    (resolved : elaboratePatternAssignment block.reads block.writes
+      (.tuple [.scalar (.read name), .index receiver index]) rhs program = .ok (assignment, next))
+    (returnResolved : resolveTracked block.reads returned = .ok (value, reads)) :
+    compileBody block (.seq (.assignTargetCompExpr (.tuple [.scalar (.read name), .index receiver index]) rhs)
+      (.ret (some returned))) program =
+      .ok (⟨.seq (Comprehensions.assignPatternCode assignment.pattern assignment.rhs Comprehensions.directStages)
+        (.returnExpr value), (assignment.rhsReads ++ assignment.targetReads) ++ reads⟩, next) := by
+  simp [compileBody, compileCompAssignment, rejectMixedTarget, readExpr, bind, StateT.bind, lift_ok,
+    returnResolved, resolved, Except.mapError, Except.bind, pure, StateT.pure, Except.pure]
+
+theorem compileBody_requiredDefinition (parent : BlockContext) (name : String) (parameters : List String)
+    (body : Statement) (program next : Program) (layout : FunctionLayout) (resolved : ResolvedBody)
+    (collected : collectFunctionLayout parent.reads (.required parameters) body = .ok layout)
+    (compiled : compileBody layout.block body program = .ok (resolved, next)) :
+    let captures := captureNames (parameters ++ layout.locals) resolved.reads
+    compileBody parent (.define name (.required parameters) body) program =
+      .ok (⟨.define (fileSlot name) next.size, captures.map FreeName.source⟩,
+        next.push ⟨requiredSignature parameters, layout.locals.map fileSlot, captures, resolved.code⟩) := by
+  simp only [SourceSignature.required] at collected
+  simp [compileBody, collected, compileDefinition, SourceSignature.required, required_names,
+    bind, StateT.bind, lift_ok, get_build, set_build, read_required, plain_required, required_reads,
+    Except.bind, pure, StateT.pure, Except.pure, compiled, requiredSignature]
 
 private def compileCommand (block : BlockContext) (command : Command) : Build Modules.Command :=
   let context := block.reads
