@@ -31,6 +31,7 @@ type loaderControl struct {
 	Label    string
 	Producer string
 	Marker   string
+	Wrapper  string
 }
 
 func isInteger(value starlark.Value, want string) bool {
@@ -128,8 +129,15 @@ func checkLoader(file *syntax.File, parseError error, control loaderControl) err
 		return fmt.Errorf("unexpected runtime error: %w", err)
 	}
 	globals.Freeze()
-	if len(globals) != 1 || !isInteger(globals["out"], control.Want) {
-		return fmt.Errorf("want only out = %s, got %v", control.Want, globals)
+	wantCount := 1
+	if control.Wrapper != "" {
+		wantCount++
+		if _, ok := globals[control.Wrapper].(*starlark.Function); !ok {
+			return fmt.Errorf("want wrapper function %s, got %v", control.Wrapper, globals)
+		}
+	}
+	if len(globals) != wantCount || !isInteger(globals["out"], control.Want) {
+		return fmt.Errorf("want out = %s among %d globals, got %v", control.Want, wantCount, globals)
 	}
 	return nil
 }

@@ -58,8 +58,9 @@ with positional parameters and optional scalar defaults, call assignments
 whose right-hand side is a postfix application chain, and leading load
 statements. Top-level name assignments also accept the collection displays
 of the call profile. An application chain starts with a bare identifier or a
-parenthesized scalar expression. The adapter reuses the logical-line, parameter,
-and suite parsers. It emits a normalized declaration for each `def` and a
+parenthesized scalar expression. Module function returns can use the same
+application chain. The adapter reuses the logical-line, parameter, and
+suite parsers. It emits a normalized declaration for each `def` and a
 normalized `.call` expression for each call assignment. A top-level `pass`
 produces no command. [Module adapter](../../Silmaril/Languages/Starlark/Frontend/Module/Defs.lean)
 
@@ -84,8 +85,9 @@ The module body uses the same admitted scalar statement forms as the standalone
 function parser. Its expressions, defaults, and call operands use integer
 literals, names, `and`, `or`, and conditional expressions. Unary and binary
 operators produce an unsupported diagnostic spanning the containing statement,
-default, or argument. The profile excludes calls in function bodies and other
-expression positions, plus keyword-only and variadic parameters.
+default, or argument. Call-valued returns extend module functions at the root
+of the return expression. Other body expression positions, keyword-only
+parameters, and variadic parameters remain outside this profile.
 
 ### Defaults and call operands
 
@@ -160,8 +162,8 @@ source-to-normalized adequacy theorem remains open. [Theorems](../../Silmaril/La
 
 ### Postfix applications
 
-A postfix chain is available at the root of a module assignment or call
-operand. The head can be a bare name or a parenthesized scalar expression,
+A postfix chain is available at the root of a module assignment, a return
+expression in a module function, or a call operand. The head can be a bare name or a parenthesized scalar expression,
 such as `(f if flag else g)`. The parser consumes each parenthesized argument
 group before advancing to the next suffix. Each suffix uses the expression
 parsed so far as its callee, so `factory(a)(b)(c)` associates to the left.
@@ -202,11 +204,30 @@ spans, then checks the following assignment was parsed separately.
 
 The head's parenthesized expression uses the existing call-free scalar
 profile. Attribute lookup, subscripts, and calls within conditional branches
-or displays remain outside this grammar. Function bodies still use the
-scalar suite parser. The normalized checker and evaluator handle callable
-values, binding, runtime errors, and the existing restriction on recursive
-closure invocation.
+or displays remain outside this grammar. The normalized checker and evaluator
+handle callable values, binding, runtime errors, and the existing restriction
+on recursive closure invocation.
 [Computed call checks](../../Silmaril/Languages/Starlark/Frontend/Module/ComputedCallChecks.lean)
+
+### Calls in return expressions
+
+Module functions use the same suite parser as the standalone scalar frontend.
+Within those suites, a `return` can take a postfix application at its root,
+including a return inside an `if`, `elif`, or `else` branch. The adapter
+lowers it to `Modules.Resolve.Statement.ret (some expression)`. Existing
+body resolution selects the callee binding and collects captures. The
+declaration compiler assigns the ID and emits `Body.returnExpr`, which the
+existing denotation evaluates in the function frame.
+
+Shared UTF-8 controls exercise a global callable and a callable parameter
+that shadows a global function. A failed inner callee masks a later operand
+failure, and an undefined callee is rejected during resolution. The kernel
+checks the normalized return tree and the application, callee, and operand
+spans retained on the declaration. Function-local call assignments, call
+expression statements, and calls inside scalar expressions remain outside
+this slice. The standalone `parseFunctionUtf8` entry point keeps the scalar
+body profile.
+[Return call checks](../../Silmaril/Languages/Starlark/Frontend/Module/ReturnCallChecks.lean)
 
 ### Leading loads and UTF-8 graphs
 
@@ -231,6 +252,18 @@ belong to the caller. The single-module `Frontend.Module.runUtf8` uses an empty
 catalog. Use `Frontend.Module.Loader.loadUtf8` to prepare a graph and start a
 cold load, or `Prepared.load` to reuse the matching loader session.
 [UTF-8 loader](../../Silmaril/Languages/Starlark/Frontend/Module/Loader/Defs.lean)
+
+The same return lowering supports a nullary importer wrapper such as
+`def relay():` with the indented body `return imported(11)`, after a leading
+renamed load of `id`. The UTF-8 manifest fixture checks that the producer
+retains declaration ID 0 and that the consumer wrapper receives ID 1 with
+the resolved file-local import capture. Lean and pinned Go both observe the
+wrapper's return value. When the wrapper calls `imported()`, the missing
+argument preempts a later module assignment. As in the normalized examples,
+load and return evaluation use the existing resolved loader. The text
+fixture exercises the normalized wrapper shape from #4613.
+[Importer controls](../../Silmaril/Languages/Starlark/Frontend/Module/Loader/Checks.lean) · [Checked wrapper profile](https://github.com/hiloopai/silmaril-lean/pull/4613)
+
 
 For module 0, the producer text is
 
@@ -318,7 +351,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.SpreadChecks \
-  +Silmaril.Languages.Starlark.Frontend.Module.ComputedCallChecks +Silmaril.Languages.Starlark.Checks
+  +Silmaril.Languages.Starlark.Frontend.Module.ComputedCallChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.ReturnCallChecks +Silmaril.Languages.Starlark.Checks
 scripts/starlark/frontend/run.sh
 ```
 
