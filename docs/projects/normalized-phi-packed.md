@@ -508,3 +508,29 @@ preserve the distinct tags even though their payload records are equal.
 The checks reject an omitted exit and a reversal of the live-out reads
 at just one exit.
 [Two-exit regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)
+
+### Splitting before ordered reverse lowering
+
+`checkSplit` checks the existing single-edge rewrite against the two ordered
+graphs. The selected destination must be a block, even when a declared exit
+has a written incoming branch. Each ordered admission still checks the exit
+partition, normalized predecessor rows, scope certificate and types. The
+forwarding hop keeps the predecessor store, and the rekeyed φ column reads
+the same operands from that snapshot. An internal branch argument is ignored
+at block entry. External labels and payloads remain observable.
+
+`Admission.split_reverse_eq` compares the actual mutable graphs emitted by
+the two successful reverse checks. `Admission.split_roundTrip_eq` compares
+the actual packed programs after successful typed re-admissions. Both
+theorems use a common input record and live-out profile. The source capture
+names follow the plan's register equivalence, and the plan fixes the exit
+list positionally. The theorems require separate accepted typed admissions,
+reverse checks, and (for the packed comparison) typed re-admissions.
+[Checked semantic square](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Split/Thms.lean)
+
+The two-exit regression also splits the internal edge that carries the
+crosswise copy. It generates the forwarding arrival claim with the existing
+split helper. Both paths use a common five-slot record with two older typed
+slots for the captures required by the split. Both reverse outputs and both
+re-admitted tables return the same ordered live-outs at the selected exit.
+[Split regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)

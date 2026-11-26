@@ -1,10 +1,11 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi.OrderedExits.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Pure.Trace.Local.Split.Admission.Defs
 
-/-! # The same payload and live-outs at two distinct declared exits -/
+/-! # A checked φ split with two distinct declared exits -/
 
 namespace Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Examples
 
@@ -68,7 +69,8 @@ private def returned (reply firstField secondField : Reg) : Val Reg :=
   .pair (.var reply) (.pair (.var firstField) (.pair (.var secondField) .unit))
 
 private def firstBlock : Block Reg Key Empty :=
-  ⟨[⟨x, [(none, .var seedX)]⟩, ⟨y, [(none, .var seedY)]⟩], .term (br finish)⟩
+  ⟨[⟨x, [(none, .var seedX)]⟩, ⟨y, [(none, .var seedY)]⟩],
+    .term (.br (some finish) (.var x))⟩
 
 private def finishBlock : Block Reg Key Empty :=
   ⟨[⟨swappedX, [(some first, .var y)]⟩, ⟨swappedY, [(some first, .var x)]⟩],
@@ -80,7 +82,10 @@ private def finishBlock : Block Reg Key Empty :=
 private def graph : Graph Reg Key Empty :=
   ⟨.term (br first), [(first, firstBlock), (finish, finishBlock)]⟩
 
-private def context : BoundCtx (Ty SortName) 3 := .snoc (.snoc (.snoc .nil num) num) choiceType
+-- Both admissions use the same record. Its two older numeric slots
+-- supply the version-zero captures added to the lexical packet by the split.
+private def context : BoundCtx (Ty SortName) 5 :=
+  .snoc (.snoc (.snoc (.snoc (.snoc .nil num) num) num) num) choiceType
 
 private def captures : Captures Reg context where
   names i := some ⟨i.val⟩
@@ -93,8 +98,8 @@ private abbrev ports : NamedFlat.Entry.Interface SortName Reg (Option Key) :=
 -- The first exit reads the decoded φ fields. The other reads local copies
 -- of the same two values, at different physical registers.
 private def fields (key : Option Key) : List (Reg × Ty SortName) :=
-  if key = leftExit then [(⟨12⟩, num), (⟨14⟩, num)] else [(⟨16⟩, num), (⟨17⟩, num)]
-private abbrev registers := NamedFlat.Entry.Reverse.freshRegisters 3
+  if key = leftExit then [(⟨14⟩, num), (⟨16⟩, num)] else [(⟨18⟩, num), (⟨19⟩, num)]
+private abbrev registers := NamedFlat.Entry.Reverse.freshRegisters 5
 private def pairPacket : Ty SortName := .product num (.product num .unit)
 private def supportPacket : Ty SortName := .product num (.product num (.product choiceType .unit))
 private def packet : Ty SortName := .product pairPacket supportPacket
@@ -119,7 +124,7 @@ example : (NamedFlat.Entry.Reverse.lowerChecked ports
     registers (fun i => some ⟨i.val⟩) admitted.code).isNone := by decide
 
 private def record (chooseLeft : Bool) : Input context :=
-  (((PUnit.unit, ⟨9⟩), ⟨7⟩), if chooseLeft then .inl ⟨13⟩ else .inr ⟨13⟩)
+  (((((PUnit.unit, ⟨101⟩), ⟨102⟩), ⟨9⟩), ⟨7⟩), if chooseLeft then .inl ⟨13⟩ else .inr ⟨13⟩)
 
 private def atom (n : Nat) : Value Runtime := .atom ⟨⟨()⟩, ⟨n⟩⟩
 private def resultValue : Value Runtime := .pair (atom 13) (.pair (atom 9) (.pair (atom 7) .unit))
@@ -134,7 +139,7 @@ private def firstPending (chooseLeft : Bool) : Pending :=
   (none, some first, .unit, captures.store (record chooseLeft))
 
 private def finishPending (chooseLeft : Bool) : Pending :=
-  (some first, some finish, .unit, upd (upd (captures.store (record chooseLeft)) x (atom 7)) y (atom 9))
+  (some first, some finish, atom 7, upd (upd (captures.store (record chooseLeft)) x (atom 7)) y (atom 9))
 
 private def exitPending (chooseLeft : Bool) : Pending :=
   let store := upd (upd (finishPending chooseLeft).2.2.2 swappedX (atom 9)) swappedY (atom 7)
@@ -146,7 +151,7 @@ private theorem take_first (chooseLeft : Bool) :
     step (firstPending chooseLeft) = pure (.inr (finishPending chooseLeft)) := by
   unfold step firstPending
   rw [CFG.Cyclic.Phi.OrderedExits.step_internal _ _ _ _ _ _ (block := firstBlock) rfl]
-  simp only [firstBlock, CFG.Cyclic.Phi.OrderedExits.execute, CFG.Body.exec, br, CFG.Term.exec, Val.eval, map_pure]
+  simp only [firstBlock, CFG.Cyclic.Phi.OrderedExits.execute, CFG.Body.exec, CFG.Term.exec, Val.eval, map_pure]
   rfl
 
 private theorem take_finish (chooseLeft : Bool) :
@@ -203,5 +208,80 @@ theorem emitted_tags_distinct :
   rw [out_ret, out_ret] at seen
   have exits := Visible.ret.inj (Part.some_inj.mp seen)
   simp [result, FiniteCFG.packedTreeOutput, Region.packedExitValue] at exits
+
+
+private def splitLabel (key : Key) : Key := ⟨if key.down ≤ 90 then key.down else key.down + 1⟩
+
+private def splitPlan : CFG.Cyclic.Phi.Split.Plan Reg Reg Key Key where
+  register := Equiv.refl _
+  label := ⟨splitLabel, by
+    intro a b same
+    have h := congrArg ULift.down same
+    change (if a.down ≤ 90 then a.down else a.down + 1) =
+      (if b.down ≤ 90 then b.down else b.down + 1) at h
+    exact ULift.ext (by split at h <;> split at h <;> omega)⟩
+  header := finish
+  forward := ⟨91⟩
+  fresh := by
+    intro k eq
+    have h := congrArg ULift.down eq
+    change (if k.down ≤ 90 then k.down else k.down + 1) = 91 at h
+    split at h <;> omega
+  predecessor := some first
+
+private def splitGraph := splitPlan.rewrite graph
+
+open Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.PureCapture.Local.Split (splitCertificate)
+
+private def splitArrivals := splitCertificate splitPlan graph arrivals
+
+private def splitLower := CFG.Cyclic.Phi.OrderedExits.lower splitGraph
+
+private def splitProfile (i : Fin (CFG.Cyclic.Versioning.compile splitLower).blocks.length) : Ty SortName :=
+  .product (if i.val = 0 then .unit else pairPacket)
+    (((CFG.Cyclic.Versioning.registers splitLower).filterMap id).foldr
+      (fun key tail => .product (if key = choiceName then choiceType else num) tail) .unit)
+
+
+private def splitAdmitted : Admission signature ports fields (captures.rename splitPlan.register) :=
+  (admit (P := signature) ports fields (captures.rename splitPlan.register) splitGraph inputs
+    splitArrivals splitProfile).get (by decide)
+
+-- The two additional packet fields introduce four binders. Keep the
+-- live-out register numbers by allocating fresh names to the extra depths.
+private def splitRegisters : NamedFlat.Entry.Reverse.Registers Reg where
+  parameter := registers.parameter
+  localAt depth := if depth < 4 then ⟨100 + depth⟩ else registers.localAt (depth - 4)
+
+
+private def splitRTL : NamedFlat.Entry.Reverse.Lowered ports fields splitAdmitted.code :=
+  (splitAdmitted.reverseChecked splitRegisters (fun i => some ⟨i.val⟩)).get (by decide)
+
+private def splitRecompiled : NamedFlat.Entry.LiveOut.Admission signature ports fields splitRTL.source :=
+  (splitRTL.reAdmit splitAdmitted.internal).get (by decide)
+
+private theorem splitChecked : CheckedSplit splitPlan admitted.source splitAdmitted.source :=
+  checkSplit_sound (by decide)
+
+private theorem splitExits : ports.exits.map (Option.map splitPlan.label) = ports.exits := by decide
+
+example :
+    let exitPlan := { splitPlan with header := ⟨90⟩, predecessor := some finish }
+    exitPlan.hasEdge graph = true ∧ checkSplit exitPlan graph (exitPlan.rewrite graph) = false := by decide
+
+/-- The split path runs the actual emitted RTL. Both choices keep their
+exit numbers and the crosswise copy yields the ordered live-outs 9, 7. -/
+theorem split_emitted_result (chooseLeft : Bool) :
+    NamedFlat.Entry.LiveOut.observe model ports fields splitRTL.source (record chooseLeft) =
+      pure (result chooseLeft) :=
+  (admitted.split_reverse_eq splitPlan splitAdmitted splitChecked splitExits
+    lowered splitRTL model (record chooseLeft)).symm.trans (emitted_result chooseLeft)
+
+theorem split_readmitted_result (chooseLeft : Bool) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue _ _ (record chooseLeft))) splitRecompiled.program.code =
+      pure (result chooseLeft) :=
+  (admitted.split_roundTrip_eq splitPlan splitAdmitted splitChecked splitExits lowered splitRTL
+    recompiled splitRecompiled model (record chooseLeft) ambient).symm.trans
+    (readmitted_result chooseLeft ambient)
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Examples
