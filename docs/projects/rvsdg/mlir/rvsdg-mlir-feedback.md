@@ -95,5 +95,6 @@ execution semantics, with agreement on the threaded store.
 
 ```sh
 lake build --wfail +Silmaril.SSA.RVSDG.MLIR.Graph.Feedback.Examples PEGStructuredThetaTests
-make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.MLIR.Graph.Feedback.Examples PEGStructuredThetaTests'
+make check CHECK_TARGETS="+Silmaril.SSA.RVSDG.MLIR.Graph.Feedback.Examples \
++Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Check.Defs PEGStructuredThetaTests"
 ```
