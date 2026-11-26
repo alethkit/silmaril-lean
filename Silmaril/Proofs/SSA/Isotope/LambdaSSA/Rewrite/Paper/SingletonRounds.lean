@@ -99,6 +99,15 @@ theorem rounds_add (m n : Nat) :
     rw [then_assoc, ih, show m + 1 + n + 1 = (m + n + 1) + 1 by omega]
     rfl
 
+theorem rounds_rounds (m : Nat) :
+    ∀ n, rounds Seed (rounds Seed s m) n = rounds Seed s (m * n + m + n)
+  | 0 => by rw [Nat.mul_zero, Nat.zero_add, Nat.add_zero]; rfl
+  | n + 1 => by
+    change thenExact Seed (rounds Seed s m) (rounds Seed (rounds Seed s m) n) = _
+    rw [rounds_rounds m n, rounds_add, Nat.mul_succ]
+    congr 1
+    omega
+
 theorem iterateSum_chosen :
     iterateSum Seed s = iterateChosen Seed (s ≫ (sumIso Seed B A).hom) := by
   change iterateSum Seed s = iterateSum Seed ((s ≫ (sumIso Seed B A).hom) ≫ (sumIso Seed B A).inv)
@@ -130,6 +139,12 @@ theorem iterateSum_triple (d : Triples Seed) :
     iterateSum Seed (thenExact Seed s (thenExact Seed s s)) = iterateSum Seed s := by
   rw [iterateSum_chosen, then_chosen, then_chosen]
   exact (d (s ≫ (sumIso Seed B A).hom)).trans (iterateSum_chosen Seed s).symm
+
+/-- The laws for two round counts give the law for their product. -/
+theorem unrolls_mul {m n : Nat} (hm : Unrolls Seed m) (hn : Unrolls Seed n) :
+    Unrolls Seed (m * n + m + n) := by
+  intro A B s
+  rw [← rounds_rounds, hn (rounds Seed s m), hm s]
 
 /-- Round counts that are products of twos and threes unroll. -/
 theorem unrolls_of_smooth (d : Doubles Seed) (t : Triples Seed) {n : Nat} (h : Smooth n) :

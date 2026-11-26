@@ -44,6 +44,18 @@ theorem rounds_add (s : ofType Seed A ⟶ ofType Seed (Silmaril.coprod B A)) (m 
     thenExact Seed (rounds Seed s m) (rounds Seed s n) = rounds Seed s (m + n + 1) :=
   SingletonRounds.rounds_add Seed s m n
 
+/-- Rounds of rounds: `n + 1` blocks of `m + 1` rounds are `(m + 1) * (n + 1)` rounds. -/
+theorem rounds_rounds (s : ofType Seed A ⟶ ofType Seed (Silmaril.coprod B A)) (m n : Nat) :
+    rounds Seed (rounds Seed s m) n = rounds Seed s (m * n + m + n) :=
+  SingletonRounds.rounds_rounds Seed s m n
+
+/-- The laws for round counts `m + 1` and `n + 1` give the law for their
+product. So a quotient unrolls every round count exactly when it unrolls
+every prime one, and each missing prime is a separate law. -/
+theorem Unrolls.mul {m n : Nat} (hm : Unrolls Seed m) (hn : Unrolls Seed n) :
+    Unrolls Seed (m * n + m + n) :=
+  SingletonRounds.unrolls_mul Seed hm hn
+
 /-- With the two- and three-round laws, every round count that is a
 product of twos and threes unrolls, at every step of the quotient. -/
 theorem unrolls_of_smooth (double : Doubles Seed) (triple : Triples Seed) {n : Nat} (h : Smooth n) :
