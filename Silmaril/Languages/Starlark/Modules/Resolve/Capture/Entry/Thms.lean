@@ -66,6 +66,12 @@ theorem required_binds {names : List String} {values : List Lists.Value}
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Entry.required_binds
     checked binds
 
+/-- Checked intake validates every signature in the final declaration table. -/
+theorem checked_signature {commands : List Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved) (declaration : Declaration) (index : Nat)
+    (found : resolved.program[index]? = some declaration) : declaration.signature.validate = .ok () :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Entry.checked_signature checked declaration index found
+
 /-- Checked module intake validates the signature of each declaration table entry.
 For required positional calls, preparation follows the independent binding result.
 The availability premise is the finite call descent guard. -/

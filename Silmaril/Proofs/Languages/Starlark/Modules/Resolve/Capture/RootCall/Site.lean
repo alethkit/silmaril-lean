@@ -218,6 +218,22 @@ theorem checked_root_site (before after : List SourceCommand) (chain : Chain) (g
     checked_chain_site before after chain globals linked resolved binders checked accepted suffixProfile
   exact ⟨head, frames, _, emits, command, keeps _ _ (by simp [EmittedProgram])⟩
 
+theorem checked_single_emission (before after : List SourceCommand) (command : SourceCommand) (name : String)
+    (globals : List String) (linked : Program) (resolved : ResolvedModule) (declaration : Functions.Declaration)
+    (binders : ModuleBinders (before ++ command :: after) globals)
+    (checked : resolve (before ++ command :: after) linked = .ok resolved)
+    (suffix : Segment globals after)
+    (emits : ∀ program, elaborateCommand ⟨(parentContext globals []).reads, .global⟩ command program =
+      .ok (.exec (.define name program.size), program.push declaration)) :
+    ∃ id, resolved.source.commands[before.length]? = some (.exec (.define name id)) ∧
+      resolved.program[id]? = some declaration := by
+  obtain ⟨earlier, later, middle, next, code, _, step, tail, commands, length⟩ :=
+    split_site _ before after command linked _ _ (checked_segment binders checked)
+  rw [emits middle] at step
+  cases step
+  exact ⟨middle.size, by simp [commands, ← length],
+    segment_preserves suffix _ _ later tail (by simp)⟩
+
 theorem checked_eval_site (before after : List SourceCommand)
     (source : Functions.Lowering.Resolve.SourceExpr) (code : Functions.Lowering.Expr) (reads : List Binding)
     (globals : List String) (linked : Program) (resolved : ResolvedModule)

@@ -67,6 +67,20 @@ theorem checked_chain_scoped_site (after : List Command) (chain : Forwarding.Cha
   checked_definition_site
     [] after chain globals linked resolved binders checked accepted suffixProfile
 
+/-- A definition that appends one declaration keeps its emitted index
+through later checked commands. -/
+theorem checked_single_emission (before after : List Command) (command : Command) (name : String)
+    (globals : List String) (linked : Program) (resolved : ResolvedModule) (declaration : Declaration)
+    (binders : ModuleBinders (before ++ command :: after) globals)
+    (checked : resolve (before ++ command :: after) linked = .ok resolved)
+    (suffix : Segment globals after)
+    (emits : ∀ program, elaborateCommand ⟨⟨[], globals⟩, .global⟩ command program =
+      .ok (.exec (.define name program.size), program.push declaration)) :
+    ∃ id, resolved.source.commands[before.length]? = some (.exec (.define name id)) ∧
+      resolved.program[id]? = some declaration :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.checked_single_emission
+    before after command name globals linked resolved declaration binders checked suffix emits
+
 /-- A successful operand resolution identifies the checked assignment at its source position. -/
 theorem checked_assign_site (before after : List Command) (destination : String)
     (source : NormalizedExpr) (code : ResolvedExpr) (reads : List Binding)

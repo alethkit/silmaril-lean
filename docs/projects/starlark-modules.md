@@ -498,6 +498,52 @@ skips the remaining call. The Go control observes the residual state
 through `Program.Init`.
 [Profile and invariant](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/multi-callee/check.go)
 
+### Checked positional defaults
+
+`Trace.Defaults.checked_module` constructs an independent reached trace
+for one module definition surrounded by read-only or allocation-only
+setup assignments. The signature has a required positional prefix and
+an optional positional suffix. Default expressions use the module's
+defining scope and admit the existing read-only operands and flat list
+and tuple displays over those operands. The function body returns one
+of its own parameters. Compilation identifies the definition's actual
+index in the final declaration table.
+
+The source rules evaluate defaults once in declaration order. Each
+operand sees the heap left by its predecessor. A reached error skips
+later defaults and leaves the definition target untouched. The module
+theorem agrees with operational initialization and the module denotation
+on the whole observation, including the restored caller and retained
+heap on failure. Successful publication freezes values reachable
+through saved defaults even if those values have no exported name.
+
+`checked_installed_defaults` connects successful source evaluation to
+the new closure cell. At any later state retaining that cell's closure
+record at its address, the independent binder agrees with native call
+preparation on the exact activation or an error with the same state.
+Explicit operands replace the corresponding defaults, omitted slots
+consume the saved values, and missing required slots or surplus
+arguments fail before any frame allocation. The finite declaration
+guard is the checked module entry table's full index range. Binding
+uses the saved values even if the original names have been rebound.
+A mutable saved value retains its heap address and observes subsequent
+writes through aliases.
+
+The checked module trace currently ends at definition and setup
+commands. Composing positional call sites and bodies with the
+multiple-live-callee trace remains open. The native controls also
+exercise calls through a copied function and mutation of a saved
+list. The pinned Go controls cover those observations, a reached
+definition-time error, and a wider nested definition that retains a
+saved value after local rebinding and shares a mutable default across
+calls until publication freezes it. Go's comparison observes its
+returned globals and errors. The Lean fixtures also check the residual
+allocation and its freeze bit directly. Nested defaulted definitions,
+wider bodies and default operands, calls without tracked provenance,
+keywords and spreads, loads, and text parsing are outside the source
+theorems here.
+[Profile and source rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Checks.lean) · [Pinned spec][default-parameters] · [Pinned Go comparison](../../scripts/starlark/positional-defaults/check.go)
+
 ## Finite-manifest loader
 
 `Loader.load` takes a known module ID and an optional session. A session
@@ -559,7 +605,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Modules.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.LoopChecks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Leaf.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Checks \
-  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Checks
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
@@ -568,13 +615,15 @@ Use Go 1.25 or newer and run from the repository root.
 fixtures="$(pwd)/examples/starlark"
 mixed_leaf="$(pwd)/scripts/starlark/mixed-leaf.go"
 multi_callee="$(pwd)/scripts/starlark/multi-callee/check.go"
+defaults="$(pwd)/scripts/starlark/positional-defaults/check.go"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$fixtures/modules/check.go" && go run "$fixtures/loader/check.go" &&
-  go run "$fixtures/scope/check.go" && go run "$mixed_leaf" && go run "$multi_callee")
+  go run "$fixtures/scope/check.go" && go run "$mixed_leaf" && go run "$multi_callee" && go run "$defaults")
 ```
 
+[default-parameters]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions
 [modules]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#module-execution
 [loading]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#load-statements
 [expressions]: starlark-functions.md#direct-denotation-of-resolved-expressions

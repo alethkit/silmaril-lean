@@ -21,7 +21,7 @@ open Silmaril.Languages.Starlark.Lists (State Address Capture Cell Outcome)
 local notation "MResult" => Silmaril.Languages.Starlark.Modules.Result
 local notation "Value" => Silmaril.Languages.Starlark.Lists.Value
 
-private theorem setup_value {globals : List String} {source : SourceExpr} (allowed : Initializer globals source)
+theorem setup_value {globals : List String} {source : SourceExpr} (allowed : Initializer globals source)
     (state : State) : ∃ code reads out, resolveTracked ⟨[], globals⟩ source = .ok (code, reads) ∧
       Leaf.Setup globals state source code out ∧
       (∀ value next, out = .ok value next → next = state ∨ ∃ cell : Cell, next = { state with heap := state.heap.push cell }) := by
