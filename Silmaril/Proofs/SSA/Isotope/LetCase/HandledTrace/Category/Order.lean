@@ -25,7 +25,7 @@ private theorem extend_agreement {n m : Nat} {β : BoundCtx τ n} {δ : BoundCtx
   Fin.cases HEq.rfl (fun i => agree i)
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem denote_rename {n m : Nat} {β : BoundCtx τ n} {δ : BoundCtx τ m}
+theorem denote_rename {n m : Nat} {β : BoundCtx τ n} {δ : BoundCtx τ m}
     {t : Tm Empty Φ n} {A : τ} (d : Derivation Φ Ctx.nil β t A)
     (ren : BoundCtx.Renaming β δ) (src : BoundEnv D β) (tgt : BoundEnv D δ)
     (agree : ∀ i, HEq (tgt (ren.toFun i)) (src i)) :
