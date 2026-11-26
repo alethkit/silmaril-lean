@@ -3,6 +3,7 @@ module
 public import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Defs
 public import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Thms
+import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Execution
 
 public section
 
@@ -304,15 +305,15 @@ private theorem test_frame_read {arity : Nat} (p : Plan arity) (fr : Frame Reg)
   (set_after_row p (p.guardSetupFrame (p.rowFrame fr old)) (p.guardWord old) p.compareIndex
     (Nat.le_add_right _ _) wire).trans (setup_frame_read p (p.rowFrame fr old) wire)
 
-private theorem branch {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
+private theorem branch {arity : Nat} (p : Plan arity) (entry : Block Reg) (input old : WordTuple arity)
     (fr : Frame Reg) (mem : Memory) (agree : ArgsMatch fr (appendTuple old input)) :
-    step (lowerBank p.graph) ⟨⟨0, 1, (bankHeader p.graph).ops.length⟩, p.testFrame fr old, [], mem⟩ =
+    step (lowerBankFrom p.graph entry) ⟨⟨0, 1, (bankHeader p.graph).ops.length⟩, p.testFrame fr old, [], mem⟩ =
       .running (p.successor input old fr mem) := by
   let after := p.testFrame fr old
   let exitReg := register p.exitWire.address
   have testValue : (p.testFrame fr old).get (.node p.compareIndex) = some (p.guardWord old) := by
     simp [Plan.testFrame]
-  have block : (lowerBank p.graph).block? 0 1 = some (bankHeader p.graph) := rfl
+  have block : (lowerBankFrom p.graph entry).block? 0 1 = some (bankHeader p.graph) := rfl
   have term : (bankHeader p.graph).term = .cond (.node p.compareIndex)
       1 (bankIncoming p.graph .backedge) 2 [exitReg] := by
     unfold bankHeader
@@ -320,7 +321,7 @@ private theorem branch {arity : Nat} (p : Plan arity) (input old : WordTuple ari
   have fetched := Prog.fetch_term block
   simp only [step, fetched, term]
   rw [testValue]
-  change transfer (lowerBank p.graph) ⟨⟨0, 1, (bankHeader p.graph).ops.length⟩, after, [], mem⟩
+  change transfer (lowerBankFrom p.graph entry) ⟨⟨0, 1, (bankHeader p.graph).ops.length⟩, after, [], mem⟩
     (if p.guardWord old = 0 then 2 else 1)
     (if p.guardWord old = 0 then [exitReg] else bankIncoming p.graph .backedge) = _
   by_cases halt : p.guardWord old = 0
@@ -330,7 +331,7 @@ private theorem branch {arity : Nat} (p : Plan arity) (input old : WordTuple ari
       readRow.trans (congrArg some (exit_read p input old fr agree))
     have readExit : after.get exitReg = some (p.exitValue old) :=
       (test_frame_read p fr old p.exitWire).trans value
-    have target : (lowerBank p.graph).block? 0 2 = some exitBlock := rfl
+    have target : (lowerBankFrom p.graph entry).block? 0 2 = some exitBlock := rfl
     simp [transfer, Frame.readAll, readExit, target, exitBlock, Frame.writeAll, Plan.successor, halt]
     rfl
   · rw [ite_eq_right halt, ite_eq_right halt]
@@ -340,7 +341,7 @@ private theorem branch {arity : Nat} (p : Plan arity) (input old : WordTuple ari
         (p.row.eval model (appendTuple old input) PUnit.unit) after
         (fun wire => (test_frame_read p fr old wire).trans (row_word_reads p input old fr agree wire))
     rw [Plan.successor, ite_eq_right halt]
-    exact transfer_bank p.graph _ _ _ rfl reads
+    exact Routing.Proofs.transfer_bank_from p.graph entry _ _ _ rfl reads
 
 theorem testFrame_args {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
     (fr : Frame Reg) (agree : ArgsMatch fr (appendTuple old input)) :
@@ -385,9 +386,9 @@ private theorem machine_rhs_read {arity : Nat} (p : Plan arity) (input old : Wor
       (by simpa only [Plan.guardRhsValue, selected, GuardOperand.eval] using
         row_producer_reads p old fr index)
 
-private theorem guard_setup_steps {arity : Nat} (p : Plan arity) (old : WordTuple arity)
+private theorem guard_setup_steps {arity : Nat} (p : Plan arity) (entry : Block Reg) (old : WordTuple arity)
     (fr : Frame Reg) (mem : Memory) :
-    StepsNWithin (lowerBank p.graph) [] (guardSetupSigs p.guardOperand).length
+    StepsNWithin (lowerBankFrom p.graph entry) [] (guardSetupSigs p.guardOperand).length
       ⟨⟨0, 1, p.updates.length⟩, p.rowFrame fr old, [], mem⟩
       ⟨⟨0, 1, p.compareIndex⟩, p.guardSetupFrame (p.rowFrame fr old), [], mem⟩ := by
   cases selected : p.guardOperand with
@@ -395,7 +396,7 @@ private theorem guard_setup_steps {arity : Nat} (p : Plan arity) (old : WordTupl
     let pc := p.updates.length
     let row := p.rowFrame fr old
     let literal : Op Reg := .const (.node pc) p.limit
-    have block : (lowerBank p.graph).block? 0 1 = some (bankHeader p.graph) := rfl
+    have block : (lowerBankFrom p.graph entry).block? 0 1 = some (bankHeader p.graph) := rfl
     have setup : emitOpsWith (fun p => .arg p.index) p.guardSetup = [literal] := by
       simp only [Plan.guardSetup, setup_ops, selected, row_length, literal, pc]
     have rowSize : (emitOpsWith (fun p => .arg p.index) p.row).length = pc :=
@@ -406,7 +407,7 @@ private theorem guard_setup_steps {arity : Nat} (p : Plan arity) (old : WordTupl
     have moved := Transition.op (s := (⟨⟨0, 1, pc⟩, row, [], mem⟩ : State Reg))
       (Prog.fetch_op block fetched)
       (rfl : literal.exec row mem = some (row.set (.node pc) p.limit, mem))
-    have path : StepsNWithin (lowerBank p.graph) [] 1
+    have path : StepsNWithin (lowerBankFrom p.graph entry) [] 1
         ⟨⟨0, 1, pc⟩, row, [], mem⟩
         ⟨⟨0, 1, pc + 1⟩, row.set (.node pc) p.limit, [], mem⟩ :=
       .head ⟨moved.step_eq, List.nil_suffix⟩ .refl
@@ -416,20 +417,20 @@ private theorem guard_setup_steps {arity : Nat} (p : Plan arity) (old : WordTupl
       Nat.add_zero]
     exact .refl
 
-theorem header_activation_steps {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
+theorem header_activation_steps_from {arity : Nat} (p : Plan arity) (entry : Block Reg) (input old : WordTuple arity)
     (fr : Frame Reg) (mem : Memory) (agree : ArgsMatch fr (appendTuple old input)) :
-    StepsNWithin (lowerBank p.graph) [] p.activationSteps ⟨⟨0, 1, 0⟩, fr, [], mem⟩ (p.successor input old fr mem) := by
+    StepsNWithin (lowerBankFrom p.graph entry) [] p.activationSteps ⟨⟨0, 1, 0⟩, fr, [], mem⟩ (p.successor input old fr mem) := by
   let row := p.rowFrame fr old
   let ready := p.guardSetupFrame row
   let cmp := comparisonOp p
-  have block : (lowerBank p.graph).block? 0 1 = some (bankHeader p.graph) := rfl
-  have prefixPath := row_stepsN_at (argumentPort arity) (lowerBank p.graph) (bankHeader p.graph)
+  have block : (lowerBankFrom p.graph entry).block? 0 1 = some (bankHeader p.graph) := rfl
+  have prefixPath := row_stepsN_at (argumentPort arity) (lowerBankFrom p.graph entry) (bankHeader p.graph)
     block input old mem p.updates [] [] rfl
       (emitOpsWith (fun p => .arg p.index) p.guardSetup ++ [cmp]) (emitted_ops p) fr agree
-  have toRow : StepsNWithin (lowerBank p.graph) [] p.updates.length
+  have toRow : StepsNWithin (lowerBankFrom p.graph entry) [] p.updates.length
       ⟨⟨0, 1, 0⟩, fr, [], mem⟩ ⟨⟨0, 1, p.updates.length⟩, row, [], mem⟩ := by
     simpa only [List.length_nil, Nat.zero_add, row, Plan.rowFrame] using prefixPath
-  have toCompare := counted_append toRow (guard_setup_steps p old fr mem)
+  have toCompare := counted_append toRow (guard_setup_steps p entry old fr mem)
   have length : (bankHeader p.graph).ops.length = p.compareIndex + 1 := by
     rw [emitted_ops, ← List.append_assoc, List.length_append, prefix_ops_length]
     rfl
@@ -443,10 +444,15 @@ theorem header_activation_steps {arity : Nat} (p : Plan arity) (input old : Word
   have fetchCmp : (bankHeader p.graph).ops[p.compareIndex]? = some cmp := guard_compare_operand p
   have compareStep := Transition.op (s := (⟨⟨0, 1, p.compareIndex⟩, ready, [], mem⟩ : State Reg))
     (Prog.fetch_op block fetchCmp) cmpExec
-  have branchStep := branch p input old fr mem agree
+  have branchStep := branch p entry input old fr mem agree
   rw [length] at branchStep
   exact counted_append toCompare (.head ⟨compareStep.step_eq, List.nil_suffix⟩
     (.head ⟨branchStep, List.nil_suffix⟩ .refl))
+
+theorem header_activation_steps {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
+    (fr : Frame Reg) (mem : Memory) (agree : ArgsMatch fr (appendTuple old input)) :
+    StepsNWithin (lowerBank p.graph) [] p.activationSteps ⟨⟨0, 1, 0⟩, fr, [], mem⟩ (p.successor input old fr mem) :=
+  header_activation_steps_from p (bankPreheader p.graph) input old fr mem agree
 
 theorem header_activation {arity : Nat} (p : Plan arity) (input old : WordTuple arity)
     (fr : Frame Reg) (mem : Memory) (agree : ArgsMatch fr (appendTuple old input)) :
