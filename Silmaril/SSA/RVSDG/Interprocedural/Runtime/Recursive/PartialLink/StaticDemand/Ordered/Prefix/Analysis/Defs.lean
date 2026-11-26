@@ -28,6 +28,7 @@ def Plan.problem : {scope : Scope m} → {summary : MemberSummary V S} → {sigs
   | _, _, _, _, .lambda _ _ _ rest => rest.problem
   | _, _, _, _, .lambdaDirect _ rest => rest.problem
   | _, _, _, _, .phi _ _ _ rest => rest.problem
+  | _, _, _, _, .phiWithEarlier _ _ _ rest => rest.problem
   | _, _, _, _, .skipLambda _ rest => rest.problem
 termination_by structural _ _ _ _ plan => plan
 

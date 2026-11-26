@@ -50,7 +50,8 @@ def add (binding : Binding Op scope.table imports scope.past fn)
     scope.localsR.snoc (.cons (binding.value inputsR scope.localsR) .nil),
     binding.extendGuard scope.guardL inputsL scope.localsL, binding.extendGuard scope.guardR inputsR scope.localsR⟩
 
-def addGroup {later : MemberSummaries V S} (binding : GroupBinding Op later imports scope.past)
+def addGroup {later calls : MemberSummaries V S} {familyPast : List (Ports (Ty V S))}
+    (binding : GroupBinding Op later imports scope.past calls familyPast)
     (inputsL inputsR : Tuple m.Val imports) : Scope m :=
   ⟨scope.past ++ [memberPorts later.members], append scope.table later,
     binding.locals inputsL scope.localsL, binding.locals inputsR scope.localsR,
@@ -112,6 +113,19 @@ inductive Plan (inputsL inputsR : Tuple m.Val imports) :
       (binding : GroupBinding Op later imports scope.past)
       (readyL : binding.family.Ready (binding.read inputsL scope.localsL))
       (readyR : binding.family.Ready (binding.read inputsR scope.localsR))
+      {rest : ModuleTerm Op imports (scope.past ++ [memberPorts later.members]) sigs [exported.fn.port]}
+      (next : Plan inputsL inputsR (scope.addGroup binding inputsL inputsR) exported rest) :
+      Plan inputsL inputsR scope exported (.bind (.phi binding.term) rest)
+  /-- Admit a later group whose bodies may also call earlier checked slots
+  through their actual captures. The supplied readiness proofs cover both
+  sets of slots and all formals. -/
+  | phiWithEarlier {scope : Scope m} {exported : MemberSummary V S} {later : MemberSummaries V S}
+      {sigs : List (Ports (Ty V S))}
+      (binding : GroupBinding Op later imports scope.past (append scope.table later) scope.past)
+      (readyL : binding.family.ReadyWith (binding.read inputsL scope.localsL)
+        (scope.guardL.combine (binding.family.guard (binding.read inputsL scope.localsL))))
+      (readyR : binding.family.ReadyWith (binding.read inputsR scope.localsR)
+        (scope.guardR.combine (binding.family.guard (binding.read inputsR scope.localsR))))
       {rest : ModuleTerm Op imports (scope.past ++ [memberPorts later.members]) sigs [exported.fn.port]}
       (next : Plan inputsL inputsR (scope.addGroup binding inputsL inputsR) exported rest) :
       Plan inputsL inputsR scope exported (.bind (.phi binding.term) rest)

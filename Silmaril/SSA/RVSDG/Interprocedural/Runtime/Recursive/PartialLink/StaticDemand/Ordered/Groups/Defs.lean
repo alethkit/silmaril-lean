@@ -11,8 +11,8 @@ namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Stati
 universe u v w
 variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)}
-variable {earlier later : MemberSummaries V S} {imports : Ports (Ty V S)}
-variable {past : List (Ports (Ty V S))}
+variable {earlier later calls : MemberSummaries V S} {imports : Ports (Ty V S)}
+variable {past familyPast : List (Ports (Ty V S))}
 
 open Continuation.Partial.Executable (Actions)
 open NestedTheta.Liveness (Demand)
@@ -64,14 +64,20 @@ theorem append_at_new (earlier later : MemberSummaries V S) (j : Fin later.membe
     (append earlier later).at (rightIndex earlier later j) = later.at j := by
   simp [MemberSummaries.at, append, rightIndex, List.getElem_append_right, slotCases_right]
 
-/-- The actual outer capture wires for an independently checked group.
-Its member definitions and intragroup dispatch come from the family. -/
+/-- The actual outer capture wires for a checked group. Its family
+specifies the body summaries and the slots available inside the bodies. -/
 structure GroupBinding (Op : Dialect.{u, v} (ValueSort V S) S) (later : MemberSummaries V S)
-    (imports : Ports (Ty V S)) (past : List (Ports (Ty V S))) where
-  family : StaticDemand.Family Op later imports
+    (imports : Ports (Ty V S)) (past : List (Ports (Ty V S)))
+    (calls : MemberSummaries V S := later) (familyPast : List (Ports (Ty V S)) := []) where
+  family : StaticDemand.Family Op later imports calls familyPast
   captures : Wires imports past family.context
 
-def GroupBinding.term (binding : GroupBinding Op later imports past) : PhiTerm Op imports past later.members :=
+/-- Use a family at the same linker prefix as its actual capture wires. -/
+def GroupBinding.ofFamily (family : StaticDemand.Family Op later imports calls past) :
+    GroupBinding Op later imports past calls past :=
+  ⟨family, family.captures⟩
+
+def GroupBinding.term (binding : GroupBinding Op later imports past calls familyPast) : PhiTerm Op imports past later.members :=
   ⟨binding.family.context, binding.captures, binding.family.group.definitions⟩
 
 abbrev SlotGuard (m : Machine.{u, v, w} Op) (summary : MemberSummary V S) :=
@@ -94,11 +100,11 @@ theorem Guard.combine_right (left : Guard m earlier) (right : Guard m later) (i 
     (left.combine right) (rightIndex earlier later i) = (append_at_new earlier later i).symm ▸ right i :=
   slotCases_right _ _ i
 
-def GroupBinding.read (binding : GroupBinding Op later imports past) (inputs : Tuple m.Val imports)
+def GroupBinding.read (binding : GroupBinding Op later imports past calls familyPast) (inputs : Tuple m.Val imports)
     (locals : Locals m.Val past) : Tuple m.Val binding.family.context :=
   binding.captures.read inputs locals
 
-def GroupBinding.locals (binding : GroupBinding Op later imports past) (inputs : Tuple m.Val imports)
+def GroupBinding.locals (binding : GroupBinding Op later imports past calls familyPast) (inputs : Tuple m.Val imports)
     (old : Locals m.Val past) : Locals m.Val (past ++ [memberPorts later.members]) :=
   old.snoc (binding.family.references (binding.read inputs old))
 
