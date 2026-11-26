@@ -94,7 +94,7 @@ private theorem checked_source [DecidableEq Base] [HasTy F (Ty Base)]
     {n labels : Nat} {index : K → Option (Fin labels)} {types : Fin labels → Ty Base}
     {names : Names V n} {ctx : BoundCtx (Ty Base) n} {src : CFG.Body V K F}
     (checks : sourceCheck index types names ctx src = true) :
-    bodySupported src = true ∧ ∃ flat, body index names src = some flat ∧ checkBody types ctx flat = true := by
+    ∃ flat, body index names src = some flat ∧ checkBody types ctx flat = true := by
   cases found : body index names src <;> simp_all [sourceCheck]
 
 omit [DecidableEq K] in
@@ -126,9 +126,9 @@ private theorem block_checked [DecidableEq Base] [HasTy F (Ty Base)]
     ∃ flat, body index (blockNames (Versioning.compileBlock graph src).param)
       (Versioning.compileBlock graph src).body = some flat ∧
       checkBody new (.snoc ctx (.product A .unit)) flat = true := by
-  obtain ⟨supported, _, read, typed⟩ := checked_source checked
+  obtain ⟨_, read, typed⟩ := checked_source checked
   obtain ⟨inside, hInside, tInside⟩ := version_body index _ old new routes
-    (Versioning.registers graph) src.body supported 2 _ _ _ _ _
+    (Versioning.registers graph) src.body 2 _ _ _ _ _
     (block_scope src.param ctx A) read typed
   refine ⟨.let₂ (.bv 0) inside, ?_, ?_⟩
   · simp [Versioning.compileBlock, empty, unpack_empty, Versioning.blockVersions, Version.unpackCur,
@@ -179,9 +179,9 @@ theorem compiled_success (R : Fin blocks → Ty κ) (saved : a.SavesCaptures)
     empty (Fin.cast (List.length_map _).symm i)
   have route := routes_empty attached exits original exitTypes slotsEmpty
   obtain ⟨sourceEntry, sourceBlocks⟩ := Bool.and_eq_true_iff.mp checked
-  obtain ⟨supported, _, read, typed⟩ := checked_source sourceEntry
+  obtain ⟨_, read, typed⟩ := checked_source sourceEntry
   obtain ⟨entry, hEntry, tEntry⟩ := version_body index _ old new route (Versioning.registers attached)
-    (attached).entry supported 0 (fun _ => 0) _ _ _ _ (entry_scope captures context) read typed
+    (attached).entry 0 (fun _ => 0) _ _ _ _ (entry_scope captures context) read typed
   have byBlock (i : Fin (versioned).blocks.length) :
       ∃ flat, body index (blockNames ((versioned).blocks[i].2.param)) (versioned).blocks[i].2.body = some flat ∧
         checkBody new (.snoc context (expanded i)) flat = true := by

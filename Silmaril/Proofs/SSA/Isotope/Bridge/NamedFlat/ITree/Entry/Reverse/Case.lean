@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Straight.Thms
 
 /-! # A typed sum packet selects distinct exits with identical payload types -/
 
@@ -144,5 +144,69 @@ example (right : Bool) (n : Nat) (ambient : Env Runtime) :
     region model.raw (extend ambient (packedInput right n)) recompiled.program.code =
       pure (output right n) :=
   (recompiled.packed_tree model (input right n) ambient).trans (named_result right n)
+
+/-- Keep the input and the two exits, with the dispatcher in the entry.
+The left arm unpacks the same sum again and uses both binder depths. -/
+private def entryOnly : FiniteCFG signature.Instr 0 ports.exits.length ports.slots where
+  entry := .case (.bv 0)
+    (.case (.bv 1)
+      (.br 0 (.pair (.bv 0) (.pair (.bv 1) .unit)))
+      (.br 0 (.pair (.bv 0) (.pair (.bv 1) .unit))))
+    (.br 1 (.pair (.bv 0) (.pair (.bv 0) .unit)))
+  block := Fin.elim0
+
+private def entryLowered : Lowered ports fields entryOnly :=
+  (lowerFresh Fin.elim0 ports.context ports.exits ports.external fields entryOnly).get (by decide)
+
+private theorem entryTyped : entryOnly.HasType ports.context Fin.elim0
+    (LiveOut.exitInterface ports fields).external :=
+  NamedFlat.check_sound entryOnly ports.context Fin.elim0 _ (by decide)
+
+-- All obligations concern the original source or the saved-register list.
+private def entryAdmission : LiveOut.Admission signature ports fields entryLowered.source :=
+  Straight.admit entryLowered Fin.elim0 (by decide) (by decide) (by decide)
+
+private theorem entryShape : entryLowered.source =
+    ⟨.term (.case (.val (.var ⟨0⟩)) ⟨2⟩
+      (.case (.val (.var ⟨0⟩)) ⟨3⟩ (.br leftExit (.var ⟨3⟩))
+        ⟨3⟩ (.br leftExit (.var ⟨3⟩)))
+      ⟨2⟩ (.br rightExit (.var ⟨2⟩))), []⟩ := rfl
+
+set_option maxRecDepth 2048 in
+private theorem entry_named_result (right : Bool) (n : Nat) :
+    LiveOut.observe (P := signature) model ports fields entryLowered.source (input right n) =
+      pure (output right n) := by
+  let m := treeModel model.raw
+  let σ := store ports.names ports.context (input right n)
+  let outer := upd σ ⟨2⟩ (atom n)
+  let pending : CFG.Cyclic.Transfer Reg Label (Value Runtime) :=
+    (if right then rightExit else leftExit, atom n, if right then outer else upd outer ⟨3⟩ (atom n))
+  let step := CFG.Cyclic.step m ([] : List (Label × CFG.Block Reg Label signature.Instr))
+  have atExit : CFG.Cyclic.run m entryLowered.source σ = iter step pending := by
+    have read : σ ⟨0⟩ = value right n := by cases right <;> rfl
+    cases right <;> simp [CFG.Cyclic.run, entryShape, CFG.Body.exec, CFG.Term.exec, Op.eval, Val.eval,
+      step, pending, outer, m, treeModel, value, read, upd]
+  have finish : iter step pending = pure pending := by
+    rw [congrFun (iterate_fixpoint step) pending]
+    change (pure (Sum.inl pending) >>= _) = _
+    rw [pure_bind]
+    rfl
+  change (CFG.Cyclic.run m entryLowered.source σ >>= _) = _
+  rw [atExit, finish, pure_bind]
+  cases right <;> rfl
+
+example (right : Bool) (n : Nat) (ambient : Env Runtime) :
+    region model.raw (extend ambient (packedInput right n)) (Program.ofCFGEntry entryTyped).code =
+      region model.raw (extend ambient (packedInput right n)) entryAdmission.program.code :=
+  entryLowered.packed_roundTrip model entryTyped entryAdmission (input right n) ambient
+
+-- The entry-only admission agrees with the original internal-block fixture
+-- for both ordered exits at every supplied sum.
+example (right : Bool) (n : Nat) (ambient : Env Runtime) :
+    region model.raw (extend ambient (packedInput right n)) entryAdmission.program.code =
+      region model.raw (extend ambient (packedInput right n)) recompiled.program.code :=
+  ((entryAdmission.packed_tree model (input right n) ambient).trans
+    (entry_named_result right n)).trans
+      (((recompiled.packed_tree model (input right n) ambient).trans (named_result right n)).symm)
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.Case

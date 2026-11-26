@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Defs
 
-/-! # Local checks for straight-line reversion with empty saved records -/
+/-! # Local checks for reversion with empty saved records -/
 
 @[expose] public section
 
@@ -14,8 +14,7 @@ open LambdaSSA.Semantics.Interaction.Typed.Ordered
 
 universe u v
 
-/-- This fragment has arbitrary single and product lets, with a jump as
-the final terminator. Bounds on feedback and table order are unnecessary. -/
+/-- Recognize the straight-line subset, with a jump as the final terminator. -/
 def bodySupported {V K : Type u} {F : Type v} : CFG.Body V K F → Bool
   | .let1 _ _ tail | .let2 _ _ _ tail => bodySupported tail
   | .term (.br ..) => true
@@ -24,10 +23,11 @@ def bodySupported {V K : Type u} {F : Type v} : CFG.Body V K F → Bool
 variable {Base V K : Type u} {F : Type v} {n labels : Nat}
   [DecidableEq V] [DecidableEq Base] [HasTy F (Ty Base)]
 
-/-- Check an unversioned body in its original argument and capture context. -/
+/-- Check an unversioned body in its original argument and capture context.
+The named terminator grammar supports jumps and nested sum cases. -/
 def sourceCheck (index : K → Option (Fin labels)) (types : Fin labels → Ty Base)
     (names : Names V n) (ctx : BoundCtx (Ty Base) n) (src : CFG.Body V K F) : Bool :=
-  bodySupported src && ((NamedFlat.body index names src).map (checkBody types ctx)).getD false
+  ((NamedFlat.body index names src).map (checkBody types ctx)).getD false
 
 variable {κ K : Type (u + 1)} [DecidableEq K] [DecidableEq κ]
   {n blocks : Nat} {P : FlatInstitution.Signature.{u, v} κ}
