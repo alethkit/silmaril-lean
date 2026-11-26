@@ -290,3 +290,50 @@ open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Comp
 #eval results (first.trans second) -- (some 22, some 22)
 #eval results reversed             -- (some 86, some 86)
 ```
+
+### Transport a partial equation through both permutations
+
+Import
+`Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Composition.Equation.Thms`.
+`rvsdg_at_trans_iff` and `cf_at_trans_iff` compare two actual emitted
+programs at a final valuation. The corresponding native valuation is
+`pull first (pull second input)`. The `rvsdg_satisfaction_trans` and
+`cf_satisfaction_trans` laws lift this comparison to the existing
+native equation over all valuations. The CF law covers every typed
+environment of the final entry interface.
+[Public equation API](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/MLIR/CF/Pruned/Reindex/Composition/Equation/Thms.lean)
+
+The observations are partial values. Their equality includes the case
+where both sides have no finite return, and a finite return on only one
+side refutes the equation. To carry an original valuation forward, use
+`pull (first.trans second).symm` to supply the matching final input
+and `pull_roundtrip` to recover the original bank. The
+`graph_roundtrip` and `lowerCF_roundtrip` laws recover the original
+emitted graph and CFG by applying the inverse. These laws use the same
+checked pure unequal-arm profile, masks, and predecessor order.
+[Composition and inverse laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/MLIR/CF/Pruned/Reindex/Composition/Thms.lean)
+
+The runnable fixture reuses the short-arm inequation and the two mixed
+entry permutations above. The two programs take predecessors
+`[6, 0, 6]` with two feedback edges. At the paired valuation the base
+program returns 22 and the variant returns 24 in both targets. The
+Lean regression checks inequality of their partial observations at that
+valuation.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/MLIR/CF/Pruned/Reindex/Composition/Equation/Regression.lean)
+
+Build with
+`lake build --wfail +Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Composition.Equation.Example.Defs`.
+Paste into `TransportQuadEquation.lean` and run
+`lake env lean -DwarningAsError=true TransportQuadEquation.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Composition.Equation.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Composition.Equation.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Composition.Equation.Example
+
+#eval results.1  -- (some 22, some 22)
+#eval results.2  -- (some 24, some 24)
+```
