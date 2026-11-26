@@ -13,6 +13,8 @@ namespace Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Sequence
 
 open CategoryTheory
 open Silmaril.Elgot
+open Isotope.Semantics (BoundEnv FreeEnv)
+open Isotope.LetCase.LocallyNameless (Derivation Tm)
 open LetIter.Semantics.Categorical (ofTypeModel ofInstructionModel)
 
 /-- Empty-producing calls raise a terminal error. Its position outside the
@@ -25,6 +27,21 @@ def model : Isotope.Semantics.InstructionModel value signature.Instr Trace where
   eval
     | .emit bit => fun _ => ExceptT.mk (WriterT.mk (Part.some (.ok PUnit.unit, FreeMonoid.of bit)))
     | .stop bit => fun _ => ExceptT.mk (WriterT.mk (Part.some (.error bit, 1)))
+
+local notation "Γ₀" => (Ctx.nil : Ctx Empty Sorts)
+
+def noFree : FreeEnv value Γ₀ := fun x => x.elim
+
+/-- Observe the actual monadic evaluation at a chosen bound environment. -/
+def run {n : Nat} {β : BoundCtx Sorts n} {t : Tm Empty signature.Instr n} {A : Sorts}
+    (d : Derivation signature.Instr Γ₀ β t A) (ρ : BoundEnv value β) :
+    Part (Except Bool (value A) × FreeMonoid Bool) :=
+  (d.denote value model noFree ρ).run.run
+
+/-- The trace data predicted by the independent normal form. -/
+def Normal.observe {A : Type} (nf : Normal) (success : A) :
+    Part (Except Bool A × FreeMonoid Bool) :=
+  Part.some (nf.2.elim (.ok success) Except.error, FreeMonoid.ofList nf.1)
 
 abbrev traceJ := Kleisli.Adjunction.toKleisli (ofTypeMonad Trace)
 
