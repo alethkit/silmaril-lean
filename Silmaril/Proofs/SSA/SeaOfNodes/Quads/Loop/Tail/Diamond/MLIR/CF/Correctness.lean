@@ -152,10 +152,13 @@ theorem site_eval (input bank : Bank (regs := regs) model) (id : Fin size) :
 
 /-- Every source exit makes one additional CF visit. This induction works
 for both full and projected source-to-CF frame relations. -/
-theorem runBlock_eq_of_frames_with {captures : List Width} {Labels : List Width → Type}
+theorem runBlock_eq_of_frames_on {captures : List Width} {Labels : List Width → Type}
     (cfg : Cfg TargetOp Labels captures [valueWidth out]) (input : Env captures)
     (frame : Fin size → Bank (regs := regs) model → Frame Labels) (exit : Labels [valueWidth out])
-    (siteEval : ∀ id old,
+    (site : Fin size → Prop)
+    (closed : ∀ id (bank : Bank (regs := regs) model) next,
+      (src id).terminator.select model bank = .jump next → site next)
+    (siteEval : ∀ id, site id → ∀ old,
       let current := frame id old
       let next := (src id).body.eval model old
       (cfg.block current.label).eval evalOp (fun term env => term.eval env)
@@ -177,12 +180,33 @@ theorem runBlock_eq_of_frames_with {captures : List Width} {Labels : List Width 
   | succ fuel ih =>
     rw [Cfg.runBlock, step]
     simp only [Tail.Source.runFrom]
-    cases (src id).terminator.select model ((src id).body.eval model old) with
-    | jump site => exact ih site _ _ _ (siteEval site _)
+    cases selected : (src id).terminator.select model ((src id).body.eval model old) with
+    | jump next => exact ih next _ _ _ (siteEval next (closed id _ next selected) _)
     | ret _ =>
       simp only [destinationFrameWith, returnFrame]
       rw [exitBlock]
       rfl
+
+theorem runBlock_eq_of_frames_with {captures : List Width} {Labels : List Width → Type}
+    (cfg : Cfg TargetOp Labels captures [valueWidth out]) (input : Env captures)
+    (frame : Fin size → Bank (regs := regs) model → Frame Labels) (exit : Labels [valueWidth out])
+    (siteEval : ∀ id old,
+      let current := frame id old
+      let next := (src id).body.eval model old
+      (cfg.block current.label).eval evalOp (fun term env => term.eval env)
+          (current.args.append input) =
+        .inl (destinationFrameWith frame (returnFrame exit) next ((src id).terminator.select model next)))
+    (exitBlock : cfg.block exit = .terminator (.ret (.cons .here .nil)))
+    (fuel : Nat) (id : Fin size) (old : Bank (regs := regs) model)
+    {Γ : List Width} (block : Block TargetOp Labels Γ [valueWidth out]) (env : Env Γ)
+    (step :
+      let next := (src id).body.eval model old
+      block.eval evalOp (fun term env => term.eval env) env =
+        .inl (destinationFrameWith frame (returnFrame exit) next ((src id).terminator.select model next))) :
+    cfg.runBlock evalOp input (fuel + 1) block env =
+      (src.runFrom model fuel id old).map (fun value => Env.cons (valueBits value) .nil) :=
+  runBlock_eq_of_frames_on cfg input frame exit (fun _ => True) (fun _ _ _ _ => trivial)
+    (fun site _ old => siteEval site old) exitBlock fuel id old block env step
 
 theorem runBlock_eq_of_frames {Labels : List Width → Type}
     (cfg : Cfg TargetOp Labels (Widths regs) [valueWidth out]) (input : Bank (regs := regs) model)
