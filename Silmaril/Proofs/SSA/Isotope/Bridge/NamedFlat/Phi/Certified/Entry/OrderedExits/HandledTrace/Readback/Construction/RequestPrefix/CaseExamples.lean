@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Multiple.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Multiple.Computed.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Packed.Thms
 meta import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Defs
 
@@ -938,5 +938,147 @@ theorem recursive_packed
   (built.public_run (env first) _ _ id recursive_primitive_agreement (codec_id _).symm).symm.trans recursive_source
 
 example := recursive_packed recursiveBuilt
+
+open EffectfulEntry.Multiple.Computed (Operand)
+
+-- The first effect is still written inside the outer request's argument.
+-- The outward leaf also reads the older capture across the outer reply
+-- binder and its case binder.
+private def computedPolling : FiniteCFG Bool 1 2 1 where
+  entry := .let₁ (.op true (.pair (.op false (.pair (.bv 0) (.bv 0))) (.bv 0)))
+    (.case (.bv 0) (.br 0 (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 2))))
+  block := recursivePolling.block
+
+private def computedBuild :=
+  EffectfulEntry.Multiple.Computed.compile recursiveSig (.snoc .nil bit) packets exits computedPolling
+
+private def computedBuilt :
+    EffectfulEntry.Multiple.Computed.Compiled recursiveSig (.snoc .nil bit) packets exits computedPolling :=
+  computedBuild.get (by decide +kernel)
+
+private def computedRowMatches (index : Nat) (expected : LambdaSSA.Region Bool) : Bool :=
+  match computedBuild with
+  | none => false
+  | some built => packedRowMatches (some built.checked) index expected
+
+example : computedRowMatches 1
+    (.let₁ (.op false (.pair (.var 0) (.var 0))) (.br 2 (.pair (.var 1) (.var 0)))) = true :=
+  by decide +kernel
+
+example : computedRowMatches 2 (.let₂ (.var 0) (.br 3 (.pair (.var 1) (.var 0)))) = true :=
+  by decide +kernel
+
+example : computedRowMatches 3
+    (.let₂ (.var 0) (.let₁ (.op true (.pair (.var 0) (.var 1))) (.br 4 (.pair (.var 3) (.var 0))))) = true :=
+  by decide +kernel
+
+example : computedRowMatches 4
+    (.let₂ (.var 0) (.let₂ (.var 1)
+      (.case (.var 2) (.br 0 (.var 0)) (.br 7 (.pair (.var 0) (.var 2)))))) = true :=
+  by decide +kernel
+
+-- The effect may occur in either product field. Two effects in a
+-- computed operand are outside this checker.
+example : (EffectfulEntry.Multiple.Computed.readOperand recursiveSig [bit]
+    (.pair (.var 0) (.op false (.pair (.var 0) (.var 0))))).isSome = true := rfl
+
+example : (EffectfulEntry.Multiple.Computed.readOperand recursiveSig [bit]
+    (.pair (.op false (.pair (.var 0) (.var 0))) (.op false (.pair (.var 0) (.var 0))))).isNone = true := rfl
+
+private def outerKey (innerReply : Denote bit) : recursiveSig.Request := ⟨true, (innerReply, first)⟩
+
+private theorem outer_call (innerReply : Denote bit) :
+    recursiveSig.primitive true (.pair (bit.encode innerReply) (bit.encode first)) =
+      vis (.ask (outerKey innerReply))
+        (fun (reply : recursiveSig.Reply (outerKey innerReply)) => pure (replyType.encode reply)) := by
+  let argument : Denote (recursiveSig.argument true) := (innerReply, first)
+  change recursiveSig.primitive true ((recursiveSig.argument true).encode argument) = _
+  unfold PrimitiveSignature.primitive
+  rw [Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.PacketType.decode_encode
+    (recursiveSig.argument true) argument]
+  rfl
+
+private def computedArgument : Operand recursiveSig [bit] false (.product bit bit) :=
+  .left (.call false (.pair (.var .here) (.var .here))) (.var .here)
+
+private theorem computed_entry :
+    region recursiveSig.primitive (env first) computedPolling.entry.erase =
+      vis (.ask (secondaryKey first)) (fun (innerReply : recursiveSig.Reply (secondaryKey first)) =>
+        vis (.ask (outerKey innerReply)) (fun (reply : recursiveSig.Reply (outerKey innerReply)) =>
+          match reply with
+          | .inl payload => pure (0, bit.encode payload)
+          | .inr payload => pure (2, .pair (bit.encode payload) (bit.encode first)))) := by
+  change (region recursiveSig.primitive (env first)
+    (.let₁ (.op true computedArgument.written) (.case (.var 0)
+      (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))))) = _
+  rw [region, LambdaSSA.Semantics.Interaction.term,
+    computedArgument.preserves_run recursiveSig.primitive (env first)]
+  change (((recursiveSig.primitive false (.pair (bit.encode first) (bit.encode first)) >>= fun reply =>
+    LambdaSSA.Semantics.Interaction.term recursiveSig.primitive (LambdaSSA.Semantics.extend (env first) reply)
+      (.pair (.var 0) (.var 1))) >>= recursiveSig.primitive true) >>= _) = _
+  rw [secondary_call first]
+  simp only [bind_assoc, vis_bind, pure_bind]
+  apply recursive_vis_congr (secondaryKey first)
+  intro innerReply
+  simp only [LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.extend_zero, LambdaSSA.Semantics.extend_succ,
+    pure_bind]
+  change (recursiveSig.primitive true (.pair (bit.encode innerReply) (bit.encode first)) >>= _) = _
+  rw [outer_call innerReply, vis_bind]
+  simp only [pure_bind]
+  apply recursive_vis_congr (outerKey innerReply)
+  intro reply
+  cases reply with
+  | inl payload => simp [region, LambdaSSA.Semantics.Interaction.term, replyType, PacketType.encode]
+  | inr payload => simp [region, LambdaSSA.Semantics.Interaction.term, replyType, PacketType.encode, env]
+
+private noncomputable def computedWritten : Tree RecursiveEvents (Transfer Atom) :=
+  resultCodec id <$> (region recursiveSig.primitive (env first) computedPolling.erase >>=
+    fun out => pure (FiniteCFG.packedTreeOutput out))
+
+private noncomputable def computedExpected : Tree RecursiveEvents (Transfer Atom) :=
+  vis (.ask (secondaryKey first)) fun (innerReply : recursiveSig.Reply (secondaryKey first)) =>
+    vis (.ask (outerKey innerReply)) fun (reply : recursiveSig.Reply (outerKey innerReply)) =>
+      match reply with
+      | .inl _ => pure firstExit
+      | .inr payload => pure (output payload first)
+
+/-- The original nested expression calls the inner opcode first. The
+outer key sees its reply paired with the older capture, then the original
+case routes a typed reply to either ordered exit. -/
+private theorem computed_source : computedWritten = computedExpected := by
+  unfold computedWritten computedExpected
+  rw [show computedPolling.erase = .cfg computedPolling.entry.erase 1
+    (fun i => (computedPolling.block i).erase) from rfl, region, computed_entry]
+  simp only [map_eq_pure_bind, bind_assoc, vis_bind]
+  apply recursive_vis_congr (secondaryKey first)
+  intro innerReply
+  apply recursive_vis_congr (outerKey innerReply)
+  intro reply
+  cases reply with
+  | inl payload =>
+    let step (p : LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :
+        Tree RecursiveEvents (Transfer Atom ⊕ LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :=
+      region recursiveSig.primitive (LambdaSSA.Semantics.extend (env first) p.2)
+        (computedPolling.block p.1).erase >>=
+        fun out => pure (LambdaSSA.Semantics.Interaction.splitTransfer 1 out)
+    have oldExit : Elgot.ITree.iterate step (0, bit.encode payload) = pure (0, .unit) := by
+      change Elgot.iter step (0, bit.encode payload) = _
+      rw [congrFun (iterate_fixpoint step) (0, bit.encode payload)]
+      simp [step, computedPolling, recursivePolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+        LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.Interaction.splitTransfer]
+    simp only [pure_bind]
+    change (Elgot.ITree.iterate step (0, bit.encode payload) >>= _) = _
+    rw [oldExit]
+    simp only [pure_bind]
+    rfl
+  | inr payload =>
+    simp [LambdaSSA.Semantics.Interaction.splitTransfer, output, resultCodec, codec_id]
+
+theorem computed_packed
+    (built : EffectfulEntry.Multiple.Computed.Compiled recursiveSig (.snoc .nil bit) packets exits computedPolling) :
+    built.checked.publicReadback.packed.observe (env first) recursiveRecord = computedExpected :=
+  (built.public_run (env first) _ _ id recursive_primitive_agreement (codec_id _).symm).symm.trans computed_source
+
+example := computed_packed computedBuilt
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.CaseExamples

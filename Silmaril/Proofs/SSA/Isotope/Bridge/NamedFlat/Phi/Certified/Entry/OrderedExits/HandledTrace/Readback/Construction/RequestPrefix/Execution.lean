@@ -4,7 +4,7 @@ public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedE
 
 import Silmaril.Semantics.Elgot.Partition.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Thms
-public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Multiple.Defs
+public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Multiple.Computed.Defs
 
 public section
 
@@ -696,6 +696,58 @@ theorem compiled_seed {A : Type 1} {Events : Type → Type}
     packetValue env built.publicReadback.provenance.seed = Silmaril.Isotope.Bridge.NamedFlat.Capture.packEnv captures env :=
   BranchEntry.seed_from_entry instr env _
     (Region.br.inj (built.publicReadback.provenance.sourceEntry.symm.trans built.prepared.emitted.entry_eq)).2
+
+namespace Computed
+
+open Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple.Computed
+  (Operand Lifted weaken hoist)
+
+private theorem weaken_tree (instr : Primitive E F α) (env : Env α) (reply : Value α)
+    {ty : PacketType} (arg : Expr Γ ty) (added : PacketType) :
+    term instr (extend env reply) (operand position (weaken (added := added) arg)) =
+      term instr env (operand position arg) := by
+  induction arg with
+  | var slot => rfl
+  | unit => rfl
+  | pair left right ihLeft ihRight => simp only [weaken, operand, term, ihLeft, ihRight]
+
+theorem operand_run (instr : Primitive E F α) (env : Env α) {op : F} {ty : PacketType}
+    (arg : Operand sig Γ op ty) :
+    term instr env arg.written =
+      (instr op (evalOperand (readSlots position env) arg.argument) >>= fun reply =>
+        term instr (extend env reply) (operand position arg.residual)) := by
+  induction arg with
+  | call arg =>
+    simp only [Operand.written, term, Operand.argument, Operand.residual, operand, position,
+      extend_zero, bind_pure, operand_tree instr position env (readSlots position env) arg (fun _ => rfl), pure_bind]
+  | left inner right ih =>
+    simp only [Operand.written, Operand.argument, Operand.residual, operand, term, ih, weaken_tree, bind_assoc]
+  | right left inner ih =>
+    simp only [Operand.written, Operand.argument, Operand.residual, operand, term, ih, weaken_tree, bind_assoc,
+      operand_tree instr position env (readSlots position env) left (fun _ => rfl), pure_bind]
+
+private theorem entry_run (lifted : Lifted sig context source) (instr : Primitive E F α) (env : Env α) :
+    region instr env source.entry.erase = region instr env lifted.entry.erase := by
+  rw [lifted.source_eq, lifted.entry_eq]
+  simp only [hoist, region, term, operand_run instr env lifted.argument,
+    operand_tree instr position env (readSlots position env) lifted.argument.argument (fun _ => rfl),
+    pure_bind, bind_assoc]
+  apply bind_congr
+  intro innerReply
+  apply bind_congr
+  intro outerArg
+  apply bind_congr
+  intro outerReply
+  symm
+  apply LambdaSSA.Semantics.Interaction.region_renameVars
+  intro i
+  cases i <;> rfl
+
+theorem preserves_run (lifted : Lifted sig context source) (instr : Primitive E F α) (env : Env α) :
+    region instr env source.erase = region instr env lifted.code.erase := by
+  simp only [Lifted.code, FiniteCFG.erase, region, entry_run lifted instr env]
+
+end Computed
 
 end Multiple
 
