@@ -1,10 +1,12 @@
 module
 
 import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Normalization.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Fork.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Recursive.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Thms
 meta import Silmaril.SSA.Isotope.Types.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Normalization.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Fork.Defs
@@ -637,33 +639,45 @@ private theorem recursiveRoundTrip (coherent : Coherent) (input payload token : 
     ((WithNestedFeedback.Related.generated recursiveFork.toSyntax).region_returns_iff
       coherent (PUnit.unit,input) (.inl payload) 0 token |>.mpr h)
 
-example (coherent : Coherent) :
-    (Region.denote (ε := Bool) (m := Runtime) recoveredRecursive.2.typing (PUnit.unit,(1 : Nat))).run 0 =
-      Part.some ((.inl (45345 : Nat) : Exits),412234) := by
-  apply recursiveRoundTrip coherent
+private theorem recursiveLeftResult (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recursiveFork.toSyntax.source.typing
+      (PUnit.unit,(1 : Nat))).run 0 = Part.some ((.inl (45345 : Nat) : Exits),412234) := by
   rw [recursive_run coherent]
   simp only [ite_true, StateT.run_bind, Part.bind_eq_bind, tailReturns 7 0, Part.bind_some]
   change ((iter roundAction (7 : Nat)).run 4).bind _ = _
   rw [feedbackReturnsFirstRound 7 4 (by decide) (by decide), Part.bind_some]
   exact tailReturns 4122 41223
 
-example (coherent : Coherent) :
-    (Region.denote (ε := Bool) (m := Runtime) recoveredRecursive.2.typing (PUnit.unit,(0 : Nat))).run 0 =
-      Part.some ((.inl (13454345 : Nat) : Exits),122312234) := by
-  apply recursiveRoundTrip coherent
+private theorem recursiveRightResult (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recursiveFork.toSyntax.source.typing
+      (PUnit.unit,(0 : Nat))).run 0 = Part.some ((.inl (13454345 : Nat) : Exits),122312234) := by
   rw [recursive_run coherent]
   simp only [Nat.zero_ne_one, ite_false, StateT.run_bind, Part.bind_eq_bind, returning, Part.bind_some]
   exact tailReturns 1223122 12231223
 
-example (coherent : Coherent) :
-    (Region.denote (ε := Bool) (m := Runtime) recoveredRecursive.2.typing (PUnit.unit,(99 : Nat))).run 0 =
-      Part.none := by
-  apply (Recursive.recover_undefined_iff recoveredRecursiveAccepted coherent (PUnit.unit,(99 : Nat)) 0).mp
-  apply ((WithNestedFeedback.Related.generated recursiveFork.toSyntax).region_undefined_iff
-    coherent (PUnit.unit,(99 : Nat)) 0).mpr
+private theorem recursiveUndefinedResult (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recursiveFork.toSyntax.source.typing
+      (PUnit.unit,(99 : Nat))).run 0 = Part.none := by
   rw [recursive_run coherent]
   simp only [show (99 : Nat) ≠ 1 from by decide, ite_false, StateT.run_bind,
     Part.bind_eq_bind, noReturn, Part.bind_none]
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredRecursive.2.typing (PUnit.unit,(1 : Nat))).run 0 =
+      Part.some ((.inl (45345 : Nat) : Exits),412234) :=
+  recursiveRoundTrip coherent 1 45345 412234 (recursiveLeftResult coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredRecursive.2.typing (PUnit.unit,(0 : Nat))).run 0 =
+      Part.some ((.inl (13454345 : Nat) : Exits),122312234) :=
+  recursiveRoundTrip coherent 0 13454345 122312234 (recursiveRightResult coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredRecursive.2.typing (PUnit.unit,(99 : Nat))).run 0 =
+      Part.none :=
+  (Recursive.recover_undefined_iff recoveredRecursiveAccepted coherent (PUnit.unit,(99 : Nat)) 0).mp
+    (((WithNestedFeedback.Related.generated recursiveFork.toSyntax).region_undefined_iff
+      coherent (PUnit.unit,(99 : Nat)) 0).mpr (recursiveUndefinedResult coherent))
 
 private def staleRecursive : ForkGraph := (staleForkTerm recursiveGraph.toTerm).toGraph
 
@@ -690,6 +704,66 @@ example : Recursive.recover staleRecursive = none := by
     throw (IO.userError "could not recover the recursive mixed fork")
   unless (Recursive.candidate staleRecursive).isSome && (Recursive.recover staleRecursive).isNone do
     throw (IO.userError "the recursive mixed recognizer failed to certify the shared continuation token")
+
+open WithNestedFeedback.Normalization
+
+private def unnormalized :=
+  WithNestedFeedback.Syntax.link
+    (.link recursiveFork.toSyntax (.structured (.loop tailLoop))) (.structured (.loop tailLoop))
+
+-- The two links move inside the fork's existing shared continuation.
+example : normalize unnormalized =
+    .fork forkGate (.seq (.localLoop tailLoop) (.leaf (.feedback program))) (.leaf (.feedback program))
+      (.seq (.localLoop tailLoop) (.seq (.localLoop tailLoop) (.leaf (.localLoop tailLoop)))) := rfl
+
+private def normalizedRecovered : WithNestedFeedback.Fibre (compile unnormalized) :=
+  (Recursive.recover (compile unnormalized)).get (compile_recover unnormalized)
+
+private theorem normalizedAccepted : Recursive.recover (compile unnormalized) = some normalizedRecovered :=
+  (Option.some_get _).symm
+
+private theorem unnormalized_run (coherent : Coherent) (n : Nat) :
+    Region.denote (ε := Bool) (m := Runtime) unnormalized.source.typing (PUnit.unit,n) =
+      (do
+        let r ← Region.denote (ε := Bool) (m := Runtime) recursiveFork.toSyntax.source.typing (PUnit.unit,n)
+        let next ← iter (ExplicitRuntime.round (ε := Bool) tailLoop) (merge r)
+        iter (ExplicitRuntime.round (ε := Bool) tailLoop) (merge next)) := by
+  change Region.denote (ε := Bool) (m := Runtime)
+    (Flat.link (Flat.link recursiveFork.toSyntax.source (.loop tailLoop)) (.loop tailLoop)).typing
+      (PUnit.unit,n) = _
+  simp only [Flat.denote_link _ _ coherent, Flat.Fragment.loop_denote,
+    ExplicitRuntime.denote_rounds _ coherent, bind_assoc]
+
+private theorem normalizedReturns (coherent : Coherent) (n payload token : Nat)
+    (h : (Region.denote (ε := Bool) (m := Runtime) recursiveFork.toSyntax.source.typing (PUnit.unit,n)).run 0 =
+      Part.some ((.inl payload : Exits),token)) :
+    (Region.denote (ε := Bool) (m := Runtime) normalizedRecovered.2.typing (PUnit.unit,n)).run 0 =
+      Part.some ((.inl (payload + token + (10 * token + 4) : Nat) : Exits),10 * (10 * token + 4) + 4) := by
+  rw [recover_denote unnormalized normalizedAccepted coherent, unnormalized_run coherent]
+  simp only [StateT.run_bind, Part.bind_eq_bind, h, Part.bind_some]
+  change ((iter (ExplicitRuntime.round (ε := Bool) (m := Runtime) tailLoop) payload).run token).bind _ = _
+  rw [tailReturns payload token, Part.bind_some]
+  exact tailReturns (payload + token) (10 * token + 4)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) normalizedRecovered.2.typing (PUnit.unit,(1 : Nat))).run 0 =
+      Part.some ((.inl (4579923 : Nat) : Exits),41223444) :=
+  normalizedReturns coherent 1 45345 412234 (recursiveLeftResult coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) normalizedRecovered.2.typing (PUnit.unit,(0 : Nat))).run 0 =
+      Part.some ((.inl (1358888923 : Nat) : Exits),12231223444) :=
+  normalizedReturns coherent 0 13454345 122312234 (recursiveRightResult coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) normalizedRecovered.2.typing (PUnit.unit,(99 : Nat))).run 0 =
+      Part.none := by
+  rw [recover_denote unnormalized normalizedAccepted coherent, unnormalized_run coherent]
+  simp only [StateT.run_bind, Part.bind_eq_bind, recursiveUndefinedResult coherent, Part.bind_none]
+
+#eval show IO Unit from do
+  unless (Recursive.recover (compile unnormalized)).isSome do
+    throw (IO.userError "could not recover the normalized mixed source")
 
 end Composition
 
