@@ -335,10 +335,80 @@ would instead test `8 < 5` and exit on the first visit. A captured read
 in a feedback copy is refused even when it currently agrees with the
 corresponding bank slot.
 
+## Schedule dependent preheader producers
+
+Import `Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Thms`.
+`Table.lowerChecked` admits a typed, straight-line preheader made of
+wrapping i64 adds and subs. Each operand can read a captured input or an
+earlier result. At least one entry slot must read a computed result.
+The checker keeps the original ordered entry column and reuses the
+existing signed-row header check. `recognize_sound` recovers the exact
+native graph. The original empty and singleton entry APIs are available
+for their respective profiles.
+
+`entry_block` proves that the emitted RTL operations preserve the whole
+memory and make every native capture and computed word available in its
+assigned register. `entry_packet` covers the subsequent simultaneous
+bank binding in both RTL.SSA and explicit-Φ λSSA. Feedback and exit use
+the existing header proof. The return and absence iff laws relate both
+targets to native finite execution, with full memory equality on return.
+
+With `k` producers and `b` backedges the minimum RTL fuel is
+`k + activationSteps * (b + 1) + 2` instructions. This includes `k`
+preheader operations, one entry jump, and one return. The λSSA runner
+evaluates entry outside its budget and needs `b + 1` header visits.
+[Checked regression][table-regression]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (model word)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader
+open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA (inputEnv)
+open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
+
+def capture (slot : Fin 3) := argumentPort 3 slot
+def old (slot : Fin 3) := suffixPort (wordPorts 3) (capture slot)
+
+def dependent :
+    SourceWithEntry 3 [[wordPort], [wordPort]] [[wordPort], [.value .predicate]] where
+  preheader :=
+    .cons .sub (.cons (.arg (capture 0)) (.cons (.arg (capture 2)) .nil))
+      (.cons .add (.cons (.output (0 : Fin 1) .head) (.cons (.arg (capture 1)) .nil)) .nil)
+  header :=
+    .cons .add (.cons (.arg (old 0)) (.cons (.arg (old 1)) .nil))
+      (.cons .slt (.cons (.output (0 : Fin 1) .head) (.cons (.arg (old 2)) .nil)) .nil)
+  phiInputs
+    | .entry =>
+      .cons (.output (0 : Fin 2) .head) (.cons (.output (1 : Fin 2) .head) (.cons (.arg (capture 2)) .nil))
+    | .backedge =>
+      .cons (.output (0 : Fin 2) .head) (.cons (.arg (old 1)) (.cons (.arg (old 2)) .nil))
+  predicate := .output (1 : Fin 2) .head
+  result := .output (0 : Fin 2) .head
+
+#eval do
+  let (rtl, ssa) ← Table.lowerChecked dependent
+  let input : WordTuple 3 := .cons (6 : Word) (.cons (2 : Word) (.cons (5 : Word) .nil))
+  let mem := Memory.ofList 4 [29, 71, 53, 11]
+  let machine := (rtl.runMain 10 0 (words input) mem).returnedValues?
+  let typed := (Generic.Fuel.run model (inputEnv model input) 2 ssa).bind fun (_, packet) =>
+    (Generic.Fuel.decodeArgs model [word] packet).map fun fields => Silmaril.SSA.RVSDG.Tuple.get fields .head
+  pure (machine.map (List.map BitVec.toInt), typed.map BitVec.toInt)
+-- some (some [7], some 7)
+```
+
+The two results are `6 - 5 = 1` and `1 + 2 = 3`, so the bank enters as
+`(1, 3, 5)` and feeds back `(4, 3, 5)` before returning 7. Using captured
+2 as the entry stride returns 5 instead. A captured stride in the feedback
+column and a literal in the producer table both fail the check.
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Regression \
+  +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.SignedGuardRegression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.BankOperandRegression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.ComputedExitRegression \
@@ -364,3 +434,4 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 [native-guard-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Regression.lean
 [simple-latch]: https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter08/src/main/java/com/seaofnodes/simple/GraphEvaluator.java#L93-L110
 [preheader-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Regression.lean
+[table-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Regression.lean

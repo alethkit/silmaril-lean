@@ -16,6 +16,19 @@ private theorem decodeInitializer_sound {arity : Nat}
     cases rest
     cases op <;> cases h <;> rfl
 
+theorem withEntry_bodyGraph {arity : Nat}
+    {entrySigs sigs : List (List Silmaril.Machine.SeaOfNodes.Diamond.RTL.PortTy)}
+    (g : SourceWithEntry arity entrySigs sigs) (column : ArgumentColumn arity arity) :
+    withEntry (bodyGraph g column) g.preheader (g.phiInputs .entry) = g := by
+  have columns :
+      (withEntry (bodyGraph g column) g.preheader (g.phiInputs .entry)).phiInputs = g.phiInputs := by
+    funext edge
+    cases edge <;> rfl
+  cases g with
+  | mk pre header _ predicate result =>
+    exact congrArg
+      (fun edges => Silmaril.SSA.SeaOfNodes.Loop.Graph.mk pre header edges predicate result) columns
+
 theorem recognize_sound {arity : Nat} {sigs : List (List Silmaril.Machine.SeaOfNodes.Diamond.RTL.PortTy)}
     {g : Source arity sigs} {p : Plan arity} (accepted : recognize g = some p) :
     ∃ eq : p.row.sigs = sigs, eq ▸ p.graph = g := by
@@ -44,15 +57,7 @@ theorem recognize_sound {arity : Nat} {sigs : List (List Silmaril.Machine.SeaOfN
             _ = withEntry (bodyGraph g col) g.preheader (g.phiInputs .entry) :=
               congrArg (fun flow => withEntry (bodyGraph g col) flow (g.phiInputs .entry))
                 (decodeInitializer_sound decoded)
-            _ = g := by
-              have columns :
-                  (withEntry (bodyGraph g col) g.preheader (g.phiInputs .entry)).phiInputs = g.phiInputs := by
-                funext edge
-                cases edge <;> rfl
-              cases g with
-              | mk pre header _ predicate result =>
-                exact congrArg
-                  (fun edges => Silmaril.SSA.SeaOfNodes.Loop.Graph.mk pre header edges predicate result) columns
+            _ = g := withEntry_bodyGraph g col
     · cases accepted
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Proofs

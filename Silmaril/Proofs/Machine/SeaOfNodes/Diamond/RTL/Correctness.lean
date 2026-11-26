@@ -107,7 +107,7 @@ private theorem emit_exec {sorts : List (ValueSort Unit)} {out : ValueSort Unit}
     (emitOp (.node past.length) op wires).exec fr mem =
       some (fr.set (.node past.length) (encode (.value out) (model.run op (wires.read (entry x y) xs))), mem) := by
   have readWireWith {t : PortTy} (wire : Origin args past t) :
-      fr.get (registerWith (fun p => .arg (portIndex p)) wire) =
+      fr.get (registerWithResults (fun p => .arg (portIndex p)) Reg.node wire) =
         some (encode t (read model wire (entry x y) xs)) := readWire wire
   cases op with
   | const v => cases wires; rfl
@@ -117,7 +117,7 @@ private theorem emit_exec {sorts : List (ValueSort Unit)} {out : ValueSort Unit}
       cases rest with
       | cons right tail =>
         cases tail
-        simp only [emitOp, emitOpWith, Op.exec, Tuple.get, readWireWith, Option.bind_some]
+        simp only [emitOp, emitOpWith, emitOpWithResults, Op.exec, Tuple.get, readWireWith, Option.bind_some]
         rfl
 
 private theorem simulate_ops (oracle : CallOracle) (x y : Word) (mem : Memory)

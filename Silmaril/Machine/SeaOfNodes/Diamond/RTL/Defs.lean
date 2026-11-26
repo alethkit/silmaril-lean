@@ -64,33 +64,42 @@ def portIndex {ts : List PortTy} {t : PortTy} : Port ts t → Nat
   | .tail p => portIndex p + 1
 
 /-- Resolve typed arguments in their block context and keep producer indices. -/
-def registerWith {ports : List PortTy} {past : List (List PortTy)} {t : PortTy}
-    (argReg : {ty : PortTy} → Port ports ty → Reg) : Origin ports past t → Reg
+def registerWithResults {ports : List PortTy} {past : List (List PortTy)} {t : PortTy}
+    (argReg : {ty : PortTy} → Port ports ty → Reg) (resultReg : Nat → Reg) : Origin ports past t → Reg
   | .arg p => argReg p
-  | .output i _ => .node i.val
+  | .output i _ => resultReg i.val
+
+def registerWith {ports : List PortTy} {past : List (List PortTy)} {t : PortTy}
+    (argReg : {ty : PortTy} → Port ports ty → Reg) (wire : Origin ports past t) : Reg :=
+  registerWithResults argReg Reg.node wire
 
 def register {past : List (List PortTy)} {t : PortTy} (wire : Origin args past t) : Reg :=
   registerWith (fun p => .arg (portIndex p)) wire
 
-def emitOpWith {ports : List PortTy} {sorts : List (ValueSort Unit)} {out : ValueSort Unit}
-    {past : List (List PortTy)} (argReg : {ty : PortTy} → Port ports ty → Reg) (dest : Reg) :
+def emitOpWithResults {ports : List PortTy} {sorts : List (ValueSort Unit)} {out : ValueSort Unit}
+    {past : List (List PortTy)} (argReg : {ty : PortTy} → Port ports ty → Reg) (resultReg : Nat → Reg) (dest : Reg) :
     WordOp sorts out → Wires ports past (dataPorts sorts) → Op Reg
   | .const value, _ => .const dest value
   | .add, wires =>
-      .binary .add dest (registerWith argReg (wires.get .head))
-        (registerWith argReg (wires.get (.tail .head)))
+      .binary .add dest (registerWithResults argReg resultReg (wires.get .head))
+        (registerWithResults argReg resultReg (wires.get (.tail .head)))
   | .sub, wires =>
-      .binary .sub dest (registerWith argReg (wires.get .head))
-        (registerWith argReg (wires.get (.tail .head)))
+      .binary .sub dest (registerWithResults argReg resultReg (wires.get .head))
+        (registerWithResults argReg resultReg (wires.get (.tail .head)))
   | .eq, wires =>
-      .binary (.cmp .eq) dest (registerWith argReg (wires.get .head))
-        (registerWith argReg (wires.get (.tail .head)))
+      .binary (.cmp .eq) dest (registerWithResults argReg resultReg (wires.get .head))
+        (registerWithResults argReg resultReg (wires.get (.tail .head)))
   | .ne, wires =>
-      .binary (.cmp .ne) dest (registerWith argReg (wires.get .head))
-        (registerWith argReg (wires.get (.tail .head)))
+      .binary (.cmp .ne) dest (registerWithResults argReg resultReg (wires.get .head))
+        (registerWithResults argReg resultReg (wires.get (.tail .head)))
   | .slt, wires =>
-      .binary (.cmp .lts) dest (registerWith argReg (wires.get .head))
-        (registerWith argReg (wires.get (.tail .head)))
+      .binary (.cmp .lts) dest (registerWithResults argReg resultReg (wires.get .head))
+        (registerWithResults argReg resultReg (wires.get (.tail .head)))
+
+def emitOpWith {ports : List PortTy} {sorts : List (ValueSort Unit)} {out : ValueSort Unit}
+    {past : List (List PortTy)} (argReg : {ty : PortTy} → Port ports ty → Reg) (dest : Reg)
+    (op : WordOp sorts out) (wires : Wires ports past (dataPorts sorts)) : Op Reg :=
+  emitOpWithResults argReg Reg.node dest op wires
 
 def emitOp {sorts : List (ValueSort Unit)} {out : ValueSort Unit}
     {past : List (List PortTy)} (dest : Reg)
@@ -103,6 +112,14 @@ def emitOpsWith {ports : List PortTy} (argReg : {ty : PortTy} → Port ports ty 
   | _, _, .nil => []
   | past, _, .cons op wires rest =>
       emitOpWith argReg (.node past.length) op wires :: emitOpsWith argReg rest
+
+/-- Emit the ordered table in a separate result register range. -/
+def emitOpsWithResults {ports : List PortTy} (argReg : {ty : PortTy} → Port ports ty → Reg)
+    (resultReg : Nat → Reg) :
+    {past sigs : List (List PortTy)} → Dataflow WordOp ports past sigs → List (Op Reg)
+  | _, _, .nil => []
+  | past, _, .cons op wires rest =>
+    emitOpWithResults argReg resultReg (resultReg past.length) op wires :: emitOpsWithResults argReg resultReg rest
 
 /-- Emit each source producer once into the entry block. -/
 def emitOps {past sigs : List (List PortTy)} (flow : Dataflow WordOp args past sigs) : List (Op Reg) :=

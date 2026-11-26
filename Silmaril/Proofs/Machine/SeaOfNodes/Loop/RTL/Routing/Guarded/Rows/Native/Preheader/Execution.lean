@@ -15,9 +15,9 @@ namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Prehe
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.RTL (Frame)
 open Silmaril.Machine.RTL.SSA
-open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg model word emitOpWith)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg WordOp model word emitOpWith)
 open Silmaril.SSA.RVSDG (Origin Port)
-open Silmaril.SSA.SeaOfNodes.Diamond (read)
+open Silmaril.SSA.SeaOfNodes.Diamond (Dataflow read)
 open Silmaril.SSA.SeaOfNodes.Loop (Graph appendTuple)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA (Atom inputEnv instruction encodeTuple)
 open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
@@ -51,8 +51,8 @@ private theorem initializer_exec (input : WordTuple arity) (fr : Frame Reg) (mem
         | output index _ => exact index.elim0
         | arg rhs =>
           cases operation <;>
-            simp only [Initializer.value, FeedbackOp.source, emitOpWith, Op.exec,
-              SSA.RVSDG.Tuple.get, Diamond.RTL.registerWith] <;>
+            simp only [Initializer.value, FeedbackOp.source, emitOpWith, Diamond.RTL.emitOpWithResults, Op.exec,
+              SSA.RVSDG.Tuple.get, Diamond.RTL.registerWithResults] <;>
             rw [agree lhs, agree rhs] <;> rfl
 
 theorem entry_packet (input : WordTuple arity) (fr : Frame Reg) (mem : Memory)
@@ -97,6 +97,37 @@ theorem entry_packet (input : WordTuple arity) (fr : Frame Reg) (mem : Memory)
   exact ⟨.head ⟨execute.step_eq, List.nil_suffix⟩ (.head ⟨jump, List.nil_suffix⟩ .refl),
     bank_matches_at captures bank, Generic.entry_eval p.graph model input mem⟩
 
+theorem header_packet_with {entrySigs : List (List PortTy)}
+    (row : Rows.Plan arity) (flow : Dataflow WordOp (wordPorts arity) [] entrySigs)
+    (column : EntryColumnWith arity entrySigs) (entry : Block Reg) (input old : WordTuple arity) (fr : Frame Reg) (mem : Memory)
+    (agree : ArgsMatch fr (appendTuple old input)) :
+    let eval := Eval (instruction model) (extend (inputEnv model input) (encodeTuple model old))
+      (Generic.header (withEntry row.graph flow column)) mem
+    let after := row.testFrame fr old
+    match (withEntry row.graph flow column).step model input old with
+    | .inl value =>
+      StepsNWithin (lowerBankFrom row.graph entry) [] row.activationSteps ⟨⟨0, 1, 0⟩, fr, [], mem⟩
+        ⟨⟨0, 2, 0⟩, after.set .phi value, [], mem⟩ ∧
+      eval 1 (Generic.packResult model (out := word) value) mem
+    | .inr next =>
+      let latched := bindWords arity after next
+      StepsNWithin (lowerBankFrom row.graph entry) [] row.activationSteps ⟨⟨0, 1, 0⟩, fr, [], mem⟩
+        ⟨⟨0, 1, 0⟩, latched, [], mem⟩ ∧
+      ArgsMatch latched (appendTuple next input) ∧ eval 0 (encodeTuple model next) mem := by
+  have rtl := Rows.Proofs.header_activation_steps_from row entry input old fr mem agree
+  have typed := Generic.header_eval (withEntry row.graph flow column) model input old mem
+  have branch : (withEntry row.graph flow column).step model input old =
+      if row.guardWord old = 0 then .inl (row.exitValue old) else .inr (row.nextBank input old) :=
+    Rows.native_step row input old fr agree
+  dsimp only
+  rw [branch] at typed ⊢
+  by_cases exit : row.guardWord old = 0
+  · rw [ite_eq_left exit] at typed ⊢
+    exact ⟨by simpa only [Rows.Plan.successor, ite_eq_left exit] using rtl, typed⟩
+  · rw [ite_eq_right exit] at typed ⊢
+    exact ⟨by simpa only [Rows.Plan.successor, ite_eq_right exit] using rtl,
+      bank_matches_at (input_matches_at (Rows.testFrame_args row input old fr agree)) _, typed⟩
+
 theorem header_packet (input old : WordTuple arity) (fr : Frame Reg) (mem : Memory)
     (agree : ArgsMatch fr (appendTuple old input)) :
     let eval := Eval (instruction model) (extend (inputEnv model input) (encodeTuple model old))
@@ -111,20 +142,8 @@ theorem header_packet (input old : WordTuple arity) (fr : Frame Reg) (mem : Memo
       let latched := bindWords arity after next
       StepsNWithin p.rtl [] p.row.activationSteps ⟨⟨0, 1, 0⟩, fr, [], mem⟩
         ⟨⟨0, 1, 0⟩, latched, [], mem⟩ ∧
-      ArgsMatch latched (appendTuple next input) ∧ eval 0 (encodeTuple model next) mem := by
-  have rtl := Rows.Proofs.header_activation_steps_from p.row p.preheader input old fr mem agree
-  have typed := Generic.header_eval p.graph model input old mem
-  have branch : p.graph.step model input old =
-      if p.row.guardWord old = 0 then .inl (p.row.exitValue old) else .inr (p.row.nextBank input old) :=
-    Rows.native_step p.row input old fr agree
-  dsimp only
-  rw [branch] at typed ⊢
-  by_cases exit : p.row.guardWord old = 0
-  · rw [ite_eq_left exit] at typed ⊢
-    exact ⟨by simpa only [Plan.rtl, Rows.Plan.successor, ite_eq_left exit] using rtl, typed⟩
-  · rw [ite_eq_right exit] at typed ⊢
-    exact ⟨by simpa only [Plan.rtl, Rows.Plan.successor, ite_eq_right exit] using rtl,
-      bank_matches_at (input_matches_at (Rows.testFrame_args p.row input old fr agree)) _, typed⟩
+      ArgsMatch latched (appendTuple next input) ∧ eval 0 (encodeTuple model next) mem :=
+  header_packet_with p.row p.initializer.flow p.entry p.preheader input old fr mem agree
 
 private theorem returnsAfter_congr {leftEntry rightEntry sigs : List (List PortTy)}
     (left : Graph Diamond.RTL.WordOp (wordSorts arity) (wordSorts arity) leftEntry sigs word)
@@ -139,59 +158,85 @@ private theorem returnsAfter_congr {leftEntry rightEntry sigs : List (List PortT
   · intro count old next value taken _ ih
     exact .backedge ((same old).symm.trans taken) ih
 
-private theorem returnsAfter_row (input old : WordTuple arity) (count : Nat) (value : Word) :
-    p.graph.ReturnsAfter model input count old value ↔ p.row.graph.ReturnsAfter model input count old value :=
-  ⟨returnsAfter_congr p.graph p.row.graph input (fun _ => rfl),
-    returnsAfter_congr p.row.graph p.graph input (fun _ => rfl)⟩
+private theorem returnsAfter_row {entrySigs : List (List PortTy)}
+    (row : Rows.Plan arity) (flow : Dataflow WordOp (wordPorts arity) [] entrySigs)
+    (column : EntryColumnWith arity entrySigs)
+    (input old : WordTuple arity) (count : Nat) (value : Word) :
+    (withEntry row.graph flow column).ReturnsAfter model input count old value ↔
+      row.graph.ReturnsAfter model input count old value :=
+  ⟨returnsAfter_congr (withEntry row.graph flow column) row.graph input (fun _ => rfl),
+    returnsAfter_congr row.graph (withEntry row.graph flow column) input (fun _ => rfl)⟩
+
+/-- Factor the loop budget at the entry jump. The validated prefix is the
+only part that consumes the entry budget. -/
+theorem runMain_fuel_iff_with {entrySigs : List (List PortTy)}
+    (row : Rows.Plan arity) (flow : Dataflow WordOp (wordPorts arity) [] entrySigs)
+    (column : EntryColumnWith arity entrySigs) (entry : Block Reg) (entrySteps : Nat)
+    (input : WordTuple arity) (initial final : Memory) (returned : List Word) (fuel : Nat)
+    (params : entry.params = paramRegs 0 arity)
+    (entryPath : let old := (withEntry row.graph flow column).initial model input
+      ∃ ready, StepsNWithin (lowerBankFrom row.graph entry) [] entrySteps
+        ⟨⟨0, 0, 0⟩, bindWords 0 Frame.empty input, [], initial⟩ ⟨⟨0, 1, 0⟩, ready, [], initial⟩ ∧
+        ArgsMatch ready (appendTuple old input)) :
+    let graph := withEntry row.graph flow column
+    (lowerBankFrom row.graph entry).runMain fuel 0 (words input) initial = .returned returned final ↔
+      ∃ count value, graph.ReturnsAfter model input count (graph.initial model input) value ∧
+        entrySteps + (row.activationSteps * (count + 1) + 1) ≤ fuel ∧
+        returned = [value] ∧ final = initial := by
+  let old := (withEntry row.graph flow column).initial model input
+  let fr := bindWords 0 Frame.empty input
+  let atEntry : State Reg := ⟨⟨0, 0, 0⟩, fr, [], initial⟩
+  have start : (lowerBankFrom row.graph entry).start 0 (words input) initial = some atEntry := by
+    change ((Frame.empty.writeAll entry.params (words input)).map
+      (fun regs => (⟨⟨0, 0, 0⟩, regs⟩ : Point × Frame Reg))).map
+      (fun entered => (⟨entered.1, entered.2, [], initial⟩ : State Reg)) = _
+    rw [params, bindWords_write]
+    rfl
+  obtain ⟨ready, path, agree⟩ := entryPath
+  have loop := Rows.Proofs.header_run_fuel_iff row entry input old ready agree initial final returned
+  simp only [Prog.runMain, start]
+  constructor
+  · intro observed
+    obtain ⟨remaining, spent, rest⟩ := run_after_prefix path observed
+    obtain ⟨count, value, source, bound, outputs, memory⟩ := (loop remaining).mp rest
+    exact ⟨count, value, (returnsAfter_row row flow column input old count value).mpr source,
+      by omega, outputs, memory⟩
+  · rintro ⟨count, value, source, enough, outputs, memory⟩
+    have bound : row.activationSteps * (count + 1) + 1 ≤ fuel - entrySteps := by omega
+    have spent : fuel = entrySteps + (fuel - entrySteps) := by omega
+    rw [spent, run_through_prefix path]
+    exact (loop _).mpr
+      ⟨count, value, (returnsAfter_row row flow column input old count value).mp source, bound, outputs, memory⟩
 
 theorem runMain_fuel_iff (input : WordTuple arity) (initial final : Memory)
     (returned : List Word) (fuel : Nat) :
     p.rtl.runMain fuel 0 (words input) initial = .returned returned final ↔
       ∃ count value, p.graph.ReturnsAfter model input count (p.graph.initial model input) value ∧
         p.rtlFuel count ≤ fuel ∧ returned = [value] ∧ final = initial := by
-  let fr := bindWords 0 Frame.empty input
-  let atEntry : State Reg := ⟨⟨0, 0, 0⟩, fr, [], initial⟩
-  have start : p.rtl.start 0 (words input) initial = some atEntry := by
-    change ((Frame.empty.writeAll (paramRegs 0 arity) (words input)).map
-      (fun regs => (⟨⟨0, 0, 0⟩, regs⟩ : Point × Frame Reg))).map
-      (fun entered => (⟨entered.1, entered.2, [], initial⟩ : State Reg)) = _
-    rw [bindWords_write]
-    rfl
-  obtain ⟨prefixPath, agree, _⟩ := entry_packet p input fr initial (bindWords_args input)
-  let old := p.graph.initial model input
-  let next := bindWords arity (fr.set (initRegister arity) (p.initializer.value input)) old
-  have loop := Rows.Proofs.header_run_fuel_iff p.row p.preheader input old next agree initial final returned
-  simp only [Prog.runMain, start]
-  constructor
-  · intro observed
-    obtain ⟨remaining, spent, rest⟩ := run_after_prefix prefixPath observed
-    obtain ⟨count, value, source, bound, outputs, memory⟩ := (loop remaining).mp rest
-    exact ⟨count, value, (returnsAfter_row p input old count value).mpr source,
-      by unfold Plan.rtlFuel Rows.Plan.rtlFuel; omega, outputs, memory⟩
-  · rintro ⟨count, value, source, enough, outputs, memory⟩
-    have bound : p.row.activationSteps * (count + 1) + 1 ≤ fuel - 2 := by
-      unfold Plan.rtlFuel Rows.Plan.rtlFuel at enough
-      omega
-    have spent : fuel = 2 + (fuel - 2) := by omega
-    rw [spent, run_through_prefix prefixPath]
-    exact (loop (fuel - 2)).mpr
-      ⟨count, value, (returnsAfter_row p input old count value).mp source, bound, outputs, memory⟩
+  obtain ⟨path, args, _⟩ := entry_packet p input _ initial (bindWords_args input)
+  have run := runMain_fuel_iff_with p.row p.initializer.flow p.entry p.preheader 2
+    input initial final returned fuel rfl ⟨_, path, args⟩
+  exact run.trans (exists_congr fun count => exists_congr fun _ =>
+    and_congr_right fun _ => and_congr (by unfold Plan.rtlFuel Rows.Plan.rtlFuel; omega) Iff.rfl)
 
-private theorem rtl_returns (input : WordTuple arity) (initial final : Memory) (returned : List Word) :
-    p.rtl.oracle 0 (words input) initial returned final ↔
-      ∃ value : Word, p.graph.Returns model input value ∧ returned = [value] ∧ final = initial := by
+theorem rtl_returns_of_fuel {entrySigs sigs : List (List PortTy)}
+    (graph : SourceWithEntry arity entrySigs sigs) (prog : Prog Reg) (cost : Nat → Nat)
+    (input : WordTuple arity) (initial final : Memory) (returned : List Word)
+    (budget : ∀ fuel,
+      prog.runMain fuel 0 (words input) initial = .returned returned final ↔
+        ∃ count value, graph.ReturnsAfter model input count (graph.initial model input) value ∧
+          cost count ≤ fuel ∧ returned = [value] ∧ final = initial) :
+    prog.oracle 0 (words input) initial returned final ↔
+      ∃ value : Word, graph.Returns model input value ∧ returned = [value] ∧ final = initial := by
   constructor
   · rintro ⟨start, started, finish, steps, result⟩
     obtain ⟨fuel, run⟩ := fuel_of_steps steps result
-    have whole : p.rtl.runMain fuel 0 (words input) initial = .returned returned final := by
+    have whole : prog.runMain fuel 0 (words input) initial = .returned returned final := by
       simpa only [Prog.runMain, started] using run
-    obtain ⟨count, value, source, _, same, memory⟩ :=
-      (runMain_fuel_iff p input initial final returned fuel).mp whole
+    obtain ⟨count, value, source, _, same, memory⟩ := (budget fuel).mp whole
     exact ⟨value, ⟨count, source⟩, same, memory⟩
-  · rintro ⟨value, ⟨count, source⟩, rfl, memory⟩
-    subst final
-    have whole := (runMain_fuel_iff p input initial initial [value] (p.rtlFuel count)).mpr
-      ⟨count, value, source, le_rfl, rfl, rfl⟩
+  · rintro ⟨value, ⟨count, source⟩, same, memory⟩
+    have whole := (budget (cost count)).mpr ⟨count, value, source, le_rfl, same, memory⟩
     unfold Prog.runMain at whole
     split at whole
     · exact ⟨_, by assumption, run_returned whole⟩
@@ -243,7 +288,8 @@ theorem rtl_return_iff (accepted : lowerChecked g = some targets) (input : WordT
       ∃ value : Word, g.Returns model input value ∧ returned = [value] ∧ final = initial := by
   obtain ⟨p, recognized, _, rfl⟩ := lowerChecked_sound accepted
   obtain ⟨rfl, rfl⟩ := recognize_sound recognized
-  exact rtl_returns p input initial final returned
+  exact rtl_returns_of_fuel p.graph p.rtl p.rtlFuel input initial final returned
+    (runMain_fuel_iff p input initial final returned)
 
 theorem lambda_return_iff (accepted : lowerChecked g = some targets) (input : WordTuple arity)
     (initial final : Memory) (label : Nat) (payload : Value (Atom model)) :
@@ -253,8 +299,17 @@ theorem lambda_return_iff (accepted : lowerChecked g = some targets) (input : Wo
   obtain ⟨_, _, _, rfl⟩ := lowerChecked_sound accepted
   exact Generic.lower_eval_iff g model input initial final label payload
 
-theorem no_finite_return_iff (accepted : lowerChecked g = some targets) (input : WordTuple arity)
-    (initial : Memory) :
+end Checked
+
+theorem no_finite_return_iff_of_returns {entrySigs sigs : List (List PortTy)}
+    (g : SourceWithEntry arity entrySigs sigs) (targets : Checked.Phi.Targets)
+    (input : WordTuple arity) (initial : Memory)
+    (rtl : ∀ final returned, targets.1.oracle 0 (words input) initial returned final ↔
+      ∃ value : Word, g.Returns model input value ∧ returned = [value] ∧ final = initial)
+    (typed : ∀ final label payload,
+      Eval (instruction model) (inputEnv model input) targets.2 initial label payload final ↔
+        ∃ value : Word, g.Returns model input value ∧ label = 0 ∧
+          payload = Generic.packResult model (out := word) value ∧ final = initial) :
     ((∀ returned final, ¬ targets.1.oracle 0 (words input) initial returned final) ↔
         g.denote model input = Part.none) ∧
     ((∀ label payload final, ¬ Eval (instruction model) (inputEnv model input)
@@ -265,19 +320,32 @@ theorem no_finite_return_iff (accepted : lowerChecked g = some targets) (input :
   · rw [native]
     constructor
     · intro absent value source
-      exact absent [value] initial ((rtl_return_iff accepted input initial initial [value]).mpr
+      exact absent [value] initial ((rtl initial [value]).mpr
         ⟨value, source, rfl, rfl⟩)
     · intro absent returned final run
-      obtain ⟨value, source, _, _⟩ := (rtl_return_iff accepted input initial final returned).mp run
+      obtain ⟨value, source, _, _⟩ := (rtl final returned).mp run
       exact absent value source
   · rw [native]
     constructor
     · intro absent value source
       exact absent 0 (Generic.packResult model (out := word) value) initial
-        ((lambda_return_iff accepted input initial initial 0 _).mpr ⟨value, source, rfl, rfl, rfl⟩)
+        ((typed initial 0 _).mpr ⟨value, source, rfl, rfl, rfl⟩)
     · intro absent label payload final run
-      obtain ⟨value, source, _, _, _⟩ := (lambda_return_iff accepted input initial final label payload).mp run
+      obtain ⟨value, source, _, _, _⟩ := (typed final label payload).mp run
       exact absent value source
+
+section Checked
+
+variable {sigs : List (List PortTy)} {g : Source arity sigs} {targets : Checked.Phi.Targets}
+
+theorem no_finite_return_iff (accepted : lowerChecked g = some targets) (input : WordTuple arity)
+    (initial : Memory) :
+    ((∀ returned final, ¬ targets.1.oracle 0 (words input) initial returned final) ↔
+        g.denote model input = Part.none) ∧
+    ((∀ label payload final, ¬ Eval (instruction model) (inputEnv model input)
+        targets.2 initial label payload final) ↔ g.denote model input = Part.none) :=
+  no_finite_return_iff_of_returns g targets input initial
+    (rtl_return_iff accepted input initial) (lambda_return_iff accepted input initial)
 
 end Checked
 
