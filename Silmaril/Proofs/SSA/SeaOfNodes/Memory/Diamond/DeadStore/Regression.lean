@@ -7,6 +7,7 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Defs
@@ -14,6 +15,7 @@ meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
 
@@ -593,5 +595,61 @@ example : Entry.Composition.Retained.Load.cutOverwrite 1 overwriteInput
 example : (lowerWithOverwrite rightPort).programs =
     (Entry.lowerRepeated overwriteDiamond (overwriteEntry rightPort) overwriteInput).programs := rfl
 #guard runOverwrite rightPort false 3 == (1, false, some (99, 99, [99, 99, 99, 3, 55], [99, 99, 99, 3, 55]))
+
+open Entry.Composition.Retained.Load
+
+private def addressFacts : Static.AddressContract args := ⟨⟨headPort, [leftPort]⟩, [rightPort]⟩
+
+private def priorDeletion : Option (Memory.DeadStore.Candidate × Port args .address) :=
+  some (⟨1, 2⟩, headPort)
+
+-- This pair is emitted once. Runners take the varying valuation separately.
+private def staticPrograms : Static.Programs 4 args :=
+  Static.lower 4 overwriteDiamond (overwriteEntry leftPort) 1 addressFacts priorDeletion
+
+private def anotherValuation : Tuple (Val 4) args :=
+  .cons (3 : Address 4) (.cons rightCell (.cons (3 : Address 4)
+    (.cons (91 : Word) (.cons (13 : Word) (.cons (31 : Word) .nil)))))
+
+example : addressFacts.check overwriteInput = true := rfl
+example : addressFacts.check anotherValuation = true := rfl
+example : staticPrograms.overwriteDeleted = true := rfl
+example : staticPrograms.optimized =
+    Discovery.MemRef.CF.lowerDiamond 4 overwriteDiamond (some (overwriteTail leftPort)) := rfl
+
+private def runStatic (programs : Static.Programs 4 args)
+    (valuation : Tuple (Val 4) args) (guard : Bool) (fuel : Nat) : Option (List Word × List Word) := do
+  let before ← Discovery.MemRef.CF.run programs.original valuation guard fuel ⟨initial⟩
+  let after ← Discovery.MemRef.CF.run programs.optimized valuation guard fuel ⟨initial⟩
+  some (readback before, readback after)
+
+/-- info: (some ([2#64, 2#64, 2#64, 3#64, 55#64], [2#64, 2#64, 2#64, 3#64, 55#64]),
+  some ([3#64, 7#64, 2#64, 3#64, 3#64], [3#64, 7#64, 2#64, 3#64, 3#64])) -/
+#guard_msgs in
+#eval (runStatic staticPrograms overwriteInput false 3, runStatic staticPrograms anotherValuation false 3)
+
+#guard runStatic staticPrograms anotherValuation true 3 == some ([3, 7, 2, 13, 13], [3, 7, 2, 13, 13])
+#guard runStatic staticPrograms anotherValuation true 2 == none
+
+-- The first Load requires a disjointness fact. Contradictory facts are
+-- refused before scanning, and a colliding valuation fails validation.
+example : Static.cut ⟨⟨headPort, []⟩, [rightPort]⟩ 1 (middleStore.prepend (overwriteTail leftPort)) = none := rfl
+example : Static.cut ⟨⟨headPort, [leftPort, rightPort]⟩, [rightPort]⟩ 1
+    (middleStore.prepend (overwriteTail leftPort)) = none := rfl
+example : addressFacts.check (chainInput headCell headCell) = false := rfl
+
+-- A repeated port supplies equality by itself.
+example : Static.cut ⟨⟨headPort, []⟩, []⟩ 1 (middleStore.prepend middleStore.table) =
+    some (middleStore, middleStore.table) := rfl
+
+private def staticRefused : Static.Programs 4 args :=
+  Static.lower 4 overwriteDiamond (overwriteEntry rightPort) 1 addressFacts priorDeletion
+
+-- The same valid facts identify the pre-overwrite Load as an observer.
+-- The independent same-wire deletion is still present in the artifact.
+example : staticRefused.overwriteDeleted = false := rfl
+example : staticRefused.optimized = Discovery.MemRef.CF.lowerDiamond 4 overwriteDiamond
+    (some (middleStore.prepend (overwriteTail rightPort))) := rfl
+#guard runStatic staticRefused overwriteInput false 3 == some ([99, 99, 99, 3, 55], [99, 99, 99, 3, 55])
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
