@@ -14,6 +14,7 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mix
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Structured.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Context.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -1979,3 +1980,107 @@ example : headRequest V (next (leftShape.denote V leftValues)) =
   exact head_of_vis V _ _ _
 
 end LetIterStructuredReplyFixture
+
+namespace LetIterStructuredPureValuesFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues
+
+set_option backward.isDefEq.respectTransparency false
+
+private inductive Inst where
+  | collect | seal | halt | note
+
+private abbrev Eff := Bool × Bool
+private abbrev bound : Eff := (true, false)
+private abbrev argument : Ty Unit := .coprod (.base ()) .unit
+private abbrev collectInput : Ty Unit := .product (Ty.coprod .unit .unit) .unit
+
+private instance : HasTy Inst (Ty Unit) where
+  src
+    | .collect => collectInput
+    | .halt => argument
+    | _ => .unit
+  trg
+    | .collect => .base ()
+    | .halt => .empty
+    | _ => .unit
+
+private instance : HasEff Inst Eff where
+  eff
+    | .collect | .seal => ⊥
+    | _ => bound
+
+local instance : EffectIteration Eff := EffectIteration.complete Eff
+
+private def profile : Profile (α := Unit) Inst Eff :=
+  fun f hf => by
+    cases f
+    · exact .atom () rfl
+    · exact .unit rfl
+    all_goals cases hf
+
+private abbrev Γ := ([] : EffectCtx (Ty Unit) Eff)
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty (Ty Unit))
+private abbrev β := EffectCtx.toBoundCtx Γ
+private abbrev sorts : Fin Γ.length → Unit := fun _ => ()
+private theorem pureCtx : EffectCtx.Pure Γ := fun i => i.elim0
+private theorem ctxSorts : ∀ i : Fin Γ.length, (Γ.get i).1 = .base (sorts i) := fun i => i.elim0
+private theorem halt_nonpure : ¬ IsPure (⊥ : Eff) Inst.halt := fun h => Bool.noConfusion (congrArg Prod.fst h)
+
+private abbrev a : Expr Inst :=
+  .inl (.op .collect (.pair (.inl .unit) (.op .seal .unit)))
+private abbrev b : Expr Inst :=
+  .inl (.op .collect (.pair (.inl .unit) .unit))
+private abbrev k : Expr Inst := .op .note .unit
+private abbrev l : Expr Inst := .unit
+private abbrev u : Tm Empty Inst 0 :=
+  .inl (.op .collect (.pair (.inl .unit) (.op .seal .unit)))
+private abbrev v : Tm Empty Inst 0 := .inl (.op .collect (.pair (.inl .unit) .unit))
+private abbrev t : Tm Empty Inst 1 := .op .note .unit
+private abbrev s : Tm Empty Inst 1 := .unit
+
+private theorem a_typed : Wf Γ a (instrSrc Inst.halt) (⊥ : Eff) :=
+  .inl (.op le_rfl (.pair (.inl (.unit _ _)) (.op le_rfl (.unit _ _))))
+private theorem b_typed : Wf Γ b (instrSrc Inst.halt) (⊥ : Eff) :=
+  .inl (.op le_rfl (.pair (.inl (.unit _ _)) (.unit _ _)))
+
+private theorem k_typed : Wf ((Ty.empty, (⊥ : Eff)) :: Γ) k (.unit : Ty Unit) bound :=
+  .op (f := Inst.note) le_rfl (.unit _ _)
+
+private theorem l_typed : Wf ((Ty.empty, (⊥ : Eff)) :: Γ) l (.unit : Ty Unit) bound :=
+  .unit _ _
+
+example : bound < (⊤ : Eff) :=
+  lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+-- The unit-returning primitive in the raw argument and the arbitrary
+-- effectful continuation are handled at the supplied strict bound.
+example :
+    AbortEquiv (⊥ : Eff) Γ₀ β (.let₁ (.op Inst.halt u) t) (.let₁ (.op Inst.halt v) s) (.unit : Ty Unit) ↔
+      Eqv Γ (.unit : Ty Unit) bound (.let₁ (.op Inst.halt a) k) (.let₁ (.op Inst.halt b) l) :=
+  empty_reply_constructor_reflection (slots := sorts) profile pureCtx ctxSorts halt_nonpure halt_nonpure
+    rfl le_rfl le_rfl a_typed b_typed (.inl (.op (.pair (.inl .unit) (.op .unit))))
+    (.inl (.op (.pair (.inl .unit) .unit))) k_typed l_typed rfl rfl rfl rfl
+
+private abbrev leftValue : Value (Φ := Inst) (ε := Eff) sorts argument :=
+  .inl (Value.op Inst.collect (show IsPure (⊥ : Eff) Inst.collect from rfl) (a := ()) rfl
+    (.pair (.inl .unit) .unit))
+
+private abbrev rightValue : Value (Φ := Inst) (ε := Eff) sorts argument :=
+  .inl (Value.op Inst.collect (show IsPure (⊥ : Eff) Inst.collect from rfl) (a := ()) rfl
+    (.pair (.inr .unit) .unit))
+
+-- Changing just the tag inside the argument of a pure generator changes
+-- the outer visible request, even though neither call can reply.
+example :
+    ¬ AbortEquiv (⊥ : Eff) Γ₀ β
+      (.let₁ (.op Inst.halt leftValue.native) .unit)
+      (.let₁ (.op Inst.halt rightValue.native) .unit) (.unit : Ty Unit) := by
+  intro h
+  have req := request_eq_of_abortEquiv profile (fun i => i.elim0)
+    halt_nonpure halt_nonpure .unit .unit h
+  have args : leftValue = rightValue := eq_of_heq (Sigma.mk.inj req).2
+  have differ := congrArg Value.source args
+  cases differ
+
+end LetIterStructuredPureValuesFixture
