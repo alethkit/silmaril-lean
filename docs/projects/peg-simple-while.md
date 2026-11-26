@@ -143,7 +143,7 @@ fails in that iteration. This is why the reverse theorem requires
 totality of the whole scheduled step, including updates omitted by the
 return demand. General table reconstruction, nested loop extraction,
 loop fusion and LICM remain separate obligations.
-[Regression](../../tests/ssa/PEGSimultaneousWhile.lean) ·
+[Regression](../../tests/ssa/PEGCanonicalWhile.lean) ·
 [Paper §7.3](https://arxiv.org/pdf/1012.1802v3#page=43)
 
 ## Follow-up
@@ -163,7 +163,6 @@ milestone emits an eval for the one observed slot.
 lake build --wfail +Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms PEGCoreTests PEGCanonicalWhileTests
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/PEGSimple.lean
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/PEGCanonicalWhile.lean
-lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/PEGSimultaneousWhile.lean
 lake env leanchecker Silmaril.SSA.PEG.Simple.While.Thms
 lake env leanchecker tests.ssa.PEGSimple
 make check CHECK_TARGETS='+Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms PEGCoreTests PEGCanonicalWhileTests'
