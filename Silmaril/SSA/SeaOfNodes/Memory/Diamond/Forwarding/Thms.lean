@@ -34,6 +34,17 @@ theorem checkJoined_latch_reads (graph : Graph args) (address : Port args .addre
     selected.2.read (input.get address) = selected.1 :=
   Proofs.checkJoined_latch_reads graph address candidate accepted arrival edge input initial selected joined
 
+/-- A caller can supply any check whose accepted address reads back the
+scalar of the selected arm at the input in question. -/
+theorem rewriteUsing_denote {check : Port args .address → Bool}
+    (success : rewriteUsing graph check = some rewritten)
+    (guard : Bool) (input : Tuple (Val cells) args) (initial : Heap cells)
+    (reads : ∀ address, check address = true →
+      let selected := (graph.arm (Projection.ofBool guard)).denote input initial
+      selected.2.read (input.get address) = selected.1) :
+    rewritten.denote guard input initial = graph.denote guard input initial :=
+  Proofs.rewriteUsing_denote success guard input initial reads
+
 theorem rewrite_denote (success : rewrite graph candidate = some rewritten)
     (guard : Bool) (input : Tuple (Val cells) args) (initial : Heap cells) :
     rewritten.denote guard input initial = graph.denote guard input initial :=

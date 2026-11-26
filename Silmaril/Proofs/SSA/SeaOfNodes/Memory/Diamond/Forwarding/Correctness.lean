@@ -32,40 +32,49 @@ theorem checkJoined_latch_reads (graph : Graph args) (address : Port args .addre
   obtain ⟨arrived, rfl⟩ := (latch_publish_iff graph.merge arrival edge _ selected).mp joined
   simpa only [arrived] using checkJoined_reads graph address candidate accepted arrival input initial
 
-private theorem suffix_denote (graph : Graph args) (candidate : Candidate)
+private theorem suffix_denote (check : Port args .address → Bool)
     (source rewritten : Memory.Graph (.word :: args))
-    (ok : rewriteSuffix graph candidate source = some rewritten)
-    (guard : Bool) (input : Tuple (Val cells) args) (initial : Heap cells) :
-    let selected := (graph.arm (Projection.ofBool guard)).denote input initial
+    (ok : rewriteSuffixUsing check source = some rewritten)
+    (input : Tuple (Val cells) args) (selected : Word × Heap cells)
+    (reads : ∀ address, check address = true → selected.2.read (input.get address) = selected.1) :
     rewritten.denote (.cons selected.1 input) selected.2 =
       source.denote (.cons selected.1 input) selected.2 := by
   cases source with
-  | ret => simp [rewriteSuffix] at ok
-  | store => simp [rewriteSuffix] at ok
+  | ret => simp [rewriteSuffixUsing] at ok
+  | store => simp [rewriteSuffixUsing] at ok
   | load memory wire rest =>
     cases wire with
     | output i _ => exact i.elim0
     | arg port =>
       cases port with
       | tail address =>
-        by_cases accepted : checkJoined graph address candidate = true
+        by_cases accepted : check address = true
         · have equal : Memory.Forwarding.rewire rest (Memory.Forwarding.dropLoad (.arg .head)) = rewritten := by
-            simpa [rewriteSuffix, accepted] using ok
+            simpa [rewriteSuffixUsing, accepted] using ok
           subst rewritten
-          let edge := Projection.ofBool guard
-          let selected := (graph.arm edge).denote input initial
-          have reads : selected.2.read (input.get address) = selected.1 :=
-            checkJoined_latch_reads graph address candidate accepted (graph.merge.slot edge) edge
-              input initial selected (latch_publish_slot graph.merge edge selected)
           exact Memory.Forwarding.replaceLoad_denote memory (.arg (.tail address)) rest (.arg .head)
-            (.cons selected.1 input) PUnit.unit selected.2 reads
-        · simp [rewriteSuffix, accepted] at ok
+            (.cons selected.1 input) PUnit.unit selected.2 (reads address accepted)
+        · simp [rewriteSuffixUsing, accepted] at ok
+
+theorem rewriteUsing_denote {graph rewritten : Graph args} {check : Port args .address → Bool}
+    (success : rewriteUsing graph check = some rewritten)
+    (guard : Bool) (input : Tuple (Val cells) args) (initial : Heap cells)
+    (reads : ∀ address, check address = true →
+      let selected := (graph.arm (Projection.ofBool guard)).denote input initial
+      selected.2.read (input.get address) = selected.1) :
+    rewritten.denote guard input initial = graph.denote guard input initial := by
+  obtain ⟨body, ok, rfl⟩ := Option.map_eq_some_iff.mp success
+  exact suffix_denote check graph.suffix body ok input ((graph.arm (Projection.ofBool guard)).denote input initial) reads
 
 theorem rewrite_denote {graph rewritten : Graph args} {candidate : Candidate}
     (success : rewrite graph candidate = some rewritten)
     (guard : Bool) (input : Tuple (Val cells) args) (initial : Heap cells) :
     rewritten.denote guard input initial = graph.denote guard input initial := by
-  obtain ⟨body, ok, rfl⟩ := Option.map_eq_some_iff.mp success
-  exact suffix_denote graph candidate graph.suffix body ok guard input initial
+  refine rewriteUsing_denote success guard input initial ?_
+  intro address accepted
+  let edge := Projection.ofBool guard
+  let selected := (graph.arm edge).denote input initial
+  exact checkJoined_latch_reads graph address candidate accepted (graph.merge.slot edge) edge
+    input initial selected (latch_publish_slot graph.merge edge selected)
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.Forwarding.Proofs

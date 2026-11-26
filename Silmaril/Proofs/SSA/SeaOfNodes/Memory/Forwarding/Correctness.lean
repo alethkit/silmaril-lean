@@ -144,7 +144,7 @@ private theorem forward_load_denote (storeVersion : Nat) (memory : MemoryInput v
   exact replaceLoad_denote memory address rest value input locals heap
     (forward_value_reads storeVersion memory address input locals heap good matched)
 
-private theorem originKey_injective {sort : ValueSort} {x y : Origin args past sort}
+theorem originKey_injective {sort : ValueSort} {x y : Origin args past sort}
     (same : originKey x = originKey y) : x = y := by
   cases x with
   | arg x =>
