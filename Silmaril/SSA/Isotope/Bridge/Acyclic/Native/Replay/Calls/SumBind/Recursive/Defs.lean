@@ -8,13 +8,14 @@ public import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Calls.SumBind.Co
 
 namespace Silmaril.Isotope.LambdaSSA.Acyclic.Native.SumBind.Recursive
 
-/-- Calls, unary and binary lets, ordered pairs, and cases can recur in every operand.
-Variables, unit, and constructor-only injections are the remaining forms. -/
+/-- Calls, injections, unary and binary lets, ordered pairs, and cases can
+recur in every operand. Variables and unit are leaves. -/
 def Admitted {Φ : Type*} : Tm Φ → Prop
-  | .op _ a => Admitted a
+  | .op _ a | .inl a | .inr a => Admitted a
   | .let₁ a b | .let₂ a b | .pair a b => Admitted a ∧ Admitted b
   | .case e l r => Admitted e ∧ Admitted l ∧ Admitted r
-  | a => ConstructorOnly a
+  | .var _ | .unit => True
+  | .abort _ => False
 
 /-- Concatenate the request words of a producing schedule and its continuation.
 The output label comes from the continuation. Specializing a known tag can
