@@ -348,3 +348,55 @@ or the final guard. The regression checks incoming edges in the
 original order `[3, 2, 4]` and both exact feedback frames. The three
 runners return `16` at budgets `14/15/3` and exhaust one unit below.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/MLIR/CF/DeadProducer/Regression.lean)
+
+## Emit the same shortened latch in numbered RVSDG
+
+`Latch.Numbered.DeadProducer.lower` takes the same checked deletion as
+the CF emitter. The original γ arms deliver the selected merge column
+in §3.1 order. `GVN.Elimination.plug` substitutes that column for the
+merge arguments, then substitutes the narrowed merge outputs for the
+shortened latch arguments. `plug_read` proves that both substitutions
+preserve reads in the enclosing numbered scope.
+[`plug_read`](../../Silmaril/SSA/SeaOfNodes/GVN/Elimination/Thms.lean)
+
+`packet_run` gives the exact source guard, exit word and feedback tuple.
+`activation_run` gives the actual θ tag and simultaneous carried bank.
+The stopping bank supplies the retained return slot. `returns_iff` and
+`noFiniteReturn_iff` compare with the source at finite bounds, while
+`Comparison.cf_at_activations` also accounts for the extra CF return
+visit. The comparison includes both finite-return witnesses and absence
+of any finite return. A `none` at one concrete bound means exhaustion.
+[Numbered proofs](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Numbered/DeadProducer/Thms.lean) ·
+[CF comparison](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Numbered/DeadProducer/Comparison/Thms.lean)
+
+Build with
+`lake build --wfail +Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Numbered.DeadProducer.Example.Defs`.
+Paste into `QuadNumberedLatchDeletion.lean` and run
+`lake env lean -DwarningAsError=true QuadNumberedLatchDeletion.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Numbered.DeadProducer.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Numbered.DeadProducer.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch
+open Numbered.DeadProducer.Example
+open MLIR.CF.DeadProducer.Example (refuses runSource runCF)
+
+#eval latchTests
+#eval predecessorOrder
+#eval feedback
+#eval refuses
+#eval (runSource 14, runCF 15, runNumbered 3)
+#eval (runSource 13, runCF 14, runNumbered 2)
+```
+
+The emitted θ latch changes from `[true, false, false, false, true]`
+to `[false, false, false, true]`, where `true` marks a comparison. The
+run takes predecessors `[3, 2, 4]` and emits `(tag, counter, word)`
+packets `(1, 2, 7)`, `(1, 1, 8)` and `(0, 0, 16)`. All three live cuts
+above still fail. The three runners return `16` at `14/15/3` and exhaust
+one unit below. This covers one checked pure latch deletion in the
+nested split, common merge and tested latch profile.
+[Numbered regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Numbered/DeadProducer/Regression.lean)
