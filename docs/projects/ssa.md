@@ -355,25 +355,28 @@ The continuation cannot jump back to its own label.
   and primitive arrows with equality transport. They preserve identity and
   composition. The value context tensor and finite coproduct of exits agree
   with the target interpretations of the mapped contexts.
-  `RegionWitnessPullback` asks for a target region denotation witness with
-  the transported arrow, including for the CFG constructors.
-  This law is equivalent to source typing coherence together with
-  preservation of the selected region denotations. It holds for primitive
-  maps and for arbitrary type-changing maps into thin computation categories,
-  and it composes through the intermediate model.
-  Given this law, `ssaTypeCorridor` relates the existing exact SSA rooms.
-  Its composite with `reifyCorridor` agrees on sentences with translating
-  the LetCase equation and then reifying it. `caseSat_pullback` proves
-  satisfaction invariance in the corresponding LetCase algebras.
+  `RegionWitnessPullback` is equivalent to source typing coherence
+  together with preservation of the selected region denotations.
   [Dependent model pullback](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Pullback/Thms.lean)
-- The unrestricted type-changing result still needs a proof of
-  `RegionWitnessPullback` for non-thin computation categories, including
-  transport of the finite label injections, appended exits, and collective
-  block arrow used by the CFG dispatcher. To bundle the comparison over
-  changing type universes also requires a signature category containing
-  those maps and a LetCase operation signature map over the translated
-  sorts, with functoriality and compatibility with its algebra reduct.
-  `InstrSig τ ε` and `LetCase.pres` currently fix both universes.
+- `mapTermWitness` and `mapRegionWitness` prove forward relabelling for
+  the existing relational semantics. For a nonempty CFG the proof transports
+  the entry and block witnesses, preserves the two finite-label routing
+  arrows, and checks each summand restriction of the transported collective
+  arrow. This supplies `RegionWitnessPullback` in every supported coherent
+  target, including non-thin computation categories. The Maybe Kleisli
+  case-and-join probe identifies two distinct source payload types.
+  [Witness transport](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Pullback/Witness/Thms.lean) ·
+  [Case-and-join probe](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/TypeChange/Thms.lean)
+- `ssaSignatureCorridor` specializes the existing exact SSA corridor to the
+  proved witness law. Composing it with `reifyCorridor` agrees on sentences
+  with translating the LetCase equation and then reifying it.
+  `caseSat_pullback` gives satisfaction invariance in the corresponding
+  LetCase algebras. The result concerns forward transport of source witnesses.
+  Reconstruction of arbitrary target witnesses is a separate problem.
+  A bundled type-changing comorphism still requires a signature category
+  containing these maps and a LetCase operation signature map over the
+  translated sorts, with functoriality and compatibility with its algebra
+  reduct. `InstrSig τ ε` and `LetCase.pres` currently fix both universes.
   [Primitive signature category](../../Silmaril/Raw/SSA/Isotope/Institution/InstrSig.lean)
 - The existing [λSSA observational institution](../../Silmaril/Raw/SSA/Isotope/Institution/Observational/Calculi.lean#L160)
   uses scoped operational sentences over discrete scope signatures.
@@ -451,7 +454,8 @@ lake build --wfail Silmaril.SSA.LambdaRTL.Thms Silmaril.SSA.LambdaRTL.CFG.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Categorical.Realization.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Functor.Thms \
-  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Pullback.Thms
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Pullback.Witness.Thms \
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.TypeChange.Thms
 ```
 
 The root target `lake build --wfail Silmaril` builds all of them.

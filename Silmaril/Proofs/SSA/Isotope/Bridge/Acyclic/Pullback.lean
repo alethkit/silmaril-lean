@@ -110,18 +110,21 @@ private theorem coproduct_eq_of_heq {n m : Nat} (h : n = m) {F : Fin n → V} {G
   subst m
   rw [eq_of_heq he]
 
-theorem labelObj_pullback_proof (M : TypeModel υ V) (L : LambdaSSA.LCtx τ) :
-    labelObj (pullbackTypes g M) L = labelObj M (L.map g.ty) := by
-  unfold labelObj
-  apply coproduct_eq_of_heq (List.length_map g.ty).symm
+theorem labelFamily_pullback_proof (M : TypeModel υ V) (L : LambdaSSA.LCtx τ) :
+    HEq (fun i : Fin L.length => (pullbackTypes g M).obj (L.get i))
+      (fun j : Fin (L.map g.ty).length => M.obj ((L.map g.ty).get j)) := by
   apply Function.hfunext (congrArg Fin (List.length_map g.ty).symm)
   intro i j hij
   have hj := val_eq_of_heq (List.length_map g.ty).symm hij
   simp only [List.get_eq_getElem, List.getElem_map, hj]
   rfl
 
+theorem labelObj_pullback_proof (M : TypeModel υ V) (L : LambdaSSA.LCtx τ) :
+    labelObj (pullbackTypes g M) L = labelObj M (L.map g.ty) :=
+  coproduct_eq_of_heq (List.length_map g.ty).symm (labelFamily_pullback_proof g M L)
+
 omit [TypeFormers τ] [TypeFormers υ] in
-private theorem map_at (f : τ → υ) {L : List τ} {i : Nat} {A : τ}
+theorem mapContextLookup_proof (f : τ → υ) {L : List τ} {i : Nat} {A : τ}
     (ha : LambdaSSA.At L i A) : LambdaSSA.At (L.map f) i (f A) := by
   change (L.map f)[i]? = _
   rw [List.getElem?_map, ha]
@@ -131,7 +134,7 @@ theorem mapTermTyping_proof {Γ : LambdaSSA.VCtx τ} {a : LambdaSSA.Tm P.Instr} 
     (ha : LambdaSSA.Tm.HasType Γ a A) :
     LambdaSSA.Tm.HasType (Γ.map g.ty) (a.mapInstr g.instr) (g.ty A) := by
   induction ha with
-  | var h => exact .var (map_at g.ty h)
+  | var h => exact .var (mapContextLookup_proof g.ty h)
   | @op Γ a f _ ih =>
     change LambdaSSA.Tm.HasType _ (.op (g.instr f) _) (g.ty (instrTrg f))
     rw [← g.target f]
@@ -154,7 +157,7 @@ theorem mapRegionTyping_proof {Γ : LambdaSSA.VCtx τ} {r : LambdaSSA.Region P.I
     {L : LambdaSSA.LCtx τ} (hr : LambdaSSA.Region.HasType Γ r L) :
     LambdaSSA.Region.HasType (Γ.map g.ty) (r.mapInstr g.instr) (L.map g.ty) := by
   induction hr with
-  | br hl ha => exact .br (map_at g.ty hl) (mapTermTyping_proof g ha)
+  | br hl ha => exact .br (mapContextLookup_proof g.ty hl) (mapTermTyping_proof g ha)
   | case he _ _ ihl ihr =>
     exact .case (by simpa only [SignatureMap.PreservesSums.coprod] using mapTermTyping_proof g he) ihl ihr
   | let₁ ha _ ih => exact .let₁ (mapTermTyping_proof g ha) ih
