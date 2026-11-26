@@ -55,4 +55,24 @@ theorem run_normal_body (suite : state → List action → Outcome state failure
       runCleanup suite isPythonError (suite reached otherwise) cleanup := by
   simp [run, afterBody, normal]
 
+theorem RaiseCall.error_missing {scope : Source.Scope} {Value : Type} (call : RaiseCall scope)
+    (lookup : Source.Name → Option Value) (classify : Value → RaiseCallee) (text? : Value → Option Core.Text)
+    (missing : lookup call.name = none) :
+    call.error lookup classify text? = some (.nameError call.name) := by
+  simp [RaiseCall.error, missing]
+
+theorem RaiseCall.error_argument {scope : Source.Scope} {Value : Type} (call : RaiseCall scope)
+    (lookup : Source.Name → Option Value) (classify : Value → RaiseCallee) (text? : Value → Option Core.Text)
+    {callee : Value} {error : Core.Closure.RuntimeError}
+    (found : lookup call.name = some callee) (failed : call.argument.eval lookup text? = .error error) :
+    call.error lookup classify text? = some error := by
+  simp [RaiseCall.error, found, failed]
+
+theorem RaiseCall.error_construct {scope : Source.Scope} {Value : Type} (call : RaiseCall scope)
+    (lookup : Source.Name → Option Value) (classify : Value → RaiseCallee) (text? : Value → Option Core.Text)
+    {callee : Value} {argument : Option Core.Text}
+    (found : lookup call.name = some callee) (read : call.argument.eval lookup text? = .ok argument) :
+    call.error lookup classify text? = (classify callee).construct argument := by
+  simp [RaiseCall.error, found, read]
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ExceptionalTry

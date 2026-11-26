@@ -167,8 +167,8 @@ private def exceptionalProfileFailureEvidence : Bool := Id.run do
   let .ok tree := Source.analyze ⟨[.pass]⟩ | return false
   let outsideProfile := ModuleEntry.Action.assertion (scope := tree.scope) (.binary .add (.integer 1) .none_)
   let failIfReached := ModuleEntry.Action.assertion (scope := tree.scope) .none_
-  let plan : Functions.ExceptionalTry.Plan (ModuleEntry.Action tree.scope) :=
-    ⟨[outsideProfile], some [failIfReached], [], [failIfReached]⟩
+  let plan : Functions.ExceptionalTry.Plan (Functions.ExceptionalTry.Step tree.scope) :=
+    ⟨[.scalar outsideProfile], some [.scalar failIfReached], [], [.scalar failIfReached]⟩
   let ordinary := Run.runPrefix (fun _ => none) 2
     (.ready (Run.seed .empty) [.exceptionalTry plan, .scalar failIfReached])
   let .finished _ .scalarProfile := ordinary.2 | return false
@@ -177,5 +177,32 @@ private def exceptionalProfileFailureEvidence : Bool := Id.run do
     seeded.residual.moduleGlobals.isEmpty
 
 #guard exceptionalProfileFailureEvidence
+
+private def stockRaiseEvidence : Bool := Id.run do
+  let points := [233, 128512, 55296]
+  let message : Core.Text := ⟨points, by decide⟩
+  let statement := Source.Stmt.try_
+    [.assign "kept" (.integer 7),
+     .raise_ (some (.callWith (.name "saved") [(.positional, .text points)])) none]
+    [] [] [.assign "cleanup" (.name "kept")]
+  let source : Source.Module := ⟨[
+    .assign "saved" (.name "Exception"), .assign "Exception" .none_, statement, .assign "tail" (.integer 9)]⟩
+  let .ok compiled := Run.compile source | return false
+  let initial := (Run.seed .empty).bindGlobal "Exception" .stockException
+  let (events, state) := Run.runPrefix compiled.table 10 (.ready initial compiled.instructions)
+  let .finished ordinary completion := state | return false
+  let space : Namespace := ⟨[], [("Exception", .exceptionClass .exception)]⟩
+  let seeded := run space compiled
+  return completion == .raised (.explicitException message) && events.isEmpty &&
+    (ordinary.globals "saved").map seededValue == some (.exceptionClass .exception) &&
+    (ordinary.globals "Exception").map seededValue == some .none &&
+    (ordinary.globals "cleanup").map seededValue == some (.int 7) &&
+    (ordinary.globals "tail").isNone &&
+    seeded.completion == .error (.raised (.runtime (.explicitException message))) &&
+    seeded.residual.builtins == space.builtins && seeded.calls.isEmpty &&
+    seeded.residual.moduleGlobals == [("cleanup", .int 7), ("kept", .int 7),
+      ("Exception", .none), ("saved", .exceptionClass .exception)]
+
+#guard stockRaiseEvidence
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

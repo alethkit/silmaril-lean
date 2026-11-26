@@ -46,6 +46,7 @@ def fail (heap : HeapTable) (stack : Stack) : Failure → Transition
   | .danglingCell identity => fault heap stack (.danglingCell identity)
   | .unsupportedTupleElement => fault heap stack .unsupportedTupleElement
   | .unsupportedFloatOperand => fault heap stack .unsupportedFloatOperand
+  | .unsupportedCallable => fault heap stack .unsupportedCallable
 
 def failDispatch (heap : HeapTable) (stack : Stack) : Closure.Dispatch.Failure → Transition
   | .call error => fail heap stack error

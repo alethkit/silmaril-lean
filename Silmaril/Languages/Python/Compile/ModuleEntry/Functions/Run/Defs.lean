@@ -25,7 +25,7 @@ inductive Argument where
 
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
-  | exceptionalTry (plan : ExceptionalTry.Plan (ModuleEntry.Action scope))
+  | exceptionalTry (plan : ExceptionalTry.Plan (ExceptionalTry.Step scope))
   | bindText (name : String) (value : Core.Text)
   | bindTuple (name : String) (items : List Core.Closure.GlobalTupleItem) (trackClosed : Bool := false)
   | assertNot (condition : Operand scope)
@@ -218,7 +218,7 @@ def tupleBinding (session : Session) : Option Core.Module.TupleDispatch.TypeBind
   (session.globals "tuple").map fun
     | .none => .noneValue
     | .int _ | .bool _ | .float64 _ | .text _ | .tuple _ | .tupleObject _ => .nonCallable
-    | .function _ => .outsideProfile
+    | .stockException | .function _ => .outsideProfile
 
 def tupleLookup (session : Session) : TupleChain.Lookup :=
   ⟨fun _ => tupleBinding session, fun name => (session.globals name).map TupleChain.Compared.ofClosure⟩
@@ -316,9 +316,22 @@ def Completion.isPythonError : Completion → Bool
   | .raised _ | .assertionError => true
   | _ => false
 
-def runExceptionalTry {scope : Scope} (session : Session) (plan : ExceptionalTry.Plan (ModuleEntry.Action scope)) :
+def raiseCallee : Value → ExceptionalTry.RaiseCallee
+  | .stockException => .stockException
+  | .function _ => .outsideProfile
+  | _ => .nonCallable
+
+def raiseText? : Value → Option Core.Text
+  | .text text => some text
+  | _ => none
+
+def exceptionalStep {scope : Scope} (session : Session) : ExceptionalTry.Step scope → Except Completion Session
+  | .scalar action => scalarStep session action
+  | .raiseCall call => .error ((call.error session.globals raiseCallee raiseText?).elim .scalarProfile .raised)
+
+def runExceptionalTry {scope : Scope} (session : Session) (plan : ExceptionalTry.Plan (ExceptionalTry.Step scope)) :
     ExceptionalTry.Outcome Session Completion :=
-  ExceptionalTry.run (ExceptionalTry.runSuite scalarStep) Completion.isPythonError session plan
+  ExceptionalTry.run (ExceptionalTry.runSuite exceptionalStep) Completion.isPythonError session plan
 
 inductive VarNamesFailure where
   | unsupportedReceiver
@@ -355,7 +368,7 @@ def boolIdentityCompletion {scope : Scope} (session : Session) (test : BoolIdent
     | .error error => error
     | .ok _ =>
       match callee with
-      | .function _ => .scalarProfile
+      | .stockException | .function _ => .scalarProfile
       | _ => .raised .notCallable
 
 def evaluateTuple (session : Session) (items : List Core.Closure.GlobalTupleItem) :
@@ -373,6 +386,7 @@ def bindTuple (session : Session) (name : String) (items : List Core.Closure.Glo
   | .error (.danglingCell identity) => .error (.executorFault (.danglingCell identity))
   | .error .unsupportedTupleElement => .error (.executorFault .unsupportedTupleElement)
   | .error .unsupportedFloatOperand => .error (.executorFault .unsupportedFloatOperand)
+  | .error .unsupportedCallable => .error (.executorFault .unsupportedCallable)
 
 def prepareTupleIdentityCall (session : Session) (destination : Core.Module.Functions.Destination)
     (name : String) (test : TupleIdentity.Test) : Except Completion Invocation := do
@@ -417,7 +431,7 @@ def advanceListDisplayCall {scope : Scope} (session : Session) (destination : Co
         .calling (reached.prepareCall destination (.literal callee) [.literal (.bool object.contents.isEmpty)]) rest
       else
         .finished reached (match callee with
-          | .function _ => .scalarProfile
+          | .stockException | .function _ => .scalarProfile
           | _ => .raised .notCallable)
 
 def advance {scope : Scope} (table : CodeTable) : State scope → List Event × State scope
@@ -440,12 +454,12 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
     | .assertNot operand => ([], assertOperand session operand false rest)
     | .assertIntegerBuiltin test => ([], .finished session (match session.globals test.argument.name with
       | none => .raised (.nameError test.argument.name)
-      | some (.function _) => .scalarProfile
+      | some .stockException | some (.function _) => .scalarProfile
       | some _ => .raised .notCallable))
     | .assertBoolIdentity test => ([], .finished session (boolIdentityCompletion session test))
     | .assertListConstruction _ => ([], .finished session (match session.globals "list" with
       | none => .raised (.nameError "list")
-      | some (.function _) => .scalarProfile
+      | some .stockException | some (.function _) => .scalarProfile
       | some _ => .raised .notCallable))
     | .assertTupleChain test => ([], match checkTupleChain session test with
       | .ok () => .ready session rest

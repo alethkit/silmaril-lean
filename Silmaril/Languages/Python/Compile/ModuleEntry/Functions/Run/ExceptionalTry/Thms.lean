@@ -35,7 +35,7 @@ theorem seededSuite_carriers {scope : Source.Scope} (context : Seeded.CallContex
     { context with heap := incoming.heap } actions incoming.lists
   exact ⟨heap, lists, by simp [seededSuite, calls], builtins⟩
 
-open Functions.ExceptionalTry (Plan runSuite)
+open Functions.ExceptionalTry (Plan RaiseCall Step runSuite)
 
 theorem runSuite_append {state failure action : Type}
     (step : state → action → Except failure state) (initial : state) (earlier later : List action) :
@@ -47,30 +47,65 @@ theorem runSuite_append {state failure action : Type}
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.runSuite_append step initial earlier later
 
 theorem ordinary_reached_carriers {scope : Source.Scope} (session : Session)
-    (plan : Plan (ModuleEntry.Action scope)) :
+    (plan : Plan (Step scope)) :
     let outcome := Compile.ModuleEntry.Functions.Run.runExceptionalTry session plan
     outcome.reached.heap = session.heap ∧ outcome.reached.lists = session.lists :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.ordinary_reached_carriers session plan
 
 theorem ordinary_settlement {scope : Source.Scope} (table : CodeTable) (session : Session)
-    (plan : Plan (ModuleEntry.Action scope)) (rest : List (Instruction scope)) :
+    (plan : Plan (Step scope)) (rest : List (Instruction scope)) :
     advance table (.ready session (.exceptionalTry plan :: rest)) =
       let outcome := Compile.ModuleEntry.Functions.Run.runExceptionalTry session plan
       ([], match outcome.completion with
         | .ok () => .ready outcome.reached rest
         | .error error => .finished outcome.reached error) := rfl
 
-theorem seeded_reached_builtins {scope : Source.Scope} (space : Namespace) (plan : Plan (ModuleEntry.Action scope)) :
+theorem seeded_reached_builtins {scope : Source.Scope} (space : Namespace) (plan : Plan (Step scope)) :
     (Seeded.runExceptionalTry space plan).reached.builtins = space.builtins :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.seeded_reached_builtins space plan
 
 theorem seeded_settlement {scope : Source.Scope} (space : Namespace) (context : Seeded.CallContext)
-    (plan : Plan (ModuleEntry.Action scope)) (rest : List (Instruction scope)) (lists : ListHeap) :
+    (plan : Plan (Step scope)) (rest : List (Instruction scope)) (lists : ListHeap) :
     Seeded.runInstructionsIn space context (.exceptionalTry plan :: rest) lists =
       let outcome := Seeded.runExceptionalTry space plan
       match outcome.completion with
       | .ok () => Seeded.runInstructionsIn outcome.reached context rest lists
       | .error error => ⟨outcome.reached, .error error, [], context.heap, lists⟩ :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.seeded_settlement space context plan rest lists
+
+theorem stockException_descriptor_agrees :
+    Seeded.ordinaryValue? (.exceptionClass .exception) = some .stockException ∧
+      Seeded.seededValue .stockException = .exceptionClass .exception := ⟨rfl, rfl⟩
+
+theorem ordinary_raise_stock {scope : Source.Scope} (session : Session) (call : RaiseCall scope)
+    {message : Core.Text}
+    (found : session.globals call.name = some .stockException)
+    (read : call.argument.eval session.globals raiseText? = .ok (some message)) :
+    exceptionalStep session (.raiseCall call) = .error (.raised (.explicitException message)) := by
+  simp [exceptionalStep, call.error_construct _ _ _ found read, raiseCallee, Functions.ExceptionalTry.RaiseCallee.construct]
+
+theorem seeded_raise_stock {scope : Source.Scope} (space : Namespace) (call : RaiseCall scope)
+    {message : Core.Text}
+    (found : space.lookupGlobal call.name = some (.exceptionClass .exception))
+    (read : call.argument.eval space.lookupGlobal Seeded.raiseText? = .ok (some message)) :
+    Seeded.exceptionalStep space (.raiseCall call) = .error (.raised (.runtime (.explicitException message))) := by
+  simp [Seeded.exceptionalStep, call.error_construct _ _ _ found read, Seeded.raiseCallee,
+    Functions.ExceptionalTry.RaiseCallee.construct]
+
+theorem seeded_raise_builtin {scope : Source.Scope} (space : Namespace) (call : RaiseCall scope)
+    {message : Core.Text}
+    (absent : Core.Module.SeededCall.lookupBinding space.moduleGlobals call.name = none)
+    (stock : Core.Module.SeededCall.lookupBinding space.builtins call.name = some (.exceptionClass .exception))
+    (read : call.argument.eval space.lookupGlobal Seeded.raiseText? = .ok (some message)) :
+    Seeded.exceptionalStep space (.raiseCall call) = .error (.raised (.runtime (.explicitException message))) :=
+  seeded_raise_stock space call ((Namespace.builtin_fallback space absent).trans stock) read
+
+theorem seeded_raise_masked {scope : Source.Scope} (space : Namespace) (call : RaiseCall scope)
+    {argument : Option Core.Text}
+    (mask : Core.Module.SeededCall.lookupBinding space.moduleGlobals call.name = some .none)
+    (read : call.argument.eval space.lookupGlobal Seeded.raiseText? = .ok argument) :
+    Seeded.exceptionalStep space (.raiseCall call) = .error (.raised (.runtime .notCallable)) := by
+  simp [Seeded.exceptionalStep, call.error_construct _ _ _ (Namespace.module_precedes space mask) read,
+    Seeded.raiseCallee, Functions.ExceptionalTry.RaiseCallee.construct]
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry

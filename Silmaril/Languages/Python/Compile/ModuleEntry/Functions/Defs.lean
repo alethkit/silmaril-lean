@@ -697,7 +697,7 @@ def textSliceGuard? (scope : Scope) : (statement : Source.Stmt) →
 
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
-  | exceptionalTry (plan : ExceptionalTry.Plan (ModuleEntry.Action scope))
+  | exceptionalTry (plan : ExceptionalTry.Plan (ExceptionalTry.Step scope))
   | bindText (name : Name) (reference : GlobalReference scope name) (value : Core.Text)
   | bindTuple (name : Name) (reference : GlobalReference scope name) (items : List Core.Closure.GlobalTupleItem)
   | assertNot (condition : Operand scope)

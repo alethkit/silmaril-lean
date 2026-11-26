@@ -16,6 +16,7 @@ open Core.Binary64 (NumericOperand)
 open Core.Module.TupleDispatch (equalContents)
 
 inductive ExceptionClass where
+  | exception
   | assertionError
   | nameError
   | unboundLocalError
@@ -52,9 +53,10 @@ def Raised.classify : Raised → ExceptionClass
   | .runtime .zeroSliceStep => .valueError
   | .runtime (.arithmetic .zeroDivisionError) => .zeroDivisionError
   | .runtime .overflowError => .overflowError
+  | .runtime (.explicitException _) => .exception
 
 def ExceptionClass.catches (expected actual : ExceptionClass) : Prop :=
-  expected = actual ∨ (expected = .nameError ∧ actual = .unboundLocalError)
+  expected = .exception ∨ expected = actual ∨ (expected = .nameError ∧ actual = .unboundLocalError)
 
 instance (expected actual : ExceptionClass) : Decidable (expected.catches actual) := by
   unfold ExceptionClass.catches
@@ -63,6 +65,7 @@ instance (expected actual : ExceptionClass) : Decidable (expected.catches actual
 inductive Helper where
   | assertEqual
   | assertTrue
+  | assertFalse
   | assertIs
   | assertIsNot
   | assertRaises (onReturn : AssertionArgument)
@@ -271,6 +274,7 @@ def InstanceProbe.result : InstanceProbe → Bool
 calling an exception class would construct an object outside this profile. -/
 inductive Request (arity : Nat) where
   | assertBoolean (value : Bool)
+  | assertFalseBoolean (value : Bool)
   | assertTuple (nonempty : Bool)
   | assertList (object : Core.Module.ListObject)
   | compare (left right : Int)
@@ -295,6 +299,7 @@ inductive Request (arity : Nat) where
 def Request.decode (callee : Value) (arguments : List Value) : Request arguments.length :=
   match callee, arguments with
   | .helper .assertTrue, [.bool result] => .assertBoolean result
+  | .helper .assertFalse, [.bool result] => .assertFalseBoolean result
   | .helper .assertTrue, [.listObject object] => .assertList object
   | .helper .assertTrue, [.returnedTuple items]
   | .helper .assertTrue, [.tupleObject ⟨_, items⟩] => .assertTuple (!items.isEmpty)
@@ -340,6 +345,8 @@ def invoke (callee : Value) (arguments : List Value) : Result :=
   match Request.decode callee arguments with
   | .assertBoolean true => .ok .none
   | .assertBoolean false => .error (.raised (.assertionError (.boolean false)))
+  | .assertFalseBoolean false => .ok .none
+  | .assertFalseBoolean true => .error (.raised (.assertionError (.boolean true)))
   | .assertTuple true => .ok .none
   | .assertTuple false => .error (.raised (.assertionError .emptyTuple))
   | .assertList object =>
@@ -375,6 +382,9 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
   | asserted {arity : Nat} : Executes (arity := arity) (.assertBoolean true) (.ok .none)
   | assertionFailed {arity : Nat} :
       Executes (arity := arity) (.assertBoolean false) (.error (.raised (.assertionError (.boolean false))))
+  | falseAsserted {arity : Nat} : Executes (arity := arity) (.assertFalseBoolean false) (.ok .none)
+  | falseAssertionFailed {arity : Nat} :
+      Executes (arity := arity) (.assertFalseBoolean true) (.error (.raised (.assertionError (.boolean true))))
   | tupleAsserted {arity : Nat} : Executes (arity := arity) (.assertTuple true) (.ok .none)
   | tupleAssertionFailed {arity : Nat} :
       Executes (arity := arity) (.assertTuple false) (.error (.raised (.assertionError .emptyTuple)))

@@ -94,6 +94,7 @@ inductive Fault where
   | danglingCell (identity : CellId)
   | unsupportedTupleElement
   | unsupportedFloatOperand
+  | unsupportedCallable
   | missingCode (key : Nat)
   | layoutMismatch (expected actual : Layout)
   | unprofiledFreevars (ref : CodeRef)
@@ -188,7 +189,7 @@ def readMetadata (field : MetadataField) (table : CodeTable) : Value → Except 
       match field.select definition with
       | some names => .ok names
       | none => .error (field.unavailable fn.code definition)
-  | .int _ | .bool _ | .none | .float64 _ | .text _ | .tuple _ | .tupleObject _ => .error .nonFunction
+  | .int _ | .bool _ | .none | .float64 _ | .text _ | .stockException | .tuple _ | .tupleObject _ => .error .nonFunction
 
 abbrev readFreevars := readMetadata .freevars
 abbrev readCellvars := readMetadata .cellvars
@@ -269,6 +270,7 @@ def fail (heap : Heap) (stack : Stack) : Failure → Transition
   | .danglingCell identity => fault heap stack (.danglingCell identity)
   | .unsupportedTupleElement => fault heap stack .unsupportedTupleElement
   | .unsupportedFloatOperand => fault heap stack .unsupportedFloatOperand
+  | .unsupportedCallable => fault heap stack .unsupportedCallable
 
 def failDispatch (heap : Heap) (stack : Stack) : Dispatch.Failure → Transition
   | .call error => fail heap stack error
@@ -438,6 +440,7 @@ inductive Rejects (table : CodeTable) (arguments : List Value) (heap : Heap) :
       Rejects table arguments heap (.tuple items) (.call (.defined .notCallable))
   | nonCallableTupleObject (object : Core.Module.TupleDispatch.Object) :
       Rejects table arguments heap (.tupleObject object) (.call (.defined .notCallable))
+  | unsupportedCallable : Rejects table arguments heap .stockException (.call .unsupportedCallable)
   | missing (fn : Function) (absent : table fn.code.key = none) :
       Rejects table arguments heap (.function fn) (.missingCode fn.code.key)
   | mismatch (fn : Function) (entry : Dispatch.Entry Body)

@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Defs
+public import Silmaril.Languages.Python.Core.Closure.Defs
 
 /-! # Reached completion and cleanup for checked module suites -/
 
@@ -62,7 +63,8 @@ def run {state failure action : Type} (suite : state → List action → Outcome
   let pending := afterBody suite isPythonError body plan.handler plan.otherwise
   runCleanup suite isPythonError pending plan.cleanup
 
-open Source (ExceptHandler Expr Scope Stmt)
+open Source (ExceptHandler Expr Name Scope Stmt)
+open Core.Closure (RuntimeError)
 
 def scalarAtom : Expr → Bool
   | .name _ => true
@@ -76,19 +78,104 @@ def scalarStatement : Stmt → Bool
     | some checked => scalarAtom checked.val.2
     | none => false
 
-inductive Suite (scope : Scope) : List Stmt → List (Action scope) → Prop where
-  | scalar {source actions} (allowed : source.all scalarStatement = true)
-      (code : ModuleEntry.Translation scope source actions) :
-      Suite scope source (actions.map Action.inLiteralArm)
+inductive RaiseArgument (scope : Scope) where
+  | text (value : Core.Text)
+  | read (name : Name) (reference : GlobalReference scope name)
 
-def suite? (scope : Scope) (source : List Stmt) : Option {actions // Suite scope source actions} := do
-  if allowed : source.all scalarStatement = true then
-    let lowered ← (lowerStatements scope source).toOption
-    return ⟨lowered.val.map Action.inLiteralArm, .scalar allowed lowered.property⟩
-  else none
+inductive RaiseArgument.Translation (scope : Scope) : Expr → RaiseArgument scope → Prop where
+  | text {points value} (checked : Core.Text.ofPoints? points = some value) :
+      Translation scope (.text points) (.text value)
+  | read (name : Name) (reference : GlobalReference scope name) :
+      Translation scope (.name name) (.read name reference)
+
+def raiseArgument? (scope : Scope) :
+    (source : Expr) → Option {value // RaiseArgument.Translation scope source value}
+  | .text points =>
+    match checked : Core.Text.ofPoints? points with
+    | some value => some ⟨.text value, .text checked⟩
+    | none => none
+  | .name name =>
+    (globalReference? scope name).map fun reference => ⟨.read name reference, .read name reference⟩
+  | _ => none
+
+structure RaiseCall (scope : Scope) where
+  name : Name
+  reference : GlobalReference scope name
+  argument : RaiseArgument scope
+
+inductive RaiseCall.Translation (scope : Scope) : Stmt → RaiseCall scope → Prop where
+  | positional {name reference source argument} (checked : RaiseArgument.Translation scope source argument) :
+      Translation scope (.raise_ (some (.callWith (.name name) [(.positional, source)])) none)
+        ⟨name, reference, argument⟩
+  | plain {name reference source argument} (checked : RaiseArgument.Translation scope source argument) :
+      Translation scope (.raise_ (some (.call (.name name) [source])) none) ⟨name, reference, argument⟩
+
+def raiseCall? (scope : Scope) : (source : Stmt) → Option {call // RaiseCall.Translation scope source call}
+  | .raise_ (some (.callWith (.name name) [(.positional, source)])) none => do
+    let reference ← globalReference? scope name
+    let checked ← raiseArgument? scope source
+    return ⟨⟨name, reference, checked.val⟩, .positional checked.property⟩
+  | .raise_ (some (.call (.name name) [source])) none => do
+    let reference ← globalReference? scope name
+    let checked ← raiseArgument? scope source
+    return ⟨⟨name, reference, checked.val⟩, .plain checked.property⟩
+  | _ => none
+
+inductive RaiseCallee where
+  | stockException
+  | nonCallable
+  | outsideProfile
+
+def RaiseArgument.eval {scope : Scope} {Value : Type} (lookup : Name → Option Value)
+    (text? : Value → Option Core.Text) : RaiseArgument scope → Except RuntimeError (Option Core.Text)
+  | .text value => .ok (some value)
+  | .read name _ => (lookup name).elim (.error (.nameError name)) (.ok ∘ text?)
+
+def RaiseCallee.construct : RaiseCallee → Option Core.Text → Option RuntimeError
+  | .stockException, argument => argument.map .explicitException
+  | .nonCallable, _ => some .notCallable
+  | .outsideProfile, _ => none
+
+/-- Save the live callee before reading the argument. Dispatch occurs only
+after the argument succeeds. The constructed exception is immediately raised. -/
+def RaiseCall.error {scope : Scope} {Value : Type} (call : RaiseCall scope)
+    (lookup : Name → Option Value) (classify : Value → RaiseCallee) (text? : Value → Option Core.Text) :
+    Option RuntimeError :=
+  match lookup call.name with
+  | none => some (.nameError call.name)
+  | some callee =>
+    match call.argument.eval lookup text? with
+    | .error error => some error
+    | .ok argument => (classify callee).construct argument
+
+inductive Step (scope : Scope) where
+  | scalar (action : Action scope)
+  | raiseCall (call : RaiseCall scope)
+
+inductive Suite (scope : Scope) : List Stmt → List (Step scope) → Prop where
+  | nil : Suite scope [] []
+  | scalar {source rest actions tail} (allowed : scalarStatement source = true)
+      (code : ModuleEntry.Translation scope [source] actions)
+      (remaining : Suite scope rest tail) :
+      Suite scope (source :: rest) ((actions.map (Step.scalar ∘ Action.inLiteralArm)) ++ tail)
+  | raiseCall {source rest call tail} (checked : RaiseCall.Translation scope source call)
+      (remaining : Suite scope rest tail) :
+      Suite scope (source :: rest) (.raiseCall call :: tail)
+
+def suite? (scope : Scope) : (source : List Stmt) → Option {actions // Suite scope source actions}
+  | [] => some ⟨[], .nil⟩
+  | statement :: rest => do
+    let tail ← suite? scope rest
+    if allowed : scalarStatement statement = true then
+      let lowered ← (lowerStatements scope [statement]).toOption
+      return ⟨lowered.val.map (Step.scalar ∘ Action.inLiteralArm) ++ tail.val,
+        .scalar allowed lowered.property tail.property⟩
+    else
+      let checked ← raiseCall? scope statement
+      return ⟨.raiseCall checked.val :: tail.val, .raiseCall checked.property tail.property⟩
 
 inductive Handler (scope : Scope) : List ExceptHandler → List Stmt → List Stmt →
-    Option (List (Action scope)) → Prop where
+    Option (List (Step scope)) → Prop where
   | finallyOnly {cleanup} (present : cleanup.isEmpty = false) :
       Handler scope [] [] cleanup none
   | bare {source otherwise cleanup actions} (present : source.isEmpty = false)
@@ -105,7 +192,7 @@ def handler? (scope : Scope) : (handlers : List ExceptHandler) → (otherwise cl
     else none
   | _, _, _ => none
 
-inductive Translation (scope : Scope) : Stmt → Plan (Action scope) → Prop where
+inductive Translation (scope : Scope) : Stmt → Plan (Step scope) → Prop where
   | checked {body handlers otherwise cleanup first handler normal final}
       (present : body.isEmpty = false) (bodyCode : Suite scope body first)
       (handlerCode : Handler scope handlers otherwise cleanup handler)

@@ -289,11 +289,27 @@ Normal cleanup restores the pending completion and a cleanup error replaces it.
 Profile failures stop outside Python exception transfer.
 
 Both runners settle the reached bindings before returning the final completion.
-The scalar suites preserve both heaps, keep seeded builtins and earlier call
-receipts, and emit no call receipts of their own. The two historical
-`raise Exception(text)` inputs still need exact exception construction through
-live lookup. Typed handlers also need checked exception-class resolution.
-Run the CPython 3.13.5 transfer and cutoff controls with
+The suites preserve both heaps, seeded builtins and earlier call receipts.
+
+An exceptional suite can also raise the result of calling a named stock
+`Exception` class with one positional text literal or live text read. The
+runner saves the resolved class before evaluating the argument. A module
+binding masks the builtin fallback. An alias preserves the stock class
+descriptor across rebinding. The defined error carries its exact text argument
+as code points, including surrogates. The constructor immediately raises
+and emits no separate module call receipt. A missing name and a reached
+noncallable mask produce their defined errors. Other callable constructors,
+nontext stock arguments, explicit causes, bare raise and typed handlers
+remain outside this checked path.
+
+Both unchanged raise pins reach their bare handler and cleanup. Under the
+fixed profiles they stop at the first missing `___assertTrue`. A separate
+seed supplying stock `Exception` and the Boolean assertion helpers exercises
+normal completion. The opt-in `___assertFalse` rule accepts an exact Boolean
+and retains it in a failed assertion's payload.
+Run the CPython 3.13.5 checks with
+`python3.13 -I scripts/check-python-stock-exception-raise.py --upstream /path/to/pinned/rigorous`
+and
 `python3.13 -I scripts/check-python-exceptional-cleanup.py --upstream /path/to/pinned/rigorous`.
 
 Checked call operands can carry exact text code points, including

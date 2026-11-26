@@ -48,6 +48,13 @@ theorem invoke_tuple_exact (items : List Core.Module.TupleDispatch.Element) :
     invoke (.builtin .tuple) [.returnedTuple items] = .ok (.returnedTuple items) :=
   invoke_iff.mpr (.copyTuple items)
 
+theorem invoke_assertFalse_false : invoke (.helper .assertFalse) [.bool false] = .ok .none :=
+  invoke_iff.mpr .falseAsserted
+
+theorem invoke_assertFalse_true :
+    invoke (.helper .assertFalse) [.bool true] = .error (.raised (.assertionError (.boolean true))) :=
+  invoke_iff.mpr .falseAssertionFailed
+
 theorem invoke_assertTrue_returnedTuple (items : List Core.Module.TupleDispatch.Element) :
     invoke (.helper .assertTrue) [.returnedTuple items] =
       if items.isEmpty then .error (.raised (.assertionError .emptyTuple)) else .ok .none := by
