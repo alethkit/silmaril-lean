@@ -300,7 +300,7 @@ The fixture checks `Interaction.Typed.Compatible` for typed `Nat` replies
 and the exact capture packet. The general corollary applies to its actual
 capture-closed table. The resulting packed tree feeds the capture reply
 into the seed request and each tick reply into the next tick's operand.
-[Typed capture and repeated back-edge requests](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Examples/Thms.lean)
+[Typed capture and repeated back-edge requests](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
 
 ### Refinement through a common capture producer
 
@@ -315,19 +315,34 @@ packed dispatcher, its `packed_run_tree` equation rewrites the specification
 side to that dispatcher.
 [Conditional refinement transport](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Thms.lean)
 
-The audited weak-tree API provides equality and `HasVisiblePrefix`, which
-records attainable event counts. It has no preorder here comparing requests,
-replies and returns with the required bind law. The observational
-institution's `Refines` compares sets of returns, faults and divergence over
-its models. Literal membership inclusion at each `Tree.observe` depth also
-fails as a bind order. A continuation with silent divergence is included
-vacuously in a returning one. After the same visible request, the two
-depth-two nodes have unequal child observations. An observer used for
-packed refinement needs to compare those children by its relation and prove
-composition under bind.
-[Visible-prefix API](../../Silmaril/Semantics/ITree/VisiblePrefix/Defs.lean)
-· [Region observational refinement](../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Defs.lean)
-· [Checked bind counterexample](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Examples/Thms.lean)
+`TraceLE` instantiates the transport with inclusion of finite observations.
+Each completed exchange records a request and a reply of its actual reply
+type. A path can stop at a prefix, at a pending request (including a request
+with no possible reply), or at a return with its result. Weak tree equality
+allows substitution on either side and `τ` is invisible. The proofs follow
+the same replies through the common producer and show that a pure return map
+changes only result endpoints. Literal inclusion of whole `Tree.observe`
+nodes fails this bind law because it compares their children by equality.
+[Trace definitions](../../Silmaril/Semantics/ITree/Trace/Defs.lean)
+· [Trace composition laws](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
+· [Whole-node counterexample](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Examples/Thms.lean)
+
+`packed_run_tree_traceLE` uses the existing accepted elaboration, typed
+closure, capture packet equation and version-zero agreement at each value
+returned by the common producer. The regression reuses the generated cyclic
+capture fixture and makes seed reply `0` go silent. After capture reply `7`
+and seed reply `0`, the richer specification has a terminating trace with
+the tagged exit `(0, .inl (atom 0))`. The accepted packed run has no such
+trace, and its observations are included in the specification's.
+[Packed refinement theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Trace/Thms.lean)
+· [Directed capture regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+Silent divergence contributes only an empty prefix at the point where it
+occurs. Inclusion can replace it with further events or a return, so it
+does not preserve may-divergence as a positive observation. The relation
+compares attainable finite progress and returns. It does not assert
+must-termination, fairness, or an infinite-path witness.
+[Silent divergence law](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
 
 ### Edge arguments for a normalized φ port
 

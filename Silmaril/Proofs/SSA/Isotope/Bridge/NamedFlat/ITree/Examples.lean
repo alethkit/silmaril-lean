@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Refinement.Trace.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.Typed.Defs
 
 /-! # Typed requests at the captured entry and the back edge -/
@@ -13,7 +13,8 @@ open LambdaSSA.Semantics (Env extend)
 open LambdaSSA.Semantics.Interaction (region Primitive Transfer BlockInput splitTransfer)
 open LambdaSSA.Semantics.Interaction.Typed (AtomValues ModelTree Compatible)
 open Silmaril.Elgot (iter)
-open Silmaril.Elgot.ITree (Tree vis vis_bind iterate_fixpoint)
+open Silmaril.Elgot.ITree (Tree Trace TraceLE HasTrace vis vis_bind diverge diverge_bind iterate_fixpoint
+    traceLE_diverge hasTrace_diverge_iff hasTrace_vis_exchange_iff out_ret)
 open LambdaSSA.FiniteCFG (packedExecutionRegion packedExecution_tree packedTreeOutput)
 
 private abbrev SortName := ULift.{1} Unit
@@ -230,5 +231,77 @@ example : region instr ambient (packedExecutionRegion closed.property.1) =
   congr 1
   funext first
   rw [tick_loop, vis_bind]
+
+/-! ## Directed refinement at a seed reply -/
+
+private def partialInstr : Primitive Event Opcode Runtime
+  | .seed, .atom arg => vis (.call .seed arg.2.down) fun reply =>
+      if reply = 0 then diverge else pure (atom reply)
+  | op, value => instr op value
+
+private theorem partial_capture_packet :
+    LambdaSSA.Semantics.Interaction.term partialInstr ambient (Morphism.CaseSSA.erase packetRead) =
+      (captureProducer >>= fun reply => pure (Capture.packEnv 1 (env reply.down))) :=
+  capture_packet
+
+private noncomputable def resume (capture seed : Nat) : Tree Event (Label × Value Runtime) :=
+  iter (CFG.Cyclic.stepSSA (treeModel partialInstr) generated.blocks (store capture))
+    (header, packet seed)
+
+private theorem partial_named (capture : Nat) :
+    CFG.Cyclic.runSSA (treeModel partialInstr) generated (store capture) =
+      vis (.call .seed capture) (fun seed => if seed = 0 then diverge else resume capture seed) := by
+  unfold CFG.Cyclic.runSSA
+  have entry : generated.entry.evalJump (treeModel partialInstr) (store capture) =
+      (partialInstr .seed (atom capture) >>= fun result => pure (header, .pair result .unit)) := by
+    rfl
+  rw [entry]
+  simp only [partialInstr, atom, vis_bind, bind_assoc]
+  congr 1
+  funext seed
+  by_cases h : seed = 0 <;> simp only [h, ite_true, ite_false, diverge_bind, pure_bind, resume, packet, atom]
+
+private noncomputable def spec (capture : Atom) : Tree Event (Label × Value Runtime) :=
+  vis (.call .seed capture.down) (fun seed =>
+    if seed = 0 then pure (exitLabel, atom 0) else resume capture.down seed)
+
+private theorem named_refines_spec (capture : Atom) :
+    TraceLE (CFG.Cyclic.runSSA (M := ModelTree Event) (treeModel partialInstr) generated (store capture.down)) (spec capture) := by
+  rw [partial_named]
+  apply TraceLE.vis
+  intro seed
+  by_cases h : seed = 0
+  · simpa only [spec, h, ite_true] using traceLE_diverge (pure (exitLabel, atom 0) : Tree Event (Label × Value Runtime))
+  · simpa only [spec, h, ite_false] using TraceLE.refl (resume capture.down seed)
+
+private def tag (p : Label × Value Runtime) : Transfer Runtime :=
+  packedTreeOutput (treeExitNumber [exitLabel] p)
+
+private noncomputable def packed : Tree Event (Transfer Runtime) :=
+  region partialInstr ambient (packedExecutionRegion closed.property.1)
+
+private noncomputable def packedSpec : Tree Event (Transfer Runtime) :=
+  captureProducer >>= fun reply => spec reply >>= fun p => pure (tag p)
+
+private def zeroSeedExit : Trace Event (Transfer Runtime) :=
+  .exchange .capture 7 (.exchange (.call .seed 7) 0 (.result (0, .inl (atom 0))))
+
+-- Both trees issue capture and seed. The specification returns the encoded
+-- exit after capture reply 7 and seed reply 0, where the dispatcher goes silent.
+example : TraceLE packed packedSpec ∧ ¬ TraceLE packedSpec packed := by
+  refine ⟨packed_run_tree_traceLE partialInstr source [exitLabel] names
+    (fun reply : Atom => store reply.down) admitted.property.1 (fun _ _ => rfl)
+    closed.property.1 closed.property.2 partial_capture_packet named_refines_spec, ?_⟩
+  have hspec : HasTrace packedSpec zeroSeedExit := by
+    simp only [packedSpec, captureProducer, spec, zeroSeedExit, vis_bind, pure_bind,
+      hasTrace_vis_exchange_iff, ite_true]
+    exact out_ret ((0, .inl (atom 0)) : Transfer Runtime)
+  have hpacked : ¬ HasTrace packed zeroSeedExit := by
+    unfold packed
+    rw [packed_run_tree partialInstr source [exitLabel] names (fun reply : Atom => store reply.down)
+      admitted.property.1 (fun _ _ => rfl) closed.property.1 closed.property.2 partial_capture_packet]
+    simp only [captureProducer, partial_named, zeroSeedExit, vis_bind, pure_bind,
+      hasTrace_vis_exchange_iff, ite_true, diverge_bind, hasTrace_diverge_iff, reduceCtorEq, not_false_eq_true]
+  exact fun h => hpacked (h zeroSeedExit hspec)
 
 end Silmaril.Isotope.Bridge.NamedFlat.Interaction.Examples
