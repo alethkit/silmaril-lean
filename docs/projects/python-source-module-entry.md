@@ -243,6 +243,19 @@ Negative exponent power uses CPython's separate floating power path, which
 includes platform libm behavior. Run the quotient differential with
 `python3.13 -I scripts/check-python-integer-true-division.py --upstream /path/to/pinned/rigorous`.
 
+A bound `get` on a nonescaping dictionary display can use the checked
+scalar operand path. The entire display, key and positional default must
+be literals in the integer, Boolean or None profile. The checker validates
+all entries and the explicit default even when a key matches. Lookup uses
+the last equal key, including Python's shared Boolean and integer key
+equality. A miss returns the exact default or None when omitted. The
+existing scalar runners deliver the selected value to assignments and
+assertions. The three unchanged assertions in `testdicts2.py` complete in
+ordinary and seeded execution with no call receipts. Dictionary bindings,
+unpacking, and dynamic keys and defaults are outside this profile.
+Run the pinned differential with
+`python3.13 -I scripts/check-python-literal-dictionary-get.py --upstream /path/to/pinned/rigorous`.
+
 The function-aware checker can omit an `if` whose closed guard selects an
 empty arm or an arm of `pass` statements. The otherwise unsupported arm
 must contain only passes or syntactically checked raises. Its exception

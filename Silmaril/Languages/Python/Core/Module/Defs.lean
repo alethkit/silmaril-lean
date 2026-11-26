@@ -39,6 +39,11 @@ def Value.truth : Value → Bool
   | .bool value => value
   | .none => false
 
+/-- Lookup on a closed scalar dictionary display. The newest equal key
+supplies the value, including across the Boolean and integer tags. -/
+def scalarDictionaryGet (entries : List (Value × Value)) (key fallback : Value) : Value :=
+  ((entries.reverse.find? fun entry => entry.1.equal key).map Prod.snd).getD fallback
+
 /-- Exactly the singleton objects distinguished by the identity profile. -/
 inductive Singleton where
   | none_
