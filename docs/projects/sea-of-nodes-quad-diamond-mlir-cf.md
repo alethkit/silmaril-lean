@@ -250,3 +250,43 @@ open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Exam
 #eval results paired 3 16            -- (some 22, some 22)
 #eval results wrongPairing 3 16      -- (some 34, some 34)
 ```
+
+### Compose entry permutations
+
+Import `Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Composition.Thms`.
+`first.trans second` sends each original port through `first` and then
+`second`. Its valuation is `pull first (pull second input)`. The
+`cfNames_trans` and `wires_trans` laws give equality of the external
+bindings before execution. `lowerCF_trans` and `graph_trans` lift the
+equalities to the actual emitted CFG and numbered graph. Both views use
+the checked mask, local labels and predecessor occurrences. The
+`lowerCF_refl` and `graph_refl` laws recover the original targets under
+the identity permutation.
+[Composition API](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/MLIR/CF/Pruned/Reindex/Composition/Thms.lean)
+
+The fixture moves the predicate and then applies two overlapping word
+swaps. The composed and successive emissions return 22 at three
+numbered θ activations and sixteen CF visits, with merge predecessors
+`[6, 0, 6]`. Reversing the swaps at the same typed valuation gives 86
+under the eight-bit arithmetic model.
+[Composition regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/MLIR/CF/Pruned/Reindex/Composition/Regression.lean)
+
+Build with
+`lake build --wfail +Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Composition.Example.Defs`.
+Paste into `ComposeQuadEntry.lean` and run
+`lake env lean -DwarningAsError=true ComposeQuadEntry.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Composition.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Composition.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Reindex.Composition.Example
+
+#eval predicateBit                 -- 1
+#eval predecessors                 -- [6, 0, 6]
+#eval sequentialResults            -- (some 22, some 22)
+#eval results (first.trans second) -- (some 22, some 22)
+#eval results reversed             -- (some 86, some 86)
+```
