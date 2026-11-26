@@ -20,6 +20,7 @@ open Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification
   (ModelComparisons packedWhiskerRight reindexValueHom)
 open Silmaril.Isotope.LambdaSSA.Region.Paper.RetainedCase (reindexHom)
 open Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory (productFstBranches)
+open Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.Retained (distributorRegion_typed)
 open Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.ConstructorReification (fstMap)
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel contextualStep)
@@ -39,6 +40,14 @@ theorem duplicateCapture_arrow (X S : τ) :
       whiskerRight (ofRegion (τ := τ) (productFstBranches (Φ := Φ) X S)) (ofType P) =
       ofRegion (τ := τ) (duplicateCapture_typed (Φ := Φ) X S) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingleCfgExplicitReification.duplicateCapture_arrow X S
+
+/-- The guarded route retains the exit decoder and then distributes over its sum. -/
+theorem retagPacked_distributor (X S D : τ) :
+    Paper.TypeCategory.whiskerLeft (ofType (Φ := Φ) X)
+      (ofRegion (τ := τ) (exitDecoder_typed (Φ := Φ) S D)) ≫
+      ofRegion (τ := τ) (distributorRegion_typed X D S) =
+    ofRegion (τ := τ) (retagPacked_typed (Φ := Φ) X S D) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingleCfgExplicitReification.retagPacked_distributor X S D
 
 variable [PremonoidalCategory Comp] [SymmetricPremonoidalCategory Comp]
   [HasFiniteCoproducts V] [HasFiniteCoproducts Comp] [DistributiveTensor V]

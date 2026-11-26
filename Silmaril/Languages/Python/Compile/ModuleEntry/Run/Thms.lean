@@ -8,7 +8,7 @@ public section
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Run
 
 theorem global_read {scope : Source.Scope} {name : Source.Name} (reference : GlobalReference scope name) :
-    expression (.read name reference) = .readGlobal name := rfl
+    expression (.read name reference) = .readGlobal name := by rw [expression]
 
 theorem global_write {scope : Source.Scope} {name : Source.Name} (reference : GlobalReference scope name)
     (value : Operand scope) : statement (.assign name reference value) = .assignGlobal name (expression value) := rfl
@@ -16,12 +16,13 @@ theorem global_write {scope : Source.Scope} {name : Source.Name} (reference : Gl
 theorem eval_conditionalResult {scope : Source.Scope} (globals : Core.Module.Globals) (operand : Operand scope) :
     (expression operand.conditionalResult).eval globals = (expression operand).eval globals := by
   cases operand with
-  | boolean value => cases value <;> rfl
+  | boolean value => cases value <;> simp [Operand.conditionalResult, Operand.booleanResult, expression, Core.Module.Expr.eval] <;> rfl
   | _ => rfl
 
 theorem eval_booleanResult {scope : Source.Scope} (globals : Core.Module.Globals) (value : Bool) :
     (expression (Operand.booleanResult (scope := scope) value)).eval globals = .ok (.bool value) :=
-  eval_conditionalResult globals (.boolean value)
+  by simpa [Operand.conditionalResult, expression, Core.Module.Expr.eval] using
+    (eval_conditionalResult (scope := scope) globals (.boolean value))
 
 theorem Compiled.starts_with {source : Source.Module} (compiled : Compiled source) :
     compiled.entry.start = .running compiled.initial (compiled.checked.actions.map statement) := rfl

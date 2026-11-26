@@ -101,6 +101,15 @@ public theorem wf_split (i : Fin Γ.length) (ht : (Γ.get i).1 = product A B)
     (he : (Γ.get i).2 = ⊥) (ha : Wf Γ a C e) :
     Wf (splitCtx Γ i A B) (split i a) C e := wf_subst ha (split_typed i ht he)
 
+public theorem eqv_pairLet (i : Fin Γ.length) (ht : (Γ.get i).1 = product A B)
+    (he : (Γ.get i).2 = ⊥) (h : Eqv (splitCtx Γ i A B) C e a b) :
+    Eqv Γ C e (.let₂ (.var i) (a.wk (Expr.liftWk (SumSplit.toFront i))))
+      (.let₂ (.var i) (b.wk (Expr.liftWk (SumSplit.toFront i)))) := by
+  have hv : Wf Γ (.var i.val : Expr Φ) (product A B) e := by
+    simpa only [ht] using Wf.var (Φ := Φ) i (he.trans_le bot_le)
+  exact .let2 (.refl hv) (SumSplit.Proofs.eqv_rename h
+    ((SumSplit.Proofs.ren_branch_toFront i A).lift (B, ⊥)))
+
 public theorem eqv_iff_split (i : Fin Γ.length) (ht : (Γ.get i).1 = product A B)
     (he : (Γ.get i).2 = ⊥) (ha : Wf Γ a C e) (hb : Wf Γ b C e) :
     Eqv Γ C e a b ↔ Eqv (splitCtx Γ i A B) C e (split i a) (split i b) := by
@@ -108,12 +117,8 @@ public theorem eqv_iff_split (i : Fin Γ.length) (ht : (Γ.get i).1 = product A 
   · intro h
     exact eqv_subst h (split_typed i ht he)
   · intro h
-    have hv : Wf Γ (.var i.val : Expr Φ) (product A B) e := by
-      simpa only [ht] using Wf.var (Φ := Φ) i (he.trans_le bot_le)
-    have h' := SumSplit.Proofs.eqv_rename h
-      ((SumSplit.Proofs.ren_branch_toFront i A).lift (B, ⊥))
     exact (eqv_rebuild i ht he ha).trans
-      ((Eqv.let2 (.refl hv) h').trans (eqv_rebuild i ht he hb).symm)
+      ((eqv_pairLet i ht he h).trans (eqv_rebuild i ht he hb).symm)
 
 end Source
 

@@ -18,11 +18,14 @@ inductive Code (layout : Layout) where
   | assign (destination : Slot layout) (value : Body.Expr layout) (next : Code layout)
   | closure (destination : Slot layout) (path : BlockPath) (ref : CodeRef)
       (captures : Fin ref.layout.captures → CaptureSlot layout) (next : Code layout)
+  | returnClosure (path : BlockPath) (ref : CodeRef)
+      (captures : Fin ref.layout.captures → CaptureSlot layout)
 
 def Code.references {layout : Layout} : Code layout → List (BlockPath × CodeRef)
   | .ret _ => []
   | .assign _ _ next | .assert _ next | .assertFreeVars _ _ _ next
   | .assertCellVars _ _ next | .assertCodeNames _ _ next | .discardCall _ next => next.references
   | .closure _ path ref _ next => (path, ref) :: next.references
+  | .returnClosure path ref _ => [(path, ref)]
 
 end Silmaril.Languages.Python.Compile.Closure.Link

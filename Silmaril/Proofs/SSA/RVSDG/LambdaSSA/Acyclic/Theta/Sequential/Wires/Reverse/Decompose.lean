@@ -34,7 +34,7 @@ private theorem collect_ofFn {α : Type u} {n : Nat} (f : Fin n → α) :
   (congrArg (fun xs : List (Option α) => xs.mapM (m := Option) id)
     (@List.map_ofFn _ _ _ f some).symm).trans (collect_some (List.ofFn f))
 
-private theorem read_lift {args outs : Ports (OrderedRuntime.Structured.Ty τ)}
+theorem read_lift {args outs : Ports (OrderedRuntime.Structured.Ty τ)}
     {past sigs : List (Ports (OrderedRuntime.Structured.Ty τ))}
     {a : Data args} {b : Data outs} {live : Origin (Threaded args) past runtime}
     {t : NestedTheta.Term (ExplicitRuntime.Op Φ) (Threaded args) past sigs (Threaded outs)}

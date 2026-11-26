@@ -18,6 +18,10 @@ open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruc
   (UnitPayloadPolicy Env EnvTy Val ValTy Result ResultTy cfgRun
   cfgRun_out cfgRun_local cfgRun_fault cfgRun_diverges cfgRun_congr cfgRun_shiftOut mapOut shiftOut)
 
+universe u v
+
+variable {α : Type u} {Φ : Type v}
+
 variable {observation : TermObservation}
 
 local notation "evalTerm" => evalTermWith observation
@@ -27,22 +31,24 @@ set_option linter.concreteInstances false
 
 variable [UnitPayloadPolicy]
 
-def SameWith (observation : TermObservation) (Γ : VCtx (Ty Empty)) (r s : Region Empty) : Prop :=
+def SameWith (observation : TermObservation) (Γ : VCtx (Ty α)) (r s : Region Φ) : Prop :=
   ∀ env, EnvTy Γ env → evalRegionWith observation r env = evalRegionWith observation s env
 
 local notation "Same" => SameWith observation
 
-theorem SameWith.refl (Γ : VCtx (Ty Empty)) (r : Region Empty) : Same Γ r r :=
+theorem SameWith.refl (Γ : VCtx (Ty α)) (r : Region Φ) : Same Γ r r :=
   fun _ _ => rfl
 
-theorem SameWith.symm {Γ : VCtx (Ty Empty)} {r s : Region Empty}
+theorem SameWith.symm {Γ : VCtx (Ty α)} {r s : Region Φ}
     (h : Same Γ r s) : Same Γ s r := fun env he => (h env he).symm
 
-theorem SameWith.trans {Γ : VCtx (Ty Empty)} {r s t : Region Empty}
+theorem SameWith.trans {Γ : VCtx (Ty α)} {r s t : Region Φ}
     (h : Same Γ r s) (h' : Same Γ s t) : Same Γ r t :=
   fun env he => (h env he).trans (h' env he)
 
-theorem SameWith.let₁ {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty} {r s : Region Empty}
+variable [HasTy Φ (Ty α)]
+
+theorem SameWith.let₁ {Γ : VCtx (Ty α)} {t : Tm Φ} {A : Ty α} {r s : Region Φ}
     (ht : Tm.HasType Γ t A) (h : Same (A :: Γ) r s) :
     Same Γ (.let₁ t r) (.let₁ t s) := by
   intro env he
@@ -52,7 +58,7 @@ theorem SameWith.let₁ {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty} {r 
     have hv := evalTerm_typed ht he eq
     simpa only [evalRegionWith, eq] using h (extend env v) (he.extend hv)
 
-theorem SameWith.let₂ {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A B : Ty Empty} {r s : Region Empty}
+theorem SameWith.let₂ {Γ : VCtx (Ty α)} {t : Tm Φ} {A B : Ty α} {r s : Region Φ}
     (ht : Tm.HasType Γ t (.product A B)) (h : Same (B :: A :: Γ) r s) :
     Same Γ (.let₂ t r) (.let₂ t s) := by
   intro env he
@@ -64,7 +70,7 @@ theorem SameWith.let₂ {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A B : Ty Empty} {
     | pair ha hb =>
       simpa only [evalRegionWith, eq] using h _ ((he.extend ha).extend hb)
 
-theorem SameWith.case {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A B : Ty Empty} {l l' r r' : Region Empty}
+theorem SameWith.case {Γ : VCtx (Ty α)} {t : Tm Φ} {A B : Ty α} {l l' r r' : Region Φ}
     (ht : Tm.HasType Γ t (.coprod A B)) (hl : Same (A :: Γ) l l') (hr : Same (B :: Γ) r r') :
     Same Γ (.case t l r) (.case t l' r') := by
   intro env he
@@ -76,8 +82,8 @@ theorem SameWith.case {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A B : Ty Empty} {l 
     | inl hv => simpa only [evalRegionWith, eq] using hl _ (he.extend hv)
     | inr hv => simpa only [evalRegionWith, eq] using hr _ (he.extend hv)
 
-theorem SameWith.cfg {Γ L : List (Ty Empty)} {n : Nat} {e e' : Region Empty}
-    {bs bs' : Fin n → Region Empty} (R : Fin n → Ty Empty)
+theorem SameWith.cfg {Γ L : List (Ty α)} {n : Nat} {e e' : Region Φ}
+    {bs bs' : Fin n → Region Φ} (R : Fin n → Ty α)
     (ht : HasType Γ e (List.ofFn R ++ L))
     (hbs : ∀ i, HasType (R i :: Γ) (bs i) (List.ofFn R ++ L))
     (he : Same Γ e e') (hb : ∀ i, Same (R i :: Γ) (bs i) (bs' i)) :
@@ -88,7 +94,7 @@ theorem SameWith.cfg {Γ L : List (Ty Empty)} {n : Nat} {e e' : Region Empty}
     (fun i _ hv => evalRegion_typed (hbs i) (henv.extend hv))
     (fun i _ hv => hb i _ (henv.extend hv))
 
-theorem cfgEquiv_same {Γ L : List (Ty Empty)} {r s : Region Empty}
+theorem cfgEquiv_same {Γ L : List (Ty α)} {r s : Region Φ}
     (h : CfgEquiv Γ r s L) : Same Γ r s := by
   induction h with
   | refl _ => exact SameWith.refl _ _
@@ -116,7 +122,7 @@ theorem cfgEquiv_same {Γ L : List (Ty Empty)} {r s : Region Empty}
     simp only [evalRegionWith, eq]
     exact cfgRun_local _ _ i.isLt
 
-theorem rewriteEquiv_same {Γ L : List (Ty Empty)} {r s : Region Empty}
+theorem rewriteEquiv_same {Γ L : List (Ty α)} {r s : Region Φ}
     (h : RewriteEquiv Γ r s L) : Same Γ r s := by
   induction h with
   | entry he => exact cfgEquiv_same he
@@ -137,7 +143,7 @@ theorem rewriteEquiv_same {Γ L : List (Ty Empty)} {r s : Region Empty}
     intro env he
     cases eq : evalTerm t env <;> simp [evalRegionWith, evalTermWith, eq]
 
-theorem caseCfg_same {Γ : List (Ty Empty)} {t : Tm Empty} {A B : Ty Empty} {l r : Region Empty}
+theorem caseCfg_same {Γ : List (Ty α)} {t : Tm Φ} {A B : Ty α} {l r : Region Φ}
     (ht : Tm.HasType Γ t (.coprod A B)) : Same Γ (.case t l r) (caseCfg t l r) := by
   intro env he
   cases eq : evalTerm t env with
@@ -160,7 +166,7 @@ theorem caseCfg_same {Γ : List (Ty Empty)} {t : Tm Empty} {A B : Ty Empty} {l r
       rw [evalRegion_renameLabels]
       exact (cfgRun_shiftOut 2 _ _).symm
 
-theorem substitutionEquiv_same {Γ L : List (Ty Empty)} {r s : Region Empty}
+theorem substitutionEquiv_same {Γ L : List (Ty α)} {r s : Region Φ}
     (h : SubstitutionEquiv Γ r s L) : Same Γ r s := by
   induction h with
   | base he => exact rewriteEquiv_same he
@@ -199,7 +205,7 @@ theorem substitutionEquiv_same {Γ L : List (Ty Empty)} {r s : Region Empty}
     rw [evalRegionWith, evalRegion_renameLabels]
     exact cfgRun_shiftOut _ _ _
 
-theorem eta_same {Γ L : List (Ty Empty)} {entry block : Region Empty} {A : Ty Empty}
+theorem eta_same {Γ L : List (Ty α)} {entry block : Region Φ} {A : Ty α}
     (he : ValueBranches Γ entry (A :: L)) :
     Same Γ (CfgEta.singleCfg entry block) (entry.lsubst (CfgEta.reentry block)) := by
   intro env henv
@@ -219,7 +225,7 @@ theorem eta_same {Γ L : List (Ty Empty)} {entry block : Region Empty} {A : Ty E
   | diverges => exact cfgRun_diverges 1 bs
   | fault => exact cfgRun_fault 1 bs
 
-theorem cfgEta_same {Γ L : List (Ty Empty)} {r s : Region Empty}
+theorem cfgEta_same {Γ L : List (Ty α)} {r s : Region Φ}
     (h : CfgEta.Eqv Γ r s L) : Same Γ r s := by
   induction h with
   | native h => exact substitutionEquiv_same h

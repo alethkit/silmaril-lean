@@ -1,0 +1,103 @@
+module
+
+public import Silmaril.Machine.RTL.Thms
+public import Silmaril.SSA.SeaOfNodes.Diamond.Defs
+
+/-! # Machine RTL for the source-native word diamond
+
+The admitted source graph has two word arguments, one Boolean predicate and
+one word-valued Phi return. All data producers belong to the total `WordOp`
+signature. The output is one machine RTL.SSA function with four forward blocks.
+-/
+
+@[expose] public section
+
+namespace Silmaril.Machine.SeaOfNodes.Diamond.RTL
+
+open Silmaril.SSA.SeaOfNodes.Diamond (Dataflow Graph Model Projection Val ValueSort dataPorts)
+open Silmaril.SSA.RVSDG (Origin Port PortType Tuple Wires extend)
+open Silmaril.Machine.Lir (Word)
+open Silmaril.Machine.RTL.SSA (Block Func Label Op Prog)
+
+abbrev PortTy := Silmaril.SSA.SeaOfNodes.Diamond.Ty Unit
+
+abbrev word : ValueSort Unit := .data ()
+abbrev inputs : List (ValueSort Unit) := [word, word]
+abbrev args : List PortTy := dataPorts inputs
+
+/-- The source profile uses wrapping word arithmetic and Boolean equality. -/
+inductive WordOp : Silmaril.SSA.SeaOfNodes.Diamond.Signature Unit where
+  | const (value : Word) : WordOp [] word
+  | add : WordOp [word, word] word
+  | sub : WordOp [word, word] word
+  | eq : WordOp [word, word] .predicate
+
+abbrev values : Unit → Type := fun _ => Word
+
+def model : Model WordOp where
+  value := values
+  run
+    | .const value, .nil => value
+    | .add, .cons x (.cons y .nil) => BitVec.add x y
+    | .sub, .cons x (.cons y .nil) => BitVec.sub x y
+    | .eq, .cons x (.cons y .nil) => ⟨BEq.beq (α := Word) x y⟩
+
+def entry (x y : Word) : Tuple (Val model.value) args := .cons x (.cons y .nil)
+
+abbrev WordDiamond (sigs : List (List PortTy)) := Graph WordOp inputs sigs word
+
+/-- Machine register names distinguish function arguments, producer results
+and the join parameter. Producer numbers are the source's absolute indices. -/
+inductive Reg where
+  | arg (index : Nat)
+  | node (index : Nat)
+  | phi
+  deriving DecidableEq, Repr
+
+def portIndex {ts : List PortTy} {t : PortTy} : Port ts t → Nat
+  | .head => 0
+  | .tail p => portIndex p + 1
+
+def register {past : List (List PortTy)} {t : PortTy} : Origin args past t → Reg
+  | .arg p => .arg (portIndex p)
+  | .output i _ => .node i.val
+
+def emitOp {sorts : List (ValueSort Unit)} {out : ValueSort Unit}
+    {past : List (List PortTy)} (dest : Reg) :
+    WordOp sorts out → Wires args past (dataPorts sorts) → Op Reg
+  | .const value, _ => .const dest value
+  | .add, wires => .binary .add dest (register (wires.get .head)) (register (wires.get (.tail .head)))
+  | .sub, wires => .binary .sub dest (register (wires.get .head)) (register (wires.get (.tail .head)))
+  | .eq, wires => .binary (.cmp .eq) dest (register (wires.get .head)) (register (wires.get (.tail .head)))
+
+/-- Emit each source producer once into the entry block. -/
+def emitOps : {past sigs : List (List PortTy)} → Dataflow WordOp args past sigs → List (Op Reg)
+  | _, _, .nil => []
+  | past, _, .cons op wires rest => emitOp (.node past.length) op wires :: emitOps rest
+
+def armLabel : Projection → Label
+  | .onTrue => 1
+  | .onFalse => 2
+
+variable {sigs : List (List PortTy)}
+
+def incoming (g : WordDiamond sigs) (p : Projection) : Reg :=
+  register (g.phi.operand (g.phi.merge.slot p))
+
+def entryBlock (g : WordDiamond sigs) : Block Reg :=
+  ⟨[.arg 0, .arg 1], emitOps g.dataflow,
+    .cond (register g.predicate) (armLabel .onTrue) [] (armLabel .onFalse) []⟩
+
+def armBlock (g : WordDiamond sigs) (p : Projection) : Block Reg :=
+  ⟨[], [], .jump 3 [incoming g p]⟩
+
+def joinBlock : Block Reg := ⟨[.phi], [], .ret [.phi]⟩
+
+/-- Entry dispatches to two distinct predecessor blocks. Each edge supplies its
+own Phi operand to the same join parameter, which is returned by block 3. -/
+def lowerFunc (g : WordDiamond sigs) : Func Reg :=
+  ⟨⟨2, 1⟩, 0, [entryBlock g, armBlock g .onTrue, armBlock g .onFalse, joinBlock]⟩
+
+def lower (g : WordDiamond sigs) : Prog Reg := ⟨[lowerFunc g]⟩
+
+end Silmaril.Machine.SeaOfNodes.Diamond.RTL

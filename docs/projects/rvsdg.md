@@ -49,6 +49,84 @@ state sequencing is explicit through wires. Like value ports, state origins
 permit fan-out and may be unused. An operation has only the effects carried
 by its input and output state values in this model.
 
+## Numbered γ/θ liveness
+
+`NestedTheta.Graph.liveness` exposes the local schedule directly as a
+`Semantics.Dataflow.GenKill` problem. At point `n`, binding `n` generates the
+origins of its input wires and kills the origins it defines. The point after
+the last binding generates the result origins, including returned state.
+`Graph.liveAt n` computes exactly the shared least may solution at that point.
+Agreement on the live entry ports preserves the result at every θ fuel bound
+and every finite return, including the exact final token. The API uses the
+existing typed graph decoder and is independent of the LambdaSSA recognizers.
+[API](../../Silmaril/SSA/RVSDG/NestedTheta/Liveness/Thms.lean)
+
+Each child has its own liveness problem. This interface retains all γ and
+θ operands, even when a child ignores a supplied port. The checked regression
+changes an unwired argument and preserves payload `4` and final token `50`
+after a selected effectful γ arm and two θ iterations. It checks that γ's
+token remains live when its data result is
+dead, and that its unused child operand is retained at the parent.
+[Regression](../../Silmaril/Proofs/SSA/RVSDG/NestedTheta/Liveness/Regression.lean)
+
+### Demand through γ captures
+
+`Graph.demandLiveness` specializes the shared gen/kill equations to the
+requested result positions and every returned state port. At a γ binding, the
+sweep passes the demand on the binding's outputs to every arm, maps the live
+child inputs through the typed capture wires, and joins their origins with the
+selector. Primitive transfers keep every operand. The demand analysis uses the
+same backwards transfer as `Graph.liveness`. [API](../../Silmaril/SSA/RVSDG/NestedTheta/Liveness/Demand/Thms.lean)
+
+In the total-primitive model, agreement on the resulting entry origins
+preserves demanded results and exact returned state. At each fuel bound both
+runs return or both fail to return, so the existence of a finite return is
+preserved even at empty data demand. The checked fixture passes captures into
+a γ arm containing an effectful θ. It drops an unused capture and a capture
+used only by an undemanded result. The selector, initial token, and loop flag
+stay live, including when the selected loop has no finite return.
+[Regression](../../Silmaril/Proofs/SSA/RVSDG/NestedTheta/Liveness/Demand/Regression.lean)
+
+### Demand around θ feedback
+
+`Term.feedbackLive` computes a finite carried-position mask. Each step asks
+the body for the continue/exit decision, the demanded exit results, the returned
+state, and the results used at the next restart. It resolves those requests
+through the body's actual result wires and collects the live input origins.
+The Kleene chain starts empty and stabilizes in at most the number of carried
+ports. `Term.feedbackLive_isLeast` identifies the resulting least fixed point.
+The θ binding maps those positions back through its own typed input wires.
+[Theorems](../../Silmaril/SSA/RVSDG/NestedTheta/Liveness/Demand/Thms.lean)
+
+The total-primitive proof establishes the same live agreement after every
+restart. It preserves the demanded payload, exact returned state and presence
+or absence of finite return, including at empty data demand. The nested
+effectful regression checks a carried value that remains dead and a separate
+input that becomes live only after feedback. It checks payload `12` and token
+`5` on the returning path and an infinite sequence of completed body
+activations on the non-returning path.
+[Feedback regression](../../Silmaril/Proofs/SSA/RVSDG/NestedTheta/Liveness/Demand/FeedbackRegression.lean)
+
+### Demand with partial primitives
+
+The same γ and θ demand solver supplies the input agreement for the existing
+partial explicit-wire semantics. Every primitive keeps all operand origins,
+including its runtime wire, even when its data result has no readers.
+`returnsDemand_iff` matches finite returns on demanded data and exact state.
+`abnormal_iff_of_live` matches the exact blocked record or the productive
+divergence observation. The block record stores the numbered path and vertex,
+indexed opcode, typed operands, and state at attempt. Saved continuation
+frames are outside this endpoint model. Productive divergence uses actual
+completed restarts, including inside a selected child. Linked calls and
+elimination of dead bindings are outside this analysis.
+[API](../../Silmaril/SSA/RVSDG/NestedTheta/Liveness/Demand/Partial/Thms.lean)
+
+The regression selects a θ inside γ. A probe with unused data output blocks on
+its second attempt with operand `7` and token `5`. The unrelated carried value
+is dead. With operand `8` the graph returns counter `2` and token `8`, and a
+later starting counter produces infinitely many completed restarts.
+[Regression](../../Silmaril/Proofs/SSA/RVSDG/NestedTheta/Liveness/Demand/Partial/Regression.lean)
+
 ## Reproduce the checks
 
 From the repository root with its pinned Lean toolchain:
@@ -60,6 +138,10 @@ lake build --wfail +Silmaril.SSA.RVSDG.Petri.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGPetri.lean
 lake build --wfail +Silmaril.SSA.RVSDG.Isomorphism.Petri.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGIsomorphism.lean
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Regression
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.Regression
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.FeedbackRegression
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.Partial.Regression
 make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.Isomorphism.Petri.Thms
 ```
 

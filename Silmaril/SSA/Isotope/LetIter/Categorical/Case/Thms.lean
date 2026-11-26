@@ -26,6 +26,14 @@ variable {V : Type u₁} {C : Type u₂}
   [HasFiniteCoproducts V] [HasFiniteCoproducts C]
   [DistributiveTensor V] [DistributivePremonoidalCategory C]
 
+/-- A known left tag selects its contextual continuation after running the scrutinee. -/
+theorem case_inl_context [DistributiveFreydCategory J] {R A B D : V}
+    (e : J.obj R ⟶ J.obj A) (l : J.obj (R ⊗ A) ⟶ J.obj D)
+    (r : J.obj (R ⊗ B) ⟶ J.obj D) :
+    caseWithContext J (e ≫ J.map (coprod.inl : A ⟶ A ⨿ B)) l r =
+      ProofRelevant.Semantics.Categorical.bind J e l :=
+  case_inl_context_proof J e l r
+
 /-- A common continuation after a case can run inside either branch. -/
 theorem case_postcomp [DistributiveFreydCategory J] {R A B D E : V}
     (e : J.obj R ⟶ J.obj (A ⨿ B))

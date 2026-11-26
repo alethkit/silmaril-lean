@@ -47,6 +47,18 @@ theorem exitSum_ofRegion (S D : τ) :
     exitSumArrow (Φ := Φ) S D = ofRegion (τ := τ) (exitDecoder_typed S D) :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonCfgAssembly.exitSum_ofRegion S D
 
+/-- Following the head of the packed exit list reaches the repeat injection. -/
+theorem exitDecoder_inl (S D : τ) :
+    (sumCofan (Φ := Φ) S (coprod D Silmaril.empty)).inl ≫ ofRegion (τ := τ) (exitDecoder_typed S D) =
+      (sumCofan D S).inr :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonCfgAssembly.exitDecoder_inl S D
+
+/-- Following the second tag reaches the result injection. -/
+theorem exitDecoder_inr_inl (S D : τ) :
+    (sumCofan (Φ := Φ) D Silmaril.empty).inl ≫ (sumCofan S (coprod D Silmaril.empty)).inr ≫
+      ofRegion (τ := τ) (exitDecoder_typed S D) = (sumCofan D S).inl :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonCfgAssembly.exitDecoder_inr_inl S D
+
 /-- The canonical arrow is represented by the typed region with a carried loop. -/
 theorem canonicalAssembly_ofRegion {X S D : τ} {e b : Region Φ}
     (he : ValueBranches [X] e [packedExitType [S, D]])

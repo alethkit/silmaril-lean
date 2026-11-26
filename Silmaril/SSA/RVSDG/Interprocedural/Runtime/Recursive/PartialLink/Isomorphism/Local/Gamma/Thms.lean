@@ -6,6 +6,7 @@ import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.I
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Regions
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Dispatch
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Application
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Family
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Choice
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Resumption
 
@@ -294,9 +295,25 @@ theorem extendOrigin_read {head : Ports (Ty V S)} {past : List (Ports (Ty V S))}
       (Wires.read (.cons origin .nil) entry locals).get .head :=
   Proofs.extended_origin_read origin entry locals value
 
+/-- Paired actual feedback keeps the carried callable in the captured
+family. Both sides agree on its index, which may change between activations. -/
+theorem FamilyPair.restarts {context carry : Ports (Ty V S)} {fn : Function V S} {extra : Nat}
+    {ports : Fin (extra + 2) → Port context fn.port} {capL capR : Tuple m.Val context}
+    {arguments : Wires (context ++ FamilyArgs fn extra carry) [] fn.args}
+    {select : Origin (context ++ FamilyArgs fn extra carry) [fn.results] (.control (extra + 2))}
+    {feedback : Origin (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] (.control 2)}
+    {ordinary : Wires (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] carry}
+    {first current : Carries m ids σ (context ++ FamilyArgs fn extra carry)}
+    (start : FamilyPair (ids := ids) ports capL capR first.left first.right)
+    (completed : ReflTransGen (IterationPair primitives (familyBody fn ports arguments select feedback ordinary)
+      (familyBody fn ports arguments select feedback ordinary)) first current) :
+    FamilyPair (ids := ids) ports capL capR current.left current.right :=
+  Proofs.family_pair_restarts start completed
+
 /-- Pair the actual execution of ordered static calls, primitive bindings,
 selected γ arms, θ bodies with preserved capture wires, and finite
-callable choosers with intervening bindings or ranked calls inside capture-preserving θ bodies.
+callable choosers with intervening bindings, including ranked θ calls
+that can select a new member of a fixed family on feedback.
 Each call enters a lower-ranked body and resumes in the saved caller scope. -/
 theorem ranked_regions {rank : Nat} {context : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     {capturesL capturesR : Tuple m.Val context}
