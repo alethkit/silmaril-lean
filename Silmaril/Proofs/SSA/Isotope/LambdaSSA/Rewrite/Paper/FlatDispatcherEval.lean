@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.FlatDispatcher.Defs
-import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.FlatDispatcher
+import Silmaril.SSA.Isotope.LambdaSSA.Semantics.Reflection.Thms
 
 /-! # Finite execution of a routed flat region -/
 
@@ -15,28 +15,69 @@ open Silmaril.Isotope
 open Silmaril.Isotope.LambdaSSA
 open Silmaril.Isotope.LambdaSSA.FiniteCFG
 open Silmaril.Isotope.LambdaSSA.Region
+open Semantics (extend Env)
 
 variable {α : Type u} {Φ : Type v} {σ : Type w}
   {instr : Φ → Value α → σ → Value α → σ → Prop}
 
 local notation "Eval" => Semantics.Region.Eval
 
-private theorem packedExitArg_subst (i : Nat) (a : Tm Φ) (θ : Nat → Tm Φ) :
-    (packedExitArg i a).subst θ = packedExitArg i (a.subst θ) := by
-  induction i with
-  | zero => rfl
-  | succ i ih => simp only [packedExitArg, Tm.subst, ih]
+private theorem eval_lifted {k : Nat → Region Φ} {i label : Nat} {env : Env α}
+    {ignored payload out : Value α} {s t : σ} :
+    Eval instr (extend (extend env ignored) payload) (liftLSubstVars k i) s label out t ↔
+      Eval instr (extend env payload) (k i) s label out t :=
+  Semantics.Region.Eval.renameVars_iff (Semantics.extend_rename (fun _ => rfl) payload)
 
-private theorem routeExit_subst_self (blocks i : Nat) :
-    (routeExit (Φ := Φ) blocks i).substVars (Tm.singleSubst (.var 0)) = routeExit blocks i := by
-  simp only [routeExit]
-  split <;> simp only [Region.substVars, Tm.subst, packedExitArg_subst] <;> rfl
-
-private theorem routedFlat_br {labels n : Nat} (blocks : Nat) (i : Fin labels)
-    (a : LetCase.LocallyNameless.Tm Empty Φ n) :
-    routedFlat blocks (.br i a) = .let₁ (Morphism.CaseSSA.erase a) (routeExit blocks i.val) := by
-  simp only [routedFlat, Flat.erase, bindBranchArguments, Region.lsubst, liftLSubstVars_routeExit,
-    routeExit_subst_self]
+theorem flat_bind_eval {labels n : Nat} (r : Flat Φ labels n) (k : Nat → Region Φ)
+    {env : Env α} {s t : σ} {label : Nat} {out : Value α} :
+    Eval instr env (r.erase.bindBranchArguments.lsubst k) s label out t ↔
+      ∃ i v m, Eval instr env r.erase s i v m ∧ Eval instr (extend env v) (k i) m label out t := by
+  induction r generalizing k env s t label out with
+  | br i a =>
+    change Eval instr env (.let₁ (Morphism.CaseSSA.erase a) (compLSubst labelId k i.val)) s label out t ↔ _
+    rw [compLSubst_id_left]
+    constructor
+    · intro h
+      cases h with
+      | let₁ ha hb => exact ⟨i.val, _, _, .br ha, hb⟩
+    · rintro ⟨i, v, m, h, hk⟩
+      cases h with
+      | br ha => exact .let₁ ha hk
+  | let₁ a b ih =>
+    constructor
+    · intro h
+      cases h with
+      | let₁ ha hb =>
+        obtain ⟨i, v, m, he, hk⟩ := (ih _).mp hb
+        exact ⟨i, v, m, .let₁ ha he, eval_lifted.mp hk⟩
+    · rintro ⟨i, v, m, h, hk⟩
+      cases h with
+      | let₁ ha hb => exact .let₁ ha ((ih _).mpr ⟨i, v, m, hb, eval_lifted.mpr hk⟩)
+  | let₂ a b ih =>
+    constructor
+    · intro h
+      cases h with
+      | let₂ ha hb =>
+        obtain ⟨i, v, m, he, hk⟩ := (ih _).mp hb
+        exact ⟨i, v, m, .let₂ ha he, eval_lifted.mp (eval_lifted.mp hk)⟩
+    · rintro ⟨i, v, m, h, hk⟩
+      cases h with
+      | let₂ ha hb =>
+        exact .let₂ ha ((ih _).mpr ⟨i, v, m, hb, eval_lifted.mpr (eval_lifted.mpr hk)⟩)
+  | case e l r ihl ihr =>
+    constructor
+    · intro h
+      cases h with
+      | case_inl he hl =>
+        obtain ⟨i, v, m, h, hk⟩ := (ihl _).mp hl
+        exact ⟨i, v, m, .case_inl he h, eval_lifted.mp hk⟩
+      | case_inr he hr =>
+        obtain ⟨i, v, m, h, hk⟩ := (ihr _).mp hr
+        exact ⟨i, v, m, .case_inr he h, eval_lifted.mp hk⟩
+    · rintro ⟨i, v, m, h, hk⟩
+      cases h with
+      | case_inl he h => exact .case_inl he ((ihl _).mpr ⟨i, v, m, h, eval_lifted.mpr hk⟩)
+      | case_inr he h => exact .case_inr he ((ihr _).mpr ⟨i, v, m, h, eval_lifted.mpr hk⟩)
 
 private theorem packedExitArg_var_eval {env : Semantics.Env α} {i : Nat} {s finish : σ}
     {out : Value α}
@@ -50,7 +91,7 @@ private theorem packedExitArg_var_eval {env : Semantics.Env α} {i : Nat} {s fin
     cases h with
     | inr h => obtain ⟨rfl, rfl⟩ := ih h; exact ⟨rfl, rfl⟩
 
-private theorem eval_routeExit {env : Semantics.Env α} {payload result : Value α}
+theorem eval_routeExit {env : Semantics.Env α} {payload result : Value α}
     {blocks i label : Nat} {state finish : σ} :
     Eval instr (Semantics.extend env payload) (routeExit blocks i) state label result finish ↔
       label = 0 ∧ result = routeValue blocks i payload ∧ finish = state := by
@@ -77,54 +118,12 @@ theorem routedFlat_eval_iff {labels n : Nat} (blocks : Nat) (r : Flat Φ labels 
     Eval instr env (routedFlat blocks r) s label out finish ↔
       ∃ i payload, Eval instr env r.erase s i payload finish ∧
         label = 0 ∧ out = routeValue blocks i payload := by
-  induction r generalizing env s finish label out with
-  | br i a =>
-    rw [routedFlat_br]
-    constructor
-    · intro h
-      cases h with
-      | let₁ ha hb =>
-        obtain ⟨rfl, rfl, rfl⟩ := eval_routeExit.mp hb
-        exact ⟨i.val, _, .br ha, rfl, rfl⟩
-    · rintro ⟨_, _, h, rfl, rfl⟩
-      cases h with
-      | br ha => exact .let₁ ha (eval_routeExit.mpr ⟨rfl, rfl, rfl⟩)
-  | let₁ a b ih =>
-    simp only [routedFlat, Flat.erase, bindBranchArguments, Region.lsubst, liftLSubstVars_routeExit] at *
-    constructor
-    · intro h
-      cases h with
-      | let₁ ha hb =>
-        obtain ⟨i, payload, hb, hl, hv⟩ := ih.mp hb
-        exact ⟨i, payload, .let₁ ha hb, hl, hv⟩
-    · rintro ⟨_, _, h, hl, hv⟩
-      cases h with
-      | let₁ ha hb => exact .let₁ ha (ih.mpr ⟨_, _, hb, hl, hv⟩)
-  | let₂ a b ih =>
-    simp only [routedFlat, Flat.erase, bindBranchArguments, Region.lsubst, liftLSubstVars_routeExit] at *
-    constructor
-    · intro h
-      cases h with
-      | let₂ ha hb =>
-        obtain ⟨i, payload, hb, hl, hv⟩ := ih.mp hb
-        exact ⟨i, payload, .let₂ ha hb, hl, hv⟩
-    · rintro ⟨_, _, h, hl, hv⟩
-      cases h with
-      | let₂ ha hb => exact .let₂ ha (ih.mpr ⟨_, _, hb, hl, hv⟩)
-  | case a l r ihl ihr =>
-    simp only [routedFlat, Flat.erase, bindBranchArguments, Region.lsubst, liftLSubstVars_routeExit] at *
-    constructor
-    · intro h
-      cases h with
-      | case_inl ha hl =>
-        obtain ⟨i, payload, h, hl, hv⟩ := ihl.mp hl
-        exact ⟨i, payload, .case_inl ha h, hl, hv⟩
-      | case_inr ha hr =>
-        obtain ⟨i, payload, h, hl, hv⟩ := ihr.mp hr
-        exact ⟨i, payload, .case_inr ha h, hl, hv⟩
-    · rintro ⟨_, _, h, hl, hv⟩
-      cases h with
-      | case_inl ha h => exact .case_inl ha (ihl.mpr ⟨_, _, h, hl, hv⟩)
-      | case_inr ha h => exact .case_inr ha (ihr.mpr ⟨_, _, h, hl, hv⟩)
+  rw [routedFlat, flat_bind_eval]
+  constructor
+  · rintro ⟨i, v, m, run, route⟩
+    obtain ⟨hl, hv, rfl⟩ := eval_routeExit.mp route
+    exact ⟨i, v, run, hl, hv⟩
+  · rintro ⟨i, v, run, hl, hv⟩
+    exact ⟨i, v, finish, run, eval_routeExit.mpr ⟨hl, hv, rfl⟩⟩
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.FlatDispatcher
