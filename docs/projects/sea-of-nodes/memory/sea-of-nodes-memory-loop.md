@@ -185,9 +185,23 @@ post-store buffer. `run_eq_some_iff` agrees with the exact-count driver
 at any count within the CFG's backedge allowance. The CFG runner uses
 one block step each for entry and exit and one per header activation.
 The shared scheduler specializes to the pure CF evaluator via
-`runBlock_id`. This profile covers one initialized rank-one buffer with
-in-bounds indices. Textual MLIR emission and general MemRef effects
-remain outside the profile.
+`runBlock_id`.
+
+At the native boundary, `Buffer.mk heap` uses the native `Fin n → Word`
+heap as its cell function, and the typed input valuation is shared.
+`cfg_run_eq_some_iff_returnsAfter` observes the returned word and every
+cell exactly when a native return at count `k` fits the raw block fuel
+(`k + 3 ≤ fuel`). The `run` wrapper uses `budget + 3` blocks, so
+`run_eq_some_iff_returnsAfter` uses `k ≤ budget`. `run_eq_none_iff`
+identifies bounded absence with failure at every native exact count
+within that allowance. Across all allowances,
+`exists_run_eq_some_iff_mem_denote` and
+`forall_run_eq_none_iff_denote_eq_none` give finite observation and
+no-finite-observation agreement with the native partial denotation.
+
+This profile covers one initialized rank-one buffer with in-bounds
+indices. Textual MLIR emission and general MemRef effects remain outside
+the profile.
 [CFG theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/MLIR/MemRef/CF/Thms.lean) ·
 [Pure specialization](../../../../Silmaril/SSA/MLIR/CF/Ordered/Thms.lean) ·
 [CFG regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/MLIR/MemRef/CF/Regression.lean)
