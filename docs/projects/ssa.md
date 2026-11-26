@@ -271,7 +271,7 @@ The continuation cannot jump back to its own label.
   LetCase and `Code.toLetCase_ofLetCase` recovers its exact derivation.
   In the other direction `Code.eval_roundtrip_iff` gives equivalence of finite
   observations, since reification may change the placement of SSA binders.
-- `Code.eval_iff_denote` is the denotation square. At matching inputs, an SSA
+- `Code.eval_iff_denote` is the finite-outcome square. At matching inputs, an SSA
   execution to the requested external label with a given payload and final state
   exists exactly when that outcome belongs to the translated LetCase
   `StateT σ SetM` denotation. Primitive instructions must agree on finite
@@ -287,21 +287,33 @@ The continuation cannot jump back to its own label.
   The [quantitative categorical results](../../Silmaril/SSA/Isotope/Refinement/Models/Initiality/Thms.lean)
   concern the quantitative syntax at a fixed signature, with completeness for
   singleton-input judgments.
-- A comparison modulo the exact equations in arbitrary distributive Freyd
-  models still needs a coherent interpretation of moving the shared join
-  continuation into either arm, including weakening under the arm's payload
-  binder. The syntactic law is
-  [`bindLetCase`](../../Silmaril/Raw/SSA/Isotope/LetCase/LocallyNameless/Equiv.lean#L171)
-  and the arrow-level law is
-  [`case_postcomp`](../../Silmaril/SSA/Isotope/LetIter/Categorical/Case/Thms.lean#L30).
-  For general premonoidal sequencing, the structural unit and tensor maps
-  must also support let-η. The
-  [writer counterexample](../../Silmaril/SSA/Isotope/LetIter/Counterexample/Thms.lean)
-  shows why the current broad interface alone cannot supply that law.
-  The finite term comparison leaves signature naturality, model reducts and
-  their satisfaction conditions open. The existing
-  [`iterSSAIso`](../../Silmaril/Raw/SSA/Isotope/Institution/Observational/Isomorphism.lean#L103)
-  concerns a different observational institution.
+- `denote_underBinder` proves that weakening a continuation drops the arm's
+  payload and retains its newly bound result. `denote_bindLetCase` then
+  validates the exact [`bindLetCase` equation](../../Silmaril/Raw/SSA/Isotope/LetCase/LocallyNameless/Equiv.lean#L172)
+  in the distributive Freyd model. It uses centrality of
+  `J.map (duplicate E) ≫ (tensorIso E E).inv` at the original environment
+  `E`, because the bind retains that environment across effectful branches.
+  The LetCase law uses distributive Freyd structure and this local condition.
+  A shared tensor comparison supplies centrality by
+  `denote_bindLetCase_of_sharedTensor`. Agreement of independently chosen
+  typing derivations uses the separate `TypingCoherent` hypothesis.
+  [Exact LetCase denotation and laws](../../Silmaril/SSA/Isotope/LetCase/Categorical/Thms.lean)
+- `Code.denote_toSSA` relates the compiled LetCase arrow to the existing
+  categorical denotation of `Code.toSSA`, with a map of environments on
+  input and the selected label injection on output. The latter semantics uses
+  strong Elgot iteration, so the proof unfolds the one-block dispatcher and
+  shows that the block immediately exits it. This comparison uses a central
+  unit and region typing coherence. With the same local diagonal condition
+  as LetCase, `Code.denote_toSSA_distributeJoin` proves equality of the
+  original and rewritten λSSA regions.
+  [Categorical comparison](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Categorical/Realization/Thms.lean)
+- The [central-unit Freyd counterexample](../../Silmaril/SSA/Isotope/LetIter/Counterexample/Diagonal/Thms.lean)
+  shows that a central unit alone can fail to centralize the transported
+  diagonal in a plain Freyd category. The checked shared-tensor hypothesis
+  gives a sufficient condition in the distributive setting. Soundness of the full exact
+  equational presentation and the signature naturality and satisfaction
+  laws required for an institution morphism remain open here.
+  [Let-family institutions](../../Silmaril/SSA/Isotope/Institution/Thms.lean)
 
 ## Guarded iteration and resumptions
 
@@ -372,7 +384,8 @@ lake build --wfail Silmaril.SSA.LambdaRTL.Thms Silmaril.SSA.LambdaRTL.CFG.Thms \
   Silmaril.SSA.Isotope.LetIter.Thms Silmaril.SSA.Isotope.LambdaSSA.Categorical.Thms \
   Silmaril.SSA.Isotope.LambdaSSA.Kleisli.Thms \
   Silmaril.SSA.Thesis.Kleisli.Thms Silmaril.SSA.Isotope.Refinement.Thms \
-  Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.Thms
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.Thms \
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Categorical.Realization.Thms
 ```
 
 The root target `lake build --wfail Silmaril` builds all of them.
