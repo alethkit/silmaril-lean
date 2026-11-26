@@ -28,7 +28,7 @@ private theorem tail_code (fn : Graph.Function) (tail : List Graph.Op) :
     { fn with initial := [], code := tail }
   exact code
 
-private theorem site_code (entry : Entry) :
+theorem site_code (entry : Entry) :
     expression entry.siteBody.core = entry.coreSiteCode entry.before := by
   change expression
     (entry.before.map (fun op => Graph.Op.emit Graph.coreCodeSyntax (.numeric op)) ++
@@ -182,33 +182,42 @@ theorem ordinary_path (ready : entry.Checked program tables outer index args)
   intro dst
   exact Computed.core_direct_call_iff (s := s) (P := P) (stack := args) (tail := []) ready.resolves allocated
 
-theorem operands_via (front : List (Config H))
-    (enters : (front ++ [entry.coreBody s outer args]).IsChain (fun a b => ∀ dst, Step P noHost a dst ↔ dst = b))
+theorem operands_via (entrance : Entrance) (front : List (Config H))
+    (enters : (front ++ [entry.coreEntrance s outer args entrance]).IsChain (fun a b => ∀ dst, Step P noHost a dst ↔ dst = b))
     {states : List OperandState} {result : OperandResult}
     (trace : entry.OperandTrace args states result) :
-    ((front ++ entry.coreInside s outer args states) ++ [entry.coreOperandResult s outer args result]).IsChain
+    ((front ++ entry.coreInside s outer args states entrance) ++ [entry.coreOperandResult s outer args result]).IsChain
       (fun a b => ∀ dst, Step P noHost a dst ↔ dst = b) := by
   have head := operand_head (entry.coreOperands s outer args) (entry.coreOperandResult s outer args)
     (fun _ => rfl) trace
   have after := operand_chain (s := s) (outer := outer) (P := P) trace
-  have site : entry.coreRegion s outer args entry.cont.scopes entry.initial [] =
-      entry.coreOperands s outer args (entry.initial, entry.before) := by
-    simp only [Entry.coreRegion, Entry.region, site_code, Entry.coreOperands, Context.Resume.Continuation.coreSiteWrap]
-  rw [← site] at head
-  have path := block_chain (entry := entry) (s := s) (outer := outer) (args := args) (P := P) entry.cont.blocks entry.cont.owner.initial []
-    _ after (by simpa only [List.nil_append, Context.Resume.Continuation.scopes, Entry.initial] using head)
-  have same : entry.coreBody s outer args =
-      entry.coreRegion s outer args [] entry.cont.owner.initial entry.cont.blocks := by
-    simp [Entry.coreBody, body_code, Entry.body, Entry.coreRegion, Context.coreNestWith]
-  generalize restEq : entry.coreBlocks s outer args [] entry.cont.owner.initial entry.cont.blocks ++
-    (states.map (entry.coreOperands s outer args) ++ [entry.coreOperandResult s outer args result]) = suffix at path
+  have path : let suffix := entry.coreInside s outer args states entrance ++ [entry.coreOperandResult s outer args result]
+      suffix.IsChain (fun a b => ∀ dst, Step P noHost a dst ↔ dst = b) ∧
+        suffix.head? = some (entry.coreEntrance s outer args entrance) := by
+    cases entrance with
+    | operands => exact ⟨after, head⟩
+    | body =>
+      have site : entry.coreRegion s outer args entry.cont.scopes entry.initial [] =
+          entry.coreOperands s outer args (entry.initial, entry.before) := by
+        simp only [Entry.coreRegion, Entry.region, site_code, Entry.coreOperands, Context.Resume.Continuation.coreSiteWrap]
+      rw [← site] at head
+      have path := block_chain (entry := entry) (s := s) (outer := outer) (args := args) (P := P) entry.cont.blocks entry.cont.owner.initial []
+        _ after (by simpa only [List.nil_append, Context.Resume.Continuation.scopes, Entry.initial] using head)
+      have same : entry.coreEntrance s outer args .body =
+          entry.coreRegion s outer args [] entry.cont.owner.initial entry.cont.blocks := by
+        simp [Entry.coreEntrance, Entry.coreBody, body_code, Entry.body, Entry.coreRegion, Context.coreNestWith]
+      have first := path.2.trans (congrArg some same.symm)
+      simpa only [Entry.coreInside, List.append_assoc] using And.intro path.1 first
+  dsimp only at path
+  generalize restEq : entry.coreInside s outer args states entrance ++
+    [entry.coreOperandResult s outer args result] = suffix at path
   cases suffix with
   | nil => simp at path
   | cons first rest =>
-    have eq : first = entry.coreBody s outer args := (Option.some.inj path.2).trans same.symm
+    have eq : first = entry.coreEntrance s outer args entrance := Option.some.inj path.2
     subst first
     have merged := List.IsChain.append_overlap enters (l₃ := rest) path.1 (by simp)
-    simpa only [Entry.coreInside, List.append_assoc, ← restEq, List.singleton_append] using merged
+    simpa only [List.append_assoc, ← restEq, List.singleton_append] using merged
 
 theorem operands_exact (ready : entry.Checked program tables outer index args)
     (allocated : s.funcs[entry.cont.address.value]? = some entry.coreInstance)
@@ -216,19 +225,19 @@ theorem operands_exact (ready : entry.Checked program tables outer index args)
     (trace : entry.OperandTrace args states result) :
     (entry.coreBefore s outer index args states ++ [entry.coreOperandResult s outer args result]).IsChain
       (fun a b => ∀ dst, Step P noHost a dst ↔ dst = b) :=
-  operands_via [coreSource s outer index args, entry.coreInvoke s outer args] (ordinary_path (P := P) ready allocated) trace
+  operands_via .body [coreSource s outer index args, entry.coreInvoke s outer args] (ordinary_path (P := P) ready allocated) trace
 
 theorem prefix_via {states : List OperandState} {stack : List Value}
     (ready : entry.AtSite program tables outer index args states stack active)
-    (front : List (Config H))
-    (enters : (front ++ [entry.coreBody s outer args]).IsChain (fun a b => ∀ dst, Step P noHost a dst ↔ dst = b))
+    (entrance : Entrance) (front : List (Config H))
+    (enters : (front ++ [entry.coreEntrance s outer args entrance]).IsChain (fun a b => ∀ dst, Step P noHost a dst ↔ dst = b))
     (tablesFound : Source.Tables.CoreAllocated tables s)
     (targets : active.binding.site.CoreAllocated program s) {out : Outcome}
     (resolved : active.resolve program = some out) :
-    (front ++ entry.coreSitePath s outer args active out states).IsChain (fun a b => ∀ dst, Step P noHost a dst ↔ dst = b) := by
+    (front ++ entry.coreSitePath s outer args active out states entrance).IsChain (fun a b => ∀ dst, Step P noHost a dst ↔ dst = b) := by
   have prepare := prepare_spec ready
   have data := prepare.checked
-  have before := operands_via (P := P) front enters ready.trace
+  have before := operands_via (P := P) entrance front enters ready.trace
   have lookup := Context.Resume.core_resolution_allocated_exact (P := P) (cont := entry.cont) (outer := outer)
     (stack := active.operands.saved ++ active.operands.args) data.site targets
     (Source.core_table data tablesFound) resolved
@@ -261,27 +270,27 @@ theorem prefix_exact {states : List OperandState} {stack : List Value}
     (allocated : entry.CoreAllocated program tables active s) {out : Outcome}
     (resolved : active.resolve program = some out) :
     (entry.corePrefix s outer index args active out states).IsChain (fun a b => ∀ dst, Step P noHost a dst ↔ dst = b) :=
-  prefix_via (P := P) ready [coreSource s outer index args, entry.coreInvoke s outer args]
+  prefix_via (P := P) ready .body [coreSource s outer index args, entry.coreInvoke s outer args]
     (ordinary_path (P := P) ready.checked allocated.entry) allocated.tables allocated.targets resolved
 
 theorem run_via {states : List OperandState} {stack : List Value}
     (ready : entry.AtSite program tables outer index args states stack active)
-    (start : Config H) (front : List (Config H))
-    (enters : (start :: front ++ [entry.coreBody s outer args]).IsChain
+    (entrance : Entrance) (start : Config H) (front : List (Config H))
+    (enters : (start :: front ++ [entry.coreEntrance s outer args entrance]).IsChain
       (fun a b => ∀ dst, Step P noHost a dst ↔ dst = b))
     (tablesFound : Source.Tables.CoreAllocated tables s)
     (targets : active.binding.site.CoreAllocated program s)
     (links : program.CoreLinksAllocated s)
     {call : Context.Invocation} (invoked : active.invocation program = some call) {dst : Config H} :
     Steps P noHost start dst ↔
-      dst ∈ (start :: front) ++ entry.coreSitePath s outer args active (.resolved call.address) states ∨
+      dst ∈ (start :: front) ++ entry.coreSitePath s outer args active (.resolved call.address) states entrance ∨
       ∃ phase, Context.Resume.Runs program call entry.cont (.callee call.entered) phase ∧
         dst = entry.cont.coreConfig call s outer phase := by
   obtain ⟨callChecked, continuation⟩ := resume_guard ready invoked
   obtain ⟨member, found, resolved⟩ := resolved_entry_ref invoked
-  let before := (start :: front) ++ entry.coreSitePath s outer args active (.resolved call.address) states
+  let before := (start :: front) ++ entry.coreSitePath s outer args active (.resolved call.address) states entrance
   let entered := entry.cont.coreConfig call s outer (.callee call.entered)
-  have steps := prefix_via (P := P) ready (start :: front) enters tablesFound targets resolved
+  have steps := prefix_via (P := P) ready entrance (start :: front) enters tablesFound targets resolved
   have enter : ∀ dst, Step P noHost (entry.coreLookup s outer active (.call (some call.address))) dst ↔
       dst = entered := by
     obtain ⟨address, callee, _, _, rfl⟩ := Source.invocation_fields invoked
@@ -305,7 +314,7 @@ theorem run_iff {states : List OperandState} {stack : List Value}
       dst ∈ entry.corePrefix s outer index args active (.resolved call.address) states ∨
       ∃ phase, Context.Resume.Runs program call entry.cont (.callee call.entered) phase ∧
         dst = entry.cont.coreConfig call s outer phase :=
-  run_via (P := P) ready (coreSource s outer index args) [entry.coreInvoke s outer args]
+  run_via (P := P) ready .body (coreSource s outer index args) [entry.coreInvoke s outer args]
     (ordinary_path (P := P) ready.checked allocated.entry) allocated.tables allocated.targets allocated.links invoked
 
 end Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Proofs.Core

@@ -148,9 +148,22 @@ def Entry.coreBlocks {H : Type} (entry : Entry) (s : Core.Store H) (outer : Fram
   | entered, saved, block :: rest => entry.coreRegion s outer args entered saved (block :: rest) ::
       entry.coreBlocks s outer args (entered ++ [block.scope saved]) [] rest
 
+/-- A source path may hand off before the block spine or after entering
+all its labels. Both positions use the same activation and site continuation. -/
+inductive Entrance where
+  | body
+  | operands
+
+def Entry.coreEntrance {H : Type} (entry : Entry) (s : Core.Store H) (outer : Frame) (args : List Value) :
+    Entrance → Core.Config H
+  | .body => entry.coreBody s outer args
+  | .operands => entry.coreOperands s outer args (entry.initial, entry.before)
+
 def Entry.coreInside {H : Type} (entry : Entry) (s : Core.Store H) (outer : Frame)
-    (args : List Value) (states : List OperandState) : List (Core.Config H) :=
-  entry.coreBlocks s outer args [] entry.cont.owner.initial entry.cont.blocks ++
+    (args : List Value) (states : List OperandState) (entrance : Entrance := .body) : List (Core.Config H) :=
+  (match entrance with
+    | .body => entry.coreBlocks s outer args [] entry.cont.owner.initial entry.cont.blocks
+    | .operands => []) ++
     states.map (entry.coreOperands s outer args)
 
 def Entry.coreBefore {H : Type} (entry : Entry) (s : Core.Store H) (outer : Frame) (index : FuncIdx)
@@ -162,9 +175,9 @@ def Entry.coreLookup {H : Type} (entry : Entry) (s : Core.Store H) (outer : Fram
   entry.cont.coreWrap outer (active.coreConfig s entry.cont.scopes entry.cont.code phase)
 
 def Entry.coreSitePath {H : Type} (entry : Entry) (s : Core.Store H) (outer : Frame)
-    (args : List Value) (active : Source.Activation) (out : Outcome) (states : List OperandState) :
+    (args : List Value) (active : Source.Activation) (out : Outcome) (states : List OperandState) (entrance : Entrance := .body) :
     List (Core.Config H) :=
-  entry.coreInside s outer args states ++
+  entry.coreInside s outer args states entrance ++
     out.coreTrace.map (entry.coreLookup s outer active)
 
 def Entry.corePrefix {H : Type} (entry : Entry) (s : Core.Store H) (outer : Frame) (index : FuncIdx)
@@ -209,9 +222,17 @@ def Entry.limeBlocks {H : Type} (entry : Entry) (s : Store H) (outer : Frame) (a
       entry.limeBlocks s outer args (entered ++ [block.scope saved]) [] rest
 
 open Wasm.Lime1.Execution in
+def Entry.limeEntrance {H : Type} (entry : Entry) (s : Store H) (outer : Frame) (args : List Value) :
+    Entrance → Config H
+  | .body => entry.limeBody s outer args
+  | .operands => entry.limeOperands s outer args (entry.initial, entry.before)
+
+open Wasm.Lime1.Execution in
 def Entry.limeInside {H : Type} (entry : Entry) (s : Store H) (outer : Frame)
-    (args : List Value) (states : List OperandState) : List (Config H) :=
-  entry.limeBlocks s outer args [] entry.cont.owner.initial entry.cont.blocks ++
+    (args : List Value) (states : List OperandState) (entrance : Entrance := .body) : List (Config H) :=
+  (match entrance with
+    | .body => entry.limeBlocks s outer args [] entry.cont.owner.initial entry.cont.blocks
+    | .operands => []) ++
     states.map (entry.limeOperands s outer args)
 
 open Wasm.Lime1.Execution in
@@ -221,9 +242,9 @@ def Entry.limeBefore {H : Type} (entry : Entry) (s : Store H) (outer : Frame) (i
 
 open Wasm.Lime1.Execution in
 def Entry.limeSitePath {H : Type} (entry : Entry) (s : Store H) (outer : Frame)
-    (args : List Value) (active : Source.Activation) (out : Outcome) (states : List OperandState) :
+    (args : List Value) (active : Source.Activation) (out : Outcome) (states : List OperandState) (entrance : Entrance := .body) :
     List (Config H) :=
-  entry.limeInside s outer args states ++
+  entry.limeInside s outer args states entrance ++
     [entry.cont.limeWrap outer (active.limeSource s entry.cont.scopes entry.cont.code),
      entry.cont.limeWrap outer (active.limeResolved s entry.cont.scopes entry.cont.code out)]
 

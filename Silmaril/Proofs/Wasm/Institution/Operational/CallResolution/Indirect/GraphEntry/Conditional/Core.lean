@@ -172,7 +172,7 @@ theorem site_run (ready : entry.Checked program tables outer index args)
       dst ∈ (coreSource s outer index args :: entry.coreFront s outer args value) ++ entry.site.coreSitePath s outer args active (.resolved call.address) states ∨
       ∃ phase, Context.Resume.Runs program call entry.site.cont (.callee call.entered) phase ∧
         dst = entry.site.cont.coreConfig call s outer phase :=
-  GraphEntry.core_run_via atSite (coreSource s outer index args) (entry.coreFront s outer args value)
+  GraphEntry.core_run_via atSite .body (coreSource s outer index args) (entry.coreFront s outer args value)
     (enters_site ready allocated read select) tableAllocated targets links invoked
 
 theorem lookup_trap (ready : entry.Checked program tables outer index args)
@@ -188,7 +188,7 @@ theorem lookup_trap (ready : entry.Checked program tables outer index args)
       dst ∈ ((coreSource s outer index args :: entry.coreFront s outer args value) ++ entry.site.coreSitePath s outer args active out states).dropLast ∨
       ∃ phase, CleanupRuns (entry.site.coreTrapStart active out) phase ∧
         dst = entry.site.coreCleanup s outer active.caller phase :=
-  GraphEntry.core_trap_run_via atSite (coreSource s outer index args) (entry.coreFront s outer args value)
+  GraphEntry.core_trap_run_via atSite .body (coreSource s outer index args) (entry.coreFront s outer args value)
     (enters_site ready allocated read select) tableAllocated targets resolved trap
 
 theorem operand_trap (ready : entry.Checked program tables outer index args)
@@ -201,7 +201,7 @@ theorem operand_trap (ready : entry.Checked program tables outer index args)
       dst ∈ (coreSource s outer index args :: entry.coreFront s outer args value) ++ entry.site.coreInside s outer args states ∨
       ∃ phase, CleanupRuns (entry.site.siteTrap Graph.coreEmit saved (entry.site.coreSiteCode rest)) phase ∧
         dst = entry.site.coreCleanup s outer (entry.site.frame args) phase :=
-  GraphEntry.core_operand_trap_run_via (coreSource s outer index args) (entry.coreFront s outer args value)
+  GraphEntry.core_operand_trap_run_via .body (coreSource s outer index args) (entry.coreFront s outer args value)
     (enters_site ready allocated read select) trace
 
 end Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Conditional.Proofs.Core
