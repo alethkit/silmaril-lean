@@ -6,7 +6,7 @@ public section
 
 namespace Silmaril.Proofs.Semantics.ConcurrentTrace.Ideals
 
-open Silmaril.Semantics.ConcurrentTrace
+open Silmaril.Semantics.ConcurrentTrace Silmaril.Semantics.ConcurrentTrace.Ideals
 open Order
 
 variable {E R F S M N : Type*} [Preorder M] [Preorder N]

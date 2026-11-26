@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.ConcurrentTrace.Defs
+public import Silmaril.Semantics.ConcurrentTrace.PartialSequence.Defs
 
 public section
 

@@ -343,11 +343,39 @@ or label types but share the typed record and exit profile.
 its transported arrival proof. It requires an empty list of extra
 capture slots, so renaming leaves the supplied record type fixed.
 `split_observe_eq` and `split_satisfies` give pointwise tree equality and
-both directions of the admitted comparison. Appending slots changes the
-entry context and record type, so those splits still use the
-different-record `Generated.packed_eq` route. The distinct-latch fixture
+both directions of the admitted comparison. The distinct-latch fixture
 uses the same supplied record to see `tick 2 5` followed by `tick 5 2`
 after a continuing reply, including in the packed institution's
 translated program.
 [Split corollaries](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/Split/Thms.lean)
+· [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)
+
+### Splits that append capture fields
+
+The generated target keeps its larger typed entry context.
+`Admitted.ofExtended` reuses its actual admission after checking that the
+target names are distinct and that any private `none` slot has unit type.
+`retainedRecord` pulls a supplied large record back to the original
+context along the checked slot embedding. That reindexing preserves the
+input decoder's value at every retained slot.
+
+The minimal additional data to extend a given original input are
+values of the appended field types. The typing and arrival certificates
+specify these types without supplying inhabitants. The comparison
+takes a larger record and relates it to its projection. It uses the
+larger record's store, pulled back along the register equivalence, for
+both independent φ runs. The original admission shows that the run
+depends only on the retained slots. Both the older `Generated.packed_eq`
+and the projected comparison use the same generated source-observation
+equality.
+[Record reindexing](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Record/Thms.lean)
+
+`split_named_reindex` and `split_packed_reindex` give pointwise weak tree
+equality at the related records, with the same singleton return type.
+`split_related_satisfies` gives both directions of trace inclusion in
+the named and packed observations. The generated self-edge fixture
+starts from the two seed fields and supplies distinct nonzero values
+for the two appended fields. It checks both directions and observes
+`tick 2 5` followed by `tick 5 2` through the packed program.
+[Split comparison](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/Split/Extended/Thms.lean)
 · [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)

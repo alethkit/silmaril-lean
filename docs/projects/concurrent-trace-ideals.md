@@ -21,7 +21,7 @@ standard finite trace-monoid terminology.
   word records available observations. The constructor alone cannot tell
   whether the source computation stopped, blocked, or silently diverged.
 - [`prefixIdeal`][ideals] takes the downward closure of the finite quotient
-  classes of the cuts of one sequence. `Trace.ofSequence_eq_iff` compares two
+  classes of the cuts of one sequence. `Ideals.Trace.ofSequence_eq_iff` compares two
   presentations by mutual cofinal domination of the classes and equality of
   optional results. In the commuting two-letter alphabet, the streams
   `abbbb…` and `babbb…` have different first quotient prefixes and equal
@@ -33,11 +33,11 @@ standard finite trace-monoid terminology.
   observations represents that ideal. Each cut contributes only finitely
   many elements, and the countable union of its cuts cannot cover the alphabet.
 - A finite word generates the principal ideal of its class.
-  `Trace.ofFinite_injective` embeds finite word classes with their optional
+  `Ideals.Trace.ofFinite_injective` embeds finite word classes with their optional
   result when the finite order is antisymmetric. A monotone length function
   recovering raw word length rules out principal ideals for infinite streams.
   Erasing interpretations can lose this distinction for pending words.
-- `Trace.observe_map` gives the naturality square. A relabelling that commutes
+- `Ideals.Trace.observe_map` gives the naturality square. A relabelling that commutes
   with the finite word maps acts on ideals by downward closure of their image
   under the monotone map of finite classes. A result map acts on the optional
   result.
@@ -92,13 +92,13 @@ the fusion result.
 ```sh
 lake build --wfail +Silmaril.Semantics.ConcurrentTrace.Ideals.Thms \
   +Silmaril.Semantics.Domain.Kleene.Fusion.Thms \
-  +Silmaril.Proofs.Semantics.ConcurrentTrace.Regression
+  +Silmaril.Proofs.Semantics.ConcurrentTrace.Ideals.Regression
 ```
 
-[sequences]: ../../Silmaril/Semantics/ConcurrentTrace/Defs.lean
-[prefixes]: ../../Silmaril/Semantics/ConcurrentTrace/Thms.lean
+[sequences]: ../../Silmaril/Semantics/ConcurrentTrace/PartialSequence/Defs.lean
+[prefixes]: ../../Silmaril/Semantics/ConcurrentTrace/PartialSequence/Thms.lean
 [ideals]: ../../Silmaril/Semantics/ConcurrentTrace/Ideals/Thms.lean
-[regression]: ../../Silmaril/Proofs/Semantics/ConcurrentTrace/Regression.lean
+[regression]: ../../Silmaril/Proofs/Semantics/ConcurrentTrace/Ideals/Regression.lean
 [paths]: ../../Silmaril/Foundations/InfiniteTrace.lean
 [itrees]: ../../Silmaril/Semantics/ITree/Defs.lean
 [itree-traces]: ../../Silmaril/Semantics/ITree/Trace/Defs.lean

@@ -25,16 +25,17 @@ variable {κ V K : Type (u + 1)} [DecidableEq V] [DecidableEq K]
 local notation "A" => Region.packedInputType I.context.toList
 local notation "C" => AtomValues.carrier (κ := κ)
 
+theorem observe_rtl (M : Model (κ := κ) Events P.Instr) (a : Admission P I fields source)
+    (x : Ty.denote C A) : a.rtl.observe M x = observe M I fields source x := by
+  change (CFG.Cyclic.run (treeModel M.raw) a.rtl.source (store I.names I.context x) >>= fun out =>
+    pure (FiniteCFG.packedTreeOutput (treeExitNumber I.exits (obs out)))) = _
+  rw [a.attached, CFG.Cyclic.LiveOut.run_project]
+  simp only [observe, bind_map_left]
+
 theorem packed_tree (M : Model (κ := κ) Events P.Instr) (a : Admission P I fields source)
     (x : Ty.denote C A) (ambient : Env (Sigma C)) :
-    region M.raw (extend ambient (encodeValue C A x)) a.program.code = observe M I fields source x := by
-  calc
-    _ = a.rtl.versioned.observe M x := (SSA.observe_tree M a.rtl.versioned x ambient).symm
-    _ = a.rtl.observe M x := (RTL.observe_version M a.rtl x).symm
-    _ = _ := by
-      change (CFG.Cyclic.run (treeModel M.raw) a.rtl.source (store I.names I.context x) >>= fun out =>
-        pure (FiniteCFG.packedTreeOutput (treeExitNumber I.exits (obs out)))) = _
-      rw [a.attached, CFG.Cyclic.LiveOut.run_project]
-      simp only [observe, bind_map_left]
+    region M.raw (extend ambient (encodeValue C A x)) a.program.code = observe M I fields source x :=
+  (SSA.observe_tree M a.rtl.versioned x ambient).symm.trans
+    ((RTL.observe_version M a.rtl x).symm.trans (observe_rtl M a x))
 
 end Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.LiveOut

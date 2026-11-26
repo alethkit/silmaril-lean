@@ -14,6 +14,9 @@ Every module is in the root `Silmaril` library; there is no executable.
 The [LambdaIter family matrix](lambda-iter-family.md) records the assumptions of
 the semantics comparisons and the forward flat SSA/RTL commuting square.
 
+The [LetIter heap reindexing note](letiter-heap-reindexing.md) describes the typed
+allocation dialect and its finite trace theorem.
+
 ## The calculi and translations
 
 ```mermaid
@@ -261,6 +264,16 @@ exits and right inputs, which the handoff blocks preserve. The `Part`
 observation theorem also applies to the compiled named SSA classes when
 the designated register holds the packed input. Zero fields encode as unit,
 and all routes to an empty packet agree without a field-separation premise.
+
+`Width.packedSat` uses the existing compiled named SSA sentence sides and
+pair-lawful `Part` models. The checker decides this restricted satisfaction in
+a separating model. Primitive relabelling preserves the verdict, and packed
+satisfaction after relabelling is satisfaction in the reduct. Both laws
+allow noninjective renamings. For compatible intermediate widths, linking
+preserves packed refinement when the source left stage is checked and thus
+produces a packed input for the right stage. All-store satisfaction implies
+packed satisfaction. The converse fails for a one-field block that normalizes
+the tail of a raw pair, while a wire keeps it.
 
 Names (`Nameless.Thms`, `LocallyNameless.Thms`, `Nameless.Institution.Thms`):
 `Region.eval_toDB` (adequacy), `DB.Region.toDB_ofDB` (round trip),
@@ -667,6 +680,19 @@ The continuation cannot jump back to its own label.
   [Grammar and certification](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Thms.lean) ·
   [Ordered-exit round trip](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Categorical/Thms.lean) ·
   [Three-exit state traces](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Regression.lean)
+- The ranked captured and witnessed LetCase equations use the existing
+  ordered finite-exit interface and discrete coherent and validated models.
+  Their forward comparison commutes with signature changes on actual typed
+  LetCase equations, including when two exit types map to the same type.
+  Either order of reverse compilation and relabelling gives the same exact
+  structured finite-exit lowering and the same native satisfaction.
+  Numbering and reading are inverse on classes of equations that hold in
+  the same models. A shared successor can be duplicated in the native
+  round trip, and the quotient establishes model-wise equivalence for this
+  grammar. Syntactic rewrite completeness is a separate question.
+  [Signature and satisfaction squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Thms.lean) ·
+  [Institution isomorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Semantic/Thms.lean) ·
+  [Shared successor and type collision](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Semantic/Regression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

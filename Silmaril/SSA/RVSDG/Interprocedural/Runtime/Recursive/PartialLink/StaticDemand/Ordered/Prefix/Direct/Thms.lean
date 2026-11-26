@@ -121,61 +121,77 @@ variable {context : Ports (Ty V S)} {actions : Actions m σ}
 /-- Resolution for all activations satisfying the boundary map, separately
 for each checked link. Untracked ports may have arbitrary runtime values. -/
 @[expose] def resolvedAt {entry outs : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))}
-    (source : Boundary imports entry scope.past)
-    (code : Code Op entry past sigs outs true (some scope.table))
+    {loops : Bool} {member : Option (MemberSummaries V S)} (source : Boundary imports entry scope.past)
+    (code : Code Op entry past sigs outs loops member) (known : some scope.table = member)
     (inputsL inputsR : Tuple m.Val imports) : Prop :=
-  (∀ values, Boundary.Reads source inputsL scope.localsL values → code.ResolvedWith scope.guardL values) ∧
-  (∀ values, Boundary.Reads source inputsR scope.localsR values → code.ResolvedWith scope.guardR values)
+  (∀ values, Boundary.Reads source inputsL scope.localsL values → code.ResolvedWith (known ▸ scope.guardL) values) ∧
+  (∀ values, Boundary.Reads source inputsR scope.localsR values → code.ResolvedWith (known ▸ scope.guardR) values)
 
-theorem bothArms {P : Fin 2 → Prop} (left : P 0) (right : P 1) : ∀ i, P i :=
-  Fin.cases left (fun i => Fin.eq_zero i ▸ right)
+/-- Collect a certificate for each typed arm at its actual finite index. -/
+@[expose] def collectArms : (n : Nat) → {P : Fin n → Prop} →
+    ((i : Fin n) → Option (PLift (P i))) → Option (PLift (∀ i, P i))
+  | 0, _, _ => some ⟨fun i => i.elim0⟩
+  | n + 1, _, check => do
+    let head ← check 0
+    let tail ← collectArms n (fun i => check i.succ)
+    pure ⟨Fin.cases head.down tail.down⟩
 
-/-- Certify direct calls at checked typed addresses. At a binary γ, follow
-its actual argument wires and certify both arms before the suffix. Arity
-greater than two, nested γ, θ, and inline closure descriptions still
-require explicit resolution. -/
-@[expose] def synthesizeAt (checked : scope.Checked actions) (routes : Routes inputsL inputsR scope) :
-    Nat → (allowGamma : Bool) → {entry outs : Ports (Ty V S)} → {past sigs : List (Ports (Ty V S))} →
-    (source : Boundary imports entry scope.past) →
-    (code : Code Op entry past sigs outs true (some scope.table)) →
-    Option (PLift (resolvedAt source code inputsL inputsR))
-  | _, _, _, _, _, _, _, .ret _ => some ⟨fun _ _ => trivial, fun _ _ => trivial⟩
-  | steps + 1, allow, _, _, _, _, source, .primitive _ _ rest => synthesizeAt checked routes steps allow source rest
-  | steps + 1, allow, _, _, _, _, source, .familyCall i target witnesses _ rest =>
-    match found : Boundary.project source (.cons (.arg target) witnesses), routes i with
-    | some sources, some route =>
-      if same : sources.addresses = route.wires.addresses then
-        let origin := sources.get .head
-        if (checked.state.left.available (entry := inputsL) Known.ordinary origin).isSome &&
-            (checked.state.right.available (entry := inputsR) Known.ordinary origin).isSome then
-          (synthesizeAt checked routes steps allow source rest).map fun later =>
-            ⟨fun values reads => ⟨boundary_call source i target witnesses sources route.wires found same
-                inputsL scope.localsL scope.guardL route.left values reads, later.down.1 values reads⟩,
-              fun values reads => ⟨boundary_call source i target witnesses sources route.wires found same
-                inputsR scope.localsR scope.guardR route.right values reads, later.down.2 values reads⟩⟩
-        else none
+@[expose] def resolveSite (checked : scope.Checked actions) (routes : Routes inputsL inputsR scope)
+    {entry : Ports (Ty V S)} (source : Boundary imports entry scope.past)
+    {called : MemberSummaries V S} (known : some scope.table = some called)
+    (i : Fin called.members.length) (target : Port entry (called.at i).fn.port)
+    (witnesses : Wires entry [] (called.at i).captures) :
+    Option (PLift
+      ((∀ values, Boundary.Reads source inputsL scope.localsL values →
+          (known ▸ scope.guardL : MemberResolution m (some called)) i (values.get target) (witnesses.read values PUnit.unit)) ∧
+       (∀ values, Boundary.Reads source inputsR scope.localsR values →
+          (known ▸ scope.guardR : MemberResolution m (some called)) i (values.get target) (witnesses.read values PUnit.unit)))) := by
+  obtain rfl := Option.some.inj known
+  exact match found : Boundary.project source (.cons (.arg target) witnesses), routes i with
+  | some sources, some route =>
+    if same : sources.addresses = route.wires.addresses then
+      let origin := sources.get .head
+      if (checked.state.left.available (entry := inputsL) Known.ordinary origin).isSome &&
+          (checked.state.right.available (entry := inputsR) Known.ordinary origin).isSome then
+        some ⟨fun values reads => boundary_call source i target witnesses sources route.wires found same
+          inputsL scope.localsL scope.guardL route.left values reads,
+          fun values reads => boundary_call source i target witnesses sources route.wires found same
+            inputsR scope.localsR scope.guardR route.right values reads⟩
       else none
-    | _, _ => none
-  | steps + 1, true, _, _, _, _, source, .gamma 0 _ _ wires arms rest => do
-    let first ← synthesizeAt checked routes steps false (Boundary.forward source wires) (arms 0)
-    let second ← synthesizeAt checked routes steps false (Boundary.forward source wires) (arms 1)
-    let later ← synthesizeAt checked routes steps true source rest
-    pure ⟨fun values reads => ⟨fun locals =>
-      let forwarded : Boundary.Reads (Boundary.forward source wires) inputsL scope.localsL (wires.read values locals) :=
-        forward_reads source wires inputsL scope.localsL values reads locals
-      bothArms (first.down.1 _ forwarded) (second.down.1 _ forwarded), later.down.1 values reads⟩,
-      fun values reads => ⟨fun locals =>
-        let forwarded : Boundary.Reads (Boundary.forward source wires) inputsR scope.localsR (wires.read values locals) :=
-          forward_reads source wires inputsR scope.localsR values reads locals
-        bothArms (first.down.2 _ forwarded) (second.down.2 _ forwarded), later.down.2 values reads⟩⟩
-  | _, _, _, _, _, _, _, _ => none
-termination_by structural steps _ _ _ _ _ _ _ => steps
+    else none
+  | _, _ => none
+
+/-- Check direct calls structurally. At each γ, compose the child boundary
+map with the actual argument wires and certify all arms and the suffix.
+θ and inline closure descriptions require supplied resolution. -/
+@[expose] def synthesizeAt (checked : scope.Checked actions) (routes : Routes inputsL inputsR scope) :
+    {entry outs : Ports (Ty V S)} → {past sigs : List (Ports (Ty V S))} →
+    {loops : Bool} → {member : Option (MemberSummaries V S)} →
+    (source : Boundary imports entry scope.past) → (code : Code Op entry past sigs outs loops member) →
+    (known : some scope.table = member) → Option (PLift (resolvedAt source code known inputsL inputsR))
+  | _, _, _, _, _, _, _, .ret _, _ => some ⟨fun _ _ => trivial, fun _ _ => trivial⟩
+  | _, _, _, _, _, _, source, .primitive _ _ rest, known => synthesizeAt checked routes source rest known
+  | _, _, _, _, _, _, source, .familyCall i target witnesses _ rest, known => do
+    let site ← resolveSite checked routes source known i target witnesses
+    let later ← synthesizeAt checked routes source rest known
+    pure ⟨fun values reads => ⟨site.down.1 values reads, later.down.1 values reads⟩,
+      fun values reads => ⟨site.down.2 values reads, later.down.2 values reads⟩⟩
+  | _, _, _, _, _, _, source, .gamma extra _ _ wires arms rest, known => do
+    let children ← collectArms (extra + 2) (fun i =>
+      synthesizeAt checked routes (Boundary.forward source wires) (arms i) known)
+    let later ← synthesizeAt checked routes source rest known
+    pure ⟨fun values reads => ⟨fun locals i =>
+      (children.down i).1 _ (forward_reads source wires inputsL scope.localsL values reads locals), later.down.1 values reads⟩,
+      fun values reads => ⟨fun locals i =>
+        (children.down i).2 _ (forward_reads source wires inputsR scope.localsR values reads locals), later.down.2 values reads⟩⟩
+  | _, _, _, _, _, _, _, _, _ => none
+termination_by structural _ _ _ _ _ _ _ code _ => code
 
 @[expose] def synthesize (checked : scope.Checked actions) (routes : Routes inputsL inputsR scope)
     (captures : Wires imports scope.past context) {past sigs : List (Ports (Ty V S))} {outs : Ports (Ty V S)}
     (code : Code Op (context ++ fn.args) past sigs outs true (some scope.table)) :
     Option (PLift (resolved captures code inputsL inputsR)) :=
-  (synthesizeAt checked routes (checkDepth code) true (captureBoundary captures) code).map fun certificate =>
+  (synthesizeAt checked routes (captureBoundary captures) code rfl).map fun certificate =>
     ⟨fun args => certificate.down.1 _ (capture_reads captures inputsL scope.localsL args),
       fun args => certificate.down.2 _ (capture_reads captures inputsR scope.localsR args)⟩
 

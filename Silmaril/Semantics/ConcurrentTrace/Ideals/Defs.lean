@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.ConcurrentTrace.Thms
+public import Silmaril.Semantics.ConcurrentTrace.PartialSequence.Thms
 public import Mathlib.Order.Ideal
 public import Mathlib.Order.Setoid.Basic
 
@@ -12,7 +12,7 @@ left divisibility, and the word map sends a word to its finite trace class.
 
 @[expose] public section
 
-namespace Silmaril.Semantics.ConcurrentTrace
+namespace Silmaril.Semantics.ConcurrentTrace.Ideals
 
 universe u v w z u' w'
 
@@ -71,4 +71,4 @@ def observe (t : Trace q R) : Order.Ideal M × Option R :=
 abbrev FiniteWord (q : WordMap E M) := Quotient (Setoid.ker q.toFun)
 
 end Trace
-end Silmaril.Semantics.ConcurrentTrace
+end Silmaril.Semantics.ConcurrentTrace.Ideals

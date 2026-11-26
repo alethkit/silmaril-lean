@@ -5,7 +5,7 @@ import Silmaril.Proofs.Semantics.ConcurrentTrace.Ideals.Basic
 
 public section
 
-namespace Silmaril.Semantics.ConcurrentTrace
+namespace Silmaril.Semantics.ConcurrentTrace.Ideals
 
 open Order
 
@@ -109,4 +109,4 @@ theorem ofFinite_injective (q : WordMap E P) :
     Prod.ext (Quotient.sound hw) hr
 
 end Trace
-end Silmaril.Semantics.ConcurrentTrace
+end Silmaril.Semantics.ConcurrentTrace.Ideals
