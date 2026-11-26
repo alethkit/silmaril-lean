@@ -63,7 +63,7 @@ theorem lowerChecked_eq_some_iff (entry feedback : List Nat) (target : Prog Reg)
 theorem checked_wellFormed {entry feedback : List Nat} {target : Prog Reg}
     (ok : lowerChecked entry feedback = some target) : target.WellFormed := by
   obtain ⟨r, _, wf, rfl⟩ := (lowerChecked_eq_some_iff entry feedback target).mp ok
-  simpa [Prog.WellFormed, Routes.lower, BankRoutes.lower, BankRoutes.lowerWith] using wf
+  simpa [Prog.WellFormed, Routes.lower, BankRoutes.lower, BankRoutes.lowerWith, BankRoutes.lowerWithRow] using wf
 
 /-- Checked positions are preserved in the actual operands and return port. -/
 theorem checkBankRoutes_registers {payloads : Nat} {entry feedback : List Nat} {result : Nat}
@@ -87,7 +87,7 @@ theorem bank_checked_wellFormed {payloads : Nat} {entry feedback : List Nat} {re
     {target : Prog Reg} (ok : lowerBankChecked payloads entry feedback result = some target) :
     target.WellFormed := by
   obtain ⟨r, _, wf, rfl⟩ := (lowerBankChecked_eq_some_iff payloads entry feedback result target).mp ok
-  simpa [Prog.WellFormed, BankRoutes.lower, BankRoutes.lowerWith] using wf
+  simpa [Prog.WellFormed, BankRoutes.lower, BankRoutes.lowerWith, BankRoutes.lowerWithRow] using wf
 
 /-- Admission recovers the checked update, copy routes, and the machine's
 SSA well-formedness proof. -/
@@ -105,7 +105,8 @@ theorem computed_checked_wellFormed {payloads : Nat} {entry feedback : List Nat}
     target.WellFormed := by
   obtain ⟨u, _, r, _, wf, rfl⟩ :=
     (lowerComputedChecked_eq_some_iff payloads entry feedback result spec target).mp ok
-  simpa [Prog.WellFormed, BankRoutes.lowerWith] using wf
+  change (r.lowerFuncWithRow [u]).WellFormed at wf
+  simpa [Prog.WellFormed, BankRoutes.lowerWith, BankRoutes.lowerWithRow] using wf
 
 section ComputedFeedback
 
@@ -119,7 +120,7 @@ theorem computed_step_feedback (input old : WordTuple (payloads + 1)) (fr : Fram
     let after := headerFrameWith (some u) fr old
     step (r.lowerWith (some u)) ⟨⟨0, 1, (r.headerWith (some u)).ops.length⟩, after, stk, mem⟩ =
       .running ⟨⟨0, 1, 0⟩, bindBank after (r.nextBankWith (some u) input old), stk, mem⟩ :=
-  Proofs.bank_step_feedback_with r (some u) input old fr stk mem agree taken
+  Proofs.bank_step_feedback_with r [u] input old fr stk mem agree taken
 
 /-- An actual machine header activation computes the word from the old
 bank, then takes the branch selected by the independent native step. -/
@@ -129,16 +130,81 @@ theorem computed_header_agrees (input old : WordTuple (payloads + 1)) (fr : Fram
       (match (r.graphWith (some u)).step model input old with
       | .inl value => ⟨⟨0, 2, 0⟩, (headerFrameWith (some u) fr old).set .phi value, [], mem⟩
       | .inr next => ⟨⟨0, 1, 0⟩, bindBank (headerFrameWith (some u) fr old) next, [], mem⟩) :=
-  Proofs.bank_header_agrees_with r (some u) input old fr mem agree
+  Proofs.bank_header_agrees_with r [u] input old fr mem agree
 
 theorem computed_returns_iff (input : WordTuple (payloads + 1)) (initial final : Memory)
     (returned : List Word) :
     (r.lowerWith (some u)).oracle 0 (words input) initial returned final ↔
       ∃ value : Word, (r.graphWith (some u)).Returns model input value ∧
         returned = [value] ∧ final = initial :=
-  Proofs.bank_returns_with_iff r (some u) input initial final returned
+  Proofs.bank_returns_with_iff r [u] input initial final returned
 
 end ComputedFeedback
+
+theorem checkFeedbackRow_eq_some_iff (payloads : Nat) (specs : List FeedbackSpec)
+    (updates : List (FeedbackUpdate payloads)) :
+    checkFeedbackRow payloads specs = some updates ↔
+      specs.mapM (fun spec => spec.check payloads) = some updates ∧
+        (updates.map FeedbackUpdate.destination).Nodup :=
+  Proofs.checkFeedbackRow_eq_some_iff payloads specs updates
+
+theorem lowerFeedbackRowChecked_eq_some_iff (payloads : Nat) (entry feedback : List Nat)
+    (result : Nat) (specs : List FeedbackSpec) (target : Prog Reg) :
+    lowerFeedbackRowChecked payloads entry feedback result specs = some target ↔
+      ∃ updates, checkFeedbackRow payloads specs = some updates ∧
+        ∃ r, checkBankRoutes payloads entry feedback result = some r ∧
+          (r.lowerFuncWithRow updates).WellFormed ∧ target = r.lowerWithRow updates :=
+  Proofs.lowerFeedbackRowChecked_eq_some_iff payloads entry feedback result specs target
+
+theorem row_checked_wellFormed {payloads : Nat} {entry feedback : List Nat} {result : Nat}
+    {specs : List FeedbackSpec} {target : Prog Reg}
+    (ok : lowerFeedbackRowChecked payloads entry feedback result specs = some target) :
+    target.WellFormed := by
+  obtain ⟨_, _, _, _, wf, rfl⟩ :=
+    (lowerFeedbackRowChecked_eq_some_iff payloads entry feedback result specs target).mp ok
+  simpa [Prog.WellFormed, BankRoutes.lowerWithRow] using wf
+
+theorem lowerFeedbackRowChecked_nil (payloads : Nat) (entry feedback : List Nat) (result : Nat) :
+    lowerFeedbackRowChecked payloads entry feedback result [] =
+      lowerBankChecked payloads entry feedback result := rfl
+
+theorem lowerFeedbackRowChecked_singleton (payloads : Nat) (entry feedback : List Nat) (result : Nat)
+    (spec : FeedbackSpec) :
+    lowerFeedbackRowChecked payloads entry feedback result [spec] =
+      lowerComputedChecked payloads entry feedback result spec := rfl
+
+section FeedbackRows
+
+variable {payloads : Nat} (r : BankRoutes payloads) (updates : List (FeedbackUpdate payloads))
+
+/-- The actual taken branch reads the computed results and all copies
+from the same producer frame before writing any payload register. -/
+theorem row_step_feedback (input old : WordTuple (payloads + 1)) (fr : Frame Reg)
+    (stk : List (Activation Reg)) (mem : Memory) (agree : ArgsMatch fr (appendTuple old input))
+    (taken : counter old ≠ 0) :
+    let after := headerFrameWithRow updates fr old
+    step (r.lowerWithRow updates) ⟨⟨0, 1, (r.headerWithRow updates).ops.length⟩, after, stk, mem⟩ =
+      .running ⟨⟨0, 1, 0⟩, bindBank after (r.nextBankWithRow updates input old), stk, mem⟩ :=
+  Proofs.bank_step_feedback_with r updates input old fr stk mem agree taken
+
+/-- An actual machine header activation computes the row from the old
+bank, then takes the branch selected by the independent native step. -/
+theorem row_header_agrees (input old : WordTuple (payloads + 1)) (fr : Frame Reg)
+    (mem : Memory) (agree : ArgsMatch fr (appendTuple old input)) :
+    Steps (r.lowerWithRow updates) ⟨⟨0, 1, 0⟩, fr, [], mem⟩
+      (match (r.graphWithRow updates).step model input old with
+      | .inl value => ⟨⟨0, 2, 0⟩, (headerFrameWithRow updates fr old).set .phi value, [], mem⟩
+      | .inr next => ⟨⟨0, 1, 0⟩, bindBank (headerFrameWithRow updates fr old) next, [], mem⟩) :=
+  Proofs.bank_header_agrees_with r updates input old fr mem agree
+
+theorem row_returns_iff (input : WordTuple (payloads + 1)) (initial final : Memory)
+    (returned : List Word) :
+    (r.lowerWithRow updates).oracle 0 (words input) initial returned final ↔
+      ∃ value : Word, (r.graphWithRow updates).Returns model input value ∧
+        returned = [value] ∧ final = initial :=
+  Proofs.bank_returns_with_iff r updates input initial final returned
+
+end FeedbackRows
 
 section ArbitraryArity
 

@@ -74,11 +74,44 @@ evaluating the subtraction would instead compute `-10`. The regression
 also checks immediate exit, wrapping addition, and rejection of invalid
 slot indices and a short feedback column. [Computed regression][computed]
 
+## Computed feedback rows
+
+`lowerFeedbackRowChecked` accepts a list of overrides to the same full copy
+plan. Each override reads two old payload slots. The checker rejects repeated
+destinations and out-of-range payload indices. List order is the instruction
+schedule. Each operation writes a fresh temporary, and the backedge reads
+those temporaries and the copy operands before rebinding the header bank.
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Thms
+
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+
+#eval (lowerFeedbackRowChecked 3 [1, 2, 3] [5, 6, 5] 1
+  [⟨.sub, 0, 1, 2⟩, ⟨.add, 1, 0, 1⟩]).isSome
+```
+
+`checkFeedbackRow_eq_some_iff` gives the rule for typed bounds and distinct
+destinations. `lowerFeedbackRowChecked_eq_some_iff` recovers the accepted
+plan and machine well-formedness. `row_step_feedback` proves the exact
+branch successor with the native latched bank. `row_header_agrees` runs the
+emitted header to its selected successor. `row_returns_iff` preserves and
+reflects finite returns with equality of the entire memory. The
+`lowerFeedbackRowChecked_nil` and `lowerFeedbackRowChecked_singleton` laws
+recover the copy-only and single-operation entry points. [Theorems][thms]
+
+On `[1, 10, 20, 30]`, the example latches `[0, -10, 30, 10]` and returns
+`30`. Both computed destinations are old inputs of the other operation. The
+last slot reads the old first payload as well. Reversing the row exchanges the
+temporary indices in the branch and gives the same tested return. The
+zero-counter case takes the first exit and returns the entry payload `20`. [Row regression][row]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Thms \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.ArityRegression \
-  +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.ComputedRegression
+  +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.ComputedRegression \
+  +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.RowRegression
 lake env leanchecker Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Frame
 lake env leanchecker Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Execution
 ```
@@ -91,3 +124,4 @@ lake env leanchecker Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Executi
 [regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/ArityRegression.lean
 [emitter]: ../../Silmaril/Machine/SeaOfNodes/Diamond/RTL/Defs.lean
 [computed]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/ComputedRegression.lean
+[row]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/RowRegression.lean
