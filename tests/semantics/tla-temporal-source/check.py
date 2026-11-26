@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check progress and invariance for named formulas from the intact LiveHourClock."""
+"""Check the anonymous theorem and ClockSettles from the intact LiveHourClock."""
 
 import os
 from pathlib import Path
@@ -33,6 +33,7 @@ def main():
             "+Silmaril.Logic.Temporal.TLA.Surface.Parser.Defs",
             "+Silmaril.Logic.Temporal.TLA.DataElab.Tagged.Thms",
             "+Silmaril.Logic.Temporal.TLA.DataElab.Temporal.Thms",
+            "+Mathlib.Data.Nat.Find",
         ],
         cwd=ROOT,
         check=True,

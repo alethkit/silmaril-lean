@@ -57,6 +57,10 @@ private structure Context where
   registry : CheckedRegistry
   levels : Levels.CheckedLevels
 
+private structure Scope (signature : ExternalSignature) where
+  locals : DataElab.Context signature .core := []
+  slots : List Nat := []
+
 private def Context.levelAt (ctx : Context) (site : Site) : Except Diagnostic Levels.Level := do
   let some term := ctx.levels.expressionAt site | throw (.notClosed site)
   unless term.dependencies.isEmpty do throw (.notClosed site)
@@ -89,36 +93,38 @@ private def aliasBody (ctx : Context) (site : Site) (expr : Surface.Expr) :
 
 private def exhausted (site : Site) : Diagnostic := .data ⟨site, .expansionLimit⟩
 
-private def lowerData (ctx : Context) (signature : ExternalSignature) (fuel : Nat)
+private def lowerData (ctx : Context) {signature : ExternalSignature} (scope : Scope signature) (fuel : Nat)
     (site : Site) (expr : Surface.Expr) (ceiling : Levels.Level) :
-    Except Diagnostic (CheckedExpr signature) := do
+    Except Diagnostic (ScopedExpr signature) := do
   ctx.checkAtMost site ceiling
   let visit := DataElab.lower (signature := signature) ctx.registry .core true false fuel
-    [] [] site (.expression expr)
-  let (term, _) ← (StateT.run visit 0).mapError Diagnostic.data
+    [] scope.locals site (.expression expr)
+  -- Active temporal slots are dense, so data expansion starts after them.
+  let (term, _) ← (StateT.run visit scope.slots.length).mapError Diagnostic.data
   if ceiling = .state then
     if let some prime := term.firstPrime then throw (.primeInState prime)
-  if valid : term.isWellFormed [] = true then
-    return ⟨term, valid⟩
+  if valid : term.isWellFormed scope.slots = true then
+    return ⟨term, scope.slots, valid⟩
   else
     throw (.data ⟨site, .invalidExpansion⟩)
 
-private def lowerObservation (ctx : Context) (signature : ExternalSignature) (fuel : Nat)
+private def lowerObservation (ctx : Context) {signature : ExternalSignature} (scope : Scope signature) (fuel : Nat)
     (site : Site) (expr : Surface.Expr) : Except Diagnostic (Observation signature) := do
   ctx.checkAtMost site .state
   if let .tuple items := expr then
     let fuel + 1 := fuel | throw (exhausted site)
-    items.zipIdx.mapM fun (item, i) => lowerData ctx signature fuel (site.child (.operand i)) item .state
+    items.zipIdx.mapM fun (item, i) => lowerData ctx scope fuel (site.child (.operand i)) item .state
   else
-    return [← lowerData ctx signature fuel site expr .state]
+    return [← lowerData ctx scope fuel site expr .state]
 
-private def lowerPredicate (ctx : Context) (signature : ExternalSignature) (ceiling : Levels.Level)
+private def lowerPredicate (ctx : Context) {signature : ExternalSignature} (scope : Scope signature)
+    (ceiling : Levels.Level)
     (fuel : Nat) (site : Site) (expr : Surface.Expr) : Except Diagnostic (Predicate signature) := do
   let remaining + 1 := fuel | throw (exhausted site)
   ctx.checkAtMost site ceiling
-  let visit := lowerPredicate ctx signature ceiling remaining
+  let visit := lowerPredicate ctx scope ceiling remaining
   let operand := fun i => site.child (.operand i)
-  let observation := lowerObservation ctx signature remaining
+  let observation := lowerObservation ctx scope remaining
   if let some (home, body) := aliasBody ctx site expr then
     return ← visit home body
   match expr with
@@ -126,7 +132,7 @@ private def lowerPredicate (ctx : Context) (signature : ExternalSignature) (ceil
     return .bracket kind (← visit (operand 0) body) (← observation (operand 1) subscript)
   | .prefix .unchanged arg => return .unchanged (← observation (operand 0) arg)
   | .prefix .enabled arg =>
-    return .enabled (← lowerPredicate ctx signature .action remaining (operand 0) arg)
+    return .enabled (← lowerPredicate ctx scope .action remaining (operand 0) arg)
   | .prefix .negation arg => return .neg (← visit (operand 0) arg)
   | .junction kind items =>
     return .junction kind (← items.zipIdx.mapM fun (item, i) => visit (operand i) item)
@@ -134,29 +140,39 @@ private def lowerPredicate (ctx : Context) (signature : ExternalSignature) (ceil
     if let some op := logicAt ctx site then
       return .binary op (← visit (operand 0) left) (← visit (operand 1) right)
   | _ => pure ()
-  return .data (← lowerData ctx signature (remaining + 1) site expr ceiling)
+  return .data (← lowerData ctx scope (remaining + 1) site expr ceiling)
 termination_by structural fuel
 
-private def lowerForm (ctx : Context) (signature : ExternalSignature) (fuel : Nat)
+private def lowerForm (ctx : Context) {signature : ExternalSignature} (scope : Scope signature) (fuel : Nat)
     (site : Site) (expr : Surface.Expr) : Except Diagnostic (Form signature) := do
   let remaining + 1 := fuel | throw (exhausted site)
   let level ← ctx.levelAt site
   if level.atMost .state then
-    return .state (← lowerPredicate ctx signature .state (remaining + 1) site expr)
+    return .state (← lowerPredicate ctx scope .state (remaining + 1) site expr)
   if level = .action then throw (.bareAction site)
-  let visit := lowerForm ctx signature remaining
+  let visit := lowerForm ctx scope remaining
   let operand := fun i => site.child (.operand i)
-  let action := lowerPredicate ctx signature .action remaining
-  let observation := lowerObservation ctx signature remaining
+  let action := lowerPredicate ctx scope .action remaining
+  let observation := lowerObservation ctx scope remaining
   if let some (home, body) := aliasBody ctx site expr then
     return ← visit home body
   let bracket := fun body subscript => do
     let bracketSite := operand 0
     let depth + 1 := remaining | throw (exhausted bracketSite)
-    let p ← lowerPredicate ctx signature .action depth (bracketSite.child (.operand 0)) body
-    let obs ← lowerObservation ctx signature depth (bracketSite.child (.operand 1)) subscript
+    let p ← lowerPredicate ctx scope .action depth (bracketSite.child (.operand 0)) body
+    let obs ← lowerObservation ctx scope depth (bracketSite.child (.operand 1)) subscript
     return (p, obs)
   match expr with
+  | .rigidQuant kind binders body =>
+    let groups ← (rigidBinderGroups site binders).mapError .data
+    let domains ← groups.mapM fun (groupSite, names, domain) => do
+      let range ← domain.mapM fun e => lowerData ctx scope remaining (groupSite.child .domain) e .state
+      return (groupSite, names, range)
+    let ((locals, reversed), _) ←
+      ((bindRigidGroups ctx.registry scope.locals domains).run scope.slots.length).mapError .data
+    let inner := ⟨locals, reversed.map Prod.fst ++ scope.slots⟩
+    let p ← lowerForm ctx inner remaining (site.child .body) body
+    return reversed.foldl (fun form (slot, range) => .rigidQuant kind slot range form) p
   | .prefix .always (.action .square body subscript) =>
     let (p, obs) ← bracket body subscript
     return .alwaysBracket p obs
@@ -196,7 +212,7 @@ public def lowerState (registry : CheckedRegistry) (externalLevels : Levels.Exte
     (signature : ExternalSignature) (maxDepth : Nat) (id : BindingId) :
     Except Diagnostic (CheckedState signature) := do
   let (ctx, site, body) ← select registry externalLevels signature id
-  return ⟨← lowerPredicate ctx signature .state maxDepth site body⟩
+  return ⟨← lowerPredicate (signature := signature) ctx {} .state maxDepth site body⟩
 
 /-- Select a constant-, state- or action-level source definition as a raw
 two-endpoint relation. -/
@@ -204,7 +220,7 @@ public def lowerAction (registry : CheckedRegistry) (externalLevels : Levels.Ext
     (signature : ExternalSignature) (maxDepth : Nat) (id : BindingId) :
     Except Diagnostic (CheckedAction signature) := do
   let (ctx, site, body) ← select registry externalLevels signature id
-  return ⟨← lowerPredicate ctx signature .action maxDepth site body⟩
+  return ⟨← lowerPredicate (signature := signature) ctx {} .action maxDepth site body⟩
 
 /-- Select a formula from the same registry that produced its level annotations.
 A constant or state predicate can itself be a formula. -/
@@ -212,6 +228,6 @@ public def lowerFormula (registry : CheckedRegistry) (externalLevels : Levels.Ex
     (signature : ExternalSignature) (maxDepth : Nat) (id : BindingId) :
     Except Diagnostic (CheckedFormula signature) := do
   let (ctx, site, body) ← select registry externalLevels signature id
-  return ⟨← lowerForm ctx signature maxDepth site body⟩
+  return ⟨← lowerForm (signature := signature) ctx {} maxDepth site body⟩
 
 end Silmaril.Logic.Temporal.TLA.DataElab.Temporal

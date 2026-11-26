@@ -31,7 +31,18 @@ and the same rigid valuation.
 | `ENABLED A` | Exists a successor flexible valuation satisfying the action at the current state. The witness ranges over the whole carrier at each coordinate. It is independent of any next state in a behavior. |
 | Temporal Boolean composition | Negation, conjunction, disjunction, implication, equivalence and junction lists. State children contribute their truth at the current instant. |
 | `[]F`, `<>F`, `F ~> G` | Standalone always, eventually and leads-to. The matching action forms are `[][A]_e` and `<><<A>>_e`. |
+| Rigid `\A` and `\E` | A temporal body may bind one or more ordinary names, with or without domains. Each witness ranges over the interpretation's value carrier and stays fixed throughout the body, including visits to later suffixes. |
 | `WF_e(A)` and `SF_e(A)` | Standalone weak and strong fairness of the changing steps of `A` under observation `e`. Fairness uses the same full successor space as ENABLED. |
+
+Bounded temporal quantifiers check each domain as a core data expression at
+state level or below, in the scope outside the entire binder list. They test
+membership at the instant where the quantifier is evaluated. Universal bodies
+are guarded by implication and existential bodies by conjunction. A domain
+for a group of names supplies the same membership test for each name.
+Resolved binder identities map to fresh witness slots. Nested data expansion
+checks its scope against the active slots, and a primed operand reads the
+same witnesses at the target endpoint. Level checking still enforces
+operand rules and rechecks requirements after operator substitution.
 
 The resulting formulas inherit Simple TLA's checked whole-state stutter
 invariance. Source raw actions remain relations on two endpoints. Data
@@ -44,8 +55,10 @@ combine propositions about behaviors.
 The temporal syntax expands nullary module operators at their original
 resolved sites, including operators reached through EXTENDS. Core DataElab
 leaves retain their ordinary first-order calls, LET expansion and data
-binders. Lifting modal forms through parameterized calls, LET, quantifiers,
-value constructors or IF is a further slice. Other boundaries include
+binders. Lifting modal forms through parameterized calls, LET, value
+constructors or IF is a further slice. Below temporal level, quantifiers
+still use the core data path. Tuple patterns in temporal binders and
+flexible hiding (`\AA`, `\EE`) are outside this source profile. Other boundaries include
 INSTANCE replay, collection-profile leaves, value-level tuple constructors,
 temporal primitives, action composition, guarantees, and checking source
 proofs. This is a mathematical semantics with a source admission check.
@@ -69,16 +82,16 @@ TLCExt module attests a nullary `CounterExample` used to resolve and
 level-check the original postcondition. The fixture does not admit a TLC
 counterexample interpretation.
 
-Lean checks that satisfaction of the lowered `LSpec` implies satisfaction
-of `AlwaysTick` and `TypeInvariance` over arbitrary tagged valuations
-and a fixed tagged adapter policy. The proof preserves the range 1 through
-12 across both raw clock updates and idle steps. From every in-range state
-it constructs a changing successor and uses weak fairness to obtain a tick
-at or after each instant. `AllTimes` and `ClockSettles` are rejected at
-their temporal quantifiers. Selecting `PostCondition` reports the missing
-`CounterExample` interpretation. The original anonymous theorem contains
-`AllTimes`, so the checked progress and invariant result covers two of its
-three conjuncts.
+The fixture checks the original anonymous statement's shape. Lean proves
+that the lowered `LSpec` entails the conjunction of `AlwaysTick`,
+`AllTimes` and `TypeInvariance` over arbitrary tagged behaviors for every
+fixed tagged adapter policy. The proof preserves the range 1 through 12
+across updates and idle steps. It uses weak fairness to obtain a changing
+tick after every starting time. On a suffix that avoids a given hour, each
+tick would decrease the remaining distance around the clock and idle steps
+would preserve it. Thus every hour recurs. `ClockSettles` lowers as a rigid
+existential, and Lean proves that `LSpec` rules it out. Selecting
+`PostCondition` reports the missing `CounterExample` interpretation.
 [Fixture proof and admission checks](../../tests/semantics/tla-temporal-source/LiveHourClock.lean)
 
 ```sh
