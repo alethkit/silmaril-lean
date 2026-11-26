@@ -475,7 +475,7 @@ globs = ["tests.ssa.LetIterWeakTreeSoundness"]
 # Check the typed PEG core and the paper guard counterexample.
 [[lean_lib]]
 name = "PEGCoreTests"
-globs = ["tests.ssa.PEG"]
+globs = ["tests.ssa.PEG", "tests.ssa.PEGSimple"]
 
 # The component and generator tools of the Wasm release (docs/projects/wasm-components.md).
 [[lean_exe]]
