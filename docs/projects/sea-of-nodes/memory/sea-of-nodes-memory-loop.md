@@ -540,6 +540,45 @@ reduct image to coincident addresses, excluding a valuation that
 distinguishes the two sides by their final heaps.
 [Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/Backend/Regression.lean)
 
+#### Composing typed address bindings
+
+`Activation.bindAddress` binds one leading activation address to a
+typed captured port. Applying it twice binds two address operands in
+the same ordered body. `bindAddress_comp` pushes capture reindexing
+through each binding. The initialized heap passes through unchanged
+at the boundary, and each selected address is in bounds.
+
+`petri_comp_iff_memref_header` compares the emitted coloured activation
+with the emitted MemRef header after the composed valuation pullback.
+It observes the actual successor, exit word when present, and entire
+post-store heap. With one wiring fixed for a whole loop,
+`petri_completion_map_iff_memref` and
+`petri_no_completion_map_iff_memref` transfer finite results and their
+absence. Firing traces and CFG budgets remain separate witnesses.
+[Typed activation and fixed-wiring theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Activation/Thms.lean)
+
+The two-address fixture instantiates each occurrence column at the
+activation boundary. Swapping which cell receives each store returns
+zero in both cases, with heaps `[9, 5, 99]` and `[5, 9, 99]`. Identifying
+the captured ports erases the distinction and restricts the pulled-back
+valuations to coincident addresses. The fixture also checks a finite
+whole-loop return and absence of a finite return with fixed wiring.
+Whole-loop emission that switches both address lanes on feedback
+remains open.
+[Activation regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Activation/Regression.lean)
+
+For the existing single-address generated Rooms,
+`Backend.observe_translate_reemit` combines typed re-emission with
+cross-backend translation and compares the decoded partial result at
+the reduct. Its regression uses the actual single-address switch across
+feedback.
+[Shared Room observation law](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/Backend/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Backends.Activation.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Institution.Backend.Instances.Thms
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for

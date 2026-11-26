@@ -41,10 +41,8 @@ example :
     (memref.observe (rvsdg.translate memref (rvsdg.reemit swapPorts (rvsdg.emit equation)))
       .lhs swappedModel (memref.initial 3 (Fixture.initial 7))).map (memref.result 3).symm =
       Part.some (0, afterFeedback) := by
-  have reindexed := rvsdg.observe_reemit swapPorts (rvsdg.emit equation)
+  have emitted := rvsdg.observe_translate_reemit memref swapPorts (rvsdg.emit equation)
     .lhs swappedModel (Fixture.initial 7)
-  have emitted := (rvsdg.observe_translate memref (rvsdg.reemit swapPorts (rvsdg.emit equation))
-    .lhs swappedModel (Fixture.initial 7)).trans (congrArg (Part.map (rvsdg.result 3).symm) reindexed)
   exact emitted.trans ((congrArg (Part.map (rvsdg.result 3).symm) switched).trans
     ((Part.map_some (rvsdg.result 3).symm _).trans
       (congrArg Part.some ((rvsdg.result 3).symm_apply_apply (0, afterFeedback)))))

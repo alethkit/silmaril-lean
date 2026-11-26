@@ -45,6 +45,18 @@ theorem observe_translate (sender receiver : Backend) (s : sender.Sentence P) (s
       (sender.observe s side model (sender.initial model.cells heap)).map (sender.result model.cells).symm :=
   Proofs.observe_translate sender receiver s side model heap
 
+/-- Translate a re-emitted equation and compare the decoded observation
+with the original observer at the pulled-back valuation. -/
+theorem observe_translate_reemit (sender receiver : Backend) (h : P ⟶ Q) (s : sender.Sentence P)
+    (side : Side) (model : EntryModel Q) (heap : Heap model.cells) :
+    (receiver.observe (sender.translate receiver (sender.reemit h s)) side model
+      (receiver.initial model.cells heap)).map (receiver.result model.cells).symm =
+      (sender.observe s side (reduct h model) (sender.initial model.cells heap)).map
+        (sender.result model.cells).symm :=
+  (sender.observe_translate receiver (sender.reemit h s) side model heap).trans
+    (congrArg (Part.map (sender.result model.cells).symm)
+      (sender.observe_reemit h s side model (sender.initial model.cells heap)))
+
 theorem holds_iff_source (backend : Backend) (s : backend.Sentence P) (model : EntryModel P) :
     backend.Holds s model ↔ (backend.source s).Holds model :=
   Proofs.holds_iff_source backend s model
