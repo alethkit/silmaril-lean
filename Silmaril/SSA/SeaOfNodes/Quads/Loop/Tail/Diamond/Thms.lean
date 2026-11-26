@@ -79,6 +79,23 @@ theorem Program.latch_model (bank : Bank (regs := regs) m) :
       RVSDG.Theta.bodyResult (model m) (bank.get p.again).down bank :=
   Proofs.latch_model p m bank
 
+theorem routeLatchWith_eval {args : List (Ty Data)} {past : List (List (Ty Data))}
+    (again : RVSDG.Port (dataPorts regs) (.value .predicate)) (wires : Wires args past (dataPorts regs))
+    (fuel : Nat) (input : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) :
+    (routeLatchWith again wires).eval (model m) fuel input locals =
+      some (RVSDG.Theta.bodyResult (model m) ((wires.read input locals).get again).down
+        (wires.read input locals)) :=
+  Proofs.routeLatchWith_eval m again wires fuel input locals
+
+theorem iterateThenReturnWith_eval {past sigs : List (List (Ty Data))}
+    (body : Term (Opcode Op) (dataPorts regs) [] sigs (bodyPorts regs))
+    (result : RVSDG.Port (dataPorts regs) (.value out)) (wires : Wires (dataPorts regs) past (dataPorts regs))
+    (fuel : Nat) (input : Bank (regs := regs) m) (locals : Locals (Val m.value) past) :
+    (iterateThenReturnWith body result wires).eval (model m) fuel input locals =
+      (iterate (body.run (model m) fuel) (fun tag => tag.down.val == 1) fuel (wires.read input locals)).map
+        (fun bank => .cons (bank.get result) .nil) :=
+  Proofs.iterateThenReturnWith_eval m body result wires fuel input locals
+
 /-- After the merge and latch, θ sees the exact updated bank and source test. -/
 theorem Program.activation_run (fuel : Nat) (old : Bank (regs := regs) m) :
     p.thetaBody.run (model m) fuel old =

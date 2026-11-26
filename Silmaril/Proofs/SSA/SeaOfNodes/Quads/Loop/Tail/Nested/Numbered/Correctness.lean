@@ -58,6 +58,34 @@ theorem outerArm_run (fuel : Nat) (bank : Bank (regs := regs) m) :
     erw [Block.lowerFrom_eval, read_initial]
     rfl
 
+theorem linkGamma_eval {args outputs results : List (Ty Data)} {past suffix : List (List (Ty Data))}
+    (choice : Join.Choice regs 2) (sigs : Fin 2 → List (List (Ty Data)))
+    (arms : (i : Fin 2) → Term (Opcode Op) (dataPorts regs) [] (sigs i) outputs)
+    (current : Wires args past (dataPorts regs))
+    (finish : Wires args (extend past [routePorts regs, outputs]) outputs →
+      Term (Opcode Op) args (extend past [routePorts regs, outputs]) suffix results)
+    (fuel : Nat) (input : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
+    (selected : Bank (regs := regs) m → Tuple (Val m.value) outputs)
+    (arm_agrees : ∀ bank, (arms (choice.eval bank)).run (model m) fuel bank = some (selected bank))
+    (observe : Tuple (Val m.value) outputs → Option (Tuple (Val m.value) results))
+    (agrees : ∀ wires locals', (finish wires).eval (model m) fuel input locals' =
+      observe (wires.read input locals')) :
+    (linkGamma choice sigs arms current finish).eval (model m) fuel input locals =
+      observe (selected (current.read input locals)) := by
+  let bank := current.read input locals
+  let tagged := (model m).run (.route choice) bank
+  let frames := locals.snoc tagged
+  change (Kind.eval (model m) fuel (.base (.gamma 0) : Kind (Opcode Op) (routePorts regs) outputs)
+    (fun i value => (arms i).run (model m) fuel value)
+    ((lastBank past (routePorts regs)).read input frames)).bind
+      (fun merged => (finish (lastBank (past ++ [routePorts regs]) outputs)).eval
+        (model m) fuel input (frames.snoc merged)) = _
+  rw [lastBank_read m]
+  change ((arms (choice.eval bank)).run (model m) fuel bank).bind _ = _
+  rw [arm_agrees]
+  change (finish _).eval (model m) fuel input (frames.snoc (selected bank)) = _
+  exact (agrees _ _).trans (congrArg observe (lastBank_read m input frames (selected bank)))
+
 theorem afterOuterWith_eval {args outputs results : List (Ty Data)} {past suffix : List (List (Ty Data))}
     (arms : (i : Fin 2) → Term (Opcode Op) (dataPorts regs) [] (outerSigs p i) outputs)
     (current : Wires args past (dataPorts regs))
@@ -70,20 +98,8 @@ theorem afterOuterWith_eval {args outputs results : List (Ty Data)} {past suffix
     (agrees : ∀ wires locals', (finish wires).eval (model m) fuel input locals' =
       observe (wires.read input locals')) :
     (afterOuterWith p arms current finish).eval (model m) fuel input locals =
-      observe (selected (current.read input locals)) := by
-  let bank := current.read input locals
-  let tagged := (model m).run (.route (outerChoice p)) bank
-  let frames := locals.snoc tagged
-  change (Kind.eval (model m) fuel (.base (.gamma 0) : Kind (Opcode Op) (routePorts regs) outputs)
-    (fun i value => (arms i).run (model m) fuel value)
-    ((lastBank past (routePorts regs)).read input frames)).bind
-      (fun merged => (finish (lastBank (past ++ [routePorts regs]) outputs)).eval
-        (model m) fuel input (frames.snoc merged)) = _
-  rw [lastBank_read m]
-  change ((arms ((outerChoice p).eval bank)).run (model m) fuel bank).bind _ = _
-  rw [arm_agrees]
-  change (finish _).eval (model m) fuel input (frames.snoc (selected bank)) = _
-  exact (agrees _ _).trans (congrArg observe (lastBank_read m input frames (selected bank)))
+      observe (selected (current.read input locals)) :=
+  linkGamma_eval m (outerChoice p) (outerSigs p) arms current finish fuel input locals selected arm_agrees observe agrees
 
 private theorem afterOuter_eval {args results : List (Ty Data)} {past suffix : List (List (Ty Data))}
     (current : Wires args past (dataPorts regs))

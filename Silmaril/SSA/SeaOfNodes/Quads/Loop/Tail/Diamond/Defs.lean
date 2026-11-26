@@ -161,10 +161,16 @@ def Program.latchNode {args : List (Ty Data)} {past : List (List (Ty Data))}
     (bank : Wires args past (dataPorts regs)) : RVSDG.Node (Opcode Op) args past (bodyPorts regs) :=
   latchNodeFor p.again bank
 
+/-- Tag the full carried bank for the next θ activation or for exit. -/
+def routeLatchWith {args : List (Ty Data)} {past : List (List (Ty Data))}
+    (again : Port (dataPorts regs) (.value .predicate)) (bank : Wires args past (dataPorts regs)) :
+    Term (Opcode Op) args past [bodyPorts regs] (bodyPorts regs) :=
+  .bind (.ofBase (latchNodeFor again bank)) (fun i => i.elim0) (.ret (lastBank past (bodyPorts regs)))
+
 def Program.routeLatch {past : List (List (Ty Data))}
     (bank : Wires (dataPorts regs) past (dataPorts regs)) :
     Term (Opcode Op) (dataPorts regs) past [bodyPorts regs] (bodyPorts regs) :=
-  .bind (.ofBase (p.latchNode bank)) (fun i => i.elim0) (.ret (lastBank past (bodyPorts regs)))
+  routeLatchWith p.again bank
 
 /-- Feed the post-header bank to the existing γ compiler, then run the
 common merge and latch quads before the supplied tail continuation. -/
@@ -183,11 +189,18 @@ def Program.thetaBody :
   thenBase ((src p.header).body.lowerFrom (initial regs) .jump) fun current =>
     p.afterHeader current p.routeLatch
 
+/-- Link a full-bank θ body to the result port of its stopping packet. -/
+def iterateThenReturnWith {past sigs : List (List (Ty Data))}
+    (body : Term (Opcode Op) (dataPorts regs) [] sigs (bodyPorts regs))
+    (result : Port (dataPorts regs) (.value out)) (bank : Wires (dataPorts regs) past (dataPorts regs)) :
+    Term (Opcode Op) (dataPorts regs) past [dataPorts regs] [.value out] :=
+  .bind ⟨_, .theta (dataPorts regs), bank, fun _ => sigs⟩
+    (fun _ => body) (.ret (.cons ((lastBank past (dataPorts regs)).get result) .nil))
+
 def Program.iterateThenReturn {past : List (List (Ty Data))}
     (bank : Wires (dataPorts regs) past (dataPorts regs)) :
     Term (Opcode Op) (dataPorts regs) past [dataPorts regs] [.value out] :=
-  .bind ⟨_, .theta (dataPorts regs), bank, fun _ => p.bodySigs⟩
-    (fun _ => p.thetaBody) (.ret (.cons ((lastBank past (dataPorts regs)).get p.result) .nil))
+  iterateThenReturnWith p.thetaBody p.result bank
 
 /-- The preheader supplies the entry bank. The numbered θ binds the feedback
 bank atomically and returns the result slot of the stopping activation. -/

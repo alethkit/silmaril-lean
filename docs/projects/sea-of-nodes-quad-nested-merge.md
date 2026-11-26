@@ -562,9 +562,7 @@ shared block at its original label. `from_header_eq_prefix` and
 `from_header_eq_merge` give the exact compiled banks at both
 boundaries. `lower_run` compares the source at budget `n` with CF at
 `n + 1`. `returns_iff` and `noFiniteReturn_iff` compare finite returns
-and absence of any finite return. The numbered θ emitter still needs
-to place the shared transfer after the inner γ selection and before the
-outer γ joins the result with the outer false bank.
+and absence of any finite return.
 [CF laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/MLIR/CF/Thms.lean)
 
 Build with
@@ -594,6 +592,69 @@ false and outer false, with merge values `15, 65, 130` and two feedback
 edges. Source and CF return `130` at `19/20` and exhaust at `18/19`.
 The near miss sends the outer route into block 6 and is refused.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/MLIR/CF/Regression.lean)
+
+### Numbered θ and coloured completion for the shared suffix
+
+`Shared.Numbered.lower` consumes the same checked source plan. The
+inner γ children contain the two prefixes. The suffix uses the returned
+wires of that γ and appears once inside the outer true region. The
+outer false region passes its own bank to the outer γ and bypasses the
+suffix. The θ body consumes the selected outer result and returns the
+source latch tag and full post-latch bank on either feedback or exit.
+[Emitter](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Numbered/Defs.lean)
+
+`merge_run` gives the source-computed selected bank. `activation_run`
+gives the actual numbered body's tag and simultaneous bank.
+`lower_run` compares the θ activation budget with the sum of the
+original source visits on its selected routes. `returns_iff` and
+`noFiniteReturn_iff` quantify source and θ bounds independently.
+`petri_finishes_iff` uses the existing coloured firing model on the
+actual emitted graph. Its finite firing witness has its own length.
+[Numbered laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Numbered/Thms.lean) ·
+[Completion law](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Numbered/Petri/Thms.lean)
+
+Build `Shared.Numbered.Example.Defs` and `Shared.Numbered.Petri.Thms`
+with `lake build --wfail` and a `+` before each full module name below.
+Paste into `QuadNestedSharedNumbered.lean` and run
+`lake env lean -DautoImplicit=false -DwarningAsError=true QuadNestedSharedNumbered.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Petri.Thms
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Example
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Example (input width)
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (model)
+open Silmaril.SSA.SeaOfNodes.MLIR (Word)
+open Silmaril.SSA.RVSDG.NestedTheta.Petri (Finishes)
+
+#eval layout
+#eval mergeValues
+#eval packets
+#eval [0, 1, 2, 3].map sourceBudget
+#eval (MLIR.CF.Example.runSource 19, MLIR.CF.Example.runCF 20, runNumbered 3)
+#eval (MLIR.CF.Example.runSource 18, MLIR.CF.Example.runCF 19, runNumbered 2)
+#eval (check MLIR.CF.Example.outerOverlap 0).isNone
+
+example : Finishes (Silmaril.SSA.SeaOfNodes.Quads.Join.model model)
+    (lower MLIR.CF.Example.plan) input (.cons (130 : Word width) .nil) :=
+  (petri_finishes_iff MLIR.CF.Example.plan model input (130 : Word width)).mpr ⟨19, rfl⟩
+```
+
+`layout` reports `some (2, [1, 1], 1)` from the actual θ graph. The
+two shared producers follow the inner γ, each inner child has one
+producer, and the outer false child has one. The loop reaches merge
+values `15, 65, 130` with packets `(1, 2, 15)`, `(1, 1, 65)`,
+and `(0, 0, 130)` in tag, counter, and return-slot order. Source,
+CF and θ return `130` at `19/20/3` and exhaust at `18/19/2`.
+The overlap refusal still applies. This emitter uses the full carried
+bank of the checked pure nested profile.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Numbered/Regression.lean)
 
 ## Complete the emitted loop by coloured firing
 
