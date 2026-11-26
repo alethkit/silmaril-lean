@@ -22,11 +22,12 @@ open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload
 local instance canonicalLiveDefsHasTy : HasTy signature.Instr (Ty Empty) := signature.hasTy
 
 /-- Canonical live selected syntax on the standard packet. Values return by
-direct typed slot and ordered exit. Each request exposes both reply tags
-and retains each reply's bit in its arm. A guard drops the tested slot
-and uses complementary next request labels. -/
+a direct typed slot or a literal bit at an ordered Bit exit. Each request
+exposes both reply tags and retains each reply's bit in its arm. A guard
+drops the tested slot and uses complementary next request labels. -/
 inductive CanonicalLive (L : List (Ty Empty)) : Nat → Type where
   | ret {n : Nat} (exit : Position L) (slot : Fin n) : CanonicalLive L n
+  | literal {n : Nat} (exit : Position L) (bit : Bool) : CanonicalLive L n
   | emit {n : Nat} (label : Bool) (next : CanonicalLive L n) : CanonicalLive L n
   | request {n : Nat} (label : Bool) (left right : CanonicalLive L (n + 1)) : CanonicalLive L n
   | guard {n : Nat} (test : Fin (n + 1)) (low : Bool)
@@ -35,9 +36,10 @@ inductive CanonicalLive (L : List (Ty Empty)) : Nat → Type where
 namespace CanonicalLive
 
 /-- The validated model's existing normal form sees every ordered emit,
-request label, exposed reply arm, ordered exit and retained payload read. -/
+request label, exposed reply arm, ordered exit and bit result. -/
 def normal {L : List (Ty Empty)} : {n : Nat} → CanonicalLive L n → Finite.Normal L n
   | _, .ret exit slot => .ret exit (fun env => env slot)
+  | _, .literal exit bit => .ret exit (fun _ => bit)
   | _, .emit label next => .emit label next.normal
   | _, .request label l r => .request label l.normal r.normal
   | _, .guard test low fl fr tl tr => .testRequest test low fl.normal fr.normal tl.normal tr.normal
@@ -53,6 +55,7 @@ def pushEmit {L : List (Ty Empty)} {n : Nat} (label : Bool) : ReadTree L n → R
 /-- The actual selected compiler groups the ordered prefix at each node. -/
 def readTree {L : List (Ty Empty)} : {n : Nat} → CanonicalLive L n → ReadTree L n
   | _, .ret exit slot => .ret [] exit slot
+  | _, .literal exit bit => .retExpr [] exit (.literal bit)
   | _, .emit label next => pushEmit label next.readTree
   | _, .request label l r => .request [] label false l.readTree r.readTree
   | _, .guard test low fl fr tl tr =>

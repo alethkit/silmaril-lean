@@ -4,7 +4,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCa
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.KnownGuard.RequestContext.Traversal.Comparison.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.CanonicalProjectionQuotes
 
-/-! # Native soundness and idempotence for live projection quotes -/
+/-! # Native soundness and idempotence for live bit quotes -/
 
 public section
 
@@ -22,6 +22,14 @@ local instance canonicalQuotesThmsHasTy : HasTy signature.Instr (Ty Empty) := si
 theorem recognizeProjectionQuote_exact {n : Nat} (i : Fin n) :
     recognizeProjectionQuote (Finite.Expr.quote n (fun row => row i)) = some ⟨i, rfl⟩ :=
   CanonicalProjectionQuotes.recognize_exact i
+
+/-- An exact constant quote contracts to a typed literal at the same
+ordered exit, with the original emit prefix. -/
+theorem contract_constant_quote {L : List (Ty Empty)} (n : Nat) (b : Bool) (pos : Position L)
+    (emits : List Bool) :
+    (ReadTree.retExpr emits pos (Finite.Expr.quote n (fun _ => b))).contractProjectionQuotes =
+      .retExpr emits pos (.literal b) :=
+  CanonicalProjectionQuotes.contract_constant_quote n b pos emits
 
 /-- Contracting the terminal quotes again leaves the selected tree unchanged. -/
 theorem contractProjectionQuotes_idempotent {L : List (Ty Empty)} {n : Nat} (p : ReadTree L n) :
@@ -55,12 +63,12 @@ theorem SelectedAt.projectionCanonical_typed {X : Ty Empty} {L : List (Ty Empty)
     ScopedTarget X L :=
   ⟨p.projectionCanonicalRegion, p.projectionCanonical_typed⟩
 
-/-- Contracting a live projection quote preserves the original packed arrow. -/
+/-- Contracting a live terminal quote preserves the original packed arrow. -/
 theorem SelectedAt.packed_projectionCanonical {X : Ty Empty} {L : List (Ty Empty)} (p : SelectedAt X L) :
     p.packedSource = p.projectionCanonical.packed :=
   CanonicalProjectionQuotes.packed_canonical p
 
-/-- Compare after contracting exact live projection quotes. Acceptance
+/-- Compare after contracting exact live terminal quotes. Acceptance
 carries native equality of the actual original packed arrows. -/
 @[expose] def SelectedAt.compareProjectionQuotes {X : Ty Empty} {L : List (Ty Empty)} (left right : SelectedAt X L) :
     EqualityVerdict (left.packedSource = right.packedSource) :=

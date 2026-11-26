@@ -35,27 +35,36 @@ def readEmits : Tm signature.Instr → List Bool × Tm signature.Instr
     (label :: labels, body)
   | body => ([], body)
 
-def readExit : Syntax → Option Nat
-  | .br label (.var 0) => some label
+/-- Read a direct exit or a bit tag attached to the bound unit payload. -/
+def readExit : Syntax → Option (Nat × Option Bool)
+  | .br label (.var 0) => some (label, none)
+  | .br label (.inl (.var 0)) => some (label, some false)
+  | .br label (.inr (.var 0)) => some (label, some true)
   | .let₁ _ body => readExit body
   | _ => none
 
 def readReturnEmits : Syntax → List Bool
   | .let₁ (.pair (.op (.emit label) .unit) next) _ => label :: (readEmits next).1
+  | .let₁ value _ => (readEmits value).1
   | _ => []
 
 def readReturn {L : List (Ty Empty)} {n : Nat} {X : Ty Empty}
     (slots : Fin n → Term signature.Instr X Bit) (subst : Subst) (node : Syntax) :
     Option (CanonicalLive L n) := do
-  let label ← readExit node
+  let (label, tag) ← readExit node
   let pos ← (List.finRange L.length).findSome? fun i =>
     if h : i.val = label ∧ L.get i = Bit then some (⟨i, h.2⟩ : Position L) else none
   let emits := readReturnEmits node
-  let slot ← (List.finRange n).find? fun i =>
-    let compiled := selectTerminal pos (.read i) slots emits
+  let matchesTerminal (result : Finite.Expr n) :=
+    let compiled := selectTerminal pos result slots emits
     let key := (AcyclicSyntax.read (compiled.elaborate.val.substVars subst)).map Subtype.val
     key == some node
-  pure (emits.foldr CanonicalLive.emit (.ret pos slot))
+  let terminal ← match tag with
+    | none => do
+      let slot ← (List.finRange n).find? fun i => matchesTerminal (.read i)
+      some (.ret pos slot)
+    | some bit => if matchesTerminal (.literal bit) then some (.literal pos bit) else none
+  pure (emits.foldr CanonicalLive.emit terminal)
 
 def decode {L : List (Ty Empty)} (node : Syntax) {n : Nat} {X : Ty Empty}
     (slots : Fin n → Term signature.Instr X Bit) (subst : Subst) : Option (CanonicalLive L n) :=
