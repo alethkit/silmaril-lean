@@ -18,6 +18,14 @@ set_option backward.isDefEq.respectTransparency false
 
 variable {Data : Type} {S T U : Signature Data}
 
+theorem Side.map_id {carried : List (PEG.Ty Data)} (s : Side S carried) :
+    s.map (𝟙 S) = s :=
+  Proofs.side_id s
+
+theorem Side.map_comp {carried : List (PEG.Ty Data)} (f : S ⟶ T) (g : T ⟶ U) (s : Side S carried) :
+    s.map (f ≫ g) = (s.map f).map g :=
+  Proofs.side_comp f g s
+
 theorem Equation.map_id (e : Equation S) : e.map (𝟙 S) = e := Proofs.map_id e
 
 theorem Equation.map_comp (f : S ⟶ T) (g : T ⟶ U) (e : Equation S) :
