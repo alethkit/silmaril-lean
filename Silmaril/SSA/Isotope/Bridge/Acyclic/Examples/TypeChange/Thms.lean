@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Pullback.Witness.Thms
+import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.TypeChange.Comparison.Thms
 import Silmaril.Semantics.Calco2019.Maybe.Types.Thms
 
 /-! # Forward transport through a case and local join in the Maybe Kleisli category -/
@@ -109,5 +109,63 @@ example :
       (letI := instructions; RegionDenotes J types (mapRegionTyping collapse typing) a) ∧ HEq f a := by
   let _ := pullbackInstructions collapse instructions
   exact mapRegionWitness collapse types instructions (denoteRegion_spec J _ typing)
+
+section Composite
+
+private abbrev Wide : Ty Nat := .base 7
+
+local instance : HasTy Op (Ty Nat) where
+  src _ := Wide
+  trg _ := Wide
+
+local instance : HasEff Op Bool where
+  eff _ := true
+
+private def widened : InstrSig (Ty Nat) Bool := ⟨Op⟩
+
+private def widen : SignatureMap target.Instr widened.Instr (Ty Unit) (Ty Nat) Unit Bool where
+  instr := id
+  ty := Ty.map (fun _ => 7)
+  eff := fun _ => true
+  source f := by cases f; rfl
+  target f := by cases f; rfl
+  effect f := by cases f; rfl
+
+local instance : widen.PreservesProducts where
+  product _ _ := rfl
+  unit := rfl
+
+local instance : widen.PreservesSums where
+  coprod _ _ := rfl
+  empty := rfl
+
+private abbrev p : TypeSignature := ⟨Ty Bool, Unit, source⟩
+private abbrev q : TypeSignature := ⟨Ty Unit, Unit, target⟩
+private abbrev s : TypeSignature := ⟨Ty Nat, Bool, widened⟩
+private def f : p ⟶ q := ⟨collapse⟩
+private def g : q ⟶ s := ⟨widen⟩
+
+private def equation : SSAEquation source :=
+  ⟨⟨1, ctx, A⟩, diamond,
+    .case ⟨.bv 0, .bv⟩ (.br ⟨.bv 0, .bv⟩) (.br ⟨.op .flip (.bv 0), .op .bv⟩)⟩
+
+-- The composite changes the equation's context, result, and effect universe.
+example : ((ssaTypeInst J).map (f ≫ g)).sen equation =
+    ((ssaTypeInst J).map g).sen (((ssaTypeInst J).map f).sen equation) :=
+  mapSSASignature_comp collapse widen equation
+
+example : (((ssaTypeInst J).map (f ≫ g)).sen equation : SSAEquation widened).1 =
+    ⟨1, .snoc .nil (.coprod Wide Wide), Wide⟩ := rfl
+
+-- The actual LetCase presentation and exact SSA equation agree on the
+-- composite with the bundled reification component.
+example : reify ((letCaseTypeInst.map (f ≫ g)).sen (compile equation)) =
+    ((ssaTypeInst J).map (f ≫ g)).sen (reify (compile equation)) := by
+  change reify (PresSig.mapEquation (typeCaseHom (widen.comp collapse)) (compile equation)) = _
+  exact (congrArg (reify (P := widened))
+    (typeCaseHom_translate (widen.comp collapse) (compile equation))).trans
+      (reify_mapCaseSignature (widen.comp collapse) (compile equation))
+
+end Composite
 
 end Silmaril.Isotope.Institution.Acyclic.Examples

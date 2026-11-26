@@ -24,6 +24,12 @@ variable {τ ε : Type} [TypeFormers τ] {P Q S : InstrSig τ ε}
 
 local notation "Γ₀" => (Ctx.nil : Ctx Empty τ)
 
+/-- The coherent model categories are discrete, so a model functor out of
+one is determined by its action on objects. -/
+theorem ssaModelFunctor_ext {D : Type*} [Category* D]
+    {F G : (ssaRoom J P).Mod ⥤ D} (h : ∀ K, F.obj K = G.obj K) : F = G :=
+  ssaModelFunctor_ext_proof h
+
 @[simp] theorem ssaCorridor_id (P : InstrSig τ ε) :
     ssaCorridor (J := J) (𝟙 P) = 𝟙 (ssaRoom J P) :=
   ssaCorridor_id_proof P
