@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.RedundantTest.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.PacketCases.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Values.Discard.Syntax.Defs
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.Normalization.Thms
@@ -451,6 +452,41 @@ private theorem snd_returnOnce {Γ : List (Ty Empty)} {A B : Ty Empty} {a b : Tm
   exact (proj.substVars (constructorSubst (.pair ha hb))).trans
     (.paper (.productBeta (.let₂Beta ha hb (.br rfl (.var (i := 0) rfl)))))
 
+private theorem replyPacket_typed {Γ : List (Ty Empty)} {n : Nat}
+    (env : Finite.Assignment n) (payload : Fin n → Tm signature.Instr) {base : Tm signature.Instr}
+    (hb : Tm.BranchValue Γ base unit) (hp : ∀ j, Tm.BranchValue Γ (payload j) unit) :
+    Tm.BranchValue Γ (replyPacket env payload base) (replyContext n) := by
+  induction n with
+  | zero => exact hb
+  | succ n ih =>
+    exact .pair (ih env.tail (fun j => payload j.succ) (fun j => hp j.succ)) (tagged (env 0) (hp 0))
+
+private theorem packet_slot {Γ : List (Ty Empty)} {n : Nat}
+    (env : Finite.Assignment n) (payload : Fin n → Tm signature.Instr) {base : Tm signature.Instr}
+    (hb : Tm.BranchValue Γ base unit) (hp : ∀ j, Tm.BranchValue Γ (payload j) unit) (j : Fin n) :
+    E Γ (returnOnce ((readReply n j).elaborate.val.subst (Tm.singleSubst (replyPacket env payload base))))
+      (.br 0 (tag (env j) (payload j))) [Bit] := by
+  induction n with
+  | zero => exact j.elim0
+  | succ n ih =>
+    have retained := replyPacket_typed env.tail (fun j => payload j.succ) hb (fun j => hp j.succ)
+    have newest := tagged (env 0) (hp 0)
+    cases j using Fin.cases with
+    | zero => exact snd_returnOnce retained newest
+    | succ j =>
+      exact (retained_returnOnce (readReply n j) retained newest).trans
+        (ih env.tail (fun k => payload k.succ) (fun k => hp k.succ) j)
+
+theorem quoted_replyPacket {Γ L : List (Ty Empty)} {n : Nat}
+    (pos : Position L) (table : Finite.Table n) (order : Fin n → Fin n)
+    (env : Finite.Assignment n) (payload : Fin n → Tm signature.Instr) {base : Tm signature.Instr}
+    (hb : Tm.BranchValue Γ base unit) (hp : ∀ j, Tm.BranchValue Γ (payload j) unit) :
+    E Γ ((selectTerminal pos (Finite.Expr.quote n table) (readReply n ∘ order) []).elaborate.val.substVars
+      (Tm.singleSubst (replyPacket env payload base)))
+      (.let₁ .unit (.br pos.1 (if table (env ∘ order) then .inr (.var 0) else .inl (.var 0)))) L :=
+  quote_subst_no_emits pos table _ (replyPacket_typed env payload hb hp) (env ∘ order) (payload ∘ order)
+    (fun j => hp (order j)) (fun j => packet_slot env payload hb hp (order j))
+
 theorem quoted_packet {Γ L : List (Ty Empty)} (pos : Position L) (table : Finite.Table 2)
     (order : Fin 2 → Fin 2) (older newer : Bool) {u x y : Tm signature.Instr}
     (hu : Tm.BranchValue Γ u unit) (hx : Tm.BranchValue Γ x unit) (hy : Tm.BranchValue Γ y unit) :
@@ -458,25 +494,12 @@ theorem quoted_packet {Γ L : List (Ty Empty)} (pos : Position L) (table : Finit
       (Tm.singleSubst (.pair (.pair u (if older then .inr x else .inl x)) (if newer then .inr y else .inl y))))
       (.let₁ .unit (.br pos.1 (if table (Fin.cases newer (fun _ => older) ∘ order)
         then .inr (.var 0) else .inl (.var 0)))) L := by
-  let val : Finite.Assignment 2 := Fin.cases newer (fun _ => older)
+  let env : Finite.Assignment 2 := Fin.cases newer (fun _ => older)
   let payload : Fin 2 → Tm signature.Instr := Fin.cases y (fun _ => x)
-  let packet := Tm.pair (.pair u (tag older x)) (tag newer y)
-  have retained := Tm.BranchValue.pair hu (tagged older hx)
-  have newest := tagged newer hy
-  have payloadTyped (j : Fin 2) : Tm.BranchValue Γ (payload j) unit := by
+  have typed (j : Fin 2) : Tm.BranchValue Γ (payload j) unit := by
     cases j using Fin.cases
     · exact hy
     · exact hx
-  have slot (j : Fin 2) :
-      E Γ (returnOnce ((readReply 2 j).elaborate.val.subst (Tm.singleSubst packet)))
-        (.br 0 (tag (val j) (payload j))) [Bit] := by
-    cases j using Fin.cases with
-    | zero => exact snd_returnOnce retained newest
-    | succ j =>
-      have eq : j = 0 := Subsingleton.elim _ _
-      subst j
-      exact (retained_returnOnce (.snd unit Bit) retained newest).trans (snd_returnOnce hu (tagged older hx))
-  exact quote_subst_no_emits pos table (readReply 2 ∘ order) (.pair retained newest)
-    (val ∘ order) (payload ∘ order) (fun j => payloadTyped (order j)) (fun j => slot (order j))
+  exact quoted_replyPacket pos table order env payload hu typed
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.RedundantSelectedTest
