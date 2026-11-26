@@ -19,7 +19,7 @@ variable {M : Shape.Model.{u,v,w,x} Φ ([] : List (Ty κ))}
 variable {captures points results states : Nat}
 variable (C : Carrier M X A B captures points results states)
 
-private theorem behaviour_order (lower upper : Result results states) :
+theorem behaviour_order (lower upper : Result results states) :
     lower.behaviour C ≤ upper.behaviour C ↔ lower.refines upper := by
   have resultEq (a b : Fin results) : (C.result a).val = (C.result b).val ↔ a = b :=
     ⟨fun h => C.result.injective (Subtype.ext h), congrArg (fun i => (C.result i).val)⟩
