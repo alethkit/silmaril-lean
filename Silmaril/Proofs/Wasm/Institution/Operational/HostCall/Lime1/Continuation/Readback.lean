@@ -5,6 +5,7 @@ import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.Continuation.
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Context
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Wasm
 import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Thms
+import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Memory.Callee.Thms
 import Silmaril.Wasm.Institution.Operational.BranchExit.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Thms
 import Silmaril.Wasm.Lime1.Execution.Callout.Properties
@@ -169,7 +170,7 @@ private theorem render_lookup {saved args : List Value} {indirect : IndirectSite
   | none => rfl
   | some target =>
     cases target <;> simp [render, Phase.afterLookup, Phase.renderCode, Phase.renderIn, IndirectSite.lookupHead,
-      plug_invoke, Graph.Phase.render, Graph.Phase.renderAt, Graph.limeAdmin, WasmTarget.callTarget,
+      plug_invoke, Graph.Phase.render, Graph.Phase.renderAt, Graph.limeAdmin, WasmTarget.callTarget, MemoryCallee.render,
       values_append, List.append_assoc]
 
 private theorem render_wasm {saved : List Value} {site : IndirectSite} {callee : WasmTarget}
@@ -197,6 +198,32 @@ private theorem wasm_read {saved : List Value} {site : IndirectSite} {callee : W
     ((withoutCallout absent).mp move)
   obtain ⟨next, edge, rfl⟩ := (wasm_step_iff linked.graphChecked allocated found admitted notCall notDone).mp inside
   exact ⟨_, .wasm edge, render_wasm.symm⟩
+
+private theorem render_memory {saved : List Value} {callee : MemoryTarget}
+    {phase : MemoryCallee.Phase} {ops : List (Op H)} :
+    render mem outer active results ⟨bytes, .afterMemory saved callee ops phase, labels⟩ =
+      ⟨mem.store bytes, outer, framed active [.label (labelBranchTypes results labels).length
+        (labelContinuation labels) (values saved ++ MemoryCallee.render callee phase ++ code ops)]
+        (scopeFor results labels)⟩ := by
+  cases phase <;> try rfl
+  case done out =>
+    cases out <;> simp [render, Phase.afterMemory, Phase.renderCode, Phase.renderIn,
+      MemoryCallee.render, result, values_append, List.append_assoc]
+
+private theorem memory_read {saved : List Value} {callee : MemoryTarget}
+    {phase : MemoryCallee.Phase} {ops : List (Op H)}
+    (ready : Ready mem host active results (.memory saved callee phase ops) labels) (live : mem.Live bytes)
+    (move : Step host (render mem outer active results ⟨bytes, .memory saved callee phase ops, labels⟩) dst) :
+    ∃ next, Edge mem host active results ⟨bytes, .memory saved callee phase ops, labels⟩ next ∧
+      dst = render mem outer active results next := by
+  obtain ⟨_, allocated, checked, notDone, admitted, _, _⟩ := ready
+  have liveAllocation : callee.Allocated (mem.store bytes) := allocated
+  have absent : decompose? (render mem outer active results ⟨bytes, .memory saved callee phase ops, labels⟩) = none :=
+    noLabelCallout (MemoryCallee.absent (mem.store bytes) liveAllocation notDone)
+  obtain ⟨mid, inside, rfl⟩ := underLabel (fun _ => MemoryCallee.stays notDone)
+    ((withoutCallout absent).mp move)
+  obtain ⟨written, next, edge, rfl⟩ := (MemoryCallee.step_iff checked allocated admitted live notDone).mp inside
+  exact ⟨_, .memory edge, render_memory.symm⟩
 
 private theorem source_read {stack : List Value} {ops : List (Op H)}
     (ready : Ready mem host active results (.source stack ops) labels)
@@ -382,6 +409,7 @@ private theorem read {a : State H} (ready : Ready mem host active results a.phas
     exact block_read ready ((withoutCallout absent).mp move)
   | invoke saved site args ops => exact invoke_read ready live move
   | wasm _ _ _ _ _ => exact wasm_read ready move
+  | memory _ _ _ _ => exact memory_read ready live move
   | trapped stack rest =>
     have absent : decompose? (render mem outer active results ⟨bytes, .trapped stack rest, labels⟩) = none :=
       noLabelCallout (by simp)
@@ -400,7 +428,8 @@ private theorem read {a : State H} (ready : Ready mem host active results a.phas
     | values vs => exact (Nested.lime_result_stuck (r := .values vs) internal).elim
     | trap => exact (Nested.lime_result_stuck (r := .trap) internal).elim
 
-private theorem sound {a b : State H} (ready : Ready mem host active results a.phase a.labels) (edge : Edge mem host active results a b) :
+private theorem sound {a b : State H} (ready : Ready mem host active results a.phase a.labels) (live : mem.Live a.bytes)
+    (edge : Edge mem host active results a b) :
     Step host (render mem outer active results a) (render mem outer active results b) := by
   cases edge with
   | @get bytes stack index v ops labels found =>
@@ -521,6 +550,13 @@ private theorem sound {a b : State H} (ready : Ready mem host active results a.p
     rw [render_wasm]
     exact Step.of_internal (framed_step (.label inner (labelBranchTypes results labels).length
       (labelContinuation labels)))
+  | @memory bytes written saved callee phase next ops labels edge =>
+    obtain ⟨_, allocated, checked, notDone, admitted, _, _⟩ := ready
+    have inner := (MemoryCallee.step_iff (caller := active) (saved := saved) (tail := code ops)
+      checked allocated admitted live notDone).mpr ⟨written, next, edge, rfl⟩
+    rw [render_memory]
+    exact Step.of_internal (framed_step (.label inner (labelBranchTypes results labels).length
+      (labelContinuation labels)))
   | @returned bytes next saved site args ops vs labels _ _ answer =>
     have atHost := located (mem := mem) (labels := labels) (results := results) (outer := outer) (active := active)
       (bytes := bytes) (saved := saved) (ops := ops) ready.2.1 ready.2.2.1
@@ -564,6 +600,6 @@ theorem step_iff {a : State H} (ready : Ready mem host active results a.phase a.
       ∃ next, Edge mem host active results a next ∧ dst = render mem outer active results next := by
   refine ⟨read ready live, ?_⟩
   rintro ⟨_, edge, rfl⟩
-  exact sound ready edge
+  exact sound ready live edge
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Proofs

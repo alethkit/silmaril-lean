@@ -26,7 +26,7 @@ private def wasmCallee : WasmTarget := ⟨⟨7⟩, wasmFn⟩
 private def trapCallee : WasmTarget := ⟨⟨8⟩, trapFn⟩
 private def graph : Graph.Program := ⟨[none, none, none, none, none, none, none, some wasmFn, some trapFn]⟩
 private def table : TableInst := ⟨[some ⟨3⟩, none, some ⟨4⟩, some ⟨7⟩, some ⟨8⟩], none⟩
-private def indirect : IndirectSite := ⟨⟨table, ⟨1⟩, expected⟩, graph⟩
+private def indirect : IndirectSite := ⟨⟨table, ⟨1⟩, expected⟩, graph, []⟩
 private def prepare : Site Nat := ⟨⟨2⟩, ⟨[num64], [num64] ++ expected.params ++ [num32]⟩, 11⟩
 private def target : Site Nat := ⟨⟨3⟩, expected, 12⟩
 private def join : Site Nat := ⟨⟨5⟩, ⟨num64 :: expected.results, [num32]⟩, 14⟩
@@ -89,8 +89,8 @@ private theorem linked : indirect.Linked base program.module := by
   rcases member with rfl | rfl | rfl | rfl
   · exact ⟨.host expected 12, rfl, fun _ => trivial⟩
   · exact ⟨.host wrong 13, rfl, fun _ => trivial⟩
-  · exact ⟨.wasm declaration.type declaration.module wasmFn.limeFunc, rfl, fun _ => ⟨wasmFn, rfl⟩⟩
-  · exact ⟨.wasm declaration.type declaration.module trapFn.limeFunc, rfl, fun _ => ⟨trapFn, rfl⟩⟩
+  · exact ⟨.wasm declaration.type declaration.module wasmFn.limeFunc, rfl, fun _ => .inl ⟨wasmFn, rfl⟩⟩
+  · exact ⟨.wasm declaration.type declaration.module trapFn.limeFunc, rfl, fun _ => .inl ⟨trapFn, rfl⟩⟩
 
 private theorem checked : program.Checked memory caller ⟨0⟩ := by
   have afterLookup : Check [rootResults, rootResults] rootResults (num64 :: expected.results) armTail :=
@@ -130,6 +130,9 @@ private def host : HostSemantics Nat := fun id store operands outcome =>
   | _ => False
 
 private theorem indirectContract : indirect.Contract memory host := by
+  refine ⟨?_, fun callee found => ?_⟩
+  swap
+  · simp [IndirectSite.memoryLookup, indirect] at found
   intro address code member allocated
   simp [indirect, table] at member
   rcases member with rfl | rfl | rfl | rfl

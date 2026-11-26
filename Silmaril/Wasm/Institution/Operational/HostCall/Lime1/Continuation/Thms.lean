@@ -32,9 +32,10 @@ frame for the subsequent native caller-restoration step. A checked branch
 table consumes its unsigned i32 selector and hands the chosen depth to the
 same native branch transfer. A loop-target transfer reinstates the source
 loop with its declared parameters. Normal loop exit delivers the declared
-results and discards the restart instruction. Indirect host lookup leaves
-the same pending invocation as a direct call, or a native trap with the
-current bytes. -/
+results and discards the restart instruction. Indirect lookup reaches a
+pending host, direct graph callee, or fixed-extent Memory32 callee, or a trap.
+The memory callee keeps its current bytes through the native frame exit and
+resumes the checked suffix with its ordered results or a trap. -/
 theorem step_iff (ready : Ready mem host active results a.phase a.labels) (live : mem.Live a.bytes) :
     Step host (render mem outer active results a) dst ↔
       ∃ next, Edge mem host active results a next ∧ dst = render mem outer active results next :=

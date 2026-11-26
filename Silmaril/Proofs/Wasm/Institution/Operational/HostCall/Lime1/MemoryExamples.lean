@@ -1,6 +1,7 @@
 module
 
 import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Memory.Thms
+import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.IndexedLoop.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryWrite.Native.Lime1Context.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryWrite.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryQuery.Thms
@@ -12,6 +13,7 @@ open Execution.Runtime (Frame MemInst ModuleInst Value)
 open Wasm.Lime1.Execution
 open CallContinuation.OuterCall (Declaration)
 open CallContinuation.OuterCall.Ranked
+open IndexedLoop (Program Edge call_run_iff producerType)
 
 private abbrev i32 := Value.int .i32
 private abbrev i64 := Value.int .i64
@@ -42,9 +44,34 @@ private def writeThenLoad : Wasm.Lime1.Func := fn.v1Func.toLime
 example : fn.WellTyped fn.initial fn.code := by unfold Graph.Memory32.Function.WellTyped; decide
 example : ¬ fn.WellTyped [i64 9, i64 0, i32 word] fn.code := by unfold Graph.Memory32.Function.WellTyped; decide
 
+private def target : MemoryTarget := ⟨⟨0⟩, fn⟩
+private def table : Execution.Runtime.TableInst := ⟨[some ⟨0⟩], none⟩
+private def indirect : IndirectSite := ⟨⟨table, ⟨1⟩, signature⟩, ⟨[]⟩, [some fn]⟩
+private def prepare : Site Nat := ⟨⟨4⟩, ⟨[.int .i64, .int .i32], [.int .i32, .int .i32, .int .i32]⟩, 9⟩
+private def observe : Site Nat := ⟨⟨1⟩, hostType, 7⟩
+private def afterLookup : List (Continuation.Op Nat) := [.call ⟨2⟩ observe]
+private def lookupOps : List (Continuation.Op Nat) := .callIndirect indirect :: afterLookup
+
+private def program : Program Nat where
+  module := {
+    types := [IndexedLoop.signature, signature]
+    funcs := [⟨3⟩, ⟨4⟩, ⟨1⟩]
+    tables := [⟨0⟩]
+    memories := [⟨1⟩] }
+  rootAddress := ⟨2⟩
+  loopIndex := ⟨0⟩
+  producerIndex := ⟨0⟩
+  producerAddress := ⟨3⟩
+  producerCode := 8
+  continuation := .call ⟨1⟩ prepare :: lookupOps
+  saved := 99
+
+private def entryCaller : Frame := ⟨caller.locals, { caller.module with funcs := [⟨2⟩] }⟩
+
 private def base : Store Nat :=
-  { memories := [⟨⟨#[0xcc]⟩, none⟩, initial], tables := [⟨[some ⟨0⟩], none⟩],
-    funcs := [.wasm signature calleeModule writeThenLoad, .host hostType 7] }
+  { memories := [⟨⟨#[0xcc]⟩, none⟩, initial], tables := [table],
+    funcs := [.wasm signature calleeModule writeThenLoad, .host hostType 7,
+      .wasm program.functionType program.module program.function, .host producerType 8, .host prepare.type 9] }
 
 private def mem : Memory32 base := ⟨⟨1⟩, initial, rfl⟩
 private def host : HostSemantics Nat := fun code store operands outcome =>
@@ -124,5 +151,169 @@ example : Steps host (launch (-1)) ⟨mem.store written, caller, [.trap]⟩ := b
     .context (.pure _ _ (.frameTrap 2 (callee (-1)))) callerSaved tail
   exact ((((writtenPrefix.tail bounds).tail erased).tail labelExited).tail calleeExited).tail
     (.pure _ _ (.trapValues (i32 23) [] tail))
+
+/-! The same allocated callee runs in the checked mixed runner from ordinary
+entry. The prepare host supplies a pointer choice without changing the bytes. -/
+
+private def checkedHost : HostSemantics Nat := fun code store operands outcome =>
+  match code with
+  | 8 => store = mem.store zero ∧ operands = [i64 7] ∧
+      outcome = .returned (mem.store before) (.values [i32 1, i64 88, i32 0])
+  | 9 => store = mem.store before ∧ operands = [i64 99, i32 1] ∧ ∃ ptr : BitVec 32,
+      outcome = .returned (mem.store before) (.values (callerSaved ++ [i32 ptr, i32 0]))
+  | _ => host code store operands outcome
+
+private theorem calleeChecked : target.Checked mem := ⟨rfl, rfl, rfl, rfl⟩
+
+-- These guards reject a wrong address type and a function whose actual module
+-- links a different memory, even though its ordered signature is unchanged.
+example : ¬ ({ target with fn := { fn with initial := [i64 9, i64 0, i32 word] } } : MemoryTarget).Checked mem := by
+  intro checked
+  have wrong := checked.body
+  change fn.checkCode (CallContinuation.OuterCall.Computed.Prefix.stackTypes [i64 9, i64 0, i32 word])
+    fn.code = true at wrong
+  contradiction
+
+example : ¬ ({ target with fn := { fn with declaration :=
+    { fn.declaration with module := { calleeModule with memories := [⟨0⟩] } } } } : MemoryTarget).Checked mem := by
+  intro checked
+  have slot := checked.slot
+  change (some ⟨0⟩ : Option Execution.Runtime.MemAddr) = some ⟨1⟩ at slot
+  contradiction
+
+private theorem linked : indirect.Linked base program.module := by
+  refine ⟨rfl, rfl, rfl, ?_, ?_⟩
+  · intro address registered found
+    simp [indirect, Graph.Program.lookup] at found
+  · intro address member
+    simp [indirect, table] at member
+    subst address
+    exact ⟨.wasm signature calleeModule writeThenLoad, rfl, fun _ => .inr ⟨fn, rfl, rfl⟩⟩
+
+private theorem programChecked : program.Checked mem entryCaller ⟨0⟩ := by
+  have suffix : Continuation.Checked base program.module [.int .i64] [[.int .i32]] [.int .i32]
+      ([.int .i32] ++ signature.results) afterLookup :=
+    .call (site := observe) (saved := []) rfl (show observe.Allocated base from rfl) .nil
+  have lookup : Continuation.Checked base program.module [.int .i64] [[.int .i32]] [.int .i32]
+      (([.int .i32] ++ signature.params) ++ [.int .i32]) lookupOps :=
+    .callIndirect (saved := [.int .i32]) linked suffix
+  exact ⟨rfl, rfl, rfl, rfl, rfl, .call (site := prepare) (saved := []) rfl (show prepare.Allocated base from rfl) lookup, rfl, rfl⟩
+
+private theorem programContract : program.Contract mem checkedHost := by
+  have prepared : prepare.Contract mem checkedHost := by
+    intro _ _ _ _ _ _ answer
+    obtain ⟨_, _, ptr, outcome⟩ := answer
+    cases outcome
+    exact ⟨before, rfl, rfl, rfl⟩
+  have observed : observe.Contract mem checkedHost := by
+    intro _ _ _ _ _ _ answer
+    cases answer.2.2.2
+    exact ⟨written, rfl, rfl, rfl⟩
+  have atSite : indirect.Contract mem checkedHost := by
+    constructor
+    · intro address code member allocated
+      simp [indirect, table] at member
+      subst address
+      cases (show some (.wasm signature calleeModule writeThenLoad : Execution.Runtime.FuncInst Wasm.Lime1.Func Nat)
+        = some (.host signature code) from allocated)
+    · intro callee found
+      rcases callee with ⟨address, registered⟩
+      cases address with
+      | mk address =>
+        cases address with
+        | zero =>
+          change some fn = some registered at found
+          cases found
+          exact calleeChecked
+        | succ => simp [IndirectSite.memoryLookup, indirect] at found
+  constructor
+  · intro _ _ _ _ _ _ answer
+    cases answer.2.2
+    exact ⟨before, rfl, rfl, rfl⟩
+  · exact .call prepared (.callIndirect atSite (.call observed .nil))
+
+private def checkedLaunch : Config Nat :=
+  ⟨base, entryCaller, values [i64 7] ++ [.source (.call ⟨0⟩)]⟩
+
+private abbrev Path := Relation.ReflTransGen (Edge program mem checkedHost 7) ⟨zero, .source⟩
+private abbrev BodyPath (q : Continuation.State Nat) := Path ⟨q.bytes, .continuation q.phase q.labels⟩
+
+private theorem BodyPath.step {a b : Continuation.State Nat} (path : BodyPath a)
+    (move : Continuation.Edge mem checkedHost (program.active 7) [.int .i32] a b) : BodyPath b :=
+  path.tail (.continuation move)
+
+private theorem atCheckedLookup (ptr : BitVec 32) :
+    BodyPath ⟨before, .source ((callerSaved ++ [i32 ptr]) ++ [i32 0]) lookupOps, []⟩ := by
+  have producer : Path ⟨zero, .producerInvoke 7⟩ :=
+    ((((Relation.ReflTransGen.single (.control .resolve)).tail (.control .enter)).tail
+      (.control .readLocal)).tail (.control (.openLoop 7))).tail (.control (.resolveProducer 7))
+  have returned : Edge program mem checkedHost 7 ⟨zero, .producerInvoke 7⟩ ⟨before, .test 1 88 0⟩ :=
+    .producerReturns rfl ⟨rfl, rfl, rfl⟩
+  have exit : BodyPath ⟨before, .source [i64 99, i32 1] program.continuation, []⟩ :=
+    (((producer.tail returned).tail (.control (.test 1 88 0))).tail
+      (.control (.dropInput 1 88))).tail (.control (.loopResult 1))
+  have preparing : BodyPath ⟨before, .invoke [] prepare [i64 99, i32 1] lookupOps, []⟩ :=
+    exit.step (.resolve (saved := []) (args := [i64 99, i32 1]) rfl)
+  exact preparing.step (.returned (vs := (callerSaved ++ [i32 ptr]) ++ [i32 0]) rfl rfl ⟨rfl, rfl, ptr, rfl⟩)
+
+private theorem BodyPath.calleeStep {bytes next : ByteArray} {a b : MemoryCallee.Phase}
+    (path : BodyPath ⟨bytes, .memory callerSaved target a afterLookup, []⟩)
+    (move : MemoryCallee.Edge target bytes a next b) :
+    BodyPath ⟨next, .afterMemory callerSaved target afterLookup b, []⟩ :=
+  path.step (.memory move)
+
+private theorem atCheckedLoad (ptr : BitVec 32) :
+    BodyPath ⟨written, .memory callerSaved target (.body [i32 ptr] [i64 9, i32 ptr] [.load 1]) afterLookup, []⟩ := by
+  have invoke : BodyPath ⟨before, .memory callerSaved target (.invoke [i32 ptr]) afterLookup, []⟩ :=
+    (atCheckedLookup ptr).step (.callIndirect (saved := callerSaved) (args := [i32 ptr]) rfl
+      (.memory (callee := target) rfl rfl (show target.Allocated base from rfl) rfl))
+  have entered : BodyPath ⟨before, .memory callerSaved target (.body [i32 ptr] fn.initial fn.code) afterLookup, []⟩ :=
+    invoke.calleeStep .enter
+  have stored : BodyPath ⟨written, .memory callerSaved target
+      (.body [i32 ptr] [i64 9] [.ranked (.numeric (.get ⟨0⟩)), .load 1]) afterLookup, []⟩ :=
+    entered.calleeStep (.store (args := [i32 ptr]) (saved := [i64 9])
+      (MemoryWrite.fact_at (.write 0 word written (by decide))))
+  exact stored.calleeStep (.get (v := i32 ptr) rfl)
+
+-- This endpoint is inside the callee, after the write and before the load.
+example :
+    Steps checkedHost checkedLaunch ⟨mem.store written, entryCaller,
+      program.functionCode 7 (MemoryWrite.limeActivationCode 2 (callee 0) callerSaved
+        (Continuation.code afterLookup) (values [i64 9] ++ MemoryQuery.limeCodeAt arg (.load 0)))⟩ :=
+  (call_run_iff (arg := 7) programChecked programContract).mpr ⟨_, atCheckedLoad 0, rfl, rfl⟩
+
+example : Steps checkedHost checkedLaunch ⟨mem.store written, entryCaller, values [i32 42]⟩ := by
+  have loaded : BodyPath ⟨written, .memory callerSaved target
+      (.body [i32 0] [i64 9, i32 word] []) afterLookup, []⟩ :=
+    (atCheckedLoad 0).calleeStep (.load (saved := [i64 9]) (MemoryQuery.fact_at (.load 0 word (by decide))))
+  have poppedLabel : BodyPath ⟨written, .memory callerSaved target
+      (.exit [i32 0] (.values [i64 9, i32 word])) afterLookup, []⟩ :=
+    loaded.calleeStep .labelDone
+  have resumed : BodyPath ⟨written, .source (callerSaved ++ [i64 9, i32 word]) afterLookup, []⟩ :=
+    poppedLabel.calleeStep .frameDone
+  have observed : BodyPath ⟨written, .invoke [] observe [i32 23, i64 9, i32 word] [], []⟩ :=
+    resumed.step (.resolve (saved := []) (args := [i32 23, i64 9, i32 word]) rfl)
+  have returned : BodyPath ⟨written, .source [i32 42] [], []⟩ :=
+    observed.step (.returned (vs := [i32 42]) rfl rfl ⟨rfl, rfl, rfl, rfl⟩)
+  exact (call_run_iff (arg := 7) programChecked programContract).mpr
+    ⟨_, (returned.step .labelResult).step .frameDone, rfl, rfl⟩
+
+example : Steps checkedHost checkedLaunch ⟨mem.store written, entryCaller, [.trap]⟩ := by
+  have trapped : BodyPath ⟨written, .memory callerSaved target
+      (.trapped [i32 (-1)] [i64 9] []) afterLookup, []⟩ :=
+    (atCheckedLoad (-1)).calleeStep (.loadTrap (saved := [i64 9])
+      (MemoryQuery.load_trap_iff_at.mpr (by decide)))
+  have erased : BodyPath ⟨written, .memory callerSaved target
+      (.trapped [i32 (-1)] [] []) afterLookup, []⟩ :=
+    trapped.calleeStep (.erase (removed := [i64 9]) (cut := []) rfl rfl (.inl (by simp)))
+  have poppedLabel : BodyPath ⟨written, .memory callerSaved target
+      (.exit [i32 (-1)] .trap) afterLookup, []⟩ := erased.calleeStep .labelTrap
+  have poppedFrame : BodyPath ⟨written, .trapped callerSaved (Continuation.code afterLookup), []⟩ :=
+    poppedLabel.calleeStep .frameDone
+  have discarded : BodyPath ⟨written, .trapped [] [], []⟩ :=
+    poppedFrame.step (.erase (removed := callerSaved) (cut := Continuation.code afterLookup) rfl rfl
+      (.inl (by simp [callerSaved])))
+  exact (call_run_iff (arg := 7) programChecked programContract).mpr
+    ⟨_, (discarded.step .labelTrap).step .frameDone, rfl, rfl⟩
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.MemoryExamples
