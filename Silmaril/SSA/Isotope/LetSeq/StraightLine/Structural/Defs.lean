@@ -204,15 +204,15 @@ structure Separates {α : Type} {n : Nat} {β : Context α n} (ρ : BoundEnv Val
   allocated (a : α) (s : Slot β (.base a)) : s.value ρ ∈ used
 
 /-- The event carries values at the actual argument and reply types of its generator. -/
-structure Event {α Φ : Type} [Signature α Φ] where
+structure Event {α Φ : Type} [HasTy Φ (Ty α)] where
   generator : Φ
-  argument : Value (Signature.argument (α := α) generator).ty
-  reply : Value (Signature.reply (α := α) generator).ty
+  argument : Value (instrSrc (τ := Ty α) generator)
+  reply : Value (instrTrg (τ := Ty α) generator)
 
-abbrev Log (α Φ : Type) [Signature α Φ] := FreeMonoid (Event (α := α) (Φ := Φ))
-abbrev Trace (α Φ : Type) [Signature α Φ] := Silmaril.Semantics.NondeterministicTrace.Finite (Log α Φ)
+abbrev Log (α Φ : Type) [HasTy Φ (Ty α)] := FreeMonoid (Event (α := α) (Φ := Φ))
+abbrev Trace (α Φ : Type) [HasTy Φ (Ty α)] := Silmaril.Semantics.NondeterministicTrace.Finite (Log α Φ)
 
-def model {α Φ : Type} [Signature α Φ] : InstructionModel (Value (α := α)) Φ (Trace α Φ) where
+def model {α Φ : Type} [HasTy Φ (Ty α)] : InstructionModel (Value (α := α)) Φ (Trace α Φ) where
   eval f x := Finite.ofOutcomes (Set.range fun y : Value (instrTrg f) => (y, FreeMonoid.of ⟨f, x, y⟩))
 
 def run {α Φ : Type} [Signature α Φ] {n : Nat} {β : Context α n} {t : Term Φ n} {A : Ty α}
