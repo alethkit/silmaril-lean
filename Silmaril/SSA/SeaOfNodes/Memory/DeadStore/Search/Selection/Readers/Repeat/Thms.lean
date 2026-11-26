@@ -16,6 +16,12 @@ variable {args : List ValueSort} {cells : Nat}
 theorem DeletesStores.refl (ops : List (Operation args)) : DeletesStores 0 ops ops :=
   Proofs.keepsAll ops
 
+/-- Compose ordered Store deletions and add their exact counts. -/
+theorem DeletesStores.trans {removed more : Nat} {source middle target : List (Operation args)}
+    (first : DeletesStores removed source middle) (next : DeletesStores more middle target) :
+    DeletesStores (removed + more) source target :=
+  Proofs.compose first next
+
 /-- Renumbering memory edges preserves the complete ordered operation list. -/
 theorem reindex_operations {past : List (List ValueSort)} {version : Nat}
     (body : Body args past version) (live : Nat) :

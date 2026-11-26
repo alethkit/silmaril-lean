@@ -469,3 +469,39 @@ identifying the required disjoint port with the anchor refuses transport.
 ```sh
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Check a sequence of static entry cuts
+
+`Entry.Composition.Retained.Load.Static.Sequence.lower graph entry plan input`
+validates every step's typed address contract at this invocation. The plan
+is a list of one-based Store nominations and contracts. `Plan.rewrite`
+folds the existing first-overwrite check over the native entry tables,
+using the table produced by the preceding steps. A failed contract or cut
+returns `none` for the entire request. An empty plan emits the original
+entry on both sides.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Static/Sequence/Defs.lean) ·
+[Pinned Simple chapter 10 Store rule](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65)
+
+A successful fold removes exactly one Store per step and preserves the
+order and operands of every retained operation. The existing MemRef
+emitter lowers the original and final tables with the same native
+diamond. The emitted entries forward the same successor packet and full
+buffer. At either predicate and any initialized buffer, both CFGs return
+the same word and every final cell for every CF budget. Three block
+steps suffice for each artifact. A common typed port map transports a
+successful plan's contracts and exact final table using the single-cut
+transport law.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Static/Sequence/Thms.lean)
+
+The regression deletes Stores to two different cells. The Load between
+the second nomination and its overwrite still reads the first cell and
+supplies the retained Store operand. Reusing the second Store's original
+version after the first deletion rejects the entire sequence. The
+fixture also runs the transported plan through the MemRef CFGs after a
+typed address-port swap. This is an explicit plan over ordered native
+diamond entries, with the pinned Store rule as its source reference.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```
