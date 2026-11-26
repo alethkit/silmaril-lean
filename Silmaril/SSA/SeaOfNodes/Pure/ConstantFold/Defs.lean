@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.SeaOfNodes.Pure.SubZero.Defs
 
-/-! Fold binary operations whose actual operands are word literals in the
+/-! Fold operations whose actual operands are typed literals in the
 current prefix. A replacement occupies the original typed result slot. -/
 
 @[expose] public section
@@ -33,31 +33,40 @@ def Literals.push (known : Literals m args past) (value : Option (Val m.value (.
     | .inr .head => value
     | .inr (.tail port) => nomatch port
 
-/-- A supported opcode is either a literal or a binary word operation with
-a certified literal constructor for its result sort. -/
+/-- A supported opcode is either a literal or an operation with a
+certified literal constructor for its result sort. -/
 inductive Rule (m : Model Op) : {ins : List (ValueSort Unit)} → {out : ValueSort Unit} →
     Op ins out → Type where
   | literal {out : ValueSort Unit} (op : Op [] out) : Rule m op
-  | binary {out : ValueSort Unit} (op : Op [word, word] out) (encode : sortValue m.value out → Op [] out)
+  | operation {ins : List (ValueSort Unit)} {out : ValueSort Unit}
+      (op : Op ins out) (encode : sortValue m.value out → Op [] out)
       (read_encode : ∀ value, m.run (encode value) .nil = value) : Rule m op
 
 abbrev Rules (m : Model Op) :=
   ∀ {ins : List (ValueSort Unit)} {out : ValueSort Unit} (op : Op ins out), Rule m op
 
-/-- Read both actual operand wires in signature order. -/
-def binaryInputs? (known : Literals m args past)
+/-- Read every actual operand wire in signature order, failing on an unknown read. -/
+def literalInputs? (known : Literals m args past) {ports : List (Ty Unit)} :
+    Wires args past ports → Option (Tuple (Val m.value) ports)
+  | .nil => some .nil
+  | .cons wire rest =>
+    (known wire).bind fun value => (literalInputs? known rest).map (.cons value)
+
+abbrev Rule.binary (op : Op [word, word] out) (encode : sortValue m.value out → Op [] out)
+    (read_encode : ∀ value, m.run (encode value) .nil = value) : Rule m op :=
+  .operation op encode read_encode
+
+abbrev binaryInputs? (known : Literals m args past)
     (operands : Wires args past (dataPorts [word, word])) :
     Option (Tuple (Val m.value) (dataPorts [word, word])) :=
-  match operands with
-  | .cons lhs (.cons rhs .nil) =>
-    (known lhs).bind fun x => (known rhs).map fun y => .cons x (.cons y .nil)
+  literalInputs? known operands
 
-/-- Evaluate binary bindings with the native model after both literal reads succeed. -/
+/-- Evaluate a binding with the native model after all literal reads succeed. -/
 def Rule.replacement? (known : Literals m args past) {op : Op ins out} :
     Rule m op → Wires args past (dataPorts ins) → Option (Op [] out)
   | .literal original, _ => some original
-  | .binary opcode encode _, operands =>
-    (binaryInputs? known operands).map fun values => encode (m.run opcode values)
+  | .operation opcode encode _, operands =>
+    (literalInputs? known operands).map fun values => encode (m.run opcode values)
 
 /-- Scan once in dependency order, preserving the table's output signatures. -/
 def foldDataflow (rules : Rules m) : {past sigs : List (List (Ty Unit))} →

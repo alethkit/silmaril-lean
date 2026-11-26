@@ -10,7 +10,6 @@ namespace Silmaril.Proofs.SSA.SeaOfNodes.Pure.ConstantFold
 open Silmaril.SSA.SeaOfNodes
 open Silmaril.SSA.SeaOfNodes.Pure
 open Silmaril.SSA.SeaOfNodes.Pure.ConstantFold.Scan
-open SubZero (word)
 open Diamond (Dataflow Model Signature Ty Val ValueSort dataPorts)
 open GVN.Elimination (read_splitOrigin splitOrigin)
 open Silmaril.SSA.RVSDG (Locals Origin Tuple Wires)
@@ -45,21 +44,19 @@ private theorem push_agrees (agree : Agrees known entry locals)
         actual).trans (sound value found)
     | tail rest => nomatch rest
 
-private theorem binaryInputs_sound (agree : Agrees known entry locals)
-    (operands : Wires args past (dataPorts [word, word]))
-    {values : Tuple (Val m.value) (dataPorts [word, word])}
-    (found : binaryInputs? known operands = some values) :
+private theorem literalInputs_sound (agree : Agrees known entry locals) {ports : List (Ty Unit)}
+    (operands : Wires args past ports) {values : Tuple (Val m.value) ports}
+    (found : literalInputs? known operands = some values) :
     operands.read entry locals = values := by
-  cases operands with
-  | cons lhs tail =>
-    cases tail with
-    | cons rhs empty =>
-      cases empty
-      obtain ⟨left, knownLeft, result⟩ := Option.bind_eq_some_iff.mp found
-      obtain ⟨right, knownRight, rfl⟩ := Option.map_eq_some_iff.mp result
-      change Tuple.cons (Diamond.read m lhs entry locals)
-        (.cons (Diamond.read m rhs entry locals) .nil) = _
-      rw [agree lhs knownLeft, agree rhs knownRight]
+  induction operands with
+  | nil =>
+    cases Option.some.inj found
+    rfl
+  | cons wire rest ih =>
+    obtain ⟨value, knownWire, result⟩ := Option.bind_eq_some_iff.mp found
+    obtain ⟨tail, knownRest, rfl⟩ := Option.map_eq_some_iff.mp result
+    change Tuple.cons (Diamond.read m wire entry locals) (Wires.read rest entry locals) = _
+    rw [agree wire knownWire, ih knownRest]
 
 private theorem replacement_sound (agree : Agrees known entry locals) {op : Op ins out}
     (rule : Rule m op) (operands : Wires args past (dataPorts ins)) {literal : Op [] out}
@@ -70,9 +67,9 @@ private theorem replacement_sound (agree : Agrees known entry locals) {op : Op i
     cases operands
     cases Option.some.inj found
     rfl
-  | binary opcode encode read_encode =>
+  | operation opcode encode read_encode =>
     obtain ⟨values, knownOperands, rfl⟩ := Option.map_eq_some_iff.mp found
-    rw [read_encode, binaryInputs_sound agree operands knownOperands]
+    rw [read_encode, literalInputs_sound agree operands knownOperands]
 
 private theorem dataflow_eval (rules : Rules m) (flow : Dataflow Op args past sigs)
     (agree : Agrees known entry locals) :
