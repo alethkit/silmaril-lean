@@ -23,13 +23,13 @@ set_option backward.isDefEq.respectTransparency false
 local notation "Γ₀" => (Ctx.nil : Ctx Empty Sorts)
 local notation "U" => (Ty.unit : Sorts)
 
-private theorem matches_bind {k n : Nat} {β : BoundCtx Sorts k} {slots : Retained β n}
+theorem matches_bind_proof {k n : Nat} {β : BoundCtx Sorts k} {slots : Retained β n}
     {ρ : BoundEnv value β} {env : Assignment n} (h : slots.Matches ρ env) (b : Bool) :
     slots.bind.Matches (ρ.snoc (A := Bit) (bit b)) (env.push b) := by
   intro i
   exact Fin.cases rfl h i
 
-private theorem run_bit_case {k : Nat} {β : BoundCtx Sorts k} {A : Sorts}
+theorem run_bit_case_proof {k : Nat} {β : BoundCtx Sorts k} {A : Sorts}
     (ρ : BoundEnv value β) (d : Operand signature.Instr β Bit)
     (l r : Operand signature.Instr (β.snoc U) A) (b : Bool)
     (read : Kleisli.run model d.2 ρ = pure (bit b)) :
@@ -51,7 +51,7 @@ theorem expr_run_proof {n : Nat} (e : Expr n) {k : Nat} {β : BoundCtx Sorts k}
     have h' : older.Matches ρ' env.tail := fun i => h i.succ
     have read := run_readPayload ρ (slots 0).1 (slots 0).2 (env 0) (h 0)
     change Kleisli.run model (.case (slots.read 0).2 (l.operand older).2 (r.operand older).2) ρ = _
-    rw [run_bit_case ρ (slots.read 0) (l.operand older) (r.operand older) (env 0) read]
+    rw [run_bit_case_proof ρ (slots.read 0) (l.operand older) (r.operand older) (env 0) read]
     cases hb : env 0
     · simp only [Expr.eval, hb, Bool.false_eq_true, ite_false]
       exact ihl older ρ' env.tail h'
@@ -81,8 +81,8 @@ theorem normal_run_proof {L : List Sorts} {n : Nat} (p : Normal L n)
     rfl
   | request req l r ihl ihr =>
     exact request_run req _ _ ρ finish Exits.Exit.packed _ _
-      (fun b => ihl slots.bind (ρ.snoc (A := Bit) (bit b)) (env.push b) (matches_bind h b))
-      (fun b => ihr slots.bind (ρ.snoc (A := Bit) (bit b)) (env.push b) (matches_bind h b))
+      (fun b => ihl slots.bind (ρ.snoc (A := Bit) (bit b)) (env.push b) (matches_bind_proof h b))
+      (fun b => ihr slots.bind (ρ.snoc (A := Bit) (bit b)) (env.push b) (matches_bind_proof h b))
   | testRequest test low ll lr hl hr ihll ihlr ihhl ihhr =>
     let ρ' := ρ.snoc (A := U) PUnit.unit
     let rest := env.without test
@@ -93,16 +93,16 @@ theorem normal_run_proof {L : List Sorts} {n : Nat} (p : Normal L n)
     have hKept : kept.Matches ρ' rest := fun i => h (test.succAbove i)
     have read := run_readPayload ρ (slots test).1 (slots test).2 (env test) (h test)
     change (Kleisli.run model (.case (slots.read test).2 left.2 right.2) ρ >>= finish).outcomes = _
-    rw [run_bit_case ρ (slots.read test) left right (env test) read]
+    rw [run_bit_case_proof ρ (slots.read test) left right (env test) read]
     cases hb : env test
     · simp only [Normal.outcomes, Normal.traceTree, hb, Bool.false_eq_true, ite_false]
       exact request_run low _ _ ρ' finish Exits.Exit.packed _ _
-        (fun b => ihll scope (ρ'.snoc (A := Bit) (bit b)) (rest.push b) (matches_bind hKept b))
-        (fun b => ihlr scope (ρ'.snoc (A := Bit) (bit b)) (rest.push b) (matches_bind hKept b))
+        (fun b => ihll scope (ρ'.snoc (A := Bit) (bit b)) (rest.push b) (matches_bind_proof hKept b))
+        (fun b => ihlr scope (ρ'.snoc (A := Bit) (bit b)) (rest.push b) (matches_bind_proof hKept b))
     · simp only [Normal.outcomes, Normal.traceTree, hb, ite_true]
       exact request_run (!low) _ _ ρ' finish Exits.Exit.packed _ _
-        (fun b => ihhl scope (ρ'.snoc (A := Bit) (bit b)) (rest.push b) (matches_bind hKept b))
-        (fun b => ihhr scope (ρ'.snoc (A := Bit) (bit b)) (rest.push b) (matches_bind hKept b))
+        (fun b => ihhl scope (ρ'.snoc (A := Bit) (bit b)) (rest.push b) (matches_bind_proof hKept b))
+        (fun b => ihhr scope (ρ'.snoc (A := Bit) (bit b)) (rest.push b) (matches_bind_proof hKept b))
 
 private theorem packed_normal_run (H : Sorts) (L : List Sorts) (p : Normal (H :: L) 0) :
     programOutcomes H L p.render = p.outcomes Fin.elim0 := by

@@ -12,9 +12,10 @@ public section
 
 namespace Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload.Finite
 
-open Isotope.LetCase.LocallyNameless (Equiv HasType Tm)
+open Isotope.LetCase.LocallyNameless (Derivation Equiv HasType Tm)
 open Isotope.Semantics (BoundEnv)
 open Kleisli (value)
+open LambdaSSA.Acyclic (Operand)
 open LambdaSSA.Region (packedExitType)
 
 local notation "Γ₀" => (Ctx.nil : Ctx Empty Sorts)
@@ -52,6 +53,20 @@ theorem derive_normal (H : Sorts) (L : List Sorts) (p q : Tree (H :: L) 0)
 theorem derive_render (H : Sorts) (L : List Sorts) (p : Tree (H :: L) 0) :
     Derivable false (equation H L p p.normal.render) :=
   derive_render_proof H L p
+
+theorem Retained.Matches.bind {k n : Nat} {β : BoundCtx Sorts k} {slots : Retained β n}
+    {ρ : BoundEnv value β} {env : Assignment n} (h : slots.Matches ρ env) (b : Bool) :
+    slots.bind.Matches (ρ.snoc (A := Bit) (bit b)) (env.push b) :=
+  matches_bind_proof h b
+
+/-- The pure test chooses a branch and extends the native context with unit. -/
+theorem run_bit_case {k : Nat} {β : BoundCtx Sorts k} {A : Sorts}
+    (ρ : BoundEnv value β) (d : Operand signature.Instr β Bit)
+    (l r : Operand signature.Instr (β.snoc Ty.unit) A) (b : Bool)
+    (read : Kleisli.run model d.2 ρ = pure (bit b)) :
+    Kleisli.run model (Derivation.case d.2 l.2 r.2) ρ =
+      Kleisli.run model (if b then r else l).2 (ρ.snoc (A := Ty.unit) PUnit.unit) :=
+  run_bit_case_proof ρ d l r b read
 
 /-- A normalized open subtree evaluates at its retained assignment. Each
 request extends that assignment using the payload from its single evaluation. -/
