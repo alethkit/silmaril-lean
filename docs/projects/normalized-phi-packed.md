@@ -564,3 +564,29 @@ slots. The execution corollaries consume the existing reverse readback
 and ordinary typed re-admission results. The source-local versioner has
 its own saved-record checks.
 [Execution corollaries](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Split/Admission/Thms.lean)
+
+#### Liveness of the moved operand captures
+
+`Admission.movedCaptureSlots` selects the retained slots reported by
+the reconstructed profile. Each such name was absent from the original
+lowering's register support. The original lexical entry therefore has
+no free read of it at version zero. The original versioned blocks read
+only their incoming packets, so agreement at the entry's free capture
+slots gives equality of the entire weak observation tree, including
+request replies and ordered exits.
+
+`GeneratedSplit.observe_eq_of_movedCaptures` transports this criterion
+through the checked split. Two records at the same admitted interface may
+differ at every reported slot if their other fields agree. The split's
+actual typed packed execution and, after the respective checks, the emitted
+RTL and typed re-admitted execution have the same observation on both
+records. This is a sufficient liveness criterion. The generator still
+requires and checks the field types, and the two records supply their own
+values.
+[Capture liveness](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Split/CaptureLiveness/Thms.lean)
+
+The swap fixture checks that the generated lexical entry really reads
+both older slots and that the original entry reads neither. It then
+compares the actual emitted and re-admitted runs while varying both
+numeric fields together, for each branch of the original exit choice.
+[Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)

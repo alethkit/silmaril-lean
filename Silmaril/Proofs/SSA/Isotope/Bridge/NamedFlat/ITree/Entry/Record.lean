@@ -18,7 +18,7 @@ variable {κ : Type (u + 1)} [AtomValues κ] {n m : Nat}
 
 local notation "C" => AtomValues.carrier (κ := κ)
 
-private theorem inputEnv_field (β : BoundCtx (Ty κ) n) (record : Input β) (i : Fin n) :
+theorem inputEnv_field (β : BoundCtx (Ty κ) n) (record : Input β) (i : Fin n) :
     inputEnv β record i.val = encodeValue C (β.get i) (field β record i) := by
   induction β with
   | nil => exact i.elim0

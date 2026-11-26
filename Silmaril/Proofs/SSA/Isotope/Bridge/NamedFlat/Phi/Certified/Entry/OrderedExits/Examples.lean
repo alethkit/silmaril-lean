@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.Admission.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.CaptureLiveness.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi.OrderedExits.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Thms
 
@@ -18,7 +18,7 @@ open LambdaSSA.Semantics.Interaction (Transfer region)
 open LambdaSSA.Semantics.Interaction.Typed (AtomValues)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 open Silmaril.Isotope.Semantics (encodeValue)
-open NamedFlat.Entry.Record (Input)
+open NamedFlat.Entry.Record (Input field)
 
 private abbrev SortName := ULift.{1} Unit
 private abbrev Reg := ULift.{1} Nat
@@ -328,5 +328,57 @@ theorem split_readmitted_result (chooseLeft : Bool) (ambient : Env Runtime) :
       pure (result chooseLeft) :=
   (generated.roundTrip_eq lowered splitRTL recompiled splitRecompiled model (record olderX olderY chooseLeft) ambient).symm.trans
     (readmitted_result olderX olderY chooseLeft ambient)
+
+private theorem movedSlots : admitted.movedCaptureSlots splitPlan = [4, 3] := by decide
+
+-- Both slots really occur free at version zero in the typed split entry.
+-- Neither slot is free in the original entry.
+example : splitAdmitted.entryUsesSlot 3 ∧ splitAdmitted.entryUsesSlot 4 := by decide
+
+example : ¬ admitted.entryUsesSlot 3 ∧ ¬ admitted.entryUsesSlot 4 :=
+  ⟨admitted.movedCaptureSlot_unused splitPlan (by rw [movedSlots]; decide),
+    admitted.movedCaptureSlot_unused splitPlan (by rw [movedSlots]; decide)⟩
+
+private theorem agreesOutsideMoved (newX newY : Atom) (chooseLeft : Bool)
+    (i : Fin ports.slots) (kept : i ∉ admitted.movedCaptureSlots splitPlan) :
+    field context (record olderX olderY chooseLeft) i =
+      field context (record newX newY chooseLeft) i := by
+  obtain ⟨i, bound⟩ := i
+  change i < 5 at bound
+  have slots : i = 0 ∨ i = 1 ∨ i = 2 ∨ i = 3 ∨ i = 4 := by omega
+  rcases slots with rfl | rfl | rfl | rfl | rfl
+  · rfl
+  · rfl
+  · rfl
+  · exact (kept (by
+      change (3 : Fin ports.slots) ∈ admitted.movedCaptureSlots splitPlan
+      rw [movedSlots]
+      decide)).elim
+  · exact (kept (by
+      change (4 : Fin ports.slots) ∈ admitted.movedCaptureSlots splitPlan
+      rw [movedSlots]
+      decide)).elim
+
+theorem split_packed_capture_irrelevant (newX newY : Atom) (chooseLeft : Bool) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue _ _ (record olderX olderY chooseLeft)))
+        (Program.ofCFGEntry splitAdmitted.typed).code =
+      region model.raw (extend ambient (encodeValue _ _ (record newX newY chooseLeft)))
+        (Program.ofCFGEntry splitAdmitted.typed).code :=
+  generated.packed_eq_of_movedCaptures model _ _ ambient
+    (agreesOutsideMoved olderX olderY newX newY chooseLeft)
+
+/-- Vary both required numeric captures with the same supplied live fields.
+The witnessed equality is between runs of the actual emitted mutable graph. -/
+theorem split_emitted_capture_irrelevant (newX newY : Atom) (chooseLeft : Bool) :
+    NamedFlat.Entry.LiveOut.observe model ports fields splitRTL.source (record olderX olderY chooseLeft) =
+      NamedFlat.Entry.LiveOut.observe model ports fields splitRTL.source (record newX newY chooseLeft) :=
+  generated.reverse_eq_of_movedCaptures splitRTL model _ _
+    (agreesOutsideMoved olderX olderY newX newY chooseLeft)
+
+theorem split_readmitted_capture_irrelevant (newX newY : Atom) (chooseLeft : Bool) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue _ _ (record olderX olderY chooseLeft))) splitRecompiled.program.code =
+      region model.raw (extend ambient (encodeValue _ _ (record newX newY chooseLeft))) splitRecompiled.program.code :=
+  generated.roundTrip_eq_of_movedCaptures splitRTL splitRecompiled model _ _ ambient
+    (agreesOutsideMoved olderX olderY newX newY chooseLeft)
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Examples
