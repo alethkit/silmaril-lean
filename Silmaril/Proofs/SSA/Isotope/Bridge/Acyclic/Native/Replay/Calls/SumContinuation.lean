@@ -115,7 +115,7 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
   {Γ Δ : VCtx τ} {S L : LCtx τ} {f : Φ} {p q : Region Φ}
   {before after : List (List Φ × Nat)}
 
-private theorem rename_schedule {ρ : Nat → Nat}
+theorem rename_schedule_proof {ρ : Nat → Nat}
     (h : Schedule Γ p L before) (typed : Ren Γ Δ ρ) :
     Schedule Δ (p.renameVars ρ) L before := by
   have move {a : Tm Φ} {A : τ} {Γ Δ : VCtx τ} {ρ : Nat → Nat}
@@ -160,13 +160,13 @@ theorem splice_proof (producer : Schedule Γ p S before) (body : Schedule (instr
       using Schedule.call value body
   | @call Γ _ g _ _ _ value _ ih =>
     rw [Region.lsubst, invoke_lift]
-    have moved := rename_schedule body ((Ren.wk Γ (instrTrg g)).lift (instrTrg f))
+    have moved := rename_schedule_proof body ((Ren.wk Γ (instrTrg g)).lift (instrTrg f))
     simpa only [callPaths, List.flatMap_map, List.map_flatMap, List.map_map, Function.comp_def, List.cons_append]
       using Schedule.call value (ih moved single)
   | @caseVar Γ _ _ A B _ _ _ _ value _ _ ihl ihr =>
     rw [Region.lsubst, invoke_lift]
-    have left := rename_schedule body ((Ren.wk Γ A).lift (instrTrg f))
-    have right := rename_schedule body ((Ren.wk Γ B).lift (instrTrg f))
+    have left := rename_schedule_proof body ((Ren.wk Γ A).lift (instrTrg f))
+    have right := rename_schedule_proof body ((Ren.wk Γ B).lift (instrTrg f))
     simpa only [callPaths, List.flatMap_append] using Schedule.caseVar value (ihl left single) (ihr right single)
 
 end Schedule
