@@ -119,13 +119,13 @@ private theorem inherited_tuple {args outs : Ports (Ty V S)}
   | cons _ _ ih => exact ⟨.inherited known.1, ih known.2⟩
 
 private theorem closed_export (ordinary : OrdinaryOutputs Op) {args outs : Ports (Ty V S)}
-    (root : m.Val (.value (.function args outs))) {group : Group m members}
-    (earlier : Closed primitives group.In) (rootCaptures : TupleIn group.In (resolve m root).values) :
-    Closed primitives (WithExport group.In root) := by
-  apply closed_with_captures ordinary (fun value plain => .inherited (.ordinary value plain))
+    (root : m.Val (.value (.function args outs))) {earlier : Family m}
+    (admits : HasOrdinary earlier) (closed : Closed primitives earlier)
+    (rootCaptures : TupleIn earlier (resolve m root).values) : Closed primitives (WithExport earlier root) := by
+  apply closed_with_captures ordinary (fun value plain => .inherited (admits value plain))
   intro _ _ _ known
   cases known with
-  | inherited known => exact inherited_tuple (earlier.captures known)
+  | inherited known => exact inherited_tuple (closed.captures known)
   | exported => exact inherited_tuple rootCaptures
 
 private theorem member_is_not_lambda {args outs : Ports (Ty V S)}
@@ -148,8 +148,8 @@ private theorem checked_export (ordinary : OrdinaryOutputs Op) {args outs : Port
     (capturedR : GroupCaptures groupR (resolve m right).values)
     (body : Resolved m ⟨args, outs⟩ (resolve m left) (resolve m right)) :
     CheckedFamily primitives ids (WithExport groupL.In left) (WithExport groupR.In right) where
-  closedL := closed_export ordinary left earlier.closedL (captured_in capturedL)
-  closedR := closed_export ordinary right earlier.closedR (captured_in capturedR)
+  closedL := closed_export ordinary left Group.In.ordinary earlier.closedL (captured_in capturedL)
+  closedR := closed_export ordinary right Group.In.ordinary earlier.closedR (captured_in capturedR)
   graphs := by
     intro _ _ _ _ knownL knownR related
     have paired := related_lambda related
@@ -162,6 +162,12 @@ private theorem checked_export (ordinary : OrdinaryOutputs Op) {args outs : Port
       cases knownR with
       | inherited fromR => rw [shapeL, member_is_not_lambda fromR] at paired; cases paired
       | exported => exact body
+
+private theorem group_has_no_key {group : Group m members} {port : Ty V S} {value : m.Val port}
+    (known : group.In value) : lambdaKey value = none := by
+  cases known with
+  | ordinary _ plain => cases value <;> first | rfl | cases plain
+  | member => rfl
 
 variable [DecidableEq (Ty V S)] {keys : OpcodeCode (Instruction Op)} [DecidableEq keys.Key]
 
@@ -236,5 +242,73 @@ theorem checkExport_sound (ordinary : OrdinaryOutputs Op) {args outs : Ports (Ty
         fun tuple plain => ⟨ordinary_tuple Group.In.ordinary tuple plain,
           ordinary_tuple Group.In.ordinary tuple plain⟩⟩
     next => cases accepted
+
+theorem linked_groups (ordinary : OrdinaryOutputs Op) {membersL membersR : List (Function V S)}
+    (left : Group m membersL) (right : Group m membersR)
+    (accepted : checkGroupPair keys left right = true) : LinkedFamily primitives ids left.In right.In [] where
+  checked := checked_group_pair ordinary left right accepted
+  ordinaryL := Group.In.ordinary
+  ordinaryR := Group.In.ordinary
+  keysL known key := by rw [group_has_no_key known] at key; cases key
+  keysR known key := by rw [group_has_no_key known] at key; cases key
+
+omit [DecidableEq (Ty V S)] in
+private theorem related_key {port : Ty V S} {left right : m.Val port}
+    (related : ValueRelated m ids left right) : lambdaKey left = lambdaKey right := by
+  cases related <;> rfl
+
+
+omit [DecidableEq (Ty V S)] in
+private theorem extend_keys {family : Family m} {args outs : Ports (Ty V S)}
+    {root : m.Val (.value (.function args outs))} {keys : List (LambdaKey V S)} {key : LambdaKey V S}
+    (earlier : ∀ {port : Ty V S} {value : m.Val port} {candidate : LambdaKey V S},
+      family value → lambdaKey value = some candidate → candidate ∈ keys)
+    (rootKey : lambdaKey root = some key) {port : Ty V S} {value : m.Val port} {candidate : LambdaKey V S}
+    (known : WithExport family root value) (found : lambdaKey value = some candidate) :
+    candidate ∈ key :: keys := by
+  cases known with
+  | inherited earlierValue => exact List.mem_cons_of_mem _ (earlier earlierValue found)
+  | exported =>
+    rw [rootKey] at found
+    cases found
+    exact List.mem_cons_self
+
+omit [DecidableEq (Ty V S)] in
+theorem linked_extension (ordinary : OrdinaryOutputs Op)
+    {familyL familyR : Family m} {prior : List (LambdaKey V S)}
+    (earlier : LinkedFamily primitives ids familyL familyR prior)
+    {args outs : Ports (Ty V S)} {left right : m.Val (.value (.function args outs))}
+    {key : LambdaKey V S} (fresh : key ∉ prior)
+    (keyL : lambdaKey left = some key) (keyR : lambdaKey right = some key)
+    (capturesL : TupleIn familyL (resolve m left).values) (capturesR : TupleIn familyR (resolve m right).values)
+    (body : Resolved m ⟨args, outs⟩ (resolve m left) (resolve m right)) :
+    LinkedFamily primitives ids (WithExport familyL left) (WithExport familyR right) (key :: prior) where
+  checked :=
+    { closedL := closed_export ordinary left earlier.ordinaryL earlier.checked.closedL capturesL
+      closedR := closed_export ordinary right earlier.ordinaryR earlier.checked.closedR capturesR
+      graphs := by
+        intro _ _ _ _ knownL knownR related
+        have same := related_key related
+        cases knownL with
+        | inherited oldL =>
+          cases knownR with
+          | inherited oldR => exact earlier.checked.graphs oldL oldR related
+          | exported => exact (fresh (earlier.keysL oldL (same.trans keyR))).elim
+        | exported =>
+          cases knownR with
+          | inherited oldR => exact (fresh (earlier.keysR oldR (same.symm.trans keyL))).elim
+          | exported => exact body }
+  ordinaryL value plain := .inherited (earlier.ordinaryL value plain)
+  ordinaryR value plain := .inherited (earlier.ordinaryR value plain)
+  keysL := extend_keys earlier.keysL keyL
+  keysR := extend_keys earlier.keysR keyR
+
+omit [DecidableEq (Ty V S)] in
+theorem linked_exports {familyL familyR : Family m} {prior : List (LambdaKey V S)}
+    (family : LinkedFamily primitives ids familyL familyR prior)
+    {args outs : Ports (Ty V S)} {left right : m.Val (.value (.function args outs))}
+    (knownL : familyL left) (knownR : familyR right) : ExportAdmission primitives ids left right :=
+  ⟨familyL, familyR, family.checked, knownL, knownR, fun values plain =>
+    ⟨ordinary_tuple family.ordinaryL values plain, ordinary_tuple family.ordinaryR values plain⟩⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.AdmissionProofs
