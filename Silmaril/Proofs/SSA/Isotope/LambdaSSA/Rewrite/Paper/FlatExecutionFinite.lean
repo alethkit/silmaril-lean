@@ -26,26 +26,15 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 local notation "Eval" => Semantics.Region.Eval
 local notation "Follow" => Semantics.Region.Follow
 
-private theorem dispatcherBody_at (hg : FiniteCFG.HasType .nil R E g)
+theorem dispatcherBody_at (hg : FiniteCFG.HasType .nil R E g)
     {i : Nat} (hi : i < blocks)
     {env : Env α} {v out : Value α} {s t : σ} {label : Nat} :
     Eval instr (extend env (packedExitValue i v))
         (iterationBody (packedDispatcherRegion hg)) s label out t ↔
       Eval instr (extend env v) (iterationBody (routedFlat blocks (g.block ⟨i, hi⟩)))
         s label out t := by
-  let body := compLSubst (blockFamily hg).val (routeFamily (List.ofFn R) (List.ofFn E)).val
-  let ret : Nat → Region Φ := fun _ => iterationDispatch
-  have shift : liftLSubstVars ret = ret := rfl
-  have assoc : compLSubst (liftLSubstVars body) ret = liftLSubstVars (compLSubst body ret) :=
-    (congrArg (compLSubst (liftLSubstVars body)) shift).symm.trans (compLSubst_liftVars body ret)
-  change Eval instr _ (((unpackExits (List.ofFn R)).lsubst (liftLSubstVars body)).lsubst ret)
-    s label out t ↔ _
-  rw [lsubst_comp, assoc]
-  change Eval instr _ (compLSubst (fun _ => unpackExits (List.ofFn R)) (compLSubst body ret) 0)
-    s label out t ↔ _
-  rw [unpackExits_comp_eval (List.ofFn R) (i := i) (by simpa using hi)]
-  simp only [iterationBody, body, compLSubst, routeFamily, List.length_ofFn, blockFamily,
-    ContinuationFamily.ofTyped, dite_eq_left hi, liftLSubstVars_routeExit, shift, routedFlat, ret]
+  rw [iterationBody_packedDispatcher, unpackExits_comp_eval (List.ofFn R) (i := i) (by simpa using hi),
+    packedBlockContinuations_at hg hi]
 
 private theorem follow_pack (hg : FiniteCFG.HasType .nil R E g)
     {env : Env α} {n i j : Nat} {bs : Fin n → Region Φ} {input output : Value α} {s t : σ}
