@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Component.SyncImportITree.Defs
 public import Silmaril.Wasm.Abstract.BodyTrace.Thms
+import Silmaril.Wasm.Abstract.BodyTrace.Pending.Thms
 public import Silmaril.Wasm.Game.Strategy.Thms
 public import Silmaril.Wasm.Game.Machine.Thms
 public import Silmaril.Wasm.Game.Termination.Thms

@@ -151,7 +151,7 @@ in [`Wasi.Comp`](../../Silmaril/Wasi/Comp/Defs.lean) also has named import
 waiting and reply states. It describes a program already written in the
 handler language. [PR #1267](https://github.com/hiloopai/silmaril-lean/pull/1267)
 relates its model runner to that language and to linked host plays.
-The [downstream regression](../../tests/wasm/inductive-component/SyncImportITree.lean)
+The [downstream regression](../../Silmaril/Wasm/Component/SyncImportITree/Examples.lean)
 instead starts from the stock `fwdS` Core 3.0 instance used by the
 reference component litmus. It sees the same suspended call resume with
 two different legal replies and distinguishes host wait from a trap.
@@ -172,7 +172,7 @@ host-free divergence across the intervening internal steps. A byte-level
 theorem further needs decoding and validation into the supported shape.
 
 ```sh
-make check CHECK_TARGETS='+Silmaril.Wasm.Component.SyncImportITree.Thms'
+make check CHECK_TARGETS='+Silmaril.Wasm.Component.SyncImportITree.Examples'
 ```
 
 ## What ships
