@@ -4,8 +4,8 @@ public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.S
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Feedback
-import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Prefix
-import Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.Wiring
+public import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Prefix
+public import Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.Wiring
 
 public section
 
@@ -21,10 +21,11 @@ universe u v w
 variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)}
 variable {entry results final : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))} {loops : Bool}
+variable {member : Option (MemberSummary V S)}
 
 /-- The demanded ports after prepending captures use exactly the two ranges
 in the application transfer. -/
-private theorem prepend_agrees {Ty : Type u} {F : Ty → Type w} {context params : Ports Ty}
+theorem prepend_agrees {Ty : Type u} {F : Ty → Type w} {context params : Ports Ty}
     (wanted : Nat → Prop) (capsL capsR : Tuple F context) (argsL argsR : Tuple F params)
     (cap : ∀ {ty} (p : Port context ty), wanted p.index → capsL.get p = capsR.get p)
     (arg : ∀ {ty} (p : Port params ty), wanted (context.length + p.index) → argsL.get p = argsR.get p) :
@@ -79,7 +80,7 @@ private theorem split_live {reads : List Address} {next : DemandPlan} {left righ
     ScopeAgrees (next.live.filter (fun a => !definedAt past.length a)) left right localsL localsR :=
   ⟨fun _ live => agree _ (List.mem_append_left _ live), fun _ live => agree _ (List.mem_append_right _ live)⟩
 
-private def ResumeAgrees (actions : Actions m σ) (observed wanted : Demand) (depth : Option Nat)
+@[expose] def ResumeAgrees (actions : Actions m σ) (observed wanted : Demand) (depth : Option Nat)
     (left right : Stack m results final)
     (allowsL allowsR : Tuple m.Val results → Prop) : Prop :=
   ∀ (outL outR : Tuple m.Val results) (store : σ), wanted.Agrees outL outR →
@@ -88,7 +89,7 @@ private def ResumeAgrees (actions : Actions m σ) (observed wanted : Demand) (de
 
 private theorem ret_forwards (wires : Wires entry past results) (input : Tuple m.Val entry)
     (locals : Locals m.Val past) :
-    (Code.ret (Op := Op) (loops := loops) wires).Forwards input (wires.read input locals) := by
+    (Code.ret (Op := Op) (loops := loops) (member := member) wires).Forwards input (wires.read input locals) := by
   intro ty p q source
   have read := get_read wires input locals p
   unfold Code.returnArg at source
@@ -106,11 +107,38 @@ private theorem output_observed {ty : Ty V S} {pc p : Nat} {plan : DemandPlan}
   | state => rfl
   | control | value => exact List.contains_iff_mem.2 live
 
-private theorem region (actions : Actions m σ) (observed : Demand) (code : Code Op entry past sigs results loops) :
-    ∀ (depth : Option Nat), (loops = true → depth.isSome = true) →
+/-- The member-call premise covers any smaller finite observation depth. -/
+@[expose] def MemberDispatch (actions : Actions m σ) (observed : Demand)
+    {member : Option (MemberSummary V S)} (guardL guardR : MemberResolution m member)
+    (budget : Nat) (final : Ports (Ty V S)) : Prop :=
+  match member with
+  | none => True
+  | some summary =>
+    ∀ (depth : Nat), depth ≤ budget →
+      ∀ (wanted : Demand) (fL fR : m.Val summary.fn.port) (capsL capsR : Tuple m.Val summary.captures)
+        (argsL argsR : Tuple m.Val summary.fn.args) (store : σ) (left right : Stack m summary.fn.results final),
+        guardL fL capsL → guardR fR capsR →
+        ScopeAgrees (scope := []) (summary.live wanted)
+          (prependContext argsL capsL) (prependContext argsR capsR) PUnit.unit PUnit.unit →
+        ResumeAgrees actions observed wanted (some depth) left right (fun _ => True) (fun _ => True) →
+        PrefixMatches actions observed depth
+          ⟨.eval (.call fL argsL) left, store⟩ ⟨.eval (.call fR argsR) right, store⟩
+
+private theorem dispatch_weaken {actions : Actions m σ} {observed : Demand}
+    {guardL guardR : MemberResolution m member} {small large : Nat} (le : small ≤ large)
+    (dispatch : MemberDispatch actions observed guardL guardR large final) :
+    MemberDispatch actions observed guardL guardR small final := by
+  cases member with
+  | none => trivial
+  | some summary => exact fun n bound => dispatch n (bound.trans le)
+
+theorem region (actions : Actions m σ) (observed : Demand) (code : Code Op entry past sigs results loops member) :
+    ∀ (guardL guardR : MemberResolution m member) (depth : Option Nat),
+      (loops = true → depth.isSome = true) →
+      MemberDispatch actions observed guardL guardR (depth.getD 0) final →
       ∀ (wanted : Demand) (inputL inputR : Tuple m.Val entry) (localsL localsR : Locals m.Val past)
       (left right : Stack m results final) (store : σ),
-      code.Resolved inputL → code.Resolved inputR →
+      code.ResolvedWith guardL inputL → code.ResolvedWith guardR inputR →
       ScopeAgrees (code.plan wanted).live inputL inputR localsL localsR →
       ResumeAgrees actions observed wanted depth left right (code.Forwards inputL) (code.Forwards inputR) →
       AtDepth actions observed depth
@@ -118,14 +146,14 @@ private theorem region (actions : Actions m σ) (observed : Demand) (code : Code
         ⟨.eval (.region code.term inputR localsR) right, store⟩ := by
   induction code with
   | ret wires =>
-    intro depth admitted wanted inputL inputR localsL localsR left right store _ _ agree resume
+    intro guardL guardR depth admitted dispatch wanted inputL inputR localsL localsR left right store _ _ agree resume
     apply depth_step rfl rfl
     exact resume _ _ store
       (fun p requested => read_selected wanted.observes wires
         (fun edge live => agree edge (List.mem_append_left _ live)) p requested)
       (ret_forwards wires inputL localsL) (ret_forwards wires inputR localsR)
-  | @primitive entry results ins outs past sigs loops opcode operands rest ih =>
-    intro depth admitted wanted inputL inputR localsL localsR left right store resolvedL resolvedR agree resume
+  | @primitive entry results ins outs past sigs loops member opcode operands rest ih =>
+    intro guardL guardR depth admitted dispatch wanted inputL inputR localsL localsR left right store resolvedL resolvedR agree resume
     obtain ⟨reads, old⟩ := split_live agree
     let frameL : Stack m outs final := .resume rest.term inputL localsL left
     let frameR : Stack m outs final := .resume rest.term inputR localsR right
@@ -133,13 +161,13 @@ private theorem region (actions : Actions m σ) (observed : Demand) (code : Code
     have after : ResumeAgrees actions observed needed depth frameL frameR (fun _ => True) (fun _ => True) := by
       intro outL outR middle demanded _ _
       apply depth_step rfl rfl
-      exact ih depth admitted wanted inputL inputR _ _ left right middle resolvedL resolvedR
+      exact ih guardL guardR depth admitted dispatch wanted inputL inputR _ _ left right middle resolvedL resolvedR
         (scope_snoc old (fun p live => demanded p (output_observed live))) resume
     let site : Site m := ⟨ins, outs, opcode, fun i => i.elim0, fun i => i.elim0, operands.read inputL localsL⟩
     have operands_eq := read_all operands reads
-    have advanceL : next? actions (⟨.eval (.region (.primitive opcode operands rest : Code Op entry past _ results loops).term
+    have advanceL : next? actions (⟨.eval (.region (.primitive opcode operands rest : Code Op entry past _ results loops member).term
         inputL localsL) left, store⟩ : Config m σ final) = some ⟨.eval site.job frameL, store⟩ := rfl
-    have advanceR : next? actions (⟨.eval (.region (.primitive opcode operands rest : Code Op entry past _ results loops).term
+    have advanceR : next? actions (⟨.eval (.region (.primitive opcode operands rest : Code Op entry past _ results loops member).term
         inputR localsR) right, store⟩ : Config m σ final) = some ⟨.eval site.job frameR, store⟩ := by
       change some (⟨.eval { site with input := operands.read inputR localsR }.job frameR, store⟩ :
         Config m σ final) = _
@@ -156,8 +184,8 @@ private theorem region (actions : Actions m σ) (observed : Demand) (code : Code
         rw [tried]
         rfl
       exact depth_step (step frameL) (step frameR) (after value value middle (fun _ _ => rfl) trivial trivial)
-  | @apply entry results context fn past sigs bodySigs loops target captures body arguments rest ihBody ihRest =>
-    intro depth admitted wanted inputL inputR localsL localsR left right store resolvedL resolvedR agree resume
+  | @apply entry results context fn past sigs bodySigs loops member target captures body arguments rest ihBody ihRest =>
+    intro guardL guardR depth admitted dispatch wanted inputL inputR localsL localsR left right store resolvedL resolvedR agree resume
     obtain ⟨reads, old⟩ := split_live agree
     obtain ⟨targetL, bodyL, restL⟩ := resolvedL
     obtain ⟨targetR, bodyR, restR⟩ := resolvedR
@@ -167,7 +195,7 @@ private theorem region (actions : Actions m σ) (observed : Demand) (code : Code
     have after : ResumeAgrees actions observed needed depth frameL frameR (fun _ => True) (fun _ => True) := by
       intro outL outR middle demanded _ _
       apply depth_step rfl rfl
-      exact ihRest depth admitted wanted inputL inputR _ _ left right middle restL restR
+      exact ihRest guardL guardR depth admitted dispatch wanted inputL inputR _ _ left right middle restL restR
         (scope_snoc old (fun p live => demanded p (output_observed live))) resume
     let capL := captures.read inputL PUnit.unit
     let capR := captures.read inputR PUnit.unit
@@ -184,10 +212,10 @@ private theorem region (actions : Actions m σ) (observed : Demand) (code : Code
     apply depth_step rfl rfl
     apply depth_step rfl rfl
     apply depth_step (openBody _ capL argL frameL targetL) (openBody _ capR argR frameR targetR)
-    exact ihBody depth admitted needed _ _ PUnit.unit PUnit.unit frameL frameR store (bodyL argL) (bodyR argR)
+    exact ihBody guardL guardR depth admitted dispatch needed _ _ PUnit.unit PUnit.unit frameL frameR store (bodyL argL) (bodyR argR)
       (apply_agrees _ captures arguments reads) (fun l r s h _ _ => after l r s h trivial trivial)
-  | @gamma entry results captures outs past sigs loops extra armSigs selector wires arms rest ihArm ihRest =>
-    intro depth admitted wanted inputL inputR localsL localsR left right store resolvedL resolvedR agree resume
+  | @gamma entry results captures outs past sigs loops member extra armSigs selector wires arms rest ihArm ihRest =>
+    intro guardL guardR depth admitted dispatch wanted inputL inputR localsL localsR left right store resolvedL resolvedR agree resume
     obtain ⟨reads, old⟩ := split_live agree
     let needed := resultDemand past.length (rest.plan wanted)
     obtain ⟨tags, capturesAgree⟩ :=
@@ -200,7 +228,7 @@ private theorem region (actions : Actions m σ) (observed : Demand) (code : Code
     have after : ResumeAgrees actions observed needed depth frameL frameR (fun _ => True) (fun _ => True) := by
       intro outL outR middle demanded _ _
       apply depth_step rfl rfl
-      exact ihRest depth admitted wanted inputL inputR _ _ left right middle resolvedL.2 resolvedR.2
+      exact ihRest guardL guardR depth admitted dispatch wanted inputL inputR _ _ left right middle resolvedL.2 resolvedR.2
         (scope_snoc old (fun p live => demanded p (output_observed live))) resume
     apply depth_step rfl rfl
     apply depth_step rfl rfl
@@ -208,11 +236,11 @@ private theorem region (actions : Actions m σ) (observed : Demand) (code : Code
       ⟨.eval (.region (arms tagL.selector).term (wires.read inputL localsL) PUnit.unit) frameL, store⟩
       ⟨.eval (.region (arms tagR.selector).term (wires.read inputR localsR) PUnit.unit) frameR, store⟩
     rw [← sameArm]
-    exact ihArm tagL.selector depth admitted needed _ _ PUnit.unit PUnit.unit frameL frameR store
+    exact ihArm tagL.selector guardL guardR depth admitted dispatch needed _ _ PUnit.unit PUnit.unit frameL frameR store
       (resolvedL.1 localsL _) (resolvedR.1 localsR _) (capturesAgree tagL.selector) (fun l r s h _ _ => after l r s h trivial trivial)
 
-  | @theta entry results carried past sigs bodySigs wires body rest ihBody ihRest =>
-    intro depth admitted wanted inputL inputR localsL localsR left right store resolvedL resolvedR agree resume
+  | @theta entry results carried past sigs bodySigs member wires body rest ihBody ihRest =>
+    intro guardL guardR depth admitted dispatch wanted inputL inputR localsL localsR left right store resolvedL resolvedR agree resume
     cases depth with
     | none => exact False.elim (by simpa using admitted rfl)
     | some depth =>
@@ -224,14 +252,15 @@ private theorem region (actions : Actions m σ) (observed : Demand) (code : Code
       have after : ResumeAgrees actions observed exit (some depth) frameL frameR (fun _ => True) (fun _ => True) := by
         intro outL outR middle demanded _ _
         apply depth_step rfl rfl
-        exact ihRest (some depth) (by simp) wanted inputL inputR _ _ left right middle resolvedL.2 resolvedR.2
+        exact ihRest guardL guardR (some depth) (by simp) dispatch wanted inputL inputR _ _ left right middle resolvedL.2 resolvedR.2
           (scope_snoc old (fun p live => demanded p (output_observed live))) resume
       let firstL := wires.read inputL localsL
       let firstR := wires.read inputR localsR
       have runLoop (n : Nat) (nowL nowR : Tuple m.Val carried) (current : σ)
           (staticL : body.Stable firstL nowL) (staticR : body.Stable firstR nowR)
           (related : Feedback.Agrees live nowL nowR)
-          (finish : ResumeAgrees actions observed exit (some n) frameL frameR (fun _ => True) (fun _ => True)) :
+          (finish : ResumeAgrees actions observed exit (some n) frameL frameR (fun _ => True) (fun _ => True))
+          (canCall : MemberDispatch actions observed guardL guardR n final) :
           PrefixMatches actions observed n
             ⟨.eval (.iteration body.term nowL) frameL, current⟩
             ⟨.eval (.iteration body.term nowR) frameR, current⟩ := by
@@ -241,7 +270,8 @@ private theorem region (actions : Actions m σ) (observed : Demand) (code : Code
           have finish' : ResumeAgrees actions observed exit (some n) frameL frameR (fun _ => True) (fun _ => True) :=
             fun l r s h _ _ => prefix_mono (Nat.le_succ n) (finish l r s h trivial trivial)
           apply PrefixMatches.step rfl rfl
-          apply ihBody (some n) (by simp) (Feedback.bodyDemand exit live) nowL nowR PUnit.unit PUnit.unit
+          have smaller := dispatch_weaken (Nat.le_succ n) canCall
+          apply ihBody guardL guardR (some n) (by simp) smaller (Feedback.bodyDemand exit live) nowL nowR PUnit.unit PUnit.unit
             (.loop body.term frameL) (.loop body.term frameR) current
             (resolvedL.1 localsL nowL staticL) (resolvedR.1 localsR nowR staticR)
           · intro ty origin needed
@@ -270,7 +300,7 @@ private theorem region (actions : Actions m σ) (observed : Demand) (code : Code
                   | control | value => exact Bool.or_eq_true_iff.2 (Or.inl demanded)
                 | true =>
                   simp only [Continuation.State.finishLoop, decision, ite_true]
-                  apply ih outL outR middle _ _ _ finish'
+                  apply ih outL outR middle _ _ _ finish' smaller
                   · exact fun p h => (forwardedL (.tail p) p h).trans (staticL p h)
                   · exact fun p h => (forwardedR (.tail p) p h).trans (staticR p h)
                   · intro ty p demanded
@@ -281,9 +311,29 @@ private theorem region (actions : Actions m σ) (observed : Demand) (code : Code
       apply depth_step rfl rfl
       apply depth_step rfl rfl
       exact runLoop depth firstL firstR store (fun _ _ => rfl) (fun _ _ => rfl)
-        (fun p livePort => read_selected (fun _ i => Feedback.includes live i) wires reads p livePort) after
+        (fun p livePort => read_selected (fun _ i => Feedback.includes live i) wires reads p livePort) after dispatch
 
-private theorem plan_live (code : Code Op entry past sigs results loops) (demand : Demand) :
+  | @memberCall entry results past sigs summary target captures arguments rest ihRest =>
+    intro guardL guardR depth admitted dispatch wanted inputL inputR localsL localsR left right store
+      resolvedL resolvedR agree resume
+    cases depth with
+    | none => exact False.elim (by simpa using admitted rfl)
+    | some depth =>
+      obtain ⟨reads, old⟩ := split_live agree
+      let needed := resultDemand past.length (rest.plan wanted)
+      let frameL : Stack m summary.fn.results final := .resume rest.term inputL localsL left
+      let frameR : Stack m summary.fn.results final := .resume rest.term inputR localsR right
+      have after : ResumeAgrees actions observed needed (some depth) frameL frameR (fun _ => True) (fun _ => True) := by
+        intro outL outR middle demanded _ _
+        apply depth_step rfl rfl
+        exact ihRest guardL guardR (some depth) (by simp) dispatch wanted inputL inputR _ _ left right middle
+          resolvedL.2 resolvedR.2 (scope_snoc old (fun p live => demanded p (output_observed live))) resume
+      apply depth_step rfl rfl
+      apply depth_step rfl rfl
+      exact dispatch depth (Nat.le_refl _) needed _ _ _ _ _ _ store frameL frameR
+        resolvedL.1 resolvedR.1 (apply_agrees _ captures arguments reads) after
+
+private theorem plan_live (code : Code Op entry past sigs results loops member) (demand : Demand) :
     (code.plan demand).live = sweep (code.plan demand).reads past.length := by
   induction code with
   | ret => rfl
@@ -300,7 +350,11 @@ private theorem plan_live (code : Code Op entry past sigs results loops) (demand
     simp only [Code.plan, DemandPlan.prepend, sweep, ih, List.length_append,
       List.length_cons, List.length_nil]
 
-theorem mem_liveIn_iff (code : Code Op entry [] sigs results loops) (demand : Demand) (a : Address) :
+  | memberCall _ _ _ _ ih =>
+    simp only [Code.plan, DemandPlan.prepend, sweep, ih, List.length_append,
+      List.length_cons, List.length_nil]
+
+theorem mem_liveIn_iff (code : Code Op entry [] sigs results loops member) (demand : Demand) (a : Address) :
     a ∈ code.liveIn demand ↔ a ∈ (code.liveness demand).mayOut 0 := by
   simpa only [Code.liveIn, List.mem_eraseDups, plan_live, List.length_nil,
     Code.liveness, List.drop_zero] using mem_sweep_iff (code.plan demand).reads 0 a
@@ -341,7 +395,7 @@ private theorem calls_at_depth {fn : Function V S} {context : Ports (Ty V S)}
       Config m σ fn.results) = _
     rw [NestedTheta.Term.toTerm_toGraph]
   apply depth_step (entry_step capsL argsL) (entry_step capsR argsR)
-  apply region actions demand code depth admitted demand _ _ PUnit.unit PUnit.unit .halt .halt store resolvedL resolvedR
+  apply region actions demand code PUnit.unit PUnit.unit depth admitted trivial demand _ _ PUnit.unit PUnit.unit .halt .halt store resolvedL resolvedR
   · intro ty source live
     cases source with
     | output i _ => exact i.elim0
