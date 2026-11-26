@@ -125,6 +125,18 @@ private theorem run_entry (fuel : Nat) :
   rw [Cfg.runBlock, entry_eval]
   rfl
 
+theorem entry_frame :
+    (lower g).entry.eval evalOp (fun term env => term.eval env) input =
+      .inl ⟨.header, .cons ((g.initial model (sourceInputs input)).get .head) .nil⟩ :=
+  entry_eval g input
+
+theorem header_frame (old : Word carried) :
+    ((lower g).block .header).eval evalOp (fun term env => term.eval env) (.cons old input) =
+      .inl (match g.step model (sourceInputs input) (.cons old .nil) with
+        | .inl value => ⟨.exit, .cons value .nil⟩
+        | .inr next => ⟨.header, .cons (next.get .head) .nil⟩) :=
+  header_eval g input old
+
 private theorem run_header (fuel : Nat) (old : Word carried) :
     (lower g).runFrom evalOp (fuel + 1) input (headerFrame old) =
       (lower g).runFrom evalOp fuel input (stepFrame (g.step model (sourceInputs input) (latchValue old))) := by

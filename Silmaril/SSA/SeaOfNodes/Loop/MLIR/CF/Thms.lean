@@ -20,6 +20,20 @@ open Silmaril.MLIR.CF.SwitchAssert (Outcome)
 variable {Γ : List Width} {carried result : Width} {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 variable (g : Program Γ carried result entrySigs headerSigs) (input : Env Γ)
 
+/-- Execute the preheader and route the entry Φ operand to the header. -/
+theorem lower_entry_frame :
+    (lower g).entry.eval evalOp (fun term env => term.eval env) input =
+      .inl ⟨.header, .cons ((g.initial model (sourceInputs input)).get .head) .nil⟩ :=
+  Proofs.entry_frame g input
+
+/-- One header activation routes the selected successor with its native argument. -/
+theorem lower_header_frame (old : Word carried) :
+    ((lower g).block .header).eval evalOp (fun term env => term.eval env) (.cons old input) =
+      .inl (match g.step model (sourceInputs input) (.cons old .nil) with
+        | .inl value => ⟨.exit, .cons value .nil⟩
+        | .inr next => ⟨.header, .cons (next.get .head) .nil⟩) :=
+  Proofs.header_frame g input old
+
 /-- The entry, final header test and exit account for the three extra blocks. -/
 theorem lower_run (budget : Nat) :
     (lower g).run evalOp (budget + 3) input =
