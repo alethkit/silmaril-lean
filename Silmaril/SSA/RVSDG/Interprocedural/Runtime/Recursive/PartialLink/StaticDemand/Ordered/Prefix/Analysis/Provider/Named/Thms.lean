@@ -91,6 +91,33 @@ def NamedImports.check (exactValue : ExactValueCheck m) {extra : Ports (Ty V S)}
         | .tail p => (tail.right p).map fun member => ⟨Known.newSlot source.sound.dispatch.right member.down⟩),
         ⟨same.down.1, same.down.2, tail.matched⟩⟩
 
+/-- Check the actual named imports once and analyze a shared λ body over
+the two independently numbered capture boundaries. The initializer
+receipt fixes the actual local rows and the common invocation store. -/
+def NamedImports.analyzeLayouts {ports extra : Ports (Ty V S)} {fn : Function V S}
+    {value : ValueSort V S} {shifted shiftedR : Bool}
+    (sources : NamedImports assembly ports)
+    (layout : AllocationPlan Op sources.table (ports ++ extra) fn value shifted)
+    (right : layout.Layout shiftedR)
+    (exactValue : ExactValueCheck m) (unitL unitR : Nat) (inputsL inputsR : Tuple m.Val (ports ++ extra))
+    (initial : σ) (storeL : assembly.chain.checked.storeL = initial) (storeR : assembly.chain.checked.storeR = initial)
+    (receipt : LinkedRows (layout.linkDelta actions unitL inputsL initial)
+      ((layout.withLayout right).linkDelta actions unitR inputsR initial))
+    (readyL : sources.Matches inputsL inputsR → layout.binding.resolved sources.dispatch.left inputsL
+      ((AllocatingClient.initialLocals m shifted).snoc receipt.left))
+    (readyR : sources.Matches inputsL inputsR → (layout.withLayout right).binding.resolved sources.dispatch.right inputsR
+      ((AllocatingClient.initialLocals m shiftedR).snoc receipt.right)) :
+    Option (ExportAnalysis actions layout.binding.summary
+      (Executable.link actions unitL layout.numbered.toGraph inputsL assembly.chain.checked.storeL)
+      (Executable.link actions unitR (layout.withLayout right).numbered.toGraph inputsR assembly.chain.checked.storeR)) := do
+  let admitted ← sources.check exactValue inputsL inputsR
+  let checked ← layout.analyzeLayouts right sources.dispatch unitL unitR inputsL inputsR initial receipt
+    admitted.left admitted.right (readyL admitted.matched) (readyR admitted.matched)
+  pure ⟨checked.linked.relink
+    (congrArg (Executable.link actions unitL layout.numbered.toGraph inputsL) storeL)
+    (congrArg (Executable.link actions unitR (layout.withLayout right).numbered.toGraph inputsR) storeR),
+    checked.problem, checked.mem_problem⟩
+
 /-- Analyze a client from its resolved imports and successful initializer
 receipt at the assembly's store. This consumes link results and uses the
 existing allocating demand analysis for the final λ. -/
@@ -107,13 +134,8 @@ def NamedImports.analyzeAllocating {ports extra : Ports (Ty V S)} {fn : Function
       ((AllocatingClient.initialLocals m shifted).snoc receipt.right)) :
     Option (ExportAnalysis actions layout.binding.summary
       (Executable.link actions unit layout.numbered.toGraph inputsL assembly.chain.checked.storeL)
-      (Executable.link actions unit layout.numbered.toGraph inputsR assembly.chain.checked.storeR)) := do
-  let admitted ← sources.check exactValue inputsL inputsR
-  let checked ← layout.analyze sources.dispatch unit inputsL inputsR initial receipt
-    admitted.left admitted.right (readyL admitted.matched) (readyR admitted.matched)
-  pure ⟨checked.linked.relink
-    (congrArg (Executable.link actions unit layout.numbered.toGraph inputsL) storeL)
-    (congrArg (Executable.link actions unit layout.numbered.toGraph inputsR) storeR),
-    checked.problem, checked.mem_problem⟩
+      (Executable.link actions unit layout.numbered.toGraph inputsR assembly.chain.checked.storeR)) :=
+  sources.analyzeLayouts layout ⟨layout.init, layout.binding.captures⟩ exactValue unit unit inputsL inputsR
+    initial storeL storeR receipt readyL readyR
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix
