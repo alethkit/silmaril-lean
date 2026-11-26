@@ -1202,6 +1202,16 @@ example : ∃ fuel, compiledPrefix.rtl.runMain fuel 0 (words prefixInput) mem = 
     ⟨8, show prefixSetup.cf.run evalOp 8 (Family.MLIR.Prefix.wordEnv prefixInput) =
       some (.cons 6 .nil) from rfl⟩
 
+-- `Exit.Inversion.region_returns_iff` ties the same fixed-word bounded CF
+-- return directly to a finite λSSA Region evaluation returning the
+-- packed singleton, under the packed-capture entry side condition.
+example : Eval (Opcode.step (sigs := [⟨4, 1⟩]) compiledPrefix.rtl.oracle) (machineEnv prefixInput)
+    (toLambdaSSA [⟨4, 1⟩] (Family.lowerFunc (Family.mapCaptures widenCaptures prefixSource)))
+    mem 0 (packValues [6]) mem :=
+  (Exit.Inversion.region_returns_iff compiledPrefix prefixInput mem 6 (machineEnv prefixInput) rfl).mp
+    ⟨8, show prefixSetup.cf.run evalOp 8 (Family.MLIR.Prefix.wordEnv prefixInput) =
+      some (.cons 6 .nil) from rfl⟩
+
 end CFDispatch
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table

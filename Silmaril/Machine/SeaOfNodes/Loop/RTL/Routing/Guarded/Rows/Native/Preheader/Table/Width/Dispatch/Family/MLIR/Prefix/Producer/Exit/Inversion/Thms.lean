@@ -119,6 +119,20 @@ theorem cf_returns_iff (compiled : Compiled mapping source origins) (input : Wor
     (∃ fuel, compiled.rtl.runMain fuel 0 (words input) mem = .returned [value] mem) :=
   Proofs.cf_returns_iff compiled input mem value
 
+/-- Under the packed-capture entry side condition, a bounded CF return
+exists for a fixed result word exactly when the canonical λSSA Region has
+a finite evaluation returning the corresponding packed singleton, with
+the initial memory preserved. The forward direction reuses the existing
+reflection (`reflect`); the converse reuses the existing two-directional
+`Phi.region_return_iff` and `Family.rtl_return_iff` to recover the native
+dispatch route, then crosses back to CF with `cf_returns_iff`. -/
+theorem region_returns_iff (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    (value : Word) (env : Silmaril.Isotope.LambdaSSA.Semantics.Env Word) (entry : env 0 = packValues (words input)) :
+    (∃ fuel, compiled.setup.cf.run evalOp fuel (wordEnv input) = some (.cons value .nil)) ↔
+    Eval (Opcode.step (sigs := [⟨new, 1⟩]) compiled.rtl.oracle) env
+      (toLambdaSSA [⟨new, 1⟩] (lowerFunc (mapCaptures mapping source))) mem 0 (packValues [value]) mem :=
+  Proofs.region_returns_iff compiled input mem value env entry
+
 /-- A bounded CF return exists for the typed input and initial memory
 exactly when the abstract native source has some finite return along an
 ordered dispatch route. This is the CF side of the existing RTL-oracle
