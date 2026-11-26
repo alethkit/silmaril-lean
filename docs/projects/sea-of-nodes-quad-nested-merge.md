@@ -656,6 +656,76 @@ The overlap refusal still applies. This emitter uses the full carried
 bank of the checked pure nested profile.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Numbered/Regression.lean)
 
+### Outer reconvergence before the final join
+
+`Nested.Shared.Outer.check` recognizes an additional nonempty common
+tail on both outer routes. It cuts the two independently checked
+routes at their first shared block and verifies that each original
+block list is its ordered prefix followed by that same tail. The
+coverage check counts every source block once and requires a nonempty
+inner suffix exclusive to the outer true route. The original
+`Shared.check` keeps its original inner-only profile and dependent
+types. Both profiles reuse the routing and θ proofs.
+[Recognizer and coverage certificate](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Defs.lean) ·
+[Inner-only API regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Compatibility/Regression.lean)
+
+`Program.run_to_outer` identifies the selected outer predecessor's
+complete bank. `Program.run_outer_suffix` charges one visit per shared
+block and supplies the final merge bank. The numbered emitter reuses
+the inner γ and its continuation, then compiles the outer suffix once
+against the result wires of the outer γ. `outer_run` and `merge_run`
+give the full banks at both boundaries. The suffix's operands read
+the selected bank or its own earlier producers through the existing
+typed quad compiler. `activation_run` gives the exact feedback or
+exit packet. The existing finite-return, absence, and finite coloured
+completion laws apply to this graph with separate witnesses.
+[Source laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Thms.lean) ·
+[Numbered laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Thms.lean)
+
+Build the two full imports below with `lake build --wfail` and a `+`
+before each module name. Paste into `QuadNestedOuterSuffix.lean` and
+run `lake env lean -DautoImplicit=false -DwarningAsError=true QuadNestedOuterSuffix.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri.Thms
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Example
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Example (input width)
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (model)
+open Silmaril.SSA.SeaOfNodes.MLIR (Word)
+open Silmaril.SSA.RVSDG.NestedTheta.Petri (Finishes)
+
+#eval plan.outerSuffix.blocks.map Fin.val
+#eval layout
+#eval trace
+#eval (outerValues, mergeValues, packets)
+#eval [0, 1, 2, 3].map sourceBudget
+#eval (runSource 25, runNumbered 3, runSource 24, runNumbered 2)
+#eval (Outer.check crossesInnerPrefix 0).isNone
+
+example : Finishes (Silmaril.SSA.SeaOfNodes.Quads.Join.model model)
+    (lower plan) input (.cons (152 : Word width) .nil) :=
+  (petri_finishes_iff plan model input (152 : Word width)).mpr ⟨25, rfl⟩
+```
+
+The actual θ has six vertices after the outer γ. Two are the new
+suffix producers from blocks `10` and `11`. The final merge,
+latch and route tag account for the other four. The inner structure
+and outer false child have the same sizes as in the inner-only
+fixture. The selected routes are inner true, inner false and outer
+false, with pre-tail values `15, 73, 150` and post-tail values
+`17, 75, 152`. The two feedback packets carry counters `2` and
+`1`. Source and θ return `152` at `25/3` and exhaust at `24/2`.
+The near miss sends the outer false route into an exclusive inner
+prefix and is refused.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Regression.lean)
+
 ## Complete the emitted loop by coloured firing
 
 The `Backends/Petri/Thms` import adds completion laws for the numbered
