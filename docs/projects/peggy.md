@@ -11,7 +11,10 @@ equality of native observations for ranked loop-free PEGs. The
 candidate admission conditions and uses semantic evidence for merges
 and extraction. The [finite saturation algorithm](peggy-saturation.md)
 closes a supplied table of ground obligations and checks a cyclic
-selection with structural row evidence.
+selection with structural row evidence. The
+[bounded root optimizer](peggy-optimizer.md) matches supplied schemas,
+generates and checks single-result PEG candidates, and selects by an
+explicit static metric.
 
 Ross Tate, Michael Stepp, Zachary Tatlock and Sorin Lerner, *Equality
 Saturation: A New Approach to Optimization*, LMCS 7(1:10), 2011,
@@ -165,8 +168,10 @@ speculation, scope, duplicate-binding and rank certificates.
    classes of a proposed extraction. The
    [finite worklist](peggy-saturation.md) proves least closure and
    order independence for a fixed table of ground reasons. It derives
-   candidate equations for same-label rewiring. Add node extension,
-   rule-schema validation and matching, and reversion. The
+   candidate equations for same-label rewiring. The
+   [root optimizer](peggy-optimizer.md) adds rows and finds typed
+   instances in a bounded loop-free search. Extend matching and node
+   generation to more general contexts, and prove reversion. The
    [acyclic bridge](peggy-egg.md) reuses sorted Egg replay. The full
    node-generating form of §4 remains a separate proof obligation. Use an independent graph and
    CFG-like check on extracted representatives. The displayed Boolean

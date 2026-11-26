@@ -122,15 +122,14 @@ theorem observe_get (r : Ranked g) (env : Tuple m.Value params) (wf : WellFounde
   simp only [PEG.Graph.observe, get_map, PEG.Ref.read, valuation, Ranked.evalOutputs, lift_cast]
 
 open Silmaril.SSA.Peggy.Bridge.Egg in
-theorem checkOutputs_figure11_sound [DecidableEq Data] (eqPrim : PrimitiveEq P)
+theorem outputs_figure11_sound
     {rs : List (Core.Rule (signature P))} {r : Ranked g} {r' : Ranked g'}
-    {receipts : ∀ i : Fin results.length, Core.Replay.Receipt rs (context params) results[i]}
-    (accepted : (checkOutputs eqPrim r r' receipts).isSome)
+    (certificate : OutputsExplained rs r r')
     (hrules : ∀ rule ∈ rs, rule.Holds (model (toAcyclic m)))
     (env : Tuple m.Value params) (wf : WellFounded g.Demand) (wf' : WellFounded g'.Demand)
     (idx : PEG.Index 0) :
     g.observe m (g.denote m env wf) idx = g'.observe m (g'.denote m env wf') idx := by
-  have h := checkOutputs_sound eqPrim accepted (toAcyclic m) hrules (toInputs m env)
+  have h := outputs_sound certificate (toAcyclic m) hrules (toInputs m env)
   apply tuple_eq
   intro i
   rw [observe_get m r, observe_get m r', congrFun h i]

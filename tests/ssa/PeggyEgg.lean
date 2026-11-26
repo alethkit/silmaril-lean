@@ -5,6 +5,7 @@ import Silmaril.SSA.PEG.Semantics.Thms
 import Silmaril.SSA.Peggy.Bridge.Figure11.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Thms
 import Silmaril.SSA.Peggy.EPEG.Selection.Thms
+import Silmaril.SSA.Peggy.Optimizer.Thms
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Figure11.Defs
 meta import Silmaril.SSA.Peggy.Acyclic.Defs
@@ -12,6 +13,8 @@ meta import Silmaril.SSA.Peggy.EPEG.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Defs
 meta import Silmaril.Logic.Egg.Core.Replay.Defs
 meta import Silmaril.SSA.PEG.Builder
+meta import Silmaril.SSA.Peggy.Optimizer.Defs
+meta import Silmaril.SSA.Peggy.Optimizer.Extension.Defs
 
 namespace Silmaril.SSA.Peggy.Tests
 
@@ -444,3 +447,149 @@ example : ¬changedInitializer.Solves arithmetic .nil (wrong.inherit streams) :=
   cases eq
 
 end Silmaril.SSA.Peggy.EPEG.Tests
+
+namespace Silmaril.SSA.Peggy.Optimizer.Tests
+
+open Silmaril.Logic.Institution.Examples
+open PEG (Ty RawGraph Graph)
+open Bridge.Egg Bridge.Figure11
+open Silmaril.Logic.Egg
+open RVSDG (Tuple)
+
+private inductive Op : List (Ty Unit) → Ty Unit → Type where
+  | yes : Op [] .bool
+  | no : Op [] .bool
+  | bottom : Op [] .bool
+  | bad : Op [] .count
+  | add : Op [.count, .count] .count
+  | triple : Op [.count] .count
+  deriving DecidableEq
+
+private abbrev params : List (Ty Unit) := [.count]
+private abbrev output : List (Ty Unit) := [.count]
+private abbrev branchSorts : List (Ty Unit) := [.bool, .count, .count, .count]
+
+/-- The old root is φ(flag, (x+x)+x, bottom). A failed repeat check
+changes only the last x in the add. -/
+private def raw (flag : Op [] .bool) (repeated : Bool) : RawGraph Op params output 6 0 where
+  forest := ⟨Fin.elim0⟩
+  sort i := if i = 3 then .bool else .count
+  node i := match i with
+    | 0 => ⟨_, .param .head, []⟩
+    | 1 => ⟨_, .op .add, [0, 0]⟩
+    | 2 => ⟨_, .op .add, [1, if repeated then 0 else 4]⟩
+    | 3 => ⟨_, .op flag, []⟩
+    | 4 => ⟨_, .op .bad, []⟩
+    | 5 => ⟨_, .phi, [3, 2, 4]⟩
+  roots := [5]
+
+private def admitted (flag : Op [] .bool) (repeated : Bool) : Graph Op params output 6 0 :=
+  (raw flag repeated).check.get (by cases repeated <;> rfl)
+
+private def rank (i : Fin 6) : Nat := match i with
+  | 1 => 1 | 2 => 2 | 5 => 3 | _ => 0
+
+private def program (flag : Op [] .bool) (repeated : Bool) : Program Op params .count :=
+  ⟨6, admitted flag repeated,
+    (Acyclic.Ranked.check (admitted flag repeated) rank).get (by cases repeated <;> rfl)⟩
+
+private def add {ts : List (Ty Unit)} (a b : Term Op ts .count) : Term Op ts .count :=
+  .app (.prim Op.add) (fun i => match i with | 0 => a | 1 => b)
+
+private abbrev BranchTerm := Term Op branchSorts
+private def c : BranchTerm .bool := .var 0
+private def prior : BranchTerm .count := .var 1
+private def last : BranchTerm .count := .var 2
+private def fallback : BranchTerm .count := .var 3
+private def yes : BranchTerm .bool := .app (.prim Op.yes) (fun i => i.elim0)
+
+private def phi (guard : BranchTerm .bool) (a b : BranchTerm .count) : BranchTerm .count :=
+  .app (.phi .count) (fun i => match i with | 0 => guard | 1 => a | 2 => b)
+
+private abbrev selectTrue : Rule Op .count where
+  scope := branchSorts.length
+  context := context branchSorts
+  guards := [⟨.bool, c, yes⟩]
+  lhs := phi c (add prior last) fallback
+  rhs := .app (.prim Op.add) (fun i => match i with | 0 => ⟨1, rfl⟩ | 1 => ⟨2, rfl⟩)
+
+private def x : Term Op params .count := .var 0
+
+private abbrev compress : Rule Op .count where
+  scope := params.length
+  context := context params
+  guards := []
+  lhs := add (add x x) x
+  rhs := .app (.prim Op.triple) (fun i => match i with | 0 => ⟨0, rfl⟩)
+
+private def rules := [selectTrue, compress]
+private abbrev opEq : PrimitiveEq Op := fun _ _ => inferInstance
+private def start := program .yes true
+private def chosen := optimize opEq rules 2 start
+
+#guard (matchRoot opEq start selectTrue).length == 1
+#guard (matchRoot opEq start compress).isEmpty
+#guard (matchRoot opEq (program .bottom true) selectTrue).length == 1
+#guard (discover opEq rules (program .bottom true)).isEmpty
+#guard (discover opEq rules (program .no true)).isEmpty
+#guard (optimize opEq rules 0 start).program.cost == 5
+#guard (optimize opEq rules 1 start).program.cost == 2
+#guard start.cost == 5 && chosen.program.cost == 1
+#guard chosen.program.size == start.size + 2
+#guard (optimize opEq rules 2 (program .yes false)).program.cost == 3
+
+private def arithmetic : PEG.Interpretation.{0,0,0} Op where
+  carrier _ := Unit
+  run
+    | .yes, .nil => some ⟨true⟩
+    | .no, .nil => some ⟨false⟩
+    | .bottom, .nil | .bad, .nil => none
+    | .add, .cons a (.cons b .nil) => some ⟨a.down + b.down⟩
+    | .triple, .cons a .nil => some ⟨(a.down + a.down) + a.down⟩
+
+private def exampleInput : (toAcyclic arithmetic).Inputs params :=
+  fun i => match i with | 0 => some (14 : Nat)
+
+#guard (show Option Nat from start.ranked.evalOutputs (toAcyclic arithmetic) exampleInput 0) == some 42
+#guard (show Option Nat from chosen.program.ranked.evalOutputs
+  (toAcyclic arithmetic) exampleInput 0) == some 42
+
+private theorem selectLaw : selectTrue.core.Holds (model (toAcyclic arithmetic)) := by
+  intro ρ guards
+  let control : Fin branchSorts.length := 0
+  let other : Fin branchSorts.length := 3
+  let flag : Option Bool := ρ control
+  have guard := guards ⟨.bool, c, yes⟩ (List.mem_singleton_self _)
+  change flag = some true at guard
+  change (flag.bind (fun b => if b then
+    (add prior last).eval (model (toAcyclic arithmetic)) ρ else ρ other)) =
+    (add prior last).eval (model (toAcyclic arithmetic)) ρ
+  rw [guard]
+  rfl
+
+private def addValues (a b : Option Nat) : Option Nat :=
+  (toAcyclic arithmetic).applyPrim Op.add (fun i => match i with | 0 => a | 1 => b)
+
+private def tripleValue (value : Option Nat) : Option Nat :=
+  (toAcyclic arithmetic).applyPrim Op.triple (fun i => match i with | 0 => value)
+
+private theorem compressLaw : compress.core.Holds (model (toAcyclic arithmetic)) := by
+  intro ρ _
+  let v : Option Nat := ρ (show Fin params.length from 0)
+  change addValues (addValues v v) v = tripleValue v
+  cases v <;> rfl
+
+example (env : Tuple arithmetic.Value params) :
+    start.graph.observe arithmetic (start.graph.denote arithmetic env
+      (demandWellFounded start.ranked)) Fin.elim0 =
+    chosen.program.graph.observe arithmetic (chosen.program.graph.denote arithmetic env
+      (demandWellFounded chosen.program.ranked)) Fin.elim0 := by
+  apply chosen.sound
+  intro rule h
+  simp only [coreRules, rules, List.map_cons, List.map_nil, List.mem_cons,
+    List.not_mem_nil, or_false] at h
+  rcases h with eq | eq
+  · exact eq ▸ selectLaw
+  · exact eq ▸ compressLaw
+
+end Silmaril.SSA.Peggy.Optimizer.Tests
