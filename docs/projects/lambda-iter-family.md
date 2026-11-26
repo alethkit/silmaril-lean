@@ -1124,6 +1124,33 @@ one-request recognition.
 [Executable recognizer and checked adapter](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/Recognize/Thms.lean)
 · [Extracted reply routes and exact search mismatch](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/GuardedRegression.lean)
 
+#### Fixed-carrier decision at the named endpoints
+
+For the same constructor-bit profile, `FixedCarrier.observeNamed` runs
+the original named weak tree with typed opcode and argument requests.
+A total deterministic interpreter supplies each typed reply and next
+machine state, retains the state on a primitive fault, or reports ordinary
+divergence. The observer reuses positional feedback with the residual
+tree as the internal packet. The proof matches each replay step against
+the existing guarded classifier, including successful typed replies and
+internal cycles. The outward packed tag decodes to the original ordered
+unit exit and retains the final machine state.
+
+Exact named recognition and native readback give the same decorated
+observation. The existing fixed-carrier checker therefore decides
+refinement of the original named endpoints at the supplied caller bit
+and all initial states of that carrier. The hypotheses include exhaustive
+typed configuration, reply and machine-state inventories. The named
+profile has only ordinary unit exits and an empty live-out projection.
+The machine state belongs to the interpreter.
+
+The reroute regression uses one total interpreter at both checked
+endpoints. It sends a new bit and changes the machine state at the
+backedge, then sends reply tag one. The original runner exits at position
+zero and the rerouted runner exits at position one, both in state one.
+Separate runs check retained primitive faults and a state-changing cycle.
+[Named observation and decision](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Thms.lean)
+
 ### From the opt-in packet-local versioner to LetCase
 
 `PacketLocal.Admission.letCase` expands the actual flat table produced by
