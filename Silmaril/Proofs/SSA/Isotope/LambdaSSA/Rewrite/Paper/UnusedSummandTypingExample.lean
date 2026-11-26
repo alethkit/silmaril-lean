@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.Readback.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.Trim.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.StructuralValues.Freyd.Iteration.Coherence.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseReturns.BinaryFold.StructuralValues.Thms
 
@@ -150,5 +150,40 @@ example (uniform : StructuralUniformity Seed) :
         (List.ofFn sparseFamily ++ [U]) := .br rfl .unit
   obtain ⟨f, w⟩ := CfgDenotesAt.exists_of_typing inc model sparseFamily he hb
   exact ⟨sparse_not_covered, f, w, sparseFamily_outside⟩
+
+/-- The two exact witnesses disagree on the type of untargeted label 1.
+The conclusion holds for independently supplied entry and row denotations. -/
+example (uniform : StructuralUniformity Seed) :
+    letI := strongElgotOfStructuralUniformity Seed uniform
+    letI := instructions Seed
+    ∀ {f g},
+      CfgDenotesAt inc model sparseFamily (sparse.entry.region true id)
+        (fun i => (sparse.blocks i).region true Nat.succ) f →
+      sparse.denotesAt inc model (some emptyRight) g →
+      f = g := by
+  let strong := strongElgotOfStructuralUniformity Seed uniform
+  let instr := instructions Seed
+  intro f g d e
+  exact sparse.denotes_eq_trimmed inc model chosenRolling
+    (d.denotes inc model (t := sparse.hasType (some emptyLeft)))
+    (e.denotes inc model (t := sparse.hasType (some emptyRight)))
+
+private def noTargets : Program (Φ := Op) payloads [U, U] [Flag] where
+  entry := .case (.op .poll .unit) (.exit 0 rfl .unit) (.exit 1 rfl .unit)
+  blocks _ := .exit 1 rfl .unit
+
+/-- In the empty residual case the effectful entry still selects its
+original ordered outward label. -/
+example (uniform : StructuralUniformity Seed) :
+    letI := strongElgotOfStructuralUniformity Seed uniform
+    letI := instructions Seed
+    (∀ i, ¬ noTargets.targets i) ∧
+      ∀ {f g}, RegionDenotes inc model (noTargets.hasType none) f →
+        RegionDenotes inc model (noTargets.hasType (some emptyRight)) g → f = g := by
+  let strong := strongElgotOfStructuralUniformity Seed uniform
+  let instr := instructions Seed
+  refine ⟨?_, fun d e => noTargets.denotes_eq_trimmed inc model chosenRolling d e⟩
+  intro i target
+  rcases target with (h | h) | ⟨_, h⟩ <;> exact h
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.UnusedSummandFixture

@@ -80,11 +80,19 @@ private noncomputable def labelChange (tails : Option (Fin n → Ty κ)) :
   | none => 𝟙 _
   | some D => embedding M R D
 
-private noncomputable def payloadChange (tails : Option (Fin n → Ty κ)) (i : Fin n) :
+noncomputable def payloadChange (tails : Option (Fin n → Ty κ)) (i : Fin n) :
     M.obj (R i) ⟶ M.obj (family R tails i) :=
   match tails with
   | none => 𝟙 _
   | some D => tag M R D i
+
+theorem payloadChange_none (i : Fin n) : payloadChange M R none i = 𝟙 (M.obj (R i)) := by
+  rw [payloadChange]
+
+theorem payloadChange_some (D : Fin n → Ty κ) (i : Fin n) :
+    payloadChange M R (some D) i = coprod.inl ≫ (M.coprodIso (R i) (D i)).inv := by
+  rw [payloadChange]
+  rfl
 
 private noncomputable def finiteChange (tails : Option (Fin n → Ty κ)) :
     finiteLabelObj M R ⟶ finiteLabelObj M (family R tails) :=

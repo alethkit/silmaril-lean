@@ -59,19 +59,32 @@ private theorem row_target {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ 
           · exact ihl (ren.lift _) h yes
           · exact ihr (ren.lift _) h no
 
+theorem targets_from_typing (p : Program (Φ := Φ) R L Γ)
+    (tag : Bool) (he : (p.entry.region tag id).HasType Γ (List.ofFn S ++ L))
+    (hb : ∀ i, ((p.blocks i).region tag Nat.succ).HasType (S i :: Γ) (List.ofFn S ++ L)) :
+    ∃ tails : Option (Fin n → Ty κ), tails.isSome = tag ∧
+      ∀ i, p.targets i → S i = family R tails i := by
+  have label (i : Fin n) (hit : p.targets i) : Compatible tag (R i) (S i) := by
+    rcases hit with e | ⟨j, b⟩
+    · exact row_target (Ren.id Γ) p.entry tag e he
+    · exact row_target (Ren.wk Γ (S j)) (p.blocks j) tag b (hb j)
+  cases tag with
+  | false => exact ⟨none, rfl, label⟩
+  | true =>
+      classical
+      have typed (i : Fin n) : ∃ D : Ty κ, p.targets i → S i = Silmaril.coprod (R i) D := by
+        by_cases hit : p.targets i
+        · obtain ⟨D, eq⟩ := label i hit
+          exact ⟨D, fun _ => eq⟩
+        · exact ⟨Silmaril.unit, fun yes => (hit yes).elim⟩
+      choose D shape using typed
+      exact ⟨some D, rfl, shape⟩
+
 theorem family_from_typing (p : Program (Φ := Φ) R L Γ) (covers : p.targetsEveryLabel)
     (tag : Bool) (he : (p.entry.region tag id).HasType Γ (List.ofFn S ++ L))
     (hb : ∀ i, ((p.blocks i).region tag Nat.succ).HasType (S i :: Γ) (List.ofFn S ++ L)) :
     ∃ tails : Option (Fin n → Ty κ), tails.isSome = tag ∧ S = family R tails := by
-  have label (i : Fin n) : Compatible tag (R i) (S i) := by
-    rcases covers i with e | ⟨j, b⟩
-    · exact row_target (Ren.id Γ) p.entry tag e he
-    · exact row_target (Ren.wk Γ (S j)) (p.blocks j) tag b (hb j)
-  cases tag with
-  | false => exact ⟨none, rfl, funext label⟩
-  | true =>
-      simp only [Compatible] at label
-      choose D shape using label
-      exact ⟨some D, rfl, funext shape⟩
+  obtain ⟨tails, tag_eq, shape⟩ := targets_from_typing p tag he hb
+  exact ⟨tails, tag_eq, funext (fun i => shape i (covers i))⟩
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandFamily
