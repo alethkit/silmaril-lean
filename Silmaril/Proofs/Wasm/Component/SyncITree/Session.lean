@@ -3,7 +3,7 @@ module
 public import Silmaril.Proofs.Wasm.Component.SyncITree.Body
 public import Silmaril.Wasm.Component.Reference.SessionDiv.Thms
 public import Silmaril.Wasm.Component.Reference.SessionAdequacy.Thms
-public import Silmaril.Wasm.Component.Reference.Sound.Thms
+public import Silmaril.Wasm.Component.Reference.SessionAdequacy.Readback.Thms
 
 public section
 

@@ -68,7 +68,7 @@ absence of both a terminal judgement and an infinite internal run, and
 never answers an export in the session observer. Productive infinite
 sessions are outside this bridge.
 
-The [downstream regression](../../tests/wasm/inductive-component/SyncITree.lean)
+The [downstream regression](../../Silmaril/Wasm/Component/SyncITree/Examples.lean)
 observes `poke` trapping during its canonical lift after writing a global,
 then `peek` returning the written value. It rules out the same observation
 for the component that omits the write.

@@ -51,10 +51,6 @@ open Silmaril.Wasm.Numerics (Profile)
 
 local notation "IVal" => Silmaril.Wasm.Component.Val
 
-/-- Encoding session outcomes as reference values is injective. -/
-theorem refOuts_injective : Function.Injective refOuts :=
-  fun _ _ => Silmaril.Proofs.Wasm.Component.Reference.SessionAdequacy.refOuts_inj
-
 /-- **Specification sessions are reference sessions** (proved). -/
 theorem Simple.sess_specToRef (P : Profile) (prof : ProfileKind) (c : Simple) (hc : c.Adequate)
     {I : Silmaril.Wasm.Game.ScalarInstance} (hI : c.mod.IsInst I)

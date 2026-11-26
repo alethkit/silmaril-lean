@@ -44,11 +44,6 @@ theorem reach_normal_unique {o : GrowOracle} {x y y' : Store Nat × Thread}
     y = y' :=
   Silmaril.Proofs.Wasm.Game.reach_normal_unique h h' hy hy'
 
-/-- The terminal code of a thread determines its Core result. -/
-theorem ResultAt.unique {s : Store Nat} {t : Thread} {r r' : Result}
-    (h : ResultAt s t r) (h' : ResultAt s t r') : r = r' :=
-  Silmaril.Proofs.Wasm.Game.result_toAdmin_injective (h.symm.trans h')
-
 /-- A finished thread has no internal step. -/
 theorem resultAt_no_internal {P : Profile} {s : Store Nat} {t : Thread} {r : Result}
     (h : ResultAt s t r) : ∀ y, ¬ InternalP P (s, t) y :=
