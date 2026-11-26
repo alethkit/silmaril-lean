@@ -91,10 +91,11 @@ private theorem scalarTuple_none {scope : Source.Scope} {source : Source.Expr} {
     (translated : OperandTranslation scope source operand) : scalarTuple? source = none := by
   cases translated <;> rfl
 
+mutual
 theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
     (translated : OperandTranslation scope source operand) :
     lowerOperand scope source = .ok ⟨operand, translated⟩ := by
-  induction translated with
+  cases translated with
   | integer => simp [lowerOperand]
   | boolean => simp [lowerOperand]
   | none_ => simp [lowerOperand]
@@ -108,37 +109,50 @@ theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand 
       rfl
     · simp_all
   | read _ witness => simp [lowerOperand, global_reference witness]; rfl
-  | add _ _ left right => simp [lowerOperand, left, right]; rfl
-  | floorDiv _ _ left right => simp [lowerOperand, left, right]; rfl
-  | @equal sourceLeft sourceRight _ _ first _ left right =>
+  | add left right => simp [lowerOperand, operand_complete left, operand_complete right]; rfl
+  | floorDiv left right => simp [lowerOperand, operand_complete left, operand_complete right]; rfl
+  | @equal sourceLeft sourceRight _ _ left right =>
     have notFolded : literalTupleComparison? sourceLeft .eq sourceRight = none := by
-      simp [literalTupleComparison?, scalarTuple_none first]
-    rw [lowerOperand]
+      simp [literalTupleComparison?, scalarTuple_none left]
+    simp only [lowerOperand, identityOperator?]
     split
     · rename_i value folded
       cases folded.symm.trans notFolded
-    · rw [left, right]
+    · rw [operand_complete left, operand_complete right]
       rfl
-  | notEqual _ _ left right =>
-    simp [lowerOperand, literalTupleComparison?, left, right]
+  | notEqual left right =>
+    simp [lowerOperand, identityOperator?, literalTupleComparison?, operand_complete left, operand_complete right]
     rfl
-  | literalTupleComparison checked =>
+  | @literalTupleComparison left operator right value checked =>
+    have ordinary : identityOperator? operator = none := by
+      cases operator <;> first | rfl | simp [literalTupleComparison?] at checked
     rw [lowerOperand]
     split
-    · rename_i value computed
-      have equal := Option.some.inj (computed.symm.trans checked)
-      subst value
-      rfl
-    · rename_i absent
-      cases checked.symm.trans absent
-  | literalComparisonChain checked =>
+    · rename_i op recognized
+      cases recognized.symm.trans ordinary
+    · dsimp only
+      split
+      · rename_i decision computed
+        cases computed.symm.trans checked
+        rfl
+      · rename_i absent
+        cases checked.symm.trans absent
+  | @literalComparisonChain left first second rest value checked =>
+    obtain ⟨operator, right⟩ := first
+    have ordinary : identityOperator? operator = none := by
+      obtain ⟨_, _, _, admitted, _⟩ := (literalComparisonChain_iff left (operator, right) second rest value).mp checked
+      cases operator <;> first | rfl | simp [literalComparisonLink?, ScalarComparison.ofSource?] at admitted
     rw [lowerOperand]
     split
-    · rename_i value computed
-      cases computed.symm.trans checked
-      rfl
-    · rename_i absent
-      cases checked.symm.trans absent
+    · rename_i op recognized
+      cases recognized.symm.trans ordinary
+    · dsimp only
+      split
+      · rename_i decision computed
+        cases computed.symm.trans checked
+        rfl
+      · rename_i absent
+        cases checked.symm.trans absent
   | literalNegation checked =>
     rw [lowerOperand]
     split
@@ -155,15 +169,46 @@ theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand 
       rfl
     · rename_i absent
       cases checked.symm.trans absent
-  | literalConditional guard _ _ yes no =>
+  | literalConditional guard yes no =>
     rw [lowerOperand]
     split
     · simp_all
     · rename_i decision chosen
       have equal := Option.some.inj (chosen.symm.trans guard)
       subst decision
-      rw [yes, no]
+      rw [operand_complete yes, operand_complete no]
       rfl
+  | identityChain identified first singleton links =>
+    rw [lowerOperand]
+    split
+    · rw [operand_complete first]
+      simp only [bind, Except.bind, singleton, dite_true]
+      rw [identityLinks_complete links]
+      rfl
+    · rename_i absent
+      cases identified.symm.trans absent
+termination_by sizeOf source
+
+theorem identityLinks_complete {scope : Source.Scope} {source : List (Source.Comparison × Source.Expr)}
+    {links : List (Core.Module.IdentityOperator × Operand scope)}
+    (translated : IdentityLinksTranslation scope source links) :
+    lowerIdentityLinks scope source = .ok ⟨links, translated⟩ := by
+  cases translated with
+  | done => simp [lowerIdentityLinks]
+  | cons identified operand singleton tail =>
+    rw [lowerIdentityLinks]
+    split
+    · rename_i absent
+      cases identified.symm.trans absent
+    · rename_i op checked
+      cases checked.symm.trans identified
+      rw [operand_complete operand]
+      simp only [bind, Except.bind, singleton, dite_true]
+      rw [identityLinks_complete tail]
+      rfl
+termination_by sizeOf source
+
+end
 
 theorem test_complete {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
     (translated : TestTranslation scope source operand) : lowerTest scope source = .ok ⟨operand, translated⟩ := by

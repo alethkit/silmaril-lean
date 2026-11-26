@@ -22,6 +22,16 @@ def expression {scope : Scope} : Operand scope → Core.Module.Expr
   | .none_ => .literal .none
   | .read name _ => .readGlobal name
   | .binary op left right => .binary (operator op) (expression left) (expression right)
+  | .identityChain left links =>
+    .identityChain (expression left) (links.attach.map fun link => (link.val.1, expression link.val.2))
+termination_by operand => sizeOf operand
+decreasing_by
+  all_goals simp_wf
+  all_goals
+    first
+    | omega
+    | have smaller := Core.Module.Identity.sizeOf_operand_lt link.property
+      omega
 
 def statement {scope : Scope} : Action scope → Core.Module.Stmt
   | .assign name _ value => .assignGlobal name (expression value)

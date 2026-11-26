@@ -128,6 +128,16 @@ after = 9
 result = None + missing
 after = 9
 """, {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
+    ("singleton_identity_typed", """result = None is False
+after = False is not True is (1 == True)
+assert None is None
+""", {}, {"result": False, "after": True}, "normal", ".normal", 3),
+    ("singleton_identity_skips_missing", """result = False is True is (missing == 0)
+""", {}, {"result": False}, "normal", ".normal", 2),
+    ("singleton_identity_reached_missing", """result = 7
+result = False is not True is (missing == 0)
+after = 9
+""", {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
 )
 
 UNSUPPORTED_INDEXING = (
@@ -177,7 +187,12 @@ REJECTED_BRANCHES = (
     ("assert [()]\n", ".expressionProfile"),
     ("result = 1 is 1\n", ".expressionProfile"),
     ('result = "same" is "same"\n', ".expressionProfile"),
-    ("result = False is not None\n", ".expressionProfile"),
+    ("result = 1000 is 1000\n", ".expressionProfile"),
+    ("result = 'text' is 'text'\n", ".expressionProfile"),
+    ("result = False is True is 1\n", ".expressionProfile"),
+    ("result = False is True is (5 / 0 == 0)\n", ".expressionProfile"),
+    ("result = False is True < False\n", ".expressionProfile"),
+    ("result = current is None\n", ".expressionProfile"),
 )
 
 CPYTHON = """
@@ -241,6 +256,8 @@ def check_chain_order():
         ("probe(1) < probe(0) < probe(-1)", False, [1, 0]),
         ("0 > 1 < missing", False, []),
         ("0 > 1 < (1 // 0)", False, []),
+        ("probe(False) is not probe(True) is probe(True)", True, [False, True, True]),
+        ("probe(False) is probe(True) is probe(None)", False, [False, True]),
     )
     for source, result, expected_visits in cases:
         visits.clear()
