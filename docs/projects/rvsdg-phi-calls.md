@@ -535,9 +535,9 @@ make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.
 
 ## Demand through a static linked application
 
-`StaticDemand.Code` is the compositional admission. It supports an arbitrary
-finite sequence of primitive bindings and statically resolved applications,
-including calls in callees. Each application references a callee body and maps
+`StaticDemand.Code` is the compositional admission. It supports finite
+primitive bindings, γ arms, and statically resolved applications, including
+calls in callees and arms. Each application references a callee body and maps
 its live entry ports through typed argument and capture wires. A single callee
 can be used at multiple sites with different demands. The executable
 `Code.liveIn` computes the corresponding shared `GenKill` least may solution.
@@ -549,9 +549,9 @@ identifies the closure's captures with typed origins in the caller's entry.
 governs the callable slot, which the erased term still passes to `apply`. For
 nested calls it requires the callee's own static targets to be resolved for
 every formal argument tuple. The admission erases to the runtime's normal
-numbered term. It currently covers straight-line call graphs with no
-dynamic target selection, recursive calls, γ or θ. The partial γ/θ analysis
-continues to cover the native wire semantics.
+numbered term. A γ checks the static targets of its arms for the capture
+tuples wired from preceding locals. Linked θ, dynamic target selection, and
+recursive calls are outside this admission.
 
 `Code.linked_runs_agree` starts from actual successful linkage at a common
 store and relates the runner's demanded returns and exact stores, or its exact
@@ -559,6 +559,19 @@ typed blocked attempts and stores. The proof constructs matching transitions
 from the checked code and produces a common settling budget. After a block,
 the saved stacks can take a shared hypothetical result and store and continue
 with the same guarantee, including at a later block.
+
+The linked γ uses the native demand transfer. It applies the γ binding's
+exit demand to each arm, joins their live captures through the typed wires,
+and retains the selector. The runtime enters the selected arm with fresh
+locals and a saved γ suffix. The proof relates the suffixes using the arm's
+demanded results, including when a blocked callee is supplied a common
+hypothetical result and store.
+
+The γ fixture pins different capture demands for its calling and fallback
+arms. At a block in the callee it observes three saved frames. After supplying
+the same value and store to both invocations, the γ suffix returns demanded
+value `60` and exact store `55`, even though the second exit differs.
+[Linked γ regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/GammaRegression.lean)
 
 The fixture applies one two-binding λ twice. The first call's computed result
 feeds the second, which demands a different output port. The second probe
@@ -568,6 +581,7 @@ resumes a saved stack from a first-call block and checks the later call.
 
 ```sh
 lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Regression
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.GammaRegression
 ```
 
 ### Single-call admission

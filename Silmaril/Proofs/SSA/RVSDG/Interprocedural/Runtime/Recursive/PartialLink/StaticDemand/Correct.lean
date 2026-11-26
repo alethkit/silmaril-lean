@@ -10,7 +10,7 @@ public section
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Proofs
 
 open NestedTheta.Liveness (Demand DemandPlan selectWires definedAt transfer sweep mem_sweep_iff)
-open NestedTheta.Liveness.Demand.Proofs (ScopeAgrees valueAt read_all read_selected scope_snoc)
+open NestedTheta.Liveness.Demand.Proofs (ScopeAgrees valueAt read_all read_selected gamma_read_agrees scope_snoc)
 open Continuation (Stack)
 open Continuation.Partial (Config Site)
 open Continuation.Partial.Executable (Actions next? observe runFor observe_returned observe_blocked)
@@ -165,6 +165,30 @@ private theorem region (actions : Actions m σ) (observed : Demand) (code : Code
     apply Matches.step (openBody _ capL argL frameL targetL) (openBody _ capR argR frameR targetR)
     exact ihBody needed _ _ PUnit.unit PUnit.unit frameL frameR store (bodyL argL) (bodyR argR)
       (apply_agrees _ captures arguments reads) after
+  | @gamma entry results captures outs past sigs extra armSigs selector wires arms rest ihArm ihRest =>
+    intro wanted inputL inputR localsL localsR left right store resolvedL resolvedR agree resume
+    obtain ⟨reads, old⟩ := split_live agree
+    let needed := resultDemand past.length (rest.plan wanted)
+    obtain ⟨tags, capturesAgree⟩ :=
+      gamma_read_agrees selector wires (fun i => ((arms i).plan needed).live) reads
+    let tagL := valueAt selector inputL localsL
+    let tagR := valueAt selector inputR localsR
+    have sameArm : tagL.selector = tagR.selector := congrArg Colour.selector tags
+    let frameL : Stack m outs final := .resume rest.term inputL localsL left
+    let frameR : Stack m outs final := .resume rest.term inputR localsR right
+    have after : ResumeAgrees actions observed needed frameL frameR := by
+      intro outL outR middle demanded
+      apply Matches.step rfl rfl
+      exact ihRest wanted inputL inputR _ _ left right middle resolvedL.2 resolvedR.2
+        (scope_snoc old (fun p live => demanded p (output_observed live))) resume
+    apply Matches.step rfl rfl
+    apply Matches.step rfl rfl
+    change Matches actions observed
+      ⟨.eval (.region (arms tagL.selector).term (wires.read inputL localsL) PUnit.unit) frameL, store⟩
+      ⟨.eval (.region (arms tagR.selector).term (wires.read inputR localsR) PUnit.unit) frameR, store⟩
+    rw [← sameArm]
+    exact ihArm tagL.selector needed _ _ PUnit.unit PUnit.unit frameL frameR store
+      (resolvedL.1 localsL _) (resolvedR.1 localsR _) (capturesAgree tagL.selector) after
 
 private theorem plan_live (code : Code Op entry past sigs results) (demand : Demand) :
     (code.plan demand).live = sweep (code.plan demand).reads past.length := by
@@ -174,6 +198,9 @@ private theorem plan_live (code : Code Op entry past sigs results) (demand : Dem
     simp only [Code.plan, DemandPlan.prepend, sweep, ih, List.length_append,
       List.length_cons, List.length_nil]
   | apply _ _ _ _ _ _ ih =>
+    simp only [Code.plan, DemandPlan.prepend, sweep, ih, List.length_append,
+      List.length_cons, List.length_nil]
+  | gamma _ _ _ _ _ _ _ ih =>
     simp only [Code.plan, DemandPlan.prepend, sweep, ih, List.length_append,
       List.length_cons, List.length_nil]
 

@@ -13,7 +13,7 @@ open OrderedRuntime.Structured (Ty Opcode)
 open OrderedState.Partial (Path)
 open ExplicitRuntime.Partial (Observation wireModel kindAbnormal abnormalAt abnormal)
 open NestedTheta.Partial (exec kindExec tagged)
-open Liveness.Demand.Proofs (ScopeAgrees valueAt read_all read_selected
+open Liveness.Demand.Proofs (ScopeAgrees valueAt read_all read_selected gamma_read_agrees
   scope_snoc scope_at_entry)
 
 universe u v w
@@ -76,24 +76,16 @@ private theorem node_matches (path : Path)
       | cons selector captures =>
         let tagL : ULift (Fin (extra + 2)) := valueAt (F := (wireModel m).Val) selector left localsL
         let tagR : ULift (Fin (extra + 2)) := valueAt (F := (wireModel m).Val) selector right localsR
-        have sameTag : tagL = tagR := agree selector (List.mem_cons_self ..)
+        obtain ⟨sameTag, related⟩ := gamma_read_agrees selector captures
+          (fun j => ((children j).demandPlan demand).live) agree
+        have sameTag : tagL = tagR := sameTag
         change Matches demand.Agrees
           (run tagL.down (Wires.read captures left localsL))
           (run tagR.down (Wires.read captures right localsR))
           (bad tagL.down (Wires.read captures left localsL))
           (bad tagR.down (Wires.read captures right localsR))
         rw [← sameTag]
-        apply childMatches tagL.down demand
-        intro ty source needed
-        cases source with
-        | output i _ => exact i.elim0
-        | arg p =>
-          let armLive := fun j => ((children j).demandPlan demand).live
-          have joined : Address.arg p.index ∈ (List.ofFn armLive).flatten :=
-            List.mem_flatten.2 ⟨armLive tagL.down, List.mem_ofFn.2 ⟨tagL.down, rfl⟩, needed⟩
-          exact read_selected (fun _ i => ((List.ofFn armLive).flatten).contains (.arg i))
-            captures (fun edge h => agree edge (List.mem_cons_of_mem _ h)) p
-            (List.contains_iff_mem.2 joined)
+        exact childMatches tagL.down demand _ _ (related tagL.down)
   | theta =>
     let body := children (0 : Fin 1)
     let live := body.feedbackLive demand
