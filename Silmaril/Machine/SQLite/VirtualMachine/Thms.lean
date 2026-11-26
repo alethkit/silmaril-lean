@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Machine.SQLite.VirtualMachine.Defs
+public import Silmaril.Machine.SQLite.VirtualMachine.Concurrent.Thms
 public import Silmaril.Machine.SQLite.VirtualMachine.Mutable.Thms
 public import Silmaril.Machine.SQLite.VirtualMachine.Traced.Thms
 public import Silmaril.Formats.Sqlite.Vdbe.Thms
