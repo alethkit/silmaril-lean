@@ -63,7 +63,7 @@ structure Checked (p : Program H) {base : Store H} (memory : Memory32 base)
   loopIndex : p.module.types[p.loopIndex.toNat]? = some signature
   producerIndex : p.module.funcs[p.producerIndex.toNat]? = some p.producerAddress
   producer : p.producer.Allocated base
-  continuation : Continuation.Checked base p.module [.int .i64] signature.results
+  continuation : Continuation.Checked base p.module [.int .i64] [] signature.results
     [.int .i64, .int .i32] p.continuation
   memorySlot : p.module.memories = [memory.address]
 

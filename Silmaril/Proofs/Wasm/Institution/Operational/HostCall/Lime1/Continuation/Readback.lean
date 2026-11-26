@@ -4,6 +4,7 @@ public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Preservation
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Context
 import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Thms
+import Silmaril.Wasm.Institution.Operational.BranchExit.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Thms
 import Silmaril.Wasm.Lime1.Execution.Callout.Properties
 
@@ -118,6 +119,21 @@ private theorem source_read {stack : List Value} {ops : List (Op H)}
       obtain rfl := (Computed.lime_direct_call_iff (stack := saved ++ args) (tail := code ops) resolved).mp inside
       exact ⟨⟨bytes, .invoke saved site args ops, labels⟩, .resolve typed,
         by simp [render, Phase.renderCode, Phase.renderIn, plug_invoke, List.append_assoc]⟩
+    | brIf depth =>
+      obtain ⟨_, _, typed, _, _⟩ := checked_brIf ready.2.1
+      obtain ⟨operands, test, rfl, _, testTyped⟩ := List.map_eq_append_iff.mp typed
+      obtain ⟨v, rem, rfl, vt, testEmpty⟩ := List.map_eq_cons_iff.mp testTyped
+      obtain rfl := List.map_eq_nil_iff.mp testEmpty
+      rcases v with ⟨vt', guard⟩
+      cases vt
+      have taken := (Computed.lime_br_if_iff (saved := operands) (condition := guard)
+        (depth := depth) (rest := code ops)).mp inside
+      refine ⟨_, .brIf, ?_⟩
+      cases taken
+      by_cases zero : guard = 0
+      · simp only [render, Phase.renderCode, Phase.renderIn, ite_eq_left zero, List.append_nil]
+      · simp only [render, Phase.renderCode, Phase.renderIn, ite_eq_right zero,
+          List.append_assoc, List.singleton_append]
     | if_ type left right =>
       obtain ⟨_, typed, _, _, _, _⟩ := checked_if ready.2.1
       obtain ⟨operands, test, rfl, operandsTyped, guardTyped⟩ := List.map_eq_append_iff.mp typed
@@ -139,6 +155,36 @@ private theorem source_read {stack : List Value} {ops : List (Op H)}
       rw [blockCode] at taken
       cases taken
       rfl
+
+private theorem branch_read {stack : List Value} {depth : LabelIdx} {ops : List (Op H)}
+    (ready : Ready mem host active results (.branch stack depth ops) labels)
+    (move : Internal (render mem outer active results ⟨bytes, .branch stack depth ops, labels⟩) dst) :
+    ∃ next, Edge mem host active ⟨bytes, .branch stack depth ops, labels⟩ next ∧
+      dst = render mem outer active results next := by
+  obtain ⟨_, _, payloadTypes, typed, target⟩ := ready
+  cases labels with
+  | nil => simp [targetTypes] at target
+  | cons label labels =>
+    rcases body_cases move with ⟨_, inside, _⟩ | ⟨out, pop, rfl⟩
+    · exact (BranchExit.lime_br_vals_stuck inside).elim
+    · rcases BranchExit.lime_label_br_iff.mp (Step.pure (host := host) (mem.store bytes) active pop) with
+        ⟨scratch, used, split, arity, zero, native⟩ | ⟨positive, native⟩
+      · have found : label.type.signature.results = payloadTypes := by
+          simpa [targetTypes, zero] using target
+        subst payloadTypes
+        obtain ⟨_, payload, typedSplit, _, payloadTyped⟩ := List.map_eq_append_iff.mp typed
+        have size : payload.length = label.type.signature.results.length := by
+          simpa using congrArg List.length payloadTyped
+        have same := (List.append_inj' (split.symm.trans typedSplit) (arity.trans size.symm)).2
+        subst used
+        rw [typedSplit]
+        cases native
+        exact ⟨_, .branchDeliver zero payloadTyped, by
+          simp only [render, Phase.renderCode, Phase.renderIn, scopeFor, framed, values_append]⟩
+      · cases native
+        exact ⟨_, .branchLower positive, by
+          simp only [render, Phase.renderCode, Phase.renderIn, scopeFor, framed, values_append,
+            List.append_assoc, List.singleton_append]⟩
 
 private theorem block_step {label : Label H} {args : List Value} {arm : List (Op H)}
     (resolved : label.type.Resolved active.module)
@@ -219,6 +265,10 @@ private theorem read {a : State H} (ready : Ready mem host active results a.phas
         | nil => simp [code, expr, expression]
         | cons op ops => cases op <;> simp [code, expr, Op.instr, expression, asValue?])
     exact source_read ready ((withoutCallout absent).mp move)
+  | branch stack depth ops =>
+    have absent : decompose? (render mem outer active results ⟨bytes, .branch stack depth ops, labels⟩) = none :=
+      noLabelCallout (by simp [asValue?])
+    exact branch_read ready ((withoutCallout absent).mp move)
   | block label args arm =>
     have absent : decompose? (render mem outer active results ⟨bytes, .block label args arm, labels⟩) = none :=
       noLabelCallout (by simp [asValue?])
@@ -255,6 +305,35 @@ private theorem sound {a b : State H} (ready : Ready mem host active results a.p
     have drop := (Computed.lime_drop_iff (s := mem.store bytes) (f := active) (stack := stack)
       (v := v) (rest := code ops)).mpr rfl
     exact Step.of_internal (framed_step (.label drop (labelResults results labels).length []))
+  | @brIf bytes stack guard depth ops labels =>
+    have branch := (Computed.lime_br_if_iff (s := mem.store bytes) (f := active)
+      (saved := stack) (condition := guard) (depth := depth) (rest := code ops)).mpr rfl
+    have move := framed_step (outer := outer) (scope := scopeFor results labels)
+      (.label branch (labelResults results labels).length [])
+    apply Step.of_internal
+    change Step CallFrame.limeNoHost _ _
+    by_cases zero : guard = 0
+    · simpa only [render, Phase.renderCode, Phase.renderIn, code, expr, Op.instr, expression,
+        List.map_cons, ite_eq_left zero, List.append_nil] using move
+    · simpa only [render, Phase.renderCode, Phase.renderIn, code, expr, Op.instr, expression,
+        List.map_cons, ite_eq_right zero, List.append_assoc, List.singleton_append] using move
+  | @branchLower bytes stack depth ops label labels positive =>
+    have lower : Step host ⟨mem.store bytes, active, [.label label.type.signature.results.length []
+        (values stack ++ .source (.br depth) :: code ops)]⟩
+        ⟨mem.store bytes, active, values stack ++ [.source (.br (lowerLabel depth))]⟩ :=
+      BranchExit.lime_label_br_iff.mpr (.inr ⟨positive, rfl⟩)
+    have move := framed_step (outer := outer) (scope := scopeFor results (label :: labels)) lower
+    simpa only [render, Phase.renderCode, Phase.renderIn, labelResults, scopeFor, framed, values_append,
+      List.append_assoc, List.singleton_append] using move
+  | @branchDeliver bytes scratch payload depth ops label labels zero typed =>
+    have arity : payload.length = label.type.signature.results.length := by
+      simpa using congrArg List.length typed
+    have deliver : Step host ⟨mem.store bytes, active, [.label label.type.signature.results.length []
+        (values (scratch ++ payload) ++ .source (.br depth) :: code ops)]⟩
+        ⟨mem.store bytes, active, values payload⟩ :=
+      BranchExit.lime_label_br_iff.mpr (.inl ⟨scratch, payload, rfl, arity, zero, rfl⟩)
+    have move := framed_step (outer := outer) (scope := scopeFor results (label :: labels)) deliver
+    simpa only [render, Phase.renderCode, Phase.renderIn, labelResults, scopeFor, framed, values_append] using move
   | @if_ bytes saved args guard type left right ops labels _ =>
     have branch : Internal ⟨mem.store bytes, active, values ((saved ++ args) ++ [Value.int .i32 guard]) ++
         .source (.if_ type.blockType (expr left) (expr right)) :: code ops⟩

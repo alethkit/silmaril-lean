@@ -24,7 +24,10 @@ theorem preserves (move : Edge mem host active a b)
 /-- Exact single-step correspondence for a checked continuation under any finite
 stack of entered labels and its function frame. The native i32 selection
 and the selected block's ordered parameter delivery are separate steps.
-Normal label exit delivers the declared result stack to the saved prefix. -/
+Normal label exit delivers the declared result stack to the saved prefix.
+A taken conditional branch crosses one explicit label per native step.
+Its final transfer delivers the ordered target results and discards the
+target's remaining instructions. -/
 theorem step_iff (ready : Ready mem host active results a.phase a.labels) (live : mem.Live a.bytes) :
     Step host (render mem outer active results a) dst ↔
       ∃ next, Edge mem host active a next ∧ dst = render mem outer active results next :=

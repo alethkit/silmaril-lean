@@ -4,6 +4,7 @@ import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.G
 import Silmaril.Proofs.Wasm.Institution.Operational.Loops.IndexedHost.Examples
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.IndexedLoop.Examples
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.IndexedLoop.IfExamples
+import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.IndexedLoop.BranchExamples
 import Silmaril.Wasm.Institution.Operational.MemoryQuery.Native.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryWrite.Native.Thms
 
