@@ -222,8 +222,7 @@ The stock descriptor delivers the canonical empty tuple or the exact
 prepared object and reached tuple heap. The result keeps the argument's
 address and incurs no second allocation. These addresses belong to the
 assertion. The module binding path tracks addresses for nonempty displays
-with live item reads in the shared closure heap. Module name operands
-and identity-sensitive comparisons need a separate source rule.
+with live item reads in the shared closure heap.
 
 A reached module name can also supply a comparison operand or the sole
 positional operand of stock `tuple`. The constructor reads its callee before
@@ -237,6 +236,29 @@ is absent.
 
 Run the unchanged pin and CPython 3.13.5 dispatch and sequencing controls
 with `python3.13 -I scripts/check-python-tuple-chain.py --upstream /path/to/pinned/rigorous`.
+
+A named module call can take a single positional tuple identity test, with
+one `is` or `is not` link. Its operands are live global reads or the
+canonical empty tuple. The runner resolves the callee, reads both operands
+from left to right, and delivers an exact Boolean before invoking the saved
+callee. Allocated descriptors must resolve in the reached closure heap.
+Stock `tuple(existing)` and module aliases retain the original descriptor,
+so two tracked tuples with the same contents can still have distinct
+identities. Two reads of the same live tuple binding also establish identity.
+Distinct bindings carrying only a closed nonempty tuple payload give no
+identity evidence.
+
+The opt-in `legacyTupleIdentitySeed` supplies the Boolean `___assertTrue`
+helper. The helper's receipt records `None` on success and
+`AssertionError(False)` on a false result. A failed callee or operand read
+preserves the reached heaps and prior receipts. In the unchanged
+`tuple-constructors.py`, lowering now reaches the list argument at line 6.
+Execution of the exact four-statement prefix with the stock helper reaches
+the untracked closed tuple aliases on line 5. CPython preserves the exact
+object on that call, while the current runtime needs a saved origin for that
+binding. The tuple-chain regression checks this prefix and the tracked alias
+and canonical empty controls.
+
 
 A scalar comparison chain has at least two links. Every link uses one of
 `==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact

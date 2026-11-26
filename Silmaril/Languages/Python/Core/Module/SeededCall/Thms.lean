@@ -33,6 +33,13 @@ theorem invoke_iff {callee : Value} {arguments : List Value} {result : Result} :
 
 /-- The stock zero-argument constructor returns the canonical empty tuple
 payload carried by the seeded value model. -/
+theorem invoke_assertTrue_true : invoke (.helper .assertTrue) [.bool true] = .ok .none :=
+  invoke_iff.mpr .asserted
+
+theorem invoke_assertTrue_false :
+    invoke (.helper .assertTrue) [.bool false] = .error (.raised (.assertionError (.boolean false))) :=
+  invoke_iff.mpr .assertionFailed
+
 theorem invoke_tuple_empty :
     invoke (.builtin .tuple) [] = .ok (.returnedTuple []) :=
   invoke_iff.mpr .emptyTuple
