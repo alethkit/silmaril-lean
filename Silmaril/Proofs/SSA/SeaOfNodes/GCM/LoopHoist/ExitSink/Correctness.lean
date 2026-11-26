@@ -84,6 +84,18 @@ theorem operand_occurrence (emission : Emission source index) {argument : Nat}
         Point (ExitLabel (SavedBank saved carried extra) emission.header.opcode.1)) else none) = _
   simp [slots.2.2.1, slots.2.2.2.2, exitId, inPacket]
 
+/-- The original false-edge Φ read is pinned to the header terminator.
+After a successful sink, no use pinned to the header reads that value at
+all: the relocated operation is bound at the shortened exit's cut zero,
+and `exit_eval` already identifies the exit's own return with evaluating
+that exact operation, not with any Φ occurrence. -/
+theorem source_use_relocated (_accepted : sink? source index = some emission) :
+    (Use.phi (some ⟨_, .header⟩) .onFalse 0).point? source =
+      some ⟨some ⟨_, .header⟩, index + 1⟩ ∧
+    emission.cfg.block .exit =
+      .letOp emission.header.opcode.2 (packetRefs Input _) (.terminator (.ret (.cons .here .nil))) :=
+  ⟨source_use_point emission, rfl⟩
+
 theorem sink_legal (accepted : sink? source index = some emission) :
     Legal emission.cfg emission.operandSites [.ordinary ⟨exitId, 1⟩] ⟨exitId, 0⟩ := by
   have checked := (Option.filter_eq_some_iff.mp accepted).2
