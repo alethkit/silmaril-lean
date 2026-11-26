@@ -438,6 +438,29 @@ in the producer. The source uses native representatives. Preservation of
 structural operations and iteration is a separate question.
 [Composition regression][ssa-ub-paper-category-regression]
 
+### Exact sums and the empty type
+
+The shaped observation category has a binary coproduct at the singleton
+label of exact type `A ⊕ B`, with its universal property against any
+shaped target interface. The injections return the chosen tag and keep
+the state. Copairing passes the unwrapped payload and incoming state to
+the selected arrow and returns its entire behaviour, including faults,
+may-divergence, and fresh top. Every shaped sum payload is a left or right
+tag with its declared type. The empty-typed singleton is initial because
+it has no well-typed input. These facts follow from the free runtime
+shapes for any atom typing relation.
+[Target laws][ssa-ub-shaped-exact-sum]
+
+The guarded singleton interpretation maps the installed exact injections,
+copair and empty eliminator to these operations. The image of the exact
+sum cocone is colimiting. The binary and initial proofs give the Mathlib
+`PreservesFiniteCoproducts` property. The stateful regression takes the
+installed Paper copair of two effectful arrows, checks distinct final
+states and faults, and verifies that the right arm's fault and divergence
+are absent from the left-tagged execution. Product coherence and iteration
+preservation remain separate.
+[Preservation][ssa-ub-paper-exact-sum] [Regression][ssa-ub-paper-exact-sum-regression]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -472,6 +495,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.NativeQuotient.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Uniformity.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.ExactSum.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -540,5 +564,8 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-shaped-category]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Thms.lean
 [ssa-ub-paper-category]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Thms.lean
 [ssa-ub-paper-category-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Regression.lean
+[ssa-ub-shaped-exact-sum]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/ExactSum/Thms.lean
+[ssa-ub-paper-exact-sum]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/ExactSum/Thms.lean
+[ssa-ub-paper-exact-sum-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/ExactSum/Regression.lean
 [ssa-ub-paper-uniformity-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Uniformity/Regression.lean
 [ssa-ub-paper-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Regression.lean
