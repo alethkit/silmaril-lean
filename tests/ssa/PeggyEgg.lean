@@ -18,8 +18,10 @@ import Silmaril.SSA.Peggy.Worked.EvalScale.Thms
 import Silmaril.SSA.Peggy.Worked.StrengthReduction.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Schedule.Thms
 import Silmaril.SSA.PEG.Simple.Thms
 import Silmaril.SSA.PEG.Projection.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Cyclic.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Selection.Legality.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
@@ -2265,5 +2267,39 @@ private def certifiedRun :
   | _ => none
 
 #guard certifiedRun.isSome
+
+open Simple.Revert.Schedule (Plan)
+
+private structure Scheduled where
+  accepted : Simple.Revert.Schedule.Accepted graph
+  laws : accepted.plan.Laws model
+
+private def schedule (d : Layout graph (stage false) (stage true)) : Option Scheduled := do
+  let first ← Closed.Automatic.extract (stage false) roles
+  let second ← Closed.Automatic.extract (stage true) roles
+  let a : Simple.Revert.Schedule.Stage graph inputs outputs :=
+    ⟨9, 1, stage false, .closed first.certificate, d.first, fun _ => 0⟩
+  let b : Simple.Revert.Schedule.Stage graph inputs outputs :=
+    ⟨9, 1, stage true, .closed second.certificate, d.second, fun _ => 1⟩
+  let plan : Plan graph inputs outputs :=
+    .step (ports inputs) a (.step d.route b (.done (ports outputs)))
+  let accepted ← Simple.Revert.Schedule.check graph plan d.inputs rank
+  return ⟨accepted.val, accepted.property.symm ▸
+    (show plan.Laws model from ⟨first.laws laws, second.laws laws, trivial⟩)⟩
+
+private def scheduleRun :
+    Option {a : Scheduled //
+      Exec model a.accepted.plan.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ i, graph.observe model (graph.denote model (input 2) a.accepted.demandWellFounded) i =
+        four (some ⟨13⟩) (some ⟨3⟩) (some ⟨3⟩) (some ⟨13⟩)} := do
+  let a ← schedule layout
+  match ran : a.accepted.plan.runFuel model 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    have exec := a.accepted.plan.exec_of_runFuel 3 ran
+    return ⟨a, exec, fun i => (a.accepted.observations_of_exec a.laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard scheduleRun.isSome
+#guard (schedule { layout with route := pair (.tail .head) .head }).isNone
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Tests

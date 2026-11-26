@@ -6,12 +6,14 @@ import Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.MustEval.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Region.Automatic.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Schedule.Thms
 import Silmaril.SSA.PEG.Semantics.Reindex.Defs
 import Silmaril.SSA.PEG.Rules.Thms
 import Mathlib.Data.Fin.Embedding
 import Mathlib.Logic.Equiv.Basic
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Thms
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Defs
@@ -1227,5 +1229,38 @@ private def fromPEG (count : Nat) :
 
 #guard (fromPEG 2).isSome
 #guard (fromPEG 0).isSome
+
+open Simple.Revert.Schedule (Plan)
+
+private structure Scheduled (stale : Bool) where
+  accepted : Simple.Revert.Schedule.Accepted (graph stale)
+  laws : accepted.plan.Laws model
+
+-- The same local certificate is proposed against both original tables.
+-- A stale initializer reads the function input instead of the old outer slot.
+private def schedule (stale : Bool) : Option (Scheduled stale) := do
+  let found ← checked
+  let stage : Simple.Revert.Schedule.Stage (graph stale) state [.count] :=
+    ⟨16, 2, graph false, .nested found.certificate, fun i => ⟨i, rfl⟩, id⟩
+  let plan : Plan (graph stale) state [.count] :=
+    .step (ports state) stage (.done (.cons .head .nil))
+  let accepted ← Simple.Revert.Schedule.check (graph stale) plan (pair (r 13 rfl) (r 14 rfl)) rank
+  return ⟨accepted.val, accepted.property.symm ▸
+    (show plan.Laws model from ⟨found.negates (fun _ => rfl), trivial⟩)⟩
+
+private def scheduledRun :
+    Option {a : Scheduled false //
+      Exec model a.accepted.plan.revert (input 2) (some (.cons ⟨4⟩ .nil)) ∧
+      ∀ i, (graph false).observe model ((graph false).denote model (input 2) a.accepted.demandWellFounded) i =
+        .cons (some ⟨4⟩) .nil} := do
+  let a ← schedule false
+  match ran : a.accepted.plan.runFuel model 2 (input 2) with
+  | some (.cons ⟨4⟩ .nil) =>
+    have exec := a.accepted.plan.exec_of_runFuel 2 ran
+    return ⟨a, exec, fun i => (a.accepted.observations_of_exec a.laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard scheduledRun.isSome
+#guard (schedule true).isNone
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Nested.Region.Tests
