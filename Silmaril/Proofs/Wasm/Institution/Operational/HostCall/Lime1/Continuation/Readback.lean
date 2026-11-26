@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Defs
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Preservation
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Context
+import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Wasm
 import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Thms
 import Silmaril.Wasm.Institution.Operational.BranchExit.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Thms
@@ -16,6 +17,7 @@ open Execution.Runtime (EvalCtx Frame Result Value)
 open Wasm.Lime1.Execution
 open CallContinuation
 open CallContinuation.OuterCall
+open CallContinuation.OuterCall.Ranked
 
 set_option backward.isDefEq.respectTransparency false
 
@@ -157,13 +159,44 @@ private theorem i32_suffix {stack : List Value} {types : List NumType}
   cases vt
   exact ⟨operands, bits, rfl, operandsTyped⟩
 
-private theorem render_lookup {saved args : List Value} {target : Option (Site H)} {ops : List (Op H)} :
-    render mem outer active results ⟨bytes, .afterLookup saved args target ops, labels⟩ =
+private theorem render_lookup {saved args : List Value} {indirect : IndirectSite}
+    {target : Option (IndirectTarget H)} {ops : List (Op H)} :
+    render mem outer active results ⟨bytes, .afterLookup saved args indirect target ops, labels⟩ =
       ⟨mem.store bytes, outer, framed active [.label (labelBranchTypes results labels).length
         (labelContinuation labels) (values (saved ++ args) ++ IndirectSite.lookupHead target :: code ops)]
         (scopeFor results labels)⟩ := by
-  cases target <;> simp [render, Phase.afterLookup, Phase.renderCode, Phase.renderIn, IndirectSite.lookupHead,
-    plug_invoke, values_append, List.append_assoc]
+  cases target with
+  | none => rfl
+  | some target =>
+    cases target <;> simp [render, Phase.afterLookup, Phase.renderCode, Phase.renderIn, IndirectSite.lookupHead,
+      plug_invoke, Graph.Phase.render, Graph.Phase.renderAt, Graph.limeAdmin, WasmTarget.callTarget,
+      values_append, List.append_assoc]
+
+private theorem render_wasm {saved : List Value} {site : IndirectSite} {callee : WasmTarget}
+    {phase : Graph.Phase} {ops : List (Op H)} :
+    render mem outer active results ⟨bytes, .afterWasm saved site callee ops phase, labels⟩ =
+      ⟨mem.store bytes, outer, framed active [.label (labelBranchTypes results labels).length
+        (labelContinuation labels) (values saved ++ phase.render Graph.limeAdmin callee.callTarget ++ code ops)]
+        (scopeFor results labels)⟩ := by
+  cases phase <;> try rfl
+  case done out =>
+    cases out <;> simp [render, Phase.afterWasm, Phase.renderCode, Phase.renderIn,
+      Graph.Phase.render, Graph.Phase.renderAt, Graph.limeAdmin, Nested.resultCode, values_append, List.append_assoc]
+
+private theorem wasm_read {saved : List Value} {site : IndirectSite} {callee : WasmTarget}
+    {phase : Graph.Phase} {ops : List (Op H)}
+    (ready : Ready mem host active results (.wasm saved site callee phase ops) labels)
+    (move : Step host (render mem outer active results ⟨bytes, .wasm saved site callee phase ops, labels⟩) dst) :
+    ∃ next, Edge mem host active results ⟨bytes, .wasm saved site callee phase ops, labels⟩ next ∧
+      dst = render mem outer active results next := by
+  obtain ⟨_, linked, found, _, notCall, notDone, admitted, _, _⟩ := ready
+  have allocated : site.graph.LimeAllocated (mem.store bytes) := linked.graphAllocated
+  have absent : decompose? (render mem outer active results ⟨bytes, .wasm saved site callee phase ops, labels⟩) = none :=
+    noLabelCallout (wasm_absent allocated found admitted saved (code ops) notCall notDone)
+  obtain ⟨mid, inside, rfl⟩ := underLabel (fun _ => wasm_stays callee notCall notDone)
+    ((withoutCallout absent).mp move)
+  obtain ⟨next, edge, rfl⟩ := (wasm_step_iff linked.graphChecked allocated found admitted notCall notDone).mp inside
+  exact ⟨_, .wasm edge, render_wasm.symm⟩
 
 private theorem source_read {stack : List Value} {ops : List (Op H)}
     (ready : Ready mem host active results (.source stack ops) labels)
@@ -348,6 +381,7 @@ private theorem read {a : State H} (ready : Ready mem host active results a.phas
       noLabelCallout (by simp [asValue?])
     exact block_read ready ((withoutCallout absent).mp move)
   | invoke saved site args ops => exact invoke_read ready live move
+  | wasm _ _ _ _ _ => exact wasm_read ready move
   | trapped stack rest =>
     have absent : decompose? (render mem outer active results ⟨bytes, .trapped stack rest, labels⟩) = none :=
       noLabelCallout (by simp)
@@ -478,6 +512,14 @@ private theorem sound {a b : State H} (ready : Ready mem host active results a.p
       (selector := selector) (rest := code ops) linked).mpr ⟨target, found, rfl⟩
     rw [render_lookup]
     exact Step.of_internal (framed_step (.label lookup (labelBranchTypes results labels).length
+      (labelContinuation labels)))
+  | @wasm bytes saved site callee phase next ops labels edge =>
+    obtain ⟨_, linked, found, _, notCall, notDone, admitted, _, _⟩ := ready
+    have allocated : site.graph.LimeAllocated (mem.store bytes) := linked.graphAllocated
+    have inner := (wasm_step_iff (active := active) (saved := saved) (rest := code ops) (s := mem.store bytes)
+      linked.graphChecked allocated found admitted notCall notDone).mpr ⟨next, edge, rfl⟩
+    rw [render_wasm]
+    exact Step.of_internal (framed_step (.label inner (labelBranchTypes results labels).length
       (labelContinuation labels)))
   | @returned bytes next saved site args ops vs labels _ _ answer =>
     have atHost := located (mem := mem) (labels := labels) (results := results) (outer := outer) (active := active)

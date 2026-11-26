@@ -16,6 +16,7 @@ namespace Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation
 
 open Execution.Runtime (EvalCtx Frame ModuleInst Result Value)
 open Wasm.Lime1.Execution
+open CallContinuation.OuterCall.Ranked
 
 /-- Scalar or indexed control signature used by conditionals and loops. -/
 inductive IfType where
@@ -158,6 +159,7 @@ inductive Phase (H : Type) where
   | source (stack : List Value) (ops : List (Op H))
   | block (label : Label H) (args : List Value) (arm : List (Op H))
   | invoke (saved : List Value) (site : Site H) (args : List Value) (ops : List (Op H))
+  | wasm (saved : List Value) (site : IndirectSite) (callee : WasmTarget) (phase : Graph.Phase) (ops : List (Op H))
   | trapped (saved : List Value) (rest : List Admin)
   | frameResult (result : Result)
   | done (result : Result)
@@ -166,11 +168,18 @@ inductive Phase (H : Type) where
 abbrev Phase.branch {H : Type} (stack : List Value) (depth : LabelIdx) (ops : List (Op H)) : Phase H :=
   .source stack (.br depth :: ops)
 
-def Phase.afterLookup {H : Type} (saved args : List Value) (target : Option (Site H))
+def Phase.afterLookup {H : Type} (saved args : List Value) (indirect : IndirectSite) (target : Option (IndirectTarget H))
     (ops : List (Op H)) : Phase H :=
   match target with
-  | some callee => .invoke saved callee args ops
+  | some (.host callee) => .invoke saved callee args ops
+  | some (.wasm callee) => .wasm saved indirect callee (.invoke args) ops
   | none => .trapped (saved ++ args) (code ops)
+
+def Phase.afterWasm {H : Type} (saved : List Value) (site : IndirectSite) (callee : WasmTarget)
+    (ops : List (Op H)) : Graph.Phase → Phase H
+  | .done (.values vs) => .source (saved ++ vs) ops
+  | .done .trap => .trapped saved (code ops)
+  | phase => .wasm saved site callee phase ops
 
 structure State (H : Type) where
   bytes : ByteArray
@@ -234,6 +243,13 @@ def Ready {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantic
   | .invoke saved site args ops => site.Allocated base ∧ site.Arguments args ∧ site.Contract mem host ∧
       Checked base active.module (active.locals.map Value.type) targets delivered
         (saved.map Value.type ++ site.type.results) ops ∧ Contract mem host ops
+  | .wasm saved site callee phase ops =>
+      site.Linked base active.module ∧ site.graph.lookup callee.address = some callee.fn ∧
+      callee.fn.declaration.type = site.signature ∧
+      (∀ args, phase ≠ .call args) ∧ (∀ result, phase ≠ .done result) ∧
+      Graph.Admitted site.graph callee.fn phase ∧
+      Checked base active.module (active.locals.map Value.type) targets delivered
+        (saved.map Value.type ++ site.signature.results) ops ∧ Contract mem host ops
   | .trapped _ _ => True
   | .frameResult out | .done out => labels = [] ∧ ResultTyped results out
 
@@ -270,6 +286,8 @@ def Phase.renderIn {H : Type} (scope : Scope) (arity : Nat) (cont : Wasm.Lime1.E
       .source (.block label.type.blockType (expr arm)) :: code label.tail)] scope
   | .invoke saved site args ops => (invokeContext scope arity cont active saved ops).plug value
       (values args ++ [.invoke site.address])
+  | .wasm saved _ callee phase ops =>
+      framed active [.label arity cont (values saved ++ phase.render Graph.limeAdmin callee.callTarget ++ code ops)] scope
   | .trapped saved rest => framed active [.label arity cont (values saved ++ .trap :: rest)] scope
   | .frameResult out => framed active (result out) scope
   | .done out => result out
@@ -332,7 +350,11 @@ inductive Edge {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSem
       (typed : args.map Value.type = site.signature.params) (found : site.Lookup base selector target) :
       Edge mem host active results
         ⟨bytes, .source ((saved ++ args) ++ [Value.int .i32 selector]) (.callIndirect site :: ops), labels⟩
-        ⟨bytes, .afterLookup saved args target ops, labels⟩
+        ⟨bytes, .afterLookup saved args site target ops, labels⟩
+  | wasm {bytes saved site callee phase next ops labels}
+      (move : site.graph.FrameEdge callee.address phase next) :
+      Edge mem host active results ⟨bytes, .wasm saved site callee phase ops, labels⟩
+        ⟨bytes, .afterWasm saved site callee ops next, labels⟩
   | returned {bytes next saved site args ops vs labels} (live : mem.Live next)
       (typed : site.TypedResult (.values vs))
       (answer : host site.code (mem.store bytes) args (.returned (mem.store next) (.values vs))) :

@@ -32,8 +32,8 @@ theorem Site.step_iff (allocated : site.Allocated base) (contract : site.Contrac
   Proofs.step_iff allocated contract live typed
 
 /-- Resolution consumes the selector in one internal step and preserves the
-current store, frame, operands and suffix. Success leaves a pending host
-invocation. Bounds, null and signature failures leave a native trap. -/
+current store, frame, operands and suffix. Success leaves a pending host or
+checked Wasm invocation. Bounds, null and signature failures leave a native trap. -/
 theorem IndirectSite.step_iff {indirect : IndirectSite} {active : Frame} {stack : List Value}
     {selector : BitVec 32} {rest : List Admin} (linked : indirect.Linked base active.module) :
     Internal ⟨memory.store bytes, active,

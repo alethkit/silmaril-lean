@@ -1,6 +1,8 @@
 module
 
 public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Defs
+import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Wasm
+import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Thms
 
 @[expose] public section
 
@@ -8,6 +10,7 @@ namespace Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Proo
 
 open Execution.Runtime (Frame ModuleInst Value)
 open Wasm.Lime1.Execution
+open CallContinuation.OuterCall.Ranked
 
 variable {H : Type} {base : Store H} {mem : Memory32 base} {host : HostSemantics H}
   {active : Frame} {targets : List (List NumType)} {results types : List NumType} {ops : List (Op H)}
@@ -137,7 +140,7 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
           change depth.toNat - 1 = depth'
           omega
         have nextTarget : (targetTypes results labels)[(lowerLabel depth).toNat]? = some payload := by
-          simpa [targetTypes, lowered, depthEq] using target
+          simpa only [targetTypes, lowered, depthEq, List.getElem?_cons_succ] using target
         refine ⟨outer, ?_, .br⟩
         have next : Checked base active.module (active.locals.map Value.type) (targetTypes results labels)
             (labelResults results labels) ((label.saved.map Value.type ++ scratch) ++ payload)
@@ -208,6 +211,28 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
       | callIndirect contract tailContract =>
         exact ⟨ready.1, allocated, typed, contract address code (List.mem_of_getElem? entry) allocated,
           same ▸ tail, tailContract⟩
+    | @wasm callee _ present _ declared =>
+      obtain ⟨_, split, linked, tail⟩ := checked_indirect ready.2.1
+      simp only [List.map_append, List.map_cons, List.map_nil, Value.int, typed] at split
+      have same := List.append_cancel_right (List.append_cancel_right split)
+      have arguments : args.map Value.type = callee.fn.declaration.params :=
+        typed.trans (congrArg V1.FuncType.params declared).symm
+      exact ⟨ready.1, linked, present, declared, by simp, by simp, .invoke arguments,
+        same ▸ tail, contract_tail ready.2.2 trivial⟩
+  | @wasm bytes saved site callee phase next ops labels move =>
+    obtain ⟨labelsReady, linked, found, declared, _, _, admitted, tail, contract⟩ := ready
+    have admittedNext := site.graph.frame_admitted_step linked.graphChecked found admitted move
+    have notCall := wasm_next_not_call found move
+    cases next <;> try exact ⟨labelsReady, linked, found, declared, notCall, by simp, admittedNext, tail, contract⟩
+    case done outcome =>
+      cases outcome with
+      | trap => exact ⟨labelsReady, trivial⟩
+      | values vs =>
+        have typed : vs.map Value.type = callee.fn.declaration.results := by
+          cases admittedNext with
+          | done valueTypes => exact valueTypes
+        have delivered := typed.trans (congrArg V1.FuncType.results declared)
+        exact ⟨labelsReady, by simpa only [List.map_append, delivered] using tail, contract⟩
   | returned _ typed _ =>
     refine ⟨ready.1, ?_, ready.2.2.2.2.2⟩
     simpa only [List.map_append, show _ = _ from typed] using ready.2.2.2.2.1
