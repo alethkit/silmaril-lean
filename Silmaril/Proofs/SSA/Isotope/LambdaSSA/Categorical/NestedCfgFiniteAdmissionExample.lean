@@ -157,4 +157,129 @@ example (roll : IterationRolling C) :
 
 end Model
 
+namespace OrderedExits
+
+private def boundary (wrong : Bool) : LCtx (Ty Empty) := [U, if wrong then Pair else U, Pair]
+private abbrev outerLabels (T : Ty Empty) (wrong : Bool) := List.ofFn (slots T) ++ boundary wrong
+private abbrev taggedPair (D : Ty Empty) : Ty Empty := .coprod Pair D
+
+private def enter : Region Op := .br 0 .unit
+
+private def unitRow (wrong : Bool) : Region Op :=
+  .case (.op .unitRequest (.var 0)) (.br 1 (.var 0))
+    (.case (.var 0) (.br 3 (.var 0)) (.br 4 (if wrong then .pair (.var 0) .unit else .var 0)))
+
+private def pairRow : Region Op :=
+  .case (.op .pairRequest (.var 0)) (.br 2 (.inl (.var 2))) (.br 5 (.var 0))
+
+private def originalEntry := enter.renameLabels (retainLabelIndex keep)
+
+private def originalRows (wrong : Bool) : Fin 3 → Region Op :=
+  let reindex := retainLabelIndex keep
+  Fin.cases ((unitRow wrong).renameLabels reindex)
+    (Fin.cases (dead.renameLabels reindex) (fun _ => pairRow.renameLabels reindex))
+
+private def guardedRow (wrong : Bool) : Region Op := guarded (.cfg originalEntry 3 (originalRows wrong))
+private def start : Region Op := .br 0 (.inl (.pair .unit .unit))
+private def graph (wrong : Bool) : Region Op := .cfg start 1 (fun _ => guardedRow wrong)
+
+private theorem guardedRow_typed (wrong : Bool) (D deadTy : Ty Empty) :
+    (guardedRow wrong).HasType [taggedPair D] (outerLabels (taggedPair D) wrong) := by
+  let L := outerLabels (taggedPair D) wrong
+  let compact := List.ofFn (fun i => family deadTy (keep i)) ++ L
+  have ren := retainLabelRen keep (family deadTy) L
+  have initial : enter.HasType [Pair] compact := .br rfl .unit
+  have first : (unitRow wrong).HasType [U, Pair] compact := by
+    refine .case (.op (.var rfl)) (.br rfl (.var rfl))
+      (.case (.var rfl) (.br rfl (.var rfl)) ?_)
+    cases wrong
+    · exact .br rfl (.var rfl)
+    · exact .br rfl (.pair (.var rfl) .unit)
+  have middle : dead.HasType [deadTy, Pair] compact := .br rfl .unit
+  have second : pairRow.HasType [Pair, Pair] compact :=
+    .case (.op (.var rfl)) (.br rfl (.inl (.var rfl))) (.br rfl (.var rfl))
+  have blocks : ∀ i, (originalRows wrong i).HasType [family deadTy i, Pair]
+      (List.ofFn (family deadTy) ++ L) :=
+    Fin.cases (first.renameLabels ren)
+      (Fin.cases (middle.renameLabels ren) (fun _ => second.renameLabels ren))
+  have inner : (Region.cfg originalEntry 3 (originalRows wrong)).HasType [Pair] L :=
+    .cfg (family deadTy) (initial.renameLabels ren) blocks
+  exact .case (.var rfl) (inner.renameVars ((Ren.wk [] (taggedPair D)).lift Pair)) (.br rfl (.var rfl))
+
+private theorem exact_graph (wrong : Bool) (D deadTy : Ty Empty) : (graph wrong).HasType [] (boundary wrong) :=
+  .cfg (slots (taggedPair D)) (.br rfl (.inl (.pair .unit .unit))) (fun _ => guardedRow_typed wrong D deadTy)
+
+/-- Changing the second Unit exit to carry a pair is accepted at its own
+typed boundary and rejected at the original ordered interface. -/
+example : (graph true).HasType [] (boundary true) ∧
+    NestedAdmission.Finite.compare? keep types (graph true) (boundary true) = .certified ∧
+    NestedAdmission.Finite.compare? keep types (graph true) (boundary false) = .unknown :=
+  ⟨exact_graph true U U, by decide, by decide⟩
+
+/-- A missing exit is also rejected, even when all earlier exits match. -/
+example : NestedAdmission.Finite.compare? keep types (graph false) [U, U] = .unknown := by decide
+
+private def exitReplies (first : Fin 3) : Op → Value Empty → Unit → Value Empty → Unit → Prop
+  | .unitRequest, .unit, (), result, () =>
+      result = Fin.cases (.inr (.inl .unit))
+        (Fin.cases (.inr (.inr .unit)) (fun _ => .inl (.pair .unit .unit))) first
+  | .pairRequest, .pair .unit .unit, (), result, () => result = .inr (.pair .unit .unit)
+  | _, _, _, _, _ => False
+
+/-- The first two exits return the same Unit value at different ordinals. -/
+example : Semantics.Region.Eval (exitReplies 0) (fun _ => .unit) (graph false) () 0 .unit () := by
+  refine .cfg (.br (.inl (.pair .unit .unit))) ?_
+  refine .step (label := 0) (next := 1) (by decide) ?_ (.exit (by decide))
+  refine .case_inl .var (.cfg (.br .unit) ?_)
+  exact .step (label := 0) (next := 4) (by decide)
+    (.case_inr (.op .var rfl) (.case_inl .var (.br .var))) (.exit (by decide))
+
+example : Semantics.Region.Eval (exitReplies 1) (fun _ => .unit) (graph false) () 1 .unit () := by
+  refine .cfg (.br (.inl (.pair .unit .unit))) ?_
+  refine .step (label := 0) (next := 2) (by decide) ?_ (.exit (by decide))
+  refine .case_inl .var (.cfg (.br .unit) ?_)
+  exact .step (label := 0) (next := 5) (by decide)
+    (.case_inr (.op .var rfl) (.case_inr .var (.br .var))) (.exit (by decide))
+
+/-- The third exit takes the second request and returns its pair reply. -/
+example : Semantics.Region.Eval (exitReplies 2) (fun _ => .unit) (graph false) () 2 (.pair .unit .unit) () := by
+  refine .cfg (.br (.inl (.pair .unit .unit))) ?_
+  refine .step (label := 0) (next := 3) (by decide) ?_ (.exit (by decide))
+  refine .case_inl .var (.cfg (.br .unit) ?_)
+  refine .step (label := 0) (next := 2) (middle := .pair .unit .unit) (s₁ := ()) (by decide)
+    (.case_inl (.op .var rfl) (.br .var)) ?_
+  exact .step (label := 2) (next := 6) (by decide)
+    (.case_inr (.op .var rfl) (.br .var)) (.exit (by decide))
+
+section Model
+
+variable {V C : Type} [Category V] [Category C]
+  [CartesianMonoidalCategory V] [SymmetricCategory V] [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts C] [DistributiveTensor V] [DistributivePremonoidalCategory C]
+  [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
+  (M : TypeModel (Ty Empty) V) [InstructionModel J M Op]
+
+local notation "Arrow" => J.obj (ctxObj M []) ⟶ J.obj (labelObj M (boundary false))
+
+/-- Independent witnesses use different outer right summands and dead
+middle types. The checker compares their original three-exit arrows. -/
+example (roll : IterationRolling C) :
+    ∃ f g : Arrow,
+      RegionDenotes J M (exact_graph false U U) f ∧
+      RegionDenotes J M (exact_graph false .empty .empty) g ∧ f = g := by
+  obtain ⟨f, left⟩ := CfgDenotesAt.exists_of_typing J M (slots (taggedPair U))
+    (.br rfl (.inl (.pair .unit .unit)) : start.HasType [] (outerLabels (taggedPair U) false))
+    (fun _ => guardedRow_typed false U U)
+  obtain ⟨g, right⟩ := CfgDenotesAt.exists_of_typing J M (slots (taggedPair .empty))
+    (.br rfl (.inl (.pair .unit .unit)) : start.HasType [] (outerLabels (taggedPair .empty) false))
+    (fun _ => guardedRow_typed false .empty .empty)
+  have dl : RegionDenotes J M (exact_graph false U U) f := left.denotes J M
+  have dr : RegionDenotes J M (exact_graph false .empty .empty) g := right.denotes J M
+  have ok : NestedAdmission.Finite.compare? keep types (graph false) (boundary false) = .certified := by decide
+  exact ⟨f, g, dl, dr, NestedAdmission.Finite.compare?_sound J M roll ok dl dr⟩
+
+end Model
+
+end OrderedExits
+
 end Silmaril.Isotope.LambdaSSA.Semantics.Categorical.NestedCfgFiniteAdmissionExample

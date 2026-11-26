@@ -43,7 +43,6 @@ private abbrev labels (A : Ty Empty) := List.ofFn (slots A) ++ exits
 private abbrev pathLabels (A : Ty Empty) := List.ofFn (slots U) ++ labels A
 private def innerStates (live dead : Ty Empty) : Fin 2 → Ty Empty := Fin.cases live (fun _ => dead)
 
-private abbrev wideEntry : Region Φ := .br 0 (.inl .unit)
 private abbrev entry : Region Φ := .br 0 .unit
 private abbrev actualInnerEntry (loopTag : Bool) : Region Φ := (innerEntry loopTag).renameLabels labelIndex
 private abbrev commonInner (p : Plan Φ) : Region Φ := .cfg (innerEntry false) 1 (fun _ => p.common)
@@ -83,18 +82,17 @@ private theorem innerStates_of_first {S : Fin 2 → Ty Empty} {A : Ty Empty} (h 
   intro j
   exact Fin.elim0 j
 
-private theorem outer_family {S : Fin 1 → Ty Empty}
-    (h : (wideEntry (Φ := Φ)).HasType [] (List.ofFn S ++ exits)) :
-    ∃ D : Ty Empty, S = family (slots U) (some (slots D)) := by
-  have atHead : At (List.ofFn S ++ exits) 0 (S 0) := by simp [At]
-  have head : ∃ D : Ty Empty, S 0 = tagged D := by
+private theorem outer_family {S : Fin 1 → Ty Empty} {A : Ty Empty} {L : LCtx (Ty Empty)}
+    {a : Tm Φ} (unique : TypeDetermined [] a A)
+    (h : (Region.br 0 (.inl a)).HasType [] (List.ofFn S ++ L)) :
+    ∃ D : Ty Empty, S = family (slots A) (some (slots D)) := by
+  have atHead : At (List.ofFn S ++ L) 0 (S 0) := by simp [At]
+  have head : ∃ D : Ty Empty, S 0 = .coprod A D := by
     cases h with
     | br hit typed =>
         have eq := Option.some.inj (atHead.symm.trans hit)
         cases typed with
-        | inl value =>
-            cases value
-            exact ⟨_, eq⟩
+        | inl value => exact ⟨_, (unique _ value) ▸ eq⟩
   obtain ⟨D, eq⟩ := head
   refine ⟨D, funext (Fin.cases eq ?_)⟩
   intro j
@@ -105,106 +103,113 @@ section ValueMaps
 variable {V : Type u₁} [Category.{v₁} V] [CartesianMonoidalCategory V] [HasFiniteCoproducts V]
   (M : TypeModel (Ty Empty) V)
 
-private noncomputable abbrev inLeft (D : Ty Empty) : M.obj U ⟶ M.obj (tagged D) :=
-  coprod.inl ≫ (M.coprodIso U D).inv
+private noncomputable abbrev injectLeft (A D : Ty Empty) : M.obj A ⟶ M.obj (.coprod A D) :=
+  coprod.inl ≫ (M.coprodIso A D).inv
 
-private noncomputable def postAt (D : Ty Empty) (i : Fin (labels U).length) :
-    M.obj ((labels U).get i) ⟶ labelObj M (labels (tagged D)) :=
-  Fin.cases
-    (inLeft M D ≫ labelInject M 0 (rfl : At (labels (tagged D)) 0 (tagged D)))
-    (Fin.cases (labelInject M 1 (rfl : At (labels (tagged D)) 1 U))
-      (Fin.cases (labelInject M 2 (rfl : At (labels (tagged D)) 2 Pair)) (fun j => Fin.elim0 j))) i
+private noncomputable abbrev inLeft (D : Ty Empty) := injectLeft M U D
 
-private noncomputable def post (D : Ty Empty) :
-    labelObj M (labels U) ⟶ labelObj M (labels (tagged D)) :=
-  Sigma.desc (postAt M D)
+private noncomputable def consMapAt {A B : Ty Empty} (L : LCtx (Ty Empty)) (h : M.obj A ⟶ M.obj B)
+    (i : Fin (A :: L).length) : M.obj ((A :: L).get i) ⟶ labelObj M (B :: L) :=
+  Fin.cases (h ≫ labelInject M 0 (rfl : At (B :: L) 0 B))
+    (fun j => labelInject M (j.val + 1) (show At (B :: L) (j.val + 1) (L.get j) from labelAt_get L j)) i
 
-private theorem post_at (D : Ty Empty) (i : Fin (labels U).length) :
-    labelInject M i (labelAt_get (labels U) i) ≫ post M D = postAt M D i := by
-  have inj : labelInject M i (labelAt_get (labels U) i) =
-      Sigma.ι (fun j : Fin (labels U).length => M.obj ((labels U).get j)) i := by
+/-- Map the added label and preserve every original exit by its ordinal. -/
+private noncomputable def consMap {A B : Ty Empty} (L : LCtx (Ty Empty)) (h : M.obj A ⟶ M.obj B) :
+    labelObj M (A :: L) ⟶ labelObj M (B :: L) :=
+  Sigma.desc (consMapAt M L h)
+
+private theorem consMap_at {A B : Ty Empty} (L : LCtx (Ty Empty)) (h : M.obj A ⟶ M.obj B)
+    (i : Fin (A :: L).length) :
+    labelInject M i (labelAt_get (A :: L) i) ≫ consMap M L h = consMapAt M L h i := by
+  have inj : labelInject M i (labelAt_get (A :: L) i) =
+      Sigma.ι (fun j : Fin (A :: L).length => M.obj ((A :: L).get j)) i := by
     unfold labelInject
-    change eqToHom (rfl : M.obj ((labels U).get i) = M.obj ((labels U).get i)) ≫
-      Sigma.ι (fun j : Fin (labels U).length => M.obj ((labels U).get j)) i = _
+    change eqToHom (rfl : M.obj ((A :: L).get i) = M.obj ((A :: L).get i)) ≫
+      Sigma.ι (fun j : Fin (A :: L).length => M.obj ((A :: L).get j)) i = _
     rw [eqToHom_refl, Category.id_comp]
   rw [inj]
   exact Sigma.ι_comp_desc _ _
 
-@[reassoc] private theorem post_head (D : Ty Empty) :
+@[reassoc] private theorem consMap_head {A B : Ty Empty} (L : LCtx (Ty Empty)) (h : M.obj A ⟶ M.obj B) :
+    labelInject M 0 (rfl : At (A :: L) 0 A) ≫ consMap M L h =
+      h ≫ labelInject M 0 (rfl : At (B :: L) 0 B) :=
+  consMap_at M L h 0
+
+@[reassoc] private theorem consMap_exit {A B T : Ty Empty} (L : LCtx (Ty Empty)) (h : M.obj A ⟶ M.obj B)
+    {i : Nat} (hi : At L i T) :
+    labelInject M (i + 1) (show At (A :: L) (i + 1) T from hi) ≫ consMap M L h =
+      labelInject M (i + 1) (show At (B :: L) (i + 1) T from hi) := by
+  have atIndex (j : Fin L.length) (T : Ty Empty) (hit : At L j T) :
+      labelInject M (j.val + 1) (show At (A :: L) (j.val + 1) T from hit) ≫ consMap M L h =
+        labelInject M (j.val + 1) (show At (B :: L) (j.val + 1) T from hit) := by
+    have eq : L.get j = T := Option.some.inj ((labelAt_get L j).symm.trans hit)
+    subst T
+    exact consMap_at M L h j.succ
+  exact atIndex ⟨i, (List.getElem?_eq_some_iff.mp hi).1⟩ T hi
+
+private noncomputable abbrev post (D : Ty Empty) := consMap M exits (inLeft M D)
+
+private theorem post_head (D : Ty Empty) :
     labelInject M 0 (rfl : At (labels U) 0 U) ≫ post M D =
       inLeft M D ≫ labelInject M 0 (rfl : At (labels (tagged D)) 0 (tagged D)) :=
-  by exact post_at M D ⟨0, by decide⟩
+  consMap_head M exits (inLeft M D)
 
-@[reassoc] private theorem post_unit (D : Ty Empty) :
+private theorem post_unit (D : Ty Empty) :
     labelInject M 1 (rfl : At (labels U) 1 U) ≫ post M D =
       labelInject M 1 (rfl : At (labels (tagged D)) 1 U) :=
-  by exact post_at M D ⟨1, by decide⟩
+  consMap_exit M exits (inLeft M D) (i := 0) rfl
 
-@[reassoc] private theorem post_pair (D : Ty Empty) :
+private theorem post_pair (D : Ty Empty) :
     labelInject M 2 (rfl : At (labels U) 2 Pair) ≫ post M D =
       labelInject M 2 (rfl : At (labels (tagged D)) 2 Pair) :=
-  by exact post_at M D ⟨2, by decide⟩
+  consMap_exit M exits (inLeft M D) (i := 1) rfl
 
-private noncomputable abbrev outerCut (A : Ty Empty) :=
-  labelAppendSplit M (List.ofFn (slots A)) exits
+private noncomputable abbrev outerCut (A : Ty Empty) (L : LCtx (Ty Empty)) :=
+  labelAppendSplit M (List.ofFn (slots A)) L
 
-private noncomputable abbrev outerMap (D : Ty Empty) :=
-  coprod.map (𝟙 (labelObj M exits)) (embedLabels M (slots U) (slots D))
+private noncomputable abbrev outerMap (A D : Ty Empty) (L : LCtx (Ty Empty)) :=
+  coprod.map (𝟙 (labelObj M L)) (embedLabels M (slots A) (slots D))
 
-@[reassoc] private theorem outerCut_head (A : Ty Empty) :
-    labelInject M 0 (rfl : At (labels A) 0 A) ≫ outerCut M A =
+@[reassoc] private theorem outerCut_head (A : Ty Empty) (L : LCtx (Ty Empty)) :
+    labelInject M 0 (rfl : At (A :: L) 0 A) ≫ outerCut M A L =
       labelInject M 0 (rfl : At (List.ofFn (slots A)) 0 A) ≫ coprod.inr :=
-  labelAppendSplit_local M (slots A) exits 0 rfl rfl
+  labelAppendSplit_local M (slots A) L 0 rfl rfl
 
-@[reassoc] private theorem outerCut_unit (A : Ty Empty) :
-    labelInject M 1 (rfl : At (labels A) 1 U) ≫ outerCut M A =
-      labelInject M 0 (rfl : At exits 0 U) ≫ coprod.inl :=
-  labelAppendSplit_exit M (slots A) exits (i := 0) rfl rfl
+@[reassoc] private theorem outerCut_exit (A : Ty Empty) (L : LCtx (Ty Empty)) {i : Nat} {T : Ty Empty}
+    (hi : At L i T) :
+    labelInject M (i + 1) (show At (A :: L) (i + 1) T from hi) ≫ outerCut M A L =
+      labelInject M i hi ≫ coprod.inl := by
+  have shifted : At (List.ofFn (slots A) ++ L) (i + 1) T := hi
+  have route := labelAppendSplit_exit M (slots A) L (i := i) hi (by simpa only [Nat.add_comm 1 i] using shifted)
+  simpa only [Nat.add_comm 1 i] using route
 
-@[reassoc] private theorem outerCut_pair (A : Ty Empty) :
-    labelInject M 2 (rfl : At (labels A) 2 Pair) ≫ outerCut M A =
-      labelInject M 1 (rfl : At exits 1 Pair) ≫ coprod.inl :=
-  labelAppendSplit_exit M (slots A) exits (i := 1) rfl rfl
-
-@[reassoc] private theorem embed_head (D : Ty Empty) :
-    labelInject M 0 (rfl : At (List.ofFn (slots U)) 0 U) ≫ embedLabels M (slots U) (slots D) =
-      inLeft M D ≫ labelInject M 0 (rfl : At (List.ofFn (slots (tagged D))) 0 (tagged D)) := by
+@[reassoc] private theorem embed_head {A : Ty Empty} (D : Ty Empty) :
+    labelInject M 0 (rfl : At (List.ofFn (slots A)) 0 A) ≫ embedLabels M (slots A) (slots D) =
+      injectLeft M A D ≫ labelInject M 0 (rfl : At (List.ofFn (slots (.coprod A D))) 0 (.coprod A D)) := by
   unfold embedLabels
-  have conv : labelInject M 0 (rfl : At (List.ofFn (slots U)) 0 U) ≫
-      labelObjToFinite M (slots U) = finiteLabelInject M (slots U) 0 :=
-    labelObjToFinite_local M (slots U) 0 rfl
+  have conv : labelInject M 0 (rfl : At (List.ofFn (slots A)) 0 A) ≫
+      labelObjToFinite M (slots A) = finiteLabelInject M (slots A) 0 :=
+    labelObjToFinite_local M (slots A) 0 rfl
   erw [← Category.assoc, conv]
   exact Sigma.ι_comp_desc _ _
 
-private theorem post_split (D : Ty Empty) : post M D ≫ outerCut M (tagged D) =
-    outerCut M U ≫ outerMap M D := by
+private theorem post_split (A D : Ty Empty) (L : LCtx (Ty Empty)) :
+    consMap M L (injectLeft M A D) ≫ outerCut M (.coprod A D) L =
+      outerCut M A L ≫ outerMap M A D L := by
   apply labelHom_ext M
-  intro i A h
-  have bound : i < 3 := (List.getElem?_eq_some_iff.mp h).1
-  let j : Fin 3 := ⟨i, bound⟩
-  have point (j : Fin 3) : ∀ A (h : At (labels U) j A),
-      labelInject M j h ≫ post M D ≫ outerCut M (tagged D) =
-        labelInject M j h ≫ outerCut M U ≫ outerMap M D := by
-    refine Fin.cases ?_ (Fin.cases ?_ (Fin.cases ?_ (fun j => Fin.elim0 j))) j
-    · intro A h
-      have eq : A = U := (Option.some.inj (show some U = some A from h)).symm
-      subst A
-      change labelInject M 0 h ≫ _ = labelInject M 0 h ≫ _
-      simp only [post_head_assoc, outerCut_head, outerCut_head_assoc, coprod.inr_map, embed_head_assoc]
+  intro i T h
+  cases i with
+  | zero =>
+      have eq : A = T := Option.some.inj h
+      subst T
+      simp only [consMap_head_assoc, outerCut_head, outerCut_head_assoc, coprod.inr_map, embed_head_assoc]
       erw [Category.assoc]
-    · intro A h
-      have eq : A = U := (Option.some.inj (show some U = some A from h)).symm
-      subst A
-      change labelInject M 1 h ≫ _ = labelInject M 1 h ≫ _
-      simp only [post_unit_assoc, outerCut_unit, outerCut_unit_assoc, coprod.inl_map, Category.id_comp]
       rfl
-    · intro A h
-      have eq : A = Pair := (Option.some.inj (show some Pair = some A from h)).symm
-      subst A
-      change labelInject M 2 h ≫ _ = labelInject M 2 h ≫ _
-      simp only [post_pair_assoc, outerCut_pair, outerCut_pair_assoc, coprod.inl_map, Category.id_comp]
+  | succ i =>
+      have hi : At L i T := h
+      simp only [consMap_exit_assoc M L (injectLeft M A D) hi, outerCut_exit M _ L hi,
+        outerCut_exit_assoc M _ L hi, coprod.inl_map, Category.id_comp]
       rfl
-  exact point j A h
 
 private noncomputable abbrev innerCut (state outward : Ty Empty) :=
   labelAppendSplit M (List.ofFn (slots state)) (labels outward)
@@ -222,6 +227,7 @@ private theorem local_route (D : Ty Empty) :
     labelInject M 0 (rfl : At (pathLabels U) 0 U) ≫ innerLeft M D (𝟙 _) =
       labelInject M 0 (rfl : At (pathLabels (tagged D)) 0 U) ≫ innerCut M U (tagged D) := by
   simp only [innerCut_head, innerCut_head_assoc, coprod.inr_map, Category.id_comp]
+  rfl
 
 private theorem local_route_wide (D E : Ty Empty) :
     labelInject M 0 (rfl : At (pathLabels U) 0 U) ≫
@@ -244,6 +250,7 @@ private theorem exit_route (D : Ty Empty) {state : Ty Empty}
   rw [← Category.assoc, labelAppendSplit_exit M (slots U) (labels U) hl, Category.assoc,
     coprod.inl_map, ← Category.assoc, atExit, Category.assoc,
     labelAppendSplit_exit M (slots state) (labels (tagged D)) hr]
+  rfl
 
 private abbrev liveTy (tag : Bool) (E : Ty Empty) := if tag then tagged E else U
 
@@ -295,34 +302,36 @@ private theorem checkedRoutes (D E : Ty Empty) (tag : Bool) {r s : Region Φ}
     · simp [layout] at hit
     · simp [layout] at hit
 
-private theorem finite_checked_routes {m : Nat} (P : Fin m → Ty Empty) (D : Ty Empty) {Γ : VCtx (Ty Empty)}
-    {r s : Region Φ} (checked : CheckedRoutes (Finite.layout P) Γ r s) :
+private theorem finite_checked_routes {m : Nat} (P : Fin m → Ty Empty) (L : LCtx (Ty Empty))
+    (A D : Ty Empty) {Γ : VCtx (Ty Empty)} {r s : Region Φ}
+    (checked : CheckedRoutes (Finite.layout P L A) Γ r s) :
     RegionConstructorRoutes M
-      (labelAppendSplit M (List.ofFn P) (labels U) ≫ coprod.map (post M D) (𝟙 _))
-      (labelAppendSplit M (List.ofFn P) (labels (tagged D))) Γ r s := by
-  have localAt (L : LCtx (Ty Empty)) (i : Fin m) : At (List.ofFn P ++ L) i (P i) := by
+      (labelAppendSplit M (List.ofFn P) (A :: L) ≫ coprod.map (consMap M L (injectLeft M A D)) (𝟙 _))
+      (labelAppendSplit M (List.ofFn P) (.coprod A D :: L)) Γ r s := by
+  have localAt (K : LCtx (Ty Empty)) (i : Fin m) : At (List.ofFn P ++ K) i (P i) := by
     simp [At, List.getElem?_append_left, i.isLt]
-  have exitAt {L : LCtx (Ty Empty)} {i : Nat} {A : Ty Empty} (h : At L i A) :
-      At (List.ofFn P ++ L) (m + i) A := by
+  have exitAt {K : LCtx (Ty Empty)} {i : Nat} {T : Ty Empty} (h : At K i T) :
+      At (List.ofFn P ++ K) (m + i) T := by
     simpa [At, List.getElem?_append_right] using h
-  have exitRoute {i : Nat} {A B : Ty Empty} (l : At (labels U) i A) (r : At (labels (tagged D)) i B)
-      (v : M.obj A ⟶ M.obj B) (h : labelInject M i l ≫ post M D = v ≫ labelInject M i r) :
+  have exitRoute {i : Nat} {B T : Ty Empty} (l : At (A :: L) i B) (r : At (.coprod A D :: L) i T)
+      (v : M.obj B ⟶ M.obj T)
+      (h : labelInject M i l ≫ consMap M L (injectLeft M A D) = v ≫ labelInject M i r) :
       labelInject M (m + i) (exitAt l) ≫
-          (labelAppendSplit M (List.ofFn P) (labels U) ≫ coprod.map (post M D) (𝟙 _)) =
-        v ≫ labelInject M (m + i) (exitAt r) ≫ labelAppendSplit M (List.ofFn P) (labels (tagged D)) := by
-    rw [← Category.assoc, labelAppendSplit_exit M P (labels U) l, Category.assoc, coprod.inl_map,
-      ← Category.assoc, h, Category.assoc, labelAppendSplit_exit M P (labels (tagged D)) r]
+          (labelAppendSplit M (List.ofFn P) (A :: L) ≫ coprod.map (consMap M L (injectLeft M A D)) (𝟙 _)) =
+        v ≫ labelInject M (m + i) (exitAt r) ≫ labelAppendSplit M (List.ofFn P) (.coprod A D :: L) := by
+    rw [← Category.assoc, labelAppendSplit_exit M P (A :: L) l, Category.assoc, coprod.inl_map,
+      ← Category.assoc, h, Category.assoc, labelAppendSplit_exit M P (.coprod A D :: L) r]
   have lookupLocal {i : Nat} (h : i < m) :
-      (Finite.layout P)[i]? = some (P ⟨i, h⟩, false) := by
+      (Finite.layout P L A)[i]? = some (P ⟨i, h⟩, false) := by
     simp [Finite.layout, List.getElem?_append_left, h]
   have lookupExit (i : Nat) :
-      (Finite.layout P)[m + i]? = ([(U, true), (U, false), (Pair, false)])[i]? := by
+      (Finite.layout P L A)[m + i]? = ((A, true) :: L.map (fun T => (T, false)))[i]? := by
     simp [Finite.layout, List.getElem?_append_right]
   apply CheckedRoutes.toConstructorRoutes M checked
-  · intro i A hit
+  · intro i B hit
     by_cases hi : i < m
-    · have eq : P ⟨i, hi⟩ = A := congrArg Prod.fst (Option.some.inj ((lookupLocal hi).symm.trans hit))
-      subst A
+    · have eq : P ⟨i, hi⟩ = B := congrArg Prod.fst (Option.some.inj ((lookupLocal hi).symm.trans hit))
+      subst B
       let j : Fin m := ⟨i, hi⟩
       have atLocal : At (List.ofFn P) j (P j) := by simp [At, j.isLt]
       refine ⟨localAt _ j, localAt _ j, ?_⟩
@@ -330,32 +339,32 @@ private theorem finite_checked_routes {m : Nat} (P : Fin m → Ty Empty) (D : Ty
         coprod.inr_map, Category.id_comp, labelAppendSplit_local M P _ j _ atLocal]
     · obtain ⟨j, rfl⟩ : ∃ j, i = m + j := ⟨i - m, by omega⟩
       rw [lookupExit] at hit
-      have h : j < 3 := (List.getElem?_eq_some_iff.mp hit).1
-      interval_cases j
-      · simp at hit
-      · have eq : U = A := congrArg Prod.fst (Option.some.inj hit)
-        subst A
-        refine ⟨exitAt rfl, exitAt rfl, ?_⟩
-        simpa only [Category.id_comp] using exitRoute (i := 1) rfl rfl (𝟙 (M.obj U))
-          (by rw [Category.id_comp, post_unit])
-      · have eq : Pair = A := congrArg Prod.fst (Option.some.inj hit)
-        subst A
-        refine ⟨exitAt rfl, exitAt rfl, ?_⟩
-        simpa only [Category.id_comp] using exitRoute (i := 2) rfl rfl (𝟙 (M.obj Pair))
-          (by rw [Category.id_comp, post_pair])
-  · intro i A hit
+      cases j with
+      | zero => simp at hit
+      | succ j =>
+          simp only [List.getElem?_cons_succ, List.getElem?_map] at hit
+          obtain ⟨T, get, eq⟩ := Option.map_eq_some_iff.mp hit
+          have h : At L j B := get.trans (congrArg (fun x : Ty Empty × Bool => some x.1) eq)
+          refine ⟨exitAt (show At (A :: L) (j + 1) B from h),
+            exitAt (show At (.coprod A D :: L) (j + 1) B from h), ?_⟩
+          simpa only [Category.id_comp] using exitRoute (i := j + 1) h h (𝟙 (M.obj B))
+            (by rw [Category.id_comp, consMap_exit M L (injectLeft M A D) h])
+  · intro i B hit
     by_cases hi : i < m
     · rw [lookupLocal hi] at hit
       cases hit
     · obtain ⟨j, rfl⟩ : ∃ j, i = m + j := ⟨i - m, by omega⟩
       rw [lookupExit] at hit
-      have h : j < 3 := (List.getElem?_eq_some_iff.mp hit).1
-      interval_cases j
-      · have eq : U = A := congrArg Prod.fst (Option.some.inj hit)
-        subst A
-        exact ⟨D, exitAt rfl, exitAt rfl, exitRoute (i := 0) rfl rfl (inLeft M D) (post_head M D)⟩
-      · simp at hit
-      · simp at hit
+      cases j with
+      | zero =>
+          have eq : A = B := congrArg Prod.fst (Option.some.inj hit)
+          subst B
+          exact ⟨D, exitAt rfl, exitAt rfl, exitRoute (i := 0) rfl rfl (injectLeft M A D)
+            (consMap_head M L (injectLeft M A D))⟩
+      | succ j =>
+          simp only [List.getElem?_cons_succ, List.getElem?_map] at hit
+          obtain ⟨_, _, eq⟩ := Option.map_eq_some_iff.mp hit
+          cases eq
 
 end ValueMaps
 
@@ -369,17 +378,17 @@ variable {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C]
   [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
   (M : TypeModel (Ty Empty) V) [InstructionModel J M Φ]
 
-private theorem guard_denotes {Γ : VCtx (Ty Empty)} {L : LCtx (Ty Empty)} {D : Ty Empty}
+private theorem guard_denotes {Γ : VCtx (Ty Empty)} {L : LCtx (Ty Empty)} {A D : Ty Empty}
     {raw body : Region Φ}
     (prune : Region.PruneConstructorTests (raw.substVars (Tm.replaceNewest (.inl (.var 0)))) body)
-    {t : raw.HasType (tagged D :: Γ) L}
-    {f : J.obj (ctxObj M (tagged D :: Γ)) ⟶ J.obj (labelObj M L)}
+    {t : raw.HasType ((.coprod A D) :: Γ) L}
+    {f : J.obj (ctxObj M ((.coprod A D) :: Γ)) ⟶ J.obj (labelObj M L)}
     (wide : RegionDenotes J M t f) :
-    ∃ h : body.HasType (U :: Γ) L,
-      RegionDenotes J M h (J.map (ctxObj M Γ ◁ inLeft M D) ≫ f) := by
+    ∃ h : body.HasType (A :: Γ) L,
+      RegionDenotes J M h (J.map (ctxObj M Γ ◁ injectLeft M A D) ≫ f) := by
   have arg : Denotes J M (.inl (.var rfl) (B := D) :
-      (Tm.inl (.var 0) : Tm Φ).HasType (U :: Γ) (tagged D))
-      (J.map (snd (ctxObj M Γ) (M.obj U) ≫ inLeft M D)) := by
+      (Tm.inl (.var 0) : Tm Φ).HasType (A :: Γ) ((.coprod A D)))
+      (J.map (snd (ctxObj M Γ) (M.obj A) ≫ injectLeft M A D)) := by
     rw [J.map_comp]
     exact .inl (.var rfl)
   obtain ⟨_, restricted⟩ := wide.replaceNewest J M arg
@@ -455,39 +464,43 @@ private theorem inner_compare (roll : IterationRolling C) {r : Region Φ} {p : P
 
 local notation "Arrow" => J.obj (ctxObj M []) ⟶ J.obj (labelObj M exits)
 
-private theorem compare_with_common {r outer common selected : Region Φ}
-    (root : r = .cfg wideEntry 1 (fun _ => outer))
+private theorem compare_with_common {A : Ty Empty} {L : LCtx (Ty Empty)} {a : Tm Φ}
+    {r outer common selected : Region Φ}
+    (unique : TypeDetermined [] a A) (arg : DeterminedTerm [] a A)
+    (root : r = .cfg (.br 0 (.inl a)) 1 (fun _ => outer))
     (prune : Region.PruneConstructorTests (outer.substVars (Tm.replaceNewest (.inl (.var 0)))) selected)
-    (inner : ∀ (D : Ty Empty) {t : common.HasType [U] (labels U)}
-      {t' : selected.HasType [U] (labels (tagged D))}
-      {f : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (labels U))}
-      {g : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (labels (tagged D)))},
-      RegionDenotes J M t f → RegionDenotes J M t' g → g = f ≫ J.map (post M D))
-    {f g : Arrow} (small : CfgDenotesAt J M (slots U) entry (fun _ => common) f)
-    {ht : r.HasType [] exits} (wide : RegionDenotes J M ht g) : f = g := by
-  obtain ⟨ht', d⟩ : ∃ ht' : (Region.cfg wideEntry 1 (fun _ => outer)).HasType [] exits,
+    (inner : ∀ (D : Ty Empty) {t : common.HasType [A] (A :: L)}
+      {t' : selected.HasType [A] (.coprod A D :: L)}
+      {f : J.obj (ctxObj M [A]) ⟶ J.obj (labelObj M (A :: L))}
+      {g : J.obj (ctxObj M [A]) ⟶ J.obj (labelObj M (.coprod A D :: L))},
+      RegionDenotes J M t f → RegionDenotes J M t' g → g = f ≫ J.map (consMap M L (injectLeft M A D)))
+    {f g : J.obj (ctxObj M []) ⟶ J.obj (labelObj M L)}
+    (small : CfgDenotesAt J M (slots A) (.br 0 a) (fun _ => common) f)
+    {ht : r.HasType [] L} (wide : RegionDenotes J M ht g) : f = g := by
+  obtain ⟨ht', d⟩ : ∃ ht' : (Region.cfg (.br 0 (.inl a)) 1 (fun _ => outer)).HasType [] L,
       RegionDenotes J M ht' g := by rw [← root]; exact ⟨_, wide⟩
   obtain ⟨S, actual⟩ := d.cfg_readback J M
-  have shape : ∃ D : Ty Empty, S = family (slots U) (some (slots D)) := by
+  have shape : ∃ D : Ty Empty, S = family (slots A) (some (slots D)) := by
     obtain ⟨typed, _⟩ := actual
-    exact outer_family typed
+    exact outer_family unique typed
   obtain ⟨D, rfl⟩ := shape
   refine CfgDenotesAt.eq_of_taken_tag_squares J M (slots D) ?_ ?_ small actual
   · intro _ _ _ _ de dw
-    have route : RegionConstructorRoutes M (outerCut M U ≫ outerMap M D) (outerCut M (tagged D))
-        [] (entry (Φ := Φ)) wideEntry := by
-      refine RegionConstructorRoutes.inl (i := 0) (j := 0) (A := U) (D := D) rfl rfl .unit ?_
+    have route : RegionConstructorRoutes M (outerCut M A L ≫ outerMap M A D L)
+        (outerCut M (.coprod A D) L) [] (.br 0 a) (.br 0 (.inl a)) := by
+      refine RegionConstructorRoutes.inl (i := 0) (j := 0) (A := A) (D := D) rfl rfl arg ?_
       rw [← post_split]
-      erw [Category.assoc (coprod.inl : M.obj U ⟶ M.obj U ⨿ M.obj D) (M.coprodIso U D).inv]
-      exact post_head_assoc M D (outerCut M (tagged D))
+      simpa only [injectLeft, Category.assoc] using
+        consMap_head_assoc M L (injectLeft M A D) (outerCut M (.coprod A D) L)
     have eq := RegionConstructorRoutes.denotes J M route de dw
     rw [J.map_comp] at eq
     exact eq.symm
   · intro _ _ _ _ _ ds dw
     obtain ⟨_, selected⟩ := guard_denotes J M prune dw
     have innerEq := inner D ds selected
-    have factor : post M D ≫ labelAppendSplit M (List.ofFn (family (slots U) (some (slots D)))) exits =
-        outerCut M U ≫ outerMap M D := post_split M D
+    have factor : consMap M L (injectLeft M A D) ≫
+        labelAppendSplit M (List.ofFn (family (slots A) (some (slots D)))) L =
+          outerCut M A L ≫ outerMap M A D L := post_split M A D L
     rw [← Category.assoc, innerEq, Category.assoc, ← J.map_comp, factor, J.map_comp]
 
 theorem compare (roll : IterationRolling C) {r : Region Φ} {p : Plan Φ} (admitted : p.Valid r)
@@ -498,8 +511,11 @@ theorem compare (roll : IterationRolling C) {r : Region Φ} {p : Plan Φ} (admit
     .cfg (slots U) (.br rfl (.var rfl)) (fun _ => row)
   obtain ⟨_, small⟩ := CfgDenotesAt.exists_of_typing J M (slots U)
     (.br rfl .unit : (entry (Φ := Φ)).HasType [] (labels U)) (fun _ => inner)
-  exact (compare_with_common J M admitted.root admitted.outer (inner_compare J M roll admitted) small left).symm.trans
-    (compare_with_common J M admitted.root admitted.outer (inner_compare J M roll admitted) small right)
+  have unique : TypeDetermined [] (.unit : Tm Φ) U := fun _ h => by cases h; rfl
+  exact (compare_with_common J M unique .unit admitted.root admitted.outer
+    (inner_compare J M roll admitted) small left).symm.trans
+    (compare_with_common J M unique .unit admitted.root admitted.outer
+      (inner_compare J M roll admitted) small right)
 
 section Finite
 
@@ -512,43 +528,47 @@ private abbrev finiteSelected {m n : Nat} (keep : Fin m ↪ Fin n) (p : Finite.P
 
 private theorem finite_inner_compare {k n : Nat} {keep : Fin (k + 1) ↪ Fin (n + 1)}
     {P : Fin (k + 1) → Ty Empty} {r : Region Φ} {p : Finite.Plan Φ (k + 1) (n + 1)}
-    (roll : IterationRolling C) (admitted : p.Valid keep P r) (D : Ty Empty)
-    {t : (finiteCommon p).HasType [U] (labels U)}
-    {t' : (finiteSelected keep p).HasType [U] (labels (tagged D))}
-    {f : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (labels U))}
-    {g : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (labels (tagged D)))}
-    (left : RegionDenotes J M t f) (right : RegionDenotes J M t' g) : g = f ≫ J.map (post M D) := by
-  have commonShape : LabelsDetermined [U] (labels U) p.commonEntry p.commonRows P := by
+    {L : LCtx (Ty Empty)} (roll : IterationRolling C) (admitted : p.Valid keep P r L) (D : Ty Empty)
+    {t : (finiteCommon p).HasType [p.payload] (p.payload :: L)}
+    {t' : (finiteSelected keep p).HasType [p.payload] (.coprod p.payload D :: L)}
+    {f : J.obj (ctxObj M [p.payload]) ⟶ J.obj (labelObj M (p.payload :: L))}
+    {g : J.obj (ctxObj M [p.payload]) ⟶ J.obj (labelObj M (.coprod p.payload D :: L))}
+    (left : RegionDenotes J M t f) (right : RegionDenotes J M t' g) :
+    g = f ≫ J.map (consMap M L (injectLeft M p.payload D)) := by
+  have commonShape : LabelsDetermined [p.payload] (p.payload :: L) p.commonEntry p.commonRows P := by
     intro S he hr
     exact NestedCfgFiniteSyntax.aligned false admitted.entryRoute admitted.rowRoutes he hr admitted.paths
   have small := left.cfg_readback_of_labels_determined J M commonShape
   obtain ⟨S, actual⟩ := right.cfg_readback J M
-  have trimmed := CfgDenotesAt.restrict J M keep S (L := labels (tagged D)) roll admitted.entryScope admitted.rowScope actual
+  have trimmed := CfgDenotesAt.restrict J M keep S (L := .coprod p.payload D :: L) roll
+    admitted.entryScope admitted.rowScope actual
   have eq : (fun i => S (keep i)) = P := by
     obtain ⟨he, hr, _⟩ := trimmed
     exact NestedCfgFiniteSyntax.aligned true admitted.entryRoute admitted.rowRoutes he hr admitted.paths
   rw [eq] at trimmed
-  exact CfgDenotesAt.postmap_of_routes J M P (post M D)
-    ((finite_checked_routes M P D (Region.checkRoutes?_sound admitted.entryRoute)).denotes J)
-    (fun i => (finite_checked_routes M P D (Region.checkRoutes?_sound (admitted.rowRoutes i))).denotes J)
+  exact CfgDenotesAt.postmap_of_routes J M P (consMap M L (injectLeft M p.payload D))
+    ((finite_checked_routes M P L p.payload D (Region.checkRoutes?_sound admitted.entryRoute)).denotes J)
+    (fun i => (finite_checked_routes M P L p.payload D
+      (Region.checkRoutes?_sound (admitted.rowRoutes i))).denotes J)
     small trimmed
 
 theorem compare_finite {k n : Nat} {keep : Fin (k + 1) ↪ Fin (n + 1)}
     {P : Fin (k + 1) → Ty Empty} {r : Region Φ} {p : Finite.Plan Φ (k + 1) (n + 1)}
-    (roll : IterationRolling C) (admitted : p.Valid keep P r)
-    {t t' : r.HasType [] exits} {f g : Arrow}
+    {L : LCtx (Ty Empty)} (roll : IterationRolling C) (admitted : p.Valid keep P r L)
+    {t t' : r.HasType [] L} {f g : J.obj (ctxObj M []) ⟶ J.obj (labelObj M L)}
     (left : RegionDenotes J M t f) (right : RegionDenotes J M t' g) : f = g := by
-  have shape : (Finite.layout P).map Prod.fst = List.ofFn P ++ labels U := by
-    simp [Finite.layout, List.map_ofFn, Function.comp_def]
-    rfl
-  have inner : (finiteCommon p).HasType [U] (labels U) :=
+  have shape : (Finite.layout P L p.payload).map Prod.fst = List.ofFn P ++ p.payload :: L := by
+    simp [Finite.layout, List.map_ofFn, Function.comp_def, List.map_map]
+  have inner : (finiteCommon p).HasType [p.payload] (p.payload :: L) :=
     .cfg P (shape ▸ (Region.checkRoutes?_sound admitted.entryRoute).hasType)
       (fun i => shape ▸ (Region.checkRoutes?_sound (admitted.rowRoutes i)).hasType)
-  obtain ⟨_, small⟩ := CfgDenotesAt.exists_of_typing J M (slots U)
-    (.br rfl .unit : (entry (Φ := Φ)).HasType [] (labels U)) (fun _ => inner)
-  exact (compare_with_common J M admitted.root admitted.outer
+  obtain ⟨init, unique, arg⟩ := Tm.synthRouteType?_sound admitted.initializerType
+  obtain ⟨_, small⟩ := CfgDenotesAt.exists_of_typing J M (slots p.payload)
+    (.br rfl init : (Region.br 0 p.initializer).HasType [] (List.ofFn (slots p.payload) ++ L)) (fun _ => inner)
+  exact (compare_with_common J M unique arg admitted.root admitted.outer
     (finite_inner_compare J M roll admitted) small left).symm.trans
-    (compare_with_common J M admitted.root admitted.outer (finite_inner_compare J M roll admitted) small right)
+    (compare_with_common J M unique arg admitted.root admitted.outer
+      (finite_inner_compare J M roll admitted) small right)
 
 end Finite
 

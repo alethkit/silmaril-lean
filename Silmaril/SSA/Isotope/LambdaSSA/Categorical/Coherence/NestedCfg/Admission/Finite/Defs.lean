@@ -15,9 +15,11 @@ open Semantics.Categorical (retainLabelIndex)
 variable {Φ : Type v} [HasTy Φ (Ty Empty)]
 
 /-- The retained locals pass their payload directly. The outer repeat uses
-a left tag. The two actual exits keep their original payloads and order. -/
-def layout {m : Nat} (types : Fin m → Ty Empty) : RouteLayout Empty :=
-  List.ofFn (fun i => (types i, false)) ++ [(unitTy, true), (unitTy, false), (pairTy, false)]
+a left tag. Each actual exit retains its payload and position in the
+written interface, including consecutive exits with identical types. -/
+def layout {m : Nat} (types : Fin m → Ty Empty) (exitTypes : LCtx (Ty Empty) := exits)
+    (payload : Ty Empty := unitTy) : RouteLayout Empty :=
+  List.ofFn (fun i => (types i, false)) ++ (payload, true) :: exitTypes.map (fun A => (A, false))
 
 /-- Branch targets in the transfer and case fragment checked by `checkRoutes?`. -/
 def branchesTo (target : Nat) : Region Φ → Bool
@@ -35,6 +37,8 @@ def anchored {m : Nat} (entry : Region Φ) (rows : Fin m → Region Φ) : Nat �
       (List.finRange m).filter fun i => branchesTo i entry || known.any fun j => branchesTo i (rows j)
 
 structure Plan (Φ : Type v) (m n : Nat) where
+  initializer : Tm Φ
+  payload : Ty Empty
   outer : Region Φ
   entry : Region Φ
   rows : Fin n → Region Φ
@@ -42,49 +46,53 @@ structure Plan (Φ : Type v) (m n : Nat) where
   commonRows : Fin m → Region Φ
 
 /-- Check a supplied retained interface and candidate payload types against
-the written CFG. Every original inner row is scanned for omitted targets.
-The entry and retained rows must synthesize the candidate types, and each
-retained input must have a written path to anchor that type. -/
+the written CFG. Synthesize the type of the outer left initializer and
+check all written inner label targets. The entry and retained rows must
+synthesize the admitted payloads, and each retained input must have a path
+to anchor its type. -/
 def check? {k n : Nat} (keep : Fin (k + 1) ↪ Fin (n + 1)) (types : Fin (k + 1) → Ty Empty)
-    (r : Region Φ) : Option (Plan Φ (k + 1) (n + 1)) :=
+    (r : Region Φ) (exitTypes : LCtx (Ty Empty) := exits) : Option (Plan Φ (k + 1) (n + 1)) :=
   match r with
-  | .cfg (.br 0 (.inl .unit)) 1 blocks =>
+  | .cfg (.br 0 (.inl initializer)) 1 blocks =>
       let outer := blocks 0
+      (initializer.synthRouteType? []).bind fun payload =>
       (selectLeft? outer).bind fun body =>
         match body with
         | .cfg entry size rows =>
             if h : size = n + 1 then
               let rows : Fin (n + 1) → Region Φ := h ▸ rows
               let reindex := retainLabelIndex keep
-              let bound := k + 1 + 3
+              let bound := k + 1 + (exitTypes.length + 1)
               (entry.restrictLabels? bound reindex).bind fun entry' =>
               (Region.checkFamily (n + 1) (fun i => (rows i).restrictLabels? bound reindex)).bind fun rows' =>
-              (entry'.checkRoutes? (layout types) [unitTy]).bind fun commonEntry =>
+              (entry'.checkRoutes? (layout types exitTypes payload) [payload]).bind fun commonEntry =>
               (Region.checkFamily (k + 1) (fun i =>
-                (rows' (keep i)).checkRoutes? (layout types) [types i, unitTy])).bind fun commonRows =>
+                (rows' (keep i)).checkRoutes? (layout types exitTypes payload) [types i, payload])).bind fun commonRows =>
               if (List.finRange (k + 1)).all (fun i => (anchored commonEntry commonRows k).contains i) then
-                some ⟨outer, entry', rows', commonEntry, commonRows⟩
+                some ⟨initializer, payload, outer, entry', rows', commonEntry, commonRows⟩
               else none
             else none
         | _ => none
   | _ => none
 
 def compare? {k n : Nat} (keep : Fin (k + 1) ↪ Fin (n + 1)) (types : Fin (k + 1) → Ty Empty)
-    (r : Region Φ) : Comparison :=
-  if (check? keep types r).isSome then .certified else .unknown
+    (r : Region Φ) (exitTypes : LCtx (Ty Empty) := exits) : Comparison :=
+  if (check? keep types r exitTypes).isSome then .certified else .unknown
 
 /-- The selected syntax, exact reindexing, route checks and written paths
 recorded by successful admission. -/
 structure Plan.Valid {k n : Nat} (keep : Fin (k + 1) ↪ Fin (n + 1)) (types : Fin (k + 1) → Ty Empty)
-    (r : Region Φ) (p : Plan Φ (k + 1) (n + 1)) : Prop where
-  root : r = .cfg (.br 0 (.inl .unit)) 1 (fun _ => p.outer)
+    (r : Region Φ) (p : Plan Φ (k + 1) (n + 1)) (exitTypes : LCtx (Ty Empty) := exits) : Prop where
+  root : r = .cfg (.br 0 (.inl p.initializer)) 1 (fun _ => p.outer)
+  initializerType : p.initializer.synthRouteType? [] = some p.payload
   outer : Region.PruneConstructorTests (p.outer.substVars (Tm.replaceNewest (.inl (.var 0))))
     (.cfg (p.entry.renameLabels (retainLabelIndex keep)) (n + 1)
       (fun i => (p.rows i).renameLabels (retainLabelIndex keep)))
-  entryScope : p.entry.LabelsBound (k + 1 + 3)
-  rowScope : ∀ i, (p.rows i).LabelsBound (k + 1 + 3)
-  entryRoute : p.entry.checkRoutes? (layout types) [unitTy] = some p.commonEntry
-  rowRoutes : ∀ i, (p.rows (keep i)).checkRoutes? (layout types) [types i, unitTy] = some (p.commonRows i)
+  entryScope : p.entry.LabelsBound (k + 1 + (exitTypes.length + 1))
+  rowScope : ∀ i, (p.rows i).LabelsBound (k + 1 + (exitTypes.length + 1))
+  entryRoute : p.entry.checkRoutes? (layout types exitTypes p.payload) [p.payload] = some p.commonEntry
+  rowRoutes : ∀ i, (p.rows (keep i)).checkRoutes? (layout types exitTypes p.payload) [types i, p.payload] =
+    some (p.commonRows i)
   paths : ∀ i, i ∈ anchored p.commonEntry p.commonRows k
 
 end Silmaril.Isotope.LambdaSSA.NestedAdmission.Finite
