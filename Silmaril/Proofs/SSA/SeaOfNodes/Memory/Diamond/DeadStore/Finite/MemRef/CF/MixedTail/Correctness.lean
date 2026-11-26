@@ -115,6 +115,25 @@ theorem inferCut_observations {past : List (List ValueSort)} {live version : Nat
 variable {fits : Fits preds} {arm : Occurrence preds → Memory.Graph args} {suffix : Memory.Graph (.word :: args)}
 variable {entry : Memory.Graph args} {result : Result cells args preds}
 
+theorem tryVersion_checked {version : Nat}
+    (accepted : tryVersion fits arm suffix input entry version = some result) :
+    result.version = version ∧
+      inferCut result.version entry = some (result.emission.edit, result.ports) ∧
+      result.facts.Valid input ∧ inferCandidate preds result.emission.edit.address arm = some result.candidate ∧
+      (∀ i, LoadTail.PrefixWord.checkArm result.emission.edit.address (arm i) (result.candidate i) input = true) ∧
+      result.emission.programs = ⟨input, lowerBank preds fits cells (some entry) arm suffix,
+        lowerBank preds fits cells (some result.emission.edit.retained) arm suffix⟩ := by
+  obtain ⟨⟨edit, ports⟩, cut, next⟩ := Option.bind_eq_some_iff.mp accepted
+  obtain ⟨candidate, inferred, packed⟩ := Option.bind_eq_some_iff.mp next
+  dsimp only at packed
+  split at packed
+  next checked =>
+    cases Option.some.inj packed
+    obtain ⟨valid, arms⟩ := Bool.and_eq_true_iff.mp checked
+    exact ⟨rfl, cut, (Certificate.check_iff_valid _ input).mp valid, inferred,
+      fun i => List.all_eq_true.mp arms i (List.mem_finRange i), rfl⟩
+  next => contradiction
+
 theorem lower_checked (accepted : lower fits arm suffix input entry = some result) :
     result.version ∈ storeVersions entry ∧
       inferCut result.version entry = some (result.emission.edit, result.ports) ∧
@@ -123,16 +142,27 @@ theorem lower_checked (accepted : lower fits arm suffix input entry = some resul
       result.emission.programs = ⟨input, lowerBank preds fits cells (some entry) arm suffix,
         lowerBank preds fits cells (some result.emission.edit.retained) arm suffix⟩ := by
   obtain ⟨version, member, attempted⟩ := List.exists_of_findSome?_eq_some accepted
-  obtain ⟨⟨edit, ports⟩, cut, next⟩ := Option.bind_eq_some_iff.mp attempted
-  obtain ⟨candidate, inferred, packed⟩ := Option.bind_eq_some_iff.mp next
-  dsimp only at packed
-  split at packed
-  next checked =>
-    cases Option.some.inj packed
-    obtain ⟨valid, arms⟩ := Bool.and_eq_true_iff.mp checked
-    exact ⟨member, cut, (Certificate.check_iff_valid _ input).mp valid, inferred,
-      fun i => List.all_eq_true.mp arms i (List.mem_finRange i), rfl⟩
-  next => contradiction
+  obtain ⟨rfl, checked⟩ := tryVersion_checked attempted
+  exact ⟨member, checked⟩
+
+theorem tryVersion_entry {version : Nat}
+    (accepted : tryVersion fits arm suffix input entry version = some result) (initial : Buffer cells) :
+    let edit := result.emission.edit
+    let checkedInput := result.emission.programs.input
+    let retained := observe edit.retained checkedInput initial
+    let word := (observe edit.beforeStore checkedInput initial).1
+    let probe := fun (graph : Memory.Graph args) (index : Nat) => (throughLoad graph index).map fun block =>
+      (observe block checkedInput initial).1
+    DeletesStores 1 (operations entry) (operations edit.retained) ∧
+      observe entry checkedInput initial = (retained.1, ⟨Heap.write retained.2.cell (cell checkedInput edit.address) word⟩) ∧
+      ∀ index, probe entry index = probe edit.retained index := by
+  obtain ⟨_, found, valid, _, _, programs⟩ := tryVersion_checked accepted
+  obtain ⟨order, replay⟩ := inferCut_observations found valid
+  obtain ⟨value, reads⟩ := replay PUnit.unit initial.cell
+  simp only [programs, lower_run]
+  refine ⟨order, ?_, fun index => ?_⟩
+  · exact congrArg (fun result : Word × Heap cells => (result.1, Buffer.mk result.2)) value
+  · simpa only [readAt, Memory.Graph.denote] using reads index
 
 theorem lower_entry (accepted : lower fits arm suffix input entry = some result) (initial : Buffer cells) :
     let edit := result.emission.edit
@@ -144,13 +174,26 @@ theorem lower_entry (accepted : lower fits arm suffix input entry = some result)
     DeletesStores 1 (operations entry) (operations edit.retained) ∧
       observe entry checkedInput initial = (retained.1, ⟨Heap.write retained.2.cell (cell checkedInput edit.address) word⟩) ∧
       ∀ index, probe entry index = probe edit.retained index := by
-  obtain ⟨_, found, valid, _, _, programs⟩ := lower_checked accepted
-  obtain ⟨order, replay⟩ := inferCut_observations found valid
-  obtain ⟨value, reads⟩ := replay PUnit.unit initial.cell
-  simp only [programs, lower_run]
-  refine ⟨order, ?_, fun index => ?_⟩
-  · exact congrArg (fun result : Word × Heap cells => (result.1, Buffer.mk result.2)) value
-  · simpa only [readAt, Memory.Graph.denote] using reads index
+  obtain ⟨_, _, attempted⟩ := List.exists_of_findSome?_eq_some accepted
+  exact tryVersion_entry attempted initial
+
+theorem tryVersion_observations {version : Nat}
+    (accepted : tryVersion fits arm suffix input entry version = some result)
+    (arrival : Occurrence preds) (fuel : Nat) (initial : Buffer cells) :
+    let programs := result.emission.programs
+    let before := entryTransition programs.original programs.input arrival initial
+    let after := entryTransition programs.optimized programs.input arrival initial
+    before.1 = .inl ⟨.arm arrival, .nil⟩ ∧ after.1 = .inl ⟨.arm arrival, .nil⟩ ∧
+      armTransition programs.optimized programs.input arrival after.2 =
+        armTransition programs.original programs.input arrival before.2 ∧
+      run programs.optimized programs.input arrival fuel initial = run programs.original programs.input arrival fuel initial := by
+  obtain ⟨_, found, valid, _, routes, programs⟩ := tryVersion_checked accepted
+  have relation := ((inferCut_observations found valid).2 PUnit.unit initial.cell).1
+  have heap := congrArg Prod.snd relation
+  have same : (arm arrival).denote input (Memory.Graph.denote result.emission.edit.retained input initial.cell).2 =
+      (arm arrival).denote input (entry.denote input initial.cell).2 :=
+    (LoadTail.PrefixWord.checkArm_observations (routes arrival) _ _).1.trans (congrArg ((arm arrival).denote input) heap.symm)
+  simp only [programs, lowerBank_entry, lowerBank_arm, lower_run, lowerBank_run, same, and_self]
 
 theorem lower_observations (accepted : lower fits arm suffix input entry = some result)
     (arrival : Occurrence preds) (fuel : Nat) (initial : Buffer cells) :
@@ -161,12 +204,7 @@ theorem lower_observations (accepted : lower fits arm suffix input entry = some 
       armTransition programs.optimized programs.input arrival after.2 =
         armTransition programs.original programs.input arrival before.2 ∧
       run programs.optimized programs.input arrival fuel initial = run programs.original programs.input arrival fuel initial := by
-  obtain ⟨_, found, valid, _, routes, programs⟩ := lower_checked accepted
-  have relation := ((inferCut_observations found valid).2 PUnit.unit initial.cell).1
-  have heap := congrArg Prod.snd relation
-  have same : (arm arrival).denote input (Memory.Graph.denote result.emission.edit.retained input initial.cell).2 =
-      (arm arrival).denote input (entry.denote input initial.cell).2 :=
-    (LoadTail.PrefixWord.checkArm_observations (routes arrival) _ _).1.trans (congrArg ((arm arrival).denote input) heap.symm)
-  simp only [programs, lowerBank_entry, lowerBank_arm, lower_run, lowerBank_run, same, and_self]
+  obtain ⟨_, _, attempted⟩ := List.exists_of_findSome?_eq_some accepted
+  exact tryVersion_observations attempted arrival fuel initial
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Proofs

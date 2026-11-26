@@ -409,6 +409,39 @@ second refuses because the retained Load would observe it. A stale
 version also keeps the first artifact.
 [Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Replay/Regression.lean)
 
+### Reuse a mixed cut at another typed input
+
+`MixedTail.Reuse.contractOf` extracts an `AddressContract` for the
+ordered entry suffix and one for each original predecessor occurrence.
+The entry component lists every retained suffix access. Each arm
+component lists its readers before the certified overwrite. Overwrite
+identity comes from the same original typed port, as in the earlier
+static inference. Reuse checks these cell inequalities at the new
+typed input, using the existing contract representation from the
+port-transport work.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Reuse/Defs.lean) ·
+[Static contracts and port transport](#transport-the-contract-along-typed-entry-maps)
+
+For an admitted mixed cut, any input satisfying its contract admits
+the same nominated version and exact emitted CFG pair. Only the saved
+invocation in the result changes. The new input can assign different
+cells and stored words, and the theorem holds for every initialized
+buffer at the same buffer size. At each such input, the original and
+optimized CFGs agree on the selected occurrence, full join packet,
+return word and complete final buffer at every common CF budget. The
+entry laws also preserve every Load readback and reconstruct the
+original entry buffer. The contract certifies one nominated cut on
+the same tables and occurrence bank. Choosing the first eligible
+version and reusing an entire replay chain are separate properties.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Reuse/Thms.lean)
+
+The fixture admits a cut, checks its contract at a new input with
+different addresses and words, and runs the same CFGs on a new
+initialized buffer. Aliasing one occurrence's reader with the
+nominated cell refuses reuse while the entry and the other two
+occurrence contracts still validate.
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Reuse/Regression.lean)
+
 ## Bypass a single-user Store inside one arm
 
 `DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter
