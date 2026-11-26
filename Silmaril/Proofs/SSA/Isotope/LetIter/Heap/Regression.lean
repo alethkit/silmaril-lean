@@ -6,7 +6,7 @@ open Silmaril Silmaril.Isotope Silmaril.Isotope.Semantics Silmaril.Elgot
 open Silmaril.Isotope.LetIter.Heap Silmaril.Isotope.LetIter.LocallyNameless
 open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured (toSmall)
 
-namespace LetIterHeapReindexing
+namespace Silmaril.Proofs.SSA.Isotope.LetIter.Heap.Regression
 
 /-- Allocate a unit payload, store a self-reference, then read it back. -/
 def term : Tm Empty Prim 0 :=
@@ -107,4 +107,4 @@ example (i : Fin 2) :
   refine ⟨⟨by simp [full], rfl⟩, ⟨?_, rfl⟩⟩
   simp [write]
 
-end LetIterHeapReindexing
+end Silmaril.Proofs.SSA.Isotope.LetIter.Heap.Regression

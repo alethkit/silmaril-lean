@@ -472,11 +472,6 @@ globs = ["tests.ssa.LetIterPackingImports.+"]
 name = "LetIterWeakTreeSoundnessTests"
 globs = ["tests.ssa.LetIterWeakTreeSoundness"]
 
-# Check heap trace reindexing through a native LetIter program.
-[[lean_lib]]
-name = "LetIterHeapReindexingTests"
-globs = ["tests.ssa.LetIterHeapReindexing"]
-
 # Check the typed PEG core, the paper guard counterexample, and SIMPLE translation and reversion.
 [[lean_lib]]
 name = "PEGCoreTests"

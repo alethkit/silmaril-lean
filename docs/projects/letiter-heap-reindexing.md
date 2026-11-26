@@ -85,4 +85,4 @@ sentences, models, reindexing functors and satisfaction. See the existing
 [Goguen and Burstall](https://doi.org/10.1145/147508.147524).
 
 Run the focused regression with
-`lake build --wfail LetIterHeapReindexingTests`.
+`lake build --wfail +Silmaril.Proofs.SSA.Isotope.LetIter.Heap.Regression`.
