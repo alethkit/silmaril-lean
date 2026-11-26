@@ -63,8 +63,8 @@ theorem Normal.run {L : List Sorts} {n : Nat} (p : Normal L n)
     (Kleisli.run model (p.render.operand slots).2 ρ >>= finish).outcomes = p.outcomes env :=
   normal_run_proof p slots ρ env h finish onReturn
 
-/-- All assignments recover the open normal form. The two values of a
-request's new payload supply the two extensions of each earlier assignment. -/
+/-- All assignments recover the open normal form. Distinct next
+request labels identify the retained slot tested by a guard. -/
 theorem Normal.traceTree_inj {L : List Sorts} {n : Nat} (p q : Normal L n)
     (h : ∀ env, p.traceTree env = q.traceTree env) : p = q :=
   traceTree_inj_proof p q h
@@ -74,6 +74,16 @@ theorem Normal.afterRequest {L : List Sorts} {n : Nat} (req : Bool) (l r : Norma
     afterPayload req right b ((Normal.request req l r).outcomes env) =
       (if right then r else l).outcomes (env.push b) :=
   after_request_proof req l r env right b
+
+/-- Read the selected request and extend the untested slots with its reply. -/
+theorem Normal.afterTestRequest {L : List Sorts} {n : Nat}
+    (test : Fin (n + 1)) (low : Bool) (falseLeft falseRight trueLeft trueRight : Normal L (n + 1))
+    (env : Assignment (n + 1)) (right b : Bool) :
+    afterPayload (if env test then !low else low) right b
+        ((Normal.testRequest test low falseLeft falseRight trueLeft trueRight).outcomes env) =
+      (if env test then (if right then trueRight else trueLeft) else (if right then falseRight else falseLeft)).outcomes
+        ((env.without test).push b) :=
+  after_test_request_proof test low falseLeft falseRight trueLeft trueRight env right b
 
 /-- Evaluation of the actual packed term agrees with the independently
 enumerated finite paths, including their ordered exit tags. -/
