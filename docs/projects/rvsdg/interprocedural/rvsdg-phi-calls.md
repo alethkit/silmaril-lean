@@ -831,10 +831,21 @@ uses the earlier dispatch certificate for earlier calls and its
 smaller-depth induction for calls within the new family. This admits
 static calls within each group and backward across link order.
 
-The cross-group fixture takes an earlier φ member from a typed capture,
-recurses once in the later φ group, then calls the earlier member.
-GenKill makes the payload formal live only when the export result is
-requested. The blocking capture and recursion counter stay live even
+Use `Family.CallTransfer.withEarlier` to synthesize the later group's
+summaries. Each round holds the already checked earlier summaries fixed
+and updates the later family's rows for every output mask. The existing
+finite solver proves the least pre-fixed table for this combined GenKill
+transfer. The height bound counts only the later group's input bits,
+though the number of masks still grows exponentially with output arity.
+`Template.admitWithEarlier` installs the computed table and its closure
+proof. `Plan.phiWithEarlier` still checks the actual linked capture
+positions and uses supplied typed resolution.
+[Ordered synthesis API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Groups/Synthesis/Thms.lean)
+
+The cross-group fixture uses the computed later summary. It takes an
+earlier φ member from a typed capture, recurses once in the later φ group,
+then calls the earlier member. GenKill makes the payload formal live
+only when the export result is requested. The blocking capture and recursion counter stay live even
 with empty result demand. Varying an unrelated dead formal preserves
 the exact return, the earlier member's block, and the resumed return
 through both non-tail suffixes.

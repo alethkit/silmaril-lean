@@ -2,6 +2,8 @@ module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Analysis.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Terms.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Groups.Synthesis.Thms
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Groups.Synthesis.Thms
 meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Analysis.Thms
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Groups.EarlierRegression
@@ -58,15 +60,15 @@ private theorem input_mono (base : List Address) (index : Nat) {low high : Deman
 private abbrev earlier : MemberSummaries Unit Unit :=
   ⟨[earlyFn], fun _ => single, fun _ d => [.arg 0] ++ demandedRead d 1, fun _ => input_mono _ _⟩
 
-private abbrev later : MemberSummaries Unit Unit :=
-  ⟨[lateFn], fun _ => [earlyFn.port, num], fun _ d => [.arg 1, .arg 2] ++ demandedRead d 3,
-    fun _ => input_mono _ _⟩
+private abbrev laterShape : MemberSummaries Unit Unit :=
+  .signaturesOnly [lateFn] (fun _ => [earlyFn.port, num])
 
-private abbrev slots := Ordered.append earlier later
-private abbrev earlySlot := leftIndex earlier later (0 : Fin 1)
-private abbrev lateSlot := rightIndex earlier later (0 : Fin 1)
+private abbrev callTransfer := Family.CallTransfer.withEarlier earlier laterShape
+private abbrev templateSlots := callTransfer.signatures
+private abbrev earlySlot := leftIndex earlier laterShape (0 : Fin 1)
+private abbrev lateSlot := rightIndex earlier laterShape (0 : Fin 1)
 private abbrev earlyPorts := memberPorts earlier.members
-private abbrev latePorts := memberPorts later.members
+private abbrev latePorts := memberPorts laterShape.members
 
 private def earlyBody : Code Op [earlyFn.port, num, num] [] [[]] single true (some earlier) :=
   .primitive .probe (.cons (.arg (.tail .head)) .nil)
@@ -99,22 +101,22 @@ private def counter : Port lateEntry num := .tail (.tail (.tail .head))
 private def payload : Port lateEntry num := .tail (.tail (.tail (.tail .head)))
 private def spare : Port lateEntry num := .tail (.tail (.tail (.tail (.tail .head))))
 
-private def base : Code Op lateEntry [] [single] single true (some slots) :=
-  .familyCall (table := slots) earlySlot capturedTarget (.cons (.arg capture) .nil)
+private def base : Code Op lateEntry [] [single] single true (some templateSlots) :=
+  .familyCall (table := templateSlots) earlySlot capturedTarget (.cons (.arg capture) .nil)
     (.cons (.arg payload) .nil) (.ret (.cons (.output (0 : Fin 1) .head) .nil))
 
-private def recurse : Code Op lateEntry [] [single, []] single true (some slots) :=
-  .familyCall (table := slots) lateSlot .head (.cons (.arg capturedTarget) (.cons (.arg capture) .nil))
+private def recurse : Code Op lateEntry [] [single, []] single true (some templateSlots) :=
+  .familyCall (table := templateSlots) lateSlot .head (.cons (.arg capturedTarget) (.cons (.arg capture) .nil))
     (.cons (.arg counter) (.cons (.arg payload) (.cons (.arg spare) .nil)))
     (.primitive .finish .nil (.ret (.cons (.output (0 : Fin 2) .head) .nil)))
 
 private def armSigs (i : Fin 2) : List (Ports T) := Fin.cases [single] (fun _ => [single, []]) i
 
-private def arms (i : Fin 2) : Code Op lateEntry [] (armSigs i) single true (some slots) :=
-  Fin.cases (motive := fun j => Code Op lateEntry [] (armSigs j) single true (some slots))
+private def arms (i : Fin 2) : Code Op lateEntry [] (armSigs i) single true (some templateSlots) :=
+  Fin.cases (motive := fun j => Code Op lateEntry [] (armSigs j) single true (some templateSlots))
     base (fun _ => recurse) i
 
-private def lateBody : Code Op lateEntry [] [decision, single] single true (some slots) :=
+private def lateBody : Code Op lateEntry [] [decision, single] single true (some templateSlots) :=
   let wires : Wires lateEntry [decision] lateEntry :=
     .cons (.arg .head) (.cons (.arg capturedTarget) (.cons (.arg capture)
       (.cons (.output (0 : Fin 1) (.tail .head)) (.cons (.arg payload) (.cons (.arg spare) .nil)))))
@@ -122,15 +124,7 @@ private def lateBody : Code Op lateEntry [] [decision, single] single true (some
     (.gamma 0 armSigs (.output (0 : Fin 1) .head) wires arms
       (.ret (.cons (.output (1 : Fin 2) .head) .nil)))
 
-private theorem lateReads (d : Demand) :
-    (lateBody.plan d).live = [.arg 3, .arg 2] ++ demandedRead d 4 := by
-  cases h : d 0 <;>
-    simp (config := { decide := true }) [lateBody, arms, armSigs, base, recurse, capturedTarget, capture, counter,
-      payload, spare, Code.plan, DemandPlan.prepend, transfer, selectWires, Wires.addresses, Origin.address,
-      Demand.observes, Port.index, definedAt,
-      demandedRead, h]
-
-private def late : Family Op later single slots [earlyPorts] where
+private def template : Family.Template Op laterShape single callTransfer [earlyPorts] where
   context := [earlyFn.port, num]
   captures := .cons (.output (0 : Fin 1) .head) (.cons (.arg .head) .nil)
   memberWires i := Fin.cases
@@ -138,18 +132,19 @@ private def late : Family Op later single slots [earlyPorts] where
     (fun j => j.elim0) i
   sigs := fun _ => [decision, single]
   body i := Fin.cases lateBody (fun j => j.elim0) i
-  closed := by
-    intro i d
-    obtain rfl := Fin.eq_zero i
-    change (∀ p, p < 1 → Address.arg p ∉ (lateBody.plan d).live) ∧
-      ∀ p, Address.arg (1 + p) ∈ (lateBody.plan d).live → Address.arg p ∈ later.live 0 d
-    rw [lateReads]
-    cases h : d 0 <;> simp [demandedRead, h, List.mem_cons] <;> omega
+
+private theorem safe : template.ReferenceSafe := by
+  unfold Family.Template.ReferenceSafe
+  decide
+
+private def late := template.admitWithEarlier safe
+private abbrev slots := Ordered.append earlier template.summaries
 
 private def group := GroupBinding.ofFamily late
 
 private def firstScope (cap : Nat) := Scope.seed early (one cap) (one cap)
 
+set_option maxHeartbeats 800000 in
 private theorem lateReady (cap : Nat) :
     late.ReadyWith (group.read (one cap) (firstScope cap).localsL) ((firstScope cap).guardL.combine
       (late.guard (group.read (one cap) (firstScope cap).localsL))) := by
@@ -169,7 +164,7 @@ private def wrapper : Binding Op slots single past lateFn where
   context := [lateFn.port, earlyFn.port, num]
   captures := .cons (.output (1 : Fin 2) .head) (.cons (.output (0 : Fin 2) .head) (.cons (.arg .head) .nil))
   sigs := [single, []]
-  body := recurse
+  body := recurse.withTransfer template.callReads
 
 private def tail : ModuleTerm Op single [earlyPorts] [latePorts, [lateFn.port]] [lateFn.port] :=
   .bind (.phi group.term) (.bind (.lambda wrapper.term) (.ret (lastExport past lateFn)))
@@ -177,6 +172,7 @@ private def tail : ModuleTerm Op single [earlyPorts] [latePorts, [lateFn.port]] 
 private def numbered := seededGraph early tail
 private def finalScope (cap : Nat) := (firstScope cap).addGroup group (one cap) (one cap)
 
+set_option maxHeartbeats 800000 in
 private theorem wrapperReady (cap : Nat) : wrapper.resolved (finalScope cap).guardL (one cap) (finalScope cap).localsL :=
   fun _ _ => ⟨⟨rfl, rfl⟩, fun _ _ => trivial⟩
 
@@ -192,6 +188,9 @@ private def admitted (cap : Nat) :=
 private def analysis (cap : Nat) := (admitted cap).get (by rfl)
 private def requested : Demand := (· == 0)
 private def noResults : Demand := fun _ => false
+
+#guard template.summaries.live (0 : Fin 1) noResults == [.arg 1, .arg 2]
+#guard template.summaries.live (0 : Fin 1) requested == [.arg 1, .arg 2, .arg 3]
 
 #guard (analysis 3).liveCapture noResults (.tail (.tail .head))
 #guard (analysis 3).liveFormal noResults .head
@@ -212,12 +211,15 @@ private def args (spare : Nat) : Tuple machine.Val lateFn.args :=
 private def run (fuel cap spare : Nat) :=
   Executable.run actions fuel 83 numbered (one cap) .head (args spare) 20
 
-example (fuel after cap : Nat) :
+private def demand (want : Bool) : Demand := if want then requested else noResults
+
+example (want : Bool) (fuel after cap : Nat) :
     ∃ left right, run fuel cap 4 = .ok left ∧ run fuel cap 40 = .ok right ∧
-      PrefixObservationsAgree actions requested after left right := by
+      PrefixObservationsAgree actions (demand want) after left right := by
   obtain ⟨left, right, ranL, ranR, agree⟩ :=
-    (analysis cap).linked_substituteDeadFormals requested fuel after (args 4) (args 40) (fun _ _ => rfl)
-  have substituted : (analysis cap).substituteDeadFormals requested (args 4) (args 40) = args 40 := rfl
+    (analysis cap).linked_substituteDeadFormals (demand want) fuel after (args 4) (args 40) (fun _ _ => rfl)
+  have substituted : (analysis cap).substituteDeadFormals (demand want) (args 4) (args 40) = args 40 := by
+    cases want <;> rfl
   rw [substituted] at ranR
   exact ⟨left, right, ranL, ranR, agree⟩
 
