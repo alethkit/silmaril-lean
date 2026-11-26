@@ -1311,10 +1311,12 @@ example : (match Executable.link actions 73 (captureModule true).toGraph (number
     exact ⟨rfl, trivial⟩
   · cbv
 
+private def exactFirstOrder : RecursiveCall.Numbered.ExactValueCheck machine :=
+  RecursiveCall.Numbered.ExactValueCheck.firstOrder (fun _ => inferInstanceAs (DecidableEq Nat))
+    (fun _ => inferInstanceAs (DecidableEq Unit))
+
 private def exactLambdas : RecursiveCall.Numbered.ExactValueCheck machine :=
-  RecursiveCall.Numbered.ExactValueCheck.lambda instructionKeys
-    (RecursiveCall.Numbered.ExactValueCheck.firstOrder (fun _ => inferInstanceAs (DecidableEq Nat))
-      (fun _ => inferInstanceAs (DecidableEq Unit)))
+  RecursiveCall.Numbered.ExactValueCheck.lambda instructionKeys exactFirstOrder
 
 private def aliasPlan (duplicateL duplicateR : Bool) :
     Plan Op args args captureExports false (captureModule duplicateL).region (captureModule duplicateR).region :=
@@ -1584,6 +1586,84 @@ example : ¬ValueRelated machine Eq (firstProfileRef false) (secondProfileRef tr
   have second : outerSeedCounts (memberProfile instructionKeys (secondProfileRef true true)) = some [0] := by cbv
   rw [first, second] at counts
   cases counts
+
+private abbrev twoMembers := [branchFn, branchFn]
+private abbrev twoMemberPorts := memberPorts twoMembers
+
+private def twoMemberGroup {past : List (Ports T)} (right : Bool) (capture : Origin args past global)
+    (opcode : Op [num] [num]) (rewire : Bool := false) : PhiTerm Op args past twoMembers :=
+  let body := profiledBody right opcode
+  ⟨[global], .cons capture .nil,
+    .cons ⟨[global, branchFn.port], .cons (.arg .head) (.cons (.arg (.tail .head)) .nil), _, body⟩
+      (.cons ⟨[global, branchFn.port], .cons (.arg .head)
+        (.cons (if rewire then .arg (.tail .head) else .arg (.tail (.tail .head))) .nil), _, body⟩ .nil)⟩
+
+private def originalAliasGroup (right : Bool) :=
+  twoMemberGroup right (.output (0 : Fin 2) .head : Origin args [[global], [global]] global) .seed
+
+private def otherAliasGroup (right : Bool) :=
+  twoMemberGroup right (.output (1 : Fin 3) .head : Origin args [[global], [global], twoMemberPorts] global) .gain
+
+private inductive GroupAliasExample where
+  | first | second | changedCapture | rewiredSibling
+
+private def aliasGroup (right : Bool) (choice : GroupAliasExample) :
+    PhiTerm Op args [[global], [global], twoMemberPorts, twoMemberPorts] twoMembers :=
+  match choice with
+  | .first => twoMemberGroup right (.output (0 : Fin 4) .head) .seed
+  | .second => twoMemberGroup right (.output (1 : Fin 4) .head) .gain
+  | .changedCapture => twoMemberGroup right (.output (1 : Fin 4) .head) .seed
+  | .rewiredSibling => twoMemberGroup right (.output (0 : Fin 4) .head) .seed true
+
+private def groupAliasModule (right : Bool) (choice : GroupAliasExample) :
+    OmegaTerm Op args captureExports [[global], [global], twoMemberPorts, twoMemberPorts,
+      twoMemberPorts, [branchFn.port]] :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.delta finishL) <| .bind (.phi (originalAliasGroup right)) <|
+    .bind (.phi (otherAliasGroup right)) <| .bind (.phi (aliasGroup right choice)) <|
+    .bind (.lambda (wrapper (.output (4 : Fin 5) (.tail .head)))) <|
+    .ret (.cons (.output (4 : Fin 6) .head) (.cons (.output (4 : Fin 6) (.tail .head))
+      (.cons (.output (5 : Fin 6) .head) .nil)))⟩
+
+private def groupAliasPlan (left right : GroupAliasExample) (prior : Nat) :
+    Plan Op args args captureExports false (groupAliasModule false left).region (groupAliasModule true right).region :=
+  .skipL (.skipR (.skipL (.skipR (.seed (.phi (.phiAlias prior (.lambda .done)))))))
+
+private def groupAliasAdmission (left right : GroupAliasExample) (prior : Nat)
+    (port : Port captureExports branchFn.port := .tail (.tail .head))
+    (exactValue : RecursiveCall.Numbered.ExactValueCheck machine := exactFirstOrder) :=
+  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    (groupAliasModule false left) (groupAliasModule true right) (groupAliasPlan left right prior)
+    (fn := branchFn) port 20 20 (exactValue := exactValue)
+
+#guard (groupAliasAdmission .first .first 1 .head).isSome
+#guard (groupAliasAdmission .first .first 1 (.tail .head)).isSome
+#guard (groupAliasAdmission .first .first 1).isSome
+#guard (groupAliasAdmission .second .second 0).isSome
+
+-- A match on one side or matches at different rows cannot certify a paired alias.
+#guard (groupAliasAdmission .first .changedCapture 1).isNone
+#guard (groupAliasAdmission .changedCapture .changedCapture 1).isNone
+#guard (groupAliasAdmission .first .second 1).isNone
+#guard (groupAliasAdmission .first .second 0).isNone
+#guard (groupAliasAdmission .rewiredSibling .rewiredSibling 1 .head).isNone
+#guard (groupAliasAdmission .first .first 1 (exactValue := fun _ _ => none)).isNone
+
+private def originalAliasRef (right : Bool) (slot : Fin twoMembers.length) : machine.Val twoMembers[slot].port :=
+  .member (.cons (globalValue 0 8) .nil) (originalAliasGroup right).toGraph.definitions slot
+
+-- Linking either alias slot produces the same value the earlier group
+-- supplied at that slot. The later caller captures the second alias.
+example (right : Bool) : Executable.link actions 73 (groupAliasModule right .first).toGraph (number 1) 20 =
+    .linked (.cons (originalAliasRef right 0) (.cons (originalAliasRef right 1)
+      (.cons (wrapperRef (originalAliasRef right 1)) .nil))) 28 := by
+  cases right <;> cbv
+
+example (right : Bool) :
+    Executable.run actions 80 73 (groupAliasModule right .first).toGraph (number 1) .head (branchArgs 1) 20 =
+      .ok (.returned (number 30) 42) ∧
+    Executable.run actions 80 73 (groupAliasModule right .first).toGraph (number 1) (.tail (.tail .head)) (branchArgs 1) 20 =
+      .ok (.returned (number 37) 45) := by
+  cases right <;> exact ⟨by cbv, by cbv⟩
 
 private abbrev seedRow {past : List (Ports T)} : NestedTheta.Node (Instruction Op) [global, num] past [num] :=
   RecursiveCall.simple (.primitive Op.seed) (.cons (.arg (.tail .head)) .nil) (fun i => i.elim0)
