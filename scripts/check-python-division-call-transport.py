@@ -225,10 +225,17 @@ def controls(upstream):
                              literal_list(outer + [success_receipt("relay", 2.5)])))
     fixtures.append((source, "\n".join(guards)))
 
+    source = RELAY + "ratio = relay(1.0 / 2)\nrelay(1.0 / 2)\n"
+    fixture, outcome = guards_for(source, "normal", None,
+                                  lambda ns: [success_receipt("relay", ns["ratio"])] * 2)
+    assert outcome["ratio"] == "3fe0000000000000"
+    fixtures.append(fixture)
+    observed["mixed transport"] = outcome
+
     rejected = """#guard (match compile pythonSource with
   | .error (.source (.scalar .expressionProfile)) => true
   | _ => false)"""
-    fixtures.extend((RELAY + statement, rejected) for statement in ("relay(1.0 / 2)\n", "relay(value / 2)\n"))
+    fixtures.append((RELAY + "relay(value / 2)\n", rejected))
     if upstream is not None:
         raw = (upstream / QUOTIENT["PIN"]).read_bytes()
         assert hashlib.sha256(raw).hexdigest() == QUOTIENT["SHA256"]

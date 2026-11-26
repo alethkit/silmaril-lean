@@ -156,6 +156,7 @@ def lowerFlatTupleItems (scope : Scope) : (elements : List Source.Expr) →
 inductive CallValue (scope : Scope) where
   | scalar (operand : Operand scope)
   | intTrueDiv (numerator divisor : Int)
+  | floatDiv (operands : Core.Binary64.FloatOperands)
   | mixedAdd (integer : Int) (floating : F64.Finite)
   | floatAdd (left right : F64.Finite)
   | floatSub (operands : Core.Binary64.FloatOperands)
@@ -215,6 +216,8 @@ inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope
   | intTrueDiv {left right numerator divisor}
       (lhs : NumericArgument.integer? left = some numerator) (rhs : NumericArgument.integer? right = some divisor) :
       CallValueTranslation scope (.binary .trueDiv left right) (.intTrueDiv numerator divisor)
+  | floatDiv {left right operands} (checked : FloatOperandsTranslation left right operands) :
+      CallValueTranslation scope (.binary .trueDiv left right) (.floatDiv operands)
   | intFloatAdd {left right integer floating}
       (lhs : NumericArgument.integer? left = some integer) (rhs : DecimalCallLiteral right floating) :
       CallValueTranslation scope (.binary .add left right) (.mixedAdd integer floating)
@@ -251,7 +254,10 @@ def lowerCallValue (scope : Scope) : (source : Source.Expr) →
   | .binary .trueDiv left right =>
     match lhs : NumericArgument.integer? left, rhs : NumericArgument.integer? right with
     | some numerator, some divisor => .ok ⟨.intTrueDiv numerator divisor, .intTrueDiv lhs rhs⟩
-    | _, _ => .error (.scalar .expressionProfile)
+    | _, _ =>
+      match lowerFloatOperands? left right with
+      | some operands => .ok ⟨.floatDiv operands.val, .floatDiv operands.property⟩
+      | none => .error (.scalar .expressionProfile)
   | .binary .add left right =>
     match lhs : NumericArgument.integer? left, lowerDecimalCallLiteral? right with
     | some integer, some floating => .ok ⟨.mixedAdd integer floating.val, .intFloatAdd lhs floating.property⟩

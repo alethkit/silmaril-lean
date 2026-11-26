@@ -65,6 +65,7 @@ def callOperand? {scope : Scope} : Operand scope → Option Core.Module.Function
 def callValue? {scope : Scope} : CallValue scope → Option Core.Module.Functions.Operand
   | .scalar operand => callOperand? operand
   | .intTrueDiv numerator divisor => some (.intTrueDiv numerator divisor)
+  | .floatDiv operands => some (.floatDiv operands)
   | .mixedAdd integer floating => some (.mixedAdd integer floating)
   | .floatAdd left right => some (.floatAdd left right)
   | .floatSub operands => some (.floatSub operands)

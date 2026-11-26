@@ -38,21 +38,6 @@ theorem intToFinite_nearestEven {integer : Int} {result : F64.Finite}
       ((rounded_finite_iff _ (Nat.cast_nonneg _)).mp finite)).2⟩
   next => cases converted
 
-private theorem roundExact_none_iff (negative : Bool) (value : ℚ) :
-    roundExact? negative value = none ↔ overflowThreshold ≤ |value| := by
-  have finite := rounded_finite_iff negative (abs_nonneg value)
-  by_cases below : |value| < overflowThreshold
-  · simp [roundExact?, F64.Finite.ofRaw?, finite.mpr below, not_le_of_gt below]
-  · simp [roundExact?, F64.Finite.ofRaw?, mt finite.mp below, le_of_not_gt below]
-
-private theorem roundExact_ok_iff (negative : Bool) (value : ℚ) (result : F64.Finite) :
-    roundExact? negative value = some result ↔ |value| < overflowThreshold ∧
-      result.val = F64.ofBits (roundSigned negative |value|) := by
-  have finite := rounded_finite_iff negative (abs_nonneg value)
-  by_cases below : |value| < overflowThreshold
-  · simp [roundExact?, F64.Finite.ofRaw?, finite.mpr below, below, Subtype.ext_iff, eq_comm]
-  · simp [roundExact?, F64.Finite.ofRaw?, mt finite.mp below, below]
-
 theorem addFinite_none_iff {left right : F64.Finite} {lhs rhs : ℚ}
     (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs) :
     addFinite? left right = none ↔ overflowThreshold ≤ |lhs + rhs| := by
