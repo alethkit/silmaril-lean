@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Defs
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Thms
+import Silmaril.Machine.SeaOfNodes.Diamond.RTL.Thms
 import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.WellFormed
 import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Correctness
 
@@ -12,8 +13,8 @@ namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Prehe
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.RTL (Frame)
 open Silmaril.Machine.RTL.SSA
-open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg WordOp model)
-open Silmaril.SSA.RVSDG (Origin extend)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg WordOp encodeValue emitOpsWith_steps model registerWith)
+open Silmaril.SSA.RVSDG (Origin Port extend)
 open Silmaril.SSA.SeaOfNodes.Diamond (Dataflow read)
 open Silmaril.SSA.SeaOfNodes.Loop (Graph appendTuple)
 
@@ -140,5 +141,60 @@ theorem header_terminator (g : Source captures bank entrySigs sigs) (input : Wor
         (g.header.eval model (appendTuple old input) PUnit.unit)) capturesMatch reads
     simpa only [Graph.step, h, ite_true, step, fetch, header, guard, Bool.true_eq,
       show (1 : Word) ≠ 0 by decide, ite_false] using back
+
+private theorem word_port {n : Nat} {t : PortTy} (p : Port (wordPorts n) t) : t = wordPort := by
+  induction n with
+  | zero => nomatch p
+  | succ n ih =>
+    cases p with
+    | head => rfl
+    | tail p => exact ih p
+
+/-- Execute the real header producers and resolve every typed origin at the branch. -/
+theorem header_producers (g : Source captures bank entrySigs sigs) (input : WordTuple captures)
+    (old : WordTuple bank) (fr : Frame Reg) (mem : Memory) (agree : ArgsMatch fr (appendTuple old input)) :
+    ∃ ready, StepsNWithin (lowerRTL g) [] sigs.length ⟨⟨0, 1, 0⟩, fr, [], mem⟩
+      ⟨⟨0, 1, sigs.length⟩, ready, [], mem⟩ ∧
+      ∀ {t} (wire : Origin (wordPorts captures ++ wordPorts bank) (extend [] sigs) t),
+        ready.get (register wire.address) = some (encodeValue t
+          (read model wire (appendTuple old input) (g.header.eval model (appendTuple old input) PUnit.unit))) := by
+  have args {t} (p : Port (wordPorts captures ++ wordPorts bank) t) :
+      fr.get (.arg p.index) = some (encodeValue t ((appendTuple old input).get p)) := by
+    have sort : t = wordPort := word_port (wordPorts_append captures bank ▸ p)
+    subst t
+    exact agree p
+  obtain ⟨ready, path, reads⟩ :=
+    emitOpsWith_steps (fun p => .arg p.index) (fun _ _ => by simp) (appendTuple old input) g.header
+      fr mem (lowerRTL g) 0 1 (header g) rfl rfl args
+  refine ⟨ready, path, ?_⟩
+  intro t wire
+  have resolved : registerWith (fun p => .arg p.index) wire = register wire.address := by
+    cases wire <;> rfl
+  rw [← resolved]
+  exact reads wire
+
+/-- One instruction per header producer, then one terminator. The exit branch
+takes one further instruction to return. The feedback branch restores the bank invariant. -/
+theorem header_activation (g : Source captures bank entrySigs sigs) (input : WordTuple captures)
+    (old : WordTuple bank) (fr : Frame Reg) (mem : Memory) (agree : ArgsMatch fr (appendTuple old input)) :
+    match g.step model input old with
+    | .inl value =>
+      ∃ ready, StepsNWithin (lowerRTL g) [] (sigs.length + 1) ⟨⟨0, 1, 0⟩, fr, [], mem⟩
+        ⟨⟨0, 2, 0⟩, ready, [], mem⟩ ∧
+        step (lowerRTL g) ⟨⟨0, 2, 0⟩, ready, [], mem⟩ = .returned [value] mem
+    | .inr next =>
+      ∃ latched, StepsNWithin (lowerRTL g) [] (sigs.length + 1) ⟨⟨0, 1, 0⟩, fr, [], mem⟩
+        ⟨⟨0, 1, 0⟩, latched, [], mem⟩ ∧ ArgsMatch latched (appendTuple next input) := by
+  obtain ⟨ready, path, reads⟩ := header_producers g input old fr mem agree
+  have readyArgs : ArgsMatch ready (appendTuple old input) := fun port => reads (.arg port)
+  have packet := header_terminator g input old ready mem (input_matches_at readyArgs)
+    (reads g.predicate) (fun wire => reads wire)
+  cases taken : g.step model input old with
+  | inl value =>
+    rw [taken] at packet
+    exact ⟨_, append_step path packet.1, packet.2⟩
+  | inr next =>
+    rw [taken] at packet
+    exact ⟨_, append_step path packet.1, packet.2⟩
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Proofs
