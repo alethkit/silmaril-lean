@@ -1,8 +1,10 @@
 module
 
-public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.Readback.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Live.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandTyping
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandFamily
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Live.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Labels.Thms
@@ -275,22 +277,55 @@ private theorem dispatch_of_rows (roll : IterationRolling C)
   rw [MonoidalCategory.id_tensorHom, entry_eq, ← Category.assoc _ large, Category.assoc, after]
   exact computed.symm
 
-theorem program_agreement (roll : IterationRolling C) (p : Program (Φ := Φ) P K Γ) :
-    ∃ f, ∀ (tails : Option (Fin (k + 1) → Ty κ)) (t : (p.region tails.isSome).HasType Γ K),
-      RegionDenotes J M t f := by
+theorem program_at_agreement (roll : IterationRolling C) (p : Program (Φ := Φ) P K Γ) :
+    ∃ f : J.obj Env ⟶ J.obj Result, ∀ tails : Option (Fin (k + 1) → Ty κ),
+      p.denotesAt J M tails f ∧ ∀ g, p.denotesAt J M tails g → g = f := by
   obtain ⟨small, small_rows⟩ := collective_exists J M k Γ P (Result ⨿ Local)
     (fun i => J.map (fst Env (M.obj (P i))) ≫ eval J M (p.blocks i))
-  refine ⟨caseWithContext J (eval J M p.entry) (J.map (snd Env Result))
-    (contextualLoop J (J.map (Env ◁ labelObjToFinite M P) ≫ small)), ?_⟩
-  intro tails t
+  let common := caseWithContext J (eval J M p.entry) (J.map (snd Env Result))
+    (contextualLoop J (J.map (Env ◁ labelObjToFinite M P) ≫ small))
+  have compare (tails : Option (Fin (k + 1) → Ty κ)) (g : J.obj Env ⟶ J.obj Result)
+      (w : p.denotesAt J M tails g) : g = common := by
+    obtain ⟨_, _, _, _, _, entry, blocks, rows, rfl⟩ := w
+    exact dispatch_of_rows J M roll p tails small small_rows entry blocks rows
+  refine ⟨common, fun tails => ⟨?_, compare tails⟩⟩
   let S := family P tails
   let e := row_typed (Ren.id Γ) tails p.entry
   let steps (i : Fin (k + 1)) := row_typed (Ren.wk Γ (S i)) tails (p.blocks i)
-  obtain ⟨large, rows⟩ := collectiveDenotes_exists_succ J M k Γ S K (fun i => denoteRegion J M (steps i))
-  have entry := denoteRegion_spec J M e
-  have blocks (i : Fin (k + 1)) := denoteRegion_spec J M (steps i)
-  have compared := dispatch_of_rows J M roll p tails small small_rows entry blocks rows
-  exact compared ▸ RegionDenotes.cfg e steps entry blocks rows
+  obtain ⟨g, w⟩ := CfgDenotesAt.exists_of_typing J M S e steps
+  exact compare tails g w ▸ w
+
+theorem program_agreement (roll : IterationRolling C) (p : Program (Φ := Φ) P K Γ) :
+    ∃ f, ∀ (tails : Option (Fin (k + 1) → Ty κ)) (t : (p.region tails.isSome).HasType Γ K),
+      RegionDenotes J M t f := by
+  obtain ⟨f, agree⟩ := program_at_agreement J M roll p
+  exact ⟨f, fun tails _ => (agree tails).1.denotes J M⟩
+
+theorem program_witness_readback (p : Program (Φ := Φ) P K Γ) (covers : p.targetsEveryLabel)
+    {tag : Bool} {t : (p.region tag).HasType Γ K} {f : J.obj Env ⟶ J.obj Result}
+    (d : RegionDenotes J M t f) :
+    ∃ tails : Option (Fin (k + 1) → Ty κ), tails.isSome = tag ∧ p.denotesAt J M tails f := by
+  obtain ⟨S, selected⟩ := d.cfg_readback J M
+  have compatible : ∃ tails : Option (Fin (k + 1) → Ty κ),
+      tails.isSome = tag ∧ S = family P tails := by
+    obtain ⟨he, hb, _, _, _, _, _, _, _⟩ := selected
+    exact Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandFamily.family_from_typing
+      p covers tag he hb
+  obtain ⟨tails, tag_eq, family_eq⟩ := compatible
+  refine ⟨tails, tag_eq, ?_⟩
+  unfold Program.denotesAt
+  rw [tag_eq, ← family_eq]
+  exact selected
+
+theorem program_witness_eq (roll : IterationRolling C) (p : Program (Φ := Φ) P K Γ)
+    (covers : p.targetsEveryLabel) {tag tag' : Bool}
+    {t : (p.region tag).HasType Γ K} {t' : (p.region tag').HasType Γ K}
+    {f g : J.obj Env ⟶ J.obj Result} (d : RegionDenotes J M t f) (e : RegionDenotes J M t' g) :
+    f = g := by
+  obtain ⟨_, agree⟩ := program_at_agreement J M roll p
+  obtain ⟨left, _, d'⟩ := program_witness_readback J M p covers d
+  obtain ⟨right, _, e'⟩ := program_witness_readback J M p covers e
+  exact ((agree left).2 f d').trans ((agree right).2 g e').symm
 
 end Program
 
