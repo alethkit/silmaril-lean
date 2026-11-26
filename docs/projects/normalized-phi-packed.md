@@ -661,3 +661,29 @@ live-out requests pin depths `12, 14, 16, 17` to registers
 swapped allocation fails the requests and still produces the exact
 readback counterexample.
 [Swap regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)
+
+#### When graph-wide relocation succeeds
+
+After the symbolic pass has extracted the ordered direct reads, there is a
+valid allocation exactly when the fixed packet parameter lies outside the
+numbered captures, all requested local names avoid the captures and the
+parameter, and the requests form a partial bijection. A depth must request
+one name across all bodies. Each requested name must belong to one depth.
+Repeating the same request is allowed. Unrequested depths can always be
+assigned above the finite set of original writes and requested names.
+The deterministic allocator succeeds exactly under these conditions.
+[Allocation theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Split/Relocation/Thms.lean)
+
+A checked branching split exposes the global restriction. One arm exits
+directly from the entry and the other traverses the selected φ edge before
+exiting. The split adds one saved field, moving the latter exit's binder
+from depth six to eight. The entry at depth eight requires physical
+register 14, while the destination block at the same depth requires
+register 12. Each body's list is satisfiable separately. The single
+graph-wide allocation cannot meet both requests.
+[Branching regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)
+
+Allocation and reverse acceptance have separate success criteria. After
+emission at the inferred allocation, acceptance requires exact readback.
+The swap's valid allocation still emits when every internal label is
+assigned the same name, but exact readback rejects that label map.
