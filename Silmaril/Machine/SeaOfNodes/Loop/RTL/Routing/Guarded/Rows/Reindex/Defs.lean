@@ -44,12 +44,13 @@ def port (perm : InputPermutation arity) {t : PortTy} (old : Port (wordPorts ari
     Port (wordPorts arity) t :=
   (slotSort old).symm ▸ argumentPort arity (perm (slot old))
 
-def column (perm : InputPermutation arity) {ports : List PortTy}
-    (wires : Wires (wordPorts arity) [] ports) : Wires (wordPorts arity) [] ports :=
+/-- Rename argument origins and keep all producer origins in their typed prefix. -/
+def column (perm : InputPermutation arity) {ports : List PortTy} {past : List (List PortTy)}
+    (wires : Wires (wordPorts arity) past ports) : Wires (wordPorts arity) past ports :=
   wires.map fun _ wire =>
     match wire with
     | .arg src => .arg (perm.port src)
-    | .output i _ => i.elim0
+    | .output i p => .output i p
 
 universe w
 

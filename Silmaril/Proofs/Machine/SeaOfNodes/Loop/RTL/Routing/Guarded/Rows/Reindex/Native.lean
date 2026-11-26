@@ -59,23 +59,23 @@ theorem pull_symm {value : Unit → Type w} (perm : InputPermutation arity)
   intro _ p
   simp only [InputPermutation.pull, get_pullTuple, port_symm]
 
-private theorem read_column (perm : InputPermutation arity) {F : PortTy → Type w}
+theorem read_column (perm : InputPermutation arity) {F : PortTy → Type w}
     (input : Tuple F (wordPorts arity)) {outputs : List PortTy}
-    (wires : Wires (wordPorts arity) [] outputs) :
-    (perm.column wires).read input PUnit.unit =
-      wires.read (InputPermutation.pullTuple (fun p => perm.port p) input) PUnit.unit := by
+    (wires : Wires (wordPorts arity) past outputs) (locals : Locals F past) :
+    (perm.column wires).read input locals =
+      wires.read (InputPermutation.pullTuple (fun p => perm.port p) input) locals := by
   induction wires with
   | nil => rfl
   | cons wire rest ih =>
     cases wire with
     | arg p =>
       exact congrArg₂ Tuple.cons (get_pullTuple (fun p => perm.port p) input p).symm ih
-    | output i _ => exact i.elim0
+    | output _ _ => exact congrArg (fun tail => Tuple.cons _ tail) ih
 
 theorem initial_reindex (p : Plan arity) (perm : InputPermutation arity)
     (m : Model WordOp) (input : Tuple (Val m.value) (wordPorts arity)) :
     (p.reindexInputs perm).graph.initial m input = p.graph.initial m (perm.pull input) :=
-  read_column perm input p.entry
+  read_column perm input p.entry PUnit.unit
 
 -- Every header operand names an old bank slot or a producer.
 private def Local (wire : Origin (bankArgs arity) past t) : Prop :=
