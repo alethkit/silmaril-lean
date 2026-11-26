@@ -4,6 +4,7 @@ import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairRetur
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Indexed.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Mixed.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Transfer.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Iteration.Chosen.Laws.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.StructuralValues.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedCase.Distributor.Thms
@@ -4871,6 +4872,54 @@ example :
   obtain ⟨hf, he, _, r, s, hl, hr, _, _, eq⟩ :=
     endpoint_transport (e := strict) nativeMixed state₀ (fun _ => le_rfl) (by rfl)
   exact ⟨lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h)), hf, he, r, s, hl, hr, eq⟩
+
+open Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport
+
+private def nativeCycle : Transfer.Rows family Bit .unit Bit :=
+  .split (.leaf (.ordinary (.two read PUnit.unit reply))) (.leaf (.transfer state₀))
+
+private def cycleExpanded := TransferPlans.expand nativeCycle.plans
+
+-- A constructor jump from state₁ to state₀ bypasses the pending-reply state.
+example : nativeCycle.plans state₁ = .transfer state₀ := rfl
+example : cycleExpanded (.inl state₁) = .transfer (.inl state₀) := rfl
+example : (nativeCycle.plans state₁).source.toLetIter 1 =
+    some (.inr (.inl .unit) : NTm family 1) := rfl
+example : (cycleExpanded (.inl state₁)).source.toLetIter 1 =
+    some (.inr (.inl (.inl .unit)) : NTm family 1) := rfl
+
+-- State₀ enters the pending block via the first request. A second read can take
+-- the back edge to state₁, while the first reply can also select notify and exit.
+example : cycleExpanded (.inl state₀) =
+    .ordinary (.call read PUnit.unit (fun r => .inr (.inr (.inl r)))) := rfl
+
+example : ∃ k : read.replyCode.Value → Code.unit.Value ⊕ (Code.sum Bit nativeCycle.pending).Value,
+    cycleExpanded (.inr (.inl (.inl PUnit.unit))) = .ordinary (.call read PUnit.unit k) ∧
+      k (.inl PUnit.unit) = .inr (.inl state₁) :=
+  ⟨_, rfl, rfl⟩
+
+example : cycleExpanded (.inr (.inl (.inr PUnit.unit))) =
+    .ordinary (.call notify state₁ (fun _ => .inl PUnit.unit)) := rfl
+
+example : (TransferPlans.source nativeCycle.plans).toLetIter 1 = some (nativeCycle.fused.native 0) ∧
+    cycleExpanded.source.toLetIter 1 = some (nativeCycle.expanded.native 0) :=
+  ⟨Transfer.fused_lowers nativeCycle, Transfer.expanded_lowers nativeCycle⟩
+
+example :
+    strict < (⊤ : Fx) ∧
+    HasTypeEffect (ε := Fx) (Ctx.nil : Ctx Empty (Ty Unit)) .nil
+      (Transfer.fusedLoop nativeCycle state₁) Ty.unit strict ∧
+    HasTypeEffect (ε := Fx) (Ctx.nil : Ctx Empty (Ty Unit)) .nil
+      (Transfer.expandedLoop nativeCycle state₁) Ty.unit strict ∧
+    AbortEquiv (⊥ : Fx) (Ctx.nil : Ctx Empty (Ty Unit)) .nil
+      (Transfer.fusedLoop nativeCycle state₁) (Transfer.expandedLoop nativeCycle state₁) Ty.unit ∧
+    ∃ r s, eraseLoop Bit (Transfer.fusedLoop nativeCycle state₁) = some r ∧
+      eraseLoop (.sum Bit nativeCycle.pending) (Transfer.expandedLoop nativeCycle state₁) = some s ∧
+      Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Eqv (targetSeed (F := family) (⊥ : Fx))
+        [Ty.unit] r s [Ty.unit] := by
+  obtain ⟨hf, he, hn, r, s, hl, hr, _, _, eq⟩ :=
+    Transfer.endpoint_transport (e := strict) nativeCycle state₁ (fun _ => le_rfl) (by rfl)
+  exact ⟨lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h)), hf, he, hn, r, s, hl, hr, eq⟩
 
 end LambdaSSAMixedRequestBlockTransport
 

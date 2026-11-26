@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Mixed.Defs
 public import Silmaril.SSA.Isotope.LetIter.AbortSequence.Intrinsic.Defs
-import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.RequestBlockTransport.Mixed
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.RequestBlockTransport.Transfer
 
 /-! # Transport of mixed normalized LetIter tables
 
@@ -12,8 +12,8 @@ type. A two-request row enters the pending state for its first reply.
 
 Both endpoints use the original `Plans.source` and `Plans.expand` renderers
 at the supplied iterative bound. A bare pure transfer is well-typed as
-LetIter syntax. Its lowering is outside the image of the normalized plan
-grammar, as witnessed by `typed_transfer_unrendered`.
+LetIter syntax. Its lowering is outside the image of the original
+`Plan` grammar, as witnessed by `typed_transfer_unrendered`.
 -/
 
 public section
@@ -35,11 +35,11 @@ open Silmaril.Isotope.LetIter.LocallyNameless (HasTypeEffect AbortEquiv)
 
 theorem fused_lowers (t : Rows F S B S) :
     (Plans.source t.plans).toLetIter 1 = some (t.fused.native 0) :=
-  RequestBlockTransport.Proofs.Mixed.fused_lowers t
+  RequestBlockTransport.Proofs.Transfer.legacy_fused_lowers t
 
 theorem expanded_lowers (t : Rows F S B S) :
     (Plans.expand t.plans).source.toLetIter 1 = some (t.expanded.native 0) :=
-  RequestBlockTransport.Proofs.Mixed.expanded_lowers t
+  RequestBlockTransport.Proofs.Transfer.legacy_expanded_lowers t
 
 variable {ε : Type} [HasEff (Opcode F) ε] [SemilatticeSup ε] [OrderBot ε]
 
@@ -48,7 +48,7 @@ the normalized renderer's row grammar. -/
 theorem typed_transfer_unrendered (e : ε) (t : S.Value) :
     Wf [(S.ty, (⊥ : ε))] (.inr (S.literal t) : Expr Ops) (Code.sum B S).ty e ∧
     ∀ p : Plan F S B, p.source.toLetIter 1 ≠ (Expr.inr (S.literal t) : Expr Ops).toLetIter 1 :=
-  RequestBlockTransport.Proofs.Mixed.typed_transfer_unrendered e t
+  RequestBlockTransport.Proofs.Transfer.typed_transfer_unrendered e t
 
 variable [EffectIteration ε] {e : ε}
 local notation "Free" => (Ctx.nil : Ctx Empty (Ty Unit))
@@ -64,6 +64,6 @@ theorem endpoint_transport (t : Rows F S B S) (init : S.Value)
       Region.ValueBranches [Code.unit.ty] r [B.ty] ∧
       Region.ValueBranches [Code.unit.ty] s [B.ty] ∧
       Region.Paper.Extension.Eqv (targetSeed (⊥ : ε)) [Code.unit.ty] r s [B.ty] :=
-  RequestBlockTransport.Proofs.Mixed.endpoint_transport t init hf he
+  RequestBlockTransport.Proofs.Transfer.endpoint_transport t.withTransfers init hf he
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport.Mixed

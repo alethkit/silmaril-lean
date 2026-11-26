@@ -3,15 +3,15 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Mixed.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.RequestBlockTransport
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Iteration.Chosen.Blocks.Thms
-import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Heterogeneous.Terminal.Expansion.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Heterogeneous.Terminal.Expansion.Transfer.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Codes.Thms
 
 public section
 
-namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport.Proofs.Mixed
+namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport.Proofs.Transfer
 
 open Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport
-open Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport.Mixed
+open Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport.Transfer
 open Silmaril Silmaril.Isotope
 open Silmaril.Isotope.LambdaSSA
 open Silmaril.Isotope.LetIter.PaperExpression
@@ -58,10 +58,13 @@ theorem Rows.firstMap_mapOut {Q : Code} (t : Rows F S B I) (done : (Code.sum B S
   induction t with
   | leaf p =>
     cases p with
-    | one r => exact mapOut_map (row r U) done f
-    | two op x k =>
-      simp [Rows.firstMap, Step.mapOut, literal_map]
-      rfl
+    | transfer target => rfl
+    | ordinary p =>
+      cases p with
+      | one r => exact mapOut_map (row r U) done f
+      | two op x k =>
+        simp [Rows.firstMap, Step.mapOut, literal_map]
+        rfl
   | split l r il ir =>
     simp [Rows.firstMap, Step.mapOut, il, ir]
 
@@ -70,17 +73,21 @@ theorem Rows.fused_source (t : Rows F S B I) :
   induction t with
   | leaf p =>
     cases p with
-    | one r => exact row_source r U
-    | two f x k =>
-      simp [Rows.fused, Rows.plans, Step.source, tabulate_source, row_source, Code.dispatch, Plan.source]
+    | transfer target => rfl
+    | ordinary p =>
+      cases p with
+      | one r => exact row_source r U
+      | two f x k =>
+        simp [Rows.fused, Rows.plans, Step.source, tabulate_source, row_source, Code.dispatch, TransferPlan.source, Plan.source]
   | split l r il ir =>
     simp [Rows.fused, Step.source, Code.dispatch, Rows.plans, il, ir]
 
 private def firstSource (done : (Code.sum B S).Value → O.Value) :
-    (p : Plan F S B) → (p.replyCode.Value → O.Value) → Expr Ops
-  | .one r, _ => (Step.mapOut done (row r U)).source
-  | .two f x _, pending => .let₁ (.op f (f.argCode.literal x))
+    (p : TransferPlan F S B) → (p.replyCode.Value → O.Value) → Expr Ops
+  | .ordinary (.one r), _ => (Step.mapOut done (row r U)).source
+  | .ordinary (.two f x _), pending => .let₁ (.op f (f.argCode.literal x))
       (f.replyCode.dispatch (fun r => O.literal (pending r)) (.var 0))
+  | .transfer target, _ => O.literal (done (.inr target))
 
 private theorem Rows.firstMap_source (t : Rows F S B I) (done : (Code.sum B S).Value → O.Value)
     (pending : t.pending.Value → O.Value) :
@@ -90,9 +97,12 @@ private theorem Rows.firstMap_source (t : Rows F S B I) (done : (Code.sum B S).V
   induction t with
   | leaf p =>
     cases p with
-    | one r => rfl
-    | two f x k =>
-      simp [Rows.firstMap, Rows.plans, Step.source, literals, tabulate_source, Code.dispatch, Code.encode, firstSource]
+    | transfer target => rfl
+    | ordinary p =>
+      cases p with
+      | one r => rfl
+      | two f x k =>
+        simp [Rows.firstMap, Rows.plans, Step.source, literals, tabulate_source, Code.dispatch, Code.encode, firstSource]
   | split l r il ir =>
     simp [Rows.firstMap, Step.source, Code.dispatch, Rows.plans, Code.encode, il, ir]
 
@@ -104,34 +114,40 @@ theorem Rows.second_map_source (t : Rows F S B I) (inject : S.Value → J.Value)
   induction t with
   | leaf p =>
     cases p with
-    | one r =>
-      change (Step.mapOut (O := .sum B S) (P := .sum B J) (Sum.map id inject) (row r U)).source =
-        (r.map inject).source
-      rw [row_map r U inject, row_source]
-    | two f x k =>
-      change (Step.mapOut (O := .sum B S) (P := .sum B J) (Sum.map id inject)
-        (tabulate f.replyCode (fun v => row (k v) U))).source =
-          f.replyCode.dispatch (fun w => ((k w).map inject).source) (.var 0)
-      rw [tabulate_map, tabulate_source]
-      apply congrArg (fun leaves => f.replyCode.dispatch leaves (.var 0))
-      funext w
-      rw [row_map (k w) U inject, row_source]
+    | transfer target => rfl
+    | ordinary p =>
+      cases p with
+      | one r =>
+        change (Step.mapOut (O := .sum B S) (P := .sum B J) (Sum.map id inject) (row r U)).source =
+          (r.map inject).source
+        rw [row_map r U inject, row_source]
+      | two f x k =>
+        change (Step.mapOut (O := .sum B S) (P := .sum B J) (Sum.map id inject)
+          (tabulate f.replyCode (fun v => row (k v) U))).source =
+            f.replyCode.dispatch (fun w => ((k w).map inject).source) (.var 0)
+        rw [tabulate_map, tabulate_source]
+        apply congrArg (fun leaves => f.replyCode.dispatch leaves (.var 0))
+        funext w
+        rw [row_map (k w) U inject, row_source]
   | split l r il ir =>
     rw [Rows.second, Step.mapOut, Step.source, il, ir]
     rfl
 
-private theorem firstSource_expanded (p : Plan F S B) (encode : p.replyCode.Value → J.Value) :
+private theorem firstSource_expanded (p : TransferPlan F S B) (encode : p.replyCode.Value → J.Value) :
     firstSource (S := S) (B := B) (O := .sum B (.sum S J)) (Sum.map id Sum.inl) p
       (fun v => .inr (.inr (encode v))) = (p.expandFirst J encode).source := by
   cases p with
-  | one r => exact (congrArg Step.source (row_map r U (K := .sum S J) Sum.inl)).trans (row_source _ U)
-  | two f x k => rfl
+  | transfer target => rfl
+  | ordinary p =>
+    cases p with
+    | one r => exact (congrArg Step.source (row_map r U (K := .sum S J) Sum.inl)).trans (row_source _ U)
+    | two f x k => rfl
 
 theorem Rows.expanded_source (t : Rows F S B S) :
-    t.expanded.source = (Plans.expand t.plans).source := by
+    t.expanded.source = (TransferPlans.expand t.plans).source := by
   rw [Rows.expanded, Step.source, Rows.firstMap_source t
     (O := .sum B (.sum S t.pending)) (Sum.map id Sum.inl),
-    Rows.second_map_source (J := .sum S t.pending) t Sum.inl, Heterogeneous.Table.source, Code.dispatch]
+    Rows.second_map_source (J := .sum S t.pending) t Sum.inl, TransferTable.source, Code.dispatch]
   congr 1
   apply congrArg (fun rows => S.dispatch rows (.var 0))
   funext v
@@ -139,14 +155,7 @@ theorem Rows.expanded_source (t : Rows F S B S) :
 
 variable {ε : Type} [HasEff (Opcode F) ε]
 
-/-- The missing row is well-typed even below top. The obstruction is
-the normalized renderer's row grammar. -/
-theorem typed_transfer_unrendered [SemilatticeSup ε] [OrderBot ε] (e : ε) (t : S.Value) :
-    Wf [(S.ty, (⊥ : ε))] (.inr (S.literal t) : Expr Ops) (Code.sum B S).ty e ∧
-    ∀ p : Plan F S B, p.source.toLetIter 1 ≠ (Expr.inr (S.literal t) : Expr Ops).toLetIter 1 := by
-  refine ⟨.inr (literal_wf S t), fun p => ?_⟩
-  rw [Expr.toLetIter, nativeValue_lowers S t 1]
-  exact no_bare_transfer p 1 _
+variable {ε : Type} [HasEff (Opcode F) ε]
 
 set_option hygiene false in
 local notation "Seed[" p "]" => targetSeed (F := F) (ε := ε) p
@@ -229,28 +238,39 @@ private theorem factor (t : Rows F S B I) :
   induction t with
   | leaf p =>
     cases p with
-    | one r =>
-      change (Step.mapOut (O := .sum B S) (P := .sum (.sum B S) U) Sum.inl (row r U)).arrow pe ≫
-        finish pe (Rows.leaf (.one r)) = (row r U).arrow pe
-      rw [mapOut_arrow pe _ _ (left pe (.sum B S) U) (fun X x => lit_left pe X (.sum B S) U x),
-        Category.assoc]
-      change (row r U).arrow pe ≫ left pe (.sum B S) (Rows.leaf (.one r)).pending ≫
-        finish pe (Rows.leaf (.one r)) = _
+    | transfer target =>
+      change (lit[.sum (.sum B S) U, .inl (.inr target)] : Step F U (.sum (.sum B S) U)).arrow pe ≫
+        finish pe (Rows.leaf (.transfer target)) =
+          (lit[.sum B S, .inr target] : Step F U (.sum B S)).arrow pe
+      rw [← lit_left pe U (.sum B S) U (.inr target), Category.assoc]
+      let t : Rows F S B U := .leaf (.transfer target)
+      change (lit[.sum B S, .inr target] : Step F U (.sum B S)).arrow pe ≫
+        left pe (.sum B S) t.pending ≫ finish pe t = _
       rw [finish_left, Category.comp_id]
-    | two f x k =>
-      have lit_eq := mapOut_arrow pe (literals (F := F) f.replyCode (O := f.replyCode) id)
-        (P := .sum (.sum B S) f.replyCode) Sum.inr (right pe (.sum B S) f.replyCode)
-        (fun X w => lit_right pe X (.sum B S) f.replyCode w)
-      rw [literal_map, literals_id, Category.id_comp] at lit_eq
-      change (Step.call (I := U) f x (literals f.replyCode (O := .sum (.sum B S) f.replyCode) Sum.inr)).arrow pe ≫
-        finish pe (Rows.leaf (.two f x k)) = (Rows.fused (Rows.leaf (.two f x k))).arrow pe
-      rw [call_arrow]
-      change (request (I := U) pe f x ≫ (literals f.replyCode (O := .sum (.sum B S) f.replyCode)
-        (fun v => .inr (id v))).arrow pe) ≫ finish pe (Rows.leaf (.two f x k)) = _
-      rw [lit_eq, Category.assoc]
-      change request (I := U) pe f x ≫ right pe (.sum B S) (Rows.leaf (.two f x k)).pending ≫
-        finish pe (Rows.leaf (.two f x k)) = _
-      rw [finish_right, Rows.fused, call_arrow, Rows.second]
+    | ordinary p =>
+      cases p with
+      | one r =>
+        change (Step.mapOut (O := .sum B S) (P := .sum (.sum B S) U) Sum.inl (row r U)).arrow pe ≫
+          finish pe (Rows.leaf (.ordinary (.one r))) = (row r U).arrow pe
+        rw [mapOut_arrow pe _ _ (left pe (.sum B S) U) (fun X x => lit_left pe X (.sum B S) U x),
+          Category.assoc]
+        change (row r U).arrow pe ≫ left pe (.sum B S) (Rows.leaf (.ordinary (.one r))).pending ≫
+          finish pe (Rows.leaf (.ordinary (.one r))) = _
+        rw [finish_left, Category.comp_id]
+      | two f x k =>
+        have lit_eq := mapOut_arrow pe (literals (F := F) f.replyCode (O := f.replyCode) id)
+          (P := .sum (.sum B S) f.replyCode) Sum.inr (right pe (.sum B S) f.replyCode)
+          (fun X w => lit_right pe X (.sum B S) f.replyCode w)
+        rw [literal_map, literals_id, Category.id_comp] at lit_eq
+        change (Step.call (I := U) f x (literals f.replyCode (O := .sum (.sum B S) f.replyCode) Sum.inr)).arrow pe ≫
+          finish pe (Rows.leaf (.ordinary (.two f x k))) = (Rows.fused (Rows.leaf (.ordinary (.two f x k)))).arrow pe
+        rw [call_arrow]
+        change (request (I := U) pe f x ≫ (literals f.replyCode (O := .sum (.sum B S) f.replyCode)
+          (fun v => .inr (id v))).arrow pe) ≫ finish pe (Rows.leaf (.ordinary (.two f x k))) = _
+        rw [lit_eq, Category.assoc]
+        change request (I := U) pe f x ≫ right pe (.sum B S) (Rows.leaf (.ordinary (.two f x k))).pending ≫
+          finish pe (Rows.leaf (.ordinary (.two f x k))) = _
+        rw [finish_right, Rows.fused, call_arrow, Rows.second]
   | @split L R l r il ir =>
     let C := Code.sum B S
     let D := Code.sum l.pending r.pending
@@ -393,13 +413,13 @@ theorem joined_endpoints (t : Rows F S B S) (init : S.Value) :
 end Category
 
 theorem fused_lowers (t : Rows F S B S) :
-    (Plans.source t.plans).toLetIter 1 = some (t.fused.native 0) := by
+    (TransferPlans.source t.plans).toLetIter 1 = some (t.fused.native 0) := by
   change (S.dispatch (fun v => (t.plans v).source) (.var 0)).toLetIter 1 = _
   rw [← Rows.fused_source t]
   exact Step.lowers t.fused 0
 
 theorem expanded_lowers (t : Rows F S B S) :
-    (Plans.expand t.plans).source.toLetIter 1 = some (t.expanded.native 0) :=
+    (TransferPlans.expand t.plans).source.toLetIter 1 = some (t.expanded.native 0) :=
   Rows.expanded_source t ▸ Step.lowers t.expanded 0
 
 section AtBound
@@ -407,7 +427,7 @@ section AtBound
 variable [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε] {e : ε}
 local notation "Free" => (Ctx.nil : Ctx Empty (Ty Unit))
 
-/-- Exact transport for mixed normalized tables using both #3846 plan forms. -/
+/-- Exact transport for normalized tables with pure transfers. -/
 theorem endpoint_transport (t : Rows F S B S) (init : S.Value)
     (hf : ∀ f : Ops, instrEff f ≤ e) (he : IsIterative e) :
     HasTypeEffect Free .nil (fusedLoop t init) B.ty e ∧
@@ -419,7 +439,7 @@ theorem endpoint_transport (t : Rows F S B S) (init : S.Value)
       Region.ValueBranches [Code.unit.ty] s [B.ty] ∧
       Region.Paper.Extension.Eqv (Seed[(⊥ : ε)]) [Code.unit.ty] r s [B.ty] := by
   have eq : AbortEquiv (⊥ : ε) Free .nil (fusedLoop t init) (expandedLoop t init) B.ty :=
-    Plans.expand_eq t.plans init (nativeValue_lowers S init 0) (fused_lowers t)
+    TransferPlans.expand_eq t.plans init (nativeValue_lowers S init 0) (fused_lowers t)
       (nativeValue_lowers (.sum S t.pending) (.inl init) 0) (expanded_lowers t)
   exact ⟨typed_loop t.fused init hf he, typed_loop t.expanded (.inl init) hf he,
     eq, _, _, erase_loop t.fused init, erase_loop t.expanded (.inl init),
@@ -427,4 +447,40 @@ theorem endpoint_transport (t : Rows F S B S) (init : S.Value)
 
 end AtBound
 
-end Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport.Proofs.Mixed
+section Legacy
+
+open Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport.Mixed in
+private theorem withTransfers_plans (t : Mixed.Rows F S B I) :
+    t.withTransfers.plans = fun v => .ordinary (t.plans v) := by
+  induction t with
+  | leaf p => rfl
+  | split l r il ir =>
+    funext v
+    cases v with
+    | inl v => exact congrFun il v
+    | inr v => exact congrFun ir v
+
+theorem legacy_fused_lowers (t : Mixed.Rows F S B S) :
+    (Plans.source t.plans).toLetIter 1 = some (t.fused.native 0) := by
+  have lower := fused_lowers t.withTransfers
+  have plans : t.withTransfers.plans = Plans.withTransfers t.plans := withTransfers_plans t
+  rwa [plans, Plans.withTransfers_source] at lower
+
+theorem legacy_expanded_lowers (t : Mixed.Rows F S B S) :
+    (Plans.expand t.plans).source.toLetIter 1 = some (t.expanded.native 0) := by
+  have lower := expanded_lowers t.withTransfers
+  have plans : t.withTransfers.plans = Plans.withTransfers t.plans := withTransfers_plans t
+  rwa [plans, Plans.withTransfers_expanded_source] at lower
+
+/-- The missing row is well-typed even below top. The obstruction is
+the normalized renderer's row grammar. -/
+theorem typed_transfer_unrendered [SemilatticeSup ε] [OrderBot ε] (e : ε) (t : S.Value) :
+    Wf [(S.ty, (⊥ : ε))] (.inr (S.literal t) : Expr Ops) (Code.sum B S).ty e ∧
+    ∀ p : Plan F S B, p.source.toLetIter 1 ≠ (Expr.inr (S.literal t) : Expr Ops).toLetIter 1 := by
+  refine ⟨.inr (literal_wf S t), fun p => ?_⟩
+  rw [Expr.toLetIter, nativeValue_lowers S t 1]
+  exact no_bare_transfer p 1 _
+
+end Legacy
+
+end Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport.Proofs.Transfer

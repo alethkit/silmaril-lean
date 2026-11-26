@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Transfer.Defs
 
 /-! # Normalized tables with direct rows and pending-reply rows -/
 
@@ -16,9 +16,6 @@ open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structure
 
 variable {n : Nat} {F : Family n} {S B I O : Code}
 
-local notation "Ops" => Opcode F
-local notation "U" => Code.unit
-
 /-- A normalized #3846 table can freely mix the two existing plan forms. -/
 inductive Rows (F : Family n) (S B : Code) : Code → Type
   | leaf (p : Plan F S B) : Rows F S B .unit
@@ -29,40 +26,32 @@ def Rows.plans : {I : Code} → Rows F S B I → I.Value → Plan F S B
   | _, .split l _, .inl v => l.plans v
   | _, .split _ r, .inr v => r.plans v
 
-abbrev Rows.pending (t : Rows F S B I) : Code :=
-  Code.dependent I (fun v => (t.plans v).replyCode)
+def Rows.withTransfers : {I : Code} → Rows F S B I → Transfer.Rows F S B I
+  | _, .leaf p => .leaf (.ordinary p)
+  | _, .split l r => .split l.withTransfers r.withTransfers
 
-/-- Direct rows transfer their control result to `done`. Two-request rows
-send the first reply to `pending`, retaining its state code. -/
-def Rows.firstMap :
-    {I : Code} → (t : Rows F S B I) →
-      ((Code.sum B S).Value → O.Value) → (t.pending.Value → O.Value) → Step F I O
-  | _, .leaf (.one r), done, _ => Step.mapOut done (row r U)
-  | _, .leaf (.two f x _), _, pending => .call f x (literals f.replyCode pending)
-  | _, .split l r, done, pending =>
-    .split (l.firstMap done (fun v => pending (.inl v))) (r.firstMap done (fun v => pending (.inr v)))
+abbrev Rows.pending (t : Rows F S B I) : Code := t.withTransfers.pending
 
-def Rows.second : {I : Code} → (t : Rows F S B I) → Step F t.pending (.sum B S)
-  | _, .leaf (.one r) => row r U
-  | _, .leaf (.two f _ k) => tabulate f.replyCode (fun v => row (k v) U)
-  | _, .split l r => .split l.second r.second
+abbrev Rows.firstMap (t : Rows F S B I)
+    (done : (Code.sum B S).Value → O.Value) (pending : t.pending.Value → O.Value) : Step F I O :=
+  t.withTransfers.firstMap done pending
 
-def Rows.fused : {I : Code} → Rows F S B I → Step F I (.sum B S)
-  | _, .leaf (.one r) => row r U
-  | _, .leaf (.two f x k) => .call f x (tabulate f.replyCode (fun v => row (k v) U))
-  | _, .split l r => .split l.fused r.fused
+abbrev Rows.second (t : Rows F S B I) : Step F t.pending (.sum B S) :=
+  t.withTransfers.second
 
-def Rows.first (t : Rows F S B I) : Step F I (.sum (.sum B S) t.pending) :=
-  t.firstMap Sum.inl Sum.inr
+abbrev Rows.fused (t : Rows F S B I) : Step F I (.sum B S) :=
+  t.withTransfers.fused
 
-def Rows.expanded (t : Rows F S B S) : Step F (.sum S t.pending) (.sum B (.sum S t.pending)) :=
-  .split (t.firstMap (Sum.map id Sum.inl) (fun v => .inr (.inr v)))
-    (Step.mapOut (O := .sum B S) (P := .sum B (.sum S t.pending)) (Sum.map id Sum.inl) t.second)
+abbrev Rows.first (t : Rows F S B I) : Step F I (.sum (.sum B S) t.pending) :=
+  t.withTransfers.first
+
+abbrev Rows.expanded (t : Rows F S B S) : Step F (.sum S t.pending) (.sum B (.sum S t.pending)) :=
+  t.withTransfers.expanded
 
 def fusedLoop (t : Rows F S B S) (init : S.Value) : NTm F 0 :=
-  .iter (nativeValue 0 S init) (t.fused.native 0)
+  Transfer.fusedLoop t.withTransfers init
 
 def expandedLoop (t : Rows F S B S) (init : S.Value) : NTm F 0 :=
-  .iter (nativeValue 0 (.sum S t.pending) (.inl init)) (t.expanded.native 0)
+  Transfer.expandedLoop t.withTransfers init
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport.Mixed
