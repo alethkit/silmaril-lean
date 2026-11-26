@@ -1,6 +1,5 @@
 module
 
-public import Silmaril.SSA.Isotope.Institution.Parallel.Inclusions.Thms
 public import Silmaril.Raw.SSA.Isotope.Institution.Borrowing
 public import Silmaril.Raw.SSA.Isotope.Institution.Refinement.Comorphism
 public import Silmaril.Raw.SSA.Isotope.Institution.Observational.Isomorphism

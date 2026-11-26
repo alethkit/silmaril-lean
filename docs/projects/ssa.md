@@ -351,8 +351,9 @@ native `Equiv` equation to a derivable equation between its relabeled terms.
 This includes the purity-guarded schemes.
 
 The observation institutions accept an arbitrary supplied `ParOp`.
-`LetParInstitutionTests` derives a relabeled native swap and refutes its
-satisfaction in the ordered writer model, where the two endpoints log
+The parallel institution fixture in `tests/ssa/LetIterWeakTreeSoundness.lean`
+derives a relabeled native swap and refutes its satisfaction in the ordered
+writer model, where the two endpoints log
 `[2, 7]` and `[7, 2]`. The same swap holds in the writer model whose
 parallel operation orders the two branch logs by their first tag. The
 fixture also shows that ordinary pairing keeps left-to-right order in
