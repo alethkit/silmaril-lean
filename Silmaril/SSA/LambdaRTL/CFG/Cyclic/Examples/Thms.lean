@@ -390,10 +390,18 @@ example : Eval (NamedFlat.instr prim) capturedEnv admitted.val.erase () 0 (.atom
 
 -- The two captures feed the original entry. Both named back edges are
 -- reflected in the packed dispatcher run, with the same observed payload.
-example : Eval (NamedFlat.instr prim) ambient (FiniteCFG.packedExecutionRegion closed.property.1)
-    () 0 (Region.packedExitValue 0 (.atom 2)) () :=
+private theorem packed_countdown :
+    Eval (NamedFlat.instr prim) ambient (FiniteCFG.packedExecutionRegion closed.property.1)
+      () 0 (Region.packedExitValue 0 (.atom 2)) () :=
   (NamedFlat.packed_run_iff admitted.property.1 captureAgreement closed.property.1
     closed.property.2 (read_packet capturedEnv)).mp numbered_countdown
+
+-- The packed observation also reflects back to the original mutable source.
+example : (0, .atom 2) ∈
+    ((obs <$> Cyclic.run (NamedFlat.model prim) profiledLoop (taggedStore 2 0)) >>=
+      NamedFlat.numberExit [99]) :=
+  (NamedFlat.mutable_packed_run_iff admitted.property.1 captureAgreement closed.property.1
+    closed.property.2 (read_packet capturedEnv)).mpr packed_countdown
 
 private def stepWithin : Nat → Nat × Value Nat → Part (Nat × Value Nat)
   | 0, _ => Part.none
