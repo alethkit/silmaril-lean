@@ -84,11 +84,16 @@ def lower (cells : Nat) (graph : Graph args) : Program cells args where
           ⟨.exit, .cons (.there .here) .nil⟩⟩
     | .exit => ⟨.exit, .ret (.cons .here .nil)⟩
 
-/-- Observe the returned word and every final cell at raw CFG block fuel. -/
-def runFuel (graph : Graph args) (input : Tuple (Val cells) args)
+/-- Observe a typed CFG at raw block fuel, including its whole final buffer. -/
+def runProgram (program : Program cells args) (input : Tuple (Val cells) args)
     (fuel : Nat) (initial : Buffer cells) : Option (Word × Buffer cells) := do
-  let (result, final) ← ((lower cells graph).run (evalBody input) fuel .nil).run initial
+  let (result, final) ← (program.run (evalBody input) fuel .nil).run initial
   result.map fun values => (values.get .here, final)
+
+/-- Execute the emitted CFG at raw block fuel. -/
+def runFuel (graph : Graph args) (input : Tuple (Val cells) args)
+    (fuel : Nat) (initial : Buffer cells) : Option (Word × Buffer cells) :=
+  runProgram (lower cells graph) input fuel initial
 
 /-- Allow the entry block, the initial header, the requested backedges,
 and the exit block. -/
