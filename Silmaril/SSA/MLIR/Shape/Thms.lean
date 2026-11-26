@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.MLIR.Shape.Defs
+import Silmaril.Proofs.SSA.MLIR.Shape.Broadcast
 
 public section
 
@@ -95,5 +96,81 @@ theorem toExtentTensor?_ofStatic (shape : Tensor.Shape) :
 theorem toExtentTensor?_fromExtentTensor (extents : ExtentTensor) :
     toExtentTensor? (fromExtentTensor extents) = some (.defined extents) := by
   rw [fromExtentTensor, toExtentTensor?_ofStatic, ExtentTensor.extentTensor_toShape]
+
+/-- The binary broadcast returns exactly the shape specified by trailing alignment. -/
+theorem broadcastConcrete?_eq_some_iff (lhs rhs result : Tensor.Shape) :
+    broadcastConcrete? lhs rhs = some result ↔ BroadcastsTo lhs rhs result :=
+  Proofs.MLIR.Shape.broadcastConcrete?_eq_some_iff lhs rhs result
+
+/-- A concrete broadcast fails exactly when an aligned pair disagrees and neither extent is one. -/
+theorem broadcastConcrete?_eq_none_iff (lhs rhs : Tensor.Shape) :
+    broadcastConcrete? lhs rhs = none ↔
+      ∃ dim : Fin (max lhs.length rhs.length),
+        let rank := max lhs.length rhs.length
+        let a := (lhs.leftpad rank 1)[dim.val]?.getD 1
+        let b := (rhs.leftpad rank 1)[dim.val]?.getD 1
+        a ≠ b ∧ a ≠ 1 ∧ b ≠ 1 :=
+  Proofs.MLIR.Shape.broadcastConcrete?_eq_none_iff lhs rhs
+
+theorem broadcast?_ofStatic (lhs rhs : Tensor.Shape) :
+    broadcast? (.ofStatic lhs) (.ofStatic rhs) =
+      some (((broadcastConcrete? lhs rhs).map ShapeValue.ofStatic).getD .invalid) := by
+  change (do
+    let a ← (ShapeValue.ofStatic lhs).toStatic?
+    let b ← (ShapeValue.ofStatic rhs).toStatic?
+    return ((broadcastConcrete? a b).map ShapeValue.ofStatic).getD .invalid) = _
+  simp [ShapeValue.toStatic?_ofStatic]
+
+theorem broadcast?_ofStatic_eq_some_iff (lhs rhs result : Tensor.Shape) :
+    broadcast? (.ofStatic lhs) (.ofStatic rhs) = some (.ofStatic result) ↔
+      BroadcastsTo lhs rhs result := by
+  rw [broadcast?_ofStatic, ← broadcastConcrete?_eq_some_iff]
+  cases broadcastConcrete? lhs rhs <;> simp [ShapeValue.ofStatic, List.map_inj_right (fun _ _ => Option.some.inj)]
+
+theorem broadcast?_invalid_left (rhs : ShapeValue) : broadcast? .invalid rhs = some .invalid :=
+  rfl
+
+theorem broadcast?_invalid_right (lhs : ShapeValue) : broadcast? lhs .invalid = some .invalid := by
+  cases lhs <;> rfl
+
+theorem isBroadcastable?_ofStatic (lhs rhs : Tensor.Shape) :
+    isBroadcastable? (.ofStatic lhs) (.ofStatic rhs) = some (broadcastConcrete? lhs rhs).isSome := by
+  simp [isBroadcastable?, ShapeValue.toStatic?_ofStatic]
+
+theorem isBroadcastable?_ofStatic_eq_true_iff (lhs rhs : Tensor.Shape) :
+    isBroadcastable? (.ofStatic lhs) (.ofStatic rhs) = some true ↔
+      ∃ result : Tensor.Shape, broadcast? (.ofStatic lhs) (.ofStatic rhs) = some (.ofStatic result) := by
+  rw [isBroadcastable?_ofStatic, Option.some.injEq]
+  simpa only [broadcast?_ofStatic_eq_some_iff, ← broadcastConcrete?_eq_some_iff] using
+    (Option.isSome_iff_exists (x := broadcastConcrete? lhs rhs))
+
+theorem isBroadcastable?_ofStatic_eq_false_iff (lhs rhs : Tensor.Shape) :
+    isBroadcastable? (.ofStatic lhs) (.ofStatic rhs) = some false ↔
+      broadcast? (.ofStatic lhs) (.ofStatic rhs) = some .invalid := by
+  rw [isBroadcastable?_ofStatic, broadcast?_ofStatic]
+  cases broadcastConcrete? lhs rhs <;> simp [ShapeValue.ofStatic]
+
+theorem broadcastExtentTensor_eq_defined_iff (lhs rhs result : ExtentTensor) :
+    broadcastExtentTensor lhs rhs = .defined result ↔
+      BroadcastsTo lhs.toShape rhs.toShape result.toShape := by
+  have encode {shape : Tensor.Shape} : extentTensor shape = result ↔ shape = result.toShape :=
+    ⟨fun h => by rw [← h, ExtentTensor.toShape_extentTensor],
+      fun h => h ▸ ExtentTensor.extentTensor_toShape result⟩
+  rw [← broadcastConcrete?_eq_some_iff, broadcastExtentTensor]
+  cases broadcastConcrete? lhs.toShape rhs.toShape <;> simp [encode]
+
+theorem isBroadcastable?_fromExtentTensor_eq_true_iff (lhs rhs : ExtentTensor) :
+    isBroadcastable? (fromExtentTensor lhs) (fromExtentTensor rhs) = some true ↔
+      ∃ result : ExtentTensor, broadcastExtentTensor lhs rhs = .defined result := by
+  rw [fromExtentTensor, fromExtentTensor, isBroadcastable?_ofStatic_eq_true_iff]
+  simp only [broadcast?_ofStatic_eq_some_iff, broadcastExtentTensor_eq_defined_iff]
+  exact ⟨fun ⟨shape, h⟩ => ⟨extentTensor shape, by simpa only [ExtentTensor.toShape_extentTensor]⟩,
+    fun ⟨result, h⟩ => ⟨result.toShape, h⟩⟩
+
+theorem isBroadcastable?_fromExtentTensor_eq_false_iff (lhs rhs : ExtentTensor) :
+    isBroadcastable? (fromExtentTensor lhs) (fromExtentTensor rhs) = some false ↔
+      broadcastExtentTensor lhs rhs = .undefined := by
+  rw [fromExtentTensor, fromExtentTensor, isBroadcastable?_ofStatic, broadcastExtentTensor]
+  cases broadcastConcrete? lhs.toShape rhs.toShape <;> simp
 
 end Silmaril.MLIR.Shape

@@ -73,4 +73,33 @@ theorem fromExtentTensor_reads_coordinates :
     let extents : ExtentTensor := ⟨2, fun dim => if dim.1.val = 0 then 5 else 3⟩
     (fromExtentTensor extents).toStatic? = some [5, 3] := rfl
 
+theorem broadcast_aligns_trailing_extents :
+    broadcast? (.ofStatic [2, 1, 0]) (.ofStatic [0, 1]) = some (.ofStatic [2, 0, 0]) := rfl
+
+theorem broadcast_rank_zero_pair : broadcast? (.ofStatic []) (.ofStatic []) =
+    some (.ofStatic []) := rfl
+
+theorem broadcast_rank_zero_with_zero_extent :
+    broadcast? (.ofStatic []) (.ofStatic [3, 0]) = some (.ofStatic [3, 0]) := rfl
+
+theorem broadcast_zero_and_two_are_incompatible :
+    broadcast? (.ofStatic [3, 0]) (.ofStatic [2]) = some .invalid := rfl
+
+theorem broadcastExtentTensor_trailing_extents :
+    broadcastExtentTensor (extentTensor [2, 2]) (extentTensor [3, 1, 2]) =
+      .defined (extentTensor [3, 2, 2]) := rfl
+
+theorem broadcastExtentTensor_incompatible_is_undefined :
+    broadcastExtentTensor (extentTensor [3, 0]) (extentTensor [2]) = .undefined := rfl
+
+theorem isBroadcastable_concrete :
+    isBroadcastable? (.ofStatic [2, 2]) (.ofStatic [3, 1, 2]) = some true ∧
+    isBroadcastable? (.ofStatic [2, 2]) (.ofStatic [3, 2]) = some false := ⟨rfl, rfl⟩
+
+theorem broadcast_partial_outside_profile :
+    broadcast? (.ranked [none]) (.ofStatic [1]) = none := rfl
+
+theorem isBroadcastable_invalid_outside_profile :
+    isBroadcastable? .invalid (.ofStatic [1]) = none := rfl
+
 end Silmaril.MLIR.Shape.Examples
