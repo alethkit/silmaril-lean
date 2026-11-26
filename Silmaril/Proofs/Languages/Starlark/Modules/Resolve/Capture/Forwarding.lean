@@ -77,6 +77,17 @@ private theorem head_selection {globals : List String} {outer : List (List Strin
   | mixed _ _ selected => exact ⟨_, selected⟩
   | wrapper _ _ selected => exact ⟨_, selected⟩
 
+theorem root_capture {globals : List String} {chain : Chain} {head : Frame} {rest : List Frame}
+    (emitted : Emits globals [] chain (head :: rest)) (entry : FreeName) (present : entry ∈ head.free) :
+    ∃ name ∈ globals, entry = reference (globalSlot name) := by
+  obtain ⟨_, selected⟩ := head_selection emitted
+  obtain ⟨binding, same, origin⟩ := selected_origin selected entry present
+  rcases origin with enclosing | global
+  · cases enclosing with
+    | enclosing _ missing => cases missing
+  · cases global with
+    | module _ _ member => exact ⟨_, member, same⟩
+
 private theorem child_read_origin (parameters locals : List String)
     {globals : List String} {outer : List (List String)} {child : Chain} {head : Frame} {rest : List Frame}
     (emitted : Emits globals ((parameters ++ locals) :: outer) child (head :: rest))
