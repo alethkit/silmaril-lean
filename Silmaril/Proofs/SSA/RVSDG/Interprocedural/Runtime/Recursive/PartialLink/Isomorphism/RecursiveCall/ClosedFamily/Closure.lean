@@ -137,6 +137,7 @@ theorem dispatch_ready (closed : ClosedFamily primitives ids familyL familyR) {a
   cases live with
   | region => intro _ _ _ _ _ _ _ _ equal _; cases equal
   | instruction => intro _ _ _ _ _ _ _ _ equal _; cases equal
+  | gamma => intro _ _ _ _ _ _ _ _ equal _; cases equal
   | returned => intro _ _ _ _ _ _ _ _ equal _; cases equal
   | call _ callees _ _ =>
     exact DispatchReady.call (closed.schedule memberL.1.1 memberR.1.1 callees)

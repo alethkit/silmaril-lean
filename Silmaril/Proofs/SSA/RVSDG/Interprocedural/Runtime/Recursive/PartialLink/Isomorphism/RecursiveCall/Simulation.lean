@@ -68,11 +68,15 @@ private theorem region_progress {vertices : Nat ≃ Nat}
     exact ⟨_, _, .single (structural rfl rfl), .single (structural rfl rfl),
       .instruction store instruction _ _ _ _ (readWires_related entry locals left right edges)
         (.resume position suffix entry locals frames)⟩
+  | gamma left right position edges children suffix _ _ =>
+    exact ⟨_, _, .single (structural rfl rfl), .single (structural rfl rfl),
+      .gamma store children (readWires_related entry locals left right edges)
+        (.resume position suffix entry locals frames)⟩
   | emptyLeft wires suffix ih =>
-    obtain ⟨nextL, nextR, pathL, pathR, related⟩ := ih locals.emptyLeft
+    obtain ⟨nextL, nextR, pathL, pathR, related⟩ := ih entry locals.emptyLeft frames
     exact ⟨nextL, nextR, TransGen.trans_right (skip_empty wires _ _ _ _ _) pathL, pathR, related⟩
   | emptyRight wires suffix ih =>
-    obtain ⟨nextL, nextR, pathL, pathR, related⟩ := ih locals.emptyRight
+    obtain ⟨nextL, nextR, pathL, pathR, related⟩ := ih entry locals.emptyRight frames
     exact ⟨nextL, nextR, pathL, TransGen.trans_right (skip_empty wires _ _ _ _ _) pathR, related⟩
 
 private theorem prepend_related {context : Ports (Ty V S)} {left right : Tuple m.Val context}
@@ -130,6 +134,13 @@ theorem advance {left right : Config m σ final}
         outerL outerR position suffix entry locals outer =>
       exact .stepped (.single (structural rfl rfl)) (.single (structural rfl rfl))
         (.region store suffix entry (locals.snoc vertices.injective position values) outer)
+  | gamma store children inputs frames =>
+    cases inputs with
+    | cons selector captures =>
+      cases selector with
+      | control tag =>
+        exact .stepped (.single (structural rfl rfl)) (.single (structural rfl rfl))
+          (.region store (children tag) captures LocalsRelated.empty frames)
   | @instruction ins outs stackL stackR inputL inputR store opcode csL csR childL childR inputs frames =>
     cases opcode with
     | apply fn =>

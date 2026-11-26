@@ -26,22 +26,29 @@ abbrev simple {past : List (Ports (Ty V S))} (instruction : Instruction Op ins o
     NestedTheta.Node (Instruction Op) args past outs :=
   ⟨ins, .base (.simple instruction), wires, cs⟩
 
+abbrev gammaNode {past : List (Ports (Ty V S))} {entry : Ports (Ty V S)} {extra : Nat}
+    (wires : Wires args past (.control (extra + 2) :: entry))
+    (cs : Fin (extra + 2) → List (Ports (Ty V S))) :
+    NestedTheta.Node (Instruction Op) args past outs :=
+  ⟨_, .base (.gamma extra), wires, cs⟩
+
 abbrev emptyGamma {past : List (Ports (Ty V S))} {entry : Ports (Ty V S)} {extra : Nat}
     (wires : Wires args past (.control (extra + 2) :: entry)) :
     NestedTheta.Node (Instruction Op) args past [] :=
-  ⟨_, .base (.gamma extra), wires, fun _ => []⟩
+  gammaNode wires (fun _ => [])
 
-/-- Align each primitive and application in execution order, checking
-typed wire endpoints and the actual binding addresses. Only a γ whose
-arms immediately return the empty tuple can move independently. -/
-inductive Schedule (Op : Dialect.{u, v} (ValueSort V S) S) (vertices : Nat ≃ Nat) :
-    {args outs : Ports (Ty V S)} → {pastL pastR sigsL sigsR : List (Ports (Ty V S))} →
+/-- Align primitives, applications and γ bindings in execution order,
+checking typed wire endpoints and actual binding addresses. Each γ arm
+has its own address map. Only γ bindings whose arms immediately return
+the empty tuple can move independently. -/
+inductive Schedule (Op : Dialect.{u, v} (ValueSort V S) S) :
+    (vertices : Nat ≃ Nat) → {args outs : Ports (Ty V S)} → {pastL pastR sigsL sigsR : List (Ports (Ty V S))} →
     Code Op args pastL sigsL outs → Code Op args pastR sigsR outs → Prop where
-  | ret {args outs : Ports (Ty V S)} {pastL pastR : List (Ports (Ty V S))}
+  | ret {vertices : Nat ≃ Nat} {args outs : Ports (Ty V S)} {pastL pastR : List (Ports (Ty V S))}
       (left : Wires args pastL outs) (right : Wires args pastR outs)
       (edges : left.addresses.map (Address.rename vertices) = right.addresses) :
       Schedule Op vertices (.ret left) (.ret right)
-  | bind {args outs ins head : Ports (Ty V S)}
+  | bind {vertices : Nat ≃ Nat} {args outs ins head : Ports (Ty V S)}
       {pastL pastR sigsL sigsR : List (Ports (Ty V S))}
       (instruction : Instruction Op ins head)
       (left : Wires args pastL ins) (right : Wires args pastR ins)
@@ -55,13 +62,29 @@ inductive Schedule (Op : Dialect.{u, v} (ValueSort V S) S) (vertices : Nat ≃ N
       (rest : Schedule Op vertices restL restR) :
       Schedule Op vertices (.bind (simple instruction left csL) childrenL restL)
         (.bind (simple instruction right csR) childrenR restR)
-  | emptyLeft {args outs entry : Ports (Ty V S)}
+  | gamma {vertices : Nat ≃ Nat} {args outs entry head : Ports (Ty V S)}
+      {pastL pastR sigsL sigsR : List (Ports (Ty V S))} {extra : Nat}
+      (left : Wires args pastL (.control (extra + 2) :: entry))
+      (right : Wires args pastR (.control (extra + 2) :: entry))
+      {csL csR : Fin (extra + 2) → List (Ports (Ty V S))}
+      {childrenL : (i : Fin (extra + 2)) → Code Op entry [] (csL i) head}
+      {childrenR : (i : Fin (extra + 2)) → Code Op entry [] (csR i) head}
+      {restL : Code Op args (pastL ++ [head]) sigsL outs}
+      {restR : Code Op args (pastR ++ [head]) sigsR outs}
+      (position : vertices pastL.length = pastR.length)
+      (edges : left.addresses.map (Address.rename vertices) = right.addresses)
+      {arms : Fin (extra + 2) → Nat ≃ Nat}
+      (children : ∀ i, Schedule Op (arms i) (childrenL i) (childrenR i))
+      (rest : Schedule Op vertices restL restR) :
+      Schedule Op vertices (.bind (gammaNode (entry := entry) (outs := head) (extra := extra) left csL) childrenL restL)
+        (.bind (gammaNode (entry := entry) (outs := head) (extra := extra) right csR) childrenR restR)
+  | emptyLeft {vertices : Nat ≃ Nat} {args outs entry : Ports (Ty V S)}
       {pastL pastR sigsL sigsR : List (Ports (Ty V S))} {extra : Nat}
       (wires : Wires args pastL (.control (extra + 2) :: entry))
       {restL : Code Op args (pastL ++ [[]]) sigsL outs} {right : Code Op args pastR sigsR outs}
       (rest : Schedule Op vertices restL right) :
       Schedule Op vertices (.bind (emptyGamma wires) (fun _ => .ret .nil) restL) right
-  | emptyRight {args outs entry : Ports (Ty V S)}
+  | emptyRight {vertices : Nat ≃ Nat} {args outs entry : Ports (Ty V S)}
       {pastL pastR sigsL sigsR : List (Ports (Ty V S))} {extra : Nat}
       (wires : Wires args pastR (.control (extra + 2) :: entry))
       {left : Code Op args pastL sigsL outs} {restR : Code Op args (pastR ++ [[]]) sigsR outs}
@@ -80,7 +103,9 @@ inductive ResolvedSchedule (Op : Dialect.{u, v} (ValueSort V S) S) (m : Machine.
       ResolvedSchedule Op m fn ⟨context, left, sigsL, bodyL⟩ ⟨context, right, sigsR, bodyR⟩
 
 /-- Both frames suspend their actual suffix, entry and locals. The
-paired producer position is that of the binding waiting for a result. -/
+paired producer position is that of the binding waiting for a result.
+A selected γ body returns through this same binding frame, with its
+parent's locals saved while the child runs in a fresh scope. -/
 inductive Frames (m : Machine.{u, v, w} Op) (ids : GlobalRel) (final : Ports (Ty V S)) :
     {ports : Ports (Ty V S)} → Stack m ports final → Stack m ports final → Prop where
   | halt : Frames m ids final .halt .halt
@@ -121,6 +146,17 @@ inductive Live (m : Machine.{u, v, w} Op) (ids : GlobalRel) (σ : Type (max u v 
       (inputs : TupleRelated m ids inputL inputR) (frames : Frames m ids final stackL stackR) :
       Live m ids σ final ⟨.eval (.node (.base (.simple opcode)) csL childrenL inputL) stackL, store⟩
         ⟨.eval (.node (.base (.simple opcode)) csR childrenR inputR) stackR, store⟩
+  | gamma {entry outs : Ports (Ty V S)} {extra : Nat}
+      {stackL stackR : Stack m outs final}
+      {inputL inputR : Tuple m.Val (.control (extra + 2) :: entry)} (store : σ)
+      {csL csR : Fin (extra + 2) → List (Ports (Ty V S))}
+      {childrenL : (i : Fin (extra + 2)) → Code Op entry [] (csL i) outs}
+      {childrenR : (i : Fin (extra + 2)) → Code Op entry [] (csR i) outs}
+      {arms : Fin (extra + 2) → Nat ≃ Nat}
+      (children : ∀ i, Schedule Op (arms i) (childrenL i) (childrenR i))
+      (inputs : TupleRelated m ids inputL inputR) (frames : Frames m ids final stackL stackR) :
+      Live m ids σ final ⟨.eval (.node (.base (.gamma (entry := entry) (exit := outs) extra)) csL childrenL inputL) stackL, store⟩
+        ⟨.eval (.node (.base (.gamma (entry := entry) (exit := outs) extra)) csR childrenR inputR) stackR, store⟩
   | call {args outs : Ports (Ty V S)} {calleeL calleeR : m.Val (.value (.function args outs))}
       {inputL inputR : Tuple m.Val args} {stackL stackR : Stack m outs final} (store : σ)
       (callees : ValueRelated m ids calleeL calleeR) (inputs : TupleRelated m ids inputL inputR)
