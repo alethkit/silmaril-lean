@@ -827,8 +827,50 @@ checks all three packets and return costs, rejects a malformed last
 column, and exercises the one-slot family.
 [Checked regression][table-regression]
 
+### Extract explicit Φ from the emitted RTL
+
+`Family.Phi.extract fn tests` runs the ordinary RTL checker and reads
+the actual header incoming operands from `fn`. Its typed finite index
+enumerates the entry at `(0, 0)` and then feedback slot `i` at
+`(3 + i, 0)`. The pair is the source block and successor position.
+`reemit_roundTrip` decodes the `PhiView` column into the original
+ordered RTL operands at each occurrence. The view presents branch leaves
+in a flat word-register context. `selected` compares a normalized branch's
+actual λSSA evaluation with the RTL transfer from the same pre-rebind frame,
+including the complete bank and memory. [Public API][family-phi]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms
+
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+
+example {entrySigs sigs : List (List PortTy)} (source : Family.Source 4 3 entrySigs sigs 2)
+    (slot : Fin 3) :
+    let fn := Family.lowerFunc source
+    let view := (Family.Phi.extract fn 2).get (Family.Phi.extract_family source)
+    let key := Family.Phi.key slot.succ
+    (fn.block? key.1).bind (fun block => block.term.args[key.2]?) = view.reemit slot.succ :=
+  Family.Phi.reemit_roundTrip _ slot.succ
+```
+
+`region_hasType` and `region_return_iff` concern the whole region emitted by
+the canonical `RTL.SSA.toLambdaSSA` translator. Its packed exit-zero return
+agrees with the machine's word list and final memory. Compose with
+`Family.rtl_return_iff` for the native trace and unchanged full memory.
+`region_no_return_iff` quantifies over all finite return witnesses. The three-to-four regression covers all
+three feedback packets, a missing occurrence, a finite return and a
+fixed bank with no finite return. [Checked regression][table-regression]
+
+The present MLIR CF bank emitter supports wrapping add/mul and unsigned
+less-than. This RTL family also uses wrapping subtraction and signed
+less-than. A CF bridge needs checked arithmetic legalization and explicit
+arguments for the header temporaries read by later dispatch blocks. This
+bridge targets λSSA. [CF bank emitter][cf-bank] · [CF block scope][cf-scope]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
+  +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Regression \
@@ -860,3 +902,6 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 [table-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Regression.lean
 
 [resized-rtl]: https://github.com/hiloopai/silmaril-lean/pull/4456
+[family-phi]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/Phi/Thms.lean
+[cf-bank]: ../../Silmaril/SSA/SeaOfNodes/Loop/MLIR/CF/Defs.lean
+[cf-scope]: ../../Silmaril/SSA/MLIR/CF/Basic/Defs.lean
