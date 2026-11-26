@@ -1559,6 +1559,23 @@ same effectful reply position reaches an ordered exit or a silent cycle
 at the same label depending on the returned packet.
 [Packet-indexed reachable product][ssa-ub-packet-dispatch-product]
 
+The dispatcher cutoff also decides the refinement sentence between the
+original decorated entries. The sentence uses the existing observational
+inclusion syntax. Its satisfaction adapter records a separate observation
+for fresh top at each initial state, so expanding the ordinary outcomes
+does not lose the lifted order. The native LambdaSSA room accepts scoped
+native CFGs. The adapter agrees with satisfaction in that room when both
+entries use the ambient capture unchanged and every exit forwards.
+
+The supported models fix the atomic carrier to Unit and use the exact
+success, fault and primitive-divergence graph of a shared total typed
+deterministic interpreter. Each endpoint rebinds the caller through its
+own typed decoder while keeping all three relations. The validity theorem
+quantifies over any machine-state type at the chosen universe. A negative
+verdict supplies failure of satisfaction in a model whose state carrier is
+the computed finite cutoff. Failed exact readback still returns unknown.
+[Dispatcher refinement sentences][ssa-ub-packet-dispatch-institution]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1738,6 +1755,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-silent]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Thms.lean
 [ssa-ub-packet-dispatch]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Dispatch/Thms.lean
 [ssa-ub-packet-dispatch-product]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Dispatch/Product/Thms.lean
+[ssa-ub-packet-dispatch-institution]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Dispatch/Product/Institution/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
 

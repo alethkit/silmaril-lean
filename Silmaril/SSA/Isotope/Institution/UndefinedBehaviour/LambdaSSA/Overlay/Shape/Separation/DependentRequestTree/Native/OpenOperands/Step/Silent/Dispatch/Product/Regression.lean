@@ -1,5 +1,6 @@
 module
 
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Silent.Dispatch.Product.Institution.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Silent.Dispatch.Product.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Silent.Dispatch.Thms
 
@@ -134,5 +135,62 @@ example (s : Nat) :
       WithTop.some {Outcome.fault (s + 7)} :=
   (marked.observe_entry _ rfl configs zero fault s).trans
     (marked.observe_step configs zero fault ⟨0, zero⟩ s)
+
+private abbrev replyModel (value : Payload Bit) : CodedModel.{0,0} Op Bit :=
+  ⟨Fin 3, zero, fun _ _ s => .ret (pack (L := [Bit]) ⟨0, value⟩) (s + 1)⟩
+
+private theorem forward : ∀ M : CodedModel.{0,0} Op Bit,
+    M.Sat (source.refinementSentence marked source.native marked.native id id) :=
+  (Table.checkEntries_satisfies_iff (callers := callers) (replies := replies) (left := configs)
+    (right := configs) (by rfl) (by rfl)).mp rfl
+
+example : (replyModel one).Sat (source.refinementSentence marked source.native marked.native id id) :=
+  forward (replyModel one)
+
+-- The very same handler refutes the reverse sentence when it returns the
+-- payload that reaches exit one at the changed store.
+example : ¬ (replyModel one).Sat (marked.refinementSentence source marked.native source.native id id) := by
+  let prim : Primitives Op 3 := (replyModel one).handler
+  have top : Shape.denote (withExitUB marked.native marked.selected) (model prim (marked.visible.bindings zero))
+      (0 : Fin 3) = ⊤ :=
+    (marked.observe_entry _ rfl configs zero prim 0).trans
+      ((marked.observe_step configs zero prim ⟨0, zero⟩ 0).trans
+        (marked.observe_step configs zero prim ⟨1, one⟩ 1))
+  have returns : Shape.denote (withExitUB source.native source.selected) (model prim (source.visible.bindings zero))
+      (0 : Fin 3) = WithTop.some {Outcome.ret (1 : Fin 2) .unit (1 : Fin 3)} :=
+    (source.observe_entry _ rfl configs zero prim 0).trans
+      ((source.observe_step configs zero prim ⟨0, zero⟩ 0).trans
+        (source.observe_step configs zero prim ⟨1, one⟩ 1))
+  intro sat
+  have ordered : Shape.denote (withExitUB marked.native marked.selected) (model prim (marked.visible.bindings zero))
+      (0 : Fin 3) ≤ Shape.denote (withExitUB source.native source.selected) (model prim (source.visible.bindings zero)) 0 :=
+    (CodedModel.sat_refinement_iff (replyModel one)).mp sat 0
+  rw [top, returns] at ordered
+  exact WithTop.coe_ne_top (top_unique ordered)
+
+-- The other payload loops in both originals, so the same decoration never
+-- introduces UB from this model's caller and reply.
+example : (replyModel zero).Sat (marked.refinementSentence source marked.native source.native id id) := by
+  apply (CodedModel.sat_refinement_iff (replyModel zero)).mpr
+  intro s
+  let prim : Primitives Op 3 := (replyModel zero).handler
+  have left : Shape.denote (withExitUB marked.native marked.selected) (model prim (marked.visible.bindings zero)) s =
+      WithTop.some {Outcome.diverge} :=
+    (marked.observe_entry _ rfl configs zero prim s).trans
+      ((marked.observe_step configs zero prim ⟨0, zero⟩ s).trans
+        (marked.observe_step configs zero prim ⟨1, zero⟩ (s + 1)))
+  have right : Shape.denote (withExitUB source.native source.selected) (model prim (source.visible.bindings zero)) s =
+      WithTop.some {Outcome.diverge} :=
+    (source.observe_entry _ rfl configs zero prim s).trans
+      ((source.observe_step configs zero prim ⟨0, zero⟩ s).trans
+        (source.observe_step configs zero prim ⟨1, zero⟩ (s + 1)))
+  exact (left.trans right.symm).le
+
+example : ∃ (input : Payload Bit) (handler : Primitives Op 3),
+    ¬ (CodedModel.mk (Fin 3) input handler).Sat
+      (marked.refinementSentence source marked.native source.native id id) := by
+  have rejected : marked.checkEntries? source marked.native source.native callers id id replies configs configs =
+      some false := rfl
+  exact Table.checkEntries_countermodel rejected
 
 end Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Silent.Dispatch.ProductRegression
