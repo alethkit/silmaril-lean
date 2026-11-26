@@ -806,6 +806,26 @@ while admission rejects the unchecked position. It also rejects a site
 that takes its callable from a formal input.
 [Linked fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
 
+### Running backward demand on a numbered λ export
+
+`Plan.analyzeNumbered` takes a typed numbered `Omega` and a demand plan
+for its exact recovered source. The admitted layout starts with one
+checked φ family, followed by ordered λ bindings, and exports the final
+checked λ. Both links use the same numbered module and initial store.
+The caller supplies the source correspondence and the φ readiness proofs.
+The existing prefix checks can reject a plan when callable membership or
+local resolution fails.
+
+The successful result exposes the existing `GenKill` problem through
+`problem`. Its executable `liveIn` list agrees with the least `mayOut 0`
+solution. Use `liveCapture` and `liveFormal` to query typed inputs and
+`ExportAnalysis.linked_prefixes_agree` to consume these facts in the
+actual runner. Callable dispatch evidence stays in the checked link.
+The numbered θ/γ fixture consumes the formal facts, varies a dead input,
+and checks exact return, block, and resumption. The swapped θ backedge
+fails the same public admission.
+[Numbered demand API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Thms.lean)
+
 ### Synthesizing direct call resolution
 
 `Plan.lambdaDirect` and `Plan.finishDirect` construct the existing local
