@@ -27,6 +27,8 @@ open SCCP.Dispatch.DeleteRoute.Bypass.Backends.Guarded.Institution
 open Reindex.Guarded.Institution (AdmittedAt Generated Valuation generatedRoom)
 open Reindex.Guarded.Institution renaming Signature → EntrySignature
 
+universe u
+
 variable {S T : EntrySignature} {old new : List (ValueSort Width)} {out : ValueSort Width}
 variable {result : Width}
 
@@ -44,6 +46,10 @@ theorem reduct_identifies (map : PortMap S T) (input : Valuation T) {t : SeaOfNo
     (left right : Port (dataPorts S.regs) t) (identified : map t left = map t right) :
     (reduct map input).get left = (reduct map input).get right := by
   rw [reduct_get, reduct_get, identified]
+
+theorem ports_complete {K : Type u} {ts : List K} {t : K} (port : Port ts t) :
+    (⟨t, port⟩ : Sigma (Port ts)) ∈ ports ts :=
+  Proofs.ports_complete port
 
 theorem checkWrites_iff (map : BankMap old new) (p : Program Op old out) :
     checkWrites map p = true ↔ SafeWrites map p :=

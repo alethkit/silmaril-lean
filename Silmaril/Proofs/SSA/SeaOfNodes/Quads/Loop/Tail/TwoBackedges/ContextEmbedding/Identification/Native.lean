@@ -39,7 +39,7 @@ theorem reduct_embedding (embedding : Embedding S T) (input : Valuation T) :
     reduct embedding.portMap input = embedding.reduct input :=
   tuple_ext fun port => (pull_get embedding.portMap input port).trans (embedding.reduct_get input port).symm
 
-private theorem ports_complete {K : Type u} {ts : List K} {t : K} (port : Port ts t) :
+theorem ports_complete {K : Type u} {ts : List K} {t : K} (port : Port ts t) :
     (⟨t, port⟩ : Sigma (Port ts)) ∈ ports ts := by
   induction port with
   | head => exact List.mem_cons_self
