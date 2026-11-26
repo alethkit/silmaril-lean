@@ -2,6 +2,7 @@ module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
@@ -700,31 +701,62 @@ private def branchRefL : machine.Val branchFn.port :=
 private def branchRefR : machine.Val branchFn.port :=
   .member (.cons (globalValue 1 8) .nil) branchGroupR.toGraph.definitions 0
 
-private theorem branchRefs : ValueRelated machine ids branchRefL branchRefR := by
-  have capture : ValueRelated machine ids (globalValue 0 8) (globalValue 1 8) :=
-    .global ⟨rfl, rfl⟩ (ValueRelated.data (m := machine) (ids := ids) (t := ()) (8 : Nat))
-  refine .member (members := [branchFn]) (tableL := branchGroupL.toGraph.definitions)
-    (tableR := branchGroupR.toGraph.definitions) (.cons capture .nil) ?_ 0
-  exact Fin.cases ⟨⟨rfl, rfl⟩, branchBodyIso⟩ (fun i => i.elim0)
+private theorem branchGroupsIso : branchGroupL.Renumbered (renameVertex positions) branchGroupR :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyIso⟩ (fun i => i.elim0)⟩
 
-private theorem checkedBranchFamily :
-    RecursiveCall.Numbered.CheckedFamily primitives ids (Supported branchRefL) (Supported branchRefR) where
-  closedL := primitivesClosed branchRefL (by
-    intro _ _ _ member
-    cases member
-    exact ⟨.capture 73 0 8, .self, trivial⟩)
-  closedR := primitivesClosed branchRefR (by
-    intro _ _ _ member
-    cases member
-    exact ⟨.capture 73 1 8, .self, trivial⟩)
-  graphs := by
-    intro _ _ _ _ left right _
-    cases left
-    cases right
-    exact RecursiveCall.Numbered.inferResolved_sound (keys := instructionKeys) (by cbv)
+private theorem branchModulesIso : branchModuleL.toGraph.RenumberedBy branchModuleR.toGraph positions :=
+  (branchModuleL.renumberedBy_toGraph_iff branchModuleR positions).2
+    ⟨Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+      (Fin.cases (.phi branchGroupsIso) (Fin.cases (.phi ⟨⟨rfl, rfl⟩, fun i => i.elim0⟩) (fun i => i.elim0))), rfl⟩
 
-private theorem branchFamily : ClosedFamily primitives ids (Supported branchRefL) (Supported branchRefR) :=
-  checkedBranchFamily.toClosed
+private theorem branchOrder : Ordered Op (renameVertex positions) args [branchFn.port]
+    branchModuleL.toGraph.toTerm.region branchModuleR.toGraph.toTerm.region := by
+  rw [OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+  exact .emptyRight (.bind rfl (.delta ⟨rfl, rfl⟩ seedTerm)
+    (.bind rfl (.phi branchGroupsIso) (.emptyLeft (.ret _ _))))
+
+private theorem branchOutcomes : OutcomesRelated machine ids Nat (renameVertex positions) [branchFn.port]
+    (.linked (.cons branchRefL .nil) 23) (.linked (.cons branchRefR .nil) 23) := by
+  have imports : TupleRelated machine ids (number 1) (number 1) :=
+    .cons (ValueRelated.data (m := machine) (ids := ids) (t := ()) (1 : Nat)) .nil
+  have linked := link_related (unitL := 73) (unitR := 73) respects branchModulesIso branchOrder
+    (fun _ => ⟨rfl, rfl⟩) imports 20
+  have left : link primitives 73 branchModuleL.toGraph (number 1) 20 = .linked (.cons branchRefL .nil) 23 :=
+    (Executable.link_eq actions 73 branchModuleL.toGraph (number 1) 20).symm.trans (by cbv)
+  have right : link primitives 73 branchModuleR.toGraph (number 1) 20 = .linked (.cons branchRefR .nil) 23 :=
+    (Executable.link_eq actions 73 branchModuleR.toGraph (number 1) 20).symm.trans (by cbv)
+  rwa [left, right] at linked
+
+private theorem ordinaryOutputs : RecursiveCall.Numbered.OrdinaryOutputs Op := by
+  intro _ _ opcode
+  cases opcode <;> rfl
+
+set_option maxHeartbeats 800000 in
+private theorem branchAccepted :
+    RecursiveCall.Numbered.checkExport instructionKeys branchRefL branchRefR = true := by
+  simp only [RecursiveCall.Numbered.checkExport, branchRefL, branchRefR,
+    RecursiveCall.Numbered.exportGroup]
+  cbv
+
+private theorem branchAdmission :
+    RecursiveCall.Numbered.ExportAdmission primitives ids branchRefL branchRefR :=
+  RecursiveCall.Numbered.checkExport_sound ordinaryOutputs branchAccepted
+
+-- The linked member captures an imported function from outside its own
+-- group. This origin is unsupported even though the body ignores it.
+private abbrev unitFn : Function Unit Unit := ⟨[], []⟩
+
+private def externalCaptureGroup : PhiTerm Op [branchFn.port] [] [unitFn] :=
+  ⟨[branchFn.port], .cons (.arg .head) .nil, .cons ⟨[], .nil, [], .ret .nil⟩ .nil⟩
+
+private def externalCaptureModule : OmegaTerm Op [branchFn.port] [unitFn.port] [[unitFn.port]] :=
+  ⟨.bind (.phi externalCaptureGroup) (.ret (.cons (.output (0 : Fin 1) .head) .nil))⟩
+
+example : match Executable.link actions 74 externalCaptureModule.toGraph (.cons branchRefL .nil) 23 with
+    | .linked exports _ =>
+      (RecursiveCall.Numbered.admitExport instructionKeys primitives ids ordinaryOutputs
+        (exports.get .head) (exports.get .head)).isSome = false
+    | .undefined _ => False := by cbv
 
 private def branchArgs (flag : Nat) : Tuple machine.Val branchFn.args :=
   .cons (.data flag) (.cons (.control 1) (.cons (.control 0) .nil))
@@ -733,14 +765,12 @@ private def branchStart (ref : machine.Val branchFn.port) (flag : Nat) : Config 
   ⟨Continuation.start (.call ref (branchArgs flag)), 23⟩
 
 private theorem branchAdmitted (flag : Nat) :
-    Admitted machine ids (Supported branchRefL) (Supported branchRefR)
-      (branchStart branchRefL flag) (branchStart branchRefR flag) := by
+    ∃ familyL familyR, ClosedFamily primitives ids familyL familyR ∧
+      Admitted machine ids familyL familyR (branchStart branchRefL flag) (branchStart branchRefR flag) := by
   have inputs : TupleRelated machine ids (branchArgs flag) (branchArgs flag) :=
     .cons (ValueRelated.data (m := machine) (ids := ids) (t := ()) flag)
       (.cons (.control 1) (.cons (.control 0) .nil))
-  exact Admitted.call (familyL := Supported branchRefL) (familyR := Supported branchRefR)
-    branchRefs inputs .self .self ⟨.number flag, .control 1, .control 0, trivial⟩
-    ⟨.number flag, .control 1, .control 0, trivial⟩ 23
+  exact branchAdmission.atExport .head branchOutcomes inputs rfl
 
 private theorem branchLinkedL (flag : Nat) :
     Executable.start actions 73 branchModuleL.toGraph (number 1) .head (branchArgs flag) 20 =
@@ -761,8 +791,9 @@ example : ∃ sourceL sourceR endR,
     ReflTransGen (Step primitives) sourceR endR ∧ endR.result = some (number 30, 37) := by
   have reached := Continuation.Partial.Executable.runFor_reachable actions 40 (branchStart branchRefL 1)
   have result : (runFor actions 40 (branchStart branchRefL 1)).result = some (number 30, 37) := by cbv
+  obtain ⟨_, _, closed, admitted⟩ := branchAdmitted 1
   obtain ⟨endR, valueR, path, got, values⟩ :=
-    (ClosedFamily.returns respects branchFamily (branchAdmitted 1)).1 _ _ _ reached result
+    (ClosedFamily.returns respects closed admitted).1 _ _ _ reached result
   cases values with
   | cons paired tail =>
     cases paired
@@ -794,7 +825,8 @@ example : ∃ sourceL sourceR endR,
     Executable.start actions 73 branchModuleR.toGraph (number 1) .head (branchArgs 0) 20 = .ok sourceR ∧
     RecursiveCall.ReachedTerminal primitives ids sourceL sourceR (runFor actions 40 sourceL) endR ∧
     endR.Blocked primitives := by
-  obtain ⟨endR, pair, blocked⟩ := (ClosedFamily.blocks respects branchFamily (branchAdmitted 0)).1 _
+  obtain ⟨_, _, closed, admitted⟩ := branchAdmitted 0
+  obtain ⟨endR, pair, blocked⟩ := (ClosedFamily.blocks respects closed admitted).1 _
     (Continuation.Partial.Executable.runFor_reachable actions 40 (branchStart branchRefL 0))
     ⟨_, by cbv, by cbv⟩
   exact ⟨_, _, endR, branchLinkedL 0, branchLinkedR 0, pair, blocked⟩
