@@ -171,6 +171,18 @@ theorem CheckedProviderJoin.historyR
     AllocationHistory actions (unitsBR ++ unitsAR) first.initialR second.checked.storeR :=
   first.historyR.append (joined.orderedR ▸ second.historyR)
 
+/-- Keep the last exact link outcome with the combined trace and dispatch. -/
+def CheckedProviderJoin.toChain
+    {first : CheckedAllocationChain actions ids keys captureCode unitsAL unitsAR portA aL aR}
+    {second : CheckedAllocationChain actions ids keys captureCode unitsBL unitsBR portB bL bR}
+    (joined : CheckedProviderJoin first second) :
+    CheckedAllocationChain actions ids keys captureCode (unitsBL ++ unitsAL) (unitsBR ++ unitsAR) portB bL bR :=
+  let last := second.checked
+  CheckedAllocationChain.mk
+    ⟨_, _, _, joined.certified, last.valuesL, last.valuesR, last.storeL, last.storeR,
+      last.linkedL, last.linkedR, .inr last.knownL, .inr last.knownR⟩
+    first.initialL first.initialR joined.historyL joined.historyR joined.distinctL joined.distinctR
+
 /-- Reconcile two receipts by checking the store boundary, allocation
 history and both mixed dispatch directions. Neither link runs again. -/
 def CheckedAllocationChain.join [DecidableEq (Ty V S)] [DecidableEq keys.Key] [DecidableEq σ]
@@ -214,6 +226,122 @@ def CheckedProviderJoin.extend [DecidableEq (Ty V S)] [DecidableEq keys.Key]
     (twoImports (Or.inl knownA.down.2) (Or.inr knownB.down.2)) left right
 
 end Join
+
+section Assembly
+
+variable {actions : Actions m σ} {ids : GlobalRel} {keys : OpcodeCode (Instruction Op)}
+variable {captureCode : CaptureCode m}
+variable {unitsL unitsR : List Nat} {port : Port exports providerFn.port}
+variable {outcomeL outcomeR : Outcome m σ exports}
+
+/-- An actual export pair at a specified port type, admitted by the
+assembly's accumulated dispatch family. -/
+structure ProviderExport (familyL familyR : Family m) (ty : Ty V S) where
+  left : m.Val ty
+  right : m.Val ty
+  knownL : familyL left
+  knownR : familyR right
+
+structure NamedProviderExport (familyL familyR : Family m) where
+  name : String
+  ty : Ty V S
+  values : ProviderExport familyL familyR ty
+
+/-- A nonempty ordered assembly with one selected export name per appended
+receipt. The combined trace establishes freshness among certified units
+on each side, excluding allocations from opaque imports. -/
+structure CheckedProviderAssembly (actions : Actions m σ) (ids : GlobalRel)
+    (keys : OpcodeCode (Instruction Op)) (captureCode : CaptureCode m) where
+  private mk ::
+  unitsL : List Nat
+  unitsR : List Nat
+  latestFn : Function V S
+  latestPorts : Ports (Ty V S)
+  latestPort : Port latestPorts latestFn.port
+  latestL : Outcome m σ latestPorts
+  latestR : Outcome m σ latestPorts
+  chain : CheckedAllocationChain actions ids keys captureCode unitsL unitsR latestPort latestL latestR
+  named : List (NamedProviderExport chain.checked.familyL chain.checked.familyR)
+  uniqueNames : (named.map NamedProviderExport.name).Nodup
+
+/-- Name the selected export of the first checked provider receipt. -/
+def CheckedProviderAssembly.start (name : String)
+    (first : CheckedAllocationChain actions ids keys captureCode unitsL unitsR port outcomeL outcomeR) :
+    CheckedProviderAssembly actions ids keys captureCode :=
+  let checked := first.checked
+  ⟨_, _, _, _, _, _, _, first,
+    [⟨name, _, ⟨checked.valuesL.get port, checked.valuesR.get port, checked.knownL, checked.knownR⟩⟩],
+    List.nodup_singleton _⟩
+
+/-- Append one separately checked provider at the assembly's exact store
+boundary. The existing join checks reservations and dispatch against the
+whole prefix. Earlier export names retain their exact values. -/
+def CheckedProviderAssembly.append [DecidableEq (Ty V S)] [DecidableEq keys.Key] [DecidableEq σ]
+    (assembly : CheckedProviderAssembly actions ids keys captureCode) (name : String)
+    (next : CheckedAllocationChain actions ids keys captureCode unitsL unitsR port outcomeL outcomeR)
+    (ordinary : OrdinaryOutputs Op) : Option (CheckedProviderAssembly actions ids keys captureCode) :=
+  if fresh : name ∉ assembly.named.map NamedProviderExport.name then do
+    let some joined := assembly.chain.join next ordinary | none
+    let older := assembly.named.map fun entry =>
+      (⟨entry.name, entry.ty,
+        ⟨entry.values.left, entry.values.right, .inl entry.values.knownL, .inl entry.values.knownR⟩⟩ :
+        NamedProviderExport joined.toChain.checked.familyL joined.toChain.checked.familyR)
+    let checked := joined.toChain.checked
+    let latest := ⟨name, _, ⟨checked.valuesL.get port, checked.valuesR.get port, checked.knownL, checked.knownR⟩⟩
+    have unique : ((latest :: older).map NamedProviderExport.name).Nodup := by
+      simpa [latest, older, List.map_map, Function.comp_def] using
+        (List.nodup_cons.mpr ⟨fresh, assembly.uniqueNames⟩)
+    pure ⟨_, _, _, _, _, _, _, joined.toChain, latest :: older, unique⟩
+  else none
+
+/-- Resolve a named export at the requested port type, using the values
+that actually linked on each side. -/
+def CheckedProviderAssembly.find [DecidableEq (Ty V S)]
+    (assembly : CheckedProviderAssembly actions ids keys captureCode) (name : String) (ty : Ty V S) :
+    Option (ProviderExport assembly.chain.checked.familyL assembly.chain.checked.familyR ty) := do
+  let entry ← assembly.named.find? (fun entry => entry.name == name)
+  if same : entry.ty = ty then some (same ▸ entry.values) else none
+
+private structure ProviderImports (familyL familyR : Family m) (ports : Ports (Ty V S)) where
+  left : Tuple m.Val ports
+  right : Tuple m.Val ports
+  rowL : Row familyL left
+  rowR : Row familyR right
+
+private def resolveProviderImports [DecidableEq (Ty V S)]
+    (assembly : CheckedProviderAssembly actions ids keys captureCode) (extraL extraR : Tuple m.Val extra) :
+    {selected : Ports (Ty V S)} → Tuple (fun _ : Ty V S => String) selected →
+    Option (ProviderImports assembly.chain.checked.familyL assembly.chain.checked.familyR (selected ++ extra))
+  | _, .nil => some ⟨extraL, extraR, fun _ => none, fun _ => none⟩
+  | _, .cons (t := ty) name rest => do
+    let found ← assembly.find name ty
+    let tail ← resolveProviderImports assembly extraL extraR rest
+    pure ⟨.cons found.left tail.left, .cons found.right tail.right,
+      (fun p => match p with | .head => some ⟨found.knownL⟩ | .tail p => tail.rowL p),
+      (fun p => match p with | .head => some ⟨found.knownR⟩ | .tail p => tail.rowR p)⟩
+
+/-- Link a δ→λ client using any typed sequence of named exports followed
+by ordinary imports. Each named input is taken directly from the assembly.
+The new link uses the assembly's final stores and checks its unit against
+the full history on each side. -/
+def CheckedProviderAssembly.extend [DecidableEq (Ty V S)] [DecidableEq keys.Key]
+    (assembly : CheckedProviderAssembly actions ids keys captureCode) (ordinary : OrdinaryOutputs Op)
+    (unitL unitR : Nat) {selected : Ports (Ty V S)} (names : Tuple (fun _ : Ty V S => String) selected)
+    (extraL extraR : Tuple m.Val extra) {shiftedL shiftedR : Bool}
+    (left : AllocatingClient Op (selected ++ extra) clientFn value shiftedL)
+    (right : AllocatingClient Op (selected ++ extra) clientFn value shiftedR) :
+    Option (Σ imports : Tuple m.Val (selected ++ extra) × Tuple m.Val (selected ++ extra),
+      CheckedAllocationChain actions ids keys captureCode (unitL :: assembly.unitsL) (unitR :: assembly.unitsR)
+        (providerFn := clientFn) .head
+        (Executable.link actions unitL left.toGraph imports.1 assembly.chain.checked.storeL)
+        (Executable.link actions unitR right.toGraph imports.2 assembly.chain.checked.storeR)) := do
+  let some resolved := resolveProviderImports assembly extraL extraR names | none
+  let checked ← extendWithImports actions ordinary assembly.chain.checked.certified
+    assembly.chain.nodupL assembly.chain.nodupR assembly.chain.historyL assembly.chain.historyR
+    unitL unitR resolved.left resolved.right resolved.rowL resolved.rowR left right
+  pure ⟨(resolved.left, resolved.right), checked⟩
+
+end Assembly
 
 /-- Admit the client's actual linked export, using the retained provider
 dispatch certificate. Unit inequality separates all allocations made by
