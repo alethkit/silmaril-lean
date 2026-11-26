@@ -16,7 +16,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.CallStatementChecks \
   +Silmaril.Languages.Starlark.Frontend.Module.LogicalCallChecks \
   +Silmaril.Languages.Starlark.Frontend.Module.ConditionalCallChecks \
-  +Silmaril.Languages.Starlark.Frontend.Module.BranchCallChecks
+  +Silmaril.Languages.Starlark.Frontend.Module.BranchCallChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.ListDisplayChecks
 lake env lean -DautoImplicit=false -DwarningAsError=true --run "$script_dir/Fixtures.lean" \
   "$oracle/fixtures.json"
 

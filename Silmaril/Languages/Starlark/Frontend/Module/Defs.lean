@@ -30,6 +30,7 @@ structure LocatedCommand where
 /-- The outer application of a top-level call assignment or call statement. -/
 def LocatedCommand.application (command : LocatedCommand) : Option ApplicationSpans :=
   match command.command with
+  | .assign _ (.list _) | .eval (.list _) => none
   | .assign .. | .eval .. => command.applications.head?
   | _ => none
 
@@ -131,6 +132,11 @@ def lowerOperand : CallOperand → Except Diagnostic LoweredOperand
     let no ← lowerOperand no
     return ⟨.conditional test.expression yes.expression no.expression,
       yes.applications ++ test.applications ++ no.applications⟩
+  | .list _ elements => do
+    let lowered ← elements.attach.mapM fun ⟨element, member⟩ => do
+      have := List.sizeOf_lt_of_mem member
+      lowerOperand element
+    return ⟨.list (lowered.map LoweredOperand.expression), lowered.flatMap LoweredOperand.applications⟩
 termination_by operand => sizeOf operand
 decreasing_by all_goals (simp_all <;> omega)
 
@@ -177,6 +183,14 @@ theorem lowerOperand_conditional (span : Span) (test yes no : CallOperand) :
       return ⟨.conditional condition.expression consequent.expression alternative.expression,
         consequent.applications ++ condition.applications ++ alternative.applications⟩) :=
   lowerOperand.eq_6 span test yes no
+
+/-- Lower the elements into the existing list node and keep their application locations in order. -/
+theorem lowerOperand_list (span : Span) (elements : List CallOperand) :
+    lowerOperand (.list span elements) = (do
+      let lowered ← elements.mapM lowerOperand
+      return ⟨.list (lowered.map LoweredOperand.expression), lowered.flatMap LoweredOperand.applications⟩) := by
+  rw [lowerOperand.eq_7]
+  rw [List.mapM_subtype (g := lowerOperand) (fun _ _ => rfl), List.unattach_attach]
 
 private structure LoweredBody where
   statement : Modules.Resolve.Statement

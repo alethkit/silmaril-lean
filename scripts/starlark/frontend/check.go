@@ -13,12 +13,13 @@ import (
 )
 
 type fixture struct {
-	Name        string
-	Source      string
-	Accepts     bool
-	Module      *moduleControl
-	Loader      *loaderControl
-	BranchTests [][4]int32
+	Name         string
+	Source       string
+	Accepts      bool
+	Module       *moduleControl
+	Loader       *loaderControl
+	BranchTests  [][4]int32
+	ListDisplays [][4]int32
 }
 
 type moduleControl struct {
@@ -41,17 +42,36 @@ func isInteger(value starlark.Value, want string) bool {
 	return ok && integer.String() == want
 }
 
-func checkBranchTests(file *syntax.File, want [][4]int32) error {
+func checkNodeSpans(file *syntax.File, want [][4]int32, locate func(syntax.Node) []syntax.Node) error {
 	var got [][4]int32
 	syntax.Walk(file, func(node syntax.Node) bool {
-		if branch, ok := node.(*syntax.IfStmt); ok {
-			start, end := branch.Cond.Span()
+		for _, located := range locate(node) {
+			start, end := located.Span()
 			got = append(got, [4]int32{start.Line, start.Col, end.Line, end.Col})
 		}
 		return true
 	})
 	if !slices.Equal(got, want) {
-		return fmt.Errorf("want branch test spans %v, got %v", want, got)
+		return fmt.Errorf("want spans %v, got %v", want, got)
+	}
+	return nil
+}
+
+func branchTestNodes(node syntax.Node) []syntax.Node {
+	if branch, ok := node.(*syntax.IfStmt); ok {
+		return []syntax.Node{branch.Cond}
+	}
+	return nil
+}
+
+func listDisplayNodes(node syntax.Node) []syntax.Node {
+	if display, ok := node.(*syntax.ListExpr); ok {
+		nodes := make([]syntax.Node, 1, len(display.List)+1)
+		nodes[0] = display
+		for _, element := range display.List {
+			nodes = append(nodes, element)
+		}
+		return nodes
 	}
 	return nil
 }
@@ -199,7 +219,13 @@ func main() {
 			}
 		}
 		if f.BranchTests != nil {
-			if err := checkBranchTests(file, f.BranchTests); err != nil {
+			if err := checkNodeSpans(file, f.BranchTests, branchTestNodes); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %v\n", f.Name, err)
+				failed = true
+			}
+		}
+		if f.ListDisplays != nil {
+			if err := checkNodeSpans(file, f.ListDisplays, listDisplayNodes); err != nil {
 				fmt.Fprintf(os.Stderr, "%s: %v\n", f.Name, err)
 				failed = true
 			}
