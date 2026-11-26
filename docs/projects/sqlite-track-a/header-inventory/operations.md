@@ -34,11 +34,11 @@ cold target page with a local record payload in the main database file.
    `file->pMethods->xRead`. With the POSIX Unix method table this is
    `unixRead`, which reads at `(pgno - 1) * pageSize` for one page.
    Its underlying read path can use positional I/O or seek and read,
-   depending on the platform build. A short VFS read zero-fills the suffix
-   and returns `SQLITE_IOERR_SHORT_READ`.
-   The main-file branch of `readDbPage` converts that code to `SQLITE_OK`.
-   Page-format admission still applies to the resulting bytes.
-   [Page acquisition][btree-acquire] · [Normal getter][pager-normal] · [Disk page read][pager-read] · [OS adapters][os-dispatch] · [Unix methods][unix-methods] · [Unix read][unix-read]
+   depending on the platform build. On a short read, `unixRead` zero-fills
+   the unread suffix and returns `SQLITE_IOERR_SHORT_READ`, as required by
+   the VFS contract. The main-file branch of `readDbPage` converts that code
+   to `SQLITE_OK`. Page-format admission still applies to the resulting bytes.
+   [Page acquisition][btree-acquire] · [Getter selection][pager-getter-select] · [Pager dispatch][pager-get-dispatch] · [Normal getter][pager-normal] · [OS adapters][os-dispatch] · [Unix methods][unix-methods] · [Unix system calls][unix-read-io] · [Unix short read][unix-short-read] · [VFS short-read contract][vfs-short-read] · [Pager main-file result][pager-main-read]
 4. On a match, `OP_Column` can read the on-page record via
    `sqlite3BtreePayloadFetch` and `OP_ResultRow` exposes the row. A
    successful negative or positive comparison jumps to P2 for the selected
@@ -51,9 +51,9 @@ cold target page with a local record payload in the main database file.
 
 | Condition | Change to the path |
 | --- | --- |
-| Target-page cache hit | `getPageNormal` can return an initialized page directly. This removes the target page's `readDbPage` call. Transaction setup can still perform VFS reads. A cursor already on the requested key can also return before page acquisition. [Normal getter][pager-normal] · [Pager shared lock][pager-lock] · [Table seek fast paths][btree-seek] |
-| mmap enabled, eligible page and no covering WAL frame | `getPageMMap` can use `sqlite3OsFetch` → `xFetch` to borrow a mapping for a page above page 1. A successful null mapping falls back to the normal getter. The mapped-page release path uses `xUnfetch`. [mmap getter][pager-mmap] · [Mapped release][pager-map-release] · [OS fetch adapters][os-fetch] |
-| Snapshot has a WAL frame for this page | `readDbPage` uses `sqlite3WalFindFrame` and `sqlite3WalReadFrame`. The latter calls `sqlite3OsRead` on the WAL file at the frame payload offset. With no frame it reads the main file. WAL read-lock acquisition can call `xShmLock` on the database file through the OS adapter. That namespace and lifetime are distinct from rollback-mode file locks. [Pager read][pager-read] · [WAL frame read][wal-read] · [WAL shared locks][wal-shared] |
+| Target-page cache hit | With `PAGER_GET_NOCONTENT` clear, `getPageNormal` can return an initialized cached page before calling `readDbPage`. Transaction setup can still perform VFS reads. A cursor already on the requested key can also return before page acquisition. [Cache hit][pager-cache-hit] · [Pager shared lock][pager-lock] · [Table seek fast paths][btree-seek] |
+| mmap enabled, eligible page and no covering WAL frame | `getPageMMap` can use `sqlite3OsFetch` → `xFetch` for a page above page 1 when the Pager is in `PAGER_READER` or the request has `PAGER_GET_READONLY`. A successful null mapping falls back to the normal getter. A fetch error is returned. The mapped-page release path uses `xUnfetch`. [mmap getter][pager-mmap] · [Mapped release][pager-map-release] · [OS fetch adapters][os-fetch] |
+| Snapshot has a WAL frame for this page | `readDbPage` uses `sqlite3WalFindFrame` and `sqlite3WalReadFrame`. The latter returns the result of `sqlite3OsRead` on the WAL file at the frame payload offset. The Pager propagates a WAL short-read status. If the lookup succeeds with no frame, the Pager reads the main file. WAL read-lock acquisition can call `xShmLock` on the database file through the OS adapter. That namespace and lifetime are distinct from rollback-mode file locks. [Pager read][pager-read] · [WAL frame read][wal-read] · [WAL shared locks][wal-shared] |
 | Scan, index or overflow record | `OP_Rewind` can call `sqlite3BtreeFirst`. Index seek uses index cursors and a record comparator. A record whose payload exceeds the local bytes can require overflow-page reads through `accessPayload`; the optional direct overflow read there also explains why the architecture diagram is insufficient as a call graph. [Rewind][vm-rewind] · [Index seek][btree-index] · [Overflow I/O][btree-overflow] |
 | Virtual table or in-memory database | `OP_VFilter` / `OP_VUpdate` invoke registered module callbacks. Their storage behavior depends on the module. In a memory database the Pager may supply bytes without reading a disk file. [Virtual table filter][vfilter] · [Virtual table update][vupdate] · [Normal getter][pager-normal] |
 
@@ -72,11 +72,14 @@ database-file writes.
    `sqlite3BtreeInsert`. On the selected leaf insertion path,
    `insertCellFast` calls `sqlite3PagerWrite` before modifying the page.
    [VM transaction][vm-transaction] · [Start write transaction][pager-begin] · [VM insert][vm-insert] · [B-Tree insert][btree-insert] · [Leaf insertion][btree-insert-cell]
-2. The Pager marks the page dirty. For an existing page that is absent from
-   the rollback journal, it opens the journal if needed and records the old
-   bytes before marking the page writable. Journal writes pass through
-   `sqlite3OsWrite` → `xWrite`. The leaf edit then changes the page image
-   in the cache.
+2. In `PAGER_WRITER_LOCKED`, `pager_write` calls `pager_open_journal`
+   before marking the page dirty. If that call fails, `pager_write` returns
+   before `sqlite3PcacheMakeDirty`. After the open succeeds, the Pager marks
+   the page dirty, then records the old bytes of the existing page if it
+   is absent from the rollback journal. A failure writing that record returns
+   before the Pager sets `PGHDR_WRITEABLE`. Journal writes go through
+   `sqlite3OsWrite` → `xWrite`. Once write admission succeeds, the leaf edit
+   changes the cached page image.
    [Open journal][pager-open-journal] · [Write journal record][pager-add-journal] · [Pager write admission][pager-write] · [OS adapters][os-dispatch]
 3. Successful top-level `OP_Halt` reaches `sqlite3VdbeHalt` → `vdbeCommit`
    in the selected autocommit case. The single-file branch obtains the
@@ -170,7 +173,7 @@ The result families should retain the following distinctions.
 | Prepare, step and close | Prepare can return a fresh statement of the given connection, a null statement on success, or an error with a null statement. A requested tail, when defined, is an offset into the original input slice. A row-producing step gives a borrow tied to a row and conversion generation. Connection close branches include early failure and deferred destruction. |
 | B-Tree seek | Successful seek reports an exact match, an ordered neighbor or an empty cursor. The last two possibilities can share the same negative C comparison. The C status and search result are separate. Error replies can leave changed cursor state and carry only the outputs defined on their path. |
 | Pager acquisition and release | Success issues a page reference tied to its Pager and page number. The byte view and B-Tree extra storage depend on that reference. Release consumes the corresponding reference in the world. Cache hit, main-file read, WAL read and mmap can have different events for the same abstract page. A failure can change the Pager state, and the definition of the C out slot depends on the path. |
-| Page write and rollback commit | The first successful write admission can issue a mutable page view after recording its old bytes. Phase one success establishes the commit-ready state for the selected profile. Phase two success finalizes the journal and ends the Pager's write transaction. Track journal and main-file events by file identity and retain intermediate state on errors. |
+| Page write and rollback commit | The first successful write admission can issue a mutable page view after recording its old bytes. Track dirty and writable as distinct states, since opening the journal and recording the old page can fail at different points. Phase one success establishes the commit-ready state for the selected profile. Phase two success finalizes the journal and ends the Pager's write transaction. Track journal and main-file events by file identity and retain intermediate state on errors. |
 | VFS read and lock | Full and short reads expose the requested output extent, with a zero-filled suffix on a short read. An unrelated I/O failure carries only the buffer information guaranteed by that branch. A successful lock changes the file-lock resource according to the implementation. Busy and error replies retain the actual poststate, since a failed upgrade can have acquired a PENDING lock. |
 | Callback dispatch | Index a method call by its registered table version, selected method, and live callback context. The callback can change the world or produce a reentrant call when its contract permits one. An owning destructor and an ordinary borrowed context have separate transition rules. |
 
@@ -226,25 +229,31 @@ coverage of SQLite's concurrency and crash recovery.
 [btree-insert-cell]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/btree.c#L7460-L7531
 [btree-commit]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/btree.c#L4343-L4461
 [pager-lock]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L5290-L5503
-[pager-read]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L3075-L3125
+[pager-getter-select]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L1041-L1055
+[pager-get-dispatch]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L5786-L5808
+[pager-read]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L3075-L3128
+[pager-main-read]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L3093-L3099
+[pager-cache-hit]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L5629-L5635
 [pager-normal]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L5597-L5698
 [pager-mmap]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L5703-L5769
 [pager-map-release]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L4159-L4185
 [pager-begin]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L5984-L6042
 [pager-open-journal]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L5893-L5968
 [pager-add-journal]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L6053-L6100
-[pager-write]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L6110-L6187
+[pager-write]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L6127-L6175
 [pager-commit]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L6652-L6740
 [pager-commit2]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L6764-L6810
 [pager-end]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L2090-L2219
 [pager-spill]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L4668-L4731
 [pager-wal]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L3225-L3288
-[wal-read]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/wal.c#L3722-L3755
+[wal-read]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/wal.c#L3722-L3759
 [wal-checkpoint]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/wal.c#L2281-L2430
 [wal-shared]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/wal.c#L1111-L1160
 [os-dispatch]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/os.c#L88-L112
 [os-fetch]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/os.c#L193-L209
 [unix-methods]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/os_unix.c#L5816-L5859
-[unix-read]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/os_unix.c#L3463-L3563
+[unix-read-io]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/os_unix.c#L3463-L3505
+[unix-short-read]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/os_unix.c#L3550-L3579
+[vfs-short-read]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/sqlite.h.in#L847-L852
 [unix-delete]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/os_unix.c#L6836-L6876
 [unix-upgrade]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/os_unix.c#L1973-L2094
