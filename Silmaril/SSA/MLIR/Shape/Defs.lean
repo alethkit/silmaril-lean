@@ -65,8 +65,22 @@ def ShapeValue.toStatic? : ShapeValue → Option Tensor.Shape
 /-- An extent tensor has one axis, of length equal to the described shape's rank. -/
 abbrev ExtentTensor := (rank : Nat) × Tensor.Tensor [rank] Nat
 
+/-- The extent-tensor result of `shape.const_shape` on nonnegative extents. -/
 def extentTensor (shape : Tensor.Shape) : ExtentTensor :=
   ⟨shape.length, fun i => shape.get i.1⟩
+
+/-- Read the coordinates of an extent tensor in order. -/
+def ExtentTensor.toShape (extents : ExtentTensor) : Tensor.Shape :=
+  List.ofFn fun dim => extents.2 (dim, ())
+
+/-- `shape.from_extent_tensor` on a rank-one tensor of nonnegative indices. -/
+def fromExtentTensor (extents : ExtentTensor) : ShapeValue :=
+  .ofStatic extents.toShape
+
+/-- `shape.from_extents` on index operands. An index outside the nonnegative
+fragment causes admission to fail. -/
+def fromExtents? (extents : List Int) : Option ShapeValue :=
+  (extents.mapM Int.toNat?).map ShapeValue.ofStatic
 
 /-- The shape-valued interpretation of `shape.shape_of` on a static tensor. -/
 def shapeOf {shape : Tensor.Shape} {α : Type u} (_ : Tensor.Tensor shape α) : ShapeValue :=

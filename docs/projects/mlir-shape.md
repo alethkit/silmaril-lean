@@ -1,6 +1,6 @@
 # MLIR Shape and static tensors
 
-`Silmaril.MLIR.Shape` models shape-valued constants, queries, and casts for a
+`Silmaril.MLIR.Shape` models constants, constructors, queries, and casts for a
 small fragment of the MLIR Shape dialect. It reuses `Tensor.Shape` for concrete
 extents and `Tensor.Tensor` for the elements of a rank-one extent tensor.
 [Definitions](../../Silmaril/SSA/MLIR/Shape/Defs.lean) ·
@@ -42,11 +42,20 @@ product of extents. `toExtentTensor?_ofStatic` and `extentTensor_coordinate`
 identify the conversion and its contents at each in-bounds coordinate.
 [Theorems](../../Silmaril/SSA/MLIR/Shape/Thms.lean)
 
+`fromExtents?_ofStatic` recovers a concrete shape from its nonnegative SSA
+index operands in order. `fromExtents?_negative` proves rejection at any
+position. `fromExtentTensor_extentTensor` and
+`toExtentTensor?_fromExtentTensor` prove round trips between concrete shapes
+and extent tensors. `rank_fromExtentTensor` and `getExtent?_fromExtentTensor`
+specify the reconstructed rank and each in-bounds extent.
+
 The examples check that a static unknown admits a concrete dimension, a
 runtime unknown extent is observable as an unknown size, an invalid shape
 propagates to a size query, and converting it to an extent tensor has
 undefined behavior. They distinguish a rank-zero tensor, whose element
 count is one, from a tensor with a zero extent, whose element count is zero.
+Constructor examples cover empty inputs, zero extents, ordered coordinates,
+and rejection of a negative index as outside the admitted fragment.
 [Checked examples](../../Silmaril/SSA/MLIR/Shape/Examples/Thms.lean)
 
 ## Upstream operation coverage
@@ -60,8 +69,10 @@ future work. [Dialect reference](https://mlir.llvm.org/docs/Dialects/ShapeDialec
 
 | Operation | Checked fragment |
 | --- | --- |
-| `shape.const_shape` | Shape-valued constants with concrete nonnegative extents via `ShapeValue.ofStatic`. |
+| `shape.const_shape` | Concrete nonnegative extents as a shape via `ShapeValue.ofStatic` or an extent tensor of exact static length via `extentTensor`. |
 | `shape.const_size` | Known nonnegative constants via `Size.known`. |
+| `shape.from_extents` | Variadic nonnegative `index` operands via `fromExtents?`, including zero operands for rank zero. |
+| `shape.from_extent_tensor` | Rank-one tensor of known nonnegative indices via `fromExtentTensor`. The number of entries is the result rank and their order is preserved. |
 | `shape.shape_of` | Shape result for a static `Tensor.Tensor` via `shapeOf`. |
 | `shape.rank` | Shape input and size output, including unknown rank and invalid shape. |
 | `shape.get_extent` | Shape plus nonnegative index to size. Ranked inputs require an in-bounds index and can yield an unknown extent. An invalid shape yields an invalid size. |
@@ -70,14 +81,16 @@ future work. [Dialect reference](https://mlir.llvm.org/docs/Dialects/ShapeDialec
 | `shape.index_to_size` | Index to size, with undefined behavior on negative input. |
 | `shape.size_to_index` | Size to index, with undefined behavior on unknown or invalid input. |
 
-Cases outside the listed fragments of these nine operations are planned only.
-The other 31 pinned operations are all planned only, along with
+Cases outside the listed fragments of these eleven operations are planned
+only. In particular, `shape.from_extents` with `!shape.size` operands and the
+behavior of either constructor on negative extents remain outside the model.
+The other 29 pinned operations are all planned only, along with
 `!shape.value_shape` and `!shape.witness`.
 
 | Area | Planned operations |
 | --- | --- |
 | Size arithmetic | `shape.add`, `shape.div`, `shape.max`, `shape.min`, `shape.mul` |
-| Extent construction and queries | `shape.concat`, `shape.dim`, `shape.from_extent_tensor`, `shape.from_extents`, `shape.split_at` |
+| Extent construction and queries | `shape.concat`, `shape.dim`, `shape.split_at` |
 | Shape relations and combination | `shape.any`, `shape.broadcast`, `shape.is_broadcastable`, `shape.meet`, `shape.shape_eq` |
 | Constraints and witnesses | `shape.assuming`, `shape.assuming_all`, `shape.assuming_yield`, `shape.const_witness`, `shape.cstr_broadcastable`, `shape.cstr_eq`, `shape.cstr_require` |
 | Functions and regions | `shape.func`, `shape.function_library`, `shape.reduce`, `shape.return`, `shape.yield` |

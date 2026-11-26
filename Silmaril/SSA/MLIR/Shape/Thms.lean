@@ -47,9 +47,53 @@ theorem numElements?_ofStatic (shape : Tensor.Shape) :
 theorem extentTensor_coordinate (shape : Tensor.Shape) (dim : Fin shape.length) :
     (extentTensor shape).2 (dim, ()) = shape.get dim := rfl
 
+theorem ExtentTensor.toShape_extentTensor (shape : Tensor.Shape) :
+    (extentTensor shape).toShape = shape := List.ofFn_getElem
+
+private theorem extentTensor_eq_of_coordinates {lhs rhs : ExtentTensor}
+    (sameRank : lhs.1 = rhs.1)
+    (sameExtents : ∀ dim : Fin lhs.1, lhs.2 (dim, ()) = rhs.2 (Fin.cast sameRank dim, ())) :
+    lhs = rhs := by
+  rcases lhs with ⟨rank, lhs⟩
+  rcases rhs with ⟨_, rhs⟩
+  cases sameRank
+  exact congrArg (Sigma.mk rank) (funext fun ⟨dim, ()⟩ => sameExtents dim)
+
+theorem ExtentTensor.extentTensor_toShape (extents : ExtentTensor) :
+    extentTensor extents.toShape = extents := by
+  apply extentTensor_eq_of_coordinates List.length_ofFn
+  intro dim
+  exact List.getElem_ofFn dim.isLt
+
+theorem fromExtentTensor_extentTensor (shape : Tensor.Shape) :
+    fromExtentTensor (extentTensor shape) = .ofStatic shape :=
+  congrArg ShapeValue.ofStatic (ExtentTensor.toShape_extentTensor shape)
+
+theorem rank_fromExtentTensor (extents : ExtentTensor) :
+    rank (fromExtentTensor extents) = .known extents.1 := by
+  simp [fromExtentTensor, rank_ofStatic, ExtentTensor.toShape]
+
+theorem getExtent?_fromExtentTensor (extents : ExtentTensor) (dim : Fin extents.1) :
+    getExtent? (fromExtentTensor extents) dim.val = some (.known (extents.2 (dim, ()))) := by
+  simp [fromExtentTensor, getExtent?_ofStatic, ExtentTensor.toShape, dim.isLt]
+
+theorem fromExtents?_ofStatic (shape : Tensor.Shape) :
+    fromExtents? (shape.map Int.ofNat) = some (.ofStatic shape) := by
+  rw [fromExtents?, List.mapM_map]
+  change (shape.mapM (m := Option) (pure <| id ·)).map _ = _
+  rw [List.mapM_pure, List.map_id, Option.pure_apply, Option.map_some]
+
+theorem fromExtents?_negative (before after : List Int) (magnitude : Nat) :
+    fromExtents? (before ++ Int.negSucc magnitude :: after) = none := by
+  simp [fromExtents?, Int.toNat?]
+
 theorem toExtentTensor?_ofStatic (shape : Tensor.Shape) :
     toExtentTensor? (.ofStatic shape) = some (.defined (extentTensor shape)) := by
   change ((ShapeValue.ofStatic shape).toStatic?.map _) = _
   simp only [ShapeValue.toStatic?_ofStatic, Option.map_some]
+
+theorem toExtentTensor?_fromExtentTensor (extents : ExtentTensor) :
+    toExtentTensor? (fromExtentTensor extents) = some (.defined extents) := by
+  rw [fromExtentTensor, toExtentTensor?_ofStatic, ExtentTensor.extentTensor_toShape]
 
 end Silmaril.MLIR.Shape
