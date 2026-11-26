@@ -8,7 +8,8 @@ namespace Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nes
 
 open Silmaril.Languages.Starlark.Modules.Resolve.Assignment (LexicalBlock)
 open Functions
-open Lists (State)
+open Lists (State Outcome)
+open Lists.Iteration (Flow)
 
 local notation "Expr" => Lowering.Resolve.SourceExpr
 
@@ -70,31 +71,56 @@ structure Invocation (block : LexicalBlock) where
 @[expose] def Invocation.reads {block : LexicalBlock} (call : Invocation block) : List Binding :=
   fileSlot call.callee :: ((call.argumentReads ++ call.keywords.reads) ++ Named.spreadReads call.star ++ Named.mappingReads call.mapping)
 
+/-- Evidence for the actual value produced at a reached return or call.
+The source profile specifies the declaration, while the value and heap
+supply its address, saved defaults and live capture cells. -/
+@[expose] def ValueAt {block : LexicalBlock} (entry : Entry block) (value : Lists.Value) (state : State) : Prop :=
+  ∃ address defining, value = .function address ∧
+    Nonempty (Call.ClosureAt entry.site entry.id defining state address)
+
+@[expose] def Returns {block : LexicalBlock} (returned : Option (Entry block)) (out : Outcome Flow) : Prop :=
+  match returned, out with
+  | none, _ | some _, .error .. => True
+  | some entry, .ok (.returned value) state => ValueAt entry value state
+  | some _, .ok _ _ => False
+
 /-- Each child starts with an empty provenance map. Only reaching a
 local definition or copying a tracked local establishes a known callee. -/
 inductive Elaborates : (block : LexicalBlock) → Locals block →
-    Statement → Program → ResolvedBody → Program → Emissions → Prop where
+    Statement → Program → ResolvedBody → Program → Emissions → (returned : Option (Entry block) := none) → Prop where
   | plain {block locals source seed code final emissions} :
       Recursive.Elaborates block source seed code final emissions →
-      Elaborates block locals source seed code final emissions
-  | assign {block locals name source rhs reads entry rest seed tail final emissions} :
+      Elaborates block locals source seed code final emissions none
+  | returnLocal {block locals seed name entry} :
+      name ∈ block.owned → name.toList.head? ≠ some '$' → locals name = some entry →
+      Elaborates block locals (.ret (some (.scalar (.read name)))) seed
+        ⟨.returnExpr (Leaf.readOperand (fileSlot name)), [fileSlot name]⟩ seed [] (some entry)
+  | assign {block locals name source rhs reads entry rest seed tail final emissions returned} :
       name ∈ block.owned → Body.Operand block source rhs reads → Tracks locals source rhs entry →
-      Elaborates block (setLocal locals name entry) rest seed tail final emissions →
+      Elaborates block (setLocal locals name entry) rest seed tail final emissions returned →
       Elaborates block locals (.seq (.assign name source) rest) seed
-        ⟨.seq (.assignExpr (fileSlot name) rhs) tail.code, reads ++ tail.reads⟩ final emissions
-  | define {block locals rest seed childTable tail final descendants later}
+        ⟨.seq (.assignExpr (fileSlot name) rhs) tail.code, reads ++ tail.reads⟩ final emissions returned
+  | define {block locals rest seed childTable tail final descendants later returned}
       {formals : List PlainKeywordParameter} {varargs kwargs : Option String} (site : Site block formals varargs kwargs) :
       KeywordLexical block formals →
-      Elaborates site.block empty site.source seed site.body childTable descendants →
+      Elaborates site.block empty site.source seed site.body childTable descendants none →
       Elaborates block (setLocal locals site.name (some ⟨childTable.size, formals, varargs, kwargs, site⟩))
-        rest (childTable.push site.declaration) tail final later →
+        rest (childTable.push site.declaration) tail final later returned →
       Elaborates block locals (.seq site.statement rest) seed
         ⟨.seq (.define (fileSlot site.name) childTable.size) tail.code, site.reads ++ tail.reads⟩ final
-        (descendants ++ (childTable.size, site.declaration) :: later)
-  | invoke {block locals rest seed tail final emissions} (call : Invocation block) (entry : Entry block) :
+        (descendants ++ (childTable.size, site.declaration) :: later) returned
+  | invoke {block locals rest seed tail final emissions returned} (call : Invocation block) (entry : Entry block) :
       locals call.callee = some entry →
-      Elaborates block (setLocal locals call.destination none) rest seed tail final emissions →
+      Elaborates block (setLocal locals call.destination none) rest seed tail final emissions returned →
       Elaborates block locals (.seq call.source rest) seed
-        ⟨.seq call.code tail.code, call.reads ++ tail.reads⟩ final emissions
+        ⟨.seq call.code tail.code, call.reads ++ tail.reads⟩ final emissions returned
+
+/-- Static evidence that a tracked local's source body and declaration
+are both linked into the final program. -/
+@[expose] def Entry.Linked {block : LexicalBlock} (entry : Entry block) (program : Program) : Prop :=
+  program[entry.id]? = some entry.site.declaration ∧
+    ∃ seed bodyTable children, bodyTable.size = entry.id ∧ PreservesDeclarations bodyTable program ∧
+      Elaborates entry.site.block empty entry.site.source seed entry.site.body bodyTable children
+
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance

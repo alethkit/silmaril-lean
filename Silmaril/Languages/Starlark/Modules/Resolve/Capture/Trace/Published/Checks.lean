@@ -100,7 +100,11 @@ private def outputs (mode : Mode) : List Modules.Command :=
    .exec (.assignExpr "copy" (Leaf.readOperand (globalSlot "worker"))),
    .exec (.assignExpr "result" (invocation mode).code), .exec (.assignExpr "after" (boxed 99))]
 
-private theorem plan (mode : Mode) : Plan globals (fun _ => none) (commands mode) #[] (outputs mode) root.table :=
+private def exports : Environment :=
+  update (update (update (update (update (update (fun _ => none) "data" none)
+    "worker" (some root.callable)) "late" none) "copy" (some root.callable)) "result" none) "after" none
+
+private theorem plan (mode : Mode) : Plan globals (fun _ => none) (commands mode) #[] (outputs mode) root.table exports :=
   .assign (by decide) (.list (.int 31)) .forget
     (.define root
       (.assign (by decide) (.read (by decide) (.global (by decide) (by decide) (by decide))
@@ -108,16 +112,16 @@ private theorem plan (mode : Mode) : Plan globals (fun _ => none) (commands mode
         (.assign (by decide) (.read (by decide) (.global (by decide) (by decide) (by decide))
           (.module (by decide) (by decide) (by decide)))
           (.copy (name := "worker") rfl)
-          (.invoke (invocation mode) root rfl
+          (.invoke (invocation mode) root.callable rfl
             (.assign (by decide) (.list (.int 99)) .forget .done)))))
 
 example (mode : Mode) {resolved : ResolvedModule} (checked : resolve (commands mode) = .ok resolved)
     (caller : Lists.State) :
     ∃ reached, ExecutesAll globals (enter resolved.source caller) (commands mode) reached ∧
       runModule (commands mode) (fun _ => none) caller = .ok (finish resolved.source caller reached) := by
-  have certified : Plan (Trace.names (commands mode)) (fun _ => none) (commands mode) #[] (outputs mode) root.table := by
+  have certified : Plan (Trace.names (commands mode)) (fun _ => none) (commands mode) #[] (outputs mode) root.table exports := by
     cases mode <;> exact plan _
-  obtain ⟨out, ran, _, _, exactResult⟩ := module_agrees certified checked (fun _ => none) caller
+  obtain ⟨out, ran, _, _, exactResult, _⟩ := module_agrees certified checked (fun _ => none) caller
   exact ⟨out, by cases mode <;> exact ran, exactResult⟩
 
 #guard

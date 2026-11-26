@@ -1236,12 +1236,47 @@ body after packing. Lean observes the captured global slot and exact
 residual allocations. Publication freezes the reachable values and
 leaves the module binding cell itself outside closure-local freezing.
 
-The next provenance obligation is to derive a callable certificate
-from a returned or imported value at its actual address. General
-carrier expressions need corresponding evidence of their reached
-kind. Arbitrary dispatch, broader command and body forms, and
-source-level composition across the loader remain separate.
 [Module theorem](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Checks.lean) · [Pinned Go controls](../../scripts/starlark/published-checked/check.go)
+
+## Callable returns through module publication
+
+A checked suite can certify a terminal return of a tracked local. The
+same suite induction derives the value from its reached slot and the
+closure record from its reached heap. A separate source-order argument
+links the returned declaration and its independently checked body to
+the final table. Definitions and local copies establish the tracking
+evidence. Rebinding a destination updates or clears its entry.
+
+The module plan can store the resulting callable, copy it to another
+global and call it with explicit arguments and both checked spreads.
+Caller restoration keeps the reached heap. The closure retains the
+addresses of its enclosing and defining-module cells and the values
+saved at definition time. When initialization succeeds, the theorem
+relates each tracked public export to its linked declaration and its
+original closure record in the frozen heap. The first reached error
+retains the exact residual heap and restores the caller without
+publishing the module.
+
+Lean and pinned Go controls cover a factory that copies its child and
+returns the copy. The child saves an enclosing local as a default,
+observes that local's later rebinding and reads a global initialized
+after the factory call. A call through a module alias reaches both
+spreads. An alternate mapping entry makes indexing fail after the
+child's first allocation. Lean checks the retained packs and
+allocations, restored caller, and skipped result assignment and tail.
+Go checks visible effects, saved and live values, and the publication
+freeze.
+
+The checked profile still starts from a load-free normalized module.
+Only a terminal return of a tracked local transfers callable
+provenance, and the returned declaration's body uses the existing suite
+profile. The loader bridge must carry the published name, declaration
+link and reachable closure record through cache lookup and import
+binding in the shared heap. It must resolve the imported file-local
+callee while preserving the original captured and defining-module
+addresses. General carriers, untracked dispatch and broader command
+and body forms remain open.
+[Return theorem](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/escaped-checked/check.go)
 
 ## Finite-manifest loader
 
