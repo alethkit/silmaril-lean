@@ -54,6 +54,15 @@ value becomes the next comparison's left value. The first false comparison
 ends the scan. The result uses the same Boolean operand as a folded tuple
 comparison, with no runtime lookup, call, or allocation.
 
+Singleton identity has a separate checked chain for `is` and `is not`.
+Each operand must produce `None` or an exact Boolean if evaluation succeeds.
+This includes Boolean results of admitted scalar comparisons and nested
+identity tests. The checker validates every link and operand, including a
+suffix that execution will skip. The runners evaluate reached operands
+left to right, carry the middle singleton into the next link, and stop at
+the first false comparison or operand error. A successful test produces
+a Boolean. Integer and text identities are outside this profile.
+
 Closed `and` and `or` operands are Boolean or integer literals. The
 checker validates every operand, then selects a value in order. `and`
 stops at the first false value and `or` at the first true value, with
@@ -62,6 +71,15 @@ retains its integer or Boolean tag. A closed `not` or assertion can
 also test `None` or a flat literal list or tuple whose elements pass
 the same scalar check. These tests use only falsity or emptiness and
 emit no container value.
+
+`None` can also be bound, read and copied as a module value. It has its
+own tag and is false in a truth test. Scalar `==` and `!=` evaluate
+their operands from left to right. Two `None` values compare equal, and
+`None` compares unequal to an integer or Boolean. The integer
+projection used by arithmetic and closed numeric chains applies to
+integers and Booleans. Reached scalar arithmetic on `None` stops at the
+arithmetic profile boundary. Object identity requires separate evidence
+about the objects compared.
 
 The regression emits Lean from Python source and verifies the global
 access witnesses, action order and the diagnostic for an assertion
@@ -133,9 +151,9 @@ fail ordinary arity checking. Explicit keyword arguments, dynamic
 defaults, and introspection of these defaulted definitions are outside
 this profile.
 
-Checked function bodies can add integer literals and values read from fast
-locals, owned or forwarded cells, and live module globals. Addition can
-nest. The executor reads the left operand and then the right operand
+Checked function bodies can add and multiply integer literals and values
+read from fast locals, owned or forwarded cells, and live module globals.
+The operations can nest. The executor reads the left operand and then the right operand
 before checking their types. Booleans contribute 0 or 1 and the result is
 an integer. A plain function or `None` operand raises `TypeError` after
 both reads succeed. This value profile covers integer arithmetic without
@@ -143,8 +161,9 @@ custom operator methods or sequence concatenation. The ordinary and Finite
 runners share operand evaluation, and the seeded runner uses it when an
 existing selector admits the call.
 
-Deeper argument nesting, arithmetic call operands, and keyword or
-unpacked arguments outside the adjacent discard shape are rejected. The seeded runner supports these
+At module call sites, deeper argument nesting, arithmetic operands,
+and keyword or unpacked arguments outside the adjacent discard shape
+are rejected. The seeded runner supports these
 nested instructions within its [closed call profile](python-seeded-module-runner.md).
 The CPython regression checks
 result placement, lookup and argument error order, and residual bindings.

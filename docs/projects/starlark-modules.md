@@ -163,8 +163,14 @@ and absence of compiler scratch slots. `initializes_iff_runModule` composes
 the elaboration result with the resolved operational theorem. It compares
 static rejection, execution outcomes, publication and the exact residual
 state. This correspondence shares the elaborator and starts at a normalized
-AST with legal identifier spellings. An independent source binding relation
-and text parsing remain open. Lambdas, general comprehension expression
+AST with legal identifier spellings. A separate
+[mixed assignment theorem](starlark-functions.md#mixed-name-and-subscript-targets)
+relates accepted targets and a bounded RHS to independent lexical rules.
+The block collection theorem below supplies that environment and write
+scope for its admitted forms. A separate theorem covers capture selection
+and installation for one bounded nested function. Whole-module
+elaboration against independent source rules and text parsing remain open.
+Lambdas, general comprehension expression
 positions, field leaves, store leaves in loop and comprehension targets,
 and other augmented assignment forms remain outside this source fragment.
 The pinned Starlark spec rejects slice assignment targets.
@@ -175,6 +181,78 @@ defaults, load aliases, and loop scope and control. Go rejects the
 load-then-global collision and accepts the global-then-load order. The Lean adapter follows the
 Bazel-team spec and rejects both.
 [Pinned Go comparison](../../examples/starlark/scope/check.go) · [Name binding in the pinned spec][names]
+
+### Lexical block collection
+
+`ModuleBinders` and `BodyBinders` state which normalized commands and
+statements declare names, with their occurrences in source order. The
+load-free module subset covers name assignment, mixed patterns,
+ordinary subscript stores, expression statements and definitions. The
+function subset also covers pass, return, sequences and both branches of
+a conditional. A definition binds its name in the current block. Its
+parameters, defaults and body do not contribute binders there. A nested
+block can be collected separately using the parent's read context.
+
+In a mixed pattern, only a name leaf contributes a declaration. A
+receiver, subscript index, RHS and comprehension generator contribute no
+declaring occurrence in the surrounding block. `ParameterBinders` follows
+the normalized parameter classes. `LocalBinders` keeps the first occurrence
+of each other body binder. An assignment to a parameter reuses its slot.
+`owned_read` selects a body binder's owned slot even before its first
+assignment and even when an enclosing or global name has the same
+spelling. An uninitialized slot fails when read.
+
+`moduleBlock_eq` and `collectFunctionLayout_eq` prove the existing
+compiler's collection and write-scope phases agree with the declarative
+rules. `module_assignment_sound` and `function_assignment_sound` compose
+with the independent mixed-assignment elaboration theorem and put each
+resolved name leaf among the declared globals or owned slots. Assignment
+elaboration still uses the bounded leaf and RHS grammar. The block rules
+cover declaration occurrences only. Identifier, parameter, duplicate
+global and runtime validation remain in the existing checked entry point.
+
+The function collection theorem takes the parent context as input.
+Whole-source execution, unproved binder grammar including load aliases
+and loop targets, and broader leaf and RHS elaboration remain open.
+[Block judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Block/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Block/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Block/Checks.lean)
+
+### Nested function captures
+
+The capture theorem covers one immediate enclosing function in a load-free
+module. The inner function has required positional parameters and a body
+consisting of `(name, receiver[index]) = rhs` followed by `return operand`.
+The leaf and return operands use the bounded #3171 grammar. The RHS is a
+plain operand or a single-generator list comprehension in that grammar.
+`parent_layout` supplies the outer function's owned names and inherited
+module globals from the proved block collector.
+
+`BodyReads` gives the binding occurrences of the RHS, target and return,
+in that order. `Selects` ignores owned parameters and locals, takes a
+read from the immediate parent's owned slot when it exists, and otherwise
+uses the declaring module's global. It retains the first occurrence of
+each free reference in the Lean declaration. The comprehension generator
+contributes no free read of its own binding. `mixed_definition` connects
+these rules to the exact declaration appended by the compiler. Go uses
+cells for enclosing free variables and carries the module's global
+dictionary separately. The Lean list represents just the module slots
+that are read. Its order is a Lean representation property.
+
+`define_installs` relates selected addresses in the defining activation
+to the new heap cell and the binding holding its function reference.
+Restoring the caller preserves that cell. `activate_selected` preserves
+the installed addresses while allocating the callee's own slots.
+Creation consults the slot address. Reading an uninitialized binding
+through that address fails when invoked. `read_after_rebind` states that
+a write by the slot's owner is then visible to that callee. A list store
+through the captured value instead changes the list's heap cell. Both
+observations agree with the pinned spec's free-variable references and
+the pinned Go fixtures.
+
+The runtime theorem takes the defining frame's slot mapping as evidence.
+Forwarding locals through additional function levels, correspondence for
+broader bodies and definition-time defaults, and independent whole-source
+execution remain open.
+[Judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Checks.lean) · [Pinned Go fixtures](../../examples/starlark/scope/check.go) · [Pinned definition semantics](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#function-definitions) · [Go lexical selection](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L960-L990) · [Go shared cells](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L642-L661)
 
 ## Finite-manifest loader
 

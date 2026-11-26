@@ -120,7 +120,7 @@ private def adjacentKeywordEvidence (source : Source.Module) (profile : String) 
     outcome.residual.moduleGlobals == residual.moduleGlobals &&
     outcome.heap.next == 1 && retained == value
 
-private def ordinaryOutcome (source : Source.Module) : Option (String × Option Int) := do
+private def ordinaryOutcome (source : Source.Module) (observed : String := "x") : Option (String × Option Int) := do
   let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
   match (Compile.ModuleEntry.Functions.Run.runPrefix compiled.table 1000 compiled.start).2 with
   | .finished session completion =>
@@ -128,11 +128,35 @@ private def ordinaryOutcome (source : Source.Module) : Option (String × Option 
       | .normal => "normal"
       | .raised (.nameError name) => "NameError:" ++ name
       | _ => "unexpected completion"
-    match session.globals "x" with
+    match session.globals observed with
     | none => some (result, none)
     | some (.int value) => some (result, some value)
     | _ => none
   | _ => none
+
+private def identityEvidence (source : Source.Module) (profile completion : String)
+    (bindings : Bindings) : Bool := Id.run do
+  let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
+  let input := initial profile
+  let heap : Core.Closure.Heap := ⟨1, fun address => if address == 0 then some (.int 23) else none⟩
+  let seeded := Compile.ModuleEntry.Functions.Run.Seeded.run input compiled heap
+  let (events, final) := Compile.ModuleEntry.Functions.Run.runPrefix compiled.table 1000
+    (.ready (Compile.ModuleEntry.Functions.Run.seed .empty heap) compiled.instructions)
+  let .finished session ordinary := final | return false
+  let observed := match ordinary with
+    | .normal => "normal"
+    | .assertionError => "AssertionError:empty"
+    | .raised (.nameError name) => "NameError:" ++ name
+    | _ => "unexpected completion"
+  let reached := (["result", "after"].map fun name => (session.globals name).map
+    Compile.ModuleEntry.Functions.Run.Seeded.seededValue) ==
+      (["result", "after"].map (lookupBinding bindings ·))
+  let cell := some (.int 23 : Value)
+  return observed == completion && reached && events.isEmpty && seeded.calls.isEmpty &&
+    seeded.residual.moduleGlobals == bindings ++ input.moduleGlobals &&
+    seeded.residual.builtins == input.builtins && session.heap.next == 1 && seeded.heap.next == 1 &&
+    (session.heap.contents 0).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue == cell &&
+    (seeded.heap.contents 0).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue == cell
 
 private def additionEvidence (source : Source.Module) (profile : String) (succeeds : Bool) : Bool := Id.run do
   let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
@@ -259,6 +283,10 @@ UPSTREAM_LITERAL_TRUTH = (
     ("tests/python/programs/original/k-python/programs/testbools4.py",
      "456ec02381e7ba09f3b8a9ebd330d537b39d114cb405608c64a2343f143249d5"),
 )
+UPSTREAM_SINGLETON_IDENTITY_CASE = "tests/python/programs/original/k-python/programs/testis.py"
+UPSTREAM_SINGLETON_IDENTITY_SHA256 = "f02f9072633592a48e89434d4ff3e59d6e633c47f93ff63dc23cb70ce7595bb7"
+UPSTREAM_NONE_VALUE_CASE = "tests/python/programs/original/lambda-py/python-reference/types/address-of-none.py"
+UPSTREAM_NONE_VALUE_SHA256 = "6915793674cc89745a2cc378a00b71f42051087d0fe3d8fdf3787900031d9ca4"
 UPSTREAM_SCALAR_WARNINGS = {
     UPSTREAM_LITERAL_TRUTH[0][0]: (
         ("SyntaxWarning", 2, "assertion is always true, perhaps remove parentheses?"),
@@ -554,6 +582,56 @@ after = 9
 result = (0 or -2) == (missing == later)
 after = 9
 """, ["NameError:missing", "int:7", "absent"]),
+    ("none_value_tags", "empty", """result = None
+alias = result
+assert alias == None
+assert result != False
+assert not result
+after = result != 0
+assert not (False != 0)
+""", ["normal", "None", "bool:True"]),
+    ("none_value_left_lookup", "legacy_builtin", """result = None
+result = missing_first != missing_second
+after = 9
+""", ["NameError:missing_first", "None", "absent"]),
+    ("none_value_right_lookup", "legacy_preamble", """result = None
+result = result != missing_right
+after = 9
+""", ["NameError:missing_right", "None", "absent"]),
+    ("none_value_arithmetic_profile", "empty", """result = None
+result = result + 1
+after = 9
+""", ["unsupported", "None", "absent"]),
+    ("none_value_failed_assertion", "empty", """result = None
+assert result != None
+after = 9
+""", ["AssertionError:empty", "None", "absent"]),
+    ("singleton_identity_tags", "empty", """result = None is False
+after = False is not True is (1 == True)
+assert None is None
+assert None is not False
+assert not (False is True)
+assert False == 0
+""", ["normal", "bool:False", "bool:True"]),
+    ("singleton_identity_skipped", "legacy_builtin", """result = False is True is (missing_tail == 0)
+after = None
+""", ["normal", "bool:False", "None"]),
+    ("singleton_identity_left_lookup", "legacy_preamble", """result = None
+result = (missing_left == 0) is (missing_middle == 0) is (missing_tail == 0)
+after = 9
+""", ["NameError:missing_left", "None", "absent"]),
+    ("singleton_identity_middle_lookup", "legacy_builtin", """result = None
+result = False is (missing_middle == 0) is (missing_tail == 0)
+after = 9
+""", ["NameError:missing_middle", "None", "absent"]),
+    ("singleton_identity_tail_lookup", "legacy_preamble", """result = None
+result = False is not True is (missing_tail != 0)
+after = 9
+""", ["NameError:missing_tail", "None", "absent"]),
+    ("singleton_identity_failed_assertion", "empty", """result = None
+assert False is None
+after = 9
+""", ["AssertionError:empty", "None", "absent"]),
     ("bool_int_false", "legacy_bool_int_builtin", """result = int(False)
 ___assertEqual(result, 0)
 ___assertIsNot(result, False)
@@ -654,6 +732,11 @@ after = 9
 )
 
 NESTED_CALL_NAMES = {
+    "none_value_tags": [],
+    "none_value_left_lookup": [],
+    "none_value_right_lookup": [],
+    "none_value_arithmetic_profile": [],
+    "none_value_failed_assertion": [],
     "literal_truth_selected_types": ["___assertIs"],
     "literal_truth_falsy_selected": [],
     "literal_truth_failed_assertion": [],
@@ -695,6 +778,11 @@ NESTED_CALL_NAMES = {
 }
 
 EXACT_FIXTURE_BINDINGS = {
+    "none_value_tags": '[("after", .bool true), ("alias", .none), ("result", .none)]',
+    "none_value_left_lookup": '[("result", .none)]',
+    "none_value_right_lookup": '[("result", .none)]',
+    "none_value_arithmetic_profile": '[("result", .none)]',
+    "none_value_failed_assertion": '[("result", .none)]',
     "literal_truth_selected_types": '[("after", .int 9), ("result", .bool true)]',
     "literal_truth_falsy_selected": '[("after", .int 5), ("result", .bool false)]',
     "literal_truth_failed_assertion": '[("result", .int 7)]',
@@ -734,7 +822,26 @@ EXACT_FIXTURE_BINDINGS = {
     "bool_direct": '[("result", .int 5)]',
 }
 
+IDENTITY_FIXTURE_BINDINGS = {
+    "singleton_identity_tags": {"result": False, "after": True},
+    "singleton_identity_skipped": {"result": False, "after": None},
+    "singleton_identity_left_lookup": {"result": None},
+    "singleton_identity_middle_lookup": {"result": None},
+    "singleton_identity_tail_lookup": {"result": None},
+    "singleton_identity_failed_assertion": {"result": None},
+}
+
+
+def identity_bindings(bindings):
+    def tag(value):
+        return ".none" if value is None else f".bool {str(value).lower()}"
+    return "[" + ", ".join(f"({json.dumps(name)}, {tag(value)})"
+                           for name, value in reversed(list(bindings.items()))) + "]"
+
+
 CPYTHON_FIXTURE_BINDINGS = {
+    **IDENTITY_FIXTURE_BINDINGS,
+    "none_value_tags": {"result": None, "alias": None, "after": True},
     "literal_if_order": {"result": 7, "kept": 7, "after": 7},
     "literal_if_failure": {"result": 7},
     "literal_if_missing": {"result": 7},
@@ -957,6 +1064,8 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
         (UPSTREAM_ASSERT_NOT_CASE, UPSTREAM_ASSERT_NOT_SHA256, {}),
         (UPSTREAM_LITERAL_IF_CASE, UPSTREAM_LITERAL_IF_SHA256, {}),
         (UPSTREAM_CONDITIONAL_EXPR_CASE, UPSTREAM_CONDITIONAL_EXPR_SHA256, {}),
+        (UPSTREAM_NONE_VALUE_CASE, UPSTREAM_NONE_VALUE_SHA256, {"ret": 3}),
+        (UPSTREAM_SINGLETON_IDENTITY_CASE, UPSTREAM_SINGLETON_IDENTITY_SHA256, {}),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_NO_OP),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_INDEXING),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_TUPLE_COMPARISONS),
@@ -966,9 +1075,11 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
     for path, sha256, bindings in cases:
         source = pinned_source(checkout, path, sha256)
         shared["emit"](source_path, lean_path, source)
-        x = "some 5" if bindings else "none"
-        seeded_bindings = '[("x", .int 5)]' if bindings else "[]"
-        guards = [f'#guard ordinaryOutcome pythonSource == some ("normal", {x})']
+        assert len(bindings) <= 1
+        observed, value = next(iter(bindings.items()), ("x", None))
+        expected_binding = "none" if value is None else f"some {value}"
+        seeded_bindings = "[]" if value is None else f"[({json.dumps(observed)}, .int {value})]"
+        guards = [f'#guard ordinaryOutcome pythonSource {json.dumps(observed)} == some ("normal", {expected_binding})']
         if path == UPSTREAM_ASSERT_NOT_CASE:
             guards.append("#guard equalityBeforeAssertNot pythonSource")
         syntax_warnings = UPSTREAM_SCALAR_WARNINGS.get(path, ())
@@ -977,6 +1088,8 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
             assert cpython(source, profile, expected_globals=bindings,
                            expected_warnings=syntax_warnings) == expected, (path, profile)
             name = json.dumps(profile)
+            if path == UPSTREAM_SINGLETON_IDENTITY_CASE:
+                guards.append(f'#guard identityEvidence pythonSource {name} "normal" []')
             guards.extend((
                 guard_observation(profile, expected),
                 f"#guard exactGlobals pythonSource {name} {seeded_bindings}",
@@ -1084,6 +1197,9 @@ if __name__ == "__main__":
                 check += f"\n#guard callNames pythonSource {json.dumps(profile)} == some {json.dumps(NESTED_CALL_NAMES[name])}"
             if name in EXACT_FIXTURE_BINDINGS:
                 check += f"\n#guard exactGlobals pythonSource {json.dumps(profile)} {EXACT_FIXTURE_BINDINGS[name]}"
+            if name in IDENTITY_FIXTURE_BINDINGS:
+                bindings = identity_bindings(IDENTITY_FIXTURE_BINDINGS[name])
+                check += f"\n#guard identityEvidence pythonSource {json.dumps(profile)} {json.dumps(expected[0])} {bindings}"
             if name == "empty":
                 check += "\n" + AUDIT
             shared["check_lean"](lean_path, LEAN + check, extra_imports=IMPORTS)

@@ -18,6 +18,7 @@ private theorem operand_complete {layout : Layout} {source : Body.Expr layout} {
     (translated : OperandTranslation source target) : operand? source = some ⟨target, translated⟩ := by
   induction translated with
   | addInt _ _ first second => simp [operand?, first, second]
+  | mulInt _ _ first second => simp [operand?, first, second]
   | _ => rfl
 
 private theorem name_read_complete {layout : Layout} {source : Body.Expr layout} {target : NameRead layout}
@@ -38,7 +39,11 @@ theorem lower_complete {layout : Layout} {source : Link.Code layout}
   | ret value =>
     have complete := operand_complete value
     cases value <;> simp [lowerCode, complete]
+  | returnClosure => rfl
   | retLocalCall arguments => simp [lowerCode, arguments_complete arguments]
+  | retGlobalCall arguments => simp [lowerCode, arguments_complete arguments]
+
+
   | assert test _ remaining => simp [lowerCode, operand_complete test, remaining]
   | assertFreeVars read _ remaining => simp [lowerCode, name_read_complete read, remaining]
   | assertCellVars read _ remaining => simp [lowerCode, name_read_complete read, remaining]

@@ -42,6 +42,11 @@ theorem wf_specializeUnit (i : Fin Γ.length) (ht : (Γ.get i).1 = unit)
     Wf (eraseCtx Γ i) (specializeUnit i a) C e :=
   Proofs.wf_specializeUnit i ht he ha
 
+/-- Restore the erased slot by weakening an equality in the smaller context. -/
+theorem eqv_insertUnit (i : Fin Γ.length) (h : Eqv (eraseCtx Γ i) C e a b) :
+    Eqv Γ C e (a.wk (insertIndex i)) (b.wk (insertIndex i)) :=
+  Proofs.eqv_insertUnit i h
+
 /-- Specialization at a pure unit slot characterizes source equality at the same bound. -/
 theorem eqv_iff_specializeUnit (i : Fin Γ.length) (ht : (Γ.get i).1 = unit)
     (he : (Γ.get i).2 = ⊥) (ha : Wf Γ a C e) (hb : Wf Γ b C e) :

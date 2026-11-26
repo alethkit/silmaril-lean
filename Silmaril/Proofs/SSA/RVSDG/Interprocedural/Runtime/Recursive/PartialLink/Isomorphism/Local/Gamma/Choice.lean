@@ -6,6 +6,8 @@ import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.I
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Feedback
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Tail.Prefix.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Thms
+import Silmaril.Foundations.InfiniteTrace.Deterministic
 
 public section
 
@@ -28,6 +30,11 @@ private theorem read_capture_wiring {context params childContext : Ports (Ty V S
   | nil => rfl
   | cons port _ ih => exact congrArg₂ Tuple.cons (get_capture port captures args) ih
 
+/-- The value of a selected single wire in the current caller scope. -/
+@[expose] def wireValue {args : Ports (Ty V S)} {past : List (Ports (Ty V S))} {t : Ty V S}
+    (origin : Origin args past t) (entry : Tuple m.Val args) (locals : Locals m.Val past) : m.Val t :=
+  (Wires.read (.cons origin .nil) entry locals).get .head
+
 private theorem chooser_read {context params : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     {extra : Nat} {tag : Fin (extra + 2)} (captures : Tuple m.Val context) (args : Tuple m.Val params)
     (locals : Locals m.Val past) (selector : Origin (context ++ params) past (.control (extra + 2)))
@@ -39,7 +46,7 @@ private theorem chooser_read {context params : Ports (Ty V S)} {past : List (Por
 /-- The actual γ returns exactly the capture selected on each side.
 Replaying the successful binding puts that value in the local scope
 read by the following region. The chooser itself performs no effects. -/
-theorem choose_pair {context params outs : Ports (Ty V S)} {fn : Function V S} {extra : Nat}
+theorem choose_pair_with_tag {context params outs : Ports (Ty V S)} {fn : Function V S} {extra : Nat}
     {past tailL tailR : List (Ports (Ty V S))}
     {restL : NestedTheta.Term (Instruction Op) (context ++ params) (past ++ [[fn.port]]) tailL outs}
     {restR : NestedTheta.Term (Instruction Op) (context ++ params) (past ++ [[fn.port]]) tailR outs}
@@ -48,7 +55,9 @@ theorem choose_pair {context params outs : Ports (Ty V S)} {fn : Function V S} {
     (selector : Origin (context ++ params) past (.control (extra + 2))) (ports : Fin (extra + 2) → Port context fn.port)
     (captures : TupleRelated m ids capL capR) (args : TupleRelated m ids argsL argsR)
     (locals : AlignedLocals m ids localsL localsR)
-    (resume : ∀ tag, ScopedRegionPair primitives ids mapping restL restR
+    (resume : ∀ tag, wireValue selector (prependContext argsL capL) localsL = .control tag →
+      wireValue selector (prependContext argsR capR) localsR = .control tag →
+      ScopedRegionPair primitives ids mapping restL restR
       (prependContext argsL capL) (prependContext argsR capR)
       (localsL.snoc (.cons (capL.get (ports tag)) .nil)) (localsR.snoc (.cons (capR.get (ports tag)) .nil)) store) :
     ScopedRegionPair primitives ids mapping (bindGamma (chooserInputs selector) (chooserArms ports) restL)
@@ -63,7 +72,50 @@ theorem choose_pair {context params outs : Ports (Ty V S)} {fn : Function V S} {
     (nodeR := vertex (returned := [fn.port]) (chooserInputs selector) (fun _ => []))
     (readL.symm ▸ Eval.gamma (children := chooserArms ports) (.ret (past := []) (.cons (.arg (ports tag)) .nil) capL PUnit.unit store))
     (readR.symm ▸ Eval.gamma (children := chooserArms ports) (.ret (past := []) (.cons (.arg (ports tag)) .nil) capR PUnit.unit store))
-    (resume tag)
+    (resume tag (congrArg (fun v => v.get .head) guardL) (congrArg (fun v => v.get .head) guardR))
+
+theorem choose_pair {context params outs : Ports (Ty V S)} {fn : Function V S} {extra : Nat}
+    {past tailL tailR : List (Ports (Ty V S))}
+    {restL : NestedTheta.Term (Instruction Op) (context ++ params) (past ++ [[fn.port]]) tailL outs}
+    {restR : NestedTheta.Term (Instruction Op) (context ++ params) (past ++ [[fn.port]]) tailR outs}
+    {capL capR : Tuple m.Val context} {argsL argsR : Tuple m.Val params}
+    {localsL localsR : Locals m.Val past} {store : σ}
+    (selector : Origin (context ++ params) past (.control (extra + 2))) (ports : Fin (extra + 2) → Port context fn.port)
+    (captures : TupleRelated m ids capL capR) (args : TupleRelated m ids argsL argsR)
+    (locals : AlignedLocals m ids localsL localsR)
+    (resume : ∀ tag, ScopedRegionPair primitives ids mapping restL restR
+      (prependContext argsL capL) (prependContext argsR capR)
+      (localsL.snoc (.cons (capL.get (ports tag)) .nil)) (localsR.snoc (.cons (capR.get (ports tag)) .nil)) store) :
+    ScopedRegionPair primitives ids mapping (bindGamma (chooserInputs selector) (chooserArms ports) restL)
+      (bindGamma (chooserInputs selector) (chooserArms ports) restR)
+      (prependContext argsL capL) (prependContext argsR capR) localsL localsR store :=
+  choose_pair_with_tag selector ports captures args locals (fun tag _ _ => resume tag)
+
+/-- Recover the actual selector and the selected capture from a completed
+chooser evaluation. The assertion is independent of the ranked plan. -/
+theorem chooser_returned {context params : Ports (Ty V S)} {fn : Function V S} {extra : Nat}
+    {past : List (Ports (Ty V S))} (selector : Origin (context ++ params) past (.control (extra + 2)))
+    (ports : Fin (extra + 2) → Port context fn.port)
+    (caps : Tuple m.Val context) (input : Tuple m.Val params) (locals : Locals m.Val past)
+    {store middle : σ} {value : Tuple m.Val [fn.port]}
+    (ran : Eval primitives (.node (vertex (returned := [fn.port]) (Op := Op) (chooserInputs selector) (fun _ => [])).kind
+      (fun _ => []) (chooserArms ports) (Wires.read (chooserInputs selector) (prependContext input caps) locals))
+        store (.returned value middle)) :
+    ∃ tag, wireValue selector (prependContext input caps) locals = .control tag ∧
+      value = .cons (caps.get (ports tag)) .nil := by
+  obtain ⟨tag, guard⟩ : ∃ tag, wireValue selector (prependContext input caps) locals = .control tag := by
+    generalize wireValue selector (prependContext input caps) locals = selected
+    cases selected with
+    | control tag => exact ⟨tag, rfl⟩
+  rw [chooser_read caps input locals selector guard] at ran
+  have expected : Eval primitives (.node (.base (.gamma (entry := context) (exit := [fn.port]) extra))
+      (fun _ => []) (chooserArms ports) (.cons (.control tag) caps)) store
+      (.returned (.cons (caps.get (ports tag)) .nil) store) :=
+    .gamma (.ret (past := []) (.cons (.arg (ports tag)) .nil) caps PUnit.unit store)
+  have same := RightUnique.reach_final_eq (R := Step (final := [fn.port]) primitives)
+    (fun _ _ _ a b => _root_.Part.mem_unique a b) (ran.steps .halt) (expected.steps .halt)
+    (fun _ step => _root_.Part.notMem_none _ step) (fun _ step => _root_.Part.notMem_none _ step)
+  exact ⟨tag, guard, congrArg Prod.fst (Option.some.inj (congrArg Config.result same))⟩
 
 theorem joined_read {args : Ports (Ty V S)} {past : List (Ports (Ty V S))} {fn : Function V S}
     (arguments : Wires args (past ++ [[fn.port]]) fn.args)
@@ -72,11 +124,6 @@ theorem joined_read {args : Ports (Ty V S)} {past : List (Ports (Ty V S))} {fn :
       .cons callee (arguments.read entry (locals.snoc (.cons callee .nil))) := by
   have read := Tail.Prefix.read_forwarding entry locals (.cons callee .nil)
   exact congrArg (fun tuple => Tuple.cons (tuple.get .head) (arguments.read entry (locals.snoc (.cons callee .nil)))) read
-
-/-- The value of a selected single wire in the current caller scope. -/
-@[expose] def wireValue {args : Ports (Ty V S)} {past : List (Ports (Ty V S))} {t : Ty V S}
-    (origin : Origin args past t) (entry : Tuple m.Val args) (locals : Locals m.Val past) : m.Val t :=
-  (Wires.read (.cons origin .nil) entry locals).get .head
 
 theorem joined_origin_read {args : Ports (Ty V S)} {past : List (Ports (Ty V S))} {fn : Function V S}
     (entry : Tuple m.Val args) (locals : Locals m.Val past) (callee : m.Val fn.port) :

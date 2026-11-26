@@ -1,11 +1,12 @@
 module
 
-import Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.Partial.Endpoints.Thms
+import Silmaril.SSA.RVSDG.NestedTheta.Institution.Wires.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.OrderedState.Partial.Thms
+import Silmaril.SSA.RVSDG.OrderedRuntime.Structured.Thms
 
 namespace Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.Partial.Tests
 
-open OrderedRuntime.Structured
+open OrderedRuntime.Structured CategoryTheory
 
 private abbrev dataPorts : Ports (Ty Unit) := [.value ()]
 private abbrev bodyPorts : Ports (Ty Unit) := Theta.BodyResults dataPorts
@@ -21,6 +22,23 @@ private inductive Mode where
 private inductive Effect : Dialect Unit Unit where
   | step (mode : Mode) : Effect dataPorts bodyPorts
 
+private inductive MigratedEffect : Dialect Unit Unit where
+  | advance (mode : Mode) : MigratedEffect dataPorts bodyPorts
+
+private abbrev source : Institution.Partial.Signature Unit := ⟨⟨NoPure, Effect⟩⟩
+private abbrev target : Institution.Partial.Signature Unit := ⟨⟨NoPure, MigratedEffect⟩⟩
+
+private def renameEffect : RVSDG.Institution.OpcodeMap Effect MigratedEffect
+  | _, _, .step mode => .advance mode
+
+private def migrate : source ⟶ target :=
+  ⟨⟨fun op => op, renameEffect⟩, by
+    intro _ _ x y equal
+    cases x
+    cases y
+    cases equal
+    rfl⟩
+
 private abbrev value : Unit → Type := fun _ => Nat
 private abbrev dataOnly : Data dataPorts := .value .nil
 private abbrev bodyData : Data bodyPorts := .control dataOnly
@@ -28,15 +46,17 @@ private abbrev argsData : Data args := .control dataOnly
 
 private def data (n : Nat) : Tuple (Values value) dataPorts := .cons n .nil
 
-private def model : Model NoPure Effect Nat where
+private def targetModel : Institution.Partial.Model target Nat where
   value := value
   runPure op := nomatch op
   effect
-    | .step mode, .cons n .nil => StateT.mk fun store =>
+    | .advance mode, .cons n .nil => StateT.mk fun store =>
       if mode = .block ∧ store = 8 then Part.none
       else
         let tag : Fin 2 := if mode = .stop ∧ store = 8 then 0 else 1
         Part.some (.cons ⟨tag⟩ (data ((show Nat from n) + 1)), store + 3)
+
+private abbrev model : Model NoPure Effect Nat := Institution.Partial.reduct migrate targetModel
 
 private abbrev Region {i o : Ports (Ty Unit)} (a : Data i) (b : Data o)
     (sigs : List (Ports (Ty Unit))) :=
@@ -105,7 +125,7 @@ private theorem returns :
   · exact completes .stop 1 5 1 rfl
   · exact completes .stop 2 8 0 rfl
 
-example : observeErased model (graph .stop) (admitted .stop) (entry 0) =
+private theorem stopObservation : observeErased model (graph .stop) (admitted .stop) (entry 0) =
     Part.some (withRuntime PUnit.unit (data 3), 11) :=
   Part.eq_some_iff.mpr ((returns_iff model _ _ _ _).mp returns)
 
@@ -147,18 +167,118 @@ example : OrderedState.Partial.abnormal (erasedModel model) (admitted .restart).
     (boundaryResult (entry 0)).1 (boundaryResult (entry 0)).2 .diverges :=
   (abnormal_iff model _ _ _ .diverges).mp productive
 
-example : ¬ abnormal model (graph .block) (entry 0) .diverges := by
+private theorem blockExcludesDivergence : ¬ abnormal model (graph .block) (entry 0) .diverges := by
   intro divergent
   have bad := (abnormal_iff model _ (admitted .block) _ failedAttempt).mp blocked
   have infinite := (abnormal_iff model _ (admitted .block) _ .diverges).mp divergent
   cases OrderedState.Partial.abnormal_unique _ _ _ _ bad infinite
 
 -- Selecting the other γ arm leaves the token unchanged and avoids the failing body.
-example : observeErased model (graph .block) (admitted .block) (entry 1) =
+private theorem bypassObservation : observeErased model (graph .block) (admitted .block) (entry 1) =
     Part.some (withRuntime PUnit.unit (data 0), 2) := by
   apply Part.eq_some_iff.mpr
   apply (returns_iff model _ _ _ (point 0 2)).mp
   rw [NestedTheta.Partial.returns, Term.toTerm_toGraph]
   exact ⟨point 0 2, rfl, rfl⟩
+
+section Institution
+
+open CategoryTheory NestedTheta.Institution
+open Silmaril.Logic.Institution (Inst)
+
+private def equation (left right : Mode) : Wires.Equation source where
+  args := args
+  outs := dataPorts
+  inputData := argsData
+  outputData := dataOnly
+  leftSigs := [Threaded dataPorts]
+  rightSigs := [Threaded dataPorts]
+  lhs := graph left
+  rhs := graph right
+  lhsChecked := ⟨admitted left⟩
+  rhsChecked := ⟨admitted right⟩
+
+private def translated := (equation .block .restart).map migrate
+
+-- The migrated numbered graph returns the token advanced by all three activations.
+example : Wires.observe targetModel ((equation .stop .restart).map migrate).lhs (entry 0) =
+    Part.some (withRuntime PUnit.unit (data 3), 11) := by
+  change Wires.observe targetModel (Wires.mapGraph migrate (graph .stop)) (entry 0) = _
+  rw [Wires.observe_map migrate targetModel _ ⟨admitted .stop⟩]
+  exact (observe_eq model _ (admitted .stop) _).trans stopObservation
+
+-- The failed site, payload and attempt store survive renaming, including feedback.
+example : abnormal targetModel translated.lhs (entry 0)
+    (.blocked ⟨[(0, 0), (0, 0)], 0, Threaded dataPorts, Threaded bodyPorts,
+      .op (.advance .block), withRuntime PUnit.unit (data 2), 8⟩) := by
+  have h := (Wires.abnormal_map_iff migrate targetModel (graph .block) ⟨admitted .block⟩
+    (entry 0) failedAttempt).mpr
+  exact h blocked
+
+example : abnormal targetModel translated.rhs (entry 0) .diverges :=
+  (Wires.abnormal_map_iff migrate targetModel (graph .restart) ⟨admitted .restart⟩
+    (entry 0) .diverges).mpr productive
+
+example : Wires.observe targetModel translated.lhs (entry 1) =
+    Part.some (withRuntime PUnit.unit (data 0), 2) := by
+  change Wires.observe targetModel (Wires.mapGraph migrate (graph .block)) (entry 1) = _
+  rw [Wires.observe_map migrate targetModel _ ⟨admitted .block⟩]
+  exact (observe_eq model _ (admitted .block) _).trans bypassObservation
+
+private abbrev dialectInst : Inst.{1, 0, 0, 1, 1} := Wires.inst Unit Nat
+
+-- The blocked and continuing graphs disagree even though neither returns on arm zero.
+example : ¬ (dialectInst.I.obj target).Sat (Discrete.mk targetModel)
+    ((dialectInst.I.map migrate).sen (equation .block .restart)) := by
+  intro h
+  have sat := ((dialectInst.I.map migrate).sat (Discrete.mk targetModel) (equation .block .restart)).mp h
+  change (equation .block .restart).Holds (Institution.Partial.reduct migrate targetModel) at sat
+  exact blockExcludesDivergence (((sat (entry 0)).2 .diverges).mpr productive)
+
+-- The output has a well-typed but stale token edge from the entry.
+private def staleTerm : Term (Wires.WireOp source) (Threaded dataPorts) []
+    [Threaded bodyPorts] (Threaded bodyPorts) :=
+  let node : Node (Wires.WireOp source) (Threaded dataPorts) [] (Threaded bodyPorts) :=
+    .ofBase (primitiveNode (.arg (runtimePort dataPorts)) dataOnly bodyData
+      (Instruction.effect (.step .stop)) (.cons (.arg .head) .nil))
+  .bind node (fun j => j.elim0)
+    (.ret (withRuntime (.arg (runtimePort dataPorts))
+      (.cons (.output (0 : Fin 1) .head) (.cons (.output (0 : Fin 1) (.tail .head)) .nil))))
+
+private abbrev stale := staleTerm.toGraph
+
+private def entryOrigin {i : Ports (Ty Unit)} {past : List (Ports (Ty Unit))} :
+    Origin i past runtime → Bool
+  | .arg _ => true
+  | .output _ _ => false
+
+private def returnsEntryToken {i o : Ports (Ty Unit)} :
+    {past sigs : List (Ports (Ty Unit))} →
+    Term (Wires.WireOp source) (Threaded i) past sigs (Threaded o) → Bool
+  | _, _, .ret wires => entryOrigin (wires.get (runtimePort o))
+  | _, _, .bind _ _ rest => returnsEntryToken rest
+
+private theorem checkedEntryToken {i o : Ports (Ty Unit)} {past sigs : List (Ports (Ty Unit))}
+    {a : Data i} {b : Data o} {live : Origin (Threaded i) past runtime}
+    {t : Term (Wires.WireOp source) (Threaded i) past sigs (Threaded o)}
+    (checked : ExplicitRuntime.Checked NoPure Effect a b live t) :
+    returnsEntryToken t = (sigs.isEmpty && entryOrigin live) := by
+  induction checked with
+  | ret live wires => simp [returnsEntryToken, get_runtime]
+  | primitive live i o op wires rest ih =>
+    simp [returnsEntryToken, ih, nextRuntime, entryOrigin]
+  | gamma extra choice live i o wires childSigs arms rest ihArms ihRest =>
+    simp [returnsEntryToken, ihRest, nextRuntime, entryOrigin]
+  | theta live i wires bodySigs children rest ihChildren ihRest =>
+    simp [returnsEntryToken, ihRest, nextRuntime, entryOrigin]
+
+example : ¬ Nonempty (ExplicitRuntime.EntryChecked (a := dataOnly) (b := bodyData) stale.toTerm) := by
+  rw [Term.toTerm_toGraph]
+  rintro ⟨h⟩
+  have edge := checkedEntryToken h
+  change true = false at edge
+  cases edge
+
+end Institution
 
 end Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.Partial.Tests
