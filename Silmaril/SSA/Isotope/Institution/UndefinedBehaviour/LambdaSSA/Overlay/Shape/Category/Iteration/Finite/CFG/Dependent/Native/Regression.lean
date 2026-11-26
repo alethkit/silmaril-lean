@@ -1,7 +1,8 @@
 module
 
-import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Normalize.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Typing.Thms
+import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Syntax.Adequacy
 import Mathlib.Tactic.FinCases
 
 /-! # Recognize a native packed cycle and check its actual entry -/
@@ -111,30 +112,35 @@ private def producer (f : Instr) : Native.Typed Instr [instrSrc f, U] [Output] :
       (.br (ℓ := 0) rfl (.op (f := f) (.var (i := 0) rfl)))
       (fun _ => .br (ℓ := 1) rfl (.var (i := 0) rfl))⟩
 
-private def modifiedRoute {Γ : List (Silmaril.Ty Empty)} :
+private def paddedRoute {Γ : List (Silmaril.Ty Empty)} :
     Native.Typed Instr (Output :: Γ) (Internal ++ External) :=
   let k := Native.route Internal External (Γ := Γ) (Φ := Instr)
   ⟨.let₁ .unit (k.val.renameVars Nat.succ),
     .let₁ .unit (k.property.renameVars (LambdaSSA.Ren.wk (Output :: Γ) U))⟩
 
-private def block (f : Instr) (modified : Bool) :
-    Native.Typed Instr [instrSrc f, U] (Internal ++ External) :=
-  Native.bind (producer f) (if modified then modifiedRoute else Native.route Internal External)
+private def binderUsingRoute :
+    Native.Typed Instr [Output, U, U] (Internal ++ External) :=
+  ⟨.let₁ .unit (.br 3 (.var 0)), .let₁ .unit (.br (ℓ := 3) rfl (.var (i := 0) rfl))⟩
 
-private def fixture (productEntry modified : Bool) : Native.Typed Instr [U] External :=
+private def fixtureWithRouter (productEntry : Bool)
+    (router : Native.Typed Instr [Output, U, U] (Internal ++ External)) :
+    Native.Typed Instr [U] External :=
   let entry : Native.Typed Instr [U] (Internal ++ External) :=
     if productEntry then ⟨.br 1 (.pair .unit .unit), .br (ℓ := 1) rfl (.pair .unit .unit)⟩
     else ⟨.br 0 .unit, .br (ℓ := 0) rfl .unit⟩
   let blocks (j : Fin Internal.length) : Native.Typed Instr [Internal.get j, U] (Internal ++ External) :=
     Fin.cases (motive := fun i => Native.Typed Instr [Internal.get i, U] (Internal ++ External))
-      (block .unitBlock modified)
+      (Native.bind (producer .unitBlock) router)
       (Fin.cases (motive := fun i : Fin 1 => Native.Typed Instr [Internal.get i.succ, U] (Internal ++ External))
-        (block .productBlock false) (fun i => i.elim0)) j
+        (Native.bind (producer .productBlock) (Native.route Internal External)) (fun i => i.elim0)) j
   ⟨nativeFeedback entry blocks, nativeFeedback_hasType entry blocks⟩
+
+private def fixture (productEntry modified : Bool) : Native.Typed Instr [U] External :=
+  fixtureWithRouter productEntry (if modified then paddedRoute else Native.route Internal External)
 
 private abbrev source := fixture false false
 private abbrev target := fixture true false
-private abbrev changedRouter := fixture false true
+private abbrev paddedCFG := fixture false true
 
 private def readSource : Native.Readback Instr U Internal External :=
   (Native.recognize Internal source).get (by decide)
@@ -145,10 +151,31 @@ private def readTarget : Native.Readback Instr U Internal External :=
 private theorem recognizes_source : Native.recognize Internal source = some readSource := rfl
 private theorem recognizes_target : Native.recognize Internal target = some readTarget := rfl
 
-private theorem rejects_changed_router : Native.recognize Internal changedRouter = none := rfl
+private theorem exact_readback_rejects_redundant_binder : Native.recognize Internal paddedCFG = none := rfl
 
 private theorem proposed_before_router_check :
-    Native.propose (X := U) Internal External changedRouter.val = some readSource := rfl
+    Native.propose (X := U) Internal External paddedCFG.val = some readSource := rfl
+
+private abbrev usesBinder := fixtureWithRouter false binderUsingRoute
+
+private theorem padded_has_normal_form : Native.normalizeRouterUnits Internal paddedCFG = some source := by
+  calc
+    _ = some readSource.typed := rfl
+    _ = _ := congrArg some (Native.recognized_eq recognizes_source).symm
+
+private theorem recognizes_unused_binder :
+    Native.recognizeRouterUnits Internal paddedCFG = some readSource := rfl
+
+private theorem recognizes_other_entry :
+    Native.recognizeRouterUnits Internal target = some readTarget := rfl
+
+private theorem read_producer_before_binder_check :
+    Native.propose (X := U) Internal External usesBinder.val = some readSource := rfl
+
+private theorem rejects_use_of_bound_unit :
+    Native.hasRouterUnit usesBinder.val 0 = true ∧
+      Native.recognizeRouterUnits Internal usesBinder = none :=
+  ⟨rfl, rfl⟩
 
 private abbrev code (p : Packet Internal) (s : State) := codes.invocation.symm (p, s)
 private abbrev table := readSource.blocks.generate codes primitive
@@ -191,13 +218,62 @@ private theorem rejected_refinement : ¬ ∀ s, observed source s ≤ observed t
   rw [rejects_distinct_native_entry] at checked
   cases checked
 
+private theorem normalized_all_states (s : State) : observed paddedCFG s = observed source s :=
+  Native.normalizeRouterUnits_denote padded_has_normal_form (model primitive env) s
+
+private theorem normalized_exit_after_backedge :
+    observed paddedCFG 0 = WithTop.some {Outcome.ret 0 .unit (2 : State)} :=
+  (Native.classify_recognizedRouterUnits recognizes_unused_binder codes primitive 0 0).trans rfl
+
+private theorem normalized_replay :
+    observed paddedCFG 3 = WithTop.some ({Outcome.diverge} : Set (Outcome 2 Unit State)) :=
+  (normalized_all_states 3).trans silent_replay
+
+private theorem normalized_fault :
+    observed paddedCFG 4 = WithTop.some {Outcome.fault (5 : State)} :=
+  (normalized_all_states 4).trans fault_state
+
+private theorem normalized_primitive_divergence :
+    observed paddedCFG 5 = WithTop.some ({Outcome.diverge} : Set (Outcome 2 Unit State)) :=
+  (normalized_all_states 5).trans in_step_divergence
+
+private theorem normalized_replay_is_ordinary : observed paddedCFG 3 ≠ ⊤ := by
+  rw [normalized_replay]
+  exact WithTop.coe_ne_top
+
+private def ubAtFirst (i : Fin External.length) : Region Instr (External.get i :: [U]) [U] :=
+  if i = 0 then .ub else .native ⟨.br 0 .unit, .br (ℓ := 0) rfl .unit⟩
+
+private theorem normalized_return_reaches_overlay_ub :
+    Shape.denote (.lsubst (.native paddedCFG) ubAtFirst) (model primitive env) 0 = ⊤ := by
+  change Behaviour.bind (observed paddedCFG 0) _ = ⊤
+  apply Behaviour.bind_eq_top_of_reaches_top (i := (0 : Fin 2)) (a := .unit) (s := (2 : State))
+  · rw [normalized_exit_after_backedge]
+    simp [Behaviour.possible]
+  · rfl
+
+private theorem normalized_replay_skips_overlay_ub :
+    Shape.denote (.lsubst (.native paddedCFG) ubAtFirst) (model primitive env) 3 =
+      WithTop.some ({Outcome.diverge} : Set (Outcome 1 Unit State)) := by
+  change Behaviour.bind (observed paddedCFG 3) _ = _
+  rw [normalized_replay]
+  exact Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.Syntax.diverge_bind _
+
+private theorem normalized_rejects_distinct_entry : ¬ ∀ s, observed paddedCFG s ≤ observed target s := by
+  intro ordered
+  have checked :=
+    (Native.check_recognizedRouterUnits_iff recognizes_unused_binder recognizes_other_entry codes primitive).mpr
+      (fun _ s => ordered s)
+  rw [rejects_distinct_native_entry] at checked
+  cases checked
+
 #print axioms Native.recognized_eq
 #print axioms Native.readback_agrees
 #print axioms Native.generated_native_row
 #print axioms Native.classify_recognized
 #print axioms Native.check_recognized_iff
 #print axioms recognizes_source
-#print axioms rejects_changed_router
+#print axioms exact_readback_rejects_redundant_binder
 #print axioms proposed_before_router_check
 #print axioms cross_typed_backedge
 #print axioms exit_after_backedge
@@ -206,5 +282,20 @@ private theorem rejected_refinement : ¬ ∀ s, observed source s ≤ observed t
 #print axioms fault_state
 #print axioms in_step_divergence
 #print axioms rejected_refinement
+
+#print axioms Native.normalizeRouterUnits_equiv
+#print axioms Native.normalizeRouterUnits_denote
+#print axioms Native.classify_recognizedRouterUnits
+#print axioms Native.check_recognizedRouterUnits_iff
+#print axioms recognizes_unused_binder
+#print axioms rejects_use_of_bound_unit
+#print axioms normalized_exit_after_backedge
+#print axioms normalized_replay
+#print axioms normalized_fault
+#print axioms normalized_primitive_divergence
+#print axioms normalized_replay_is_ordinary
+#print axioms normalized_return_reaches_overlay_ub
+#print axioms normalized_replay_skips_overlay_ub
+#print axioms normalized_rejects_distinct_entry
 
 end LambdaSSAUBNativePackedRegression
