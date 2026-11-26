@@ -16,7 +16,7 @@ public import Silmaril.Proofs.Parse.ByteParse.Encode
 
 namespace Silmaril.Parse.ByteParse
 
-open Silmaril.Wasm.Binary (UN SN U32 Seq)
+open Silmaril.Parse.Binary (UN SN U32 Seq)
 
 variable {α β : Type}
 

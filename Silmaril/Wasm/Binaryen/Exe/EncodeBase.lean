@@ -1,5 +1,6 @@
 module
 
+public import Silmaril.Parse.Binary.Defs
 public import Silmaril.Wasm.Modules
 
 @[expose] public section
@@ -8,19 +9,7 @@ namespace Silmaril.Wasm.Binaryen.Exe
 
 open Silmaril.Wasm
 
-/-- Unsigned LEB128, minimal. -/
-def encU (n : Nat) : List UInt8 :=
-  if h : n < 0x80 then [UInt8.ofNat n]
-  else UInt8.ofNat (n % 0x80 + 0x80) :: encU (n / 0x80)
-termination_by n
-decreasing_by omega
-
-/-- Signed LEB128, minimal. -/
-def encS (i : Int) : List UInt8 :=
-  if h : -64 ≤ i ∧ i < 64 then [UInt8.ofNat (i % 128).toNat]
-  else UInt8.ofNat (i % 128 + 128).toNat :: encS (i / 128)
-termination_by i.natAbs
-decreasing_by omega
+export Silmaril.Parse.Binary (encU encS)
 
 /-- A `u32`: unsigned LEB128, failing on values that do not fit. -/
 def encU32 (n : Nat) : Except String (List UInt8) :=

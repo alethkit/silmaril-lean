@@ -1,7 +1,6 @@
 module
 
-public import Silmaril.Wasm.Binary.Basic
-public import Silmaril.Wasm.Binaryen.Exe.EncodeBase
+public import Silmaril.Parse.Binary.Thms
 
 /-!
 # Fast, verified binary parsers: the cursor parser
@@ -364,11 +363,11 @@ def pure {α : Type} (a : α) : Bytes → α → Prop := fun l b => l = [] ∧ b
 
 /-- `n` items. -/
 def many {α : Type} (G : Bytes → α → Prop) (n : Nat) : Bytes → List α → Prop :=
-  fun l xs => Silmaril.Wasm.Binary.Seq G l xs ∧ xs.length = n
+  fun l xs => Silmaril.Parse.Binary.Seq G l xs ∧ xs.length = n
 
 /-- An unsigned/signed LEB-free count prefix, as in `Vec`. -/
 abbrev vec {α : Type} (G : Bytes → α → Prop) : Bytes → List α → Prop :=
-  Silmaril.Wasm.Binary.Vec G
+  Silmaril.Parse.Binary.Vec G
 
 /-- `G`, with its bytes exactly `n` long. -/
 def sized {α : Type} (n : Nat) (G : Bytes → α → Prop) : Bytes → α → Prop :=
@@ -381,7 +380,7 @@ def opt {α : Type} (G : Bytes → α → Prop) : Bytes → Option α → Prop
 
 /-- Little-endian bytes of length `n`. -/
 def le (n : Nat) : Bytes → Nat → Prop :=
-  fun l v => l.length = n ∧ v = Silmaril.Wasm.Binary.littleEndian l
+  fun l v => l.length = n ∧ v = Silmaril.Parse.Binary.littleEndian l
 
 /-- The big-endian value of a byte string. -/
 def bigEndian (l : Bytes) : Nat := l.foldl (fun a b => a * 256 + b.toNat) 0
@@ -391,7 +390,7 @@ def be (n : Nat) : Bytes → Nat → Prop := fun l v => l.length = n ∧ v = big
 
 end Spec
 
-/-- One byte: `Silmaril.Wasm.Binary.Byte`. -/
+/-- One byte: `Silmaril.Parse.Binary.Byte`. -/
 def Spec.byte : Bytes → UInt8 → Prop := fun l b => l = [b]
 
 /-- `n` raw bytes, by span. -/
@@ -399,7 +398,7 @@ def Spec.span (n : Nat) : Bytes → Nat × Nat → Prop := fun l _ => l.length =
 
 /-- The canonical name encoding: a `u32` byte count, then the UTF-8 bytes. -/
 def Spec.name : Bytes → String → Prop :=
-  fun l s => ∃ nb, l = nb ++ s.toUTF8.data.toList ∧ Silmaril.Wasm.Binary.U32 nb s.toUTF8.size
+  fun l s => ∃ nb, l = nb ++ s.toUTF8.data.toList ∧ Silmaril.Parse.Binary.U32 nb s.toUTF8.size
 
 /-- A tag byte `b`, then bytes in the grammar `K b`. -/
 def Spec.tagged {α : Type} (K : UInt8 → Option (Bytes → α → Prop)) : Bytes → α → Prop :=
@@ -482,13 +481,13 @@ variable {α β : Type}
   ⟨Spec.tagged fun b => (k b).map Grammar.G, ByteParse.tagged what fun b => (k b).map Grammar.parse⟩
 
 /-- `uN N`. -/
-@[inline] def uN (N : Nat) : Grammar Nat := ⟨Silmaril.Wasm.Binary.UN N, ByteParse.uN N⟩
+@[inline] def uN (N : Nat) : Grammar Nat := ⟨Silmaril.Parse.Binary.UN N, ByteParse.uN N⟩
 
 /-- `u32`. -/
 @[inline] def u32 : Grammar Nat := uN 32
 
 /-- `sN N`. -/
-@[inline] def sN (N : Nat) : Grammar Int := ⟨Silmaril.Wasm.Binary.SN N, ByteParse.sN N⟩
+@[inline] def sN (N : Nat) : Grammar Int := ⟨Silmaril.Parse.Binary.SN N, ByteParse.sN N⟩
 
 /-- `n` little-endian bytes. -/
 @[inline] def le (n : Nat) : Grammar Nat := ⟨Spec.le n, ByteParse.le n⟩
@@ -510,7 +509,7 @@ not use: it is the condition under which `vec` is complete). -/
 
 /-- `size:u32` then `g*` filling exactly `size` bytes (`hne` as for `vec`). -/
 @[inline] def sizedItems (g : Grammar α) (_hne : NonEmpty g.G) : Grammar (List α) :=
-  u32.bind fun n => ⟨Spec.sized n (Silmaril.Wasm.Binary.Seq g.G), ByteParse.sized n (ByteParse.untilEnd g.parse)⟩
+  u32.bind fun n => ⟨Spec.sized n (Silmaril.Parse.Binary.Seq g.G), ByteParse.sized n (ByteParse.untilEnd g.parse)⟩
 
 /-- `size:u32` then `g` filling exactly `size` bytes. -/
 @[inline] def sizedBy (g : Grammar α) : Grammar α := u32.bind fun n => sized n g
@@ -557,7 +556,7 @@ variable {α β : Type}
 
 /-- Items up to the end of the window (`hne` as for `Grammar.vec`). -/
 @[inline] def items (g : Grammar α) (_hne : NonEmpty g.G) : GrammarE (List α) :=
-  ⟨Silmaril.Wasm.Binary.Seq g.G, ByteParse.untilEnd g.parse⟩
+  ⟨Silmaril.Parse.Binary.Seq g.G, ByteParse.untilEnd g.parse⟩
 
 /-- Exactly `n` bytes. -/
 @[inline] def sized (n : Nat) (g : GrammarE α) : Grammar α :=
@@ -581,14 +580,14 @@ theorem tagged_nonEmpty (what : String) (k : UInt8 → Option (Grammar α)) :
     NonEmpty (tagged what k).G := by
   rintro l a ⟨b, l', G, rfl, -, -⟩; simp
 
-theorem u32_nonEmpty : NonEmpty u32.G := fun _ _ h e => by subst e; exact Silmaril.Wasm.Binary.UN.ne_nil h
+theorem u32_nonEmpty : NonEmpty u32.G := fun _ _ h e => by subst e; exact Silmaril.Parse.Binary.UN.ne_nil h
 
 theorem sN_nonEmpty (N : Nat) : NonEmpty (sN N).G := fun _ _ h e => by subst e; cases h
 
 theorem name_nonEmpty : NonEmpty name.G := by
   rintro l s ⟨nb, rfl, hu⟩ e
   simp only [List.append_eq_nil_iff] at e
-  exact Silmaril.Wasm.Binary.UN.ne_nil (e.1 ▸ hu)
+  exact Silmaril.Parse.Binary.UN.ne_nil (e.1 ▸ hu)
 
 theorem byte_nonEmpty : NonEmpty byte.G := fun _ _ h e => by subst e; cases h
 
@@ -598,7 +597,7 @@ theorem expect_nonEmpty (what : String) (b : UInt8) : NonEmpty (expect what b).G
 theorem vec_nonEmpty {g : Grammar α} {hne : NonEmpty g.G} : NonEmpty (vec g hne).G := by
   rintro l xs ⟨hn, -⟩ e
   simp only [List.append_eq_nil_iff] at e
-  exact Silmaril.Wasm.Binary.UN.ne_nil (e.1 ▸ hn)
+  exact Silmaril.Parse.Binary.UN.ne_nil (e.1 ▸ hn)
 
 theorem bind_nonEmpty {g : Grammar α} {h : α → Grammar β} (hg : NonEmpty g.G) :
     NonEmpty (g.bind h).G := by
@@ -629,7 +628,7 @@ theorem sized_nonEmpty_of {n : Nat} {g : Grammar α} (hn : 0 < n) : NonEmpty (si
   rintro l a ⟨hl, -⟩ e; subst e; simp at hl; omega
 
 theorem uN_nonEmpty (N : Nat) : NonEmpty (uN N).G := fun _ _ h e => by
-  subst e; exact Silmaril.Wasm.Binary.UN.ne_nil h
+  subst e; exact Silmaril.Parse.Binary.UN.ne_nil h
 
 theorem sizedBy_nonEmpty {g : Grammar α} : NonEmpty (sizedBy g).G := bind_nonEmpty u32_nonEmpty
 
@@ -654,12 +653,12 @@ namespace Enc
 
 /-- Minimal unsigned LEB128 of a `u32`. -/
 def u32 (n : Nat) : Option Bytes :=
-  if n < 2 ^ 32 then some (Silmaril.Wasm.Binaryen.Exe.encU n) else none
+  if n < 2 ^ 32 then some (Silmaril.Parse.Binary.encU n) else none
 
 /-- Minimal signed LEB128 of an `sN`. -/
 def sN (N : Nat) (i : Int) : Option Bytes :=
   if 0 < N ∧ -(2 ^ (N - 1) : Int) ≤ i ∧ i < 2 ^ (N - 1) then
-    some (Silmaril.Wasm.Binaryen.Exe.encS i) else none
+    some (Silmaril.Parse.Binary.encS i) else none
 
 /-- A name: its UTF-8 byte count, then the bytes. -/
 def name (s : String) : Option Bytes := do
