@@ -623,6 +623,23 @@ with an ordinary return passes refinement toward the UB variant. The
 reverse comparison fails.
 [Checker and exactness][ssa-ub-finite-iteration] [Certified regression][ssa-ub-finite-regression]
 
+The executable step syntax generates these tables and their certificates.
+It uses exact free types over `Empty`, constructor expressions, typed calls,
+exact-sum case with a payload binder, and literal overlay UB. Each program
+elaborates to a typed overlay region using native atoms and label substitution.
+The shaped model is the graph of the deterministic typed primitive interpreter
+on `Fin states`. The compositional proof equates structural evaluation with
+the complete observation of that region. A successful call evaluates its
+continuation at the reply's final state. Faults and primitive divergence stop
+the step. A case evaluates only its selected continuation.
+
+Capture codes select the supported captures, and seed and result equivalences
+code all values at the two exact exit types. At every supported capture, seed
+and machine state, the decision compares the existing captured feedback
+observations. Recursive native CFGs and arbitrary overlay representatives
+are outside this executable step grammar.
+[Syntax and certificates][ssa-ub-finite-syntax] [Generated comparison][ssa-ub-finite-syntax-regression]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -664,6 +681,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Capture.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Syntax.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -750,3 +768,5 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-shaped-capture-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Capture/Regression.lean
 [ssa-ub-finite-iteration]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Thms.lean
 [ssa-ub-finite-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Regression.lean
+[ssa-ub-finite-syntax]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Syntax/Thms.lean
+[ssa-ub-finite-syntax-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Syntax/Regression.lean
