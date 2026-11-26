@@ -2409,6 +2409,27 @@ private def checkAssembly (last : String := "third") : Option Bool := do
 #guard (assemblyThree 73 "third").isNone
 #guard (assemblyThree 75 "first").isNone
 
+-- The name still selects the first receipt, including its original
+-- post-link stores and typed values, after both subsequent appends.
+private def checkEarlyProviderReceipt : Option Bool := do
+  let assembly ← assemblyThree 75 "third"
+  let early ← assembly.lookup "first" branchFn.port
+  let second ← assembly.lookup "second" branchFn.port
+  let provider := early.entry.provider
+  let providerStore : {ty : T} → Outcome machine Nat [ty] → Option Nat
+    | _, .linked _ store => some store
+    | _, .undefined _ => none
+  pure (provider.unitsL == [73] && provider.unitsR == [73] &&
+    provider.chain.initialL == 2 && provider.chain.initialR == 2 &&
+    providerStore provider.selectedL == some 21 && providerStore provider.selectedR == some 21 &&
+    assembly.chain.checked.storeL == 2135 && assembly.chain.checked.storeR == 2135 &&
+    (early.checkImports exactLambdas (providerRef 0) (providerRef 1)).isSome &&
+    (early.checkImports exactLambdas (providerRef 0) foreignProvider).isNone &&
+    (early.checkImports exactLambdas (providerRef 1) (providerRef 0)).isNone &&
+    (early.checkImports exactLambdas second.values.left second.values.right).isNone)
+
+#guard checkEarlyProviderReceipt.getD false
+
 -- The later provider is compatible with its immediate predecessor alone.
 -- Its dispatch collides with the non-adjacent first family.
 #guard ((do
