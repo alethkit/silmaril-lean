@@ -961,13 +961,10 @@ absence at the relevant intermediate state. The result concerns
 ordered execution and existence of finite observations.
 [Disjoint heap laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/CellEmbedding/Thms.lean)
 
-The API sequences observations of separately emitted graphs. A single
-linked graph is open. The checked numbered splice consumes the
-producer's returned tuple as the entire consumer entry. These loops
-return one word and the heap, while the second loop also requires typed
-captures. A linked lowering needs a checked adapter that forwards
-those captures, implements the chosen word-to-input wiring, and
-retains the first word for the final pair.
+The API sequences observations of separately emitted graphs. The
+checked numbered splice consumes the producer's returned tuple as
+the entire consumer entry. See the boundary adapter below for the
+entry packet of a checked consumer.
 [Checked splice boundary](../../../../Silmaril/SSA/RVSDG/NestedTheta/ExplicitRuntime/Splice/Thms.lean)
 
 ```lean
@@ -986,6 +983,42 @@ and the selected second loop always takes its feedback edge.
 
 ```sh
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Regression
+```
+
+##### Checked numbered boundary adapter
+
+`Boundary.Wiring` chooses one typed word capture to read the first
+return and forwards all other captures from named ambient ports.
+`Boundary.adapter` takes the first return word, ambient captures, and
+the full post-heap. Its numbered return keeps the first word in a
+separate lane, supplies the second capture tuple, and forwards the
+same live heap. `Wiring.select_word` names the dependent capture,
+while `adapter_run`, `adapter_observe`, and `adapter_finishes_iff`
+give the exact packet in the existing runtime and firing semantics.
+[Boundary API](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Boundary/Thms.lean)
+
+`splice_observe` and `splice_finishes_iff` establish the behaviour of
+the actual splice with any consumer admitted at the routed packet.
+Linking the two whole θ graphs still requires a checked producer that
+returns the ambient captures with its word and live heap, and a
+checked consumer that runs the second θ while carrying the reserved
+word to the final pair.
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Boundary.Thms
+```
+
+The disjoint-write fixture feeds the first emitted θ's returned heap
+`[11, 73, 11, 9, 91, 3]` to the adapter. The adapter routes the word
+`3` to the second stop capture and retains another lane for the first
+result. The second emitted θ returns with heap
+`[11, 73, 11, 22, 91, 22]`. The fixture also runs the actual splice
+with a checked return consumer that reads the reserved word and
+the selected stop capture.
+[Runnable boundary regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Boundary/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Boundary.Regression
 ```
 
 ### Equations for coloured Petri completion
