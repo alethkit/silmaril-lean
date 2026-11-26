@@ -20,6 +20,15 @@ theorem Eqv.bindBranchArguments (h : Eqv Γ r s L) :
     Eqv Γ r.bindBranchArguments s.bindBranchArguments L :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BranchNormalization.paper_congr h
 
+/-- Interpret normalized endpoints in a target extension. Only the new seed cases
+need to be supplied by the caller. -/
+theorem Extension.Eqv.bindBranchArguments_into
+    {Seed Target : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop}
+    (h : Extension.Eqv Seed Γ r s L)
+    (map : ∀ {Γ r s L}, Seed Γ r s L → Extension.Eqv Target Γ r.bindBranchArguments s.bindBranchArguments L) :
+    Extension.Eqv Target Γ r.bindBranchArguments s.bindBranchArguments L :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BranchNormalization.Extension.congr_into h map
+
 /-- The same normalization respects a contextual extension whose seed has guarded endpoints. -/
 theorem Extension.Eqv.bindBranchArguments_of_guardedSeed
     {Seed : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop}
