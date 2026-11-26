@@ -1,8 +1,10 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Institution.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Chain.Thms
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Fixture
 meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Chain.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Defs
 meta import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Fixture
 
@@ -95,6 +97,32 @@ private def zeroInput : Tuple (Val 0) wordOnly.args := .cons (7 : Word) .nil
   | none => false
 
 #guard !(diagnoseCompositeCoverage? (𝟙 wordOnly) insertAddress 1).isSome
+
+private abbrev wordAddress : EntrySignature := ⟨[.word, .address]⟩
+private def swapPorts : addressWord ⟶ wordAddress :=
+  ⟨fun
+    | .head => .tail .head
+    | .tail .head => .head
+    | .tail (.tail impossible) => nomatch impossible⟩
+
+private def addressSuffix : CaptureChain addressWord wordAddress := .cons swapPorts (.nil wordAddress)
+private def addressChain : CaptureChain wordOnly wordAddress := .cons insertAddress addressSuffix
+
+example : ¬ ∃ stages : CaptureChain.Stages 0 addressSuffix, stages.Compatible :=
+  fun stages => (by decide : admitsInput 0 wordAddress.args ≠ true)
+    ((addressSuffix.admitsStages_iff 0).mp stages)
+
+#guard addressSuffix.checkCoverage 0
+#guard !addressChain.checkCoverage 0
+#guard addressChain.checkCoverage 1
+#guard !(addressChain.lift? ⟨zeroInput, fun _ => 0⟩).isSome
+#guard match addressChain.diagnose? 0 with
+  | some diagnostic =>
+    match diagnostic.failure with
+    | .emptyTargetAddress port =>
+      Quads.slot port == 1 && !(addressChain.lift? ⟨diagnostic.input, fun _ => 0⟩).isSome
+    | _ => false
+  | none => false
 
 private abbrev twoAddresses : EntrySignature := ⟨[.address, .address]⟩
 private abbrev oneAddress : EntrySignature := ⟨[.address]⟩

@@ -1,8 +1,10 @@
 module
 
-import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Institution.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Institution.Chain.Thms
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Fixture
 meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Chain.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Institution.Chain.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Defs
 meta import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Fixture
 
@@ -125,5 +127,61 @@ private def runWithLift (p : TripleProgram extended) : Option (Word × Word × W
 
 #guard runWithLift ((original.map insert).map identifySpare) == some (3, 3, 22, [11, 73, 11, 3, 91, 22])
 #guard runWithLift (original.map (insert ≫ identifySpare)) == some (3, 3, 22, [11, 73, 11, 3, 91, 22])
+
+private abbrev finalSig : EntrySignature := ⟨.word :: extended.args⟩
+private def insertAgain : extended ⟶ finalSig := ⟨fun port => .tail port⟩
+private def thirdStep : CaptureChain extended finalSig := .cons insertAgain (.nil finalSig)
+private def coveredChain : CaptureChain combined finalSig :=
+  (.cons insert (.cons identifySpare (.nil extended)) : CaptureChain combined extended).append thirdStep
+private def rejectedChain : CaptureChain combined finalSig :=
+  .cons insert (.cons identifyUsed thirdStep)
+
+#guard coveredChain.checkCoverage 6
+#guard !(coveredChain.diagnose? 6).isSome
+#guard !(rejectedChain.checkCoverage 6)
+
+private def stageSpareWords : Option (Word × Word × Word) := do
+  let .cons _ (.cons firstIntermediate (.cons secondIntermediate (.nil final))) ← coveredChain.lift? source
+    | none
+  pure (firstIntermediate.input.get .head, secondIntermediate.input.get .head, final.input.get .head)
+
+#guard stageSpareWords == some (22, 0, 0)
+
+example : ∃ stages : CaptureChain.Stages 6 coveredChain, stages.first = source ∧ stages.Compatible :=
+  (coveredChain.checkCoverage_iff_stages 6).mp rfl source
+
+example : coveredChain.composite = (insert ≫ identifySpare) ≫ insertAgain := rfl
+
+example (backend : Backend) (sentence : TripleSentence combined) {stages : CaptureChain.Stages 6 coveredChain}
+    (lifted : coveredChain.lift? source = some stages) :
+    backend.Holds (sentence.mapChain coveredChain) stages.last.model ↔ backend.Holds sentence source.model :=
+  backend.satisfaction_liftChain sentence lifted
+
+example (sentence : TripleSentence combined) :=
+  sentence.room_satisfaction_chain_of_check .memref coveredChain 6 rfl
+
+private def runChain : Option (Word × Word × Word × List Word) := do
+  let lifted ← coveredChain.lift? source
+  match (TripleSentence.terminates original).mapChain coveredChain with
+  | .terminates emitted =>
+    let (a, b, c, buffer) ← emitted.runMemRef lifted.last.model 11 ⟨lifted.last.heap⟩
+    pure (a, b, c, (List.finRange 6).map buffer.cell)
+  | .equation _ _ => none
+
+#guard runChain == some (3, 3, 22, [11, 73, 11, 3, 91, 22])
+
+#guard match rejectedChain.diagnose? 6 with
+  | some diagnostic =>
+    match diagnostic.failure with
+    | .collision .word left right =>
+      Quads.slot left == Quads.slot leftStore && Quads.slot right == Quads.slot rightStore &&
+        !(rejectedChain.lift? ⟨diagnostic.input, initial⟩).isSome
+    | _ => false
+  | none => false
+
+example {diagnostic : CoverageDiagnostic combined finalSig 6}
+    (found : rejectedChain.diagnose? 6 = some diagnostic) :
+    rejectedChain.lift? ⟨diagnostic.input, initial⟩ = none :=
+  rejectedChain.diagnose?_rejects found initial
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage
