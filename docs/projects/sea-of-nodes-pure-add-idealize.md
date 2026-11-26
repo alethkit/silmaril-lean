@@ -39,6 +39,7 @@ profile has only pure word primitives, so the source's dead self-edge
 and Φ cases are outside the input type. This entry point applies one
 rewrite at the nomination. The splices emit the fresh intermediate
 before the source's recursive peephole.
+[Follow a replacement with bounded replay](sea-of-nodes-pure-add-replay.md)
 
 `step_agrees` proves that every original read agrees along the
 returned routing. `step_eval_eq` preserves the return for all inputs
