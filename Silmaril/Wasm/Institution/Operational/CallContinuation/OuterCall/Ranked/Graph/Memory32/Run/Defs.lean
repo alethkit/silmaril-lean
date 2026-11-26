@@ -90,6 +90,13 @@ inductive AllowedFor (mode : MemoryMode) (program : Program) (memory : MemAddr) 
       (inside : ∀ x ∈ body, AllowedFor mode program memory calls fn.rank callee.module x) :
       AllowedFor mode program memory calls rank module (.frame n callee body)
 
+  /-- An entered frame can retain checked code after a designated external-root
+  operation. Its live module governs all remaining calls and memory accesses. -/
+  | enteredFrame {rank module n callee body childRank} (scalar : n ≤ 1)
+      (permitted : calls.permits rank childRank)
+      (inside : ∀ x ∈ body, AllowedFor mode program memory calls childRank callee.module x) :
+      AllowedFor mode program memory calls rank module (.frame n callee body)
+
 abbrev CodeAllowedFor (mode : MemoryMode) (program : Program) (memory : MemAddr) (calls : CallMode) (rank : Nat) (module : ModuleInst)
     (code : List Admin) : Prop :=
   ∀ x ∈ code, AllowedFor mode program memory calls rank module x

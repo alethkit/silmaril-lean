@@ -7,8 +7,16 @@ import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.V1
 
 namespace Silmaril.Wasm.Institution.Operational.HostCall.V1
 
-open Execution.Runtime (Frame Value)
+open Execution.Runtime (Frame FuncAddr Value)
 open Wasm.V1.Execution
+
+/-- Native direct resolution leaves the entire stack and continuation in place. -/
+theorem direct_step_iff {H : Type} {host : HostSemantics H} {s : Store H} {caller : Frame}
+    {index : FuncIdx} {address : FuncAddr} {stack : List Value} {tail : List Admin} {dst : Config H}
+    (resolved : caller.module.funcs[index.toNat]? = some address) :
+    Step host ⟨s, caller, values stack ++ .source (.call index) :: tail⟩ dst ↔
+      dst = ⟨s, caller, values stack ++ .invoke address :: tail⟩ :=
+  Proofs.direct_step_iff resolved
 
 /-- Direct resolution preserves all operands and the active caller. -/
 theorem source_step_iff {H : Type} {host : HostSemantics H} {site : Site H} {s : Store H}

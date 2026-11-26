@@ -123,6 +123,7 @@ private theorem no_host_callout {H : Type} {mode : MemoryMode} {program : Progra
     have within := allowed (.frame n f (k.plug value (call.redex coding))) (by simp [EvalCtx.plug])
     cases within with
     | frame _ _ _ _ inside => exact ih inside
+    | enteredFrame _ _ inside => exact ih inside
 
 theorem ready_internal_iff {H : Type} {host : HostSemantics H} {mode : MemoryMode}
     {program : Program} {memory : MemAddr} {calls : CallMode} {base : Store H}
