@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.Split.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.Split.Extended.Thms
 
 /-! A visible loop swaps two live values on the split edge. The distinct
 latch fixture also compares the admitted entry tables at a supplied record. -/
@@ -10,7 +11,7 @@ namespace Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.PureCapture.Local.Spli
 open Silmaril.SSA.LambdaRTL
 open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi (Graph Block Pending assign br ret)
 open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi.Split (Plan Checked)
-open Silmaril.Elgot.ITree (Tree Trace HasTrace vis vis_bind resume resume_body
+open Silmaril.Elgot.ITree (Tree Trace TraceLE HasTrace vis vis_bind resume resume_body
   hasTrace_vis_exchange_iff hasTrace_vis_request)
 open LambdaSSA (Region)
 open LambdaSSA.Semantics (Env extend)
@@ -20,6 +21,7 @@ open LambdaSSA.Semantics.Interaction.Typed (AtomValues ModelTree Compatible)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 open Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry
 open CategoryTheory (Discrete)
+open NamedFlat.Entry.Record (Input)
 
 attribute [local instance] LambdaSSA.Semantics.Interaction.Typed.typeModel
 
@@ -355,6 +357,49 @@ theorem supplied_split_packing :
       (Discrete.mk model) (EntryInstitution.packSentence (toFlat (entrySplit, entryOriginal))) :=
   ⟨(EntryInstitution.packing_satisfaction Event model _).mpr entryComparisons.1,
     (EntryInstitution.packing_satisfaction Event model _).mpr entryComparisons.2⟩
+
+private def seedLayout : Captures Reg seedTypes where
+  names := seedCaptures
+  distinct _ _ eq := Fin.ext (congrArg (fun name : Option Reg => (name.getD ⟨0⟩).down) eq)
+  privateUnit _ eq := by nomatch eq
+
+private def seedOriginal : Admitted signature seedLayout Key exits :=
+  .ofAdmission seedAdmission
+
+private theorem extendedLayout : ExtendedLayout plan seedLayout generated.extra := by decide
+
+private def seedSplit : Admitted signature extendedLayout.captures (Option Key) exits :=
+  seedOriginal.ofExtended plan generated extendedLayout
+
+private def seedRecord : Input seedTypes := ((PUnit.unit, ⟨5⟩), ⟨2⟩)
+
+-- The old record has only 2 and 5. The extra fields are supplied
+-- independently, at values different from either seed or swapped operand.
+private def extendedRecord : Input (extendedTypes seedTypes generated.extra) :=
+  ((((PUnit.unit, ⟨89⟩), ⟨97⟩), ⟨5⟩), ⟨2⟩)
+
+private theorem extended_retains_seed :
+    retainedRecord seedTypes generated.extra extendedRecord = seedRecord := rfl
+
+theorem appended_split_satisfies (ambient : Env Runtime) :
+    (TraceLE (seedOriginal.toSSA.observe model seedRecord) (seedSplit.toSSA.observe model extendedRecord) ∧
+      TraceLE (seedSplit.toSSA.observe model extendedRecord) (seedOriginal.toSSA.observe model seedRecord)) ∧
+    (TraceLE (seedOriginal.observePacked model seedRecord ambient) (seedSplit.observePacked model extendedRecord ambient) ∧
+      TraceLE (seedSplit.observePacked model extendedRecord ambient) (seedOriginal.observePacked model seedRecord ambient)) :=
+  split_related_satisfies seedOriginal plan generated extendedLayout model
+    seedRecord extendedRecord extended_retains_seed ambient
+
+theorem appended_split_swap (ambient : Env Runtime) :
+    HasTrace (seedSplit.observePacked model extendedRecord ambient) swappedTrace := by
+  have shared := seedOriginal.observe_toFlat_of_capture model seedRecord ambient originalStore
+    (fun i => Fin.cases rfl (Fin.cases rfl (fun j => j.elim0)) i)
+  unfold seedSplit
+  rw [← split_packed_reindex seedOriginal plan generated extendedLayout model extendedRecord ambient,
+    extended_retains_seed]
+  change HasTrace (region model.raw (extend ambient (encodeValue _ _ seedRecord))
+    (Program.ofCFGEntry seedOriginal.toSSA.table.typed).code) _
+  rw [← shared]
+  exact source_swap
 
 private def entryCandidate := (profileCandidate entryPlan source seedCaptures originalProfile).get (by decide)
 

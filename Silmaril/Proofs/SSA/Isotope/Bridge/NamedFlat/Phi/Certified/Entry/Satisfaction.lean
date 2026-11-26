@@ -63,7 +63,7 @@ private theorem inputEnv_unit (record : Record) (i : Fin n) (ty : β.get i = .un
     · intro j same
       exact ih record.1 j same
 
-private theorem capture_agrees (I : Captures V β) (record : Record) (i : Fin n) :
+theorem capture_agrees (I : Captures V β) (record : Record) (i : Fin n) :
     NamedFlat.Entry.inputEnv β record i.val = captureEnv I.names (I.store record) i.val := by
   cases h : I.names i with
   | none =>
@@ -72,17 +72,24 @@ private theorem capture_agrees (I : Captures V β) (record : Record) (i : Fin n)
     have := NamedFlat.Entry.store_at I.names I.distinct β record i
     simpa [captureEnv, i.isLt, Captures.store, h] using this.symm
 
+theorem observe_entry_of_capture (a : Admitted P I K D) (M : Model (κ := κ) Events P.Instr)
+    (record : Record) (ambient : Env (Sigma C)) (store : V → Value (Sigma C))
+    (agrees : ∀ i : Fin n, NamedFlat.Entry.inputEnv β record i.val = captureEnv I.names store i.val) :
+    PureCapture.sourceObservation M.raw a.source store =
+      region M.raw (extend ambient (encodeValue C A record))
+        (Program.ofCFGEntry a.admission.typed).code := by
+  change _ = region M.raw (extend ambient (encodeValue C A record))
+    ((LambdaSSA.FiniteCFG.packedExecutionRegion a.admission.typed).packInputsDestructure β.toList)
+  rw [← NamedFlat.Entry.inputEnv_packet β record,
+    NamedFlat.Capture.packed_context_tree M.raw a.admission.typed ambient,
+    ← open_run_tree a.admission M.raw _ _ agrees, bind_assoc]
+  simp only [PureCapture.sourceObservation, pure_bind]
+
 theorem observe_entry (a : Admitted P I K D) (M : Model (κ := κ) Events P.Instr)
     (record : Record) (ambient : Env (Sigma C)) :
     a.observe M record = region M.raw (extend ambient (encodeValue C A record))
-      (Program.ofCFGEntry a.admission.typed).code := by
-  change PureCapture.sourceObservation M.raw a.source (I.store record) =
-    region M.raw (extend ambient (encodeValue C A record))
-      ((LambdaSSA.FiniteCFG.packedExecutionRegion a.admission.typed).packInputsDestructure β.toList)
-  rw [← NamedFlat.Entry.inputEnv_packet β record,
-    NamedFlat.Capture.packed_context_tree M.raw a.admission.typed ambient,
-    ← open_run_tree a.admission M.raw _ _ (capture_agrees I record), bind_assoc]
-  simp only [PureCapture.sourceObservation, pure_bind]
+      (Program.ofCFGEntry a.admission.typed).code :=
+  observe_entry_of_capture a M record ambient (I.store record) (capture_agrees I record)
 
 theorem flat_satisfies (M : Model (κ := κ) Events P.Instr) (s : Sentence P I Jc K J D) :
     EntryInstitution.Satisfies Events M (toFlat s) ↔ Satisfies M s := by
