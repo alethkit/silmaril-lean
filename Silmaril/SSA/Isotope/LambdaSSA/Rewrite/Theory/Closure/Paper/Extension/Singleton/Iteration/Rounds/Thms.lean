@@ -62,6 +62,10 @@ theorem unrolls_of_smooth (double : Doubles Seed) (triple : Triples Seed) {n : N
     Unrolls Seed n :=
   SingletonRounds.unrolls_of_smooth Seed double triple h
 
+/-- The law at the chosen coproduct gives the law at the exact sum. -/
+theorem unrolls_of_roundsLaw {n : Nat} (law : RoundsLaw Seed n) : Unrolls Seed n :=
+  SingletonRounds.unrolls_of_roundsLaw Seed law
+
 /-- An unrolling law equates the written loop on `n + 1` rounds of a
 guarded step with the written loop on one round. -/
 theorem unrolled_eqv {n : Nat} (law : Unrolls Seed n) {s : Region Φ}
