@@ -982,6 +982,206 @@ example : match Executable.link actions 73 wrappedL.toGraph (number 1) 20,
     (wrapperRef branchRefL) (wrapperRef foreignRef)).isSome = false
   simp [RecursiveCall.Numbered.admitExport, foreignRejected]
 
+-- Extend the checked φ pair by the earlier λ whose capture reads that
+-- group's binding. A second extension will capture both distinct origins.
+open RecursiveCall.Numbered (Available Group LinkedFamily WithExport linkedLambda)
+
+private def finiteGroupL : Group machine [branchFn] :=
+  ⟨[global], .cons (globalValue 0 8) .nil, branchGroupL.toGraph.definitions⟩
+
+private def finiteGroupR : Group machine [branchFn] :=
+  ⟨[global], .cons (globalValue 1 8) .nil, branchGroupR.toGraph.definitions⟩
+
+private abbrev prefixL : List (Ports T) := [[global], [branchFn.port], []]
+private abbrev prefixR : List (Ports T) := [[], [global], [branchFn.port]]
+
+private def beforeWrapperL : Locals machine.Val prefixL :=
+  (.cons (globalValue 0 8) .nil, .cons branchRefL .nil, .nil, PUnit.unit)
+
+private def beforeWrapperR : Locals machine.Val prefixR :=
+  (.nil, .cons (globalValue 1 8) .nil, .cons branchRefR .nil, PUnit.unit)
+
+private def offerMemberL : Available finiteGroupL.In (number 1) beforeWrapperL
+  | _, .output ⟨1, _⟩ .head => some ⟨.member 0⟩
+  | _, _ => none
+
+private def offerMemberR : Available finiteGroupR.In (number 1) beforeWrapperR
+  | _, .output ⟨2, _⟩ .head => some ⟨.member 0⟩
+  | _, _ => none
+
+private abbrev oneL : Family machine := WithExport finiteGroupL.In (wrapperRef branchRefL)
+private abbrev oneR : Family machine := WithExport finiteGroupR.In (wrapperRef branchRefR)
+
+private abbrev oneKey : RecursiveCall.Numbered.LambdaKey Unit Unit := (branchFn.args, branchFn.results, [branchFn.port])
+
+private def oneFamily : Option (PLift (LinkedFamily primitives wrappedIds oneL oneR [oneKey])) := do
+  let base ← LinkedFamily.ofGroups instructionKeys primitives wrappedIds ordinaryOutputs finiteGroupL finiteGroupR
+  base.down.addLambda instructionKeys ordinaryOutputs offerMemberL offerMemberR wrapperL.toGraph wrapperR.toGraph
+
+private abbrev combinedInput : Ports T := [branchFn.port, branchFn.port] ++ branchFn.args
+
+private def combinedBody : RecursiveCall.Code Op combinedInput [] [[num], [num], [num]] [num] :=
+  let mode : Port combinedInput control := .tail (.tail (.tail .head))
+  let after : Port combinedInput control := .tail (.tail (.tail (.tail .head)))
+  let first := RecursiveCall.simple (.apply branchFn)
+    (.cons (.arg .head) (.cons (.arg (.tail (.tail .head))) (.cons (.arg mode) (.cons (.arg after) .nil))))
+    (fun i => i.elim0)
+  let second : NestedTheta.Node (Instruction Op) combinedInput [[num]] [num] :=
+    RecursiveCall.simple (.apply branchFn)
+    (.cons (.arg (.tail .head)) (.cons (.output (0 : Fin 1) .head) (.cons (.arg mode) (.cons (.arg after) .nil))))
+    (fun i => i.elim0)
+  let suffix : NestedTheta.Node (Instruction Op) combinedInput [[num], [num]] [num] :=
+    RecursiveCall.simple (.primitive Op.seed) (.cons (.output (1 : Fin 2) .head) .nil) (fun i => i.elim0)
+  .bind first (fun i => i.elim0) <| .bind second (fun i => i.elim0) <| .bind suffix (fun i => i.elim0) <|
+    .ret (.cons (.output (2 : Fin 3) .head) .nil)
+
+-- This earlier λ has the same signature but was left out of the checked
+-- prefix. The linker can still construct it and pass it on a capture wire.
+private def uncheckedLambda {past : List (Ports T)} : LambdaTerm Op args past branchFn :=
+  ⟨[], .nil, [], .ret (.cons (.arg .head) .nil)⟩
+
+private def uncheckedRef : machine.Val branchFn.port :=
+  .closure (.nil : Tuple machine.Val []) (uncheckedLambda (past := [])).body.toGraph
+
+private abbrev combinedPastL := prefixL ++ [[branchFn.port], [branchFn.port]]
+private abbrev combinedPastR := prefixR ++ [[branchFn.port], [branchFn.port]]
+
+private def combined {past : List (Ports T)} (first second : Origin args past branchFn.port) :
+    LambdaTerm Op args past branchFn :=
+  ⟨[branchFn.port, branchFn.port], .cons first (.cons second .nil), _, combinedBody⟩
+
+private def combinedL : LambdaTerm Op args combinedPastL branchFn :=
+  combined (.output (3 : Fin 5) .head) (.output (1 : Fin 5) .head)
+
+private def combinedR : LambdaTerm Op args combinedPastR branchFn :=
+  combined (.output (3 : Fin 5) .head) (.output (2 : Fin 5) .head)
+
+private def combinedBad : LambdaTerm Op args combinedPastR branchFn :=
+  combined (.output (3 : Fin 5) .head) (.output (4 : Fin 5) .head)
+
+private def combinedModuleL : OmegaTerm Op args [branchFn.port] (combinedPastL ++ [[branchFn.port]]) :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.phi branchGroupL) <| .bind (.phi (emptyPhi Op args _)) <|
+    .bind (.lambda wrapperL) <| .bind (.lambda uncheckedLambda) <| .bind (.lambda combinedL) <|
+    .ret (.cons (.output (5 : Fin 6) .head) .nil)⟩
+
+private def combinedModuleR (root : LambdaTerm Op args combinedPastR branchFn) :
+    OmegaTerm Op args [branchFn.port] (combinedPastR ++ [[branchFn.port]]) :=
+  ⟨.bind (.phi (emptyPhi Op args [])) <| .bind (.delta (seedDelta [[]])) <| .bind (.phi branchGroupR) <|
+    .bind (.lambda wrapperR) <| .bind (.lambda uncheckedLambda) <| .bind (.lambda root) <|
+    .ret (.cons (.output (5 : Fin 6) .head) .nil)⟩
+
+private def combinedLocalsL : Locals machine.Val combinedPastL :=
+  (beforeWrapperL.snoc (.cons (wrapperRef branchRefL) .nil)).snoc (.cons uncheckedRef .nil)
+
+private def combinedLocalsR : Locals machine.Val combinedPastR :=
+  (beforeWrapperR.snoc (.cons (wrapperRef branchRefR) .nil)).snoc (.cons uncheckedRef .nil)
+
+private def offerCombinedL : Available oneL (number 1) combinedLocalsL
+  | _, .output ⟨1, _⟩ .head => some ⟨.inherited (.member 0)⟩
+  | _, .output ⟨3, _⟩ .head => some ⟨.exported⟩
+  | _, _ => none
+
+private def offerCombinedR : Available oneR (number 1) combinedLocalsR
+  | _, .output ⟨2, _⟩ .head => some ⟨.inherited (.member 0)⟩
+  | _, .output ⟨3, _⟩ .head => some ⟨.exported⟩
+  | _, _ => none
+
+private abbrev combinedRefL := linkedLambda combinedL.toGraph (number 1) combinedLocalsL
+private abbrev combinedRefR := linkedLambda combinedR.toGraph (number 1) combinedLocalsR
+private abbrev combinedRefBad := linkedLambda combinedBad.toGraph (number 1) combinedLocalsR
+
+private def combinedFamily : Option (PLift
+    (LinkedFamily primitives wrappedIds (WithExport oneL combinedRefL) (WithExport oneR combinedRefR)
+      [(branchFn.args, branchFn.results, [branchFn.port, branchFn.port]), oneKey])) := do
+  let earlier ← oneFamily
+  earlier.down.addLambda instructionKeys ordinaryOutputs offerCombinedL offerCombinedR combinedL.toGraph combinedR.toGraph
+
+private theorem combinedLinkL : Executable.link actions 73 combinedModuleL.toGraph (number 1) 20 =
+    .linked (.cons combinedRefL .nil) 23 := by cbv
+
+private theorem combinedLinkR : Executable.link actions 73 (combinedModuleR combinedR).toGraph (number 1) 20 =
+    .linked (.cons combinedRefR .nil) 23 := by cbv
+
+private theorem combinedBadLinks : Executable.link actions 73 (combinedModuleR combinedBad).toGraph (number 1) 20 =
+    .linked (.cons combinedRefBad .nil) 23 := by cbv
+
+private theorem combinedOutcomes : OutcomesRelated machine wrappedIds Nat (renameVertex wrappedPositions)
+    [branchFn.port] (Executable.link actions 73 combinedModuleL.toGraph (number 1) 20)
+      (Executable.link actions 73 (combinedModuleR combinedR).toGraph (number 1) 20) := by
+  rw [combinedLinkL, combinedLinkR]
+  cases wrappedOutcomes with
+  | linked wrapped =>
+    have captures := (Recursive.resolve_related (wrapped.get .head)).1
+    exact .linked (.cons (.closure (.cons (wrapped.get .head) captures) (NestedTheta.Graph.Isomorphic.refl _)) .nil) 23
+
+private theorem wrapperBodyAccepted (left right : Tuple machine.Val [branchFn.port]) :
+    (RecursiveCall.Numbered.inferResolved (m := machine) (fn := branchFn) instructionKeys
+      ⟨_, left, _, wrapperCode.toGraph⟩ ⟨_, right, _, wrapperCode.toGraph⟩).isSome = true := by cbv
+
+private theorem combinedBodyAccepted (left right : Tuple machine.Val [branchFn.port, branchFn.port]) :
+    (RecursiveCall.Numbered.inferResolved (m := machine) (fn := branchFn) instructionKeys
+      ⟨_, left, _, combinedBody.toGraph⟩ ⟨_, right, _, combinedBody.toGraph⟩).isSome = true := by cbv
+
+private theorem combinedAccepted : combinedFamily.isSome = true := by
+  have groupCheck : RecursiveCall.Numbered.checkGroupPair instructionKeys finiteGroupL finiteGroupR = true :=
+    branchAccepted
+  let base : LinkedFamily primitives wrappedIds finiteGroupL.In finiteGroupR.In [] :=
+    LinkedFamily.ofGroups_sound ordinaryOutputs finiteGroupL finiteGroupR groupCheck
+  have first := base.addLambda_accepts instructionKeys ordinaryOutputs offerMemberL offerMemberR
+    wrapperL.toGraph wrapperR.toGraph (by simp) rfl rfl (wrapperBodyAccepted _ _)
+  obtain ⟨earlier, admitted⟩ := Option.isSome_iff_exists.mp first
+  unfold combinedFamily oneFamily LinkedFamily.ofGroups
+  rw [dite_eq_left groupCheck]
+  change ((base.addLambda instructionKeys ordinaryOutputs offerMemberL offerMemberR
+    wrapperL.toGraph wrapperR.toGraph).bind _).isSome = true
+  rw [admitted]
+  have fresh : (branchFn.args, branchFn.results, combinedL.toGraph.context) ∉ [oneKey] := by
+    intro clash
+    have count := congrArg (fun key : RecursiveCall.Numbered.LambdaKey Unit Unit => key.2.2.length)
+      (List.mem_singleton.mp clash)
+    cases count
+  exact earlier.down.addLambda_accepts instructionKeys ordinaryOutputs offerCombinedL offerCombinedR
+    combinedL.toGraph combinedR.toGraph fresh rfl rfl (combinedBodyAccepted _ _)
+
+-- Both applications are non-tail. The first calls the earlier λ, the
+-- second dispatches directly to φ with the first call's returned data.
+example : Executable.run actions 100 73 combinedModuleL.toGraph (number 1) .head (branchArgs 1) 20 =
+    .ok (.returned (number 37) 57) := by cbv
+
+example :
+    Executable.link actions 73 (combinedModuleR combinedR).toGraph (number 1) 20 =
+      .linked (.cons combinedRefR .nil) 23 ∧
+    ∃ target, ReflTransGen (Step primitives) (branchStart combinedRefR 1) target ∧
+      target.result = some (number 37, 57) := by
+  refine ⟨combinedLinkR, ?_⟩
+  have accepted := (combinedFamily.get combinedAccepted).down.forExports .exported .exported
+  have inputs : TupleRelated machine wrappedIds (branchArgs 1) (branchArgs 1) :=
+    .cons (ValueRelated.data (m := machine) (ids := wrappedIds) (t := ()) (1 : Nat))
+      (.cons (.control 1) (.cons (.control 0) .nil))
+  have linked := combinedOutcomes
+  rw [combinedLinkL, combinedLinkR] at linked
+  obtain ⟨_, _, closed, admitted⟩ := accepted.atExport .head linked inputs rfl
+  have reached := Continuation.Partial.Executable.runFor_reachable actions 100 (branchStart combinedRefL 1)
+  have result : (runFor actions 100 (branchStart combinedRefL 1)).result = some (number 37, 57) := by cbv
+  obtain ⟨target, valueR, path, got, values⟩ :=
+    (ClosedFamily.returns (respectsGlobals wrappedIds) closed admitted).1 _ _ _ reached result
+  cases values with
+  | cons value tail =>
+    cases value
+    cases tail
+    exact ⟨target, path, got⟩
+
+-- The second capture has the same type, but its actual typed origin
+-- points to row 4, for which the earlier certificate offers no evidence.
+example (earlier : LinkedFamily primitives wrappedIds oneL oneR [oneKey]) :
+    Executable.link actions 73 (combinedModuleR combinedBad).toGraph (number 1) 20 =
+      .linked (.cons combinedRefBad .nil) 23 ∧
+    (earlier.addLambda instructionKeys ordinaryOutputs offerCombinedL offerCombinedR
+      combinedL.toGraph combinedBad.toGraph).isSome = false := by
+  refine ⟨combinedBadLinks, ?_⟩
+  unfold LinkedFamily.addLambda
+  split <;> rfl
+
 private abbrev seedRow {past : List (Ports T)} : NestedTheta.Node (Instruction Op) [global, num] past [num] :=
   RecursiveCall.simple (.primitive Op.seed) (.cons (.arg (.tail .head)) .nil) (fun i => i.elim0)
 

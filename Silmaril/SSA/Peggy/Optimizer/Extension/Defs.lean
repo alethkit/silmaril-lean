@@ -13,12 +13,16 @@ open RVSDG (Tuple)
 variable {Data : Type} {P : PEG.InstructionSet.{0,0} Data}
 variable {params : List (PEG.Ty Data)} {out : PEG.Ty Data} {n : Nat}
 
-/-- The optimizer profiles one typed result and retains the acyclic rank. -/
-structure Program (P : PEG.InstructionSet.{0,0} Data) (params : List (PEG.Ty Data))
-    (out : PEG.Ty Data) where
+/-- A ranked loop-free table with its ordered output interface. -/
+structure RankedProgram (P : PEG.InstructionSet.{0,0} Data)
+    (params results : List (PEG.Ty Data)) where
   size : Nat
-  graph : PEG.Graph P params [out] size 0
+  graph : PEG.Graph P params results size 0
   ranked : Acyclic.Ranked graph
+
+/-- The original root optimizer profiles one result. -/
+abbrev Program (P : PEG.InstructionSet.{0,0} Data) (params : List (PEG.Ty Data))
+    (out : PEG.Ty Data) := RankedProgram P params [out]
 
 namespace Extension
 

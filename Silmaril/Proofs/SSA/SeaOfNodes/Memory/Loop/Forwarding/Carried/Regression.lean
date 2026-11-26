@@ -1,5 +1,6 @@
 module
 
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Search.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Thms
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried
@@ -137,5 +138,52 @@ private def aliasedInput : Tuple (Val 5) args :=
 example : rewriteWith (source true true) 4 ⟨headPort, []⟩ = none := rfl
 example : rewriteChecked (source true true) 4 suffixFacts aliasedInput = none := rfl
 example : ((source true true).body.denote aliasedInput (initial 1 0)).2.read headCell = 1 := by cbv
+
+-- Stores 1 and 3 both target head. Store 4 logs the old head after
+-- Store 3 has captured the feedback word.
+private def searchBody : Memory.Body args [[.word]] 0 :=
+  let oldHead : Origin args [[.word], [.word]] .word := .output (1 : Fin 2) .head
+  let oldTail : Origin args [[.word], [.word]] .word := .output (0 : Fin 2) .head
+  .load (.latest 0) (.arg tailPort)
+    (.store (.latest 0) (.arg headPort) (.arg stopPort)
+      (.store (.latest 1) (.arg tailPort) (.arg stopPort)
+        (.store (.latest 2) (.arg headPort) oldTail
+          (.store (.latest 3) (.arg logPort) oldHead (.ret (.latest 4) oldHead)))))
+
+private def searchSource : Loop.Graph args :=
+  ⟨.load (.latest 0) (.arg headPort) searchBody, rfl, stopPort⟩
+
+private def chosen : Search.Result args := ⟨⟨headPort, searchBody, stopPort, 3⟩, suffixFacts⟩
+
+private theorem discovered : Search.discover searchSource = some chosen := rfl
+private theorem guarded : Search.discoverChecked searchSource input = some chosen := rfl
+
+example : rewriteWith searchSource 1 ⟨headPort, [tailPort, logPort]⟩ = none := rfl
+example : Search.discoverChecked searchSource aliasedInput = none := rfl
+
+private def searchUpdate (heap : Heap 5) (oldHead oldTail : Word) : Heap 5 :=
+  (((heap.write headCell 0).write tailCell 0).write headCell oldTail).write logCell oldHead
+
+private def searchFirst : Heap 5 := searchUpdate (initial 2) 7 2
+private def searchSecond : Heap 5 := searchUpdate searchFirst 2 0
+private def searchFinal : Heap 5 := searchUpdate searchSecond 0 0
+
+example : chosen.graph.step input (chosen.graph.seed input (initial 2)) = .inr ⟨2, searchFirst⟩ := by cbv
+example : searchFirst.read logCell = 7 := by cbv
+
+example : chosen.graph.evalAfter input (initial 2) 2 = some (0, searchFinal) := by
+  have valid := ((Search.discoverChecked_eq_some_iff input).mp guarded).2
+  exact (Search.discover_evalAfter discovered input valid (initial 2) 2).trans (by cbv)
+
+example : searchSource.Returns input (initial 2) 0 searchFinal := by
+  have valid := ((Search.discoverChecked_eq_some_iff input).mp guarded).2
+  exact (Search.discover_returns_iff discovered input valid (initial 2) 0 searchFinal).mp ⟨2, by cbv⟩
+
+private def noMatchingStore : Loop.Graph args :=
+  ⟨.load (.latest 0) (.arg headPort)
+    (.store (.latest 0) (.arg tailPort) (.arg stopPort)
+      (.ret (.latest 1) (.output (0 : Fin 1) .head))), rfl, stopPort⟩
+
+example : Search.discover noMatchingStore = none := rfl
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried

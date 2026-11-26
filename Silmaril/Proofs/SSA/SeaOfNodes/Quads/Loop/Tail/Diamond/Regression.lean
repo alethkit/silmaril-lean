@@ -59,11 +59,11 @@ example : good.runFrom arithmetic 9 4 (input 2) = some (14 : Nat) := rfl
 example : good.runFrom arithmetic 5 4 (input 1) = some (12 : Nat) := rfl
 
 example : checked.lower.run (model arithmetic) 1 (input 2) = none :=
-  checked.lower_run arithmetic 1 0 (by decide) (input 2)
+  checked.lower_run arithmetic 1 (input 2)
 example : checked.lower.run (model arithmetic) 2 (input 2) = some (.cons (14 : Nat) .nil) :=
-  checked.lower_run arithmetic 2 0 (by decide) (input 2)
+  checked.lower_run arithmetic 2 (input 2)
 example : checked.lower.run (model arithmetic) 1 (input 1) = some (.cons (12 : Nat) .nil) :=
-  checked.lower_run arithmetic 1 0 (by decide) (input 1)
+  checked.lower_run arithmetic 1 (input 1)
 
 example : checked.lower.Returns (model arithmetic) (input 2) (.cons (14 : Nat) .nil) :=
   (checked.returns_iff arithmetic (input 2) (14 : Nat)).mpr ⟨9, rfl⟩

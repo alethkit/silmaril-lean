@@ -45,12 +45,38 @@ The checker rejects an uncovered writer and an invocation where the
 logging port aliases the captured cell.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Forwarding/Carried/Regression.lean)
 
+## Discover the latest Store
+
+`Carried.Search.discover` reads the first Load’s captured address port
+and walks Store occurrences from newest to oldest. It chooses the first
+Store with that exact port and collects every newer Store’s original
+writer port in the same order. A newer writer outside the typed argument
+profile blocks discovery. The existing suffix checker validates the
+selection before returning the graph and its certificate.
+[Search definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Forwarding/Carried/Search/Defs.lean)
+
+`discover_latest` identifies the actual Store occurrence and the complete
+suffix. It proves port distinctness. `discoverChecked` checks concrete
+cell inequality separately for each invocation. The exact-backedge and
+finite-return theorems reuse the certified suffix proof under those
+inequalities.
+[Search theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Forwarding/Carried/Search/Thms.lean)
+
+The discovery fixture selects Store 3 over Store 1 and keeps Store 4’s
+logging effect. It completes two backedges with the whole heap checked.
+The same graph rejects an invocation where log aliases head. A second
+graph has only a Store to another port and yields no candidate.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Forwarding/Carried/Regression.lean)
+
 ```sh
-make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Regression'
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Search.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Regression'
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Correctness
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Thms
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Defs
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Correctness
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Thms
+lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Search.Defs
+lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Search.Correctness
+lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Search.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Regression
 ```

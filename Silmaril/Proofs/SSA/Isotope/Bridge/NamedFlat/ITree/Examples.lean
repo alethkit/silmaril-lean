@@ -182,9 +182,14 @@ private theorem closed_tree :
 example : region instr ambient (packedExecutionRegion closed.property.1) =
     vis .capture (fun capture => CFG.Cyclic.runSSA (M := ModelTree Event) (treeModel instr) generated (store capture) >>=
       fun p => pure (packedTreeOutput (treeExitNumber [exitLabel] p))) := by
-  simpa only [captureProducer, vis_bind, pure_bind] using
-    (packed_run_tree instr source [exitLabel] names (fun reply : Atom => store reply.down)
-      admitted.property.1 (fun _ _ => rfl) closed.property.1 closed.property.2 capture_packet)
+  let named : Tree Event (Transfer Runtime) := captureProducer >>= fun reply =>
+    CFG.Cyclic.runSSA (M := ModelTree Event) (treeModel instr) generated (store reply.down) >>=
+      fun p => pure (packedTreeOutput (treeExitNumber [exitLabel] p))
+  have h := (packed_run_tree_eq_iff_traceLE instr source [exitLabel] names
+    (fun reply : Atom => store reply.down) admitted.property.1 (fun _ _ => rfl)
+    closed.property.1 closed.property.2 capture_packet named).mpr
+      ⟨TraceLE.refl named, TraceLE.refl named⟩
+  simpa only [named, captureProducer, vis_bind, pure_bind] using h
 
 private theorem tick_loop (capture argument : Nat) :
     iter (openStep capture) (0, packet argument) =
@@ -288,10 +293,13 @@ private def zeroSeedExit : Trace Event (Transfer Runtime) :=
 
 -- Both trees issue capture and seed. The specification returns the encoded
 -- exit after capture reply 7 and seed reply 0, where the dispatcher goes silent.
-example : TraceLE packed packedSpec ∧ ¬ TraceLE packedSpec packed := by
-  refine ⟨packed_run_tree_traceLE partialInstr source [exitLabel] names
+example :
+    letI := Tree.tracePartialOrder (E := Event) (A := Transfer Runtime)
+    packed < packedSpec := by
+  let _ : PartialOrder (Tree Event (Transfer Runtime)) := Tree.tracePartialOrder
+  refine lt_of_le_not_ge (packed_run_tree_traceLE partialInstr source [exitLabel] names
     (fun reply : Atom => store reply.down) admitted.property.1 (fun _ _ => rfl)
-    closed.property.1 closed.property.2 partial_capture_packet named_refines_spec, ?_⟩
+    closed.property.1 closed.property.2 partial_capture_packet named_refines_spec) ?_
   have hspec : HasTrace packedSpec zeroSeedExit := by
     simp only [packedSpec, captureProducer, spec, zeroSeedExit, vis_bind, pure_bind,
       hasTrace_vis_exchange_iff, ite_true]

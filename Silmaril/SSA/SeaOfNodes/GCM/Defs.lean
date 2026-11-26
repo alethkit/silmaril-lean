@@ -121,11 +121,17 @@ def Point.available? (tree : DominatorTree cfg) (defSite read : Point Label) : B
   let b := tree.address read.block
   a.isPrefixOf b && decide (a = b → defSite.cut ≤ read.cut)
 
+/-- Combine cut validity and availability with the actual use occurrences of the CFG. -/
+def checkPlacementWith (cfg : Cfg Op Label Input Result) (valid : Point Label → Bool)
+    (available : Point Label → Point Label → Bool) (operands : List (Point Label))
+    (uses : List (Use Label)) (candidate : Point Label) : Bool :=
+  valid candidate &&
+    operands.all (fun operand => valid operand && available operand candidate) &&
+    uses.all (fun use => (use.point? cfg).any fun point =>
+      valid point && available candidate point)
+
 def checkPlacement (tree : DominatorTree cfg) (operands : List (Point Label))
     (uses : List (Use Label)) (candidate : Point Label) : Bool :=
-  candidate.valid? tree &&
-    operands.all (fun operand => operand.valid? tree && operand.available? tree candidate) &&
-    uses.all (fun use => (use.point? cfg).any fun point =>
-      point.valid? tree && candidate.available? tree point)
+  checkPlacementWith cfg (Point.valid? tree) (Point.available? tree) operands uses candidate
 
 end Silmaril.SSA.SeaOfNodes.GCM

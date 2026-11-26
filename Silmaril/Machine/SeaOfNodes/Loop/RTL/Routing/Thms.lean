@@ -63,20 +63,86 @@ theorem lowerChecked_eq_some_iff (entry feedback : List Nat) (target : Prog Reg)
 theorem checked_wellFormed {entry feedback : List Nat} {target : Prog Reg}
     (ok : lowerChecked entry feedback = some target) : target.WellFormed := by
   obtain ⟨r, _, wf, rfl⟩ := (lowerChecked_eq_some_iff entry feedback target).mp ok
-  simpa [Prog.WellFormed, Routes.lower] using wf
+  simpa [Prog.WellFormed, Routes.lower, BankRoutes.lower] using wf
+
+/-- Checked positions are preserved in the actual operands and return port. -/
+theorem checkBankRoutes_registers {payloads : Nat} {entry feedback : List Nat} {result : Nat}
+    {r : BankRoutes payloads} (ok : checkBankRoutes payloads entry feedback result = some r) :
+    r.incomingRegisters .entry = .arg 0 :: entry.map Reg.arg ∧
+      r.incomingRegisters .backedge = .node 1 :: feedback.map Reg.arg ∧ r.result.val = result :=
+  Proofs.checkBankRoutes_registers ok
+
+theorem lowerBankChecked_eq_some_iff (payloads : Nat) (entry feedback : List Nat)
+    (result : Nat) (target : Prog Reg) :
+    lowerBankChecked payloads entry feedback result = some target ↔
+      ∃ r, checkBankRoutes payloads entry feedback result = some r ∧
+        r.lowerFunc.WellFormed ∧ target = r.lower :=
+  Proofs.lowerBankChecked_eq_some_iff payloads entry feedback result target
+
+theorem lowerBankChecked_zero (entry feedback : List Nat) (result : Nat) :
+    lowerBankChecked 0 entry feedback result = none := by
+  simp [lowerBankChecked, checkBankRoutes]
+
+theorem bank_checked_wellFormed {payloads : Nat} {entry feedback : List Nat} {result : Nat}
+    {target : Prog Reg} (ok : lowerBankChecked payloads entry feedback result = some target) :
+    target.WellFormed := by
+  obtain ⟨r, _, wf, rfl⟩ := (lowerBankChecked_eq_some_iff payloads entry feedback result target).mp ok
+  simpa [Prog.WellFormed, BankRoutes.lower] using wf
+
+section ArbitraryArity
+
+variable {payloads : Nat} (r : BankRoutes payloads)
+
+theorem bank_incoming_operand (edge : Incoming) :
+    ((r.lowerFunc.block? (edge.select 0 1)).bind fun block => block.term.args[0]?) =
+      some (1, r.incomingRegisters edge) :=
+  Proofs.bank_incoming_operand r edge
+
+theorem bank_step_entry (input : WordTuple (payloads + 1)) (fr : Frame Reg)
+    (stk : List (Activation Reg)) (mem : Memory) (agree : ArgsMatch fr input) :
+    step r.lower ⟨⟨0, 0, 0⟩, fr, stk, mem⟩ =
+      .running ⟨⟨0, 1, 0⟩, bindBank fr (r.graph.initial model input), stk, mem⟩ :=
+  Proofs.bank_step_entry r input fr stk mem agree
+
+theorem bank_step_feedback (input old : WordTuple (payloads + 1)) (fr : Frame Reg)
+    (stk : List (Activation Reg)) (mem : Memory) (agree : ArgsMatch fr (appendTuple old input))
+    (next : fr.get (.node 1) = some (counter old - 1)) (test : fr.get (.node 3) = some (testWord old))
+    (taken : counter old ≠ 0) :
+    step r.lower ⟨⟨0, 1, 4⟩, fr, stk, mem⟩ =
+      .running ⟨⟨0, 1, 0⟩, bindBank fr (r.nextBank input old), stk, mem⟩ :=
+  Proofs.bank_step_feedback r input old fr stk mem agree next test taken
+
+/-- One native activation determines the exact successor of the emitted RTL
+header, with the selected return or the simultaneous feedback bank. -/
+theorem bank_header_agrees (input old : WordTuple (payloads + 1)) (fr : Frame Reg)
+    (mem : Memory) (agree : ArgsMatch fr (appendTuple old input)) :
+    Steps r.lower ⟨⟨0, 1, 0⟩, fr, [], mem⟩
+      (match r.graph.step model input old with
+      | .inl value => ⟨⟨0, 2, 0⟩, (headerFrame fr old).set .phi value, [], mem⟩
+      | .inr next => ⟨⟨0, 1, 0⟩, bindBank (headerFrame fr old) next, [], mem⟩) :=
+  Proofs.bank_header_agrees r input old fr mem agree
+
+/-- Finite return preserves and reflects the selected word and whole memory. -/
+theorem bank_returns_iff (input : WordTuple (payloads + 1)) (initial final : Memory)
+    (returned : List Word) :
+    r.lower.oracle 0 (words input) initial returned final ↔
+      ∃ value : Word, r.graph.Returns model input value ∧ returned = [value] ∧ final = initial :=
+  Proofs.bank_returns_iff r input initial final returned
+
+end ArbitraryArity
 
 variable (r : Routes)
 
 theorem incoming_operand (edge : Incoming) :
     ((r.lowerFunc.block? (edge.select 0 1)).bind fun block => block.term.args[0]?) =
       some (1, r.incomingRegisters edge) :=
-  Proofs.incoming_operand r edge
+  Proofs.bank_incoming_operand r.toBankRoutes edge
 
 theorem step_entry (input : WordTuple 4) (fr : Frame Reg)
     (stk : List (Activation Reg)) (mem : Memory) (agree : ArgsMatch fr input) :
     step r.lower ⟨⟨0, 0, 0⟩, fr, stk, mem⟩ =
       .running ⟨⟨0, 1, 0⟩, bindBank fr (r.graph.initial model input), stk, mem⟩ :=
-  Proofs.step_entry r input fr stk mem agree
+  Proofs.bank_step_entry r.toBankRoutes input fr stk mem agree
 
 theorem step_feedback (input old : WordTuple 4) (fr : Frame Reg)
     (stk : List (Activation Reg)) (mem : Memory) (agree : ArgsMatch fr (appendTuple old input))
@@ -84,7 +150,7 @@ theorem step_feedback (input old : WordTuple 4) (fr : Frame Reg)
     (taken : counter old ≠ 0) :
     step r.lower ⟨⟨0, 1, 4⟩, fr, stk, mem⟩ =
       .running ⟨⟨0, 1, 0⟩, bindBank fr (r.nextBank input old), stk, mem⟩ :=
-  Proofs.step_feedback r input old fr stk mem agree next test taken
+  Proofs.bank_step_feedback r.toBankRoutes input old fr stk mem agree next test taken
 
 /-- One independent native activation determines the exact RTL successor
 state after the header's producer instructions and selected transfer. -/
@@ -93,12 +159,12 @@ theorem header_agrees (input old : WordTuple 4) (fr : Frame Reg)
     Steps r.lower ⟨⟨0, 1, 0⟩, fr, [], mem⟩
       (match r.graph.step model input old with
       | .inl value => ⟨⟨0, 2, 0⟩, (headerFrame fr old).set .phi value, [], mem⟩
-      | .inr next => ⟨⟨0, 1, 0⟩, bindBank (headerFrame fr old) next, [], mem⟩) :=
+      | .inr next => ⟨⟨0, 1, 0⟩, bindBank (payloads := 3) (headerFrame fr old) next, [], mem⟩) :=
   Proofs.header_agrees r input old fr mem agree
 
 theorem lower_returns_iff (input : WordTuple 4) (initial final : Memory) (returned : List Word) :
     r.lower.oracle 0 (words input) initial returned final ↔
       ∃ value : Word, r.graph.Returns model input value ∧ returned = [value] ∧ final = initial :=
-  Proofs.lower_returns_iff r input initial final returned
+  Proofs.bank_returns_iff r.toBankRoutes input initial final returned
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
