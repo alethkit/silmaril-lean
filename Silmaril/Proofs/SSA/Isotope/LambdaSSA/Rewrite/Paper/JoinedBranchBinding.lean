@@ -38,10 +38,6 @@ theorem ofSeed (h : Paper.Extension.Eqv Seed Γ r s L) :
   | substVars _ hθ ih => exact .substVars ih hθ
   | renameLabels _ hρ ih => exact .renameLabels ih hρ
 
-private theorem ofBranch {a : Tm Φ} {ℓ : Nat} {A : τ} (hℓ : At L ℓ A) (ha : Tm.HasType Γ a A) :
-    Eqv Γ (.br ℓ a) (.let₁ a (.br ℓ (.var 0))) L :=
-  .extra (.br hℓ ha) (.let₁ ha (.br hℓ (.var rfl))) (.inr (.bind hℓ ha))
-
 theorem joinedValues (h : Old Γ r s L) : ValueBranches Γ r L ∧ ValueBranches Γ s L :=
   h.elim Paper.WithProjectionReturns.Step.valueBranches (fun h => by
     cases h
@@ -70,9 +66,11 @@ theorem eqv_normalize_of_guardedSeed
 theorem eqv_normalize (h : Eqv Γ r s L) : JoinedEqv Γ r.bindBranchArguments s.bindBranchArguments L :=
   eqv_normalize_of_guardedSeed joinedValues h
 
-theorem bindBranchArguments_eqv (hr : HasType Γ r L) : Eqv Γ r r.bindBranchArguments L := by
+theorem bindBranchArguments_eqv (hr : HasType Γ r L) :
+    Paper.Extension.Eqv (AddBinding Seed) Γ r r.bindBranchArguments L := by
   induction hr with
-  | br hℓ ha => exact ofBranch hℓ ha
+  | br hℓ ha =>
+      exact .extra (.br hℓ ha) (.let₁ ha (.br hℓ (.var rfl))) (.inr (.bind hℓ ha))
   | let₁ ha _ ih => exact .let₁ ha ih
   | let₂ ha _ ih => exact .let₂ ha ih
   | case ha _ _ ihl ihr => exact .case ha ihl ihr
