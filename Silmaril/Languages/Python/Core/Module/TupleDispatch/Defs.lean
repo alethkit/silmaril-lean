@@ -61,6 +61,8 @@ inductive Method where
 
 inductive Failure where
   | missingType
+  | missingName (name : String)
+  | notIterable
   | missingAttribute (method : Method)
   | wrongReceiver (method : Method)
   | wrongArgument
@@ -98,23 +100,27 @@ def lookupUnbound (binding : Option TypeBinding) (method : Method) : Except Fail
   | some .noneValue => .error (.missingAttribute method)
   | some .nonCallable | some .outsideProfile => .error .unsupported
 
-/-- Resolve the callee first. A reached argument can fail before invocation
-rejects a present callee. The exact tuple argument is delivered unchanged. -/
+/-- A missing callee stops before the operand. A present callee is
+saved while the operand is reached, then dispatched. -/
+def constructWith {State Input Output : Type} (state : State) (binding : Option TypeBinding)
+    (prepare : State → Except Failure Input × State) (stock : Input → Except Failure Output) :
+    Except Failure Output × State :=
+  match binding with
+  | none => (.error .missingType, state)
+  | some binding =>
+    let (value, reached) := prepare state
+    let result := value.bind fun argument =>
+      match binding with
+      | .stockTuple => stock argument
+      | .noneValue | .nonCallable => .error .notCallable
+      | .outsideProfile => .error .unsupported
+    (result, reached)
+
 def construct (heap : Heap) (binding : Option TypeBinding)
     (argument : Option (Heap → Except Failure Object × Heap)) : Except Failure Object × Heap :=
-  match binding with
-  | none => (.error .missingType, heap)
-  | some binding =>
-    let (value, reached) : Except Failure Object × Heap := match argument with
-      | none =>
-        let (empty, reached) := heap.materialize []
-        (.ok empty, reached)
-      | some prepare => prepare heap
-    match value, binding with
-    | .error error, _ => (.error error, reached)
-    | .ok object, .stockTuple => (.ok object, reached)
-    | .ok _, .noneValue | .ok _, .nonCallable => (.error .notCallable, reached)
-    | .ok _, .outsideProfile => (.error .unsupported, reached)
+  constructWith heap binding (argument.getD fun current =>
+    let (empty, reached) := current.materialize []
+    (.ok empty, reached)) .ok
 
 def BoundMethod.invoke (bound : BoundMethod) (heap : Heap) (argument : Operand) :
     Except Failure Result × Heap :=

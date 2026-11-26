@@ -169,8 +169,11 @@ def tupleBinding (session : Session) : Option Core.Module.TupleDispatch.TypeBind
     | .int _ | .bool _ | .text _ | .tuple _ | .tupleObject _ => .nonCallable
     | .function _ => .outsideProfile
 
+def tupleLookup (session : Session) : TupleChain.Lookup :=
+  ⟨fun _ => tupleBinding session, fun name => (session.globals name).map TupleChain.Compared.ofClosure⟩
+
 def checkTupleChain {scope : Scope} (session : Session) (test : TupleChainTest scope) : Except Completion Unit :=
-  match (TupleChain.evaluate (fun _ => tupleBinding session) test).result with
+  match (TupleChain.evaluate (tupleLookup session) test).result with
   | .ok true => .ok ()
   | .ok false => .error .assertionError
   | .error error => .error ((TupleChain.runtimeError? error).elim .scalarProfile .raised)

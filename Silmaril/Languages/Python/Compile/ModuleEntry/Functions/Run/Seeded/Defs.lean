@@ -652,8 +652,13 @@ def tupleBinding (space : Namespace) : Option Core.Module.TupleDispatch.TypeBind
     | .int _ | .bool _ | .text _ | .returnedTuple _ | .listObject _ | .tupleObject _ => .nonCallable
     | .exceptionClass _ | .helper _ | .builtin _ | .function _ => .outsideProfile
 
+def tupleLookup (space : Namespace) : TupleChain.Lookup :=
+  ⟨fun _ => tupleBinding space, fun name =>
+    (space.lookupGlobal name).map fun value =>
+      (ordinaryValue? value).elim .outsideProfile TupleChain.Compared.ofClosure⟩
+
 def checkTupleChain {scope : Scope} (space : Namespace) (test : TupleChainTest scope) : Except Failure Unit :=
-  let compared := (TupleChain.evaluate (fun _ => tupleBinding space) test).result
+  let compared := (TupleChain.evaluate (tupleLookup space) test).result
   let checked := compared.mapError fun error =>
     (TupleChain.runtimeError? error).elim Failure.unsupported (Failure.raised ∘ .runtime)
   checked.bind fun value => assertTruth (.bool value)
