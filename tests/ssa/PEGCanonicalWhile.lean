@@ -2,9 +2,11 @@ module
 
 import Silmaril.SSA.PEG.Simple.Revert.While.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms
+import Silmaril.SSA.PEG.Simple.Revert.While.Region.Thms
 import Silmaril.SSA.PEG.Simple.Thms
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Defs
 
 namespace Silmaril.SSA.PEG.Simple.Revert.While.Tests
 
@@ -311,3 +313,117 @@ example : ¬ discarded.program.source.Returns model (input 1 10) ⟨0⟩ := by
   cases Exec.deterministic ran discardedFails
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Pair.Tests
+
+namespace Silmaril.SSA.PEG.Simple.Revert.While.Region.Tests
+
+open RVSDG (Tuple)
+
+private abbrev acc : Ty Unit := .data ()
+private abbrev carried : List (Ty Unit) := [.count, acc, acc]
+
+private inductive Op : InstructionSet Unit where
+  | twice : Op [.count] .count
+  | nonzero : Op [.count] .bool
+  | pred : Op [.count] .count
+  | sum : Op [acc, acc] acc
+  | addCount : Op [.count, acc] acc
+  | not : Op [.bool] .bool
+  deriving DecidableEq
+
+private def model : Interpretation Op where
+  carrier _ := Nat
+  run
+    | .twice, .cons n .nil => some ⟨2 * n.down⟩
+    | .nonzero, .cons n .nil => some ⟨n.down != 0⟩
+    | .pred, .cons n .nil => some ⟨n.down - 1⟩
+    | .sum, .cons a (.cons b .nil) => some ((show Nat from a) + (show Nat from b))
+    | .addCount, .cons n (.cons a .nil) => some (n.down + (show Nat from a))
+    | .not, .cons b .nil => some ⟨!b.down⟩
+
+private def sorts (i : Fin 15) : Ty Unit :=
+  match i.val with
+  | 1 | 2 | 6 | 12 | 13 => .count
+  | 4 | 11 => .bool
+  | _ => acc
+
+-- Rows are interleaved, the root is row 5, and both accumulator updates use
+-- row 0. Row 10 is a separate, initially unused θ with legal self-feedback.
+private def graph (crosses : Bool) : Graph Op carried [acc] 15 1 where
+  forest := ⟨fun _ => none⟩
+  sort := sorts
+  node := fun i =>
+    match i with
+    | 0 => .ofLabel (.op .sum)
+        (.cons ⟨8, rfl⟩ (.cons (if crosses then ⟨10, rfl⟩ else ⟨3, rfl⟩) .nil))
+    | 1 => .ofLabel (.theta 0) (.cons ⟨13, rfl⟩ (.cons ⟨6, rfl⟩ .nil))
+    | 2 => .ofLabel (.pass 0) (.cons ⟨11, rfl⟩ .nil)
+    | 3 => .ofLabel (.theta 0) (.cons ⟨14, rfl⟩ (.cons ⟨0, rfl⟩ .nil))
+    | 4 => .ofLabel (.op .nonzero) (.cons ⟨12, rfl⟩ .nil)
+    | 5 => .ofLabel (.eval 0) (.cons ⟨8, rfl⟩ (.cons ⟨2, rfl⟩ .nil))
+    | 6 => .ofLabel (.op .pred) (.cons ⟨1, rfl⟩ .nil)
+    | 7 => .ofLabel (.op .addCount) (.cons ⟨1, rfl⟩ (.cons ⟨0, rfl⟩ .nil))
+    | 8 => .ofLabel (.theta 0) (.cons ⟨9, rfl⟩ (.cons ⟨7, rfl⟩ .nil))
+    | 9 => .ofLabel (.param (.tail .head)) .nil
+    | 10 => .ofLabel (.theta 0) (.cons ⟨14, rfl⟩ (.cons ⟨10, rfl⟩ .nil))
+    | 11 => .ofLabel (.op .not) (.cons ⟨4, rfl⟩ .nil)
+    | 12 => .ofLabel (.op .twice) (.cons ⟨1, rfl⟩ .nil)
+    | 13 => .ofLabel (.param .head) .nil
+    | 14 => .ofLabel (.param (.tail (.tail .head))) .nil
+  roots := .cons ⟨5, rfl⟩ .nil
+
+private def phase (i : Fin 15) : Nat := if i = 5 then 2 else if i = 2 then 1 else 0
+
+private def localRank (i : Fin 15) : Nat :=
+  match i.val with
+  | 7 | 11 => 5
+  | 0 | 4 => 4
+  | 6 | 12 => 3
+  | 1 | 3 | 8 | 10 => 2
+  | _ => 1
+
+private def descriptor (crosses : Bool) : Descriptor (graph crosses) where
+  theta := .cons ⟨1, rfl⟩ (.cons ⟨8, rfl⟩ (.cons ⟨3, rfl⟩ .nil))
+  initial := .cons ⟨13, rfl⟩ (.cons ⟨9, rfl⟩ (.cons ⟨14, rfl⟩ .nil))
+  next := .cons ⟨6, rfl⟩ (.cons ⟨7, rfl⟩ (.cons ⟨0, rfl⟩ .nil))
+  guard := ⟨4, rfl⟩
+  negated := ⟨11, rfl⟩
+  negate := .not
+  pass := ⟨2, rfl⟩
+  returnSlot := .tail .head
+
+private def rank : DemandRank 15 1 := [.phase phase, .counter 0, .phase localRank]
+
+private def input (n a b : Nat) : Tuple model.Value carried := .cons ⟨n⟩ (.cons a (.cons b .nil))
+
+private def checked := checkScheduled (graph false) (descriptor false) rank
+
+private def run (fuel n a b : Nat) : Option Nat := do
+  let cert ← checked
+  cert.runFuel model fuel (input n a b)
+
+set_option interpreter.prefer_native false
+
+-- The updates read the old counter and both old accumulators. At the first
+-- step the new pair is (13, 11), and at the second it is (25, 24).
+/-- info: (some 25, some 10, none) -/
+#guard_msgs in
+#eval (run 2 2 10 1, run 0 0 10 1, run 1 2 10 1)
+
+-- Demand ranking alone admits the fourth θ. The checker refuses to read
+-- it as a same-iteration update operand because it is outside the region.
+/-- info: (true, true, true) -/
+#guard_msgs in
+#eval (rank.check (graph true), (checkScheduled (graph true) (descriptor true) rank).isNone,
+  (check (graph true) (descriptor true) ⟨[12, 4], [6, 0, 7], rank⟩).isNone)
+
+-- An operand must be in scope before its consumer is emitted.
+/-- info: true -/
+#guard_msgs in
+#eval (check (graph false) (descriptor false) ⟨[12, 4], [6, 7, 0], rank⟩).isNone
+
+-- The inferred update order includes the shared sum just once.
+/-- info: some [6, 0, 7] -/
+#guard_msgs in
+#eval sliceOrder (graph false) (descriptor false) (descriptor false).next
+
+end Silmaril.SSA.PEG.Simple.Revert.While.Region.Tests
