@@ -923,3 +923,42 @@ and that record field at the transfer.
 [Backward analysis and reference admission](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/CaptureDemand/Thms.lean)
 · [Cycle and shadowing regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/CaptureDemand/Examples.lean)
 · [Certified reference regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
+
+### Opt-in versioning with the least packet-local capture layout
+
+`Versioning.compilePacketLocal` and `encodePacketLocal` use a unit saved
+record on every first-match internal jump. The compiler allocates current
+versions through the same block and tuple decoder used by the default
+path. It keeps the original argument in its packet, uses the same written
+labels and order, and leaves external payloads as written. The default
+compiler's packet rule and output are definitionally the same after
+factoring the shared block constructor.
+
+The entry correspondence uses the caller's version-zero reads and the
+same pair-lawful model. The step and whole-run correspondences require
+`RoundTrip.PacketClosed`: every labelled body reads only its original
+argument and local bindings. `PacketLocal.least_layout` identifies the
+unit record with the empty list inferred by backward demand for this
+fragment. A shadowed slot required by a downstream ambient read still
+fails `CaptureDemand.noShadow_iff`'s unchanged-capture feasibility check.
+Installing nonempty inferred layouts needs an ambient-read admission
+proof beyond the current packet-local certificate.
+
+`PacketLocal.admit` uses the original source checks to derive exact named
+elaboration and Isotope typing for the actual opt-in graph. Its internal
+type at each row is the original argument type paired with unit. The
+packed theorem uses the original typed caller record, ordered exits and
+live-out projection. It compares weak trees in the same typed primitive
+model, via the existing runner and packed interpreter.
+
+The projected two-destination fixture compares the default saved lists
+`[1, 0]` and `[1]` with the actual empty packets and checks both packed
+executions agree at the supplied record. The original sum fixture checks
+both ordered exit tags and the caller-dependent live-out. The opt-in path
+also admits the packet-local back-edge variant that previously failed target typing when
+the default layout requested the overwritten atom again.
+
+[Compiler and encoder](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/Defs.lean)
+· [Entry, step and run equations](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/Thms.lean)
+· [Typed admission and packed execution](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocal/Thms.lean)
+· [Packet and back-edge regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
