@@ -302,6 +302,33 @@ capture-closed table. The resulting packed tree feeds the capture reply
 into the seed request and each tick reply into the next tick's operand.
 [Typed capture and repeated back-edge requests](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Examples/Thms.lean)
 
+### Refinement through a common capture producer
+
+`packed_run_tree_refines_of_mono` transports a pointwise relation on named
+runs to the accepted packed dispatcher. It uses the same effectful producer
+on both sides, the exact capture packet equation, and version-zero agreement
+at every returned capture value. The relation must be preserved by the
+return map that applies `treeExitNumber` and `packedTreeOutput`. The packed
+relation must also be preserved by binding pointwise related continuations
+to the common producer. When the other continuation also has an accepted
+packed dispatcher, its `packed_run_tree` equation rewrites the specification
+side to that dispatcher.
+[Conditional refinement transport](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Thms.lean)
+
+The audited weak-tree API provides equality and `HasVisiblePrefix`, which
+records attainable event counts. It has no preorder here comparing requests,
+replies and returns with the required bind law. The observational
+institution's `Refines` compares sets of returns, faults and divergence over
+its models. Literal membership inclusion at each `Tree.observe` depth also
+fails as a bind order. A continuation with silent divergence is included
+vacuously in a returning one. After the same visible request, the two
+depth-two nodes have unequal child observations. An observer used for
+packed refinement needs to compare those children by its relation and prove
+composition under bind.
+[Visible-prefix API](../../Silmaril/Semantics/ITree/VisiblePrefix/Defs.lean)
+· [Region observational refinement](../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Defs.lean)
+· [Checked bind counterexample](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Examples/Thms.lean)
+
 ### Edge arguments for a normalized φ port
 
 `Versioning.encode` and `Versioning.step_commutes` show the current
