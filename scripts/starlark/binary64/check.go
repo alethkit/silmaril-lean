@@ -405,20 +405,42 @@ func checkDictionaryComparison() {
 	})
 
 	var key, floatKey starlark.Value = zero, negZero
-	for range starlark.CompareLimit {
+	for range starlark.CompareLimit - 1 {
 		key, floatKey = starlark.Tuple{key}, starlark.Tuple{floatKey}
 	}
+	checkComparisonCases([]comparisonCase{
+		{"key probe starts at full default depth", syntax.IN, key, dict(floatKey, one), true, false},
+	})
+	key, floatKey = starlark.Tuple{key}, starlark.Tuple{floatKey}
 	deepLeft, deepRight := dict(key, one), dict(floatKey, one)
 	_, found, err := deepRight.Get(key)
 	require(!found && err != nil && strings.Contains(err.Error(), "comparison exceeded maximum recursion depth"),
 		fmt.Sprintf("want key lookup depth error, got %v", err))
 	checkComparisonCases([]comparisonCase{
 		{"Go treats deep-key lookup error as a miss", syntax.EQL, deepLeft, deepRight, false, false},
+		{"deep-key membership swallows lookup error", syntax.IN, key, deepRight, false, false},
+		{"negated membership complements the miss", syntax.NOT_IN, key, deepRight, true, false},
+	})
+	var collisionKey starlark.Value = starlark.MakeInt64(1 << 32)
+	for range starlark.CompareLimit {
+		collisionKey = starlark.Tuple{collisionKey}
+	}
+	keyHash, keyHashErr := key.Hash()
+	collisionHash, collisionHashErr := collisionKey.Hash()
+	require(keyHashErr == nil && collisionHashErr == nil && keyHash == collisionHash,
+		"unequal numeric tuple keys did not collide")
+	colliding := dict(collisionKey, one)
+	_, found, err = colliding.Get(key)
+	require(!found && err != nil && strings.Contains(err.Error(), "comparison exceeded maximum recursion depth"),
+		fmt.Sprintf("want depth error probing an unequal colliding key, got %v", err))
+	checkComparisonCases([]comparisonCase{
+		{"same hash can reach unequal deep key", syntax.IN, key, colliding, false, false},
 	})
 	// SetKey would itself compare the deep key if the entry already existed.
 	deepLeft, deepRight = dict(key, cycleLeft), dict(floatKey, cycleRight)
 	checkComparisonCases([]comparisonCase{
 		{"Go's key error masks the cyclic value", syntax.EQL, deepLeft, deepRight, false, false},
+		{"the same error hides the cyclic entry from membership", syntax.NOT_IN, key, deepRight, true, false},
 	})
 
 	events := starlark.NewList([]starlark.Value{one})
@@ -431,6 +453,46 @@ func checkDictionaryComparison() {
 	fmt.Println("PASS dictionary equality, numeric key correspondence, live values, left-order cycle masking, and Go deep-key misses")
 }
 
+func checkDictionaryMembership() {
+	zero, one := starlark.MakeInt(0), starlark.MakeInt(1)
+	negZero := fromBits(0x8000000000000000)
+	flagOnly, table := starlark.NewDict(0), starlark.NewDict(0)
+	require(flagOnly.SetKey(starlark.False, one) == nil, "Boolean key insertion failed")
+	for _, key := range []starlark.Value{starlark.False, zero, starlark.MakeInt64(1 << 53),
+		starlark.Tuple{zero, fromBits(0x7ff8000000000021)}} {
+		require(table.SetKey(key, table) == nil, "cyclic entry insertion failed")
+	}
+	checkComparisonCases([]comparisonCase{
+		{"Boolean key differs from zero", syntax.IN, zero, flagOnly, false, false},
+		{"Boolean key is present", syntax.IN, starlark.False, table, true, false},
+		{"signed zero alias", syntax.IN, negZero, table, true, false},
+		{"int-float alias at 2^53", syntax.IN, fromBits(0x4340000000000000), table, true, false},
+		{"adjacent int remains absent", syntax.NOT_IN, starlark.MakeInt64((1 << 53) + 1), table, true, false},
+		{"tuple aliases with cyclic value", syntax.IN, starlark.Tuple{negZero, fromBits(0xfff0000000000001)}, table, true, false},
+	})
+	badList := starlark.NewList([]starlark.Value{one})
+	badList.Freeze()
+	for _, key := range []starlark.Value{badList, starlark.Tuple{badList}, table} {
+		for _, target := range []*starlark.Dict{starlark.NewDict(0), table} {
+			_, found, err := target.Get(key)
+			require(!found && err != nil && strings.Contains(err.Error(), "unhashable"),
+				fmt.Sprintf("want unhashable lookup error for %s, got %v", key.Type(), err))
+			checkComparisonCases([]comparisonCase{
+				{"membership discards unhashable error", syntax.IN, key, target, false, false},
+				{"negated membership sees absence", syntax.NOT_IN, key, target, true, false},
+			})
+		}
+	}
+	events := starlark.NewList(nil)
+	result, err := starlark.Eval(&starlark.Thread{}, "dict-membership.star",
+		`(events.append(1), events)[1] not in (events.append(2), target)[1]`,
+		starlark.StringDict{"events": events, "target": table})
+	require(err == nil && result == starlark.True && events.Len() == 2 &&
+		events.Index(0) == one && events.Index(1) == starlark.MakeInt(2),
+		fmt.Sprintf("membership operand order: %v (%v)", result, err))
+	fmt.Println("PASS Go dictionary membership, operand effects, numeric keys, and raw lookup error suppression")
+}
+
 func main() {
 	checkUnary()
 	checkEqualityAndKeys()
@@ -439,5 +501,6 @@ func main() {
 	checkTupleComparison()
 	checkListComparison()
 	checkDictionaryComparison()
+	checkDictionaryMembership()
 	checkConversionOverflow()
 }

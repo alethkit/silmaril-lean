@@ -19,6 +19,7 @@ denotation and operational rules. Resolved expressions cover the following famil
   list method `append`.
 - [List and tuple equality and membership](#list-and-tuple-equality-and-membership) over the admitted recursive value profile.
 - [Dictionary equality](#dictionary-equality) by canonical keys and live values.
+- [Dictionary membership](#dictionary-membership-and-lookup-profiles) by checked key lookup.
 
 The statement forms are name and subscript assignment, evaluation for effects,
 `pass`, and sequencing. `Lists.Iteration.Thms` adds function-body conditionals,
@@ -65,9 +66,9 @@ An equality test admits nested lists, tuples and dictionaries, strings and scala
 numeric comparator, including mixed int/float and Boolean distinctions.
 When both values belong to this profile, different types other than mixed
 numbers compare unequal. Two sequences of the same kind read their live cells
-left to right, check length, then test corresponding fields in order. Membership
-requires a list or tuple on the right and tests each field as the left operand
-of equality with the needle. Length mismatch, first unequal field and first
+left to right, check length, then test corresponding fields in order. Sequence
+membership tests each field as the left operand of equality with the needle.
+Length mismatch, first unequal field and first
 membership hit stop their respective traversals. A reached out-of-profile value
 produces a type error. A reached malformed sequence address produces the
 corresponding store error. The comparison only reads the heap after evaluating
@@ -126,14 +127,57 @@ values, and `eval_iff_denote` covers operand effects, including a right operand
 that mutates a value reachable from the left dictionary.
 [Key and comparison theorems](../../Silmaril/Languages/Starlark/Lists/Comparison/Thms.lean) · [Lean checks](../../Silmaril/Languages/Starlark/Lists/Comparison/Dictionary/Checks.lean)
 
-Go hashes each reached key and compares possible matches with the default
-comparison limit. Dictionary equality treats a failed lookup as a miss.
-At the pin, ten singleton tuple levels around a scalar can therefore make
-two dictionaries compare unequal even when the Lean cache matches their keys.
-With a cyclic value behind that key, Go can return `False` while Lean reaches
-the value depth error. Value comparison in both uses the enclosing budget
-minus one. Dictionary membership and ordering remain outside this slice.
-[Go lookup][go-key-lookup] · [Go depth check][go-depth] · [Paired Go controls](../../scripts/starlark/binary64/check.go)
+Value comparison uses the enclosing budget minus one. Key selection uses the
+canonical profile described below. Aggregate ordering and text admission
+remain separate.
+[Dictionary lookup profiles](#dictionary-membership-and-lookup-profiles)
+
+## Dictionary membership and lookup profiles
+
+Resolved `in` and `not in` implement the checked canonical profile. After
+both operands evaluate, the lookup reads the receiver, encodes the key with
+`State.keyOf`, and selects the first matching entry. A successful lookup
+reports presence or absence. An unhashable key is an error even on an empty
+dictionary, and errors from reached heap reads propagate. `not in` negates
+only a successful result. Membership leaves entry values unread, including
+cycles. `dictionaryLookup_iff` proves agreement for the raw lookup, and
+`containsAt_iff` and `eval_iff_denote` cover the Boolean operation and the
+exact reached state. The spec identifies dictionary members as keys and
+describes unhashable key use as a dynamic error. The checked profile applies
+that error policy to membership.
+[Spec membership][membership] · [Spec dictionary keys][dicts] · [Lookup rules](../../Silmaril/Languages/Starlark/Lists/Comparison/Operational/Defs.lean)
+
+Pinned Go `Get` hashes the query first, even for an empty table. It then
+walks the selected bucket and its overflow chain in slot order, testing only
+candidates with the same stored hash. Each reached candidate uses Go `Equal`
+with the default comparison limit of ten, independent of any enclosing
+dictionary value comparison. Hash or comparison errors exit raw `Get` with
+`found == false`. Both Go mapping membership and dictionary equality discard
+that error and observe a miss. Go's negated membership complements that miss.
+Dictionary equality still propagates errors from the reached values of keys
+that were found.
+[Go lookup][go-key-lookup] · [Go depth check][go-depth] · [Go mapping membership][go-mapping-membership] · [Go dictionary equality][go-dict-equal]
+
+Ten singleton tuple levels around a scalar can make Go report an absent key
+that the canonical cache matches. With a cyclic value behind that key, Go
+dictionary equality can return `False` while Lean reaches the value depth
+error. The pinned controls also verify that the deeply nested keys built from
+`0` and `2^32` have different canonical codes yet collide in Go. Raw Go `Get`
+reaches a depth error on that unequal candidate, and membership observes a
+miss. Full raw-lookup agreement needs Go's hash and bucket selection, including
+its runtime-seeded string hash and candidate slot order.
+[Go integer hash][go-int-hash] · [Go string hash][go-string-hash] · [Paired Go controls](../../scripts/starlark/binary64/check.go)
+
+`probesKeys_iff` stages an exact bounded key probe given an already selected
+candidate order. Its key comparator covers scalars, strings and tuples of
+those values. `probe_cached` identifies the normal canonical search as a
+specialization of the ordered probe with the total code test. `lookupOrMiss`
+preserves a hit and projects a raw error to a miss. The fixtures exercise
+this projection for the deep-key cyclic-value case. Canonical equality and
+membership still use cached keys. A full Go profile needs verified hash
+results, ordered candidate selection and identity comparison for function
+and builtin key leaves.
+[Theorems](../../Silmaril/Languages/Starlark/Lists/Comparison/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Lists/Comparison/Dictionary/Checks.lean)
 
 ## Dictionary keys and order
 
@@ -284,3 +328,6 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 [go-depth]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L1509-L1550
 [go-dict-equal]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L921-L951
 [go-key-lookup]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L177-L201
+[go-mapping-membership]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1030-L1048
+[go-int-hash]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/int.go#L183-L193
+[go-string-hash]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L431-L450
