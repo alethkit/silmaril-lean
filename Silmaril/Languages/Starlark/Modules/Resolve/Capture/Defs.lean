@@ -15,8 +15,8 @@ local notation "Operand" => Functions.Lowering.Resolve.SourceExpr
 inductive Origin where
   | owned | enclosing | module
 
-/-- A lexical block with one enclosing function. In the source theorem
-the enclosing names come from that parent's owned slots. -/
+/-- Classify the resolved read against the current block and its enclosing
+names. Forwarding additionally identifies the nearest owner in that chain. -/
 inductive ReadOrigin (block : LexicalBlock) : Binding → Origin → Prop where
   | owned {name : String} : name ∈ block.owned → ReadOrigin block (fileSlot name) .owned
   | enclosing {name : String} : name ∉ block.owned → name ∈ block.enclosing →
@@ -71,11 +71,14 @@ inductive Selects (block : LexicalBlock) : List Binding → List FreeName → Pr
       Selects block (first :: rest) (⟨first, first⟩ :: free)
 
 /-- A resolved free reference receives an address from the defining frame.
-The immediate enclosing function owns its locals. A module reference may
-already be present in the parent as a captured global slot. -/
+A local may be owned by the immediate enclosing function or forwarded
+through it. A module reference may also be passed through a function. -/
 inductive ReceivesAddress (state : State) : FreeName → Lists.Capture → Prop where
   | enclosing {name : String} {address : Address} :
       state.slots (fileSlot name) = some (.owned address) →
+      ReceivesAddress state ⟨fileSlot name, fileSlot name⟩ ⟨fileSlot name, address, true⟩
+  | forwardedLocal {name : String} {address : Address} :
+      state.slots (fileSlot name) = some (.captured address true) →
       ReceivesAddress state ⟨fileSlot name, fileSlot name⟩ ⟨fileSlot name, address, true⟩
   | ownedGlobal {name : String} {address : Address} :
       state.slots (globalSlot name) = some (.owned address) →

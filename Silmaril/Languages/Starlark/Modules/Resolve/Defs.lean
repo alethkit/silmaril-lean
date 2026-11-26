@@ -720,6 +720,16 @@ theorem compileBody_mixedReturn (block : BlockContext) (name : String)
   simp [compileBody, compileCompAssignment, rejectMixedTarget, readExpr, bind, StateT.bind, lift_ok,
     returnResolved, resolved, Except.mapError, Except.bind, pure, StateT.pure, Except.pure]
 
+theorem compileBody_seqReturn (block : BlockContext) (first : Statement)
+    (returned : Lowering.Resolve.SourceExpr) (program next : Program) (resolved : ResolvedBody)
+    (value : Lowering.Expr) (reads : List Binding)
+    (compiled : compileBody block first program = .ok (resolved, next))
+    (returnResolved : resolveTracked block.reads returned = .ok (value, reads)) :
+    compileBody block (.seq first (.ret (some returned))) program =
+      .ok (⟨.seq resolved.code (.returnExpr value), resolved.reads ++ reads⟩, next) := by
+  simp [compileBody, readExpr, bind, StateT.bind, lift_ok, returnResolved, compiled, Except.mapError,
+    Except.bind, pure, StateT.pure, Except.pure]
+
 theorem compileBody_requiredDefinition (parent : BlockContext) (name : String) (parameters : List String)
     (body : Statement) (program next : Program) (layout : FunctionLayout) (resolved : ResolvedBody)
     (collected : collectFunctionLayout parent.reads (.required parameters) body = .ok layout)

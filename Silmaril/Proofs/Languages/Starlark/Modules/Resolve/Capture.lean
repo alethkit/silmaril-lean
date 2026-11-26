@@ -114,10 +114,8 @@ private theorem body_reads {block : LexicalBlock} {body : Statement} {reads : Li
     obtain ⟨_, _, target⟩ := left
     exact known_append (known_append (rhs_reads right) (pattern_reads target)) (operand_reads tail)
 
-theorem selects_exists (block : LexicalBlock) {body : Statement} {reads : List Binding}
-    (resolved : BodyReads block body reads) : ∃ free, Selects block reads free := by
-  have known := body_reads resolved
-  clear resolved body
+theorem selects_of_origins (block : LexicalBlock) {reads : List Binding}
+    (known : ∀ binding ∈ reads, ∃ origin, ReadOrigin block binding origin) : ∃ free, Selects block reads free := by
   induction reads using (measure (List.length : List Binding → Nat)).wf.induction with
   | h reads ih =>
     cases reads with
@@ -131,6 +129,10 @@ theorem selects_exists (block : LexicalBlock) {body : Statement} {reads : List B
       | owned => exact ⟨_, .owned related remaining⟩
       | enclosing => exact ⟨_, .enclosing related remaining⟩
       | module => exact ⟨_, .module related remaining⟩
+
+theorem selects_exists (block : LexicalBlock) {body : Statement} {reads : List Binding}
+    (resolved : BodyReads block body reads) : ∃ free, Selects block reads free :=
+  selects_of_origins block (body_reads resolved)
 
 theorem capture_names {block : LexicalBlock} {reads : List Binding} {free : List FreeName}
     (selection : Selects block reads free) : captureNames block.owned reads = free := by
@@ -168,7 +170,7 @@ private theorem required_order (parameters : List String) :
   | nil => exact .nil
   | cons first rest ih => exact .cons rfl ih
 
-private theorem required_binders (parameters : List String) :
+theorem required_binders (parameters : List String) :
     ParameterBinders (.required parameters) parameters := by
   simpa [SourceSignature.required] using (ParameterBinders.signature none none (required_order parameters) .nil)
 
@@ -262,6 +264,35 @@ theorem define_installs (program : Program) (declaration : Declaration) (id : Na
   · simp [State.bindingValue, slot, Slot.address, updated, bounded, value]
   · simp [restoreCaller, updated, added, different, newCell]
 
+private theorem write_arguments_keep_slots (arguments : List (Binding × Silmaril.Languages.Starlark.Lists.Value))
+    (state : State) : (arguments.foldl (fun next (binding, value) => next.write binding value) state).slots =
+      state.slots := by
+  induction arguments generalizing state with
+  | nil => rfl
+  | cons arg rest ih => exact (ih _).trans (write_keeps_slots _ _ _)
+
+theorem activate_owned (state : State) (declaration : Declaration)
+    (captures : List Silmaril.Languages.Starlark.Lists.Capture)
+    (arguments : List (Binding × Silmaril.Languages.Starlark.Lists.Value)) (binding : Binding)
+    (declared : binding ∈ declaration.signature.slots ++ declaration.locals) :
+    ∃ address, (activate state declaration captures arguments).slots binding = some (.owned address) := by
+  have allocated (bindings : List Binding) (initial : State)
+      (present : binding ∈ bindings ∨ ∃ address, initial.slots binding = some (.owned address)) :
+      ∃ address, (bindings.foldl State.allocateSlot initial).slots binding = some (.owned address) := by
+    induction bindings generalizing initial with
+    | nil => exact present.resolve_left (by simp)
+    | cons first rest ih =>
+      rw [List.foldl_cons]
+      by_cases same : binding = first
+      · exact ih _ (.inr ⟨initial.heap.size, by simp [State.allocateSlot, same]⟩)
+      · apply ih _
+        rcases present with member | ⟨address, slot⟩
+        · exact .inl ((List.mem_cons.mp member).resolve_left same)
+        · exact .inr ⟨address, by simp [State.allocateSlot, same, slot]⟩
+  unfold activate
+  rw [write_arguments_keep_slots]
+  exact allocated _ _ (.inl declared)
+
 theorem activate_capture (state : State) (declaration : Declaration)
     (captures : List Silmaril.Languages.Starlark.Lists.Capture) (capture : Silmaril.Languages.Starlark.Lists.Capture)
     (arguments : List (Binding × Silmaril.Languages.Starlark.Lists.Value))
@@ -269,11 +300,6 @@ theorem activate_capture (state : State) (declaration : Declaration)
     (disjoint : capture.binding ∉ declaration.signature.slots ++ declaration.locals) :
     (activate state declaration captures arguments).slots capture.binding =
       some (.captured capture.address capture.localCell) := by
-  have writeSlots (initial : State) :
-      (arguments.foldl (fun next (binding, value) => next.write binding value) initial).slots = initial.slots := by
-    induction arguments generalizing initial with
-    | nil => rfl
-    | cons arg rest ih => exact (ih _).trans (write_keeps_slots _ _ _)
   have allocateSlots (bindings : List Binding) (initial : State) (outside : capture.binding ∉ bindings) :
       (bindings.foldl State.allocateSlot initial).slots capture.binding = initial.slots capture.binding := by
     induction bindings generalizing initial with
@@ -283,7 +309,7 @@ theorem activate_capture (state : State) (declaration : Declaration)
       rw [List.foldl_cons, ih _ (fun mem => outside (List.mem_cons_of_mem _ mem))]
       simp [State.allocateSlot, different]
   unfold activate
-  rw [writeSlots, allocateSlots _ _ disjoint]
+  rw [write_arguments_keep_slots, allocateSlots _ _ disjoint]
   simp [capturedSlots, found]
 
 private theorem selected_outside_owned {block : LexicalBlock} {reads : List Binding} {free : List FreeName}
