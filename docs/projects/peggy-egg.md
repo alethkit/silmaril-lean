@@ -84,7 +84,9 @@ well-founded native demands.
 
 `checkOutputs_figure11_sound` applies the existing Egg soundness theorem
 to that adapter and proves equality of the actual ordered
-`PEG.Graph.observe` tuples. Rule satisfaction still ranges over all
+`PEG.Graph.observe` tuples. The [root optimizer](peggy-optimizer.md)
+composes those checked explanations and uses `outputs_figure11_sound`
+for their final endpoints. Rule satisfaction still ranges over all
 partial Egg variable valuations, even though Figure 11 takes defined
 parameters. The auxiliary bridge can still be used with undefined
 parameters. The Figure 11 correspondence is on its defined-input

@@ -2,10 +2,23 @@ module
 
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Defs
 public import Silmaril.Languages.Python.Core.Module.Functions.Thms
+public import Silmaril.Languages.Python.Core.Module.TupleDispatch.Thms
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleIdentity.Thms
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Prefix
 
 public section
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run
+
+theorem callOperand_numericArgument (scope : Source.Scope) (result : NumericArgument.Result) :
+    callOperand? (result.operand scope) = some (.literal (match result with
+      | .integer value => .int value
+      | .boolean value => .bool value)) := by
+  cases result <;> rfl
+
+theorem retainTupleOrigins_unobserved {scope : Source.Scope} (instructions : List (Instruction scope))
+    (unobserved : instructions.any Instruction.observesTupleIdentity = false) :
+    retainTupleOrigins instructions = instructions := by
+  simp [retainTupleOrigins, unobserved]
 
 theorem seed_lookup (globals : Core.Module.Globals) (heap : Core.Closure.Heap) (name : String) :
     (seed globals heap).globals name = (globals.lookup name).map embed := rfl
@@ -38,6 +51,22 @@ theorem assertOperand_scalarResult {scope : Source.Scope} (session : Core.Module
   simp only [assertOperand, evaluate_scalarResult]
   cases value <;> rfl
 
+theorem advance_bindTuple_ok {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool}
+    {values : List Core.Module.Value} {rest : List (Instruction scope)}
+    (evaluated : evaluateTuple session items = .ok values) :
+    let (value, heap) := session.heap.materializeModuleTuple items values trackClosed
+    advance table (.ready session (.bindTuple name items trackClosed :: rest)) =
+      ([], .ready ({ session with heap := heap }.bindGlobal name value) rest) := by
+  simp [advance, bindTuple, evaluated]
+
+theorem advance_bindTuple_failure {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool}
+    {error : Completion} {rest : List (Instruction scope)}
+    (failed : bindTuple session name items trackClosed = .error error) :
+    advance table (.ready session (.bindTuple name items trackClosed :: rest)) = ([], .finished session error) := by
+  simp [advance, failed]
+
 theorem advance_conditionalAssign {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (name : Source.Name)
     (reference : GlobalReference scope name) (selected : Operand scope) (rest : List (Instruction scope)) :
@@ -66,6 +95,34 @@ theorem invoke_current_globals {scope : Source.Scope} (session : Core.Module.Fun
     advance table (.ready session (.call target name arguments :: remaining)) =
       ([], .calling (session.prepareCall target (.readGlobal name) arguments) remaining) := rfl
 
+theorem prepareTupleIdentityCall_missing (session : Core.Module.Functions.Session)
+    (destination : Core.Module.Functions.Destination) {name : String} (test : TupleIdentity.Test)
+    (missing : session.globals name = none) :
+    prepareTupleIdentityCall session destination name test = .error (.raised (.nameError name)) := by
+  simp only [prepareTupleIdentityCall, missing, Option.elim]
+  rfl
+
+theorem advance_callTupleIdentity_failure {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (destination : Core.Module.Functions.Destination)
+    (name : String) (test : TupleIdentity.Test) (rest : List (Instruction scope)) {error : Completion}
+    (failed : prepareTupleIdentityCall session destination name test = .error error) :
+    advance table (.ready session (.callTupleIdentity destination name test :: rest)) =
+      ([], .finished session error) := by
+  simp [advance, failed]
+
+theorem tupleFromListDisplay_outer_missing (session : Core.Module.Functions.Session) {name : String}
+    (contents : List Core.Module.Value) (remaining : List Argument) (missing : session.globals name = none) :
+    tupleFromListDisplayCompletion session contents (some (name, remaining)) =
+      (.raised (.nameError name), session.lists) := by
+  simp [tupleFromListDisplayCompletion, missing]
+
+theorem tupleFromListDisplay_direct_mask (session : Core.Module.Functions.Session) (contents : List Core.Module.Value)
+    (masked : session.globals "tuple" = some .none) :
+    tupleFromListDisplayCompletion session contents none =
+      (.raised .notCallable, (session.lists.allocate contents).2) := by
+  simp [tupleFromListDisplayCompletion, tupleFromListDisplayCompletion.reachedDisplay,
+    tupleBinding, masked, (Core.Module.TupleDispatch.constructFromListDisplay_mask session.lists contents).1, TupleChain.runtimeError?]
+
 theorem advance_literalArmBoolean {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (value : Bool) (rest : List (Instruction scope)) :
     advance table (.ready session (.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: rest)) =
@@ -77,6 +134,81 @@ theorem advance_adjacentKeywordDiscard {scope : Source.Scope} (table : Core.Clos
     (remaining : List (Instruction scope)) :
     advance table (.ready session (.adjacentKeywordDiscard name value :: remaining)) =
       ([], .calling (session.prepareCall .discard (.readGlobal name) [.literal (.int value)]) remaining) := rfl
+
+theorem lowerInstructions_assertIntegerBuiltin {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)
+    (test : IntegerBuiltinTest scope) (rest : List (Functions.Action scope)) :
+    lowerInstructions tree key (.assertIntegerBuiltin test :: rest) =
+      (lowerInstructions tree key rest).map fun (instructions, rows) =>
+        (.assertIntegerBuiltin test :: instructions, rows) := by
+  rw [lowerInstructions]
+  cases lowerInstructions tree key rest with | error _ => rfl | ok result => cases result; rfl
+
+theorem lowerInstructions_assertSequenceLength {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)
+    (test : SequenceLengthTest scope) (rest : List (Functions.Action scope)) :
+    lowerInstructions tree key (.assertSequenceLength test :: rest) =
+      (lowerInstructions tree key rest).map fun (instructions, rows) =>
+        (.assertSequenceLength test :: instructions, rows) :=
+  lowerInstructions_assertIntegerBuiltin tree key test.toIntegerBuiltin rest
+
+theorem advance_assertIntegerBuiltin {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (test : IntegerBuiltinTest scope) (rest : List (Instruction scope)) :
+    advance table (.ready session (.assertIntegerBuiltin test :: rest)) =
+      ([], .finished session (match session.globals test.argument.name with
+        | none => .raised (.nameError test.argument.name)
+        | some (.function _) => .scalarProfile
+        | some _ => .raised .notCallable)) := rfl
+
+theorem advance_assertSequenceLength {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (test : SequenceLengthTest scope) (rest : List (Instruction scope)) :
+    advance table (.ready session (.assertSequenceLength test :: rest)) =
+      ([], .finished session (match session.globals "len" with
+        | none => .raised (.nameError "len")
+        | some (.function _) => .scalarProfile
+        | some _ => .raised .notCallable)) := rfl
+
+theorem lowerInstructions_assertBoolIdentity {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)
+    (test : BoolIdentityTest scope) (rest : List (Functions.Action scope)) :
+    lowerInstructions tree key (.assertBoolIdentity test :: rest) =
+      (lowerInstructions tree key rest).map fun (instructions, rows) =>
+        (.assertBoolIdentity test :: instructions, rows) := by
+  rw [lowerInstructions]
+  cases lowerInstructions tree key rest with | error _ => rfl | ok result => cases result; rfl
+
+theorem advance_assertBoolIdentity {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (test : BoolIdentityTest scope) (rest : List (Instruction scope)) :
+    advance table (.ready session (.assertBoolIdentity test :: rest)) =
+      ([], .finished session (boolIdentityCompletion session test)) := rfl
+
+theorem lowerInstructions_assertListConstruction {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)
+    (test : ListConstructionTest scope) (rest : List (Functions.Action scope)) :
+    lowerInstructions tree key (.assertListConstruction test :: rest) =
+      (lowerInstructions tree key rest).map fun (instructions, rows) =>
+        (.assertListConstruction test :: instructions, rows) := by
+  rw [lowerInstructions]
+  cases lowerInstructions tree key rest with | error _ => rfl | ok result => cases result; rfl
+
+theorem advance_assertListConstruction {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (test : ListConstructionTest scope) (rest : List (Instruction scope)) :
+    advance table (.ready session (.assertListConstruction test :: rest)) =
+      ([], .finished session (match session.globals "list" with
+        | none => .raised (.nameError "list")
+        | some (.function _) => .scalarProfile
+        | some _ => .raised .notCallable)) := rfl
+
+theorem lowerInstructions_assertTupleChain {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)
+    (test : TupleChainTest scope) (rest : List (Functions.Action scope)) :
+    lowerInstructions tree key (.assertTupleChain test :: rest) =
+      (lowerInstructions tree key rest).map fun (instructions, rows) =>
+        (.assertTupleChain test :: instructions, rows) := by
+  rw [lowerInstructions]
+  cases lowerInstructions tree key rest with | error _ => rfl | ok result => cases result; rfl
+
+theorem advance_assertTupleChain {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (test : TupleChainTest scope) (rest : List (Instruction scope)) :
+    advance table (.ready session (.assertTupleChain test :: rest)) =
+      ([], match checkTupleChain session test with
+        | .ok () => .ready session rest
+        | .error error => .finished session error) := rfl
 
 theorem advance_assertVarNames {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (receiver : String) (needle : List UInt32)

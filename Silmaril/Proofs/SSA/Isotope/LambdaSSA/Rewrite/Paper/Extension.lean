@@ -43,6 +43,22 @@ theorem typed (h : Eqv Seed Γ r s L) : HasType Γ r L ∧ HasType Γ s L := by
     exact ⟨ih.1.substVars ht, ih.2.substVars ht⟩
   | renameLabels _ hρ ih => exact ⟨ih.1.renameLabels hρ, ih.2.renameLabels hρ⟩
 
+theorem toPaper (sound : ∀ {Γ L r s}, Seed Γ r s L → Paper.Eqv Γ r s L)
+    (h : Eqv Seed Γ r s L) : Paper.Eqv Γ r s L := by
+  induction h with
+  | paper h => exact h
+  | extra _ _ step => exact sound step
+  | symm _ ih => exact ih.symm
+  | trans _ _ ih ij => exact ih.trans ij
+  | let₁ ha _ ih => exact .let₁ ha ih
+  | let₂ ha _ ih => exact .let₂ ha ih
+  | case ha _ _ il ir => exact .case ha il ir
+  | cfg R _ _ ie ib => exact .cfg R ie ib
+  | lsubstCongr hp _ ih => exact .lsubstCongr hp ih
+  | lsubstPost _ hr hs hσ ih => exact .lsubstPost ih hr hs hσ
+  | substVars _ hθ ih => exact .substVars ih hθ
+  | renameLabels _ hρ ih => exact .renameLabels ih hρ
+
 variable {V : Type u₁} {C : Type u₂}
   [Category.{v₁} V] [Category.{v₂} C]
   [CartesianMonoidalCategory V] [SymmetricCategory V]

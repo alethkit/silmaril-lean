@@ -2,6 +2,10 @@ module
 
 public import Silmaril.Languages.Python.Compile.Closure.Body.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuard.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleIdentity.Defs
 
 /-! # Lower module function bindings and positional call sites
 
@@ -16,6 +20,7 @@ namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions
 open Source (BlockPath Name Scope ScopeTree)
 open Compile.Closure (frameLayout)
 open Compile.Closure.Body (Code)
+open Silmaril.Numeric.Ieee754 (F64)
 
 inductive CallExpression : Source.Expr → Name → List (Source.ArgumentKind × Source.Expr) → Prop where
   | plain (name : Name) (arguments : List Source.Expr) :
@@ -82,10 +87,22 @@ def lowerDestination (scope : Scope) : (source : Placement) →
     let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
     return ⟨.store name reference, rfl⟩
 
+inductive ArgumentOperandTranslation (scope : Scope) : Source.Expr → Operand scope → Prop where
+  | scalar {source operand} (translated : OperandTranslation scope source operand) :
+      ArgumentOperandTranslation scope source operand
+  | numeric {source result} (checked : NumericArgument.check source = some result) :
+      ArgumentOperandTranslation scope source (result.operand scope)
+
+def lowerArgumentOperand (scope : Scope) (source : Source.Expr) :
+    Except ModuleEntry.Error {operand // ArgumentOperandTranslation scope source operand} :=
+  match checked : NumericArgument.check source with
+  | some result => .ok ⟨result.operand scope, .numeric checked⟩
+  | none => (lowerOperand scope source).map fun operand => ⟨operand.val, .scalar operand.property⟩
+
 inductive Positional (scope : Scope) :
     List (Source.ArgumentKind × Source.Expr) → List (Operand scope) → Prop where
   | nil : Positional scope [] []
-  | cons {source operand rest targets} (first : OperandTranslation scope source operand)
+  | cons {source operand rest targets} (first : ArgumentOperandTranslation scope source operand)
       (tail : Positional scope rest targets) :
       Positional scope ((.positional, source) :: rest) (operand :: targets)
 
@@ -93,21 +110,144 @@ def lowerArguments (scope : Scope) : (source : List (Source.ArgumentKind × Sour
     Except Error {target // Positional scope source target}
   | [] => .ok ⟨[], .nil⟩
   | (.positional, expression) :: rest => do
-    let operand ← (lowerOperand scope expression).mapError .scalar
+    let operand ← (lowerArgumentOperand scope expression).mapError .scalar
     let tail ← lowerArguments scope rest
     return ⟨operand.val :: tail.val, .cons operand.property tail.property⟩
   | _ => .error .argumentProfile
 
-/-- A module argument can contain one direct call with scalar arguments. -/
-inductive CallArgument (scope : Scope) where
+inductive FlatTupleItem (scope : Scope) : Source.Expr → Core.Closure.GlobalTupleItem → Prop where
+  | literal {source value} (checked : tupleScalar? source = some value) :
+      FlatTupleItem scope source (.literal value)
+  | read (name : Name) (reference : GlobalReference scope name) :
+      FlatTupleItem scope (.name name) (.global name)
+
+def lowerFlatTupleItem (scope : Scope) : (source : Source.Expr) →
+    Except Error {item // FlatTupleItem scope source item}
+  | .name name => do
+    let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
+    return ⟨.global name, .read name reference⟩
+  | source =>
+    match checked : tupleScalar? source with
+    | some value => .ok ⟨.literal value, .literal checked⟩
+    | none => .error (.scalar .expressionProfile)
+
+inductive FlatTupleItems (scope : Scope) :
+    List Source.Expr → List Core.Closure.GlobalTupleItem → Prop where
+  | nil : FlatTupleItems scope [] []
+  | cons {source item rest items} (first : FlatTupleItem scope source item)
+      (tail : FlatTupleItems scope rest items) :
+      FlatTupleItems scope (source :: rest) (item :: items)
+
+def lowerFlatTupleItems (scope : Scope) : (elements : List Source.Expr) →
+    Except Error {items // FlatTupleItems scope elements items}
+  | [] => .ok ⟨[], .nil⟩
+  | element :: rest => do
+    let head ← lowerFlatTupleItem scope element
+    let tail ← lowerFlatTupleItems scope rest
+    return ⟨head.val :: tail.val, .cons head.property tail.property⟩
+
+inductive CallValue (scope : Scope) where
   | scalar (operand : Operand scope)
-  | call (name : Name) (reference : GlobalReference scope name) (arguments : List (Operand scope))
+  | intTrueDiv (numerator divisor : Int)
+  | mixedAdd (integer : Int) (floating : F64.Finite)
+  | float64 (value : F64.Finite)
+  | tuple (items : List Core.Closure.GlobalTupleItem)
+  | text (value : Core.Text)
+
+/-- Recognize a decimal token with at most one source unary sign. -/
+def decimalCallLiteral? : Source.Expr → Option (Bool × Nat × Int)
+  | .floatDecimal coefficient exponent | .unary .positive (.floatDecimal coefficient exponent) =>
+    some (false, coefficient, exponent)
+  | .unary .negative (.floatDecimal coefficient exponent) => some (true, coefficient, exponent)
+  | _ => none
+
+inductive DecimalCallLiteral (source : Source.Expr) (value : F64.Finite) : Prop where
+  | rounded {negative coefficient exponent}
+      (shape : decimalCallLiteral? source = some (negative, coefficient, exponent))
+      (result : Core.Binary64.ofDecimal? negative coefficient exponent = some value)
+
+def lowerDecimalCallLiteral? (source : Source.Expr) : Option {value // DecimalCallLiteral source value} :=
+  match shape : decimalCallLiteral? source with
+  | some (negative, coefficient, exponent) =>
+    match rounded : Core.Binary64.ofDecimal? negative coefficient exponent with
+    | some value => some ⟨value, .rounded shape rounded⟩
+    | none => none
+  | none => none
+
+inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope → Prop where
+  | scalar {source operand} (checked : ArgumentOperandTranslation scope source operand) :
+      CallValueTranslation scope source (.scalar operand)
+  | intTrueDiv {left right numerator divisor}
+      (lhs : NumericArgument.integer? left = some numerator) (rhs : NumericArgument.integer? right = some divisor) :
+      CallValueTranslation scope (.binary .trueDiv left right) (.intTrueDiv numerator divisor)
+  | intFloatAdd {left right integer floating}
+      (lhs : NumericArgument.integer? left = some integer) (rhs : DecimalCallLiteral right floating) :
+      CallValueTranslation scope (.binary .add left right) (.mixedAdd integer floating)
+  | floatIntAdd {left right integer floating}
+      (lhs : DecimalCallLiteral left floating) (rhs : NumericArgument.integer? right = some integer) :
+      CallValueTranslation scope (.binary .add left right) (.mixedAdd integer floating)
+  | float64 {source value} (literal : DecimalCallLiteral source value) :
+      CallValueTranslation scope source (.float64 value)
+  | tuple {elements items} (checked : FlatTupleItems scope elements items) :
+      CallValueTranslation scope (.tuple elements) (.tuple items)
+  | text {points value} (checked : Core.Text.ofPoints? points = some value) :
+      CallValueTranslation scope (.text points) (.text value)
+
+def lowerScalarCallValue (scope : Scope) (source : Source.Expr) :
+    Except Error {value // CallValueTranslation scope source value} :=
+  ((lowerArgumentOperand scope source).mapError .scalar).map fun operand =>
+    ⟨.scalar operand.val, .scalar operand.property⟩
+
+def lowerCallValue (scope : Scope) : (source : Source.Expr) →
+    Except Error {value // CallValueTranslation scope source value}
+  | .tuple elements =>
+    (lowerFlatTupleItems scope elements).map fun items => ⟨.tuple items.val, .tuple items.property⟩
+  | .binary .trueDiv left right =>
+    match lhs : NumericArgument.integer? left, rhs : NumericArgument.integer? right with
+    | some numerator, some divisor => .ok ⟨.intTrueDiv numerator divisor, .intTrueDiv lhs rhs⟩
+    | _, _ => .error (.scalar .expressionProfile)
+  | .binary .add left right =>
+    match lhs : NumericArgument.integer? left, lowerDecimalCallLiteral? right with
+    | some integer, some floating => .ok ⟨.mixedAdd integer floating.val, .intFloatAdd lhs floating.property⟩
+    | _, _ =>
+      match lowerDecimalCallLiteral? left, rhs : NumericArgument.integer? right with
+      | some floating, some integer => .ok ⟨.mixedAdd integer floating.val, .floatIntAdd floating.property rhs⟩
+      | _, _ => lowerScalarCallValue scope (.binary .add left right)
+  | .text points =>
+    match checked : Core.Text.ofPoints? points with
+    | some value => .ok ⟨.text value, .text checked⟩
+    | none => .error (.scalar .expressionProfile)
+  | source =>
+    match lowerDecimalCallLiteral? source with
+    | some literal => .ok ⟨.float64 literal.val, .float64 literal.property⟩
+    | none => lowerScalarCallValue scope source
+
+inductive PositionalValues (scope : Scope) :
+    List (Source.ArgumentKind × Source.Expr) → List (CallValue scope) → Prop where
+  | nil : PositionalValues scope [] []
+  | cons {source value rest values} (first : CallValueTranslation scope source value)
+      (tail : PositionalValues scope rest values) :
+      PositionalValues scope ((.positional, source) :: rest) (value :: values)
+
+def lowerCallValues (scope : Scope) : (source : List (Source.ArgumentKind × Source.Expr)) →
+    Except Error {values // PositionalValues scope source values}
+  | [] => .ok ⟨[], .nil⟩
+  | (.positional, source) :: rest => do
+    let value ← lowerCallValue scope source
+    let tail ← lowerCallValues scope rest
+    return ⟨value.val :: tail.val, .cons value.property tail.property⟩
+  | _ => .error .argumentProfile
+
+/-- A module argument can contain one named call with flat value operands. -/
+inductive CallArgument (scope : Scope) where
+  | value (operand : CallValue scope)
+  | call (name : Name) (reference : GlobalReference scope name) (arguments : List (CallValue scope))
 
 inductive ArgumentTranslation (scope : Scope) : Source.Expr → CallArgument scope → Prop where
-  | scalar {source operand} (translated : OperandTranslation scope source operand) :
-      ArgumentTranslation scope source (.scalar operand)
+  | value {source operand} (translated : CallValueTranslation scope source operand) :
+      ArgumentTranslation scope source (.value operand)
   | call {source name arguments reference operands}
-      (shape : CallExpression source name arguments) (translated : Positional scope arguments operands) :
+      (shape : CallExpression source name arguments) (translated : PositionalValues scope arguments operands) :
       ArgumentTranslation scope source (.call name reference operands)
 
 inductive CallArguments (scope : Scope) :
@@ -121,11 +261,11 @@ def lowerCallArgument (scope : Scope) (source : Source.Expr) :
     Except Error {argument // ArgumentTranslation scope source argument} := do
   if let some ⟨(name, arguments), shape⟩ := callExpression? source then
     let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
-    let operands ← lowerArguments scope arguments
+    let operands ← lowerCallValues scope arguments
     return ⟨.call name reference operands.val, .call shape operands.property⟩
   else
-    let operand ← (lowerOperand scope source).mapError .scalar
-    return ⟨.scalar operand.val, .scalar operand.property⟩
+    let operand ← lowerCallValue scope source
+    return ⟨.value operand.val, .value operand.property⟩
 
 def lowerCallArguments (scope : Scope) : (source : List (Source.ArgumentKind × Source.Expr)) →
     Except Error {target // CallArguments scope source target}
@@ -135,6 +275,44 @@ def lowerCallArguments (scope : Scope) : (source : List (Source.ArgumentKind × 
     let tail ← lowerCallArguments scope rest
     return ⟨argument.val :: tail.val, .cons argument.property tail.property⟩
   | _ => .error .argumentProfile
+
+def tupleListDisplayScalar? : Source.Expr → Option Core.Module.Value
+  | .none_ => some .none
+  | source => scalarLiteral? source
+
+/-- A direct stock-tuple candidate or a first argument converting a
+closed flat scalar list display. -/
+inductive TupleListDisplayArguments (scope : Scope) :
+    Name → List (Source.ArgumentKind × Source.Expr) → List Core.Module.Value →
+    Option (List (CallArgument scope)) → Prop where
+  | direct {elements contents} (checked : elements.mapM tupleListDisplayScalar? = some contents) :
+      TupleListDisplayArguments scope "tuple" [(.positional, .list_ elements)] contents none
+  | nested {name source elements contents rest operands}
+      (constructor : CallExpression source "tuple" [(.positional, .list_ elements)])
+      (checked : elements.mapM tupleListDisplayScalar? = some contents)
+      (reference : GlobalReference scope "tuple")
+      (tail : CallArguments scope rest operands) :
+      TupleListDisplayArguments scope name ((.positional, source) :: rest) contents (some operands)
+
+def tupleListDisplayArguments? (scope : Scope) (name : Name)
+    (arguments : List (Source.ArgumentKind × Source.Expr)) :
+    Option {result : List Core.Module.Value × Option (List (CallArgument scope)) //
+      TupleListDisplayArguments scope name arguments result.1 result.2} :=
+  match arguments with
+  | [(.positional, .list_ elements)] =>
+    if found : name = "tuple" then
+      match checked : elements.mapM tupleListDisplayScalar? with
+      | some contents => some ⟨(contents, none), found.symm ▸ .direct checked⟩
+      | none => none
+    else none
+  | (.positional, source) :: rest => do
+    let ⟨("tuple", [(.positional, .list_ elements)]), constructor⟩ ← callExpression? source | none
+    let reference ← globalReference? scope "tuple"
+    let operands ← (lowerCallArguments scope rest).toOption
+    match checked : elements.mapM tupleListDisplayScalar? with
+    | some contents => some ⟨(contents, some operands.val), .nested constructor checked reference operands.property⟩
+    | none => none
+  | _ => none
 
 /-- The call immediately after a definition supplies exactly its one required
 positional-or-keyword parameter. A text literal in a mapping keeps its code points. -/
@@ -193,9 +371,221 @@ structure DefinitionTranslation (tree : ScopeTree) (index : Nat) (declaration : 
     declaration.map Source.Parameter.name
   functionBody : Compile.Closure.Body.Translation child 0 body code
 
+def integerEquality? : Source.Comparison → Option Bool
+  | .eq => some true
+  | .ne => some false
+  | _ => none
+
+abbrev lengthEquality? := integerEquality?
+
+structure SequenceLengthTest (scope : Scope) where
+  reference : GlobalReference scope "len"
+  length : Nat
+  right : Operand scope
+  expectedEqual : Bool
+
+/-- Only the sequence argument is closed. The callee and right operand
+still use their live namespace at this assertion. -/
+inductive SequenceLengthTranslation (scope : Scope) : Source.Stmt → SequenceLengthTest scope → Prop where
+  | assertion {left source right operator sequence reference operand equal}
+      (call : CallExpression left "len" [(.positional, source)])
+      (argument : ClosedSequence.ValueOf source sequence)
+      (comparison : lengthEquality? operator = some equal)
+      (expected : OperandTranslation scope right operand) (scalar : operand.comparable = true) :
+      SequenceLengthTranslation scope (.assert_ (.comparison left [(operator, right)]) none)
+        ⟨reference, sequence.values.length, operand, equal⟩
+
+def sequenceLengthTest? (scope : Scope) : (statement : Source.Stmt) →
+    Option {test // SequenceLengthTranslation scope statement test}
+  | .assert_ (.comparison left [(operator, right)]) none => do
+    let ⟨("len", [(.positional, source)]), call⟩ ← callExpression? left | none
+    let ⟨sequence, checked⟩ ← checkClosedSequence source
+    let reference ← globalReference? scope "len"
+    let operand ← (lowerOperand scope right).toOption
+    if scalar : operand.val.comparable = true then
+      match comparison : lengthEquality? operator with
+      | some equal => some ⟨⟨reference, sequence.values.length, operand.val, equal⟩,
+          .assertion call checked comparison operand.property scalar⟩
+      | none => none
+    else none
+  | _ => none
+
+inductive IntegerBuiltinArgument where
+  | sequenceLength (length : Nat)
+  | ordinal (point : UInt32) (valid : point.toNat < 0x110000)
+
+def IntegerBuiltinArgument.name : IntegerBuiltinArgument → Name
+  | .sequenceLength _ => "len"
+  | .ordinal .. => "ord"
+
+structure IntegerBuiltinTest (scope : Scope) where
+  argument : IntegerBuiltinArgument
+  reference : GlobalReference scope argument.name
+  right : Operand scope
+  expectedEqual : Bool
+
+def SequenceLengthTest.toIntegerBuiltin {scope : Scope} (test : SequenceLengthTest scope) :
+    IntegerBuiltinTest scope :=
+  ⟨.sequenceLength test.length, test.reference, test.right, test.expectedEqual⟩
+
+inductive IntegerBuiltinTranslation (scope : Scope) : Source.Stmt → IntegerBuiltinTest scope → Prop where
+  | sequenceLength {statement test} (checked : SequenceLengthTranslation scope statement test) :
+      IntegerBuiltinTranslation scope statement test.toIntegerBuiltin
+  | ordinal {left right comparison point operand equal}
+      (call : CallExpression left "ord" [(.positional, .text [point])])
+      (reference : GlobalReference scope "ord")
+      (valid : point.toNat < 0x110000) (identified : integerEquality? comparison = some equal)
+      (checked : OperandTranslation scope right operand) (scalar : operand.comparable = true) :
+      IntegerBuiltinTranslation scope (.assert_ (.comparison left [(comparison, right)]) none)
+        ⟨.ordinal point valid, reference, operand, equal⟩
+
+def ordinalTest? (scope : Scope) : (statement : Source.Stmt) →
+    Option {test // IntegerBuiltinTranslation scope statement test}
+  | .assert_ (.comparison left [(comparison, right)]) none => do
+    let ⟨("ord", [(.positional, .text [point])]), call⟩ ← callExpression? left | none
+    let reference ← globalReference? scope "ord"
+    let operand ← (lowerOperand scope right).toOption
+    if valid : point.toNat < 0x110000 then
+      if scalar : operand.val.comparable = true then
+        match identified : integerEquality? comparison with
+        | some equal => some ⟨⟨.ordinal point valid, reference, operand.val, equal⟩,
+            .ordinal call reference valid identified operand.property scalar⟩
+        | none => none
+      else none
+    else none
+  | _ => none
+
+def integerBuiltinTest? (scope : Scope) (statement : Source.Stmt) :
+    Option {test // IntegerBuiltinTranslation scope statement test} :=
+  match sequenceLengthTest? scope statement with
+  | some length => some ⟨length.val.toIntegerBuiltin, .sequenceLength length.property⟩
+  | none => ordinalTest? scope statement
+
+inductive BoolCallArguments (scope : Scope) :
+    List (Source.ArgumentKind × Source.Expr) → Option (Operand scope) → Prop where
+  | omitted : BoolCallArguments scope [] none
+  | positional {source operand} (checked : OperandTranslation scope source operand)
+      (scalar : operand.comparable = true) :
+      BoolCallArguments scope [(.positional, source)] (some operand)
+
+def boolCallArgument? (scope : Scope) : (arguments : List (Source.ArgumentKind × Source.Expr)) →
+    Option {argument // BoolCallArguments scope arguments argument}
+  | [] => some ⟨none, .omitted⟩
+  | [(.positional, source)] => do
+    let operand ← (lowerOperand scope source).toOption
+    if scalar : operand.val.comparable = true then
+      some ⟨some operand.val, .positional operand.property scalar⟩
+    else none
+  | _ => none
+
+structure BoolIdentityTest (scope : Scope) where
+  reference : GlobalReference scope "bool"
+  argument : Option (Operand scope)
+  operator : Core.Module.IdentityOperator
+  right : Operand scope
+
+/-- A stock conversion result can feed a checked, single-link singleton test. -/
+inductive BoolIdentityTranslation (scope : Scope) : Source.Stmt → BoolIdentityTest scope → Prop where
+  | assertion {left arguments comparison right reference argument operator operand}
+      (call : CallExpression left "bool" arguments)
+      (checkedArgument : BoolCallArguments scope arguments argument)
+      (identified : identityOperator? comparison = some operator)
+      (checkedRight : OperandTranslation scope right operand) (singleton : operand.singletonResult = true) :
+      BoolIdentityTranslation scope (.assert_ (.comparison left [(comparison, right)]) none)
+        ⟨reference, argument, operator, operand⟩
+
+def boolIdentityTest? (scope : Scope) : (statement : Source.Stmt) →
+    Option {test // BoolIdentityTranslation scope statement test}
+  | .assert_ (.comparison left [(comparison, right)]) none => do
+    let ⟨("bool", arguments), call⟩ ← callExpression? left | none
+    let argument ← boolCallArgument? scope arguments
+    let reference ← globalReference? scope "bool"
+    let operand ← (lowerOperand scope right).toOption
+    if singleton : operand.val.singletonResult = true then
+      match identified : identityOperator? comparison with
+      | some operator => some ⟨⟨reference, argument.val, operator, operand.val⟩,
+          .assertion call argument.property identified operand.property singleton⟩
+      | none => none
+    else none
+  | _ => none
+
+inductive ListConstructorArgument where
+  | omitted
+  | literal (sequence : ClosedSequence)
+
+inductive ListConstructorArguments : List (Source.ArgumentKind × Source.Expr) → ListConstructorArgument → Prop where
+  | omitted : ListConstructorArguments [] .omitted
+  | tuple {elements values} (checked : elements.mapM scalarLiteral? = some values) :
+      ListConstructorArguments [(.positional, .tuple elements)] (.literal ⟨.tuple, values⟩)
+  | list {elements values} (checked : elements.mapM scalarLiteral? = some values) :
+      ListConstructorArguments [(.positional, .list_ elements)] (.literal ⟨.list, values⟩)
+
+def listConstructorArguments? : (arguments : List (Source.ArgumentKind × Source.Expr)) →
+    Option {argument // ListConstructorArguments arguments argument}
+  | [] => some ⟨.omitted, .omitted⟩
+  | [(.positional, .tuple elements)] =>
+    match checked : elements.mapM scalarLiteral? with
+    | some values => some ⟨.literal ⟨.tuple, values⟩, .tuple checked⟩
+    | none => none
+  | [(.positional, .list_ elements)] =>
+    match checked : elements.mapM scalarLiteral? with
+    | some values => some ⟨.literal ⟨.list, values⟩, .list checked⟩
+    | none => none
+  | _ => none
+
+inductive ListTestOrder where
+  | constructorFirst
+  | literalFirst
+
+structure ListConstructionTest (scope : Scope) where
+  reference : GlobalReference scope "list"
+  argument : ListConstructorArgument
+  literal : List Core.Module.Value
+  order : ListTestOrder
+
+/-- Both operands are fully checked. Only the stock constructor is dynamic. -/
+inductive ListConstructionTranslation (scope : Scope) : Source.Stmt → ListConstructionTest scope → Prop where
+  | constructorFirst {call arguments argument elements literal reference}
+      (site : CallExpression call "list" arguments)
+      (checked : ListConstructorArguments arguments argument)
+      (values : elements.mapM scalarLiteral? = some literal) :
+      ListConstructionTranslation scope (.assert_ (.comparison call [(.eq, .list_ elements)]) none)
+        ⟨reference, argument, literal, .constructorFirst⟩
+  | literalFirst {call arguments argument elements literal reference}
+      (site : CallExpression call "list" arguments)
+      (checked : ListConstructorArguments arguments argument)
+      (values : elements.mapM scalarLiteral? = some literal) :
+      ListConstructionTranslation scope (.assert_ (.comparison (.list_ elements) [(.eq, call)]) none)
+        ⟨reference, argument, literal, .literalFirst⟩
+
+def listConstructionTest? (scope : Scope) : (statement : Source.Stmt) →
+    Option {test // ListConstructionTranslation scope statement test}
+  | .assert_ (.comparison left [(.eq, .list_ elements)]) none => do
+    let ⟨("list", arguments), site⟩ ← callExpression? left | none
+    let argument ← listConstructorArguments? arguments
+    let reference ← globalReference? scope "list"
+    match values : elements.mapM scalarLiteral? with
+    | some literal => some ⟨⟨reference, argument.val, literal, .constructorFirst⟩,
+        .constructorFirst site argument.property values⟩
+    | none => none
+  | .assert_ (.comparison (.list_ elements) [(.eq, right)]) none => do
+    let ⟨("list", arguments), site⟩ ← callExpression? right | none
+    let argument ← listConstructorArguments? arguments
+    let reference ← globalReference? scope "list"
+    match values : elements.mapM scalarLiteral? with
+    | some literal => some ⟨⟨reference, argument.val, literal, .literalFirst⟩,
+        .literalFirst site argument.property values⟩
+    | none => none
+  | _ => none
+
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
+  | bindTuple (name : Name) (reference : GlobalReference scope name) (items : List Core.Closure.GlobalTupleItem)
   | assertNot (condition : Operand scope)
+  | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
+  | assertBoolIdentity (test : BoolIdentityTest scope)
+  | assertListConstruction (test : ListConstructionTest scope)
+  | assertTupleChain (test : TupleChainTest scope)
   /-- Read the current module binding once at this assertion. -/
   | assertVarNames (receiver : Name) (reference : GlobalReference scope receiver) (needle : List UInt32)
   | define (name : Name) (reference : GlobalReference scope name) (child : ScopeTree)
@@ -203,19 +593,49 @@ inductive Action (scope : Scope) where
       (keywordDefault : Option (Fin (frameLayout child.scope).locals × Int) := none)
   | call (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (arguments : List (Operand scope))
+  | callTupleIdentity (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
+      (test : TupleIdentity.Test)
+  | callTupleFromListDisplay (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
+      (contents : List Core.Module.Value) (remaining : Option (List (CallArgument scope)))
   | adjacentKeywordDiscard (name : Name) (reference : GlobalReference scope name) (value : Int)
   | nestedCall (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (arguments : List (CallArgument scope))
+
+abbrev Action.assertSequenceLength {scope : Scope} (test : SequenceLengthTest scope) : Action scope :=
+  .assertIntegerBuiltin test.toIntegerBuiltin
 
 inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Action tree.scope) → Prop where
   | done {index} (covered : index = tree.children.length) : Translation tree index [] []
   | scalar {index statement rest actions tail}
       (first : ModuleEntry.Translation tree.scope [statement] actions) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
+  | bindTuple {index statement rest name elements reference items tail}
+      (binding : Binding statement name (.tuple elements)) (checked : FlatTupleItems tree.scope elements items)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.bindTuple name reference items :: tail)
   | assertNot {index condition operand rest tail}
       (translated : TestTranslation tree.scope condition operand)
       (remaining : Translation tree index rest tail) :
       Translation tree index (.assert_ (.unary .not_ condition) none :: rest) (.assertNot operand :: tail)
+  | assertIntegerBuiltin {index statement test rest tail}
+      (checked : IntegerBuiltinTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.assertIntegerBuiltin test :: tail)
+  | assertBoolIdentity {index statement test rest tail}
+      (checked : BoolIdentityTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.assertBoolIdentity test :: tail)
+  | assertListConstruction {index statement test rest tail}
+      (checked : ListConstructionTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.assertListConstruction test :: tail)
+  | assertTupleChain {index statement test rest tail}
+      (checked : TupleChainTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.assertTupleChain test :: tail)
+  | omittedIf {index statement value rest tail}
+      (first : ClosedGuard.Omitted statement value) (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) tail
   | assertVarNames {index receiver needle rest tail} (reference : GlobalReference tree.scope receiver)
       (remaining : Translation tree index rest tail) :
       Translation tree index
@@ -226,6 +646,15 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (site : CallSite statement target name arguments) (result : destination.placement = target)
       (operandOrder : Positional tree.scope arguments values) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.call destination name reference values :: tail)
+  | callTupleIdentity {index statement rest target name arguments destination reference test tail}
+      (site : CallSite statement target name arguments) (result : destination.placement = target)
+      (operand : TupleIdentity.Argument tree.scope arguments test) (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.callTupleIdentity destination name reference test :: tail)
+  | callTupleFromListDisplay {index statement rest target name arguments destination reference contents operands tail}
+      (site : CallSite statement target name arguments) (result : destination.placement = target)
+      (checked : TupleListDisplayArguments tree.scope name arguments contents operands)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.callTupleFromListDisplay destination name reference contents operands :: tail)
   | nestedCall {index statement rest target name arguments destination reference values tail}
       (site : CallSite statement target name arguments) (result : destination.placement = target)
       (operandOrder : CallArguments tree.scope arguments values) (remaining : Translation tree index rest tail) :
@@ -306,7 +735,28 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     let tail ← lowerPlan tree index rest
     return ⟨.assertNot operand.val :: tail.val, .assertNot operand.property tail.property⟩
   | statement :: rest => do
-    if let some ⟨(name, .lambda declaration body), binding⟩ := Compile.Closure.Body.assignment? statement then
+    if let some checked := ClosedGuard.omitted? statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨tail.val, .omittedIf checked.property tail.property⟩
+    else if let some test := integerBuiltinTest? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.assertIntegerBuiltin test.val :: tail.val, .assertIntegerBuiltin test.property tail.property⟩
+    else if let some test := boolIdentityTest? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.assertBoolIdentity test.val :: tail.val, .assertBoolIdentity test.property tail.property⟩
+    else if let some test := listConstructionTest? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.assertListConstruction test.val :: tail.val, .assertListConstruction test.property tail.property⟩
+    else if let some test := tupleChainTest? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.assertTupleChain test.val :: tail.val, .assertTupleChain test.property tail.property⟩
+    else if let some ⟨(name, .tuple elements), binding⟩ := binding? statement then
+      let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
+      let items ← lowerFlatTupleItems tree.scope elements
+      let tail ← lowerPlan tree index rest
+      return ⟨.bindTuple name reference items.val :: tail.val,
+        .bindTuple binding items.property tail.property⟩
+    else if let some ⟨(name, .lambda declaration body), binding⟩ := Compile.Closure.Body.assignment? statement then
       unless declaration.all Compile.Closure.Body.fixed do throw (.functionBody .parameterProfile)
       let path := tree.scope.context.path ++ [index]
       match located : tree.children[index]? with
@@ -326,6 +776,14 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     else if let some ⟨(target, name, arguments), site⟩ := callSite? statement then
       let destination ← lowerDestination tree.scope target
       let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
+      if let some test := TupleIdentity.checkArgument tree.scope arguments then
+        let tail ← lowerPlan tree index rest
+        return ⟨.callTupleIdentity destination.val name reference test.val :: tail.val,
+          .callTupleIdentity site destination.property test.property tail.property⟩
+      if let some operands := tupleListDisplayArguments? tree.scope name arguments then
+        let tail ← lowerPlan tree index rest
+        return ⟨.callTupleFromListDisplay destination.val name reference operands.val.1 operands.val.2 :: tail.val,
+          .callTupleFromListDisplay site destination.property operands.property tail.property⟩
       match lowerArguments tree.scope arguments with
       | .ok operands =>
         let tail ← lowerPlan tree index rest

@@ -15,7 +15,7 @@ open scoped MonoidalCategory
 open Silmaril.Isotope.Theory (TypingIndex)
 open Silmaril.Isotope.LetCase.LocallyNameless
 open LambdaSSA.Acyclic (Code contextMap)
-open LetIter.Semantics.Categorical (TypeModel)
+open LetIter.Semantics.Categorical (TypeModel InstructionModel)
 open LambdaSSA.Semantics.Categorical (denoteRegion labelInject singletonLabelPayload)
 
 variable {τ ε : Type} [TypeFormers τ]
@@ -51,6 +51,27 @@ theorem reify_mapSentence_proof {P Q : InstrSig τ ε} (g : P ⟶ Q) (e : CaseEq
        (reify e).2.2.toSSA 0 |>.mapInstr (InstrSig.Hom.instr g)) :=
   Prod.ext (reified_side_map g e.2.1) (reified_side_map g e.2.2)
 
+section FreydModels
+
+variable {V C : Type 1} [Category.{0} V] [Category.{0} C]
+  [CartesianMonoidalCategory V] [SymmetricCategory V]
+  [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts C]
+  [DistributiveTensor V] [DistributivePremonoidalCategory C]
+  {J : V ⥤ C} [DistributiveFreydCategory J] {P : InstrSig τ ε}
+
+theorem freydCaseAlgebra_denote_proof (M : TypeModel τ V) (I : InstructionModel J M P.Instr)
+    {n : Nat} {β : BoundCtx τ n} {A : τ}
+    {t : Isotope.LetCase.LocallyNameless.Tm Empty P.Instr n} (d : Derivation P.Instr Γ₀ β t A) :
+    let _ := I
+    Models.denote (freydCaseAlgebra J M I) d = Isotope.LetCase.Semantics.Categorical.denote J M d := by
+  let _ := I
+  induction d <;> simp_all only [freydCaseAlgebra, Models.denote, freydCaseOperation,
+    Isotope.LetCase.Semantics.Categorical.denote, Fin.cases_zero]
+  all_goals rfl
+
+end FreydModels
+
 section Models
 
 variable {V C : Type 1} [Category.{0} V] [Category.{0} C]
@@ -66,11 +87,8 @@ private theorem caseAlgebra_denote (K : CoherentRegionModel J P)
     {n : Nat} {β : BoundCtx τ n} {A : τ}
     {t : Isotope.LetCase.LocallyNameless.Tm Empty P.Instr n} (d : Derivation P.Instr Γ₀ β t A) :
     let _ := K.instructions
-    Models.denote K.caseAlgebra d = Isotope.LetCase.Semantics.Categorical.denote J K.types d := by
-  let _ := K.instructions
-  induction d <;> simp_all only [CoherentRegionModel.caseAlgebra, Models.denote,
-    caseOperation, Isotope.LetCase.Semantics.Categorical.denote, Fin.cases_zero]
-  all_goals rfl
+    Models.denote K.caseAlgebra d = Isotope.LetCase.Semantics.Categorical.denote J K.types d :=
+  freydCaseAlgebra_denote_proof K.types K.instructions d
 
 omit [FreydCategory.CentralUnit J] [SymmetricCategory V] [DistributiveTensor V] in
 private theorem contextMap_isIso (M : TypeModel τ V) {n : Nat} (β : BoundCtx τ n) :

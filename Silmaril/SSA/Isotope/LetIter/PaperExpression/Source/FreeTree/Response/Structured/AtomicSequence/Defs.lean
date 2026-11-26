@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues.Thms
 
-/-! # Finite source sequences with atomic and two-field product replies -/
+/-! # Finite source request trees with atomic, product and sum replies -/
 
 @[expose] public section
 
@@ -37,9 +37,9 @@ theorem pairReplySlots {n : Nat} {slots : Fin n → α} {β : BoundCtx (Ty α) n
     ∀ i, ((β.snoc (.base a)).snoc (.base b)).get i = .base (pairSlots a b slots i) :=
   replySlots (replySlots hs rfl) rfl
 
-/-- A sequence returns a pure constructor value or binds the atomic reply of
-a visible request or destructures a visible product reply into two atomic
-fields. The arguments retain their original structured input types. -/
+/-- A request tree returns a pure constructor value or handles a visible reply
+with atomic binding, product destructuring or a case on two atomic summands.
+The arguments retain their original structured input types. -/
 inductive Program (A : Ty α) : {n : Nat} → (Fin n → α) → Type u
   | ret {n : Nat} {slots : Fin n → α} : Value (Φ := Φ) (ε := ε) slots A → Program A slots
   | call {n : Nat} {slots : Fin n → α} (f : Φ) (visible : ¬ IsPure (⊥ : ε) f)
@@ -49,6 +49,10 @@ inductive Program (A : Ty α) : {n : Nat} → (Fin n → α) → Type u
       {a b : α} (reply : (instrTrg f : Ty α) = .product (.base a) (.base b))
       (arg : Value (Φ := Φ) (ε := ε) slots (instrSrc f))
       (next : Program A (pairSlots a b slots)) : Program A slots
+  | callSum {n : Nat} {slots : Fin n → α} (f : Φ) (visible : ¬ IsPure (⊥ : ε) f)
+      {a b : α} (reply : (instrTrg f : Ty α) = .coprod (.base a) (.base b))
+      (arg : Value (Φ := Φ) (ε := ε) slots (instrSrc f))
+      (left : Program A (Fin.cases a slots)) (right : Program A (Fin.cases b slots)) : Program A slots
 
 namespace Program
 
@@ -58,11 +62,13 @@ def source : {n : Nat} → {slots : Fin n → α} → Program (Φ := Φ) (ε := 
   | _, _, .ret value => value.source
   | _, _, .call f _ _ arg next => .let₁ (.op f arg.source) next.source
   | _, _, .callPair f _ _ arg next => .let₂ (.op f arg.source) next.source
+  | _, _, .callSum f _ _ arg left right => .case (.op f arg.source) left.source right.source
 
 @[reducible] def native : {n : Nat} → {slots : Fin n → α} → Program (Φ := Φ) (ε := ε) A slots → Tm Empty Φ n
   | _, _, .ret value => value.native
   | _, _, .call f _ _ arg next => .let₁ (.op f arg.native) next.native
   | _, _, .callPair f _ _ arg next => .let₂ (.op f arg.native) next.native
+  | _, _, .callSum f _ _ arg left right => .case (.op f arg.native) left.native right.native
 
 /-- Compile a sequence to exact native typing in a matching atomic environment. -/
 def derivation : {n : Nat} → {slots : Fin n → α} → {β : BoundCtx (Ty α) n} →
@@ -73,6 +79,9 @@ def derivation : {n : Nat} → {slots : Fin n → α} → {β : BoundCtx (Ty α)
   | _, _, _, .callPair (a := a) (b := b) _ _ h arg next, hs =>
       .let₂ (cast (congrArg (Derivation Φ (Ctx.nil : Ctx Empty (Ty α)) _ (.op _ arg.native)) h)
         (.op (arg.derivation hs))) (next.derivation (pairReplySlots hs a b))
+  | _, _, _, .callSum _ _ h arg left right, hs =>
+      .case (cast (congrArg (Derivation Φ (Ctx.nil : Ctx Empty (Ty α)) _ (.op _ arg.native)) h)
+        (.op (arg.derivation hs))) (left.derivation (replySlots hs rfl)) (right.derivation (replySlots hs rfl))
 
 /-- Run the exact native derivation under a sorted valuation in any of the
 free-value models, including one with fresh generators for subsequent replies. -/
@@ -92,14 +101,15 @@ variable [Preorder ε]
 def Within (e : ε) : {n : Nat} → {slots : Fin n → α} → Program (Φ := Φ) (ε := ε) A slots → Prop
   | _, _, .ret _ => True
   | _, _, .call f _ _ _ next | _, _, .callPair f _ _ _ next => instrEff f ≤ e ∧ next.Within e
+  | _, _, .callSum f _ _ _ left right => instrEff f ≤ e ∧ left.Within e ∧ right.Within e
 
 end Program
 section Written
 
 variable [Preorder ε]
 
-/-- Written finite call sequences with constructor arguments and constructor
-returns. Typing and the common bound are recorded before normalization. -/
+/-- Written finite request trees with constructor arguments and returns.
+Typing and the common bound are recorded before normalization. -/
 inductive Written (A : Ty α) (e : ε) : EffectCtx (Ty α) ε → Expr Φ → Prop
   | ret {Γ : EffectCtx (Ty α) ε} {a : Expr Φ}
       (typed : Wf Γ a A (⊥ : ε)) (leaf : ConstructorLeaf a) : Written A e Γ a
@@ -118,6 +128,19 @@ inductive Written (A : Ty α) (e : ε) : EffectCtx (Ty α) ε → Expr Φ → Pr
       (typed : Wf Γ arg (instrSrc f) (⊥ : ε)) (leaf : ConstructorLeaf arg)
       (bound : instrEff f ≤ e) (next : Written A e ((.base b, ⊥) :: (.base a, ⊥) :: Γ) k) :
       Written A e Γ (.let₁ (.op f arg) (.let₂ (.var 0) k.wk2))
+
+  | callSum {Γ : EffectCtx (Ty α) ε} {arg l r : Expr Φ} {f : Φ} {a b : α}
+      (visible : ¬ IsPure (⊥ : ε) f) (reply : (instrTrg f : Ty α) = .coprod (.base a) (.base b))
+      (typed : Wf Γ arg (instrSrc f) (⊥ : ε)) (leaf : ConstructorLeaf arg)
+      (bound : instrEff f ≤ e) (left : Written A e ((.base a, ⊥) :: Γ) l)
+      (right : Written A e ((.base b, ⊥) :: Γ) r) :
+      Written A e Γ (.case (.op f arg) l r)
+  | callSumViaLet {Γ : EffectCtx (Ty α) ε} {arg l r : Expr Φ} {f : Φ} {a b : α}
+      (visible : ¬ IsPure (⊥ : ε) f) (reply : (instrTrg f : Ty α) = .coprod (.base a) (.base b))
+      (typed : Wf Γ arg (instrSrc f) (⊥ : ε)) (leaf : ConstructorLeaf arg)
+      (bound : instrEff f ≤ e) (left : Written A e ((.base a, ⊥) :: Γ) l)
+      (right : Written A e ((.base b, ⊥) :: Γ) r) :
+      Written A e Γ (.let₁ (.op f arg) (.case (.var 0) l.wk1 r.wk1))
 
 end Written
 

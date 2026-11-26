@@ -5,8 +5,8 @@ import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectio
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Iteration.Chosen.Laws.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.Product.Swap.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Values.CartesianBoundary.Defs
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.SingleCfg.Assembly.Repeat.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Dispatcher.Singleton.Thms
-import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Iteration.Thms
 
 /-! # Reduce a carried repeat-only endpoint to its selected empty exit -/
 
@@ -23,16 +23,16 @@ open Paper.Extension.Singleton
   (ofType emptyIsInitial iterateChosen_naturality projectStep uniformity_of_constructor_square)
 open Paper.SingletonReification (denoteSingleton_snd_repeatTag)
 open Paper.RetainedLet (returnOnce_typed)
-open Paper.SingletonReification.SingleCfg (blockComputation carriedIso labelPayloadIso)
-open Paper.SingletonReification.SingleCfg.Model (carrier)
+open Paper.SingletonReification.SingleCfg (blockComputation carriedIso)
+open Paper.SingletonReification.SingleCfg.Model
+  (carrier contextualStep_repeat_of_packed contextualStep_identityRepeat_of_packed)
 open CfgEta.TypeCategory.ConstructorReification (sndMap inlMap)
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical.SingletonDispatcher
-  (labelAppendSplit_zero route_inr payload_labelInject labelInject_payload)
+  (labelInject_payload)
 open Silmaril.Isotope.LetIter.Semantics.Categorical
-  (TypeModel InstructionModel contextualStep retainEnvironment retainEnvironment_map retainEnvironment_comp)
-open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (retainLeft)
-open CategoryTheory.CartesianMonoidalCategory (fst snd)
+  (TypeModel InstructionModel contextualStep retainEnvironment)
+open CategoryTheory.CartesianMonoidalCategory (fst)
 
 universe u v u₁ v₁
 
@@ -132,46 +132,16 @@ theorem repeatStep_of_packed {X S D : τ} {b : Region Φ}
     let E := ctxObj M [X]
     let f := J.map (carriedIso M X S).hom ≫ payload ≫ J.map (labelInject M 0 (L := [S]) rfl)
     contextualStep J (blockComputation M J X S D (denoteSingletonRegion J M hb.hasType)) =
-      retainEnvironment J (fst E (labelObj M [S])) f ≫ coprod.inr := by
-  let E := ctxObj M [X]
-  let repeatIn : labelObj M [S] ⟶ labelObj M [D] ⨿ labelObj M [S] := coprod.inr
-  let f := J.map (carriedIso M X S).hom ≫ payload ≫ J.map (labelInject M 0 (L := [S]) rfl)
-  have decode : inlMap M S (coprod D Silmaril.empty) ≫ unpackLabel M [S, D] ≫ labelAppendSplit M [S] [D] =
-      labelInject M 0 (L := [S]) rfl ≫ repeatIn := by
-    simp only [inlMap, packedExitType, unpackLabel, Category.assoc, Iso.inv_hom_id_assoc, coprod.inl_desc_assoc]
-    exact labelAppendSplit_zero M S [D]
-  dsimp only
-  unfold contextualStep blockComputation
-  have split : J.map (carriedIso M X S).hom ≫ denoteSingletonRegion J M hb.hasType ≫
-      J.map (unpackLabel M [S, D] ≫ labelAppendSplit M [S] [D]) = f ≫ J.map repeatIn := by
-    simp only [tagged, f, Category.assoc, ← J.map_comp, decode]
-  rw [split, retainEnvironment_comp]
-  have retain : retainLeft J (R := E) (J.map repeatIn) = J.map (E ◁ repeatIn) := by
-    simp [retainLeft, PremonoidalCategory.leftTensor, Functor.StrongPremonoidal.tensor_naturality_right]
-  rw [Category.assoc, retain, route_inr J]
+      retainEnvironment J (fst E (labelObj M [S])) f ≫ coprod.inr :=
+  contextualStep_repeat_of_packed J M hb payload tagged
 
 variable [RegionTypingCoherent (Φ := Φ) J M] in
 set_option backward.isDefEq.respectTransparency false in
 theorem repeatState_actualStep (X S D : τ) :
     contextualStep J (blockComputation M J X S D
-      (denoteSingletonRegion J M (repeatStateBlock (Φ := Φ) X S D).hasType)) = coprod.inr := by
-  let p := J.map (sndMap M X S)
-  have tagged : denoteSingletonRegion J M (repeatStateBlock (Φ := Φ) X S D).hasType =
-      p ≫ J.map (inlMap M S (coprod D Silmaril.empty)) := by
-    rw [denoteSingleton_snd_repeatTag, Functor.map_comp]
-  have step := repeatStep_of_packed J M (repeatStateBlock (Φ := Φ) X S D) p tagged
-  dsimp only at step
-  have pureSnd : (carriedIso M X S).hom ≫ sndMap M X S ≫ labelInject M 0 (L := [S]) rfl =
-      snd (ctxObj M [X]) (labelObj M [S]) := by
-    simp only [carriedIso, sndMap, Iso.trans_hom, MonoidalCategory.whiskerLeftIso_hom,
-      MonoidalCategory.whiskerRightIso_hom, Iso.symm_hom, Category.assoc, Iso.inv_hom_id_assoc,
-      CartesianMonoidalCategory.whiskerRight_snd_assoc]
-    change (ctxObj M [X] ◁ singletonLabelPayload M S) ≫ snd (ctxObj M [X]) (M.obj S) ≫
-      labelInject M 0 (L := [S]) rfl = _
-    rw [CartesianMonoidalCategory.whiskerLeft_snd_assoc, payload_labelInject, Category.comp_id]
-  rw [step]
-  simp only [p, ← J.map_comp, pureSnd, retainEnvironment_map,
-    CartesianMonoidalCategory.lift_fst_snd, J.map_id, Category.id_comp]
+      (denoteSingletonRegion J M (repeatStateBlock (Φ := Φ) X S D).hasType)) = coprod.inr :=
+  contextualStep_identityRepeat_of_packed J M (repeatStateBlock X S D)
+    (denoteSingleton_snd_repeatTag J M X S D)
 
 variable [RegionTypingCoherent (Φ := Φ) J M] in
 set_option backward.isDefEq.respectTransparency false in

@@ -300,14 +300,864 @@ rest of the commands do not run. The executable fixtures also reach
 this error inside a closure call and distinguish it from missing and
 surplus argument errors before body entry.
 
-Whole-module source execution for the wrapper chain still needs to
-identify the root table lookup from the emitted command at its actual
-source site, relate source operand evaluations before dispatch, track
-intervening statement effects, and compose wrapper returns and escape
-with leaf execution and final publication. The module entry bridge
-takes already evaluated positional actuals. Defaults, other argument
-forms, loads, and broader wrapper and leaf bodies remain separate.
+The module entry bridge takes evaluated positional actuals. The source
+site and operand theorems below supply these premises in a bounded
+profile.
 [Binding judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Entry/Defs.lean) · [Entry theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Entry/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Entry/Checks.lean)
+
+### Root definition sites and call operands
+
+`checked_root_site` relates a normalized root definition at its source
+command position to the ID in the emitted command and the corresponding
+entry in the final declaration table. A linked table and earlier
+commands can determine the starting offset. Children are appended
+before their parent. The admitted suffix can contain name assignments,
+expression statements, and unrelated required-parameter definitions in
+the forwarding chain profile. Successful suffix compilation preserves
+the root entry at the ID its command emitted. The root and other
+admitted definitions use the existing chain acceptance evidence,
+uniform in their incoming table. The setup theorem gives the root
+definition step in the fresh module frame.
+
+The independent operand judgment covers declared global reads, integer
+and string literals, and subscript reads. Its list judgment evaluates
+the callee first and positional actuals left to right. These operands
+retain the frame and heap. A reached callee, receiver, or argument error
+prevents later evaluation and dispatch. The source-site theorem places
+the corresponding call at its checked expression-statement position.
+After successful reads, the independent binder derives each assigned
+parameter or an arity failure. The invocation theorem connects this to
+the exact resolved activation, and transports a supplied callee-body
+execution through caller restoration and the existing denotation via
+`exec_iff_denoteBody`.
+
+Intervening successful name assignments with admitted operands can
+copy the live closure to another binding. Their emitted commands
+occupy the corresponding source segment. Distinct owned module slots
+and binding-only writes preserve the original callee and function heap
+cell. These theorems leave whole-module sequencing and independent
+wrapper/leaf body execution through escape and publication open.
+Assignments to the callee binding, effectful or nested-call operands,
+defaults, other argument forms, loads, and broader bodies are outside
+this proof. The Lean fixtures distinguish operand failures from
+surplus arity and exercise linked code, later unrelated definitions,
+and a copy of the live closure.
+[Judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Checks.lean) · [Pinned call semantics](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions)
+
+### Wrapper returns and reached command prefixes
+
+The compiler now records the child ID used inside every wrapper.
+Checked module elaboration preserves the entire emitted chain in the
+final declaration table, including through admitted unrelated suffix
+definitions. If the root definition is the first command, fresh module
+entry supplies its target cell and the addresses it captures.
+
+A wrapper here has a required positional signature and a body consisting
+of its child's definition followed by a return of the child's lexical
+name. The independent return rule allocates the child closure and
+specifies its address, selected captures, and restored caller state.
+The checked activation supplies the local definition cell. The parent
+captures and frame layout supply every capture address for the child,
+including forwarded local addresses. The proof derives the exact
+definition and return body steps, and proves the child cell is
+still available after restoration. Pre-existing heap cells and caller
+slots are preserved. An assignment of the return to a valid owned
+destination reads back the escaped address.
+
+The inductive wrapper path composes successive invocations of escaped
+closures. Its bound is the number of available wrapper positions in
+the chain. Arity failure stops at the reached invocation with all
+earlier allocations retained. Each call body runs with its declaration
+removed from the available set. Each separately reached invocation
+starts with the full set. The resolved operational path and the
+existing dispatch and body denotations agree on the exact result and
+state. The path takes already evaluated positional values. The
+checked named-assignment theorem uses independent source operand
+evidence and derives binding and the wrapper body at the actual
+command site. A reached operand or arity error skips the assignment.
+
+The reached-prefix judgment composes source steps in order. Its
+transfer theorem preserves the final state at a reached error and passes
+a complete trace through the checked publication boundary.
+[Wrapper judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Wrapper/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Wrapper/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Wrapper/Checks.lean)
+
+### Mixed leaf execution and publication
+
+The independent leaf judgment covers the normalized function body
+`name, receiver[index] = rhs` followed by `return value`, with one
+identifier read in each operand position. It derives lexical references
+from the block's owned, enclosing, and module names. Execution reads the
+RHS once, checks the two-item unpack before either write, sets the
+local, then reads the receiver and index in the updated frame. The
+subscript store and final read share the same heap. A reached error
+keeps the earlier writes. The proof identifies the emitted leaf code
+and shows that removing compiler scratch bindings gives the exact
+frame and heap prescribed by the source rules.
+
+`checked_first_definition` supplies the initial source definition step
+and links its declaration chain from checked module entry.
+`checked_module` composes definition, setup assignment, and named
+positional call steps through escaped wrappers and the mixed leaf.
+Call operands use the bounded read-only profile. A reached operand
+error skips binding and dispatch. A binding error skips activation.
+The theorem takes an independent reached trace with command-site,
+live-closure, and lexical evidence. It derives the resolved body
+execution and the denotation for both outcomes. Independent
+publication collects initialized declared globals in order, exports
+public names, and freezes the heap reachable from all collected
+values. A reached error restores the caller with the residual heap
+and yields no publication. The next theorem constructs this trace
+for a stated subset of checked modules.
+
+The Lean fixtures check the exact success exports, freezing, and a
+late uninitialized read that preserves a mutation before failure.
+A separate fixture derives that late leaf error from the independent
+assignment rules. Pinned Go checks escaped mutation, later owner
+rebinding in a wider wrapper, and successful publication freezing.
+Go's `Program.Init` exposes a mutable partial namespace on failure.
+`ExecFileOptions` also exposes that namespace and freezes it. The
+checked Lean failure result contains the restored caller and the
+retained heap.
+[Source judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Checks.lean) · [Pinned Go fixture](../../scripts/starlark/mixed-leaf.go)
+
+### Constructing the bounded module trace
+
+`Trace.checked_source_module` takes a static `Profile` over normalized
+commands and successful checked compilation. It derives declaration
+collection, lexical evidence, each reached command position and each live
+closure cell, starting from the actual module entry. The initial caller
+and linked table can be supplied by the host. Module entry allocates
+fresh globals, including those in a suffix that may be skipped.
+
+The profile has one leading definition with any finite number of
+required-positional define-and-return wrappers. Each reached wrapper
+call stores its child in a module name. Each next call names that
+result directly. Setup assignments can occur between the calls and
+after the leaf call. While a closure is pending, setup must write a
+different name. The operands admit integer and string literals,
+declared module reads, and recursive subscripts. Setup also admits
+list and tuple displays over those operands. The mixed leaf
+uses identifier reads in all operand positions. Its local declarations
+and nearest capture owners follow the existing checked block layout.
+The ordinary validator still rejects invalid emitted signatures and
+duplicate module names.
+
+The proof constructs the trace by induction on the source schedule.
+It uses independent operand evaluation, argument binding, wrapper
+allocation and leaf rules. No execution premise about the reached
+commands is needed. An operand error precedes binding, and an arity
+error skips activation. At the first error, the trace stops with the
+heap from the reached step, including any earlier leaf writes. The
+publication rules derive the exact ordered exports, freezing from all
+initialized globals including private ones, or caller restoration with
+the retained heap and no published mapping.
+
+The fixtures instantiate the theorem from the static profile for
+success and two error cases. The corresponding evaluator checks cover
+a frozen private tuple, an uninitialized read after a shared write,
+and an index error before surplus-argument rejection. The live-binding
+theorem below extends this schedule to independent definitions and calls.
+[Profile](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Checks.lean)
+
+### Traces with multiple live callees
+
+`Trace.Bindings.checked_module` derives a reached trace for checked
+load-free modules that interleave unrelated definitions, setup, and
+independent or repeated calls to the same supported bodies. Its source
+schedule tracks which definition or escaped child may be called through
+each module name. Explicit copies of tracked names can create aliases.
+The initial tracked environment is empty. Execution supplies the actual
+binding cells, closure addresses, capture lists, and lexical blocks.
+
+For a reached definition, the checked-site theorem locates its actual
+declaration index in the final table. Later emissions preserve earlier
+indices. On a successful call, a wrapper advances the destination to
+its child while keeping other tracked names callable. An explicit copy
+uses the closure already held in the source cell. Other assignments
+update or remove provenance at their own destination. Each call reads
+the live value and uses the shared heap. Successful leaf stores can
+change list or dictionary contents while preserving earlier binding
+and function cells. The trace stops at the first error and retains
+its state. Publication freezes exactly the values reachable from the
+initialized globals on success. Failure restores the caller with the
+residual heap and no published mapping.
+
+The normal validator still rejects duplicate module bindings. The
+profile preserves lexical reads of later-initialized globals, local
+assignment before a target read, and mutations through shared aliases.
+A callee needs provenance from a definition, a wrapper return, or a direct
+name copy. Calls through arbitrary results or collection lookups,
+wider bodies and operands, defaults, loads, and text parsing remain
+outside this theorem.
+
+The fixtures check a wrapper's escaped child and an unrelated mixed
+leaf at distinct table IDs. Both touch the same list. A repeated call
+uses an alias to the escaped child. The failure control reaches an
+uninitialized read after the second definition mutates the list and
+skips the remaining call. The Go control observes the residual state
+through `Program.Init`.
+[Profile and invariant](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/multi-callee/check.go)
+
+### Checked positional defaults
+
+`Trace.Defaults.checked_module` constructs an independent reached trace
+for one module definition surrounded by read-only or allocation-only
+setup assignments. The signature has a required positional prefix and
+an optional positional suffix. Default expressions use the module's
+defining scope and admit the existing read-only operands and flat list
+and tuple displays over those operands. The function body returns one
+of its own parameters. Compilation identifies the definition's actual
+index in the final declaration table.
+
+The source rules evaluate defaults once in declaration order. Each
+operand sees the heap left by its predecessor. A reached error skips
+later defaults and leaves the definition target untouched. The module
+theorem agrees with operational initialization and the module denotation
+on the whole observation, including the restored caller and retained
+heap on failure. Successful publication freezes values reachable
+through saved defaults even if those values have no exported name.
+
+`checked_installed_defaults` connects successful source evaluation to
+the new closure cell. At any later state retaining that cell's closure
+record at its address, the independent binder agrees with native call
+preparation on the exact activation or an error with the same state.
+Explicit operands replace the corresponding defaults, omitted slots
+consume the saved values, and missing required slots or surplus
+arguments fail before any frame allocation. The finite declaration
+guard is the checked module entry table's full index range. Binding
+uses the saved values even if the original names have been rebound.
+A mutable saved value retains its heap address and observes subsequent
+writes through aliases.
+
+The definition-only theorem also has controls for a reached
+definition-time error. Go's comparison observes its returned globals
+and errors. The Lean fixtures check the residual allocation and its
+freeze bit directly.
+[Profile and source rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Checks.lean) · [Pinned spec][default-parameters] · [Pinned Go comparison](../../scripts/starlark/positional-defaults/check.go)
+
+#### Defaulted calls in the multiple-callee trace
+
+`Trace.Bindings.WithDefaults.checked_module` extends the multiple-callee
+schedule with module definitions whose bodies return one of their own
+parameters. A reached definition evaluates its defaults before binding
+the new closure. Its live evidence connects the stored address, the
+emitted declaration in the final table, and the ordered saved values.
+An explicit name copy keeps that same address and saved record. Calls
+to independent required-argument wrappers and mixed leaves preserve
+existing closure cells even when they change a collection that a saved
+value aliases.
+
+A defaulted call reads the live callee first and evaluates its bounded
+read-only operands left to right. Failed operands stop the call before
+binding. Once operands succeed, the independent positional binder uses
+the saved record for omitted arguments or reports missing or surplus
+arguments before allocating a frame. A successful binding supplies the
+activation in which the body reads its parameter. The return restores
+the caller, and only a successful return writes the destination.
+Starting at actual module entry, the reached source trace agrees with
+operational initialization and the module denotation on exact exports
+and reachable freezing, or the first error with the residual heap and
+no publication.
+
+The shared-profile fixtures interleave an aliased defaulted closure
+with a separately called mixed leaf that mutates a saved list. They
+check repeated omitted calls, an explicit override, and a reached index
+error that precedes both a later uninitialized operand and surplus
+arity. The pinned Go control also exercises repeated calls after
+rebinding a defining local in a nested function. The checked source
+trace covers module-level defaulted definitions and the bounded
+escaping wrapper below. Broader nested definitions, defaulted bodies
+and operands, computed callable provenance, keywords and spreads,
+loads and text parsing remain outside the theorem. The existing rejection of
+duplicate module bindings also applies.
+[Profile and source rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defaults/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defaults/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defaults/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/default-call-trace/check.go)
+
+#### Escaping nested defaults
+
+The checked schedule also admits a wrapper with one required parameter.
+The wrapper defines a positional function whose body returns one of its
+own parameters, rebinds the wrapper parameter to an integer, and returns
+the child. Defaults may read the wrapper parameter, index that value
+with a literal integer, or use an integer or singleton integer list
+display. The child body has no captures in this profile.
+
+The source compiler links both declarations at their actual indices.
+On entry the wrapper owns a cell initialized by positional binding and
+a different cell for the unbound child name. Source defaults evaluate
+in that reached frame and run in declaration order. Allocations extend
+the heap. On success the child saves the resulting values, including
+any mutable alias, before the wrapper write. Returning the child
+restores the caller with the same closure cell. The module schedule
+tracks its address across copies and uses its saved values for omitted
+arguments. An explicit operand overrides its own slot. Publication
+freezes values reachable through the saved record.
+
+The failure control allocates the first default before the second
+fails on an index. The earlier allocation remains in the residual
+heap. The child name stays unbound, the local write and subsequent
+module commands are skipped, and there is no publication. Pinned
+Starlark-Go agrees on the results and reached error. The Lean checks
+also inspect the exact residual heap and restored caller. More general
+wrapper bodies, nested chains of defaulted declarations, and captures
+in a defaulted child body need separate source rules.
+[Profile and source rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Defs.lean) · [Frame and body theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Thms.lean) · [Module theorem](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defaults/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/escaping-defaults/check.go)
+
+#### Compositional bodies for defaulted calls
+
+The multiple-callee schedule can also admit a module definition with
+a sequence of lexical name assignments followed by a return. The
+independent body judgment relates each source operand to its scoped
+read and records the reads in source order. The local binder judgment
+collects the whole body before any read is resolved. Capture selection
+is derived from those reads. The supported operands are name reads,
+integers, subscript reads, and singleton list displays over admitted
+operands. All assignment targets use owned slots.
+
+`Defaults.Body.body_agrees` derives a complete reached body from that
+static relation and the activation invariant. Owned names, including
+unbound locals, have fresh binding cells. A selected capture denotes
+a live caller cell below the activation's allocation boundary. Each
+assignment evaluates its RHS before writing, and any reached error
+stops the sequence. The final frame and retained cells agree exactly
+with independent operational execution and the body denotation.
+
+Module entry derives the capture addresses and saved-default binding
+for root definitions. An alias keeps both records. The source module
+trace restores the caller and agrees on publication and freezing or
+the first error and residual heap. The fixtures read a module binding
+initialized after function definition and compare omitted with explicit
+arguments. Calling before that binding initializes retains a prior
+local list allocation and assignment, skips subsequent body and
+module commands, and leaves the call destination unbound. The pinned
+Go control observes its partial globals and error. The Lean control
+also checks the residual heap and restored frame.
+
+The generic body theorem accepts live enclosing captures through its
+frame premise. The checked module integration derives this premise
+for captures of module bindings and for the nested case below.
+Control flow and wider body operands and assignment targets remain
+outside the compositional body profile.
+[Body rules and frame invariant](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Body/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Body/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Body/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/defaulted-body/check.go)
+
+## Enclosing captures in defaulted bodies
+
+The multiple-callee trace admits an escaping wrapper with required
+positional parameters and a compositional child body. The wrapper can
+execute a straight-line sequence of lexical assignments before the child
+definition. After definition it rebinds its first parameter and can
+execute integer assignments to other local names. The whole-block
+collector places binders from both sequences and the child definition
+in first-binder order. Repeated assignments share one slot.
+`Defaults.Escape.Scoped.checked_site` links the layout, the compiled
+prefix and the independently selected capture list to the emitted
+declarations.
+
+The prefix uses the straight-line body rules for local and module reads,
+integers, indexing and singleton list displays. An owned name shadows a
+module name throughout the wrapper block. Capture selection visits the
+prefix reads followed by the defaults' reads. Module entry supplies
+selected addresses from the reached module frame. The trace preserves
+those addresses through aliases and module statements.
+`prefix_module_read` relates an installed address to the current module
+binding, including an uninitialized cell.
+
+The prefix judgment composes with any reached continuation. It preserves
+owned slot addresses and existing caller cells. A prefix error restores
+the caller immediately with the reached heap, before defaults or child
+installation. A successful prefix supplies the actual defining state
+to the lexical default rule below.
+
+`returned_frame` identifies the successful prefix state, exact default
+values and child capture vector. The suffix updates the captured cells
+and preserves the saved arguments. The checked module theorem carries
+the escaped closure through aliases and repeated calls and gives exact
+operational and denotational agreement on publication and reachable
+freezing or on the first error, retained heap and restored caller.
+
+The fixture defines the wrapper before module initialization. Calls
+on either side of a checked list mutation save different values read
+through the prefix. A further default reads a module name directly,
+and another reads a wrapper local that shadows a module name. The
+failure controls cover an uninitialized module read in the prefix,
+an out-of-range prefix index, an uninitialized local default and an
+uninitialized module default after a successful prefix. Lean checks
+the capture kinds, retained allocations and caller restoration. The
+pinned Go control checks visible results, failure state and freezing
+with its default file options. Checked modules reject repeated name
+bindings through the existing collision check.
+[Source rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Scoped/Defs.lean) · [Capture and frame theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Scoped/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Scoped/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/nested-default-body/check.go)
+
+## Lexical defaults and reached definitions
+
+`Defaults.Lexical.Elaborates` relates positional defaults to the same
+lexical source expressions used in the straight-line body proof.
+Parameter names label the saved results. Resolution of each operand
+uses the defining block, including local shadowing and enclosing and
+module origins. `translates` relates the lexical derivation to the
+compiler's code and ordered reads. `evaluates_agree` gives exact
+denotational agreement on the saved values or first error and its
+heap.
+
+`defines_total` constructs the reached operational and denotational
+definition from the checked operands, the emitted declaration and an
+`Installs` derivation in the actual defining frame. On success it
+identifies the exact saved values and installed address vector. A
+definition that forwards a capture uses the enclosing slot's address
+through the same rule. The wrapper proof derives its module addresses
+from actual module cells and its child's captures from reached locals.
+
+The lexical rule covers read-only operands and singleton list allocation.
+Calls and wider effects in defaults remain outside this rule.
+[Lexical rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Lexical/Defs.lean) · [Default and definition theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Lexical/Thms.lean)
+
+### Reached nested definitions and forwarded cells
+
+`Defaults.Nested.plan_of_body` builds a local definition plan from the
+independent binder, body and default judgments. The child body is a
+straight-line assignment and return suite. `compile_definition` links
+its ordered local slots and free references to the declaration at the
+next code-table index. The enclosing compiler sees the defaults' reads,
+followed by the child body's free references. `selects_parent` composes
+these demands with surrounding reads, even when the parent makes no
+direct read of the forwarded name.
+
+`installs` derives the ordered capture vector and its live binding
+cells from the reached parent frame. A name owned by that frame uses
+its own cell, including under shadowing. An inherited request uses
+the address already in that frame's capture slot. `activate_forwarded`
+preserves that address in the child's activation. `reached` composes
+these facts with the lexical-default theorem to give exact source,
+operational and denotational agreement on installation with saved
+values and on the first default error with its reached heap.
+
+The Lean and pinned Go controls escape a child through an intermediate
+definition. One call observes the saved list and the outer owner's
+later rebinding of the live index. A shadowing parameter redirects the
+same reads to the nearer owner. An uninitialized forwarded read stops
+installation, preserves the earlier mutation, and prevents publication.
+Lean also inspects the original capture address and the allocation
+from the first default in the residual heap.
+
+The local theorem takes independent source elaboration, the compiled
+declaration lookup, and a reached parent frame invariant.
+[Local source rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Thms.lean)
+
+### Sequencing reached definitions
+
+`Defaults.Nested.Sequence.Elaborates` composes any finite number of
+local definitions and intervening lexical assignments with a final
+return. Each child has the existing bounded straight-line body.
+`compiles` links the full suite to normalized source compilation.
+`collects` derives binder occurrences and `selects` gives the ordered
+free references in the defining block. Later definitions extend the
+code table while preserving earlier IDs. The running table may itself
+be an extension of the emitted table.
+
+`runs` constructs the independent source trace from the elaborated
+suite and the active frame invariant. Every successful prefix supplies
+the reached frame for default evaluation and ordered capture
+installation. The tail starts in the resulting state, where the
+definition's owned binding is live. A reached prefix or default error
+skips all later statements. The theorem matches the full outcome and
+frame with resolved execution and denotation and preserves the caller's
+cells below the activation boundary.
+
+`installation` exposes the exact local binding, function address, and
+default record. `prepare_installed` reuses the checked positional
+binder for a subsequent evaluated callee at that address when the
+record is still live. This gives the exact activation or binder error.
+Establishing that a later source operand selects that same record,
+particularly after aliases and returns, remains a separate provenance
+obligation.
+
+The regression uses an intermediate function that defines siblings
+before and after a defaulted child. It checks escape through a local
+alias, a forwarded cell and a shadowing parameter. A failing default
+retains the earlier allocation and sibling closure and skips the
+later sibling and publication. Lean exercises the inductive rule on
+the normalized intermediate body, and the module outcomes run through
+the existing evaluator and pinned Starlark-Go.
+
+The existing module theorem covers its separately documented call
+shapes.
+[Sequence rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
+
+### Recursive elaboration of nested suites
+
+`Defaults.Nested.Sequence.Recursive.Elaborates` descends into a
+definition's child suite and the remainder of the defining suite.
+There is no fixed nesting depth. Each child collects its own
+normalized binder occurrences. The enclosing scope collects the
+child's name and any assignments in its own block. The independent
+binder order and scope judgment determine the emitted parameter and
+local slots. The enclosing reads include the default operands' reads
+followed by the child's ordered free references, even if the
+intermediate body never directly reads those names.
+
+`compiles` agrees with normalized compilation. `indices` places the
+emissions at consecutive indices after the incoming table, with
+descendants before their enclosing declaration and sibling suites in
+source order. `links` gives the exact lookup at each emitted index and
+preserves all incoming lookups. Together these results let a caller
+reuse the emitted declaration after later siblings or enclosing
+definitions have appended their entries.
+
+`installs` uses the reached parent frame to supply the ordered
+capture vector. `activate_address` preserves the address supplied by
+either an owning slot or an inherited capture. An intermediate binder
+with the same name terminates the outer demand and supplies its own
+cell. `reached` applies lexical-default evaluation and installation to
+one such definition, with exact execution and denotation on success
+or on a reached default error.
+
+The Lean control proves a grandchild suite's read order and emitted
+IDs for any incoming table. It executes a normalized module with an
+unrelated earlier declaration and checks the two closures' capture
+addresses. The shadowing variant uses the intermediate parameter's
+cell. Lean and pinned Go check both variants and rejection of a
+duplicate grandchild parameter through the existing validator.
+
+Syntax validation remains in checked module resolution.
+[Recursive source rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
+
+### Whole-suite execution after activation
+
+`Defaults.Nested.Sequence.Recursive.runs` composes the recursive
+elaboration with the same independent source execution judgment as the
+shallow sequence. It derives each reached definition's lookup in the
+final table and supplies its captures from the current frame. The
+definition executes its defaults in source order, binds its name to the
+new closure with those saved values, and advances to the tail. A
+reached prefix or default error keeps the exact residual state. The
+full sequence theorem returns the same outcome, frame and heap as
+resolved execution and denotation. A child body can have its own
+recursively elaborated suite and is deferred until activation.
+
+`runs_activated` constructs the owned and captured frame by activating
+the emitted declaration with bound arguments and live captured cells.
+It proves the suite agreement there and restores caller bindings and
+slots while preserving the caller's pre-existing heap cells. The
+caller and the defining activation can differ. The theorem takes the
+capture installation evidence, live cells and already-bound arguments.
+
+For a single owned-name copy immediately after a successful definition,
+`reads_installed_alias` derives the source read of the installed binding
+and the later read of its alias. Both name operands return the same
+function address, with the same declaration, captures and saved
+defaults in the heap. Later calls through arbitrary expressions and
+provenance through unrelated assignments or escape remain separate.
+
+The Lean and pinned Go regression returns the recursively defined
+relay through a local alias and reaches the grandchild through it.
+Lean checks the forwarded addresses and the retained relay
+closure and earlier list allocation after an index error. That error
+skips the rest of the suite and the later module invocations.
+
+The suite proof covers straight-line lexical assignments, returns and
+nested definitions with the bounded positional default operands.
+[Execution theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Thms.lean) · [Alias operand theorem](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Thms.lean)
+
+### Positional calls through a local closure
+
+`Defaults.Nested.Sequence.Recursive.Call` connects an owned local
+callee read to execution of its checked positional call. Its
+`Arguments` judgment elaborates each operand in the caller's lexical
+block. `resolves` proves the normalized resolver returns that code and
+records the callee read before the argument reads. The runtime rules
+evaluate the callee first, then evaluate positional operands once in
+order. The argument profile is the existing lexical reads, integers,
+indexing and singleton list displays.
+
+`runs_installed_alias` gets the function address and actual closure
+record from a reached definition and an immediate owned-name copy.
+It derives the saved-default count and live capture cells from
+installation. Operand evaluation retains the loaded record and those
+cells. The independent binder reads the saved defaults from that
+record, then uses the emitted declaration and original captures to
+activate the callee. The whole-suite theorem supplies the callee
+execution under the reduced declaration set. Resolved execution and
+denotation agree on the exact result or error and state, including
+caller restoration after activation. An operand error skips binding
+and activation. A binding error leaves the state reached after the
+operands, including their allocations.
+
+The nested suite controls below exercise this preparation rule.
+They distinguish a reached index error from surplus arity and check
+that both failures retain the operand lists without adding an
+activation frame.
+
+The expression theorem uses the body's declaration lookup in a
+checked table and membership in the available declaration set.
+[Call rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Thms.lean)
+
+### Positional call assignments in recursive suites
+
+`Defaults.Nested.Sequence.Recursive.Call.Suite.Elaborates` extends
+the bounded recursive suite with a definition, an immediate copy of
+its local name, and a positional call assigned to an owned name.
+It can compose multiple such segments with lexical assignments
+and ordinary nested definitions. The binder and read judgments
+include the new assignments and ordered call operands. Each call
+ID is an actual emission, and later table extensions preserve it.
+
+The suite theorem supplies the closure from its reached definition,
+with the original capture addresses and saved defaults. On call
+success it commits the result in the restored caller frame and
+continues there. On a definition, operand, binding or body error it
+keeps the reached heap and skips the tail. The source trace agrees
+exactly with resolved execution and denotation, including the
+return or first reached error and residual state. `runs_activated`
+obtains the suite frame from live captures and bound arguments.
+
+The guard requires that the current available declaration set
+contain the call IDs in the suite and its invoked descendants.
+`child_available` shows that the child's own call IDs survive
+removing the child declaration ID because those declarations were
+emitted earlier. Removing a present ID strictly reduces the
+available list's length. The proof applies the same suite theorem
+under that smaller list to the child body and follows the
+caller tail structurally under the original list. This covers a
+finite chain of these calls at any depth.
+
+In Lean and pinned Go, a factory calls a relay through an immediate
+alias, and the relay calls a leaf through another immediate alias.
+The leaf uses a saved default and reads the original forwarded
+index cell. Both callers consume their call results in later
+assignments and returns. The inner operand and arity failures stop
+before the leaf body. A reached index error inside the leaf stops
+both callers before they assign their destinations. Lean checks the
+forwarded addresses, retained allocations, unassigned destinations
+and restored caller state.
+
+The immediate-copy rule covers the existing lexical, integer,
+index and singleton-list positional operands. The suite profile
+below removes the syntactic adjacency requirement for owned
+locals.
+[Suite rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
+
+### Live local closure provenance
+
+`Call.Suite.Provenance.Elaborates` admits calls through owned names
+across intervening definitions, lexical assignments and other
+checked calls. At activation the provenance map is empty. A
+reached definition records its emitted declaration at the target
+name. An owned-name copy transfers the source's current witness.
+An ordinary assignment or successful call result clears the
+destination. Distinct owned slots make rebinding one name
+independent of values copied to other slots. The live invariant
+connects each tracked name to its reached binding cell, the
+closure at the stored address, its saved defaults and its live
+capture cells.
+
+At invocation the proof reads that local and dispatches using its
+actual closure record. Explicit positional and named operands run
+in source order and the binder runs before activation. The callee suite starts
+with its own empty map under the reduced available declaration
+set. `entry_guard` derives availability from stable table lookup
+at ordinary function entry. Each child's earlier-emitted IDs
+survive removing its own ID, and the remaining declaration list
+strictly decreases. The assignment and the tail run after a
+successful restoration of the caller. Failure preserves the first
+reached error and exact heap while skipping the destination and
+tail.
+
+Lean and pinned Go check a transitive copy across an allocation
+and a second definition. The copy uses the original default and
+captured index after the original name is rebound and the
+intermediate alias overwritten. Calling the rebound name instead
+uses the replacement declaration and its required parameter.
+A reached operand error takes precedence over its binder. Lean
+also checks the earlier return, retained allocations and restored
+caller on failure.
+
+Callable provenance from parameters, captures, module names, heap
+reads or returned values, calls through untracked values, other
+expression positions, general dispatch, loads, text parsing and
+module publication remain outside the profile.
+[Provenance rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
+
+### Explicit named arguments at tracked local calls
+
+The checked invocation accepts distinct explicit names and
+binds required and defaulted parameters by their declared names. Normalized
+source places all positional operands before the named operands.
+The independent rules read the reached local callee, evaluate those
+operands once in order and partition the resulting values by the
+resolved positional count and keyword names. The reached closure
+record supplies the declaration, saved values and live capture
+cells. Its body runs under the existing declaration guard.
+
+For a signature without a positional collector, the independent
+binder checks positional overflow before delivering keyword values
+to formal slots in source order. A parameter already filled by another
+operand ends delivery. An unknown name also ends delivery when the
+signature has no keyword collector. Saved defaults fill the remaining
+slots and the binder then reports missing required parameters in
+declaration order. Agreement with `bindArguments` is exact for the
+admitted signatures. Binding failure allocates no activation. A
+reached operand failure takes precedence over any binding failure
+and preserves earlier allocations.
+
+Repeated names in the explicit syntax fail validation even when an
+operand would fail at runtime. Supplying an ordinary parameter
+positionally and by name instead reaches the runtime conflict check
+after evaluating all operands. Lean and pinned Go cover mixed
+success with a saved default and a named override, the first unknown
+name or conflict, positional arity precedence and a stopped operand
+sequence. Lean also checks the exact allocation order, unassigned
+destination and restored caller.
+
+Pinned Go has a separate nullary diagnostic for supplied arguments.
+When a call supplies only keywords to a zero-parameter function,
+the Lean binder reports the unexpected name. Both reject before
+running the body. The Go comparison uses valid identifiers and
+stays within Go's per-kind explicit operand count limits. The checked
+positional spread profile is described below. Arbitrary dispatch and
+module publication remain separate.
+[Named rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Pinned spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Go validation](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L737-L798) · [Go binding](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1384-L1512)
+
+### Keyword-only parameters in checked local suites
+
+A checked nested definition can declare ordinary parameters followed
+by a bare-star keyword-only suffix. The independent header derivation
+records the suffix's required and defaulted formals in declaration
+order. The normalized source signature represents the bare star by
+its keyword-only field and absence of a variadic slot. Elaboration
+emits the same ordered parameter slots, defining-scope reads and
+default expressions as the resolver. A reached definition evaluates
+the positional defaults, then the keyword-only defaults. It installs
+the function and its saved values after all defaults succeed. An
+earlier allocation survives a default error and later defaults are
+skipped.
+
+The tracked-local invocation still comes from the reached closure
+record and uses the reduced declaration guard. Only positional
+formals count toward positional capacity. Named operands can bind
+either class of formal, and the binder fills remaining slots from
+the saved defaults before checking for missing required arguments.
+Lean and pinned Go cover mixed success with a required keyword-only
+actual, an explicit override and an omitted default. They also
+cover omission of the required keyword-only parameter, excess
+positional arguments despite spare keyword-only slots, and the
+order and first failure of definition-time defaults. The exact
+Lean correspondence retains the reached heap, restores the caller
+and leaves the call destination and tail unexecuted after failure.
+
+The pinned prose and existing Lean validator require at least one
+defaulted formal after bare `*`. Pinned Go also accepts a suffix
+consisting only of required formals. This extension keeps the
+existing checked validation rule. The nullary call diagnostic
+difference is tracked separately above. The tracked suite also supports
+named positional collection as described below.
+[Recursive header theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Thms.lean) · [Binder and call theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Pinned function-definition spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#function-definitions) · [Go resolver](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L819-L899) · [Pinned Go controls](../../scripts/starlark/forwarded-default/check.go)
+
+### Named positional collection in checked local suites
+
+A checked nested definition may declare a named `*args` collector and
+trailing required or defaulted keyword-only parameters. The independent
+header names the collector slot after the ordinary parameter slots in
+the resolved frame. The collector contributes no default expression.
+Elaboration preserves the default order across the star boundary and
+lexical default evaluation saves each value at its formal key.
+
+The independent binder records surplus positional values in source
+order. It finishes keyword delivery, fills omitted defaults and checks
+required parameters before packing. Successful packing allocates the
+ordinary tuple and supplies its address to the collector slot before
+activation. The tuple retains the original element values and addresses.
+The empty tuple has the existing canonical key and a fresh heap cell.
+An operand or binding failure leaves the reached heap without a packed
+tuple. A body failure retains the tuple and any body effects. The same
+guarded suite theorem restores the caller and skips the destination and
+continuation on failure.
+
+Lean and pinned Go cover an empty and a nonempty surplus, an aliased
+list element, a live lexical capture, a child with no lexical captures,
+and required keyword-only parameters after named `*args`. They also
+cover omitted binding, a reached operand failure and a reached body
+failure. Lean checks ordered retained allocations, the empty tuple key,
+the exact packed contents and restored caller state. The requirements
+and Go differences for bare `*` and nullary calls remain as documented
+above. Keyword collection composes with this profile as described below.
+[Binder and packing theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/VarargsChecks.lean) · [Pinned spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Go binding](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1384-L1512) · [Go controls](../../scripts/starlark/forwarded-default/check.go)
+
+### Terminal keyword collection in checked local suites
+
+A checked nested definition can declare terminal `**kwargs` with or
+without named `*args`. The independent header emits the keyword
+collector at the final parameter slot, after all ordinary slots and any
+positional collector. Definition-time defaults keep their existing order
+and scope.
+
+The independent binder first delivers explicit names to matching
+ordinary positional or keyword-only formals and rejects a second value
+for an already supplied formal. It records unmatched names and values
+in encounter order, fills omitted ordinary formals with saved defaults,
+and checks required formals before packing. The exact surplus theorem
+identifies the unmatched subsequence of the explicit operands, including
+the original references. On success the keyword collector receives a
+fresh unfrozen dictionary, including when that subsequence is empty.
+When both collectors exist, the tuple is allocated first and the
+dictionary occupies the next address.
+
+The guarded suite theorem agrees exactly with resolved execution and
+denotation. Operand and binding errors leave the reached state before
+packing. A reached body error retains both packs and earlier body
+effects, restores the caller, and skips the destination and suite tail.
+The Lean controls check those states and the resolved collector slot.
+Pinned Go checks ordered dictionary items, aliased values, distinct
+empty dictionaries, saved defaults and an explicit override with
+`*args`, and errors before the continuation. Repeated explicit names
+are rejected statically, including when they would be unmatched. A
+positional and named actual for the same ordinary parameter conflict
+at runtime, before a missing-formal error.
+
+Pinned Go creates its private collector objects during binding, with
+the dictionary first when both are present. The Lean heap commits the
+tuple and dictionary only after successful binding. The differential
+checks compare visible results and errors. Allocation order and the
+absence of packs in the residual Lean heap are properties of the Lean
+model. The earlier bare-star and nullary diagnostic differences still
+apply. The positional call-site spread profile composes with this
+binder as described below. Mapping spread, arbitrary dispatch and
+module publication remain outside this checked suite theorem.
+[Binder and packing theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/KwargsChecks.lean) · [Pinned spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Pinned Go binder](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1418-L1512) · [Go controls](../../scripts/starlark/forwarded-default/check.go)
+
+### Terminal positional spread in checked local suites
+
+A tracked-local call assignment can supply a single `*` operand
+after all explicit positional and named arguments. The normalized
+shape has one optional positional spread field. It admits direct
+list and tuple displays of checked body operands, including reads of
+live references, and an integer literal as a noniterable control.
+The pinned prose and Go resolver require the same placement, reject
+a second positional spread, and reject explicit arguments after it.
+
+The independent argument rules derive the callee read, ordered
+explicit operands and reached terminal operand before binding.
+The display evaluates its elements left to right and allocates the
+ordinary list or tuple. Expansion then reads its exact element
+sequence with the original references and appends that sequence to
+the explicit positional prefix. It adds no heap cell. The existing
+binder delivers fixed positional and named arguments, saved defaults
+and `*args` from those actuals. Lean proves agreement with resolved
+execution and denotation, including the retained heap and restored
+caller in the same guarded suite.
+
+A reached operand error skips the rest of the operand phase. Once
+all operands succeed, a noniterable spread fails before binding or
+packing, even if those arguments would conflict. A binding error
+after successful expansion retains the allocated display and prior
+effects. These errors skip the destination and suite tail. Pinned
+Go controls check order, alias identity, saved defaults, positional
+and variadic delivery, and error precedence. The exact layout and
+residual private heap are Lean observations.
+
+An arbitrary spread expression yielding a list or tuple needs
+evidence of its reached carrier kind to enter this proof. Other
+iterable carriers, `**` mapping spread, general dispatch and
+module publication remain separate.
+[Call theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/SpreadChecks.lean) · [Pinned spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Go resolver](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L737-L798) · [Go compiler](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1650-L1727) · [Go call instruction](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L298-L380) · [Differential controls](../../scripts/starlark/forwarded-default/check.go)
 
 ## Finite-manifest loader
 
@@ -367,20 +1217,38 @@ lake build --wfail +Silmaril.Languages.Starlark.Modules.Checks \
   +Silmaril.Languages.Starlark.Modules.ExpressionChecks \
   +Silmaril.Languages.Starlark.Modules.Loader.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Checks \
-  +Silmaril.Languages.Starlark.Modules.Resolve.LoopChecks
+  +Silmaril.Languages.Starlark.Modules.Resolve.LoopChecks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Leaf.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Defaults.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape.Scoped.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
 
 ```sh
 fixtures="$(pwd)/examples/starlark"
+mixed_leaf="$(pwd)/scripts/starlark/mixed-leaf.go"
+multi_callee="$(pwd)/scripts/starlark/multi-callee/check.go"
+defaults="$(pwd)/scripts/starlark/positional-defaults/check.go"
+default_trace="$(pwd)/scripts/starlark/default-call-trace/check.go"
+escaping_defaults="$(pwd)/scripts/starlark/escaping-defaults/check.go"
+defaulted_body="$(pwd)/scripts/starlark/defaulted-body/check.go"
+nested_default_body="$(pwd)/scripts/starlark/nested-default-body/check.go"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$fixtures/modules/check.go" && go run "$fixtures/loader/check.go" &&
-  go run "$fixtures/scope/check.go")
+  go run "$fixtures/scope/check.go" && go run "$mixed_leaf" && go run "$multi_callee" &&
+  go run "$defaults" && go run "$default_trace" && go run "$escaping_defaults" &&
+  go run "$defaulted_body" && go run "$nested_default_body")
 ```
 
+[default-parameters]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions
 [modules]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#module-execution
 [loading]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#load-statements
 [expressions]: starlark-functions.md#direct-denotation-of-resolved-expressions

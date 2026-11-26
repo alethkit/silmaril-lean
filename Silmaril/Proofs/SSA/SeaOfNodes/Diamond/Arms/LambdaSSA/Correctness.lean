@@ -133,6 +133,24 @@ theorem arm_eval (p : Projection) {env : Env (Atom m)}
   apply (PhiView.latch_eq_transfer (instruction m) (phiView g) (incoming g p) _ _ _ _ _).mpr
   exact ⟨rfl, (incoming_latch m entry p finalMatch).symm, rfl⟩
 
+theorem arm_transfer_iff (slot : Slot) {env : Env (Atom m)}
+    (matched : LayoutMatch m (sharedLayout g) env entry (g.shared.eval m entry PUnit.unit))
+    (start finish : σ) (label : Nat) (payload : Value (Atom m)) :
+    Semantics.Region.Eval (instruction m) (Semantics.extend env .unit) (armBlock g (g.merge.predecessor slot))
+        start label payload finish ↔
+      label = (edge g slot).target ∧ payload = encodeTuple m ((g.arms slot).eval m entry
+        (g.shared.eval m entry PUnit.unit)) ∧ finish = start := by
+  have canonical := arm_eval m entry (g.merge.predecessor slot) matched start
+  have armEq : selectedArm g (g.merge.predecessor slot) = g.arms slot := by
+    rw [selectedArm, Merge.slot_predecessor]
+  rw [armEq] at canonical
+  constructor
+  · intro observed
+    exact observed.deterministic (instruction_deterministic m) canonical
+  · rintro ⟨rfl, rfl, same⟩
+    subst finish
+    exact canonical
+
 private theorem cfg_eval {env : Env (Atom m)}
     (matched : LayoutMatch m (sharedLayout g) env entry (g.shared.eval m entry PUnit.unit))
     (start : σ) :

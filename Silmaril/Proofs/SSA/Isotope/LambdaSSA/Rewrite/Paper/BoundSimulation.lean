@@ -64,7 +64,7 @@ private theorem boundLocalMap_denotes {t : Tm Φ}
 
 /-- Soundness of the bound simulation square at a one-block CFG. This checks
 a candidate equation without extending the Paper relation. -/
-theorem sound_bound_simulation
+theorem sound_bound_simulation_of_denotations
     (shared : ∀ E S : V, ∃ h : J.obj E ⊗ J.obj S = J.obj (E ⊗ S),
       Functor.StrongPremonoidal.tensorIso (J := J) E S = eqToIso h)
     {β p q : Region Φ} {t : Tm Φ}
@@ -73,9 +73,11 @@ theorem sound_bound_simulation
     (hq : Region.HasType (D :: Γ) q (D :: L))
     {ht : Tm.HasType (A :: Γ) t D} {h : ctxObj M (A :: Γ) ⟶ M.obj D}
     (dt : Denotes J M ht (J.map h))
-    (square : Paper.Eqv (A :: Γ)
-      (p.lsubst (liftLSubstVars (boundLocalMap t)))
-      ((Region.br 0 t).bindBranchArguments.lsubst (liftLSubstVars (fun _ => q))) (D :: L)) :
+    (square : ∀ (hl : HasType (A :: Γ)
+      (p.lsubst (liftLSubstVars (boundLocalMap t))) (D :: L))
+      (hr : HasType (A :: Γ)
+        ((Region.br 0 t).bindBranchArguments.lsubst (liftLSubstVars (fun _ => q))) (D :: L)),
+      denoteRegion J M hl = denoteRegion J M hr) :
     denoteRegion J M (.cfg (fun _ : Fin 1 => A) hβ.hasType (fun _ => hp.hasType)) =
     denoteRegion J M (.cfg (fun _ : Fin 1 => D) (hβ.hasType.lsubst (boundLocalMap_typed ht))
       (fun _ => hq)) := by
@@ -102,7 +104,7 @@ theorem sound_bound_simulation
   have rightEq : denoteRegion J M hr = denoteRegion J M hr' :=
     (denoteRegion_lsubst_sharedTensor J M shared init hr (.br rfl dt) dr).trans
     (denoteRegion_bound_lsubst_sharedTensor J M shared init hr' dr).symm
-  have rawSquare := leftEq.trans ((Paper.Eqv.sound J M shared square hl' hr').trans rightEq.symm)
+  have rawSquare := leftEq.trans ((square hl' hr').trans rightEq.symm)
   have hs := CfgEta.Uniformity.sound_entry_of_denotations M J shared hβ hp hq dt hl hr rawSquare
   have entryEq : denoteRegion J M (hβ.hasType.lsubst raw) =
       denoteRegion J M (hβ.hasType.lsubst bound) :=
@@ -113,5 +115,23 @@ theorem sound_bound_simulation
   refine hs.trans ?_
   rw [denoteSingleCfg M J (hβ.hasType.lsubst raw) hq,
     denoteSingleCfg M J (hβ.hasType.lsubst bound) hq, entryEq]
+
+theorem sound_bound_simulation
+    (shared : ∀ E S : V, ∃ h : J.obj E ⊗ J.obj S = J.obj (E ⊗ S),
+      Functor.StrongPremonoidal.tensorIso (J := J) E S = eqToIso h)
+    {β p q : Region Φ} {t : Tm Φ}
+    (hβ : ValueBranches Γ β (A :: L))
+    (hp : ValueBranches (A :: Γ) p (A :: L))
+    (hq : Region.HasType (D :: Γ) q (D :: L))
+    {ht : Tm.HasType (A :: Γ) t D} {h : ctxObj M (A :: Γ) ⟶ M.obj D}
+    (dt : Denotes J M ht (J.map h))
+    (square : Paper.Eqv (A :: Γ)
+      (p.lsubst (liftLSubstVars (boundLocalMap t)))
+      ((Region.br 0 t).bindBranchArguments.lsubst (liftLSubstVars (fun _ => q))) (D :: L)) :
+    denoteRegion J M (.cfg (fun _ : Fin 1 => A) hβ.hasType (fun _ => hp.hasType)) =
+    denoteRegion J M (.cfg (fun _ : Fin 1 => D) (hβ.hasType.lsubst (boundLocalMap_typed ht))
+      (fun _ => hq)) :=
+  sound_bound_simulation_of_denotations J M shared hβ hp hq dt
+    (Paper.Eqv.sound J M shared square)
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation

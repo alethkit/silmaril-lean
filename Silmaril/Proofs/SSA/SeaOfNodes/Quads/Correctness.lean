@@ -58,7 +58,7 @@ theorem rebind_other (current : Wires args past (dataPorts regs))
     (rebind current dest).get source = keep (current.get source) :=
   (get_write_other dest source _ _ different).trans (get_map _ current source)
 
-private theorem map_write {T : Type u} {F : T → Type v} {G : T → Type w}
+theorem map_write {T : Type u} {F : T → Type v} {G : T → Type w}
     {ts : List T} {t : T} (f : ∀ t, F t → G t) (dest : Port ts t)
     (value : F t) (bank : Tuple F ts) :
     (write dest value bank).map f = write dest (f t value) (bank.map f) := by
@@ -148,7 +148,7 @@ theorem quad_step_read (quad : Quad Op regs) (m : Model.{u, v, w} Op)
   rw [read_rebind]
   simp only [Quad.inputWires, Quad.eval, read_operands]
 
-private theorem get_tabulate {T : Type u} {F : T → Type w} {ts : List T} {t : T}
+theorem get_tabulate {T : Type u} {F : T → Type w} {ts : List T} {t : T}
     (f : ∀ {s}, Port ts s → F s) (port : Port ts t) :
     (tabulate ts f).get port = f port := by
   induction port with

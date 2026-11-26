@@ -145,15 +145,13 @@ with a model in which the instruction both faults and can diverge.
 Greatest behaviour here is a law of that model. [Fixed-model result][ssa-ub]
 [Model regression][ssa-ub-regression]
 
-### Explicit region UB with label substitution
+### Explicit region UB with substitution and feedback
 
-The independent `Overlay.Region Γ L` has three constructors. It embeds
-any exactly typed native region, adds a UB region at every interface, and
-sequences through a continuation for each exit label. Each continuation
-receives the exit payload in its own value binder and retains the original
-captured context. Native regions may contain arbitrary nested CFGs. The
-overlay has no constructor for feedback through an overlay region.
-[Overlay syntax][ssa-ub-overlay-defs]
+The independent `Overlay.Region` embeds any exactly typed native region,
+adds a UB region at every interface, and provides label substitution and
+feedback. A continuation or block receives the exit payload in its own
+value binder and retains the original captured context. Native regions may
+contain arbitrary nested CFGs. [Overlay syntax][ssa-ub-overlay-defs]
 
 For each observational model, bound environment and initial state, the
 carrier is `WithTop (Set Outcome)`. An outcome carries a scoped exit and
@@ -181,8 +179,831 @@ explicit UB at the source, yet their substituted projections differ at a
 single-exit target. Thus ordinary outcome equality at a fixed model is
 insufficient for a compositional interpretation with both native sequencing
 and absorbing UB. The lifted order retains precisely the distinction used
-in this counterexample. Feedback through overlay UB and a corresponding
-extension of the native rewrite quotients are open. [Checked obstruction][ssa-ub-overlay-regression]
+in this counterexample. [Checked obstruction][ssa-ub-overlay-regression]
+
+Feedback splits the outgoing interface as `R ++ L`. An ordinary return to
+`R` invokes the corresponding local block with the returned payload and
+machine state. A return to `L` exits. Fresh top occurs exactly when a finite
+path of ordinary internal returns reaches a component at fresh top. Below
+top, finite paths collect external returns and faults, and divergence comes
+from a finitely reached component divergence or an actual infinite
+sequence of internal returns. `feedback_mono` proves directed congruence
+in the entry and all blocks, including refinements that expose UB earlier.
+The top and ordinary parts also satisfy one-step unfolding.
+[Feedback laws][ssa-ub-feedback]
+
+For native entry and blocks, `denote_native_feedback` agrees with the
+repository's typed recursive CFG at every existing observational model.
+The regression checks a block whose first visit takes a backedge and whose
+second visit reaches UB, an immediate exit that bypasses a UB block, and a
+native self-loop whose divergence is absent from finite closure.
+[Native agreement][ssa-ub-feedback] [Regressions][ssa-ub-feedback-regression]
+
+Feedback uniformity compares two graphs with the same external interface.
+The local theorem assumes that at each reachable source point, a
+deterministic point map sends each source step to a target step and lifts
+every step out of the image to a source successor with that exact image. The matched points must agree on
+fresh UB and ordinary external returns, faults, and divergence. These
+conditions are required only on reachable source points. They preserve and
+reflect finite paths, reached UB, and actual infinite paths. The reverse
+infinite proof lifts the selected target path one step at a time, choosing
+a source successor at each step. The exact criterion for equality of
+closed behaviours is agreement on whether UB is reachable and, below UB,
+equality of the resulting ordinary outcome sets. [Uniformity][ssa-ub-uniformity]
+
+A type-preserving label map keeps payloads and machine states and may merge
+labels of the same type. `close_slide` proves the deterministic routing
+instance of the Conway sliding law. Closing a body with routing on its
+block inputs gives the same behaviour as closing it with routing on its
+internal returns. Permutations give block relabeling invariance as a
+corollary. The one-way counterexample preserves local marks and ordinary
+outcomes on reached source points, yet a new target edge can expose UB or
+enable infinite replay.
+[Sliding and relabeling][ssa-ub-uniformity] [Checked counterexample][ssa-ub-uniformity-regression]
+
+Two-level elimination views the same overlay semantics as a graph of
+ordinary transfers, local UB and terminal observations. The graph's
+one-shot closure agrees definitionally with `Feedback.close`. Closing
+the inner group exposes each transfer to an outer point as a boundary
+outcome, carrying the label, payload and machine state. The outer closure
+consumes these boundary outcomes. `close_two_levels` proves equality
+with the flat closure for the typed hidden interface `I ++ O`.
+`close_partition` allows any partition of the invocations.
+
+Finite paths split at outer visits. An outer step consists of zero or more
+inner transfers and a final original edge into an outer point, so every
+such step consumes at least one original edge. If a reachable inner UB
+suppresses an otherwise available boundary transfer, the outer closure
+already has a witness to UB. Below UB, the finite terminal comparisons
+retain the original outcomes.
+
+For a selected infinite flat path, either all visits after some index
+are inner, or a later outer visit exists after every index. The proof
+in the first case uses the finite prefix to reach the final inner replay.
+In the second case `Nat.find` selects the least next outer visit, so the
+intervals between selected visits are finite inner segments. In reverse,
+an inner replay can be prefixed by the finite flattened outer path.
+An infinite outer replay provides nonempty flat segments. Classical
+choice selects a real successor at each original step, maintaining a
+finite suffix to a segment boundary. The regressions exercise both kinds of
+replay, a finite external outcome, and early UB in an inner segment.
+Full Conway and Elgot laws remain open.
+[Elimination theorem][ssa-ub-elimination] [Regressions][ssa-ub-elimination-regression]
+
+### Descent through the native CFG entry quotient
+
+`cfgDenotation` lifts the map `r ↦ denote (.native r)` through the
+installed `Region.CfgQuotient` at each exact value and label interface.
+`cfgEquiv_obs` covers empty CFG elimination, an outward entry branch,
+and unfolding a local entry branch into its block. It uses the existing
+observational congruences for lets, cases, and CFGs and preserves returns,
+faults, and both sources of may-divergence in every observational model.
+The descended map supports overlay substitution and recursive CFG assembly.
+Semantic relabeling and two-level elimination apply to feedback over the
+resulting quotient denotations. [Native quotient][ssa-cfg-quotient]
+[Descent][ssa-ub-native-quotient]
+
+The guarded `Paper.Hom` and the native `ContinuationHom` admit checked
+counterexamples to the same representative contract. Paper's product η
+identifies a split and rebuild with a direct return. A bound value of unit
+at the product-typed input makes only the direct return succeed. Native
+initiality identifies a return with an empty-typed elimination, which
+the same model separates when it supplies unit at an empty-typed input.
+Both witnesses have constructor-valued branch arguments and use no
+primitive transitions. The observation model indexes bound values by scope
+and imposes no payload shape. Shape-aware environments would exclude
+these witnesses. The installed categorical soundness theorem for Paper
+uses a coherent typed region denotation and its stated categorical
+hypotheses. [Paper soundness][ssa-paper-soundness]
+[Obstructions][ssa-ub-descent-obstruction]
+
+The regressions check one UB-producing branch of a nondeterministic
+producer, an outward CFG entry that bypasses blocks leading to UB after
+substitution, and a local entry unfolding whose infinite replay remains
+ordinary divergence. The outward example also checks semantic relabeling
+and staged feedback on the native quotient inputs.
+[Descent regressions][ssa-ub-descent-regression]
+
+### Shape-respecting observations
+
+Over the free type algebra `Ty κ`, the shaped model reuses the runtime
+typing of the LambdaSSA resumption machine. The model assigns types to atoms
+and requires every bound slot to have its declared type. Unit, pairs and
+injections retain their runtime tags, and empty has no runtime inhabitant.
+When a primitive succeeds on a source-typed argument, its payload must have
+the target type. Fault and primitive-divergence relations have no reply
+payload. The semantics uses the original observation relations and lifted
+subset order. [Model][ssa-ub-shaped-model]
+
+Finite evaluation preserves expression types and the payload type of each
+native region exit, including through CFG blocks. In the overlay, reachable
+ordinary returns carry the declared label type through substitution and
+feedback. This uses finite path induction for feedback transfers. An
+infinite path contributes divergence, and fresh UB is greatest in the
+unchanged lifted order. [Preservation][ssa-ub-shaped-laws]
+
+The installed variable product η step preserves the full lifted behaviour
+at every shaped input and state. Native initiality's exact constructor-value
+premise entails that the value context has no shaped model. The fixture
+passes a primitive-produced pair through an internal CFG label, checks
+product η on that payload, and exhibits a faulting empty-result primitive
+that separates the equation when the constructor-value guard is dropped.
+[Laws][ssa-ub-shaped-laws] [Fixture][ssa-ub-shaped-regression]
+
+### Native continuation quotient in shaped models
+
+`ContinuationHom` is the quotient of constructor-branch continuation
+families by pointwise `SubstitutionEquiv`. At input label `i`, its shaped
+denotation takes a model for the exact context `L.get i :: Γ` and uses the
+native representative at the output interface `K`.
+[Quotient][ssa-native-continuation] [Denotation][ssa-ub-shaped-continuation]
+
+| Installed relation | Generators and closure used by the descent |
+|---|---|
+| `CfgEquiv` | `cfgZero`, `cfgBrExit`, `cfgBrLocal`, reflexivity, symmetry, transitivity, and congruence for let₁, let₂, case, and recursive CFG. These reuse the unrestricted native CFG observation proof. |
+| `RewriteEquiv` | `entry` embeds `CfgEquiv`. `letBr` uses constructor-value substitution. `caseInl` and `caseInr` evaluate the same argument and select the same arm. The relation includes symmetry, transitivity, and the same four congruences. |
+| `SubstitutionEquiv` | `base` embeds `RewriteEquiv`. `letValue` and `caseValue` use state-preserving constructor substitutions. `caseCfg` routes once into the selected arm. `cfgOutward` shifts every exit beyond the local blocks. `initial` requires a constructor value of empty type. The relation includes symmetry, transitivity, and the same four congruences. |
+
+The shaped congruences check successful term replies before entering
+let and case bodies. CFG entry and each successful backedge establish
+the target label type. Finite execution and faults follow this invariant,
+and coinduction carries it through infinite replay. Constructor-value
+substitution preserves returns and final states, faults, and both
+sources of divergence. The fixture reaches a rewritten block with either
+tag from one nondeterministic primitive. One tag replays the backedge
+and the other exits. The primitive can also fault.
+[Regression][ssa-ub-shaped-continuation-regression]
+
+### Guarded Paper collapse and simulation square
+
+The exact `Paper.Eqv.collapsePost` generator preserves lifted observations
+in shaped models. The theorem allows arbitrary typed outgoing
+continuations, including effectful ones. It pushes the common literal
+substitution through both CFG forms with the proper value and label lifts.
+The operational proof then follows the native dispatch relation. A
+two-label graph keeps both possible backedges before two-level elimination.
+Its staged graph represents the nested CFG, while merging the labels
+represents the flat CFG. Step transport in both directions retains the
+payload and machine state. The native observations include successful
+exits, faults, divergence inside a primitive or body, and infinite CFG
+replay. The proof of the underlying duplicate-label observation law works
+with arbitrary native primitive relations. [Collapse][ssa-ub-paper-collapse]
+[Stateful regression][ssa-ub-paper-regression]
+
+For `Paper.Eqv.uniform`, the installed premises guard the entry and source
+body's branch arguments and give a constructor state map `a`. The target
+body `q` is exactly typed and may have effects. The premise equates the
+literal substitution of the lifted local map into the source body with
+substitution of the lifted target body into `br 0 a`. The shaped lemmas
+interpret the right-hand region as a single binding of `a` followed by
+`q`. The whole left-hand region forwards each successful source exit
+at the state the source reached. The local payload passes through `a`
+and external payloads pass through unchanged. Under any nested CFG
+the protected prefix keeps its dispatch labels and payloads. This
+preserves all faults and both primitive divergence and internal replay.
+[Installed rule][ssa-ub-paper-rewrite] [Forwarding][ssa-ub-paper-uniformity]
+
+`uniform_of_observed_square` takes observational equality of the exact
+literal square as its induction premise and proves equality for the
+installed uniformity endpoints. A chosen target backedge with payload
+`d′` and final state `s′` lifts to a source backedge ending at the same
+`s′` with a payload that maps to `d′`. The typing invariant lets the
+square be applied again at that source payload, even for a non-injective
+state map. Forward transport alone permits additional target steps and can
+add internal replay. [Uniformity][ssa-ub-paper-uniformity]
+[One-way discriminator][ssa-ub-uniformity-regression]
+
+`uniform_native_square` discharges the premise when the square has a
+native `SubstitutionEquiv` derivation. The fixture checks the installed
+Paper constructor with a native let-value rewrite in its square, a
+non-injective constructor map, and effects inside a protected nested CFG.
+It observes a return at the updated state, a fault, primitive divergence
+and internal replay. [Native-square fixture][ssa-ub-paper-uniformity-regression]
+
+### Shaped descent for the guarded Paper quotient
+
+`Shape.Paper.eqv_denote` interprets all constructors of the installed
+`Paper.Eqv` over free SSA types in shaped models. `Shape.Paper.denote`
+descends to the existing continuation quotient `Paper.Hom` by applying
+the theorem pointwise to exactly typed representatives. The proof assumes
+typed environments and successful primitive replies of the declared type.
+Primitive transitions may be nondeterministic and stateful, and the
+fault and primitive divergence relations remain arbitrary.
+[Shaped descent][ssa-ub-paper-descent]
+
+| Installed constructors | Operational argument |
+|---|---|
+| `cfgEta` | Native substitution soundness covers the native subrelation. The separate `etaPost` step compares dispatch from the entry's selected payload, then runs the same arbitrary postcontinuation. |
+| `productBeta`, `productEta` | The constructor pair has two pure components, bound in de Bruijn order. Product η uses the existing shaped product law. |
+| `symm`, `trans`, `let₁`, `let₂`, `case`, `cfg` | Reuse observational congruence with typed replies at each reached binder or local block. |
+| `lsubstCongr`, `lsubstPost` | A guarded literal substitution runs its continuation only after a successful producer exit, using that payload and final state. It preserves internal transitions and infinite replay, carries through producer faults and divergence, and admits new observations from a reached continuation. |
+| `substVars`, `renameLabels` | Realize in-scope constructor images as a typed environment. Reflect label renamings through successful exits, preserving faults and divergence. |
+| `collapsePost`, `uniform` | Reuse duplicate-label elimination and apply `uniform_of_observed_square` to the recursive hypothesis for the exact literal square. |
+
+The stateful fixture also checks a uniformity square derived from Paper
+product β and an instance of CFG η with an effectful postcontinuation.
+The quotient maps native representatives to their ordinary observations
+in the fresh-top overlay. The enriched Paper presentations have separate
+generators and require their own soundness theorems.
+[Regression][ssa-ub-paper-uniformity-regression]
+
+### Guarded Paper category interpretation
+
+For a fixed shaped model and captured environment, `Shape.Paper.interpretation`
+maps the installed guarded `Paper.Interface` category to shaped
+stateful observations. Objects carry exact label types. An arrow receives
+a typed payload and a machine state and returns an existing lifted
+`Behaviour`. Each ordinary return has the type of its exit label. Identity
+returns the incoming label, payload and state. Composition uses
+`Behaviour.bind`, which invokes the second arrow at the first arrow's final
+state. Faults and may-divergence propagate, and fresh top propagates from
+the first arrow or a reached continuation. The target satisfies both identity
+laws and associativity. [Target category][ssa-ub-shaped-category]
+
+The map on arrows is the descended `Paper.Hom` denotation at the chosen
+typed payload. Its composition proof interprets the actual literal
+`ContinuationFamily.compose` representative, including the weakening that
+keeps the producer's input out of the second arrow's captures. The guarded
+literal substitution theorem equates it with sequencing at the returned
+state and payload. This preserves faults, primitive divergence, and
+infinite CFG replay. The same functor restricts to the installed
+empty-capture singleton category via `singletonInterpretation`.
+[Functor][ssa-ub-paper-category]
+
+The singleton regression runs a nondeterministic producer that updates
+state from zero to one and a continuation whose successful execution
+requires state one and returns at state three. It checks faults in both
+arrows, a primitive divergence in the continuation, and infinite replay
+in the producer. The source uses native representatives. Preservation of
+structural operations and iteration is a separate question.
+[Composition regression][ssa-ub-paper-category-regression]
+
+### Exact sums and the empty type
+
+The shaped observation category has a binary coproduct at the singleton
+label of exact type `A ⊕ B`, with its universal property against any
+shaped target interface. The injections return the chosen tag and keep
+the state. Copairing passes the unwrapped payload and incoming state to
+the selected arrow and returns its entire behaviour, including faults,
+may-divergence, and fresh top. Every shaped sum payload is a left or right
+tag with its declared type. The empty-typed singleton is initial because
+it has no well-typed input. These facts follow from the free runtime
+shapes for any atom typing relation.
+[Target laws][ssa-ub-shaped-exact-sum]
+
+The guarded singleton interpretation maps the installed exact injections,
+copair and empty eliminator to these operations. The image of the exact
+sum cocone is colimiting. The binary and initial proofs give the Mathlib
+`PreservesFiniteCoproducts` property. The stateful regression takes the
+installed Paper copair of two effectful arrows, checks distinct final
+states and faults, and verifies that the right arm's fault and divergence
+are absent from the left-tagged execution.
+[Preservation][ssa-ub-paper-exact-sum] [Regression][ssa-ub-paper-exact-sum-regression]
+
+### Product values and fixed-factor actions
+
+The shaped singleton target identifies a product payload with a pair
+of typed payloads. Building and splitting the pair are inverse. For
+state-preserving value maps, pairing is pointwise and the two projections
+determine it uniquely. The guarded singleton interpretation maps the
+installed projections and diagonal to these value maps. It also maps
+each constructor return to a value map and sends the installed
+`pairArrows` to pointwise pairing whenever both interpreted legs are
+certified to be value maps. The shaped model constrains successful
+primitive reply types. An effect annotation alone supplies no operational
+purity law. The regression gives a syntactically pure return whose
+primitive changes the state in an admissible shaped model.
+[Value laws][ssa-ub-shaped-product] [Preservation][ssa-ub-paper-product]
+
+Both installed fixed-factor actions interpret over arbitrary guarded
+singleton arrows. The active component starts at the incoming state.
+Literal substitution repackages successful returns with the fixed
+component and preserves their final state. Faults and may-divergence
+pass through. The stateful regression checks that increment then double
+returns state four from state one, and double then increment returns
+state three, with the original tagged payload pair in both results.
+It also checks pairing the projections in reverse order.
+The product universal property here is for typed value maps.
+[Regression][ssa-ub-paper-product-regression]
+
+### Bind-first exact-sum iteration
+
+The installed guarded singleton `iterateSum` for a step `A → B ⊕ A`
+interprets as repeated observations of that step. The left tag returns
+the payload and its final machine state. The right tag transfers that
+payload and final state to the next invocation. The comparison uses the
+one-label native CFG, guarded literal substitution, and the typed
+payload invariant at reachable blocks. The one-step unfolding composes
+the interpreted step with the exact-sum copair of identity and the
+interpreted iterator.
+
+Finite returns and faults agree in both directions. May-divergence is
+either divergence in a finitely reached step or an infinite chain of
+ordinary repeat observations. This uses the native CFG agreement theorem,
+including its coinductive divergence proof. The interpreted native
+arrows yield ordinary observations. The target closure retains its
+reachable-top rule for general observation arrows. The comparison is
+at the installed empty-capture exact-sum iterator. Its one-step law
+follows from the guarded source law and exact-sum preservation.
+
+The regression makes a state-changing request before a tag-producing
+request. From state zero it repeats once before returning at state two,
+faulting at state twelve, or diverging in the second step. From state
+two it has an infinite chain of repeats.
+[Preservation][ssa-ub-paper-iteration] [Regression][ssa-ub-paper-iteration-regression]
+
+### Iteration refinement
+
+The empty-capture `iterateSum` is monotone at each shaped model for
+pointwise inclusion of complete step behaviours over typed inputs and
+machine states. More permissive behaviours are on the right. Ordinary
+outcomes use subset inclusion, and fresh UB is greatest. Retagging
+preserves this order, so the repeated-observation comparison transports
+the existing feedback monotonicity theorem to the guarded iterator.
+An `Overlay.Refines` proof on typed step representatives supplies the
+pointwise hypothesis in every shaped model.
+
+A fault is a finite outcome at its exact final state. Divergence has
+its own observation and can arise in a finite reached step or from an
+infinite chain of repeats. With an ordinary upper behaviour each path
+is matched at the same payload and intermediate state. If a reached
+upper step exposes fresh UB, the upper closure is top.
+
+The regression adds a fault while keeping the repeat to state one and
+checks that the return survives. A second comparison matches every
+step after erasing only the repeat's final state. Changing that state
+from one to two removes the original return and reaches a fault
+instead, so the erased comparison does not imply iterator refinement.
+[Monotonicity][ssa-ub-paper-iteration] [Refinement regression][ssa-ub-paper-iteration-refinement]
+
+### Exact-sum iteration of explicit overlay steps
+
+An exactly typed overlay step with one input binder and one exact-sum
+exit interprets directly as a shaped singleton arrow at a fixed capture
+environment.
+`iterateOverlay` closes that arrow through the existing directed feedback
+and returns an arrow whose ordinary successful outputs have the result
+type. The same `WithTop (Set Outcome)` carrier applies at each initial
+machine state. `Overlay.Refines` on two steps implies pointwise
+refinement of their iterators through the existing feedback order.
+
+The closed behaviour is greatest exactly when finitely many ordinary
+right-tagged repeats reach a step at fresh top, including zero repeats.
+Every repeat carries a typed payload and its exact final machine state.
+A start whose first step is ordinary and has no repeat sees exactly the
+terminal observations of that step. With native representatives the
+whole shaped arrow agrees with the installed guarded `iterateSum`,
+including ordinary divergence.
+
+The regression runs the same overlay step at two initial states. From
+one it repeats at a new state and takes the explicit `ub` continuation,
+so the result is greatest. From the other it returns at once, and its
+exact ordinary singleton behaviour is independent of the unused
+continuation. Replacing an ordinary continuation with `ub` is checked
+as a typed refinement. This regression uses the empty-capture instance.
+[Overlay iteration][ssa-ub-shaped-overlay-iteration] [Regression][ssa-ub-shaped-overlay-iteration-regression]
+[Native agreement][ssa-ub-paper-iteration]
+
+### Fixed capture packs
+
+A step in context `[A, X]` can iterate on a product input `X × A`.
+The outer product is unpacked once. Its left field supplies the fixed
+capture of type `X`, which can itself contain products, and its right
+field supplies the initial loop payload. Every right-tagged repeat
+changes only the loop payload and machine state. Fresh top at an
+initial input and state is equivalent to a finite path of such repeats
+to a step at fresh top, with the original capture in scope throughout.
+The existing `Overlay.Refines` order gives pointwise monotonicity.
+
+At a fixed typed environment, the interpretation agrees with the
+installed `CfgEta.TypeCategory.iterateSum` projected to Paper and with
+`Paper.feedback` using the installed exact-sum dispatcher. For the
+product input, the concrete native packing equation compares the
+overlay arrow with `let₂ (var 0)` around that native iterator
+representative. The body skips the original product slot after binding
+the seed at slot zero and the capture at slot one. This equation keeps
+the whole observed behaviour, including faults and both sources of
+may-divergence. The product-input comparison uses one capture binder of
+arbitrary exact type.
+
+The literal-UB regression starts both runs with the same seed and
+machine state zero. Both repeat with a changed payload at state one.
+The first capture then reaches UB. The second reaches an ordinary
+return at state two.
+[Packed iterator][ssa-ub-shaped-capture-iteration] [Native comparisons][ssa-ub-paper-capture-iteration]
+[Regression][ssa-ub-shaped-capture-regression]
+
+### Certified finite deterministic iteration
+
+The finite checker compares two overlay steps in the same shaped model.
+Its carrier enumerates supported captures and pairs of loop payload and
+machine state. The caller supplies executable tables and a certificate
+that each row equals the complete observation of the corresponding
+typed step. A repeat names another coded invocation under the same
+capture. Returns and faults carry an exact final state. The result
+payload and final-state decoders are injective, so comparison of the
+codes reflects comparison of ordinary singleton observations.
+
+The evaluator scans at most as many rows as there are invocation codes
+along the deterministic path. If that scan sees only repeats, the path has
+revisited a code and repeats forever. The proof constructs the infinite
+feedback path and excludes any reachable terminal row or fresh UB.
+This gives an ordinary divergence observation, which is also the
+result of an in-step divergence row. A reached UB row instead yields
+fresh top. Exact classification gives a Boolean decision for the
+existing shaped observation order at every coded start, with more
+permissive behaviour on the right. Each certified row must have exactly
+one ordinary outcome or be fresh top. Empty and nondeterministic step
+behaviours are outside this table presentation.
+
+The certified regression reaches literal UB after a state-changing
+repeat, follows a two-state cycle with no reachable UB, and checks an
+ordinary fault and an in-step divergence. Replacing the UB continuation
+with an ordinary return passes refinement toward the UB variant. The
+reverse comparison fails.
+[Checker and exactness][ssa-ub-finite-iteration] [Certified regression][ssa-ub-finite-regression]
+
+The executable step syntax generates these tables and their certificates.
+It uses exact free types over `Empty`, constructor expressions, typed calls,
+exact-sum case with a payload binder, and literal overlay UB. Each program
+elaborates to a typed overlay region using native atoms and label substitution.
+The shaped model is the graph of the deterministic typed primitive interpreter
+on `Fin states`. The compositional proof equates structural evaluation with
+the complete observation of that region. A successful call evaluates its
+continuation at the reply's final state. Faults and primitive divergence stop
+the step. A case evaluates only its selected continuation.
+
+Capture codes select the supported captures, and seed and result equivalences
+code all values at the two exact exit types. At every supported capture, seed
+and machine state, the decision compares the existing captured feedback
+observations. Recursive native CFGs and arbitrary overlay representatives
+are outside this executable step grammar.
+[Syntax and certificates][ssa-ub-finite-syntax] [Generated comparison][ssa-ub-finite-syntax-regression]
+
+### Packet-local cyclic overlay CFGs
+
+A positional overlay CFG can use a finite table of these acyclic blocks.
+All internal labels accept the same exact payload type. The entry is a
+native jump with a constructor expression, and each block sees its incoming
+payload and the original capture. A successful block chooses the external
+exit or a packet carrying a destination label and its next payload. Native
+case and branch atoms decode that packet at the reply's final machine state.
+The empty alternative used to terminate the packet type cannot carry a
+shaped value.
+
+The bounded traversal of generated rows classifies both the actual positional
+`Region.feedback` observation and the exact-sum iterator that dispatches to
+the same typed block denotations. The agreement includes fresh UB, return
+and fault states, primitive divergence, and infinite replay. At each coded
+capture, the existing Boolean checker decides refinement at every common
+entry label, typed constructor input and initial state. The fragment uses
+deterministic finite-state primitives, homogeneous internal labels, one
+external label and a fixed capture. It elaborates to the existing evaluator
+and does not accept arbitrary native CFG representatives.
+
+The regression follows label zero to label one and back, changing the
+machine state at each jump before reaching literal UB. It also exercises a
+return after the same backedge, an unaffected external exit, a two-label
+silent cycle, and a fault with a distinct final state.
+[CFG agreement and decision][ssa-ub-finite-cfg] [Two-label regression][ssa-ub-finite-cfg-regression]
+
+### Heterogeneous packets and ordered exits
+
+The positional variant assigns each internal and external label its own exact
+payload type. The packet for a label list is the dependent sum of an index and
+a value of the type at that index. It is equivalent to shaped values at the
+installed `packedExitType`. Seed and result codes are equivalences for the two
+packet interfaces. Invocation codes include the machine state. Return codes
+keep the external position even when two exits carry the same type and value.
+
+Each generated row gives the complete observation of its installed typed
+routed block. The same scan classifies the positional overlay CFG and, after
+packing the external return tags, the exact-sum iterator. The Boolean decision
+compares the shaped observation order directly at all common entry labels,
+typed constructor inputs, machine states, and coded captures. The source
+fragment uses acyclic typed blocks and the shaped graph of deterministic
+finite-state primitives.
+
+The regression crosses between a unit label and a product label, replays a
+silent cycle, and follows a state-changing backedge to literal UB. Two
+variants that return unit at distinct exits fail comparison in both
+directions. A third exit carries a product.
+[Dependent packets and decision][ssa-ub-dependent-cfg] [Heterogeneous regression][ssa-ub-dependent-cfg-regression]
+
+### Native packed CFG readback
+
+A typed native CFG can supply the block table directly. The readback takes
+the expected capture and label interfaces and inspects a native `cfg` with a
+constructor entry jump. Each block links a packed producer to the canonical
+positional dispatcher. Producers return constructor expressions or sequence
+primitive calls through one-block native links. The final check compares the
+whole re-emitted native syntax, including every dispatcher, to the input.
+
+Successful readback gives equality of typed representatives. Native
+substitution and feedback conservativity transport the #3980 row
+certificates and complete shaped observations to the original CFG.
+The executable comparison uses each accepted CFG's actual entry, its
+deterministic finite-state primitive interpreter, and the supplied exact
+packet codebooks and coded captures. The native syntax covers ordinary
+returns, faults, and divergence. Explicit UB remains an overlay operation.
+
+The regression reads a native unit/product cycle, checks a state-changing
+backedge, and distinguishes two entries that return the same unit at different
+external positions. It also rejects a well-typed dispatcher with an extra
+native binder after the entry and producers have been read.
+[Native readback and transport][ssa-ub-native-packed-readback] [Native regression][ssa-ub-native-packed-regression]
+
+### Checked router normalization
+
+The optional normalization accepts finite stacks of redundant literal unit
+binders at packed routers. It counts the leading binders at each router,
+re-emits the CFG at those depths, and checks exact syntax equality. Each
+wrapper weakens the whole stack below it. Repeated application of the
+installed pure let substitution rule cancels the weakening. Native CFG
+congruence and shaped soundness give equality of complete observations
+at the original entry. The existing exact recognizer runs on the
+canonical form.
+
+The regression accepts a router with two nested binders and exact
+two-slot weakening. A well-typed variant with the same depth passes its
+outer bound unit to another exit. It passes the initial producer read
+and fails the exact wrapper check. The accepted program retains its
+ordered return, fault state, primitive divergence and infinite replay. A literal UB continuation at the first exit is reached
+after the return and skipped during silent replay. The original entry
+comparison still distinguishes equal payloads at different exits.
+[Normalization and soundness][ssa-ub-native-router-normalize]
+
+### Native comparison in the stateful observational institution
+
+For two recognized native packed CFGs, the comparison decides satisfaction
+of the installed observational refinement sentence at each coded capture in
+the model of the supplied deterministic finite-state primitives. It compares
+the original typed CFGs at their respective entries. This bridge uses native
+observations, which are ordinary outcomes. Fresh overlay UB remains the
+distinct greatest behaviour in the lifted order.
+
+A failed comparison computes a capture code and initial state where the
+original observations violate refinement. That model refutes the existing
+all-model native refinement judgment. The regression compares the same
+two CFGs under two primitive interpreters. One gives matching observations,
+including a fault and divergence. The other finds the missing ordered
+return after a state-changing backedge. A successful finite check therefore
+certifies satisfaction for the supplied models.
+[Institutional specification and witnesses][ssa-ub-native-packed-institution]
+
+### Designated UB exits of native packed CFGs
+
+A typed overlay continuation can send selected ordered exits of a recognized
+native CFG to literal UB. Each other continuation forwards its payload to
+the same exit at the incoming state. The checker reuses the native finite
+execution and changes only a terminal return to a selected exit into fresh
+top. Its classification theorem equates this result with the installed
+label-substitution observation on the original typed CFG and entry.
+
+The decision compares the lifted shaped order for the supplied deterministic
+finite-state primitives and coded captures. With no selected exits, the
+wrapper agrees with the native observation in every shaped model. The native
+institution's sentences range over native CFGs. The explicit continuation
+endpoints use the existing overlay denotation and order.
+
+The regression reaches a selected exit after a state-changing backedge.
+It checks ordinary-to-top refinement and a counterexample in the reverse
+direction. An equal payload at another exit keeps its ordered return.
+Silent replay and primitive divergence remain ordinary, and a fault
+retains its final state.
+[Decision and witnesses for designated exits][ssa-ub-native-exit-ub]
+
+### Separation for one-request native CFGs
+
+The tested fragment has no captured values and runs a shared unit-to-unit
+instruction before one acyclic native block. The block forwards the reply or
+emits literal unit at one of two ordered unit exits. The unused exit always
+has a literal UB continuation. The used exit either returns or takes its
+literal UB continuation.
+
+The installed order is inclusion of ordinary outcomes with a fresh greatest
+element at each initial state. The shaped normal form records the used exit
+and whether it reaches UB. Lean proves soundness for every shaped primitive
+relation, including nondeterministic replies, faults and may-divergence.
+A single deterministic shaped interpreter with states zero and one separates
+every failed comparison by replying with unit in state one. The exact
+classification also retains fault states and primitive divergence when the
+request has no return. This grammar has no internal replay.
+
+The unrestricted observational models can answer the unit instruction with
+a sum-shaped value. Forwarding that reply and emitting literal unit yield
+different ordinary outcomes, although all shaped models identify the two
+endpoints. Keeping the reply projection in the normal form gives an exact
+characterization of the unrestricted order on this fragment. Soundness in
+both classes holds at arbitrary value and state universes. The statements
+combining soundness and separation use the finite witnesses' universes.
+[One-request theorems][ssa-ub-single-request]
+
+| Existing result | Scope of its separation or universal property |
+|---|---|
+| Ordered free UB | The initial ordered quotient has a greatest UB class at each sort. In arbitrary ordered models, the ground rules bound denotable elements. This universal property supplies no operational separator. [Ordered specification][spec] |
+| Native LambdaSSA and raw rewrite obstructions | Native regions have no uniformly greatest region. Existing raw failures of guarded Paper and continuation descent use unshaped bound inputs. The one-request example is closed and obtains the unshaped value through a primitive reply. [Native obstruction][ssa-ub] [Quotient obstructions][ssa-ub-raw-obstruction] |
+| Finite acyclic common requests | The packed captured grammar has a trace separator and a derivability reflection theorem in its validated Kleisli institution. Here the comparison uses complete stateful observations with literal exit UB. [Common request replay and reflection][ssa-ub-common-request] |
+
+### Finite separation for two Boolean-dependent requests
+
+A closed endpoint makes a unit-input request and branches on its exact
+Boolean reply. The selected arm may repeat the first key or call a different
+key. A second successful Boolean reply selects either an ordered unit return
+or a literal UB continuation. The construction uses the native effectful
+case regions and the installed typed overlay label substitution. The request
+denotation retains the final state, ordinary faults, and primitive
+may-divergence. Fresh top occurs exactly when two reachable successful
+replies select a UB continuation.
+
+The normal-form order requires agreement on the first key and on the second
+key after each first reply. For each pair of reply tags, the ordered return
+must agree or the right continuation must be UB. Monotonicity of the installed
+sequencing proves soundness for arbitrary shaped primitive relations, including
+nondeterministic ones.
+
+Every failure has a deterministic three-state prefix interpreter. For a
+key mismatch, it makes the left key fault and the right key diverge before
+either continuation can run. For a continuation mismatch, it chooses the
+two distinguishing Boolean tags and advances through distinct machine
+states. Repeated keys therefore need no conflicting replies at one state.
+The regression proves that one-state deterministic handlers cannot
+distinguish a particular pair with this repeat. It also checks that a
+competing reply in a nondeterministic model can reach UB and mask the pair's
+ordered-exit difference, while the prefix interpreter keeps that reply out
+of the run. The theorem covers two requests with literal unit arguments and
+terminal UB. Its soundness uses arbitrary value and state universes, and its
+equivalence with all-model validity uses the finite witnesses' universes.
+[Two-request theorems][ssa-ub-two-request]
+
+### Depth-bounded separation for finite request trees
+
+The tree elaboration reuses the typed native effectful cases and terminal
+continuations from the two-request fragment. It permits any finite depth,
+including different lengths on different branches. Its signature has two
+unit-input Boolean keys, and its leaves return unit at one of two ordered
+exits or expose literal UB.
+
+The structural order accepts any tree below a literal UB leaf. Two ordinary
+leaves compare by their exit positions. Two request nodes compare when the
+keys agree and both pairs of reply branches compare recursively. All other
+pairs fail. In particular, immediate UB does not refine a pending request
+whose successful continuations are all UB. A fault or primitive divergence
+can stop the pending request before it reaches UB.
+
+Induction proves soundness for arbitrary shaped relations and also for the
+unrestricted observational relations. A failed comparison yields a
+deterministic shaped interpreter with at most one plus the smaller tree depth
+machine states. It advances once per selected common reply and uses the
+current state to expose the first mismatch. A key mismatch faults on the
+left key and diverges on the right key. A pending request can also diverge
+against a leaf. Repeated keys can reply differently at different prefix
+states. The closed all-model equivalences use the witnesses' universes,
+and the soundness theorem also accepts arbitrary ambient contexts and
+value and state universes.
+[Request-tree theorems][ssa-ub-request-tree]
+
+### Finite request trees with key-indexed replies
+
+The dependent request tree stores a closed, exactly typed constructor
+operand at each node. The signature relates the declared reply type of
+each key to the packed sum of a finite list of payload types. The adapter
+emits the original operand in the native request and uses the installed
+typed packet router to pass the selected payload and final state to the
+continuation. Leaves return at two ordered unit exits or expose literal UB.
+
+The comparison first checks the key and the evaluated constructor
+argument. It then compares branches at inhabited reply tags. At a
+zero-reply key, equal queries have no branch obligations. Different keys
+or evaluated arguments can still be observed through faults or divergence.
+A pending request and an ordinary return fail the comparison in either
+direction. Immediate UB on the right is greatest.
+
+Soundness over arbitrary shaped relations uses the checked fact that equal
+evaluated operands in this closed constructor grammar emit identical
+native terms. The comparison is stated on values. The current grammar
+already has canonical emissions, so the proof requires no additional
+normalization assumption. Executing a prefix uses decidable key equality
+and the installed decidable equality on constructor values in `Value Unit`.
+It needs no enumeration of argument values. A key or argument mismatch
+uses a fault for the first query and divergence for the second at the last
+state. The bound is still one plus the smaller tree depth. The all-model
+equivalence is for closed trees at the witness universes. Soundness allows
+arbitrary shaped environments and value and state universes over the same
+free types.
+[Dependent request-tree theorems][ssa-ub-dependent-request-tree]
+
+### Extraction from rank-certified native request tables
+
+A typed table witness describes the entry packet and the literal native
+rows. Each request row supplies its own closed constructor operand and
+routes each typed reply to a local label. Terminal rows return unit at an
+ordered exit.
+The check re-emits the whole native table, including all written rows, and
+compares its exact syntax with the supplied typed CFG. The entry-reachable
+rank check then permits unfolding a shared destination at each incoming
+edge. Selected exits continue to the existing literal UB overlay.
+
+The extracted tree agrees with the original decorated native CFG for every
+deterministic shaped interpreter in the finite primitive API, including
+interpreters that inspect arguments. This preserves the selected request,
+reply payload, final state, ordinary faults and primitive divergence.
+The tree comparison is exact over that class. A failed comparison supplies
+the existing depth-bounded shaped countermodel at the original native
+entries, so it also refutes validity over all shaped models.
+
+The input is a checked typed row witness. The operand is retained when a
+row is re-emitted and when it is unfolded into a request node. The diamond
+regression calls one key twice with different constructor arguments on
+one execution. An edit at the shared row changes only the final operand.
+The edited CFG checks against its own witness, and the original witness
+rejects it. The separating prefix faults on one argument and diverges on
+the other at the same state. A successful prefix preserves the ordered
+exit and final state or reaches literal UB through the selected exit.
+This extraction covers closed constructor operands at each site.
+[Native extraction theorems][ssa-ub-native-request-trees]
+
+### Environment-indexed extraction of open constructor operands
+
+The open extractor takes a checked typed row witness, the original typed
+native CFG, and a supplied typed caller packet. It re-emits the written CFG
+and checks ranks on the entry-reachable rows. The entry forwards the caller
+packet to the first row. A request operand is a pure typed constructor
+expression over the incoming packet at slot zero and the original caller
+packet at slot one.
+
+A tree node stores the evaluated argument and a continuation indexed by
+both the reply position and its typed payload. The continuation evaluates
+the next operand with the actual reply as its incoming packet. This
+representation needs no enumeration or equality test for reply values.
+The rank bounds extraction along a branch and certifies termination.
+
+Successful extraction agrees with the original CFG and its designated
+literal-UB exit continuations at every initial machine state of the
+deterministic shaped primitive interface. The equality retains ordered
+exits and final states, faults and their states, divergence, and fresh top.
+The regression sends different Boolean payloads at the same reply position
+and uses the payload as the next request's argument. The depth-bounded
+separation theorem applies to the closed fragment above.
+[Open extraction theorem][ssa-ub-open-operand-extraction]
+
+### Refinement at a fixed typed caller packet
+
+For two successfully extracted endpoints with the same entry packet type,
+`Table.refines_iff` identifies the installed shaped order at that packet,
+over every deterministic shaped primitive interpreter and initial state in
+the finite-state API, with the logical tree relation `Tree.Refines`.
+Matching queries agree on the opcode and evaluated argument. They compare
+continuations at every actual typed reply position and payload. A tag
+with an empty payload type contributes no comparisons; a key with no
+successful reply can still fault or diverge. Matching queries run from
+the same state, and a reply passes its final state to both continuations.
+Ordered exits and fault states remain observable. Literal UB is greatest
+on the right. A pending request can diverge or fault before a later UB.
+
+Failure selects a single finite path of shared replies and a final test.
+The deterministic handler has one state per shared reply, so repeated
+queries can receive different replies at different positions. It faults
+on the left query and diverges on the right at an unequal pair of queries.
+The successful reply steps use actual typed values. The primitive API
+permits those replies at the recorded argument and state. A stricter
+handler contract that forbids a recorded reply could prevent this witness.
+
+The checked comparison bounds the number of shared replies by the smaller
+of the two extraction budgets (entry rank plus one); the handler adds one
+final test state. Witness existence uses classical reasoning and needs no
+exhaustive reply enumeration. The regression takes two different payloads
+at the same reply tag: one distinguishes a next argument that reads the
+reply from one that reads the caller packet, and the other leaves the two
+observations equal. This equivalence quantifies over deterministic
+finite-state primitive interpretations at the supplied packet.
+[Open refinement theorems][ssa-ub-open-operand-refinement]
+
+### Executable refinement at a supplied caller packet
+
+`ReplyEnumeration` supplies a list for each opcode and a proof that it
+contains every typed packet in that opcode's dependent sum of reply
+positions and payloads. Duplicates are allowed. A key with no possible
+reply has an empty list. The comparison uses decidable opcode equality
+and the installed decidable equalities for evaluated constructor values
+(`Value Unit`) and terminal exits. It takes one typed caller packet,
+with no enumeration of the caller interface.
+
+`Table.checkRefinement?` uses the original exact re-emission and rank
+checks. Its Boolean verdict agrees with `Table.refines_iff` for
+successfully extracted endpoints under the deterministic shaped
+primitive interface. An absent verdict indicates failed extraction.
+`Table.compare?` also returns the first distinguishing prefix in the
+supplied reply order. The existing handler replays that prefix on the
+original typed endpoints. The proof certifies both paths and the same
+extraction rank bound, with one additional state for the final test.
+
+The native regression puts two payloads at tag zero. The first agrees.
+The second changes the evaluated next argument and produces a prefix
+with a fault on the source and divergence on the target. The checks
+also distinguish reached literal UB from an ordinary return and failed
+extraction from a rejected comparison.
+[Executable refinement checker][ssa-ub-open-operand-checker]
 
 ## Coverage and gaps
 
@@ -190,7 +1011,7 @@ extension of the native rewrite quotients are open. [Checked obstruction][ssa-ub
 |---|---|---|
 | LetCase | The exact typed preorder gives `caseTheory` and ordered algebra models. The separate operational institution observes results, faults and divergence. | Instantiate the ordered monad with `casePSig` or the specification of `caseTheory`. `typedEquiv` proves both typed round trips between explicit UB and native terms generated with `op (ub A) unit`, including under binders. The interpreted order preserves and reflects on these endpoints. Arbitrary unit-typed operands can have effects, and an operational equivalence needs to preserve their evaluation and justify the sequencing and UB laws in the chosen observation model. [Ordered theory][let-theory] [Typed round trip][case] [Ordered bridge][case-refinement] [Observations][obs] |
 | LetIter | `iterTheory` gives ordered refinement models. The separate quantitative `Refinement.Thms` also has categorical initiality and singleton-input completeness. Operational stuckness yields an undefined outcome, while the observational institution tracks returns, faults and divergence. | The exact literal-unit round trip and ordered quotient comparison include the iteration binder. Quantitative literal-unit UB is limited to discardable contexts and compatible effect bounds. A linear input would require a resource-consuming encoding or a different typing rule for UB. [Ordered theory][let-theory] [Ordered bridge][iter-ub-refinement] [Quantitative typing][iter-ub-quant] [Categorical initiality][quant] [Undefined outcome][iter-beh] |
-| LambdaSSA | Typed terms use unary instructions and regions have separate value and label contexts. The typed CFG quotient uses `RewriteEquiv`. The observational institution has inclusion of outcomes, with an observational isomorphism to LetIter for single-exit regions. | The primitive monad supplies a unit-taking expression instruction. Every exact typing interface, including the empty-label boundary, has a countermodel to uniform greatest refinement by a native region. At a fixed model with the stated saturation assumptions the unit-fed prefix is greatest at the empty interface. The independent exact-typed overlay adds a distinct greatest element with monotone label substitution and exact all-native CFG agreement. Overlay feedback remains open. [Empty-label boundary][ssa-ub] [Explicit overlay][ssa-ub-overlay] [Typing][ssa-typing] [Rewrite quotient][ssa-rewrite] [Observational isomorphism][ssa-obs] |
+| LambdaSSA | Typed terms use unary instructions and regions have separate value and label contexts. The CFG entry quotient uses `CfgEquiv`. The continuation quotients install additional equations. The observational institution has inclusion of outcomes, with an observational isomorphism to LetIter for single-exit regions. | The primitive monad supplies a unit-taking expression instruction. Every exact typing interface, including the empty-label boundary, has a countermodel to uniform greatest refinement by a native region. At a fixed model with the stated saturation assumptions the unit-fed prefix is greatest at the empty interface. The independent exact-typed overlay adds a distinct greatest element with monotone substitution and feedback, each with exact all-native CFG agreement. The overlay denotation descends through the native CFG entry quotient in all models and through native `ContinuationHom` and guarded `Paper.Hom` in shaped models over free types. [Continuation descent][ssa-ub-shaped-continuation] [Paper descent][ssa-ub-paper-descent] [CFG descent][ssa-ub-native-quotient] [Empty-label boundary][ssa-ub] [Explicit overlay][ssa-ub-overlay] [Feedback][ssa-ub-feedback] [Typing][ssa-typing] [Rewrite quotient][ssa-rewrite] [Observational isomorphism][ssa-obs] |
 | LambdaRTL | The acyclic model interprets unary applications in a monad; its alphabet institution takes the observation relation as a parameter. It distinguishes lexical SSA, projected RTL and full RTL store observations. The separate machine RTL adapter reports stuckness as an undefined outcome. | A top region needs a chosen store/label observation order and a typed result and continuation interface. Its interpretation must dominate all observations for every environment at the selected boundary. An instruction relabelling or a lawful monad supplies no such law. [Syntax and model][rtl] [Institution][rtl-inst] [Machine RTL outcomes][rtl-beh] |
 
 An effect bound of `⊤` permits all effects in the typing system. It does
@@ -212,6 +1033,29 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetCase.
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetIter.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Uniformity.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Elimination.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.NativeQuotient.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Uniformity.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.ExactSum.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Product.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Iteration.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Iteration.Refinement.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Capture.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Syntax.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.SingleRequest.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.RequestTree.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -256,3 +1100,67 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-overlay-defs]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Defs.lean
 [ssa-ub-overlay]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Thms.lean
 [ssa-ub-overlay-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Regression.lean
+[ssa-ub-feedback]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Thms.lean
+[ssa-ub-feedback-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Regression.lean
+[ssa-ub-uniformity]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Uniformity/Thms.lean
+[ssa-ub-uniformity-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Uniformity/Regression.lean
+[ssa-ub-elimination]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Elimination/Thms.lean
+[ssa-ub-elimination-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Elimination/Regression.lean
+[ssa-cfg-quotient]: ../../Silmaril/SSA/Isotope/LambdaSSA/Rewrite/Syntactic/Defs.lean
+[ssa-paper-soundness]: ../../Silmaril/SSA/Isotope/LambdaSSA/Rewrite/Theory/Closure/Paper/Soundness/Thms.lean
+[ssa-ub-native-quotient]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/NativeQuotient/Thms.lean
+[ssa-ub-descent-obstruction]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/NativeQuotient/Obstruction/Thms.lean
+[ssa-ub-descent-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/NativeQuotient/Regression.lean
+[ssa-ub-shaped-model]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Defs.lean
+[ssa-ub-shaped-laws]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Thms.lean
+[ssa-ub-shaped-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Regression.lean
+[ssa-native-continuation]: ../../Silmaril/SSA/Isotope/LambdaSSA/Rewrite/Theory/Closure/Category/Defs.lean
+[ssa-ub-shaped-continuation]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Continuation/Thms.lean
+[ssa-ub-shaped-continuation-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Continuation/Regression.lean
+[ssa-ub-paper-rewrite]: ../../Silmaril/SSA/Isotope/LambdaSSA/Rewrite/Theory/Closure/Paper/Defs.lean
+[ssa-ub-paper-collapse]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Thms.lean
+[ssa-ub-paper-uniformity]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Uniformity/Thms.lean
+[ssa-ub-paper-descent]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Descent/Thms.lean
+[ssa-ub-shaped-category]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Thms.lean
+[ssa-ub-paper-category]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Thms.lean
+[ssa-ub-paper-category-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Regression.lean
+[ssa-ub-shaped-exact-sum]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/ExactSum/Thms.lean
+[ssa-ub-paper-exact-sum]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/ExactSum/Thms.lean
+[ssa-ub-paper-exact-sum-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/ExactSum/Regression.lean
+[ssa-ub-shaped-product]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Product/Thms.lean
+[ssa-ub-paper-product]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Product/Thms.lean
+[ssa-ub-paper-product-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Product/Regression.lean
+[ssa-ub-paper-uniformity-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Uniformity/Regression.lean
+[ssa-ub-paper-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Regression.lean
+[ssa-ub-paper-iteration]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Iteration/Thms.lean
+[ssa-ub-paper-iteration-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Iteration/Regression.lean
+[ssa-ub-paper-iteration-refinement]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Iteration/Refinement/Regression.lean
+[ssa-ub-shaped-overlay-iteration]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Thms.lean
+[ssa-ub-shaped-overlay-iteration-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Regression.lean
+[ssa-ub-shaped-capture-iteration]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Capture/Thms.lean
+[ssa-ub-paper-capture-iteration]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Iteration/Capture/Thms.lean
+[ssa-ub-shaped-capture-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Capture/Regression.lean
+[ssa-ub-finite-iteration]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Thms.lean
+[ssa-ub-finite-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Regression.lean
+[ssa-ub-finite-syntax]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Syntax/Thms.lean
+[ssa-ub-finite-syntax-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Syntax/Regression.lean
+[ssa-ub-finite-cfg]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Thms.lean
+[ssa-ub-finite-cfg-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Regression.lean
+[ssa-ub-dependent-cfg]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Thms.lean
+[ssa-ub-dependent-cfg-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Regression.lean
+[ssa-ub-native-packed-readback]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
+[ssa-ub-native-packed-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Regression.lean
+[ssa-ub-native-router-normalize]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Normalize/Thms.lean
+[ssa-ub-native-packed-institution]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Institution/Thms.lean
+[ssa-ub-native-exit-ub]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/ExitUB/Thms.lean
+
+[ssa-ub-single-request]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/SingleRequest/Thms.lean
+[ssa-ub-raw-obstruction]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/NativeQuotient/Obstruction/Thms.lean
+[ssa-ub-common-request]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Rewrite/Repair/Reply/Payload/Finite/CommonRequest/Thms.lean
+[ssa-ub-two-request]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/TwoRequest/Thms.lean
+[ssa-ub-request-tree]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/RequestTree/Thms.lean
+[ssa-ub-dependent-request-tree]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Thms.lean
+[ssa-ub-native-request-trees]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/Thms.lean
+[ssa-ub-open-operand-extraction]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Thms.lean
+[ssa-ub-open-operand-refinement]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Thms.lean
+[ssa-ub-open-operand-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Checker/Thms.lean

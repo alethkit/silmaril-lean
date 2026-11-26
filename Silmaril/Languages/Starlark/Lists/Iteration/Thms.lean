@@ -32,6 +32,13 @@ theorem cursorCollects_length {cursor : Cursor} {values : List Value}
     (ran : CursorCollects cursor values) : values.length = cursor.remaining :=
   Proofs.Languages.Starlark.Lists.Iteration.cursorCollects_length ran
 
+/-- Node unpacking agrees with its checked cursor denotation. -/
+theorem unpacksValue_iff_unpackValue (state : State) (value : Value) (arity : Nat)
+    (out : Outcome (List Value)) : UnpacksValue state value arity out ↔
+      unpackValue arity value state = out :=
+  ⟨Proofs.Languages.Starlark.Lists.Iteration.unpackValue_eq_of_unpacks,
+    fun ran => ran ▸ Proofs.Languages.Starlark.Lists.Iteration.unpacksValue_unpackValue state value arity⟩
+
 /-- A successful node unpack supplies exactly one value per child. -/
 theorem unpacksValue_length {s t : State} {value : Value} {arity : Nat} {values : List Value}
     (ran : UnpacksValue s value arity (.ok values t)) : values.length = arity := by

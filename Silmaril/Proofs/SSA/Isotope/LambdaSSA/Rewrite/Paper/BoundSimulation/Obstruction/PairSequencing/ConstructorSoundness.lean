@@ -22,29 +22,32 @@ universe u v
 
 variable {α : Type u} {Φ : Type v} [HasTy Φ (Ty α)]
 
-private theorem sequence_pair (a b : Tm Φ) (env : Env) :
-    evalRegionWith {} (returnOnce (.pair a b)) env =
-      evalRegionWith {} (pairSequence a b) env := by
+local notation "plain" => ({} : TermObservation (α := α) Φ)
+
+theorem sequence_pair {observation : TermObservation (α := α) Φ} (unmarked : observation.pairLet = false)
+    (a b : Tm Φ) (env : Env) :
+    evalRegionWith observation (returnOnce (.pair a b)) env =
+      evalRegionWith observation (pairSequence a b) env := by
   simp only [returnOnce, pairSequence, evalRegionWith, evalTermWith,
-    Bool.false_and, Bool.false_eq_true, ↓reduceIte]
-  cases evalTermWith {} a env with
+    unmarked, Bool.false_and, Bool.false_eq_true, ↓reduceIte]
+  cases evalTermWith observation a env with
   | none => rfl
   | some v =>
-    simp only [evalTerm_rename b (observation := {}) (env := env)
+    simp only [evalTerm_rename b (observation := observation) (env := env)
       (env' := extend env v) (ρ := Nat.succ) (fun _ => rfl)]
-    cases evalTermWith {} b env <;> rfl
+    cases evalTermWith observation b env <;> rfl
 
 private theorem sequence_inl (a : Tm Φ) (env : Env) :
-    evalRegionWith {} (returnOnce (.inl a)) env =
-      evalRegionWith {} (inlSequence a) env := by
+    evalRegionWith plain (returnOnce (.inl a)) env =
+      evalRegionWith plain (inlSequence a) env := by
   simp only [returnOnce, inlSequence, evalRegionWith, evalTermWith]
-  cases evalTermWith {} a env <;> rfl
+  cases evalTermWith plain a env <;> rfl
 
 private theorem sequence_inr (a : Tm Φ) (env : Env) :
-    evalRegionWith {} (returnOnce (.inr a)) env =
-      evalRegionWith {} (inrSequence a) env := by
+    evalRegionWith plain (returnOnce (.inr a)) env =
+      evalRegionWith plain (inrSequence a) env := by
   simp only [returnOnce, inrSequence, evalRegionWith, evalTermWith]
-  cases evalTermWith {} a env <;> rfl
+  cases evalTermWith plain a env <;> rfl
 
 section
 
@@ -55,10 +58,10 @@ variable [UnitPayloadPolicy]
 /-- Opt-in constructor sequencing preserves the unmarked observation. -/
 theorem sequencing_same {Γ L : List (Ty α)} {r s : Region Φ}
     (h : Paper.WithConstructorSequencing.Eqv Γ r s L) : SameWith {} Γ r s :=
-  extension_same (observation := {}) (fun e =>
+  extension_same (observation := plain) (fun e =>
     Or.elim e unary_fusion_same (fun h => by
       cases h with
-      | pair ha hb => exact fun env _ => sequence_pair _ _ env
+      | pair ha hb => exact fun env _ => sequence_pair (observation := plain) rfl _ _ env
       | inl ha => exact fun env _ => sequence_inl _ env
       | inr ha => exact fun env _ => sequence_inr _ env)) h
 
@@ -116,10 +119,9 @@ private theorem closed_has_distinct_values {Γ : VCtx (Ty α)} {w : Tm Φ} {P : 
     obtain ⟨x, y, hx, hy, ne⟩ := ih
     exact ⟨.inr x, .inr y, .inr hx, .inr hy, fun eq => ne (Value.inr.inj eq)⟩
 
-omit [HasTy Φ (Ty α)] in
 private theorem eval_closed_independent {Γ : VCtx (Ty α)} {w : Tm Φ} {P : Ty α}
     (hw : Tm.BranchValue Γ w P) (emptyCtx : Γ = []) (env other : Env) :
-    evalTermWith {} w env = evalTermWith {} w other := by
+    evalTermWith plain w env = evalTermWith plain w other := by
   induction hw with
   | var hi => subst Γ; cases hi
   | unit => rfl
@@ -137,9 +139,9 @@ theorem reset_ne_forward {P : Ty α} {w : Tm Φ} (hw : Tm.BranchValue [] w P) :
     ¬ Paper.WithConstructorSequencing.Eqv [P] (.br 0 w) (.br 0 (.var 0)) [P] := by
   intro h
   obtain ⟨x, y, hx, hy, ne⟩ := closed_has_distinct_values hw rfl
-  have seen (v : Val) (hv : ValTy v P) : evalTermWith {} w (fun _ => v) = some v := by
+  have seen (v : Val) (hv : ValTy v P) : evalTermWith plain w (fun _ => v) = some v := by
     have e := sequencing_same h (fun _ => v) (singleton_env hv)
-    cases run : evalTermWith {} w (fun _ => v) <;>
+    cases run : evalTermWith plain w (fun _ => v) <;>
       simp_all only [evalRegionWith, evalTermWith, Result.jump.injEq, true_and]
     contradiction
   exact ne (Option.some.inj ((seen x hx).symm.trans ((eval_closed_independent hw rfl _ _).trans (seen y hy))))
@@ -150,7 +152,7 @@ theorem reset_left_ne_right {P : Ty α} {w : Tm Φ} (hw : Tm.BranchValue [] w P)
   obtain ⟨v, _, hv, _, _⟩ := closed_has_distinct_values hw rfl
   have e := sequencing_same h (fun _ => v) (singleton_env hv)
   have ctx : EnvTy ([] : VCtx (Ty α)) (fun _ => v) := fun _ _ hi => by cases hi
-  obtain ⟨x, eval, _⟩ := evalValue (observation := {}) hw ctx
+  obtain ⟨x, eval, _⟩ := evalValue (observation := plain) hw ctx
   simp only [evalRegionWith, evalTermWith, eval, Option.map_some, Result.jump.injEq, true_and] at e
   cases e
 
@@ -161,10 +163,9 @@ private def quote : Val → Tm Φ
   | .inl v => .inl (quote v)
   | .inr v => .inr (quote v)
 
-omit [HasTy Φ (Ty α)] in
 private theorem eval_quote {Γ : VCtx (Ty α)} {t : Tm Φ} {A : Ty α}
     (ht : Tm.BranchValue Γ t A) (env : Env) :
-    (evalTermWith {} t env).map quote = some (t.subst (quote ∘ env)) := by
+    (evalTermWith plain t env).map quote = some (t.subst (quote ∘ env)) := by
   induction ht with
   | var _ => rfl
   | unit => rfl
@@ -205,7 +206,7 @@ theorem closed_resets_injective {P : Ty α} {x y : Tm Φ}
     (hx : Tm.BranchValue [] x P) (hy : Tm.BranchValue [] y P)
     (h : Paper.WithConstructorSequencing.Eqv [P] (.br 0 x) (.br 0 y) [P]) : x = y := by
   have env : EnvTy ([] : VCtx (Ty α)) (fun _ => .unit) := fun _ _ hi => by cases hi
-  obtain ⟨v, _, hv⟩ := evalValue (observation := {}) hx env
+  obtain ⟨v, _, hv⟩ := evalValue (observation := plain) hx env
   simpa only [closed_subst hx rfl, closed_subst hy rfl] using singleton_branch_observation hx hy h v hv
 
 theorem branch_observation_of_closed_input {t u w : Tm Empty} {A P : Ty Empty}

@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.AtomicSequence.Defs
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Equations.Thms
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.ProductSplit.Defs
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.CallByValue.Thms
 
 open Silmaril.Isotope Silmaril.Isotope.Semantics Silmaril.Elgot
@@ -29,6 +30,9 @@ public theorem lowers (p : Prog A slots) : p.source.toLetIter n = some p.native 
   | ret v => exact PureValues.lowers v
   | call _ _ _ _ _ ih | callPair _ _ _ _ _ ih =>
     simp only [Program.source, Program.native, Expr.toLetIter, PureValues.lowers, ih,
+      Option.bind_some, Option.map_some]
+  | callSum _ _ _ _ _ _ ihL ihR =>
+    simp only [Program.source, Program.native, Expr.toLetIter, PureValues.lowers, ihL, ihR,
       Option.bind_some, Option.map_some]
 
 section Denotation
@@ -193,6 +197,106 @@ public theorem denote_nextPair_eq {f : Φ} (visible : ¬ IsPure (⊥ : ε) f)
       rfl (fun _ => rfl) j
   rwa [valuation] at cont
 
+set_option backward.isDefEq.respectTransparency false in
+private theorem denote_sum_binder {a b : α}
+    {s : Tm Empty Φ n} {l r : Tm Empty Φ (n + 1)} {R : Ty α}
+    (ty : R = .coprod (.base a) (.base b))
+    (arg : Derivation Φ .nil β s R)
+    (left : Derivation Φ .nil (β.snoc (.base a)) l A)
+    (right : Derivation Φ .nil (β.snoc (.base b)) r A)
+    (ρ : BoundEnv (Ty.denote (Lifted (Atoms modelSlots))) β) :
+    let V := Atoms modelSlots
+    let D := Ty.denote (Lifted V)
+    let M := instructions V (pureMaps modelSlots profile)
+    (Derivation.case (cast (congrArg (Derivation Φ (Ctx.nil : Ctx Empty (Ty α)) β s) ty) arg)
+        left right).denote D M (fun x => x.elim) ρ =
+      arg.denote D M (fun x => x.elim) ρ >>= fun reply =>
+        match cast (congrArg D ty) reply with
+        | .inl value => left.denote D M (fun x => x.elim) (ρ.snoc value)
+        | .inr value => right.denote D M (fun x => x.elim) (ρ.snoc value) := by
+  subst R
+  dsimp only
+  rw [Derivation.denote]
+  congr 1
+  funext reply
+  cases reply <;> rfl
+
+set_option backward.isDefEq.respectTransparency false in
+public theorem denote_callSum {f : Φ} (visible : ¬ IsPure (⊥ : ε) f)
+    {a b : α} (ty : (instrTrg f : Ty α) = .coprod (.base a) (.base b))
+    (arg : Val slots (instrSrc f)) (left : Prog A (Fin.cases a slots))
+    (right : Prog A (Fin.cases b slots)) :
+    (Program.callSum f visible ty arg left right).denote profile modelSlots hs vars =
+      ITree.vis (.call f (arg.subst vars).encode) (fun reply =>
+        match cast (congrArg (Ty.denote (Atoms modelSlots)) ty) reply with
+        | .inl value => left.denote profile modelSlots (replySlots hs rfl)
+            (Fin.cases (motive := fun i => Atoms modelSlots (Fin.cases (motive := fun _ => α) a slots i)) value vars)
+        | .inr value => right.denote profile modelSlots (replySlots hs rfl)
+            (Fin.cases (motive := fun i => Atoms modelSlots (Fin.cases (motive := fun _ => α) b slots i)) value vars)) := by
+  unfold Program.denote
+  rw [Program.derivation, denote_sum_binder (profile := profile) (modelSlots := modelSlots) ty]
+  rw [Derivation.denote, denote_value_at profile modelSlots hs arg vars]
+  erw [pure_bind]
+  rw [eval_bind_of_not_pure _ _ visible, _root_.Equiv.apply_symm_apply]
+  congr 1
+  funext reply
+  let V := Atoms modelSlots
+  have lift {R : Ty α} (h : R = .coprod (.base a) (.base b)) (x : Ty.denote V R) :
+      cast (congrArg (Ty.denote (Lifted V)) h) ((toSmall V R).symm x) =
+        (toSmall V _).symm (cast (congrArg (Ty.denote V) h) x) := by
+    subst R
+    rfl
+  dsimp only
+  erw [lift ty reply]
+  generalize (cast (congrArg (Ty.denote V) ty) reply) = observed
+  cases observed with
+  | inl x =>
+    exact congrArg _ (valuationEnv_snoc modelSlots hs vars (rfl : Ty.base a = .base a) x).symm
+  | inr x =>
+    exact congrArg _ (valuationEnv_snoc modelSlots hs vars (rfl : Ty.base b = .base b) x).symm
+
+set_option backward.isDefEq.respectTransparency false in
+public theorem denote_nextSum_eq {f : Φ} (visible : ¬ IsPure (⊥ : ε) f)
+    {a b : α} (ty : (instrTrg f : Ty α) = .coprod (.base a) (.base b))
+    (arg : Val slots (instrSrc f))
+    {l l' : Prog A (Fin.cases a slots)} {r r' : Prog A (Fin.cases b slots)}
+    (h : ∀ vars : (i : Fin n) → Atoms modelSlots (slots i),
+      (Program.callSum f visible ty arg l r).denote profile modelSlots hs vars =
+        (Program.callSum f visible ty arg l' r').denote profile modelSlots hs vars) :
+    (∀ vals : (i : Fin (n + 1)) → Atoms modelSlots (Fin.cases (motive := fun _ => α) a slots i),
+      l.denote profile modelSlots (replySlots hs rfl) vals =
+        l'.denote profile modelSlots (replySlots hs rfl) vals) ∧
+    (∀ vals : (i : Fin (n + 1)) → Atoms modelSlots (Fin.cases (motive := fun _ => α) b slots i),
+      r.denote profile modelSlots (replySlots hs rfl) vals =
+        r'.denote profile modelSlots (replySlots hs rfl) vals) := by
+  let V := Atoms modelSlots
+  have branch {c : α} (vals : (i : Fin (n + 1)) → V (Fin.cases (motive := fun _ => α) c slots i)) :
+      Fin.cases (motive := fun i => V (Fin.cases (motive := fun _ => α) c slots i))
+        (vals 0) (fun i => vals i.succ) = vals := by
+    funext i
+    exact Fin.cases rfl (fun _ => rfl) i
+  have obs (xs : (i : Fin n) → V (slots i)) := h xs
+  simp only [denote_callSum] at obs
+  constructor
+  · intro vals
+    let shape := ReplyShape.inl (B := .base b) (ReplyShape.atom a)
+    let reply := shape.denote V (fun _ => vals 0)
+    let x := cast (congrArg (Ty.denote V) ty.symm) reply
+    have cont := ((vis_eq_iff V).mp (obs (fun i => vals i.succ))).2 x
+    have normalize : cast (congrArg (Ty.denote V) ty) x = Sum.inl (vals 0) := by
+      simp [x, reply, shape, ReplyShape.denote]
+    rw [normalize] at cont
+    exact (branch vals) ▸ cont
+  · intro vals
+    let shape := ReplyShape.inr (A := .base a) (ReplyShape.atom b)
+    let reply := shape.denote V (fun _ => vals 0)
+    let x := cast (congrArg (Ty.denote V) ty.symm) reply
+    have cont := ((vis_eq_iff V).mp (obs (fun i => vals i.succ))).2 x
+    have normalize : cast (congrArg (Ty.denote V) ty) x = Sum.inr (vals 0) := by
+      simp [x, reply, shape, ReplyShape.denote]
+    rw [normalize] at cont
+    exact (branch vals) ▸ cont
+
 end Denotation
 
 variable (profile : Profile (α := α) Φ ε)
@@ -214,6 +318,9 @@ public theorem eq_of_denote_eq {β : BoundCtx (Ty α) n} (hs : ∀ i, β.get i =
       exact (ITree.ret_ne_vis _ _ _ obs).elim
     | callPair g vG ty args next =>
       rw [denote_ret, denote_callPair] at obs
+      exact (ITree.ret_ne_vis _ _ _ obs).elim
+    | callSum g vG ty args left right =>
+      rw [denote_ret, denote_callSum] at obs
       exact (ITree.ret_ne_vis _ _ _ obs).elim
   | @call size ss f vF a ty args next ih =>
     have obs := h ss Value.var
@@ -239,6 +346,12 @@ public theorem eq_of_denote_eq {β : BoundCtx (Ty α) n} (hs : ∀ i, β.get i =
       exact denote_next_eq profile modelSlots hs vF ty args vals (h modelSlots (fun i => vals i.succ))
     | callPair g vG ty' args' next' =>
       rw [denote_call, denote_callPair] at obs
+      have fg := congrArg Sigma.fst (request_eq_of_vis_eq (Atoms ss) obs)
+      change f = g at fg
+      subst g
+      cases ty.symm.trans ty'
+    | callSum g vG ty' args' left right =>
+      rw [denote_call, denote_callSum] at obs
       have fg := congrArg Sigma.fst (request_eq_of_vis_eq (Atoms ss) obs)
       change f = g at fg
       subst g
@@ -272,6 +385,50 @@ public theorem eq_of_denote_eq {β : BoundCtx (Ty α) n} (hs : ∀ i, β.get i =
       apply ih (pairReplySlots hs a b)
       intro m modelSlots vals
       exact denote_nextPair_eq profile modelSlots hs vF ty args vals (h modelSlots (fun i => vals i.succ.succ))
+    | callSum g vG ty' args' left right =>
+      rw [denote_callPair, denote_callSum] at obs
+      have fg := congrArg Sigma.fst (request_eq_of_vis_eq (Atoms ss) obs)
+      change f = g at fg
+      subst g
+      cases ty.symm.trans ty'
+  | @callSum size ss f vF a b ty args left right ihL ihR =>
+    have obs := h ss Value.var
+    cases q with
+    | ret w =>
+      rw [denote_callSum, denote_ret] at obs
+      exact (ITree.ret_ne_vis _ _ _ obs.symm).elim
+    | call g vG ty' args' next' =>
+      rw [denote_callSum, denote_call] at obs
+      have fg := congrArg Sigma.fst (request_eq_of_vis_eq (Atoms ss) obs)
+      change f = g at fg
+      subst g
+      cases ty.symm.trans ty'
+    | callPair g vG ty' args' next' =>
+      rw [denote_callSum, denote_callPair] at obs
+      have fg := congrArg Sigma.fst (request_eq_of_vis_eq (Atoms ss) obs)
+      change f = g at fg
+      subst g
+      cases ty.symm.trans ty'
+    | callSum g vG ty' args' left' right' =>
+      rw [denote_callSum, denote_callSum] at obs
+      have req := request_eq_of_vis_eq (Atoms ss) obs
+      have fg := congrArg Sigma.fst req
+      change f = g at fg
+      subst g
+      obtain ⟨ha, hb⟩ := Ty.coprod.inj (ty.symm.trans ty')
+      cases Ty.base.inj ha
+      cases Ty.base.inj hb
+      have eqArgs : args = args' := by
+        have eqEnc := eq_of_heq (Sigma.mk.inj req).2
+        exact encode_injective (by simpa only [subst_var] using eqEnc)
+      subst args'
+      have heL := ihL (replySlots hs (rfl : Ty.base a = _)) (fun modelSlots =>
+        (denote_nextSum_eq profile modelSlots hs vF ty args (h modelSlots)).1)
+      have heR := ihR (replySlots hs (rfl : Ty.base b = _)) (fun modelSlots =>
+        (denote_nextSum_eq profile modelSlots hs vF ty args (h modelSlots)).2)
+      cases heL
+      cases heR
+      rfl
 
 include profile in
 public theorem eq_of_abortEquiv [DecidableEq α] {β : BoundCtx (Ty α) n}
@@ -376,6 +533,39 @@ public theorem pairLet_specialize {Γ : EffectCtx (Ty α) ε} {a b : Ty α} {e :
   rw [specialized]
   exact step.trans (betaLeft.trans betaRight)
 
+section SumReply
+
+variable {Γ : EffectCtx (Ty α) ε} {B C D : Ty α} {e : ε} {s l r l' r' : Expr Φ}
+
+private theorem front_wk : SumSplit.toFront 0 = Expr.liftWk Nat.succ := by
+  funext i
+  cases i <;> rfl
+
+private theorem caseArms_zero (l r : Expr Φ) :
+    SumSplit.caseArms 0 l r = .case (.var 0) l.wk1 r.wk1 := by
+  rw [SumSplit.caseArms, front_wk]
+  rfl
+
+public theorem sumReply_bind (hs : Wf Γ s (Ty.coprod B C) e)
+    (hl : Wf ((B, ⊥) :: Γ) l D e) (hr : Wf ((C, ⊥) :: Γ) r D e) :
+    Eqv Γ D e (.case s l r) (.let₁ s (.case (.var 0) l.wk1 r.wk1)) := by
+  have body := SumSplit.caseArms_wf (Γ := (Ty.coprod B C, (⊥ : ε)) :: Γ) (A := B) (B := C)
+    0 rfl rfl hl hr
+  change Wf ((Ty.coprod B C, (⊥ : ε)) :: Γ) (SumSplit.caseArms 0 l r) D e at body
+  rw [caseArms_zero] at body
+  exact .step (.rewrite (.case hs hl hr) (.let₁ hs body) (.case_bind s l r))
+
+public theorem sumReply_eqv_iff (hl : Wf ((B, ⊥) :: Γ) l D e) (hr : Wf ((C, ⊥) :: Γ) r D e)
+    (hl' : Wf ((B, ⊥) :: Γ) l' D e) (hr' : Wf ((C, ⊥) :: Γ) r' D e) :
+    Eqv ((Ty.coprod B C, (⊥ : ε)) :: Γ) D e
+      (.case (.var 0) l.wk1 r.wk1) (.case (.var 0) l'.wk1 r'.wk1) ↔
+      Eqv ((B, ⊥) :: Γ) D e l l' ∧ Eqv ((C, ⊥) :: Γ) D e r r' := by
+  rw [← caseArms_zero, ← caseArms_zero]
+  exact SumSplit.caseArms_eqv_iff (Γ := (Ty.coprod B C, (⊥ : ε)) :: Γ) (A := B) (B := C)
+    0 rfl rfl hl hr hl' hr'
+
+end SumReply
+
 private theorem wf_aux (p : Program (Φ := Φ) (ε := ε) A slots) {e : ε} (hp : p.Within e) :
     ∀ {Γ : EffectCtx (Ty α) ε} (len : Γ.length = n), Γ.Pure →
       (∀ i : Fin Γ.length, (Γ.get i).1 = .base (slots (i.cast len))) → Wf Γ p.source A e := by
@@ -395,6 +585,14 @@ private theorem wf_aux (p : Program (Φ := Φ) (ε := ε) A slots) {e : ε} (hp 
     have call := Wf.op (f := f) hp.1 ((PureValues.wf arg hΓ hs).weakenEffect bot_le)
     rw [ty] at call
     exact .let₂ call (ih hp.2 rfl (sourcePure (sourcePure hΓ _) _) (sourcePairSlots hs a b))
+  | @callSum size ss f visible a b ty arg left right ihL ihR =>
+    intro Γ len hΓ hs
+    subst size
+    have call := Wf.op (f := f) hp.1 ((PureValues.wf arg hΓ hs).weakenEffect bot_le)
+    rw [ty] at call
+    exact .case call
+      (ihL hp.2.1 rfl (sourcePure hΓ _) (sourceSlots hs rfl))
+      (ihR hp.2.2 rfl (sourcePure hΓ _) (sourceSlots hs rfl))
 
 public theorem wf {Γ : EffectCtx (Ty α) ε} {slots : Fin Γ.length → α}
     (hΓ : Γ.Pure) (hs : ∀ i, (Γ.get i).1 = .base (slots i)) {e : ε}
@@ -440,6 +638,23 @@ public theorem normalize (h : Written A e Γ a) :
     rw [reply] at req
     exact ⟨.callPair f visible reply v next, ⟨bound, hn⟩,
       (pairLet_bind req.endpoints_wf.1 he.endpoints_wf.1).symm.trans (.let2 req he)⟩
+  | @callSum Γ arg l r f a b visible reply typed leaf bound _ _ ihL ihR =>
+    intro slots hΓ hs
+    obtain ⟨v, hv⟩ := normalize_leaf profile typed leaf hΓ hs e
+    obtain ⟨left, hleft, heL⟩ := ihL (Fin.cases a slots) (sourcePure hΓ _) (sourceSlots hs rfl)
+    obtain ⟨right, hright, heR⟩ := ihR (Fin.cases b slots) (sourcePure hΓ _) (sourceSlots hs rfl)
+    have req := Eqv.op (f := f) bound hv
+    rw [reply] at req
+    exact ⟨.callSum f visible reply v left right, ⟨bound, hleft, hright⟩, .case req heL heR⟩
+  | @callSumViaLet Γ arg l r f a b visible reply typed leaf bound _ _ ihL ihR =>
+    intro slots hΓ hs
+    obtain ⟨v, hv⟩ := normalize_leaf profile typed leaf hΓ hs e
+    obtain ⟨left, hleft, heL⟩ := ihL (Fin.cases a slots) (sourcePure hΓ _) (sourceSlots hs rfl)
+    obtain ⟨right, hright, heR⟩ := ihR (Fin.cases b slots) (sourcePure hΓ _) (sourceSlots hs rfl)
+    have req := Eqv.op (f := f) bound hv
+    rw [reply] at req
+    exact ⟨.callSum f visible reply v left right, ⟨bound, hleft, hright⟩,
+      (sumReply_bind req.endpoints_wf.1 heL.endpoints_wf.1 heR.endpoints_wf.1).symm.trans (.case req heL heR)⟩
 
 end Normalize
 

@@ -28,6 +28,25 @@ theorem compile_chain {globals : List String} {program : Program}
           EmittedProgram program (head :: rest)) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Forwarding.compile_chain accepted
 
+/-- Compilation also records the child ID actually used by each wrapper. -/
+theorem compile_chain_linked {globals : List String} {program : Program}
+    {outer : List (List String)} {chain : Chain} (accepted : Accepted globals program outer chain) :
+    ∃ head rest, Emits globals outer chain (head :: rest) ∧ Links program chain (head :: rest) ∧
+      compileBody (parentContext globals outer) chain.definition program =
+        .ok (⟨.define (fileSlot chain.name) (EmittedProgram program rest).size, head.free.map FreeName.source⟩,
+          EmittedProgram program (head :: rest)) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Forwarding.compile_chain_linked accepted
+
+/-- Compilation identifies the lexical block used by the emitted leaf. -/
+theorem compile_chain_scoped {globals : List String} {program : Program}
+    {outer : List (List String)} {chain : Chain} (accepted : Accepted globals program outer chain) :
+    ∃ head rest, Emits globals outer chain (head :: rest) ∧ Links program chain (head :: rest) ∧
+      ScopedLeaves globals outer chain (head :: rest) ∧
+      compileBody (parentContext globals outer) chain.definition program =
+        .ok (⟨.define (fileSlot chain.name) (EmittedProgram program rest).size, head.free.map FreeName.source⟩,
+          EmittedProgram program (head :: rest)) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Forwarding.compile_chain_scoped accepted
+
 theorem emitted_declaration (program : Program) (frames : List Frame) (frame : Frame)
     (present : frame ∈ frames) : ∃ id : Nat, (EmittedProgram program frames)[id]? = some frame.declaration :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Forwarding.emitted_declaration program frames frame present
@@ -75,6 +94,13 @@ theorem installs_of_addresses (state : State) (free : List FreeName)
     (addresses : ∀ entry ∈ free, ∃ binding address, entry = reference binding ∧ HasAddress state binding address) :
     ∃ captures, Installs state free captures :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Forwarding.installs_of_addresses state free addresses
+
+/-- Lookup in the installed vector recovers the defining-frame receipt. -/
+theorem find_receipt {state : State} {free : List FreeName} {captures : List Lists.Capture}
+    (installed : Installs state free captures) (binding : Binding) (present : reference binding ∈ free) :
+    ∃ capture, captures.find? (fun entry => entry.binding == binding) = some capture ∧
+      capture.binding = binding ∧ ReceivesAddress state (reference binding) capture :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Forwarding.find_receipt installed binding present
 
 /-- Allocating the parent's frame supplies all its child's capture slots.
 The parent receives its own free addresses as input. -/

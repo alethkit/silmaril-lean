@@ -13,8 +13,38 @@ universe u v
 namespace Silmaril.Isotope.LambdaSSA.Region.Paper.TypeCategory
 
 open CategoryTheory CategoryTheory.Limits
+open ContinuationContext (single)
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ] {A B C : τ}
+
+/-- The outward summand dispatches to the second CFG label. -/
+@[reassoc]
+theorem inl_iterationDispatchArrow (A B : TypeCategory (τ := τ) Φ) :
+    (toInterface Φ).map (coprod.inl : B ⟶ B ⨿ A) ≫ iterationDispatchArrow A B =
+      Paper.fromNative.map ((single (show τ from A)).appendInr (single (show τ from B))) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonIteration.inl_iterationDispatchArrow A B
+
+/-- The recursive summand dispatches to the first CFG label. -/
+@[reassoc]
+theorem inr_iterationDispatchArrow (A B : TypeCategory (τ := τ) Φ) :
+    (toInterface Φ).map (coprod.inr : A ⟶ B ⨿ A) ≫ iterationDispatchArrow A B =
+      Paper.fromNative.map ((single (show τ from A)).appendInl (single (show τ from B))) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonIteration.inr_iterationDispatchArrow A B
+
+/-- Guarded iteration dispatches the chosen sum, then runs literal feedback. -/
+theorem toInterface_map_iterate {A B : TypeCategory (τ := τ) Φ} (f : A ⟶ B ⨿ A) :
+    (toInterface Φ).map (Paper.TypeCategory.iterate f) =
+      feedback (X := single (show τ from A)) (Y := single (show τ from B))
+        ((toInterface Φ).map f ≫ iterationDispatchArrow A B) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonIteration.toInterface_map_iterate f
+
+/-- The singleton interface images of the two chosen coproduct injections are jointly epic. -/
+theorem chosen_sum_hom_ext {A B : TypeCategory (τ := τ) Φ} {Z : Interface Φ ([] : VCtx τ)}
+    {p q : (toInterface Φ).obj (B ⨿ A) ⟶ Z}
+    (hl : (toInterface Φ).map (coprod.inl : B ⟶ B ⨿ A) ≫ p = (toInterface Φ).map coprod.inl ≫ q)
+    (hr : (toInterface Φ).map (coprod.inr : A ⟶ B ⨿ A) ≫ p = (toInterface Φ).map coprod.inr ≫ q) :
+    p = q :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonIteration.chosen_sum_hom_ext hl hr
 
 /-- Feedback on a region returning an exact sum is represented by a one-label CFG. -/
 theorem iterateSum_ofRegion {p : Region Φ} (hp : ValueBranches [A] p [Silmaril.coprod B A]) :

@@ -54,7 +54,12 @@ private def detail : AssertionArgument → String
   | .empty => "empty"
   | .text text => "text:" ++ text
   | .integerPair left right => s!"pair:{left}:{right}"
+  | .numericPair left right => s!"numeric-pair:{reprStr left}:{reprStr right}"
+  | .boolean value => if value then "bool:True" else "bool:False"
   | .booleanPair left right => s!"bool-pair:{left}:{right}"
+  | .textPair left right =>
+    s!"text-pair:{reprStr (left.points.map UInt32.toNat)}:{reprStr (right.points.map UInt32.toNat)}"
+  | .tuplePair left right => s!"tuple-pair:{reprStr left}:{reprStr right}"
 
 private def raised : Raised → String
   | .assertionError argument => "AssertionError:" ++ detail argument
@@ -765,10 +770,11 @@ after = 9
     ("isinstance_int_int", "legacy_bool_isinstance_builtin", "result = 5\nresult = isinstance(1, int)\nafter = 9\n",
      ["unsupported", "int:5", "absent"]),
     ("bool_direct", "legacy_bool_isinstance_preamble", "result = 5\nresult = bool(1)\nafter = 9\n",
-     ["unsupported", "int:5", "absent"]),
+     ["normal", "bool:True", "int:9"]),
 )
 
 NESTED_CALL_NAMES = {
+    "bool_direct": ["bool"],
     "none_value_tags": [],
     "none_value_left_lookup": [],
     "none_value_right_lookup": [],
@@ -861,7 +867,7 @@ EXACT_FIXTURE_BINDINGS = {
     "isinstance_distinct": '[("result", .int 5)]',
     "isinstance_shadowed_type": '[("bool", .int 7), ("result", .int 5)]',
     "isinstance_int_int": '[("result", .int 5)]',
-    "bool_direct": '[("result", .int 5)]',
+    "bool_direct": '[("after", .int 9), ("result", .bool true)]',
 }
 
 IDENTITY_FIXTURE_BINDINGS = {
@@ -901,6 +907,8 @@ def assertion(error):
     if not error.args:
         return "AssertionError:empty"
     (argument,) = error.args
+    if type(argument) is bool:
+        return f"AssertionError:bool:{argument}"
     if isinstance(argument, tuple):
         left, right = argument
         if type(left) is bool and type(right) is bool:

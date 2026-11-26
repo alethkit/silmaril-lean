@@ -29,6 +29,12 @@ theorem Eqv.typed (h : Eqv Seed Γ r s L) : HasType Γ r L ∧ HasType Γ s L :=
 theorem Eqv.refl (hr : HasType Γ r L) : Eqv Seed Γ r r L :=
   .paper (.refl hr)
 
+/-- Interpret a contextual extension in standard Paper when its seeds
+already have standard Paper proofs. -/
+theorem Eqv.toPaper (sound : ∀ {Γ L r s}, Seed Γ r s L → Paper.Eqv Γ r s L)
+    (h : Eqv Seed Γ r s L) : Paper.Eqv Γ r s L :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.Extension.toPaper sound h
+
 /-- Rename captured variables using constructor-valued substitution. -/
 theorem Eqv.renameVars {Δ : VCtx τ} {ρ : Nat → Nat}
     (h : Eqv Seed Γ r s L) (hρ : Ren Γ Δ ρ) : Eqv Seed Δ (r.renameVars ρ) (s.renameVars ρ) L := by

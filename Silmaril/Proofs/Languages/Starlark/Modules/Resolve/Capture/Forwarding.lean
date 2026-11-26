@@ -41,34 +41,6 @@ theorem nearest_iff (name : String) (outer : List (List String)) :
       | owns here => exact .inl here
       | farther _ there => exact .inr ⟨_, there⟩
 
-private theorem selected_member {block : LexicalBlock} {reads : List Binding} {free : List FreeName}
-    (selected : Selects block reads free) (binding : Binding) :
-    reference binding ∈ free ↔ binding ∈ reads ∧ (binding.scope = .global ∨ binding.name ∉ block.owned) := by
-  rw [← captureNames_eq selected, captureNames, List.mem_map]
-  constructor
-  · rintro ⟨seen, present, equal⟩
-    have same : seen = binding := congrArg FreeName.source equal
-    subst seen
-    simpa using List.mem_filter.mp present
-  · intro member
-    exact ⟨binding, List.mem_filter.mpr (by simpa using member), rfl⟩
-
-private theorem selected_origin {block : LexicalBlock} {reads : List Binding} {free : List FreeName}
-    (selected : Selects block reads free) (entry : FreeName) (present : entry ∈ free) :
-    ∃ binding, entry = reference binding ∧
-      (ReadOrigin block binding .enclosing ∨ ReadOrigin block binding .module) := by
-  induction selected with
-  | nil => cases present
-  | owned _ _ ih => exact ih present
-  | enclosing origin _ ih =>
-    rcases List.mem_cons.mp present with rfl | present
-    · exact ⟨_, rfl, .inl origin⟩
-    · exact ih present
-  | module origin _ ih =>
-    rcases List.mem_cons.mp present with rfl | present
-    · exact ⟨_, rfl, .inr origin⟩
-    · exact ih present
-
 private theorem head_selection {globals : List String} {outer : List (List String)}
     {chain : Chain} {head : Frame} {rest : List Frame}
     (emitted : Emits globals outer chain (head :: rest)) :
@@ -120,23 +92,24 @@ private theorem tracked_local (context : Context) (name : String)
   simp [resolveScalar, resolveRead, resolveReadValue, Silmaril.Languages.Starlark.resolveName, legal, member,
     fileSlot, Except.map]
 
-theorem compile_chain {globals : List String} {program : Program}
+theorem compile_chain_scoped {globals : List String} {program : Program}
     {outer : List (List String)} {chain : Chain} (accepted : Accepted globals program outer chain) :
-    ∃ head rest, Emits globals outer chain (head :: rest) ∧
+    ∃ head rest, Emits globals outer chain (head :: rest) ∧ Links program chain (head :: rest) ∧
+      ScopedLeaves globals outer chain (head :: rest) ∧
       compileBody (parentContext globals outer) chain.definition program =
         .ok (⟨.define (fileSlot chain.name) (EmittedProgram program rest).size, head.free.map FreeName.source⟩,
           EmittedProgram program (head :: rest)) := by
   induction accepted with
   | @mixed outer name parameters locals body next assignment returned returnReads
       localDecls targetProfile rhsProfile returnProfile assigned resolvedReturn =>
-    obtain ⟨free, reads, selected, compiled⟩ := mixed_definition (parentContext globals outer) name parameters locals
+    obtain ⟨free, leaf, reads, selected, compiled⟩ := mixed_definition_linked (parentContext globals outer) name parameters locals
       body localDecls targetProfile rhsProfile returnProfile program next assignment returned returnReads
       assigned resolvedReturn
     let frame : Frame := ⟨parameters, locals, free,
       .seq (assignPatternCode assignment.pattern assignment.rhs directStages) (.returnExpr returned)⟩
-    exact ⟨frame, [], .mixed localDecls reads selected, compiled⟩
+    exact ⟨frame, [], .mixed localDecls reads selected, .mixed _ _ _ _ _ leaf, .mixed leaf, compiled⟩
   | @wrapper outer name parameters locals child localDecls legal childAccepted ih =>
-    obtain ⟨head, rest, emitted, compiledChild⟩ := ih
+    obtain ⟨head, rest, emitted, linked, scopes, compiledChild⟩ := ih
     have named := wrapper_owns_child parameters locals child.name localDecls
     let block : LexicalBlock := ⟨parameters ++ locals, outer.flatten, globals⟩
     let reads := head.free.map FreeName.source ++ [fileSlot child.name]
@@ -163,12 +136,30 @@ theorem compile_chain {globals : List String} {program : Program}
     let frame : Frame := ⟨parameters, locals, free, .seq
       (.define (fileSlot child.name) (EmittedProgram program rest).size)
       (.returnExpr (.atom (.read (.bound (fileSlot child.name)))))⟩
-    refine ⟨frame, head :: rest, .wrapper localDecls emitted selected, ?_⟩
+    refine ⟨frame, head :: rest, .wrapper localDecls emitted selected, .wrapper named rfl linked, .wrapper scopes, ?_⟩
     change captureNames (parameters ++ locals) (head.free.map FreeName.source ++ [fileSlot child.name]) =
       free at exactFree
     dsimp only at compiled
     rw [exactFree] at compiled
     exact compiled
+
+theorem compile_chain_linked {globals : List String} {program : Program}
+    {outer : List (List String)} {chain : Chain} (accepted : Accepted globals program outer chain) :
+    ∃ head rest, Emits globals outer chain (head :: rest) ∧ Links program chain (head :: rest) ∧
+      compileBody (parentContext globals outer) chain.definition program =
+        .ok (⟨.define (fileSlot chain.name) (EmittedProgram program rest).size, head.free.map FreeName.source⟩,
+          EmittedProgram program (head :: rest)) := by
+  obtain ⟨head, rest, emitted, linked, _, compiled⟩ := compile_chain_scoped accepted
+  exact ⟨head, rest, emitted, linked, compiled⟩
+
+theorem compile_chain {globals : List String} {program : Program}
+    {outer : List (List String)} {chain : Chain} (accepted : Accepted globals program outer chain) :
+    ∃ head rest, Emits globals outer chain (head :: rest) ∧
+      compileBody (parentContext globals outer) chain.definition program =
+        .ok (⟨.define (fileSlot chain.name) (EmittedProgram program rest).size, head.free.map FreeName.source⟩,
+          EmittedProgram program (head :: rest)) := by
+  obtain ⟨head, rest, emitted, _, compiled⟩ := compile_chain_linked accepted
+  exact ⟨head, rest, emitted, compiled⟩
 
 theorem emitted_declaration (program : Program) (frames : List Frame) (frame : Frame)
     (present : frame ∈ frames) : ∃ id : Nat, (EmittedProgram program frames)[id]? = some frame.declaration := by
@@ -312,7 +303,7 @@ private theorem receipt_reference {state : State} {entry : FreeName}
     entry = reference capture.binding := by
   cases receipt <;> rfl
 
-private theorem find_receipt {state : State} {free : List FreeName}
+theorem find_receipt {state : State} {free : List FreeName}
     {captures : List Silmaril.Languages.Starlark.Lists.Capture} (installed : Installs state free captures)
     (binding : Binding) (present : reference binding ∈ free) :
     ∃ capture, captures.find? (fun entry => entry.binding == binding) = some capture ∧

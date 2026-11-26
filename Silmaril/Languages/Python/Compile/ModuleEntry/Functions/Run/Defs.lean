@@ -1,5 +1,7 @@
 module
 
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain.Eval.Defs
+
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Run.Defs
 public import Silmaril.Languages.Python.Compile.Closure.Run.Defs
@@ -23,13 +25,24 @@ inductive Argument where
 
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
+  | bindTuple (name : String) (items : List Core.Closure.GlobalTupleItem) (trackClosed : Bool := false)
   | assertNot (condition : Operand scope)
+  | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
+  | assertBoolIdentity (test : BoolIdentityTest scope)
+  | assertListConstruction (test : ListConstructionTest scope)
+  | assertTupleChain (test : TupleChainTest scope)
   | assertVarNames (receiver : String) (needle : List UInt32)
   | publish (name : String) (function : TopFunction)
   | call (destination : Core.Module.Functions.Destination) (name : String) (operands : List Core.Module.Functions.Operand)
+  | callTupleIdentity (destination : Core.Module.Functions.Destination) (name : String) (test : TupleIdentity.Test)
+  | callTupleFromListDisplay (destination : Core.Module.Functions.Destination) (contents : List Core.Module.Value)
+      (outer : Option (String × List Argument))
   /-- The source plan places this call immediately after the matching publication. -/
   | adjacentKeywordDiscard (name : String) (value : Int)
   | nestedCall (destination : Core.Module.Functions.Destination) (name : String) (arguments : List Argument)
+
+abbrev Instruction.assertSequenceLength {scope : Scope} (test : SequenceLengthTest scope) : Instruction scope :=
+  .assertIntegerBuiltin test.toIntegerBuiltin
 
 inductive CompileError where
   | source (error : Functions.Error)
@@ -44,9 +57,17 @@ def callOperand? {scope : Scope} : Operand scope → Option Core.Module.Function
   | .read name _ => some (.readGlobal name)
   | .none_ | .binary .. | .identityChain .. => none
 
+def callValue? {scope : Scope} : CallValue scope → Option Core.Module.Functions.Operand
+  | .scalar operand => callOperand? operand
+  | .intTrueDiv numerator divisor => some (.intTrueDiv numerator divisor)
+  | .mixedAdd integer floating => some (.mixedAdd integer floating)
+  | .float64 value => some (.literal (.float64 value))
+  | .tuple items => some (.tuple items)
+  | .text value => some (.literal (.text value))
+
 def callArgument? {scope : Scope} : CallArgument scope → Option Argument
-  | .scalar operand => (callOperand? operand).map .scalar
-  | .call name _ operands => (operands.mapM callOperand?).map (.call name)
+  | .value operand => (callValue? operand).map .scalar
+  | .call name _ operands => (operands.mapM callValue?).map (.call name)
 
 def destination {scope : Scope} : Functions.Destination scope → Core.Module.Functions.Destination
   | .discard => .discard
@@ -66,9 +87,24 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .scalar action :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.scalar action :: instructions, blocks)
+  | .bindTuple name _ items :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.bindTuple name items :: instructions, blocks)
   | .assertNot condition :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertNot condition :: instructions, blocks)
+  | .assertIntegerBuiltin test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertIntegerBuiltin test :: instructions, blocks)
+  | .assertBoolIdentity test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertBoolIdentity test :: instructions, blocks)
+  | .assertListConstruction test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertListConstruction test :: instructions, blocks)
+  | .assertTupleChain test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertTupleChain test :: instructions, blocks)
   | .assertVarNames receiver _ needle :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertVarNames receiver needle :: instructions, blocks)
@@ -76,6 +112,13 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
     let some arguments := operands.mapM callOperand? | throw .callOperand
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.call (destination target) name arguments :: instructions, blocks)
+  | .callTupleIdentity target name _ test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.callTupleIdentity (destination target) name test :: instructions, blocks)
+  | .callTupleFromListDisplay target name _ contents arguments :: rest => do
+    let some outer := arguments.mapM (fun rest => (rest.mapM callArgument?).map (name, ·)) | throw .callOperand
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.callTupleFromListDisplay (destination target) contents outer :: instructions, blocks)
   | .adjacentKeywordDiscard name _ value :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.adjacentKeywordDiscard name value :: instructions, blocks)
@@ -97,6 +140,19 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
         profiled :: (nested.children ++ blocks))
     else throw (.incomingCaptures child.scope.context.path)
 
+def Instruction.observesTupleIdentity {scope : Scope} : Instruction scope → Bool
+  | .callTupleIdentity .. => true
+  | _ => false
+
+/-- Only modules observing tuple identity need a witness for closed
+nonempty tuples. Bindings, aliases, and calls share the same carrier. -/
+def retainTupleOrigins {scope : Scope} (instructions : List (Instruction scope)) : List (Instruction scope) :=
+  if instructions.any Instruction.observesTupleIdentity then
+    instructions.map fun
+      | .bindTuple name items _ => .bindTuple name items true
+      | instruction => instruction
+  else instructions
+
 structure Compiled (source : Source.Module) where
   checked : Functions.Checked source
   instructions : List (Instruction checked.tree.scope)
@@ -112,7 +168,7 @@ def compile (source : Source.Module) : Except CompileError (Compiled source) := 
   let (instructions, blocks) ← lowerInstructions checked.tree 0 checked.actions
   let linked := Compile.Closure.VarNames.attach checked.tree blocks
   let table ← (Compile.Closure.Run.lowerTable linked).mapError .functionBody
-  return ⟨checked, instructions, linked, table.val, table.property⟩
+  return ⟨checked, retainTupleOrigins instructions, linked, table.val, table.property⟩
 
 def embed : Core.Module.Value → Value
   | .int value => .int value
@@ -120,7 +176,7 @@ def embed : Core.Module.Value → Value
   | .none => .none
 
 def seed (globals : Core.Module.Globals) (heap : Heap := .empty) : Session :=
-  ⟨fun name => (globals.lookup name).map embed, heap⟩
+  ⟨fun name => (globals.lookup name).map embed, heap, .empty⟩
 
 inductive Completion where
   | normal
@@ -133,11 +189,22 @@ inductive Completion where
   | unsupportedVarNamesReceiver
   deriving DecidableEq, Repr
 
-def scalar? : Value → Option Core.Module.Value
-  | .int value => some (.int value)
-  | .bool value => some (.bool value)
-  | .none => some .none
-  | .function _ => none
+def tupleBinding (session : Session) : Option Core.Module.TupleDispatch.TypeBinding :=
+  (session.globals "tuple").map fun
+    | .none => .noneValue
+    | .int _ | .bool _ | .float64 _ | .text _ | .tuple _ | .tupleObject _ => .nonCallable
+    | .function _ => .outsideProfile
+
+def tupleLookup (session : Session) : TupleChain.Lookup :=
+  ⟨fun _ => tupleBinding session, fun name => (session.globals name).map TupleChain.Compared.ofClosure⟩
+
+def checkTupleChain {scope : Scope} (session : Session) (test : TupleChainTest scope) : Except Completion Unit :=
+  match (TupleChain.evaluate (tupleLookup session) test).result with
+  | .ok true => .ok ()
+  | .ok false => .error .assertionError
+  | .error error => .error ((TupleChain.runtimeError? error).elim .scalarProfile .raised)
+
+def scalar? : Value → Option Core.Module.Value := Value.scalar?
 
 def evaluate {scope : Scope} (session : Session) : Operand scope → Except Completion Value
   | .integer value => .ok (.int value)
@@ -190,7 +257,7 @@ def prepareNestedCall (session : Session) (destination : Core.Module.Functions.D
   let invoke := Body.call result (.read callee) (slots.map .read) (.ret (.read result))
   let body := (slots.zip arguments).foldr (fun (slot, argument) next => argument.emit slot next) invoke
   let frame : Frame layout := ⟨fun _ => none, Fin.elim0, Fin.elim0⟩
-  ⟨session.globals, destination, .running session.heap frame (.store callee (.readGlobal name) body) []⟩
+  ⟨session.globals, destination, .running session.heap frame (.store callee (.readGlobal name) body) [], session.lists⟩
 
 inductive State (scope : Scope) where
   | ready (session : Session) (instructions : List (Instruction scope))
@@ -230,6 +297,59 @@ def checkVarNames (table : CodeTable) (session : Session) (receiver : String)
     | .code error => .codeFault error
   unless member do throw .assertionError
 
+/-- The ordinary namespace has no stock descriptor. Read the name and then
+prepare the argument before classifying a present mask. -/
+def boolIdentityCompletion {scope : Scope} (session : Session) (test : BoolIdentityTest scope) : Completion :=
+  match session.globals "bool" with
+  | none => .raised (.nameError "bool")
+  | some callee =>
+    match test.argument.mapM (evaluate session) with
+    | .error error => error
+    | .ok _ =>
+      match callee with
+      | .function _ => .scalarProfile
+      | _ => .raised .notCallable
+
+def evaluateTuple (session : Session) (items : List Core.Closure.GlobalTupleItem) :
+    Except Core.Closure.Failure (List Core.Module.Value) :=
+  let frame : Frame ⟨0, 0, 0⟩ := ⟨Fin.elim0, Fin.elim0, Fin.elim0⟩
+  Core.Closure.Executor.evalTupleContentsIn session.globals session.heap frame items
+
+def bindTuple (session : Session) (name : String) (items : List Core.Closure.GlobalTupleItem)
+    (trackClosed : Bool := false) : Except Completion Session :=
+  match evaluateTuple session items with
+  | .ok contents =>
+    let (value, heap) := session.heap.materializeModuleTuple items contents trackClosed
+    .ok ({ session with heap := heap }.bindGlobal name value)
+  | .error (.defined error) => .error (.raised error)
+  | .error (.danglingCell identity) => .error (.executorFault (.danglingCell identity))
+  | .error .unsupportedTupleElement => .error (.executorFault .unsupportedTupleElement)
+  | .error .unsupportedFloatOperand => .error (.executorFault .unsupportedFloatOperand)
+
+def prepareTupleIdentityCall (session : Session) (destination : Core.Module.Functions.Destination)
+    (name : String) (test : TupleIdentity.Test) : Except Completion Invocation := do
+  let read name := (session.globals name).elim (.error (.raised (.nameError name))) (fun value => .ok value)
+  let callee ← read name
+  let answer ← test.evaluate session.heap (fun name => (read name).map some) .scalarProfile
+  return session.prepareCall destination (.literal callee) [.literal (.bool answer)]
+
+/-- The ordinary namespace has no stock tuple descriptor. A reached
+literal still allocates before a present callee is rejected. -/
+def tupleFromListDisplayCompletion (session : Session) (contents : List Core.Module.Value)
+    (outer : Option (String × List Argument)) : Completion × Core.Module.ListHeap :=
+  if let some (name, _) := outer then
+    if (session.globals name).isNone then
+      (.raised (.nameError name), session.lists)
+    else reachedDisplay
+  else reachedDisplay
+where
+  reachedDisplay :=
+    let (result, reached) := Core.Module.TupleDispatch.constructFromListDisplay session.lists (tupleBinding session) contents
+    let completion := match result with
+      | .ok _ => .scalarProfile
+      | .error error => (TupleChain.runtimeError? error).elim .scalarProfile .raised
+    (completion, reached)
+
 def advance {scope : Scope} (table : CodeTable) : State scope → List Event × State scope
   | .finished session completion => ([], .finished session completion)
   | .ready session [] => ([], .finished session .normal)
@@ -238,8 +358,23 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
     | .scalar (.assign name _ operand) => ([], match evaluate session operand with
       | .ok value => .ready (session.bindGlobal name value) rest
       | .error error => .finished session error)
+    | .bindTuple name items trackClosed => ([], match bindTuple session name items trackClosed with
+      | .ok updated => .ready updated rest
+      | .error error => .finished session error)
     | .scalar (.assertion operand) => ([], assertOperand session operand true rest)
     | .assertNot operand => ([], assertOperand session operand false rest)
+    | .assertIntegerBuiltin test => ([], .finished session (match session.globals test.argument.name with
+      | none => .raised (.nameError test.argument.name)
+      | some (.function _) => .scalarProfile
+      | some _ => .raised .notCallable))
+    | .assertBoolIdentity test => ([], .finished session (boolIdentityCompletion session test))
+    | .assertListConstruction _ => ([], .finished session (match session.globals "list" with
+      | none => .raised (.nameError "list")
+      | some (.function _) => .scalarProfile
+      | some _ => .raised .notCallable))
+    | .assertTupleChain test => ([], match checkTupleChain session test with
+      | .ok () => .ready session rest
+      | .error error => .finished session error)
     | .assertVarNames receiver needle => ([], match checkVarNames table session receiver needle with
       | .ok () => .ready session rest
       | .error completion => .finished session completion)
@@ -247,6 +382,13 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
       | .ok updated => .ready updated rest
       | .error fault => .finished session (.codeFault fault))
     | .call destination name arguments => ([], .calling (session.prepareCall destination (.readGlobal name) arguments) rest)
+    | .callTupleIdentity destination name test =>
+      ([], match prepareTupleIdentityCall session destination name test with
+        | .ok invocation => .calling invocation rest
+        | .error error => .finished session error)
+    | .callTupleFromListDisplay _ contents outer =>
+      let (completion, lists) := tupleFromListDisplayCompletion session contents outer
+      ([], .finished { session with lists } completion)
     | .adjacentKeywordDiscard name value =>
       ([], .calling (session.prepareCall .discard (.readGlobal name) [.literal (.int value)]) rest)
     | .nestedCall destination name arguments =>

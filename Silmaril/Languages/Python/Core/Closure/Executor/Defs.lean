@@ -37,8 +37,11 @@ inductive Operand (layout : Layout) where
   | literal (value : Value)
   | read (slot : Slot layout)
   | readGlobal (name : String)
+  | intTrueDiv (numerator divisor : Int)
+  | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite)
   | eqInt (left : NameRead layout) (right : Int)
   | binaryInt (op : IntegerOp) (left right : Operand layout)
+  | tuple (items : List (TupleItem layout))
   | closure (code : CodeRef) (select : Fin code.layout.captures → CaptureSlot layout)
 
 abbrev Operand.addInt {layout : Layout} := @Operand.binaryInt layout .add
@@ -81,6 +84,8 @@ abbrev CodeTable := Dispatch.CodeTable Body
 
 inductive Fault where
   | danglingCell (identity : CellId)
+  | unsupportedTupleElement
+  | unsupportedFloatOperand
   | missingCode (key : Nat)
   | layoutMismatch (expected actual : Layout)
   | unprofiledFreevars (ref : CodeRef)
@@ -175,7 +180,7 @@ def readMetadata (field : MetadataField) (table : CodeTable) : Value → Except 
       match field.select definition with
       | some names => .ok names
       | none => .error (field.unavailable fn.code definition)
-  | .int _ | .bool _ | .none => .error .nonFunction
+  | .int _ | .bool _ | .none | .float64 _ | .text _ | .tuple _ | .tupleObject _ => .error .nonFunction
 
 abbrev readFreevars := readMetadata .freevars
 abbrev readCellvars := readMetadata .cellvars
@@ -201,11 +206,30 @@ def CodeNamesTest.evalIn (test : CodeNamesTest layout) (table : CodeTable) (glob
     (heap : Heap) (frame : Frame layout) : Except MetadataFailure Bool :=
   MetadataField.codeNames.evalIn test.receiver test.needle true table globals heap frame
 
+def TupleItem.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout) :
+    TupleItem layout → Except Failure Value
+  | .literal value => .ok (Value.ofScalar value)
+  | .read slot => frame.read heap slot
+  | .global name => (NameRead.global name).evalIn globals heap frame
+
+/-- Resolve every reached item in order. The scalar profile check follows
+successful reads, so an earlier non-scalar value does not mask a later read error. -/
+def evalTupleContentsIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout)
+    (items : List (TupleItem layout)) : Except Failure (List Core.Module.Value) :=
+  assembleFlatTuple (TupleItem.evalIn globals heap frame) Value.scalar? .unsupportedTupleElement items
+
+def evalTupleIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout)
+    (items : List (TupleItem layout)) : Except Failure Value :=
+  (evalTupleContentsIn globals heap frame items).map .tuple
+
 def Operand.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout) : Operand layout → Except Failure Value
   | .literal value => .ok value
   | .read slot => frame.read heap slot
   | .readGlobal name => (NameRead.global name).evalIn globals heap frame
-  | .eqInt left right => (left.evalIn globals heap frame).map fun value => .bool (value.equalInt right)
+  | .intTrueDiv numerator divisor => (trueDivideInt numerator divisor).map Value.float64 |>.mapError .defined
+  | .mixedAdd integer floating => Closure.mixedAdd integer floating
+  | .eqInt left right => (left.evalIn globals heap frame).bind (·.equalInt right)
+  | .tuple items => evalTupleIn globals heap frame items
   | .binaryInt op left right =>
     (left.evalIn globals heap frame).bind fun lhs =>
       (right.evalIn globals heap frame).bind (Value.binaryInt op lhs)
@@ -227,6 +251,8 @@ def fault (heap : Heap) (stack : Stack) (error : Fault) : Transition :=
 def fail (heap : Heap) (stack : Stack) : Failure → Transition
   | .defined error => (none, .delivering heap stack (.error error))
   | .danglingCell identity => fault heap stack (.danglingCell identity)
+  | .unsupportedTupleElement => fault heap stack .unsupportedTupleElement
+  | .unsupportedFloatOperand => fault heap stack .unsupportedFloatOperand
 
 def failDispatch (heap : Heap) (stack : Stack) : Dispatch.Failure → Transition
   | .call error => fail heap stack error
@@ -324,9 +350,13 @@ inductive EvaluatesIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layo
       EvaluatesIn globals heap frame (.readGlobal name) (.ok value)
   | globalMissing {name} : globals name = none →
       EvaluatesIn globals heap frame (.readGlobal name) (.error (.defined (.nameError name)))
+  | intTrueDiv (numerator divisor : Int) : EvaluatesIn globals heap frame (.intTrueDiv numerator divisor)
+      ((trueDivideInt numerator divisor).map Value.float64 |>.mapError .defined)
+  | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite) :
+      EvaluatesIn globals heap frame (.mixedAdd integer floating) (Closure.mixedAdd integer floating)
   | eqInt {left : NameRead layout} {right result} :
       EvaluatesIn globals heap frame left.operand result →
-      EvaluatesIn globals heap frame (.eqInt left right) (result.map fun value => .bool (value.equalInt right))
+      EvaluatesIn globals heap frame (.eqInt left right) (result.bind (·.equalInt right))
   | binaryLeftError {op left right error} :
       EvaluatesIn globals heap frame left (.error error) →
       EvaluatesIn globals heap frame (.binaryInt op left right) (.error error)
@@ -338,6 +368,8 @@ inductive EvaluatesIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layo
       EvaluatesIn globals heap frame left (.ok lhs) →
       EvaluatesIn globals heap frame right (.ok rhs) →
       EvaluatesIn globals heap frame (.binaryInt op left right) (Value.binaryInt op lhs rhs)
+  | tuple (items : List (TupleItem layout)) :
+      EvaluatesIn globals heap frame (.tuple items) (evalTupleIn globals heap frame items)
   | closure (code : CodeRef) (select : Fin code.layout.captures → CaptureSlot layout) :
       EvaluatesIn globals heap frame (.closure code select) (.ok (.function (frame.closure code select)))
 
@@ -366,6 +398,14 @@ inductive Rejects (table : CodeTable) (arguments : List Value) (heap : Heap) :
   | nonCallableNone : Rejects table arguments heap .none (.call (.defined .notCallable))
   | nonCallable (value : Int) : Rejects table arguments heap (.int value) (.call (.defined .notCallable))
   | nonCallableBool (value : Bool) : Rejects table arguments heap (.bool value) (.call (.defined .notCallable))
+  | nonCallableFloat (value : Silmaril.Numeric.Ieee754.F64.Finite) :
+      Rejects table arguments heap (.float64 value) (.call (.defined .notCallable))
+  | nonCallableText (value : Core.Text) :
+      Rejects table arguments heap (.text value) (.call (.defined .notCallable))
+  | nonCallableTuple (items : List Core.Module.Value) :
+      Rejects table arguments heap (.tuple items) (.call (.defined .notCallable))
+  | nonCallableTupleObject (object : Core.Module.TupleDispatch.Object) :
+      Rejects table arguments heap (.tupleObject object) (.call (.defined .notCallable))
   | missing (fn : Function) (absent : table fn.code.key = none) :
       Rejects table arguments heap (.function fn) (.missingCode fn.code.key)
   | mismatch (fn : Function) (entry : Dispatch.Entry Body)

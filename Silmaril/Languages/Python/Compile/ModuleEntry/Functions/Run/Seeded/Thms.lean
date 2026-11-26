@@ -8,6 +8,9 @@ public import Silmaril.Languages.Python.Core.Module.SeededCall.Thms
 public import Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Thms
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Identity
+import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.IntegerBuiltin
+import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ListConstruction
+import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.BoolIdentity
 
 public section
 
@@ -16,7 +19,30 @@ namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 open Core.Module.SeededCall (CallObservation Delivers Expectation Failure Namespace Raised Value)
 open Core.Module.Functions (TopFunction)
 open Core.Closure (Function Heap)
+open Core.Module (ListHeap ListObject)
 open Core.Closure.Executor (Fault labelledIn)
+
+theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
+    (numerator divisor : Int) :
+    (lowerCallOperand (.intTrueDiv numerator divisor)).eval space #v[] =
+      (((Core.Module.Functions.Operand.intTrueDiv numerator divisor).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.intTrueDiv_operand_agrees
+    space globals heap frame numerator divisor
+
+theorem mixedAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
+    (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite) :
+    (lowerCallOperand (.mixedAdd integer floating)).eval space #v[] =
+      (((Core.Module.Functions.Operand.mixedAdd integer floating).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.mixedAdd_operand_agrees
+    space globals heap frame integer floating
 
 theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     {values : Except Failure (List Value)} {calls : List CallEvent} :
@@ -36,10 +62,10 @@ theorem observeNestedCall_failedArguments {space : Namespace} {destination : Cor
   by simp [observeNestedCall, found, observeArguments_iff.mpr failed]
 
 theorem run_preserves_builtins {source : Source.Module} (space : Namespace) (compiled : Compiled source)
-    (heap : Heap := .empty) (fuel : Nat := 1000) :
-    (run space compiled heap fuel).residual.builtins = space.builtins :=
+    (heap : Heap := .empty) (fuel : Nat := 1000) (lists : ListHeap := .empty) :
+    (run space compiled heap fuel lists).residual.builtins = space.builtins :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.preserves_builtins
-    space compiled.instructions { table := compiled.table, heap, fuel }
+    space compiled.instructions { table := compiled.table, heap, fuel } lists
 
 /-- The comparison profile gives identical values and defined failures when
 both runners observe the same globals. -/
@@ -68,7 +94,7 @@ theorem run_identityAssertion {scope : Source.Scope} (space : Namespace) (contex
     runInstructionsIn space context (.scalar (.assertion (.identityChain left links)) :: rest) =
       match (assertOperand space (.identityChain left links) true).binding with
       | .ok _ => runInstructionsIn space context rest
-      | .error error => ⟨space, .error error, [], context.heap⟩ :=
+      | .error error => ⟨space, .error error, [], context.heap, Core.Module.ListHeap.empty⟩ :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Identity.run_identityAssertion space context left links rest
 
 theorem evaluateScalar_conditionalResult {scope : Source.Scope} (space : Namespace)
@@ -150,14 +176,14 @@ theorem run_scalarResultAssign {scope : Source.Scope} (space : Namespace) (conte
     (rest : List (Instruction scope)) :
     runInstructionsIn space context (.scalar (.assign name reference (.scalarResult value)) :: rest) =
       runInstructionsIn (space.bindGlobal name (seededValue (Run.embed value))) context rest := by
-  simp [runInstructionsIn, effect_scalarResultAssign]
+  simp [runInstructionsIn, effectWithLists, effect_scalarResultAssign]
 
 theorem run_scalarResultAssert {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (value : Core.Module.Value) (rest : List (Instruction scope)) :
     runInstructionsIn space context (.scalar (.assertion (.scalarResult value)) :: rest) =
       if value.truth then runInstructionsIn space context rest
-      else ⟨space, .error (.raised (.assertionError .empty)), [], context.heap⟩ := by
-  by_cases h : value.truth <;> simp [runInstructionsIn, effect, assertOperand_scalarResult, h]
+      else ⟨space, .error (.raised (.assertionError .empty)), [], context.heap, Core.Module.ListHeap.empty⟩ := by
+  by_cases h : value.truth <;> simp [runInstructionsIn, effectWithLists, effect, assertOperand_scalarResult, h]
 
 theorem effect_conditionalAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (name : Source.Name) (reference : ModuleEntry.GlobalReference scope name) (selected : ModuleEntry.Operand scope) :
@@ -219,18 +245,215 @@ theorem callback_seedOnlyGlobal {space : Namespace} {heap : Heap} {name : String
 
 theorem failing_instruction {scope : Source.Scope} {space : Namespace} {instruction : Instruction scope}
     {rest : List (Instruction scope)} {error : ModuleFailure}
-    {context : CallContext} (failed : (effect space context instruction).1.binding = .error error) :
-    runInstructionsIn space context (instruction :: rest) =
-      ⟨space, .error error, (effect space context instruction).1.calls, (effect space context instruction).2⟩ :=
-  by simp [runInstructionsIn, failed]
+    {context : CallContext} {lists : Core.Module.ListHeap}
+    (failed : (effect space context instruction lists).1.binding = .error error) :
+    runInstructionsIn space context (instruction :: rest) lists =
+      ⟨space, .error error, (effect space context instruction lists).1.calls,
+        (effect space context instruction lists).2, (effectWithLists space context instruction lists).2⟩ := by
+  cases instruction <;> simp_all [runInstructionsIn, effectWithLists, effect]
+
+theorem observeTupleIdentityCall_missing (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) {name : String} (test : TupleIdentity.Test)
+    (missing : space.lookupGlobal name = none) :
+    observeTupleIdentityCall space context destination name test =
+      (⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap) := by
+  simp only [observeTupleIdentityCall, Core.Module.SeededCall.Operand.eval, missing, Option.elim]
+  rfl
+
+theorem observeTupleIdentityCall_argument_failure (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) {name : String} (test : TupleIdentity.Test)
+    {callee : Value} {error : Failure} (found : space.lookupGlobal name = some callee)
+    (failed : test.evaluate context.heap
+      (fun name => ((Core.Module.SeededCall.Operand.global name).eval space #v[]).map ordinaryValue?)
+      .unsupported = .error error) :
+    observeTupleIdentityCall space context destination name test =
+      (⟨.error (.ofCall error), []⟩, context.heap) := by
+  have saved : (Core.Module.SeededCall.Operand.global name).eval space #v[] = .ok callee := by
+    simp [Core.Module.SeededCall.Operand.eval, found]
+  simp only [observeTupleIdentityCall, saved, failed]
+  rfl
+
+theorem observeTupleIdentityCall_helper (space : Namespace) (context : CallContext)
+    {name : String} (test : TupleIdentity.Test) {answer : Bool}
+    (found : space.lookupGlobal name = some (.helper .assertTrue))
+    (evaluated : test.evaluate context.heap
+      (fun name => ((Core.Module.SeededCall.Operand.global name).eval space #v[]).map ordinaryValue?)
+      .unsupported = .ok answer) :
+    observeTupleIdentityCall space context .discard name test =
+      (acceptObservation .discard name
+        (Core.Module.SeededCall.invokeObserved (.helper .assertTrue) [.bool answer]), context.heap) := by
+  have saved : (Core.Module.SeededCall.Operand.global name).eval space #v[] = .ok (.helper .assertTrue) := by
+    simp [Core.Module.SeededCall.Operand.eval, found]
+  simp only [observeTupleIdentityCall, saved, evaluated]
+  rfl
+
+theorem observeTupleFromListDisplay_stock (space : Namespace) (heap : Heap) (lists : ListHeap)
+    (contents : List Core.Module.Value) (stock : space.lookupGlobal "tuple" = some (.builtin .tuple)) :
+    let (value, reached) := heap.materializeFreshTuple contents
+    observeTupleFromListDisplay space heap lists contents =
+      ((⟨.ok (seededValue value), none⟩, reached), (lists.allocate contents).2) := by
+  simp [observeTupleFromListDisplay, tupleBinding, stock, Core.Module.TupleDispatch.constructFromListDisplay_stock]
+
+theorem observeTupleFromListDisplay_stock_notList (space : Namespace) (heap : Heap) (lists : ListHeap)
+    (contents : List Core.Module.Value) (object : ListObject)
+    (stock : space.lookupGlobal "tuple" = some (.builtin .tuple)) :
+    (observeTupleFromListDisplay space heap lists contents).1.1.result ≠ .ok (.listObject object) := by
+  rw [observeTupleFromListDisplay_stock space heap lists contents stock]
+  cases contents <;> simp [seededValue, Heap.allocate]
+
+theorem observeTupleFromListDisplay_mask (space : Namespace) (heap : Heap) (lists : ListHeap)
+    (contents : List Core.Module.Value) (masked : space.lookupGlobal "tuple" = some .none) :
+    observeTupleFromListDisplay space heap lists contents =
+      ((⟨.error (.raised (.runtime .notCallable)), none⟩, heap), (lists.allocate contents).2) := by
+  simp [observeTupleFromListDisplay, tupleBinding, masked,
+    (Core.Module.TupleDispatch.constructFromListDisplay_mask lists contents).1, TupleChain.runtimeError?]
+
+theorem observeTupleFromListDisplayCall_outer_missing (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (lists : ListHeap) {name : String}
+    (contents : List Core.Module.Value) (remaining : List Argument) (missing : space.lookupGlobal name = none) :
+    observeTupleFromListDisplayCall space context destination contents (some (name, remaining)) lists =
+      ((⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap), lists) := by
+  simp [observeTupleFromListDisplayCall, missing]
 
 theorem run_literalArmBoolean {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (value : Bool) (rest : List (Instruction scope)) :
     runInstructionsIn space context (.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: rest) =
       if value then runInstructionsIn space context rest
-      else ⟨space, .error (.raised (.assertionError .empty)), [], context.heap⟩ := by
-  cases value <;> simp [Action.inLiteralArm, runInstructionsIn, effect, assertOperand,
+      else ⟨space, .error (.raised (.assertionError .empty)), [], context.heap, Core.Module.ListHeap.empty⟩ := by
+  cases value <;> simp [Action.inLiteralArm, runInstructionsIn, effectWithLists, effect, assertOperand,
     evaluateScalar, lowerScalarOperand, Core.Module.SeededCall.Operand.eval] <;> rfl
+
+theorem readSequenceLength_ok_iff (space : Namespace) (length : Nat) (value : Int) :
+    readSequenceLength space length = .ok value ↔
+      space.lookupGlobal "len" = some (.builtin .len) ∧ value = Int.ofNat length :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.IntegerBuiltin.readSequenceLength_ok_iff space length value
+
+theorem readSequenceLength_shadow (space : Namespace) (length : Nat) (value : Value)
+    (found : Core.Module.SeededCall.lookupBinding space.moduleGlobals "len" = some value) :
+    readSequenceLength space length = readSequenceLength { space with builtins := [] } length := by
+  simp [readSequenceLength, Core.Module.SeededCall.Namespace.lookupGlobal, found]
+
+theorem readOrdinal_ok_iff (space : Namespace) (point : UInt32) (valid : point.toNat < 0x110000) (value : Int) :
+    readIntegerBuiltin space (.ordinal point valid) = .ok value ↔
+      space.lookupGlobal "ord" = some (.builtin .ord) ∧ value = Int.ofNat point.toNat :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.IntegerBuiltin.readOrdinal_ok_iff space point valid value
+
+theorem run_assertIntegerBuiltin {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (lists : ListHeap) (test : IntegerBuiltinTest scope) (rest : List (Instruction scope)) :
+    runInstructionsIn space context (.assertIntegerBuiltin test :: rest) lists =
+      let result := readIntegerBuiltin space test.argument
+      let receipt : CallEvent := ⟨test.argument.name, ⟨result.map .int, none⟩⟩
+      match result.bind (checkIntegerBuiltinResult space test) with
+      | .error error => ⟨space, .error (.ofCall error), [receipt], context.heap, lists⟩
+      | .ok () =>
+        let tail := runInstructionsIn space context rest lists
+        { tail with calls := receipt :: tail.calls } :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.IntegerBuiltin.run_assertIntegerBuiltin
+    space context lists test rest
+
+theorem run_assertSequenceLength {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (test : SequenceLengthTest scope) (rest : List (Instruction scope)) :
+    runInstructionsIn space context (.assertSequenceLength test :: rest) =
+      let result := readSequenceLength space test.length
+      let receipt : CallEvent := ⟨"len", ⟨result.map .int, none⟩⟩
+      match result.bind (checkSequenceLengthResult space test) with
+      | .error error => ⟨space, .error (.ofCall error), [receipt], context.heap, Core.Module.ListHeap.empty⟩
+      | .ok () =>
+        let tail := runInstructionsIn space context rest
+        { tail with calls := receipt :: tail.calls } :=
+  run_assertIntegerBuiltin space context .empty test.toIntegerBuiltin rest
+
+theorem constructList_ok_iff (space : Namespace) (heap : ListHeap) (argument : ListConstructorArgument)
+    (object : ListObject) (updated : ListHeap) :
+    constructList space heap argument = (.ok object, updated) ↔
+      space.lookupGlobal "list" = some (.builtin .list) ∧
+        let (contents, reached) := prepareListArgument heap argument
+        reached.allocate contents = (object, updated) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ListConstruction.constructList_ok_iff
+    space heap argument object updated
+
+theorem readBoolCall_missing {scope : Source.Scope} (space : Namespace)
+    (argument : Option (Operand scope)) (missing : space.lookupGlobal "bool" = none) :
+    readBoolCall space argument = .error (.raised (.runtime (.nameError "bool"))) := by
+  simp [readBoolCall, missing]
+
+theorem readBoolCall_argument_error {scope : Source.Scope} (space : Namespace)
+    (argument : Option (Operand scope)) (callee : Value) (error : Failure)
+    (found : space.lookupGlobal "bool" = some callee)
+    (failed : argument.mapM (evaluateScalar space true) = .error error) :
+    readBoolCall space argument = .error error := by
+  simp [readBoolCall, found, failed, Except.bind]
+
+theorem readBoolCall_stock {scope : Source.Scope} (space : Namespace)
+    (argument : Option (Operand scope)) (value : Option Value)
+    (found : space.lookupGlobal "bool" = some (.builtin .bool))
+    (prepared : argument.mapM (evaluateScalar space true) = .ok value) :
+    readBoolCall space argument = (match scalar? (value.getD .none) with
+      | some scalar => .ok scalar.truth
+      | none => .error .unsupported) := by
+  simp [readBoolCall, found, prepared, Except.bind]
+  cases scalar? (value.getD .none) <;> rfl
+
+theorem run_assertBoolIdentity {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (lists : ListHeap) (test : BoolIdentityTest scope) (rest : List (Instruction scope)) :
+    runInstructionsIn space context (.assertBoolIdentity test :: rest) lists =
+      let result := readBoolCall space test.argument
+      let receipt : CallEvent := ⟨"bool", ⟨result.map .bool, none⟩⟩
+      match result.bind (checkBoolIdentityResult space test) with
+      | .error error => ⟨space, .error (.ofCall error), [receipt], context.heap, lists⟩
+      | .ok () =>
+        let tail := runInstructionsIn space context rest lists
+        { tail with calls := receipt :: tail.calls } :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.BoolIdentity.run_assertBoolIdentity
+    space context lists test rest
+
+theorem constructList_shadow (space : Namespace) (heap : ListHeap) (argument : ListConstructorArgument)
+    (value : Value) (found : Core.Module.SeededCall.lookupBinding space.moduleGlobals "list" = some value) :
+    constructList space heap argument = constructList { space with builtins := [] } heap argument := by
+  simp [constructList, Core.Module.SeededCall.Namespace.lookupGlobal, found]
+
+theorem constructList_missing (space : Namespace) (heap : ListHeap) (argument : ListConstructorArgument)
+    (missing : space.lookupGlobal "list" = none) :
+    constructList space heap argument = (.error (.raised (.runtime (.nameError "list"))), heap) := by
+  simp [constructList, missing]
+
+theorem run_assertListConstruction {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (lists : ListHeap) (test : ListConstructionTest scope) (rest : List (Instruction scope)) :
+    runInstructionsIn space context (.assertListConstruction test :: rest) lists =
+      let outcome := evaluateListConstruction space lists test
+      match outcome.checked with
+      | .error error => ⟨space, .error (.ofCall error), [outcome.receipt], context.heap, outcome.lists⟩
+      | .ok () =>
+        let tail := runInstructionsIn space context rest outcome.lists
+        { tail with calls := outcome.receipt :: tail.calls } :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ListConstruction.run_assertListConstruction
+    space context lists test rest
+
+theorem tupleBinding_shadow (space : Namespace) (value : Value)
+    (found : Core.Module.SeededCall.lookupBinding space.moduleGlobals "tuple" = some value) :
+    tupleBinding space = tupleBinding { space with builtins := [] } := by
+  simp [tupleBinding, Core.Module.SeededCall.Namespace.lookupGlobal, found]
+
+theorem checkTupleChain_corresponds {scope : Source.Scope} (space : Namespace)
+    (session : Core.Module.Functions.Session) (test : TupleChainTest scope)
+    (lookup : tupleLookup space = Run.tupleLookup session) :
+    checkTupleChain space test = (Run.checkTupleChain session test).mapError (fun
+      | .assertionError => .raised (.assertionError .empty)
+      | .raised error => .raised (.runtime error)
+      | _ => .unsupported) := by
+  simp only [checkTupleChain, lookup, Run.checkTupleChain]
+  cases (TupleChain.evaluate (Run.tupleLookup session) test).result with
+  | ok value => cases value <;> rfl
+  | error failure => cases failure <;> rfl
+
+theorem run_assertTupleChain {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (lists : ListHeap) (test : TupleChainTest scope) (rest : List (Instruction scope)) :
+    runInstructionsIn space context (.assertTupleChain test :: rest) lists =
+      match checkTupleChain space test with
+      | .error error => ⟨space, .error (.ofCall error), [], context.heap, lists⟩
+      | .ok () => runInstructionsIn space context rest lists := by
+  simp only [runInstructionsIn, effectWithLists, effect]
+  cases checkTupleChain space test with | error _ => rfl | ok value => cases value; rfl
 
 /-- Settle one direct discard call from the actual executor state. A
 finished call emits one receipt before its tail, and a failed call skips the tail. -/
@@ -246,10 +469,10 @@ theorem run_directDiscard {scope : Source.Scope} {space : Namespace} {context : 
         { tail with calls := ⟨name, ⟨.ok (seededValue value), none⟩⟩ :: tail.calls }
       | .finished heap (.error error) =>
         let failure := callbackError space error
-        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap⟩
-      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap⟩
+        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap, Core.Module.ListHeap.empty⟩
+      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap, Core.Module.ListHeap.empty⟩
       | .running heap .. | .delivering heap .. | .receiving heap .. =>
-        ⟨space, .error .directCallFuelExhausted, [], heap⟩ :=
+        ⟨space, .error .directCallFuelExhausted, [], heap, Core.Module.ListHeap.empty⟩ :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.run_directDiscard found admitted
 
 theorem run_directDiscard_unsupported {scope : Source.Scope} {space : Namespace} {context : CallContext}
@@ -257,7 +480,7 @@ theorem run_directDiscard_unsupported {scope : Source.Scope} {space : Namespace}
     (found : space.lookupGlobal name = some (.function closure))
     (rejected : context.acceptsPublishedCall closure = false) :
     runInstructionsIn space context (.call .discard name [] :: rest) =
-      ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], context.heap⟩ :=
+      ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], context.heap, Core.Module.ListHeap.empty⟩ :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.run_directDiscard_unsupported found rejected
 
 theorem run_publication {scope : Source.Scope} {space : Namespace} {context : CallContext}
@@ -267,14 +490,44 @@ theorem run_publication {scope : Source.Scope} {space : Namespace} {context : Ca
     runInstructionsIn space context (.publish name function :: rest) =
       runInstructionsIn (space.bindGlobal name (.function function.closure))
         { context with published := function.closure :: context.published } rest :=
-  by simp [runInstructionsIn, effect, resolved, Except.map, Except.mapError]
+  by simp [runInstructionsIn, effectWithLists, effect, resolved, Except.map, Except.mapError]
 
 theorem run_publication_fault {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name : String} {function : TopFunction} {rest : List (Instruction scope)} {error : Core.Closure.Dispatch.Failure}
     (failed : Core.Closure.Dispatch.resolve context.table function.ref = .error error) :
     runInstructionsIn space context (.publish name function :: rest) =
-      ⟨space, .error (.publicationFault error), [], context.heap⟩ :=
-  by simp [runInstructionsIn, effect, failed, Except.map, Except.mapError]
+      ⟨space, .error (.publicationFault error), [], context.heap, Core.Module.ListHeap.empty⟩ :=
+  by simp [runInstructionsIn, effectWithLists, effect, failed, Except.map, Except.mapError]
+
+theorem tupleOperand_read_failure {space : Namespace} {items : List Core.Closure.GlobalTupleItem}
+    {error : Failure} (failed : items.mapM (Core.Module.SeededCall.readTupleItem space) = .error error) :
+    (Core.Module.SeededCall.Operand.tuple items).eval space #v[] = .error error := by
+  simp [Core.Module.SeededCall.Operand.eval, Core.Module.SeededCall.evalTupleContents,
+    Core.Closure.assembleFlatTuple, failed, Except.bind, Except.map]
+
+theorem invokeFlatCall_tuple_reference (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (descriptor : Core.Module.TupleDispatch.Object) :
+    invokeFlatCall space context destination (.builtin .tuple) [.tupleObject descriptor] =
+      (.ok ⟨.ok (.tupleObject descriptor), none⟩, context.heap) := by
+  cases destination <;> simp [invokeFlatCall, invokeCall, Core.Module.SeededCall.Request.decode,
+    Core.Module.SeededCall.invokeObserved, Core.Module.SeededCall.invoke_tuple_reference]
+
+theorem run_bindTuple_ok {scope : Source.Scope} {space : Namespace} {context : CallContext}
+    {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool} {values : List Core.Module.Value}
+    {rest : List (Instruction scope)} {lists : ListHeap}
+    (evaluated : Core.Module.SeededCall.evalTupleContents space items = .ok values) :
+    let (value, heap) := context.heap.materializeModuleTuple items values trackClosed
+    runInstructionsIn space context (.bindTuple name items trackClosed :: rest) lists =
+      runInstructionsIn (space.bindGlobal name (seededValue value)) { context with heap := heap } rest lists := by
+  simp [runInstructionsIn, effectWithLists, effect, evaluated]
+
+theorem run_bindTuple_failure {scope : Source.Scope} {space : Namespace} {context : CallContext}
+    {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool} {error : Failure}
+    {rest : List (Instruction scope)} {lists : ListHeap}
+    (failed : Core.Module.SeededCall.evalTupleContents space items = .error error) :
+    runInstructionsIn space context (.bindTuple name items trackClosed :: rest) lists =
+      ⟨space, .error (.ofCall error), [], context.heap, lists⟩ := by
+  simp [runInstructionsIn, effectWithLists, effect, failed]
 
 theorem assertNot_operand_failure {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {operand : ModuleEntry.Operand scope} {error : Failure}
@@ -336,7 +589,7 @@ theorem run_factory_unrecorded {scope : Source.Scope} {space : Namespace} {conte
       (arguments.map lowerCallOperand) = .ok (.function closure, values))
     (unpublished : closure ∉ context.published) (unescaped : closure ∉ context.escaped) :
     runInstructionsIn space context (.call (.bindGlobal target) name arguments :: rest) =
-      ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], context.heap⟩ :=
+      ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], context.heap, Core.Module.ListHeap.empty⟩ :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.run_factory_unrecorded resolved unpublished unescaped
 
 theorem run_factory {scope : Source.Scope} {space : Namespace} {context : CallContext}
@@ -353,13 +606,13 @@ theorem run_factory {scope : Source.Scope} {space : Namespace} {context : CallCo
           { context with heap, escaped := result :: context.escaped } rest
         { tail with calls := ⟨name, ⟨.ok (.function result), none⟩⟩ :: tail.calls }
       | .finished heap (.ok _) =>
-        ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], heap⟩
+        ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], heap, Core.Module.ListHeap.empty⟩
       | .finished heap (.error error) =>
         let failure := callbackError space error
-        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap⟩
-      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap⟩
+        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap, Core.Module.ListHeap.empty⟩
+      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap, Core.Module.ListHeap.empty⟩
       | .running heap .. | .delivering heap .. | .receiving heap .. =>
-        ⟨space, .error .directCallFuelExhausted, [], heap⟩ :=
+        ⟨space, .error .directCallFuelExhausted, [], heap, Core.Module.ListHeap.empty⟩ :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.run_factory resolved profile admitted
 
 theorem run_adjacentKeywordDiscard {scope : Source.Scope} {space : Namespace} {context : CallContext}
@@ -375,10 +628,10 @@ theorem run_adjacentKeywordDiscard {scope : Source.Scope} {space : Namespace} {c
         { tail with calls := ⟨name, ⟨.ok (seededValue result), none⟩⟩ :: tail.calls }
       | .finished heap (.error error) =>
         let failure := callbackError space error
-        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap⟩
-      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap⟩
+        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap, Core.Module.ListHeap.empty⟩
+      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap, Core.Module.ListHeap.empty⟩
       | .running heap .. | .delivering heap .. | .receiving heap .. =>
-        ⟨space, .error .directCallFuelExhausted, [], heap⟩ :=
+        ⟨space, .error .directCallFuelExhausted, [], heap, Core.Module.ListHeap.empty⟩ :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.run_adjacentKeywordDiscard found admitted
 
 theorem observeArgumentIn_published {space : Namespace} {context : CallContext}
@@ -390,8 +643,13 @@ theorem observeArgumentIn_published {space : Namespace} {context : CallContext}
       match observeDirectCall space (invocation.runPrefix context.table context.fuel).2.state with
       | (.ok observed, heap) => (observed.result.mapError .ofCall, [⟨name, observed⟩], heap)
       | (.error error, heap) => (.error error, [], heap) := by
-  simp [observeArgumentIn, Core.Module.SeededCall.resolveCall, Core.Module.SeededCall.Operand.eval,
-    Core.Module.SeededCall.Operand.evalList, Except.bind, Except.map, found, invokeFlatCall, admitted]
+  have recorded : closure ∈ context.published := by
+    by_contra absent
+    simp [CallContext.acceptsPublishedCall, CallContext.acceptsCallFrom, absent] at admitted
+  simp [observeArgumentIn, argumentObservation, invokeArgumentIn, invokePublishedArgument,
+    Core.Module.SeededCall.resolveCall, Core.Module.SeededCall.Operand.eval,
+    Core.Module.SeededCall.Operand.evalList, Except.bind, Except.map, found, admitted, recorded,
+    factoryOperands, ordinaryCall, callbackInvocation]
   rfl
 
 theorem observeArgumentIn_escaped {space : Namespace} {context : CallContext}
@@ -403,8 +661,8 @@ theorem observeArgumentIn_escaped {space : Namespace} {context : CallContext}
       match observeDirectCall space (ordinaryCall space context closure [.literal (.int value)]) with
       | (.ok observed, heap) => (observed.result.mapError .ofCall, [⟨name, observed⟩], heap)
       | (.error error, heap) => (.error error, [], heap) := by
-  simp only [observeArgumentIn, resolved, admitted, Bool.and_self, ite_true]
-  cases observeDirectCall space (ordinaryCall space context closure [.literal (.int value)]); rfl
+  simp [observeArgumentIn, resolved, invokeArgumentIn, admitted, argumentObservation]
+  rfl
 
 theorem observeArgumentIn_escapedZero {space : Namespace} {context : CallContext}
     {name : String} {closure : Function}
@@ -414,9 +672,42 @@ theorem observeArgumentIn_escapedZero {space : Namespace} {context : CallContext
       match observeDirectCall space (ordinaryCall space context closure []) with
       | (.ok observed, heap) => (observed.result.mapError .ofCall, [⟨name, observed⟩], heap)
       | (.error error, heap) => (.error error, [], heap) := by
-  simp [observeArgumentIn, Core.Module.SeededCall.resolveCall, Core.Module.SeededCall.Operand.eval,
-    Core.Module.SeededCall.Operand.evalList, Except.bind, Except.map, found, admitted]
-  cases observeDirectCall space (ordinaryCall space context closure []); rfl
+  simp [observeArgumentIn, argumentObservation, invokeArgumentIn, Core.Module.SeededCall.resolveCall, Core.Module.SeededCall.Operand.eval,
+    Core.Module.SeededCall.Operand.evalList, Except.bind, Except.map, found,
+    admitted]
+  rfl
+
+theorem invokePublishedArgument_admitted {space : Namespace} {context : CallContext}
+    {closure : Function} {operands : List Core.Module.Functions.Operand} {values : List Value}
+    (published : closure ∈ context.published) (bounded : factoryOperands values = some operands) :
+    invokePublishedArgument space context closure values =
+      observeDirectCall space (ordinaryCall space context closure operands) := by
+  simp [invokePublishedArgument, published, bounded]
+
+theorem invokePublishedArgument_unrecorded (space : Namespace) (context : CallContext)
+    (closure : Function) (values : List Value) (unrecorded : closure ∉ context.published) :
+    invokePublishedArgument space context closure values =
+      (.ok ⟨.error .unsupported, none⟩, context.heap) := by
+  simp [invokePublishedArgument, unrecorded]
+
+theorem observeArgumentIn_resolutionFailure {space : Namespace} {context : CallContext}
+    {allowClosureCalls : Bool} {name : String} {arguments : List Core.Module.Functions.Operand}
+    {error : Failure}
+    (failed : Core.Module.SeededCall.resolveCall space #v[] (.global name)
+      (arguments.map lowerCallOperand) = .error error) :
+    observeArgumentIn space context (.call name arguments) allowClosureCalls =
+      (.error (.ofCall error), [⟨name, ⟨.error error, none⟩⟩], context.heap) := by
+  simp [observeArgumentIn, failed, argumentObservation, Except.mapError]
+
+theorem argumentObservation_tuple (space : Namespace) (name : String) (heap : Heap)
+    (items : List Core.Module.Value) :
+    argumentObservation name (observeDirectCall space (.finished heap (.ok (.tuple items)))) =
+      (.ok (.returnedTuple items), [⟨name, ⟨.ok (.returnedTuple items), none⟩⟩], heap) := rfl
+
+theorem argumentObservation_fault (space : Namespace) (name : String) (heap : Heap)
+    (stack : Core.Closure.Executor.Stack) (fault : Fault) :
+    argumentObservation name (observeDirectCall space (.faulted heap stack fault)) =
+      (.error (.directCallFault fault), [], heap) := rfl
 
 theorem observeArgumentsIn_stop {space : Namespace} {context : CallContext} {allowEscaped : Bool}
     {argument : Argument} {rest : List Argument} {error : ModuleFailure} {calls : List CallEvent} {heap : Heap}
@@ -446,6 +737,21 @@ theorem observeNestedCallIn_failedArguments {space : Namespace} {context : CallC
     (failed : observeArgumentsIn space context arguments (allowsEscapedArgument destination callee) =
       (.error error, calls, heap)) :
     observeNestedCallIn space context destination name arguments = (⟨.error error, calls⟩, heap) := by
-  simp [observeNestedCallIn, found, failed]
+  simp [observeNestedCallIn, observeRemainingCallIn, found, failed]
+
+theorem observeNestedCallIn_settledArguments {space : Namespace} {context : CallContext}
+    {destination : Core.Module.Functions.Destination} {name : String} {callee : Value}
+    {arguments : List Argument} {values : List Value} {calls : List CallEvent} {heap : Heap}
+    (found : space.lookupGlobal name = some callee)
+    (evaluated : observeArgumentsIn space context arguments (allowsEscapedArgument destination callee) =
+      (.ok values, calls, heap)) :
+    observeNestedCallIn space context destination name arguments =
+      match invokeNestedTarget space { context with heap } callee values with
+      | (.ok result, residual) =>
+        let outer := acceptObservation destination name result
+        ({ outer with calls := calls ++ outer.calls }, residual)
+      | (.error error, residual) => (⟨.error error, calls⟩, residual) := by
+  simp [observeNestedCallIn, observeRemainingCallIn, found, evaluated]
+  rfl
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

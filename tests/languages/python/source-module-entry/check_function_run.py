@@ -11,6 +11,10 @@ import tempfile
 
 
 FIXTURES = (
+    ("closed_positional_addition", """def identity(value):
+    return value
+observed = identity(1 + 2)
+""", "normal", ".normal", 3, None),
     ("none_literal_preserved", """observed = None
 assert observed == None
 assert observed != False
@@ -419,11 +423,12 @@ if __name__ == "__main__":
         "meta import Silmaril.Languages.Python.Core.Closure.Executor.Defs",
     )
     observations = {}
+    fixtures = []
     with tempfile.TemporaryDirectory() as tmp:
         source_file = Path(tmp) / "Example.py"
         lean_file = Path(tmp) / "Example.lean"
         for name, source, completion, lean, observed, kept in FIXTURES:
-            shared["emit"](source_file, lean_file, source)
+            source_file.write_text(source, encoding="utf-8")
             result = subprocess.run(
                 [sys.executable, "-I", "-c", CPYTHON, str(source_file)],
                 text=True, capture_output=True, check=True, timeout=10,
@@ -440,12 +445,11 @@ if __name__ == "__main__":
                 test += "#print axioms seed_lookup\n#print axioms invoke_current_globals\n#print axioms runPrefix_append\n"
             if name == "nested_assignment":
                 test += NESTED_TRACE
-            shared["check_lean"](lean_file, LEAN + test, extra_imports=imports)
+            fixtures.append((source, test))
             observations[name] = {"completion": completion, "observed": observed, "kept": kept, "bound_none": bound_none}
-        shared["emit"](source_file, lean_file, "def identity(x): return x\nidentity(1 + 2)\n")
-        shared["check_lean"](lean_file, LEAN + """
+        fixtures.append(("def identity(x): return x\nidentity(missing + 2)\n", """
 #guard (match compile pythonSource with | .error .callOperand => true | _ => false)
-""", extra_imports=imports)
+"""))
         for source in (
             'def probe(value): pass\nprobe(**{"other": 4})',
             'def probe(é): pass\nprobe(**{"e\u0301": 4})',
@@ -456,10 +460,9 @@ if __name__ == "__main__":
             'def probe(value): pass\nprobe(value=4)',
             'def probe(value): pass\nresult = probe(**{"value": 4})',
         ):
-            shared["emit"](source_file, lean_file, source + "\n")
-            shared["check_lean"](lean_file, LEAN + """
+            fixtures.append((source + "\n", """
 #guard (match compile pythonSource with | .error (.source .argumentProfile) => true | _ => false)
-""", extra_imports=imports)
+"""))
         for source, error in (
             ("assert not f()", ".source (.scalar .expressionProfile)"),
             ("assert not (left is right)", ".source (.scalar .expressionProfile)"),
@@ -467,10 +470,10 @@ if __name__ == "__main__":
             ("outer(inner(child(1)))", ".source (.scalar .expressionProfile)"),
             ("outer(inner(value=1))", ".source (.scalar .expressionProfile)"),
             ("outer(inner(*values))", ".source (.scalar .expressionProfile)"),
-            ("outer(inner(1 + 2))", ".callOperand"),
+            ("outer(inner(missing + 2))", ".callOperand"),
         ):
-            shared["emit"](source_file, lean_file, source + "\n")
-            shared["check_lean"](lean_file, LEAN + f"""
+            fixtures.append((source + "\n", f"""
 #guard (match compile pythonSource with | .error ({error}) => true | _ => false)
-""", extra_imports=imports)
+"""))
+        shared["check_lean_batch"](source_file, lean_file, fixtures, LEAN, extra_imports=imports)
     print(json.dumps({"cpython": sys.version.split()[0], "observations": observations}))

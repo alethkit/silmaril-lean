@@ -16,6 +16,23 @@ universe u v w
 variable {V S : Type u} {Op : Dialect.{u, v} V S}
 variable {args outs : Ports (PortType V S)} {sigs : List (Ports (PortType V S))}
 
+/-- Read comparison only requires agreement on valid user positions. -/
+theorem Liveness.selectWires_compare {Ty : Type u} {entry users : Ports Ty} {past : List (Ports Ty)}
+    (wires : Wires entry past users) {low high : Ty → Nat → Bool}
+    (more : ∀ t i, i < users.length → low t i = true → high t i = true) :
+    selectWires low wires ⊆ selectWires high wires :=
+  Feedback.Proofs.selectWires_compare wires more
+
+/-- Enlarging both the suffix demand and the child transfers enlarges the
+read set, including through γ selection and the native θ iteration. -/
+theorem Kind.demandReads_compare {ins out : Ports (PortType V S)} {past : List (Ports (PortType V S))}
+    (kind : Kind Op ins out) (wires : Wires args past ins) (pc : Nat)
+    {small large : List Address} (next : small ⊆ large)
+    (low high : Fin kind.arity → Demand → List Address)
+    (compare : ∀ i {a b}, (∀ p, a p = true → b p = true) → low i a ⊆ high i b) :
+    kind.demandReads pc small wires low ⊆ kind.demandReads pc large wires high :=
+  Feedback.Proofs.reads_compare kind wires pc next low high compare
+
 /-- The bounded feedback iteration computes the least fixed point of the
 body's demand transfer on the finite set of carried input positions. -/
 theorem Term.feedbackLive_isLeast {carried : Ports (PortType V S)}

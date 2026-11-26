@@ -31,9 +31,67 @@ theorem invoke_iff {callee : Value} {arguments : List Value} {result : Result} :
     invoke callee arguments = result ↔ Executes (Request.decode callee arguments) result :=
   Proofs.Languages.Python.Core.Module.SeededCall.invoke_iff
 
+theorem invoke_assertTrue_true : invoke (.helper .assertTrue) [.bool true] = .ok .none :=
+  invoke_iff.mpr .asserted
+
+theorem invoke_assertTrue_false :
+    invoke (.helper .assertTrue) [.bool false] = .error (.raised (.assertionError (.boolean false))) :=
+  invoke_iff.mpr .assertionFailed
+
+/-- The stock zero-argument constructor returns the canonical empty tuple
+payload carried by the seeded value model. -/
+theorem invoke_tuple_empty :
+    invoke (.builtin .tuple) [] = .ok (.returnedTuple []) :=
+  invoke_iff.mpr .emptyTuple
+
+theorem invoke_tuple_exact (items : List Core.Module.Value) :
+    invoke (.builtin .tuple) [.returnedTuple items] = .ok (.returnedTuple items) :=
+  invoke_iff.mpr (.copyTuple items)
+
+theorem invoke_tuple_reference (object : Core.Module.TupleDispatch.Object) :
+    invoke (.builtin .tuple) [.tupleObject object] = .ok (.tupleObject object) :=
+  invoke_iff.mpr (.copyTupleObject object)
+
+theorem run_tuple_reference (space : Namespace) {callee argument : String}
+    {descriptor : Core.Module.TupleDispatch.Object}
+    (stock : space.lookupGlobal callee = some (.builtin .tuple))
+    (found : space.lookupGlobal argument = some (.tupleObject descriptor)) :
+    run space #v[] (.global callee) [.global argument] = .ok (.tupleObject descriptor) := by
+  simp [run, resolveCall, Operand.evalList, Operand.eval, stock, found, Except.bind, Except.map,
+    invoke_tuple_reference]
+
+theorem Namespace.lookup_bindGlobal_same (space : Namespace) (name : String) (value : Value) :
+    (space.bindGlobal name value).lookupGlobal name = some value := by
+  simp [Namespace.lookupGlobal, Namespace.bindGlobal, lookupBinding]
+
 theorem invoke_int_bool (value : Bool) :
     invoke (.builtin .int) [.bool value] = .ok (.int (Int.ofNat value.toNat)) :=
   invoke_iff.mpr (.intFromBool value)
+
+theorem invoke_stockStr {value : Value} {text : Core.Text} (checked : value.stockStr? = some text) :
+    invoke (.builtin .str) [value] = .ok (.text text) := by
+  apply invoke_iff.mpr
+  simpa [Request.decode, checked] using (Executes.textConversion (arity := 1) text)
+
+theorem invoke_stockBool {value : Value} {result : Bool} (checked : value.stockBool? = some result) :
+    invoke (.builtin .bool) [value] = .ok (.bool result) := by
+  apply invoke_iff.mpr
+  simpa [Request.decode, checked] using (Executes.truthConversion (arity := 1) result)
+
+theorem invoke_assertEqual_text (left right : Core.Text) :
+    invoke (.helper .assertEqual) [.text left, .text right] =
+      if left = right then .ok .none else .error (.raised (.assertionError (.textPair left right))) := by
+  split
+  · exact invoke_iff.mpr (.equalText left right ‹_›)
+  · exact invoke_iff.mpr (.unequalText left right ‹_›)
+
+theorem invoke_assertEqual_tuple (left right : List Core.Module.Value) :
+    invoke (.helper .assertEqual) [.returnedTuple left, .returnedTuple right] =
+      if Core.Module.TupleDispatch.equalContents left right then .ok .none
+      else .error (.raised (.assertionError (.tuplePair left right))) := by
+  split
+  · exact invoke_iff.mpr (.equalTuple left right ‹_›)
+  · exact invoke_iff.mpr (.unequalTuple left right ‹_›)
 
 theorem invoke_assertIsNot_int_bool (integer : Int) (truth : Bool) :
     invoke (.helper .assertIsNot) [.int integer, .bool truth] = .ok .none :=

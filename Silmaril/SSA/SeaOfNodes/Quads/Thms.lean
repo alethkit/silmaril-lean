@@ -18,6 +18,13 @@ variable {Data : Type u} {Op : Signature.{u, v} Data}
 variable {regs : List (ValueSort Data)} {out result : ValueSort Data}
 variable {args : List (Ty Data)} {past : List (List (Ty Data))}
 
+/-- A pointwise map commutes with writing one typed slot. -/
+theorem map_write {T : Type u} {F : T → Type v} {G : T → Type w}
+    {ts : List T} {t : T} (f : ∀ t, F t → G t) (dest : Port ts t)
+    (value : F t) (bank : Tuple F ts) :
+    (write dest value bank).map f = write dest (f t value) (bank.map f) :=
+  Proofs.map_write f dest value bank
+
 /-- Before any assignment, a use names the corresponding input. -/
 theorem initial_get {t : Ty Data} (port : Port (dataPorts regs) t) :
     (initial regs).get port = .arg port :=
@@ -56,6 +63,11 @@ theorem read_tabulate (m : Model.{u, v, w} Op) (ports : List (Ty Data))
     Wires.read (tabulate ports wires) entry locals =
       tabulate ports (fun p => Diamond.read m (wires p) entry locals) :=
   Proofs.read_tabulate m ports wires entry locals
+
+theorem get_tabulate {T : Type u} {F : T → Type w} {ts : List T} {t : T}
+    (f : ∀ {s}, Port ts s → F s) (port : Port ts t) :
+    (tabulate ts f).get port = f port :=
+  Proofs.get_tabulate f port
 
 theorem tabulate_get_eq {T : Type u} {F : T → Type w} {ts : List T} (tuple : Tuple F ts) :
     tabulate ts (fun p => tuple.get p) = tuple :=

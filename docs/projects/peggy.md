@@ -9,7 +9,15 @@ well-founded demands. The [checked Egg bridge](peggy-egg.md) proves
 equality of native observations for ranked loop-free PEGs. The
 [cyclic E-PEG certificate kernel](peggy-epeg.md) checks finite class and
 candidate admission conditions and uses semantic evidence for merges
-and extraction.
+and extraction. The [finite saturation algorithm](peggy-saturation.md)
+closes a supplied table of ground obligations and checks a cyclic
+selection with structural row evidence. The
+[bounded root optimizer](peggy-optimizer.md) matches supplied schemas,
+generates and checks single-result PEG candidates, and selects by an
+explicit static metric. The
+[contextual optimizer](peggy-contextual-optimizer.md) rewrites shared
+internal rows across ordered outputs and counts distinct reachable
+application vertices.
 
 Ross Tate, Michael Stepp, Zachary Tatlock and Sorin Lerner, *Equality
 Saturation: A New Approach to Optimization*, LMCS 7(1:10), 2011,
@@ -17,6 +25,9 @@ arXiv:1012.1802v3. The versioned PDF has SHA-256
 `5bb3630c9a2a4766c5614b19148e865ee0797c693607b2cdd700b27c38df0b94`.
 Locators below use PDF page numbers. [Paper](https://arxiv.org/pdf/1012.1802v3) ·
 [Journal](https://lmcs.episciences.org/1016)
+
+The [paper coverage and reproduction map](peggy-coverage.md) also tracks the
+SIMPLE pipeline, institution bridges, and open claims.
 
 ## Library boundary
 
@@ -72,7 +83,103 @@ literal printed hypotheses, already for a two-element total order. The
 guard makes the evaluation demands well founded. [Definition 5.1 and Fig. 11](https://arxiv.org/pdf/1012.1802v3#page=23) ·
 [Lean fixture](../../tests/ssa/PEG.lean)
 
+## Checked loop-free reversion
+
+[Simple.Revert.Thms](../../Silmaril/SSA/PEG/Simple/Revert/Thms.lean) admits typed,
+single-result PEGs with zero loops. The manual certificate path calls
+`Certificate.check g rank plan` on a typed graph, optionally obtained with
+`RawGraph.check`. The rank must strictly decrease along every operand edge,
+including edges in dead rows. Vertex identities need no particular numbering.
+For this fragment, typed references supply Fig. 19's parameter, instruction,
+φ and root types. `Certificate.depthZero` uses the checked rank to derive
+the recursive operand premises at depth zero with an empty assumption context.
+
+A plan starts with the return root demanded. A `reveal i` hint can expose the
+strict operands of a demanded operation or the guard of a demanded φ. Each
+`bind` needs demand evidence and local slots for all operands. A `branch`
+needs a demanded φ and a previously bound guard. Its two subplans inherit the
+entry locals and may use the demand for their respective selected operands.
+Each projects to its selected value and the original entry locals. The
+continuation receives the joined φ value and those entry locals. The checker
+requires one writer site per scheduled vertex across the entire plan. This
+lets a dominating binding serve repeated wires and survive a branch join.
+The restriction rejects some valid loop-free graphs and placements, including
+cases that would need to duplicate a vertex across disjoint arms or justify
+moving it with stronger demand information.
+[Certificate and lowering](../../Silmaril/SSA/PEG/Simple/Revert/Defs.lean)
+
+### Automatic scheduling
+
+`Automatic.check g` computes a candidate rank by propagating dependency
+heights through a finite table, then synthesizes the schedule. Use
+`Automatic.checkRanked g rank` when a graph producer already has a rank.
+Each scope scans vertices from higher to lower rank, exposing the strict
+operands of demanded nodes. It emits bindings in the reverse order. A φ
+recursively schedules each selected operand with the locals available at
+the branch. A shared budget of one writer per vertex bounds generation.
+The existing certificate checker validates the generated plan, including
+the whole-table rank and unique writer sites.
+[`Automatic.Defs`](../../Silmaril/SSA/PEG/Simple/Revert/Automatic/Defs.lean)
+
+`inferRank_ordered` proves that inference succeeds whenever a valid rank
+exists. `check_accepts_straightLine` proves that the graph-only entry point
+admits every such graph with only parameter and primitive rows. Arbitrary vertex
+numbering, dead rows and repeated wires are allowed. For graphs with φ,
+the planner conservatively rejects placements that would bind a vertex
+in more than one scope. Scope placement is determined by rank order, so
+some graphs with legal manual schedules can also be rejected. The planner
+uses strict dependency discovery within each scope. Cross-arm demand
+analysis and the paper's full MustEval progress obligations remain open.
+[Acceptance theorem](../../Silmaril/SSA/PEG/Simple/Revert/Automatic/Thms.lean)
+
+The output is the existing `Simple.Program P false params result` and runs
+using `Program.runLoopFree`, which realizes the existing `Exec` relation.
+`Certificate.revert_returns` and `Certificate.revert_run` preserve every
+defined Fig. 11 root observation for the same typed input and interpretation.
+The model can return bottom for primitive calls. Purity comes from the
+value-only interpretation, and the checker justifies every scheduled
+computation on a successful path. The result observes the returned value.
+Failure correspondence, divergence and effects remain outside this theorem.
+[Correctness](../../Silmaril/SSA/PEG/Simple/Revert/Thms.lean)
+
+The relation to [#3316](https://github.com/hiloopai/silmaril-lean/pull/3316)
+is via the common Fig. 11 observation. Its `observeCFG_peg` proves the
+total-model λRTL/flat-CFG path with eager value-selects and a store frame.
+That theorem applies unchanged on the common total fragment. Here, a φ
+emits a SIMPLE branch and the unselected arm may be undefined. The proof
+uses the existing `Graph.denote_solves` and rank soundness API from #3253
+and the SIMPLE execution API from #3306. Equational E-PEG certificates concern
+the denotation of equal representatives. Reversion admission applies to a
+chosen representative and its schedule.
+
+| Paper obligation | Status |
+| --- | --- |
+| [Fig. 19 and §7.1](https://arxiv.org/pdf/1012.1802v3#page=41) | Typed row derivations and a bounded checker with explicit printed and inward eval/pass premises. Every typed structured SIMPLE compilation has an inward derivation at the checker's inferred depths. The bridge checks an independent demand rank for Figure 11 observations. Search completeness and the implication to Definition 5.1 remain open. [Clause correspondence](peggy-coverage.md#figure-19-typing-and-the-semantic-gate) |
+| [§§7.2–7.5](https://arxiv.org/pdf/1012.1802v3#page=41) | Automatic plan synthesis, one-result scope placement and sequencing for the admitted fragment. General branch-region extraction and multi-result joins remain open. Loop extraction must relate θ initialization and simultaneous feedback copies, first defined pass, and eval's earlier-prefix demands to the emitted loop. |
+| [§§7.6–7.7](https://arxiv.org/pdf/1012.1802v3#page=49) | Loop and branch fusion remain open. Fusion must preserve exit predicates, feedback dependencies and demands under the chosen observation. |
+| [§7.8](https://arxiv.org/pdf/1012.1802v3#page=53) | Checked local hints use the strict operation and φ-guard rules. A computed MustEval analysis with Definition 7's progress requirements, statement/loop contexts and automatic redundancy hoisting remains open. |
+| [§7.9](https://arxiv.org/pdf/1012.1802v3#page=56) | LICM remains open. Invariance and demand on entry need separate justification, including zero-iteration and partial-operation cases. |
+
+Run `make check CHECK_TARGETS='+Silmaril.SSA.PEG.Simple.Revert.Automatic.Thms PEGCoreTests'`
+for the scoped build and repository gates. The
+[fixture](../../tests/ssa/PEGRevert.lean) runs both φ choices, checks a
+bottom unselected arm and a dominating shared value, and exercises rejected
+speculation, scope, duplicate-binding and rank certificates. It also checks
+automatic admission and runs the synthesized syntax.
+
+## Checked SIMPLE optimization
+
+The executable SIMPLE pipeline combines frontend lowering, contextual
+discovery and replay, and automatic reversion. It preserves successful
+SIMPLE returns under rule laws over partial values. The worked example
+optimizes a shared computation inside a φ arm and executes the emitted
+SIMPLE. [Pipeline contract and example](peggy-simple-validation.md)
+
 ## Follow-up roadmap
+
+This is the original dependency plan. See the
+[coverage map's remaining work](peggy-coverage.md#remaining-work-in-priority-order)
+for the current priorities.
 
 1. **PEG invariants and rule schemas**. Extend the
    [guarded semantics](peg-semantics.md) with alpha and parameter transport,
@@ -89,15 +196,11 @@ guard makes the evaluation demands well founded. [Definition 5.1 and Fig. 11](ht
    [institution builders](../../Silmaril/Logic/Inst/Builders/Core/Defs.lean).
    Typed program substitution for instruction lowerings needs its own
    interpretation and strictness laws.
-3. **SIMPLE and reversion**. Add `Silmaril.SSA.PEG.Simple`,
-   `.Simple.Translate`, `.CFGLike` and `.Simple.Revert`.
-   Formalize Fig. 15/17 and Theorem 2 as preservation of successful source
-   returns. Dropped divergence or faults require a threaded observation
-   token and a separate adequacy theorem. Correct the printed depth
-   direction of Fig. 19's Type-Eval-Pass in a documented comparison.
-   Prove admitted reversion typed and observation-preserving. Keep demands
-   for earlier samples or prove prefix definedness. Stage loop extraction,
-   branch extraction and sequencing before fusion, MustEval and LICM.
+3. **SIMPLE and reversion**. Extend the loop-free Fig. 15/17 frontend and
+   depth-zero reversion to loop syntax. Dropped divergence or faults require
+   a threaded observation token and a separate adequacy theorem. Keep demands
+   for earlier samples or prove prefix definedness. Stage loop extraction
+   and automatic branch extraction before fusion, MustEval and LICM.
    The authors' Coq `preserveFunctioner` is a proof guide for their
    structured SIMPLER syntax. Its published evaluator samples eval's
    chosen index directly, so correspondence with Fig. 11 needs a proof.
@@ -105,11 +208,18 @@ guard makes the evaluation demands well founded. [Definition 5.1 and Fig. 11](ht
 4. **E-PEGs and optimization**. The [E-PEG certificate kernel](peggy-epeg.md)
    proves stream equality for same-label congruence and merges with
    independently justified laws. It checks the demand rank and root
-   classes of a proposed extraction. Add node extension, rule-schema
-   validation, proof production for candidate equations, saturation and
-   reversion. The [acyclic bridge](peggy-egg.md) reuses sorted Egg replay.
-   Prove §4's monotonicity and uniqueness of normal forms separately from
-   finite-fuel progress. Use an independent graph and
+   classes of a proposed extraction. The
+   [finite worklist](peggy-saturation.md) proves least closure and
+   order independence for a fixed table of ground reasons. It derives
+   candidate equations for same-label rewiring. The
+   [root optimizer](peggy-optimizer.md) adds rows and finds typed
+   instances in a bounded loop-free search. The
+   [cyclic optimizer](peggy-cyclic-optimizer.md) discovers guarded θ
+   self-feedback and checks the compacted candidate on a one-loop profile.
+   Extend matching and node
+   generation to more general contexts, and prove reversion. The
+   [acyclic bridge](peggy-egg.md) reuses sorted Egg replay. The full
+   node-generating form of §4 remains a separate proof obligation. Use an independent graph and
    CFG-like check on extracted representatives. The displayed Boolean
    constraints in §8.3 also admit invalid selections, such as a θ
    initializer selecting its own class. Prove reversion correctness
@@ -130,7 +240,7 @@ guard makes the evaluation demands well founded. [Definition 5.1 and Fig. 11](ht
    signature direction needs sentences backward and models forward.
    A one-way compiler theorem supplies simulation or refinement. Exact
    satisfaction and consequence reflection require separate proofs,
-   with model expansiveness for reflection. [RVSDG–MLIR model bridge](rvsdg-mlir-regionless.md) ·
+   with model expansiveness for reflection. [RVSDG–MLIR model bridge](rvsdg/mlir/rvsdg-mlir-regionless.md) ·
    [SSA and machine boundaries](ssa.md)
 6. **Paper view and Java profile**. Add a leaf under
    `Silmaril.Papers.TateSteppTatlockLerner2011` once the reusable theorems
@@ -151,16 +261,8 @@ an independently reviewed promotion of its format-independent core.
 
 ## Paper coverage
 
-| Source | Target and current status |
-| --- | --- |
-| §§1–3, Figs. 1–9 | Planned equality replay and admissible extraction for strength reduction, nested loops, loop motion, CFG restructuring, peeling and branch hoisting. General cross-level fusion, interchange and unrolling are research extensions. |
-| §4, Fig. 10 | Planned optimization pipeline, extension and monotonicity (4.1–4.3), uniqueness of reachable normal forms (4.4), and budgeted runs. |
-| §5, Figs. 11–12 | Typed structure, role-sensitive graph predicates, the literal-guard counterexample and the guarded denotation are checked. Parameter substitution, Def. 5.2 invariance and verified rule schemas are follow-ups. |
-| §6, Figs. 13–18 | Planned typed SIMPLE frontend, factorial translation, context lemmas, Theorem 2 and the completion-token extension with discarded-divergence controls. |
-| §7, Figs. 19–34 | Planned CFG-like witness, loop/branch extraction, scheduling and parallel copies, loop and branch fusion, MustEval and guarded LICM. |
-| §8, Figs. 35–37 | Planned parameterized Peggy, checked Java heap/exception/call profile, local linearization failure, Rete/worklist refinement and independently checked PB extraction. |
-| §9, Figs. 38–39 | Empirical reproduction. The paper reports 84% full saturation among compiled methods and 98% validation across 3,416 methods. Tests of the listed transforms and proofs of certificate soundness are separate deliverables. |
-| Appendix A | Planned coverage per rule family, classified as proved, guarded, conditional on a stated model contract, or refuted under the specified semantics. Include arithmetic, code patterns, array/field/effect rules, inlining, vectors, list and wrapper laws, outlining and specialized redirection. |
+See the [paper coverage and reproduction map](peggy-coverage.md) for the
+current theorem, implementation and experiment coverage by paper section.
 
 ## Check the core
 

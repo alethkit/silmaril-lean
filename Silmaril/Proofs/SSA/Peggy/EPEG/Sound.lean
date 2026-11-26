@@ -18,13 +18,13 @@ variable {params results : List (PEG.Ty Data)} {n n' l : Nat}
 variable {g : PEG.Graph P params results n l} {m : PEG.Interpretation.{u,v,x} P}
 variable {values : g.Valuation m} {env : Tuple m.Value params}
 
-private theorem read_heq {t : PEG.Ty Data} (ref : PEG.Ref g.sort t)
+theorem read_heq {t : PEG.Ty Data} (ref : PEG.Ref g.sort t)
     (value : Option (m.Value (g.sort ref.id))) : HEq (ref.read m.carrier value) value := by
   obtain ⟨id, h⟩ := ref
   cases h
   rfl
 
-private theorem read_eq {t : PEG.Ty Data} {a b : PEG.Ref g.sort t} (i : PEG.Index l)
+theorem read_eq {t : PEG.Ty Data} {a b : PEG.Ref g.sort t} (i : PEG.Index l)
     (agree : StreamEq values a.id b.id) :
     a.read m.carrier (values (a.id, i)) = b.read m.carrier (values (b.id, i)) :=
   eq_of_heq ((read_heq a _).trans ((agree.2 i).trans (read_heq b _).symm))
@@ -52,13 +52,13 @@ theorem merge_guarded_sound {classes : Classes n} (rule : GuardedEquation g)
   intro guard member
   exact valid _ _ (beq_iff_eq.mp (List.all_eq_true.mp check guard member))
 
-private noncomputable def nodeValue {t : PEG.Ty Data} (node : PEG.Node P params (Fin l) g.sort t)
+@[expose] noncomputable def nodeValue {t : PEG.Ty Data} (node : PEG.Node P params (Fin l) g.sort t)
     (values : g.Valuation m) (env : Tuple m.Value params) (i : PEG.Index l) : Option (m.Value t) :=
   node.label.interpret m env i fun slot j _ =>
     let ref := node.arg slot
     ref.read m.carrier (values (ref.id, j))
 
-private theorem nodeValue_heq {s t : PEG.Ty Data} (sortEq : s = t)
+theorem nodeValue_heq {s t : PEG.Ty Data} (sortEq : s = t)
     {a : PEG.Node P params (Fin l) g.sort s} {b : PEG.Node P params (Fin l) g.sort t}
     (nodeEq : HEq a b) (i : PEG.Index l) :
     HEq (nodeValue a values env i) (nodeValue b values env i) := by
@@ -111,7 +111,7 @@ private theorem tuple_eq {F : PEG.Ty Data → Type x} {ts : List (PEG.Ty Data)} 
     cases ys with
     | cons y ys => exact congrArg₂ Tuple.cons (h 0) (ih ys (fun i => h i.succ))
 
-private theorem read_sourceRef (candidate : Selection g target) {t : PEG.Ty Data}
+theorem read_sourceRef (candidate : Selection g target) {t : PEG.Ty Data}
     (ref : PEG.Ref target.sort t) (i : PEG.Index l) :
     ref.read m.carrier (candidate.inherit values (ref.id, i)) =
       (candidate.sourceRef ref).read m.carrier (values ((candidate.sourceRef ref).id, i)) := by

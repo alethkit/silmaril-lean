@@ -1,6 +1,9 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.BoundSimulation.OrdinarySquare.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Defs
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Thms
 
 public section
 
@@ -14,7 +17,7 @@ open Silmaril.Isotope.LambdaSSA.Region
 open Silmaril.Isotope.LambdaSSA.Region.Paper
 open Silmaril.Isotope.LambdaSSA.Region.Paper.TypeCategory
 open Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation
-open ContinuationContext (single)
+local notation "single" => Silmaril.Isotope.LambdaSSA.Region.ContinuationContext.single
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
@@ -27,48 +30,78 @@ set_option backward.isDefEq.respectTransparency false
 private theorem pack_repeat (A B : τ) :
     (N).map ((single A).appendInl (single B)) ≫ packStepExits (Φ := Φ) A B =
       (F).map (coprod.inr : ofType A ⟶ ofType B ⨿ ofType A) :=
-  (appendIsColimit (Φ := Φ) (Γ := []) (single A) (single B)).fac
+  (Paper.appendIsColimit (Φ := Φ) (Γ := []) (single A) (single B)).fac
     (BinaryCofan.mk ((F).map coprod.inr) ((F).map coprod.inl)) ⟨.left⟩
 
 @[reassoc]
 private theorem pack_outward (A B : τ) :
     (N).map ((single A).appendInr (single B)) ≫ packStepExits (Φ := Φ) A B =
       (F).map (coprod.inl : ofType B ⟶ ofType B ⨿ ofType A) :=
-  (appendIsColimit (Φ := Φ) (Γ := []) (single A) (single B)).fac
+  (Paper.appendIsColimit (Φ := Φ) (Γ := []) (single A) (single B)).fac
     (BinaryCofan.mk ((F).map coprod.inr) ((F).map coprod.inl)) ⟨.right⟩
 
-private noncomputable def unpack (A B : τ) :
-    (F).obj (ofType B ⨿ ofType A) ⟶ (N).obj ((single A).append (single B)) :=
-  (F).map (sumIso (Φ := Φ) B A).inv ≫ (singletonSumIsColimit (Φ := Φ) (Γ := []) B A).desc
-    (BinaryCofan.mk ((N).map ((single A).appendInr (single B)))
-      ((N).map ((single A).appendInl (single B))))
+private theorem dispatch_pack (A B : τ) :
+    iterationDispatchArrow (ofType (Φ := Φ) A) (ofType B) ≫ packStepExits A B = 𝟙 _ := by
+  apply chosen_sum_hom_ext
+  · rw [inl_iterationDispatchArrow_assoc, pack_outward, Category.comp_id]
+  · rw [inr_iterationDispatchArrow_assoc, pack_repeat, Category.comp_id]
 
-private theorem unpack_repeat (A B : τ) :
-    (F).map (coprod.inr : ofType A ⟶ ofType B ⨿ ofType A) ≫ unpack (Φ := Φ) A B =
-      (N).map ((single A).appendInl (single B)) := by
-  rw [unpack, ← (F).map_comp_assoc, ← sumCofan_inr_sumIso_hom B A, Category.assoc,
-    Iso.hom_inv_id, Category.comp_id]
-  exact (singletonSumIsColimit (Φ := Φ) (Γ := []) B A).fac _ ⟨.right⟩
-
-private theorem unpack_outward (A B : τ) :
-    (F).map (coprod.inl : ofType B ⟶ ofType B ⨿ ofType A) ≫ unpack (Φ := Φ) A B =
-      (N).map ((single A).appendInr (single B)) := by
-  rw [unpack, ← (F).map_comp_assoc, ← sumCofan_inl_sumIso_hom B A, Category.assoc,
-    Iso.hom_inv_id, Category.comp_id]
-  exact (singletonSumIsColimit (Φ := Φ) (Γ := []) B A).fac _ ⟨.left⟩
-
-private theorem pack_unpack (A B : τ) :
-    packStepExits (Φ := Φ) A B ≫ unpack (Φ := Φ) A B = 𝟙 _ := by
-  apply append_hom_ext (single A) (single B)
-  · rw [pack_repeat_assoc, unpack_repeat, Category.comp_id]
-  · rw [pack_outward_assoc, unpack_outward, Category.comp_id]
+private theorem pack_dispatch (A B : τ) :
+    packStepExits A B ≫ iterationDispatchArrow (ofType (Φ := Φ) A) (ofType B) = 𝟙 _ := by
+  apply Paper.append_hom_ext (single A) (single B)
+  · rw [pack_repeat_assoc, inr_iterationDispatchArrow, Category.comp_id]
+  · rw [pack_outward_assoc, inl_iterationDispatchArrow, Category.comp_id]
 
 private theorem pack_mono (A B : τ) : Mono (packStepExits (Φ := Φ) A B) :=
   ⟨fun _ _ h => by
-    simpa only [Category.assoc, pack_unpack, Category.comp_id] using
-      congrArg (fun f => f ≫ unpack (Φ := Φ) A B) h⟩
+    simpa only [Category.assoc, pack_dispatch, Category.comp_id] using
+      congrArg (fun f => f ≫ iterationDispatchArrow (ofType A) (ofType B)) h⟩
 
 variable {A B D : τ} {p q r : Region Φ}
+
+theorem exists_stepArrow (f : ofType (Φ := Φ) A ⟶ ofType B ⨿ ofType A) :
+    ∃ p : Region Φ, ∃ hp : ValueBranches [A] p [A, B], f = stepArrow hp := by
+  obtain ⟨s, hs, eq⟩ := exists_ofRegion (f ≫ (sumIso B A).inv)
+  let body : LSubst.ValueFamily [A] [Silmaril.coprod B A] [A, B]
+      (fun _ => SyntacticCategory.iterationDispatch (Φ := Φ)) :=
+    fun _ _ hi => (List.mem_singleton.mp (List.mem_of_getElem? hi)).symm ▸
+      SyntacticCategory.iterationDispatch_valueBranches A B
+  refine ⟨SyntacticCategory.iterationBody s, hs.lsubst body, ?_⟩
+  have e : (F).map f ≫ iterationDispatchArrow (ofType A) (ofType B) =
+      Paper.singletonArrow (hs.lsubst body) := by
+    change (f.hom ≫ _) = _
+    rw [iterationDispatchArrow, ← Category.assoc]
+    have h := congrArg (F).map eq
+    change f.hom ≫ (sumIso B A).inv.hom = (ofRegion hs).hom at h
+    rw [h]
+    rfl
+  apply (F).map_injective
+  change (F).map f = Paper.singletonArrow (hs.lsubst body) ≫ packStepExits A B
+  rw [← e, Category.assoc, dispatch_pack, Category.comp_id]
+
+theorem iterate_stepArrow (hp : ValueBranches [A] p [A, B]) :
+    Paper.TypeCategory.iterate (stepArrow hp) = ofRegion (stepFeedback_typed hp) := by
+  apply (F).map_injective
+  rw [toInterface_map_iterate]
+  change feedback ((Paper.singletonArrow hp ≫ packStepExits A B) ≫
+    iterationDispatchArrow (ofType A) (ofType B)) = _
+  rw [Category.assoc, pack_dispatch]
+  let Y : Silmaril.Isotope.LambdaSSA.Region.ContinuationContext Φ ([] : VCtx τ) :=
+    (single A).append (single B)
+  let h : (N).obj (single A) ⟶ (N).obj Y := Paper.singletonArrow hp
+  have hh : h ≫ 𝟙 ((N).obj Y) = h := Category.comp_id h
+  change feedback (X := single A) (Y := single B) (h ≫ 𝟙 ((N).obj Y)) = _
+  rw [hh]
+  apply (toHom_eq_iff (Φ := Φ) (Γ := [])).2
+  intro i E hi
+  change At [A] i E at hi
+  cases i with
+  | zero =>
+    cases Option.some.inj hi
+    change Paper.Eqv [A] (feedbackRegion [A] (fun _ => p) 0)
+      (feedbackRegion [A] (fun _ => p) 0) [B]
+    exact .refl (stepFeedback_typed hp).hasType
+  | succ i => simp [At] at hi
 
 private theorem widenReturn (hr : ValueBranches [A] r [D]) : ValueBranches [A] r [D, B] := by
   have labels : LSubst.ValueFamily [A] [D] [D, B] (labelId : Nat → Region Φ) := by

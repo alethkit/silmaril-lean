@@ -8,15 +8,35 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.GVN.Pass
 
 open Diamond (Dataflow Model Signature Ty Val ValueSort)
-open RVSDG (Locals Tuple)
-open Elimination (Rewrite Routing)
+open RVSDG (Locals Origin Tuple)
+open Elimination (Rewrite Routing operandScope)
 
 universe u v w
 
 variable {Data : Type u} {Op : Signature.{u,v} Data}
 variable {args : List (Ty Data)} {past sigs : List (List (Ty Data))}
 variable {flow : Dataflow Op args past sigs}
+
+/-- The table-order enumeration contains every typed producer reference. -/
+theorem mem_candidates {out : ValueSort Data} (ref : Producer flow out) :
+    ⟨out, ref⟩ ∈ candidates flow :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.Pass.mem_candidates ref
+
 variable [DecidableEq (ValueSort Data)] [∀ ins out, DecidableEq (Op ins out)]
+
+/-- One candidate uses the discovered earlier producer and its typed prefix wire. -/
+theorem eliminateCandidate?_checked {out : ValueSort Data} (candidate : Producer flow out) {result : Rewrite Op args past sigs}
+    (accepted : eliminateCandidate? candidate = some result) :
+    ∃ (representative : Producer flow out) (wire : Origin args (operandScope candidate) (.value out)),
+      Discovery.findRepresentative? candidate = some representative ∧
+        replacement? candidate representative = some wire ∧
+        Elimination.eliminate? candidate representative wire = some result :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.Pass.eliminateCandidate_checked candidate accepted
+
+/-- Any discovered representative has a usable prefix wire. -/
+theorem eliminateCandidate?_eq_none_iff {out : ValueSort Data} (candidate : Producer flow out) :
+    eliminateCandidate? candidate = none ↔ Discovery.findRepresentative? candidate = none :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.Pass.eliminateCandidate_none_iff candidate
 
 /-- A scan stops exactly when the current table has no checker-accepted pair. -/
 theorem step?_eq_none_iff (flow : Dataflow Op args past sigs) :
@@ -27,6 +47,12 @@ theorem step?_eq_none_iff (flow : Dataflow Op args past sigs) :
 theorem step_size {result : Rewrite Op args past sigs} (accepted : step? flow = some result) :
     result.sigs'.length + 1 = sigs.length :=
   Silmaril.Proofs.SSA.SeaOfNodes.GVN.Pass.step_size accepted
+
+/-- A single deletion preserves the value of each original routed wire. -/
+theorem step_sound {result : Rewrite Op args past sigs} (accepted : step? flow = some result)
+    (m : Model.{u,v,w} Op) (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) :
+    Routing.Agrees result.route m entry (flow.eval m entry locals) (result.flow.eval m entry locals) :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.Pass.step_sound m entry locals accepted
 
 /-- Every original wire keeps its value under the composed routing, for any
 assignment to arguments and the initial scope in a pure total model. -/

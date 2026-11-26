@@ -2,7 +2,10 @@ module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Thms
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Infer.Defs
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Import.Allocation.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Thms
@@ -11,6 +14,8 @@ import Silmaril.SSA.RVSDG.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Thms
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Infer.Defs
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Import.Allocation.Thms
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests
 
@@ -26,6 +31,7 @@ private abbrev exports : Ports T := [global, global]
 
 private inductive Op : Dialect (ValueSort Unit Unit) Unit where
   | seed : Op [num] [num]
+  | gain : Op [num] [num]
   | finish : Op [global, num] [num]
 
 private def machine : Machine Op where
@@ -33,6 +39,7 @@ private def machine : Machine Op where
   State _ := Unit
   primitive
     | .seed, .cons (.data n) .nil => .cons (.data (n + 7)) .nil
+    | .gain, .cons (.data n) .nil => .cons (.data (n + 14)) .nil
     | .finish, .cons (.global _ _ (.data n)) (.cons (.data _) .nil) => .cons (.data (n + 1)) .nil
 
 private def number (n : Nat) : Tuple machine.Val [num] := .cons (.data n) .nil
@@ -40,6 +47,7 @@ private def number (n : Nat) : Tuple machine.Val [num] := .cons (.data n) .nil
 private def actions : Actions machine Nat where
   step
     | .seed, .cons (.data n) .nil => fun store => some (number ((show Nat from n) + 7), store + 3)
+    | .gain, .cons (.data n) .nil => fun store => some (number ((show Nat from n) + 14), store + 6)
     | .finish, .cons (.global _ _ (.data n)) (.cons (.data flag) .nil) => fun store =>
       let test : Nat := flag
       if test = 0 then none else some (number ((show Nat from n) + 1), store + 5)
@@ -52,7 +60,7 @@ private def positions : Fin 3 ≃ Fin 3 :=
 private def ids : GlobalRel := fun left right =>
   left.1 = right.1 ∧ renameVertex positions left.2 = right.2
 
-private theorem respects : ActionsRespect primitives ids := by
+private theorem respectsGlobals (ids : GlobalRel) : ActionsRespect primitives ids := by
   intro ins outs opcode left right paired store
   cases opcode with
   | seed =>
@@ -62,6 +70,13 @@ private theorem respects : ActionsRespect primitives ids := by
       | data n =>
         cases tail
         exact .returned (.cons (.data _) .nil) (store + 3)
+  | gain =>
+    cases paired with
+    | cons head tail =>
+      cases head with
+      | data n =>
+        cases tail
+        exact .returned (.cons (.data _) .nil) (store + 6)
   | finish =>
     cases paired with
     | cons captured rest =>
@@ -81,6 +96,8 @@ private theorem respects : ActionsRespect primitives ids := by
               split
               · exact .undefined
               · exact .returned (.cons (.data _) .nil) (store + 5)
+
+private theorem respects : ActionsRespect primitives ids := respectsGlobals ids
 
 private def seedTerm : Term Op [num] [] [[num]] [num] :=
   .bind ⟨[num], .simple .seed, .cons (.arg .head) .nil, fun i => i.elim0⟩
@@ -313,12 +330,12 @@ private theorem memberBodyIso :
     intro arm
     exact .intro rfl rfl (Equiv.refl _) (fun i => i.elim0) (fun i => i.elim0) rfl (fun i => i.elim0)
 
-private def selfGroup (member : Function Unit Unit) {past sigs : List (Ports T)}
-    (source : Origin args past global)
-    (body : NestedTheta.Term (Instruction Op) ([global, member.port] ++ member.args) [] sigs member.results) :
-    PhiTerm Op args past [member] :=
-  ⟨[global], .cons source .nil,
-    .cons ⟨[global, member.port], .cons (.arg .head) (.cons (.arg (.tail .head)) .nil), sigs, body⟩ .nil⟩
+private def selfGroup (member : Function Unit Unit) {imports : Ports T} {past sigs : List (Ports T)} {capture : T}
+    (source : Origin imports past capture)
+    (body : NestedTheta.Term (Instruction Op) ([capture, member.port] ++ member.args) [] sigs member.results) :
+    PhiTerm Op imports past [member] :=
+  ⟨[capture], .cons source .nil,
+    .cons ⟨[capture, member.port], .cons (.arg .head) (.cons (.arg (.tail .head)) .nil), sigs, body⟩ .nil⟩
 
 private def groupL := selfGroup fn (.output (0 : Fin 1) .head : Origin args [[global]] global) memberBodyL
 private def groupR := selfGroup fn (.output (1 : Fin 2) .head : Origin args [[], [global]] global) memberBodyR
@@ -468,7 +485,7 @@ example : Advance primitives ids checkpointL checkpointR :=
 private def finishOperands {ins outs : Ports T} (opcode : Op ins outs)
     (input : Tuple machine.Val ins) : Option (Nat × Nat) :=
   match opcode with
-  | .seed => none
+  | .seed | .gain => none
   | .finish =>
     let .global _ source _ := input.get .head
     let .data flag := input.get (.tail .head)
@@ -600,8 +617,9 @@ example : ∃ endR,
 
 private abbrev control : T := .control 2
 private abbrev branchFn : Function Unit Unit := ⟨[num, control, control], [num]⟩
-private abbrev captured : Ports T := [global, branchFn.port, num, control]
-private abbrev branchEntry : Ports T := [global, branchFn.port, num, control, control]
+private abbrev capturedWith (capture : T) : Ports T := [capture, branchFn.port, num, control]
+private abbrev branchEntryWith (capture : T) : Ports T := [capture, branchFn.port, num, control, control]
+private abbrev captured := capturedWith global
 
 private abbrev finishNode {past : List (Ports T)} : NestedTheta.Node (Instruction Op) captured past [num] :=
   RecursiveCall.simple (.primitive Op.finish)
@@ -621,19 +639,23 @@ private def baseR : RecursiveCall.Code Op captured [] [[], [num]] [num] :=
   .bind inertNode (fun _ => .ret .nil) <| .bind finishNode (fun i => i.elim0) <|
     .ret (.cons (.output (1 : Fin 2) .head) .nil)
 
-private def addAfter {entry : Ports T} : RecursiveCall.Code Op entry [[num]] [[num]] [num] :=
-  .bind (RecursiveCall.simple (.primitive Op.seed) (.cons (.output (0 : Fin 1) .head) .nil) (fun i => i.elim0))
+private def addAfterWith {entry : Ports T} (opcode : Op [num] [num]) :
+    RecursiveCall.Code Op entry [[num]] [[num]] [num] :=
+  .bind (RecursiveCall.simple (.primitive opcode) (.cons (.output (0 : Fin 1) .head) .nil) (fun i => i.elim0))
     (fun i => i.elim0) (.ret (.cons (.output (1 : Fin 2) .head) .nil))
+
+private abbrev addAfter {entry : Ports T} : RecursiveCall.Code Op entry [[num]] [[num]] [num] :=
+  addAfterWith .seed
 
 -- Pass the carried exit selector to the recursive call, then use its
 -- returned tuple in a state-changing suffix.
-private def recurArm : RecursiveCall.Code Op captured [] [[num], [num]] [num] :=
+private def recurArm {capture : T} : RecursiveCall.Code Op (capturedWith capture) [] [[num], [num]] [num] :=
   let after := Origin.arg (.tail (.tail (.tail .head))) (past := [])
   .bind (RecursiveCall.simple (.apply branchFn)
     (.cons (.arg (.tail .head)) (.cons (.arg (.tail (.tail .head))) (.cons after (.cons after .nil))))
     (fun i => i.elim0)) (fun i => i.elim0) addAfter
 
-private def branchWires : Wires branchEntry [] (control :: captured) :=
+private def branchWires {capture : T} : Wires (branchEntryWith capture) [] (control :: capturedWith capture) :=
   .cons (.arg (.tail (.tail (.tail .head))))
     (.cons (.arg .head) (.cons (.arg (.tail .head))
       (.cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail (.tail .head))))) .nil))))
@@ -641,37 +663,38 @@ private def branchWires : Wires branchEntry [] (control :: captured) :=
 private def branchSigs (sigs : List (Ports T)) : Fin 2 → List (Ports T) :=
   Fin.cases sigs fun _ => [[num], [num]]
 
-private def branchChildren {sigs : List (Ports T)} (base : RecursiveCall.Code Op captured [] sigs [num])
-    (tag : Fin 2) : RecursiveCall.Code Op captured [] (branchSigs sigs tag) [num] :=
-  Fin.cases (n := 1) (motive := fun i => RecursiveCall.Code Op captured [] (branchSigs sigs i) [num])
+private def branchChildren {capture : T} {sigs : List (Ports T)} (base : RecursiveCall.Code Op (capturedWith capture) [] sigs [num])
+    (tag : Fin 2) : RecursiveCall.Code Op (capturedWith capture) [] (branchSigs sigs tag) [num] :=
+  Fin.cases (n := 1) (motive := fun i => RecursiveCall.Code Op (capturedWith capture) [] (branchSigs sigs i) [num])
     base (fun _ => recurArm) tag
 
-private def branchBody {sigs : List (Ports T)} (base : RecursiveCall.Code Op captured [] sigs [num]) :
-    RecursiveCall.Code Op branchEntry [] [[num], [num]] [num] :=
-  .bind (RecursiveCall.gammaNode (extra := 0) (entry := captured) (outs := [num])
-    branchWires (branchSigs sigs)) (branchChildren base) addAfter
+private def branchBodyWith {capture : T} {sigs : List (Ports T)}
+    (base : RecursiveCall.Code Op (capturedWith capture) [] sigs [num]) (opcode : Op [num] [num]) :
+    RecursiveCall.Code Op (branchEntryWith capture) [] [[num], [num]] [num] :=
+  .bind (RecursiveCall.gammaNode (extra := 0) (entry := capturedWith capture) (outs := [num])
+    branchWires (branchSigs sigs)) (branchChildren base) (addAfterWith opcode)
 
-private def baseNumbering : Local.Renaming := .region memberVertices (fun _ _ => .identity)
+private abbrev branchBody {capture : T} {sigs : List (Ports T)}
+    (base : RecursiveCall.Code Op (capturedWith capture) [] sigs [num]) :
+    RecursiveCall.Code Op (branchEntryWith capture) [] [[num], [num]] [num] :=
+  branchBodyWith base .seed
 
-private def branchNumbering : Local.Renaming :=
-  .region (Equiv.refl Nat) (fun _ arm => if arm = 0 then baseNumbering else .identity)
+local instance : DecidableEq (Ty Unit Unit) := RecursiveCall.Numbered.decidePort
 
-private theorem addAfterOrdered {entry : Ports T} :
-    RecursiveCall.Numbered.Ordered Op .identity (addAfter (entry := entry)).toGraph addAfter.toGraph :=
-  .bind (.base (.simple (.primitive Op.seed))) _ _ rfl rfl (fun i => i.elim0) (.ret _ _ rfl)
+private def opcodeCode : NestedTheta.Equality.OpcodeCode Op where
+  Key := Nat
+  encode
+    | .seed => 0
+    | .finish => 1
+    | .gain => 2
+  injective := by
+    intro _ _ x y equal
+    cases x <;> cases y <;> first | rfl | cases equal
 
-private theorem branchOrdered :
-    RecursiveCall.Numbered.Ordered Op branchNumbering (branchBody baseL).toGraph (branchBody baseR).toGraph := by
-  have after : RecursiveCall.Numbered.Ordered Op branchNumbering (addAfter (entry := branchEntry)).toGraph addAfter.toGraph :=
-    .bind (.base (.simple (.primitive Op.seed))) _ _ rfl rfl (fun i => i.elim0) (.ret _ _ rfl)
-  refine .bind (.base (.gamma (entry := captured) (exit := [num]) 0)) branchWires branchWires rfl rfl ?_ after
-  intro arm
-  refine Fin.cases ?_ (fun i => ?_) arm
-  · change RecursiveCall.Numbered.Ordered Op baseNumbering baseL.toGraph baseR.toGraph
-    exact .emptyRight _ (.bind (.base (.simple (.primitive Op.finish))) _ _ rfl rfl
-      (fun i => i.elim0) (.emptyLeft _ (.ret _ _ rfl)))
-  · change RecursiveCall.Numbered.Ordered Op .identity recurArm.toGraph recurArm.toGraph
-    exact .bind (.base (.simple (.apply branchFn))) _ _ rfl rfl (fun i => i.elim0) addAfterOrdered
+private abbrev instructionKeys := RecursiveCall.Numbered.instructionCode opcodeCode
+
+private instance : DecidableEq instructionKeys.Key :=
+  show DecidableEq (Sum Nat (Ports T × Ports T)) from inferInstance
 
 private theorem baseIso : NestedTheta.Graph.Isomorphic (Instruction Op) baseL.toGraph baseR.toGraph := by
   refine .intro rfl rfl (Equiv.swap (0 : Fin 2) 1) ?_ ?_ rfl ?_
@@ -681,8 +704,9 @@ private theorem baseIso : NestedTheta.Graph.Isomorphic (Instruction Op) baseL.to
     intro arm
     exact NestedTheta.Graph.Isomorphic.refl _
 
-private theorem branchBodyIso :
-    NestedTheta.Graph.Isomorphic (Instruction Op) (branchBody baseL).toGraph (branchBody baseR).toGraph := by
+private theorem branchBodyWithIso (opcode : Op [num] [num]) :
+    NestedTheta.Graph.Isomorphic (Instruction Op)
+      (branchBodyWith baseL opcode).toGraph (branchBodyWith baseR opcode).toGraph := by
   refine .intro rfl rfl (Equiv.refl _) ?_ ?_ rfl ?_
   · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
   · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
@@ -708,31 +732,63 @@ private def branchRefL : machine.Val branchFn.port :=
 private def branchRefR : machine.Val branchFn.port :=
   .member (.cons (globalValue 1 8) .nil) branchGroupR.toGraph.definitions 0
 
-private theorem branchRefs : ValueRelated machine ids branchRefL branchRefR := by
-  have capture : ValueRelated machine ids (globalValue 0 8) (globalValue 1 8) :=
-    .global ⟨rfl, rfl⟩ (ValueRelated.data (m := machine) (ids := ids) (t := ()) (8 : Nat))
-  refine .member (members := [branchFn]) (tableL := branchGroupL.toGraph.definitions)
-    (tableR := branchGroupR.toGraph.definitions) (.cons capture .nil) ?_ 0
-  exact Fin.cases ⟨⟨rfl, rfl⟩, branchBodyIso⟩ (fun i => i.elim0)
+private theorem branchGroupsIso : branchGroupL.Renumbered (renameVertex positions) branchGroupR :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyWithIso .seed⟩ (fun i => i.elim0)⟩
 
-private theorem checkedBranchFamily :
-    RecursiveCall.Numbered.CheckedFamily primitives ids (Supported branchRefL) (Supported branchRefR) where
-  closedL := primitivesClosed branchRefL (by
-    intro _ _ _ member
-    cases member
-    exact ⟨.capture 73 0 8, .self, trivial⟩)
-  closedR := primitivesClosed branchRefR (by
-    intro _ _ _ member
-    cases member
-    exact ⟨.capture 73 1 8, .self, trivial⟩)
-  graphs := by
-    intro _ _ _ _ left right _
-    cases left
-    cases right
-    exact .intro branchOrdered
+private theorem branchModulesIso : branchModuleL.toGraph.RenumberedBy branchModuleR.toGraph positions :=
+  (branchModuleL.renumberedBy_toGraph_iff branchModuleR positions).2
+    ⟨Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+      (Fin.cases (.phi branchGroupsIso) (Fin.cases (.phi ⟨⟨rfl, rfl⟩, fun i => i.elim0⟩) (fun i => i.elim0))), rfl⟩
 
-private theorem branchFamily : ClosedFamily primitives ids (Supported branchRefL) (Supported branchRefR) :=
-  checkedBranchFamily.toClosed
+private theorem branchOrder : Ordered Op (renameVertex positions) args [branchFn.port]
+    branchModuleL.toGraph.toTerm.region branchModuleR.toGraph.toTerm.region := by
+  rw [OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+  exact .emptyRight (.bind rfl (.delta ⟨rfl, rfl⟩ seedTerm)
+    (.bind rfl (.phi branchGroupsIso) (.emptyLeft (.ret _ _))))
+
+private theorem branchOutcomes : OutcomesRelated machine ids Nat (renameVertex positions) [branchFn.port]
+    (.linked (.cons branchRefL .nil) 23) (.linked (.cons branchRefR .nil) 23) := by
+  have imports : TupleRelated machine ids (number 1) (number 1) :=
+    .cons (ValueRelated.data (m := machine) (ids := ids) (t := ()) (1 : Nat)) .nil
+  have linked := link_related (unitL := 73) (unitR := 73) respects branchModulesIso branchOrder
+    (fun _ => ⟨rfl, rfl⟩) imports 20
+  have left : link primitives 73 branchModuleL.toGraph (number 1) 20 = .linked (.cons branchRefL .nil) 23 :=
+    (Executable.link_eq actions 73 branchModuleL.toGraph (number 1) 20).symm.trans (by cbv)
+  have right : link primitives 73 branchModuleR.toGraph (number 1) 20 = .linked (.cons branchRefR .nil) 23 :=
+    (Executable.link_eq actions 73 branchModuleR.toGraph (number 1) 20).symm.trans (by cbv)
+  rwa [left, right] at linked
+
+private theorem ordinaryOutputs : RecursiveCall.Numbered.OrdinaryOutputs Op := by
+  intro _ _ opcode
+  cases opcode <;> rfl
+
+set_option maxHeartbeats 800000 in
+private theorem branchAccepted :
+    RecursiveCall.Numbered.checkExport instructionKeys branchRefL branchRefR = true := by
+  simp only [RecursiveCall.Numbered.checkExport, branchRefL, branchRefR,
+    RecursiveCall.Numbered.exportGroup, RecursiveCall.Numbered.checkGroupPair,
+    RecursiveCall.Numbered.isStandaloneLambda]
+  cbv
+
+private theorem branchAdmission :
+    RecursiveCall.Numbered.ExportAdmission primitives ids branchRefL branchRefR :=
+  RecursiveCall.Numbered.checkExport_sound ordinaryOutputs branchAccepted
+
+-- The linked member captures an imported function from outside its own
+-- group. This origin is unsupported even though the body ignores it.
+private abbrev unitFn : Function Unit Unit := ⟨[], []⟩
+
+private def externalCaptureGroup : PhiTerm Op [branchFn.port] [] [unitFn] :=
+  ⟨[branchFn.port], .cons (.arg .head) .nil, .cons ⟨[], .nil, [], .ret .nil⟩ .nil⟩
+
+private def externalCaptureModule : OmegaTerm Op [branchFn.port] [unitFn.port] [[unitFn.port]] :=
+  ⟨.bind (.phi externalCaptureGroup) (.ret (.cons (.output (0 : Fin 1) .head) .nil))⟩
+
+example : match Executable.link actions 74 externalCaptureModule.toGraph (.cons branchRefL .nil) 23 with
+    | .linked exports _ =>
+      (RecursiveCall.Numbered.admitExport instructionKeys primitives ids ordinaryOutputs
+        (exports.get .head) (exports.get .head)).isSome = false
+    | .undefined _ => False := by cbv
 
 private def branchArgs (flag : Nat) : Tuple machine.Val branchFn.args :=
   .cons (.data flag) (.cons (.control 1) (.cons (.control 0) .nil))
@@ -741,14 +797,12 @@ private def branchStart (ref : machine.Val branchFn.port) (flag : Nat) : Config 
   ⟨Continuation.start (.call ref (branchArgs flag)), 23⟩
 
 private theorem branchAdmitted (flag : Nat) :
-    Admitted machine ids (Supported branchRefL) (Supported branchRefR)
-      (branchStart branchRefL flag) (branchStart branchRefR flag) := by
+    ∃ familyL familyR, ClosedFamily primitives ids familyL familyR ∧
+      Admitted machine ids familyL familyR (branchStart branchRefL flag) (branchStart branchRefR flag) := by
   have inputs : TupleRelated machine ids (branchArgs flag) (branchArgs flag) :=
     .cons (ValueRelated.data (m := machine) (ids := ids) (t := ()) flag)
       (.cons (.control 1) (.cons (.control 0) .nil))
-  exact Admitted.call (familyL := Supported branchRefL) (familyR := Supported branchRefR)
-    branchRefs inputs .self .self ⟨.number flag, .control 1, .control 0, trivial⟩
-    ⟨.number flag, .control 1, .control 0, trivial⟩ 23
+  exact branchAdmission.atExport .head branchOutcomes inputs rfl
 
 private theorem branchLinkedL (flag : Nat) :
     Executable.start actions 73 branchModuleL.toGraph (number 1) .head (branchArgs flag) 20 =
@@ -769,8 +823,9 @@ example : ∃ sourceL sourceR endR,
     ReflTransGen (Step primitives) sourceR endR ∧ endR.result = some (number 30, 37) := by
   have reached := Continuation.Partial.Executable.runFor_reachable actions 40 (branchStart branchRefL 1)
   have result : (runFor actions 40 (branchStart branchRefL 1)).result = some (number 30, 37) := by cbv
+  obtain ⟨_, _, closed, admitted⟩ := branchAdmitted 1
   obtain ⟨endR, valueR, path, got, values⟩ :=
-    (ClosedFamily.returns respects branchFamily (branchAdmitted 1)).1 _ _ _ reached result
+    (ClosedFamily.returns respects closed admitted).1 _ _ _ reached result
   cases values with
   | cons paired tail =>
     cases paired
@@ -802,9 +857,1711 @@ example : ∃ sourceL sourceR endR,
     Executable.start actions 73 branchModuleR.toGraph (number 1) .head (branchArgs 0) 20 = .ok sourceR ∧
     RecursiveCall.ReachedTerminal primitives ids sourceL sourceR (runFor actions 40 sourceL) endR ∧
     endR.Blocked primitives := by
-  obtain ⟨endR, pair, blocked⟩ := (ClosedFamily.blocks respects branchFamily (branchAdmitted 0)).1 _
+  obtain ⟨_, _, closed, admitted⟩ := branchAdmitted 0
+  obtain ⟨endR, pair, blocked⟩ := (ClosedFamily.blocks respects closed admitted).1 _
     (Continuation.Partial.Executable.runFor_reachable actions 40 (branchStart branchRefL 0))
     ⟨_, by cbv, by cbv⟩
   exact ⟨_, _, endR, branchLinkedL 0, branchLinkedR 0, pair, blocked⟩
+
+-- The exported λ reads an earlier φ binding. The call's returned value is
+-- consumed by the λ's own state-changing suffix.
+private abbrev wrappedInput : Ports T := branchFn.port :: branchFn.args
+
+private def wrapWith {sigs : List (Ports T)} (suffix : RecursiveCall.Code Op wrappedInput [[num]] sigs [num]) :
+    RecursiveCall.Code Op wrappedInput [] ([num] :: sigs) [num] :=
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (.cons (.arg .head) (.cons (.arg (.tail .head))
+      (.cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail .head)))) .nil))))
+    (fun i => i.elim0)) (fun i => i.elim0) suffix
+
+private def wrapperCode : RecursiveCall.Code Op wrappedInput [] [[num], [num]] [num] :=
+  wrapWith addAfter
+
+private def wrapper {past : List (Ports T)} (capture : Origin args past branchFn.port) :
+    LambdaTerm Op args past branchFn :=
+  ⟨[branchFn.port], .cons capture .nil, _, wrapperCode⟩
+
+private def wrapperL := wrapper (.output (1 : Fin 3) .head :
+  Origin args [[global], [branchFn.port], []] branchFn.port)
+
+private def wrapperR := wrapper (.output (2 : Fin 3) .head :
+  Origin args [[], [global], [branchFn.port]] branchFn.port)
+
+private def wrappedL : OmegaTerm Op args [branchFn.port] [[global], [branchFn.port], [], [branchFn.port]] :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.phi branchGroupL) <| .bind (.phi (emptyPhi Op args _)) <|
+    .bind (.lambda wrapperL) <| .ret (.cons (.output (3 : Fin 4) .head) .nil)⟩
+
+private def wrappedRWith (group : PhiTerm Op args [[], [global]] [branchFn]) :
+    OmegaTerm Op args [branchFn.port] [[], [global], [branchFn.port], [branchFn.port]] :=
+  ⟨.bind (.phi (emptyPhi Op args [])) <| .bind (.delta (seedDelta [[]])) <| .bind (.phi group) <|
+    .bind (.lambda wrapperR) <| .ret (.cons (.output (3 : Fin 4) .head) .nil)⟩
+
+private abbrev wrappedR := wrappedRWith branchGroupR
+
+private def wrapperRef (ref : machine.Val branchFn.port) : machine.Val branchFn.port :=
+  .closure (.cons ref .nil) wrapperCode.toGraph
+
+private def wrappedPositions : Fin 4 ≃ Fin 4 := (Equiv.swap 0 1).trans (Equiv.swap 0 2)
+
+private def wrappedIds : GlobalRel := fun left right =>
+  left.1 = right.1 ∧ renameVertex wrappedPositions left.2 = right.2
+
+private theorem wrappedGroupsIso : branchGroupL.Renumbered (renameVertex wrappedPositions) branchGroupR :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyWithIso .seed⟩ (fun i => i.elim0)⟩
+
+private theorem wrapperIso : wrapperL.Renumbered (renameVertex wrappedPositions) wrapperR :=
+  ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩
+
+private theorem wrappedIso : wrappedL.toGraph.RenumberedBy wrappedR.toGraph wrappedPositions :=
+  (wrappedL.renumberedBy_toGraph_iff wrappedR wrappedPositions).2
+    ⟨Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+      (Fin.cases (.phi wrappedGroupsIso) (Fin.cases (.phi ⟨⟨rfl, rfl⟩, fun i => i.elim0⟩)
+        (Fin.cases (.lambda wrapperIso) (fun i => i.elim0)))), rfl⟩
+
+private theorem wrappedOrder : Ordered Op (renameVertex wrappedPositions) args [branchFn.port]
+    wrappedL.toGraph.toTerm.region wrappedR.toGraph.toTerm.region := by
+  rw [OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+  exact .emptyRight (.bind rfl (.delta ⟨rfl, rfl⟩ seedTerm)
+    (.bind rfl (.phi wrappedGroupsIso) (.emptyLeft (.bind rfl (.lambda wrapperIso) (.ret _ _)))))
+
+private theorem wrappedLinkL : Executable.link actions 73 wrappedL.toGraph (number 1) 20 =
+    .linked (.cons (wrapperRef branchRefL) .nil) 23 := by cbv
+
+private theorem wrappedLinkR : Executable.link actions 73 wrappedR.toGraph (number 1) 20 =
+    .linked (.cons (wrapperRef branchRefR) .nil) 23 := by cbv
+
+private theorem wrappedOutcomes : OutcomesRelated machine wrappedIds Nat (renameVertex wrappedPositions) [branchFn.port]
+    (.linked (.cons (wrapperRef branchRefL) .nil) 23) (.linked (.cons (wrapperRef branchRefR) .nil) 23) := by
+  have imports : TupleRelated machine wrappedIds (number 1) (number 1) :=
+    .cons (ValueRelated.data (m := machine) (ids := wrappedIds) (t := ()) (1 : Nat)) .nil
+  have linked := link_related (unitL := 73) (unitR := 73) (respectsGlobals wrappedIds) wrappedIso wrappedOrder
+    (fun _ => ⟨rfl, rfl⟩) imports 20
+  have left : link primitives 73 wrappedL.toGraph (number 1) 20 = _ :=
+    (Executable.link_eq actions 73 wrappedL.toGraph (number 1) 20).symm.trans wrappedLinkL
+  have right : link primitives 73 wrappedR.toGraph (number 1) 20 = _ :=
+    (Executable.link_eq actions 73 wrappedR.toGraph (number 1) 20).symm.trans wrappedLinkR
+  rwa [left, right] at linked
+
+private theorem wrappersCheckMember (left right : RecursiveCall.Numbered.Group machine [branchFn]) :
+    RecursiveCall.Numbered.checkExport instructionKeys (wrapperRef (left.ref 0)) (wrapperRef (right.ref 0)) =
+      RecursiveCall.Numbered.checkExport instructionKeys (left.ref 0) (right.ref 0) := by
+  have bodies : (RecursiveCall.Numbered.inferResolved instructionKeys
+      (resolve machine (wrapperRef (left.ref 0))) (resolve machine (wrapperRef (right.ref 0)))).isSome = true := by cbv
+  change (RecursiveCall.Numbered.checkGroupPair instructionKeys left right && _) =
+    RecursiveCall.Numbered.checkGroupPair instructionKeys left right
+  rw [bodies, Bool.and_true]
+
+private theorem wrappedAccepts : RecursiveCall.Numbered.checkExport instructionKeys
+    (wrapperRef branchRefL) (wrapperRef branchRefR) = true :=
+  (wrappersCheckMember ⟨_, _, _⟩ ⟨_, _, _⟩).trans branchAccepted
+
+private theorem wrappedAdmission :
+    RecursiveCall.Numbered.ExportAdmission primitives wrappedIds (wrapperRef branchRefL) (wrapperRef branchRefR) :=
+  RecursiveCall.Numbered.checkExport_sound ordinaryOutputs wrappedAccepts
+
+-- A φ member alone returns 30 at store 37. The actual λ export resumes
+-- its saved suffix after that call and returns 37 at store 40.
+example : Executable.run actions 60 73 wrappedL.toGraph (number 1) .head (branchArgs 1) 20 =
+    .ok (.returned (number 37) 40) := by cbv
+
+example :
+    ∃ target, ReflTransGen (Step primitives) (branchStart (wrapperRef branchRefR) 1) target ∧
+      target.result = some (number 37, 40) := by
+  have inputs : TupleRelated machine wrappedIds (branchArgs 1) (branchArgs 1) :=
+    .cons (ValueRelated.data (m := machine) (ids := wrappedIds) (t := ()) (1 : Nat))
+      (.cons (.control 1) (.cons (.control 0) .nil))
+  obtain ⟨_, _, closed, admitted⟩ := wrappedAdmission.atExport .head wrappedOutcomes inputs rfl
+  have reached := Continuation.Partial.Executable.runFor_reachable actions 60 (branchStart (wrapperRef branchRefL) 1)
+  have result : (runFor actions 60 (branchStart (wrapperRef branchRefL) 1)).result = some (number 37, 40) := by cbv
+  obtain ⟨target, valueR, path, got, values⟩ :=
+    (ClosedFamily.returns (respectsGlobals wrappedIds) closed admitted).1 _ _ _ reached result
+  cases values with
+  | cons paired tail =>
+    cases paired
+    cases tail
+    exact ⟨target, path, got⟩
+
+private def foreignGroup :=
+  selfGroup branchFn (.output (1 : Fin 2) .head : Origin args [[], [global]] global)
+    (.ret (.cons (.arg (.tail (.tail .head))) .nil) : RecursiveCall.Code Op (branchEntryWith global) [] [] [num])
+
+private def foreignRef : machine.Val branchFn.port :=
+  .member (.cons (globalValue 1 8) .nil) foreignGroup.toGraph.definitions 0
+
+private theorem foreignLinks : Executable.link actions 73 (wrappedRWith foreignGroup).toGraph (number 1) 20 =
+    .linked (.cons (wrapperRef foreignRef) .nil) 23 := by cbv
+
+set_option maxHeartbeats 800000 in
+private theorem foreignMemberRejected :
+    RecursiveCall.Numbered.checkExport instructionKeys branchRefL foreignRef = false := by
+  simp only [RecursiveCall.Numbered.checkExport, RecursiveCall.Numbered.isStandaloneLambda,
+    RecursiveCall.Numbered.exportGroup, branchRefL, foreignRef, RecursiveCall.Numbered.checkGroupPair]
+  cbv
+
+private theorem foreignRejected : RecursiveCall.Numbered.checkExport instructionKeys
+    (wrapperRef branchRefL) (wrapperRef foreignRef) = false :=
+  (wrappersCheckMember ⟨_, _, _⟩ ⟨_, _, _⟩).trans foreignMemberRejected
+
+-- Both links succeed. The right λ captured a different, same-signature
+-- φ implementation, so checking the λ bodies alone cannot admit this pair.
+example : match Executable.link actions 73 wrappedL.toGraph (number 1) 20,
+    Executable.link actions 73 (wrappedRWith foreignGroup).toGraph (number 1) 20 with
+  | .linked exportsL _, .linked exportsR _ =>
+    (RecursiveCall.Numbered.admitExport instructionKeys primitives wrappedIds ordinaryOutputs
+      (exportsL.get .head) (exportsR.get .head)).isSome = false
+  | _, _ => False := by
+  rw [wrappedLinkL, foreignLinks]
+  change (RecursiveCall.Numbered.admitExport instructionKeys primitives wrappedIds ordinaryOutputs
+    (wrapperRef branchRefL) (wrapperRef foreignRef)).isSome = false
+  simp [RecursiveCall.Numbered.admitExport, foreignRejected]
+
+open RecursiveCall.Numbered (linkedLambda)
+open RecursiveCall.Numbered.Prefix (GraphPlan Plan StartsRelated admit admitGraph admitGraph_starts inferGraphPlan)
+
+private abbrev prefixL : List (Ports T) := [[global], [branchFn.port], []]
+private abbrev prefixR : List (Ports T) := [[], [global], [branchFn.port]]
+
+private def beforeWrapperL : Locals machine.Val prefixL :=
+  (.cons (globalValue 0 8) .nil, .cons branchRefL .nil, .nil, PUnit.unit)
+
+private def beforeWrapperR : Locals machine.Val prefixR :=
+  (.nil, .cons (globalValue 1 8) .nil, .cons branchRefR .nil, PUnit.unit)
+
+private abbrev combinedInput : Ports T := [branchFn.port, branchFn.port] ++ branchFn.args
+
+private def combinedBody : RecursiveCall.Code Op combinedInput [] [[num], [num], [num]] [num] :=
+  let mode : Port combinedInput control := .tail (.tail (.tail .head))
+  let after : Port combinedInput control := .tail (.tail (.tail (.tail .head)))
+  let first := RecursiveCall.simple (.apply branchFn)
+    (.cons (.arg .head) (.cons (.arg (.tail (.tail .head))) (.cons (.arg mode) (.cons (.arg after) .nil))))
+    (fun i => i.elim0)
+  let second : NestedTheta.Node (Instruction Op) combinedInput [[num]] [num] :=
+    RecursiveCall.simple (.apply branchFn)
+    (.cons (.arg (.tail .head)) (.cons (.output (0 : Fin 1) .head) (.cons (.arg mode) (.cons (.arg after) .nil))))
+    (fun i => i.elim0)
+  let suffix : NestedTheta.Node (Instruction Op) combinedInput [[num], [num]] [num] :=
+    RecursiveCall.simple (.primitive Op.seed) (.cons (.output (1 : Fin 2) .head) .nil) (fun i => i.elim0)
+  .bind first (fun i => i.elim0) <| .bind second (fun i => i.elim0) <| .bind suffix (fun i => i.elim0) <|
+    .ret (.cons (.output (2 : Fin 3) .head) .nil)
+
+-- This earlier λ has the same signature but was left out of the checked
+-- prefix. The linker can still construct it and pass it on a capture wire.
+private def uncheckedLambda {past : List (Ports T)} : LambdaTerm Op args past branchFn :=
+  ⟨[], .nil, [], .ret (.cons (.arg .head) .nil)⟩
+
+private def uncheckedRef : machine.Val branchFn.port :=
+  .closure (.nil : Tuple machine.Val []) (uncheckedLambda (past := [])).body.toGraph
+
+private abbrev combinedPastL := prefixL ++ [[branchFn.port], [branchFn.port]]
+private abbrev combinedPastR := prefixR ++ [[branchFn.port], [branchFn.port]]
+
+private def combined {past : List (Ports T)} (first second : Origin args past branchFn.port) :
+    LambdaTerm Op args past branchFn :=
+  ⟨[branchFn.port, branchFn.port], .cons first (.cons second .nil), _, combinedBody⟩
+
+private def combinedL : LambdaTerm Op args combinedPastL branchFn :=
+  combined (.output (3 : Fin 5) .head) (.output (1 : Fin 5) .head)
+
+private def combinedR : LambdaTerm Op args combinedPastR branchFn :=
+  combined (.output (3 : Fin 5) .head) (.output (2 : Fin 5) .head)
+
+private def combinedBad : LambdaTerm Op args combinedPastR branchFn :=
+  combined (.output (3 : Fin 5) .head) (.output (4 : Fin 5) .head)
+
+private def combinedModuleLWith (second : LambdaTerm Op args (prefixL ++ [[branchFn.port]]) branchFn)
+    (root : LambdaTerm Op args combinedPastL branchFn) :
+    OmegaTerm Op args [branchFn.port] (combinedPastL ++ [[branchFn.port]]) :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.phi branchGroupL) <| .bind (.phi (emptyPhi Op args _)) <|
+    .bind (.lambda wrapperL) <| .bind (.lambda second) <| .bind (.lambda root) <|
+    .ret (.cons (.output (5 : Fin 6) .head) .nil)⟩
+
+private def combinedModuleRWith (second : LambdaTerm Op args (prefixR ++ [[branchFn.port]]) branchFn)
+    (root : LambdaTerm Op args combinedPastR branchFn) :
+    OmegaTerm Op args [branchFn.port] (combinedPastR ++ [[branchFn.port]]) :=
+  ⟨.bind (.phi (emptyPhi Op args [])) <| .bind (.delta (seedDelta [[]])) <| .bind (.phi branchGroupR) <|
+    .bind (.lambda wrapperR) <| .bind (.lambda second) <| .bind (.lambda root) <|
+    .ret (.cons (.output (5 : Fin 6) .head) .nil)⟩
+
+private abbrev combinedModuleL := combinedModuleLWith uncheckedLambda combinedL
+private abbrev combinedModuleR := combinedModuleRWith uncheckedLambda
+
+private def combinedLocalsL : Locals machine.Val combinedPastL :=
+  (beforeWrapperL.snoc (.cons (wrapperRef branchRefL) .nil)).snoc (.cons uncheckedRef .nil)
+
+private def combinedLocalsR : Locals machine.Val combinedPastR :=
+  (beforeWrapperR.snoc (.cons (wrapperRef branchRefR) .nil)).snoc (.cons uncheckedRef .nil)
+
+private abbrev combinedRefL := linkedLambda combinedL.toGraph (number 1) combinedLocalsL
+private abbrev combinedRefR := linkedLambda combinedR.toGraph (number 1) combinedLocalsR
+private abbrev combinedRefBad := linkedLambda combinedBad.toGraph (number 1) combinedLocalsR
+
+-- The plan selects the paired φ, the wrapper λ and the final λ, and
+-- leaves the unrelated λ linked but unchecked on each side.
+private def combinedPlan (root : LambdaTerm Op args combinedPastR branchFn) :
+    Plan Op args args [branchFn.port] false combinedModuleL.region (combinedModuleR root).region :=
+  .skipL (.skipR (.skipR (.seed (.skipL (.lambda (.skipL (.skipR (.lambda .done))))))))
+
+private def combinedScan (root : LambdaTerm Op args combinedPastR branchFn) :=
+  admit instructionKeys actions wrappedIds ordinaryOutputs 73 73 (number 1) (number 1)
+    combinedModuleL (combinedModuleR root) (combinedPlan root) (fn := branchFn) .head 20 20
+
+private theorem combinedLinkL : Executable.link actions 73 combinedModuleL.toGraph (number 1) 20 =
+    .linked (.cons combinedRefL .nil) 23 := by cbv
+
+private theorem combinedLinkR : Executable.link actions 73 (combinedModuleR combinedR).toGraph (number 1) 20 =
+    .linked (.cons combinedRefR .nil) 23 := by cbv
+
+private theorem combinedBadLinks : Executable.link actions 73 (combinedModuleR combinedBad).toGraph (number 1) 20 =
+    .linked (.cons combinedRefBad .nil) 23 := by cbv
+
+private theorem combinedOutcomes : OutcomesRelated machine wrappedIds Nat (renameVertex wrappedPositions)
+    [branchFn.port] (Executable.link actions 73 combinedModuleL.toGraph (number 1) 20)
+      (Executable.link actions 73 (combinedModuleR combinedR).toGraph (number 1) 20) := by
+  rw [combinedLinkL, combinedLinkR]
+  cases wrappedOutcomes with
+  | linked wrapped =>
+    have captures := (Recursive.resolve_related (wrapped.get .head)).1
+    exact .linked (.cons (.closure (.cons (wrapped.get .head) captures) (NestedTheta.Graph.Isomorphic.refl _)) .nil) 23
+
+set_option maxHeartbeats 800000 in
+private theorem combinedAccepted : (combinedScan combinedR).isSome = true := by cbv
+
+-- Both applications are non-tail. The first calls the earlier λ, the
+-- second dispatches directly to φ with the first call's returned data.
+example : Executable.run actions 100 73 combinedModuleL.toGraph (number 1) .head (branchArgs 1) 20 =
+    .ok (.returned (number 37) 57) := by cbv
+
+example :
+    Executable.link actions 73 (combinedModuleR combinedR).toGraph (number 1) 20 =
+      .linked (.cons combinedRefR .nil) 23 ∧
+    ∃ target, ReflTransGen (Step primitives) (branchStart combinedRefR 1) target ∧
+      target.result = some (number 37, 57) := by
+  refine ⟨combinedLinkR, ?_⟩
+  have accepted := ((combinedScan combinedR).get combinedAccepted).down
+  change RecursiveCall.Numbered.Prefix.AdmittedExport primitives wrappedIds (fn := branchFn) .head
+    (Executable.link actions 73 combinedModuleL.toGraph (number 1) 20)
+    (Executable.link actions 73 (combinedModuleR combinedR).toGraph (number 1) 20) at accepted
+  rw [combinedLinkL, combinedLinkR] at accepted
+  have inputs : TupleRelated machine wrappedIds (branchArgs 1) (branchArgs 1) :=
+    .cons (ValueRelated.data (m := machine) (ids := wrappedIds) (t := ()) (1 : Nat))
+      (.cons (.control 1) (.cons (.control 0) .nil))
+  have linked := combinedOutcomes
+  rw [combinedLinkL, combinedLinkR] at linked
+  obtain ⟨_, _, closed, admitted⟩ := accepted.atExport .head linked inputs rfl
+  have reached := Continuation.Partial.Executable.runFor_reachable actions 100 (branchStart combinedRefL 1)
+  have result : (runFor actions 100 (branchStart combinedRefL 1)).result = some (number 37, 57) := by cbv
+  obtain ⟨target, valueR, path, got, values⟩ :=
+    (ClosedFamily.returns (respectsGlobals wrappedIds) closed admitted).1 _ _ _ reached result
+  cases values with
+  | cons value tail =>
+    cases value
+    cases tail
+    exact ⟨target, path, got⟩
+
+-- The second capture has the same type, but row 4 was left unchecked.
+set_option maxHeartbeats 800000 in
+example :
+    Executable.link actions 73 (combinedModuleR combinedBad).toGraph (number 1) 20 =
+      .linked (.cons combinedRefBad .nil) 23 ∧
+    (combinedScan combinedBad).isSome = false := by
+  refine ⟨combinedBadLinks, ?_⟩
+  cbv
+
+-- The two earlier λs have the same signature, captured φ member, and
+-- outer vertex count. Their state-changing primitives differ.
+private def gainRow {past : List (Ports T)} (wire : Origin wrappedInput past num) :
+    NestedTheta.Node (Instruction Op) wrappedInput past [num] :=
+  RecursiveCall.simple (.primitive Op.gain) (.cons wire .nil) (fun i => i.elim0)
+
+private def gainWrapperCode : RecursiveCall.Code Op wrappedInput [] [[num], [num]] [num] :=
+  wrapWith (.bind (gainRow (.output (0 : Fin 1) .head)) (fun i => i.elim0)
+    (.ret (.cons (.output (1 : Fin 2) .head) .nil)))
+
+-- The extra empty γ is skipped when checking the two bodies in order.
+-- It moves the gain primitive from vertex 1 to vertex 2.
+private def paddedGainCode : RecursiveCall.Code Op wrappedInput [] [[num], [], [num]] [num] :=
+  wrapWith (.bind (RecursiveCall.emptyGamma (extra := 0) (entry := [])
+      (.cons (.arg (.tail (.tail .head))) .nil)) (fun _ => .ret .nil)
+    (.bind (gainRow (.output (0 : Fin 2) .head)) (fun i => i.elim0)
+      (.ret (.cons (.output (2 : Fin 3) .head) .nil))))
+
+private def secondWrapper {past : List (Ports T)} (capture : Origin args past branchFn.port)
+    (duplicate padded : Bool) : LambdaTerm Op args past branchFn :=
+  if duplicate then wrapper capture
+  else if padded then ⟨[branchFn.port], .cons capture .nil, _, paddedGainCode⟩
+  else ⟨[branchFn.port], .cons capture .nil, _, gainWrapperCode⟩
+
+private def bothL (duplicate : Bool) : OmegaTerm Op args [branchFn.port] (combinedPastL ++ [[branchFn.port]]) :=
+  combinedModuleLWith (secondWrapper (.output (1 : Fin 4) .head) duplicate false)
+    (combined (.output (3 : Fin 5) .head) (.output (4 : Fin 5) .head))
+
+private def bothR (duplicate : Bool) (padded : Bool := false) :
+    OmegaTerm Op args [branchFn.port] (combinedPastR ++ [[branchFn.port]]) :=
+  combinedModuleRWith (secondWrapper (.output (2 : Fin 4) .head) duplicate padded) combinedBad
+
+private def bothPlan (duplicate padded : Bool) : Plan Op args args [branchFn.port] false (bothL duplicate).region
+    (bothR duplicate padded).region :=
+  .skipL (.skipR (.skipR (.seed (.skipL (.lambda (.lambda (.lambda .done)))))))
+
+private def bothScan (duplicate : Bool) (padded : Bool := false) :=
+  admit instructionKeys actions wrappedIds ordinaryOutputs 73 73 (number 1) (number 1)
+    (bothL duplicate) (bothR duplicate padded) (bothPlan duplicate padded) (fn := branchFn) .head 20 20
+
+set_option maxHeartbeats 800000 in
+example : (bothScan false).isSome = true := by cbv
+
+set_option maxHeartbeats 800000 in
+example : (bothScan false true).isSome = true := by cbv
+
+-- Both calls return to the final λ. It passes the first result to the
+-- second call and uses the second result in its own stateful suffix.
+example :
+    Executable.run actions 100 73 (bothL false).toGraph (number 1) .head (branchArgs 1) 20 =
+      .ok (.returned (number 51) 63) ∧
+    Executable.run actions 100 73 (bothR false).toGraph (number 1) .head (branchArgs 1) 20 =
+      .ok (.returned (number 51) 63) ∧
+    Executable.run actions 100 73 (bothR false true).toGraph (number 1) .head (branchArgs 1) 20 =
+      .ok (.returned (number 51) 63) := by
+  refine ⟨?_, ?_, ?_⟩ <;> cbv
+
+private def duplicateExport (ref : machine.Val branchFn.port) : machine.Val branchFn.port :=
+  .closure (.cons (wrapperRef ref) (.cons (wrapperRef ref) .nil)) combinedBody.toGraph
+
+-- These distinct source bindings produce literally the same callable
+-- value on each side. Both links succeed, but the body-based check
+-- cannot use those values to separate the two prospective dispatches.
+set_option maxHeartbeats 800000 in
+example :
+    Executable.link actions 73 (bothL true).toGraph (number 1) 20 =
+      .linked (.cons (duplicateExport branchRefL) .nil) 23 ∧
+    Executable.link actions 73 (bothR true).toGraph (number 1) 20 =
+      .linked (.cons (duplicateExport branchRefR) .nil) 23 ∧
+    (bothScan true).isSome = false := by
+  refine ⟨?_, ?_, ?_⟩ <;> cbv
+
+private def captureCode : RecursiveCall.Numbered.CaptureCode machine where
+  Key := Nat
+  decideKey := inferInstance
+  data n := some n
+  state _ := none
+
+private abbrev sameBodyInput := global :: branchFn.args
+
+private def sameBodyStep {past : List (Ports T)} :
+    NestedTheta.Node (Instruction Op) sameBodyInput past [num] :=
+  RecursiveCall.simple (.primitive Op.finish)
+    (.cons (.arg .head) (.cons (.arg (.tail .head)) .nil)) (fun i => i.elim0)
+
+private def sameBody : RecursiveCall.Code Op sameBodyInput [] [[num]] [num] :=
+  .bind sameBodyStep (fun i => i.elim0) (.ret (.cons (.output (0 : Fin 1) .head) .nil))
+
+private def paddedSameBody : RecursiveCall.Code Op sameBodyInput [] [[], [num]] [num] :=
+  .bind (RecursiveCall.emptyGamma (extra := 0) (entry := [])
+      (.cons (.arg (.tail (.tail .head))) .nil)) (fun _ => .ret .nil)
+    (.bind sameBodyStep (fun i => i.elim0) (.ret (.cons (.output (1 : Fin 2) .head) .nil)))
+
+private def sameBodyLambda {past : List (Ports T)} (source : Origin args past global)
+    (padded : Bool := false) : LambdaTerm Op args past branchFn :=
+  if padded then ⟨[global], .cons source .nil, _, paddedSameBody⟩
+  else ⟨[global], .cons source .nil, _, sameBody⟩
+
+private abbrev captureExports := [branchFn.port, branchFn.port, branchFn.port]
+
+private def captureModule (duplicate : Bool) (paddedFirst : Bool := false) :
+    OmegaTerm Op args captureExports [[global], [global], [], [branchFn.port], [branchFn.port], [branchFn.port]] :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.delta finishL) <| .bind (.phi (emptyPhi Op args _)) <|
+    .bind (.lambda (sameBodyLambda (.output (0 : Fin 3) .head) paddedFirst)) <|
+    .bind (.lambda (sameBodyLambda (if duplicate then .output (0 : Fin 4) .head else .output (1 : Fin 4) .head))) <|
+    .bind (.lambda (if duplicate then combined (.output (4 : Fin 5) .head) (.output (3 : Fin 5) .head)
+      else combined (.output (3 : Fin 5) .head) (.output (4 : Fin 5) .head))) <|
+    .ret (.cons (.output (3 : Fin 6) .head) (.cons (.output (4 : Fin 6) .head)
+      (.cons (.output (5 : Fin 6) .head) .nil)))⟩
+
+private def capturePlan (duplicate : Bool) :
+    Plan Op args args captureExports false (captureModule duplicate).region (captureModule duplicate).region :=
+  .skipL (.skipR (.skipL (.skipR (.seed (.lambda (.lambda (.lambda .done)))))))
+
+private def captureScan (duplicate : Bool) (observer : RecursiveCall.Numbered.CaptureCode machine) :=
+  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    (captureModule duplicate) (captureModule duplicate) (capturePlan duplicate) (fn := branchFn)
+    (.tail (.tail .head)) 20 20 observer
+
+-- The initializers produce payloads 8 and 9. Both λs have the same
+-- body, so the payload observation is what separates the two dispatches.
+set_option maxHeartbeats 800000 in
+example : (captureScan false captureCode).isSome = true ∧
+    (captureScan false (.controlOnly machine)).isSome = false := by
+  constructor <;> cbv
+
+-- The actual caller passes the first result into the second application
+-- and resumes its own stateful suffix after the two distinct calls.
+example :
+    Executable.run actions 60 73 (captureModule false).toGraph (number 1) .head (branchArgs 1) 20 =
+      .ok (.returned (number 9) 33) ∧
+    Executable.run actions 60 73 (captureModule false).toGraph (number 1) (.tail .head) (branchArgs 1) 20 =
+      .ok (.returned (number 10) 33) ∧
+    Executable.run actions 60 73 (captureModule false).toGraph (number 1) (.tail (.tail .head)) (branchArgs 1) 20 =
+      .ok (.returned (number 17) 41) := by
+  refine ⟨?_, ?_, ?_⟩ <;> cbv
+
+-- The duplicate graph links with the same initialized value captured by
+-- both closures. A plan requiring two separate dispatch entries rejects it.
+set_option maxHeartbeats 800000 in
+example : (match Executable.link actions 73 (captureModule true).toGraph (number 1) 20 with
+    | .linked exports store => exports.get .head = exports.get (.tail .head) ∧ store = 28
+    | .undefined _ => False) ∧ (captureScan true captureCode).isSome = false := by
+  constructor
+  · cbv
+    exact ⟨rfl, trivial⟩
+  · cbv
+
+private def exactFirstOrder : RecursiveCall.Numbered.ExactValueCheck machine :=
+  RecursiveCall.Numbered.ExactValueCheck.firstOrder (fun _ => inferInstanceAs (DecidableEq Nat))
+    (fun _ => inferInstanceAs (DecidableEq Unit))
+
+private def exactLambdas : RecursiveCall.Numbered.ExactValueCheck machine :=
+  RecursiveCall.Numbered.ExactValueCheck.lambda instructionKeys exactFirstOrder
+
+private def aliasPlan (duplicateL duplicateR : Bool) :
+    Plan Op args args captureExports false (captureModule duplicateL).region (captureModule duplicateR).region :=
+  .skipL (.skipR (.skipL (.skipR (.seed (.lambda (.alias 0 (.lambda .done)))))))
+
+private def aliasScan (duplicateL duplicateR : Bool) (port : Port captureExports branchFn.port) :=
+  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    (captureModule duplicateL) (captureModule duplicateR) (aliasPlan duplicateL duplicateR) (fn := branchFn)
+    port 20 20 (exactValue := exactLambdas)
+
+-- The alias can be exported directly or captured alongside the earlier
+-- binding. Both refer to the exact values entered by the actual linker.
+#guard (aliasScan true true (.tail .head)).isSome
+#guard (aliasScan true true (.tail (.tail .head))).isSome
+
+-- A duplicate only on the left fails, as does an attempt to coalesce
+-- equal-profile closures with distinct captures on both sides.
+#guard (aliasScan true false (.tail (.tail .head))).isNone
+#guard (aliasScan false false (.tail (.tail .head))).isNone
+
+-- The caller invokes the alias first. At its undefined action the callee
+-- and the caller suffix are pending. A suspended successful run can resume
+-- from that same call and finish both applications and the caller suffix.
+example : (Executable.run actions 60 73 (captureModule true).toGraph (number 1)
+    (.tail (.tail .head)) (branchArgs 0) 20 |>.toOption.bind branchAttempt) =
+      some ([0, 0], 0, 0, 28) := by cbv
+
+example : (match Executable.run actions 5 73 (captureModule true).toGraph (number 1)
+    (.tail (.tail .head)) (branchArgs 1) 20 with
+  | .ok (.suspended config) => (runFor actions 60 config).result
+  | _ => none) = some (number 16, 41) := by cbv
+
+private abbrev scanExports := [branchFn.port, branchFn.port, branchFn.port, branchFn.port]
+
+private abbrev scanCaller : Port scanExports branchFn.port := .tail (.tail (.tail .head))
+
+private def scanModule (useSecond : Bool) :
+    OmegaTerm Op args scanExports [[global], [global], [], [branchFn.port], [branchFn.port],
+      [branchFn.port], [branchFn.port]] :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.delta finishL) <| .bind (.phi (emptyPhi Op args _)) <|
+    .bind (.lambda (sameBodyLambda (.output (0 : Fin 3) .head))) <|
+    .bind (.lambda (sameBodyLambda (.output (1 : Fin 4) .head))) <|
+    .bind (.lambda (sameBodyLambda (if useSecond then .output (1 : Fin 5) .head else .output (0 : Fin 5) .head))) <|
+    .bind (.lambda (combined (.output (5 : Fin 6) .head) (.output (3 : Fin 6) .head))) <|
+    .ret (.cons (.output (3 : Fin 7) .head) (.cons (.output (4 : Fin 7) .head)
+      (.cons (.output (5 : Fin 7) .head) (.cons (.output (6 : Fin 7) .head) .nil))))⟩
+
+private def scanPlan (left right : Bool) :
+    Plan Op args args scanExports false (scanModule left).region (scanModule right).region :=
+  .skipL (.skipR (.skipL (.skipR (.seed (.lambda (.lambda (.aliasFirst (.lambda .done))))))))
+
+private def inferredAlias (left right : Bool) :=
+  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    (scanModule left) (scanModule right) (scanPlan left right) (fn := branchFn) scanCaller 20 20
+    captureCode (exactValue := exactLambdas)
+
+-- The first two bindings have the same body and distinct captured values.
+-- The third row can alias either paired definition. Opposite choices have
+-- one exact match per side, but those matches belong to different pairs.
+#guard (inferredAlias false false).isSome
+#guard (inferredAlias true true).isSome
+#guard (inferredAlias false true).isNone
+
+open RecursiveCall.Numbered.Prefix (LambdaEntry findAlias)
+
+private def allLinkedValues : Family machine := fun {_} _ => True
+
+private def linkedAliasIndex (useSecond : Bool) : Option Nat :=
+  match Executable.link actions 73 (scanModule useSecond).toGraph (number 1) 20 with
+  | .linked outputs _ =>
+    let pair (port : Port scanExports branchFn.port) : LambdaEntry allLinkedValues allLinkedValues :=
+      ⟨branchFn, outputs.get port, outputs.get port, trivial, trivial⟩
+    let callee := outputs.get (.tail (.tail .head))
+    (findAlias [pair (.tail .head), pair .head, pair .head] exactLambdas (fn := branchFn) callee callee).map
+      fun hit => hit.index.val
+  | .undefined _ => none
+
+-- Test the returned index directly with real linker values, including a
+-- repeated candidate so success at the first matching index is observable.
+#guard linkedAliasIndex false == some 1
+#guard linkedAliasIndex true == some 0
+
+example : (Executable.run actions 60 73 (scanModule false).toGraph (number 1)
+    scanCaller (branchArgs 0) 20 |>.toOption.bind branchAttempt) =
+      some ([0, 0], 0, 0, 28) := by cbv
+
+example : (match Executable.run actions 5 73 (scanModule false).toGraph (number 1)
+    scanCaller (branchArgs 1) 20 with
+  | .ok (.suspended config) => (runFor actions 60 config).result
+  | _ => none) = some (number 16, 41) := by cbv
+
+private def autoPlan (left right : Bool) :
+    Plan Op args args scanExports false (scanModule left).region (scanModule right).region :=
+  .skipL (.skipR (.skipL (.skipR (.seed (.lambdaAuto (.lambdaAuto (.lambdaAuto (.lambdaAuto .done))))))))
+
+private def automaticAlias (left right : Bool) (port : Port scanExports branchFn.port := scanCaller)
+    (observe : RecursiveCall.Numbered.CaptureCode machine := captureCode)
+    (exactCheck : RecursiveCall.Numbered.ExactValueCheck machine := exactLambdas) :=
+  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    (scanModule left) (scanModule right) (autoPlan left right) (fn := branchFn) port 20 20
+    observe (exactValue := exactCheck)
+
+-- All λ rows use the same plan constructor, including the older unique
+-- binding, the equal-body distinct capture, the exact duplicate and the caller.
+#guard (automaticAlias false false).isSome
+#guard (automaticAlias false false (.tail (.tail .head))).isSome
+#guard (automaticAlias true true).isSome
+#guard (automaticAlias false true).isNone
+#guard (automaticAlias false false (exactCheck := fun _ _ => none)).isNone
+#guard (automaticAlias false false (observe := .controlOnly machine)).isNone
+
+private def asymmetricPlan (automatic : Bool) :
+    Plan Op args args captureExports false (captureModule true).region (captureModule false true).region :=
+  .skipL (.skipR (.skipL (.skipR (.seed (.lambda
+    (if automatic then .lambdaAuto (.lambda .done) else .lambda (.lambda .done)))))))
+
+private def asymmetricScan (automatic : Bool) :=
+  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    (captureModule true) (captureModule false true) (asymmetricPlan automatic) (fn := branchFn)
+    (.tail (.tail .head)) 20 20 captureCode (exactValue := exactLambdas)
+
+-- Padding the first right body makes both cross-side freshness checks pass
+-- for the second pair. The second left value still duplicates its own first
+-- row, so the automatic policy rejects it after the bilateral alias miss.
+#guard (asymmetricScan false).isSome
+#guard (asymmetricScan true).isNone
+
+-- A base activation calls the later group’s outer capture.
+private def capturedCallArm : RecursiveCall.Code Op (capturedWith branchFn.port) [] [[num]] [num] :=
+  let flag := Origin.arg (.tail (.tail .head)) (past := [])
+  let after := Origin.arg (.tail (.tail (.tail .head))) (past := [])
+  .bind (RecursiveCall.simple (.apply branchFn) (.cons (.arg .head) (.cons flag (.cons after (.cons after .nil))))
+      (fun i => i.elim0)) (fun i => i.elim0) (.ret (.cons (.output (0 : Fin 1) .head) .nil))
+
+private abbrev mixedPast : List (Ports T) := [[global], [global], [branchFn.port], [branchFn.port], [branchFn.port]]
+private abbrev mixedExports := [global, global, branchFn.port]
+private abbrev mixedPort : Port mixedExports branchFn.port := .tail (.tail .head)
+
+private def mixedSeed := selfGroup branchFn (.output (0 : Fin 2) .head : Origin args [[global], [global]] global)
+  (branchBody baseL)
+
+private def mixedGroup := selfGroup branchFn (.output (4 : Fin 5) .head : Origin args mixedPast branchFn.port)
+  (branchBody capturedCallArm)
+
+private def mixedModule :
+    OmegaTerm Op args mixedExports (mixedPast ++ [[branchFn.port], [branchFn.port]]) :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.delta finishL) <| .bind (.phi mixedSeed) <|
+    .bind (.lambda (sameBodyLambda (.output (1 : Fin 3) .head))) <|
+    .bind (.lambda (sameBodyLambda (.output (1 : Fin 4) .head))) <|
+    .bind (.phi mixedGroup) <| .bind (.lambda (wrapper (.output (5 : Fin 6) .head))) <|
+    .ret (.cons (.output (0 : Fin 7) .head) (.cons (.output (1 : Fin 7) .head)
+      (.cons (.output (6 : Fin 7) .head) .nil)))⟩
+
+private def mixedPlan (checkAlias : Bool) :
+    Plan Op args args mixedExports false mixedModule.region mixedModule.region :=
+  .skipL (.skipR (.skipL (.skipR (.seed (.lambda
+    (if checkAlias then .aliasFirst (.phi (.lambda .done)) else .skipL (.skipR (.phi (.lambda .done)))))))))
+
+private def mixedAdmission (flag : Nat) (checkAlias : Bool := true) :=
+  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number flag) (number flag)
+    mixedModule mixedModule (mixedPlan checkAlias) (fn := branchFn) mixedPort 20 20
+    (exactValue := exactLambdas)
+
+#guard (mixedAdmission 1).isSome
+#guard (mixedAdmission 1 false).isNone
+#guard (mixedAdmission 0).isNone
+
+-- The paired layout admits a fresh plan. The duplicate row instead
+-- needs the existing explicit alias case exercised by mixedAdmission.
+#guard (inferGraphPlan mixedModule.toGraph mixedModule.toGraph).isSome
+#guard ((inferGraphPlan mixedModule.toGraph mixedModule.toGraph).bind fun plan =>
+  admitGraph instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    mixedModule.toGraph mixedModule.toGraph plan (fn := branchFn) mixedPort 20 20
+    (exactValue := exactLambdas)).isNone
+
+private def mixedLambdaRef : machine.Val branchFn.port :=
+  .closure (.cons (globalValue 1 9) .nil) sameBody.toGraph
+
+private def mixedMemberRef : machine.Val branchFn.port :=
+  .member (.cons mixedLambdaRef .nil) mixedGroup.toGraph.definitions 0
+
+-- The second initializer reads the first. Its allocated value reaches the
+-- actual λ captured by the later φ. The λ alias itself has no link effect.
+private theorem mixedLink : Executable.link actions 73 mixedModule.toGraph (number 1) 20 =
+    .linked (.cons (globalValue 0 8) (.cons (globalValue 1 9)
+      (.cons (wrapperRef mixedMemberRef) .nil))) 28 := by cbv
+
+example : (match Executable.link actions 73 mixedModule.toGraph (number 0) 20 with
+    | .undefined ⟨unitId, vertex, ⟨_, _, .finish, _, _, inputs⟩, store⟩ =>
+      some (unitId, vertex, inputs, store)
+    | _ => none) = some (73, 1, finishInputs 0 7 0, 23) := by cbv
+
+-- The caller resumes after a recursive member activation calls the alias
+-- and both recursion and the caller unwind through their saved suffixes.
+example : Executable.run actions 80 73 mixedModule.toGraph (number 1) mixedPort (branchArgs 1) 20 =
+    .ok (.returned (number 38) 45) := by
+  unfold Executable.run Executable.start
+  rw [mixedLink]
+  cbv
+
+private def profiledBody (right : Bool) (opcode : Op [num] [num]) :
+    RecursiveCall.Code Op (branchEntryWith global) [] [[num], [num]] [num] :=
+  if right then branchBodyWith baseR opcode else branchBodyWith baseL opcode
+
+private def firstProfileGroup (right : Bool) :=
+  selfGroup branchFn (.output (0 : Fin 2) .head : Origin args [[global], [global]] global)
+    (profiledBody right .seed)
+
+private def secondProfileGroup (right gain : Bool) :=
+  selfGroup branchFn (.output (1 : Fin 3) .head : Origin args [[global], [global], [branchFn.port]] global)
+    (profiledBody right (if gain then .gain else .seed))
+
+private def profileLambda :
+    LambdaTerm Op args [[global], [global], [branchFn.port], [branchFn.port]] branchFn :=
+  combined (.output 2 .head) (.output 3 .head)
+
+private def profileGraph (right gain : Bool) :
+    Omega Op args captureExports [[global], [global], [branchFn.port], [branchFn.port], [branchFn.port]] where
+  region := {
+    vertices := Fin.cases (.delta (seedDelta []).toGraph) <|
+      Fin.cases (.delta finishL.toGraph) <|
+      Fin.cases (.phi (firstProfileGroup right).toGraph) <|
+      Fin.cases (.phi (secondProfileGroup right gain).toGraph) <|
+      Fin.cases (.lambda profileLambda.toGraph) (fun i => i.elim0)
+    results := .cons (.output (2 : Fin 5) .head) (.cons (.output (3 : Fin 5) .head)
+      (.cons (.output (4 : Fin 5) .head) .nil))
+  }
+
+private theorem profilePlanFound (gain : Bool) :
+    (inferGraphPlan (profileGraph false gain) (profileGraph true gain)).isSome = true := by
+  cases gain <;> decide +kernel
+
+private def profilePlan (gain : Bool) :
+    GraphPlan (profileGraph false gain) (profileGraph true gain) :=
+  (inferGraphPlan (profileGraph false gain) (profileGraph true gain)).get (profilePlanFound gain)
+
+private abbrev profilePort : Port captureExports branchFn.port := .tail (.tail .head)
+
+private def profileAdmission (gain : Bool) (flag : Nat := 1) :=
+  admitGraph instructionKeys actions Eq ordinaryOutputs 73 73 (number flag) (number flag)
+    (profileGraph false gain) (profileGraph true gain) (profilePlan gain) (fn := branchFn) profilePort 20 20
+
+-- Both groups have the same declared function and the same outer capture
+-- type. Changing the outer suffix opcode separates their definitions.
+#guard (profileAdmission true).isSome
+#guard (profileAdmission false).isNone
+#guard (profileAdmission true 0).isNone
+
+private def firstProfileRef (right : Bool) : machine.Val branchFn.port :=
+  .member (.cons (globalValue 0 8) .nil) (firstProfileGroup right).toGraph.definitions 0
+
+private def secondProfileRef (right gain : Bool) : machine.Val branchFn.port :=
+  .member (.cons (globalValue 1 9) .nil) (secondProfileGroup right gain).toGraph.definitions 0
+
+example (right : Bool) : Executable.link actions 73 (profileGraph right true) (number 1) 20 =
+    .linked (.cons (firstProfileRef right) (.cons (secondProfileRef right true)
+      (.cons (.closure (.cons (firstProfileRef right) (.cons (secondProfileRef right true) .nil)) combinedBody.toGraph)
+        .nil))) 28 := by
+  cases right <;> cbv
+
+-- Each export recurses, runs its own effectful suffix, and returns.
+-- The caller captures both actual members and consumes both results.
+example (right : Bool) :
+    Executable.run actions 100 73 (profileGraph right true) (number 1) .head (branchArgs 1) 20 =
+      .ok (.returned (number 30) 42) ∧
+    Executable.run actions 100 73 (profileGraph right true) (number 1) (.tail .head) (branchArgs 1) 20 =
+      .ok (.returned (number 45) 48) ∧
+    Executable.run actions 100 73 (profileGraph right true) (number 1) (.tail (.tail .head)) (branchArgs 1) 20 =
+      .ok (.returned (number 52) 65) := by
+  cases right <;> exact ⟨by cbv, by cbv, by cbv⟩
+
+-- The checker still rejects equal profiles even when different captured
+-- payloads make the groups observationally distinct on this invocation.
+example : Executable.run actions 100 73 (profileGraph false false) (number 1) (.tail .head)
+    (branchArgs 1) 20 = .ok (.returned (number 31) 42) := by cbv
+
+-- Undefined initialization is still a link error from the original table.
+example : (match Executable.run actions 100 73 (profileGraph false true) (number 0)
+    (.tail (.tail .head)) (branchArgs 1) 20 with
+  | .error ⟨unitId, vertex, ⟨_, _, .finish, _, _, inputs⟩, store⟩ => some (unitId, vertex, inputs, store)
+  | _ => none) = some (73, 1, finishInputs 0 7 0, 23) := by cbv
+
+private abbrev profilePositions := Equiv.refl (Fin 5)
+
+private theorem firstProfileIso :
+    (firstProfileGroup false).Renumbered (renameVertex profilePositions) (firstProfileGroup true) :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyWithIso .seed⟩ (fun i => i.elim0)⟩
+
+private theorem secondProfileIso :
+    (secondProfileGroup false true).Renumbered (renameVertex profilePositions) (secondProfileGroup true true) :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyWithIso .gain⟩ (fun i => i.elim0)⟩
+
+private theorem profileLambdaIso : profileLambda.Renumbered (renameVertex profilePositions) profileLambda :=
+  ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩
+
+private theorem profileGraphIso : (profileGraph false true).RenumberedBy (profileGraph true true) profilePositions := by
+  refine ⟨?_, rfl⟩
+  exact Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+    (Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+      (Fin.cases (.phi firstProfileIso) (Fin.cases (.phi secondProfileIso)
+        (Fin.cases (.lambda profileLambdaIso) (fun i => i.elim0)))))
+
+private def profileTerm (right : Bool) :
+    OmegaTerm Op args captureExports [[global], [global], [branchFn.port], [branchFn.port], [branchFn.port]] :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.delta finishL) <| .bind (.phi (firstProfileGroup right)) <|
+    .bind (.phi (secondProfileGroup right true)) <| .bind (.lambda profileLambda) <|
+    .ret (profileGraph right true).region.results⟩
+
+private theorem profileGraph_eq (right : Bool) : profileGraph right true = (profileTerm right).toGraph := rfl
+
+private theorem profileOrder : Ordered Op (renameVertex profilePositions) args captureExports
+    (profileGraph false true).toTerm.region (profileGraph true true).toTerm.region := by
+  rw [profileGraph_eq false, profileGraph_eq true, OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+  exact .bind rfl (.delta ⟨rfl, rfl⟩ seedTerm) (.bind rfl (.delta ⟨rfl, rfl⟩ finishTerm)
+    (.bind rfl (.phi firstProfileIso) (.bind rfl (.phi secondProfileIso)
+      (.bind rfl (.lambda profileLambdaIso) (.ret _ _)))))
+
+private theorem profileStarts (flag : Nat) :
+    StartsRelated primitives Eq (renameVertex profilePositions) captureExports
+      ((profileAdmission true flag).isSome = true)
+      (Executable.start actions 73 (profileGraph false true) (number flag) profilePort (branchArgs 1) 20)
+      (Executable.start actions 73 (profileGraph true true) (number flag) profilePort (branchArgs 1) 20) := by
+  have address (i : Nat) : renameVertex profilePositions i = i := by
+    unfold renameVertex
+    split <;> rfl
+  have imports : TupleRelated machine Eq (number flag) (number flag) :=
+    .cons (ValueRelated.data (m := machine) (ids := Eq) (t := ()) flag) .nil
+  have inputs : TupleRelated machine Eq (branchArgs 1) (branchArgs 1) :=
+    .cons (ValueRelated.data (m := machine) (ids := Eq) (t := ()) (1 : Nat))
+      (.cons (.control 1) (.cons (.control 0) .nil))
+  exact admitGraph_starts instructionKeys actions (respectsGlobals Eq) ordinaryOutputs profileGraphIso profileOrder
+    (fun i => by rw [address i]) imports (profilePlan true) (fn := branchFn) profilePort inputs rfl 20
+
+private def profileSource (right : Bool) : Config machine Nat [num] :=
+  let callee : machine.Val branchFn.port :=
+    .closure (.cons (firstProfileRef right) (.cons (secondProfileRef right true) .nil)) combinedBody.toGraph
+  ⟨Continuation.start (.call callee (branchArgs 1)), 28⟩
+
+private theorem profileStart (right : Bool) :
+    Executable.start actions 73 (profileGraph right true) (number 1) profilePort (branchArgs 1) 20 =
+      .ok (profileSource right) := by
+  cases right <;> cbv
+
+private theorem profileAccepted : (profileAdmission true 1).isSome = true := by decide +kernel
+
+-- Obtain the right run from the actual left run using the public bridge.
+example : ∃ source target,
+    Executable.start actions 73 (profileGraph true true) (number 1) profilePort (branchArgs 1) 20 = .ok source ∧
+    ReflTransGen (Step primitives) source target ∧ target.result = some (number 52, 65) := by
+  have starts := profileStarts 1
+  rw [profileStart false, profileStart true] at starts
+  obtain ⟨_, _, closed, admitted⟩ := starts profileAccepted
+  have reached := Continuation.Partial.Executable.runFor_reachable actions 100 (profileSource false)
+  have result : (runFor actions 100 (profileSource false)).result = some (number 52, 65) := by cbv
+  obtain ⟨target, value, path, got, paired⟩ :=
+    (ClosedFamily.returns (respectsGlobals Eq) closed admitted).1 _ _ _ reached result
+  cases paired with
+  | cons head tail =>
+    cases head
+    cases tail
+    exact ⟨_, target, profileStart true, path, got⟩
+
+private def profileFailure : Failure machine Nat := ⟨73, 1, finishSite 0 7 0, 23⟩
+
+private theorem profileStops (right : Bool) :
+    Executable.start actions 73 (profileGraph right true) (number 0) profilePort (branchArgs 1) 20 =
+      .error profileFailure := by
+  cases right <;> cbv <;> congr <;> funext i <;> exact i.elim0
+
+-- Failed initialization is related before either side can start a call.
+example : OutcomesRelated machine Eq Nat (renameVertex profilePositions) captureExports
+    (.undefined profileFailure) (.undefined profileFailure) := by
+  have starts := profileStarts 0
+  rw [profileStops false, profileStops true] at starts
+  exact starts
+
+private abbrev crossImports : Ports T := [num, branchFn.port]
+private abbrev crossExports : Ports T := [branchFn.port]
+private abbrev crossSigs : List (Ports T) := [[global], [branchFn.port], [branchFn.port]]
+private abbrev crossPort : Port crossExports branchFn.port := .head
+
+private def crossDelta : DeltaTerm Op crossImports [] (.data ()) :=
+  ⟨[num], .cons (.arg .head) .nil, [[num]], seedTerm⟩
+
+private def crossEarlier (right : Bool) : PhiTerm Op crossImports [[global]] [branchFn] :=
+  selfGroup branchFn (.output 0 .head) (profiledBody right .seed)
+
+private def crossLater (foreign : Bool) : PhiTerm Op crossImports [[global], [branchFn.port]] [branchFn] :=
+  selfGroup branchFn (if foreign then .arg (.tail .head) else .output 1 .head)
+    (branchBodyWith capturedCallArm .gain)
+
+private def crossModule (right foreign : Bool) : OmegaTerm Op crossImports crossExports crossSigs :=
+  ⟨.bind (.delta crossDelta) <| .bind (.phi (crossEarlier right)) <| .bind (.phi (crossLater foreign)) <|
+    .ret (.cons (.output (2 : Fin 3) .head) .nil)⟩
+
+private def crossForeignBody : RecursiveCall.Code Op branchFn.args [] [] [num] :=
+  .ret (.cons (.arg .head) .nil)
+
+private def crossForeign : machine.Val branchFn.port :=
+  .closure .nil crossForeignBody.toGraph
+
+private def crossInputs : Tuple machine.Val crossImports :=
+  .cons (.data (1 : Nat)) (.cons crossForeign .nil)
+
+private def crossCheck (foreign : Bool)
+    (plan : GraphPlan (crossModule false false).toGraph (crossModule true foreign).toGraph) :=
+  admitGraph instructionKeys actions Eq ordinaryOutputs 73 73 crossInputs crossInputs
+    (crossModule false false).toGraph (crossModule true foreign).toGraph
+    plan (fn := branchFn) crossPort 20 20
+
+private def crossScan (foreign : Bool) :=
+  (inferGraphPlan (crossModule false false).toGraph (crossModule true foreign).toGraph).bind (crossCheck foreign)
+
+#guard (crossScan false).isSome
+#guard (inferGraphPlan (crossModule false false).toGraph (crossModule true true).toGraph).isSome
+#guard (crossScan true).isNone
+
+private def importExport : Omega Op crossImports crossExports [] :=
+  ⟨⟨fun i => i.elim0, .cons (.arg (.tail .head)) .nil⟩⟩
+
+#guard (inferGraphPlan importExport importExport).isNone
+#guard (inferGraphPlan (crossModule false false).toGraph importExport).isNone
+
+private def crossEarlyRef (right : Bool) : machine.Val branchFn.port :=
+  .member (.cons (globalValue 0 8) .nil) (crossEarlier right).toGraph.definitions 0
+
+private def crossRef (right foreign : Bool) : machine.Val branchFn.port :=
+  .member (.cons (if foreign then crossForeign else crossEarlyRef right) .nil)
+    (crossLater foreign).toGraph.definitions 0
+
+-- Both the checked earlier member and the unchecked same-signature
+-- import resolve through the actual capture wire and link successfully.
+private theorem crossLinked (right foreign : Bool) :
+    Executable.link actions 73 (crossModule right foreign).toGraph crossInputs 20 =
+      .linked (.cons (crossRef right foreign) .nil) 23 := by
+  cases right <;> cases foreign <;> cbv
+
+private def crossAttempt : Continuation.Partial.Executable.Observation machine Nat [num] →
+    Option (List Nat × Tuple machine.Val [global, num] × Nat)
+  | .blocked ⟨⟨_, _, .finish, _, _, input⟩, stack⟩ store => some (savedVertices stack, input, store)
+  | _ => none
+
+-- The later member recurses before calling the earlier group. Its two
+-- activations are still live at the earlier member’s relocated primitive.
+example (right : Bool) :
+    (Executable.run actions 80 73 (crossModule right false).toGraph crossInputs crossPort (branchArgs 0) 20
+      |>.toOption.bind crossAttempt) =
+      some ((if right then 1 else 0) :: [0, 0, 0, 0, 0], finishInputs 0 8 0, 23) := by
+  cases right <;> cbv
+
+-- Suspend at the actual call of the earlier member, then resume the saved
+-- suffixes. Both gain actions belong to the later group.
+example (right : Bool) : (match Executable.run actions 10 73 (crossModule right false).toGraph crossInputs
+      crossPort (branchArgs 1) 20 with
+  | .ok (.suspended config) =>
+    match config.control with
+    | .eval (.call _ _) stack => some (savedVertices stack, config.store, (runFor actions 80 config).result)
+    | _ => none
+  | _ => none) = some ([0, 0, 0, 0], 23, some (number 51, 46)) := by
+  cases right <;> cbv
+
+private abbrev crossPositions := Equiv.refl (Fin crossSigs.length)
+
+private theorem crossEarlierIso : (crossEarlier false).Renumbered (renameVertex crossPositions) (crossEarlier true) :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyWithIso .seed⟩ (fun i => i.elim0)⟩
+
+private theorem crossLaterIso : (crossLater false).Renumbered (renameVertex crossPositions) (crossLater false) :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩ (fun i => i.elim0)⟩
+
+private theorem crossIso : (crossModule false false).toGraph.RenumberedBy
+    (crossModule true false).toGraph crossPositions :=
+  ⟨Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+    (Fin.cases (.phi crossEarlierIso) (Fin.cases (.phi crossLaterIso) (fun i => i.elim0))), rfl⟩
+
+private theorem crossOrder : Ordered Op (renameVertex crossPositions) crossImports crossExports
+    (crossModule false false).toGraph.toTerm.region (crossModule true false).toGraph.toTerm.region := by
+  rw [OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+  exact .bind rfl (.delta ⟨rfl, rfl⟩ seedTerm)
+    (.bind rfl (.phi crossEarlierIso) (.bind rfl (.phi crossLaterIso) (.ret _ _)))
+
+private theorem crossPlanFound :
+    (inferGraphPlan (crossModule false false).toGraph (crossModule true false).toGraph).isSome = true := by decide +kernel
+
+private def crossPlan := (inferGraphPlan (crossModule false false).toGraph (crossModule true false).toGraph).get crossPlanFound
+
+private theorem crossAccepted : (crossCheck false crossPlan).isSome = true := by decide +kernel
+
+private def crossSource (right : Bool) : Config machine Nat [num] :=
+  ⟨Continuation.start (.call (crossRef right false) (branchArgs 0)), 23⟩
+
+private theorem crossStart (right : Bool) :
+    Executable.start actions 73 (crossModule right false).toGraph crossInputs crossPort (branchArgs 0) 20 =
+      .ok (crossSource right) := by
+  unfold Executable.start
+  rw [crossLinked]
+  rfl
+
+example : ∃ endR,
+    RecursiveCall.ReachedTerminal primitives Eq (crossSource false) (crossSource true)
+      (runFor actions 80 (crossSource false)) endR ∧ endR.Blocked primitives := by
+  have identity (i : Nat) : (73, i) = (73, renameVertex crossPositions i) := by
+    unfold renameVertex
+    split <;> rfl
+  have imports : TupleRelated machine Eq crossInputs crossInputs :=
+    .cons (.data (m := machine) (ids := Eq) (t := ()) (1 : Nat))
+      (.cons (.closure .nil (NestedTheta.Graph.Isomorphic.refl _)) .nil)
+  have arguments : TupleRelated machine Eq (branchArgs 0) (branchArgs 0) :=
+    .cons (.data (m := machine) (ids := Eq) (t := ()) (0 : Nat))
+      (.cons (.control 1) (.cons (.control 0) .nil))
+  have starts := admitGraph_starts instructionKeys actions (respectsGlobals Eq) ordinaryOutputs crossIso crossOrder
+    identity imports crossPlan (fn := branchFn) crossPort arguments rfl 20
+  rw [crossStart false, crossStart true] at starts
+  obtain ⟨_, _, closed, admitted⟩ := starts crossAccepted
+  exact (ClosedFamily.blocks (respectsGlobals Eq) closed admitted).1 _
+    (Continuation.Partial.Executable.runFor_reachable actions 80 (crossSource false)) ⟨_, by cbv, by cbv⟩
+
+private abbrev loopCarrier : Ports T := [control, control, num]
+
+private def lambdaLoopBody :
+    RecursiveCall.Code Op loopCarrier [] [[num]] (Theta.BodyResults loopCarrier) :=
+  .bind (RecursiveCall.simple (.primitive Op.seed) (.cons (.arg (.tail (.tail .head))) .nil)
+      (fun i => i.elim0)) (fun i => i.elim0) <|
+    .ret (.cons (.arg .head) (.cons (.arg (.tail .head)) (.cons (.arg (.tail .head))
+      (.cons (.output (0 : Fin 1) .head) .nil))))
+
+-- Use the call result as the initial carrier. The first control can
+-- restart the loop, which then takes its exit selector from the second.
+private def lambdaLoopCode : RecursiveCall.Code Op wrappedInput [] [[num], loopCarrier] [num] :=
+  let loop : NestedTheta.Node (Instruction Op) wrappedInput [[num]] loopCarrier :=
+    ⟨loopCarrier, .theta loopCarrier,
+      .cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail .head))))
+        (.cons (.output (0 : Fin 1) .head) .nil)), fun _ => [[num]]⟩
+  wrapWith (.bind loop (fun _ => lambdaLoopBody)
+    (.ret (.cons (.output (1 : Fin 2) (.tail (.tail .head))) .nil)))
+
+private def lambdaLoop {past : List (Ports T)} (capture : Origin crossImports past branchFn.port) :
+    LambdaTerm Op crossImports past branchFn :=
+  ⟨[branchFn.port], .cons capture .nil, _, lambdaLoopCode⟩
+
+private def lambdaLoopModule (right stale : Bool) :
+    OmegaTerm Op crossImports crossExports crossSigs :=
+  ⟨.bind (.delta crossDelta) <| .bind (.phi (crossEarlier right)) <|
+    .bind (.lambda (lambdaLoop (if stale then .arg (.tail .head) else .output (1 : Fin 2) .head))) <|
+    .ret (.cons (.output (2 : Fin 3) .head) .nil)⟩
+
+private def lambdaLoopPlan (stale : Bool) :=
+  inferGraphPlan (lambdaLoopModule false false).toGraph (lambdaLoopModule true stale).toGraph
+
+private def lambdaLoopAdmission (stale : Bool) :=
+  (lambdaLoopPlan stale).bind fun plan =>
+    admitGraph instructionKeys actions Eq ordinaryOutputs 73 73 crossInputs crossInputs
+      (lambdaLoopModule false false).toGraph (lambdaLoopModule true stale).toGraph
+      plan (fn := branchFn) crossPort 20 20
+
+#guard (lambdaLoopAdmission false).isSome
+#guard (lambdaLoopPlan true).isSome
+#guard (lambdaLoopAdmission true).isNone
+
+-- The stale wire has the same callable type and actually resolves at
+-- link time. Only the earlier member has an admitted prefix origin.
+example : Executable.link actions 73 (lambdaLoopModule true true).toGraph crossInputs 20 =
+    .linked (.cons (.closure (.cons crossForeign .nil) lambdaLoopCode.toGraph) .nil) 23 := by cbv
+
+-- The exported λ calls the linked member. Its θ suffix performs one
+-- effect before feedback and another before exiting with the result.
+example (right : Bool) :
+    Executable.run actions 100 73 (lambdaLoopModule right false).toGraph crossInputs
+      crossPort (branchArgs 1) 20 = .ok (.returned (number 44) 43) := by
+  cases right <;> cbv
+
+private def lambdaOnlyFirst (stale : Bool) : LambdaTerm Op crossImports [[global]] branchFn :=
+  if stale then ⟨[branchFn.port], .cons (.arg (.tail .head)) .nil, _, wrapperCode⟩
+  else ⟨[global], .cons (.output (0 : Fin 1) .head) .nil, _, sameBody⟩
+
+private def lambdaOnlySecond : LambdaTerm Op crossImports [[global], [branchFn.port]] branchFn :=
+  ⟨[branchFn.port], .cons (.output (1 : Fin 2) .head) .nil, _, wrapperCode⟩
+
+private def lambdaOnlyModule (stale : Bool) : OmegaTerm Op crossImports crossExports crossSigs :=
+  ⟨.bind (.delta crossDelta) <| .bind (.lambda (lambdaOnlyFirst stale)) <|
+    .bind (.lambda lambdaOnlySecond) <| .ret (.cons (.output (2 : Fin 3) .head) .nil)⟩
+
+private def lambdaOnlyPlan (stale : Bool) :=
+  inferGraphPlan (lambdaOnlyModule stale).toGraph (lambdaOnlyModule stale).toGraph
+
+private def lambdaOnlyCheck (stale : Bool)
+    (plan : GraphPlan (lambdaOnlyModule stale).toGraph (lambdaOnlyModule stale).toGraph) :=
+  admitGraph instructionKeys actions Eq ordinaryOutputs 73 73 crossInputs crossInputs
+    (lambdaOnlyModule stale).toGraph (lambdaOnlyModule stale).toGraph plan (fn := branchFn) crossPort 20 20
+
+#guard ((lambdaOnlyPlan false).bind (lambdaOnlyCheck false)).isSome
+#guard (lambdaOnlyPlan true).isSome
+#guard ((lambdaOnlyPlan true).bind (lambdaOnlyCheck true)).isNone
+
+-- Linking the stale first λ succeeds and both calls run. Admission rejects
+-- the first λ's imported callable from the ordinary-value starting family.
+example : Executable.run actions 60 73 (lambdaOnlyModule true).toGraph crossInputs
+    crossPort (branchArgs 1) 20 = .ok (.returned (number 15) 29) := by cbv
+
+-- The outer λ has entered its actual captured call at the budget boundary.
+-- Resumption uses the initialized global and then runs the caller's suffix.
+example : (match Executable.run actions 3 73 (lambdaOnlyModule false).toGraph crossInputs
+      crossPort (branchArgs 1) 20 with
+  | .ok (.suspended config) =>
+    match config.control with
+    | .eval (.call _ _) stack => some (savedVertices stack, config.store, (runFor actions 60 config).result)
+    | _ => none
+  | _ => none) = some ([0], 23, some (number 16, 31)) := by cbv
+
+private theorem lambdaOnlyIso : (lambdaOnlyModule false).toGraph.RenumberedBy
+    (lambdaOnlyModule false).toGraph crossPositions :=
+  ⟨Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+    (Fin.cases (.lambda ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩)
+      (Fin.cases (.lambda ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩) (fun i => i.elim0))), rfl⟩
+
+private theorem lambdaOnlyOrder : Ordered Op (renameVertex crossPositions) crossImports crossExports
+    (lambdaOnlyModule false).toGraph.toTerm.region (lambdaOnlyModule false).toGraph.toTerm.region := by
+  simp only [OmegaTerm.toTerm_toGraph]
+  exact .bind rfl (.delta ⟨rfl, rfl⟩ seedTerm)
+    (.bind rfl (.lambda ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩)
+      (.bind rfl (.lambda ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩) (.ret _ _)))
+
+private theorem lambdaOnlyPlanFound : (lambdaOnlyPlan false).isSome = true := by decide +kernel
+
+private def lambdaOnlyInferred := (lambdaOnlyPlan false).get lambdaOnlyPlanFound
+
+private theorem lambdaOnlyAccepted : (lambdaOnlyCheck false lambdaOnlyInferred).isSome = true := by decide +kernel
+
+private def lambdaOnlySource : Config machine Nat [num] :=
+  let first : machine.Val branchFn.port := .closure (.cons (globalValue 0 8) .nil) sameBody.toGraph
+  ⟨Continuation.start (.call (wrapperRef first) (branchArgs 1)), 23⟩
+
+private theorem lambdaOnlyStart :
+    Executable.start actions 73 (lambdaOnlyModule false).toGraph crossInputs crossPort (branchArgs 1) 20 =
+      .ok lambdaOnlySource := by cbv
+
+example : ∃ source target,
+    Executable.start actions 73 (lambdaOnlyModule false).toGraph crossInputs crossPort (branchArgs 1) 20 = .ok source ∧
+    ReflTransGen (Step primitives) source target ∧ target.result = some (number 16, 31) := by
+  have identity (i : Nat) : (73, i) = (73, renameVertex crossPositions i) := by
+    unfold renameVertex
+    split <;> rfl
+  have imports : TupleRelated machine Eq crossInputs crossInputs :=
+    .cons (.data (m := machine) (ids := Eq) (t := ()) (1 : Nat))
+      (.cons (.closure .nil (NestedTheta.Graph.Isomorphic.refl _)) .nil)
+  have arguments : TupleRelated machine Eq (branchArgs 1) (branchArgs 1) :=
+    .cons (.data (m := machine) (ids := Eq) (t := ()) (1 : Nat))
+      (.cons (.control 1) (.cons (.control 0) .nil))
+  have starts := admitGraph_starts instructionKeys actions (respectsGlobals Eq) ordinaryOutputs lambdaOnlyIso
+    lambdaOnlyOrder identity imports lambdaOnlyInferred (fn := branchFn) crossPort arguments rfl 20
+  rw [lambdaOnlyStart] at starts
+  obtain ⟨_, _, closed, admitted⟩ := starts lambdaOnlyAccepted
+  have reached := Continuation.Partial.Executable.runFor_reachable actions 60 lambdaOnlySource
+  have result : (runFor actions 60 lambdaOnlySource).result = some (number 16, 31) := by cbv
+  obtain ⟨target, value, path, got, paired⟩ :=
+    (ClosedFamily.returns (respectsGlobals Eq) closed admitted).1 _ _ _ reached result
+  cases paired with
+  | cons head tail =>
+    cases head
+    cases tail
+    exact ⟨_, target, lambdaOnlyStart, path, got⟩
+
+open RecursiveCall.Numbered.Prefix (AllocatingClient admitAllocatingClient admitClient checkGraphProvider clientGraph)
+
+private def providerModuleL : OmegaTerm Op args crossExports [[global], [branchFn.port], []] :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.lambda (sameBodyLambda (.output (0 : Fin 1) .head))) <|
+    .bind (.phi (emptyPhi Op args _)) <| .ret (.cons (.output (1 : Fin 3) .head) .nil)⟩
+
+private def providerModuleR : OmegaTerm Op args crossExports [[], [global], [branchFn.port]] :=
+  ⟨.bind (.phi (emptyPhi Op args [])) <| .bind (.delta (seedDelta [[]])) <|
+    .bind (.lambda (sameBodyLambda (.output (1 : Fin 2) .head))) <|
+    .ret (.cons (.output (2 : Fin 3) .head) .nil)⟩
+
+private def providerPlan : GraphPlan providerModuleL.toGraph providerModuleR.toGraph :=
+  .skipR (.skipL (.skipR (.start (.lambda (.skipL .done)))))
+
+private def providerCheck :=
+  checkGraphProvider instructionKeys actions ids ordinaryOutputs 73 73 (number 1) (number 1)
+    providerModuleL.toGraph providerModuleR.toGraph providerPlan (providerFn := branchFn) crossPort 20 20
+
+private theorem providerFound : providerCheck.isSome = true := by decide +kernel
+
+private def checkedProvider := providerCheck.get providerFound
+
+private abbrev provider := checkedProvider.checked
+
+private abbrev clientInputs : Ports T := [branchFn.port, global]
+
+private def providerRef (vertex : Nat) : machine.Val branchFn.port :=
+  .closure (.cons (globalValue vertex 8) .nil) sameBody.toGraph
+
+private theorem providerActualL : provider.valuesL = .cons (providerRef 0) .nil ∧ provider.storeL = 23 :=
+  Outcome.linked.inj (provider.linkedL.symm.trans (by cbv))
+
+private theorem providerActualR : provider.valuesR = .cons (providerRef 1) .nil ∧ provider.storeR = 23 :=
+  Outcome.linked.inj (provider.linkedR.symm.trans (by cbv))
+
+private def clientEntryL : Tuple machine.Val clientInputs :=
+  .cons (providerRef 0) (.cons (globalValue 0 8) .nil)
+
+private def clientEntryR : Tuple machine.Val clientInputs :=
+  .cons (providerRef 1) (.cons (globalValue 1 8) .nil)
+
+private def clientLambda : LambdaTerm Op clientInputs [] branchFn :=
+  ⟨[branchFn.port], .cons (.arg .head) .nil, _, wrapperCode⟩
+
+private def duplicateProvider : LambdaTerm Op clientInputs [] branchFn :=
+  ⟨[global], .cons (.arg (.tail .head)) .nil, _, sameBody⟩
+
+-- Same signature, code and payload, but a distinct captured global.
+private def foreignProvider : machine.Val branchFn.port :=
+  .closure (.cons (.global 99 1 (.data (8 : Nat))) .nil) sameBody.toGraph
+
+private def staleClientEntry : Tuple machine.Val clientInputs :=
+  .cons foreignProvider (.cons (globalValue 1 8) .nil)
+
+private def clientCheck (inputsR : Tuple machine.Val clientInputs)
+    (body : LambdaTerm Op clientInputs [] branchFn := clientLambda) :=
+  admitClient actions ordinaryOutputs exactLambdas provider 74 74 clientEntryL inputsR body.toGraph body.toGraph
+
+#guard (clientCheck clientEntryR).isSome
+#guard (clientCheck staleClientEntry).isNone
+#guard (clientCheck clientEntryR duplicateProvider).isNone
+
+-- Freshness checks compare against the retained provider entries.
+example : Executable.link actions 74 (clientGraph duplicateProvider.toGraph) clientEntryL provider.storeL =
+    .linked provider.valuesL 23 := by
+  rw [providerActualL.1, providerActualL.2]
+  cbv
+
+example : Executable.link actions 74 (clientGraph clientLambda.toGraph) staleClientEntry provider.storeR =
+    .linked (.cons (wrapperRef foreignProvider) .nil) 23 := by
+  rw [providerActualR.2]
+  cbv
+
+private def linkedClientRun (right : Bool) (fuel flag : Nat) :
+    Option (Continuation.Partial.Executable.Observation machine Nat [num]) :=
+  let inputs := if right then clientEntryR else clientEntryL
+  let store := if right then provider.storeR else provider.storeL
+  (Executable.run actions fuel 74 (clientGraph clientLambda.toGraph) inputs crossPort (branchArgs flag) store).toOption
+
+-- The provider's global keeps its original unit and relocated vertex
+-- inside the client. The provider attempt and client suffix are both live.
+example (right : Bool) : (linkedClientRun right 30 0).bind crossAttempt =
+    some ([0, 0], finishInputs (if right then 1 else 0) 8 0, 23) := by
+  unfold linkedClientRun
+  rw [providerActualL.2, providerActualR.2]
+  cases right <;> cbv
+
+example (right : Bool) : (match linkedClientRun right 3 1 with
+  | some (.suspended config) =>
+    match config.control with
+    | .eval (.call _ _) stack => some (savedVertices stack, config.store, (runFor actions 30 config).result)
+    | _ => none
+  | _ => none) = some ([0], 23, some (number 16, 31)) := by
+  unfold linkedClientRun
+  rw [providerActualL.2, providerActualR.2]
+  cases right <;> cbv
+
+private abbrev allocatingImports : Ports T := [branchFn.port, num]
+private abbrev allocatingEntry : Ports T := [branchFn.port, global] ++ branchFn.args
+
+private def allocatingWith {sigs : List (Ports T)}
+    (suffix : RecursiveCall.Code Op allocatingEntry [[num], [num]] sigs [num]) :
+    RecursiveCall.Code Op allocatingEntry [] ([num] :: [num] :: sigs) [num] :=
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (.cons (.arg .head) (.cons (.arg (.tail (.tail .head)))
+      (.cons (.arg (.tail (.tail (.tail .head)))) (.cons (.arg (.tail (.tail (.tail (.tail .head))))) .nil))))
+    (fun i => i.elim0)) (fun i => i.elim0) <|
+  .bind (RecursiveCall.simple (.primitive Op.finish)
+    (.cons (.arg (.tail .head)) (.cons (.output (0 : Fin 1) .head) .nil)) (fun i => i.elim0))
+    (fun i => i.elim0) suffix
+
+private def allocatingBody := allocatingWith (.ret (.cons (.output (1 : Fin 2) .head) .nil))
+
+private def allocatingClientWith {sigs : List (Ports T)}
+    (body : RecursiveCall.Code Op allocatingEntry [] sigs [num]) :
+    (shifted : Bool) → AllocatingClient Op allocatingImports branchFn (.data ()) shifted
+  | false => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail .head)) .nil, _, seedTerm⟩),
+      (LambdaTerm.toGraph ⟨[branchFn.port, global], .cons (.arg .head) (.cons (.output (0 : Fin 1) .head) .nil),
+        _, body⟩)⟩
+  | true => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail .head)) .nil, _, seedTerm⟩),
+      (LambdaTerm.toGraph ⟨[branchFn.port, global], .cons (.arg .head) (.cons (.output (1 : Fin 2) .head) .nil),
+        _, body⟩)⟩
+
+private abbrev allocatingClient := allocatingClientWith allocatingBody
+
+private def allocatingInputs (callee : machine.Val branchFn.port) : Tuple machine.Val allocatingImports :=
+  .cons callee (number 3)
+
+private def allocationCheck (unitL unitR : Nat) (calleeR : machine.Val branchFn.port) :=
+  admitAllocatingClient actions ordinaryOutputs exactLambdas checkedProvider unitL unitR
+    (allocatingInputs (providerRef 0)) (allocatingInputs calleeR) (allocatingClient false) (allocatingClient true)
+
+#guard (allocationCheck 74 74 (providerRef 1)).isSome
+#guard (allocationCheck 73 74 (providerRef 1)).isNone
+#guard (allocationCheck 74 73 (providerRef 1)).isNone
+#guard (allocationCheck 74 74 foreignProvider).isNone
+
+private def clientGlobal (unit vertex : Nat) : machine.Val global := .global unit vertex (.data (10 : Nat))
+
+private def allocatedClosure (unit vertex : Nat) : machine.Val branchFn.port :=
+  .closure (.cons (providerRef vertex) (.cons (clientGlobal unit vertex) .nil)) allocatingBody.toGraph
+
+-- Using the provider's unit actually allocates a different payload at
+-- the same global identity. The admission guard excludes this link.
+example : Executable.link actions 73 (allocatingClient false).toGraph (allocatingInputs (providerRef 0)) 23 =
+    .linked (.cons (allocatedClosure 73 0) .nil) 26 := by cbv
+
+private theorem allocationLinks (shifted : Bool) :
+    Executable.link actions 74 (allocatingClient shifted).toGraph
+      (allocatingInputs (providerRef (if shifted then 1 else 0))) 23 =
+      .linked (.cons (allocatedClosure 74 (if shifted then 1 else 0)) .nil) 26 := by
+  cases shifted <;> cbv
+
+private def allocatingRun (shifted : Bool) (fuel flag : Nat) :=
+  Executable.run actions fuel 74 (allocatingClient shifted).toGraph
+    (allocatingInputs (providerRef (if shifted then 1 else 0))) crossPort (branchArgs flag) 23
+
+-- Client initialization advances the store before the provider blocks.
+-- The selected operand retains the provider's original allocation ID.
+example (shifted : Bool) : (allocatingRun shifted 30 0).toOption.bind crossAttempt =
+    some ([0, 0], finishInputs (if shifted then 1 else 0) 8 0, 26) := by
+  cases shifted <;> cbv
+
+-- Resume from the live provider call and run the client's finish action
+-- on its own captured δ global, whose payload is 10 instead of 8.
+example (shifted : Bool) : (match allocatingRun shifted 3 1 with
+  | .ok (.suspended config) =>
+    match config.control with
+    | .eval (.call _ _) stack => some (savedVertices stack, config.store, (runFor actions 30 config).result)
+    | _ => none
+  | _ => none) = some ([0], 26, some (number 11, 36)) := by
+  cases shifted <;> cbv
+
+private def rootChain := checkedProvider.allocationChain
+
+private def extendMiddle :=
+  rootChain.extend actions ordinaryOutputs exactLambdas 74 74
+    (allocatingInputs (rootChain.checked.valuesL.get crossPort))
+    (allocatingInputs (rootChain.checked.valuesR.get crossPort))
+    (allocatingClient false) (allocatingClient true)
+
+private def finalBody : RecursiveCall.Code Op allocatingEntry [] [[num], [num], [num]] [num] :=
+  allocatingWith <| .bind (RecursiveCall.simple (.primitive Op.seed)
+    (.cons (.output (1 : Fin 2) .head) .nil) (fun i => i.elim0)) (fun i => i.elim0)
+    (.ret (.cons (.output (2 : Fin 3) .head) .nil))
+
+private abbrev finalClient := allocatingClientWith finalBody
+
+private def finalInputs (middle : machine.Val branchFn.port) : Tuple machine.Val allocatingImports :=
+  .cons middle (number 5)
+
+private def nestedExact : RecursiveCall.Numbered.ExactValueCheck machine :=
+  RecursiveCall.Numbered.ExactValueCheck.lambda instructionKeys fun left right =>
+    exactFirstOrder left right <|> exactLambdas left right
+
+private def checkFinalRun (callee : machine.Val branchFn.port) (store vertex : Nat) : Bool :=
+  let success := Continuation.Partial.Executable.run actions 6 (.call callee (branchArgs 1)) store
+  let blocked := Continuation.Partial.Executable.run actions 60 (.call callee (branchArgs 0)) store
+  let resumed := match success with
+    | .suspended config =>
+      match config.control, (runFor actions 60 config).result with
+      | .eval (.call _ _) stack, some (.cons (.data n) .nil, stopped) =>
+        let result : Nat := n
+        savedVertices stack == [0, 0] && config.store == 29 && result == 20 && stopped == 47
+      | _, _ => false
+    | _ => false
+  let attempted := match crossAttempt blocked with
+    | some (frames, .cons g (.cons flag .nil), attemptedStore) =>
+      frames == [0, 0, 0] && attemptedStore == 29 &&
+        (exactFirstOrder g (globalValue vertex 8)).isSome && (exactFirstOrder flag ((number 0).get .head)).isSome
+    | none => false
+  store == 29 && resumed && attempted
+
+-- Both runs start from the exact exports and stores returned by admission.
+private def checkFinal (unitL unitR : Nat) (stale : Bool := false) :=
+  extendMiddle.bind fun middle =>
+    let rightImport := if stale then providerRef 1 else middle.checked.valuesR.get crossPort
+    (middle.extend actions ordinaryOutputs nestedExact unitL unitR
+      (finalInputs (middle.checked.valuesL.get crossPort)) (finalInputs rightImport)
+      (finalClient false) (finalClient true)).map fun final =>
+        checkFinalRun (final.checked.valuesL.get crossPort) final.checked.storeL 0 &&
+        checkFinalRun (final.checked.valuesR.get crossPort) final.checked.storeR 1
+
+#guard (checkFinal 75 75).getD false
+#guard (checkFinal 73 75).isNone
+#guard (checkFinal 75 73).isNone
+#guard (checkFinal 75 75 true).isNone
+
+-- A previously reserved unit would collide with the root allocation,
+-- even though the immediate provider still has unit 74.
+example : Executable.link actions 73 (finalClient false).toGraph
+    (finalInputs (allocatedClosure 74 0)) 26 =
+    .linked (.cons (.closure (.cons (allocatedClosure 74 0)
+      (.cons (.global 73 0 (.data (12 : Nat))) .nil)) finalBody.toGraph) .nil) 29 := by cbv
+
+-- Each initializer and successful invocation effect appends a digit.
+-- Thus both link order and the order of the two imported calls are visible.
+private def joinActions : Actions machine Nat where
+  step
+    | .seed, .cons (.data n) .nil => fun store =>
+      let arg : Nat := n
+      some (number (arg + 7), store * 10 + arg)
+    | .gain, .cons (.data n) .nil => fun store =>
+      some (number ((show Nat from n) + 14), store * 10 + 4)
+    | .finish, .cons (.global _ _ (.data n)) (.cons (.data flag) .nil) => fun store =>
+      let payload : Nat := n
+      let operand : Nat := flag
+      if payload == 10 && operand == 9 then none
+      else some (number (payload + 1 + operand), store * 10 + (payload - 7))
+
+private def joinFirst (unitL unitR storeL storeR : Nat) :=
+  checkGraphProvider instructionKeys joinActions ids ordinaryOutputs unitL unitR (number 1) (number 1)
+    providerModuleL.toGraph providerModuleR.toGraph providerPlan (providerFn := branchFn) crossPort storeL storeR
+
+private def joinSecondBody : RecursiveCall.Code Op sameBodyInput [] [[num], [num]] [num] :=
+  .bind sameBodyStep (fun i => i.elim0) <|
+    .bind (RecursiveCall.simple (.primitive Op.gain) (.cons (.output (0 : Fin 1) .head) .nil)
+      (fun i => i.elim0)) (fun i => i.elim0) (.ret (.cons (.output (1 : Fin 2) .head) .nil))
+
+private def joinProviderGraph {sigs : List (Ports T)}
+    (body : RecursiveCall.Code Op sameBodyInput [] sigs [num]) :
+    (shifted : Bool) → AllocatingClient Op args branchFn (.data ()) shifted
+  | false => ⟨(seedDelta []).toGraph,
+      (LambdaTerm.toGraph ⟨[global], .cons (.output (0 : Fin 1) .head) .nil, _, body⟩)⟩
+  | true => ⟨(seedDelta [[]]).toGraph,
+      (LambdaTerm.toGraph ⟨[global], .cons (.output (1 : Fin 2) .head) .nil, _, body⟩)⟩
+
+private def joinProviderPlan {sigs : List (Ports T)}
+    (body : RecursiveCall.Code Op sameBodyInput [] sigs [num]) :
+    GraphPlan (joinProviderGraph body false).toGraph (joinProviderGraph body true).toGraph :=
+  .skipR (.skipL (.skipR (.start (.lambda .done))))
+
+private def joinSecond (unitL unitR storeL storeR : Nat) :=
+  checkGraphProvider instructionKeys joinActions ids ordinaryOutputs unitL unitR (number 3) (number 3)
+    (joinProviderGraph joinSecondBody false).toGraph (joinProviderGraph joinSecondBody true).toGraph
+    (joinProviderPlan joinSecondBody)
+    (providerFn := branchFn) crossPort storeL storeR
+
+private abbrev joinImports : Ports T := [branchFn.port, branchFn.port, num]
+private abbrev joinCaptures : Ports T := [branchFn.port, branchFn.port, global]
+private abbrev joinEntry : Ports T := joinCaptures ++ branchFn.args
+
+private def joinCallInputs {past : List (Ports T)} (callee : Port joinEntry branchFn.port)
+    (flag : Origin joinEntry past num) : Wires joinEntry past (branchFn.port :: branchFn.args) :=
+  .cons (.arg callee) (.cons flag
+    (.cons (.arg (.tail (.tail (.tail (.tail .head)))))
+      (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head)))))) .nil)))
+
+private def joinBody : RecursiveCall.Code Op joinEntry [] [[num], [num], [num]] [num] :=
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (joinCallInputs .head (.arg (.tail (.tail (.tail .head))))) (fun i => i.elim0)) (fun i => i.elim0) <|
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (joinCallInputs (.tail .head) (.output (0 : Fin 1) .head)) (fun i => i.elim0)) (fun i => i.elim0) <|
+  .bind (RecursiveCall.simple (.primitive Op.finish)
+    (.cons (.arg (.tail (.tail .head))) (.cons (.output (1 : Fin 2) .head) .nil)) (fun i => i.elim0))
+    (fun i => i.elim0) (.ret (.cons (.output (2 : Fin 3) .head) .nil))
+
+private def joinClient : (shifted : Bool) → AllocatingClient Op joinImports branchFn (.data ()) shifted
+  | false => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail (.tail .head))) .nil, _, seedTerm⟩),
+      (LambdaTerm.toGraph ⟨joinCaptures, .cons (.arg .head) (.cons (.arg (.tail .head))
+        (.cons (.output (0 : Fin 1) .head) .nil)), _, joinBody⟩)⟩
+  | true => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail (.tail .head))) .nil, _, seedTerm⟩),
+      (LambdaTerm.toGraph ⟨joinCaptures, .cons (.arg .head) (.cons (.arg (.tail .head))
+        (.cons (.output (1 : Fin 2) .head) .nil)), _, joinBody⟩)⟩
+
+private def joinRun (callee : machine.Val branchFn.port) (store vertex : Nat) : Bool :=
+  let paused := Continuation.Partial.Executable.run joinActions 11 (.call callee (branchArgs 1)) store
+  let blocked := Continuation.Partial.Executable.run joinActions 60 (.call callee (branchArgs 0)) store
+  let resumed := match paused with
+    | .suspended config =>
+      match config.control, (runFor joinActions 60 config).result with
+      | .eval (.call _ _) stack, some (.cons (.data n) .nil, stopped) =>
+        let result : Nat := n
+        savedVertices stack == [1] && config.store == 21351 && result == 48 && stopped == 21351345
+      | _, _ => false
+    | _ => false
+  let attempted := match crossAttempt blocked with
+    | some (frames, .cons g (.cons flag .nil), attemptedStore) =>
+      let expected : machine.Val global := .global 74 vertex (.data (10 : Nat))
+      frames == [0, 1] && attemptedStore == 21351 &&
+        (exactFirstOrder g expected).isSome && (exactFirstOrder flag ((number 9).get .head)).isSome
+    | none => false
+  store == 2135 && resumed && attempted
+
+private def checkJoin (secondUnitL clientUnitR : Nat) (ordered := true) (stale := false) : Option Bool := do
+  let first ← joinFirst 73 73 2 2
+  let second ← joinSecond secondUnitL 74 (if ordered then first.checked.storeL else 2) first.checked.storeR
+  let first := first.allocationChain
+  let second := second.allocationChain
+  let joined ← first.join second ordinaryOutputs
+  let left := .cons (first.checked.valuesL.get crossPort) (.cons (second.checked.valuesL.get crossPort) (number 5))
+  let rightA := if stale then second.checked.valuesR.get crossPort else first.checked.valuesR.get crossPort
+  let right := .cons rightA (.cons (second.checked.valuesR.get crossPort) (number 5))
+  let result ← joined.extend ordinaryOutputs exactLambdas 75 clientUnitR left right (joinClient false) (joinClient true)
+  pure (joinRun (result.checked.valuesL.get .head) result.checked.storeL 0 &&
+    joinRun (result.checked.valuesR.get .head) result.checked.storeR 1)
+
+#guard (checkJoin 74 75).getD false
+#guard (checkJoin 73 75).isNone
+#guard (checkJoin 74 74).isNone
+#guard (checkJoin 74 75 (ordered := false)).isNone
+#guard (checkJoin 74 75 (stale := true)).isNone
+
+-- Disjoint units and correctly threaded stores still need separate dispatch.
+#guard ((do
+  let first ← joinFirst 73 73 2 2
+  let second ← joinFirst 74 74 first.checked.storeL first.checked.storeR
+  pure ((first.allocationChain.join second.allocationChain ordinaryOutputs).isNone)) : Option Bool).getD false
+
+open RecursiveCall.Numbered.Prefix (CheckedProviderAssembly)
+
+private def assemblyThirdBody : RecursiveCall.Code Op sameBodyInput [] [[num], [num]] [num] :=
+  .bind sameBodyStep (fun i => i.elim0) <|
+    .bind (RecursiveCall.simple (.primitive Op.finish)
+      (.cons (.arg .head) (.cons (.output (0 : Fin 1) .head) .nil))
+      (fun i => i.elim0)) (fun i => i.elim0) (.ret (.cons (.output (1 : Fin 2) .head) .nil))
+
+private def assemblyThird (unitL unitR storeL storeR : Nat) :=
+  checkGraphProvider instructionKeys joinActions ids ordinaryOutputs unitL unitR (number 5) (number 5)
+    (joinProviderGraph assemblyThirdBody false).toGraph (joinProviderGraph assemblyThirdBody true).toGraph
+    (joinProviderPlan assemblyThirdBody) (providerFn := branchFn) crossPort storeL storeR
+
+private abbrev assemblyPorts : Ports T := [branchFn.port, branchFn.port, branchFn.port]
+private abbrev assemblyCaptures : Ports T := assemblyPorts ++ [global]
+private abbrev assemblyEntry : Ports T := assemblyCaptures ++ branchFn.args
+
+private def assemblyCallInputs {past : List (Ports T)} (callee : Port assemblyEntry branchFn.port)
+    (flag : Origin assemblyEntry past num) : Wires assemblyEntry past (branchFn.port :: branchFn.args) :=
+  .cons (.arg callee) (.cons flag
+    (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head))))))
+      (.cons (.arg (.tail (.tail (.tail (.tail (.tail (.tail .head))))))) .nil)))
+
+private def assemblyBody : RecursiveCall.Code Op assemblyEntry [] [[num], [num], [num], [num]] [num] :=
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (assemblyCallInputs .head (.arg (.tail (.tail (.tail (.tail .head)))))) (fun i => i.elim0)) (fun i => i.elim0) <|
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (assemblyCallInputs (.tail .head) (.output (0 : Fin 1) .head)) (fun i => i.elim0)) (fun i => i.elim0) <|
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (assemblyCallInputs (.tail (.tail .head)) (.output (1 : Fin 2) .head)) (fun i => i.elim0)) (fun i => i.elim0) <|
+  .bind (RecursiveCall.simple (.primitive Op.finish)
+    (.cons (.arg (.tail (.tail (.tail .head)))) (.cons (.output (2 : Fin 3) .head) .nil)) (fun i => i.elim0))
+    (fun i => i.elim0) (.ret (.cons (.output (3 : Fin 4) .head) .nil))
+
+private def assemblyClient (shifted : Bool) :
+    AllocatingClient Op (assemblyPorts ++ [num]) branchFn (.data ()) shifted :=
+  match shifted with
+  | false => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail (.tail (.tail .head)))) .nil, _, seedTerm⟩),
+      (LambdaTerm.toGraph ⟨assemblyCaptures, .cons (.arg .head) (.cons (.arg (.tail .head))
+        (.cons (.arg (.tail (.tail .head))) (.cons (.output (0 : Fin 1) .head) .nil))), _, assemblyBody⟩)⟩
+  | true => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail (.tail (.tail .head)))) .nil, _, seedTerm⟩),
+      (LambdaTerm.toGraph ⟨assemblyCaptures, .cons (.arg .head) (.cons (.arg (.tail .head))
+        (.cons (.arg (.tail (.tail .head))) (.cons (.output (1 : Fin 2) .head) .nil))), _, assemblyBody⟩)⟩
+
+private def assemblyFirstTwo := do
+  let first ← joinFirst 73 73 2 2
+  let second ← joinSecond 74 74 first.checked.storeL first.checked.storeR
+  let earlier := CheckedProviderAssembly.start "first" first.allocationChain
+  earlier.append "second" second.allocationChain ordinaryOutputs
+
+private def assemblyThree (unitL : Nat) (name : String) := do
+  let earlier ← assemblyFirstTwo
+  let third ← assemblyThird unitL 75 earlier.chain.checked.storeL earlier.chain.checked.storeR
+  earlier.append name third.allocationChain ordinaryOutputs
+
+private def assemblyRun (callee : machine.Val branchFn.port) (store : Nat) : Bool :=
+  match Continuation.Partial.Executable.run joinActions 90 (.call callee (branchArgs 1)) store with
+  | .returned (.cons (.data n) .nil) stopped =>
+    let result : Nat := n
+    store == 21357 && result == 76 && stopped == 21357134557
+  | _ => false
+
+private def checkAssembly (last : String := "third") : Option Bool := do
+  let assembly ← assemblyThree 75 "third"
+  let names : Tuple (fun _ : T => String) assemblyPorts :=
+    .cons "first" (.cons "second" (.cons last .nil))
+  let ⟨_, receipt⟩ ← assembly.extend ordinaryOutputs 76 76 names (number 7) (number 7)
+    (assemblyClient false) (assemblyClient true)
+  pure (assembly.unitsL == [75, 74, 73] && assembly.unitsR == [75, 74, 73] &&
+    (assembly.find "first" num).isNone &&
+    assemblyRun (receipt.checked.valuesL.get .head) receipt.checked.storeL &&
+    assemblyRun (receipt.checked.valuesR.get .head) receipt.checked.storeR)
+
+#guard (checkAssembly).getD false
+#guard (checkAssembly "missing").isNone
+#guard (assemblyThree 73 "third").isNone
+#guard (assemblyThree 75 "first").isNone
+
+-- The name still selects the first receipt, including its original
+-- post-link stores and typed values, after both subsequent appends.
+private def checkEarlyProviderReceipt : Option Bool := do
+  let assembly ← assemblyThree 75 "third"
+  let early ← assembly.lookup "first" branchFn.port
+  let second ← assembly.lookup "second" branchFn.port
+  let provider := early.entry.provider
+  let providerStore : {ty : T} → Outcome machine Nat [ty] → Option Nat
+    | _, .linked _ store => some store
+    | _, .undefined _ => none
+  pure (provider.unitsL == [73] && provider.unitsR == [73] &&
+    provider.chain.initialL == 2 && provider.chain.initialR == 2 &&
+    providerStore provider.selectedL == some 21 && providerStore provider.selectedR == some 21 &&
+    assembly.chain.checked.storeL == 2135 && assembly.chain.checked.storeR == 2135 &&
+    (early.checkImports exactLambdas (providerRef 0) (providerRef 1)).isSome &&
+    (early.checkImports exactLambdas (providerRef 0) foreignProvider).isNone &&
+    (early.checkImports exactLambdas (providerRef 1) (providerRef 0)).isNone &&
+    (early.checkImports exactLambdas second.values.left second.values.right).isNone)
+
+#guard checkEarlyProviderReceipt.getD false
+
+-- The later provider is compatible with its immediate predecessor alone.
+-- Its dispatch collides with the non-adjacent first family.
+#guard ((do
+  let first ← joinFirst 73 73 2 2
+  let second ← joinSecond 74 74 first.checked.storeL first.checked.storeR
+  let third ← joinFirst 75 75 second.checked.storeL second.checked.storeR
+  let earlier ← (CheckedProviderAssembly.start "first" first.allocationChain).append
+    "second" second.allocationChain ordinaryOutputs
+  pure ((second.allocationChain.join third.allocationChain ordinaryOutputs).isSome &&
+    (earlier.append "third" third.allocationChain ordinaryOutputs).isNone)) : Option Bool).getD false
+
+open RecursiveCall.Numbered (GroupProfile LabelCode memberProfile memberProfile_eq)
+
+private def outerSeedCounts (profile : Option (GroupProfile Unit Unit instructionKeys.Key)) : Option (List Nat) :=
+  letI : DecidableEq (LabelCode Unit Unit instructionKeys.Key) := inferInstance
+  profile.map fun group => group.2.map fun labels => labels.count ([num], [num], .primitive (instructionKeys.encode (.primitive Op.seed)))
+
+-- The runtime relation itself excludes a mixed dispatch, independently
+-- of the differing captured payloads in the executable fixture.
+example : ¬ValueRelated machine Eq (firstProfileRef false) (secondProfileRef true true) := by
+  intro related
+  have counts := congrArg outerSeedCounts (memberProfile_eq instructionKeys related)
+  have first : outerSeedCounts (memberProfile instructionKeys (firstProfileRef false)) = some [1] := by cbv
+  have second : outerSeedCounts (memberProfile instructionKeys (secondProfileRef true true)) = some [0] := by cbv
+  rw [first, second] at counts
+  cases counts
+
+private abbrev twoMembers := [branchFn, branchFn]
+private abbrev twoMemberPorts := memberPorts twoMembers
+
+private def twoMemberGroup {past : List (Ports T)} (right : Bool) (capture : Origin args past global)
+    (opcode : Op [num] [num]) (rewire : Bool := false) : PhiTerm Op args past twoMembers :=
+  let body := profiledBody right opcode
+  ⟨[global], .cons capture .nil,
+    .cons ⟨[global, branchFn.port], .cons (.arg .head) (.cons (.arg (.tail .head)) .nil), _, body⟩
+      (.cons ⟨[global, branchFn.port], .cons (.arg .head)
+        (.cons (if rewire then .arg (.tail .head) else .arg (.tail (.tail .head))) .nil), _, body⟩ .nil)⟩
+
+private def originalAliasGroup (right : Bool) :=
+  twoMemberGroup right (.output (0 : Fin 2) .head : Origin args [[global], [global]] global) .seed
+
+private def otherAliasGroup (right : Bool) :=
+  twoMemberGroup right (.output (1 : Fin 3) .head : Origin args [[global], [global], twoMemberPorts] global) .gain
+
+private inductive GroupAliasExample where
+  | first | second | changedCapture | rewiredSibling
+
+private def aliasGroup (right : Bool) (choice : GroupAliasExample) :
+    PhiTerm Op args [[global], [global], twoMemberPorts, twoMemberPorts] twoMembers :=
+  match choice with
+  | .first => twoMemberGroup right (.output (0 : Fin 4) .head) .seed
+  | .second => twoMemberGroup right (.output (1 : Fin 4) .head) .gain
+  | .changedCapture => twoMemberGroup right (.output (1 : Fin 4) .head) .seed
+  | .rewiredSibling => twoMemberGroup right (.output (0 : Fin 4) .head) .seed true
+
+private def groupAliasModule (right : Bool) (choice : GroupAliasExample) :
+    OmegaTerm Op args captureExports [[global], [global], twoMemberPorts, twoMemberPorts,
+      twoMemberPorts, [branchFn.port]] :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.delta finishL) <| .bind (.phi (originalAliasGroup right)) <|
+    .bind (.phi (otherAliasGroup right)) <| .bind (.phi (aliasGroup right choice)) <|
+    .bind (.lambda (wrapper (.output (4 : Fin 5) (.tail .head)))) <|
+    .ret (.cons (.output (4 : Fin 6) .head) (.cons (.output (4 : Fin 6) (.tail .head))
+      (.cons (.output (5 : Fin 6) .head) .nil)))⟩
+
+private def groupAliasPlan (left right : GroupAliasExample) (prior : Nat) :
+    Plan Op args args captureExports false (groupAliasModule false left).region (groupAliasModule true right).region :=
+  .skipL (.skipR (.skipL (.skipR (.seed (.phi (.phiAlias prior (.lambda .done)))))))
+
+private def groupAliasAdmission (left right : GroupAliasExample) (prior : Nat)
+    (port : Port captureExports branchFn.port := .tail (.tail .head))
+    (exactValue : RecursiveCall.Numbered.ExactValueCheck machine := exactFirstOrder) :=
+  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    (groupAliasModule false left) (groupAliasModule true right) (groupAliasPlan left right prior)
+    (fn := branchFn) port 20 20 (exactValue := exactValue)
+
+#guard (groupAliasAdmission .first .first 1 .head).isSome
+#guard (groupAliasAdmission .first .first 1 (.tail .head)).isSome
+#guard (groupAliasAdmission .first .first 1).isSome
+#guard (groupAliasAdmission .second .second 0).isSome
+
+-- A match on one side or matches at different rows cannot certify a paired alias.
+#guard (groupAliasAdmission .first .changedCapture 1).isNone
+#guard (groupAliasAdmission .changedCapture .changedCapture 1).isNone
+#guard (groupAliasAdmission .first .second 1).isNone
+#guard (groupAliasAdmission .first .second 0).isNone
+#guard (groupAliasAdmission .rewiredSibling .rewiredSibling 1 .head).isNone
+#guard (groupAliasAdmission .first .first 1 (exactValue := fun _ _ => none)).isNone
+
+private def originalAliasRef (right : Bool) (slot : Fin twoMembers.length) : machine.Val twoMembers[slot].port :=
+  .member (.cons (globalValue 0 8) .nil) (originalAliasGroup right).toGraph.definitions slot
+
+-- Linking either alias slot produces the same value the earlier group
+-- supplied at that slot. The later caller captures the second alias.
+example (right : Bool) : Executable.link actions 73 (groupAliasModule right .first).toGraph (number 1) 20 =
+    .linked (.cons (originalAliasRef right 0) (.cons (originalAliasRef right 1)
+      (.cons (wrapperRef (originalAliasRef right 1)) .nil))) 28 := by
+  cases right <;> cbv
+
+example (right : Bool) :
+    Executable.run actions 80 73 (groupAliasModule right .first).toGraph (number 1) .head (branchArgs 1) 20 =
+      .ok (.returned (number 30) 42) ∧
+    Executable.run actions 80 73 (groupAliasModule right .first).toGraph (number 1) (.tail (.tail .head)) (branchArgs 1) 20 =
+      .ok (.returned (number 37) 45) := by
+  cases right <;> exact ⟨by cbv, by cbv⟩
+
+private abbrev seedRow {past : List (Ports T)} : NestedTheta.Node (Instruction Op) [global, num] past [num] :=
+  RecursiveCall.simple (.primitive Op.seed) (.cons (.arg (.tail .head)) .nil) (fun i => i.elim0)
+
+private abbrev finishRow {past : List (Ports T)} : NestedTheta.Node (Instruction Op) [global, num] past [num] :=
+  RecursiveCall.simple (.primitive Op.finish)
+    (.cons (.arg .head) (.cons (.arg (.tail .head)) .nil)) (fun i => i.elim0)
+
+private def seedThenFinish : RecursiveCall.Code Op [global, num] [] [[num], [num]] [] :=
+  .bind seedRow (fun i => i.elim0) (.bind finishRow (fun i => i.elim0) (.ret .nil))
+
+private def finishThenSeed : RecursiveCall.Code Op [global, num] [] [[num], [num]] [] :=
+  .bind finishRow (fun i => i.elim0) (.bind seedRow (fun i => i.elim0) (.ret .nil))
+
+-- The graph swap preserves both labels and their independent operands.
+-- It moves the state change across a potentially undefined action.
+private theorem effectSwapIso :
+    NestedTheta.Graph.Isomorphic (Instruction Op) seedThenFinish.toGraph finishThenSeed.toGraph := by
+  refine .intro rfl rfl (Equiv.swap (0 : Fin 2) 1) ?_ ?_ rfl ?_
+  · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
+  · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
+  · exact Fin.cases (fun i => i.elim0) (Fin.cases (fun i => i.elim0) (fun i => i.elim0))
+
+example : RecursiveCall.Numbered.outerProfile instructionKeys seedThenFinish.toGraph =
+    RecursiveCall.Numbered.outerProfile instructionKeys finishThenSeed.toGraph :=
+  RecursiveCall.Numbered.outerProfile_eq instructionKeys effectSwapIso
+
+example : (RecursiveCall.Numbered.infer instructionKeys
+    seedThenFinish.toGraph finishThenSeed.toGraph).isSome = false := by cbv
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests

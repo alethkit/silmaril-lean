@@ -15,6 +15,11 @@ open RVSDG (Locals Origin Port Tuple)
 variable {args : List ValueSort} {cells : Nat}
 variable {graph rewritten : Graph args} {candidate : Candidate}
 
+/-- At a fixed typed scope, a scalar origin key specifies its wire. -/
+theorem originKey_injective {past : List (List ValueSort)} {sort : ValueSort}
+    {x y : Origin args past sort} (same : originKey x = originKey y) : x = y :=
+  Proofs.originKey_injective same
+
 /-- An accepted exit check ties the exported scalar to the addressed cell
 of that exact exported memory version. -/
 theorem checkExit_reads (graph : Graph args) (address : Port args .address) (storeVersion : Nat)

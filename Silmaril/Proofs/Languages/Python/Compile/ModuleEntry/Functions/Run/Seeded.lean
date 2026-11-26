@@ -13,6 +13,32 @@ open Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 open Silmaril.Languages.Python
 open Silmaril.Languages.Python.Core.Closure (Function)
 
+theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (numerator divisor : Int) :
+    (lowerCallOperand (.intTrueDiv numerator divisor)).eval space #v[] =
+      (((Core.Module.Functions.Operand.intTrueDiv numerator divisor).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) := by
+  simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
+    Core.Closure.Executor.Operand.evalIn]
+  cases Core.Closure.trueDivideInt numerator divisor <;> rfl
+
+theorem mixedAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite) :
+    (lowerCallOperand (.mixedAdd integer floating)).eval space #v[] =
+      (((Core.Module.Functions.Operand.mixedAdd integer floating).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) := by
+  simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
+    Core.Closure.Executor.Operand.evalIn, Core.Closure.mixedAdd]
+  cases Core.Binary64.mixedAdd integer floating with
+  | ok _ => rfl
+  | error error => cases error <;> rfl
+
 theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     {values : Except Failure (List Value)} {calls : List CallEvent} :
     observeArguments space arguments = (values, calls) ↔ EvaluatesArguments space arguments values calls := by
@@ -44,12 +70,12 @@ theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     | next first _ ih => simp [observeArguments, first, ih]
 
 theorem preserves_builtins {scope : Languages.Python.Source.Scope} (space : Namespace)
-    (instructions : List (Instruction scope)) (context : CallContext) :
-    (runInstructionsIn space context instructions).residual.builtins = space.builtins := by
-  induction instructions generalizing space context with
+    (instructions : List (Instruction scope)) (context : CallContext) (lists : Core.Module.ListHeap) :
+    (runInstructionsIn space context instructions lists).residual.builtins = space.builtins := by
+  induction instructions generalizing space context lists with
   | nil => rfl
   | cons instruction rest ih =>
-    cases selected : (effect space context instruction).1.binding with
+    cases selected : (effectWithLists space context instruction lists).1.1.binding with
     | error error => simp [runInstructionsIn, selected]
     | ok binding =>
       cases binding with
@@ -71,11 +97,11 @@ theorem run_directDiscard {scope : Source.Scope} {space : Namespace} {context : 
         { tail with calls := ⟨name, ⟨.ok (seededValue value), none⟩⟩ :: tail.calls }
       | .finished heap (.error error) =>
         let failure := callbackError space error
-        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap⟩
-      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap⟩
+        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap, Core.Module.ListHeap.empty⟩
+      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap, Core.Module.ListHeap.empty⟩
       | .running heap .. | .delivering heap .. | .receiving heap .. =>
-        ⟨space, .error .directCallFuelExhausted, [], heap⟩ := by
-  simp [runInstructionsIn, effect, Core.Module.SeededCall.resolveCall,
+        ⟨space, .error .directCallFuelExhausted, [], heap, Core.Module.ListHeap.empty⟩ := by
+  simp [runInstructionsIn, effectWithLists, effect, Core.Module.SeededCall.resolveCall,
     Core.Module.SeededCall.Operand.eval, found, Core.Module.SeededCall.Operand.evalList,
     Except.bind, Except.map, invokeFlatCall, admitted]
   generalize (callbackInvocation space context.heap closure |>.runPrefix context.table context.fuel).2.state =
@@ -89,8 +115,8 @@ theorem run_directDiscard_unsupported {scope : Source.Scope} {space : Namespace}
     (found : space.lookupGlobal name = some (.function closure))
     (rejected : context.acceptsPublishedCall closure = false) :
     runInstructionsIn space context (.call .discard name [] :: rest) =
-      ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], context.heap⟩ := by
-  simp [runInstructionsIn, effect, Core.Module.SeededCall.resolveCall,
+      ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], context.heap, Core.Module.ListHeap.empty⟩ := by
+  simp [runInstructionsIn, effectWithLists, effect, Core.Module.SeededCall.resolveCall,
     Core.Module.SeededCall.Operand.eval, found, Core.Module.SeededCall.Operand.evalList,
     Except.bind, Except.map, Except.mapError, invokeFlatCall, rejected, acceptObservation, ModuleFailure.ofCall]
 
@@ -148,12 +174,14 @@ theorem run_factory_unrecorded {scope : Source.Scope} {space : Namespace} {conte
       (arguments.map lowerCallOperand) = .ok (.function closure, values))
     (unpublished : closure ∉ context.published) (unescaped : closure ∉ context.escaped) :
     runInstructionsIn space context (.call (.bindGlobal target) name arguments :: rest) =
-      ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], context.heap⟩ := by
+      ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], context.heap, Core.Module.ListHeap.empty⟩ := by
   have denied (arity : Nat) : context.acceptsFactory closure arity = false := by
     simp [CallContext.acceptsFactory, CallContext.acceptsCallFrom, unpublished, unescaped]
+  have deniedTuple (arity : Nat) : context.acceptsTupleResult closure arity = false := by
+    simp [CallContext.acceptsTupleResult, CallContext.acceptsPublishedCall, CallContext.acceptsCallFrom, unpublished]
   cases operands : factoryOperands values <;>
-    simp [runInstructionsIn, effect, resolved, invokeFlatCall, operands, denied,
-      acceptObservation, ModuleFailure.ofCall, Except.bind, Except.mapError]
+    simp [runInstructionsIn, effectWithLists, effect, resolved, invokeFlatCall, operands, denied, deniedTuple,
+      invokePublishedFloat, unpublished, acceptObservation, ModuleFailure.ofCall, Except.bind, Except.mapError]
 
 theorem run_factory {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name target : String} {closure : Function} {arguments operands : List Core.Module.Functions.Operand}
@@ -169,14 +197,14 @@ theorem run_factory {scope : Source.Scope} {space : Namespace} {context : CallCo
           { context with heap, escaped := result :: context.escaped } rest
         { tail with calls := ⟨name, ⟨.ok (.function result), none⟩⟩ :: tail.calls }
       | .finished heap (.ok _) =>
-        ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], heap⟩
+        ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], heap, Core.Module.ListHeap.empty⟩
       | .finished heap (.error error) =>
         let failure := callbackError space error
-        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap⟩
-      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap⟩
+        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap, Core.Module.ListHeap.empty⟩
+      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap, Core.Module.ListHeap.empty⟩
       | .running heap .. | .delivering heap .. | .receiving heap .. =>
-        ⟨space, .error .directCallFuelExhausted, [], heap⟩ := by
-  simp only [runInstructionsIn, effect, resolved, invokeFlatCall, profile, admitted, ite_true]
+        ⟨space, .error .directCallFuelExhausted, [], heap, Core.Module.ListHeap.empty⟩ := by
+  simp only [runInstructionsIn, effectWithLists, effect, resolved, invokeFlatCall, profile, admitted, ite_true]
   generalize ordinaryCall space context closure operands = state
   cases state with
   | finished heap result =>
@@ -198,12 +226,12 @@ theorem run_adjacentKeywordDiscard {scope : Source.Scope} {space : Namespace} {c
         { tail with calls := ⟨name, ⟨.ok (seededValue result), none⟩⟩ :: tail.calls }
       | .finished heap (.error error) =>
         let failure := callbackError space error
-        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap⟩
-      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap⟩
+        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap, Core.Module.ListHeap.empty⟩
+      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap, Core.Module.ListHeap.empty⟩
       | .running heap .. | .delivering heap .. | .receiving heap .. =>
-        ⟨space, .error .directCallFuelExhausted, [], heap⟩ :=
+        ⟨space, .error .directCallFuelExhausted, [], heap, Core.Module.ListHeap.empty⟩ :=
   by
-    simp [runInstructionsIn, effect, invokeAdjacentKeywordDiscard, found, admitted]
+    simp [runInstructionsIn, effectWithLists, effect, invokeAdjacentKeywordDiscard, found, admitted]
     generalize (((callbackSession space context.heap).prepareCall .discard
       (.literal (.function closure)) [.literal (.int value)]).runPrefix context.table context.fuel).2.state =
       state
