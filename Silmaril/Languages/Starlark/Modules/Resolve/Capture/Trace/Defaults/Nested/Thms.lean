@@ -32,6 +32,10 @@ theorem compile_definition {parent : LexicalBlock} {source : Source} (plan : Pla
       .ok (⟨.define (fileSlot source.name) seed.size, plan.reads⟩, seed.push plan.declaration) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.compile_definition plan seed
 
+theorem read_origins {parent : LexicalBlock} {source : Source} (plan : Plan parent source) :
+    ∀ binding ∈ plan.reads, ∃ origin, ReadOrigin parent binding origin :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.read_origins plan
+
 /-- The child's definition-site demands can be inserted among the
 parent's other reads to derive the parent's own ordered capture list. -/
 theorem selects_parent {parent : LexicalBlock} {source : Source} (plan : Plan parent source)
@@ -60,6 +64,16 @@ theorem activate_forwarded {parent : LexicalBlock} {source : Source} (plan : Pla
     (activate caller plan.declaration captures assigned).slots (fileSlot name) = some (.captured address true) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.activate_forwarded plan installed
     caller assigned name address present forwarded
+
+/-- A definition preserves the owned and inherited slot layout on
+either exit. Successful installation only writes the owned target. -/
+theorem result_frame {parent : LexicalBlock} {source : Source} (plan : Plan parent source)
+    {id : DeclarationId} {captures : List Lists.Capture} {state : State} {free : List FreeName} {floor : Nat}
+    (frame : Body.Frame parent free floor state) {out : Lists.Outcome Lists.Iteration.Flow}
+    (result : DefinitionResult plan id captures state out) :
+    Body.Frame parent free floor (Lists.Iteration.finishState out) ∧
+      Body.Keeps floor state (Lists.Iteration.finishState out) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.result_frame plan frame result
 
 /-- At a reached nested definition, the compiled declaration, full
 parent selection, and frame invariant suffice to derive the capture

@@ -94,7 +94,7 @@ private theorem extend_trans {first middle last : State} (firstStep : Extends fi
     Extends first last :=
   ⟨rest.1.trans firstStep.1, fun key cell found => rest.2 key cell (firstStep.2 key cell found)⟩
 
-private theorem extend_push (state : State) (cell : Cell) : Extends state { state with heap := state.heap.push cell } := by
+theorem extend_push (state : State) (cell : Cell) : Extends state { state with heap := state.heap.push cell } := by
   refine ⟨rfl, ?_⟩
   intro address _ found
   have within := (Array.getElem?_eq_some_iff.mp found).choose
@@ -127,14 +127,14 @@ theorem operands_total {block : LexicalBlock} {source : SourceExpr} {code : Lowe
     | error => exact ⟨_, .list item, kept⟩
     | ok value middle => exact ⟨_, .list item, extend_trans kept (extend_push _ _)⟩
 
-private theorem extends_keeps {state next : State} (floor : Nat) (kept : Extends state next) : Keeps floor state next :=
+theorem extends_keeps {state next : State} (floor : Nat) (kept : Extends state next) : Keeps floor state next :=
   ⟨kept.1, fun index cell _ found => kept.2 index cell found⟩
 
 theorem keeps_trans {floor : Nat} {first middle last : State}
     (head : Keeps floor first middle) (tail : Keeps floor middle last) : Keeps floor first last :=
   ⟨tail.1.trans head.1, fun index cell low found => tail.2 index cell low (head.2 index cell low found)⟩
 
-private theorem extend_frame {block : LexicalBlock} {free : List FreeName} {floor : Nat} {state next : State}
+theorem extend_frame {block : LexicalBlock} {free : List FreeName} {floor : Nat} {state next : State}
     (frame : Frame block free floor state) (kept : Extends state next) : Frame block free floor next := by
   constructor
   · intro name member

@@ -4,6 +4,7 @@ public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Lexical.Thms
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Thms
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Forwarding.Thms
+import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Run
 
 public section
 
@@ -49,7 +50,7 @@ private theorem default_origins {parent : LexicalBlock} {source : List (String �
     · exact Defaults.Body.operand_origins operand binding first
     · exact ih binding rest
 
-private theorem read_origins {parent : LexicalBlock} {source : Defaults.Body.Definition} (plan : Plan parent source) :
+theorem read_origins {parent : LexicalBlock} {source : Defaults.Body.Definition} (plan : Plan parent source) :
     ∀ binding ∈ plan.reads, ∃ origin, ReadOrigin parent binding origin := by
   intro binding member
   rcases List.mem_append.mp member with readDefault | captured
@@ -185,6 +186,29 @@ private theorem installed_record {parent : LexicalBlock} {source : Defaults.Body
     simp only [State.write, show grown.slots name = some (.owned target) from targetSlot, grownCell]
     exact (Array.getElem?_setIfInBounds_ne (Nat.ne_of_lt finalBound)).trans Array.getElem?_push_size
   exact .installed evaluated rfl written stored
+
+theorem result_frame {parent : LexicalBlock} {source : Defaults.Body.Definition}
+    (plan : Plan parent source) {id : DeclarationId} {captures : List Capture}
+    {state : State} {free : List FreeName} {floor : Nat} (frame : Defaults.Body.Frame parent free floor state)
+    {out : Outcome Flow} (result : DefinitionResult plan id captures state out) :
+    Defaults.Body.Frame parent free floor (Silmaril.Languages.Starlark.Lists.Iteration.finishState out) ∧
+      Defaults.Body.Keeps floor state (Silmaril.Languages.Starlark.Lists.Iteration.finishState out) := by
+  have extendsHeap {next : State} (preserved : Defaults.Body.Keeps state.heap.size state next) :
+      Defaults.Body.Extends state next :=
+    ⟨preserved.1, fun address cell found => preserved.2 address cell (Array.getElem?_eq_some_iff.mp found).choose found⟩
+  cases result with
+  | failed _ kept =>
+    exact ⟨Defaults.Body.extend_frame frame (extendsHeap kept), Defaults.Body.extends_keeps floor (extendsHeap kept)⟩
+  | @installed values next evaluated ran exactState _ _ =>
+    subst next
+    have kept := extendsHeap (Defaults.Lexical.evaluates_keeps plan.lexical ran)
+    have before := Defaults.Body.extend_frame frame kept
+    have grown := Defaults.Body.extend_push evaluated
+      ⟨.function ⟨id, captures, (source.parameters.optional.map (fileSlot ∘ Prod.fst)).zip values⟩, false⟩
+    have after := Defaults.Body.extend_frame before grown
+    obtain ⟨written, retained⟩ := Defaults.Body.written_frame plan.target (.function evaluated.heap.size) after
+    exact ⟨written, Defaults.Body.keeps_trans (Defaults.Body.extends_keeps floor kept)
+      (Defaults.Body.keeps_trans (Defaults.Body.extends_keeps floor grown) retained)⟩
 
 theorem reached {parent : LexicalBlock} {source : Defaults.Body.Definition} (plan : Plan parent source)
     {before after : List Binding} {parentFree : List FreeName}

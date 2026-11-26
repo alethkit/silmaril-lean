@@ -25,6 +25,27 @@ theorem operand_origins {block : LexicalBlock} {source : Lowering.Resolve.Source
     ∀ binding ∈ reads, ∃ origin, ReadOrigin block binding origin :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.operand_origins related
 
+theorem body_origins {block : LexicalBlock} {source : Suite} {code : Functions.Body} {reads : List Binding}
+    (related : Elaborates block source code reads) :
+    ∀ binding ∈ reads, ∃ origin, ReadOrigin block binding origin :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.body_origins related
+
+theorem collects_prefix (source : List (String × Lowering.Resolve.SourceExpr)) {tail : Statement}
+    {binders : List String} (collected : Block.BodyBinders tail binders) :
+    Block.BodyBinders (prependSource source tail) (source.map Prod.fst ++ binders) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.collects_prefix source collected
+
+theorem collects (body : Suite) : Block.BodyBinders body.source body.binders :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.collects body
+
+theorem prefix_total {block : LexicalBlock} {free : List FreeName} {floor : Nat}
+    {source : List (String × Lowering.Resolve.SourceExpr)} {code : List (String × Lowering.Expr)}
+    {reads : List Binding} (profile : ElaboratesPrefix block source code reads) (state : State)
+    (frame : Frame block free floor state) :
+    ∃ out, RunsPrefix block state source code out ∧ Frame block free floor (finishState out) ∧
+      Keeps floor state (finishState out) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.prefix_total profile state frame
+
 /-- The checked child body and resolved defaults fix the emitted declaration. -/
 theorem compile_nested {globals enclosing : List String} {definition : Definition}
     (plan : Plan globals definition enclosing) (defaults : List PlainPositionalDefault)

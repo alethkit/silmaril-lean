@@ -182,7 +182,7 @@ theorem operand_origins {block : LexicalBlock} {source : SourceExpr} {code : Low
     exact (List.mem_append.mp member).elim (first binding) (tail binding)
   | list _ ih => exact ih
 
-private theorem body_origins {block : LexicalBlock} {source : Suite}
+theorem body_origins {block : LexicalBlock} {source : Suite}
     {code : Silmaril.Languages.Starlark.Functions.Body} {reads : List Binding}
     (related : Elaborates block source code reads) :
     ∀ binding ∈ reads, ∃ origin, ReadOrigin block binding origin := by
