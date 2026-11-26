@@ -48,6 +48,15 @@ theorem readReply_discards (n : Nat) (i : Fin n) :
     Discards [replyContext n] (readReply n i).elaborate.val :=
   ProjectionQuote.readReply_discards n i
 
+/-- A full constant quote can omit every test when each slot admits native
+discard. The emit prefix and typed position remain part of the return. -/
+theorem constant_quote {X : Ty Empty} {L : List (Ty Empty)} {n : Nat}
+    (b : Bool) (pos : Position L) (slots : Fin n → Term signature.Instr X Bit) (bits : List Bool)
+    (drop : ∀ j, Discards [X] (slots j).elaborate.val) :
+    selectedEq (selectTerminal pos (Finite.Expr.quote n (fun _ => b)) slots bits)
+      (selectTerminal pos (.literal b) slots bits) :=
+  ProjectionQuote.constant_quote b pos slots bits drop
+
 /-- Compile the full quote of any slot as a single read, keeping the emit
 prefix and typed exit. Discard is required only for the other slots. -/
 theorem projection_quote {X : Ty Empty} {L : List (Ty Empty)} {n : Nat}

@@ -1,4 +1,4 @@
-# Figure 6(c–d) strength reduction
+# Figure 6 strength reduction and SIMPLE reversion
 
 This development checks the second rewrite in §3.1, Figure 6(c→d),
 printed p. 15 of arXiv:1012.1802v3. The figure keeps the sample count
@@ -70,14 +70,48 @@ still meets the (b→c) law. It fails the strength-reduction law on
 predecessor zero, where the two feedback computations return five
 and six. Definedness of the operands alone would allow that mismatch.
 
-This covers the pure typed PEG stages from (b) through (d). It
-produces and checks the rewritten graph. Global cost selection,
-a runtime speedup, conversion to the source program in (e), and
-Java, memory, or alias behavior remain outside scope.
+## Executable SIMPLE counterpart of Figure 6(e)
+
+The same worked test passes the actual result of (b→c→d) to the
+[closed-loop reverter](../../Silmaril/SSA/PEG/Simple/Revert/While/Region/Closed/Thms.lean).
+It supplies the two θ slots, their shared zero initializer, the existing
+exit predicate and pass, the unit-counter port, and typed readouts. The
+checker reuses the primitive scheduler for the closed initializer and the
+guard and update slices. It validates the rank and the first/second
+operand of every observed eval against the selected θ and the one shared
+pass. It checks that the raw pass root names that same row.
+
+The emitted syntax initializes `(x, scaled)` to `(0, 0)`, continues while
+`x < 3`, and simultaneously updates `(x, scaled)` to `(x + 1, 5 + scaled)`.
+On exit it projects `[scaled, x, x, scaled]`. The first and fourth values
+come from the repeated scaled eval, the second from the unscaled eval,
+and the third from the pass count. The checked unit recurrence makes
+`x` the number of successful updates, so the pass readout needs no
+additional counter. The fixture retains the unscaled recurrence because
+it drives the exit and is also observed. The emitted update contains
+`succ`, `five` and `add`. Inspection of the entire emitted statement finds
+no multiply, including in its initializer or guard.
+
+`Accepted.observe_of_exec` covers successful finite `Simple.Exec` on the
+closed input. Its assumptions are the checked wiring and demand rank,
+the zero and unit-increment laws for the clock slot, and Boolean negation
+of the cached exit predicate. The execution supplies the defined guard
+tests and complete simultaneous updates. Its least exit and all earlier
+defined samples justify the Figure 11 evals and raw pass. The fixture
+composes this theorem with the existing (b→c) replay and (c→d)
+strength-reduction theorems under their rank and arithmetic-law premises.
+The bounded execution returns `[15, 3, 3, 15]` with three body steps.
+A bound of two is exhausted, and an eval wired to a different count is
+rejected.
+
+The adapter supports a supplied descriptor for a closed, parentless
+single loop with primitive initializer, guard and update slices. General
+CFG reversion, optimizer completeness or optimality, runtime speedup,
+and Java, memory, or alias behavior remain outside scope.
 
 ```sh
-lake build --wfail +Silmaril.SSA.Peggy.Worked.StrengthReduction.Thms PEGCoreTests PEGRulesTests PeggyEggTests
+lake build --wfail +Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Thms PeggyEggTests
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/PeggyEgg.lean
-lake env leanchecker --fresh Silmaril.SSA.Peggy.Worked.StrengthReduction.Thms
+lake env leanchecker --fresh Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Thms
 lake env leanchecker tests.ssa.PeggyEgg
 ```
