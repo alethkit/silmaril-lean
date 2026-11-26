@@ -278,13 +278,29 @@ private theorem taken_tag_row (D : Fin (k + 1) → Ty κ) (i : Fin (k + 1))
   rw [J.map_id, Category.id_comp, Category.assoc] at compared
   exact compared
 
-theorem taken_tag_agreement (D : Fin (k + 1) → Ty κ) (entry : Row (Φ := Φ) P K Γ)
-    (rows : ∀ i, Row (Φ := Φ) P K (P i :: Γ)) (raw : Fin (k + 1) → Region Φ)
-    (prune : ∀ i, Region.PruneConstructorTests
-      ((raw i).substVars (Tm.replaceNewest (.inl (.var 0)))) ((rows i).region true id))
+theorem taken_tag_of_squares (D : Fin (k + 1) → Ty κ)
+    {entry entry' : Region Φ} {rows rows' : Fin (k + 1) → Region Φ}
+    (entryRoute : ∀ ⦃ts : entry.HasType Γ (List.ofFn P ++ K)⦄
+      ⦃tw : entry'.HasType Γ (List.ofFn (family P (some D)) ++ K)⦄
+      ⦃a : J.obj Env ⟶ J.obj (labelObj M (List.ofFn P ++ K))⦄
+      ⦃b : J.obj Env ⟶ J.obj (labelObj M (List.ofFn (family P (some D)) ++ K))⦄,
+      RegionDenotes J M ts a → RegionDenotes J M tw b →
+      b ≫ J.map (labelAppendSplit M (List.ofFn (family P (some D))) K) =
+        a ≫ J.map (labelAppendSplit M (List.ofFn P) K) ≫
+          J.map (coprod.map (𝟙 Result) (embedLabels M P D)))
+    (rowRoutes : ∀ i
+      ⦃ts : (rows i).HasType (P i :: Γ) (List.ofFn P ++ K)⦄
+      ⦃tw : (rows' i).HasType (family P (some D) i :: Γ) (List.ofFn (family P (some D)) ++ K)⦄
+      ⦃a : J.obj (ctxObj M (P i :: Γ)) ⟶ J.obj (labelObj M (List.ofFn P ++ K))⦄
+      ⦃b : J.obj (ctxObj M (family P (some D) i :: Γ)) ⟶ J.obj (labelObj M (List.ofFn (family P (some D)) ++ K))⦄,
+      RegionDenotes J M ts a → RegionDenotes J M tw b →
+      J.map (Env ◁ (coprod.inl ≫ (M.coprodIso (P i) (D i)).inv)) ≫
+        b ≫ J.map (labelAppendSplit M (List.ofFn (family P (some D))) K) =
+          a ≫ J.map (labelAppendSplit M (List.ofFn P) K) ≫
+            J.map (coprod.map (𝟙 Result) (embedLabels M P D)))
     {f g : J.obj Env ⟶ J.obj Result}
-    (small : CfgDenotesAt J M P (entry.region false id) (fun i => (rows i).region false id) f)
-    (wide : CfgDenotesAt J M (family P (some D)) (entry.region true id) raw g) : f = g := by
+    (small : CfgDenotesAt J M P entry rows f)
+    (wide : CfgDenotesAt J M (family P (some D)) entry' rows' g) : f = g := by
   let S := family P (some D)
   let h := embedLabels M P D
   let hf := finiteEmbedding M P D
@@ -292,9 +308,7 @@ theorem taken_tag_agreement (D : Fin (k + 1) → Ty κ) (entry : Row (Φ := Φ) 
   let cut' := labelAppendSplit M (List.ofFn S) K
   obtain ⟨_, _, e, b, all, se, sb, sc, rfl⟩ := small
   obtain ⟨_, _, e', b', all', we, wb, wc, rfl⟩ := wide
-  have entry_eq : e' ≫ J.map cut' = e ≫ J.map cut ≫ J.map (coprod.map (𝟙 Result) h) := by
-    simpa only [J.map_id, Category.id_comp] using
-      row_comparison J M (Ren.id _) (𝟙 _) (fun _ _ _ => Category.id_comp _) D entry se we
+  have entry_eq : e' ≫ J.map cut' = e ≫ J.map cut ≫ J.map (coprod.map (𝟙 Result) h) := entryRoute se we
   have row_eq : J.map (Env ◁ hf) ≫ all' ≫ J.map cut' =
       all ≫ J.map cut ≫ J.map (coprod.map (𝟙 Result) h) := by
     apply collective_ext J M k Γ P
@@ -309,7 +323,7 @@ theorem taken_tag_agreement (D : Fin (k + 1) → Ty κ) (entry : Row (Φ := Φ) 
         ← MonoidalCategory.whiskerLeft_comp, finite_embed]
     rw [← Category.assoc, slide, Category.assoc, ← Category.assoc _ all', wh,
       ← Category.assoc _ all, sh]
-    exact taken_tag_row J M D i (rows i) (prune i) (sb i) (wb i)
+    exact rowRoutes i (sb i) (wb i)
   have square :
       (J.map (Env ◁ labelObjToFinite M P) ≫ all ≫ J.map cut) ≫
           J.map (coprod.map (𝟙 Result) h) =
@@ -322,6 +336,20 @@ theorem taken_tag_agreement (D : Fin (k + 1) → Ty κ) (entry : Row (Φ := Φ) 
   unfold cfgDispatchArrow
   rw [MonoidalCategory.id_tensorHom, MonoidalCategory.id_tensorHom, entry_eq]
   simpa only [Category.assoc] using cfgDispatch_of_state_square J h (e ≫ J.map cut) _ _ square
+
+theorem taken_tag_agreement (D : Fin (k + 1) → Ty κ) (entry : Row (Φ := Φ) P K Γ)
+    (rows : ∀ i, Row (Φ := Φ) P K (P i :: Γ)) (raw : Fin (k + 1) → Region Φ)
+    (prune : ∀ i, Region.PruneConstructorTests
+      ((raw i).substVars (Tm.replaceNewest (.inl (.var 0)))) ((rows i).region true id))
+    {f g : J.obj Env ⟶ J.obj Result}
+    (small : CfgDenotesAt J M P (entry.region false id) (fun i => (rows i).region false id) f)
+    (wide : CfgDenotesAt J M (family P (some D)) (entry.region true id) raw g) : f = g := by
+  refine taken_tag_of_squares J M D ?_ ?_ small wide
+  · intro _ _ _ _ se we
+    simpa only [J.map_id, Category.id_comp] using
+      row_comparison J M (Ren.id _) (𝟙 _) (fun _ _ _ => Category.id_comp _) D entry se we
+  · intro i _ _ _ _ sb wb
+    exact taken_tag_row J M D i (rows i) (prune i) sb wb
 
 private theorem dispatch_of_rows (roll : IterationRolling C)
     (p : Program (Φ := Φ) P K Γ) (tails : Option (Fin (k + 1) → Ty κ))
