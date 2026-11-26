@@ -784,9 +784,9 @@ denotation agreement, given runtime admission and a scratch-free
 initial state. The [lexical block theorem](starlark-modules.md#lexical-block-collection)
 discharges the collected-scope premise for its normalized module and
 function subset. The [capture theorem](starlark-modules.md#nested-function-captures)
-covers a mixed assignment and return in one immediately nested function.
-Broader operand and RHS elaboration and independent source execution
-remain separate.
+covers a mixed assignment and return through a finite chain of enclosing
+functions that define and return their child. Broader operand and RHS
+elaboration and independent source execution remain separate.
 [Source judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Assignment/Defs.lean) · [Elaboration theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Assignment/Thms.lean) · [Lexical and partial-write fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Assignment/Checks.lean)
 
 Mixed loop and comprehension targets and the broader comprehension

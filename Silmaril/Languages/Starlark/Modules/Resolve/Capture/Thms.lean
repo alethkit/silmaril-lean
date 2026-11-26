@@ -19,9 +19,21 @@ theorem selects_exists (block : LexicalBlock) {body : Statement} {reads : List B
     (resolved : BodyReads block body reads) : ∃ free, Selects block reads free :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.selects_exists block resolved
 
+theorem selects_of_origins (block : LexicalBlock) {reads : List Binding}
+    (known : ∀ binding ∈ reads, ∃ origin, ReadOrigin block binding origin) : ∃ free, Selects block reads free :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.selects_of_origins block known
+
+theorem installs_lookup (state : State) {free : List FreeName} {captures : List Lists.Capture}
+    (related : Installs state free captures) : free.mapM (captureName state) = .ok captures :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.capture_addresses state related
+
 theorem captureNames_eq {block : LexicalBlock} {reads : List Binding} {free : List FreeName}
     (selected : Selects block reads free) : captureNames block.owned reads = free :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.capture_names selected
+
+theorem required_parameter_binders (parameters : List String) :
+    ParameterBinders (.required parameters) parameters :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.required_binders parameters
 
 /-- In a load-free module the immediate parent's local names are precisely
 its own parameters and local declarations. -/
@@ -74,6 +86,13 @@ theorem define_installs (program : Program) (declaration : Declaration) (id : Na
       (restoreCaller caller next).heap[state.heap.size]? = some ⟨.function ⟨id, captures, []⟩, false⟩ :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.define_installs program declaration id target state caller
     targetAddress before frozen captures found related owned cell
+
+/-- Allocating the callee's parameters and locals supplies owned slots. -/
+theorem activate_owned (state : State) (declaration : Declaration) (captures : List Lists.Capture)
+    (arguments : List (Binding × Lists.Value)) (binding : Binding)
+    (declared : binding ∈ declaration.signature.slots ++ declaration.locals) :
+    ∃ address, (activate state declaration captures arguments).slots binding = some (.owned address) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.activate_owned state declaration captures arguments binding declared
 
 /-- Activation installs the saved address when the binding is outside the
 callee's owned slots. Allocating parameters and locals preserves it. -/
