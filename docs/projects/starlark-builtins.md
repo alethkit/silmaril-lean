@@ -159,7 +159,7 @@ NaN bits, and lookup through both an integral float and its equal integer.
 Tuple allocation composes the field codes in its cached encoding. Nested
 tuples therefore match when their corresponding numeric fields compare
 equal, and an unhashable list field still makes its enclosing tuple
-unhashable. [Resolved tuple equality and membership](starlark-lists.md#tuple-equality-and-membership)
+unhashable. [Resolved list and tuple equality and membership](starlark-lists.md#list-and-tuple-equality-and-membership)
 traverse actual fields under a separate depth policy.
 [Pinned Go replacement][go-key-insert] · [Lean fixtures](../../Silmaril/Languages/Starlark/Binary64/Checks.lean) · [Go controls](../../scripts/starlark/binary64/check.go)
 

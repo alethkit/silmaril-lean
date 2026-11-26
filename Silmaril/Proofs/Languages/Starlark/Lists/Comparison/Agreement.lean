@@ -76,13 +76,13 @@ theorem equalAt_iff (heap : Heap) (depth : Nat) (left right : Value)
       | strings a b => exact .string route
       | different => exact .different route
       | unsupported => exact .unsupported route
-      | tuples a b =>
-        cases first : heap.tupleFields a with
+      | sequences kind a b =>
+        cases first : kind.elements heap a with
         | error error =>
           simpa [first, Except.bind, bind] using
             EqualStep.leftError (next := EqualAt heap depth) route first
         | ok xs =>
-          cases second : heap.tupleFields b with
+          cases second : kind.elements heap b with
           | error error =>
             simpa [first, second, Except.bind, bind] using
               EqualStep.rightError (next := EqualAt heap depth) route first second
@@ -100,24 +100,27 @@ theorem containsAt_iff (heap : Heap) (depth : Nat) (needle target : Value)
   constructor
   · intro runs
     cases runs with
-    | unsupported guard =>
-      cases target <;> simp_all [containsAt]
-    | readError read => simp [containsAt, read, Except.bind, bind]
-    | fields read runs =>
-      simpa [containsAt, read, Except.bind, bind] using
+    | unsupported route => simp [containsAt, route]
+    | readError route read => simp [containsAt, route, read, Except.bind, bind]
+    | fields route read runs =>
+      simpa [containsAt, route, read, Except.bind, bind] using
         (scans_iff_scan (fun field => equalAt_iff heap depth field needle) ..).mp runs
   · intro runs
     subst out
-    cases target with
-    | tuple address =>
-      rw [containsAt]
-      cases read : heap.tupleFields address with
-      | error error => exact .readError read
+    cases route : SequenceKind.locate target with
+    | none =>
+      simpa [containsAt, route] using
+        ContainsAt.unsupported (heap := heap) (depth := depth) (needle := needle) route
+    | some sequence =>
+      obtain ⟨kind, address⟩ := sequence
+      cases read : kind.elements heap address with
+      | error error =>
+        simpa [containsAt, route, read, Except.bind, bind] using
+          ContainsAt.readError (depth := depth) (needle := needle) route read
       | ok fields =>
-        simpa [read, Except.bind, bind] using
-          ContainsAt.fields read
+        simpa [containsAt, route, read, Except.bind, bind] using
+          ContainsAt.fields route read
             ((scans_iff_scan (fun field => equalAt_iff heap depth field needle) ..).mpr rfl)
-    | _ => exact .unsupported (by intro _ equality; cases equality)
 
 theorem tests_iff_evaluate (heap : Heap) (left right : Value) (op : ComparisonOp)
     (out : Except Error Bool) :
