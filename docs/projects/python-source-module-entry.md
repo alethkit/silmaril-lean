@@ -78,7 +78,11 @@ Text arguments of other lengths fail the source check. Run the unchanged
 The positional argument checker can emit exact literals for closed signed
 integer bit operations and single numeric comparisons. The integer profile
 accepts unary sign and complement, bitwise AND, OR and XOR, and nonnegative
-shifts. Left shift counts up to 4096 bound compile-time growth. Comparisons
+shifts. Left shift counts up to 4096 bound compile-time growth. Integer
+power accepts a nonnegative integer exponent when the exponent times the
+base's magnitude bit length, with a minimum bit length of one, is at most
+4096. It emits the exact integer, including `0**0 == 1`. Closed guards
+reuse this power check. Comparisons
 accept exact Boolean literals and closed integer operands and retain the
 Boolean result tag. Each operand is checked in full before a result is emitted.
 
@@ -89,6 +93,12 @@ after preparing the arguments. Seeded receipts come from the reached call
 path and retain the existing error and result tags. Run the unchanged
 `bool-compare.py` and `bitwise_test.py` with the CPython 3.13.5 controls using
 `python3.13 -I scripts/check-python-numeric-arguments.py --upstream /path/to/pinned/rigorous`.
+
+The integer-power replay exercises the first five statements of the pinned
+`test_pow.py`. The original still stops at `2**-2` on line 6, whose result
+is the float `0.25` in CPython 3.13.5. Floating-point power and reached true
+division stay outside this integer check. Run
+`python3.13 -I scripts/check-python-integer-power.py --upstream /path/to/pinned/rigorous`.
 
 The function-aware checker can omit an `if` whose closed guard selects an
 empty arm or an arm of `pass` statements. The otherwise unsupported arm
