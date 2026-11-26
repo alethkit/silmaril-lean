@@ -268,6 +268,51 @@ theorem binary_fold_of_closed_mode {A B : Q}
   closed.elim (binary_fold_of_left_closed Seed f g square)
     (binary_fold_of_right_closed Seed f g square)
 
+/-- Codiagonal converts doubling at the enlarged outward type into the
+selective double-step identity. No uniformity on the fold is used here. -/
+private theorem selective_of_double_at_enlarged_exit {A B : Q}
+    (p : A ⟶ (B ⨿ A) ⨿ A)
+    (double : I (p ≫ coprod.desc coprod.inl p) = I p) :
+    I (p ≫ coprod.desc (𝟙 (B ⨿ A)) (p ≫ flatten)) = I (p ≫ flatten) := by
+  have h := congrArg (fun t : A ⟶ B ⨿ A => I t) double
+  rw [iterateChosen_codiagonal, iterateChosen_codiagonal] at h
+  rw [Category.assoc, coprod.desc_comp] at h
+  have route : (coprod.inl : B ⨿ A ⟶ (B ⨿ A) ⨿ A) ≫ flatten = 𝟙 (B ⨿ A) :=
+    coprod.inl_desc _ _
+  rw [route] at h
+  exact h
+
+theorem binary_fold_of_right_switch_and_double {A B : Q}
+    (f : A ⨿ A ⟶ B ⨿ (A ⨿ A)) (g : A ⟶ B ⨿ A)
+    (square : f ≫ coprod.map (𝟙 B) (coprod.desc (𝟙 A) (𝟙 A)) =
+      coprod.desc (𝟙 A) (𝟙 A) ≫ g)
+    (switch : coprod.inr ≫ f = g ≫ coprod.map (𝟙 B) (coprod.inl : A ⟶ A ⨿ A))
+    (double :
+      let p := (coprod.inl ≫ f) ≫ (coprod.associator B A A).inv
+      I (p ≫ coprod.desc coprod.inl p) = I p) :
+    I f = coprod.desc (𝟙 A) (𝟙 A) ≫ I g := by
+  let e := coprod.associator B A A
+  let d := f ≫ e.inv
+  let p := coprod.inl ≫ d
+  have d_eq : d ≫ e.hom = f := by rw [Category.assoc, Iso.inv_hom_id, Category.comp_id]
+  obtain ⟨flat_p, flat_q⟩ := (rows_iff Seed d g).1 (d_eq.symm ▸ square)
+  have route : coprod.map (𝟙 B) (coprod.inl : A ⟶ A ⨿ A) ≫ e.inv = coprod.inl := by
+    apply (cancel_mono e.hom).1
+    rw [Category.assoc, Iso.inv_hom_id, Category.comp_id]
+    apply coprod.hom_ext <;> simp [e, coprod.associator]
+  have rightRow : coprod.inr ≫ d = g ≫ coprod.inl := by
+    dsimp only [d]
+    rw [← Category.assoc, switch, Category.assoc, route]
+  have inject : I (g ≫ (coprod.inl : B ⨿ A ⟶ (B ⨿ A) ⨿ A)) = g := by
+    rw [iterateChosen_fixpoint Seed (g ≫ coprod.inl), Category.assoc, coprod.inl_desc, Category.comp_id]
+  have pow : I (p ≫ coprod.desc coprod.inl p) = I p := by
+    simpa only [p, d, e, Category.assoc] using double
+  have eq := selective_of_double_at_enlarged_exit Seed p pow
+  change p ≫ flatten = g at flat_p
+  rw [flat_p] at eq
+  rw [← d_eq, iterate_iff_mixed Seed _ _ flat_q, rightRow, inject]
+  exact eq
+
 end TwoMode
 
 open Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseReturns.StructuralValues.HiddenBit
