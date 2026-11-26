@@ -41,13 +41,48 @@ checks both γ arms with the false predecessor first in the Region, and
 exercises the bundled institution maps.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Diamond/Institution/ToRVSDG/Regression.lean)
 
+## Reverse model map
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Diamond.Institution.ToRVSDG.Admissible.Thms
+```
+
+`Admissible` is a predicate on an existing RVSDG model over a lifted
+signature. It requires the native `ULift Bool` carrier at the predicate
+sort. For each result sort, dispatch emits the native tag and forwards
+both input captures in order. Both captures can be selected by a generated
+diamond because the source Region can list its predecessors in either
+order. All source inputs and primitive operations retain their typed
+profiles.
+[Admission and extraction](../../Silmaril/SSA/SeaOfNodes/Diamond/Institution/ToRVSDG/Admissible/Defs.lean)
+
+`extract` reads the target data carriers and the singleton interpretations
+of the lifted primitives. `admissible_reduct` proves closure under the
+existing RVSDG reduct at a lifted signature map. `extract_reduct` commutes
+with the native reduct. `admissible_satisfaction` gives the equation iff for
+these models. `comparison` packages these laws as an `Inst.CoHom` into
+`targetInst`, which uses the native category to index the lifted RVSDG
+rooms. Each room retains all existing RVSDG equations at that signature
+and restricts model objects by the local law.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Diamond/Institution/ToRVSDG/Admissible/Thms.lean)
+
+`induce_extract` recovers the entire underlying RVSDG model. The primitive
+case reads its only result, dispatch is fixed by the law, and the state
+alphabet is empty. Equality therefore holds for every graph over that
+lifted signature, including graphs with structural γ selectors of other
+arities. On a larger signature, the law only constrains the reduct. The
+regression rejects the always-false dispatcher and gives two extensions
+with the same admitted reduct that return different three-way tags from
+an added opcode.
+
 ## Reproduce the checks
 
 ```sh
 api=Silmaril.SSA.SeaOfNodes.Diamond.Institution.ToRVSDG
 proofs=Silmaril.Proofs.SSA.SeaOfNodes.Diamond.Institution.ToRVSDG
-make check CHECK_TARGETS="+$api.Thms +$proofs.Regression"
-for module in "$api.Defs" "$proofs.Coherence" "$api.Thms" "$proofs.Regression"; do
+make check CHECK_TARGETS="+$api.Admissible.Thms +$proofs.Regression"
+for module in "$api.Defs" "$proofs.Coherence" "$api.Thms" "$api.Admissible.Defs" \
+  "$proofs.Admissible.Models" "$api.Admissible.Thms" "$proofs.Regression"; do
   SILMARIL_REPLAY_MODULE="$module" lake env lean tools/compiler-explorer/Replay.lean
 done
 ```

@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.SeaOfNodes.Diamond.Institution.ToRVSDG.Thms
+import Silmaril.SSA.SeaOfNodes.Diamond.Institution.ToRVSDG.Admissible.Thms
 
 namespace Silmaril.SSA.SeaOfNodes.Diamond.Institution.ToRVSDG
 
@@ -108,5 +108,50 @@ example : ¬ dispatchWitness.Holds arithmetic := by
   have different := holds (.cons ⟨true⟩ (.cons (0 : Nat) (.cons (1 : Nat) .nil)))
   change (0 : Nat) = 1 at different
   cases different
+
+example : ¬ Admissible (P := sig) alwaysFalse := by
+  intro law
+  have dispatched := law.dispatch word ⟨true⟩ (.cons (0 : Nat) (.cons (1 : Nat) .nil))
+  have tags := congrArg (fun outputs => (outputs.get .head).down) dispatched
+  change (1 : Fin 2) = 0 at tags
+  exact (by decide : (1 : Fin 2) ≠ 0) tags
+
+private def admitted : AdmissibleModel.{0, 0, 0} sig :=
+  ⟨arithmetic.toRVSDG, admissible_induced arithmetic⟩
+
+example : extract (reductModel swap admitted) = reduct swap arithmetic := by
+  rw [extract_reduct]
+  exact congrArg (reduct swap) (extract_induced arithmetic)
+
+example : (lowerEquation sentence).Holds admitted.val ↔ sentence.Holds (extract admitted) :=
+  (comparison.{0, 0, 0} Unit).satisfaction sig (Discrete.mk admitted) sentence
+
+-- An opcode outside the lift can emit a three-way selector. It disappears
+-- under the reduct, so its result may vary while the admitted model is fixed.
+private inductive Extended : RVSDG.Dialect (ValueSort Unit) PEmpty where
+  | original {ins outs : List (Ty Unit)} (op : Opcode sig.op ins outs) : Extended ins outs
+  | selector : Extended [] [.control 3]
+
+private def extended (tag : Fin 3) : RVSDG.Model Extended where
+  value := arithmetic.toRVSDG.value
+  state := arithmetic.toRVSDG.state
+  run
+    | .original op, input => arithmetic.toRVSDG.run op input
+    | .selector, _ => .cons ⟨tag⟩ .nil
+
+example (tag : Fin 3) :
+    RVSDG.Institution.reduct (fun op => Extended.original op) (extended tag) = admitted.val := rfl
+
+private def readSelector : RVSDG.Term Extended [] [] [[.control 3]] [.control 3] :=
+  .bind ⟨[], .simple .selector, .nil, Fin.elim0⟩ (fun i => i.elim0)
+    (.ret (.cons (.output (0 : Fin 1) .head) .nil))
+
+example : (readSelector.toGraph.run (extended 0) .nil).get .head ≠
+    (readSelector.toGraph.run (extended 2) .nil).get .head := by
+  intro same
+  have tags := congrArg ULift.down same
+  simp only [RVSDG.Term.run_toGraph] at tags
+  change (0 : Fin 3) = 2 at tags
+  exact (by decide : (0 : Fin 3) ≠ 2) tags
 
 end Silmaril.SSA.SeaOfNodes.Diamond.Institution.ToRVSDG
