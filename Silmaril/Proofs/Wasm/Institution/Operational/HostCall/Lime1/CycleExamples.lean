@@ -65,11 +65,11 @@ private def branchFn : Graph.Memory32.Function :=
     [.store 5, .if_ armType branchArm [getZero]] ++ branchTail⟩
 private def branching : MemoryTarget := ⟨⟨7⟩, branchFn⟩
 
--- The function label is outside this profile, even at depth zero.
-example : MemoryTarget.supportedOp false (.ranked (.brIf ⟨0⟩ [.int .i32])) = false := rfl
+-- A function body starts with a single label.
+example : MemoryTarget.supportedOp false (.ranked (.brIf ⟨1⟩ [.int .i32])) = false := rfl
 
 example : MemoryTarget.supportedOp false (.if_ armType
-    (branchPrefix ++ .ranked (.brIf ⟨1⟩ [.int .i32]) :: branchSuffix) [getZero]) = false := by decide
+    (branchPrefix ++ .ranked (.brIf ⟨2⟩ [.int .i32]) :: branchSuffix) [getZero]) = false := by decide
 
 -- Even an untaken branch must declare the active label's result signature.
 example : ¬ branchFn.WellTyped branchFn.initial
@@ -88,8 +88,8 @@ private def outerFn : Graph.Memory32.Function :=
 
 private def outerBranching : MemoryTarget := ⟨⟨8⟩, outerFn⟩
 
--- Depth two would reach the implicit function label, which also returns i32.
-example : MemoryTarget.supportedOp false (.if_ armType (outerArm ⟨2⟩ [.int .i32]) [getZero]) = false := by decide
+-- Depth three is beyond both explicit arms and the implicit function label.
+example : MemoryTarget.supportedOp false (.if_ armType (outerArm ⟨3⟩ [.int .i32]) [getZero]) = false := by decide
 
 -- The crossed label is void, but the target requires one i32.
 example : ¬ outerFn.WellTyped outerFn.initial

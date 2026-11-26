@@ -101,11 +101,12 @@ def MemoryTarget.Allocated {H : Type} (callee : MemoryTarget) (base : Store H) :
 
 mutual
 
+/-- Depth equal to the number of explicit arms reaches the function label. -/
 def MemoryTarget.supportedOpAt (growthEnabled : Bool) (explicitDepth : Nat) : Graph.Memory32.Op → Bool
   | .ranked (.numeric (.get _)) | .ranked (.call _) | .load _ | .store _ | .size => true
   | .callIndirect .. => true
   | .if_ _ left right => supportedCodeAt growthEnabled (explicitDepth + 1) left && supportedCodeAt growthEnabled (explicitDepth + 1) right
-  | .ranked (.brIf depth _) => decide (depth.toNat < explicitDepth)
+  | .ranked (.brIf depth _) => decide (depth.toNat ≤ explicitDepth)
   | .grow => growthEnabled
   | _ => false
 

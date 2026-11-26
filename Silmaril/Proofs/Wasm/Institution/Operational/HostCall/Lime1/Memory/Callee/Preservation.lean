@@ -155,12 +155,10 @@ theorem inLabel_next {H : Type} {base : Store H} {mem : Memory32 base} {host : H
     | exit _ out => cases out <;> exact .active entered
     | _ => exact .active entered
 
-theorem branch_result {callee : MemoryTarget} {types result : List NumType} {labels : List (List NumType)}
-    {stack : List Value} (head : (labels ++ callee.fn.entryLabels)[0]? = some types)
-    (typed : BranchTyped labels ⟨0⟩ result stack) : result = types := by
-  cases labels with
-  | nil => cases typed.1
-  | cons label labels => exact Option.some.inj (typed.1.symm.trans head)
+theorem branch_result {types result : List NumType} {labels : List (List NumType)}
+    {stack : List Value} (head : labels[0]? = some types)
+    (typed : BranchTyped labels ⟨0⟩ result stack) : result = types :=
+  Option.some.inj (typed.1.symm.trans head)
 
 private theorem branch_lower {labels : List (List NumType)} {depth : LabelIdx}
     {result : List NumType} {stack : List Value} (positive : 0 < depth.toNat)
@@ -260,14 +258,10 @@ theorem ready_step_at {H : Type} {base : Store H} {mem : Memory32 base} {callee 
     obtain ⟨kept, condition, split, target, payload, resume⟩ :=
       Graph.Memory32.Function.br_if_typed ready.2.2.1
     obtain ⟨rfl, _⟩ := List.append_inj' split (by simp)
-    have supported := List.all_eq_true.mp ready.2.1 (.ranked (.brIf depth result)) (List.mem_cons_self ..)
-    have bound : depth.toNat < labels.length := of_decide_eq_true supported
-    have explicit : labels[depth.toNat]? = some result :=
-      (List.getElem?_append_left bound).symm.trans target
     unfold afterBrIf
     split
     · exact ⟨ready.1, tail_supported ready.2.1, resume, tail_fromCode ready.2.2.2⟩
-    · exact ⟨ready.1, explicit, payload⟩
+    · exact ⟨ready.1, target, payload⟩
   | branchDone typed => exact ⟨ready.1, typed.trans (branch_result label ready.2)⟩
   | branchLower positive => exact ⟨ready.1, branch_lower positive ready.2⟩
   | @ifSelect callee bytes args saved type left right rest guard =>

@@ -61,15 +61,15 @@ def BranchTyped (labels : List (List NumType)) (depth : LabelIdx) (result : List
 /-- Live regions and suspended suffixes retain the type and source links
 needed to resume with the ordered result of an arm or invocation. Here
 `labels` holds the explicit results, innermost first. The implicit function
-label is appended for region checking. -/
+label is the final target in both region and pending-branch checking. -/
 def ReadyAt {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantics H) (site : IndirectSite)
     (callee : MemoryTarget) (types : List NumType) (labels : List (List NumType)) : Phase H → Prop
   | .invoke args => args.map Value.type = callee.fn.declaration.params ∧
       types = callee.fn.declaration.results ∧ labels = []
   | .branch args stack depth result _ => args.map Value.type = callee.fn.declaration.params ∧
-      BranchTyped labels depth result stack
+      BranchTyped (labels ++ callee.fn.entryLabels) depth result stack
   | .lowered args stack depth result => args.map Value.type = callee.fn.declaration.params ∧
-      BranchTyped labels.tail depth result stack
+      BranchTyped (labels ++ callee.fn.entryLabels).tail depth result stack
   | .trapped args _ _ => args.map Value.type = callee.fn.declaration.params
   | .body args stack ops => args.map Value.type = callee.fn.declaration.params ∧
       ops.all (MemoryTarget.supportedOpAt mem.extent.growthEnabled labels.length) = true ∧ Typed callee types (labels ++ callee.fn.entryLabels) stack ops ∧
