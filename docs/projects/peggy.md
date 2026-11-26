@@ -14,7 +14,10 @@ closes a supplied table of ground obligations and checks a cyclic
 selection with structural row evidence. The
 [bounded root optimizer](peggy-optimizer.md) matches supplied schemas,
 generates and checks single-result PEG candidates, and selects by an
-explicit static metric.
+explicit static metric. The
+[contextual optimizer](peggy-contextual-optimizer.md) rewrites shared
+internal rows across ordered outputs and counts distinct reachable
+application vertices.
 
 Ross Tate, Michael Stepp, Zachary Tatlock and Sorin Lerner, *Equality
 Saturation: A New Approach to Optimization*, LMCS 7(1:10), 2011,
@@ -22,6 +25,9 @@ arXiv:1012.1802v3. The versioned PDF has SHA-256
 `5bb3630c9a2a4766c5614b19148e865ee0797c693607b2cdd700b27c38df0b94`.
 Locators below use PDF page numbers. [Paper](https://arxiv.org/pdf/1012.1802v3) ·
 [Journal](https://lmcs.episciences.org/1016)
+
+The [paper coverage and reproduction map](peggy-coverage.md) also tracks the
+SIMPLE pipeline, institution bridges, and open claims.
 
 ## Library boundary
 
@@ -161,7 +167,19 @@ bottom unselected arm and a dominating shared value, and exercises rejected
 speculation, scope, duplicate-binding and rank certificates. It also checks
 automatic admission and runs the synthesized syntax.
 
+## Checked SIMPLE optimization
+
+The executable SIMPLE pipeline combines frontend lowering, contextual
+discovery and replay, and automatic reversion. It preserves successful
+SIMPLE returns under rule laws over partial values. The worked example
+optimizes a shared computation inside a φ arm and executes the emitted
+SIMPLE. [Pipeline contract and example](peggy-simple-validation.md)
+
 ## Follow-up roadmap
+
+This is the original dependency plan. See the
+[coverage map's remaining work](peggy-coverage.md#remaining-work-in-priority-order)
+for the current priorities.
 
 1. **PEG invariants and rule schemas**. Extend the
    [guarded semantics](peg-semantics.md) with alpha and parameter transport,
@@ -195,7 +213,10 @@ automatic admission and runs the synthesized syntax.
    order independence for a fixed table of ground reasons. It derives
    candidate equations for same-label rewiring. The
    [root optimizer](peggy-optimizer.md) adds rows and finds typed
-   instances in a bounded loop-free search. Extend matching and node
+   instances in a bounded loop-free search. The
+   [cyclic optimizer](peggy-cyclic-optimizer.md) discovers guarded θ
+   self-feedback and checks the compacted candidate on a one-loop profile.
+   Extend matching and node
    generation to more general contexts, and prove reversion. The
    [acyclic bridge](peggy-egg.md) reuses sorted Egg replay. The full
    node-generating form of §4 remains a separate proof obligation. Use an independent graph and
@@ -219,7 +240,7 @@ automatic admission and runs the synthesized syntax.
    signature direction needs sentences backward and models forward.
    A one-way compiler theorem supplies simulation or refinement. Exact
    satisfaction and consequence reflection require separate proofs,
-   with model expansiveness for reflection. [RVSDG–MLIR model bridge](rvsdg-mlir-regionless.md) ·
+   with model expansiveness for reflection. [RVSDG–MLIR model bridge](rvsdg/mlir/rvsdg-mlir-regionless.md) ·
    [SSA and machine boundaries](ssa.md)
 6. **Paper view and Java profile**. Add a leaf under
    `Silmaril.Papers.TateSteppTatlockLerner2011` once the reusable theorems
@@ -240,16 +261,8 @@ an independently reviewed promotion of its format-independent core.
 
 ## Paper coverage
 
-| Source | Target and current status |
-| --- | --- |
-| §§1–3, Figs. 1–9 | Planned equality replay and admissible extraction for strength reduction, nested loops, loop motion, CFG restructuring, peeling and branch hoisting. General cross-level fusion, interchange and unrolling are research extensions. |
-| §4, Fig. 10 | Planned optimization pipeline, extension and monotonicity (4.1–4.3), uniqueness of reachable normal forms (4.4), and budgeted runs. |
-| §5, Figs. 11–12 | Typed structure, role-sensitive graph predicates, the literal-guard counterexample and the guarded denotation are checked. Parameter substitution, Def. 5.2 invariance and verified rule schemas are follow-ups. |
-| §6, Figs. 13–18 | Typed SIMPLE and the loop-free successful-return direction of Theorem 2. General loop lowering and a completion-token extension remain open. |
-| §7, Figs. 19–34 | Checked depth-zero admission, branch placement and sequencing. See the reversion table for the remaining obligations. |
-| §8, Figs. 35–37 | Planned parameterized Peggy, checked Java heap/exception/call profile, local linearization failure, Rete/worklist refinement and independently checked PB extraction. |
-| §9, Figs. 38–39 | Empirical reproduction. The paper reports 84% full saturation among compiled methods and 98% validation across 3,416 methods. Tests of the listed transforms and proofs of certificate soundness are separate deliverables. |
-| Appendix A | Planned coverage per rule family, classified as proved, guarded, conditional on a stated model contract, or refuted under the specified semantics. Include arithmetic, code patterns, array/field/effect rules, inlining, vectors, list and wrapper laws, outlining and specialized redirection. |
+See the [paper coverage and reproduction map](peggy-coverage.md) for the
+current theorem, implementation and experiment coverage by paper section.
 
 ## Check the core
 

@@ -17,16 +17,16 @@ variable {params before after vars inside all right left : List (Ty Data)} {t : 
 
 @[expose] def pos (r : Port all t) : Nat := (numberPort r).id.val
 
-private theorem posTail {s : Ty Data} (r : Port all t) :
+theorem posTail {s : Ty Data} (r : Port all t) :
     pos (Port.tail (s := s) r) = pos r + 1 := rfl
 
-private theorem posLeft (r : Port left t) : pos (portLeft (right := right) r) = pos r := by
+theorem posLeft (r : Port left t) : pos (portLeft (right := right) r) = pos r := by
   induction r with
   | head => rfl
   | tail r ih =>
     simp only [portLeft, posTail, ih]
 
-private theorem posRight (left : List (Ty Data)) (r : Port right t) :
+theorem posRight (left : List (Ty Data)) (r : Port right t) :
     pos (portRight left r) = left.length + pos r := by
   induction left with
   | nil => exact (Nat.zero_add _).symm
@@ -46,41 +46,47 @@ theorem posPass (vars : List (Ty Data)) :
   rw [posRight]
   rfl
 
-private theorem posNeg (vars : List (Ty Data)) :
+theorem posNeg (vars : List (Ty Data)) :
     pos (negRef (inside := inside) vars) = vars.length + 1 := by
   unfold negRef
   rw [posRight]
   rfl
 
-private theorem straightShift (code : Simple.Code P params before after) :
-    ∃ k, ∀ t (r : Port before t), pos (code.lift r) = k + pos r := by
+@[expose] def straightWidth : {after : List (Ty Data)} → Simple.Code P params before after → Nat
+  | _, .empty => 0
+  | _, .emit prior _ _ => straightWidth prior + 1
+
+@[expose] def width : {before after : List (Ty Data)} → Code P params before after → Nat
+  | _, _, .straight code => straightWidth code
+  | _, _, .seq a b => width b + width a
+  | _, _, .loop (vars := vars) _ body _ _ _ => vars.length + 2 + width body + vars.length
+
+theorem straightPosition (code : Simple.Code P params before after) (r : Port before t) :
+    pos (code.lift r) = straightWidth code + pos r := by
   induction code with
-  | empty => exact ⟨0, fun _ _ => (Nat.zero_add _).symm⟩
-  | emit code label refs ih =>
-    obtain ⟨k, ih⟩ := ih
-    refine ⟨k + 1, fun t r => ?_⟩
-    change pos (code.lift r) + 1 = _
-    rw [ih]
+  | empty => exact (Nat.zero_add _).symm
+  | emit prior _ _ ih =>
+    change pos (prior.lift r) + 1 = straightWidth prior + 1 + pos r
+    omega
+
+theorem liftPosition (code : Code P params before after) (r : Port before t) :
+    pos (code.lift r) = width code + pos r := by
+  induction code with
+  | straight code => exact straightPosition code r
+  | seq a b ihA ihB =>
+    change pos (b.lift (a.lift r)) = width b + width a + pos r
+    rw [ihB, ihA, Nat.add_assoc]
+  | @loop before vars inside init body guard next neg ih =>
+    change pos (insideRef vars (body.lift (portRight vars r))) =
+      vars.length + 2 + width body + vars.length + pos r
+    rw [posInside, ih, posRight]
     omega
 
 theorem codeShift (code : Code P params before after) :
-    ∃ k, ∀ t (r : Port before t), pos (code.lift r) = k + pos r := by
-  induction code with
-  | straight code => exact straightShift code
-  | seq a b ihA ihB =>
-    obtain ⟨i, hA⟩ := ihA
-    obtain ⟨j, hB⟩ := ihB
-    refine ⟨j + i, fun t r => ?_⟩
-    change pos (b.lift (a.lift r)) = _
-    rw [hB, hA, Nat.add_assoc]
-  | @loop before vars inside init body guard next neg ih =>
-    obtain ⟨k, shift⟩ := ih
-    refine ⟨vars.length + 2 + k + vars.length, fun t r => ?_⟩
-    change pos (insideRef vars (body.lift (portRight vars r))) = _
-    rw [posInside, shift, posRight]
-    omega
+    ∃ k, ∀ t (r : Port before t), pos (code.lift r) = k + pos r :=
+  ⟨width code, fun _ r => liftPosition code r⟩
 
-private def SafeEdge {n : Nat} (a b : Nat) : EdgeKind (Fin n) → Prop
+@[expose] def SafeEdge {n : Nat} (a b : Nat) : EdgeKind (Fin n) → Prop
   | .ordinary | .initial _ | .index _ => a < b
   | .feedback l => l.val < a ∧ l.val < b
   | .sample l => a ≤ l.val ∧ l.val < b
@@ -314,6 +320,16 @@ private theorem rankEdge {n : Nat} (a b : Fin n) (kind : EdgeKind (Fin n))
       simp [RankComponent.change, aj, bj, distinct]
     · exact .inr ⟨by simp [RankComponent.change, Nat.not_le_of_lt la, Nat.not_le_of_lt lb], by
         simp [RankComponent.change]⟩
+
+theorem edgePosition (code : Code P params [] all) {outs : List (Ty Data)}
+    (roots : Tuple (Port all) outs) {a b : Fin all.length} {kind : EdgeKind (Fin all.length)}
+    (edge : (code.toGraph roots).Edge a kind b) : SafeEdge a.val b.val kind := by
+  obtain ⟨slot, rfl, rfl⟩ := edge
+  let r : Row P params all all[a] := code.rows (fun r => nomatch r) (fun r => r) none (portAt all a)
+  change SafeEdge a.val (((r.refs.map (fun _ r => numberPort r)).get (portAt r.inputs slot)).id.val)
+    (r.label.kind slot)
+  rw [Simple.Proofs.get_map]
+  exact (closedSafe code a).2.2 slot
 
 theorem rankChecked (code : Code P params [] all) {outs : List (Ty Data)}
     (roots : Tuple (Port all) outs) : (rank all.length).check (code.toGraph roots) = true := by

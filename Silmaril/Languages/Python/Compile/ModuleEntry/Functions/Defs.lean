@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Python.Compile.Closure.Body.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain.Defs
 
 /-! # Lower module function bindings and positional call sites
 
@@ -193,9 +194,167 @@ structure DefinitionTranslation (tree : ScopeTree) (index : Nat) (declaration : 
     declaration.map Source.Parameter.name
   functionBody : Compile.Closure.Body.Translation child 0 body code
 
+def lengthEquality? : Source.Comparison → Option Bool
+  | .eq => some true
+  | .ne => some false
+  | _ => none
+
+structure SequenceLengthTest (scope : Scope) where
+  reference : GlobalReference scope "len"
+  length : Nat
+  right : Operand scope
+  expectedEqual : Bool
+
+/-- Only the sequence argument is closed. The callee and right operand
+still use their live namespace at this assertion. -/
+inductive SequenceLengthTranslation (scope : Scope) : Source.Stmt → SequenceLengthTest scope → Prop where
+  | assertion {left source right operator sequence reference operand equal}
+      (call : CallExpression left "len" [(.positional, source)])
+      (argument : ClosedSequence.ValueOf source sequence)
+      (comparison : lengthEquality? operator = some equal)
+      (expected : OperandTranslation scope right operand) (scalar : operand.comparable = true) :
+      SequenceLengthTranslation scope (.assert_ (.comparison left [(operator, right)]) none)
+        ⟨reference, sequence.values.length, operand, equal⟩
+
+def sequenceLengthTest? (scope : Scope) : (statement : Source.Stmt) →
+    Option {test // SequenceLengthTranslation scope statement test}
+  | .assert_ (.comparison left [(operator, right)]) none => do
+    let ⟨("len", [(.positional, source)]), call⟩ ← callExpression? left | none
+    let ⟨sequence, checked⟩ ← checkClosedSequence source
+    let reference ← globalReference? scope "len"
+    let operand ← (lowerOperand scope right).toOption
+    if scalar : operand.val.comparable = true then
+      match comparison : lengthEquality? operator with
+      | some equal => some ⟨⟨reference, sequence.values.length, operand.val, equal⟩,
+          .assertion call checked comparison operand.property scalar⟩
+      | none => none
+    else none
+  | _ => none
+
+inductive BoolCallArguments (scope : Scope) :
+    List (Source.ArgumentKind × Source.Expr) → Option (Operand scope) → Prop where
+  | omitted : BoolCallArguments scope [] none
+  | positional {source operand} (checked : OperandTranslation scope source operand)
+      (scalar : operand.comparable = true) :
+      BoolCallArguments scope [(.positional, source)] (some operand)
+
+def boolCallArgument? (scope : Scope) : (arguments : List (Source.ArgumentKind × Source.Expr)) →
+    Option {argument // BoolCallArguments scope arguments argument}
+  | [] => some ⟨none, .omitted⟩
+  | [(.positional, source)] => do
+    let operand ← (lowerOperand scope source).toOption
+    if scalar : operand.val.comparable = true then
+      some ⟨some operand.val, .positional operand.property scalar⟩
+    else none
+  | _ => none
+
+structure BoolIdentityTest (scope : Scope) where
+  reference : GlobalReference scope "bool"
+  argument : Option (Operand scope)
+  operator : Core.Module.IdentityOperator
+  right : Operand scope
+
+/-- A stock conversion result can feed a checked, single-link singleton test. -/
+inductive BoolIdentityTranslation (scope : Scope) : Source.Stmt → BoolIdentityTest scope → Prop where
+  | assertion {left arguments comparison right reference argument operator operand}
+      (call : CallExpression left "bool" arguments)
+      (checkedArgument : BoolCallArguments scope arguments argument)
+      (identified : identityOperator? comparison = some operator)
+      (checkedRight : OperandTranslation scope right operand) (singleton : operand.singletonResult = true) :
+      BoolIdentityTranslation scope (.assert_ (.comparison left [(comparison, right)]) none)
+        ⟨reference, argument, operator, operand⟩
+
+def boolIdentityTest? (scope : Scope) : (statement : Source.Stmt) →
+    Option {test // BoolIdentityTranslation scope statement test}
+  | .assert_ (.comparison left [(comparison, right)]) none => do
+    let ⟨("bool", arguments), call⟩ ← callExpression? left | none
+    let argument ← boolCallArgument? scope arguments
+    let reference ← globalReference? scope "bool"
+    let operand ← (lowerOperand scope right).toOption
+    if singleton : operand.val.singletonResult = true then
+      match identified : identityOperator? comparison with
+      | some operator => some ⟨⟨reference, argument.val, operator, operand.val⟩,
+          .assertion call argument.property identified operand.property singleton⟩
+      | none => none
+    else none
+  | _ => none
+
+inductive ListConstructorArgument where
+  | omitted
+  | literal (sequence : ClosedSequence)
+
+inductive ListConstructorArguments : List (Source.ArgumentKind × Source.Expr) → ListConstructorArgument → Prop where
+  | omitted : ListConstructorArguments [] .omitted
+  | tuple {elements values} (checked : elements.mapM scalarLiteral? = some values) :
+      ListConstructorArguments [(.positional, .tuple elements)] (.literal ⟨.tuple, values⟩)
+  | list {elements values} (checked : elements.mapM scalarLiteral? = some values) :
+      ListConstructorArguments [(.positional, .list_ elements)] (.literal ⟨.list, values⟩)
+
+def listConstructorArguments? : (arguments : List (Source.ArgumentKind × Source.Expr)) →
+    Option {argument // ListConstructorArguments arguments argument}
+  | [] => some ⟨.omitted, .omitted⟩
+  | [(.positional, .tuple elements)] =>
+    match checked : elements.mapM scalarLiteral? with
+    | some values => some ⟨.literal ⟨.tuple, values⟩, .tuple checked⟩
+    | none => none
+  | [(.positional, .list_ elements)] =>
+    match checked : elements.mapM scalarLiteral? with
+    | some values => some ⟨.literal ⟨.list, values⟩, .list checked⟩
+    | none => none
+  | _ => none
+
+inductive ListTestOrder where
+  | constructorFirst
+  | literalFirst
+
+structure ListConstructionTest (scope : Scope) where
+  reference : GlobalReference scope "list"
+  argument : ListConstructorArgument
+  literal : List Core.Module.Value
+  order : ListTestOrder
+
+/-- Both operands are fully checked. Only the stock constructor is dynamic. -/
+inductive ListConstructionTranslation (scope : Scope) : Source.Stmt → ListConstructionTest scope → Prop where
+  | constructorFirst {call arguments argument elements literal reference}
+      (site : CallExpression call "list" arguments)
+      (checked : ListConstructorArguments arguments argument)
+      (values : elements.mapM scalarLiteral? = some literal) :
+      ListConstructionTranslation scope (.assert_ (.comparison call [(.eq, .list_ elements)]) none)
+        ⟨reference, argument, literal, .constructorFirst⟩
+  | literalFirst {call arguments argument elements literal reference}
+      (site : CallExpression call "list" arguments)
+      (checked : ListConstructorArguments arguments argument)
+      (values : elements.mapM scalarLiteral? = some literal) :
+      ListConstructionTranslation scope (.assert_ (.comparison (.list_ elements) [(.eq, call)]) none)
+        ⟨reference, argument, literal, .literalFirst⟩
+
+def listConstructionTest? (scope : Scope) : (statement : Source.Stmt) →
+    Option {test // ListConstructionTranslation scope statement test}
+  | .assert_ (.comparison left [(.eq, .list_ elements)]) none => do
+    let ⟨("list", arguments), site⟩ ← callExpression? left | none
+    let argument ← listConstructorArguments? arguments
+    let reference ← globalReference? scope "list"
+    match values : elements.mapM scalarLiteral? with
+    | some literal => some ⟨⟨reference, argument.val, literal, .constructorFirst⟩,
+        .constructorFirst site argument.property values⟩
+    | none => none
+  | .assert_ (.comparison (.list_ elements) [(.eq, right)]) none => do
+    let ⟨("list", arguments), site⟩ ← callExpression? right | none
+    let argument ← listConstructorArguments? arguments
+    let reference ← globalReference? scope "list"
+    match values : elements.mapM scalarLiteral? with
+    | some literal => some ⟨⟨reference, argument.val, literal, .literalFirst⟩,
+        .literalFirst site argument.property values⟩
+    | none => none
+  | _ => none
+
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | assertNot (condition : Operand scope)
+  | assertSequenceLength (test : SequenceLengthTest scope)
+  | assertBoolIdentity (test : BoolIdentityTest scope)
+  | assertListConstruction (test : ListConstructionTest scope)
+  | assertTupleChain (test : TupleChainTest scope)
   /-- Read the current module binding once at this assertion. -/
   | assertVarNames (receiver : Name) (reference : GlobalReference scope receiver) (needle : List UInt32)
   | define (name : Name) (reference : GlobalReference scope name) (child : ScopeTree)
@@ -216,6 +375,22 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (translated : TestTranslation tree.scope condition operand)
       (remaining : Translation tree index rest tail) :
       Translation tree index (.assert_ (.unary .not_ condition) none :: rest) (.assertNot operand :: tail)
+  | assertSequenceLength {index statement test rest tail}
+      (checked : SequenceLengthTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.assertSequenceLength test :: tail)
+  | assertBoolIdentity {index statement test rest tail}
+      (checked : BoolIdentityTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.assertBoolIdentity test :: tail)
+  | assertListConstruction {index statement test rest tail}
+      (checked : ListConstructionTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.assertListConstruction test :: tail)
+  | assertTupleChain {index statement test rest tail}
+      (checked : TupleChainTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.assertTupleChain test :: tail)
   | assertVarNames {index receiver needle rest tail} (reference : GlobalReference tree.scope receiver)
       (remaining : Translation tree index rest tail) :
       Translation tree index
@@ -306,7 +481,19 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     let tail ← lowerPlan tree index rest
     return ⟨.assertNot operand.val :: tail.val, .assertNot operand.property tail.property⟩
   | statement :: rest => do
-    if let some ⟨(name, .lambda declaration body), binding⟩ := Compile.Closure.Body.assignment? statement then
+    if let some test := sequenceLengthTest? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.assertSequenceLength test.val :: tail.val, .assertSequenceLength test.property tail.property⟩
+    else if let some test := boolIdentityTest? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.assertBoolIdentity test.val :: tail.val, .assertBoolIdentity test.property tail.property⟩
+    else if let some test := listConstructionTest? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.assertListConstruction test.val :: tail.val, .assertListConstruction test.property tail.property⟩
+    else if let some test := tupleChainTest? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.assertTupleChain test.val :: tail.val, .assertTupleChain test.property tail.property⟩
+    else if let some ⟨(name, .lambda declaration body), binding⟩ := Compile.Closure.Body.assignment? statement then
       unless declaration.all Compile.Closure.Body.fixed do throw (.functionBody .parameterProfile)
       let path := tree.scope.context.path ++ [index]
       match located : tree.children[index]? with

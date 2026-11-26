@@ -1,6 +1,7 @@
 module
 
-public import Silmaril.Semantics.TrackA.Concurrency.Race
+public import Silmaril.Semantics.TrackA.Concurrency.Defs
+import Silmaril.Proofs.Semantics.TrackA.Concurrency.Machine
 import Mathlib.Data.List.Induction
 
 @[expose] public section
@@ -146,6 +147,24 @@ theorem hasRace_mutexOnly_of_mixed (race : hasRace .mixed xs = true) :
   simp [pair.1.2] at ordered
 
 variable {start finish : Config T L R}
+
+theorem classifyHistory_eq_some_iff {result : RaceClass} :
+    classifyHistory profile start xs = some result ↔
+      ∃ finish, ClassifiedRun profile start xs finish result := by
+  unfold classifyHistory
+  constructor
+  · cases h : replay start (xs.map Event.thread) with
+    | none => simp
+    | some out =>
+      obtain ⟨actual, finish⟩ := out
+      by_cases labels : actual = xs
+      · subst actual
+        intro classified
+        exact ⟨finish, (replay_iff.mp h).1, by simpa using classified⟩
+      · simp [labels]
+  · rintro ⟨finish, run, classified⟩
+    rw [replay_iff.mpr ⟨run, rfl⟩]
+    simp [classified]
 
 theorem guarded_iff :
     GuardedRun profile start xs finish ↔ sc.MTr start xs finish ∧ RaceFree profile xs := by

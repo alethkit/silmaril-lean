@@ -113,6 +113,53 @@ private theorem callee_read {state : State} {name : String} {address : Address}
     Evaluates state (.scalar (.read name)) (.ok (.function address) state) := by
   simpa [State.read, binding] using Evaluates.name (state := state) name
 
+/-- Lift a successful source operand spine and an already proved positional
+preparation result into the ordinary call rules. -/
+theorem prepared_invocation_expr (program : Program) (available : List DeclarationId)
+    {globals : List String} {name : String} {state : State} {positional : List SourceExpr} {actuals : List ResolvedExpr}
+    {address : Address} {id : Nat} {captures : List Capture} {declaration : Declaration} {values : List Value}
+    {result : Except Silmaril.Languages.Starlark.Lists.Error (List (Silmaril.Languages.Starlark.Binding × Value))}
+    (permitted : id ∈ available)
+    (callee : Operand globals (.scalar (.read name)) (.atom (.read (.bound (globalSlot name)))))
+    (arguments : InOrder (Operand globals) positional actuals)
+    (binding : state.bindingValue (globalSlot name) = .ok (.function address))
+    (evaluated : EvaluatesOperands state positional (.ok values state))
+    (prepared : prepareExpanded program available ⟨values, []⟩ (.function address) state =
+      match result with
+      | .error error => .error error state
+      | .ok assigned => .ok (.closure ⟨id, permitted, declaration.body⟩)
+        (activate state declaration captures assigned))
+    (out : Outcome Flow)
+    (bodyRun : ∀ assigned, result = .ok assigned →
+      Exec program (withoutDeclaration available id) (activate state declaration captures assigned) declaration.body out) :
+    ExecExpr program available state (.call (.atom (.read (.bound (globalSlot name)))) actuals [] none none)
+      (match result with
+      | .error error => .error error state
+      | .ok _ => match out with
+        | .ok flow final => .ok (Lowering.callValue flow) (restoreCaller state final)
+        | .error error final => .error error (restoreCaller state final)) := by
+  have length := (evaluation_length evaluated).symm.trans (resolution_length arguments)
+  have expansion := positioned state length
+  have ordered : EvaluatesOperands state (.scalar (.read name) :: positional)
+      (.ok (.function address :: values) state) := .cons (callee_read binding) evaluated
+  let calls : ClosureRuns available := fun plan next outcome =>
+    Exec program (withoutDeclaration available plan.id) next plan.body outcome
+  have operands := evaluates_operands program available calls (.cons callee arguments) ordered
+  have spine : Lowering.sourceOperands (.atom (.read (.bound (globalSlot name)))) actuals [] none none =
+      .atom (.read (.bound (globalSlot name))) :: actuals := by simp [Lowering.sourceOperands]
+  rw [← spine] at operands
+  cases result with
+  | error error =>
+    exact .evaluates (fun _ _ _ ran => ran) (.call operands (.expanded expansion (.reject prepared)))
+  | ok assigned =>
+    have runs : calls ⟨id, permitted, declaration.body⟩ (activate state declaration captures assigned) out :=
+      bodyRun assigned rfl
+    cases out with
+    | ok flow final =>
+      exact .evaluates (fun _ _ _ ran => ran) (.call operands (.expanded expansion (.returned prepared runs)))
+    | error error final =>
+      exact .evaluates (fun _ _ _ ran => ran) (.call operands (.expanded expansion (.failed prepared runs)))
+
 theorem checked_invocation_expr {commands : List Command} {linked : Program} {resolved : ResolvedModule}
     {globals : List String} {name : String} {state : State} {positional : List SourceExpr} {actuals : List ResolvedExpr}
     {address : Address} {id : Nat} {captures : List Capture} {frozen : Bool} {frame : Forwarding.Frame}
@@ -139,27 +186,13 @@ theorem checked_invocation_expr {commands : List Command} {linked : Program} {re
   have permitted : id ∈ available := List.mem_range.mpr (Array.getElem?_eq_some_iff.mp found).choose
   have prepare := Entry.checked_prepare checked available frame id permitted state address captures frozen values result
     cell found binds
-  have length := (evaluation_length evaluated).symm.trans (resolution_length arguments)
-  have expansion := positioned state length
-  have ordered : EvaluatesOperands state (.scalar (.read name) :: positional)
-      (.ok (.function address :: values) state) := .cons (callee_read binding) evaluated
-  let calls : ClosureRuns available := fun plan next outcome =>
-    Exec resolved.program (withoutDeclaration available plan.id) next plan.body outcome
-  have operands := evaluates_operands resolved.program available calls (.cons callee arguments) ordered
-  have spine : Lowering.sourceOperands (.atom (.read (.bound (globalSlot name)))) actuals [] none none =
-      .atom (.read (.bound (globalSlot name))) :: actuals := by simp [Lowering.sourceOperands]
-  rw [← spine] at operands
   cases result with
   | error error =>
-    exact .evaluates (fun _ _ _ ran => ran) (.call operands (.expanded expansion (.reject prepare)))
+    exact prepared_invocation_expr resolved.program available (declaration := frame.declaration)
+      (captures := captures) (result := .error error) permitted callee arguments binding evaluated prepare out bodyRun
   | ok assigned =>
-    have runs : calls ⟨id, permitted, frame.code⟩ (activate state frame.declaration captures assigned) out :=
-      bodyRun assigned rfl
-    cases out with
-    | ok flow final =>
-      exact .evaluates (fun _ _ _ ran => ran) (.call operands (.expanded expansion (.returned prepare runs)))
-    | error error final =>
-      exact .evaluates (fun _ _ _ ran => ran) (.call operands (.expanded expansion (.failed prepare runs)))
+    cases out <;> exact prepared_invocation_expr resolved.program available (declaration := frame.declaration)
+      (captures := captures) (result := .ok assigned) permitted callee arguments binding evaluated prepare _ bodyRun
 
 theorem checked_invocation {commands : List Command} {linked : Program} {resolved : ResolvedModule}
     {globals : List String} {name : String} {state : State} {positional : List SourceExpr} {actuals : List ResolvedExpr}

@@ -1,11 +1,15 @@
 module
 
 import Silmaril.SSA.PEG.Builder
+import Silmaril.SSA.Peggy.Optimizer.Cyclic.Thms
+import Silmaril.SSA.PEG.Rules.Thms
 import Silmaril.SSA.PEG.Semantics.Thms
 import Silmaril.SSA.Peggy.Bridge.Figure11.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Thms
 import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 import Silmaril.SSA.Peggy.Optimizer.Thms
+import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
+meta import Silmaril.SSA.Peggy.Optimizer.Cyclic.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Figure11.Defs
 meta import Silmaril.SSA.Peggy.Acyclic.Defs
@@ -14,6 +18,7 @@ meta import Silmaril.SSA.Peggy.EPEG.Saturation.Defs
 meta import Silmaril.Logic.Egg.Core.Replay.Defs
 meta import Silmaril.SSA.PEG.Builder
 meta import Silmaril.SSA.Peggy.Optimizer.Defs
+meta import Silmaril.SSA.Peggy.Optimizer.Contextual.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Extension.Defs
 
 namespace Silmaril.SSA.Peggy.Tests
@@ -592,4 +597,218 @@ example (env : Tuple arithmetic.Value params) :
   · exact eq ▸ selectLaw
   · exact eq ▸ compressLaw
 
+private abbrev orderedResults : List (Ty Unit) := [.count, .count, .count, .bool]
+
+/-- The first root uses vertex 2 twice. The second includes a partial sum
+in the unselected φ arm, and the third has an undefined guard. The last
+row duplicates vertex 2 when the graph is built without sharing. -/
+private def contextualTable (shared swapped : Bool) :
+    RawGraph Op params orderedResults 12 0 where
+  forest := ⟨Fin.elim0⟩
+  sort i := if i = 7 ∨ i = 9 then .bool else .count
+  node i := match i with
+    | 0 => ⟨_, .param .head, []⟩
+    | 1 => ⟨_, .op .add, [0, 0]⟩
+    | 2 => ⟨_, .op .add, [1, 0]⟩
+    | 3 => ⟨_, .op .add, [2, if shared then 2 else 11]⟩
+    | 4 => ⟨_, .op .bad, []⟩
+    | 5 => ⟨_, .op .add, [4, 4]⟩
+    | 6 => ⟨_, .op .add, [5, 4]⟩
+    | 7 => ⟨_, .op .no, []⟩
+    | 8 => ⟨_, .phi, [7, 6, 3]⟩
+    | 9 => ⟨_, .op .bottom, []⟩
+    | 10 => ⟨_, .phi, [9, 2, 0]⟩
+    | 11 => ⟨_, .op .add, [1, 0]⟩
+  roots := if swapped then [10, 8, 3, 9] else [3, 8, 10, 9]
+
+private def contextGraph (shared swapped : Bool) : Graph Op params orderedResults 12 0 :=
+  (contextualTable shared swapped).check.get (by cases shared <;> cases swapped <;> rfl)
+
+private def contextRank (i : Fin 12) : Nat := match i with
+  | 1 | 5 => 1
+  | 2 | 6 | 11 => 2
+  | 3 | 10 => 3
+  | 8 => 4
+  | _ => 0
+
+private def contextProgram (shared swapped : Bool) : RankedProgram Op params orderedResults :=
+  ⟨12, contextGraph shared swapped,
+    (Acyclic.Ranked.check (contextGraph shared swapped) contextRank).get
+      (by cases shared <;> cases swapped <;> rfl)⟩
+
+private def shared := contextProgram true false
+private def repeated := contextProgram false false
+private def swapped := contextProgram true true
+private def contextRules : List (Contextual.Schema Op) := [⟨.count, compress⟩]
+private def contextBest := Contextual.optimize opEq contextRules 2 shared
+
+#guard (matchTarget opEq shared compress (encodeOutputs shared.ranked 0)).isEmpty
+#guard (matchTarget opEq shared compress (encodeOutputs shared.ranked 1)).isEmpty
+#guard (matchTarget opEq shared compress (encodeOutputs shared.ranked 2)).isEmpty
+#guard (Contextual.discover opEq contextRules shared).length == 2
+#guard Contextual.cost shared == 10
+#guard Contextual.cost (Contextual.optimize opEq contextRules 1 shared).program == 9
+#guard Contextual.cost contextBest.program == 8
+#guard contextBest.program.size == shared.size
+#guard PEG.refNumbers
+  (contextBest.program.graph.node (contextBest.program.graph.roots.get .head).id).args == [2, 2]
+
+private def self : PEG.Ref shared.graph.sort .count := ⟨(show Fin 12 from 2), rfl⟩
+#guard (Contextual.replace shared self (PEG.Node.ofLabel (.op Op.triple) (.cons self .nil))).isNone
+
+#guard Contextual.cost repeated == 11
+#guard (Contextual.compareOutputs opEq shared repeated).isSome
+#guard (Contextual.compareOutputs opEq shared swapped).isNone
+
+#guard (shared.ranked.eval (toAcyclic arithmetic) exampleInput (show Fin 12 from 6)).isNone
+#guard (show Option Nat from contextBest.program.ranked.evalOutputs
+  (toAcyclic arithmetic) exampleInput 0) == some 84
+#guard (show Option Nat from contextBest.program.ranked.evalOutputs
+  (toAcyclic arithmetic) exampleInput 1) == some 84
+#guard (contextBest.program.ranked.evalOutputs (toAcyclic arithmetic) exampleInput 2).isNone
+
+example (env : Tuple arithmetic.Value params) :
+    shared.graph.observe arithmetic (shared.graph.denote arithmetic env
+      (demandWellFounded shared.ranked)) Fin.elim0 =
+    contextBest.program.graph.observe arithmetic (contextBest.program.graph.denote arithmetic env
+      (demandWellFounded contextBest.program.ranked)) Fin.elim0 := by
+  apply CheckedProgram.sound contextBest
+  intro rule h
+  have eq : rule = compress.core := List.mem_singleton.mp h
+  exact eq ▸ compressLaw
+
 end Silmaril.SSA.Peggy.Optimizer.Tests
+
+namespace Silmaril.SSA.Peggy.Optimizer.Cyclic.Tests
+
+open PEG
+open RVSDG (Tuple)
+
+private inductive Op : List (Ty Unit) → Ty Unit → Type where
+  | zero : Op [] .count
+  | bad : Op [] .count
+  | succ : Op [.count] .count
+  | add : Op [.count, .count] .count
+
+private inductive Seed where
+  | parameter
+  | bottom
+  | changing
+
+private def Seed.address : Seed → Fin 7
+  | .parameter => 3
+  | .bottom => 6
+  | .changing => 0
+
+private abbrev params : List (Ty Unit) := [.count]
+private abbrev results : List (Ty Unit) := [.count, .count, .count, .count]
+
+/-- The live counter has θ/succ feedback. A second θ self-feeds its
+initializer, is referenced by the add, and occurs twice at the boundary. -/
+private abbrev countSort (_ : Fin 7) : Ty Unit := .count
+
+private def countRef (i : Fin 7) : Ref countSort .count := ⟨i, rfl⟩
+
+private def pair (a b : Fin 7) : Tuple (Ref countSort) [.count, .count] :=
+  .cons (countRef a) (.cons (countRef b) .nil)
+
+private def graph (seed : Seed) : Graph Op params results 7 1 where
+  forest := ⟨fun _ => none⟩
+  sort := countSort
+  node i := match i with
+    | 0 => .ofLabel (.theta 0) (pair 2 1)
+    | 1 => .ofLabel (.op .succ) (.cons (countRef 0) .nil)
+    | 2 => .ofLabel (.op .zero) .nil
+    | 3 => .ofLabel (.param .head) .nil
+    | 4 => .ofLabel (.theta 0) (pair seed.address 4)
+    | 5 => .ofLabel (.op .add) (pair 4 0)
+    | 6 => .ofLabel (.op .bad) .nil
+  roots := .cons (countRef 4) (.cons (countRef 5) (pair 0 4))
+
+private def nodeCount {n : Nat} (_ : Graph Op params results n 1) : Nat := n
+
+private def optimizedRoots (seed : Seed) : Option (Nat × Nat × List Nat) :=
+  (optimize (graph seed)).map fun result =>
+    (result.site.val, nodeCount result.matched.extract, refNumbers result.matched.extract.roots)
+
+#guard (optimize (graph .parameter)).isSome
+#guard optimizedRoots .parameter == some (4, 6, [3, 4, 0, 3])
+#guard optimizedRoots .bottom == some (4, 6, [5, 4, 0, 5])
+#guard (admit (graph .changing)).isSome
+#guard (matchAt (graph .changing) (show Fin 7 from 4)).isNone
+#guard (optimize (graph .changing)).isNone
+
+private def compactedEdges : Bool :=
+  match optimize (graph .parameter) with
+  | none => false
+  | some result =>
+    let target := result.matched.extract
+    (target.node 0).label.thetaLoop == some 0 &&
+      refNumbers (target.node 0).args == [2, 1] && refNumbers (target.node 1).args == [0] &&
+      refNumbers (target.node 4).args == [3, 0]
+
+#guard compactedEdges
+
+private def arithmetic : Interpretation.{0,0,0} Op where
+  carrier _ := Unit
+  run
+    | .zero, .nil => some ⟨0⟩
+    | .bad, .nil => none
+    | .succ, .cons a .nil => some ⟨a.down + 1⟩
+    | .add, .cons a (.cons b .nil) => some ⟨a.down + b.down⟩
+
+private def input : Tuple arithmetic.Value params := .cons ⟨7⟩ .nil
+private def clock (k : Nat) : Index 1 := fun _ => k
+
+private def admitted (seed : Seed) : Admission (graph seed) :=
+  (admit (graph seed)).get (by cases seed <;> decide)
+
+private noncomputable def streams (seed : Seed) : (graph seed).Valuation arithmetic :=
+  (graph seed).denote arithmetic input (admitted seed).demandWellFounded
+
+private theorem equations (seed : Seed) : (graph seed).Solves arithmetic input (streams seed) :=
+  (graph seed).denote_solves arithmetic input (admitted seed).demandWellFounded
+
+private theorem previous : (clock 1).set 0 0 = clock 0 := by
+  funext loop
+  have h : loop = 0 := Subsingleton.elim _ _
+  subst loop
+  rfl
+
+private theorem counterZero (seed : Seed) : streams seed (0, clock 0) = some ⟨0⟩ := by
+  have init : streams seed (2, clock 0) = some ⟨0⟩ := equations seed (2, clock 0)
+  exact (equations seed (0, clock 0)).trans init
+
+private def ref (seed : Seed) (i : Fin 7) : Ref (graph seed).sort .count := ⟨i, rfl⟩
+
+private theorem counterOne (seed : Seed) : streams seed (0, clock 1) = some ⟨1⟩ := by
+  have count := equations seed (0, clock 1)
+  change streams seed (0, clock 1) = streams seed (1, (clock 1).set 0 0) at count
+  have step := Rules.unary_at (equations seed) (r := ref seed 1) (arg := ref seed 0)
+    (op := Op.succ) HEq.rfl (clock 0)
+  change streams seed (1, clock 0) =
+    (streams seed (0, clock 0)).bind (fun x => some ⟨x.down + 1⟩) at step
+  rw [counterZero] at step
+  exact count.trans (previous ▸ step)
+
+private theorem selfStep (seed : Seed) :
+    streams seed (4, clock 1) = streams seed (4, clock 0) := by
+  have eq := equations seed (4, clock 1)
+  change streams seed (4, clock 1) = streams seed (4, (clock 1).set 0 0) at eq
+  rwa [previous] at eq
+
+-- The near miss retains zero while its initializer has advanced to one.
+example : streams .changing (4, clock 1) ≠ streams .changing (0, clock 1) := by
+  have zero : streams .changing (4, clock 0) = streams .changing (0, clock 0) :=
+    equations .changing (4, clock 0)
+  rw [selfStep, zero, counterZero, counterOne]
+  intro impossible
+  exact Nat.noConfusion (congrArg ULift.down (Option.some.inj impossible))
+
+example : streams .bottom (4, clock 1) = none := by
+  have bad : streams .bottom (6, clock 0) = none := equations .bottom (6, clock 0)
+  have init : streams .bottom (4, clock 0) = streams .bottom (6, clock 0) :=
+    equations .bottom (4, clock 0)
+  exact (selfStep .bottom).trans (init.trans bad)
+
+end Silmaril.SSA.Peggy.Optimizer.Cyclic.Tests

@@ -99,6 +99,20 @@ theorem mixed_publication :
       publishView [true, false, false, true] = some (missesPublication, .racy, .racy) := by
   decide
 
+private def forgedPublication : List (Event Bool Unit Bool) :=
+  [⟨false, .write .plain false 7⟩, ⟨false, .write .scAtomic true 1⟩,
+   ⟨true, .read .scAtomic true 0⟩, ⟨true, .read .plain false 7⟩]
+
+/-- The raw tests use the label positions and accept the forged reads-from edge.
+Replay rejects that history because the atomic read must return 1. -/
+theorem forged_publication_rejected :
+    atomicSync forgedPublication 1 2 (.write .scAtomic true 1) (.read .scAtomic true 0) = true ∧
+      classify .mixed forgedPublication = .clean ∧
+      classifyHistory .mixed publish forgedPublication = none ∧
+      classifyHistory .mixed publish receivesPublication = some .clean ∧
+      classifyHistory .mixed publish missesPublication = some .racy := by
+  decide
+
 /-- Filtering retains one complete schedule, while another schedule from
 the same program reaches UB at its fourth operation. -/
 theorem filter_can_hide_ub :

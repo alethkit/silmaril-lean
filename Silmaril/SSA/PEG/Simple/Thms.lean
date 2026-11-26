@@ -42,6 +42,12 @@ theorem get_map {F : Ty Data → Type w} {G : Ty Data → Type x} {t : Ty Data}
     (xs.map f).get p = f t (xs.get p) :=
   Proofs.get_map xs f p
 
+/-- The frontend numbers each operand after its consumer in the table. -/
+theorem Code.toGraph_edge_forward (code : Code P params [] nodes)
+    (outputs : Tuple (Port nodes) outs) {a b : Fin nodes.length} {kind : EdgeKind (Fin 0)}
+    (edge : (code.toGraph outputs).Edge a kind b) : a.val < b.val :=
+  Proofs.edge_forward code outputs edge
+
 /-- A closed builder gives a PEG whose edges lead strictly to earlier emissions. -/
 theorem Code.toGraph_wellFormed (code : Code P params [] nodes) (outputs : Tuple (Port nodes) outs) :
     (code.toGraph outputs).WellFormed :=

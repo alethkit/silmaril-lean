@@ -148,12 +148,14 @@ def parse : Nat → (A X Z : τ) → Layout τ Φ → Option (Parsed Φ A X Z)
     else none
   | _, _, _, _, _ => none
 
-def candidate (g : Flat.Serial.Graph Φ A X Z L E D sigs) : Option (Normal Φ A X Z L E D sigs) := do
-  let labels ← scan g.toTerm
+def decodeLayout (labels : Layout τ Φ) : Option (Normal Φ A X Z L E D sigs) := do
   let ⟨out, n⟩ ← parse (weight labels) A X Z labels
   if eq : out = (⟨L,E,D,sigs⟩ : Output τ) then
     some (Eq.mp (congrArg (fun ix => Normal Φ A X Z ix.carry ix.left ix.right ix.sigs) eq) n)
   else none
+
+def candidate (g : Flat.Serial.Graph Φ A X Z L E D sigs) : Option (Normal Φ A X Z L E D sigs) :=
+  (scan g.toTerm).bind decodeLayout
 
 structure Match (g : Flat.Serial.Graph Φ A X Z L E D sigs) where
   view : Normal Φ A X Z L E D sigs
