@@ -865,38 +865,40 @@ value and state universes.
 
 ### Finite request trees with key-indexed replies
 
-The dependent request tree accepts any decidable native key type. For each
-key, the signature supplies an exact constructor argument and an equality
-from the declared reply type to the packed sum of a finite list of payload
-types. The adapter issues the existing native request, decodes it with the
-installed typed packet router, and passes the selected payload and final
-machine state to the continuation. The final interface has two ordered unit
-exits or literal UB.
+The dependent request tree stores a closed, exactly typed constructor
+operand at each node. The signature relates the declared reply type of
+each key to the packed sum of a finite list of payload types. The adapter
+emits the original operand in the native request and uses the installed
+typed packet router to pass the selected payload and final state to the
+continuation. Leaves return at two ordered unit exits or expose literal UB.
 
-Two request nodes compare by equality of keys and a recursive comparison
-at each tag whose payload type is inhabited. An impossible tag contributes
-no comparison obligation. For a zero-reply key the condition on branches is
-vacuous, but the request can still fault or diverge. Two distinct zero-reply
-keys remain distinguishable by a fault on one key and divergence on the
-other. In either direction, a pending request and an ordinary return fail
-the comparison. Immediate UB on the right is greatest. Immediate UB on
-the left fails against a pending request, including a zero-reply one.
+The comparison first checks the key and the evaluated constructor
+argument. It then compares branches at inhabited reply tags. At a
+zero-reply key, equal queries have no branch obligations. Different keys
+or evaluated arguments can still be observed through faults or divergence.
+A pending request and an ordinary return fail the comparison in either
+direction. Immediate UB on the right is greatest.
 
-The soundness induction uses actual reachable typed outputs, including
-nondeterministic replies. A failed comparison selects an inhabited payload
-at each step on the common prefix. A deterministic interpreter advances
-through one state per selected reply, then uses a final state to distinguish
-the mismatch. It uses at most one plus the smaller tree depth machine
-states. The all-model equivalence is for closed trees in the shaped models
-at the witness universes. Soundness allows arbitrary shaped environments
-and value and state universes over the same free types.
+Soundness over arbitrary shaped relations uses the checked fact that equal
+evaluated operands in this closed constructor grammar emit identical
+native terms. The comparison is stated on values. The current grammar
+already has canonical emissions, so the proof requires no additional
+normalization assumption. Executing a prefix uses decidable key equality
+and the installed decidable equality on constructor values in `Value Unit`.
+It needs no enumeration of argument values. A key or argument mismatch
+uses a fault for the first query and divergence for the second at the last
+state. The bound is still one plus the smaller tree depth. The all-model
+equivalence is for closed trees at the witness universes. Soundness allows
+arbitrary shaped environments and value and state universes over the same
+free types.
 [Dependent request-tree theorems][ssa-ub-dependent-request-tree]
 
 ### Extraction from rank-certified native request tables
 
 A typed table witness describes the entry packet and the literal native
-rows. A row calls a key with a fixed closed constructor argument and routes
-each typed reply to a local label, or returns unit at an ordered exit.
+rows. Each request row supplies its own closed constructor operand and
+routes each typed reply to a local label. Terminal rows return unit at an
+ordered exit.
 The check re-emits the whole native table, including all written rows, and
 compares its exact syntax with the supplied typed CFG. The entry-reachable
 rank check then permits unfolding a shared destination at each incoming
@@ -910,16 +912,15 @@ The tree comparison is exact over that class. A failed comparison supplies
 the existing depth-bounded shaped countermodel at the original native
 entries, so it also refutes validity over all shaped models.
 
-The input is a checked typed row witness for the supported syntax. The
-current tree signature chooses one argument expression per key and exact
-context. Two different operands of the same key in the same exact context
-require per-node operands or an explicit context transport. The regression
-changes only an injection in an actual request operand. The original
-witness rejects it, and an argument-sensitive interpreter distinguishes
-return from fault. The written diamond has reply-dependent requests and
-a shared block with two predecessors. Its tests retain the ordinary exit
-position, reach literal UB on a selected exit, and transport a separating
-prefix to both original entries.
+The input is a checked typed row witness. The operand is retained when a
+row is re-emitted and when it is unfolded into a request node. The diamond
+regression calls one key twice with different constructor arguments on
+one execution. An edit at the shared row changes only the final operand.
+The edited CFG checks against its own witness, and the original witness
+rejects it. The separating prefix faults on one argument and diverges on
+the other at the same state. A successful prefix preserves the ordered
+exit and final state or reaches literal UB through the selected exit.
+This extraction covers closed constructor operands at each site.
 [Native extraction theorems][ssa-ub-native-request-trees]
 
 ## Coverage and gaps

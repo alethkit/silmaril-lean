@@ -10,12 +10,25 @@ public section
 
 namespace Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree
 
-open Category.FiniteIteration.Syntax (Bindings model)
+open Category.FiniteIteration.Syntax (Bindings Expr emptyBindings model)
 open TwoRequest (resultBehaviour)
 
 universe u v w
 
 variable {Φ : Type u} [HasTy Φ (Silmaril.Ty Empty)] {S : RequestSignature Φ}
+
+/-- Moving a closed constructor into a block context leaves its evaluated
+payload unchanged. -/
+theorem inContext_eval {Γ : List (Silmaril.Ty Empty)} {A : Silmaril.Ty Empty}
+    (arg : Expr [] A) (env : Bindings Γ) : (inContext arg).eval env = arg.eval emptyBindings :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.inContext_eval arg env
+
+/-- The value determines the emitted constructor in the admitted closed
+grammar. This relates value comparison to exact native emission. -/
+theorem operand_term_eq {F : Type u} {Γ : List (Silmaril.Ty Empty)} {A : Silmaril.Ty Empty}
+    {a b : Expr [] A} (same : operandValue a = operandValue b) :
+    ((inContext (Γ := Γ) a).term (Φ := F)) = (inContext (Γ := Γ) b).term :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.operand_term_eq same
 
 /-- It suffices to compare continuations at reachable typed replies.
 This soundness direction permits arbitrary shaped primitive relations. -/
@@ -31,15 +44,17 @@ theorem finite_observe {Γ : List (Silmaril.Ty Empty)} {n : Nat} (p : Tree S.rep
     Shape.denote (p.region S) (model (S.primitives h) env) s = resultBehaviour (p.execute h s) :=
   Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.finite_observe p h env s
 
-/-- The comparison of two occurrences of the same zero-reply key has no
-branch obligations. Both occurrences still execute the request. -/
+/-- Equal queries at a zero-reply key have no branch obligations.
+Unequal arguments can still be distinguished before a reply. -/
 theorem empty_reply_refines {f : Φ} (h : S.replies f = [])
+    {arg arg' : Expr [] (instrSrc f)} (same : operandValue arg = operandValue arg')
     (arms next : Fin (S.replies f).length → Tree S.replies) :
-    (Tree.ask f arms).Refines (Tree.ask f next) :=
-  ⟨rfl, fun i => (i.cast (congrArg List.length h)).elim0⟩
+    (Tree.ask f arg arms).Refines (Tree.ask f arg' next) :=
+  ⟨rfl, same, fun i => (i.cast (congrArg List.length h)).elim0⟩
 
 /-- One state per common reply plus a final test state distinguishes a
-failed comparison. The prefix is bounded by both depths. -/
+failed comparison. The prefix is bounded by both depths. The handler uses
+decidable key equality and the installed equality on `Value Unit`. -/
 theorem exists_prefix_countermodel [DecidableEq Φ] {p q : Tree S.replies} (fails : ¬ p.Refines q) :
     ∃ (n : Nat) (probe : Prefix S.replies n), n ≤ min p.depth q.depth ∧
       ¬ Shape.denote (p.region S) (S.model probe.handler) 0 ≤

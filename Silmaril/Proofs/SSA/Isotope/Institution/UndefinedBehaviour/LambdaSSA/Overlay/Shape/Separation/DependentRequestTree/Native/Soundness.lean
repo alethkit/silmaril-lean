@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.Defs
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.ExitUB.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Thms
@@ -27,40 +28,31 @@ open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration
 
 universe u
 
-variable {Φ : Type u} [HasTy Φ Syntax.Ty] {O : Operands Φ} {R : List Syntax.Ty} {n : Nat}
-
-private theorem inContext_eval {Γ : List Syntax.Ty} {A : Syntax.Ty} (a : Expr [] A) (env : Bindings Γ) :
-    (inContext a).eval env = a.eval emptyBindings := by
-  induction a with
-  | var i => exact i.elim0
-  | unit => rfl
-  | pair a b left right => simp [inContext, Expr.eval, left, right]
-  | inl a ih => simp [inContext, Expr.eval, ih]
-  | inr a ih => simp [inContext, Expr.eval, ih]
+variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R : List Syntax.Ty} {n : Nat}
 
 private theorem cast_val {A B : Syntax.Ty} (h : A = B) (a : Payload A) :
     (cast (congrArg Payload h) a).val = a.val := by
   cases h
   rfl
 
-private noncomputable def graph (g : Table O R) (prim : Primitives Φ n) :
+private noncomputable def graph (g : Table S R) (prim : Primitives Φ n) :
     Feedback.Run R Exits Unit (Fin n) :=
   feedbackRun (.native g.entryRegion) (fun i => .native (g.blocks i)) (model prim emptyBindings).raw
 
-private noncomputable def after (g : Table O R) (prim : Primitives Φ n) :
+private noncomputable def after (g : Table S R) (prim : Primitives Φ n) :
     Fin Exits.length → Value Unit → Fin n → Behaviour Exits.length Unit (Fin n) :=
   let M := (model prim emptyBindings).raw
   fun j a t => denote (CFG.Dependent.Native.exitContinuation (Γ := []) (L := Exits) (Φ := Φ) g.selected j)
     (extendModel M a) t
 
-private noncomputable def atPoint (g : Table O R) (prim : Primitives Φ n)
+private noncomputable def atPoint (g : Table S R) (prim : Primitives Φ n)
     (p : Feedback.Point R.length Unit (Fin n)) : Behaviour Exits.length Unit (Fin n) :=
   (Feedback.close (graph g prim) p).bind (after g prim)
 
-private theorem at_agrees (g : Table O R) (prim : Primitives Φ n) (i : Fin R.length)
+private theorem at_agrees (g : Table S R) (prim : Primitives Φ n) (i : Fin R.length)
     (ranked : (g.ranks.get i).isSome = true) (a : Payload (R.get i))
     {Γ : List Syntax.Ty} (env : Bindings Γ) (s : Fin n) :
-    Shape.denote ((g.extractAt i ranked).region O.signature) (model prim env) s =
+    Shape.denote ((g.extractAt i ranked).region S) (model prim env) s =
       atPoint g prim (.block i a.val s) := by
   rw [Table.extractAt]
   split
@@ -78,43 +70,43 @@ private theorem at_agrees (g : Table O R) (prim : Primitives Φ n) (i : Fin R.le
     cases h : g.selected j
     · exact CFG.observe_jump (L := Exits) prim env j (exit_type j) .unit s
     · rfl
-  · rename_i f next typed rowEq
+  · rename_i f arg next typed rowEq
     have run : graph g prim (.block i a.val s) =
-        match prim f ((O.argument f).eval emptyBindings) s with
+        match prim f (arg.eval emptyBindings) s with
         | .ret b t =>
-          let p := CFG.Dependent.unpack (cast (congrArg Payload (O.target f)) b)
+          let p := CFG.Dependent.unpack (cast (congrArg Payload (S.target f)) b)
           WithTop.some {Outcome.ret (Feedback.internal R Exits (next p.1)) p.2.val t}
         | .fault t => WithTop.some {Outcome.fault t}
         | .diverge => WithTop.some {Outcome.diverge} := by
-      let target (j : Fin (O.replies f).length) := Feedback.internal R Exits (next j)
-      let type (j : Fin (O.replies f).length) :=
+      let target (j : Fin (S.replies f).length) := Feedback.internal R Exits (next j)
+      let type (j : Fin (S.replies f).length) :=
         (CFG.Dependent.internal_type (L := Exits) (next j)).trans (typed j)
       let blockEnv := emptyBindings.push a
       change denote (.native (g.blocks i)) (extendModel (model prim emptyBindings).raw a.val) s = _
       rw [denote_push prim emptyBindings a, Table.blocks, rowEq]
       change Shape.denote (.native (CFG.Dependent.Native.packedRequestTo f
-        (inContext (O.argument f)) (O.target f) target type)) (model prim blockEnv) s = _
+        (inContext arg) (S.target f) target type)) (model prim blockEnv) s = _
       rw [← CFG.Dependent.Native.packedRequestTo_agrees, CFG.Dependent.observe_packedRequestTo,
         inContext_eval]
       rfl
-    have outgoing (j : Fin (O.replies f).length) : next j ∈ g.targets i := by
+    have outgoing (j : Fin (S.replies f).length) : next j ∈ g.targets i := by
       rw [Table.targets, rowEq, Row.targets]
       exact List.mem_ofFn.mpr ⟨j, rfl⟩
-    let subtree (j : Fin (O.replies f).length) :=
+    let subtree (j : Fin (S.replies f).length) :=
       g.extractAt (next j) (Rank.ranked_successor g.targets ranked (outgoing j)).1
     change Shape.denote (.lsubst
-      (CFG.Dependent.packedRequest f (inContext (O.argument f)) (O.target f))
-      (fun j => (subtree j).region O.signature)) (model prim env) s = _
+      (CFG.Dependent.packedRequest f (inContext arg) (S.target f))
+      (fun j => (subtree j).region S)) (model prim env) s = _
     rw [CFG.Dependent.observe_packedRequest_bind]
-    change (match prim f ((inContext (O.argument f)).eval env) s with
+    change (match prim f ((inContext arg).eval env) s with
       | .ret b t => _
       | .fault t => WithTop.some {Outcome.fault t}
       | .diverge => WithTop.some {Outcome.diverge}) = _
     rw [inContext_eval]
-    cases reply : prim f ((O.argument f).eval emptyBindings) s with
+    cases reply : prim f (arg.eval emptyBindings) s with
     | ret b t =>
       rw [reply] at run
-      let p := CFG.Dependent.unpack (cast (congrArg Payload (O.target f)) b)
+      let p := CFG.Dependent.unpack (cast (congrArg Payload (S.target f)) b)
       have edge : next p.1 ∈ g.targets i := outgoing p.1
       let carried : Payload (R.get (next p.1)) := cast (congrArg Payload (typed p.1).symm) p.2
       have same : carried.val = p.2.val := cast_val (typed p.1).symm p.2
@@ -136,8 +128,8 @@ private theorem at_agrees (g : Table O R) (prim : Primitives Φ n) (i : Fin R.le
 termination_by (g.ranks.get i).getD 0
 decreasing_by exact (Rank.ranked_successor g.targets ranked edge).2
 
-theorem agrees (g : Table O R) (ok : g.entryCheck = true) (prim : Primitives Φ n) (s : Fin n) :
-    Shape.denote ((g.extract ok).region O.signature) (model prim emptyBindings) s =
+theorem agrees (g : Table S R) (ok : g.entryCheck = true) (prim : Primitives Φ n) (s : Fin n) :
+    Shape.denote ((g.extract ok).region S) (model prim emptyBindings) s =
       Shape.denote (CFG.Dependent.Native.withExitUB g.native g.selected) (model prim emptyBindings) s := by
   let a := g.input.eval emptyBindings
   have start : graph g prim (.entry s) =
