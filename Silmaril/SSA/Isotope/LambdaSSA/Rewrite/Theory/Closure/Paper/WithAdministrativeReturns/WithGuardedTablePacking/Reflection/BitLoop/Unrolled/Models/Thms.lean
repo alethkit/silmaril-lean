@@ -10,8 +10,7 @@ These are calculations in the four-reply model and in the request-prefix
 model. They hold for every number of rounds, five included, and for every
 guarded step over the Bit-query signature. They are not derivations: no
 equation of the quotient is inferred from them, and `Unrolls _ 4` stays
-open. They also say nothing about models outside the ordered-trace
-Kleisli family, so they do not establish `Valid`.
+open. `Unrolled.Valid` proves the same for every supported model.
 -/
 
 public section
