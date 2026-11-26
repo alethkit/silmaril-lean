@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.Operands
+import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Entry
 
 public section
 
@@ -84,6 +85,32 @@ theorem write_other_cell (state : State) (binding : Binding) (value : Value) (ad
     intro same
     exact other (same ▸ slot)
   simp [diff]
+
+theorem activate_unassigned (state : State) (declaration : Declaration) (arguments : List (Binding × Value))
+    (binding : Binding) (declared : binding ∈ declaration.signature.slots ++ declaration.locals)
+    (unassigned : ∀ argument ∈ arguments, argument.1 ≠ binding) :
+    let active := activate state declaration [] arguments
+    ∃ address, active.slots binding = some (.owned address) ∧ active.heap[address]? = some ⟨.binding none, false⟩ := by
+  let initial : State := { state with bindings := fun _ => none, slots := capturedSlots [] }
+  let blank := (declaration.signature.slots ++ declaration.locals).foldl State.allocateSlot initial
+  obtain ⟨address, owned, stored⟩ := Entry.allocate_blank
+    (declaration.signature.slots ++ declaration.locals) initial binding (.inl declared)
+  have distinct : DistinctOwned blank := activation_distinct state declaration [] []
+  have remains (assigned : List (Binding × Value)) (frame : State)
+      (unassigned : ∀ argument ∈ assigned, argument.1 ≠ binding) (separate : DistinctOwned frame)
+      (slot : frame.slots binding = some (.owned address)) (cell : frame.heap[address]? = some ⟨.binding none, false⟩) :
+      let reached := assigned.foldl (fun current (target, value) => current.write target value) frame
+      reached.slots binding = some (.owned address) ∧ reached.heap[address]? = some ⟨.binding none, false⟩ := by
+    induction assigned generalizing frame with
+    | nil => exact ⟨slot, cell⟩
+    | cons argument rest ih =>
+      have different : frame.slots argument.1 ≠ some (.owned address) :=
+        fun same => unassigned argument List.mem_cons_self (separate _ _ _ same slot)
+      have atNext := write_slots frame argument.1 argument.2
+      exact ih _ (fun arg member => unassigned arg (List.mem_cons_of_mem _ member))
+        (by simpa only [DistinctOwned, atNext] using separate) (atNext ▸ slot)
+        ((write_other_cell frame argument.1 argument.2 address different).trans cell)
+  exact ⟨address, remains arguments blank unassigned distinct owned stored⟩
 
 private theorem write_function_cell (state : State) (binding : Binding) (value : Value)
     (address : Address) (closure : Silmaril.Languages.Starlark.Lists.Closure) (frozen : Bool)

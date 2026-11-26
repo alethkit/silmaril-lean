@@ -40,10 +40,49 @@ theorem activate_installs {globals : List String} {spec : Spec} (plan : Plan glo
     ∃ captures, Installs active plan.body.free captures ∧ Defaults.Body.CaptureCells active captures := by
   apply install_owned
   intro entry member
-  obtain ⟨name, parameter, rfl⟩ := plan.captured entry member
-  have declared : name ∈ (spec.frame childId).owned := List.mem_append_left _ parameter
+  obtain ⟨name, eligible, rfl⟩ := plan.captured entry member
+  have declared : name ∈ (spec.frame childId).owned := spec.capture_owned name eligible
   obtain ⟨address, value, frozen, owned, stored⟩ := Entry.activated_cell caller (spec.frame childId) [] assigned name declared
   exact ⟨name, address, value, frozen, rfl, owned, stored⟩
+
+private theorem assigned_slots {names : List String} {values : List Value} {assigned : List (Binding × Value)}
+    (bound : Entry.Binds names values (.ok assigned)) : assigned.map Prod.fst = names.map fileSlot := by
+  cases bound with
+  | success filled =>
+    induction filled with
+    | nil => rfl
+    | cons _ ih => simp [ih]
+
+theorem local_unbound {spec : Spec} (names : Names spec) (childId : Nat) (caller : State)
+    {values : List Value} {assigned : List (Binding × Value)} (bound : Entry.Binds spec.parameters values (.ok assigned))
+    (name : String) (localName : name ∈ spec.updates.map Prod.fst) :
+    let active := activate caller (spec.frame childId).declaration [] assigned
+    ∃ address, active.slots (fileSlot name) = some (.owned address) ∧
+      active.heap[address]? = some ⟨.binding none, false⟩ := by
+  apply RootCall.activate_unassigned
+  · have localSlot : name ∈ spec.wrapper.locals spec.updates :=
+      List.mem_cons_of_mem _ (List.mem_eraseDups.mpr localName)
+    exact List.mem_append_right _ (List.mem_map.mpr ⟨name, localSlot, rfl⟩)
+  · intro argument member same
+    have present := List.mem_map_of_mem (f := Prod.fst) member
+    rw [assigned_slots bound, same] at present
+    obtain ⟨other, member, equal⟩ := List.mem_map.mp present
+    have sameName : other = name := congrArg Binding.name equal
+    rw [sameName] at member
+    exact (names.localUpdates name localName).1 member
+
+theorem failed_local_unbound {globals : List String} {spec : Spec} (names : Names spec) (plan : Plan globals spec)
+    (childId : Nat) (caller : State) {values : List Value} {assigned : List (Binding × Value)}
+    (bound : Entry.Binds spec.parameters values (.ok assigned)) (name : String) (localName : name ∈ spec.updates.map Prod.fst)
+    {error : Silmaril.Languages.Starlark.Lists.Error} {next : State}
+    (failed : Defaults.Escape.ReturnsWith spec.wrapper childId plan.body.free spec.updates caller
+      (activate caller (spec.frame childId).declaration [] assigned) (.error error next)) :
+    let active := activate caller (spec.frame childId).declaration [] assigned
+    ∃ address, active.slots (fileSlot name) = some (.owned address) ∧
+      next.heap[address]? = some ⟨.binding none, false⟩ ∧ next.slots = caller.slots ∧ next.bindings = caller.bindings := by
+  obtain ⟨address, owned, stored⟩ := local_unbound names childId caller bound name localName
+  obtain ⟨slots, bindings, kept⟩ := Defaults.Escape.failed_keeps failed
+  exact ⟨address, owned, kept _ _ _ stored, slots, bindings⟩
 
 private theorem installs_order {active : State} {free : List FreeName} {captures : List Capture}
     (installed : Installs active free captures) :
@@ -77,13 +116,13 @@ theorem returns_sound {globals : List String} {spec : Spec} (names : Names spec)
     (plan : Plan globals spec) (program : Program) (available : List DeclarationId) (childId : Nat)
     (found : program[childId]? = some (plan.body.declaration spec.wrapper.codes))
     (caller : State) (assigned : List (Binding × Value)) {out : Outcome Value}
-    (source : Defaults.Escape.ReturnsWith spec.wrapper childId plan.body.free caller
+    (source : Defaults.Escape.ReturnsWith spec.wrapper childId plan.body.free spec.updates caller
       (activate caller (spec.frame childId).declaration [] assigned) out) :
     ∃ bodyOut, Exec program available (activate caller (spec.frame childId).declaration [] assigned)
       (spec.frame childId).code bodyOut ∧ Leaf.returnTo caller bodyOut = out := by
   obtain ⟨captures, installed, cells⟩ := activate_installs plan childId caller assigned
   obtain ⟨_, bodyOut, reached, ran, restored, _⟩ := Defaults.Escape.returns_with_total program available spec.wrapper
-    names.wrapper childId (plan.body.declaration spec.wrapper.codes) found rfl spec.additional caller assigned
+    names.wrapper childId (plan.body.declaration spec.wrapper.codes) found rfl spec.additional spec.updates names.localUpdates caller assigned
     captures installed cells
   exact ⟨bodyOut, ran, restored.trans (Defaults.Escape.returns_with_unique reached source)⟩
 
@@ -91,7 +130,7 @@ theorem returned_frame {globals : List String} {spec : Spec} (names : Names spec
     (plan : Plan globals spec) (program : Program) (available : List DeclarationId) (childId : Nat)
     (found : program[childId]? = some (plan.body.declaration spec.wrapper.codes))
     (caller : State) (assigned : List (Binding × Value)) {address : Nat} {next : State}
-    (source : Defaults.Escape.ReturnsWith spec.wrapper childId plan.body.free caller
+    (source : Defaults.Escape.ReturnsWith spec.wrapper childId plan.body.free spec.updates caller
       (activate caller (spec.frame childId).declaration [] assigned) (.ok (.function address) next)) :
     let active := activate caller (spec.frame childId).declaration [] assigned
     ∃ values captures, values.length = spec.child.parameters.optional.length ∧
@@ -107,7 +146,7 @@ theorem returned_frame {globals : List String} {spec : Spec} (names : Names spec
           (activate next (plan.body.declaration spec.wrapper.codes) captures arguments) := by
   obtain ⟨captures, installed, live⟩ := activate_installs plan childId caller assigned
   obtain ⟨_, _, independently, _, _, progress⟩ := Defaults.Escape.returns_with_total program available spec.wrapper
-    names.wrapper childId (plan.body.declaration spec.wrapper.codes) found rfl spec.additional caller assigned
+    names.wrapper childId (plan.body.declaration spec.wrapper.codes) found rfl spec.additional spec.updates names.localUpdates caller assigned
     captures installed live
   obtain ⟨actual, values, same, count, cell, kept, cells, rebound⟩ :=
     progress _ _ (Defaults.Escape.returns_with_unique independently source)

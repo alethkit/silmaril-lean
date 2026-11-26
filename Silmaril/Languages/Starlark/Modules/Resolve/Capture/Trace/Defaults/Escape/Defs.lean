@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Defs
+public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Defs
 
 public section
 
@@ -12,10 +12,11 @@ open Lists (State Outcome)
 local notation "Expr" => Lowering.Resolve.SourceExpr
 local notation "Value" => Lists.Value
 
-/-- Defaults in the bounded wrapper can read its parameter, index that
-value once, or use a literal. A singleton list exercises allocation. -/
+/-- Defaults in the bounded wrapper can read an enclosing binding,
+index the first parameter once, or use a literal. -/
 inductive Operand where
   | parameter
+  | read (name : String)
   | index (offset : Int)
   | integer (value : Int)
   | list (value : Int)
@@ -23,6 +24,7 @@ inductive Operand where
 @[expose] def Operand.source (operand : Operand) (parameter : String) : Expr :=
   match operand with
   | .parameter => .scalar (.read parameter)
+  | .read name => .scalar (.read name)
   | .index offset => .index (.scalar (.read parameter)) (.scalar (.int offset))
   | .integer value => .scalar (.int value)
   | .list value => .list [.scalar (.int value)]
@@ -30,6 +32,7 @@ inductive Operand where
 @[expose] def Operand.code (operand : Operand) (parameter : String) : Lowering.Expr :=
   match operand with
   | .parameter => Leaf.readOperand (fileSlot parameter)
+  | .read name => Leaf.readOperand (fileSlot name)
   | .index offset => .index (Leaf.readOperand (fileSlot parameter)) (.atom (.scalar (.int offset)))
   | .integer value => .atom (.scalar (.int value))
   | .list value => .list [.atom (.scalar (.int value))]
@@ -37,6 +40,7 @@ inductive Operand where
 @[expose] def Operand.reads (operand : Operand) (parameter : String) : List Binding :=
   match operand with
   | .parameter | .index _ => [fileSlot parameter]
+  | .read name => [fileSlot name]
   | .integer _ | .list _ => []
 
 /-- A wrapper with one required parameter defines the child, rebinds the
@@ -61,24 +65,47 @@ structure Spec where
 @[expose] def Spec.childBody (wrapper : Spec) : Statement :=
   .ret (some (.scalar (.read wrapper.returned)))
 
-@[expose] def Spec.bodyWith (wrapper : Spec) (childBody : Statement) : Statement :=
+/-- Additional wrapper assignments run after child installation. The
+whole block nevertheless owns their slots when its defaults run. -/
+@[expose] def Spec.locals (wrapper : Spec) (updates : List (String × Int)) : List String :=
+  wrapper.childName :: (updates.map Prod.fst).eraseDups
+
+@[expose] def Spec.updateSuite (wrapper : Spec) (updates : List (String × Int)) : Defaults.Body.Suite :=
+  updates.foldr (fun (name, value) tail => .assign name (.scalar (.int value)) tail)
+    (.ret (.scalar (.read wrapper.childName)))
+
+@[expose] def Spec.updateCode (wrapper : Spec) (updates : List (String × Int)) : Functions.Body :=
+  updates.foldr (fun (name, value) tail => .seq (.assignExpr (fileSlot name) (.atom (.scalar (.int value)))) tail)
+    (.returnExpr (Leaf.readOperand (fileSlot wrapper.childName)))
+
+@[expose] def applyUpdates (updates : List (String × Int)) (state : State) : State :=
+  updates.foldl (fun next (name, value) => next.write (fileSlot name) (.scalar (.int value))) state
+
+@[expose] def Spec.bodyWith (wrapper : Spec) (childBody : Statement)
+    (updates : List (String × Int) := []) : Statement :=
   .seq (.define wrapper.childName wrapper.child.parameters.source childBody)
-    (.seq (.assign wrapper.parameter (.scalar (.int wrapper.rebound)))
-      (.ret (some (.scalar (.read wrapper.childName)))))
+    (.seq (.assign wrapper.parameter (.scalar (.int wrapper.rebound))) (wrapper.updateSuite updates).source)
 
 @[expose] def Spec.body (wrapper : Spec) : Statement := wrapper.bodyWith wrapper.childBody
 
 @[expose] def Spec.commandWith (wrapper : Spec) (childBody : Statement)
-    (additional : List String := []) : Command :=
-  .define wrapper.name (.required (wrapper.parameter :: additional)) (wrapper.bodyWith childBody)
+    (additional : List String := []) (updates : List (String × Int) := []) : Command :=
+  .define wrapper.name (.required (wrapper.parameter :: additional)) (wrapper.bodyWith childBody updates)
 
 @[expose] def Spec.command (wrapper : Spec) : Command := wrapper.commandWith wrapper.childBody
 
-@[expose] def Spec.frame (wrapper : Spec) (childId : Nat) (additional : List String := []) : Forwarding.Frame :=
-  ⟨wrapper.parameter :: additional, [wrapper.childName], [],
+@[expose] def Spec.frame (wrapper : Spec) (childId : Nat) (additional : List String := [])
+    (updates : List (String × Int) := []) : Forwarding.Frame :=
+  ⟨wrapper.parameter :: additional, wrapper.locals updates, [],
     .seq (.define (fileSlot wrapper.childName) childId)
       (.seq (.assignExpr (fileSlot wrapper.parameter) (.atom (.scalar (.int wrapper.rebound))))
-        (.returnExpr (Leaf.readOperand (fileSlot wrapper.childName))))⟩
+        (wrapper.updateCode updates))⟩
+
+/-- An explicitly named default read must refer to the wrapper's own
+lexical block. The usual parameter operands use the first parameter. -/
+@[expose] def Spec.DefaultReads (wrapper : Spec) (owned : List String) : Prop :=
+  ∀ name, (∃ target, (target, .read name) ∈ wrapper.defaults) →
+    name ∈ owned ∧ name.toList.head? ≠ some '$'
 
 structure WrapperNames (wrapper : Spec) : Prop where
   distinct : wrapper.parameter ≠ wrapper.childName
@@ -90,6 +117,7 @@ structure Admitted (wrapper : Spec) : Prop where
   parameterLegal : wrapper.parameter.toList.head? ≠ some '$'
   childLegal : wrapper.childName.toList.head? ≠ some '$'
   returned : Visible wrapper.child.parameters.names wrapper.returned
+  defaultReads : wrapper.DefaultReads [wrapper.parameter]
 
 theorem Admitted.wrapperNames {wrapper : Spec} (admitted : Admitted wrapper) : WrapperNames wrapper :=
   ⟨admitted.distinct, admitted.parameterLegal, admitted.childLegal⟩
@@ -101,6 +129,7 @@ theorem Admitted.wrapperNames {wrapper : Spec} (admitted : Admitted wrapper) : W
 space. Allocating a list in one default extends that frame's heap. -/
 inductive Evaluates (parameter : String) (state : State) : Operand → Outcome Value → Prop where
   | parameter : Evaluates parameter state .parameter (state.read (.bound (fileSlot parameter)))
+  | read (name : String) : Evaluates parameter state (.read name) (state.read (.bound (fileSlot name)))
   | index (offset : Int) : Evaluates parameter state (.index offset)
       ((state.read (.bound (fileSlot parameter))).resume fun receiver =>
         Lists.readIndex receiver (.scalar (.int offset)))
@@ -120,18 +149,19 @@ inductive DefaultsIn (parameter : String) : State → List Operand → Outcome (
 /-- The shared wrapper rules install captures in the reached defining
 frame. A failed default cannot reach installation or the rebinding. -/
 inductive ReturnsWith (wrapper : Spec) (childId : Nat) (free : List FreeName)
-    (caller active : State) : Outcome Value → Prop where
+    (updates : List (String × Int)) (caller active : State) : Outcome Value → Prop where
   | failed {error : Lists.Error} {final : State} :
       DefaultsIn wrapper.parameter active
         (wrapper.defaults.map Prod.snd) (.error error final) →
-      ReturnsWith wrapper childId free caller active (.error error (restoreCaller caller final))
+      ReturnsWith wrapper childId free updates caller active (.error error (restoreCaller caller final))
   | child {values : List Value} {final : State} {captures : List Lists.Capture} :
       DefaultsIn wrapper.parameter active
         (wrapper.defaults.map Prod.snd) (.ok values final) →
       Installs final free captures →
-      ReturnsWith wrapper childId free caller active (.ok (.function final.heap.size)
-        (restoreCaller caller ((Defaults.install (fileSlot wrapper.childName) childId captures (wrapper.saved values) final).write
-          (fileSlot wrapper.parameter) (.scalar (.int wrapper.rebound)))))
+      ReturnsWith wrapper childId free updates caller active (.ok (.function final.heap.size)
+        (restoreCaller caller (applyUpdates updates
+          ((Defaults.install (fileSlot wrapper.childName) childId captures (wrapper.saved values) final).write
+            (fileSlot wrapper.parameter) (.scalar (.int wrapper.rebound))))))
 
 /-- Success installs the saved values before rebinding the wrapper's
 parameter. Failure restores the caller immediately with the heap from

@@ -33,6 +33,20 @@ theorem activate_installs {globals : List String} {spec : Spec} (plan : Plan glo
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape.Scoped.activate_installs
     plan childId caller assigned
 
+/-- A reached default failure leaves the wrapper's update locals unbound
+in the residual heap and restores the saved caller. -/
+theorem failed_local_unbound {globals : List String} {spec : Spec} (names : Names spec) (plan : Plan globals spec)
+    (childId : Nat) (caller : State) {values : List Lists.Value} {assigned : List (Binding × Lists.Value)}
+    (bound : Entry.Binds spec.parameters values (.ok assigned)) (name : String) (localName : name ∈ spec.updates.map Prod.fst)
+    {error : Lists.Error} {next : State}
+    (failed : Escape.ReturnsWith spec.wrapper childId plan.body.free spec.updates caller
+      (activate caller (spec.frame childId).declaration [] assigned) (.error error next)) :
+    let active := activate caller (spec.frame childId).declaration [] assigned
+    ∃ address, active.slots (fileSlot name) = some (.owned address) ∧
+      next.heap[address]? = some ⟨.binding none, false⟩ ∧ next.slots = caller.slots ∧ next.bindings = caller.bindings :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape.Scoped.failed_local_unbound
+    names plan childId caller bound name localName failed
+
 /-- Repeated source reads share one installed binding in the closure. -/
 theorem capture_order {globals : List String} {spec : Spec} (plan : Plan globals spec)
     {active : State} {captures : List Capture} (installed : Installs active plan.body.free captures) :
@@ -47,7 +61,7 @@ theorem returned_frame {globals : List String} {spec : Spec} (names : Names spec
     (plan : Plan globals spec) (program : Program) (available : List DeclarationId) (childId : Nat)
     (found : program[childId]? = some (plan.body.declaration spec.wrapper.codes))
     (caller : State) (assigned : List (Binding × Lists.Value)) {address : Nat} {next : State}
-    (source : Escape.ReturnsWith spec.wrapper childId plan.body.free caller
+    (source : Escape.ReturnsWith spec.wrapper childId plan.body.free spec.updates caller
       (activate caller (spec.frame childId).declaration [] assigned) (.ok (.function address) next)) :
     let active := activate caller (spec.frame childId).declaration [] assigned
     ∃ values captures, values.length = spec.child.parameters.optional.length ∧

@@ -3,6 +3,7 @@ module
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape.Defs
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Site
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.Site
+public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Site
 
 public section
 
@@ -35,10 +36,14 @@ private theorem local_read (context : Context) (name : String) (owned : name ∈
   simp [resolveTracked, local_read_at context name owned legal, Except.map]
 
 theorem default_read (context : Context) (parameter : String) (owned : parameter ∈ context.locals)
-    (legal : parameter.toList.head? ≠ some '$') (operand : Operand) :
+    (legal : parameter.toList.head? ≠ some '$') (operand : Operand)
+    (named : ∀ name, operand = .read name → name ∈ context.locals ∧ name.toList.head? ≠ some '$') :
     resolveTracked context (operand.source parameter) = .ok (operand.code parameter, operand.reads parameter) := by
   cases operand with
   | parameter => exact local_read context parameter owned legal
+  | read name =>
+    obtain ⟨member, allowed⟩ := named name rfl
+    exact local_read context name member allowed
   | index offset =>
     change resolveTracked context (.index (.scalar (.read parameter)) (.scalar (.int offset))) = _
     rw [resolveTracked, resolveExpr.eq_def]
@@ -54,72 +59,135 @@ theorem default_read (context : Context) (parameter : String) (owned : parameter
   wrapper.defaults.map fun (name, operand) =>
     ⟨name, operand.source wrapper.parameter, operand.code wrapper.parameter, operand.reads wrapper.parameter⟩
 
-theorem only_parameter (wrapper : Spec) {binding : Binding}
+theorem default_bindings (wrapper : Spec) (owned : List String) (parameter : wrapper.parameter ∈ owned)
+    (allowed : wrapper.DefaultReads owned) {binding : Binding}
     (present : binding ∈ (planned wrapper).flatMap PlainPositionalDefault.reads) :
-    binding = fileSlot wrapper.parameter := by
+    ∃ name ∈ owned, binding = fileSlot name := by
   simp only [planned, List.flatMap_map, List.mem_flatMap] at present
-  obtain ⟨⟨name, operand⟩, _, same⟩ := present
-  cases operand <;> simp [Operand.reads] at same <;> exact same
+  obtain ⟨⟨target, operand⟩, member, same⟩ := present
+  cases operand with
+  | parameter | index => exact ⟨_, parameter, by simpa [Operand.reads] using same⟩
+  | read name => exact ⟨name, (allowed name ⟨target, member⟩).1, by simpa [Operand.reads] using same⟩
+  | integer | list => simp [Operand.reads] at same
+
+private theorem update_binders (wrapper : Spec) (updates : List (String × Int)) :
+    (wrapper.updateSuite updates).binders = updates.map Prod.fst := by
+  induction updates with
+  | nil => rfl
+  | cons item rest ih =>
+    change item.1 :: (wrapper.updateSuite rest).binders = item.1 :: rest.map Prod.fst
+    rw [ih]
+
+theorem updates_elaborate (wrapper : Spec) (updates : List (String × Int)) (block : Assignment.LexicalBlock)
+    (owned : ∀ name ∈ updates.map Prod.fst, name ∈ block.owned)
+    (child : wrapper.childName ∈ block.owned) (legal : wrapper.childName.toList.head? ≠ some '$') :
+    Defaults.Body.Elaborates block (wrapper.updateSuite updates) (wrapper.updateCode updates) [fileSlot wrapper.childName] := by
+  induction updates with
+  | nil => exact .ret (.read legal (.owned child) (.owned child))
+  | cons update rest ih =>
+    exact .assign (owned update.1 List.mem_cons_self) (.int update.2)
+      (ih (fun name member => owned name (List.mem_cons_of_mem _ member)))
 
 theorem code_length (wrapper : Spec) : wrapper.codes.length = wrapper.child.parameters.optional.length := by
   simp [Spec.codes, Spec.child]
 
-/-- Compile the existing wrapper around any child declaration whose
-definition-time reads belong to the wrapper parameter. -/
+/-- Collect the entire wrapper before compiling its child and ordered
+literal updates. Every read used to define or return the child is local. -/
 theorem wrap_emission (wrapper : Spec) (admitted : WrapperNames wrapper) (globals additional : List String)
-    (childFresh : wrapper.childName ∉ additional)
+    (childFresh : wrapper.childName ∉ additional) (updates : List (String × Int))
+    (fresh : ∀ name ∈ updates.map Prod.fst, name ∉ wrapper.parameter :: additional ∧ name ≠ wrapper.childName)
     (childBody : Statement) (child : Declaration) (reads : List Binding)
-    (owned : ∀ binding ∈ reads, ∃ name ∈ wrapper.parameter :: additional, binding = fileSlot name)
-    (childStep : ∀ program, compileBody ⟨⟨(wrapper.parameter :: additional) ++ [wrapper.childName], globals⟩, .local⟩
+    (owned : ∀ binding ∈ reads, ∃ name ∈ (wrapper.parameter :: additional) ++ wrapper.locals updates, binding = fileSlot name)
+    (childStep : ∀ program, compileBody ⟨⟨(wrapper.parameter :: additional) ++ wrapper.locals updates, globals⟩, .local⟩
         (.define wrapper.childName wrapper.child.parameters.source childBody) program =
       .ok (⟨.define (fileSlot wrapper.childName) program.size, reads⟩, program.push child))
     (program : Program) :
-    elaborateCommand ⟨⟨[], globals⟩, .global⟩ (wrapper.commandWith childBody additional) program =
+    elaborateCommand ⟨⟨[], globals⟩, .global⟩ (wrapper.commandWith childBody additional updates) program =
       .ok (.exec (.define wrapper.name (program.size + 1)),
-        (program.push child).push (wrapper.frame program.size additional).declaration) := by
+        (program.push child).push (wrapper.frame program.size additional updates).declaration) := by
   let parameters := wrapper.parameter :: additional
+  let locals := wrapper.locals updates
   let outer : BlockContext := ⟨⟨[], globals⟩, .global⟩
-  let context : BlockContext := ⟨⟨parameters ++ [wrapper.childName], globals⟩, .local⟩
-  let parentLayout : FunctionLayout := ⟨[wrapper.childName], context⟩
+  let context : BlockContext := ⟨⟨parameters ++ locals, globals⟩, .local⟩
+  let parentLayout : FunctionLayout := ⟨locals, context⟩
   have parameterNames : (SourceSignature.required parameters).parameterNames = parameters := by
     simp [SourceSignature.required, SourceSignature.parameterNames, List.map_map, Function.comp_def]
-  have parentCollected : collectFunctionLayout outer.reads (.required parameters) (wrapper.bodyWith childBody) =
+  have noChild : (updates.map Prod.fst).filter (fun name => !(name == wrapper.childName)) = updates.map Prod.fst :=
+    List.filter_eq_self.mpr fun name member => by simpa using (fresh name member).2
+  have noParameter : (updates.map Prod.fst).filter (fun name => !(name == wrapper.parameter)) = updates.map Prod.fst :=
+    List.filter_eq_self.mpr fun name member => by
+      have different : name ≠ wrapper.parameter := fun same => (fresh name member).1 (same ▸ List.mem_cons_self)
+      simpa using different
+  have keepLocals : (updates.map Prod.fst).eraseDups.filter (!parameters.contains ·) = (updates.map Prod.fst).eraseDups :=
+    List.filter_eq_self.mpr fun name member => by
+      have absent : name ∉ parameters := (fresh name (List.mem_eraseDups.mp member)).1
+      simpa using absent
+  have keepChild : (!parameters.contains wrapper.childName) = true := by
+    simp [parameters, Ne.symm admitted.distinct, childFresh]
+  have dropParameter : (!parameters.contains wrapper.parameter) = false := by
+    have member : wrapper.parameter ∈ parameters := List.mem_cons_self
+    rw [List.contains_iff_mem.mpr member]
+    rfl
+  have occurrences : (wrapper.bodyWith childBody updates).localNames =
+      .ok (wrapper.childName :: wrapper.parameter :: updates.map Prod.fst) := by
+    have tail := Block.localNames_eq (Defaults.Body.collects (wrapper.updateSuite updates))
+    rw [update_binders] at tail
+    simp [Spec.bodyWith, Statement.localNames, tail, bind, Except.bind, pure, Except.pure]
+  have collected : (wrapper.childName :: wrapper.parameter :: updates.map Prod.fst).eraseDups.filter
+      (!parameters.contains ·) = locals := by
+    have head : (!(wrapper.parameter == wrapper.childName)) = true := by simpa using admitted.distinct
+    have skip : ¬ ((!parameters.contains wrapper.parameter) = true) := by rw [dropParameter]; decide
+    rw [List.eraseDups_cons, List.filter_cons_of_pos (p := fun name => !(name == wrapper.childName)) head, noChild,
+      List.eraseDups_cons, noParameter, List.filter_cons_of_pos (p := fun name => !parameters.contains name) keepChild,
+      List.filter_cons_of_neg (p := fun name => !parameters.contains name) skip]
+    exact congrArg (List.cons wrapper.childName) keepLocals
+  have parentCollected : collectFunctionLayout outer.reads (.required parameters) (wrapper.bodyWith childBody updates) =
       .ok parentLayout := by
-    simp [collectFunctionLayout, Statement.localNames, Spec.bodyWith, functionLayout,
-      parameterNames, parentLayout, outer, context, parameters,
-      List.eraseDups_cons, admitted.distinct, Ne.symm admitted.distinct, childFresh, Except.map, bind, Except.bind, pure, Except.pure]
+    rw [collectFunctionLayout, occurrences]
+    change Except.ok (functionLayout outer.reads (.required parameters)
+      (wrapper.childName :: wrapper.parameter :: updates.map Prod.fst)) = _
+    unfold functionLayout
+    rw [parameterNames]
+    dsimp only
+    rw [collected]
+    simp only [outer, parentLayout, context, List.append_nil]
   let grown := program.push child
   have rebound := compileBody_plainAssign context wrapper.parameter (.scalar (.int wrapper.rebound)) _ _ grown
-    (default_read context.reads wrapper.parameter (by simp [context, parameters]) admitted.parameterLegal (.integer wrapper.rebound))
-  have tail := compileBody_seqReturn context (.assign wrapper.parameter (.scalar (.int wrapper.rebound)))
-    (.scalar (.read wrapper.childName)) grown grown _ _ _ rebound
-    (local_read context.reads wrapper.childName (by simp [context]) admitted.childLegal)
-  have body := compileBody_plainSeq context _ _ program grown grown _ _ (childStep program) tail
-  have captures : captureNames (parameters ++ [wrapper.childName])
+    (default_read context.reads wrapper.parameter (by simp [context, parameters]) admitted.parameterLegal
+      (.integer wrapper.rebound) (by intro _ impossible; cases impossible))
+  let block : Assignment.LexicalBlock := ⟨parameters ++ locals, [], globals⟩
+  have tail : compileBody context (wrapper.updateSuite updates).source grown =
+      .ok (⟨wrapper.updateCode updates, [fileSlot wrapper.childName]⟩, grown) := by
+    simpa only [block, context, Assignment.LexicalBlock.context, List.append_nil] using
+      Defaults.Body.compile_suite (updates_elaborate wrapper updates block
+        (fun name member => List.mem_append_right _ (List.mem_cons_of_mem _ (List.mem_eraseDups.mpr member)))
+        (List.mem_append_right _ List.mem_cons_self) admitted.childLegal) grown
+  have tailCode := compileBody_plainSeq context _ _ grown grown grown _ _ rebound tail
+  have body := compileBody_plainSeq context _ _ program grown grown _ _ (childStep program) tailCode
+  have captures : captureNames (wrapper.parameter :: (additional ++ locals))
       (reads ++ [fileSlot wrapper.childName]) = [] := by
     unfold captureNames
     suffices removed : ((reads ++ [fileSlot wrapper.childName]).eraseDups.filter
-        fun binding => binding.scope == .global || !(parameters ++ [wrapper.childName]).contains binding.name) = [] by
-      rw [removed]
+        fun binding => binding.scope == .global || !(parameters ++ locals).contains binding.name) = [] by
+      rw [show wrapper.parameter :: (additional ++ locals) = parameters ++ locals by rfl, removed]
       rfl
     apply List.filter_eq_nil_iff.mpr
     intro binding mem
     have present := List.mem_eraseDups.mp mem
-    rcases List.mem_append.mp present with earlier | returned
-    · obtain ⟨name, parameter, rfl⟩ := owned binding earlier
-      have localName : name ∈ parameters ++ [wrapper.childName] := List.mem_append_left _ parameter
-      change ¬(false || !(parameters ++ [wrapper.childName]).contains name) = true
-      rw [List.contains_iff_mem.mpr localName]
-      decide
-    · have same : binding = fileSlot wrapper.childName := by simpa using returned
-      simp [same, fileSlot]
-  have compiled := compileBody_requiredDefinition outer wrapper.name parameters (wrapper.bodyWith childBody) program grown
+    have bound : ∃ name ∈ parameters ++ locals, binding = fileSlot name := by
+      rcases List.mem_append.mp present with earlier | returned
+      · exact owned binding earlier
+      · exact ⟨wrapper.childName, List.mem_append_right _ List.mem_cons_self, by simpa using returned⟩
+    obtain ⟨name, localName, rfl⟩ := bound
+    change ¬(false || !(parameters ++ locals).contains name) = true
+    rw [List.contains_iff_mem.mpr localName]
+    decide
+  have compiled := compileBody_requiredDefinition outer wrapper.name parameters (wrapper.bodyWith childBody updates) program grown
       parentLayout _ parentCollected body
-  have root := elaborateCommand_requiredDefinition outer .global wrapper.name parameters (wrapper.bodyWith childBody) program _ _ _ compiled
-  have empty : captureNames (wrapper.parameter :: (additional ++ [wrapper.childName]))
-      (reads ++ [fileSlot wrapper.childName]) = [] := captures
+  have root := elaborateCommand_requiredDefinition outer .global wrapper.name parameters
+    (wrapper.bodyWith childBody updates) program _ _ _ compiled
   simpa [Spec.commandWith, Spec.frame, Forwarding.Frame.declaration, outer, parentLayout, grown, parameters,
-    Operand.code, Operand.reads, List.nil_append, empty] using root
+    Operand.code, Operand.reads, List.nil_append, captures] using root
 
 theorem emission (wrapper : Spec) (admitted : Admitted wrapper) (globals : List String) (program : Program) :
     elaborateCommand ⟨⟨[], globals⟩, .global⟩ wrapper.command program =
@@ -144,8 +212,12 @@ theorem emission (wrapper : Spec) (admitted : Admitted wrapper) (globals : List 
     (by simp [inner, admitted.returned.1]) admitted.returned.2
   have defaultsRead : ∀ item ∈ defaults, resolveTracked context.reads item.source = .ok (item.value, item.reads) := by
     intro item member
-    obtain ⟨⟨name, operand⟩, _, rfl⟩ := List.mem_map.mp member
-    exact default_read context.reads wrapper.parameter (by simp [context]) admitted.parameterLegal operand
+    obtain ⟨⟨target, operand⟩, sourceMem, rfl⟩ := List.mem_map.mp member
+    apply default_read context.reads wrapper.parameter (by simp [context]) admitted.parameterLegal operand
+    intro name same
+    subst operand
+    obtain ⟨member, legal⟩ := admitted.defaultReads name ⟨target, sourceMem⟩
+    exact ⟨List.mem_append_left _ member, legal⟩
   have childCaptures : captureNames wrapper.child.parameters.names [fileSlot wrapper.returned] = [] := by
     simp [captureNames, fileSlot, admitted.returned.1]
   rw [signature] at childCollected paramNames
@@ -155,8 +227,10 @@ theorem emission (wrapper : Spec) (admitted : Admitted wrapper) (globals : List 
     simp [defaults, planned, Spec.child, Spec.codes, List.map_map, Function.comp_def,
       List.zip_map', PlainPositionalDefault.resolved]
   let child := wrapper.child.emitted wrapper.codes
-  exact wrap_emission wrapper admitted.wrapperNames globals [] (by simp) wrapper.childBody child
-    (defaults.flatMap PlainPositionalDefault.reads) (fun _ member => ⟨_, by simp, only_parameter wrapper member⟩) (fun seed => by
+  exact wrap_emission wrapper admitted.wrapperNames globals [] (by simp) [] (by simp) wrapper.childBody child
+    (defaults.flatMap PlainPositionalDefault.reads) (fun _ member => by
+      obtain ⟨name, owned, same⟩ := default_bindings wrapper [wrapper.parameter] (by simp) admitted.defaultReads member
+      exact ⟨name, List.mem_append_left _ owned, same⟩) (fun seed => by
       have compiled := compileBody_plainReturn inner (.scalar (.read wrapper.returned)) _ _ seed childRead
       have definition := compileBody_plainPositionalDefinition context wrapper.childName wrapper.required defaults
         wrapper.childBody seed seed childLayout _ defaultsRead childCollected compiled

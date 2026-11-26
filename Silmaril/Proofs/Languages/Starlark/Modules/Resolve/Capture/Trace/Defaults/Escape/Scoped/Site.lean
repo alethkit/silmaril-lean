@@ -29,19 +29,25 @@ theorem emission (spec : Spec) (globals : List String) (names : Names spec)
   have translated : ∀ item ∈ defaults,
       resolveTracked ⟨spec.enclosing, globals⟩ item.source = .ok (item.value, item.reads) := by
     intro item member
-    obtain ⟨⟨name, operand⟩, _, rfl⟩ := List.mem_map.mp member
-    exact Defaults.Escape.default_read _ wrapper.parameter (by simp [Spec.enclosing, Spec.parameters, wrapper]) names.wrapper.parameterLegal operand
+    obtain ⟨⟨target, operand⟩, sourceMem, rfl⟩ := List.mem_map.mp member
+    apply Defaults.Escape.default_read _ wrapper.parameter (by simp [Spec.enclosing, Spec.parameters, wrapper])
+      names.wrapper.parameterLegal operand
+    intro name same
+    subst operand
+    exact names.defaultReads name ⟨target, sourceMem⟩
   have codes : defaults.map PlainPositionalDefault.value = wrapper.codes := by
     simp [defaults, Defaults.Escape.planned, Defaults.Escape.Spec.codes, List.map_map, Function.comp_def]
   have reads (binding : Silmaril.Languages.Starlark.Binding)
       (member : binding ∈ defaults.flatMap PlainPositionalDefault.reads ++ plan.body.free.map FreeName.source) :
-      ∃ name ∈ spec.parameters, binding = fileSlot name := by
+      ∃ name ∈ spec.enclosing, binding = fileSlot name := by
     rcases List.mem_append.mp member with fromDefault | fromBody
-    · exact ⟨_, by simp [Spec.parameters, wrapper], Defaults.Escape.only_parameter wrapper fromDefault⟩
+    · exact Defaults.Escape.default_bindings wrapper spec.enclosing
+        (by simp [Spec.enclosing, Spec.parameters, wrapper]) names.defaultReads fromDefault
     · obtain ⟨entry, present, rfl⟩ := List.mem_map.mp fromBody
-      obtain ⟨name, parameter, rfl⟩ := plan.captured entry present
-      exact ⟨name, parameter, rfl⟩
-  apply Defaults.Escape.wrap_emission wrapper names.wrapper globals spec.additional names.childFresh spec.child.body.source _ _ reads
+      obtain ⟨name, eligible, rfl⟩ := plan.captured entry present
+      exact ⟨name, spec.capture_owned name eligible, rfl⟩
+  apply Defaults.Escape.wrap_emission wrapper names.wrapper globals spec.additional names.childFresh spec.updates
+    names.localUpdates spec.child.body.source _ _ reads
   intro seed
   have step := Defaults.Body.compile_nested plan.body defaults paired translated seed
   rw [codes] at step
