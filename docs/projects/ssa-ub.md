@@ -715,19 +715,20 @@ native binder after the entry and producers have been read.
 
 ### Checked router normalization
 
-The optional normalization accepts at most one redundant literal unit binder in
-each packed router. It re-emits the actual CFG with the selected wrappers
-and checks exact syntax equality, including the weakening of every old
-value variable. The installed pure let substitution rule cancels that
-weakening. Native CFG congruence and shaped soundness transport this
-equation to complete observations of the original program. The existing
-exact recognizer then runs on the canonical form.
+The optional normalization accepts finite stacks of redundant literal unit
+binders at packed routers. It counts the leading binders at each router,
+re-emits the CFG at those depths, and checks exact syntax equality. Each
+wrapper weakens the whole stack below it. Repeated application of the
+installed pure let substitution rule cancels the weakening. Native CFG
+congruence and shaped soundness give equality of complete observations
+at the original entry. The existing exact recognizer runs on the
+canonical form.
 
-The regression accepts the previously rejected redundant wrapper. A
-well-typed variant that passes the bound unit to another exit passes
-the initial producer read but fails the exact wrapper check. The accepted
-program retains its ordered return, fault state, primitive divergence and
-infinite replay. A literal UB continuation at the first exit is reached
+The regression accepts a router with two nested binders and exact
+two-slot weakening. A well-typed variant with the same depth passes its
+outer bound unit to another exit. It passes the initial producer read
+and fails the exact wrapper check. The accepted program retains its
+ordered return, fault state, primitive divergence and infinite replay. A literal UB continuation at the first exit is reached
 after the return and skipped during silent replay. The original entry
 comparison still distinguishes equal payloads at different exits.
 [Normalization and soundness][ssa-ub-native-router-normalize]

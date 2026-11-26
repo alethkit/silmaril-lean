@@ -50,19 +50,19 @@ private theorem bind_unit_equiv (p : Typed Φ Γ [A]) (k : Typed Φ (A :: Γ) L)
   rw [← renameVars_renameLabels]
   exact bindUnusedUnit_equiv ⟨_, k.property.renameLabels shift⟩
 
-private theorem withRouterUnits_equiv (w : Readback Φ X R L) (units : Fin R.length → Bool) :
-    SubstitutionEquiv [X] (w.withRouterUnits units).val w.typed.val L := by
+private theorem bind_units_equiv (p : Typed Φ Γ [A]) (k : Typed Φ (A :: Γ) L) (n : Nat) :
+    SubstitutionEquiv Γ (bind p (bindUnusedUnits n k)).val (bind p k).val L := by
+  induction n with
+  | zero => exact .base (.refl (bind p k).property)
+  | succ n ih => exact (bind_unit_equiv p (bindUnusedUnits n k)).trans ih
+
+private theorem withRouterUnitDepths_equiv (w : Readback Φ X R L) (depths : Fin R.length → Nat) :
+    SubstitutionEquiv [X] (w.withRouterUnitDepths depths).val w.typed.val L := by
   refine .cfg (List.get R) ?_ ?_
   · simpa only [List.ofFn_get] using
       (SubstitutionEquiv.base (.refl w.entry.property))
   · intro i
-    simp only [List.ofFn_get]
-    change SubstitutionEquiv (R.get i :: [X])
-      (if units i then bind (w.producer i).typed (bindUnusedUnit (route R L)) else w.routed i).val
-      (w.routed i).val (R ++ L)
-    split
-    · exact bind_unit_equiv (w.producer i).typed (route R L)
-    · exact .base (.refl (w.routed i).property)
+    simpa only [List.ofFn_get, Readback.routed] using bind_units_equiv (w.producer i).typed (route R L) (depths i)
 
 variable [DecidableEq Φ]
 
@@ -75,7 +75,7 @@ theorem normalize_equiv {raw normal : Typed Φ [X] L}
   · rename_i same
     obtain rfl := Option.some.inj checked
     rw [sameRegion_eq same]
-    exact withRouterUnits_equiv candidate _
+    exact withRouterUnitDepths_equiv candidate _
   · cases checked
 
 theorem normalize_denote {raw normal : Typed Φ [X] L}

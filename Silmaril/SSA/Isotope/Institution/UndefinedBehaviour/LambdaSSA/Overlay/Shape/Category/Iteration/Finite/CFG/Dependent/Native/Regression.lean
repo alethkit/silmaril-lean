@@ -118,9 +118,22 @@ private def paddedRoute {Γ : List (Silmaril.Ty Empty)} :
   ⟨.let₁ .unit (k.val.renameVars Nat.succ),
     .let₁ .unit (k.property.renameVars (LambdaSSA.Ren.wk (Output :: Γ) U))⟩
 
+private def twicePaddedRoute {Γ : List (Silmaril.Ty Empty)} :
+    Native.Typed Instr (Output :: Γ) (Internal ++ External) :=
+  let k := Native.route Internal External (Γ := Γ) (Φ := Instr)
+  let weaken := LambdaSSA.Ren.comp (LambdaSSA.Ren.wk (Output :: Γ) U)
+    (LambdaSSA.Ren.wk (U :: Output :: Γ) U)
+  ⟨.let₁ .unit (.let₁ .unit (k.val.renameVars (Nat.succ ∘ Nat.succ))),
+    .let₁ .unit (.let₁ .unit (k.property.renameVars weaken))⟩
+
 private def binderUsingRoute :
     Native.Typed Instr [Output, U, U] (Internal ++ External) :=
   ⟨.let₁ .unit (.br 3 (.var 0)), .let₁ .unit (.br (ℓ := 3) rfl (.var (i := 0) rfl))⟩
+
+private def outerUnitUsingRoute :
+    Native.Typed Instr [Output, U, U] (Internal ++ External) :=
+  ⟨.let₁ .unit (.let₁ .unit (.br 3 (.var 1))),
+    .let₁ .unit (.let₁ .unit (.br (ℓ := 3) rfl (.var (i := 1) rfl)))⟩
 
 private def fixtureWithRouter (productEntry : Bool)
     (router : Native.Typed Instr [Output, U, U] (Internal ++ External)) :
@@ -177,6 +190,26 @@ private theorem rejects_use_of_bound_unit :
       Native.recognizeRouterUnits Internal usesBinder = none :=
   ⟨rfl, rfl⟩
 
+private abbrev twicePaddedCFG := fixtureWithRouter false twicePaddedRoute
+private abbrev usesOuterUnit := fixtureWithRouter false outerUnitUsingRoute
+
+private theorem counts_two_binders : Native.routerUnitDepth twicePaddedCFG.val 0 = 2 := rfl
+
+private theorem twice_padded_has_normal_form :
+    Native.normalizeRouterUnits Internal twicePaddedCFG = some source := by
+  calc
+    _ = some readSource.typed := rfl
+    _ = _ := congrArg some (Native.recognized_eq recognizes_source).symm
+
+private theorem recognizes_nested_unused_binders :
+    Native.recognizeRouterUnits Internal twicePaddedCFG = some readSource := rfl
+
+private theorem rejects_use_of_outer_unit :
+    Native.propose (X := U) Internal External usesOuterUnit.val = some readSource ∧
+      Native.routerUnitDepth usesOuterUnit.val 0 = 2 ∧
+      Native.recognizeRouterUnits Internal usesOuterUnit = none :=
+  ⟨rfl, rfl, rfl⟩
+
 private abbrev code (p : Packet Internal) (s : State) := codes.invocation.symm (p, s)
 private abbrev table := readSource.blocks.generate codes primitive
 private abbrev env := emptyBindings.push uval
@@ -218,26 +251,26 @@ private theorem rejected_refinement : ¬ ∀ s, observed source s ≤ observed t
   rw [rejects_distinct_native_entry] at checked
   cases checked
 
-private theorem normalized_all_states (s : State) : observed paddedCFG s = observed source s :=
-  Native.normalizeRouterUnits_denote padded_has_normal_form (model primitive env) s
+private theorem normalized_all_states (s : State) : observed twicePaddedCFG s = observed source s :=
+  Native.normalizeRouterUnits_denote twice_padded_has_normal_form (model primitive env) s
 
 private theorem normalized_exit_after_backedge :
-    observed paddedCFG 0 = WithTop.some {Outcome.ret 0 .unit (2 : State)} :=
-  (Native.classify_recognizedRouterUnits recognizes_unused_binder codes primitive 0 0).trans rfl
+    observed twicePaddedCFG 0 = WithTop.some {Outcome.ret 0 .unit (2 : State)} :=
+  (Native.classify_recognizedRouterUnits recognizes_nested_unused_binders codes primitive 0 0).trans rfl
 
 private theorem normalized_replay :
-    observed paddedCFG 3 = WithTop.some ({Outcome.diverge} : Set (Outcome 2 Unit State)) :=
+    observed twicePaddedCFG 3 = WithTop.some ({Outcome.diverge} : Set (Outcome 2 Unit State)) :=
   (normalized_all_states 3).trans silent_replay
 
 private theorem normalized_fault :
-    observed paddedCFG 4 = WithTop.some {Outcome.fault (5 : State)} :=
+    observed twicePaddedCFG 4 = WithTop.some {Outcome.fault (5 : State)} :=
   (normalized_all_states 4).trans fault_state
 
 private theorem normalized_primitive_divergence :
-    observed paddedCFG 5 = WithTop.some ({Outcome.diverge} : Set (Outcome 2 Unit State)) :=
+    observed twicePaddedCFG 5 = WithTop.some ({Outcome.diverge} : Set (Outcome 2 Unit State)) :=
   (normalized_all_states 5).trans in_step_divergence
 
-private theorem normalized_replay_is_ordinary : observed paddedCFG 3 ≠ ⊤ := by
+private theorem normalized_replay_is_ordinary : observed twicePaddedCFG 3 ≠ ⊤ := by
   rw [normalized_replay]
   exact WithTop.coe_ne_top
 
@@ -245,24 +278,24 @@ private def ubAtFirst (i : Fin External.length) : Region Instr (External.get i :
   if i = 0 then .ub else .native ⟨.br 0 .unit, .br (ℓ := 0) rfl .unit⟩
 
 private theorem normalized_return_reaches_overlay_ub :
-    Shape.denote (.lsubst (.native paddedCFG) ubAtFirst) (model primitive env) 0 = ⊤ := by
-  change Behaviour.bind (observed paddedCFG 0) _ = ⊤
+    Shape.denote (.lsubst (.native twicePaddedCFG) ubAtFirst) (model primitive env) 0 = ⊤ := by
+  change Behaviour.bind (observed twicePaddedCFG 0) _ = ⊤
   apply Behaviour.bind_eq_top_of_reaches_top (i := (0 : Fin 2)) (a := .unit) (s := (2 : State))
   · rw [normalized_exit_after_backedge]
     simp [Behaviour.possible]
   · rfl
 
 private theorem normalized_replay_skips_overlay_ub :
-    Shape.denote (.lsubst (.native paddedCFG) ubAtFirst) (model primitive env) 3 =
+    Shape.denote (.lsubst (.native twicePaddedCFG) ubAtFirst) (model primitive env) 3 =
       WithTop.some ({Outcome.diverge} : Set (Outcome 1 Unit State)) := by
-  change Behaviour.bind (observed paddedCFG 3) _ = _
+  change Behaviour.bind (observed twicePaddedCFG 3) _ = _
   rw [normalized_replay]
   exact Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.Syntax.diverge_bind _
 
-private theorem normalized_rejects_distinct_entry : ¬ ∀ s, observed paddedCFG s ≤ observed target s := by
+private theorem normalized_rejects_distinct_entry : ¬ ∀ s, observed twicePaddedCFG s ≤ observed target s := by
   intro ordered
   have checked :=
-    (Native.check_recognizedRouterUnits_iff recognizes_unused_binder recognizes_other_entry codes primitive).mpr
+    (Native.check_recognizedRouterUnits_iff recognizes_nested_unused_binders recognizes_other_entry codes primitive).mpr
       (fun _ s => ordered s)
   rw [rejects_distinct_native_entry] at checked
   cases checked
@@ -289,6 +322,10 @@ private theorem normalized_rejects_distinct_entry : ¬ ∀ s, observed paddedCFG
 #print axioms Native.check_recognizedRouterUnits_iff
 #print axioms recognizes_unused_binder
 #print axioms rejects_use_of_bound_unit
+#print axioms counts_two_binders
+#print axioms twice_padded_has_normal_form
+#print axioms recognizes_nested_unused_binders
+#print axioms rejects_use_of_outer_unit
 #print axioms normalized_exit_after_backedge
 #print axioms normalized_replay
 #print axioms normalized_fault
