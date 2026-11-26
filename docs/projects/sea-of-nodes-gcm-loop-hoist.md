@@ -8,7 +8,7 @@ operation into that CFG's existing preheader.
 [PLDI ’95 paper][paper] · [Archived PDF][pdf] · [Loop ranking][forest] ·
 [Existing lowering][lower]
 
-## Admission and motion
+## First header binding
 
 The source has a preheader, one header with a self-backedge, and an exit. The
 pass inspects the first typed binding in the emitted header. Its operands refer
@@ -32,6 +32,38 @@ argument. The new header parameter occupies the old producer's lexical
 position, so the remaining header bindings read the same values. The false
 transfer sends the same result argument to the existing exit. [Definitions][defs]
 
+## Nominated header binding
+
+`pickBindingAndHoist?` takes a zero-based index into the same lowered header.
+The traversal records where each typed variable comes from. At entry to the
+header, the latch is local and the remaining variables are captured function
+inputs. Each earlier binding extends the map with its own definition cut and
+shifts all existing names. The ranker sees a local operand at its exact cut
+and the selected binding's uses at their actual cuts and successor occurrences.
+
+A nominated binding is movable when its operands read the immutable inputs
+directly and the ranker chooses preheader cut zero. The rewrite copies the
+earlier bindings in their original order, shifts their references to the new
+scope, then substitutes the saved header argument for the selected binding.
+The lowering's existing typed block and edge representations carry the result
+through entry and feedback. [Definitions][defs]
+
+`pickBindingAndHoist?_placement` certifies the nominated cut.
+`pickBindingAndHoist?_routes` proves exact entry, feedback, and exit transfers
+with the saved result computed from the captured operands. The proof matches
+each earlier operation's typed operand values before substituting for the
+nominated result. `pickBindingAndHoist?_run_eq`, `pickBindingAndHoist?_budget`,
+and `pickBindingAndHoist?_returns_iff` carry these transfers through CF fuel,
+native backedge budgets, and finite returns. [Theorem header][thms]
+
+The later-binding regression moves the third binding past a latch-dependent
+producer and a second producer that uses its result. Both earlier bindings
+participate in the feedback calculation. The saved result remains `2` as the
+latch advances `3 → 7 → 11`. Both CFGs agree at zero and two backedges. When the
+third binding takes the second binding's result as an operand, the checker
+reports header cut two as the operand site and rejects the preheader.
+[Regression][regression]
+
 ## Proofs and scope
 
 - `pickAndHoist?_placement` establishes that the pass used the legal
@@ -46,11 +78,13 @@ transfer sends the same result argument to the existing exit. [Definitions][defs
   correspondence. [Theorem header][thms]
 
 The profile uses the existing one-word latch and one-word return lowering.
-The moved operation is the first header binding and has the total, pure
-interpretation of the existing scalar arithmetic and comparison dialect.
-The pass uses the source CFG's supplied sound dominator certificate.
-General loop motion, moving later dependent bindings, and operations with
-effects or faults are outside the profile. [Existing lowering][lower]
+The moved operation has the total, pure interpretation of the existing
+scalar arithmetic and comparison dialect. The pass uses the source CFG's
+supplied sound dominator certificate. It moves a single producer with direct
+captured operands. Earlier local results are rejected, including a local
+result that could be invariant under a separate dependency analysis. Moving
+closed dependency slices and operations with effects or faults is outside
+the profile. [Existing lowering][lower]
 
 The regression uses a nonempty preheader and tests zero and two backedges.
 Two feedback transfers keep the saved value at `2` as the latch advances
