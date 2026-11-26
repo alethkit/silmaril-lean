@@ -75,15 +75,15 @@ def BranchPlacement.check (d : Descriptor g) (depth : Fin 1 → Nat) (branch sha
 
 /-- Synthesize and check a primitive-only slice from an available scope. -/
 def primitiveSchedule (scope : Tuple (Ref g.sort) vars) (roots : Tuple (Ref g.sort) outs) :
-    Option (Schedule g roots scope) := do
+    Option (Schedule g true roots scope) := do
   let some order := scopedOrder g scope roots | none
-  Schedule.check g roots order scope
+  Schedule.check g roots order scope true
 
 /-- Bind the flag and shared computation before branching. Each arm
 returns the selected value plus the inherited scope, so the join keeps
 one φ slot and the same old store until the terminal update projection. -/
 def BranchPlacement.schedule {d : Descriptor g} {depth : Fin 1 → Nat} {branch shared : Fin n}
-    (site : BranchPlacement d depth branch shared) : Option (Schedule g d.next d.theta) := do
+    (site : BranchPlacement d depth branch shared) : Option (Schedule g true d.next d.theta) := do
   let sharedRef := Ref.ofId g.sort shared
   let some order := scopedOrder g d.theta (.cons site.flag (.cons sharedRef .nil)) | none
   Schedule.checkThen g d.next (fun scope => do
@@ -93,12 +93,12 @@ def BranchPlacement.schedule {d : Descriptor g} {depth : Fin 1 → Nat} {branch 
       let yes ← primitiveSchedule scope (.cons site.yes scope)
       let no ← primitiveSchedule scope (.cons site.no scope)
       let tail ← primitiveSchedule (.cons (Ref.ofId g.sort branch) scope) d.next
-      return .branch branch site.flag site.yes site.no fresh site.row test.val test.property
+      return .branch rfl branch site.flag site.yes site.no fresh site.row test.val test.property
         yes no tail
     else none) order d.theta
 
 structure Accepted (g : Graph P carried [result] n 1) (branch shared : Fin n) where
-  region : Certificate g
+  region : Certificate g false true
   admission : Figure19.Admission g .inward
   placement : BranchPlacement region.descriptor admission.depth branch shared
   scheduled : placement.schedule = some region.update

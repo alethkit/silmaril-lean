@@ -125,7 +125,7 @@ private theorem eval_reads {sort : Fin n → Ty Data} {scope : Tuple (Ref sort) 
     rfl
 
 private theorem slice_eval {roots : Tuple (Ref g.sort) outs} {scope : Tuple (Ref g.sort) vars}
-    {results : List (ValuePort Data)} (schedule : Schedule g roots scope)
+    {results : List (ValuePort Data)} (schedule : Schedule g false roots scope)
     (layout : Scope carried vars past) (entry : Tuple m.toPEG.Value carried)
     (locals : Locals (model m).Val past) (store : Tuple m.toPEG.Value vars)
     (agree : Agrees m layout entry locals store)
@@ -157,6 +157,7 @@ private theorem slice_eval {roots : Tuple (Ref g.sort) outs} {scope : Tuple (Ref
       push_agrees m (t := g.sort i) layout entry locals store agree value
     obtain ⟨values, ran, denoted⟩ :=
       ih layout.push (locals.snoc (.cons value .nil)) (.cons value store) (fun p => agrees p)
+        finish denote finish_ok
     refine ⟨values, ?_, ?_⟩
     · change (((Simple.Args.eval m.toPEG store reads.args).elim none (m.toPEG.run op)).map
         (fun x => Tuple.cons (F := m.toPEG.Value) x store)).bind (tail.lower.runLoopFree m.toPEG) = _
@@ -167,6 +168,7 @@ private theorem slice_eval {roots : Tuple (Ref g.sort) outs} {scope : Tuple (Ref
           ((wires layout reads.slots).read (encode m entry) locals))) = _
       rw [prim]
       exact denoted
+  | branch enabled => nomatch enabled
 
 /-- Both schedules succeed on every defined old store under the total primitive model. -/
 theorem schedules_total (cert : Certificate g allowInvariant) : cert.Total m.toPEG := by

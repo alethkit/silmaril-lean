@@ -67,8 +67,8 @@ private theorem projections {scope : Tuple (Ref g.sort) vars} {refs : Tuple (Ref
     | head => exact wired ▸ entry _ p
     | tail q => exact ih _ q
 
-theorem schedule {roots : Tuple (Ref g.sort) outs} {scope : Tuple (Ref g.sort) vars}
-    (code : Schedule g roots scope) (solves : g.Solves m env values) {idx : Index 1}
+theorem schedule {allowBranch : Bool} {roots : Tuple (Ref g.sort) outs} {scope : Tuple (Ref g.sort) vars}
+    (code : Schedule g allowBranch roots scope) (solves : g.Solves m env values) {idx : Index 1}
     {store : Tuple m.Value vars} {final : Tuple m.Value outs}
     (entry : Realizes values idx scope store) (ran : code.lower.runLoopFree m store = some final) :
     Realizes values idx roots final := by
@@ -98,7 +98,7 @@ theorem schedule {roots : Tuple (Ref g.sort) outs} {scope : Tuple (Ref g.sort) v
       cases p with
       | head => exact step.trans h
       | tail p => exact entry _ p
-  | branch vertex flag yes no _ wired test available trueArm falseArm tail ihYes ihNo ihTail =>
+  | branch _ vertex flag yes no _ wired test available trueArm falseArm tail ihYes ihNo ihTail =>
     have step := row solves idx (Ref.ofId g.sort vertex)
     let rhs (node : Node P carried (Fin 1) g.sort (g.sort vertex)) :=
       node.label.interpret m env idx fun slot j _ => read values j (node.arg slot)
@@ -135,8 +135,8 @@ theorem schedule {roots : Tuple (Ref g.sort) outs} {scope : Tuple (Ref g.sort) v
         | head => exact step.trans (arm _ .head)
         | tail p => exact arm _ (.tail p)
 
-variable {allowInvariant : Bool}
-variable (cert : Certificate g allowInvariant)
+variable {allowInvariant allowBranch : Bool}
+variable (cert : Certificate g allowInvariant allowBranch)
 
 private theorem parameter (solves : g.Solves m env values) (i : Index 1) (p : Port carried t) :
     read values i (cert.descriptor.initial.get p) = some (env.get p) := by
@@ -179,7 +179,7 @@ theorem exitFlag (solves : g.Solves m env values)
   simp only [collect, portAt, Fin.cases_zero, Tuple.get, guard]
   exact neg b
 
-def flags (cert : Certificate g allowInvariant) (values : g.Valuation m) (k : Nat) : Option Bool :=
+def flags (cert : Certificate g allowInvariant allowBranch) (values : g.Valuation m) (k : Nat) : Option Bool :=
   (read values (clock k) cert.descriptor.negated).map ULift.down
 
 theorem pass (solves : g.Solves m env values) (i : Index 1) :
@@ -190,7 +190,7 @@ theorem pass (solves : g.Solves m env values) (i : Index 1) :
   simp only [setClock]
   rfl
 
-def samples (cert : Certificate g allowInvariant) (values : g.Valuation m) (k : Nat) : Option (m.Value result) :=
+def samples (cert : Certificate g allowInvariant allowBranch) (values : g.Valuation m) (k : Nat) : Option (m.Value result) :=
   read values (clock k) (cert.descriptor.theta.get cert.descriptor.returnSlot)
 
 theorem observation (solves : g.Solves m env values) (i : Index 1) :

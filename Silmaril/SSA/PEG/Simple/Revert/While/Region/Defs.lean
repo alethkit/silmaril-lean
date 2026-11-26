@@ -95,38 +95,39 @@ def Reads.args {scope : Tuple (Ref sort) vars} :
   | _, _, .cons p _ tail => .cons (.var p) tail.args
 
 /-- Every binding extends the scope. Only the terminal projection commits
-the ordered outputs, so old θ slots remain available throughout a slice. -/
-inductive Schedule (g : Graph P carried [result] n l) :
+the ordered outputs, so old θ slots remain available throughout a slice.
+The branch flag lets primitive-only consumers rule out the φ case. -/
+inductive Schedule (g : Graph P carried [result] n l) (allowBranch : Bool) :
     {outs : List (Ty Data)} → Tuple (Ref g.sort) outs →
     {vars : List (Ty Data)} → Tuple (Ref g.sort) vars → Type (max u v) where
   | done {outs : List (Ty Data)} {roots : Tuple (Ref g.sort) outs}
       {vars : List (Ty Data)} {scope : Tuple (Ref g.sort) vars} (reads : Reads scope roots) :
-      Schedule g roots scope
+      Schedule g allowBranch roots scope
   | bind {outs : List (Ty Data)} {roots : Tuple (Ref g.sort) outs}
       {vars : List (Ty Data)} {scope : Tuple (Ref g.sort) vars} {ins : List (Ty Data)}
       (i : Fin n) (instr : P ins (g.sort i)) (refs : Tuple (Ref g.sort) ins)
       (fresh : i.val ∉ refNumbers scope)
       (row : g.node i = Node.ofLabel (.op instr) refs)
       (reads : Reads scope refs)
-      (tail : Schedule g roots (.cons (Ref.ofId g.sort i) scope)) :
-      Schedule g roots scope
+      (tail : Schedule g allowBranch roots (.cons (Ref.ofId g.sort i) scope)) :
+      Schedule g allowBranch roots scope
   | branch {outs : List (Ty Data)} {roots : Tuple (Ref g.sort) outs}
       {vars : List (Ty Data)} {scope : Tuple (Ref g.sort) vars}
-      (i : Fin n) (flag : Ref g.sort .bool) (yes no : Ref g.sort (g.sort i))
+      (enabled : allowBranch = true) (i : Fin n) (flag : Ref g.sort .bool) (yes no : Ref g.sort (g.sort i))
       (fresh : i.val ∉ refNumbers scope)
       (row : g.node i = Node.ofLabel .phi (.cons flag (.cons yes (.cons no .nil))))
       (test : Port vars .bool) (wired : scope.get test = flag)
-      (trueArm : Schedule g (.cons yes scope) scope)
-      (falseArm : Schedule g (.cons no scope) scope)
-      (tail : Schedule g roots (.cons (Ref.ofId g.sort i) scope)) :
-      Schedule g roots scope
+      (trueArm : Schedule g allowBranch (.cons yes scope) scope)
+      (falseArm : Schedule g allowBranch (.cons no scope) scope)
+      (tail : Schedule g allowBranch roots (.cons (Ref.ofId g.sort i) scope)) :
+      Schedule g allowBranch roots scope
 
 /-- Check a primitive prefix, and construct its continuation in the resulting scope. -/
-def Schedule.checkThen (g : Graph P carried [result] n l) (roots : Tuple (Ref g.sort) outs)
+def Schedule.checkThen (g : Graph P carried [result] n l) {allowBranch : Bool} (roots : Tuple (Ref g.sort) outs)
     (finish : ∀ {vars : List (Ty Data)} (scope : Tuple (Ref g.sort) vars),
-      Option (Schedule g roots scope)) :
+      Option (Schedule g allowBranch roots scope)) :
     (order : List (Fin n)) → {vars : List (Ty Data)} → (scope : Tuple (Ref g.sort) vars) →
-    Option (Schedule g roots scope)
+    Option (Schedule g allowBranch roots scope)
   | [], _, scope => finish scope
   | i :: rest, _, scope =>
     if fresh : i.val ∉ refNumbers scope then
@@ -141,16 +142,17 @@ def Schedule.checkThen (g : Graph P carried [result] n l) (roots : Tuple (Ref g.
     else none
 
 def Schedule.check (g : Graph P carried [result] n l) (roots : Tuple (Ref g.sort) outs)
-    (order : List (Fin n)) (scope : Tuple (Ref g.sort) vars) : Option (Schedule g roots scope) :=
+    (order : List (Fin n)) (scope : Tuple (Ref g.sort) vars)
+    (allowBranch : Bool := false) : Option (Schedule g allowBranch roots scope) :=
   checkThen g roots (fun scope => (Reads.check scope roots).map .done) order scope
 
-def Schedule.lower {g : Graph P carried [result] n l} :
+def Schedule.lower {g : Graph P carried [result] n l} {allowBranch : Bool} :
     {outs : List (Ty Data)} → {roots : Tuple (Ref g.sort) outs} →
     {vars : List (Ty Data)} → {scope : Tuple (Ref g.sort) vars} →
-    Schedule g roots scope → Stmt P false vars outs
+    Schedule g allowBranch roots scope → Stmt P false vars outs
   | _, _, _, _, .done reads => .project reads.slots
   | _, _, _, _, .bind _ instr _ _ _ reads tail => .seq (.assign (.op instr reads.args)) tail.lower
-  | _, _, _, _, .branch _ _ _ _ _ _ test _ yes no tail =>
+  | _, _, _, _, .branch _ _ _ _ _ _ _ test _ yes no tail =>
     .seq (.branch (.var test) yes.lower no.lower) tail.lower
 
 /-- Untrusted row references for a loop boundary. Each carried position
@@ -205,13 +207,14 @@ theorem Boundary.slotCases {d : Descriptor g} {allowInvariant : Bool}
   · exact .inl (b.thetaRow _ p)
   · exact b.thetaRow _ p
 
-structure Certificate (g : Graph P carried [result] n 1) (allowInvariant : Bool := false) where
+structure Certificate (g : Graph P carried [result] n 1) (allowInvariant : Bool := false)
+    (allowBranch : Bool := false) where
   descriptor : Descriptor g
   boundary : Boundary g descriptor allowInvariant
   rank : DemandRank n 1
   ranked : rank.check g = true
-  guard : Schedule g descriptor.guardRoots descriptor.theta
-  update : Schedule g descriptor.next descriptor.theta
+  guard : Schedule g allowBranch descriptor.guardRoots descriptor.theta
+  update : Schedule g allowBranch descriptor.next descriptor.theta
 
 def allPorts : (vars : List (Ty Data)) →
     (F : ∀ {t}, Port vars t → Prop) → (∀ t p, Decidable (@F t p)) →
@@ -320,24 +323,24 @@ def checkScheduled [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
     Option (Certificate g) :=
   (checkScheduledWith g d rank false).map Subtype.val
 
-variable {allowInvariant : Bool}
+variable {allowInvariant allowBranch : Bool}
 
 /-- The loop store caches the continuation guard with the carried vector.
 The preheader computes it once, and each successful step prepares the guard
 for the next iteration. Temporaries in each slice are projected away. -/
-def Certificate.body (cert : Certificate g allowInvariant) :
+def Certificate.body (cert : Certificate g allowInvariant allowBranch) :
     Stmt P false (.bool :: carried) (.bool :: carried) :=
   .seq (.project ((ports carried).map fun _ p => .tail p))
     (.seq cert.update.lower cert.guard.lower)
 
-def Certificate.revert (cert : Certificate g allowInvariant) : Program P true carried result :=
+def Certificate.revert (cert : Certificate g allowInvariant allowBranch) : Program P true carried result :=
   ⟨.bool :: carried,
     .seq cert.guard.lower.enableWhile (.while rfl (.var .head) cert.body.enableWhile),
     .tail cert.descriptor.returnSlot⟩
 
 /-- A finite exit in both semantics. The first-pass count is the trace
 length, and every earlier sample of the observed θ is defined. -/
-structure Certificate.ExitWitness (cert : Certificate g allowInvariant) (m : Interpretation.{u,v,w} P)
+structure Certificate.ExitWitness (cert : Certificate g allowInvariant allowBranch) (m : Interpretation.{u,v,w} P)
     (values : g.Valuation m) (idx : Index 1) (k : Nat)
     (start final : Tuple m.Value (.bool :: carried)) (value : m.Value result) : Prop where
   trace : WhileTrace m (.var .head) cert.body.enableWhile k start final
@@ -350,11 +353,11 @@ structure Certificate.ExitWitness (cert : Certificate g allowInvariant) (m : Int
 
 /-- The guard schedule and the entire update vector must succeed on every
 defined old store. The interpretation makes the operations pure. -/
-structure Certificate.Total (cert : Certificate g allowInvariant) (m : Interpretation.{u,v,w} P) : Prop where
+structure Certificate.Total (cert : Certificate g allowInvariant allowBranch) (m : Interpretation.{u,v,w} P) : Prop where
   guard : ∀ store, ∃ tagged, cert.guard.lower.runLoopFree m store = some tagged
   update : ∀ store, ∃ next, cert.update.lower.runLoopFree m store = some next
 
-def Certificate.runFrom (cert : Certificate g allowInvariant) (m : Interpretation.{u,v,w} P) :
+def Certificate.runFrom (cert : Certificate g allowInvariant allowBranch) (m : Interpretation.{u,v,w} P) :
     Nat → Tuple m.Value (.bool :: carried) → Option (m.Value result)
   | fuel, .cons flag store =>
     if flag.down then
@@ -365,7 +368,7 @@ def Certificate.runFrom (cert : Certificate g allowInvariant) (m : Interpretatio
 termination_by structural fuel _ => fuel
 
 /-- Run the emitted structured program with a bound on successful body steps. -/
-def Certificate.runFuel (cert : Certificate g allowInvariant) (m : Interpretation.{u,v,w} P)
+def Certificate.runFuel (cert : Certificate g allowInvariant allowBranch) (m : Interpretation.{u,v,w} P)
     (fuel : Nat) (input : Tuple m.Value carried) : Option (m.Value result) :=
   (cert.guard.lower.runLoopFree m input).bind (cert.runFrom m fuel)
 
