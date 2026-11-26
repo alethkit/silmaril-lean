@@ -17,12 +17,13 @@ variable {Data : Type u} {P : InstructionSet.{u,v} Data}
 variable {carried : List (Ty Data)} {result : Ty Data} {n : Nat}
 variable {g : Graph P carried [result] n 1} {m : Interpretation.{u,v,w} P}
 variable {env : Tuple m.Value carried} {values : g.Valuation m}
-variable (cert : Certificate g)
+variable {allowInvariant : Bool}
+variable (cert : Certificate g allowInvariant)
 
 abbrev Tagged (m : Interpretation.{u,v,w} P) (carried : List (Ty Data)) :=
   Tuple m.Value (.bool :: carried)
 
-abbrev Trace (cert : Certificate g) (m : Interpretation.{u,v,w} P) :=
+abbrev Trace (cert : Certificate g allowInvariant) (m : Interpretation.{u,v,w} P) :=
   WhileTrace m (.var .head) cert.body.enableWhile
 
 private abbrev At (k : Nat) (tagged : Tagged m carried) :=

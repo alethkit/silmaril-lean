@@ -42,15 +42,19 @@ def tryRewrite (g : Graph P params [result] (n + 1) 1) (site : Fin (n + 1)) :
   let replay ← matched.replay rank
   return ⟨site, matched, rank, replay⟩
 
-structure Accepted (g : Graph P params [result] (n + 1) 1) where
+def findRewrite (g : Graph P params [result] (n + 1) 1) : Option (Rewrite g) :=
+  (List.finRange (n + 1)).findSome? (tryRewrite g)
+
+structure Accepted (g : Graph P params [result] (n + 1) 1) (allowInvariant : Bool := false) where
   sourceRank : DemandRank (n + 1) 1
   sourceRanked : sourceRank.check g = true
   rewrite : Rewrite g
-  reversion : Region.Certificate rewrite.matched.extract
+  reversion : Region.Certificate rewrite.matched.extract allowInvariant
 
 variable {g : Graph P params [result] (n + 1) 1}
 
-def Accepted.output (accepted : Accepted g) : PEG.Simple.Program P true params result :=
+def Accepted.output {allowInvariant : Bool} (accepted : Accepted g allowInvariant) :
+    PEG.Simple.Program P true params result :=
   accepted.reversion.revert
 
 /-- Discover the first candidate with successful replay, then infer and
@@ -59,7 +63,7 @@ def optimize [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
     (g : Graph P params [result] (n + 1) 1) : Except Rejection (Accepted g) := do
   let rank := Region.Automatic.inferDemandRank g
   if ranked : rank.check g = true then
-    let some rewrite := (List.finRange (n + 1)).findSome? (tryRewrite g)
+    let some rewrite := findRewrite g
       | .error .noCheckedRewrite
     let some reversion := Region.Automatic.extract rewrite.matched.extract
       | .error .reversion

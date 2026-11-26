@@ -1,10 +1,10 @@
 module
 
 import Silmaril.SSA.Peggy.SimpleValidation.Thms
-import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Thms
+import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Thms
 import Silmaril.SSA.PEG.Thms
 meta import Silmaril.SSA.Peggy.SimpleValidation.Defs
-meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Defs
+meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Defs
 meta import Silmaril.SSA.PEG.Defs
 
 namespace Silmaril.SSA.Peggy.SimpleValidation.Tests
@@ -309,3 +309,118 @@ example (a : Accepted (graph .constant)) (total : a.reversion.Total model)
   (a.returns_iff_observe model (store 5) total neg i ⟨2⟩).mpr (inputObserve i)
 
 end Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Tests
+
+namespace Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Tests
+
+open PEG PEG.Simple
+open PEG.Simple.Revert.While
+open RVSDG (Tuple)
+
+private inductive Op : InstructionSet Unit where
+  | sub : Op [.count, .count] .count
+  | aboveTwo : Op [.count] .bool
+  | not : Op [.bool] .bool
+  deriving DecidableEq
+
+private def model : Interpretation Op where
+  carrier _ := Unit
+  run
+    | .sub, .cons n (.cons k .nil) => some ⟨n.down - k.down⟩
+    | .aboveTwo, .cons n .nil => some ⟨decide (n.down > 2)⟩
+    | .not, .cons b .nil => some ⟨!b.down⟩
+
+private abbrev slots : List (Ty Unit) := [.count, .count]
+
+private def store (n step : Nat) : Tuple model.Value slots :=
+  .cons ⟨n⟩ (.cons ⟨step⟩ .nil)
+
+-- Step is a real input and is used by the live subtraction. The
+-- source projection passes it through unchanged when requested.
+private def program (keepStep : Bool) : WhileProgram Op slots .count where
+  guard := .op .aboveTwo (.cons (.var .head) .nil)
+  body :=
+    .seq (.assign (.op .sub (.cons (.var .head) (.cons (.var (.tail .head)) .nil))))
+      (.project (.cons .head (.cons (if keepStep then .tail (.tail .head) else .head) .nil)))
+  retvar := .head
+
+private def run : Option (Nat × List Nat × List Nat × Nat) := do
+  let a ← (Source.optimize (program true) .not).toOption
+  let rewrite := a.cyclic.rewrite
+  let source := (program true).translate .not
+  let target := rewrite.matched.extract
+  let value ← a.cyclic.reversion.runFuel model 3 (store 8 2)
+  return (rewrite.site.val, refNumbers (source.node ⟨3, by decide⟩).args,
+    refNumbers (target.node ⟨3, by decide⟩).args, value.down)
+
+-- The compiled step θ is removed. The decrement now reads its
+-- parameter at row 7 while the counting recurrence stays live.
+/-- info: some (6, [5, 6], [5, 7], 2) -/
+#guard_msgs in
+#eval run
+
+-- When the selected return is the eliminated slot, eval still
+-- samples the parameter at the same loop's first pass.
+/-- info: some 3 -/
+#guard_msgs in
+#eval
+  let p : WhileProgram Op slots .count := { program true with retvar := .tail .head }
+  ((Source.optimize p .not).toOption.bind fun a =>
+    a.cyclic.reversion.runFuel model 2 (store 8 3)).map ULift.down
+
+#guard
+  match Source.optimize (program false) .not with
+  | .error reason => reason == .noCheckedRewrite
+  | .ok _ => false
+
+-- A well-typed next value from the other slot cannot be presented
+-- as the eliminated slot's invariant update.
+#guard
+  match Source.optimize (program true) .not with
+  | .error _ => false
+  | .ok a =>
+    let d := a.cyclic.reversion.descriptor
+    let bad := { d with next := .cons (d.next.get .head) (.cons (d.theta.get .head) .nil) }
+    (Region.checkScheduledWith a.cyclic.rewrite.matched.extract bad a.cyclic.rewrite.targetRank true).isNone
+
+private theorem sourceReturns : (program true).source.Returns model (store 8 2) ⟨2⟩ := by
+  have step (n : Nat) : Exec model (program true).body.enableWhile (store n 2)
+      (some (store (n - 2) 2)) :=
+    (program true).body.runLoopFree_enableWhile (store n 2)
+  exact ⟨store 2 2, .whileStep (next := store 6 2) rfl (step 8)
+    (.whileStep (next := store 4 2) rfl (step 6)
+      (.whileStep (next := store 2 2) rfl (step 4) (.whileStop rfl))), rfl⟩
+
+private theorem primitiveTotal : {args : List (Ty Unit)} → {t : Ty Unit} →
+    (op : Op args t) → (input : Tuple model.Value args) → ∃ out, model.run op input = some out
+  | _, _, .sub, .cons _ (.cons _ .nil) => ⟨_, rfl⟩
+  | _, _, .aboveTwo, .cons _ .nil => ⟨_, rfl⟩
+  | _, _, .not, .cons _ .nil => ⟨_, rfl⟩
+
+private theorem readsTotal {n : Nat} {sort : Fin n → Ty Unit} {vars args : List (Ty Unit)}
+    {scope : Tuple (Ref sort) vars} {refs : Tuple (Ref sort) args}
+    (reads : Region.Reads scope refs) (input : Tuple model.Value vars) :
+    ∃ out, reads.args.eval model input = some out := by
+  induction reads with
+  | nil => exact ⟨.nil, rfl⟩
+  | cons p _ _ ih =>
+    obtain ⟨tail, evaluated⟩ := ih
+    exact ⟨.cons (input.get p) tail, by simp [Region.Reads.args, Args.eval, Expr.evalLift, evaluated]⟩
+
+private theorem scheduleTotal {n : Nat} {g : Graph Op slots [.count] n 1}
+    {outs vars : List (Ty Unit)} {roots : Tuple (Ref g.sort) outs} {scope : Tuple (Ref g.sort) vars}
+    (schedule : Region.Schedule g roots scope) (input : Tuple model.Value vars) :
+    ∃ out, schedule.lower.runLoopFree model input = some out := by
+  induction schedule with
+  | done _ => exact ⟨_, rfl⟩
+  | bind _ op _ _ _ reads _ ih =>
+    obtain ⟨args, argsEval⟩ := readsTotal reads input
+    obtain ⟨value, opEval⟩ := primitiveTotal op args
+    obtain ⟨out, bodyEval⟩ := ih (.cons value input)
+    exact ⟨out, by simp [Region.Schedule.lower, Stmt.runLoopFree, Expr.eval, Expr.evalLift,
+      argsEval, opEval, bodyEval]⟩
+
+example (a : Source.Accepted (program true) Op.not) : a.output.Returns model (store 8 2) ⟨2⟩ :=
+  a.returns model (store 8 2) ⟨scheduleTotal a.cyclic.reversion.guard,
+    scheduleTotal a.cyclic.reversion.update⟩ (fun _ => rfl) sourceReturns
+
+end Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Tests
