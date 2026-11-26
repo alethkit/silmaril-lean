@@ -119,11 +119,48 @@ require a syntactic associativity law for checked splice and origin
 relocation. The existing splice law gives denotational composition.
 [Normalization API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/Normalization/Thms.lean)
 
+## Two levels of feedback
+
+`NestedFeedback.lower` is a separate forward entry point for a flat
+two-block region with an outer header of type `A`, an inner header of type
+`B`, and one typed external label of type `D`. The outer block applies
+`A → B` and jumps to the inner block. The inner block applies
+`B → K ⊕ B` and either restarts itself or sends the completed `K` to a
+`K → D ⊕ A` decision within that block. The decision exits at the external
+label or restarts the outer block. The three arrows are existing typed
+LambdaSSA instructions. The loop nesting is determined by this source
+witness, with no general cycle recognition step.
+
+The numbered outer θ contains the entry instruction, the inner θ, and
+the final decision instruction. The inner θ receives the entry
+instruction's live token, and the final decision reads both outputs of
+the inner θ. Each restart uses the activation's returned token.
+Coproduct carriers encode the different entry and exit payload types,
+and the θ tag selects exit or restart. The shared partial instruction
+model performs one source instruction per primitive. The constructor
+`Related.generated` supplies the source typing and existing single-live-token
+admission for the emitted graph.
+
+`denote_rounds` derives nested iteration from actual flat
+`Region.denote` in a coherent monadic Elgot model using codiagonal,
+naturality and pure uniformity. In `StateT σ Part`, every relation witness
+preserves and reflects finite graph returns at the typed external label,
+including the exact final token. The undefinedness theorem compares
+absence of a finite return. The fixture follows an inner restart in each
+outer activation and an outer restart, then reads the token into the
+returned payload. A second input stays in the inner loop and has no
+finite derivation. The entry point covers this one nested shape. The
+structured reverse recognizer and arbitrary flat CFG recovery are
+outside its scope.
+[Nested feedback API](../../Silmaril/SSA/RVSDG/LambdaSSA/NestedFeedback/Thms.lean)
+
 ## Reproduce
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression'
 lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Thms
 ```
 
 ## Sources
