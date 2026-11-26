@@ -6,11 +6,15 @@ import Silmaril.Proofs.SSA.Isotope.LetSeq.StraightLine.PureAssembly
 import Silmaril.Proofs.SSA.Isotope.LetSeq.StraightLine.ProductReflection
 import Silmaril.Proofs.SSA.Isotope.LetSeq.StraightLine.Replay
 
+import Silmaril.SSA.Isotope.LetSeq.StraightLine.Binders.Thms
+
 public section
 
 namespace Silmaril.Isotope.LetSeq.StraightLine
 
 open LocallyNameless (Derivation Equiv HasType Pure Tm)
+
+open Binders
 
 set_option backward.isDefEq.respectTransparency false
 
@@ -73,20 +77,6 @@ private theorem bind_normalizes {n : Nat} {β : BoundCtx Types n}
     have distribute := Equiv.bindLetPair (pureEff := false) request rest.derivation.toHasType dk
     exact ⟨_, .step f arg normal, distribute.trans (.let₂ (.refl request) replay)⟩
 
-private theorem open_renamed {n m : Nat} (k : Term (n + 1)) (v : Term m)
-    (ρ : Fin n → Fin m) :
-    Tm.instantiate (k.rename (Tm.up ρ)) v = k.bsubst (Fin.cases v (fun j => .bv (ρ j))) := by
-  rw [Tm.instantiate, Tm.bsubst_rename]
-  exact Tm.bsubst_congr (Fin.cases rfl (fun _ => rfl)) k
-
-private theorem rename_open_substitution {n m k : Nat} (σ : Fin n → Term m) (ρ : Fin m → Fin k)
-    (body : Term (n + 1)) :
-    (body.bsubst (Tm.upSub σ)).rename (Tm.up ρ) =
-      body.bsubst (Tm.upSub (fun i => (σ i).rename ρ)) := by
-  rw [Tm.rename_bsubst]
-  apply Tm.bsubst_congr
-  exact Fin.cases rfl (fun j => Tm.rename_lift ρ (σ j))
-
 private theorem rename_open_assembly {n m k : Nat} {source : BoundCtx Types n}
     {target : BoundCtx Types m} {γ : BoundCtx Types k}
     (σ : AssemblyEnv source target) (ρ : BoundCtx.Renaming target γ)
@@ -112,31 +102,6 @@ private theorem rename_open_pair_assembly {n m k : Nat} {source : BoundCtx Types
   refine Fin.cases rfl (fun j => ?_) j
   simp only [Tm.upSub_succ, Tm.rename_lift]
   exact congrArg Tm.lift (renamedAssembly_term ρ (σ j)).symm
-
-private theorem open_pack_continuation {n m : Nat} (body : Term (n + 2)) (v : Term m)
-    (ρ : Fin n → Fin m) :
-    Tm.instantiate ((Tm.let₂ (.bv 0) body.underTwoBinders).rename (Tm.up ρ)) v =
-      .let₂ v (body.rename (Tm.up (Tm.up ρ))) := by
-  rw [open_renamed]
-  simp only [Tm.bsubst, Fin.cases_zero, Tm.underTwoBinders, Tm.bsubst_rename]
-  congr 1
-  rw [← Tm.bsubst_bv_eq_rename]
-  exact Tm.bsubst_congr (Fin.cases rfl (Fin.cases rfl (fun _ => rfl))) body
-
-private theorem open_left_pair {n m : Nat} (b : Term n) (v : Term m) (ρ : Fin n → Fin m) :
-    Tm.instantiate ((Tm.let₁ b.lift (.pair (.bv 1) (.bv 0))).rename (Tm.up ρ)) v =
-      .let₁ (b.rename ρ) (.pair v.lift (.bv 0)) := by
-  rw [open_renamed]
-  simp only [Tm.bsubst, Tm.lift, Tm.bsubst_rename]
-  rw [← Tm.bsubst_bv_eq_rename]
-  rfl
-
-private theorem open_right_pair {n m : Nat} (a : Term n) (v : Term m) (ρ : Fin n → Fin m) :
-    Tm.instantiate ((Tm.pair a.lift (.bv 0)).rename (Tm.up ρ)) v = .pair (a.rename ρ) v := by
-  rw [open_renamed]
-  simp only [Tm.bsubst, Tm.lift, Tm.bsubst_rename]
-  rw [← Tm.bsubst_bv_eq_rename]
-  rfl
 
 private theorem request_normalizes {n : Nat} {β : BoundCtx Types n} (f : Request) (a : Assembly β Packet) :
     ProductNormalizes β (.op f a.term) Packet := by
@@ -229,7 +194,7 @@ private theorem packet_eta {t : Term 1} {A : Types} (d : Derivation Request Γ�
     kt.underBinder.underBinder
   have repack_subst : Tm.instantiate (t.rename intoBinder).underBinder.underBinder packedInput.term =
       t.bsubst splitInput.terms := by
-    rw [up_reply input, open_renamed, Tm.bsubst_rename]
+    rw [up_reply input, instantiate_renamed, Tm.bsubst_rename]
     exact Tm.bsubst_congr (Fin.cases rfl (fun i => i.elim0)) t
   rw [repack_subst] at repack
   exact enter.symm.trans (destructure.trans (commute.trans (.let₂ (.refl packet) repack)))
