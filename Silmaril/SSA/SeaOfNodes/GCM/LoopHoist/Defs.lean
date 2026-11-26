@@ -17,10 +17,10 @@ open Loop.MLIR.CF (Program TargetOp evalOp lower)
 
 abbrev SourceLabel := Loop.MLIR.CF.Label
 
-/-- The header receives the saved result first, then the original latch word. -/
-inductive Label (saved carried result : Width) : List Width → Type where
-  | header : Label saved carried result [saved, carried]
-  | exit : Label saved carried result [result]
+/-- The header receives the saved values before the original latch word. -/
+inductive Label (saved carried result : Width) (extra : List Width := []) : List Width → Type where
+  | header : Label saved carried result extra ((extra ++ [saved]) ++ [carried])
+  | exit : Label saved carried result extra [result]
 
 abbrev Output (Input : List Width) (carried result : Width) :=
   (saved : Width) × Cfg TargetOp (Label saved carried result) Input [result]
@@ -71,25 +71,47 @@ def under (rename : Rename Γ Δ) : Rename (w :: Γ) (w :: Δ)
   | _, .here => .here
   | _, .there ref => .there (rename ref)
 
-def routeEdge (rename : Rename Γ Δ) (keep : Var Δ saved) :
-    Edge (SourceLabel carried result) Γ → Edge (Label saved carried result) Δ
-  | ⟨.header, args⟩ => ⟨.header, .cons keep (For.renameOperands rename args)⟩
+def appendOperands (tail : Operands Γ args) :
+    {front : List Width} → Operands Γ front → Operands Γ (front ++ args)
+  | _, .nil => tail
+  | _, .cons head rest => .cons head (appendOperands tail rest)
+
+variable {extra : List Width}
+
+def routeEdgeWith (rename : Rename Γ Δ) (kept : Operands Δ (extra ++ [saved])) :
+    Edge (SourceLabel carried result) Γ → Edge (Label saved carried result extra) Δ
+  | ⟨.header, args⟩ => ⟨.header, appendOperands (For.renameOperands rename args) kept⟩
   | ⟨.exit, args⟩ => ⟨.exit, For.renameOperands rename args⟩
 
-def routeTerm (rename : Rename Γ Δ) (keep : Var Δ saved) :
+def routeTermWith (rename : Rename Γ Δ) (kept : Operands Δ (extra ++ [saved])) :
     Terminator (SourceLabel carried result) [result] Γ →
-      Terminator (Label saved carried result) [result] Δ
-  | .br edge => .br (routeEdge rename keep edge)
+      Terminator (Label saved carried result extra) [result] Δ
+  | .br edge => .br (routeEdgeWith rename kept edge)
   | .condBr test onTrue onFalse =>
-    .condBr (rename test) (routeEdge rename keep onTrue) (routeEdge rename keep onFalse)
+    .condBr (rename test) (routeEdgeWith rename kept onTrue) (routeEdgeWith rename kept onFalse)
   | .ret values => .ret (For.renameOperands rename values)
 
-def routeCode : {Γ Δ : List Width} → Rename Γ Δ → Var Δ saved →
+def routeCodeWith : {Γ Δ : List Width} → Rename Γ Δ → Operands Δ (extra ++ [saved]) →
     Block TargetOp (SourceLabel carried result) Γ [result] →
-      Block TargetOp (Label saved carried result) Δ [result]
-  | _, _, rename, keep, .terminator term => .terminator (routeTerm rename keep term)
-  | _, _, rename, keep, .letOp op operands rest =>
-    .letOp op (For.renameOperands rename operands) (routeCode (under rename) (.there keep) rest)
+      Block TargetOp (Label saved carried result extra) Δ [result]
+  | _, _, rename, kept, .terminator term => .terminator (routeTermWith rename kept term)
+  | _, _, rename, kept, .letOp op operands rest =>
+    .letOp op (For.renameOperands rename operands)
+      (routeCodeWith (under rename) (For.renameOperands Var.there kept) rest)
+
+def routeEdge (rename : Rename Γ Δ) (keep : Var Δ saved)
+    (edge : Edge (SourceLabel carried result) Γ) : Edge (Label saved carried result) Δ :=
+  routeEdgeWith rename (.cons keep .nil) edge
+
+def routeTerm (rename : Rename Γ Δ) (keep : Var Δ saved)
+    (term : Terminator (SourceLabel carried result) [result] Γ) :
+    Terminator (Label saved carried result) [result] Δ :=
+  routeTermWith rename (.cons keep .nil) term
+
+def routeCode (rename : Rename Γ Δ) (keep : Var Δ saved)
+    (code : Block TargetOp (SourceLabel carried result) Γ [result]) :
+    Block TargetOp (Label saved carried result) Δ [result] :=
+  routeCodeWith rename (.cons keep .nil) code
 
 def emitHeader (entry : Block TargetOp (SourceLabel carried result) Input [result])
     (op : TargetOp args saved) (captured : Operands Input args)
@@ -107,13 +129,31 @@ def emit (entry : Block TargetOp (SourceLabel carried result) Input [result])
     Cfg TargetOp (Label saved carried result) Input [result] :=
   emitHeader entry op captured (routeCode (fun ref => ref) .here rest)
 
-def carryFrame (value : BitVec saved.val) :
-    Frame (SourceLabel carried result) → Frame (Label saved carried result)
-  | ⟨.header, args⟩ => ⟨.header, .cons value args⟩
+def carryFrameWith (values : Env (extra ++ [saved])) :
+    Frame (SourceLabel carried result) → Frame (Label saved carried result extra)
+  | ⟨.header, args⟩ => ⟨.header, values.append args⟩
   | ⟨.exit, args⟩ => ⟨.exit, args⟩
 
+def carryFrame (value : BitVec saved.val) (frame : Frame (SourceLabel carried result)) :
+    Frame (Label saved carried result) :=
+  carryFrameWith (.cons value .nil) frame
+
 /-- The emitted entry and each block reproduce the source transfer, with
-the same saved value prepended to the header arguments. -/
+the same saved values prepended to the header arguments. -/
+structure RoutesWith (source : Cfg TargetOp (SourceLabel carried result) Input [result])
+    (target : Cfg TargetOp (Label saved carried result extra) Input [result])
+    (input : Env Input) (values : Env (extra ++ [saved])) : Prop where
+  entry :
+    target.entry.eval evalOp (fun term env => Terminator.eval env term) input =
+      (source.entry.eval evalOp (fun term env => Terminator.eval env term) input).map
+        (carryFrameWith values) id
+  block : ∀ frame : Frame (SourceLabel carried result),
+    let routed := carryFrameWith values frame
+    (target.block routed.label).eval evalOp (fun term env => Terminator.eval env term)
+      (routed.args.append input) =
+      ((source.block frame.label).eval evalOp (fun term env => Terminator.eval env term)
+        (frame.args.append input)).map (carryFrameWith values) id
+
 structure Routes (source : Cfg TargetOp (SourceLabel carried result) Input [result])
     (target : Cfg TargetOp (Label saved carried result) Input [result])
     (input : Env Input) (value : BitVec saved.val) : Prop where
@@ -220,6 +260,105 @@ def pickBindingAndHoist? (g : Program Input carried result entrySigs headerSigs)
     let header := binding.rewrite Var.there .here
     pure (cut, ⟨saved, emitHeader (lower g).entry binding.op captured header⟩)
   else none
+
+/-- At the consumer, the prerequisite is an input to the preheader's
+second binding. Other local origins retain their original definition cuts. -/
+def afterPrerequisite (origins : Origins Input Γ) : Origins (w :: Input) (w :: Γ)
+  | _, .here => .inl .here
+  | _, .there ref => (origins ref).map Var.there id
+
+variable {prerequisite consumer : Width}
+
+structure Slice (Input Γ : List Width) (prerequisite consumer carried result : Width) where
+  prerequisiteArgs : List Width
+  prerequisiteOp : TargetOp prerequisiteArgs prerequisite
+  prerequisiteInputs : Operands Input prerequisiteArgs
+  prerequisiteSites : List (Point (SourceLabel carried result))
+  prerequisiteUses : List (Use (SourceLabel carried result))
+  consumerArgs : List Width
+  consumerOp : TargetOp consumerArgs consumer
+  consumerInputs : Operands (prerequisite :: Input) consumerArgs
+  consumerSites : List (Point (SourceLabel carried result))
+  consumerUses : List (Use (SourceLabel carried result))
+  rewrite : ∀ {Δ : List Width}, Rename Γ Δ → Var Δ consumer → Var Δ prerequisite →
+    Block TargetOp (Label prerequisite carried result [consumer]) Δ [result]
+
+def Slice.prepend (op : TargetOp args w) (operands : Operands Γ args)
+    (slice : Slice Input (w :: Γ) prerequisite consumer carried result) :
+    Slice Input Γ prerequisite consumer carried result :=
+  { slice with
+    rewrite := fun rename keepConsumer keepPrerequisite =>
+      .letOp op (For.renameOperands rename operands)
+        (slice.rewrite (under rename) (.there keepConsumer) (.there keepPrerequisite)) }
+
+/-- Search for two adjacent bindings at the given prerequisite index.
+The consumer must read the prerequisite, and both capture checks must
+succeed in dependency order. -/
+def findSlice : (index cut : Nat) → {Γ : List Width} → Origins Input Γ →
+    Block TargetOp (SourceLabel carried result) Γ [result] →
+    Option ((prerequisite : Width) × (consumer : Width) × Slice Input Γ prerequisite consumer carried result)
+  | _, _, _, _, .terminator _ => none
+  | 0, cut, _, origins, .letOp (w := prerequisite) first firstArgs
+      (.letOp (w := consumer) second secondArgs rest) => do
+    if (positions 0 secondArgs 0).isEmpty then none else
+      let firstInputs ← captureOrigins? origins firstArgs
+      let secondInputs ← captureOrigins? (afterPrerequisite origins) secondArgs
+      pure ⟨prerequisite, consumer, {
+        prerequisiteArgs := _
+        prerequisiteOp := first
+        prerequisiteInputs := firstInputs
+        prerequisiteSites := originSites origins firstArgs
+        prerequisiteUses := .ordinary ⟨headerId, cut + 1⟩ :: useSites 1 (cut + 2) rest
+        consumerArgs := _
+        consumerOp := second
+        consumerInputs := secondInputs
+        consumerSites := originSites (afterPrerequisite origins) secondArgs
+        consumerUses := useSites 0 (cut + 2) rest
+        rewrite := fun rename keepConsumer keepPrerequisite =>
+          routeCodeWith (replaceBinding (replaceBinding rename keepPrerequisite) keepConsumer)
+            (.cons keepConsumer (.cons keepPrerequisite .nil)) rest }⟩
+  | 0, _, _, _, .letOp _ _ (.terminator _) => none
+  | index + 1, cut, _, origins, .letOp op operands rest =>
+    (findSlice index (cut + 1) (afterBinding origins (cut + 1)) rest).map
+      (fun ⟨first, second, slice⟩ => ⟨first, second, slice.prepend op operands⟩)
+
+structure SliceOutput (Input : List Width) (carried result : Width) where
+  prerequisite : Width
+  consumer : Width
+  cfg : Cfg TargetOp (Label prerequisite carried result [consumer]) Input [result]
+
+def emitSlice (entry : Block TargetOp (SourceLabel carried result) Input [result])
+    (slice : Slice Input (carried :: Input) prerequisite consumer carried result) :
+    SliceOutput Input carried result :=
+  ⟨prerequisite, consumer, {
+    entry := .letOp slice.prerequisiteOp slice.prerequisiteInputs
+      (.letOp slice.consumerOp slice.consumerInputs
+        (routeCodeWith (fun ref => .there (.there ref))
+          (.cons .here (.cons (.there .here) .nil)) entry))
+    block
+      | .header => slice.rewrite (fun ref => .there (.there ref)) .here (.there .here)
+      | .exit => .terminator (.ret (.cons .here .nil)) }⟩
+
+/-- Rank both definitions at the shared preheader cut. The internal use
+is satisfied by emitting the prerequisite before the consumer there. -/
+def pickSliceAndHoist? (g : Program Input carried result entrySigs headerSigs)
+    (tree : DominatorTree (lower g)) (consumerIndex : Nat) :
+    Option (SliceOutput Input carried result) :=
+  match consumerIndex with
+  | 0 => none
+  | prerequisiteIndex + 1 => do
+    let ⟨_, _, slice⟩ ← findSlice prerequisiteIndex 0 headerOrigins ((lower g).block .header)
+    let first ← LoopForest.choosePlacement tree blocks slice.prerequisiteSites slice.prerequisiteUses
+    let second ← LoopForest.choosePlacement tree blocks slice.consumerSites slice.consumerUses
+    if first.block.isNone && first.cut == 0 && second.block.isNone && second.cut == 0 then
+      some (emitSlice (lower g).entry slice)
+    else none
+
+def Slice.savedValues (slice : Slice Input Γ prerequisite consumer carried result)
+    (input : Env Input) : Env [consumer, prerequisite] :=
+  let first := evalOp slice.prerequisiteOp (slice.prerequisiteInputs.eval input)
+  let second := evalOp slice.consumerOp (slice.consumerInputs.eval (.cons first input))
+  .cons second (.cons first .nil)
 
 
 end Silmaril.SSA.SeaOfNodes.GCM.LoopHoist

@@ -120,4 +120,50 @@ theorem pickBindingAndHoist?_returns_iff
       ∃ fuel, output.2.run evalOp fuel input = some (.cons value .nil) :=
   Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.pickBindingAndHoist?_returns_iff picked input value
 
+variable {consumerIndex : Nat} {moved : SliceOutput Input carried result}
+
+/-- The ranker admits both moved definitions at the same preheader cut.
+The consumer sites treat the internal operand as a preheader value. -/
+theorem pickSliceAndHoist?_placement (picked : pickSliceAndHoist? g tree consumerIndex = some moved) :
+    ∃ (index : Nat)
+      (slice : Slice Input (carried :: Input) moved.prerequisite moved.consumer carried result),
+      consumerIndex = index + 1 ∧
+      findSlice index 0 headerOrigins ((lower g).block .header) = some ⟨_, _, slice⟩ ∧
+      (⟨none, 0⟩ : Point (SourceLabel carried result)) ∈ candidateCuts (lower g) blocks ∧
+      Legal (lower g) slice.prerequisiteSites slice.prerequisiteUses ⟨none, 0⟩ ∧
+      Legal (lower g) slice.consumerSites slice.consumerUses ⟨none, 0⟩ :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.pickSliceAndHoist?_placement picked
+
+/-- Entry computes the prerequisite, then the consumer. Every header transfer
+carries both results, and the exit payload agrees with the source. -/
+theorem pickSliceAndHoist?_routes (picked : pickSliceAndHoist? g tree consumerIndex = some moved)
+    (input : Env Input) :
+    ∃ (index : Nat)
+      (slice : Slice Input (carried :: Input) moved.prerequisite moved.consumer carried result),
+      consumerIndex = index + 1 ∧
+      findSlice index 0 headerOrigins ((lower g).block .header) = some ⟨_, _, slice⟩ ∧
+      RoutesWith (lower g) moved.cfg input (slice.savedValues input) :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.pickSliceAndHoist?_routes picked input
+
+/-- Moving the slice preserves observations at every CF fuel budget. -/
+theorem pickSliceAndHoist?_run_eq (picked : pickSliceAndHoist? g tree consumerIndex = some moved)
+    (input : Env Input) (fuel : Nat) :
+    moved.cfg.run evalOp fuel input = (lower g).run evalOp fuel input :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.pickSliceAndHoist?_run_eq picked input fuel
+
+/-- The native backedge budget still corresponds to CF fuel `budget + 3`. -/
+theorem pickSliceAndHoist?_budget (picked : pickSliceAndHoist? g tree consumerIndex = some moved)
+    (input : Env Input) (budget : Nat) :
+    moved.cfg.run evalOp (budget + 3) input =
+      (g.evalBackedges model budget (Silmaril.SSA.SeaOfNodes.MLIR.sourceInputs input)).map
+        (fun value => Env.cons value .nil) :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.pickSliceAndHoist?_budget picked input budget
+
+/-- Moving the slice preserves and reflects finite native loop returns. -/
+theorem pickSliceAndHoist?_returns_iff (picked : pickSliceAndHoist? g tree consumerIndex = some moved)
+    (input : Env Input) (value : BitVec result.val) :
+    g.Returns model (Silmaril.SSA.SeaOfNodes.MLIR.sourceInputs input) value ↔
+      ∃ fuel, moved.cfg.run evalOp fuel input = some (.cons value .nil) :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.pickSliceAndHoist?_returns_iff picked input value
+
 end Silmaril.SSA.SeaOfNodes.GCM.LoopHoist
