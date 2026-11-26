@@ -229,6 +229,9 @@ def floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite) : Except Failure
 def floatSub (operands : Core.Binary64.FloatOperands) : Except Failure Value :=
   floatArithmeticResult (Core.Binary64.subtract operands)
 
+def floatMul (operands : Core.Binary64.FloatOperands) : Except Failure Value :=
+  floatArithmeticResult (Core.Binary64.multiply operands)
+
 /-- A shared heap with monotone cell allocation. Only addresses below
 `next` denote allocated cells. An allocated cell may be unbound. -/
 structure Heap where

@@ -88,6 +88,16 @@ theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namesp
     Core.Closure.Executor.Operand.evalIn]
   cases Core.Closure.trueDivideInt numerator divisor <;> rfl
 
+private theorem floatArithmeticResult_agrees
+    (result : Except Core.Binary64.FloatArithmeticError Silmaril.Numeric.Ieee754.F64.Finite) :
+    Core.Module.SeededCall.floatArithmeticResult result =
+      ((Core.Closure.floatArithmeticResult result).map seededValue).mapError (fun
+        | .defined error => .raised (.runtime error)
+        | _ => .unsupported) := by
+  cases result with
+  | ok _ => rfl
+  | error error => cases error <;> rfl
+
 theorem mixedAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
     (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite) :
@@ -95,12 +105,8 @@ theorem mixedAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespac
       (((Core.Module.Functions.Operand.mixedAdd integer floating).lower.evalIn globals heap frame).map
         seededValue).mapError (fun
           | .defined error => .raised (.runtime error)
-          | _ => .unsupported) := by
-  simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
-    Core.Closure.Executor.Operand.evalIn, Core.Closure.mixedAdd]
-  cases Core.Binary64.mixedAdd integer floating with
-  | ok _ => rfl
-  | error error => cases error <;> rfl
+          | _ => .unsupported) :=
+  floatArithmeticResult_agrees (Core.Binary64.mixedAdd integer floating)
 
 theorem floatAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
@@ -121,12 +127,18 @@ theorem floatSub_operand_agrees {layout : Core.Closure.Layout} (space : Namespac
       (((Core.Module.Functions.Operand.floatSub operands).lower.evalIn globals heap frame).map
         seededValue).mapError (fun
           | .defined error => .raised (.runtime error)
-          | _ => .unsupported) := by
-  simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
-    Core.Closure.Executor.Operand.evalIn, Core.Closure.floatSub]
-  cases Core.Binary64.subtract operands with
-  | ok _ => rfl
-  | error error => cases error <;> rfl
+          | _ => .unsupported) :=
+  floatArithmeticResult_agrees (Core.Binary64.subtract operands)
+
+theorem floatMul_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (operands : Core.Binary64.FloatOperands) :
+    (lowerCallOperand (.floatMul operands)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatMul operands).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  floatArithmeticResult_agrees (Core.Binary64.multiply operands)
 
 theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     {values : Except Failure (List Value)} {calls : List CallEvent} :

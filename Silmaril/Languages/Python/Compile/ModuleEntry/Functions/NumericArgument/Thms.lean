@@ -22,6 +22,11 @@ theorem check_sub {left right : Source.Expr} {lhs rhs : Int}
     check (.binary .sub left right) = some (.integer (lhs - rhs)) :=
   check_binary leftChecked rightChecked rfl
 
+theorem check_mul {left right : Source.Expr} {lhs rhs : Int}
+    (leftChecked : integer? left = some lhs) (rightChecked : integer? right = some rhs) :
+    check (.binary .mul left right) = some (.integer (lhs * rhs)) :=
+  check_binary leftChecked rightChecked rfl
+
 theorem power_iff {base exponent result : Int} :
     power? base exponent = some result ↔
       0 ≤ exponent ∧ (base.natAbs.log2 + 1) * exponent.toNat ≤ 4096 ∧ result = base ^ exponent.toNat := by

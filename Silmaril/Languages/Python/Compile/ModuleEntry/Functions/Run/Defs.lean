@@ -66,6 +66,7 @@ def callValue? {scope : Scope} : CallValue scope → Option Core.Module.Function
   | .mixedAdd integer floating => some (.mixedAdd integer floating)
   | .floatAdd left right => some (.floatAdd left right)
   | .floatSub operands => some (.floatSub operands)
+  | .floatMul operands => some (.floatMul operands)
   | .float64 value => some (.literal (.float64 value))
   | .tuple items => some (.tuple items)
   | .text value => some (.literal (.text value))
