@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Starlark.Lists.Denotation.Defs
+public import Silmaril.Languages.Starlark.Lists.Comparison.Thms
 public import Silmaril.Languages.Starlark.Lists.Freeze.Defs
 public import Silmaril.Languages.Starlark.Lists.Operational.Defs
 import Silmaril.Proofs.Languages.Starlark.Lists.Dictionary
