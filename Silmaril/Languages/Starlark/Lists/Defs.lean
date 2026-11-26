@@ -11,7 +11,7 @@ abbrev Address := Nat
 
 /-- Universal callables supported by the resolved shared-store profile. -/
 inductive Builtin where
-  | bool | len | type | list | tuple | range
+  | bool | len | type | list | tuple | range | abs | any | all
   deriving DecidableEq, BEq, Repr
 
 def Builtin.name : Builtin → String
@@ -21,10 +21,14 @@ def Builtin.name : Builtin → String
   | .list => "list"
   | .tuple => "tuple"
   | .range => "range"
+  | .abs => "abs"
+  | .any => "any"
+  | .all => "all"
 
 /-- Resolve a name after lexical lookup has ruled out a shadowing binding. -/
 def Builtin.resolve (name : String) : Option Builtin :=
-  ([.bool, .len, .type, .list, .tuple, .range] : List Builtin).find? (fun id => id.name == name)
+  ([.bool, .len, .type, .list, .tuple, .range, .abs, .any, .all] : List Builtin).find?
+    (fun id => id.name == name)
 
 /-- A checked immutable range, represented without an element list or heap cell. -/
 structure RangeValue where

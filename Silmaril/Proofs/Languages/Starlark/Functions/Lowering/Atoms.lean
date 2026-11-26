@@ -41,6 +41,14 @@ theorem actionTuple (addr : Address) : FrameAction (tupleElements addr) :=
 theorem actionDict (addr : Address) : FrameAction (dictEntries addr) :=
   ⟨frameDict addr, scopeProject _ _⟩
 
+theorem acquireAction (value : Value) : FrameAction (Iteration.acquireIterator value) := by
+  cases value with
+  | list => exact actionMap _ (actionMap _ (actionList _))
+  | tuple => exact actionMap _ (actionMap _ (actionTuple _))
+  | dict => exact actionMap _ (actionMap _ (actionDict _))
+  | range => exact actionPure _
+  | _ => exact actionMap _ (actionThrow _)
+
 theorem actionAllocate (xs : List Value) : FrameAction (allocate xs) :=
   ⟨fun _ _ => rfl, fun _ => ⟨rfl, rfl⟩⟩
 theorem actionAllocateTuple (xs : List Value) : FrameAction (allocateTuple xs) :=
