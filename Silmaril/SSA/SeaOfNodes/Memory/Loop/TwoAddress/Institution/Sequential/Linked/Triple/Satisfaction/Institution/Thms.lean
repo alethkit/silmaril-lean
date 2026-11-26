@@ -18,7 +18,9 @@ open CategoryTheory Silmaril.Logic.Institution
 open RVSDG (Tuple)
 open RVSDG.NestedTheta.Institution
 open CarriedAddress.Institution.RuntimeEntry (Entry)
-open Linked.Satisfaction.ReductImage (liftThrough? liftThrough?_sound)
+open Linked.Satisfaction.ReductImage
+  (liftThrough? liftThrough?_sound checkCompositeCoverage checkCompositeCoverage_iff
+    checkCompositeExpansive checkCompositeExpansive_eq)
 open Memory.Diamond.Institution (reduct reduct_id reduct_comp)
 open Memory.Diamond.Institution renaming Signature → EntrySignature, Model → EntryModel
 
@@ -111,6 +113,10 @@ theorem corridor_modelExpansive_iff_check (backend : Backend) (h : P ⟶ Q) :
     (corridor backend h).ModelExpansive ↔ Linked.Satisfaction.ReductImage.checkExpansive h = true :=
   (corridor_modelExpansive_iff backend h).trans (Linked.Satisfaction.ReductImage.checkExpansive_iff h).symm
 
+theorem corridor_comp_modelExpansive_iff_check (backend : Backend) (h : P ⟶ Q) (k : Q ⟶ R) :
+    (corridor backend h ≫ corridor backend k).ModelExpansive ↔ checkCompositeExpansive h k = true := by
+  rw [← corridor_comp, checkCompositeExpansive_eq, corridor_modelExpansive_iff_check]
+
 /-- The existing numbered room's all-target truth, after re-emission, is
 exactly backend truth on source valuations in the typed reduct image. -/
 theorem Sentence.room_satisfaction_image (s : Sentence P) (backend : Backend) (h : P ⟶ Q) (cells : Nat) :
@@ -120,5 +126,16 @@ theorem Sentence.room_satisfaction_image (s : Sentence P) (backend : Backend) (h
   (s.room_satisfaction_map h cells).trans
     ((Linked.Satisfaction.forall_reduct_image h s.NumberedHolds).trans
       (forall_congr' fun input => forall_congr' fun _ => (backend.holds_iff_numbered s ⟨cells, input⟩).symm))
+
+/-- Checked coverage at this count permits quantifying over every source
+valuation in the staged re-emission's satisfaction condition. -/
+theorem Sentence.room_satisfaction_comp_of_check (s : Sentence P) (backend : Backend)
+    (h : P ⟶ Q) (k : Q ⟶ R) (cells : Nat) (covered : checkCompositeCoverage h k cells = true) :
+    (RuntimeObservation.room.{0, 0, 0} target).Sat (Discrete.mk (thetaRuntime cells))
+        ((s.map h).map k).numbered ↔
+      ∀ input : Tuple (Val cells) P.args, backend.Holds s ⟨cells, input⟩ := by
+  rw [← s.map_comp h k, s.room_satisfaction_image backend (h ≫ k) cells]
+  exact ⟨fun holds input => holds input ((checkCompositeCoverage_iff h k cells).mp covered input),
+    fun holds input _ => holds input⟩
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction

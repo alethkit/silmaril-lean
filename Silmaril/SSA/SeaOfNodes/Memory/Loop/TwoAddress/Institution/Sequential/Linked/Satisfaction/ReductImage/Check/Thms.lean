@@ -4,6 +4,7 @@ public import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequent
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Lift
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Coverage
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Composition
+import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.CompositeCoverage
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Thms
 
 /-! Exact executable coverage and lifts for canonical typed valuations. -/
@@ -88,5 +89,35 @@ theorem checkCoverage_of_two_le (h : P ⟶ Q) (two : 2 ≤ cells) :
 theorem checkExpansive_iff (h : P ⟶ Q) :
     checkExpansive h = true ↔ ∀ cells (input : Tuple (Val cells) P.args), InReductImage h input :=
   Proofs.checkExpansive_iff h
+
+theorem checkInjectiveOnImage_iff (h : P ⟶ Q) (k : Q ⟶ R) (sort : ValueSort) :
+    checkInjectiveOnImage h k sort = true ↔
+      Set.InjOn (fun port : Port Q.args sort => k.port port) (Set.range (fun port : Port P.args sort => h.port port)) :=
+  Proofs.checkInjectiveOnImage_iff h k sort
+
+/-- The first map must distinguish source ports, and the second map
+must distinguish their images. All positions have the selected sort. -/
+theorem checkNoIdentification_comp (h : P ⟶ Q) (k : Q ⟶ R) (sort : ValueSort) :
+    checkNoIdentification (h ≫ k) sort = (checkNoIdentification h sort && checkInjectiveOnImage h k sort) :=
+  Proofs.checkNoIdentification_comp h k sort
+
+theorem checkCompositeCoverage_eq (h : P ⟶ Q) (k : Q ⟶ R) (cells : Nat) :
+    checkCompositeCoverage h k cells = checkCoverage (h ≫ k) cells := by
+  simp only [checkCompositeCoverage, checkCoverage, checkNoIdentification_comp]
+
+theorem checkCompositeCoverage_iff (h : P ⟶ Q) (k : Q ⟶ R) (cells : Nat) :
+    checkCompositeCoverage h k cells = true ↔ ∀ input : Tuple (Val cells) P.args, InReductImage (h ≫ k) input := by
+  rw [checkCompositeCoverage_eq, checkCoverage_iff]
+
+/-- Every source valuation has a compatible intermediate lift at this count. -/
+theorem checkCompositeCoverage_iff_lifts (h : P ⟶ Q) (k : Q ⟶ R) (cells : Nat) :
+    checkCompositeCoverage h k cells = true ↔ ∀ input : Tuple (Val cells) P.args,
+      ∃ between : Tuple (Val cells) Q.args, (liftInput? k between).isSome = true ∧
+        reduct h ⟨cells, between⟩ = ⟨cells, input⟩ :=
+  (checkCompositeCoverage_iff h k cells).trans (forall_congr' (inReductImage_comp_iff_lift h k))
+
+theorem checkCompositeExpansive_eq (h : P ⟶ Q) (k : Q ⟶ R) :
+    checkCompositeExpansive h k = checkExpansive (h ≫ k) := by
+  simp only [checkCompositeExpansive, checkExpansive, checkCompositeCoverage_eq]
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage

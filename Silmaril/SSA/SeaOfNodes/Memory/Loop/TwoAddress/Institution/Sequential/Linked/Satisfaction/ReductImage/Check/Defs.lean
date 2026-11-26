@@ -88,4 +88,21 @@ def checkCoverage (h : P ⟶ Q) (cells : Nat) : Bool :=
 /-- The cases of zero cells and two cells determine all-cell-count coverage. -/
 def checkExpansive (h : P ⟶ Q) : Bool := checkCoverage h 0 && checkCoverage h 2
 
+/-- Test collisions under the second map only among intermediate slots
+used by the first map, separately for each sort. -/
+def checkInjectiveOnImage (h : P ⟶ Q) (k : Q ⟶ R) (sort : ValueSort) : Bool :=
+  let used := (portsOf sort P.args).map fun port => h.port port
+  used.all fun left => used.all fun right =>
+    decide (Quads.slot (k.port left) = Quads.slot (k.port right) → Quads.slot left = Quads.slot right)
+
+/-- The final signature must admit a valuation whenever the source does.
+Only sorts with distinct values require injectivity. -/
+def checkCompositeCoverage (h : P ⟶ Q) (k : Q ⟶ R) (cells : Nat) : Bool :=
+  let preservesSort := fun sort => checkNoIdentification h sort && checkInjectiveOnImage h k sort
+  !(admitsInput cells P.args) ||
+    (admitsInput cells R.args && (preservesSort .word && (decide (cells < 2) || preservesSort .address)))
+
+def checkCompositeExpansive (h : P ⟶ Q) (k : Q ⟶ R) : Bool :=
+  checkCompositeCoverage h k 0 && checkCompositeCoverage h k 2
+
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage
