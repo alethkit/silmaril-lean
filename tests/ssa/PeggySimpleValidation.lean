@@ -4,11 +4,14 @@ import Silmaril.SSA.Peggy.SimpleValidation.Thms
 import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Thms
 import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Thms
 import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Thms
+import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Thms
+import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
 import Silmaril.SSA.PEG.Thms
 meta import Silmaril.SSA.Peggy.SimpleValidation.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Defs
+meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Defs
 meta import Silmaril.SSA.PEG.Defs
 
 namespace Silmaril.SSA.Peggy.SimpleValidation.Tests
@@ -163,6 +166,7 @@ open PEG.Simple
 open RVSDG (Tuple)
 
 private inductive Op : InstructionSet Unit where
+  | zero : Op [] .count
   | one : Op [] .count
   | sub : Op [.count, .count] .count
   | subTwice : Op [.count, .count, .count] .count
@@ -173,6 +177,7 @@ private inductive Op : InstructionSet Unit where
 private def model : Interpretation Op where
   carrier _ := Unit
   run
+    | .zero, .nil => some ⟨0⟩
     | .one, .nil => some ⟨1⟩
     | .sub, .cons n (.cons k .nil) => some ⟨n.down - k.down⟩
     | .subTwice, .cons n (.cons a (.cons b .nil)) => some ⟨n.down - a.down - b.down⟩
@@ -509,6 +514,67 @@ example (a : Cost.Bundle.Accepted bundleGraph bundleClasses) (idx : Index 1)
   let valid := passRows.merge_sound (bundleGraph.denote_solves model bundleInput bundleWF)
     EPEG.Classes.discrete_valid (by decide)
   Exists.elim (a.firstExit_of_exec bundleWF valid neg idx ran) (fun _ seen => seen.2.2)
+
+private def zeroRow : EPEG.Saturation.Extension.Row bundleGraph :=
+  ⟨[], .count, .op .zero, .nil⟩
+
+private def sampleRow {n : Nat} {g : Graph Op bundleParams bundleResults n 1}
+    (stream index : Ref g.sort .count) : EPEG.Saturation.Extension.Row g :=
+  ⟨[.count, .count], .count, .eval 0, .cons stream (.cons index .nil)⟩
+
+private def firstSite := sampleRow (g := zeroRow.append) (zeroRow.liftRef ⟨2, rfl⟩) zeroRow.fresh
+
+private def secondSite := sampleRow (g := firstSite.append)
+  (firstSite.liftRef (zeroRow.liftRef ⟨3, rfl⟩)) (firstSite.liftRef zeroRow.fresh)
+
+-- A dead eval uses the first zero sample as its index. The emitter still
+-- reads the three original shared-pass roots.
+private def sampleConsumer := sampleRow (g := secondSite.append)
+  (secondSite.liftRef (firstSite.liftRef (zeroRow.liftRef ⟨3, rfl⟩)))
+  (secondSite.liftRef firstSite.fresh)
+
+open EPEG.Saturation EPEG.Saturation.Extension in
+private def receiptSource : Extension.Output Op bundleParams bundleResults 1 :=
+  ⟨16, ⟨sampleConsumer.append, EPEG.Classes.discrete⟩⟩
+
+private def evalArgsWithIndex {n : Nat} {sort : Fin n → Ty Unit} {t : Ty Unit}
+    (rhs : Ref sort .count) :
+    (row : Node Op bundleParams (Fin 1) sort t) → Tuple (Ref sort) row.inputs
+  | ⟨_, .eval _, .cons stream (.cons _ .nil)⟩ => .cons stream (.cons rhs .nil)
+  | row => row.args
+
+open EPEG.Saturation.Extension in
+private def runAfterReplay (fuel : Nat) :
+    Option (Dedup.Worklist.Stop × List Nat × Nat × Bool × List Nat) := do
+  let report := (Dedup.Worklist.run Op.zero fuel receiptSource).report
+  let receipt ← Cost.Bundle.Worklist.check Op.zero fuel receiptSource report
+  let graph := receipt.endpoint.2.graph
+  let rhs ← Ref.check graph.sort .count 16
+  let candidate := Cost.Candidate.wire graph id
+    (fun i => if i.val = 15 then evalArgsWithIndex rhs (graph.node i) else (graph.node i).args)
+    graph.roots
+  let chosen ← receipt.select Cost.Candidate.primitiveRows [candidate]
+  let out ← chosen.reversion.runFuel model 3 bundleInput
+  -- The same table with singleton classes cannot justify the redirected index.
+  let needsMerge := (Cost.Bundle.check EPEG.Classes.discrete candidate).isNone
+  return (receipt.report.stop, receipt.report.sites, receipt.endpoint.1, needsMerge, returnedCounts out)
+
+#guard runAfterReplay 1 == some (.exhausted, [13], 17, true, [2, 17, 2])
+#guard runAfterReplay 2 == some (.fixed, [13, 14], 18, true, [2, 17, 2])
+#guard (Cost.Bundle.Worklist.check Op.zero 1 receiptSource ⟨[13], .fixed⟩).isNone
+
+private theorem receiptSourceWF : WellFounded receiptSource.2.graph.Demand :=
+  sampleConsumer.demandWellFounded
+    (secondSite.demandWellFounded (firstSite.demandWellFounded (zeroRow.demandWellFounded bundleWF)))
+
+example {fuel : Nat} (receipt : Cost.Bundle.Worklist.CheckedReceipt Op.zero fuel receiptSource)
+    (a : Cost.Bundle.Accepted receipt.endpoint.2.graph receipt.endpoint.2.classes) (idx : Index 1)
+    (neg : ∀ b : Bool, model.run a.reversion.scalar.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (ran : a.reversion.runFuel model 3 bundleInput = some (.cons ⟨2⟩ (.cons ⟨17⟩ (.cons ⟨2⟩ .nil)))) :
+    receiptSource.2.graph.observe model (receiptSource.2.graph.denote model bundleInput receiptSourceWF) idx =
+      .cons (some ⟨2⟩) (.cons (some ⟨17⟩) (.cons (some ⟨2⟩) .nil)) :=
+  receipt.observe_of_exec a receiptSourceWF EPEG.Classes.discrete_valid rfl neg idx
+    (a.reversion.runFuel_exec 3 ran)
 
 end Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Tests
 
