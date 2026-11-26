@@ -2225,20 +2225,22 @@ open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structure
 set_option backward.isDefEq.respectTransparency false
 
 private inductive Instruction
-  | receive | publish
+  | receive | publish | choose
 
 private abbrev Eff := Bool × Bool
 private abbrev bound : Eff := (true, false)
 private abbrev A : Ty Unit := .base ()
 private abbrev P : Ty Unit := .product A A
+private abbrev S : Ty Unit := .coprod A A
 
 private instance : HasTy Instruction (Ty Unit) where
   src
     | .receive => .unit
-    | .publish => P
+    | .publish | .choose => P
   trg
     | .receive => P
     | .publish => A
+    | .choose => S
 
 private instance : HasEff Instruction Eff where
   eff _ := bound
@@ -2355,5 +2357,68 @@ example : ¬ Eqv Γ A bound (direct false) (direct true) := by
   intro h
   exact distinct ((written_reflection profile pureCtx sourceSlots
     (directWritten false) (directWritten true) rfl rfl).mpr h)
+
+
+private abbrev branchCtx := (A, (⊥ : Eff)) :: fields
+
+private abbrev sumArm (swap : Bool) : Expr Instruction :=
+  let arg := if swap then Expr.pair (.var 2) (.var 0) else Expr.pair (.var 0) (.var 2)
+  .let₁ (.op .publish arg) (.var 4)
+
+private theorem armWritten (swap : Bool) : Written A bound branchCtx (sumArm swap) := by
+  cases swap
+  · exact .call (f := Instruction.publish) (visible _) rfl (.pair (.var 0 bot_le) (.var 2 bot_le))
+      (.pair (.var 0) (.var 2)) le_rfl (.ret (.var 4 bot_le) (.var 4))
+  · exact .call (f := Instruction.publish) (visible _) rfl (.pair (.var 2 bot_le) (.var 0 bot_le))
+      (.pair (.var 2) (.var 0)) le_rfl (.ret (.var 4 bot_le) (.var 4))
+
+private abbrev chooseExpr : Expr Instruction := .op .choose (.pair (.var 1) (.var 0))
+
+private abbrev mixedSource (swapRight : Bool) : Expr Instruction :=
+  .let₂ (.op .receive .unit) (.case chooseExpr (sumArm false) (sumArm swapRight))
+
+private abbrev mixedFactored (swapRight : Bool) : Expr Instruction :=
+  .let₂ (.op .receive .unit) (.let₁ chooseExpr (.case (.var 0) (sumArm false).wk1 (sumArm swapRight).wk1))
+
+private theorem mixedWritten (swapRight : Bool) : Written A bound Γ (mixedSource swapRight) :=
+  .callPair (f := Instruction.receive) (visible _) rfl (.unit _ _) .unit le_rfl
+    (.callSum (f := Instruction.choose) (visible _) rfl (.pair (.var 1 bot_le) (.var 0 bot_le))
+      (.pair (.var 1) (.var 0)) le_rfl (armWritten false) (armWritten swapRight))
+
+private theorem mixedFactoredWritten (swapRight : Bool) : Written A bound Γ (mixedFactored swapRight) :=
+  .callPair (f := Instruction.receive) (visible _) rfl (.unit _ _) .unit le_rfl
+    (.callSumViaLet (f := Instruction.choose) (visible _) rfl (.pair (.var 1 bot_le) (.var 0 bot_le))
+      (.pair (.var 1) (.var 0)) le_rfl (armWritten false) (armWritten swapRight))
+
+private abbrev branchSorts : Fin (Γ.length + 3) → Unit := Fin.cases () freshSorts
+
+private def armProgram (swap : Bool) : Program (Φ := Instruction) (ε := Eff) A branchSorts :=
+  .call Instruction.publish (visible _) rfl
+    (if swap then .pair (.var 2) (.var 0) else .pair (.var 0) (.var 2)) (.ret (.var 4))
+
+private def mixedProgram (swapRight : Bool) : Program (Φ := Instruction) (ε := Eff) A sorts :=
+  .callPair Instruction.receive (visible _) rfl .unit
+    (.callSum Instruction.choose (visible _) rfl (.pair (.var 1) (.var 0))
+      (armProgram false) (armProgram swapRight))
+
+private abbrev mixedNested : Tm Empty Instruction Γ.length :=
+  .let₂ (.op .receive .unit)
+    (.let₁ (.op .choose (.pair (.bv 1) (.bv 0)))
+      (.case (.bv 0) (.let₁ (.op .publish (.pair (.bv 0) (.bv 3))) (.bv 5))
+        (.let₁ (.op .publish (.pair (.bv 0) (.bv 3))) (.bv 5))))
+
+-- Both tested shapes make the sum request with the two earlier fields.
+-- The right branch can distinguish the new payload from the retained left
+-- field, even though the left branch is identical in the two programs.
+example : ¬ AbortEquiv (⊥ : Eff) Γ₀ β (mixedProgram false).native (mixedProgram true).native A := by
+  intro h
+  have eq := eq_of_abortEquiv profile nativeSlots h
+  have src := congrArg Program.source eq
+  cases src
+
+example :
+    AbortEquiv (⊥ : Eff) Γ₀ β (mixedProgram false).native mixedNested A ↔
+      Eqv Γ A bound (mixedSource false) (mixedFactored false) :=
+  written_reflection profile pureCtx sourceSlots (mixedWritten false) (mixedFactoredWritten false) rfl rfl
 
 end LetIterStructuredProductRepliesFixture
