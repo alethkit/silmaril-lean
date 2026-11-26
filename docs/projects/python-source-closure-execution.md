@@ -46,13 +46,24 @@ cells and initializes its checked parameter destinations.
 
 The checked profile covers terminal lambda chains whose leaf is an
 existing checked return expression. Default expressions, variadic and
-keyword-only signatures, and calls through lambda expressions require
-their own checks. The seeded factory runner uses its same-run descriptor
+keyword-only signatures, and non-terminal lambda calls require their own
+checks. The seeded factory runner uses its same-run descriptor
 ledger and the same positional and receipt rules for returned lambdas.
 The controls check that repeated calls share forwarded cells where
 expected and allocate distinct owned cells even with equal arguments.
 [Lowering and return theorems](../../Silmaril/Languages/Python/Compile/Closure/Run/Thms.lean)
 [Entry and capture theorems](../../Silmaril/Languages/Python/Compile/Closure/Call/Thms.lean)
+
+A terminal call to a lambda expression can also return the child's result.
+The same linked child reference supplies the callee descriptor from the
+parent's frame. The executor evaluates the checked positional operands
+from left to right, binds them in the child, and forwards the exact
+result and reached heap without a local store. A failed operand read
+keeps the incoming heap and prevents child entry. The seeded factory
+selector follows the lexical reference within its existing two-wrapper
+bound, with at most one positional operand at that internal call.
+The outer module call settles one receipt for the returned descriptor.
+[Entry, argument failure and forwarding theorems](../../Silmaril/Languages/Python/Compile/Closure/Run/Thms.lean)
 
 Message-free body assertions lower to the existing executor assertion
 when the test passes the ordinary runner operand check. They preserve

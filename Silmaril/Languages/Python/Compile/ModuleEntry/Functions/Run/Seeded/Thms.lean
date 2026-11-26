@@ -108,6 +108,17 @@ theorem evaluate_checkedBooleanOp {scope : Source.Scope} (session : Core.Module.
   rw [lower_checkedBooleanOp checked]
   simp [Except.map, Run.evaluate_scalarResult, evaluateScalar_scalarResult]
 
+theorem evaluate_closedSequenceComparison {scope : Source.Scope} (session : Core.Module.Functions.Session)
+    (space : Namespace) (context : Bool) {left right : Source.Expr} {operator : Source.Comparison}
+    {value : Bool} (checked : closedSequenceComparison? left operator right = some value) :
+    (lowerOperand scope (.comparison left [(operator, right)])).map
+        (fun operand => Run.evaluate session operand.val) = .ok (.ok (.bool value)) ∧
+      (lowerOperand scope (.comparison left [(operator, right)])).map
+        (fun operand => evaluateScalar space context operand.val) = .ok (.ok (.bool value)) := by
+  rw [lower_closedSequenceComparison checked]
+  simp only [Except.map, Except.ok.injEq]
+  exact ⟨Run.evaluate_scalarResult session (.bool value), evaluateScalar_booleanResult space context value⟩
+
 theorem evaluateScalar_notEqual {scope : Source.Scope} (space : Namespace) (context : Bool)
     (left right : ModuleEntry.Operand scope) :
     evaluateScalar space context (.binary .notEqual left right) = (do
@@ -304,6 +315,19 @@ theorem acceptsFactory_returnClosure {context : CallContext} {closure : Function
     context.acceptsFactory closure arity = true := by
   simp [CallContext.acceptsFactory, CallContext.acceptsCallFrom, recorded, resolved, slots,
     factoryCode, body, returnsClosure]
+
+theorem acceptsFactory_returnClosureCall {context : CallContext} {closure : Function} {arity : Nat}
+    {definition : Core.Closure.Dispatch.Definition Core.Closure.Executor.Body closure.code.layout}
+    {ref : Core.Closure.CodeRef} {captures : Fin ref.layout.captures → Core.Closure.CaptureSlot closure.code.layout}
+    {arguments : List (Core.Closure.Executor.Operand closure.code.layout)}
+    (recorded : closure ∈ context.published ++ context.escaped)
+    (resolved : Core.Closure.Dispatch.resolve context.table closure.code = .ok definition)
+    (slots : definition.parameters.slots.length = arity)
+    (body : definition.body = .returnCall (.closure ref captures) arguments)
+    (bounded : arguments.length ≤ 1) (child : factoryCode context.table ref 1 = true) :
+    context.acceptsFactory closure arity = true := by
+  simpa [CallContext.acceptsFactory, CallContext.acceptsCallFrom, recorded, resolved, slots,
+    factoryCode, body, returnsClosure, bounded] using child
 
 theorem run_factory_unrecorded {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name target : String} {closure : Function} {arguments : List Core.Module.Functions.Operand}

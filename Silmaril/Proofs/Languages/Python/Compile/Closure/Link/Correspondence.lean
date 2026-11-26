@@ -78,7 +78,7 @@ private theorem link_targets {layout : Layout} (tree : Source.ScopeTree) (first 
       · exact hasNested (nestedTargets.1 ref own)
       · exact hasNested (nestedTargets.2 ref innerBlock)
       · exact hasLater (laterTargets.2 ref laterBlock)
-  | returnClosure path childLayout parameters captures child inner =>
+  | returnClosure path childLayout parameters captures child _ inner =>
     let nested := linkBody (first + 1) tree child
     let entry : Entry Code := ⟨childLayout, { parameters, body := nested.code }⟩
     let newBlock := (((Block.mk path entry).withFreeVars tree).withCellVars tree).withCodeNames tree
@@ -103,7 +103,7 @@ private theorem link_paths {layout : Layout} (tree : Source.ScopeTree) (first : 
     simpa [linkBody, Body.Code.childPaths] using tail first
   | closure _ _ _ _ _ _ _ inner tail =>
     simp [linkBody, Block.withFreeVars, Block.withCellVars, Block.withCodeNames, Body.Code.childPaths, inner, tail]
-  | returnClosure _ _ _ _ _ inner =>
+  | returnClosure _ _ _ _ _ _ inner =>
     simp [linkBody, Block.withFreeVars, Block.withCellVars, Block.withCodeNames, Body.Code.childPaths, inner]
 
 theorem paths {source : Source.Module} (compiled : Body.Compiled source) :

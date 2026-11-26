@@ -79,6 +79,10 @@ bridge relates the two.
 
 ## Main results
 
+See the [pinned LambdaSSA theorem crosswalk](lambdassa-theorem-crosswalk.md)
+for the scope of the paper and Lean results and the conventional φ-node
+to block-argument port plan.
+
 λRTL and λSSA (acyclic), in `Silmaril.SSA.LambdaRTL.Thms`:
 
 - `Region.evalSSA_congr`: the lexical semantics reads only free variables.
@@ -347,16 +351,40 @@ The continuation cannot jump back to its own label.
   and composition, and `ssaSat_map_iff` gives satisfaction invariance.
   `reifyComorphism` bundles reification and the LetCase algebra reduct
   over the identity signature functor. Its model class is the stated
-  coherent region model class; expansion of arbitrary LetCase algebras
+  coherent region model class. Expansion of arbitrary LetCase algebras
   is a separate question.
   [Exact institution and comorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Functor/Thms.lean)
+- For type-changing `SignatureMap`s, `pullbackTypes` and
+  `pullbackInstructions` reuse the target's chosen type-former isomorphisms
+  and primitive arrows with equality transport. They preserve identity and
+  composition. The value context tensor and finite coproduct of exits agree
+  with the target interpretations of the mapped contexts.
+  `RegionWitnessPullback` is equivalent to source typing coherence
+  together with preservation of the selected region denotations.
+  [Dependent model pullback](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Pullback/Thms.lean)
+- `mapTermWitness` and `mapRegionWitness` prove forward relabelling for
+  the existing relational semantics. For a nonempty CFG the proof transports
+  the entry and block witnesses, preserves the two finite-label routing
+  arrows, and checks each summand restriction of the transported collective
+  arrow. This supplies `RegionWitnessPullback` in every supported coherent
+  target, including non-thin computation categories. The Maybe Kleisli
+  case-and-join probe identifies two distinct source payload types.
+  [Witness transport](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Pullback/Witness/Thms.lean) ·
+  [Case-and-join probe](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/TypeChange/Thms.lean)
+- `ssaSignatureCorridor` specializes the existing exact SSA corridor to the
+  proved witness law. Composing it with `reifyCorridor` agrees on sentences
+  with translating the LetCase equation and then reifying it.
+  `caseSat_pullback` gives satisfaction invariance in the corresponding
+  LetCase algebras. The result concerns forward transport of source witnesses.
+  Reconstruction of arbitrary target witnesses is a separate problem.
+  A bundled type-changing comorphism still requires a signature category
+  containing these maps and a LetCase operation signature map over the
+  translated sorts, with functoriality and compatibility with its algebra
+  reduct. `InstrSig τ ε` and `LetCase.pres` currently fix both universes.
+  [Primitive signature category](../../Silmaril/Raw/SSA/Isotope/Institution/InstrSig.lean)
 - The existing [λSSA observational institution](../../Silmaril/Raw/SSA/Isotope/Institution/Observational/Calculi.lean#L160)
   uses scoped operational sentences over discrete scope signatures.
-  Extending the exact comparison to type-changing maps requires indexing
-  the signature category over type universes and showing that transport
-  of context and label objects preserves region denotation witnesses and
-  the LetCase algebra operations. Soundness of the full exact equational
-  presentation remains separate.
+  Soundness of the full exact equational presentation remains separate.
 
 ## Guarded iteration and resumptions
 
@@ -429,7 +457,9 @@ lake build --wfail Silmaril.SSA.LambdaRTL.Thms Silmaril.SSA.LambdaRTL.CFG.Thms \
   Silmaril.SSA.Thesis.Kleisli.Thms Silmaril.SSA.Isotope.Refinement.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Categorical.Realization.Thms \
-  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Functor.Thms
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Functor.Thms \
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Pullback.Witness.Thms \
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.TypeChange.Thms
 ```
 
 The root target `lake build --wfail Silmaril` builds all of them.

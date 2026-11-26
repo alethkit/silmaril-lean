@@ -42,13 +42,19 @@ structure Transfer (Op : Signature.{u, v} Data) (regs : List (ValueSort Data))
   flow : Dataflow Op args past sigs
   outgoing : Wires args (extend past sigs) (dataPorts regs)
 
+/-- Put a quad before a transfer whose wires see the newly appended result. -/
+def Transfer.prepend {sigs : List (List (Ty Data))} (quad : Quad Op regs)
+    (current : Wires args past (dataPorts regs))
+    (tail : Transfer Op regs args (past ++ [[.value quad.result]]) sigs) :
+    Transfer Op regs args past ([.value quad.result] :: sigs) :=
+  ⟨.cons quad.op (quad.inputWires current) tail.flow, tail.outgoing⟩
+
 /-- Both results are computed during the same traversal of the ordered block. -/
 def compile : (code : Code Op regs test) → {past : List (List (Ty Data))} →
     Wires args past (dataPorts regs) → Transfer Op regs args past code.producers
   | .ret _, _, current => ⟨.nil, current⟩
   | .assign dest op operands rest, _, current =>
-    let tail := compile rest (rebind current dest)
-    ⟨.cons op (operands.map (fun _ src => current.get src)) tail.flow, tail.outgoing⟩
+    (compile rest (rebind current dest)).prepend ⟨_, _, dest, op, operands⟩ current
 
 /-- Address a carried port after the fixed entry arguments in the Loop header. -/
 def carryPort {T : Type u} {ports : List T} {t : T} (port : Port ports t) :

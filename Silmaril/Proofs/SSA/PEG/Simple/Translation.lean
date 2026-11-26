@@ -21,7 +21,7 @@ abbrev NodeValues (nodes : List (Ty Data)) := Tuple (fun t => Option (m.Value t)
 
 variable (input : Tuple m.Value params)
 
-private theorem realizes_lift (code : Code P params nodes newNodes)
+theorem realizes_lift (code : Code P params nodes newNodes)
     {values : NodeValues m nodes} {ctx : Tuple (Port nodes) vars} {store : Tuple m.Value vars}
     (h : Realizes m values ctx store) :
     Realizes m (code.eval m input values) (code.liftRefs ctx) store := by

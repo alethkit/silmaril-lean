@@ -168,7 +168,7 @@ AST with legal identifier spellings. A separate
 relates accepted targets and a bounded RHS to independent lexical rules.
 The block collection theorem below supplies that environment and write
 scope for its admitted forms. A separate theorem covers capture selection
-and installation for one bounded nested function. Whole-module
+and installation along a bounded nested function chain. Whole-module
 elaboration against independent source rules and text parsing remain open.
 Lambdas, general comprehension expression
 positions, field leaves, store leaves in loop and comprehension targets,
@@ -218,18 +218,20 @@ and loop targets, and broader leaf and RHS elaboration remain open.
 
 ### Nested function captures
 
-The capture theorem covers one immediate enclosing function in a load-free
-module. The inner function has required positional parameters and a body
+The capture theorem starts in a load-free module. The inner function
+has required positional parameters and a body
 consisting of `(name, receiver[index]) = rhs` followed by `return operand`.
 The leaf and return operands use the bounded #3171 grammar. The RHS is a
 plain operand or a single-generator list comprehension in that grammar.
 `parent_layout` supplies the outer function's owned names and inherited
-module globals from the proved block collector.
+module globals from the proved block collector. The forwarding theorem
+permits any finite number of intervening functions that define and
+return their child, with required positional parameters at every level.
 
 `BodyReads` gives the binding occurrences of the RHS, target and return,
-in that order. `Selects` ignores owned parameters and locals, takes a
-read from the immediate parent's owned slot when it exists, and otherwise
-uses the declaring module's global. It retains the first occurrence of
+in that order. `Selects` ignores owned parameters and locals. For a free
+local, `Nearest` chooses the first enclosing block that owns the name.
+The module rules resolve an otherwise unshadowed name to its global slot. It retains the first occurrence of
 each free reference in the Lean declaration. The comprehension generator
 contributes no free read of its own binding. `mixed_definition` connects
 these rules to the exact declaration appended by the compiler. Go uses
@@ -248,11 +250,64 @@ through the captured value instead changes the list's heap cell. Both
 observations agree with the pinned spec's free-variable references and
 the pinned Go fixtures.
 
-The runtime theorem takes the defining frame's slot mapping as evidence.
-Forwarding locals through additional function levels, correspondence for
-broader bodies and definition-time defaults, and independent whole-source
-execution remain open.
-[Judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Checks.lean) · [Pinned Go fixtures](../../examples/starlark/scope/check.go) · [Pinned definition semantics](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#function-definitions) · [Go lexical selection](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L960-L990) · [Go shared cells](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L642-L661)
+For each wrapper, `compile_chain` proves that the child definition's
+capture demands feed the wrapper's own capture list. `nearest_route`
+identifies the forwarding prefix up to the nearest local owner.
+`global_route` carries the module-global reference through every
+wrapper in the Lean representation. `child_installs` derives all of the
+next child's slot addresses from the parent's installed captures and the
+owned slots allocated at activation. `local_address` and `global_address`
+preserve the original address through every successful creation and
+activation on the corresponding route, including its local-cell tag.
+
+The forwarding path starts from the source address and successful definition
+and activation steps. It supplies the next child's capture slots from the
+parent layout. The entry and argument bridge below derives the root
+addresses, the live owned destination cells, and positional argument
+preparation that can feed these steps.
+
+The five-level fixture creates the leaf before the nearer owner rebinds
+a list reference, then invokes it after escape. It also observes a
+separately forwarded module slot before and after initialization. Lean
+checks the emitted lists and runtime local-cell tags. The observable
+results agree with pinned Go.
+[Judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Defs.lean) · [Forwarding judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Forwarding/Defs.lean) · [Forwarding theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Forwarding/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Forwarding/Checks.lean) · [Pinned Go fixtures](../../examples/starlark/scope/check.go) · [Pinned definition semantics](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#function-definitions) · [Go lexical selection](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L960-L990) · [Go shared cells](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L642-L661)
+
+### Checked module entry and positional binding
+
+The independent load-free binder judgment supplies the module's global
+list. Actual module entry allocates a fresh owned cell for each declared
+global, initially unbound even when the caller has a populated heap.
+An independently emitted root capture plan names only those globals.
+`checked_root_definition` uses these facts to derive the root capture and
+definition-target cells and its exact closure allocation. The proof
+uses the supplied declaration lookup in the checked table.
+
+`Assigns` pairs required parameters with evaluated positional actuals in
+order. `Binds` accounts for success, a missing suffix, and surplus
+arguments. The exact preparation theorem derives signature validity from
+module validation. Successful preparation activates with the derived
+arguments. Binding errors preserve the pre-dispatch state. For a root
+definition immediately followed by preparation, the declaration lookup
+also supplies its membership in the initial finite availability set.
+`activated_cell` derives a live owned cell for each declared parameter or
+local in the resulting frame, even after argument writes.
+
+`checked_first_read_error` starts from a normalized module whose first
+command reads a declared global. Its exact result is the uninitialized
+error with the caller frame restored and the entry heap retained. The
+rest of the commands do not run. The executable fixtures also reach
+this error inside a closure call and distinguish it from missing and
+surplus argument errors before body entry.
+
+Whole-module source execution for the wrapper chain still needs to
+identify the root table lookup from the emitted command at its actual
+source site, relate source operand evaluations before dispatch, track
+intervening statement effects, and compose wrapper returns and escape
+with leaf execution and final publication. The module entry bridge
+takes already evaluated positional actuals. Defaults, other argument
+forms, loads, and broader wrapper and leaf bodies remain separate.
+[Binding judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Entry/Defs.lean) · [Entry theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Entry/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Entry/Checks.lean)
 
 ## Finite-manifest loader
 

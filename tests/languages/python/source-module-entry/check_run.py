@@ -146,6 +146,20 @@ assert (False and (True and (1 / 0))) is False
     ("boolean_dead_suffix_integer_tag", """result = 0 and (5 / 0)
 after = 7 or (5 / 0)
 """, {}, {"result": 0, "after": 7}, "normal", ".normal", 3),
+    ("closed_sequence_typed", """result = [] + [True] + [-2, False] == [1, -2, 0]
+after = (True,) + (False,) != (1, 0)
+assert [1, 2] != (1, 2)
+assert [1] != [1, 1]
+assert ([4, 3] + []) == [4, 3]
+""", {}, {"result": True, "after": False}, "normal", ".normal", 3),
+    ("closed_sequence_assertion_failure", """result = 7
+assert ([1, 2] + [3]) == [1, 3, 2]
+after = 9
+""", {}, {"result": 7, "after": None}, "AssertionError", ".raised .assertionError", 2),
+    ("closed_sequence_enclosing_lookup", """result = 7
+result = (([1] + [2]) == [1, 2]) == missing
+after = 9
+""", {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
 )
 
 UNSUPPORTED_INDEXING = (
@@ -176,7 +190,9 @@ REJECTED_BRANCHES = (
     ("result = f() if False else 3\n", ".expressionProfile"),
     ("result = 1 if True else [3][1]\n", ".expressionProfile"),
     ("result = (1, unknown) == (1, 2)\n", ".expressionProfile"),
-    ("result = (1,) == [1]\n", ".expressionProfile"),
+    ("result = (1,) + (2,)\n", ".expressionProfile"),
+    ("result = ([1] + [2]) in ([1, 2],)\n", ".expressionProfile"),
+    ("result = ([1],) == ([1],)\n", ".expressionProfile"),
     ("result = (1,) in ((1,),)\n", ".expressionProfile"),
     ("result = 1 in (*other,)\n", ".expressionProfile"),
     ("result = 1 in (f(),)\n", ".expressionProfile"),
@@ -321,6 +337,31 @@ def check_boolean_rejections(shared, python_file, lean_file, imports):
     shared["check_lean"](lean_file, LEAN + guards, extra_imports=imports)
 
 
+SEQUENCE_ERRORS = (
+    ("([0] + [left_missing]) == (right_missing,)", NameError, "left_missing"),
+    ("([0] + [1]) == (right_missing,)", NameError, "right_missing"),
+    ("([0] + [left_missing]) == [1]", NameError, "left_missing"),
+    ("([0] + (1,)) == [right_missing]", TypeError, None),
+    ("([0] + [1 // 0]) == [3]", ZeroDivisionError, None),
+)
+
+
+def check_sequence_rejections(shared, python_file, lean_file, imports):
+    for expression, error, name in SEQUENCE_ERRORS:
+        source = f"result = 7\nresult = {expression}\nafter = 9\n"
+        namespace = {"__builtins__": {}}
+        try:
+            exec(compile(source, "<open sequence comparison>", "exec", optimize=0), namespace)
+        except error as raised:
+            assert type(raised) is error and getattr(raised, "name", None) == name
+            assert namespace == {"__builtins__": {}, "result": 7}
+        else:
+            raise AssertionError(f"CPython completed {expression!r}")
+        shared["emit"](python_file, lean_file, source)
+        shared["check_lean"](lean_file, LEAN + "#guard rejection pythonSource == some .expressionProfile\n",
+                             extra_imports=imports)
+
+
 if __name__ == "__main__":
     check_chain_order()
     shared = runpy.run_path(str(Path(__file__).resolve().parent.parent / "source-scope/check_intake.py"))
@@ -360,4 +401,5 @@ if __name__ == "__main__":
             shared["check_lean"](lean_file, LEAN + f"#guard rejection pythonSource == some ({error})\n",
                                  extra_imports=imports)
         check_boolean_rejections(shared, python_file, lean_file, imports)
+        check_sequence_rejections(shared, python_file, lean_file, imports)
     print(json.dumps({"cpython": sys.version.split()[0], "observations": observations}))
