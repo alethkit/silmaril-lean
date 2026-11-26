@@ -78,6 +78,7 @@ def legacyOrdSeed (placement : SeedPlacement) : Namespace :=
 
 def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.Operand 0
   | .readGlobal name => .global name
+  | .tuple items => .tuple items
   | .literal (.int value) => .literal (.int value)
   | .literal (.bool value) => .literal (.bool value)
   | .literal _ => .unsupported
@@ -88,11 +89,7 @@ def lowerScalarOperand {scope : Scope} : ModuleEntry.Operand scope → Core.Modu
   | .none_ => .literal .none
   | .boolean _ | .binary .. | .identityChain .. => .unsupported
 
-def scalar? : Value → Option Core.Module.Value
-  | .int value => some (.int value)
-  | .bool value => some (.bool value)
-  | .none => some .none
-  | .exceptionClass _ | .helper _ | .builtin _ | .function _ | .listObject _ | .returnedTuple _ => none
+abbrev scalar? := Value.scalar?
 
 /-- Observation map for the shared scalar comparison profile. -/
 def scalarFailure : Completion → Failure
@@ -664,6 +661,9 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
   | .scalar (.assign name _ operand) =>
     (⟨((evaluateScalar space false operand).map fun value => some (name, value)).mapError ModuleFailure.ofCall,
       []⟩, context.heap)
+  | .bindTuple name items =>
+    let value := (Core.Module.SeededCall.Operand.tuple items).eval space #v[]
+    (⟨(value.map fun tuple => some (name, tuple)).mapError ModuleFailure.ofCall, []⟩, context.heap)
   | .scalar (.assertion operand) => (assertOperand space operand true, context.heap)
   | .assertNot operand => (assertOperand space operand false, context.heap)
   | .assertIntegerBuiltin test => (assertIntegerBuiltin space test, context.heap)

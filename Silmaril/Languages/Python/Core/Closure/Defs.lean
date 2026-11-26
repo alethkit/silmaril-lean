@@ -101,6 +101,25 @@ inductive TupleItem (layout : Layout) where
   | global (name : String)
   deriving Repr
 
+/-- A module tuple has scalar literals and live global reads. Its frame
+has no local, owned, or captured slots. -/
+abbrev GlobalTupleItem := TupleItem ⟨0, 0, 0⟩
+
+def GlobalTupleItem.lower {layout : Layout} : GlobalTupleItem → TupleItem layout
+  | .literal value => .literal value
+  | .global name => .global name
+  | .read (.local slot) | .read (.owned slot) | .read (.capture slot) => Fin.elim0 slot
+
+/-- Complete the ordered reads before checking that every reached value
+can be retained as an exact scalar item. -/
+def assembleFlatTuple {Item Payload Error : Type} (read : Item → Except Error Payload)
+    (scalar : Payload → Option Core.Module.Value) (unsupported : Error)
+    (items : List Item) : Except Error (List Core.Module.Value) :=
+  (items.mapM read).bind fun values =>
+    match values.mapM scalar with
+    | some checked => .ok checked
+    | none => .error unsupported
+
 /-- Python-level errors carried across frames. An unbound incoming capture
 corresponds to `NameError`; an unbound local or owned cell to `UnboundLocalError`. -/
 inductive RuntimeError where
