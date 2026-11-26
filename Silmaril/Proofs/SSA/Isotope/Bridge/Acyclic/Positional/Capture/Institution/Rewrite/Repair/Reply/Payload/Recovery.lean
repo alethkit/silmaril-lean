@@ -37,7 +37,7 @@ private theorem result_inj {L : List Sorts} {p q : Position L} {x y : Bool}
   refine ⟨rfl, ?_⟩
   cases x <;> cases y <;> first | rfl | cases bits
 
-private theorem arm_inj {L : List Sorts} (p q : ArmNormal L)
+theorem arm_traceTree_inj_proof {L : List Sorts} (p q : ArmNormal L)
     (left : p.traceTree false = q.traceTree false) (right : p.traceTree true = q.traceTree true) :
     p = q := by
   obtain ⟨effects, resultFalse⟩ := emit_path_inj left
@@ -59,8 +59,8 @@ theorem outcomes_injective_proof (L : List Sorts) : Function.Injective (@Normal.
   obtain ⟨request, left, right⟩ := Reply.Normal.ask.inj tracks
   obtain ⟨_, leftFalse, leftTrue⟩ := Reply.Normal.ask.inj left
   obtain ⟨_, rightFalse, rightTrue⟩ := Reply.Normal.ask.inj right
-  have lhs := arm_inj p.left q.left leftFalse leftTrue
-  have rhs := arm_inj p.right q.right rightFalse rightTrue
+  have lhs := arm_traceTree_inj_proof p.left q.left leftFalse leftTrue
+  have rhs := arm_traceTree_inj_proof p.right q.right rightFalse rightTrue
   cases p
   cases q
   cases request
@@ -68,11 +68,17 @@ theorem outcomes_injective_proof (L : List Sorts) : Function.Injective (@Normal.
   cases rhs
   rfl
 
+theorem afterRequest_proof {R A : Type} (success : R → A) (req : Bool)
+    (l r : Bool → Reply.Normal R) (right b : Bool) :
+    afterPayload req right b ((requestTree req l r).outcomesWith success) =
+      ((if right then r else l) b).outcomesWith success := by
+  cases right <;> cases b <;>
+    simp only [afterPayload, requestTree, Reply.Normal.afterReply_outcomesWith,
+      Bool.false_eq_true, ite_false, ite_true]
+
 theorem afterPayload_proof {L : List Sorts} (p : Normal L) (right b : Bool) :
     afterPayload p.request right b p.outcomes =
       ((if right then p.right else p.left).traceTree b).outcomesWith Exits.Exit.packed := by
-  cases right <;> cases b <;>
-    simp only [afterPayload, Normal.outcomes, Normal.traceTree, Reply.Normal.afterReply_outcomesWith,
-      Bool.false_eq_true, ite_false, ite_true]
+  cases right <;> exact afterRequest_proof Exits.Exit.packed p.request p.left.traceTree p.right.traceTree _ b
 
 end Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload

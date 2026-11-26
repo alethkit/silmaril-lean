@@ -13,6 +13,10 @@ public section
 namespace Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload
 
 open Isotope.LetCase.LocallyNameless (Equiv)
+open Isotope.Semantics (BoundEnv InstructionModel)
+open Kleisli (value)
+open LambdaSSA.Acyclic (Operand)
+open LambdaSSA.Region (packedExitType)
 open Silmaril.Semantics.NondeterministicTrace (Tagged)
 
 local notation "J" => Kleisli.J (m := Trace)
@@ -25,6 +29,24 @@ theorem Expr.replay (e : Expr) {n : Nat} (β : BoundCtx Sorts n) (i : Fin n)
       ((Expr.table (e.evaluate false) (e.evaluate true)).operand β i h).1 Bit :=
   expr_replay_proof e β i h
 
+local notation "Γ₀" => (Ctx.nil : Ctx Empty Sorts)
+
+/-- Replay an arm at a live payload slot in any ambient context. -/
+theorem Arm.replay_at {L : List Sorts} (a : Arm L) (effects : List Bool)
+    {n : Nat} (β : BoundCtx Sorts n) (i : Fin n) (h : β.get i = Bit) :
+    Equiv false Γ₀ β (a.renderPrefix effects β i h).1
+      (a.normal.render.renderPrefix effects β i h).1 (packedExitType L) :=
+  arm_replay_at_proof a effects β i h
+
+/-- Normalize case binding in an open context while preserving a single
+request and replaying its arms under their native payload binders. -/
+theorem request_replay {n : Nat} {β : BoundCtx Sorts n} {A : Sorts}
+    (req bound : Bool) (l r l' r' : Operand signature.Instr (β.snoc Bit) A)
+    (hl : Equiv false Γ₀ (β.snoc Bit) l.1 l'.1 A)
+    (hr : Equiv false Γ₀ (β.snoc Bit) r.1 r'.1 A) :
+    Equiv false Γ₀ β (requestOperand req bound l r).1 (requestOperand req false l' r').1 A :=
+  request_replay_proof req bound l r l' r' hl hr
+
 /-- Replay in the actual packed terms, including effectful case binding
 and the shared native exit continuation. -/
 theorem derive_normal (H : Sorts) (L : List Sorts) (p q : ProgramBody (H :: L))
@@ -35,6 +57,9 @@ theorem derive_render (H : Sorts) (L : List Sorts) (p : ProgramBody (H :: L)) :
     Derivable false (equation H L p p.normal.render) :=
   derive_render_proof H L p
 
+theorem model_respectsPure : InstructionModel.RespectsPure (ε := Bool) model :=
+  model_pure_proof
+
 /-- The free-type trace algebra has coherent native region witnesses. -/
 theorem modelCoherent :
     letI := Kleisli.instructions model
@@ -44,6 +69,46 @@ theorem modelCoherent :
 /-- The separator belongs to the existing validated room at the reply-payload signature. -/
 noncomputable def separator : (grammarRoom J signature).Mod :=
   Kleisli.validated model modelCoherent
+
+theorem separator_sat_iff (e : GrammarEquation signature) :
+    (grammarRoom J signature).Sat separator e ↔
+      ((LetCase.inst Γ₀).obj signature).Sat (Kleisli.algebra model) (grammarCase e) :=
+  Kleisli.validated_sat_iff model modelCoherent e
+
+/-- Run the witnessed arm with an older payload still live at a typed slot. -/
+theorem ArmNormal.run_at {L : List Sorts} (a : ArmNormal L)
+    {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β) (i : Fin n)
+    (h : β.get i = Bit) (b : Bool) (hi : h ▸ ρ i = bit b)
+    (finish : value (packedExitType L) → Trace (value (packedExitType L)))
+    (onReturn : finish (a.result b).packed = pure (a.result b).packed) :
+    (Kleisli.run model (a.render.renderPrefix a.emits β i h).2 ρ >>= finish).outcomes =
+      (a.traceTree b).outcomesWith Exits.Exit.packed :=
+  arm_run_at_proof a a.emits ρ i h b hi finish onReturn
+
+/-- A direct native request sequences one primitive evaluation before
+selecting the continuation for its exact reply. -/
+theorem request_run {n : Nat} {β : BoundCtx Sorts n} {T : Sorts} {R A : Type}
+    (req : Bool) (l r : Operand signature.Instr (β.snoc Bit) T)
+    (ρ : BoundEnv value β) (finish : value T → Trace A) (success : R → A)
+    (left right : Bool → Reply.Normal R)
+    (hl : ∀ b, (Kleisli.run model l.2 (ρ.snoc (A := Bit) (bit b)) >>= finish).outcomes =
+      (left b).outcomesWith success)
+    (hr : ∀ b, (Kleisli.run model r.2 (ρ.snoc (A := Bit) (bit b)) >>= finish).outcomes =
+      (right b).outcomesWith success) :
+    (Kleisli.run model (requestOperand req false l r).2 ρ >>= finish).outcomes =
+      (requestTree req left right).outcomesWith success :=
+  request_run_proof req l r ρ finish success left right hl hr
+
+theorem afterRequest {R A : Type} (success : R → A) (req : Bool)
+    (l r : Bool → Reply.Normal R) (right b : Bool) :
+    afterPayload req right b ((requestTree req l r).outcomesWith success) =
+      ((if right then r else l) b).outcomesWith success :=
+  afterRequest_proof success req l r right b
+
+theorem ArmNormal.traceTree_inj {L : List Sorts} (p q : ArmNormal L)
+    (h₀ : p.traceTree false = q.traceTree false) (h₁ : p.traceTree true = q.traceTree true) :
+    p = q :=
+  arm_traceTree_inj_proof p q h₀ h₁
 
 /-- The actual packed term has the independently enumerated observations. -/
 theorem programOutcomes_eq (H : Sorts) (L : List Sorts) (p : ProgramBody (H :: L)) :
@@ -67,14 +132,14 @@ theorem programAfterPayload (H : Sorts) (L : List Sorts) (p : ProgramBody (H :: 
 
 theorem separator_sat_iff_normal (H : Sorts) (L : List Sorts) (p q : ProgramBody (H :: L)) :
     (grammarRoom J signature).Sat separator (equation H L p q) ↔ p.normal = q.normal :=
-  (Kleisli.validated_sat_iff model modelCoherent _).trans
+  (separator_sat_iff _).trans
     ⟨fun h => (programOutcomes_iff_normal H L p q).mp (programOutcomes_eq_of_sat_proof H L p q h),
       fun h => Kleisli.sat_of_repaired model model_pure_proof _ (Repaired.ofNative (derive_normal H L p q h))⟩
 
 theorem separator_sat_iff_repaired (H : Sorts) (L : List Sorts) (p q : ProgramBody (H :: L)) :
     (grammarRoom J signature).Sat separator (equation H L p q) ↔ Repaired false (equation H L p q) :=
   ⟨fun h => Repaired.ofNative (derive_normal H L p q ((separator_sat_iff_normal H L p q).mp h)),
-    fun h => (Kleisli.validated_sat_iff model modelCoherent _).mpr
+    fun h => (separator_sat_iff _).mpr
       (Kleisli.sat_of_repaired model model_pure_proof _ h)⟩
 
 /-- Validity in the whole existing model class reflects to the native rules on
