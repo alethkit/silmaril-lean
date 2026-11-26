@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Uniformity.Defs
+public import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Continuation.Observation
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Uniformity.Forwarding
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Uniformity.Simulation
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Continuation.Substitution
@@ -81,10 +82,10 @@ private theorem observe_right {O : Ops Φ α σ} (ha : a.BranchValue (A :: Γ) D
     fault := Semantics.Region.Fault.renameVars_iff agree
     div := External.Diverges.renameVars_iff agree }
 
-private abbrev operations {Δ : List (Ty κ)} (M : UB.Overlay.Shape.Model.{u,v,w,x} Φ Δ) :
+abbrev operations {Δ : List (Ty κ)} (M : UB.Overlay.Shape.Model.{u,v,w,x} Φ Δ) :
     Ops Φ M.raw.α M.raw.σ := ⟨M.raw.instr, M.raw.faults, M.raw.prim⟩
 
-private theorem denote_to_regionAt {Δ H : List (Ty κ)} (M : UB.Overlay.Shape.Model.{u,v,w,x} Φ Δ)
+theorem denote_to_regionAt {Δ H : List (Ty κ)} (M : UB.Overlay.Shape.Model.{u,v,w,x} Φ Δ)
     {runtime : Env M.raw.α} (agree : Morphism.CaseSSA.EnvAgrees runtime M.raw.bound)
     (r t : UB.Typed (Φ := Φ) Δ H)
     (same : ∀ s, UB.Overlay.Shape.denote (.native r) M s = UB.Overlay.Shape.denote (.native t) M s) :
@@ -107,7 +108,7 @@ private theorem denote_to_regionAt {Δ H : List (Ty κ)} (M : UB.Overlay.Shape.M
   · intro s t'; exact iffAt s (.fault t')
   · intro s; exact iffAt s .diverge
 
-private theorem regionAt_to_denote {Δ H : List (Ty κ)} (M : UB.Overlay.Shape.Model.{u,v,w,x} Φ Δ)
+theorem regionAt_to_denote {Δ H : List (Ty κ)} (M : UB.Overlay.Shape.Model.{u,v,w,x} Φ Δ)
     (r t : UB.Typed (Φ := Φ) Δ H) (s : M.raw.σ)
     (same : RegionAt (operations M) (envOfBound M.raw.bound) r.val (envOfBound M.raw.bound) t.val) :
     UB.Overlay.Shape.denote (.native r) M s = UB.Overlay.Shape.denote (.native t) M s := by
