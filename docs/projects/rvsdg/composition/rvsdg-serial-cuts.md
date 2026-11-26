@@ -77,7 +77,8 @@ The consumer observes the producer's exact state on one input and reaches a
 selected undefined primitive on another. The numbered serial graph emitter
 still uses the homogeneous handoff described above.
 [Typed linker](../../../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/Sequential/Flat/Defs.lean) ·
-[Denotation theorem](../../../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/Sequential/Flat/Thms.lean)
+[Denotation theorem](../../../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/Sequential/Flat/Thms.lean) ·
+[Exit-routing fixture](../../../../Silmaril/Proofs/SSA/RVSDG/LambdaSSA/NestedFeedback/Regression.lean)
 
 ## Reproduce
 
