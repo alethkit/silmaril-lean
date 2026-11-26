@@ -50,6 +50,41 @@ theorem runs_sound (program : Program) (available : List DeclarationId)
   | assign term _ ih => exact .seq (.assignExpr (direct term)) ih
   | assignError term => exact .seqError (.assignExpr (direct term))
 
+theorem prefix_sound (program : Program) (available : List DeclarationId)
+    {block : LexicalBlock} {state : State} {source : List (String × SourceExpr)}
+    {code : List (String × Lowering.Expr)} {result : Outcome Unit} (prefixRun : RunsPrefix block state source code result)
+    (tail : Silmaril.Languages.Starlark.Functions.Body) (out : Outcome Flow)
+    (continuation : ∀ state, result = .ok () state → Exec program available state tail out) :
+    Exec program available state (prependCode code tail) (result.resume fun _ _ => out) := by
+  have direct {state : State} {source : SourceExpr} {code : Lowering.Expr} {out : Outcome Value}
+      (term : Evaluates block state source code out) : ExecExpr program available state code out :=
+    .evaluates (fun _ _ _ impossible => impossible.elim) (evaluates program available term)
+  induction prefixRun with
+  | nil => exact continuation _ rfl
+  | cons step _ ih => exact .seq (.assignExpr (direct step)) (ih continuation)
+  | failed step => exact .seqError (.assignExpr (direct step))
+
+theorem prefix_unique {block : LexicalBlock} {state : State} {source : List (String × SourceExpr)}
+    {code : List (String × Lowering.Expr)} {a b : Outcome Unit}
+    (first : RunsPrefix block state source code a) (second : RunsPrefix block state source code b) : a = b := by
+  let tail : Silmaril.Languages.Starlark.Functions.Body := .returnExpr (.atom (.scalar (.int 0)))
+  let finish : Outcome Unit → Outcome Flow := fun result =>
+    result.resume fun _ state => .ok (.returned (.scalar (.int 0))) state
+  have sound {result : Outcome Unit} (ran : RunsPrefix block state source code result) :
+      Exec #[] [] state (prependCode code tail) (finish result) := by
+    cases result with
+    | error error residual =>
+      exact prefix_sound #[] [] ran tail (.error error residual) (fun _ impossible => by cases impossible)
+    | ok value residual =>
+      cases value
+      exact prefix_sound #[] [] ran tail (finish (.ok () residual)) (by
+        intro reached equal
+        cases equal
+        exact .returnExpr (.evaluates (calls := fun _ _ _ => False) (fun _ _ _ h => h.elim) (.atom trivial .scalar)))
+  have equal : finish a = finish b := ((exec_iff_denoteBody _ _ _ _ _).mp (sound first)).symm.trans
+    ((exec_iff_denoteBody _ _ _ _ _).mp (sound second))
+  cases a <;> cases b <;> simp_all [finish, Outcome.resume]
+
 /-- The operand profile only extends the heap. In particular, each
 existing slot and cell still denotes the same object after an error. -/
 private def Extends (before after : State) : Prop :=
@@ -159,5 +194,21 @@ theorem runs_total {block : LexicalBlock} {free : List FreeName} {floor : Nat}
       obtain ⟨valid, stable⟩ := written_frame owned value (extend_frame frame kept)
       obtain ⟨out, rest, valid, preserves⟩ := ih _ valid
       exact ⟨_, .assign ran rest, valid, keeps_trans (extends_keeps floor kept) (keeps_trans stable preserves)⟩
+
+theorem prefix_total {block : LexicalBlock} {free : List FreeName} {floor : Nat}
+    {source : List (String × SourceExpr)} {code : List (String × Lowering.Expr)} {reads : List Binding}
+    (profile : ElaboratesPrefix block source code reads) (state : State) (frame : Frame block free floor state) :
+    ∃ out, RunsPrefix block state source code out ∧ Frame block free floor (finishState out) ∧
+      Keeps floor state (finishState out) := by
+  induction profile generalizing state with
+  | nil => exact ⟨_, .nil, frame, rfl, fun _ _ _ stored => stored⟩
+  | cons owned operand _ ih =>
+    obtain ⟨out, ran, kept⟩ := operands_total operand state
+    cases out with
+    | error => exact ⟨_, .failed ran, extend_frame frame kept, extends_keeps floor kept⟩
+    | ok value middle =>
+      obtain ⟨valid, stable⟩ := written_frame owned value (extend_frame frame kept)
+      obtain ⟨out, rest, valid, preserves⟩ := ih _ valid
+      exact ⟨_, .cons ran rest, valid, keeps_trans (extends_keeps floor kept) (keeps_trans stable preserves)⟩
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body

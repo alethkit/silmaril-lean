@@ -76,24 +76,23 @@ theorem call_scoped {before rest : List Command} {globals : List String} {callee
       exact ⟨.error (.runtime error) state, .scopedCall root site calleeCode related ran (.rejected bound),
         fun _ impossible => nomatch impossible⟩
     | ok assigned =>
-      obtain ⟨captures, installed, cells⟩ := Defaults.Escape.Scoped.activate_installs root.plan root.childId state assigned
       let codes := spec.wrapper.codes
-      obtain ⟨out, _, returned, _, _, progress⟩ := Defaults.Escape.returns_with_total resolved.program
-        (withoutDeclaration (List.range resolved.program.size) (root.childId + 1)) spec.wrapper root.names.wrapper
-        root.childId (root.plan.body.declaration codes) root.childCode rfl spec.additional spec.updates
-        root.names.localUpdates state assigned captures installed cells
+      obtain ⟨out, _, returned, _, _, progress⟩ := Defaults.Escape.Scoped.returns_total root.names root.plan
+        resolved.program (withoutDeclaration (List.range resolved.program.size) (root.childId + 1))
+        root.childId root.childCode state assigned
       refine ⟨_, .scopedCall root site calleeCode related ran (.entered bound returned), ?_⟩
       intro next success
       cases out with
       | error => cases success
       | ok value middle =>
         cases success
-        obtain ⟨address, values, rfl, length, cell, kept, retained, _⟩ := progress value middle rfl
+        obtain ⟨address, values, reached, captures, rfl, length, _, _, installed, cell, kept, retained, _⟩ :=
+          progress value middle rfl
         have stored := Defaults.Body.capture_cells_written middle (globalSlot destination) (.function address) retained
         have live := commit_cell target.1 (kept.layout layout) address root.childId captures _ cell
         exact ⟨.commit middle _ kept, ⟨target.1, ⟨⟨root.childId, spec.enclosing, root.plan.body, codes,
           address, values, captures, Defaults.Escape.code_length spec.wrapper, length, root.childCode,
-          _, installed, stored, live⟩⟩⟩⟩
+          reached, installed, stored, live⟩⟩⟩⟩
   · have calleeRead : RootCall.Evaluates state (.scalar (.read callee)) (.ok (.function root.address) state) := by
       simpa [State.read, root.live.binding] using RootCall.Evaluates.name (state := state) callee
     exact ⟨.error (.runtime error) state, .ordinary (.operandError site calleeCode related (.cons calleeRead failed)),
