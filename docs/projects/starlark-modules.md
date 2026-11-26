@@ -419,7 +419,7 @@ Go's `Program.Init` exposes a mutable partial namespace on failure.
 `ExecFileOptions` also exposes that namespace and freezes it. The
 checked Lean failure result contains the restored caller and the
 retained heap.
-[Source judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Checks.lean) · [Pinned Go fixture](../../examples/starlark/mixed-leaf/check.go)
+[Source judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Checks.lean) · [Pinned Go fixture](../../scripts/starlark/mixed-leaf.go)
 
 ## Finite-manifest loader
 
@@ -487,11 +487,12 @@ Use Go 1.25 or newer and run from the repository root.
 
 ```sh
 fixtures="$(pwd)/examples/starlark"
+mixed_leaf="$(pwd)/scripts/starlark/mixed-leaf.go"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$fixtures/modules/check.go" && go run "$fixtures/loader/check.go" &&
-  go run "$fixtures/scope/check.go" && go run "$fixtures/mixed-leaf/check.go")
+  go run "$fixtures/scope/check.go" && go run "$mixed_leaf")
 ```
 
 [modules]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#module-execution
