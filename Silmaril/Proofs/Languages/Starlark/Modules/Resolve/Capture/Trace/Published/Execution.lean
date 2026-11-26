@@ -62,17 +62,37 @@ private theorem root_linked {globals : List String} {root : Root globals} {progr
   intro id declaration found
   exact known _ _ (by simp [Root.table, Array.getElem?_push, Nat.ne_of_lt (Array.getElem?_eq_some_iff.mp found).choose, found])
 
+theorem enter_callable_for {callee : Callable} {prefixTable : Program}
+    {commands : List Silmaril.Languages.Starlark.Modules.Resolve.Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved) (known : callee.Linked prefixTable)
+    (extension : PreservesDeclarations prefixTable resolved.program) (available : List DeclarationId)
+    (retained : List.Subset (List.range prefixTable.size) available) :
+    BodyEntry callee.site resolved.program available callee.id callee.BodyRuns := by
+  obtain ⟨_, seed, bodyTable, children, size, table, suite⟩ := known
+  have prior := entry_guard suite table
+  rw [size] at prior
+  have guarded : List.Subset (children.map Prod.fst) (withoutDeclaration available callee.id) := by
+    intro index member
+    obtain ⟨inPrefix, different⟩ := mem_withoutDeclaration.mp (prior member)
+    exact mem_withoutDeclaration.mpr ⟨retained inPrefix, different⟩
+  intro caller defining captures installed live assigned
+  obtain ⟨out, ran, _, kept, exec, _, resultRecord⟩ :=
+    runs_activated_for callee.site suite checked (fun id declaration found => extension id declaration (table id declaration found))
+      _ guarded caller defining captures installed live assigned
+  exact ⟨out, ⟨ran, resultRecord⟩, exec, Body.returned_keeps caller callee.site.declaration captures assigned out kept⟩
+
 theorem enter_callable {callee : Callable}
     {commands : List Silmaril.Languages.Starlark.Modules.Resolve.Command} {linked : Program} {resolved : ResolvedModule}
     (checked : resolve commands linked = .ok resolved) (known : callee.Linked resolved.program) :
-    BodyEntry callee.site resolved.program (List.range resolved.program.size) callee.id callee.BodyRuns := by
-  obtain ⟨_, seed, bodyTable, children, size, table, suite⟩ := known
-  have guarded := entry_guard suite table
-  rw [size] at guarded
-  intro caller defining captures installed live assigned
-  obtain ⟨out, ran, _, kept, exec, _, resultRecord⟩ :=
-    runs_activated_for callee.site suite checked table _ guarded caller defining captures installed live assigned
-  exact ⟨out, ⟨ran, resultRecord⟩, exec, Body.returned_keeps caller callee.site.declaration captures assigned out kept⟩
+    BodyEntry callee.site resolved.program (List.range resolved.program.size) callee.id callee.BodyRuns :=
+  enter_callable_for checked known (fun _ _ found => found) _ (fun _ member => member)
+
+theorem linked_extends {callee : Callable} {earlier later : Program}
+    (known : callee.Linked earlier) (extendsTable : PreservesDeclarations earlier later) :
+    callee.Linked later := by
+  obtain ⟨found, seed, bodyTable, children, size, table, suite⟩ := known
+  exact ⟨extendsTable _ _ found, seed, bodyTable, children, size,
+    fun index declaration stored => extendsTable index declaration (table index declaration stored), suite⟩
 
 theorem returned_linked {callee : Callable} {program : Program} (known : callee.Linked program) :
     ∀ next, callee.returned.map Callable.nested = some next → next.Linked program := by
@@ -100,6 +120,29 @@ theorem returned_record {callee : Callable} {block : LexicalBlock} {name : Strin
     unfold Callable.BodyRuns at ran
     rw [result] at ran
     exact invoked_value_at ran
+
+private theorem plan_ready {globals : List String} {env exports : Environment}
+    {commands : List Silmaril.Languages.Starlark.Modules.Resolve.Command}
+    {code : List Modules.Command} {seed final program : Program}
+    (profile : Plan globals env commands seed code final exports)
+    (table : PreservesDeclarations final program) (ready : Ready globals program env) :
+    Ready globals program exports := by
+  induction profile with
+  | done => exact ready
+  | define root suffix ih =>
+    have rootTable : PreservesDeclarations root.table program :=
+      fun index decl found => table index decl (preserves suffix index decl found)
+    exact ih table (ready_update ready root.site.target (some root.callable)
+      (fun _ same => by cases same; exact root_linked rootTable))
+  | assign member _ tracks _ ih =>
+    apply ih table (ready_update ready member _ ?_)
+    intro callee same
+    cases tracks with
+    | forget => cases same
+    | copy tracked => cases same; exact (ready _ _ tracked).2
+  | invoke call callee tracked _ ih =>
+    exact ih table (ready_update ready call.destinationGlobal (callee.returned.map Callable.nested)
+      (returned_linked (ready _ _ tracked).2))
 
 private theorem read_global {globals : List String} {name : String} {state : State} {value : Value}
     (member : name ∈ globals) (loaded : state.bindingValue (globalSlot name) = .ok value) :
@@ -335,33 +378,39 @@ theorem plan_code {commands : List Silmaril.Languages.Starlark.Modules.Resolve.C
     exact plan_compiles profile
   exact Prod.mk.inj (Except.ok.inj (detail.1.symm.trans elaborated))
 
-theorem module_agrees_preserving {commands : List Silmaril.Languages.Starlark.Modules.Resolve.Command}
+theorem plan_exports_linked {commands : List Silmaril.Languages.Starlark.Modules.Resolve.Command}
     {code : List Modules.Command} {linked final : Program} {resolved : ResolvedModule} {exports : Environment}
     (profile : Plan (Trace.names commands) (fun _ => none) commands linked code final exports)
-    (checked : resolve commands linked = .ok resolved) (host : Catalog) (caller : State) :
+    (checked : resolve commands linked = .ok resolved)
+    {name : String} {callee : Callable} (tracked : exports name = some callee) :
+    callee.Linked resolved.program := by
+  have same := (plan_code profile checked).2
+  have table : PreservesDeclarations final resolved.program := same ▸ fun _ _ found => found
+  exact (plan_ready profile table (fun _ _ absent => nomatch absent) name callee tracked).2
+
+theorem module_runs_extending {commands : List Silmaril.Languages.Starlark.Modules.Resolve.Command}
+    {code : List Modules.Command} {linked final : Program} {resolved : ResolvedModule} {exports : Environment}
+    (profile : Plan (Trace.names commands) (fun _ => none) commands linked code final exports)
+    (checked : resolve commands linked = .ok resolved)
+    {other : List Silmaril.Languages.Starlark.Modules.Resolve.Command} {seed : Program} {whole : ResolvedModule}
+    (wholeChecked : resolve other seed = .ok whole)
+    (extension : PreservesDeclarations resolved.program whole.program) (host : Catalog) (caller : State) :
     ∃ reached, ExecutesAll (Trace.names commands) (enter resolved.source caller) commands reached ∧
-      Modules.Runs resolved.program host (enter resolved.source caller) resolved.source.commands reached ∧
-      Modules.Initializes resolved.program host resolved.source caller (finish resolved.source caller reached) ∧
-      runModule commands host caller linked = .ok (finish resolved.source caller reached) ∧
+      Modules.Runs whole.program host (enter resolved.source caller) resolved.source.commands reached ∧
       KeepsContents caller (resultState (finish resolved.source caller reached)) ∧
       ∀ published finished, finish resolved.source caller reached = .ok published finished →
-        PublishedLive exports resolved.program published finished := by
+        PublishedLive exports whole.program published finished := by
   have declared := plan_declares profile
-  have detail := checked_of_resolve checked
   obtain ⟨sameCode, sameTable⟩ := plan_code profile checked
-  have table : PreservesDeclarations final resolved.program := by
-    rw [sameTable]
-    exact fun _ _ found => found
+  have table : PreservesDeclarations final whole.program := by
+    exact sameTable ▸ extension
   have entered := Entry.entered_cells resolved.source caller
-  obtain ⟨reached, source, ran, preserved, completed⟩ := run_plan checked profile table host _ (entry_frame declared checked caller)
+  obtain ⟨reached, source, ran, preserved, completed⟩ := run_plan wholeChecked profile table host _ (entry_frame declared checked caller)
     (fun _ _ no => nomatch no) entered.1 (fun _ _ no => nomatch no)
-  have native : Modules.Runs resolved.program host (enter resolved.source caller) resolved.source.commands reached := by
+  have native : Modules.Runs whole.program host (enter resolved.source caller) resolved.source.commands reached := by
     rw [sameCode]
     exact ran
-  have initialized : Modules.Initializes resolved.program host resolved.source caller (finish resolved.source caller reached) :=
-    .run detail.2.2.2 native
-  refine ⟨reached, source, native, initialized,
-    (initializes_iff_runModule _ _ _ _ _).mp (.run checked initialized), ?_, ?_⟩
+  refine ⟨reached, source, native, ?_, ?_⟩
   · intro address cell present
     have old := preserved.2 address cell (Array.getElem?_eq_some_iff.mp present).choose (entered.2 _ _ present)
     cases reached with
@@ -380,6 +429,24 @@ theorem module_agrees_preserving {commands : List Silmaril.Languages.Starlark.Mo
       cases success
       obtain ⟨ready, live⟩ := completed _ rfl
       exact live_publication (Entry.checked_module_globals declared checked) caller state ready live
+
+theorem module_agrees_preserving {commands : List Silmaril.Languages.Starlark.Modules.Resolve.Command}
+    {code : List Modules.Command} {linked final : Program} {resolved : ResolvedModule} {exports : Environment}
+    (profile : Plan (Trace.names commands) (fun _ => none) commands linked code final exports)
+    (checked : resolve commands linked = .ok resolved) (host : Catalog) (caller : State) :
+    ∃ reached, ExecutesAll (Trace.names commands) (enter resolved.source caller) commands reached ∧
+      Modules.Runs resolved.program host (enter resolved.source caller) resolved.source.commands reached ∧
+      Modules.Initializes resolved.program host resolved.source caller (finish resolved.source caller reached) ∧
+      runModule commands host caller linked = .ok (finish resolved.source caller reached) ∧
+      KeepsContents caller (resultState (finish resolved.source caller reached)) ∧
+      ∀ published finished, finish resolved.source caller reached = .ok published finished →
+        PublishedLive exports resolved.program published finished := by
+  obtain ⟨reached, source, native, kept, live⟩ :=
+    module_runs_extending profile checked checked (fun _ _ stored => stored) host caller
+  have initialized : Modules.Initializes resolved.program host resolved.source caller (finish resolved.source caller reached) :=
+    .run (checked_of_resolve checked).2.2.2 native
+  exact ⟨reached, source, native, initialized,
+    (initializes_iff_runModule _ _ _ _ _).mp (.run checked initialized), kept, live⟩
 
 theorem module_agrees {commands : List Silmaril.Languages.Starlark.Modules.Resolve.Command}
     {code : List Modules.Command} {linked final : Program} {resolved : ResolvedModule} {exports : Environment}
