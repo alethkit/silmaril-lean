@@ -19,9 +19,11 @@ import Silmaril.SSA.Peggy.Worked.StrengthReduction.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Thms
 import Silmaril.SSA.PEG.Simple.Revert.Schedule.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Thms
 import Silmaril.SSA.PEG.Projection.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Cyclic.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Selection.Legality.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
@@ -2301,5 +2303,51 @@ private def scheduleRun :
 
 #guard scheduleRun.isSome
 #guard (schedule { layout with route := pair (.tail .head) .head }).isNone
+
+open Simple.Revert.Schedule.Automatic (Leaf Found Rejection discover)
+
+-- Submit the leaves in reverse order. Neither has original addresses or
+-- a choice of handoff ports from the other leaf.
+private def inferPlan (original : Graph Op inputs outputs 16 2) (ranking : DemandRank 16 2)
+    (budget : Nat) : Except Rejection (Found original (.counted roles) ranking) := do
+  let some first := Leaf.closed roles (stage false) | throw .noPlan
+  let some second := Leaf.closed roles (stage true) | throw .noPlan
+  discover original (.counted roles) ranking [second, first] budget
+
+private def inferredRun :
+    Option {a : Found graph (.counted roles) rank //
+      Exec model a.gate.val.plan.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ i, graph.observe model (graph.denote model (input 2) a.gate.val.demandWellFounded) i =
+        four (some ⟨13⟩) (some ⟨3⟩) (some ⟨3⟩) (some ⟨13⟩)} := do
+  let .ok a := inferPlan graph rank 1000 | none
+  match ran : a.gate.val.plan.runFuel model 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    let exec := a.gate.val.plan.exec_of_runFuel 3 ran
+    return ⟨a, exec, fun i => (a.observations_of_exec laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard inferredRun.isSome
+
+-- Select a nonidentity final projection, taking some of the leaf's
+-- outputs twice and dropping the pass count.
+private def inferReordered : Option (List Nat) := do
+  let original := graph.withRoots (four (r 8 rfl) (r 15 rfl) (r 15 rfl) (r 8 rfl))
+  let .ok a := inferPlan original rank 1000 | none
+  let .cons x (.cons y (.cons z (.cons w .nil))) ← a.gate.val.plan.runFuel model 3 (input 2)
+  return [x.down, y.down, z.down, w.down]
+
+#guard inferReordered == some [3, 13, 13, 3]
+
+-- The second guard uses the original limit, which the first stage no
+-- longer exposes. The edge is well typed and the graph still checks.
+private def staleBoundary : Graph Op inputs outputs 16 2 :=
+  { graph with node := fun i =>
+      if bad : i = 12 then bad.symm ▸ Node.ofLabel (.op .atLeast) (pair (r 9 rfl) (r 6 rfl))
+      else graph.node i }
+
+#guard rank.check staleBoundary
+#guard match inferPlan staleBoundary rank 10000 with | .error .noPlan => true | _ => false
+#guard match inferPlan graph rank 1 with | .error .budget => true | _ => false
+#guard match inferPlan graph [] 1000 with | .error .invalidRank => true | _ => false
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Tests
