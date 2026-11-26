@@ -74,13 +74,36 @@ using the function-validation theorem.
 | `Examples.constantBits_lowers` | An `i32` constant with all bits set retains its bit pattern, and an unused `i64` binding still lowers. |
 | `Examples.lessThanSigned_lowers`, `Examples.lessThanUnsigned_lowers` | For either integer width the emitted Core function preserves operand order and signedness and puts the comparison result in an `i32` local. |
 
-These results concern Core syntax and validation. WasmSpec's `Computes` and
-Silmaril's Wasm SSA runtime theorems are about execution. The translation
-establishes no execution correspondence, whole-module validation, binary encodability or type
-soundness result.
-[WasmSSA theorem header](../../Silmaril/Wasm/SSA/MLIR/WasmSSA/Thms.lean) ·
+[WasmSSA theorem header](../../Silmaril/Wasm/SSA/MLIR/WasmSSA/Thms.lean)
+
+## Returned-word observation
+
+`Func.eval` evaluates the typed source block on integer arguments in
+declaration order. Each operation extends the source environment with one word.
+Arithmetic wraps to the operand width. Comparisons and `eqz` produce the
+`i32` words zero and one. `select` chooses the true value on any nonzero
+`i32` condition. The evaluator covers both widths and all 14 checked
+mnemonics in their modeled integer forms.
+[Source evaluator](../../Silmaril/SSA/MLIR/WasmSSA/Eval/Defs.lean) ·
+[Pinned operation definitions](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/WasmSSA/IR/WasmSSAOps.td)
+
+| Theorem in `Silmaril.MLIR.WasmSSA` | Checked statement |
+| --- | --- |
+| `Func.toWasm_returns` | From `Frame.forCall` with the typed arguments followed by the emitted locals, the actual emitted body can reach Core `return` with exactly the source word on the stack and the original store. `Func.Fits` bounds the number of parameters plus bindings by `2 ^ 32`. |
+| `Func.toWasm_invoke` | Given a store entry with the emitted function as its code and a type that expands to the source signature, Core `invoke` can reach that singleton result and the original store. |
+| `Examples.selectDifference_returns`, `Examples.selectDifference_equal_returns` | The stated Core body returns the wrapped difference on inputs `5, 9` and the first parameter on inputs `5, 5`. These runs exercise operand order, reuse and both arms of `select`. |
+
+The observation is an existential run of Core 3.0 `Steps`, for every numeric
+profile and host relation. It uses the same body-level observation as
+WasmSpec's `Computes`, with the exact return configuration, and reuses Core
+Logic's body-to-invocation theorem. The Wasm SSA checked optimizer concerns a
+separate `BFunc` pathway with its own fragment recognition and runtime
+certificate. The WasmSSA results cover the lowered body and invocation with
+the stated store entry. Whole-module instantiation, binary execution, and
+every-run behavior are outside their scope.
+[Execution theorems](../../Silmaril/Wasm/SSA/MLIR/WasmSSA/Execution/Thms.lean) ·
 [WasmSpec statement forms](../../Silmaril/WasmSpec/Common/Defs.lean) ·
-[Existing Wasm SSA results](../../Silmaril/Wasm/SSA/Checked/Thms.lean)
+[Wasm SSA Core certificate](../../Silmaril/Wasm/SSA/CoreCert/Thms.lean)
 
 ## Project-defined WASM-GC-SSA syntax
 

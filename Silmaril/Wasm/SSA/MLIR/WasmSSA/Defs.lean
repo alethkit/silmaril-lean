@@ -89,6 +89,16 @@ def store {C : Context} {t : IntType} (slot : Slot C t) :
     ⟨.cons .num .nil, .nil, by simp⟩
     ⟨numericStack C [t], numericStack C [], by simp⟩
 
+def bindingSlot {C : Context} {t : IntType} {rest : List LocalType} (next : Nat)
+    (layout : C.locals.drop next = t.localType :: rest) (fits : C.locals.length ≤ 2 ^ 32) :
+    Slot C t := by
+  have resolves : C.locals[next]? = some t.localType := by
+    have first : (C.locals.drop next)[0]? = some t.localType :=
+      congrArg (fun slots : List LocalType => slots[0]?) layout
+    simpa only [List.getElem?_drop, Nat.add_zero] using first
+  let inBounds := (List.getElem?_eq_some_iff.mp resolves).choose
+  exact ⟨⟨⟨next, Nat.lt_of_lt_of_le inBounds fits⟩⟩, resolves⟩
+
 def lowerOp {C : Context} {params Γ : List IntType}
     (paramsAt : Slots C params) (valsAt : Slots C Γ) {t : IntType} :
     Rhs params Γ t → Body C (.plain [] [t.closed])
@@ -119,11 +129,7 @@ def lowerBlock {C : Context} {params Γ : List IntType} {result : IntType}
         (.single (.return_ (stackPrefix := []) returns
           ⟨numericStack C [], numericStack C [result], by simp⟩))
   | .letOp (t := t) rhs rest =>
-      have resolves : C.locals[next]? = some t.localType := by
-        have first := congrArg (fun slots : List LocalType => slots[0]?) layout
-        simpa [Block.bindingTypes] using first
-      have existsSlot := (List.getElem?_eq_some_iff.mp resolves).choose
-      let slot : Slot C t := ⟨⟨⟨next, Nat.lt_of_lt_of_le existsSlot fits⟩⟩, resolves⟩
+      let slot := bindingSlot (t := t) next layout fits
       have restLayout : C.locals.drop (next + 1) = rest.bindingTypes.map IntType.localType := by
         rw [← List.drop_drop, layout]
         rfl
