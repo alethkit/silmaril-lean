@@ -67,27 +67,12 @@ theorem step_eq (success : rewrite m g input port literals = .ok rewritten)
     change Sum.inr (Quads.write port value next) = Sum.inr next
     rw [cover, write_get]
 
-private theorem evalFrom_eq (success : rewrite m g input port literals = .ok rewritten)
-    (covered : TupleCovers input entry)
-    (budget : Nat) {via : Incoming} {count : Nat} {old : Tuple (Val m.value) (dataPorts carried)}
-    (arrived : Arrives m g entry via count old) :
-    rewritten.evalFrom m entry budget old = g.evalFrom m entry budget old := by
-  induction budget generalizing via count old with
-  | zero => simp only [Graph.evalFrom, step_eq success covered arrived]
-  | succ budget ih =>
-    simp only [Graph.evalFrom, step_eq success covered arrived]
-    cases taken : g.step m entry old with
-    | inl _ => rfl
-    | inr next => exact ih (.backedge arrived taken)
-
 theorem evalBackedges_eq (success : rewrite m g input port literals = .ok rewritten)
     (covered : TupleCovers input entry) (budget : Nat) :
     rewritten.evalBackedges m budget entry = g.evalBackedges m budget entry := by
   have initial : rewritten.initial m entry = g.initial m entry := by
     obtain ⟨_, _, rfl⟩ := rewrite_ok_iff.mp success
     rfl
-  unfold Graph.evalBackedges
-  rw [initial]
-  exact evalFrom_eq success covered budget .entry
+  exact SCCP.evalBackedges_eq_of_steps rewritten initial (fun arrived => step_eq success covered arrived) budget
 
 end Silmaril.SSA.SeaOfNodes.Loop.SCCP.FeedbackFold.Proofs
