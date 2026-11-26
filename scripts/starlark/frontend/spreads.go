@@ -26,6 +26,13 @@ def assign_fail():
     saved = choose(f, mark(1, 0))
     later = mark(2, 99)
     return later
+def eval_ok():
+    if True:
+        mark(1, 0); mark(2, 0)
+    return 7
+def eval_fail():
+    choose(f, mark(1, 0)); mark(2, 0)
+    return 7
 `
 	cases := []struct {
 		name    string
@@ -39,6 +46,10 @@ def assign_fail():
 		{"middle-application-masks-later-effects", "mark(1, choose)(f, mark(2, 0))(mark(3, 0))(mark(4, 0))",
 			moduleControl{Phase: "runtime", Want: "missing 1 argument (required)", Events: "[1, 2]"}},
 		{"failed-body-assignment-masks-later-effects", "assign_fail()",
+			moduleControl{Phase: "runtime", Want: "missing 1 argument (required)", Events: "[1]"}},
+		{"call-statement-effects", "eval_ok(); mark(3, 0); mark(4, 0)",
+			moduleControl{Phase: "publication", Want: "7", Events: "[1, 2, 3, 4]"}},
+		{"failed-call-statement-masks-later-effects", "eval_fail()",
 			moduleControl{Phase: "runtime", Want: "missing 1 argument (required)", Events: "[1]"}},
 		{"operand-effects", "f(mark(1, 1), c=mark(2, 3), *mark(3, xs), **mark(4, kw))",
 			moduleControl{Phase: "publication", Want: "7", Events: "[1, 2, 3, 4, 5]"}},

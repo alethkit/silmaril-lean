@@ -98,11 +98,12 @@ structure LocatedImport where
   exported : LocatedString
   localName : LocatedString
 
-/-- Module function suites retain calls that form an assignment RHS or return value. -/
+/-- Module function suites retain calls at statement, assignment, and return roots. -/
 inductive FunctionStmt where
   | scalar (stmt : SourceStmt)
   | returnCall (value : CallOperand)
   | assignCall (target : String) (value : CallOperand)
+  | evalCall (value : CallOperand)
   | branch (test : SourceExpr) (yes no : List (LocatedStmt FunctionStmt))
 
 /-- The source forms consumed by the normalized module adapter. -/
@@ -111,6 +112,7 @@ inductive FileCommand where
   | define (fn : LocatedFunction FunctionStmt)
   | assignDisplay (target : String) (display : CollectionDisplay)
   | assignCall (target : String) (value : CallOperand)
+  | evalCall (value : CallOperand)
   | load (label : LocatedString) (imports : List LocatedImport)
 
 structure LocatedFileCommand where
@@ -607,7 +609,9 @@ private def parseFunctionSmall (exprFuel : Nat) (inFunction : Bool) (s : Stream)
     | ⟨.name target, _⟩ :: ⟨.symbol "=", _⟩ :: _ =>
       if let some (value, rest) ← parseRootCall exprFuel s.pop.pop then
         return (.assignCall target value, rest)
-    | _ => pure ()
+    | _ =>
+      if let some (value, rest) ← parseRootCall exprFuel s then
+        return (.evalCall value, rest)
   let (stmt, rest) ← parseSmallStmt exprFuel inFunction s
   return (.scalar stmt, rest)
 
@@ -626,6 +630,8 @@ private def parseFileSmall (exprFuel : Nat) (s : Stream) : Except Diagnostic (Fi
     let (stmt, rest) ← parseSmallStmt exprFuel false s
     return (.simple stmt, rest)
   | _ =>
+    if let some (value, rest) ← parseRootCall exprFuel s then
+      return (.evalCall value, rest)
     let (stmt, rest) ← parseSmallStmt exprFuel false s
     return (.simple stmt, rest)
 
@@ -690,11 +696,11 @@ private def parseFileTokens (tokens : List Token) : Except Diagnostic (List Loca
   let fuel := parserFuel tokens
   parseFileCommands fuel fuel true true ⟨tokens, {}⟩ []
 
-/-- Parse a file with leading loads, function definitions, and call assignments. -/
+/-- Parse a file with leading loads, function definitions, and postfix call statements. -/
 def parseFile (source : String) : Except Diagnostic (List LocatedFileCommand) := do
   parseFileTokens (← lex source)
 
-/-- Parse a file with leading loads, function definitions, and call assignments from UTF-8 bytes. -/
+/-- Parse a file with leading loads, function definitions, and postfix call statements from UTF-8 bytes. -/
 def parseFileUtf8 (source : ByteArray) : Except Diagnostic (List LocatedFileCommand) := do
   parseFileTokens (← lexUtf8 source)
 
