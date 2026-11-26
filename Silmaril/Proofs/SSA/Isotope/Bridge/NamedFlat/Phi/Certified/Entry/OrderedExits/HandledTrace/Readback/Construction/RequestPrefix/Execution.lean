@@ -84,38 +84,28 @@ private theorem bind_agrees {ty : PacketType} (layout : Positions Γ) (env : Env
   | here => rfl
   | there old => exact agree old
 
-private theorem jump_tree {newBlocks : Nat} {β : Type u}
-    (instr : Primitive E F α) (old : Fin blocks → Fin newBlocks) (layout : Positions Γ)
-    (env : Env α) (values : Values Γ α)
-    (agree : ∀ {τ} (slot : Slot Γ τ), env (layout slot) = values slot)
-    (leaf : Jump packets outputs Γ) (finish : (Transfer α ⊕ BlockInput α newBlocks) → Tree E β) :
-    (region instr env (leaf.erase old layout) >>= fun out => finish (splitTransfer newBlocks out)) =
-      finish (Sum.map id (fun state => (old state.1, state.2)) (leaf.transfer values)) := by
-  unfold Jump.erase
-  rw [region, bind_assoc, operand_tree instr layout env values leaf.packet agree, pure_bind]
-  rcases leaf with ⟨label, packet⟩
-  cases label with
-  | inl target => simp only [Sum.elim_inl, pure_bind, local_transfer, Jump.transfer, Sum.map_inr]
-  | inr port => simp only [Sum.elim_inr, pure_bind, exit_transfer, Jump.transfer, Sum.map_inl, id_eq]
-
-/-- The scrutinee is pure in each layout. Whichever arm runs receives the
-same payload in slot zero, with every other operand shifted by one. -/
+/-- Restored slots agree before the tail. Each selected case extends that
+agreement with its payload, so the literal leaf sees the same packet
+operands at any nesting depth. -/
 private theorem case_tree {newBlocks : Nat} {β : Type u}
     (instr : Primitive E F α) (old : Fin blocks → Fin newBlocks) (layout : Positions Γ)
     (env : Env α) (values : Values Γ α)
     (agree : ∀ {τ} (slot : Slot Γ τ), env (layout slot) = values slot)
     (tail : CaseTail packets outputs Γ) (finish : (Transfer α ⊕ BlockInput α newBlocks) → Tree E β) :
-    (region instr env (tail.erase old layout) >>= fun out => finish (splitTransfer newBlocks out)) =
-      (tail.run values >>= fun out => finish (Sum.map id (fun state => (old state.1, state.2)) out)) := by
-  simp only [CaseTail.erase, region, operand_tree instr layout env values tail.test agree, pure_bind, CaseTail.run]
-  cases evalOperand values tail.test with
-  | inl payload =>
-    simpa only [pure_bind] using
-      jump_tree instr old (bindPosition layout) _ _ (bind_agrees layout env values agree payload) tail.left finish
-  | inr payload =>
-    simpa only [pure_bind] using
-      jump_tree instr old (bindPosition layout) _ _ (bind_agrees layout env values agree payload) tail.right finish
-  | atom _ | unit | pair _ _ => simp only [diverge_bind]
+    (region instr env (CaseTail.erase old layout tail) >>= fun out => finish (splitTransfer newBlocks out)) =
+      (CaseTail.run values tail >>= fun out => finish (Sum.map id (fun state => (old state.1, state.2)) out)) := by
+  induction tail generalizing env with
+  | jump label packet =>
+    rw [CaseTail.erase, region, bind_assoc, operand_tree instr layout env values packet agree, pure_bind]
+    cases label with
+    | inl target => simp only [Sum.elim_inl, pure_bind, local_transfer, CaseTail.run, Sum.map_inr]
+    | inr port => simp only [Sum.elim_inr, pure_bind, exit_transfer, CaseTail.run, Sum.map_inl, id_eq]
+  | case test left right ihLeft ihRight =>
+    simp only [CaseTail.erase, region, operand_tree instr layout env values test agree, pure_bind, CaseTail.run]
+    cases evalOperand values test with
+    | inl payload => exact ihLeft (bindPosition layout) _ _ (bind_agrees layout env values agree payload)
+    | inr payload => exact ihRight (bindPosition layout) _ _ (bind_agrees layout env values agree payload)
+    | atom _ | unit | pair _ _ => simp only [diverge_bind]
 
 private theorem finish_old {newBlocks : Nat} (inner : BlockInput α newBlocks → Bool)
     (old : Fin blocks → Fin newBlocks) (outside : ∀ i packet, inner (old i, packet) = false)
@@ -140,7 +130,7 @@ private theorem unsplit_step (instr : Primitive E F α) (row : Row sig packets o
     simp only [Row.erase, region, operand_tree instr position env values value agree, pure_bind,
       local_transfer, Row.run]
   | branch tail =>
-    change (region instr env (tail.erase id position) >>= fun out => pure (splitTransfer blocks out)) = _
+    change (region instr env (CaseTail.erase id position tail) >>= fun out => pure (splitTransfer blocks out)) = _
     rw [case_tree instr id position env values agree tail pure]
     have identity (out : Transfer α ⊕ BlockInput α blocks) :
         Sum.map id (fun state => (id state.1, state.2)) out = out := by cases out <;> rfl

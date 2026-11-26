@@ -238,17 +238,17 @@ private theorem internal_packed_state (input : Denote bit) :
   rw [internalDispatcher.observe_eq 0 input]
   simp only [runState, bind_assoc, pure_bind]
 
-private def internalTrace : Trace Events (Transfer Atom) :=
+private def pollTwiceTrace : Trace Events (Transfer Atom) :=
   .exchange (.ask (pollKey first first)) (.inl second)
     (.exchange (.ask (pollKey second second)) (.inr first) (.result (output first second)))
 
 /-- The two internal jumps carry different packet types. The first
 causes another visit and the second carries the distinct return fields. -/
 theorem two_internal_leaves :
-    HasTrace (original internalPolling first) internalTrace ∧
-      HasTrace (internalBuilt.packed.observe (env first) (env first)) internalTrace := by
-  have trace : HasTrace (runState internalDispatcher (internalDispatcher.start 0 first)) internalTrace := by
-    unfold internalTrace
+    HasTrace (original internalPolling first) pollTwiceTrace ∧
+      HasTrace (internalBuilt.packed.observe (env first) (env first)) pollTwiceTrace := by
+  have trace : HasTrace (runState internalDispatcher (internalDispatcher.start 0 first)) pollTwiceTrace := by
+    unfold pollTwiceTrace
     rw [run_request internalDispatcher _ _ (internal_request first)]
     erw [hasTrace_vis_exchange_iff]
     rw [run_jump internalDispatcher (internal_left first second), run_jump internalDispatcher (feedback_step second),
@@ -270,5 +270,81 @@ private def outwardChecked : Checked sig (.snoc .nil bit) packets exits outwardP
 
 example : (construct sig (fun i => (outwardChecked.shape.table i).1) exits
     outwardChecked.emitted.code).isSome = true := by decide
+
+-- The backedge and second exit both run through two case binders.
+-- The inner test uses the outer payload on the left and the saved input
+-- on the right. The outward leaf reads both values across the inner binder.
+private def nestedPolling : FiniteCFG Bool 1 2 1 where
+  entry := .br 0 (.bv 0)
+  block _ := .let₁ (.op true (.pair (.bv 0) (.bv 0)))
+    (.case (.bv 0)
+      (.case (.bv 0) (.br 1 (.bv 0)) (.br 0 (.bv 1)))
+      (.case (.bv 2) (.br 1 (.bv 0)) (.br 2 (.pair (.bv 1) (.bv 3)))))
+
+private def nestedChecked : Checked sig (.snoc .nil bit) packets exits nestedPolling :=
+  (check sig (.snoc .nil bit) packets exits nestedPolling).get (by decide)
+
+private def nestedBuilt :=
+  (construct sig (fun i => (nestedChecked.shape.table i).1) exits nestedChecked.emitted.code).get (by decide)
+
+private def nestedDispatcher := nestedBuilt.program
+
+example : (nestedBuilt.packed.target.block ((1 : Fin 2).cast nestedBuilt.provenance.count)).erase =
+    .let₂ (.var 0) (.case (.var 0)
+      (.case (.var 0) (.br 2 (.var 0)) (.br 0 (.var 1)))
+      (.case (.var 2) (.br 2 (.var 0)) (.br 3 (.pair (.var 1) (.var 3))))) :=
+  (Constructed.row_erasure sig _ exits nestedBuilt 1).symm.trans rfl
+
+-- The innermost payload here is unit, so it cannot feed the old bit packet.
+example : (readRow sig packets exits [replyType]
+    (.case (.var 0) (.case (.var 0) (.br 0 (.var 0)) (.br 0 (.var 1))) (.br 1 .unit))).isNone = true := rfl
+
+private def nestedTail (input : Denote bit) (reply : Denote replyType) : nestedDispatcher.State := by
+  refine ⟨⟨.inl ⟨1, by decide⟩, ?_⟩⟩
+  change Denote bit × Denote replyType
+  exact (input, reply)
+
+private def nestedReturn (payload input : Denote bit) : nestedDispatcher.State := ⟨⟨.inr 1, (payload, input)⟩⟩
+
+private theorem nested_request (input : Denote bit) :
+    nestedDispatcher.step (nestedDispatcher.start 0 input) =
+      .inl (.request (pollKey input input) (nestedTail input)) := rfl
+
+private theorem nested_repeat :
+    nestedDispatcher.step (nestedTail first (.inl second)) =
+      .inr (nestedDispatcher.start 0 second) := rfl
+
+private theorem nested_exit (payload : Denote bit) :
+    nestedDispatcher.step (nestedTail second (.inr payload)) = .inr (nestedReturn payload second) := rfl
+
+private theorem nested_source_packed (input : Denote bit) :
+    original nestedPolling input = nestedBuilt.packed.observe (env input) (env input) :=
+  nestedChecked.emitted.public_run nestedBuilt (env input) (env input) (env input) id primitivesAgree
+    (codec_id _).symm
+
+private theorem nested_packed_state (input : Denote bit) :
+    nestedBuilt.packed.observe (env input) (env input) =
+      runState nestedDispatcher (nestedDispatcher.start 0 input) := by
+  rw [nestedBuilt.packed.observe_eq input _ _ (fun _ => rfl)]
+  change (nestedDispatcher.observe 0 input >>= fun out => pure (FiniteCFG.packedTreeOutput out)) = _
+  rw [nestedDispatcher.observe_eq 0 input]
+  simp only [runState, bind_assoc, pure_bind]
+
+/-- The outer payload crosses an inner binder on the backedge and on the
+exit. The second visit's retained input is also part of the exit packet. -/
+theorem nested_leaves :
+    HasTrace (original nestedPolling first) pollTwiceTrace ∧
+      HasTrace (nestedBuilt.packed.observe (env first) (env first)) pollTwiceTrace := by
+  have trace : HasTrace (runState nestedDispatcher (nestedDispatcher.start 0 first)) pollTwiceTrace := by
+    unfold pollTwiceTrace
+    rw [run_request nestedDispatcher _ _ (nested_request first)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump nestedDispatcher nested_repeat, run_request nestedDispatcher _ _ (nested_request second)]
+    erw [hasTrace_vis_exchange_iff]
+    rw [run_jump nestedDispatcher (nested_exit first),
+      run_result nestedDispatcher (result := ⟨⟨1, (first, second)⟩⟩) rfl]
+    exact out_ret _
+  rw [nested_source_packed, nested_packed_state]
+  exact ⟨trace, trace⟩
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.CaseExamples
