@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Python.Core.Closure.Executor.Defs
+public import Silmaril.Languages.Python.Core.Module.ListObject.Defs
 
 /-! # Module publication and fixed positional calls -/
 
@@ -16,8 +17,13 @@ abbrev GlobalName := String
 /-- A single initialized namespace for scalar values and functions. The
 surrounding module owns its initial lookup and the order of top-level actions. -/
 structure Session where
+  mkWithLists ::
   globals : GlobalLookup
   heap : Heap
+  lists : ListHeap
+
+def Session.mk (globals : GlobalLookup) (heap : Heap) : Session :=
+  ⟨globals, heap, .empty⟩
 
 def Session.bindGlobal (session : Session) (name : GlobalName) (value : Closure.Value) : Session :=
   { session with globals := fun query => if query = name then some value else session.globals query }
@@ -60,9 +66,14 @@ inductive Destination where
 /-- A synchronous module invocation uses its module lookup throughout the
 executor path, including any nested calls. -/
 structure Invocation where
+  mkWithLists ::
   globals : GlobalLookup
   destination : Destination
   state : Executor.State
+  lists : ListHeap
+
+def Invocation.mk (globals : GlobalLookup) (destination : Destination) (state : Executor.State) : Invocation :=
+  ⟨globals, destination, state, .empty⟩
 
 /-- Use the executor's existing call, return, and error paths. The internal
 caller holds only a result slot, so it does not allocate any cells. -/
@@ -72,7 +83,7 @@ def Session.prepareCall (session : Session) (destination : Destination) (callee 
   let result : Slot layout := .local ⟨0, by decide⟩
   let frame : Frame layout := ⟨fun _ => none, Fin.elim0, Fin.elim0⟩
   ⟨session.globals, destination, .running session.heap frame
-    (.call result callee.lower (arguments.map Operand.lower) (.ret (.read result))) []⟩
+    (.call result callee.lower (arguments.map Operand.lower) (.ret (.read result))) [], session.lists⟩
 
 def Invocation.runPrefix (invocation : Invocation) (table : CodeTable) (fuel : Nat) : List Event × Invocation :=
   let (log, state) := Executor.runPrefixIn table invocation.globals fuel invocation.state
@@ -95,31 +106,31 @@ fault retains the residual heap and leaves all module bindings untouched. -/
 def Invocation.finish? (invocation : Invocation) : Option Observation :=
   match invocation.state with
   | .finished heap (.ok value) =>
-    let session : Session := ⟨invocation.globals, heap⟩
+    let session : Session := ⟨invocation.globals, heap, invocation.lists⟩
     match invocation.destination with
     | .discard => some ⟨.returned value, session⟩
     | .bindGlobal name => some ⟨.returned value, session.bindGlobal name value⟩
     | .assert =>
       if truth value then some ⟨.returned value, session⟩ else some ⟨.assertionError, session⟩
-  | .finished heap (.error error) => some ⟨.raised error, ⟨invocation.globals, heap⟩⟩
-  | .faulted heap _ error => some ⟨.fault error, ⟨invocation.globals, heap⟩⟩
+  | .finished heap (.error error) => some ⟨.raised error, ⟨invocation.globals, heap, invocation.lists⟩⟩
+  | .faulted heap _ error => some ⟨.fault error, ⟨invocation.globals, heap, invocation.lists⟩⟩
   | _ => none
 
 /-- Relational readback from an executor terminal state. The returned value
 and residual heap are the ones produced by the executor. -/
-inductive Settles (globals : GlobalLookup) : Destination → Executor.State → Observation → Prop where
+inductive Settles (globals : GlobalLookup) (lists : ListHeap) : Destination → Executor.State → Observation → Prop where
   | discarded (heap : Heap) (value : Closure.Value) :
-      Settles globals .discard (.finished heap (.ok value)) ⟨.returned value, ⟨globals, heap⟩⟩
+      Settles globals lists .discard (.finished heap (.ok value)) ⟨.returned value, ⟨globals, heap, lists⟩⟩
   | assigned (heap : Heap) (name : GlobalName) (value : Closure.Value) :
-      Settles globals (.bindGlobal name) (.finished heap (.ok value))
-        ⟨.returned value, (Session.mk globals heap).bindGlobal name value⟩
+      Settles globals lists (.bindGlobal name) (.finished heap (.ok value))
+        ⟨.returned value, (Session.mkWithLists globals heap lists).bindGlobal name value⟩
   | assertTrue (heap : Heap) (value : Closure.Value) (holds : truth value = true) :
-      Settles globals .assert (.finished heap (.ok value)) ⟨.returned value, ⟨globals, heap⟩⟩
+      Settles globals lists .assert (.finished heap (.ok value)) ⟨.returned value, ⟨globals, heap, lists⟩⟩
   | assertFalse (heap : Heap) (value : Closure.Value) (fails : truth value = false) :
-      Settles globals .assert (.finished heap (.ok value)) ⟨.assertionError, ⟨globals, heap⟩⟩
+      Settles globals lists .assert (.finished heap (.ok value)) ⟨.assertionError, ⟨globals, heap, lists⟩⟩
   | raised (destination : Destination) (heap : Heap) (error : RuntimeError) :
-      Settles globals destination (.finished heap (.error error)) ⟨.raised error, ⟨globals, heap⟩⟩
+      Settles globals lists destination (.finished heap (.error error)) ⟨.raised error, ⟨globals, heap, lists⟩⟩
   | fault (destination : Destination) (heap : Heap) (stack : Executor.Stack) (error : Executor.Fault) :
-      Settles globals destination (.faulted heap stack error) ⟨.fault error, ⟨globals, heap⟩⟩
+      Settles globals lists destination (.faulted heap stack error) ⟨.fault error, ⟨globals, heap, lists⟩⟩
 
 end Silmaril.Languages.Python.Core.Module.Functions

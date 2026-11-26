@@ -60,4 +60,15 @@ theorem direct_eq_list (heap : Heap) (receiver : Object) (argument : List Core.M
     (BoundMethod.mk .eq receiver).invoke heap (.list argument) = (.ok .notImplemented, heap) ∧
       equal receiver (.list argument) = false := ⟨rfl, rfl⟩
 
+theorem constructFromEmptyList_missing (heap : ListHeap) :
+    constructFromEmptyList heap none = (.error .missingType, heap) := rfl
+
+theorem constructFromEmptyList_stock (heap : ListHeap) :
+    constructFromEmptyList heap (some .stockTuple) = (.ok (), (heap.allocate []).2) := rfl
+
+theorem constructFromEmptyList_mask (heap : ListHeap) :
+    constructFromEmptyList heap (some .noneValue) = (.error .notCallable, (heap.allocate []).2) ∧
+      constructFromEmptyList heap (some .nonCallable) = (.error .notCallable, (heap.allocate []).2) :=
+  ⟨rfl, rfl⟩
+
 end Silmaril.Languages.Python.Core.Module.TupleDispatch

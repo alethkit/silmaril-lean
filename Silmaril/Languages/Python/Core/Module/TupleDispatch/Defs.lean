@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Languages.Python.Core.Module.Defs
+public import Silmaril.Languages.Python.Core.Module.ListObject.Defs
 
 /-! # Exact tuple methods on flat scalar contents -/
 
@@ -121,6 +121,14 @@ def construct (heap : Heap) (binding : Option TypeBinding)
   constructWith heap binding (argument.getD fun current =>
     let (empty, reached) := current.materialize []
     (.ok empty, reached)) .ok
+
+/-- The exact empty display is prepared only after resolving the callee.
+Its fresh list stays in the allocation table after invocation. -/
+def constructFromEmptyList (heap : ListHeap) (binding : Option TypeBinding) :
+    Except Failure Unit × ListHeap :=
+  constructWith heap binding (fun current =>
+    let (object, reached) := current.allocate []
+    (.ok object, reached)) (fun _ => .ok ())
 
 def BoundMethod.invoke (bound : BoundMethod) (heap : Heap) (argument : Operand) :
     Except Failure Result × Heap :=

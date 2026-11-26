@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Defs
 public import Silmaril.Languages.Python.Core.Module.Functions.Thms
+public import Silmaril.Languages.Python.Core.Module.TupleDispatch.Thms
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleIdentity.Thms
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Prefix
 
@@ -108,6 +109,19 @@ theorem advance_callTupleIdentity_failure {scope : Source.Scope} (table : Core.C
     advance table (.ready session (.callTupleIdentity destination name test :: rest)) =
       ([], .finished session error) := by
   simp [advance, failed]
+
+theorem tupleFromEmptyList_outer_missing (session : Core.Module.Functions.Session) {name : String}
+    (remaining : List Argument) (missing : session.globals name = none) :
+    tupleFromEmptyListCompletion session (some (name, remaining)) =
+      (.raised (.nameError name), session.lists) := by
+  simp [tupleFromEmptyListCompletion, missing]
+
+theorem tupleFromEmptyList_direct_mask (session : Core.Module.Functions.Session)
+    (masked : session.globals "tuple" = some .none) :
+    tupleFromEmptyListCompletion session none =
+      (.raised .notCallable, (session.lists.allocate []).2) := by
+  simp [tupleFromEmptyListCompletion, tupleFromEmptyListCompletion.reachedTupleFromEmptyList,
+    tupleBinding, masked, (Core.Module.TupleDispatch.constructFromEmptyList_mask session.lists).1, TupleChain.runtimeError?]
 
 theorem advance_literalArmBoolean {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (value : Bool) (rest : List (Instruction scope)) :

@@ -35,6 +35,8 @@ inductive Instruction (scope : Scope) where
   | publish (name : String) (function : TopFunction)
   | call (destination : Core.Module.Functions.Destination) (name : String) (operands : List Core.Module.Functions.Operand)
   | callTupleIdentity (destination : Core.Module.Functions.Destination) (name : String) (test : TupleIdentity.Test)
+  | callTupleFromEmptyList (destination : Core.Module.Functions.Destination)
+      (outer : Option (String × List Argument))
   /-- The source plan places this call immediately after the matching publication. -/
   | adjacentKeywordDiscard (name : String) (value : Int)
   | nestedCall (destination : Core.Module.Functions.Destination) (name : String) (arguments : List Argument)
@@ -112,6 +114,10 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .callTupleIdentity target name _ test :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.callTupleIdentity (destination target) name test :: instructions, blocks)
+  | .callTupleFromEmptyList target name _ arguments :: rest => do
+    let some outer := arguments.mapM (fun rest => (rest.mapM callArgument?).map (name, ·)) | throw .callOperand
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.callTupleFromEmptyList (destination target) outer :: instructions, blocks)
   | .adjacentKeywordDiscard name _ value :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.adjacentKeywordDiscard name value :: instructions, blocks)
@@ -169,7 +175,7 @@ def embed : Core.Module.Value → Value
   | .none => .none
 
 def seed (globals : Core.Module.Globals) (heap : Heap := .empty) : Session :=
-  ⟨fun name => (globals.lookup name).map embed, heap⟩
+  ⟨fun name => (globals.lookup name).map embed, heap, .empty⟩
 
 inductive Completion where
   | normal
@@ -250,7 +256,7 @@ def prepareNestedCall (session : Session) (destination : Core.Module.Functions.D
   let invoke := Body.call result (.read callee) (slots.map .read) (.ret (.read result))
   let body := (slots.zip arguments).foldr (fun (slot, argument) next => argument.emit slot next) invoke
   let frame : Frame layout := ⟨fun _ => none, Fin.elim0, Fin.elim0⟩
-  ⟨session.globals, destination, .running session.heap frame (.store callee (.readGlobal name) body) []⟩
+  ⟨session.globals, destination, .running session.heap frame (.store callee (.readGlobal name) body) [], session.lists⟩
 
 inductive State (scope : Scope) where
   | ready (session : Session) (instructions : List (Instruction scope))
@@ -326,6 +332,23 @@ def prepareTupleIdentityCall (session : Session) (destination : Core.Module.Func
   let answer ← test.evaluate session.heap (fun name => (read name).map some) .scalarProfile
   return session.prepareCall destination (.literal callee) [.literal (.bool answer)]
 
+/-- The ordinary namespace has no stock tuple descriptor. A reached
+literal still allocates before a present callee is rejected. -/
+def tupleFromEmptyListCompletion (session : Session) (outer : Option (String × List Argument)) :
+    Completion × Core.Module.ListHeap :=
+  if let some (name, _) := outer then
+    if (session.globals name).isNone then
+      (.raised (.nameError name), session.lists)
+    else reachedTupleFromEmptyList
+  else reachedTupleFromEmptyList
+where
+  reachedTupleFromEmptyList :=
+    let (result, reached) := Core.Module.TupleDispatch.constructFromEmptyList session.lists (tupleBinding session)
+    let completion := match result with
+      | .ok _ => .scalarProfile
+      | .error error => (TupleChain.runtimeError? error).elim .scalarProfile .raised
+    (completion, reached)
+
 def advance {scope : Scope} (table : CodeTable) : State scope → List Event × State scope
   | .finished session completion => ([], .finished session completion)
   | .ready session [] => ([], .finished session .normal)
@@ -362,6 +385,9 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
       ([], match prepareTupleIdentityCall session destination name test with
         | .ok invocation => .calling invocation rest
         | .error error => .finished session error)
+    | .callTupleFromEmptyList _ outer =>
+      let (completion, lists) := tupleFromEmptyListCompletion session outer
+      ([], .finished { session with lists } completion)
     | .adjacentKeywordDiscard name value =>
       ([], .calling (session.prepareCall .discard (.readGlobal name) [.literal (.int value)]) rest)
     | .nestedCall destination name arguments =>

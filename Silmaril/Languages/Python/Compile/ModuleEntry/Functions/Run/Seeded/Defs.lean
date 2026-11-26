@@ -213,7 +213,7 @@ def seededValue : Core.Closure.Value → Value
   | .tupleObject object => .tupleObject object
 
 def callbackSession (space : Namespace) (heap : Heap) : Core.Module.Functions.Session :=
-  ⟨fun name => (space.lookupGlobal name).bind ordinaryValue?, heap⟩
+  ⟨fun name => (space.lookupGlobal name).bind ordinaryValue?, heap, .empty⟩
 
 def callbackInvocation (space : Namespace) (heap : Heap) (closure : Function) :
     Core.Module.Functions.Invocation :=
@@ -527,6 +527,21 @@ def invokeNestedTarget (space : Namespace) (context : CallContext)
   | .function closure, [.float64 value] => invokePublishedFloat space context closure [.float64 value]
   | _, _ => (.ok (Core.Module.SeededCall.invokeObserved callee values), context.heap)
 
+/-- The callee and any earlier argument values have already been resolved.
+Later arguments retain the closure heap reached by the existing executor. -/
+def observeRemainingCallIn (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (name : String) (callee : Value)
+    (initial : List Value) (arguments : List Argument) : Effect × Heap :=
+  let (values, calls, heap) := observeArgumentsIn space context arguments (allowsEscapedArgument destination callee)
+  match values with
+  | .error error => (⟨.error error, calls⟩, heap)
+  | .ok values =>
+    match invokeNestedTarget space { context with heap } callee (initial ++ values) with
+    | (.ok result, residual) =>
+      let observed := acceptObservation destination name result
+      ({ observed with calls := calls ++ observed.calls }, residual)
+    | (.error error, residual) => (⟨.error error, calls⟩, residual)
+
 /-- Read the outer callee before the arguments and retain the heap reached
 even when an ordinary argument faults or has yet to settle. -/
 def observeNestedCallIn (space : Namespace) (context : CallContext)
@@ -534,16 +549,7 @@ def observeNestedCallIn (space : Namespace) (context : CallContext)
     (arguments : List Argument) : Effect × Heap :=
   match space.lookupGlobal name with
   | none => (⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap)
-  | some callee =>
-    let (values, calls, heap) := observeArgumentsIn space context arguments (allowsEscapedArgument destination callee)
-    match values with
-    | .error error => (⟨.error error, calls⟩, heap)
-    | .ok values =>
-      match invokeNestedTarget space { context with heap } callee values with
-      | (.ok result, residual) =>
-        let observed := acceptObservation destination name result
-        ({ observed with calls := calls ++ observed.calls }, residual)
-      | (.error error, residual) => (⟨.error error, calls⟩, residual)
+  | some callee => observeRemainingCallIn space context destination name callee [] arguments
 
 inductive EvaluatesArguments (space : Namespace) :
     List Argument → Except Failure (List Value) → List CallEvent → Prop where
@@ -694,6 +700,31 @@ def tupleLookup (space : Namespace) : TupleChain.Lookup :=
     (space.lookupGlobal name).map fun value =>
       (ordinaryValue? value).elim .outsideProfile TupleChain.Compared.ofClosure⟩
 
+def observeTupleFromEmptyList (space : Namespace) (lists : ListHeap) : CallObservation × ListHeap :=
+  let (result, reached) := Core.Module.TupleDispatch.constructFromEmptyList lists (tupleBinding space)
+  let observed := (result.map fun _ => Value.returnedTuple []).mapError fun error =>
+    (TupleChain.runtimeError? error).elim Failure.unsupported (Failure.raised ∘ .runtime)
+  (⟨observed, none⟩, reached)
+
+def observeTupleFromEmptyListCall (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (outer : Option (String × List Argument))
+    (lists : ListHeap) : (Effect × Heap) × ListHeap :=
+  match outer with
+  | none =>
+    let (converted, reached) := observeTupleFromEmptyList space lists
+    ((acceptObservation destination "tuple" converted, context.heap), reached)
+  | some (name, remaining) =>
+    match space.lookupGlobal name with
+    | none => ((⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap), lists)
+    | some callee =>
+      let (converted, reached) := observeTupleFromEmptyList space lists
+      let receipt : CallEvent := ⟨"tuple", converted⟩
+      match converted.result with
+      | .error error => ((⟨.error (.ofCall error), [receipt]⟩, context.heap), reached)
+      | .ok value =>
+        let (later, heap) := observeRemainingCallIn space context destination name callee [value] remaining
+        (({ later with calls := receipt :: later.calls }, heap), reached)
+
 def checkTupleChain {scope : Scope} (space : Namespace) (test : TupleChainTest scope) : Except Failure Unit :=
   let compared := (TupleChain.evaluate (tupleLookup space) test).result
   let checked := compared.mapError fun error =>
@@ -759,6 +790,7 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
       | .ok result => (acceptObservation destination name result, heap)
       | .error error => (⟨.error error, []⟩, heap)
   | .callTupleIdentity destination name test => observeTupleIdentityCall space context destination name test
+  | .callTupleFromEmptyList destination outer => (observeTupleFromEmptyListCall space context destination outer lists).1
   | .adjacentKeywordDiscard name value =>
     match invokeAdjacentKeywordDiscard space context name value with
     | (.ok observed, heap) => (acceptObservation .discard name observed, heap)
@@ -778,6 +810,7 @@ def effectWithLists {scope : Scope} (space : Namespace) (context : CallContext)
   | .assertListConstruction test =>
     let outcome := evaluateListConstruction space lists test
     ((outcome.effect, context.heap), outcome.lists)
+  | .callTupleFromEmptyList destination outer => observeTupleFromEmptyListCall space context destination outer lists
   | instruction => (effect space context instruction lists, lists)
 
 /-- A failed instruction keeps its incoming namespace and the heap reached

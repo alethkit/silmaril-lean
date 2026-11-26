@@ -32,7 +32,7 @@ open Compile.ModuleEntry.Functions.Run.Seeded (legacyListSeed legacyTupleSeed le
 
 private def tupleOutcome (source : Source.Module) (space : Namespace) (status : String)
     (bindings : Bindings) (calls : List (String × Core.Module.SeededCall.Result))
-    (allocated : List Value := []) : Bool := Id.run do
+    (allocated : List Value := []) (appendedLists : List (List Core.Module.Value) := []) : Bool := Id.run do
   let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
   let heap : Core.Closure.Heap := ⟨1, fun address => if address == 0 then some (.int 23) else none⟩
   let lists : Core.Module.ListHeap := ⟨#[[.int 31]]⟩
@@ -44,7 +44,7 @@ private def tupleOutcome (source : Source.Module) (space : Namespace) (status : 
     | .error .unsupported => "unsupported"
     | .error _ => "unexpected completion"
   return completion == status && result.residual.moduleGlobals == bindings &&
-    result.residual.builtins == space.builtins && result.lists == lists &&
+    result.residual.builtins == space.builtins && result.lists.objects == lists.objects ++ appendedLists.toArray &&
     result.heap.next == allocated.length + 1 &&
     (allocated.zipIdx 1).all (fun (value, address) =>
       (result.heap.contents address).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue == some value) &&
@@ -74,6 +74,16 @@ private def ordinaryTuple (source : Source.Module) : Option (String × String ×
       | _ => "unexpected completion"
     let binding name := resultBinding ((session.globals name).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue)
     some (status, binding "keep", binding "tail")
+  | _ => none
+
+private def ordinaryTupleLists (source : Source.Module) :
+    Option (Compile.ModuleEntry.Functions.Run.Completion × Array (List Core.Module.Value) × Option Value) := do
+  let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
+  let session := { Compile.ModuleEntry.Functions.Run.seed .empty with lists := ⟨#[[.int 31]]⟩ }
+  match (Compile.ModuleEntry.Functions.Run.runPrefix compiled.table 1000 (.ready session compiled.instructions)).2 with
+  | .finished residual completion =>
+    some (completion, residual.lists.objects,
+      (residual.globals "keep").map Compile.ModuleEntry.Functions.Run.Seeded.seededValue)
   | _ => none
 """
 
@@ -118,8 +128,8 @@ def check(source, source_path, lean_path, *guards):
     INTAKE["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=SUITE["IMPORTS"])
 
 
-def outcome(space, result, bindings, calls="[]", source="pythonSource", allocated="[]"):
-    return f"#guard tupleOutcome {source} {space} {json.dumps(result)} {bindings} {calls} {allocated}"
+def outcome(space, result, bindings, calls="[]", source="pythonSource", allocated="[]", appended_lists="[]"):
+    return f"#guard tupleOutcome {source} {space} {json.dumps(result)} {bindings} {calls} {allocated} {appended_lists}"
 
 
 def replay_pin(checkout, source_path, lean_path):
@@ -377,7 +387,8 @@ private def identityPrefix : Source.Module := ⟨pythonSource.body.take 4⟩
     | [_, _, _, .callTupleIdentity .discard "___assertTrue" ⟨.global "t0_3", .is_, .global "t0_3_bis"⟩] => true
     | _ => false
   | _ => false)
-#guard (Compile.ModuleEntry.Functions.Run.compile ⟨pythonSource.body.take 5⟩).isOk == false
+#guard (Compile.ModuleEntry.Functions.Run.compile ⟨pythonSource.body.take 5⟩).isOk == true
+#guard (Compile.ModuleEntry.Functions.Run.compile ⟨pythonSource.body.take 6⟩).isOk == false
 #guard ordinaryTuple identityPrefix == some ("NameError:___assertEqual", "absent", "absent")
 """]
     items = "[.int 0, .int 1, .int 2, .int 3]"
@@ -399,6 +410,27 @@ private def identityPrefix : Source.Module := ⟨pythonSource.body.take 4⟩
     failed_call = '[("___assertTrue", .error (.raised (.runtime .notCallable)))]'
     guards.append(outcome(masked, "TypeError", f"({bindings} ++ {masked}.moduleGlobals)",
                           f"({calls} ++ {failed_call})", "identityPrefix", f"[{origin}]"))
+    # The fifth statement reaches a newly allocated empty list.
+    empty_list_end = ast.parse(source).body[4].end_lineno
+    empty_list_prefix = "".join(source.splitlines(keepends=True)[:empty_list_end])
+    assert execute(empty_list_prefix, {**both, **helper}, expected=bound) == "normal"
+    assert execute(empty_list_prefix, {"tuple": tuple}, preamble, {**preamble, **bound}) == "normal"
+    assert len(seen) == 4 and all(value is True for value in seen)
+    guards.append("""
+private def emptyListPrefix : Source.Module := ⟨pythonSource.body.take 5⟩
+#guard (match (Compile.ModuleEntry.Functions.Run.compile emptyListPrefix).toOption with
+  | some compiled => match compiled.instructions.getLast? with
+    | some (.callTupleFromEmptyList .discard (some ("___assertEqual", [.scalar (.tuple [])]))) => true
+    | _ => false
+  | none => false)
+#guard ordinaryTupleLists emptyListPrefix == some (.raised (.nameError "___assertEqual"), #[[.int 31]], none)
+""")
+    list_calls = '[("tuple", .ok (.returnedTuple [])), ("___assertEqual", .ok .none)]'
+    for placement in ("builtin", "preamble"):
+        stock_helper = f"(legacyTupleIdentitySeed .{placement})"
+        guards.append(outcome(stock_helper, "normal", f"({bindings} ++ {stock_helper}.moduleGlobals)",
+                              f"({calls} ++ {identity_call} ++ {list_calls})", "emptyListPrefix",
+                              f"[{origin}]", "[[]]"))
     check(source, source_path, lean_path, *guards)
 
     alias = "saved = tuple\ntuple = 7\nanswer = saved()\nbad = tuple()\n"
@@ -409,7 +441,7 @@ private def identityPrefix : Source.Module := ⟨pythonSource.body.take 4⟩
         '[("saved", .ok (.returnedTuple [])), ("tuple", .error (.raised (.runtime .notCallable)))]'))
     return {"sha256": CONSTRUCTORS_SHA, "inner": "canonical empty tuple",
             "stock_seeded_prefix": "normal", "identity_prefix": "normal with saved origin",
-            "whole_source": "rejected at list operand on line 6"}
+            "empty_list_prefix": "normal", "whole_source": "rejected at nonempty list operand on line 7"}
 
 
 def replay_immutable_alias(checkout, source_path, lean_path):
@@ -646,6 +678,62 @@ def tuple_identity_controls(source_path, lean_path):
             "closed_origin_alias": True, "independent_closed_origins_unknown": True}
 
 
+def tuple_empty_list_controls(source_path, lean_path):
+    seed = "(legacyTupleIdentitySeed .builtin)"
+    python_seed = {"tuple": tuple, "___assertEqual": assert_equal, "___assertTrue": assert_true}
+
+    source = (
+        "saved = tuple\ntuple = 7\ntuple = saved\nfirst = tuple([])\nsecond = tuple([])\n"
+        "___assertTrue(first is second)\n"
+    )
+    bindings = ({"saved": tuple, "tuple": tuple, "first": (), "second": ()})
+    assert execute(source, python_seed, expected=bindings) == "normal"
+    check(source, source_path, lean_path, outcome(
+        seed, "normal", '[("second", .returnedTuple []), ("first", .returnedTuple []), '
+        '("tuple", .builtin .tuple), ("saved", .builtin .tuple)]',
+        '[("tuple", .ok (.returnedTuple [])), ("tuple", .ok (.returnedTuple [])), ("___assertTrue", .ok .none)]',
+        appended_lists="[[], []]"))
+
+    # Preserve the list through both an inner and an outer mask, and skip it on a missing name.
+    first_receipt = '[("tuple", .ok (.returnedTuple []))]'
+    inner_missing = '[("tuple", .error (.raised (.runtime (.nameError "tuple"))))]'
+    inner_masked = '[("tuple", .error (.raised (.runtime .notCallable)))]'
+    outer_masked = '[("tuple", .ok (.returnedTuple [])), ("___assertEqual", .error (.raised (.runtime .notCallable)))]'
+    no_tuple = '(initial "legacy_builtin")'
+    no_helper = '(Namespace.mk [] [("tuple", .builtin .tuple)])'
+    mask_outer = f'({seed}.bindGlobal "___assertEqual" .none)'
+    for right, supplied, initial, space, status, receipts, lists in (
+        ("missing", {"tuple": tuple}, {}, no_helper, "NameError:___assertEqual", "[]", "[]"),
+        ("missing", {"___assertEqual": assert_equal}, {}, no_tuple, "NameError:tuple", inner_missing, "[]"),
+        ("missing", python_seed, {"tuple": None}, f'({seed}.bindGlobal "tuple" .none)',
+         "TypeError", inner_masked, "[[]]"),
+        ("missing", python_seed, {"___assertEqual": None}, mask_outer,
+         "NameError:missing", first_receipt, "[[]]"),
+        ("()", python_seed, {"___assertEqual": None}, mask_outer, "TypeError", outer_masked, "[[]]"),
+    ):
+        code = f"___assertEqual(tuple([]), {right})\ntail = 9\n"
+        assert execute(code, supplied, initial, initial) == status
+        check(code, source_path, lean_path,
+              outcome(space, status, f"{space}.moduleGlobals", receipts, appended_lists=lists))
+
+    missing = "keep = 7\ntuple([])\ntail = 9\n"
+    assert execute(missing, {}, expected={"keep": 7}) == "NameError:tuple"
+    check(missing, source_path, lean_path,
+          '#guard ordinaryTupleLists pythonSource == some (.raised (.nameError "tuple"), #[[.int 31]], some (.int 7))')
+
+    ordinary = "def value():\n    return 7\nkeep = value()\ntuple = None\ntuple([])\ntail = 9\n"
+    namespace = {"__builtins__": {}}
+    try:
+        exec(compile(ordinary, "<empty list tuple>", "exec", dont_inherit=True, optimize=0), namespace)
+    except TypeError:
+        assert namespace["keep"] == 7 and "tail" not in namespace
+    else:
+        raise AssertionError("The ordinary tuple binding is masked")
+    check(ordinary, source_path, lean_path,
+          '#guard ordinaryTupleLists pythonSource == some (.raised .notCallable, #[[.int 31], []], some (.int 7))')
+    return {"canonical_empty": True, "reached_lists": True, "lookup_and_operand_order": True}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--upstream", type=Path, required=True)
@@ -662,5 +750,6 @@ if __name__ == "__main__":
                     "tuple_helper": tuple_helper_controls(source, lean),
                     "live_comparison_pin": replay_live_tuple_comparison(args.upstream, source, lean),
                     "live_comparisons": live_comparison_controls(source, lean),
-                    "tuple_identity": tuple_identity_controls(source, lean)}
+                    "tuple_identity": tuple_identity_controls(source, lean),
+                    "empty_list_tuple": tuple_empty_list_controls(source, lean)}
     print(json.dumps(evidence))
