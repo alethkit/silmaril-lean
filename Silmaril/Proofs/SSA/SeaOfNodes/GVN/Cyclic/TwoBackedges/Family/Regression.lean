@@ -2,6 +2,7 @@ module
 
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.Thms
+import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.Return.Thms
 
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Regression
 
@@ -199,5 +200,57 @@ theorem representative_substitution_recovers_both_feedback_keys :
     discovered_classes_are_strictly_coarser_than_the_finer_partition.1 laneA).trans rfl
 
 end Discovery
+
+section AutomaticReturn
+
+private def carriedFixture (reverseFalse : Bool) : Program Opcode regs word :=
+  { fixture reverseFalse with result := aTwin }
+
+theorem automatically_redirects_the_actual_carried_return :
+    Discovery.Return.returnedLane? (carriedFixture false) = some laneATwin ∧
+      Discovery.Return.representative? (carriedFixture false) = some a ∧
+      Discovery.Return.optimize (carriedFixture false) = { carriedFixture false with result := a } :=
+  ⟨rfl, rfl, rfl⟩
+
+theorem automatically_emitted_program_keeps_both_full_feedback_packets :
+    let p := carriedFixture false
+    let out := Discovery.Return.optimize p
+    let onTrue := p.preheader.eval model (input true)
+    let onFalse := p.preheader.eval model (input false)
+    (∃ packet, p.step model onTrue = .inr (true, packet) ∧ out.step model onTrue = .inr (true, packet)) ∧
+      (∃ packet, p.step model onFalse = .inr (false, packet) ∧ out.step model onFalse = .inr (false, packet)) :=
+  ⟨⟨_, rfl, rfl⟩, ⟨_, rfl, rfl⟩⟩
+
+theorem automatically_emitted_program_returns_on_both_routes :
+    let p := carriedFixture false
+    let out := Discovery.Return.optimize p
+    out.source.runFrom model 4 0 (input true) = none ∧
+      p.source.runFrom model 5 0 (input true) = some 7#64 ∧ out.source.runFrom model 5 0 (input true) = some 7#64 ∧
+      p.source.runFrom model 5 0 (input false) = some (-1 : BitVec 64) ∧
+      out.source.runFrom model 5 0 (input false) = some (-1 : BitVec 64) :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+theorem keeps_canonical_singleton_and_header_produced_returns :
+    let canonical := { carriedFixture false with result := a }
+    let singleton := carriedFixture true
+    Discovery.Return.representative? canonical = some a ∧ Discovery.Return.optimize canonical = canonical ∧
+      Discovery.Return.representative? singleton = some aTwin ∧ Discovery.Return.optimize singleton = singleton ∧
+      (Discovery.Return.optimize singleton).source.runFrom model 5 0 (input false) = some 1#64 ∧
+      Discovery.Return.returnedLane? (fixture false) = none ∧
+      Discovery.Return.optimize (fixture false) = fixture false :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+private def clobberedRepresentative : Program Opcode regs word :=
+  { carriedFixture false with
+    header := (carriedFixture false).header ++ [⟨[], word, a, .arithmetic (.literal 99#64), .nil⟩] }
+
+theorem a_same_class_slot_with_a_different_exit_key_is_ineligible :
+    Discovery.normalize clobberedRepresentative laneA = Discovery.normalize clobberedRepresentative laneATwin ∧
+      exitMatches clobberedRepresentative (Discovery.discover clobberedRepresentative) a = false ∧
+      Discovery.Return.representative? clobberedRepresentative = some aTwin ∧
+      Discovery.Return.optimize clobberedRepresentative = clobberedRepresentative :=
+  ⟨rfl, rfl, rfl, rfl⟩
+
+end AutomaticReturn
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Regression
