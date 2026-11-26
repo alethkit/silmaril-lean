@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.TrackA.Concurrency.Race
+public import Silmaril.Semantics.TrackA.Concurrency.Defs
 import Silmaril.Proofs.Semantics.TrackA.Concurrency.Machine
 import Silmaril.Proofs.Semantics.TrackA.Concurrency.Races
 
@@ -83,6 +83,13 @@ theorem hasRace_mutexOnly_of_mixed (race : hasRace .mixed xs = true) :
   Proofs.Semantics.TrackA.Concurrency.hasRace_mutexOnly_of_mixed race
 
 variable {start finish : Config T L R}
+
+/-- Validation succeeds exactly when the SC machine generates the supplied
+labels and gives them the stated classification. -/
+theorem classifyHistory_eq_some_iff {result : RaceClass} :
+    classifyHistory profile start xs = some result ↔
+      ∃ finish, ClassifiedRun profile start xs finish result :=
+  Proofs.Semantics.TrackA.Concurrency.classifyHistory_eq_some_iff
 
 theorem guarded_iff :
     GuardedRun profile start xs finish ↔ sc.MTr start xs finish ∧ RaceFree profile xs :=

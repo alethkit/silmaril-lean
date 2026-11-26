@@ -1,8 +1,9 @@
 # Track A concurrency foundations
 
 Import `Silmaril.Semantics.TrackA.Concurrency.Thms` for the full interface.
-`Silmaril.Semantics.TrackA.Concurrency.Defs` defines the machine and
-`Silmaril.Semantics.TrackA.Concurrency.Race` defines trace classification.
+`Silmaril.Semantics.TrackA.Concurrency.Defs` defines the machine and trace
+classification. The earlier `Silmaril.Semantics.TrackA.Concurrency.Race`
+import re-exports that header.
 The modules use the root project's pinned Lean and CSLib. The latter supplies
 the labelled transition system and finite execution relation. The model and
 proofs are independent of the SQLite and ELF implementation modules.
@@ -44,6 +45,17 @@ edge. Two atomic accesses are exempt in the mixed profile. A pair containing
 a plain access can still race. Every mixed-profile race is also a
 mutex-only race on the same trace.
 
+`classify` and `atomicSync` are total tests of labels and positions. They
+can report a clean list or identify a candidate atomic edge even if a
+recorded read contradicts the last preceding write. Interpreting that edge
+as SC reads-from requires the actual labels at those positions in a
+generated SC execution. `classifyHistory` replays the thread schedule
+from a specified initial configuration and checks every emitted label.
+Its result is `none` for an inadmissible list. The theorem
+`classifyHistory_eq_some_iff` relates successful results exactly to
+`ClassifiedRun`. The regression for a forged atomic read checks rejection
+even though the raw mixed classifier reports clean.
+
 The raw generator makes no race check. `ClassifiedRun` reports the clean or
 racy label for a generated trace. `FilteredRun` retains clean executions.
 `GuardedRun` checks every extension online. Its ordinary observations equal
@@ -80,6 +92,14 @@ make check CHECK_TARGETS='+Silmaril.Semantics.TrackA.Concurrency.Thms +Silmaril.
 ```
 
 - Leslie Lamport, *How to Make a Multiprocessor Computer That Correctly
-  Executes Multiprocess Programs*, 1979. [DOI](https://doi.org/10.1109/TC.1979.1675439)
+  Executes Multiprocess Programs*, published version, IEEE Transactions on
+  Computers C-28(9), September 1979, p. 690, Introduction (definition of
+  sequential consistency). Author-hosted PDF SHA-256
+  `defa8b352a0cefc1bf29ea653bef9d48da4e3e5aff1b7e7c4f10d7c933949ffe`.
+  [DOI](https://doi.org/10.1109/TC.1979.1675439) · [PDF](https://lamport.azurewebsites.net/pubs/multi.pdf)
 - Maurice Herlihy and Jeannette Wing, *Linearizability: A Correctness
-  Condition for Concurrent Objects*, 1990. [DOI](https://doi.org/10.1145/78969.78972)
+  Condition for Concurrent Objects*, published version, ACM Transactions on
+  Programming Languages and Systems 12(3), July 1990, §2.2, pp. 468–469
+  (history and real-time order). Author-hosted PDF SHA-256
+  `79e2ff81a15c55de870492231e81e36c50366389c118a7317b5877f603cfa2a0`.
+  [DOI](https://doi.org/10.1145/78969.78972) · [PDF](https://cs.brown.edu/~mph/HerlihyW90/p463-herlihy.pdf)
