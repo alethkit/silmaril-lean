@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Defs
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape.Defs
+public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Defs
 
 public section
 
@@ -20,25 +21,29 @@ inductive Callable where
   | required (chain : Forwarding.Chain)
   | defaulted (definition : Definition)
   | escaping (wrapper : Defaults.Escape.Spec)
+  | sequenced (definition : Defaults.Body.Definition)
 
 @[expose] def Callable.name : Callable → String
   | .required chain => chain.name
   | .defaulted definition => definition.name
   | .escaping wrapper => wrapper.name
+  | .sequenced definition => definition.name
 
 @[expose] def Callable.command : Callable → Command
   | .required chain => root chain
   | .defaulted definition => definition.command
   | .escaping wrapper => wrapper.command
+  | .sequenced definition => definition.command
 
 @[expose] def Callable.Admitted (globals : List String) : Callable → Prop
   | .required chain => Trace.Definitions globals [] chain
   | .defaulted definition => Trace.Defaults.Admitted globals definition
   | .escaping wrapper => Defaults.Escape.Admitted wrapper
+  | .sequenced definition => Defaults.Body.Admitted globals definition
 
 @[expose] def Callable.returned : Callable → Option Callable
   | .required (.wrapper _ _ child) => some (.required child)
-  | .required (.mixed ..) | .defaulted _ => none
+  | .required (.mixed ..) | .defaulted _ | .sequenced _ => none
   | .escaping wrapper => some (.defaulted wrapper.child)
 
 abbrev Entries := String → Option Callable
@@ -94,11 +99,29 @@ structure Escaping (program : Program) (state : State) (name : String) (wrapper 
   parentCode : program[childId + 1]? = some (wrapper.frame childId).declaration
   live : RootCall.Live state name address (childId + 1) [] false
 
+/-- A live body closure carries both the saved arguments and the
+addresses installed for its independently selected module reads. -/
+structure SavedBody (globals : List String) (program : Program) (state : State)
+    (name : String) (definition : Defaults.Body.Definition) where
+  id : Nat
+  plan : Defaults.Body.Plan globals definition
+  codes : List Lowering.Expr
+  address : Lists.Address
+  values : List Value
+  captures : List Lists.Capture
+  codeLength : codes.length = definition.parameters.optional.length
+  valueLength : values.length = definition.parameters.optional.length
+  found : program[id]? = some (plan.declaration codes)
+  installed : Installs state plan.free captures
+  live : RootCall.Live state name address id captures false
+    ((definition.parameters.optional.map (fileSlot ∘ Prod.fst)).zip values)
+
 @[expose] def LiveBinding (globals : List String) (program : Program) (state : State)
     (name : String) : Callable → Prop
   | .required chain => Bindings.LiveBinding globals program state name chain
   | .defaulted definition => name ∈ globals ∧ Nonempty (Saved program state name definition)
   | .escaping wrapper => name ∈ globals ∧ Nonempty (Escaping program state name wrapper)
+  | .sequenced definition => name ∈ globals ∧ Nonempty (SavedBody globals program state name definition)
 
 @[expose] def LiveBindings (globals : List String) (program : Program) (entries : Entries) (state : State) : Prop :=
   ∀ name body, entries name = some body → LiveBinding globals program state name body
@@ -142,6 +165,18 @@ inductive CallsWrapper (state : State) (wrapper : Defaults.Escape.Spec) (childId
       Defaults.Escape.Returns wrapper childId state argument out →
       CallsWrapper state wrapper childId [argument] out
 
+inductive CallsBody {globals : List String} {program : Program} {state : State} {name : String}
+    {definition : Defaults.Body.Definition} (saved : SavedBody globals program state name definition)
+    (values : List Value) : Outcome Value → Prop where
+  | rejected {error : Lists.Error} :
+      Defaults.Binds (definition.parameters.slots saved.values) values (.error error) →
+      CallsBody saved values (.error error state)
+  | entered {assigned : List (Binding × Value)} {out : Outcome Lists.Iteration.Flow} :
+      Defaults.Binds (definition.parameters.slots saved.values) values (.ok assigned) →
+      Defaults.Body.Runs saved.plan.block (activate state (saved.plan.declaration saved.codes) saved.captures assigned)
+        definition.body saved.plan.code out →
+      CallsBody saved values (Leaf.returnTo state out)
+
 inductive Step (resolved : ResolvedModule) (globals : List String) :
     Nat → State → Command → Modules.Result Unit → Prop where
   | ordinary {index : Nat} {state : State} {command : Command} {out : Modules.Result Unit} :
@@ -166,6 +201,24 @@ inductive Step (resolved : ResolvedModule) (globals : List String) :
       Assignment.InOrder (RootCall.Operand globals) arguments actuals →
       RootCall.EvaluatesOperands state arguments (.ok values state) →
       CallsWrapper state body root.childId values out →
+      Step resolved globals index state (invocation callee destination arguments) (Leaf.assignResult destination out)
+  | bodyDefinition {index id : Nat} {state : State} {definition : Defaults.Body.Definition}
+      {codes : List Lowering.Expr} {out : Outcome Lists.Iteration.Flow}
+      (plan : Defaults.Body.Plan globals definition) :
+      resolved.source.commands[index]? = some (.exec (.define definition.name id)) →
+      resolved.program[id]? = some (plan.declaration codes) →
+      codes.length = definition.parameters.optional.length →
+      Defaults.Defines globals (globalSlot definition.name) id plan.free definition.parameters codes state out →
+      Step resolved globals index state definition.command (Modules.afterCode out)
+  | bodyCall {index : Nat} {state : State} {callee destination : String} {definition : Defaults.Body.Definition}
+      {arguments : List Expr} {actuals : List Lowering.Expr} {values : List Value} {out : Outcome Value}
+      (saved : SavedBody globals resolved.program state callee definition) :
+      resolved.source.commands[index]? =
+        some (.exec (.assignExpr destination (.call (Leaf.readOperand (globalSlot callee)) actuals [] none none))) →
+      RootCall.Operand globals (.scalar (.read callee)) (Leaf.readOperand (globalSlot callee)) →
+      Assignment.InOrder (RootCall.Operand globals) arguments actuals →
+      RootCall.EvaluatesOperands state arguments (.ok values state) →
+      CallsBody saved values out →
       Step resolved globals index state (invocation callee destination arguments) (Leaf.assignResult destination out)
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.WithDefaults
