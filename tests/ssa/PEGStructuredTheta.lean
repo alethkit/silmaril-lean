@@ -4,7 +4,9 @@ import Silmaril.SSA.PEG.Bridge.Theta.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.Tuple.Thms
 import Silmaril.SSA.Peggy.Bridge.Theta.LambdaSSA.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Thms
-import Silmaril.SSA.PEG.Bridge.Theta.Region.MLIR.Thms
+import Silmaril.SSA.PEG.Bridge.Theta.Region.MLIR.Scoped.Thms
+import Silmaril.SSA.RVSDG.Thms
+import Silmaril.SSA.RVSDG.NestedTheta.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaRTL.Thms
 import Silmaril.Machine.PEG.CountedLoop.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Thms
@@ -457,6 +459,43 @@ private abbrev wordLoop := Region.MLIR.lower wordProfile bundle
 
 private def wordStore (n a b : Nat) : Env (wordProfile.widths carried) :=
   .cons (BitVec.ofNat 8 n) (.cons (BitVec.ofNat 16 a) (.cons (BitVec.ofNat 16 b) .nil))
+
+private abbrev scopedBlock := Region.MLIR.Scoped.lower bundle
+private abbrev scopedModel := Region.MLIR.Scoped.model wordModel
+
+private def scopedCarry (n a b : Nat) :=
+  Region.MLIR.Scoped.encode wordModel (wordProfile.decode carried (wordStore n a b))
+
+private theorem scopedBlock_eq :
+    scopedBlock = RVSDG.MLIR.Graph.Feedback.lowerTerm
+      (RVSDG.NestedTheta.Term.ofTheta ⟨RVSDG.Institution.mapTerm
+        RVSDG.OrderedRuntime.Structured.Instruction.pure (Region.Compiler.body cert).2⟩) := by
+  simp only [Region.MLIR.Scoped.lower, RVSDG.MLIR.Graph.Feedback.WholeTheta.lower,
+    RVSDG.MLIR.Graph.Feedback.lower, RVSDG.MLIR.Graph.Feedback.WholeTheta.embed,
+    RVSDG.NestedTheta.Term.toTerm_toGraph, Region.compile, RVSDG.Theta.Term.toGraph,
+    RVSDG.Theta.Institution.relabel, RVSDG.Theta.Graph.toTerm, RVSDG.Institution.mapGraph,
+    RVSDG.Term.toTerm_toGraph]
+  rfl
+
+-- Execute the generated scoped block by its own relation. The body selects
+-- the update arm twice, then the bypass arm. Both accumulators are observed.
+example : scopedBlock.Returns scopedModel (scopedCarry 2 10 1) (scopedCarry 0 11 12) := by
+  rw [scopedBlock_eq]
+  refine ⟨scopedCarry 0 11 12, ⟨scopedCarry 0 11 12, ?_, ?_⟩, rfl⟩
+  · refine (Relation.ReflTransGen.single (b := scopedCarry 1 1 11) ?_).tail ?_
+    · exact ⟨scopedCarry 1 1 11, by rfl, by rfl⟩
+    · exact ⟨scopedCarry 0 11 12, by rfl, by rfl⟩
+  · exact ⟨scopedCarry 0 11 12, by rfl, by rfl⟩
+
+-- The same generated block agrees with the native SCF run on an initially
+-- false guard and on overflow in a 16-bit accumulator.
+example : scopedBlock.Returns scopedModel (scopedCarry 0 10 1) (scopedCarry 0 10 1) :=
+  (Region.MLIR.Scoped.scf_returns_iff bundle wordProfile wordOps (wordStore 0 10 1)
+    (wordStore 0 10 1)).mp ⟨1, rfl⟩
+
+example : scopedBlock.Returns scopedModel (scopedCarry 1 65535 2) (scopedCarry 0 2 1) :=
+  (Region.MLIR.Scoped.scf_returns_iff bundle wordProfile wordOps (wordStore 1 65535 2)
+    (wordStore 0 2 1)).mp ⟨2, rfl⟩
 
 private theorem bitNegation (flag : Bool) :
     wordModel.run bundle.scalar.descriptor.negate (.cons ⟨flag⟩ .nil) = ⟨!flag⟩ := by
