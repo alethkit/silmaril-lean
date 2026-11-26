@@ -40,9 +40,9 @@ theorem region_denote (setup : Prefix Φ ε A R B) (body : Source Φ B X Z L E D
   rw [TwoBlock.regionDenote_eq_of coherent (show RegionDenotes (m := StateT σ Part.{u}) ε (typing setup body) _ from spec)]
   simp only [PureRow.call_bottom setup.value setup.bottom, pure_bind, Env.rename, Env.get, id_eq]
 
-private theorem action_denote (p : TwoBlock.Instruction Φ A R) (x : TyDen A) (initial : σ) :
+theorem orderedCall_denote (p : TwoBlock.Instruction Φ A R) (x : TyDen A) (initial : σ) :
     (Wires.wireModel (Φ := Φ) (ε := ε) (σ := σ)).primitive
-      (.ordered (carriedData A) (carriedData R) (.effect (.loop (.acyclic (.call .direct p)))))
+      (.ordered (carriedData A) (carriedData R) (orderedCall p))
       (point x initial) =
       Part.map (fun (y, token) => point y token) ((TwoBlock.call (ε := ε) (m := StateT σ Part.{u}) p x).run initial) := by
   change Part.map OrderedRuntime.Structured.decode
@@ -63,9 +63,9 @@ theorem graph_denote (setup : Prefix Φ ε A R B) (body : Source Φ B X Z L E D 
   cases pureFirst <;> simp only [code, pure_denote, primitive_denote, attach_denote]
   all_goals
     change ((Wires.wireModel (Φ := Φ) (ε := ε) (σ := σ)).primitive
-      (.ordered (carriedData A) (carriedData R) (.effect (.loop (.acyclic (.call .direct setup.action)))))
+      (.ordered (carriedData A) (carriedData R) (orderedCall setup.action))
       (point x initial)).bind _ = _
-    rw [action_denote, Part.bind_map]
+    rw [orderedCall_denote, Part.bind_map]
     rfl
 
 theorem agrees (setup : Prefix Φ ε A R B) (body : Source Φ B X Z L E D sigs)

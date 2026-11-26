@@ -13,13 +13,21 @@ namespace Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PurePrefix
 open Isotope.LetIter.ProofRelevant.Semantics
 open Isotope.LambdaSSA.Semantics.Monadic
 open Isotope.LambdaSSA.Semantics.Agreement (RegionCoherent)
-open OrderedTheta (point)
+open OrderedTheta (point carriedData)
+open Sequential
 open NestedTheta.Partial.Executable (run_iff_observe)
 
 universe u
 variable {τ Φ ε σ : Type u} [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε] [Bot ε]
   [Isotope.Subtyping τ] [TypeModel.{u,u} τ] [InstructionModel Φ τ ε (StateT σ Part.{u})]
 variable {A R B X Z L E D : τ} {sigs : List (Ports (OrderedRuntime.Structured.Ty τ))}
+
+theorem orderedCall_denote (p : TwoBlock.Instruction Φ A R) (x : TyDen A) (initial : σ) :
+    (Wires.wireModel (Φ := Φ) (ε := ε) (σ := σ)).primitive
+      (.ordered (carriedData A) (carriedData R) (orderedCall p)) (point x initial) =
+      Part.map (fun (y, token) => point y token)
+        ((TwoBlock.call (ε := ε) (m := StateT σ Part.{u}) p x).run initial) :=
+  Proofs.orderedCall_denote p x initial
 
 variable (setup : Prefix Φ ε A R B) (body : Source Φ B X Z L E D sigs)
 

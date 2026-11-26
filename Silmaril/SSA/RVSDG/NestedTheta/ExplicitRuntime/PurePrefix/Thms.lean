@@ -57,4 +57,21 @@ theorem primitive_denote (live : Origin (Threaded args) past runtime) (di : Data
         (fun result => rest.denoteOpenWith (model m pure) entry (locals.snoc result)) := by
   simp only [Term.denoteOpenWith, orderedNode, Kind.denoteWith, model, Part.bind_eq_bind]
 
+/-- The selected mixed child reads its entry tuple, including the current
+token. The continuation receives the selected child's entire result. -/
+theorem gamma_denote (extra : Nat) (choice : Origin (Threaded args) past (.control (extra + 2)))
+    (live : Origin (Threaded args) past runtime) (wires : Wires (Threaded args) past ins)
+    (childSigs : Fin (extra + 2) → List (Ports (Ty V)))
+    (children : ∀ j, Term (Op P E Q) (Threaded ins) [] (childSigs j) (Threaded out))
+    (rest : Term (Op P E Q) (Threaded args) (past ++ [Threaded out]) sigs (Threaded outs))
+    (entry : Tuple m.Val (Threaded args)) (locals : Locals m.Val past) :
+    (Term.bind (gammaNode (P := P) (E := E) (Q := Q) (out := out) extra choice live wires childSigs)
+      children rest).denoteOpenWith
+      (model m pure) entry locals =
+      ((children ((Wires.read (.cons choice .nil) entry locals).get .head).down).denoteOpenWith (model m pure)
+        (Wires.read (withRuntime live wires) entry locals) PUnit.unit).bind
+        (fun result => rest.denoteOpenWith (model m pure) entry (locals.snoc result)) := by
+  simp only [Term.denoteOpenWith, gammaNode, Wires.read, Tuple.map, Kind.denoteWith, Part.bind_eq_bind]
+  rfl
+
 end Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.PurePrefix
