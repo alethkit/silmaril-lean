@@ -25,7 +25,9 @@ structure State where
   frame : Frame
   code : List Admin
 
-/-- Source instructions admitted at a given module and rank ceiling. -/
+/-- Source instructions admitted at a given module and rank ceiling. Branch
+payload types are checked at source entry. This administrative guard admits
+native depth lowering under entered labels. -/
 inductive SourceAllowed (program : Program) (memory : MemAddr) (rank : Nat) (module : ModuleInst) :
     Wasm.V1.Instr → Prop where
   | intConst (t : IntType) (bits : BitVec t.width) : SourceAllowed program memory rank module (.intConst t bits)
@@ -49,6 +51,8 @@ inductive SourceAllowed (program : Program) (memory : MemAddr) (rank : Nat) (mod
   | block {result : Option NumType} {body : Wasm.V1.Expr}
       (guard : ∀ i ∈ body, SourceAllowed program memory rank module i) :
       SourceAllowed program memory rank module (.block result body)
+  | br (depth : LabelIdx) : SourceAllowed program memory rank module (.br depth)
+  | brIf (depth : LabelIdx) : SourceAllowed program memory rank module (.brIf depth)
   | unreachable : SourceAllowed program memory rank module .unreachable
   | return_ : SourceAllowed program memory rank module .return_
 

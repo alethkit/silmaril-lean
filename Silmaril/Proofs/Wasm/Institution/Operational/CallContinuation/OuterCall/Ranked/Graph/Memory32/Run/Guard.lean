@@ -43,7 +43,7 @@ mutual
 private theorem code_sources {p : Program} {m : MemAddr} (checked : p.checkV1 m = true)
     {a : FuncAddr} {fn : Function} (found : p.lookup a = some fn)
     (slot : fn.declaration.module.memories[0]? = some m) (code : List Op)
-    (supported : supportedCode code = true)
+    (labels : List (List NumType)) (supported : supportedCode code labels = true)
     (targets : ∀ target ∈ codeTargets code, target ∈ fn.targets) :
     ∀ i ∈ v1Code code, SourceAllowed p m fn.rank fn.declaration.module i := by
   cases code with
@@ -53,27 +53,28 @@ private theorem code_sources {p : Program} {m : MemAddr} (checked : p.checkV1 m 
     intro i hi
     simp only [v1Code, List.mem_cons] at hi
     rcases hi with rfl | hi
-    · exact op_source checked found slot op checks.1
+    · exact op_source checked found slot op labels checks.1
         (fun target used => targets target (List.mem_append_left _ used))
-    · exact code_sources checked found slot rest checks.2
+    · exact code_sources checked found slot rest labels checks.2
         (fun target used => targets target (List.mem_append_right _ used)) i hi
 
 private theorem op_source {p : Program} {m : MemAddr} (checked : p.checkV1 m = true)
     {a : FuncAddr} {fn : Function} (found : p.lookup a = some fn)
     (slot : fn.declaration.module.memories[0]? = some m) (op : Op)
-    (supported : op.supported = true)
+    (labels : List (List NumType)) (supported : op.supportedIn labels = true)
     (targets : ∀ target ∈ op.targets, target ∈ fn.targets) :
     SourceAllowed p m fn.rank fn.declaration.module op.v1 := by
   cases op with
   | load offset => exact .load offset slot
   | store offset => exact .store offset slot
-  | block _ body => exact .block (code_sources checked found slot body supported targets)
+  | block result body =>
+    exact .block (code_sources checked found slot body (result.toList :: labels) supported targets)
   | if_ result left right =>
     have checks := Bool.and_eq_true_iff.mp supported
     exact .if_
-      (code_sources checked found slot left checks.1
+      (code_sources checked found slot left (result.toList :: labels) checks.1
         (fun target used => targets target (List.mem_append_left _ used)))
-      (code_sources checked found slot right checks.2
+      (code_sources checked found slot right (result.toList :: labels) checks.2
         (fun target used => targets target (List.mem_append_right _ used)))
   | ranked op =>
     cases op with
@@ -83,6 +84,8 @@ private theorem op_source {p : Program} {m : MemAddr} (checked : p.checkV1 m = t
       | bin t bin => exact .bin t _
     | set idx => exact .set idx
     | tee idx => exact .tee idx
+    | br depth _ => exact .br depth
+    | brIf depth _ => exact .brIf depth
     | unreachable => exact .unreachable
     | return_ => exact .return_
     | call target =>
@@ -101,13 +104,8 @@ theorem body_allowed {p : Program} {m : MemAddr} (checked : p.checkV1 m = true)
   refine ⟨values_allowed _, ?_⟩
   intro x member
   obtain ⟨op, used, rfl⟩ := List.mem_map.mp member
-  exact .source (op_source checked found slot op (List.all_eq_true.mp supported op used)
+  exact .source (op_source checked found slot op [] (List.all_eq_true.mp supported op used)
     (fun target h => List.mem_flatMap.mpr ⟨op, used, h⟩))
-
-private theorem label_body {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
-    {n : Nat} {cont : Wasm.V1.Expr} {body : List Admin}
-    (h : Allowed p m rank mod (.label n cont body)) : CodeAllowed p m rank mod body := by
-  cases h with | label _ guarded => exact guarded
 
 theorem pure_allowed {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
     {before after : List Admin} (move : PureStep before after)
@@ -130,20 +128,17 @@ theorem pure_allowed {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
   | ifNonzero =>
     have h := source_allowed (guard _ (List.Mem.tail _ (List.Mem.head _)))
     cases h with | if_ left _ => exact single_allowed.mpr (.source (.block left))
-  | brIfNonzero =>
-    have h := source_allowed (guard _ (List.Mem.tail _ (List.Mem.head _)))
-    cases h
+  | brIfNonzero depth _ _ =>
+    exact single_allowed.mpr (.source (.br depth))
   | brTable =>
     have h := source_allowed (guard _ (List.Mem.tail _ (List.Mem.head _)))
     cases h
   | labelBranch n cont extra vs tail arity =>
-    have body := label_body (guard _ (List.Mem.head _))
-    have h := source_allowed (body (.source (.br ⟨0⟩)) (by simp))
-    cases h
+    cases (single_allowed.mp guard) with
+    | label _ _ =>
+      exact append_allowed.mpr ⟨values_allowed vs, values_allowed []⟩
   | labelBranchOuter n cont vs tail idx outer =>
-    have body := label_body (guard _ (List.Mem.head _))
-    have h := source_allowed (body (.source (.br idx)) (by simp))
-    cases h
+    exact append_allowed.mpr ⟨values_allowed _, single_allowed.mpr (.source (.br (lowerLabel idx)))⟩
   | labelReturn n cont vs tail =>
     apply append_allowed.mpr
     exact ⟨values_allowed _, single_allowed.mpr (.source .return_)⟩
