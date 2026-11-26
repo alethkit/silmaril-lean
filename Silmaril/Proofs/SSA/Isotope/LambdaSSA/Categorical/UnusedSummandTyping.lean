@@ -22,30 +22,46 @@ theorem operand_base {Γ : VCtx (Ty κ)} {A : Ty κ} (a : Operand (Φ := Φ) Γ 
   | var _ h => exact .var h
   | unit => exact .unit
   | op _ _ ih => exact .op ih
+  | let₁ _ _ iha ihb => exact .let₁ iha ihb
 
 theorem operand_typed {Γ Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ Δ ρ)
     {A : Ty κ} (a : Operand (Φ := Φ) Γ A) : (a.term.rename ρ).HasType Δ A := by
-  induction a with
+  induction a generalizing Δ ρ with
   | var i h => exact .var (ren h)
   | unit => exact .unit
-  | op p _ ih => exact .op ih
+  | op p _ ih => exact .op (ih ren)
+  | let₁ _ _ iha ihb => exact .let₁ (iha ren) (ihb (ren.lift _))
 
 theorem operand_type {Γ Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ Δ ρ)
     {A : Ty κ} (a : Operand (Φ := Φ) Γ A) : TypeDetermined Δ (a.term.rename ρ) A := by
-  intro D typed
-  cases a with
+  induction a generalizing Δ ρ with
   | var i h =>
-    cases typed with
-    | var hit => exact Option.some.inj (hit.symm.trans (ren h))
-  | unit => cases typed; rfl
-  | op p _ => cases typed; rfl
+      intro D typed
+      cases typed with
+      | var hit => exact Option.some.inj (hit.symm.trans (ren h))
+  | unit =>
+      intro D typed
+      cases typed
+      rfl
+  | op p _ =>
+      intro D typed
+      cases typed
+      rfl
+  | let₁ value body ihv ihb =>
+      intro D typed
+      cases typed with
+      | let₁ hv hb =>
+          cases ihv ren _ hv
+          exact ihb (ren.lift _) _ hb
 
 theorem operand_determined {Γ Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ Δ ρ)
     {A : Ty κ} (a : Operand (Φ := Φ) Γ A) : DeterminedTerm Δ (a.term.rename ρ) A := by
-  induction a with
+  induction a generalizing Δ ρ with
   | var i h => exact .var (ren h)
   | unit => exact .unit
-  | op p _ ih => exact .op ih
+  | op p _ ih => exact .op (ih ren)
+  | let₁ value _ iha ihb =>
+      exact .let₁ (operand_type ren value) (iha ren) (ihb (ren.lift _))
 
 theorem local_label {n : Nat} (R : Fin n → Ty κ) (i : Fin n) :
     At (List.ofFn R) i (R i) := by
@@ -71,6 +87,7 @@ theorem row_typed {n : Nat} {R : Fin n → Ty κ} {L : LCtx (Ty κ)} {Γ Δ : VC
     | none => exact .br (local_append R L i) (operand_typed ren arg)
     | some D => exact .br (local_append (family R (some D)) L i) (.inl (operand_typed ren arg))
   | exit i hit arg => exact .br (exit_append (family R tails) hit) (operand_typed ren arg)
+  | let₁ value _ ih => exact .let₁ (operand_typed ren value) (ih (ren.lift _))
   | case arg l r ihl ihr =>
     exact .case (operand_typed ren arg) (ihl (ren.lift _)) (ihr (ren.lift _))
 
@@ -83,6 +100,8 @@ theorem row_determined {n : Nat} {R : Fin n → Ty κ} {L : LCtx (Ty κ)} {Γ Δ
     | none => exact .br (local_append R L i) (operand_determined ren arg)
     | some D => exact .br (local_append (family R (some D)) L i) (.inl (operand_determined ren arg))
   | exit i hit arg => exact .br (exit_append (family R tails) hit) (operand_determined ren arg)
+  | let₁ value _ ih =>
+      exact .let₁ (operand_type ren value) (operand_determined ren value) (ih (ren.lift _))
   | case arg l r ihl ihr =>
     exact .case (operand_type ren arg) (operand_determined ren arg) (ihl (ren.lift _)) (ihr (ren.lift _))
 

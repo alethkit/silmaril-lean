@@ -17,6 +17,20 @@ open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
 
 variable {κ : Type u} {Φ : Type v} [HasTy Φ (Ty κ)]
 
+/-- An operand synthesizes the same exact result type after any typed value
+renaming. In a term let, this also fixes the initializer's binder type. -/
+theorem Operand.typeDetermined {Γ Δ : VCtx (Ty κ)} {A : Ty κ} {ρ : Nat → Nat}
+    (a : Operand (Φ := Φ) Γ A) (ren : Ren Γ Δ ρ) :
+    TypeDetermined Δ (a.term.rename ρ) A :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandTyping.operand_type ren a
+
+/-- The operand fixes every intermediate term type after typed renaming, so
+its exact graph witnesses agree by `DeterminedTerm.denotes_eq`. -/
+theorem Operand.determined {Γ Δ : VCtx (Ty κ)} {A : Ty κ} {ρ : Nat → Nat}
+    (a : Operand (Φ := Φ) Γ A) (ren : Ren Γ Δ ρ) :
+    DeterminedTerm Δ (a.term.rename ρ) A :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandTyping.operand_determined ren a
+
 /-- An exact typing for a rendered row at the selected label family. -/
 theorem Row.hasType {n : Nat} {R : Fin n → Ty κ} {L : LCtx (Ty κ)} {Γ Δ : VCtx (Ty κ)}
     {ρ : Nat → Nat} (r : Row (Φ := Φ) R L Γ) (ren : Ren Γ Δ ρ)

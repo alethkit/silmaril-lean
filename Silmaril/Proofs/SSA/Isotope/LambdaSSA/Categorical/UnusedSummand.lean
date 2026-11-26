@@ -28,8 +28,8 @@ open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
 open CartesianMonoidalCategory (fst snd)
 open Silmaril.Isotope.LetIter.Semantics.Categorical
-  (TypeModel InstructionModel case_pre_map case_postcomp)
-open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (caseWithContext contextualLoop)
+  (TypeModel InstructionModel bind_pre_map case_pre_map case_postcomp)
+open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (bind caseWithContext contextualLoop)
 
 variable {κ : Type u} {Φ : Type v} [HasTy Φ (Ty κ)]
 
@@ -133,10 +133,24 @@ variable {n : Nat} {R : Fin n → Ty κ} {L : LCtx (Ty κ)}
 local notation "Small" => labelObj M (List.ofFn R)
 local notation "ExitObj" => labelObj M L
 
+omit [Iteration C] [ElgotCategory C] [StrongElgotFreydCategory J] [InstructionModel J M Φ] in
+theorem bind_transfer {D E A B Q X : V} [DistributiveFreydCategory J]
+    (p : D ⟶ E) (value : J.obj E ⟶ J.obj A)
+    {actual : J.obj (D ⊗ A) ⟶ J.obj Q} {body : J.obj (E ⊗ A) ⟶ J.obj B}
+    {cut : J.obj Q ⟶ J.obj X} {route : J.obj B ⟶ J.obj X}
+    (body_eq : actual ≫ cut = J.map (p ▷ A) ≫ body ≫ route) :
+    bind J (J.map p ≫ value) actual ≫ cut = J.map p ≫ bind J value body ≫ route := by
+  calc
+    _ = bind J (J.map p ≫ value) (actual ≫ cut) := Category.assoc _ _ _
+    _ = bind J (J.map p ≫ value) (J.map (p ▷ A) ≫ body) ≫ route := by
+      simp only [body_eq, Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.bind, Category.assoc]
+    _ = _ := by rw [bind_pre_map, Category.assoc]
+
 private noncomputable def eval {Γ : VCtx (Ty κ)} :
     Row (Φ := Φ) R L Γ → (J.obj (ctxObj M Γ) ⟶ J.obj (ExitObj ⨿ Small))
   | .jump i arg => denote J M (operand_base arg) ≫
       J.map (labelInject M i (local_label R i) ≫ coprod.inr)
+  | .let₁ value body => bind J (denote J M (operand_base value)) (eval body)
   | .exit i hit arg => denote J M (operand_base arg) ≫ J.map (labelInject M i hit ≫ coprod.inl)
   | .case arg left right => caseWithContext J
       (denote J M (operand_base arg) ≫ J.map (M.coprodIso _ _).hom)
@@ -171,6 +185,11 @@ private theorem row_eval {Γ Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ
       refine ⟨_, RegionDenotes.br (h := exit_append (family R tails) hit) da, ?_⟩
       simp only [eval, Category.assoc, ← J.map_comp, coprod.inl_map, Category.id_comp]
       erw [labelAppendSplit_exit M (family R tails) L hit (exit_append (family R tails) hit)]
+  | @let₁ Γ A value body ih =>
+      have dv := (denote_spec J M (operand_base value)).rename J M ren reads
+      obtain ⟨_, db, body_eq⟩ := ih (ren.lift A) (p ▷ M.obj A) (lookup_liftRename M ren reads A)
+      refine ⟨_, RegionDenotes.let₁ dv db, ?_⟩
+      simpa only [eval] using bind_transfer J p (denote J M (operand_base value)) body_eq
   | @case Γ A B a l r ihl ihr =>
       have da := (denote_spec J M (operand_base a)).rename J M ren reads
       obtain ⟨fl, dl, left⟩ := ihl (ren.lift A) (p ▷ M.obj A) (lookup_liftRename M ren reads A)
