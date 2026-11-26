@@ -26,6 +26,12 @@ theorem collects {block : LexicalBlock} {source : Statement} {seed final : Progr
     ∃ occurrences, Block.BodyBinders source occurrences :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.collects profile
 
+theorem read_origins {block : LexicalBlock} {source : Statement} {seed final : Program}
+    {resolved : ResolvedBody} {emissions : Emissions}
+    (profile : Elaborates block source seed resolved final emissions) :
+    ∀ binding ∈ resolved.reads, ∃ origin, ReadOrigin block binding origin :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.read_origins profile
+
 /-- Reads from nested definitions contribute to the enclosing free
 references through their ordered demands, even without a direct read. -/
 theorem selects {block : LexicalBlock} {source : Statement} {seed final : Program}

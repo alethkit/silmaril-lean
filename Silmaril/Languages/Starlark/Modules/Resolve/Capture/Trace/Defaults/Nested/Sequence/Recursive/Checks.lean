@@ -1,7 +1,8 @@
 module
 
-import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Thms
+import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Thms
 import Silmaril.Languages.Starlark.Functions.Lowering.Quote.Defs
+meta import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Defs
 meta import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Defs
 meta import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Defs
 meta import Silmaril.Languages.Starlark.Modules.Resolve.Defs
@@ -216,23 +217,114 @@ private inductive CallCase where
   | operandError
   | arityError
 
-private def localCall : CallCase → Functions.Lowering.Resolve.SourceExpr
-  | .defaults => starlark%[copy()]
-  | .operandError => starlark%[copy([73], [0][1], [99])]
-  | .arityError => starlark%[copy([73], [74])]
+private def callRelayBlock : LexicalBlock :=
+  ⟨["leaf", "copy", "value", "after"], relayBlock.enclosing, []⟩
 
-private def callRelayBlock : LexicalBlock := ⟨["leaf", "copy"], relayBlock.enclosing, []⟩
+private def callLeafSite : Site callRelayBlock where
+  name := "leaf"
+  target := by decide
+  parameters := leafParameters
+  source := leafSuite.source
+  binders := ["offset", "alias"]
+  locals := ["offset", "alias"]
+  collects := .seq (.assign _ _) (.seq (.assign _ _) (.ret _))
+  localOrder := .keep (by decide) (.keep (by decide) .nil)
+  body := ⟨.seq (.assignExpr (fileSlot "offset") (localRead "index"))
+    (.seq (.assignExpr (fileSlot "alias") (localRead "x"))
+     (.returnExpr (.index (localRead "saved") (localRead "offset")))),
+    [fileSlot "index", fileSlot "x", fileSlot "saved", fileSlot "offset"]⟩
+  free := [⟨fileSlot "index", fileSlot "index"⟩, ⟨fileSlot "x", fileSlot "x"⟩]
+  selects := .enclosing (.enclosing (by decide) (by decide))
+    (.enclosing (.enclosing (by decide) (by decide))
+      (.owned (.owned (by decide)) (.owned (.owned (by decide)) .nil)))
+  defaults := [⟨"saved", starlark%[x], localRead "x", [fileSlot "x"]⟩]
+  lexical := .cons (.read (by decide) (.enclosing (by decide) (by decide)) (.enclosing (by decide) (by decide))) .nil
 
-example :
-    Functions.Lowering.Resolve.resolveTracked callRelayBlock.context (localCall .arityError) =
-      .ok (Call.expression "copy" [.list [.atom (.scalar (.int 73))], .list [.atom (.scalar (.int 74))]],
-        [fileSlot "copy"]) :=
-  Call.resolves (by decide) (by decide) (.cons (.list (.int 73)) (.cons (.list (.int 74)) .nil))
+private theorem callLeafBody (seed : Program) :
+    Elaborates callLeafSite.block callLeafSite.source seed callLeafSite.body seed [] :=
+  .straight (.assign (by decide)
+    (.read (by decide) (.enclosing (by decide) (by decide)) (.enclosing (by decide) (by decide)))
+    (.assign (by decide)
+      (.read (by decide) (.enclosing (by decide) (by decide)) (.enclosing (by decide) (by decide)))
+      (.ret (.index (.read (by decide) (.owned (by decide)) (.owned (by decide)))
+        (.read (by decide) (.owned (by decide)) (.owned (by decide)))))))
+
+private def callArguments : CallCase → List Functions.Lowering.Resolve.SourceExpr
+  | .defaults => []
+  | .operandError => [starlark%[[73]], starlark%[[0][1]], starlark%[[99]]]
+  | .arityError => [starlark%[[73]], starlark%[[74]]]
+
+private def boxed (n : Int) : Functions.Lowering.Expr := .list [.atom (.scalar (.int n))]
+
+private def callOperands : CallCase → List Functions.Lowering.Expr
+  | .defaults => []
+  | .operandError => [boxed 73, .index (boxed 0) (.atom (.scalar (.int 1))), boxed 99]
+  | .arityError => [boxed 73, boxed 74]
+
+private def callAssignment (mode : CallCase) : Call.Suite.Assignment callRelayBlock where
+  copy := "copy"
+  copyOwned := by decide
+  copyLegal := by decide
+  destination := "value"
+  destinationOwned := by decide
+  arguments := callArguments mode
+  codes := callOperands mode
+  argumentReads := []
+  operands := by
+    cases mode with
+    | defaults => exact .nil
+    | operandError =>
+      exact .cons (.list (.int 73))
+        (.cons (.index (.list (.int 0)) (.int 1)) (.cons (.list (.int 99)) .nil))
+    | arityError => exact .cons (.list (.int 73)) (.cons (.list (.int 74)) .nil)
+
+private def callTail : Body.Suite :=
+  .assign "after" starlark%[[value]] (.ret starlark%[after[0]])
+
+private def callTailCode : ResolvedBody :=
+  ⟨.seq (.assignExpr (fileSlot "after") (.list [localRead "value"]))
+    (.returnExpr (.index (localRead "after") (.atom (.scalar (.int 0))))),
+    [fileSlot "value", fileSlot "after"]⟩
+
+private def relayCallSource (mode : CallCase) : Statement :=
+  .seq callLeafSite.statement ((callAssignment mode).source "leaf" callTail.source)
+
+private def relayCallCode (mode : CallCase) (id : Nat) : ResolvedBody :=
+  ⟨.seq (.define (fileSlot "leaf") id) ((callAssignment mode).code "leaf" callTailCode.code),
+    callLeafSite.reads ++ ((callAssignment mode).reads "leaf" ++ callTailCode.reads)⟩
+
+private theorem callProfile (mode : CallCase) (seed : Program) :
+    Call.Suite.Elaborates callRelayBlock (relayCallSource mode) seed (relayCallCode mode seed.size)
+      (seed.push callLeafSite.declaration) [(seed.size, callLeafSite.declaration)] [seed.size] := by
+  have tail : Body.Elaborates callRelayBlock callTail callTailCode.code callTailCode.reads :=
+    .assign (by decide) (.list (.read (by decide) (.owned (by decide)) (.owned (by decide))))
+      (.ret (.index (.read (by decide) (.owned (by decide)) (.owned (by decide))) (.int 0)))
+  exact .call callLeafSite (by decide) (callAssignment mode) (callLeafBody seed) (.plain (.straight tail))
+
+example (mode : CallCase) (seed : Program) :
+    compileBody ⟨callRelayBlock.context, .local⟩ (relayCallSource mode) seed =
+      .ok (relayCallCode mode seed.size, seed.push callLeafSite.declaration) :=
+  Call.Suite.compiles (callProfile mode seed)
+
+-- The source-run theorem covers the very same body in success and error modes.
+example (mode : CallCase) (seed : Program) {cmds : List Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve cmds linked = .ok resolved)
+    (table : PreservesDeclarations (seed.push callLeafSite.declaration) resolved.program)
+    (available : List Nat) (guarded : seed.size ∈ available) {free : List FreeName}
+    (selected : Selects callRelayBlock (relayCallCode mode seed.size).reads free)
+    (state : Lists.State) (floor : Nat) (frame : Body.Frame callRelayBlock free floor state) :
+    ∃ out, Call.Suite.Runs callRelayBlock state (relayCallSource mode) (relayCallCode mode seed.size).code out ∧
+      Functions.denoteBody resolved.program available (relayCallCode mode seed.size).code state = out := by
+  have selection : Selects callRelayBlock ([] ++ (relayCallCode mode seed.size).reads ++ []) free := by simpa using selected
+  obtain ⟨out, trace, _, _, _, denoted⟩ := Call.Suite.runs (callProfile mode seed) checked table available
+    (by
+      intro id member
+      cases List.mem_singleton.mp member
+      exact guarded) selection state frame
+  exact ⟨out, trace, denoted⟩
 
 private def callCommands (mode : CallCase) : List Command :=
-  let relay := Statement.define "relay" (.required [])
-    (.seq leafSite.statement
-      (.seq (.assign "copy" starlark%[leaf]) (.ret (some (localCall mode)))))
+  let relay := Statement.define "relay" (.required []) (relayCallSource mode)
   let factory := Command.define "factory" (.required ["x", "index"])
     (.seq relay factoryTail.source)
   [noise, .assign "values" starlark%[[11,22]], factory,
@@ -249,6 +341,7 @@ private def callCommands (mode : CallCase) : List Command :=
       | .function closure => if closure.declaration == id then some closure.captures else none
       | _ => none
     published.exports.lookup "result" == some (.scalar (.int 22)) &&
+    final.heap.any (fun cell => cell.contents == .list [.scalar (.int 22)]) &&
     (match captures 2, captures 1 with
     | some [x, index], some [index', x'] =>
       x == x' && index == index' &&
@@ -268,6 +361,8 @@ private def stoppedBeforeActivation (mode : CallCase) (error : Lists.Error) (las
     | some ⟨.function closure, false⟩ => closure.declaration == 1
     | _ => false) &&
     final.heap[final.heap.size - 2]? == some ⟨.list [.scalar (.int 73)], false⟩ &&
+    final.heap[final.heap.size - 4]? == some ⟨.binding none, false⟩ &&
+    final.heap[final.heap.size - 5]? == some ⟨.binding none, false⟩ &&
     final.heap.back? == some ⟨.list [.scalar (.int last)], false⟩ &&
     moduleCell "result" == some ⟨.binding none, false⟩ &&
     moduleCell "finished" == some ⟨.binding none, false⟩ &&

@@ -42,11 +42,10 @@ theorem collects {block : LexicalBlock} {source : Statement} {seed final : Progr
     obtain ⟨_, tail⟩ := rest
     exact ⟨_, Body.collects_prefix _ (.seq (.define site.name site.parameters.source site.source) tail)⟩
 
-theorem selects {block : LexicalBlock} {source : Statement} {seed final : Program}
+theorem read_origins {block : LexicalBlock} {source : Statement} {seed final : Program}
     {resolved : ResolvedBody} {emissions : Emissions}
     (profile : Elaborates block source seed resolved final emissions) :
-    ∃ free, Selects block resolved.reads free := by
-  apply selects_of_origins
+    ∀ binding ∈ resolved.reads, ∃ origin, ReadOrigin block binding origin := by
   induction profile with
   | straight body => exact Body.body_origins body
   | define site leading _ _ _ rest =>
@@ -55,6 +54,12 @@ theorem selects {block : LexicalBlock} {source : Statement} {seed final : Progra
     · exact Body.prefix_read_origins leading binding earlier
     · exact (List.mem_append.mp remaining).elim (Nested.definition_read_origins site.selects site.lexical binding)
         (rest binding)
+
+theorem selects {block : LexicalBlock} {source : Statement} {seed final : Program}
+    {resolved : ResolvedBody} {emissions : Emissions}
+    (profile : Elaborates block source seed resolved final emissions) :
+    ∃ free, Selects block resolved.reads free :=
+  selects_of_origins block (read_origins profile)
 
 private theorem push_preserves (program : Program) (declaration : Declaration) :
     PreservesDeclarations program (program.push declaration) := by

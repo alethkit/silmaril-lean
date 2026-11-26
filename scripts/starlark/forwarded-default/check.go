@@ -115,7 +115,9 @@ func aliasedCallSource(arguments string) string {
             offset = index
             return saved[offset]
         copy = leaf
-        return copy(%s)
+        value = copy(%s)
+        after = [value]
+        return after[0]
     return relay
 relay_fn = factory([11, 22], 1)
 result = relay_fn()
@@ -127,7 +129,7 @@ func checkAliasedCalls(opts *syntax.FileOptions) {
 	globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread),
 		"aliased-positional-call.star", aliasedCallSource(""), nil)
 	require(err == nil && globals["result"].String() == "22", globals)
-	fmt.Println("PASS local alias call uses a saved default and the escaped relay's forwarded index")
+	fmt.Println("PASS the suite uses an alias call result after reading the saved default and forwarded index")
 
 	for _, test := range []struct {
 		arguments string

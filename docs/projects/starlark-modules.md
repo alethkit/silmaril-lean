@@ -889,14 +889,49 @@ evaluated surplus operands yield an arity error. Lean checks that
 both errors retain the reached lists and add no callee frame. Pinned
 Go checks the observable result and error ordering.
 
-This is an expression-level call theorem for a known live local
-closure with a recursively elaborated body in the existing suite
-fragment. It takes that body's declaration lookup in a checked
-table and membership in the available declaration set. General
-callee provenance, calls inside the independent recursive suite
-judgment, wider operands, keywords and spreads, general dispatch,
-loads, text parsing, and module publication remain open.
-[Call rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
+The expression theorem uses the body's declaration lookup in a
+checked table and membership in the available declaration set.
+[Call rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Thms.lean)
+
+### Positional call assignments in recursive suites
+
+`Defaults.Nested.Sequence.Recursive.Call.Suite.Elaborates` extends
+the bounded recursive suite with a definition, an immediate copy of
+its local name, and a positional call assigned to an owned name.
+It can compose multiple such segments with lexical assignments
+and ordinary nested definitions. The binder and read judgments
+include the new assignments and ordered call operands. Each call
+ID is an actual emission, and later table extensions preserve it.
+
+The suite theorem supplies the closure from its reached definition,
+with the original capture addresses and saved defaults. On call
+success it commits the result in the restored caller frame and
+continues there. On a definition, operand, binding or body error it
+keeps the reached heap and skips the tail. The source trace agrees
+exactly with resolved execution and denotation, including the
+return or first reached error and residual state. `runs_activated`
+obtains the suite frame from live captures and bound arguments.
+
+The guard is membership of this activation's call IDs in the
+current available declaration set. The child executes using the
+existing removal of its declaration ID. Invoked children use the
+already proved recursive suite without call statements. An
+ordinary definition can contain a call-bearing suite for a separate
+activation, but the call-assignment rule cannot dispatch to such a
+body. This keeps dispatch within the proved finite profile.
+
+The Lean and pinned Go regression invokes the grandchild through
+the escaped relay's immediate alias, then consumes the result in
+a later assignment and return. The operand and arity errors stop
+before that continuation. Lean additionally checks the forwarded
+addresses, retained operand allocations, and absence of callee
+activation on those errors.
+
+Later callee provenance across intervening statements, invoking
+call-bearing children within this rule, other expression positions,
+keywords and spreads, general dispatch, loads, text parsing, and
+module publication remain outside the suite theorem.
+[Suite rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
 
 ## Finite-manifest loader
 
