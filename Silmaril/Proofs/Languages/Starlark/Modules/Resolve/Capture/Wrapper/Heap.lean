@@ -79,6 +79,13 @@ private theorem activate_keeps (caller : State) (frame : ClosureFrame) (captures
   obtain ⟨finalFresh, fixed⟩ := write_all assigned caller.heap.size _ allocated index low
   exact ⟨finalFresh, fixed.trans stable⟩
 
+theorem activated_write_preserves (caller : State) (frame : ClosureFrame) (captures : List Capture)
+    (assigned : List (Binding × Value)) (target : Binding) (value : Value) (index : Nat)
+    (low : index < caller.heap.size) :
+    ((activate caller frame.declaration captures assigned).write target value).heap[index]? = caller.heap[index]? := by
+  obtain ⟨fresh, fixed⟩ := activate_keeps caller frame captures assigned index low
+  exact (write_low caller.heap.size _ target value fresh index low).2.trans fixed
+
 theorem returned_preserves {seed : Program} {caller : State}
     {child : Chain} {frame childFrame : ClosureFrame}
     {rest : List ClosureFrame} {captures selected : List Capture} {assigned : List (Binding × Value)}

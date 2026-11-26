@@ -97,14 +97,19 @@ private theorem schedule_trace {globals : List String} {callee : String} {chain 
           | wrapper childScopes =>
             have scopesEq := child_scopes (outer := outer) collect scopeNames
             have layoutLegal := singleton_legal collect paramsLegal childLegal
-            let canContinue (state : State) : Prop :=
-              ModuleSlots globals state ∧
-                ∃ address selected, RootCall.Live state destination address (EmittedProgram seed frames).size
+            let canContinue (stored : State) : Prop :=
+              ModuleSlots globals stored ∧
+                ∃ address selected, RootCall.Live stored destination address (EmittedProgram seed frames).size
                   selected false ∧ (∃ owner, Installs owner childFrame.free selected) ∧
                   (∀ entry ∈ selected, entry.binding.name.toList.head? ≠ some '$')
             obtain ⟨out, first, progress⟩ := call_step declared checked calleeKnown allowed live (head_found keeps)
-              canContinue (child_total (name := name) (.wrapper collect childEmits (by assumption)) (.wrapper childOwned wrapperCode childLinks)
-                keeps state layout known.1 captures environment legal layoutLegal)
+              canContinue (fun assigned => by
+                obtain ⟨out, ran, result⟩ := child_total (name := name) (.wrapper collect childEmits (by assumption))
+                  (.wrapper childOwned wrapperCode childLinks) keeps state layout known.1 captures environment legal
+                  layoutLegal assigned
+                refine ⟨out, ran, fun value next done => ?_⟩
+                obtain ⟨valid, _, live⟩ := result value next done
+                exact ⟨valid, live⟩)
             cases out with
             | error error final => exact ⟨_, .error first⟩
             | ok _ next =>
