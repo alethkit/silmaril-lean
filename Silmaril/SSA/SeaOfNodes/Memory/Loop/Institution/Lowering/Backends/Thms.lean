@@ -3,7 +3,7 @@ module
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Thms
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.Institution.Thms
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.CF.Institution.Thms
-public import Silmaril.SSA.RVSDG.NestedTheta.Petri.Defs
+public import Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Backends.Defs
 import Silmaril.SSA.RVSDG.NestedTheta.Petri.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.Theta.Thms
@@ -16,6 +16,8 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Backends
 
+open CategoryTheory
+open Memory.Diamond.Institution (reduct)
 open Memory.Diamond.Institution renaming Signature → EntrySignature, Model → EntryModel
 open Memory.Diamond.LambdaSSA (Atom packet)
 open Memory.Diamond.MLIR.Finite (Profile evalOp)
@@ -24,7 +26,7 @@ open RVSDG.NestedTheta.Petri (Finishes finishes_iff)
 open Silmaril.MLIR.CF.SwitchAssert (Outcome)
 open Isotope (Value)
 
-variable {P : EntrySignature}
+variable {P Q : EntrySignature}
 
 /-- A partial CF return with the encoded word and all cells is witnessed
 by a finite execution of the actual emitted CFG. -/
@@ -157,6 +159,22 @@ theorem petri_no_completion_iff_memref (graph : Graph P.args) (model : EntryMode
       (Memory.encodeInput initial model.input) output) ↔
       MLIR.MemRef.CF.Institution.observe graph model initial = Part.none :=
   (Proofs.petri_no_completion_iff_theta graph model initial).trans (theta_no_return_iff_memref graph model initial)
+
+/-- Equality of complete finite coloured results agrees with equality of
+partial MemRef observations on every initial heap at the typed model. -/
+theorem petri_satisfaction_iff_memref (e : Equation P) (model : EntryModel P) :
+    petriHolds e model ↔ MLIR.MemRef.CF.Institution.Holds e model := by
+  simp only [petriHolds, petri_completion_iff_memref, Part.eq_some_iff, MLIR.MemRef.CF.Institution.Holds]
+  exact forall_congr' fun _ => ⟨fun agrees => Part.ext fun (word, final) => agrees word final,
+    fun same word final => by rw [same]⟩
+
+theorem petri_satisfaction (e : Equation P) (model : EntryModel P) : petriHolds e model ↔ e.Holds model :=
+  (petri_satisfaction_iff_memref e model).trans (MLIR.MemRef.CF.Institution.satisfaction e model)
+
+theorem petri_satisfaction_reindex (h : P ⟶ Q) (e : Equation P) (model : EntryModel Q) :
+    petriHolds (e.map h) model ↔ petriHolds e (reduct h model) :=
+  (petri_satisfaction (e.map h) model).trans
+    ((e.satisfaction h model).trans (petri_satisfaction e (reduct h model)).symm)
 
 theorem theta_satisfaction_iff_memref (e : Equation P) (model : EntryModel P) :
     thetaHolds e model ↔ MLIR.MemRef.CF.Institution.Holds e model :=
