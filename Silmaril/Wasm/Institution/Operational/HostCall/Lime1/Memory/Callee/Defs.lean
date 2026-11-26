@@ -120,6 +120,11 @@ inductive Edge {H : Type} {base : Store H} (mem : Memory32 base)
       (typed : operands.map Value.type = target.declaration.params) :
       Edge mem host site callee bytes (.body args (saved ++ operands) (.ranked (.call target) :: rest))
         bytes (.child args saved child (.invoke operands) rest)
+  | callHost {callee bytes args saved operands target rest hostCode}
+      (link : MemoryDirectHost mem host callee target hostCode)
+      (typed : operands.map Value.type = target.declaration.params) :
+      Edge mem host site callee bytes (.body args (saved ++ operands) (.ranked (.call target) :: rest))
+        bytes (.hostInvoke args saved (Site.directTarget target hostCode) operands rest)
   | callIndirect {callee child bytes args saved operands index signature selector rest}
       (lookup : (site.memorySite index signature).Lookup base selector (some (.memory child)))
       (smaller : child.fn.rank < callee.fn.rank)

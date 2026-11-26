@@ -154,6 +154,18 @@ structure IndirectSite.MemoryDirect {H : Type} {base : Store H} (site : Indirect
   allocated : child.Allocated base
   smaller : child.fn.rank < parent.fn.rank
 
+/-- The declared numeric signature of a direct call and its allocated host code. -/
+def Site.directTarget {H : Type} (target : CallTarget) (code : H) : Site H :=
+  ⟨target.address, target.declaration.type, code⟩
+
+/-- A direct host link checks the caller's function index and the exact
+host allocation. Its payload uses the same embedding contract as an indirect host. -/
+structure MemoryDirectHost {H : Type} {base : Store H} (memory : Memory32 base) (host : HostSemantics H)
+    (parent : MemoryTarget) (target : CallTarget) (code : H) : Prop where
+  resolves : parent.fn.declaration.module.funcs[target.index.toNat]? = some target.address
+  allocated : (Site.directTarget target code).Allocated base
+  contract : (Site.directTarget target code).Contract memory host
+
 /-- Resolve a nested site's type in the active callee while using the same
 fixed table and memory function registry as the enclosing dispatcher. -/
 def IndirectSite.memorySite (site : IndirectSite) (index : TypeIdx)
@@ -179,7 +191,8 @@ structure IndirectSite.MemoryLinked {H : Type} {base : Store H} (site : Indirect
     (memory : Memory32 base) (host : HostSemantics H) : Prop where
   checked : ∀ callee : MemoryTarget, site.memoryLookup callee.address = some callee.fn → callee.Checked memory
   direct : ∀ (parent : MemoryTarget), site.memoryLookup parent.address = some parent.fn →
-    ∀ target ∈ parent.fn.targets, ∃ child, site.MemoryDirect (base := base) parent target child
+    ∀ target ∈ parent.fn.targets, (∃ child, site.MemoryDirect (base := base) parent target child) ∨
+      ∃ code, MemoryDirectHost memory host parent target code
   indirect : ∀ (parent : MemoryTarget), site.memoryLookup parent.address = some parent.fn →
     ∀ index signature, .callIndirect index signature ∈ parent.fn.code →
       site.MemoryIndirect memory host parent index signature

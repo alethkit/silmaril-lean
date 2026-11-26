@@ -67,6 +67,16 @@ theorem call_typed {callee : MemoryTarget} {stack : List Value} {target : CallTa
   obtain ⟨saved, operands, rfl, arguments⟩ := Graph.SuffixTyped.split suffix
   exact ⟨saved, operands, rfl, arguments, used, resume_typed arguments resume⟩
 
+private theorem direct_resume {callee : MemoryTarget} {saved operands : List Value} {target : CallTarget}
+    {rest : List Graph.Memory32.Op} (typed : operands.map Value.type = target.declaration.params)
+    (checked : callee.fn.WellTyped (saved ++ operands) (.ranked (.call target) :: rest)) :
+    ∀ vs : List Value, vs.map Value.type = target.declaration.results → callee.fn.WellTyped (saved ++ vs) rest := by
+  obtain ⟨kept, used, split, usedTyped, _, resume⟩ := call_typed checked
+  have count : used.length = operands.length := by
+    simpa using congrArg List.length (usedTyped.trans typed.symm)
+  obtain ⟨rfl, _⟩ := List.append_inj' split count.symm
+  exact resume
+
 theorem indirect_typed {callee : MemoryTarget} {stack : List Value} {index : TypeIdx}
     {signature : Wasm.V1.FuncType} {rest : List Graph.Memory32.Op}
     (typed : callee.fn.WellTyped stack (.callIndirect index signature :: rest)) :
@@ -135,14 +145,14 @@ theorem ready_step {H : Type} {base : Store H} {mem : Memory32 base} {callee : M
     obtain ⟨rfl, _⟩ := List.append_inj' split rfl
     exact ⟨ready.1, tail_supported ready.2.1, typed _, fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)⟩
   | @call callee child bytes args saved operands target rest link typed =>
-    obtain ⟨kept, used, split, usedTyped, _, resume⟩ := call_typed ready.2.2.1
-    have count : used.length = operands.length := by
-      simpa using congrArg List.length (usedTyped.trans typed.symm)
-    obtain ⟨rfl, _⟩ := List.append_inj' split count.symm
+    have resume := direct_resume typed ready.2.2.1
     refine ⟨ready.1, link.registered, link.allocated, link.smaller, by simp, ?_,
       tail_supported ready.2.1, (fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)), ?_⟩
     · simpa only [Ready, link.declaration] using typed
     · simpa only [link.declaration] using resume
+  | callHost link typed =>
+    exact ⟨ready.1, link.allocated, typed, link.contract, tail_supported ready.2.1,
+      (fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)), direct_resume typed ready.2.2.1⟩
   | @callIndirect callee child bytes args saved operands index signature selector rest lookup smaller typed =>
     have resume := indirect_resume typed ready.2.2.1
     cases lookup with
