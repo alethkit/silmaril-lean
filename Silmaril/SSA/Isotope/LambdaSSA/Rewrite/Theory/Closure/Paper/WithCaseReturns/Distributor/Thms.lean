@@ -12,7 +12,7 @@ namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseReturns
 open Silmaril Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
 open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
-open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Singleton (DiscardPreservingReturn ProjectedPureReturn whiskerLeftFunctor)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Singleton (DiscardPreservingReturn ProjectedPureReturn whiskerLeftFunctor discardArrow)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory (returnRegion)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.Retained (distributorRegion)
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper
@@ -75,6 +75,19 @@ theorem valueWhisker_map (X : τ) {A B : τ}
 theorem valueWhiskerUnitPreservesBinary :
     PreservesColimitsOfShape (Discrete WalkingPair) (MonoidalCategory.tensorLeft (⟨Obj U⟩ : Values)) :=
   CaseReturnDistributor.valueWhiskerUnitPreservesBinary pe
+
+/-- The exact guarded arrow lifts to a central, copying arrow of standard Paper. -/
+theorem inverse_copying_lift (X A B : τ) :
+    ∃ f : Paper.TypeCategory.ofType (Φ := Φ) (X ×ₜ (A ⊕ₜ B)) ⟶
+        Paper.TypeCategory.ofType (Φ := Φ) ((X ×ₜ A) ⊕ₜ (X ×ₜ B)),
+      Paper.TypeCategory.CentralCopies f ∧ (projection pe).map f = (guardedDistributorIso pe X A B).hom :=
+  CaseReturnDistributor.inverse_copying_lift pe X A B
+
+/-- The exact guarded arrow preserves discard. -/
+theorem inverse_discard (X A B : τ) :
+    (guardedDistributorIso pe X A B).hom ≫ discardArrow Seed ((X ×ₜ A) ⊕ₜ (X ×ₜ B)) =
+      discardArrow Seed (X ×ₜ (A ⊕ₜ B)) :=
+  CaseReturnDistributor.inverse_discard pe X A B
 
 /-- The guarded map has a central, copying lift and preserves discard.
 Its value membership is equivalent to admitting a projected pure-return representative. -/
