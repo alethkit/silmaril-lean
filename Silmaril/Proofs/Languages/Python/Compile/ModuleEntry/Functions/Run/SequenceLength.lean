@@ -27,11 +27,11 @@ theorem run_assertSequenceLength {scope : Source.Scope} (space : Namespace) (con
       let result := readSequenceLength space test.length
       let receipt : CallEvent := ⟨"len", ⟨result.map .int, none⟩⟩
       match result.bind (checkSequenceLengthResult space test) with
-      | .error error => ⟨space, .error (.ofCall error), [receipt], context.heap⟩
+      | .error error => ⟨space, .error (.ofCall error), [receipt], context.heap, Core.Module.ListHeap.empty⟩
       | .ok () =>
         let tail := runInstructionsIn space context rest
         { tail with calls := receipt :: tail.calls } := by
-  simp only [runInstructionsIn, effect, assertSequenceLength]
+  simp only [runInstructionsIn, effectWithLists, effect, assertSequenceLength]
   cases linked : (readSequenceLength space test.length).bind (checkSequenceLengthResult space test) <;> rfl
 
 end Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.SequenceLength
