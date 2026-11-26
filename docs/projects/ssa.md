@@ -804,6 +804,24 @@ The continuation cannot jump back to its own label.
   [Packing](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Defs.lean) ·
   [Functors and contextual equations](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Thms.lean) ·
   [State-dependent handler](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Regression.lean)
+- At the free request and reply interpretation, handled traces reflect
+  native equality of captured operands over a structural older context.
+  Each primitive is one request with its typed argument, answered at its
+  declared result type. The outcomes of the ordered trace semantics are
+  the complete finite histories of the free tree. Two operands that are
+  not natively equal therefore have a complete history, at some packed
+  input, that one shows and the other does not. A reply policy that can
+  replay every complete history from some state gives a faithful semantic
+  functor, on native classes and on written graphs. The permissive policy
+  and the policy scripted by an expected history are of this kind. The
+  premise cannot be dropped: the state-flipping policy never repeats a reply,
+  cannot replay the history in which a reply repeats, and identifies two
+  different native classes that the scripted and permissive policies
+  separate. The result is for this free interpretation, for the finite
+  structural signature, and for acyclic captured terms.
+  [Free interpretation and policies](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Reflection/Defs.lean) ·
+  [Reflection and faithfulness](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Reflection/Thms.lean) ·
+  [Separating history](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Reflection/Regression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
