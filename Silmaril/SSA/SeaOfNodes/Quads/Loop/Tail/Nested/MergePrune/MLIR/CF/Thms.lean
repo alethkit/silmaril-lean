@@ -14,7 +14,7 @@ open SeaOfNodes.Diamond (ValueSort)
 open SeaOfNodes.Loop.MLIR.CF (Op model evalOp)
 open SeaOfNodes.MLIR.Lowering (encodeValues valueBits)
 open Silmaril.MLIR.Arith (Width Env)
-open Diamond.MLIR.CF (destinationFrameWith returnFrame)
+open Diamond.MLIR.CF (JumpAgrees destinationFrameWith returnFrame)
 open Diamond.Prune (HeaderProjection)
 open Blocks (Bank)
 open Blocks.Prune (Mask)
@@ -23,6 +23,11 @@ variable {regs : List (ValueSort Width)} {out : ValueSort Width} {size : Nat}
 variable {src : Source Op regs out size} {entry : Fin size} {carry merge : Mask regs}
 variable (p : Program src entry) (projected : HeaderProjection (src p.header).body carry)
 variable (checked : Checked p merge)
+
+/-- Read each edge in the scope of the predecessor's own versions. -/
+theorem jump_agrees (carry merge : Mask regs) :
+    JumpAgrees (jump p.header p.join carry merge (out := out)) (siteFrame p.header p.join carry merge) :=
+  Proofs.jump_agrees p
 
 /-- The actual emitted block takes its original successor and sends that
 successor exactly the projected post-block versions. -/
