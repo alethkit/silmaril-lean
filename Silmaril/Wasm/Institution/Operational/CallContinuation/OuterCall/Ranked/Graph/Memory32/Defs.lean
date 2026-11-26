@@ -40,6 +40,8 @@ def Op.supportedIn : Op → List (List NumType) → Bool
   | .ranked (.call _), _ | .ranked .return_, _ | .ranked .unreachable, _ => true
   | .ranked (.br depth result), labels | .ranked (.brIf depth result), labels =>
     decide (labels[depth.toNat]? = some result)
+  | .ranked (.brTable depths fallback result), labels =>
+    (fallback :: depths).all fun depth => decide (labels[depth.toNat]? = some result)
   | .ranked _, _ => false
   | .block result body, labels => supportedCode body (result.toList :: labels)
   | .loop _ body, labels => supportedCode body ([] :: labels)
