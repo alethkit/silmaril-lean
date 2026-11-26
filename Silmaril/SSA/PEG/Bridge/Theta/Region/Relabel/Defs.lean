@@ -66,10 +66,11 @@ theorem boundary (f : InstructionMap P Q) {d : Descriptor g} (b : Boundary g d a
 positions and its ordered projection. No opcode comparison is involved. -/
 def schedule (f : InstructionMap P Q) {roots : Tuple (Ref g.sort) outs} :
     {vars : List (Ty Data)} → {scope : Tuple (Ref g.sort) vars} →
-      Schedule g roots scope → Schedule (table f g) roots scope
+      Schedule g false roots scope → Schedule (table f g) false roots scope
   | _, _, .done reads => .done reads
   | _, _, .bind i op refs fresh row reads tail =>
     .bind i (f op) refs fresh (congrArg (node f) row) reads (schedule f tail)
+  | _, _, .branch enabled .. => nomatch enabled
 
 def certificate (f : InstructionMap P Q) (cert : Certificate g allowInvariant) :
     Certificate (table f g) allowInvariant :=

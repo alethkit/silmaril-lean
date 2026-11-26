@@ -408,7 +408,7 @@ private theorem readsTotal {n : Nat} {sort : Fin n → Ty Unit} {vars args : Lis
 
 private theorem scheduleTotal {n : Nat} {g : Graph Op slots [.count] n 1}
     {outs vars : List (Ty Unit)} {roots : Tuple (Ref g.sort) outs} {scope : Tuple (Ref g.sort) vars}
-    (schedule : Region.Schedule g roots scope) (input : Tuple model.Value vars) :
+    (schedule : Region.Schedule g false roots scope) (input : Tuple model.Value vars) :
     ∃ out, schedule.lower.runLoopFree model input = some out := by
   induction schedule with
   | done _ => exact ⟨_, rfl⟩
@@ -418,6 +418,7 @@ private theorem scheduleTotal {n : Nat} {g : Graph Op slots [.count] n 1}
     obtain ⟨out, bodyEval⟩ := ih (.cons value input)
     exact ⟨out, by simp [Region.Schedule.lower, Stmt.runLoopFree, Expr.eval, Expr.evalLift,
       argsEval, opEval, bodyEval]⟩
+  | branch enabled => nomatch enabled
 
 example (a : Source.Accepted (program true) Op.not) : a.output.Returns model (store 8 2) ⟨2⟩ :=
   a.returns model (store 8 2) ⟨scheduleTotal a.cyclic.reversion.guard,
