@@ -32,6 +32,23 @@ theorem outerArm_run (fuel : Nat) (bank : Bank (regs := regs) m) :
       some (branchBank p m bank) :=
   Proofs.outerArm_run p m fuel bank
 
+/-- The continuation observes only the actual selected arm result. -/
+theorem linkGamma_eval {args outputs results : List (Ty Data)} {past suffix : List (List (Ty Data))}
+    (choice : Join.Choice regs 2) (sigs : Fin 2 → List (List (Ty Data)))
+    (arms : (i : Fin 2) → Term (Opcode Op) (dataPorts regs) [] (sigs i) outputs)
+    (current : Wires args past (dataPorts regs))
+    (finish : Wires args (extend past [routePorts regs, outputs]) outputs →
+      Term (Opcode Op) args (extend past [routePorts regs, outputs]) suffix results)
+    (fuel : Nat) (input : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
+    (selected : Bank (regs := regs) m → Tuple (Val m.value) outputs)
+    (arm_agrees : ∀ bank, (arms (choice.eval bank)).run (model m) fuel bank = some (selected bank))
+    (observe : Tuple (Val m.value) outputs → Option (Tuple (Val m.value) results))
+    (agrees : ∀ wires locals', (finish wires).eval (model m) fuel input locals' =
+      observe (wires.read input locals')) :
+    (linkGamma choice sigs arms current finish).eval (model m) fuel input locals =
+      observe (selected (current.read input locals)) :=
+  Proofs.linkGamma_eval m choice sigs arms current finish fuel input locals selected arm_agrees observe agrees
+
 /-- The outer selector and γ preserve the supplied arm result interface. -/
 theorem afterOuterWith_eval {args outputs results : List (Ty Data)} {past suffix : List (List (Ty Data))}
     (arms : (i : Fin 2) → Term (Opcode Op) (dataPorts regs) [] (outerSigs p i) outputs)

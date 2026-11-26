@@ -29,6 +29,11 @@ theorem Program.prefix_bank (old : Bank (regs := regs) m) (occurrence : Occurren
     p.prefixBank m old occurrence = (p.prefixQuads occurrence).eval m old :=
   Proofs.prefix_bank p m old occurrence
 
+/-- The shared transfer reads the ordered suffix's final bank. -/
+theorem Program.suffix_bank (incoming : Bank (regs := regs) m) :
+    p.suffixBank m incoming = p.suffix.quads.eval m incoming :=
+  Proofs.suffix_bank p m incoming
+
 /-- The selected predecessor delivers its complete compiled bank. For
 an inner edge the target is the reconvergence. The outer false edge
 instead goes to the original common merge with its own bank. -/
