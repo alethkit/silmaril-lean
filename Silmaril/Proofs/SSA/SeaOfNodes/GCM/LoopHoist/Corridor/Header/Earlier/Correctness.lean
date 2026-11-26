@@ -148,14 +148,24 @@ theorem pickAndMove?_placement (picked : pickAndMove? g index = some (cut, out))
   obtain ⟨candidate, legal⟩ := chooseCut_sound selected
   exact ⟨atHeader, earlier, translates, candidate, saved, binding, found, selected, legal⟩
 
+theorem moveAt?_order (moved : moveAt? cfg index cut = some out) :
+    ∃ (prefixOps crossed : List Operation) (chosen : Operation) (suffixOps : List Operation),
+      prefixOps.length = afterRemoval index cut.cut ∧ prefixOps.length + crossed.length = index ∧
+      operations (cfg.block .header) = prefixOps ++ crossed ++ (chosen :: suffixOps) ∧
+      operations (out.block .header) = prefixOps ++ (chosen :: (crossed ++ suffixOps)) := by
+  obtain ⟨_, earlier, translated, _, emitted, rfl⟩ := moved_spec moved
+  obtain ⟨pre, crossed, chosen, suffix, length, distance, beforeOrder, afterOrder⟩ := moveEarlier?_order emitted
+  exact ⟨pre, crossed, chosen, suffix, translated.symm ▸ length, by omega, beforeOrder, afterOrder⟩
+
 theorem pickAndMove?_order (picked : pickAndMove? g index = some (cut, out)) :
     ∃ (prefixOps crossed : List Operation) (chosen : Operation) (suffixOps : List Operation),
       prefixOps.length = cut.cut ∧ crossed.length = index - cut.cut ∧
       operations ((lower g).block .header) = prefixOps ++ crossed ++ (chosen :: suffixOps) ∧
       operations (out.block .header) = prefixOps ++ (chosen :: (crossed ++ suffixOps)) := by
-  obtain ⟨_, earlier, _, _, moved, rfl⟩ := moved_spec (pickAndEmit?_spec picked).2
-  obtain ⟨pre, crossed, chosen, suffix, length, distance, beforeOrder, afterOrder⟩ := moveEarlier?_order moved
-  exact ⟨pre, crossed, chosen, suffix, length, by omega, beforeOrder, afterOrder⟩
+  have moved := (pickAndEmit?_spec picked).2
+  obtain ⟨_, _, translated, _⟩ := moved_spec moved
+  obtain ⟨pre, crossed, chosen, suffix, length, distance, beforeOrder, afterOrder⟩ := moveAt?_order moved
+  exact ⟨pre, crossed, chosen, suffix, translated ▸ length, by omega, beforeOrder, afterOrder⟩
 
 theorem pickAndMove?_frames (picked : pickAndMove? g index = some (cut, out)) (input : Env Input) :
     out.entry = (lower g).entry ∧
