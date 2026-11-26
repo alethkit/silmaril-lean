@@ -40,6 +40,7 @@ theorem lower_complete {layout : Layout} {source : Link.Code layout}
     have complete := operand_complete value
     cases value <;> simp [lowerCode, complete]
   | returnClosure => rfl
+  | returnClosureCall arguments => simp [lowerCode, arguments_complete arguments]
   | retLocalCall arguments => simp [lowerCode, arguments_complete arguments]
   | retGlobalCall arguments => simp [lowerCode, arguments_complete arguments]
 

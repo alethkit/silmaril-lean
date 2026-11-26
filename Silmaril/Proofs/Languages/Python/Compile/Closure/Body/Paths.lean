@@ -17,7 +17,7 @@ theorem ordinary {tree : Source.ScopeTree} {start : Nat} {source : List Source.S
   | assertBoolean _ tail | assertEqInt _ _ tail | assertFreeVars _ _ _ tail
   | assertCellVars _ _ _ tail | assertCodeNames _ _ _ tail | discardCall _ _ _ tail => exact tail
   | closure _ _ _ _ _ _ _ _ _ _ tail => exact tail
-  | returnLambda clear _ _ _ _ _ _ _ _ _ => exact clear
+  | returnLambda _ clear _ _ _ _ _ _ _ _ _ => exact clear
 
 theorem ordinaryChild {tree : Source.ScopeTree} {start : Nat} {source : List Source.Stmt}
     {code : Code (Compile.Closure.frameLayout tree.scope)} (translated : Translation tree start source code)
@@ -41,7 +41,7 @@ theorem ordinaryChild {tree : Source.ScopeTree} {start : Nat} {source : List Sou
       · simpa [Source.ScopeTree.atPath, found] using located
       · simpa only [path, List.append_assoc, List.singleton_append] using emitted
     · exact nextOrdinary later
-  | @returnLambda tree start declaration body child params code _ _ found path _ _ _ _
+  | @returnLambda tree start source declaration body child params code arguments _ _ _ found path _ _ _ _
       childTranslation childOrdinary =>
     simp only [Code.childPaths, List.mem_cons] at member
     rcases member with direct | inner
@@ -93,7 +93,7 @@ theorem childPaths {tree : Source.ScopeTree} {start : Nat} {source : List Source
       exact ⟨start, suffix, Nat.le_refl _, located⟩
     · obtain ⟨index, suffix, later, located⟩ := laterPath tailMember
       exact ⟨index, suffix, Nat.le_of_lt later, located⟩
-  | @returnLambda tree start declaration body child params code _ _ _ path _ _ _ _ _ inner =>
+  | @returnLambda tree start source declaration body child params code arguments _ _ _ _ path _ _ _ _ _ inner =>
     let parent := tree.scope.context.path
     have nestedPath {nested : Source.BlockPath} (member : nested ∈ code.childPaths) :
         ∃ index suffix, nested = parent ++ start :: index :: suffix := by
