@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Iteration.Chosen.Laws.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.StructuralValues.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedCase.Distributor.Thms
@@ -4686,6 +4687,62 @@ example :
     translated_loops.1, translated_loops.2, joined_region_expansion⟩
 
 end LambdaSSARequestBlocks
+
+namespace LambdaSSARequestBlockTransport
+
+open Silmaril Silmaril.Isotope
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Heterogeneous
+open Silmaril.Isotope.LambdaSSA.Region.Paper.WithPairReturns.RequestBlockTransport
+
+private abbrev bit : Code := .sum .unit .unit
+private abbrev replies : Code := .sum .unit bit
+private def family : Family 2 where
+  argument := Fin.cases .unit (fun _ => bit)
+  reply := Fin.cases replies (fun _ => .unit)
+
+private abbrev read : Opcode family := ⟨0⟩
+private abbrev notify : Opcode family := ⟨1⟩
+private abbrev Fx := Bool × Bool
+private abbrev strict : Fx := (true, false)
+local instance : HasEff (Opcode family) Fx := ⟨fun _ => strict⟩
+local instance : EffectIteration Fx := EffectIteration.complete Fx
+
+private def continuation : read.replyCode.Value → Row family .unit bit
+  | .inl _ => .call read PUnit.unit (fun
+      | .inl _ => .inr PUnit.unit
+      | .inr b => .inl b)
+  | .inr (.inl _) => .call notify (.inr PUnit.unit) (fun _ => .inl (.inl PUnit.unit))
+  | .inr (.inr _) => .ret (.inr PUnit.unit)
+
+private def expandedTable := (plans read PUnit.unit continuation).expand
+
+-- The low reply schedules another read, whose low reply returns to the original state.
+example : ∃ next : read.replyCode.Value → bit.Value ⊕ (Code.sum .unit replies).Value,
+    expandedTable (.inr (.inl PUnit.unit)) = .call read PUnit.unit next ∧
+    next (.inl PUnit.unit) = .inr (.inl PUnit.unit) :=
+  ⟨_, rfl, rfl⟩
+
+-- The two nested replies select a typed notify argument and an immediate return.
+example : expandedTable (.inr (.inr (.inl PUnit.unit))) =
+    .call notify (.inr PUnit.unit) (fun _ => .inl (.inl PUnit.unit)) := rfl
+
+example : expandedTable (.inr (.inr (.inr PUnit.unit))) = .ret (.inr PUnit.unit) := rfl
+
+-- The first reply selects different opcodes, and a later reply can repeat.
+-- Both native lowerings use the bound strictly below top.
+example :
+    strict < (⊤ : Fx) ∧
+    HasTypeEffect (ε := Fx) (Ctx.nil : Ctx Empty (Ty Unit)) .nil (fusedNative read PUnit.unit continuation) bit.ty strict ∧
+    HasTypeEffect (ε := Fx) (Ctx.nil : Ctx Empty (Ty Unit)) .nil (expandedNative read PUnit.unit continuation) bit.ty strict ∧
+    ∃ r s, eraseLoop .unit (fusedNative read PUnit.unit continuation) = some r ∧
+      eraseLoop (.sum .unit read.replyCode) (expandedNative read PUnit.unit continuation) = some s ∧
+      Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Eqv (targetSeed (F := family) (⊥ : Fx)) [Ty.unit] r s [bit.ty] := by
+  obtain ⟨hf, he, _, r, s, left, right, _, _, eq⟩ :=
+    endpoint_transport (e := strict) read PUnit.unit continuation (fun _ => le_rfl) (by rfl)
+  refine ⟨lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h)), hf, he, r, s, left, right, eq⟩
+
+end LambdaSSARequestBlockTransport
 
 namespace LetIterHeterogeneousFeedbackFixture
 
