@@ -20,6 +20,25 @@ open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
 
 variable {Φ : Type v} [HasTy Φ (Ty Empty)]
 
+/-- Successful inner admission certifies the source restriction and all
+checked routes under the supplied outward layout. -/
+theorem checkInner?_sound {k n : Nat} {keep : Fin (k + 1) ↪ Fin (n + 1)}
+    {P : Fin (k + 1) → Ty Empty} {body : Region Φ} {p : InnerPlan Φ (k + 1) (n + 1)}
+    {A : Ty Empty} {out : RouteLayout Empty} (ok : checkInner? keep P A out body = some p) :
+    p.Valid keep P A out body :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgFiniteSyntax.inner_checked ok
+
+/-- The checked inner paths force all the retained local input types in
+an exact typing of the restricted source. -/
+theorem InnerPlan.Valid.retained_types {k n : Nat} {keep : Fin (k + 1) ↪ Fin (n + 1)}
+    {P S : Fin (k + 1) → Ty Empty} {body : Region Φ} {p : InnerPlan Φ (k + 1) (n + 1)}
+    {A : Ty Empty} {out : RouteLayout Empty} {K : LCtx (Ty Empty)}
+    (checked : p.Valid keep P A out body)
+    (entry : p.table.entry.HasType [A] (List.ofFn S ++ K))
+    (rows : ∀ i, (p.table.rows (keep i)).HasType [S i, A] (List.ofFn S ++ K)) : S = P :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgFiniteSyntax.aligned_inner true
+    checked.entryRoute checked.rowRoutes entry rows checked.paths
+
 /-- Successful traversal records exact label reindexing, checked branch
 operands and written paths to each retained input. -/
 theorem check?_sound {k n : Nat} {keep : Fin (k + 1) ↪ Fin (n + 1)} {P : Fin (k + 1) → Ty Empty}
