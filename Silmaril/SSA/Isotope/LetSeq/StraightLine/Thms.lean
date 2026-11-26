@@ -2,6 +2,8 @@ module
 
 public import Silmaril.SSA.Isotope.LetSeq.StraightLine.Defs
 import Silmaril.Proofs.SSA.Isotope.LetSeq.StraightLine.Reflection
+import Silmaril.Proofs.SSA.Isotope.LetSeq.StraightLine.PureAssembly
+import Silmaril.Proofs.SSA.Isotope.LetSeq.StraightLine.ProductReflection
 import Silmaril.Proofs.SSA.Isotope.LetSeq.StraightLine.Replay
 import Silmaril.Proofs.SSA.Isotope.LetSeq.StraightLine.Separation
 
@@ -60,8 +62,8 @@ theorem embed_iff_native {n : Nat} {β : BoundCtx Types n} {t u : Term n}
       Equiv false Γ₀ β t u Atom :=
   embed_iff_native_proof p q d e ρ fresh sep
 
-theorem entry_run {body : Term 3}
-    (d : Derivation Request Γ₀ ((input.snoc Atom).snoc Atom) body Atom) (x y : Nat) :
+theorem entry_run {body : Term 3} {A : Types}
+    (d : Derivation Request Γ₀ ((input.snoc Atom).snoc Atom) body A) (x y : Nat) :
     run (entry d) (packetEnv (x, y)) =
       run d (((packetEnv (x, y)).snoc (A := Atom) x).snoc (A := Atom) y) :=
   entry_run_proof d x y
@@ -95,5 +97,78 @@ theorem entry_embed_iff_native {t u : Term 3}
       (Morphism.SeqCase.embed (.let₂ (.bv 0) t)) (Morphism.SeqCase.embed (.let₂ (.bv 0) u)) Atom ↔
       Equiv false Γ₀ input (.let₂ (.bv 0) t) (.let₂ (.bv 0) u) Atom :=
   entry_embed_iff_native_proof p q d e
+
+/-- Pure assembly contributes its value and the empty trace. -/
+theorem Assembly.run_eq_pure {n : Nat} {β : BoundCtx Types n} {A : Types}
+    (v : Assembly β A) (ρ : BoundEnv Value β) : run v.derivation ρ = pure (v.value ρ) :=
+  assembly_run_proof v ρ
+
+/-- The assembled argument is evaluated before the request, whose reply is
+bound once in left-to-right order. -/
+theorem run_product_step {n : Nat} {β : BoundCtx Types n} {A : Types} {body : Term (n + 2)}
+    (f : Request) (arg : Assembly β Packet)
+    (rest : ProductCanonical ((β.snoc Atom).snoc Atom) body A) (ρ : BoundEnv Value β) :
+    run (ProductCanonical.derivation (.step f arg rest)) ρ =
+      model.eval f (arg.value ρ) >>= fun ab =>
+        run rest.derivation ((ρ.snoc (A := Atom) ab.1).snoc (A := Atom) ab.2) :=
+  run_step_proof f arg rest ρ
+
+/-- In an atomic context, any native pure derivation is an admitted
+assembly, using the identity slot substitution. -/
+def PureAssembly.ofAtomic {n : Nat} {β : BoundCtx Types n} {t : Term n} {A : Types}
+    (d : Derivation Request Γ₀ β t A) (h : LocallyNameless.Pure false t)
+    (slots : ∀ i, β.get i = Atom) : PureAssembly β t A :=
+  pureAssemblyOfAtomic d h slots
+
+/-- Replay native pure assembly, including lets and product elimination, to a
+variable, unit and pair tree. -/
+theorem PureAssembly.normalizes {n : Nat} {β : BoundCtx Types n} {t : Term n} {A : Types}
+    (p : PureAssembly β t A) : ∃ v : Assembly β A, Equiv false Γ₀ β t v.term A :=
+  assembly_normalize_proof p
+
+/-- Replay pure argument and result assembly while preserving the order of the
+effectful request binders. -/
+theorem ProductProgram.normalizes {n : Nat} {β : BoundCtx Types n} {t : Term n} {A : Types}
+    (p : ProductProgram β t A) :
+    ∃ u : Term n, ∃ _ : ProductCanonical β u A, Equiv false Γ₀ β t u A :=
+  product_normalize_proof p
+
+/-- A separating environment suffices for reflection at any admitted
+structural result type. -/
+theorem product_run_eq_iff_native {n : Nat} {β : BoundCtx Types n} {A : Types} {t u : Term n}
+    (p : ProductProgram β t A) (q : ProductProgram β u A)
+    (d : Derivation Request Γ₀ β t A) (e : Derivation Request Γ₀ β u A)
+    (ρ : BoundEnv Value β) (fresh : Nat) (sep : Separating ρ fresh) :
+    run d ρ = run e ρ ↔ Equiv false Γ₀ β t u A :=
+  product_run_iff_native_proof p q d e ρ fresh sep
+
+theorem product_embed_iff_native {n : Nat} {β : BoundCtx Types n} {A : Types} {t u : Term n}
+    (p : ProductProgram β t A) (q : ProductProgram β u A)
+    (d : Derivation Request Γ₀ β t A) (e : Derivation Request Γ₀ β u A)
+    (ρ : BoundEnv Value β) (fresh : Nat) (sep : Separating ρ fresh) :
+    LetCase.LocallyNameless.Equiv false Γ₀ β (Morphism.SeqCase.embed t) (Morphism.SeqCase.embed u) A ↔
+      Equiv false Γ₀ β t u A :=
+  product_embed_iff_native_proof p q d e ρ fresh sep
+
+/-- Reflection for actual open product-input terms at the separating point
+`(0, 1)`. -/
+theorem entry_product_run_eq_iff_native {t u : Term 3} {A : Types}
+    (p : ProductProgram ((input.snoc Atom).snoc Atom) t A)
+    (q : ProductProgram ((input.snoc Atom).snoc Atom) u A)
+    (d : Derivation Request Γ₀ ((input.snoc Atom).snoc Atom) t A)
+    (e : Derivation Request Γ₀ ((input.snoc Atom).snoc Atom) u A) :
+    run (entry d) (packetEnv (0, 1)) = run (entry e) (packetEnv (0, 1)) ↔
+      Equiv false Γ₀ input (.let₂ (.bv 0) t) (.let₂ (.bv 0) u) A :=
+  entry_product_run_iff_native_proof p q d e
+
+theorem entry_product_embed_iff_native {t u : Term 3} {A : Types}
+    (p : ProductProgram ((input.snoc Atom).snoc Atom) t A)
+    (q : ProductProgram ((input.snoc Atom).snoc Atom) u A)
+    (d : Derivation Request Γ₀ ((input.snoc Atom).snoc Atom) t A)
+    (e : Derivation Request Γ₀ ((input.snoc Atom).snoc Atom) u A) :
+    LetCase.LocallyNameless.Equiv false Γ₀ input
+      (Morphism.SeqCase.embed (.let₂ (.bv 0) t)) (Morphism.SeqCase.embed (.let₂ (.bv 0) u)) A ↔
+      Equiv false Γ₀ input (.let₂ (.bv 0) t) (.let₂ (.bv 0) u) A :=
+  entry_product_embed_iff_native_proof p q d e
 
 end Silmaril.Isotope.LetSeq.StraightLine
