@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.PacketLocal.LetCase.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.PacketLocal.LetCase.Institution.Thms
 
 /-! # A typed sum packet selects distinct exits with identical payload types -/
 
@@ -21,15 +21,16 @@ private abbrev Reg := ULift.{1} Nat
 private abbrev Label := ULift.{1} Nat
 private abbrev Event (_ : Type) := Empty
 private abbrev Atom := ULift.{1} Nat
+private abbrev NoInstr := ULift.{1} Empty
 
 private instance : AtomValues SortName := ⟨fun _ => Atom⟩
-private instance : HasTy Empty (Ty SortName) := ⟨Empty.elim, Empty.elim⟩
-private instance : HasEff Empty Bool := ⟨Empty.elim⟩
+private instance : HasTy NoInstr (Ty SortName) := ⟨fun f => f.down.elim, fun f => f.down.elim⟩
+private instance : HasEff NoInstr Bool := ⟨fun f => f.down.elim⟩
 
-private def signature : FlatInstitution.Signature.{0, 0} SortName where
-  Instr := Empty
+private def signature : FlatInstitution.Signature.{0, 1} SortName where
+  Instr := NoInstr
 
-private instance : DecidableEq signature.Instr := fun f => Empty.elim f
+private instance : DecidableEq signature.Instr := fun f => f.down.elim
 
 private abbrev Runtime := Sigma (AtomValues.carrier (κ := SortName))
 
@@ -37,11 +38,11 @@ attribute [local instance] LambdaSSA.Semantics.Interaction.Typed.typeModel
 
 private def model : Model (κ := SortName) Event signature.Instr where
   instructions :=
-    { denote := fun f => Empty.elim f
-      denotePure := fun f => Empty.elim f
-      denote_pure := fun f => Empty.elim f }
-  raw := Empty.elim
-  compatible := fun f => Empty.elim f
+    { denote := fun f => f.down.elim
+      denotePure := fun f => f.down.elim
+      denote_pure := fun f => f.down.elim }
+  raw := fun f => f.down.elim
+  compatible := fun f => f.down.elim
 
 private def num : Ty SortName := .base ⟨()⟩
 private def choice : Ty SortName := .coprod num num
@@ -249,6 +250,85 @@ example (right : Bool) (n : Nat) (ambient : Env Runtime) :
   ((entryAdmission.packed_tree model (input right n) ambient).trans
     (entry_named_result right n)).trans
       (((recompiled.packed_tree model (input right n) ambient).trans (named_result right n)).symm)
+
+section Equation
+
+open Silmaril.Isotope.Institution.LetCase.WeakITree (algebra equationRoom)
+open Silmaril.Elgot.ITree (ret_inj)
+
+local notation "caseRoom" => (equationRoom signature)
+
+private def entryPacketLocal : PacketLocal.Admission entryLowered :=
+  PacketLocal.admit entryLowered Fin.elim0 (by decide)
+
+private theorem entryPacketLocalRank : entryPacketLocal.acyclicCheck = true := by decide
+
+-- The actual internal-block and entry-only expansions satisfy the same
+-- equation, with a shared input and both ordered exits.
+private theorem equation_accepts : (caseRoom).Sat (algebra (P := signature) model)
+    (packetLocalCase.equation entryPacketLocal packetLocalCaseRank entryPacketLocalRank) := by
+  apply (packetLocalCase.satisfies_iff_named model entryPacketLocal packetLocalCaseRank entryPacketLocalRank).2
+  intro x
+  rcases x with ⟨⟨⟩, left | right⟩
+  · exact (named_result false left.down).trans (entry_named_result false left.down).symm
+  · exact (named_result true right.down).trans (entry_named_result true right.down).symm
+
+private def swapped : FiniteCFG signature.Instr 0 ports.exits.length ports.slots where
+  entry := .case (.bv 0)
+    (.br 1 (.pair (.bv 0) (.pair (.bv 0) .unit)))
+    (.br 0 (.pair (.bv 0) (.pair (.bv 0) .unit)))
+  block := Fin.elim0
+
+private def swappedLowered : Lowered ports fields swapped :=
+  (lowerFresh Fin.elim0 ports.context ports.exits ports.external fields swapped).get (by decide)
+
+private def swappedPacketLocal : PacketLocal.Admission swappedLowered :=
+  PacketLocal.admit swappedLowered Fin.elim0 (by decide)
+
+private theorem swappedRank : swappedPacketLocal.acyclicCheck = true := by decide
+
+-- Swapping the exit positions keeps both payloads and projected fields but
+-- refutes the equation on the original caller's left input.
+private theorem swapped_named_result :
+    LiveOut.observe (P := signature) model ports fields swappedLowered.source (input false 5) =
+      pure (output true 5) := by
+  let m := treeModel model.raw
+  let σ := store ports.names ports.context (input false 5)
+  let pending : CFG.Cyclic.Transfer Reg Label (Value Runtime) := (rightExit, atom 5, upd σ ⟨2⟩ (atom 5))
+  let step := CFG.Cyclic.step m ([] : List (Label × CFG.Block Reg Label signature.Instr))
+  have shape : swappedLowered.source =
+      ⟨.term (.case (.val (.var ⟨0⟩)) ⟨2⟩ (.br rightExit (.var ⟨2⟩))
+        ⟨2⟩ (.br leftExit (.var ⟨2⟩))), []⟩ := rfl
+  have read : σ ⟨0⟩ = .inl (atom 5) := rfl
+  have atExit : CFG.Cyclic.run m swappedLowered.source σ = iter step pending := by
+    simp [CFG.Cyclic.run, shape, CFG.Body.exec, CFG.Term.exec, Op.eval, Val.eval,
+      step, pending, m, treeModel, read, upd]
+  have finish : iter step pending = pure pending := by
+    rw [congrFun (iterate_fixpoint step) pending]
+    change (pure (Sum.inl pending) >>= _) = _
+    rw [pure_bind]
+    rfl
+  change (CFG.Cyclic.run m swappedLowered.source σ >>= _) = _
+  rw [atExit, finish, pure_bind]
+  rfl
+
+private theorem equation_refutes : ¬ (caseRoom).Sat (algebra (P := signature) model)
+    (packetLocalCase.equation swappedPacketLocal packetLocalCaseRank swappedRank) := by
+  intro sat
+  have same := (packetLocalCase.satisfies_iff_named model swappedPacketLocal
+    packetLocalCaseRank swappedRank).1 sat (input false 5)
+  rw [named_result false 5, swapped_named_result] at same
+  cases congrArg Prod.snd (ret_inj.mp same)
+
+example : packetLocalCase.program.denote model = entryPacketLocal.program.denote model :=
+  (packetLocalCase.satisfies_iff_packed model entryPacketLocal
+    packetLocalCaseRank entryPacketLocalRank).1 equation_accepts
+
+example : packetLocalCase.program.denote model ≠ swappedPacketLocal.program.denote model :=
+  fun same => equation_refutes ((packetLocalCase.satisfies_iff_packed model swappedPacketLocal
+    packetLocalCaseRank swappedRank).2 same)
+
+end Equation
 
 section TwoCaptures
 

@@ -994,3 +994,41 @@ fails the acyclic rank check.
 [Ranked expansion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/FlatLetCase/Thms.lean)
 · [Typed interpreter square](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocal/LetCase/Thms.lean)
 · [Branch and cycle regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
+
+### Exact equations at the ranked packet-local interface
+
+`PacketLocal.Admission.equation` produces a sentence of the existing
+`LetCase.inst` from the two actual expansions. The sentence fixes the
+shared typed caller context and the result sum over ordered exits with
+the selected live-outs. Its sides may have different internal tables.
+The weak-tree algebra interprets each exact sort as a function from its
+typed bound environment to a weak tree. Every such environment is
+supplied by a caller record. The pure result encoding is injective,
+including the exit tag, so comparing the named observations reflects
+equality of the native typed trees.
+
+`Admission.satisfies_iff_named` and `Admission.satisfies_iff_packed`
+give preservation and reflection for the actual named runners and
+their existing packed LambdaSSA denotations in the same compatible
+typed and erased primitive model. Both admissions require the
+packet-local checker and the finite rank check. The exact LetCase
+signature here uses the same universe for instructions and type
+codes, with the Boolean effect sort and empty free-name type lifted
+to that universe.
+
+The reduct comparison fixes value types and the indexed event family.
+It uses the existing exact institution's sentence translation along
+effect-preserving opcode maps and the existing compatible weak-tree
+primitive reduct. The translated equation compares the original
+named tables in the reduct and the relabelled packed programs in
+the target model. Re-admission and rank checking of a relabelled
+source are separate operations.
+
+The typed sum fixture proves the equation between an internal-block
+and an entry-only program for every caller input. Reversing the ordered
+exits refutes the equation on the caller's left injection, even though
+the payload and selected live-out at that input agree.
+
+[Weak-tree model and reduct](../../Silmaril/SSA/Isotope/Institution/LetCase/WeakITree/Thms.lean)
+· [Exact satisfaction comparison](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocal/LetCase/Institution/Thms.lean)
+· [Ordered-exit regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
