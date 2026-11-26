@@ -2,7 +2,9 @@ module
 
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.CaptureLiveness.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi.OrderedExits.Thms
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Thms
+import Silmaril.SSA.LambdaRTL.CFG.Thms
+import Silmaril.SSA.LambdaRTL.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.UniformReadback.Thms
 
 /-! # A checked φ split with two distinct declared exits -/
 
@@ -11,7 +13,7 @@ namespace Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Exa
 open Silmaril.SSA.LambdaRTL
 open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi (Graph Block br)
 open Silmaril.Elgot (iter)
-open Silmaril.Elgot.ITree (Tree out out_ret iterate_fixpoint Visible)
+open Silmaril.Elgot.ITree (Tree out out_ret iterate_fixpoint Visible ret_inj)
 open LambdaSSA (FiniteCFG Region)
 open LambdaSSA.Semantics (Env extend)
 open LambdaSSA.Semantics.Interaction (Transfer region)
@@ -19,6 +21,9 @@ open LambdaSSA.Semantics.Interaction.Typed (AtomValues)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 open Silmaril.Isotope.Semantics (encodeValue)
 open NamedFlat.Entry.Record (Input field)
+open NamedFlat.Entry.Reverse.Straight (admitWithCaptures keepsEntryCapture keepsEntryCaptures checks encode_captures)
+open NamedFlat.Entry.Reverse (Lowered withLiveOut)
+open NamedFlat.Entry (store store_at inputEnv)
 
 private abbrev SortName := ULift.{1} Unit
 private abbrev Reg := ULift.{1} Nat
@@ -124,8 +129,16 @@ private def admitted : Admission signature ports fields captures :=
 private def lowered : NamedFlat.Entry.Reverse.Lowered ports fields admitted.code :=
   (admitted.reverseChecked registers (fun i => some ⟨i.val⟩)).get (by decide)
 
+private def originalSlots : List (Fin ports.slots) := [1, 2, 0]
+
+private theorem originalLayout (i : Fin _) :
+    lowered.savedRegisters i = originalSlots.map (fun j => (⟨j.val⟩ : Reg)) := by decide +revert
+
+private theorem originalKept : keepsEntryCaptures lowered originalSlots = true := by decide
+private theorem originalChecked : checks lowered admitted.internal = true := by decide
+
 private def recompiled : NamedFlat.Entry.LiveOut.Admission signature ports fields lowered.source :=
-  (lowered.reAdmit admitted.internal).get (by decide)
+  admitWithCaptures lowered admitted.internal originalSlots originalLayout originalKept originalChecked
 
 example : CFG.Cyclic.Phi.OrderedExits.check graph [leftExit] inputs arrivals = false := by decide
 
@@ -309,8 +322,135 @@ private def splitRegisters : NamedFlat.Entry.Reverse.Registers Reg where
 private def splitRTL : NamedFlat.Entry.Reverse.Lowered ports fields splitAdmitted.code :=
   (splitAdmitted.reverseChecked splitRegisters (fun i => some ⟨i.val⟩)).get (by decide)
 
+private def splitSlots : List (Fin ports.slots) := [1, 2, 4, 3, 0]
+
+private theorem splitLayout (i : Fin _) :
+    splitRTL.savedRegisters i = splitSlots.map (fun j => (⟨j.val⟩ : Reg)) := by decide +revert
+
+private theorem splitKept : keepsEntryCaptures splitRTL splitSlots = true := by decide
+private theorem splitChecked : checks splitRTL splitAdmitted.internal = true := by decide
+
 private def splitRecompiled : NamedFlat.Entry.LiveOut.Admission signature ports fields splitRTL.source :=
-  (splitRTL.reAdmit splitAdmitted.internal).get (by decide)
+  admitWithCaptures splitRTL splitAdmitted.internal splitSlots splitLayout splitKept splitChecked
+
+private abbrev RTL := CFG Reg (Option Key) signature.Instr
+private abbrev Jump := CFG.Cyclic.Transfer Reg (Option Key) (Value Runtime)
+
+private def entryStore (input : Input context) : Reg → Value Runtime :=
+  store ports.names context input
+
+/-- An actual boundary returned by the emitted entry or a finite prefix
+of successful internal steps in this pure fixture. -/
+private inductive Reached (g : RTL) (input : Input context) : Jump → Prop
+  | entry {p} : CFG.Cyclic.enter runtimeModel g (entryStore input) = pure p → Reached g input p
+  | step {p q} : Reached g input p →
+      CFG.Cyclic.step runtimeModel g.blocks p = pure (.inr q) → Reached g input q
+
+private theorem body_keeps_slot {A : Type 1} (body : CFG.Body Reg (Option Key) signature.Instr)
+    (initial : Reg → Value Runtime) (name : Reg) (unassigned : name ∉ body.toRegion.bound)
+    (send : Jump → A) (read : A → Value Runtime) (reads : ∀ p, read (send p) = p.2.2 name)
+    (outgoing : A)
+    (ran : body.exec runtimeModel (fun k v s => pure (send (k, v, s))) initial = pure outgoing) :
+    read outgoing = initial name := by
+  let exec := body.exec runtimeModel (fun k v s => pure (send (k, v, s))) initial
+  have frame : (exec >>= fun p => pure (read p)) = (exec >>= fun _ => pure (initial name)) := by
+    simp only [exec, CFG.Body.exec_eq_evalRTL, bind_assoc, pure_bind]
+    apply Region.evalRTL_frame
+    intro label value final agrees
+    rw [reads]
+    change pure (final name) = pure (initial name)
+    rw [agrees name unassigned]
+  rw [show exec = pure outgoing from ran, pure_bind, pure_bind] at frame
+  exact ret_inj.mp frame
+
+-- The implicit block-parameter writes are separate from the checked
+-- nonassignment of the attached bodies.
+private def paramsDisjoint (g : RTL) (slots : List (Fin ports.slots)) : Prop :=
+  ∀ item ∈ g.blocks, ∀ i ∈ slots, (⟨i.val⟩ : Reg) ≠ item.2.param
+
+private theorem agrees_at_reached {blocks : Nat}
+    {code : FiniteCFG signature.Instr blocks ports.exits.length ports.slots}
+    (a : Lowered ports fields code) (slots : List (Fin ports.slots))
+    (kept : keepsEntryCaptures a slots = true)
+    (params : paramsDisjoint (withLiveOut fields a.source) slots)
+    (input : Input context) {p : Jump} (reached : Reached (withLiveOut fields a.source) input p) :
+    ∀ i ∈ slots, p.2.2 ⟨i.val⟩ = inputEnv context input i.val := by
+  intro i member
+  have unassigned := List.all_eq_true.mp kept i member
+  simp only [keepsEntryCapture, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at unassigned
+  induction reached with
+  | @entry p ran =>
+    have frame := body_keeps_slot _ _ ⟨i.val⟩ unassigned.1 id (fun p => p.2.2 ⟨i.val⟩)
+      (fun _ => rfl) p ran
+    exact frame.trans (store_at ports.names ports.distinct context input i)
+  | @step p q before ran ih =>
+    cases found : @List.lookup _ _ instBEqOfDecidableEq p.1
+        (withLiveOut (P := signature) fields a.source).blocks with
+    | none =>
+      simp only [CFG.Cyclic.step, found] at ran
+      have impossible : (.inl p : Jump ⊕ Jump) = .inr q := ret_inj.mp ran
+      cases impossible
+    | some block =>
+      have present : (p.1, block) ∈ (withLiveOut (P := signature) fields a.source).blocks := by
+        let : BEq (Option Key) := instBEqOfDecidableEq
+        obtain ⟨_, _, list, _⟩ := List.lookup_eq_some_iff.mp found
+        simp [list]
+      simp only [CFG.Cyclic.step, found] at ran
+      have frame := body_keeps_slot block.body (upd p.2.2 block.param p.2.1) ⟨i.val⟩
+        (unassigned.2 _ present) (Sum.inr : Jump → Jump ⊕ Jump)
+        (Sum.elim (fun p : Jump => p.2.2 ⟨i.val⟩) (fun p : Jump => p.2.2 ⟨i.val⟩))
+        (fun _ => rfl) (.inr q) ran
+      exact frame.trans (by simpa only [upd, ite_eq_right (params _ present i member)] using ih)
+
+private theorem encodes_reached {blocks : Nat}
+    {code : FiniteCFG signature.Instr blocks ports.exits.length ports.slots}
+    (a : Lowered ports fields code) (slots : List (Fin ports.slots))
+    (kept : keepsEntryCaptures a slots = true)
+    (params : paramsDisjoint (withLiveOut fields a.source) slots)
+    (input : Input context) {p : Jump} (reached : Reached (withLiveOut fields a.source) input p)
+    (route : CFG.Cyclic.Versioning.destinations (withLiveOut fields a.source) p.1 =
+      some (slots.map fun i => (⟨i.val⟩ : Reg))) :
+    CFG.Cyclic.Versioning.encode runtimeModel (withLiveOut fields a.source) p =
+      (p.1, .pair p.2.1 (slots.foldr (fun i tail => .pair (inputEnv context input i.val) tail) .unit)) :=
+  encode_captures a model slots input p route (agrees_at_reached a slots kept params input reached)
+
+private theorem originalParams : paramsDisjoint (withLiveOut fields lowered.source) originalSlots := by
+  unfold paramsDisjoint
+  decide
+private theorem splitParams : paramsDisjoint (withLiveOut fields splitRTL.source) splitSlots := by
+  unfold paramsDisjoint
+  decide
+
+private theorem originalRoute (i : Fin 2) :
+    CFG.Cyclic.Versioning.destinations (withLiveOut fields lowered.source) (some ⟨i.val⟩) =
+      some (originalSlots.map fun j => (⟨j.val⟩ : Reg)) := by decide +revert
+
+private theorem splitRoute (i : Fin 3) :
+    CFG.Cyclic.Versioning.destinations (withLiveOut fields splitRTL.source) (some ⟨i.val⟩) =
+      some (splitSlots.map fun j => (⟨j.val⟩ : Reg)) := by decide +revert
+
+-- Exercise the explicit agreement at the actual emitted entry on both sides.
+example (input : Input context) :
+    let g := withLiveOut (P := signature) fields lowered.source
+    ∃ p : Jump, CFG.Cyclic.enter runtimeModel g (entryStore input) = pure p ∧
+      CFG.Cyclic.Versioning.encode runtimeModel g p =
+        (p.1, .pair p.2.1 (originalSlots.foldr (fun i tail => .pair (inputEnv context input i.val) tail) .unit)) := by
+  have ran : ∃ p : Jump, CFG.Cyclic.enter runtimeModel (withLiveOut fields lowered.source) (entryStore input) =
+      pure p ∧ p.1 = some ⟨0⟩ := ⟨_, rfl, rfl⟩
+  obtain ⟨p, ran, label⟩ := ran
+  exact ⟨p, ran, encodes_reached lowered originalSlots originalKept originalParams input (.entry ran)
+    (by rw [label]; exact originalRoute 0)⟩
+
+example (input : Input context) :
+    let g := withLiveOut (P := signature) fields splitRTL.source
+    ∃ p : Jump, CFG.Cyclic.enter runtimeModel g (entryStore input) = pure p ∧
+      CFG.Cyclic.Versioning.encode runtimeModel g p =
+        (p.1, .pair p.2.1 (splitSlots.foldr (fun i tail => .pair (inputEnv context input i.val) tail) .unit)) := by
+  have ran : ∃ p : Jump, CFG.Cyclic.enter runtimeModel (withLiveOut fields splitRTL.source) (entryStore input) =
+      pure p ∧ p.1 = some ⟨1⟩ := ⟨_, rfl, rfl⟩
+  obtain ⟨p, ran, label⟩ := ran
+  exact ⟨p, ran, encodes_reached splitRTL splitSlots splitKept splitParams input (.entry ran)
+    (by rw [label]; exact splitRoute 1)⟩
 
 example :
     let exitPlan := { splitPlan with header := ⟨90⟩, predecessor := some finish }
@@ -326,8 +466,10 @@ theorem split_emitted_result (chooseLeft : Bool) :
 theorem split_readmitted_result (chooseLeft : Bool) (ambient : Env Runtime) :
     region model.raw (extend ambient (encodeValue _ _ (record olderX olderY chooseLeft))) splitRecompiled.program.code =
       pure (result chooseLeft) :=
-  (generated.roundTrip_eq lowered splitRTL recompiled splitRecompiled model (record olderX olderY chooseLeft) ambient).symm.trans
-    (readmitted_result olderX olderY chooseLeft ambient)
+  (generated.roundTrip_eq_of_uniformReadback lowered splitRTL originalSlots splitSlots
+    originalLayout splitLayout originalKept splitKept originalChecked splitChecked
+    model (record olderX olderY chooseLeft) ambient).symm.trans
+      (readmitted_result olderX olderY chooseLeft ambient)
 
 private theorem movedSlots : admitted.movedCaptureSlots splitPlan = [4, 3] := by decide
 

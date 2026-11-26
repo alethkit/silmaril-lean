@@ -590,3 +590,24 @@ both older slots and that the original entry reads neither. It then
 compares the actual emitted and re-admitted runs while varying both
 numeric fields together, for each branch of the original exit choice.
 [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)
+
+#### Source-local re-admission of the two reverse outputs
+
+`GeneratedSplit.roundTrip_eq_of_uniformReadback` constructs both typed
+re-admissions with `Straight.admitWithCaptures`. It takes the actual checked
+reverse outputs at the same numbered interface. Each graph has its own
+saved slot list in the versioner's packet order, a check that the attached
+bodies leave those registers unassigned, and source-local checks at the
+original packet types. These conditions produce the scoped readback and
+typed compiled tables used by the ordered split comparison.
+[Composition theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Split/UniformReadback/Thms.lean)
+
+The swap's original table saves `[1, 2, 0]` at every internal destination.
+Its split table saves `[1, 2, 4, 3, 0]`. Both reserve a separate register
+for the incoming block parameter. Starting from the supplied record, the
+mutable entry and each successful internal step preserve the saved fields.
+The packet check uses that store agreement explicitly, so it preserves the
+supplied values and their tags in the actual destination order. The
+constructed re-admissions retain the two ordered exits and the checked
+independence from the older slot values.
+[Swap checks](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)
