@@ -3,7 +3,7 @@ module
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Defaults.Defs
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Module
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape.Run
-public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Frame
+public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape.Scoped.Frame
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.Dispatch
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Heap
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Wrapper.Heap
@@ -160,6 +160,24 @@ theorem step_sound {commands : List Command} {linked : Program} {resolved : Reso
       have expression := RootCall.prepared_invocation_expr resolved.program available
         (declaration := saved.plan.declaration saved.codes) (captures := saved.captures) (result := .ok assigned)
         permitted related operands saved.live.binding evaluated prepared bodyOut (by intro locals equal; cases equal; exact ran)
+      cases bodyOut <;> exact ⟨_, site, .exec (code := .assignExpr _ _) (.assignExpr expression)⟩
+  | @scopedCall _ callee destination spec arguments actuals values out root site related operands evaluated calls =>
+    cases calls with
+    | @rejected _ error bound =>
+      have expression := RootCall.checked_invocation_expr checked related operands root.live.binding root.live.cell
+        root.parentCode evaluated bound (.error error state) (by intro assigned impossible; cases impossible)
+      exact ⟨_, site, .exec (code := .assignExpr _ _) (.assignExpr expression)⟩
+    | @entered argument out returned =>
+      have bound : Entry.Binds [spec.wrapper.parameter] [argument] (.ok [(fileSlot spec.wrapper.parameter, argument)]) :=
+        .success (.cons .nil)
+      obtain ⟨bodyOut, ran, same⟩ := Defaults.Escape.returns_with_sound resolved.program
+        (withoutDeclaration available (root.childId + 1)) spec.wrapper root.names root.childId
+        (root.plan.body.declaration spec.wrapper.codes) root.childCode rfl state argument
+        (Defaults.Escape.Scoped.capturesAt spec state.heap.size)
+        (fun _ owned => Defaults.Escape.Scoped.installs_at root.plan _ _ owned) returned
+      have expression := RootCall.checked_invocation_expr checked related operands root.live.binding root.live.cell
+        root.parentCode evaluated bound bodyOut (by intro assigned equal; cases equal; exact ran)
+      subst out
       cases bodyOut <;> exact ⟨_, site, .exec (code := .assignExpr _ _) (.assignExpr expression)⟩
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.WithDefaults

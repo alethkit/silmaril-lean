@@ -26,7 +26,15 @@ theorem plan_of_suite (globals : List String) (definition : Definition) (locals 
     (binders : Block.LocalBinders definition.parameters.names definition.body.binders locals)
     (related : Elaborates ⟨definition.parameters.names ++ locals, [], globals⟩ definition.body code reads) :
     Nonempty (Plan globals definition) :=
-  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.plan_of_suite globals definition locals binders related
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.plan_of_suite globals definition locals [] binders related
+
+/-- The same independent selection works in a collected enclosing scope. -/
+theorem plan_in_scope (globals : List String) (definition : Definition) (locals enclosing : List String)
+    {code : Functions.Body} {reads : List Binding}
+    (binders : Block.LocalBinders definition.parameters.names definition.body.binders locals)
+    (related : Elaborates ⟨definition.parameters.names ++ locals, enclosing, globals⟩ definition.body code reads) :
+    Nonempty (Plan globals definition enclosing) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.plan_of_suite globals definition locals enclosing binders related
 
 /-- A scoped activation allocates fresh owned cells and retains the
 addresses of selected, live captures. -/

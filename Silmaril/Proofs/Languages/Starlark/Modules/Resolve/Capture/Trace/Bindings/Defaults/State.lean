@@ -30,7 +30,7 @@ theorem required_pool {globals : List String} {program : Program} {entries : Ent
   | none => simp [slot] at tracked
   | some code =>
     cases code with
-    | defaulted | escaping | sequenced => simp [slot] at tracked
+    | defaulted | escaping | sequenced | nestedBody => simp [slot] at tracked
     | required actual =>
       simp [slot] at tracked
       subst chain
@@ -69,11 +69,13 @@ theorem keep_live {globals : List String} {program : Program} {state middle : St
   | sequenced definition =>
     obtain ⟨member, ⟨saved⟩⟩ := live
     have retained := unchanged.live layout member saved.live
-    have stable : (middle.write (globalSlot destination) value).slots = state.slots :=
-      (slots_write _ _ _).trans unchanged.slots
     exact ⟨member, ⟨{ saved with
-      installed := Defaults.Body.keeps_installation stable saved.installed
+      cells := Defaults.Body.capture_cells_written _ _ _ (Defaults.Body.capture_cells_preserved unchanged saved.cells)
       live := (RootCall.write_keeps_live _ _ _ _ distinct retained other).2 }⟩⟩
+  | nestedBody spec =>
+    obtain ⟨member, ⟨root⟩⟩ := live
+    have retained := unchanged.live layout member root.live
+    exact ⟨member, ⟨{ root with live := (RootCall.write_keeps_live _ _ _ _ distinct retained other).2 }⟩⟩
 
 theorem update {globals : List String} {program : Program} {entries : Entries} {state next : State}
     {destination : String} {shape : Option Callable}

@@ -4,6 +4,7 @@ public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.D
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Wrapper.Heap
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Entry
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Forwarding
+import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Thms
 
 public section
 
@@ -43,18 +44,6 @@ theorem instantiates {globals : List String} {definition : Definition} (plan : P
   obtain ⟨address, _, _, owned, _⟩ := layout.usable name known
   exact ⟨globalSlot name, address, rfl, .inl owned⟩
 
-theorem keeps_installation {old next : State} {free : List FreeName} {captures : List Capture}
-    (slots : next.slots = old.slots) (installed : Installs old free captures) :
-    Installs next free captures := by
-  induction installed with
-  | nil => exact .nil
-  | cons received _ ih =>
-    cases received with
-    | enclosing proof => exact .cons (.enclosing (slots ▸ proof)) ih
-    | forwardedLocal proof => exact .cons (.forwardedLocal (slots ▸ proof)) ih
-    | ownedGlobal proof => exact .cons (.ownedGlobal (slots ▸ proof)) ih
-    | capturedGlobal proof => exact .cons (.capturedGlobal (slots ▸ proof)) ih
-
 /-- The generic frame theorem accepts owned or forwarded captures whose
 address has a live binding cell in the current caller heap. -/
 theorem activate_frame (block : LexicalBlock) (declaration : Declaration)
@@ -85,35 +74,79 @@ theorem activate_frame (block : LexicalBlock) (declaration : Declaration)
     exact ⟨capture.address, value, frozen, below, own,
       (Wrapper.activation_preserves caller declaration captures assigned _ below).trans stored⟩
 
-theorem root_frame {globals : List String} {definition : Definition} (plan : Plan globals definition)
-    (codes : List Lowering.Expr) (length : codes.length = definition.parameters.optional.length)
-    (caller : State) (layout : ModuleSlots globals caller)
-    (captures : List Capture) (installed : Installs caller plan.free captures) (assigned : List (Binding × Value)) :
+theorem declaration_slots {globals enclosing : List String} {definition : Definition}
+    (plan : Plan globals definition enclosing) (codes : List Lowering.Expr)
+    (length : codes.length = definition.parameters.optional.length) :
+    (plan.declaration codes).signature.slots ++ (plan.declaration codes).locals = plan.block.owned.map fileSlot := by
+  have named := List.map_fst_zip (l₁ := definition.parameters.optional.map (fileSlot ∘ Prod.fst))
+    (l₂ := codes) (by simp [length])
+  simp [Plan.declaration, Plan.block, Defaults.Parameters.signature, Defaults.Parameters.names,
+    Signature.slots, Signature.named, requiredSignature, List.map_map, Function.comp_def] at named ⊢
+  rw [named]
+
+theorem captured_frame {globals enclosing : List String} {definition : Definition}
+    (plan : Plan globals definition enclosing) (codes : List Lowering.Expr)
+    (length : codes.length = definition.parameters.optional.length) (caller owner : State)
+    (captures : List Capture) (installed : Installs owner plan.free captures)
+    (cells : CaptureCells caller captures) (assigned : List (Binding × Value)) :
     Frame plan.block plan.free caller.heap.size (activate caller (plan.declaration codes) captures assigned) := by
-  have slots : (plan.declaration codes).signature.slots ++ (plan.declaration codes).locals =
-      plan.block.owned.map fileSlot := by
-    have named := List.map_fst_zip (l₁ := definition.parameters.optional.map (fileSlot ∘ Prod.fst))
-      (l₂ := codes) (by simp [length])
-    simp [Plan.declaration, Plan.block, Defaults.Parameters.signature, Defaults.Parameters.names,
-      Signature.slots, Signature.named, requiredSignature, List.map_map, Function.comp_def] at named ⊢
-    rw [named]
+  have slots := declaration_slots plan codes length
   apply activate_frame _ _ slots
   intro binding known
-  obtain ⟨name, declared, entry⟩ := root_free plan.selects _ known
-  have scope : binding = globalSlot name := congrArg FreeName.target entry
-  subst binding
   refine ⟨?_, ?_⟩
   · rw [slots]
-    simp [fileSlot, globalSlot]
-  · obtain ⟨capture, found, nameEq, received⟩ := Forwarding.find_receipt installed (globalSlot name) known
-    obtain ⟨address, value, frozen, owned, stored⟩ := layout.usable name declared
-    cases received with
-    | ownedGlobal cell =>
-      have equal := Option.some.inj (cell.symm.trans owned)
-      cases equal
-      exact ⟨_, found, nameEq, rfl, _, _, stored⟩
-    | capturedGlobal cell =>
-      rw [owned] at cell
-      cases cell
+    intro member
+    obtain ⟨name, owned, equal⟩ := List.mem_map.mp member
+    exact Silmaril.Languages.Starlark.Modules.Resolve.Capture.selected_outside_owned plan.selects _ known name owned equal.symm
+  · obtain ⟨capture, found, name, receipt⟩ := Forwarding.find_receipt installed binding known
+    have live := cells capture (List.mem_of_find?_eq_some found)
+    have flag : capture.localCell = (binding.scope == .local) := by cases receipt <;> rfl
+    exact ⟨capture, found, name, flag, live⟩
+
+theorem root_capture_cells {globals : List String} {definition : Definition} (plan : Plan globals definition)
+    (caller : State) (layout : ModuleSlots globals caller) (captures : List Capture)
+    (installed : Installs caller plan.free captures) :
+    CaptureCells caller captures := by
+  have received {free : List FreeName} {captures : List Capture} (evidence : Installs caller free captures) :
+      ∀ capture ∈ captures, ∃ entry ∈ free, ReceivesAddress caller entry capture := by
+    induction evidence with
+    | nil => simp
+    | cons seen _ ih =>
+      intro capture present
+      rcases List.mem_cons.mp present with rfl | later
+      · exact ⟨_, List.mem_cons_self, seen⟩
+      · obtain ⟨entry, known, proof⟩ := ih capture later
+        exact ⟨entry, List.mem_cons_of_mem _ known, proof⟩
+  intro capture present
+  obtain ⟨entry, member, address⟩ := received installed capture present
+  obtain ⟨name, known, rfl⟩ := root_free plan.selects entry member
+  obtain ⟨index, value, frozen, owned, stored⟩ := layout.usable name known
+  cases address with
+  | ownedGlobal own =>
+    have same := Option.some.inj (own.symm.trans owned)
+    cases same
+    exact ⟨_, _, stored⟩
+  | capturedGlobal counterfeit =>
+    rw [owned] at counterfeit
+    cases counterfeit
+
+theorem capture_cells_preserved {state next : State} {captures : List Capture}
+    (kept : Bindings.Preserves state next) (cells : CaptureCells state captures) :
+    CaptureCells next captures := by
+  intro capture present
+  obtain ⟨value, frozen, cell⟩ := cells capture present
+  exact ⟨value, frozen, kept.cells _ _ cell trivial⟩
+
+theorem capture_cells_written (state : State) (target : Binding) (value : Value)
+    {captures : List Capture} (cells : CaptureCells state captures) :
+    CaptureCells (state.write target value) captures := by
+  intro capture present
+  obtain ⟨before, frozen, cell⟩ := cells capture present
+  by_cases same : state.slots target = some (.owned capture.address)
+  · have valid := (Array.getElem?_eq_some_iff.mp cell).choose
+    refine ⟨some value, frozen, ?_⟩
+    simp only [State.write, same, cell]
+    exact Array.getElem?_setIfInBounds_self_of_lt valid
+  · exact ⟨before, frozen, (RootCall.write_other_cell _ _ _ _ same).trans cell⟩
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body
