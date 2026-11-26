@@ -658,14 +658,16 @@ bank of the checked pure nested profile.
 
 ### Outer reconvergence before the final join
 
-`Nested.Shared.checkOuter` recognizes an additional nonempty common
+`Nested.Shared.Outer.check` recognizes an additional nonempty common
 tail on both outer routes. It cuts the two independently checked
 routes at their first shared block and verifies that each original
 block list is its ordered prefix followed by that same tail. The
 coverage check counts every source block once and requires a nonempty
 inner suffix exclusive to the outer true route. The original
-`Shared.check` still admits the inner-only profile.
-[Recognizer and coverage certificate](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Defs.lean)
+`Shared.check` keeps its original inner-only profile and dependent
+types. Both profiles reuse the routing and θ proofs.
+[Recognizer and coverage certificate](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Defs.lean) ·
+[Inner-only API regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Compatibility/Regression.lean)
 
 `Program.run_to_outer` identifies the selected outer predecessor's
 complete bank. `Program.run_outer_suffix` charges one visit per shared
@@ -677,8 +679,8 @@ the selected bank or its own earlier producers through the existing
 typed quad compiler. `activation_run` gives the exact feedback or
 exit packet. The existing finite-return, absence, and finite coloured
 completion laws apply to this graph with separate witnesses.
-[Source laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Thms.lean) ·
-[Numbered laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Numbered/Thms.lean)
+[Source laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Thms.lean) ·
+[Numbered laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Thms.lean)
 
 Build the two full imports below with `lake build --wfail` and a `+`
 before each module name. Paste into `QuadNestedOuterSuffix.lean` and
@@ -687,25 +689,25 @@ run `lake env lean -DautoImplicit=false -DwarningAsError=true QuadNestedOuterSuf
 ```lean
 module
 
-import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Petri.Thms
-import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Outer.Example.Defs
-meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Outer.Example.Defs
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri.Thms
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Example.Defs
 
 open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared
-open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered
-open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Outer.Example
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Example
 open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Example (input width)
 open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (model)
 open Silmaril.SSA.SeaOfNodes.MLIR (Word)
 open Silmaril.SSA.RVSDG.NestedTheta.Petri (Finishes)
 
 #eval plan.outerSuffix.blocks.map Fin.val
-#eval Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Example.layoutFor plan
+#eval layout
 #eval trace
 #eval (outerValues, mergeValues, packets)
 #eval [0, 1, 2, 3].map sourceBudget
 #eval (runSource 25, runNumbered 3, runSource 24, runNumbered 2)
-#eval (checkOuter crossesInnerPrefix 0).isNone
+#eval (Outer.check crossesInnerPrefix 0).isNone
 
 example : Finishes (Silmaril.SSA.SeaOfNodes.Quads.Join.model model)
     (lower plan) input (.cons (152 : Word width) .nil) :=
@@ -722,7 +724,7 @@ false, with pre-tail values `15, 73, 150` and post-tail values
 `1`. Source and θ return `152` at `25/3` and exhaust at `24/2`.
 The near miss sends the outer false route into an exclusive inner
 prefix and is refused.
-[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Numbered/Outer/Regression.lean)
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Regression.lean)
 
 ## Complete the emitted loop by coloured firing
 

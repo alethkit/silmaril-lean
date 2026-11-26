@@ -1,15 +1,19 @@
 module
 
+public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Defs
 public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Example.Defs
 
 /-! # Both outer routes use one two-block suffix -/
 
 @[expose] public section
 
-namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Outer.Example
+namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Example
 
 open Diamond.MLIR.CF.Example (add count input num regs result stride test)
 open SeaOfNodes.Loop.MLIR.CF (Op model)
+open SeaOfNodes.Diamond (dataPorts lastIndex)
+open RVSDG.NestedTheta (Graph)
+open Shared.Numbered.Example (FixturePort)
 open Blocks (Bank)
 
 abbrev original := Shared.MLIR.CF.Example.source
@@ -36,7 +40,7 @@ def crossesInnerPrefix : Source Op regs num 12 := fun id =>
   if id = 7 then {source id with terminator := .transfer (.jump 3)}
   else source id
 
-def plan : Program source 0 := (Shared.checkOuter source 0).get (by rfl)
+def plan : Program source 0 := (Outer.check source 0).get (by rfl)
 
 def headerStates : List (Bank (regs := regs) model) :=
   let first := (source 0).body.eval model input
@@ -63,6 +67,22 @@ def packets : List (Option (Nat × Nat × Nat)) :=
     ((thetaBody plan).toGraph.run (Join.model model) 0 old).map fun
       | .cons tag bank => (tag.down.val, (bank.get count).toNat, (bank.get result).toNat)
 
+/-- Inspect the actual body and reuse the inner-only layout inspector for
+the embedded γ children. Count the outer continuation separately. -/
+def layout : Option (Nat × Nat × List Nat × Nat) :=
+  match lower plan with
+  | .region nodes children _ =>
+    let site := lastIndex (dataPorts regs) (source 0).body.producers
+    if body : 0 < (nodes site).kind.arity then inspect (children site ⟨0, body⟩) else none
+where
+  inspect {args outs : List FixturePort} {sigs : List (List FixturePort)}
+      (graph : Graph (Join.Opcode Op) args [] sigs outs) : Option (Nat × Nat × List Nat × Nat) :=
+    match graph with
+    | .region nodes _ _ => do
+      let gamma ← (List.finRange sigs.length).find? fun i => (nodes i).kind.arity == 2
+      let inner ← Shared.Numbered.Example.layout.outerLayout graph
+      return (sigs.length - (gamma.val + 1), inner)
+
 def sourceBudget (fuel : Nat) : Nat := sourceVisits plan model fuel input
 
 def runSource (fuel : Nat) : Option Nat :=
@@ -71,4 +91,4 @@ def runSource (fuel : Nat) : Option Nat :=
 def runNumbered (fuel : Nat) : Option Nat :=
   ((lower plan).run (Join.model model) fuel input).map fun values => (values.get .head).toNat
 
-end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Outer.Example
+end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Example

@@ -22,14 +22,8 @@ variable {regs : List (ValueSort Data)} {out : ValueSort Data} {size : Nat}
 variable {src : Source Op regs out size} {entry : Fin size} (p : Program src entry)
 variable (m : Model.{u, v, w} Op)
 
-/-- The outer γ forwards the selected route's full bank before executing
-the common outer suffix. -/
-theorem outer_run (fuel : Nat) (old : Bank (regs := regs) m) :
-    (outerRegion p).toGraph.run (model m) fuel old =
-      some (p.outerBank m old (p.toControl.selected m old)) :=
-  Proofs.outer_run p m fuel old
-
-/-- The final merge reads the one shared suffix on the selected outer bank. -/
+/-- Both inner occurrences deliver their selected bank through the shared
+suffix. On the outer false route the bank goes straight to the merge. -/
 theorem merge_run (fuel : Nat) (old : Bank (regs := regs) m) :
     (mergeRegion p).toGraph.run (model m) fuel old =
       some (p.mergeBank m old (p.toControl.selected m old)) :=
@@ -45,8 +39,7 @@ theorem activation_run (fuel : Nat) (old : Bank (regs := regs) m) :
   exact Proofs.activation_run p m fuel old
 
 /-- Match a θ activation bound with the source visits of the selected
-routes. The outer suffix is charged on either route and the inner suffix
-only on the outer true route. -/
+routes, charging the shared suffix only when the outer true arm runs. -/
 theorem lower_run (fuel : Nat) (input : Bank (regs := regs) m) :
     (lower p).run (model m) fuel input =
       (src.runFrom m (sourceVisits p m fuel input) entry input).map (fun value => .cons value .nil) :=

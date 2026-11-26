@@ -1,26 +1,25 @@
 module
 
-import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Petri.Thms
-import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Outer.Example.Defs
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri.Thms
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Example.Defs
 
-namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Outer
+namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered
 
 open Diamond.MLIR.CF.Example (input width)
 open SeaOfNodes.Loop.MLIR.CF (model)
 open SeaOfNodes.MLIR (Word)
 open RVSDG.NestedTheta.Petri (Finishes)
-open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Outer.Example
-  (crossesInnerPrefix headerStates mergeValues outerValues packets plan runNumbered runSource source
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Example
+  (crossesInnerPrefix headerStates layout mergeValues outerValues packets plan runNumbered runSource source
   sourceBudget trace)
-open Numbered.Example (layoutFor)
 
 example : (Shared.check source 0).isNone = true := rfl
-example : (Shared.checkOuter crossesInnerPrefix 0).isNone = true := by decide +kernel
+example : (Outer.check crossesInnerPrefix 0).isNone = true := by decide +kernel
 example : plan.blockOrder.map Fin.val = [0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 8, 9] := rfl
 example : plan.suffix.blocks.map Fin.val = [5, 6] := rfl
 example : plan.outerSuffix.blocks.map Fin.val = [10, 11] := rfl
 example : (plan.innerEdgeOccurrence true, plan.innerEdgeOccurrence false) = ((3, 0), (4, 0)) := rfl
-example : layoutFor plan = some (6, 2, [1, 1], 1) := by decide +kernel
+example : layout = some (6, 2, [1, 1], 1) := by decide +kernel
 
 example : trace = [(.innerTrue, (6, 0), 7), (.innerFalse, (6, 0), 7), (.outerFalse, (7, 0), 4)] := rfl
 
@@ -51,4 +50,4 @@ example : (runSource 24, runNumbered 2) = (none, none) := by
 example : Finishes (Join.model model) (lower plan) input (.cons (152 : Word width) .nil) :=
   (petri_finishes_iff plan model input (152 : Word width)).mpr ⟨25, rfl⟩
 
-end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Numbered.Outer
+end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered
