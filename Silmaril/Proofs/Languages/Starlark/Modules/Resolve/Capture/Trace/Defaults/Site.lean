@@ -79,6 +79,19 @@ private theorem elaborates {globals : List String} {definition : Definition}
   rw [sourceSignature] at params
   simp [Definition.emitted, layout, params, free]
 
+theorem definition_emission {globals : List String} {definition : Definition}
+    (admitted : Admitted globals definition) :
+    ∃ codes, (∀ program,
+      elaborateCommand ⟨⟨[], globals⟩, .global⟩ definition.command program =
+        .ok (.exec (.define definition.name program.size), program.push (definition.emitted codes))) ∧
+      codes.length = definition.parameters.optional.length ∧
+      ∀ state, ∃ out, Evaluates globals state (definition.parameters.optional.map Prod.snd) codes out ∧
+        (∀ values next, out = .ok values next → Bindings.Preserves state next) := by
+  obtain ⟨defaults, identified, translated, eval⟩ := evaluates_from_source admitted.defaults
+  refine ⟨defaults.map PlainPositionalDefault.value, elaborates admitted defaults identified translated, ?_, eval⟩
+  rw [← identified]
+  simp
+
 theorem checked_definition_site {before after : List Command} {definition : Definition} {globals : List String}
     {linked : Program} {resolved : ResolvedModule}
     (declared : ModuleBinders (before ++ definition.command :: after) globals)
@@ -87,15 +100,13 @@ theorem checked_definition_site {before after : List Command} {definition : Defi
     ∃ id codes, resolved.source.commands[before.length]? = some (.exec (.define definition.name id)) ∧
       resolved.program[id]? = some (definition.emitted codes) ∧ codes.length = definition.parameters.optional.length ∧
       ∀ state, ∃ out, Evaluates globals state (definition.parameters.optional.map Prod.snd) codes out := by
-  obtain ⟨defaults, identified, translated, eval⟩ := evaluates_from_source admitted.defaults
-  let codes := defaults.map PlainPositionalDefault.value
+  obtain ⟨codes, emits, length, evaluates⟩ := definition_emission admitted
   obtain ⟨id, site, found⟩ :=
     RootCall.checked_single_emission before after definition.command definition.name globals linked resolved
-      (definition.emitted codes) declared checked segment (elaborates admitted defaults identified translated)
-  refine ⟨id, codes, site, found, ?_, ?_⟩
-  · rw [← identified]
-    simp [codes]
-  · exact eval
+      (definition.emitted codes) declared checked segment emits
+  refine ⟨id, codes, site, found, length, fun state => ?_⟩
+  obtain ⟨out, ran, _⟩ := evaluates state
+  exact ⟨out, ran⟩
 
 private theorem exact_saved (parameters : Parameters) (values : List Silmaril.Languages.Starlark.Lists.Value) :
     savedValues (parameters.slots values) = (parameters.optional.map (fileSlot ∘ Prod.fst)).zip values := by

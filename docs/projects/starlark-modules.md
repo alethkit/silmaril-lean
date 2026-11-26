@@ -529,20 +529,48 @@ uses the saved values even if the original names have been rebound.
 A mutable saved value retains its heap address and observes subsequent
 writes through aliases.
 
-The checked module trace currently ends at definition and setup
-commands. Composing positional call sites and bodies with the
-multiple-live-callee trace remains open. The native controls also
-exercise calls through a copied function and mutation of a saved
-list. The pinned Go controls cover those observations, a reached
-definition-time error, and a wider nested definition that retains a
-saved value after local rebinding and shares a mutable default across
-calls until publication freezes it. Go's comparison observes its
-returned globals and errors. The Lean fixtures also check the residual
-allocation and its freeze bit directly. Nested defaulted definitions,
-wider bodies and default operands, calls without tracked provenance,
-keywords and spreads, loads, and text parsing are outside the source
-theorems here.
+The definition-only theorem also has controls for a reached
+definition-time error. Go's comparison observes its returned globals
+and errors. The Lean fixtures check the residual allocation and its
+freeze bit directly.
 [Profile and source rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Checks.lean) · [Pinned spec][default-parameters] · [Pinned Go comparison](../../scripts/starlark/positional-defaults/check.go)
+
+#### Defaulted calls in the multiple-callee trace
+
+`Trace.Bindings.WithDefaults.checked_module` extends the multiple-callee
+schedule with module definitions whose bodies return one of their own
+parameters. A reached definition evaluates its defaults before binding
+the new closure. Its live evidence connects the stored address, the
+emitted declaration in the final table, and the ordered saved values.
+An explicit name copy keeps that same address and saved record. Calls
+to independent required-argument wrappers and mixed leaves preserve
+existing closure cells even when they change a collection that a saved
+value aliases.
+
+A defaulted call reads the live callee first and evaluates its bounded
+read-only operands left to right. Failed operands stop the call before
+binding. Once operands succeed, the independent positional binder uses
+the saved record for omitted arguments or reports missing or surplus
+arguments before allocating a frame. A successful binding supplies the
+activation in which the body reads its parameter. The return restores
+the caller, and only a successful return writes the destination.
+Starting at actual module entry, the reached source trace agrees with
+operational initialization and the module denotation on exact exports
+and reachable freezing, or the first error with the residual heap and
+no publication.
+
+The shared-profile fixtures interleave an aliased defaulted closure
+with a separately called mixed leaf that mutates a saved list. They
+check repeated omitted calls, an explicit override, and a reached index
+error that precedes both a later uninitialized operand and surplus
+arity. The pinned Go control also exercises repeated calls after
+rebinding a defining local in a nested function. The checked source
+trace covers module-level defaulted definitions with no captures.
+Nested defaulted definitions, broader defaulted bodies and operands,
+computed callable provenance, keywords and spreads, loads and text
+parsing remain outside the theorem. The existing rejection of
+duplicate module bindings also applies.
+[Profile and source rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defaults/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defaults/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defaults/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/default-call-trace/check.go)
 
 ## Finite-manifest loader
 
@@ -606,7 +634,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Modules.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Leaf.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Checks \
-  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Checks
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Defaults.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
@@ -616,11 +645,13 @@ fixtures="$(pwd)/examples/starlark"
 mixed_leaf="$(pwd)/scripts/starlark/mixed-leaf.go"
 multi_callee="$(pwd)/scripts/starlark/multi-callee/check.go"
 defaults="$(pwd)/scripts/starlark/positional-defaults/check.go"
+default_trace="$(pwd)/scripts/starlark/default-call-trace/check.go"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$fixtures/modules/check.go" && go run "$fixtures/loader/check.go" &&
-  go run "$fixtures/scope/check.go" && go run "$mixed_leaf" && go run "$multi_callee" && go run "$defaults")
+  go run "$fixtures/scope/check.go" && go run "$mixed_leaf" && go run "$multi_callee" &&
+  go run "$defaults" && go run "$default_trace")
 ```
 
 [default-parameters]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions

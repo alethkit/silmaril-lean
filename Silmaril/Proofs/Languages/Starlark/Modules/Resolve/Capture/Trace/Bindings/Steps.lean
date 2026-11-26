@@ -96,7 +96,8 @@ theorem define_step {before after : List Command} {chain : Chain} {globals : Lis
     (known : Visible globals chain.name) {state : State} {entries : Environment}
     (layout : ModuleSlots globals state) (pool : LiveBindings globals resolved.program entries state) :
     ∃ next, Leaf.Step resolved globals before.length state (root chain) (.ok () next) ∧
-      ModuleSlots globals next ∧ LiveBindings globals resolved.program (entries.write chain.name (some chain)) next := by
+      (ModuleSlots globals next ∧ LiveBindings globals resolved.program (entries.write chain.name (some chain)) next) ∧
+      Bindings.Writes state chain.name next := by
   obtain ⟨seed, frame, rest, emitted, links, scopes, site, kept⟩ :=
     RootCall.checked_definition_site before after chain globals linked resolved declared checked
       (fun program => definitions_accept allowed program [] (fun _ => Iff.rfl)) suffix
@@ -123,7 +124,7 @@ theorem define_step {before after : List Command} {chain : Chain} {globals : Lis
   exact ⟨next, .define site (retained_head kept) installed, update_live layout pool preserves (by
     intro other same
     cases same
-    exact owns)⟩
+    exact owns), .commit grown _ preserves⟩
 
 theorem alias_step {before rest : List Command} {globals : List String} {source destination : String}
     {linked : Program} {resolved : ResolvedModule}
@@ -134,7 +135,8 @@ theorem alias_step {before rest : List Command} {globals : List String} {source 
     (layout : ModuleSlots globals state) (pool : LiveBindings globals resolved.program entries state) :
     ∃ next, Leaf.Step resolved globals before.length state (.assign destination (.scalar (.read source)))
       (.ok () next) ∧
-      ModuleSlots globals next ∧ LiveBindings globals resolved.program (entries.write destination (some chain)) next := by
+      (ModuleSlots globals next ∧ LiveBindings globals resolved.program (entries.write destination (some chain)) next) ∧
+      Bindings.Writes state destination next := by
   obtain ⟨_, _, _, _, address, _, code, live, installed, legal⟩ := pool source chain bound
   have related := global_operand sourceKnown
   obtain ⟨reads, tracked⟩ := RootCall.resolves_operand related
@@ -144,7 +146,8 @@ theorem alias_step {before rest : List Command} {globals : List String} {source 
   exact ⟨_, .setup site (.atom related evaluated), update_live layout pool (Preserves.refl state) (by
     intro other same
     cases same
-    exact commit_live layout destinationKnown.1 code live.cell installed legal)⟩
+    exact commit_live layout destinationKnown.1 code live.cell installed legal),
+    .commit state (.function address) (Preserves.refl _)⟩
 
 @[expose] def callResult : Chain → Option Chain
   | .wrapper _ _ child => some child
@@ -161,11 +164,13 @@ theorem invoke_step {before after : List Command} {globals : List String} {name 
     ∃ out, Leaf.Step resolved globals before.length state (invocation name destination arguments) out ∧
       (∀ next, out = .ok () next →
         ModuleSlots globals next ∧
-          LiveBindings globals resolved.program (entries.write destination (callResult chain)) next) := by
+          LiveBindings globals resolved.program (entries.write destination (callResult chain)) next ∧
+          Bindings.Writes state destination next) := by
   obtain ⟨_, seed, frame, rest, address, captures, code, live, installed, legal⟩ := pool name chain selected
   obtain ⟨links, keeps, outer, enclosing, same, profile, emits, scopes⟩ := code
   let continues (next : State) : Prop :=
-    ModuleSlots globals next ∧ LiveBindings globals resolved.program (entries.write destination (callResult chain)) next
+    ModuleSlots globals next ∧ LiveBindings globals resolved.program (entries.write destination (callResult chain)) next ∧
+      Bindings.Writes state destination next
   apply call_step declared checked callee allowed live (retained_head keeps) continues
   intro assigned
   cases chain with
@@ -174,9 +179,11 @@ theorem invoke_step {before after : List Command} {globals : List String} {name 
     cases scopes with
     | mixed linkedLeaf =>
       obtain ⟨out, executed⟩ := leaf_total plan (activate state frame.declaration captures assigned)
-      exact ⟨_, .leaf linkedLeaf lexical planLegal ownedLegal legal executed, fun value next result =>
-        update_live layout pool (leaf_preserves state frame captures assigned plan executed value next result)
-          (by intro _ impossible; cases impossible)⟩
+      refine ⟨_, .leaf linkedLeaf lexical planLegal ownedLegal legal executed, fun value next result => ?_⟩
+      have preserves := leaf_preserves state frame captures assigned plan executed value next result
+      have ⟨valid, live⟩ := update_live (name := destination) (value := value) (shape := none)
+        layout pool preserves (by intro _ impossible; cases impossible)
+      exact ⟨valid, live, .commit next value preserves⟩
   | wrapper name parameters child =>
     cases profile with
     | wrapper paramsLegal childLegal childProfile =>
@@ -194,11 +201,14 @@ theorem invoke_step {before after : List Command} {globals : List String} {name 
               (singleton_legal collect paramsLegal childLegal) assigned
             refine ⟨out, ran, fun value next returned => ?_⟩
             obtain ⟨_, ⟨slots, cells⟩, address, selected, liveChild, environment, childLegal⟩ := result value next returned
-            apply update_live layout pool (Preserves.of_old_cells slots cells)
-            intro other sameChild
-            cases sameChild
-            exact ⟨target.1, seed, childFrame, frames, address, selected, childCode, liveChild,
-              environment, childLegal⟩
+            have preserves := Preserves.of_old_cells slots cells
+            have ⟨valid, live⟩ := update_live (name := destination) (value := value) (shape := some child)
+              layout pool preserves (by
+                intro other sameChild
+                cases sameChild
+                exact ⟨target.1, seed, childFrame, frames, address, selected, childCode, liveChild,
+                  environment, childLegal⟩)
+            exact ⟨valid, live, .commit next value preserves⟩
 
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings

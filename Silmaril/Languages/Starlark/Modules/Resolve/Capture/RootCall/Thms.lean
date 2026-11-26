@@ -137,11 +137,11 @@ theorem enter_distinct (source : Modules.Source) (caller : State) : DistinctOwne
 
 /-- Writing a different name preserves the live closure and its binding. -/
 theorem write_keeps_live (state : State) (name destination : String) (value : Lists.Value)
-    {address : Address} {id : Nat} {captures : List Capture} {frozen : Bool}
-    (distinct : DistinctOwned state) (live : Live state name address id captures frozen)
+    {address : Address} {id : Nat} {captures : List Capture} {frozen : Bool} {defaults : List (Binding × Lists.Value)}
+    (distinct : DistinctOwned state) (live : Live state name address id captures frozen defaults)
     (unrelated : destination ≠ name) :
     DistinctOwned (state.write (globalSlot destination) value) ∧
-      Live (state.write (globalSlot destination) value) name address id captures frozen :=
+      Live (state.write (globalSlot destination) value) name address id captures frozen defaults :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.write_keeps_live state name destination value
     distinct live unrelated
 

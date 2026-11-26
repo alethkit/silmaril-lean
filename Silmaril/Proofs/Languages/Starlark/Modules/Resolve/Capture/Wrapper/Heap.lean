@@ -64,9 +64,10 @@ private theorem write_all (arguments : List (Binding × Value)) (bound : Nat)
     obtain ⟨finalFresh, last⟩ := ih _ nextFresh
     exact ⟨finalFresh, last.trans first⟩
 
-private theorem activate_keeps (caller : State) (frame : ClosureFrame) (captures : List Capture)
+private theorem activate_keeps (caller : State) (declaration : Silmaril.Languages.Starlark.Functions.Declaration)
+    (captures : List Capture)
     (assigned : List (Binding × Value)) (index : Nat) (low : index < caller.heap.size) :
-    let active := activate caller frame.declaration captures assigned
+    let active := activate caller declaration captures assigned
     FreshOwned caller.heap.size active ∧ active.heap[index]? = caller.heap[index]? := by
   let blank := { caller with bindings := fun _ => none, slots := capturedSlots captures }
   have fresh : FreshOwned caller.heap.size blank := by
@@ -74,16 +75,21 @@ private theorem activate_keeps (caller : State) (frame : ClosureFrame) (captures
     intro binding address found
     simp only [blank, capturedSlots] at found
     cases lookup : captures.find? (fun capture => capture.binding == binding) <;> simp [lookup] at found
-  obtain ⟨allocated, stable⟩ := allocate_all (frame.declaration.signature.slots ++ frame.declaration.locals)
+  obtain ⟨allocated, stable⟩ := allocate_all (declaration.signature.slots ++ declaration.locals)
     caller.heap.size blank fresh index low
   obtain ⟨finalFresh, fixed⟩ := write_all assigned caller.heap.size _ allocated index low
   exact ⟨finalFresh, fixed.trans stable⟩
+
+theorem activation_preserves (caller : State) (declaration : Silmaril.Languages.Starlark.Functions.Declaration)
+    (captures : List Capture) (assigned : List (Binding × Value)) (index : Nat) (low : index < caller.heap.size) :
+    (activate caller declaration captures assigned).heap[index]? = caller.heap[index]? :=
+  (activate_keeps caller declaration captures assigned index low).2
 
 theorem activated_write_preserves (caller : State) (frame : ClosureFrame) (captures : List Capture)
     (assigned : List (Binding × Value)) (target : Binding) (value : Value) (index : Nat)
     (low : index < caller.heap.size) :
     ((activate caller frame.declaration captures assigned).write target value).heap[index]? = caller.heap[index]? := by
-  obtain ⟨fresh, fixed⟩ := activate_keeps caller frame captures assigned index low
+  obtain ⟨fresh, fixed⟩ := activate_keeps caller frame.declaration captures assigned index low
   exact (write_low caller.heap.size _ target value fresh index low).2.trans fixed
 
 theorem returned_preserves {seed : Program} {caller : State}
@@ -98,7 +104,7 @@ theorem returned_preserves {seed : Program} {caller : State}
   refine ⟨rfl, ?_⟩
   intro index low
   let active := activate caller frame.declaration captures assigned
-  obtain ⟨fresh, existing⟩ := activate_keeps caller frame captures assigned index low
+  obtain ⟨fresh, existing⟩ := activate_keeps caller frame.declaration captures assigned index low
   let added : Cell := ⟨.function ⟨(EmittedProgram seed rest).size, selected, []⟩, false⟩
   let grown := { active with heap := active.heap.push added }
   have grownFresh : FreshOwned caller.heap.size grown :=
