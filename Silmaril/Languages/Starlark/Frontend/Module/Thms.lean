@@ -72,4 +72,22 @@ theorem denoteCall_calleeError {program : Functions.Program} {available : List F
       .error error next := by
   rw [denoteCall_calleeFirst, failure]
 
+/-- A logical expression tests the left result before evaluating the right.
+The skipped or failing branch returns the exact state reached so far. -/
+theorem denoteLogical_order (program : Functions.Program) (available : List Functions.DeclarationId)
+    (bodyMeaning : ClosureMeaning available) (op : LogicalOp)
+    (left right : Functions.Lowering.Expr) (state : Lists.State) :
+    denoteExprWith program available bodyMeaning (.logical op left right) state =
+      match denoteExprWith program available bodyMeaning left state with
+      | .ok value next =>
+        match Lists.Iteration.truth value next with
+        | .ok flag after =>
+          if (if op = .and then flag else !flag) then
+            denoteExprWith program available bodyMeaning right after
+          else .ok value after
+        | .error error after => .error error after
+      | .error error next => .error error next :=
+  Silmaril.Proofs.Languages.Starlark.Frontend.Module.denoteLogical_order
+    program available bodyMeaning op left right state
+
 end Silmaril.Languages.Starlark.Frontend.Module
