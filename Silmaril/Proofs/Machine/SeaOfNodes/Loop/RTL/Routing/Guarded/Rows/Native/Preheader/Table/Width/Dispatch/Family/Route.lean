@@ -42,6 +42,7 @@ theorem route (rows : Choices captures bank sigs tests) (prog : Prog Reg) (first
     let values := column.read args locals
     ∃ b, StepsNWithin prog [] slot.val ⟨⟨0, first, 0⟩, fr, [], mem⟩
       ⟨⟨0, first + slot.val, 0⟩, fr, [], mem⟩ ∧
+      Fallthrough prog first slot.val fr mem ∧
       prog.block? 0 (first + slot.val) = some b ∧
       b.term.args[0]? = some (1, emitColumn column) ∧
       fr.readAll (emitColumn column) = some (words values) ∧
@@ -61,7 +62,7 @@ theorem route (rows : Choices captures bank sigs tests) (prog : Prog Reg) (first
       exact h
     have fetched : prog.fetch ⟨0, first, 0⟩ = some (.term block.term) := Prog.fetch_term here
     simp only [Choices.select, Choices.column, Fin.val_zero, Nat.add_zero]
-    refine ⟨block, .refl, here, rfl, readColumn_eq column args locals fr reads, ?_⟩
+    refine ⟨block, .refl, fun offset bound => (Nat.not_lt_zero offset bound).elim, here, rfl, readColumn_eq column args locals fr reads, ?_⟩
     simpa only [step, fetched, block] using latch column first
   | @test n selector column tail ih =>
     let block : Block Reg := ⟨[], [], .cond (register selector.address) 1 (emitColumn column) (first + 1) []⟩
@@ -95,13 +96,21 @@ theorem route (rows : Choices captures bank sigs tests) (prog : Prog Reg) (first
         change (if value = 0 then _ else _) = _
         rw [ite_eq_left zero]
       rw [selected]
-      obtain ⟨b, path, hb, operand, packet, transfer⟩ := smaller
+      obtain ⟨b, path, falls, hb, operand, packet, transfer⟩ := smaller
       have address : first + (tail.select (fun origin => read model origin args locals)).succ.val =
           first + 1 + (tail.select (fun origin => read model origin args locals)).val := by
         simp only [Fin.val_succ]
         omega
       rw [address]
-      exact ⟨b, .head ⟨enters, List.nil_suffix⟩ path, hb, operand, packet, transfer⟩
+      refine ⟨b, .head ⟨enters, List.nil_suffix⟩ path, ?_, hb, operand, packet, transfer⟩
+      intro offset bound
+      cases offset with
+      | zero => simpa only [Nat.add_zero] using enters
+      | succ offset =>
+        have inside : offset < (tail.select (fun origin => read model origin args locals)).val := by
+          simp only [Fin.val_succ] at bound
+          omega
+        simpa only [show first + (offset + 1) = first + 1 + offset by omega] using falls offset inside
     · dsimp only
       have selected : (Choices.test selector column tail).select (fun origin => read model origin args locals) = 0 := by
         change (if value = 0 then _ else _) = _
@@ -109,7 +118,7 @@ theorem route (rows : Choices captures bank sigs tests) (prog : Prog Reg) (first
       rw [selected]
       have columnZero : (Choices.test selector column tail).column 0 = column := rfl
       rw [columnZero, Fin.val_zero, Nat.add_zero]
-      refine ⟨block, .refl, here, rfl, readColumn_eq column args locals fr reads, ?_⟩
+      refine ⟨block, .refl, fun offset bound => (Nat.not_lt_zero offset bound).elim, here, rfl, readColumn_eq column args locals fr reads, ?_⟩
       simpa only [step, fetched, block, fromFrame, ite_eq_right zero] using latch column first
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Proofs

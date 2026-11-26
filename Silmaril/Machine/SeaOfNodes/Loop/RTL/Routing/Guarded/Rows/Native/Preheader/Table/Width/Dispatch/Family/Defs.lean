@@ -12,6 +12,7 @@ open Silmaril.Machine.Lir (Word Memory)
 open Silmaril.Machine.RTL (Frame)
 open Silmaril.Machine.RTL.SSA (Block Func Prog StepsNWithin step)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg model)
+open Silmaril.SSA.RVSDG (extend)
 open Silmaril.SSA.SeaOfNodes.Diamond (read)
 open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
 
@@ -134,5 +135,31 @@ def Activation (prog : Prog Reg) (input : WordTuple captures) (fr : Frame Reg) (
       step prog ⟨⟨0, (occurrence slot).1, 0⟩, ready, [], mem⟩ =
         .running ⟨⟨0, 1, 0⟩, latched, [], mem⟩ ∧
       ArgsMatch latched (appendTuple values input)
+
+/-- Skipped dispatchers advance by one occurrence without rebinding any word. -/
+def Fallthrough (prog : Prog Reg) (first count : Nat) (ready : Frame Reg) (mem : Memory) : Prop :=
+  ∀ offset < count, step prog ⟨⟨0, first + offset, 0⟩, ready, [], mem⟩ =
+    .running ⟨⟨0, first + offset + 1, 0⟩, ready, [], mem⟩
+
+/-- Evidence from one actual continuing header and its selected feedback edge. -/
+structure FeedbackCut (prog : Prog Reg) (input : WordTuple captures) (carried : WordTuple bank)
+    (before ready latched : Frame Reg) (mem : Memory) (slot : Fin (tests + 1))
+    (values : WordTuple bank) (block : Block Reg) : Prop where
+  entered : StepsNWithin prog [] (sigs.length + 1)
+    ⟨⟨0, 1, 0⟩, before, [], mem⟩ ⟨⟨0, 3, 0⟩, ready, [], mem⟩
+  continuing : (read model p.primary.predicate (appendTuple carried input)
+    (p.primary.header.eval model (appendTuple carried input) PUnit.unit)).down = true
+  reads : ∀ wire : HeaderWord captures bank sigs,
+    ready.get (register wire.address) = some (read model wire (appendTuple carried input)
+      (p.primary.header.eval model (appendTuple carried input) PUnit.unit))
+  skipped : StepsNWithin prog [] slot.val ⟨⟨0, 3, 0⟩, ready, [], mem⟩
+    ⟨⟨0, (occurrence slot).1, 0⟩, ready, [], mem⟩
+  fallthrough : Fallthrough prog 3 slot.val ready mem
+  found : prog.block? 0 (occurrence slot).1 = some block
+  operand : block.term.args[(occurrence slot).2]? = some (1, emitColumn (p.rows.column slot))
+  packet : ready.readAll (emitColumn (p.rows.column slot)) = some (words values)
+  feedback : step prog ⟨⟨0, (occurrence slot).1, 0⟩, ready, [], mem⟩ =
+    .running ⟨⟨0, 1, 0⟩, latched, [], mem⟩
+  rebound : ArgsMatch latched (appendTuple values input)
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family

@@ -14,7 +14,7 @@ namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Prehe
 
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.RTL (Frame)
-open Silmaril.Machine.RTL.SSA (Prog State StepsNWithin)
+open Silmaril.Machine.RTL.SSA (Block Prog State StepsNWithin)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg model)
 open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
 open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
@@ -90,6 +90,15 @@ theorem checked_activation (mapping : InputMap old new) (p : Source old old entr
     Activation (mapCaptures mapping p) prog input fr mem (p.step (mapping.pull input) carried) :=
   Proofs.checked_activation mapping p accepted input carried fr mem agree
 
+/-- Expose the producer frame, skipped dispatcher steps and exact rebound bank on a continuing visit. -/
+theorem checked_feedback_cut (mapping : InputMap old new) (p : Source old old entrySigs sigs tests)
+    {prog : Prog Reg} (accepted : lowerChecked mapping p = some prog)
+    (input : WordTuple new) (carried : WordTuple old) (fr : Frame Reg) (mem : Memory)
+    (agree : ArgsMatch fr (appendTuple carried input)) (slot : Fin (tests + 1)) (next : WordTuple old)
+    (taken : p.step (mapping.pull input) carried = .inr (slot, next)) :
+    ∃ ready latched block, FeedbackCut (mapCaptures mapping p) prog input carried fr ready latched mem slot next block :=
+  Proofs.checked_feedback_cut mapping p accepted input carried fr mem agree slot next taken
+
 /-- Independent machine fuel and source slot sequences agree through their exact instruction cost. -/
 theorem rtl_runMain_fuel_iff (mapping : InputMap old new) (p : Source old old entrySigs sigs tests)
     {prog : Prog Reg} (accepted : lowerChecked mapping p = some prog)
@@ -107,5 +116,14 @@ theorem rtl_return_iff (mapping : InputMap old new) (p : Source old old entrySig
       ∃ slots value, p.ReturnsAlong (mapping.pull input) slots (p.primary.initial model (mapping.pull input)) value ∧
         returned = [value] ∧ final = initial :=
   Proofs.rtl_return_iff mapping p accepted input initial final returned
+
+/-- Compose the initial producer steps, skipped rows and the selected transfer. -/
+theorem FeedbackCut.path {p : Source captures bank entrySigs sigs tests}
+    {prog : Prog Reg} {input : WordTuple captures} {carried values : WordTuple bank}
+    {before ready latched : Frame Reg} {mem : Memory} {slot : Fin (tests + 1)} {block : Block Reg}
+    (cut : FeedbackCut p prog input carried before ready latched mem slot values block) :
+    StepsNWithin prog [] (sigs.length + 1 + (slot.val + 1))
+      ⟨⟨0, 1, 0⟩, before, [], mem⟩ ⟨⟨0, 1, 0⟩, latched, [], mem⟩ :=
+  Proofs.FeedbackCut.path cut
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family

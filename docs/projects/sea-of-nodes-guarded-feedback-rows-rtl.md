@@ -909,15 +909,67 @@ readback, and unchanged whole memory. A fallthrough preserves the frame
 and transported tuple, so the same relation applies at the next block.
 The three-to-four regression exercises three distinct feedback packets,
 an actually used header result, and refusal when that result is missing
-from the live list. Whole-loop agreement still needs a producer-table
-translation, establishment of the snapshot relation at each header,
-and composition with entry and exit execution.
+from the live list. The prefix theorem below composes these dispatcher
+steps under local producer agreement.
+[Checked regression][table-regression]
+
+### Bounded feedback prefixes
+
+`Family.MLIR.Prefix.predecessor_snapshot` derives the live CF words
+from the real RTL producer frame. `Setup` associates each declared CF
+live origin with its typed native origin at the same RTL register.
+`HeaderMatch` states the local agreement of the supplied producer table
+on the guard and those words at the current carried bank. It requires
+agreement at each visited header. The RTL execution supplies the
+register reads, so subsequent visits rebuild the snapshot from the
+new bank established by the previous Φ latch.
+[Prefix API][cf-prefix]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Thms
+
+open Silmaril.Machine.Lir (Memory)
+open Silmaril.Machine.RTL (Frame)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
+open Silmaril.MLIR.Arith (Width)
+
+example {old new tests : Nat} {rtlEntry rtlHeader : List (List PortTy)}
+    {entrySigs sigs : List (List (Silmaril.SSA.SeaOfNodes.Diamond.Ty Width))}
+    {mapping : InputMap old new} {source : Family.Source old old rtlEntry rtlHeader tests}
+    {g : Family.MLIR.Program new old entrySigs sigs} {wires : Family.MLIR.Live new old sigs}
+    (sys : Family.MLIR.Prefix.Setup mapping source g wires) (input : WordTuple new) (mem : Memory)
+    {slots : List (Fin (tests + 1))} {carried finish : WordTuple old}
+    (path : Family.MLIR.Prefix.Admitted sys input slots carried finish) (frame : Frame Reg)
+    (matched : ArgsMatch frame (appendTuple carried input)) :
+    ∃ after, Family.MLIR.Prefix.Realized sys input mem slots carried frame finish after :=
+  Family.MLIR.Prefix.prefix_correct sys input mem path frame matched
+```
+
+The certificate records the real CF path and RTL instruction path at
+each visit, the reached successor occurrence and complete explicit-Φ
+latch, and the untouched RTL memory. A skipped row forwards the same
+live tuple. `realized_run` consumes `rtlHeader.length + 1 + (i + 1)` RTL
+instructions and `i + 2` CF blocks for feedback slot `i`, leaving
+independent continuation budgets at the new header. The empty prefix
+stops at the input header. Exit equivalence and producer-table
+translation are separate obligations.
+
+In the resized fixture, the first visit takes slot 0 and latches
+`[0, 1, 5]`. That zeros the selector for the next visit, which reaches
+slot 1 and latches `[1, 5, 1]`. The old live tuple fails the snapshot relation against
+the second real RTL dispatcher frame. The examples execute both
+bounded programs, including the subsequent return.
 [Checked regression][table-regression]
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
   +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms \
   +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms \
+  +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Thms \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Regression \
@@ -953,3 +1005,4 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 [cf-scope]: ../../Silmaril/SSA/MLIR/CF/Basic/Defs.lean
 [cf-word-ops]: sea-of-nodes-loop-mlir-cf.md#signed-i64-operations-shared-with-rtl
 [cf-dispatch]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Thms.lean
+[cf-prefix]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Thms.lean
