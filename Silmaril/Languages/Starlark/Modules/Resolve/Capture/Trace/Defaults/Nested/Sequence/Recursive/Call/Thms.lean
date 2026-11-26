@@ -1,0 +1,98 @@
+module
+
+public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Defs
+public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Thms
+public import Silmaril.Languages.Starlark.Functions.Lowering.Denotation.Thms
+import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Execution
+
+public section
+
+namespace Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call
+
+open Assignment (LexicalBlock)
+open Functions
+open Functions.Lowering.Resolve (resolveTracked)
+open Lists (State Outcome Capture)
+open Lists.Iteration (finishState)
+
+local notation "NormalizedExpr" => Lowering.Resolve.SourceExpr
+
+/-- The checked resolver sees the local callee first and the argument reads in order. -/
+theorem resolves {block : LexicalBlock} {name : String}
+    {arguments : List NormalizedExpr} {codes : List Lowering.Expr} {reads : List Binding}
+    (legal : name.toList.head? ≠ some '$') (owned : name ∈ block.owned)
+    (related : Arguments block arguments codes reads) :
+    resolveTracked block.context (.call (.scalar (.read name)) arguments [] none none) =
+      .ok (expression name codes, fileSlot name :: reads) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.resolves
+    legal owned related
+
+/-- Argument evaluation stops at the first error and keeps existing heap cells. -/
+theorem arguments_total {block : LexicalBlock}
+    {arguments : List NormalizedExpr} {codes : List Lowering.Expr} {reads : List Binding}
+    (related : Arguments block arguments codes reads) (state : State) :
+    ∃ out, Evaluates block state arguments codes out ∧ Body.Keeps state.heap.size state (finishState out) ∧
+      (∀ values final, out = .ok values final → values.length = codes.length) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.arguments_total
+    related state
+
+/-- A reached callee error skips every operand and activation. -/
+theorem callee_error {parent block : LexicalBlock} (site : Site parent) (id : DeclarationId)
+    (program : Program) (available : List DeclarationId) {name : String}
+    (owned : name ∈ block.owned) (arguments : List NormalizedExpr) (codes : List Lowering.Expr)
+    {state : State} {error : Lists.Error}
+    (failed : state.bindingValue (fileSlot name) = .error error) :
+    Runs site block id name arguments codes state (.error error state) ∧
+      ExecExpr program available state (expression name codes) (.error error state) ∧
+      Lowering.denoteExpr program available (expression name codes) state = .error error state :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.callee_error
+    site id program available owned arguments codes failed
+
+/-- A source callee read and the record at its evaluated address suffice
+for exact checked positional binding and execution of the recursive body. -/
+theorem runs {parent block : LexicalBlock} (site : Site parent) {seed final : Program} {emissions : Emissions}
+    (profile : Elaborates site.block site.source seed site.body final emissions)
+    {commands : List Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved) (table : PreservesDeclarations final resolved.program)
+    (id : DeclarationId) (found : resolved.program[id]? = some site.declaration)
+    (available : List DeclarationId) (permitted : id ∈ available)
+    {name : String} {state defining : State} {address : Nat}
+    (callee : Body.Evaluates block state (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
+      (.ok (.function address) state))
+    (record : ClosureAt site id defining state address)
+    {arguments : List NormalizedExpr} {codes : List Lowering.Expr} {reads : List Binding}
+    (related : Arguments block arguments codes reads) :
+    ∃ out, Runs site block id name arguments codes state out ∧
+      ExecExpr resolved.program available state (expression name codes) out ∧
+      Lowering.denoteExpr resolved.program available (expression name codes) state = out :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.runs
+    site profile checked table id found available permitted callee record related
+
+/-- Derive the live call target from a reached definition and an immediate
+local copy. Earlier operand allocations survive binding or body failure. -/
+theorem runs_installed_alias {parent : LexicalBlock} (site : Site parent)
+    {seed final : Program} {emissions : Emissions}
+    (profile : Elaborates site.block site.source seed site.body final emissions)
+    {commands : List Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved) (table : PreservesDeclarations final resolved.program)
+    (id : DeclarationId) (found : resolved.program[id]? = some site.declaration)
+    (available : List DeclarationId) (permitted : id ∈ available)
+    {defining installed : State} {captures : List Capture}
+    (step : Nested.SiteResult parent site.name site.parameters site.defaults id captures defining (.ok .next installed))
+    (receipts : Installs defining site.free captures) (cells : Body.CaptureCells defining captures)
+    {name : String} (owned : name ∈ parent.owned) (legal : name.toList.head? ≠ some '$')
+    {free : List FreeName} {floor : Nat} (frame : Body.Frame parent free floor installed)
+    {arguments : List NormalizedExpr} {codes : List Lowering.Expr} {reads : List Binding}
+    (related : Arguments parent arguments codes reads) :
+    ∃ address out, Body.Evaluates parent installed (.scalar (.read site.name)) (Leaf.readOperand (fileSlot site.name))
+        (.ok (.function address) installed) ∧
+      (let copied := installed.write (fileSlot name) (.function address)
+       (Lowering.Resolve.resolveTracked parent.context (.call (.scalar (.read name)) arguments [] none none) =
+          .ok (expression name codes, fileSlot name :: reads)) ∧
+       Runs site parent id name arguments codes copied out ∧
+       ExecExpr resolved.program available copied (expression name codes) out ∧
+       Lowering.denoteExpr resolved.program available (expression name codes) copied = out) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.runs_installed_alias
+    site profile checked table id found available permitted step receipts cells owned legal frame related
+
+end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call

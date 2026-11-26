@@ -853,14 +853,50 @@ Lean checks the forwarded addresses and the retained relay
 closure and earlier list allocation after an index error. That error
 skips the rest of the suite and the later module invocations.
 
-The proof covers straight-line lexical assignments, returns and
+The suite proof covers straight-line lexical assignments, returns and
 nested definitions with the bounded positional default operands.
-Connecting argument preparation and escaped callee provenance to calls
-inside the independent suite, and integrating the resulting trace
-with module dispatch and publication, remain open. Wider operands,
-arbitrary callable provenance, keywords and spreads, loads, and text
-parsing are outside this integration.
-[Execution theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Thms.lean) · [Alias operand theorem](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
+[Execution theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Thms.lean) · [Alias operand theorem](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Thms.lean)
+
+### Positional calls through a local closure
+
+`Defaults.Nested.Sequence.Recursive.Call` connects an owned local
+callee read to execution of its checked positional call. Its
+`Arguments` judgment elaborates each operand in the caller's lexical
+block. `resolves` proves the normalized resolver returns that code and
+records the callee read before the argument reads. The runtime rules
+evaluate the callee first, then evaluate positional operands once in
+order. The argument profile is the existing lexical reads, integers,
+indexing and singleton list displays.
+
+`runs_installed_alias` gets the function address and actual closure
+record from a reached definition and an immediate owned-name copy.
+It derives the saved-default count and live capture cells from
+installation. Operand evaluation retains the loaded record and those
+cells. The independent binder reads the saved defaults from that
+record, then uses the emitted declaration and original captures to
+activate the callee. The whole-suite theorem supplies the callee
+execution under the reduced declaration set. Resolved execution and
+denotation agree on the exact result or error and state, including
+caller restoration after activation. An operand error skips binding
+and activation. A binding error leaves the state reached after the
+operands, including their allocations.
+
+The controls call a grandchild through a local alias in an escaped
+relay. The omitted parameter uses the saved default and the
+grandchild reads the original forwarded index cell. A reached index
+error takes precedence over surplus arity, while successfully
+evaluated surplus operands yield an arity error. Lean checks that
+both errors retain the reached lists and add no callee frame. Pinned
+Go checks the observable result and error ordering.
+
+This is an expression-level call theorem for a known live local
+closure with a recursively elaborated body in the existing suite
+fragment. It takes that body's declaration lookup in a checked
+table and membership in the available declaration set. General
+callee provenance, calls inside the independent recursive suite
+judgment, wider operands, keywords and spreads, general dispatch,
+loads, text parsing, and module publication remain open.
+[Call rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
 
 ## Finite-manifest loader
 

@@ -19,7 +19,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body
 open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Functions.Lowering.Resolve
 
-private theorem resolves_at {block : LexicalBlock} {source : SourceExpr} {code : Lowering.Expr}
+theorem resolves_at {block : LexicalBlock} {source : SourceExpr} {code : Lowering.Expr}
     {reads : List Binding} (operand : Operand block source code reads) (initial : List Binding) :
     resolveExpr block.context source initial = .ok (code, reads.reverse ++ initial) := by
   induction operand generalizing initial with

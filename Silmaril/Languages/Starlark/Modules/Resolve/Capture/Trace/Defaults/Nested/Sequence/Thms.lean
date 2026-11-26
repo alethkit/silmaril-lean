@@ -74,6 +74,24 @@ theorem runs {block : LexicalBlock} {source : Statement} {seed final : Program} 
 
 /-- In the supported copy assignment, reading the alias as a later
 callee operand yields the very closure installed by the definition. -/
+theorem reads_installed_alias_defaults {block : LexicalBlock} {name aliasName : String} {parameters : Parameters}
+    {items : List PlainPositionalDefault} {id : DeclarationId} {captures : List Lists.Capture}
+    {start installed : State} {free : List FreeName} {floor : Nat}
+    (target : name ∈ block.owned) (destination : aliasName ∈ block.owned)
+    (frame : Body.Frame block free floor installed)
+    (result : Nested.SiteResult block name parameters items id captures start (.ok .next installed)) :
+    ∃ address saved evaluated,
+      Lexical.Evaluates block start items (.ok saved evaluated) ∧
+      Body.Evaluates block installed (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
+        (.ok (.function address) installed) ∧
+      (let copied := installed.write (fileSlot aliasName) (.function address)
+       Body.Evaluates block copied (.scalar (.read aliasName)) (Leaf.readOperand (fileSlot aliasName))
+          (.ok (.function address) copied) ∧
+        copied.heap[address]? = some ⟨.function ⟨id, captures,
+          (parameters.optional.map (fileSlot ∘ Prod.fst)).zip saved⟩, false⟩) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.reads_installed_alias_defaults
+    target destination frame result
+
 theorem reads_installed_alias {block : LexicalBlock} {name aliasName : String} {parameters : Parameters}
     {items : List PlainPositionalDefault} {id : DeclarationId} {captures : List Lists.Capture}
     {start installed : State} {free : List FreeName} {floor : Nat}
