@@ -231,6 +231,36 @@ func checkConversionOverflow() {
 	fmt.Println("PASS Go rejects conversion overflow and admits explicit or arithmetic infinity")
 }
 
+type sequenceCase struct {
+	name        string
+	op          syntax.Token
+	left, right starlark.Value
+	want        bool
+	depthError  bool
+}
+
+func checkSequenceCases(cases []sequenceCase) {
+	for _, tc := range cases {
+		var got bool
+		var err error
+		if tc.op == syntax.IN || tc.op == syntax.NOT_IN {
+			var value starlark.Value
+			value, err = starlark.Binary(tc.op, tc.left, tc.right)
+			if value != nil {
+				got = value == starlark.True
+			}
+		} else {
+			got, err = starlark.Compare(tc.op, tc.left, tc.right)
+		}
+		if tc.depthError {
+			require(err != nil && strings.Contains(err.Error(), "comparison exceeded maximum recursion depth"),
+				fmt.Sprintf("%s: want depth error, got %v", tc.name, err))
+		} else {
+			require(err == nil && got == tc.want, fmt.Sprintf("%s: got %v (%v)", tc.name, got, err))
+		}
+	}
+}
+
 func checkTupleComparison() {
 	boundary := starlark.MakeInt64(1 << 53)
 	zero, one := starlark.MakeInt(0), starlark.MakeInt(1)
@@ -254,13 +284,7 @@ func checkTupleComparison() {
 	nine, nineFloat := wrap(9, zero), wrap(9, negZero)
 	ten, tenFloat := starlark.Tuple{nine}, starlark.Tuple{nineFloat}
 	list := starlark.NewList([]starlark.Value{one})
-	for _, tc := range []struct {
-		name        string
-		op          syntax.Token
-		left, right starlark.Value
-		want        bool
-		depthError  bool
-	}{
+	checkSequenceCases([]sequenceCase{
 		{"nested numeric aliases", syntax.EQL, left, right, true, false},
 		{"int around 2^53", syntax.NEQ, left, larger, true, false},
 		{"mixed numeric membership", syntax.IN, left, starlark.Tuple{larger, right}, true, false},
@@ -275,27 +299,66 @@ func checkTupleComparison() {
 		{"first hit before deep candidate", syntax.NOT_IN, nineFloat, starlark.Tuple{nine, ten}, false, false},
 		{"reached membership depth", syntax.IN, tenFloat, starlark.Tuple{ten}, false, true},
 		{"negated membership preserves error", syntax.NOT_IN, tenFloat, starlark.Tuple{ten}, false, true},
-		{"Go also compares lists within tuples", syntax.EQL, starlark.Tuple{list}, starlark.Tuple{list}, true, false},
-	} {
-		var got bool
-		var err error
-		if tc.op == syntax.IN || tc.op == syntax.NOT_IN {
-			var value starlark.Value
-			value, err = starlark.Binary(tc.op, tc.left, tc.right)
-			if value != nil {
-				got = value == starlark.True
-			}
-		} else {
-			got, err = starlark.Compare(tc.op, tc.left, tc.right)
-		}
-		if tc.depthError {
-			require(err != nil && strings.Contains(err.Error(), "comparison exceeded maximum recursion depth"),
-				fmt.Sprintf("%s: want depth error, got %v", tc.name, err))
-		} else {
-			require(err == nil && got == tc.want, fmt.Sprintf("%s: got %v (%v)", tc.name, got, err))
-		}
-	}
+		{"lists within tuples", syntax.EQL, starlark.Tuple{list}, starlark.Tuple{list}, true, false},
+	})
 	fmt.Println("PASS tuple equality, membership, key coherence, short-circuit and Go comparison depth controls")
+}
+
+func checkListComparison() {
+	list := func(fields ...starlark.Value) *starlark.List { return starlark.NewList(fields) }
+	zero, one, two := starlark.MakeInt(0), starlark.MakeInt(1), starlark.MakeInt(2)
+	negZero := fromBits(0x8000000000000000)
+	ints := list(starlark.MakeInt64(1<<53), zero, fromBits(0x7ff8000000000021))
+	floats := list(fromBits(0x4340000000000000), negZero, fromBits(0xfff0000000000001))
+	left, right := list(starlark.Tuple{ints}), list(starlark.Tuple{floats})
+
+	cycle, different, separate := list(zero), list(one), list(zero)
+	for _, x := range []*starlark.List{cycle, different, separate} {
+		require(x.Append(x) == nil, "self-cycle construction failed")
+	}
+	mixedCycle := list()
+	require(mixedCycle.Append(starlark.Tuple{mixedCycle}) == nil, "mixed cycle construction failed")
+
+	wrap := func(leaf starlark.Value) starlark.Value {
+		for i := range 9 {
+			if i%2 == 0 {
+				leaf = list(leaf)
+			} else {
+				leaf = starlark.Tuple{leaf}
+			}
+		}
+		return leaf
+	}
+	nine, nineFloat := wrap(zero), wrap(negZero)
+	ten, tenFloat := starlark.Tuple{nine}, starlark.Tuple{nineFloat}
+	checkSequenceCases([]sequenceCase{
+		{"numeric aliases through list and tuple", syntax.EQL, left, right, true, false},
+		{"mixed nested list membership", syntax.IN, left, list(list(), right), true, false},
+		{"list and tuple have different types", syntax.NEQ, left, starlark.Tuple{starlark.Tuple{ints}}, true, false},
+		{"bool and int list leaves", syntax.NEQ, list(starlark.False), list(zero), true, false},
+		{"Go admits dictionary leaves", syntax.EQL, list(starlark.NewDict(0)), list(starlark.NewDict(0)), true, false},
+		{"NaN compares equal in an aliased list", syntax.EQL, ints, ints, true, false},
+		{"length mismatch skips a cycle", syntax.EQL, cycle, list(cycle), false, false},
+		{"first field skips a cycle", syntax.EQL, cycle, different, false, false},
+		{"separate cycles exhaust the budget", syntax.EQL, cycle, separate, false, true},
+		{"self-cycle has no identity shortcut", syntax.EQL, cycle, cycle, false, true},
+		{"mixed self-cycle negation preserves failure", syntax.NEQ, mixedCycle, mixedCycle, false, true},
+		{"membership reaches a cycle", syntax.IN, cycle, list(cycle), false, true},
+		{"list membership exhaustion", syntax.NOT_IN, one, list(zero, starlark.False), true, false},
+		{"mixed nesting at the limit", syntax.EQL, nine, nineFloat, true, false},
+		{"mixed nesting exceeds the limit", syntax.EQL, ten, tenFloat, false, true},
+		{"first mismatch skips depth exhaustion", syntax.EQL, list(zero, ten), list(one, tenFloat), false, false},
+		{"list membership restarts the budget", syntax.IN, nineFloat, list(nine), true, false},
+		{"negated list membership preserves depth error", syntax.NOT_IN, tenFloat, list(ten), false, true},
+	})
+
+	actual, expected := list(one), list(one, two)
+	checkSequenceCases([]sequenceCase{{"before mutation", syntax.EQL, actual, expected, false, false}})
+	value, err := starlark.Eval(&starlark.Thread{}, "list-comparison.star",
+		`actual == (actual.append(2), expected)[1]`, starlark.StringDict{"actual": actual, "expected": expected})
+	require(err == nil && value == starlark.True && actual.Len() == 2 && actual.Index(1) == two,
+		fmt.Sprintf("comparison after right operand mutation: %v (%v)", value, err))
+	fmt.Println("PASS list equality and membership, mixed nesting, live mutation, and cycle depth including aliases")
 }
 
 func main() {
@@ -304,5 +367,6 @@ func main() {
 	checkNumericDictionaryUpdates()
 	checkScalarComparison()
 	checkTupleComparison()
+	checkListComparison()
 	checkConversionOverflow()
 }
