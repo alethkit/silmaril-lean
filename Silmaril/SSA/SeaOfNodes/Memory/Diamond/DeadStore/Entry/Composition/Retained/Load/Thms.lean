@@ -11,8 +11,27 @@ open RVSDG (Locals Tuple)
 open SeaOfNodes.Diamond (Projection)
 open Silmaril.MLIR.MemRef (Buffer)
 open Discovery.MemRef.CF (entryTransition run)
+open Memory.DeadStore.Search.Selection.Readers.Repeat (DeletesStores operations)
 
 variable {args : List ValueSort} {cells : Nat}
+
+/-- A checked suffix keeps its scalar result and commutes with the
+nominated write on the entire heap, at any typed local environment. -/
+theorem tail_transfer {past : List (List ValueSort)} {live : Nat} (tail : Memory.Body args past live)
+    (selected : PrefixStore args) (input : Tuple (Val cells) args) (safe : checkTail selected input tail = true)
+    (locals : Locals (Val cells) past) (initial : Heap cells) :
+    let retained := tail.denote input locals initial
+    tail.denote input locals (selected.table.denote input initial).2 =
+      (retained.1, (selected.table.denote input retained.2).2) :=
+  Proofs.tail_transfer tail selected input safe locals initial
+
+/-- Exactly the nominated Store is cut. Every retained operation keeps
+its typed scalar operands and relative order. -/
+theorem cut_operations {past : List (List ValueSort)} {live version : Nat}
+    {body retained : Memory.Body args past live} {selected : PrefixStore args}
+    (input : Tuple (Val cells) args) (accepted : cut version input body = some (selected, retained)) :
+    DeletesStores 1 (operations body) (operations retained) :=
+  (Proofs.cut_preserves input accepted).1
 
 /-- The checked cut preserves the suffix's scalar result. Replaying only
 the selected Store on the retained heap recovers the complete source heap. -/
@@ -22,7 +41,7 @@ theorem cut_denote {past : List (List ValueSort)} {live version : Nat}
     (locals : Locals (Val cells) past) (initial : Heap cells) :
     let result := retained.denote input locals initial
     body.denote input locals initial = (result.1, (selected.table.denote input result.2).2) :=
-  Proofs.cut_denote input accepted locals initial
+  (Proofs.cut_preserves input accepted).2 locals initial
 
 /-- Success requires both the native entry cut and the existing two-route check. -/
 theorem rewrite_checked {graph : Graph args} {entry : Memory.Graph args} {edit : Retained.Edit args} {version : Nat}
@@ -39,7 +58,7 @@ theorem lower_refused (graph : Graph args) (entry : Memory.Graph args) (version 
   simp only [lower, refused]
 
 /-- The optimized entry emits the original Region frame and the full
-buffer of the actual retained table, including its Load-dependent write. -/
+buffer of the actual retained table. -/
 theorem lower_retained_entry (graph : Graph args) (entry : Memory.Graph args) (version : Nat)
     (input : Tuple (Val cells) args) {edit : Retained.Edit args}
     (accepted : rewrite graph (Entry.lowerRepeated graph entry input).entry version input = some edit)

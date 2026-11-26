@@ -2,7 +2,6 @@ module
 
 public import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Defs
 import Silmaril.SSA.SeaOfNodes.Memory.Thms
-import Silmaril.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Thms
@@ -14,50 +13,60 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Proofs
 
 open RVSDG (Locals Tuple)
-open Memory.Forwarding.Disjoint (Certificate cell)
+open Memory.Forwarding.Disjoint (cell)
 open Silmaril.MLIR.MemRef (Buffer)
 open Discovery.MemRef.CF (lowerDiamond lowerDiamond_entryTransition lowerDiamond_run entryTransition run)
+open Memory.DeadStore.Search.Selection.Readers.Repeat (DeletesStores operations reindex_operations)
 open Memory.DeadStore.Search.Selection.Readers.Repeat renaming rewrite_denote → repeatDenote
 
 variable {args : List ValueSort} {cells : Nat}
 
-private theorem tail_transfer {past : List (List ValueSort)} {live : Nat} (tail : Memory.Body args past live)
+theorem tail_transfer {past : List (List ValueSort)} {live : Nat} (tail : Memory.Body args past live)
     (selected : PrefixStore args) (input : Tuple (Val cells) args) (safe : checkTail selected input tail = true)
     (locals : Locals (Val cells) past) (initial : Heap cells) :
     let retained := tail.denote input locals initial
     tail.denote input locals (selected.table.denote input initial).2 =
       (retained.1, (selected.table.denote input retained.2).2) := by
-  unfold checkTail at safe
-  split at safe
-  next _ _ _ reader writer stored returned _ _ _ =>
-    let facts : Certificate args := ⟨selected.address, [reader, writer]⟩
-    have valid := (facts.check_iff_valid input).mp safe
-    have readSafe := valid reader List.mem_cons_self
-    have writeSafe := valid writer (List.mem_cons_of_mem _ List.mem_cons_self)
-    let written := initial.write (cell input selected.address) (input.get selected.value)
-    let withRead (heap : Heap cells) : Locals (Val cells) ([.word] :: past) :=
-      (.cons (heap.read (cell input reader)) .nil, locals)
-    have same : withRead written = withRead initial :=
-      congrArg (fun value : Word => ((.cons value .nil, locals) : Locals (Val cells) ([.word] :: past)))
-        (initial.read_write_other (cell input selected.address) (cell input reader)
-          (input.get selected.value) readSafe.symm)
-    let word := readValue stored input (withRead initial)
-    change (readValue returned input (withRead written),
-        written.write (cell input writer) (readValue stored input (withRead written))) =
-      (readValue returned input (withRead initial),
-        (initial.write (cell input writer) word).write (cell input selected.address) (input.get selected.value))
-    rw [same]
-    exact congrArg (fun heap : Heap cells => (readValue returned input (withRead initial), heap))
-      (Function.update_comm (β := fun _ : Address cells => Word) writeSafe (input.get selected.value) word initial)
-  next => contradiction
+  induction tail generalizing initial with
+  | ret => rfl
+  | load _ address rest ih =>
+    cases address with
+    | output => contradiction
+    | arg reader =>
+      obtain ⟨distinct, safeRest⟩ := Bool.and_eq_true_iff.mp safe
+      have readSafe : cell input selected.address ≠ cell input reader := of_decide_eq_true distinct
+      let written := (selected.table.denote input initial).2
+      have same : written.read (cell input reader) = initial.read (cell input reader) :=
+        initial.read_write_other (cell input selected.address) (cell input reader)
+          (input.get selected.value) readSafe.symm
+      change rest.denote input (.cons (written.read (cell input reader)) .nil, locals) written = _
+      rw [same]
+      exact ih safeRest (.cons (initial.read (cell input reader)) .nil, locals) initial
+  | store _ address value rest ih =>
+    cases address with
+    | output => contradiction
+    | arg writer =>
+      obtain ⟨distinct, safeRest⟩ := Bool.and_eq_true_iff.mp safe
+      have writeSafe : cell input selected.address ≠ cell input writer := of_decide_eq_true distinct
+      let word := readValue value input locals
+      let updated := initial.write (cell input writer) word
+      have commute :
+          ((selected.table.denote input initial).2).write (cell input writer) word =
+            (selected.table.denote input updated).2 :=
+        Function.update_comm (β := fun _ : Address cells => Word)
+          writeSafe (input.get selected.value) word initial
+      change rest.denote input locals (((selected.table.denote input initial).2).write (cell input writer) word) = _
+      rw [commute]
+      exact ih safeRest locals updated
 
-theorem cut_denote {past : List (List ValueSort)} {live : Nat} {version : Nat}
+theorem cut_preserves {past : List (List ValueSort)} {live version : Nat}
     {body retained : Memory.Body args past live} {selected : PrefixStore args}
-    (input : Tuple (Val cells) args) (accepted : cut version input body = some (selected, retained))
-    (locals : Locals (Val cells) past) (initial : Heap cells) :
-    let result := retained.denote input locals initial
-    body.denote input locals initial = (result.1, (selected.table.denote input result.2).2) := by
-  induction body generalizing initial with
+    (input : Tuple (Val cells) args) (accepted : cut version input body = some (selected, retained)) :
+    DeletesStores 1 (operations body) (operations retained) ∧
+      ∀ (locals : Locals (Val cells) past) (initial : Heap cells),
+        let result := retained.denote input locals initial
+        body.denote input locals initial = (result.1, (selected.table.denote input result.2).2) := by
+  induction body with
   | ret => contradiction
   | load => contradiction
   | @store _ live _ address value rest ih =>
@@ -72,12 +81,20 @@ theorem cut_denote {past : List (List ValueSort)} {live : Nat} {version : Nat}
         · split at accepted
           next safe =>
             cases Option.some.inj accepted
-            rw [Memory.DeadStore.reindexMemory_denote]
-            exact tail_transfer rest ⟨address, word⟩ input safe locals initial
+            constructor
+            · change DeletesStores 1 (.store (.arg address) (.arg word) :: operations rest)
+                (operations (Memory.DeadStore.reindexMemory rest live))
+              rw [reindex_operations]
+              exact .drop (.arg address) (.arg word) (DeletesStores.refl _)
+            · intro locals initial
+              rw [Memory.DeadStore.reindexMemory_denote]
+              exact tail_transfer rest ⟨address, word⟩ input safe locals initial
           next => contradiction
         · obtain ⟨⟨candidate, tail⟩, checked, packed⟩ := Option.map_eq_some_iff.mp accepted
           cases packed
-          exact ih checked locals (initial.write (cell input address) (input.get word))
+          obtain ⟨order, transfer⟩ := ih checked
+          exact ⟨.keep (.store (.arg address) (.arg word)) order,
+            fun locals initial => transfer locals (initial.write (cell input address) (input.get word))⟩
 
 variable {graph : Graph args} {entry : Memory.Graph args} {edit : Retained.Edit args} {version : Nat}
 
@@ -94,7 +111,7 @@ theorem rewrite_denote (input : Tuple (Val cells) args) (accepted : rewrite grap
       graph.denote guard input (entry.denote input initial).2 := by
   obtain ⟨_, checked, discovered⟩ := rewrite_checked input accepted
   exact (Discovery.rewrite_denote input discovered guard _).trans
-    (congrArg (graph.denote guard input) (congrArg Prod.snd (cut_denote input checked PUnit.unit initial)).symm)
+    (congrArg (graph.denote guard input) (congrArg Prod.snd ((cut_preserves input checked).2 PUnit.unit initial)).symm)
 
 theorem lower_retained_entry (graph : Graph args) (entry : Memory.Graph args) (version : Nat)
     (input : Tuple (Val cells) args)

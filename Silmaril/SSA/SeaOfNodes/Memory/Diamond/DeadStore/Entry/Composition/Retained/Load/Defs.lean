@@ -2,24 +2,28 @@ module
 
 public import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Defs
 
-/-! Check a Load and a retained Store after the nominated entry Store. -/
+/-! Check the ordered Load and Store suffix after the nominated entry Store. -/
 
 @[expose] public section
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load
 
 open RVSDG (Tuple)
-open Memory.Forwarding.Disjoint (Certificate)
+open Memory.Forwarding.Disjoint (cell)
 open Discovery.MemRef.CF (lowerDiamond)
 
 variable {args : List ValueSort} {cells : Nat}
 
-/-- The suffix is one Load, one Store, and Return. Both memory operations
-use original address arguments and must be disjoint from the nominated cell. -/
+/-- Check every suffix memory operation at the supplied scalar input.
+Only original address arguments are admitted. Store data and Return may
+use any in-scope word, including the result of a retained Load. -/
 def checkTail (selected : PrefixStore args) (input : Tuple (Val cells) args) :
     {past : List (List ValueSort)} → {live : Nat} → Memory.Body args past live → Bool
-  | _, _, .load _ (.arg reader) (.store _ (.arg writer) _ (.ret _ _)) =>
-    (Certificate.mk selected.address [reader, writer]).check input
+  | _, _, .ret _ _ => true
+  | _, _, .load _ (.arg reader) rest =>
+    decide (cell input selected.address ≠ cell input reader) && checkTail selected input rest
+  | _, _, .store _ (.arg writer) _ rest =>
+    decide (cell input selected.address ≠ cell input writer) && checkTail selected input rest
   | _, _, _ => false
 
 /-- Cut the nominated one-based Store version after an argument-Store prefix.
