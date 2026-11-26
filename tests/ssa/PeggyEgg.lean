@@ -4,6 +4,7 @@ import Silmaril.SSA.PEG.Builder
 import Silmaril.SSA.Peggy.Optimizer.Cyclic.Thms
 import Silmaril.SSA.PEG.Rules.Thms
 import Silmaril.SSA.PEG.Semantics.Thms
+import Silmaril.SSA.PEG.Semantics.Reindex.Defs
 import Silmaril.SSA.Peggy.Bridge.Figure11.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
@@ -19,12 +20,14 @@ import Silmaril.SSA.Peggy.Worked.StrengthReduction.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Thms
 import Silmaril.SSA.PEG.Simple.Revert.Schedule.Thms
-import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Cuts.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Siblings.Thms
 import Silmaril.SSA.PEG.Simple.Thms
 import Silmaril.SSA.PEG.Projection.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Cuts.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Siblings.Defs
+meta import Silmaril.SSA.PEG.Semantics.Reindex.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Cyclic.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Selection.Legality.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
@@ -2397,6 +2400,56 @@ private def runFromPermutedRoots : Option (List Nat) := do
 #guard match Cuts.synthesize graph (.counted roles) rank
     ⟨inputs, outputs, pair (r 6 rfl) (r 7 rfl), graph.roots⟩ with
   | .error .loopShape => true
+  | _ => false
+
+private def graphOnly (original : Graph Op inputs outputs 16 2) (ranking : DemandRank 16 2)
+    (budget : Nat) :=
+  Simple.Revert.Schedule.Automatic.Siblings.discover original roles ranking budget
+
+-- The seed (7) is forwarded by the first stage. Its own output (8)
+-- drives the second guard and is also part of the final return.
+#guard match Simple.Revert.Schedule.Automatic.Siblings.inferBoundaries graph with
+  | .ok [a, b] =>
+    refNumbers a.inputs == [6, 7] && refNumbers a.outputs == [7, 8] &&
+      refNumbers b.inputs == [7, 8] && refNumbers b.outputs == [8, 13, 15]
+  | _ => false
+
+private def runGraphOnly :
+    Option {a : Found graph (.counted roles) rank //
+      Exec model a.gate.val.plan.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ i, graph.observe model (graph.denote model (input 2) a.gate.val.demandWellFounded) i =
+        four (some ⟨13⟩) (some ⟨3⟩) (some ⟨3⟩) (some ⟨13⟩)} := do
+  let .ok a := graphOnly graph rank 2 | none
+  match ran : a.gate.val.plan.runFuel model 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    let exec := a.gate.val.plan.exec_of_runFuel 3 ran
+    return ⟨a, exec, fun i => (a.observations_of_exec laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard runGraphOnly.isSome
+
+private def runGraphOnlyRenumbered : Option (List Nat) := do
+  let keys : Equiv.Perm (Fin 2) := Equiv.swap 0 1
+  let original := (graph.withRoots (four (r 8 rfl) (r 15 rfl) (r 15 rfl) (r 8 rfl))).reindex (Equiv.refl _) keys
+  let .ok a := graphOnly original (rank.reindex (Equiv.refl _) keys) 2 | none
+  let .cons x (.cons y (.cons z (.cons w .nil))) ← a.gate.val.plan.runFuel model 3 (input 2)
+  return [x.down, y.down, z.down, w.down]
+
+#guard runGraphOnlyRenumbered == some [3, 13, 13, 3]
+
+-- The second guard now consumes the live recurrence instead of a
+-- completed readout. It has the same sort and still passes the rank.
+private def liveSiblingCapture : Graph Op inputs outputs 16 2 :=
+  { graph with node := fun i =>
+      if bad : i = 12 then bad.symm ▸ Node.ofLabel (.op .atLeast) (pair (r 9 rfl) (r 0 rfl))
+      else graph.node i }
+
+#guard rank.check liveSiblingCapture
+#guard match graphOnly liveSiblingCapture rank 2 with
+  | .error (.iterationValue 0) => true
+  | _ => false
+#guard match graphOnly graph rank 1 with
+  | .error (.checkedCuts (.schedule .budget)) => true
   | _ => false
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Tests
