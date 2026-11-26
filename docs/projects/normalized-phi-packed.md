@@ -242,3 +242,46 @@ assignment. Other checks cover an entry split and reject a stale key and
 parallel branches. The fixtures supply any version-zero slots required by
 the cyclic versioner's packet layout in both capture profiles.
 [Fixtures](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)
+
+## Generating split admissions
+
+`Split.generate` starts with the original typed admission, its finite
+arrival certificate, and the split plan. The admission retains a
+well-formedness proof. The caller supplies the old arrival table because the
+proof alone does not retain that executable data. The generated certificate
+renames the old claims. When the original destination has a claim, the new
+forwarding block claims both those names and the free reads of the selected
+φ column. The selected predecessor had to supply both at the original edge.
+An omitted destination claim leaves the forwarding block outside the
+certificate too. The existing target checker verifies the arrival claims
+and global SSA definition uniqueness. The declared SSA inputs are only renamed.
+[Generator](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Admission/Defs.lean)
+
+The versioner computes a common register support from syntactic free reads.
+Moving the chosen φ column can make a formerly local operand free in the
+forwarding block. The lexical entry can then require its version-zero
+value for the common packet, even before the source evaluator uses that
+register. Generation reads the old packet-cell types from the admitted
+block profiles and recovers the moved operand types from the destination's
+φ payload. It rebuilds the block packets in the actual split support order,
+using a unit φ payload for the forwarding block. It appends missing
+version-zero capture slots without moving or changing the original slots.
+The new slots read the same source store through the register equivalence.
+
+Every returned result has passed target normalization, global SSA,
+elaboration, exact typing and pure closure. The capture embedding proves
+type and store-projection agreement for all original positions.
+`Generated.packed_eq` uses the generated pure closure and the original
+pure closure with a shared primitive interpretation. It permits the two
+packed capture records to have different lengths.
+[Capture and execution theorems](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Admission/Thms.lean)
+
+Generation is partial. It needs a decodable original packet profile and
+compatible types in the generated register packets. Existing capture slots
+keep their types, even if the original entry ignored them. The regression
+shows that plain capture renaming can fail elaboration and that an unused
+original capture with the wrong type for a new read causes generation to
+reject. From just the two seed captures, generation adds the two required
+slots and proves the visible packed swap. The distinct latch fixture
+reuses all original slots and the entry-edge fixture also generates a closure.
+[Regressions](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)
