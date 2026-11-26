@@ -37,7 +37,7 @@ private theorem positioned {codes : List Lowering.Expr} {values : List Value} (s
   simpa only [List.append_nil] using Lowering.Expands.success (args := ⟨values, [], none, none⟩) (keys := [])
     (values := []) (next := state) rfl .empty
 
-private def keep_record {parent : LexicalBlock} {site : Site parent} {id : DeclarationId}
+private def keep_record {parent : LexicalBlock} {formals : List PlainKeywordParameter} {site : Site parent formals} {id : DeclarationId}
     {defining state next : State} {address : Nat} (record : ClosureAt site id defining state address)
     (kept : Body.Keeps state.heap.size state next) : ClosureAt site id defining next address :=
   { record with
@@ -74,7 +74,7 @@ theorem callee_error {parent block : LexicalBlock} (site : Site parent) (id : De
       Lowering.EvaluatesManyWith.headError (tail := codes) (Body.evaluates_with program available _ read)
   exact ⟨.calleeError read, agreement native⟩
 
-theorem runs_packed {parent block : LexicalBlock} (site : Site parent)
+theorem runs_packed {parent block : LexicalBlock} {formals : List PlainKeywordParameter} (site : Site parent formals)
     (bodyRuns : State → Outcome Flow → Prop)
     (program : Program) (id : DeclarationId) (available : List DeclarationId) (permitted : id ∈ available)
     (enterBody : BodyEntry site program available id bodyRuns)

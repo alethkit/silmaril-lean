@@ -8,6 +8,7 @@ namespace Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defau
 
 open Silmaril.Languages.Starlark (Binding)
 open Silmaril.Languages.Starlark.Modules (fileSlot)
+open Silmaril.Languages.Starlark.Modules.Resolve (PlainKeywordParameter)
 open Silmaril.Languages.Starlark.Modules.Resolve.Assignment (LexicalBlock)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults (missingNames savedValues Parameters)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive (Site)
@@ -31,16 +32,16 @@ private theorem names_total (parameters : List Parameter) (keywords : List (Stri
         obtain ⟨result, delivered⟩ := ih ((formal.slot, value) :: bound)
         exact ⟨result, .deliver found previous delivered⟩
 
-theorem binds_total (parameters : List Parameter) (saved : Bindings) (actual : Actual) :
-    ∃ result, Binds parameters saved actual result := by
-  by_cases surplus : parameters.length < actual.positional.length
+theorem binds_total (positional named : List Parameter) (saved : Bindings) (actual : Actual) :
+    ∃ result, Binds positional named saved actual result := by
+  by_cases surplus : positional.length < actual.positional.length
   · exact ⟨_, .surplus surplus⟩
   · have enough := Nat.le_of_not_gt surplus
-    obtain ⟨result, delivered⟩ := names_total parameters actual.keywords ((parameters.map Parameter.slot).zip actual.positional)
+    obtain ⟨result, delivered⟩ := names_total named actual.keywords ((positional.map Parameter.slot).zip actual.positional)
     cases result with
     | error error => exact ⟨_, .rejected enough delivered⟩
     | ok bound =>
-      by_cases complete : missingNames (withDefaults parameters bound saved) = []
+      by_cases complete : missingNames (withDefaults named bound saved) = []
       · exact ⟨_, .assigned enough delivered complete⟩
       · exact ⟨_, .missing enough delivered complete⟩
 
@@ -56,18 +57,10 @@ private theorem delivered_exact (signature : Signature) (plain : signature.kwarg
   | deliver find absent _ ih => simpa [List.foldlM_cons, bindKeyword, find, absent, bind, Except.bind] using ih
 
 theorem binding_exact (signature : Signature)
-    (ordinary : signature.keywordOnly = []) (noVarargs : signature.varargs = none) (noKwargs : signature.kwargs = none)
+    (noVarargs : signature.varargs = none) (noKwargs : signature.kwargs = none)
     {saved : Bindings} {actual : Actual} {result : Except Error Bindings}
-    (source : Binds signature.positional saved actual result) :
+    (source : Binds signature.positional signature.named saved actual result) :
     bindArguments signature saved actual = result.map (fun assigned => ⟨assigned, [], []⟩) := by
-  have named : signature.named = signature.positional := by simp [Signature.named, ordinary]
-  have fold {out : Except Error Bindings}
-      (delivered : BindsNames signature.positional ((signature.positional.map Parameter.slot).zip actual.positional)
-        actual.keywords out) :
-      actual.keywords.foldlM (bindKeyword signature) ((signature.positional.map Parameter.slot).zip actual.positional, []) =
-        out.map (fun slots => (slots, [])) := by
-    have actualFold := delivered_exact signature noKwargs (named.symm ▸ delivered)
-    simpa only [named] using actualFold
   have noSurplus (enough : actual.positional.length ≤ signature.positional.length) :
       actual.positional.drop (signature.positional.map Parameter.slot).length = [] := by
     simp [List.drop_eq_nil_iff, enough]
@@ -82,28 +75,28 @@ theorem binding_exact (signature : Signature)
     rfl
   | rejected enough delivered =>
     simp only [bindArguments, noSurplus enough, List.isEmpty_nil, Bool.not_true, Bool.false_and,
-      Bool.false_eq_true, ite_false, fold delivered, Except.map, bind, Except.bind]
+      Bool.false_eq_true, ite_false, delivered_exact signature noKwargs delivered, Except.map, bind, Except.bind]
   | @missing bound enough delivered incomplete =>
     simp only [bindArguments, noSurplus enough, List.isEmpty_nil, Bool.not_true, Bool.false_and,
-      Bool.false_eq_true, ite_false, fold delivered, Except.map, bind, Except.bind, named]
+      Bool.false_eq_true, ite_false, delivered_exact signature noKwargs delivered, Except.map, bind, Except.bind]
     change (show Except Error BoundArguments from do
-      if !(missingNames (withDefaults signature.positional bound saved)).isEmpty then
-        throw (.missingArguments (missingNames (withDefaults signature.positional bound saved)))
-      return ⟨savedValues (withDefaults signature.positional bound saved), [], []⟩) = _
-    cases reached : missingNames (withDefaults signature.positional bound saved) with
+      if !(missingNames (withDefaults signature.named bound saved)).isEmpty then
+        throw (.missingArguments (missingNames (withDefaults signature.named bound saved)))
+      return ⟨savedValues (withDefaults signature.named bound saved), [], []⟩) = _
+    cases reached : missingNames (withDefaults signature.named bound saved) with
     | nil => exact (incomplete reached).elim
     | cons => rfl
   | @assigned bound enough delivered complete =>
     simp only [bindArguments, noSurplus enough, List.isEmpty_nil, Bool.not_true, Bool.false_and,
-      Bool.false_eq_true, ite_false, fold delivered, Except.map, bind, Except.bind, named]
+      Bool.false_eq_true, ite_false, delivered_exact signature noKwargs delivered, Except.map, bind, Except.bind]
     change (show Except Error BoundArguments from do
-      if !(missingNames (withDefaults signature.positional bound saved)).isEmpty then
-        throw (.missingArguments (missingNames (withDefaults signature.positional bound saved)))
-      return ⟨savedValues (withDefaults signature.positional bound saved), [], []⟩) = _
+      if !(missingNames (withDefaults signature.named bound saved)).isEmpty then
+        throw (.missingArguments (missingNames (withDefaults signature.named bound saved)))
+      return ⟨savedValues (withDefaults signature.named bound saved), [], []⟩) = _
     rw [complete]
     rfl
 
-theorem prepare_exact {parent : LexicalBlock} (site : Site parent) (program : Program) (available : List DeclarationId)
+theorem prepare_exact {parent : LexicalBlock} {formals : List PlainKeywordParameter} (site : Site parent formals) (program : Program) (available : List DeclarationId)
     (id : DeclarationId) (permitted : id ∈ available) (found : program[id]? = some site.declaration)
     {defining state : State} {address : Nat} (record : ClosureAt site id defining state address)
     (actual : Actual) {result : Except Error Bindings} (binding : SiteBinding site record.defaults actual result) :
@@ -112,14 +105,14 @@ theorem prepare_exact {parent : LexicalBlock} (site : Site parent) (program : Pr
       | .error error => .error error state
       | .ok assigned => .ok (.closure ⟨id, permitted, site.declaration.body⟩)
           (activate state site.declaration record.captures assigned) := by
-  let saved := (site.parameters.optional.map (fileSlot ∘ Prod.fst)).zip record.defaults
+  let saved := site.defaultKeys.zip record.defaults
   have loaded : getClosure address state = .ok ⟨id, record.captures, saved⟩ state := by
     simp [getClosure, Silmaril.Languages.Starlark.Lists.projectCell, Silmaril.Languages.Starlark.Lists.getCell,
       bind, EStateM.bind, record.recorded, saved]
     rfl
   have bound : bindArguments site.declaration.signature saved actual =
       result.map (fun assigned => ⟨assigned, [], []⟩) :=
-    binding_exact site.declaration.signature rfl rfl rfl binding
+    binding_exact site.declaration.signature rfl rfl binding
   have noVarargs : site.declaration.signature.varargs = none := rfl
   have noKwargs : site.declaration.signature.kwargs = none := rfl
   cases result <;>

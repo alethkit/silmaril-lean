@@ -34,22 +34,25 @@ ordered free references. Owned parent names terminate a capture request. -/
 
 /-- The child binding and function record use the address allocated
 after all defaults. A default error instead leaves the old cells intact. -/
-inductive SiteResult (parent : LexicalBlock) (name : String) (parameters : Parameters)
+inductive SiteResultFor (parent : LexicalBlock) (name : String) (keys : List Binding)
     (items : List PlainPositionalDefault)
     (id : Functions.DeclarationId) (captures : List Lists.Capture) (state : Lists.State) :
     Lists.Outcome Lists.Iteration.Flow → Prop where
   | installed {saved : List Lists.Value} {next evaluated : Lists.State} :
       Lexical.Evaluates parent state items (.ok saved evaluated) →
       next = install (fileSlot name) id captures
-        ((parameters.optional.map (fileSlot ∘ Prod.fst)).zip saved) evaluated →
+        (keys.zip saved) evaluated →
       next.bindingValue (fileSlot name) = .ok (.function evaluated.heap.size) →
       next.heap[evaluated.heap.size]? = some ⟨.function ⟨id, captures,
-        (parameters.optional.map (fileSlot ∘ Prod.fst)).zip saved⟩, false⟩ →
-      SiteResult parent name parameters items id captures state (.ok .next next)
+        keys.zip saved⟩, false⟩ →
+      SiteResultFor parent name keys items id captures state (.ok .next next)
   | failed {error : Lists.Error} {next : Lists.State} :
       Lexical.Evaluates parent state items (.error error next) →
       Body.Keeps state.heap.size state next →
-      SiteResult parent name parameters items id captures state (.error error next)
+      SiteResultFor parent name keys items id captures state (.error error next)
+
+abbrev SiteResult (parent : LexicalBlock) (name : String) (parameters : Parameters) :=
+  SiteResultFor parent name (parameters.optional.map (fileSlot ∘ Prod.fst))
 
 abbrev DefinitionResult {parent : LexicalBlock} {source : Source} (plan : Plan parent source) :=
   SiteResult parent source.name source.parameters plan.defaults

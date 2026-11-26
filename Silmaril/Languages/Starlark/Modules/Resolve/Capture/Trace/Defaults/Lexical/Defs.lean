@@ -36,16 +36,20 @@ inductive Evaluates (block : LexicalBlock) : State → List PlainPositionalDefau
 
 /-- Installation records the evaluated values and addresses from the
 reached defining frame. That frame can own a binding or forward it. -/
-inductive Defines (block : LexicalBlock) (target : Binding) (id : Nat) (free : List FreeName)
-    (parameters : Parameters) (items : List PlainPositionalDefault) :
+inductive DefinesFor (block : LexicalBlock) (target : Binding) (id : Nat) (free : List FreeName)
+    (keys : List Binding) (items : List PlainPositionalDefault) :
     State → Outcome Lists.Iteration.Flow → Prop where
   | failed {state final : State} {error : Lists.Error} :
       Evaluates block state items (.error error final) →
-      Defines block target id free parameters items state (.error error final)
+      DefinesFor block target id free keys items state (.error error final)
   | installed {state final : State} {values : List Value} {captures : List Lists.Capture} :
       Evaluates block state items (.ok values final) →
       Installs final free captures →
-      Defines block target id free parameters items state
-        (.ok .next (install target id captures ((parameters.optional.map (fileSlot ∘ Prod.fst)).zip values) final))
+      DefinesFor block target id free keys items state
+        (.ok .next (install target id captures (keys.zip values) final))
+
+abbrev Defines (block : LexicalBlock) (target : Binding) (id : Nat) (free : List FreeName)
+    (parameters : Parameters) :=
+  DefinesFor block target id free (parameters.optional.map (fileSlot ∘ Prod.fst))
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Lexical

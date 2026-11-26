@@ -20,6 +20,122 @@ open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Lists (State Capture Value)
 open Silmaril.Languages.Starlark.Lists.Iteration (Flow)
 
+theorem lexical_defaults {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
+    (site : Site parent keywords) (named : KeywordLexical parent keywords) :
+    Lexical.Elaborates parent site.defaultSources site.defaultsInOrder := by
+  cases keywords with
+  | nil => exact site.lexical
+  | cons first rest => exact Lexical.append site.lexical named
+
+private theorem source_names {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
+    (site : Site parent keywords) :
+    site.sourceSignature.parameterNames = parameterNames site.parameters keywords := by
+  cases keywords <;>
+    simp [Site.sourceSignature, SourceSignature.parameterNames, parameterNames, Parameters.source,
+      Parameters.names, List.map_map, Function.comp_def]
+
+private theorem parameter_binders {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
+    (site : Site parent keywords) :
+    Block.ParameterBinders site.sourceSignature (parameterNames site.parameters keywords) := by
+  have ordered (parameters : List SourceParameter) :
+      Assignment.InOrder (fun p name => p.name = name) parameters (parameters.map SourceParameter.name) := by
+    induction parameters with
+    | nil => exact .nil
+    | cons first rest ih => exact .cons rfl ih
+  rw [← source_names site]
+  exact .signature none none (ordered _) (ordered _)
+
+theorem compile_site {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
+    (site : Site parent keywords) (named : KeywordLexical parent keywords)
+    {seed middle : Program} (compiled : compileBody ⟨site.block.context, .local⟩ site.source seed =
+      .ok (site.body, middle)) :
+    compileBody ⟨parent.context, .local⟩ site.statement seed =
+      .ok (⟨.define (fileSlot site.name) middle.size, site.reads⟩, middle.push site.declaration) := by
+  let block : BlockContext := ⟨parent.context, .local⟩
+  have ⟨same, _⟩ := Lexical.translates site.lexical
+  have ⟨_, allTracked⟩ := Lexical.translates (lexical_defaults site named)
+  have tracked : ∀ item ∈ site.defaults ++ keywordDefaults keywords,
+      Lowering.Resolve.resolveTracked parent.context item.source = .ok (item.value, item.reads) := by
+    cases keywords <;> simpa [Site.defaultsInOrder, keywordDefaults] using allTracked
+  have sourceSignature : site.sourceSignature =
+      { positional := site.parameters.required.map (fun name => ⟨name, none⟩) ++
+          site.defaults.map PlainPositionalDefault.parameter
+        keywordOnly := keywords.map PlainKeywordParameter.source } := by
+    simp [Site.sourceSignature, Parameters.source, ← same, List.map_map,
+      PlainPositionalDefault.parameter, Function.comp_def]
+  have layout := Block.collectFunctionLayout_eq parent.context (parameter_binders site) site.collects site.localOrder
+  rw [sourceSignature] at layout
+  have emitted := compileBody_plainParameterDefinition block site.name site.parameters.required
+    site.defaults keywords site.source seed middle _ site.body tracked layout compiled
+  have captures : captureNames (parameterNames site.parameters keywords ++ site.locals) site.body.reads = site.free :=
+    captureNames_eq site.selects
+  have optional : site.defaults.map PlainPositionalDefault.resolved =
+      ((site.parameters.optional.map (fileSlot ∘ Prod.fst)).zip (site.defaults.map PlainPositionalDefault.value)).map
+        (fun (slot, code) => (⟨slot, some code⟩ : Parameter)) := by
+    simp [← same, List.map_map, List.zip_map', PlainPositionalDefault.resolved, Function.comp_def]
+  change compileBody block (.define site.name site.sourceSignature site.source) seed = _
+  rw [sourceSignature, emitted, optional, ← sourceSignature, source_names site, captures]
+  cases keywords <;> simp [Site.declaration, Parameters.signature, Site.reads, Site.defaultsInOrder, keywordDefaults]
+
+private theorem keyword_slots (keywords : List PlainKeywordParameter) :
+    (keywords.map PlainKeywordParameter.resolved).map Parameter.slot =
+      (keywords.map (SourceParameter.name ∘ PlainKeywordParameter.source)).map fileSlot := by
+  induction keywords with
+  | nil => rfl
+  | cons first rest ih =>
+    cases first <;> simp [PlainKeywordParameter.resolved, PlainKeywordParameter.source,
+      PlainPositionalDefault.resolved, PlainPositionalDefault.parameter, ih]
+
+theorem site_slots {parent : LexicalBlock} {keywords : List PlainKeywordParameter} (site : Site parent keywords) :
+    site.declaration.signature.slots ++ site.declaration.locals = site.block.owned.map fileSlot := by
+  have length : (site.defaults.map PlainPositionalDefault.value).length = site.parameters.optional.length := by
+    simpa using congrArg List.length (Lexical.translates site.lexical).1
+  have pos : (site.parameters.signature (site.defaults.map PlainPositionalDefault.value)).positional.map
+      Parameter.slot = site.parameters.names.map fileSlot := by
+    simpa only [Parameters.signature, Signature.slots, Signature.named, List.map_nil, List.append_nil, Option.toList_none]
+      using Body.signature_slots site.parameters [] _ length
+  have noVarargs : (site.parameters.signature (site.defaults.map PlainPositionalDefault.value)).varargs = none := rfl
+  have noKwargs : (site.parameters.signature (site.defaults.map PlainPositionalDefault.value)).kwargs = none := rfl
+  unfold Site.declaration Site.block
+  simp only [Signature.slots, Signature.named, List.map_append, noVarargs, noKwargs, Option.toList_none,
+    List.append_nil, pos]
+  cases keywords with
+  | nil => simp [parameterNames]
+  | cons first rest => simp only [parameterNames, List.map_append, keyword_slots]
+
+private theorem keyword_default_pairs (keywords : List PlainKeywordParameter) :
+    (keywords.map PlainKeywordParameter.resolved).filterMap (fun p => p.defaultExpr.map (p.slot, ·)) =
+      (keywordDefaults keywords).map (fun item => (fileSlot item.name, item.value)) := by
+  induction keywords with
+  | nil => rfl
+  | cons first rest ih =>
+    cases first with
+    | required name => exact ih
+    | defaulted item => exact congrArg ((fileSlot item.name, item.value) :: ·) ih
+
+theorem default_layout {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
+    (site : Site parent keywords) (named : KeywordLexical parent keywords) :
+    site.declaration.signature.defaulted.map Prod.fst = site.defaultKeys ∧
+      site.declaration.signature.defaulted.map Prod.snd = site.defaultsInOrder.map PlainPositionalDefault.value := by
+  have ⟨same, _⟩ := Lexical.translates site.lexical
+  have ⟨sourceOrder, _⟩ := Lexical.translates (lexical_defaults site named)
+  have positional :
+      ((site.parameters.signature (site.defaults.map PlainPositionalDefault.value)).positional.filterMap
+        (fun p => p.defaultExpr.map (p.slot, ·))) =
+      site.defaults.map (fun item => (fileSlot item.name, item.value)) := by
+    simp [Parameters.signature, requiredSignature, List.filterMap_append, List.filterMap_map, Function.comp_def,
+      ← same, List.map_map, List.zip_map']
+  have all : site.declaration.signature.defaulted =
+      site.defaultsInOrder.map (fun item => (fileSlot item.name, item.value)) := by
+    unfold Site.declaration
+    simp only [Signature.defaulted, Signature.named, List.filterMap_append, positional, keyword_default_pairs]
+    cases keywords <;> simp [Site.defaultsInOrder, keywordDefaults]
+  rw [all]
+  constructor
+  · rw [Site.defaultKeys, ← sourceOrder]
+    simp [List.map_map, Function.comp_def]
+  · simp [List.map_map, Function.comp_def]
+
 theorem compiles {block : LexicalBlock} {source : Statement} {seed final : Program}
     {resolved : ResolvedBody} {emissions : Emissions}
     (profile : Elaborates block source seed resolved final emissions) :
@@ -103,7 +219,7 @@ theorem indices {block : LexicalBlock} {source : Statement} {seed final : Progra
     · simp only [List.length_append, List.length_cons, tailSize, Array.size_push, childSize]
       omega
 
-private theorem requested {parent : LexicalBlock} (site : Site parent) (before after : List Binding)
+private theorem requested {parent : LexicalBlock} {keywords : List PlainKeywordParameter} (site : Site parent keywords) (before after : List Binding)
     (entry : FreeName) (member : entry ∈ site.free) : entry.source ∈ before ++ site.reads ++ after := by
   have seen : entry.source ∈ site.reads := List.mem_append_right _ (List.mem_map.mpr ⟨_, member, rfl⟩)
   simp only [List.mem_append, seen, or_true, true_or]
@@ -116,7 +232,7 @@ theorem forwarding_request {parent : LexicalBlock} (site : Site parent)
   rw [selected_member selected binding]
   exact and_iff_right (requested site before after _ present)
 
-theorem installs {parent : LexicalBlock} (site : Site parent)
+theorem installs {parent : LexicalBlock} {keywords : List PlainKeywordParameter} (site : Site parent keywords)
     {before after : List Binding} {free : List FreeName}
     (selected : Selects parent (before ++ site.reads ++ after) free)
     {state : State} {floor : Nat} (frame : Body.Frame parent free floor state) :

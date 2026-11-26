@@ -31,7 +31,7 @@ private theorem expands (state : State) (positional : List Lowering.Expr) (keywo
       (args := ⟨values.take positional.length, (keywords.map Prod.fst).zip (values.drop positional.length), none, none⟩)
       (keys := []) (values := []) (next := state) rfl .empty
 
-theorem runs {parent block : LexicalBlock} (site : Site parent)
+theorem runs {parent block : LexicalBlock} {formals : List PlainKeywordParameter} (site : Site parent formals)
     (bodyRuns : State → Outcome Flow → Prop)
     {commands : List Command} {linked : Program} {resolved : ResolvedModule}
     (_checked : resolve commands linked = .ok resolved) (id : DeclarationId)
@@ -52,7 +52,7 @@ theorem runs {parent block : LexicalBlock} (site : Site parent)
   Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.runs_packed
     site bodyRuns resolved.program id available permitted enterBody callee record (ordered_operands related keywords)
     codes keywords.codes rfl _ (SiteBinding site) (fun state values _ => expands state codes keywords.codes values)
-    (fun _ _ => binds_total _ _ _) (by
+    (fun _ _ => binds_total _ _ _ _) (by
       intro reached closure values result binding
       cases result <;> exact prepare_exact site resolved.program available id permitted found closure _ binding)
 

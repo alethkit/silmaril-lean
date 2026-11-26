@@ -41,23 +41,23 @@ inductive BindsNames (parameters : List Parameter) :
   parameters.map fun formal =>
     (formal.slot, (List.lookup formal.slot bound).orElse fun () => List.lookup formal.slot saved)
 
-/-- The admitted signatures have only ordinary parameters. Arity is
-checked before keyword delivery, and missing parameters after defaults. -/
-inductive Binds (parameters : List Parameter) (saved : Bindings) (actual : Actual) :
+/-- Only positional formals count toward positional capacity. Named
+delivery can use both classes of formal, and defaults fill the remaining slots. -/
+inductive Binds (positional named : List Parameter) (saved : Bindings) (actual : Actual) :
     Except Lists.Error Bindings → Prop where
-  | surplus : parameters.length < actual.positional.length →
-      Binds parameters saved actual (.error (.arity parameters.length actual.positional.length))
-  | rejected {error : Lists.Error} : actual.positional.length ≤ parameters.length →
-      BindsNames parameters ((parameters.map Parameter.slot).zip actual.positional) actual.keywords (.error error) →
-      Binds parameters saved actual (.error error)
-  | missing {bound : Bindings} : actual.positional.length ≤ parameters.length →
-      BindsNames parameters ((parameters.map Parameter.slot).zip actual.positional) actual.keywords (.ok bound) →
-      missingNames (withDefaults parameters bound saved) ≠ [] →
-      Binds parameters saved actual (.error (.missingArguments (missingNames (withDefaults parameters bound saved))))
-  | assigned {bound : Bindings} : actual.positional.length ≤ parameters.length →
-      BindsNames parameters ((parameters.map Parameter.slot).zip actual.positional) actual.keywords (.ok bound) →
-      missingNames (withDefaults parameters bound saved) = [] →
-      Binds parameters saved actual (.ok (savedValues (withDefaults parameters bound saved)))
+  | surplus : positional.length < actual.positional.length →
+      Binds positional named saved actual (.error (.arity positional.length actual.positional.length))
+  | rejected {error : Lists.Error} : actual.positional.length ≤ positional.length →
+      BindsNames named ((positional.map Parameter.slot).zip actual.positional) actual.keywords (.error error) →
+      Binds positional named saved actual (.error error)
+  | missing {bound : Bindings} : actual.positional.length ≤ positional.length →
+      BindsNames named ((positional.map Parameter.slot).zip actual.positional) actual.keywords (.ok bound) →
+      missingNames (withDefaults named bound saved) ≠ [] →
+      Binds positional named saved actual (.error (.missingArguments (missingNames (withDefaults named bound saved))))
+  | assigned {bound : Bindings} : actual.positional.length ≤ positional.length →
+      BindsNames named ((positional.map Parameter.slot).zip actual.positional) actual.keywords (.ok bound) →
+      missingNames (withDefaults named bound saved) = [] →
+      Binds positional named saved actual (.ok (savedValues (withDefaults named bound saved)))
 
 /-- Names are preserved by lexical operand resolution. -/
 inductive Arguments (block : LexicalBlock) : List (String × Expr) →
@@ -85,11 +85,12 @@ syntactic positional count and paired with the original keyword names. -/
 @[expose] def collect (positional : Nat) (keywords : List String) (values : List Value) : Actual :=
   ⟨values.take positional, keywords.zip (values.drop positional)⟩
 
-abbrev SiteBinding {parent : LexicalBlock} (site : Site parent) : Call.BindingRule :=
-  fun defaults => Binds site.declaration.signature.positional
-    ((site.parameters.optional.map (fileSlot ∘ Prod.fst)).zip defaults)
+abbrev SiteBinding {parent : LexicalBlock} {formals : List PlainKeywordParameter}
+    (site : Site parent formals) : Call.BindingRule :=
+  fun defaults => Binds site.declaration.signature.positional site.declaration.signature.named
+    (site.defaultKeys.zip defaults)
 
-abbrev RunsWith {parent : LexicalBlock} (site : Site parent) (bodyRuns : State → Lists.Outcome Flow → Prop)
+abbrev RunsWith {parent : LexicalBlock} {formals : List PlainKeywordParameter} (site : Site parent formals) (bodyRuns : State → Lists.Outcome Flow → Prop)
     (block : LexicalBlock) (id : DeclarationId) (name : String)
     (arguments : List Expr) (codes : List Lowering.Expr) (keywords : List (String × Expr))
     (compiled : List (String × Lowering.Expr)) :=

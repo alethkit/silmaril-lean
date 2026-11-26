@@ -21,6 +21,14 @@ open Silmaril.Languages.Starlark.Functions.Lowering.Resolve (SourceExpr resolveT
 open Silmaril.Languages.Starlark.Lists (State Outcome Value)
 open Silmaril.Languages.Starlark.Lists.Iteration (Flow finishState)
 
+theorem append {block : LexicalBlock} {first second : List (String × SourceExpr)}
+    {earlier later : List PlainPositionalDefault}
+    (left : Elaborates block first earlier) (right : Elaborates block second later) :
+    Elaborates block (first ++ second) (earlier ++ later) := by
+  induction left with
+  | nil => exact right
+  | cons operand _ ih => exact .cons operand ih
+
 theorem sources_eq {block : LexicalBlock} {source : List (String × SourceExpr)} {items : List PlainPositionalDefault}
     (related : Elaborates block source items) :
     items.map (fun item => (item.name, item.source)) = source := by
@@ -102,6 +110,57 @@ theorem evaluates_keeps {block : LexicalBlock} {source : List (String × SourceE
   rw [unique canonical evaluated] at extended
   exact ⟨extended.1, fun address cell _ found => extended.2 address cell found⟩
 
+theorem defines_for_sound (program : Program) (available : List DeclarationId) (target : Binding)
+    (id : Nat) (declaration : Declaration) {keys : List Binding}
+    {block : LexicalBlock} {items : List PlainPositionalDefault}
+    (found : program[id]? = some declaration)
+    (defaultKeys : declaration.signature.defaulted.map Prod.fst = keys)
+    (codes : declaration.signature.defaulted.map Prod.snd = items.map PlainPositionalDefault.value)
+    {state : State} {out : Outcome Flow}
+    (source : DefinesFor block target id declaration.free keys items state out) :
+    Exec program available state (.define target id) out ∧ denoteBody program available (.define target id) state = out := by
+  have operands {out : Outcome (List Value)} (evaluated : Evaluates block state items out) :
+      ExecExprs program available state (defaultOperands program id) out := by
+    have ordered : defaultOperands program id = items.map PlainPositionalDefault.value := by
+      simp [defaultOperands, found, codes]
+    rw [ordered]
+    exact .evaluatesMany (calls := fun _ _ _ => False) (fun _ _ _ h => h.elim) (many_sound program available evaluated)
+  have ran : Exec program available state (.define target id) out := by
+    cases source with
+    | failed evaluated => exact .define (operands evaluated)
+    | installed evaluated captured =>
+      have actual := Exec.define (target := target) (operands evaluated)
+      simpa [Outcome.resume, define, found, Capture.installs_lookup _ captured, defaultKeys, install] using actual
+  exact ⟨ran, (exec_iff_denoteBody _ _ _ _ _).mp ran⟩
+
+theorem defines_for_total (program : Program) (available : List DeclarationId) (target : Binding)
+    (id : Nat) (declaration : Declaration) {keys : List Binding}
+    {block : LexicalBlock} {items : List PlainPositionalDefault}
+    {expressions : List (String × SourceExpr)} (related : Elaborates block expressions items)
+    (found : program[id]? = some declaration)
+    (defaultKeys : declaration.signature.defaulted.map Prod.fst = keys)
+    (codes : declaration.signature.defaulted.map Prod.snd = items.map PlainPositionalDefault.value)
+    (state : State) (captures : List Silmaril.Languages.Starlark.Lists.Capture)
+    (installed : Installs state declaration.free captures) :
+    ∃ out, DefinesFor block target id declaration.free keys items state out ∧
+      Exec program available state (.define target id) out ∧ denoteBody program available (.define target id) state = out ∧
+      (∀ next, out = .ok .next next → ∃ final values, Evaluates block state items (.ok values final) ∧
+        next = install target id captures (keys.zip values) final) := by
+  obtain ⟨result, evaluated, kept, _⟩ := total related state
+  have agreement {out : Outcome Flow} (ran : DefinesFor block target id declaration.free keys items state out) :
+      Exec program available state (.define target id) out ∧ denoteBody program available (.define target id) state = out :=
+    defines_for_sound program available target id declaration found defaultKeys codes ran
+  cases result with
+  | error error final =>
+    have ran : DefinesFor block target id declaration.free keys items state (.error error final) := .failed evaluated
+    exact ⟨_, ran, (agreement ran).1, (agreement ran).2, fun _ impossible => nomatch impossible⟩
+  | ok values final =>
+    let next := install target id captures (keys.zip values) final
+    have ran : DefinesFor block target id declaration.free keys items state (.ok .next next) :=
+      .installed evaluated (Silmaril.Languages.Starlark.Modules.Resolve.Capture.installs_in_same_slots kept.1 installed)
+    exact ⟨_, ran, (agreement ran).1, (agreement ran).2, fun _ same =>
+      ⟨final, values, evaluated, (EStateM.Result.ok.inj same).2.symm⟩⟩
+
 theorem defines_sound (program : Program) (available : List DeclarationId) (target : Binding)
     (id : Nat) (parameters : Parameters) (declaration : Declaration)
     {block : LexicalBlock} {items : List PlainPositionalDefault}
@@ -112,21 +171,11 @@ theorem defines_sound (program : Program) (available : List DeclarationId) (targ
     (source : Defines block target id declaration.free parameters items state out) :
     Exec program available state (.define target id) out ∧ denoteBody program available (.define target id) state = out := by
   have length := code_length related
-  have operands {out : Outcome (List Value)} (evaluated : Evaluates block state items out) :
-      ExecExprs program available state (defaultOperands program id) out := by
-    have ordered : defaultOperands program id = items.map PlainPositionalDefault.value := by
-      simp [defaultOperands, found, signature, Defaults.signature_defaults, List.map_snd_zip, length]
-    rw [ordered]
-    exact .evaluatesMany (calls := fun _ _ _ => False) (fun _ _ _ h => h.elim) (many_sound program available evaluated)
-  have ran : Exec program available state (.define target id) out := by
-    cases source with
-    | failed evaluated => exact .define (operands evaluated)
-    | installed evaluated captured =>
-      have keys : declaration.signature.defaulted.map Prod.fst = parameters.optional.map (fileSlot ∘ Prod.fst) := by
-        simp [signature, Defaults.signature_defaults, List.map_fst_zip, length]
-      have actual := Exec.define (target := target) (operands evaluated)
-      simpa [Outcome.resume, define, found, Capture.installs_lookup _ captured, keys, install] using actual
-  exact ⟨ran, (exec_iff_denoteBody _ _ _ _ _).mp ran⟩
+  have keys : declaration.signature.defaulted.map Prod.fst = parameters.optional.map (fileSlot ∘ Prod.fst) := by
+    simp [signature, Defaults.signature_defaults, List.map_fst_zip, length]
+  have codes : declaration.signature.defaulted.map Prod.snd = items.map PlainPositionalDefault.value := by
+    simp [signature, Defaults.signature_defaults, List.map_snd_zip, length]
+  exact defines_for_sound program available target id declaration found keys codes source
 
 theorem defines_total (program : Program) (available : List DeclarationId) (target : Binding)
     (id : Nat) (parameters : Parameters) (declaration : Declaration)
@@ -140,19 +189,11 @@ theorem defines_total (program : Program) (available : List DeclarationId) (targ
       Exec program available state (.define target id) out ∧ denoteBody program available (.define target id) state = out ∧
       (∀ next, out = .ok .next next → ∃ final values, Evaluates block state items (.ok values final) ∧
         next = install target id captures ((parameters.optional.map (fileSlot ∘ Prod.fst)).zip values) final) := by
-  obtain ⟨result, evaluated, kept, _⟩ := total related state
-  have agreement {out : Outcome Flow} (ran : Defines block target id declaration.free parameters items state out) :
-      Exec program available state (.define target id) out ∧ denoteBody program available (.define target id) state = out :=
-    defines_sound program available target id parameters declaration related found signature ran
-  cases result with
-  | error error final =>
-    have ran : Defines block target id declaration.free parameters items state (.error error final) := .failed evaluated
-    exact ⟨_, ran, (agreement ran).1, (agreement ran).2, fun _ impossible => nomatch impossible⟩
-  | ok values final =>
-    let next := install target id captures ((parameters.optional.map (fileSlot ∘ Prod.fst)).zip values) final
-    have ran : Defines block target id declaration.free parameters items state (.ok .next next) :=
-      .installed evaluated (Silmaril.Languages.Starlark.Modules.Resolve.Capture.installs_in_same_slots kept.1 installed)
-    exact ⟨_, ran, (agreement ran).1, (agreement ran).2, fun _ same =>
-      ⟨final, values, evaluated, (EStateM.Result.ok.inj same).2.symm⟩⟩
+  have length := code_length related
+  have keys : declaration.signature.defaulted.map Prod.fst = parameters.optional.map (fileSlot ∘ Prod.fst) := by
+    simp [signature, Defaults.signature_defaults, List.map_fst_zip, length]
+  have codes : declaration.signature.defaulted.map Prod.snd = items.map PlainPositionalDefault.value := by
+    simp [signature, Defaults.signature_defaults, List.map_snd_zip, length]
+  exact defines_for_total program available target id declaration related found keys codes state captures installed
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Lexical

@@ -111,7 +111,8 @@ private theorem factoryBody (seed : Program) :
       [fileSlot "relay", fileSlot "copy"] :=
     .assign (by decide) (.read (by decide) (.owned (by decide)) (.owned (by decide)))
       (.ret (.read (by decide) (.owned (by decide)) (.owned (by decide))))
-  simpa [Array.size_push, Body.prependSource, Body.prependCode, relaySite, factorySite, factoryTable, Site.reads, Site.block, factoryBlock, Parameters.names, enclosingBlock] using
+  simpa [Array.size_push, Body.prependSource, Body.prependCode, relaySite, factorySite, factoryTable, Site.reads,
+    Site.defaultsInOrder, Site.block, parameterNames, factoryBlock, Parameters.names, enclosingBlock] using
     (Elaborates.define (relaySite seed) .nil (relayBody seed) (.straight last))
 
 example (seed : Program) :
@@ -378,7 +379,7 @@ private theorem chainProfile (mode : CallCase) (seed : Program) :
       (.ret (.index (.read (by decide) (.owned (by decide)) (.owned (by decide))) (.int 0)))
   have leading : Body.ElaboratesPrefix chainBlock [("outerMark", starlark%[[17]])] [("outerMark", boxed 17)] [] :=
     .cons (by decide) (.list (.int 17)) .nil
-  simpa [chainSource, chainCode, relayCallSite, Site.statement, Site.block, callRelayBlock,
+  simpa [chainSource, chainCode, relayCallSite, Site.statement, Site.sourceSignature, Site.block, parameterNames, callRelayBlock,
     Parameters.names, Array.size_push] using
     (Call.Suite.Elaborates.assignments leading
       (.call (relayCallSite mode seed) (by change "relay".toList.head? ≠ some '$'; decide)

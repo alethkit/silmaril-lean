@@ -78,4 +78,25 @@ theorem defines_total (program : Program) (available : List DeclarationId) (targ
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Lexical.defines_total
     program available target id parameters declaration related found signature state captures installed
 
+theorem defines_for_total (program : Program) (available : List DeclarationId) (target : Binding)
+    (id : Nat) (declaration : Declaration) {keys : List Binding}
+    {block : LexicalBlock} {items : List PlainPositionalDefault}
+    {expressions : List (String × Lowering.Resolve.SourceExpr)} (related : Elaborates block expressions items)
+    (found : program[id]? = some declaration)
+    (defaultKeys : declaration.signature.defaulted.map Prod.fst = keys)
+    (codes : declaration.signature.defaulted.map Prod.snd = items.map PlainPositionalDefault.value)
+    (state : State) (captures : List Silmaril.Languages.Starlark.Lists.Capture)
+    (installed : Installs state declaration.free captures) :
+    ∃ out, DefinesFor block target id declaration.free keys items state out ∧
+      Exec program available state (.define target id) out ∧ denoteBody program available (.define target id) state = out ∧
+      (∀ next, out = .ok .next next → ∃ final values, Evaluates block state items (.ok values final) ∧
+        next = install target id captures (keys.zip values) final) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Lexical.defines_for_total program available target id declaration related found defaultKeys codes state captures installed
+
+theorem append {block : LexicalBlock} {first second : List (String × Lowering.Resolve.SourceExpr)}
+    {earlier later : List PlainPositionalDefault}
+    (left : Elaborates block first earlier) (right : Elaborates block second later) :
+    Elaborates block (first ++ second) (earlier ++ later) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Lexical.append left right
+
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Lexical

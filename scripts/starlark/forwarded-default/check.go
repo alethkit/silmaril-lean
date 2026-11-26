@@ -162,8 +162,8 @@ def factory(values, index):
     alias = first
     marker = [17]
     copy = alias
-    def replacement(required, offset=1, saved=values):
-        return required[offset][saved[0]]
+    def replacement(required, spare=[31], *, offset=[32], key, saved=values):
+        return required[offset][saved[key]]
     first = replacement
     alias = 0
     first_value = copy()
@@ -177,7 +177,7 @@ finished = [91]
 
 func checkLiveProvenance(opts *syntax.FileOptions) {
 	globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread),
-		"live-local-copies.star", liveProvenanceSource("[[first_value]], offset=values[0]"), nil)
+		"live-local-copies.star", liveProvenanceSource("[[first_value]], key=values[0], offset=0"), nil)
 	require(err == nil && globals["result"].String() == "22" && globals["finished"].String() == "[91]", globals)
 	fmt.Println("PASS mixed actuals use the rebound closure's named override and a saved default")
 
@@ -185,11 +185,11 @@ func checkLiveProvenance(opts *syntax.FileOptions) {
 		arguments string
 		errorText string
 	}{
-		{"", "function replacement missing 1 argument (required)"},
+		{"[73]", "function replacement missing 1 argument (key)"},
 		{"[73], other=[80], required=[81]", `unexpected keyword argument "other"`},
 		{"[73], required=[80], other=[81]", `multiple values for parameter "required"`},
 		{"[73], other=[80], offset=[0][1], later=[77]", "index 1 out of range"},
-		{"[73], [74], [75], [76], other=[80]", "3 positional arguments (4 given)"},
+		{"[73], [74], [75], other=[80]", "2 positional arguments (3 given)"},
 	} {
 		_, compiled, err := starlark.SourceProgramOptions(opts, "rebound-local-error.star",
 			liveProvenanceSource(test.arguments), func(string) bool { return false })
@@ -207,6 +207,47 @@ result = empty(other=1)
 `, nil)
 	require(err != nil && strings.Contains(err.Error(), "accepts no arguments (1 given)"), err)
 	fmt.Println("PASS operand error precedes binding, surplus positional arguments precede keywords, and repeated syntax is static")
+}
+
+func checkKeywordOnlyDefaults(opts *syntax.FileOptions) {
+	for _, test := range []struct {
+		firstKeyword string
+		order        string
+		failed       bool
+	}{
+		{"observe(32)", "31,32,33", false},
+		{"observe(32)[1]", "31,32", true},
+	} {
+		var seen []string
+		thread := &starlark.Thread{
+			Print: func(_ *starlark.Thread, message string) { seen = append(seen, message) },
+		}
+		source := fmt.Sprintf(`def observe(value):
+    print(value)
+    return [value]
+def choose(spare=observe(31), *, offset=%s, key, saved=observe(33)):
+    return saved[key]
+result = choose(key=0)
+`, test.firstKeyword)
+		_, compiled, err := starlark.SourceProgramOptions(opts, "keyword-default-order.star", source, func(string) bool { return false })
+		require(err == nil, err)
+		globals, err := compiled.Init(thread, nil)
+		require(strings.Join(seen, ",") == test.order, seen)
+		if test.failed {
+			require(err != nil && strings.Contains(err.Error(), "index 1 out of range"), err)
+			require(globals["choose"] == nil && globals["result"] == nil, globals)
+		} else {
+			require(err == nil && globals["result"].String() == "33", globals)
+		}
+	}
+	fmt.Println("PASS defaults run in definition order across the bare-star boundary and stop at the first error")
+
+	globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread), "required-only-bare-star.star", `def pick(*, key):
+    return key
+result = pick(key=12)
+`, nil)
+	require(err == nil && globals["result"].String() == "12", globals)
+	fmt.Println("PASS pinned Go admits a required-only bare-star suffix as a dialect extension")
 }
 
 func checkExplicitOperandOrder(opts *syntax.FileOptions) {
@@ -267,5 +308,6 @@ func main() {
 	checkRecursive(opts)
 	checkAliasedCalls(opts)
 	checkLiveProvenance(opts)
+	checkKeywordOnlyDefaults(opts)
 	checkExplicitOperandOrder(opts)
 }
