@@ -18,6 +18,16 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
   {Events : Type e → Type e} {State : Type s}
   {M : InstructionModel D Φ (Tree Events)} {policy : Handler State Events}
 
+/-- Renaming reads the source environment through the index map, at every
+older context. -/
+theorem denote_rename {n m : Nat} {β : BoundCtx τ n} {δ : BoundCtx τ m}
+    {t : LocallyNameless.Tm Empty Φ n} {A : τ} (d : LocallyNameless.Derivation Φ Ctx.nil β t A)
+    (ren : BoundCtx.Renaming β δ) (src : BoundEnv D β) (tgt : BoundEnv D δ)
+    (agree : ∀ i, HEq (tgt (ren.toFun i)) (src i)) :
+    (d.rename ren).denote D M (fun x => Empty.elim x) tgt =
+      d.denote D M (fun x => Empty.elim x) src :=
+  Proofs.denote_rename d ren src tgt agree
+
 namespace Program
 
 variable {A B C : τ}

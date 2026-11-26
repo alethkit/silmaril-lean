@@ -784,6 +784,26 @@ The continuation cannot jump back to its own label.
   [Written category and hom squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/Thms.lean) ·
   [Native category and equivalence](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Thms.lean) ·
   [Captured composition and round trips](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Regression.lean)
+- A semantic functor takes the native captured LetCase category to the
+  handled-trace program category at one primitive tree interpretation and
+  one reply policy. Handled-trace programs have a single input, so every
+  older capture is carried beside the input in a product and returned
+  beside the result. With no older captures the packed program is the
+  operand itself. Composing with the actual ranked emitter gives the
+  functor on written graphs, and both triangles over the emitter and the
+  checked readback commute. The source equality is the native equation
+  relation and the target equality is mutual handled-trace inclusion at
+  the fixed policy. The identity and composition equations are equalities
+  of interaction trees in every older environment, including for the
+  emitted written link. The functor is not faithful at one policy: the
+  regression has two different native classes that a state-flipping
+  policy sends to the same arrow. That regression packs an independently
+  written term with one older capture and two unit-payload exits, and
+  checks the pending request, the exit chosen by the handler state, and
+  the second request of a composite.
+  [Packing](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Defs.lean) ·
+  [Functors and contextual equations](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Thms.lean) ·
+  [State-dependent handler](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Regression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
