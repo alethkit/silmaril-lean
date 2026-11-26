@@ -1,5 +1,9 @@
 module
 
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.MixedContinuation.Thms
+import Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.PurePrefix.Thms
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.MixedContinuation.Defs
+meta import Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.PurePrefix.Splice.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureGamma.Reverse.Thms
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureGamma.Reverse.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureTheta.Reverse.Thms
@@ -1887,6 +1891,145 @@ private def threadedValue : MixedThetaTerm :=
     throw (IO.userError "mixed theta accepted a value row with runtime ports")
 
 end MixedThetaReverse
+
+namespace CheckedContinuation
+
+open OrderedTheta (carriedData)
+open OrderedRuntime.Structured (nextRuntime)
+open Flat.Serial (payloadData WirePorts)
+open LinearChain.Wiring (newest)
+
+private abbrev Join := TwoBlock.TwoExit.Carrier number number number
+
+private def carrierBridge : Wires.Code (past := []) Op (carriedData number) (carriedData Join)
+    (.arg (runtimePort (carried number))) [Threaded (carried Join)] :=
+  ⟨_, .primitive (.arg (runtimePort (carried number))) (carriedData _) (carriedData _)
+    (Translation.PurePrefix.orderedCall (op .forkGate)) (.cons (.arg .head) .nil)
+    (.ret (nextRuntime [] (carried Join)) (.cons (newest .head []) .nil))⟩
+
+private abbrev MixedArm (rows : List (Ports (OrderedRuntime.Structured.Ty Ty))) :=
+  NestedTheta.ExplicitRuntime.PurePrefix.Code (past := []) (TwoBlock.TwoExit.Pure Ty) (Wires.Effect Op)
+    (Translation.PureGamma.ValueOp Op Bool) (carriedData number) (carriedData Join)
+    (.arg (runtimePort (carried number))) rows
+
+private abbrev LoopChecked (pureFirst : Bool) := NestedTheta.ExplicitRuntime.PurePrefix.EntryChecked
+  (a := carriedData number) (b := carriedData number) (mixedLoop.compile pureFirst).toTerm
+
+private def headCode {pureFirst : Bool} (loopCheck : LoopChecked pureFirst) :
+    NestedTheta.ExplicitRuntime.PurePrefix.Code (past := [])
+    (TwoBlock.TwoExit.Pure Ty) (Wires.Effect Op) (Translation.PureGamma.ValueOp Op Bool)
+    (Translation.PureGamma.inputData number) (carriedData Join) (.arg (runtimePort (Input number)))
+    [Threaded (carried Join)] :=
+  let left := NestedTheta.ExplicitRuntime.PurePrefix.Splice.appendOrdered carrierBridge.2 loopCheck
+  let right := NestedTheta.ExplicitRuntime.PurePrefix.lift carrierBridge.2
+  let arms : Fin 2 → Σ rows, MixedArm rows := Fin.cases ⟨_, left⟩ (fun _ => ⟨_, right⟩)
+  ⟨_, .gamma 0 (.arg .head) (.arg (runtimePort (Input number))) (carriedData number) (carriedData Join)
+    (.cons (.arg (.tail .head)) .nil) (fun i => (arms i).1) (fun i => (arms i).2.2)
+    (.ret (nextRuntime [] (carried Join)) (.cons (newest .head []) .nil))⟩
+
+private def headGraph (pureFirst : Bool) := (headCode (MixedThetaReverse.recoveredTheta pureFirst).checked).1.toGraph
+
+private def headChecked (pureFirst : Bool) : NestedTheta.ExplicitRuntime.PurePrefix.EntryChecked
+    (a := Translation.PureGamma.inputData number) (b := payloadData number number number)
+    (headGraph pureFirst).toTerm :=
+  (NestedTheta.Term.toTerm_toGraph _).symm ▸ (headCode (MixedThetaReverse.recoveredTheta pureFirst).checked).2
+
+private def ordinaryTail := Translation.Source.mixed (WithNestedFeedback.Syntax.structured tailNormal.toSyntax)
+private def tailGraph := Translation.compile ordinaryTail
+private def recoveredTail : Translation.Fibre .mixed tailGraph :=
+  (Translation.recover .mixed tailGraph).get (Translation.recover_compiled ordinaryTail)
+
+private def linked (pureFirst : Bool) := Translation.MixedContinuation.compile (headChecked pureFirst) ordinaryTail
+private def linkedRecovered (pureFirst : Bool) :=
+  Translation.MixedContinuation.linkRecovered (headChecked pureFirst) recoveredTail
+
+private def swappedThetaInArm : NestedTheta.Isomorphism.Mapping :=
+  fun path => if path == [(0,0), (0,0)] then ⟨swapFirstRows, swapFirstRows⟩ else ⟨id, id⟩
+
+private abbrev LinkedTerm := NestedTheta.Term (Translation.PureGamma.Op (τ := Ty) Op Bool)
+  (Threaded (Input number)) [] [WirePorts number number number, WirePorts number number number]
+  (WirePorts number number number)
+
+-- Redirect the continuation's token to the incoming γ token, retaining its data.
+private def staleContinuation (t : LinkedTerm) : LinkedTerm :=
+  match t with
+  | .bind branch arms (.bind consumer child rest) =>
+    let inputs := consumer.inputs.map fun sort wire =>
+      if h : runtime = sort then h ▸ .arg (runtimePort (Input number)) else wire
+    .bind branch arms (.bind {consumer with inputs} child rest)
+
+private def compareGraphs (left right : NestedTheta.Graph (Translation.PureGamma.Op (τ := Ty) Op Bool)
+    (Threaded (Input number)) [] [WirePorts number number number, WirePorts number number number]
+    (WirePorts number number number)) : Bool :=
+  @decide (left = right) (Translation.MixedRows.decideGraph left right)
+
+private theorem tail_flat (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) ordinaryTail.fragment.typing (PUnit.unit, (3 : Nat))).run 2777 =
+      Part.some ((.inl (2780 : Nat) : LabelDen [number,number]), 27774) := by
+  change (Region.denote (ε := Bool) (m := Runtime) (Flat.Fragment.loop tailLoop).typing (PUnit.unit, (3 : Nat))).run 2777 = _
+  rw [Flat.Fragment.loop_denote, ExplicitRuntime.denote_rounds _ coherent]
+  exact tailReturns 3 2777
+
+private theorem recovered_tail_flat (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredTail.typing (PUnit.unit, (3 : Nat))).run 2777 =
+      Part.some ((.inl (2780 : Nat) : LabelDen [number,number]), 27774) :=
+  (recoveredTail.run_iff runnerActions coherent (PUnit.unit, (3 : Nat)) _ 2777 27774).mp
+    ((ordinaryTail.compile_run_iff runnerActions coherent (PUnit.unit, (3 : Nat)) _ 2777 27774).mpr (tail_flat coherent))
+
+private theorem head_returns (coherent : Coherent) (pureFirst : Bool) :
+    NestedTheta.Partial.observe (Translation.PureGamma.model (τ := Ty) (Φ := Op) (ε := Bool) (σ := Nat))
+      (headGraph pureFirst) (Translation.PureGamma.entry (selectLeft 0) (2 : Nat)) =
+        Part.some (point (A := Join) (TwoBlock.TwoExit.enter (3 : Nat)) 2777) := by
+  have loop := mixedLoop.region_observe pureFirst coherent (PUnit.unit, (0 : Nat)) 2
+  rw [flat_theta_return coherent] at loop
+  unfold NestedTheta.Partial.observe at loop
+  rw [Part.map_some] at loop
+  unfold NestedTheta.Partial.observe headGraph
+  generalize (MixedThetaReverse.recoveredTheta pureFirst).checked = loopCheck
+  rw [NestedTheta.Term.toTerm_toGraph (headCode loopCheck).1]
+  simp only [headCode, NestedTheta.ExplicitRuntime.PurePrefix.gamma_denote]
+  change (((NestedTheta.ExplicitRuntime.PurePrefix.Splice.appendOrdered carrierBridge.2
+      loopCheck).1.denoteOpenWith
+        Translation.PureGamma.model (point (0 : Nat) 2) PUnit.unit)).bind _ = _
+  rw [NestedTheta.ExplicitRuntime.PurePrefix.Splice.append_denote, loop]
+  simp only [Part.bind_eq_bind, Part.bind_some]
+  change (((Wires.wireModel (ε := Bool) (σ := Nat)).primitive
+      (.ordered (carriedData number) (carriedData Join) (Translation.PurePrefix.orderedCall (op .forkGate)))
+      (point (3 : Nat) 2777)).bind _).bind _ = _
+  rw [Translation.PurePrefix.orderedCall_denote, call_eq]
+  simp only [instruction, StateT.run_pure, Part.pure_eq_some, Part.map_some, Part.bind_some]
+  rfl
+
+example (coherent : Coherent) (pureFirst : Bool) :
+    NestedTheta.Partial.observe (Translation.PureGamma.model (τ := Ty) (Φ := Op) (ε := Bool) (σ := Nat))
+      (linkedRecovered pureFirst) (Translation.PureGamma.entry (selectLeft 0) (2 : Nat)) =
+        Part.some (ExplicitRuntime.exitTuple (A := number)
+          ((.inl (2780 : Nat) : LabelDen [number,number]), 27774)) := by
+  rw [linkedRecovered, Translation.MixedContinuation.linkRecovered_observe_of_return (headChecked pureFirst)
+    recoveredTail coherent _ (PUnit.unit, (3 : Nat)) 2777 (head_returns coherent pureFirst), recovered_tail_flat coherent]
+  exact Part.map_some _ _
+
+#eval show IO Unit from do
+  letI : DecidableEq gammaCode.Key := inferInstanceAs (DecidableEq (Flat.Numbered.Recognize.OpcodeKey Ty Op ⊕ Op))
+  let moved := (NestedTheta.Isomorphism.check gammaCode swappedThetaInArm (linked true) (linked false)).isSome
+  unless moved do
+    throw (IO.userError "mixed θ relocation changed the surrounding γ or translated suffix")
+  for order in [false, true] do
+    let graph := linked order
+    unless compareGraphs graph (linkedRecovered order) do
+      throw (IO.userError "the publicly recovered tail changed the numbered splice")
+    if compareGraphs graph (staleContinuation graph.toTerm).toGraph then
+      throw (IO.userError "mixed continuation accepted a stale handoff token")
+    let run := fun choice => (NestedTheta.Partial.Executable.run gammaActions graph 3
+      (Translation.PureGamma.entry choice (2 : Nat))).map fun r =>
+        (show (Nat ⊕ Nat) ⊕ Nat from r.get .head, show Nat from r.get (.tail .head))
+    match run (selectLeft 0), run (selectRight 99) with
+    | some (.inl (.inl 2780), 27774), some (.inl (.inl 101), 24) => pure ()
+    | _, _ => throw (IO.userError "the translated suffix did not receive the selected arm's data and token")
+    unless (run (selectLeft 98)).isNone do
+      throw (IO.userError "the ordered suffix returned after a blocked mixed child")
+
+end CheckedContinuation
 
 end Composition
 
