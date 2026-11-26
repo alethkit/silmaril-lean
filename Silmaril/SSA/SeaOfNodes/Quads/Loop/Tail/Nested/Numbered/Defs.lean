@@ -53,16 +53,31 @@ abbrev routePorts (regs : List (ValueSort Data)) : List (Ty Data) :=
 abbrev splitSigs (regs : List (ValueSort Data)) : List (List (Ty Data)) :=
   [routePorts regs, dataPorts regs]
 
-/-- The outer γ returns the complete bank from its chosen region. Its true
-region contains the second γ, and its false region bypasses that split. -/
+/-- Wire the outer γ with the supplied common result interface. Each arm
+must already return that interface in the same port order. -/
+def afterOuterWith {args outputs results : List (Ty Data)} {past suffix : List (List (Ty Data))}
+    (arms : (i : Fin 2) → Term (Opcode Op) (dataPorts regs) [] (outerSigs p i) outputs)
+    (current : Wires args past (dataPorts regs))
+    (finish : Wires args (extend past [routePorts regs, outputs]) outputs →
+      Term (Opcode Op) args (extend past [routePorts regs, outputs]) suffix results) :
+    Term (Opcode Op) args past ([routePorts regs, outputs] ++ suffix) results :=
+  .bind ⟨_, .base (.simple (.route (outerChoice p))), current, Fin.elim0⟩ (fun i => i.elim0)
+    (.bind ⟨_, .base (.gamma 0), lastBank past (routePorts regs), outerSigs p⟩
+      arms (finish (lastBank (past ++ [routePorts regs]) outputs)))
+
+/-- The outer γ returns the complete bank from its chosen region. -/
 def afterOuter {args results : List (Ty Data)} {past suffix : List (List (Ty Data))}
     (current : Wires args past (dataPorts regs))
     (finish : Wires args (extend past (splitSigs regs)) (dataPorts regs) →
       Term (Opcode Op) args (extend past (splitSigs regs)) suffix results) :
     Term (Opcode Op) args past (splitSigs regs ++ suffix) results :=
-  .bind ⟨_, .base (.simple (.route (outerChoice p))), current, Fin.elim0⟩ (fun i => i.elim0)
-    (.bind ⟨_, .base (.gamma 0), lastBank past (routePorts regs), outerSigs p⟩
-      (outerArm p) (finish (lastBank (past ++ [routePorts regs]) (dataPorts regs))))
+  afterOuterWith p (outerArm p) current finish
+
+/-- Source bank delivered by the selected γ region after the header. -/
+def branchBank (m : Model.{u, v, w} Op) (header : Bank (regs := regs) m) :=
+  if (header.get p.outerTest).down then
+    (innerPlan p).eval m ((src p.inner).body.eval m header)
+  else p.outerFalse.quads.eval m header
 
 def tail : Block Op regs := (src p.join).body ++ (src p.latch).body
 
@@ -105,14 +120,24 @@ def checkResult (mask : Mask regs) : Option (KeptResult p (mask := mask)) :=
   | some result => some ⟨result, renamed⟩
   | none => none
 
+def lowerTermWith (result : KeptResult p (mask := mask)) {sigs : List (List (Ty Data))}
+    (body : Term (Opcode Op) (dataPorts mask.kept) [] sigs (bodyPorts mask.kept)) :
+    Term (Opcode Op) (dataPorts regs) [] ((src entry).body.producers ++ [dataPorts mask.kept]) [.value out] :=
+  thenBase ((src entry).body.lowerFrom (initial regs) .jump) (thetaThenReturn mask body result.val)
+
+def lowerWith (result : KeptResult p (mask := mask)) {sigs : List (List (Ty Data))}
+    (body : Term (Opcode Op) (dataPorts mask.kept) [] sigs (bodyPorts mask.kept)) :
+    RVSDG.NestedTheta.Graph (Opcode Op) (dataPorts regs) []
+      ((src entry).body.producers ++ [dataPorts mask.kept]) [.value out] :=
+  (lowerTermWith p result body).toGraph
+
 def lowerTerm (result : KeptResult p (mask := mask)) :
     Term (Opcode Op) (dataPorts regs) [] ((src entry).body.producers ++ [dataPorts mask.kept]) [.value out] :=
-  thenBase ((src entry).body.lowerFrom (initial regs) .jump)
-    (thetaThenReturn mask (thetaBody p projected) result.val)
+  lowerTermWith p result (thetaBody p projected)
 
 def lower (result : KeptResult p (mask := mask)) :
     RVSDG.NestedTheta.Graph (Opcode Op) (dataPorts regs) []
       ((src entry).body.producers ++ [dataPorts mask.kept]) [.value out] :=
-  (lowerTerm p projected result).toGraph
+  lowerWith p result (thetaBody p projected)
 
 end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Numbered

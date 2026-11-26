@@ -25,13 +25,17 @@ variable {src : Source Op regs out size} {entry : Fin size}
 def headerTransferFor (body : Block Op regs) :=
   CFG.compileBlock body (initial regs)
 
-/-- Keep the result slot and all input versions needed to reconstruct the
-post-header bank. The arm layout does not affect this certificate. -/
-def carriedMaskFor (body : Block Op regs) (result : Port (dataPorts regs) (.value out)) : Mask regs :=
+/-- Keep the inputs needed to reconstruct the outgoing bank and any
+separately retained positions. This analysis retains every producer. -/
+def boundaryMaskFor (body : Block Op regs) (keep : Nat → Bool) : Mask regs :=
   let flow := headerTransferFor body
   let reads := readSchedule flow.flow ++ [flow.outgoing.addresses]
   let live := RVSDG.NestedTheta.Liveness.sweep reads 0
-  Mask.ofSlots (fun i => i == result.index || live.contains (.arg i)) regs
+  Mask.ofSlots (fun i => keep i || live.contains (.arg i)) regs
+
+/-- A numbered θ also needs its result slot in the stopping packet. -/
+def carriedMaskFor (body : Block Op regs) (result : Port (dataPorts regs) (.value out)) : Mask regs :=
+  boundaryMaskFor body (fun i => i == result.index)
 
 /-- A strictly smaller bank can reconstruct the whole post-header bank. -/
 structure HeaderProjection (body : Block Op regs) (mask : Mask regs) where

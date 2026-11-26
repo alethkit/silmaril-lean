@@ -12,7 +12,7 @@ namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Proofs
 
 open SeaOfNodes.Diamond (ValueSort dataPorts)
 open SeaOfNodes.Loop.MLIR.CF (Op model evalOp)
-open SeaOfNodes.MLIR.Lowering (Names NamesAgree encodeValues valueBits)
+open SeaOfNodes.MLIR.Lowering (Names NamesAgree encodeValues valueBits valueWidth)
 open Silmaril.MLIR.Arith (Width Env)
 open Silmaril.MLIR.CF (Frame)
 open RVSDG (Tuple)
@@ -24,6 +24,23 @@ variable {regs : List (ValueSort Width)} {out : ValueSort Width} {size : Nat}
 variable {src : Source Op regs out size} {entry : Fin size}
 variable {p : Program src entry} {mask : Mask regs}
 variable {header : Fin size}
+
+theorem projectedBlock_eval {Labels : List Width → Type}
+    {jumpTo : JumpTo regs size Labels} {frame : Fin size → Bank (regs := regs) model → Frame Labels}
+    (routes : JumpAgrees jumpTo frame) (exit : Labels [valueWidth out]) (block : SourceBlock Op regs out size)
+    (projected : HeaderProjection block.body mask) {Γ : List Width} (env : Env Γ)
+    (old : Bank (regs := regs) model) :
+    (lowerProjectedBlockWith jumpTo exit block projected Γ).eval evalOp (fun term env => term.eval env)
+        ((encodeValues (mask.project old)).append env) =
+      let next := block.body.eval model old
+      .inl (destinationFrameWith frame (returnFrame exit) next (block.terminator.select model next)) := by
+  refine (CF.transfer_eval routes (past := []) (locals := PUnit.unit)
+    ⟨CF.blockNames_agree env (mask.project old), trivial⟩
+    projected.flow projected.outgoing block.terminator).trans ?_
+  change
+    (let next := projected.headerBank model (mask.project old)
+     Sum.inl (destinationFrameWith frame (returnFrame exit) next (block.terminator.select model next))) = _
+  rw [projected.header_agrees model old]
 
 private theorem jump_agrees :
     JumpAgrees (jump header mask (out := out)) (siteFrame header mask) := by
@@ -53,15 +70,8 @@ private theorem header_eval_with (old : Bank (regs := regs) model) :
         ((encodeValues (mask.project old)).append env) =
       let next := (src header).body.eval model old
       .inl (destinationFrameWith (siteFrame header mask) (exitFrame header mask) next
-        ((src header).terminator.select model next)) := by
-  refine (CF.transfer_eval jump_agrees (past := []) (locals := PUnit.unit)
-    ⟨CF.blockNames_agree env (mask.project old), trivial⟩
-    projected.flow projected.outgoing (src header).terminator).trans ?_
-  change
-    (let next := projected.headerBank model (mask.project old)
-     Sum.inl (destinationFrameWith (siteFrame header mask) (exitFrame header mask) next
-       ((src header).terminator.select model next))) = _
-  rw [projected.header_agrees model old]
+        ((src header).terminator.select model next)) :=
+  projectedBlock_eval jump_agrees .exit (src header) projected env old
 
 theorem source_site_frame_with (old : Bank (regs := regs) model) (id : Fin size) :
     let current := siteFrame header mask (out := out) id old

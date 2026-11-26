@@ -52,6 +52,14 @@ def exitFrame (header : Fin size) (mask : Mask regs)
     Frame (Label header regs mask.kept out) :=
   returnFrame .exit value
 
+/-- Emit a projected block using its checked flow and latest outgoing versions. -/
+def lowerProjectedBlockWith {Labels : List Width → Type} (jumpTo : JumpTo regs size Labels)
+    (exit : Labels [valueWidth out]) (block : SourceBlock Op regs out size)
+    (projected : HeaderProjection block.body mask) (captures : List Width) :
+    Silmaril.MLIR.CF.Block TargetOp Labels (Widths mask.kept ++ captures) [valueWidth out] :=
+  lowerCode opcode projected.flow ⟨blockNames captures mask.kept, PUnit.unit⟩
+    fun scope => lowerTerminatorWith jumpTo exit scope projected.outgoing block.terminator
+
 /-- Emit the original source blocks with a certified projection at one
 header. Every edge still uses the source terminator and its final versions. -/
 def lowerSourceWith (src : Source Op regs out size) (entry header : Fin size)
@@ -60,9 +68,7 @@ def lowerSourceWith (src : Source Op regs out size) (entry header : Fin size)
     Cfg TargetOp (Label header regs mask.kept out) Γ [valueWidth out] where
   entry := lowerBlockWith (jump header mask) .exit (src entry) ⟨names, PUnit.unit⟩
   block
-    | .header =>
-      lowerCode opcode projected.flow ⟨blockNames Γ mask.kept, PUnit.unit⟩
-        fun scope => lowerTerminatorWith (jump header mask) .exit scope projected.outgoing (src header).terminator
+    | .header => lowerProjectedBlockWith (jump header mask) .exit (src header) projected Γ
     | .site id _ => lowerBlockWith (jump header mask) .exit (src id) ⟨blockNames Γ regs, PUnit.unit⟩
     | .exit => .terminator (.ret (.cons .here .nil))
 
