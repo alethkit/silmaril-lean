@@ -85,6 +85,7 @@ globs = [
   "Silmaril.Languages.+", "Silmaril.Machine.+", "Silmaril.Numeric.+", "Silmaril.Parse.+", "Silmaril.Prelude.+", "Silmaril.ProofFormats.*",
   "Silmaril.Raw.Libc.+",
   "Silmaril.Problems.+", "Silmaril.Process.+",
+  "Silmaril.Relational.+", "Silmaril.Proofs.Relational.+",
   # Project, except `Project.WasmComponents` and `Project.WasmP3Rust` (`SilmarilWasmProject` below).
   "Silmaril.Project.Defs", "Silmaril.Project.CompilesTo.+", "Silmaril.Project.Components.+", "Silmaril.Project.ComponentTests.+",
   "Silmaril.Project.ConsequenceSystems.+",
