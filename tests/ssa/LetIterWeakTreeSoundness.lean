@@ -1,7 +1,7 @@
 module
 
 import Silmaril.Semantics.ITree.Thms
-import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Thms
 import Silmaril.Semantics.ITree.VisiblePrefix.Thms
 import Silmaril.SSA.Isotope.LetIter.RequestFeedback.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Syntactic.AbortSequence.Category.Model.Thms
@@ -3700,3 +3700,92 @@ example : extraReturn.run (code false) = (rightTable false).run (code false) ∧
   cases wrongReply
 
 end LetIterObservedFeedbackFixture
+
+namespace LetIterFiniteFeedbackReplayFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite
+
+private abbrev Bit := Code.sum .unit .unit
+private abbrev Three := Code.sum Bit .unit
+private abbrev Ops := Opcode Three Bit
+private abbrev Eff := Bool × Bool
+private abbrev strict : Eff := (true, false)
+
+local instance : HasEff Ops Eff := ⟨fun _ => strict⟩
+local instance : EffectIteration Eff := EffectIteration.complete Eff
+
+private abbrev off : Bit.Value := .inl PUnit.unit
+private abbrev on : Bit.Value := .inr PUnit.unit
+
+private def encode (s : Bit.Value) : Three.Value := .inl s
+
+private def toggle (s : Bit.Value) : Bit.Value :=
+  match s with
+  | .inl _ => on
+  | .inr _ => off
+
+private def rightNext (t : Three.Value) : Three.Value :=
+  match t with
+  | .inl s => .inl (toggle s)
+  | .inr _ => .inr PUnit.unit
+
+private def left : Table Three Bit Bit .unit where
+  request := encode
+  reply s
+    | .inl _ => .inl PUnit.unit
+    | .inr _ => .inr (toggle s)
+
+private def right : Table Three Bit Three .unit where
+  request := id
+  reply t
+    | .inl _ => .inl PUnit.unit
+    | .inr _ => .inr (rightNext t)
+
+private theorem commute : Commutes left right encode := by
+  intro s
+  refine ⟨rfl, ?_⟩
+  intro r
+  cases r <;> rfl
+
+private theorem allReach (s : Bit.Value) : left.Reaches off s := by
+  cases s with
+  | inl u =>
+      cases u
+      exact .initial
+  | inr u =>
+      cases u
+      exact .after_reply .initial on rfl
+
+private theorem initialObs : left.run off = right.run (encode off) :=
+  runs_eq commute off
+
+-- The recovered map distinguishes two live states. Neither state is a dead row.
+example : ∃ h, Commutes left right h ∧ h off ≠ h on ∧
+    ∀ s, Eqv ([] : EffectCtx (Ty Unit) Eff) Three.ty strict
+      ((stateMap Bit Three h : Expr Ops).subst (Bit.literal s).subst0) (Three.literal (encode s)) := by
+  obtain ⟨h, square, _⟩ := exists_commutes_of_initial (fun _ _ eq => eq) allReach initialObs
+  have table (s : Bit.Value) : h s = encode s := (square s).1.symm
+  refine ⟨h, square, ?_, fun s => ?_⟩
+  · rw [table off, table on]
+    intro eq
+    cases Sum.inl.inj eq
+  · rw [← table s]
+    exact stateMap_readback h s
+
+-- A repeat changes the visible state on both machines. The returning reply
+-- exits at either state. The initial equality above replays at strict.
+example :
+    ∃ (a a' : Tm Empty Ops 0) (b b' : Tm Empty Ops 1),
+      (Bit.literal off).toLetIter 0 = some a ∧
+      (Three.literal (encode off)).toLetIter 0 = some a' ∧
+      left.source.toLetIter 1 = some b ∧ right.source.toLetIter 1 = some b' ∧
+      HasTypeEffect (Ctx.nil : Ctx Empty (Ty Unit)) .nil (.iter a b) Ty.unit strict ∧
+      HasTypeEffect (Ctx.nil : Ctx Empty (Ty Unit)) .nil (.iter a' b') Ty.unit strict ∧
+      AbortEquiv (⊥ : Eff) (Ctx.nil : Ctx Empty (Ty Unit)) .nil (.iter a b) (.iter a' b') Ty.unit :=
+  replay (fun _ _ eq => eq) allReach initialObs le_rfl rfl
+
+example : strict < (⊤ : Eff) :=
+  lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+end LetIterFiniteFeedbackReplayFixture
