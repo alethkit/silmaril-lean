@@ -3,6 +3,7 @@ module
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.TypeChange.Comparison.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Expansion.TypeChange.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Expansion.Institution.Thms
+import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Expansion.Institution.Quotient.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Pullback.Witness.Lift.Thms
 import Silmaril.Semantics.Calco2019.Maybe.Types.Thms
 
@@ -12,6 +13,7 @@ namespace Silmaril.Isotope.Institution.Acyclic.Examples
 
 open CategoryTheory CategoryTheory.Limits
 open Silmaril.Calco2019
+open Silmaril.SSA.LambdaRTL.Quotient (semSetoid)
 open LetIter.Semantics.Categorical (TypeModel InstructionModel)
 open LambdaSSA.Semantics.Categorical
 open LambdaSSA.Acyclic (Code)
@@ -270,6 +272,19 @@ example (K : (ssaRoom J source).Mod) :
     (ssaRoom J source).Sat K (reify (compile sequentialLet)) ↔
       (ssaRoom J source).Sat K sequentialLet :=
   reify_compile_sat K sequentialLet
+
+-- The distinct exact equations represent the same semantic class.
+example : Quotient.mk (semSetoid (ssaRoom J source)) (reify (compile sequentialLet)) =
+    Quotient.mk (semSetoid (ssaRoom J source)) sequentialLet :=
+  reify_compile_class J p (Quotient.mk (semSetoid (ssaRoom J source)) sequentialLet)
+
+-- The semantic identification survives both changes of signature.
+example : Quotient.mk (semSetoid (ssaRoom J widened))
+    (((ssaTypeInst J).map (f ≫ g)).sen (reify (compile sequentialLet))) =
+    Quotient.mk (semSetoid (ssaRoom J widened))
+      (((ssaTypeInst J).map (f ≫ g)).sen sequentialLet) :=
+  Quotient.sound (semanticEquiv_map_signature (ssaTypeInst J) (f ≫ g)
+    (fun K => reify_compile_sat K sequentialLet))
 
 end Composite
 

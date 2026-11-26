@@ -458,6 +458,18 @@ The continuation cannot jump back to its own label.
   coherent model. Its fixed points are exactly the reified sentences.
   Equational consequence agrees on the validated class.
   [Validated institutional retraction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Institution/Thms.lean)
+- The retraction becomes an institution isomorphism when each sentence
+  is taken up to agreement on satisfaction in every model of its room.
+  Signature maps respect this relation by evaluating each mapped sentence
+  in the target model's reduct. Compilation and reification are inverse
+  on the quotient classes, and their discrete model functors are the same
+  inverse pair as before. The checked straight-line let and its reified
+  join have distinct exact code and the same semantic class, including
+  after the composite signature change. Completeness of a syntactic
+  rewrite theory still requires deriving equivalence from this model-wise
+  agreement.
+  [Semantic quotient isomorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Institution/Quotient/Thms.lean) ·
+  [Let-to-join regression](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/TypeChange/Thms.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
