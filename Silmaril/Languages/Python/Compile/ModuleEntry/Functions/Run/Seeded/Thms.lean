@@ -230,6 +230,41 @@ theorem failing_instruction {scope : Source.Scope} {space : Namespace} {instruct
         (effect space context instruction lists).2, (effectWithLists space context instruction lists).2⟩ := by
   cases instruction <;> simp_all [runInstructionsIn, effectWithLists, effect]
 
+theorem observeTupleIdentityCall_missing (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) {name : String} (test : TupleIdentity.Test)
+    (missing : space.lookupGlobal name = none) :
+    observeTupleIdentityCall space context destination name test =
+      (⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap) := by
+  simp only [observeTupleIdentityCall, Core.Module.SeededCall.Operand.eval, missing, Option.elim]
+  rfl
+
+theorem observeTupleIdentityCall_argument_failure (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) {name : String} (test : TupleIdentity.Test)
+    {callee : Value} {error : Failure} (found : space.lookupGlobal name = some callee)
+    (failed : test.evaluate context.heap
+      (fun name => ((Core.Module.SeededCall.Operand.global name).eval space #v[]).map ordinaryValue?)
+      .unsupported = .error error) :
+    observeTupleIdentityCall space context destination name test =
+      (⟨.error (.ofCall error), []⟩, context.heap) := by
+  have saved : (Core.Module.SeededCall.Operand.global name).eval space #v[] = .ok callee := by
+    simp [Core.Module.SeededCall.Operand.eval, found]
+  simp only [observeTupleIdentityCall, saved, failed]
+  rfl
+
+theorem observeTupleIdentityCall_helper (space : Namespace) (context : CallContext)
+    {name : String} (test : TupleIdentity.Test) {answer : Bool}
+    (found : space.lookupGlobal name = some (.helper .assertTrue))
+    (evaluated : test.evaluate context.heap
+      (fun name => ((Core.Module.SeededCall.Operand.global name).eval space #v[]).map ordinaryValue?)
+      .unsupported = .ok answer) :
+    observeTupleIdentityCall space context .discard name test =
+      (acceptObservation .discard name
+        (Core.Module.SeededCall.invokeObserved (.helper .assertTrue) [.bool answer]), context.heap) := by
+  have saved : (Core.Module.SeededCall.Operand.global name).eval space #v[] = .ok (.helper .assertTrue) := by
+    simp [Core.Module.SeededCall.Operand.eval, found]
+  simp only [observeTupleIdentityCall, saved, evaluated]
+  rfl
+
 theorem run_literalArmBoolean {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (value : Bool) (rest : List (Instruction scope)) :
     runInstructionsIn space context (.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: rest) =

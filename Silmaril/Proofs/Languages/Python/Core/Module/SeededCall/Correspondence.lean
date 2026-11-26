@@ -57,7 +57,7 @@ private theorem unique {arity : Nat} {request : Request arity} {first second : R
     cases right with
     | equalTuple _ _ same => contradiction
     | unequalTuple => rfl
-  | textConversion | truthConversion | intFromBool | callable | isinstance | distinctIntBool | copyTuple | copyTupleObject => cases right; rfl
+  | asserted | assertionFailed | textConversion | truthConversion | intFromBool | callable | isinstance | distinctIntBool | copyTuple | copyTupleObject => cases right; rfl
   | sameBool left right same =>
     cases right with
     | sameBool => rfl
@@ -82,6 +82,11 @@ private theorem computed (callee : Value) (arguments : List Value) :
   induction arguments using (measure (List.length : List Value → Nat)).wf.induction generalizing callee with
   | h arguments ih =>
     cases decoded : Request.decode callee arguments with
+    | assertBoolean value =>
+      rw [invoke, decoded]
+      cases value
+      · exact .assertionFailed
+      · exact .asserted
     | compare left right =>
       rw [invoke, decoded]
       by_cases same : left = right

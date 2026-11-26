@@ -62,4 +62,31 @@ private def chainEvidence (space : Core.Module.SeededCall.Namespace) (middle : I
 #guard chainEvidence .empty 6 (.error (.raised (.assertionError .empty))) 2
 #guard chainEvidence ((legacyTupleSeed .builtin).bindGlobal "tuple" .none) 5 (.error .unsupported) 3
 
+private def constructorIdentityEvidence (placement : SeedPlacement) : Bool := Id.run do
+  let call name argument := Source.Expr.call (.name name) [argument]
+  let test left op right := Source.Expr.comparison (.name left) [(op, .name right)]
+  let assertion operand := Source.Stmt.expression (call "___assertTrue" operand)
+  let source : Source.Module := ⟨[
+    .assign "n" (.integer 7),
+    .assign "first" (.tuple [.name "n"]),
+    .assign "alias" (call "tuple" (.name "first")),
+    .assign "second" (.tuple [.name "n"]),
+    assertion (test "first" .is_ "alias"),
+    assertion (test "first" .isNot "second")]⟩
+  let .ok compiled := Run.compile source | return false
+  let space := legacyTupleIdentitySeed placement
+  let observed := run space compiled
+  let first : Core.Module.SeededCall.Value := .tupleObject ⟨some 0, [.int 7]⟩
+  let second : Core.Module.SeededCall.Value := .tupleObject ⟨some 1, [.int 7]⟩
+  return observed.completion == .ok () && observed.heap.next == 2 &&
+    observed.residual.builtins == space.builtins &&
+    observed.residual.lookupGlobal "first" == some first &&
+    observed.residual.lookupGlobal "alias" == some first &&
+    observed.residual.lookupGlobal "second" == some second &&
+    observed.calls.map (fun event => (event.callee, event.observation.result, event.observation.caught)) ==
+      [("tuple", .ok first, none), ("___assertTrue", .ok .none, none), ("___assertTrue", .ok .none, none)]
+
+#guard constructorIdentityEvidence .builtin
+#guard constructorIdentityEvidence .preamble
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

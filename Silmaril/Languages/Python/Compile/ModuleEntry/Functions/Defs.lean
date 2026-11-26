@@ -5,6 +5,7 @@ public import Silmaril.Languages.Python.Compile.ModuleEntry.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuard.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleIdentity.Defs
 
 /-! # Lower module function bindings and positional call sites
 
@@ -502,6 +503,8 @@ inductive Action (scope : Scope) where
       (keywordDefault : Option (Fin (frameLayout child.scope).locals × Int) := none)
   | call (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (arguments : List (Operand scope))
+  | callTupleIdentity (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
+      (test : TupleIdentity.Test)
   | adjacentKeywordDiscard (name : Name) (reference : GlobalReference scope name) (value : Int)
   | nestedCall (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (arguments : List (CallArgument scope))
@@ -551,6 +554,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (site : CallSite statement target name arguments) (result : destination.placement = target)
       (operandOrder : Positional tree.scope arguments values) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.call destination name reference values :: tail)
+  | callTupleIdentity {index statement rest target name arguments destination reference test tail}
+      (site : CallSite statement target name arguments) (result : destination.placement = target)
+      (operand : TupleIdentity.Argument tree.scope arguments test) (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.callTupleIdentity destination name reference test :: tail)
   | nestedCall {index statement rest target name arguments destination reference values tail}
       (site : CallSite statement target name arguments) (result : destination.placement = target)
       (operandOrder : CallArguments tree.scope arguments values) (remaining : Translation tree index rest tail) :
@@ -672,6 +679,10 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     else if let some ⟨(target, name, arguments), site⟩ := callSite? statement then
       let destination ← lowerDestination tree.scope target
       let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
+      if let some test := TupleIdentity.checkArgument tree.scope arguments then
+        let tail ← lowerPlan tree index rest
+        return ⟨.callTupleIdentity destination.val name reference test.val :: tail.val,
+          .callTupleIdentity site destination.property test.property tail.property⟩
       match lowerArguments tree.scope arguments with
       | .ok operands =>
         let tail ← lowerPlan tree index rest

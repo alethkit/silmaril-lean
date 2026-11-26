@@ -71,6 +71,14 @@ def legacyTupleSeed (placement : SeedPlacement) : Namespace :=
   let seed := legacySeed placement
   { seed with builtins := ("tuple", .builtin .tuple) :: seed.builtins }
 
+/-- Supply the exact Boolean helper in the selected harness placement. -/
+def legacyTupleIdentitySeed (placement : SeedPlacement) : Namespace :=
+  let space := legacyTupleSeed placement
+  let truthHelper := ("___assertTrue", Value.helper .assertTrue)
+  match placement with
+  | .builtin => { space with builtins := truthHelper :: space.builtins }
+  | .preamble => { space with moduleGlobals := truthHelper :: space.moduleGlobals }
+
 /-- The ordinal profile opts into the stock descriptor in either placement. -/
 def legacyOrdSeed (placement : SeedPlacement) : Namespace :=
   let seed := legacySeed placement
@@ -674,6 +682,21 @@ def checkVarNames (space : Namespace) (table : CodeTable) (receiver : String)
     | .code error => .varNamesFault error
   (assertTruth (.bool member)).mapError ModuleFailure.ofCall
 
+def observeTupleIdentityCall (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (name : String) (test : TupleIdentity.Test) : Effect × Heap :=
+  let read name := (Core.Module.SeededCall.Operand.global name).eval space #v[]
+  let checked : Except Failure (Value × Bool) := do
+    let callee ← read name
+    let answer ← test.evaluate context.heap (fun name => (read name).map ordinaryValue?) .unsupported
+    return (callee, answer)
+  match checked with
+  | .error error => (⟨.error (.ofCall error), []⟩, context.heap)
+  | .ok (callee, answer) =>
+    let (observed, heap) := invokeFlatCall space context destination callee [.bool answer]
+    match observed with
+    | .ok result => (acceptObservation destination name result, heap)
+    | .error error => (⟨.error error, []⟩, heap)
+
 def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruction : Instruction scope)
     (lists : ListHeap := .empty) : Effect × Heap :=
   match instruction with
@@ -706,6 +729,7 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
       match observed with
       | .ok result => (acceptObservation destination name result, heap)
       | .error error => (⟨.error error, []⟩, heap)
+  | .callTupleIdentity destination name test => observeTupleIdentityCall space context destination name test
   | .adjacentKeywordDiscard name value =>
     match invokeAdjacentKeywordDiscard space context name value with
     | (.ok observed, heap) => (acceptObservation .discard name observed, heap)

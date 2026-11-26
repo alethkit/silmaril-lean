@@ -54,6 +54,7 @@ private def detail : AssertionArgument → String
   | .empty => "empty"
   | .text text => "text:" ++ text
   | .integerPair left right => s!"pair:{left}:{right}"
+  | .boolean value => if value then "bool:True" else "bool:False"
   | .booleanPair left right => s!"bool-pair:{left}:{right}"
   | .textPair left right =>
     s!"text-pair:{reprStr (left.points.map UInt32.toNat)}:{reprStr (right.points.map UInt32.toNat)}"
@@ -905,6 +906,8 @@ def assertion(error):
     if not error.args:
         return "AssertionError:empty"
     (argument,) = error.args
+    if type(argument) is bool:
+        return f"AssertionError:bool:{argument}"
     if isinstance(argument, tuple):
         left, right = argument
         if type(left) is bool and type(right) is bool:

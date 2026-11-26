@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Defs
 public import Silmaril.Languages.Python.Core.Module.Functions.Thms
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleIdentity.Thms
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Prefix
 
 public section
@@ -87,6 +88,21 @@ theorem invoke_current_globals {scope : Source.Scope} (session : Core.Module.Fun
     (name : String) (arguments : List Core.Module.Functions.Operand) (remaining : List (Instruction scope)) :
     advance table (.ready session (.call target name arguments :: remaining)) =
       ([], .calling (session.prepareCall target (.readGlobal name) arguments) remaining) := rfl
+
+theorem prepareTupleIdentityCall_missing (session : Core.Module.Functions.Session)
+    (destination : Core.Module.Functions.Destination) {name : String} (test : TupleIdentity.Test)
+    (missing : session.globals name = none) :
+    prepareTupleIdentityCall session destination name test = .error (.raised (.nameError name)) := by
+  simp only [prepareTupleIdentityCall, missing, Option.elim]
+  rfl
+
+theorem advance_callTupleIdentity_failure {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (destination : Core.Module.Functions.Destination)
+    (name : String) (test : TupleIdentity.Test) (rest : List (Instruction scope)) {error : Completion}
+    (failed : prepareTupleIdentityCall session destination name test = .error error) :
+    advance table (.ready session (.callTupleIdentity destination name test :: rest)) =
+      ([], .finished session error) := by
+  simp [advance, failed]
 
 theorem advance_literalArmBoolean {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (value : Bool) (rest : List (Instruction scope)) :

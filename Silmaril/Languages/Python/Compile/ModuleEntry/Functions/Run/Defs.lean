@@ -34,6 +34,7 @@ inductive Instruction (scope : Scope) where
   | assertVarNames (receiver : String) (needle : List UInt32)
   | publish (name : String) (function : TopFunction)
   | call (destination : Core.Module.Functions.Destination) (name : String) (operands : List Core.Module.Functions.Operand)
+  | callTupleIdentity (destination : Core.Module.Functions.Destination) (name : String) (test : TupleIdentity.Test)
   /-- The source plan places this call immediately after the matching publication. -/
   | adjacentKeywordDiscard (name : String) (value : Int)
   | nestedCall (destination : Core.Module.Functions.Destination) (name : String) (arguments : List Argument)
@@ -106,6 +107,9 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
     let some arguments := operands.mapM callOperand? | throw .callOperand
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.call (destination target) name arguments :: instructions, blocks)
+  | .callTupleIdentity target name _ test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.callTupleIdentity (destination target) name test :: instructions, blocks)
   | .adjacentKeywordDiscard name _ value :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.adjacentKeywordDiscard name value :: instructions, blocks)
@@ -299,6 +303,13 @@ def bindTuple (session : Session) (name : String) (items : List Core.Closure.Glo
   | .error (.danglingCell identity) => .error (.executorFault (.danglingCell identity))
   | .error .unsupportedTupleElement => .error (.executorFault .unsupportedTupleElement)
 
+def prepareTupleIdentityCall (session : Session) (destination : Core.Module.Functions.Destination)
+    (name : String) (test : TupleIdentity.Test) : Except Completion Invocation := do
+  let read name := (session.globals name).elim (.error (.raised (.nameError name))) (fun value => .ok value)
+  let callee ← read name
+  let answer ← test.evaluate session.heap (fun name => (read name).map some) .scalarProfile
+  return session.prepareCall destination (.literal callee) [.literal (.bool answer)]
+
 def advance {scope : Scope} (table : CodeTable) : State scope → List Event × State scope
   | .finished session completion => ([], .finished session completion)
   | .ready session [] => ([], .finished session .normal)
@@ -331,6 +342,10 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
       | .ok updated => .ready updated rest
       | .error fault => .finished session (.codeFault fault))
     | .call destination name arguments => ([], .calling (session.prepareCall destination (.readGlobal name) arguments) rest)
+    | .callTupleIdentity destination name test =>
+      ([], match prepareTupleIdentityCall session destination name test with
+        | .ok invocation => .calling invocation rest
+        | .error error => .finished session error)
     | .adjacentKeywordDiscard name value =>
       ([], .calling (session.prepareCall .discard (.readGlobal name) [.literal (.int value)]) rest)
     | .nestedCall destination name arguments =>
