@@ -517,6 +517,11 @@ globs = ["tests.ssa.PeggyEquational"]
 name = "PEGRulesTests"
 globs = ["tests.ssa.PEGRules"]
 
+# Check exact canonical PEG loop extraction and its SIMPLE return observation.
+[[lean_lib]]
+name = "PEGCanonicalWhileTests"
+globs = ["tests.ssa.PEGCanonicalWhile"]
+
 # The component and generator tools of the Wasm release (docs/projects/wasm-components.md).
 [[lean_exe]]
 name = "wasm-tools-gen"
