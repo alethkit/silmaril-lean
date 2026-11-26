@@ -8,12 +8,12 @@ meta import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Se
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage
 
-open CategoryTheory
-open RVSDG (Tuple)
+open CategoryTheory Silmaril.Logic.Institution
+open RVSDG (Port Tuple)
 open CarriedAddress.Institution.RuntimeEntry (Entry)
 open Memory.Diamond.Institution (reduct)
 open Memory.Diamond.Institution renaming Signature → EntrySignature
-open Triple.Satisfaction (Backend)
+open Triple.Satisfaction (Backend corridor corridor_comp_modelExpansive_iff_check corridor_modelExpansive_iff_check)
 open Triple.Satisfaction renaming Program → TripleProgram, Sentence → TripleSentence
 open Sequential.Fixture (captures graph initial)
 open Linked.Fixture (combined first wiring inputs rightStore)
@@ -27,6 +27,19 @@ private def identifySpare : extended ⟶ extended :=
   ⟨fun
     | .head => .tail rightStore
     | .tail port => .tail port⟩
+
+#guard !checkCoverage identifySpare 6
+#guard !checkExpansive identifySpare
+#guard checkInjectiveOnImage insert identifySpare .word
+#guard checkCompositeCoverage insert identifySpare 6
+#guard checkCompositeExpansive insert identifySpare
+
+example (backend : Backend) : (corridor backend insert ≫ corridor backend identifySpare).ModelExpansive :=
+  (corridor_comp_modelExpansive_iff_check backend insert identifySpare).mpr rfl
+
+example (backend : Backend) : ¬ (corridor backend identifySpare).ModelExpansive :=
+  fun expands => (by decide : checkExpansive identifySpare ≠ true)
+    ((corridor_modelExpansive_iff_check backend identifySpare).mp expands)
 
 private def source : Entry combined.args 6 := ⟨inputs, initial⟩
 private def greedy : Tuple (Val 6) extended.args := .cons (0 : Word) inputs
@@ -54,6 +67,32 @@ example : ¬ InReductImage identifySpare greedy :=
 
 example : InReductImage (insert ≫ identifySpare) source.input :=
   (inReductImage_comp_iff_lift insert identifySpare source.input).mpr ⟨intermediate.input, rfl, rfl⟩
+
+-- This time the identified store ports are both used by the first map.
+private def leftStore : Port combined.args .word := .tail (.tail (.tail .head))
+
+private def identifyStores : combined ⟶ combined :=
+  ⟨fun
+    | .tail (.tail (.tail (.tail (.tail (.tail .head))))) => leftStore
+    | port => port⟩
+
+private def identifyUsed : extended ⟶ extended :=
+  ⟨fun
+    | .head => .head
+    | .tail port => .tail (identifyStores.port port)⟩
+
+#guard !checkInjectiveOnImage insert identifyUsed .word
+#guard !checkCompositeCoverage insert identifyUsed 6
+#guard !checkCompositeExpansive insert identifyUsed
+
+example : liftThrough? insert identifyUsed source = none := rfl
+
+example : ¬ InReductImage (insert ≫ identifyUsed) source.input :=
+  fun image => (by decide : (liftThrough? insert identifyUsed source).isSome ≠ true)
+    ((liftThrough?_isSome_iff insert identifyUsed source).mpr image)
+
+example (sentence : TripleSentence combined) :=
+  sentence.room_satisfaction_comp_of_check .memref insert identifySpare 6 rfl
 
 example (backend : Backend) (sentence : TripleSentence combined) :
     backend.Holds ((sentence.map insert).map identifySpare) target.model ↔ backend.Holds sentence source.model :=
