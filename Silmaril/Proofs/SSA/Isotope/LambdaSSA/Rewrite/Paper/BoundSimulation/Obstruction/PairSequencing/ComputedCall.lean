@@ -17,8 +17,8 @@ open scoped Paper.BoundSimulation.Obstruction Observer.CanonicalUnit
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer (EnvTy Result)
 
 private def observation : TermObservation (α := Atom) Op where
-  unitCall _ := true
-  unitCall_typed _ _ _ := .base
+  callResult _ := some .unit
+  callResult_typed _ _ _ h := Option.some.inj h ▸ .base
 
 private theorem env_typed : EnvTy [Payload] (fun _ => .unit) := by
   intro i A hi

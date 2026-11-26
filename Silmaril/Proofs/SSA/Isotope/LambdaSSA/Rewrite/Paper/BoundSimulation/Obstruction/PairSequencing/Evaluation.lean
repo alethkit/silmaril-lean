@@ -4,7 +4,7 @@ public import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulatio
 
 /-! # Syntactic tests in the expression observer
 
-The pair test faults if either operand starts with a unary let. The term-case
+The pair test faults on selected pairs if either operand starts with a unary let. The term-case
 test faults at an expression case. The binary-let test marks a unary let in
 its term body. A separate region test marks binary lets with computed
 scrutinees. Each test is stable under constructor substitution.
@@ -90,30 +90,66 @@ private theorem startsLet_of_not_computed {t : Tm Φ} (h : computes t = false) :
 /-- Syntactic tests on expression and region evaluation. -/
 structure TermObservation (Φ : Type v) {α : Type u} [HasTy Φ (Ty α)] where
   pairLet : Bool := false
+  /-- Restrict the pair test to a selected primitive in the left operand. -/
+  pairLetCall : Option (Φ → Bool) := none
   /-- Mark an expression-level binary let whose body starts with a unary let. -/
   binaryLetBody : Bool := false
   caseTerm : Bool := false
   computedRegionLet₂ : Bool := false
   /-- Evaluate the argument before returning the selected call payload. -/
   evaluateCallOperand : Bool := false
-  unitCall : Φ → Bool := fun _ => false
-  unitCall_typed (p : Φ) [UnitPayloadPolicy] :
-    unitCall p = true → ValTy .unit (instrTrg p : Ty α) := by simp
+  callResult : Φ → Option Val := fun _ => none
+  callResult_typed (p : Φ) {v : Val} [UnitPayloadPolicy] :
+    callResult p = some v → ValTy v (instrTrg p : Ty α) := by simp
 
-/-- Evaluate expressions with the selected tests. Selected calls
-return the observer payload when their operand does not start with a unary let. -/
+def selectsPair (select : Option (Φ → Bool)) (a : Tm Φ) : Bool :=
+  match select, a with
+  | none, _ => true
+  | some accepts, .op p _ => accepts p
+  | some _, _ => false
+
+theorem selectsPair_rename (select : Option (Φ → Bool)) (a : Tm Φ) (ρ : Nat → Nat) :
+    selectsPair select (a.rename ρ) = selectsPair select a := by
+  cases select <;> cases a <;> rfl
+
+private theorem selectsPair_not_computed (accepts : Φ → Bool) {a : Tm Φ}
+    (h : computes a = false) : selectsPair (some accepts) a = false := by
+  cases a <;> first | rfl | cases h
+
+theorem selectsPair_subst (select : Option (Φ → Bool)) (a : Tm Φ) (θ : Nat → Tm Φ)
+    (hθ : ∀ i, computes (θ i) = false) :
+    selectsPair select (a.subst θ) = selectsPair select a := by
+  cases select with
+  | none => rfl
+  | some accepts =>
+    cases a with
+    | var i => exact selectsPair_not_computed accepts (hθ i)
+    | _ => rfl
+
+theorem selectsPair_substOn {Γ : VCtx (Ty α)} {a : Tm Φ} {A : Ty α}
+    (ha : Tm.HasType Γ a A) (select : Option (Φ → Bool)) {θ : Nat → Tm Φ}
+    (hθ : ∀ i D, At Γ i D → computes (θ i) = false) :
+    selectsPair select (a.subst θ) = selectsPair select a := by
+  cases select with
+  | none => rfl
+  | some accepts =>
+    cases ha with
+    | var hi => exact selectsPair_not_computed accepts (hθ _ _ hi)
+    | _ => rfl
+
+/-- Evaluate expressions with the selected tests and typed primitive results. -/
 def evalTermWith (observation : TermObservation (α := α) Φ) : Tm Φ → Env → Option Val
   | .var i, env => some (env i)
   | .op p a, env =>
       if observation.evaluateCallOperand then
-        if observation.unitCall p then (evalTermWith observation a env).map (fun _ => .unit) else none
-      else if observation.unitCall p && !startsLet a then some .unit else none
+        evalTermWith observation a env >>= fun _ => observation.callResult p
+      else if startsLet a then none else observation.callResult p
   | .let₁ x t, env => do
       let v ← evalTermWith observation x env
       evalTermWith observation t (extend env v)
   | .unit, _ => some .unit
   | .pair x y, env =>
-      if observation.pairLet && (startsLet x || startsLet y) then none
+      if observation.pairLet && selectsPair observation.pairLetCall x && (startsLet x || startsLet y) then none
       else do
         let v ← evalTermWith observation x env
         let w ← evalTermWith observation y env
@@ -166,7 +202,7 @@ theorem evalTerm_rename (t : Tm Φ) {env env' : Env} {ρ : Nat → Nat}
     cases evalTerm x env with
     | none => rfl
     | some v => exact it (extend_rename h v)
-  | pair _ _ ix iy => simp only [Tm.rename, evalTermWith, startsLet_rename, ix h, iy h]
+  | pair _ _ ix iy => simp only [Tm.rename, evalTermWith, startsLet_rename, selectsPair_rename, ix h, iy h]
   | unit => rfl
   | let₂ x t ix it =>
     simp only [Tm.rename, evalTermWith, startsLet_rename, ix h]
@@ -220,7 +256,8 @@ theorem evalTerm_subst (t : Tm Φ) {env env' : Env} {θ : Nat → Tm Φ}
     | some v => exact it (h.lift v)
   | pair a b ix iy =>
     simp only [Tm.subst, evalTermWith, startsLet_subst a θ (fun i => startsLet_of_not_computed (h i).2),
-      startsLet_subst b θ (fun i => startsLet_of_not_computed (h i).2), ix h, iy h]
+      startsLet_subst b θ (fun i => startsLet_of_not_computed (h i).2),
+      selectsPair_subst _ a θ (fun i => (h i).2), ix h, iy h]
   | unit => rfl
   | let₂ x t ix it =>
     have marker := startsLet_subst t (Tm.liftSubstN 2 θ)
@@ -296,24 +333,20 @@ theorem evalTerm_typed {Γ : VCtx (Ty α)} {t : Tm Φ} {A : Ty α}
   induction ht generalizing env v with
   | var hi => cases Option.some.inj he; exact h hi
   | @op _ a p _ _ =>
-    by_cases strict : observation.evaluateCallOperand = true
-    · by_cases selected : observation.unitCall p = true
-      · simp only [evalTermWith, strict, selected, ite_true, Option.map_eq_some_iff] at he
-        obtain ⟨_, _, rfl⟩ := he
-        exact observation.unitCall_typed p selected
-      · simp [evalTermWith, strict, selected] at he
-    · rw [evalTermWith, ite_eq_right strict] at he
-      split at he
-      · rename_i selected
-        cases Option.some.inj he
-        exact observation.unitCall_typed p (Bool.and_eq_true_iff.mp selected).1
-      · contradiction
+    simp only [evalTermWith] at he
+    split at he
+    · cases ea : evalTerm a env with
+      | none => simp [ea] at he
+      | some value => exact observation.callResult_typed p (by simpa [ea] using he)
+    · split at he
+      · cases he
+      · exact observation.callResult_typed p he
   | @let₁ _ a _ _ _ _ _ ia ib =>
     cases hx : evalTerm a env with
     | none => simp [evalTermWith, hx] at he
     | some x => exact ib (h.extend (ia h hx)) (by simpa [evalTermWith, hx] using he)
   | @pair _ a b _ _ _ _ ix iy =>
-    by_cases guard : (observation.pairLet && (startsLet a || startsLet b)) = true
+    by_cases guard : (observation.pairLet && selectsPair observation.pairLetCall a && (startsLet a || startsLet b)) = true
     · simp [evalTermWith, guard] at he
     · cases hx : evalTerm a env with
       | none => simp [evalTermWith, guard, hx] at he
@@ -446,7 +479,7 @@ theorem evalTerm_substOn {Γ : VCtx (Ty α)} {t : Tm Φ} {A : Ty α}
     | some v => exact it (h.lift A v)
   | @pair _ a b _ _ ha hb ix iy =>
     simp only [Tm.subst, evalTermWith, startsLet_substOn ha (fun i A hi => startsLet_of_not_computed (h i A hi).2),
-      startsLet_substOn hb (fun i A hi => startsLet_of_not_computed (h i A hi).2), ix h, iy h]
+      selectsPair_substOn ha _ (fun _ _ hi => (h _ _ hi).2), startsLet_substOn hb (fun i A hi => startsLet_of_not_computed (h i A hi).2), ix h, iy h]
   | unit => rfl
   | @let₂ _ a b A B _ _ hb ix it =>
     have marker := startsLet_substOn hb (θ := Tm.liftSubstN 2 θ)
