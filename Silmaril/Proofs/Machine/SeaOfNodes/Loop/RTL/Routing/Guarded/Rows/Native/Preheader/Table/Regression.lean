@@ -458,6 +458,13 @@ example : ∃ start latched, narrowTargets.1.start 0 (words narrowInput) mem = s
   exact ⟨_, latched, started, steps, initialized ▸ agreed⟩
 
 example : narrowTargets.1.runMain 13 0 (words narrowInput) mem = .returned [6] mem := by cbv
+example : narrowTargets.1.runMain (Width.rtlFuel Entry Header 2) 0 (words narrowInput) mem =
+    .returned [6] mem :=
+  (Width.rtl_runMain_backedges_iff narrowAccepted narrowInput mem mem [6] 2).mpr
+    ⟨6, by cbv, rfl, rfl⟩
+
+example : (narrowTargets.1.runMain 12 0 (words narrowInput) mem).returnedValues? = none := by cbv
+example : source.evalBackedges model 1 (removeCapture.pull narrowInput) = none := by cbv
 example : narrowTargets.1.runMain 13 0 [5, 2, 5] mem = .stuck := by cbv
 example : Generic.Fuel.run model (inputEnv model narrowInput) 3 narrowTargets.2 =
     some (0, Generic.packResult model (out := word) (6 : Word)) := by cbv
@@ -524,6 +531,11 @@ private theorem trace_of_cycle {program : Prog Reg} {s : State Reg} {n : Nat}
 example : narrowTargets.1.divOracle 0 (words narrowSpin) mem :=
   ⟨narrowStart, by cbv, InfiniteTrace.of_steps (steps_of_run reachesNarrowHeader) (trace_of_cycle narrowCycle)⟩
 
+example : ∀ returned final, ¬ narrowTargets.1.oracle 0 (words narrowSpin) mem returned final :=
+  (Width.rtl_no_finite_return_iff narrowAccepted narrowSpin mem).mpr
+    ((show removeCapture.pull narrowSpin = equalCaptures by cbv).symm ▸ equalCapturesAbsent)
+
+
 example : (∀ args : WordTuple 2,
     narrowGraph.denote model args = (Width.mapCaptures removeCapture aliasSubtraction).denote model args) :=
   (Width.equation_on_image removeCapture source aliasSubtraction).mpr (by
@@ -539,7 +551,7 @@ private def widenCaptures : InputMap 3 4 := fun slot => if slot = 2 then 3 else 
 private def wideGraph : Width.Source 4 3 Entry Header := Width.mapCaptures widenCaptures source
 private def wideTargets : Checked.Phi.Targets := (Width.lowerRTL wideGraph, Generic.lower wideGraph)
 
-example : Width.lowerChecked widenCaptures source = some wideTargets :=
+private theorem wideAccepted : Width.lowerChecked widenCaptures source = some wideTargets :=
   Width.lowerChecked_of_accepted widenCaptures accepted
 
 example : (wideTargets.1.func? 0).map (·.sig.params) = some 4 := by cbv
@@ -552,5 +564,23 @@ example : widenCaptures.pull wideInput = input := by cbv
 example : wideTargets.1.runMain 10 0 (words wideInput) mem = .returned [7] mem := by cbv
 example : Generic.Fuel.run model (inputEnv model wideInput) 2 wideTargets.2 =
     some (0, Generic.packResult model (out := word) (7 : Word)) := by cbv
+
+example : wideTargets.1.runMain (Width.rtlFuel Entry Header 1) 0 (words wideInput) mem =
+    .returned [7] mem :=
+  (Width.rtl_runMain_fuel_iff wideAccepted wideInput mem mem [7] _).mpr
+    ⟨1, (7 : Word), (show widenCaptures.pull wideInput = input by cbv).symm ▸ counted, le_rfl, rfl, rfl⟩
+
+private def wideImmediate : WordTuple 4 := .cons (9 : Word) (bank 2 99 5)
+
+example : wideTargets.1.runMain (Width.rtlFuel Entry Header 0) 0 (words wideImmediate) mem =
+    .returned [10] mem :=
+  (Width.rtl_runMain_backedges_iff wideAccepted wideImmediate mem mem [10] 0).mpr
+    ⟨10, by cbv, rfl, rfl⟩
+
+private def wideSpin : WordTuple 4 := .cons (0 : Word) (bank 1 99 1)
+
+example : wideTargets.1.divOracle 0 (words wideSpin) mem :=
+  (Width.rtl_divOracle_iff wideAccepted wideSpin mem).mpr
+    ((show widenCaptures.pull wideSpin = spin by cbv).symm ▸ spinAbsent)
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table

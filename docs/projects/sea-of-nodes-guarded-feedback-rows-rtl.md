@@ -694,16 +694,50 @@ capture to slot four and checks the emitted entry and header registers
 and both target returns. [Checked regression][table-regression]
 
 `Width.checked_entry_packet` starts the actual resized RTL function at
-the new arity, runs one instruction per preheader producer followed by
-the entry jump, and matches the native initial bank at the pulled inputs.
-`Width.header_terminator` takes the actual RTL branch under a frame
-agreement hypothesis at the end of the header producer table. It either
-rebinds the entire feedback tuple from that frame or reaches the exit
-and returns the native word. Both laws carry the full memory through.
-The remaining generic RTL execution obligation is to establish that
-frame agreement by running the emitted header producers from the
-resized bank invariant and to iterate the resulting activation law
-for finite returns and productive divergence.
+the new arity and matches the native initial bank at the pulled inputs.
+`Width.header_producers` executes the operations emitted by
+`Diamond.RTL.emitOpsWith`, taking one instruction per producer and
+establishing the word and guard reads for `Width.header_terminator`.
+`Width.header_activation` includes the branch. It rebinds the whole
+feedback tuple from the predecessor frame and restores the bank
+invariant, or reaches the exit and returns the exact word on the next
+instruction. The full memory is preserved on both paths.
+
+For a native return after `k` backedges, the minimum RTL fuel is
+`Width.rtlFuel entrySigs sigs k`. It counts the entry producers and jump,
+`k + 1` visits of the header producers and branch, and one return
+instruction. `Width.rtl_runMain_fuel_iff` accepts arbitrary RTL fuel.
+`Width.rtl_runMain_backedges_iff` uses the corresponding native bound
+directly, as in this three-to-four call.
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy model)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader
+
+example {entrySigs sigs : List (List PortTy)} {source : SourceWithEntry 3 entrySigs sigs}
+    {mapping : InputMap 3 4} {targets : Checked.Phi.Targets}
+    (accepted : Table.Width.lowerChecked mapping source = some targets)
+    (input : WordTuple 4) (mem : Memory) (k : Nat) (word : Word)
+    (observed : source.evalBackedges model k (mapping.pull input) = some word) :
+    targets.1.runMain (Table.Width.rtlFuel entrySigs sigs k) 0 (words input) mem =
+      .returned [word] mem :=
+  (Table.Width.rtl_runMain_backedges_iff accepted input mem mem [word] k).mpr
+    ⟨word, observed, rfl, rfl⟩
+```
+
+`Width.rtl_return_iff` and `Width.rtl_no_finite_return_iff` compare unbounded
+finite observations at the pulled valuation. `Width.rtl_divOracle_iff`
+uses productive machine backedges to prove actual divergence from native
+undefinedness. The constrained input and opcode admission is the same
+checked pure, single-header dependent-preheader profile. The regressions
+cover zero, one, and two backedges, RTL fuel one instruction below a
+return, and genuinely nonreturning inputs.
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
