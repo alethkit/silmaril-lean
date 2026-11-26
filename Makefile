@@ -179,6 +179,7 @@ tla-import-check:
 	cd tests/semantics/tla-quint && sha256sum -c SHA256SUMS
 	$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true --run tests/semantics/tla-quint/Import.lean
 	$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/semantics/tla-quint/Temporal.lean
+	$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/semantics/tla-quint/ServiceCycle.lean
 
 check-integrations:
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.OrderedRuntime.% +Silmaril.Proofs.SSA.RVSDG.OrderedRuntime.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.OrderedRuntime.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGOrderedRuntime.lean)
