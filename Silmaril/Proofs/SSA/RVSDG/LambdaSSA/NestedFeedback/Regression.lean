@@ -1,5 +1,7 @@
 module
 
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureTheta.Thms
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureTheta.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureGamma.Thms
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureGamma.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PurePrefix.Thms
@@ -75,13 +77,13 @@ local instance : TypeModel Ty where
   coe := coerceValue
 
 private inductive Op | enter | inner | finish | tailHeader | tailBody | forkGate
-  | routingHeader | routingJoin | consumeBody | addOne | stamp
+  | routingHeader | routingJoin | consumeBody | addOne | stamp | loopDecision
   deriving DecidableEq
 
 local instance : HasTy Op Ty :=
   ⟨fun | .inner => innerPayload | _ => number,
    fun | .enter => innerPayload | .inner => .coprod number innerPayload
-       | .finish | .tailHeader | .routingJoin => .coprod number number
+       | .finish | .tailHeader | .routingJoin | .loopDecision => .coprod number number
        | .tailBody | .consumeBody | .addOne | .stamp => number
        | .routingHeader => .coprod .unit number
        | .forkGate => .coprod (.coprod number number) number⟩
@@ -108,6 +110,9 @@ private def instruction : (op : Op) → Value (instrSrc op) → Runtime (Value (
   | .forkGate, n => pure (if (show Nat from n) = 1 then .inl (.inl (7 : Nat)) else .inr n)
   | .addOne, n => pure ((show Nat from n) + 1)
   | .stamp, n => StateT.mk fun token => Part.some (n, 10 * token + 7)
+  | .loopDecision, n => StateT.mk fun token =>
+    if (show Nat from n) = 99 then Part.none
+    else Part.some (if token < 200 then .inr n else .inl n, 10 * token + 7)
 
 local instance : InstructionModel Op Ty Bool Runtime where
   denote := instruction
@@ -1667,6 +1672,118 @@ private def acceptsGamma (mapping : NestedTheta.Isomorphism.Mapping)
     match (gammaResult placement (selectRight 99)).map read with
     | some (100, 99, 2) => pure ()
     | _ => throw (IO.userError "the unselected undefined arm affected gamma execution")
+
+private def mixedLoop : Translation.PureTheta.Loop Op Bool number :=
+  ⟨op .addOne, rfl, op .loopDecision⟩
+
+private abbrev thetaStep := Elgot.StateT.body (mixedLoop.step (σ := Nat))
+
+private theorem thetaStep_run (n token : Nat) : Elgot.StateT.body (mixedLoop.step (σ := Nat)) (n, token) =
+    if n = 99 then Part.none
+    else if token < 200 then Part.some (.inr (n + 1, 10 * token + 7))
+    else Part.some (.inl (n + 1, 10 * token + 7)) := by
+  have call : callCase (ε := Bool) (m := Runtime) (op .loopDecision) n = instruction .loopDecision n := by
+    unfold callCase
+    rw [call_eq]
+    exact bind_pure _
+  unfold Elgot.StateT.body Translation.PureTheta.Loop.step
+  change ((callCase (ε := Bool) (m := Runtime) (op .loopDecision) n >>= _).run token).bind _ = _
+  rw [call]
+  by_cases blocked : n = 99
+  · simp [instruction, blocked]
+  · by_cases feedback : token < 200 <;>
+      simp [instruction, blocked, feedback, Elgot.StateT.distribute,
+        PureRow.pureCall, denotePureInstr, mixedLoop, op]
+    all_goals rfl
+
+private theorem theta_return : (iter (mixedLoop.step (σ := Nat)) (0 : Nat)).run 2 =
+    Part.some ((3 : Nat), 2777) := by
+  rw [Elgot.StateT.run_iter, Part.eq_some_iff, Elgot.Part.mem_iter_iff]
+  apply Elgot.Part.Runs.more (a' := ((1 : Nat), 27))
+  · rw [thetaStep_run]; exact Part.mem_some _
+  apply Elgot.Part.Runs.more (a' := ((2 : Nat), 277))
+  · rw [thetaStep_run]; exact Part.mem_some _
+  apply Elgot.Part.Runs.done
+  rw [thetaStep_run]; exact Part.mem_some _
+
+private theorem theta_no_return : (iter (mixedLoop.step (σ := Nat)) (98 : Nat)).run 2 = Part.none := by
+  rw [Elgot.StateT.run_iter]
+  calc
+    iter thetaStep ((98 : Nat), 2) = iter thetaStep ((99 : Nat), 27) := by
+      rw [congrFun (Elgot.Part.fixpoint thetaStep) ((98 : Nat), 2)]
+      change (Elgot.StateT.body (mixedLoop.step (σ := Nat)) ((98 : Nat), 2)).bind _ = _
+      rw [thetaStep_run]
+      exact Part.bind_some _ _
+    _ = Part.none := by
+      rw [congrFun (Elgot.Part.fixpoint thetaStep) ((99 : Nat), 27)]
+      change (Elgot.StateT.body (mixedLoop.step (σ := Nat)) ((99 : Nat), 27)).bind _ = _
+      rw [thetaStep_run]
+      exact Part.bind_none _
+
+private theorem flat_theta_return (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) mixedLoop.typing (PUnit.unit, (0 : Nat))).run 2 =
+      Part.some (OrderedTheta.exit (A := number) (3 : Nat), 2777) := by
+  rw [mixedLoop.region_denote coherent, StateT.run_bind, theta_return]
+  simp [Part.bind_eq_bind, Part.bind_some, StateT.run_pure, Part.pure_eq_some]
+
+private theorem flat_theta_no_return (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) mixedLoop.typing (PUnit.unit, (98 : Nat))).run 2 = Part.none := by
+  rw [mixedLoop.region_denote coherent, StateT.run_bind, theta_no_return]
+  exact Part.bind_none _
+
+example (coherent : Coherent) (pureFirst : Bool) :
+    ∃ fuel, mixedLoop.run runnerActions pureFirst fuel (0 : Nat) 2 = some (point (A := number) (3 : Nat) 2777) :=
+  (mixedLoop.run_iff runnerActions pureFirst coherent (PUnit.unit, (0 : Nat)) (3 : Nat) 2 2777).mpr
+    (flat_theta_return coherent)
+
+example (coherent : Coherent) (pureFirst : Bool) (out : Tuple (Translation.PureGamma.model
+    (τ := Ty) (Φ := Op) (ε := Bool) (σ := Nat)).Val (Threaded (carried number))) :
+    ¬ ∃ fuel, mixedLoop.run runnerActions pureFirst fuel (98 : Nat) 2 = some out := by
+  unfold Translation.PureTheta.Loop.run
+  rw [NestedTheta.Partial.Executable.run_iff_observe,
+    (mixedLoop.no_return_iff pureFirst coherent (PUnit.unit, (98 : Nat)) 2).mpr (flat_theta_no_return coherent)]
+  simp
+
+private abbrev MixedThetaTerm := NestedTheta.Term (Translation.PureGamma.Op (τ := Ty) Op Bool)
+  (Threaded (carried number)) [] [Threaded (carried number)] (Threaded (carried number))
+
+private def staleFeedbackBody {past rows : List (Ports (OrderedRuntime.Structured.Ty Ty))}
+    (body : NestedTheta.Term (Translation.PureGamma.Op (τ := Ty) Op Bool) (Threaded (carried number)) past rows
+      (Threaded (OrderedTheta.results number))) :
+    NestedTheta.Term (Translation.PureGamma.Op (τ := Ty) Op Bool) (Threaded (carried number)) past rows
+      (Threaded (OrderedTheta.results number)) :=
+  match body with
+  | .bind node children rest => .bind node children (staleFeedbackBody rest)
+  | .ret results => .ret (results.map fun sort origin =>
+    if h : runtime = sort then h ▸ .arg (runtimePort (carried number)) else origin)
+
+private def staleFeedback : MixedThetaTerm :=
+  .bind (NestedTheta.ExplicitRuntime.thetaNode (ins := carried number)
+      (.arg (runtimePort (carried number))) (.cons (.arg .head) .nil) (Translation.PureTheta.bodyRows number true))
+    (fun _ => staleFeedbackBody (mixedLoop.body true).1)
+    (.ret (.cons (.output (0 : Fin 1) .head) (.cons (.output (0 : Fin 1) (.tail .head)) .nil)))
+
+private def acceptsTheta (mapping : NestedTheta.Isomorphism.Mapping)
+    (other : NestedTheta.Graph (Translation.PureGamma.Op (τ := Ty) Op Bool) (Threaded (carried number)) []
+      [Threaded (carried number)] (Threaded (carried number))) : Bool :=
+  letI : DecidableEq gammaCode.Key := inferInstanceAs (DecidableEq (Flat.Numbered.Recognize.OpcodeKey Ty Op ⊕ Op))
+  (NestedTheta.Isomorphism.check gammaCode mapping (mixedLoop.compile true) other).isSome
+
+#eval show IO Unit from do
+  unless acceptsTheta swapChild (mixedLoop.compile false) do
+    throw (IO.userError "the map checker rejected moving a pure row inside theta")
+  if acceptsTheta identityMap staleFeedback.toGraph then
+    throw (IO.userError "the map checker accepted stale feedback of the theta input token")
+  for placement in [false, true] do
+    unless (mixedLoop.run runnerActions placement 2 (0 : Nat) 2).isNone do
+      throw (IO.userError "theta exited before completing both restarts")
+    let result := (mixedLoop.run runnerActions placement 3 (0 : Nat) 2).map fun output =>
+      (show Nat from output.get .head, show Nat from output.get (.tail .head))
+    match result with
+    | some (3, 2777) => pure ()
+    | _ => throw (IO.userError "theta returned the wrong payload or feedback token")
+    unless (mixedLoop.run runnerActions placement 3 (98 : Nat) 2).isNone do
+      throw (IO.userError "theta returned after an undefined ordered feedback action")
 
 end Composition
 

@@ -74,4 +74,19 @@ theorem gamma_denote (extra : Nat) (choice : Origin (Threaded args) past (.contr
   simp only [Term.denoteOpenWith, gammaNode, Wires.read, Tuple.map, Kind.denoteWith, Part.bind_eq_bind]
   rfl
 
+/-- Both alternatives of a θ body carry its returned token. Feedback uses
+the whole carried tuple as the next entry. -/
+theorem theta_denote (live : Origin (Threaded args) past runtime) (wires : Wires (Threaded args) past ins)
+    (bodySigs : List (Ports (Ty V)))
+    (children : Fin 1 → Term (Op P E Q) (Threaded ins) [] bodySigs (Threaded (Theta.BodyResults ins)))
+    (rest : Term (Op P E Q) (Threaded args) (past ++ [Threaded ins]) sigs (Threaded outs))
+    (entry : Tuple m.Val (Threaded args)) (locals : Locals m.Val past) :
+    (Term.bind (ExplicitRuntime.thetaNode (Op := Op P E Q) live wires bodySigs) children rest).denoteOpenWith
+      (model m pure) entry locals =
+      (Elgot.iter (stepWith (fun x => (children 0).denoteOpenWith (model m pure) x PUnit.unit))
+        (Wires.read (withRuntime live wires) entry locals)).bind
+        (fun result => rest.denoteOpenWith (model m pure) entry (locals.snoc result)) := by
+  simp only [Term.denoteOpenWith, ExplicitRuntime.thetaNode, Kind.denoteWith, Part.bind_eq_bind]
+  rfl
+
 end Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.PurePrefix
