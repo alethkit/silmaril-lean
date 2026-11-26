@@ -108,6 +108,6 @@ private def chainLength (count : Nat) : Option Nat := do
 #guard decide (chainLength 24 = some 24)
 
 example : frontendDiagnostic "out=f()()().value" =
-    some ⟨.unsupported .call, ⟨⟨11, 1, 12⟩, ⟨12, 1, 13⟩⟩⟩ := by decide +kernel
+    some ⟨.unsupported .attribute, ⟨⟨11, 1, 12⟩, ⟨12, 1, 13⟩⟩⟩ := by decide +kernel
 
 end Silmaril.Languages.Starlark.Frontend.Module

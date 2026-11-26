@@ -66,17 +66,19 @@ structure LocatedString where
   span : Span
   text : String
 
-/-- Source expressions used within module call assignments. -/
+/-- Located expression trees for module calls and their supported compositions. -/
 inductive CallOperand where
   | scalar (value : LocatedArgument)
   | display (span : Span) (display : CollectionDisplay)
   | call (span : Span) (callee : CallOperand) (arguments : CallArguments CallOperand)
+  | logical (span : Span) (op : LogicalOp) (left right : CallOperand)
+  | group (span : Span) (body : CallOperand)
 
 abbrev LocatedCallArguments := CallArguments CallOperand
 
 def CallOperand.span : CallOperand → Span
   | .scalar value => value.span
-  | .display span _ | .call span .. => span
+  | .display span _ | .call span .. | .logical span .. | .group span _ => span
 
 structure CallSpans where
   positional : List Span
@@ -180,50 +182,73 @@ private def infixOperator (s : Stream) : Option Infix :=
   | .symbol "%" => some (.arithmetic 6 .mod)
   | _ => none
 
+private structure ExprGrammar (Expr : Type) where
+  scalar : LocatedArgument → Expr
+  asScalar : Expr → Option SourceExpr
+  grouped : Span → Expr → Expr
+  logical : Span → LogicalOp → Expr → Expr → Expr
+
+private def ExprGrammar.requireScalar {Expr : Type} (grammar : ExprGrammar Expr)
+    (expr : Expr) (operator : Stream) : Except Diagnostic SourceExpr :=
+  match grammar.asScalar expr with
+  | some value => pure value
+  | none => failAt (.unsupported .operator) operator
+
+private def scalarGrammar : ExprGrammar SourceExpr :=
+  ⟨LocatedArgument.expr, some, fun _ expr => expr, fun _ => .logical⟩
+
 -- Binding powers, from weakest to strongest, are conditional, or, and, not,
--- comparison, additive, multiplicative and unary sign. Primaries bind tighter.
--- Every recursive cycle consumes a token. The extra step covers the handoff
--- from an expression's prefix to its infix loop.
+-- comparison, additive, multiplicative and unary sign. The atom hook parses
+-- a postfix application before the infix loop considers any operator.
 mutual
 
-private def parseExpr : Nat → Nat → Stream → Except Diagnostic (SourceExpr × Stream)
+private def parseExprWith {Expr : Type} (grammar : ExprGrammar Expr)
+    (atom : Stream → Except Diagnostic (Option (Expr × Stream))) :
+    Nat → Nat → Stream → Except Diagnostic (Expr × Stream)
   | 0, _, s => failAt .exhausted s
   | fuel + 1, minimum, s => do
     let next := s.pop
-    let (left, rest) ← match s.peek.kind with
-      | .name name => pure (.read name, next)
-      | .integer value => pure (.int (Int.ofNat value), next)
-      | .symbol "(" => do
-        if next.peek.kind = .symbol ")" then failAt (.unsupported .tuple) s
-        else
-          let (expr, close) ← parseExpr fuel 0 next
-          match close.peek.kind with
-          | .symbol ")" => pure (expr, close.pop)
-          | .symbol "," => failAt (.unsupported .tuple) close
-          | _ => expect "')'" close
-      | .symbol "+" => do
-        let (arg, rest) ← parseExpr fuel 7 next
-        pure (.unary .positive arg, rest)
-      | .symbol "-" => do
-        let (arg, rest) ← parseExpr fuel 7 next
-        pure (.unary .negative arg, rest)
-      | .keyword "not" => do
-        unless minimum ≤ 3 do return ← expect "an expression" s
-        let (arg, rest) ← parseExpr fuel 3 next
-        pure (.unary .not arg, rest)
-      | .keyword "lambda" =>
-        if minimum == 0 then failAt (.unsupported .lambda) s else expect "an expression" s
-      | .symbol "[" | .symbol "{" => failAt (.unsupported .collection) s
-      | .symbol "~" => failAt (.unsupported .operator) s
-      | .plainString _ => failAt (.unsupported .quotedLiteral) s
-      | .outside feature => failAt (.unsupported feature) s
-      | _ => expect "an expression" s
-    parseInfix fuel minimum false left rest
+    let scalar (value : SourceExpr) (rest : Stream) :=
+      (grammar.scalar ⟨⟨s.peek.span.start, rest.lastEnd⟩, value⟩, rest)
+    let (left, rest) ← match ← atom s with
+      | some parsed => pure parsed
+      | none =>
+        match s.peek.kind with
+        | .name name => pure (scalar (.read name) next)
+        | .integer value => pure (scalar (.int (Int.ofNat value)) next)
+        | .symbol "(" => do
+          if next.peek.kind = .symbol ")" then failAt (.unsupported .tuple) s
+          else
+            let (expr, close) ← parseExprWith grammar atom fuel 0 next
+            match close.peek.kind with
+            | .symbol ")" =>
+              let rest := close.pop
+              pure (grammar.grouped ⟨s.peek.span.start, rest.lastEnd⟩ expr, rest)
+            | .symbol "," => failAt (.unsupported .tuple) close
+            | _ => expect "')'" close
+        | .symbol "+" | .symbol "-" => do
+          let op := if s.peek.kind = .symbol "+" then UnaryOp.positive else .negative
+          let (arg, rest) ← parseExprWith grammar atom fuel 7 next
+          pure (scalar (.unary op (← grammar.requireScalar arg s)) rest)
+        | .keyword "not" => do
+          unless minimum ≤ 3 do return ← expect "an expression" s
+          let (arg, rest) ← parseExprWith grammar atom fuel 3 next
+          pure (scalar (.unary .not (← grammar.requireScalar arg s)) rest)
+        | .keyword "lambda" =>
+          if minimum == 0 then failAt (.unsupported .lambda) s else expect "an expression" s
+        | .symbol "[" | .symbol "{" => failAt (.unsupported .collection) s
+        | .symbol "~" => failAt (.unsupported .operator) s
+        | .plainString _ => failAt (.unsupported .quotedLiteral) s
+        | .outside feature => failAt (.unsupported feature) s
+        | _ => expect "an expression" s
+    parseInfixWith grammar atom fuel minimum false s.peek.span.start left rest
 
-private def parseInfix : Nat → Nat → Bool → SourceExpr → Stream →
-    Except Diagnostic (SourceExpr × Stream)
-  | 0, _, _, _, s => failAt .exhausted s
-  | fuel + 1, minimum, compared, left, s => do
+private def parseInfixWith {Expr : Type} (grammar : ExprGrammar Expr)
+    (atom : Stream → Except Diagnostic (Option (Expr × Stream))) :
+    Nat → Nat → Bool → Position → Expr → Stream → Except Diagnostic (Expr × Stream)
+  | 0, _, _, _, _, s => failAt .exhausted s
+  | fuel + 1, minimum, compared, start, left, s => do
+    let scalar (value : SourceExpr) (rest : Stream) := grammar.scalar ⟨⟨start, rest.lastEnd⟩, value⟩
     if let some op := infixOperator s then
       if op.priority < minimum then return (left, s)
       let next := s.pop
@@ -231,23 +256,28 @@ private def parseInfix : Nat → Nat → Bool → SourceExpr → Stream →
       | .comparison op =>
         if compared then failAt .chainedComparison s
         else if let some op := op then
-          let (right, rest) ← parseExpr fuel 5 next
-          parseInfix fuel minimum true (.binary op left right) rest
+          let (right, rest) ← parseExprWith grammar atom fuel 5 next
+          let value := scalar (.binary op (← grammar.requireScalar left s) (← grammar.requireScalar right s)) rest
+          parseInfixWith grammar atom fuel minimum true start value rest
         else failAt (.unsupported .operator) s
       | .arithmetic p op =>
-        let (right, rest) ← parseExpr fuel (p + 1) next
-        parseInfix fuel minimum compared (.binary op left right) rest
+        let (right, rest) ← parseExprWith grammar atom fuel (p + 1) next
+        let value := scalar (.binary op (← grammar.requireScalar left s) (← grammar.requireScalar right s)) rest
+        parseInfixWith grammar atom fuel minimum compared start value rest
       | .logical op =>
         let p := (Infix.logical op).priority
-        let (right, rest) ← parseExpr fuel (p + 1) next
-        parseInfix fuel minimum false (.logical op left right) rest
+        let (right, rest) ← parseExprWith grammar atom fuel (p + 1) next
+        let value := grammar.logical ⟨start, rest.lastEnd⟩ op left right
+        parseInfixWith grammar atom fuel minimum false start value rest
     else match s.peek.kind with
     | .keyword "if" =>
       if minimum != 0 then return (left, s)
-      let (test, afterTest) ← parseExpr fuel 1 s.pop
+      let (test, afterTest) ← parseExprWith grammar atom fuel 1 s.pop
       unless afterTest.peek.kind = .keyword "else" do return ← expect "'else'" afterTest
-      let (no, rest) ← parseExpr fuel 0 afterTest.pop
-      return (.conditional test left no, rest)
+      let (no, rest) ← parseExprWith grammar atom fuel 0 afterTest.pop
+      let value := .conditional (← grammar.requireScalar test s) (← grammar.requireScalar left s)
+        (← grammar.requireScalar no s)
+      return (scalar value rest, rest)
     | .keyword "not" => expect "'in' after 'not'" s.pop
     | .symbol "(" => failAt (.unsupported .call) s
     | .symbol "[" => failAt (.unsupported .subscript) s
@@ -257,6 +287,9 @@ private def parseInfix : Nat → Nat → Bool → SourceExpr → Stream →
     | _ => return (left, s)
 
 end
+
+private def parseExpr : Nat → Nat → Stream → Except Diagnostic (SourceExpr × Stream) :=
+  parseExprWith scalarGrammar (fun _ => pure none)
 
 private def parseSmallStmt (exprFuel : Nat) (inFunction : Bool) (s : Stream) :
     Except Diagnostic (SourceStmt × Stream) := do
@@ -503,6 +536,19 @@ private def callHead (exprFuel : Nat) (s : Stream) : Option (CallOperand × Stre
     else none
   | _ => none
 
+private def moduleExpressionGrammar : ExprGrammar CallOperand where
+  scalar := .scalar
+  asScalar
+    | .scalar value => some value.expr
+    | _ => none
+  grouped span
+    | .scalar value => .scalar ⟨span, value.expr⟩
+    | value => .group span value
+  logical span op left right :=
+    match left, right with
+    | .scalar lhs, .scalar rhs => .scalar ⟨span, .logical op lhs.expr rhs.expr⟩
+    | _, _ => .logical span op left right
+
 -- Every application consumes an opening parenthesis and matching close.
 -- Each suffix wraps the expression accumulated so far as its sole callee.
 mutual
@@ -520,14 +566,10 @@ termination_by structural fuel _ _ => fuel
 private def parseCallOperand (exprFuel : Nat) :
     Nat → Stream → Except Diagnostic (CallOperand × Stream)
   | 0, s => failAt .exhausted s
-  | fuel + 1, s => do
-    if let some (callee, next) := callHead exprFuel s then
-      let (value, rest) ← parsePostfixApplications exprFuel fuel callee next
-      if rest.peek.kind != .symbol "," && hasExprSuffix rest then
-        return ← failAt (.unsupported .callArguments) rest
-      return (value, rest)
-    let (value, rest) ← parseLocatedExpr exprFuel s
-    return (.scalar value, rest)
+  | fuel + 1, s =>
+    parseExprWith moduleExpressionGrammar (fun head => do
+      let some (callee, next) := callHead exprFuel head | return none
+      some <$> parsePostfixApplications exprFuel fuel callee next) exprFuel 0 s
 termination_by structural fuel _ => fuel
 
 private def parseSpread (exprFuel : Nat) :
@@ -535,11 +577,17 @@ private def parseSpread (exprFuel : Nat) :
   | 0, _, s => failAt .exhausted s
   | fuel + 1, mapping, s => do
     let next := s.pop
-    let parsed ← parseCollectionDisplay exprFuel next
-    let (operand, rest) ← match parsed with
-      | some (display, rest) =>
-        pure (.display ⟨next.peek.span.start, rest.lastEnd⟩ display, rest)
-      | none => parseCallOperand exprFuel fuel next
+    let readDisplay := do
+      let some (display, rest) ← parseCollectionDisplay exprFuel next
+        | failAt (.unsupported .callArguments) next
+      pure (CallOperand.display ⟨next.peek.span.start, rest.lastEnd⟩ display, rest)
+    let (operand, rest) ← match next.peek.kind with
+      | .symbol "[" | .symbol "{" => readDisplay
+      | .symbol "(" =>
+        match parseCallOperand exprFuel fuel next with
+        | .error ⟨.unsupported .tuple, _⟩ => readDisplay
+        | parsed => parsed
+      | _ => parseCallOperand exprFuel fuel next
     if let .display _ display := operand then
       match display with
       | .mapping _ => unless mapping do return ← failAt (.unsupported .callArguments) next
@@ -594,10 +642,17 @@ end
 
 private def parseRootCall (exprFuel : Nat) (s : Stream) :
     Except Diagnostic (Option (CallOperand × Stream)) := do
-  let some (callee, next) := callHead exprFuel s | return none
-  let (value, rest) ← parsePostfixApplications exprFuel (4 * exprFuel) callee next
-  if hasExprSuffix rest then failAt (.unsupported .call) rest
-  else return some (value, rest)
+  match s.peek.kind with
+  | .name _ | .integer _ | .symbol "(" | .symbol "+" | .symbol "-" | .keyword "not" =>
+    match parseCallOperand exprFuel (4 * exprFuel) s with
+    | .ok (.scalar _, _) => return none
+    | .ok (value, rest) =>
+      if hasExprSuffix rest then failAt (.unsupported .call) rest
+      else return some (value, rest)
+    | .error diagnostic =>
+      if s.peek.kind == .symbol "(" && diagnostic.kind == .unsupported .tuple then return none
+      else throw diagnostic
+  | _ => return none
 
 private def parseFunctionSmall (exprFuel : Nat) (inFunction : Bool) (s : Stream) :
     Except Diagnostic (FunctionStmt × Stream) := do

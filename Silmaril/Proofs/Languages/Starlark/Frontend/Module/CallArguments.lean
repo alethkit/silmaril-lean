@@ -156,4 +156,26 @@ theorem denoteCall_calleeFirst (program : Functions.Program) (available : List F
   simp only [bind, EStateM.bind]
   cases denoteExprWith program available bodyMeaning callee state <;> rfl
 
+theorem denoteLogical_order (program : Functions.Program) (available : List Functions.DeclarationId)
+    (bodyMeaning : ClosureMeaning available) (op : LogicalOp) (left right : Expr) (state : Lists.State) :
+    denoteExprWith program available bodyMeaning (.logical op left right) state =
+      match denoteExprWith program available bodyMeaning left state with
+      | .ok value next =>
+        match Lists.Iteration.truth value next with
+        | .ok flag after =>
+          if (if op = .and then flag else !flag) then
+            denoteExprWith program available bodyMeaning right after
+          else .ok value after
+        | .error error after => .error error after
+      | .error error next => .error error next := by
+  rw [denoteExprWith.eq_9]
+  simp only [bind, EStateM.bind, pure]
+  cases denoteExprWith program available bodyMeaning left state with
+  | error _ _ => rfl
+  | ok value next =>
+    dsimp only
+    cases Lists.Iteration.truth value next with
+    | error _ _ => rfl
+    | ok flag _ => cases op <;> cases flag <;> rfl
+
 end Silmaril.Proofs.Languages.Starlark.Frontend.Module

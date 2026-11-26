@@ -93,8 +93,8 @@ example : expressionSpans = some [
       (⟨⟨39, 4, 3⟩, ⟨45, 4, 9⟩⟩, ⟨⟨39, 4, 3⟩, ⟨42, 4, 6⟩⟩, [⟨⟨43, 4, 7⟩, ⟨44, 4, 8⟩⟩]),
       (⟨⟨39, 4, 3⟩, ⟨42, 4, 6⟩⟩, ⟨⟨39, 4, 3⟩, ⟨40, 4, 4⟩⟩, [])])] := by decide +kernel
 
-example : frontendDiagnostic "def relay(f):\n  f() or 0\n  return 7" =
-    some ⟨.unsupported .call, ⟨⟨20, 2, 7⟩, ⟨22, 2, 9⟩⟩⟩ := by decide +kernel
+example : frontendDiagnostic "def relay(f):\n  f() + 0\n  return 7" =
+    some ⟨.unsupported .operator, ⟨⟨20, 2, 7⟩, ⟨21, 2, 8⟩⟩⟩ := by decide +kernel
 
 private def standaloneDiagnostic : Option Diagnostic :=
   match parseFunctionUtf8 "def relay(f):\n  f()\n  return 7".toUTF8 with

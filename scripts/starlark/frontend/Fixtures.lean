@@ -15,12 +15,14 @@ import Silmaril.Languages.Starlark.Frontend.Module.AssignmentCallChecks
 meta import Silmaril.Languages.Starlark.Frontend.Module.AssignmentCallChecks
 import Silmaril.Languages.Starlark.Frontend.Module.CallStatementChecks
 meta import Silmaril.Languages.Starlark.Frontend.Module.CallStatementChecks
+import Silmaril.Languages.Starlark.Frontend.Module.LogicalCallChecks
+meta import Silmaril.Languages.Starlark.Frontend.Module.LogicalCallChecks
 import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 meta import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 
 open Lean Silmaril.Languages.Starlark.Frontend
 open Silmaril.Languages.Starlark.Frontend.Module
-  (Observation controls spreadControls computedCallControls returnCallControls assignmentCallControls callStatementControls)
+  (Observation controls spreadControls computedCallControls returnCallControls assignmentCallControls callStatementControls logicalCallControls)
 
 private def moduleObservation (expected : Observation) : Json :=
   let (phase, want) := match expected with
@@ -62,7 +64,7 @@ public def main (args : List String) : IO Unit := do
     [("name", toJson fixture.name), ("source", toJson fixture.source),
      ("accepts", toJson fixture.goAccepts)]
   let moduleControls := controls ++ spreadControls ++ computedCallControls ++
-    returnCallControls ++ assignmentCallControls ++ callStatementControls
+    returnCallControls ++ assignmentCallControls ++ callStatementControls ++ logicalCallControls
   let modules := moduleControls.toArray.map fun control =>
     Json.mkObj [("name", toJson control.name), ("source", toJson control.source),
       ("accepts", toJson true), ("module", moduleObservation control.expected)]

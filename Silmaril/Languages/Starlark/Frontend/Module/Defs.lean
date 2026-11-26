@@ -120,6 +120,11 @@ def lowerOperand : CallOperand → Except Diagnostic LoweredOperand
     let callable ← lowerOperand callee
     let lowered ← lowerGroupedCall callable.expression arguments fun operand _ => lowerOperand operand
     return { lowered with applications := root :: (callable.applications ++ lowered.applications) }
+  | .logical _ op left right => do
+    let left ← lowerOperand left
+    let right ← lowerOperand right
+    return ⟨.logical op left.expression right.expression, left.applications ++ right.applications⟩
+  | .group _ body => lowerOperand body
 termination_by operand => sizeOf operand
 decreasing_by all_goals (simp_all <;> omega)
 
@@ -148,6 +153,14 @@ theorem lowerOperand_call (span : Span) (callee : CallOperand) (arguments : Loca
       let call ← lowerCallWithCallee callable.expression arguments
       return ⟨call.expression, ⟨span, callee.span, call.spans⟩ :: (callable.applications ++ call.nestedCalls)⟩) := by
   simp only [lowerOperand.eq_3, lowerCallWithCallee, bind_assoc, pure_bind]
+
+/-- Retain the short-circuit node and collect the operand application spans in source order. -/
+theorem lowerOperand_logical (span : Span) (op : LogicalOp) (left right : CallOperand) :
+    lowerOperand (.logical span op left right) = (do
+      let lhs ← lowerOperand left
+      let rhs ← lowerOperand right
+      return ⟨.logical op lhs.expression rhs.expression, lhs.applications ++ rhs.applications⟩) :=
+  lowerOperand.eq_4 span op left right
 
 private structure LoweredBody where
   statement : Modules.Resolve.Statement
