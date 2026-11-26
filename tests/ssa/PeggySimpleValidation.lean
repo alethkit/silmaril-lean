@@ -2,9 +2,11 @@ module
 
 import Silmaril.SSA.Peggy.SimpleValidation.Thms
 import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Thms
+import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Thms
 import Silmaril.SSA.PEG.Thms
 meta import Silmaril.SSA.Peggy.SimpleValidation.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Defs
+meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Defs
 meta import Silmaril.SSA.PEG.Defs
 
 namespace Silmaril.SSA.Peggy.SimpleValidation.Tests
@@ -161,6 +163,7 @@ open RVSDG (Tuple)
 private inductive Op : InstructionSet Unit where
   | one : Op [] .count
   | sub : Op [.count, .count] .count
+  | subTwice : Op [.count, .count, .count] .count
   | aboveTwo : Op [.count] .bool
   | not : Op [.bool] .bool
   deriving DecidableEq
@@ -170,6 +173,7 @@ private def model : Interpretation Op where
   run
     | .one, .nil => some ⟨1⟩
     | .sub, .cons n (.cons k .nil) => some ⟨n.down - k.down⟩
+    | .subTwice, .cons n (.cons a (.cons b .nil)) => some ⟨n.down - a.down - b.down⟩
     | .aboveTwo, .cons n .nil => some ⟨decide (n.down > 2)⟩
     | .not, .cons b .nil => some ⟨!b.down⟩
 
@@ -307,6 +311,115 @@ example (a : Accepted (graph .constant)) (total : a.reversion.Total model)
     (neg : ∀ b : Bool, model.run a.reversion.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
     (i : Index 1) : a.output.Returns model (store 5) ⟨2⟩ :=
   (a.returns_iff_observe model (store 5) total neg i ⟨2⟩).mpr (inputObserve i)
+
+-- Extend the landed decrement fixture so the update reads one twice:
+-- once through the removable self-feedback θ, and once directly.
+private def sharedSource : Graph Op params [.count] 9 1 :=
+  { graph .constant with
+    node := fun i =>
+      if site : i = 3 then
+        site.symm ▸ (Node.ofLabel (.op .subTwice)
+          (.cons ⟨6, rfl⟩ (.cons ⟨8, rfl⟩ (.cons ⟨4, rfl⟩ .nil))) :
+            Node Op params (Fin 1) sorts (sorts 3))
+      else (graph .constant).node i }
+
+private def sharedMatch : Optimizer.Cyclic.Match sharedSource (8 : Fin 9) :=
+  (Optimizer.Cyclic.matchAt sharedSource 8).get (by decide)
+
+private def shared : Cost.Candidate sharedSource :=
+  let rank := PEG.Simple.Revert.While.Region.Automatic.inferDemandRank sharedMatch.extract
+  ⟨8, sharedMatch.extract, sharedMatch.selectionWithRank rank, sharedMatch.rowsWithRank rank⟩
+
+private inductive Layout where
+  | original
+  | duplicate
+  | shortcut
+  deriving DecidableEq
+
+private def representative : Layout → Fin 9 → Fin 9
+  | .original, i => i
+  | .duplicate, i => if i = 8 then 4 else i
+  | .shortcut, i => if i = 8 ∨ i = 4 then 7 else i
+
+private theorem sameSort (layout : Layout) (i : Fin 9) :
+    sharedSource.sort (representative layout i) = sharedSource.sort i := by
+  cases layout with
+  | original => rfl
+  | duplicate =>
+    simp only [representative]
+    split
+    · rename_i same
+      subst i
+      rfl
+    · rfl
+  | shortcut =>
+    simp only [representative]
+    split
+    · rename_i replaced
+      rcases replaced with same | same <;> subst i <;> rfl
+    · rfl
+
+private def wireRef (layout : Layout) {t : Ty Unit} (r : Ref sharedSource.sort t) :
+    Ref (sharedSource.sort ∘ representative layout) t :=
+  if redirected : layout = .shortcut ∧ (r.id = 8 ∨ r.id = 4) then
+    ⟨6, by
+      obtain ⟨rfl, moved⟩ := redirected
+      have typed := r.typed
+      rcases moved with hit | hit <;> rw [hit] at typed <;> exact typed⟩
+  else ⟨r.id, (sameSort layout r.id).trans r.typed⟩
+
+private def wired (layout : Layout) : Cost.Candidate sharedSource :=
+  Cost.Candidate.wire sharedSource (representative layout)
+    (fun i => (sharedSource.node (representative layout i)).args.map fun _ => wireRef layout)
+    (sharedSource.roots.map fun _ => wireRef layout)
+
+private def duplicated := wired .duplicate
+private def shortcut := wired .shortcut
+private def original := wired .original
+
+-- Both constant operands are replaced by the live counter in the shortcut.
+-- It emits and returns 0, but its operand classes fail extraction replay.
+#guard [shortcut.primitiveRows, shared.primitiveRows, duplicated.primitiveRows] == [3, 4, 5]
+#guard shortcut.selection.check sharedMatch.classes
+#guard !EPEG.Selection.checkRows shortcut.rows sharedMatch.classes
+#guard (shortcut.checkLegal sharedMatch.classes).isNone
+#guard ((PEG.Simple.Revert.While.Region.Automatic.extract shortcut.graph).bind fun cert =>
+  (cert.runFuel model 3 (store 7)).map ULift.down) == some 0
+
+-- Keeping the extra θ passes extraction legality but cannot be emitted
+-- by the single-loop reverter. The pool must skip it too.
+#guard (original.checkLegal sharedMatch.classes).isSome
+#guard (original.check sharedMatch.classes).isNone
+
+private def runPool (pool : List (Cost.Candidate sharedSource))
+    (cost : Cost.Candidate sharedSource → Nat := Cost.Candidate.primitiveRows) :
+    Option (Nat × Nat × Nat) := do
+  let a ← Cost.select sharedMatch.classes cost pool
+  let order ← PEG.Simple.Revert.While.Region.sliceOrder a.candidate.graph
+    a.reversion.descriptor a.reversion.descriptor.next
+  let value ← a.reversion.runFuel model 3 (store 7)
+  return (a.candidate.primitiveRows, order.length, value.down)
+
+-- Both legal layouts emit and return 1. The shared one binds the
+-- constant once per update, and the duplicate layout binds it twice.
+#guard runPool [duplicated] == some (5, 3, 1)
+#guard runPool [shortcut, original, duplicated, shared] == some (4, 2, 1)
+#guard runPool [shared, duplicated, shortcut] == some (4, 2, 1)
+#guard (Cost.select (source := sharedSource) sharedMatch.classes Cost.Candidate.primitiveRows []).isNone
+#guard (Cost.select sharedMatch.classes Cost.Candidate.primitiveRows [shortcut, original]).isNone
+#guard runPool [duplicated, shared] (fun _ => 0) == some (5, 3, 1)
+#guard runPool [shared, duplicated] (fun _ => 0) == some (4, 2, 1)
+
+private theorem sharedSourceWF : WellFounded sharedSource.Demand :=
+  sharedSource.demandWellFounded_of_check inputRank (by decide)
+
+example (a : Cost.Accepted sharedSource sharedMatch.classes) (total : a.reversion.Total model)
+    (neg : ∀ b : Bool, model.run a.reversion.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (i : Index 1) :
+    a.output.Returns model (store 7) ⟨1⟩ ↔
+      sharedSource.observe model (sharedSource.denote model (store 7) sharedSourceWF) i =
+        .cons (some ⟨1⟩) .nil :=
+  a.returns_iff_observe sharedSourceWF (sharedMatch.classes_valid sharedSourceWF) total neg i ⟨1⟩
 
 end Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Tests
 
