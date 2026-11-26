@@ -534,3 +534,33 @@ split helper. Both paths use a common five-slot record with two older typed
 slots for the captures required by the split. Both reverse outputs and both
 re-admitted tables return the same ordered live-outs at the selected exit.
 [Split regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)
+
+#### Generating the ordered split admission
+
+`Admission.generateSplit` takes the admitted original and a split plan.
+It constructs the split graph and the renamed static inputs and arrival
+table. Collapsing the declared exits for scope checking commutes with the
+internal split, so the existing arrival transport applies. The generator
+checks the target's exit partition and predecessor rows, then reconstructs
+the packet profile in the ordered lowering's actual block and register
+orders. It runs the ordinary typed compiler on the original record layout
+with renamed capture names. A candidate with missing capture slots is
+reported by `Admission.splitProfile` and fails fixed-record generation.
+The candidate supplies names and types. The input record supplies values.
+[Generated admission](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Split/Admission/Defs.lean)
+
+The swap requires two older numeric slots because the new forwarding
+packet carries the moved φ operands `y` and `x`. The original admits
+without these slots, while the generated target's actual typed elaborator
+rejects either omission and a mistyped slot. Both operands are assigned
+before traversing the edge. The emitted RTL and re-admitted results hold
+for every pair of older numeric values supplied in the common record.
+The generated scope table adds the two names to the forwarding arrival
+claim, while the list of static SSA inputs stays the same.
+[Generated swap regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)
+
+The generator can also reject packet reconstruction or typing at retained
+slots. The execution corollaries consume the existing reverse readback
+and ordinary typed re-admission results. The source-local versioner has
+its own saved-record checks.
+[Execution corollaries](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Split/Admission/Thms.lean)
