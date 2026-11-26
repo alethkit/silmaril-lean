@@ -89,7 +89,8 @@ EOF, a zero-size result, or would-block.
 
 ## Checks
 
-`lake build --wfail ProcessAbstractIOTests` checks a two-thread interleaving over aliased file
-descriptors, independent opens, short and positioned writes, stream replies, the interpreted file
-and network operations, finite endpoint cases, and the boundary maps. The target is included in
-`make check`. [Examples](../../tests/process/AbstractIO.lean)
+`lake build --wfail +Silmaril.Proofs.Process.AbstractIO.Regression` checks a two-thread
+interleaving over aliased descriptors, independent opens, short and positioned writes, stream
+replies, the interpreted file and network operations, finite endpoints, and the boundary maps.
+The `Silmaril` target includes the regression through its Process proof glob.
+[Examples](../../Silmaril/Proofs/Process/AbstractIO/Regression.lean)

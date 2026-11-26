@@ -5,7 +5,7 @@ import Silmaril.Process.AbstractIO.API.Defs
 import Silmaril.Process.AbstractIO.Bridge.Defs
 import Silmaril.Semantics.ITree.VisiblePrefix.Thms
 
-namespace Silmaril.Process.AbstractIO.Tests
+namespace Silmaril.Process.AbstractIO.Regression
 
 open Silmaril.Process.ITreeTrace
 open Silmaril.Elgot.ITree
@@ -153,4 +153,4 @@ example : ofByteStreamRequest (fun _ _ => some [8]) (.write 3 1024 2) = none := 
 example : byteStreamResult (.read 3 4) (.ok [10, 20]) = some (.ok 2) := rfl
 example : ofLpsFile 0 (.fileA [] 0) = none := rfl
 
-end Silmaril.Process.AbstractIO.Tests
+end Silmaril.Process.AbstractIO.Regression
