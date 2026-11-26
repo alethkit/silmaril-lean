@@ -215,4 +215,31 @@ theorem no_return_iff (graph : Graph args) (input : Tuple (Val cells) args) (hea
       rfl
     · exact runFuel_eq_of_lt_three graph input fuel heap (by omega)
 
+private theorem fromHeader_run_isSome (graph : Graph args) (input : Tuple (Val cells) args)
+    (fuel : Nat) (header : Header cells) :
+    let cfg := lower cells graph
+    ((runBlock cfg.block (Block.eval (evalBody input)) .nil fuel (cfg.block .header)
+      (encodeAddresses header.first header.second)).run ⟨header.heap⟩).isSome = true := by
+  induction fuel generalizing header with
+  | zero => rfl
+  | succ fuel ih =>
+    dsimp only
+    conv_lhs => unfold runBlock
+    simp only [StateT.run, Bind.bind, StateT.bind, Pure.pure]
+    rw [show Block.eval (evalBody input) ((lower cells graph).block .header)
+      (encodeAddresses header.first header.second) ⟨header.heap⟩ = _
+      from header_transition graph input header]
+    rcases graph.step input header with ⟨word, final⟩ | next
+    · cases fuel <;> rfl
+    · exact ih next
+
+theorem cfg_run_isSome (graph : Graph args) (input : Tuple (Val cells) args)
+    (fuel : Nat) (initial : Buffer cells) :
+    (((lower cells graph).run (evalBody input) fuel .nil).run initial).isSome = true := by
+  cases initial with
+  | mk heap =>
+    cases fuel with
+    | zero => rfl
+    | succ fuel => exact fromHeader_run_isSome graph input fuel (graph.seed input heap)
+
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.MemRef.Proofs

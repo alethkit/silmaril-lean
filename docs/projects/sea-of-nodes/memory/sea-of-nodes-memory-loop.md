@@ -648,6 +648,52 @@ out-of-bounds second operand is also refused by the emitted header.
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.MemRef.Regression
 ```
 
+#### Two-address equations and termination
+
+`TwoAddress.Institution.translate` puts the actual numbered θ lowerings
+into the existing `RVSDG.NestedTheta.Institution.RuntimeObservation`
+room as partial equations or termination sentences. At a fixed cell
+count, its canonical runtime model admits exactly the typed input
+tuples paired with complete initialized heaps. The shared heap and
+tuple codecs supply this correspondence.
+[Sentence and observation adapters](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Defs.lean)
+
+`Sentence.Holds` fixes a typed valuation and quantifies over initial
+heaps. `Sentence.HoldsAt` also quantifies over all typed valuations at
+that cell count. `satisfaction` identifies the latter with satisfaction
+in the existing numbered room and with the corresponding observations
+of the emitted MemRef CFG and coloured Petri net. Equations compare
+word and every final cell, and accept two absent finite observations.
+A termination sentence requires some finite return for each entry,
+with separate witnesses for each entry and backend. The comparison
+uses the canonical memory runtime at this opcode alphabet.
+[Public theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Thms.lean)
+
+`runtimeObserve_eq_none_iff_native` identifies an absent observation
+with absence of a finite return. It leaves infinite firing schedules
+outside the observation. `MemRef.cfg_run_isSome` proves that the raw
+CFG run from the emitted entry succeeds in the outer option at every
+fuel. The inner option can be absent because that fuel did not reach
+a return. The outer option can fail at a malformed raw header, as the
+address-decoder regression illustrates.
+[MemRef fault and fuel laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/MemRef/Thms.lean)
+
+The shared swap fixture compares the swapping and stationary graphs.
+At coincident addresses their equations agree at every heap for that
+valuation. At distinct addresses, the same returned word with a
+different final cell refutes the equation at the chosen cell count.
+The regression also accepts a universally terminating loop and
+rejects one with a fixed continuing header at a concrete entry.
+[Runnable regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Regression.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Thms
+```
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Regression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for

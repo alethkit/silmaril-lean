@@ -88,6 +88,14 @@ theorem no_return_iff (graph : Graph args) (input : Tuple (Val cells) args) (hea
       ∀ budget, graph.evalWithin input budget (graph.seed input heap) = none :=
   Proofs.no_return_iff graph input heap
 
+/-- Execution from the emitted entry cannot fail address decoding.
+The outer option succeeds at every fuel, including when the inner
+return option is absent. -/
+theorem cfg_run_isSome (graph : Graph args) (input : Tuple (Val cells) args)
+    (fuel : Nat) (initial : Buffer cells) :
+    (((lower cells graph).run (evalBody input) fuel .nil).run initial).isSome = true :=
+  Proofs.cfg_run_isSome graph input fuel initial
+
 /-- The coloured firing trace and the emitted CFG have the same complete
 finite result with independent witnesses. -/
 theorem petri_finishes_iff_runFuel (graph : Graph args) (input : Tuple (Val cells) args)
