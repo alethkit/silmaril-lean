@@ -196,3 +196,33 @@ value. A continuing reply writes it to the backedge operand on both sides.
 The local proof yields inclusion for the actual pure packed dispatchers
 at every seed.
 [Fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Examples.lean)
+
+## Checked self-edge splitting
+
+A split plan supplies a register equivalence, a block-label embedding, a
+chosen header, and a fresh forwarding label outside the embedding's image.
+The rewrite redirects just the header's self-edge, replaces just its incoming
+predecessor key, and inserts the forwarding block in the original
+predecessor's position in the table. The forwarding block has no φ rows or
+register writes. The executable checker validates both normalized graphs,
+an existing self-edge, and exact agreement with the computed rewrite.
+[Syntax and checker](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Phi/Split/Defs.lean)
+
+A checked result constructs both block-local simulations. The split side
+follows one extra silent transfer and reaches the same predecessor snapshot
+under the register equivalence. The row proof preserves each key lookup
+and evaluates each renamed operand against the same pre-assignment snapshot.
+Each direction matches requests and their typed replies through the shared
+primitive interpretation. Both trace inclusions yield equality of the
+weak trees. [Simulation endpoint](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Thms.lean)
+· [Block-local rule](https://github.com/hiloopai/silmaril-lean/pull/3635)
+
+The packed equality additionally uses two independent certified admissions,
+successful pure closures, and a typed witness aligning capture names, slot
+types, and the sole exit type. The fixture rejects a stale predecessor key
+and checks a two-row swap on the split loop. A continuing reply to
+`tick 2 5` reaches `tick 5 2` in the split packed evaluator. The cyclic
+versioner's global register packet carries two extra version-zero slots
+for the split fixture. Those slots are included in the matching capture
+profiles, and the source SSA certificate declares only the two seed inputs.
+[Fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)
