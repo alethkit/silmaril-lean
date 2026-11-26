@@ -100,6 +100,8 @@ structure TermObservation (Φ : Type v) {α : Type u} [HasTy Φ (Ty α)] where
   computedRegionLet₂ : Bool := false
   /-- Evaluate the argument before returning the selected call payload. -/
   evaluateCallOperand : Bool := false
+  /-- Distinguish infinite local paths in tables with at least two rows. -/
+  wideFeedback : Bool := false
   callResult : Φ → Option Val := fun _ => none
   callResult_typed (p : Φ) {v : Val} [UnitPayloadPolicy] :
     callResult p = some v → ValTy v (instrTrg p : Ty α) := by simp
@@ -175,6 +177,10 @@ def evalTermWith (observation : TermObservation (α := α) Φ) : Tm Φ → Env �
         | _ => none
   | .abort _, _ => none
 
+/-- A one-block iterator keeps the ordinary infinite-path outcome. -/
+def markFeedback (observation : TermObservation (α := α) Φ) (n : Nat) : Bool :=
+  if n < 2 then false else observation.wideFeedback
+
 noncomputable def evalRegionWith (observation : TermObservation (α := α) Φ) : Region Φ → Env → Result
   | .br i t, env => match evalTermWith observation t env with
       | some v => .jump i v
@@ -193,7 +199,9 @@ noncomputable def evalRegionWith (observation : TermObservation (α := α) Φ) :
       | some (.inl v) => evalRegionWith observation l (extend env v)
       | some (.inr v) => evalRegionWith observation r (extend env v)
       | _ => .fault
-  | .cfg e n bs, env => cfgRun n (fun i v => evalRegionWith observation (bs i) (extend env v)) (evalRegionWith observation e env)
+  | .cfg e n bs, env =>
+      cfgRun n (fun i v => evalRegionWith observation (bs i) (extend env v))
+        (evalRegionWith observation e env) (markFeedback observation n)
 
 variable {observation : TermObservation (α := α) Φ}
 

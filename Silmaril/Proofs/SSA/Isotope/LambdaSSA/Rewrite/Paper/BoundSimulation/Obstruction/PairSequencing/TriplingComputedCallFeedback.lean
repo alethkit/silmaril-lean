@@ -42,17 +42,17 @@ local notation "Lit" => ofRegion S
 local notation "π" => projection S
 local notation "evalRegion" => evalRegionWith observation
 
-private def env (v : Val) : Env := extend (fun _ => .unit) v
+@[expose] def env (v : Val) : Env := extend (fun _ => .unit) v
 
-private theorem env_typed {A : TyS} {v : Val} (hv : ValTy v A) : EnvTy [A] (env v) :=
+theorem env_typed {A : TyS} {v : Val} (hv : ValTy v A) : EnvTy [A] (env v) :=
   (show EnvTy ([] : VCtx TyS) (fun _ => .unit) from fun _ _ hi => by simp [At] at hi).extend hv
 
-private noncomputable def observe (observation : TermObservation (α := α) Φ) (r : Region Φ) (v : Val) : Result :=
+@[expose] noncomputable def observe (observation : TermObservation (α := α) Φ) (r : Region Φ) (v : Val) : Result :=
   evalRegionWith observation r (env v)
 
 local notation "see" => observe observation
 
-private theorem observe_seq {A B : TyS} {r s : Region Φ} (hr : ValueBranches [A] r [B])
+theorem observe_seq {A B : TyS} {r s : Region Φ} (hr : ValueBranches [A] r [B])
     {v : Val} (hv : ValTy v A) :
     see (compLSubst (fun _ => r) (fun _ => s) 0) v =
       mapOut (fun _ w => see s w) (see r v) := by
@@ -75,21 +75,21 @@ private theorem singleton_payload {A : TyS} {i : Nat} {v : Val}
   | zero => exact ⟨rfl, result_payload typed rfl⟩
   | succ i => obtain ⟨_, hi, _⟩ := typed; simp [At] at hi
 
-private theorem observe_case_left (l r : Region Φ) (v : Val) :
+theorem observe_case_left (l r : Region Φ) (v : Val) :
     see (.case (.var 0) (l.renameVars (lift Nat.succ)) (r.renameVars (lift Nat.succ))) (.inl v) =
       see l v := by
   unfold observe env
   simp only [evalRegionWith, evalTermWith]
   exact evalRegion_renameVars l (extend_rename (ρ := Nat.succ) (fun _ => rfl) v)
 
-private theorem observe_case_right (l r : Region Φ) (v : Val) :
+theorem observe_case_right (l r : Region Φ) (v : Val) :
     see (.case (.var 0) (l.renameVars (lift Nat.succ)) (r.renameVars (lift Nat.succ))) (.inr v) =
       see r v := by
   unfold observe env
   simp only [evalRegionWith, evalTermWith]
   exact evalRegion_renameVars r (extend_rename (ρ := Nat.succ) (fun _ => rfl) v)
 
-private def route : Val → Result
+@[expose] def route : Val → Result
   | .inl v => .jump 1 v
   | .inr v => .jump 0 v
   | _ => .fault
@@ -106,7 +106,7 @@ private theorem route_state (f : Val → Val) (r : Result) :
   | fault | diverges => rfl
   | jump _ v => cases v <;> rfl
 
-private theorem observe_body {A B : TyS} {r : Region Φ}
+theorem observe_body {A B : TyS} {r : Region Φ}
     (hr : ValueBranches [A] r [Silmaril.coprod B A]) {v : Val} (hv : ValTy v A) :
     see (SyntacticCategory.iterationBody r) v = mapOut (fun _ => route) (see r v) := by
   unfold observe SyntacticCategory.iterationBody
@@ -115,7 +115,7 @@ private theorem observe_body {A B : TyS} {r : Region Φ}
   funext i x
   cases x <;> rfl
 
-private theorem observe_iterate (A : TyS) (r : Region Φ) (v : Val) :
+theorem observe_iterate (A : TyS) (r : Region Φ) (v : Val) :
     see (SyntacticCategory.iterateRegion A r) v =
       one (see (SyntacticCategory.iterationBody r)) (.jump 0 v) := by
   unfold observe SyntacticCategory.iterateRegion feedbackRegion cfgEntryContinuations

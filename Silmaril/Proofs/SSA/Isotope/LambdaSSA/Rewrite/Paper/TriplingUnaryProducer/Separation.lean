@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseReturns.BinaryFold.WithTripling.WithComputedCalls.UnaryProducer.Example.Defs
-import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.TriplingComputedCallFeedback
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.ComputedReturns
 
 public section
 
@@ -20,37 +20,12 @@ open CfgEta.TypeCategory (returnRegion_typed)
 
 open Paper.WithComputedCallReturns.Example (Atom)
 open Paper.WithCaseReturns.BinaryFold.WithTripling.ComputedCallExample (explicitSequence_typed)
-open Paper.WithCaseReturns.BinaryFold.WithTripling.WithComputedCalls (Step)
 open Paper.Extension.Singleton (ofRegion_eq_iff)
 open BoundSimulation.Obstruction.Observer (EnvTy Result)
 open scoped Paper.BoundSimulation.Obstruction BoundSimulation.Obstruction.Observer.CanonicalUnit
 open BoundSimulation.Obstruction.PairSequencing.Observer
-  (TermObservation SameWith evalReturnRegion evalTermWith extension_same)
-
-universe u v w
-variable {α : Type u} {Φ : Type v} [HasTy Φ (Ty α)]
-  {ε : Type w} [HasEff Φ ε] (pe : ε)
-
-private theorem computedCall_same {obs : TermObservation (α := α) Φ}
-    (evaluate : obs.evaluateCallOperand = true)
-    {Γ L : List (Ty α)} {r s : Region Φ}
-    (step : Paper.WithComputedCallReturns.Step Γ r s L) : SameWith obs Γ r s := by
-  cases step with
-  | @seq a p ha =>
-    intro env he
-    let call : Tm.HasType (instrSrc p :: Γ) (.op p (.var 0)) (instrTrg p) := .op (.var rfl)
-    rw [evalReturnRegion (observation := obs) (.op ha) he, evalReturnRegion (observation := obs) (.let₁ ha call) he]
-    simp only [evalTermWith, evaluate, ↓reduceIte]
-    cases evalTermWith obs a env <;> rfl
-
-private theorem computedExtension_same {obs : TermObservation (α := α) Φ}
-    (unmarked : obs.caseTerm = false) (evaluate : obs.evaluateCallOperand = true)
-    {Γ L : List (Ty α)} {r s : Region Φ}
-    (eq : Paper.Extension.Eqv (Step (τ := Ty α) (Φ := Φ) pe) Γ r s L) :
-    SameWith obs Γ r s :=
-  extension_same (fun step => step.elim
-    (TriplingComputedCallFeedback.withTriplingSeed_same pe unmarked)
-    (computedCall_same evaluate)) eq
+  (TermObservation)
+open BoundSimulation.Obstruction.PairSequencing.ComputedReturns (computedExtension_same)
 
 private def observationForProducer : TermObservation (α := Atom) Op where
   boundUnaryLet := true
