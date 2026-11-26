@@ -39,6 +39,47 @@ components nor export ascriptions are silently stripped. `Closed.erase_map`
 commutes with raw `Syntax.Component.map` for a payload map preserving the
 same named module interfaces under one component profile.
 
+### Interaction trees for ready, closed simple components
+
+Import `Silmaril.Wasm.Component.SyncITree.Thms` to observe a
+`Reference.Simple` component through an interaction tree. `Ready.ofAdequate`
+uses the existing instance witness and its initial Core store. The fragment
+has one import-free Core instance, direct canonical lifts, float-free
+interfaces and flat ABI arities. The recursive scalar, record and variant
+types in `ValTy` exclude stream and future types by construction. The ready
+instance excludes a Core start function. Component startup is outside the
+tree, and the reference observation starts with successful instantiation.
+
+`Question` checks the export index and argument types. Each normal reply is
+checked against that export's result types. `exportSig` uses these as
+dependent game questions and answers. `body` uses the existing abstract
+Wasm `BodyM` and `BodyTrace.toAFun` observer. The definition reads terminal
+Core/ABI judgements at a fixed deterministic Core profile without a fuel
+parameter. A trap answers the current call and keeps its final store.
+This follows the existing resumable reference-session extension, which
+clears the reference machine's lockdown for the next call.
+
+`completes_iff_reference` and `completes_iff_game` prove both directions for
+completed typed rounds against the independent reference machine and the
+component IR game. `pending_iff_game` also covers the finite play that
+ends at the next typed export question. `quiet_iff_reference` identifies a
+session followed by actual silent divergence. `noOutcome` distinguishes
+absence of both a terminal judgement and an infinite internal run, and
+never answers an export in the session observer. Productive infinite
+sessions are outside this bridge.
+
+The [downstream regression](../../tests/wasm/inductive-component/SyncITree.lean)
+observes `poke` trapping during its canonical lift after writing a global,
+then `peek` returning the written value. It rules out the same observation
+for the component that omits the write.
+
+An open synchronous adapter needs to preserve typed import requests, host
+replies and pending activations. When the concrete protocol permits callbacks,
+the game position must retain the suspended invocation during reentry.
+Supporting nondeterministic Core profiles also requires a component-side
+choice model. This bridge has no import moves and fixes a deterministic
+Core profile.
+
 ### Observation boundary
 
 `Closed.terminal_iff` relates the stock reference-machine outcomes at an
