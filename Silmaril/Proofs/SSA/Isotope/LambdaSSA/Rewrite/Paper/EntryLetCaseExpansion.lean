@@ -5,8 +5,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithEn
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Initial.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.SingleCfg.Endpoint.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Family.Substitution.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithEntryLet.Example.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Coproducts.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Iteration.Chosen.Laws.CaseRepair.Thms
 
 /-! # A native duplication step obstructs repair of just the target -/
 
@@ -18,10 +17,11 @@ open Silmaril.Isotope Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Regi
 open Silmaril.DeBruijn (lift)
 open CategoryTheory CategoryTheory.Limits
 open Paper.TypeCategory
-open Paper.WithEntryLet (Site ofRegion_comp_constructor)
+open Paper.WithEntryLet (Site ofRegion_comp_constructor projectSquare_of_native_move)
 open Paper.WithEntryLet.OperandExample hiding source corrected_square corrected_iterate
 open Paper.WithEntryLet.CaseExpansion Paper.EntryLetObstruction
-open Paper.Extension.Singleton (projection projectStep iterateChosen projectSquare_iff projection_map_desc_congr)
+open Paper.Extension.Singleton (projection projectStep iterateChosen)
+open Paper.Extension.Singleton.CaseRepair (restore restore_post_iff repairSource)
 open SequencingObstruction (Instruction)
 
 local notation "J" => projection Seed
@@ -66,26 +66,23 @@ theorem move_one_copy : (Site.leftArm .here).move duplicatedRequest = some oneMo
 theorem oneMovedRequest_typed : ValueBranches [Bit] oneMovedRequest [Bit] :=
   (Site.move_sound (.leftArm .here) duplicated_typed move_one_copy).1
 
-theorem corrected_composite :
-    Paper.WithEntryLet.Eqv [Bit] (flatRecurringRequest.substVars discardInput) oneMovedRequest [Bit] :=
-  (Paper.Extension.Eqv.paper (Seed := Seed) native_expansion).trans
-    (Site.move_sound (.leftArm .here) duplicated_typed move_one_copy).2
+private theorem left_forget : (sumCofan (Φ := Instruction) U U).inl ≫ forget = discardArrow U := by
+  rw [sumCofan_inl]
+  exact discard_comp_branchValue (.inl (.var rfl))
+
+private theorem right_forget : (sumCofan (Φ := Instruction) U U).inr ≫ forget = discardArrow U := by
+  rw [sumCofan_inr]
+  exact discard_comp_branchValue (.inr (.var rfl))
 
 private theorem source_arms :
     source ≫ coprod.map (𝟙 X) forget =
       (sumIso U U).hom ≫ coprod.desc
         (discardArrow U ≫ ofRegion movedRequest_typed ≫ discardArrow U ≫ coprod.inr)
         (discardArrow U ≫ ofRegion flatRequest_typed ≫ discardArrow U ≫ coprod.inr) := by
-  have hl : (sumCofan (Φ := Instruction) U U).inl ≫ forget = discardArrow U := by
-    rw [sumCofan_inl]
-    exact discard_comp_branchValue (.inl (.var rfl))
-  have hr : (sumCofan (Φ := Instruction) U U).inr ≫ forget = discardArrow U := by
-    rw [sumCofan_inr]
-    exact discard_comp_branchValue (.inr (.var rfl))
   rw [source, Category.assoc, coprod.desc_comp]
   simp only [Category.assoc, taggedSource_forget]
-  rw [← Category.assoc (sumCofan (Φ := Instruction) U U).inl forget, hl,
-    ← Category.assoc (sumCofan (Φ := Instruction) U U).inr forget, hr]
+  rw [← Category.assoc (sumCofan (Φ := Instruction) U U).inl forget, left_forget,
+    ← Category.assoc (sumCofan (Φ := Instruction) U U).inr forget, right_forget]
 
 theorem source_composite :
     source ≫ coprod.map (𝟙 X) forget = ofRegion oneMovedRequest_typed ≫ (sumIso U U).hom := by
@@ -121,42 +118,66 @@ theorem corrected_square :
       (J).map forget ≫ projectStep Seed target := by
   have he : forget ≫ ofRegion flatStep_typed = ofRegion (discard_typed flatStep_typed [Bit]) :=
     ofRegion_comp_constructor (.unit (Γ := [Bit])) flatStep_typed (discard_typed flatStep_typed [Bit])
-  apply (projectSquare_iff Seed source target forget).2
-  rw [source_composite, target, ← Category.assoc forget, he, Functor.map_comp, Functor.map_comp]
-  exact congrArg (· ≫ (J).map (sumIso U U).hom)
-    ((Paper.Extension.Singleton.ofRegion_eq_iff Seed _ _).2 corrected_composite).symm
-
-private theorem taggedSource_congr {p q : X ⟶ X} (h : (J).map p = (J).map q) :
-    (J).map (taggedSource p) = (J).map (taggedSource q) := by
-  simp only [taggedSource, Functor.map_comp]
-  apply congrArg ((J).map (sumIso U U).hom ≫ ·)
-  apply projection_map_desc_congr Seed <;> simp only [Functor.map_comp, h]
+  apply projectSquare_of_native_move (.leftArm .here) source target forget
+    (discard_typed flatStep_typed [Bit]) duplicated_typed native_expansion move_one_copy source_composite
+  rw [target, ← Category.assoc forget, he]
 
 theorem source_repaired :
     ∃ f : D ⟶ X ⨿ D, projectStep Seed f = projectStep Seed source ∧
       f ≫ coprod.map (𝟙 X) forget = forget ≫ target := by
-  let f := taggedSource (ofRegion flatRequest_typed)
-  let e := sumIso (Φ := Instruction) U U
+  let split := (sumIso (Φ := Instruction) U U).symm
   let l : X ⟶ D := (sumCofan U U).inl
   let r : X ⟶ D := (sumCofan U U).inr
-  have combine : coprod.desc l r = e.inv := by
-    apply coprod.hom_ext
-    · rw [coprod.inl_desc, ← sumCofan_inl_sumIso_hom U U, Category.assoc, Iso.hom_inv_id, Category.comp_id]
-    · rw [coprod.inr_desc, ← sumCofan_inr_sumIso_hom U U, Category.assoc, Iso.hom_inv_id, Category.comp_id]
-  have baseline : e.hom ≫ coprod.desc (l ≫ f) (r ≫ f) = f := by
-    rw [← coprod.desc_comp, ← Category.assoc, combine, Iso.hom_inv_id, Category.id_comp]
-  have same : (J).map source = (J).map f := by
-    rw [← baseline]
-    simp only [source, Functor.map_comp]
-    apply congrArg ((J).map e.hom ≫ ·)
-    apply projection_map_desc_congr Seed _ rfl
-    simp only [Functor.map_comp]
-    rw [taggedSource_congr Paper.WithEntryLet.flatRequest_arrow_eq_moved.symm]
-  refine ⟨f, ?_, ?_⟩
-  · unfold projectStep
-    rw [same]
-  · rw [target, flatTarget_eq]
-    exact taggedSource_forget _
+  let d : X ⟶ X := discardArrow U
+  have left_tag : coprod.inl ≫ split.hom = l := by
+    change (coprod.inl : X ⟶ X ⨿ X) ≫ (sumIso U U).inv = l
+    rw [← sumCofan_inl_sumIso_hom U U, Category.assoc, Iso.hom_inv_id, Category.comp_id]
+  have right_tag : coprod.inr ≫ split.hom = r := by
+    change (coprod.inr : X ⟶ X ⨿ X) ≫ (sumIso U U).inv = r
+    rw [← sumCofan_inr_sumIso_hom U U, Category.assoc, Iso.hom_inv_id, Category.comp_id]
+  have left_hom : l ≫ (sumIso U U).hom = (coprod.inl : X ⟶ X ⨿ X) :=
+    sumCofan_inl_sumIso_hom U U
+  have right_hom : r ≫ (sumIso U U).hom = (coprod.inr : X ⟶ X ⨿ X) :=
+    sumCofan_inr_sumIso_hom U U
+  have tagged (q : X ⟶ X) :
+      taggedSource q = (sumIso U U).hom ≫
+        coprod.desc (d ≫ q ≫ d ≫ l ≫ (coprod.inr : D ⟶ X ⨿ D))
+          (d ≫ q ≫ d ≫ r ≫ (coprod.inr : D ⟶ X ⨿ D)) := rfl
+  have left_source (q : X ⟶ X) :
+      l ≫ taggedSource q = d ≫ q ≫ d ≫ l ≫ coprod.inr := by
+    rw [tagged, ← Category.assoc l, left_hom, coprod.inl_desc]
+  have right_source (q : X ⟶ X) :
+      r ≫ taggedSource q = d ≫ q ≫ d ≫ r ≫ coprod.inr := by
+    rw [tagged, ← Category.assoc r, right_hom, coprod.inr_desc]
+  let p : X ⟶ X ⨿ X := d ≫ ofRegion movedRequest_typed ≫ d ≫ coprod.inr
+  let q : X ⟶ X ⨿ X := d ≫ ofRegion flatRequest_typed ≫ d ≫ coprod.inr
+  have recover : source = restore split l r (source ≫ coprod.map (𝟙 X) forget) := by
+    rw [source_arms]
+    unfold source restore
+    apply congrArg ((sumIso U U).hom ≫ ·)
+    apply congrArg₂ coprod.desc
+    · rw [left_source, ← Category.assoc coprod.inl split.hom, left_tag]
+      change _ = l ≫ ((sumIso U U).hom ≫ coprod.desc p q) ≫ coprod.map (𝟙 X) l
+      rw [Category.assoc (sumIso U U).hom, ← Category.assoc l (sumIso U U).hom,
+        left_hom, coprod.inl_desc_assoc]
+      simp only [p, Category.assoc, coprod.inr_map]
+    · rw [right_source, ← Category.assoc coprod.inr split.hom, right_tag]
+      change _ = r ≫ ((sumIso U U).hom ≫ coprod.desc p q) ≫ coprod.map (𝟙 X) r
+      rw [Category.assoc (sumIso U U).hom, ← Category.assoc r (sumIso U U).hom,
+        right_hom, coprod.inr_desc_assoc]
+      simp only [q, Category.assoc, coprod.inr_map]
+  have keep (s : X ⟶ D) (eq : s ≫ forget = d) :
+      (forget ≫ target) ≫ coprod.map (𝟙 X) (s ≫ forget) = forget ≫ target := by
+    have idem : d ≫ d = d := discard_comp_branchValue .unit
+    rw [eq, target, flatTarget_eq]
+    simp only [Category.assoc, coprod.inr_map]
+    rw [← Category.assoc d d, idem]
+    rfl
+  have image : restore split l r (forget ≫ target) ≫ coprod.map (𝟙 X) forget = forget ≫ target :=
+    (restore_post_iff split l r forget _).2
+      ⟨congrArg (coprod.inl ≫ split.hom ≫ ·) (keep l left_forget),
+       congrArg (coprod.inr ≫ split.hom ≫ ·) (keep r right_forget)⟩
+  exact ⟨_, repairSource Seed split l r forget source target corrected_square (congrArg ((J).map) recover) image⟩
 
 theorem corrected_iterate :
     iterateChosen Seed (projectStep Seed source) =

@@ -116,7 +116,7 @@ theorem move_under_letValue (site : Site) {Γ : VCtx τ} {L : LCtx τ} {T : τ}
 
 open CategoryTheory CategoryTheory.Limits
 open Paper.TypeCategory (ofType ofRegion sumIso)
-open Paper.Extension.Singleton (projection projectStep iterateChosen)
+open Paper.Extension.Singleton (projection projectStep iterateChosen projectSquare_iff)
 
 variable {A D B : τ} {a : Tm Φ} {r s : Region Φ}
 
@@ -136,6 +136,24 @@ theorem comp_constructor {C : τ} {q : Region Φ} (ha : Tm.BranchValue [A] a D)
   apply (Paper.TypeCategory.ofRegion_eq_iff hc ht).2
   rw [e]
   exact .refl ht.hasType
+
+theorem projectSquare_of_native_move (site : Site) {p expanded moved : Region Φ}
+    (f : Obj A ⟶ Obj B ⨿ Obj A) (g : Obj D ⟶ Obj B ⨿ Obj D) (h : Obj A ⟶ Obj D)
+    (hp : ValueBranches [A] p [Silmaril.coprod B D])
+    (he : ValueBranches [A] expanded [Silmaril.coprod B D])
+    (expand : Paper.Eqv [A] p expanded [Silmaril.coprod B D])
+    (hm : site.move expanded = some moved)
+    (sourceEq : f ≫ coprod.map (𝟙 (Obj B)) h =
+      ofRegion (move_sound site he hm).1 ≫ (sumIso B D).hom)
+    (targetEq : h ≫ g = ofRegion hp ≫ (sumIso B D).hom) :
+    projectStep Seed f ≫ coprod.map (𝟙 ((projection Seed).obj (Obj B))) ((projection Seed).map h) =
+      (projection Seed).map h ≫ projectStep Seed g := by
+  have eq : Paper.WithEntryLet.Eqv [A] p moved [Silmaril.coprod B D] :=
+    .trans (.paper expand) (move_sound site he hm).2
+  apply (projectSquare_iff Seed f g h).2
+  rw [sourceEq, targetEq, Functor.map_comp, Functor.map_comp]
+  exact congrArg (· ≫ (projection Seed).map (sumIso B D).hom)
+    ((Paper.Extension.Singleton.ofRegion_eq_iff Seed _ _).2 eq).symm
 
 theorem repairTargetMoves (sites : List Site) (ha : Tm.BranchValue [A] a D)
     (hr : ValueBranches [D] r [Silmaril.coprod B D])

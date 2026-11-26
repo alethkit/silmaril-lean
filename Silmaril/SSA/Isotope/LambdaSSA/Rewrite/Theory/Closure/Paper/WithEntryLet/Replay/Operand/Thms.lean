@@ -85,6 +85,23 @@ theorem ofRegion_comp_constructor {C : τ} (ha : Tm.BranchValue [A] a D)
     ofRegion (.br (ℓ := 0) rfl ha) ≫ ofRegion hr = ofRegion hs :=
   EntryLetOperand.comp_constructor ha hr hs
 
+/-- A typed native expansion and a following addressed move give a
+corrected square when their endpoints represent the two native composites.
+The move may reach either copy of a native case-value expansion, including
+one inside an enclosing region context. -/
+theorem projectSquare_of_native_move (site : Site) {p expanded moved : Region Φ}
+    (f : Obj A ⟶ Obj B ⨿ Obj A) (g : Obj D ⟶ Obj B ⨿ Obj D) (h : Obj A ⟶ Obj D)
+    (hp : ValueBranches [A] p [Silmaril.coprod B D])
+    (he : ValueBranches [A] expanded [Silmaril.coprod B D])
+    (expand : Paper.Eqv [A] p expanded [Silmaril.coprod B D])
+    (hm : site.move expanded = some moved)
+    (sourceEq : f ≫ coprod.map (𝟙 (Obj B)) h =
+      ofRegion (site.move_sound he hm).1 ≫ (sumIso B D).hom)
+    (targetEq : h ≫ g = ofRegion hp ≫ (sumIso B D).hom) :
+    projectStep Seed f ≫ coprod.map (𝟙 ((projection Seed).obj (Obj B))) ((projection Seed).map h) =
+      (projection Seed).map h ≫ projectStep Seed g :=
+  EntryLetOperand.projectSquare_of_native_move site f g h hp he expand hm sourceEq targetEq
+
 /-- If the finite forward chain on the written target composite ends at a
 standard Paper representative of the source composite, replay it in the
 target operand. The replacement has the same corrected class and gives
