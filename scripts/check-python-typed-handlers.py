@@ -223,13 +223,9 @@ def unchanged(checkout):
     _, checked = guard(source, {"x": 6, "y": 7}, seed={"RuntimeError": RuntimeError})
     yield source, "\n".join(guards + [checked])
 
-    for name, digest, expected in (
-        ("testassert1.py", "87d8d9b8f19dab2341aaff9b0d2f63310cd07d41943dc89698269305d2240ce6", {"x": 5}),
-        ("testtry1.py", "75b614661cf9767306b18a85c483659385b3e4d33b3f63a7de1d9c352a77bce7", {"x": 5, "y": 6, "z": 7}),
-    ):
-        source = pinned(name, digest)
-        execute(source.encode(), expected, None, seed={"AssertionError": AssertionError})
-        yield source, "#guard !(Run.compile pythonSource).isOk"
+    source = pinned("testtry1.py", "75b614661cf9767306b18a85c483659385b3e4d33b3f63a7de1d9c352a77bce7")
+    execute(source.encode(), {"x": 5, "y": 6, "z": 7}, None)
+    yield source, "#guard !(Run.compile pythonSource).isOk"
 
 
 if __name__ == "__main__":

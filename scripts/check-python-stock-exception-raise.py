@@ -68,13 +68,25 @@ def codepoints(text):
     return "[" + ", ".join(str(ord(char)) for char in text) + "]"
 
 
-STOCK_CLASSES = {Exception: "exception", AssertionError: "assertionError", NameError: "nameError",
-                 TypeError: "typeError", RuntimeError: "runtimeError"}
+STOCK_CLASSES = {
+    Exception: "exception", AssertionError: "assertionError", NameError: "nameError",
+    UnboundLocalError: "unboundLocalError", TypeError: "typeError", ValueError: "valueError",
+    ZeroDivisionError: "zeroDivisionError", OverflowError: "overflowError", RuntimeError: "runtimeError",
+}
+
+
+def instance_code(value):
+    if not value.args:
+        return f".empty .{STOCK_CLASSES[type(value)]}"
+    assert type(value) is Exception and len(value.args) == 1 and type(value.args[0]) is str
+    return f".text ⟨{codepoints(value.args[0])}, by decide⟩"
 
 
 def value_code(value):
     if value in STOCK_CLASSES:
         return ".exceptionClass ." + STOCK_CLASSES[value]
+    if type(value) in STOCK_CLASSES:
+        return f".exceptionInstance ({instance_code(value)})"
     if type(value) is str:
         return f".text ⟨{codepoints(value)}, by decide⟩"
     if value is None:

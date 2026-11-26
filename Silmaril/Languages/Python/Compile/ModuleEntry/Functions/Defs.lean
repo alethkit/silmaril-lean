@@ -754,6 +754,9 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
   | scalar {index statement rest actions tail}
       (first : ModuleEntry.Translation tree.scope [statement] actions) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
+  | literalBooleanAssertion {index value rest tail} (remaining : Translation tree index rest tail) :
+      Translation tree index (.assert_ (.boolean value) none :: rest)
+        (.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: tail)
   | normalTry {index statement rest actions tail}
       (selected : NormalTry.Translation tree.scope statement actions)
       (remaining : Translation tree index rest tail) :
@@ -905,6 +908,10 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     let some reference := globalReference? tree.scope receiver | throw (.unresolvedGlobal receiver)
     let tail ← lowerPlan tree index rest
     return ⟨.assertVarNames receiver reference needle :: tail.val, .assertVarNames reference tail.property⟩
+  | .assert_ (.boolean value) none :: rest => do
+    let tail ← lowerPlan tree index rest
+    return ⟨.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: tail.val,
+      .literalBooleanAssertion tail.property⟩
   | .assert_ (.unary .not_ condition) none :: rest => do
     let operand ← (lowerTest tree.scope condition).mapError .scalar
     let tail ← lowerPlan tree index rest

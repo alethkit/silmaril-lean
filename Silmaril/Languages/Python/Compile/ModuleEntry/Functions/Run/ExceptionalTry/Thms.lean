@@ -35,7 +35,7 @@ theorem seededSuite_carriers {scope : Source.Scope} (context : Seeded.CallContex
     { context with heap := incoming.heap } actions incoming.lists
   exact ⟨heap, lists, by simp [seededSuite, calls], builtins⟩
 
-open Functions.ExceptionalTry (Plan RaiseCall Step runSuite)
+open Functions.ExceptionalTry (Plan RaiseArguments RaiseCall RaiseName Step runSuite)
 
 theorem runSuite_append {state failure action : Type}
     (step : state → action → Except failure state) (initial : state) (earlier later : List action) :
@@ -80,33 +80,49 @@ theorem stockException_descriptor_agrees :
 theorem ordinary_raise_stock {scope : Source.Scope} (session : Session) (call : RaiseCall scope)
     {message : Core.Text}
     (found : session.globals call.name = some .stockException)
-    (read : call.argument.eval session.globals raiseText? = .ok (some message)) :
+    (read : call.evalArguments session.globals raiseText? = .ok (.one (some message))) :
     exceptionalStep session (.raiseCall call) = .error (.raised (.explicitException message)) := by
-  simp [exceptionalStep, call.error_construct _ _ _ found read, raiseCallee, Functions.ExceptionalTry.RaiseCallee.construct]
+  simp [exceptionalStep, call.error_construct _ _ _ found read, raiseValue, Functions.ExceptionalTry.RaiseValue.construct]
 
 theorem seeded_raise_stock {scope : Source.Scope} (space : Namespace) (call : RaiseCall scope)
     {message : Core.Text}
     (found : space.lookupGlobal call.name = some (.exceptionClass .exception))
-    (read : call.argument.eval space.lookupGlobal Seeded.raiseText? = .ok (some message)) :
+    (read : call.evalArguments space.lookupGlobal Seeded.raiseText? = .ok (.one (some message))) :
     Seeded.exceptionalStep space (.raiseCall call) = .error (.raised (.runtime (.explicitException message))) := by
-  simp [Seeded.exceptionalStep, call.error_construct _ _ _ found read, Seeded.raiseCallee,
-    Functions.ExceptionalTry.RaiseCallee.construct]
+  simp [Seeded.exceptionalStep, call.error_construct _ _ _ found read, Seeded.raiseValue,
+    Functions.ExceptionalTry.RaiseValue.construct]
 
 theorem seeded_raise_builtin {scope : Source.Scope} (space : Namespace) (call : RaiseCall scope)
     {message : Core.Text}
     (absent : Core.Module.SeededCall.lookupBinding space.moduleGlobals call.name = none)
     (stock : Core.Module.SeededCall.lookupBinding space.builtins call.name = some (.exceptionClass .exception))
-    (read : call.argument.eval space.lookupGlobal Seeded.raiseText? = .ok (some message)) :
+    (read : call.evalArguments space.lookupGlobal Seeded.raiseText? = .ok (.one (some message))) :
     Seeded.exceptionalStep space (.raiseCall call) = .error (.raised (.runtime (.explicitException message))) :=
   seeded_raise_stock space call ((Namespace.builtin_fallback space absent).trans stock) read
 
 theorem seeded_raise_masked {scope : Source.Scope} (space : Namespace) (call : RaiseCall scope)
-    {argument : Option Core.Text}
+    {arguments : RaiseArguments}
     (mask : Core.Module.SeededCall.lookupBinding space.moduleGlobals call.name = some .none)
-    (read : call.argument.eval space.lookupGlobal Seeded.raiseText? = .ok argument) :
+    (read : call.evalArguments space.lookupGlobal Seeded.raiseText? = .ok arguments) :
     Seeded.exceptionalStep space (.raiseCall call) = .error (.raised (.runtime .notCallable)) := by
   simp [Seeded.exceptionalStep, call.error_construct _ _ _ (Namespace.module_precedes space mask) read,
-    Seeded.raiseCallee, Functions.ExceptionalTry.RaiseCallee.construct]
+    Seeded.raiseValue, Functions.ExceptionalTry.RaiseValue.construct]
+
+theorem ordinary_raise_class {scope : Source.Scope} (session : Session) (operand : RaiseName scope)
+    {kind : Core.Closure.ExceptionClass} (found : session.globals operand.name = some (.exceptionClass kind)) :
+    exceptionalStep session (.raiseName operand) = .error (.raised (.raisedInstance (.empty kind))) := by
+  simp [exceptionalStep, operand.error_found _ _ found, raiseValue, Functions.ExceptionalTry.RaiseValue.normalize]
+
+theorem seeded_raise_class {scope : Source.Scope} (space : Namespace) (operand : RaiseName scope)
+    {kind : Core.Closure.ExceptionClass}
+    (found : space.lookupGlobal operand.name = some (.exceptionClass kind)) :
+    Seeded.exceptionalStep space (.raiseName operand) = .error (.raised (.runtime (.raisedInstance (.empty kind)))) := by
+  simp [Seeded.exceptionalStep, operand.error_found _ _ found, Seeded.raiseValue,
+    Functions.ExceptionalTry.RaiseValue.normalize]
+
+theorem exceptionInstance_transport (value : Core.Closure.ExceptionInstance) :
+    Seeded.ordinaryValue? (.exceptionInstance value) = some (.exceptionInstance value) ∧
+      Seeded.seededValue (.exceptionInstance value) = .exceptionInstance value := ⟨rfl, rfl⟩
 
 theorem ordinary_handler_stock (session : Session) (name : String) (error : Core.Closure.RuntimeError)
     (kind : Core.Closure.ExceptionClass) (found : session.globals name = some (.exceptionClass kind)) :

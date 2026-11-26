@@ -102,24 +102,46 @@ theorem matchClass_stock {Value : Type} (lookup : String → Option Value) (clas
     matchClass lookup classOf actual name = .ok (decide (expected.catches actual)) := by
   simp [matchClass, found, stock]
 
+
+theorem RaiseName.error_missing {scope : Source.Scope} {Value : Type} (operand : RaiseName scope)
+    (lookup : Source.Name → Option Value) (classify : Value → RaiseValue)
+    (missing : lookup operand.name = none) :
+    operand.error lookup classify = .nameError operand.name := by
+  simp [RaiseName.error, missing]
+
+theorem RaiseName.error_found {scope : Source.Scope} {Value : Type} (operand : RaiseName scope)
+    (lookup : Source.Name → Option Value) (classify : Value → RaiseValue) {value : Value}
+    (found : lookup operand.name = some value) :
+    operand.error lookup classify = (classify value).normalize := by
+  simp [RaiseName.error, found]
+
+theorem RaiseValue.stock_empty_normalizes (kind : Core.Closure.ExceptionClass) :
+    (RaiseValue.stockClass kind).construct .empty = some (RaiseValue.stockClass kind).normalize := rfl
+
+theorem RaiseValue.instance_normalizes (value : Core.Closure.ExceptionInstance) :
+    (RaiseValue.exceptionInstance value).normalize = .raisedInstance value := rfl
+
+theorem RaiseValue.instance_notCallable (value : Core.Closure.ExceptionInstance) :
+    (RaiseValue.exceptionInstance value).construct .empty = some .notCallable := rfl
+
 theorem RaiseCall.error_missing {scope : Source.Scope} {Value : Type} (call : RaiseCall scope)
-    (lookup : Source.Name → Option Value) (classify : Value → RaiseCallee) (text? : Value → Option Core.Text)
+    (lookup : Source.Name → Option Value) (classify : Value → RaiseValue) (text? : Value → Option Core.Text)
     (missing : lookup call.name = none) :
     call.error lookup classify text? = some (.nameError call.name) := by
   simp [RaiseCall.error, missing]
 
 theorem RaiseCall.error_argument {scope : Source.Scope} {Value : Type} (call : RaiseCall scope)
-    (lookup : Source.Name → Option Value) (classify : Value → RaiseCallee) (text? : Value → Option Core.Text)
+    (lookup : Source.Name → Option Value) (classify : Value → RaiseValue) (text? : Value → Option Core.Text)
     {callee : Value} {error : Core.Closure.RuntimeError}
-    (found : lookup call.name = some callee) (failed : call.argument.eval lookup text? = .error error) :
+    (found : lookup call.name = some callee) (failed : call.evalArguments lookup text? = .error error) :
     call.error lookup classify text? = some error := by
   simp [RaiseCall.error, found, failed]
 
 theorem RaiseCall.error_construct {scope : Source.Scope} {Value : Type} (call : RaiseCall scope)
-    (lookup : Source.Name → Option Value) (classify : Value → RaiseCallee) (text? : Value → Option Core.Text)
-    {callee : Value} {argument : Option Core.Text}
-    (found : lookup call.name = some callee) (read : call.argument.eval lookup text? = .ok argument) :
-    call.error lookup classify text? = (classify callee).construct argument := by
+    (lookup : Source.Name → Option Value) (classify : Value → RaiseValue) (text? : Value → Option Core.Text)
+    {callee : Value} {arguments : RaiseArguments}
+    (found : lookup call.name = some callee) (read : call.evalArguments lookup text? = .ok arguments) :
+    call.error lookup classify text? = (classify callee).construct arguments := by
   simp [RaiseCall.error, found, read]
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ExceptionalTry

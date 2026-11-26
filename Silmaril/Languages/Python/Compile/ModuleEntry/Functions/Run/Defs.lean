@@ -228,7 +228,8 @@ inductive Completion where
 def tupleBinding (session : Session) : Option Core.Module.TupleDispatch.TypeBinding :=
   (session.globals "tuple").map fun
     | .none => .noneValue
-    | .int _ | .bool _ | .float64 _ | .text _ | .tuple _ | .tupleObject _ | .dictionary _ => .nonCallable
+    | .int _ | .bool _ | .float64 _ | .text _ | .tuple _ | .tupleObject _
+    | .exceptionInstance _ | .dictionary _ => .nonCallable
     | .exceptionClass _ | .function _ => .outsideProfile
 
 def tupleLookup (session : Session) : TupleChain.Lookup :=
@@ -328,9 +329,10 @@ def Completion.isPythonError : Completion → Bool
   | .raised _ | .assertionError => true
   | _ => false
 
-def raiseCallee : Value → ExceptionalTry.RaiseCallee
-  | .stockException => .stockException
-  | .exceptionClass _ | .function _ => .outsideProfile
+def raiseValue : Value → ExceptionalTry.RaiseValue
+  | .exceptionClass kind => .stockClass kind
+  | .exceptionInstance value => .exceptionInstance value
+  | .function _ => .otherCallable
   | _ => .nonCallable
 
 def raiseText? : Value → Option Core.Text
@@ -339,7 +341,8 @@ def raiseText? : Value → Option Core.Text
 
 def exceptionalStep {scope : Scope} (session : Session) : ExceptionalTry.Step scope → Except Completion Session
   | .scalar action => scalarStep session action
-  | .raiseCall call => .error ((call.error session.globals raiseCallee raiseText?).elim .scalarProfile .raised)
+  | .raiseName operand => .error (.raised (operand.error session.globals raiseValue))
+  | .raiseCall call => .error ((call.error session.globals raiseValue raiseText?).elim .scalarProfile .raised)
   | .raiseInactive => .error (.raised .noActiveException)
 
 def handlerClass : Value → ExceptionalTry.HandlerClass

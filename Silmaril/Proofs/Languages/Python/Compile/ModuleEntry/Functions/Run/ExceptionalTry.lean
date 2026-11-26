@@ -133,7 +133,7 @@ theorem ordinary_reached_carriers {scope : Source.Scope} (session : Session)
     (fun reached => reached.heap = session.heap ∧ reached.lists = session.lists) ?_ session plan ⟨rfl, rfl⟩
   intro initial reached step done kept
   cases step with
-  | raiseCall _ | raiseInactive => simp [exceptionalStep] at done
+  | raiseName _ | raiseCall _ | raiseInactive => simp [exceptionalStep] at done
   | scalar action =>
     change Compile.ModuleEntry.Functions.Run.scalarStep initial action = .ok reached at done
     cases action with
@@ -153,7 +153,7 @@ theorem seeded_reached_builtins {scope : Source.Scope} (space : Namespace)
     (fun reached => reached.builtins = space.builtins) ?_ space plan rfl
   intro initial reached step done kept
   cases step with
-  | raiseCall _ | raiseInactive => simp [Seeded.exceptionalStep] at done
+  | raiseName _ | raiseCall _ | raiseInactive => simp [Seeded.exceptionalStep] at done
   | scalar action =>
     change Seeded.scalarStep initial action = .ok reached at done
     cases binding : Seeded.scalarBinding initial action with
