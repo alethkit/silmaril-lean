@@ -41,10 +41,16 @@ structure PathNode where
   block : PathBlock
   choice : Option PathChoice := none
 
+/-- A static transfer to an explicit enclosing scalar or void label. -/
+structure ForwardBranch where
+  depth : LabelIdx
+  results : List NumType
+
 /-- Checked block and conditional arms and their enclosing continuations. -/
 inductive Source (H : Type) where
   | root
-  | hosts (first : HostSegment H) (later : List (HostSegment H))
+  | hosts (first : HostSegment H) (later : List (HostSegment H)) (branch : Option ForwardBranch := none)
+  | br (branch : ForwardBranch)
   | plain (code : List Op)
   | blockThen (result : Option NumType) (body tail : Source H)
   | ifThen (result : Option NumType) (condition : LocalIdx) (left right tail : Source H)
@@ -72,7 +78,7 @@ def needsResume {H : Type} : Source H → Bool
 
 def Allowed {H : Type} (mode : MemoryMode) (program : Program) (memory : MemAddr) (calls : CallMode)
     (fn : Function) : Source H → Prop
-  | .root | .hosts .. => True
+  | .root | .hosts .. | .br _ => True
   | .plain code =>
     CodeAllowedFor mode program memory calls fn.rank fn.declaration.module (expression (v1Code code))
   | .blockThen _ body tail =>
@@ -96,8 +102,11 @@ variable {H : Type}
 def results (fn : Function) (labels : List (OpenLabel H)) : List NumType :=
   (labels.head?.map (fun label => label.result.toList)).getD fn.declaration.results
 
+def signatures (labels : List (OpenLabel H)) : List (List NumType) :=
+  labels.map (fun label => label.result.toList)
+
 def targets (fn : Function) (labels : List (OpenLabel H)) : List (List NumType) :=
-  labels.map (fun label => label.result.toList) ++ fn.entryLabels
+  signatures labels ++ fn.entryLabels
 
 def needsResume (labels : List (OpenLabel H)) : Bool :=
   labels.any (fun label => label.tail.needsResume)
@@ -122,9 +131,14 @@ def encode {A : Type} (ops : ArgumentSyntax A) (tail : List A) : List (HostSegme
 def hostBody (seq : Sequence H) : Wasm.V1.Expr :=
   encode Graph.v1CodeSyntax.ops (v1Code seq.root.function.code) (seq.first :: seq.later)
 
+def endCode (seq : Sequence H) : Option ForwardBranch → Wasm.V1.Expr
+  | none => v1Code seq.root.function.code
+  | some branch => [.br branch.depth]
+
 def sourceCode (seq : Sequence H) : Source H → Wasm.V1.Expr
   | .root => seq.hostBody
-  | .hosts first later => encode Graph.v1CodeSyntax.ops (v1Code seq.root.function.code) (first :: later)
+  | .hosts first later branch => encode Graph.v1CodeSyntax.ops (seq.endCode branch) (first :: later)
+  | .br branch => [.br branch.depth]
   | .plain code => v1Code code
   | .blockThen result body tail => .block result (seq.sourceCode body) :: seq.sourceCode tail
   | .ifThen result condition left right tail =>
@@ -132,8 +146,8 @@ def sourceCode (seq : Sequence H) : Source H → Wasm.V1.Expr
 
 def sourceSites (seq : Sequence H) : Source H → List (HostCall.V1.Site H)
   | .root => seq.sites
-  | .hosts first later => first.site :: later.map HostSegment.site
-  | .plain _ => []
+  | .hosts first later _ => first.site :: later.map HostSegment.site
+  | .plain _ | .br _ => []
   | .blockThen _ body tail => seq.sourceSites body ++ seq.sourceSites tail
   | .ifThen _ _ left right tail => (seq.sourceSites left ++ seq.sourceSites right) ++ seq.sourceSites tail
 
@@ -161,8 +175,9 @@ def v1FuncAt (seq : Sequence H) (path : List PathNode) : Wasm.V1.Func :=
 
 def v1Func (seq : Sequence H) : Wasm.V1.Func := seq.v1FuncFor .root
 
-def continuation (seq : Sequence H) (rest : List (HostSegment H)) : List Admin :=
-  encode v1Syntax seq.root.tail rest
+def continuation (seq : Sequence H) (rest : List (HostSegment H))
+    (branch : Option ForwardBranch := none) : List Admin :=
+  encode v1Syntax (expression (seq.endCode branch)) rest
 
 /-- Reentering source after label completion requires an exact typed value
 stack. The graph guard alone does not provide one after running a graph tail. -/
@@ -171,26 +186,36 @@ def checkTail (fn : Function) (stack fallthrough : List NumType) (targets : List
   if resume then code.isEmpty && decide (stack = fallthrough.reverse)
   else ({ fn with code := code }).checkRegion stack fallthrough code targets
 
+/-- Restrict transfers to explicit labels; the function entry still supplies
+its own result and branch context to the host-free graph checker. -/
+def checkForward (fn : Function) (stack : List NumType) (targets : List (List NumType))
+    (branch : ForwardBranch) : Bool :=
+  Graph.checkBranch (targets.take (targets.length - fn.entryLabels.length)) stack branch.depth branch.results
+
 /-- Consume each ordered argument suffix and check the next segment on its
 declared results above the preserved operands. -/
 def checkRegionAt (fn : Function) (stack fallthrough : List NumType)
-    (targets : List (List NumType)) (resume : Bool) : List (HostSegment H) → Bool
-  | [] => checkTail fn stack fallthrough targets resume fn.code
+    (targets : List (List NumType)) (resume : Bool) (branch : Option ForwardBranch) : List (HostSegment H) → Bool
+  | [] =>
+    match branch with
+    | none => checkTail fn stack fallthrough targets resume fn.code
+    | some target => checkForward fn stack targets target
   | segment :: rest =>
     checkHostPrefixWith (fn.declaration.params ++ fn.declaration.locals) stack segment.operands
-      segment.site.signature (fun next => checkRegionAt fn next fallthrough targets resume rest)
+      segment.site.signature (fun next => checkRegionAt fn next fallthrough targets resume branch rest)
 
 def checkRegion (fn : Function) (stack fallthrough : List NumType)
     (targets : List (List NumType)) (segments : List (HostSegment H)) : Bool :=
-  checkRegionAt fn stack fallthrough targets false segments
+  checkRegionAt fn stack fallthrough targets false none segments
 
 def check (fn : Function) (stack : List NumType) (segments : List (HostSegment H)) : Bool :=
   checkRegion fn stack fn.declaration.results fn.entryLabels segments
 
 def checkSourceAt (seq : Sequence H) (stack fallthrough : List NumType) (targets : List (List NumType))
     (resume : Bool) : Source H → Bool
-  | .root => checkRegionAt seq.root.function stack fallthrough targets resume (seq.first :: seq.later)
-  | .hosts first later => checkRegionAt seq.root.function stack fallthrough targets resume (first :: later)
+  | .root => checkRegionAt seq.root.function stack fallthrough targets resume none (seq.first :: seq.later)
+  | .hosts first later branch => checkRegionAt seq.root.function stack fallthrough targets resume branch (first :: later)
+  | .br branch => checkForward seq.root.function stack targets branch
   | .plain code => checkTail seq.root.function stack fallthrough targets resume code
   | .blockThen result body tail =>
     let types := result.toList
@@ -259,8 +284,12 @@ inductive Phase (H : Type) where
       (left right tail : Source H) (condition : BitVec 32) (labels : List (OpenLabel H))
   | computing (bytes : ByteArray) (stack : List Value) (remaining : List Prefix.Op)
       (site : HostCall.V1.Site H) (later : List (HostSegment H)) (labels : List (OpenLabel H) := [])
+      (branch : Option ForwardBranch := none)
   | pending (bytes : ByteArray) (saved args : List Value)
       (site : HostCall.V1.Site H) (later : List (HostSegment H)) (labels : List (OpenLabel H) := [])
+      (branch : Option ForwardBranch := none)
+  | branching (bytes : ByteArray) (stack : List Value) (branch : ForwardBranch)
+      (skipped : List Admin) (labels : List (OpenLabel H))
   | completed (bytes : ByteArray) (stack : List Value) (label : OpenLabel H) (outer : List (OpenLabel H))
   | trapped (bytes : ByteArray) (saved : List Value) (tail : List Admin) (labels : List (OpenLabel H) := [])
   | graph (state : State)
@@ -276,22 +305,28 @@ def finish (seq : Sequence H) (outer : Frame) (args : List Value) (bytes : ByteA
 def beginBody (seq : Sequence H) (outer : Frame) (args : List Value) (bytes : ByteArray)
     (stack : List Value) (labels : List (OpenLabel H)) : Source H → Phase H
   | .root => .computing bytes stack seq.root.operands seq.root.site seq.later labels
-  | .hosts first later => .computing bytes stack first.operands first.site later labels
+  | .hosts first later branch => .computing bytes stack first.operands first.site later labels branch
+  | .br branch => .branching bytes stack branch [] labels
   | .plain code => seq.finish outer args bytes stack code labels
   | .blockThen result body tail => .block bytes stack result body tail labels
   | .ifThen result index left right tail => .if_ bytes stack result index left right tail labels
 
 def resume (seq : Sequence H) (outer : Frame) (args : List Value) (bytes : ByteArray)
-    (stack : List Value) (later : List (HostSegment H)) (labels : List (OpenLabel H) := []) : Phase H :=
+    (stack : List Value) (later : List (HostSegment H)) (labels : List (OpenLabel H) := [])
+    (branch : Option ForwardBranch := none) : Phase H :=
   match later with
-  | [] => seq.finish outer args bytes stack seq.root.function.code labels
-  | piece :: rest => .computing bytes stack piece.operands piece.site rest labels
+  | [] =>
+    match branch with
+    | none => seq.finish outer args bytes stack seq.root.function.code labels
+    | some target => .branching bytes stack target [] labels
+  | piece :: rest => .computing bytes stack piece.operands piece.site rest labels branch
 
 def delivered (seq : Sequence H) (outer : Frame) (args : List Value) (bytes : ByteArray)
-    (saved : List Value) (later : List (HostSegment H)) (r : Result) (labels : List (OpenLabel H) := []) : Phase H :=
+    (saved : List Value) (later : List (HostSegment H)) (r : Result) (labels : List (OpenLabel H) := [])
+    (branch : Option ForwardBranch := none) : Phase H :=
   match r with
-  | .values payload => seq.resume outer args bytes (saved ++ payload) later labels
-  | .trap => .trapped bytes saved (seq.continuation later) labels
+  | .values payload => seq.resume outer args bytes (saved ++ payload) later labels branch
+  | .trap => .trapped bytes saved (seq.continuation later branch) labels
 
 def afterLabel (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H))
     (code : List Admin) : List Admin :=
@@ -320,11 +355,13 @@ def render (seq : Sequence H) (base : Store H) (memory : MemAddr) (initial : Mem
   | .test bytes stack result _ left right tail condition labels =>
     ⟨live bytes, outer, (k labels).plug value (values (stack ++ [Value.int .i32 condition]) ++
       .source (.if_ result (seq.sourceCode left) (seq.sourceCode right)) :: expression (seq.sourceCode tail))⟩
-  | .computing bytes stack ops site later labels =>
+  | .computing bytes stack ops site later labels branch =>
     ⟨live bytes, outer, (k labels).plug value (values stack ++ ops.map (Prefix.emit v1Syntax) ++
-      .source (.call site.index) :: seq.continuation later)⟩
-  | .pending bytes saved actual site later labels =>
-    ⟨live bytes, outer, (k labels).plug value (values (saved ++ actual) ++ .invoke site.address :: seq.continuation later)⟩
+      .source (.call site.index) :: seq.continuation later branch)⟩
+  | .pending bytes saved actual site later labels branch =>
+    ⟨live bytes, outer, (k labels).plug value (values (saved ++ actual) ++ .invoke site.address :: seq.continuation later branch)⟩
+  | .branching bytes stack branch skipped labels =>
+    ⟨live bytes, outer, (k labels).plug value (values stack ++ .source (.br branch.depth) :: skipped)⟩
   | .completed bytes stack label rest => ⟨live bytes, outer, (k (label :: rest)).plug value (values stack)⟩
   | .trapped bytes saved tail labels => ⟨live bytes, outer, (k labels).plug value (values saved ++ .trap :: tail)⟩
   | .graph state => Memory32.render base memory initial state
@@ -359,20 +396,23 @@ def Ready (seq : Sequence H) (mode : MemoryMode) (program : Program) (memory : M
     extent bytes ∧ seq.SourceReady mode program memory calls labels stack (.blockThen result region tail) body
   | .if_ bytes stack result index left right tail labels | .test bytes stack result index left right tail _ labels =>
     extent bytes ∧ seq.SourceReady mode program memory calls labels stack (.ifThen result index left right tail) body
-  | .computing bytes stack ops site later labels =>
+  | .computing bytes stack ops site later labels branch =>
     extent bytes ∧ site ∈ seq.sourceSites body ∧
       (∀ piece ∈ later, piece.site ∈ seq.sourceSites body) ∧
       checkHostPrefixWith (fn.declaration.params ++ fn.declaration.locals)
         (Prefix.stackTypes stack) ops site.signature
-        (fun next => checkRegionAt fn next (OpenLabel.results fn labels) (OpenLabel.targets fn labels) (OpenLabel.needsResume labels) later) = true ∧
+        (fun next => checkRegionAt fn next (OpenLabel.results fn labels) (OpenLabel.targets fn labels) (OpenLabel.needsResume labels) branch later) = true ∧
       scopes labels
-  | .pending bytes saved actual site later labels =>
+  | .pending bytes saved actual site later labels branch =>
     extent bytes ∧ site ∈ seq.sourceSites body ∧
       (∀ piece ∈ later, piece.site ∈ seq.sourceSites body) ∧
       actual.map Value.type = site.signature.params ∧
       checkRegionAt fn (site.signature.results.reverse ++ Prefix.stackTypes saved)
-        (OpenLabel.results fn labels) (OpenLabel.targets fn labels) (OpenLabel.needsResume labels) later = true ∧
+        (OpenLabel.results fn labels) (OpenLabel.targets fn labels) (OpenLabel.needsResume labels) branch later = true ∧
       scopes labels
+  | .branching bytes stack branch _ labels =>
+    extent bytes ∧ Graph.checkBranch (OpenLabel.signatures labels) (Prefix.stackTypes stack)
+      branch.depth branch.results = true ∧ scopes labels
   | .completed bytes stack label rest =>
     extent bytes ∧ stack.map Value.type = label.result.toList ∧ scopes (label :: rest)
   | .trapped bytes _ _ labels => extent bytes ∧ scopes labels
@@ -399,31 +439,39 @@ inductive Edge (seq : Sequence H) (host : HostSemantics H) (mode : MemoryMode)
   | closeLabel {bytes stack label rest} (arity : stack.length = label.result.toList.length) :
       Edge seq host mode program memory base initial start outer args (.completed bytes stack label rest)
         (seq.beginBody outer args bytes (label.saved ++ stack) rest label.tail)
-  | numeric {bytes stack next op rest site later labels}
+  | branchOuter {bytes stack branch skipped label rest} (outerDepth : 0 < branch.depth.toNat) :
+      Edge seq host mode program memory base initial start outer args
+        (.branching bytes stack branch skipped (label :: rest))
+        (.branching bytes (label.saved ++ stack) { branch with depth := lowerLabel branch.depth } (seq.tailCode label) rest)
+  | branchExit {bytes extra payload results skipped label rest} (arity : payload.length = label.result.toList.length) :
+      Edge seq host mode program memory base initial start outer args
+        (.branching bytes (extra ++ payload) ⟨⟨0⟩, results⟩ skipped (label :: rest))
+        (seq.beginBody outer args bytes (label.saved ++ payload) rest label.tail)
+  | numeric {bytes stack next op rest site later labels branch}
       (move : Prefix.Reduce (seq.root.function.declaration.frame args).locals stack op (.values next)) :
-      Edge seq host mode program memory base initial start outer args (.computing bytes stack (op :: rest) site later labels)
-        (.computing bytes next rest site later labels)
-  | prefixTrap {bytes stack saved op rest site later labels}
+      Edge seq host mode program memory base initial start outer args (.computing bytes stack (op :: rest) site later labels branch)
+        (.computing bytes next rest site later labels branch)
+  | prefixTrap {bytes stack saved op rest site later labels branch}
       (move : Prefix.Reduce (seq.root.function.declaration.frame args).locals stack op (.trap saved)) :
-      Edge seq host mode program memory base initial start outer args (.computing bytes stack (op :: rest) site later labels)
-        (.trapped bytes saved (rest.map (Prefix.emit v1Syntax) ++ .source (.call site.index) :: seq.continuation later) labels)
+      Edge seq host mode program memory base initial start outer args (.computing bytes stack (op :: rest) site later labels branch)
+        (.trapped bytes saved (rest.map (Prefix.emit v1Syntax) ++ .source (.call site.index) :: seq.continuation later branch) labels)
   | discard {bytes saved tail kept rest labels} (move : Prefix.Discard saved tail kept rest) :
       Edge seq host mode program memory base initial start outer args (.trapped bytes saved tail labels) (.trapped bytes kept rest labels)
   | closeTrap {bytes labels} :
       Edge seq host mode program memory base initial start outer args (.trapped bytes [] [] labels)
         (seq.closeTrapped outer args bytes labels)
-  | hostResolve {bytes saved actual site later labels} (typed : actual.map Value.type = site.signature.params) :
-      Edge seq host mode program memory base initial start outer args (.computing bytes (saved ++ actual) [] site later labels)
-        (.pending bytes saved actual site later labels)
-  | returned {bytes saved actual site later labels after r next}
+  | hostResolve {bytes saved actual site later labels branch} (typed : actual.map Value.type = site.signature.params) :
+      Edge seq host mode program memory base initial start outer args (.computing bytes (saved ++ actual) [] site later labels branch)
+        (.pending bytes saved actual site later labels branch)
+  | returned {bytes saved actual site later labels branch after r next}
       (behavior : host site.target (storeWithBytes base memory initial bytes) actual (.returned after r))
       (stored : after = storeWithBytes base memory initial next) :
-      Edge seq host mode program memory base initial start outer args (.pending bytes saved actual site later labels)
-        (seq.delivered outer args next saved later r labels)
-  | diverged {bytes saved actual site later labels}
+      Edge seq host mode program memory base initial start outer args (.pending bytes saved actual site later labels branch)
+        (seq.delivered outer args next saved later r labels branch)
+  | diverged {bytes saved actual site later labels branch}
       (behavior : host site.target (storeWithBytes base memory initial bytes) actual .diverged) :
-      Edge seq host mode program memory base initial start outer args (.pending bytes saved actual site later labels)
-        (.pending bytes saved actual site later labels)
+      Edge seq host mode program memory base initial start outer args (.pending bytes saved actual site later labels branch)
+        (.pending bytes saved actual site later labels branch)
   | graph {src dst} (move : EdgeAt mode program memory src dst) :
       Edge seq host mode program memory base initial start outer args (.graph src) (.graph dst)
 

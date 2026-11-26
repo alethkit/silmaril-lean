@@ -8,6 +8,7 @@ import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.G
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Run.Thms
+import Silmaril.Wasm.Institution.Operational.BranchExit.Native.Thms
 import Silmaril.Wasm.V1.Execution.Inversion
 import Silmaril.Wasm.Versions.Lime1.Execution.Thms
 
@@ -147,6 +148,45 @@ theorem scoped_result {A : Type} {host : HostSemantics H} {s : Store H} {outer :
     exact ⟨outcome, moved, eq⟩
   · rintro ⟨outcome, moved, rfl⟩
     exact ⟨_, _, _, (atLabel _).mpr ⟨outcome, moved, rfl⟩, rfl⟩
+
+/-- A frame with a branch at its innermost explicit label either delivers a
+zero-depth suffix or lowers the positive depth. The branch itself never
+reduces inside the label. -/
+theorem framed_branch_iff {host : HostSemantics H} {s : Store H} {outer active : Frame}
+    {n : Nat} {stack : List Value} {depth : LabelIdx} {tail : List Admin} {dst : Config H} :
+    Step host ⟨s, outer, [.frame n active [.label n [] (values stack ++ .source (.br depth) :: tail)]]⟩ dst ↔
+      (∃ extra payload, stack = extra ++ payload ∧ payload.length = n ∧ depth.toNat = 0 ∧
+        dst = ⟨s, outer, [.frame n active (values payload)]⟩) ∨
+      (0 < depth.toNat ∧ dst = ⟨s, outer, [.frame n active (values stack ++ [.source (.br (lowerLabel depth))])]⟩) := by
+  rw [HostEntry.Proofs.frame_label_step]
+  constructor
+  · rintro (⟨s', f', code, step, _⟩ | ⟨code, pure, rfl⟩)
+    · have translated := step.toLime (target := fun _ _ _ _ => True) (fun _ _ _ _ _ => trivial)
+      exact (BranchExit.lime_br_vals_stuck (depth := depth) (stack := stack) (rest := codeToLime tail)
+        (by simpa only [Config.toLime, codeToLime_append, map_values, codeToLime_cons, AdminInstr.map,
+          Wasm.V1.Instr.toLime] using translated)).elim
+    · have translated := (Step.pure (host := host) s active pure).toLime
+          (target := fun _ _ _ _ => True) (fun _ _ _ _ _ => trivial)
+      have moved := (BranchExit.lime_label_br_iff (n := n) (depth := depth) (stack := stack) (rest := codeToLime tail)).mp
+        (by simpa only [Config.toLime, codeToLime_cons, codeToLime_append, codeToLime_nil, map_values,
+          AdminInstr.map, AdminInstr.mapList, List.map_nil, Wasm.V1.Instr.toLime] using translated)
+      rcases moved with ⟨extra, payload, split, arity, zero, eq⟩ | ⟨positive, eq⟩
+      · have same : (⟨s, active, code⟩ : Config H) = ⟨s, active, values payload⟩ :=
+          CallContinuation.config_toLime_injective H
+            (by simpa only [Config.toLime, map_values] using eq)
+        exact .inl ⟨extra, payload, split, arity, zero, by cases same; rfl⟩
+      · have same : (⟨s, active, code⟩ : Config H) = ⟨s, active, values stack ++ [.source (.br (lowerLabel depth))]⟩ :=
+          CallContinuation.config_toLime_injective H
+            (by simpa only [Config.toLime, codeToLime_append, codeToLime_cons, codeToLime_nil, map_values,
+              AdminInstr.map, Wasm.V1.Instr.toLime, lowerLabel_toLime] using eq)
+        exact .inr ⟨positive, by cases same; rfl⟩
+  · rintro (⟨extra, payload, rfl, arity, zero, rfl⟩ | ⟨positive, rfl⟩)
+    · have same : depth = ⟨0⟩ := Idx.toNat_injective zero
+      subst depth
+      exact .inr ⟨_, by simpa only [values_append, List.append_assoc, List.singleton_append, expression,
+        List.map_nil, List.append_nil] using (.labelBranch n [] extra payload tail arity : PureStep _ _), rfl⟩
+    · exact .inr ⟨_, by simpa only [List.append_assoc, List.singleton_append] using
+        (.labelBranchOuter n [] stack tail depth (Nat.ne_of_gt positive) : PureStep _ _), rfl⟩
 
 private theorem framed_source_iff {host : HostSemantics H} {s : Store H} {outer f : Frame}
     {n : Nat} {stack : List Value} {instr : Wasm.V1.Instr} {tail after : List Admin} {dst : Config H}
