@@ -6,8 +6,8 @@ public import Silmaril.SSA.PEG.Simple.While.Trace
 /-! # Checked schedules for single-loop PEG regions
 
 A descriptor names rows by reference. The checker validates the loop boundary and
-each slice against the graph. A slice starts with the old θ vector and may bind
-only primitive rows whose operands are already available. -/
+each slice against the graph. A slice starts with the old carried vector and may
+bind only primitive rows whose operands are already available. -/
 
 @[expose] public section
 
@@ -132,9 +132,10 @@ def Schedule.lower {g : Graph P carried [result] n l} {roots : Tuple (Ref g.sort
   | _, _, .done reads => .project reads.slots
   | _, _, .bind _ instr _ _ _ reads tail => .seq (.assign (.op instr reads.args)) tail.lower
 
-/-- Untrusted row references for a loop boundary. Each carried
-position is initialized by its corresponding input parameter. The body
-returns all next values simultaneously, and the exit samples one θ. -/
+/-- Untrusted row references for a loop boundary. Each carried position
+is initialized by its corresponding input parameter. In invariant mode,
+`theta` and `next` may both name that parameter. The body commits all
+next values simultaneously, and the exit samples one current value. -/
 structure Descriptor (g : Graph P carried [result] n 1) where
   theta : Tuple (Ref g.sort) carried
   initial : Tuple (Ref g.sort) carried
@@ -154,22 +155,38 @@ structure Plan (n : Nat) where
 def Descriptor.guardRoots (d : Descriptor g) : Tuple (Ref g.sort) (.bool :: carried) :=
   .cons d.guard d.theta
 
+abbrev Descriptor.FeedbackSlot (d : Descriptor g) (p : Port carried t) : Prop :=
+  nodeAt g (d.theta.get p) =
+    .ofLabel (.theta 0) (.cons (d.initial.get p) (.cons (d.next.get p) .nil))
+
+def Descriptor.InvariantSlot (d : Descriptor g) (p : Port carried t) : Prop :=
+  d.theta.get p = d.initial.get p ∧ d.next.get p = d.initial.get p
+
+abbrev Descriptor.Slot (d : Descriptor g) (allowInvariant : Bool) (p : Port carried t) : Prop :=
+  if allowInvariant then d.FeedbackSlot p ∨ d.InvariantSlot p else d.FeedbackSlot p
+
 /-- Port-indexed structural evidence, independent of the executable checker. -/
-structure Boundary (g : Graph P carried [result] n 1) (d : Descriptor g) : Prop where
+structure Boundary (g : Graph P carried [result] n 1) (d : Descriptor g)
+    (allowInvariant : Bool := false) : Prop where
   parentless : g.forest.parent 0 = none
   initialRow : ∀ t (p : Port carried t),
     nodeAt g (d.initial.get p) = .ofLabel (.param p) .nil
-  thetaRow : ∀ t (p : Port carried t),
-    nodeAt g (d.theta.get p) =
-      .ofLabel (.theta 0) (.cons (d.initial.get p) (.cons (d.next.get p) .nil))
+  thetaRow : ∀ t (p : Port carried t), d.Slot allowInvariant p
   negationRow : nodeAt g d.negated = .ofLabel (.op d.negate) (.cons d.guard .nil)
   passRow : nodeAt g d.pass = .ofLabel (.pass 0) (.cons d.negated .nil)
   evalRow : nodeAt g (g.roots.get .head) =
     .ofLabel (.eval 0) (.cons (d.theta.get d.returnSlot) (.cons d.pass .nil))
 
-structure Certificate (g : Graph P carried [result] n 1) where
+theorem Boundary.slotCases {d : Descriptor g} {allowInvariant : Bool}
+    (b : Boundary g d allowInvariant) (p : Port carried t) :
+    d.FeedbackSlot p ∨ d.InvariantSlot p := by
+  cases allowInvariant
+  · exact .inl (b.thetaRow _ p)
+  · exact b.thetaRow _ p
+
+structure Certificate (g : Graph P carried [result] n 1) (allowInvariant : Bool := false) where
   descriptor : Descriptor g
-  boundary : Boundary g descriptor
+  boundary : Boundary g descriptor allowInvariant
   rank : DemandRank n 1
   ranked : rank.check g = true
   guard : Schedule g descriptor.guardRoots descriptor.theta
@@ -188,29 +205,32 @@ def allPorts : (vars : List (Ty Data)) →
       | isTrue tail =>
         isTrue (by intro t p; cases p with | head => exact head | tail p => exact tail t p)
 
-def check [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
-    (g : Graph P carried [result] n 1) (d : Descriptor g) (plan : Plan n) :
-    Option (Certificate g) := do
+/-- Check the supplied boundary and retain its identity in the certificate. -/
+def checkWith [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
+    (g : Graph P carried [result] n 1) (d : Descriptor g) (plan : Plan n)
+    (allowInvariant : Bool) : Option {cert : Certificate g allowInvariant // cert.descriptor = d} := do
   letI : ∀ t, DecidableEq (Node P carried (Fin 1) g.sort t) := fun _ => nodeEq
+  letI : ∀ t, DecidableEq (Ref g.sort t) := fun _ => refEq
   letI : Decidable (∀ t (p : Port carried t),
       nodeAt g (d.initial.get p) = .ofLabel (.param p) .nil) :=
     allPorts carried _ (fun _ _ => nodeEq _ _)
-  letI : Decidable (∀ t (p : Port carried t), nodeAt g (d.theta.get p) =
-      .ofLabel (.theta 0) (.cons (d.initial.get p) (.cons (d.next.get p) .nil))) :=
-    allPorts carried _ (fun _ _ => nodeEq _ _)
+  letI : Decidable (∀ t (p : Port carried t), d.Slot allowInvariant p) :=
+    allPorts carried _ (fun _ _ => by
+      unfold Descriptor.Slot Descriptor.FeedbackSlot Descriptor.InvariantSlot
+      infer_instance)
   if parentless : g.forest.parent 0 = none then
     if initial : ∀ t (p : Port carried t),
         nodeAt g (d.initial.get p) = .ofLabel (.param p) .nil then
-      if theta : ∀ t (p : Port carried t), nodeAt g (d.theta.get p) =
-          .ofLabel (.theta 0) (.cons (d.initial.get p) (.cons (d.next.get p) .nil)) then
+      if slots : ∀ t (p : Port carried t), d.Slot allowInvariant p then
         if negation : nodeAt g d.negated = .ofLabel (.op d.negate) (.cons d.guard .nil) then
           if pass : nodeAt g d.pass = .ofLabel (.pass 0) (.cons d.negated .nil) then
             if eval : nodeAt g (g.roots.get .head) =
                 .ofLabel (.eval 0) (.cons (d.theta.get d.returnSlot) (.cons d.pass .nil)) then
-              if ranked : plan.rank.check g = true then
-                return ⟨d, ⟨parentless, initial, theta, negation, pass, eval⟩, plan.rank, ranked,
-                  ← Schedule.check g d.guardRoots plan.guardOrder d.theta,
-                  ← Schedule.check g d.next plan.bodyOrder d.theta⟩
+              if ranked : plan.rank.check g = true then do
+                let guard ← Schedule.check g d.guardRoots plan.guardOrder d.theta
+                let update ← Schedule.check g d.next plan.bodyOrder d.theta
+                return ⟨⟨d, ⟨parentless, initial, slots, negation, pass, eval⟩,
+                  plan.rank, ranked, guard, update⟩, rfl⟩
               else none
             else none
           else none
@@ -218,6 +238,10 @@ def check [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
       else none
     else none
   else none
+
+def check [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
+    (g : Graph P carried [result] n 1) (d : Descriptor g) (plan : Plan n) : Option (Certificate g) :=
+  (checkWith g d plan false).map Subtype.val
 
 /-- Collect a primitive slice in reverse topological order. Carried rows
 are leaves, and a completed binding is reused by later visits. Fuel
@@ -253,29 +277,36 @@ def sliceOrder (g : Graph P carried [result] n 1) (d : Descriptor g)
 /-- Synthesize both slice orders from a supplied typed boundary, then
 validate the complete certificate. Boundary discovery and demand-rank
 synthesis are separate. -/
-def checkScheduled [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
-    (g : Graph P carried [result] n 1) (d : Descriptor g) (rank : DemandRank n 1) :
-    Option (Certificate g) := do
+def checkScheduledWith [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
+    (g : Graph P carried [result] n 1) (d : Descriptor g) (rank : DemandRank n 1)
+    (allowInvariant : Bool) : Option {cert : Certificate g allowInvariant // cert.descriptor = d} := do
   let some guard := sliceOrder g d d.guardRoots | none
   let some body := sliceOrder g d d.next | none
-  check g d ⟨guard, body, rank⟩
+  checkWith g d ⟨guard, body, rank⟩ allowInvariant
+
+def checkScheduled [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
+    (g : Graph P carried [result] n 1) (d : Descriptor g) (rank : DemandRank n 1) :
+    Option (Certificate g) :=
+  (checkScheduledWith g d rank false).map Subtype.val
+
+variable {allowInvariant : Bool}
 
 /-- The loop store caches the continuation guard with the carried vector.
 The preheader computes it once, and each successful step prepares the guard
 for the next iteration. Temporaries in each slice are projected away. -/
-def Certificate.body (cert : Certificate g) :
+def Certificate.body (cert : Certificate g allowInvariant) :
     Stmt P false (.bool :: carried) (.bool :: carried) :=
   .seq (.project ((ports carried).map fun _ p => .tail p))
     (.seq cert.update.lower cert.guard.lower)
 
-def Certificate.revert (cert : Certificate g) : Program P true carried result :=
+def Certificate.revert (cert : Certificate g allowInvariant) : Program P true carried result :=
   ⟨.bool :: carried,
     .seq cert.guard.lower.enableWhile (.while rfl (.var .head) cert.body.enableWhile),
     .tail cert.descriptor.returnSlot⟩
 
 /-- A finite exit in both semantics. The first-pass count is the trace
 length, and every earlier sample of the observed θ is defined. -/
-structure Certificate.ExitWitness (cert : Certificate g) (m : Interpretation.{u,v,w} P)
+structure Certificate.ExitWitness (cert : Certificate g allowInvariant) (m : Interpretation.{u,v,w} P)
     (values : g.Valuation m) (idx : Index 1) (k : Nat)
     (start final : Tuple m.Value (.bool :: carried)) (value : m.Value result) : Prop where
   trace : WhileTrace m (.var .head) cert.body.enableWhile k start final
@@ -288,11 +319,11 @@ structure Certificate.ExitWitness (cert : Certificate g) (m : Interpretation.{u,
 
 /-- The guard schedule and the entire update vector must succeed on every
 defined old store. The interpretation makes the operations pure. -/
-structure Certificate.Total (cert : Certificate g) (m : Interpretation.{u,v,w} P) : Prop where
+structure Certificate.Total (cert : Certificate g allowInvariant) (m : Interpretation.{u,v,w} P) : Prop where
   guard : ∀ store, ∃ tagged, cert.guard.lower.runLoopFree m store = some tagged
   update : ∀ store, ∃ next, cert.update.lower.runLoopFree m store = some next
 
-def Certificate.runFrom (cert : Certificate g) (m : Interpretation.{u,v,w} P) :
+def Certificate.runFrom (cert : Certificate g allowInvariant) (m : Interpretation.{u,v,w} P) :
     Nat → Tuple m.Value (.bool :: carried) → Option (m.Value result)
   | fuel, .cons flag store =>
     if flag.down then
@@ -303,7 +334,7 @@ def Certificate.runFrom (cert : Certificate g) (m : Interpretation.{u,v,w} P) :
 termination_by structural fuel _ => fuel
 
 /-- Run the emitted structured program with a bound on successful body steps. -/
-def Certificate.runFuel (cert : Certificate g) (m : Interpretation.{u,v,w} P)
+def Certificate.runFuel (cert : Certificate g allowInvariant) (m : Interpretation.{u,v,w} P)
     (fuel : Nat) (input : Tuple m.Value carried) : Option (m.Value result) :=
   (cert.guard.lower.runLoopFree m input).bind (cert.runFrom m fuel)
 

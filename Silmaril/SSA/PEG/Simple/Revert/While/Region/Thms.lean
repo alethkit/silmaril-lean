@@ -15,9 +15,10 @@ universe u v w
 variable {Data : Type u} {P : InstructionSet.{u,v} Data}
 variable {carried : List (Ty Data)} {result : Ty Data} {n : Nat}
 variable {g : Graph P carried [result] n 1}
-variable (cert : Certificate g) (m : Interpretation.{u,v,w} P) (input : Tuple m.Value carried)
+variable {allowInvariant : Bool}
+variable (cert : Certificate g allowInvariant) (m : Interpretation.{u,v,w} P) (input : Tuple m.Value carried)
 
-theorem Certificate.demandWellFounded (cert : Certificate g) : WellFounded g.Demand :=
+theorem Certificate.demandWellFounded (cert : Certificate g allowInvariant) : WellFounded g.Demand :=
   g.demandWellFounded_of_check cert.rank cert.ranked
 
 theorem Certificate.runFuel_returns (fuel : Nat) {value : m.Value result}

@@ -85,16 +85,46 @@ its decrement operand. The executable check discovers the rewrite and
 runs the emitted SIMPLE for three iterations, returning `2`. A
 concrete replay receipt proves that compaction restores the compiler
 table and the original PEG's defined observation is also `2`. The
-insertion is fixture-specific. The entry point admits the
-checked single-loop fragment and does not supply general cyclic
-extraction, Figure 19 admission, or source-to-source optimization.
-[Cyclic SIMPLE API](../../Silmaril/SSA/Peggy/SimpleValidation/Cyclic/Thms.lean) ·
+insertion is specific to the PEG-input fixture.
+[Cyclic PEG-to-SIMPLE API](../../Silmaril/SSA/Peggy/SimpleValidation/Cyclic/Thms.lean) ·
 [Fixture](../../tests/ssa/PeggySimpleValidation.lean)
+
+## Checked SIMPLE source entry point
+
+`SimpleValidation.Cyclic.Source.optimize` takes a typed top-level
+`WhileProgram`, with a loop-free body and a designated return slot.
+It uses the single-loop SIMPLE compiler, whose demand rank has a
+general proof, and checks that rank on the emitted table. It discovers
+and replays one self-feedback elimination on the actual compiler
+output. The compiler's typed guard, update, eval and pass references
+are redirected through the replay's row compaction. The region
+checker verifies the redirected boundary, target rank and schedules.
+
+A feedback slot can disappear when the source body passes that slot
+through unchanged. The reverter permits an invariant slot only when
+its current and next references equal the initial parameter for the
+same port. The emitted SIMPLE uses an identity update for that slot
+while the other slots update simultaneously. An eval that selects the
+invariant slot still observes it at the loop's first pass.
+
+Lean proves that each successful source return gives the same
+successful return in any accepted output on the same input. The proof
+uses the source compiler theorem, the checked replay and the existing
+reversion theorem. Its premises are totality of the accepted guard
+and whole update schedule, and the Boolean negation law for the
+shared opcode. Acceptance succeeds in the fixture where a changing
+counter reads an unchanged decrement slot. With no literal self
+feedback the entry point rejects at discovery. A demanded φ or
+another unsupported operand can still fail the primitive scheduler
+after successful replay. The theorem covers successful returns in this
+checked top-level fragment.
+[SIMPLE-to-SIMPLE API](../../Silmaril/SSA/Peggy/SimpleValidation/Cyclic/Source/Thms.lean) ·
+[Source regressions](../../tests/ssa/PeggySimpleValidation.lean)
 
 ```sh
 lake build --wfail PEGCoreTests PEGRulesTests PeggyEggTests PeggySimpleValidationTests
 lake env leanchecker --fresh Silmaril.SSA.Peggy.Optimizer.Cyclic.Thms
 lake env leanchecker tests.ssa.PeggyEgg
-lake env leanchecker --fresh Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Thms
+lake env leanchecker --fresh Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Thms
 lake env leanchecker tests.ssa.PeggySimpleValidation
 ```

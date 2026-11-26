@@ -99,25 +99,37 @@ theorem schedule {roots : Tuple (Ref g.sort) outs} {scope : Tuple (Ref g.sort) v
       | head => exact step.trans h
       | tail p => exact entry _ p
 
-variable (cert : Certificate g)
+variable {allowInvariant : Bool}
+variable (cert : Certificate g allowInvariant)
+
+private theorem parameter (solves : g.Solves m env values) (i : Index 1) (p : Port carried t) :
+    read values i (cert.descriptor.initial.get p) = some (env.get p) := by
+  rw [row solves i, cert.boundary.initialRow]
+  rfl
 
 theorem initial (solves : g.Solves m env values) :
     Realizes values (clock 0) cert.descriptor.theta env := by
   intro t p
-  rw [row solves (clock 0), cert.boundary.thetaRow]
-  change read values (clock 0) (cert.descriptor.initial.get p) = _
-  rw [row solves (clock 0), cert.boundary.initialRow]
-  rfl
+  rcases cert.boundary.slotCases p with feedback | ⟨current, _⟩
+  · rw [row solves (clock 0), feedback]
+    exact parameter cert solves (clock 0) p
+  · rw [current]
+    exact parameter cert solves (clock 0) p
 
 theorem update (solves : g.Solves m env values)
     {k : Nat} {next : Tuple m.Value carried}
     (roots : Realizes values (clock k) cert.descriptor.next next) :
     Realizes values (clock (k + 1)) cert.descriptor.theta next := by
   intro t p
-  rw [row solves (clock (k + 1)), cert.boundary.thetaRow]
-  change read values ((clock (k + 1)).set 0 k) (cert.descriptor.next.get p) = _
-  rw [setClock]
-  exact roots t p
+  rcases cert.boundary.slotCases p with feedback | ⟨current, nextRef⟩
+  · rw [row solves (clock (k + 1)), feedback]
+    change read values ((clock (k + 1)).set 0 k) (cert.descriptor.next.get p) = _
+    rw [setClock]
+    exact roots t p
+  · rw [current, parameter cert solves]
+    have previous := roots t p
+    rw [nextRef, parameter cert solves] at previous
+    exact previous
 
 theorem exitFlag (solves : g.Solves m env values)
     (neg : ∀ b : Bool, m.run cert.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
@@ -131,7 +143,7 @@ theorem exitFlag (solves : g.Solves m env values)
   simp only [collect, portAt, Fin.cases_zero, Tuple.get, guard]
   exact neg b
 
-def flags (cert : Certificate g) (values : g.Valuation m) (k : Nat) : Option Bool :=
+def flags (cert : Certificate g allowInvariant) (values : g.Valuation m) (k : Nat) : Option Bool :=
   (read values (clock k) cert.descriptor.negated).map ULift.down
 
 theorem pass (solves : g.Solves m env values) (i : Index 1) :
@@ -142,7 +154,7 @@ theorem pass (solves : g.Solves m env values) (i : Index 1) :
   simp only [setClock]
   rfl
 
-def samples (cert : Certificate g) (values : g.Valuation m) (k : Nat) : Option (m.Value result) :=
+def samples (cert : Certificate g allowInvariant) (values : g.Valuation m) (k : Nat) : Option (m.Value result) :=
   read values (clock k) (cert.descriptor.theta.get cert.descriptor.returnSlot)
 
 theorem observation (solves : g.Solves m env values) (i : Index 1) :

@@ -16,14 +16,15 @@ universe u v w
 variable {Data : Type u} {P : InstructionSet.{u,v} Data}
 variable {params : List (Ty Data)} {result : Ty Data} {n : Nat}
 variable {g : Graph P params [result] (n + 1) 1}
+variable {allowInvariant : Bool}
 
-theorem Accepted.sourceDemandWellFounded (a : Accepted g) : WellFounded g.Demand :=
+theorem Accepted.sourceDemandWellFounded (a : Accepted g allowInvariant) : WellFounded g.Demand :=
   g.demandWellFounded_of_check a.sourceRank a.sourceRanked
 
 /-- The checked rewrite equates the original and compacted observations.
 The reverter's full-step and negation premises then give exact agreement
 between successful SIMPLE returns and defined observations of the input. -/
-theorem Accepted.returns_iff_observe (a : Accepted g) (m : Interpretation.{u,v,w} P)
+theorem Accepted.returns_iff_observe (a : Accepted g allowInvariant) (m : Interpretation.{u,v,w} P)
     (input : Tuple m.Value params) (total : a.reversion.Total m)
     (neg : ∀ b : Bool, m.run a.reversion.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
     (i : Index 1) (value : m.Value result) :
