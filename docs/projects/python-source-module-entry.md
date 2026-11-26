@@ -131,15 +131,29 @@ Mixed comparison embeds the integer exactly in the rationals. A failed
 comparison retains the two original tags and encodings in its assertion
 payload and receipt. Other descriptors keep their own call rules.
 
+Mixed addition in a positional operand accepts one checked closed integer
+and one signed finite decimal literal in either order. After live callee
+lookup, the runner first rounds the integer to binary64, ties to even.
+Integer conversion overflow raises `OverflowError`. The exact dyadic sum
+of the converted operands is then rounded once. Opposite signs cancel to
+positive zero, and sums on the subnormal grid retain their magnitude bits.
+The core addition rule also preserves the sum of two negative zeros.
+A nonfinite sum stops outside the finite profile. The addition path uses
+the same ordered argument preparation and seeded receipt delivery as the
+division path.
+
 Line 28 of `test_int_float_primitives.py`, `___assertEqual(5 / 2, 2.5)`,
 completes in isolation in both helper placements. Ordinary and empty-seeded
 execution report the missing helper. The closed integer checker also lowers
 the exact sum in line 1, `___assertEqual(4 + 2, 6)`, to an integer call
-operand. That assertion completes in both helper placements. The first
-two statements check. With the Boolean helper and stock type descriptors
-supplied, execution reaches the existing unsupported `isinstance(int, int)`
-case on line 2. Line 3, `___assertEqual(4 + 2.0, 6.0)`, is the first rejected
-prefix and the full file still reports `expressionProfile`.
+operand. Lines 1, 3 and 5 complete in isolation in both helper placements.
+The unchanged line 2, `___assertTrue(isinstance(4 + 2, int))`, checks.
+With the Boolean helper and stock type descriptors supplied, execution
+reaches the existing unsupported `isinstance(int, int)` case. The first
+rejected compiler prefix is line 7, `___assertEqual(4.0 + 2.0, 6.0)`.
+The full file still reports `expressionProfile`.
+Run the mixed addition differential with
+`python3.13 -I scripts/check-python-mixed-finite-addition.py --upstream /path/to/pinned/rigorous`.
 Run the equality and positional addition differential with
 `python3.13 -I scripts/check-python-finite-numeric-equality.py --upstream /path/to/pinned/rigorous`.
 Run the transport differential with

@@ -204,6 +204,11 @@ def trueDivideInt (numerator divisor : Int) : Except RuntimeError Silmaril.Numer
     | .zeroDivisionError => .arithmetic .zeroDivisionError
     | .overflowError => .overflowError
 
+def mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite) : Except Failure Value :=
+  (Core.Binary64.mixedAdd integer floating).map .float64 |>.mapError fun
+    | .conversionOverflow => .defined .overflowError
+    | .nonfiniteResult => .unsupportedFloatOperand
+
 /-- A shared heap with monotone cell allocation. Only addresses below
 `next` denote allocated cells. An allocated cell may be unbound. -/
 structure Heap where
