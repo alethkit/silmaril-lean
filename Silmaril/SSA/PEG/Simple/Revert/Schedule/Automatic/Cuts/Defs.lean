@@ -59,7 +59,8 @@ private def visit (g : Graph P params results n l) (cuts : List (Fin n)) :
       visit g cuts fuel (deps ++ pending) (row :: seen)
 termination_by structural fuel _ _ => fuel
 
-private def closure (g : Graph P params results n l) (cuts seeds : List (Fin n)) :
+/-- Compute the dependency closure in row order, treating the cut rows as leaves. -/
+def dependencyRows (g : Graph P params results n l) (cuts seeds : List (Fin n)) :
     Option (Projection.Rows n) := do
   let all := List.finRange n
   let edges := (all.map fun i => (g.node i).inputs.length).sum
@@ -126,13 +127,13 @@ def synthesize [DecidableEq Data] [∀ ins out, DecidableEq (P ins out)]
   let cuts := refIds b.inputs
   unless decide cuts.Nodup do throw .repeatedInput
   let seeds := refIds b.outputs ++ cuts
-  let some demanded := closure g cuts seeds | throw .coverage
+  let some demanded := dependencyRows g cuts seeds | throw .coverage
   let keys : Projection.Rows l := (List.finRange l).filter fun key =>
     demanded.any fun i => i ∉ cuts && (g.node i).label.loop == some key
   unless supported g.forest b.outs.length keys do throw .loopShape
   let loopRows := (List.finRange n).filter fun i =>
     ((g.node i).label.loop).any fun key => key ∈ keys
-  let some rows := closure g cuts (seeds ++ loopRows) | throw .coverage
+  let some rows := dependencyRows g cuts (seeds ++ loopRows) | throw .coverage
   let some exports := Projection.Wires.check rows b.outputs | throw .coverage
   let nodes := localNode g b rows keys
   if covered : ∀ i, (nodes i).isSome then
