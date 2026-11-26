@@ -103,7 +103,12 @@ check:
 CHECK_JOBS ?= 2
 CHECK_INTEGRATION_GROUPS := check-integrations-ssa check-integrations-operational \
 	check-integrations-python check-integrations-python-functions check-integrations-tools
-CHECK_GROUPS := check-runtime $(CHECK_INTEGRATION_GROUPS)
+# The slots take these in order, longest on prove first.
+CHECK_GROUPS := check-runtime check-integrations-tools check-integrations-operational \
+	check-integrations-ssa check-integrations-python check-integrations-python-functions
+ifneq ($(sort $(CHECK_GROUPS)),$(sort check-runtime $(CHECK_INTEGRATION_GROUPS)))
+$(error CHECK_GROUPS must list check-runtime and the CHECK_INTEGRATION_GROUPS)
+endif
 
 # Every target the groups' recipe lines build, in one Lake process, so that the groups only read
 # the build. The TLA+, SQLite virtual table, Binaryen and compiler explorer scripts build their
