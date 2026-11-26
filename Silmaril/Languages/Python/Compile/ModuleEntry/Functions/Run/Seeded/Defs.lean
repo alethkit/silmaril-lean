@@ -224,6 +224,7 @@ def ordinaryValue? : Value → Option Core.Closure.Value
   | .function closure => some (.function closure)
   | .returnedTuple items => some (.tuple items)
   | .tupleObject object => some (.tupleObject object)
+  | .exceptionClass .exception => some .stockException
   | .exceptionClass _ | .helper _ | .builtin _ | .listObject _ => none
 
 def seededValue : Core.Closure.Value → Value
@@ -231,6 +232,7 @@ def seededValue : Core.Closure.Value → Value
   | .bool value => .bool value
   | .float64 value => .float64 value
   | .text value => .text value
+  | .stockException => .exceptionClass .exception
   | .none => .none
   | .function closure => .function closure
   | .tuple items => .returnedTuple items
@@ -389,7 +391,7 @@ def observeFactory (space : Namespace) (state : Core.Closure.Executor.State) :
     Except ModuleFailure CallObservation × Heap :=
   match state with
   | .finished heap (.ok (.int _)) | .finished heap (.ok (.bool _)) | .finished heap (.ok .none)
-  | .finished heap (.ok (.float64 _))
+  | .finished heap (.ok (.float64 _)) | .finished heap (.ok .stockException)
   | .finished heap (.ok (.text _)) | .finished heap (.ok (.tuple _)) | .finished heap (.ok (.tupleObject _)) =>
     (.ok ⟨.error .unsupported, none⟩, heap)
   | _ => observeDirectCall space state
@@ -842,9 +844,23 @@ def ModuleFailure.isPythonError : ModuleFailure → Bool
   | .raised _ => true
   | _ => false
 
-def runExceptionalTry {scope : Scope} (space : Namespace) (plan : ExceptionalTry.Plan (ModuleEntry.Action scope)) :
+def raiseCallee : Value → ExceptionalTry.RaiseCallee
+  | .exceptionClass .exception => .stockException
+  | .exceptionClass _ | .helper _ | .builtin _ | .function _ => .outsideProfile
+  | _ => .nonCallable
+
+def raiseText? : Value → Option Core.Text
+  | .text text => some text
+  | _ => none
+
+def exceptionalStep {scope : Scope} (space : Namespace) : ExceptionalTry.Step scope → Except ModuleFailure Namespace
+  | .scalar action => scalarStep space action
+  | .raiseCall call =>
+    .error ((call.error space.lookupGlobal raiseCallee raiseText?).elim .unsupported (.raised ∘ .runtime))
+
+def runExceptionalTry {scope : Scope} (space : Namespace) (plan : ExceptionalTry.Plan (ExceptionalTry.Step scope)) :
     ExceptionalTry.Outcome Namespace ModuleFailure :=
-  ExceptionalTry.run (ExceptionalTry.runSuite scalarStep) ModuleFailure.isPythonError space plan
+  ExceptionalTry.run (ExceptionalTry.runSuite exceptionalStep) ModuleFailure.isPythonError space plan
 
 def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruction : Instruction scope)
     (lists : ListHeap := .empty) : Effect × Heap :=

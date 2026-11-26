@@ -69,6 +69,7 @@ inductive Value where
   | bool (value : Bool)
   | float64 (value : Silmaril.Numeric.Ieee754.F64.Finite)
   | text (value : Core.Text)
+  | stockException
   | function (value : Function)
   | tuple (items : List Core.Module.TupleDispatch.Element)
   | tupleObject (object : Core.Module.TupleDispatch.Object)
@@ -80,7 +81,7 @@ def Value.truth : Value → Bool
   | .bool value => value
   | .float64 value => !value.val.isZero
   | .text value => value.truth
-  | .function _ => true
+  | .stockException | .function _ => true
   | .tuple items => !items.isEmpty
   | .tupleObject object => !object.contents.isEmpty
 
@@ -88,7 +89,7 @@ def Value.scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
   | .none => some .none
-  | .float64 _ | .text _ | .function _ | .tuple _ | .tupleObject _ => Option.none
+  | .float64 _ | .text _ | .stockException | .function _ | .tuple _ | .tupleObject _ => Option.none
 
 def Value.ofScalar : Core.Module.Value → Value
   | .int value => .int value
@@ -154,6 +155,7 @@ inductive RuntimeError where
   | additionTypeError
   | multiplicationTypeError
   | assertionError
+  | explicitException (message : Core.Text)
   | arithmetic (error : Exception)
   | overflowError
   deriving DecidableEq, Repr
@@ -164,6 +166,7 @@ inductive Failure where
   | danglingCell (identity : CellId)
   | unsupportedTupleElement
   | unsupportedFloatOperand
+  | unsupportedCallable
   deriving DecidableEq, Repr
 
 /-- Integer-like values in the closed closure value profile. -/
@@ -171,7 +174,7 @@ def Value.asInt? : Value → Option Int
   | .int value => some value
   | .bool false => some 0
   | .bool true => some 1
-  | .none | .float64 _ | .text _ | .function _ | .tuple _ | .tupleObject _ => Option.none
+  | .none | .float64 _ | .text _ | .stockException | .function _ | .tuple _ | .tupleObject _ => Option.none
 
 /-- Integer equality is checked before a comparison can consume a float. -/
 def Value.equalInt : Value → Int → Except Failure Value
@@ -179,7 +182,7 @@ def Value.equalInt : Value → Int → Except Failure Value
   | .int value, right => .ok (.bool (decide (value = right)))
   | .bool false, right => .ok (.bool (decide (0 = right)))
   | .bool true, right => .ok (.bool (decide (1 = right)))
-  | .none, _ | .text _, _ | .function _, _ | .tuple _, _ | .tupleObject _, _ => .ok (.bool false)
+  | .none, _ | .text _, _ | .stockException, _ | .function _, _ | .tuple _, _ | .tupleObject _, _ => .ok (.bool false)
 
 inductive IntegerOp where
   | add

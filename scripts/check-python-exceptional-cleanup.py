@@ -147,14 +147,7 @@ finally:
 
 
 def historical_boundaries(checkout):
-    prefix = NORMAL["PREFIX"]
     table = (
-        (f"{prefix}/try-except-finally.py",
-         "fba8104968df003a261e1f38921768503bf35746ad884bc7a249e0596bd15377",
-         {"hit_except": True, "hit_finally": True}, "NameError:___assertTrue"),
-        (f"{prefix}/try-except-else-finally.py",
-         "a236fe94cf7db0c0ab1b4ccb01c37443e0c3a9dcb31592273b3ee4ccdd1cadbb",
-         {"hit_except": True, "hit_else": False, "hit_finally": True}, "NameError:___assertTrue"),
         ("tests/python/programs/original/k-python/programs/testtry2.py",
          "b7eddf22b16dfcdd871f796fc727c2b0ab655977bdeff03972dd813b07bec0ea",
          {"y": 7}, "NameError:x"),

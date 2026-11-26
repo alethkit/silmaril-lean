@@ -68,7 +68,7 @@ theorem seeded_scalar_carriers {scope : Source.Scope} (space : Namespace) (conte
         · simp [Seeded.runInstructionsIn, Seeded.effectWithLists, Seeded.effect, Seeded.scalarBinding, Seeded.assertOperand,
             Seeded.assertTruthAs, evaluated, holds, Except.bind, Except.map, Except.mapError]
 
-open Compile.ModuleEntry.Functions.ExceptionalTry (Outcome Plan runSuite)
+open Compile.ModuleEntry.Functions.ExceptionalTry (Outcome Plan Step runSuite)
 
 theorem runSuite_append {state failure action : Type}
     (step : state → action → Except failure state) (initial : state) (earlier later : List action) :
@@ -123,13 +123,17 @@ private theorem run_preserves {state failure action : Type}
   · exact pendingKeeps
 
 theorem ordinary_reached_carriers {scope : Source.Scope} (session : Session)
-    (plan : Plan (Compile.ModuleEntry.Action scope)) :
+    (plan : Plan (Step scope)) :
     let outcome := Compile.ModuleEntry.Functions.Run.runExceptionalTry session plan
     outcome.reached.heap = session.heap ∧ outcome.reached.lists = session.lists := by
-  refine run_preserves scalarStep Completion.isPythonError
+  refine run_preserves exceptionalStep Completion.isPythonError
     (fun reached => reached.heap = session.heap ∧ reached.lists = session.lists) ?_ session plan ⟨rfl, rfl⟩
-  · intro initial reached act done kept
-    cases act with
+  intro initial reached step done kept
+  cases step with
+  | raiseCall call => simp [exceptionalStep] at done
+  | scalar action =>
+    change Compile.ModuleEntry.Functions.Run.scalarStep initial action = .ok reached at done
+    cases action with
     | assign name reference operand =>
       cases evaluated : evaluate initial operand <;> simp [Compile.ModuleEntry.Functions.Run.scalarStep, evaluated, Except.map] at done
       subst reached
@@ -140,12 +144,16 @@ theorem ordinary_reached_carriers {scope : Source.Scope} (session : Session)
       exact kept
 
 theorem seeded_reached_builtins {scope : Source.Scope} (space : Namespace)
-    (plan : Plan (Compile.ModuleEntry.Action scope)) :
+    (plan : Plan (Step scope)) :
     (Seeded.runExceptionalTry space plan).reached.builtins = space.builtins := by
-  refine run_preserves Seeded.scalarStep Seeded.ModuleFailure.isPythonError
+  refine run_preserves Seeded.exceptionalStep Seeded.ModuleFailure.isPythonError
     (fun reached => reached.builtins = space.builtins) ?_ space plan rfl
-  · intro initial reached act done kept
-    cases binding : Seeded.scalarBinding initial act with
+  intro initial reached step done kept
+  cases step with
+  | raiseCall call => simp [Seeded.exceptionalStep] at done
+  | scalar action =>
+    change Seeded.scalarStep initial action = .ok reached at done
+    cases binding : Seeded.scalarBinding initial action with
     | error error => simp [Seeded.scalarStep, binding, Except.map] at done
     | ok update =>
       simp [Seeded.scalarStep, binding, Except.map] at done
@@ -157,7 +165,7 @@ theorem seeded_reached_builtins {scope : Source.Scope} (space : Namespace)
         exact kept
 
 theorem seeded_settlement {scope : Source.Scope} (space : Namespace) (context : Seeded.CallContext)
-    (plan : Plan (Compile.ModuleEntry.Action scope)) (rest : List (Instruction scope)) (lists : ListHeap) :
+    (plan : Plan (Step scope)) (rest : List (Instruction scope)) (lists : ListHeap) :
     Seeded.runInstructionsIn space context (.exceptionalTry plan :: rest) lists =
       let outcome := Seeded.runExceptionalTry space plan
       match outcome.completion with

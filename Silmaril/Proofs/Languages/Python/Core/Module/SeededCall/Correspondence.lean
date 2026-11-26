@@ -66,7 +66,7 @@ private theorem unique {arity : Nat} {request : Request arity} {first second : R
     | equalTuple _ _ same => contradiction
     | unequalTuple => rfl
   | asserted | assertionFailed | textConversion | truthConversion | intFromBool | callable | isinstance | distinctIntBool | copyTuple | copyTupleObject => cases right; rfl
-  | tupleAsserted | tupleAssertionFailed => cases right; rfl
+  | falseAsserted | falseAssertionFailed | tupleAsserted | tupleAssertionFailed => cases right; rfl
   | listAsserted _ nonempty =>
     cases right with
     | listAsserted => rfl
@@ -104,6 +104,11 @@ private theorem computed (callee : Value) (arguments : List Value) :
       cases value
       · exact .assertionFailed
       · exact .asserted
+    | assertFalseBoolean value =>
+      rw [invoke, decoded]
+      cases value
+      · exact .falseAsserted
+      · exact .falseAssertionFailed
     | assertTuple nonempty =>
       rw [invoke, decoded]
       cases nonempty
