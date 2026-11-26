@@ -100,8 +100,8 @@ INSTANCE, and proof interpretation.
   that contract explicitly. The API assigns no standard-module semantics
   by name.
 
-Decimal and string literals, tuple binders, multi-binder images, CASE and
-tuples remain outside the data fragment. The original entry point produces a
+The core fragment excludes decimal and string literals, tuples and tuple
+binders, multi-binder images and CASE. The original entry point produces a
 single-state data denotation. Endpoint selection adds prime in the checked
 fragment. Level checking can classify a proof-free theorem statement without
 treating it as a selectable definition or proof.
@@ -113,8 +113,8 @@ Import `Silmaril.Logic.Temporal.TLA.DataElab.Collections.Tagged` and call
 Use the checked registry of the original module and select the nullary
 definition by its resolved ID. Evaluate the result with
 `checked.eval (policy.collectionOperations invalid) policy.booleans external valuation`.
-The collection fragment requires all four collection operations from its
-adapter. The pure-set, scalar and endpoint entry points use the core fragment.
+The collection fragment takes a `CollectionOperations` adapter. The pure-set,
+scalar and `Endpoints` entry points use the core fragment.
 
 - `[x \in S |-> e]` forms a graph with exactly the domain `S`. The bound is
   evaluated in the incoming scope and the body receives the graph key in a
@@ -131,15 +131,53 @@ adapter. The pure-set, scalar and endpoint entry points use the core fragment.
   error identifies the first non-set field in source order. No graph or set
   is assembled from a partial schema.
 
-The pinned `ACP_SB.Init` and `TypeInv` and their four helper definitions use
-function sets, record sets, set enumeration, membership, conjunction, and
-`TRUE`, `FALSE` and `BOOLEAN`. The bounded function and record constructors
-are covered by separate source regressions. Full-module ACP_SB fixture
-integration is tracked separately. Collection lowering does not interpret
-`EXCEPT`, `@`, indexing, field selection, recursion, or operator proofs.
-[Pinned ACP_SB source](https://github.com/tlaplus/tlaplus/blob/bc1b506bdcad80bb518bf3776a9161c34ff0fc4c/tlatools/org.lamport.tlatools/test-model/examples/acp/ACP_SB.tla) ·
+The pinned `ACP_SB.Init` and `TypeInv` source fixture checks these graph
+schemas with the collection state selector.
+[ACP_SB fixture](tla-acp-sb-source-acceptance.md) ·
 [Collection entry point](../../Silmaril/Logic/Temporal/TLA/DataElab/Collections/Defs.lean) ·
 [Tagged adapter](../../Silmaril/Logic/Temporal/TLA/DataElab/Collections/Tagged.lean)
+
+## Graph access and ordered EXCEPT
+
+- `f[k]` applies a function to one key. `f[a, b]` uses the single tuple key
+  `<<a, b>>`. Tuple literals use `Value.tuple`, whose checked graph has integer
+  keys `1..n`, indexed lookup and injectivity. `r.field` applies `r` to
+  `Value.string "field"`, the same encoding used for source string literals
+  and record constructor labels. `DOMAIN f` gives the set of graph keys.
+  [Tagged graph and tuple laws](tla-functions.md)
+- `[f EXCEPT !.field[k] = e, ...]` uses `Value.updateClauses` in written
+  order. Each clause evaluates its bracket keys in the enclosing valuation
+  and lexical scope. Dot components use string keys. At each clause, `@` in
+  the RHS is the leaf reached from the result of the preceding clauses along
+  that clause's path. In a nested update, its base and selectors can use the
+  enclosing `@`. Its RHS binds the new one by resolved clause identity.
+  [Mathematical path and clause laws](tla-except.md)
+- `policy.collectionOperations invalid` uses `policy.numeric` as the fixed
+  tagged `Unspecified` policy for graph operations by default. A caller can
+  pass an explicit `unspecified` policy and fix it across valuations.
+  `DOMAIN` on a non-function calls `.domain` with the operand. Application
+  on a non-function or at a missing key calls `.apply` with the root and
+  key. EXCEPT preserves the root when a path through recognized functions
+  encounters a missing key. At a non-function step it composes `.apply` and
+  `.update` as specified by the tagged path API. These are value policies
+  in the mathematical adapter. [Tagged graph policies](tla-except.md#clause-and-path-semantics)
+
+`Collections.lowerAction` checks levels on the same registry and selects a
+closed action-level definition. Evaluate it with
+`action.eval (policy.collectionOperations invalid) policy.booleans external ⟨rigid, source, target⟩`.
+Prime on a whole operand shifts all flexible reads within it, including graph
+operands, selectors and an EXCEPT whose `@` is bound inside that operand.
+Explicit primes in a selector or RHS shift only their operands. A prime
+whose expanded operand reads `@` from an enclosing EXCEPT reports
+`primeCrossesOldValue` at the prime site, including through a substituted
+actual. Retained nested primes also report a lowering diagnostic.
+[Collection action API](../../Silmaril/Logic/Temporal/TLA/DataElab/Collections/Defs.lean)
+
+Source limits include multi-group or multi-name function constructors,
+tuple patterns, Cartesian products, `STRING`, decimal literals, recursion,
+INSTANCE replay in the collection profile, and temporal and proof forms.
+The resolver diagnoses an `@` outside an active RHS. The parser and resolver
+reject malformed empty index and update forms before lowering.
 
 ## Tagged interpretation
 
@@ -218,7 +256,11 @@ unrecognized set bounds and a zero modulus divisor.
 
 The collection regressions stage the terms produced by parsing, resolution,
 level checking and lowering. The kernel checks the scopes and equations for
-the constructed graphs, exact record and function-set recognition, and the
-fixed policy on non-set operands. Guards cover duplicate labels, source
-provenance, and unsupported constructor and operand forms.
+the constructed graphs, exact record and function-set recognition, graph
+access, tuple-key update, nested lexical scope, and repeated updates on found
+and missing paths. The checked action equations distinguish whole-operand
+prime from primes in selectors and RHSs. Equations cover malformed value
+operands through the fixed policies. Guards cover duplicate labels, malformed
+syntax, an unbound `@`, a prime crossing `@` after expansion, and unsupported
+forms with their original operand sites.
 [Collection regressions](../../Silmaril/Logic/Temporal/TLA/DataElab/Collections/Examples.lean)
