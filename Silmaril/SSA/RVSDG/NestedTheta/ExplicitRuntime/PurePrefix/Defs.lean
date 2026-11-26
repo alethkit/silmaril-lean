@@ -49,8 +49,15 @@ abbrev orderedBind (live : Origin args past runtime) (di : Data ins) (do' : Data
     Term (Op P E Q) args past (Threaded out :: sigs) outs :=
   .bind (orderedNode live di do' op wires) (fun j => j.elim0) rest
 
-/-- Extend the ordered emitter at an open prefix. The existing admission
-witness certifies the entire remaining nested term and all child boundaries. -/
+abbrev gammaNode (extra : Nat) (choice : Origin args past (.control (extra + 2)))
+    (live : Origin args past runtime) (wires : Wires args past ins)
+    (childSigs : Fin (extra + 2) → List (Ports (Ty V))) : Node (Op P E Q) args past (Threaded out) :=
+  ⟨.control (extra + 2) :: Threaded ins, .base (.gamma extra),
+    .cons choice (OrderedRuntime.Structured.withRuntime live wires), childSigs⟩
+
+/-- A token-free binding keeps the current live origin in any scope. A γ
+child starts from its argument token and returns its own final token. An
+all-ordered subtree can still be admitted by the existing checker. -/
 inductive Checked (P E Q : Dialect.{u,v} V PUnit.{u+1}) :
     {args outs : Ports (Ty V)} → Data args → Data outs →
     {past sigs : List (Ports (Ty V))} → Origin (Threaded args) past runtime →
@@ -59,6 +66,9 @@ inductive Checked (P E Q : Dialect.{u,v} V PUnit.{u+1}) :
       {past sigs : List (Ports (Ty V))} {live : Origin (Threaded args) past runtime}
       {term : Term (Ordered P E) (Threaded args) past sigs (Threaded outs)} :
       ExplicitRuntime.Checked P E a b live term → Checked P E Q a b live (mapTerm orderedMap term)
+  | ret {args outs : Ports (Ty V)} {a : Data args} {b : Data outs} {past : List (Ports (Ty V))}
+      (live : Origin (Threaded args) past runtime) (wires : Wires (Threaded args) past outs) :
+      Checked P E Q a b live (.ret (OrderedRuntime.Structured.withRuntime live wires))
   | pure {args outs ins out : Ports (Ty V)} {a : Data args} {b : Data outs}
       {past sigs : List (Ports (Ty V))}
       (live : Origin (Threaded args) past runtime) (di : Data ins) (do' : Data out)
@@ -73,6 +83,16 @@ inductive Checked (P E Q : Dialect.{u,v} V PUnit.{u+1}) :
       {rest : Term (Op P E Q) (Threaded args) (past ++ [Threaded out]) sigs (Threaded outs)} :
       Checked P E Q a b (nextRuntime past out) rest →
       Checked P E Q a b live (orderedBind live di do' op wires rest)
+  | gamma {args outs ins out : Ports (Ty V)} {a : Data args} {b : Data outs}
+      {past sigs : List (Ports (Ty V))}
+      (extra : Nat) (choice : Origin (Threaded args) past (.control (extra + 2)))
+      (live : Origin (Threaded args) past runtime) (i : Data ins) (o : Data out)
+      (wires : Wires (Threaded args) past ins) (childSigs : Fin (extra + 2) → List (Ports (Ty V)))
+      {children : ∀ j, Term (Op P E Q) (Threaded ins) [] (childSigs j) (Threaded out)}
+      {rest : Term (Op P E Q) (Threaded args) (past ++ [Threaded out]) sigs (Threaded outs)} :
+      (∀ j, Checked P E Q i o (.arg (runtimePort ins)) (children j)) →
+      Checked P E Q a b (nextRuntime past out) rest →
+      Checked P E Q a b live (.bind (gammaNode (out := out) extra choice live wires childSigs) children rest)
 
 variable {a : Data args} {b : Data middle} {c : Data outs}
 

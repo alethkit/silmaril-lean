@@ -63,7 +63,7 @@ theorem call_bottom (p : TwoBlock.Instruction Φ A P) (h : (instrEff p.op : ε) 
   subst P
   simp [TwoBlock.call, pureCall, denotePureInstr, InstructionModel.denote_pure op h]
 
-private theorem flat_run (s : Segment Φ ε A P B C)
+theorem flat_run (s : Segment Φ ε A P B C)
     (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := StateT σ Part.{u})) (env : Env [A]) :
     Region.denote (ε := ε) (m := StateT σ Part.{u}) s.typing env =
       (TwoBlock.call (ε := ε) s.first env.2 >>= fun _ =>

@@ -49,6 +49,20 @@ theorem call_bottom (p : TwoBlock.Instruction Φ A P) (h : (instrEff p.op : ε) 
 variable (s : Segment Φ ε A P B C)
 variable (actions : Actions (model (τ := τ) (Φ := Φ) (ε := ε) (σ := σ)))
 
+theorem Segment.region_denote
+    (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := StateT σ Part.{u})) (env : Env [A]) :
+    Region.denote (ε := ε) (m := StateT σ Part.{u}) s.typing env =
+      (TwoBlock.call (ε := ε) s.first env.2 >>= fun _ =>
+        TwoBlock.call (ε := ε) s.second env.2 >>= fun result =>
+          pure (.inl ((TypeModel.productEquiv P C).symm (pureCall (σ := σ) s.value s.bottom env.2, result)))) :=
+  Proofs.flat_run s coherent env
+
+omit [HasTy Φ τ] [HasEff Φ ε] [Bot ε] [InstructionModel Φ τ ε (StateT σ Part.{u})] in
+theorem mapped_exit_iff (result : Part (LabelDen [Silmaril.product P C] × σ))
+    (exit : LabelDen [Silmaril.product P C]) (final : σ) :
+    Part.map encodeExit result = Part.some (encodeExit (exit, final)) ↔ result = Part.some (exit, final) :=
+  Proofs.mapped_exit_iff result exit final
+
 theorem Segment.run_eq (fuel : Nat) (x : TyDen A) (initial : σ) :
     run actions s.early.toGraph fuel (point x initial) = run actions s.late.toGraph fuel (point x initial) :=
   s.relocate.evalWith_eq (kindEval actions fuel) (point x initial)
@@ -76,6 +90,6 @@ theorem Segment.finite_returns_iff
       (Region.denote (ε := ε) (m := StateT σ Part.{u}) s.typing env).run initial = Part.some (exit, final) := by
   refine (run_iff_observe actions actual (point env.2 initial) (encodeExit (exit, final))).trans ?_
   rw [s.region_observe numbering coherent env initial]
-  exact Proofs.mapped_exit_iff _ exit final
+  exact mapped_exit_iff _ exit final
 
 end Silmaril.SSA.RVSDG.LambdaSSA.PureRow

@@ -1,5 +1,7 @@
 module
 
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureGamma.Thms
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureGamma.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PurePrefix.Thms
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PurePrefix.Defs
 meta import Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.PurePrefix.Defs
@@ -73,14 +75,14 @@ local instance : TypeModel Ty where
   coe := coerceValue
 
 private inductive Op | enter | inner | finish | tailHeader | tailBody | forkGate
-  | routingHeader | routingJoin | consumeBody | addOne
+  | routingHeader | routingJoin | consumeBody | addOne | stamp
   deriving DecidableEq
 
 local instance : HasTy Op Ty :=
   ⟨fun | .inner => innerPayload | _ => number,
    fun | .enter => innerPayload | .inner => .coprod number innerPayload
        | .finish | .tailHeader | .routingJoin => .coprod number number
-       | .tailBody | .consumeBody | .addOne => number
+       | .tailBody | .consumeBody | .addOne | .stamp => number
        | .routingHeader => .coprod .unit number
        | .forkGate => .coprod (.coprod number number) number⟩
 
@@ -105,6 +107,7 @@ private def instruction : (op : Op) → Value (instrSrc op) → Runtime (Value (
     if (show Nat from n) = 99 then Part.none else Part.some ((show Nat from n) + token, token + 4)
   | .forkGate, n => pure (if (show Nat from n) = 1 then .inl (.inl (7 : Nat)) else .inr n)
   | .addOne, n => pure ((show Nat from n) + 1)
+  | .stamp, n => StateT.mk fun token => Part.some (n, 10 * token + 7)
 
 local instance : InstructionModel Op Ty Bool Runtime where
   denote := instruction
@@ -1559,6 +1562,111 @@ example (coherent : Coherent) :
     match result with
     | some (.inl (.inl 4122), 41223) => pure ()
     | _ => throw (IO.userError "the nested body did not receive the pure value and exact prefix token")
+
+open Translation.PureGamma (Branch Choice Input)
+
+private def mixedChild : Branch Op Bool number number number number :=
+  ⟨⟨op .addOne, rfl, op .stamp, op .consumeBody⟩,
+   ⟨op .addOne, rfl, op .tailBody, op .tailBody⟩⟩
+
+private abbrev MixedExit := LabelDen [Silmaril.product number number]
+
+private def gammaActions := Translation.PureGamma.actions runnerActions
+
+private def gammaCode : NestedTheta.Equality.OpcodeCode (Translation.PureGamma.Op (τ := Ty) Op Bool) :=
+  NestedTheta.ExplicitRuntime.PurePrefix.opcodeCode
+    (Flat.Numbered.Recognize.opcodeCode (τ := Ty) (Φ := Op))
+    (Translation.PureGamma.valueCode (τ := Ty) (Φ := Op) (ε := Bool))
+
+private def swapChild : NestedTheta.Isomorphism.Mapping :=
+  fun path => if path == [(0,0)] then ⟨swapFirstRows, swapFirstRows⟩ else ⟨id, id⟩
+
+private abbrev GammaTerm := NestedTheta.Term (Translation.PureGamma.Op (τ := Ty) Op Bool)
+  (Threaded (Input number)) [] [PureRow.Output number number] (PureRow.Output number number)
+
+-- Keep the γ payload and both children, but send the entry token to the exit.
+private def staleGammaResult (t : GammaTerm) : GammaTerm :=
+  match t with
+  | .bind node children (.ret results) =>
+    .bind node children (.ret (results.map fun sort origin =>
+      if h : runtime = sort then h ▸ .arg (runtimePort (Input number)) else origin))
+
+private def gammaResult (pureFirst : Bool) (choice : Value (Choice number)) :=
+  NestedTheta.Partial.Executable.run gammaActions (mixedChild.compile pureFirst) 0
+    (Translation.PureGamma.entry choice (2 : Nat))
+
+private def selectLeft (n : Nat) : Value (.coprod number number) := .inl n
+private def selectRight (n : Nat) : Value (.coprod number number) := .inr n
+
+private theorem left_child_returns (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) mixedChild.typing (PUnit.unit, selectLeft 3)).run 2 =
+      Part.some ((.inl ((4 : Nat), (30 : Nat)) : MixedExit), 31) := by
+  rw [mixedChild.region_denote coherent]
+  change (Region.denote (ε := Bool) (m := Runtime) mixedChild.left.typing (PUnit.unit, (3 : Nat))).run 2 = _
+  rw [mixedChild.left.region_denote coherent]
+  simp only [StateT.run_bind, Part.bind_eq_bind]
+  change ((TwoBlock.call (ε := Bool) (m := Runtime) (op .stamp) (3 : Nat)).run 2).bind _ = _
+  rw [call_eq]
+  change (Part.some ((3 : Nat), (27 : Nat))).bind _ = _
+  rw [Part.bind_some]
+  change ((TwoBlock.call (ε := Bool) (m := Runtime) (op .consumeBody) (3 : Nat)).run 27).bind _ = _
+  rw [call_eq]
+  change (Part.some ((30 : Nat), (31 : Nat))).bind _ = _
+  rw [Part.bind_some, StateT.run_pure, Part.pure_eq_some]
+  rfl
+
+private theorem left_child_undefined (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) mixedChild.typing (PUnit.unit, selectLeft 99)).run 2 = Part.none := by
+  rw [mixedChild.region_denote coherent]
+  change (Region.denote (ε := Bool) (m := Runtime) mixedChild.left.typing (PUnit.unit, (99 : Nat))).run 2 = _
+  rw [mixedChild.left.region_denote coherent]
+  simp only [StateT.run_bind, Part.bind_eq_bind]
+  change ((TwoBlock.call (ε := Bool) (m := Runtime) (op .stamp) (99 : Nat)).run 2).bind _ = _
+  rw [call_eq]
+  change (Part.some ((99 : Nat), (27 : Nat))).bind _ = _
+  rw [Part.bind_some]
+  change ((TwoBlock.call (ε := Bool) (m := Runtime) (op .consumeBody) (99 : Nat)).run 27).bind _ = _
+  rw [call_eq]
+  exact Part.bind_none _
+
+example (coherent : Coherent) (pureFirst : Bool) :
+    ∃ fuel, NestedTheta.Partial.Executable.run gammaActions (mixedChild.compile pureFirst) fuel
+      (Translation.PureGamma.entry (selectLeft 3) (2 : Nat)) =
+        some (PureRow.output (P := number) (C := number) (4 : Nat) (30 : Nat) (31 : Nat)) :=
+  (mixedChild.run_iff runnerActions pureFirst coherent (PUnit.unit, selectLeft 3)
+    (.inl ((4 : Nat), (30 : Nat))) 2 31).mpr (left_child_returns coherent)
+
+example (coherent : Coherent) (pureFirst : Bool) (out : Tuple (Translation.PureGamma.model
+    (τ := Ty) (Φ := Op) (ε := Bool) (σ := Nat)).Val (PureRow.Output number number)) :
+    ¬ ∃ fuel, NestedTheta.Partial.Executable.run gammaActions (mixedChild.compile pureFirst) fuel
+      (Translation.PureGamma.entry (selectLeft 99) (2 : Nat)) = some out := by
+  rw [NestedTheta.Partial.Executable.run_iff_observe,
+    mixedChild.region_observe pureFirst coherent (PUnit.unit, selectLeft 99), left_child_undefined coherent]
+  simp
+
+private def acceptsGamma (mapping : NestedTheta.Isomorphism.Mapping)
+    (other : NestedTheta.Graph (Translation.PureGamma.Op (τ := Ty) Op Bool) (Threaded (Input number)) []
+      [PureRow.Output number number] (PureRow.Output number number)) : Bool :=
+  letI : DecidableEq gammaCode.Key := inferInstanceAs (DecidableEq (Flat.Numbered.Recognize.OpcodeKey Ty Op ⊕ Op))
+  (NestedTheta.Isomorphism.check gammaCode mapping (mixedChild.compile true) other).isSome
+
+#eval show IO Unit from do
+  unless acceptsGamma swapChild (mixedChild.compile false) do
+    throw (IO.userError "the map checker rejected moving a pure row inside the selected child")
+  if acceptsGamma identityMap (staleGammaResult (mixedChild.compile true).toTerm).toGraph then
+    throw (IO.userError "the map checker accepted the entry token in place of the gamma result token")
+  for placement in [false, true] do
+    let read := fun result : Tuple _ (PureRow.Output number number) =>
+      (show Nat from result.get .head, show Nat from result.get (.tail .head),
+        show Nat from result.get (.tail (.tail .head)))
+    match (gammaResult placement (selectLeft 3)).map read with
+    | some (4, 30, 31) => pure ()
+    | _ => throw (IO.userError "the selected gamma arm lost a payload or token")
+    unless (gammaResult placement (selectLeft 99)).isNone do
+      throw (IO.userError "an undefined selected gamma arm returned")
+    match (gammaResult placement (selectRight 99)).map read with
+    | some (100, 99, 2) => pure ()
+    | _ => throw (IO.userError "the unselected undefined arm affected gamma execution")
 
 end Composition
 

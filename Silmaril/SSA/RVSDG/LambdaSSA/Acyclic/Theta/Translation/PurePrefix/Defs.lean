@@ -67,12 +67,15 @@ def Rows (R B X Z : τ) : Bool → List (Ports (OrderedRuntime.Structured.Ty τ)
   | false => [Threaded (carried R), carried (Carrier B X Z)]
   | true => [carried (Carrier B X Z), Threaded (carried R)]
 
+abbrev orderedCall (p : TwoBlock.Instruction Φ A R) :
+    OrderedRuntime.Structured.Instruction (TwoBlock.TwoExit.Pure τ) (Wires.Effect Φ) (carried A) (carried R) :=
+  .effect (.loop (.acyclic (.call .direct p)))
+
 def code (setup : Prefix Φ ε A R B) (body : Source Φ B X Z L E D sigs) (pureFirst : Bool) :
     NestedTheta.ExplicitRuntime.PurePrefix.Code (past := []) (TwoBlock.TwoExit.Pure τ) (Wires.Effect Φ) (EntryOp Φ ε B X Z)
       (carriedData A) (payloadData L E D) (.arg (runtimePort (carried A))) (Rows R B X Z pureFirst ++ sigs) :=
   let entry : Origin (Threaded (carried A)) [] OrderedRuntime.Structured.runtime := .arg (runtimePort (carried A))
-  let action : OrderedRuntime.Structured.Instruction (TwoBlock.TwoExit.Pure τ) (Wires.Effect Φ)
-      (carried A) (carried R) := .effect (.loop (.acyclic (.call .direct setup.action)))
+  let action := orderedCall setup.action
   let value := EntryOp.value (X := X) (Z := Z) setup.value setup.bottom
   match pureFirst with
   | false =>
