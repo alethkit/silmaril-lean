@@ -41,16 +41,22 @@ the input context map to the terminal unit. -/
 def inputIndex (size i : Nat) : Nat :=
   if i < size then 2 * (size - i) - 1 else 0
 
-/-- The link block receives the first result as a single parameter.
-Destructure it once, then run the unchanged second compiler under a
-renaming that places its inputs at the decoded variables. -/
-def continuation : Region (Primitive Op) :=
-  unpack (dataPorts middle)
-    ((Arms.LambdaSSA.lower g.second).renameVars (inputIndex middle.length))
+/-- Destructure a packed input once and place the region's free variables
+at the decoded bindings. -/
+def fromPacked (input : List (ValueSort Data)) (r : Region (Primitive Op)) : Region (Primitive Op) :=
+  unpack (dataPorts input) (r.renameVars (inputIndex input.length))
+
+/-- Connect a single packed exit to a region whose whole input is that tuple. -/
+def link (middle : List (ValueSort Data)) (first after : Region (Primitive Op)) :
+    Region (Primitive Op) :=
+  first.linkExits [resultCode middle] (fun _ => fromPacked middle after)
+
+/-- The sole link block receives the first result as a single parameter. -/
+def continuation : Region (Primitive Op) := fromPacked middle (Arms.LambdaSSA.lower g.second)
 
 /-- The canonical linked CFG binds the first exit's payload and runs the
 second region as its sole local continuation. -/
 def lower : Region (Primitive Op) :=
-  (Arms.LambdaSSA.lower g.first).linkExits [resultCode middle] (fun _ => continuation g)
+  link middle (Arms.LambdaSSA.lower g.first) (Arms.LambdaSSA.lower g.second)
 
 end Silmaril.SSA.SeaOfNodes.Diamond.Arms.Sequential.LambdaSSA

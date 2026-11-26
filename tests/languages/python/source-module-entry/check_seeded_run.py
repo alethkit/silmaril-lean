@@ -134,7 +134,7 @@ private def ordinaryOutcome (source : Source.Module) (observed : String := "x") 
     | _ => none
   | _ => none
 
-private def identityEvidence (source : Source.Module) (profile completion : String)
+private def scalarEvidence (source : Source.Module) (profile completion : String)
     (bindings : Bindings) : Bool := Id.run do
   let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
   let input := initial profile
@@ -278,6 +278,8 @@ UPSTREAM_LITERAL_IF_CASE = "tests/python/programs/original/k-python/programs/tes
 UPSTREAM_LITERAL_IF_SHA256 = "a65342d9d5bc36848971fe5628ee00379edacee5a20cc406c790f4ef128222b8"
 UPSTREAM_CONDITIONAL_EXPR_CASE = "tests/python/programs/original/k-python/programs/testif.py"
 UPSTREAM_CONDITIONAL_EXPR_SHA256 = "3e35304b328295b30ffa6dbba0b50d7b6e1b10872e4138616a9bc3cd87d5ee4f"
+UPSTREAM_CLOSED_SEQUENCE_CASE = "tests/python/programs/original/k-python/programs/testlists7.py"
+UPSTREAM_CLOSED_SEQUENCE_SHA256 = "d50543ac9fafb3800a8ff5027d4decd65c6cfb9b94939fb1602e37f71bdb4492"
 UPSTREAM_LITERAL_TUPLE_COMPARISONS = (
     ("tests/python/programs/original/k-python/programs/testin.py",
      "00a7ea2904c8b31edf06a507d337cbb21b416b4371cb4afe6dde8697f55dc8ac"),
@@ -552,6 +554,19 @@ after = 9
 result = skipped if False else 1 // 0
 after = 9
 """, ["unsupported", "int:7", "absent"]),
+    ("closed_sequence_typed", "legacy_builtin", """result = [] + [True] + [-2, False] == [1, -2, 0]
+after = (True,) + (False,) != (1, 0)
+assert [1, 2] != (1, 2)
+assert [1] != [1, 1]
+""", ["normal", "bool:True", "bool:False"]),
+    ("closed_sequence_failed_assertion", "empty", """result = 7
+assert ([1, 2] + [3]) == [1, 3, 2]
+after = 9
+""", ["AssertionError:empty", "int:7", "absent"]),
+    ("closed_sequence_enclosing_lookup", "legacy_preamble", """result = 7
+result = (([1] + [2]) == [1, 2]) == missing
+after = 9
+""", ["NameError:missing", "int:7", "absent"]),
     ("literal_tuple_typed_bindings", "legacy_bool_callable_builtin", """result = (True, -2) == (1, -2)
 after = False not in (0,)
 ___assertIs(result, True)
@@ -814,6 +829,9 @@ EXACT_FIXTURE_BINDINGS = {
     "literal_chain_typed_bindings": '[("after", .bool false), ("result", .bool true)]',
     "literal_chain_failed_assertion": '[("result", .int 7)]',
     "literal_chain_failure_order": '[("result", .int 7)]',
+    "closed_sequence_typed": '[("after", .bool false), ("result", .bool true)]',
+    "closed_sequence_failed_assertion": '[("result", .int 7)]',
+    "closed_sequence_enclosing_lookup": '[("result", .int 7)]',
     "literal_tuple_typed_bindings": '[("after", .bool false), ("result", .bool true)]',
     "literal_tuple_failed_assertion": '[("result", .int 7)]',
     "literal_tuple_operand_failure_order": '[("result", .int 7)]',
@@ -865,6 +883,9 @@ def identity_bindings(bindings):
 
 CPYTHON_FIXTURE_BINDINGS = {
     **IDENTITY_FIXTURE_BINDINGS,
+    "closed_sequence_typed": {"result": True, "after": False},
+    "closed_sequence_failed_assertion": {"result": 7},
+    "closed_sequence_enclosing_lookup": {"result": 7},
     "dead_boolean_suffix": {"result": False, "after": True},
     "dead_boolean_integer_tags": {"result": 0, "after": 7},
     "none_value_tags": {"result": None, "alias": None, "after": True},
@@ -1093,6 +1114,7 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
         (UPSTREAM_NONE_VALUE_CASE, UPSTREAM_NONE_VALUE_SHA256, {"ret": 3}),
         (UPSTREAM_SINGLETON_IDENTITY_CASE, UPSTREAM_SINGLETON_IDENTITY_SHA256, {}),
         (UPSTREAM_DEAD_BOOLEAN_CASE, UPSTREAM_DEAD_BOOLEAN_SHA256, {}),
+        (UPSTREAM_CLOSED_SEQUENCE_CASE, UPSTREAM_CLOSED_SEQUENCE_SHA256, {}),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_NO_OP),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_INDEXING),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_TUPLE_COMPARISONS),
@@ -1115,14 +1137,15 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
             assert cpython(source, profile, expected_globals=bindings,
                            expected_warnings=syntax_warnings) == expected, (path, profile)
             name = json.dumps(profile)
-            if path in (UPSTREAM_SINGLETON_IDENTITY_CASE, UPSTREAM_DEAD_BOOLEAN_CASE):
-                guards.append(f'#guard identityEvidence pythonSource {name} "normal" []')
-            if path == UPSTREAM_DEAD_BOOLEAN_CASE:
+            if path in (UPSTREAM_SINGLETON_IDENTITY_CASE, UPSTREAM_DEAD_BOOLEAN_CASE, UPSTREAM_CLOSED_SEQUENCE_CASE):
+                guards.append(f'#guard scalarEvidence pythonSource {name} "normal" []')
+            if path in (UPSTREAM_DEAD_BOOLEAN_CASE, UPSTREAM_CLOSED_SEQUENCE_CASE):
+                count = 8 if path == UPSTREAM_DEAD_BOOLEAN_CASE else 1
                 assertions = ast.parse(source).body
-                assert len(assertions) == 8 and all(isinstance(stmt, ast.Assert) for stmt in assertions)
+                assert len(assertions) == count and all(isinstance(stmt, ast.Assert) for stmt in assertions)
                 assert all(eval(compile(ast.Expression(stmt.test), path, "eval", optimize=0),
                                 {"__builtins__": {}}) is True for stmt in assertions)
-                guards.append(f"#guard trueAssertionOperands pythonSource {name} 8")
+                guards.append(f"#guard trueAssertionOperands pythonSource {name} {count}")
             guards.extend((
                 guard_observation(profile, expected),
                 f"#guard exactGlobals pythonSource {name} {seeded_bindings}",
@@ -1232,7 +1255,10 @@ if __name__ == "__main__":
                 check += f"\n#guard exactGlobals pythonSource {json.dumps(profile)} {EXACT_FIXTURE_BINDINGS[name]}"
             if name in IDENTITY_FIXTURE_BINDINGS:
                 bindings = identity_bindings(IDENTITY_FIXTURE_BINDINGS[name])
-                check += f"\n#guard identityEvidence pythonSource {json.dumps(profile)} {json.dumps(expected[0])} {bindings}"
+                check += f"\n#guard scalarEvidence pythonSource {json.dumps(profile)} {json.dumps(expected[0])} {bindings}"
+            if name.startswith("closed_sequence_"):
+                bindings = EXACT_FIXTURE_BINDINGS[name]
+                check += f"\n#guard scalarEvidence pythonSource {json.dumps(profile)} {json.dumps(expected[0])} {bindings}"
             if name in ("dead_boolean_suffix", "dead_boolean_integer_tags"):
                 check += f"\n#guard callNames pythonSource {json.dumps(profile)} == some []"
             if name == "empty":

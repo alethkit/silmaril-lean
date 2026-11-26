@@ -19,9 +19,21 @@ theorem selects_exists (block : LexicalBlock) {body : Statement} {reads : List B
     (resolved : BodyReads block body reads) : ∃ free, Selects block reads free :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.selects_exists block resolved
 
+theorem selects_of_origins (block : LexicalBlock) {reads : List Binding}
+    (known : ∀ binding ∈ reads, ∃ origin, ReadOrigin block binding origin) : ∃ free, Selects block reads free :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.selects_of_origins block known
+
+theorem installs_lookup (state : State) {free : List FreeName} {captures : List Lists.Capture}
+    (related : Installs state free captures) : free.mapM (captureName state) = .ok captures :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.capture_addresses state related
+
 theorem captureNames_eq {block : LexicalBlock} {reads : List Binding} {free : List FreeName}
     (selected : Selects block reads free) : captureNames block.owned reads = free :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.capture_names selected
+
+theorem required_parameter_binders (parameters : List String) :
+    ParameterBinders (.required parameters) parameters :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.required_binders parameters
 
 /-- In a load-free module the immediate parent's local names are precisely
 its own parameters and local declarations. -/
@@ -60,6 +72,32 @@ theorem mixed_definition (parent : BlockContext) (name : String) (parameters loc
   Proofs.Languages.Starlark.Modules.Resolve.Capture.mixed_definition parent name parameters locals body localDecls
     targetProfile rhsProfile returnProfile program next assignment returned returnReads assigned resolvedReturn
 
+/-- Carry the source assignment and return evidence on the exact emitted body. -/
+theorem mixed_definition_linked (parent : BlockContext) (name : String) (parameters locals : List String)
+    (body : MixedBody) (localDecls : LocalBinders parameters [body.destination] locals)
+    (targetProfile : TargetInProfile .local body.target) (rhsProfile : RhsInProfile body.rhs)
+    (returnProfile : OperandInProfile body.returned) (program next : Program)
+    (assignment : ResolvedPatternAssignment) (returned : Functions.Lowering.Expr) (returnReads : List Binding)
+    (assigned : (do
+      let layout ← collectFunctionLayout parent.reads (.required parameters) body.statement
+      elaboratePatternAssignment layout.block.reads layout.block.writes body.target body.rhs program) =
+      .ok (assignment, next))
+    (resolvedReturn : resolveTracked (childBlock parent parameters locals).context body.returned =
+      .ok (returned, returnReads)) :
+    ∃ free,
+      LeafCode (childBlock parent parameters locals) body
+        (.seq (assignPatternCode assignment.pattern assignment.rhs directStages) (.returnExpr returned)) ∧
+      BodyReads (childBlock parent parameters locals) body.statement
+          ((assignment.rhsReads ++ assignment.targetReads) ++ returnReads) ∧
+      Selects (childBlock parent parameters locals) ((assignment.rhsReads ++ assignment.targetReads) ++ returnReads)
+        free ∧
+      compileBody parent (.define name (.required parameters) body.statement) program =
+        .ok (⟨.define (fileSlot name) program.size, free.map FreeName.source⟩,
+          program.push ⟨requiredSignature parameters, locals.map fileSlot, free,
+            .seq (assignPatternCode assignment.pattern assignment.rhs directStages) (.returnExpr returned)⟩) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.mixed_definition_linked parent name parameters locals body localDecls
+    targetProfile rhsProfile returnProfile program next assignment returned returnReads assigned resolvedReturn
+
 /-- Definition copies slot addresses into the function object. The selected
 slots need only exist at creation. Restoring the caller leaves the new cell
 in the heap, so a returned reference can use the same environment. -/
@@ -74,6 +112,13 @@ theorem define_installs (program : Program) (declaration : Declaration) (id : Na
       (restoreCaller caller next).heap[state.heap.size]? = some ⟨.function ⟨id, captures, []⟩, false⟩ :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.define_installs program declaration id target state caller
     targetAddress before frozen captures found related owned cell
+
+/-- Allocating the callee's parameters and locals supplies owned slots. -/
+theorem activate_owned (state : State) (declaration : Declaration) (captures : List Lists.Capture)
+    (arguments : List (Binding × Lists.Value)) (binding : Binding)
+    (declared : binding ∈ declaration.signature.slots ++ declaration.locals) :
+    ∃ address, (activate state declaration captures arguments).slots binding = some (.owned address) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.activate_owned state declaration captures arguments binding declared
 
 /-- Activation installs the saved address when the binding is outside the
 callee's owned slots. Allocating parameters and locals preserves it. -/

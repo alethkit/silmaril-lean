@@ -25,8 +25,45 @@ namespace Silmaril.SSA.LambdaRTL.CFG
 
 universe v w
 
+section MapOp
+
+variable {V K : Type w} {F F' F'' : Type v}
+
+theorem Body.toRegion_mapOp (h : F → F') (body : Body V K F) :
+    (body.mapOp h).toRegion = body.toRegion.mapOp h :=
+  Silmaril.Proofs.SSA.LambdaRTL.CFG.Body.toRegion_mapOp h body
+
+theorem mapOp_id (graph : CFG V K F) : graph.mapOp id = graph :=
+  Silmaril.Proofs.SSA.LambdaRTL.CFG.mapOp_id graph
+
+theorem mapOp_comp (h : F → F') (k : F' → F'') (graph : CFG V K F) :
+    graph.mapOp (k ∘ h) = (graph.mapOp h).mapOp k :=
+  Silmaril.Proofs.SSA.LambdaRTL.CFG.mapOp_comp h k graph
+
+end MapOp
+
+section Relabel
+
+variable {V K K' : Type w} {F : Type v} {M : Type w → Type w} {α : Type w}
+  [Monad M] [DecidableEq V]
+
+theorem Body.exec_relabel (model : Model F M α) {R : Type w} (rename : K → K')
+    (next : K' → α → (V → α) → M R) (body : Body V K F) (store : V → α) :
+    (body.relabel rename).exec model next store =
+      body.exec model (fun label => next (rename label)) store :=
+  Silmaril.Proofs.SSA.LambdaRTL.CFG.Body.exec_relabel model rename next body store
+
+end Relabel
+
 variable {V L K : Type w} {F : Type v} {M : Type w → Type w} {α : Type w} [Monad M]
   [LawfulMonad M] [DecidableEq V] [DecidableEq L] [DecidableEq K]
+
+/-- A body executes as its region, followed by a continuation on the exit. -/
+theorem Body.exec_eq_evalRTL {R : Type w} (model : Model F M α) (next : K → α → (V → α) → M R)
+    (body : Body V K F) (store : V → α) :
+    body.exec model next store =
+      body.toRegion.evalRTL model store >>= fun out => next out.1 out.2.1 out.2.2 :=
+  Silmaril.Proofs.SSA.LambdaRTL.CFG.Body.exec_eq model next body store
 
 theorem run_flatten (m : Model F M α) (r : Region V L F) (σ : V → α) :
     (flatten r).run m σ = (fun e => (Sum.inl e.1, e.2)) <$> r.evalRTL m σ :=

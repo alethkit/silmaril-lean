@@ -1,0 +1,71 @@
+# A pure Sea of Nodes loop in typed MLIR CF
+
+Import `Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF.Thms`. The input is an
+actual `Loop.Graph` with one word-valued Phi, word-valued captured inputs,
+and one word result. Its ranked producer tables use constants, flag-free
+addition and multiplication, and unsigned comparison. The lowering reuses
+the scalar Sea of Nodes producer-name table and the existing scalar MLIR
+`arith.cmpi ult` interpretation. A Boolean predicate becomes an `i1`.
+[Source and lowering](../../Silmaril/SSA/SeaOfNodes/Loop/MLIR/CF/Defs.lean) ·
+[Scalar producer bridge](sea-of-nodes-mlir.md)
+
+`lower` constructs an intrinsically typed `MLIR.CF.Cfg` with these blocks.
+
+| Block | Target action |
+| --- | --- |
+| Entry | Run the preheader producers and pass the entry Phi operand to the header. |
+| Header | Run the header producers. The true edge carries the backedge Phi operand to the header. The false edge carries the return-wire value to exit. |
+| Exit | Return the singleton exit argument. |
+
+Captured inputs remain in scope. MLIR places the latch before the captures
+in the header's environment, while the source puts it after the captures.
+The typed name table resolves each reference in the target's order. Header
+producer values stay local to the header and cross a block boundary only
+as edge operands.
+[Existing CF scopes and evaluator](../../Silmaril/SSA/MLIR/CF/Basic/Defs.lean)
+
+`lower_run` relates a budget of `b` source backedges to `b + 3` target
+blocks. The allowance covers entry, up to `b` continuing header activations,
+the final header test, and exit. `lower_returns_iff` preserves and reflects every finite
+return across all budgets. `lower_denotePart` uses the existing embedding
+into `CF.SwitchAssert` and its checked partial denotation. It identifies
+the result with the native `Part` mapped to a singleton returned tuple,
+with the same domain. The basic CFG embedding's terminal outcomes are
+returns. `lower_diverges_iff` identifies divergence with an undefined
+source result.
+[Bridge theorems](../../Silmaril/SSA/SeaOfNodes/Loop/MLIR/CF/Thms.lean) ·
+[Partial CFG denotation](../../Silmaril/SSA/MLIR/CF/SwitchAssert/Denotation/Thms.lean)
+
+```lean
+module
+import Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF.Thms
+
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF
+open Silmaril.MLIR.Arith (Env Width)
+
+example {Γ : List Width} {carried result : Width}
+    {entrySigs headerSigs : List (List (Silmaril.SSA.SeaOfNodes.Diamond.Ty Width))}
+    (g : Program Γ carried result entrySigs headerSigs) (input : Env Γ) :
+    (lower g).Diverges evalOp input ↔
+      ¬ (g.denote model (Silmaril.SSA.SeaOfNodes.MLIR.sourceInputs input)).Dom :=
+  lower_diverges_iff g input
+```
+
+The regression initializes the latch to `seed + 1`, adds `increment` while
+the latch is unsigned-less-than `limit`, then returns `latch + seed`.
+At seed 2, limit 5 and increment 1, the CFG returns 7 in five blocks.
+At seed 4 and limit 5 it exits immediately and returns 9. With increment 0
+and seed 2, the invariant keeps the latch at 3, so every finite budget is
+exhausted and the target's partial result is `Part.none`.
+[Checked example](../../Silmaril/Proofs/SSA/SeaOfNodes/Loop/MLIR/CF/Regression.lean)
+
+The scope is the repository's typed pure CF fragment with a single latch and
+fixed-width bit vectors. The proof concerns its executable CFG and partial
+semantics.
+[MLIR ControlFlow dialect](https://mlir.llvm.org/docs/Dialects/ControlFlowDialect/)
+
+```sh
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Loop.MLIR.CF.Regression +Silmaril.Proofs.SSA.SeaOfNodes.MLIR.Regression'
+SILMARIL_REPLAY_MODULE=Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF.Thms \
+  lake env lean tools/compiler-explorer/Replay.lean
+```

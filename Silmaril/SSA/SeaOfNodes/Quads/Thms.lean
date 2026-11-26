@@ -18,6 +18,13 @@ variable {Data : Type u} {Op : Signature.{u, v} Data}
 variable {regs : List (ValueSort Data)} {out result : ValueSort Data}
 variable {args : List (Ty Data)} {past : List (List (Ty Data))}
 
+/-- A pointwise map commutes with writing one typed slot. -/
+theorem map_write {T : Type u} {F : T → Type v} {G : T → Type w}
+    {ts : List T} {t : T} (f : ∀ t, F t → G t) (dest : Port ts t)
+    (value : F t) (bank : Tuple F ts) :
+    (write dest value bank).map f = write dest (f t value) (bank.map f) :=
+  Proofs.map_write f dest value bank
+
 /-- Before any assignment, a use names the corresponding input. -/
 theorem initial_get {t : Ty Data} (port : Port (dataPorts regs) t) :
     (initial regs).get port = .arg port :=

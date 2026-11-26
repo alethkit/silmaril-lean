@@ -78,6 +78,38 @@ theorem advance_adjacentKeywordDiscard {scope : Source.Scope} (table : Core.Clos
     advance table (.ready session (.adjacentKeywordDiscard name value :: remaining)) =
       ([], .calling (session.prepareCall .discard (.readGlobal name) [.literal (.int value)]) remaining) := rfl
 
+theorem lowerInstructions_assertSequenceLength {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)
+    (test : SequenceLengthTest scope) (rest : List (Functions.Action scope)) :
+    lowerInstructions tree key (.assertSequenceLength test :: rest) =
+      (lowerInstructions tree key rest).map fun (instructions, rows) =>
+        (.assertSequenceLength test :: instructions, rows) := by
+  rw [lowerInstructions]
+  cases lowerInstructions tree key rest with | error _ => rfl | ok result => cases result; rfl
+
+theorem advance_assertSequenceLength {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (test : SequenceLengthTest scope) (rest : List (Instruction scope)) :
+    advance table (.ready session (.assertSequenceLength test :: rest)) =
+      ([], .finished session (match session.globals "len" with
+        | none => .raised (.nameError "len")
+        | some (.function _) => .scalarProfile
+        | some _ => .raised .notCallable)) := rfl
+
+theorem lowerInstructions_assertListConstruction {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)
+    (test : ListConstructionTest scope) (rest : List (Functions.Action scope)) :
+    lowerInstructions tree key (.assertListConstruction test :: rest) =
+      (lowerInstructions tree key rest).map fun (instructions, rows) =>
+        (.assertListConstruction test :: instructions, rows) := by
+  rw [lowerInstructions]
+  cases lowerInstructions tree key rest with | error _ => rfl | ok result => cases result; rfl
+
+theorem advance_assertListConstruction {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (test : ListConstructionTest scope) (rest : List (Instruction scope)) :
+    advance table (.ready session (.assertListConstruction test :: rest)) =
+      ([], .finished session (match session.globals "list" with
+        | none => .raised (.nameError "list")
+        | some (.function _) => .scalarProfile
+        | some _ => .raised .notCallable)) := rfl
+
 theorem advance_assertVarNames {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (receiver : String) (needle : List UInt32)
     (remaining : List (Instruction scope)) :

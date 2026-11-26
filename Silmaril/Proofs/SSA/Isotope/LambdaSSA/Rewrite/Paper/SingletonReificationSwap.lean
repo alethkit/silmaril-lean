@@ -276,6 +276,21 @@ theorem denoteSingleton_productFst (A S : τ) :
       (Denotes.var (J := J) (M := M) (Φ := Φ) (i := 1) (rfl : At [S, A, product A S] 1 A)),
     unpack_fst, CartesianMonoidalCategory.leftUnitor_inv_snd_assoc]
 
+set_option backward.isDefEq.respectTransparency false in
+theorem denoteSingleton_snd_repeatTag (A S D : τ) :
+    denoteSingletonRegion J M
+      (.let₂ (.var (i := 0) rfl) (.br (ℓ := 0) rfl (.inl (.var (i := 0) rfl))) :
+        HasType (Φ := Φ) [product A S] (.let₂ (.var 0) (.br 0 (.inl (.var 0)))) [packedExitType [S, D]]) =
+      J.map (sndMap M A S ≫ inlMap M S (coprod D Silmaril.empty)) := by
+  have tag := Denotes.inl (B := coprod D Silmaril.empty)
+    (Denotes.var (J := J) (M := M) (Φ := Φ) (i := 0) (rfl : At [S, A, product A S] 0 S))
+  change Denotes J M (.inl (.var (i := 0) rfl))
+    (J.map (lookup M 0 (rfl : At [S, A, product A S] 0 S)) ≫
+      J.map (inlMap M S (coprod D Silmaril.empty))) at tag
+  rw [← J.map_comp] at tag
+  rw [denoteSingleton_let₂_var_branch_of_map J M A S _ tag, reassoc_of% (unpack_snd M A S),
+    CartesianMonoidalCategory.leftUnitor_inv_snd_assoc]
+
 end Region
 
 section Syntax

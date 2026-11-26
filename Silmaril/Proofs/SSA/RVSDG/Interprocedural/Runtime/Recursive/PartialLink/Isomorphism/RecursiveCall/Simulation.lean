@@ -72,6 +72,10 @@ private theorem region_progress {vertices : Nat ≃ Nat}
     exact ⟨_, _, .single (structural rfl rfl), .single (structural rfl rfl),
       .gamma store children (readWires_related entry locals left right edges)
         (.resume position suffix entry locals frames)⟩
+  | theta left right position edges body suffix _ _ =>
+    exact ⟨_, _, .single (structural rfl rfl), .single (structural rfl rfl),
+      .theta store body (readWires_related entry locals left right edges)
+        (.resume position suffix entry locals frames)⟩
   | emptyLeft wires suffix ih =>
     obtain ⟨nextL, nextR, pathL, pathR, related⟩ := ih entry locals.emptyLeft frames
     exact ⟨nextL, nextR, TransGen.trans_right (skip_empty wires _ _ _ _ _) pathL, pathR, related⟩
@@ -134,6 +138,24 @@ theorem advance {left right : Config m σ final}
         outerL outerR position suffix entry locals outer =>
       exact .stepped (.single (structural rfl rfl)) (.single (structural rfl rfl))
         (.region store suffix entry (locals.snoc vertices.injective position values) outer)
+    | loop body outer =>
+      cases values with
+      | cons selector carried =>
+        cases selector with
+        | control tag =>
+          by_cases again : (tag.val == 1) = true
+          · refine .stepped (.single (structural rfl ?_)) (.single (structural rfl ?_))
+              (.iteration store body carried outer) <;>
+              simp only [State.next, State.finishLoop, Colour.selector, ite_eq_left again]
+          · refine .stepped (.single (structural rfl ?_)) (.single (structural rfl ?_))
+              (.returned store carried outer) <;>
+              simp only [State.next, State.finishLoop, Colour.selector, ite_eq_right again]
+  | theta store body inputs frames =>
+    exact .stepped (.single (structural rfl rfl)) (.single (structural rfl rfl))
+      (.iteration store body inputs frames)
+  | iteration store body inputs frames =>
+    exact .stepped (.single (structural rfl rfl)) (.single (structural rfl rfl))
+      (.region store body inputs LocalsRelated.empty (.loop body frames))
   | gamma store children inputs frames =>
     cases inputs with
     | cons selector captures =>

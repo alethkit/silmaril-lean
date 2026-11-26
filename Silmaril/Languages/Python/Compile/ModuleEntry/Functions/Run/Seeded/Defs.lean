@@ -12,6 +12,7 @@ namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 open Source (Scope)
 open Core.Closure (CodeRef Function Heap)
 open Core.Closure.Executor (CodeTable Fault)
+open Core.Module (ListHeap ListObject)
 open Core.Module.SeededCall (AssertionArgument Bindings CallObservation Expectation Failure Namespace Raised Result Value)
 
 inductive SeedPlacement where
@@ -60,6 +61,11 @@ def legacyBoolIsinstanceSeed (placement : SeedPlacement) : Namespace :=
   | .builtin => { seed with builtins := identity :: builtins }
   | .preamble => { seed with moduleGlobals := identity :: seed.moduleGlobals, builtins := builtins }
 
+/-- Stock list construction is a separate opt-in profile. -/
+def legacyListSeed (placement : SeedPlacement) : Namespace :=
+  let seed := legacySeed placement
+  { seed with builtins := ("list", .builtin .list) :: seed.builtins }
+
 def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.Operand 0
   | .readGlobal name => .global name
   | .literal (.int value) => .literal (.int value)
@@ -76,7 +82,7 @@ def scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
   | .none => some .none
-  | .exceptionClass _ | .helper _ | .builtin _ | .function _ => none
+  | .exceptionClass _ | .helper _ | .builtin _ | .function _ | .listObject _ => none
 
 /-- Observation map for the shared scalar comparison profile. -/
 def scalarFailure : Completion → Failure
@@ -118,6 +124,7 @@ def truth : Value → Bool
   | .int value => decide (value ≠ 0)
   | .bool value => value
   | .none => false
+  | .listObject object => !object.contents.isEmpty
   | .exceptionClass _ | .helper _ | .builtin _ => true
   | .function closure => (Core.Closure.Value.function closure).truth
 
@@ -162,7 +169,7 @@ def ordinaryValue? : Value → Option Core.Closure.Value
   | .bool value => some (.bool value)
   | .none => some .none
   | .function closure => some (.function closure)
-  | .exceptionClass _ | .helper _ | .builtin _ => none
+  | .exceptionClass _ | .helper _ | .builtin _ | .listObject _ => none
 
 def seededValue : Core.Closure.Value → Value
   | .int value => .int value
@@ -221,8 +228,8 @@ def CallContext.acceptsCallFrom (context : CallContext) (ledger : List Function)
 def CallContext.acceptsPublishedCall (context : CallContext) (closure : Function) (arity : Nat := 0) : Bool :=
   context.acceptsCallFrom context.published closure arity
 
-/-- Track only private locals assigned fresh closures. A final call can
-forward the result of a closure created in this frame. -/
+/-- Recognize returned closures and follow final calls to lexical children.
+Track child code references through private locals assigned fresh closures. -/
 def returnsClosure {layout : Core.Closure.Layout} (forwards : CodeRef → Bool) :
     Core.Closure.Executor.Body layout → (Fin layout.locals → Option CodeRef) → Bool
   | .ret (.closure ..), _ => true
@@ -236,6 +243,8 @@ def returnsClosure {layout : Core.Closure.Layout} (forwards : CodeRef → Bool) 
     returnsClosure forwards rest locals
   | .callTo (.store (.local destination)) (.read (.local callee)) arguments (.ret (.read (.local result))), locals =>
     decide (destination = result ∧ arguments.length ≤ 1) && (locals callee).any forwards
+  | .invoke (.closure ref _) arguments none, _ =>
+    decide (arguments.length ≤ 1) && forwards ref
   | _, _ => false
 
 /-- The pinned factory profile forwards through at most two lexical
@@ -452,6 +461,79 @@ def assertOperand {scope : Scope} (space : Namespace) (operand : ModuleEntry.Ope
   let checked := (evaluateScalar space false operand).bind (assertTruthAs expected)
   ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, []⟩
 
+/-- The checked argument cannot escape this call. Only the exact stock
+descriptor consumes its certified length. -/
+def readSequenceLength (space : Namespace) (length : Nat) : Except Failure Int :=
+  match space.lookupGlobal "len" with
+  | none => .error (.raised (.runtime (.nameError "len")))
+  | some (.builtin .len) => .ok (Int.ofNat length)
+  | some (.int _) | some (.bool _) | some .none => .error (.raised (.runtime .notCallable))
+  | some _ => .error .unsupported
+
+def checkSequenceLengthResult {scope : Scope} (space : Namespace) (test : SequenceLengthTest scope)
+    (length : Int) : Except Failure Unit := do
+  let actual ← evaluateScalar space true test.right
+  let some right := scalar? actual | throw .unsupported
+  assertTruthAs test.expectedEqual (.bool ((.int length : Core.Module.Value).equal right))
+
+def assertSequenceLength {scope : Scope} (space : Namespace) (test : SequenceLengthTest scope) : Effect :=
+  let result := readSequenceLength space test.length
+  let checked := result.bind (checkSequenceLengthResult space test)
+  ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, [⟨"len", ⟨result.map .int, none⟩⟩]⟩
+
+/-- Only a checked list argument allocates a list before constructor dispatch. -/
+def prepareListArgument (heap : ListHeap) : ListConstructorArgument → List Core.Module.Value × ListHeap
+  | .omitted => ([], heap)
+  | .literal sequence =>
+    match sequence.kind with
+    | .tuple => (sequence.values, heap)
+    | .list => (sequence.values, (heap.allocate sequence.values).2)
+
+def constructList (space : Namespace) (heap : ListHeap) (argument : ListConstructorArgument) :
+    Except Failure ListObject × ListHeap :=
+  match space.lookupGlobal "list" with
+  | none => (.error (.raised (.runtime (.nameError "list"))), heap)
+  | some callee =>
+    let (contents, reached) := prepareListArgument heap argument
+    match callee with
+    | .builtin .list =>
+      let (object, updated) := reached.allocate contents
+      (.ok object, updated)
+    | .int _ | .bool _ | .none | .listObject _ => (.error (.raised (.runtime .notCallable)), reached)
+    | _ => (.error .unsupported, reached)
+
+def listEquality (left right : ListObject) : Bool :=
+  ClosedSequence.equal ⟨.list, left.contents⟩ ⟨.list, right.contents⟩
+
+structure ListConstructionOutcome where
+  result : Except Failure ListObject
+  comparison : Except Failure Bool
+  lists : ListHeap
+
+def evaluateListConstruction {scope : Scope} (space : Namespace) (heap : ListHeap)
+    (test : ListConstructionTest scope) : ListConstructionOutcome :=
+  match test.order with
+  | .constructorFirst =>
+    let (result, reached) := constructList space heap test.argument
+    match result with
+    | .error error => ⟨result, .error error, reached⟩
+    | .ok left =>
+      let (right, updated) := reached.allocate test.literal
+      ⟨result, .ok (listEquality left right), updated⟩
+  | .literalFirst =>
+    let (left, updated) := heap.allocate test.literal
+    let (result, reached) := constructList space updated test.argument
+    ⟨result, result.map (listEquality left), reached⟩
+
+def ListConstructionOutcome.checked (outcome : ListConstructionOutcome) : Except Failure Unit :=
+  outcome.comparison.bind fun value => assertTruth (.bool value)
+
+def ListConstructionOutcome.receipt (outcome : ListConstructionOutcome) : CallEvent :=
+  ⟨"list", ⟨outcome.result.map .listObject, none⟩⟩
+
+def ListConstructionOutcome.effect (outcome : ListConstructionOutcome) : Effect :=
+  ⟨(outcome.checked.map fun _ => none).mapError ModuleFailure.ofCall, [outcome.receipt]⟩
+
 /-- Resolve once in the live seeded namespace. A masking module value
 remains the receiver even when its type is outside the ordinary profile. -/
 def checkVarNames (space : Namespace) (table : CodeTable) (receiver : String)
@@ -463,14 +545,16 @@ def checkVarNames (space : Namespace) (table : CodeTable) (receiver : String)
     | .code error => .varNamesFault error
   (assertTruth (.bool member)).mapError ModuleFailure.ofCall
 
-def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruction : Instruction scope) :
-    Effect × Heap :=
+def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruction : Instruction scope)
+    (lists : ListHeap := .empty) : Effect × Heap :=
   match instruction with
   | .scalar (.assign name _ operand) =>
     (⟨((evaluateScalar space false operand).map fun value => some (name, value)).mapError ModuleFailure.ofCall,
       []⟩, context.heap)
   | .scalar (.assertion operand) => (assertOperand space operand true, context.heap)
   | .assertNot operand => (assertOperand space operand false, context.heap)
+  | .assertSequenceLength test => (assertSequenceLength space test, context.heap)
+  | .assertListConstruction test => ((evaluateListConstruction space lists test).effect, context.heap)
   | .assertVarNames receiver needle =>
     (⟨(checkVarNames space context.table receiver needle).map fun _ => none, []⟩, context.heap)
   | .publish name function =>
@@ -495,16 +579,26 @@ structure Observation where
   completion : Except ModuleFailure Unit
   calls : List CallEvent
   heap : Heap
+  lists : ListHeap
+
+def effectWithLists {scope : Scope} (space : Namespace) (context : CallContext)
+    (instruction : Instruction scope) (lists : ListHeap) : (Effect × Heap) × ListHeap :=
+  match instruction with
+  | .assertListConstruction test =>
+    let outcome := evaluateListConstruction space lists test
+    ((outcome.effect, context.heap), outcome.lists)
+  | instruction => (effect space context instruction lists, lists)
 
 /-- A failed instruction keeps its incoming namespace and the heap reached
 by its effects. Successful publications authorize checked ordinary calls. -/
-def runInstructionsIn {scope : Scope} (space : Namespace) (context : CallContext) :
-    List (Instruction scope) → Observation
-  | [] => ⟨space, .ok (), [], context.heap⟩
+def runInstructionsIn {scope : Scope} (space : Namespace) (context : CallContext)
+    (instructions : List (Instruction scope)) (lists : ListHeap := .empty) : Observation :=
+  match instructions with
+  | [] => ⟨space, .ok (), [], context.heap, lists⟩
   | instruction :: rest =>
-    let (item, heap) := effect space context instruction
+    let ((item, heap), updatedLists) := effectWithLists space context instruction lists
     match item.binding with
-    | .error error => ⟨space, .error error, item.calls, heap⟩
+    | .error error => ⟨space, .error error, item.calls, heap, updatedLists⟩
     | .ok binding =>
       let updated := binding.elim space fun (name, value) => space.bindGlobal name value
       let published := match instruction with
@@ -513,17 +607,18 @@ def runInstructionsIn {scope : Scope} (space : Namespace) (context : CallContext
       let escaped := match instruction, binding with
         | .call (.bindGlobal _) _ _, some (_, .function closure) => closure :: context.escaped
         | _, _ => context.escaped
-      let tail := runInstructionsIn updated { context with heap, published, escaped } rest
+      let tail := runInstructionsIn updated { context with heap, published, escaped } rest updatedLists
       { tail with calls := item.calls ++ tail.calls }
 
 def runInstructions {scope : Scope} (space : Namespace) (instructions : List (Instruction scope))
-    (table : CodeTable := fun _ => none) (heap : Heap := .empty) (callbackFuel : Nat := 1000) : Observation :=
-  runInstructionsIn space { table, heap, fuel := callbackFuel } instructions
+    (table : CodeTable := fun _ => none) (heap : Heap := .empty) (callbackFuel : Nat := 1000)
+    (lists : ListHeap := .empty) : Observation :=
+  runInstructionsIn space { table, heap, fuel := callbackFuel } instructions lists
 
 /-- Seeded execution starts from the same compiled instruction stream as
 ordinary module execution. The caller supplies the namespace explicitly. -/
 def run {source : Source.Module} (space : Namespace) (compiled : Compiled source)
-    (heap : Heap := .empty) (callbackFuel : Nat := 1000) : Observation :=
-  runInstructions space compiled.instructions compiled.table heap callbackFuel
+    (heap : Heap := .empty) (callbackFuel : Nat := 1000) (lists : ListHeap := .empty) : Observation :=
+  runInstructions space compiled.instructions compiled.table heap callbackFuel lists
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

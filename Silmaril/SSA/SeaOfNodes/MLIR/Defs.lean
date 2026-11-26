@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.MLIR.Arith.Defs
+public import Silmaril.SSA.MLIR.Pure.Defs
 public import Silmaril.SSA.SeaOfNodes.Diamond.Defs
 
 /-! # Sea of Nodes pure producers in scalar MLIR
@@ -14,7 +14,7 @@ address is resolved to the corresponding in-scope scalar SSA variable.
 namespace Silmaril.SSA.SeaOfNodes.MLIR
 
 open RVSDG (Port Tuple Origin Wires Locals extend)
-open Diamond (Dataflow Val dataPorts)
+open Diamond (Dataflow Val ValueSort dataPorts sortValue)
 open Silmaril.MLIR.Arith (BinOp Block Env Rhs Var Width)
 
 abbrev Word (w : Width) := BitVec w.val
@@ -42,18 +42,25 @@ def sourceInputs : {Γ : List Width} → Env Γ → Tuple (Val Word) (inputPorts
 
 namespace Lowering
 
-/-- Only word ports have scalar SSA names. The other cases have no names and
-cannot be used by any operation in this bridge. -/
+def valueWidth : ValueSort Width → Width
+  | .data w => w
+  | .predicate => Silmaril.MLIR.Pure.i1
+
+def valueBits : {s : ValueSort Width} → sortValue Word s → Word (valueWidth s)
+  | .data _, x => x
+  | .predicate, test => BitVec.ofBool test.down
+
+/-- Scalar SSA names for source values, with predicates represented as `i1`. -/
 def Names (Γ : List Width) : Diamond.Ty Width → Type
-  | .value (.data w) => Var Γ w
+  | .value s => Var Γ (valueWidth s)
   | _ => PUnit
 
 variable {Γ : List Width} {args : List (Diamond.Ty Width)} {past sigs : List (List (Diamond.Ty Width))}
 
 def weaken (v : Width) (t : Diamond.Ty Width) : Names Γ t → Names (v :: Γ) t :=
   match t with
-  | .value (.data _) => Var.there
-  | .value .predicate | .state _ | .control _ => id
+  | .value _ => Var.there
+  | .state _ | .control _ => id
 
 def inputNames : (Γ : List Width) → Tuple (Names Γ) (inputPorts Γ)
   | [] => .nil
@@ -63,20 +70,70 @@ structure Scope (args : List (Diamond.Ty Width)) (past : List (List (Diamond.Ty 
   inputs : Tuple (Names Γ) args
   locals : Locals (Names Γ) past
 
-/-- Keep the source producer numbering and extend its name table by one result. -/
-def pushLocal (v : Width) : {past : List (List (Diamond.Ty Width))} → Locals (Names Γ) past →
-    Locals (Names (v :: Γ)) (past ++ [[.value (.data v)]])
+/-- Extend the name table by one result while retaining all producer numbers. -/
+def pushValue (s : ValueSort Width) : {past : List (List (Diamond.Ty Width))} → Locals (Names Γ) past →
+    Locals (Names (valueWidth s :: Γ)) (past ++ [[.value s]])
   | [], _ => (.cons Var.here .nil, PUnit.unit)
-  | _ :: _, locals => (locals.1.map (weaken v), pushLocal v locals.2)
+  | _ :: _, locals => (locals.1.map (weaken (valueWidth s)), pushValue s locals.2)
+
+abbrev pushLocal (v : Width) : {past : List (List (Diamond.Ty Width))} → Locals (Names Γ) past →
+    Locals (Names (v :: Γ)) (past ++ [[.value (.data v)]]) :=
+  fun {_} locals => pushValue (.data v) locals
+
+def Scope.pushValue (scope : Scope args past Γ) (s : ValueSort Width) :
+    Scope args (past ++ [[.value s]]) (valueWidth s :: Γ) :=
+  ⟨scope.inputs.map (weaken (valueWidth s)), Lowering.pushValue s scope.locals⟩
 
 def Scope.push (scope : Scope args past Γ) (v : Width) :
     Scope args (past ++ [[.value (.data v)]]) (v :: Γ) :=
-  ⟨scope.inputs.map (weaken v), pushLocal v scope.locals⟩
+  scope.pushValue (.data v)
 
-def Scope.resolve (scope : Scope args past Γ) {w : Width} :
-    Origin args past (.value (.data w)) → Var Γ w
+def Scope.resolveValue (scope : Scope args past Γ) {s : ValueSort Width} :
+    Origin args past (.value s) → Var Γ (valueWidth s)
   | .arg port => scope.inputs.get port
   | .output i port => (scope.locals.get i).get port
+
+def Scope.resolve (scope : Scope args past Γ) {w : Width}
+    (wire : Origin args past (.value (.data w))) : Var Γ w :=
+  scope.resolveValue wire
+
+def NamesAgree (env : Env Γ) {ports : List (Diamond.Ty Width)}
+    (names : Tuple (Names Γ) ports) (values : Tuple (Val Word) ports) : Prop :=
+  ∀ {s : ValueSort Width} (p : Port ports (.value s)), env.get (names.get p) = valueBits (values.get p)
+
+def LocalsAgree (env : Env Γ) : {past : List (List (Diamond.Ty Width))} →
+    Locals (Names Γ) past → Locals (Val Word) past → Prop
+  | [], _, _ => True
+  | _ :: _, names, values => NamesAgree env names.1 values.1 ∧ LocalsAgree env names.2 values.2
+
+structure Scope.Agrees (scope : Scope args past Γ) (env : Env Γ)
+    (inputs : Tuple (Val Word) args) (locals : Locals (Val Word) past) : Prop where
+  inputsAgree : NamesAgree env scope.inputs inputs
+  localsAgree : LocalsAgree env scope.locals locals
+
+open Silmaril.MLIR.Pure (Code Operands OpSignature)
+
+def operands (scope : Scope args past Γ) : {ins : List (ValueSort Width)} →
+    Wires args past (dataPorts ins) → Operands Γ (ins.map valueWidth)
+  | [], .nil => .nil
+  | _ :: _, .cons wire rest => .cons (scope.resolveValue wire) (operands scope rest)
+
+def encodeValues : {ins : List (ValueSort Width)} →
+    Tuple (Val Word) (dataPorts ins) → Env (ins.map valueWidth)
+  | [], .nil => .nil
+  | _ :: _, .cons x rest => .cons (valueBits x) (encodeValues rest)
+
+abbrev OpcodeMap (Source : Diamond.Signature Width) (Target : OpSignature) :=
+  ∀ {ins out}, Source ins out → Target (ins.map valueWidth) (valueWidth out)
+
+/-- Emit the producer table as typed bindings before a scoped terminator. -/
+def lowerCode {Source : Diamond.Signature Width} {Target : OpSignature} {Term : List Width → Type}
+    (opcode : OpcodeMap Source Target) : {past sigs : List (List (Diamond.Ty Width))} →
+    {Γ : List Width} → (flow : Dataflow Source args past sigs) → Scope args past Γ →
+    (∀ {Δ}, Scope args (extend past sigs) Δ → Term Δ) → Code Target Term Γ
+  | _, _, _, .nil, scope, finish => .terminator (finish scope)
+  | _, _, _, .cons (out := s) op wires rest, scope, finish =>
+    .letOp (opcode op) (operands scope wires) (lowerCode opcode rest (scope.pushValue s) finish)
 
 def emit (scope : Scope args past Γ) {ins : List (Diamond.ValueSort Width)}
     {w : Width} (op : Op ins (.data w))

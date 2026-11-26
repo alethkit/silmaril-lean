@@ -117,11 +117,16 @@ inductive Translation {layout : Layout} :
       Translation (.closure slot path ref captures rest) (.store slot (.closure ref captures) next)
   | returnClosure (path : Source.BlockPath) (ref : Core.Closure.CodeRef)
       (captures : Fin ref.layout.captures → Core.Closure.CaptureSlot layout) :
-      Translation (.returnClosure path ref captures) (.ret (.closure ref captures))
+      Translation (.returnClosure path ref captures none) (.ret (.closure ref captures))
+  | returnClosureCall {path ref captures arguments operands} (translated : ArgumentsTranslation arguments operands) :
+      Translation (.returnClosure path ref captures (some arguments)) (.returnCall (.closure ref captures) operands)
 
 def lowerCode {layout : Layout} : (code : Link.Code layout) →
     Option {target // Translation code target}
-  | .returnClosure path ref captures => some ⟨.ret (.closure ref captures), .returnClosure path ref captures⟩
+  | .returnClosure path ref captures none => some ⟨.ret (.closure ref captures), .returnClosure path ref captures⟩
+  | .returnClosure _ ref captures (some arguments) => do
+    let operands ← arguments? arguments
+    return ⟨.returnCall (.closure ref captures) operands.val, .returnClosureCall operands.property⟩
   | .ret (.call (.read (.local slot)) arguments) => do
     let operands ← arguments? arguments
     return ⟨.call (.local slot) (.read (.local slot)) operands.val (.ret (.read (.local slot))),

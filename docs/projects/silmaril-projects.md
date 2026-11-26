@@ -15,6 +15,7 @@ explores it.
 | The CLI `sil project` (Rust) | `tools/silmaril-project/` |
 | The records-file JSON Schema | [`docs/schemas/silmaril-records.v0.2.schema.json`](../schemas/silmaril-records.v0.2.schema.json) |
 | The explorer page | [silmaril-projects-explore.md](silmaril-projects-explore.md) |
+| IR families, typed subsets and semantic models | [ir-registry.md](ir-registry.md) |
 | The end-to-end self-test | `examples/project/` (`make project-check`) |
 
 The format is young (`v0.1`/`v0.2` schemas) and will change.

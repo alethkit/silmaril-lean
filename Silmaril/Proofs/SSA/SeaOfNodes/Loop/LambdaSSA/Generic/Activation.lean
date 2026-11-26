@@ -53,7 +53,7 @@ private theorem weakenUnpack_read (values : Tuple (Val m.value) ports) (captured
   | nil => rfl
   | cons x rest ih => exact ih _ (shiftRef (shiftRef ref))
 
-private theorem unpackRefs_match (values : Tuple (Val m.value) ports) (captured : Env (Atom m)) :
+theorem unpackRefs_match (values : Tuple (Val m.value) ports) (captured : Env (Atom m)) :
     TupleMatch m (unpackEnv m values captured) (unpackRefs ports (context := context)) values := by
   induction values generalizing captured context with
   | nil => intro _ p; cases p
@@ -87,7 +87,7 @@ private theorem headerStart_match (input : Tuple (Val m.value) (dataPorts inputs
   rw [tuple_get_map]
   exact (weakenUnpack_read m old _ _).trans (inputRefs_match m input p)
 
-private theorem arguments_read {args : List (Diamond.Ty Data)} {past : List (List (Diamond.Ty Data))}
+theorem arguments_read {args : List (Diamond.Ty Data)} {past : List (List (Diamond.Ty Data))}
     (resolve : ∀ {p}, Origin args past p → Ref context p)
     (env : Env (Atom m)) (entry : Tuple (Val m.value) args) (locals : RVSDG.Locals (Val m.value) past)
     (matched : ∀ {p} (wire : Origin args past p), env (resolve wire).val = encodePort m (read m wire entry locals))

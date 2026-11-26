@@ -3,6 +3,7 @@ module
 public import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.CfgEta
 public import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Feedback
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Category.Values.Thms
 
 /-! # Preservation by Paper, unary fusion, and their contextual closure
 -/
@@ -178,6 +179,31 @@ theorem paper_same {Γ L : List (Ty α)} {r s : Region Φ}
     rw [evalRegion_lsubst hn henv, evalRegion_lsubst hf henv, observes_collapse]
   | uniform he hp hq ha square ih => exact observes_uniform he hp ha ih
 
+
+open CfgEta.TypeCategory (returnRegion returnRegion_typed) in
+/-- Lowering an expression preserves its marked observation. The extra tests
+are performed inside expressions, including expressions moved under a let. -/
+theorem evalReturnRegion {Γ : VCtx (Ty α)} {t : Tm Φ} {A : Ty α}
+    (ht : Tm.HasType Γ t A) {env : Env} (he : EnvTy Γ env) :
+    evalRegion (returnRegion t) env =
+      match evalTerm t env with
+      | none => .fault
+      | some v => .jump 0 v := by
+  have bound (t : Tm Φ) (env : Env) : evalRegion (.let₁ t (.br 0 (.var 0))) env =
+      match evalTerm t env with
+      | none => .fault
+      | some v => .jump 0 v := by
+    rw [evalRegionWith]
+    cases evalTerm t env <;> rfl
+  induction ht generalizing env with
+  | @let₁ _ a b A D ha hb ia ib =>
+    rw [returnRegion, evalRegion_lsubst (returnRegion_typed ha) he, ia he, evalTermWith]
+    cases h : evalTerm a env with
+    | none => rfl
+    | some v =>
+      change evalRegion (returnRegion b) (extend env v) = _
+      exact ib (he.extend (evalTerm_typed ha he h))
+  | _ => exact bound _ _
 
 theorem unary_fusion_same {Γ L : List (Ty α)} {r s : Region Φ}
     (h : Paper.UnaryReturn.Step Γ r s L) : Same Γ r s := by

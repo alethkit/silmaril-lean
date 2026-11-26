@@ -1,7 +1,13 @@
 module
 
 import Silmaril.SSA.PEG.Simple.Thms
+import Silmaril.SSA.PEG.Simple.While.Thms
+import Silmaril.SSA.PEG.Simple.Structured.Thms
 import Silmaril.SSA.PEG.Thms
+meta import Silmaril.SSA.PEG.Defs
+meta import Silmaril.SSA.PEG.Simple.Structured.Defs
+meta import Silmaril.SSA.PEG.Simple.While.Defs
+meta import Silmaril.SSA.PEG.Simple.Defs
 
 namespace Silmaril.SSA.PEG.Simple.Tests
 
@@ -100,7 +106,7 @@ example : observe discardedFailure seven = .cons (some ⟨7⟩) .nil := by
   rfl
 
 /-- The factorial body carries accumulator and counter. -/
-private def factorialBody : Stmt Op true [.count, .count] [.count, .count] :=
+private def factorialBody : Stmt Op false [.count, .count] [.count, .count] :=
   .seq (.assign (.op .mul (.cons (.var .head) (.cons (.var (.tail .head)) .nil))))
     (.seq (.assign (.op .pred (.cons (.var (.tail (.tail .head))) .nil)))
       (.project (.cons (.tail .head) (.cons .head .nil))))
@@ -116,21 +122,21 @@ private def falling (acc : Nat) : Nat → Nat
   | n + 1 => falling (acc * (n + 1)) n
 
 private theorem factorialStep (acc n : Nat) :
-    Exec model factorialBody (carry acc (n + 1)) (some (carry (acc * (n + 1)) n)) :=
+    Exec model factorialBody.enableWhile (carry acc (n + 1)) (some (carry (acc * (n + 1)) n)) :=
   .seq (next := prependCount (acc * (n + 1)) (carry acc (n + 1))) (.assign rfl)
     (.seq (next := prependCount n (prependCount (acc * (n + 1)) (carry acc (n + 1))))
       (.assign rfl) .project)
 
 private theorem factorialExec (acc n : Nat) :
-    Exec model (.while rfl factorialGuard factorialBody) (carry acc n)
+    Exec model (.while rfl factorialGuard factorialBody.enableWhile) (carry acc n)
       (some (carry (falling acc n) 0)) := by
   induction n generalizing acc with
   | zero => exact .whileStop rfl
   | succ n ih => exact .whileStep rfl (factorialStep acc n) (ih (acc * (n + 1)))
 
-private def factorial : Program Op true [.count, .count] .count where
-  locals := [.count, .count]
-  body := .while rfl factorialGuard factorialBody
+private def factorial : WhileProgram Op [.count, .count] .count where
+  guard := factorialGuard
+  body := factorialBody
   retvar := .head
 
 /-- Manually wired Trans-While instance. Both θ nodes share the iteration
@@ -318,7 +324,7 @@ private theorem accumulatorExit (acc n : Nat) :
 /-- Every successful execution of the factorial source agrees with the
 manually wired graph's accumulator result. -/
 private theorem factorialPreserves (acc n : Nat) {value : model.Value .count}
-    (run : factorial.Returns model (carry acc n) value) :
+    (run : factorial.source.Returns model (carry acc n) value) :
     factorialGraph.observe model (factorialValue acc n) (clock 0) =
       .cons (some value) (.cons (some ⟨0⟩) .nil) := by
   obtain ⟨final, exec, returned⟩ := run
@@ -334,5 +340,154 @@ example : factorialGraph.observe model (factorialValue 1 10) (clock 0) =
 example : factorialGraph.observe model (factorialValue 7 0) (clock 0) =
     .cons (some ⟨7⟩) (.cons (some ⟨0⟩) .nil) :=
   factorialPreserves 7 0 ⟨carry 7 0, factorialExec 7 0, rfl⟩
+
+private noncomputable def automatic {params : List (Ty Unit)} {t : Ty Unit}
+    (p : WhileProgram Op params t) (input : Tuple model.Value params) :
+    Tuple (fun ty => Option (model.Value ty)) [t] :=
+  (p.translate .not).observe model
+    ((p.translate .not).denote model input (p.translate_demandWellFounded .not)) (clock 0)
+
+private theorem factorialCompiled (acc n : Nat) :
+    automatic factorial (carry acc n) = .cons (some ⟨falling acc n⟩) .nil :=
+  factorial.translate_returns .not model (carry acc n) (fun _ => rfl)
+    ⟨carry (falling acc n) 0, factorialExec acc n, rfl⟩ (clock 0)
+
+example : automatic factorial (carry 1 10) = .cons (some ⟨3628800⟩) .nil :=
+  factorialCompiled 1 10
+
+example : automatic factorial (carry 7 0) = .cons (some ⟨7⟩) .nil :=
+  factorialCompiled 7 0
+
+/-- The guard and the body make independent choices. The unchosen body arm
+applies a primitive that always fails. -/
+private def branchingLoop : WhileProgram Op [.count, .count] .count where
+  guard := factorialGuard
+  body := .branch (.op .positive (.cons (.var .head) .nil)) factorialBody
+    (.seq (.assign (.op .bad .nil))
+      (.project (.cons (.tail .head) (.cons (.tail (.tail .head)) .nil))))
+  retvar := .head
+
+private theorem branchingReturns : branchingLoop.source.Returns model (carry 2 1) ⟨2⟩ := by
+  refine ⟨carry 2 0, ?_, rfl⟩
+  exact .whileStep rfl (.branchTrue rfl (factorialStep 2 0)) (.whileStop rfl)
+
+example : automatic branchingLoop (carry 2 1) = .cons (some ⟨2⟩) .nil :=
+  branchingLoop.translate_returns .not model (carry 2 1) (fun _ => rfl) branchingReturns (clock 0)
+
+example : branchingLoop.source.Fails model (carry 0 1) :=
+  .whileBodyFailed rfl (.branchFalse rfl (.firstFailed (.assignFailed rfl)))
+
+example : factorial.rank.check (factorial.translate .not) = true := by decide
+example : (branchingLoop.translate .not).WellFormed := branchingLoop.translate_wellFormed .not
+
+private noncomputable def structured {params : List (Ty Unit)} {t : Ty Unit}
+    (p : Program Op true params t) (input : Tuple model.Value params) :
+    Tuple (fun ty => Option (model.Value ty)) [t] :=
+  let g := Structured.translate p .not
+  g.observe model (g.denote model input (Structured.translate_demandWellFounded p .not)) (fun _ => 17)
+
+/-- The second while is selected by a branch and initialized using the first
+while's exit. The alternative contains a failing primitive. -/
+private def siblingLoops : Program Op true [.count, .count] .count where
+  locals := [.count, .count]
+  body := .seq factorial.source.body
+    (.branch (.op .positive (.cons (.var .head) .nil))
+      (.seq (.project (.cons .head (.cons .head .nil))) factorial.source.body)
+      (.seq (.assign (.op .bad .nil))
+        (.project (.cons (.tail .head) (.cons (.tail (.tail .head)) .nil)))))
+  retvar := .head
+
+private theorem siblingReturns : siblingLoops.Returns model (carry 1 3) ⟨4320⟩ := by
+  refine ⟨carry 4320 0, ?_, rfl⟩
+  exact .seq (next := carry 6 0) (factorialExec 1 3)
+    (.branchTrue rfl (.seq (next := carry 6 6) .project (factorialExec 6 6)))
+
+example : structured siblingLoops (carry 1 3) = .cons (some ⟨4320⟩) .nil :=
+  Structured.translate_returns siblingLoops .not model (carry 1 3) (fun _ => rfl)
+    siblingReturns (fun _ => 17)
+
+private def triple (acc outer inner : Nat) : Tuple model.Value [.count, .count, .count] :=
+  .cons ⟨acc⟩ (.cons ⟨outer⟩ (.cons ⟨inner⟩ .nil))
+
+private def innerTest : Expr Op [.count, .count, .count] .bool :=
+  .op .positive (.cons (.var (.tail (.tail .head))) .nil)
+
+private def innerBody : Stmt Op true [.count, .count, .count] [.count, .count, .count] :=
+  .seq (.assign (.op .add (.cons (.var .head) (.cons (.var (.tail (.tail .head))) .nil))))
+    (.seq (.assign (.op .pred (.cons (.var (.tail (.tail (.tail .head)))) .nil)))
+      (.project (.cons (.tail .head) (.cons (.tail (.tail (.tail .head))) (.cons .head .nil)))))
+
+private def innerLoop : Stmt Op true [.count, .count, .count] [.count, .count, .count] :=
+  .while rfl innerTest innerBody
+
+private def innerResult (acc : Nat) : Nat → Nat
+  | 0 => acc
+  | k + 1 => innerResult (acc + (k + 1)) k
+
+private theorem innerExec (acc outer k : Nat) :
+    Exec model innerLoop (triple acc outer k) (some (triple (innerResult acc k) outer 0)) := by
+  induction k generalizing acc with
+  | zero => exact .whileStop rfl
+  | succ k ih =>
+    apply Exec.whileStep (next := triple (acc + (k + 1)) outer k) rfl ?_ (ih _)
+    exact .seq (next := prependCount (acc + (k + 1)) (triple acc outer (k + 1))) (.assign rfl)
+      (.seq (next := prependCount k (prependCount (acc + (k + 1)) (triple acc outer (k + 1))))
+        (.assign rfl) .project)
+
+private def outerTest : Expr Op [.count, .count, .count] .bool :=
+  .op .positive (.cons (.var (.tail .head)) .nil)
+
+private def outerBody : Stmt Op true [.count, .count, .count] [.count, .count, .count] :=
+  .seq (.project (.cons .head (.cons (.tail .head) (.cons (.tail .head) .nil))))
+    (.seq innerLoop
+      (.seq (.assign (.op .pred (.cons (.var (.tail .head)) .nil)))
+        (.project (.cons (.tail .head) (.cons .head (.cons (.tail (.tail (.tail .head))) .nil))))))
+
+private def outerResult (acc : Nat) : Nat → Nat
+  | 0 => acc
+  | k + 1 => outerResult (innerResult acc (k + 1)) k
+
+private theorem outerExec (acc k : Nat) :
+    Exec model (.while rfl outerTest outerBody) (triple acc k 0)
+      (some (triple (outerResult acc k) 0 0)) := by
+  induction k generalizing acc with
+  | zero => exact .whileStop rfl
+  | succ k ih =>
+    apply Exec.whileStep (next := triple (innerResult acc (k + 1)) k 0) rfl ?_ (ih _)
+    exact .seq (next := triple acc (k + 1) (k + 1)) .project
+      (.seq (next := triple (innerResult acc (k + 1)) (k + 1) 0) (innerExec acc (k + 1) (k + 1))
+        (.seq (next := prependCount k (triple (innerResult acc (k + 1)) (k + 1) 0))
+          (.assign rfl) .project))
+
+/-- The inner loop's trip count is the current outer counter. For an outer
+input of three the inner exits occur at three, two and one, respectively. -/
+private def nestedLoops : Program Op true [.count, .count, .count] .count where
+  locals := [.count, .count, .count]
+  body := .while rfl outerTest outerBody
+  retvar := .head
+
+example (acc n : Nat) : structured nestedLoops (triple acc n 0) =
+    .cons (some ⟨outerResult acc n⟩) .nil :=
+  Structured.translate_returns nestedLoops .not model (triple acc n 0) (fun _ => rfl)
+    ⟨triple (outerResult acc n) 0 0, outerExec acc n, rfl⟩ (fun _ => 17)
+
+example : structured nestedLoops (triple 0 3 0) = .cons (some ⟨10⟩) .nil :=
+  Structured.translate_returns nestedLoops .not model (triple 0 3 0) (fun _ => rfl)
+    ⟨triple 10 0 0, outerExec 0 3, rfl⟩ (fun _ => 17)
+
+private def passParents {params : List (Ty Unit)} (p : Program Op true params .count) :
+    List (Nat × Option Nat) :=
+  let g := Structured.translate p .not
+  (List.finRange (Structured.program p .not).nodes.length).filterMap fun i =>
+    (Structured.passLoop (g.node i).label).map fun loop =>
+      (loop.val, (g.forest.parent loop).map Fin.val)
+
+#guard match passParents siblingLoops with
+  | [(a, none), (b, none)] => a < b
+  | _ => False
+
+#guard match passParents nestedLoops with
+  | [(outer, none), (inner, some parent)] => parent = outer ∧ outer < inner
+  | _ => False
 
 end Silmaril.SSA.PEG.Simple.Tests

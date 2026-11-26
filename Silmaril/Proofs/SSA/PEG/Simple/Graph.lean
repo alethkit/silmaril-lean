@@ -80,7 +80,7 @@ private theorem eval_row (code : Code P params [] after) (p : Port after out) :
       exact (ih p).trans
         (emitValue_weaken m input (prior.eval m input .nil) (prior.row p).label (prior.row p).refs _).symm
 
-private theorem number_portAt : (ts : List (Ty Data)) → (i : Fin ts.length) →
+theorem number_portAt : (ts : List (Ty Data)) → (i : Fin ts.length) →
     (numberPort (portAt ts i)).id = i
   | [], i => i.elim0
   | _ :: ts, i => Fin.cases rfl (fun j => congrArg Fin.succ (number_portAt ts j)) i
