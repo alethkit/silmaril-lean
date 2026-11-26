@@ -19,13 +19,15 @@ import Silmaril.Languages.Starlark.Frontend.Module.LogicalCallChecks
 meta import Silmaril.Languages.Starlark.Frontend.Module.LogicalCallChecks
 import Silmaril.Languages.Starlark.Frontend.Module.ConditionalCallChecks
 meta import Silmaril.Languages.Starlark.Frontend.Module.ConditionalCallChecks
+import Silmaril.Languages.Starlark.Frontend.Module.BranchCallChecks
+meta import Silmaril.Languages.Starlark.Frontend.Module.BranchCallChecks
 import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 meta import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 
 open Lean Silmaril.Languages.Starlark.Frontend
 open Silmaril.Languages.Starlark.Frontend.Module
   (Observation controls spreadControls computedCallControls returnCallControls assignmentCallControls callStatementControls logicalCallControls
-    conditionalCallControls)
+    conditionalCallControls branchCallControls branchSyntaxControls branchSpanSource branchTestSpans)
 
 private def moduleObservation (expected : Observation) : Json :=
   let (phase, want) := match expected with
@@ -67,9 +69,16 @@ public def main (args : List String) : IO Unit := do
     [("name", toJson fixture.name), ("source", toJson fixture.source),
      ("accepts", toJson fixture.goAccepts)]
   let moduleControls := controls ++ spreadControls ++ computedCallControls ++
-    returnCallControls ++ assignmentCallControls ++ callStatementControls ++ logicalCallControls ++ conditionalCallControls
+    returnCallControls ++ assignmentCallControls ++ callStatementControls ++ logicalCallControls ++
+      conditionalCallControls ++ branchCallControls
   let modules := moduleControls.toArray.map fun control =>
     Json.mkObj [("name", toJson control.name), ("source", toJson control.source),
       ("accepts", toJson true), ("module", moduleObservation control.expected)]
   let loaders := Silmaril.Languages.Starlark.Frontend.Module.Loader.controls.toArray.map loaderFixture
-  IO.FS.writeFile output (Json.arr (entries ++ modules ++ loaders)).compress
+  let branchSyntax := branchSyntaxControls.toArray.map fun (name, source, _, accepts) =>
+    Json.mkObj [("name", toJson name), ("source", toJson source), ("accepts", toJson accepts)]
+  let branchSpans := Json.mkObj [("name", toJson "utf8-branch-test-spans"),
+    ("source", toJson branchSpanSource), ("accepts", toJson true),
+    ("branchTests", toJson (branchTestSpans.map fun span =>
+      [span.start.line, span.start.column, span.stop.line, span.stop.column]))]
+  IO.FS.writeFile output (Json.arr (entries ++ modules ++ loaders ++ branchSyntax |>.push branchSpans)).compress

@@ -200,7 +200,7 @@ private def lowerBodyStmt (span : Span) (source : FunctionStmt) : Except Diagnos
     let call ← lowerOperand value
     return ⟨.eval call.expression, call.applications⟩
   | .branch test yes no =>
-    let test ← lowerExpr span test
+    let test ← lowerOperand test
     let yes ← yes.attach.mapM fun ⟨stmt, member⟩ => do
       have := List.sizeOf_lt_of_mem member
       have : sizeOf stmt.stmt ≤ sizeOf stmt := by cases stmt; simp
@@ -209,8 +209,8 @@ private def lowerBodyStmt (span : Span) (source : FunctionStmt) : Except Diagnos
       have := List.sizeOf_lt_of_mem member
       have : sizeOf stmt.stmt ≤ sizeOf stmt := by cases stmt; simp
       lowerBodyStmt stmt.span stmt.stmt
-    return ⟨.branch test (LoweredBody.sequence yes) (LoweredBody.sequence no),
-      yes.flatMap LoweredBody.applications ++ no.flatMap LoweredBody.applications⟩
+    return ⟨.branch test.expression (LoweredBody.sequence yes) (LoweredBody.sequence no),
+      test.applications ++ yes.flatMap LoweredBody.applications ++ no.flatMap LoweredBody.applications⟩
 termination_by sizeOf source
 decreasing_by all_goals (simp_all <;> omega)
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"go.starlark.net/starlark"
@@ -12,11 +13,12 @@ import (
 )
 
 type fixture struct {
-	Name    string
-	Source  string
-	Accepts bool
-	Module  *moduleControl
-	Loader  *loaderControl
+	Name        string
+	Source      string
+	Accepts     bool
+	Module      *moduleControl
+	Loader      *loaderControl
+	BranchTests [][4]int32
 }
 
 type moduleControl struct {
@@ -37,6 +39,21 @@ type loaderControl struct {
 func isInteger(value starlark.Value, want string) bool {
 	integer, ok := value.(starlark.Int)
 	return ok && integer.String() == want
+}
+
+func checkBranchTests(file *syntax.File, want [][4]int32) error {
+	var got [][4]int32
+	syntax.Walk(file, func(node syntax.Node) bool {
+		if branch, ok := node.(*syntax.IfStmt); ok {
+			start, end := branch.Cond.Span()
+			got = append(got, [4]int32{start.Line, start.Col, end.Line, end.Col})
+		}
+		return true
+	})
+	if !slices.Equal(got, want) {
+		return fmt.Errorf("want branch test spans %v, got %v", want, got)
+	}
+	return nil
 }
 
 func checkModule(file *syntax.File, control moduleControl) error {
@@ -181,6 +198,12 @@ func main() {
 				failed = true
 			}
 		}
+		if f.BranchTests != nil {
+			if err := checkBranchTests(file, f.BranchTests); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %v\n", f.Name, err)
+				failed = true
+			}
+		}
 	}
 	spreads, err := checkGoSpreadControls()
 	if err != nil {
@@ -190,6 +213,6 @@ func main() {
 	if failed {
 		os.Exit(1)
 	}
-	fmt.Printf("Pinned Go matched %d parse expectations, %d module observations, %d loader controls, and %d Go-only spread controls\n",
+	fmt.Printf("Pinned Go matched %d parse expectations, %d module observations, %d loader controls, and %d Go-only controls\n",
 		len(fixtures), modules, loaders, spreads)
 }
