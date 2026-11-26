@@ -2,6 +2,8 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.BitQuery.RequestTree.Readback.Decision.Defs
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.BitQuery.RequestTree.Replay.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Defs
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.StructuralValues.Uniformity.Cyclic.Independent.FiniteReplies.Acyclic.Recognition.Thms
 
 /-! # Exact scope and contextual replay for checked query decisions -/
@@ -12,7 +14,7 @@ namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BitQueryDecisionRe
 
 open Silmaril Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
 open Paper.WithCaseBind.BitQuery Paper.WithCaseBind.BitQuery.RequestTree
-open Paper.WithCaseBind.BitQuery.RequestTree.Readback (Decision readDecision CaseOperandBeta caseOperand requestDecEq)
+open Paper.WithCaseBind.BitQuery.RequestTree.Readback (Decision readDecision CaseOperandBeta CaseOperandBetaIn caseOperand requestDecEq)
 open Paper.WithPairReturns.StructuralValues.Uniformity.Cyclic.Independent.FiniteReplies.Acyclic.Recognition
   (sameBody_eq)
 open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload (Bit)
@@ -129,10 +131,13 @@ private theorem choose_weak_focus (r : Region signature.Instr) (θ : Nat → Tm 
   rw [substVars_renameVars, renameVars_substVars]
   rfl
 
-theorem term_case_operand_of (beta : CaseOperandBeta) {Γ L : List (Ty Empty)} {i : Nat} (hi : At Γ i Bit)
+theorem term_case_operand_extension_of
+    {Seed : VCtx (Ty Empty) → Region signature.Instr → Region signature.Instr → LCtx (Ty Empty) → Prop}
+    (beta : CaseOperandBetaIn (Paper.Extension.Eqv Seed)) {Γ L : List (Ty Empty)} {i : Nat}
+    (hi : At Γ i Bit)
     (label : Bool) {l r : Region signature.Instr}
     (hl : ValueBranches (Bit :: Γ) l L) (hr : ValueBranches (Bit :: Γ) r L) :
-    Paper.Eqv Γ (.case (.op (.ask label) (caseOperand (.var i))) l r)
+    Paper.Extension.Eqv Seed Γ (.case (.op (.ask label) (caseOperand (.var i))) l r)
       (.case (.var i) ((requestRegion label false l r).renameVars Nat.succ)
         ((requestRegion label true l r).renameVars Nat.succ)) L := by
   let source := Region.case (.op (.ask label) (caseOperand (.var i))) l r
@@ -146,7 +151,7 @@ theorem term_case_operand_of (beta : CaseOperandBeta) {Γ L : List (Ty Empty)} {
     .case (.op (constructorBit_value b .unit).hasType) hl hr
   have ht : ValueBranches Γ target L :=
     .case (.var hi) ((hrequest false).renameVars (Ren.wk Γ U)) ((hrequest true).renameVars (Ren.wk Γ U))
-  have arms (b : Bool) : Paper.Eqv (U :: Γ) (source.substVars (focus i b)) (target.substVars (focus i b)) L := by
+  have arms (b : Bool) : Paper.Extension.Eqv Seed (U :: Γ) (source.substVars (focus i b)) (target.substVars (focus i b)) L := by
     let θ := focus i b
     let ls := l.substVars (Tm.liftSubst θ)
     let rs := r.substVars (Tm.liftSubst θ)
@@ -170,17 +175,31 @@ theorem term_case_operand_of (beta : CaseOperandBeta) {Γ L : List (Ty Empty)} {
     let left := (out false).renameVars (Ren.wk (U :: Γ) U)
     let right := (out true).renameVars (Ren.wk (U :: Γ) U)
     cases b
-    · apply Paper.Eqv.symm
-      refine (Paper.Eqv.cfgEta (.native (.base (.caseInl (.var rfl) left.hasType right.hasType)))).trans ?_
+    · apply Paper.Extension.Eqv.symm
+      refine (Paper.Extension.Eqv.paper (.cfgEta (.native (.base
+        (.caseInl (.var rfl) left.hasType right.hasType))))).trans ?_
       have erase := SubstitutionEquiv.letValue (.var (i := 0) rfl) left.hasType
       rw [drop_weakening] at erase
-      exact .cfgEta (.native erase)
-    · apply Paper.Eqv.symm
-      refine (Paper.Eqv.cfgEta (.native (.base (.caseInr (.var rfl) left.hasType right.hasType)))).trans ?_
+      exact .paper (.cfgEta (.native erase))
+    · apply Paper.Extension.Eqv.symm
+      refine (Paper.Extension.Eqv.paper (.cfgEta (.native (.base
+        (.caseInr (.var rfl) left.hasType right.hasType))))).trans ?_
       have erase := SubstitutionEquiv.letValue (.var (i := 0) rfl) right.hasType
       rw [drop_weakening] at erase
-      exact .cfgEta (.native erase)
-  exact (Paper.Eqv.cfgEta (.native (native_focus_bit hi hsource.hasType))).symm.trans
-    ((Paper.Eqv.case (.var hi) (arms false) (arms true)).trans (.cfgEta (.native (native_focus_bit hi ht.hasType))))
+      exact .paper (.cfgEta (.native erase))
+  exact (Paper.Extension.Eqv.paper (.cfgEta (.native (native_focus_bit hi hsource.hasType)))).symm.trans
+    ((Paper.Extension.Eqv.case (.var hi) (arms false) (arms true)).trans
+      (.paper (.cfgEta (.native (native_focus_bit hi ht.hasType)))))
+
+theorem term_case_operand_of (beta : CaseOperandBeta) {Γ L : List (Ty Empty)} {i : Nat} (hi : At Γ i Bit)
+    (label : Bool) {l r : Region signature.Instr}
+    (hl : ValueBranches (Bit :: Γ) l L) (hr : ValueBranches (Bit :: Γ) r L) :
+    Paper.Eqv Γ (.case (.op (.ask label) (caseOperand (.var i))) l r)
+      (.case (.var i) ((requestRegion label false l r).renameVars Nat.succ)
+        ((requestRegion label true l r).renameVars Nat.succ)) L := by
+  have lifted : CaseOperandBetaIn (Paper.Extension.Eqv Paper.Eqv) := by
+    intro _ _ tag b _ _ hleft hright
+    exact .paper (beta tag b hleft hright)
+  exact (term_case_operand_extension_of lifted hi label hl hr).toPaper (fun h => h)
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BitQueryDecisionReadback

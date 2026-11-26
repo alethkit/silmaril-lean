@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.BitQuery.RequestTree.Readback.Decision.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BitQueryDecisionReadback
 
 /-! # Exact replay of staged pure query decisions -/
@@ -40,5 +41,17 @@ theorem term_case_operand_of (beta : CaseOperandBeta) {Γ L : List (Ty Empty)} {
       (.case (.var i) ((requestRegion label false l r).renameVars Nat.succ)
         ((requestRegion label true l r).renameVars Nat.succ)) L :=
   BitQueryDecisionReadback.term_case_operand_of beta hi label hl hr
+
+/-- The same focused replay applies in a contextual extension containing
+the operand-beta comparison. -/
+theorem term_case_operand_extension_of
+    {Seed : VCtx (Ty Empty) → Region signature.Instr → Region signature.Instr → LCtx (Ty Empty) → Prop}
+    (beta : CaseOperandBetaIn (Paper.Extension.Eqv Seed)) {Γ L : List (Ty Empty)} {i : Nat}
+    (hi : At Γ i Bit) (label : Bool) {l r : Region signature.Instr}
+    (hl : ValueBranches (Bit :: Γ) l L) (hr : ValueBranches (Bit :: Γ) r L) :
+    Paper.Extension.Eqv Seed Γ (.case (.op (.ask label) (caseOperand (.var i))) l r)
+      (.case (.var i) ((requestRegion label false l r).renameVars Nat.succ)
+        ((requestRegion label true l r).renameVars Nat.succ)) L :=
+  BitQueryDecisionReadback.term_case_operand_extension_of beta hi label hl hr
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.BitQuery.RequestTree.Readback
