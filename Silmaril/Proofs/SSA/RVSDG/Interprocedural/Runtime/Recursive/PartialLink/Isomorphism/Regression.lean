@@ -2,7 +2,7 @@ module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Thms
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Defs
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
@@ -701,8 +701,9 @@ private theorem baseIso : NestedTheta.Graph.Isomorphic (Instruction Op) baseL.to
     intro arm
     exact NestedTheta.Graph.Isomorphic.refl _
 
-private theorem branchBodyIso :
-    NestedTheta.Graph.Isomorphic (Instruction Op) (branchBody baseL).toGraph (branchBody baseR).toGraph := by
+private theorem branchBodyWithIso (opcode : Op [num] [num]) :
+    NestedTheta.Graph.Isomorphic (Instruction Op)
+      (branchBodyWith baseL opcode).toGraph (branchBodyWith baseR opcode).toGraph := by
   refine .intro rfl rfl (Equiv.refl _) ?_ ?_ rfl ?_
   · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
   · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
@@ -729,7 +730,7 @@ private def branchRefR : machine.Val branchFn.port :=
   .member (.cons (globalValue 1 8) .nil) branchGroupR.toGraph.definitions 0
 
 private theorem branchGroupsIso : branchGroupL.Renumbered (renameVertex positions) branchGroupR :=
-  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyIso⟩ (fun i => i.elim0)⟩
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyWithIso .seed⟩ (fun i => i.elim0)⟩
 
 private theorem branchModulesIso : branchModuleL.toGraph.RenumberedBy branchModuleR.toGraph positions :=
   (branchModuleL.renumberedBy_toGraph_iff branchModuleR positions).2
@@ -903,7 +904,7 @@ private def wrappedIds : GlobalRel := fun left right =>
   left.1 = right.1 ∧ renameVertex wrappedPositions left.2 = right.2
 
 private theorem wrappedGroupsIso : branchGroupL.Renumbered (renameVertex wrappedPositions) branchGroupR :=
-  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyIso⟩ (fun i => i.elim0)⟩
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyWithIso .seed⟩ (fun i => i.elim0)⟩
 
 private theorem wrapperIso : wrapperL.Renumbered (renameVertex wrappedPositions) wrapperR :=
   ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩
@@ -1012,7 +1013,7 @@ example : match Executable.link actions 73 wrappedL.toGraph (number 1) 20,
   simp [RecursiveCall.Numbered.admitExport, foreignRejected]
 
 open RecursiveCall.Numbered (linkedLambda)
-open RecursiveCall.Numbered.Prefix (GraphPlan Plan admit admitGraph)
+open RecursiveCall.Numbered.Prefix (GraphPlan Plan StartsRelated admit admitGraph admitGraph_starts)
 
 private abbrev prefixL : List (Ports T) := [[global], [branchFn.port], []]
 private abbrev prefixR : List (Ports T) := [[], [global], [branchFn.port]]
@@ -1521,6 +1522,10 @@ private def secondProfileGroup (right gain : Bool) :=
   selfGroup branchFn (.output (1 : Fin 3) .head : Origin args [[global], [global], [branchFn.port]] global)
     (profiledBody right (if gain then .gain else .seed))
 
+private def profileLambda :
+    LambdaTerm Op args [[global], [global], [branchFn.port], [branchFn.port]] branchFn :=
+  combined (.output 2 .head) (.output 3 .head)
+
 private def profileGraph (right gain : Bool) :
     Omega Op args captureExports [[global], [global], [branchFn.port], [branchFn.port], [branchFn.port]] where
   region := {
@@ -1528,8 +1533,7 @@ private def profileGraph (right gain : Bool) :
       Fin.cases (.delta finishL.toGraph) <|
       Fin.cases (.phi (firstProfileGroup right).toGraph) <|
       Fin.cases (.phi (secondProfileGroup right gain).toGraph) <|
-      Fin.cases (.lambda (combined (past := [[global], [global], [branchFn.port], [branchFn.port]])
-        (.output 2 .head) (.output 3 .head)).toGraph) (fun i => i.elim0)
+      Fin.cases (.lambda profileLambda.toGraph) (fun i => i.elim0)
     results := .cons (.output (2 : Fin 5) .head) (.cons (.output (3 : Fin 5) .head)
       (.cons (.output (4 : Fin 5) .head) .nil))
   }
@@ -1538,10 +1542,11 @@ private def profilePlan (gain : Bool) :
     GraphPlan (profileGraph false gain) (profileGraph true gain) :=
   .skipL (.skipR (.skipL (.skipR (.seed (.phi (.lambda .done))))))
 
+private abbrev profilePort : Port captureExports branchFn.port := .tail (.tail .head)
+
 private def profileAdmission (gain : Bool) (flag : Nat := 1) :=
   admitGraph instructionKeys actions Eq ordinaryOutputs 73 73 (number flag) (number flag)
-    (profileGraph false gain) (profileGraph true gain) (profilePlan gain) (fn := branchFn)
-    (.tail (.tail .head)) 20 20
+    (profileGraph false gain) (profileGraph true gain) (profilePlan gain) (fn := branchFn) profilePort 20 20
 
 -- Both groups have the same declared function and the same outer capture
 -- type. Changing the outer suffix opcode separates their definitions.
@@ -1582,6 +1587,100 @@ example : (match Executable.run actions 100 73 (profileGraph false true) (number
     (.tail (.tail .head)) (branchArgs 1) 20 with
   | .error ⟨unitId, vertex, ⟨_, _, .finish, _, _, inputs⟩, store⟩ => some (unitId, vertex, inputs, store)
   | _ => none) = some (73, 1, finishInputs 0 7 0, 23) := by cbv
+
+private abbrev profilePositions := Equiv.refl (Fin 5)
+
+private theorem firstProfileIso :
+    (firstProfileGroup false).Renumbered (renameVertex profilePositions) (firstProfileGroup true) :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyWithIso .seed⟩ (fun i => i.elim0)⟩
+
+private theorem secondProfileIso :
+    (secondProfileGroup false true).Renumbered (renameVertex profilePositions) (secondProfileGroup true true) :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyWithIso .gain⟩ (fun i => i.elim0)⟩
+
+private theorem profileLambdaIso : profileLambda.Renumbered (renameVertex profilePositions) profileLambda :=
+  ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩
+
+private theorem profileGraphIso : (profileGraph false true).RenumberedBy (profileGraph true true) profilePositions := by
+  refine ⟨?_, rfl⟩
+  exact Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+    (Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+      (Fin.cases (.phi firstProfileIso) (Fin.cases (.phi secondProfileIso)
+        (Fin.cases (.lambda profileLambdaIso) (fun i => i.elim0)))))
+
+private def profileTerm (right : Bool) :
+    OmegaTerm Op args captureExports [[global], [global], [branchFn.port], [branchFn.port], [branchFn.port]] :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.delta finishL) <| .bind (.phi (firstProfileGroup right)) <|
+    .bind (.phi (secondProfileGroup right true)) <| .bind (.lambda profileLambda) <|
+    .ret (profileGraph right true).region.results⟩
+
+private theorem profileGraph_eq (right : Bool) : profileGraph right true = (profileTerm right).toGraph := rfl
+
+private theorem profileOrder : Ordered Op (renameVertex profilePositions) args captureExports
+    (profileGraph false true).toTerm.region (profileGraph true true).toTerm.region := by
+  rw [profileGraph_eq false, profileGraph_eq true, OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+  exact .bind rfl (.delta ⟨rfl, rfl⟩ seedTerm) (.bind rfl (.delta ⟨rfl, rfl⟩ finishTerm)
+    (.bind rfl (.phi firstProfileIso) (.bind rfl (.phi secondProfileIso)
+      (.bind rfl (.lambda profileLambdaIso) (.ret _ _)))))
+
+private theorem profileStarts (flag : Nat) :
+    StartsRelated primitives Eq (renameVertex profilePositions) captureExports
+      ((profileAdmission true flag).isSome = true)
+      (Executable.start actions 73 (profileGraph false true) (number flag) profilePort (branchArgs 1) 20)
+      (Executable.start actions 73 (profileGraph true true) (number flag) profilePort (branchArgs 1) 20) := by
+  have address (i : Nat) : renameVertex profilePositions i = i := by
+    unfold renameVertex
+    split <;> rfl
+  have imports : TupleRelated machine Eq (number flag) (number flag) :=
+    .cons (ValueRelated.data (m := machine) (ids := Eq) (t := ()) flag) .nil
+  have inputs : TupleRelated machine Eq (branchArgs 1) (branchArgs 1) :=
+    .cons (ValueRelated.data (m := machine) (ids := Eq) (t := ()) (1 : Nat))
+      (.cons (.control 1) (.cons (.control 0) .nil))
+  exact admitGraph_starts instructionKeys actions (respectsGlobals Eq) ordinaryOutputs profileGraphIso profileOrder
+    (fun i => by rw [address i]) imports (profilePlan true) (fn := branchFn) profilePort inputs rfl 20
+
+private def profileSource (right : Bool) : Config machine Nat [num] :=
+  let callee : machine.Val branchFn.port :=
+    .closure (.cons (firstProfileRef right) (.cons (secondProfileRef right true) .nil)) combinedBody.toGraph
+  ⟨Continuation.start (.call callee (branchArgs 1)), 28⟩
+
+private theorem profileStart (right : Bool) :
+    Executable.start actions 73 (profileGraph right true) (number 1) profilePort (branchArgs 1) 20 =
+      .ok (profileSource right) := by
+  cases right <;> cbv
+
+private theorem profileAccepted : (profileAdmission true 1).isSome = true := by decide +kernel
+
+-- Obtain the right run from the actual left run using the public bridge.
+example : ∃ source target,
+    Executable.start actions 73 (profileGraph true true) (number 1) profilePort (branchArgs 1) 20 = .ok source ∧
+    ReflTransGen (Step primitives) source target ∧ target.result = some (number 52, 65) := by
+  have starts := profileStarts 1
+  rw [profileStart false, profileStart true] at starts
+  obtain ⟨_, _, closed, admitted⟩ := starts profileAccepted
+  have reached := Continuation.Partial.Executable.runFor_reachable actions 100 (profileSource false)
+  have result : (runFor actions 100 (profileSource false)).result = some (number 52, 65) := by cbv
+  obtain ⟨target, value, path, got, paired⟩ :=
+    (ClosedFamily.returns (respectsGlobals Eq) closed admitted).1 _ _ _ reached result
+  cases paired with
+  | cons head tail =>
+    cases head
+    cases tail
+    exact ⟨_, target, profileStart true, path, got⟩
+
+private def profileFailure : Failure machine Nat := ⟨73, 1, finishSite 0 7 0, 23⟩
+
+private theorem profileStops (right : Bool) :
+    Executable.start actions 73 (profileGraph right true) (number 0) profilePort (branchArgs 1) 20 =
+      .error profileFailure := by
+  cases right <;> cbv <;> congr <;> funext i <;> exact i.elim0
+
+-- Failed initialization is related before either side can start a call.
+example : OutcomesRelated machine Eq Nat (renameVertex profilePositions) captureExports
+    (.undefined profileFailure) (.undefined profileFailure) := by
+  have starts := profileStarts 0
+  rw [profileStops false, profileStops true] at starts
+  exact starts
 
 open RecursiveCall.Numbered (GroupProfile LabelCode memberProfile memberProfile_eq)
 
