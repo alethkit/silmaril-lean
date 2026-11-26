@@ -2,8 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.BranchNormalization.Defs
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Defs
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseReturns.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseAndUnaryReturns.Defs
 
 /-! # A typed acyclic fragment for syntactic round trips -/
 
@@ -59,6 +58,6 @@ def Code.guardedSSA {n : Nat} {β : BoundCtx τ n} {A : τ} (c : Code Φ β A) (
 /-- Use the existing unary return fusion and the pure case-return rule. -/
 abbrev RoundTripSeed {ε : Type w} [HasEff Φ ε] (pe : ε)
     (Γ : VCtx τ) (r s : Region Φ) (L : LCtx τ) : Prop :=
-  Region.Paper.UnaryReturn.Step Γ r s L ∨ Region.Paper.WithCaseReturns.Step pe Γ r s L
+  Region.Paper.WithCaseAndUnaryReturns.Step pe Γ r s L
 
 end Silmaril.Isotope.LambdaSSA.Acyclic
