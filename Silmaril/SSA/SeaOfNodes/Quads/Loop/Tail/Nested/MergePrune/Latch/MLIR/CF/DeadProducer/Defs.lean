@@ -9,7 +9,8 @@ public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Sp
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.MLIR.CF.DeadProducer
 
-open SeaOfNodes.Diamond (ValueSort)
+open SeaOfNodes.Diamond (ValueSort dataPorts)
+open SeaOfNodes.Pure.Deletion.Iteration (Table)
 open SeaOfNodes.Loop.MLIR.CF (Op)
 open Silmaril.MLIR.Arith (Width)
 open Diamond.Prune (HeaderProjection)
@@ -19,10 +20,15 @@ variable {regs : List (ValueSort Width)} {out : ValueSort Width} {size : Nat}
 variable {src : Source Op regs out size} {entry : Fin size} {carry merge atLatch : Mask regs}
 variable (p : Program src entry) (projected : HeaderProjection (src p.header).body carry)
 variable (checked : Split.Checked p carry merge atLatch)
-variable (cut : Split.DeadProducer.Checked checked.latchTransfer)
 
 /-- Reuse the certified CFG and emit the shortened table at the same latch label. -/
+def lowerWith (table : Table Op (dataPorts atLatch.kept) (packetPorts out carry)) :
+    Target (carry := carry) (merge := merge) (atLatch := atLatch) p :=
+  withLatch p (CF.lower p projected checked) (latchCode p table.flow table.packet)
+
+variable (cut : Split.DeadProducer.Checked checked.latchTransfer)
+
 def lower : Target (carry := carry) (merge := merge) (atLatch := atLatch) p :=
-  withLatch p (CF.lower p projected checked) (latchCode p cut.erased.flow cut.outgoing)
+  lowerWith p projected checked cut.table
 
 end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.MLIR.CF.DeadProducer
