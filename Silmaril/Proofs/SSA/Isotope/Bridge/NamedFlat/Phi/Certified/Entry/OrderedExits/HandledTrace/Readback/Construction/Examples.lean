@@ -1,8 +1,9 @@
 module
 
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.Ordered.Defs
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.TwoRequests.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Thms
+import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Packed.Thms
 meta import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Defs
 
 namespace Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.Construction.Examples
@@ -189,5 +190,84 @@ example : NamedFlat.checkBody (fun _ => (.unit : Ty SortName)) context twoReques
 
 example : Visible.elaborateRow (blocks := 1) (exits := 1) (fun _ => .unit) signature [.unit]
     twoRequests.erase = none := rfl
+
+-- The rejected row itself succeeds when split and compiled through the
+-- same public constructor used above.
+private def rejected : LambdaSSA.FiniteCFG Unit 1 1 0 :=
+  ⟨.br 0 .unit, fun _ => twoRequests⟩
+
+private def splitRejected : TwoRequests.Checked signature .nil .unit (fun _ => .unit) rejected :=
+  (TwoRequests.check signature .nil .unit (fun _ => .unit) rejected).get (by decide)
+
+private def compiledRejected :=
+  (construct signature (TwoRequests.packets signature .unit splitRejected.shape)
+    (fun _ => .unit) splitRejected.emitted.code).get (by decide)
+
+example : compiledRejected.program.locals = 2 := rfl
+
+-- Distinct opcodes let us check the request order, and changing the first
+-- reply changes the second request and the payload of the second exit.
+private def sumType : PacketType := .coprod .unit .unit
+
+private def orderedSignature : PrimitiveSignature Bool :=
+  ⟨fun op => if op then sumType else .unit, fun op => if op then .unit else sumType⟩
+
+private def orderedExits (i : Fin 2) : PacketType :=
+  if i.val = 0 then .unit else .product sumType .unit
+
+private def ordered : LambdaSSA.FiniteCFG Bool 1 2 0 :=
+  ⟨.br 0 .unit, fun _ => .let₁ (.op false (.bv 0))
+    (.let₁ (.op true (.bv 0)) (.br 2 (.pair (.bv 1) (.bv 2))))⟩
+
+private def splitOrdered : TwoRequests.Checked orderedSignature .nil .unit orderedExits ordered :=
+  (TwoRequests.check orderedSignature .nil .unit orderedExits ordered).get (by decide)
+
+private def compiledOrdered :=
+  (construct orderedSignature (TwoRequests.packets orderedSignature .unit splitOrdered.shape)
+    orderedExits splitOrdered.emitted.code).get (by decide)
+
+private def dispatcher := compiledOrdered.program
+private def askFirst : orderedSignature.Request := ⟨false, ⟨⟩⟩
+private def askSecond (first : orderedSignature.Reply askFirst) : orderedSignature.Request := ⟨true, first⟩
+
+private def resume (first : orderedSignature.Reply askFirst) : dispatcher.State := by
+  refine ⟨⟨.inl ⟨1, by decide⟩, ?_⟩⟩
+  change PUnit × (PUnit ⊕ PUnit)
+  exact (⟨⟩, first)
+
+private def returned (first : orderedSignature.Reply askFirst) : dispatcher.State :=
+  ⟨⟨.inr 1, (first, ⟨⟩)⟩⟩
+
+example : dispatcher.step (dispatcher.start 0 ⟨⟩) = .inl (.request askFirst resume) := rfl
+example (first : orderedSignature.Reply askFirst) :
+    dispatcher.step (resume first) = .inl (.request (askSecond first) (fun _ => returned first)) := rfl
+
+private def noCaptures : Env Atom := fun _ => .unit
+
+private theorem codec_id (x : Value Atom) : valueCodec id x = x := by
+  induction x <;> simp_all only [valueCodec, id_eq]
+
+private theorem primitiveIdentity : PrimitivesAgree orderedSignature.primitive orderedSignature.primitive id := by
+  intro op value
+  rw [codec_id, show valueCodec (id : Atom → Atom) = id from funext codec_id, id_map]
+
+/-- The original second request still receives the first reply, and its
+reply remains in the payload at the same ordered exit of the packed dispatcher. -/
+theorem ordered_observation :
+    (LambdaSSA.Semantics.Interaction.region orderedSignature.primitive noCaptures ordered.erase >>=
+      fun out => pure (LambdaSSA.FiniteCFG.packedTreeOutput out)) =
+      compiledOrdered.packed.observe noCaptures noCaptures := by
+  have codec : resultCodec (id : Atom → Atom) = id := by
+    funext out
+    cases out
+    simp only [resultCodec, codec_id, id_eq]
+  simpa only [codec, id_map] using
+    splitOrdered.emitted.public_run compiledOrdered noCaptures noCaptures noCaptures id primitiveIdentity rfl
+
+example :
+    (LambdaSSA.Semantics.Interaction.region orderedSignature.primitive noCaptures ordered.erase >>=
+      fun out => pure (LambdaSSA.FiniteCFG.packedTreeOutput out)) =
+      (dispatcher.observe 0 ⟨⟩ >>= fun out => pure (LambdaSSA.FiniteCFG.packedTreeOutput out)) :=
+  ordered_observation.trans (compiledOrdered.packed.observe_eq ⟨⟩ _ _ (fun _ => rfl))
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.Construction.Examples
