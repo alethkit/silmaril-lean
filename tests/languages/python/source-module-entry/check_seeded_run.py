@@ -57,6 +57,7 @@ private def detail : AssertionArgument → String
   | .booleanPair left right => s!"bool-pair:{left}:{right}"
   | .textPair left right =>
     s!"text-pair:{reprStr (left.points.map UInt32.toNat)}:{reprStr (right.points.map UInt32.toNat)}"
+  | .tuplePair left right => s!"tuple-pair:{reprStr left}:{reprStr right}"
 
 private def raised : Raised → String
   | .assertionError argument => "AssertionError:" ++ detail argument

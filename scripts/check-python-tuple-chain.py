@@ -19,6 +19,8 @@ PIN = "tests/python/programs/original/k-python/programs/testtuples3.py"
 SHA = "6ebe39b5877a6dcf2bf137915fefa9ed1ed2bb71873552fe37af2bef5b1d77b5"
 CONSTRUCTORS_PIN = "tests/python/programs/original/lambda-py/python-reference/tuple/tuple-constructors.py"
 CONSTRUCTORS_SHA = "f4c4456ed6ffc8dc95d34f46a18636a57196236e1ff7bafc5cc4b851532adf18"
+IMMUTABLE_ALIAS_PIN = "tests/python/programs/original/lambda-py/python-reference/scope/immutable-alias.py"
+IMMUTABLE_ALIAS_SHA = "e5c11007f121cac93bfb3cbb9aa9ec74b48ac1e617400434a42b4668b7b9f7ef"
 
 LEAN = SUITE["LEAN"] + """
 open Compile.ModuleEntry.Functions
@@ -69,6 +71,10 @@ private def ordinaryTuple (source : Source.Module) : Option (String × String ×
 
 STOCK = "(legacyTupleSeed .builtin)"
 MASKED = f'({STOCK}.bindGlobal "tuple" .none)'
+
+
+def assert_equal(left, right):
+    assert left == right, (left, right)
 
 
 def execute(source, builtins, initial=None, expected=None):
@@ -290,9 +296,6 @@ def replay_empty_constructor(checkout, source_path, lean_path):
     def equal_empty(left, right):
         assert left is empty_tuple and right is empty_tuple
 
-    def equal(left, right):
-        assert left == right
-
     def truth(value):
         assert value
 
@@ -301,7 +304,7 @@ def replay_empty_constructor(checkout, source_path, lean_path):
     assert execute(first_statement, {"___assertEqual": equal_empty}, expected={}) == "NameError:tuple"
     assert execute(first_statement, {}, expected={}) == "NameError:___assertEqual"
     assert execute(first_statement, both, {"tuple": 7}, {"tuple": 7}) == "TypeError"
-    assert execute(source, {"tuple": tuple, "___assertEqual": equal, "___assertTrue": truth},
+    assert execute(source, {"tuple": tuple, "___assertEqual": assert_equal, "___assertTrue": truth},
                    expected={"t0_3": (0, 1, 2, 3), "t0_3_bis": (0, 1, 2, 3)}) == "normal"
 
     first = "firstConstructorStatement"
@@ -324,8 +327,8 @@ private def firstConstructorStatement : Source.Module := ⟨pythonSource.body.ta
         guards.extend((
             outcome(base, "NameError:tuple", f"{base}.moduleGlobals",
                     '[("tuple", .error (.raised (.runtime (.nameError "tuple"))))]', first),
-            outcome(stock, "unsupported", f"{stock}.moduleGlobals",
-                    '[("tuple", .ok (.returnedTuple [])), ("___assertEqual", .error .unsupported)]', first),
+            outcome(stock, "normal", f"{stock}.moduleGlobals",
+                    '[("tuple", .ok (.returnedTuple [])), ("___assertEqual", .ok .none)]', first),
         ))
     mask = f'({STOCK}.bindGlobal "tuple" (.int 7))'
     guards.append(outcome(mask, "TypeError", f"{mask}.moduleGlobals",
@@ -339,7 +342,81 @@ private def firstConstructorStatement : Source.Module := ⟨pythonSource.body.ta
         STOCK, "TypeError", '[("answer", .returnedTuple []), ("tuple", .int 7), ("saved", .builtin .tuple)]',
         '[("saved", .ok (.returnedTuple [])), ("tuple", .error (.raised (.runtime .notCallable)))]'))
     return {"sha256": CONSTRUCTORS_SHA, "inner": "canonical empty tuple",
-            "stock_seeded_prefix": "unsupported tuple helper equality", "whole_source": "rejected"}
+            "stock_seeded_prefix": "normal", "whole_source": "rejected"}
+
+
+def replay_immutable_alias(checkout, source_path, lean_path):
+    source = SUITE["pinned_source"](checkout, IMMUTABLE_ALIAS_PIN, IMMUTABLE_ALIAS_SHA)
+    statements = ast.parse(source).body
+    assert statements[15].lineno == 21
+    prefix = ast.Module(body=statements[:15], type_ignores=[])
+    expected = {"x": 2, "y": 3, "t": (1, 2, 3), "t1": (1, 2, 3, 4)}
+    helper = {"___assertEqual": assert_equal}
+    assert execute(prefix, {}, expected={"x": 2, "y": 1}) == "NameError:___assertEqual"
+    assert execute(prefix, helper, expected=expected) == "normal"
+    assert execute(prefix, {}, helper, expected | helper) == "normal"
+
+    prefix_term = "beforeTextBinding"
+    guards = ["""
+private def beforeTextBinding : Source.Module := ⟨pythonSource.body.take 15⟩
+#guard (match Compile.ModuleEntry.Functions.Run.compile pythonSource with
+  | .error (.source (.scalar .expressionProfile)) => true
+  | _ => false)
+#guard ordinaryTuple beforeTextBinding == some ("NameError:___assertEqual", "absent", "absent")
+"""]
+    guards.append(outcome("Namespace.empty", "NameError:___assertEqual", '[("x", .int 2), ("y", .int 1)]',
+                          '[("___assertEqual", .error (.raised (.runtime (.nameError "___assertEqual"))))]',
+                          prefix_term))
+    bindings = ('[("t1", .returnedTuple [.int 1, .int 2, .int 3, .int 4]), '
+                '("t", .returnedTuple [.int 1, .int 2, .int 3]), ("y", .int 3), ("x", .int 2)]')
+    for placement in ("builtin", "preamble"):
+        space = f'(initial "legacy_{placement}")'
+        guards.append(outcome(space, "normal", f"({bindings} ++ {space}.moduleGlobals)",
+                              '(List.replicate 7 ("___assertEqual", .ok .none))', prefix_term))
+    check(source, source_path, lean_path, *guards)
+    return {"sha256": IMMUTABLE_ALIAS_SHA, "prefix_statements": len(prefix.body),
+            "seeded_prefix": "normal", "whole_source": "rejected at text binding"}
+
+
+def tuple_helper_controls(source_path, lean_path):
+    builtins = {"tuple": tuple, "___assertEqual": assert_equal}
+    source = ("saved = ___assertEqual\n___assertEqual = 0\n"
+              "saved((True, False, None, -2), (1, 0, None, -2))\n"
+              "___assertEqual(tuple(), ())\nunreached = 9\n")
+    assert execute(source, builtins, expected={"saved": assert_equal, "___assertEqual": 0}) == "TypeError"
+    check(source, source_path, lean_path, outcome(
+        STOCK, "TypeError", '[("___assertEqual", .int 0), ("saved", .helper .assertEqual)]',
+        '[("saved", .ok .none), ("tuple", .ok (.returnedTuple [])), '
+        '("___assertEqual", .error (.raised (.runtime .notCallable)))]'))
+
+    for source, missing, receipts in (
+        ("___assertEqual(missing_left, tuple())\n", "missing_left", "[]"),
+        ("___assertEqual(tuple(), missing_right)\n", "missing_right", '[("tuple", .ok (.returnedTuple []))]'),
+    ):
+        assert execute(source, builtins, expected={}) == f"NameError:{missing}"
+        check(source, source_path, lean_path, outcome(STOCK, f"NameError:{missing}", "[]", receipts))
+
+    for left, right, left_lean, right_lean in (
+        ((True, None), (1, 0), "[.bool true, .none]", "[.int 1, .int 0]"),
+        ((), (False,), "[]", "[.bool false]"),
+        ((1, 2), (2, 1), "[.int 1, .int 2]", "[.int 2, .int 1]"),
+    ):
+        source = f"___assertEqual({left!r}, {right!r})\nunreached = 9\n"
+        namespace = {"__builtins__": builtins}
+        try:
+            exec(compile(source, "<tuple mismatch>", "exec", dont_inherit=True, optimize=0), namespace)
+        except AssertionError as error:
+            got_left, got_right = error.args[0]
+            assert error.args == ((left, right),) and set(namespace) == {"__builtins__"}
+            for actual, expected in ((got_left, left), (got_right, right)):
+                assert [(type(item), item) for item in actual] == [(type(item), item) for item in expected]
+        else:
+            raise AssertionError("tuple mismatch completed")
+        failure = f".assertionError (.tuplePair {left_lean} {right_lean})"
+        check(source, source_path, lean_path,
+              f'#guard tupleOutcome pythonSource {STOCK} (raised ({failure})) [] '
+              f'[("___assertEqual", .error (.raised ({failure})))]')
+    return {"numeric_scalar_equality": True, "failure_payloads": True, "callee_and_operand_order": True}
 
 
 if __name__ == "__main__":
@@ -353,5 +430,7 @@ if __name__ == "__main__":
         evidence = {"cpython": sys.version.split()[0], "pin": replay_pin(args.upstream, source, lean),
                     "methods": method_controls(), "chains": chain_controls(source, lean),
                     "constructors": constructor_controls(source, lean),
-                    "linked_empty_constructor": replay_empty_constructor(args.upstream, source, lean)}
+                    "linked_empty_constructor": replay_empty_constructor(args.upstream, source, lean),
+                    "immutable_alias": replay_immutable_alias(args.upstream, source, lean),
+                    "tuple_helper": tuple_helper_controls(source, lean)}
     print(json.dumps(evidence))
