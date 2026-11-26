@@ -361,6 +361,35 @@ def DispatchKeys.addGroup {Key : Type v} {Capture : Type w} (prior : DispatchKey
     (left right : GroupProfile V S Key) : DispatchKeys V S Key Capture :=
   { prior with groupsL := left :: prior.groupsL, groupsR := right :: prior.groupsR }
 
+def DispatchKeys.append {Key : Type v} {Capture : Type w}
+    (first second : DispatchKeys V S Key Capture) : DispatchKeys V S Key Capture :=
+  ⟨⟨first.left ++ second.left, first.right ++ second.right⟩,
+    first.groupsL ++ second.groupsL, first.groupsR ++ second.groupsR⟩
+
+/-- Separate the left dispatch of one family from the right dispatch of
+another. A union requires this check in both directions. -/
+def DispatchKeys.Separated {Key : Type v} {Capture : Type w}
+    (first second : DispatchKeys V S Key Capture) : Prop :=
+  (∀ key ∈ first.left, key.Fresh second.right) ∧
+  (∀ group ∈ first.groupsL, group ∉ second.groupsR)
+
+def decideFunction [DecidableEq (Ty V S)] (a b : Function V S) : Decidable (a = b) :=
+  decidable_of_iff (a.args = b.args ∧ a.results = b.results) (by cases a; cases b; simp)
+
+def DispatchKeys.decideSeparated [DecidableEq (Ty V S)] {Key : Type v} [DecidableEq Key]
+    {Capture : Type w} [DecidableEq Capture] (first second : DispatchKeys V S Key Capture) :
+    Decidable (first.Separated second) :=
+  letI : DecidableEq (Function V S) := decideFunction
+  letI : DecidableEq (GroupKey V S) := inferInstance
+  letI : DecidableEq (LabelCode V S Key) := inferInstance
+  letI : DecidableEq (List (Multiset (LabelCode V S Key))) := inferInstance
+  letI : DecidableEq (GroupProfile V S Key) := inferInstance
+  inferInstanceAs (Decidable ((∀ key ∈ first.left, key.Fresh second.right) ∧
+    (∀ group ∈ first.groupsL, group ∉ second.groupsR)))
+
+/-- Membership in either of two independently checked dispatch families. -/
+abbrev UnionIn (first second : Family m) : Family m := fun value => first value ∨ second value
+
 /-- A checked finite prefix with separate dispatch keys for λs and φ groups. -/
 structure LinkedFamily (primitives : Primitives m σ) (ids : GlobalRel)
     (code : OpcodeCode (Instruction Op)) (captureCode : CaptureCode m) (left right : Family m)
@@ -413,9 +442,6 @@ def checkGroupBodies (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
 def checkGroups (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
     {members : List (Function V S)} (left right : Group m members) : Bool :=
   ordinaryPorts left.context && ordinaryPorts right.context && checkGroupBodies keys left right
-
-def decideFunction (a b : Function V S) : Decidable (a = b) :=
-  decidable_of_iff (a.args = b.args ∧ a.results = b.results) (by cases a; cases b; simp)
 
 /-- Compare the exact member signatures in slot order before using the
 common table-indexed checker. -/

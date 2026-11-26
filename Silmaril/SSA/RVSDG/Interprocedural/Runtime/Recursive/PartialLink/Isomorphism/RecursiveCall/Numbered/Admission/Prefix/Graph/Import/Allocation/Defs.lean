@@ -19,6 +19,18 @@ variable {importsL importsR exports extra : Ports (Ty V S)}
 variable {sigsL sigsR : List (Ports (Ty V S))}
 variable {providerFn clientFn : Function V S} {value : ValueSort V S}
 
+/-- The store trace of successful executable links, with their reserved
+unit IDs in reverse link order. This trace records only the links it
+witnesses. -/
+inductive AllocationHistory (actions : Actions m σ) : List Nat → σ → σ → Prop where
+  | empty (store : σ) : AllocationHistory actions [] store store
+  | link {units : List Nat} {unit : Nat} {start before after : σ}
+      {imports exports : Ports (Ty V S)} {sigs : List (Ports (Ty V S))}
+      {graph : Omega Op imports exports sigs} {inputs : Tuple m.Val imports} {values : Tuple m.Val exports}
+      (prior : AllocationHistory actions units start before)
+      (ran : Executable.link actions unit graph inputs before = .linked values after) :
+      AllocationHistory actions (unit :: units) start after
+
 /-- The client allocates one global and exports the following λ. An
 optional empty φ before δ fixes the other supported numbering. -/
 structure AllocatingClient (Op : Dialect.{u, v} (ValueSort V S) S)

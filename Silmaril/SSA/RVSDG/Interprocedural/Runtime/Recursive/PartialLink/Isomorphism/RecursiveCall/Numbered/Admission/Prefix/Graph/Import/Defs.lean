@@ -79,6 +79,19 @@ def Row.headOnly {family : Family m} {port : Ty V S} {values : Tuple m.Val (port
   | _, .head => some ⟨known⟩
   | _, .tail _ => none
 
+/-- Certify membership for the imported values by exact comparison with
+the actual selected exports. -/
+def CheckedExport.checkImport (exactValue : ExactValueCheck m)
+    {primitives : Continuation.Partial.Primitives m σ} {ids : GlobalRel}
+    {keys : OpcodeCode (Instruction Op)} {captureCode : CaptureCode m}
+    {port : Port exports providerFn.port} {outcomeL outcomeR : Outcome m σ exports}
+    (provider : CheckedExport primitives ids keys captureCode port outcomeL outcomeR)
+    (left right : m.Val providerFn.port) :
+    Option (PLift (provider.familyL left ∧ provider.familyR right)) := do
+  let sameL ← exactValue left (provider.valuesL.get port)
+  let sameR ← exactValue right (provider.valuesR.get port)
+  pure ⟨⟨sameL.down.symm ▸ provider.knownL, sameR.down.symm ▸ provider.knownR⟩⟩
+
 /-- Add a client λ in the actual client locals, with membership only for
 the independently checked provider import and for ordinary values. -/
 def CheckedExport.extendClientLambda [DecidableEq (Ty V S)] {keys : OpcodeCode (Instruction Op)}
@@ -97,13 +110,10 @@ def CheckedExport.extendClientLambda [DecidableEq (Ty V S)] {keys : OpcodeCode (
       (WithExport provider.familyR (linkedLambda right inputsR localsR))
       (provider.keys.addLambda (lambdaBodyKey keys captureCode left inputsL localsL)
         (lambdaBodyKey keys captureCode right inputsR localsR)))) := do
-  let sameL ← exactValue (inputsL.get .head) (provider.valuesL.get port)
-  let sameR ← exactValue (inputsR.get .head) (provider.valuesR.get port)
-  let knownL : provider.familyL (inputsL.get .head) := sameL.down.symm ▸ provider.knownL
-  let knownR : provider.familyR (inputsR.get .head) := sameR.down.symm ▸ provider.knownR
+  let known ← provider.checkImport exactValue (inputsL.get .head) (inputsR.get .head)
   provider.certified.addLambda keys ordinary
-    ((Table.empty provider.familyL localsL).availableWithImports provider.certified.ordinaryL (Row.headOnly knownL))
-    ((Table.empty provider.familyR localsR).availableWithImports provider.certified.ordinaryR (Row.headOnly knownR))
+    ((Table.empty provider.familyL localsL).availableWithImports provider.certified.ordinaryL (Row.headOnly known.down.1))
+    ((Table.empty provider.familyR localsR).availableWithImports provider.certified.ordinaryR (Row.headOnly known.down.2))
     left right
 
 def CheckedExport.addClientLambda [DecidableEq (Ty V S)] {keys : OpcodeCode (Instruction Op)}
