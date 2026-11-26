@@ -1292,6 +1292,29 @@ reply of a Nat run, a first missing key at the changed store, and a retained
 one-state replay.
 [Mixed finite and infinite refutations][ssa-ub-open-guarded-mixed-support]
 
+The guarded runner has a finite typed derivation or an actual infinite
+feedback path at every typed start. This gives the finite-model property
+for independently exact-readback native endpoints and the exhaustive
+shared caller domain. `Table.finite_model_property` equates refinement
+over every deterministic store type in any chosen Lean universe with
+`some true` from every finite-carrier check. A finite checker counterexample
+can be lifted from `Fin n` into that universe using `ULift`. The observation
+map preserves ordered returns, stores, primitive and infinite divergence,
+and fresh top. Its injectivity reflects the order.
+
+`Table.finite_refutation_iff` gives the existential version. A refuting
+caller and initial store yield a positive carrier size, with the existing
+query-count bound from the finite derivations on each side. The pointwise
+check rejects at that caller and the shared check returns a rejection.
+The bound depends on the witnessed derivations and supplies no fixed
+cutoff. The Boolean projection returns `none` for unsupported readback,
+including at size zero or for an empty caller inventory. Those cases are
+vacuously positive after admission when there is no caller or no initial
+store. A regression proves arbitrary-store validity for two genuine
+request-guarded cycles with different entry labels by checking a closed
+product certificate on every finite carrier.
+[Finite-model property][ssa-ub-open-guarded-finite-model]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1462,5 +1485,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-carrier-embedding]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Entry/State/Thms.lean
 [ssa-ub-open-guarded-finite-support]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Thms.lean
 [ssa-ub-open-guarded-mixed-support]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Infinite/Thms.lean
+[ssa-ub-open-guarded-finite-model]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
