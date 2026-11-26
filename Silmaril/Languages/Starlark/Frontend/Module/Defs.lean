@@ -30,7 +30,7 @@ structure LocatedCommand where
 /-- The outer application of a top-level call assignment or call statement. -/
 def LocatedCommand.application (command : LocatedCommand) : Option ApplicationSpans :=
   match command.command with
-  | .assign _ (.list _) | .eval (.list _) => none
+  | .assign _ (.list _) | .eval (.list _) | .assign _ (.tuple _) | .eval (.tuple _) => none
   | .assign .. | .eval .. => command.applications.head?
   | _ => none
 
@@ -137,6 +137,11 @@ def lowerOperand : CallOperand → Except Diagnostic LoweredOperand
       have := List.sizeOf_lt_of_mem member
       lowerOperand element
     return ⟨.list (lowered.map LoweredOperand.expression), lowered.flatMap LoweredOperand.applications⟩
+  | .tuple _ elements => do
+    let lowered ← elements.attach.mapM fun ⟨element, member⟩ => do
+      have := List.sizeOf_lt_of_mem member
+      lowerOperand element
+    return ⟨.tuple (lowered.map LoweredOperand.expression), lowered.flatMap LoweredOperand.applications⟩
 termination_by operand => sizeOf operand
 decreasing_by all_goals (simp_all <;> omega)
 
@@ -190,6 +195,14 @@ theorem lowerOperand_list (span : Span) (elements : List CallOperand) :
       let lowered ← elements.mapM lowerOperand
       return ⟨.list (lowered.map LoweredOperand.expression), lowered.flatMap LoweredOperand.applications⟩) := by
   rw [lowerOperand.eq_7]
+  rw [List.mapM_subtype (g := lowerOperand) (fun _ _ => rfl), List.unattach_attach]
+
+/-- Lower tuple elements in order and retain their application locations. -/
+theorem lowerOperand_tuple (span : Span) (elements : List CallOperand) :
+    lowerOperand (.tuple span elements) = (do
+      let lowered ← elements.mapM lowerOperand
+      return ⟨.tuple (lowered.map LoweredOperand.expression), lowered.flatMap LoweredOperand.applications⟩) := by
+  rw [lowerOperand.eq_8]
   rw [List.mapM_subtype (g := lowerOperand) (fun _ _ => rfl), List.unattach_attach]
 
 private structure LoweredBody where
