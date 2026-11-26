@@ -29,45 +29,61 @@ theorem runCleanup_outside_profile (suite : state → List action → Outcome st
 variable (testClass : state → failure → String → Except failure Bool)
 
 theorem selectHandler_first_match (reached : state) (pending : failure) (name : String)
-    (arm : List action) (rest : List (Arm action)) (selected : testClass reached pending name = .ok true) :
-    selectHandler testClass reached pending (.named name arm :: rest) = .ok (some arm) := by
+    (arm : List action) (target : Option String) (rest : List (Arm action)) (selected : testClass reached pending name = .ok true) :
+    selectHandler testClass reached pending (.named name arm target :: rest) = .ok (some ⟨arm, target⟩) := by
   simp [selectHandler, selected]
 
 theorem selectHandler_continue (reached : state) (pending : failure) (name : String)
-    (arm : List action) (rest : List (Arm action)) (skipped : testClass reached pending name = .ok false) :
-    selectHandler testClass reached pending (.named name arm :: rest) =
+    (arm : List action) (target : Option String) (rest : List (Arm action)) (skipped : testClass reached pending name = .ok false) :
+    selectHandler testClass reached pending (.named name arm target :: rest) =
       selectHandler testClass reached pending rest := by
   simp [selectHandler, skipped]
 
 theorem selectHandler_first_error (reached : state) (pending error : failure) (name : String)
-    (arm : List action) (rest : List (Arm action)) (failed : testClass reached pending name = .error error) :
-    selectHandler testClass reached pending (.named name arm :: rest) = .error error := by
+    (arm : List action) (target : Option String) (rest : List (Arm action)) (failed : testClass reached pending name = .error error) :
+    selectHandler testClass reached pending (.named name arm target :: rest) = .error error := by
   simp [selectHandler, failed]
+
+variable (operations : HandlerOperations state failure)
+
+theorem runHandler_target (suite : state → List action → Outcome state failure)
+    (reached bound : state) (pending : failure) (name : String) (arm : List action)
+    (boundTarget : operations.bindCaught reached name pending = .ok bound) :
+    runHandler suite operations reached pending ⟨arm, some name⟩ =
+      let handled := suite bound arm
+      ⟨operations.unbind handled.reached name, handled.completion⟩ := by
+  simp [runHandler, boundTarget]
+
+theorem runHandler_binding_failed (suite : state → List action → Outcome state failure)
+    (reached : state) (pending error : failure) (name : String) (arm : List action)
+    (failed : operations.bindCaught reached name pending = .error error) :
+    runHandler suite operations reached pending ⟨arm, some name⟩ = ⟨reached, .error error⟩ := by
+  simp [runHandler, failed]
 
 theorem run_unmatched (suite : state → List action → Outcome state failure)
     (isPythonError : failure → Bool) (initial reached : state) (error : failure)
     (body otherwise cleanup : List action) (handlers : List (Arm action))
     (failed : suite initial body = ⟨reached, .error error⟩) (defined : isPythonError error = true)
-    (unmatched : selectHandler testClass reached error handlers = .ok none) :
-    run suite isPythonError testClass initial ⟨body, handlers, otherwise, cleanup⟩ =
+    (unmatched : selectHandler operations.testClass reached error handlers = .ok none) :
+    run suite isPythonError operations initial ⟨body, handlers, otherwise, cleanup⟩ =
       runCleanup suite isPythonError ⟨reached, .error error⟩ cleanup := by
   simp [run, afterBody, failed, defined, unmatched]
 
 theorem run_selected (suite : state → List action → Outcome state failure)
     (isPythonError : failure → Bool) (initial reached : state) (error : failure)
-    (body arm otherwise cleanup : List action) (handlers : List (Arm action))
+    (body otherwise cleanup : List action) (handlers : List (Arm action)) (arm : SelectedArm action)
     (failed : suite initial body = ⟨reached, .error error⟩) (defined : isPythonError error = true)
-    (selected : selectHandler testClass reached error handlers = .ok (some arm)) :
-    run suite isPythonError testClass initial ⟨body, handlers, otherwise, cleanup⟩ =
-      runCleanup suite isPythonError (suite reached arm) cleanup := by
+    (selected : selectHandler operations.testClass reached error handlers = .ok (some arm)) :
+    run suite isPythonError operations initial ⟨body, handlers, otherwise, cleanup⟩ =
+      runCleanup suite isPythonError (runHandler suite operations reached error arm) cleanup := by
   simp [run, afterBody, failed, defined, selected]
 
 theorem run_handler_error (suite : state → List action → Outcome state failure)
     (isPythonError : failure → Bool) (initial reached : state) (pending error : failure)
     (body otherwise cleanup : List action) (handlers : List (Arm action))
     (failed : suite initial body = ⟨reached, .error pending⟩) (defined : isPythonError pending = true)
-    (selectionFailed : selectHandler testClass reached pending handlers = .error error) :
-    run suite isPythonError testClass initial ⟨body, handlers, otherwise, cleanup⟩ =
+    (selectionFailed : selectHandler operations.testClass reached pending handlers = .error error) :
+    run suite isPythonError operations initial ⟨body, handlers, otherwise, cleanup⟩ =
       runCleanup suite isPythonError ⟨reached, .error error⟩ cleanup := by
   simp [run, afterBody, failed, defined, selectionFailed]
 
@@ -75,13 +91,13 @@ theorem run_outside_profile (suite : state → List action → Outcome state fai
     (isPythonError : failure → Bool) (initial reached : state) (error : failure)
     (body otherwise cleanup : List action) (handlers : List (Arm action))
     (failed : suite initial body = ⟨reached, .error error⟩) (outside : isPythonError error = false) :
-    run suite isPythonError testClass initial ⟨body, handlers, otherwise, cleanup⟩ = ⟨reached, .error error⟩ := by
+    run suite isPythonError operations initial ⟨body, handlers, otherwise, cleanup⟩ = ⟨reached, .error error⟩ := by
   simp [run, afterBody, failed, outside, runCleanup_outside_profile]
 
 theorem run_normal_body (suite : state → List action → Outcome state failure)
     (isPythonError : failure → Bool) (initial reached : state) (body otherwise cleanup : List action)
     (handlers : List (Arm action)) (normal : suite initial body = ⟨reached, .ok ()⟩) :
-    run suite isPythonError testClass initial ⟨body, handlers, otherwise, cleanup⟩ =
+    run suite isPythonError operations initial ⟨body, handlers, otherwise, cleanup⟩ =
       runCleanup suite isPythonError (suite reached otherwise) cleanup := by
   simp [run, afterBody, normal]
 

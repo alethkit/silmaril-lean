@@ -9,7 +9,7 @@ public import Silmaril.Languages.Python.Core.Closure.Defs
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ExceptionalTry
 
 inductive Arm (action : Type) where
-  | named (name : String) (body : List action)
+  | named (name : String) (body : List action) (target : Option String := none)
   | bare (body : List action)
 
 structure Plan (action : Type) where
@@ -17,6 +17,15 @@ structure Plan (action : Type) where
   handlers : List (Arm action)
   otherwise : List action
   cleanup : List action
+
+structure SelectedArm (action : Type) where
+  body : List action
+  target : Option String
+
+structure HandlerOperations (state failure : Type) where
+  testClass : state → failure → String → Except failure Bool
+  bindCaught : state → String → failure → Except failure state
+  unbind : state → String → state
 
 structure Outcome (state failure : Type) where
   reached : state
@@ -50,25 +59,39 @@ def Outcome.afterCleanup {state failure : Type} (pending cleaned : Outcome state
 has returned false. A match or error ends selection. -/
 def selectHandler {state failure action : Type}
     (testClass : state → failure → String → Except failure Bool) (reached : state) (pending : failure) :
-    List (Arm action) → Except failure (Option (List action))
+    List (Arm action) → Except failure (Option (SelectedArm action))
   | [] => .ok none
-  | .bare actions :: _ => .ok (some actions)
-  | .named name actions :: rest =>
+  | .bare actions :: _ => .ok (some ⟨actions, none⟩)
+  | .named name actions target :: rest =>
     match testClass reached pending name with
     | .error error => .error error
-    | .ok true => .ok (some actions)
+    | .ok true => .ok (some ⟨actions, target⟩)
     | .ok false => selectHandler testClass reached pending rest
 
+/-- Clear the target from the reached namespace on either completion of
+the arm. Cleanup outside the arm sees this namespace. -/
+def runHandler {state failure action : Type} (suite : state → List action → Outcome state failure)
+    (operations : HandlerOperations state failure) (reached : state) (pending : failure)
+    (selected : SelectedArm action) : Outcome state failure :=
+  match selected.target with
+  | none => suite reached selected.body
+  | some name =>
+    match operations.bindCaught reached name pending with
+    | .error error => ⟨reached, .error error⟩
+    | .ok bound =>
+      let handled := suite bound selected.body
+      { handled with reached := operations.unbind handled.reached name }
+
 def afterBody {state failure action : Type} (suite : state → List action → Outcome state failure)
-    (isPythonError : failure → Bool) (testClass : state → failure → String → Except failure Bool)
+    (isPythonError : failure → Bool) (operations : HandlerOperations state failure)
     (body : Outcome state failure) (handlers : List (Arm action))
     (otherwise : List action) : Outcome state failure :=
   match body.completion with
   | .ok () => suite body.reached otherwise
   | .error failure =>
     if isPythonError failure then
-      match selectHandler testClass body.reached failure handlers with
-      | .ok (some arm) => suite body.reached arm
+      match selectHandler operations.testClass body.reached failure handlers with
+      | .ok (some arm) => runHandler suite operations body.reached failure arm
       | .ok none => body
       | .error error => ⟨body.reached, .error error⟩
     else body
@@ -81,10 +104,10 @@ def runCleanup {state failure action : Type} (suite : state → List action → 
   else pending
 
 def run {state failure action : Type} (suite : state → List action → Outcome state failure)
-    (isPythonError : failure → Bool) (testClass : state → failure → String → Except failure Bool)
+    (isPythonError : failure → Bool) (operations : HandlerOperations state failure)
     (initial : state) (plan : Plan action) : Outcome state failure :=
   let body := suite initial plan.body
-  let pending := afterBody suite isPythonError testClass body plan.handlers plan.otherwise
+  let pending := afterBody suite isPythonError operations body plan.handlers plan.otherwise
   runCleanup suite isPythonError pending plan.cleanup
 
 open Source (ExceptHandler Expr Name Scope Stmt)
@@ -285,15 +308,24 @@ def suite? (scope : Scope) (allowInactiveRaise : Bool) :
           let checked ← raiseCall? scope statement
           return ⟨.raiseCall checked.val :: tail.val, .raiseCall checked.property tail.property⟩
 
+inductive HandlerTarget (scope : Scope) : Option Name → Prop where
+  | absent : HandlerTarget scope none
+  | present {name : Name} (reference : GlobalReference scope name) : HandlerTarget scope (some name)
+
+def handlerTarget? (scope : Scope) : (target : Option Name) → Option (PLift (HandlerTarget scope target))
+  | none => some ⟨.absent⟩
+  | some name => (globalReference? scope name).map fun reference => ⟨.present reference⟩
+
 inductive Handlers (scope : Scope) : List ExceptHandler → List (Arm (Step scope)) → Prop where
   | nil : Handlers scope [] []
   | bare {source actions} (present : source.isEmpty = false)
       (translated : Suite scope false source actions) :
       Handlers scope [⟨none, none, source⟩] [.bare actions]
-  | named {name source actions rest arms} (reference : GlobalReference scope name)
+  | named {name target source actions rest arms} (reference : GlobalReference scope name)
+      (targetCode : HandlerTarget scope target)
       (present : source.isEmpty = false) (translated : Suite scope false source actions)
       (remaining : Handlers scope rest arms) :
-      Handlers scope (⟨some (.name name), none, source⟩ :: rest) (.named name actions :: arms)
+      Handlers scope (⟨some (.name name), target, source⟩ :: rest) (.named name actions target :: arms)
 
 def handlers? (scope : Scope) :
     (source : List ExceptHandler) → Option {arms // Handlers scope source arms}
@@ -302,12 +334,14 @@ def handlers? (scope : Scope) :
     if present : source.isEmpty = false then
       (suite? scope false source).map fun checked => ⟨[.bare checked.val], .bare present checked.property⟩
     else none
-  | ⟨some (.name name), none, source⟩ :: rest => do
+  | ⟨some (.name name), target, source⟩ :: rest => do
     if present : source.isEmpty = false then
       let reference ← globalReference? scope name
+      let targetCode ← handlerTarget? scope target
       let checked ← suite? scope false source
       let tail ← handlers? scope rest
-      return ⟨.named name checked.val :: tail.val, .named reference present checked.property tail.property⟩
+      return ⟨.named name checked.val target :: tail.val,
+        .named reference targetCode.down present checked.property tail.property⟩
     else none
   | _ => none
 

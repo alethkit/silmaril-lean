@@ -363,9 +363,21 @@ def matchHandler (session : Session) (error : Completion) (name : String) : Exce
   | .raised raised => matchType raised.classify
   | _ => .error .scalarProfile
 
+def Completion.handlerInstance? : Completion → Option Core.Closure.ExceptionInstance
+  | .assertionError => some (.empty .assertionError)
+  | .raised error => error.handlerInstance?
+  | _ => none
+
+def bindCaught (session : Session) (name : String) (pending : Completion) : Except Completion Session :=
+  pending.handlerInstance?.elim (.error .scalarProfile) fun value =>
+    .ok (session.bindGlobal name (.exceptionInstance value))
+
+def handlerOperations : ExceptionalTry.HandlerOperations Session Completion :=
+  ⟨matchHandler, bindCaught, Session.unbindGlobal⟩
+
 def runExceptionalTry {scope : Scope} (session : Session) (plan : ExceptionalTry.Plan (ExceptionalTry.Step scope)) :
     ExceptionalTry.Outcome Session Completion :=
-  ExceptionalTry.run (ExceptionalTry.runSuite exceptionalStep) Completion.isPythonError matchHandler session plan
+  ExceptionalTry.run (ExceptionalTry.runSuite exceptionalStep) Completion.isPythonError handlerOperations session plan
 
 inductive VarNamesFailure where
   | unsupportedReceiver
