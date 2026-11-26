@@ -194,6 +194,22 @@ private theorem contextualLoop_map {E A B B' : V}
   rw [MonoidalCategory.whiskerLeft_id, J.map_id] at route
   simp only [retainLeft_comp, retainLeft_map, body, Category.assoc, route]
 
+theorem cfgDispatch_postmap_proof {E A B D : V} (out : B ⟶ D)
+    (entry : J.obj E ⟶ J.obj (B ⨿ A)) (body : J.obj (E ⊗ A) ⟶ J.obj (B ⨿ A)) :
+    caseWithContext J (entry ≫ J.map (coprod.map out (𝟙 A)))
+      (J.map (CartesianMonoidalCategory.snd E D))
+      (contextualLoop J (body ≫ J.map (coprod.map out (𝟙 A)))) =
+    caseWithContext J entry (J.map (CartesianMonoidalCategory.snd E B))
+      (contextualLoop J body) ≫ J.map out := by
+  rw [caseWithContext_map, MonoidalCategory.whiskerLeft_id, J.map_id, Category.id_comp,
+    ← contextualLoop_map]
+  have projection : J.map (E ◁ out) ≫ J.map (CartesianMonoidalCategory.snd E D) =
+      J.map (CartesianMonoidalCategory.snd E B) ≫ J.map out := by
+    simp only [← Functor.map_comp]
+    congr 1
+    simp
+  rw [projection, caseWithContext_post]
+
 end Loop
 
 section Region
@@ -230,23 +246,10 @@ private theorem cfgLabelRenaming {n : Nat} (R : Fin n → τ) (Γ : VCtx τ)
   have split := congrArg J.map (labelAppendSplit_labelMap M hρ R)
   simp only [Functor.map_comp] at split
   rw [split]
-  simp only [← Category.assoc]
-  rw [caseWithContext_map]
-  simp only [Category.assoc, MonoidalCategory.whiskerLeft_id]
-  rw [J.map_id, Category.id_comp]
-  let body := J.map ((𝟙 (ctxObj M Γ)) ⊗ₘ labelObjToFinite M R) ≫
-    blocks ≫ J.map (labelAppendSplit M (List.ofFn R) L)
-  have mapLoop := contextualLoop_map J body (labelMap M hρ)
-  simp only [body, Category.assoc] at mapLoop
-  rw [← mapLoop]
-  have projection : J.map ((ctxObj M Γ) ◁ labelMap M hρ) ≫
-      J.map (CartesianMonoidalCategory.snd (ctxObj M Γ) (labelObj M K)) =
-    J.map (CartesianMonoidalCategory.snd (ctxObj M Γ) (labelObj M L)) ≫
-      J.map (labelMap M hρ) := by
-    simp only [← Functor.map_comp]
-    congr 1
-    simp
-  rw [projection, caseWithContext_post]
+  simpa only [Category.assoc] using cfgDispatch_postmap_proof J (labelMap M hρ)
+    (entry ≫ J.map (labelAppendSplit M (List.ofFn R) L))
+    (J.map ((𝟙 (ctxObj M Γ)) ⊗ₘ labelObjToFinite M R) ≫
+      blocks ≫ J.map (labelAppendSplit M (List.ofFn R) L))
 
 theorem RegionDenotes.renameLabels_proof {Γ : VCtx τ} {L K : LCtx τ} {ρ : Nat → Nat}
     {r : Region Φ} {hr : Region.HasType Γ r L}

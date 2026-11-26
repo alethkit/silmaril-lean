@@ -33,6 +33,19 @@ variable {V : Type u₁} {C : Type u₂}
   {τ : Type w} [TypeFormers τ] (M : TypeModel τ V)
   {Φ : Type q} [HasTy Φ τ] [InstructionModel J M Φ]
 
+open scoped MonoidalCategory
+open CartesianMonoidalCategory (snd)
+open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (caseWithContext contextualLoop)
+
+/-- Outward payload maps pass through a native dispatcher. The entry and
+step keep their recursive summands, so this uses ordinary Elgot naturality. -/
+theorem cfgDispatch_postmap {E A B D : V} (out : B ⟶ D)
+    (entry : J.obj E ⟶ J.obj (B ⨿ A)) (body : J.obj (E ⊗ A) ⟶ J.obj (B ⨿ A)) :
+    caseWithContext J (entry ≫ J.map (coprod.map out (𝟙 A))) (J.map (snd E D))
+      (contextualLoop J (body ≫ J.map (coprod.map out (𝟙 A)))) =
+    caseWithContext J entry (J.map (snd E B)) (contextualLoop J body) ≫ J.map out :=
+  cfgDispatch_postmap_proof J out entry body
+
 /-- If the smaller region's written targets fit its label context, any
 exact witness of its outward renaming factors through an exact witness
 of the smaller region. The proof keeps each selected internal family
