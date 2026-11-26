@@ -822,6 +822,26 @@ The continuation cannot jump back to its own label.
   [Free interpretation and policies](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Reflection/Defs.lean) ·
   [Reflection and faithfulness](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Reflection/Thms.lean) ·
   [Separating history](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Reflection/Regression.lean)
+- The directed version compares three relations on captured operands at
+  the free interpretation. The tree relation includes every finite
+  observation of one free tree in the other, in every older environment,
+  with pending requests. The outcome relation includes the ordered
+  complete outcomes of the ordered trace semantics. The third is
+  handled-trace inclusion of the packed programs at a reply policy. Replay
+  reads only the completed exchanges of an observation, so a policy that
+  replays every complete history replays every finite observation. At
+  such a policy, handled-trace inclusion is the tree relation, and the
+  comparison commutes with the ranked emitter and the checked readback.
+  Acyclic terms never diverge silently, and a tree without divergence is
+  maximal for inclusion of observations. All three relations are therefore
+  native equality on this fragment, and the hom order on the image of the
+  semantic functor is discrete. The outcome relation needs the inhabited
+  reply types of the signature. A tree-level example with an empty reply
+  type has no complete observation and loses its pending request, and
+  silent divergence is strictly below a request.
+  [Directed relations](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Refinement/Defs.lean) ·
+  [Bridge and collapse](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Refinement/Thms.lean) ·
+  [Pending request and limits](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Refinement/Regression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
