@@ -112,6 +112,36 @@ theorem Layout.initial_shared {H : Type} {program : Program} {base : Store H} {a
     (layout : Layout program base a initial) : SharedStore base a initial base :=
   Proofs.initial_shared layout
 
+/-- Updating the live array preserves the selected allocation and all checked functions. -/
+theorem Layout.with_bytes {H : Type} {program : Program} {base : Store H} {a : MemAddr} {initial : MemInst}
+    (layout : Layout program base a initial) (bytes : ByteArray) :
+    Layout program (storeWithBytes base a initial bytes) a { initial with data := bytes } :=
+  Proofs.layout_with_bytes layout bytes
+
+/-- Successful growth preserves the aligned, bounded, nondecreasing extent. -/
+theorem GrowthExtent.grow {initial : MemInst} {bytes grown : ByteArray} {delta : BitVec 32}
+    (extent : GrowthExtent initial bytes)
+    (edge : MemoryGrow.Edge { initial with data := bytes } (.request delta) (.grown grown)) :
+    GrowthExtent initial grown :=
+  Proofs.growth_extent extent edge
+
+/-- A native growth result uses the same store representation at its new extent. -/
+theorem GrowingStore.grow {H : Type} {base : Store H} {a : MemAddr} {initial : MemInst}
+    {bytes grown : ByteArray} {delta : BitVec 32} (extent : GrowthExtent initial bytes)
+    (edge : MemoryGrow.Edge { initial with data := bytes } (.request delta) (.grown grown)) :
+    GrowingStore base a initial (setMemory (storeWithBytes base a initial bytes) a
+      { initial with data := grown }) :=
+  ⟨grown, extent.grow edge, by simp [storeWithBytes, setMemory, List.set_set]⟩
+
+/-- Stores after growth preserve the live extent. -/
+theorem GrowingStore.write {H : Type} {base : Store H} {a : MemAddr} {initial : MemInst}
+    {bytes written : ByteArray} {offset : Nat} {address word : BitVec 32}
+    (extent : GrowthExtent initial bytes)
+    (edge : MemoryWrite.EdgeAt bytes offset (.store address word) (.written written)) :
+    GrowingStore base a initial (setMemory (storeWithBytes base a initial bytes) a
+      { initial with data := written }) :=
+  Proofs.growth_write extent edge
+
 /-- Any checked activation selects the same current memory at slot zero. -/
 theorem Layout.frame_memory {H : Type} {program : Program} {base : Store H} {a : MemAddr} {initial : MemInst}
     (checked : program.checkV1 a = true) (layout : Layout program base a initial)
