@@ -49,4 +49,11 @@ example :
   have left := congrArg Prod.fst ((traceSat_iff_normal _ _ _).mp h)
   cases left
 
+example : ¬ (grammarRoom Sequence.traceJ signature).Sat Sequence.validatedTraceModel
+    (equation exits leftRight rightLeft) := by
+  intro sat
+  have h := (validatedTrace_sat_iff_repaired _ _ _).mp sat
+  have left := congrArg Prod.fst ((repaired_iff_normal _ _ _).mp h)
+  cases left
+
 end Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Branch
