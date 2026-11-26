@@ -400,3 +400,56 @@ above still fail. The three runners return `16` at `14/15/3` and exhaust
 one unit below. This covers one checked pure latch deletion in the
 nested split, common merge and tested latch profile.
 [Numbered regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Numbered/DeadProducer/Regression.lean)
+
+## Rescan the shortened latch
+
+`Latch.DeadProducer.Iteration.prepare` starts with the checked latch's
+ordered table and its entire guard, exit and simultaneous feedback
+packet. Section 3.2 uses explicit use-def edges to analyze related
+instructions. Removing an unused consumer can make its producer
+unused. The iterator scans the current typed table
+from the beginning after each checked deletion. Each accepted step
+removes one binding. The initial size bounds the number of cuts, and
+one final scan certifies that the checker accepts no current producer.
+The recorded positions use the numbering before each cut.
+[Deletion laws](../../Silmaril/SSA/SeaOfNodes/Pure/Deletion/Iteration/Thms.lean)
+
+`lowerCF` and `lowerNumbered` consume the same `Prepared` value. Its
+proof preserves the complete packet for every input. The CF emitter
+uses the original latch label. The numbered emitter uses the original
+γ routing and substitutes the merge's actual outputs into the final
+table. The proofs compare finite returns and absence of any finite
+return. CF uses the source visit count plus one return visit, and θ
+uses an activation count. This pass shrinks the producer table within
+the checked pure latch interface.
+[Emitter laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/DeadProducer/Iteration/Thms.lean)
+
+Build with
+`lake build --wfail +Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.DeadProducer.Iteration.Example.Defs`.
+Paste into `QuadLatchIteration.lean` and run
+`lake env lean -DwarningAsError=true QuadLatchIteration.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.DeadProducer.Iteration.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.DeadProducer.Iteration.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.DeadProducer.Iteration.Example
+
+#eval (refusesBeforeRescan, prepared.positions, settled)
+#eval latchCounts
+#eval feedbackCheck
+#eval (predecessorOrder, feedback)
+#eval (runSource 14, runCF 15, runNumbered 3)
+#eval (runSource 13, runCF 14, runNumbered 2)
+```
+
+The first comparison is deleted at position `1`, making its constant
+deletable at position `0` on the next scan. Both actual emitted latches
+shrink from seven operations to five. The guard and exit alone would
+allow deleting the last stride update. The full packet refuses the cut
+because its only use is at zero-based feedback slot `3`. The fixture
+takes predecessors `[3, 2, 4]` and returns `16` after two feedback steps,
+at source, CF and θ budgets `14/15/3`. Each runner exhausts one unit below.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/DeadProducer/Iteration/Regression.lean)

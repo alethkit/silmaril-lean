@@ -5,7 +5,6 @@ import Silmaril.SSA.SeaOfNodes.GVN.Elimination.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.Prune.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.Thms
-import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Split.DeadProducer.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Split.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Numbered.Thms
@@ -18,6 +17,7 @@ namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Number
 
 open SeaOfNodes.Diamond (Model Ty Val ValueSort dataPorts)
 open SeaOfNodes.GVN (newest read_newest read_weaken weaken)
+open SeaOfNodes.Pure.Deletion.Iteration (Table)
 open SeaOfNodes.GVN.Elimination (plug_read)
 open RVSDG (Locals Tuple Wires extend)
 open RVSDG.NestedTheta (Term)
@@ -35,20 +35,20 @@ variable {regs : List (ValueSort Data)} {out : ValueSort Data} {size : Nat}
 variable {src : Source Op regs out size} {entry : Fin size} {carry merge atLatch : Mask regs}
 variable (m : Model.{u, v, w} Op) {p : Program src entry}
 variable (checked : Split.Checked p carry merge atLatch)
-variable (cut : Split.DeadProducer.Checked checked.latchTransfer)
+variable (table : Table Op (dataPorts atLatch.kept) (packetPorts out carry))
 
 private theorem afterMerge_eval {args results : List (Ty Data)} {past suffix : List (List (Ty Data))}
     (incoming : Wires args past (dataPorts merge.kept))
-    (finish : Wires args (extend (extend past (src p.join).body.producers) cut.erased.sigs')
+    (finish : Wires args (extend (extend past (src p.join).body.producers) table.sigs)
         (packetPorts out carry) →
-      Term (Opcode Op) args (extend (extend past (src p.join).body.producers) cut.erased.sigs') suffix results)
+      Term (Opcode Op) args (extend (extend past (src p.join).body.producers) table.sigs) suffix results)
     (fuel : Nat) (input : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
     (inspect : Tuple (Val m.value) (packetPorts out carry) → Option (Tuple (Val m.value) results))
     (agrees : ∀ packet done, (finish packet).eval (model m) fuel input done = inspect (packet.read input done)) :
-    (afterMerge checked cut incoming finish).eval (model m) fuel input locals =
-      inspect (cut.eval m (checked.mergeTransfer.eval m (incoming.read input locals))) := by
+    (afterMerge checked table incoming finish).eval (model m) fuel input locals =
+      inspect (table.eval m (checked.mergeTransfer.eval m (incoming.read input locals))) := by
   unfold afterMerge
-  erw [thenBase_eval (observe := fun bank => inspect (cut.eval m bank))]
+  erw [thenBase_eval (observe := fun bank => inspect (table.eval m bank))]
   · erw [lowerFlow_eval, plug_read]
     rfl
   · intro latch later
@@ -57,29 +57,32 @@ private theorem afterMerge_eval {args results : List (Ty Data)} {past suffix : L
     · exact agrees
 
 variable (projected : HeaderProjection (src p.header).body carry)
+variable (same : ∀ old, table.eval m old = checked.latchTransfer.eval m old)
+include same
 
 private theorem bodyWith_run {results : List (Ty Data)} {suffix : List (List (Ty Data))}
-    (finish : Wires (dataPorts carry.kept) (packetScope checked cut) (packetPorts out carry) →
-      Term (Opcode Op) (dataPorts carry.kept) (packetScope checked cut) suffix results)
+    (finish : Wires (dataPorts carry.kept) (packetScope (p := p) (merge := merge) table) (packetPorts out carry) →
+      Term (Opcode Op) (dataPorts carry.kept) (packetScope (p := p) (merge := merge) table) suffix results)
     (fuel : Nat) (old : Bank (regs := regs) m)
     (inspect : Tuple (Val m.value) (packetPorts out carry) → Option (Tuple (Val m.value) results))
     (agrees : ∀ packet done, (finish packet).eval (model m) fuel (carry.project old) done =
       inspect (packet.read (carry.project old) done)) :
-    (bodyWith p projected checked cut finish).run (model m) fuel (carry.project old) =
+    (bodyWith p projected checked table finish).run (model m) fuel (carry.project old) =
       inspect (observe p carry (nextBank p m old)) := by
-  let result (bank : Bank (regs := merge.kept) m) := inspect (cut.eval m (checked.mergeTransfer.eval m bank))
+  let result (bank : Bank (regs := merge.kept) m) := inspect (table.eval m (checked.mergeTransfer.eval m bank))
   unfold bodyWith Term.run
   erw [thenBase_eval (observe := fun header => result (merge.project (branchBank p m header)))]
   · erw [lowerFlow_eval]
     change result (merge.project (branchBank p m (projected.headerBank m (carry.project old)))) = _
     rw [projected.header_agrees, branchBank_agrees]
-    change inspect (cut.eval m (checked.mergeTransfer.eval m (incoming p merge m old (p.selected m old)))) = _
-    rw [cut.eval_agrees, checked.split_agrees, checked.whole.incoming_agrees]
+    change inspect (table.eval m (checked.mergeTransfer.eval m (incoming p merge m old (p.selected m old)))) = _
+    rw [same, checked.split_agrees, checked.whole.incoming_agrees]
     rfl
   · intro current later
     exact MergePrune.Numbered.afterOuter_eval p m current _ fuel (carry.project old) later result
-      (fun kept locals => afterMerge_eval m checked cut kept finish fuel (carry.project old) locals inspect agrees)
+      (fun kept locals => afterMerge_eval m checked table kept finish fuel (carry.project old) locals inspect agrees)
 
+omit same in
 private theorem weaken_read {args ports : List (Ty Data)} {past : List (List (Ty Data))}
     (wires : Wires args past ports) (input : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
     (tag : Tuple (Val m.value) [.control 2]) :
@@ -89,6 +92,7 @@ private theorem weaken_read {args ports : List (Ty Data)} {past : List (List (Ty
   | nil => rfl
   | cons wire _ ih => exact congrArg₂ Tuple.cons (read_weaken wire m input locals tag) ih
 
+omit same in
 private theorem routePacket_eval {args : List (Ty Data)} {past : List (List (Ty Data))}
     (packet : Wires args past (packetPorts out carry)) (fuel : Nat)
     (input : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) :
@@ -112,16 +116,16 @@ private theorem routePacket_eval {args : List (Ty Data)} {past : List (List (Ty 
     simp [tag, model, Join.selected, Join.slotIndex, SeaOfNodes.Diamond.Merge.slot,
       SeaOfNodes.Diamond.Projection.ofBool, RVSDG.Theta.bodyResult, h] <;> rfl
 
-theorem packet_run (fuel : Nat) (old : Bank (regs := regs) m) :
-    (packetRegion p projected checked cut).toGraph.run (model m) fuel (carry.project old) =
+theorem packetWith_run (fuel : Nat) (old : Bank (regs := regs) m) :
+    (packetWith p projected checked table).toGraph.run (model m) fuel (carry.project old) =
       some (observe p carry (nextBank p m old)) := by
   rw [← RVSDG.NestedTheta.Graph.run_toTerm, Term.toTerm_toGraph]
-  exact bodyWith_run m checked cut projected .ret fuel old some (fun _ _ => rfl)
+  exact bodyWith_run m checked table projected same .ret fuel old some (fun _ _ => rfl)
 
-theorem activation_run (fuel : Nat) (old : Bank (regs := regs) m) :
-    (thetaBody p projected checked cut).run (model m) fuel (carry.project old) =
+theorem thetaWith_run (fuel : Nat) (old : Bank (regs := regs) m) :
+    (thetaWith p projected checked table).run (model m) fuel (carry.project old) =
       some (MergePrune.Numbered.latchPacket p carry m (nextBank p m old)) :=
-  bodyWith_run m checked cut projected _ fuel old
+  bodyWith_run m checked table projected same _ fuel old
     (fun | .cons test (.cons _ feedback) => some (RVSDG.Theta.bodyResult (model m) test.down feedback))
     (fun packet done => routePacket_eval m packet fuel (carry.project old) done)
 

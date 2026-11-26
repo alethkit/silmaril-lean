@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Split.Defs
 public import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Pass.Defs
+public import Silmaril.SSA.SeaOfNodes.Pure.Deletion.Iteration.Defs
 
 /-! # Delete a pure producer from a checked merge–latch transfer -/
 
@@ -12,6 +13,7 @@ namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.Split.
 open SeaOfNodes.Diamond (Model Ty Val ValueSort dataPorts)
 open SeaOfNodes.GVN (Producer)
 open SeaOfNodes.GVN.Cyclic.Deletion (Erasure Route erase?)
+open SeaOfNodes.Pure.Deletion.Iteration (Table)
 open RVSDG (Tuple Wires extend)
 open Join (Block)
 open Blocks (Bank)
@@ -32,6 +34,14 @@ structure Checked (transfer : Transfer body mask wires) where
   outgoing : Wires (dataPorts mask.kept) (extend [] erased.sigs') outputs
   erased_eq : erase? candidate = some erased
   outgoing_eq : Route.wires? erased.route transfer.outgoing = some outgoing
+
+/-- The iteration starts at the actual checked table, with its entire packet. -/
+def originalTable (transfer : Transfer body mask wires) : Table Op (dataPorts mask.kept) outputs :=
+  ⟨body.producers, transfer.flow, transfer.outgoing⟩
+
+def Checked.table {transfer : Transfer body mask wires} (cut : Checked transfer) :
+    Table Op (dataPorts mask.kept) outputs :=
+  ⟨cut.erased.sigs', cut.erased.flow, cut.outgoing⟩
 
 /-- Erasure checks every operand of every surviving producer, in scope
 order, then checks all the outgoing reads. Failure refuses the cut. -/
