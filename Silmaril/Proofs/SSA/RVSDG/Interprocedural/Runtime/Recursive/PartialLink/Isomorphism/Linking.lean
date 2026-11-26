@@ -48,6 +48,14 @@ private theorem binding_related (respects : ActionsRespect primitives ids)
     subst contextR
     have captures := read_related inputs locals capturesL capturesR edges
     exact ⟨_, _, rfl, rfl, .linked (.cons (.closure captures bodies) .nil) store⟩
+  | @phi members left right paired =>
+    obtain ⟨contextL, capturesL, definitionsL⟩ := left
+    obtain ⟨contextR, capturesR, definitionsR⟩ := right
+    obtain ⟨⟨same, edges⟩, definitions⟩ := paired
+    change contextL = contextR at same
+    subst contextR
+    have captures := read_related inputs locals capturesL capturesR edges
+    exact ⟨_, _, rfl, rfl, .linked (Recursive.phiMembers_related captures definitions) store⟩
   | @delta value context sigs capturesL capturesR captures initializer =>
     have related := read_related inputs locals capturesL capturesR captures.2
     obtain ⟨outcomeL, outcomeR, ranL, ranR, observations⟩ := initializer_related respects initializer
