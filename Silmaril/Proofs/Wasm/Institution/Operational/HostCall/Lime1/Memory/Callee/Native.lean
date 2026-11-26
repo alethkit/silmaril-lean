@@ -291,26 +291,26 @@ theorem stays {phase : Phase H} (notDone : ∀ out, phase ≠ .done out)
   | body | child | hostInvoke | trapped | exit => simpa only [render, List.append_assoc, List.singleton_append] using frameStays
   | done out => exact (notDone out rfl).elim
 
-private theorem call_iff {args stack operands : List Value} {target : CallTarget}
-    {child : MemoryTarget} {rest : List Graph.Memory32.Op}
-    (link : site.MemoryDirect (base := base) callee target child) :
-    Step CallFrame.limeNoHost (cfg bytes (.body args (stack ++ operands) (.ranked (.call target) :: rest))) dst ↔
-      dst = cfg bytes (.child args stack child (.invoke operands) rest) := by
-  rw [show cfg bytes (.body args (stack ++ operands) (.ranked (.call target) :: rest)) =
+private theorem call_iff {args stack : List Value} {target : CallTarget}
+    {rest : List Graph.Memory32.Op}
+    (resolves : callee.fn.declaration.module.funcs[target.index.toNat]? = some target.address) :
+    Step CallFrame.limeNoHost (cfg bytes (.body args stack (.ranked (.call target) :: rest))) dst ↔
+      dst = ⟨mem.store bytes, caller, MemoryWrite.limeActivationCode resultCount (callee.fn.declaration.frame args)
+        saved tail (values stack ++ .invoke target.address :: code rest)⟩ := by
+  rw [show cfg bytes (.body args stack (.ranked (.call target) :: rest)) =
       ⟨mem.store bytes, caller, MemoryWrite.limeActivationCode resultCount (callee.fn.declaration.frame args)
-        saved tail (values (stack ++ operands) ++ .source (.call target.index) :: code rest)⟩ from by
+        saved tail (values stack ++ .source (.call target.index) :: code rest)⟩ from by
     simp only [config, render, code_cons, MemoryWrite.limeActivationCode, List.append_assoc, List.singleton_append]
     rfl]
   rw [body_iff (fun _ => lime_label_stays rfl (by simp) (by simp) (by simp))]
   have resolve {mid : Config H} := lime_direct_call_iff (s := mem.store bytes)
-    (f := callee.fn.declaration.frame args) (stack := stack ++ operands) (tail := code rest) (dst := mid) link.resolves
+    (f := callee.fn.declaration.frame args) (stack := stack) (tail := code rest) (dst := mid) resolves
   constructor
   · rintro ⟨mid, step, rfl⟩
     obtain rfl := resolve.mp step
-    simp [config, render, MemoryWrite.limeActivationCode, link.address, values_append, List.append_assoc]
+    rfl
   · rintro rfl
-    exact ⟨_, resolve.mpr rfl, by
-      simp [config, render, MemoryWrite.limeActivationCode, link.address, values_append, List.append_assoc]⟩
+    exact ⟨_, resolve.mpr rfl, rfl⟩
 
 private theorem indirect_linked {index : TypeIdx} {signature : Wasm.V1.FuncType}
     (link : site.MemoryIndirect mem host callee index signature) :
@@ -469,8 +469,13 @@ private theorem read {phase : Phase H} (linked : site.MemoryLinked mem host)
           | bin => contradiction
         | call target =>
           obtain ⟨stack, operands, rfl, typed, used, _⟩ := call_typed ready.2.2.1
-          obtain ⟨child, link⟩ := linked.direct callee registered target used
-          exact ⟨_, _, .call link typed, (call_iff link).mp move⟩
+          rcases linked.direct callee registered target used with ⟨child, link⟩ | ⟨hostCode, link⟩
+          · obtain rfl := (call_iff link.resolves).mp move
+            exact ⟨_, _, .call link typed, by
+              simp [config, render, MemoryWrite.limeActivationCode, link.address, values_append, List.append_assoc]⟩
+          · obtain rfl := (call_iff link.resolves).mp move
+            exact ⟨_, _, .callHost link typed, by
+              simp [config, render, MemoryWrite.limeActivationCode, Site.directTarget, List.append_assoc]⟩
         | _ => contradiction
       | callIndirect index signature =>
         obtain ⟨stack, operands, selector, rfl, typed, _⟩ := indirect_typed ready.2.2.1
@@ -535,7 +540,14 @@ private theorem sound {phase next : Phase H} {written : ByteArray} (linked : sit
   | size => exact Step.of_internal ((size_iff (linked.checked _ registered)).mpr rfl)
   | grow _ edge => exact Step.of_internal ((grow_iff (linked.checked _ registered)).mpr (.inl ⟨_, edge, rfl⟩))
   | growFail => exact Step.of_internal ((grow_iff (linked.checked _ registered)).mpr (.inr rfl))
-  | call link _ => exact Step.of_internal ((call_iff link).mpr rfl)
+  | call link _ =>
+    apply Step.of_internal
+    exact (call_iff link.resolves).mpr (by
+      simp [config, render, MemoryWrite.limeActivationCode, link.address, values_append, List.append_assoc])
+  | callHost link _ =>
+    apply Step.of_internal
+    exact (call_iff link.resolves).mpr (by
+      simp [config, render, MemoryWrite.limeActivationCode, Site.directTarget, List.append_assoc])
   | @callIndirect callee child bytes args operandsSaved operands index signature selector rest lookup _ _ =>
     have link := linked.indirect callee registered index signature (ready.2.2.2 _ (by simp))
     apply Step.of_internal

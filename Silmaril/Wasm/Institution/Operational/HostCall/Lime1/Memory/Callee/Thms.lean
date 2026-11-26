@@ -36,10 +36,11 @@ theorem extent_mono (move : Edge mem Execution.Runtime.noHostCalls site callee b
   Proofs.extent_mono move
 
 /-- Exact native steps of the reached callee in the caller's operand and
-instruction context, including rank-decreasing direct and indirect children.
-A nested lookup consumes the live selector and either leaves a pending
-invocation or traps with the current bytes. A host invocation uses the
-embedding contract to recover the returned store, with a self-step for
+instruction context, including rank-decreasing direct and indirect Wasm
+children. Direct resolution uses the checked function index to leave a
+pending invocation. Indirect lookup also consumes the live selector and can
+trap with the current bytes. Both host paths share a pending phase that uses
+the embedding contract to recover the returned store, with a self-step for
 declared divergence. Native label and frame exits are distinct. A child's
 frame exit restores the checked suffix or exposes a trap for cleanup. -/
 theorem step_iff (linked : site.MemoryLinked mem host)
