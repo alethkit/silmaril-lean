@@ -4,7 +4,7 @@ import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorph
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Infer.Defs
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Import.Defs
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Import.Allocation.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
@@ -15,7 +15,7 @@ import Silmaril.SSA.RVSDG.NestedTheta.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Thms
 meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Infer.Defs
-meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Import.Defs
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Import.Allocation.Thms
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests
 
@@ -1982,7 +1982,7 @@ example : ∃ source target,
     cases tail
     exact ⟨_, target, lambdaOnlyStart, path, got⟩
 
-open RecursiveCall.Numbered.Prefix (admitClient checkGraphExport clientGraph)
+open RecursiveCall.Numbered.Prefix (AllocatingClient admitAllocatingClient admitClient checkGraphProvider clientGraph)
 
 private def providerModuleL : OmegaTerm Op args crossExports [[global], [branchFn.port], []] :=
   ⟨.bind (.delta (seedDelta [])) <| .bind (.lambda (sameBodyLambda (.output (0 : Fin 1) .head))) <|
@@ -1997,12 +1997,14 @@ private def providerPlan : GraphPlan providerModuleL.toGraph providerModuleR.toG
   .skipR (.skipL (.skipR (.start (.lambda (.skipL .done)))))
 
 private def providerCheck :=
-  checkGraphExport instructionKeys actions ids ordinaryOutputs 73 73 (number 1) (number 1)
+  checkGraphProvider instructionKeys actions ids ordinaryOutputs 73 73 (number 1) (number 1)
     providerModuleL.toGraph providerModuleR.toGraph providerPlan (providerFn := branchFn) crossPort 20 20
 
 private theorem providerFound : providerCheck.isSome = true := by decide +kernel
 
-private def provider := providerCheck.get providerFound
+private def checkedProvider := providerCheck.get providerFound
+
+private abbrev provider := checkedProvider.checked
 
 private abbrev clientInputs : Ports T := [branchFn.port, global]
 
@@ -2076,6 +2078,74 @@ example (right : Bool) : (match linkedClientRun right 3 1 with
   unfold linkedClientRun
   rw [providerActualL.2, providerActualR.2]
   cases right <;> cbv
+
+private abbrev allocatingImports : Ports T := [branchFn.port, num]
+private abbrev allocatingEntry : Ports T := [branchFn.port, global] ++ branchFn.args
+
+private def allocatingBody : RecursiveCall.Code Op allocatingEntry [] [[num], [num]] [num] :=
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (.cons (.arg .head) (.cons (.arg (.tail (.tail .head)))
+      (.cons (.arg (.tail (.tail (.tail .head)))) (.cons (.arg (.tail (.tail (.tail (.tail .head))))) .nil))))
+    (fun i => i.elim0)) (fun i => i.elim0) <|
+  .bind (RecursiveCall.simple (.primitive Op.finish)
+    (.cons (.arg (.tail .head)) (.cons (.output (0 : Fin 1) .head) .nil)) (fun i => i.elim0))
+    (fun i => i.elim0) (.ret (.cons (.output (1 : Fin 2) .head) .nil))
+
+private def allocatingClient : (shifted : Bool) → AllocatingClient Op allocatingImports branchFn (.data ()) shifted
+  | false => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail .head)) .nil, _, seedTerm⟩),
+      (LambdaTerm.toGraph ⟨[branchFn.port, global], .cons (.arg .head) (.cons (.output (0 : Fin 1) .head) .nil),
+        _, allocatingBody⟩)⟩
+  | true => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail .head)) .nil, _, seedTerm⟩),
+      (LambdaTerm.toGraph ⟨[branchFn.port, global], .cons (.arg .head) (.cons (.output (1 : Fin 2) .head) .nil),
+        _, allocatingBody⟩)⟩
+
+private def allocatingInputs (callee : machine.Val branchFn.port) : Tuple machine.Val allocatingImports :=
+  .cons callee (number 3)
+
+private def allocationCheck (unitL unitR : Nat) (calleeR : machine.Val branchFn.port) :=
+  admitAllocatingClient actions ordinaryOutputs exactLambdas checkedProvider unitL unitR
+    (allocatingInputs (providerRef 0)) (allocatingInputs calleeR) (allocatingClient false) (allocatingClient true)
+
+#guard (allocationCheck 74 74 (providerRef 1)).isSome
+#guard (allocationCheck 73 74 (providerRef 1)).isNone
+#guard (allocationCheck 74 73 (providerRef 1)).isNone
+#guard (allocationCheck 74 74 foreignProvider).isNone
+
+private def clientGlobal (unit vertex : Nat) : machine.Val global := .global unit vertex (.data (10 : Nat))
+
+private def allocatedClosure (unit vertex : Nat) : machine.Val branchFn.port :=
+  .closure (.cons (providerRef vertex) (.cons (clientGlobal unit vertex) .nil)) allocatingBody.toGraph
+
+-- Using the provider's unit actually allocates a different payload at
+-- the same global identity. The admission guard excludes this link.
+example : Executable.link actions 73 (allocatingClient false).toGraph (allocatingInputs (providerRef 0)) 23 =
+    .linked (.cons (allocatedClosure 73 0) .nil) 26 := by cbv
+
+private theorem allocationLinks (shifted : Bool) :
+    Executable.link actions 74 (allocatingClient shifted).toGraph
+      (allocatingInputs (providerRef (if shifted then 1 else 0))) 23 =
+      .linked (.cons (allocatedClosure 74 (if shifted then 1 else 0)) .nil) 26 := by
+  cases shifted <;> cbv
+
+private def allocatingRun (shifted : Bool) (fuel flag : Nat) :=
+  Executable.run actions fuel 74 (allocatingClient shifted).toGraph
+    (allocatingInputs (providerRef (if shifted then 1 else 0))) crossPort (branchArgs flag) 23
+
+-- Client initialization advances the store before the provider blocks.
+-- The selected operand retains the provider's original allocation ID.
+example (shifted : Bool) : (allocatingRun shifted 30 0).toOption.bind crossAttempt =
+    some ([0, 0], finishInputs (if shifted then 1 else 0) 8 0, 26) := by
+  cases shifted <;> cbv
+
+-- Resume from the live provider call and run the client's finish action
+-- on its own captured δ global, whose payload is 10 instead of 8.
+example (shifted : Bool) : (match allocatingRun shifted 3 1 with
+  | .ok (.suspended config) =>
+    match config.control with
+    | .eval (.call _ _) stack => some (savedVertices stack, config.store, (runFor actions 30 config).result)
+    | _ => none
+  | _ => none) = some ([0], 26, some (number 11, 36)) := by
+  cases shifted <;> cbv
 
 open RecursiveCall.Numbered (GroupProfile LabelCode memberProfile memberProfile_eq)
 
