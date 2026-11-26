@@ -21,7 +21,7 @@ comparisons.
 | Flat typed SSA | [`FiniteCFG.HasType` and `erase_hasType_iff`](../../Silmaril/Raw/SSA/Isotope/LambdaSSA/Flat.lean) relate heterogeneous block arguments and typed exits to ordinary λSSA CFG typing. [`encodeCFG_hasType`](../../Silmaril/Raw/SSA/Isotope/Morphism/SSAIter/Encode.lean) checks the finite-sum LetIter encoding. | [`encodeCFG_eval`](../../Silmaril/Raw/SSA/Isotope/Morphism/SSAIter/Correctness.lean) preserves finite evaluation under matching captured environments and the same primitive relation. [`encodeCFG_diverges`](../../Silmaril/Raw/SSA/Isotope/Morphism/SSAIter/Divergence.lean) is the forward divergence comparison. A translation between this representation and the named forward graph is absent from the cited modules. A separate flat institution and an ITree-specific adequacy result were not audited. |
 | Forward flat SSA / mutable RTL | [`CFG`, `flatten`, `toRegion`, `run`](../../Silmaril/SSA/LambdaRTL/CFG/Defs.lean) operate on explicit block arguments. [`run_flatten` and `run_eq_toRegion`](../../Silmaril/SSA/LambdaRTL/CFG/Thms.lean) preserve the full mutable result in a lawful monad. | [`validate_obs_eq_evalSSA`](../../Silmaril/SSA/LambdaRTL/CFG/Version/Thms.lean) requires validator acceptance and a dominance-scoped source region. `validate_versionTop_obs` replaces source SSA with the pair law and version-zero input. Both compare to the existing **region** semantics. At the audited baseline, a direct lexical runner for forward blocks was absent. Classical φ syntax, global name uniqueness and a flat CFG institution are outside this bridge. |
 | Cyclic named flat RTL and SSA | [`Cyclic.step` and `Cyclic.run`](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Defs.lean) search the full table for each jump and iterate on the incoming label, payload and store. [`Versioning.compile`](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/Defs.lean) generates a flat table with block-local SSA and packed edge arguments. | [`Cyclic.run_eq_forward`](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Thms.lean) compares the full outcome when table and suffix lookup agree on every named block's syntactic targets. [`Versioning.run_commutes`](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/Thms.lean) compares exit and payload for the compiled graph, with version-zero inputs, a lawful Elgot monad and the pair law. |
-| Named compiler to typed Isotope | [`NamedFlat.compileTyped`](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Thms.lean) elaborates the generated named table and checks exact capture, packet and exit types for the product and primitive fragment, including case on primitive sums. | [`entry_iff` and `step_iff`](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Thms.lean) compare finite entry and internal-step outcomes with numbered Isotope labels. The comparison uses shared stateless partial primitives and tagged values. |
+| Named compiler to typed Isotope | [`NamedFlat.compileTyped`](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Thms.lean) elaborates the generated named table and checks exact capture, packet and exit types for the product and primitive fragment, including case on primitive sums. | [`entry_iff` and `step_iff`](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Thms.lean) compare finite entry and internal-step outcomes with numbered Isotope labels. The comparison uses shared stateless partial primitives and tagged values. [The whole-run bridge](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/WholeRun/Thms.lean) extends this to whole finite lexical runs, with an exact capture packet for the packed endpoint. |
 
 The public thesis formalization provides a separate reference point. Its
 [`TypedDominanceWellFormedFlat`](https://github.com/imbrem/thesis/blob/69a8126f2d3eb6d32050e0bd9511251b33dbcea7/formalization/thesis/Isotope/TAC/Bridge/DomFlatSemantics.lean)
@@ -188,13 +188,37 @@ compiled graph over both captures, follows two back edges, and returns
 payload 2 at external slot zero.
 [Closed countdown regression](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Examples/Thms.lean)
 
-The named comparison still covers entry and each internal step under shared
-stateless `Part` primitives. Relating named `Part.iter` to the Isotope
-`Follow` relation is a separate whole-run theorem. ITree event correspondence
-would additionally relate an event signature and handlers. The closure
-theorems here concern finite evaluations.
+### Whole finite runs from the named compiler
+
+`NamedFlat.compile_run_iff` composes the entry and transfer theorems on the
+table produced by `Versioning.compile`. It consumes the exact elaboration
+equation carried by a successful `compileTyped`. The named runner and Isotope
+share tagged values and one stateless `Part` primitive implementation, and
+the entry environment agrees with the named store at every capture's
+version-zero name. Induction on `Part.Runs` and on Isotope's `Follow`
+constructs a finite exit witness in both directions. Successful named jump
+targets have a number because elaboration checks every branch target.
+[Finite execution correspondence](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/WholeRun/Thms.lean)
+
+The generated destination packet is already a tagged value and is passed
+unchanged to the Isotope block parameter. A named hit uses the first matching
+block's index. A miss at the first occurrence `e` in the explicit exit list
+has raw jump index `blocks.length + e`, and `Follow` reports external index
+`e`. `numberExit` maps the named runner's exit observation to that same index
+and payload. With an accepted capture closure and a state-preserving producer
+of the exact original capture packet, `packed_run_iff` gives exit zero with
+`packedExitValue e payload`, which is `e` right injections around one left
+injection of the original payload. The finite proof observes primitive outcomes. Divergence and ITree events
+require different observations.
+
+The classified countdown uses the actual compiled graph and both captures.
+The named runner exits at label 99 with payload 2, which the open graph reports
+at external slot zero and the packed graph reports with its sum tag. Five
+named step calls leave the jump to 99 pending. The sixth call observes the
+exit because table lookup misses.
+[Checked named and packed countdown](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Examples/Thms.lean)
 
 ```sh
-lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.Thms \
+lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.WholeRun.Thms \
   Silmaril.SSA.LambdaRTL.CFG.Cyclic.Examples.Thms
 ```
