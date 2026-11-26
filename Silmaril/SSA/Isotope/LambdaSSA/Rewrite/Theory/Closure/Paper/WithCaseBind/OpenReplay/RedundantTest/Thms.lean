@@ -166,4 +166,36 @@ theorem framed_case_afterReply_at {Γ L : List (Ty Empty)} {X : Ty Empty} {frame
         (Paper.PackedBody.applyPacked (if (slot.read v).1 then r else l)))).substVars (Tm.singleSubst packet)) L :=
   RedundantSelectedTest.framed_case_afterReply_at slot emits v hl hr
 
+/-- Carry a return fact through one new field, with the field left as an open binder. -/
+theorem retain_return_under_binder {Γ : List (Ty Empty)} {X A D : Ty Empty}
+    (t : Term signature.Instr X D) {packet result : Tm signature.Instr}
+    (hp : Tm.BranchValue Γ packet X) (h : ReturnsAt (Γ := Γ) t packet result) :
+    ReturnsAt (Γ := A :: Γ) (Term.seq (.fst X A) t) (.pair (packet.rename Nat.succ) (.var 0))
+      (result.rename Nat.succ) :=
+  RedundantSelectedTest.retain_return_under_binder t hp h
+
+/-- Initialize both return facts from the prior case's constructor packet. -/
+theorem prior_guard_returns {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    (slot : ReplyFrame.Slot frame) (v : ReplyFrame.Value Γ frame) :
+    let (b, u) := slot.read v
+    let packet := Tm.pair v.elaborate.val u.val
+    ReturnsAt (Γ := Γ) (retainSlot (A := unit) slot.term) packet (if b then .inr u.val else .inl u.val) ∧
+      ReturnsAt (Γ := Γ) (Term.snd (Φ := signature.Instr) X unit) packet u.val :=
+  RedundantSelectedTest.prior_guard_returns slot v
+
+/-- Prune the known case under the original packet and forward its unit payload. -/
+theorem framed_prune_at {Γ L : List (Ty Empty)} {X : Ty Empty}
+    (test : Term signature.Instr X Bit) (payload : Term signature.Instr X unit)
+    (emits : List Bool) {packet u : Tm signature.Instr}
+    (hp : Tm.BranchValue Γ packet X) (hu : Tm.BranchValue Γ u unit) (b : Bool)
+    (known : ReturnsAt (Γ := Γ) test packet (if b then .inr u else .inl u))
+    (forward : ReturnsAt (Γ := Γ) payload packet u)
+    {l r : Region signature.Instr}
+    (hl : ValueBranches [product X unit] l L) (hr : ValueBranches [product X unit] r L) :
+    E Γ ((Region.case (emitPrefix emits test).elaborate.val
+        (Paper.PackedBody.applyPacked l) (Paper.PackedBody.applyPacked r)).substVars (Tm.singleSubst packet))
+      ((prependEmits emits (.let₁ payload.elaborate.val
+        (Paper.PackedBody.applyPacked (if b then r else l)))).substVars (Tm.singleSubst packet)) L :=
+  RedundantSelectedTest.framed_prune_at test payload emits hp hu b known forward hl hr
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.OpenReplay
