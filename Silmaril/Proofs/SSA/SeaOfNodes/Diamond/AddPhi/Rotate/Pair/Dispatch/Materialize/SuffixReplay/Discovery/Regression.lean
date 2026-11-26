@@ -12,16 +12,17 @@ open AddPhi.Rotate.Pair.Dispatch.Materialize
 open AddPhi.Rotate.Pair.Dispatch.Materialize.SuffixReplay (blockOf)
 open AddPhi.Rotate.Pair.Dispatch.Materialize.SuffixReplay.Discovery (normalize)
 open Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay (Block)
-open Silmaril.SSA.SeaOfNodes.Pure.SubZero (model word wordPort)
-open Silmaril.SSA.RVSDG (Tuple)
+open Silmaril.SSA.SeaOfNodes.Pure.SubZero (Opcode model word wordPort)
+open Silmaril.SSA.SeaOfNodes.GVN (newest weaken)
+open Silmaril.SSA.RVSDG (Origin Tuple Wires extend)
 
-open Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery (unused? step?)
+open Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery (unused? step? addCount)
 
 private abbrev inputs : List (ValueSort Unit) := [.predicate, word, word]
 private abbrev sigs := [[wordPort], [wordPort]]
 
-private def source : AddPhi.Pair.Source inputs sigs where
-  shared := .cons (.literal 3) .nil (.cons (.literal 0) .nil .nil)
+private def sourceWith (right : BitVec 64) : AddPhi.Pair.Source inputs sigs where
+  shared := .cons (.literal 3) .nil (.cons (.literal right) .nil .nil)
   predicate := .arg .head
   merge := ⟨.onFalse⟩
   arms
@@ -32,6 +33,8 @@ private def source : AddPhi.Pair.Source inputs sigs where
         sigs := [[wordPort]]
         dataflow := .cons .sub (.cons (.arg (.tail .head)) (.cons (.arg (.tail (.tail .head))) .nil)) .nil
         outputs := .cons (.output (2 : Fin 3) .head) (.cons (.output (1 : Fin 3) .head) .nil) }
+
+private def source := sourceWith 0
 
 private def x : InputWord inputs := .tail (.tail .head)
 
@@ -79,7 +82,59 @@ private def literalPriority : Block [] [] where
     (.cons .add (.cons (.output (0 : Fin 2) .head) (.cons (.output (1 : Fin 2) .head) .nil)) .nil))
   packet := .cons (.output (2 : Fin 3) .head) .nil
 
-theorem higher_priority_literal_fold_blocks_right_zero :
-    step? literalPriority = none := rfl
+theorem higher_priority_literal_fold_keeps_the_table_size :
+    (step? literalPriority).map (fun edit =>
+      (edit.rule, edit.state.block.sigs.length, addCount edit.state.block)) =
+        some (.literal, 3, 0) := rfl
+
+private abbrev args := dataPorts [word, word]
+private abbrev row := [wordPort]
+
+/-- Test-only tail on the actual emitted table: add the wrapping sum to the
+old result and make the sum itself the other outgoing value. -/
+private def appendWrappingAdd : {past sigs : List (List (Ty Unit))} →
+    Dataflow Opcode args past sigs → Origin args (extend past sigs) wordPort →
+    Σ newSigs, Dataflow Opcode args past newSigs ×
+      Wires args (extend past newSigs) [wordPort, wordPort]
+  | past, _, .nil, old =>
+    let maxWire : Origin args (past ++ [row]) wordPort := newest .head
+    let oneWire : Origin args ((past ++ [row]) ++ [row]) wordPort := newest .head
+    let sumWire : Origin args (((past ++ [row]) ++ [row]) ++ [row]) wordPort := newest .head
+    let old := weaken row (weaken row (weaken row old))
+    ⟨[row, row, row, row],
+      .cons (.literal 0xffffffffffffffff) .nil
+        (.cons (.literal 1) .nil
+          (.cons .add (.cons (weaken row maxWire) (.cons oneWire .nil))
+            (.cons .add (.cons old (.cons sumWire .nil)) .nil))),
+      .cons (newest .head) (.cons (weaken row sumWire) .nil)⟩
+  | _, _, .cons opcode operands rest, old =>
+    let ⟨_, flow, packet⟩ := appendWrappingAdd rest old
+    ⟨_, .cons opcode operands flow, packet⟩
+
+private def withWrappingAdd (p : Program inputs sigs [word]) : Block [word, word] [wordPort] :=
+  let ⟨sigs, flow, packet⟩ := appendWrappingAdd p.suffix.dataflow p.suffix.result
+  ⟨sigs, flow, packet⟩
+
+private def packetAt (p : Program inputs sigs [word]) (block : Block [word, word] [wordPort]) (guard : Bool) :
+    BitVec 64 × BitVec 64 :=
+  let entry : Tuple (Val model.value) (dataPorts inputs) :=
+    .cons ⟨guard⟩ (.cons (41 : BitVec 64) (.cons (0xffffffffffffffff : BitVec 64) .nil))
+  let suffixEntry : Tuple (Val model.value) args :=
+    .cons (entry.get p.residual) (p.diamond.denote model entry)
+  let values := block.packet.read suffixEntry (block.flow.eval model suffixEntry PUnit.unit)
+  (values.get .head, values.get (.tail .head))
+
+theorem wrapping_fold_exposes_right_zero_and_keeps_the_second_packet_value :
+    (rewrite (sourceWith 7) x .left).map (fun result => match result with
+      | .materialized .right _ p =>
+        let ext := withWrappingAdd p
+        let first := (step? ext).map fun edit => (edit.rule, edit.state.block.sigs.length, addCount edit.state.block)
+        let final := Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.normalize ext
+        some (first, final.rules, final.state.block.packet.addresses,
+          packetAt p ext false, packetAt p final.state.block false,
+          packetAt p ext true, packetAt p final.state.block true)
+      | _ => none) =
+      .ok (some (some (.literal, 7, 3), [.literal, .rightZero, .deleteUnused, .deleteUnused],
+        [.output 2 0, .output 3 0], (9, 0), (9, 0), (48, 0), (48, 0))) := rfl
 
 end Silmaril.Proofs.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.SuffixReplay.Discovery.Regression
