@@ -547,3 +547,43 @@ another fixture after its first cut, and both CFGs return the observed
 ```sh
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Infer equality-only contracts from Store operands
+
+`Static.Sequence.Search.Inference.inferContracts entry` reads the typed
+Store operands and emits one contract per address argument in first
+occurrence order. Each contract relies on the checker's reflexive
+must-alias for its own port, with empty disjointness and alias lists.
+When a typed entry map routes two operands to the same port, the
+reindexed table exposes that shared identity to inference.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Static/Sequence/Search/Inference/Defs.lean)
+
+The native entry table uses address arguments, and Load produces a word.
+The table has no closed address constants or producer of static
+disequality evidence. Different argument ports can denote the same
+cell, so their relationship stays unknown. Callers can still supply
+explicit disjointness contracts to `Search.lower`. The source
+correspondence is the same-pointer test in Simple chapter 10's
+`StoreNode.idealize` and its check for other observers before bypassing
+a Store.
+[Pinned Simple chapter 10 Store rule](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65)
+
+Lean proves that all valuations satisfy the inferred contracts.
+`Inference.lower` supplies them to the existing `Search.lower`.
+Its replay and exhaustion guarantees range over the inferred contracts
+and the first-overwrite checker. The actual original and optimized
+MemRef CFGs agree on the successor packet, entry buffer, returned word,
+and every final cell for either predicate, every initialized buffer, and
+every CF budget.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Static/Sequence/Search/Inference/Thms.lean)
+
+The runnable fixture discovers two cuts at version `4` after successive
+renumbering. A same-port Load keeps the Store it observes live, and a candidate
+with an intervening symbolic Store remains blocked even at a valuation
+where the addresses differ. A separate routed fixture discovers a cut
+after two Store operands are routed to the same typed port.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```
