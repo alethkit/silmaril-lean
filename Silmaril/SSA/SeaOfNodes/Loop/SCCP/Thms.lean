@@ -43,6 +43,17 @@ theorem bankTuple_tupleFacts {value : Data → Type w} {ports : List (Ty Data)}
     (facts : Tuple (Fact value) ports) : bankTuple (tupleFacts facts) = facts :=
   Proofs.bankTuple_tupleFacts facts
 
+/-- The abstract feedback column covers the native column read on the
+same old bank. This is the producer-table coverage used by the solver. -/
+theorem headerFeedback_cover {m : Model.{u, v, w} Op}
+    (g : Graph Op inputs carried entrySigs headerSigs out)
+    {input : Tuple (Fact m.value) (dataPorts inputs)} {entry : Tuple (Val m.value) (dataPorts inputs)}
+    (covered : TupleCovers input entry) {bank : BankFacts m.value (dataPorts carried)}
+    {old : Tuple (Val m.value) (dataPorts carried)} (hold : BankCovers bank old) :
+    let args := appendTuple old entry
+    BankCovers (headerFacts m g input bank).feedback (g.latch m .backedge args (g.header.eval m args PUnit.unit)) :=
+  (Proofs.headerFacts_cover (g := g) covered hold).2.1
+
 /-- Three control insertions and two strict increases at each carried or exit port suffice. -/
 def height (value : Data → Type w) (carried : List (ValueSort Data)) (out : ValueSort Data) :
     HeightBound (State value carried out) :=

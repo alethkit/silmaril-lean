@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.SeaOfNodes.Loop.SCCP.ReturnFold.Defs
 import Silmaril.Proofs.SSA.SeaOfNodes.Loop.SCCP.ReturnFold.Correctness
+import Silmaril.Proofs.SSA.SeaOfNodes.Loop.SCCP.ReturnFold.Structure
 
 /-! The constant return rewrite preserves all covered finite observations. -/
 
@@ -9,16 +10,44 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Loop.SCCP.ReturnFold
 
-open Diamond (Model Signature Ty Val ValueSort dataPorts sortValue)
+open Diamond (Dataflow Model Signature Ty Val ValueSort dataPorts sortValue)
 open Diamond.SCCP (Fact TupleCovers)
-open RVSDG (Tuple)
+open RVSDG (Locals Origin Tuple Wires extend)
 
 universe u v w
 
 variable {Data : Type u} {Op : Signature.{u, v} Data}
 variable {inputs carried : List (ValueSort Data)}
 variable {entrySigs headerSigs : List (List (Ty Data))} {out : ValueSort Data}
-variable {m : Model.{u, v, w} Op} [BankDecidableEq m.value (dataPorts carried)]
+variable {m : Model.{u, v, w} Op}
+
+section Append
+
+variable {args ports : List (Ty Data)} {past sigs target : List (List (Ty Data))}
+
+/-- Appending a nullary producer preserves every embedded read, and its
+new wire reads the nullary operation's value. -/
+theorem append_reads (literal : Op [] out) (flow : Dataflow Op args past sigs)
+    (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) :
+    let added := appendLiteral literal flow
+    let before := flow.eval m entry locals
+    let after := added.flow.eval m entry locals
+    (∀ (t : Ty Data) (wire : Origin args (extend past sigs) t),
+      Diamond.read m (added.keep wire) entry after = Diamond.read m wire entry before) ∧
+      Diamond.read m added.result entry after = m.run literal .nil :=
+  Proofs.append_reads literal flow entry locals
+
+theorem read_mapped (wires : Wires args past ports)
+    (route : ∀ (t : Ty Data), Origin args past t → Origin args target t)
+    (entry : Tuple (Val m.value) args)
+    (before : Locals (Val m.value) past) (after : Locals (Val m.value) target)
+    (same : ∀ t wire, Diamond.read m (route t wire) entry after = Diamond.read m wire entry before) :
+    Wires.read (wires.map route) entry after = wires.read entry before :=
+  Proofs.read_mapped wires route entry before after same
+
+end Append
+
+variable [BankDecidableEq m.value (dataPorts carried)]
 variable {g : Graph Op inputs carried entrySigs headerSigs out}
 variable {input : Tuple (Fact m.value) (dataPorts inputs)} {literals : Literals m out}
 variable {rewritten : Graph Op inputs carried entrySigs (headerSigs ++ [[.value out]]) out}

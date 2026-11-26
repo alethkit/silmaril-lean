@@ -46,7 +46,7 @@ private theorem entryFacts_cover (hentry : TupleCovers input entry) :
   intro t p
   exact bankCovers_of_tuple (readWires_cover (g.phiInputs .entry) hentry stores) p
 
-private theorem headerFacts_cover (hentry : TupleCovers input entry)
+theorem headerFacts_cover (hentry : TupleCovers input entry)
     {latch : BankFacts m.value (dataPorts carried)} {old : Tuple (Val m.value) (dataPorts carried)}
     (hold : BankCovers latch old) :
     let args := appendTuple old entry
