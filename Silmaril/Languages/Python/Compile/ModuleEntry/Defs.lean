@@ -98,6 +98,33 @@ def exactScalarLiteral? : Expr → Option Core.Module.Value
   | .none_ => some .none
   | source => scalarLiteral? source
 
+def scalarDictionaryEntry? : Option Expr × Expr → Option (Core.Module.Value × Core.Module.Value)
+  | (some key, value) => do
+    let checkedKey ← exactScalarLiteral? key
+    let checkedValue ← exactScalarLiteral? value
+    return (checkedKey, checkedValue)
+  | (none, _) => none
+
+/-- Only a nonescaping display of exact scalar entries takes this path.
+Validate the entire display, key and explicit default, even on a hit. -/
+def literalDictionaryGet? (entries : List (Option Expr × Expr)) (arguments : List Expr) :
+    Option Core.Module.Value := do
+  let items ← entries.mapM scalarDictionaryEntry?
+  let (key, fallback) ← match arguments with
+    | [key] => some (key, .none_)
+    | [key, fallback] => some (key, fallback)
+    | _ => none
+  let needle ← exactScalarLiteral? key
+  let defaultValue ← exactScalarLiteral? fallback
+  return Core.Module.scalarDictionaryGet items needle defaultValue
+
+def literalDictionaryGetWith? (entries : List (Option Expr × Expr))
+    (arguments : List (Source.ArgumentKind × Expr)) : Option Core.Module.Value := do
+  let positional ← arguments.mapM fun
+    | (.positional, operand) => some operand
+    | _ => none
+  literalDictionaryGet? entries positional
+
 def numericLiteral? (source : Expr) : Option Int :=
   (scalarLiteral? source).bind Core.Module.Value.asInt?
 
@@ -333,6 +360,12 @@ inductive OperandTranslation (scope : Scope) : Expr → Operand scope → Prop w
   | none_ : OperandTranslation scope .none_ .none_
   | negativeInteger (value : Int) :
       OperandTranslation scope (.unary .negative (.integer value)) (.integer (-value))
+  | literalDictionaryGet {entries arguments value}
+      (checked : literalDictionaryGet? entries arguments = some value) :
+      OperandTranslation scope (.call (.attribute (.dictionary entries) "get") arguments) (.scalarResult value)
+  | literalDictionaryGetWith {entries arguments value}
+      (checked : literalDictionaryGetWith? entries arguments = some value) :
+      OperandTranslation scope (.callWith (.attribute (.dictionary entries) "get") arguments) (.scalarResult value)
   | literalSubscript {source index value} (selected : literalSubscript? source index = some value) :
       OperandTranslation scope (.subscript source index) (.integer value)
   | read (name : Name) (reference : GlobalReference scope name) :
@@ -406,6 +439,14 @@ def lowerOperand (scope : Scope) : (source : Expr) → Except Error {value // Op
   | .booleanOp operator operands =>
     match folded : checkedBooleanOp? operator operands with
     | some value => .ok ⟨.scalarResult value, .literalBooleanOp folded⟩
+    | none => .error .expressionProfile
+  | .call (.attribute (.dictionary entries) "get") arguments =>
+    match checked : literalDictionaryGet? entries arguments with
+    | some value => .ok ⟨.scalarResult value, .literalDictionaryGet checked⟩
+    | none => .error .expressionProfile
+  | .callWith (.attribute (.dictionary entries) "get") arguments =>
+    match checked : literalDictionaryGetWith? entries arguments with
+    | some value => .ok ⟨.scalarResult value, .literalDictionaryGetWith checked⟩
     | none => .error .expressionProfile
   | .subscript source index =>
     match selected : literalSubscript? source index with
