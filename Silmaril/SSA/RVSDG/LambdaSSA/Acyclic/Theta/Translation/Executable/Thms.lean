@@ -44,7 +44,7 @@ private theorem run_iff_of_observe {input : TyDen A} {initial : σ} {result : Pa
       (mapped_exit_iff result exit final))
 
 /-- Successful executions return exactly the typed exit, payload and final
-token of the recovered flat region, in either supported layout. -/
+token of the recovered flat region in every supported layout. -/
 theorem Fibre.run_iff (f : Fibre layout g)
     (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := StateT σ Part.{u}))
     (env : Env [A]) (exit : LabelDen [E,D]) (initial final : σ) :
@@ -66,6 +66,7 @@ theorem Source.compile_run_iff (source : Source Φ A X Z L E D sigs)
     exact run_iff_of_observe actions
       (WithNestedFeedback.Normalization.compile_observe s coherent env initial) exit final
   | routed s => exact run_iff_of_observe actions (s.agrees coherent env initial) exit final
+  | routedMixed s _ => exact run_iff_of_observe actions (s.agrees coherent env initial) exit final
 
 /-- A finite block of the numbered graph rules out runner success at every
 bound. A `none` result at a bound does not identify a block. -/

@@ -1,5 +1,6 @@
 module
 
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Serial.Routed.Mixed.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Executable.Thms
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Executable.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Thms
@@ -900,13 +901,19 @@ private theorem routingProducerReturns (input : Nat) (nonzero : input ≠ 0) :
     simp [Elgot.StateT.body, ExplicitRuntime.round, routingProducer,
       ExplicitRuntime.bodyAction, routingCase, call_eq, instruction, Elgot.StateT.distribute, nonzero]
 
-private theorem routingConsumerReturns :
-    (iter (ExplicitRuntime.round (ε := Bool) (m := Runtime) routingConsumer) (1 : Nat)).run 4 =
-      Part.some ((.inr (.inl (9 : Nat)) : RoutedExit), 93) := by
+private theorem routingConsumerReturnsAt (input token : Nat) (nonzero : input ≠ 0) (allowed : input ≠ 99) :
+    (iter (ExplicitRuntime.round (ε := Bool) (m := Runtime) routingConsumer) input).run token =
+      Part.some ((.inr (.inl (token + 5)) : RoutedExit), 10 * (token + 5) + 3) := by
   rw [Elgot.StateT.run_iter, Part.eq_some_iff, Elgot.Part.mem_iter_iff]
   apply Elgot.Part.Runs.done
   simp [Elgot.StateT.body, ExplicitRuntime.round, routingConsumer,
-    ExplicitRuntime.bodyAction, routingCase, call_eq, instruction, Elgot.StateT.distribute]
+    ExplicitRuntime.bodyAction, routingCase, call_eq, instruction, Elgot.StateT.distribute,
+    nonzero, allowed, Nat.add_assoc]
+
+private theorem routingConsumerReturns :
+    (iter (ExplicitRuntime.round (ε := Bool) (m := Runtime) routingConsumer) (1 : Nat)).run 4 =
+      Part.some ((.inr (.inl (9 : Nat)) : RoutedExit), 93) :=
+  routingConsumerReturnsAt 1 4 (by decide) (by decide)
 
 private theorem routingConsumerUndefined :
     (iter (ExplicitRuntime.round (ε := Bool) (m := Runtime) routingConsumer) (99 : Nat)).run 4 =
@@ -1234,6 +1241,74 @@ private theorem compiledBlock : NestedTheta.ExplicitRuntime.Partial.abnormal blo
 example (fuel : Nat) :
     Translation.run runnerActions operationalGraph fuel (99 : Nat) 0 = none :=
   Translation.run_eq_none_of_blocked runnerActions operationalSource.compileChecked compiledBlock fuel
+
+private def mixedConsumer : Recursive.Normal Op number .unit number number .unit number
+    (StructuredCFG.Selection number number .unit number ++ [Flat.Serial.WirePorts number .unit number]) :=
+  .fork forkGate (.leaf (.feedback program)) (.leaf (.localLoop tailLoop)) (.leaf (.localLoop routingConsumer))
+
+private def routedMixedParts : Flat.Serial.Routed.Mixed.Components Op number .unit number number :=
+  ⟨number, number, routingProducer, _, mixedConsumer⟩
+
+private def routedMixedInput :=
+  Translation.Source.routedMixed routedMixedParts
+    ⟨.instruction _, trivial, tailSupported, .instruction _⟩
+
+private def routedMixedGraph := Translation.compile routedMixedInput
+
+private abbrev mixedResult : RoutedExit := .inr (.inl (41228 : Nat))
+
+private theorem mixedConsumerRun (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) mixedConsumer.toSyntax.source.typing (PUnit.unit,(1 : Nat))).run 4 =
+      Part.some (mixedResult, 412283) := by
+  change (Region.denote (ε := Bool) (m := Runtime)
+    (Flat.link (Flat.fork (WithNestedFeedback.Leaf.source program) (.loop tailLoop) forkGate)
+      (.loop routingConsumer)).typing (PUnit.unit,(1 : Nat))).run 4 = _
+  rw [Flat.denote_link _ _ coherent, Flat.denote_fork _ _ _ coherent, gateAction, ite_eq_left rfl, pure_bind]
+  change ((Region.denote (ε := Bool) (m := Runtime) (WithNestedFeedback.Leaf.source program).typing
+    (PUnit.unit,(7 : Nat)) >>= fun (y : Exits) =>
+      Region.denote (ε := Bool) (m := Runtime) (Flat.Fragment.loop routingConsumer).typing
+        (PUnit.unit, merge y)).run 4) = _
+  rw [WithNestedFeedback.Leaf.source_rounds _ coherent]
+  simp only [StateT.run_bind, Part.bind_eq_bind, feedbackReturnsFirstRound 7 4 (by decide) (by decide),
+    Part.bind_some, StateT.run_pure, Part.pure_eq_some, merge]
+  change (Region.denote (ε := Bool) (m := Runtime) (Flat.Fragment.loop routingConsumer).typing
+    (PUnit.unit,(4122 : Nat))).run 41223 = _
+  rw [Flat.Fragment.loop_denote, ExplicitRuntime.denote_rounds _ coherent]
+  exact routingConsumerReturnsAt 4122 41223 (by decide) (by decide)
+
+private theorem routedMixedRun (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) routedMixedInput.fragment.typing (PUnit.unit,(1 : Nat))).run 0 =
+      Part.some (mixedResult, 412283) := by
+  change (Region.denote (ε := Bool) (m := Runtime)
+    (Flat.linkBy (.loop routingProducer) mixedConsumer.toSyntax.source Flat.Serial.Routed.routing).typing
+    (PUnit.unit,(1 : Nat))).run 0 = _
+  rw [Flat.denote_linkBy _ _ _ coherent, Flat.Fragment.loop_denote, ExplicitRuntime.denote_rounds _ coherent,
+    StateT.run_bind, routingProducerReturns 1 (by decide)]
+  exact (Part.bind_some _ _).trans (mixedConsumerRun coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) (translateThenRecover routedMixedInput).typing
+      (PUnit.unit,(1 : Nat))).run 0 = Part.some (mixedResult, 412283) :=
+  ((translateThenRecover routedMixedInput).run_iff runnerActions coherent
+    (PUnit.unit,(1 : Nat)) mixedResult 0 412283).mp
+    ((routedMixedInput.compile_run_iff runnerActions coherent
+      (PUnit.unit,(1 : Nat)) mixedResult 0 412283).mpr (routedMixedRun coherent))
+
+private def staleRoutedMixed := (staleRouteTerm routedMixedGraph.toTerm).toGraph
+
+#eval show IO Unit from do
+  unless (Translation.recover routedMixedInput.layout routedMixedGraph).isSome do
+    throw (IO.userError "the mixed consumer did not recover from its numbered graph")
+  unless (Flat.Serial.Routed.Mixed.candidate staleRoutedMixed).isSome &&
+      (Translation.recover routedMixedInput.layout staleRoutedMixed).isNone do
+    throw (IO.userError "the mixed consumer did not reject a stale cut token after parsing")
+  let output := (Translation.run runnerActions routedMixedGraph 2 (1 : Nat) 0).map fun result =>
+    ((show (PUnit ⊕ Nat) ⊕ Nat from result.get .head), (show Nat from result.get (.tail .head)))
+  match output with
+  | some (.inl (.inr payload), store) =>
+    unless payload == 41228 && store == 412283 do
+      throw (IO.userError "the routed mixed consumer returned the wrong payload or store")
+  | _ => throw (IO.userError "the routed mixed graph did not return at the consumer exit")
 
 end Composition
 
