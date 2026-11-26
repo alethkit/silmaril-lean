@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.ConcurrentTrace.Occurrences.Defs
+public import Silmaril.Semantics.ConcurrentTrace.Occurrences.Observations.Conflict.Defs
 public import Mathlib.Data.Finset.Image
 
 /-! # Observations of finite occurrence posets -/
@@ -47,17 +47,15 @@ def FragmentFamily (p : OccurrencePoset T E) {n : Nat}
 
 /-- The abstract addresses touched by one occurrence. A sync contributes no addresses. -/
 def touched (p : OccurrencePoset T E) (touches : T → E → Set Addr) (i : Fin p.size) : Set Addr :=
-  match p.label i with
-  | .event t e => touches t e
-  | .sync _ => ∅
+  eventFootprint touches (p.label i)
 
 /-- The overlap of two concurrent event footprints. -/
 def raceAt (p : OccurrencePoset T E) (touches : T → E → Set Addr) (i j : Fin p.size) :
     Set Addr :=
-  {a | p.Concurrent i j ∧ a ∈ p.touched touches i ∧ a ∈ p.touched touches j}
+  p.conflictAt (anyTouchPolicy touches) i j
 
 /-- All addresses observed in a concurrent overlap. -/
 def raceAddresses (p : OccurrencePoset T E) (touches : T → E → Set Addr) : Set Addr :=
-  {a | ∃ i j, a ∈ p.raceAt touches i j}
+  p.conflictAddresses (anyTouchPolicy touches)
 
 end Silmaril.Semantics.ConcurrentTrace.OccurrencePoset
