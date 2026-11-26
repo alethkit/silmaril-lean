@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Defs
 import Mathlib.Tactic.FinCases
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.ExitUB.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Packet.Thms
@@ -24,8 +25,8 @@ open LambdaSSA.UB.Overlay
 open LambdaSSA.UB.Overlay.Shape (denote)
 open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration
 open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent (Packet unpack)
-open LambdaSSA.UB.Overlay.Shape.TwoRequest (Exits resultBehaviour)
-open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native (withExitUB)
+open LambdaSSA.UB.Overlay.Shape.TwoRequest (Exits Tag resultBehaviour)
+open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native (withExitUB denote_exitContinuation)
 open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands
   (Head Table ConfigurationEnumeration ReplyEnumeration)
 open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FixedCarrier (encode rows)
@@ -112,12 +113,46 @@ private theorem project_result (g : Table (Recognize.signature Φ) Packets)
   cases r <;> simp [Result.routed, carrier, project, resultBehaviour]
   rfl
 
+private theorem decorate_result (g : Table (Recognize.signature Φ) Packets)
+    (prim : Syntax.Primitives Φ states) (r : Result 2 states) :
+    decorate prim g.selected (resultBehaviour r) = resultBehaviour (g.markExit r) := by
+  simp only [decorate, denote_exitContinuation]
+  cases r with
+  | ret i t =>
+    cases h : g.selected i <;>
+      simp [Table.markExit, h, resultBehaviour, Behaviour.bind, Behaviour.possible]
+    ext outcome
+    cases outcome <;> simp [Outcome.bind, h]
+  | fault t =>
+    simp [Table.markExit, resultBehaviour, Behaviour.bind, Behaviour.possible]
+    ext outcome
+    cases outcome <;> simp [Outcome.bind]
+  | diverge =>
+    simp [Table.markExit, resultBehaviour, Behaviour.bind, Behaviour.possible]
+    ext outcome
+    cases outcome <;> simp [Outcome.bind]
+  | ub => simp [Table.markExit, resultBehaviour]
+
+private theorem step_selected (op : Φ) (routes : Recognize.Routes) (selected : Tag → Bool)
+    (caller : Syntax.Payload Bit) :
+    step (withSelectedExits op routes selected) caller query (unitExit (α := Runtime)) =
+      step (guardedTable op routes) caller query (unitExit (α := Runtime)) := by
+  funext cursor
+  obtain ⟨c⟩ := cursor
+  cases c with
+  | inl i => rfl
+  | inr packet =>
+    change headStep query ((withSelectedExits op routes selected).head caller packet) =
+      headStep query ((guardedTable op routes).head caller packet)
+    unfold Table.head
+    cases (guardedTable op routes).row packet.1 <;> rfl
+
 theorem observe_runFinite (g : Table (Recognize.signature Φ) Packets)
     (caller : Syntax.Payload (Packets.get g.entry)) (prim : Syntax.Primitives Φ states)
     (configs : ConfigurationEnumeration Packets) (stores : StateInventory states)
-    (ordinary : ∀ i, g.selected i = false) (p : Packet Packets) (s : Fin states) :
-    FixedCarrier.observe prim
-      (iter (m := Tree (Request Φ)) (step g caller query (unitExit (α := Runtime))) (atBlock p)) s =
+    (p : Packet Packets) (s : Fin states) :
+    decorate prim g.selected (FixedCarrier.observe prim
+      (iter (m := Tree (Request Φ)) (step g caller query (unitExit (α := Runtime))) (atBlock p)) s) =
       resultBehaviour (g.runFinite caller prim configs stores p s) := by
   have h := classify_routed (f := feedback prim) (carrier g caller configs stores)
     (rows g caller prim configs stores) (encode configs stores (p, s)) (step_row g caller prim configs stores)
@@ -128,8 +163,7 @@ theorem observe_runFinite (g : Table (Recognize.signature Φ) Packets)
   rw [atStart] at h
   unfold FixedCarrier.observe Table.runFinite
   rw [h, project_result]
-  cases execute (rows g caller prim configs stores) (encode configs stores (p, s)) <;>
-    simp [Table.markExit, ordinary]
+  exact decorate_result g prim _
 
 variable {κ V K : Type 1} [DecidableEq V] [DecidableEq K]
   {P : FlatInstitution.Signature.{0, 0} κ} {seed : V} {names : Fin 5 ≃ K}
@@ -141,26 +175,28 @@ variable {κ V K : Type 1} [DecidableEq V] [DecidableEq K]
 theorem observeNamed_runFinite (checked : Recognize.Checked a op) (caller : Syntax.Payload Bit)
     (input : V → Value Runtime) (value : input seed = Recognize.encodeValue ULift.up caller.val)
     (prim : Syntax.Primitives P.Instr states) (configs : ConfigurationEnumeration Packets)
-    (stores : StateInventory states) (s : Fin states) :
-    observeNamed source names input prim s =
-      resultBehaviour ((guardedTable op checked.routes).runFinite caller prim configs stores ⟨0, caller⟩ s) := by
+    (stores : StateInventory states) (s : Fin states) (selected : Tag → Bool := fun _ => false) :
+    observeNamed source names input prim s selected =
+      resultBehaviour ((withSelectedExits op checked.routes selected).runFinite caller prim configs stores ⟨0, caller⟩ s) := by
   let c := checked.corresponds ULift.up query raw (fun reg => input reg.1) (query_agrees op) caller value
-  exact (congrArg (fun tree => FixedCarrier.observe prim tree s) c.observe_eq).trans
-    (observe_runFinite (guardedTable op checked.routes) caller prim configs stores (fun _ => rfl) ⟨0, caller⟩ s)
+  have classified := observe_runFinite (withSelectedExits op checked.routes selected) caller prim configs stores ⟨0, caller⟩ s
+  rw [step_selected] at classified
+  exact (congrArg (fun tree => decorate prim selected (FixedCarrier.observe prim tree s)) c.observe_eq).trans classified
 
 theorem observeNamed_native [DecidableEq P.Instr] (checked : Recognize.Checked a op)
     (caller : Syntax.Payload Bit) (input : V → Value Runtime)
     (value : input seed = Recognize.encodeValue ULift.up caller.val)
     (prim : Syntax.Primitives P.Instr states) (configs : ConfigurationEnumeration Packets)
     (stores : StateInventory states) (native : CFG.Dependent.Native.Typed P.Instr [Bit] Exits)
-    (readback : (guardedTable op checked.routes).checkNative native = true) (s : Fin states) :
-    observeNamed source names input prim s =
-      Shape.denote (withExitUB native (guardedTable op checked.routes).selected)
+    (readback : (guardedTable op checked.routes).checkNative native = true) (s : Fin states)
+    (selected : Tag → Bool := fun _ => false) :
+    observeNamed source names input prim s selected =
+      Shape.denote (withExitUB native selected)
         (Syntax.model prim ((guardedTable op checked.routes).bindings caller)) s := by
-  let g := guardedTable op checked.routes
+  let g := withSelectedExits op checked.routes selected
   calc
     _ = resultBehaviour (g.runFinite caller prim configs stores ⟨0, caller⟩ s) :=
-      observeNamed_runFinite checked caller input value prim configs stores s
+      observeNamed_runFinite checked caller input value prim configs stores s selected
     _ = g.observeAt caller prim ⟨0, caller⟩ s := (g.observe_runFinite caller prim configs stores _ s).symm
     _ = _ := (g.observe_entry native readback caller prim s).symm
 
@@ -170,15 +206,19 @@ theorem acceptance_iff [DecidableEq P.Instr] (left : Recognize.Checked a op) (ri
     (replies : ReplyEnumeration (Recognize.signature P.Instr)) (configs : ConfigurationEnumeration Packets)
     (stores : StateInventory states) (native native' : CFG.Dependent.Native.Typed P.Instr [Bit] Exits)
     (readback : (guardedTable op left.routes).checkNative native = true)
-    (readback' : (guardedTable op' right.routes).checkNative native' = true) :
-    (guardedTable op left.routes).checkAllInterpreters? (guardedTable op' right.routes) native native'
+    (readback' : (guardedTable op' right.routes).checkNative native' = true)
+    (selected selected' : Tag → Bool := fun _ => false) :
+    (withSelectedExits op left.routes selected).checkAllInterpreters?
+        (withSelectedExits op' right.routes selected') native native'
         caller caller replies configs configs stores = some true ↔
       ∀ (prim : Syntax.Primitives P.Instr states) (s : Fin states),
-        observeNamed source names input prim s ≤ observeNamed target names input prim s := by
-  rw [Table.checkAllInterpreters?_accepts_iff, and_iff_right readback, and_iff_right readback']
+        observeNamed source names input prim s selected ≤ observeNamed target names input prim s selected' := by
+  have leftRead : (withSelectedExits op left.routes selected).checkNative native = true := readback
+  have rightRead : (withSelectedExits op' right.routes selected').checkNative native' = true := readback'
+  rw [Table.checkAllInterpreters?_accepts_iff, and_iff_right leftRead, and_iff_right rightRead]
   exact forall_congr' fun prim => forall_congr' fun s => by
-    rw [observeNamed_native left caller input value prim configs stores native readback s,
-      observeNamed_native right caller input value prim configs stores native' readback' s]
+    rw [observeNamed_native left caller input value prim configs stores native readback s selected,
+      observeNamed_native right caller input value prim configs stores native' readback' s selected']
     rfl
 
 theorem rejection_iff [DecidableEq P.Instr] (left : Recognize.Checked a op) (right : Recognize.Checked b op')
@@ -187,14 +227,18 @@ theorem rejection_iff [DecidableEq P.Instr] (left : Recognize.Checked a op) (rig
     (replies : ReplyEnumeration (Recognize.signature P.Instr)) (configs : ConfigurationEnumeration Packets)
     (stores : StateInventory states) (native native' : CFG.Dependent.Native.Typed P.Instr [Bit] Exits)
     (readback : (guardedTable op left.routes).checkNative native = true)
-    (readback' : (guardedTable op' right.routes).checkNative native' = true) :
-    (guardedTable op left.routes).checkAllInterpreters? (guardedTable op' right.routes) native native'
+    (readback' : (guardedTable op' right.routes).checkNative native' = true)
+    (selected selected' : Tag → Bool := fun _ => false) :
+    (withSelectedExits op left.routes selected).checkAllInterpreters?
+        (withSelectedExits op' right.routes selected') native native'
         caller caller replies configs configs stores = some false ↔
       ∃ (prim : Syntax.Primitives P.Instr states) (s : Fin states),
-        ¬ observeNamed source names input prim s ≤ observeNamed target names input prim s := by
+        ¬ observeNamed source names input prim s selected ≤ observeNamed target names input prim s selected' := by
   classical
-  have accepted := acceptance_iff left right caller input value replies configs stores native native' readback readback'
-  simp only [Table.checkAllInterpreters?, readback, readback', Bool.and_self, ↓reduceIte,
+  have accepted := acceptance_iff left right caller input value replies configs stores native native' readback readback' selected selected'
+  have leftRead : (withSelectedExits op left.routes selected).checkNative native = true := readback
+  have rightRead : (withSelectedExits op' right.routes selected').checkNative native' = true := readback'
+  simp only [Table.checkAllInterpreters?, leftRead, rightRead, Bool.and_self, ↓reduceIte,
     Option.some.injEq] at accepted ⊢
   simp only [Bool.eq_false_iff, ne_eq, accepted, not_forall]
 

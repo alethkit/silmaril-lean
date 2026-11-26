@@ -16,7 +16,9 @@ open LambdaSSA.UB.Overlay
 open LambdaSSA.UB.Overlay.Shape
 open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration
 open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent (Packet unpack)
-open LambdaSSA.UB.Overlay.Shape.TwoRequest (Exits)
+open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native (exitContinuation)
+open LambdaSSA.UB.Overlay.Shape.TwoRequest (Exits Tag)
+open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands (Table)
 open Recognize (Bit Packets)
 
 attribute [local instance] Recognize.requestTypes
@@ -95,12 +97,27 @@ noncomputable def observe {Φ : Type} {states : Nat} (prim : Syntax.Primitives �
     (tree : RunTree Φ) (s : Fin states) : Behaviour Exits.length Unit (Fin states) :=
   (Feedback.close (feedback prim) (.block 0 (.atom tree) s)).map (Set.image project)
 
+/-- The annotation belongs to the outward continuation. Entry, rows, and
+the emitted native CFG are the same as in exact lexical recognition. -/
+abbrev withSelectedExits {Φ : Type} (op : Φ) (routes : Recognize.Routes)
+    (selected : Tag → Bool) : Table (Recognize.signature Φ) Packets :=
+  { Recognize.guardedTable op routes with selected := selected }
+
+/-- Apply the native exit continuations to the named result at its decoded
+ordered tag and final machine state. -/
+noncomputable def decorate {Φ : Type} {states : Nat} (prim : Syntax.Primitives Φ states)
+    (selected : Tag → Bool) (observed : Behaviour Exits.length Unit (Fin states)) :
+    Behaviour Exits.length Unit (Fin states) :=
+  let M := (Syntax.model prim Syntax.emptyBindings).raw
+  observed.bind fun i a t => LambdaSSA.UB.Overlay.denote (exitContinuation (Γ := []) (L := Exits) selected i) (extendModel M a) t
+
 /-- Observe the original mutable runner with its ordered unit exits and empty
-live-outs under a deterministic typed primitive interpreter. -/
+live-outs under a deterministic typed primitive interpreter. The optional
+selection uses those same ordered exit positions. -/
 noncomputable def observeNamed {Φ : Type} {states : Nat} {V K : Type 1}
     [DecidableEq V] [DecidableEq K] (source : CFG V K Φ) (names : Fin 5 ≃ K)
-    (input : V → Value Runtime) (prim : Syntax.Primitives Φ states) (s : Fin states) :
-    Behaviour Exits.length Unit (Fin states) :=
-  observe prim (LiveOut.observeRaw raw [names 3, names 4] (fun _ => []) source input) s
+    (input : V → Value Runtime) (prim : Syntax.Primitives Φ states) (s : Fin states)
+    (selected : Tag → Bool := fun _ => false) : Behaviour Exits.length Unit (Fin states) :=
+  decorate prim selected (observe prim (LiveOut.observeRaw raw [names 3, names 4] (fun _ => []) source input) s)
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier

@@ -1140,15 +1140,24 @@ Exact named recognition and native readback give the same decorated
 observation. The existing fixed-carrier checker therefore decides
 refinement of the original named endpoints at the supplied caller bit
 and all initial states of that carrier. The hypotheses include exhaustive
-typed configuration, reply and machine-state inventories. The named
-profile has only ordinary unit exits and an empty live-out projection.
-The machine state belongs to the interpreter.
+typed configuration, reply and machine-state inventories. Each endpoint
+can supply its own selection over the two ordered unit exits. The named
+observer applies the native exit continuations after decoding the result.
+A selected tag yields fresh top. An unselected tag keeps its unit payload
+and final machine state. The default agrees with the unadorned native
+CFG. Selection leaves the exact emitted native syntax and its readback
+unchanged. The named live-out projection is empty.
 
 The reroute regression uses one total interpreter at both checked
 endpoints. It sends a new bit and changes the machine state at the
 backedge, then sends reply tag one. The original runner exits at position
 zero and the rerouted runner exits at position one, both in state one.
-Separate runs check retained primitive faults and a state-changing cycle.
+Selecting position one makes the original refine the reroute for every
+interpreter and initial state on the same carrier. The shared interpreter
+witnesses failure in the reverse direction, with fresh top on the reroute
+and the ordinary exit at position zero in state one on the original.
+The forward proof uses the existing guarded product certificate. Separate
+runs check retained primitive faults and a state-changing cycle.
 [Named observation and decision](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Thms.lean)
 
 ### From the opt-in packet-local versioner to LetCase

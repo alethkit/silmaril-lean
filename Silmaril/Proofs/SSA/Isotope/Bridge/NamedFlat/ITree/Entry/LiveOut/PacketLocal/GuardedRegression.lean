@@ -269,7 +269,7 @@ example : HasTrace (observation false)
 section FixedCarrier
 
 open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands
-open LambdaSSA.UB.Overlay.Shape.TwoRequest (resultBehaviour result_order)
+open LambdaSSA.UB.Overlay.Shape.TwoRequest (Tag resultBehaviour result_order)
 open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.ScheduleSearch (StateInventory)
 
 private def checkedReadback (reroute : Bool) :=
@@ -289,12 +289,16 @@ private def rerouteInterpreter : Syntax.Primitives Op 2 :=
     InterpreterScript.Row.success (S := nativeSig) ⟨.poll, leftBit, 0⟩ ⟨0, rightBit⟩ 1,
     InterpreterScript.Row.success (S := nativeSig) ⟨.poll, rightBit, 1⟩ ⟨1, unitPacket⟩ 1]
 
-private noncomputable def named (reroute : Bool) (prim : Syntax.Primitives Op 2) :=
-  FixedCarrier.observeNamed (source false reroute) labels (fun reg => input leftBit (reg, 0)) prim 0
+private noncomputable def named (reroute : Bool) (prim : Syntax.Primitives Op 2)
+    (selected : Tag → Bool := fun _ => false) :=
+  FixedCarrier.observeNamed (source false reroute) labels (fun reg => input leftBit (reg, 0)) prim 0 selected
 
-private theorem named_classifies (reroute : Bool) (prim : Syntax.Primitives Op 2) :
-    named reroute prim = resultBehaviour ((inferred reroute).runFinite leftBit prim inventory states ⟨0, leftBit⟩ 0) :=
-  FixedCarrier.observeNamed_runFinite (checkedReadback reroute) leftBit _ rfl prim inventory states 0
+private theorem named_classifies (reroute : Bool) (prim : Syntax.Primitives Op 2)
+    (selected : Tag → Bool := fun _ => false) :
+    named reroute prim selected =
+      resultBehaviour ((FixedCarrier.withSelectedExits Op.poll (checkedReadback reroute).routes selected).runFinite
+        leftBit prim inventory states ⟨0, leftBit⟩ 0) :=
+  FixedCarrier.observeNamed_runFinite (checkedReadback reroute) leftBit _ rfl prim inventory states 0 selected
 
 example : named false rerouteInterpreter = resultBehaviour (.ret 0 1) := by
   rw [named_classifies]
@@ -317,20 +321,66 @@ example : (inferred false).checkAllInterpreters? (inferred true)
     replies inventory states _ _ (nativeValid false) (nativeValid true)).mpr
   exact ⟨rerouteInterpreter, 0, rerouteWitness⟩
 
-example : named false (fun _ _ _ => .fault 1) = resultBehaviour (.fault 1) := by
-  rw [named_classifies]
+private def selectedExit (i : Tag) : Bool := i == 1
+
+private abbrev decorated (reroute : Bool) :=
+  FixedCarrier.withSelectedExits Op.poll (checkedReadback reroute).routes selectedExit
+
+private theorem originalSelected : named false rerouteInterpreter selectedExit = resultBehaviour (.ret 0 1) := by
+  rw [named_classifies false _ selectedExit]
+  rfl
+
+private theorem reroutedSelected : named true rerouteInterpreter selectedExit = ⊤ := by
+  rw [named_classifies true _ selectedExit]
+  rfl
+
+private def selectedPairs : List (Packet Packets × Packet Packets) :=
+  (⟨1, unitPacket⟩, ⟨2, unitPacket⟩) :: diagonal
+
+private theorem selectedProduct :
+    (decorated false).checkProduct (decorated true) leftBit leftBit replies selectedPairs = true := by
+  decide +kernel
+
+-- Both checks reuse the original native representatives and their readbacks.
+example : (decorated false).checkAllInterpreters? (decorated true)
+    (inferred false).native (inferred true).native leftBit leftBit replies inventory inventory states = some true := by
+  apply (FixedCarrier.acceptance_iff (checkedReadback false) (checkedReadback true) leftBit
+    (fun reg => input leftBit (reg, 0)) rfl replies inventory states _ _
+    (nativeValid false) (nativeValid true) selectedExit selectedExit).mpr
+  intro prim s
+  rw [FixedCarrier.observeNamed_native (checkedReadback false) leftBit _ rfl prim inventory states _
+      (nativeValid false) s selectedExit,
+    FixedCarrier.observeNamed_native (checkedReadback true) leftBit _ rfl prim inventory states _
+      (nativeValid true) s selectedExit]
+  exact (decorated false).checkProduct_sound (decorated true) _ _ (nativeValid false) (nativeValid true)
+    leftBit leftBit replies selectedPairs selectedProduct prim s
+
+example : (decorated true).checkAllInterpreters? (decorated false)
+    (inferred true).native (inferred false).native leftBit leftBit replies inventory inventory states = some false := by
+  apply (FixedCarrier.rejection_iff (checkedReadback true) (checkedReadback false) leftBit
+    (fun reg => input leftBit (reg, 0)) rfl replies inventory states _ _
+    (nativeValid true) (nativeValid false) selectedExit selectedExit).mpr
+  refine ⟨rerouteInterpreter, 0, ?_⟩
+  change ¬ named true rerouteInterpreter selectedExit ≤ named false rerouteInterpreter selectedExit
+  rw [reroutedSelected, originalSelected]
+  change ¬ resultBehaviour (.ub : Result 2 2) ≤ resultBehaviour (.ret 0 1)
+  rw [result_order]
+  decide
+
+example : named false (fun _ _ _ => .fault 1) selectedExit = resultBehaviour (.fault 1) := by
+  rw [named_classifies false _ selectedExit]
   rfl
 
 private def repeating : Syntax.Primitives Op 2 :=
   fun _ arg s => .ret (pack (L := Packets) ⟨0, arg⟩) (if s = 0 then 1 else 0)
 
 private theorem repeating_cycle :
-    (inferred false).runFinite leftBit repeating inventory states ⟨0, leftBit⟩ 0 = .diverge := by
+    (decorated false).runFinite leftBit repeating inventory states ⟨0, leftBit⟩ 0 = .diverge := by
   decide +kernel
 
 -- Every request resumes the original loop with the alternating machine state.
-example : named false repeating = resultBehaviour .diverge := by
-  rw [named_classifies, repeating_cycle]
+example : named false repeating selectedExit = resultBehaviour .diverge := by
+  rw [named_classifies false repeating selectedExit, repeating_cycle]
 
 end FixedCarrier
 
