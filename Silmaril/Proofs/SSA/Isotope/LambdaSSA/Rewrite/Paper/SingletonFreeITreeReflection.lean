@@ -88,7 +88,7 @@ private theorem inputEnv_typed : EnvTy [Input] inputEnv := by
   | succ i => simp [At] at hi
 
 private noncomputable def observesFault (r : Region Op) : Bool :=
-  match evalRegionWith { caseTerm := true } r inputEnv with
+  match evalRegionWith (α := Atom) { caseTerm := true } r inputEnv with
   | .fault => true
   | _ => false
 
