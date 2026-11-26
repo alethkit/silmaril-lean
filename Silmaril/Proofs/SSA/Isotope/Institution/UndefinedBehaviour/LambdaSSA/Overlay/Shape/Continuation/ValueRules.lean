@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Continuation.Observation
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Defs
-import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Continuation.Substitution
+public import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Continuation.Substitution
 
 public section
 
@@ -178,7 +178,7 @@ private theorem case_pure_inr (h : PureValue O env a (.inr v)) :
 variable {κ : Type v} [HasTy Φ (Ty κ)] {Γ : VCtx (Ty κ)}
 
 omit [HasTy Φ (Ty κ)] in
-private theorem branchValue_pure_typed {A : Ty κ} (ha : a.BranchValue Γ A)
+theorem branchValue_pure_typed {A : Ty κ} (ha : a.BranchValue Γ A)
     {atomType : α → κ → Prop} (typed : EnvTyped atomType Γ env) :
     ∃ v, PureValue O env a v ∧ ValueTyped atomType v A := by
   induction ha with

@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Uniformity.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Descent.Thms
 
 /-! A literal native square maps two distinct source loop replies to unit.
 Both source and target contain a protected nested dispatcher. -/
@@ -133,6 +134,70 @@ private theorem internal_replay : (Shape.denote (.native source) fixture 0).Ordi
   refine Diverges.coinduct (fun c => ∃ s, c = .follow captured (fun _ : Fin 1 => q) 0 .unit s) ?_ ⟨0, rfl⟩
   rintro _ ⟨s, rfl⟩
   exact .follow_next (by decide) (replay s) ⟨s + 1, rfl⟩
+
+-- This square uses the installed Paper product rule under symmetry.
+private abbrev paperBody : Raw := .let₂ (.pair .unit .unit) bareTarget
+
+private theorem paperBodyTyped : paperBody.HasType [U] [U, U] :=
+  .let₂ (.pair .unit .unit) (bareTargetTyped [U, U, U]).hasType
+
+private abbrev paperTarget : LambdaSSA.UB.Typed (Φ := Unit) [] [U] :=
+  uniformTarget he paperBodyTyped ha
+
+private theorem paperSquare : LambdaSSA.Region.Paper.Eqv [A]
+    (squareLeft hp ha).val (squareRight paperBodyTyped ha).val [U, U] :=
+  (LambdaSSA.Region.Paper.Eqv.productBeta (.let₂Beta .unit .unit (bareTargetTyped [U, U, A]).hasType)).symm
+
+private theorem paperUniform : LambdaSSA.Region.Paper.Eqv ([] : List τ) source.val paperTarget.val [U] :=
+  .uniform he hp paperBodyTyped ha paperSquare
+
+private theorem paperUniform_return :
+    (Shape.denote (.native paperTarget) fixture 0).Ordinary (.ret (0 : Fin 1) .unit 1) := by
+  rw [← eqv_denote paperUniform fixture 0]
+  exact outward_return
+
+private theorem paperUniform_fault :
+    (Shape.denote (.native paperTarget) fixture 0).Ordinary (.fault 2) := by
+  rw [← eqv_denote paperUniform fixture 0]
+  exact can_fault
+
+private theorem paperUniform_diverge :
+    (Shape.denote (.native paperTarget) fixture 0).Ordinary .diverge := by
+  rw [← eqv_denote paperUniform fixture 0]
+  exact internal_replay
+
+-- CFG eta can sequence an effectful continuation after a successful CFG exit.
+private abbrev post : Nat → Raw := fun _ => .let₁ (.op () .unit) (.br 0 .unit)
+
+private theorem etaPost : LambdaSSA.Region.Paper.Eqv ([] : List τ)
+    (source.val.lsubst post) ((entry.lsubst (LambdaSSA.Region.CfgEta.reentry p)).lsubst post) [U] :=
+  .cfgEta (.etaPost he hp (fun _ _ _ => .let₁ (.op (f := ()) .unit) (.br (ℓ := 0) rfl .unit)))
+
+private theorem etaPost_shaped (s : Nat) :
+    Shape.denote (.native ⟨source.val.lsubst post, etaPost.typed.1⟩) fixture s =
+      Shape.denote (.native ⟨_, etaPost.typed.2⟩) fixture s :=
+  eqv_denote etaPost fixture s
+
+private theorem etaPost_return :
+    (Shape.denote (.native ⟨_, etaPost.typed.2⟩) fixture 0).Ordinary (.ret (0 : Fin 1) .unit 2) := by
+  rw [← etaPost_shaped 0]
+  refine ⟨WithTop.coe_ne_top, ?_⟩
+  change Region.Eval fixture.raw.instr captured (source.val.lsubst post) 0 0 .unit 2
+  exact .cfg (.br (.inl .unit)) (.step (by decide)
+    (.cfg (.br .unit) (.step (by decide)
+      (.let₁ (.op .unit ⟨rfl, .inr (.inr rfl), rfl⟩)
+        (.case_inr .var (.case_inr .var (.let₁ (.op .unit ⟨rfl, .inl rfl, rfl⟩) (.br .unit)))))
+      (.exit (by decide))))
+    (.exit (by decide)))
+
+#print axioms eqv_denote
+#print axioms familyDenotation_eq
+#print axioms denote_mk
+#print axioms paperUniform_return
+#print axioms paperUniform_fault
+#print axioms paperUniform_diverge
+#print axioms etaPost_shaped
+#print axioms etaPost_return
 
 #print axioms uniform_of_observed_square
 #print axioms uniform_native_square

@@ -31,7 +31,7 @@ theorem lift_capture {instr : Φ → Value α → σ → Value α → σ → Pro
     exitRoute instr (extend env v) (liftLSubstVars k) i a s j b ↔ exitRoute instr env k i a s j b :=
   Semantics.Region.Eval.renameVars_iff (ρ := lift Nat.succ) (fun i => by cases i <;> rfl)
 
-private theorem label_at_local (k : Nat → Region Φ) {n i : Nat} (hi : i < n) :
+theorem label_at_local (k : Nat → Region Φ) {n i : Nat} (hi : i < n) :
     liftLSubstN n k i = labelId i := by
   induction n generalizing i with
   | zero => exact (Nat.not_lt_zero _ hi).elim
@@ -43,7 +43,7 @@ private theorem label_at_local (k : Nat → Region Φ) {n i : Nat} (hi : i < n) 
       rw [ih (Nat.lt_of_succ_lt_succ hi)]
       rfl
 
-private theorem label_at_exit (k : Nat → Region Φ) (n i : Nat) :
+theorem label_at_exit (k : Nat → Region Φ) (n i : Nat) :
     liftLSubstN n k (n + i) = (k i).renameLabels (n + ·) := by
   induction n with
   | zero =>

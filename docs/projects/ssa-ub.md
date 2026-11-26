@@ -334,9 +334,6 @@ tag from one nondeterministic primitive. One tag replays the backedge
 and the other exits. The primitive can also fault.
 [Regression][ssa-ub-shaped-continuation-regression]
 
-The guarded `Paper.Hom` installs additional generators beyond native
-`ContinuationHom`.
-
 ### Guarded Paper collapse and simulation square
 
 The exact `Paper.Eqv.collapsePost` generator preserves lifted observations
@@ -381,9 +378,34 @@ native `SubstitutionEquiv` derivation. The fixture checks the installed
 Paper constructor with a native let-value rewrite in its square, a
 non-injective constructor map, and effects inside a protected nested CFG.
 It observes a return at the updated state, a fault, primitive divergence
-and internal replay. Square premises using arbitrary `Paper.Eqv` derivations
-still require a soundness induction for the other Paper rules.
-[Native-square fixture][ssa-ub-paper-uniformity-regression]
+and internal replay. [Native-square fixture][ssa-ub-paper-uniformity-regression]
+
+### Shaped descent for the guarded Paper quotient
+
+`Shape.Paper.eqv_denote` interprets all constructors of the installed
+`Paper.Eqv` over free SSA types in shaped models. `Shape.Paper.denote`
+descends to the existing continuation quotient `Paper.Hom` by applying
+the theorem pointwise to exactly typed representatives. The proof assumes
+typed environments and successful primitive replies of the declared type.
+Primitive transitions may be nondeterministic and stateful, and the
+fault and primitive divergence relations remain arbitrary.
+[Shaped descent][ssa-ub-paper-descent]
+
+| Installed constructors | Operational argument |
+|---|---|
+| `cfgEta` | Native substitution soundness covers the native subrelation. The separate `etaPost` step compares dispatch from the entry's selected payload, then runs the same arbitrary postcontinuation. |
+| `productBeta`, `productEta` | The constructor pair has two pure components, bound in de Bruijn order. Product η uses the existing shaped product law. |
+| `symm`, `trans`, `let₁`, `let₂`, `case`, `cfg` | Reuse observational congruence with typed replies at each reached binder or local block. |
+| `lsubstCongr`, `lsubstPost` | A guarded literal substitution runs its continuation only after a successful producer exit, using that payload and final state. It preserves internal transitions and infinite replay, carries through producer faults and divergence, and admits new observations from a reached continuation. |
+| `substVars`, `renameLabels` | Realize in-scope constructor images as a typed environment. Reflect label renamings through successful exits, preserving faults and divergence. |
+| `collapsePost`, `uniform` | Reuse duplicate-label elimination and apply `uniform_of_observed_square` to the recursive hypothesis for the exact literal square. |
+
+The stateful fixture also checks a uniformity square derived from Paper
+product β and an instance of CFG η with an effectful postcontinuation.
+The quotient maps native representatives to their ordinary observations
+in the fresh-top overlay. The enriched Paper presentations have separate
+generators and require their own soundness theorems.
+[Regression][ssa-ub-paper-uniformity-regression]
 
 ## Coverage and gaps
 
@@ -391,7 +413,7 @@ still require a soundness induction for the other Paper rules.
 |---|---|---|
 | LetCase | The exact typed preorder gives `caseTheory` and ordered algebra models. The separate operational institution observes results, faults and divergence. | Instantiate the ordered monad with `casePSig` or the specification of `caseTheory`. `typedEquiv` proves both typed round trips between explicit UB and native terms generated with `op (ub A) unit`, including under binders. The interpreted order preserves and reflects on these endpoints. Arbitrary unit-typed operands can have effects, and an operational equivalence needs to preserve their evaluation and justify the sequencing and UB laws in the chosen observation model. [Ordered theory][let-theory] [Typed round trip][case] [Ordered bridge][case-refinement] [Observations][obs] |
 | LetIter | `iterTheory` gives ordered refinement models. The separate quantitative `Refinement.Thms` also has categorical initiality and singleton-input completeness. Operational stuckness yields an undefined outcome, while the observational institution tracks returns, faults and divergence. | The exact literal-unit round trip and ordered quotient comparison include the iteration binder. Quantitative literal-unit UB is limited to discardable contexts and compatible effect bounds. A linear input would require a resource-consuming encoding or a different typing rule for UB. [Ordered theory][let-theory] [Ordered bridge][iter-ub-refinement] [Quantitative typing][iter-ub-quant] [Categorical initiality][quant] [Undefined outcome][iter-beh] |
-| LambdaSSA | Typed terms use unary instructions and regions have separate value and label contexts. The CFG entry quotient uses `CfgEquiv`. The continuation quotients install additional equations. The observational institution has inclusion of outcomes, with an observational isomorphism to LetIter for single-exit regions. | The primitive monad supplies a unit-taking expression instruction. Every exact typing interface, including the empty-label boundary, has a countermodel to uniform greatest refinement by a native region. At a fixed model with the stated saturation assumptions the unit-fed prefix is greatest at the empty interface. The independent exact-typed overlay adds a distinct greatest element with monotone substitution and feedback, each with exact all-native CFG agreement. The overlay denotation descends through the native CFG entry quotient in all models and through native `ContinuationHom` in shaped models over free types. [Shaped descent][ssa-ub-shaped-continuation] [CFG descent][ssa-ub-native-quotient] [Empty-label boundary][ssa-ub] [Explicit overlay][ssa-ub-overlay] [Feedback][ssa-ub-feedback] [Typing][ssa-typing] [Rewrite quotient][ssa-rewrite] [Observational isomorphism][ssa-obs] |
+| LambdaSSA | Typed terms use unary instructions and regions have separate value and label contexts. The CFG entry quotient uses `CfgEquiv`. The continuation quotients install additional equations. The observational institution has inclusion of outcomes, with an observational isomorphism to LetIter for single-exit regions. | The primitive monad supplies a unit-taking expression instruction. Every exact typing interface, including the empty-label boundary, has a countermodel to uniform greatest refinement by a native region. At a fixed model with the stated saturation assumptions the unit-fed prefix is greatest at the empty interface. The independent exact-typed overlay adds a distinct greatest element with monotone substitution and feedback, each with exact all-native CFG agreement. The overlay denotation descends through the native CFG entry quotient in all models and through native `ContinuationHom` and guarded `Paper.Hom` in shaped models over free types. [Continuation descent][ssa-ub-shaped-continuation] [Paper descent][ssa-ub-paper-descent] [CFG descent][ssa-ub-native-quotient] [Empty-label boundary][ssa-ub] [Explicit overlay][ssa-ub-overlay] [Feedback][ssa-ub-feedback] [Typing][ssa-typing] [Rewrite quotient][ssa-rewrite] [Observational isomorphism][ssa-obs] |
 | LambdaRTL | The acyclic model interprets unary applications in a monad; its alphabet institution takes the observation relation as a parameter. It distinguishes lexical SSA, projected RTL and full RTL store observations. The separate machine RTL adapter reports stuckness as an undefined outcome. | A top region needs a chosen store/label observation order and a typed result and continuation interface. Its interpretation must dominate all observations for every environment at the selected boundary. An instruction relabelling or a lawful monad supplies no such law. [Syntax and model][rtl] [Institution][rtl-inst] [Machine RTL outcomes][rtl-beh] |
 
 An effect bound of `⊤` permits all effects in the typing system. It does
@@ -417,6 +439,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Uniformity.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Elimination.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.NativeQuotient.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Uniformity.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -481,5 +504,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-paper-rewrite]: ../../Silmaril/SSA/Isotope/LambdaSSA/Rewrite/Theory/Closure/Paper/Defs.lean
 [ssa-ub-paper-collapse]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Thms.lean
 [ssa-ub-paper-uniformity]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Uniformity/Thms.lean
+[ssa-ub-paper-descent]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Descent/Thms.lean
 [ssa-ub-paper-uniformity-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Uniformity/Regression.lean
 [ssa-ub-paper-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Regression.lean

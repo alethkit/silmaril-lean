@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Continuation.Defs
+public import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Continuation.Observation
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Continuation.Context
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Continuation.ControlRules
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Continuation.ValueRules
@@ -32,7 +33,7 @@ private theorem rewrite_obs (h : Region.RewriteEquiv Γ r t L) : Obs Γ r t := b
   | caseInl _ _ _ => exact fun _ _ _ _ _ => caseInl
   | caseInr _ _ _ => exact fun _ _ _ _ _ => caseInr
 
-private theorem substitution_obs (h : Region.SubstitutionEquiv Γ r t L) : Obs Γ r t := by
+theorem substitution_obs (h : Region.SubstitutionEquiv Γ r t L) : Obs Γ r t := by
   induction h with
   | base h => exact rewrite_obs h
   | symm _ ih => exact ih.symm
