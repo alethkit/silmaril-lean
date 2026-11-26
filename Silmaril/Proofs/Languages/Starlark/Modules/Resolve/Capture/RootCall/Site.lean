@@ -56,11 +56,12 @@ private theorem append_frame (program : Program) (frames : List Capture.Forwardi
 private theorem chain_step (globals : List String) (program : Program) (chain : Chain)
     (accepted : Accepted globals program [] chain) :
     ∃ head rest, Emits globals [] chain (head :: rest) ∧ Links program chain (head :: rest) ∧
+      ScopedLeaves globals [] chain (head :: rest) ∧
       elaborateCommand ⟨(parentContext globals []).reads, .global⟩
         (.define chain.name (.required chain.parameters) chain.body) program =
         .ok (.exec (.define chain.name (EmittedProgram program rest).size), EmittedProgram program (head :: rest)) := by
-  obtain ⟨head, rest, emits, linked, compiled⟩ := compile_chain_linked accepted
-  exact ⟨head, rest, emits, linked,
+  obtain ⟨head, rest, emits, linked, scopes, compiled⟩ := compile_chain_scoped accepted
+  exact ⟨head, rest, emits, linked, scopes,
     elaborateCommand_requiredDefinition (parentContext globals []) .global _ _ _ _ _ _ _ compiled⟩
 
 private theorem simple_step (globals : List String) (program : Program) (command : SourceCommand)
@@ -85,7 +86,7 @@ private theorem step_preserves {globals : List String} {head : SourceCommand} {r
   | assign => simpa [simple_step globals program _ (.inl ⟨_, _, rfl⟩) compiled] using found
   | eval => simpa [simple_step globals program _ (.inr ⟨_, rfl⟩) compiled] using found
   | define chain accepted _ =>
-    obtain ⟨frame, frames, _, _, step⟩ := chain_step globals program chain (accepted program)
+    obtain ⟨frame, frames, _, _, _, step⟩ := chain_step globals program chain (accepted program)
     rw [step] at compiled
     cases compiled
     exact append_frame program (frame :: frames) found
@@ -171,6 +172,25 @@ private theorem split_site (block : BlockContext) (before after : List SourceCom
         rcases compiled with ⟨rfl, rfl⟩
         exact ⟨_, _, _, _, _, rfl, step, tail, rfl, segment_length block before linked _ _ front⟩
 
+theorem checked_chain_scoped_site (before after : List SourceCommand) (chain : Chain) (globals : List String)
+    (linked : Program) (resolved : ResolvedModule)
+    (binders : ModuleBinders (before ++ .define chain.name (.required chain.parameters) chain.body :: after) globals)
+    (checked : resolve (before ++ .define chain.name (.required chain.parameters) chain.body :: after) linked =
+      .ok resolved)
+    (accepted : ∀ program, Accepted globals program [] chain) (suffixProfile : Segment globals after) :
+    ∃ seed head frames, Emits globals [] chain (head :: frames) ∧ Links seed chain (head :: frames) ∧
+      ScopedLeaves globals [] chain (head :: frames) ∧
+      resolved.source.commands[before.length]? = some (.exec (.define chain.name (EmittedProgram seed frames).size)) ∧
+      (∀ (index : Nat) (declaration : Functions.Declaration), (EmittedProgram seed (head :: frames))[index]? = some declaration →
+        resolved.program[index]? = some declaration) := by
+  obtain ⟨earlier, later, middle, next, code, _, step, tail, commands, length⟩ :=
+    split_site _ before after _ linked _ _ (checked_segment binders checked)
+  obtain ⟨head, frames, emits, links, scopes, actual⟩ := chain_step globals middle chain (accepted middle)
+  rw [actual] at step
+  cases step
+  exact ⟨middle, head, frames, emits, links, scopes, by simp [commands, ← length],
+    fun _ _ found => segment_preserves suffixProfile _ _ later tail found⟩
+
 theorem checked_chain_site (before after : List SourceCommand) (chain : Chain) (globals : List String)
     (linked : Program) (resolved : ResolvedModule)
     (binders : ModuleBinders (before ++ .define chain.name (.required chain.parameters) chain.body :: after) globals)
@@ -181,13 +201,9 @@ theorem checked_chain_site (before after : List SourceCommand) (chain : Chain) (
       resolved.source.commands[before.length]? = some (.exec (.define chain.name (EmittedProgram seed frames).size)) ∧
       (∀ (index : Nat) (declaration : Functions.Declaration), (EmittedProgram seed (head :: frames))[index]? = some declaration →
         resolved.program[index]? = some declaration) := by
-  obtain ⟨earlier, later, middle, next, code, _, step, tail, commands, length⟩ :=
-    split_site _ before after _ linked _ _ (checked_segment binders checked)
-  obtain ⟨head, frames, emits, links, actual⟩ := chain_step globals middle chain (accepted middle)
-  rw [actual] at step
-  cases step
-  exact ⟨middle, head, frames, emits, links, by simp [commands, ← length],
-    fun _ _ found => segment_preserves suffixProfile _ _ later tail found⟩
+  obtain ⟨seed, head, rest, emits, links, _, site, keeps⟩ :=
+    checked_chain_scoped_site before after chain globals linked resolved binders checked accepted suffixProfile
+  exact ⟨seed, head, rest, emits, links, site, keeps⟩
 
 theorem checked_root_site (before after : List SourceCommand) (chain : Chain) (globals : List String)
     (linked : Program) (resolved : ResolvedModule)
