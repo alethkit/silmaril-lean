@@ -261,9 +261,10 @@ private theorem seq_some {loops : Bool} {middle : List (Ty Data)}
   cases ran with
   | seq before after => exact ⟨_, before, after⟩
 
-theorem observe_of_exec (laws : a.Laws m) (solves : g.Solves m input values) (idx : Index 1)
+theorem firstExit_and_observe_of_exec (laws : a.Laws m) (solves : g.Solves m input values) (idx : Index 1)
     {output : Tuple m.Value results} (ran : Exec m a.revert input (some output)) :
-    g.observe m values idx = output.map (fun _ => some) := by
+    (∃ k, a.FirstExit m values idx k) ∧
+      g.observe m values idx = output.map (fun _ => some) := by
   change Exec m (.seq a.startCode.enableWhile
     (.seq (.while rfl a.test a.body.enableWhile) a.finishCode.enableWhile)) input (some output) at ran
   obtain ⟨_, start, rest⟩ := seq_some ran
@@ -292,10 +293,108 @@ theorem observe_of_exec (laws : a.Laws m) (solves : g.Solves m input values) (id
       rw [get_right, parameter a solves] at captured
       exact (parameter a solves idx p).trans captured)
   have returned := Region.Proofs.schedule a.finish solves entry ranFinish
-  apply tuple_ext
+  refine ⟨⟨k, pass⟩, tuple_ext _ _ ?_⟩
   intro s p
   rw [Graph.observe, get_map, get_map]
   exact returned s p
+
+private theorem args_defined {sort : Fin n → Ty Data} {scope : Tuple (Ref sort) vars}
+    {refs : Tuple (Ref sort) ins} (reads : Reads scope refs) (store : Tuple m.Value vars) :
+    ∃ args, reads.args.eval m store = some args := by
+  induction reads with
+  | nil => exact ⟨.nil, rfl⟩
+  | cons p _ tail ih =>
+    obtain ⟨args, ran⟩ := ih
+    refine ⟨.cons (store.get p) args, ?_⟩
+    simp only [Reads.args, Args.eval, Expr.evalLift, ran]
+
+private theorem primitive_schedule_total {result : Ty Data} {view : Graph P params [result] n 1}
+    {roots : Tuple (Ref view.sort) more} {scope : Tuple (Ref view.sort) vars}
+    (code : Schedule view false roots scope)
+    (total : ∀ {ins out} (op : P ins out) args, ∃ val, m.run op args = some val)
+    (store : Tuple m.Value vars) : ∃ out, code.lower.runLoopFree m store = some out := by
+  induction code with
+  | done reads => exact ⟨_, rfl⟩
+  | bind _ instr _ _ _ reads _ ih =>
+    obtain ⟨args, ranArgs⟩ := args_defined reads store
+    obtain ⟨val, ranOp⟩ := total instr args
+    obtain ⟨out, ranTail⟩ := ih (.cons val store)
+    refine ⟨out, ?_⟩
+    simp only [Schedule.lower, Stmt.runLoopFree, Expr.eval, Expr.evalLift, ranArgs,
+      Option.elim, ranOp, Option.map_some, Option.bind_some, ranTail]
+  | branch enabled => contradiction
+
+theorem total_of_primitives
+    (total : ∀ {ins out} (op : P ins out) args, ∃ val, m.run op args = some val) : a.Total m :=
+  ⟨primitive_schedule_total a.start total, primitive_schedule_total a.guard total,
+    primitive_schedule_total a.step total, primitive_schedule_total a.finish total⟩
+
+private theorem test_of_flag (laws : a.Laws m) {i : Nat} {store : Tagged a (m := m)}
+    (entry : At a values i store) {b : Bool} (exit : flags a values i = some (!b)) :
+    a.test.eval m store = some ⟨b⟩ := by
+  have evaluated := laws.negate (store.get .head).down
+  change a.test.eval m store = _ at evaluated
+  have actual := flag a laws entry evaluated
+  have eq : (!(store.get .head).down) = b := by
+    simpa only [Bool.not_not] using congrArg Bool.not (Option.some.inj (actual.symm.trans exit))
+  rw [eq] at evaluated
+  exact evaluated
+
+private theorem finish_total (total : a.Total m) (store : Tagged a (m := m)) :
+    ∃ output, a.finishCode.runLoopFree m store = some output :=
+  total.finish (a.exitSlots.map fun _ p => store.get p)
+
+private theorem body_total (total : a.Total m) (store : Tagged a (m := m)) :
+    ∃ next, a.body.runLoopFree m store = some next := by
+  obtain ⟨updated, ranStep⟩ := total.step (old a store)
+  obtain ⟨next, ranGuard⟩ := total.guard updated
+  refine ⟨next, ?_⟩
+  change ((some ((oldSlots (carried ++ a.captures.types)).map fun _ p => store.get p)).bind
+    fun old => (a.step.lower.runLoopFree m old).bind (a.guard.lower.runLoopFree m)) = some next
+  rw [old_eq, Option.bind_some, ranStep, Option.bind_some]
+  exact ranGuard
+
+private theorem runFrom_of_flags (laws : a.Laws m) (total : a.Total m)
+    (solves : g.Solves m input values) (i k : Nat) {store : Tagged a (m := m)}
+    (entry : At a values i store) (stop : flags a values (i + k) = some true)
+    (earlier : ∀ j < k, flags a values (i + j) = some false) :
+    ∃ output, a.runFrom m k store = some output := by
+  induction k generalizing i store with
+  | zero =>
+    have test := test_of_flag a laws entry (b := false) stop
+    obtain ⟨output, returned⟩ := finish_total a total store
+    exact ⟨output, by simpa only [Accepted.runFrom, test, Bool.false_eq_true, ↓reduceIte]
+      using returned⟩
+  | succ k ih =>
+    have test := test_of_flag a laws entry (b := true) (earlier 0 (Nat.zero_lt_succ _))
+    obtain ⟨next, ran⟩ := body_total a total store
+    have executed := ran ▸ a.body.runLoopFree_enableWhile store
+    have offset (j : Nat) : i + 1 + j = i + (j + 1) := by omega
+    obtain ⟨output, returned⟩ := ih (i + 1) (advance a laws solves entry executed)
+      (by rw [offset]; exact stop)
+      (fun j hj => by rw [offset]; exact earlier (j + 1) (by omega))
+    exact ⟨output, by simpa only [Accepted.runFrom, test, ↓reduceIte, ran, Option.bind_some]
+      using returned⟩
+
+theorem runFuel_exists_of_firstExit (laws : a.Laws m) (total : a.Total m)
+    (solves : g.Solves m input values) (idx : Index 1) (k : Nat)
+    (pass : a.FirstExit m values idx k) : ∃ output, a.runFuel m k input = some output := by
+  change read values idx a.descriptor.pass = some ⟨k⟩ at pass
+  rw [pass_read a solves] at pass
+  have first : firstTrue (flags a values) = some k := by
+    have bare := congrArg (Option.map (ULift.down : ULift.{w} Nat → Nat)) pass
+    simpa [Option.map_map, Function.comp_def] using bare
+  obtain ⟨stop, earlier⟩ := (firstTrue_eq_some_iff_samples _ _).mp first
+  obtain ⟨base, ranStart⟩ := total.start (a.captures.inputs.map fun _ p => input.get p)
+  obtain ⟨store, ranGuard⟩ := total.guard base
+  have preheader : a.startCode.runLoopFree m input = some store := by
+    change (a.start.lower.runLoopFree m (a.captures.inputs.map fun _ p => input.get p)).bind
+      (a.guard.lower.runLoopFree m) = _
+    rw [ranStart, Option.bind_some, ranGuard]
+  obtain ⟨output, returned⟩ := runFrom_of_flags a laws total solves 0 k
+    (initial a laws solves preheader) (by simpa only [Nat.zero_add] using stop)
+    (fun j hj => by simpa only [Nat.zero_add] using earlier j hj)
+  exact ⟨output, by simpa only [Accepted.runFuel, preheader, Option.bind_some] using returned⟩
 
 theorem exec_of_runFuel (fuel : Nat) {output : Tuple m.Value results}
     (ran : a.runFuel m fuel input = some output) : Exec m a.revert input (some output) := by
@@ -332,5 +431,19 @@ theorem exec_of_runFuel (fuel : Nat) {output : Tuple m.Value results}
           exact ⟨final, .whileStep flag (step ▸ a.body.runLoopFree_enableWhile start) trace, returned⟩
   obtain ⟨start, initialized, remaining⟩ := Option.bind_eq_some_iff.mp ran
   exact .seq (initialized ▸ a.startCode.runLoopFree_enableWhile input) (loop remaining)
+
+theorem runFuel_of_firstExit (laws : a.Laws m) (total : a.Total m)
+    (solves : g.Solves m input values) (idx : Index 1) (k : Nat) {output : Tuple m.Value results}
+    (pass : a.FirstExit m values idx k)
+    (observed : g.observe m values idx = output.map (fun _ => some)) :
+    a.runFuel m k input = some output := by
+  obtain ⟨actual, ran⟩ := runFuel_exists_of_firstExit a laws total solves idx k pass
+  have saw := (firstExit_and_observe_of_exec a laws solves idx (exec_of_runFuel a k ran)).2
+  have same := saw.symm.trans observed
+  have equal : actual = output := tuple_ext _ _ fun s p => by
+    have item := congrArg (fun xs : Tuple (fun t => Option (m.Value t)) results => xs.get p) same
+    rw [get_map, get_map] at item
+    exact Option.some.inj item
+  exact ran.trans (congrArg some equal)
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Proofs

@@ -159,6 +159,20 @@ structure Accepted.Laws (a : Accepted g carried) (m : Interpretation.{u,v,w} P) 
   tick : ∀ k : Nat, m.run a.descriptor.tick (.cons ⟨k⟩ .nil) = some ⟨k + 1⟩
   negate : ∀ b : Bool, m.run a.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩
 
+/-- The four scheduled slices succeed on defined stores. The opcode
+laws separately cover the loop test and the clock. -/
+structure Accepted.Total (a : Accepted g carried) (m : Interpretation.{u,v,w} P) : Prop where
+  start : ∀ store, ∃ next, a.start.lower.runLoopFree m store = some next
+  guard : ∀ store, ∃ next, a.guard.lower.runLoopFree m store = some next
+  step : ∀ store, ∃ next, a.step.lower.runLoopFree m store = some next
+  finish : ∀ store, ∃ next, a.finish.lower.runLoopFree m store = some next
+
+/-- A defined Figure 11 pass at the designated observation index. Its
+semantics certify a defined false prefix followed by a true exit flag. -/
+def Accepted.FirstExit (a : Accepted g carried) (m : Interpretation.{u,v,w} P)
+    (values : g.Valuation m) (idx : Index 1) (k : Nat) : Prop :=
+  a.descriptor.pass.read m.carrier (values (a.descriptor.pass.id, idx)) = some ⟨k⟩
+
 def Accepted.runFrom (a : Accepted g carried) (m : Interpretation.{u,v,w} P) :
     Nat → Tuple m.Value a.storeTypes → Option (Tuple m.Value results)
   | fuel, store =>
