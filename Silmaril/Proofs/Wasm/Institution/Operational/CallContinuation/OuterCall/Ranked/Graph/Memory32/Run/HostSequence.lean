@@ -40,23 +40,39 @@ local notation "renderPhase" => seq.render base memory initial start outer args
 local notation "active" => seq.root.function.declaration.frame args
 local notation "arity" => seq.root.function.declaration.results.length
 local notation "rootFn" => seq.root.function
-local notation "contextAt" => OpenLabel.context (rootFn) args
+local notation "contextAt" => seq.context args
 
-private theorem render_hosts (stack : List Value) (labels : List OpenLabel)
+private theorem render_hosts (bytes : ByteArray) (stack : List Value) (labels : List (OpenLabel H))
     (first : HostSegment H) (later : List (HostSegment H)) :
-    renderPhase (.computing start stack first.operands first.site later labels) =
-      ⟨live start, outer, (contextAt labels).plug value
+    renderPhase (.computing bytes stack first.operands first.site later labels) =
+      ⟨live bytes, outer, (contextAt labels).plug value
         (values stack ++ expression (encode Graph.v1CodeSyntax.ops (v1Code (rootFn).code) (first :: later)))⟩ := by
   rw [encode_expression]
   simp only [continuation, encode, v1Syntax, Function.comp_apply, render, List.append_assoc]
 
-private theorem render_begin (stack : List Value) (labels : List OpenLabel) (region : Source H) :
-    renderPhase (seq.beginBody outer args start stack labels region) =
-      ⟨live start, outer, (contextAt labels).plug value (values stack ++ expression (seq.sourceCode region))⟩ := by
+private theorem render_finish (bytes : ByteArray) (stack : List Value) (code : List Op)
+    (labels : List (OpenLabel H)) :
+    renderPhase (seq.finish outer args bytes stack code labels) =
+      ⟨live bytes, outer, (contextAt labels).plug value (values stack ++ expression (v1Code code))⟩ := by
+  cases labels with
+  | nil => rfl
+  | cons label rest =>
+    simp only [finish]
+    split
+    · rename_i completes
+      have empty : code = [] := List.isEmpty_iff.mp (Bool.and_eq_true_iff.mp completes).2
+      subst code
+      simp [render, v1Code, expression]
+    · rfl
+
+private theorem render_begin (bytes : ByteArray) (stack : List Value) (labels : List (OpenLabel H)) (region : Source H) :
+    renderPhase (seq.beginBody outer args bytes stack labels region) =
+      ⟨live bytes, outer, (contextAt labels).plug value (values stack ++ expression (seq.sourceCode region))⟩ := by
   cases region with
-  | root => exact render_hosts stack labels seq.first seq.later
-  | hosts first later => exact render_hosts stack labels first later
-  | plain | block | if_ => rfl
+  | root => exact render_hosts bytes stack labels seq.first seq.later
+  | hosts first later => exact render_hosts bytes stack labels first later
+  | plain code => exact render_finish bytes stack code labels
+  | blockThen | ifThen => rfl
 
 private theorem enter_step {dst : Config H} (checked : seq.Checked mode program memory calls base outer args source) :
     Step host (renderPhase (.invoke source)) dst ↔
@@ -70,8 +86,8 @@ private theorem enter_step {dst : Config H} (checked : seq.Checked mode program 
     rw [expression_append, literal_expression]
   have locals : (seq.v1FuncFor source).locals = (rootFn).declaration.locals := rfl
   rw [render_begin]
-  simpa only [render, body, locals, OpenLabel.context,
-    OpenLabel.results, OpenLabel.insert, EvalCtx.comp, EvalCtx.plug, List.head?_nil,
+  simpa only [render, body, locals, context,
+    OpenLabel.results, insert, EvalCtx.comp, EvalCtx.plug, List.head?_nil,
     Option.map_none, Option.getD_none, Declaration.frame] using
     (invoke_exact (host := host) (outer := outer) (dst := dst) allocated count checked.scalar)
 
@@ -80,35 +96,56 @@ private theorem root_call {current : Source H} {dst : Config H}
     Step host (renderPhase (.call current)) dst ↔ dst = renderPhase (.invoke current) :=
   HostCall.V1.direct_step_iff (tail := []) checked.resolved
 
-private theorem block_entry {stack : List Value} {block : PathBlock} {region : Source H}
-    {labels : List OpenLabel} {dst : Config H} :
-    Step host (renderPhase (.block stack block region labels)) dst ↔
-      dst = renderPhase (seq.beginBody outer args start [] (⟨stack, block⟩ :: labels) region) := by
+private theorem block_entry {bytes : ByteArray} {stack : List Value} {result : Option NumType}
+    {region tail : Source H} {labels : List (OpenLabel H)} {dst : Config H} :
+    Step host (renderPhase (.block bytes stack result region tail labels)) dst ↔
+      dst = renderPhase (seq.beginBody outer args bytes [] (⟨stack, result, tail⟩ :: labels) region) := by
   rw [render_begin, open_code]
-  exact scoped_block_iff (rootFn) args labels
+  exact scoped_block_iff seq args labels
 
-private theorem condition_step {stack : List Value} {block : PathBlock} {index : LocalIdx}
-    {left right : Source H} {condition : BitVec 32} {labels : List OpenLabel} {dst : Config H}
+private theorem condition_step {bytes : ByteArray} {stack : List Value} {result : Option NumType} {index : LocalIdx}
+    {left right tail : Source H} {condition : BitVec 32} {labels : List (OpenLabel H)} {dst : Config H}
     (found : (active).locals[index.toNat]? = some (.int .i32 condition)) :
-    Step host (renderPhase (.if_ stack block index left right labels)) dst ↔
-      dst = renderPhase (.test stack block index left right condition labels) :=
-  scoped_get_iff (rootFn) args labels found
+    Step host (renderPhase (.if_ bytes stack result index left right tail labels)) dst ↔
+      dst = renderPhase (.test bytes stack result index left right tail condition labels) :=
+  scoped_get_iff seq args labels found
 
-private theorem select_step {stack : List Value} {block : PathBlock} {index : LocalIdx}
-    {left right : Source H} {condition : BitVec 32} {labels : List OpenLabel} {dst : Config H} :
-    Step host (renderPhase (.test stack block index left right condition labels)) dst ↔
-      dst = renderPhase (.block stack block (if condition = 0 then right else left) labels) := by
-  have rule := scoped_if_iff (H := H) (host := host) (s := live start) (outer := outer) (rootFn) args labels
-    (stack := stack) (condition := condition) (result := block.result) (left := seq.sourceCode left)
-    (right := seq.sourceCode right) (tail := expression (v1Code block.tail)) (dst := dst)
+private theorem select_step {bytes : ByteArray} {stack : List Value} {result : Option NumType} {index : LocalIdx}
+    {left right tail : Source H} {condition : BitVec 32} {labels : List (OpenLabel H)} {dst : Config H} :
+    Step host (renderPhase (.test bytes stack result index left right tail condition labels)) dst ↔
+      dst = renderPhase (.block bytes stack result (if condition = 0 then right else left) tail labels) := by
+  have rule := scoped_if_iff (H := H) (host := host) (s := live bytes) (outer := outer) seq args labels
+    (stack := stack) (condition := condition) (result := result) (left := seq.sourceCode left)
+    (right := seq.sourceCode right) (tail := expression (seq.sourceCode tail)) (dst := dst)
   by_cases zero : condition = 0
   · rw [ite_eq_left zero] at rule ⊢
     exact rule
   · rw [ite_eq_right zero] at rule ⊢
     exact rule
 
+private theorem close_label_step {bytes : ByteArray} {stack : List Value} {label : OpenLabel H}
+    {rest : List (OpenLabel H)} {dst : Config H} :
+    Step host (renderPhase (.completed bytes stack label rest)) dst ↔
+      dst = renderPhase (seq.beginBody outer args bytes (label.saved ++ stack) rest label.tail) := by
+  let n := (OpenLabel.results (rootFn) (label :: rest)).length
+  have atLabel (target : Config H) :
+      Step host ⟨live bytes, outer, [.frame n active [.label n [] (values stack)]]⟩ target ↔
+        ∃ outcome : Unit, True ∧ target = ⟨live bytes, outer, [.frame n active (values stack)]⟩ := by
+    rw [HostEntry.Proofs.frame_label_step]
+    constructor
+    · rintro (⟨_, _, _, move, _⟩ | ⟨out, pure, eq⟩)
+      · exact (move.firstRedex_ne_none (firstRedex_values stack)).elim
+      · have same := HostEntry.Proofs.label_values pure rfl
+        exact ⟨(), trivial, same ▸ eq⟩
+    · rintro ⟨_, _, rfl⟩
+      exact .inr ⟨_, .labelDone n [] stack, rfl⟩
+  rw [render_begin]
+  simp only [render]
+  rw [scoped_result seq args (label :: rest) (fun _ : Unit => True) (fun _ => values stack) atLabel]
+  simp [context_code, insert, EvalCtx.plug_comp, EvalCtx.plug, tailCode, values, List.append_assoc]
+
 private theorem numeric_step {bytes : ByteArray} {stack : List Value} {op : Prefix.Op} {rest : List Prefix.Op}
-    {site : HostCall.V1.Site H} {later : List (HostSegment H)} {labels : List OpenLabel} {dst : Config H} :
+    {site : HostCall.V1.Site H} {later : List (HostSegment H)} {labels : List (OpenLabel H)} {dst : Config H} :
     Step host (renderPhase (.computing bytes stack (op :: rest) site later labels)) dst ↔
       (∃ next, Prefix.Reduce (active).locals stack op (.values next) ∧
         dst = renderPhase (.computing bytes next rest site later labels)) ∨
@@ -134,7 +171,7 @@ private theorem numeric_step {bytes : ByteArray} {stack : List Value} {op : Pref
       | trap saved => exact .inr ⟨saved, move, eq⟩
   simp only [render, List.map_cons, List.append_assoc, List.cons_append]
   change Step host ⟨live bytes, outer, (contextAt labels).plug value (values stack ++ Prefix.emit v1Syntax op :: tail)⟩ dst ↔ _
-  rw [scoped_result (rootFn) args labels (fun out => Prefix.Reduce (active).locals stack op out) output atLabel]
+  rw [scoped_result seq args labels (fun out => Prefix.Reduce (active).locals stack op out) output atLabel]
   simp only [context_code]
   constructor
   · rintro ⟨out, move, eq⟩
@@ -146,19 +183,29 @@ private theorem numeric_step {bytes : ByteArray} {stack : List Value} {op : Pref
     · exact ⟨.trap saved, move, eq⟩
 
 private theorem host_call {bytes : ByteArray} {saved actual : List Value} {site : HostCall.V1.Site H}
-    {later : List (HostSegment H)} {labels : List OpenLabel} {dst : Config H}
+    {later : List (HostSegment H)} {labels : List (OpenLabel H)} {dst : Config H}
     (linked : Linked site (rootFn).declaration.module base) :
     Step host (renderPhase (.computing bytes (saved ++ actual) [] site later labels)) dst ↔
       dst = renderPhase (.pending bytes saved actual site later labels) := by
   simp only [render, List.map_nil, List.append_nil]
-  exact scoped_source_iff (rootFn) args labels rfl (by intro _ h; cases h) (by intro h; cases h)
+  exact scoped_source_iff seq args labels rfl (by intro _ h; cases h) (by intro h; cases h)
     (fun _ => HostCall.V1.direct_step_iff (caller := active) linked.resolved)
 
+private theorem render_close_trapped (bytes : ByteArray) (labels : List (OpenLabel H)) :
+    renderPhase (seq.closeTrapped outer args bytes labels) = ⟨live bytes, outer, seq.afterLabel args labels [.trap]⟩ := by
+  cases labels with
+  | nil => rfl
+  | cons label rest =>
+    simp only [closeTrapped]
+    split
+    · simp [render, afterLabel, context_code, insert, EvalCtx.plug_comp, EvalCtx.plug, values, List.append_assoc]
+    · rfl
+
 private theorem trap_step {bytes : ByteArray} {saved : List Value} {tail : List Admin}
-    {labels : List OpenLabel} {dst : Config H} :
+    {labels : List (OpenLabel H)} {dst : Config H} :
     Step host (renderPhase (.trapped bytes saved tail labels)) dst ↔
       (∃ kept rest, Prefix.Discard saved tail kept rest ∧ dst = renderPhase (.trapped bytes kept rest labels)) ∨
-      (saved = [] ∧ tail = [] ∧ dst = renderPhase (.graph ⟨bytes, outer, seq.afterLabel args labels [.trap]⟩)) := by
+      (saved = [] ∧ tail = [] ∧ dst = renderPhase (seq.closeTrapped outer args bytes labels)) := by
   let outcome : Option (List Value × List Admin) → List Admin
     | none => [.trap]
     | some (kept, rest) => [.label (OpenLabel.results (rootFn) labels).length [] (values kept ++ .trap :: rest)]
@@ -180,8 +227,9 @@ private theorem trap_step {bytes : ByteArray} {saved : List Value} {tail : List 
       rcases out with _ | ⟨kept, rest⟩
       · exact .inr ⟨move.1, move.2, eq⟩
       · exact .inl ⟨kept, rest, move, eq⟩
-  simp only [render, Memory32.render, afterLabel]
-  rw [scoped_result (rootFn) args labels moves outcome atLabel]
+  rw [render_close_trapped]
+  simp only [render, afterLabel]
+  rw [scoped_result seq args labels moves outcome atLabel]
   simp only [context_code]
   constructor
   · rintro ⟨out, move, eq⟩
@@ -193,16 +241,18 @@ private theorem trap_step {bytes : ByteArray} {saved : List Value} {tail : List 
     · exact ⟨none, ⟨empty, noTail⟩, eq⟩
 
 private theorem render_delivered {bytes : ByteArray} {saved : List Value} {later : List (HostSegment H)}
-    {labels : List OpenLabel} (r : Execution.Runtime.Result) :
+    {labels : List (OpenLabel H)} (r : Execution.Runtime.Result) :
     renderPhase (seq.delivered outer args bytes saved later r labels) =
       ⟨live bytes, outer, (contextAt labels).plug value (values saved ++ result r ++ seq.continuation later)⟩ := by
   cases r with
   | trap => simp [delivered, render, result, List.append_assoc]
   | values vs =>
-    cases later <;> simp [delivered, resume, render, Memory32.render, continuation, encode, v1Syntax, result, List.append_assoc]
+    cases later with
+    | nil => simp [delivered, resume, render_finish, continuation, encode, result, HostEntry.tail, List.append_assoc]
+    | cons => simp [delivered, resume, render, continuation, encode, v1Syntax, result, List.append_assoc]
 
 private theorem pending_step {bytes : ByteArray} {saved actual : List Value} {site : HostCall.V1.Site H}
-    {later : List (HostSegment H)} {labels : List OpenLabel} {dst : Config H}
+    {later : List (HostSegment H)} {labels : List (OpenLabel H)} {dst : Config H}
     (linked : Linked site (rootFn).declaration.module base)
     (typed : actual.map Value.type = site.signature.params) :
     Step host (renderPhase (.pending bytes saved actual site later labels)) dst ↔
@@ -217,25 +267,29 @@ private theorem pending_step {bytes : ByteArray} {saved actual : List Value} {si
     (saved := saved) (tail := seq.continuation later) siteChecked
 
 private theorem label_scalar (checked : seq.Checked mode program memory calls base outer args source)
-    (labels : List OpenLabel) : (OpenLabel.results (rootFn) labels).length ≤ 1 := by
+    (labels : List (OpenLabel H)) : (OpenLabel.results (rootFn) labels).length ≤ 1 := by
   cases labels with
   | nil => exact checked.scalar
-  | cons label rest => cases h : label.block.result <;> simp [OpenLabel.results, h]
+  | cons label rest => cases h : label.result <;> simp [OpenLabel.results, h]
 
 private theorem insert_allowed (checked : seq.Checked mode program memory calls base outer args source)
-    {labels : List OpenLabel} (scopes : OpenLabel.Allowed mode program memory calls (rootFn) labels)
+    {labels : List (OpenLabel H)} (scopes : seq.ContextReady mode program memory calls source labels)
+    (plain : OpenLabel.needsResume labels = false)
     {code : List Admin} (body : CodeAllowedFor mode program memory calls (rootFn).rank (active).module code) :
-    CodeAllowedFor mode program memory calls (rootFn).rank (active).module
-      ((OpenLabel.insert (rootFn) labels).plug value code) := by
+    CodeAllowedFor mode program memory calls (rootFn).rank (active).module ((seq.insert labels).plug value code) := by
   induction labels generalizing code with
   | nil => exact body
   | cons label rest ih =>
-    simp only [OpenLabel.insert, EvalCtx.plug_comp, EvalCtx.plug]
-    apply ih (fun opened member => scopes opened (.tail _ member))
-    exact RunProofs.single_allowed.mpr
+    have ⟨plainTail, plainRest⟩ := Bool.or_eq_false_iff.mp plain
+    have allowed : CodeAllowedFor mode program memory calls (rootFn).rank (active).module (seq.tailCode label) := by
+      rcases label with ⟨saved, result, tail⟩
+      cases tail <;> simp [Source.needsResume] at plainTail
+      exact scopes.2.1
+    simp only [insert, EvalCtx.plug_comp, EvalCtx.plug]
+    exact ih scopes.2.2.2 plainRest (RunProofs.single_allowed.mpr
       (.label (label_scalar checked rest)
         (RunProofs.append_allowed.mpr ⟨RunProofs.append_allowed.mpr ⟨RunProofs.values_allowed label.saved, body⟩,
-          scopes label (.head _)⟩))
+          allowed⟩)))
 
 private theorem frame_allowed (checked : seq.Checked mode program memory calls base outer args source)
     {code : List Admin}
@@ -246,36 +300,61 @@ private theorem frame_allowed (checked : seq.Checked mode program memory calls b
   exact RunProofs.single_allowed.mpr (.enteredFrame checked.scalar rank guard)
 
 private theorem wrap_checked (checked : seq.Checked mode program memory calls base outer args source)
-    {labels : List OpenLabel} (scopes : OpenLabel.Allowed mode program memory calls (rootFn) labels)
+    {labels : List (OpenLabel H)} (scopes : seq.ContextReady mode program memory calls source labels)
+    (plain : OpenLabel.needsResume labels = false)
     {code : List Admin} (guard : CodeAllowedFor mode program memory calls (rootFn).rank (active).module code) :
     CodeAllowedFor mode program memory calls ((rootFn).rank + 1) outer.module ((contextAt labels).plug value code) := by
   rw [context_code]
-  exact frame_allowed checked (insert_allowed checked scopes
+  exact frame_allowed checked (insert_allowed checked scopes plain
     (RunProofs.single_allowed.mpr (.label (label_scalar checked labels) guard)))
 
+private theorem finish_ready (checked : seq.Checked mode program memory calls base outer args source)
+    {bytes : ByteArray} {stack : List Value} {code : List Op} {labels : List (OpenLabel H)}
+    (extent : mode.extent initial.data.size bytes)
+    (typed : checkTail (rootFn) (Prefix.stackTypes stack) (OpenLabel.results (rootFn) labels)
+      (OpenLabel.targets (rootFn) labels) (OpenLabel.needsResume labels) code = true)
+    (scopes : seq.ContextReady mode program memory calls source labels)
+    (allowed : CodeAllowedFor mode program memory calls (rootFn).rank (active).module (expression (v1Code code))) :
+    seq.Ready mode program memory calls initial (seq.finish outer args bytes stack code labels) source := by
+  have graph (plain : OpenLabel.needsResume labels = false) :
+      seq.Ready mode program memory calls initial
+        (.graph ⟨bytes, outer, (contextAt labels).plug value (values stack ++ expression (v1Code code))⟩) source :=
+    ⟨extent, wrap_checked checked scopes plain
+      (RunProofs.append_allowed.mpr ⟨RunProofs.values_allowed stack, allowed⟩)⟩
+  cases labels with
+  | nil => exact graph rfl
+  | cons label rest =>
+    cases h : OpenLabel.needsResume (label :: rest) with
+    | false => simpa only [finish, h, Bool.false_and, Bool.false_eq_true, ↓reduceIte] using graph h
+    | true =>
+      simp only [checkTail, h, ↓reduceIte, Bool.and_eq_true_iff, decide_eq_true_eq] at typed
+      have types : stack.map Value.type = label.result.toList := by
+        simpa [OpenLabel.results, Prefix.stackTypes] using typed.2
+      simpa only [finish, h, Bool.true_and, typed.1, ↓reduceIte] using
+        (show seq.Ready mode program memory calls initial (.completed bytes stack label rest) source from
+          ⟨extent, types, scopes⟩)
+
 private theorem resume_ready (checked : seq.Checked mode program memory calls base outer args source)
-    {bytes : ByteArray} {stack : List Value} {later : List (HostSegment H)} {labels : List OpenLabel}
+    {bytes : ByteArray} {stack : List Value} {later : List (HostSegment H)} {labels : List (OpenLabel H)}
     (extent : mode.extent initial.data.size bytes) (listed : ∀ piece ∈ later, piece.site ∈ seq.sourceSites source)
-    (typed : checkRegion (rootFn) (Prefix.stackTypes stack) (OpenLabel.results (rootFn) labels)
-      (OpenLabel.targets (rootFn) labels) later = true)
-    (scopes : seq.ContextReady mode program memory calls labels) :
+    (typed : checkRegionAt (rootFn) (Prefix.stackTypes stack) (OpenLabel.results (rootFn) labels)
+      (OpenLabel.targets (rootFn) labels) (OpenLabel.needsResume labels) later = true)
+    (scopes : seq.ContextReady mode program memory calls source labels) :
     seq.Ready mode program memory calls initial (seq.resume outer args bytes stack later labels) source := by
   cases later with
   | nil =>
-    have tail : CodeAllowedFor mode program memory calls (rootFn).rank (active).module seq.root.tail := by
-      apply RunProofs.tail_allowed (fn := rootFn) ?_ checked.slot checked.supportedTail
-      intro target used
-      obtain ⟨callee, found, _, linked, permitted⟩ := checked.linkedTail target used
-      exact ⟨callee, found, linked, permitted⟩
-    exact ⟨extent, wrap_checked checked scopes.2
-      (RunProofs.append_allowed.mpr ⟨RunProofs.values_allowed stack, tail⟩)⟩
+    apply finish_ready checked extent typed scopes
+    apply RunProofs.tail_allowed (fn := rootFn) ?_ checked.slot checked.supportedTail
+    intro target used
+    obtain ⟨callee, found, _, linked, permitted⟩ := checked.linkedTail target used
+    exact ⟨callee, found, linked, permitted⟩
   | cons piece rest =>
     exact ⟨extent, listed piece (.head _), fun later used => listed later (.tail _ used), typed, scopes⟩
 
 theorem return_ready (checked : seq.Checked mode program memory calls base outer args source)
     (layout : Layout program base memory initial) (contract : seq.Contract host mode memory initial base source)
     {bytes : ByteArray} {saved actual : List Value} {site : HostCall.V1.Site H}
-    {later : List (HostSegment H)} {labels : List OpenLabel} {after : Store H} {r : Execution.Runtime.Result}
+    {later : List (HostSegment H)} {labels : List (OpenLabel H)} {after : Store H} {r : Execution.Runtime.Result}
     (ready : seq.Ready mode program memory calls initial (.pending bytes saved actual site later labels) source)
     (returned : host site.target (live bytes) actual (.returned after r)) :
     ∃ next, after = live next ∧ bytes.size ≤ next.size ∧ HostCall.V1.ResultTyped site.signature.results r ∧
@@ -292,11 +371,11 @@ theorem return_ready (checked : seq.Checked mode program memory calls base outer
     have payloadTyped : payload.map Value.type = site.signature.results := typed
     simpa [Prefix.stackTypes, payloadTyped] using continuation
 
-private theorem begin_ready {region : Source H} {stack : List Value} {labels : List OpenLabel}
+private theorem begin_ready {bytes : ByteArray} {region : Source H} {stack : List Value} {labels : List (OpenLabel H)}
     (checked : seq.Checked mode program memory calls base outer args source)
-    (extent : mode.extent initial.data.size start)
+    (extent : mode.extent initial.data.size bytes)
     (ready : seq.SourceReady mode program memory calls labels stack region source) :
-    seq.Ready mode program memory calls initial (seq.beginBody outer args start stack labels region) source := by
+    seq.Ready mode program memory calls initial (seq.beginBody outer args bytes stack labels region) source := by
   cases region with
   | root =>
     obtain ⟨scopes, _, listed, typed⟩ := ready
@@ -306,22 +385,20 @@ private theorem begin_ready {region : Source H} {stack : List Value} {labels : L
     obtain ⟨scopes, _, listed, typed⟩ := ready
     exact ⟨extent, listed _ (.head _), fun piece used => listed _ (.tail _ (List.mem_map.mpr ⟨piece, used, rfl⟩)),
       typed, scopes⟩
-  | plain code =>
-    exact ⟨extent, wrap_checked checked ready.1.2
-      (RunProofs.append_allowed.mpr ⟨RunProofs.values_allowed stack, ready.2.1⟩)⟩
-  | block | if_ => exact ready
+  | plain code => exact finish_ready checked extent ready.2.2.2 ready.1 ready.2.1
+  | blockThen | ifThen => exact ⟨extent, ready⟩
 
 private theorem locals_typed (checked : seq.Checked mode program memory calls base outer args source) :
     (active).locals.map Value.type = (rootFn).declaration.params ++ (rootFn).declaration.locals := by
   simp [Declaration.frame, checked.parameters, Value.zero, List.map_map, Function.comp_def]
 
 private theorem condition_found (checked : seq.Checked mode program memory calls base outer args source)
-    {stack : List Value} {block : PathBlock} {index : LocalIdx}
-    {left right : Source H} {labels : List OpenLabel}
-    (ready : seq.SourceReady mode program memory calls labels stack (.if_ block index left right) source) :
+    {stack : List Value} {result : Option NumType} {index : LocalIdx}
+    {left right tail : Source H} {labels : List (OpenLabel H)}
+    (ready : seq.SourceReady mode program memory calls labels stack (.ifThen result index left right tail) source) :
     ∃ bits : BitVec 32, (active).locals[index.toNat]? = some (.int .i32 bits) := by
   have typed := ready.2.2.2
-  simp only [checkSource, Bool.and_eq_true_iff, decide_eq_true_eq] at typed
+  simp only [checkSourceAt, Bool.and_eq_true_iff, decide_eq_true_eq] at typed
   have localType := typed.2.1
   rw [← locals_typed checked, List.getElem?_map] at localType
   generalize lookup : (active).locals[index.toNat]? = value at localType
@@ -344,27 +421,33 @@ theorem preserves (graphChecked : program.checkV1 memory mode calls = true)
   | resolve => exact ready
   | enter =>
     cases ready
-    exact begin_ready checked extent
-      ⟨⟨trivial, by simp [OpenLabel.Allowed]⟩, checked.guardedBody, fun _ used => used, checked.typedBody⟩
+    exact begin_ready checked extent ⟨trivial, checked.guardedBody, fun _ used => used, checked.typedBody⟩
   | openBlock =>
-    obtain ⟨scopes, allowed, listed, typed⟩ := ready
-    simp only [checkSource, Bool.and_eq_true_iff] at typed
-    refine begin_ready checked extent ⟨⟨⟨typed.1, scopes.1⟩, ?_⟩, allowed.2, listed, typed.2⟩
-    intro label used
-    rcases List.mem_cons.mp used with rfl | previous
-    · exact allowed.1
-    · exact scopes.2 label previous
+    obtain ⟨liveExtent, scopes, allowed, listed, typed⟩ := ready
+    simp only [checkSourceAt, Bool.and_eq_true_iff] at typed
+    exact begin_ready checked liveExtent
+      ⟨⟨typed.1, allowed.1, fun site used => listed site (List.mem_append_right _ used), scopes⟩,
+        allowed.2, fun site used => listed site (List.mem_append_left _ used), typed.2⟩
   | readCondition _ => exact ready
-  | @select stack block index left right condition labels =>
-    obtain ⟨scopes, allowed, listed, typed⟩ := ready
-    simp only [checkSource, Bool.and_eq_true_iff] at typed
+  | @select bytes stack result index left right tail condition labels =>
+    obtain ⟨liveExtent, scopes, allowed, listed, typed⟩ := ready
+    simp only [checkSourceAt, Bool.and_eq_true_iff] at typed
     by_cases zero : condition = 0
     · rw [ite_eq_left zero]
-      exact ⟨scopes, ⟨allowed.1, allowed.2.2⟩, fun site used => listed site (List.mem_append_right _ used),
-        Bool.and_eq_true_iff.mpr ⟨typed.1, typed.2.2.2⟩⟩
+      refine ⟨liveExtent, scopes, ⟨allowed.1, allowed.2.2⟩, ?_, Bool.and_eq_true_iff.mpr ⟨typed.1, typed.2.2.2⟩⟩
+      intro site used
+      rcases List.mem_append.mp used with chosen | following
+      · exact listed site (List.mem_append_left _ (List.mem_append_right _ chosen))
+      · exact listed site (List.mem_append_right _ following)
     · rw [ite_eq_right zero]
-      exact ⟨scopes, ⟨allowed.1, allowed.2.1⟩, fun site used => listed site (List.mem_append_left _ used),
-        Bool.and_eq_true_iff.mpr ⟨typed.1, typed.2.2.1⟩⟩
+      refine ⟨liveExtent, scopes, ⟨allowed.1, allowed.2.1⟩, ?_, Bool.and_eq_true_iff.mpr ⟨typed.1, typed.2.2.1⟩⟩
+      intro site used
+      rcases List.mem_append.mp used with chosen | following
+      · exact listed site (List.mem_append_left _ (List.mem_append_left _ chosen))
+      · exact listed site (List.mem_append_right _ following)
+  | closeLabel _ =>
+    obtain ⟨liveExtent, types, typed, allowed, listed, scopes⟩ := ready
+    exact begin_ready checked liveExtent ⟨scopes, allowed, listed, by simpa [Prefix.stackTypes, types] using typed⟩
   | numeric moved =>
     obtain ⟨current, listed, later, check, scopes⟩ := ready
     have locals := locals_typed checked
@@ -373,9 +456,20 @@ theorem preserves (graphChecked : program.checkV1 memory mode calls = true)
     exact check_prefix_preserves (locals.symm ▸ check) moved
   | prefixTrap _ => exact ⟨ready.1, ready.2.2.2.2⟩
   | discard _ => exact ready
-  | closeTrap =>
-    exact ⟨ready.1, frame_allowed checked (insert_allowed checked ready.2.2
-      (RunProofs.single_allowed.mpr .trap))⟩
+  | @closeTrap bytes labels =>
+    obtain ⟨liveExtent, scopes⟩ := ready
+    have graph (plain : OpenLabel.needsResume labels = false) :
+        seq.Ready mode program memory calls initial (.graph ⟨bytes, outer, seq.afterLabel args labels [.trap]⟩) source :=
+      ⟨liveExtent, frame_allowed checked (insert_allowed checked scopes plain
+        (RunProofs.single_allowed.mpr .trap))⟩
+    cases labels with
+    | nil => exact graph rfl
+    | cons label rest =>
+      cases h : OpenLabel.needsResume (label :: rest) with
+      | false => simpa only [closeTrapped, h, Bool.false_eq_true, ↓reduceIte] using graph h
+      | true => simpa only [closeTrapped, h, ↓reduceIte] using
+          (show seq.Ready mode program memory calls initial (.trapped bytes label.saved (seq.tailCode label) rest)
+            source from ⟨liveExtent, scopes.2.2.2⟩)
   | hostResolve typed =>
     obtain ⟨current, listed, later, check, scopes⟩ := ready
     exact ⟨current, listed, later, typed, check_prefix_resume check typed, scopes⟩
@@ -399,6 +493,7 @@ private theorem sound (graphChecked : program.checkV1 memory mode calls = true)
   | openBlock => exact block_entry.mpr rfl
   | readCondition found => exact (condition_step found).mpr rfl
   | select => exact select_step.mpr rfl
+  | closeLabel _ => exact close_label_step.mpr rfl
   | numeric moved => exact numeric_step.mpr (.inl ⟨_, moved, rfl⟩)
   | prefixTrap moved => exact numeric_step.mpr (.inr ⟨_, moved, rfl⟩)
   | discard moved => exact trap_step.mpr (.inl ⟨_, _, moved, rfl⟩)
@@ -427,12 +522,13 @@ private theorem readback (graphChecked : program.checkV1 memory mode calls = tru
   | invoke current =>
     cases ready
     exact ⟨_, .enter, (enter_step checked).mp step⟩
-  | block stack block region labels => exact ⟨_, .openBlock, block_entry.mp step⟩
-  | if_ stack block index left right labels =>
-    obtain ⟨bits, found⟩ := condition_found checked ready
+  | block => exact ⟨_, .openBlock, block_entry.mp step⟩
+  | if_ =>
+    obtain ⟨bits, found⟩ := condition_found checked ready.2
     exact ⟨_, .readCondition found, (condition_step found).mp step⟩
-  | test stack block index left right condition labels =>
-    exact ⟨_, .select, select_step.mp step⟩
+  | test => exact ⟨_, .select, select_step.mp step⟩
+  | completed =>
+    exact ⟨_, .closeLabel (by simpa using congrArg List.length ready.2.1), close_label_step.mp step⟩
   | computing bytes stack remaining site later labels =>
     cases remaining with
     | nil =>
@@ -476,16 +572,27 @@ theorem step_iff (graphChecked : program.checkV1 memory mode calls = true)
   · rintro ⟨next, moved, _, rfl⟩
     exact sound graphChecked checked layout matched moved ready
 
-theorem trapped_run {bytes : ByteArray} {saved : List Value} {tail : List Admin} {labels : List OpenLabel} {dst : Phase H}
+private theorem closed_trapped_phase (bytes : ByteArray) (labels : List (OpenLabel H)) :
+    (∃ saved tail scopes, seq.closeTrapped outer args bytes labels = .trapped bytes saved tail scopes) ∨
+      ∃ state, seq.closeTrapped outer args bytes labels = .graph state := by
+  cases labels with
+  | nil => exact .inr ⟨_, rfl⟩
+  | cons label rest =>
+    simp only [closeTrapped]
+    split
+    · exact .inl ⟨_, _, _, rfl⟩
+    · exact .inr ⟨_, rfl⟩
+
+theorem trapped_run {bytes : ByteArray} {saved : List Value} {tail : List Admin} {labels : List (OpenLabel H)} {dst : Phase H}
     (run : seq.Runs host mode program memory base initial start outer args (.trapped bytes saved tail labels) dst) :
-    (∃ saved rest, dst = .trapped bytes saved rest labels) ∨ ∃ state, dst = .graph state := by
+    (∃ saved rest scopes, dst = .trapped bytes saved rest scopes) ∨ ∃ state, dst = .graph state := by
   induction run with
-  | refl => exact .inl ⟨saved, tail, rfl⟩
+  | refl => exact .inl ⟨saved, tail, labels, rfl⟩
   | tail _ transition ih =>
-    rcases ih with ⟨saved, rest, rfl⟩ | ⟨state, rfl⟩
+    rcases ih with ⟨saved, rest, scopes, rfl⟩ | ⟨state, rfl⟩
     · cases transition with
-      | discard _ => exact .inl ⟨_, _, rfl⟩
-      | closeTrap => exact .inr ⟨_, rfl⟩
+      | discard _ => exact .inl ⟨_, _, _, rfl⟩
+      | closeTrap => exact closed_trapped_phase bytes scopes
     · cases transition with
       | graph _ => exact .inr ⟨_, rfl⟩
 

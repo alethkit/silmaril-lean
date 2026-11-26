@@ -74,13 +74,13 @@ theorem first_source (stack : List Value) (i : Wasm.V1.Instr) (tail : List Admin
 
 private theorem label_exit {n : Nat} {before body after : List Admin}
     (pure : PureStep before after) (shape : before = [.label n [] body]) :
-    firstRedex body = none ∨
+    (firstRedex body = none ∧ after = body) ∨
       (∃ depth, firstRedex body = some (.source (.br depth))) ∨
       firstRedex body = some (.source .return_) ∨ (body = [.trap] ∧ after = [.trap]) := by
   cases pure
   case labelDone n' cont vs =>
     obtain ⟨-, -, rfl⟩ : n' = n ∧ cont = [] ∧ values vs = body := by simpa using shape
-    exact .inl (firstRedex_values vs)
+    exact .inl ⟨firstRedex_values vs, rfl⟩
   case labelBranch n' cont extra vs tail count =>
     obtain ⟨-, -, rfl⟩ : n' = n ∧ cont = [] ∧
         values extra ++ values vs ++ [.source (.br ⟨0⟩)] ++ tail = body := by simpa using shape
@@ -102,10 +102,20 @@ private theorem label_exit {n : Nat} {before body after : List Admin}
     exact .inr (.inr (.inr ⟨eq.symm, rfl⟩))
   all_goals simp [values] at shape
 
+theorem label_values {n : Nat} {stack : List Value} {before after : List Admin}
+    (pure : PureStep before after) (shape : before = [.label n [] (values stack)]) :
+    after = values stack := by
+  rcases label_exit pure shape with ⟨_, done⟩ | ⟨_, branch⟩ | ret | ⟨trap, _⟩
+  · exact done
+  · simp at branch
+  · simp at ret
+  · have head := congrArg firstRedex trap
+    simp at head
+
 theorem label_source_live {n : Nat} {body after : List Admin} {i : Wasm.V1.Instr}
     (pure : PureStep [.label n [] body] after) (head : firstRedex body = some (.source i))
     (noBranch : ∀ l, i ≠ .br l) (noReturn : i ≠ .return_) : False := by
-  rcases label_exit pure rfl with done | ⟨depth, branch⟩ | ret | ⟨trap, _⟩
+  rcases label_exit pure rfl with ⟨done, _⟩ | ⟨depth, branch⟩ | ret | ⟨trap, _⟩
   · rw [head] at done
     cases done
   · rw [head] at branch
@@ -119,7 +129,7 @@ private theorem label_trapped {n : Nat} {saved : List Value} {tail after : List 
     (pure : PureStep [.label n [] (values saved ++ .trap :: tail)] after) :
     saved = [] ∧ tail = [] ∧ after = [.trap] := by
   have head : firstRedex (values saved ++ .trap :: tail) = some .trap := by simp
-  rcases label_exit pure rfl with done | ⟨_, branch⟩ | ret | ⟨body, eq⟩
+  rcases label_exit pure rfl with ⟨done, _⟩ | ⟨_, branch⟩ | ret | ⟨body, eq⟩
   · rw [head] at done
     cases done
   · rw [head] at branch

@@ -34,9 +34,9 @@ private def body : Bool → Source Nat
   | false => Source.ofPath path
   | true => .block block (.if_ branch choice.condition .root alternate)
 private def saved : List Value := [i32 0]
-private def outerLabel : OpenLabel := ⟨saved, block⟩
-private def innerLabel : OpenLabel := ⟨[], branch⟩
-private def nestedLabel : OpenLabel := ⟨[], nested⟩
+private def outerLabel : OpenLabel Nat := ⟨saved, block.result, .plain block.tail⟩
+private def innerLabel : OpenLabel Nat := ⟨[], branch.result, .plain branch.tail⟩
+private def nestedLabel : OpenLabel Nat := ⟨[], nested.result, .plain nested.tail⟩
 private def caller : Frame := ⟨[i32 44], { funcs := [root.address] }⟩
 private def params (condition : BitVec 32) : List Value := [i32 condition, i32 9]
 private def active (condition : BitVec 32) := fn.declaration.frame (params condition)
@@ -140,17 +140,17 @@ private theorem native {enabled : Bool} {condition : BitVec 32} {phase : Phase}
   exact (correspondence enabled condition).mpr ⟨phase, run, ready, rfl⟩
 
 private theorem tested (enabled : Bool) (condition : BitVec 32) : Runs enabled condition (.call (body enabled))
-    (.test [] branch choice.condition .root (right enabled) condition [outerLabel]) := by
+    (.test initial.data [] branch.result choice.condition .root (right enabled) (.plain branch.tail) condition [outerLabel]) := by
   have entered : Runs enabled condition (.call (body enabled))
       (seq.beginBody caller (params condition) initial.data saved [] (body enabled)) :=
     (Relation.ReflTransGen.single .resolve).tail .enter
-  have outer : Runs enabled condition (.call (body enabled)) (.if_ [] branch choice.condition .root (right enabled) [outerLabel]) := by
+  have outer : Runs enabled condition (.call (body enabled)) (.if_ initial.data [] branch.result choice.condition .root (right enabled) (.plain branch.tail) [outerLabel]) := by
     cases enabled <;> exact entered.tail .openBlock
   exact outer.tail (.readCondition rfl)
 
 private def pending : Phase := .pending initial.data [] [i32 9] site [] [innerLabel, outerLabel]
 private theorem pendingRun (enabled : Bool) : Runs enabled 1 (.call (body enabled)) pending := by
-  have selected : Runs enabled 1 (.call (body enabled)) (.block [] branch .root [outerLabel]) :=
+  have selected : Runs enabled 1 (.call (body enabled)) (.block initial.data [] branch.result .root (.plain branch.tail) [outerLabel]) :=
     (tested enabled 1).tail .select
   have entered : Runs enabled 1 (.call (body enabled)) (.computing initial.data [] root.operands site [] [innerLabel, outerLabel]) :=
     selected.tail .openBlock
@@ -159,7 +159,7 @@ private theorem pendingRun (enabled : Bool) : Runs enabled 1 (.call (body enable
 private def rightPending : Phase :=
   .pending initial.data [] [i32 0] alternateSite [] [nestedLabel, innerLabel, outerLabel]
 private theorem rightRun : Runs true 0 (.call (body true)) rightPending := by
-  have selected : Runs true 0 (.call (body true)) (.block [] branch alternate [outerLabel]) :=
+  have selected : Runs true 0 (.call (body true)) (.block initial.data [] branch.result alternate (.plain branch.tail) [outerLabel]) :=
     (tested true 0).tail .select
   have entered : Runs true 0 (.call (body true))
       (.computing initial.data [] [.get ⟨0⟩] alternateSite [] [nestedLabel, innerLabel, outerLabel]) :=
@@ -242,7 +242,7 @@ example : Steps (host true) (source true 0) ⟨rightStore true, caller, values [
 -- Zero selects the alternate block. Its result uses the same enclosing
 -- labels and continuation, while its memory is the original allocation.
 example : Steps (host false) (source false 0) ⟨live false, caller, values [i32 0]⟩ := by
-  have selected : Runs false 0 (.call (body false)) (.block [] branch (.plain choice.alternate) [outerLabel]) :=
+  have selected : Runs false 0 (.call (body false)) (.block initial.data [] branch.result (.plain choice.alternate) (.plain branch.tail) [outerLabel]) :=
     (tested false 0).tail .select
   have alternate : Runs false 0 (.call (body false)) (.graph
       (framed initial.data (active 0) (inOuter [.label 1 [] [.source (.localGet ⟨1⟩)], setLocal]))) :=
@@ -283,7 +283,7 @@ example (enabled : Bool) : Steps (host enabled) (source enabled 1) ⟨changed en
 -- Once the selected arm has trapped, even the allocated host in the
 -- other arm is excluded from every subsequent checked phase.
 example (run : Runs true 1 (.trapped written [] [] [innerLabel, outerLabel]) rightPending) : False := by
-  rcases Sequence.trapped_run run with ⟨_, _, impossible⟩ | ⟨_, impossible⟩
+  rcases Sequence.trapped_run run with ⟨_, _, _, impossible⟩ | ⟨_, impossible⟩
   · cases impossible
   · cases impossible
 
