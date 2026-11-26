@@ -60,14 +60,43 @@ in each activation.
 [Loop theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Loop/DeadStore/Search/Thms.lean) ·
 [Loop regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/DeadStore/Regression.lean)
 
+## Select one dead Store
+
+`DeadStore.Search.Selection.rewrite` takes a straight-line graph,
+an ordered list of reader certificates, and the typed input tuple.
+It tries original Store versions oldest first and, at each version,
+tries the certificates in their supplied order. For each attempt the
+nominated search chooses its first qualifying overwrite. The first
+invocation-checked success returns the pair of versions, the certificate
+used, and the rewritten graph. A refused attempt leaves later Store
+versions available to the search. The rewrite keeps every Load and all
+remaining Stores in table order. The existing deletion theorem preserves
+the return and whole final heap for the checked input and any initial
+heap. Selection removes one Store per call and considers only the supplied
+reader certificates in this initialized straight-line profile.
+[Selection definitions](../../Silmaril/SSA/SeaOfNodes/Memory/DeadStore/Search/Selection/Defs.lean) ·
+[Selection theorems](../../Silmaril/SSA/SeaOfNodes/Memory/DeadStore/Search/Selection/Thms.lean)
+
+The runnable fixture has two removable Stores and a certificate order
+that lists the later Store's address first. Its `#eval` prints
+`some (1, 2)`. An observing read blocks that pair and the search picks
+`(3, 4)`. Other checks exercise concrete reader aliasing and a table
+without a qualifying overwrite.
+[Selection regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/DeadStore/Search/Selection/Regression.lean)
+
 ```sh
-make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Thms +Silmaril.SSA.SeaOfNodes.Memory.Loop.DeadStore.Search.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Regression'
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Thms +Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Thms +Silmaril.SSA.SeaOfNodes.Memory.Loop.DeadStore.Search.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Regression'
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/DeadStore/Search/Selection/Regression.lean
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Defs
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Correctness
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Thms
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Defs
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Search.Correctness
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Thms
+lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Defs
+lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Correctness
+lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Thms
+lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Regression
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.DeadStore.Search.Defs
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.DeadStore.Search.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Regression
