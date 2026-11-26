@@ -46,7 +46,7 @@ inductive ShapeValue where
   | invalid
   deriving DecidableEq, Repr
 
-/-- Results of admitted casts, including the cases with undefined behavior. -/
+/-- Results of admitted operations that may have undefined behavior. -/
 inductive Evaluation (α : Type) where
   | defined (value : α)
   | undefined
@@ -81,6 +81,61 @@ def fromExtentTensor (extents : ExtentTensor) : ShapeValue :=
 fragment causes admission to fail. -/
 def fromExtents? (extents : List Int) : Option ShapeValue :=
   (extents.mapM Int.toNat?).map ShapeValue.ofStatic
+
+/-- Pair the axes of two concrete shapes from the right, padding with leading ones. -/
+def alignedExtents (lhs rhs : Tensor.Shape) : List (Nat × Nat) :=
+  let rank := max lhs.length rhs.length
+  (lhs.leftpad rank 1).zip (rhs.leftpad rank 1)
+
+/-- The concrete binary `shape.broadcast` rule. A pair of unequal non-unit
+extents fails. The non-unit extent wins over one, including when it is zero. -/
+def broadcastConcrete? (lhs rhs : Tensor.Shape) : Option Tensor.Shape :=
+  let axes := alignedExtents lhs rhs
+  if axes.all (fun (a, b) => a == b || a == 1 || b == 1) then
+    some (axes.map fun (a, b) => if a = 1 then b else a)
+  else none
+
+/-- Every axis agrees or has a unit extent on one side after left padding. -/
+def BroadcastCompatible (lhs rhs : Tensor.Shape) : Prop :=
+  let rank := max lhs.length rhs.length
+  ∀ dim : Fin rank,
+    let a := (lhs.leftpad rank 1)[dim.val]?.getD 1
+    let b := (rhs.leftpad rank 1)[dim.val]?.getD 1
+    a = b ∨ a = 1 ∨ b = 1
+
+/-- A compatible broadcast has the larger rank and the specified extent at each
+aligned axis. -/
+def BroadcastsTo (lhs rhs result : Tensor.Shape) : Prop :=
+  let rank := max lhs.length rhs.length
+  BroadcastCompatible lhs rhs ∧ result.length = rank ∧
+    ∀ dim : Fin rank,
+      let a := (lhs.leftpad rank 1)[dim.val]?.getD 1
+      let b := (rhs.leftpad rank 1)[dim.val]?.getD 1
+      result[dim.val]? = some (if a = 1 then b else a)
+
+/-- Binary `shape.broadcast` with a `!shape.shape` result. Invalid operands
+propagate. Without an invalid operand, both shapes must be concrete. -/
+def broadcast? : ShapeValue → ShapeValue → Option ShapeValue
+  | .invalid, _ | _, .invalid => some .invalid
+  | lhs, rhs => do
+      let lhs ← lhs.toStatic?
+      let rhs ← rhs.toStatic?
+      return ((broadcastConcrete? lhs rhs).map ShapeValue.ofStatic).getD .invalid
+
+/-- Binary `shape.broadcast` with two concrete extent tensors and an extent
+tensor result. An incompatible pair has no defined extent tensor result. -/
+def broadcastExtentTensor (lhs rhs : ExtentTensor) : Evaluation ExtentTensor :=
+  match broadcastConcrete? lhs.toShape rhs.toShape with
+  | some result => .defined (extentTensor result)
+  | none => .undefined
+
+/-- Binary `shape.is_broadcastable` on two concrete shape views. Unknown or
+invalid operands are outside the model. Use `fromExtentTensor` for an extent
+tensor operand. -/
+def isBroadcastable? (lhs rhs : ShapeValue) : Option Bool := do
+  let lhs ← lhs.toStatic?
+  let rhs ← rhs.toStatic?
+  return (broadcastConcrete? lhs rhs).isSome
 
 /-- The shape-valued interpretation of `shape.shape_of` on a static tensor. -/
 def shapeOf {shape : Tensor.Shape} {α : Type u} (_ : Tensor.Tensor shape α) : ShapeValue :=
