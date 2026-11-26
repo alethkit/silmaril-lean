@@ -216,6 +216,31 @@ theorem cf_returns_iff (compiled : Compiled mapping source origins) (input : Wor
       (returns_iff compiled input mem value).mp observed
     exact ⟨_, cf⟩
 
+/-- Under the packed-capture entry side condition, a bounded CF return
+exists for a fixed result word exactly when the canonical λSSA Region has
+a finite evaluation returning the corresponding packed singleton, with
+the initial memory preserved. The forward direction reuses the existing
+reflection (`reflect`); the converse reuses the existing two-directional
+`Phi.region_return_iff` and `Family.rtl_return_iff` to recover the native
+dispatch route, then crosses back to CF with `cf_returns_iff`. -/
+theorem region_returns_iff (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    (value : Word) (env : Silmaril.Isotope.LambdaSSA.Semantics.Env Word) (entry : env 0 = packValues (words input)) :
+    (∃ fuel, compiled.setup.cf.run evalOp fuel (wordEnv input) = some (.cons value .nil)) ↔
+    Eval (Opcode.step (sigs := [⟨new, 1⟩]) compiled.rtl.oracle) env
+      (toLambdaSSA [⟨new, 1⟩] (lowerFunc (mapCaptures mapping source))) mem 0 (packValues [value]) mem := by
+  constructor
+  · rintro ⟨fuel, observed⟩
+    obtain ⟨slots, _, _, _, _, region⟩ := reflect compiled input mem fuel value observed env entry
+    exact region
+  · intro region
+    have oracleFact : compiled.rtl.oracle 0 (words input) mem [value] mem :=
+      (Phi.region_return_iff mapping source compiled.accepted input env entry mem mem [value]).mp region
+    obtain ⟨slots, v, path, shape, -⟩ :=
+      (Family.rtl_return_iff mapping source compiled.accepted input mem mem [value]).mp oracleFact
+    have hv : v = value := (List.cons.inj shape).1.symm
+    obtain ⟨before, finish, after, _, _, _, _, rtl, _⟩ := Exit.from_return_path compiled input mem (hv ▸ path)
+    exact (cf_returns_iff compiled input mem value).mpr ⟨_, rtl⟩
+
 /-- A bounded CF return exists for the typed input and initial memory
 exactly when the abstract native source has some finite return along an
 ordered dispatch route. This is the CF side of the existing RTL-oracle
