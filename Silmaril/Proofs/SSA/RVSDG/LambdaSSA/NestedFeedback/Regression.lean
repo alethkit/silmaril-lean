@@ -2,11 +2,13 @@ module
 
 import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Fork.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Recursive.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Thms
 meta import Silmaril.SSA.Isotope.Types.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Fork.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Recursive.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Defs
 
@@ -580,6 +582,114 @@ example : Fork.recover staleFork = none := by
     throw (IO.userError "could not recover the mixed fork without component views")
   unless (Fork.candidate staleFork).isSome && (Fork.recover staleFork).isNone do
     throw (IO.userError "the mixed fork recognizer failed to certify the shared continuation token")
+
+private def recursiveFork : Recursive.Normal Op number number number number number number
+    (StructuredCFG.Selection number number number number ++ [Flat.Serial.WirePorts number number number]) :=
+  .fork forkGate (.seq (.localLoop tailLoop) (.leaf (.feedback program))) (.leaf (.feedback program))
+    (.leaf (.localLoop tailLoop))
+
+private theorem recursiveSupported : recursiveFork.Supported :=
+  ⟨⟨tailSupported, trivial⟩, trivial, tailSupported⟩
+
+private def recursiveGraph := recursiveFork.toSyntax.graph
+
+private theorem recursiveAccepted : Recursive.recover recursiveGraph =
+    some ⟨recursiveFork.toSyntax.source.region, .generated recursiveFork.toSyntax⟩ :=
+  Recursive.recover_generated recursiveFork recursiveSupported
+
+private def recoveredRecursive : WithNestedFeedback.Fibre recursiveGraph :=
+  (Recursive.recover recursiveGraph).get (by rw [recursiveAccepted]; rfl)
+
+private theorem recoveredRecursiveAccepted : Recursive.recover recursiveGraph = some recoveredRecursive :=
+  (Option.some_get _).symm
+
+private theorem feedbackReturnsFirstRound (n token : Nat) (nonzero : n ≠ 0) (allowed : n ≠ 99) :
+    (iter roundAction n).run token = Part.some (1000 * token + 122, 10000 * token + 1223) := by
+  rw [Elgot.StateT.run_iter, Part.eq_some_iff, Elgot.Part.mem_iter_iff]
+  apply Elgot.Part.Runs.done
+  apply Part.eq_some_iff.mp
+  unfold Elgot.StateT.body
+  simp [round_run, nonzero, allowed, Elgot.StateT.distribute]
+
+private theorem recursive_run (coherent : Coherent) (n : Nat) :
+    Region.denote (ε := Bool) (m := Runtime) recursiveFork.toSyntax.source.typing (PUnit.unit,n) =
+      (if n = 1 then
+        iter (ExplicitRuntime.round (ε := Bool) tailLoop) (7 : Nat) >>= fun r => iter roundAction (merge r)
+       else iter roundAction n) >>= fun result => iter (ExplicitRuntime.round (ε := Bool) tailLoop) result := by
+  change Region.denote (ε := Bool) (m := Runtime)
+    (Flat.link (Flat.fork
+      (Flat.link (Flat.Fragment.loop tailLoop) (WithNestedFeedback.Leaf.source program))
+      (WithNestedFeedback.Leaf.source program) forkGate) (Flat.Fragment.loop tailLoop)).typing
+    (PUnit.unit,n) = _
+  rw [Flat.denote_link _ _ coherent, Flat.denote_fork _ _ _ coherent, gateAction]
+  by_cases left : n = 1 <;>
+    simp [left, Flat.denote_link _ _ coherent, Flat.Fragment.loop_denote,
+      WithNestedFeedback.Leaf.source_rounds _ coherent, ExplicitRuntime.denote_rounds _ coherent,
+      bind_assoc, merge]
+  rfl
+
+private theorem recursiveRoundTrip (coherent : Coherent) (input payload token : Nat)
+    (h : (Region.denote (ε := Bool) (m := Runtime) recursiveFork.toSyntax.source.typing (PUnit.unit,input)).run 0 =
+      Part.some ((.inl payload : Exits),token)) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredRecursive.2.typing (PUnit.unit,input)).run 0 =
+      Part.some ((.inl payload : Exits),token) :=
+  (Recursive.recover_returns_iff recoveredRecursiveAccepted coherent (PUnit.unit,input) (.inl payload) 0 token).mp
+    ((WithNestedFeedback.Related.generated recursiveFork.toSyntax).region_returns_iff
+      coherent (PUnit.unit,input) (.inl payload) 0 token |>.mpr h)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredRecursive.2.typing (PUnit.unit,(1 : Nat))).run 0 =
+      Part.some ((.inl (45345 : Nat) : Exits),412234) := by
+  apply recursiveRoundTrip coherent
+  rw [recursive_run coherent]
+  simp only [ite_true, StateT.run_bind, Part.bind_eq_bind, tailReturns 7 0, Part.bind_some]
+  change ((iter roundAction (7 : Nat)).run 4).bind _ = _
+  rw [feedbackReturnsFirstRound 7 4 (by decide) (by decide), Part.bind_some]
+  exact tailReturns 4122 41223
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredRecursive.2.typing (PUnit.unit,(0 : Nat))).run 0 =
+      Part.some ((.inl (13454345 : Nat) : Exits),122312234) := by
+  apply recursiveRoundTrip coherent
+  rw [recursive_run coherent]
+  simp only [Nat.zero_ne_one, ite_false, StateT.run_bind, Part.bind_eq_bind, returning, Part.bind_some]
+  exact tailReturns 1223122 12231223
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredRecursive.2.typing (PUnit.unit,(99 : Nat))).run 0 =
+      Part.none := by
+  apply (Recursive.recover_undefined_iff recoveredRecursiveAccepted coherent (PUnit.unit,(99 : Nat)) 0).mp
+  apply ((WithNestedFeedback.Related.generated recursiveFork.toSyntax).region_undefined_iff
+    coherent (PUnit.unit,(99 : Nat)) 0).mpr
+  rw [recursive_run coherent]
+  simp only [show (99 : Nat) ≠ 1 from by decide, ite_false, StateT.run_bind,
+    Part.bind_eq_bind, noReturn, Part.bind_none]
+
+private def staleRecursive : ForkGraph := (staleForkTerm recursiveGraph.toTerm).toGraph
+
+private theorem staleRecursiveScan (term : ForkTerm) :
+    Recursive.scan (staleForkTerm term) = Recursive.scan term := by
+  cases term with
+  | bind _ _ term =>
+    cases term with
+    | bind _ _ term =>
+      cases term with
+      | bind tail _ _ => cases tail; rfl
+
+example : Recursive.recover staleRecursive = none := by
+  apply Recursive.reject_wiring recursiveFork
+  · simp only [Recursive.candidate, staleRecursive, NestedTheta.Term.toTerm_toGraph, staleRecursiveScan]
+    exact Recursive.candidate_generated recursiveFork recursiveSupported
+  · intro eq
+    have addresses := congrArg sharedAddresses eq
+    change [Address.output 1 0, Address.output 1 1] = [Address.output 1 0, Address.arg 1] at addresses
+    cases addresses
+
+#eval show IO Unit from do
+  unless (Recursive.recover recursiveGraph).isSome do
+    throw (IO.userError "could not recover the recursive mixed fork")
+  unless (Recursive.candidate staleRecursive).isSome && (Recursive.recover staleRecursive).isNone do
+    throw (IO.userError "the recursive mixed recognizer failed to certify the shared continuation token")
 
 end Composition
 

@@ -242,13 +242,44 @@ The scope fixes the nested leaf in one right arm at the root and
 retains emitted numbering.
 [Mixed fork reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/WithNestedFeedback/Reverse/Fork/Thms.lean)
 
+## Decode canonical mixed regions recursively
+
+`WithNestedFeedback.Reverse.Recursive.recover` reads the numbered graph
+without a supplied split, child view or LambdaSSA source. The canonical
+grammar has ordinary θ leaves whose acyclic bodies admit instructions,
+sequences and typed choices. It also has the existing two-header
+nested-feedback leaf, right-associated serial links with a
+leaf on the left, and binary γ forks that own their shared suffix.
+Both arm scopes and the suffix can independently use the full grammar.
+The two exits feeding each serial cut or fork join have the same payload
+sort. The final external labels may have different sorts.
+
+The decoder reads typed connector opcodes and child tables, with recursion
+bounded by the scanned layout. `recognize` certifies the complete re-emitted
+graph once, including operands, returns, captures and the live token.
+`recover_isSome_iff` characterizes exactly the literal numbered emissions
+of this grammar. `recover_generated` also recovers the original flat CFG
+when each ordinary loop body already uses the parser's local right
+association. For any recovered CFG, the graph and actual `Region.denote`
+agree on the typed exit, payload, final token and absence of finite return
+in coherent `StateT σ Part` models.
+
+The regression puts nested feedback in both arms, with an ordinary loop
+before the left leaf. The shared continuation observes the returned token
+from either arm. A third input selects a nonreturning nested loop. A
+type-correct replacement of the continuation's token with the entry
+token leaves the structural parse intact and fails certification.
+The grammar uses canonical numbering, the existing nested-feedback leaf
+shape and the generated `gamma 0` fork layout.
+[Recursive reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/WithNestedFeedback/Reverse/Recursive/Thms.lean)
+
 ## Reproduce
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression'
 lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms
-make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Fork.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Fork.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Recursive.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Recursive.Thms
 ```
 
 ## Sources
