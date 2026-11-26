@@ -8,6 +8,7 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Reindex.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Defs
@@ -16,6 +17,8 @@ meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.D
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Reindex.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
 
@@ -651,5 +654,69 @@ example : staticRefused.overwriteDeleted = false := rfl
 example : staticRefused.optimized = Discovery.MemRef.CF.lowerDiamond 4 overwriteDiamond
     (some (middleStore.prepend (overwriteTail rightPort))) := rfl
 #guard runStatic staticRefused overwriteInput false 3 == some ([99, 99, 99, 3, 55], [99, 99, 99, 3, 55])
+
+open CategoryTheory
+open Diamond.Institution renaming Signature → EntrySignature
+open Diamond.Institution (PortMap mapBody mapGraph pullInput)
+
+private def swapAddressPorts : PortMap args args
+  | _, .head => leftPort
+  | _, .tail .head => headPort
+  | _, .tail (.tail port) => .tail (.tail port)
+
+private def identifyAliases : PortMap args args
+  | _, .tail (.tail .head) => headPort
+  | _, port => port
+
+private def identifyDisjoint : PortMap args args
+  | _, .tail .head => headPort
+  | _, port => port
+
+private def swapInput : Tuple (Val 4) args := pullInput swapAddressPorts overwriteInput
+
+private def reindexTail : Memory.Graph args :=
+  .load (.latest 0) (.arg leftPort)
+    (.store (.latest 0) (.arg leftPort) (.arg rightWord)
+      (.store (.latest 1) (.arg rightPort) loaded
+        (.load (.latest 2) (.arg headPort) (.ret (.latest 2) (.output (0 : Fin 2) .head)))))
+
+private def reindexEntry : Memory.Graph args := middleStore.prepend reindexTail
+
+private def entrySignature : EntrySignature := ⟨args⟩
+
+example : addressFacts.transport swapAddressPorts = some ⟨⟨leftPort, [headPort]⟩, [rightPort]⟩ := rfl
+example : addressFacts.transport identifyAliases = some ⟨⟨headPort, [leftPort]⟩, [headPort]⟩ := rfl
+example : addressFacts.transport identifyDisjoint = none := rfl
+example : pullInput swapAddressPorts swapInput = overwriteInput := rfl
+example : pullInput identifyAliases input = overwriteInput := rfl
+
+example : Static.cut ⟨⟨leftPort, [headPort]⟩, [rightPort]⟩ 1 (mapBody swapAddressPorts reindexEntry) =
+    some (Static.Reindex.mapStore swapAddressPorts middleStore, mapBody swapAddressPorts reindexTail) :=
+  Static.Reindex.cut_transport swapAddressPorts
+    (facts := addressFacts) (selected := middleStore) (retained := reindexTail) (entry := reindexEntry)
+    rfl rfl
+
+private def runReindexed (rename : PortMap args args) (valuation : Tuple (Val 4) args) (guard : Bool) (fuel : Nat) :
+    Option (Bool × Option (List Word × List Word)) := do
+  let facts ← addressFacts.transport rename
+  if facts.check valuation then
+    let h : entrySignature ⟶ entrySignature := ⟨rename⟩
+    let target := Static.lower 4 (mapGraph h overwriteDiamond) (mapBody rename reindexEntry) 1 facts
+    some (target.overwriteDeleted, runStatic target valuation guard fuel)
+  else none
+
+-- The disjoint Store before the overwrite stays in place. The false arm
+-- reads the overwritten cell and the true arm reads the retained side Store.
+/-- info: some (true, some ([2#64, 2#64, 33#64, 3#64, 55#64], [2#64, 2#64, 33#64, 3#64, 55#64])) -/
+#guard_msgs in
+#eval runReindexed swapAddressPorts swapInput false 3
+
+#guard runReindexed swapAddressPorts swapInput true 3 == some (true, some ([33, 11, 11, 3, 55], [33, 11, 11, 3, 55]))
+#guard (runReindexed swapAddressPorts swapInput false 3).bind Prod.snd ==
+  runStatic (Static.lower 4 overwriteDiamond reindexEntry 1 addressFacts) overwriteInput false 3
+#guard runReindexed swapAddressPorts swapInput false 2 == some (true, none)
+#guard runReindexed identifyAliases input false 3 == runReindexed swapAddressPorts swapInput false 3
+#guard runReindexed identifyAliases input true 3 == runReindexed swapAddressPorts swapInput true 3
+#guard runReindexed identifyDisjoint input false 3 == none
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
