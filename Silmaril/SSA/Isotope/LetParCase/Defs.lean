@@ -54,6 +54,24 @@ def derivation : {n : Nat} → {β : BoundCtx τ n} →
   | _, _, _, _, .case he hl hr => .case (derivation he) (derivation hl) (derivation hr)
   | _, _, _, _, .abort ha => .abort (derivation ha)
 
+/-- Include the lower parallel typing evidence, including parallel constructor nodes. -/
+def ofLetParDerivation : {n : Nat} → {β : BoundCtx τ n} →
+    {t : LetPar.Tm ν Φ n} → {A : τ} →
+    Parallel.Derivation Φ Γ β t A → Parallel.Derivation Φ Γ β (ofLetPar t) A
+  | _, _, _, _, .fv h => .fv h
+  | _, _, _, _, .bv => .bv
+  | _, _, _, _, .op ha => .op (ofLetParDerivation ha)
+  | _, _, _, _, .let₁ ha hb => .let₁ (ofLetParDerivation ha) (ofLetParDerivation hb)
+  | _, _, _, _, .unit => .unit
+  | _, _, _, _, .pair ha hb => .pair (ofLetParDerivation ha) (ofLetParDerivation hb)
+  | _, _, _, _, .let₂ ha hb => .let₂ (ofLetParDerivation ha) (ofLetParDerivation hb)
+  | _, _, .inl h _, _, _ => False.elim (h rfl)
+  | _, _, .inr h _, _, _ => False.elim (h rfl)
+  | _, _, .case h _ _ _, _, _ => False.elim (h rfl)
+  | _, _, .abort h _, _, _ => False.elim (h rfl)
+  | _, _, .iter h _ _, _, _ => nomatch h
+  | _, _, _, _, .par ha hb => .par (ofLetParDerivation ha) (ofLetParDerivation hb)
+
 end Silmaril.Isotope.LetParCase
 
 @[expose] public section
@@ -65,7 +83,7 @@ namespace Silmaril.Isotope.Parallel
 variable {tier : Tier} {ν : Type u} {Φ : Type v} {ε : Type w} [HasEff Φ ε]
 
 /-- Native case and empty schemes, plus distribution of Par over a pure choice.
-The unchanged partner is lifted into the scope of the chosen arm. -/
+The partner is lifted under each arm’s binder. -/
 inductive CaseRule (pureEff : ε) : EqScheme tier ν Φ where
   | betaL (h : tier.HasCase) (e : Tm tier ν Φ n) (l r : Tm tier ν Φ (n + 1)) :
       CaseRule pureEff (.case h (.inl h e) l r) (.let₁ e l)
