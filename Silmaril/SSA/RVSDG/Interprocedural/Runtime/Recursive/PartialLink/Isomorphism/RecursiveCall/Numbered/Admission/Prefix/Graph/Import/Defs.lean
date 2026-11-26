@@ -81,6 +81,31 @@ def Row.headOnly {family : Family m} {port : Ty V S} {values : Tuple m.Val (port
 
 /-- Add a client λ in the actual client locals, with membership only for
 the independently checked provider import and for ordinary values. -/
+def CheckedExport.extendClientLambda [DecidableEq (Ty V S)] {keys : OpcodeCode (Instruction Op)}
+    [DecidableEq keys.Key] {captureCode : CaptureCode m}
+    (ordinary : OrdinaryOutputs Op) (exactValue : ExactValueCheck m)
+    {primitives : Continuation.Partial.Primitives m σ} {ids : GlobalRel}
+    {port : Port exports providerFn.port} {outcomeL outcomeR : Outcome m σ exports}
+    (provider : CheckedExport primitives ids keys captureCode port outcomeL outcomeR)
+    {pastL pastR : List (Ports (Ty V S))}
+    (inputsL inputsR : Tuple m.Val (providerFn.port :: extra))
+    (localsL : Locals m.Val pastL) (localsR : Locals m.Val pastR)
+    (left : Lambda Op (providerFn.port :: extra) pastL clientFn)
+    (right : Lambda Op (providerFn.port :: extra) pastR clientFn) :
+    Option (PLift (LinkedFamily primitives ids keys captureCode
+      (WithExport provider.familyL (linkedLambda left inputsL localsL))
+      (WithExport provider.familyR (linkedLambda right inputsR localsR))
+      (provider.keys.addLambda (lambdaBodyKey keys captureCode left inputsL localsL)
+        (lambdaBodyKey keys captureCode right inputsR localsR)))) := do
+  let sameL ← exactValue (inputsL.get .head) (provider.valuesL.get port)
+  let sameR ← exactValue (inputsR.get .head) (provider.valuesR.get port)
+  let knownL : provider.familyL (inputsL.get .head) := sameL.down.symm ▸ provider.knownL
+  let knownR : provider.familyR (inputsR.get .head) := sameR.down.symm ▸ provider.knownR
+  provider.certified.addLambda keys ordinary
+    ((Table.empty provider.familyL localsL).availableWithImports provider.certified.ordinaryL (Row.headOnly knownL))
+    ((Table.empty provider.familyR localsR).availableWithImports provider.certified.ordinaryR (Row.headOnly knownR))
+    left right
+
 def CheckedExport.addClientLambda [DecidableEq (Ty V S)] {keys : OpcodeCode (Instruction Op)}
     [DecidableEq keys.Key] {captureCode : CaptureCode m}
     (ordinary : OrdinaryOutputs Op) (exactValue : ExactValueCheck m)
@@ -93,16 +118,9 @@ def CheckedExport.addClientLambda [DecidableEq (Ty V S)] {keys : OpcodeCode (Ins
     (left : Lambda Op (providerFn.port :: extra) pastL clientFn)
     (right : Lambda Op (providerFn.port :: extra) pastR clientFn) :
     Option (PLift (ExportAdmission primitives ids
-      (linkedLambda left inputsL localsL) (linkedLambda right inputsR localsR))) := do
-  let sameL ← exactValue (inputsL.get .head) (provider.valuesL.get port)
-  let sameR ← exactValue (inputsR.get .head) (provider.valuesR.get port)
-  let knownL : provider.familyL (inputsL.get .head) := sameL.down.symm ▸ provider.knownL
-  let knownR : provider.familyR (inputsR.get .head) := sameR.down.symm ▸ provider.knownR
-  let checked ← provider.certified.addLambda keys ordinary
-    ((Table.empty provider.familyL localsL).availableWithImports provider.certified.ordinaryL (Row.headOnly knownL))
-    ((Table.empty provider.familyR localsR).availableWithImports provider.certified.ordinaryR (Row.headOnly knownR))
-    left right
-  pure ⟨checked.down.forExports .exported .exported⟩
+      (linkedLambda left inputsL localsL) (linkedLambda right inputsR localsR))) :=
+  (provider.extendClientLambda ordinary exactValue inputsL inputsR localsL localsR left right).map fun checked =>
+    ⟨checked.down.forExports .exported .exported⟩
 
 /-- Extend the provider's dispatch family with a fresh client λ. Its first
 import must equal the selected provider export on each side. Other
