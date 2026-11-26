@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.PEG.Simple.Thms
+import Silmaril.SSA.PEG.Simple.While.Thms
 import Silmaril.SSA.PEG.Thms
 
 namespace Silmaril.SSA.PEG.Simple.Tests
@@ -100,7 +101,7 @@ example : observe discardedFailure seven = .cons (some ⟨7⟩) .nil := by
   rfl
 
 /-- The factorial body carries accumulator and counter. -/
-private def factorialBody : Stmt Op true [.count, .count] [.count, .count] :=
+private def factorialBody : Stmt Op false [.count, .count] [.count, .count] :=
   .seq (.assign (.op .mul (.cons (.var .head) (.cons (.var (.tail .head)) .nil))))
     (.seq (.assign (.op .pred (.cons (.var (.tail (.tail .head))) .nil)))
       (.project (.cons (.tail .head) (.cons .head .nil))))
@@ -116,21 +117,21 @@ private def falling (acc : Nat) : Nat → Nat
   | n + 1 => falling (acc * (n + 1)) n
 
 private theorem factorialStep (acc n : Nat) :
-    Exec model factorialBody (carry acc (n + 1)) (some (carry (acc * (n + 1)) n)) :=
+    Exec model factorialBody.enableWhile (carry acc (n + 1)) (some (carry (acc * (n + 1)) n)) :=
   .seq (next := prependCount (acc * (n + 1)) (carry acc (n + 1))) (.assign rfl)
     (.seq (next := prependCount n (prependCount (acc * (n + 1)) (carry acc (n + 1))))
       (.assign rfl) .project)
 
 private theorem factorialExec (acc n : Nat) :
-    Exec model (.while rfl factorialGuard factorialBody) (carry acc n)
+    Exec model (.while rfl factorialGuard factorialBody.enableWhile) (carry acc n)
       (some (carry (falling acc n) 0)) := by
   induction n generalizing acc with
   | zero => exact .whileStop rfl
   | succ n ih => exact .whileStep rfl (factorialStep acc n) (ih (acc * (n + 1)))
 
-private def factorial : Program Op true [.count, .count] .count where
-  locals := [.count, .count]
-  body := .while rfl factorialGuard factorialBody
+private def factorial : WhileProgram Op [.count, .count] .count where
+  guard := factorialGuard
+  body := factorialBody
   retvar := .head
 
 /-- Manually wired Trans-While instance. Both θ nodes share the iteration
@@ -318,7 +319,7 @@ private theorem accumulatorExit (acc n : Nat) :
 /-- Every successful execution of the factorial source agrees with the
 manually wired graph's accumulator result. -/
 private theorem factorialPreserves (acc n : Nat) {value : model.Value .count}
-    (run : factorial.Returns model (carry acc n) value) :
+    (run : factorial.source.Returns model (carry acc n) value) :
     factorialGraph.observe model (factorialValue acc n) (clock 0) =
       .cons (some value) (.cons (some ⟨0⟩) .nil) := by
   obtain ⟨final, exec, returned⟩ := run
@@ -334,5 +335,44 @@ example : factorialGraph.observe model (factorialValue 1 10) (clock 0) =
 example : factorialGraph.observe model (factorialValue 7 0) (clock 0) =
     .cons (some ⟨7⟩) (.cons (some ⟨0⟩) .nil) :=
   factorialPreserves 7 0 ⟨carry 7 0, factorialExec 7 0, rfl⟩
+
+private noncomputable def automatic {params : List (Ty Unit)} {t : Ty Unit}
+    (p : WhileProgram Op params t) (input : Tuple model.Value params) :
+    Tuple (fun ty => Option (model.Value ty)) [t] :=
+  (p.translate .not).observe model
+    ((p.translate .not).denote model input (p.translate_demandWellFounded .not)) (clock 0)
+
+private theorem factorialCompiled (acc n : Nat) :
+    automatic factorial (carry acc n) = .cons (some ⟨falling acc n⟩) .nil :=
+  factorial.translate_returns .not model (carry acc n) (fun _ => rfl)
+    ⟨carry (falling acc n) 0, factorialExec acc n, rfl⟩ (clock 0)
+
+example : automatic factorial (carry 1 10) = .cons (some ⟨3628800⟩) .nil :=
+  factorialCompiled 1 10
+
+example : automatic factorial (carry 7 0) = .cons (some ⟨7⟩) .nil :=
+  factorialCompiled 7 0
+
+/-- The guard and the body make independent choices. The unchosen body arm
+applies a primitive that always fails. -/
+private def branchingLoop : WhileProgram Op [.count, .count] .count where
+  guard := factorialGuard
+  body := .branch (.op .positive (.cons (.var .head) .nil)) factorialBody
+    (.seq (.assign (.op .bad .nil))
+      (.project (.cons (.tail .head) (.cons (.tail (.tail .head)) .nil))))
+  retvar := .head
+
+private theorem branchingReturns : branchingLoop.source.Returns model (carry 2 1) ⟨2⟩ := by
+  refine ⟨carry 2 0, ?_, rfl⟩
+  exact .whileStep rfl (.branchTrue rfl (factorialStep 2 0)) (.whileStop rfl)
+
+example : automatic branchingLoop (carry 2 1) = .cons (some ⟨2⟩) .nil :=
+  branchingLoop.translate_returns .not model (carry 2 1) (fun _ => rfl) branchingReturns (clock 0)
+
+example : branchingLoop.source.Fails model (carry 0 1) :=
+  .whileBodyFailed rfl (.branchFalse rfl (.firstFailed (.assignFailed rfl)))
+
+example : factorial.rank.check (factorial.translate .not) = true := by decide
+example : (branchingLoop.translate .not).WellFormed := branchingLoop.translate_wellFormed .not
 
 end Silmaril.SSA.PEG.Simple.Tests
