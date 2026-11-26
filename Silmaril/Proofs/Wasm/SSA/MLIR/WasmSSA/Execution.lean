@@ -144,7 +144,7 @@ private theorem lowerBlock_returns {C : Context} {params Γ : List IntType} {res
       List.singleton_append, Block.eval]
     exact run
 
-private theorem toWasmArgs_length {ts : List IntType} (args : Env ts) :
+theorem toWasmArgs_length {ts : List IntType} (args : Env ts) :
     args.toWasmArgs.length = ts.length := by
   induction args with
   | nil => rfl

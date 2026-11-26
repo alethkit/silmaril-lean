@@ -93,17 +93,49 @@ mnemonics in their modeled integer forms.
 | `Func.toWasm_invoke` | Given a store entry with the emitted function as its code and a type that expands to the source signature, Core `invoke` can reach that singleton result and the original store. |
 | `Examples.selectDifference_returns`, `Examples.selectDifference_equal_returns` | The stated Core body returns the wrapped difference on inputs `5, 9` and the first parameter on inputs `5, 5`. These runs exercise operand order, reuse and both arms of `select`. |
 
-The observation is an existential run of Core 3.0 `Steps`, for every numeric
-profile and host relation. It uses the same body-level observation as
-WasmSpec's `Computes`, with the exact return configuration, and reuses Core
-Logic's body-to-invocation theorem. The Wasm SSA checked optimizer concerns a
+The two correspondence theorems above give an existential run of Core 3.0
+`Steps` for every numeric profile and host relation. The body theorem uses
+the same observation as WasmSpec's `Computes` with the exact return
+configuration. The invocation theorem uses Core Logic's body-to-invocation
+theorem. The Wasm SSA checked optimizer concerns a
 separate `BFunc` pathway with its own fragment recognition and runtime
-certificate. The WasmSSA results cover the lowered body and invocation with
-the stated store entry. Whole-module instantiation, binary execution, and
-every-run behavior are outside their scope.
+certificate.
 [Execution theorems](../../Silmaril/Wasm/SSA/MLIR/WasmSSA/Execution/Thms.lean) ·
 [WasmSpec statement forms](../../Silmaril/WasmSpec/Common/Defs.lean) ·
 [Wasm SSA Core certificate](../../Silmaril/Wasm/SSA/CoreCert/Thms.lean)
+
+## All Core executions
+
+`IntBodyCode` admits administrative values and the flat instructions emitted
+by the lowering. Every Core step preserves that fragment and the store, and the
+same step is available for every numeric profile and host relation. The
+fragment excludes the trap and exception bubbles that make the general
+host-free Core theorem a joinability result. The first non-value of a stepping
+integer body is a local, integer numeric or parametric instruction, so the
+existing Core head-step determinism theorem gives exact successor equality.
+[Core determinism](../../Silmaril/Wasm/SingleThreaded/Determinism.lean) ·
+[Head-step determinism](../../Silmaril/Wasm/SingleThreaded/Determinism/HeadDet.lean)
+
+| Theorem in `Silmaril.MLIR.WasmSSA` | Checked statement |
+| --- | --- |
+| `IntBodyCode.step`, `IntBodyCode.step_unique`, `IntBodyCode.steps` | Steps of the flat fragment preserve it and the store, transfer across profiles and hosts, and have a unique successor. |
+| `Func.toWasm_intBody` | The actual emitted body belongs to the fragment. |
+| `Func.toWasm_body_completes` | From the typed call frame with `Func.Fits`, the body follows a finite deterministic path to an exact one-word Core `return`. |
+| `Func.toWasm_return_unique` | Any reachable return has the original store, exactly the encoded `Func.eval` word, and an empty suffix after `return`. |
+| `Func.toWasm_invoke_completes` | With the emitted code installed at an address at the declared signature, the invocation follows a finite deterministic path to the singleton result and leaves the store unchanged. |
+| `Examples.selectDifference_return_unique` | Every return of the stated subtraction and select body on `5, 9` has result `0xfffffffffffffffc`. |
+
+`CompletesAt` gives reachability, a unique successor at each reachable state
+with a step, and a continuation from every reachable state to the stated
+endpoint. It also records store preservation at every reachable state and
+excludes divergence. Any reachable terminal outcome must be the stated
+endpoint, which excludes terminal traps and other stuck outcomes for these
+starts. The invocation proof checks entry, label exit and frame exit with the
+existing Core inversion lemmas. These results concern Core reduction on the
+stated body and installed invocation. They leave whole-module instantiation,
+binary execution, engine resource limits and GC outside their scope.
+[Execution theorems](../../Silmaril/Wasm/SSA/MLIR/WasmSSA/Execution/Thms.lean) ·
+[Core inversion lemmas](../../Silmaril/Wasm/Execution/Core/Inversion/Thms.lean)
 
 ## Project-defined WASM-GC-SSA syntax
 

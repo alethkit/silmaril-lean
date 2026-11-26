@@ -67,6 +67,18 @@ theorem selectDifference_equal_returns {H : Type} (P : Profile) (host : HostSema
   have fits : selectDifference.Fits := by decide
   exact selectDifference.toWasm_returns context ⟨0⟩ fits (.cons 5 (.cons 5 .nil)) m P host s
 
+/-- Every return of the stated Core body on these arguments has that same
+wrapped result, even when the return is matched with an arbitrary suffix. -/
+theorem selectDifference_return_unique {H : Type} {P : Profile} {host : HostSemantics H}
+    {s s' : Store H} {m : ModuleInst} {final : Frame} {stack : List Val} {rest : List Admin}
+    (run : Steps P host
+      ⟨s, Frame.forCall m [.i64 5, .i64 9] expected.locals, expression expectedBody⟩
+      ⟨s', final, vals stack ++ .plain .return_ :: rest⟩) :
+    s' = s ∧ stack = [.i64 0xfffffffffffffffc] ∧ rest = [] := by
+  have fits : selectDifference.Fits := by decide
+  exact selectDifference.toWasm_return_unique context ⟨0⟩ fits (.cons 5 (.cons 9 .nil))
+    m s s' final stack rest run
+
 theorem selectDifference_roundTrip :
     ((GC.project? (GC.embed selectDifference)).bind (fun f => Func.toWasm? f context ⟨0⟩)) =
       some expected := by
