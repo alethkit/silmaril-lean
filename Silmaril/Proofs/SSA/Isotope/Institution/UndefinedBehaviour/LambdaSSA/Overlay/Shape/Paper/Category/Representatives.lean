@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Continuation.Defs
+public import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Continuation.Values
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Descent.Literal
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Family.Thms
 import Silmaril.Raw.SSA.Isotope.LambdaSSA.ContinuationLaws
@@ -18,14 +19,14 @@ open Silmaril.Isotope.LambdaSSA.Region (ContinuationFamily liftLSubstVars)
 open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Paper (Exit)
 open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Paper.Descent
   (Runs literal continuation vars regionAt_iff)
-open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Continuation (Ops)
+open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Continuation (Ops RegionAt PureValue)
 open Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Continuation (familyMember)
 
 universe u v w x
 
 variable {Φ : Type u} {κ : Type v} [HasTy Φ (Ty κ)] {Γ L K P : List (Ty κ)} {A : Ty κ}
 
-private abbrev ops {n : Nat} (M : Institution.Observational.Model.{u,w,x} Φ n) : Ops Φ M.α M.σ := ⟨M.instr, M.faults, M.prim⟩
+abbrev ops {n : Nat} (M : Institution.Observational.Model.{u,w,x} Φ n) : Ops Φ M.α M.σ := ⟨M.instr, M.faults, M.prim⟩
 
 private def eraseLabel {n : Nat} {α : Type w} {σ : Type x} : Outcome n α σ → Exit α σ
   | .ret i a s => .ret i.val a s
@@ -37,7 +38,58 @@ private theorem mem_runs (r : UB.Typed (Φ := Φ) Γ L) (M : Institution.Observa
     o ∈ nativeOutcomes r M s ↔ Runs (ops M) env r.val s (eraseLabel o) := by
   cases o <;> exact mem_nativeOutcomes_iff r agree s _
 
-private theorem literal_outcomes {r : Region Φ} (hr : Region.ValueBranches Γ r L)
+/-- Change only the bound environment of the operational model. -/
+abbrev rebind {n m : Nat} (M : Institution.Observational.Model.{u,w,x} Φ n) (bound : Fin m → Value M.α) :
+    Institution.Observational.Model.{u,w,x} Φ m :=
+  ⟨M.α, M.σ, M.instr, M.faults, M.prim, bound⟩
+
+theorem outcomes_of_regionAt {Δ : List (Ty κ)} {n : Nat} (M : Institution.Observational.Model.{u,w,x} Φ n)
+    (r : UB.Typed (Φ := Φ) Γ L) (t : UB.Typed (Φ := Φ) Δ L)
+    {br : Fin Γ.length → Value M.α} {bt : Fin Δ.length → Value M.α} {env env' : Env M.α}
+    (hbr : Morphism.CaseSSA.EnvAgrees env br) (hbt : Morphism.CaseSSA.EnvAgrees env' bt)
+    (h : RegionAt (ops M) env r.val env' t.val) (s : M.σ) :
+    nativeOutcomes r (rebind M br) s = nativeOutcomes t (rebind M bt) s := by
+  apply Set.ext
+  intro o
+  exact (mem_runs r (rebind M br) hbr s o).trans ((regionAt_iff.mp h s _).trans (mem_runs t (rebind M bt) hbt s o).symm)
+
+theorem branch_outcomes (M : Institution.Observational.Model.{u,w,x} Φ Γ.length)
+    {env : Env M.α} (agree : Morphism.CaseSSA.EnvAgrees env M.bound)
+    {t : Tm Φ} (ht : t.HasType Γ A) {b : Value M.α} (pure : PureValue (ops M) env t b) (s : M.σ) :
+    nativeOutcomes (⟨.br 0 t, .br (ℓ := 0) rfl ht⟩ : UB.Typed (Φ := Φ) Γ [A]) M s =
+      {Outcome.ret 0 b s} := by
+  apply Set.ext
+  intro o
+  rw [mem_runs _ M agree, Set.mem_singleton_iff]
+  cases o with
+  | ret i c finish =>
+    have hi := Fin.eq_zero i
+    subst i
+    constructor
+    · intro run
+      cases run with
+      | br arg =>
+        obtain ⟨rfl, rfl⟩ := pure.unique arg
+        rfl
+    · intro eq
+      obtain ⟨_, rfl, rfl⟩ := Outcome.ret.inj eq
+      exact Semantics.Region.Eval.br (pure.eval _)
+  | fault t =>
+    constructor
+    · intro run
+      cases run with | br arg => exact (pure.noFault arg).elim
+    · intro eq
+      cases eq
+  | diverge =>
+    constructor
+    · intro run
+      cases (show External.Diverges M.instr M.prim _ from run).unfold with
+      | core step => cases step
+      | br arg => exact (pure.noDiv arg).elim
+    · intro eq
+      cases eq
+
+theorem literal_outcomes {r : Region Φ} (hr : Region.ValueBranches Γ r L)
     {k : Nat → Region Φ} (hk : Region.LSubst.HasType Γ L K k)
     (M : Institution.Observational.Model.{u,w,x} Φ Γ.length) (s : M.σ) :
     nativeOutcomes ⟨r.lsubst k, hr.hasType.lsubst hk⟩ M s =
