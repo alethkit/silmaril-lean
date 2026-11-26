@@ -1,5 +1,7 @@
 module
 
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Wrapper.Thms
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Wrapper.Defs
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Synthesis.Thms
 meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Synthesis.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
@@ -214,18 +216,19 @@ private def returnedValues : Observation machine Nat pair → Option (Nat × Nat
 #guard (run 64 2 2 4).toOption.bind returnedValues == some (41, 4, 46)
 #guard (run 64 2 2 40).toOption.bind returnedValues == some (41, 40, 46)
 
-private def probeBlock (result : Except (Failure machine Nat) (Observation machine Nat pair)) : Bool :=
+private def probeBlock {outs : Ports T} (result : Except (Failure machine Nat) (Observation machine Nat outs))
+    (depth : Nat := 6) : Bool :=
   match result with
   | .ok (.blocked ⟨⟨_, _, .probe, _, _, .cons (.data cap) .nil⟩, frames⟩ store) =>
     let input : Nat := cap
-    input == 0 && store == 24 && Continuation.Descent.stackDepth frames == 6
+    input == 0 && store == 24 && Continuation.Descent.stackDepth frames == depth
   | _ => false
 
 #guard probeBlock (run 64 0 2 4)
 #guard probeBlock (run 64 0 2 40)
 
-private def resume (result : Except (Failure machine Nat) (Observation machine Nat pair)) :
-    Option (Observation machine Nat pair) :=
+private def resume {outs : Ports T} (result : Except (Failure machine Nat) (Observation machine Nat outs)) :
+    Option (Observation machine Nat outs) :=
   match result with
   | .ok (.blocked ⟨⟨_, _, .probe, _, _, _⟩, frames⟩ _) =>
     some (observe actions (runFor actions 40 ⟨.returned .nil frames, 50⟩))
@@ -322,6 +325,9 @@ private theorem relayReady (cap : Nat) : inferred.Ready (m := machine) (one cap)
     · trivial
     · exact ⟨⟨rfl, rfl⟩, trivial⟩
 
+private theorem relayLive :
+    (template true).summaries.live (0 : Fin 2) requested = [.arg 0, .arg 1, .arg 2] := by decide
+
 private theorem relayAgreed (cap count : Nat) :
     inferred.AgreesOnInputs (0 : Fin 2) requested (one cap) (one cap) (args count 41 4) (args count 41 40) := by
   intro ty p live
@@ -335,7 +341,8 @@ private theorem relayAgreed (cap count : Nat) :
       | head => rfl
       | tail p =>
         cases p with
-        | head => exact False.elim ((by decide : Address.arg 3 ∉ (template true).summaries.live (0 : Fin 2) requested) live)
+        | head => exact False.elim ((by rw [relayLive]; decide :
+          Address.arg 3 ∉ (template true).summaries.live (0 : Fin 2) requested) live)
         | tail p => nomatch p
 
 private def runInferred (fuel cap count spare : Nat) :=
@@ -353,5 +360,86 @@ example (fuel after cap count : Nat) :
 #guard probeBlock (runInferred 64 0 2 40)
 #guard (resume (runInferred 64 0 2 4)).bind returnedValues == some (41, 0, 70)
 #guard (resume (runInferred 64 0 2 40)).bind returnedValues == some (41, 0, 70)
+
+-- The λ reads a member of the earlier φ binding. Its result wire reads the
+-- callee's first result after a separate non-tail store effect.
+private abbrev exportFn : Function Unit Unit := ⟨fn.args, single⟩
+
+private abbrev wrapperEntry := fn.port :: (single ++ fn.args)
+
+private def wrapperSuffix :
+    Code Op wrapperEntry [pair] [[]] single true (some (template true).summaries) :=
+  .primitive .after .nil (.ret (.cons (.output (0 : Fin 2) .head) .nil))
+
+private def wrapper : Family.Wrapper inferred exportFn where
+  member := (0 : Fin 2)
+  context := single
+  captures := .cons (.arg .head) .nil
+  sigs := [pair, []]
+  body := .familyCall (table := (template true).summaries) (0 : Fin 2) .head
+    (.cons (.arg (.tail .head)) .nil)
+    (.cons (.arg (.tail (.tail .head)))
+      (.cons (.arg (.tail (.tail (.tail .head))))
+        (.cons (.arg (.tail (.tail (.tail (.tail .head))))) .nil)))
+    wrapperSuffix
+
+example : wrapper.dispatchOrigin.address = .output 0 0 := rfl
+
+private theorem wrapperLive : wrapper.liveIn requested = [.arg 1, .arg 2, .arg 3] := by
+  have usesFirst : resultDemand 0 (wrapperSuffix.plan requested) = requested := by
+    funext p
+    cases p <;> rfl
+  change ((wrapperSuffix.plan requested).prepend 0
+    (applyReads ((template true).summaries.live (0 : Fin 2) (resultDemand 0 (wrapperSuffix.plan requested)))
+      _ _)).live.eraseDups = _
+  rw [usesFirst, relayLive]
+  decide
+
+#guard wrapper.liveIn empty == [.arg 1, .arg 2]
+example : Address.arg 3 ∈ (wrapper.body.liveness requested).mayOut 0 :=
+  (wrapper.mem_liveIn_iff requested _).1 (by rw [wrapperLive]; decide)
+
+private theorem wrapperReady (cap count spare : Nat) : wrapper.Ready (one cap) (args count 41 spare) :=
+  ⟨relayReady cap, ⟨⟨rfl, rfl⟩, trivial⟩⟩
+
+private theorem wrapperAgreed (cap count : Nat) :
+    wrapper.AgreesOnInputs requested (one cap) (one cap) (args count 41 4) (args count 41 40) := by
+  intro ty p live
+  cases p with
+  | head => exact False.elim ((by rw [wrapperLive]; decide : Address.arg 0 ∉ wrapper.liveIn requested) live)
+  | tail p =>
+    cases p with
+    | head => rfl
+    | tail p =>
+      cases p with
+      | head => rfl
+      | tail p =>
+        cases p with
+        | head => rfl
+        | tail p =>
+          cases p with
+          | head => exact False.elim ((by rw [wrapperLive]; decide : Address.arg 4 ∉ wrapper.liveIn requested) live)
+          | tail p => nomatch p
+
+private def runWrapper (fuel cap count spare : Nat) :=
+  wrapper.run actions fuel 83 (one cap) (args count 41 spare) 20
+
+example (fuel after cap count : Nat) :
+    ∃ left right, runWrapper fuel cap count 4 = .ok left ∧ runWrapper fuel cap count 40 = .ok right ∧
+      PrefixObservationsAgree actions requested after left right :=
+  wrapper.linked_prefixes_agree actions requested fuel after 83 (one cap) (one cap)
+    (args count 41 4) (args count 41 40) 20
+    (wrapperReady cap count 4) (wrapperReady cap count 40) (wrapperAgreed cap count)
+
+private def wrapperResult : Observation machine Nat single → Option (Nat × Nat)
+  | .returned (.cons (.data value) .nil) store => some (value, store)
+  | _ => none
+
+#guard (runWrapper 64 2 2 4).toOption.bind wrapperResult == some (41, 56)
+#guard (runWrapper 64 2 2 40).toOption.bind wrapperResult == some (41, 56)
+#guard probeBlock (runWrapper 64 0 2 4) 7
+#guard probeBlock (runWrapper 64 0 2 40) 7
+#guard (resume (runWrapper 64 0 2 4)).bind wrapperResult == some (41, 80)
+#guard (resume (runWrapper 64 0 2 40)).bind wrapperResult == some (41, 80)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Regression
