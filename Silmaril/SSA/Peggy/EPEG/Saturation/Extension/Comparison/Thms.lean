@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Defs
 public import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
+public import Silmaril.SSA.Peggy.EPEG.Saturation.NormalForms.Thms
 import Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Embedding
 import Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison.ZeroSample
 
@@ -11,7 +12,7 @@ namespace Silmaril.SSA.Peggy.EPEG.Saturation.Extension
 
 open PEG
 
-universe u v
+universe u v w
 
 variable {Data : Type u} {P : InstructionSet.{u,v} Data}
 variable {params results : List (Ty Data)} {n k j l : Nat}
@@ -84,6 +85,33 @@ theorem delayed_step {a b : Analysis P params results l}
     {source first intervening : Output P params results l}
     (left : a source first) (right : b source intervening) :
     ∃ delayed, a intervening delayed ∧ Comparable first delayed :=
-  monotone (inflationary right) left
+  NormalForms.delayed_step monotone inflationary left right
+
+/-- Equation (4.4) for E-PEGs compares the two stable states by embeddings
+in both directions. -/
+theorem stableNormalForm_unique {Label : Type w} {family : NormalForms.Family (Output P params results l) Label}
+    (inflationary : ∀ label, Inflationary (family label))
+    (simulate : ∀ label, MonotoneAnalysis (family label))
+    {source first second : Output P params results l}
+    (left : NormalForms.StableNormalForm Comparable family source first)
+    (right : NormalForms.StableNormalForm Comparable family source second) :
+    Comparable first second ∧ Comparable second first :=
+  NormalForms.stableNormalForm_unique Comparable.refl (fun ⦃_ _ _⦄ h k => h.trans k)
+    inflationary simulate left right
+
+theorem ZeroSample.progress (found : ZeroSample small.graph site zero) :
+    NormalForms.Progress Comparable (ZeroSampleFamily zero) ⟨n, small⟩ ⟨n + 1, found.step.apply⟩ :=
+  Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison.zeroSample_progress found
+
+/-- Repeated fresh append can realize every finite increase in table size. -/
+theorem ZeroSample.grows (found : ZeroSample small.graph site zero) (extra : Nat) :
+    ∃ target, NormalForms.Reachable (ZeroSampleFamily zero) ⟨n, small⟩ target ∧ target.1 = n + extra :=
+  Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison.zeroSample_grows found extra
+
+/-- With fresh append and a match, every reachable state still has strict progress. -/
+theorem ZeroSample.no_stable (found : ZeroSample small.graph site zero) {target : Output P params results l}
+    (trace : NormalForms.Reachable (ZeroSampleFamily zero) ⟨n, small⟩ target) :
+    ¬ NormalForms.Stable Comparable (ZeroSampleFamily zero) target :=
+  Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.Comparison.zeroSample_no_stable found trace
 
 end Silmaril.SSA.Peggy.EPEG.Saturation.Extension
