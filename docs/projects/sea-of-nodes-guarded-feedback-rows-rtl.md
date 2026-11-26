@@ -365,6 +365,7 @@ import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheade
 open Silmaril.Isotope.Institution.Observational (Observation ssaBeh)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution.Fiber (inputModel)
 open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.RTL.SSA (Behavior)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (model word)
 open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
 open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader
@@ -440,6 +441,14 @@ example {targets : Checked.Phi.Targets} (accepted : Table.lowerChecked dependent
     (initial : Memory) :
     targets.1.divOracle 0 (words (bank 0 1 1)) initial :=
   (Table.Institution.rtl_divOracle_iff accepted (bank 0 1 1) initial).mpr spinAbsent
+
+example {targets : Checked.Phi.Targets} (accepted : Table.lowerChecked dependent = some targets)
+    (initial : Memory) :
+    Observation.diverge initial ∈ ssaBeh 1
+      (inputModel (P := Rows.wordSignature) model Memory (bank 0 1 1))
+      (Table.Institution.scope accepted) ↔
+    Behavior.diverges ∈ Table.Institution.rtlBehaviors (bank 0 1 1) initial targets.1 :=
+  Table.Institution.rtl_room_observation_iff accepted (bank 0 1 1) (.diverge initial)
 ```
 
 The two results are `6 - 5 = 1` and `1 + 2 = 3`, so the bank enters as
@@ -521,10 +530,26 @@ typed inputs, with a common initial memory. The regression checks
 return 7, divergence on the fixed-point input, and a failed RTL equation
 when the other side returns 3 at that input. [Checked regression][table-regression]
 
+### Comparing the emitted backends
+
+`rtl_room_observation_iff` compares the full room with actual RTL outcomes
+at the memory recorded in each room observation. An exit-zero packet
+and a singleton RTL return carry the same word and the entire initial
+memory. Divergence observations correspond in both directions.
+`rtl_room_return_iff` queries an exact word and final memory directly.
+
+`rtl_room_equation_at_iff` compares actual RTL equation satisfaction at a
+shared typed input and initial memory with full room satisfaction at
+that input. For the checked pure profile, one common initial memory
+suffices to reflect the room equation, which ranges over all memories.
+`rtl_room_equation_holds_iff` quantifies the comparison over typed inputs.
+The regression pairs return 7 and fixed-point divergence across both
+backends and checks the mismatch when RTL returns 3 and the other
+emitted region diverges. [Checked regression][table-regression]
+
+These comparisons are at the concrete dependent-preheader word signature.
 `terminates_holds_iff` relates the native termination sentence to a
-nonempty return set at every typed input. These RTL and λSSA results
-cover the checked dependent-preheader profile at the concrete word
-signature.
+nonempty return set at every typed input.
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
