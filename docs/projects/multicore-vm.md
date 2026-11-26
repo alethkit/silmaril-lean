@@ -83,6 +83,41 @@ combines selection with instruction execution and releases on parking or
 program exhaustion. The bridge covers the owned yield transition.
 [ThreadSync guide][thread-sync]
 
+## Flat critical regions
+
+Import `Silmaril.Machine.MulticoreVM.CriticalRegion.Thms` for a single
+dispatcher with an optional owner. Outside a region it can select any thread
+with an enabled instruction. Enter acquires the free region. Inside, the
+owner can execute ordinary instructions or leave. Leave releases ownership
+and makes all enabled threads eligible at the next boundary.
+`actor_eq_of_held` and `held_without_leave` give the exclusion facts.
+`atomic_when_free` characterizes the ordinary steps available after release.
+[Definitions][critical] · [Theorems][critical-thms]
+
+Regions are flat. A second enter while held and a leave while free have no
+transition. An owner that finishes without leaving produces a stuck prefix.
+`Program.Completed` requires a free region and every thread finished.
+Finite prefixes may stop inside a region. The result is scheduler-level
+mutual exclusion for atomic instructions. Fairness, progress and physical
+memory semantics are outside this model.
+
+The program supplies its state, ordinary instruction relation, completion
+predicate and enter and leave continuations. Control instructions appear in
+the schedule and emit an empty effect fragment. `Program.Refines` requires
+those continuation updates to preserve the abstract state view. This lets
+enter and leave advance a concrete program counter without adding abstract
+steps. `scheduled_refines` erases controls and preserves projected endpoint
+states and the chronological effect word. The length of the erased schedule
+counts every ordinary instruction, including silent instructions.
+
+`observedOutcomes_regionFree` recovers the arbitrary atomic VM in both
+directions at every atomic length. `observedOutcomes_everyAtomic` compares
+this fragment with the yield-only VM under unrestricted dispatch and
+an inserted yield after each atomic instruction. The comparison observes the
+same underlying final state, effect word and instruction count. Programs
+with critical regions refine the arbitrary atomic VM when they satisfy
+`Program.Refines`. [Typed scheduler models][scheduler-inst]
+
 ## Explicit core placement
 
 `Placed.Config` has separate core and thread IDs and stores. Its placement is a
@@ -199,6 +234,7 @@ registers, output, and spawn. [Machine traces][machine] · [Process.Mt][process]
 make check CHECK_TARGETS='+Silmaril.Proofs.Machine.MulticoreVM.Regression +Silmaril.Proofs.Semantics.ConcurrentTrace.Regression +Silmaril.Proofs.Machine.MulticoreVM.Placed.Regression +Silmaril.Proofs.Machine.MulticoreVM.Institution.ProjectionRegression'
 make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Scheduler.Thms +Silmaril.Proofs.Machine.MulticoreVM.Scheduler.ThreadSyncWitness +Silmaril.Proofs.Machine.MulticoreVM.Placed.Regression +Silmaril.Proofs.Machine.MulticoreVM.ThreadSync.Regression +Silmaril.Proofs.Machine.MulticoreVM.Regression +Silmaril.Proofs.Semantics.ConcurrentTrace.Regression'
 make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Cooperative.Thms +Silmaril.Machine.MulticoreVM.Cooperative.ThreadSync.Thms +Silmaril.Proofs.Machine.MulticoreVM.Cooperative.Regression +Silmaril.Proofs.Machine.MulticoreVM.ThreadSync.Regression'
+make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.CriticalRegion.Thms +Silmaril.Machine.MulticoreVM.Institution.Schedulers.Thms +Silmaril.Proofs.Machine.MulticoreVM.Institution.Schedulers.Regression'
 ```
 
 [defs]: ../../Silmaril/Machine/MulticoreVM/Defs.lean
@@ -223,3 +259,6 @@ make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Cooperative.Thms +Silmar
 [trace]: concurrent-traces.md
 [machine]: ../../Silmaril/Machine/Trace.lean
 [process]: ../../Silmaril/Process/Mt/Defs.lean
+[critical]: ../../Silmaril/Machine/MulticoreVM/CriticalRegion/Defs.lean
+[critical-thms]: ../../Silmaril/Machine/MulticoreVM/CriticalRegion/Thms.lean
+[scheduler-inst]: multicore-vm-institution.md#atomic-critical-region-and-yield-only-models
