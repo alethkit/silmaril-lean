@@ -17,13 +17,15 @@ SUITE = runpy.run_path(str(DIRECTORY / "source-module-entry/check_seeded_run.py"
 INTAKE = runpy.run_path(str(DIRECTORY / "source-scope/check_intake.py"))
 PIN = "tests/python/programs/original/k-python/programs/testtuples3.py"
 SHA = "6ebe39b5877a6dcf2bf137915fefa9ed1ed2bb71873552fe37af2bef5b1d77b5"
+CONSTRUCTORS_PIN = "tests/python/programs/original/lambda-py/python-reference/tuple/tuple-constructors.py"
+CONSTRUCTORS_SHA = "f4c4456ed6ffc8dc95d34f46a18636a57196236e1ff7bafc5cc4b851532adf18"
 
 LEAN = SUITE["LEAN"] + """
 open Compile.ModuleEntry.Functions
 open Compile.ModuleEntry.Functions.Run.Seeded (legacyListSeed legacyTupleSeed)
 
 private def tupleOutcome (source : Source.Module) (space : Namespace) (status : String)
-    (bindings : Bindings) : Bool := Id.run do
+    (bindings : Bindings) (calls : List (String × Core.Module.SeededCall.Result)) : Bool := Id.run do
   let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
   let heap : Core.Closure.Heap := ⟨1, fun address => if address == 0 then some (.int 23) else none⟩
   let lists : Core.Module.ListHeap := ⟨#[[.int 31]]⟩
@@ -35,7 +37,9 @@ private def tupleOutcome (source : Source.Module) (space : Namespace) (status : 
     | .error _ => "unexpected completion"
   return completion == status && result.residual.moduleGlobals == bindings &&
     result.residual.builtins == space.builtins && result.lists == lists &&
-    result.heap.next == 1 && result.calls.isEmpty &&
+    result.heap.next == 1 &&
+    result.calls.map (fun event => (event.callee, event.observation.result)) == calls &&
+    result.calls.all (·.observation.caught.isNone) &&
     (result.heap.contents 0).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue == some (.int 23)
 
 private def tupleTrace (source : Source.Module) (space : Namespace) : Option
@@ -88,8 +92,8 @@ def check(source, source_path, lean_path, *guards):
     INTAKE["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=SUITE["IMPORTS"])
 
 
-def outcome(space, result, bindings):
-    return f"#guard tupleOutcome pythonSource {space} {json.dumps(result)} {bindings}"
+def outcome(space, result, bindings, calls="[]", source="pythonSource"):
+    return f"#guard tupleOutcome {source} {space} {json.dumps(result)} {bindings} {calls}"
 
 
 def replay_pin(checkout, source_path, lean_path):
@@ -278,6 +282,66 @@ def constructor_controls(source_path, lean_path):
     return {"exact_alias": True, "empty_singleton": True, "live_lookup": True}
 
 
+def replay_empty_constructor(checkout, source_path, lean_path):
+    source = SUITE["pinned_source"](checkout, CONSTRUCTORS_PIN, CONSTRUCTORS_SHA)
+    first_statement = ast.Module(body=ast.parse(source).body[:1], type_ignores=[])
+    empty_tuple = ()
+
+    def equal_empty(left, right):
+        assert left is empty_tuple and right is empty_tuple
+
+    def equal(left, right):
+        assert left == right
+
+    def truth(value):
+        assert value
+
+    both = {"tuple": tuple, "___assertEqual": equal_empty}
+    assert execute(first_statement, both, expected={}) == "normal"
+    assert execute(first_statement, {"___assertEqual": equal_empty}, expected={}) == "NameError:tuple"
+    assert execute(first_statement, {}, expected={}) == "NameError:___assertEqual"
+    assert execute(first_statement, both, {"tuple": 7}, {"tuple": 7}) == "TypeError"
+    assert execute(source, {"tuple": tuple, "___assertEqual": equal, "___assertTrue": truth},
+                   expected={"t0_3": (0, 1, 2, 3), "t0_3_bis": (0, 1, 2, 3)}) == "normal"
+
+    first = "firstConstructorStatement"
+    guards = ["""
+private def firstConstructorStatement : Source.Module := ⟨pythonSource.body.take 1⟩
+#guard (match Compile.ModuleEntry.Functions.Run.compile firstConstructorStatement with
+  | .ok compiled => match compiled.instructions with
+    | [.nestedCall .discard "___assertEqual" [.call "tuple" [], .scalar (.tuple [])]] => true
+    | _ => false
+  | _ => false)
+#guard (match Compile.ModuleEntry.Functions.Run.compile pythonSource with
+  | .error (.source (.scalar .expressionProfile)) => true
+  | _ => false)
+#guard ordinaryTuple firstConstructorStatement == some ("NameError:___assertEqual", "absent", "absent")
+#guard Core.Module.SeededCall.invoke (.builtin .tuple) [.returnedTuple []] == .error .unsupported
+""", outcome("Namespace.empty", "NameError:___assertEqual", "[]", source=first)]
+    for placement in ("builtin", "preamble"):
+        base = f'(initial "legacy_{placement}")'
+        stock = f"(legacyTupleSeed .{placement})"
+        guards.extend((
+            outcome(base, "NameError:tuple", f"{base}.moduleGlobals",
+                    '[("tuple", .error (.raised (.runtime (.nameError "tuple"))))]', first),
+            outcome(stock, "unsupported", f"{stock}.moduleGlobals",
+                    '[("tuple", .ok (.returnedTuple [])), ("___assertEqual", .error .unsupported)]', first),
+        ))
+    mask = f'({STOCK}.bindGlobal "tuple" (.int 7))'
+    guards.append(outcome(mask, "TypeError", f"{mask}.moduleGlobals",
+                          '[("tuple", .error (.raised (.runtime .notCallable)))]', first))
+    check(source, source_path, lean_path, *guards)
+
+    alias = "saved = tuple\ntuple = 7\nanswer = saved()\nbad = tuple()\n"
+    assert execute(alias, {"tuple": tuple},
+                   expected={"saved": tuple, "tuple": 7, "answer": empty_tuple}) == "TypeError"
+    check(alias, source_path, lean_path, outcome(
+        STOCK, "TypeError", '[("answer", .returnedTuple []), ("tuple", .int 7), ("saved", .builtin .tuple)]',
+        '[("saved", .ok (.returnedTuple [])), ("tuple", .error (.raised (.runtime .notCallable)))]'))
+    return {"sha256": CONSTRUCTORS_SHA, "inner": "canonical empty tuple",
+            "stock_seeded_prefix": "unsupported tuple helper equality", "whole_source": "rejected"}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--upstream", type=Path, required=True)
@@ -288,5 +352,6 @@ if __name__ == "__main__":
         lean = source.with_suffix(".lean")
         evidence = {"cpython": sys.version.split()[0], "pin": replay_pin(args.upstream, source, lean),
                     "methods": method_controls(), "chains": chain_controls(source, lean),
-                    "constructors": constructor_controls(source, lean)}
+                    "constructors": constructor_controls(source, lean),
+                    "linked_empty_constructor": replay_empty_constructor(args.upstream, source, lean)}
     print(json.dumps(evidence))

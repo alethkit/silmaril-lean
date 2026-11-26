@@ -200,6 +200,13 @@ empty. The 536-input comparison attributes the compiler admission to
 the linked source. The local selector changes only this input's two
 supplied-seed outcomes. Main still reaches the signature guard.
 
+A linked zero-argument call through the resolved stock `tuple` descriptor
+returns the canonical empty tuple. Its settled receipt carries the empty
+tuple payload, and both heaps retain their incoming state. The live
+module-first lookup lets a saved stock alias survive rebinding of `tuple`.
+In the first statement of `tuple-constructors.py`, the inner receipt
+precedes the existing tuple helper equality boundary.
+
 ### Checked positional preparation and variadic binding
 
 The closure call layer can prepare a positional list from single values
