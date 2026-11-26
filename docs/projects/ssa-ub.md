@@ -773,6 +773,38 @@ Silent replay and primitive divergence remain ordinary, and a fault
 retains its final state.
 [Decision and witnesses for designated exits][ssa-ub-native-exit-ub]
 
+### Separation for one-request native CFGs
+
+The tested fragment has no captured values and runs a shared unit-to-unit
+instruction before one acyclic native block. The block forwards the reply or
+emits literal unit at one of two ordered unit exits. The unused exit always
+has a literal UB continuation. The used exit either returns or takes its
+literal UB continuation.
+
+The installed order is inclusion of ordinary outcomes with a fresh greatest
+element at each initial state. The shaped normal form records the used exit
+and whether it reaches UB. Lean proves soundness for every shaped primitive
+relation, including nondeterministic replies, faults and may-divergence.
+A single deterministic shaped interpreter with states zero and one separates
+every failed comparison by replying with unit in state one. The exact
+classification also retains fault states and primitive divergence when the
+request has no return. This grammar has no internal replay.
+
+The unrestricted observational models can answer the unit instruction with
+a sum-shaped value. Forwarding that reply and emitting literal unit yield
+different ordinary outcomes, although all shaped models identify the two
+endpoints. Keeping the reply projection in the normal form gives an exact
+characterization of the unrestricted order on this fragment. Soundness in
+both classes holds at arbitrary value and state universes. The statements
+combining soundness and separation use the finite witnesses' universes.
+[One-request theorems][ssa-ub-single-request]
+
+| Existing result | Scope of its separation or universal property |
+|---|---|
+| Ordered free UB | The initial ordered quotient has a greatest UB class at each sort. In arbitrary ordered models, the ground rules bound denotable elements. This universal property supplies no operational separator. [Ordered specification][spec] |
+| Native LambdaSSA and raw rewrite obstructions | Native regions have no uniformly greatest region. Existing raw failures of guarded Paper and continuation descent use unshaped bound inputs. The one-request example is closed and obtains the unshaped value through a primitive reply. [Native obstruction][ssa-ub] [Quotient obstructions][ssa-ub-raw-obstruction] |
+| Finite acyclic common requests | The packed captured grammar has a trace separator and a derivability reflection theorem in its validated Kleisli institution. Here the comparison uses complete stateful observations with literal exit UB. [Common request replay and reflection][ssa-ub-common-request] |
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -818,6 +850,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.SingleRequest.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -915,3 +948,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-native-router-normalize]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Normalize/Thms.lean
 [ssa-ub-native-packed-institution]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Institution/Thms.lean
 [ssa-ub-native-exit-ub]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/ExitUB/Thms.lean
+
+[ssa-ub-single-request]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/SingleRequest/Thms.lean
+[ssa-ub-raw-obstruction]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/NativeQuotient/Obstruction/Thms.lean
+[ssa-ub-common-request]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Rewrite/Repair/Reply/Payload/Finite/CommonRequest/Thms.lean
