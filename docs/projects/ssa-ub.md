@@ -805,6 +805,37 @@ combining soundness and separation use the finite witnesses' universes.
 | Native LambdaSSA and raw rewrite obstructions | Native regions have no uniformly greatest region. Existing raw failures of guarded Paper and continuation descent use unshaped bound inputs. The one-request example is closed and obtains the unshaped value through a primitive reply. [Native obstruction][ssa-ub] [Quotient obstructions][ssa-ub-raw-obstruction] |
 | Finite acyclic common requests | The packed captured grammar has a trace separator and a derivability reflection theorem in its validated Kleisli institution. Here the comparison uses complete stateful observations with literal exit UB. [Common request replay and reflection][ssa-ub-common-request] |
 
+### Finite separation for two Boolean-dependent requests
+
+A closed endpoint makes a unit-input request and branches on its exact
+Boolean reply. The selected arm may repeat the first key or call a different
+key. A second successful Boolean reply selects either an ordered unit return
+or a literal UB continuation. The construction uses the native effectful
+case regions and the installed typed overlay label substitution. The request
+denotation retains the final state, ordinary faults, and primitive
+may-divergence. Fresh top occurs exactly when two reachable successful
+replies select a UB continuation.
+
+The normal-form order requires agreement on the first key and on the second
+key after each first reply. For each pair of reply tags, the ordered return
+must agree or the right continuation must be UB. Monotonicity of the installed
+sequencing proves soundness for arbitrary shaped primitive relations, including
+nondeterministic ones.
+
+Every failure has a deterministic three-state prefix interpreter. For a
+key mismatch, it makes the left key fault and the right key diverge before
+either continuation can run. For a continuation mismatch, it chooses the
+two distinguishing Boolean tags and advances through distinct machine
+states. Repeated keys therefore need no conflicting replies at one state.
+The regression proves that one-state deterministic handlers cannot
+distinguish a particular pair with this repeat. It also checks that a
+competing reply in a nondeterministic model can reach UB and mask the pair's
+ordered-exit difference, while the prefix interpreter keeps that reply out
+of the run. The theorem covers two requests with literal unit arguments and
+terminal UB. Its soundness uses arbitrary value and state universes, and its
+equivalence with all-model validity uses the finite witnesses' universes.
+[Two-request theorems][ssa-ub-two-request]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -851,6 +882,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.SingleRequest.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -952,3 +984,4 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-single-request]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/SingleRequest/Thms.lean
 [ssa-ub-raw-obstruction]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/NativeQuotient/Obstruction/Thms.lean
 [ssa-ub-common-request]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Rewrite/Repair/Reply/Payload/Finite/CommonRequest/Thms.lean
+[ssa-ub-two-request]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/TwoRequest/Thms.lean
