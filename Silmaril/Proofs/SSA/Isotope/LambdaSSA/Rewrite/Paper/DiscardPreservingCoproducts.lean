@@ -113,6 +113,10 @@ local notation "cf" => Paper.Extension.Singleton.sumCofan Seed
 set_option hygiene false in
 local notation "cfLim" => Paper.Extension.Singleton.sumCofanIsColimit Seed
 
+theorem empty_centralCopies {Y : Q} (f : Obj U ⟶ Y) : Paper.Extension.Singleton.CentralCopies Seed f := by
+  obtain ⟨g, rfl⟩ := (F).map_surjective (Y := Y.as) f
+  exact Paper.Extension.Singleton.map_centralCopies Seed (empty_copies g)
+
 set_option backward.isDefEq.respectTransparency false in
 theorem empty_mem {Y : Q} (f : Obj U ⟶ Y) : DiscardPreservingReturn Seed pe f := by
   obtain ⟨g, rfl⟩ := (F).map_surjective (Y := Y.as) f

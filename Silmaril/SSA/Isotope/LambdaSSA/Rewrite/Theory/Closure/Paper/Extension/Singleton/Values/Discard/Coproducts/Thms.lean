@@ -29,6 +29,10 @@ local notation "Obj" => ofType (Φ := Φ) Seed
 
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper
 
+/-- Computations out of the guarded empty type commute with computations and preserve copy. -/
+theorem empty_centralCopies {D : Q} (f : Obj (Silmaril.empty : τ) ⟶ D) : CentralCopies Seed f :=
+  DiscardPreservingCoproducts.empty_centralCopies Seed f
+
 /-- Every computation out of the exact empty type is a discard-preserving value. -/
 theorem empty_mem {D : Q} (f : Obj (Silmaril.empty : τ) ⟶ D) :
     DiscardPreservingReturn Seed pe f :=
