@@ -206,7 +206,10 @@ SIMPLE. [Pipeline contract and example](peggy-simple-validation.md)
    order independence for a fixed table of ground reasons. It derives
    candidate equations for same-label rewiring. The
    [root optimizer](peggy-optimizer.md) adds rows and finds typed
-   instances in a bounded loop-free search. Extend matching and node
+   instances in a bounded loop-free search. The
+   [cyclic optimizer](peggy-cyclic-optimizer.md) discovers guarded θ
+   self-feedback and checks the compacted candidate on a one-loop profile.
+   Extend matching and node
    generation to more general contexts, and prove reversion. The
    [acyclic bridge](peggy-egg.md) reuses sorted Egg replay. The full
    node-generating form of §4 remains a separate proof obligation. Use an independent graph and
