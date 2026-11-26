@@ -7,6 +7,7 @@ import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheade
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Thms
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
 
@@ -932,12 +933,7 @@ private def prefixSource : Family.Source 3 3 Entry Header 2 :=
       (.test (.arg (prefixPort (capture 1))) (familySource.rows.column 1)
         (.last (familySource.rows.column 2))) }
 
-private def prefixFn := Family.lowerFunc (Family.mapCaptures widenCaptures prefixSource)
 private def prefixRTL := Family.lowerRTL (Family.mapCaptures widenCaptures prefixSource)
-
-private theorem prefixAccepted : Family.lowerChecked widenCaptures prefixSource = some prefixRTL :=
-  Family.lowerChecked_of_accepted widenCaptures prefixSource
-    (Family.lowerChecked_sound widenCaptures familySource familyAccepted).1
 
 private def nativeOrigins : List (HeaderWord 4 3 Header) :=
   [.output (0 : Fin 2) .head,
@@ -946,42 +942,45 @@ private def nativeOrigins : List (HeaderWord 4 3 Header) :=
     .arg (suffixPort (wordPorts 4) (argumentPort 3 2)),
     .arg (prefixPort (argumentPort 4 0)), .arg (prefixPort (argumentPort 4 1))]
 
-private def prefixSetup : Family.MLIR.Prefix.Setup widenCaptures prefixSource cfBank cfLive where
-  rtl := prefixRTL
-  accepted := prefixAccepted
-  plan := ⟨by decide⟩
-  phi := ⟨by decide⟩
-  origin i := nativeOrigins[i.val]'i.isLt
-  register_eq := by decide
+open Family.MLIR.Prefix.Producer (compile Feedbacks)
+
+private def translatedPrefix := compile widenCaptures prefixSource nativeOrigins
+
+private def compiledPrefix := translatedPrefix.get (by decide)
+
+private abbrev prefixSetup := compiledPrefix.setup
+private abbrev translatedLive := Family.MLIR.Prefix.Producer.live nativeOrigins
+
+-- A live scope without the computed feedback word fails the ordinary row check.
+example : (compile widenCaptures prefixSource nativeOrigins.tail).isNone := by decide
+
+-- Equality guards are outside this shared producer translation.
+example : (Family.MLIR.Prefix.Producer.opcode .eq).isNone := rfl
 
 private def prefixInput : WordTuple 4 := .cons (4 : Word) (bank 2 99 5)
 private def prefixStart := bank (-1) 1 5
 private def prefixMiddle := bank 0 1 5
 private def prefixFinish := bank 1 5 1
 
-private theorem prefixHeadersAgree (x y z : Word) :
-    Family.MLIR.Prefix.HeaderMatch prefixSetup prefixInput (bank x y z) := by
-  unfold Family.MLIR.Prefix.HeaderMatch
-  constructor
-  · rfl
-  · intro i
-    change Fin 6 at i
-    fin_cases i <;> rfl
-
 private theorem twoVisits :
-    Family.MLIR.Prefix.Admitted prefixSetup prefixInput [0, 1] prefixStart prefixFinish :=
-  .visit (next := prefixMiddle) (prefixHeadersAgree (-1) 1 5) (by cbv)
-    (.visit (next := prefixFinish) (prefixHeadersAgree 0 1 5) (by cbv) (.stop _))
+    Feedbacks prefixSource (widenCaptures.pull prefixInput) [0, 1] prefixStart prefixFinish :=
+  .visit (next := prefixMiddle) (by cbv)
+    (.visit (next := prefixFinish) (by cbv) (.stop _))
+
+-- The emitted CF entry computes the same dependent initial bank.
+example : prefixSetup.cf.entry.eval evalOp (fun term env => term.eval env) (cfInput 4 2) =
+    .inl (Family.MLIR.Prefix.headerFrame 6 2 prefixStart) :=
+  Family.MLIR.Prefix.Producer.entry_frame compiledPrefix prefixInput
 
 -- The composed cut starts at the frame created by the actual checked RTL entry.
 example : ∃ before after,
-    StepsNWithin prefixRTL [] 3
+    StepsNWithin prefixSetup.rtl [] 3
       ⟨⟨0, 0, 0⟩, bindWords 0 Frame.empty prefixInput, [], mem⟩ ⟨⟨0, 1, 0⟩, before, [], mem⟩ ∧
     Family.MLIR.Prefix.Realized prefixSetup prefixInput mem [0, 1] prefixStart before prefixFinish after := by
   obtain ⟨_, before, entered, matched⟩ :=
-    Family.entry_packet widenCaptures prefixSource prefixAccepted prefixInput mem
+    Family.entry_packet widenCaptures prefixSource compiledPrefix.accepted prefixInput mem
   obtain ⟨after, path⟩ :=
-    Family.MLIR.Prefix.prefix_correct prefixSetup prefixInput mem twoVisits before matched
+    Family.MLIR.Prefix.Producer.prefix_correct compiledPrefix prefixInput mem twoVisits before matched
   exact ⟨before, after, entered, path⟩
 
 private def reachedBank (fuel : Nat) : Option (Nat × List Word × Memory) := do
@@ -1001,8 +1000,9 @@ private def secondDispatcher :=
 example : secondDispatcher.point.label = 4 := by cbv
 
 -- Reusing the earlier frame's packet would read the wrong fresh producer word.
-example : ¬ Family.MLIR.Snapshot (scope := Family.MLIR.liveRegs cfLive) (List.length_map ..)
-    ((Family.MLIR.Prefix.livePacket cfBank cfLive prefixInput prefixStart).append (cfInput 4 2))
+example : ¬ Family.MLIR.Snapshot (scope := Family.MLIR.liveRegs translatedLive)
+    (List.length_map ..) ((Family.MLIR.Prefix.livePacket compiledPrefix.program translatedLive
+      prefixInput prefixStart).append (cfInput 4 2))
     secondDispatcher.frame := by
   unfold Family.MLIR.Snapshot
   decide
