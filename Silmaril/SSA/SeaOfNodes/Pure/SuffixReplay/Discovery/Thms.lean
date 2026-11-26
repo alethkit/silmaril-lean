@@ -19,7 +19,7 @@ open RVSDG (Tuple)
 variable {inputs : List (ValueSort Unit)} {ports : List (Ty Unit)}
 variable {block : Block inputs ports} {candidate : Producer block.flow word} {edit : Edit block}
 
-/-- A hit is the existing ordered add decision restricted to the two supported rules. -/
+/-- A hit is the existing ordered add decision restricted to the supported rules. -/
 theorem add?_checked (accepted : add? block candidate = some edit) :
     ∃ applied, AddIdealize.step ⟨fun _ => none⟩ block.program candidate = .ok (some applied) ∧
       addRule? applied.rule = some edit.rule ∧ edit.state = fromRewrite block applied.rewrite :=
@@ -39,8 +39,15 @@ theorem unused?_eq_none_iff : unused? block candidate = none ↔ Deletion.delete
 theorem Edit.literal_progress (selected : edit.rule = .literal) :
     edit.state.block.sigs.length = block.sigs.length ∧ addCount edit.state.block < addCount block := by
   have count := edit.bindingCount
+  have drop := edit.progress
   simp [selected, Rule.erases] at count
-  exact ⟨count, by simpa [weight, count] using edit.decreases⟩
+  exact ⟨count, by simpa [Progress, selected, primaryWeight, count] using drop⟩
+
+/-- An admitted swap keeps both primary counts and lowers literal-left occurrences. -/
+theorem Edit.literalRight_progress (selected : edit.rule = .literalRight) :
+    edit.state.block.sigs.length = block.sigs.length ∧
+      addCount edit.state.block = addCount block ∧ leftLiteralCount edit.state.block < leftLiteralCount block :=
+  Proofs.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.literalRight_progress selected
 
 /-- Every hit comes from a checked nomination in the current table. -/
 theorem step?_checked (accepted : step? block = some edit) :
@@ -52,8 +59,8 @@ theorem step?_checked (accepted : step? block = some edit) :
 theorem step?_eq_none_iff (block : Block inputs ports) : step? block = none ↔ NoEligible block :=
   Proofs.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.step?_eq_none_iff block
 
-/-- Count erasures separately from size-neutral folds. Every accepted
-edit consumes at least one unit of the initial binding-plus-add weight. -/
+/-- Count erasures separately from size-neutral edits. The
+initial weight bounds all accepted steps. -/
 theorem normalize_count (block : Block inputs ports) :
     let final := normalize block
     final.state.block.sigs.length + final.rules.countP Rule.erases = block.sigs.length ∧
@@ -64,6 +71,13 @@ theorem normalize_count (block : Block inputs ports) :
 /-- Termination exhausts the supported add and unused-producer checks on the final table. -/
 theorem normalize_noEligible (block : Block inputs ports) : NoEligible (normalize block).state.block :=
   (Proofs.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.normalize_spec block).1.2.2
+
+/-- Re-running discovery on its output makes no further edit. -/
+theorem normalize_stable (block : Block inputs ports) :
+    (normalize (normalize block).state.block).rules = [] := by
+  have stopped := (step?_eq_none_iff _).mpr (normalize_noEligible block)
+  generalize (normalize block).state.block = final at stopped ⊢
+  simp [normalize, run, stopped]
 
 /-- Composed routes preserve mapped reads and route the complete packet. -/
 theorem normalize_agrees (block : Block inputs ports) (entry : Tuple (Val model.value) (dataPorts inputs)) :

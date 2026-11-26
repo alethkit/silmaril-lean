@@ -8,21 +8,23 @@ public import Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery
 
-open Diamond (Ty ValueSort)
+open Diamond (Dataflow Ty ValueSort dataPorts)
 open ConstantFold
 open GVN (Producer)
 open SubZero (word)
+open RVSDG (Wires)
 
 variable {inputs : List (ValueSort Unit)} {ports : List (Ty Unit)}
 
 inductive Rule where
   | literal
   | rightZero
+  | literalRight
   | deleteUnused
   deriving DecidableEq, Repr
 
 def Rule.erases : Rule → Bool
-  | .literal => false
+  | .literal | .literalRight => false
   | .rightZero | .deleteUnused => true
 
 def isAdd {ins : List (ValueSort Unit)} {out : ValueSort Unit} : SubZero.Opcode ins out → Bool
@@ -32,30 +34,62 @@ def isAdd {ins : List (ValueSort Unit)} {out : ValueSort Unit} : SubZero.Opcode 
 def addCount (block : Block inputs ports) : Nat :=
   (Deletion.opcodes block.flow).countP fun ⟨_, _, opcode⟩ => isAdd opcode
 
-/-- Literal folds spend add operators. Erasures can spend bindings as well. -/
-def weight (block : Block inputs ports) : Nat :=
+def leftLiteral {args : List (Ty Unit)} {past : List (List (Ty Unit))}
+    (known : Literals args past) {ins : List (ValueSort Unit)} {out : ValueSort Unit} :
+    SubZero.Opcode ins out → Wires args past (dataPorts ins) → Bool
+  | .add, .cons lhs (.cons rhs .nil) => (known lhs).isSome && (known rhs).isNone
+  | .literal _, _ | .sub, _ | .mul, _ => false
+
+/-- Count adds with a known literal only on the left, using the same
+ordered prefix facts as the add dispatcher. -/
+def countLeftLiterals {args : List (Ty Unit)} : {past sigs : List (List (Ty Unit))} →
+    RightSpine.Prefix args past → Dataflow SubZero.Opcode args past sigs → Nat
+  | _, _, _, .nil => 0
+  | _, _, known, .cons op operands rest =>
+    (if leftLiteral known.literals op operands then 1 else 0) +
+      countLeftLiterals (known.record op operands) rest
+
+def leftLiteralCount (block : Block inputs ports) : Nat :=
+  countLeftLiterals RightSpine.Prefix.empty block.flow
+
+def primaryWeight (block : Block inputs ports) : Nat :=
   block.sigs.length + addCount block
+
+/-- Encode primary weight and literal-left count in disjoint bands.
+The literal-left count is bounded by the number of bindings. -/
+def weight (block : Block inputs ports) : Nat :=
+  primaryWeight block * primaryWeight block + leftLiteralCount block
+
+/-- Swaps keep the primary counts and strictly improve operand order.
+Folds and erasures must lower the primary measure. -/
+abbrev Progress (rule : Rule) (before after : Block inputs ports) : Prop :=
+  if rule = .literalRight then
+    primaryWeight after = primaryWeight before ∧ leftLiteralCount after < leftLiteralCount before
+  else primaryWeight after < primaryWeight before
 
 structure Edit (block : Block inputs ports) where
   rule : Rule
   state : State inputs ports block.sigs
   bindingCount : state.block.sigs.length + (if rule.erases then 1 else 0) = block.sigs.length
+  progress : Progress rule block state.block
   decreases : weight state.block < weight block
 
 def checkedEdit? (block : Block inputs ports) (rule : Rule) (state : State inputs ports block.sigs) :
     Option (Edit block) :=
   if h : state.block.sigs.length + (if rule.erases then 1 else 0) = block.sigs.length ∧
-      weight state.block < weight block then
-    some ⟨rule, state, h.1, h.2⟩
+      Progress rule block state.block ∧ weight state.block < weight block then
+    some ⟨rule, state, h.1, h.2.1, h.2.2⟩
   else none
 
 def addRule? : AddIdealize.Rule → Option Rule
   | .literal => some .literal
   | .rightZero => some .rightZero
+  | .offSpineSwap => some .literalRight
   | _ => none
 
 /-- Let the ordered checker choose the rule at this producer before
-restricting the result to literal folding and right-zero. -/
+restricting the result to literal folding, right-zero and off-spine
+literal-right commutation. No signed source IDs are supplied. -/
 def add? (block : Block inputs ports) (candidate : Producer block.flow word) : Option (Edit block) :=
   match AddIdealize.step ⟨fun _ => none⟩ block.program candidate with
   | .ok (some applied) =>
