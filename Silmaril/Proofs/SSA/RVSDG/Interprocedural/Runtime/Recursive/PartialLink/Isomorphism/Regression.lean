@@ -1,10 +1,13 @@
 module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Thms
+import Silmaril.SSA.RVSDG.NestedTheta.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Thms
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests
 
@@ -358,28 +361,134 @@ example : resolve machine refL =
 example : resolve machine refR =
     ⟨[global, fn.port], .cons (globalValue 1 8) (.cons refR .nil), _, memberBodyR.toGraph⟩ := rfl
 
-example : TupleRelated machine ids (resolve machine refL).values (resolve machine refR).values ∧
-    NestedTheta.Graph.Isomorphic (Instruction Op) (resolve machine refL).body (resolve machine refR).body := by
+private theorem recursiveCallees : ValueRelated machine ids refL refR := by
   have imports : TupleRelated machine ids (number 1) (number 1) :=
     .cons (ValueRelated.data (m := machine) (ids := ids) (t := ()) (1 : Nat)) .nil
   have paired := link_related (unitL := 73) (unitR := 73) respects recursiveIso recursiveOrder
     (fun _ => ⟨rfl, rfl⟩) imports 20
   rw [recursiveLinksL, recursiveLinksR] at paired
   cases paired with
-  | linked exports => exact resolve_related (exports.get .head)
+  | linked exports => exact exports.get .head
+
+example : TupleRelated machine ids (resolve machine refL).values (resolve machine refR).values ∧
+    NestedTheta.Graph.Isomorphic (Instruction Op) (resolve machine refL).body (resolve machine refR).body :=
+  resolve_related recursiveCallees
+
+private def recursiveArgs : Tuple machine.Val fn.args := .cons (.data (1 : Nat)) (.cons (.control 0) .nil)
 
 private def recursivePrefix {sigs : List (Ports T)} (graph : Omega Op args [fn.port] sigs) :
     Option (Config machine Nat [num]) :=
-  let arguments : Tuple machine.Val fn.args := .cons (.data (1 : Nat)) (.cons (.control 0) .nil)
-  (Executable.start actions 73 graph (number 1) .head arguments 20).toOption.map (runFor actions 20)
+  (Executable.start actions 73 graph (number 1) .head recursiveArgs 20).toOption.map (runFor actions 20)
 
-private def secondCallStore : Option (Config machine Nat [num]) → Option Nat
-  | some ⟨.eval (.call _ _) (.resume _ _ _ (.resume _ _ _ .halt)), store⟩ => some store
+open RecursiveCall (Schedule ResolvedSchedule Frames Live Advance DispatchReady)
+open Continuation (Stack)
+
+private def memberVertices : Nat ≃ Nat := Equiv.swap 0 1
+
+private theorem memberSchedule :
+    Schedule Op memberVertices memberBodyL memberBodyR :=
+  .emptyRight _ (.bind (.primitive Op.finish) _ _ rfl rfl
+    (.emptyLeft _ (.bind (.apply fn) _ _ rfl rfl (.ret _ _ rfl))))
+
+private theorem selectedSchedule : ResolvedSchedule Op machine fn (resolve machine refL) (resolve machine refR) := by
+  apply ResolvedSchedule.intro (vertices := memberVertices)
+  change Schedule Op memberVertices memberBodyL.toGraph.toTerm memberBodyR.toGraph.toTerm
+  simpa only [NestedTheta.Term.toTerm_toGraph] using memberSchedule
+
+private theorem relatedArgs : TupleRelated machine ids recursiveArgs recursiveArgs :=
+  .cons (ValueRelated.data (m := machine) (ids := ids) (t := ()) (1 : Nat)) (.cons (.control 0) .nil)
+
+private def entryOf (vertex : Nat) (ref : machine.Val fn.port) : Tuple machine.Val bodyInput :=
+  .cons (globalValue vertex 8) (.cons ref recursiveArgs)
+
+private def storedL : Locals machine.Val [[num], []] := (number 9, .nil, PUnit.unit)
+private def storedR : Locals machine.Val [[], [num]] := (.nil, number 9, PUnit.unit)
+
+private def savedL (outer : Stack machine [num] [num]) : Stack machine [num] [num] :=
+  .resume (past := [[num], []]) (.ret (.cons (.output (0 : Fin 3) .head) .nil)) (entryOf 0 refL) storedL outer
+
+private def savedR (outer : Stack machine [num] [num]) : Stack machine [num] [num] :=
+  .resume (past := [[], [num]]) (.ret (.cons (.output (1 : Fin 3) .head) .nil)) (entryOf 1 refR) storedR outer
+
+private theorem savedPair {left right : Stack machine [num] [num]} (outer : Frames machine ids [num] left right) :
+    Frames machine ids [num] (savedL left) (savedR right) := by
+  have entry : TupleRelated machine ids (entryOf 0 refL) (entryOf 1 refR) :=
+    .cons (.global ⟨rfl, rfl⟩ (ValueRelated.data (m := machine) (ids := ids) (t := ()) (8 : Nat)))
+      (.cons recursiveCallees relatedArgs)
+  have outputs : TupleRelated machine ids (number 9) (number 9) :=
+    .cons (ValueRelated.data (m := machine) (ids := ids) (t := ()) (9 : Nat)) .nil
+  have locals : LocalsRelated machine ids memberVertices storedL storedR :=
+    ((LocalsRelated.empty (m := machine) (ids := ids) (rename := memberVertices)).emptyRight.snoc
+      memberVertices.injective rfl outputs).emptyLeft
+  exact .resume (vertices := memberVertices) rfl (.ret _ _ rfl) entry locals outer
+
+private def checkpointL : Config machine Nat [num] :=
+  ⟨.eval (.call refL recursiveArgs) (savedL (savedL .halt)), 33⟩
+
+private def checkpointR : Config machine Nat [num] :=
+  ⟨.eval (.call refR recursiveArgs) (savedR (savedR .halt)), 33⟩
+
+private theorem reachedL : recursivePrefix recursiveL.toGraph = some checkpointL := by cbv
+private theorem reachedR : recursivePrefix recursiveR.toGraph = some checkpointR := by cbv
+
+private def enteredL : Config machine Nat [num] :=
+  ⟨.eval (Job.openClosure machine refL recursiveArgs) (savedL (savedL .halt)), 33⟩
+
+private def enteredR : Config machine Nat [num] :=
+  ⟨.eval (Job.openClosure machine refR recursiveArgs) (savedR (savedR .halt)), 33⟩
+
+private theorem enteredPair : Live machine ids Nat [num] enteredL enteredR :=
+  RecursiveCall.open_related recursiveCallees relatedArgs selectedSchedule (savedPair (savedPair .halt)) 33
+
+-- Dispatch from the real runner checkpoints. Both saved suffixes stay live.
+example : recursivePrefix recursiveL.toGraph = some checkpointL ∧
+    recursivePrefix recursiveR.toGraph = some checkpointR ∧
+    Continuation.Partial.Step primitives checkpointL enteredL ∧
+    Continuation.Partial.Step primitives checkpointR enteredR ∧
+    Live machine ids Nat [num] enteredL enteredR :=
+  ⟨reachedL, reachedR, Continuation.Partial.Step.of_next_some rfl,
+    Continuation.Partial.Step.of_next_some rfl, enteredPair⟩
+
+-- On repeated entry, the right machine passes a γ before reaching the
+-- aligned primitive, while the left machine reaches it in one microstep.
+example : Advance primitives ids enteredL enteredR := by
+  apply RecursiveCall.advance respects enteredPair
+  intro _ _ _ _ _ _ _ _ left _
+  cases left
+
+example : Advance primitives ids checkpointL checkpointR :=
+  RecursiveCall.advance respects (.call 33 recursiveCallees relatedArgs (savedPair (savedPair .halt)))
+    (DispatchReady.call selectedSchedule)
+
+private def finishOperands {ins outs : Ports T} (opcode : Op ins outs)
+    (input : Tuple machine.Val ins) : Option (Nat × Nat) :=
+  match opcode with
+  | .seed => none
+  | .finish =>
+    let .global _ source _ := input.get .head
+    let .data flag := input.get (.tail .head)
+    some (source, flag)
+
+private def soleFrameVertex {ports : Ports T} : Stack machine ports [num] → Option Nat
+  | .resume (past := past) _ _ _ .halt => some past.length
   | _ => none
 
--- The two effects ran at their respective addresses, and the next call
--- has two caller suffixes pending. This is a check of a finite prefix.
-example : secondCallStore (recursivePrefix recursiveL.toGraph) = some 33 := by cbv
-example : secondCallStore (recursivePrefix recursiveR.toGraph) = some 33 := by cbv
+private def blockedAttempt :
+    Continuation.Partial.Executable.Observation machine Nat [num] → Option (Nat × Nat × Nat × Nat)
+  | .blocked active store => do
+    let vertex ← soleFrameVertex active.stack
+    let (source, flag) ← finishOperands active.site.opcode active.site.input
+    some (vertex, source, flag, store)
+  | _ => none
+
+private def selectedBlock {sigs : List (Ports T)} (graph : Omega Op args [fn.port] sigs) :
+    Option (Nat × Nat × Nat × Nat) :=
+  let callArgs : Tuple machine.Val fn.args := .cons (.data (0 : Nat)) (.cons (.control 0) .nil)
+  (Executable.run actions 10 73 graph (number 1) .head callArgs 20).toOption.bind blockedAttempt
+
+-- The selected undefined primitive has its own pending suffix. Its
+-- address and captured global relocate, with the same flag and store.
+example : selectedBlock recursiveL.toGraph = some (0, 0, 0, 23) := by cbv
+example : selectedBlock recursiveR.toGraph = some (1, 1, 0, 23) := by cbv
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests
