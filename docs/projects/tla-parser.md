@@ -61,6 +61,18 @@ function alternative. A mapping arrow inside a nested bracket belongs to
 that nested construct. Pinned SANY commits to the bounded function too early
 in these membership forms. [Specifying Systems §15.1](https://lamport.azurewebsites.net/tla/book-21-07-04.pdf) · [SANY #737](https://github.com/tlaplus/tlaplus/issues/737)
 
+A set filter has a single identifier or identifier tuple, a membership marker,
+an expression for its domain, and a filter colon. That membership marker is
+part of the binder syntax, so `{x \in S /\ p : q}` has `S /\ p` as its domain.
+An enumeration element or set-map result uses ordinary expression precedence.
+For example, the first element of `{x \in S /\ p}` is `(x \in S) /\ p`.
+When the prefix through the colon is a valid filter head, the rest must parse
+as its predicate. A set map uses the ordinary bounded binder grammar after
+its colon. Parentheses around a membership result whose left side is a valid
+filter binder select the mapping form, as in `{(x \in S) : y \in T}`.
+Colons belonging to a nested construct, quantifier, `CHOOSE`, or `!:` selector
+are consumed within the domain or result. [Specifying Systems §§15.1–15.2.1 and §16.1.6](https://lamport.azurewebsites.net/tla/book-21-07-04.pdf)
+
 `/\` and `\/` and their Unicode spellings start a junction list when an
 operand is expected. A marker of the same kind in the same column starts a
 sibling. A marker to its right can start a nested list in operand position or
@@ -153,11 +165,16 @@ forms outside the Surface representation or the complete-input contract.
 | Definition boundary heuristic | `BangExt` permits prefix selectors. In `INSTANCE M WITH F <- A!~` followed by `x == TRUE`, SANY inserts a synthetic `DEFBREAK` before `~`. Native parsing accepts the selector and subsequent definition. |
 | File and tool conventions | SANY's default lexer mode skips prelude text and recognizes the `--->` pragma. Its entry point may leave trailing text or another compilation unit unread. Native parsing checks the whole input. Numeric proof levels use arbitrary-precision naturals, so a level such as `2147483648` fits the native tree and overflows SANY's Java conversion. |
 
-Other reference-grammar gaps remain in the set rules.
-`{<<1, 2>> \in S}` commits to a tuple binder in both parsers, and the first
-element of `{x \in S /\ p}` is built as `x \in (S /\ p)` by both parsers.
-SANY and the native parser also reject the unparenthesized set-map result in
-`{1 \in S : x \in T}`. [SANY #1021](https://github.com/tlaplus/tlaplus/issues/1021)
+The set cases below follow the book grammar and operator precedence. The
+remaining gaps in the pinned implementation are recorded as SANY differences.
+The unsupported Surface forms and whole-input limits are listed above.
+
+| Set syntax | Pinned SANY behavior and reference control |
+| --- | --- |
+| `{<<1, 2>> \in S}` | `matchFcnConst` commits to `IdentifierTuple` and rejects the numeral. With `{<<x, y>> \in S}` the syntax pass accepts but puts an `N_IdentifierTuple` in the element's expression tree. Parenthesizing the membership gives a normal `N_Tuple` in both examples. [SANY #1021](https://github.com/tlaplus/tlaplus/issues/1021) |
+| `{x \in S /\ p}` | `BraceCases` parses `S /\ p` before assembling the membership. The control `{(x \in S) /\ p}` has conjunction at the root of the element, as specified by membership precedence 5 and conjunction precedence 3. The same SANY branch also accepts the ungrouped nonassociative chain `{x \in S \in T}`, which native parsing rejects. |
+| `{1 \in S : x \in T}` | `BraceCases` explicitly rejects the ASCII spelling at the root of the map result. `{(1 \in S) : x \in T}` and `{1 ∈ S : x \in T}` both produce `N_SetOfAll` in SANY. A tuple value containing a numeral as the left operand also hits the tuple-binder lookahead. Parenthesizing the membership result gives the reference mapping tree. |
+| `{x, y \in S}` | The same lookahead treats `x, y` as a potential shared bound, then expects membership after `x`. Native parsing produces two enumeration elements. Shared bounds are permitted after the colon of a set map. |
 
 ## Validation and provenance
 
@@ -187,7 +204,10 @@ tests compare the full encoded module trees of `BoundedQueue`, `ProofSteps`,
 `Compatibility`, `MembershipForms`, `ReferenceForms`, `FairnessTest` and
 `InnerModuleTest` against handwritten Surface trees. They also compare the
 full expressions for `ACP_SB!fairness` and `EWD840!Inv` and check diagnostic
-positions and whole-source verdicts. `make check` runs the native regression
+positions and whole-source verdicts. The set tests compare complete encoded
+v1 expressions for the unparenthesized cases and their parenthesized controls.
+The differential records SANY syntax verdicts, including accepts for which
+the SANY tree differs as described above. `make check` runs the native regression
 whenever a scoped target is in the parser namespace.
 [Fixture driver and hashes](../../tests/semantics/tla-parser/check.py) ·
 [Verdict cases](../../tests/semantics/tla-parser/cases.json) ·
