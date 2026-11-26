@@ -7,31 +7,35 @@ namespace Silmaril.Machine.SQLite.GlobalState.AggregateChecks
 private def vfs : LocalId .vfs := ⟨0⟩
 private def fields : VfsFields := ⟨"fixture", 120, 512⟩
 private def structs := IndexedStore.empty.insert vfs fields
-private def objects := structs.toObjects (fun _ => .live)
+private def flat := structs.toFlat
+private def objects := flat.toIndexed.toObjects (fun _ => .live)
 private def kinds := objects.toStates.toKinds
 
 private theorem hasVfs : kinds.HasKind vfs.tagged .vfs := by
-  rw [ObjectStore.HasKind, kinds, objects, IndexedStore.toObjects_toStates_toKinds,
-    IndexedStore.lookup_erasePayloads]
+  rw [ObjectStore.HasKind, kinds, objects, FlatStore.lookup_toStates_toKinds, flat,
+    IndexedStore.lookup_toFlat]
   rfl
 
 private def registration : kinds.Ref .vfs := ⟨vfs.tagged, hasVfs⟩
 private def roots : VfsRoots kinds := ⟨[registration], by simp⟩
 
--- The typed payload survives the bridge, and its state and payload erasure
+example : flat.toIndexed.lookup vfs.tagged.localId = structs.lookup vfs.tagged.localId :=
+  (flat.lookup_toIndexed vfs.tagged).trans (structs.lookup_toFlat vfs.tagged)
+
+-- The typed payload survives the flat-store bridge, and its erasure
 -- supports the same VFS root at the original tag.
 example : objects.lookup vfs.tagged = some ⟨.vfs, .live, fields⟩ := by
-  rw [objects, IndexedStore.lookup_toObjects]
+  rw [objects, FlatStore.lookup_toObjects, flat, IndexedStore.lookup_toFlat]
   rfl
 
 example : roots.defaultVfs.map Subtype.val = some vfs.tagged := rfl
 
-private def emptyHistory : History TaggedId ObjectFields := History.empty
+private def emptyHistory : History TaggedId LocalFields := History.empty
 private theorem freshVfs : emptyHistory.Fresh vfs.tagged := History.lookup_empty vfs.tagged
 
 private def history := emptyHistory.allocate vfs.tagged .vfs fields freshVfs
 
-private abbrev AllocationFixture := Allocator.State TaggedId TaggedId ObjectFields Unit Unit
+private abbrev AllocationFixture := Allocator.State TaggedId TaggedId LocalFields Unit Unit
 private def scope : Allocator.Scope Unit Unit := ⟨(), (), 64, by decide⟩
 private def block := scope.block 64 128 (by decide) (by decide)
 private def before : AllocationFixture := ⟨history, ∅⟩

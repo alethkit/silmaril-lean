@@ -1,8 +1,8 @@
 # SQLite global object state
 
 Import `Silmaril.Machine.SQLite.GlobalState.All` for object histories, typed
-struct payloads, checked views, the named-file adapter, and the allocator
-resource contract. Use
+struct payloads, flat and indexed stores, checked views, the named-file
+adapter, and the allocator resource contract. Use
 `Silmaril.Machine.SQLite.Architecture.All` separately for Track E's component
 diagram and its Interface, compiler, VM and backend contracts. The global-state
 package assembles cross-component state and resource observations. The
@@ -17,6 +17,7 @@ architecture aggregate follows the four groups of the diagram.
 | Keep live and zombie objects, tombstones, and checked component views | `Silmaril.Machine.SQLite.GlobalState.Store.Thms` | [Presence and erasure](#presence-and-erasure) |
 | Observe raw allocation records alongside object histories | `Silmaril.Machine.SQLite.GlobalState.Store.Allocator.Thms` | [Visibility and storage](#visibility-and-storage) |
 | Read selected source fields through kind-indexed maps | `Silmaril.Machine.SQLite.GlobalState.StructThms` | [Source fields and indexed maps](object-structs.md) |
+| Convert between indexed and flat field-bearing snapshots | `Silmaril.Machine.SQLite.GlobalState.Flat.Thms` | [Dependent flat map](object-state-payloads.md) |
 | Use typed structs as state payloads | `Silmaril.Machine.SQLite.GlobalState.StatePayload` | [Struct-to-state bridge](object-state-payloads.md) |
 | Follow a Pager's named main file into a read premise | `Silmaril.Machine.SQLite.GlobalState.StructObservations` | [Named-file adapter](object-structs.md#checked-laws-and-adapter) |
 | Specify initialized public allocator calls and ownership | `Silmaril.Machine.SQLite.Allocator.Thms` | [Allocator model and replay](allocator-resources.md) |
@@ -89,9 +90,14 @@ while outstanding resources are released. [Close contract][close-api] · [Zombie
   distinction between freed and never issued.
 - `IndexedStore.lookup_erasePayloads` and `hasKind_erasePayloads_iff`
   relate indexed lookups and kind membership. The typed value comes from
-  the original store. `IndexedStore.lookup_toObjects` carries the exact
-  payload and caller-supplied state, and `toObjects_toStates_toKinds`
-  recovers the original kind erasure. [Struct-to-state bridge](object-state-payloads.md)
+  the original store. `ObjectFields Ref` parameterizes the top-level
+  references and the stores use `LocalFields = ObjectFields LocalId`.
+  `IndexedStore.lookup_toFlat` and `FlatStore.lookup_toIndexed` preserve
+  typed lookups, including missing entries, across the two field-bearing
+  representations. `IndexedStore.lookup_toObjects` and
+  `FlatStore.lookup_toObjects` carry the exact payload and caller-supplied
+  state. `FlatStore.lookup_toStates_toKinds` agrees pointwise with the
+  kind at the original flat key. [Struct-to-state bridge](object-state-payloads.md)
 
 ## Visibility and storage
 
@@ -153,8 +159,9 @@ remain separate from these proofs. [Source inventory](object-structs.md) · [Tra
 
 Use the pinned [Lean toolchain](../../../lean-toolchain) and
 [Lake manifest](../../../lake-manifest.json). The aggregate fixture imports
-only `GlobalState.All`. It follows a typed VFS descriptor through the
-state and kind bridge to the default root. A successful malloc issues a
+only `GlobalState.All`. It checks the indexed and flat lookups of a typed
+VFS descriptor, then follows it through the state and kind bridge to
+the default root. A successful malloc issues a
 raw token with the same underlying value as the VFS ID. The fixture
 checks the object frame and raw-block exclusion from erasure.
 
@@ -170,8 +177,9 @@ lake env lean -DautoImplicit=false -DwarningAsError=true \
 make check CHECK_TARGETS=+"$root".AggregateChecks
 for module in "$root".{All,AggregateChecks,Defs,Roots,Thms,Checks} \
     "$root".Store.{Defs,Thms,Checks,Allocator.Defs,Allocator.Thms,Allocator.Checks} \
+    "$root".Flat.{Defs,Thms} \
     "$root".{Structs,Indexed,StructThms,StructObservations,StructChecks,StatePayload,StatePayloadChecks} \
-    Silmaril.Proofs.Machine.SQLite.GlobalState.{Store.Erasure,Indexed} \
+    Silmaril.Proofs.Machine.SQLite.GlobalState.{Store.Erasure,Indexed,Flat.Lookup} \
     "$allocator".{Defs,Thms,Checks} Silmaril.Proofs.Machine.SQLite.Allocator.Laws \
     "$resource".{Defs,Thms} Silmaril.Proofs.Semantics.Resource.Laws; do
   SILMARIL_REPLAY_MODULE="$module" lake env lean -DwarningAsError=true \
@@ -190,10 +198,11 @@ each increment, with reproduction commands in its guide.
 | --- | --- | --- | --- |
 | [Kind store and roots #4179][pr4179] | `6b7c38807e1a65a7e7db2aca9b2db14b8ea450b7` | `2d772052ee99a47ce14ec7c0b2fc7704f529496c` | [CI][ci4179] · 4 modules · [Replay][replay4179] |
 | [Finite history and views #4195][pr4195] | `78691a894605c94c0448039454f7af20729a8424` | `8ad353aaf1e2b1a2858e9fd8472cc6ea9d855fe6` | [CI][ci4195] · 8 modules · [Replay][replay4195] |
-| [Structs and indexed store #4202][pr4202] | `a621f14437fe129710eb5b8219897afcce8c9f48` | `46f1bc26c238b0088458c77fdf9e2b2e464e8621` | [CI][ci4202] · 6 modules · [Replay](object-structs.md#replay) |
-| [Struct/state bridge #4218][pr4218] | `73089cef088fe86eaeebf69d24ebbba4375db373` | `de3ed0cedf63daf83bfdb2b1f75052fbe3b948f5` | [CI][ci4218] · 2 modules · [Replay](object-state-payloads.md) |
+| [Structs and indexed store #4202][pr4202] | `a621f14437fe129710eb5b8219897afcce8c9f48` | `46f1bc26c238b0088458c77fdf9e2b2e464e8621` | [CI][ci4202] · 6 modules · [Replay][replay4202] |
+| [First struct/state bridge #4218][pr4218] | `73089cef088fe86eaeebf69d24ebbba4375db373` | `de3ed0cedf63daf83bfdb2b1f75052fbe3b948f5` | [CI][ci4218] · 2 modules · [Replay][replay4218] |
 | [Raw blocks and object updates #4223][pr4223] | `01a39e10e1f80ea53a21c517dc67289fa02a37be` | `1b8cc147d75a596e95aec1053cfd46b8aebc6ff3` | [CI][ci4223] · 11 modules · [Replay][replay4223] |
 | [Allocator and Resource API #4198][allocator-pr] | `c337f7ca0de0efbbd2ec9f4dced3da203bc9107f` | `744fd86fcc88726306ab80c7674d7e584a20dc12` | [CI][ci4198] · [168.2 s of 300][budget4198] · 7 modules and 20 axiom audits · [Replay](allocator-resources.md#build-and-replay) |
+| [Parametric structs and flat bridge #4234][pr4234] | `be3143e6840903217cec8797359eafee5ae6005f` | `70ab775cde8fb0386174909b32a84ad24ecb585e` | [CI][ci4234] · [138.0 s of 300][budget4234] · 11 modules · [Replay](object-state-payloads.md) |
 
 [api]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/sqlite.h.in
 [registry]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/os.c#L352-L447
@@ -215,8 +224,13 @@ each increment, with reproduction commands in its guide.
 [replay4195]: https://github.com/hiloopai/silmaril-lean/blob/8ad353aaf1e2b1a2858e9fd8472cc6ea9d855fe6/docs/projects/sqlite-track-e/global-object-state.md#replay
 [pr4202]: https://github.com/hiloopai/silmaril-lean/pull/4202
 [ci4202]: https://github.com/hiloopai/silmaril-lean/actions/runs/45807957033
+[replay4202]: https://github.com/hiloopai/silmaril-lean/blob/46f1bc26c238b0088458c77fdf9e2b2e464e8621/docs/projects/sqlite-track-e/object-structs.md#replay
 [pr4218]: https://github.com/hiloopai/silmaril-lean/pull/4218
 [ci4218]: https://github.com/hiloopai/silmaril-lean/actions/runs/45809205966
+[replay4218]: https://github.com/hiloopai/silmaril-lean/blob/de3ed0cedf63daf83bfdb2b1f75052fbe3b948f5/docs/projects/sqlite-track-e/object-state-payloads.md
 [pr4223]: https://github.com/hiloopai/silmaril-lean/pull/4223
 [ci4223]: https://github.com/hiloopai/silmaril-lean/actions/runs/45809436655
 [replay4223]: https://github.com/hiloopai/silmaril-lean/blob/1b8cc147d75a596e95aec1053cfd46b8aebc6ff3/docs/projects/sqlite-track-e/global-object-state.md#replay
+[pr4234]: https://github.com/hiloopai/silmaril-lean/pull/4234
+[ci4234]: https://github.com/hiloopai/silmaril-lean/actions/runs/45811000129
+[budget4234]: https://github.com/hiloopai/silmaril-lean/actions/runs/45811000129/job/139880218087
