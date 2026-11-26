@@ -1,7 +1,8 @@
 module
 
-public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Admission.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Admission.Finite.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Live.Defs
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgFiniteSyntax
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Exits.Check.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Exits.Restriction.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Thms
@@ -294,6 +295,68 @@ private theorem checkedRoutes (D E : Ty Empty) (tag : Bool) {r s : Region Φ}
     · simp [layout] at hit
     · simp [layout] at hit
 
+private theorem finite_checked_routes {m : Nat} (P : Fin m → Ty Empty) (D : Ty Empty) {Γ : VCtx (Ty Empty)}
+    {r s : Region Φ} (checked : CheckedRoutes (Finite.layout P) Γ r s) :
+    RegionConstructorRoutes M
+      (labelAppendSplit M (List.ofFn P) (labels U) ≫ coprod.map (post M D) (𝟙 _))
+      (labelAppendSplit M (List.ofFn P) (labels (tagged D))) Γ r s := by
+  have localAt (L : LCtx (Ty Empty)) (i : Fin m) : At (List.ofFn P ++ L) i (P i) := by
+    simp [At, List.getElem?_append_left, i.isLt]
+  have exitAt {L : LCtx (Ty Empty)} {i : Nat} {A : Ty Empty} (h : At L i A) :
+      At (List.ofFn P ++ L) (m + i) A := by
+    simpa [At, List.getElem?_append_right] using h
+  have exitRoute {i : Nat} {A B : Ty Empty} (l : At (labels U) i A) (r : At (labels (tagged D)) i B)
+      (v : M.obj A ⟶ M.obj B) (h : labelInject M i l ≫ post M D = v ≫ labelInject M i r) :
+      labelInject M (m + i) (exitAt l) ≫
+          (labelAppendSplit M (List.ofFn P) (labels U) ≫ coprod.map (post M D) (𝟙 _)) =
+        v ≫ labelInject M (m + i) (exitAt r) ≫ labelAppendSplit M (List.ofFn P) (labels (tagged D)) := by
+    rw [← Category.assoc, labelAppendSplit_exit M P (labels U) l, Category.assoc, coprod.inl_map,
+      ← Category.assoc, h, Category.assoc, labelAppendSplit_exit M P (labels (tagged D)) r]
+  have lookupLocal {i : Nat} (h : i < m) :
+      (Finite.layout P)[i]? = some (P ⟨i, h⟩, false) := by
+    simp [Finite.layout, List.getElem?_append_left, h]
+  have lookupExit (i : Nat) :
+      (Finite.layout P)[m + i]? = ([(U, true), (U, false), (Pair, false)])[i]? := by
+    simp [Finite.layout, List.getElem?_append_right]
+  apply CheckedRoutes.toConstructorRoutes M checked
+  · intro i A hit
+    by_cases hi : i < m
+    · have eq : P ⟨i, hi⟩ = A := congrArg Prod.fst (Option.some.inj ((lookupLocal hi).symm.trans hit))
+      subst A
+      let j : Fin m := ⟨i, hi⟩
+      have atLocal : At (List.ofFn P) j (P j) := by simp [At, j.isLt]
+      refine ⟨localAt _ j, localAt _ j, ?_⟩
+      rw [← Category.assoc, labelAppendSplit_local M P _ j _ atLocal, Category.assoc,
+        coprod.inr_map, Category.id_comp, labelAppendSplit_local M P _ j _ atLocal]
+    · obtain ⟨j, rfl⟩ : ∃ j, i = m + j := ⟨i - m, by omega⟩
+      rw [lookupExit] at hit
+      have h : j < 3 := (List.getElem?_eq_some_iff.mp hit).1
+      interval_cases j
+      · simp at hit
+      · have eq : U = A := congrArg Prod.fst (Option.some.inj hit)
+        subst A
+        refine ⟨exitAt rfl, exitAt rfl, ?_⟩
+        simpa only [Category.id_comp] using exitRoute (i := 1) rfl rfl (𝟙 (M.obj U))
+          (by rw [Category.id_comp, post_unit])
+      · have eq : Pair = A := congrArg Prod.fst (Option.some.inj hit)
+        subst A
+        refine ⟨exitAt rfl, exitAt rfl, ?_⟩
+        simpa only [Category.id_comp] using exitRoute (i := 2) rfl rfl (𝟙 (M.obj Pair))
+          (by rw [Category.id_comp, post_pair])
+  · intro i A hit
+    by_cases hi : i < m
+    · rw [lookupLocal hi] at hit
+      cases hit
+    · obtain ⟨j, rfl⟩ : ∃ j, i = m + j := ⟨i - m, by omega⟩
+      rw [lookupExit] at hit
+      have h : j < 3 := (List.getElem?_eq_some_iff.mp hit).1
+      interval_cases j
+      · have eq : U = A := congrArg Prod.fst (Option.some.inj hit)
+        subst A
+        exact ⟨D, exitAt rfl, exitAt rfl, exitRoute (i := 0) rfl rfl (inLeft M D) (post_head M D)⟩
+      · simp at hit
+      · simp at hit
+
 end ValueMaps
 
 section Model
@@ -392,11 +455,18 @@ private theorem inner_compare (roll : IterationRolling C) {r : Region Φ} {p : P
 
 local notation "Arrow" => J.obj (ctxObj M []) ⟶ J.obj (labelObj M exits)
 
-private theorem compare_with_common (roll : IterationRolling C) {r : Region Φ} {p : Plan Φ} (admitted : p.Valid r)
-    {f g : Arrow} (small : CfgDenotesAt J M (slots U) entry (fun _ => commonInner p) f)
+private theorem compare_with_common {r outer common selected : Region Φ}
+    (root : r = .cfg wideEntry 1 (fun _ => outer))
+    (prune : Region.PruneConstructorTests (outer.substVars (Tm.replaceNewest (.inl (.var 0)))) selected)
+    (inner : ∀ (D : Ty Empty) {t : common.HasType [U] (labels U)}
+      {t' : selected.HasType [U] (labels (tagged D))}
+      {f : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (labels U))}
+      {g : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (labels (tagged D)))},
+      RegionDenotes J M t f → RegionDenotes J M t' g → g = f ≫ J.map (post M D))
+    {f g : Arrow} (small : CfgDenotesAt J M (slots U) entry (fun _ => common) f)
     {ht : r.HasType [] exits} (wide : RegionDenotes J M ht g) : f = g := by
-  obtain ⟨ht', d⟩ : ∃ ht' : (Region.cfg wideEntry 1 (fun _ => p.outer)).HasType [] exits,
-      RegionDenotes J M ht' g := by rw [← admitted.root]; exact ⟨_, wide⟩
+  obtain ⟨ht', d⟩ : ∃ ht' : (Region.cfg wideEntry 1 (fun _ => outer)).HasType [] exits,
+      RegionDenotes J M ht' g := by rw [← root]; exact ⟨_, wide⟩
   obtain ⟨S, actual⟩ := d.cfg_readback J M
   have shape : ∃ D : Ty Empty, S = family (slots U) (some (slots D)) := by
     obtain ⟨typed, _⟩ := actual
@@ -414,8 +484,8 @@ private theorem compare_with_common (roll : IterationRolling C) {r : Region Φ} 
     rw [J.map_comp] at eq
     exact eq.symm
   · intro _ _ _ _ _ ds dw
-    obtain ⟨_, selected⟩ := guard_denotes J M admitted.outer dw
-    have innerEq := inner_compare J M roll admitted D ds selected
+    obtain ⟨_, selected⟩ := guard_denotes J M prune dw
+    have innerEq := inner D ds selected
     have factor : post M D ≫ labelAppendSplit M (List.ofFn (family (slots U) (some (slots D)))) exits =
         outerCut M U ≫ outerMap M D := post_split M D
     rw [← Category.assoc, innerEq, Category.assoc, ← J.map_comp, factor, J.map_comp]
@@ -428,8 +498,59 @@ theorem compare (roll : IterationRolling C) {r : Region Φ} {p : Plan Φ} (admit
     .cfg (slots U) (.br rfl (.var rfl)) (fun _ => row)
   obtain ⟨_, small⟩ := CfgDenotesAt.exists_of_typing J M (slots U)
     (.br rfl .unit : (entry (Φ := Φ)).HasType [] (labels U)) (fun _ => inner)
-  exact (compare_with_common J M roll admitted small left).symm.trans
-    (compare_with_common J M roll admitted small right)
+  exact (compare_with_common J M admitted.root admitted.outer (inner_compare J M roll admitted) small left).symm.trans
+    (compare_with_common J M admitted.root admitted.outer (inner_compare J M roll admitted) small right)
+
+section Finite
+
+private abbrev finiteCommon {m n : Nat} (p : Finite.Plan Φ m n) : Region Φ :=
+  .cfg p.commonEntry m p.commonRows
+
+private abbrev finiteSelected {m n : Nat} (keep : Fin m ↪ Fin n) (p : Finite.Plan Φ m n) : Region Φ :=
+  .cfg (p.entry.renameLabels (retainLabelIndex keep)) n
+    (fun i => (p.rows i).renameLabels (retainLabelIndex keep))
+
+private theorem finite_inner_compare {k n : Nat} {keep : Fin (k + 1) ↪ Fin (n + 1)}
+    {P : Fin (k + 1) → Ty Empty} {r : Region Φ} {p : Finite.Plan Φ (k + 1) (n + 1)}
+    (roll : IterationRolling C) (admitted : p.Valid keep P r) (D : Ty Empty)
+    {t : (finiteCommon p).HasType [U] (labels U)}
+    {t' : (finiteSelected keep p).HasType [U] (labels (tagged D))}
+    {f : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (labels U))}
+    {g : J.obj (ctxObj M [U]) ⟶ J.obj (labelObj M (labels (tagged D)))}
+    (left : RegionDenotes J M t f) (right : RegionDenotes J M t' g) : g = f ≫ J.map (post M D) := by
+  have commonShape : LabelsDetermined [U] (labels U) p.commonEntry p.commonRows P := by
+    intro S he hr
+    exact NestedCfgFiniteSyntax.aligned false admitted.entryRoute admitted.rowRoutes he hr admitted.paths
+  have small := left.cfg_readback_of_labels_determined J M commonShape
+  obtain ⟨S, actual⟩ := right.cfg_readback J M
+  have trimmed := CfgDenotesAt.restrict J M keep S (L := labels (tagged D)) roll admitted.entryScope admitted.rowScope actual
+  have eq : (fun i => S (keep i)) = P := by
+    obtain ⟨he, hr, _⟩ := trimmed
+    exact NestedCfgFiniteSyntax.aligned true admitted.entryRoute admitted.rowRoutes he hr admitted.paths
+  rw [eq] at trimmed
+  exact CfgDenotesAt.postmap_of_routes J M P (post M D)
+    ((finite_checked_routes M P D (Region.checkRoutes?_sound admitted.entryRoute)).denotes J)
+    (fun i => (finite_checked_routes M P D (Region.checkRoutes?_sound (admitted.rowRoutes i))).denotes J)
+    small trimmed
+
+theorem compare_finite {k n : Nat} {keep : Fin (k + 1) ↪ Fin (n + 1)}
+    {P : Fin (k + 1) → Ty Empty} {r : Region Φ} {p : Finite.Plan Φ (k + 1) (n + 1)}
+    (roll : IterationRolling C) (admitted : p.Valid keep P r)
+    {t t' : r.HasType [] exits} {f g : Arrow}
+    (left : RegionDenotes J M t f) (right : RegionDenotes J M t' g) : f = g := by
+  have shape : (Finite.layout P).map Prod.fst = List.ofFn P ++ labels U := by
+    simp [Finite.layout, List.map_ofFn, Function.comp_def]
+    rfl
+  have inner : (finiteCommon p).HasType [U] (labels U) :=
+    .cfg P (shape ▸ (Region.checkRoutes?_sound admitted.entryRoute).hasType)
+      (fun i => shape ▸ (Region.checkRoutes?_sound (admitted.rowRoutes i)).hasType)
+  obtain ⟨_, small⟩ := CfgDenotesAt.exists_of_typing J M (slots U)
+    (.br rfl .unit : (entry (Φ := Φ)).HasType [] (labels U)) (fun _ => inner)
+  exact (compare_with_common J M admitted.root admitted.outer
+    (finite_inner_compare J M roll admitted) small left).symm.trans
+    (compare_with_common J M admitted.root admitted.outer (finite_inner_compare J M roll admitted) small right)
+
+end Finite
 
 end Model
 

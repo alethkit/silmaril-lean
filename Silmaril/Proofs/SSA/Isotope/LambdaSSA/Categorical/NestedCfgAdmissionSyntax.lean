@@ -17,7 +17,7 @@ open Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.NestedAdmission
 variable {Φ : Type v} [HasTy Φ (Ty Empty)]
 
 omit [HasTy Φ (Ty Empty)] in
-private theorem selected {r s : Region Φ} (ok : selectLeft? r = some s) :
+theorem selected {r s : Region Φ} (ok : selectLeft? r = some s) :
     Region.PruneConstructorTests (r.substVars (Tm.replaceNewest (.inl (.var 0)))) s := by
   cases r with
   | case a l r =>
