@@ -215,6 +215,17 @@ theorem trace_map_iff (f : A → B) (t : Tree E A) (p : Trace E B) :
       ∃ q, HasTrace t q ∧ q.map f = p :=
   ⟨trace_map_backward f t p, fun ⟨q, hq, hmap⟩ => hmap ▸ trace_map_forward f t q hq⟩
 
+theorem trace_bind_pure_reflect {f : A → B} (hf : Function.Injective f)
+    {t s : Tree E A} (h : TraceLE (t >>= fun a => pure (f a)) (s >>= fun a => pure (f a))) :
+    TraceLE t s := by
+  classical
+  let decode (b : B) : Tree E A := if h : ∃ a, f a = b then pure h.choose else diverge
+  have retract (a : A) : decode (f a) = pure a := by
+    unfold decode
+    have hex : ∃ x, f x = f a := ⟨a, rfl⟩
+    rw [dite_eq_left hex, hf hex.choose_spec]
+  simpa only [bind_assoc, pure_bind, retract, bind_pure] using trace_bind_left_mono h decode
+
 theorem out_resume_runs_iff (f : A → Tree E (B ⊕ A)) (t : Tree E (B ⊕ A))
     (node : Visible E B (Tree E B)) :
     out (resume f t) = Part.some node ↔ Elgot.Part.Runs (normalizeStep f) t node := by

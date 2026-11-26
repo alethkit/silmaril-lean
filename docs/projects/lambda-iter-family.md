@@ -386,6 +386,38 @@ These laws use finite observations of deterministic weak trees. They give
 no arbitrary suprema, preservation of may-divergence, or completeness for
 syntactic rewrites.
 
+### Ordered Kleisli semantics and primitive reduct
+
+`WeakKleisli` is the existing Type–Kleisli category of weak deterministic
+ITrees with pointwise `TraceLE` on arrows. Composition is monotone in both
+arguments, and the categorical iterator is monotone using its existing
+coproduct comparison and weak-tree implementation.
+[Ordered Kleisli category](../../Silmaril/Semantics/ITree/Kleisli/Thms.lean)
+
+`Program.ofCFG` uses the literal typed singleton representative of packed
+execution. Its existing typed denotation agrees with the actual guarded
+packed arrow. For two such programs at a common exit interface,
+`satisfies_ofCFG_iff` identifies the typed hom order with the comparison of
+their erased packed trees. The reflection uses injective pure result
+encoding in the same event family.
+[Packed semantics and satisfaction](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Thms.lean)
+
+`Model.reduct` accepts the existing primitive `SignatureMap` with identity
+type component and a bottom-preserving Boolean effect component. The value
+carriers and indexed event family are shared. The source and target profile
+equations transport typed primitive arguments and results, and the effect
+map transports purity witnesses. The erased interpreter precomposes with
+the instruction map. `satisfies_map_iff` compares typed satisfaction after
+relabelling the already packed representative with satisfaction in the
+reduct. The regression identifies two opcodes through a non-injective map
+and checks a strict comparison between a silent and a visible packed
+program.
+[Reduct definition](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Thms.lean)
+· [Packed relabelling regression](../../Silmaril/Proofs/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Regression.lean)
+
+This comparison uses a shared event family. Type-changing maps and
+reflection along event renaming are outside the checked law.
+
 ### Edge arguments for a normalized φ port
 
 `Versioning.encode` and `Versioning.step_commutes` show the current
