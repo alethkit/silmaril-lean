@@ -21,4 +21,14 @@ theorem lowerNamedArguments_names {arguments : List LocatedNamedArgument}
     lowered.map Prod.fst = arguments.map LocatedNamedArgument.name :=
   Silmaril.Proofs.Languages.Starlark.Frontend.Module.lowerNamedArguments_names lowering
 
+/-- The normalized call and its source spans have the same positional count,
+ordered explicit names, and presence of each spread. -/
+theorem lowerCall_operands {callee : String} {arguments : LocatedCallArguments}
+    {result : LoweredCall} (lowering : lowerCall callee arguments = .ok result) :
+    ∃ positional named star starStar,
+      result.expression = .call (.scalar (.read callee)) positional named star starStar ∧
+      result.spans = arguments.spans ∧
+      callShape result.spans = Functions.Lowering.argumentShape positional named star starStar :=
+  Silmaril.Proofs.Languages.Starlark.Frontend.Module.lowerCall_operands lowering
+
 end Silmaril.Languages.Starlark.Frontend.Module

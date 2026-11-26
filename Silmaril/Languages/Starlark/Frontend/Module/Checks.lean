@@ -24,6 +24,7 @@ public inductive Observation where
   | duplicateExplicitKeyword (name : String)
   | requiredAfterDefault (name : String)
   | uninitializedGlobal (name : String)
+  | invalidStar | invalidStarStar
   deriving DecidableEq
 
 public structure Control where
@@ -75,6 +76,8 @@ private def observe (source : String) : Option Observation :=
     | some (.scalar (.int value)) => some (.exportedInt value)
     | _ => none
   | .ok (.error (.runtime (.missingArguments [name])) _) => some (.missingArgument name)
+  | .ok (.error (.runtime .invalidStar) _) => some .invalidStar
+  | .ok (.error (.runtime .invalidStarStar) _) => some .invalidStarStar
   | .ok (.error (.runtime (.multipleArgumentValues name)) _) => some (.multipleValues name)
   | .ok (.error (.runtime (.duplicateKey (.string key))) _) => some (.duplicateKey key)
   | .ok (.error (.runtime (.uninitialized ⟨.global, name⟩)) _) => some (.uninitializedGlobal name)
@@ -142,8 +145,8 @@ example : frontendDiagnostic "out = f(x=7, 8)" =
 example : frontendDiagnostic "out = f(*[7], x=8)" =
     some ⟨.callOrder .argumentAfterStar, ⟨⟨14, 1, 15⟩, ⟨15, 1, 16⟩⟩⟩ := by decide +kernel
 
-example : frontendDiagnostic "out = f(*xs)" =
-    some ⟨.unsupported .callArguments, ⟨⟨9, 1, 10⟩, ⟨11, 1, 12⟩⟩⟩ := by decide +kernel
+example : frontendDiagnostic "out = f(*xs())" =
+    some ⟨.unsupported .callArguments, ⟨⟨11, 1, 12⟩, ⟨12, 1, 13⟩⟩⟩ := by decide +kernel
 
 example : frontendDiagnostic "out = f(1=7)" =
     some ⟨.expected "',' or ')'", ⟨⟨9, 1, 10⟩, ⟨10, 1, 11⟩⟩⟩ := by decide +kernel
