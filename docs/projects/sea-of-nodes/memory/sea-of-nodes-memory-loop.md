@@ -1246,6 +1246,47 @@ buffer yields no result within that budget.
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.MemRef.Regression
 ```
 
+##### Satisfaction for the linked triple
+
+`Linked.Triple.Satisfaction.Program` extends the existing typed pair
+with a third loop and its static Boundary wiring. Its sentences
+translate to the existing numbered runtime observation syntax.
+At a fixed typed valuation and cell count, `memref_satisfaction`
+and `coloured_satisfaction` transfer both sentence forms to and from
+the actual numbered graph. An equation compares the set of complete
+finite results for each initialized heap. Each result contains the
+three words in order and every final cell. Two absent results agree
+in an equation. A termination sentence requires a finite result on
+every initial heap. Numbered, MemRef and coloured witnesses are independent.
+[Public sentence and satisfaction API](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/Satisfaction/Thms.lean)
+
+For a capture map `h : P ⟶ Q`, the `*_satisfaction_map` laws compare
+the re-emitted sentence at the target valuation with the source
+sentence at `reduct h model`. The third wiring still reads the second
+return and the second entry bank. `room_satisfaction` quantifies over
+all typed inputs at the chosen canonical runtime and cell count.
+After re-emission, `room_satisfaction_map` ranges over the reduct image
+on the source side. These laws apply to the generated sentences at
+canonical entries. The existing runtime room has its own opcode
+maps and the comparison here uses typed capture maps.
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Thms
+```
+
+The accepted equation routes the second store from two distinct word
+slots that both contain `22` at the tested valuation. Both emitted
+chains return `(3, 3, 22)` and `[11, 73, 11, 3, 91, 22]` on the
+shared heap. Changing the third store to write back the loaded value
+keeps all three words and leaves cell 3 at `22`. All three backends
+reject the resulting equation. A separate termination sentence checks
+three admitted activations that return their stop words on every heap.
+[Runnable satisfaction regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/Satisfaction/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Regression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
