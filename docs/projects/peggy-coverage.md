@@ -98,6 +98,47 @@ return, so the reverse direction requires totality of the complete update.
 [`Automatic.Thms`](../../Silmaril/SSA/PEG/Simple/Revert/While/Region/Automatic/Thms.lean) ·
 [Regression fixture](../../tests/ssa/PEGCanonicalWhile.lean)
 
+### Graph-local parent/child schedules
+
+`Nested.Region.check` takes a typed descriptor and demand rank for one
+parentless loop and one immediate child. It checks the parent links,
+ordered θ initializers and feedback, the shared pass within each loop,
+the child's eval bundle, and the designated outer eval. Outer
+initializers match typed input ports. The primitive scheduler checks
+the outer exit test over the old outer θ vector, the child initializer
+over that same vector, the child test and feedback over the child θ
+vector plus the retained outer values, and the outer commit over the
+child exit bundle plus the old outer values. The check uses the supplied
+rows directly and permits independent numbering of rows and loop keys.
+
+The emitted outer body builds a fresh child store before its inner
+`while`. `Accepted.activation_observation` fixes the enclosing coordinates,
+starts the child's θ streams at zero, and derives one least child pass
+and the defined eval prefix from the finite child trace. Its returned
+store realizes both the child evals and the retained outer captures at
+the caller's index. The outer proof establishes the capture premise
+uniformly at each outer iteration, invokes the child theorem, and
+replays the entire simultaneous commit. `Accepted.observe_of_returns`
+then relates an actual successful nested SIMPLE return to Figure 11.
+The checked demand rank supplies the valuation, the negation law connects
+the tests, and the successful trace supplies primitive definedness and
+child termination. Returning from a PEG exit alone remains open for
+this adapter. It requires a way to obtain each continuing activation's
+child exit and the full commit's definedness.
+
+The regression uses a hand-wired graph with 16 rows and two loop keys.
+Its first two child activations take two and one steps and commit
+accumulators 3 and 4. A well-ranked initializer that reads the original
+parameter in place of the current outer θ is rejected by the slice
+checker. A mismatched child pass is also rejected. The result covers
+the supplied two-level primitive shape. Boundary discovery, arbitrary
+nesting, and effects remain open for this adapter.
+[Graph-local checker](../../Silmaril/SSA/PEG/Simple/Revert/While/Nested/Region/Defs.lean) ·
+[Activation and return theorems](../../Silmaril/SSA/PEG/Simple/Revert/While/Nested/Region/Thms.lean) ·
+[Regression fixture](../../tests/ssa/PEGCanonicalWhile.lean)
+
+### Compiler-layout two-level reversion
+
 The two-level reversion form uses a typed capture projection on the old
 outer vector, one child while with a loop-free body, and a loop-free commit
 from the child's full final store to the next outer vector. The child and
