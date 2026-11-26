@@ -85,7 +85,7 @@ theorem iterateChosen_fixpoint {X Y : Q} (f : X ⟶ Y ⨿ X) :
         coprod.desc (𝟙 Y) ((proj).map (Paper.TypeCategory.iterate f₀))
       rw [← (show (proj).map (𝟙 Y.as) = 𝟙 Y from (proj).map_id Y.as), c_desc, Category.assoc, Iso.inv_hom_id_assoc]
 
-private theorem c_inv_map {X Y X' Y' : P} (f : X ⟶ X') (g : Y ⟶ Y') :
+theorem c_inv_map {X Y X' Y' : P} (f : X ⟶ X') (g : Y ⟶ Y') :
     (c X Y).inv ≫ coprod.map ((proj).map f) ((proj).map g) =
       (proj).map (coprod.map f g) ≫ (c X' Y').inv := by
   apply (cancel_mono (c X' Y').hom).1
