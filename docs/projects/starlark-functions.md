@@ -781,9 +781,10 @@ declarations.
 `Assignment.exec_iff_lowered_of_elaboration` pairs the independent
 elaboration judgment with exact resolved operational and scratch
 denotation agreement, given runtime admission and a scratch-free
-initial state. Whole-block collection, capture installation,
-elaboration of the remaining operand and RHS forms, and independent
-source execution are outside this theorem.
+initial state. The [lexical block theorem](starlark-modules.md#lexical-block-collection)
+discharges the collected-scope premise for its normalized module and
+function subset. Capture installation, broader operand and RHS
+elaboration, and independent source execution remain separate.
 [Source judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Assignment/Defs.lean) · [Elaboration theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Assignment/Thms.lean) · [Lexical and partial-write fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Assignment/Checks.lean)
 
 Mixed loop and comprehension targets and the broader comprehension

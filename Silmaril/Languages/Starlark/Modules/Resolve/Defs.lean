@@ -153,14 +153,14 @@ structure ResolvedModule where
   program : Program
   source : Modules.Source
 
-def fileNames (commands : List Command) : List String :=
+@[expose] def fileNames (commands : List Command) : List String :=
   commands.flatMap fun
     | .load _ imports => imports.map Modules.Import.localName
     | _ => []
 
 /-- Tuple and list spellings share the same resolved sequence target.
 The normalized input supplies valid identifier spellings. -/
-private def resolveTarget (slot : String → Binding) (unsupported : Error) :
+@[expose] def resolveTarget (slot : String → Binding) (unsupported : Error) :
     Lowering.Resolve.SourceExpr → Except Error (LoopTarget × List String)
   | .scalar (.read name) => pure (.name (slot name), [name])
   | .list elements | .tuple elements => do
@@ -184,7 +184,7 @@ private def resolveTarget (slot : String → Binding) (unsupported : Error) :
 
 /-- Collect the module's lexical scope, including every valid pattern leaf.
 Command elaboration rejects invalid targets. -/
-def globalNames (commands : List Command) : List String :=
+@[expose] def globalNames (commands : List Command) : List String :=
   commands.flatMap fun
     | .assign name _ | .assignListComp name _ | .assignDictComp name _
     | .assignCompExpr name _ | .define name .. => [name]
@@ -194,7 +194,7 @@ def globalNames (commands : List Command) : List String :=
       ((parseAssignmentPattern globalSlot target).toOption.map Prod.snd).getD []
     | .setIndex .. | .setIndexCompExpr .. | .addIndex .. | .addIndexCompExpr .. | .eval _ | .load .. => []
 
-private def Statement.localNames : Statement → Except Error (List String)
+@[expose] def Statement.localNames : Statement → Except Error (List String)
   | .assign name _ | .assignListComp name _ | .assignDictComp name _
   | .assignCompExpr name _ | .addNameCompExpr name _ | .define name .. => pure [name]
   | .assignTarget target _ =>
@@ -206,6 +206,35 @@ private def Statement.localNames : Statement → Except Error (List String)
     return (← resolveTarget fileSlot .unsupportedLoopTarget target).2 ++ (← body.localNames)
   | .pass | .setIndex .. | .setIndexCompExpr .. | .addIndex .. | .addIndexCompExpr .. | .eval _ | .ret _ | .retCompExpr _
     | .breakLoop | .continueLoop => pure []
+
+/-- The lexical environment and write scope shared by the mixed assignment
+branch and its enclosing module or function compiler. -/
+structure BlockContext where
+  reads : Context
+  writes : Scope
+
+@[expose] def moduleBlock (commands : List Command) : BlockContext :=
+  ⟨⟨fileNames commands, globalNames commands⟩, .global⟩
+
+@[expose] def SourceSignature.parameterNames (signature : SourceSignature) : List String :=
+  signature.positional.map SourceParameter.name ++ signature.keywordOnly.map SourceParameter.name ++
+    signature.varargs.toList ++ signature.kwargs.toList
+
+structure FunctionLayout where
+  locals : List String
+  block : BlockContext
+
+/-- Compute the local layout after collecting all binder occurrences. Parameters
+already have slots, and repeated local assignments share the first slot. -/
+@[expose] def functionLayout (parent : Context) (parameters : SourceSignature) (occurrences : List String) :
+    FunctionLayout :=
+  let names := parameters.parameterNames
+  let locals := occurrences.eraseDups.filter (!names.contains ·)
+  ⟨locals, ⟨{ parent with locals := (names ++ locals) ++ parent.locals }, .local⟩⟩
+
+@[expose] def collectFunctionLayout (parent : Context) (parameters : SourceSignature) (body : Statement) :
+    Except Error FunctionLayout :=
+  body.localNames.map (functionLayout parent parameters)
 
 private abbrev Build := StateT Program (Except Error)
 
@@ -453,17 +482,17 @@ function validation remain with the enclosing normalized resolver. -/
   let (pattern, targetReads) ← resolveAssignmentOperands context shape
   return (⟨pattern, rhs, names, rhsReads, targetReads⟩, next)
 
-private def compileCompAssignment {α : Type} (context : Context) (scope : Scope)
+private def compileCompAssignment {α : Type} (block : BlockContext)
     (target : Lowering.Resolve.SourceExpr) (rhs : CompExpr)
     (names : LoopTarget → Comprehensions.Expression → α)
     (stores : Comprehensions.AssignmentPattern → Comprehensions.Expression → α) :
     Build (α × List Binding) := do
-  match resolveTarget (fun name => ⟨scope, name⟩) .unsupportedAssignmentTarget target with
+  match resolveTarget (fun name => ⟨block.writes, name⟩) .unsupportedAssignmentTarget target with
   | .ok (target, _) =>
-    let (rhs, reads) ← compileCompExpr context rhs
+    let (rhs, reads) ← compileCompExpr block.reads rhs
     return (names target rhs, reads)
   | .error _ =>
-    let result ← elaboratePatternAssignment context scope target rhs
+    let result ← elaboratePatternAssignment block.reads block.writes target rhs
     return (stores result.pattern result.rhs, result.rhsReads ++ result.targetReads)
 
 private def resolveSetIndex {α : Type} (context : Context)
@@ -529,8 +558,8 @@ private def captureNames (owned : List String) (reads : List Binding) : List Fre
   (reads.eraseDups.filter fun binding => binding.scope == .global || !owned.contains binding.name).map
     fun binding => ⟨binding, binding⟩
 
-private def compileDefinition (parent : Context) (parameters : SourceSignature) (locals : List String)
-    (compile : Context → Build ResolvedBody) :
+private def compileDefinition (parent : Context) (parameters : SourceSignature) (layout : FunctionLayout)
+    (compile : BlockContext → Build ResolvedBody) :
     Build (DeclarationId × Option (List (Binding × Comprehensions.Expression)) × List Binding) := do
   let positional ← parameters.positional.mapM (readParameter parent)
   let keywords ← parameters.keywordOnly.mapM (readParameter parent)
@@ -544,17 +573,16 @@ private def compileDefinition (parent : Context) (parameters : SourceSignature) 
   let signature : Functions.Signature :=
     ⟨positionalSlots, keywordSlots,
     parameters.varargs.map fileSlot, parameters.kwargs.map fileSlot⟩
-  let parameterNames := signature.slots.map Binding.name
-  let locals := locals.eraseDups.filter (!parameterNames.contains ·)
-  let owned := parameterNames ++ locals
-  let body ← compile { parent with locals := owned ++ parent.locals }
-  let captures := captureNames owned body.reads
+  let body ← compile layout.block
+  let captures := captureNames (parameters.parameterNames ++ layout.locals) body.reads
   let program ← get
-  set (program.push ⟨signature, locals.map fileSlot, captures, body.code⟩)
+  set (program.push ⟨signature, layout.locals.map fileSlot, captures, body.code⟩)
   -- A child needs its captures when it is defined. Its defaults also read the parent.
   return (program.size, stagedDefaults, named.flatMap ResolvedParameter.reads ++ captures.map FreeName.source)
 
-private def compileBody (context : Context) : Statement → Build ResolvedBody
+private def compileBody (block : BlockContext) (statement : Statement) : Build ResolvedBody :=
+  let context := block.reads
+  match statement with
   | .pass => pure ⟨.total (.atomic .pass), []⟩
   | .assign name value => do
     let (value, reads) ← readExpr context value
@@ -564,7 +592,7 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
     let (rhs, reads) ← readExpr context rhs
     return ⟨.assignTargetExpr target rhs, reads⟩
   | .assignTargetCompExpr target rhs => do
-    let (code, reads) ← compileCompAssignment context .local target rhs
+    let (code, reads) ← compileCompAssignment block target rhs
       (fun target rhs => rhs.assignTargetCode target Comprehensions.directStages)
       (fun target rhs => Comprehensions.assignPatternCode target rhs Comprehensions.directStages)
     return ⟨code, reads⟩
@@ -605,36 +633,38 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
     let (expr, reads) ← compileCompExpr context expr
     return ⟨expr.returnCode Comprehensions.directStages, reads⟩
   | .seq first rest => do
-    let first ← compileBody context first
-    let rest ← compileBody context rest
+    let first ← compileBody block first
+    let rest ← compileBody block rest
     return ⟨.seq first.code rest.code, first.reads ++ rest.reads⟩
   | .branch test yes no => do
     let (test, reads) ← readExpr context test
-    let yes ← compileBody context yes
-    let no ← compileBody context no
+    let yes ← compileBody block yes
+    let no ← compileBody block no
     return ⟨.branchExpr test yes.code no.code, reads ++ yes.reads ++ no.reads⟩
   | .forIn target iterable body => do
     let (iterable, reads) ← readExpr context iterable
-    let body ← compileBody context body
+    let body ← compileBody block body
     return ⟨.forInExpr (fileSlot target) iterable body.code, reads ++ body.reads⟩
   | .forInTarget target iterable body => do
     let (target, _) ← monadLift (resolveTarget fileSlot .unsupportedLoopTarget target)
     let (iterable, reads) ← readExpr context iterable
-    let body ← compileBody context body
+    let body ← compileBody block body
     return ⟨.forInExpr target iterable body.code, reads ++ body.reads⟩
   | .breakLoop => pure ⟨.breakLoop, []⟩
   | .continueLoop => pure ⟨.continueLoop, []⟩
   | .define name signature body => do
-    let locals ← monadLift body.localNames
+    let layout ← monadLift (collectFunctionLayout context signature body)
     let (id, defaults, reads) ←
-      compileDefinition context signature locals (fun inner => compileBody inner body)
+      compileDefinition context signature layout (fun inner => compileBody inner body)
     let target := fileSlot name
     let code := defaults.elim (.define target id)
       (Comprehensions.definitionWithDefaults Comprehensions.directStages target id)
     return ⟨code, reads⟩
-termination_by structural statement => statement
+termination_by structural statement
 
-private def compileCommand (context : Context) : Command → Build Modules.Command
+private def compileCommand (block : BlockContext) (command : Command) : Build Modules.Command :=
+  let context := block.reads
+  match command with
   | .assign name value => do
     let (value, _) ← readExpr context value
     return .exec (.assignExpr name value)
@@ -643,7 +673,7 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
     let (rhs, _) ← readExpr context rhs
     return .exec (.assignTargetExpr target rhs)
   | .assignTargetCompExpr target rhs => do
-    let (code, _) ← compileCompAssignment context .global target rhs
+    let (code, _) ← compileCompAssignment block target rhs
       TopCode.assignTargetCompExpr TopCode.assignPatternCompExpr
     return .exec code
   | .assignListComp name comp => do
@@ -671,9 +701,9 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
     let (value, _) ← readExpr context value
     return .exec (.evalExpr value)
   | .define name signature body => do
-    let locals ← monadLift body.localNames
+    let layout ← monadLift (collectFunctionLayout context signature body)
     let (id, defaults, _) ←
-      compileDefinition context signature locals (fun inner => compileBody inner body)
+      compileDefinition context signature layout (fun inner => compileBody inner body)
     return .exec (defaults.elim (.define name id) (.defineWithDefaults name id))
   | .load label imports =>
     if imports.isEmpty then throw (.emptyLoad label) else pure (.load label imports)
@@ -682,8 +712,7 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
 table. Call `resolve` for checked intake. -/
 def elaborateCommands (commands : List Command) (linked : Program := #[]) :
     Except Error (List Modules.Command × Program) :=
-  let context : Context := ⟨fileNames commands, globalNames commands⟩
-  (commands.mapM (compileCommand context)) linked
+  (commands.mapM (compileCommand (moduleBlock commands))) linked
 
 /-- Elaborate and validate the emitted declaration table and commands.
 Input names are normalized identifiers. -/

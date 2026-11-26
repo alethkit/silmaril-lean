@@ -165,9 +165,9 @@ static rejection, execution outcomes, publication and the exact residual
 state. This correspondence shares the elaborator and starts at a normalized
 AST with legal identifier spellings. A separate
 [mixed assignment theorem](starlark-functions.md#mixed-name-and-subscript-targets)
-relates accepted targets and a bounded RHS to independent lexical rules in
-an already collected block. The caller supplies the module or function write
-scope. Soundness of block collection, capture installation, whole-module
+relates accepted targets and a bounded RHS to independent lexical rules.
+The block collection theorem below supplies that environment and write
+scope for its admitted forms. Capture installation, whole-module
 elaboration against independent source rules, and text parsing remain open.
 Lambdas, general comprehension expression
 positions, field leaves, store leaves in loop and comprehension targets,
@@ -180,6 +180,43 @@ defaults, load aliases, and loop scope and control. Go rejects the
 load-then-global collision and accepts the global-then-load order. The Lean adapter follows the
 Bazel-team spec and rejects both.
 [Pinned Go comparison](../../examples/starlark/scope/check.go) · [Name binding in the pinned spec][names]
+
+### Lexical block collection
+
+`ModuleBinders` and `BodyBinders` state which normalized commands and
+statements declare names, with their occurrences in source order. The
+load-free module subset covers name assignment, mixed patterns,
+ordinary subscript stores, expression statements and definitions. The
+function subset also covers pass, return, sequences and both branches of
+a conditional. A definition binds its name in the current block. Its
+parameters, defaults and body do not contribute binders there. A nested
+block can be collected separately using the parent's read context.
+
+In a mixed pattern, only a name leaf contributes a declaration. A
+receiver, subscript index, RHS and comprehension generator contribute no
+declaring occurrence in the surrounding block. `ParameterBinders` follows
+the normalized parameter classes. `LocalBinders` keeps the first occurrence
+of each other body binder. An assignment to a parameter reuses its slot.
+`owned_read` selects a body binder's owned slot even before its first
+assignment and even when an enclosing or global name has the same
+spelling. An uninitialized slot fails when read.
+
+`moduleBlock_eq` and `collectFunctionLayout_eq` prove the existing
+compiler's collection and write-scope phases agree with the declarative
+rules. `module_assignment_sound` and `function_assignment_sound` compose
+with the independent mixed-assignment elaboration theorem and put each
+resolved name leaf among the declared globals or owned slots. Assignment
+elaboration still uses the bounded leaf and RHS grammar. The block rules
+cover declaration occurrences only. Identifier, parameter, duplicate
+global and runtime validation remain in the existing checked entry point.
+
+The function theorem takes the parent context as input. It leaves
+declarative capture selection and installation into runtime slots
+open. A nested-function fixture checks the actual emitted capture list
+and mutation through an escaped closure after the parent returns.
+Whole-source execution, unproved binder grammar including load aliases
+and loop targets, and broader leaf and RHS elaboration remain open.
+[Block judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Block/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Block/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Block/Checks.lean) · [Pinned Go fixtures](../../examples/starlark/scope/check.go)
 
 ## Finite-manifest loader
 
