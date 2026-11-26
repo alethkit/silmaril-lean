@@ -280,6 +280,36 @@ reader refusals. Run it with
 `lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Regression.lean`.
 [Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Regression.lean)
 
+### Replay a bounded plan on the finite switch
+
+`PrefixWord.Sequence.Replay.lower` extends the two-cut profile to a
+caller-supplied list of nominations. The list length bounds the work.
+Each request uses the current table's Store version and goes through
+`lowerWithEntry` with its own suffix and occurrence witnesses at the
+original typed input. The supported shape stays latest-first, with an
+argument address, prefix-produced data and a nonempty Load-only suffix.
+An intervening Load joins that suffix when a later Store is removed.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Replay/Defs.lean) ·
+[Pinned Simple memory model](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#one-memory-value)
+
+The trace certifies exact equality between each admitted source CFG and
+the preceding optimized CFG, and records each admission at the saved
+input. Replay stops at the first refusal with that request and the
+unattempted tail in `remaining`. The final artifact is the last admitted
+optimized CFG, or the original when no cut succeeds. The emitted
+endpoints agree at every common CF budget on the selected occurrence,
+full join packet, returned word and entire final buffer. The retained
+entry also preserves operation order, its return word and every Load
+readback. The number of admitted steps is the number of deleted Stores.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Replay/Thms.lean)
+
+The fixture runs three cuts on distinct cells and inspects each
+intermediate artifact. On a second entry table an intervening Load reads
+the oldest Store's cell, so the third cut refuses and replay returns the
+first two. A separate stale address witness also refuses. Run it with
+`lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Replay/Regression.lean`.
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Replay/Regression.lean)
+
 ## Bypass a single-user Store inside one arm
 
 `DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter
