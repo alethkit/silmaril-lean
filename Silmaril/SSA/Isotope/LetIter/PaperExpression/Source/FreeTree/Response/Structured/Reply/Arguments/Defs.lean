@@ -29,6 +29,19 @@ inductive Raw (e : ε) : EffectCtx (Ty α) ε → Ty α → Expr Φ → Prop
   | pair {Γ : EffectCtx (Ty α) ε} {A B : Ty α} {a b : Expr Φ}
       (left : Raw e Γ A a) (right : Raw e Γ B b) : Raw e Γ (.product A B) (.pair a b)
 
+/-- A finite branching expression. A straight-line prefix computes a sum
+scrutinee, then only the selected arm runs. The arms may themselves branch.
+A straight-line initializer can also introduce a value before a branching body. -/
+inductive CaseRaw (e : ε) : EffectCtx (Ty α) ε → Ty α → Expr Φ → Prop
+  | straight {Γ : EffectCtx (Ty α) ε} {A : Ty α} {a : Expr Φ}
+      (body : Raw e Γ A a) : CaseRaw e Γ A a
+  | let1 {Γ : EffectCtx (Ty α) ε} {A B : Ty α} {a k : Expr Φ}
+      (init : Raw e Γ A a) (body : CaseRaw e ((A, ⊥) :: Γ) B k) : CaseRaw e Γ B (.let₁ a k)
+  | case {Γ : EffectCtx (Ty α) ε} {A B C : Ty α} {s l r : Expr Φ}
+      (scrutinee : Raw e Γ (.coprod A B) s)
+      (left : CaseRaw e ((A, ⊥) :: Γ) C l) (right : CaseRaw e ((B, ⊥) :: Γ) C r) :
+      CaseRaw e Γ C (.case s l r)
+
 /-- A sequence of visible requests with bottom-typed constructor arguments,
 ending in a bottom-typed constructor value. Continuations can use their
 whole reply as a single variable. -/
