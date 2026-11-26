@@ -12,6 +12,7 @@ open Kleisli (value)
 open Isotope.Semantics (BoundEnv InstructionModel UnitModel)
 open Isotope.LetCase.LocallyNameless (Derivation)
 open LambdaSSA (At)
+open LambdaSSA.Acyclic (Operand)
 open LambdaSSA.Region (packedExitType)
 open LetIter.Semantics.Categorical (boundEnv)
 open Silmaril.Semantics.NondeterministicTrace (Tagged)
@@ -67,7 +68,7 @@ private theorem table_run {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value
   · exact bit_operand_run (ρ.snoc (A := U) PUnit.unit) l
   · exact bit_operand_run (ρ.snoc (A := U) PUnit.unit) r
 
-private theorem arm_run {L : List Sorts} (a : ArmNormal L) (effects : List Bool)
+theorem arm_run_at_proof {L : List Sorts} (a : ArmNormal L) (effects : List Bool)
     {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β) (i : Fin n)
     (h : β.get i = Bit) (b : Bool) (hi : h ▸ ρ i = bit b)
     (finish : value (packedExitType L) → Trace (value (packedExitType L)))
@@ -96,40 +97,53 @@ private theorem arm_run {L : List Sorts} (a : ArmNormal L) (effects : List Bool)
     rfl
 
 set_option maxHeartbeats 600000 in
+theorem request_run_proof {n : Nat} {β : BoundCtx Sorts n} {T : Sorts} {R A : Type}
+    (req : Bool) (l r : Operand signature.Instr (β.snoc Bit) T)
+    (ρ : BoundEnv value β) (finish : value T → Trace A) (success : R → A)
+    (left right : Bool → Reply.Normal R)
+    (hl : ∀ b, (Kleisli.run model l.2 (ρ.snoc (A := Bit) (bit b)) >>= finish).outcomes =
+      (left b).outcomesWith success)
+    (hr : ∀ b, (Kleisli.run model r.2 (ρ.snoc (A := Bit) (bit b)) >>= finish).outcomes =
+      (right b).outcomesWith success) :
+    (Kleisli.run model (requestOperand req false l r).2 ρ >>= finish).outcomes =
+      (requestTree req left right).outcomesWith success := by
+  let query : Derivation signature.Instr Γ₀ β (.op (.ask req) .unit) Answer := .op .unit
+  change (Kleisli.run model (.case query l.2 r.2) ρ >>= finish).outcomes = _
+  simp only [Kleisli.run, query, Derivation.denote, pure_bind, bind_assoc]
+  have unitValue : (UnitModel.unitEquiv (D := value)).symm PUnit.unit = PUnit.unit := rfl
+  rw [unitValue, ask_bind]
+  have unionBool {B : Type} (s : Bool → Set B) : (⋃ b, s b) = s false ∪ s true := by
+    ext x
+    simp only [Set.mem_iUnion, Set.mem_union, Bool.exists_bool]
+  simp only [unionBool, answer, Bool.false_eq_true, ite_false, ite_true,
+    requestTree, Reply.Normal.outcomesWith]
+  let observed (branch : Operand signature.Instr (β.snoc Bit) T) (b : Bool) :=
+    (Kleisli.run model branch.2 (ρ.snoc (A := Bit) (bit b)) >>= finish).outcomes
+  let pair (tag : Bool) (branch : Operand signature.Instr (β.snoc Bit) T) :=
+    prepend (.answer req tag) '' (prepend (.answer req false) '' observed branch false) ∪
+      prepend (.answer req tag) '' (prepend (.answer req true) '' observed branch true)
+  change pair false l ∪ pair true r = _
+  simp only [pair, observed, hl, hr, Set.image_union]
+
+set_option maxHeartbeats 600000 in
 private theorem packed_normal_run (H : Sorts) (L : List Sorts) (p : Normal (H :: L)) :
     programOutcomes H L p.render = p.outcomes := by
   let T := packedExitType (H :: L)
   let ρ := boundEnv value (β := .nil) PUnit.unit
   let body := ((program H L p.render).body.render .base).encode.toLetCase.2
   let finish (x : value T) := Kleisli.run model body (ρ.snoc (A := T) x)
-  change (Kleisli.run model p.render.entry.2 ρ >>= finish).outcomes = _
-  let query : Derivation signature.Instr Γ₀ .nil (.op (.ask p.request) .unit) Answer := .op .unit
-  change (Kleisli.run model (.case query (p.left.render.operand .nil).2 (p.right.render.operand .nil).2)
+  change (Kleisli.run model
+    (requestOperand p.request false (p.left.render.operand .nil) (p.right.render.operand .nil)).2
     ρ >>= finish).outcomes = _
-  simp only [Kleisli.run, query, Derivation.denote, pure_bind, bind_assoc]
-  have unitValue : (UnitModel.unitEquiv (D := value)).symm PUnit.unit = PUnit.unit := rfl
-  rw [unitValue, ask_bind]
-  have ret (a : ArmNormal (H :: L)) (b : Bool) :
-      finish (a.result b).packed = pure (a.result b).packed := by
-    let x := a.result b
-    exact Exits.run_router model (rfl : At (H :: L) 0 H) (H :: L) (LambdaSSA.Ren.id (H :: L))
-      .base ρ x.1 (LambdaSSA.Semantics.Categorical.labelAt_get (H :: L) x.1) x.2
   have branch (a : ArmNormal (H :: L)) (b : Bool) :
       (Kleisli.run model (a.render.operand .nil).2 (ρ.snoc (A := Bit) (bit b)) >>= finish).outcomes =
-        (a.traceTree b).outcomesWith Exits.Exit.packed :=
-    arm_run a a.emits (ρ.snoc (A := Bit) (bit b)) 0 rfl b rfl finish (ret a b)
-  have unionBool {A : Type} (s : Bool → Set A) : (⋃ b, s b) = s false ∪ s true := by
-    ext x
-    simp only [Set.mem_iUnion, Set.mem_union, Bool.exists_bool]
-  simp only [unionBool, answer, Bool.false_eq_true, ite_false, ite_true,
-    Normal.outcomes, Normal.traceTree, Reply.Normal.outcomesWith]
-  let observed (a : ArmNormal (H :: L)) (b : Bool) :=
-    (Kleisli.run model (a.render.operand .nil).2 (ρ.snoc (A := Bit) (bit b)) >>= finish).outcomes
-  let pair (tag : Bool) (a : ArmNormal (H :: L)) :=
-    prepend (.answer p.request tag) '' (prepend (.answer p.request false) '' observed a false) ∪
-      prepend (.answer p.request tag) '' (prepend (.answer p.request true) '' observed a true)
-  change pair false p.left ∪ pair true p.right = _
-  simp only [pair, observed, branch, Set.image_union]
+        (a.traceTree b).outcomesWith Exits.Exit.packed := by
+    let x := a.result b
+    have ret : finish x.packed = pure x.packed :=
+      Exits.run_router model (rfl : At (H :: L) 0 H) (H :: L) (LambdaSSA.Ren.id (H :: L))
+        .base ρ x.1 (LambdaSSA.Semantics.Categorical.labelAt_get (H :: L) x.1) x.2
+    exact arm_run_at_proof a a.emits (ρ.snoc (A := Bit) (bit b)) 0 rfl b rfl finish ret
+  exact request_run_proof _ _ _ ρ finish _ _ _ (branch p.left) (branch p.right)
 
 theorem programOutcomes_eq_of_sat_proof (H : Sorts) (L : List Sorts) (p q : ProgramBody (H :: L))
     (h : ((LetCase.inst Γ₀).obj signature).Sat (Kleisli.algebra model) (grammarCase (equation H L p q))) :
