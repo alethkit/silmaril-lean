@@ -2,10 +2,11 @@ module
 
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.CaptureLiveness.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi.OrderedExits.Thms
+import Silmaril.SSA.LambdaRTL.CFG.Cyclic.RoundTrip.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Thms
 import Silmaril.SSA.LambdaRTL.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.UniformReadback.Thms
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.Relocation.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.Relocation.Local.Thms
 
 /-! # A checked φ split with two distinct declared exits -/
 
@@ -448,12 +449,12 @@ private theorem body_keeps_slot {A : Type 1} (body : CFG.Body Reg (Option Key) s
 private def paramsDisjoint (g : RTL) (slots : List (Fin ports.slots)) : Prop :=
   ∀ item ∈ g.blocks, ∀ i ∈ slots, (⟨i.val⟩ : Reg) ≠ item.2.param
 
-private theorem agrees_at_reached {blocks : Nat}
+private theorem agrees_at_reached {blocks : Nat} {liveOuts : Option Key → List (Reg × Ty SortName)}
     {code : FiniteCFG signature.Instr blocks ports.exits.length ports.slots}
-    (a : Lowered ports fields code) (slots : List (Fin ports.slots))
+    (a : Lowered ports liveOuts code) (slots : List (Fin ports.slots))
     (kept : keepsEntryCaptures a slots = true)
-    (params : paramsDisjoint (withLiveOut fields a.source) slots)
-    (input : Input context) {p : Jump} (reached : Reached (withLiveOut fields a.source) input p) :
+    (params : paramsDisjoint (withLiveOut liveOuts a.source) slots)
+    (input : Input context) {p : Jump} (reached : Reached (withLiveOut liveOuts a.source) input p) :
     ∀ i ∈ slots, p.2.2 ⟨i.val⟩ = inputEnv context input i.val := by
   intro i member
   have unassigned := List.all_eq_true.mp kept i member
@@ -465,13 +466,13 @@ private theorem agrees_at_reached {blocks : Nat}
     exact frame.trans (store_at ports.names ports.distinct context input i)
   | @step p q before ran ih =>
     cases found : @List.lookup _ _ instBEqOfDecidableEq p.1
-        (withLiveOut (P := signature) fields a.source).blocks with
+        (withLiveOut (P := signature) liveOuts a.source).blocks with
     | none =>
       simp only [CFG.Cyclic.step, found] at ran
       have impossible : (.inl p : Jump ⊕ Jump) = .inr q := ret_inj.mp ran
       cases impossible
     | some block =>
-      have present : (p.1, block) ∈ (withLiveOut (P := signature) fields a.source).blocks := by
+      have present : (p.1, block) ∈ (withLiveOut (P := signature) liveOuts a.source).blocks := by
         let : BEq (Option Key) := instBEqOfDecidableEq
         obtain ⟨_, _, list, _⟩ := List.lookup_eq_some_iff.mp found
         simp [list]
@@ -679,6 +680,136 @@ example : ¬ ∃ allocation, Relocation.Valid 5 registers.parameter
 example : (branchingSplit.relocatedRegisters branchingSeed).isSome = false :=
   Bool.eq_false_iff.mpr fun accepted =>
     branching_global_conflict ((branchingSplit.relocatedRegisters_isSome_iff branchingSeed branchingRequests_found).mp accepted)
+
+private def branchingAllocation : Relocation.BodyAllocations.{0} 3 :=
+  (branchingSplit.relocatedByBody branchingSeed).get (by decide)
+
+example : branchingAllocation.entry.parameter = registers.parameter ∧
+    branchingAllocation.entry.localAt 8 = ⟨14⟩ ∧
+    branchingAllocation.localAt 2 8 = ⟨12⟩ := by decide
+
+private def branchingLocal : Lowered ports branchingFields branchingSplit.target.code :=
+  (branchingSplit.reverseRelocatedByBody branchingSeed splitLabels).get (by decide)
+
+private theorem branchingLocalAccepted :
+    branchingSplit.reverseRelocatedByBody branchingSeed splitLabels = some branchingLocal :=
+  (Option.some_get _).symm
+
+example : Function.Injective (SSA.FiniteSum.append splitLabels (fun i => ports.exits[i])) :=
+  (branchingSplit.reverseRelocatedByBody_spec branchingSeed splitLabels branchingLocalAccepted).1
+
+example : (branchingSplit.reverseRelocatedByBody branchingSeed (fun _ => some ⟨0⟩)).isNone := by decide
+example : (branchingSplit.reverseRelocatedByBody branchingSeed (fun _ => leftExit)).isNone := by decide
+
+-- The attached body sees only the incoming packet. Even if an earlier
+-- body used the same register for a different local, changing the carried
+-- store cannot affect the next label or argument (including live-outs).
+theorem branchingLocal_step_store_independent (label : Option Key) (arg : Value Runtime)
+    (left right : Reg → Value Runtime) :
+    let attached := withLiveOut (P := signature) branchingFields branchingLocal.source
+    Sum.map obs obs <$> CFG.Cyclic.step runtimeModel attached.blocks (label, arg, left) =
+      Sum.map obs obs <$> CFG.Cyclic.step runtimeModel attached.blocks (label, arg, right) :=
+  (CFG.Cyclic.RoundTrip.step_packetClosed_obs runtimeModel _ branchingLocal.closed left (label, arg, left)).trans
+    (CFG.Cyclic.RoundTrip.step_packetClosed_obs runtimeModel _ branchingLocal.closed left (label, arg, right)).symm
+
+private def branchingOriginalSlots : List (Fin ports.slots) := [0, 1]
+private def branchingLocalSlots : List (Fin ports.slots) := [0, 1, 3]
+
+example (input : Input context) {p : Jump}
+    (reached : Reached (withLiveOut (P := signature) branchingFields branchingLocal.source) input p) :
+    ∀ i ∈ branchingLocalSlots, p.2.2 ⟨i.val⟩ = inputEnv context input i.val :=
+  agrees_at_reached branchingLocal branchingLocalSlots (by decide) (by unfold paramsDisjoint; decide)
+    input reached
+
+private def branchingRecompiled : NamedFlat.Entry.LiveOut.Admission signature ports branchingFields
+    branchingLowered.source :=
+  admitWithCaptures branchingLowered branching.internal branchingOriginalSlots (by decide) (by decide) (by decide)
+
+private def branchingLocalRecompiled : NamedFlat.Entry.LiveOut.Admission signature ports branchingFields
+    branchingLocal.source :=
+  admitWithCaptures branchingLocal branchingSplit.target.internal branchingLocalSlots
+    (by decide) (by decide) (by decide)
+
+/-- The actual mutable RTL preserves ordered exit observations for each supplied record. -/
+theorem branchingLocal_emitted_eq (input : Input context) :
+    NamedFlat.Entry.LiveOut.observe model ports branchingFields branchingLowered.source input =
+      NamedFlat.Entry.LiveOut.observe model ports branchingFields branchingLocal.source input :=
+  branchingSplit.reverse_eq branchingLowered branchingLocal model input
+
+/-- Both actual RTL tables re-admit and agree at the same packed interface. -/
+theorem branchingLocal_packed_eq (input : Input context) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue _ _ input)) branchingRecompiled.program.code =
+      region model.raw (extend ambient (encodeValue _ _ input)) branchingLocalRecompiled.program.code :=
+  branchingSplit.roundTrip_eq branchingLowered branchingLocal branchingRecompiled branchingLocalRecompiled
+    model input ambient
+
+private def branchingResult (chooseLeft : Bool) : Transfer Runtime :=
+  let value := if chooseLeft then atom 13 else atom 7
+  FiniteCFG.packedTreeOutput (if chooseLeft then 1 else 0, .pair value (.pair value .unit))
+
+private theorem branching_source_result (chooseLeft : Bool) :
+    branching.observe model (record olderX olderY chooseLeft) = pure (branchingResult chooseLeft) := by
+  let σ := captures.store (record olderX olderY chooseLeft)
+  let step := CFG.Cyclic.Phi.OrderedExits.step runtimeModel branchingGraph
+  let val := if chooseLeft then atom 13 else atom 7
+  let output := Value.pair val (.pair val .unit)
+  let exit := if chooseLeft then leftExit else rightExit
+  have leave (store : Reg → Value Runtime) (pred : Option Key) :
+      iter step (pred, exit, output, store) = pure (exit, output) := by
+    have external : step (pred, exit, output, store) = pure (.inl (exit, output)) := by
+      cases chooseLeft <;> rfl
+    rw [congrFun (iterate_fixpoint step) (pred, exit, output, store), external, pure_bind, Sum.elim_inl]
+  let prefixStore := (List.range 8).foldr (fun i σ => upd σ ⟨100 + i⟩ .unit) σ
+  let start : Pending := (none, some first, .unit, upd prefixStore rightReply (atom 13))
+  let hop : Pending := (some first, some finish, .unit, upd start.2.2.2 x (atom 7))
+  have firstStep : step start = pure (.inr hop) := by
+    unfold step start
+    rw [CFG.Cyclic.Phi.OrderedExits.step_internal _ _ _ _ _ _ rfl]
+    simp only [CFG.Cyclic.Phi.OrderedExits.execute, CFG.Body.exec, CFG.Term.exec, br, map_pure]
+    rfl
+  have lastStep : step hop =
+      pure (.inr (some finish, rightExit, .pair (atom 7) (.pair (atom 7) .unit),
+        upd hop.2.2.2 swappedX (atom 7))) := by
+    unfold step hop
+    rw [CFG.Cyclic.Phi.OrderedExits.step_internal _ _ _ _ _ _ rfl]
+    simp only [CFG.Cyclic.Phi.OrderedExits.execute, CFG.Body.exec, CFG.Term.exec, map_pure]
+    rfl
+  let entry := CFG.Cyclic.Phi.OrderedExits.execute runtimeModel none branchingGraph.entry σ
+  change (entry >>= iter step >>= _) = _
+  cases chooseLeft
+  · have enter : entry = pure start := by
+      simp only [entry, branchingGraph, entryPrefix, CFG.Cyclic.Phi.OrderedExits.execute,
+        CFG.Body.exec, CFG.Term.exec, Op.eval, Val.eval, pure_bind, br]
+      change (pure (Sum.inr (atom 13) : Value Runtime ⊕ Value Runtime) >>= _) = _
+      rw [pure_bind]
+      rfl
+    rw [enter, pure_bind, congrFun (iterate_fixpoint step) start, firstStep, pure_bind, Sum.elim_inr,
+      congrFun (iterate_fixpoint step) hop, lastStep, pure_bind, Sum.elim_inr]
+    change (iter step (some finish, exit, output, _) >>= _) = _
+    rw [leave, pure_bind]
+    rfl
+  · let done : Pending := (none, exit, output, upd prefixStore leftReply (atom 13))
+    have enter : entry = pure done := by
+      simp only [entry, branchingGraph, entryPrefix, CFG.Cyclic.Phi.OrderedExits.execute,
+        CFG.Body.exec, CFG.Term.exec, Op.eval, Val.eval, pure_bind, br]
+      change (pure (Sum.inl (atom 13) : Value Runtime ⊕ Value Runtime) >>= _) = _
+      rw [pure_bind]
+      rfl
+    rw [enter, pure_bind]
+    change (iter step (none, exit, output, _) >>= _) = _
+    rw [leave, pure_bind]
+    rfl
+
+/-- The direct exit keeps tag 1 and payload 13. The arm that crosses the
+forwarder keeps tag 0 and payload 7, with their declared live-out fields. -/
+theorem branchingLocal_packed_result (chooseLeft : Bool) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue _ _ (record olderX olderY chooseLeft)))
+      branchingLocalRecompiled.program.code = pure (branchingResult chooseLeft) :=
+  (branchingSplit.roundTrip_eq branchingLowered branchingLocal branchingRecompiled branchingLocalRecompiled
+    model (record olderX olderY chooseLeft) ambient).symm.trans
+      ((branching.observe_roundTrip branchingLowered branchingRecompiled model
+        (record olderX olderY chooseLeft) ambient).symm.trans
+          (branching_source_result olderX olderY chooseLeft))
 
 end BranchingConflict
 
