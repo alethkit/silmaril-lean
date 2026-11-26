@@ -80,6 +80,27 @@ def RetainedTensorAgrees (X A : τ) : Prop :=
   (packedTensorIso J M objIso X A).hom =
     ((objIso X).hom ▷ J.obj (M.obj A)) ≫ (Obj X ◁ (objIso A).hom)
 
+/-- The target's exact sum, with its coordinates determined by the two summands. -/
+noncomputable def interpretedSumIso (A B : τ)
+    (left : J.obj (M.obj A) ≅ Obj A) (right : J.obj (M.obj B) ≅ Obj B) :
+    J.obj (M.obj (coprod A B)) ≅ Obj (coprod A B) :=
+  J.mapIso (M.coprodIso A B) ≪≫ (asIso (coprodComparison J (M.obj A) (M.obj B))).symm ≪≫
+    coprod.mapIso left right ≪≫ (sumIso (Seed) A B).symm
+
+/-- The packed exits use the sum order `S + (D + empty)`. Their coordinates
+are induced by the state, result, and empty isomorphisms. -/
+noncomputable def packedExitIso (S D : τ) :
+    J.obj (M.obj (packedExitType [S, D])) ≅ Obj (packedExitType [S, D]) :=
+  interpretedSumIso J M S (coprod D Silmaril.empty) (objIso S)
+    (interpretedSumIso J M D Silmaril.empty (objIso D) (objIso Silmaril.empty))
+
+/-- The retained packed input uses the coordinate isomorphism determined by
+the two exit tags. Only the coordinate of the full product is compared. -/
+def RetainedPackedExitsAgree (X S D : τ) : Prop :=
+  (packedTensorIso J M objIso X (packedExitType [S, D])).hom =
+    ((objIso X).hom ▷ J.obj (M.obj (packedExitType [S, D]))) ≫
+      (Obj X ◁ (packedExitIso J M objIso S D).hom)
+
 /-- Both interpreted injections use the joined quotient's exact sum coordinates. -/
 def SumInjectionsAgree (A B : τ) : Prop :=
   reindexHom J M objIso (J.map (inlMap M A B)) = (sumCofan (Seed) A B).inl ∧
