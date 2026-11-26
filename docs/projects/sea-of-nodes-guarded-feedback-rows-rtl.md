@@ -862,11 +862,12 @@ agrees with the machine's word list and final memory. Compose with
 three feedback packets, a missing occurrence, a finite return and a
 fixed bank with no finite return. [Checked regression][table-regression]
 
-The present MLIR CF bank emitter supports wrapping add/mul and unsigned
-less-than. This RTL family also uses wrapping subtraction and signed
-less-than. A CF bridge needs checked arithmetic legalization and explicit
-arguments for the header temporaries read by later dispatch blocks. This
-bridge targets λSSA. [CF bank emitter][cf-bank] · [CF block scope][cf-scope]
+The MLIR CF bank emitter now has flag-free subtraction and signed
+less-than with exact RTL word agreement. Lowering the resized family to
+CF still needs typed arguments for the header temporaries read by later
+dispatch blocks, plus an occurrence and packet correspondence for the
+full dispatch chain. [CF bank emitter][cf-bank] · [Shared word operations][cf-word-ops]
+· [CF block scope][cf-scope]
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
@@ -905,3 +906,4 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 [family-phi]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/Phi/Thms.lean
 [cf-bank]: ../../Silmaril/SSA/SeaOfNodes/Loop/MLIR/CF/Defs.lean
 [cf-scope]: ../../Silmaril/SSA/MLIR/CF/Basic/Defs.lean
+[cf-word-ops]: sea-of-nodes-loop-mlir-cf.md#signed-i64-operations-shared-with-rtl
