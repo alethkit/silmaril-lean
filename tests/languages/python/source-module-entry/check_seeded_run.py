@@ -54,6 +54,7 @@ private def detail : AssertionArgument → String
   | .empty => "empty"
   | .text text => "text:" ++ text
   | .integerPair left right => s!"pair:{left}:{right}"
+  | .numericPair left right => s!"numeric-pair:{reprStr left}:{reprStr right}"
   | .boolean value => if value then "bool:True" else "bool:False"
   | .booleanPair left right => s!"bool-pair:{left}:{right}"
   | .textPair left right =>

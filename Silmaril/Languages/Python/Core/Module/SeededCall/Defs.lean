@@ -11,6 +11,7 @@ public import Silmaril.Languages.Python.Core.Module.TupleDispatch.Defs
 namespace Silmaril.Languages.Python.Core.Module.SeededCall
 
 open Core.Closure (RuntimeError)
+open Core.Binary64 (NumericOperand)
 open Core.Module.TupleDispatch (equalContents)
 
 inductive ExceptionClass where
@@ -26,6 +27,7 @@ inductive AssertionArgument where
   | empty
   | text (message : String)
   | integerPair (left right : Int)
+  | numericPair (left right : NumericOperand)
   | boolean (value : Bool)
   | booleanPair (left right : Bool)
   | textPair (left right : Core.Text)
@@ -221,6 +223,7 @@ calling an exception class would construct an object outside this profile. -/
 inductive Request (arity : Nat) where
   | assertBoolean (value : Bool)
   | compare (left right : Int)
+  | compareNumeric (left right : NumericOperand)
   | compareText (left right : Core.Text)
   | compareTuple (left right : List Core.Module.Value)
   | textConversion (result : Core.Text)
@@ -242,6 +245,9 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   match callee, arguments with
   | .helper .assertTrue, [.bool result] => .assertBoolean result
   | .helper .assertEqual, [.int left, .int right] => .compare left right
+  | .helper .assertEqual, [.float64 left, .float64 right] => .compareNumeric (.float64 left) (.float64 right)
+  | .helper .assertEqual, [.float64 left, .int right] => .compareNumeric (.float64 left) (.integer right)
+  | .helper .assertEqual, [.int left, .float64 right] => .compareNumeric (.integer left) (.float64 right)
   | .helper .assertEqual, [.text left, .text right] => .compareText left right
   | .helper .assertEqual, [.returnedTuple left, .returnedTuple right] => .compareTuple left right
   | .helper .assertEqual, [.tupleObject left, .returnedTuple right] => .compareTuple left.contents right
@@ -276,6 +282,8 @@ def invoke (callee : Value) (arguments : List Value) : Result :=
   | .assertBoolean false => .error (.raised (.assertionError (.boolean false)))
   | .compare left right =>
     if left = right then .ok .none else .error (.raised (.assertionError (.integerPair left right)))
+  | .compareNumeric left right =>
+    if left.equal right then .ok .none else .error (.raised (.assertionError (.numericPair left right)))
   | .compareText left right =>
     if left = right then .ok .none else .error (.raised (.assertionError (.textPair left right)))
   | .compareTuple left right =>
@@ -307,6 +315,11 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
       Executes (arity := arity) (.compare left right) (.ok .none)
   | unequal {arity : Nat} (left right : Int) (different : left ≠ right) :
       Executes (arity := arity) (.compare left right) (.error (.raised (.assertionError (.integerPair left right))))
+  | equalNumeric {arity : Nat} (left right : NumericOperand) (same : left.equal right = true) :
+      Executes (arity := arity) (.compareNumeric left right) (.ok .none)
+  | unequalNumeric {arity : Nat} (left right : NumericOperand) (different : left.equal right ≠ true) :
+      Executes (arity := arity) (.compareNumeric left right)
+        (.error (.raised (.assertionError (.numericPair left right))))
   | equalText {arity : Nat} (left right : Core.Text) (same : left = right) :
       Executes (arity := arity) (.compareText left right) (.ok .none)
   | unequalText {arity : Nat} (left right : Core.Text) (different : left ≠ right) :

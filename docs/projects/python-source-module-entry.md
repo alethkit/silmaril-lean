@@ -118,10 +118,25 @@ intact. An argument that raises before call entry produces no outer receipt.
 Integer-only closure equality and arithmetic report a profile fault if
 reached with a finite float.
 
-Line 28 of `test_int_float_primitives.py` supplies the differential's `5 / 2`
-witness. The original isolated assertion also requires float literal
-lowering and numeric equality in the assertion helper. The first assertion
-in the full file still stops at the positional addition operand.
+The AST emitter reads decimal float tokens from the original source, keeping
+the integer coefficient and power of ten. The checker evaluates their exact
+rational magnitude and rounds once to nearest, ties to even. The coefficient
+binary logarithm and the absolute decimal exponent are bounded by 4096
+before exponentiation. A single unary sign is allowed on a positional
+literal. Literal conversion preserves signed zero and admits only finite results.
+
+The live seeded equality helper compares finite float/float and int/float
+pairs by their exact numeric values. Distinct zero encodings compare equal.
+Mixed comparison embeds the integer exactly in the rationals. A failed
+comparison retains the two original tags and encodings in its assertion
+payload and receipt. Other descriptors keep their own call rules.
+
+Line 28 of `test_int_float_primitives.py`, `___assertEqual(5 / 2, 2.5)`,
+completes in isolation in both helper placements. Ordinary and empty-seeded
+execution report the missing helper. The full original still reports
+`expressionProfile`, and its isolated first assertion reports `callOperand`
+at the positional addition. Run the equality differential with
+`python3.13 -I scripts/check-python-finite-numeric-equality.py --upstream /path/to/pinned/rigorous`.
 Run the transport differential with
 `python3.13 -I scripts/check-python-division-call-transport.py --upstream /path/to/pinned/rigorous`.
 Negative exponent power uses CPython's separate floating power path, which

@@ -67,7 +67,7 @@ def pinned_operand(checkout):
     declarations = []
     first_call = ast.Module(body=module.body[:1], type_ignores=[])
     for name, tree in (("original", module), ("firstCall", first_call), ("divisionCall", original_call)):
-        term = emit(tree).split("public def pythonSource : Module :=", 1)[1]
+        term = emit(tree, source.decode("utf-8")).split("public def pythonSource : Module :=", 1)[1]
         declarations.append(f"private def {name} : Module :={term}")
     declarations.append("""
 #guard (match Compile.ModuleEntry.Functions.Run.compile original with
@@ -76,9 +76,7 @@ def pinned_operand(checkout):
 #guard (match Compile.ModuleEntry.Functions.Run.compile firstCall with
   | .error .callOperand => true
   | _ => false)
-#guard (match Compile.ModuleEntry.Functions.Run.compile divisionCall with
-  | .error (.source (.scalar .expressionProfile)) => true
-  | _ => false)
+#guard (Compile.ModuleEntry.Functions.Run.compile divisionCall).isOk
 """)
     return (expression.left.value, expression.right.value), "\n".join(declarations)
 
