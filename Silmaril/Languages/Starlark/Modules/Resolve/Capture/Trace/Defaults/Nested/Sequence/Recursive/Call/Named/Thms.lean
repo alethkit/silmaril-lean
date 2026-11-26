@@ -20,19 +20,42 @@ local notation "Positional" =>
   Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Arguments
 local notation "NamedArgs" => Arguments
 
-theorem binds_total (positional named : List Parameter) (saved : Bindings) (actual : Actual) :
-    ∃ result, Binds positional named saved actual result :=
+theorem binds_total (positional named : List Parameter) (varargs : Option Binding) (saved : Bindings)
+    (actual : Actual) : ∃ result, Binds positional named varargs saved actual result :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.binds_total
-    positional named saved actual
+    positional named varargs saved actual
 
-/-- Independent keyword delivery agrees with the shared binder for non-variadic signatures. -/
-theorem binding_exact (signature : Signature)
-    (noVarargs : signature.varargs = none) (noKwargs : signature.kwargs = none)
-    {saved : Bindings} {actual : Actual} {result : Except Error Bindings}
-    (source : Binds signature.positional signature.named saved actual result) :
-    bindArguments signature saved actual = result.map (fun assigned => ⟨assigned, [], []⟩) :=
+/-- Independent binding agrees with the native binder when there is no keyword collector. -/
+theorem binding_exact (signature : Signature) (noKwargs : signature.kwargs = none)
+    {saved : Bindings} {actual : Actual} {result : Except Error BoundArguments}
+    (source : Binds signature.positional signature.named signature.varargs saved actual result) :
+    bindArguments signature saved actual = result :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.binding_exact
-    signature noVarargs noKwargs source
+    signature noKwargs source
+
+/-- Successful binding can pack the surplus tuple while retaining the reached caller and cells. -/
+theorem packs_total (signature : Signature) (noKwargs : signature.kwargs = none)
+    (caller : State) (bound : BoundArguments) :
+    ∃ assigned packed, Packs signature.varargs caller bound assigned packed ∧
+      Body.Keeps caller.heap.size caller packed ∧ packed.bindings = caller.bindings ∧
+      packArgs signature bound caller = .ok assigned packed :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.packs_total
+    signature noKwargs caller bound
+
+/-- The collector gets the exact ordered surplus at a fresh tuple address. -/
+theorem packed_tuple {slot : Binding} {caller packed : State} {bound : BoundArguments} {assigned : Bindings}
+    (packing : Packs (some slot) caller bound assigned packed) :
+    assigned = (slot, .tuple caller.heap.size) :: bound.named ∧
+      Lists.tupleElements caller.heap.size packed = .ok bound.surplusPositional packed :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.packed_tuple
+    packing
+
+/-- The empty collector tuple uses the ordinary canonical empty tuple key. -/
+theorem packed_empty_key {slot : Binding} {caller packed : State} {bound : BoundArguments} {assigned : Bindings}
+    (packing : Packs (some slot) caller bound assigned packed) (empty : bound.surplusPositional = []) :
+    packed.heap[caller.heap.size]? = some ⟨.tuple [] (some [.openTuple, .closeTuple]), false⟩ :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.packed_empty_key
+    packing empty
 
 theorem argument_origins {block : LexicalBlock}
     {source : List (String × Lowering.Resolve.SourceExpr)} {codes : List (String × Lowering.Expr)} {reads : List Binding}
@@ -66,7 +89,8 @@ theorem rejects_duplicate (name : String) (positional : List Lowering.Expr)
     name positional keywords duplicate repeated
 
 /-- The reached closure uses its saved defaults and live captures under the same declaration guard. -/
-theorem runs {parent block : LexicalBlock} {formals : List PlainKeywordParameter} (site : Site parent formals)
+theorem runs {parent block : LexicalBlock} {formals : List PlainKeywordParameter} {varargs : Option String}
+    (site : Site parent formals varargs)
     (bodyRuns : State → Outcome Flow → Prop)
     {commands : List Command} {linked : Program} {resolved : ResolvedModule}
     (checked : resolve commands linked = .ok resolved) (id : DeclarationId)

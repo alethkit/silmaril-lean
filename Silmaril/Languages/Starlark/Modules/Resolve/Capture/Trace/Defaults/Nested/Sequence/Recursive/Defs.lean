@@ -11,9 +11,16 @@ open Functions (Declaration DeclarationId Program)
 
 local notation "Expr" => Functions.Lowering.Resolve.SourceExpr
 
-@[expose] def parameterNames (positionals : Parameters) : List PlainKeywordParameter → List String
-  | [] => positionals.names
-  | first :: rest => positionals.names ++ (first :: rest).map (SourceParameter.name ∘ PlainKeywordParameter.source)
+/-- The named collector is allocated after the ordinary slots, as in
+the resolver's frame layout. It contributes no default expression. -/
+@[expose] def parameterNames (positionals : Parameters) (keywords : List PlainKeywordParameter)
+    (varargs : Option String) : List String :=
+  let named := match keywords with
+    | [] => positionals.names
+    | first :: rest => positionals.names ++ (first :: rest).map (SourceParameter.name ∘ PlainKeywordParameter.source)
+  match varargs with
+  | none => named
+  | some name => named ++ [name]
 
 @[expose] def keywordDefaults (keywords : List PlainKeywordParameter) : List PlainPositionalDefault :=
   keywords.filterMap PlainKeywordParameter.default
@@ -24,7 +31,8 @@ abbrev KeywordLexical (block : LexicalBlock) (keywords : List PlainKeywordParame
 
 /-- The evidence for a single definition site, including the child's
 whole-block binder order and the independently selected free references. -/
-structure Site (parent : LexicalBlock) (keywords : List PlainKeywordParameter := []) where
+structure Site (parent : LexicalBlock) (keywords : List PlainKeywordParameter := [])
+    (varargs : Option String := none) where
   name : String
   target : name ∈ parent.owned
   parameters : Parameters
@@ -32,51 +40,51 @@ structure Site (parent : LexicalBlock) (keywords : List PlainKeywordParameter :=
   binders : List String
   locals : List String
   collects : Block.BodyBinders source binders
-  localOrder : Block.LocalBinders (parameterNames parameters keywords) binders locals
+  localOrder : Block.LocalBinders (parameterNames parameters keywords varargs) binders locals
   body : ResolvedBody
   free : List Functions.FreeName
-  selects : Selects ⟨parameterNames parameters keywords ++ locals, parent.owned ++ parent.enclosing, parent.globals⟩ body.reads free
+  selects : Selects ⟨parameterNames parameters keywords varargs ++ locals, parent.owned ++ parent.enclosing, parent.globals⟩ body.reads free
   defaults : List PlainPositionalDefault
   lexical : Lexical.Elaborates parent parameters.optional defaults
 
-@[expose] def Site.block {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
-    (site : Site parent keywords) : LexicalBlock :=
-  ⟨parameterNames site.parameters keywords ++ site.locals, parent.owned ++ parent.enclosing, parent.globals⟩
+@[expose] def Site.block {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String}
+    (site : Site parent keywords varargs) : LexicalBlock :=
+  ⟨parameterNames site.parameters keywords varargs ++ site.locals, parent.owned ++ parent.enclosing, parent.globals⟩
 
-@[expose] def Site.sourceSignature {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
-    (site : Site parent keywords) : SourceSignature :=
-  { site.parameters.source with keywordOnly := keywords.map PlainKeywordParameter.source }
+@[expose] def Site.sourceSignature {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String}
+    (site : Site parent keywords varargs) : SourceSignature :=
+  { site.parameters.source with keywordOnly := keywords.map PlainKeywordParameter.source, varargs := varargs }
 
-@[expose] def Site.statement {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
-    (site : Site parent keywords) : Statement :=
+@[expose] def Site.statement {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String}
+    (site : Site parent keywords varargs) : Statement :=
   .define site.name site.sourceSignature site.source
 
-@[expose] def Site.declaration {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
-    (site : Site parent keywords) : Declaration :=
+@[expose] def Site.declaration {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String}
+    (site : Site parent keywords varargs) : Declaration :=
   let signature := site.parameters.signature (site.defaults.map PlainPositionalDefault.value)
-  ⟨{ signature with keywordOnly := keywords.map PlainKeywordParameter.resolved },
+  ⟨{ signature with keywordOnly := keywords.map PlainKeywordParameter.resolved, varargs := varargs.map fileSlot },
     site.locals.map fileSlot, site.free, site.body.code⟩
 
-@[expose] def Site.defaultSources {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
-    (site : Site parent keywords) : List (String × Expr) :=
+@[expose] def Site.defaultSources {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String}
+    (site : Site parent keywords varargs) : List (String × Expr) :=
   match keywords with
   | [] => site.parameters.optional
   | first :: rest => site.parameters.optional ++ (keywordDefaults (first :: rest)).map (fun item => (item.name, item.source))
 
-@[expose] def Site.defaultKeys {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
-    (site : Site parent keywords) : List Binding :=
+@[expose] def Site.defaultKeys {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String}
+    (site : Site parent keywords varargs) : List Binding :=
   site.defaultSources.map (fileSlot ∘ Prod.fst)
 
-@[expose] def Site.defaultsInOrder {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
-    (site : Site parent keywords) : List PlainPositionalDefault :=
+@[expose] def Site.defaultsInOrder {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String}
+    (site : Site parent keywords varargs) : List PlainPositionalDefault :=
   match keywords with
   | [] => site.defaults
   | first :: rest => site.defaults ++ keywordDefaults (first :: rest)
 
 /-- The parent reads defaults at the definition site and supplies the
 body's capture demands in first-occurrence order. -/
-@[expose] def Site.reads {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
-    (site : Site parent keywords) : List Binding :=
+@[expose] def Site.reads {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String}
+    (site : Site parent keywords varargs) : List Binding :=
   site.defaultsInOrder.flatMap PlainPositionalDefault.reads ++ site.free.map Functions.FreeName.source
 
 abbrev Emissions := List (DeclarationId × Declaration)

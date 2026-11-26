@@ -37,7 +37,7 @@ private theorem positioned {codes : List Lowering.Expr} {values : List Value} (s
   simpa only [List.append_nil] using Lowering.Expands.success (args := ⟨values, [], none, none⟩) (keys := [])
     (values := []) (next := state) rfl .empty
 
-private def keep_record {parent : LexicalBlock} {formals : List PlainKeywordParameter} {site : Site parent formals} {id : DeclarationId}
+private def keep_record {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs : Option String} {site : Site parent formals varargs} {id : DeclarationId}
     {defining state next : State} {address : Nat} (record : ClosureAt site id defining state address)
     (kept : Body.Keeps state.heap.size state next) : ClosureAt site id defining next address :=
   { record with
@@ -74,7 +74,8 @@ theorem callee_error {parent block : LexicalBlock} (site : Site parent) (id : De
       Lowering.EvaluatesManyWith.headError (tail := codes) (Body.evaluates_with program available _ read)
   exact ⟨.calleeError read, agreement native⟩
 
-theorem runs_packed {parent block : LexicalBlock} {formals : List PlainKeywordParameter} (site : Site parent formals)
+theorem runs_packed {parent block : LexicalBlock} {formals : List PlainKeywordParameter} {varargs : Option String}
+    (site : Site parent formals varargs)
     (bodyRuns : State → Outcome Flow → Prop)
     (program : Program) (id : DeclarationId) (available : List DeclarationId) (permitted : id ∈ available)
     (enterBody : BodyEntry site program available id bodyRuns)
@@ -86,24 +87,27 @@ theorem runs_packed {parent block : LexicalBlock} {formals : List PlainKeywordPa
     (related : Arguments block arguments codes reads)
     (positional : List Lowering.Expr) (keywords : List (String × Lowering.Expr))
     (ordered : positional ++ keywords.map Prod.snd = codes)
-    (collect : List Value → Actual) (binds : BindingRule)
+    {Bound : Type} (collect : List Value → Actual) (binds : BindingRule Bound) (packs : PackRule Bound)
     (expands : ∀ state values, values.length = codes.length →
       Lowering.Expands ((Lowering.argumentShape positional keywords none none).collect values)
         state (.ok (collect values) state))
     (total : ∀ defaults actual, ∃ result, binds defaults actual result)
     (prepare : ∀ {reached : State} (closure : ClosureAt site id defining reached address) values result,
       binds closure.defaults (collect values) result →
-      prepareExpanded program available (collect values) (.function address) reached =
-        match result with
-        | .error error => .error error reached
-        | .ok assigned => .ok (.closure ⟨id, permitted, site.declaration.body⟩)
-            (activate reached site.declaration closure.captures assigned)) :
+      match result with
+      | .error error => prepareExpanded program available (collect values) (.function address) reached =
+          .error error reached
+      | .ok bound => ∃ assigned packed, packs reached bound assigned packed ∧
+          Body.Keeps reached.heap.size reached packed ∧ packed.bindings = reached.bindings ∧
+          prepareExpanded program available (collect values) (.function address) reached =
+            .ok (.closure ⟨id, permitted, site.declaration.body⟩)
+              (activate packed site.declaration closure.captures assigned)) :
     let code := Lowering.Expr.call (Leaf.readOperand (fileSlot name)) positional keywords none none
-    ∃ out, RunsPacked site bodyRuns block id name arguments codes collect binds state out ∧
+    ∃ out, RunsPacked site bodyRuns block id name arguments codes collect binds packs state out ∧
       ExecExpr program available state code out ∧ Lowering.denoteExpr program available code state = out ∧
       Body.Keeps state.heap.size state (finishState out) := by
   let code := Lowering.Expr.call (Leaf.readOperand (fileSlot name)) positional keywords none none
-  change ∃ out, RunsPacked site bodyRuns block id name arguments codes collect binds state out ∧
+  change ∃ out, RunsPacked site bodyRuns block id name arguments codes collect binds packs state out ∧
     ExecExpr program available state code out ∧ Lowering.denoteExpr program available code state = out ∧
     Body.Keeps state.heap.size state (finishState out)
   let calls := Lowering.coreClosureRuns program available
@@ -135,19 +139,21 @@ theorem runs_packed {parent block : LexicalBlock} {formals : List PlainKeywordPa
     | error error =>
       have ⟨native, meaning⟩ := agreement (applyCall ran (length _ _ rfl) (.reject ready))
       exact ⟨_, .bindingError callee ran reached binding, native, meaning, kept⟩
-    | ok assigned =>
+    | ok bound =>
+      obtain ⟨assigned, packed, packedArgs, packedKept, sameBindings, ready⟩ := ready
+      let packedRecord := keep_record reached packedKept
       obtain ⟨out, bodyRun, executable, restored⟩ :=
-        enterBody actualState defining reached.captures reached.installed reached.live assigned
+        enterBody packed defining packedRecord.captures packedRecord.installed packedRecord.live assigned
+      have sameCaller : Leaf.returnTo packed out = Leaf.returnTo actualState out := by
+        cases out <;> simp [Leaf.returnTo, restoreCaller, packedKept.1, sameBindings, finishState]
       have dispatch : Lowering.DispatchesWith program available calls actualState (.function address)
           (collect values) (Leaf.returnTo actualState out) := by
         cases out with
         | ok flow final => exact .returned ready executable
         | error error final => exact .failed ready executable
       have ⟨native, meaning⟩ := agreement (applyCall ran (length _ _ rfl) dispatch)
-      refine ⟨_, .invoked callee ran reached binding bodyRun, native, meaning, restored.1.trans kept.1, ?_⟩
-      intro address cell low found
-      exact restored.2 address cell (Array.getElem?_eq_some_iff.mp (kept.2 address cell low found)).choose
-        (kept.2 address cell low found)
+      exact ⟨_, .invoked callee ran reached binding packedArgs bodyRun, native, meaning,
+        sameCaller ▸ keeps_all (keeps_all kept packedKept) restored⟩
 
 theorem runs_preserving_with {parent block : LexicalBlock} (site : Site parent)
     (bodyRuns : State → Outcome Flow → Prop)
@@ -168,7 +174,7 @@ theorem runs_preserving_with {parent block : LexicalBlock} (site : Site parent)
       Body.Keeps state.heap.size state (finishState out) := by
   apply runs_packed site bodyRuns resolved.program id available permitted enterBody callee record related
     codes [] (by simp) (fun values => ⟨values, []⟩)
-    (fun defaults actual => Binds (site.parameters.slots defaults) actual.positional)
+    (fun defaults actual => Binds (site.parameters.slots defaults) actual.positional) Unpacked
   · exact fun state _ length => positioned state length
   · exact fun defaults actual =>
       Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.binds_total
@@ -177,9 +183,12 @@ theorem runs_preserving_with {parent block : LexicalBlock} (site : Site parent)
     -- The positional profile always collects an empty keyword list.
     have codeLength : (site.defaults.map PlainPositionalDefault.value).length = site.parameters.optional.length := by
       simpa using congrArg List.length (Lexical.translates site.lexical).1
-    cases result <;> exact Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.checked_prepare_positional
+    have ready := Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.checked_prepare_positional
       checked id available permitted site.parameters site.declaration _ found rfl codeLength reachedState
       address reached.frozen reached.captures reached.defaults actual reached.length reached.recorded binding
+    cases result with
+    | error => exact ready
+    | ok assigned => exact ⟨assigned, reachedState, ⟨rfl, rfl⟩, ⟨rfl, fun _ _ _ h => h⟩, rfl, ready⟩
 
 private theorem recursive_entry {parent : LexicalBlock} (site : Site parent)
     {seed final : Program} {emissions : Emissions}

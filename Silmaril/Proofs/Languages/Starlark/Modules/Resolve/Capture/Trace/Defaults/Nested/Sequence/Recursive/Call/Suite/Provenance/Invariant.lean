@@ -120,13 +120,13 @@ theorem assigned_live {block : LexicalBlock} {locals : Locals block} {state midd
     exact ⟨slot, previous, frozen, address, defining, rfl, owner, stored, record⟩
 
 theorem installed_live {block : LexicalBlock} {locals : Locals block} {state installed : State}
-    {formals : List PlainKeywordParameter} (site : Site block formals) (kw : KeywordLexical block formals)
+    {formals : List PlainKeywordParameter} {varargs : Option String} (site : Site block formals varargs) (kw : KeywordLexical block formals)
     (id : DeclarationId) {captures : List Capture}
     (receipts : Installs state site.free captures) (cells : Body.CaptureCells state captures)
     (step : Nested.SiteResultFor block site.name site.defaultKeys site.defaultsInOrder id captures state (.ok .next installed))
     (live : Live locals state) (distinct : DistinctOwned state)
     {free : List FreeName} {floor : Nat} (frame : Body.Frame block free floor state) :
-    Live (setLocal locals site.name (some ⟨id, formals, site⟩)) installed := by
+    Live (setLocal locals site.name (some ⟨id, formals, varargs, site⟩)) installed := by
   cases step with
   | @installed saved next evaluated ran exactState _ _ =>
     rw [exactState]
