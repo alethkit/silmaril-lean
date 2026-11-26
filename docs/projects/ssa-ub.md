@@ -218,9 +218,37 @@ block inputs gives the same behaviour as closing it with routing on its
 internal returns. Permutations give block relabeling invariance as a
 corollary. The one-way counterexample preserves local marks and ordinary
 outcomes on reached source points, yet a new target edge can expose UB or
-enable infinite replay. General two-level elimination, full Conway and
-Elgot laws, and native quotient integration remain open.
+enable infinite replay.
 [Sliding and relabeling][ssa-ub-uniformity] [Checked counterexample][ssa-ub-uniformity-regression]
+
+Two-level elimination views the same overlay semantics as a graph of
+ordinary transfers, local UB and terminal observations. The graph's
+one-shot closure agrees definitionally with `Feedback.close`. Closing
+the inner group exposes each transfer to an outer point as a boundary
+outcome, carrying the label, payload and machine state. The outer closure
+consumes these boundary outcomes. `close_two_levels` proves equality
+with the flat closure for the typed hidden interface `I ++ O`.
+`close_partition` allows any partition of the invocations.
+
+Finite paths split at outer visits. An outer step consists of zero or more
+inner transfers and a final original edge into an outer point, so every
+such step consumes at least one original edge. If a reachable inner UB
+suppresses an otherwise available boundary transfer, the outer closure
+already has a witness to UB. Below UB, the finite terminal comparisons
+retain the original outcomes.
+
+For a selected infinite flat path, either all visits after some index
+are inner, or a later outer visit exists after every index. The proof
+in the first case uses the finite prefix to reach the final inner replay.
+In the second case `Nat.find` selects the least next outer visit, so the
+intervals between selected visits are finite inner segments. In reverse,
+an inner replay can be prefixed by the finite flattened outer path.
+An infinite outer replay provides nonempty flat segments. Classical
+choice selects a real successor at each original step, maintaining a
+finite suffix to a segment boundary. The regressions exercise both kinds of
+replay, a finite external outcome, and early UB in an inner segment.
+Full Conway and Elgot laws and native quotient integration remain open.
+[Elimination theorem][ssa-ub-elimination] [Regressions][ssa-ub-elimination-regression]
 
 ## Coverage and gaps
 
@@ -252,6 +280,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Uniformity.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Elimination.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -300,3 +329,5 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-feedback-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Regression.lean
 [ssa-ub-uniformity]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Uniformity/Thms.lean
 [ssa-ub-uniformity-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Uniformity/Regression.lean
+[ssa-ub-elimination]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Elimination/Thms.lean
+[ssa-ub-elimination-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Elimination/Regression.lean
