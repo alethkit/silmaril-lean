@@ -71,7 +71,7 @@ theorem sourceOfStmt (stmt : Stmt P false vars outs) : (Body.ofStmt stmt).source
   | branch _ _ _ yes no => simp only [Body.ofStmt, Body.source, yes, no]
   | «while» impossible _ _ _ => cases impossible
 
-private theorem phiRead (flag : Port before .bool)
+theorem phiRead (flag : Port before .bool)
     (yes no : Tuple (Port before) outs) (values : NodeValues (model m) before)
     (slot : Port outs t) :
     let joined := phiNodes (P := Opcode P) (params := params) flag yes no

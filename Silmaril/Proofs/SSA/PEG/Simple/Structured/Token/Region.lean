@@ -22,6 +22,24 @@ variable {m : Interpretation.{u,v,w} P}
 variable {env : Tuple m.Value params} {read : Reads (model m) all}
 variable {active : List (Fin all.length)} {fixed : Index all.length}
 
+theorem phiViewRead {ty : Ty Data} (flag : Port before .bool)
+    (yes no : Tuple (Port before) outs)
+    (v : View (model m) env read active (.straight (phiNodes flag yes no).code))
+    (i : Index all.length) (slot : Port outs ty) :
+    let joined := phiNodes (P := Opcode P) (params := params) flag yes no
+    read (v.embed (joined.refs.get slot)) i =
+      (read (v.embed (joined.code.lift flag)) i).elim none (fun b =>
+        if b.down then read (v.embed (joined.code.lift (yes.get slot))) i
+        else read (v.embed (joined.code.lift (no.get slot))) i) := by
+  dsimp only
+  rw [v.straightRead, phiRead]
+  simp only [View.seed, get_map, ports_get]
+  cases read (v.embed ((phiNodes flag yes no).code.lift flag)) i with
+  | none => rfl
+  | some b =>
+    obtain ⟨b⟩ := b
+    cases b <;> rfl
+
 abbrev pack (m : Interpretation.{u,v,w} P) (store : Tuple m.Value vars) :
     Tuple (model m).Value (.bool :: vars) := .cons ⟨true⟩ store
 
@@ -186,6 +204,26 @@ theorem guardAligned (test : Expr P vars .bool)
     (exprExact m env test (tail (loopSlots vars before)) (v.inner.left.seed point) store
       (v.inner.left.seedRealizes data))
 
+/-- The code following a compiled loop guard sees the same carried tuple
+at every index agreeing with this iteration and its enclosing coordinates. -/
+theorem loopScopeAligned (test : Expr P vars .bool)
+    (suffix : Code (Opcode P) params (loopTest test params before).nodes inside)
+    (v : View (model m) env read active (.loop init
+      (.seq (.straight (loopTest test params before).code) suffix)
+      (suffix.lift ((loopTest test params before).refs.get .head)) next neg))
+    {k : Nat} {store : Tuple m.Value vars} (aligned : AtIteration v fixed k (pack m store)) :
+    RealizesOn read (fun r => v.inner.right.embed (suffix.lift r))
+      ((loopTest test params before).code.liftRefs (loopSlots vars before))
+      (pack m store) (v.key :: active) (fixed.set v.key k) := by
+  intro j agree ty slot
+  change read (v.inner.embed (suffix.lift
+    (((loopTest test params before).code.liftRefs (loopSlots vars before)).get slot))) j =
+    some ((pack m store).get slot)
+  rw [show ((loopTest test params before).code.liftRefs (loopSlots vars before)).get slot =
+      (loopTest test params before).code.lift (portLeft slot) by
+    simp only [Simple.Code.liftRefs, loopSlots, get_map, ports_get]]
+  simpa only [get_map, ports_get, Code.lift] using aligned j agree ty slot
+
 theorem loopFreeFacts (guard : Expr P vars .bool) (body : Body P vars vars)
     (neg : P [.bool] .bool)
     (v : View (model m) env read active (loop guard body neg init).code) :
@@ -201,14 +239,8 @@ theorem loopFreeFacts (guard : Expr P vars .bool) (body : Body P vars vars)
           read (v.inner.embed (step.refs.get .head)) j = none
       | some next => RealizesOn read v.inner.embed step.refs (pack m next)
           (v.key :: active) (i.set v.key k) := by
-    apply sliceExact body (test.code.liftRefs scope) v.inner.right store
-    intro j agree ty slot
-    change read (v.inner.embed (step.code.lift ((test.code.liftRefs scope).get slot))) j =
-      some ((pack m store).get slot)
-    have position : (test.code.liftRefs scope).get slot = test.code.lift (portLeft slot) := by
-      simp only [Simple.Code.liftRefs, scope, loopSlots, get_map, ports_get]
-    rw [position]
-    simpa only [get_map, ports_get, Code.lift] using carries j agree ty slot
+    exact sliceExact body (test.code.liftRefs scope) v.inner.right store
+      (loopScopeAligned guard (.straight step.code) v carries)
   refine ⟨fun aligned j agree => guardAligned guard (.straight step.code) v aligned j agree, ?_, ?_⟩
   · intro i k store final aligned ran
     have eq := (body.source.runLoopFree_enableWhile store).deterministic ran
