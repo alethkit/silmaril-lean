@@ -148,6 +148,14 @@ theorem checkFeedbackRow_eq_some_iff (payloads : Nat) (specs : List FeedbackSpec
         (updates.map FeedbackUpdate.destination).Nodup :=
   Proofs.checkFeedbackRow_eq_some_iff payloads specs updates
 
+theorem checkFeedbackPlan_eq_some_iff (payloads : Nat) (entry feedback : List Nat)
+    (result : Nat) (specs : List FeedbackSpec) (plan : FeedbackPlan payloads) :
+    checkFeedbackPlan payloads entry feedback result specs = some plan ↔
+      checkFeedbackRow payloads specs = some plan.updates ∧
+        checkBankRoutes payloads entry feedback result = some plan.routes ∧
+        (plan.routes.lowerFuncWithRow plan.updates).WellFormed :=
+  Proofs.checkFeedbackPlan_eq_some_iff payloads entry feedback result specs plan
+
 theorem lowerFeedbackRowChecked_eq_some_iff (payloads : Nat) (entry feedback : List Nat)
     (result : Nat) (specs : List FeedbackSpec) (target : Prog Reg) :
     lowerFeedbackRowChecked payloads entry feedback result specs = some target ↔
@@ -166,7 +174,8 @@ theorem row_checked_wellFormed {payloads : Nat} {entry feedback : List Nat} {res
 
 theorem lowerFeedbackRowChecked_nil (payloads : Nat) (entry feedback : List Nat) (result : Nat) :
     lowerFeedbackRowChecked payloads entry feedback result [] =
-      lowerBankChecked payloads entry feedback result := rfl
+      lowerBankChecked payloads entry feedback result :=
+  Proofs.lowerFeedbackRowChecked_nil payloads entry feedback result
 
 theorem lowerFeedbackRowChecked_singleton (payloads : Nat) (entry feedback : List Nat) (result : Nat)
     (spec : FeedbackSpec) :
@@ -176,6 +185,13 @@ theorem lowerFeedbackRowChecked_singleton (payloads : Nat) (entry feedback : Lis
 section FeedbackRows
 
 variable {payloads : Nat} (r : BankRoutes payloads) (updates : List (FeedbackUpdate payloads))
+
+/-- The independent native countdown step either returns the selected old
+payload or latches the whole typed feedback column. -/
+theorem row_native_step (input old : WordTuple (payloads + 1)) :
+    (r.graphWithRow updates).step model input old =
+      if counter old = 0 then .inl (r.returnWord old) else .inr (r.nextBankWithRow updates input old) :=
+  Proofs.source_step r updates input old
 
 /-- The actual taken branch reads the computed results and all copies
 from the same producer frame before writing any payload register. -/

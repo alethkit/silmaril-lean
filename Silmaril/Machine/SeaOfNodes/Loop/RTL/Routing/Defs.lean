@@ -279,14 +279,25 @@ def lowerBankChecked (payloads : Nat) (entry feedback : List Nat) (result : Nat)
   (checkBankRoutes payloads entry feedback result).bind fun routes =>
     if routes.lowerFunc.WellFormed then some routes.lower else none
 
-/-- Start from a checked copy plan, override distinct destinations, and
-check the emitted machine function. -/
-def lowerFeedbackRowChecked (payloads : Nat) (entry feedback : List Nat) (result : Nat)
-    (specs : List FeedbackSpec) : Option (Prog Reg) :=
+/-- Typed inputs shared by the two lowerings of this countdown profile. -/
+structure FeedbackPlan (payloads : Nat) where
+  routes : BankRoutes payloads
+  updates : List (FeedbackUpdate payloads)
+
+def FeedbackPlan.rtl {payloads : Nat} (plan : FeedbackPlan payloads) : Prog Reg :=
+  plan.routes.lowerWithRow plan.updates
+
+/-- Decode the copy column and the distinct computed destinations, then
+check the machine function. Both code generators can use this same plan. -/
+def checkFeedbackPlan (payloads : Nat) (entry feedback : List Nat) (result : Nat)
+    (specs : List FeedbackSpec) : Option (FeedbackPlan payloads) :=
   (checkFeedbackRow payloads specs).bind fun updates =>
     (checkBankRoutes payloads entry feedback result).bind fun routes =>
-      if (routes.lowerFuncWithRow updates).WellFormed then some (routes.lowerWithRow updates)
-      else none
+      if (routes.lowerFuncWithRow updates).WellFormed then some ⟨routes, updates⟩ else none
+
+def lowerFeedbackRowChecked (payloads : Nat) (entry feedback : List Nat) (result : Nat)
+    (specs : List FeedbackSpec) : Option (Prog Reg) :=
+  (checkFeedbackPlan payloads entry feedback result specs).map FeedbackPlan.rtl
 
 def lowerComputedChecked (payloads : Nat) (entry feedback : List Nat) (result : Nat)
     (spec : FeedbackSpec) : Option (Prog Reg) :=
