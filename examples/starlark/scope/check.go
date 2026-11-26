@@ -119,6 +119,33 @@ out = (mover(5), xs[0], xs[1], i)
 	fmt.Println("PASS mixed assignment binds skipped locals, reuses a shadowing parameter, and writes through an escaped capture")
 }
 
+func mixedAssignmentCaptures() {
+	const setup = `alias = [100]
+original = [3, 30]
+replacement = [4, 40]
+`
+	const makeDef = `def make(alias, unused):
+    i = 1
+    def inner(i):
+        (i, alias[i]) = [item for item in rows[i]]
+        return alias[late]
+    alias = replacement
+    late = 1
+    return inner
+`
+	const escaped = "escaped = make(original, 123)\n"
+	const rows = "rows = [[0, 9], [0, 6]]\n"
+	values, err := execute(setup + makeDef + escaped + rows +
+		"out = (escaped(0), original[0], replacement[0], alias[0])\n")
+	require(err == nil && values["out"].String() == "(40, 3, 9, 100)", fmt.Sprint(values, err))
+	require(values["late"] == nil && values["unused"] == nil && values["item"] == nil, fmt.Sprint(values))
+
+	early := strings.Replace(makeDef, "    late = 1", "    inner(0)\n    late = 1", 1)
+	runtimeError(setup+rows+early+escaped, "local variable late referenced before assignment")
+	runtimeError(setup+makeDef+escaped+"escaped(0)\n"+rows, "global variable rows referenced before assignment")
+	fmt.Println("PASS escaped mixed assignment sees parent rebinding and later initialization, mutates the rebound alias, and rejects early reads")
+}
+
 func main() {
 	values, err := execute(`value = "global"
 def outer(value):
@@ -168,4 +195,5 @@ out = f()
 
 	loopScopes()
 	mixedAssignmentScopes()
+	mixedAssignmentCaptures()
 }
