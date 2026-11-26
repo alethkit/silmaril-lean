@@ -129,12 +129,12 @@ theorem compile_chain_linked {globals : List String} {program : Program}
   induction accepted with
   | @mixed outer name parameters locals body next assignment returned returnReads
       localDecls targetProfile rhsProfile returnProfile assigned resolvedReturn =>
-    obtain ⟨free, reads, selected, compiled⟩ := mixed_definition (parentContext globals outer) name parameters locals
+    obtain ⟨free, leaf, reads, selected, compiled⟩ := mixed_definition_linked (parentContext globals outer) name parameters locals
       body localDecls targetProfile rhsProfile returnProfile program next assignment returned returnReads
       assigned resolvedReturn
     let frame : Frame := ⟨parameters, locals, free,
       .seq (assignPatternCode assignment.pattern assignment.rhs directStages) (.returnExpr returned)⟩
-    exact ⟨frame, [], .mixed localDecls reads selected, .mixed _ _ _ _, compiled⟩
+    exact ⟨frame, [], .mixed localDecls reads selected, .mixed _ _ _ _ _ leaf, compiled⟩
   | @wrapper outer name parameters locals child localDecls legal childAccepted ih =>
     obtain ⟨head, rest, emitted, linked, compiledChild⟩ := ih
     have named := wrapper_owns_child parameters locals child.name localDecls

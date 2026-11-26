@@ -377,16 +377,49 @@ evidence and derives binding and the wrapper body at the actual
 command site. A reached operand or arity error skips the assignment.
 
 The reached-prefix judgment composes source steps in order. Its
-transfer theorem takes correspondence at the reached command indices
-and preserves the final state at a reached error. With a complete
-source derivation it connects to the existing checked publication or
-error restoration boundary. The next step is to instantiate all of
-the source transitions for one whole module, including the mixed leaf,
-and derive the published observation independently. The fixtures
-execute the mixed leaf end to end, including alias mutation and an
-uninitialized global read. Independent leaf execution is still open.
-Loads, defaults, and wider wrapper and leaf bodies remain separate.
+transfer theorem preserves the final state at a reached error and passes
+a complete trace through the checked publication boundary.
 [Wrapper judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Wrapper/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Wrapper/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Wrapper/Checks.lean)
+
+### Mixed leaf execution and publication
+
+The independent leaf judgment covers the normalized function body
+`name, receiver[index] = rhs` followed by `return value`, with one
+identifier read in each operand position. It derives lexical references
+from the block's owned, enclosing, and module names. Execution reads the
+RHS once, checks the two-item unpack before either write, sets the
+local, then reads the receiver and index in the updated frame. The
+subscript store and final read share the same heap. A reached error
+keeps the earlier writes. The proof identifies the emitted leaf code
+and shows that removing compiler scratch bindings gives the exact
+frame and heap prescribed by the source rules.
+
+`checked_first_definition` supplies the initial source definition step
+and links its declaration chain from checked module entry.
+`checked_module` composes definition, setup assignment, and named
+positional call steps through escaped wrappers and the mixed leaf.
+Call operands use the bounded read-only profile. A reached operand
+error skips binding and dispatch. A binding error skips activation.
+The theorem takes an independent reached trace with command-site,
+live-closure, and lexical evidence. It derives the resolved body
+execution and the denotation for both outcomes. Independent
+publication collects initialized declared globals in order, exports
+public names, and freezes the heap reachable from all collected
+values. A reached error restores the caller with the residual heap
+and yields no publication. Whole-trace construction for every
+accepted normalized module, wider bodies and leaf operands, defaults,
+loads, and text-level source correctness remain open.
+
+The Lean fixtures check the exact success exports, freezing, and a
+late uninitialized read that preserves a mutation before failure.
+A separate fixture derives that late leaf error from the independent
+assignment rules. Pinned Go checks escaped mutation, later owner
+rebinding in a wider wrapper, and successful publication freezing.
+Go's `Program.Init` exposes a mutable partial namespace on failure.
+`ExecFileOptions` also exposes that namespace and freezes it. The
+checked Lean failure result contains the restored caller and the
+retained heap.
+[Source judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Leaf/Checks.lean) · [Pinned Go fixture](../../examples/starlark/mixed-leaf/check.go)
 
 ## Finite-manifest loader
 
@@ -446,7 +479,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Modules.Checks \
   +Silmaril.Languages.Starlark.Modules.ExpressionChecks \
   +Silmaril.Languages.Starlark.Modules.Loader.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Checks \
-  +Silmaril.Languages.Starlark.Modules.Resolve.LoopChecks
+  +Silmaril.Languages.Starlark.Modules.Resolve.LoopChecks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Leaf.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
@@ -457,7 +491,7 @@ oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$fixtures/modules/check.go" && go run "$fixtures/loader/check.go" &&
-  go run "$fixtures/scope/check.go")
+  go run "$fixtures/scope/check.go" && go run "$fixtures/mixed-leaf/check.go")
 ```
 
 [modules]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#module-execution
