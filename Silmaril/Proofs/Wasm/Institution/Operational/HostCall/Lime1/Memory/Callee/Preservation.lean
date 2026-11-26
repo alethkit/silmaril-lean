@@ -41,6 +41,18 @@ theorem typed_nil {callee : MemoryTarget} {stack : List Value} (typed : callee.f
   simpa [Graph.Memory32.Function.WellTyped, Graph.Memory32.Function.checkCode,
     Graph.Memory32.Function.checkRegion, Prefix.stackTypes, resultTyped] using typed
 
+private theorem resume_typed {fn : Graph.Memory32.Function} {saved operands : List Value}
+    {params results : List NumType} {rest : List Graph.Memory32.Op}
+    (arguments : operands.map Value.type = params)
+    (resume : fn.checkCode (results.reverse ++ (Prefix.stackTypes (saved ++ operands)).drop params.length) rest = true)
+    (vs : List Value) (typed : vs.map Value.type = results) : fn.WellTyped (saved ++ vs) rest := by
+  have count : params.reverse.length = params.length := List.length_reverse
+  have kept : (params.reverse ++ Prefix.stackTypes saved).drop params.length = Prefix.stackTypes saved := by
+    rw [← count, List.drop_left]
+  simp only [Prefix.stackTypes] at kept
+  simpa only [Graph.Memory32.Function.WellTyped, Prefix.stackTypes, List.map_append,
+    List.reverse_append, arguments, typed, kept] using resume
+
 theorem call_typed {callee : MemoryTarget} {stack : List Value} {target : CallTarget}
     {ops : List Graph.Memory32.Op} (typed : callee.fn.WellTyped stack (.ranked (.call target) :: ops)) :
     ∃ saved operands, stack = saved ++ operands ∧ operands.map Value.type = target.declaration.params ∧
@@ -53,14 +65,17 @@ theorem call_typed {callee : MemoryTarget} {stack : List Value} {target : CallTa
   obtain ⟨guard, resume⟩ := Bool.and_eq_true_iff.mp typed
   obtain ⟨used, suffix⟩ := of_decide_eq_true guard
   obtain ⟨saved, operands, rfl, arguments⟩ := Graph.SuffixTyped.split suffix
-  refine ⟨saved, operands, rfl, arguments, used, fun vs results => ?_⟩
-  have count : (target.declaration.params.reverse).length = target.declaration.params.length := List.length_reverse
-  have kept : (target.declaration.params.reverse ++ Prefix.stackTypes saved).drop
-      target.declaration.params.length = Prefix.stackTypes saved := by
-    rw [← count, List.drop_left]
-  simp only [Prefix.stackTypes] at kept
-  simpa only [Graph.Memory32.Function.WellTyped, Prefix.stackTypes, List.map_append,
-    List.reverse_append, arguments, results, kept] using resume
+  exact ⟨saved, operands, rfl, arguments, used, resume_typed arguments resume⟩
+
+theorem indirect_typed {callee : MemoryTarget} {stack : List Value} {index : TypeIdx}
+    {signature : Wasm.V1.FuncType} {rest : List Graph.Memory32.Op}
+    (typed : callee.fn.WellTyped stack (.callIndirect index signature :: rest)) :
+    ∃ (saved operands : List Value) (selector : BitVec 32), stack = (saved ++ operands) ++ [Value.int .i32 selector] ∧
+      operands.map Value.type = signature.params ∧
+      ∀ vs : List Value, vs.map Value.type = signature.results → callee.fn.WellTyped (saved ++ vs) rest := by
+  obtain ⟨stack, selector, rfl, suffix, resume⟩ := Graph.Memory32.Function.indirect_typed typed
+  obtain ⟨saved, operands, rfl, arguments⟩ := Graph.SuffixTyped.split suffix
+  exact ⟨saved, operands, selector, rfl, arguments, resume_typed arguments resume⟩
 
 theorem after_child_render (parent child : MemoryTarget) (args saved : List Value)
     (rest : List Graph.Memory32.Op) (phase : Phase) :
@@ -85,46 +100,61 @@ theorem ready_step {H : Type} {base : Store H} {mem : Memory32 base} {callee : M
   induction move with
   | enter =>
     have checked := linked.checked _ registered
-    exact ⟨ready, checked.supported, checked.body⟩
+    exact ⟨ready, checked.supported, checked.body, fun _ member => member⟩
   | get found =>
-    obtain ⟨v, lookup, typed⟩ := get_typed ready.1 ready.2.2
+    obtain ⟨v, lookup, typed⟩ := get_typed ready.1 ready.2.2.1
     rw [found] at lookup
     cases lookup
-    exact ⟨ready.1, tail_supported ready.2.1, typed⟩
+    exact ⟨ready.1, tail_supported ready.2.1, typed, fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)⟩
   | load _ =>
-    obtain ⟨kept, address, split, typed⟩ := Graph.Memory32.Function.load_typed ready.2.2
+    obtain ⟨kept, address, split, typed⟩ := Graph.Memory32.Function.load_typed ready.2.2.1
     obtain ⟨rfl, _⟩ := List.append_inj' split rfl
-    exact ⟨ready.1, tail_supported ready.2.1, typed _⟩
+    exact ⟨ready.1, tail_supported ready.2.1, typed _, fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)⟩
   | store _ =>
-    obtain ⟨kept, address, operand, split, typed⟩ := Graph.Memory32.Function.store_typed ready.2.2
+    obtain ⟨kept, address, operand, split, typed⟩ := Graph.Memory32.Function.store_typed ready.2.2.1
     obtain ⟨rfl, _⟩ := List.append_inj' split rfl
-    exact ⟨ready.1, tail_supported ready.2.1, typed⟩
+    exact ⟨ready.1, tail_supported ready.2.1, typed, fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)⟩
   | size =>
-    exact ⟨ready.1, tail_supported ready.2.1, Graph.Memory32.Function.size_typed ready.2.2 _⟩
+    exact ⟨ready.1, tail_supported ready.2.1, Graph.Memory32.Function.size_typed ready.2.2.1 _,
+      fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)⟩
   | grow _ _ | growFail =>
-    obtain ⟨kept, delta, split, typed⟩ := Graph.Memory32.Function.grow_typed ready.2.2
+    obtain ⟨kept, delta, split, typed⟩ := Graph.Memory32.Function.grow_typed ready.2.2.1
     obtain ⟨rfl, _⟩ := List.append_inj' split rfl
-    exact ⟨ready.1, tail_supported ready.2.1, typed _⟩
+    exact ⟨ready.1, tail_supported ready.2.1, typed _, fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)⟩
   | @call callee child bytes args saved operands target rest link typed =>
-    obtain ⟨kept, used, split, usedTyped, _, resume⟩ := call_typed ready.2.2
+    obtain ⟨kept, used, split, usedTyped, _, resume⟩ := call_typed ready.2.2.1
     have count : used.length = operands.length := by
       simpa using congrArg List.length (usedTyped.trans typed.symm)
     obtain ⟨rfl, _⟩ := List.append_inj' split count.symm
     refine ⟨ready.1, link.registered, link.allocated, link.smaller, by simp, ?_,
-      tail_supported ready.2.1, ?_⟩
+      tail_supported ready.2.1, (fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)), ?_⟩
     · simpa only [Ready, link.declaration] using typed
     · simpa only [link.declaration] using resume
+  | @callIndirect callee child bytes args saved operands index signature selector rest lookup smaller typed =>
+    obtain ⟨kept, used, chosen, split, usedTyped, resume⟩ := indirect_typed ready.2.2.1
+    obtain ⟨split, _⟩ := List.append_inj' split (by simp)
+    have count : used.length = operands.length := by
+      simpa using congrArg List.length (usedTyped.trans typed.symm)
+    obtain ⟨rfl, _⟩ := List.append_inj' split count.symm
+    cases lookup with
+    | memory _ found allocated signatureEq =>
+      have params := congrArg (fun (ty : Wasm.Lime1.FuncType) => ty.params) signatureEq
+      have results := congrArg (fun (ty : Wasm.Lime1.FuncType) => ty.results) signatureEq
+      refine ⟨ready.1, found, allocated, smaller, by simp, ?_, tail_supported ready.2.1,
+        (fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)), ?_⟩
+      · exact typed.trans params.symm
+      · exact fun vs typed => resume vs (typed.trans results)
   | @child callee child bytes written args saved phase next rest move ih =>
-    obtain ⟨argsTyped, found, allocated, smaller, _, childReady, supported, resume⟩ := ready
+    obtain ⟨argsTyped, found, allocated, smaller, _, childReady, supported, inCode, resume⟩ := ready
     have after := ih found childReady
-    cases next <;> try exact ⟨argsTyped, found, allocated, smaller, by simp, after, supported, resume⟩
+    cases next <;> try exact ⟨argsTyped, found, allocated, smaller, by simp, after, supported, inCode, resume⟩
     case done out =>
       cases out with
       | trap => exact argsTyped
-      | values vs => exact ⟨argsTyped, supported, resume vs after⟩
-  | loadTrap | storeTrap => exact ready.1
+      | values vs => exact ⟨argsTyped, supported, resume vs after, inCode⟩
+  | loadTrap | storeTrap | indirectTrap => exact ready.1
   | erase => exact ready
-  | labelDone => exact ⟨ready.1, typed_nil ready.2.2⟩
+  | labelDone => exact ⟨ready.1, typed_nil ready.2.2.1⟩
   | labelTrap => exact ⟨ready, trivial⟩
   | frameDone => exact ready.2
 

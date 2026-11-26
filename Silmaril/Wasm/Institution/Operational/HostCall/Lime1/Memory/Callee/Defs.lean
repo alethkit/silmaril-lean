@@ -28,16 +28,20 @@ def resultTyped (callee : MemoryTarget) : Result → Prop
   | .values vs => vs.map Value.type = callee.fn.declaration.results
   | .trap => True
 
+/-- Live bodies and suspended suffixes come from their registered function.
+This lets a reached lookup use the link checked for its source instruction. -/
 def Ready {H : Type} {base : Store H} (mem : Memory32 base) (site : IndirectSite)
     (callee : MemoryTarget) : Phase → Prop
   | .invoke args | .trapped args _ _ => args.map Value.type = callee.fn.declaration.params
   | .body args stack ops => args.map Value.type = callee.fn.declaration.params ∧
-      ops.all (MemoryTarget.supportedOp mem.extent.growthEnabled) = true ∧ callee.fn.WellTyped stack ops
+      ops.all (MemoryTarget.supportedOp mem.extent.growthEnabled) = true ∧ callee.fn.WellTyped stack ops ∧
+      ∀ op ∈ ops, op ∈ callee.fn.code
   | .child args saved child phase rest =>
       args.map Value.type = callee.fn.declaration.params ∧
       site.memoryLookup child.address = some child.fn ∧ child.Allocated base ∧ child.fn.rank < callee.fn.rank ∧
       (∀ out, phase ≠ .done out) ∧ Ready mem site child phase ∧
       rest.all (MemoryTarget.supportedOp mem.extent.growthEnabled) = true ∧
+      (∀ op ∈ rest, op ∈ callee.fn.code) ∧
       ∀ vs : List Value, vs.map Value.type = child.fn.declaration.results → callee.fn.WellTyped (saved ++ vs) rest
   | .exit args out => args.map Value.type = callee.fn.declaration.params ∧ resultTyped callee out
   | .done out => resultTyped callee out
@@ -104,6 +108,16 @@ inductive Edge {H : Type} {base : Store H} (mem : Memory32 base) (site : Indirec
       (typed : operands.map Value.type = target.declaration.params) :
       Edge mem site callee bytes (.body args (saved ++ operands) (.ranked (.call target) :: rest))
         bytes (.child args saved child (.invoke operands) rest)
+  | callIndirect {callee child bytes args saved operands index signature selector rest}
+      (lookup : (site.memorySite index signature).Lookup base selector (some (.memory child)))
+      (smaller : child.fn.rank < callee.fn.rank)
+      (typed : operands.map Value.type = signature.params) :
+      Edge mem site callee bytes (.body args ((saved ++ operands) ++ [Value.int .i32 selector])
+        (.callIndirect index signature :: rest)) bytes (.child args saved child (.invoke operands) rest)
+  | indirectTrap {callee bytes args stack index signature selector rest}
+      (lookup : (site.memorySite index signature).Lookup base selector none) :
+      Edge mem site callee bytes (.body args (stack ++ [Value.int .i32 selector])
+        (.callIndirect index signature :: rest)) bytes (.trapped args stack (code rest))
   | child {callee child bytes written args saved phase next rest}
       (move : Edge mem site child bytes phase written next) :
       Edge mem site callee bytes (.child args saved child phase rest)

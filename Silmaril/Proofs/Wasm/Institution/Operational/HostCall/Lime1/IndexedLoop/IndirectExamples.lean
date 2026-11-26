@@ -130,9 +130,10 @@ private def host : HostSemantics Nat := fun id store operands outcome =>
   | _ => False
 
 private theorem indirectContract : indirect.Contract memory host := by
-  refine ⟨?_, ⟨fun callee found => ?_, fun callee found => ?_⟩⟩
+  refine ⟨?_, ⟨fun callee found => ?_, fun callee found => ?_, fun callee found => ?_⟩⟩
   case refine_2 => simp [IndirectSite.memoryLookup, indirect] at found
   case refine_3 => simp [IndirectSite.memoryLookup, indirect] at found
+  case refine_4 => simp [IndirectSite.memoryLookup, indirect] at found
   intro address code member allocated
   simp [indirect, table] at member
   rcases member with rfl | rfl | rfl | rfl

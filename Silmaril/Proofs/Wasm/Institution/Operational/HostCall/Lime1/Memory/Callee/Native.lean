@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Memory.Callee.Defs
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.Memory.Callee.Preservation
 import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Memory.Thms
+import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryWrite.Native.Lime1Context.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryQuery.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryGrow.Native.Thms
@@ -16,7 +17,7 @@ import Silmaril.Wasm.Lime1.Execution.Callout.Properties
 
 namespace Silmaril.Wasm.Institution.Operational.HostCall.Lime1.MemoryCallee.Proofs
 
-open Execution.Runtime (Frame Result Value)
+open Execution.Runtime (Frame FuncInst Result Value)
 open Wasm.Lime1.Execution
 open CallContinuation
 open CallContinuation.OuterCall (CallTarget Declaration)
@@ -311,6 +312,72 @@ private theorem call_iff {args stack operands : List Value} {target : CallTarget
     exact ⟨_, resolve.mpr rfl, by
       simp [config, render, MemoryWrite.limeActivationCode, link.address, values_append, List.append_assoc]⟩
 
+private theorem indirect_linked {index : TypeIdx} {signature : Wasm.V1.FuncType}
+    (link : site.MemoryIndirect base callee index signature) :
+    (site.memorySite index signature).Linked base callee.fn.declaration.module := by
+  refine ⟨link.tableAt, link.signatureAt, rfl, ?_, ?_⟩
+  · intro address fn found
+    simp [IndirectSite.memorySite, Graph.Program.lookup] at found
+  · intro address member
+    obtain ⟨fn, allocated, registered⟩ := link.entries address member
+    refine ⟨fn, allocated, fun typed => ?_⟩
+    cases fn with
+    | host => trivial
+    | wasm =>
+      obtain ⟨child, found, exactAllocation, _⟩ := registered typed
+      exact .inr ⟨child, found, exactAllocation⟩
+
+private theorem indirect_iff {args stack : List Value} {index : TypeIdx} {signature : Wasm.V1.FuncType}
+    {selector : BitVec 32} {rest : List Graph.Memory32.Op}
+    (link : site.MemoryIndirect base callee index signature) :
+    Step CallFrame.limeNoHost (cfg bytes (.body args (stack ++ [Value.int .i32 selector])
+      (.callIndirect index signature :: rest))) dst ↔
+      ∃ target, (site.memorySite index signature).Lookup base selector target ∧
+        dst = ⟨mem.store bytes, caller, MemoryWrite.limeActivationCode resultCount
+          (callee.fn.declaration.frame args) saved tail
+          (values stack ++ IndirectSite.lookupHead target :: code rest)⟩ := by
+  rw [show cfg bytes (.body args (stack ++ [Value.int .i32 selector]) (.callIndirect index signature :: rest)) =
+      ⟨mem.store bytes, caller, MemoryWrite.limeActivationCode resultCount (callee.fn.declaration.frame args)
+        saved tail (values (stack ++ [Value.int .i32 selector]) ++ .source (.callIndirect index) :: code rest)⟩ from by
+    simp only [config, render, code_cons, MemoryWrite.limeActivationCode, List.append_assoc, List.singleton_append]
+    rfl]
+  rw [body_iff (fun _ => lime_label_stays rfl (by simp) (by simp) (by simp))]
+  have resolve {mid : Config H} := IndirectSite.step_iff (memory := mem) (bytes := bytes)
+    (indirect := site.memorySite index signature) (active := callee.fn.declaration.frame args)
+    (stack := stack) (selector := selector) (rest := code rest) (dst := mid) (indirect_linked link)
+  constructor
+  · rintro ⟨mid, step, rfl⟩
+    obtain ⟨target, lookup, rfl⟩ := resolve.mp step
+    exact ⟨target, lookup, rfl⟩
+  · rintro ⟨target, lookup, rfl⟩
+    exact ⟨_, resolve.mpr ⟨target, lookup, rfl⟩, rfl⟩
+
+private theorem indirect_target {index : TypeIdx} {signature : Wasm.V1.FuncType} {selector : BitVec 32}
+    {target : IndirectTarget H} (link : site.MemoryIndirect base callee index signature)
+    (lookup : (site.memorySite index signature).Lookup base selector (some target)) :
+    ∃ child, target = .memory child ∧ child.fn.rank < callee.fn.rank := by
+  cases lookup with
+  | host entry allocated =>
+    obtain ⟨fn, found, registered⟩ := link.entries _ (List.mem_of_getElem? entry)
+    rw [allocated] at found
+    cases found
+    obtain ⟨_, _, wasmAllocation, _⟩ := registered rfl
+    unfold MemoryTarget.Allocated Site.Allocated at *
+    rw [allocated] at wasmAllocation
+    cases wasmAllocation
+  | wasm _ found _ _ =>
+    simp [IndirectSite.memorySite, Graph.Program.lookup] at found
+  | memory entry found allocated typed =>
+    obtain ⟨fn, seen, registered⟩ := link.entries _ (List.mem_of_getElem? entry)
+    unfold MemoryTarget.Allocated at allocated
+    rw [allocated] at seen
+    cases seen
+    obtain ⟨other, same, _, smaller⟩ := registered typed
+    change site.memoryLookup _ = _ at found
+    rw [found] at same
+    cases same
+    exact ⟨_, rfl, smaller⟩
+
 private theorem child_context {args stack : List Value} {child : MemoryTarget} {phase : Phase}
     {rest : List Graph.Memory32.Op} (notDone : ∀ out, phase ≠ .done out) :
     Step CallFrame.limeNoHost (cfg bytes (.child args stack child phase rest)) dst ↔
@@ -341,18 +408,18 @@ private theorem read {phase : Phase} (linked : site.MemoryLinked mem)
       have supported := List.all_eq_true.mp ready.2.1 op (List.mem_cons_self ..)
       cases op with
       | load offset =>
-        obtain ⟨stack, ptr, rfl, _⟩ := Graph.Memory32.Function.load_typed ready.2.2
+        obtain ⟨stack, ptr, rfl, _⟩ := Graph.Memory32.Function.load_typed ready.2.2.1
         rcases (load_iff checked).mp move with ⟨bits, edge, eq⟩ | ⟨edge, eq⟩
         · exact ⟨_, _, .load edge, eq⟩
         · exact ⟨_, _, .loadTrap edge, eq⟩
       | store offset =>
-        obtain ⟨stack, ptr, word, rfl, _⟩ := Graph.Memory32.Function.store_typed ready.2.2
+        obtain ⟨stack, ptr, word, rfl, _⟩ := Graph.Memory32.Function.store_typed ready.2.2.1
         rcases (store_iff checked live).mp move with ⟨written, edge, _, eq⟩ | ⟨edge, eq⟩
         · exact ⟨_, _, .store edge, eq⟩
         · exact ⟨_, _, .storeTrap edge, eq⟩
       | size => exact ⟨_, _, .size, (size_iff checked).mp move⟩
       | grow =>
-        obtain ⟨stack, delta, rfl, _⟩ := Graph.Memory32.Function.grow_typed ready.2.2
+        obtain ⟨stack, delta, rfl, _⟩ := Graph.Memory32.Function.grow_typed ready.2.2.1
         rcases (grow_iff checked).mp move with ⟨grown, edge, eq⟩ | eq
         · exact ⟨_, _, .grow supported edge, eq⟩
         · exact ⟨_, _, .growFail, eq⟩
@@ -361,17 +428,29 @@ private theorem read {phase : Phase} (linked : site.MemoryLinked mem)
         | numeric op =>
           cases op with
           | get index =>
-            obtain ⟨v, found, _⟩ := get_typed ready.1 ready.2.2
+            obtain ⟨v, found, _⟩ := get_typed ready.1 ready.2.2.1
             exact ⟨_, _, .get found, (get_iff found).mp move⟩
           | bin => contradiction
         | call target =>
-          obtain ⟨stack, operands, rfl, typed, used, _⟩ := call_typed ready.2.2
+          obtain ⟨stack, operands, rfl, typed, used, _⟩ := call_typed ready.2.2.1
           obtain ⟨child, link⟩ := linked.direct callee registered target used
           exact ⟨_, _, .call link typed, (call_iff link).mp move⟩
         | _ => contradiction
+      | callIndirect index signature =>
+        obtain ⟨stack, operands, selector, rfl, typed, _⟩ := indirect_typed ready.2.2.1
+        have link := linked.indirect callee registered index signature (ready.2.2.2 _ (by simp))
+        obtain ⟨target, lookup, rfl⟩ := (indirect_iff link).mp move
+        cases target with
+        | none =>
+          refine ⟨_, _, .indirectTrap lookup, ?_⟩
+          simp [config, render, MemoryWrite.limeActivationCode, IndirectSite.lookupHead, List.append_assoc]
+        | some target =>
+          obtain ⟨child, rfl, smaller⟩ := indirect_target link lookup
+          refine ⟨_, _, .callIndirect lookup smaller typed, ?_⟩
+          simp [config, render, MemoryWrite.limeActivationCode, IndirectSite.lookupHead, values_append, List.append_assoc]
       | _ => contradiction
   | child args stack child phase rest ih =>
-    obtain ⟨_, found, childAllocated, _, childActive, childReady, _, _⟩ := ready
+    obtain ⟨_, found, childAllocated, _, childActive, childReady, _, _, _⟩ := ready
     obtain ⟨mid, inside, rfl⟩ := (child_context childActive).mp move
     obtain ⟨written, next, step, rfl⟩ := ih found childAllocated childReady live childActive inside
     refine ⟨_, _, .child step, ?_⟩
@@ -408,8 +487,16 @@ private theorem sound {phase next : Phase} {written : ByteArray} (linked : site.
   | grow _ edge => exact (grow_iff (linked.checked _ registered)).mpr (.inl ⟨_, edge, rfl⟩)
   | growFail => exact (grow_iff (linked.checked _ registered)).mpr (.inr rfl)
   | call link _ => exact (call_iff link).mpr rfl
+  | @callIndirect callee child bytes args operandsSaved operands index signature selector rest lookup _ _ =>
+    have link := linked.indirect callee registered index signature (ready.2.2.2 _ (by simp))
+    refine (indirect_iff link).mpr ⟨_, lookup, ?_⟩
+    simp [config, render, MemoryWrite.limeActivationCode, IndirectSite.lookupHead, values_append, List.append_assoc]
+  | @indirectTrap callee bytes args stack index signature selector rest lookup =>
+    have link := linked.indirect callee registered index signature (ready.2.2.2 _ (by simp))
+    refine (indirect_iff link).mpr ⟨none, lookup, ?_⟩
+    simp [config, render, MemoryWrite.limeActivationCode, IndirectSite.lookupHead, List.append_assoc]
   | child move ih =>
-    obtain ⟨_, found, childAllocated, _, childActive, childReady, _, _⟩ := ready
+    obtain ⟨_, found, childAllocated, _, childActive, childReady, _, _, _⟩ := ready
     refine (child_context childActive).mpr ⟨_, ih found childAllocated childReady live, ?_⟩
     simp only [config, after_child_render, MemoryWrite.limeActivationCode, List.append_assoc, List.singleton_append]
   | @erase callee bytes args stack kept removed before cut rest split suffix active =>
@@ -455,7 +542,7 @@ theorem absent {phase : Phase} (allocated : callee.Allocated base)
     simp [render, List.append_assoc, decomposeFrom?_invoke_cons, Execution.Runtime.decomposeHead?, liveAllocation]
   | body _ _ ops => simp [render, List.append_assoc, code_absent]
   | child args stack child phase ops ih =>
-    obtain ⟨_, _, childAllocated, _, childActive, childReady, _, _⟩ := ready
+    obtain ⟨_, _, childAllocated, _, childActive, childReady, _, _, _⟩ := ready
     have none := ih (callee := child) (saved := stack) (tail := code ops) childAllocated childReady childActive
     simp only [List.append_assoc, decomposeFrom?_values_append, List.nil_append] at none
     simp [render, none]
