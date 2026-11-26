@@ -745,3 +745,33 @@ continuing reply, then `tick 11 11`. The later reply returns 23 with live-outs
 5 and 2 in that order. The generated-split corollary retains the separate
 check on the combined internal and exit labels.
 [Polling regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)
+
+#### Directed handled-trace verdict at a matched public entry
+
+`PublicMatch` connects an ordered φ admission and its checked reverse output
+and typed re-admission to an existing finite public `PackedEntry`. It uses
+the same typed input record on the φ and RTL side. At the specified public
+packet it requires capture agreement and a weak-tree equation for the
+re-admitted packed program, after the common result encoding. The primitive
+model shares the public event signature, including each request's reply
+type, and carries typed-to-erased primitive compatibility. The two public
+programs share the declared input and output profiles.
+
+For two such witnesses, `refinementAt?_iff_source` uses the existing
+all-replies verdict to decide directed satisfaction for every shared handler
+at that packet. A handler uses the same initial-state predicate and replay
+relation on both sides. The source, attached RTL and checked packed
+executions satisfy the same directed judgment under each policy. When the
+result encoding is injective, the verdict also reflects finite trace order
+on the original φ results. The witness supplies semantic alignment with the
+finite checker at this packet. It leaves construction of finite public
+programs for general φ graphs open.
+[Bridge](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/HandledTrace/Thms.lean)
+
+The regression aligns two checked graphs at the same unit input and visible
+request. After the reply one graph enters a self-edge that carries a φ
+operand and the other returns at exit 1. The existing verdict accepts in the
+loop-to-return direction and rejects the reverse. The actual attached RTL
+also replays the ordered return through a handler that moves from its
+initial state on the reply.
+[Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/HandledTrace/Examples.lean)
