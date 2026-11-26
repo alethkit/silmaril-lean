@@ -1,6 +1,9 @@
 module
 
 import Silmaril.Semantics.ITree.Thms
+import Silmaril.Semantics.ITree.VisiblePrefix.Thms
+import Silmaril.SSA.Isotope.LetIter.RequestFeedback.Thms
+import Silmaril.SSA.Isotope.LetIter.Categorical.Syntactic.AbortSequence.Category.Model.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Case.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.DecisionTree.Reorder.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.SumCall.Thms
@@ -3368,3 +3371,115 @@ example : weakenEffect le_top (denote reverseTerm) ≠ common := by
   cases head
 
 end LetIterCaseRawWeakeningFixture
+
+namespace LetIterRequestFeedbackFixture
+
+open Silmaril.Isotope.LetIter.LocallyNameless.RequestFeedback
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured
+open Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic (repairedDenoteInSyntax repairedDenoteInSyntax_eq_iff)
+
+set_option backward.isDefEq.respectTransparency false
+set_option backward.isDefEq.respectTransparency.types false
+
+private abbrev T := Ty Unit
+private abbrev A : T := .base ()
+private abbrev Eff := Bool × Bool
+private abbrev strict : Eff := (true, false)
+
+private instance : HasTy Unit T := ⟨fun _ => A, fun _ => .coprod A A⟩
+local instance : HasEff Unit Eff := ⟨fun _ => strict⟩
+local instance : EffectIteration Eff := EffectIteration.complete Eff
+
+private abbrev β : BoundCtx T 1 := .snoc .nil A
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty T)
+private abbrev start : Tm Empty Unit 1 := .bv 0
+
+private theorem typedNormalization :
+    HasTypeEffect Γ₀ β (padded () start) A strict ∧
+    HasTypeEffect Γ₀ β (loop () start) A strict ∧
+      Equiv (⊥ : Eff) Γ₀ β (padded () start) (loop () start) A :=
+  remove_unit_at_bound rfl .bv (.iter rfl bot_le (sup_le le_rfl bot_le))
+
+example : strict < (⊤ : Eff) :=
+  lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+private def thinDerivation : Derivation Unit Γ₀ β (loop () start) A :=
+  .iter .bv (.op .bv)
+
+private def paddedDerivation : Derivation Unit Γ₀ β (padded () start) A :=
+  .iter (.let₁ .bv (.pair .bv .unit)) (.case (.op (.let₂ .bv .bv)) (.inl .bv) (.inr (.pair .bv .unit)))
+
+example : repairedDenoteInSyntax (⊥ : Eff) paddedDerivation =
+    repairedDenoteInSyntax (⊥ : Eff) thinDerivation :=
+  (repairedDenoteInSyntax_eq_iff (⊥ : Eff) paddedDerivation thinDerivation).mpr (.equiv typedNormalization.2.2)
+
+private abbrev V (_ : Unit) : Type := Bool
+private abbrev D := Ty.denote (Lifted V)
+private abbrev E := Event (Φ := Unit) V
+
+private theorem visible : ¬ IsPure (⊥ : Eff) () := by
+  change strict ≠ (⊥ : Eff)
+  decide
+
+private def noPure : PureMaps (Φ := Unit) (ε := Eff) V :=
+  fun i h => by
+    cases i
+    exact (visible h).elim
+
+private def env (state : D A) : BoundEnv D β :=
+  BoundEnv.snoc (fun i => Fin.elim0 i) state
+
+private def step (state : D A) : ITree.Tree E (D A ⊕ D A) :=
+  ITree.vis (.call () state.down) (fun reply => ITree.ret ((toSmall V (.coprod A A)).symm reply))
+
+private noncomputable def run (state : D A) : ITree.Tree E (D A) :=
+  Silmaril.Elgot.iter step state
+
+private theorem denote_thin (state : D A) :
+    thinDerivation.denote D (instructions V noPure) (fun x => x.elim) (env state) = run state := by
+  unfold thinDerivation
+  erw [Derivation.denote]
+  simp only [Derivation.denote, pure_bind, env, BoundEnv.snoc_zero, run]
+  congr 1
+  funext input
+  change ((instructions V noPure).eval () input >>= fun reply => pure reply) = step input
+  rw [eval_bind_of_not_pure V noPure visible]
+  rfl
+
+private theorem run_unfold (state : D A) :
+    run state = ITree.vis (.call () state.down)
+      (Sum.elim (fun output => ITree.ret ⟨output⟩) (fun next => run ⟨next⟩)) := by
+  unfold run
+  nth_rw 1 [congrFun (ITree.iterate_fixpoint step) state]
+  change (ITree.vis _ _ >>= _) = _
+  rw [ITree.vis_bind]
+  congr 1
+  funext reply
+  cases reply <;> erw [pure_bind] <;> rfl
+
+-- Repaired soundness transfers the same response-indexed observation to the padded loop.
+example (state : D A) :
+    paddedDerivation.denote D (instructions V noPure) (fun x => x.elim) (env state) =
+      ITree.vis (.call () state.down)
+        (Sum.elim (fun output => ITree.ret ⟨output⟩) (fun next => run ⟨next⟩)) := by
+  rw [sound V noPure (.equiv typedNormalization.2.2) paddedDerivation thinDerivation (env state),
+    denote_thin, run_unfold]
+
+-- Choosing different repeat replies changes the very next request argument.
+example : headRequest V (run ⟨false⟩) ≠ headRequest V (run ⟨true⟩) := by
+  rw [run_unfold ⟨false⟩, run_unfold ⟨true⟩, head_of_vis, head_of_vis]
+  intro h
+  have heads := Part.some_injective h
+  cases heads
+
+example (state : D A) (d : Nat) :
+    ¬ ITree.VisibleDepthLE
+      (thinDerivation.denote D (instructions V noPure) (fun x => x.elim) (env state)) d := by
+  rw [denote_thin]
+  intro depth
+  have longer := ITree.hasVisiblePrefix_iter step
+    (fun s => ⟨Bool ⊕ Bool, .call () s.down, _, .inr (!s.down), ⟨!s.down⟩, rfl, rfl⟩)
+    (d + 1) state
+  exact Nat.not_succ_le_self d (depth _ longer)
+
+end LetIterRequestFeedbackFixture
