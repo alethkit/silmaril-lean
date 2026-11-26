@@ -3,6 +3,7 @@ module
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Infer.Defs
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
@@ -12,7 +13,7 @@ import Silmaril.SSA.RVSDG.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Thms
-meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Defs
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Infer.Defs
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests
 
@@ -327,10 +328,10 @@ private theorem memberBodyIso :
     intro arm
     exact .intro rfl rfl (Equiv.refl _) (fun i => i.elim0) (fun i => i.elim0) rfl (fun i => i.elim0)
 
-private def selfGroup (member : Function Unit Unit) {past sigs : List (Ports T)} {capture : T}
-    (source : Origin args past capture)
+private def selfGroup (member : Function Unit Unit) {imports : Ports T} {past sigs : List (Ports T)} {capture : T}
+    (source : Origin imports past capture)
     (body : NestedTheta.Term (Instruction Op) ([capture, member.port] ++ member.args) [] sigs member.results) :
-    PhiTerm Op args past [member] :=
+    PhiTerm Op imports past [member] :=
   ⟨[capture], .cons source .nil,
     .cons ⟨[capture, member.port], .cons (.arg .head) (.cons (.arg (.tail .head)) .nil), sigs, body⟩ .nil⟩
 
@@ -1013,7 +1014,7 @@ example : match Executable.link actions 73 wrappedL.toGraph (number 1) 20,
   simp [RecursiveCall.Numbered.admitExport, foreignRejected]
 
 open RecursiveCall.Numbered (linkedLambda)
-open RecursiveCall.Numbered.Prefix (GraphPlan Plan StartsRelated admit admitGraph admitGraph_starts)
+open RecursiveCall.Numbered.Prefix (GraphPlan Plan StartsRelated admit admitGraph admitGraph_starts inferGraphPlan)
 
 private abbrev prefixL : List (Ports T) := [[global], [branchFn.port], []]
 private abbrev prefixR : List (Ports T) := [[], [global], [branchFn.port]]
@@ -1445,8 +1446,8 @@ private def asymmetricScan (automatic : Bool) :=
 #guard (asymmetricScan false).isSome
 #guard (asymmetricScan true).isNone
 
--- Base activation calls the λ from the outer capture of the later group.
-private def aliasBase : RecursiveCall.Code Op (capturedWith branchFn.port) [] [[num]] [num] :=
+-- A base activation calls the later group’s outer capture.
+private def capturedCallArm : RecursiveCall.Code Op (capturedWith branchFn.port) [] [[num]] [num] :=
   let flag := Origin.arg (.tail (.tail .head)) (past := [])
   let after := Origin.arg (.tail (.tail (.tail .head))) (past := [])
   .bind (RecursiveCall.simple (.apply branchFn) (.cons (.arg .head) (.cons flag (.cons after (.cons after .nil))))
@@ -1460,7 +1461,7 @@ private def mixedSeed := selfGroup branchFn (.output (0 : Fin 2) .head : Origin 
   (branchBody baseL)
 
 private def mixedGroup := selfGroup branchFn (.output (4 : Fin 5) .head : Origin args mixedPast branchFn.port)
-  (branchBody aliasBase)
+  (branchBody capturedCallArm)
 
 private def mixedModule :
     OmegaTerm Op args mixedExports (mixedPast ++ [[branchFn.port], [branchFn.port]]) :=
@@ -1681,6 +1682,146 @@ example : OutcomesRelated machine Eq Nat (renameVertex profilePositions) capture
   have starts := profileStarts 0
   rw [profileStops false, profileStops true] at starts
   exact starts
+
+private abbrev crossImports : Ports T := [num, branchFn.port]
+private abbrev crossExports : Ports T := [branchFn.port]
+private abbrev crossSigs : List (Ports T) := [[global], [branchFn.port], [branchFn.port]]
+private abbrev crossPort : Port crossExports branchFn.port := .head
+
+private def crossDelta : DeltaTerm Op crossImports [] (.data ()) :=
+  ⟨[num], .cons (.arg .head) .nil, [[num]], seedTerm⟩
+
+private def crossEarlier (right : Bool) : PhiTerm Op crossImports [[global]] [branchFn] :=
+  selfGroup branchFn (.output 0 .head) (profiledBody right .seed)
+
+private def crossLater (foreign : Bool) : PhiTerm Op crossImports [[global], [branchFn.port]] [branchFn] :=
+  selfGroup branchFn (if foreign then .arg (.tail .head) else .output 1 .head)
+    (branchBodyWith capturedCallArm .gain)
+
+private def crossModule (right foreign : Bool) : OmegaTerm Op crossImports crossExports crossSigs :=
+  ⟨.bind (.delta crossDelta) <| .bind (.phi (crossEarlier right)) <| .bind (.phi (crossLater foreign)) <|
+    .ret (.cons (.output (2 : Fin 3) .head) .nil)⟩
+
+private def crossForeignBody : RecursiveCall.Code Op branchFn.args [] [] [num] :=
+  .ret (.cons (.arg .head) .nil)
+
+private def crossForeign : machine.Val branchFn.port :=
+  .closure .nil crossForeignBody.toGraph
+
+private def crossInputs : Tuple machine.Val crossImports :=
+  .cons (.data (1 : Nat)) (.cons crossForeign .nil)
+
+private def crossCheck (foreign : Bool)
+    (plan : GraphPlan (crossModule false false).toGraph (crossModule true foreign).toGraph) :=
+  admitGraph instructionKeys actions Eq ordinaryOutputs 73 73 crossInputs crossInputs
+    (crossModule false false).toGraph (crossModule true foreign).toGraph
+    plan (fn := branchFn) crossPort 20 20
+
+private def crossScan (foreign : Bool) :=
+  (inferGraphPlan (crossModule false false).toGraph (crossModule true foreign).toGraph).bind (crossCheck foreign)
+
+#guard (crossScan false).isSome
+#guard (inferGraphPlan (crossModule false false).toGraph (crossModule true true).toGraph).isSome
+#guard (crossScan true).isNone
+
+private def importExport : Omega Op crossImports crossExports [] :=
+  ⟨⟨fun i => i.elim0, .cons (.arg (.tail .head)) .nil⟩⟩
+
+#guard (inferGraphPlan importExport importExport).isNone
+#guard (inferGraphPlan (crossModule false false).toGraph importExport).isNone
+
+private def crossEarlyRef (right : Bool) : machine.Val branchFn.port :=
+  .member (.cons (globalValue 0 8) .nil) (crossEarlier right).toGraph.definitions 0
+
+private def crossRef (right foreign : Bool) : machine.Val branchFn.port :=
+  .member (.cons (if foreign then crossForeign else crossEarlyRef right) .nil)
+    (crossLater foreign).toGraph.definitions 0
+
+-- Both the checked earlier member and the unchecked same-signature
+-- import resolve through the actual capture wire and link successfully.
+private theorem crossLinked (right foreign : Bool) :
+    Executable.link actions 73 (crossModule right foreign).toGraph crossInputs 20 =
+      .linked (.cons (crossRef right foreign) .nil) 23 := by
+  cases right <;> cases foreign <;> cbv
+
+private def crossAttempt : Continuation.Partial.Executable.Observation machine Nat [num] →
+    Option (List Nat × Tuple machine.Val [global, num] × Nat)
+  | .blocked ⟨⟨_, _, .finish, _, _, input⟩, stack⟩ store => some (savedVertices stack, input, store)
+  | _ => none
+
+-- The later member recurses before calling the earlier group. Its two
+-- activations are still live at the earlier member’s relocated primitive.
+example (right : Bool) :
+    (Executable.run actions 80 73 (crossModule right false).toGraph crossInputs crossPort (branchArgs 0) 20
+      |>.toOption.bind crossAttempt) =
+      some ((if right then 1 else 0) :: [0, 0, 0, 0, 0], finishInputs 0 8 0, 23) := by
+  cases right <;> cbv
+
+-- Suspend at the actual call of the earlier member, then resume the saved
+-- suffixes. Both gain actions belong to the later group.
+example (right : Bool) : (match Executable.run actions 10 73 (crossModule right false).toGraph crossInputs
+      crossPort (branchArgs 1) 20 with
+  | .ok (.suspended config) =>
+    match config.control with
+    | .eval (.call _ _) stack => some (savedVertices stack, config.store, (runFor actions 80 config).result)
+    | _ => none
+  | _ => none) = some ([0, 0, 0, 0], 23, some (number 51, 46)) := by
+  cases right <;> cbv
+
+private abbrev crossPositions := Equiv.refl (Fin crossSigs.length)
+
+private theorem crossEarlierIso : (crossEarlier false).Renumbered (renameVertex crossPositions) (crossEarlier true) :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyWithIso .seed⟩ (fun i => i.elim0)⟩
+
+private theorem crossLaterIso : (crossLater false).Renumbered (renameVertex crossPositions) (crossLater false) :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩ (fun i => i.elim0)⟩
+
+private theorem crossIso : (crossModule false false).toGraph.RenumberedBy
+    (crossModule true false).toGraph crossPositions :=
+  ⟨Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+    (Fin.cases (.phi crossEarlierIso) (Fin.cases (.phi crossLaterIso) (fun i => i.elim0))), rfl⟩
+
+private theorem crossOrder : Ordered Op (renameVertex crossPositions) crossImports crossExports
+    (crossModule false false).toGraph.toTerm.region (crossModule true false).toGraph.toTerm.region := by
+  rw [OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+  exact .bind rfl (.delta ⟨rfl, rfl⟩ seedTerm)
+    (.bind rfl (.phi crossEarlierIso) (.bind rfl (.phi crossLaterIso) (.ret _ _)))
+
+private theorem crossPlanFound :
+    (inferGraphPlan (crossModule false false).toGraph (crossModule true false).toGraph).isSome = true := by decide +kernel
+
+private def crossPlan := (inferGraphPlan (crossModule false false).toGraph (crossModule true false).toGraph).get crossPlanFound
+
+private theorem crossAccepted : (crossCheck false crossPlan).isSome = true := by decide +kernel
+
+private def crossSource (right : Bool) : Config machine Nat [num] :=
+  ⟨Continuation.start (.call (crossRef right false) (branchArgs 0)), 23⟩
+
+private theorem crossStart (right : Bool) :
+    Executable.start actions 73 (crossModule right false).toGraph crossInputs crossPort (branchArgs 0) 20 =
+      .ok (crossSource right) := by
+  unfold Executable.start
+  rw [crossLinked]
+  rfl
+
+example : ∃ endR,
+    RecursiveCall.ReachedTerminal primitives Eq (crossSource false) (crossSource true)
+      (runFor actions 80 (crossSource false)) endR ∧ endR.Blocked primitives := by
+  have identity (i : Nat) : (73, i) = (73, renameVertex crossPositions i) := by
+    unfold renameVertex
+    split <;> rfl
+  have imports : TupleRelated machine Eq crossInputs crossInputs :=
+    .cons (.data (m := machine) (ids := Eq) (t := ()) (1 : Nat))
+      (.cons (.closure .nil (NestedTheta.Graph.Isomorphic.refl _)) .nil)
+  have arguments : TupleRelated machine Eq (branchArgs 0) (branchArgs 0) :=
+    .cons (.data (m := machine) (ids := Eq) (t := ()) (0 : Nat))
+      (.cons (.control 1) (.cons (.control 0) .nil))
+  have starts := admitGraph_starts instructionKeys actions (respectsGlobals Eq) ordinaryOutputs crossIso crossOrder
+    identity imports crossPlan (fn := branchFn) crossPort arguments rfl 20
+  rw [crossStart false, crossStart true] at starts
+  obtain ⟨_, _, closed, admitted⟩ := starts crossAccepted
+  exact (ClosedFamily.blocks (respectsGlobals Eq) closed admitted).1 _
+    (Continuation.Partial.Executable.runFor_reachable actions 80 (crossSource false)) ⟨_, by cbv, by cbv⟩
 
 open RecursiveCall.Numbered (GroupProfile LabelCode memberProfile memberProfile_eq)
 
