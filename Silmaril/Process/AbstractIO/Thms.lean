@@ -8,13 +8,11 @@ public section
 
 namespace Silmaril.Process.AbstractIO
 
-open Silmaril.Elgot.ITree (ret vis vis_bind)
+open Silmaril.Elgot.ITree (vis)
 
 theorem call_bind {A : Type} (req : Request) (next : Response req → Prog A) :
-    (call req >>= next) = vis (ITreeTrace.Event.call (sig := signature) req) next := by
-  let event := ITreeTrace.Event.call (sig := signature) req
-  exact (vis_bind event ret next).trans
-    (congrArg (vis event) (funext fun reply => pure_bind reply next))
+    (call req >>= next) = vis (ITreeTrace.Event.call (sig := signature) req) next :=
+  Proofs.call_bind req next
 
 /-- Every transfer choice gives a completed, typed observation. -/
 theorem step_completion (choice : Nat) (before : Store) (req : Request) :

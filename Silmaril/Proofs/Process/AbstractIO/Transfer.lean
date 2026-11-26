@@ -8,6 +8,13 @@ public section
 namespace Silmaril.Process.AbstractIO.Proofs
 
 open ITreeTrace (Allows End Flatten Pool)
+open Silmaril.Elgot.ITree (ret vis vis_bind)
+
+theorem call_bind {A : Type} (req : Request) (next : Response req → Prog A) :
+    (call req >>= next) = vis (ITreeTrace.Event.call (sig := signature) req) next := by
+  let event := ITreeTrace.Event.call (sig := signature) req
+  exact (vis_bind event ret next).trans
+    (congrArg (vis event) (funext fun reply => pure_bind reply next))
 
 theorem pread_store (choice : Nat) (store : Store) (fd offset count : Nat) :
     (step choice store (.pread fd offset count)).2 = store := by
