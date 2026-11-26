@@ -25,7 +25,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.S
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive (compile_site parameterNames site_slots lexical_defaults default_layout)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call (ClosureAt)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named
-  (resolves_at runs_at)
+  (resolves_at runs_at binding_exact SiteBinding)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports
 open Silmaril.Languages.Starlark.Functions
@@ -34,18 +34,19 @@ open Silmaril.Languages.Starlark.Lists.Iteration (Flow finishState)
 
 theorem wrapper_import_origin {importName aliases globals} (relay : WrapperDeclaration importName aliases globals) :
     importName ∉ relay.site.block.owned ∧ importName ∈ relay.site.block.enclosing := by
-  change importName ∉ (wrapperBlock relay.parameters aliases globals).owned ∧ importName ∈ aliases ++ []
-  exact ⟨by simpa [wrapperBlock, parameterNames] using relay.unshadowed,
+  change importName ∉ (wrapperBlock relay.parameters relay.keywordOnly aliases globals).owned ∧ importName ∈ aliases ++ []
+  exact ⟨by simpa [wrapperBlock] using relay.unshadowed,
     by simpa using relay.visible⟩
 
-theorem wrapper_signature {importName aliases globals} (relay : WrapperDeclaration importName aliases globals) :
-    relay.site.declaration.signature = relay.parameters.signature (relay.defaults.map PlainPositionalDefault.value) :=
-  rfl
+theorem wrapper_signature {importName aliases globals} (relay : WrapperDeclaration importName aliases globals)
+    (positionalOnly : relay.keywordOnly = []) :
+    relay.site.declaration.signature = relay.parameters.signature (relay.defaults.map PlainPositionalDefault.value) := by
+  simp [WrapperDeclaration.site, Nested.Sequence.Recursive.Site.declaration, Parameters.signature, positionalOnly]
 
 theorem wrapper_required_signature {importName aliases globals} (relay : WrapperDeclaration importName aliases globals)
-    (requiredOnly : relay.parameters.optional = []) :
+    (positionalOnly : relay.keywordOnly = []) (requiredOnly : relay.parameters.optional = []) :
     relay.site.declaration.signature = requiredSignature relay.parameters.required := by
-  rw [wrapper_signature]
+  rw [wrapper_signature relay positionalOnly]
   simp [Parameters.signature, requiredOnly, requiredSignature]
 
 theorem wrapper_import_slot {importName aliases globals}
@@ -76,7 +77,7 @@ theorem wrapper_compiles {importName aliases globals} (relay : WrapperDeclaratio
       (resolves_at _ imported relay.operands relay.keywords relay.star relay.mapping)
   exact elaborateCommand_nativeDefinition ⟨(block aliases globals).context, .local⟩ .global
     relay.name relay.site.sourceSignature relay.site.source program (program.push relay.site.declaration)
-    _ _ (compile_site relay.site .nil compiled)
+    _ _ (compile_site relay.site relay.keywordLexical compiled)
 
 theorem wrapper_returns {importName aliases globals} (relay : WrapperDeclaration importName aliases globals) {producer : Program} {consumer : ResolvedModule}
     {commands : List Modules.Resolve.Command} {seed : Program}
@@ -138,8 +139,15 @@ theorem wrapper_returns {importName aliases globals} (relay : WrapperDeclaration
   exact ⟨preserved.1, fun address cell _ found => preserved.2 address cell
     (Array.getElem?_eq_some_iff.mp found).choose found⟩
 
+private theorem wrapper_positional_sources {importName aliases globals}
+    (relay : WrapperDeclaration importName aliases globals) (positionalOnly : relay.keywordOnly = []) :
+    relay.site.defaultSources = relay.parameters.optional := by
+  cases relay
+  cases positionalOnly
+  rfl
+
 theorem wrapper_prepare_saved {importName aliases globals}
-    (relay : WrapperDeclaration importName aliases globals)
+    (relay : WrapperDeclaration importName aliases globals) (positionalOnly : relay.keywordOnly = [])
     {commands : List Modules.Resolve.Command} {seed : Program} {resolved : ResolvedModule}
     (checked : resolve commands seed = .ok resolved) (id : DeclarationId)
     (available : List DeclarationId) (permitted : id ∈ available)
@@ -155,9 +163,40 @@ theorem wrapper_prepare_saved {importName aliases globals}
   have count : (relay.defaults.map PlainPositionalDefault.value).length = relay.parameters.optional.length := by
     simpa using congrArg List.length (Lexical.translates relay.lexical).1
   have agreement := Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.checked_prepare_positional checked id available permitted relay.parameters relay.site.declaration
-    _ found (wrapper_signature relay)
-    count state address record.frozen record.captures record.defaults actuals record.length record.recorded source
+    _ found (wrapper_signature relay positionalOnly)
+    count state address record.frozen record.captures record.defaults actuals
+    (by simpa only [wrapper_positional_sources relay positionalOnly] using record.length)
+    (by simpa only [Nested.Sequence.Recursive.Site.defaultKeys, wrapper_positional_sources relay positionalOnly]
+      using record.recorded) source
   cases result <;> exact agreement
+
+theorem wrapper_prepare_named {importName aliases globals}
+    (relay : WrapperDeclaration importName aliases globals) (program : Program)
+    (id : DeclarationId) (available : List DeclarationId) (permitted : id ∈ available)
+    (found : program[id]? = some relay.site.declaration)
+    {state defining : State} {address : Nat} (record : ClosureAt relay.site id defining state address)
+    (actual : Actual) {result : Except Lists.Error BoundArguments}
+    (binding : SiteBinding relay.site record.defaults actual result) :
+    prepareExpanded program available actual (.function address) state =
+      match result with
+      | .error error => .error error state
+      | .ok assigned => .ok (.closure ⟨id, permitted, relay.site.declaration.body⟩)
+        (activate state relay.site.declaration record.captures assigned.named) := by
+  let saved := relay.site.defaultKeys.zip record.defaults
+  have loaded : getClosure address state = .ok ⟨id, record.captures, saved⟩ state := by
+    simp [getClosure, Lists.projectCell, Lists.getCell, bind, EStateM.bind, record.recorded, saved]
+    rfl
+  have bound : bindArguments relay.site.declaration.signature saved actual = result :=
+    binding_exact relay.site.declaration.signature binding
+  have vars : relay.site.declaration.signature.varargs = none := rfl
+  have named : relay.site.declaration.signature.kwargs = none := rfl
+  cases result with
+  | error error =>
+    simp only [prepareExpanded, bind, EStateM.bind, loaded, found, permitted, dite_true, bound, Lists.fromExcept]
+    rfl
+  | ok assigned =>
+    simp [prepareExpanded, bind, EStateM.bind, loaded, found, permitted, bound, Lists.fromExcept,
+      packArgs, vars, named, pure, EStateM.pure]
 
 /-- Defaults run in the reached defining frame. Installation records their
 values and the original alias cell only after all default operands succeed. -/
@@ -185,8 +224,8 @@ theorem wrapper_defines {importName aliases globals}
       | .ok _ _ => False := by
   intro target capture
   have installed : Installs state relay.site.free [capture] := .cons (.enclosing owned) .nil
-  have lexical := lexical_defaults relay.site .nil
-  obtain ⟨keys, codes⟩ := default_layout relay.site .nil
+  have lexical := lexical_defaults relay.site relay.keywordLexical
+  obtain ⟨keys, codes⟩ := default_layout relay.site relay.keywordLexical
   obtain ⟨out, ran, native, denoted, _⟩ := Lexical.defines_for_total program (List.range program.size)
     target id relay.site.declaration lexical found keys codes state [capture] installed
   refine ⟨out, ran, native, denoted, ?_⟩

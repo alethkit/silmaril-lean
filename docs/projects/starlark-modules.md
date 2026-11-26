@@ -1337,11 +1337,11 @@ through the consumer wrapper.
 
 The UTF-8 adapter compiles normalized modules in manifest order and feeds
 the final linked table to the loader. The source theorem starts at
-normalized commands. The checked wrapper header admits required positional
-parameters and a trailing list of positional defaults. Defaults use the
-existing lexical operand profile of reads, integer literals, singleton list
-allocation and indexing. Definition-time calls, keyword-only formals,
-collectors and broader wrapper bodies remain separate.
+normalized commands. The checked wrapper header admits required and
+defaulted positional parameters and required and defaulted keyword-only
+formals. Defaults use the existing lexical operand profile of reads,
+integer literals, singleton list allocation and indexing. Definition-time
+calls, collectors and broader wrapper bodies remain separate.
 [Suite theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/imported-checked/check.go)
 
 ### Composing checked imports
@@ -1410,8 +1410,25 @@ failure after an earlier default allocates. Lean checks the retained cells,
 restored caller and cache; pinned Go checks the outcomes, call order,
 saved default identity and visible pre-error bindings. The controls run
 cold and after actual preloads. They preload the producer when the wrapper
-definition itself fails. Arbitrary incoming caches, untracked exports, broader
-bodies and dispatch through a parameter remain outside this proof.
+definition itself fails.
+
+For keyword-only wrappers, positional capacity comes from the positional
+prefix. Named operands can supply required formals or override saved
+defaults. The binder uses the reached closure record and installs its
+original capture vector on success. Repeated explicit names fail during
+validation. An unknown name or a positional-and-named conflict reaches
+binding only after all operands succeed. A reached operand error keeps
+earlier effects and preempts binding and subsequent operands.
+
+Cold and wrapper-preloaded controls check a required keyword-only name and
+a list-valued keyword default. They cover both kinds of duplicate, unknown
+and missing names, positional overflow, and a later operand error that
+preempts an unknown-name error. Go instruments reached operands to observe
+their order. Lean checks the exact retained allocations and restored caller
+state. This tranche uses normalized keyword-only headers. The UTF-8
+frontend accepts named call arguments and currently rejects the bare
+`*` header. Arbitrary incoming caches, calls in defaults, collectors,
+untracked exports and calls through parameter values remain outside this proof.
 [Pinned compiler](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1223-L1237) · [Pinned interpreter](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L580-L617)
 
 [Chain theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Chain/Thms.lean)

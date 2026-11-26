@@ -382,7 +382,7 @@ def pick(first, second):
 type positionalWrapperRun struct {
 	consumer, forwarder starlark.StringDict
 	cache               map[string]starlark.StringDict
-	firstDefault        starlark.Value
+	savedDefaults       []starlark.Value
 	events              []string
 	err                 error
 }
@@ -415,7 +415,9 @@ func initPositionalWrapper(preload, forwarding, source string) positionalWrapper
 			values.Freeze()
 			run.cache[path] = values
 			if relay, ok := values["relay"].(*starlark.Function); ok {
-				run.firstDefault = relay.ParamDefault(1)
+				for i := 0; i < relay.NumParams(); i++ {
+					run.savedDefaults = append(run.savedDefaults, relay.ParamDefault(i))
+				}
 			}
 		}
 		return values, err
@@ -520,7 +522,7 @@ after = [198]
 	}
 	relay := run.cache["forwarder.star"]["relay"].(*starlark.Function)
 	saved := relay.ParamDefault(1).(*starlark.List)
-	require(saved == run.firstDefault && saved.String() == "[27]" &&
+	require(saved == run.savedDefaults[1] && saved.String() == "[27]" &&
 		relay.ParamDefault(2) == starlark.MakeInt(51) && relay.ParamDefault(3) == starlark.MakeInt(72), relay)
 	require(saved.SetIndex(0, starlark.MakeInt(7)) != nil, saved)
 	partial := run.consumer
@@ -539,7 +541,83 @@ after = [198]
 		strings.Join(run.events, ",") == "27 0", partial)
 }
 
+func checkKeywordWrapper(warm bool, failure string) {
+	const forwarding = `load("positional.star", ignored="spare", loaded="pick")
+seed = 27
+before = [76]
+def relay(x, *, at, key=[seed]):
+    return loaded(key[0], at)
+later = [199]
+`
+	call := "bound(0, key=[53], at=0)"
+	message := ""
+	operandEvents := ""
+	switch failure {
+	case "missing":
+		call = "bound(0, key=mark([63]))"
+		message = "missing 1 argument (at)"
+		operandEvents = ",63"
+	case "surplus":
+		call = "bound(0, mark([64]), at=mark([65])[0])"
+		message = "accepts 1 positional argument (2 given)"
+		operandEvents = ",64,65"
+	case "unknown":
+		call = "bound(0, extra=mark([64]), at=mark([65])[0])"
+		message = `unexpected keyword argument "extra"`
+		operandEvents = ",64,65"
+	case "duplicate":
+		call = "bound(0, at=mark([70])[0], x=mark([71]))"
+		message = `multiple values for parameter "x"`
+		operandEvents = ",70,71"
+	case "operand":
+		call = "bound(0, extra=mark([64]), at=mark([65])[1], key=mark([66]))"
+		message = "index 1 out of range"
+		operandEvents = ",64,65"
+	}
+	// mark makes reached operand order visible through Go's public API.
+	source := fmt.Sprintf(`load("forwarder.star", bound="relay")
+def mark(xs):
+    print(xs[0])
+    return xs
+firstResult = bound(0, at=0)
+marker = [88]
+out = %s
+again = bound(0, at=0)
+after = [198]
+`, call)
+	preload := ""
+	if warm {
+		preload = "forwarder.star"
+	}
+	run := initPositionalWrapper(preload, forwarding, source)
+	relay := run.cache["forwarder.star"]["relay"].(*starlark.Function)
+	require(relay.NumKwonlyParams() == 2 && relay.ParamDefault(1) == nil, relay)
+	saved := relay.ParamDefault(2).(*starlark.List)
+	require(saved == run.savedDefaults[2] && saved.String() == "[27]" &&
+		saved.SetIndex(0, starlark.MakeInt(7)) != nil, saved)
+	partial := run.consumer
+	require(partial["firstResult"] == starlark.MakeInt(27) && partial["marker"].String() == "[88]" &&
+		partial["bound"] == nil, partial)
+	if failure == "" {
+		require(run.err == nil && partial["out"] == starlark.MakeInt(53) && partial["again"] == starlark.MakeInt(27) &&
+			partial["after"].String() == "[198]" && strings.Join(run.events, ",") == "27 0,53 0,27 0", run.err)
+		return
+	}
+	require(run.err != nil && strings.Contains(run.err.Error(), message), run.err)
+	require(partial["out"] == nil && partial["again"] == nil && partial["after"] == nil &&
+		strings.Join(run.events, ",") == "27 0"+operandEvents, run.events)
+}
+
+func checkRepeatedKeyword() {
+	const source = `load("forwarder.star", bound="relay")
+out = bound(0, at=0, at=[64][1])
+`
+	_, _, err := starlark.SourceProgramOptions(&syntax.FileOptions{}, "duplicate.star", source, func(string) bool { return false })
+	require(err != nil && strings.Contains(err.Error(), "keyword argument \"at\" is repeated"), err)
+}
+
 func main() {
+	checkRepeatedKeyword()
 	for _, warm := range []bool{false, true} {
 		check(warm, "factory", `{"extra": 9}`)
 		check(warm, "factory", `{"key": 8}`)
@@ -555,6 +633,9 @@ func main() {
 		}
 		for _, failure := range []string{"", "missing", "surplus", "default"} {
 			checkSavedWrapper(warm, failure)
+		}
+		for _, failure := range []string{"", "missing", "surplus", "unknown", "duplicate", "operand"} {
+			checkKeywordWrapper(warm, failure)
 		}
 		for _, failure := range []string{"", "first", "last", "both", "dependency"} {
 			checkDiamond(warm, failure)
@@ -578,4 +659,5 @@ func main() {
 	fmt.Println("PASS grouped diamond loads reuse one dependency per command, choose the rightmost missing export, and skip later commands")
 	fmt.Println("PASS published positional wrappers call the second alias in operand order and stop at arity or reached body errors")
 	fmt.Println("PASS wrapper defaults are saved through cache hits and overrides, and a reached default error prevents publication")
+	fmt.Println("PASS keyword-only wrappers preserve saved defaults and operand order across binding errors and cache hits")
 }
