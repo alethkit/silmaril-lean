@@ -90,4 +90,18 @@ theorem denoteLogical_order (program : Functions.Program) (available : List Func
   Silmaril.Proofs.Languages.Starlark.Frontend.Module.denoteLogical_order
     program available bodyMeaning op left right state
 
+/-- Run the condition and its truth test, then evaluate only the selected
+arm from the resulting state. Condition failures retain their exact state. -/
+theorem denoteConditional_order (program : Functions.Program) (available : List Functions.DeclarationId)
+    (bodyMeaning : ClosureMeaning available) (test yes no : Functions.Lowering.Expr) (state : Lists.State) :
+    denoteExprWith program available bodyMeaning (.branch test yes no) state =
+      match denoteExprWith program available bodyMeaning test state with
+      | .ok value next =>
+        match Lists.Iteration.truth value next with
+        | .ok flag after => denoteExprWith program available bodyMeaning (if flag then yes else no) after
+        | .error error after => .error error after
+      | .error error next => .error error next :=
+  Silmaril.Proofs.Languages.Starlark.Frontend.Module.denoteConditional_order
+    program available bodyMeaning test yes no state
+
 end Silmaril.Languages.Starlark.Frontend.Module

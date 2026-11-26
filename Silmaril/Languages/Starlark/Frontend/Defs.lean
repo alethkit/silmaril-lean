@@ -73,12 +73,13 @@ inductive CallOperand where
   | call (span : Span) (callee : CallOperand) (arguments : CallArguments CallOperand)
   | logical (span : Span) (op : LogicalOp) (left right : CallOperand)
   | group (span : Span) (body : CallOperand)
+  | conditional (span : Span) (test yes no : CallOperand)
 
 abbrev LocatedCallArguments := CallArguments CallOperand
 
 def CallOperand.span : CallOperand → Span
   | .scalar value => value.span
-  | .display span _ | .call span .. | .logical span .. | .group span _ => span
+  | .display span _ | .call span .. | .logical span .. | .group span _ | .conditional span .. => span
 
 structure CallSpans where
   positional : List Span
@@ -187,6 +188,7 @@ private structure ExprGrammar (Expr : Type) where
   asScalar : Expr → Option SourceExpr
   grouped : Span → Expr → Expr
   logical : Span → LogicalOp → Expr → Expr → Expr
+  conditional : Span → Expr → Expr → Expr → Expr
 
 private def ExprGrammar.requireScalar {Expr : Type} (grammar : ExprGrammar Expr)
     (expr : Expr) (operator : Stream) : Except Diagnostic SourceExpr :=
@@ -195,7 +197,7 @@ private def ExprGrammar.requireScalar {Expr : Type} (grammar : ExprGrammar Expr)
   | none => failAt (.unsupported .operator) operator
 
 private def scalarGrammar : ExprGrammar SourceExpr :=
-  ⟨LocatedArgument.expr, some, fun _ expr => expr, fun _ => .logical⟩
+  ⟨LocatedArgument.expr, some, fun _ expr => expr, fun _ => .logical, fun _ => .conditional⟩
 
 -- Binding powers, from weakest to strongest, are conditional, or, and, not,
 -- comparison, additive, multiplicative and unary sign. The atom hook parses
@@ -275,9 +277,7 @@ private def parseInfixWith {Expr : Type} (grammar : ExprGrammar Expr)
       let (test, afterTest) ← parseExprWith grammar atom fuel 1 s.pop
       unless afterTest.peek.kind = .keyword "else" do return ← expect "'else'" afterTest
       let (no, rest) ← parseExprWith grammar atom fuel 0 afterTest.pop
-      let value := .conditional (← grammar.requireScalar test s) (← grammar.requireScalar left s)
-        (← grammar.requireScalar no s)
-      return (scalar value rest, rest)
+      return (grammar.conditional ⟨start, rest.lastEnd⟩ test left no, rest)
     | .keyword "not" => expect "'in' after 'not'" s.pop
     | .symbol "(" => failAt (.unsupported .call) s
     | .symbol "[" => failAt (.unsupported .subscript) s
@@ -548,6 +548,11 @@ private def moduleExpressionGrammar : ExprGrammar CallOperand where
     match left, right with
     | .scalar lhs, .scalar rhs => .scalar ⟨span, .logical op lhs.expr rhs.expr⟩
     | _, _ => .logical span op left right
+  conditional span test yes no :=
+    match test, yes, no with
+    | .scalar condition, .scalar consequent, .scalar alternative =>
+      .scalar ⟨span, .conditional condition.expr consequent.expr alternative.expr⟩
+    | _, _, _ => .conditional span test yes no
 
 -- Every application consumes an opening parenthesis and matching close.
 -- Each suffix wraps the expression accumulated so far as its sole callee.
