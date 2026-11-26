@@ -56,8 +56,8 @@ abbrev gammaNode (extra : Nat) (choice : Origin args past (.control (extra + 2))
     .cons choice (OrderedRuntime.Structured.withRuntime live wires), childSigs⟩
 
 /-- A token-free binding keeps the current live origin in any scope. A γ
-child starts from its argument token and returns its own final token. An
-all-ordered subtree can still be admitted by the existing checker. -/
+or θ child starts from its argument token and returns its own final token.
+An all-ordered subtree can still be admitted by the existing checker. -/
 inductive Checked (P E Q : Dialect.{u,v} V PUnit.{u+1}) :
     {args outs : Ports (Ty V)} → Data args → Data outs →
     {past sigs : List (Ports (Ty V))} → Origin (Threaded args) past runtime →
@@ -93,6 +93,15 @@ inductive Checked (P E Q : Dialect.{u,v} V PUnit.{u+1}) :
       (∀ j, Checked P E Q i o (.arg (runtimePort ins)) (children j)) →
       Checked P E Q a b (nextRuntime past out) rest →
       Checked P E Q a b live (.bind (gammaNode (out := out) extra choice live wires childSigs) children rest)
+  | theta {args outs ins : Ports (Ty V)} {a : Data args} {b : Data outs}
+      {past sigs : List (Ports (Ty V))}
+      (live : Origin (Threaded args) past runtime) (i : Data ins)
+      (wires : Wires (Threaded args) past ins) (bodySigs : List (Ports (Ty V)))
+      {children : Fin 1 → Term (Op P E Q) (Threaded ins) [] bodySigs (Threaded (Theta.BodyResults ins))}
+      {rest : Term (Op P E Q) (Threaded args) (past ++ [Threaded ins]) sigs (Threaded outs)} :
+      (∀ j, Checked P E Q i (.control i) (.arg (runtimePort ins)) (children j)) →
+      Checked P E Q a b (nextRuntime past ins) rest →
+      Checked P E Q a b live (.bind (ExplicitRuntime.thetaNode live wires bodySigs) children rest)
 
 variable {a : Data args} {b : Data middle} {c : Data outs}
 
