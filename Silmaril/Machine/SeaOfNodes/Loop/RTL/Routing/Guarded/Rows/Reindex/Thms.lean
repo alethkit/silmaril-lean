@@ -14,8 +14,8 @@ namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
 
 open CategoryTheory
 open Silmaril.Machine.Lir (Memory Word)
-open Silmaril.Machine.SeaOfNodes.Diamond.RTL (WordOp model word)
-open Silmaril.SSA.RVSDG (Tuple)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy WordOp model word)
+open Silmaril.SSA.RVSDG (Locals Tuple Wires)
 open Silmaril.SSA.SeaOfNodes.Diamond (Model Val)
 open Silmaril.SSA.SeaOfNodes.Diamond.Institution (reduct)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA (Atom inputEnv instruction)
@@ -41,6 +41,15 @@ theorem lowerChecked_reindex {spec : Spec} {targets : Checked.Phi.Targets}
       lowerChecked arity (spec.reindexInputs perm) =
         some (lowerBank (p.reindexInputs perm).graph, Generic.lower (p.reindexInputs perm).graph) :=
   Proofs.Reindex.lowerChecked_reindex perm accepted
+
+/-- In any producer prefix, renamed capture wires read the pulled valuation;
+earlier producer values come from the same locals. -/
+theorem InputPermutation.read_column (perm : InputPermutation arity) {F : PortTy → Type w}
+    {past : List (List PortTy)} {outputs : List PortTy} (input : Tuple F (wordPorts arity))
+    (wires : Wires (wordPorts arity) past outputs) (locals : Locals F past) :
+    (perm.column wires).read input locals =
+      wires.read (pullTuple (fun p => perm.port p) input) locals :=
+  Proofs.Reindex.read_column perm input wires locals
 
 theorem initial_reindex (p : Plan arity) (perm : InputPermutation arity)
     (m : Model.{0, 0, w} WordOp) (input : Tuple (Val m.value) (wordPorts arity)) :
