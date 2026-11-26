@@ -21,9 +21,9 @@ variable {imports importsL importsR exports : Ports (Ty V S)}
 variable {past pastL pastR sigs sigsL sigsR : List (Ports (Ty V S))}
 
 /-- Align the actual bindings in two modules in link order. The plan
-chooses the single paired φ seed, the paired λ extensions, and which
-bindings to link without admitting their callable outputs. The types
-enforce a common signature at each λ pair. -/
+chooses an initial paired φ seed, later φ and λ extensions, and bindings
+to link without admitting their callable outputs. The types fix the shared
+signatures for each extension. -/
 inductive Plan (Op : Dialect.{u, v} (ValueSort V S) S) (importsL importsR exports : Ports (Ty V S)) :
     Bool → {pastL sigsL pastR sigsR : List (Ports (Ty V S))} →
     ModuleTerm Op importsL pastL sigsL exports → ModuleTerm Op importsR pastR sigsR exports → Type (max u v + 1) where
@@ -45,6 +45,13 @@ inductive Plan (Op : Dialect.{u, v} (ValueSort V S) S) (importsL importsR export
       {restR : ModuleTerm Op importsR (pastR ++ [memberPorts membersR]) sigsR exports}
       (next : Plan Op importsL importsR exports true restL restR) :
       Plan Op importsL importsR exports false (.bind (.phi left) restL) (.bind (.phi right) restR)
+  /-- Extend the checked prefix with a paired later φ group. -/
+  | phi {pastL sigsL pastR sigsR : List (Ports (Ty V S))} {members : List (Function V S)}
+      {left : PhiTerm Op importsL pastL members} {right : PhiTerm Op importsR pastR members}
+      {restL : ModuleTerm Op importsL (pastL ++ [memberPorts members]) sigsL exports}
+      {restR : ModuleTerm Op importsR (pastR ++ [memberPorts members]) sigsR exports}
+      (next : Plan Op importsL importsR exports true restL restR) :
+      Plan Op importsL importsR exports true (.bind (.phi left) restL) (.bind (.phi right) restR)
   | lambda {pastL sigsL pastR sigsR : List (Ports (Ty V S))} {fn : Function V S}
       {left : LambdaTerm Op importsL pastL fn} {right : LambdaTerm Op importsR pastR fn}
       {restL : ModuleTerm Op importsL (pastL ++ [[fn.port]]) sigsL exports}
@@ -235,7 +242,7 @@ structure Checked (primitives : Primitives m σ) (ids : GlobalRel) (code : Opcod
     (localsL : Locals m.Val pastL) (localsR : Locals m.Val pastR) where
   familyL : Family m
   familyR : Family m
-  keys : LambdaKeys V S code.Key captureCode.Key
+  keys : DispatchKeys V S code.Key captureCode.Key
   certified : LinkedFamily primitives ids code captureCode familyL familyR keys
   lambdas : List (LambdaEntry familyL familyR)
   left : Table familyL localsL
@@ -461,7 +468,26 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (captureCod
     let rightTable := (Table.empty groupR.In localsR).snoc (memberRow membersR groupR.ref (fun slot => .member slot))
     let checked ← walk keys captureCode exactValue actions ids ordinary unitL unitR inputsL inputsR port
       (localsL.snoc (memberValues membersL groupL.ref)) (localsR.snoc (memberValues membersR groupR.ref))
-      storeL storeR next (.seeded ⟨groupL.In, groupR.In, ⟨[], []⟩, seed.down, [], leftTable, rightTable⟩)
+      storeL storeR next (.seeded ⟨groupL.In, groupR.In, DispatchKeys.seed groupL.key groupR.key, seed.down, [], leftTable, rightTable⟩)
+    pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
+  | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR,
+      .phi (members := members) (left := left) (right := right) next, .seeded earlier => do
+    let outerL ← checkWires (earlier.left.available earlier.certified.ordinaryL) left.captures
+    let outerR ← checkWires (earlier.right.available earlier.certified.ordinaryR) right.captures
+    let groupL : Group m members := ⟨_, left.captures.read inputsL localsL, left.toGraph.definitions⟩
+    let groupR : Group m members := ⟨_, right.captures.read inputsR localsR, right.toGraph.definitions⟩
+    let certified ← earlier.certified.addGroup keys ordinary groupL groupR outerL.down outerR.down
+    let familyL : Family m := WithGroup earlier.familyL groupL
+    let familyR : Family m := WithGroup earlier.familyR groupR
+    let tableL := (earlier.left.lift (fun known => WithGroup.inherited known)).snoc
+      (memberRow members groupL.ref (fun slot => .member slot) : Row familyL (memberValues members groupL.ref))
+    let tableR := (earlier.right.lift (fun known => WithGroup.inherited known)).snoc
+      (memberRow members groupR.ref (fun slot => .member slot) : Row familyR (memberValues members groupR.ref))
+    let lambdas : List (LambdaEntry familyL familyR) := earlier.lambdas.map fun entry =>
+      ⟨entry.fn, entry.left, entry.right, .inherited entry.knownL, .inherited entry.knownR⟩
+    let checked ← walk keys captureCode exactValue actions ids ordinary unitL unitR inputsL inputsR port
+      (localsL.snoc (memberValues members groupL.ref)) (localsR.snoc (memberValues members groupR.ref))
+      storeL storeR next (.seeded ⟨familyL, familyR, _, certified.down, lambdas, tableL, tableR⟩)
     pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
   | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR,
       .lambda (left := left) (right := right) next, .seeded earlier =>
