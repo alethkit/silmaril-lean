@@ -23,8 +23,8 @@ structure Jump (packets : Fin blocks → PacketType) (outputs : Fin exits → Pa
   label : Label blocks exits
   packet : Expr Γ (Sum.elim packets outputs label)
 
-/-- The two arms bind their own payload types. One leaf targets the old
-table and the other targets the ordered exit interface. -/
+/-- The two arms bind their own payload types and independently target
+an old block or an ordered outward exit. -/
 structure CaseTail (packets : Fin blocks → PacketType) (outputs : Fin exits → PacketType)
     (Γ : List PacketType) where
   leftType : PacketType
@@ -32,7 +32,6 @@ structure CaseTail (packets : Fin blocks → PacketType) (outputs : Fin exits �
   test : Expr Γ (.coprod leftType rightType)
   left : Jump packets outputs (leftType :: Γ)
   right : Jump packets outputs (rightType :: Γ)
-  mixed : left.label.isLeft ≠ right.label.isLeft
 
 /-- Each request extends the scope with exactly its typed reply. The tail
 supplies a structural packet directly or selects between two typed jump leaves. -/
@@ -102,9 +101,7 @@ def readRow (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType) (
     let ⟨.coprod a b, discr⟩ ← elaborateExpr Γ test | none
     let left ← readJump packets outputs (a :: Γ) left
     let right ← readJump packets outputs (b :: Γ) right
-    if mixed : left.label.isLeft ≠ right.label.isLeft then
-      return .branch ⟨a, b, discr, left, right, mixed⟩
-    else none
+    return .branch ⟨a, b, discr, left, right⟩
   | Γ, .let₁ (.op op arg) tail => do
     return .request op (← elaborateArg Γ (sig.argument op) arg)
       (← readRow sig packets outputs (sig.reply op :: Γ) tail)
