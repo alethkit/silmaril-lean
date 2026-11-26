@@ -93,12 +93,14 @@ def fold (rules : Rules m) (program : Program Op inputs out) : Program Op inputs
 
 end Scan
 
-/-- The original arithmetic profile of the literal scan. -/
+/-- Word arithmetic rules for the shared forward scan. -/
 def arithmeticRules : Scan.Rules model :=
   fun op => match op with
   | .literal value => .literal (SubZero.Opcode.literal value)
   | .add => .binary SubZero.Opcode.add SubZero.Opcode.literal (fun _ => rfl)
-  | .sub => .binary SubZero.Opcode.sub SubZero.Opcode.literal (fun _ => rfl)
+  | .sub =>
+    .sameWord SubZero.Opcode.sub (SubZero.Opcode.literal 0) (fun value => BitVec.sub_self value)
+      (.binary SubZero.Opcode.sub SubZero.Opcode.literal (fun _ => rfl))
   | .mul => .binary SubZero.Opcode.mul SubZero.Opcode.literal (fun _ => rfl)
 
 variable {inputs : List (ValueSort Unit)} {out : ValueSort Unit}
