@@ -469,30 +469,48 @@ private def parseCollectionDisplay (fuel : Nat) (s : Stream) :
   | .symbol "{" => some <$> parseMappingDisplay fuel s
   | _ => pure none
 
--- Each cycle through the call grammar consumes an opening parenthesis or
--- a comma. The common budget also covers the handoffs between its parsers.
+-- Probe only for a head immediately followed by an application. Ordinary
+-- parenthesized expressions and tuples still go to their existing parsers.
+private def callHead (exprFuel : Nat) (s : Stream) : Option (CallOperand × Stream) := do
+  match s.peek.kind with
+  | .name name =>
+    if s.pop.peek.kind = .symbol "(" then
+      some (.scalar ⟨s.peek.span, .read name⟩, s.pop)
+    else none
+  | .symbol "(" =>
+    let (value, close) ← (parseLocatedExpr exprFuel s.pop).toOption
+    let rest := close.pop
+    if close.peek.kind = .symbol ")" && rest.peek.kind = .symbol "(" then
+      some (.scalar ⟨⟨s.peek.span.start, rest.lastEnd⟩, value.expr⟩, rest)
+    else none
+  | _ => none
+
+-- Every application consumes an opening parenthesis and matching close.
+-- Each suffix wraps the expression accumulated so far as its sole callee.
 mutual
 
-private def parseCallOperand (exprFuel : Nat) :
-    Nat → Feature → Stream → Except Diagnostic (CallOperand × Stream)
+private def parsePostfixApplications (exprFuel : Nat) :
+    Nat → CallOperand → Stream → Except Diagnostic (CallOperand × Stream)
   | 0, _, s => failAt .exhausted s
-  | fuel + 1, suffixFeature, s => do
-    if let (.name name, .symbol "(") := (s.peek.kind, s.pop.peek.kind) then
-      let start := s.peek.span.start
-      let callee := CallOperand.scalar ⟨s.peek.span, .read name⟩
-      let (first, rest) ← parseCallArguments exprFuel fuel s.pop.pop {}
-      let application := CallOperand.call ⟨start, rest.lastEnd⟩ callee first
-      -- A bare-name application can serve as the callee of one more application.
-      let (value, rest) ← if rest.peek.kind = .symbol "(" then do
-        let (second, rest) ← parseCallArguments exprFuel fuel rest.pop {}
-        pure (.call ⟨start, rest.lastEnd⟩ application second, rest)
-      else pure (application, rest)
+  | fuel + 1, callee, s => do
+    unless s.peek.kind = .symbol "(" do return (callee, s)
+    let (arguments, rest) ← parseCallArguments exprFuel fuel s.pop {}
+    let application := CallOperand.call ⟨callee.span.start, rest.lastEnd⟩ callee arguments
+    parsePostfixApplications exprFuel fuel application rest
+termination_by structural fuel _ _ => fuel
+
+private def parseCallOperand (exprFuel : Nat) :
+    Nat → Stream → Except Diagnostic (CallOperand × Stream)
+  | 0, s => failAt .exhausted s
+  | fuel + 1, s => do
+    if let some (callee, next) := callHead exprFuel s then
+      let (value, rest) ← parsePostfixApplications exprFuel fuel callee next
       if rest.peek.kind != .symbol "," && hasExprSuffix rest then
-        return ← failAt (.unsupported suffixFeature) rest
+        return ← failAt (.unsupported .callArguments) rest
       return (value, rest)
     let (value, rest) ← parseLocatedExpr exprFuel s
     return (.scalar value, rest)
-termination_by structural fuel _ _ => fuel
+termination_by structural fuel _ => fuel
 
 private def parseSpread (exprFuel : Nat) :
     Nat → Bool → Stream → Except Diagnostic (LocatedSpread CallOperand × Stream)
@@ -503,7 +521,7 @@ private def parseSpread (exprFuel : Nat) :
     let (operand, rest) ← match parsed with
       | some (display, rest) =>
         pure (.display ⟨next.peek.span.start, rest.lastEnd⟩ display, rest)
-      | none => parseCallOperand exprFuel fuel .callArguments next
+      | none => parseCallOperand exprFuel fuel next
     if let .display _ display := operand then
       match display with
       | .mapping _ => unless mapping do return ← failAt (.unsupported .callArguments) next
@@ -533,10 +551,10 @@ private def parseCallItem (exprFuel : Nat) :
       if args.starStar.isSome then return ← failAt (.callOrder .argumentAfterStarStar) s
       if args.star.isSome then return ← failAt (.callOrder .argumentAfterStar) s
       if let (.name name, .symbol "=") := (kind, next) then
-        let (value, rest) ← parseCallOperand exprFuel fuel .callArguments s.pop.pop
+        let (value, rest) ← parseCallOperand exprFuel fuel s.pop.pop
         return ({ args with named := ⟨s.peek.span, name, value⟩ :: args.named }, rest)
       if !args.named.isEmpty then return ← failAt (.callOrder .positionalAfterNamed) s
-      let (value, rest) ← parseCallOperand exprFuel fuel .callArguments s
+      let (value, rest) ← parseCallOperand exprFuel fuel s
       return ({ args with positional := value :: args.positional }, rest)
 termination_by structural fuel _ _ => fuel
 
@@ -558,12 +576,13 @@ end
 
 private def parseFileSmall (exprFuel : Nat) (s : Stream) : Except Diagnostic (FileCommand × Stream) := do
   match s.remaining with
-  | ⟨.name target, _⟩ :: ⟨.symbol "=", _⟩ :: ⟨.name _, _⟩ :: ⟨.symbol "(", _⟩ :: _ =>
-    let (value, rest) ← parseCallOperand exprFuel (4 * exprFuel) .call s.pop.pop
-    if rest.peek.kind = .symbol "," then failAt (.unsupported .call) rest
-    else return (.assignCall target value, rest)
   | ⟨.name target, _⟩ :: ⟨.symbol "=", _⟩ :: _ =>
-    if let some (display, rest) ← parseCollectionDisplay exprFuel s.pop.pop then
+    let rhs := s.pop.pop
+    if let some (callee, next) := callHead exprFuel rhs then
+      let (value, rest) ← parsePostfixApplications exprFuel (4 * exprFuel) callee next
+      if hasExprSuffix rest then return ← failAt (.unsupported .call) rest
+      return (.assignCall target value, rest)
+    if let some (display, rest) ← parseCollectionDisplay exprFuel rhs then
       if hasExprSuffix rest then return ← failAt (.unsupported .collection) rest
       return (.assignDisplay target display, rest)
     let (stmt, rest) ← parseSmallStmt exprFuel false s

@@ -32,6 +32,8 @@ wrong = 0
 			moduleControl{Phase: "publication", Want: "7", Events: "[0, 1, 2, 3, 4, 5]"}},
 		{"callee-effects-before-callee-error", "choose(f, mark(0, 0))(mark(1, 1), c=mark(2, 3), *mark(3, xs), **mark(4, kw))",
 			moduleControl{Phase: "runtime", Want: "missing 1 argument (required)", Events: "[0]"}},
+		{"middle-application-masks-later-effects", "mark(1, choose)(f, mark(2, 0))(mark(3, 0))(mark(4, 0))",
+			moduleControl{Phase: "runtime", Want: "missing 1 argument (required)", Events: "[1, 2]"}},
 		{"operand-effects", "f(mark(1, 1), c=mark(2, 3), *mark(3, xs), **mark(4, kw))",
 			moduleControl{Phase: "publication", Want: "7", Events: "[1, 2, 3, 4, 5]"}},
 		{"effects-before-spread-error", "f(mark(1, 1), c=mark(2, 3), *mark(3, wrong), **mark(4, kw))",
