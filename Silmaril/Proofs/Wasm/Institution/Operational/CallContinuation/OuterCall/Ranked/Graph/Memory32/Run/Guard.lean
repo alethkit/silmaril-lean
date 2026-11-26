@@ -244,15 +244,24 @@ theorem preserve {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAd
   | storeTrap _ _ => exact single_allowed.mpr .trap
   | size _ _ | grow _ _ _ | growFail _ _ => exact values_allowed _
 
+private theorem root_permitted (calls : CallMode) (rank : Nat) : calls.permits (rank + 1) rank := by
+  cases calls with
+  | ranked => exact Nat.lt_succ_self _
+  | recursive => trivial
+
+theorem initial_invoke {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {addr : FuncAddr}
+    {fn : Function} {caller : Frame} (found : p.lookup addr = some fn) (args : List Value)
+    {bytes : ByteArray} {minimum : Nat} (extent : mode.extent minimum bytes) :
+    ReadyFor mode p m calls (fn.rank + 1) minimum ⟨bytes, caller, values args ++ [.invoke addr]⟩ :=
+  ⟨extent, append_allowed.mpr ⟨values_allowed args,
+    single_allowed.mpr (.invoke found (root_permitted calls fn.rank))⟩⟩
+
 theorem initial_call {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {addr : FuncAddr} {fn : Function}
     {caller : Frame} {index : FuncIdx} (found : p.lookup addr = some fn)
     (resolved : caller.module.funcs[index.toNat]? = some addr) (args : List Value) (bytes : ByteArray)
     (extent : mode.extent bytes.size bytes) :
     ReadyFor mode p m calls (fn.rank + 1) bytes.size ⟨bytes, caller, values args ++ [.source (.call index)]⟩ :=
   ⟨extent, append_allowed.mpr ⟨values_allowed args,
-    single_allowed.mpr (.source (.call resolved found (by
-      cases calls with
-      | ranked => exact Nat.lt_succ_self _
-      | recursive => trivial)))⟩⟩
+    single_allowed.mpr (.source (.call resolved found (root_permitted calls fn.rank)))⟩⟩
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.RunProofs

@@ -44,6 +44,14 @@ theorem call_ready {p : Program} {m : MemAddr} {addr : FuncAddr} {fn : Function}
     Ready p m (fn.rank + 1) bytes.size ⟨bytes, caller, values args ++ [.source (.call index)]⟩ :=
   RunProofs.initial_call found resolved args bytes rfl
 
+/-- A resolved external invocation enters the same checked graph as a
+source direct call. Allocation and argument count are checked at native entry. -/
+theorem invoke_ready {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {addr : FuncAddr}
+    {fn : Function} {caller : Frame} (found : p.lookup addr = some fn) (args : List Value)
+    {bytes : ByteArray} {minimum : Nat} (extent : mode.extent minimum bytes) :
+    ReadyFor mode p m calls (fn.rank + 1) minimum ⟨bytes, caller, values args ++ [.invoke addr]⟩ :=
+  RunProofs.initial_invoke found args extent
+
 theorem Edge.module_eq {p : Program} {m : MemAddr} {src dst : State} (edge : Edge p m src dst) :
     dst.frame.module = src.frame.module :=
   RunProofs.edge_module edge
