@@ -57,13 +57,15 @@ where
       .operation (Opcode.arithmetic opcode) (fun value => Opcode.arithmetic (encode value)) read_encode
     | _, _, _, .sameWord opcode result read_same fallback =>
       .sameWord (Opcode.arithmetic opcode) (.arithmetic result) read_same (liftArithmeticRule fallback)
+    | _, _, _, .commuteLeftLiteral opcode read_swapped fallback =>
+      .commuteLeftLiteral (Opcode.arithmetic opcode) read_swapped (liftArithmeticRule fallback)
   comparisonRule (op : Opcode [word, word] .predicate) (same : Bool)
       (read_same : ∀ value, model.run op (.cons value (.cons value .nil)) = ⟨same⟩) : Scan.Rule model op :=
     .sameWord op (.boolean same) read_same (.binary op (fun value => .boolean value.down) (fun _ => rfl))
 
 variable {inputs : List (ValueSort Unit)} {out : ValueSort Unit}
 
-/-- Fold literal operations, same-source subtraction, and same-source comparisons in dependency order. -/
+/-- Fold constants and normalize supported operands in dependency order. -/
 def fold (program : Program Opcode inputs out) : Program Opcode inputs out :=
   Scan.fold rules program
 

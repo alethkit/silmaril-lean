@@ -88,6 +88,25 @@ private theorem replacement_sound (agree : Agrees known entry locals) {op : Op i
           cases Option.some.inj found
           exact read_same _
         · exact ih _ found
+  | commuteLeftLiteral opcode read_swapped fallback ih => exact ih operands found
+
+private theorem orderOperands_sound {op : Op ins out}
+    (rule : Rule m op) (operands : Wires args past (dataPorts ins)) :
+    m.run op ((rule.orderOperands known operands).read entry locals) =
+      m.run op (operands.read entry locals) := by
+  induction rule with
+  | literal | operation => rfl
+  | sameWord opcode result read_same fallback ih => exact ih operands
+  | commuteLeftLiteral opcode read_swapped fallback ih =>
+    cases operands with
+    | cons lhs tail =>
+      cases tail with
+      | cons rhs empty =>
+        cases empty
+        simp only [Rule.orderOperands]
+        split
+        · exact read_swapped (Diamond.read m lhs entry locals) (Diamond.read m rhs entry locals)
+        · exact ih _
 
 private theorem dataflow_eval (rules : Rules m) (flow : Dataflow Op args past sigs)
     (agree : Agrees known entry locals) :
@@ -97,7 +116,8 @@ private theorem dataflow_eval (rules : Rules m) (flow : Dataflow Op args past si
   | @cons scope sigs ins out op operands rest ih =>
     cases found : (rules op).replacement? known operands with
     | none =>
-      simp only [foldDataflow, found, Dataflow.eval]
+      have same := orderOperands_sound (known := known) (entry := entry) (locals := locals) (rules op) operands
+      simp only [foldDataflow, found, Dataflow.eval, same]
       exact ih (push_agrees agree (by intro value impossible; cases impossible))
     | some literal =>
       have same := replacement_sound agree (rules op) operands found
