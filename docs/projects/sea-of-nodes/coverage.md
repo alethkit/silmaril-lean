@@ -17,8 +17,19 @@ in one two-backedge quad loop family, and [#4918][pr-gcm-compact-exit-phi]
 reads explicit Φ rows from a compacted loop exit. These sit on `GCM.LoopForest`,
 `GCM.LoopHoist` and `GVN.Cyclic`, all introduced the same day, each on its own
 admitted CFG or loop-region shape (see the Start Here and PLDI/thesis rows
-below). This pass does not re-audit the rest of the ledger against current
-`main`.
+below).
+
+A second pass the same day found that this ledger's GCM rows were already
+considerably more stale than the above: `GCM.EarlyPlacement`, `GCM.LatePlacement`
+and `GCM.Dominance.Tree.Synthesis` (new that day) and the pre-existing
+`GCM.NaturalLoop`/`GCM.LoopPlacement`/`GCM.Corridor` chain (from PR #3716)
+already give a constructive, exact dominator-tree synthesis and a constructive,
+checked Schedule Early/Schedule Late/loop-depth-ranked placement choice for one
+pure total floating node over a successor-closed finite CFG inventory — none of
+it previously credited here. The §§2/2.1–2.4 rows below now cite it. This pass
+still does not re-audit the rest of the ledger against current `main`; in
+particular `GCM.Hoist`, `GCM.Sink` and the thesis/Quads/Simple rows beyond
+§§2–2.4 were not re-checked.
 
 ## Start here
 
@@ -173,17 +184,31 @@ import Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA.Generic.Thms
   typed blocks. `discoverPlacement_sound` confirms its membership and checker
   acceptance. `discoverPlacement_eq_none_iff_no_legal`
   excludes legal cuts in that enumeration when the supplied tree has complete
-  reachability and dominance evidence. General dominator-tree construction and
-  a whole-CFG reducibility certificate remain open.
+  reachability and dominance evidence.
+  [`GCM.Dominance.Tree.Synthesis.synthesize?`][son-gcm-dominance-synthesis-thms]
+  builds that certificate itself, exactly, for any successor-closed finite
+  block inventory, closing general dominator-tree construction for this
+  profile; a whole-CFG reducibility certificate still remains open.
+  [`GCM.EarlyPlacement.earlyBound?`][son-gcm-earlyplacement-thms] and
+  [`GCM.LatePlacement.lateBound?`][son-gcm-lateplacement-thms] constructively
+  compute the Schedule Early and Schedule Late bounds (deepest operand
+  definition; common dominated bound of resolved uses) with the matching
+  universal property on each side, refusing exactly when operand or use
+  blocks are pairwise incomparable; `EarlyPlacement.legal_iff_bounds`
+  composes both into an exact rewrite of `Legal`.
   [`GCM.LoopForest`][son-gcm-loopforest-thms] discovers every dominating-backedge
   natural loop on the typed CFG, certifies that their member sets are disjoint
   or strictly nested, and derives each block's enclosing-loop depth for the
   existing cut ranking; an irreducible cycle with no dominating backedge gets
-  no depth. [`GCM.LoopHoist.pickAndHoist?_run_eq`][son-gcm-loophoist-thms]
+  no depth. [`GCM.Corridor.chooseSynthesized?`][son-gcm-corridor-thms] composes
+  all of the above into one constructive, loop-depth-ranked placement choice
+  from a raw successor-closed CFG and operand/use list.
+  [`GCM.LoopHoist.pickAndHoist?_run_eq`][son-gcm-loophoist-thms]
   proves execution preservation after hoisting one invariant producer, or one
   bounded dependency slice, into a single self-backedge loop's existing
-  preheader. General scheduling across the ranked forest remains open.
-  [Definitions][son-gcm-defs] · [Checker][son-gcm-thms] · [Discovery theorems][son-gcm-discovery-thms] · [Loop ranking][son-gcm-loopforest-thms] · [Loop hoist][son-gcm-loophoist-thms] · [Worked example][son-gcm] · [#3200][pr-placement] · [#3294][pr-gcm-discovery] · [#4918][pr-gcm-compact-exit-phi]
+  preheader. Pinned/faulting operations, irreducible loops, and an executed,
+  behavior-preserving move for the general case remain open.
+  [Definitions][son-gcm-defs] · [Checker][son-gcm-thms] · [Discovery theorems][son-gcm-discovery-thms] · [Early bound][son-gcm-earlyplacement-thms] · [Late bound][son-gcm-lateplacement-thms] · [Dominator-tree synthesis][son-gcm-dominance-synthesis-thms] · [Loop ranking][son-gcm-loopforest-thms] · [Corridor][son-gcm-corridor-thms] · [Loop hoist][son-gcm-loophoist-thms] · [Worked example][son-gcm] · [#3200][pr-placement] · [#3294][pr-gcm-discovery] · [#4918][pr-gcm-compact-exit-phi]
 - `GVN.checkRepresentative` checks a supplied earlier producer in the same
   typed pure table using the exact opcode and ordered operand addresses.
   `checkRepresentative_sound` proves value equality for an accepted pair
@@ -341,10 +366,10 @@ analyses account for loop feedback.
 | PLDI sections | Lean obligation | Coverage on main |
 | --- | --- | --- |
 | §§1–1.2, motivation and representation | Define the floating/pinned distinction and admissible graph domain. Identify which conclusions hold for reducible CFGs and what requires different loop information. | Partial. [`GCM.Legal`][son-gcm-defs] describes one proposed placement of a pure total node over typed CF. Pinned nodes and the general graph domain stay open. |
-| §2 and §2.1, GCM, dominators and loops | Recover reachable control and certify the dominator tree and loop information on the supported shape. Specify the handling of unreachable code and a reachable loop with no exit. | Partial. [`GCM.DominatorTree`][son-gcm-defs] supplies sound ancestry and reachability facts on structural paths. [`GCM.LoopForest`][son-gcm-loopforest-thms] discovers every dominating-backedge natural loop on the typed CFG, certifies disjoint-or-nested member sets, and derives each block's enclosing-loop depth. General dominator-tree construction, a whole-CFG reducibility certificate, irreducible cycles with no dominating backedge, and exitless scheduling stay open. |
-| §2.2, schedule early | Each floating node’s placement must be dominated by its operand definitions and permitted by its safety/control constraints. Pinned nodes retain their required placement. The paper’s footnote 6 allows faulting operations to move later under partial correctness. A profile that observes faults needs a stronger condition. | Partial. [`GCM.checkPlacement_sound`][son-gcm-thms] checks the operand constraint at a given cut. [`discoverPlacement_sound`][son-gcm-discovery-thms] finds an accepted cut in a finite inventory. Schedule Early and pinned or faulting operations stay open. |
-| §2.3, schedule late | Compute the common dominator of uses, interpreting a Phi use on its corresponding incoming edge. Prove the feasible placement interval and that moving a computation does not introduce a trap or unwanted effect. | Partial. [`GCM.Use.phi_point?_eq_some_iff`][son-gcm-thms] resolves a Phi operand at the source terminator. [`checkPlacement_sound`][son-gcm-thms] checks availability for supplied uses. [`discoverPlacement_eq_none_iff_no_legal`][son-gcm-discovery-thms] excludes legal cuts in the supplied inventory with complete evidence. Schedule Late and motion soundness stay open. |
-| §2.4, selecting a block | Prove legality for any chosen block in the interval, including intra-block order. Then verify the shallow-loop/deep-dominator choice independently of performance claims. | Partial. [`GCM.checkPlacement_sound`][son-gcm-thms] certifies an accepted cut, including local order. [`GCM.LoopForest`][son-gcm-loopforest-thms]'s ranker selects a checker-admitted cut of minimum enclosing-loop depth over the discovered forest, breaking ties by longer dominator address and then enumeration order, and excludes every represented legal cut on failure under complete evidence. [`GCM.LoopHoist.pickAndHoist?_run_eq`][son-gcm-loophoist-thms] additionally moves one invariant producer, or one bounded dependency slice, into a single self-backedge loop's existing preheader, with execution agreement at every fuel budget. Computing the full placement interval, and depth ranking beyond the admitted reducible forest, stay open. |
+| §2 and §2.1, GCM, dominators and loops | Recover reachable control and certify the dominator tree and loop information on the supported shape. Specify the handling of unreachable code and a reachable loop with no exit. | Partial. [`GCM.DominatorTree`][son-gcm-defs] supplies sound ancestry and reachability facts on structural paths. [`GCM.Dominance.Tree.Synthesis.synthesize?`][son-gcm-dominance-synthesis-thms] constructs a certified `DominatorTree` for any successor-closed finite block inventory; [`proposedAddress_prefix_iff`][son-gcm-dominance-synthesis-thms] proves its addresses are exact, not just sound, for every reachable pair, and [`synthesize?_isSome_iff`][son-gcm-dominance-synthesis-thms] characterizes success exactly by that closure. [`GCM.LoopForest`][son-gcm-loopforest-thms] discovers every dominating-backedge natural loop on the typed CFG, certifies disjoint-or-nested member sets, and derives each block's enclosing-loop depth. Dominator-tree construction beyond a successor-closed finite inventory, irreducible cycles with no dominating backedge, and exitless scheduling stay open. |
+| §2.2, schedule early | Each floating node’s placement must be dominated by its operand definitions and permitted by its safety/control constraints. Pinned nodes retain their required placement. The paper’s footnote 6 allows faulting operations to move later under partial correctness. A profile that observes faults needs a stronger condition. | Partial. [`GCM.checkPlacement_sound`][son-gcm-thms] checks the operand constraint at a given cut. [`discoverPlacement_sound`][son-gcm-discovery-thms] finds an accepted cut in a finite inventory. [`GCM.EarlyPlacement.earlyBound?`][son-gcm-earlyplacement-thms] constructively computes the deepest operand-definition block (the entry for no operands); [`earlyBound?_spec`][son-gcm-earlyplacement-thms] proves it is dominated by, and dominates every reachable block dominated by, all operand definitions, and [`earlyBound?_isSome_iff`][son-gcm-earlyplacement-thms] characterizes refusal exactly (an invalid cut, or pairwise-incomparable operand blocks with no common reachable dominated block). Pinned and faulting operations stay open. |
+| §2.3, schedule late | Compute the common dominator of uses, interpreting a Phi use on its corresponding incoming edge. Prove the feasible placement interval and that moving a computation does not introduce a trap or unwanted effect. | Partial. [`GCM.Use.phi_point?_eq_some_iff`][son-gcm-thms] resolves a Phi operand at the source terminator. [`checkPlacement_sound`][son-gcm-thms] checks availability for supplied uses. [`discoverPlacement_eq_none_iff_no_legal`][son-gcm-discovery-thms] excludes legal cuts in the supplied inventory with complete evidence. [`GCM.LatePlacement.lateBound?`][son-gcm-lateplacement-thms] constructively computes the common dominated bound of resolved use blocks over a finite inventory, with a Φ use counted on its incoming edge; [`lateBound?_spec`][son-gcm-lateplacement-thms] proves the matching universal property. [`EarlyPlacement.legal_iff_bounds`][son-gcm-earlyplacement-thms] composes both bounds into an exact rewrite of `Legal` for a successor-closed inventory. General motion soundness — that an actual move preserves program behavior, beyond placement legality — stays open. |
+| §2.4, selecting a block | Prove legality for any chosen block in the interval, including intra-block order. Then verify the shallow-loop/deep-dominator choice independently of performance claims. | Partial. [`GCM.checkPlacement_sound`][son-gcm-thms] certifies an accepted cut, including local order. [`GCM.LoopPlacement.chooseLoopPlacement_sound`, `_minimal` and `_complete`][son-gcm-loopplacement-thms] select, among checker-accepted cuts in a supplied finite inventory, one of minimum caller-supplied loop depth with the deepest dominator address as tie-break. [`GCM.Corridor.acceptedCorridorCuts_eq`][son-gcm-corridor-thms] proves that restricting this search to the computed early/late corridor changes nothing; [`GCM.Corridor.choosePlacement`][son-gcm-corridor-thms] discovers that loop depth itself from [`LoopForest`][son-gcm-loopforest-thms] instead of taking it as a caller-supplied function, and [`chooseSynthesized?`][son-gcm-corridor-thms] composes the whole search with dominator-tree synthesis from a raw successor-closed CFG. [`GCM.LoopForest`][son-gcm-loopforest-thms]'s ranker gives the same minimum-depth, deepest-dominator selection directly over the discovered forest. [`GCM.LoopHoist.pickAndHoist?_run_eq`][son-gcm-loophoist-thms] additionally moves one invariant producer, or one bounded dependency slice, into a single self-backedge loop's existing preheader, with execution agreement at every fuel budget. Irreducible loops, pinned/faulting operations, and an executed, behavior-preserving move for the general case stay open. |
 | §§3–3.2, value numbering | Prove representative substitution for equal keys and the stated algebraic identities, including worklist invalidation. Graph replacement can leave nodes without a legal old placement. Compose the replacement proof with schedule reconstruction. Treat stronger cyclic congruence discovery as the separate thesis chapter 4 obligation. | Partial. [`GVN.Key.matches`][son-gvn-defs] compares exact keys and [`GVN.redirectResult_read`][son-gvn-thms] preserves one selected result. [`GVN.Pass.run_sound` and `normalize_normal`][son-gvn-pass-thms] cover repeated deletion and exact-key normal form on acyclic pure tables. Algebraic identities, worklist invalidation and schedule reconstruction stay open. |
 | §§4–5, experiments and conclusions | Use the examples as regressions and keep the ILOC comparisons empirical. | Open for the paper’s example regressions. Performance comparisons remain empirical. |
 
@@ -598,6 +623,11 @@ validation stay open at the boundaries identified above.
 [son-gcm-thms]: ../../../Silmaril/SSA/SeaOfNodes/GCM/Thms.lean
 [son-gcm-loopforest-thms]: ../../../Silmaril/SSA/SeaOfNodes/GCM/LoopForest/Thms.lean
 [son-gcm-loophoist-thms]: ../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Thms.lean
+[son-gcm-earlyplacement-thms]: ../../../Silmaril/SSA/SeaOfNodes/GCM/EarlyPlacement/Thms.lean
+[son-gcm-lateplacement-thms]: ../../../Silmaril/SSA/SeaOfNodes/GCM/LatePlacement/Thms.lean
+[son-gcm-dominance-synthesis-thms]: ../../../Silmaril/SSA/SeaOfNodes/GCM/Dominance/Tree/Synthesis/Thms.lean
+[son-gcm-loopplacement-thms]: ../../../Silmaril/SSA/SeaOfNodes/GCM/LoopPlacement/Thms.lean
+[son-gcm-corridor-thms]: ../../../Silmaril/SSA/SeaOfNodes/GCM/Corridor/Thms.lean
 [son-gvn]: optimization/sea-of-nodes-gvn.md
 [son-gvn-defs]: ../../../Silmaril/SSA/SeaOfNodes/GVN/Defs.lean
 [son-gvn-thms]: ../../../Silmaril/SSA/SeaOfNodes/GVN/Thms.lean
