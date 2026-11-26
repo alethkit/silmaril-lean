@@ -371,17 +371,21 @@ The continuation cannot jump back to its own label.
   case-and-join probe identifies two distinct source payload types.
   [Witness transport](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Pullback/Witness/Thms.lean) ·
   [Case-and-join probe](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/TypeChange/Thms.lean)
-- `ssaSignatureCorridor` specializes the existing exact SSA corridor to the
-  proved witness law. Composing it with `reifyCorridor` agrees on sentences
-  with translating the LetCase equation and then reifying it.
-  `caseSat_pullback` gives satisfaction invariance in the corresponding
-  LetCase algebras. The result concerns forward transport of source witnesses.
-  Reconstruction of arbitrary target witnesses is a separate problem.
-  A bundled type-changing comorphism still requires a signature category
-  containing these maps and a LetCase operation signature map over the
-  translated sorts, with functoriality and compatibility with its algebra
-  reduct. `InstrSig τ ε` and `LetCase.pres` currently fix both universes.
-  [Primitive signature category](../../Silmaril/Raw/SSA/Isotope/Institution/InstrSig.lean)
+- `TypeSignature` bundles primitive signatures with their type and effect
+  universes. Its maps preserve the full type syntax. `ssaTypeInst` extends
+  `ssaSignatureCorridor` to this category. Its sentence laws retain the exact
+  derivations, with context and result transports justified explicitly.
+  The probe exercises a composite between three type universes.
+  [Exact SSA institution](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/TypeChange/Thms.lean)
+- `letCaseTypeInst` uses the existing presentations and operation-algebra
+  reduct. Its initial-algebra fold agrees with `mapCaseSignature`, and the
+  algebra of a coherent SSA pullback is exactly the LetCase reduct.
+  `typeReifyComorphism` bundles the natural satisfaction comparison.
+  On the included primitive maps, both signature actions and the
+  reification components agree with the fixed-type comorphism.
+  The comparison uses forward transport of source witnesses.
+  Reconstruction of arbitrary target witnesses remains separate.
+  [Type-changing comorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/TypeChange/Comparison/Thms.lean)
 - The existing [λSSA observational institution](../../Silmaril/Raw/SSA/Isotope/Institution/Observational/Calculi.lean#L160)
   uses scoped operational sentences over discrete scope signatures.
   Soundness of the full exact equational presentation remains separate.
@@ -458,7 +462,7 @@ lake build --wfail Silmaril.SSA.LambdaRTL.Thms Silmaril.SSA.LambdaRTL.CFG.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Categorical.Realization.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Functor.Thms \
-  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Pullback.Witness.Thms \
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.TypeChange.Comparison.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.TypeChange.Thms
 ```
 
