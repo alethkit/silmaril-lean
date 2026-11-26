@@ -3,6 +3,8 @@ module
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Defaults.Call
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Module
 
+import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Thms
+
 public section
 
 namespace Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.WithDefaults
@@ -13,7 +15,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Block (ModuleBinders)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.WithDefaults
-open Silmaril.Languages.Starlark.Functions (Program)
+open Silmaril.Languages.Starlark.Functions (Program FreeName)
 open Silmaril.Languages.Starlark.Lists (Cell State)
 
 @[expose] def requiredEntries (entries : Entries) : Trace.Bindings.Environment := fun name =>
@@ -46,6 +48,15 @@ theorem required_at {entries : Entries} {name : String} {chain : Forwarding.Chai
     (atName : entries name = some (.required chain)) : requiredEntries entries name = some chain := by
   simp [requiredEntries, atName]
 
+theorem commit_captures {state middle : State} {free : List FreeName}
+    {captures : List Silmaril.Languages.Starlark.Lists.Capture}
+    (kept : Bindings.Preserves state middle) (destination : String) (value : Silmaril.Languages.Starlark.Lists.Value)
+    (installed : Installs state free captures) (cells : Defaults.Body.CaptureCells state captures) :
+    Installs (middle.write (globalSlot destination) value) free captures ∧
+      Defaults.Body.CaptureCells (middle.write (globalSlot destination) value) captures :=
+  ⟨Silmaril.Languages.Starlark.Modules.Resolve.Capture.installs_in_same_slots ((slots_write _ _ _).trans kept.slots) installed,
+    Defaults.Body.capture_cells_written _ _ _ (Defaults.Body.capture_cells_preserved kept cells)⟩
+
 theorem keep_live {globals : List String} {program : Program} {state middle : State}
     {name destination : String} {code : Callable} (value : Silmaril.Languages.Starlark.Lists.Value)
     (layout : ModuleSlots globals state) (unchanged : Bindings.Preserves state middle)
@@ -75,7 +86,11 @@ theorem keep_live {globals : List String} {program : Program} {state middle : St
   | nestedBody spec =>
     obtain ⟨member, ⟨root⟩⟩ := live
     have retained := unchanged.live layout member root.live
-    exact ⟨member, ⟨{ root with live := (RootCall.write_keeps_live _ _ _ _ distinct retained other).2 }⟩⟩
+    obtain ⟨installed, cells⟩ := commit_captures unchanged destination value root.installed root.cells
+    exact ⟨member, ⟨{ root with
+      installed := installed
+      cells := cells
+      live := (RootCall.write_keeps_live _ _ _ _ distinct retained other).2 }⟩⟩
 
 theorem update {globals : List String} {program : Program} {entries : Entries} {state next : State}
     {destination : String} {shape : Option Callable}

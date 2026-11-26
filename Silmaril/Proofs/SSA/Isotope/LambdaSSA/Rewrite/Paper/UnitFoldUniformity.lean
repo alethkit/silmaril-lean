@@ -105,6 +105,19 @@ private theorem unitSumIso_inv_eq :
 
 set_option backward.isDefEq.respectTransparency false in
 include includeUnit in
+theorem project_unit_row_comp_fold {B : P} (row : U ⟶ B ⨿ T) :
+    ((F).map row ≫ (c B T).inv ≫ coprod.map (𝟙 ((F).obj B)) (sumIso Seed sunit sunit).hom) ≫
+      coprod.map (𝟙 ((F).obj B)) (coprod.desc (𝟙 QU) (𝟙 QU)) =
+        projectStep Seed (row ≫ coprod.map (𝟙 B) drop) := by
+  have foldEq : (sumIso Seed sunit sunit).hom ≫ coprod.desc (𝟙 QU) (𝟙 QU) = (F).map drop := by
+    apply (cancel_epi (sumIso Seed sunit sunit).inv).1
+    rw [Iso.inv_hom_id_assoc, ← unitSumIso_hom_eq, transported_drop Seed includeUnit]
+  change _ = (F).map (row ≫ coprod.map (𝟙 B) drop) ≫ (c B U).inv
+  rw [Category.assoc, Category.assoc, coprod.map_map, Category.id_comp, foldEq,
+    mapSnd, ← Functor.map_comp_assoc]
+
+set_option backward.isDefEq.respectTransparency false in
+include includeUnit in
 theorem unit_fold_of_native_rows {B : P}
     (left right : U ⟶ B ⨿ T) (g : U ⟶ B ⨿ U)
     (leftErase : left ≫ coprod.map (𝟙 B) drop = g)

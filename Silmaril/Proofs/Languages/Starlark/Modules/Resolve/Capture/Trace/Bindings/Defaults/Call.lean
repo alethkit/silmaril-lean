@@ -169,7 +169,7 @@ theorem step_sound {commands : List Command} {linked : Program} {resolved : Reso
       exact ⟨_, site, .exec (code := .assignExpr _ _) (.assignExpr expression)⟩
     | @entered assigned out bound returned =>
       obtain ⟨bodyOut, ran, same⟩ := Defaults.Escape.Scoped.returns_sound root.names root.plan resolved.program
-        (withoutDeclaration available (root.childId + 1)) root.childId root.childCode state assigned returned
+        (withoutDeclaration available (root.childId + 1)) root.childId root.childCode state root.captures root.installed root.cells assigned returned
       have expression := RootCall.checked_invocation_expr checked related operands root.live.binding root.live.cell
         root.parentCode evaluated bound bodyOut (by intro assigned equal; cases equal; exact ran)
       subst out

@@ -70,6 +70,7 @@ bridge relates the two.
 | Categorical support | `Silmaril.Semantics.Categories.Thms` | re-exports Raw premonoidal, Freyd, distributive Freyd and Elgot-monad category theory used by the categorical let-iter semantics |
 | Behaviours | `Silmaril.Semantics.Behaviour.Thms` | re-exports Raw labelled traces, contracts, refinement, the compilation relation `Implements`, simulation conventions and equivalence over `Silmaril.Machine.Behaviour` |
 | LetIter denotational soundness | `Silmaril.SSA.Isotope.LetIter.Thms` | proof-relevant typed equations preserve direct monadic denotations and the corresponding categorical arrows in the Kleisli model of a lawful Elgot monad |
+| LetParIter | [Use and model contract](letpariter.md) | Independent typed pairing in the shared let syntax, native feedback, and monadic soundness under explicit parallel laws |
 | λSSA categorical semantics | `Silmaril.SSA.Isotope.LambdaSSA.Categorical.{Defs,Thms}` | expression and region denotation graphs, totality for exact typing, and uniqueness under the respective coherence hypotheses |
 | Let-family institutions | `Silmaril.SSA.Isotope.Institution.Thms` | re-exports the Raw equational institutions of let-seq, let-case and let-iter, inclusion comorphisms with borrowing, syntactic initiality, refinement institutions and `eqToRef`, observational institutions and `iterSSAIso` |
 | Free UB | [Construction and coverage](ssa-ub.md) | Fresh instruction symbols, a monad on ordered specifications, greatest elements in the initial syntax quotient, and a typed LetCase translation |
@@ -322,6 +323,57 @@ borrowing (`seqCase_entails_iff_of_any`, `caseIter_entails_iff_of_any`);
 `Observational.caseIter`, `Observational.iterSSA` and the isomorphism
 `Observational.iterSSAIso` in `CoIns` between let-iter and single-exit λSSA modulo
 observational equivalence.
+
+### Lower parallel observation institutions
+
+Import `Silmaril.SSA.Isotope.Institution.Parallel.Inclusions.Thms` for
+`Silmaril.Isotope.LetPar.observation`, `Silmaril.Isotope.LetParCase.observation`
+and their comparison theorems. Each institution has the existing `InstrSig`
+category of instruction alphabets over fixed type and effect universes. An arrow
+preserves the exact source, target and effect of each opcode, so it preserves
+the chosen purity judgment as well. Both free and bound contexts retain their
+types. The value interpretation and its product, unit and, where available,
+coproduct and empty equivalences are fixed throughout.
+
+Sentences carry two particular native `Parallel.Derivation` witnesses in a
+common scope and result type. The interpreter evaluates these witnesses with
+the supplied `ParOp`. Satisfaction compares full computations at every
+environment. Reusing an endpoint's denotation with a different witness of
+the same term and type requires a separate agreement proof.
+
+A model has a lawful monad, a typed primitive interpreter and an explicit
+parallel operation. Strict model arrows preserve monadic operations,
+parallel pairing and primitive evaluation. Signature reducts restrict primitive
+evaluation and retain the action of these arrows on computations.
+`denote_mapInstr` and `denote_hom` are the corresponding interpreter squares.
+
+`LetPar.mapInstr_equiv` and `LetParCase.mapInstr_equiv` take a derivable
+native `Equiv` equation to a derivable equation between its relabeled terms.
+This includes the purity-guarded schemes.
+
+The observation institutions accept an arbitrary supplied `ParOp`.
+The parallel institution fixture in `tests/ssa/LetIterWeakTreeSoundness.lean`
+derives a relabeled native swap and refutes its satisfaction in the ordered
+writer model, where the two endpoints log
+`[2, 7]` and `[7, 2]`. The same swap holds in the writer model whose
+parallel operation orders the two branch logs by their first tag. The
+fixture also shows that ordinary pairing keeps left-to-right order in
+that model.
+
+The restrictions transport specific witnesses in the same monad and
+primitive interpretation.
+
+| Inclusion | Witness transport used in satisfaction | Native syntactic equation preservation |
+| --- | --- | --- |
+| LetSeq → LetPar | `LetPar.derivation` on both endpoints, checked by `LetPar.denote_derivation` | `LetPar.embed_equiv` |
+| LetCase → LetParCase | `LetParCase.derivation` on both endpoints, checked by `LetParCase.denote_derivation` | `LetParCase.embed_equiv` |
+| LetPar → LetParCase | `LetParCase.ofLetParDerivation` on both endpoints, checked by `LetParCase.denote_ofLetParDerivation` | `LetParCase.ofLetPar_equiv` |
+
+The syntactic preservation theorems apply to the native term-indexed
+congruences. `LetParCase.ofLetParDerivation_mapInstr` checks that widening
+and relabeling the same witness in either order yield heterogeneously equal
+derivations. This is the endpoint compatibility in `letParCaseInclusion`,
+the comorphism with identity signature and model maps.
 
 LetIter denotational soundness (`Silmaril.Isotope.LetIter.ProofRelevant.Semantics`).
 `sound` and `related_sound` preserve the denotations at the given proof-relevant

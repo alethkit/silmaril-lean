@@ -36,8 +36,8 @@ private theorem computedStep_same {Γ L : List (Ty α)} {r s : Region Φ}
     intro env he
     let inner : Tm.HasType (instrSrc p :: Γ) (.op p (.var 0)) (instrTrg p) := .op (.var rfl)
     rw [evalReturnRegion (.op ha) he, evalReturnRegion (.let₁ ha inner) he]
-    simp only [evalTermWith]
-    cases evalTermWith (observation (α := α)) a env <;> rfl
+    simp only [evalTermWith, observation, Bool.false_eq_true, ↓reduceIte, ite_self,
+      Option.bind_eq_bind, Option.bind_fun_none]
 
 variable {ε : Type w} [HasEff Φ ε]
 

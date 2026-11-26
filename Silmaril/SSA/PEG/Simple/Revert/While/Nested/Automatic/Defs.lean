@@ -122,17 +122,21 @@ structure Headers (g : Graph P outer [result] n l) where
   childKey : Fin l
   childPass : Ref g.sort .count
 
+def soleChild (forest : LoopForest l) (outerKey : Fin l) : Option (Fin l) := do
+  if (forest.parent outerKey).isSome then none else
+    let [child] := (List.finRange l).filter (fun i => forest.parent i == some outerKey) | none
+    return child
+
 /-- Read the designated outer eval and find its sole direct child. The
 graph's pass label identifies a loop independently of the pass address. -/
 def locate [DecidableEq Data] (g : Graph P outer [result] n l) : Option (Headers g) := do
   let ⟨_, .eval outerKey, refs⟩ := Region.nodeAt g (g.roots.get .head) | none
   let outerPass := refs.get (.tail .head)
-  if (g.forest.parent outerKey).isSome then none else
-    let [childKey] := (List.finRange l).filter (fun i => g.forest.parent i == some outerKey) | none
-    let [childRow] := (List.finRange n).filter
-      (fun i => Structured.passLoop (g.node i).label == some childKey) | none
-    let some childPass := Ref.check g.sort .count childRow.val | none
-    return ⟨outerKey, outerPass, childKey, childPass⟩
+  let some childKey := soleChild g.forest outerKey | none
+  let [childRow] := (List.finRange n).filter
+    (fun i => Structured.passLoop (g.node i).label == some childKey) | none
+  let some childPass := Ref.check g.sort .count childRow.val | none
+  return ⟨outerKey, outerPass, childKey, childPass⟩
 
 /-- Recover outer bundle order from distinct ordered input parameters. -/
 def parameterOrder (g : Graph P outer [result] n l) (header : Headers g)

@@ -1,0 +1,217 @@
+module
+
+public import Silmaril.Logic.Temporal.TLA.DataElab.Temporal.Semantics
+public import Silmaril.Logic.Temporal.TLA.Resolution.Levels.Defs
+import all Silmaril.Logic.Temporal.TLA.DataElab.Defs
+
+/-! Level-checked selection of named state predicates, steps and temporal formulas. -/
+
+namespace Silmaril.Logic.Temporal.TLA.DataElab.Temporal
+
+open Resolution
+
+public section
+
+inductive Diagnostic where
+  | levels (diagnostic : Levels.Diagnostic)
+  | data (diagnostic : DataElab.Diagnostic)
+  | notClosed (site : Site)
+  | temporalPrimitive (id : BindingId)
+  | wrongLevel (site : Site) (expectedAtMost actual : Levels.Level)
+  | bareAction (site : Site)
+  | primeInState (site : Site)
+  | unsupportedFormula (site : Site)
+  deriving DecidableEq, Repr
+
+structure CheckedState (signature : ExternalSignature) where
+  private mk ::
+  predicate : Predicate signature
+
+structure CheckedAction (signature : ExternalSignature) where
+  private mk ::
+  predicate : Predicate signature
+
+structure CheckedFormula (signature : ExternalSignature) where
+  private mk ::
+  form : Form signature
+
+universe u
+
+variable {V : Type u} {signature : ExternalSignature}
+
+@[expose] noncomputable def CheckedState.toStatePred (p : CheckedState signature)
+    (I : Interpretation V signature) (ρ : RigidEnv V) : StatePred (State V) :=
+  p.predicate.toStatePred I ρ
+
+@[expose] noncomputable def CheckedAction.toAction (p : CheckedAction signature)
+    (I : Interpretation V signature) (ρ : RigidEnv V) : Action (State V) :=
+  p.predicate.toAction I ρ
+
+@[expose] noncomputable def CheckedFormula.toFormula (p : CheckedFormula signature)
+    (I : Interpretation V signature) (ρ : RigidEnv V) : Formula (State V) :=
+  p.form.toFormula I ρ
+
+end
+
+private structure Context where
+  registry : CheckedRegistry
+  levels : Levels.CheckedLevels
+
+private def Context.levelAt (ctx : Context) (site : Site) : Except Diagnostic Levels.Level := do
+  let some term := ctx.levels.expressionAt site | throw (.notClosed site)
+  unless term.dependencies.isEmpty do throw (.notClosed site)
+  return term.floor
+
+private def Context.checkAtMost (ctx : Context) (site : Site) (ceiling : Levels.Level) :
+    Except Diagnostic Unit := do
+  let level ← ctx.levelAt site
+  unless level.atMost ceiling do throw (.wrongLevel site ceiling level)
+
+private def Context.target (ctx : Context) (site : Site) : Option BindingId := do
+  let mod ← ctx.registry.moduleAt site.moduleId
+  (·.target) <$> mod.referenceAt site.path
+
+private def logicAt (ctx : Context) (site : Site) : Option Logic :=
+  match ctx.target site with
+  | some (.builtin (.symbol .infix "\\land")) => some .and
+  | some (.builtin (.symbol .infix "\\lor")) => some .or
+  | some (.builtin (.symbol .infix "=>")) => some .implies
+  | some (.builtin (.symbol .infix "\\equiv")) => some .equiv
+  | _ => none
+
+/-- Modal aliases expand at the resolved declaration's original body site. -/
+private def aliasBody (ctx : Context) (site : Site) (expr : Surface.Expr) :
+    Option (Site × Surface.Expr) := do
+  let .ref (.operator _) [] [] := expr | none
+  let target ← ctx.target site
+  let (home, body) ← (definitionBody ctx.registry target).toOption
+  return (home.child .body, body)
+
+private def exhausted (site : Site) : Diagnostic := .data ⟨site, .expansionLimit⟩
+
+private def lowerData (ctx : Context) (signature : ExternalSignature) (fuel : Nat)
+    (site : Site) (expr : Surface.Expr) (ceiling : Levels.Level) :
+    Except Diagnostic (CheckedExpr signature) := do
+  ctx.checkAtMost site ceiling
+  let visit := DataElab.lower (signature := signature) ctx.registry .core true false fuel
+    [] [] site (.expression expr)
+  let (term, _) ← (StateT.run visit 0).mapError Diagnostic.data
+  if ceiling = .state then
+    if let some prime := term.firstPrime then throw (.primeInState prime)
+  if valid : term.isWellFormed [] = true then
+    return ⟨term, valid⟩
+  else
+    throw (.data ⟨site, .invalidExpansion⟩)
+
+private def lowerObservation (ctx : Context) (signature : ExternalSignature) (fuel : Nat)
+    (site : Site) (expr : Surface.Expr) : Except Diagnostic (Observation signature) := do
+  ctx.checkAtMost site .state
+  if let .tuple items := expr then
+    let fuel + 1 := fuel | throw (exhausted site)
+    items.zipIdx.mapM fun (item, i) => lowerData ctx signature fuel (site.child (.operand i)) item .state
+  else
+    return [← lowerData ctx signature fuel site expr .state]
+
+private def lowerPredicate (ctx : Context) (signature : ExternalSignature) (ceiling : Levels.Level)
+    (fuel : Nat) (site : Site) (expr : Surface.Expr) : Except Diagnostic (Predicate signature) := do
+  let remaining + 1 := fuel | throw (exhausted site)
+  ctx.checkAtMost site ceiling
+  let visit := lowerPredicate ctx signature ceiling remaining
+  let operand := fun i => site.child (.operand i)
+  let observation := lowerObservation ctx signature remaining
+  if let some (home, body) := aliasBody ctx site expr then
+    return ← visit home body
+  match expr with
+  | .action kind body subscript =>
+    return .bracket kind (← visit (operand 0) body) (← observation (operand 1) subscript)
+  | .prefix .unchanged arg => return .unchanged (← observation (operand 0) arg)
+  | .prefix .enabled arg =>
+    return .enabled (← lowerPredicate ctx signature .action remaining (operand 0) arg)
+  | .prefix .negation arg => return .neg (← visit (operand 0) arg)
+  | .junction kind items =>
+    return .junction kind (← items.zipIdx.mapM fun (item, i) => visit (operand i) item)
+  | .infix _ left right =>
+    if let some op := logicAt ctx site then
+      return .binary op (← visit (operand 0) left) (← visit (operand 1) right)
+  | _ => pure ()
+  return .data (← lowerData ctx signature (remaining + 1) site expr ceiling)
+termination_by structural fuel
+
+private def lowerForm (ctx : Context) (signature : ExternalSignature) (fuel : Nat)
+    (site : Site) (expr : Surface.Expr) : Except Diagnostic (Form signature) := do
+  let remaining + 1 := fuel | throw (exhausted site)
+  let level ← ctx.levelAt site
+  if level.atMost .state then
+    return .state (← lowerPredicate ctx signature .state (remaining + 1) site expr)
+  if level = .action then throw (.bareAction site)
+  let visit := lowerForm ctx signature remaining
+  let operand := fun i => site.child (.operand i)
+  let action := lowerPredicate ctx signature .action remaining
+  let observation := lowerObservation ctx signature remaining
+  if let some (home, body) := aliasBody ctx site expr then
+    return ← visit home body
+  let bracket := fun body subscript => do
+    let bracketSite := operand 0
+    let depth + 1 := remaining | throw (exhausted bracketSite)
+    let p ← lowerPredicate ctx signature .action depth (bracketSite.child (.operand 0)) body
+    let obs ← lowerObservation ctx signature depth (bracketSite.child (.operand 1)) subscript
+    return (p, obs)
+  match expr with
+  | .prefix .always (.action .square body subscript) =>
+    let (p, obs) ← bracket body subscript
+    return .alwaysBracket p obs
+  | .prefix .eventually (.action .angle body subscript) =>
+    let (p, obs) ← bracket body subscript
+    return .eventuallyAngle p obs
+  | .prefix .always arg => return .always (← visit (operand 0) arg)
+  | .prefix .eventually arg => return .eventually (← visit (operand 0) arg)
+  | .prefix .negation arg => return .neg (← visit (operand 0) arg)
+  | .infix .leadsTo left right => return .leadsTo (← visit (operand 0) left) (← visit (operand 1) right)
+  | .infix _ left right =>
+    if let some op := logicAt ctx site then
+      return .binary op (← visit (operand 0) left) (← visit (operand 1) right)
+    throw (.unsupportedFormula site)
+  | .junction kind items =>
+    return .junction kind (← items.zipIdx.mapM fun (item, i) => visit (operand i) item)
+  | .fairness kind subscript body =>
+    return .fairness kind (← action (operand 1) body) (← observation (operand 0) subscript)
+  | _ => throw (.unsupportedFormula site)
+termination_by structural fuel
+
+private def select (registry : CheckedRegistry) (externalLevels : Levels.ExternalLevels)
+    (signature : ExternalSignature) (id : BindingId) :
+    Except Diagnostic (Context × Site × Surface.Expr) := do
+  let (home, body) ← (definitionBody registry id).mapError .data
+  let levels ← (Levels.check registry externalLevels).mapError .levels
+  -- A data primitive may be evaluated in a noncontributing argument slot.
+  -- Its interpretation still cannot supply a temporal value there.
+  for (binding, level) in externalLevels do
+    if level.floor = .temporal && (signature binding).isSome then
+      throw (.temporalPrimitive binding)
+  return (⟨registry, levels⟩, home.child .body, body)
+
+/-- Select a constant- or state-level source definition. ENABLED binds its own
+successor and can appear in a state predicate. -/
+public def lowerState (registry : CheckedRegistry) (externalLevels : Levels.ExternalLevels)
+    (signature : ExternalSignature) (maxDepth : Nat) (id : BindingId) :
+    Except Diagnostic (CheckedState signature) := do
+  let (ctx, site, body) ← select registry externalLevels signature id
+  return ⟨← lowerPredicate ctx signature .state maxDepth site body⟩
+
+/-- Select a constant-, state- or action-level source definition as a raw
+two-endpoint relation. -/
+public def lowerAction (registry : CheckedRegistry) (externalLevels : Levels.ExternalLevels)
+    (signature : ExternalSignature) (maxDepth : Nat) (id : BindingId) :
+    Except Diagnostic (CheckedAction signature) := do
+  let (ctx, site, body) ← select registry externalLevels signature id
+  return ⟨← lowerPredicate ctx signature .action maxDepth site body⟩
+
+/-- Select a formula from the same registry that produced its level annotations.
+A constant or state predicate can itself be a formula. -/
+public def lowerFormula (registry : CheckedRegistry) (externalLevels : Levels.ExternalLevels)
+    (signature : ExternalSignature) (maxDepth : Nat) (id : BindingId) :
+    Except Diagnostic (CheckedFormula signature) := do
+  let (ctx, site, body) ← select registry externalLevels signature id
+  return ⟨← lowerForm ctx signature maxDepth site body⟩
+
+end Silmaril.Logic.Temporal.TLA.DataElab.Temporal

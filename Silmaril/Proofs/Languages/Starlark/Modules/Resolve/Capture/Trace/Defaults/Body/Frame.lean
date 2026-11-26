@@ -35,14 +35,19 @@ theorem root_free {owned globals : List String} {reads : List Binding} {free : L
       | module _ _ known => exact ⟨_, known, rfl⟩
     · exact ih later
 
-theorem instantiates {globals : List String} {definition : Definition} (plan : Plan globals definition)
-    (caller : State) (layout : ModuleSlots globals caller) :
-    ∃ captures, Installs caller plan.free captures := by
+theorem instantiate_selected {owned globals : List String} {reads : List Binding} {free : List FreeName}
+    (selected : Selects ⟨owned, [], globals⟩ reads free) (caller : State) (layout : ModuleSlots globals caller) :
+    ∃ captures, Installs caller free captures := by
   apply Forwarding.installs_of_addresses
   intro entry member
-  obtain ⟨name, known, rfl⟩ := root_free plan.selects entry member
+  obtain ⟨name, known, rfl⟩ := root_free selected entry member
   obtain ⟨address, _, _, owned, _⟩ := layout.usable name known
   exact ⟨globalSlot name, address, rfl, .inl owned⟩
+
+theorem instantiates {globals : List String} {definition : Definition} (plan : Plan globals definition)
+    (caller : State) (layout : ModuleSlots globals caller) :
+    ∃ captures, Installs caller plan.free captures :=
+  instantiate_selected plan.selects caller layout
 
 /-- The generic frame theorem accepts owned or forwarded captures whose
 address has a live binding cell in the current caller heap. -/
@@ -74,38 +79,52 @@ theorem activate_frame (block : LexicalBlock) (declaration : Declaration)
     exact ⟨capture.address, value, frozen, below, own,
       (Wrapper.activation_preserves caller declaration captures assigned _ below).trans stored⟩
 
-theorem declaration_slots {globals enclosing : List String} {definition : Definition}
-    (plan : Plan globals definition enclosing) (codes : List Lowering.Expr)
-    (length : codes.length = definition.parameters.optional.length) :
-    (plan.declaration codes).signature.slots ++ (plan.declaration codes).locals = plan.block.owned.map fileSlot := by
-  have named := List.map_fst_zip (l₁ := definition.parameters.optional.map (fileSlot ∘ Prod.fst))
+theorem signature_slots (parameters : Defaults.Parameters) (locals : List String) (codes : List Lowering.Expr)
+    (length : codes.length = parameters.optional.length) :
+    (parameters.signature codes).slots ++ locals.map fileSlot = (parameters.names ++ locals).map fileSlot := by
+  have named := List.map_fst_zip (l₁ := parameters.optional.map (fileSlot ∘ Prod.fst))
     (l₂ := codes) (by simp [length])
-  simp [Plan.declaration, Plan.block, Defaults.Parameters.signature, Defaults.Parameters.names,
+  simp [Defaults.Parameters.signature, Defaults.Parameters.names,
     Signature.slots, Signature.named, requiredSignature, List.map_map, Function.comp_def] at named ⊢
   rw [named]
 
-theorem captured_frame {globals enclosing : List String} {definition : Definition}
+theorem declaration_slots {globals enclosing : List String} {definition : Definition}
     (plan : Plan globals definition enclosing) (codes : List Lowering.Expr)
-    (length : codes.length = definition.parameters.optional.length) (caller owner : State)
-    (captures : List Capture) (installed : Installs owner plan.free captures)
+    (length : codes.length = definition.parameters.optional.length) :
+    (plan.declaration codes).signature.slots ++ (plan.declaration codes).locals = plan.block.owned.map fileSlot :=
+  signature_slots definition.parameters plan.locals codes length
+
+theorem selected_frame (block : LexicalBlock) (declaration : Declaration)
+    (slots : declaration.signature.slots ++ declaration.locals = block.owned.map fileSlot)
+    {reads : List Binding} (selected : Selects block reads declaration.free) (caller owner : State)
+    (captures : List Capture) (installed : Installs owner declaration.free captures)
     (cells : CaptureCells caller captures) (assigned : List (Binding × Value)) :
-    Frame plan.block plan.free caller.heap.size (activate caller (plan.declaration codes) captures assigned) := by
-  have slots := declaration_slots plan codes length
+    Frame block declaration.free caller.heap.size (activate caller declaration captures assigned) := by
   apply activate_frame _ _ slots
   intro binding known
   refine ⟨?_, ?_⟩
   · rw [slots]
     intro member
     obtain ⟨name, owned, equal⟩ := List.mem_map.mp member
-    exact Silmaril.Languages.Starlark.Modules.Resolve.Capture.selected_outside_owned plan.selects _ known name owned equal.symm
+    exact Silmaril.Languages.Starlark.Modules.Resolve.Capture.selected_outside_owned selected _ known name owned equal.symm
   · obtain ⟨capture, found, name, receipt⟩ := Forwarding.find_receipt installed binding known
     have live := cells capture (List.mem_of_find?_eq_some found)
     have flag : capture.localCell = (binding.scope == .local) := by cases receipt <;> rfl
     exact ⟨capture, found, name, flag, live⟩
 
-theorem root_capture_cells {globals : List String} {definition : Definition} (plan : Plan globals definition)
+theorem captured_frame {globals enclosing : List String} {definition : Definition}
+    (plan : Plan globals definition enclosing) (codes : List Lowering.Expr)
+    (length : codes.length = definition.parameters.optional.length) (caller owner : State)
+    (captures : List Capture) (installed : Installs owner plan.free captures)
+    (cells : CaptureCells caller captures) (assigned : List (Binding × Value)) :
+    Frame plan.block plan.free caller.heap.size (activate caller (plan.declaration codes) captures assigned) :=
+  selected_frame plan.block (plan.declaration codes) (declaration_slots plan codes length)
+    plan.selects caller owner captures installed cells assigned
+
+theorem selected_cells {owned globals : List String} {reads : List Binding} {free : List FreeName}
+    (selected : Selects ⟨owned, [], globals⟩ reads free)
     (caller : State) (layout : ModuleSlots globals caller) (captures : List Capture)
-    (installed : Installs caller plan.free captures) :
+    (installed : Installs caller free captures) :
     CaptureCells caller captures := by
   have received {free : List FreeName} {captures : List Capture} (evidence : Installs caller free captures) :
       ∀ capture ∈ captures, ∃ entry ∈ free, ReceivesAddress caller entry capture := by
@@ -119,7 +138,7 @@ theorem root_capture_cells {globals : List String} {definition : Definition} (pl
         exact ⟨entry, List.mem_cons_of_mem _ known, proof⟩
   intro capture present
   obtain ⟨entry, member, address⟩ := received installed capture present
-  obtain ⟨name, known, rfl⟩ := root_free plan.selects entry member
+  obtain ⟨name, known, rfl⟩ := root_free selected entry member
   obtain ⟨index, value, frozen, owned, stored⟩ := layout.usable name known
   cases address with
   | ownedGlobal own =>
@@ -129,6 +148,12 @@ theorem root_capture_cells {globals : List String} {definition : Definition} (pl
   | capturedGlobal counterfeit =>
     rw [owned] at counterfeit
     cases counterfeit
+
+theorem root_capture_cells {globals : List String} {definition : Definition} (plan : Plan globals definition)
+    (caller : State) (layout : ModuleSlots globals caller) (captures : List Capture)
+    (installed : Installs caller plan.free captures) :
+    CaptureCells caller captures :=
+  selected_cells plan.selects caller layout captures installed
 
 theorem capture_cells_preserved {state next : State} {captures : List Capture}
     (kept : Bindings.Preserves state next) (cells : CaptureCells state captures) :
@@ -148,5 +173,19 @@ theorem capture_cells_written (state : State) (target : Binding) (value : Value)
     simp only [State.write, same, cell]
     exact Array.getElem?_setIfInBounds_self_of_lt valid
   · exact ⟨before, frozen, (RootCall.write_other_cell _ _ _ _ same).trans cell⟩
+
+theorem returned_keeps (caller : State) (declaration : Declaration) (captures : List Capture)
+    (assigned : List (Binding × Value)) (out : Silmaril.Languages.Starlark.Lists.Outcome
+      Silmaril.Languages.Starlark.Lists.Iteration.Flow)
+    (kept : Keeps caller.heap.size (activate caller declaration captures assigned)
+      (Silmaril.Languages.Starlark.Lists.Iteration.finishState out)) :
+    Keeps caller.heap.size caller
+      (Silmaril.Languages.Starlark.Lists.Iteration.finishState (Leaf.returnTo caller out)) := by
+  have preserved (address : Nat) (cell : Silmaril.Languages.Starlark.Lists.Cell) (low : address < caller.heap.size)
+      (stored : caller.heap[address]? = some cell) :
+      (Silmaril.Languages.Starlark.Lists.Iteration.finishState out).heap[address]? = some cell := by
+    have active := (Wrapper.activation_preserves caller declaration captures assigned address low).trans stored
+    exact kept.2 address cell low active
+  cases out <;> exact ⟨rfl, preserved⟩
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body

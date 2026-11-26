@@ -44,6 +44,22 @@ existing admission checks the actual dispatch and link on both inputs. -/
         (congrArg (fun g => Executable.link actions unitId g inputsR store) same),
       plan.problem, plan.mem_problem_iff⟩
 
+/-- Run the same ordered analysis from ordinary imports. The first checked
+binding may be a λ or a synthesized φ group. Capture checks still use the
+actual typed origin and its membership in the accumulated prefix. -/
+@[expose] def Plan.analyzeNumberedFromOrdinary (actions : Actions m σ) (unitId : Nat)
+    (graph : Omega Op imports [summary.fn.port] sigs) (inputsL inputsR : Tuple m.Val imports) (store : σ)
+    {source : OmegaTerm Op imports [summary.fn.port] sigs}
+    (plan : Plan inputsL inputsR (Scope.ordinary m) summary source.region)
+    (actual : graph.toTerm = source) :
+    Option (ExportAnalysis actions summary (Executable.link actions unitId graph inputsL store)
+      (Executable.link actions unitId graph inputsR store)) :=
+  let same := graph.toGraph_toTerm.symm.trans (congrArg OmegaTerm.toGraph actual)
+  (plan.walk actions unitId inputsL inputsR store (Scope.Checked.ordinary actions)).map fun linked =>
+    ⟨linked.relink (congrArg (fun g => Executable.link actions unitId g inputsL store) same)
+        (congrArg (fun g => Executable.link actions unitId g inputsR store) same),
+      plan.problem, plan.mem_problem_iff⟩
+
 theorem ExportAnalysis.mem_liveIn_iff (analysis : ExportAnalysis actions summary left right)
     (demand : Demand) (origin : Address) :
     origin ∈ analysis.liveIn demand ↔ origin ∈ (analysis.problem demand).mayOut 0 :=
@@ -66,5 +82,28 @@ theorem ExportAnalysis.linked_prefixes_agree {unitId : Nat}
       PrefixObservationsAgree actions demand after left right :=
   analysis.linked.linked_prefixes_agree demand fuel after unitId graph inputsL inputsR argsL argsR initial
     (Proofs.port_agreement analysis demand argsL argsR captures formals)
+
+theorem ExportAnalysis.substituteDeadFormals_get (analysis : ExportAnalysis actions summary left right)
+    (demand : Demand) (args replacements : Tuple m.Val summary.fn.args) {ty : Ty V S}
+    (p : Port summary.fn.args ty) :
+    (analysis.substituteDeadFormals demand args replacements).get p =
+      if analysis.liveFormal demand p then args.get p else replacements.get p :=
+  Proofs.substitute_dead_get analysis demand args replacements p
+
+/-- The substituted tuple can drive the actual linked invocation. Live
+captures still agree, and resumption uses the same observation contract. -/
+theorem ExportAnalysis.linked_substituteDeadFormals {unitId : Nat}
+    {graph : Omega Op imports [summary.fn.port] sigs} {initial : σ}
+    (analysis : ExportAnalysis actions summary (Executable.link actions unitId graph inputsL initial)
+      (Executable.link actions unitId graph inputsR initial))
+    (demand : Demand) (fuel after : Nat) (args replacements : Tuple m.Val summary.fn.args)
+    (captures : ∀ {ty} (p : Port summary.captures ty), analysis.liveCapture demand p = true →
+      analysis.linked.capsL.get p = analysis.linked.capsR.get p) :
+    ∃ left right,
+      Executable.run actions fuel unitId graph inputsL .head args initial = .ok left ∧
+      Executable.run actions fuel unitId graph inputsR .head (analysis.substituteDeadFormals demand args replacements)
+        initial = .ok right ∧ PrefixObservationsAgree actions demand after left right :=
+  analysis.linked_prefixes_agree demand fuel after args (analysis.substituteDeadFormals demand args replacements)
+    captures (fun p live => by rw [analysis.substituteDeadFormals_get, ite_eq_left live])
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix

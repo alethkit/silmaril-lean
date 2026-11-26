@@ -28,13 +28,16 @@ theorem define_scoped {before after : List Command} {spec : Spec} {globals : Lis
   obtain ⟨plan⟩ := admitted.plan
   obtain ⟨childId, site, childCode, parentCode⟩ := Defaults.Escape.Scoped.checked_site
     admitted.names plan declared checked suffix
-  let cell : Cell := ⟨.function ⟨childId + 1, [], []⟩, false⟩
+  obtain ⟨captures, installed⟩ := Defaults.Body.instantiate_selected plan.selects state layout
+  have cells := Defaults.Body.selected_cells plan.selects state layout captures installed
+  let cell : Cell := ⟨.function ⟨childId + 1, captures, []⟩, false⟩
   let grown : State := { state with heap := state.heap.push cell }
   let keep := Bindings.Preserves.push state cell
-  have live := commit_cell known.1 (keep.layout layout) state.heap.size (childId + 1) [] []
+  have live := commit_cell known.1 (keep.layout layout) state.heap.size (childId + 1) captures []
     (show grown.heap[state.heap.size]? = some cell from Array.getElem?_push_size)
-  exact ⟨_, .ordinary (.define site parentCode .nil), .commit grown _ keep,
-    ⟨known.1, ⟨⟨childId, state.heap.size, admitted.names, plan, childCode, parentCode, live⟩⟩⟩⟩
+  obtain ⟨retained, liveCells⟩ := commit_captures keep spec.wrapper.name (.function state.heap.size) installed cells
+  exact ⟨_, .ordinary (.define site parentCode installed), .commit grown _ keep,
+    ⟨known.1, ⟨⟨childId, state.heap.size, admitted.names, plan, childCode, parentCode, captures, retained, liveCells, live⟩⟩⟩⟩
 
 theorem alias_scoped {before rest : List Command} {globals : List String} {source destination : String}
     {linked : Program} {resolved : ResolvedModule}
@@ -51,8 +54,10 @@ theorem alias_scoped {before rest : List Command} {globals : List String} {sourc
   have evaluated : RootCall.Evaluates state (.scalar (.read source)) (.ok (.function root.address) state) := by
     simpa [State.read, root.live.binding] using RootCall.Evaluates.name (state := state) source
   have live := commit_cell destinationKnown.1 layout _ _ _ _ root.live.cell
+  obtain ⟨installed, cells⟩ := commit_captures (Bindings.Preserves.refl state) destination
+    (.function root.address) root.installed root.cells
   exact ⟨_, .ordinary (.setup site (.atom related evaluated)), .commit state _ (.refl _),
-    ⟨destinationKnown.1, ⟨{ root with live }⟩⟩⟩
+    ⟨destinationKnown.1, ⟨{ root with installed, cells, live }⟩⟩⟩
 
 theorem call_scoped {before rest : List Command} {globals : List String} {callee destination : String}
     {arguments : List Lowering.Resolve.SourceExpr} {linked : Program} {resolved : ResolvedModule}
@@ -76,24 +81,23 @@ theorem call_scoped {before rest : List Command} {globals : List String} {callee
       exact ⟨.error (.runtime error) state, .scopedCall root site calleeCode related ran (.rejected bound),
         fun _ impossible => nomatch impossible⟩
     | ok assigned =>
-      obtain ⟨captures, installed, cells⟩ := Defaults.Escape.Scoped.activate_installs root.plan root.childId state assigned
-      let codes := spec.wrapper.codes
-      obtain ⟨out, _, returned, _, _, progress⟩ := Defaults.Escape.returns_with_total resolved.program
-        (withoutDeclaration (List.range resolved.program.size) (root.childId + 1)) spec.wrapper root.names.wrapper
-        root.childId (root.plan.body.declaration codes) root.childCode rfl spec.additional spec.updates
-        root.names.localUpdates state assigned captures installed cells
+      let codes := root.plan.defaultCodes
+      obtain ⟨out, _, returned, _, _, progress⟩ := Defaults.Escape.Scoped.returns_total root.names root.plan
+        resolved.program (withoutDeclaration (List.range resolved.program.size) (root.childId + 1))
+        root.childId root.childCode state root.captures root.installed root.cells assigned
       refine ⟨_, .scopedCall root site calleeCode related ran (.entered bound returned), ?_⟩
       intro next success
       cases out with
       | error => cases success
       | ok value middle =>
         cases success
-        obtain ⟨address, values, rfl, length, cell, kept, retained, _⟩ := progress value middle rfl
+        obtain ⟨address, values, reached, captures, rfl, length, _, _, installed, cell, kept, retained, _⟩ :=
+          progress value middle rfl
         have stored := Defaults.Body.capture_cells_written middle (globalSlot destination) (.function address) retained
         have live := commit_cell target.1 (kept.layout layout) address root.childId captures _ cell
         exact ⟨.commit middle _ kept, ⟨target.1, ⟨⟨root.childId, spec.enclosing, root.plan.body, codes,
-          address, values, captures, Defaults.Escape.code_length spec.wrapper, length, root.childCode,
-          _, installed, stored, live⟩⟩⟩⟩
+          address, values, captures, Defaults.Lexical.code_length root.plan.defaults, length, root.childCode,
+          reached, installed, stored, live⟩⟩⟩⟩
   · have calleeRead : RootCall.Evaluates state (.scalar (.read callee)) (.ok (.function root.address) state) := by
       simpa [State.read, root.live.binding] using RootCall.Evaluates.name (state := state) callee
     exact ⟨.error (.runtime error) state, .ordinary (.operandError site calleeCode related (.cons calleeRead failed)),

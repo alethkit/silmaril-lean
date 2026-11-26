@@ -40,7 +40,7 @@ CHECK_TARGETS += PeggyDialectTests
 CHECK_TARGETS += PeggyEggTests PeggySimpleValidationTests
 CHECK_TARGETS += PeggyFieldHeapTests PeggyFieldHeapLinearizeTests
 
-CHECK_TARGETS += PeggyInstitutionTests
+CHECK_TARGETS += PeggyInstitutionTests PeggySortMapTests
 CHECK_TARGETS += PeggyEquationalTests
 CHECK_TARGETS += PEGRulesTests
 CHECK_TARGETS += PEGCanonicalWhileTests
@@ -71,6 +71,10 @@ cache:
 	fi
 
 CHECK_TARGETS += PEGStructuredThetaTests
+CHECK_TARGETS += arrow_ipc_metadata_tests
+CHECK_TARGETS += +Silmaril.Formats.Parquet.Footer.Thms parquet-footer-regression
+CHECK_TARGETS += +Silmaril.Formats.Parquet.Page.Thms parquet-page-regression
+CHECK_TARGETS += +Silmaril.Formats.Parquet.FlatScan.Thms parquet-flat-scan-regression
 
 # The release suites run when CHECK_TARGETS holds the executables. A change scoped to a library
 # that wasm-opt imports puts only wasm-opt in scope, so the other release binaries are built first.
@@ -121,7 +125,14 @@ check-prebuild:
 .PHONY: check-prebuild check-runtime check-integrations $(CHECK_INTEGRATION_GROUPS) tla-import-check
 check-runtime:
 	$(MAKE) process-gates
+	$(if $(filter Silmaril +Silmaril.Logic.Abstraction +Silmaril.Logic.Abstraction.% +Silmaril.Proofs.Logic.Abstraction.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Logic.Abstraction && \
+		for suite in Regression Soundness Comparisons; do \
+			$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/logic/abstraction/$$suite.lean || exit $$?; \
+		done)
+	$(if $(filter arrow_ipc_metadata_tests,$(CHECK_TARGETS)),$(MAKE) arrow-ipc-metadata-check)
 	$(if $(filter Silmaril +Silmaril.Logic.Temporal.TLA.Surface.Parser.%,$(CHECK_TARGETS)),LAKE="$(LAKE)" $(PYTHON) -I tests/semantics/tla-parser/check.py)
+	$(if $(filter Silmaril +Silmaril.Logic.Temporal.TLA.DataElab.Collections.%,$(CHECK_TARGETS)),LAKE="$(LAKE)" $(PYTHON) -I tests/semantics/tla-collection-binders/check.py)
+	$(if $(filter Silmaril +Silmaril.Logic.Temporal.TLA.DataElab.Temporal.%,$(CHECK_TARGETS)),LAKE="$(LAKE)" $(PYTHON) -I tests/semantics/tla-temporal-source/check.py)
 	$(if $(filter Silmaril +Silmaril.Logic.Temporal.TLA.Import.% +Silmaril.Logic.Temporal.TLA.Surface.Parser.% +Silmaril.Logic.Temporal.TLA.Elaborator.% +Silmaril.Logic.Temporal.TLA.Kernel.%,$(CHECK_TARGETS)),$(MAKE) tla-import-check)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Institution.% +Silmaril.Proofs.SSA.RVSDG.Institution.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Institution.Categorical.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGInstitution.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.% +Silmaril.Proofs.SSA.RVSDG.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDG.lean)
@@ -134,9 +145,12 @@ check-runtime:
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.LambdaSSA.Region.% +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Region.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.Region.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGSingleExit.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.Isotope.LambdaSSA.% +Silmaril.Proofs.SSA.Isotope.LambdaSSA.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Thms +Silmaril.SSA.Isotope.LambdaSSA.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/LambdaSSAEffectfulReplacement.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.Isotope.LambdaSSA.% +Silmaril.Proofs.SSA.Isotope.LambdaSSA.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Roundtrip.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/LambdaSSANeutralPacking.lean)
-	$(if $(filter Silmaril +Silmaril.SSA.Isotope.LambdaSSA.% +Silmaril.Proofs.SSA.Isotope.LambdaSSA.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Feedback.Thms +Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Coproducts.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/LambdaSSAPaperImports.lean)
+	$(if $(filter Silmaril +Silmaril.SSA.Isotope.LambdaSSA.% +Silmaril.Proofs.SSA.Isotope.LambdaSSA.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Feedback.Thms +Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Coproducts.Thms +Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithBoundEntryEta.Example.Thms +Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Denotation.Functor.ITree.Reflection.Defs && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/LambdaSSAPaperImports.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.Isotope.LambdaSSA.% +Silmaril.Proofs.SSA.Isotope.LambdaSSA.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Thms +Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.BoundSimulation.InstructionFree.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/LambdaSSAUnaryReturn.lean)
 	$(if $(filter sqlite_file_format_compatibility,$(CHECK_TARGETS)),bash tests/formats/sqlite-tranche/run.sh)
+	$(if $(filter parquet-footer-regression,$(CHECK_TARGETS)),printf '%s\n' '12a618d20a59ee0967fef45e7ec1ff6d451e724838edc1bbeac780ca15e8fcc4  tools/parquet-footer/fixtures/alltypes_plain.parquet' | sha256sum -c - && .lake/build/bin/parquet-footer-regression)
+	$(if $(filter parquet-page-regression,$(CHECK_TARGETS)),printf '%s\n' '12a618d20a59ee0967fef45e7ec1ff6d451e724838edc1bbeac780ca15e8fcc4  tools/parquet-footer/fixtures/alltypes_plain.parquet' '44f29191b5fa8cfe0ab848495bd8ef89344ac0d8f87b3dff12e267631e2b5c03  tools/parquet-page/fixtures/datapage_v2.snappy.parquet' | sha256sum -c - && .lake/build/bin/parquet-page-regression)
+	$(if $(filter parquet-flat-scan-regression,$(CHECK_TARGETS)),printf '%s\n' '3f7e748761fafc49e50ec4362925c8d6f70f2255bdd352f4a009df1b2f14deeb  tools/parquet-flat-scan/fixtures/flat-plain-v1.parquet' '725a8bd282efdb86d8c01e74a85615c0f05684737757ea003405adc7e120dfc2  tools/parquet-flat-scan/fixtures/flat-plain-v2.parquet' | sha256sum -c - && .lake/build/bin/parquet-flat-scan-regression)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.% +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Isomorphism.% +Silmaril.SSA.RVSDG.NestedTheta.Partial.Isomorphism.% +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Partial.Isomorphism.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.NestedTheta.Partial.Isomorphism.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGNestedThetaIsomorphism.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.NestedTheta.Petri.Isomorphism.% +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Petri.Isomorphism.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.NestedTheta.Petri.Isomorphism.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGNestedPetriIsomorphism.lean)
 	$(if $(filter sqlite_lean,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Cli.Spec.LeanSqliteShell.Thms && $(PYTHON) -I tests/formats/sqlite-shell/check.py)
@@ -218,6 +232,13 @@ tla-import-check:
 	$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true --run tests/semantics/tla-quint/Import.lean
 	$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/semantics/tla-quint/Temporal.lean
 	$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/semantics/tla-quint/ServiceCycle.lean
+
+.PHONY: arrow-ipc-metadata-check
+arrow-ipc-metadata-check:
+	$(PYTHON) -I tests/formats/arrow-ipc/fixture.py
+	.lake/build/bin/arrow_ipc_metadata_tests
+	$(LAKE) build --wfail +Silmaril.Formats.Arrow.Framing.Thms +Silmaril.Formats.Arrow.Layout.Thms +Silmaril.Formats.Arrow.Body.Thms +Silmaril.Formats.Arrow.Writer.Thms +Silmaril.Formats.Arrow.MetadataWriter.Thms +Silmaril.Formats.Arrow.StreamWriter.Thms
+	$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/formats/arrow-ipc/Axioms.lean
 
 # Every integration suite, the groups one after another, then logic-graph-check.
 check-integrations:
@@ -321,6 +342,9 @@ check-integrations-python-functions:
 	$(if $(filter Silmaril +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Thms,$(CHECK_TARGETS)),LAKE="$(LAKE)" $(PYTHON) -I tests/languages/python/source-module-entry/check_function_run.py)
 	$(if $(filter Silmaril +Silmaril.Languages.Python.Compile.Closure.VarNames.Defs +Silmaril.Languages.Python.Compile.Closure.VarNames.Thms +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Languages.Python.Compile.Closure.VarNames.Thms +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Thms +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms && LAKE="$(LAKE)" $(PYTHON) -I tests/languages/python/source-module-entry/check_varnames.py)
 	$(if $(filter Silmaril +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Thms +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Thms && LAKE="$(LAKE)" $(PYTHON) -I tests/languages/python/source-module-entry/check_keyword_default.py)
+	$(if $(filter Silmaril +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Thms +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms,$(CHECK_TARGETS)),LAKE="$(LAKE)" $(PYTHON) -I scripts/check-python-division-call-transport.py)
+	$(if $(filter Silmaril +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Thms +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms,$(CHECK_TARGETS)),LAKE="$(LAKE)" $(PYTHON) -I scripts/check-python-finite-numeric-equality.py)
+	$(if $(filter Silmaril +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Thms +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms,$(CHECK_TARGETS)),LAKE="$(LAKE)" $(PYTHON) -I scripts/check-python-mixed-finite-addition.py)
 	$(if $(filter Silmaril +Silmaril.Languages.Python.Compile.Closure.Run.Thms +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Languages.Python.Compile.Closure.Run.Thms +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Thms +Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms && LAKE="$(LAKE)" $(PYTHON) -I tests/languages/python/source-module-entry/check_return_local_call.py && LAKE="$(LAKE)" $(PYTHON) -I tests/languages/python/source-module-entry/check_factory_results.py && LAKE="$(LAKE)" $(PYTHON) -I tests/languages/python/source-module-entry/check_nested_lambdas.py)
 
 # Wasm profiles and the Binaryen intrinsic, release, ELF and compiler explorer suites.

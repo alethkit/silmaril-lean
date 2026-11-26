@@ -24,6 +24,12 @@ variable {leftEntry : Fin leftSize} {rightEntry : Fin rightSize}
 variable {left : Program leftSource leftEntry} {right : Program rightSource rightEntry}
 variable {leftMask rightMask : Mask regs}
 
+/-- Every typed CF environment encodes a native valuation, including
+the one-bit encodings of predicate slots. -/
+theorem encodeValues_surjective (regs : List (ValueSort Width)) :
+    Function.Surjective (encodeValues (ins := regs)) :=
+  Proofs.encodeValues_surjective regs
+
 /-- Projection preserves the native numbered graph's partial observation. -/
 theorem rvsdg_observe_eq_native (checked : Checked left leftMask) (input : Bank (regs := regs) model) :
     checked.lower.denotePart (Join.model model) input = left.lower.denotePart (Join.model model) input :=

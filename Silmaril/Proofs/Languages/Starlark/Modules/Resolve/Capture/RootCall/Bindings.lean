@@ -86,16 +86,17 @@ theorem write_other_cell (state : State) (binding : Binding) (value : Value) (ad
     exact other (same ▸ slot)
   simp [diff]
 
-theorem activate_unassigned (state : State) (declaration : Declaration) (arguments : List (Binding × Value))
+theorem activate_unassigned (state : State) (declaration : Declaration) (captures : List Capture)
+    (arguments : List (Binding × Value))
     (binding : Binding) (declared : binding ∈ declaration.signature.slots ++ declaration.locals)
     (unassigned : ∀ argument ∈ arguments, argument.1 ≠ binding) :
-    let active := activate state declaration [] arguments
+    let active := activate state declaration captures arguments
     ∃ address, active.slots binding = some (.owned address) ∧ active.heap[address]? = some ⟨.binding none, false⟩ := by
-  let initial : State := { state with bindings := fun _ => none, slots := capturedSlots [] }
+  let initial : State := { state with bindings := fun _ => none, slots := capturedSlots captures }
   let blank := (declaration.signature.slots ++ declaration.locals).foldl State.allocateSlot initial
   obtain ⟨address, owned, stored⟩ := Entry.allocate_blank
     (declaration.signature.slots ++ declaration.locals) initial binding (.inl declared)
-  have distinct : DistinctOwned blank := activation_distinct state declaration [] []
+  have distinct : DistinctOwned blank := activation_distinct state declaration captures []
   have remains (assigned : List (Binding × Value)) (frame : State)
       (unassigned : ∀ argument ∈ assigned, argument.1 ≠ binding) (separate : DistinctOwned frame)
       (slot : frame.slots binding = some (.owned address)) (cell : frame.heap[address]? = some ⟨.binding none, false⟩) :

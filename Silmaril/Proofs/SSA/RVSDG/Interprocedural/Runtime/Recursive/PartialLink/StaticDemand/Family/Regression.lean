@@ -857,11 +857,6 @@ example (cap : Nat) : thetaAdmitted cap true = none := rfl
 
 private def spareFormal : Port exportFn.args num := .tail (.tail .head)
 
-set_option maxRecDepth 2048 in
-private theorem thetaSpareDead (cap : Nat) : (thetaAnalysis cap).liveFormal requested spareFormal = false := by
-  change (thetaAnalysis 0).liveFormal requested spareFormal = false
-  decide
-
 #guard (thetaAnalysis 2).liveFormal requested (.head : Port exportFn.args num)
 #guard (thetaAnalysis 2).liveFormal requested (.tail .head : Port exportFn.args num)
 #guard !(thetaAnalysis 2).liveFormal requested spareFormal
@@ -870,40 +865,44 @@ set_option maxRecDepth 2048 in
 example : Address.arg 3 ∈ ((thetaAnalysis 2).problem requested).mayOut 0 :=
   ((thetaAnalysis 2).mem_liveIn_iff requested _).1 (by decide)
 
-private theorem thetaFormalsAgree (cap count : Nat) {ty : T} (p : Port exportFn.args ty)
-    (live : (thetaAnalysis cap).liveFormal requested p = true) :
-    (args count 41 4).get p = (args count 41 40).get p := by
-  rcases p with _ | p
-  · rfl
-  rcases p with _ | p
-  · rfl
-  cases p with
-  | head => exact False.elim (Bool.noConfusion ((thetaSpareDead cap).symm.trans live))
-  | tail p => nomatch p
-
 private def runTheta (swap : Bool) (fuel cap count spare : Nat) :=
   Executable.run actions fuel 83 (thetaNumbered swap) (one cap) .head (args count 41 spare) 20
 
-example (fuel after cap count : Nat) :
-    ∃ left right, runTheta false fuel cap count 4 = .ok left ∧ runTheta false fuel cap count 40 = .ok right ∧
-      PrefixObservationsAgree actions requested after left right :=
-  (thetaAnalysis cap).linked_prefixes_agree requested fuel after (args count 41 4) (args count 41 40) (fun _ _ => rfl) (thetaFormalsAgree cap count)
+private def thetaSubstitutedFormals (cap count spare : Nat) : Tuple machine.Val exportFn.args :=
+  (thetaAnalysis cap).substituteDeadFormals requested (args count 41 spare) (args 99 900 0)
+
+-- The proposed counter and payload changes are discarded. The spare is replaced.
+set_option maxRecDepth 2048 in
+example : thetaSubstitutedFormals 2 1 40 = args 1 41 0 := rfl
+
+private def runThetaSubstituted (fuel cap count spare : Nat) :=
+  Executable.run actions fuel 83 (thetaNumbered false) (one cap) .head (thetaSubstitutedFormals cap count spare) 20
+
+example (fuel after cap count spare : Nat) :
+    ∃ left right, runTheta false fuel cap count spare = .ok left ∧
+      runThetaSubstituted fuel cap count spare = .ok right ∧ PrefixObservationsAgree actions requested after left right :=
+  (thetaAnalysis cap).linked_substituteDeadFormals requested fuel after (args count 41 spare) (args 99 900 0)
+    (fun _ _ => rfl)
 
 #guard (runTheta false 80 2 1 4).toOption.bind wrapperResult == some (41, 45)
 #guard (runTheta false 80 2 1 40).toOption.bind wrapperResult == some (41, 45)
 #guard (runTheta true 80 2 0 4).toOption.bind wrapperResult == some (41, 44)
 #guard (runTheta true 80 2 1 4).toOption.bind wrapperResult == some (0, 46)
 
-private def thetaBlock (count spare : Nat) : Option (Nat × Nat) :=
-  match runTheta false 80 0 count spare with
+private def thetaBlock (run : Except (Failure machine Nat) (Observation machine Nat single)) : Option (Nat × Nat) :=
+  match run with
   | .ok (.blocked ⟨⟨_, _, .probe, _, _, .cons (.data cap) .nil⟩, _⟩ store) => some (cap, store)
   | _ => none
 
-#guard thetaBlock 0 4 == some (0, 22)
-#guard thetaBlock 1 4 == some (0, 23)
-#guard thetaBlock 1 40 == some (0, 23)
+#guard thetaBlock (runTheta false 80 0 0 4) == some (0, 22)
+#guard thetaBlock (runTheta false 80 0 1 4) == some (0, 23)
+#guard thetaBlock (runTheta false 80 0 1 40) == some (0, 23)
 #guard (resume (runTheta false 80 0 1 4)).bind wrapperResult == some (41, 70)
 #guard (resume (runTheta false 80 0 1 40)).bind wrapperResult == some (41, 70)
+
+#guard (runThetaSubstituted 80 2 1 40).toOption.bind wrapperResult == some (41, 45)
+#guard thetaBlock (runThetaSubstituted 80 0 1 40) == some (0, 23)
+#guard (resume (runThetaSubstituted 80 0 1 40)).bind wrapperResult == some (41, 70)
 
 -- Both arms can read different child ports and still forward the same
 -- linker wires. The suffix reads the actual γ output ports.

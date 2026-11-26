@@ -1,6 +1,8 @@
 module
 
-public import Silmaril.Languages.Python.Core.Module.Defs
+public import Silmaril.Languages.Python.Core.Binary64.Defs
+public import Silmaril.Languages.Python.Core.Module.TupleDispatch.Defs
+public import Silmaril.Languages.Python.Core.Text.Defs
 
 /-! # Slot and cell interfaces for lowered Python closures -/
 
@@ -65,41 +67,78 @@ inductive Value where
   | none
   | int (value : Int)
   | bool (value : Bool)
+  | float64 (value : Silmaril.Numeric.Ieee754.F64.Finite)
+  | text (value : Core.Text)
   | function (value : Function)
-  | tuple (items : List Core.Module.Value)
+  | tuple (items : List Core.Module.TupleDispatch.Element)
+  | tupleObject (object : Core.Module.TupleDispatch.Object)
   deriving Repr
 
 def Value.truth : Value → Bool
   | .none => false
   | .int value => decide (value ≠ 0)
   | .bool value => value
+  | .float64 value => !value.val.isZero
+  | .text value => value.truth
   | .function _ => true
   | .tuple items => !items.isEmpty
-
-/-- Compare a value in this closed closure profile with an integer literal. -/
-def Value.equalInt : Value → Int → Bool
-  | .int value, right => decide (value = right)
-  | .bool false, right => decide (0 = right)
-  | .bool true, right => decide (1 = right)
-  | .none, _ | .function _, _ | .tuple _, _ => false
+  | .tupleObject object => !object.contents.isEmpty
 
 def Value.scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
   | .none => some .none
-  | .function _ | .tuple _ => Option.none
+  | .float64 _ | .text _ | .function _ | .tuple _ | .tupleObject _ => Option.none
 
 def Value.ofScalar : Core.Module.Value → Value
   | .int value => .int value
   | .bool value => .bool value
   | .none => .none
 
+def Value.tupleElement? : Value → Option Core.Module.TupleDispatch.Element
+  | .text value => some (.text value)
+  | value => value.scalar?.map .scalar
+
+def Value.ofTupleElement : Core.Module.TupleDispatch.Element → Value
+  | .scalar value => Value.ofScalar value
+  | .text value => .text value
+
+/-- Only the canonical empty tuple and tuples allocated by the checked
+module path expose an identity. An address refers to the originating run. -/
+def Value.tupleObject? : Value → Option Core.Module.TupleDispatch.Object
+  | .tuple [] => some ⟨Option.none, []⟩
+  | .tupleObject object => some object
+  | _ => Option.none
+
 /-- The checked items of a flat tuple return. -/
 inductive TupleItem (layout : Layout) where
-  | literal (value : Core.Module.Value)
+  | literal (value : Core.Module.TupleDispatch.Element)
   | read (slot : Slot layout)
   | global (name : String)
   deriving Repr
+
+/-- A module tuple has scalar literals and live global reads. Its frame
+has no local, owned, or captured slots. -/
+abbrev GlobalTupleItem := TupleItem ⟨0, 0, 0⟩
+
+def GlobalTupleItem.lower {layout : Layout} : GlobalTupleItem → TupleItem layout
+  | .literal value => .literal value
+  | .global name => .global name
+  | .read (.local slot) | .read (.owned slot) | .read (.capture slot) => Fin.elim0 slot
+
+def GlobalTupleItem.isRead : GlobalTupleItem → Bool
+  | .global _ => true
+  | _ => false
+
+/-- Complete the ordered reads before checking that every reached value
+can be retained as an exact scalar item. -/
+def assembleFlatTuple {Item Payload Element Error : Type} (read : Item → Except Error Payload)
+    (scalar : Payload → Option Element) (unsupported : Error)
+    (items : List Item) : Except Error (List Element) :=
+  (items.mapM read).bind fun values =>
+    match values.mapM scalar with
+    | some checked => .ok checked
+    | none => .error unsupported
 
 /-- Python-level errors carried across frames. An unbound incoming capture
 corresponds to `NameError`; an unbound local or owned cell to `UnboundLocalError`. -/
@@ -110,10 +149,13 @@ inductive RuntimeError where
   | nameError (name : String)
   | positionalArity (expected actual : Nat)
   | notCallable
+  | tupleArgumentNotIterable
+  | zeroSliceStep
   | additionTypeError
   | multiplicationTypeError
   | assertionError
   | arithmetic (error : Exception)
+  | overflowError
   deriving DecidableEq, Repr
 
 /-- Invalid runtime references are distinct from defined Python exceptions. -/
@@ -121,6 +163,7 @@ inductive Failure where
   | defined (error : RuntimeError)
   | danglingCell (identity : CellId)
   | unsupportedTupleElement
+  | unsupportedFloatOperand
   deriving DecidableEq, Repr
 
 /-- Integer-like values in the closed closure value profile. -/
@@ -128,7 +171,15 @@ def Value.asInt? : Value → Option Int
   | .int value => some value
   | .bool false => some 0
   | .bool true => some 1
-  | .none | .function _ | .tuple _ => Option.none
+  | .none | .float64 _ | .text _ | .function _ | .tuple _ | .tupleObject _ => Option.none
+
+/-- Integer equality is checked before a comparison can consume a float. -/
+def Value.equalInt : Value → Int → Except Failure Value
+  | .float64 _, _ => .error .unsupportedFloatOperand
+  | .int value, right => .ok (.bool (decide (value = right)))
+  | .bool false, right => .ok (.bool (decide (0 = right)))
+  | .bool true, right => .ok (.bool (decide (1 = right)))
+  | .none, _ | .text _, _ | .function _, _ | .tuple _, _ | .tupleObject _, _ => .ok (.bool false)
 
 inductive IntegerOp where
   | add
@@ -146,13 +197,40 @@ def IntegerOp.typeError : IntegerOp → RuntimeError
 /-- Apply exact integer arithmetic after both operands have been read.
 The other modeled values include None, functions and flat tuples. -/
 def Value.binaryInt (op : IntegerOp) (left right : Value) : Except Failure Value :=
-  match left.asInt?, right.asInt? with
-  | some lhs, some rhs => .ok (.int (op.eval lhs rhs))
-  | _, _ => .error (.defined op.typeError)
+  match left, right with
+  | .float64 _, _ | _, .float64 _ => .error .unsupportedFloatOperand
+  | _, _ =>
+    match left.asInt?, right.asInt? with
+    | some lhs, some rhs => .ok (.int (op.eval lhs rhs))
+    | _, _ => .error (.defined op.typeError)
 
 abbrev Value.addInt := Value.binaryInt .add
 
 abbrev Result := Except RuntimeError Value
+
+def trueDivideInt (numerator divisor : Int) : Except RuntimeError Silmaril.Numeric.Ieee754.F64.Finite :=
+  (Core.Binary64.trueDivide numerator divisor).mapError fun
+    | .zeroDivisionError => .arithmetic .zeroDivisionError
+    | .overflowError => .overflowError
+
+def floatArithmeticResult
+    (result : Except Core.Binary64.FloatArithmeticError Silmaril.Numeric.Ieee754.F64.Finite) :
+    Except Failure Value :=
+  result.map .float64 |>.mapError fun
+    | .conversionOverflow => .defined .overflowError
+    | .nonfiniteResult => .unsupportedFloatOperand
+
+def mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite) : Except Failure Value :=
+  floatArithmeticResult (Core.Binary64.mixedAdd integer floating)
+
+def floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite) : Except Failure Value :=
+  (Core.Binary64.addFinite? left right).elim (.error .unsupportedFloatOperand) (.ok ∘ Value.float64)
+
+def floatSub (operands : Core.Binary64.FloatOperands) : Except Failure Value :=
+  floatArithmeticResult (Core.Binary64.subtract operands)
+
+def floatMul (operands : Core.Binary64.FloatOperands) : Except Failure Value :=
+  floatArithmeticResult (Core.Binary64.multiply operands)
 
 /-- A shared heap with monotone cell allocation. Only addresses below
 `next` denote allocated cells. An allocated cell may be unbound. -/
@@ -172,6 +250,45 @@ def Heap.write (heap : Heap) (identity : CellId) (value : Value) : Option Heap :
   if identity.address < heap.next then
     some ⟨heap.next, fun address => if address = identity.address then some value else heap.contents address⟩
   else none
+
+/-- Append one initialized slot using the same monotone frontier as
+owned cells. The previous slots retain their contents and addresses. -/
+def Heap.allocate (heap : Heap) (value : Value) : CellId × Heap :=
+  let identity : CellId := ⟨heap.next⟩
+  let reached := heap.reserve 1
+  (identity, { reached with contents := fun address =>
+    if address = identity.address then some value else reached.contents address })
+
+/-- Save a positive witness for the evaluated constant. Its heap slot
+records the descriptor itself, so it is distinct from a fresh-object slot
+holding a tuple payload. Two such witnesses may refer to one Python constant. -/
+def Heap.saveTupleOrigin (heap : Heap) (head : Core.Module.TupleDispatch.Element) (tail : List Core.Module.TupleDispatch.Element) :
+    Core.Module.TupleDispatch.Object × Heap :=
+  let descriptor : Core.Module.TupleDispatch.Object := ⟨some heap.next, head :: tail⟩
+  (descriptor, (heap.allocate (.tupleObject descriptor)).2)
+
+/-- Materialize a new exact tuple. The empty tuple keeps its canonical
+representation and needs no allocation. -/
+def Heap.materializeFreshTuple (heap : Heap) (contents : List Core.Module.TupleDispatch.Element) : Value × Heap :=
+  match contents with
+  | [] => (.tuple [], heap)
+  | _ :: _ =>
+    let (reference, reached) := heap.allocate (.tuple contents)
+    (.tupleObject ⟨some reference.address, contents⟩, reached)
+
+/-- A display with a live item read builds a fresh object. A closed
+nonempty display can save its origin when identity is observed. Empty
+tuples need no heap slot. -/
+def Heap.materializeModuleTuple (heap : Heap) (items : List GlobalTupleItem)
+    (contents : List Core.Module.TupleDispatch.Element) (trackClosed : Bool := false) : Value × Heap :=
+  match contents with
+  | [] => (.tuple [], heap)
+  | head :: tail =>
+    if items.any GlobalTupleItem.isRead then heap.materializeFreshTuple contents
+    else if trackClosed then
+      let (descriptor, reached) := heap.saveTupleOrigin head tail
+      (.tupleObject descriptor, reached)
+    else (.tuple contents, heap)
 
 structure Frame (layout : Layout) where
   locals : Fin layout.locals → Option Value

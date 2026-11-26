@@ -1,7 +1,11 @@
 module
 
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ListDisplay.Thms
 public import Silmaril.Languages.Python.Core.Module.Functions.Thms
+public import Silmaril.Languages.Python.Core.Module.TupleDispatch.Thms
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleIdentity.Thms
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TextSlice.Thms
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Prefix
 
 public section
@@ -12,6 +16,38 @@ theorem callOperand_numericArgument (scope : Source.Scope) (result : NumericArgu
       | .integer value => .int value
       | .boolean value => .bool value)) := by
   cases result <;> rfl
+
+theorem callOperand_literalBooleanEquality {scope : Source.Scope}
+    (session : Core.Module.Functions.Session) (left right : Bool) :
+    let operand : Operand scope := .binary .equal (.boolean left) (.boolean right)
+    callOperand? operand = some (.literal (.bool (left == right))) ∧
+      evaluate session operand = .ok (.bool (left == right)) := by
+  refine ⟨rfl, ?_⟩
+  simp only [evaluate]
+  cases left <;> cases right <;> rfl
+
+theorem advanceListDisplayCall_missing {scope : Source.Scope}
+    (session : Core.Module.Functions.Session) (destination : Core.Module.Functions.Destination)
+    (display : ListDisplay.Display) (rest : List (Instruction scope)) {name : String}
+    (missing : session.globals name = none) :
+    advanceListDisplayCall session destination name display rest = .finished session (.raised (.nameError name)) := by
+  simp [advanceListDisplayCall, missing]
+
+theorem advanceListDisplayCall_negated {scope : Source.Scope}
+    (session : Core.Module.Functions.Session) (destination : Core.Module.Functions.Destination)
+    (items : List ListDisplay.Item) (rest : List (Instruction scope))
+    {name : String} {callee : Core.Closure.Value} {contents : List Core.Module.Value}
+    (resolved : session.globals name = some callee)
+    (evaluated : items.mapM (ListDisplay.Item.eval (readListItem session)) = .ok contents) :
+    advanceListDisplayCall session destination name ⟨items, true⟩ rest =
+      .calling ({ session with lists := (session.lists.allocate contents).2 }.prepareCall
+        destination (.literal callee) [.literal (.bool contents.isEmpty)]) rest := by
+  simp [advanceListDisplayCall, resolved, ListDisplay.Display.prepare, evaluated, Core.Module.ListHeap.allocate]
+
+theorem retainTupleOrigins_unobserved {scope : Source.Scope} (instructions : List (Instruction scope))
+    (unobserved : instructions.any Instruction.observesTupleIdentity = false) :
+    retainTupleOrigins instructions = instructions := by
+  simp [retainTupleOrigins, unobserved]
 
 theorem seed_lookup (globals : Core.Module.Globals) (heap : Core.Closure.Heap) (name : String) :
     (seed globals heap).globals name = (globals.lookup name).map embed := rfl
@@ -44,6 +80,45 @@ theorem assertOperand_scalarResult {scope : Source.Scope} (session : Core.Module
   simp only [assertOperand, evaluate_scalarResult]
   cases value <;> rfl
 
+theorem advance_textSliceGuard {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (test : TextSlice.Guard) (rest : List (Instruction scope)) :
+    advance table (.ready session (.textSliceGuard test :: rest)) =
+      ([], match checkTextSliceGuard session test with
+        | .ok () => .ready session rest
+        | .error error => .finished session error) := rfl
+
+theorem advance_bindText {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (name : Source.Name)
+    (value : Core.Text) (rest : List (Instruction scope)) :
+    advance table (.ready session (.bindText name value :: rest)) =
+      ([], .ready (session.bindGlobal name (.text value)) rest) := rfl
+
+theorem advance_readAssign {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) {name source : Source.Name}
+    (target : GlobalReference scope name) (reference : GlobalReference scope source)
+    (rest : List (Instruction scope)) :
+    advance table (.ready session (.scalar (.assign name target (.read source reference)) :: rest)) =
+      ([], match session.globals source with
+        | some value => .ready (session.bindGlobal name value) rest
+        | none => .finished session (.raised (.nameError source))) := by
+  cases found : session.globals source <;> simp [advance, evaluate, found]
+
+theorem advance_bindTuple_ok {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool}
+    {values : List Core.Module.TupleDispatch.Element} {rest : List (Instruction scope)}
+    (evaluated : evaluateTuple session items = .ok values) :
+    let (value, heap) := session.heap.materializeModuleTuple items values trackClosed
+    advance table (.ready session (.bindTuple name items trackClosed :: rest)) =
+      ([], .ready ({ session with heap := heap }.bindGlobal name value) rest) := by
+  simp [advance, bindTuple, evaluated]
+
+theorem advance_bindTuple_failure {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool}
+    {error : Completion} {rest : List (Instruction scope)}
+    (failed : bindTuple session name items trackClosed = .error error) :
+    advance table (.ready session (.bindTuple name items trackClosed :: rest)) = ([], .finished session error) := by
+  simp [advance, failed]
+
 theorem advance_conditionalAssign {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (name : Source.Name)
     (reference : GlobalReference scope name) (selected : Operand scope) (rest : List (Instruction scope)) :
@@ -71,6 +146,34 @@ theorem invoke_current_globals {scope : Source.Scope} (session : Core.Module.Fun
     (name : String) (arguments : List Core.Module.Functions.Operand) (remaining : List (Instruction scope)) :
     advance table (.ready session (.call target name arguments :: remaining)) =
       ([], .calling (session.prepareCall target (.readGlobal name) arguments) remaining) := rfl
+
+theorem prepareTupleIdentityCall_missing (session : Core.Module.Functions.Session)
+    (destination : Core.Module.Functions.Destination) {name : String} (test : TupleIdentity.Test)
+    (missing : session.globals name = none) :
+    prepareTupleIdentityCall session destination name test = .error (.raised (.nameError name)) := by
+  simp only [prepareTupleIdentityCall, missing, Option.elim]
+  rfl
+
+theorem advance_callTupleIdentity_failure {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (destination : Core.Module.Functions.Destination)
+    (name : String) (test : TupleIdentity.Test) (rest : List (Instruction scope)) {error : Completion}
+    (failed : prepareTupleIdentityCall session destination name test = .error error) :
+    advance table (.ready session (.callTupleIdentity destination name test :: rest)) =
+      ([], .finished session error) := by
+  simp [advance, failed]
+
+theorem tupleFromListDisplay_outer_missing (session : Core.Module.Functions.Session) {name : String}
+    (contents : List Core.Module.Value) (remaining : List Argument) (missing : session.globals name = none) :
+    tupleFromListDisplayCompletion session contents (some (name, remaining)) =
+      (.raised (.nameError name), session.lists) := by
+  simp [tupleFromListDisplayCompletion, missing]
+
+theorem tupleFromListDisplay_direct_mask (session : Core.Module.Functions.Session) (contents : List Core.Module.Value)
+    (masked : session.globals "tuple" = some .none) :
+    tupleFromListDisplayCompletion session contents none =
+      (.raised .notCallable, (session.lists.allocate contents).2) := by
+  simp [tupleFromListDisplayCompletion, tupleFromListDisplayCompletion.reachedDisplay,
+    tupleBinding, masked, (Core.Module.TupleDispatch.constructFromListDisplay_mask session.lists contents).1, TupleChain.runtimeError?]
 
 theorem advance_literalArmBoolean {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (value : Bool) (rest : List (Instruction scope)) :

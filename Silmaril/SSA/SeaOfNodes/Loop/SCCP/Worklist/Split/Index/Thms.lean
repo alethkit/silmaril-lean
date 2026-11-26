@@ -39,6 +39,44 @@ theorem step_eq (job : Task carried) (state : State m.value carried out) (pendin
     step m input index job state pending = Split.step m g input job state pending :=
   Proofs.step_eq index job state pending
 
+/-- A changed coordinate identifies the popped Φ and a nontrivial typed write. -/
+theorem fieldChangedAfter_iff (job : Task carried) (state new : State m.value carried out)
+    (updated : new = Split.update m g input job state) (field : Phi.Job carried) :
+    new.2.1 field ≠ state.2.1 field ↔ job = .phi field ∧ bankChangedAfter job state new = true :=
+  Proofs.changedAt_iff job state new updated field
+
+/-- Comparing a pop's typed write decides whether its whole bank changed. -/
+theorem bankChangedAfter_iff (job : Task carried) (state : State m.value carried out) :
+    let new := Split.update m g input job state
+    bankChangedAfter job state new = true ↔ new.2.1 ≠ state.2.1 :=
+  Proofs.bankChangedAfter_iff (m := m) (g := g) (input := input) job state
+
+/-- Entry and exit marks and the exact bank change reproduce both reference watches. -/
+theorem gatedWatchesAfter_eq (job : Task carried) (state : State m.value carried out) :
+    let new := Split.update m g input job state
+    let changed := bankChangedAfter job state new
+    gatedBankChanged (incomingIndex .entry) state.1 new.1 changed =
+        decide (Worklist.dependencies new .control ≠ Worklist.dependencies state .control) ∧
+      gatedBankChanged exitIndex state.1 new.1 changed =
+        decide (Worklist.dependencies new .result ≠ Worklist.dependencies state .result) :=
+  Proofs.gatedWatchesAfter_eq (m := m) (g := g) (input := input) job state
+
+/-- One popped job has enough information to recover the general Φ notifications. -/
+theorem destinationsAfter_eq (job : Task carried) (state : State m.value carried out) :
+    let new := Split.update m g input job state
+    index.destinationsAfter job state new = index.destinations state new :=
+  Proofs.destinationsAfter_eq (m := m) (input := input) index job state
+
+/-- The specialized pop has the same full assignment and ordered pending queue
+as the general indexed step. -/
+theorem stepLocal_eq (job : Task carried) (state : State m.value carried out) (pending : List (Task carried)) :
+    stepLocal m input index job state pending = step m input index job state pending :=
+  Proofs.stepLocal_eq index job state pending
+
+/-- The specialized runner agrees at every budget, including the visit trace. -/
+theorem runSteps_eq_step : runSteps m input index = FIFO.runSteps (step m input index) :=
+  Proofs.runSteps_eq_step index
+
 theorem runSteps_eq : runSteps m input index = Split.runSteps m g input :=
   Proofs.runSteps_eq index
 

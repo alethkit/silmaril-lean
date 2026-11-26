@@ -88,14 +88,14 @@ theorem mem_destinations_iff (index : Index g) (old new : State m.value carried 
       (incomingIndex .backedge ∈ old.1 ↔ incomingIndex .backedge ∈ new.1)
   · obtain ⟨entry, feedback⟩ := marks
     by_cases enabled : incomingIndex .backedge ∈ new.1
-    · simp [Index.destinations, entry, feedback, enabled, Finset.mem_biUnion, index.mem_readers]
+    · simp [Index.destinations, gateDestinations, entry, feedback, enabled, Finset.mem_biUnion, index.mem_readers]
       constructor
       · rintro ⟨field, changed, read⟩
         exact ⟨field, read, changed⟩
       · rintro ⟨field, read, changed⟩
         exact ⟨field, changed, read⟩
-    · simp [Index.destinations, entry, feedback, enabled]
-  · simp [Index.destinations, marks, ← and_assoc]
+    · simp [Index.destinations, gateDestinations, entry, feedback, enabled]
+  · simp [Index.destinations, gateDestinations, marks, ← and_assoc]
 
 theorem wake_eq (index : Index g) (old new : State m.value carried out) (pending : List (Task carried)) :
     Index.wake m index old new pending = Split.wake m g input old new pending := by
@@ -112,7 +112,7 @@ theorem wake_eq (index : Index g) (old new : State m.value carried out) (pending
         decide_eq_true_eq]
       rw [mem_destinations_iff (m := m) (input := input)]
       exact and_comm
-  unfold Index.wake Split.wake FIFO.wake Split.jobs
+  unfold Index.wake Index.wakeDestinations wakeCandidates Split.wake FIFO.wake Split.jobs
   simp only [List.cons_append, List.filter_cons, List.filter_append, List.filter_map, List.filter_nil,
     Function.comp_def, Split.dependencies, Bool.and_true, ordered]
   rfl
@@ -122,10 +122,101 @@ theorem step_eq (index : Index g) (job : Task carried) (state : State m.value ca
     Index.step m input index job state pending = Split.step m g input job state pending :=
   congrArg (Prod.mk (Split.update m g input job state)) (wake_eq index state _ pending)
 
+theorem changedAt_iff (job : Task carried) (state new : State m.value carried out)
+    (updated : new = Split.update m g input job state) (field : Phi.Job carried) :
+    new.2.1 field ≠ state.2.1 field ↔ job = .phi field ∧ bankChangedAfter job state new = true := by
+  subst new
+  let new := Split.update m g input job state
+  change new.2.1 field ≠ state.2.1 field ↔ job = .phi field ∧ bankChangedAfter job state new = true
+  by_cases same : job = .phi field
+  · subst job
+    simp [bankChangedAfter]
+  · have unchanged : new.2.1 field = state.2.1 field := by
+      cases job with
+      | control | result => rfl
+      | phi dst =>
+        have different : field ≠ dst := fun eq => same (congrArg Job.phi eq.symm)
+        exact Function.update_of_ne different _ _
+    simp [same, unchanged]
+
+theorem bankChangedAfter_iff (job : Task carried) (state : State m.value carried out) :
+    let new := Split.update m g input job state
+    bankChangedAfter job state new = true ↔ new.2.1 ≠ state.2.1 := by
+  let new := Split.update m g input job state
+  change bankChangedAfter job state new = true ↔ new.2.1 ≠ state.2.1
+  rw [ne_eq, funext_iff, not_forall]
+  simp only [changedAt_iff (m := m) (g := g) (input := input) job state new rfl]
+  cases job <;> simp [bankChangedAfter]
+
+theorem destinationsAfter_eq (index : Index g) (job : Task carried) (state : State m.value carried out) :
+    let new := Split.update m g input job state
+    index.destinationsAfter job state new = index.destinations state new := by
+  let new := Split.update m g input job state
+  change index.destinationsAfter job state new = index.destinations state new
+  unfold Index.destinationsAfter Index.destinations Index.destinationsFromWrite
+  apply congrArg (gateDestinations state.1 new.1)
+  funext _
+  apply Finset.ext
+  intro reader
+  simp only [Finset.mem_biUnion, Finset.mem_filter, Finset.mem_univ, true_and,
+    changedAt_iff (m := m) (g := g) (input := input) job state new rfl]
+  cases job with
+  | control | result => simp
+  | phi dst => cases bankChangedAfter (.phi dst) state new <;> simp
+
+omit [BankDecidableEq m.value (dataPorts carried)] in
+private theorem gatedBankChanged_iff (mark : Fin 3) (old new : State m.value carried out)
+    {changed : Bool} (bank : changed = true ↔ new.2.1 ≠ old.2.1) :
+    gatedBankChanged mark old.1 new.1 changed = true ↔
+      (if mark ∈ new.1 then some new.2.1 else none) ≠ (if mark ∈ old.1 then some old.2.1 else none) := by
+  by_cases was : mark ∈ old.1 <;> by_cases now : mark ∈ new.1 <;> simp [gatedBankChanged, was, now, bank]
+
+theorem gatedWatchesAfter_eq (job : Task carried) (state : State m.value carried out) :
+    let new := Split.update m g input job state
+    let changed := bankChangedAfter job state new
+    gatedBankChanged (incomingIndex .entry) state.1 new.1 changed =
+        decide (Worklist.dependencies new .control ≠ Worklist.dependencies state .control) ∧
+      gatedBankChanged exitIndex state.1 new.1 changed =
+        decide (Worklist.dependencies new .result ≠ Worklist.dependencies state .result) := by
+  let new := Split.update m g input job state
+  have bank := bankChangedAfter_iff (m := m) (g := g) (input := input) job state
+  constructor
+  · apply Bool.eq_iff_iff.mpr
+    exact (gatedBankChanged_iff (incomingIndex .entry) state new bank).trans
+      (decide_eq_true_iff (p := Worklist.dependencies new .control ≠ Worklist.dependencies state .control)).symm
+  · apply Bool.eq_iff_iff.mpr
+    exact (gatedBankChanged_iff exitIndex state new bank).trans
+      (decide_eq_true_iff (p := Worklist.dependencies new .result ≠ Worklist.dependencies state .result)).symm
+
+theorem stepLocal_eq (index : Index g) (job : Task carried) (state : State m.value carried out)
+    (pending : List (Task carried)) :
+    Index.stepLocal m input index job state pending = Index.step m input index job state pending := by
+  let new := Split.update m g input job state
+  let changed := bankChangedAfter job state new
+  change (new, wakeCandidates (index.destinationsAfter job state new) (fun
+    | .control => gatedBankChanged (incomingIndex .entry) state.1 new.1 changed
+    | .phi _ => true
+    | .result => gatedBankChanged exitIndex state.1 new.1 changed) pending) =
+    (new, wake m index state new pending)
+  rw [destinationsAfter_eq (m := m) (g := g) (input := input) index job state, Index.wake, Index.wakeDestinations]
+  apply congrArg (Prod.mk new)
+  apply congrArg (fun watched => wakeCandidates (index.destinations state new) watched pending)
+  obtain ⟨control, result⟩ := gatedWatchesAfter_eq (m := m) (g := g) (input := input) job state
+  funext notified
+  cases notified with
+  | control => exact control
+  | phi _ => rfl
+  | result => exact result
+
+theorem runSteps_eq_step (index : Index g) :
+    Index.runSteps m input index = FIFO.runSteps (Index.step m input index) :=
+  congrArg FIFO.runSteps (funext fun job => funext fun state => funext fun pending =>
+    stepLocal_eq index job state pending)
+
 theorem runSteps_eq (index : Index g) :
     Index.runSteps m input index = Split.runSteps m g input := by
   have stepSame := funext fun job => funext fun state => funext fun pending =>
     step_eq (m := m) (input := input) index job state pending
-  rw [Index.runSteps, Split.runSteps, stepSame]
+  rw [runSteps_eq_step, Split.runSteps, stepSame]
 
 end Silmaril.SSA.SeaOfNodes.Loop.SCCP.Worklist.Split.Index.Proofs

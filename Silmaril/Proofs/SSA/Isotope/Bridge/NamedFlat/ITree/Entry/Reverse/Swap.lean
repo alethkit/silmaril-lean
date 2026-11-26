@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Thms
 
 /-! # The destination overwrites the same two registers after the edge swap -/
 
@@ -45,13 +45,9 @@ private def model : Model (κ := SortName) Event signature.Instr where
 
 private def num : Ty SortName := .base ⟨()⟩
 private def pairType : Ty SortName := .product num num
-private def inputNames (i : Fin 2) : Reg := ⟨i.val⟩
 
 private abbrev ports : Interface SortName Reg Label :=
-  ⟨2, .snoc (.snoc .nil num) num, inputNames, fun _ _ h => Fin.ext (congrArg ULift.down h),
-    [⟨3⟩, ⟨2⟩], fun _ => .unit⟩
-
-private def registers : Registers Reg := ⟨⟨2⟩, fun i => ⟨3 + i⟩⟩
+  numberedInterface (.snoc (.snoc .nil num) num) [⟨3⟩, ⟨2⟩] (fun _ => .unit)
 private def labels (i : Fin 2) : Label := ⟨i.val⟩
 private def fields (_ : Label) : List (Reg × Ty SortName) := [(⟨3⟩, num), (⟨4⟩, num)]
 
@@ -69,20 +65,20 @@ private theorem typed : flat.HasType ports.context edgeProfile
   NamedFlat.check_sound flat ports.context edgeProfile _ (by decide)
 
 private def lowered : Lowered ports fields flat :=
-  (lowerChecked ports fields registers labels flat).get (by decide)
+  (lowerFresh labels ports.context ports.exits ports.external fields flat).get (by decide)
 
-example : (lowerChecked ports (fun k => (fields k).reverse) registers labels flat).isNone = true :=
-  by decide
+example : (lowerFresh labels ports.context ports.exits ports.external
+    (fun k => (fields k).reverse) flat).isNone = true := by decide
 
--- The current versioner carries the whole finite register support after the
--- actual branch packet. Here that support is the two open input registers.
-private def versionedProfile
-    (_ : Fin (CFG.Cyclic.Versioning.compile (withLiveOut (P := signature) fields
-      lowered.source)).blocks.length) : Ty SortName :=
-  .product pairType (.product num (.product num .unit))
+-- The versioner saves the two used open fields in its actual support order.
+example : ∀ i, lowered.savedRegisters i = [⟨1⟩, ⟨0⟩] := by decide
+
+private def profile := (lowered.synthesizeProfile edgeProfile).get (by decide)
+
+example : ∀ i, profile i = .product pairType (.product num (.product num .unit)) := by decide
 
 private def recompiled : LiveOut.Admission signature ports fields lowered.source :=
-  (LiveOut.admit (P := signature) ports fields lowered.source versionedProfile).get (by decide)
+  (lowered.reAdmit edgeProfile).get (by decide)
 
 private abbrev Input := Ty.denote (AtomValues.carrier (κ := SortName))
   (Region.packedInputType ports.context.toList)

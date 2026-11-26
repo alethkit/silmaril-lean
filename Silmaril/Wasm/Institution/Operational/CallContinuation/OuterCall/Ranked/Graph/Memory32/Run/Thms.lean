@@ -16,6 +16,17 @@ theorem Layout.initial_store {H : Type} {p : Program} {m : MemAddr} {base : Stor
     (layout : Layout p base m initial) : storeWithBytes base m initial initial.data = base :=
   RunProofs.initial_store layout
 
+/-- Rendering the live memory leaves native table and function resolution
+equal to the checked lookup against the active caller's module. -/
+theorem Layout.indirect_resolve {H : Type} {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr}
+    {base : Store H} {initial : MemInst} (checked : p.checkV1 m mode calls = true)
+    (layout : Layout p base m initial) {fixed : FixedTable} (selected : p.fixedTable = some fixed)
+    {f : Frame} (slot : f.module.tables[0]? = some fixed.address) (bytes : ByteArray)
+    (index : TypeIdx) (selector : BitVec 32) :
+    CallResolution.Indirect.v1Resolve (storeWithBytes base m initial bytes) f index selector =
+      p.resolveIndirect fixed f.module index selector :=
+  RunProofs.indirect_resolution checked layout selected slot bytes index selector
+
 /-- Entry depends on allocation and V1 arity. The caller frame and the live
 store survive unchanged, including when the caller invokes its own address. -/
 theorem Layout.enter_rendered {H : Type} {p : Program} {m : MemAddr} {base : Store H} {initial : MemInst}
@@ -43,6 +54,14 @@ theorem call_ready {p : Program} {m : MemAddr} {addr : FuncAddr} {fn : Function}
     (resolved : caller.module.funcs[index.toNat]? = some addr) (args : List Value) (bytes : ByteArray) :
     Ready p m (fn.rank + 1) bytes.size ⟨bytes, caller, values args ++ [.source (.call index)]⟩ :=
   RunProofs.initial_call found resolved args bytes rfl
+
+/-- A resolved external invocation enters the same checked graph as a
+source direct call. Allocation and argument count are checked at native entry. -/
+theorem invoke_ready {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {addr : FuncAddr}
+    {fn : Function} {caller : Frame} (found : p.lookup addr = some fn) (args : List Value)
+    {bytes : ByteArray} {minimum : Nat} (extent : mode.extent minimum bytes) :
+    ReadyFor mode p m calls (fn.rank + 1) minimum ⟨bytes, caller, values args ++ [.invoke addr]⟩ :=
+  RunProofs.initial_invoke found args extent
 
 theorem Edge.module_eq {p : Program} {m : MemAddr} {src dst : State} (edge : Edge p m src dst) :
     dst.frame.module = src.frame.module :=

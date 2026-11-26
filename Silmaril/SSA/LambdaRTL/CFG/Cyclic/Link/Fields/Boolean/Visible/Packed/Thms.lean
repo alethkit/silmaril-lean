@@ -8,13 +8,17 @@ import Silmaril.Proofs.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Boolean.Visible.Pack
 
 namespace Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Boolean.Visible.Program
 
-open Silmaril.Elgot.ITree (TraceLE)
+open Silmaril.Elgot.ITree (TraceLE TraceLEWithSilence ExchangePath SilentAfter silentAfter_bind_pure_iff)
+open Silmaril.Elgot.ITree.Finite (Event)
 open Silmaril.Isotope.LambdaSSA (FiniteCFG)
 open Silmaril.Isotope.LambdaSSA.Semantics (Env extend)
 open Silmaril.Isotope.LambdaSSA.Semantics.Interaction (region)
 open Silmaril.Isotope.Bridge.NamedFlat
 open Silmaril (HasTy TypeFormers)
 open Silmaril.Isotope (BoundCtx)
+
+theorem packedTreeOutput_injective {α : Type*} : Function.Injective (FiniteCFG.packedTreeOutput (α := α)) :=
+  Proofs.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Boolean.Visible.packedTreeOutput_injective
 
 variable {F : Type} {a b : Nat} (program : Program F a b)
 
@@ -41,6 +45,19 @@ theorem refinementAt?_iff_packedOutput [DecidableEq F] (right : Program F a b) (
       TraceLE (program.observe input flag >>= fun result => pure (FiniteCFG.packedTreeOutput result))
         (right.observe input flag >>= fun result => pure (FiniteCFG.packedTreeOutput result)) :=
   (program.refinementAt?_iff right input flag).trans (TraceLE.bind_pure_iff
-    Proofs.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Boolean.Visible.packedTreeOutput_injective).symm
+    packedTreeOutput_injective).symm
+
+theorem silentAfter?_iff_packedOutput [DecidableEq F] (input : Fin a) (flag : Bool)
+    (path : ExchangePath (Event (F × Bool))) :
+    program.silentAfter? input flag path = true ↔
+      SilentAfter (program.observe input flag >>= fun result => pure (FiniteCFG.packedTreeOutput result)) path :=
+  (program.silentAfter?_iff input flag path).trans (silentAfter_bind_pure_iff _ _ _).symm
+
+theorem refinementAtWithSilence?_iff_packedOutput [DecidableEq F] (right : Program F a b) (input : Fin a) (flag : Bool) :
+    program.refinementAtWithSilence? right input flag = true ↔
+      TraceLEWithSilence (program.observe input flag >>= fun result => pure (FiniteCFG.packedTreeOutput result))
+        (right.observe input flag >>= fun result => pure (FiniteCFG.packedTreeOutput result)) :=
+  (program.refinementAtWithSilence?_iff right input flag).trans (TraceLEWithSilence.bind_pure_iff
+    packedTreeOutput_injective).symm
 
 end Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Boolean.Visible.Program
