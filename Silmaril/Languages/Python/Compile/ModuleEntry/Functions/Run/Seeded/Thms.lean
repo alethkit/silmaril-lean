@@ -1,6 +1,8 @@
 module
 
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Defs
+import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Thms
+import Silmaril.Languages.Python.Compile.ModuleEntry.Thms
 public import Silmaril.Languages.Python.Core.Module.Functions.Thms
 public import Silmaril.Languages.Python.Core.Module.SeededCall.Thms
 public import Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Thms
@@ -93,6 +95,18 @@ theorem evaluateScalar_scalarResult {scope : Source.Scope} (space : Namespace) (
   | int value => simp [Operand.scalarResult, evaluateScalar, lowerScalarOperand]; rfl
   | bool value => exact evaluateScalar_booleanResult space equalityOperand value
   | none => simp [Operand.scalarResult, evaluateScalar, lowerScalarOperand]; rfl
+
+/-- A certified Boolean selection evaluates to the same tagged scalar in
+both runners, independently of their incoming namespaces. -/
+theorem evaluate_checkedBooleanOp {scope : Source.Scope} (session : Core.Module.Functions.Session)
+    (space : Namespace) (context : Bool) {operator : Source.BooleanOperator} {operands : List Source.Expr}
+    {value : Core.Module.Value} (checked : checkedBooleanOp? operator operands = some value) :
+    (lowerOperand scope (.booleanOp operator operands)).map
+        (fun operand => Run.evaluate session operand.val) = .ok (.ok (Run.embed value)) ∧
+      (lowerOperand scope (.booleanOp operator operands)).map
+        (fun operand => evaluateScalar space context operand.val) = .ok (.ok (seededValue (Run.embed value))) := by
+  rw [lower_checkedBooleanOp checked]
+  simp [Except.map, Run.evaluate_scalarResult, evaluateScalar_scalarResult]
 
 theorem evaluateScalar_notEqual {scope : Source.Scope} (space : Namespace) (context : Bool)
     (left right : ModuleEntry.Operand scope) :

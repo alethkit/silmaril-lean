@@ -31,6 +31,17 @@ theorem literalBooleanOp_iff (operator : Source.BooleanOperator) (first second :
         SelectsScalar operator initial remaining result :=
   Proofs.Languages.Python.Compile.ModuleEntry.literalBooleanOp_iff operator first second rest result
 
+theorem checkedBooleanOp_iff (operator : Source.BooleanOperator) (first second : Source.Expr)
+    (rest : List Source.Expr) (result : Core.Module.Value) :
+    checkedBooleanOp? operator (first :: second :: rest) = some result ↔
+      ∃ initial, scalarLiteral? first = some initial ∧ SelectsSourceScalar operator initial (second :: rest) result :=
+  Proofs.Languages.Python.Compile.ModuleEntry.checkedBooleanOp_iff operator first second rest result
+
+theorem checkedBooleanOp_closed (operator : Source.BooleanOperator) (operands : List Source.Expr)
+    (value : Core.Module.Value) (closed : literalBooleanOp? operator operands = some value) :
+    checkedBooleanOp? operator operands = some value :=
+  Proofs.Languages.Python.Compile.ModuleEntry.checkedBooleanOp_closed operator operands value closed
+
 theorem test_complete {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
     (translated : TestTranslation scope source operand) : lowerTest scope source = .ok ⟨operand, translated⟩ :=
   Proofs.Languages.Python.Compile.ModuleEntry.test_complete translated
@@ -43,6 +54,17 @@ theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand 
     (translated : OperandTranslation scope source operand) :
     lowerOperand scope source = .ok ⟨operand, translated⟩ :=
   Proofs.Languages.Python.Compile.ModuleEntry.operand_complete translated
+
+theorem lower_checkedBooleanOp {scope : Source.Scope} {operator : Source.BooleanOperator}
+    {operands : List Source.Expr} {value : Core.Module.Value}
+    (checked : checkedBooleanOp? operator operands = some value) :
+    lowerOperand scope (.booleanOp operator operands) = .ok ⟨.scalarResult value, .literalBooleanOp checked⟩ :=
+  operand_complete (.literalBooleanOp checked)
+
+theorem Operand.scalarResult_singletonResult {scope : Source.Scope} (value : Core.Module.Value) :
+    (Operand.scalarResult (scope := scope) value).singletonResult = value.singleton?.isSome := by
+  cases value <;> simp [Operand.scalarResult, Operand.singletonResult, Operand.comparable,
+    Operand.booleanResult, Core.Module.Value.singleton?]
 
 theorem statements_complete {scope : Source.Scope} {source : List Source.Stmt} {actions : List (Action scope)}
     (translated : Translation scope source actions) : lowerStatements scope source = .ok ⟨actions, translated⟩ :=
