@@ -1,6 +1,6 @@
 module
 
-import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Denotation.Thms
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
 
@@ -72,9 +72,9 @@ private theorem counted : source.ReturnsAfter model input 1 (source.initial mode
 
 example : targets.1.runMain 10 0 (words input) mem = .returned [7] mem :=
   (rtl_runMain_fuel_iff recognized accepted _ _ _ _ _).mpr ⟨1, (7 : Word), counted, by decide, rfl, rfl⟩
-example : targets.1.runMain 10 0 (words input) mem = .returned [7] mem := by cbv
+private theorem rtlObserved : targets.1.runMain 10 0 (words input) mem = .returned [7] mem := by cbv
 example : (targets.1.runMain 9 0 (words input) mem).returnedValues? = none := by cbv
-example : Generic.Fuel.run model (inputEnv model input) 2 targets.2 =
+private theorem lambdaObserved : Generic.Fuel.run model (inputEnv model input) 2 targets.2 =
     some (0, Generic.packResult model (out := word) (7 : Word)) := by cbv
 example : Generic.Fuel.run model (inputEnv model input) 1 targets.2 = none := by cbv
 
@@ -83,6 +83,15 @@ example : targets.1.oracle 0 (words input) mem [7] mem :=
 example : Eval (instruction model) (inputEnv model input) targets.2 mem
     0 (Generic.packResult model (out := word) (7 : Word)) mem :=
   (lambda_return_iff accepted _ _ _ _ _).mpr ⟨7, ⟨1, counted⟩, rfl, rfl, rfl⟩
+
+private theorem rtlDenoted : rtlDenote targets.1 input mem = Part.some (7, mem) :=
+  Part.eq_some_iff.mpr ((mem_rtlDenote_iff_runMain _ _ _ _ _).mpr ⟨10, rtlObserved⟩)
+
+example : nativeDenote source input mem = Part.some (7, mem) :=
+  (denotations_eq accepted input mem).1.symm.trans rtlDenoted
+
+example : lambdaDenote targets.2 input mem = Part.some (7, mem) :=
+  Part.eq_some_iff.mpr ((mem_lambdaDenote_iff_run accepted _ _ _ _).mpr ⟨rfl, 2, lambdaObserved⟩)
 
 private def spin := bank 0 1 1
 private def fixedBank := bank (-1) 0 1
@@ -98,6 +107,10 @@ example :
     (∀ returned final, ¬ targets.1.oracle 0 (words spin) mem returned final) ∧
     (∀ label payload final, ¬ Eval (instruction model) (inputEnv model spin) targets.2 mem label payload final) :=
   let absence := no_finite_return_iff accepted spin mem
+  ⟨absence.1.mpr spinAbsent, absence.2.mpr spinAbsent⟩
+
+example : rtlDenote targets.1 spin mem = Part.none ∧ lambdaDenote targets.2 spin mem = Part.none :=
+  let absence := denotations_none_iff accepted spin mem
   ⟨absence.1.mpr spinAbsent, absence.2.mpr spinAbsent⟩
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
