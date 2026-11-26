@@ -27,6 +27,23 @@ theorem AllocationHistory.append {actions : Actions m σ} {unitsA unitsB : List 
   | empty => exact first
   | link _ ran ih => exact .link (ih first) ran
 
+/-- Reassemble the trace with the selected provider's own history at the
+recorded boundaries. -/
+theorem AllocationHistory.Segment.reassemble {actions : Actions m σ} {whole units : List Nat}
+    {initial final entered exited : σ}
+    (segment : AllocationHistory.Segment actions whole units initial final entered exited)
+    (provider : AllocationHistory actions units entered exited) : AllocationHistory actions whole initial final := by
+  obtain ⟨_, _, rfl, before, after⟩ := segment
+  simpa only [List.append_assoc] using (before.append provider).append after
+
+private theorem AllocationHistory.Segment.extend {actions : Actions m σ} {whole units more : List Nat}
+    {initial final entered exited next : σ}
+    (segment : AllocationHistory.Segment actions whole units initial final entered exited)
+    (tail : AllocationHistory actions more final next) :
+    AllocationHistory.Segment actions (more ++ whole) units initial next entered exited := by
+  obtain ⟨before, after, split, beforeTrace, afterTrace⟩ := segment
+  exact ⟨before, more ++ after, by simp only [split, List.append_assoc], beforeTrace, afterTrace.append tail⟩
+
 /-- A reusable checked link result and the unit namespaces reserved by
 the links that produced it, most recent first. Reservations cover those
 links' allocations. Globals from opaque imports are outside this history. -/
@@ -247,6 +264,56 @@ structure NamedProviderExport (familyL familyR : Family m) where
   ty : Ty V S
   values : ProviderExport familyL familyR ty
 
+/-- The selected provider receipt at its original typed port and link
+outcomes, before its dispatch family was lifted into the assembly. -/
+structure CheckedProviderReceipt (actions : Actions m σ) (ids : GlobalRel)
+    (keys : OpcodeCode (Instruction Op)) (captureCode : CaptureCode m) where
+  unitsL : List Nat
+  unitsR : List Nat
+  fn : Function V S
+  exports : Ports (Ty V S)
+  port : Port exports fn.port
+  outcomeL : Outcome m σ exports
+  outcomeR : Outcome m σ exports
+  chain : CheckedAllocationChain actions ids keys captureCode unitsL unitsR port outcomeL outcomeR
+
+variable (provider : CheckedProviderReceipt actions ids keys captureCode)
+
+@[expose] def CheckedProviderReceipt.left : m.Val provider.fn.port :=
+  provider.chain.checked.valuesL.get provider.port
+
+@[expose] def CheckedProviderReceipt.right : m.Val provider.fn.port :=
+  provider.chain.checked.valuesR.get provider.port
+
+/-- Singleton demand index at the selected port and the provider's own
+post-link store. It reads the checked result without running the linker. -/
+@[expose] def CheckedProviderReceipt.selectedL : Outcome m σ [provider.fn.port] :=
+  .linked (.cons provider.left .nil) provider.chain.checked.storeL
+
+@[expose] def CheckedProviderReceipt.selectedR : Outcome m σ [provider.fn.port] :=
+  .linked (.cons provider.right .nil) provider.chain.checked.storeR
+
+/-- A named provider in the current trace and dispatch family. -/
+structure AssemblyProvider (actions : Actions m σ) (ids : GlobalRel)
+    (keys : OpcodeCode (Instruction Op)) (captureCode : CaptureCode m)
+    (familyL familyR : Family m) (wholeL wholeR : List Nat)
+    (initialL initialR finalL finalR : σ) where
+  name : String
+  provider : CheckedProviderReceipt actions ids keys captureCode
+  knownL : familyL provider.left
+  knownR : familyR provider.right
+  traceL : AllocationHistory.Segment actions wholeL provider.unitsL initialL finalL
+    provider.chain.initialL provider.chain.checked.storeL
+  traceR : AllocationHistory.Segment actions wholeR provider.unitsR initialR finalR
+    provider.chain.initialR provider.chain.checked.storeR
+
+/-- Give the existing export-only view of the table row. -/
+def AssemblyProvider.named {familyL familyR : Family m} {wholeL wholeR : List Nat}
+    {initialL initialR finalL finalR : σ}
+    (entry : AssemblyProvider actions ids keys captureCode familyL familyR wholeL wholeR initialL initialR finalL finalR) :
+    NamedProviderExport familyL familyR :=
+  ⟨entry.name, entry.provider.fn.port, ⟨entry.provider.left, entry.provider.right, entry.knownL, entry.knownR⟩⟩
+
 /-- A nonempty ordered assembly with one selected export name per appended
 receipt. The combined trace establishes freshness among certified units
 on each side, excluding allocations from opaque imports. -/
@@ -261,16 +328,27 @@ structure CheckedProviderAssembly (actions : Actions m σ) (ids : GlobalRel)
   latestL : Outcome m σ latestPorts
   latestR : Outcome m σ latestPorts
   chain : CheckedAllocationChain actions ids keys captureCode unitsL unitsR latestPort latestL latestR
-  named : List (NamedProviderExport chain.checked.familyL chain.checked.familyR)
-  uniqueNames : (named.map NamedProviderExport.name).Nodup
+  entries : List (AssemblyProvider actions ids keys captureCode chain.checked.familyL chain.checked.familyR
+    unitsL unitsR chain.initialL chain.initialR chain.checked.storeL chain.checked.storeR)
+  uniqueEntries : (entries.map AssemblyProvider.name).Nodup
+
+def CheckedProviderAssembly.named (assembly : CheckedProviderAssembly actions ids keys captureCode) :
+    List (NamedProviderExport assembly.chain.checked.familyL assembly.chain.checked.familyR) :=
+  assembly.entries.map AssemblyProvider.named
+
+theorem CheckedProviderAssembly.uniqueNames (assembly : CheckedProviderAssembly actions ids keys captureCode) :
+    (assembly.named.map NamedProviderExport.name).Nodup := by
+  simpa only [CheckedProviderAssembly.named, List.map_map, Function.comp_def, AssemblyProvider.named]
+    using assembly.uniqueEntries
 
 /-- Name the selected export of the first checked provider receipt. -/
 def CheckedProviderAssembly.start (name : String)
     (first : CheckedAllocationChain actions ids keys captureCode unitsL unitsR port outcomeL outcomeR) :
     CheckedProviderAssembly actions ids keys captureCode :=
-  let checked := first.checked
-  ⟨_, _, _, _, _, _, _, first,
-    [⟨name, _, ⟨checked.valuesL.get port, checked.valuesR.get port, checked.knownL, checked.knownR⟩⟩],
+  let provider : CheckedProviderReceipt actions ids keys captureCode := ⟨_, _, _, _, _, _, _, first⟩
+  ⟨_, _, _, _, _, provider.outcomeL, provider.outcomeR, first,
+    [⟨name, provider, first.checked.knownL, first.checked.knownR,
+      ⟨[], [], by simp [provider], .empty _, .empty _⟩, ⟨[], [], by simp [provider], .empty _, .empty _⟩⟩],
     List.nodup_singleton _⟩
 
 /-- Append one separately checked provider at the assembly's exact store
@@ -280,27 +358,83 @@ def CheckedProviderAssembly.append [DecidableEq (Ty V S)] [DecidableEq keys.Key]
     (assembly : CheckedProviderAssembly actions ids keys captureCode) (name : String)
     (next : CheckedAllocationChain actions ids keys captureCode unitsL unitsR port outcomeL outcomeR)
     (ordinary : OrdinaryOutputs Op) : Option (CheckedProviderAssembly actions ids keys captureCode) :=
-  if fresh : name ∉ assembly.named.map NamedProviderExport.name then do
+  if fresh : name ∉ assembly.entries.map AssemblyProvider.name then do
     let some joined := assembly.chain.join next ordinary | none
-    let older := assembly.named.map fun entry =>
-      (⟨entry.name, entry.ty,
-        ⟨entry.values.left, entry.values.right, .inl entry.values.knownL, .inl entry.values.knownR⟩⟩ :
-        NamedProviderExport joined.toChain.checked.familyL joined.toChain.checked.familyR)
-    let checked := joined.toChain.checked
-    let latest := ⟨name, _, ⟨checked.valuesL.get port, checked.valuesR.get port, checked.knownL, checked.knownR⟩⟩
-    have unique : ((latest :: older).map NamedProviderExport.name).Nodup := by
+    let tailL : AllocationHistory actions unitsL assembly.chain.checked.storeL next.checked.storeL :=
+      joined.orderedL ▸ next.historyL
+    let tailR : AllocationHistory actions unitsR assembly.chain.checked.storeR next.checked.storeR :=
+      joined.orderedR ▸ next.historyR
+    let older := assembly.entries.map fun entry =>
+      (⟨entry.name, entry.provider, .inl entry.knownL, .inl entry.knownR,
+        entry.traceL.extend tailL, entry.traceR.extend tailR⟩ :
+        AssemblyProvider actions ids keys captureCode joined.toChain.checked.familyL joined.toChain.checked.familyR
+          (unitsL ++ assembly.unitsL) (unitsR ++ assembly.unitsR)
+          assembly.chain.initialL assembly.chain.initialR next.checked.storeL next.checked.storeR)
+    let provider : CheckedProviderReceipt actions ids keys captureCode := ⟨_, _, _, _, _, _, _, next⟩
+    let latest := ⟨name, provider, .inr next.checked.knownL, .inr next.checked.knownR,
+      ⟨_, [], rfl, joined.orderedL.symm ▸ assembly.chain.historyL, .empty _⟩,
+      ⟨_, [], rfl, joined.orderedR.symm ▸ assembly.chain.historyR, .empty _⟩⟩
+    have unique : ((latest :: older).map AssemblyProvider.name).Nodup := by
       simpa [latest, older, List.map_map, Function.comp_def] using
-        (List.nodup_cons.mpr ⟨fresh, assembly.uniqueNames⟩)
-    pure ⟨_, _, _, _, _, _, _, joined.toChain, latest :: older, unique⟩
+        (List.nodup_cons.mpr ⟨fresh, assembly.uniqueEntries⟩)
+    pure ⟨_, _, _, _, _, provider.outcomeL, provider.outcomeR, joined.toChain, latest :: older, unique⟩
   else none
+
+/-- A typed name resolved in this assembly. The entry retains the original
+provider, its place in both traces, and dispatch membership of the exact
+imported values. -/
+structure CheckedProviderAssembly.LookupReceipt (assembly : CheckedProviderAssembly actions ids keys captureCode)
+    (name : String) (ty : Ty V S) where
+  entry : AssemblyProvider actions ids keys captureCode assembly.chain.checked.familyL assembly.chain.checked.familyR
+    assembly.unitsL assembly.unitsR assembly.chain.initialL assembly.chain.initialR
+    assembly.chain.checked.storeL assembly.chain.checked.storeR
+  selected : assembly.entries.find? (fun entry => entry.name == name) = some entry
+  port_eq : entry.provider.fn.port = ty
+
+/-- Look up a provider receipt by name and port type without relinking. -/
+def CheckedProviderAssembly.lookup [DecidableEq (Ty V S)]
+    (assembly : CheckedProviderAssembly actions ids keys captureCode) (name : String) (ty : Ty V S) :
+    Option (assembly.LookupReceipt name ty) :=
+  match found : assembly.entries.find? (fun entry => entry.name == name) with
+  | none => none
+  | some entry =>
+    if typed : entry.provider.fn.port = ty then some ⟨entry, found, typed⟩ else none
+
+def CheckedProviderAssembly.LookupReceipt.values {assembly : CheckedProviderAssembly actions ids keys captureCode}
+    {name : String} {ty : Ty V S} (receipt : assembly.LookupReceipt name ty) :
+    ProviderExport assembly.chain.checked.familyL assembly.chain.checked.familyR ty :=
+  receipt.port_eq ▸ receipt.entry.named.values
+
+theorem CheckedProviderAssembly.LookupReceipt.values_left
+    {assembly : CheckedProviderAssembly actions ids keys captureCode} {name : String} {ty : Ty V S}
+    (receipt : assembly.LookupReceipt name ty) :
+    receipt.values.left = (receipt.port_eq ▸ receipt.entry.provider.left) := by
+  obtain ⟨entry, selected, rfl⟩ := receipt
+  rfl
+
+theorem CheckedProviderAssembly.LookupReceipt.values_right
+    {assembly : CheckedProviderAssembly actions ids keys captureCode} {name : String} {ty : Ty V S}
+    (receipt : assembly.LookupReceipt name ty) :
+    receipt.values.right = (receipt.port_eq ▸ receipt.entry.provider.right) := by
+  obtain ⟨entry, selected, rfl⟩ := receipt
+  rfl
+
+/-- Validate already materialized imports against this name's exact pair.
+Both comparisons must supply equality evidence. -/
+def CheckedProviderAssembly.LookupReceipt.checkImports
+    {assembly : CheckedProviderAssembly actions ids keys captureCode} {name : String} {ty : Ty V S}
+    (receipt : assembly.LookupReceipt name ty) (exactValue : ExactValueCheck m) (left right : m.Val ty) :
+    Option (PLift (left = receipt.values.left ∧ right = receipt.values.right)) := do
+  let exactL ← exactValue left receipt.values.left
+  let exactR ← exactValue right receipt.values.right
+  pure ⟨⟨exactL.down, exactR.down⟩⟩
 
 /-- Resolve a named export at the requested port type, using the values
 that actually linked on each side. -/
 def CheckedProviderAssembly.find [DecidableEq (Ty V S)]
     (assembly : CheckedProviderAssembly actions ids keys captureCode) (name : String) (ty : Ty V S) :
-    Option (ProviderExport assembly.chain.checked.familyL assembly.chain.checked.familyR ty) := do
-  let entry ← assembly.named.find? (fun entry => entry.name == name)
-  if same : entry.ty = ty then some (same ▸ entry.values) else none
+    Option (ProviderExport assembly.chain.checked.familyL assembly.chain.checked.familyR ty) :=
+  (assembly.lookup name ty).map LookupReceipt.values
 
 private structure ProviderImports (familyL familyR : Family m) (ports : Ports (Ty V S)) where
   left : Tuple m.Val ports
