@@ -122,7 +122,7 @@ private theorem sees_request {m : Question c.imports}
       ∃ a tail, cs = ⟨m, a⟩ :: tail ∧ Sees (k a) tail obs := by
   cases obs with
   | pending n =>
-    rcases pend_vis_inv h with ⟨hcs, rfl⟩ | ⟨a, tail, rfl, hp⟩
+    rcases Pend.vis_cases h with ⟨hcs, rfl⟩ | ⟨a, tail, rfl, hp⟩
     · exact .inl ⟨hcs, rfl⟩
     · exact .inr ⟨a, tail, rfl, hp⟩
   | reply a s =>

@@ -138,7 +138,7 @@ theorem path_vis_inv {E : Sig.{u}} {Y : Type (u + 1)} {R : Type u} {e : SigEv E 
 
 /-- A pending observation of a visible node either stops at its request or
 follows its continuation after an answer. -/
-theorem pend_vis_inv {E : Sig.{u}} {Y : Type (u + 1)} {R : Type u} {e : SigEv E R}
+theorem Pend.vis_cases {E : Sig.{u}} {Y : Type (u + 1)} {R : Type u} {e : SigEv E R}
     {k : R → Silmaril.Elgot.ITree.Tree (SigEv E) Y} {cs : List (Call E)} {m : E.Op}
     (h : Pend (Silmaril.Elgot.ITree.vis e k) cs m) :
     (cs = [] ∧ m = e.1) ∨
