@@ -74,12 +74,14 @@ inductive CallOperand where
   | logical (span : Span) (op : LogicalOp) (left right : CallOperand)
   | group (span : Span) (body : CallOperand)
   | conditional (span : Span) (test yes no : CallOperand)
+  | list (span : Span) (elements : List CallOperand)
 
 abbrev LocatedCallArguments := CallArguments CallOperand
 
 def CallOperand.span : CallOperand → Span
   | .scalar value => value.span
-  | .display span _ | .call span .. | .logical span .. | .group span _ | .conditional span .. => span
+  | .display span _ | .call span .. | .logical span .. | .group span _ | .conditional span ..
+  | .list span _ => span
 
 structure CallSpans where
   positional : List Span
@@ -486,10 +488,6 @@ private def hasExprSuffix (s : Stream) : Bool :=
     | .symbol "/" | .symbol "|" | .symbol "^" | .symbol "&" | .symbol "<<" | .symbol ">>" => true
     | _ => false
 
-private def parseListDisplay (fuel : Nat) (s : Stream) : Except Diagnostic (CollectionDisplay × Stream) := do
-  let (elements, rest) ← parseDisplayItems (parseLocatedExpr fuel) "]" fuel s.pop []
-  return (.sequence false elements, rest)
-
 -- A single parenthesized operand without a comma belongs to the scalar parser.
 private def parseTupleDisplay (fuel : Nat) (s : Stream) :
     Except Diagnostic (Option (CollectionDisplay × Stream)) := do
@@ -516,7 +514,6 @@ private def parseMappingDisplay (fuel : Nat) (s : Stream) : Except Diagnostic (C
 private def parseCollectionDisplay (fuel : Nat) (s : Stream) :
     Except Diagnostic (Option (CollectionDisplay × Stream)) :=
   match s.peek.kind with
-  | .symbol "[" => some <$> parseListDisplay fuel s
   | .symbol "(" => parseTupleDisplay fuel s
   | .symbol "{" => some <$> parseMappingDisplay fuel s
   | _ => pure none
@@ -574,6 +571,13 @@ private def parseCallOperand (exprFuel : Nat) :
   | 0, s => failAt .exhausted s
   | fuel + 1, s =>
     parseExprWith moduleExpressionGrammar (fun head => do
+      if head.peek.kind = .symbol "[" then
+        let element (next : Stream) := do
+          let (value, rest) ← parseCallOperand exprFuel fuel next
+          if rest.peek.kind = .keyword "for" then failAt (.unsupported .collection) rest
+          else return (value, rest)
+        let (elements, rest) ← parseDisplayItems element "]" exprFuel head.pop []
+        return some (.list ⟨head.peek.span.start, rest.lastEnd⟩ elements, rest)
       let some (callee, next) := callHead exprFuel head | return none
       some <$> parsePostfixApplications exprFuel fuel callee next) exprFuel 0 s
 termination_by structural fuel _ => fuel
@@ -588,16 +592,16 @@ private def parseSpread (exprFuel : Nat) :
         | failAt (.unsupported .callArguments) next
       pure (CallOperand.display ⟨next.peek.span.start, rest.lastEnd⟩ display, rest)
     let (operand, rest) ← match next.peek.kind with
-      | .symbol "[" | .symbol "{" => readDisplay
+      | .symbol "{" => readDisplay
       | .symbol "(" =>
         match parseCallOperand exprFuel fuel next with
         | .error ⟨.unsupported .tuple, _⟩ => readDisplay
         | parsed => parsed
       | _ => parseCallOperand exprFuel fuel next
-    if let .display _ display := operand then
-      match display with
-      | .mapping _ => unless mapping do return ← failAt (.unsupported .callArguments) next
-      | .sequence .. => if mapping then return ← failAt (.unsupported .callArguments) next
+    match operand with
+    | .display _ (.mapping _) => unless mapping do return ← failAt (.unsupported .callArguments) next
+    | .display _ (.sequence ..) | .list .. => if mapping then return ← failAt (.unsupported .callArguments) next
+    | _ => pure ()
     if rest.peek.kind != .symbol "," && hasExprSuffix rest then
       return ← failAt (.unsupported .callArguments) rest
     return (⟨⟨s.peek.span.start, rest.lastEnd⟩, operand⟩, rest)
@@ -652,7 +656,7 @@ private def parseModuleExpr (exprFuel : Nat) (s : Stream) : Except Diagnostic (C
 private def parseRootCall (exprFuel : Nat) (s : Stream) :
     Except Diagnostic (Option (CallOperand × Stream)) := do
   match s.peek.kind with
-  | .name _ | .integer _ | .symbol "(" | .symbol "+" | .symbol "-" | .keyword "not" =>
+  | .name _ | .integer _ | .symbol "(" | .symbol "[" | .symbol "+" | .symbol "-" | .keyword "not" =>
     match parseModuleExpr exprFuel s with
     | .ok (.scalar _, _) => return none
     | .ok (value, rest) =>

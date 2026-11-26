@@ -4,6 +4,7 @@ public import Silmaril.Languages.Starlark.Frontend.Module.Defs
 public import Silmaril.Languages.Starlark.Modules.Resolve.Thms
 import Silmaril.Proofs.Languages.Starlark.Frontend.Module.Branch
 import Silmaril.Proofs.Languages.Starlark.Frontend.Module.CallArguments
+import Silmaril.Proofs.Languages.Starlark.Frontend.Module.ListDisplay
 
 public section
 
@@ -121,5 +122,29 @@ theorem denoteBranchExpr_order (program : Functions.Program) (available : List F
         | .error error after => .error error after
       | .error error next => .error error next :=
   Silmaril.Proofs.Languages.Starlark.Frontend.Module.denoteBranchExpr_order program available test yes no state
+
+/-- Evaluate the elements in list order. Allocate the display only after every
+element succeeds, and preserve the exact prefix state on failure. -/
+theorem denoteList_order (program : Functions.Program) (available : List Functions.DeclarationId)
+    (bodyMeaning : ClosureMeaning available) (elements : List Functions.Lowering.Expr) (state : Lists.State) :
+    denoteExprWith program available bodyMeaning (.list elements) state =
+      match (elements.mapM (denoteExprWith program available bodyMeaning)) state with
+      | .ok values next => Lists.allocate values next
+      | .error error next => .error error next :=
+  Silmaril.Proofs.Languages.Starlark.Frontend.Module.denoteList_order program available bodyMeaning elements state
+
+/-- Evaluate the first element once and start the remaining elements in its
+resulting state. Either failure returns directly to the caller. -/
+theorem denoteList_cons (program : Functions.Program) (available : List Functions.DeclarationId)
+    (bodyMeaning : ClosureMeaning available) (first : Functions.Lowering.Expr)
+    (rest : List Functions.Lowering.Expr) (state : Lists.State) :
+    denoteExprWith program available bodyMeaning (.list (first :: rest)) state =
+      match denoteExprWith program available bodyMeaning first state with
+      | .ok value next =>
+        match (rest.mapM (denoteExprWith program available bodyMeaning)) next with
+        | .ok values after => Lists.allocate (value :: values) after
+        | .error error after => .error error after
+      | .error error next => .error error next :=
+  Silmaril.Proofs.Languages.Starlark.Frontend.Module.denoteList_cons program available bodyMeaning first rest state
 
 end Silmaril.Languages.Starlark.Frontend.Module

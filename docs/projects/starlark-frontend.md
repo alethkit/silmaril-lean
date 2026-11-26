@@ -106,11 +106,11 @@ assignment to `seed` after `def` and supplies an explicit named override. It
 still fails on the uninitialized default read at definition time.
 
 Call arguments use the order positional, named, optional `*`, then optional
-`**`. At the root of any operand, the parser accepts the admitted scalar
-grammar or a call expression whose operands use the same grammar. This admits
+`**`. Operands use the module expression grammar, including scalar
+expressions, applications, and list displays. This admits
 calls such as `f(*identity(xs), **identity(identity(kw)))` and call-free
 expressions such as `f(*(xs if flag else ys), **(False or kw))`. At a spread
-root, `*` also accepts a list or tuple display of scalar operands and `**`
+root, `*` also accepts a tuple display of scalar operands and `**`
 accepts a dictionary display with simple unescaped quoted keys and scalar
 values. Module assignments can bind these displays to names.
 
@@ -204,7 +204,7 @@ three left-associated normalized applications and their original UTF-8
 spans, then checks the following assignment was parsed separately.
 
 The head's parenthesized expression uses the existing call-free scalar
-profile. Attribute lookup, subscripts, and calls within collection displays
+profile. Attribute lookup, subscripts, and calls within tuple and dict displays
 remain outside this grammar. The normalized checker and evaluator
 handle callable values, binding, runtime errors, and the existing restriction
 on recursive closure invocation.
@@ -350,11 +350,39 @@ Go-only mutation controls record test and suite order and skipped effects.
 
 The checked module operator profile admits `and`, `or`, and conditional
 expressions. Computed callees formed from call-containing groups and calls
-in parameter defaults and display elements remain outside this slice.
+in parameter defaults and tuple or dict display elements remain outside this profile.
 Unary `not`, `+`, `-`, and `~`, binary arithmetic
 `+`, `-`, `*`, `/`, `//`, and `%`, equality, ordering, membership, shifts,
 and bitwise operators remain outside the checked module operator profile.
 The standalone scalar parser retains its existing call-free operators.
+
+### Calls in list displays
+
+List displays are atoms in the module expression grammar. Each element
+uses that same grammar, including postfix calls, short-circuit and
+conditional expressions, and nested list displays. Brackets delimit
+the display. Commas separate the elements, and a final comma is optional.
+Empty lists and multiline continuations are supported. For example,
+`[f(), [a() if test() else b(),], g([h(),]),]` works in a module
+assignment, function expression, or call operand.
+
+`lowerOperand_list` emits the existing normalized list node and preserves
+application metadata in element order. `denoteList_cons` describes the
+single evaluation of the first element and the handoff of its state to
+the remaining elements. `denoteList_order` allocates the display only
+after all elements have evaluated successfully. A reached failure keeps
+its exact state, including successful inner allocations and effects of
+the failing element. It skips later elements and the outer allocation.
+
+Lean checks the normalized tree and exact UTF-8 byte, line, and column
+spans for displays, elements, and applications. Pinned Go checks the
+display and immediate element positions on the same CRLF input. Shared
+controls cover nested lists and calls, function bodies, spreads, invalid
+separators, and a reached binding error. Lean inspects the allocation
+prefix. Go-only mutation traces check element order and skipped effects.
+The standalone scalar parser stays call-free. Tuple and dictionary
+elements, comprehensions, and default expressions keep their prior scope.
+[List display checks](../../Silmaril/Languages/Starlark/Frontend/Module/ListDisplayChecks.lean) · [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
 
 ### Leading loads and UTF-8 graphs
 
@@ -484,7 +512,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.CallStatementChecks \
   +Silmaril.Languages.Starlark.Frontend.Module.LogicalCallChecks \
   +Silmaril.Languages.Starlark.Frontend.Module.ConditionalCallChecks \
-  +Silmaril.Languages.Starlark.Frontend.Module.BranchCallChecks +Silmaril.Languages.Starlark.Checks
+  +Silmaril.Languages.Starlark.Frontend.Module.BranchCallChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.ListDisplayChecks +Silmaril.Languages.Starlark.Checks
 scripts/starlark/frontend/run.sh
 ```
 

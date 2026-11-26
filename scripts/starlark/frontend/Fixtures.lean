@@ -21,13 +21,16 @@ import Silmaril.Languages.Starlark.Frontend.Module.ConditionalCallChecks
 meta import Silmaril.Languages.Starlark.Frontend.Module.ConditionalCallChecks
 import Silmaril.Languages.Starlark.Frontend.Module.BranchCallChecks
 meta import Silmaril.Languages.Starlark.Frontend.Module.BranchCallChecks
+import Silmaril.Languages.Starlark.Frontend.Module.ListDisplayChecks
+meta import Silmaril.Languages.Starlark.Frontend.Module.ListDisplayChecks
 import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 meta import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 
 open Lean Silmaril.Languages.Starlark.Frontend
 open Silmaril.Languages.Starlark.Frontend.Module
   (Observation controls spreadControls computedCallControls returnCallControls assignmentCallControls callStatementControls logicalCallControls
-    conditionalCallControls branchCallControls branchSyntaxControls branchSpanSource branchTestSpans)
+    conditionalCallControls branchCallControls branchSyntaxControls branchSpanSource branchTestSpans
+    listDisplayControls listSyntaxControls listSpanSource listDisplaySpans)
 
 private def moduleObservation (expected : Observation) : Json :=
   let (phase, want) := match expected with
@@ -43,6 +46,9 @@ private def moduleObservation (expected : Observation) : Json :=
     | .uninitializedGlobal name => ("runtime", s!"global variable {name} referenced before assignment")
     | .uninitializedLocal name => ("runtime", s!"local variable {name} referenced before assignment")
   Json.mkObj [("phase", toJson phase), ("want", toJson want)]
+
+private def spanCoordinates (spans : List Span) : Json :=
+  toJson (spans.map fun span => [span.start.line, span.start.column, span.stop.line, span.stop.column])
 
 private def loaderFixture (control : Silmaril.Languages.Starlark.Frontend.Module.Loader.Control) : Json :=
   let label := Silmaril.Languages.Starlark.Frontend.Module.Loader.label
@@ -70,15 +76,17 @@ public def main (args : List String) : IO Unit := do
      ("accepts", toJson fixture.goAccepts)]
   let moduleControls := controls ++ spreadControls ++ computedCallControls ++
     returnCallControls ++ assignmentCallControls ++ callStatementControls ++ logicalCallControls ++
-      conditionalCallControls ++ branchCallControls
+      conditionalCallControls ++ branchCallControls ++ listDisplayControls
   let modules := moduleControls.toArray.map fun control =>
     Json.mkObj [("name", toJson control.name), ("source", toJson control.source),
       ("accepts", toJson true), ("module", moduleObservation control.expected)]
   let loaders := Silmaril.Languages.Starlark.Frontend.Module.Loader.controls.toArray.map loaderFixture
-  let branchSyntax := branchSyntaxControls.toArray.map fun (name, source, _, accepts) =>
+  let moduleSyntax := (branchSyntaxControls ++ listSyntaxControls).toArray.map fun (name, source, _, accepts) =>
     Json.mkObj [("name", toJson name), ("source", toJson source), ("accepts", toJson accepts)]
   let branchSpans := Json.mkObj [("name", toJson "utf8-branch-test-spans"),
     ("source", toJson branchSpanSource), ("accepts", toJson true),
-    ("branchTests", toJson (branchTestSpans.map fun span =>
-      [span.start.line, span.start.column, span.stop.line, span.stop.column]))]
-  IO.FS.writeFile output (Json.arr (entries ++ modules ++ loaders ++ branchSyntax |>.push branchSpans)).compress
+    ("branchTests", spanCoordinates branchTestSpans)]
+  let listSpans := Json.mkObj [("name", toJson "utf8-list-display-spans"),
+    ("source", toJson listSpanSource), ("accepts", toJson true),
+    ("listDisplays", spanCoordinates listDisplaySpans)]
+  IO.FS.writeFile output (Json.arr (entries ++ modules ++ loaders ++ moduleSyntax ++ #[branchSpans, listSpans])).compress
