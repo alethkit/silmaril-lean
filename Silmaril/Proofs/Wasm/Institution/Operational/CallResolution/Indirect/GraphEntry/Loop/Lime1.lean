@@ -44,7 +44,7 @@ private theorem wrap_iff {body after dst : Config H}
   rw [Context.Resume.lime_wrap_step_iff stays]
   simp only [move, exists_eq_left]
 
-private theorem loop_wrap_iff {body dst : Config H}
+theorem loop_wrap_iff {body dst : Config H}
     (stays : ∀ out, ¬ PureStep body.frame.module.types [.label 0 [entry.limeLoop] body.code] out) :
     Step CallFrame.limeNoHost (entry.limeLoopWrap outer body) dst ↔
       ∃ mid, Step CallFrame.limeNoHost body mid ∧ dst = entry.limeLoopWrap outer mid := by
