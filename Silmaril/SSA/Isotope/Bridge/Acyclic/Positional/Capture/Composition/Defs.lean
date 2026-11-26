@@ -45,4 +45,11 @@ abbrev Hom (Φ : Type) [LetCase.Structural.Finite.Signature Φ] {d : Nat}
     (β : BoundCtx (Ty Empty) d) (I J : LCtx (Ty Empty)) :=
   Quotient (Reverse.checkedSetoid Φ (β.snoc (packedExitType I)) J)
 
+/-- Nonempty ordered interfaces at a fixed primitive signature and
+structural ambient context. The nonempty list supplies a decoder target. -/
+structure Interface (Φ : Type) {d : Nat} (β : LetCase.Structural.Finite.Context d)
+    (input : LetCase.Structural.Finite.StructuralContext β) where
+  exits : LCtx (Ty Empty)
+  nonempty : exits ≠ []
+
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition
