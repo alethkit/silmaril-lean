@@ -169,7 +169,7 @@ example : parameterSpans = some [("a", ⟨⟨6, 1, 7⟩, ⟨7, 1, 8⟩⟩, none)
 private def explicitNames : Option (List (String × Span)) := do
   let commands ← (parseFile "out = f(b=7, a=8, b=9)").toOption
   match commands with
-  | [⟨_, .assignCall _ _ arguments⟩] =>
+  | [⟨_, .assignCall _ (.call _ _ arguments)⟩] =>
     some (arguments.named.map fun item => (item.name, item.nameSpan))
   | _ => none
 

@@ -7,11 +7,13 @@ import Silmaril.Languages.Starlark.Frontend.Module.Checks
 meta import Silmaril.Languages.Starlark.Frontend.Module.Checks
 import Silmaril.Languages.Starlark.Frontend.Module.SpreadChecks
 meta import Silmaril.Languages.Starlark.Frontend.Module.SpreadChecks
+import Silmaril.Languages.Starlark.Frontend.Module.ComputedCallChecks
+meta import Silmaril.Languages.Starlark.Frontend.Module.ComputedCallChecks
 import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 meta import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 
 open Lean Silmaril.Languages.Starlark.Frontend
-open Silmaril.Languages.Starlark.Frontend.Module (Observation controls spreadControls)
+open Silmaril.Languages.Starlark.Frontend.Module (Observation controls spreadControls computedCallControls)
 
 private def moduleObservation (expected : Observation) : Json :=
   let (phase, want) := match expected with
@@ -47,7 +49,7 @@ public def main (args : List String) : IO Unit := do
   let entries := fixtures.toArray.map fun fixture => Json.mkObj
     [("name", toJson fixture.name), ("source", toJson fixture.source),
      ("accepts", toJson fixture.goAccepts)]
-  let modules := (controls ++ spreadControls).toArray.map fun control =>
+  let modules := (controls ++ spreadControls ++ computedCallControls).toArray.map fun control =>
     Json.mkObj [("name", toJson control.name), ("source", toJson control.source),
       ("accepts", toJson true), ("module", moduleObservation control.expected)]
   let loaders := Silmaril.Languages.Starlark.Frontend.Module.Loader.controls.toArray.map loaderFixture

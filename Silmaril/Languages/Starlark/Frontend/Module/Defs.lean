@@ -16,7 +16,7 @@ namespace Silmaril.Languages.Starlark.Frontend.Module
 open Modules (Published)
 
 /-- The complete application span, its callee, and its grouped operands. -/
-structure NestedCallSpans where
+structure ApplicationSpans where
   span : Span
   callee : Span
   operands : CallSpans
@@ -24,9 +24,18 @@ structure NestedCallSpans where
 structure LocatedCommand where
   span : Span
   command : Modules.Resolve.Command
-  callSpans : Option CallSpans := none
-  /-- Nested applications in preorder, visiting operand roots in source order. -/
-  nestedCalls : List NestedCallSpans := []
+  /-- Applications in preorder, visiting the callee before the operands. -/
+  applications : List ApplicationSpans := []
+
+/-- The outer application of a call assignment. -/
+def LocatedCommand.application (command : LocatedCommand) : Option ApplicationSpans :=
+  command.applications.head?
+
+def LocatedCommand.callSpans (command : LocatedCommand) : Option CallSpans :=
+  command.application.map ApplicationSpans.operands
+
+def LocatedCommand.nestedCalls (command : LocatedCommand) : List ApplicationSpans :=
+  command.applications.drop 1
 
 structure ParsedModule where
   commands : List LocatedCommand
@@ -85,9 +94,9 @@ private def lowerDisplay : CollectionDisplay → Except Diagnostic Functions.Low
 
 structure LoweredOperand where
   expression : Functions.Lowering.Resolve.SourceExpr
-  nestedCalls : List NestedCallSpans := []
+  applications : List ApplicationSpans := []
 
-private def lowerGroupedCall (callee : String) (arguments : LocatedCallArguments)
+private def lowerGroupedCall (callee : Functions.Lowering.Resolve.SourceExpr) (arguments : LocatedCallArguments)
     (lower : (operand : CallOperand) → sizeOf operand < sizeOf arguments → Except Diagnostic LoweredOperand) :
     Except Diagnostic LoweredOperand := do
   let positional ← arguments.positional.attach.mapM fun ⟨operand, member⟩ =>
@@ -103,42 +112,48 @@ private def lowerGroupedCall (callee : String) (arguments : LocatedCallArguments
     lower spread.operand (by cases arguments; cases spread; simp_all <;> omega)
   let starStar ← arguments.starStar.attach.mapM fun ⟨spread, member⟩ =>
     lower spread.operand (by cases arguments; cases spread; simp_all <;> omega)
-  return ⟨.call (.scalar (.read callee)) (positional.map LoweredOperand.expression)
+  return ⟨.call callee (positional.map LoweredOperand.expression)
       (named.map fun (name, value) => (name, value.expression))
       (star.map LoweredOperand.expression) (starStar.map LoweredOperand.expression),
-    positional.flatMap LoweredOperand.nestedCalls ++ named.flatMap (LoweredOperand.nestedCalls ∘ Prod.snd) ++
-      star.toList.flatMap LoweredOperand.nestedCalls ++ starStar.toList.flatMap LoweredOperand.nestedCalls⟩
+    positional.flatMap LoweredOperand.applications ++ named.flatMap (LoweredOperand.applications ∘ Prod.snd) ++
+      star.toList.flatMap LoweredOperand.applications ++ starStar.toList.flatMap LoweredOperand.applications⟩
 
 def lowerOperand : CallOperand → Except Diagnostic LoweredOperand
   | .scalar value => return { expression := ← lowerArgument value }
   | .display _ display => return { expression := ← lowerDisplay display }
   | .call span callee arguments => do
-    let lowered ← lowerGroupedCall callee.text arguments fun operand _ => lowerOperand operand
-    return { lowered with nestedCalls := ⟨span, callee.span, LocatedCallArguments.spans arguments⟩ :: lowered.nestedCalls }
+    let root : ApplicationSpans := ⟨span, callee.span, LocatedCallArguments.spans arguments⟩
+    let callable ← lowerOperand callee
+    let lowered ← lowerGroupedCall callable.expression arguments fun operand _ => lowerOperand operand
+    return { lowered with applications := root :: (callable.applications ++ lowered.applications) }
 termination_by operand => sizeOf operand
-decreasing_by simp_all <;> omega
+decreasing_by all_goals (simp_all <;> omega)
 
 structure LoweredCall where
   expression : Functions.Lowering.Resolve.SourceExpr
   spans : CallSpans
-  nestedCalls : List NestedCallSpans
+  nestedCalls : List ApplicationSpans
 
 /-- Project the span groups onto the normalized binder's argument shape. -/
 def callShape (spans : CallSpans) : Functions.ArgumentShape :=
   Functions.Lowering.argumentShape spans.positional spans.named spans.star spans.starStar
 
-/-- Lower the groups in source order and retain their original operand spans. -/
-def lowerCall (callee : String) (arguments : LocatedCallArguments) : Except Diagnostic LoweredCall := do
+/-- Lower the groups in source order for an already lowered callee. -/
+def lowerCallWithCallee (callee : Functions.Lowering.Resolve.SourceExpr) (arguments : LocatedCallArguments) :
+    Except Diagnostic LoweredCall := do
   let lowered ← lowerGroupedCall callee arguments (fun operand _ => lowerOperand operand)
-  return ⟨lowered.expression, arguments.spans, lowered.nestedCalls⟩
+  return ⟨lowered.expression, arguments.spans, lowered.applications⟩
 
-/-- An operand-root call uses the same lowering as a call assignment and adds
-the location of that application to its descendants' locations. -/
-theorem lowerOperand_call (span : Span) (callee : LocatedString) (arguments : LocatedCallArguments) :
-    lowerOperand (.call span callee arguments) = (lowerCall callee.text arguments).map (fun call =>
-      ⟨call.expression, ⟨span, callee.span, call.spans⟩ :: call.nestedCalls⟩) := by
-  simp only [lowerOperand.eq_3, lowerCall]
-  cases lowerGroupedCall callee.text arguments (fun operand _ => lowerOperand operand) <;> rfl
+def lowerCall (callee : String) (arguments : LocatedCallArguments) : Except Diagnostic LoweredCall :=
+  lowerCallWithCallee (.scalar (.read callee)) arguments
+
+/-- Lower the callee before the argument groups and retain their application locations. -/
+theorem lowerOperand_call (span : Span) (callee : CallOperand) (arguments : LocatedCallArguments) :
+    lowerOperand (.call span callee arguments) = (do
+      let callable ← lowerOperand callee
+      let call ← lowerCallWithCallee callable.expression arguments
+      return ⟨call.expression, ⟨span, callee.span, call.spans⟩ :: (callable.applications ++ call.nestedCalls)⟩) := by
+  simp only [lowerOperand.eq_3, lowerCallWithCallee, bind_assoc, pure_bind]
 
 private def lowerCommand (source : LocatedFileCommand) :
     Except Diagnostic (Option LocatedCommand) := do
@@ -151,9 +166,9 @@ private def lowerCommand (source : LocatedFileCommand) :
   | .simple _ => .error ⟨.unsupported .compoundStatement, source.span⟩
   | .define fn => return located (← lowerFunction fn)
   | .assignDisplay target display => return located (.assign target (← lowerDisplay display))
-  | .assignCall target callee arguments =>
-    let call ← lowerCall callee arguments
-    return some ⟨source.span, .assign target call.expression, some call.spans, call.nestedCalls⟩
+  | .assignCall target value =>
+    let call ← lowerOperand value
+    return some ⟨source.span, .assign target call.expression, call.applications⟩
   | .load label imports =>
     return located (.load label.text (imports.map fun item => ⟨item.exported.text, item.localName.text⟩))
 
