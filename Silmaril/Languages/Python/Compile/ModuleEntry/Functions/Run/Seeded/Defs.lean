@@ -454,6 +454,26 @@ def assertOperand {scope : Scope} (space : Namespace) (operand : ModuleEntry.Ope
   let checked := (evaluateScalar space false operand).bind (assertTruthAs expected)
   ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, []⟩
 
+/-- The checked argument cannot escape this call. Only the exact stock
+descriptor consumes its certified length. -/
+def readSequenceLength (space : Namespace) (length : Nat) : Except Failure Int :=
+  match space.lookupGlobal "len" with
+  | none => .error (.raised (.runtime (.nameError "len")))
+  | some (.builtin .len) => .ok (Int.ofNat length)
+  | some (.int _) | some (.bool _) | some .none => .error (.raised (.runtime .notCallable))
+  | some _ => .error .unsupported
+
+def checkSequenceLengthResult {scope : Scope} (space : Namespace) (test : SequenceLengthTest scope)
+    (length : Int) : Except Failure Unit := do
+  let actual ← evaluateScalar space true test.right
+  let some right := scalar? actual | throw .unsupported
+  assertTruthAs test.expectedEqual (.bool ((.int length : Core.Module.Value).equal right))
+
+def assertSequenceLength {scope : Scope} (space : Namespace) (test : SequenceLengthTest scope) : Effect :=
+  let result := readSequenceLength space test.length
+  let checked := result.bind (checkSequenceLengthResult space test)
+  ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, [⟨"len", ⟨result.map .int, none⟩⟩]⟩
+
 /-- Resolve once in the live seeded namespace. A masking module value
 remains the receiver even when its type is outside the ordinary profile. -/
 def checkVarNames (space : Namespace) (table : CodeTable) (receiver : String)
@@ -473,6 +493,7 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
       []⟩, context.heap)
   | .scalar (.assertion operand) => (assertOperand space operand true, context.heap)
   | .assertNot operand => (assertOperand space operand false, context.heap)
+  | .assertSequenceLength test => (assertSequenceLength space test, context.heap)
   | .assertVarNames receiver needle =>
     (⟨(checkVarNames space context.table receiver needle).map fun _ => none, []⟩, context.heap)
   | .publish name function =>
