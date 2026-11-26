@@ -6,6 +6,7 @@ import Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.MustEval.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Region.Thms
+import Silmaril.SSA.PEG.Rules.Thms
 import Mathlib.Data.Fin.Embedding
 import Mathlib.Logic.Equiv.Basic
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Automatic.Thms
@@ -1086,5 +1087,124 @@ private def certifiedRun :
   | _ => none
 
 #guard certifiedRun.isSome
+
+private theorem total : ∀ {ins out} (op : Op ins out) args, ∃ val, model.run op args = some val
+  | _, _, .done, .cons _ .nil => ⟨_, rfl⟩
+  | _, _, .pred, .cons _ .nil => ⟨_, rfl⟩
+  | _, _, .add, .cons _ (.cons _ .nil) => ⟨_, rfl⟩
+  | _, _, .not, .cons _ .nil => ⟨_, rfl⟩
+
+private theorem setTwice (idx : Index 2) (key : Fin 2) (j k : Nat) :
+    (idx.set key j).set key k = idx.set key k := by
+  funext i
+  by_cases h : i = key <;> simp [Index.set, h]
+
+private theorem setCurrent (idx : Index 2) (key : Fin 2) : idx.set key (idx key) = idx := by
+  funext i
+  by_cases h : i = key <;> simp [Index.set, h]
+
+private theorem countdown {count : Nat} {values : (graph false).Valuation model}
+    (solved : (graph false).Solves model (input count) values)
+    {theta init tick : Ref sort .count} {key : Fin 2}
+    (thetaRow : Rules.HasNode (g := graph false) theta (.theta key) (pair init tick))
+    (tickRow : Rules.HasNode (g := graph false) tick (.op Op.pred) (.cons theta .nil))
+    (base : Index 2) {seed : Nat}
+    (started : Rules.readRef values init (base.set key 0) = some ⟨seed⟩) (j : Nat) :
+    Rules.readRef values theta (base.set key j) = some ⟨seed - j⟩ := by
+  induction j with
+  | zero =>
+    rw [Rules.theta_zero solved thetaRow (by simp [Index.set])]
+    exact started
+  | succ j ih =>
+    rw [Rules.theta_succ solved thetaRow (k := j) (by simp [Index.set]), setTwice,
+      Rules.unary_at solved tickRow, ih]
+    change some (⟨seed - j - 1⟩ : ULift Nat) = some ⟨seed - (j + 1)⟩
+    rw [Nat.sub_sub]
+
+private theorem countedPass {count : Nat} {values : (graph false).Valuation model}
+    (solved : (graph false).Solves model (input count) values)
+    {clock pass : Ref sort .count} {flag : Ref sort .bool} {key : Fin 2}
+    (guardRow : Rules.HasNode (g := graph false) flag (.op Op.done) (.cons clock .nil))
+    (passRow : Rules.HasNode (g := graph false) pass (.pass key) (.cons flag .nil))
+    (base : Index 2) {seed : Nat}
+    (counts : ∀ j, Rules.readRef values clock (base.set key j) = some ⟨seed - j⟩) :
+    Rules.readRef values pass base = some ⟨seed⟩ := by
+  have flags (j : Nat) :
+      (Rules.readRef values flag (base.set key j)).map ULift.down = some (decide (seed ≤ j)) := by
+    rw [Rules.unary_at solved guardRow, counts]
+    change some ((seed - j) == 0) = some (decide (seed ≤ j))
+    by_cases h : seed ≤ j
+    · simp [h, Nat.sub_eq_zero_of_le h]
+    · have ne : seed - j ≠ 0 := by omega
+      simp [h, ne]
+  rw [Rules.pass_at solved passRow]
+  have first : firstTrue (fun j => (Rules.readRef values flag (base.set key j)).map ULift.down) =
+      some seed := (firstTrue_eq_some_iff_samples _ _).mpr
+    ⟨by simp [flags], fun j lt => by simp [flags, Nat.not_le_of_lt lt]⟩
+  rw [first]
+  rfl
+
+private theorem outerCountdown {count : Nat} {values : (graph false).Valuation model}
+    (solved : (graph false).Solves model (input count) values) (base : Index 2) (j : Nat) :
+    Rules.readRef values (r 3 rfl) (base.set 0 j) = some ⟨count - j⟩ :=
+  countdown solved (theta := r 3 rfl) (init := r 14 rfl) (tick := r 12 rfl)
+    (key := 0) HEq.rfl HEq.rfl base (solved (14, base.set 0 0)) j
+
+private theorem outerPassAt {count : Nat} {values : (graph false).Valuation model}
+    (solved : (graph false).Solves model (input count) values) (base : Index 2) :
+    Rules.readRef values (r 4 rfl) base = some ⟨count⟩ :=
+  countedPass solved (clock := r 3 rfl) (pass := r 4 rfl) (flag := firstFlag)
+    (key := 0) HEq.rfl HEq.rfl base (outerCountdown solved base)
+
+private theorem childPassAt {count : Nat} {values : (graph false).Valuation model}
+    (solved : (graph false).Solves model (input count) values) (base : Index 2) (outer : Nat) :
+    Rules.readRef values (r 7 rfl) (base.set 0 outer) = some ⟨count - outer⟩ := by
+  let idx := (base.set 0 outer).set 1 0
+  have seed := outerCountdown solved idx (idx 0)
+  rw [setCurrent] at seed
+  have outerIdx : idx 0 = outer := by simp [idx, Index.set]
+  rw [outerIdx] at seed
+  exact countedPass solved (clock := r 6 rfl) (pass := r 7 rfl) (flag := childFlag)
+    (key := 1) HEq.rfl HEq.rfl (base.set 0 outer)
+    (countdown solved (theta := r 6 rfl) (init := r 3 rfl) (tick := r 9 rfl)
+      (key := 1) HEq.rfl HEq.rfl (base.set 0 outer) seed)
+
+private def FixtureTrace (a : Accepted (graph false) state) (count : Nat) : Prop :=
+  (∀ j < count, Rules.readRef ((graph false).denote model (input count) a.demandWellFounded)
+    a.descriptor.childPass (Index.set (fun _ => 0) a.descriptor.outerKey j) = some ⟨count - j⟩) ∧
+  ∃ start final, Exec model a.outerGuard.lower.enableWhile (input count) (some start) ∧
+    WhileTrace model (continueTest a.descriptor.negate) a.body count start final
+
+/-- Construct the nested SIMPLE derivation from the PEG equations.
+The exact child counts are established before any target execution. -/
+private theorem deriveFixtureTrace (a : Accepted (graph false) state)
+    (same : a.descriptor = descriptor false) (count : Nat) : FixtureTrace a count := by
+  let base : Index 2 := fun _ => 0
+  let values := (graph false).denote model (input count) a.demandWellFounded
+  have solved := (graph false).denote_solves model (input count) a.demandWellFounded
+  have neg : ∀ b : Bool, model.run a.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩ := by
+    rw [same]
+    intro b
+    rfl
+  have outer : Rules.readRef values a.descriptor.outerPass base = some ⟨count⟩ := by
+    rw [same]
+    exact outerPassAt solved base
+  have child (j : Nat) :
+      Rules.readRef values a.descriptor.childPass (base.set a.descriptor.outerKey j) =
+        some ⟨count - j⟩ := by
+    rw [same]
+    exact childPassAt solved base j
+  have exits : a.FirstExits model values base count := ⟨outer, fun j hj => by
+    by_cases zero : count = 0
+    · omega
+    · exact ⟨_, child j⟩⟩
+  exact ⟨fun j _ => child j, a.trace_of_exits neg (input count)
+    (a.definedSlices_of_total values total) base exits⟩
+
+private def fromPEG (count : Nat) : Option {a : Accepted (graph false) state // FixtureTrace a count} :=
+  checked.map fun accepted => ⟨accepted.val, deriveFixtureTrace accepted.val accepted.property count⟩
+
+#guard (fromPEG 2).isSome
+#guard (fromPEG 0).isSome
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Nested.Region.Tests
