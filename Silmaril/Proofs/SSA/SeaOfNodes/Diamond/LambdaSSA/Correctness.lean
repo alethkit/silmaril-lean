@@ -36,7 +36,7 @@ theorem encode_injective {sort : ValueSort Data} :
     intro a b h
     exact eq_of_heq (Sigma.mk.inj_iff.mp (Value.atom.inj h)).2
 
-private theorem encode_operands_injective (ins : List (ValueSort Data)) :
+theorem encodeTuple_injective (ins : List (ValueSort Data)) :
     Function.Injective (encodeTuple m (ports := dataPorts ins)) := by
   induction ins with
   | nil => intro a b _; cases a; cases b; rfl
@@ -57,7 +57,7 @@ theorem instruction_deterministic : InstrDeterministic (instruction m (σ := σ)
   | apply op =>
     obtain ⟨a, encoded, rfl, rfl⟩ := eval
     obtain ⟨b, encoded', rfl, rfl⟩ := eval'
-    obtain rfl := encode_operands_injective m _ (encoded.symm.trans encoded')
+    obtain rfl := encodeTuple_injective m _ (encoded.symm.trans encoded')
     exact ⟨rfl, rfl⟩
 
 private theorem wireTerm_typed (layout : Layout args past context)

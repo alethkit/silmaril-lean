@@ -234,6 +234,49 @@ CREATE TABLE corridors(
   origin TEXT NOT NULL,
   UNIQUE(name)
 );
+CREATE TABLE ir_families(
+  sid TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  title TEXT NOT NULL,
+  doc TEXT,
+  module TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  UNIQUE(name)
+);
+CREATE TABLE ir_syntax_kinds(
+  sid TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  title TEXT NOT NULL,
+  doc TEXT,
+  module TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  UNIQUE(name)
+);
+CREATE TABLE ir_subsets(
+  sid TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  family TEXT NOT NULL,
+  syntax_kind TEXT NOT NULL,
+  decl TEXT NOT NULL,
+  title TEXT NOT NULL,
+  doc TEXT,
+  module TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  UNIQUE(name)
+);
+CREATE TABLE ir_models(
+  sid TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  subset TEXT NOT NULL,
+  semantics TEXT NOT NULL,
+  decl TEXT NOT NULL,
+  institution TEXT,
+  title TEXT NOT NULL,
+  doc TEXT,
+  module TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  UNIQUE(name)
+);
 CREATE TABLE logic_edge_kinds(
   kind TEXT NOT NULL PRIMARY KEY,
   level TEXT NOT NULL,

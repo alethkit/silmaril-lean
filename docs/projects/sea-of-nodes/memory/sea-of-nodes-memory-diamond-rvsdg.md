@@ -47,3 +47,41 @@ lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.RVSDG.Correct
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Diamond.RVSDG.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.RVSDG.Regression
 ```
+
+## Native equations over the numbered evaluator
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution.ToRVSDG.Thms
+```
+
+`translateEquation` keeps both emitted numbered graphs and their own
+predecessor orders. `Program.observe` runs `Graph.run` at the canonical
+heap model and the native model's typed entry valuation. Each side
+encodes the same Boolean guard using its own Region slot and receives
+the same initialized heap. The output tuple contains the word and
+entire final heap. `observe_iff_returns` reuses `Graph.lower_returns_iff`.
+`translated_satisfaction` gives the equation iff for both guards and
+every initial heap at that valuation.
+[Native equations](sea-of-nodes-memory-diamond.md#native-equations) ·
+[Comparison API](../../../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/Institution/ToRVSDG/Thms.lean)
+
+`behavior_mapGraph` and `room_satisfaction_reindex` compare re-emission
+after a typed port map with pulling back the scalar valuation. The
+observations and satisfaction statements are for the actual lowered
+graphs under the fixed `leafModel` at the same cell count. The port-map
+law relates these observations across typed entry boundaries.
+
+The ordinary RVSDG room also compares the whole tuple. Its equations
+share one raw numbered selector and quantify over all entry tuples.
+`shared_input_satisfaction` identifies that room's truth with the
+scoped comparison over every typed valuation at a fixed cell count
+when the two Region orders agree. With opposite orders, the same raw
+selector can choose different Boolean branches. The regression shows
+this distinction and checks an address swap and a store omission in
+the numbered evaluator.
+[Ordinary RVSDG room](../../../../Silmaril/SSA/RVSDG/Institution/Defs.lean) ·
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/Institution/ToRVSDG/Regression.lean)
+
+```sh
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution.ToRVSDG.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.Institution.ToRVSDG.Regression'
+```

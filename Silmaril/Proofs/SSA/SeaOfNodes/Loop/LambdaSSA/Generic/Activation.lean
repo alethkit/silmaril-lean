@@ -26,7 +26,7 @@ variable {entrySigs headerSigs : List (List (Diamond.Ty Data))} {out : ValueSort
 variable {context : List (Code Data)} {ports : List (Diamond.Ty Data)}
 variable (m : Model.{u,v,w} Op)
 
-private theorem unpack_typed (ports : List (Diamond.Ty Data)) {context : List (Code Data)}
+theorem unpack_typed (ports : List (Diamond.Ty Data)) {context : List (Code Data)}
     {tail : Region (Primitive Op)} {labels : List (Code Data)}
     (typed : tail.HasType (unpackContext context ports) labels) :
     (unpack ports tail).HasType (packed ports :: context) labels := by
@@ -35,7 +35,7 @@ private theorem unpack_typed (ports : List (Diamond.Ty Data)) {context : List (C
   | cons port rest ih =>
     exact .let₂ (A := portCode port) (B := packed rest) (.var (i := 0) rfl) (ih typed)
 
-private theorem unpack_eval (values : Tuple (Val m.value) ports) (captured : Env (Atom m))
+theorem unpack_eval (values : Tuple (Val m.value) ports) (captured : Env (Atom m))
     {tail : Region (Primitive Op)} {start finish : σ} {label : Nat} {payload : Value (Atom m)}
     (runTail : Semantics.Region.Eval (instruction m) (unpackEnv m values captured)
       tail start label payload finish) :
@@ -53,7 +53,7 @@ private theorem weakenUnpack_read (values : Tuple (Val m.value) ports) (captured
   | nil => rfl
   | cons x rest ih => exact ih _ (shiftRef (shiftRef ref))
 
-private theorem unpackRefs_match (values : Tuple (Val m.value) ports) (captured : Env (Atom m)) :
+theorem unpackRefs_match (values : Tuple (Val m.value) ports) (captured : Env (Atom m)) :
     TupleMatch m (unpackEnv m values captured) (unpackRefs ports (context := context)) values := by
   induction values generalizing captured context with
   | nil => intro _ p; cases p
@@ -87,7 +87,7 @@ private theorem headerStart_match (input : Tuple (Val m.value) (dataPorts inputs
   rw [tuple_get_map]
   exact (weakenUnpack_read m old _ _).trans (inputRefs_match m input p)
 
-private theorem arguments_read {args : List (Diamond.Ty Data)} {past : List (List (Diamond.Ty Data))}
+theorem arguments_read {args : List (Diamond.Ty Data)} {past : List (List (Diamond.Ty Data))}
     (resolve : ∀ {p}, Origin args past p → Ref context p)
     (env : Env (Atom m)) (entry : Tuple (Val m.value) args) (locals : RVSDG.Locals (Val m.value) past)
     (matched : ∀ {p} (wire : Origin args past p), env (resolve wire).val = encodePort m (read m wire entry locals))

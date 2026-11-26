@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Structured.Defs
 public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Thms
 import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Structured
+import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Association
 
 /-! # Completeness for generated sequence and binary γ bodies -/
 
@@ -22,6 +23,14 @@ theorem parse_thetaBody (s : Loop Φ A B K E D) (h : RightAssociated s.body) :
       A E D [.theta (ExplicitRuntime.Reverse.read (ExplicitRuntime.Wiring.thetaBody s).2.1)] =
       some ⟨B, K, s⟩ :=
   Proofs.parse_thetaBody s h
+
+omit [DecidableEq τ] [DecidableEq Φ] in
+/-- Right association of a typed loop body preserves its complete checked
+emission, including the local numbered wiring. -/
+theorem loop_associated (s : Loop Φ A B K E D) :
+    ∃ t : Loop Φ A B K E D, RightAssociated t.body ∧
+      ExplicitRuntime.Wiring.loop t = ExplicitRuntime.Wiring.loop s :=
+  Proofs.loop_associated s
 
 /-- The exact recognizer reconstructs generated right-associated components,
 including the typed instruction sequence and recursively nested γ arms. -/

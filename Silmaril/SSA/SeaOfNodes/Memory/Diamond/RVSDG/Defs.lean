@@ -11,7 +11,7 @@ namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond
 
 open RVSDG (Origin Port Tuple Wires)
 open RVSDG.OrderedRuntime.Structured (Data Opcode Threaded Ty gammaNode nextRuntime runtimePort)
-open SeaOfNodes.Diamond (Projection Slot)
+open SeaOfNodes.Diamond (Merge Projection Slot)
 
 variable {args : List ValueSort} {cells : Nat}
 
@@ -29,9 +29,13 @@ abbrev diamondData (args : List ValueSort) : Data (inputPorts args) :=
 
 /-- The target selector counts Region positions from zero. The scalar
 arguments and sole input heap keep their original order. -/
+def encodeEntry (merge : Merge) (guard : Bool) (input : Tuple (Val cells) args)
+    (heap : Heap cells) : Tuple (WireVal cells) (Threaded (inputPorts args)) :=
+  .cons ⟨slotIndex (merge.slot (Projection.ofBool guard))⟩ (encodeInput heap input)
+
 def Graph.encodeEntry (graph : Graph args) (guard : Bool) (input : Tuple (Val cells) args)
     (heap : Heap cells) : Tuple (WireVal cells) (Threaded (inputPorts args)) :=
-  .cons ⟨slotIndex (graph.merge.slot (Projection.ofBool guard))⟩ (encodeInput heap input)
+  Diamond.encodeEntry graph.merge guard input heap
 
 def argumentWires {entry : List (Ty ValueSort)} {past : List (List (Ty ValueSort))} :
     (sorts : List ValueSort) →

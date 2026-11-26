@@ -146,6 +146,32 @@ replacement = [4, 40]
 	fmt.Println("PASS escaped mixed assignment sees parent rebinding and later initialization, mutates the rebound alias, and rejects early reads")
 }
 
+func forwardedMixedAssignmentCaptures() {
+	const setup = `box = [100]
+original = [3]
+replacement = [4]
+def outer(box):
+    def nearest(box):
+        def transit():
+            def relay():
+                def leaf(i):
+                    (i, box[i]) = [item for item in rows[i]]
+                    return box[i]
+                return leaf
+            return relay
+        escapedLeaf = transit()()
+        box = replacement
+        return escapedLeaf
+    return nearest(box)
+escaped = outer(original)
+`
+	const rows = "rows = [[0, 9], [0, 6]]\n"
+	values, err := execute(setup + rows + "out = (escaped(0), original[0], replacement[0], box[0])\n")
+	require(err == nil && values["out"].String() == "(9, 3, 9, 100)", fmt.Sprint(values, err))
+	runtimeError(setup+"escaped(0)\n"+rows, "global variable rows referenced before assignment")
+	fmt.Println("PASS two forwarding-only functions, nearest shadowing, rebinding after leaf creation, and separate module lookup")
+}
+
 func main() {
 	values, err := execute(`value = "global"
 def outer(value):
@@ -196,4 +222,5 @@ out = f()
 	loopScopes()
 	mixedAssignmentScopes()
 	mixedAssignmentCaptures()
+	forwardedMixedAssignmentCaptures()
 }

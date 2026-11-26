@@ -17,18 +17,23 @@ packed result tuple to the join. The join forwards that tuple to external
 exit zero. `edge g slot` selects the arm's jump occurrence.
 `edge_branch` recovers its ordinary branch, and `edge_latch` identifies its
 packed tuple with the source wires read from that arm's final environment.
-The arm proof connects the latch to actual branch execution through
-`PhiView.latch_eq_transfer`. [PhiView](https://github.com/hiloopai/silmaril-lean/pull/3186)
+`edge_transfer_iff` connects this simultaneous latch to the emitted
+jump through `PhiView.latch_eq_transfer`. `arm_transfer_iff` characterizes
+the complete arm execution at the selected slot. It reaches label two
+with the whole tuple from that occurrence and unchanged state. [PhiView](https://github.com/hiloopai/silmaril-lean/pull/3186)
 
 `returns_iff` relates the independent finite returns to finite
 `Region.Eval` for every total `Diamond.Model`. The primitive
 interpretation preserves ambient state. The regression checks an integer
 and a predicate in the same join, different producer schedules in the
-two arms, and both branch outcomes in both predecessor orders. The
-profile is one pure acyclic diamond with statically scoped wires.
+two arms, and both branch outcomes in both predecessor orders.
+The simultaneous-Phi regression uses two different data sorts and
+rejects both mixed-column tuples under either predecessor order.
+The profile is one pure acyclic diamond with statically scoped wires.
+[Simultaneous-Phi regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Diamond/Arms/LambdaSSA/SimultaneousRegression.lean)
 
 ```sh
-make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Diamond.Arms.LambdaSSA.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Diamond.Arms.LambdaSSA.Regression'
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Diamond.Arms.LambdaSSA.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Diamond.Arms.LambdaSSA.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Diamond.Arms.LambdaSSA.SimultaneousRegression'
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Diamond.Arms.LambdaSSA.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Diamond.Arms.LambdaSSA.Regression
 ```

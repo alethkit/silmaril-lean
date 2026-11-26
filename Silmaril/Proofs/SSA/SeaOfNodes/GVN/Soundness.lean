@@ -75,7 +75,7 @@ private theorem read_kept_operands {head ports : List (Ty Data)}
     rw [read_keep]
     exact read_weaken m entry _ _ _
 
-private theorem read_producer_key {flow : Dataflow Op args past sigs} (ref : Producer flow out)
+theorem read_producer_key {flow : Dataflow Op args past sigs} (ref : Producer flow out)
     (locals : Locals (Val m.value) past) :
     let final := flow.eval m entry locals
     Diamond.read m ref.origin entry final = m.run ref.key.opcode (ref.key.operands.read entry final) := by
