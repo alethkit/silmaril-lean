@@ -36,6 +36,15 @@ theorem Function.block_typed {fn : Function} {saved : List Value} {result : Opti
         fn.checkRegion (Prefix.stackTypes (saved ++ delivered)) fallthrough rest labels = true :=
   Proofs.block_typed checked
 
+/-- The loop label takes no restart operands. Normal fallthrough delivers the declared result. -/
+theorem Function.loop_typed {fn : Function} {saved : List Value} {result : Option NumType}
+    {body rest : List Op} {fallthrough : List NumType} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes saved) fallthrough (.loop result body :: rest) labels = true) :
+    fn.checkRegion [] result.toList body ([] :: labels) = true ∧
+      ∀ delivered : List Value, delivered.map Value.type = result.toList →
+        fn.checkRegion (Prefix.stackTypes (saved ++ delivered)) fallthrough rest labels = true :=
+  Proofs.loop_typed checked
+
 /-- Both arms have the same declared fallthrough types. The continuation resumes above the saved prefix. -/
 theorem Function.if_typed {fn : Function} {stack : List Value} {result : Option NumType}
     {left right rest : List Op} {fallthrough : List NumType} {labels : List (List NumType)}

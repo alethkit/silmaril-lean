@@ -51,6 +51,9 @@ inductive SourceAllowed (program : Program) (memory : MemAddr) (rank : Nat) (mod
   | block {result : Option NumType} {body : Wasm.V1.Expr}
       (guard : ∀ i ∈ body, SourceAllowed program memory rank module i) :
       SourceAllowed program memory rank module (.block result body)
+  | loop {result : Option NumType} {body : Wasm.V1.Expr}
+      (guard : ∀ i ∈ body, SourceAllowed program memory rank module i) :
+      SourceAllowed program memory rank module (.loop result body)
   | br (depth : LabelIdx) : SourceAllowed program memory rank module (.br depth)
   | brIf (depth : LabelIdx) : SourceAllowed program memory rank module (.brIf depth)
   | unreachable : SourceAllowed program memory rank module .unreachable
@@ -66,6 +69,10 @@ inductive Allowed (program : Program) (memory : MemAddr) : Nat → ModuleInst �
       (decreases : fn.rank < rank) : Allowed program memory rank module (.invoke address)
   | label {rank module n body} (scalar : n ≤ 1) (inside : ∀ x ∈ body, Allowed program memory rank module x) :
       Allowed program memory rank module (.label n [] body)
+  | loopLabel {rank module result loopBody body}
+      (restart : SourceAllowed program memory rank module (.loop result loopBody))
+      (inside : ∀ x ∈ body, Allowed program memory rank module x) :
+      Allowed program memory rank module (.label 0 [.loop result loopBody] body)
   | frame {rank module n callee body address fn} (found : program.lookup address = some fn)
       (decreases : fn.rank < rank) (scope : callee.module = fn.declaration.module)
       (arity : n = fn.declaration.results.length)
@@ -92,6 +99,10 @@ inductive Edge (program : Program) (memory : MemAddr) : State → State → Prop
   | label {bytes bytes' f f' before after}
       (move : Edge program memory ⟨bytes, f, before⟩ ⟨bytes', f', after⟩) (n : Nat) :
       Edge program memory ⟨bytes, f, [.label n [] before]⟩ ⟨bytes', f', [.label n [] after]⟩
+  | underLoop {bytes bytes' f f' before after} (result : Option NumType) (body : Wasm.V1.Expr)
+      (move : Edge program memory ⟨bytes, f, before⟩ ⟨bytes', f', after⟩) :
+      Edge program memory ⟨bytes, f, [.label 0 [.loop result body] before]⟩
+        ⟨bytes', f', [.label 0 [.loop result body] after]⟩
   | frame {bytes bytes' inner inner' before after}
       (move : Edge program memory ⟨bytes, inner, before⟩ ⟨bytes', inner', after⟩)
       (n : Nat) (outer : Frame) :

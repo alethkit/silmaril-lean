@@ -19,12 +19,13 @@ namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranke
 open Execution.Runtime (Frame FuncAddr MemAddr MemInst Value)
 open Computed
 
-/-- Full-width Memory32 operations and parameterless scalar blocks and conditionals. -/
+/-- Full-width Memory32 operations and parameterless scalar structured instructions. -/
 inductive Op where
   | ranked (op : Graph.Op)
   | load (offset : Fin (2 ^ 32))
   | store (offset : Fin (2 ^ 32))
   | block (result : Option NumType) (body : List Op)
+  | loop (result : Option NumType) (body : List Op)
   | if_ (result : Option NumType) (thenBody elseBody : List Op)
 
 mutual
@@ -41,6 +42,7 @@ def Op.supportedIn : Op → List (List NumType) → Bool
     decide (labels[depth.toNat]? = some result)
   | .ranked _, _ => false
   | .block result body, labels => supportedCode body (result.toList :: labels)
+  | .loop _ body, labels => supportedCode body ([] :: labels)
   | .if_ result left right, labels =>
     supportedCode left (result.toList :: labels) && supportedCode right (result.toList :: labels)
 
@@ -57,7 +59,7 @@ def codeTargets : List Op → List CallTarget
 def Op.targets : Op → List CallTarget
   | .ranked op => op.targets
   | .load _ | .store _ => []
-  | .block _ body => codeTargets body
+  | .block _ body | .loop _ body => codeTargets body
   | .if_ _ left right => codeTargets left ++ codeTargets right
 
 end
@@ -76,6 +78,7 @@ def Op.v1 : Op → Wasm.V1.Instr
   | .load offset => .intLoad .i32 none (immediate offset)
   | .store offset => .intStore .i32 none (immediate offset)
   | .block result body => .block result (v1Code body)
+  | .loop result body => .loop result (v1Code body)
   | .if_ result left right => .if_ result (v1Code left) (v1Code right)
 
 end
@@ -122,6 +125,8 @@ def Function.checkRegionOp (fn : Function) (stack : List NumType) (labels : List
   | .store _ => Graph.checkCondition stack (fun args => Graph.checkCondition args resume)
   | .block result body =>
     fn.checkRegion [] result.toList body (result.toList :: labels) && resume (result.toList.reverse ++ stack)
+  | .loop result body =>
+    fn.checkRegion [] result.toList body ([] :: labels) && resume (result.toList.reverse ++ stack)
   | .if_ result left right =>
     Graph.checkCondition stack fun saved =>
       fn.checkRegion [] result.toList left (result.toList :: labels) &&

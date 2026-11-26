@@ -69,6 +69,8 @@ private theorem op_source {p : Program} {m : MemAddr} (checked : p.checkV1 m = t
   | store offset => exact .store offset slot
   | block result body =>
     exact .block (code_sources checked found slot body (result.toList :: labels) supported targets)
+  | loop result body =>
+    exact .loop (code_sources checked found slot body ([] :: labels) supported targets)
   | if_ result left right =>
     have checks := Bool.and_eq_true_iff.mp supported
     exact .if_
@@ -107,6 +109,13 @@ theorem body_allowed {p : Program} {m : MemAddr} (checked : p.checkV1 m = true)
   exact .source (op_source checked found slot op fn.entryLabels (List.all_eq_true.mp supported op used)
     (fun target h => List.mem_flatMap.mpr ⟨op, used, h⟩))
 
+private theorem expression_allowed {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
+    {code : Wasm.V1.Expr} (guard : ∀ i ∈ code, SourceAllowed p m rank mod i) :
+    CodeAllowed p m rank mod (expression code) := by
+  intro x member
+  obtain ⟨i, hi, rfl⟩ := List.mem_map.mp member
+  exact .source (guard i hi)
+
 theorem pure_allowed {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
     {before after : List Admin} (move : PureStep before after)
     (guard : CodeAllowed p m rank mod before) : CodeAllowed p m rank mod after := by
@@ -115,13 +124,11 @@ theorem pure_allowed {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
     have h := source_allowed (guard _ (List.Mem.head _))
     cases h with
     | block bodyGuard =>
-      refine single_allowed.mpr (.label (by cases result <;> simp) ?_)
-      intro x hx
-      obtain ⟨i, hi, rfl⟩ := List.mem_map.mp hx
-      exact .source (bodyGuard i hi)
+      exact single_allowed.mpr (.label (by cases result <;> simp) (expression_allowed bodyGuard))
   | loop =>
     have h := source_allowed (guard _ (List.Mem.head _))
-    cases h
+    cases h with
+    | loop bodyGuard => exact single_allowed.mpr (.loopLabel (.loop bodyGuard) (expression_allowed bodyGuard))
   | ifZero =>
     have h := source_allowed (guard _ (List.Mem.tail _ (List.Mem.head _)))
     cases h with | if_ _ right => exact single_allowed.mpr (.source (.block right))
@@ -135,8 +142,8 @@ theorem pure_allowed {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
     cases h
   | labelBranch n cont extra vs tail arity =>
     cases (single_allowed.mp guard) with
-    | label _ _ =>
-      exact append_allowed.mpr ⟨values_allowed vs, values_allowed []⟩
+    | label _ _ => exact append_allowed.mpr ⟨values_allowed vs, values_allowed []⟩
+    | loopLabel restart _ => exact append_allowed.mpr ⟨values_allowed vs, single_allowed.mpr (.source restart)⟩
   | labelBranchOuter n cont vs tail idx outer =>
     exact append_allowed.mpr ⟨values_allowed _, single_allowed.mpr (.source (.br (lowerLabel idx)))⟩
   | labelReturn n cont vs tail =>
@@ -176,6 +183,11 @@ theorem preserve {p : Program} {m : MemAddr} (checked : p.checkV1 m = true)
     have guard := single_allowed.mp ready
     cases guard with
     | label scalar inside => exact single_allowed.mpr (.label scalar (ih inside))
+  | @underLoop bytes bytes' f f' before after result body move ih =>
+    cases (single_allowed.mp ready) with
+    | loopLabel restart inside =>
+      have same : f'.module = f.module := edge_module move
+      exact single_allowed.mpr (.loopLabel (same.symm ▸ restart) (ih inside))
   | frame move n outer ih =>
     have guard := single_allowed.mp ready
     cases guard with

@@ -37,6 +37,7 @@ theorem sound {H : Type} {p : Program} {m : MemAddr} {base : Store H} {initial :
   | pure move => exact .pure _ _ move
   | context move saved tail ih => exact .context ih saved tail
   | label move n ih => exact .label ih n []
+  | underLoop result body move ih => exact .label ih 0 [.loop result body]
   | frame move n outer ih => exact .frame ih n outer
   | get found => exact .localGet _ _ _ _ found
   | set found => exact .localSet _ _ _ _ _ found
@@ -103,10 +104,15 @@ theorem readback {H : Type} {p : Program} {m : MemAddr} {base : Store H} {initia
       (fun c : Config H => (⟨c.store, c.frame, values saved ++ c.code ++ tail⟩ : Config H)) eq⟩
   | label move n cont ih =>
     have guard := single_allowed.mp ready
-    cases guard with | label _ inside =>
+    cases guard with
+    | label _ inside =>
       obtain ⟨next, rule, eq⟩ := ih bytes same inside
       exact ⟨_, .label rule n, congrArg
         (fun c : Config H => (⟨c.store, c.frame, [.label n [] c.code]⟩ : Config H)) eq⟩
+    | @loopLabel _ _ result body _ restart inside =>
+      obtain ⟨next, rule, eq⟩ := ih bytes same inside
+      exact ⟨_, .underLoop result body rule, congrArg
+        (fun c : Config H => (⟨c.store, c.frame, [.label 0 [.loop result body] c.code]⟩ : Config H)) eq⟩
   | frame move n outer ih =>
     have guard := single_allowed.mp ready
     cases guard with | frame found smaller scope arity inside =>
@@ -207,6 +213,19 @@ theorem run_iff {H : Type} {p : Program} {m : MemAddr} {base : Store H} {initial
       exact ⟨next, trace.tail edge, nextGuarded, eq⟩
   · rintro ⟨out, trace, _, rfl⟩
     exact Relation.ReflTransGen.lift (render base m initial) (fun _ _ h => sound checked layout h) _ _ trace
+
+theorem loop_restart {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
+    {body : Wasm.V1.Expr} {saved scratch : List Value} {branchTail tail : List Admin} :
+    let loop := Wasm.V1.Instr.loop result body
+    let pending := (⟨s, f, values saved ++ [.source loop] ++ tail⟩ : Config H)
+    Step CallFrame.v1NoHost
+      ⟨s, f, values saved ++ [.label 0 [loop] (values scratch ++ [.source (.br ⟨0⟩)] ++ branchTail)] ++ tail⟩ pending ∧
+    Step CallFrame.v1NoHost pending ⟨s, f, values saved ++ [.label 0 [loop] (expression body)] ++ tail⟩ := by
+  constructor
+  · simpa only [values, expression, List.map_nil, List.map_cons, List.append_nil, List.nil_append] using
+      Step.context (Step.pure (host := CallFrame.v1NoHost) s f
+        (.labelBranch 0 [.loop result body] scratch [] branchTail rfl)) saved tail
+  · exact .context (.pure _ _ (.loop result body)) saved tail
 
 theorem function_branch_exit {H : Type} {s : Store H} {caller callee : Frame}
     {saved extra payload : List Value} {bodyTail callerTail : List Admin} {results : List NumType}
