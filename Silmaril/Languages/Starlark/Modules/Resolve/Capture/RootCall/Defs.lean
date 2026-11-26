@@ -23,6 +23,16 @@ inductive Segment (globals : List String) : List Command → Prop where
   | define (chain : Chain) {rest : List Command} :
       (∀ program : Program, Accepted globals program [] chain) → Segment globals rest →
       Segment globals (.define chain.name (.required chain.parameters) chain.body :: rest)
+  | emit {name : String} {signature : SourceSignature} {body : Statement} {rest : List Command} :
+      (∃ declaration, ∀ program, elaborateCommand ⟨⟨[], globals⟩, .global⟩
+        (.define name signature body) program = .ok (.exec (.define name program.size), program.push declaration)) →
+      Segment globals rest → Segment globals (.define name signature body :: rest)
+
+  | emitPair {name : String} {signature : SourceSignature} {body : Statement} {rest : List Command} :
+      (∃ (child : Declaration) (parent : Nat → Declaration), ∀ program,
+        elaborateCommand ⟨⟨[], globals⟩, .global⟩ (.define name signature body) program =
+          .ok (.exec (.define name (program.size + 1)), (program.push child).push (parent program.size))) →
+      Segment globals rest → Segment globals (.define name signature body :: rest)
 
 /-- The read-only call operands use the independently declared module
 scope. An index has two ordered suboperands. -/
@@ -67,10 +77,11 @@ ownership rather than aliases in stored values. -/
 
 /-- The live module binding identifies an installed closure by address. -/
 structure Live (state : State) (name : String) (address : Lists.Address) (id : Nat)
-    (captures : List Lists.Capture) (frozen : Bool) : Prop where
+    (captures : List Lists.Capture) (frozen : Bool)
+    (defaults : List (Binding × Lists.Value) := []) : Prop where
   owned : ∃ slot, state.slots (globalSlot name) = some (.owned slot)
   binding : state.bindingValue (globalSlot name) = .ok (.function address)
-  cell : state.heap[address]? = some ⟨.function ⟨id, captures, []⟩, frozen⟩
+  cell : state.heap[address]? = some ⟨.function ⟨id, captures, defaults⟩, frozen⟩
 
 /-- A source segment of assignments to other globals, with successful
 read-only operands. RHSs can read or copy the live closure. -/

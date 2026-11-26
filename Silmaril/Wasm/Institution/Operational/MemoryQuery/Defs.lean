@@ -6,8 +6,8 @@ public import Silmaril.Wasm.Execution.Memory
 /-!
 # Queries of one memory32 instance
 
-The isolated queries are `memory.size` and full-width `i32.load` at zero
-static offset. The memory is supplied as bytes. An out-of-bounds load yields
+The isolated queries are `memory.size` and full-width `i32.load` at a supplied
+unsigned static offset. The memory is supplied as bytes. An out-of-bounds load yields
 the administrative trap; a missing memory is outside the native image.
 -/
 
@@ -26,16 +26,27 @@ inductive State where
 
 abbrev Judgment := State × State
 
-inductive RuleInstance (bytes : ByteArray) : Rule Judgment → Prop where
-  | size : RuleInstance bytes ⟨[], (.size, .value (BitVec.ofNat 32 (Memory.size bytes)))⟩
-  | load (address bits : BitVec 32) (read : Memory.load bytes address.toNat 4 = some bits) :
-      RuleInstance bytes ⟨[], (.load address, .value bits)⟩
-  | loadTrap (address : BitVec 32) (bound : bytes.size < address.toNat + 4) :
-      RuleInstance bytes ⟨[], (.load address, .trap)⟩
+inductive RuleInstanceAt (bytes : ByteArray) (offset : Nat) : Rule Judgment → Prop where
+  | size : RuleInstanceAt bytes offset ⟨[], (.size, .value (BitVec.ofNat 32 (Memory.size bytes)))⟩
+  | load (address bits : BitVec 32) (read : Memory.load bytes (address.toNat + offset) 4 = some bits) :
+      RuleInstanceAt bytes offset ⟨[], (.load address, .value bits)⟩
+  | loadTrap (address : BitVec 32) (bound : bytes.size < address.toNat + offset + 4) :
+      RuleInstanceAt bytes offset ⟨[], (.load address, .trap)⟩
+
+abbrev RuleInstance (bytes : ByteArray) := RuleInstanceAt bytes 0
+
+abbrev RuleInstance.size {bytes : ByteArray} := RuleInstanceAt.size (bytes := bytes) (offset := 0)
+abbrev RuleInstance.load {bytes : ByteArray} := RuleInstanceAt.load (bytes := bytes) (offset := 0)
+abbrev RuleInstance.loadTrap {bytes : ByteArray} := RuleInstanceAt.loadTrap (bytes := bytes) (offset := 0)
 
 def shape : SOS.Shape.{0} := ⟨⟨State, Unit⟩, Judgment, fun (a, _, b) => (a, b)⟩
-def presentation (bytes : ByteArray) : SOS.Presentation := ⟨shape, {r | RuleInstance bytes r}⟩
+def presentationAt (bytes : ByteArray) (offset : Nat) : SOS.Presentation := ⟨shape, {r | RuleInstanceAt bytes offset r}⟩
 
-abbrev Edge (bytes : ByteArray) (a b : State) := (presentation bytes).Derives (a, b)
+abbrev presentation (bytes : ByteArray) := presentationAt bytes 0
+
+abbrev EdgeAt (bytes : ByteArray) (offset : Nat) (a b : State) :=
+  (presentationAt bytes offset).Derives (a, b)
+
+abbrev Edge (bytes : ByteArray) := EdgeAt bytes 0
 
 end Silmaril.Wasm.Institution.Operational.MemoryQuery

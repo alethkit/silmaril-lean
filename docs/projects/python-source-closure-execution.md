@@ -65,6 +65,26 @@ bound, with at most one positional operand at that internal call.
 The outer module call settles one receipt for the returned descriptor.
 [Entry, argument failure and forwarding theorems](../../Silmaril/Languages/Python/Compile/Closure/Run/Thms.lean)
 
+The saved positional default binder takes one value per trailing optional
+slot. Let `n` be the total positional count and `d` the saved count. It
+checks that the supplied count lies between `n - d` and `n`, keeps the
+supplied prefix exactly, and appends the corresponding omitted suffix.
+The resulting list goes to the existing ordered slot writer. The proof
+relates successful binding to that writer's slot/value pairs and covers
+arity errors before the write. The caller supplies the defaults belonging
+to the selected function after evaluating the explicit operands. Source
+checking, declaration-time evaluation, and function publication are
+separate parts of that composition.
+[Binder and theorems](../../Silmaril/Languages/Python/Core/Closure/Call/PositionalDefaults/Thms.lean)
+[CPython 3.13.5 positional binding](https://github.com/python/cpython/blob/v3.13.5/Python/ceval.c#L1587-L1622)
+
+`lambda_defaults.py` and `lambda_stararg.py` each use fixed defaulted
+lambdas with one or three positional slots, followed by a defaulted
+lambda with `*args`. A complete execution also needs tuple results and
+equality, variadic collection, and typed callback invocation with
+explicit arguments for the `TypeError` checks. The starred input needs
+ordered expansion of the explicit literal tuples before binding.
+
 Message-free body assertions lower to the existing executor assertion
 when the test passes the ordinary runner operand check. They preserve
 the continuation's lexical child paths and code keys. The executor

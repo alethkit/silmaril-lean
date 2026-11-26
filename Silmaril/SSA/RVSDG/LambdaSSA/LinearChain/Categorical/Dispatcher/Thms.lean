@@ -4,6 +4,7 @@ public import Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.Dispatcher.De
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Thms
 public import Silmaril.Semantics.Categories.Freyd.CentralUnit.Defs
 import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.Dispatch
+import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.Context
 import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.Iteration
 
 /-! # Interpreting payload-only CFG blocks and grouping their feedback -/
@@ -29,6 +30,16 @@ variable {V : Type v} {C : Type w} [Category.{h} V] [Category.{k} C]
   (M : TypeModel τ V) [InstructionModel J M Φ]
 
 variable {n : Nat} {A X Y : τ} {Γ L : List τ}
+
+omit [Iteration C] [ElgotCategory C] [StrongElgotFreydCategory J] in
+/-- Case on a computed sum when the selected continuation reads only its
+payload. Both continuations can be effectful. -/
+theorem case_project [DistributiveFreydCategory J] [FreydCategory.CentralUnit J] {E X Y T : V}
+    (f : J.obj E ⟶ J.obj (X ⨿ Y)) (l : J.obj X ⟶ J.obj T) (r : J.obj Y ⟶ J.obj T) :
+    Isotope.LetIter.ProofRelevant.Semantics.Categorical.caseWithContext J f
+        (J.map (snd E X) ≫ l) (J.map (snd E Y) ≫ r) =
+      f ≫ Isotope.LetIter.ProofRelevant.Semantics.Categorical.splitMapCoprod J X Y ≫ coprod.desc l r :=
+  Proofs.case_project J f l r
 
 theorem call_denotes (p : TwoBlock.Instruction Φ X Y) :
     Denotes J M (p.typing Γ) (J.map (snd (ctxObj M Γ) (M.obj X)) ≫ call J M p) :=

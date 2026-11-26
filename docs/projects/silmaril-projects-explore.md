@@ -81,6 +81,10 @@ what the public repository already contains. GitHub Pages answers Range requests
 identity bytes, so the page reads the database lazily (see below for why it ignores `HEAD`), and
 the deploy job checks a Range request on the deployed file.
 
+When the source repository is `hiloopai/silmaril-lean`, the Summary page links to
+the [project documentation index](README.md) on GitHub at the configured source
+commit.
+
 To view a local build instead:
 
 ```

@@ -490,4 +490,46 @@ private def passParents {params : List (Ty Unit)} (p : Program Op true params .c
   | [(outer, none), (inner, some parent)] => parent = outer ∧ outer < inner
   | _ => False
 
+-- The structural admission also supplies existence and uniqueness for the
+-- graph whose inner trip count changes with the enclosing iteration.
+example :
+    ∃! value, (Structured.translate nestedLoops .not).Solves model (triple 0 3 0) value :=
+  (Structured.translate nestedLoops .not).existsUnique_solves_of_wellFormed model (triple 0 3 0)
+    (Structured.translate_wellFormed nestedLoops .not)
+
+example : (Structured.translate siblingLoops .not).Scoped :=
+  (Structured.translate_wellFormed siblingLoops .not).loopScope
+
+example : (Structured.translate nestedLoops .not).OuterFeedbackCycles :=
+  (Structured.translate_wellFormed nestedLoops .not).outerFeedback
+
+private def nestedIdentity : Program Op true [.bool] .bool where
+  locals := [.bool]
+  body := .while rfl (.var .head)
+    (.while rfl (.var .head) (.project (.cons .head .nil)))
+  retvar := .head
+
+private def nestedId (i : Fin 9) : Fin (Structured.program nestedIdentity .not).nodes.length := i
+
+/-- The outer θ depends on the inner exit. This cycle traverses the
+inner eval's index edge and the shared pass. -/
+private theorem nestedIndexCycle :
+    let g := Structured.translate nestedIdentity .not
+    Walk g.Edge (nestedId 7)
+      [.feedback (nestedId 1), .index (nestedId 4), .sample (nestedId 4),
+        .ordinary, .initial (nestedId 4)] (nestedId 7) := by
+  dsimp only
+  refine .cons (b := nestedId 3) ⟨⟨1, by decide⟩, rfl, rfl⟩ ?_
+  refine .cons (b := nestedId 4) ⟨⟨1, by decide⟩, rfl, rfl⟩ ?_
+  refine .cons (b := nestedId 5) ⟨⟨0, by decide⟩, rfl, rfl⟩ ?_
+  refine .cons (b := nestedId 6) ⟨⟨0, by decide⟩, rfl, rfl⟩ ?_
+  exact .cons ⟨⟨0, by decide⟩, rfl, rfl⟩ (.nil _)
+
+example : (Structured.translate nestedIdentity .not).forest.StrictlyEncloses (nestedId 1) (nestedId 4) := by
+  have wf := Structured.translate_wellFormed nestedIdentity .not
+  obtain ⟨outer, encloses, feedback⟩ := wf.outerFeedback _ _ nestedIndexCycle
+    (.index (nestedId 4)) (by simp) (nestedId 4) (.inr rfl)
+  have onlyOuter : outer = nestedId 1 := by simpa using feedback
+  rwa [onlyOuter] at encloses
+
 end Silmaril.SSA.PEG.Simple.Tests

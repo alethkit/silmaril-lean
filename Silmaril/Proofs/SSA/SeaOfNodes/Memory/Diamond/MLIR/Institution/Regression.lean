@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.MLIR.Institution.Backends.Thms
+import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.MLIR.Institution.CellCountFixture
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.MLIR.Institution
 
@@ -90,30 +91,8 @@ open Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution renaming
   Signature → EntrySignature, Model → NativeModel, Equation → NativeEquation
 open RVSDG (Port Tuple)
 
-private def sig : EntrySignature := ⟨[.address, .address, .address, .word]⟩
-
-private def a : Port sig.args .address := .head
-private def b : Port sig.args .address := .tail .head
-private def c : Port sig.args .address := .tail (.tail .head)
-
-private def prependSwap {past : List (List ValueSort)} {version : Nat}
-    (left right : Port sig.args .address)
-    (rest : Memory.Body sig.args ([.word] :: [.word] :: past) (version + 2)) :
-    Memory.Body sig.args past version :=
-  .load (.latest version) (.arg left)
-    (.load (.latest version) (.arg right)
-      (.store (.latest version) (.arg left) (.output ⟨0, by simp⟩ .head)
-        (.store (.latest (version + 1)) (.arg right) (.output ⟨1, by simp⟩ .head) rest)))
-
-private def finish {past : List (List ValueSort)} : Memory.Body sig.args past 4 :=
-  .ret (.latest 4) (.arg (.tail (.tail (.tail .head))))
-
-private def diamond (body : Memory.Graph sig.args) : Graph sig.args :=
-  ⟨⟨.onTrue⟩, fun _ => body, .ret (.latest 0) (.arg .head)⟩
-
-private def commuteSwaps : NativeEquation sig :=
-  ⟨diamond (prependSwap a b (prependSwap b c finish)),
-    diamond (prependSwap b c (prependSwap a b finish))⟩
+open CellCountFixture (commuteSwaps threeInputs threeHeap)
+open CellCountFixture renaming sig → swapSignature
 
 private theorem address_cases (address : Address 2) : address = firstCell ∨ address = secondCell :=
   Fin.cases (.inl rfl) (fun i => .inr (congrArg Fin.succ (Fin.eq_zero i))) address
@@ -123,7 +102,7 @@ private def swapHeap (heap : Heap 2) (x y : Address 2) : Heap 2 :=
 
 private theorem swaps_agree_on_two_cells (x y z : Address 2) (word : Word) (heap : Heap 2)
     (guard : Bool) :
-    let values : Valuation sig := .cons x (.cons y (.cons z (.cons word .nil)))
+    let values : Valuation swapSignature := .cons x (.cons y (.cons z (.cons word .nil)))
     commuteSwaps.lhs.denote guard values heap = commuteSwaps.rhs.denote guard values heap := by
   change (word, swapHeap (swapHeap heap x y) y z) = (word, swapHeap (swapHeap heap y z) x y)
   apply congrArg (Prod.mk word)
@@ -147,16 +126,11 @@ private theorem validAtTwoCells : HoldsTwoCells commuteSwaps := by
           cases rest
           exact swaps_agree_on_two_cells x y z word heap guard
 
-example : ∀ input, (room sig).Sat (CategoryTheory.Discrete.mk input) (translateEquation commuteSwaps) :=
+example : ∀ input, (room swapSignature).Sat (CategoryTheory.Discrete.mk input) (translateEquation commuteSwaps) :=
   (validity_two_cells commuteSwaps).2 validAtTwoCells
 
-private def threeInputs : Tuple (Val 3) sig.args :=
-  .cons (0 : Address 3) (.cons (1 : Address 3) (.cons (2 : Address 3) (.cons (0 : Word) .nil)))
-
-private def threeHeap : Heap 3 := fun address => BitVec.ofNat 64 address.val
-
 -- With three distinct addresses the two orders produce different rotations.
-example : ¬ ∀ model : NativeModel sig, commuteSwaps.Holds model := by
+example : ¬ ∀ model : NativeModel swapSignature, commuteSwaps.Holds model := by
   intro valid
   have equal := valid ⟨3, threeInputs⟩ true threeHeap
   have atCell := congrArg (fun result : Word × Heap 3 => result.2 (0 : Address 3)) equal

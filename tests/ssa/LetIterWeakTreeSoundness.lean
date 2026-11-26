@@ -1,6 +1,11 @@
 module
 
 import Silmaril.Semantics.ITree.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Cover.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Heterogeneous.Thms
+import Silmaril.Semantics.ITree.VisiblePrefix.Thms
+import Silmaril.SSA.Isotope.LetIter.RequestFeedback.Thms
+import Silmaril.SSA.Isotope.LetIter.Categorical.Syntactic.AbortSequence.Category.Model.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Case.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.DecisionTree.Reorder.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.SumCall.Thms
@@ -15,7 +20,8 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mix
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Context.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Reconstruction.Thms
-import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Reflection.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Arguments.EffectWeakening.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.CallByValue.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.AtomicSequence.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
@@ -2619,7 +2625,7 @@ private abbrev Eff := Bool × Bool
 private abbrev bound : Eff := (true, false)
 
 private inductive Instruction
-  | receive | send | discard | stop | sendTagged | stopAlt
+  | receive | send | discard | stop | sendTagged | stopAlt | tick
 
 private instance : HasTy Instruction T where
   src
@@ -2853,4 +2859,1202 @@ example : ¬ AbortEquiv (⊥ : Eff) (Ctx.nil : Ctx Empty T) Γ.toBoundCtx
     (.unit _ _) (.unit _ _) rfl rfl h
   cases result.1
 
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyArguments
+  (Raw raw_reflection)
+
+private theorem tickVisible : ¬ IsPure (⊥ : Eff) Instruction.tick :=
+  fun h => Bool.noConfusion (congrArg Prod.fst h)
+
+private abbrev nestedArgs : Expr Instruction :=
+  .op .sendTagged (.pair (.op .receive .unit) (.op .tick .unit))
+
+private abbrev splitArgs : Expr Instruction :=
+  .let₁ (.op .receive .unit) (.op .sendTagged (.pair (.var 0) (.op .tick .unit)))
+
+private abbrev orderedCalls : Expr Instruction :=
+  .let₁ (.op .receive .unit)
+    (.let₁ (.op .tick .unit) (.op .sendTagged (.pair (.var 1) (.var 0))))
+
+private theorem receiveRaw (Δ : EffectCtx T Eff) :
+    Raw bound Δ R (.op Instruction.receive .unit) :=
+  .call receiveVisible le_rfl (.leaf (.unit _ _) .unit)
+
+private theorem tickRaw (Δ : EffectCtx T Eff) :
+    Raw bound Δ .unit (.op Instruction.tick .unit) :=
+  .call tickVisible le_rfl (.leaf (.unit _ _) .unit)
+
+private theorem nestedArgsRaw : Raw bound Γ .unit nestedArgs :=
+  .call taggedVisible le_rfl (.pair (receiveRaw _) (tickRaw _))
+
+private theorem splitArgsRaw : Raw bound Γ .unit splitArgs :=
+  .let1 (receiveRaw _) (.call taggedVisible le_rfl
+    (.pair (.leaf (.var 0 le_rfl) (.var 0)) (tickRaw _)))
+
+private theorem nestedArgs_order : Eqv Γ .unit bound nestedArgs orderedCalls := by
+  have receive : Wf Γ (.op Instruction.receive .unit) R bound := .op le_rfl (.unit _ _)
+  have tick : Wf Γ (.op Instruction.tick .unit) .unit bound := .op le_rfl (.unit _ _)
+  have tickUnder : Wf ((R, ⊥) :: Γ) (.op Instruction.tick .unit) .unit bound :=
+    .op le_rfl (.unit _ _)
+  have args : Wf ((.unit, ⊥) :: (R, ⊥) :: Γ) (.pair (.var 1) (.var 0) : Expr Instruction)
+      (.product R .unit) bound := .pair (.var 1 bot_le) (.var 0 bot_le)
+  exact (Eqv.op (f := Instruction.sendTagged) le_rfl (CallByValue.pair_bind receive tick)).trans
+    ((CallByValue.op_let (f := Instruction.sendTagged) le_rfl receive (.let₁ tickUnder args)).trans
+      (.let1 (.refl receive) (CallByValue.op_let (f := Instruction.sendTagged) le_rfl tickUnder args)))
+
+private theorem splitArgs_order : Eqv Γ .unit bound splitArgs orderedCalls := by
+  have receive : Wf Γ (.op Instruction.receive .unit) R bound := .op le_rfl (.unit _ _)
+  have tick : Wf ((R, ⊥) :: Γ) (.op Instruction.tick .unit) .unit bound := .op le_rfl (.unit _ _)
+  have value : Wf ((R, ⊥) :: Γ) (.var 0 : Expr Instruction) R (⊥ : Eff) := .var 0 le_rfl
+  have body : Wf ((R, ⊥) :: (R, ⊥) :: Γ)
+      (.let₁ (.op Instruction.tick .unit) (.pair (.var 1) (.var 0))) (.product R .unit) bound :=
+    .let₁ (.op le_rfl (.unit _ _)) (.pair (.var 1 bot_le) (.var 0 bot_le))
+  have pairOrder := (CallByValue.pair_bind (value.weakenEffect bot_le) tick).trans
+    (.step (.let1_beta value body))
+  exact .let1 (.refl receive) ((Eqv.op (f := Instruction.sendTagged) le_rfl pairOrder).trans
+    (CallByValue.op_let (f := Instruction.sendTagged) le_rfl tick (.pair (.var 1 bot_le) (.var 0 bot_le))))
+
+-- Both inputs are independently recognized before normalization. The
+-- structured receive reply becomes the first field of the final request.
+example : Eqv Γ .unit bound nestedArgs splitArgs := by
+  have lowers : orderedCalls.toLetIter 0 = some
+      (.let₁ (.op .receive .unit)
+        (.let₁ (.op .tick .unit) (.op .sendTagged (.pair (.bv 1) (.bv 0))))) := rfl
+  exact (raw_reflection profile pureCtx slotTy nestedArgsRaw splitArgsRaw rfl rfl).mp
+    ((nestedArgs_order.toLetIter rfl lowers).trans (splitArgs_order.toLetIter rfl lowers).symm)
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyArguments
+  (CaseRaw case_reflection let_case_eqv let2_pair_eqv)
+
+private abbrev branchLeft : Expr Instruction :=
+  .op .sendTagged (.pair (.inl (.var 0)) .unit)
+
+private abbrev branchRight : Expr Instruction :=
+  .op .send (.inr (.var 0))
+
+private abbrev caseScrutinee : Expr Instruction :=
+  .op .receive (.op .tick .unit)
+
+private abbrev branchDirect : Expr Instruction :=
+  .case caseScrutinee branchLeft branchRight
+
+private abbrev branchBound : Expr Instruction :=
+  .let₁ caseScrutinee (.case (.var 0) branchLeft branchRight)
+
+private theorem leftRaw (Δ : EffectCtx T Eff) :
+    CaseRaw bound ((.product X X, ⊥) :: Δ) .unit branchLeft :=
+  .straight (.call taggedVisible le_rfl
+    (.leaf (.pair (.inl (.var 0 le_rfl)) (.unit _ _)) (.pair (.inl (.var 0)) .unit)))
+
+private theorem rightRaw (Δ : EffectCtx T Eff) :
+    CaseRaw bound ((.product .unit X, ⊥) :: Δ) .unit branchRight :=
+  .straight (.call sendVisible le_rfl (.leaf (.inr (.var 0 le_rfl)) (.inr (.var 0))))
+
+private theorem caseScrutineeRaw : Raw bound Γ R caseScrutinee :=
+  .call receiveVisible le_rfl (tickRaw Γ)
+
+private theorem branchDirectRaw : CaseRaw bound Γ .unit branchDirect :=
+  .case caseScrutineeRaw (leftRaw Γ) (rightRaw Γ)
+
+private theorem branchBoundRaw : CaseRaw bound Γ .unit branchBound :=
+  .let1 caseScrutineeRaw (.case (.leaf (.var 0 le_rfl) (.var 0)) (leftRaw _) (rightRaw _))
+
+private abbrev nativeScrutinee : Tm Empty Instruction 0 :=
+  .op .receive (.op .tick .unit)
+private abbrev nativeBranchL {n : Nat} : Tm Empty Instruction (n + 1) :=
+  .op .sendTagged (.pair (.inl (.bv 0)) .unit)
+private abbrev nativeBranchR {n : Nat} : Tm Empty Instruction (n + 1) :=
+  .op .send (.inr (.bv 0))
+private abbrev nativeDirect : Tm Empty Instruction 0 :=
+  .case nativeScrutinee nativeBranchL nativeBranchR
+private abbrev nativeBound : Tm Empty Instruction 0 :=
+  .let₁ nativeScrutinee (.case (.bv 0) nativeBranchL nativeBranchR)
+
+-- The independent recognizers start from raw case and raw let/case syntax.
+-- The scrutinee makes two requests before either arm can make its request.
+example : Eqv Γ .unit bound branchDirect branchBound := by
+  have native : AbortEquiv (⊥ : Eff) (Ctx.nil : Ctx Empty T) Γ.toBoundCtx nativeDirect nativeBound .unit :=
+    .equiv (.ax (.sequencing (.bindCase nativeScrutinee nativeBranchL nativeBranchR))
+      (.case (.op (.op .unit)) (.op (.pair (.inl .bv) .unit)) (.op (.inr .bv)))
+      (.let₁ (.op (.op .unit)) (.case .bv (.op (.pair (.inl .bv) .unit)) (.op (.inr .bv)))))
+  exact (case_reflection profile pureCtx slotTy branchDirectRaw branchBoundRaw rfl rfl).mp native
+
+private def leftReply : ReplyShape (fun _ : Fin 2 => ()) R :=
+  .inl (.pair (.atom ()) (.atom ()))
+
+private abbrev ΔLeft := fieldCtx (fun _ : Fin 2 => ()) Γ
+private abbrev leftPayload : Expr Instruction := .pair (.var 0) (.var 1)
+private abbrev selectedLeft : Expr Instruction :=
+  .op .sendTagged (.pair (.inl leftPayload) .unit)
+
+private theorem leftPayloadWf : Wf ΔLeft leftPayload (.product X X) (⊥ : Eff) :=
+  .pair (Wf.var (Γ := ΔLeft) ⟨0, by decide⟩ le_rfl) (Wf.var (Γ := ΔLeft) ⟨1, by decide⟩ le_rfl)
+
+private theorem specializeLeft {body arm : Expr Instruction}
+    (hw : Wf ((.product .unit X, ⊥) :: ΔLeft) arm .unit bound)
+    (eq : leftReply.specialize Γ body = (.case (.inl leftPayload) branchLeft arm)) :
+    Eqv ΔLeft .unit bound (leftReply.specialize Γ body) selectedLeft := by
+  rw [eq]
+  have hl : Wf ((.product X X, ⊥) :: ΔLeft) branchLeft .unit bound :=
+    .op le_rfl (.pair (.inl (.var 0 bot_le)) (.unit _ _))
+  have hp := leftPayloadWf.weakenEffect (show (⊥ : Eff) ≤ bound from bot_le)
+  exact (Eqv.step (.reduce (.case (.inl hp) hl hw) (.let₁ hp hl) (.case_inl _ _ _))).trans
+    (.step (.let1_beta leftPayloadWf hl))
+
+-- The reply supplies two distinct slots. The resulting continuation
+-- performs sendTagged on that pair and bypasses the right-hand send.
+example : Eqv ΔLeft .unit bound
+    (leftReply.specialize Γ (.case (.var 0) branchLeft branchRight.wk1)) selectedLeft :=
+  specializeLeft (.op le_rfl (.inr (.var 0 bot_le))) rfl
+
+-- Changing the untaken right arm to a tick preserves the left specialization.
+example : Eqv ΔLeft .unit bound
+    (leftReply.specialize Γ (.case (.var 0) branchLeft branchRight.wk1))
+    (leftReply.specialize Γ (.case (.var 0) branchLeft (.op .tick .unit))) :=
+  (specializeLeft (.op le_rfl (.inr (.var 0 bot_le))) rfl).trans
+    (specializeLeft (.op (f := Instruction.tick) le_rfl (.unit _ _)) rfl).symm
+
+private def rightReply : ReplyShape (fun _ : Fin 1 => ()) R :=
+  .inr (.pair .unit (.atom ()))
+
+private abbrev ΔRight := fieldCtx (fun _ : Fin 1 => ()) Γ
+private abbrev rightPayload : Expr Instruction := .pair .unit (.var 0)
+
+-- The other tag instead selects send with its own payload.
+private theorem specializeRight : Eqv ΔRight .unit bound
+    (rightReply.specialize Γ (.case (.var 0) branchLeft branchRight))
+    (.op .send (.inr rightPayload)) := by
+  have hp : Wf ΔRight rightPayload (.product .unit X) (⊥ : Eff) :=
+    .pair (.unit _ _) (Wf.var (Γ := ΔRight) ⟨0, by decide⟩ le_rfl)
+  have hl : Wf ((.product X X, ⊥) :: ΔRight) branchLeft .unit bound :=
+    .op le_rfl (.pair (.inl (.var 0 bot_le)) (.unit _ _))
+  have hr : Wf ((.product .unit X, ⊥) :: ΔRight) branchRight .unit bound :=
+    .op le_rfl (.inr (.var 0 bot_le))
+  have hw := hp.weakenEffect (show (⊥ : Eff) ≤ bound from bot_le)
+  exact (Eqv.step (.reduce (.case (.inr hw) hl hr) (.let₁ hw hr) (.case_inr _ _ _))).trans
+    (.step (.let1_beta hp hr))
+
+private abbrev RequestArg : T := .product R .unit
+private abbrev returnLeft : Expr Instruction := .pair (.inl (.var 0)) .unit
+private abbrev returnRight : Expr Instruction := .pair (.inr (.var 0)) .unit
+private abbrev postRequest : Expr Instruction := .op .sendTagged (.var 0)
+private abbrev caseValue : Expr Instruction := .case caseScrutinee returnLeft returnRight
+private abbrev consumeBound : Expr Instruction := .let₁ caseValue postRequest
+private abbrev consumeDirect : Expr Instruction := .op .sendTagged caseValue
+private abbrev consumeArms : Expr Instruction :=
+  .case caseScrutinee (.let₁ returnLeft postRequest) (.let₁ returnRight postRequest)
+
+private theorem returnLeftWf (Δ : EffectCtx T Eff) :
+    Wf ((.product X X, ⊥) :: Δ) returnLeft RequestArg (⊥ : Eff) :=
+  .pair (.inl (.var 0 le_rfl)) (.unit _ _)
+
+private theorem returnRightWf (Δ : EffectCtx T Eff) :
+    Wf ((.product .unit X, ⊥) :: Δ) returnRight RequestArg (⊥ : Eff) :=
+  .pair (.inr (.var 0 le_rfl)) (.unit _ _)
+
+private theorem postRequestWf (Δ : EffectCtx T Eff) :
+    Wf ((RequestArg, ⊥) :: Δ) postRequest .unit bound :=
+  .op le_rfl (.var 0 bot_le)
+
+private theorem postRequestRaw (Δ : EffectCtx T Eff) :
+    CaseRaw bound ((RequestArg, ⊥) :: Δ) .unit postRequest :=
+  .straight (.call taggedVisible le_rfl (.leaf (.var 0 le_rfl) (.var 0)))
+
+private theorem returnLeftRaw (Δ : EffectCtx T Eff) :
+    CaseRaw bound ((.product X X, ⊥) :: Δ) RequestArg returnLeft :=
+  .straight (.leaf (returnLeftWf Δ) (.pair (.inl (.var 0)) .unit))
+
+private theorem returnRightRaw (Δ : EffectCtx T Eff) :
+    CaseRaw bound ((.product .unit X, ⊥) :: Δ) RequestArg returnRight :=
+  .straight (.leaf (returnRightWf Δ) (.pair (.inr (.var 0)) .unit))
+
+private theorem caseValueRaw : CaseRaw bound Γ RequestArg caseValue :=
+  .case caseScrutineeRaw (returnLeftRaw Γ) (returnRightRaw Γ)
+
+private theorem consumeBoundRaw : CaseRaw bound Γ .unit consumeBound :=
+  .bind caseValueRaw (postRequestRaw Γ)
+
+private theorem consumeDirectRaw : CaseRaw bound Γ .unit consumeDirect :=
+  .call taggedVisible le_rfl caseValueRaw
+
+private theorem consumeArmsRaw : CaseRaw bound Γ .unit consumeArms :=
+  .case caseScrutineeRaw (.bind (returnLeftRaw Γ) (postRequestRaw _))
+    (.bind (returnRightRaw Γ) (postRequestRaw _))
+
+private abbrev nativeReturnLeft : Tm Empty Instruction 1 := .pair (.inl (.bv 0)) .unit
+private abbrev nativeReturnRight : Tm Empty Instruction 1 := .pair (.inr (.bv 0)) .unit
+private abbrev nativeValue : Tm Empty Instruction 0 := .case nativeScrutinee nativeReturnLeft nativeReturnRight
+private abbrev nativeConsumeBound : Tm Empty Instruction 0 := .let₁ nativeValue (.op .sendTagged (.bv 0))
+private abbrev nativeConsumeArms : Tm Empty Instruction 0 :=
+  .case nativeScrutinee (.let₁ nativeReturnLeft (.op .sendTagged (.bv 0)))
+    (.let₁ nativeReturnRight (.op .sendTagged (.bv 0)))
+
+private theorem nativeConsume : AbortEquiv (⊥ : Eff) (Ctx.nil : Ctx Empty T) Γ.toBoundCtx
+    nativeConsumeBound nativeConsumeArms .unit := by
+  have left : HasType Instruction .nil (Γ.toBoundCtx.snoc (.product X X)) nativeReturnLeft RequestArg :=
+    .pair (.inl .bv) .unit
+  have right : HasType Instruction .nil (Γ.toBoundCtx.snoc (.product .unit X)) nativeReturnRight RequestArg :=
+    .pair (.inr .bv) .unit
+  exact .equiv (.ax (.sequencing (.bindLetCase nativeScrutinee nativeReturnLeft nativeReturnRight
+    (.op .sendTagged (.bv 0)))) (.let₁ (.case (.op (.op .unit)) left right) (.op .bv))
+    (.case (.op (.op .unit)) (.let₁ left (.op .bv)) (.let₁ right (.op .bv))))
+
+-- The two raw endpoints are recognized independently at (true, false).
+example : Eqv Γ .unit bound consumeBound consumeArms :=
+  (case_reflection profile pureCtx slotTy consumeBoundRaw consumeArmsRaw rfl rfl).mp nativeConsume
+
+-- The same case can also be written directly in the request's argument.
+example : Eqv Γ .unit bound consumeDirect consumeArms := by
+  have typed : Wf Γ caseValue RequestArg bound :=
+    .case (.op le_rfl (.op le_rfl (.unit _ _)))
+      ((returnLeftWf Γ).weakenEffect bot_le) ((returnRightWf Γ).weakenEffect bot_le)
+  have seq := CallByValue.op_bind (f := Instruction.sendTagged) le_rfl typed
+  have lowered : consumeDirect.toLetIter 0 = some (.op .sendTagged nativeValue) := rfl
+  exact (case_reflection profile pureCtx slotTy consumeDirectRaw consumeArmsRaw rfl rfl).mp
+    ((seq.toLetIter lowered (rfl : consumeBound.toLetIter 0 = some nativeConsumeBound)).trans nativeConsume)
+
+private abbrev boundReply : Expr Instruction :=
+  .let₁ (.case (.var 0) returnLeft returnRight) postRequest
+
+private abbrev consumeReply : Expr Instruction :=
+  .case (.var 0) (.let₁ returnLeft postRequest) (.let₁ returnRight postRequest)
+
+private theorem specializeConsume {n : Nat} {sorts : Fin n → Unit} (shape : ReplyShape sorts R) :
+    Eqv (fieldCtx sorts Γ) .unit bound (shape.specialize Γ boundReply) (shape.specialize Γ consumeReply) := by
+  let Δ : EffectCtx T Eff := (R, ⊥) :: Γ
+  have eq : Eqv Δ .unit bound boundReply consumeReply :=
+    let_case_eqv (.var 0 bot_le) ((returnLeftWf Δ).weakenEffect bot_le)
+      ((returnRightWf Δ).weakenEffect bot_le) (postRequestWf Δ)
+  exact eq.subst_typed (fun i => shape.specialize_wf (Wf.var (Γ := Δ) i le_rfl))
+
+private theorem returnLeftPost (Δ : EffectCtx T Eff) :
+    Eqv ((.product X X, ⊥) :: Δ) .unit bound (.let₁ returnLeft postRequest) branchLeft :=
+  .step (.let1_beta (returnLeftWf Δ) (postRequestWf _))
+
+private abbrev requestRight : Expr Instruction := .op .sendTagged (.pair (.inr (.var 0)) .unit)
+
+private theorem returnRightPost (Δ : EffectCtx T Eff) :
+    Eqv ((.product .unit X, ⊥) :: Δ) .unit bound (.let₁ returnRight postRequest) requestRight :=
+  .step (.let1_beta (returnRightWf Δ) (postRequestWf _))
+
+-- Each explicit reply specialization leaves exactly one sendTagged, with
+-- the result from its chosen arm. The request arguments retain distinct tags.
+example : Eqv ΔLeft .unit bound (leftReply.specialize Γ boundReply) selectedLeft := by
+  have tag : Wf ΔLeft (.inl leftPayload) R bound := .inl (leftPayloadWf.weakenEffect bot_le)
+  exact (specializeConsume leftReply).trans
+    ((Eqv.case (.refl tag) (returnLeftPost ΔLeft) (returnRightPost ΔLeft)).trans
+      (specializeLeft (returnRightPost ΔLeft).endpoints_wf.2
+        (rfl : leftReply.specialize Γ (.case (.var 0) branchLeft requestRight) = _)))
+
+example : Eqv ΔRight .unit bound (rightReply.specialize Γ boundReply)
+    (.op .sendTagged (.pair (.inr rightPayload) .unit)) := by
+  have hp : Wf ΔRight rightPayload (.product .unit X) (⊥ : Eff) :=
+    .pair (.unit _ _) (Wf.var (Γ := ΔRight) ⟨0, by decide⟩ le_rfl)
+  have hw := hp.weakenEffect (show (⊥ : Eff) ≤ bound from bot_le)
+  have left := (returnLeftPost ΔRight).endpoints_wf.2
+  have right := (returnRightPost ΔRight).endpoints_wf.2
+  exact (specializeConsume rightReply).trans
+    ((Eqv.case (.refl (.inr hw)) (returnLeftPost ΔRight) (returnRightPost ΔRight)).trans
+      ((Eqv.step (.reduce (.case (.inr hw) left right) (.let₁ hw right) (.case_inr _ _ _))).trans
+        (.step (.let1_beta hp right))))
+
+private abbrev rightChoice : Expr Instruction :=
+  .case (.inl .unit) (.op .receive .unit) (.op .receive (.op .tick .unit))
+
+private theorem rightChoiceRaw (Δ : EffectCtx T Eff) : CaseRaw bound Δ R rightChoice :=
+  .branch (A := .unit) (B := .unit) (.straight (.leaf (.inl (.unit _ _)) (.inl .unit)))
+    (.straight (receiveRaw _)) (.straight (.call receiveVisible le_rfl (tickRaw _)))
+
+private theorem rightChoiceEqv (Δ : EffectCtx T Eff) :
+    Eqv Δ R bound rightChoice (.op .receive .unit) := by
+  have scrutinee : Wf Δ (.inl .unit : Expr Instruction) (.coprod .unit .unit) bound := .inl (.unit _ _)
+  have left : Wf ((.unit, ⊥) :: Δ) (.op Instruction.receive .unit) R bound := .op le_rfl (.unit _ _)
+  have right : Wf ((.unit, ⊥) :: Δ) (.op Instruction.receive (.op .tick .unit)) R bound :=
+    .op le_rfl (.op le_rfl (.unit _ _))
+  exact (Eqv.step (.reduce (.case scrutinee left right) (.let₁ (.unit _ _) left)
+    (.case_inl _ _ _))).trans (.step (.let1_beta (.unit _ _) left))
+
+-- Newest is the right result. Both fields occur exactly once in the request.
+private abbrev useBoth : Expr Instruction :=
+  .op .sendTagged (.pair (.var 0) (.var 1))
+
+private theorem useBothWf (Δ : EffectCtx T Eff) :
+    Wf ((R, ⊥) :: (.unit, ⊥) :: Δ) useBoth .unit bound :=
+  .op le_rfl (.pair (.var 0 bot_le) (.var 1 bot_le))
+
+private theorem useBothRaw (Δ : EffectCtx T Eff) :
+    CaseRaw bound ((R, ⊥) :: (.unit, ⊥) :: Δ) .unit useBoth :=
+  .straight (.call taggedVisible le_rfl
+    (.leaf (.pair (.var 0 le_rfl) (.var 1 le_rfl)) (.pair (.var 0) (.var 1))))
+
+private abbrev destructPair : Expr Instruction :=
+  .let₂ (.pair branchDirect rightChoice) useBoth
+private abbrev pairAsLets : Expr Instruction :=
+  .let₁ branchDirect (.let₁ rightChoice useBoth)
+
+private theorem destructPairRaw : CaseRaw bound Γ .unit destructPair :=
+  .let2 (.pair branchDirectRaw (rightChoiceRaw Γ)) (useBothRaw Γ)
+
+private theorem pairAsLetsRaw : CaseRaw bound Γ .unit pairAsLets :=
+  .bind branchDirectRaw (.bind (rightChoiceRaw _) (useBothRaw Γ))
+
+private abbrev nativeRightChoice {n : Nat} : Tm Empty Instruction n :=
+  .case (.inl .unit) (.op .receive .unit) (.op .receive (.op .tick .unit))
+
+private theorem nativeRightChoiceWf {n : Nat} (β : BoundCtx T n) :
+    HasType Instruction .nil β nativeRightChoice R :=
+  .case (B := .unit) (.inl .unit) (.op .unit) (.op (.op .unit))
+
+private abbrev nativeUseBoth : Tm Empty Instruction 2 :=
+  .op .sendTagged (.pair (.bv 0) (.bv 1))
+
+-- Both operands branch. The native pair rule supplies the premise between
+-- the independently recognized endpoints at the original strict bound.
+example : Eqv Γ .unit bound destructPair pairAsLets := by
+  have left : HasType Instruction .nil Γ.toBoundCtx nativeDirect .unit :=
+    .case (.op (.op .unit)) (.op (.pair (.inl .bv) .unit)) (.op (.inr .bv))
+  have consume : HasType Instruction .nil ((Γ.toBoundCtx.snoc .unit).snoc R) nativeUseBoth .unit :=
+    .op (.pair .bv .bv)
+  have native : AbortEquiv (⊥ : Eff) (Ctx.nil : Ctx Empty T) Γ.toBoundCtx
+      (.let₂ (.pair nativeDirect nativeRightChoice) nativeUseBoth)
+      (.let₁ nativeDirect (.let₁ nativeRightChoice nativeUseBoth)) .unit :=
+    .equiv (.ax (.structural (.pairBeta nativeDirect nativeRightChoice nativeUseBoth))
+      (.let₂ (.pair left (nativeRightChoiceWf _)) consume)
+      (.let₁ left (.let₁ (nativeRightChoiceWf _) consume)))
+  exact (case_reflection profile pureCtx slotTy destructPairRaw pairAsLetsRaw rfl rfl).mp native
+
+private abbrev productReply : Expr Instruction :=
+  .let₂ (.pair (.case (.var 0) branchLeft branchRight) rightChoice) useBoth
+
+private theorem pairReplyOrder {Δ : EffectCtx T Eff} {a b : Expr Instruction}
+    (chosen : Eqv Δ .unit bound a b) :
+    Eqv Δ .unit bound (.let₂ (.pair a rightChoice) useBoth)
+      (.let₁ b (.let₁ (.op .receive .unit) useBoth)) :=
+  (let2_pair_eqv chosen.endpoints_wf.1 (rightChoiceEqv Δ).endpoints_wf.1 (useBothWf Δ)).trans
+    (.let1 chosen (.let1 (rightChoiceEqv _) (.refl (useBothWf Δ))))
+
+-- Either reply executes the left branch request, then the right operand's
+-- receive, then one request that consumes the two results.
+example : Eqv ΔLeft .unit bound (leftReply.specialize Γ productReply)
+    (.let₁ selectedLeft (.let₁ (.op .receive .unit) useBoth)) :=
+  pairReplyOrder (specializeLeft (body := .case (.var 0) branchLeft branchRight)
+    (.op le_rfl (.inr (.var 0 bot_le))) rfl)
+
+example : Eqv ΔRight .unit bound (rightReply.specialize Γ productReply)
+    (.let₁ (.op .send (.inr rightPayload)) (.let₁ (.op .receive .unit) useBoth)) :=
+  pairReplyOrder specializeRight
+
 end LetIterSharedReplyReflectionFixture
+
+namespace LetIterCaseRawWeakeningFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues (Profile)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyArguments
+  (CaseRaw instructionBound instructionBound_le packed_weaken_eq_iff_at packed_weaken_eq_iff_join)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyReflection
+  (call_request_inversion)
+
+set_option backward.isDefEq.respectTransparency false
+
+private abbrev T := Ty Unit
+private abbrev Eff := Bool × Bool × Bool × Bool
+private abbrev kept : Eff := (true, false, false, false)
+
+private inductive Instr
+  | read | write | unusedLeft | unusedRight
+
+private instance : HasTy Instr T := ⟨fun _ => .unit, fun _ => .unit⟩
+private instance : HasEff Instr Eff where
+  eff
+    | .read | .write => kept
+    | .unusedLeft => (false, true, false, false)
+    | .unusedRight => (false, false, true, false)
+
+local instance : EffectIteration Eff := EffectIteration.complete Eff
+
+private theorem visible (i : Instr) : ¬ IsPure (⊥ : Eff) i := by
+  change (instrEff i : Eff) ≠ ⊥
+  cases i <;> decide
+
+private def profile : Profile (α := Unit) Instr Eff := fun i h => (visible i h).elim
+
+private abbrev Γ : EffectCtx T Eff := []
+private theorem pureCtx : Γ.Pure := fun i => i.elim0
+private abbrev slots : Fin Γ.length → Unit := Fin.elim0
+private theorem slotTy : ∀ i : Fin Γ.length, (Γ.get i).1 = .base (slots i) := fun i => i.elim0
+
+private abbrev selected : Expr Instr := .let₁ (.op .read .unit) (.op .write .unit)
+
+private abbrev withUnused (i : Instr) : Expr Instr :=
+  .case (.inl .unit) selected (.op i .unit)
+
+private theorem selectedWf (Δ : EffectCtx T Eff) {e : Eff} (h : kept ≤ e) :
+    Wf Δ selected .unit e :=
+  .let₁ (.op h (.unit _ _)) (.op h (.unit _ _))
+
+private theorem withUnusedEqv (i : Instr) {e : Eff} (h : kept ≤ e) (h' : instrEff i ≤ e) :
+    Eqv Γ .unit e (withUnused i) selected := by
+  have tag : Wf Γ (.inl .unit : Expr Instr) (.coprod .unit .unit) e := .inl (.unit _ _)
+  have left := selectedWf ((.unit, ⊥) :: Γ) h
+  have right : Wf ((.unit, ⊥) :: Γ) (.op i .unit) .unit e := .op h' (.unit _ _)
+  exact (Eqv.step (.reduce (.case tag left right) (.let₁ (.unit _ _) left) (.case_inl _ _ _))).trans
+    (.step (.let1_beta (.unit _ _) left))
+
+private theorem emitRaw (Δ : EffectCtx T Eff) {e : Eff} (i : Instr) (h : instrEff i ≤ e) :
+    CaseRaw e Δ .unit (.op i .unit) :=
+  .call (visible i) h (.straight (.leaf (.unit _ _) .unit))
+
+private theorem topCode (i : Instr) : CaseRaw (⊤ : Eff) Γ .unit (withUnused i) :=
+  .branch (A := .unit) (B := .unit) (.straight (.leaf (.inl (.unit _ _)) (.inl .unit)))
+    (.bind (emitRaw _ .read le_top) (emitRaw _ .write le_top)) (emitRaw _ i le_top)
+
+private abbrev eLeft : Eff := instructionBound (withUnused Instr.unusedLeft)
+private abbrev eRight : Eff := instructionBound (withUnused Instr.unusedRight)
+private abbrev eBoth : Eff := eLeft ⊔ eRight
+
+private theorem leftRaw : CaseRaw eLeft Γ .unit (withUnused .unusedLeft) :=
+  (topCode .unusedLeft).at_bound_iff.mpr le_rfl
+
+private theorem rightRaw : CaseRaw eRight Γ .unit (withUnused .unusedRight) :=
+  (topCode .unusedRight).at_bound_iff.mpr le_rfl
+
+private abbrev leftTerm : TypedExpr Instr Γ .unit eLeft := ⟨_, leftRaw.wf⟩
+private abbrev rightTerm : TypedExpr Instr Γ .unit eRight := ⟨_, rightRaw.wf⟩
+private abbrev common : Hom Instr (packType Γ) .unit (⊤ : Eff) :=
+  weakenEffect le_top (denote rightTerm)
+
+-- The independently inferred bounds are incomparable. Their join is still below top.
+example : eLeft < eBoth ∧ eRight < eBoth ∧ eBoth < (⊤ : Eff) :=
+  ⟨lt_of_le_of_ne le_sup_left (fun h => Bool.noConfusion (congrArg (fun x => x.2.2.1) h)),
+   lt_of_le_of_ne le_sup_right (fun h => Bool.noConfusion (congrArg (fun x => x.2.1) h)),
+   lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg (fun x => x.2.2.2) h))⟩
+
+private theorem bothEqv : Eqv Γ .unit eBoth leftTerm.val rightTerm.val :=
+  (withUnusedEqv .unusedLeft (by decide) (by decide)).trans
+    (withUnusedEqv .unusedRight (by decide) (by decide)).symm
+
+private theorem commonEq : weakenEffect le_top (denote leftTerm) = common :=
+  (packed_weaken_eq_iff_join profile pureCtx slotTy leftTerm rightTerm leftRaw rightRaw le_top le_top).mpr bothEqv
+
+-- An endpoint presented directly at the larger bound still reflects at the lower join.
+example : Eqv Γ .unit eBoth leftTerm.val rightTerm.val := by
+  let leftHi : TypedExpr Instr Γ .unit (⊤ : Eff) := ⟨leftTerm.val, wf_weakenEffect leftTerm.prop le_top⟩
+  exact (packed_weaken_eq_iff_at profile pureCtx slotTy leftHi rightTerm
+    (leftRaw.weakenEffect le_sup_left) (rightRaw.weakenEffect le_sup_right) le_rfl le_top le_top).mp commonEq
+
+-- The right program's untaken instruction still contributes to source typing.
+-- Equality in the common hom cannot reflect to the left bound alone.
+example : ¬ Eqv Γ .unit eLeft leftTerm.val rightTerm.val := by
+  intro eq
+  exact (by decide : ¬ eRight ≤ eLeft) (instructionBound_le eq.endpoints_wf.2)
+
+example : ¬ Eqv Γ .unit eRight leftTerm.val rightTerm.val := by
+  intro eq
+  exact (by decide : ¬ eLeft ≤ eRight) (instructionBound_le eq.endpoints_wf.1)
+
+private abbrev reversed : Expr Instr := .let₁ (.op .write .unit) (.op .read .unit)
+private theorem reversedRaw : CaseRaw kept Γ .unit reversed :=
+  .bind (emitRaw _ .write le_rfl) (emitRaw _ .read le_rfl)
+private abbrev reverseTerm : TypedExpr Instr Γ .unit kept := ⟨_, reversedRaw.wf⟩
+
+-- Widening still distinguishes two visible requests executed in the wrong order.
+example : weakenEffect le_top (denote reverseTerm) ≠ common := by
+  intro eq
+  have low := (packed_weaken_eq_iff_join profile pureCtx slotTy reverseTerm rightTerm
+    reversedRaw rightRaw le_top le_top).mp eq
+  have order := low.trans (withUnusedEqv .unusedRight (by decide) (by decide))
+  have native := order.toLetIter
+    (rfl : reversed.toLetIter 0 = some (.let₁ (.op .write .unit) (.op .read .unit)))
+    (rfl : selected.toLetIter 0 = some (.let₁ (.op .read .unit) (.op .write .unit)))
+  obtain ⟨head, _⟩ := call_request_inversion profile pureCtx slotTy (e := kept ⊔ eRight)
+    (f := Instr.write) (g := Instr.read) (arg := .unit) (arg' := .unit)
+    (k := .op .read .unit) (l := .op .write .unit)
+    (visible _) (visible _) (.unit _ _) (.unit _ _) .unit .unit
+    (.op (by decide) (.unit _ _)) (.op (by decide) (.unit _ _)) rfl rfl native
+  cases head
+
+end LetIterCaseRawWeakeningFixture
+
+namespace LetIterRequestFeedbackFixture
+
+open Silmaril.Isotope.LetIter.LocallyNameless.RequestFeedback
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured
+open Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic (repairedDenoteInSyntax repairedDenoteInSyntax_eq_iff)
+
+set_option backward.isDefEq.respectTransparency false
+set_option backward.isDefEq.respectTransparency.types false
+
+private abbrev T := Ty Unit
+private abbrev A : T := .base ()
+private abbrev Eff := Bool × Bool
+private abbrev strict : Eff := (true, false)
+
+private instance : HasTy Unit T := ⟨fun _ => A, fun _ => .coprod A A⟩
+local instance : HasEff Unit Eff := ⟨fun _ => strict⟩
+local instance : EffectIteration Eff := EffectIteration.complete Eff
+
+private abbrev β : BoundCtx T 1 := .snoc .nil A
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty T)
+private abbrev start : Tm Empty Unit 1 := .bv 0
+
+private theorem typedNormalization :
+    HasTypeEffect Γ₀ β (padded () start) A strict ∧
+    HasTypeEffect Γ₀ β (loop () start) A strict ∧
+      Equiv (⊥ : Eff) Γ₀ β (padded () start) (loop () start) A :=
+  remove_unit_at_bound rfl .bv (.iter rfl bot_le (sup_le le_rfl bot_le))
+
+example : strict < (⊤ : Eff) :=
+  lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+private def thinDerivation : Derivation Unit Γ₀ β (loop () start) A :=
+  .iter .bv (.op .bv)
+
+private def paddedDerivation : Derivation Unit Γ₀ β (padded () start) A :=
+  .iter (.let₁ .bv (.pair .bv .unit)) (.case (.op (.let₂ .bv .bv)) (.inl .bv) (.inr (.pair .bv .unit)))
+
+example : repairedDenoteInSyntax (⊥ : Eff) paddedDerivation =
+    repairedDenoteInSyntax (⊥ : Eff) thinDerivation :=
+  (repairedDenoteInSyntax_eq_iff (⊥ : Eff) paddedDerivation thinDerivation).mpr (.equiv typedNormalization.2.2)
+
+private abbrev V (_ : Unit) : Type := Bool
+private abbrev D := Ty.denote (Lifted V)
+private abbrev E := Event (Φ := Unit) V
+
+private theorem visible : ¬ IsPure (⊥ : Eff) () := by
+  change strict ≠ (⊥ : Eff)
+  decide
+
+private def noPure : PureMaps (Φ := Unit) (ε := Eff) V :=
+  fun i h => by
+    cases i
+    exact (visible h).elim
+
+private def env (state : D A) : BoundEnv D β :=
+  BoundEnv.snoc (fun i => Fin.elim0 i) state
+
+private def step (state : D A) : ITree.Tree E (D A ⊕ D A) :=
+  ITree.vis (.call () state.down) (fun reply => ITree.ret ((toSmall V (.coprod A A)).symm reply))
+
+private noncomputable def run (state : D A) : ITree.Tree E (D A) :=
+  Silmaril.Elgot.iter step state
+
+private theorem denote_thin (state : D A) :
+    thinDerivation.denote D (instructions V noPure) (fun x => x.elim) (env state) = run state := by
+  unfold thinDerivation
+  erw [Derivation.denote]
+  simp only [Derivation.denote, pure_bind, env, BoundEnv.snoc_zero, run]
+  congr 1
+  funext input
+  change ((instructions V noPure).eval () input >>= fun reply => pure reply) = step input
+  rw [eval_bind_of_not_pure V noPure visible]
+  rfl
+
+private theorem run_unfold (state : D A) :
+    run state = ITree.vis (.call () state.down)
+      (Sum.elim (fun output => ITree.ret ⟨output⟩) (fun next => run ⟨next⟩)) := by
+  unfold run
+  nth_rw 1 [congrFun (ITree.iterate_fixpoint step) state]
+  change (ITree.vis _ _ >>= _) = _
+  rw [ITree.vis_bind]
+  congr 1
+  funext reply
+  cases reply <;> erw [pure_bind] <;> rfl
+
+-- Repaired soundness transfers the same response-indexed observation to the padded loop.
+example (state : D A) :
+    paddedDerivation.denote D (instructions V noPure) (fun x => x.elim) (env state) =
+      ITree.vis (.call () state.down)
+        (Sum.elim (fun output => ITree.ret ⟨output⟩) (fun next => run ⟨next⟩)) := by
+  rw [sound V noPure (.equiv typedNormalization.2.2) paddedDerivation thinDerivation (env state),
+    denote_thin, run_unfold]
+
+-- Choosing different repeat replies changes the very next request argument.
+example : headRequest V (run ⟨false⟩) ≠ headRequest V (run ⟨true⟩) := by
+  rw [run_unfold ⟨false⟩, run_unfold ⟨true⟩, head_of_vis, head_of_vis]
+  intro h
+  have heads := Part.some_injective h
+  cases heads
+
+example (state : D A) (d : Nat) :
+    ¬ ITree.VisibleDepthLE
+      (thinDerivation.denote D (instructions V noPure) (fun x => x.elim) (env state)) d := by
+  rw [denote_thin]
+  intro depth
+  have longer := ITree.hasVisiblePrefix_iter step
+    (fun s => ⟨Bool ⊕ Bool, .call () s.down, _, .inr (!s.down), ⟨!s.down⟩, rfl, rfl⟩)
+    (d + 1) state
+  exact Nat.not_succ_le_self d (depth _ longer)
+
+end LetIterRequestFeedbackFixture
+
+namespace LetIterObservedFeedbackFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback
+open Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic
+  (repairedDenoteInSyntax repairedDenoteInSyntax_eq_iff)
+
+set_option backward.isDefEq.respectTransparency false
+set_option backward.isDefEq.respectTransparency.types false
+
+private abbrev U : Ty Unit := .unit
+private abbrev Bit : Ty Unit := .coprod U U
+private abbrev Eff := Bool × Bool
+private abbrev strict : Eff := (true, false)
+
+local instance : HasTy Unit (Ty Unit) := ⟨fun _ => Bit, fun _ => Bit⟩
+local instance : HasEff Unit Eff := ⟨fun _ => strict⟩
+local instance : EffectIteration Eff := EffectIteration.complete Eff
+
+private abbrev V (_ : Unit) : Type := Unit
+private abbrev D := Ty.denote (Lifted V)
+
+private def code (right : Bool) : D Bit :=
+  if right then .inr PUnit.unit else .inl PUnit.unit
+private def embed (_ : D U) : D Bit := code false
+
+private def leftTable : Machine V () (D U) (D U) :=
+  ⟨fun s => toSmall V Bit (embed s), fun _ r => (toSmall V Bit).symm r⟩
+
+private def rightTable (right : Bool) : Machine V () (D Bit) (D U) :=
+  ⟨toSmall V Bit, fun _ r => match (toSmall V Bit).symm r with
+    | .inl v => .inl v
+    | .inr _ => .inr (code right)⟩
+
+private theorem right_commutes : Commutes leftTable (rightTable false) embed := by
+  intro s
+  refine ⟨rfl, fun r => ?_⟩
+  cases r <;> rfl
+
+private theorem repeat_code_of_observation {b : Bool}
+    (obs : leftTable.run PUnit.unit = (rightTable b).run (code false)) : b = false := by
+  have reaches (s : D U) : leftTable.Reaches PUnit.unit s := by
+    cases s
+    exact .initial
+  obtain ⟨_, commute, initial⟩ :=
+    exists_commutes_of_initial (toSmall V Bit).injective reaches obs
+  have step := (commute PUnit.unit).2 (.inr PUnit.unit)
+  have next : code false = code b := initial.symm.trans (Sum.inr.inj step)
+  cases b with
+  | false => rfl
+  | true => cases next
+
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty (Ty Unit))
+private abbrev Γ : EffectCtx (Ty Unit) Eff := []
+private abbrev Δ : EffectCtx (Ty Unit) Eff := [(U, ⊥)]
+
+private abbrev bit (b : Bool) : Expr Unit := if b then .inr .unit else .inl .unit
+private abbrev nativeBit {n : Nat} (b : Bool) : Tm Empty Unit n :=
+  if b then .inr .unit else .inl .unit
+private abbrev nativeEmbed : Tm Empty Unit 1 := .inl .unit
+private abbrev bodyL : Tm Empty Unit 1 := .op () (.inl .unit)
+private abbrev bodyR (b : Bool) : Tm Empty Unit 1 :=
+  .case (.op () (.let₁ (.bv 0) (.bv 0))) (.inl (.bv 0)) (.inr (nativeBit b))
+
+private abbrev loopL : Tm Empty Unit 0 := .iter .unit bodyL
+private abbrev loopR (b : Bool) : Tm Empty Unit 0 :=
+  .iter (.let₁ .unit nativeEmbed) (bodyR b)
+
+private def bitDeriv {n : Nat} {β : BoundCtx (Ty Unit) n} (b : Bool) :
+    Derivation Unit Γ₀ β (nativeBit b) Bit := by
+  cases b
+  · exact .inl .unit
+  · exact .inr .unit
+
+private def leftDeriv : Derivation Unit Γ₀ .nil loopL U :=
+  .iter .unit (.op (.inl .unit))
+
+private def rightDeriv (b : Bool) : Derivation Unit Γ₀ .nil (loopR b) U :=
+  .iter (.let₁ .unit (.inl .unit)) (.case (.op (.let₁ .bv .bv)) (.inl .bv) (.inr (bitDeriv b)))
+
+private theorem leftTyped : HasTypeEffect Γ₀ .nil loopL U strict :=
+  ⟨leftDeriv.toHasType, .iter rfl bot_le (sup_le le_rfl bot_le)⟩
+
+private theorem rightTyped (b : Bool) : HasTypeEffect Γ₀ .nil (loopR b) U strict := by
+  refine ⟨(rightDeriv b).toHasType, ?_⟩
+  cases b <;> exact .iter rfl (sup_le bot_le bot_le)
+    (sup_le (sup_le le_rfl (sup_le bot_le bot_le)) (sup_le bot_le bot_le))
+
+private theorem visible : ¬ IsPure (⊥ : Eff) () := by
+  change strict ≠ ⊥
+  decide
+
+private def noPure : PureMaps (Φ := Unit) (ε := Eff) V := fun i h => by
+  cases i
+  exact (visible h).elim
+
+private noncomputable def obsL : ITree.Tree (Event (Φ := Unit) V) (D U) :=
+  leftDeriv.denote D (instructions V noPure) (fun x => x.elim) (fun i => i.elim0)
+
+private noncomputable def obsR (b : Bool) : ITree.Tree (Event (Φ := Unit) V) (D U) :=
+  (rightDeriv b).denote D (instructions V noPure) (fun x => x.elim) (fun i => i.elim0)
+
+private theorem observe_left : obsL = leftTable.run PUnit.unit := by
+  unfold obsL leftDeriv
+  erw [Derivation.denote]
+  simp only [Derivation.denote, pure_bind, Machine.run]
+  congr 1
+  funext state
+  change ((instructions V noPure).eval () (code false) >>= fun r => pure r) = leftTable.step state
+  rw [eval_bind_of_not_pure V noPure visible]
+  rfl
+
+private theorem denote_bit {n : Nat} {β : BoundCtx (Ty Unit) n} (b : Bool)
+    (γ : FreeEnv D Γ₀) (ρ : BoundEnv D β) :
+    (bitDeriv b).denote D (instructions V noPure) γ ρ = pure (code b) := by
+  cases b <;> simp [bitDeriv, Derivation.denote, code] <;> rfl
+
+private theorem observe_right (b : Bool) : obsR b = (rightTable b).run (code false) := by
+  unfold obsR rightDeriv
+  erw [Derivation.denote]
+  simp only [Derivation.denote, pure_bind, BoundEnv.snoc_zero, Machine.run]
+  change Silmaril.Elgot.iter _ (code false) = Silmaril.Elgot.iter _ (code false)
+  congr 1
+  funext state
+  rw [eval_bind_of_not_pure V noPure visible, ITree.vis_bind]
+  change ITree.vis _ _ = (rightTable b).step state
+  unfold Machine.step
+  congr 1
+  funext r
+  cases r with
+  | inl v =>
+      change (ITree.ret (E := Event (Φ := Unit) V) (Sum.inl PUnit.unit : D U ⊕ D Bit) >>= pure) = _
+      rw [show ITree.ret (E := Event (Φ := Unit) V) (Sum.inl PUnit.unit : D U ⊕ D Bit) =
+        pure (Sum.inl PUnit.unit : D U ⊕ D Bit) from rfl, pure_bind]
+      rfl
+  | inr v =>
+      let emptyEnv : BoundEnv D (.nil : BoundCtx (Ty Unit) 0) := fun i => i.elim0
+      let ρ : BoundEnv D ((BoundCtx.nil.snoc Bit).snoc U) := (emptyEnv.snoc state).snoc PUnit.unit
+      change (((bitDeriv b).denote D (instructions V noPure) (fun x => x.elim) ρ >>=
+        fun next => pure (Sum.inr next : D U ⊕ D Bit)) >>= pure) = ITree.ret (Sum.inr (code b))
+      rw [denote_bit, pure_bind, pure_bind]
+      rfl
+
+private abbrev squareL : Expr Unit :=
+  .case (.op () (.inl .unit)) (.inl (.var 0)) (.inr (.inl .unit))
+
+private abbrev squareR (b : Bool) : Expr Unit :=
+  .case (.op () (.let₁ (.inl .unit) (.var 0))) (.inl (.var 0)) (.inr (bit b))
+
+private theorem written_square {b : Bool} (observed : obsL = obsR b) :
+    Eqv Δ (.coprod U Bit) strict squareL (squareR b) := by
+  have sameState := repeat_code_of_observation (observe_left.symm.trans (observed.trans (observe_right b)))
+  subst b
+  have initial : Wf Δ (.inl .unit : Expr Unit) Bit (⊥ : Eff) := .inl (.unit _ _)
+  have value : Wf ((Bit, ⊥) :: Δ) (.var 0 : Expr Unit) Bit strict := .var 0 bot_le
+  have beta : Eqv Δ Bit strict (.let₁ (.inl .unit) (.var 0)) (.inl .unit) :=
+    .step (.let1_beta initial value)
+  exact .case (.op le_rfl beta.symm) (.refl (.inl (.var 0 bot_le))) (.refl (.inr (.inl (.unit _ _))))
+
+private theorem native_reflection {b : Bool} (observed : obsL = obsR b) :
+    AbortEquiv (⊥ : Eff) Γ₀ .nil loopL (loopR b) U := by
+  apply replay_written_square (Γ := Γ) (A := U) (A' := Bit) (C := U)
+    (a := .unit) (h := nativeEmbed) (b := bodyL) (b' := bodyR b)
+    .unit (.inl .unit) (.inl .unit) (.op (.inl .unit))
+    (.case (.op (.let₁ .bv .bv)) (.inl .bv) (.inr (bitDeriv b).toHasType)) rfl ?_ (written_square observed)
+  cases b <;> rfl
+
+-- Matching weak observations reflect to the native equation at strict on
+-- both sides. The independently written step terms are compared by beta.
+example {b : Bool} (observed : obsL = obsR b) :
+    HasTypeEffect Γ₀ .nil loopL U strict ∧ HasTypeEffect Γ₀ .nil (loopR b) U strict ∧
+      repairedDenoteInSyntax (⊥ : Eff) leftDeriv = repairedDenoteInSyntax (⊥ : Eff) (rightDeriv b) :=
+  ⟨leftTyped, rightTyped b, (repairedDenoteInSyntax_eq_iff (⊥ : Eff) _ _).mpr (native_reflection observed)⟩
+
+example : obsL = obsR false :=
+  observe_left.trans ((runs_eq right_commutes PUnit.unit).trans (observe_right false).symm)
+
+example : obsL ≠ obsR true := fun eq =>
+  Bool.noConfusion (repeat_code_of_observation (observe_left.symm.trans (eq.trans (observe_right true))))
+
+example {b : Bool} :
+    repairedDenoteInSyntax (⊥ : Eff) leftDeriv = repairedDenoteInSyntax (⊥ : Eff) (rightDeriv b)
+      ↔ b = false := by
+  refine ⟨fun packed => ?_, fun h => ?_⟩
+  · have native := (repairedDenoteInSyntax_eq_iff (⊥ : Eff) leftDeriv (rightDeriv b)).mp packed
+    have eq : obsL = obsR b := sound V noPure native leftDeriv (rightDeriv b) (fun i => i.elim0)
+    exact repeat_code_of_observation (observe_left.symm.trans (eq.trans (observe_right b)))
+  · subst b
+    have eq := observe_left.trans ((runs_eq right_commutes PUnit.unit).trans (observe_right false).symm)
+    exact (repairedDenoteInSyntax_eq_iff (⊥ : Eff) leftDeriv _).mpr (native_reflection eq)
+
+example : strict < (⊤ : Eff) :=
+  lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+-- The behavior at the unreachable right-tag state can differ even when the
+-- same initial observations agree. This defeats a global uniformity map.
+private def extraReturn : Machine V () (D Bit) (D U) :=
+  ⟨toSmall V Bit, fun s r => match s with
+    | .inl _ => (rightTable false).reply s r
+    | .inr _ => .inl PUnit.unit⟩
+
+example : extraReturn.run (code false) = (rightTable false).run (code false) ∧
+    ¬ ∃ h, Commutes extraReturn (rightTable false) h := by
+  have commuteLeft : Commutes leftTable extraReturn embed := by
+    intro s
+    refine ⟨rfl, fun r => ?_⟩
+    cases r <;> rfl
+  refine ⟨(runs_eq commuteLeft PUnit.unit).symm.trans (runs_eq right_commutes PUnit.unit), ?_⟩
+  rintro ⟨h, comm⟩
+  have forced : code true = h (code true) := (toSmall V Bit).injective (comm (code true)).1
+  have wrongReply := (comm (code true)).2 (.inr PUnit.unit)
+  rw [← forced] at wrongReply
+  cases wrongReply
+
+end LetIterObservedFeedbackFixture
+
+namespace LetIterFiniteFeedbackReplayFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured
+  (PureMaps)
+open Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic
+  (repairedDenoteInSyntax repairedDenoteInSyntax_eq_iff)
+
+private abbrev Bit := Code.sum .unit .unit
+private abbrev Three := Code.sum Bit .unit
+private abbrev Ops := Opcode Three Bit
+private abbrev Eff := Bool × Bool
+private abbrev strict : Eff := (true, false)
+
+local instance : HasEff Ops Eff := ⟨fun _ => strict⟩
+local instance : EffectIteration Eff := EffectIteration.complete Eff
+
+private abbrev off : Bit.Value := .inl PUnit.unit
+private abbrev on : Bit.Value := .inr PUnit.unit
+
+private def encode (s : Bit.Value) : Three.Value := .inl s
+
+private def toggle (s : Bit.Value) : Bit.Value :=
+  match s with
+  | .inl _ => on
+  | .inr _ => off
+
+private def rightNext (t : Three.Value) : Three.Value :=
+  match t with
+  | .inl s => .inl (toggle s)
+  | .inr _ => .inr PUnit.unit
+
+private def left : Table Three Bit Bit .unit where
+  request := encode
+  reply s
+    | .inl _ => .inl PUnit.unit
+    | .inr _ => .inr (toggle s)
+
+private def right : Table Three Bit Three .unit where
+  request := id
+  reply t
+    | .inl _ => .inl PUnit.unit
+    | .inr _ => .inr (rightNext t)
+
+private theorem commute : Commutes left right encode := by
+  intro s
+  refine ⟨rfl, ?_⟩
+  intro r
+  cases r <;> rfl
+
+private theorem allReach (s : Bit.Value) : left.Reaches off s := by
+  cases s with
+  | inl u =>
+      cases u
+      exact .initial
+  | inr u =>
+      cases u
+      exact .after_reply .initial on rfl
+
+private theorem initialObs : left.run off = right.run (encode off) :=
+  runs_eq commute off
+
+-- The recovered map distinguishes two live states. Neither state is a dead row.
+example : ∃ h, Commutes left right h ∧ h off ≠ h on ∧
+    ∀ s, Eqv ([] : EffectCtx (Ty Unit) Eff) Three.ty strict
+      ((stateMap Bit Three h : Expr Ops).subst (Bit.literal s).subst0) (Three.literal (encode s)) := by
+  obtain ⟨h, square, _⟩ := exists_commutes_of_initial (fun _ _ eq => eq) allReach initialObs
+  have table (s : Bit.Value) : h s = encode s := (square s).1.symm
+  refine ⟨h, square, ?_, fun s => ?_⟩
+  · rw [table off, table on]
+    intro eq
+    cases Sum.inl.inj eq
+  · rw [← table s]
+    exact stateMap_readback h s
+
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty (Ty Unit))
+
+private theorem ask_visible : ¬ IsPure (⊥ : Eff) (Opcode.ask : Ops) := by
+  change strict ≠ (⊥ : Eff)
+  decide
+
+private def noPure : PureMaps (Φ := Ops) (ε := Eff) carriers := by
+  intro f h
+  cases f
+  exact (ask_visible h).elim
+
+-- Repeat toggles the two live states in each renderer. The full weak
+-- observations of the actual lowered loops replay at the strict bound.
+example :
+    ∃ (a a' : Tm Empty Ops 0) (b b' : Tm Empty Ops 1)
+      (da : Derivation Ops Γ₀ .nil a Bit.ty)
+      (db : Derivation Ops Γ₀ (.snoc .nil Bit.ty) b (Code.sum .unit Bit).ty)
+      (da' : Derivation Ops Γ₀ .nil a' Three.ty)
+      (db' : Derivation Ops Γ₀ (.snoc .nil Three.ty) b' (Code.sum .unit Three).ty),
+      (Bit.literal off).toLetIter 0 = some a ∧
+      (Three.literal (encode off)).toLetIter 0 = some a' ∧
+      left.source.toLetIter 1 = some b ∧ right.source.toLetIter 1 = some b' ∧
+      HasTypeEffect Γ₀ .nil (.iter a b) Ty.unit strict ∧
+      HasTypeEffect Γ₀ .nil (.iter a' b') Ty.unit strict ∧
+      repairedDenoteInSyntax (⊥ : Eff) (da.iter db) = repairedDenoteInSyntax (⊥ : Eff) (da'.iter db') ∧
+      AbortEquiv (⊥ : Eff) Γ₀ .nil (.iter a b) (.iter a' b') Ty.unit := by
+  obtain ⟨a, ha, ta⟩ := (Bit.literal_wf (Q := Three) (K := Bit) (e := strict) off []).toLetIter
+  obtain ⟨a', ha', ta'⟩ := (Three.literal_wf (Q := Three) (K := Bit) (e := strict) (encode off) []).toLetIter
+  obtain ⟨b, hb, tb⟩ := (left.step_wf (e := strict) le_rfl).toLetIter
+  obtain ⟨b', hb', tb'⟩ := (right.step_wf (e := strict) le_rfl).toLetIter
+  obtain ⟨da⟩ := Derivation.ofHasType ta.1
+  obtain ⟨db⟩ := Derivation.ofHasType tb.1
+  obtain ⟨da'⟩ := Derivation.ofHasType ta'.1
+  obtain ⟨db'⟩ := Derivation.ofHasType tb'.1
+  have observed := native_denote_eq_iff ha hb ha' hb' da db da' db' noPure ask_visible
+    (e := strict) le_rfl
+  have actual := observed.mpr initialObs
+  have packed := (packed_eq_iff_native_denote_eq ha hb ha' hb' da db da' db' noPure ask_visible
+    (e := strict) le_rfl rfl (fun _ _ eq => eq) allReach).mpr actual
+  have again := run_eq_of_packed_eq ha hb ha' hb' da db da' db' noPure ask_visible (e := strict) le_rfl packed
+  obtain ⟨a₀, a₁, b₀, b₁, ha₀, ha₁, hb₀, hb₁, _, _, replayed⟩ :=
+    replay (fun _ _ eq => eq) allReach again (e := strict) le_rfl rfl
+  have ea := Option.some.inj (ha₀.symm.trans ha)
+  have ea' := Option.some.inj (ha₁.symm.trans ha')
+  have eb := Option.some.inj (hb₀.symm.trans hb)
+  have eb' := Option.some.inj (hb₁.symm.trans hb')
+  subst a₀ a₁ b₀ b₁
+  exact ⟨a, a', b, b', da, db, da', db', ha, ha', hb, hb',
+    loop_typed left off (e := strict) le_rfl rfl ha hb,
+    loop_typed right (encode off) (e := strict) le_rfl rfl ha' hb', packed, replayed⟩
+
+example : strict < (⊤ : Eff) :=
+  lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+private abbrev first : Three.Value := .inl off
+private abbrev second : Three.Value := .inl on
+private abbrev third : Three.Value := .inr PUnit.unit
+
+private def rotate : Three.Value → Three.Value
+  | .inl (.inl _) => second
+  | .inl (.inr _) => third
+  | .inr _ => first
+
+private def flatLeft : Table Three Bit Bit .unit :=
+  ⟨fun _ => first, fun s r => match r with
+    | .inl _ => .inl PUnit.unit
+    | .inr _ => .inr (toggle s)⟩
+
+private def flatRight : Table Three Bit Three .unit :=
+  ⟨fun _ => first, fun s r => match r with
+    | .inl _ => .inl PUnit.unit
+    | .inr _ => .inr (rotate s)⟩
+
+private def flatOne : Table Three Bit .unit .unit :=
+  ⟨fun _ => first, fun _ r => match r with
+    | .inl _ => .inl PUnit.unit
+    | .inr _ => .inr PUnit.unit⟩
+
+private theorem flatObs : flatLeft.run off = flatRight.run first := by
+  have lhs : Commutes flatLeft flatOne (fun _ => PUnit.unit) := fun _ =>
+    ⟨rfl, fun r => by cases r <;> rfl⟩
+  have rhs : Commutes flatRight flatOne (fun _ => PUnit.unit) := fun _ =>
+    ⟨rfl, fun r => by cases r <;> rfl⟩
+  exact (runs_eq lhs off).trans (runs_eq rhs first).symm
+
+-- Neither projection can be replaced by a map directly between the tables:
+-- every repeat advances a two-cycle on the left and a three-cycle on the right.
+example : ¬ (∃ h, Commutes flatLeft flatRight h) ∧ ¬ (∃ h, Commutes flatRight flatLeft h) := by
+  constructor
+  · rintro ⟨h, square⟩
+    have next (s : Bit.Value) : h (toggle s) = rotate (h s) := Sum.inr.inj ((square s).2 on)
+    have twice : h off = rotate (rotate (h off)) := (next on).trans (congrArg rotate (next off))
+    cases eq : h off with
+    | inl b => cases b <;> rw [eq] at twice <;> cases twice
+    | inr _ =>
+        rw [eq] at twice
+        cases twice
+  · rintro ⟨h, square⟩
+    have next (s : Three.Value) : h (rotate s) = toggle (h s) := Sum.inr.inj ((square s).2 on)
+    have thrice : h first = toggle (toggle (toggle (h first))) :=
+      (next third).trans (congrArg toggle ((next second).trans (congrArg toggle (next first))))
+    cases eq : h first <;> simp [eq, toggle] at thrice
+
+example : ¬ Function.Injective flatRight.request := by
+  intro injective
+  have same : first = third := injective rfl
+  cases same
+
+-- The actual lowered native loops have equal weak observations and replay
+-- through the synchronized reachable pairs at the original strict bound.
+example :
+    ∃ (a a' : Tm Empty Ops 0) (b b' : Tm Empty Ops 1)
+      (da : Derivation Ops Γ₀ .nil a Bit.ty)
+      (db : Derivation Ops Γ₀ (.snoc .nil Bit.ty) b (Code.sum .unit Bit).ty)
+      (da' : Derivation Ops Γ₀ .nil a' Three.ty)
+      (db' : Derivation Ops Γ₀ (.snoc .nil Three.ty) b' (Code.sum .unit Three).ty),
+      (Bit.literal off).toLetIter 0 = some a ∧ (Three.literal first).toLetIter 0 = some a' ∧
+      flatLeft.source.toLetIter 1 = some b ∧ flatRight.source.toLetIter 1 = some b' ∧
+      HasTypeEffect Γ₀ .nil (.iter a b) Ty.unit strict ∧ HasTypeEffect Γ₀ .nil (.iter a' b') Ty.unit strict ∧
+      repairedDenoteInSyntax (⊥ : Eff) (da.iter db) = repairedDenoteInSyntax (⊥ : Eff) (da'.iter db') ∧
+      AbortEquiv (⊥ : Eff) Γ₀ .nil (.iter a b) (.iter a' b') Ty.unit := by
+  obtain ⟨a, ha, ta⟩ := (Bit.literal_wf (Q := Three) (K := Bit) (e := strict) off []).toLetIter
+  obtain ⟨a', ha', ta'⟩ := (Three.literal_wf (Q := Three) (K := Bit) (e := strict) first []).toLetIter
+  obtain ⟨b, hb, tb⟩ := (flatLeft.step_wf (e := strict) le_rfl).toLetIter
+  obtain ⟨b', hb', tb'⟩ := (flatRight.step_wf (e := strict) le_rfl).toLetIter
+  obtain ⟨da⟩ := Derivation.ofHasType ta.1
+  obtain ⟨db⟩ := Derivation.ofHasType tb.1
+  obtain ⟨da'⟩ := Derivation.ofHasType ta'.1
+  obtain ⟨db'⟩ := Derivation.ofHasType tb'.1
+  have actual := (native_denote_eq_iff ha hb ha' hb' da db da' db' noPure ask_visible (e := strict) le_rfl).mpr flatObs
+  have packed := (packed_eq_iff_rendered_denote_eq ha hb ha' hb' da db da' db' noPure ask_visible
+    (e := strict) le_rfl rfl).mpr actual
+  exact ⟨a, a', b, b', da, db, da', db', ha, ha', hb, hb',
+    .iter (by rfl) ta tb, .iter (by rfl) ta' tb', packed,
+    (repairedDenoteInSyntax_eq_iff (⊥ : Eff) _ _).mp packed⟩
+
+end LetIterFiniteFeedbackReplayFixture
+
+namespace LetIterHeterogeneousFeedbackFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured (PureMaps)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite (Code carriers literal_wf)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Heterogeneous
+open Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic
+  (repairedDenoteInSyntax repairedDenoteInSyntax_eq_iff)
+
+private abbrev Bit := Code.sum .unit .unit
+private abbrev LS := Code.sum Bit .unit
+private abbrev RS := Code.sum .unit Bit
+private abbrev off : Bit.Value := .inl PUnit.unit
+private abbrev on : Bit.Value := .inr PUnit.unit
+
+private def family : Family 2 where
+  argument := Fin.cases .unit (fun _ => Bit)
+  reply := Fin.cases Bit (fun _ => .unit)
+
+private abbrev Ops := Opcode family
+private abbrev read : Ops := ⟨0⟩
+private abbrev notify : Ops := ⟨1⟩
+private abbrev Fx := Bool × Bool
+private abbrev strict : Fx := (true, false)
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty (Ty Unit))
+
+local instance : HasEff Ops Fx := ⟨fun _ => strict⟩
+local instance : EffectIteration Fx := EffectIteration.complete Fx
+
+private theorem visible (f : Ops) : ¬ IsPure (⊥ : Fx) f := by
+  change strict ≠ (⊥ : Fx)
+  decide
+
+private def noPure : PureMaps (Φ := Ops) (ε := Fx) carriers :=
+  fun f h => (visible f h).elim
+
+private def encode : LS.Value → RS.Value
+  | .inl (.inl _) => .inl PUnit.unit
+  | .inl (.inr _) => .inr off
+  | .inr _ => .inr on
+
+private def left : Table family LS .unit
+  | .inl (.inl _) => .call read PUnit.unit (fun
+      | .inl _ => .inl PUnit.unit
+      | .inr _ => .inr (.inl on))
+  | .inl (.inr _) => .call notify on (fun _ => .inr (.inr PUnit.unit))
+  | .inr _ => .ret PUnit.unit
+
+private def right : Table family RS .unit
+  | .inl _ => .call read PUnit.unit (fun
+      | .inl _ => .inl PUnit.unit
+      | .inr _ => .inr (.inr off))
+  | .inr (.inl _) => .call notify on (fun _ => .inr (.inr on))
+  | .inr (.inr _) => .ret PUnit.unit
+
+private theorem commute : Commutes left right encode := by
+  intro s
+  cases s with
+  | inl b =>
+    cases b with
+    | inl _ =>
+      apply congrArg (Row.call read PUnit.unit)
+      funext r
+      cases r <;> rfl
+    | inr _ => rfl
+  | inr _ => rfl
+
+private theorem aligned : ReplyAligned left right (.inl off) (.inl PUnit.unit) := by
+  intro s t _ f x k j l r reply
+  rcases s with (a | a)
+  · cases a <;> cases l <;> rcases t with (b | b)
+    all_goals cases b
+    all_goals cases r
+    all_goals cases reply <;> rfl
+  · cases l
+
+-- The high reply to read takes the notify path, whose unit reply then
+-- selects an immediate-return state. The two calls have different profiles.
+example : PairedReach left right (.inl off) (.inl PUnit.unit) (.inr PUnit.unit, .inr on) := by
+  refine PairedReach.after_reply (L := left) (R := right) (s := (Sum.inl on : LS.Value))
+    (t := (Sum.inr off : RS.Value)) ?_ notify on PUnit.unit
+    (fun _ => .inr (.inr PUnit.unit)) (fun _ => .inr (.inr on)) rfl rfl rfl rfl
+  exact .after_reply .initial read PUnit.unit on _ _ rfl rfl rfl rfl
+
+example :
+    ∃ (a a' : Tm Empty Ops 0) (b b' : Tm Empty Ops 1)
+      (da : Derivation Ops Γ₀ .nil a LS.ty)
+      (db : Derivation Ops Γ₀ (.snoc .nil LS.ty) b (Code.sum .unit LS).ty)
+      (da' : Derivation Ops Γ₀ .nil a' RS.ty)
+      (db' : Derivation Ops Γ₀ (.snoc .nil RS.ty) b' (Code.sum .unit RS).ty),
+      (LS.literal (.inl off)).toLetIter 0 = some a ∧ (RS.literal (.inl PUnit.unit)).toLetIter 0 = some a' ∧
+      left.source.toLetIter 1 = some b ∧ right.source.toLetIter 1 = some b' ∧
+      HasTypeEffect Γ₀ .nil (.iter a b) Ty.unit strict ∧
+      HasTypeEffect Γ₀ .nil (.iter a' b') Ty.unit strict ∧
+      repairedDenoteInSyntax (⊥ : Fx) (da.iter db) = repairedDenoteInSyntax (⊥ : Fx) (da'.iter db') ∧
+      AbortEquiv (⊥ : Fx) Γ₀ .nil (.iter a b) (.iter a' b') Ty.unit := by
+  have hf (f : Ops) : instrEff f ≤ strict := le_rfl
+  have wl : Wf ([] : EffectCtx (Ty Unit) Fx) (LS.literal (.inl off) : Expr Ops) LS.ty strict :=
+    literal_wf _ _
+  have wr : Wf ([] : EffectCtx (Ty Unit) Fx) (RS.literal (.inl PUnit.unit) : Expr Ops) RS.ty strict :=
+    literal_wf _ _
+  obtain ⟨a, ha, ta⟩ := wl.toLetIter
+  obtain ⟨a', ha', ta'⟩ := wr.toLetIter
+  obtain ⟨b, hb, tb⟩ := (Table.step_wf left hf).toLetIter
+  obtain ⟨b', hb', tb'⟩ := (Table.step_wf right hf).toLetIter
+  obtain ⟨da⟩ := Derivation.ofHasType ta.1
+  obtain ⟨db⟩ := Derivation.ofHasType tb.1
+  obtain ⟨da'⟩ := Derivation.ofHasType ta'.1
+  obtain ⟨db'⟩ := Derivation.ofHasType tb'.1
+  have observed := runs_eq commute (.inl off)
+  have actual := (loop_denote noPure visible left hf (.inl off) ha hb da db).trans
+    (observed.trans (loop_denote noPure visible right hf (.inl PUnit.unit) ha' hb' da' db').symm)
+  have packed := (packed_eq_iff_rendered_denote_eq ha hb ha' hb' da db da' db' noPure visible
+    aligned hf (by rfl)).mpr actual
+  exact ⟨a, a', b, b', da, db, da', db', ha, ha', hb, hb', .iter (by rfl) ta tb, .iter (by rfl) ta' tb',
+    packed, (repairedDenoteInSyntax_eq_iff (⊥ : Fx) _ _).mp packed⟩
+
+private def direct : Table family .unit .unit :=
+  fun _ => .call read PUnit.unit (fun _ => .inl PUnit.unit)
+
+private def delayed : Table family Bit .unit
+  | .inl _ => .call read PUnit.unit (fun _ => .inr on)
+  | .inr _ => .ret PUnit.unit
+
+-- Weak observations forget the distinction between these two reply modes.
+example : direct.run PUnit.unit = delayed.run off ∧ ¬ Nonempty (Cover direct delayed PUnit.unit off) := by
+  constructor
+  · have l := Table.run_unfold direct (PUnit.unit : Code.Value .unit)
+    have r := Table.run_unfold delayed off
+    have done := Table.run_unfold delayed on
+    refine l.trans (Eq.trans ?_ r.symm)
+    change ITree.vis _ (fun _ => ITree.ret _) = ITree.vis _ (fun _ => delayed.run on)
+    rw [done]
+    rfl
+  · rintro ⟨cover⟩
+    have conflict := cover.aligned PairedReach.initial (f := read) (x := PUnit.unit) rfl rfl off
+    cases conflict
+
+example : strict < (⊤ : Fx) :=
+  lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+end LetIterHeterogeneousFeedbackFixture

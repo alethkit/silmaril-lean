@@ -1,15 +1,17 @@
 module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Defs
+public import Silmaril.SSA.RVSDG.NestedTheta.Equality.Decision.Defs
+public import Mathlib.Data.Multiset.Defs
 
-/-! Admission for standalone λ exports and fixed φ member groups. -/
+/-! Admission for λ exports and fixed φ member groups. -/
 
 @[expose] public section
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered
 
 open Continuation.Partial (Primitives)
-open NestedTheta.Equality (OpcodeCode)
+open NestedTheta.Equality (KindCode OpcodeCode kindCode)
 
 universe u v w
 
@@ -55,6 +57,12 @@ inductive StandaloneIn (root : m.Val (.value (.function args outs))) : Family m 
   | ordinary {port : Ty V S} (value : m.Val port) (plain : ordinaryPort port = true) : StandaloneIn root value
   | exported : StandaloneIn root root
 
+/-- Extend a callable family with an exact exported value. For the checked
+capture case the earlier family is the fixed group captured by the λ. -/
+inductive WithExport (earlier : Family m) (root : m.Val (.value (.function args outs))) : Family m where
+  | inherited {port : Ty V S} {value : m.Val port} (known : earlier value) : WithExport earlier root value
+  | exported : WithExport earlier root root
+
 def isStandaloneLambda {port : Ty V S} : m.Val port → Bool
   | .closure _ _ => true
   | _ => false
@@ -79,6 +87,222 @@ def exportGroup : {port : Ty V S} → (value : m.Val port) → Option (ExportGro
     some ⟨members, ⟨_, values, definitions⟩, .member slot⟩
   | _, _ => none
 
+def memberSlot {port : Ty V S} : m.Val port → Option Nat
+  | .member _ _ slot => some slot.val
+  | _ => none
+
+/-- This capture policy admits a single direct member among ordinary
+captures. It records membership in that member's actual linked group. -/
+inductive GroupCaptures {members : List (Function V S)} (group : Group m members) :
+    {ports : Ports (Ty V S)} → Tuple m.Val ports → Prop where
+  | member {port : Ty V S} {ports : Ports (Ty V S)} {value : m.Val port} {rest : Tuple m.Val ports}
+      (known : group.In value) (plain : ordinaryPorts ports = true) : GroupCaptures group (.cons value rest)
+  | ordinary {port : Ty V S} {ports : Ports (Ty V S)} {value : m.Val port} {rest : Tuple m.Val ports}
+      (plain : ordinaryPort port = true) (captures : GroupCaptures group rest) : GroupCaptures group (.cons value rest)
+
+structure CapturedGroup {ports : Ports (Ty V S)} (values : Tuple m.Val ports) where
+  members : List (Function V S)
+  group : Group m members
+  slot : Option Nat
+  captures : GroupCaptures group values
+
+/-- Extract the actual captured member and its definition table. Ordinary
+captures before or after it are admitted by their port types. -/
+def capturedGroup : {ports : Ports (Ty V S)} → (values : Tuple m.Val ports) → Option (CapturedGroup values)
+  | _, .nil => none
+  | _, .cons (t := port) (ts := ports) value rest =>
+    if ordinary : ordinaryPort port = true then
+      (capturedGroup rest).map fun found => ⟨found.members, found.group, found.slot, .ordinary ordinary found.captures⟩
+    else if plain : ordinaryPorts ports = true then
+      (exportGroup value).map fun found => ⟨found.members, found.group, memberSlot value, .member found.known plain⟩
+    else none
+
+/-- A numbered vertex contributes its ordered operand and result types
+and the code of its kind, including the opcode for primitives and applies. -/
+abbrev LabelCode (V S : Type u) (Key : Type v) := Ports (Ty V S) × Ports (Ty V S) × KindCode Key
+
+def labelCode (code : OpcodeCode (Instruction Op)) (label : NestedTheta.NodeLabel (Instruction Op)) :
+    LabelCode V S code.Key :=
+  (label.ins, label.outs, kindCode code label.kind)
+
+def outerLabels (code : OpcodeCode (Instruction Op)) {sigs : List (Ports (Ty V S))}
+    (body : Graph Op args [] sigs outs) : List (LabelCode V S code.Key) :=
+  List.ofFn fun i => labelCode code (body.nodes i).label
+
+/-- The multiset of outer vertex labels forgets numbering. The ordered
+body checker still verifies execution order. -/
+def outerProfile (code : OpcodeCode (Instruction Op)) {sigs : List (Ports (Ty V S))}
+    (body : Graph Op args [] sigs outs) : Multiset (LabelCode V S code.Key) :=
+  Multiset.ofList (outerLabels code body)
+
+/-- Observable projections of typed data and state. An omitted projection
+leaves that value inconclusive. Equal runtime values always have equal codes. -/
+structure CaptureCode (m : Machine.{u, v, w} Op) where
+  Key : Type w
+  decideKey : DecidableEq Key
+  data : {t : V} → m.Data t → Option Key
+  state : {t : S} → m.State t → Option Key
+
+def CaptureCode.controlOnly (m : Machine.{u, v, w} Op) : CaptureCode m :=
+  ⟨PUnit, inferInstance, fun _ => none, fun _ => none⟩
+
+/-- Related globals have related payloads even when their addresses differ.
+Callable values contribute no observation. -/
+def CaptureCode.value (code : CaptureCode m) : {port : Ty V S} → m.Val port → Option (Nat ⊕ code.Key)
+  | _, .data value => (code.data value).map Sum.inr
+  | _, .state value => (code.state value).map Sum.inr
+  | _, .control tag => some (.inl tag.val)
+  | _, .global _ _ payload => code.value payload
+  | _, .closure .. | _, .member .. => none
+
+def CaptureCode.tuple (code : CaptureCode m) : {ports : Ports (Ty V S)} →
+    Tuple m.Val ports → List (Option (Nat ⊕ code.Key))
+  | _, .nil => []
+  | _, .cons head tail => code.value head :: code.tuple tail
+
+/-- An optional certificate of exact equality between actual runtime
+values. A missing certificate leaves the comparison inconclusive. -/
+abbrev ExactValueCheck (m : Machine.{u, v, w} Op) :=
+  {port : Ty V S} → (left right : m.Val port) → Option (PLift (left = right))
+
+namespace ExactValueCheck
+
+def firstOrder (dataEq : ∀ t, DecidableEq (m.Data t)) (stateEq : ∀ t, DecidableEq (m.State t)) :
+    ExactValueCheck m
+  | _, .data (t := t) left, .data right =>
+    letI := dataEq t
+    if same : left = right then some ⟨congrArg Colour.data same⟩ else none
+  | _, .state (t := t) left, .state right =>
+    letI := stateEq t
+    if same : left = right then some ⟨congrArg Colour.state same⟩ else none
+  | _, .control left, .control right =>
+    if same : left = right then some ⟨congrArg Colour.control same⟩ else none
+  | _, .global unitL vertexL left, .global unitR vertexR right =>
+    if same : unitL = unitR ∧ vertexL = vertexR then do
+      let payload ← firstOrder dataEq stateEq left right
+      pure ⟨by rw [same.1, same.2, payload.down]⟩
+    else none
+  | _, _, _ => none
+
+def tuple (check : ExactValueCheck m) : {ports : Ports (Ty V S)} →
+    (left right : Tuple m.Val ports) → Option (PLift (left = right))
+  | _, .nil, .nil => some ⟨rfl⟩
+  | _, .cons left restL, .cons right restR => do
+    let head ← check left right
+    let tail ← tuple check restL restR
+    pure ⟨congrArg₂ Tuple.cons head.down tail.down⟩
+
+/-- Compare λ bodies at their actual numbering and compare the exact
+captured values with the supplied checker. Global equality in `firstOrder`
+uses the full identity as well as the payload. -/
+def lambda [DecidableEq (Ty V S)] (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
+    (captures : ExactValueCheck m) : ExactValueCheck m
+  | _, .closure (context := contextL) (sigs := sigsL) valuesL bodyL,
+      .closure (context := contextR) (sigs := sigsR) valuesR bodyR => by
+    letI : DecidableEq (Ports (Ty V S)) := inferInstance
+    letI : DecidableEq (List (Ports (Ty V S))) := inferInstance
+    refine if context : contextL = contextR then ?_ else none
+    subst contextR
+    refine if sigs : sigsL = sigsR then ?_ else none
+    subst sigsR
+    letI := NestedTheta.Equality.decideGraph keys bodyL bodyR
+    exact if body : bodyL = bodyR then
+      (tuple captures valuesL valuesR).map fun same =>
+        ⟨by rw [body, same.down]⟩
+    else none
+  | _, _, _ => none
+
+end ExactValueCheck
+
+abbrev LambdaSummary (V S : Type u) (Key : Type v) (Capture : Type w) :=
+  Ports (Ty V S) × Ports (Ty V S) × Ports (Ty V S) × List (Option (Nat ⊕ Capture)) × Multiset (LabelCode V S Key)
+
+/-- Keep the labels as a list for the executable permutation check. -/
+structure LambdaKey (V S : Type u) (Key : Type v) (Capture : Type w) where
+  args : Ports (Ty V S)
+  results : Ports (Ty V S)
+  context : Ports (Ty V S)
+  captures : List (Option (Nat ⊕ Capture))
+  labels : List (LabelCode V S Key)
+
+def LambdaKey.summary {Key : Type v} {Capture : Type w}
+    (key : LambdaKey V S Key Capture) : LambdaSummary V S Key Capture :=
+  (key.args, key.results, key.context, key.captures, Multiset.ofList key.labels)
+
+def LambdaKey.Fresh {Key : Type v} {Capture : Type w}
+    (key : LambdaKey V S Key Capture) (prior : List (LambdaKey V S Key Capture)) : Prop :=
+  key.summary ∉ prior.map LambdaKey.summary
+
+instance [DecidableEq (Ty V S)] {Key : Type v} [DecidableEq Key] {Capture : Type w} [DecidableEq Capture]
+    (key : LambdaKey V S Key Capture) (prior : List (LambdaKey V S Key Capture)) : Decidable (key.Fresh prior) :=
+  letI : DecidableEq (Ports (Ty V S)) := inferInstance
+  letI : DecidableEq (LabelCode V S Key) := inferInstance
+  letI : DecidableEq (List (Option (Nat ⊕ Capture))) := inferInstance
+  decidable_of_iff (prior.any (fun old => decide
+    (key.args = old.args ∧ key.results = old.results ∧ key.context = old.context ∧
+      key.captures = old.captures ∧ key.labels.Perm old.labels)) = false) (by
+    simp only [List.any_eq_false, decide_eq_true_eq, LambdaKey.Fresh, List.mem_map, not_exists, not_and]
+    exact forall_congr' fun old => by
+      rw [eq_comm (a := old.summary) (b := key.summary)]
+      simp only [LambdaKey.summary, Prod.mk.injEq, Multiset.coe_eq_coe, not_and])
+
+def lambdaKey (code : OpcodeCode (Instruction Op)) (captureCode : CaptureCode m) {port : Ty V S} :
+    m.Val port → Option (LambdaSummary V S code.Key captureCode.Key)
+  | .closure (params := params) (results := results) (context := context) captures body =>
+    some (params, results, context, captureCode.tuple captures, outerProfile code body)
+  | _ => none
+
+def lambdaBodyKey (code : OpcodeCode (Instruction Op)) (captureCode : CaptureCode m)
+    {imports : Ports (Ty V S)} {past : List (Ports (Ty V S))} {fn : Function V S}
+    (definition : Lambda Op imports past fn) (entry : Tuple m.Val imports) (locals : Locals m.Val past) :
+    LambdaKey V S code.Key captureCode.Key :=
+  ⟨fn.args, fn.results, definition.context, captureCode.tuple (definition.captures.read entry locals),
+    outerLabels code definition.body⟩
+
+/-- Empty γ rows can be skipped by ordered admission independently on
+either side, so retain the actual profiles of each side. -/
+structure LambdaKeys (V S : Type u) (Key : Type v) (Capture : Type w) where
+  left : List (LambdaKey V S Key Capture)
+  right : List (LambdaKey V S Key Capture)
+
+/-- A checked finite prefix, indexed by the encoder used throughout its
+λ keys. Fixed φ members do not have λ keys. -/
+structure LinkedFamily (primitives : Primitives m σ) (ids : GlobalRel)
+    (code : OpcodeCode (Instruction Op)) (captureCode : CaptureCode m) (left right : Family m)
+    (keys : LambdaKeys V S code.Key captureCode.Key) : Prop where
+  checked : CheckedFamily primitives ids left right
+  ordinaryL : ∀ {port : Ty V S} (value : m.Val port), ordinaryPort port = true → left value
+  ordinaryR : ∀ {port : Ty V S} (value : m.Val port), ordinaryPort port = true → right value
+  keysL : ∀ {port : Ty V S} {value : m.Val port} {key : LambdaSummary V S code.Key captureCode.Key},
+    left value → lambdaKey code captureCode value = some key → key ∈ keys.left.map LambdaKey.summary
+  keysR : ∀ {port : Ty V S} {value : m.Val port} {key : LambdaSummary V S code.Key captureCode.Key},
+    right value → lambdaKey code captureCode value = some key → key ∈ keys.right.map LambdaKey.summary
+
+variable {imports : Ports (Ty V S)} {past : List (Ports (Ty V S))}
+
+/-- Evidence offered for the actual value of a typed origin in a link
+prefix. An unchecked origin has no membership certificate. -/
+abbrev Available (family : Family m) (entry : Tuple m.Val imports) (locals : Locals m.Val past) :=
+  ∀ {port : Ty V S} (origin : Origin imports past port),
+    Option (PLift (family ((Wires.read (.cons origin .nil) entry locals).get .head)))
+
+/-- Read the definition's real capture wires and collect the exact
+membership evidence from the already checked binding positions. -/
+def checkWires {family : Family m} {entry : Tuple m.Val imports} {locals : Locals m.Val past}
+    (available : Available family entry locals) :
+    {ports : Ports (Ty V S)} → (wires : Wires imports past ports) →
+    Option (PLift (TupleIn family (wires.read entry locals)))
+  | _, .nil => some ⟨trivial⟩
+  | _, .cons origin rest => do
+    let head ← available origin
+    let tail ← checkWires available rest
+    pure ⟨⟨head.down, tail.down⟩⟩
+
+/-- The exact closure returned by linking a λ binding. -/
+abbrev linkedLambda {fn : Function V S} (definition : Lambda Op imports past fn)
+    (entry : Tuple m.Val imports) (locals : Locals m.Val past) : m.Val fn.port :=
+  (lambdaValue m entry locals definition).get .head
+
 variable [DecidableEq (Ty V S)]
 
 /-- Check all slots, including members that are reachable by recursion but
@@ -90,24 +314,34 @@ def checkGroups (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
     (List.ofFn (fun slot : Fin members.length =>
       (inferResolved keys (resolve m (left.ref slot)) (resolve m (right.ref slot))).isSome)).all id
 
+/-- Compare the exact member signatures in slot order before using the
+common table-indexed checker. -/
+def checkGroupPair (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
+    {membersL membersR : List (Function V S)} (left : Group m membersL) (right : Group m membersR) : Bool :=
+  letI : DecidableEq (Function V S) := fun a b =>
+    decidable_of_iff (a.args = b.args ∧ a.results = b.results) (by cases a; cases b; simp)
+  if same : membersL = membersR then checkGroups keys left (same.symm ▸ right) else false
+
+def checkCapturedGroups (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
+    {portsL portsR : Ports (Ty V S)} (left : Tuple m.Val portsL) (right : Tuple m.Val portsR) : Bool :=
+  match capturedGroup left, capturedGroup right with
+  | some left, some right => left.slot == right.slot && checkGroupPair keys left.group right.group
+  | _, _ => false
+
 /-- Select the finite families directly from two actual exported values.
-The checker accepts paired standalone λ closures or paired φ exports
-with ordinary outer captures. Paired invocation also uses linker
-provenance and compatible primitives. -/
+Paired λ closures admit ordinary captures or one matched φ member each.
+The φ groups must have ordinary outer captures. Paired invocation also
+uses linker provenance and compatible primitives. -/
 def checkExport (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
     (left right : m.Val (.value (.function args outs))) : Bool :=
   if isStandaloneLambda left && isStandaloneLambda right then
     let bodyL := resolve m left
     let bodyR := resolve m right
-    ordinaryPorts bodyL.context && ordinaryPorts bodyR.context && (inferResolved keys bodyL bodyR).isSome
+    (ordinaryPorts bodyL.context && ordinaryPorts bodyR.context ||
+      checkCapturedGroups keys bodyL.values bodyR.values) && (inferResolved keys bodyL bodyR).isSome
   else
-    letI : DecidableEq (Function V S) := fun a b =>
-      decidable_of_iff (a.args = b.args ∧ a.results = b.results) (by cases a; cases b; simp)
     match exportGroup left, exportGroup right with
-    | some left, some right =>
-      if same : left.members = right.members then
-        checkGroups keys left.group (same.symm ▸ right.group)
-      else false
+    | some left, some right => checkGroupPair keys left.group right.group
     | _, _ => false
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered

@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.SeaOfNodes.Loop.SCCP.Example.Defs
+import Silmaril.SSA.SeaOfNodes.Loop.SCCP.Example.Bank.Defs
 
 open Silmaril.SSA.SeaOfNodes.Loop.SCCP.Example
 
@@ -23,5 +23,17 @@ example : Arrives model (graph 0) (entry 0 true) .backedge 2 (.cons (0 : Byte) .
 -- When only exit can execute, an unequal feedback operand does not pollute Phi.
 example : report 1 (.constant ⟨false⟩) = (true, false, true, .constant 0, .constant 1) := by decide
 example : run 1 false 0 = some 1 := by decide
+
+-- Flag and word share the same edges and have separate flat facts.
+example : Example.Bank.invariantReport = (true, true, (.constant true, .overdefined), .overdefined) := by decide
+example : Example.Bank.runInvariant 1 = none := by decide
+example : Example.Bank.runInvariant 2 = some 3 := by decide
+
+-- Both new fields read the old bank. Reading the new flag when computing
+-- the word would increment it from 0 to 1.
+example : Example.Bank.abstractCrossFeedback = (.constant true, .constant 0) := by decide
+example : Example.Bank.nativeCrossFeedback = some (true, 0) := by decide
+example : Arrives Example.Bank.model (Example.Bank.graph true) (Example.Bank.entry false 0)
+    .backedge 1 (Example.Bank.entry true 0) := .backedge .entry rfl
 
 end Silmaril.SSA.SeaOfNodes.Loop.SCCP

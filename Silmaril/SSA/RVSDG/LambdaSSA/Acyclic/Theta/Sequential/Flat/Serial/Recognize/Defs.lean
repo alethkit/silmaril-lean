@@ -30,7 +30,7 @@ inductive Mark (τ Φ : Type u) [TypeFormers τ] [HasTy Φ τ] where
 def connectorMark : {ins out : Ports (OrderedRuntime.Structured.Ty τ)} →
     Wires.Effect Φ ins out → Option (Mark τ Φ)
   | _, _, .link (A := h) (M := m) (E := i) (D := j) => some (.cut h m i j)
-  | _, _, .loop _ => none
+  | _, _, _ => none
 
 def mark : {ins out : Ports (OrderedRuntime.Structured.Ty τ)} →
     (kind : NestedTheta.Kind (Wires.Op Φ) ins out) →

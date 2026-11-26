@@ -26,7 +26,7 @@ namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Ob
 local notation "U" => (Ty.unit : Ty Empty)
 local notation "Bit" => (Ty.coprod U U)
 local notation "Seed" => Paper.WithProjectionReturnsAndUnitEta.Step (τ := Ty Empty) (Φ := Empty)
-private abbrev caseObservation : TermObservation := { caseTerm := true }
+private abbrev caseObservation : TermObservation (α := Empty) Empty := { caseTerm := true }
 local notation "observeTerm" => evalTermWith caseObservation
 local notation "observeRegion" => evalRegionWith caseObservation
 

@@ -1,0 +1,99 @@
+module
+
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
+
+namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
+
+open RVSDG (Origin Port Tuple)
+open SeaOfNodes.Diamond (Merge Projection)
+
+private abbrev args : List ValueSort := [.address, .address, .address, .word, .word, .word]
+
+private def headPort : Port args .address := .head
+private def leftPort : Port args .address := .tail .head
+private def rightPort : Port args .address := .tail (.tail .head)
+private def entryWord : Port args .word := .tail (.tail (.tail .head))
+private def leftWord : Port args .word := .tail (.tail (.tail (.tail .head)))
+private def rightWord : Port args .word := .tail (.tail (.tail (.tail (.tail .head))))
+
+private def loaded : Origin args [[.word]] .word := .output (0 : Fin 1) .head
+
+private def leftArm (readPort : Port args .address) : Memory.Graph args :=
+  .load (.latest 0) (.arg readPort)
+    (.store (.latest 0) (.arg headPort) (.arg leftWord)
+      (.store (.latest 1) (.arg leftPort) (.arg leftWord) (.ret (.latest 2) loaded)))
+
+private def rightArm (overwrite : Bool) : Memory.Graph args :=
+  let finish : Memory.Body args [[.word]] 1 :=
+    if overwrite then .store (.latest 1) (.arg headPort) (.arg rightWord) (.ret (.latest 2) loaded)
+    else .ret (.latest 1) loaded
+  .load (.latest 0) (.arg rightPort) (.store (.latest 0) (.arg rightPort) (.arg rightWord) finish)
+
+private def source (first : Projection) (rightOverwrite : Bool := true)
+    (leftRead : Port args .address := leftPort) : Prefixed args where
+  store := ⟨headPort, entryWord⟩
+  diamond := {
+    merge := ⟨first⟩
+    arm
+      | .onTrue => leftArm leftRead
+      | .onFalse => rightArm rightOverwrite
+    suffix := .ret (.latest 0) (.arg .head) }
+
+private def candidate (first : Projection) : Candidate args := fun arrival =>
+  let merge : Merge := ⟨first⟩
+  match merge.predecessor arrival with
+  | .onTrue => ⟨1, [leftPort]⟩
+  | .onFalse => ⟨2, [rightPort]⟩
+
+private def headCell : Address 4 := 0
+private def leftCell : Address 4 := 1
+private def rightCell : Address 4 := 2
+
+private def input (rightAddress : Address 4 := rightCell) : Tuple (Val 4) args :=
+  .cons headCell (.cons leftCell (.cons rightAddress
+    (.cons (99 : Word) (.cons (11 : Word) (.cons (33 : Word) .nil)))))
+
+private def initial : Heap 4 := fun address =>
+  if address = headCell then 7 else if address = leftCell then 2 else if address = rightCell then 3 else 55
+
+private def afterTrue : Heap 4 := (initial.write headCell 11).write leftCell 11
+private def afterFalse : Heap 4 := (initial.write rightCell 33).write headCell 33
+
+private def target (first : Projection) : Graph args :=
+  let diamond := (source first).diamond
+  { diamond with arm := fun edge =>
+    match diamond.merge.slot edge with
+    | .first => diamond.arm (diamond.merge.predecessor .first)
+    | .second => diamond.arm (diamond.merge.predecessor .second) }
+
+private theorem accepted (first : Projection) :
+    rewrite (source first) (candidate first) input = some (target first) := by
+  cases first <;> rfl
+
+-- The occurrence order can be reversed. The two witnesses differ in
+-- overwrite version and reader port, and only the taken arm writes.
+example (first : Projection) : (source first).Returns true input initial 2 afterTrue :=
+  (rewrite_returns_iff input (accepted first) true initial 2 afterTrue).mp
+    (((target first).returns_iff_denote true input initial 2 afterTrue).mpr (by cases first <;> cbv))
+
+example (first : Projection) : (source first).Returns false input initial 3 afterFalse :=
+  (rewrite_returns_iff input (accepted first) false initial 3 afterFalse).mp
+    (((target first).returns_iff_denote false input initial 3 afterFalse).mpr (by cases first <;> cbv))
+
+-- The false predecessor is first and has no qualifying overwrite.
+example : (rewriteSlot (source .onFalse false) (candidate .onFalse) input .second).isSome = true := rfl
+example : rewriteSlot (source .onFalse false) (candidate .onFalse) input .first = none := rfl
+example : rewrite (source .onFalse false) (candidate .onFalse) input = none := rfl
+
+-- A same-cell read sees 99 from the entry Store. Bypassing that Store
+-- would instead return 7. The other arm is still admitted.
+example : (rewriteSlot (source .onFalse true headPort) (candidate .onFalse) input .first).isSome = true := rfl
+example : rewrite (source .onFalse true headPort) (candidate .onFalse) input = none := rfl
+example : ((source .onFalse true headPort).denote true input initial).1 = 99 := by cbv
+example : ((source .onFalse true headPort).diamond.denote true input initial).1 = 7 := by cbv
+
+-- The two ports in the false certificate may name one concrete cell.
+example : rewrite (source .onFalse) (candidate .onFalse) (input headCell) = none := rfl
+
+end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
