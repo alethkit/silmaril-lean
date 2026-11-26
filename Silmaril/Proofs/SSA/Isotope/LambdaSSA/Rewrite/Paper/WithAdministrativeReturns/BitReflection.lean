@@ -39,14 +39,7 @@ theorem observations_eq (p : Program) (g : Bool) :
     p.typed.packExits (p.tree.written_typed inputSlots).packExits).1 (packed_replay p)
   have eq := Eqv.sound false J M (fun _ _ => ⟨rfl, rfl⟩) h
     p.typed.packExits.hasType (p.tree.written_typed inputSlots).packExits.hasType
-  have other := written_packed_outcomes p.tree g
-  let sound : Paper.Extension.Singleton.SeedDenotes (Seed := Paper.WithCaseBind.BitQuery.Seed) J M :=
-    Paper.WithCaseBind.joined_seedDenotes J M
-      (Paper.WithPairReturns.joined_seedDenotes J M (fun _ _ => ⟨rfl, rfl⟩) false)
-  change (((Paper.Extension.Singleton.denoteFunctor J M (fun _ _ => ⟨rfl, rfl⟩) sound).map
-    (Paper.Extension.Singleton.ofRegion Paper.WithCaseBind.BitQuery.Seed
-      (p.tree.written_typed inputSlots).packExits)).of (bit g)).outcomes = _ at other
-  rw [Paper.Extension.Singleton.denoteFunctor_map_ofRegion (sound := sound)] at other
+  have other := written_singleton_outcomes p.tree g
   unfold Program.observations
   unfold denoteSingletonRegion at other ⊢
   rw [eq]

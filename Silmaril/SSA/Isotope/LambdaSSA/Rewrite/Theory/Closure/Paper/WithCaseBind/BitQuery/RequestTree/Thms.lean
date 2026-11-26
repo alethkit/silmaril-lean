@@ -24,6 +24,24 @@ theorem written_packed_outcomes (t : Tree 1) (input : Bool) :
     t.writtenObservations input = t.outcomes (fun _ => input) :=
   BitQueryTreeExecution.written_packed_outcomes t input
 
+open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Kleisli
+open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload (bit)
+open Semantics.Categorical
+open Silmaril.Isotope.LetIter.Semantics.Categorical (InstructionModel)
+
+local notation "J" => _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Kleisli.J (m := Trace)
+local notation "M" => types
+
+noncomputable local instance : InstructionModel J M signature.Instr := instructions model
+local instance : RegionTypingCoherent (Φ := signature.Instr) J M := modelCoherent
+
+/-- The same observations at the named categorical denotation of the
+literal packed written syntax, before choosing a native quotient. -/
+theorem written_singleton_outcomes (t : Tree 1) (g : Bool) :
+    ((denoteSingletonRegion J M (t.written_typed inputSlots).packExits.hasType).of (bit g)).outcomes =
+      t.outcomes (fun _ => g) :=
+  BitQueryTreeExecution.written_singleton_outcomes t g
+
 /-- Strip one ordered event at its exact tag and payload to advance the environment. -/
 theorem outcome_with_head {n : Nat} (env : Assignment n) (label : Bool) (query : Expr n)
     (l r : Tree (n + 1)) (e : Event) (tail : Word) (result : Except Bool Result) :

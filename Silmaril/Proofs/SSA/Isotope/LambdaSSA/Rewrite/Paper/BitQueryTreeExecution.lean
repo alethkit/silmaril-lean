@@ -238,6 +238,20 @@ theorem written_packed_outcomes (t : Tree 1) (b : Bool) :
   rw [run_packed (t.typedWithQueries true inputSlots) b]
   exact run_outcomes true t inputSlots (PUnit.unit, bit b) (fun _ => b) (fun _ => rfl)
 
+theorem written_singleton_outcomes (t : Tree 1) (g : Bool) :
+    ((denoteSingletonRegion J M (t.written_typed inputSlots).packExits.hasType).of (bit g)).outcomes =
+      t.outcomes (fun _ => g) := by
+  have h := written_packed_outcomes t g
+  let sound : Paper.Extension.Singleton.SeedDenotes (Seed := Seed) J M :=
+    Paper.WithCaseBind.joined_seedDenotes J M
+      (Paper.WithPairReturns.joined_seedDenotes J M (fun _ _ => ⟨rfl, rfl⟩) false)
+  change (((Paper.Extension.Singleton.denoteFunctor J M (fun _ _ => ⟨rfl, rfl⟩) sound).map
+    (Paper.Extension.Singleton.ofRegion Seed (t.written_typed inputSlots).packExits)).of (bit g)).outcomes =
+      _ at h
+  rw [Paper.Extension.Singleton.denoteFunctor_map_ofRegion (sound := sound)] at h
+  exact h
+
+
 private theorem word_head {a b : Event} {v w : Word}
     (h : FreeMonoid.of a * v = FreeMonoid.of b * w) : a = b ∧ v = w := by
   have eq := List.cons.inj (congrArg FreeMonoid.toList h)
