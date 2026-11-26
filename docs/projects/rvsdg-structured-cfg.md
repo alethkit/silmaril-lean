@@ -203,8 +203,8 @@ The local decoders reconstruct both views, and one full joint
 comparison checks every operand and token origin. Every nested leaf
 followed by a canonical structured tail is accepted. Local sequencing
 may recover in the existing right-associated form. For a tail already
-in that form, recovery returns the original flat CFG. Mixed forks
-and other placements of nested leaves are outside graph-only recovery.
+in that form, recovery returns the original flat CFG. The serial
+recognizer covers a leading nested leaf.
 [Mixed serial reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/WithNestedFeedback/Reverse/Thms.lean)
 
 The regression links the nested loop to an acyclic-body loop. The
@@ -217,13 +217,38 @@ the original input token at the connector. It yields the same parsed
 candidate, and exact joint certification rejects it.
 [Mixed structured API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/WithNestedFeedback/Thms.lean)
 
+## Recover a mixed fork from the joint graph
+
+`WithNestedFeedback.Reverse.Fork.recover` covers a root binary γ
+with a canonical structured left arm, one nested-feedback right arm,
+and a canonical shared structured continuation. It reads the actual
+classifier, the two child tables and the continuation scope. The join
+and continuation carrier types come from the typed connector
+opcodes. The nested arm uses the mixed serial reader with an empty
+local suffix beyond its final connector. The existing structured
+decoder reads the left arm and shared continuation. One full joint
+re-emission comparison checks the γ operands, both arm returns and all
+continuation wires. Every canonical emission of this shape is
+accepted. Supported right-associated local bodies recover their
+original flat CFG.
+
+Both selected arms are checked against actual flat `Region.denote`.
+The left branch yields payload 11 and token 44. The nested right
+branch yields payload 13454345 and token 122312234. Input 99 selects
+the nested arm and has no finite return. A stale-token variant retains
+the γ payload but supplies the original input token to the shared
+continuation. It parses to the same candidate and fails certification.
+The scope fixes the nested leaf in one right arm at the root and
+retains emitted numbering.
+[Mixed fork reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/WithNestedFeedback/Reverse/Fork/Thms.lean)
+
 ## Reproduce
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression'
 lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms
-make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Fork.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Fork.Thms
 ```
 
 ## Sources

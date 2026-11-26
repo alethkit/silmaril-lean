@@ -22,8 +22,8 @@ variable {A X Z L E D : τ}
 variable {sigs : List (Ports (OrderedRuntime.Structured.Ty τ))}
 variable {g : Sequential.Flat.Serial.Graph Φ A X Z L E D sigs}
 
-open NestedTheta.ExplicitRuntime (Checked)
-open NestedTheta.ExplicitRuntime.Splice (Routing relocate)
+open NestedTheta.ExplicitRuntime (Checked EntryChecked)
+open NestedTheta.ExplicitRuntime.Splice (Routing relocate append)
 open OrderedRuntime.Structured (Data Threaded runtime)
 
 omit [DecidableEq τ] [DecidableEq Φ] in
@@ -37,6 +37,18 @@ theorem scan_relocate {args input outs : Ports (OrderedRuntime.Structured.Ty τ)
     (h : Checked (TwoBlock.TwoExit.Pure τ) (Sequential.Wires.Effect Φ) a b live term) :
     scan (relocate (c := c) route h).1 = scan term :=
   Proofs.scan_relocate route h
+
+omit [DecidableEq τ] [DecidableEq Φ] in
+/-- The structured layout scanner preserves each side of a checked splice. -/
+theorem scan_append {args input outs : Ports (OrderedRuntime.Structured.Ty τ)}
+    {past firstSigs tailSigs : List (Ports (OrderedRuntime.Structured.Ty τ))}
+    {a : Data args} {b : Data input} {c : Data outs} {live : Origin (Threaded args) past runtime}
+    {p : NestedTheta.Term (Sequential.Wires.Op Φ) (Threaded args) past firstSigs (Threaded input)}
+    {q : NestedTheta.Term (Sequential.Wires.Op Φ) (Threaded input) [] tailSigs (Threaded outs)}
+    (first : Checked (TwoBlock.TwoExit.Pure τ) (Sequential.Wires.Effect Φ) a b live p)
+    (tail : EntryChecked (a := b) (b := c) q) :
+    scan (append tail first).1 = (do let xs ← scan p; let ys ← scan q; pure (xs ++ ys)) :=
+  Proofs.scan_append first tail
 
 omit [DecidableEq τ] [DecidableEq Φ] in
 /-- The existing local association convention preserves the checked code. -/
