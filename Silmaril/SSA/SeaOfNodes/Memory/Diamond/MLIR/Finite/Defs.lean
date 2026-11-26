@@ -10,7 +10,7 @@ public import Mathlib.Data.Nat.Log
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.MLIR.Finite
 
-open RVSDG (Origin Port Tuple)
+open RVSDG (Locals Origin Port Tuple)
 open SeaOfNodes.Diamond (Slot)
 open Silmaril.MLIR.Arith (Env Var Width)
 open Silmaril.MLIR.Pure (Code Eval Operands i1)
@@ -89,6 +89,16 @@ def resultOperands (word : Var Γ i64) (heap : HeapRefs p.cells Γ) : Operands �
 abbrev Rename (Γ Δ : List Width) := ∀ {w}, Var Γ w → Var Δ w
 abbrev Routing (p : Profile) (args : List ValueSort) (past : List (List ValueSort)) (Γ : List Width) :=
   ∀ {sort}, Origin args past sort → Var Γ (sortWidth p sort)
+
+/-- The target names resolve every typed source wire in the supplied environment. -/
+def Matches (route : Routing p args past Γ) (env : Env Γ)
+    (input : Tuple (Val p.cells) args) (locals : Locals (Val p.cells) past) : Prop :=
+  ∀ {sort} (wire : Origin args past sort),
+    env.get (route wire) = encodeValue p (readValue wire input locals)
+
+/-- The target names resolve all cells of the supplied native heap. -/
+def HeapAgrees (refs : HeapRefs p.cells Γ) (env : Env Γ) (heap : Heap p.cells) : Prop :=
+  ∀ index, env.get (refs index) = heap index
 
 def Routing.rename (route : Routing p args past Γ) (widen : Rename Γ Δ) : Routing p args past Δ :=
   fun wire => widen (route wire)

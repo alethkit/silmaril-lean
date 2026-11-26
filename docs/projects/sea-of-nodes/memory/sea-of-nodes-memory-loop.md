@@ -44,3 +44,32 @@ lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Correctness
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Regression
 ```
+
+## Typed MLIR CF lowering
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.Thms
+```
+
+`MLIR.lower` shares the [finite-cell body compiler](../../../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/MLIR/Finite/Defs.lean).
+The fixed, initialized `Fin n → Word` heap is carried as `n` scalar `i64`
+block arguments. The ordered body emits scalar scans for dynamic typed
+addresses. Entry passes the initial heap to the header. The header runs
+the body and forwards the returned word and updated heap to the test
+block. The test emits `arith.cmpi eq` against the invariant typed stop word.
+Its backedge feeds the updated heap into the header, and its other edge
+passes the word and heap to exit. This is an SSA encoding of initialized,
+in-bounds cells with a fixed cell count.
+[CFG definitions](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/MLIR/Defs.lean)
+
+`MLIR.lower_run_eq_some` gives the exact minimum `Cfg.run` budget of
+`2 * k + 4` block ticks for a return with `k` completed backedges. `MLIR.lower_returns_iff` matches finite returns of the word and
+entire heap. `MLIR.lower_denotePart` gives the corresponding observation
+in the [existing partial CF evaluator](../../../../Silmaril/SSA/MLIR/CF/SwitchAssert/Denotation/Defs.lean),
+and `MLIR.lower_diverges_iff` matches absence of any finite return.
+[CFG theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/MLIR/Thms.lean)
+
+The emitted-CFG checks exercise the three-cell shift with zero and
+two backedges, a removed store that preserves the word and changes the
+final heap, and a fixed backedge with no finite return.
+[CFG regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/MLIR/Regression.lean)
