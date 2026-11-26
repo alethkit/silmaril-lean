@@ -177,7 +177,7 @@ def readMetadata (field : MetadataField) (table : CodeTable) : Value → Except 
       match field.select definition with
       | some names => .ok names
       | none => .error (field.unavailable fn.code definition)
-  | .int _ | .bool _ | .none | .text _ | .tuple _ => .error .nonFunction
+  | .int _ | .bool _ | .none | .text _ | .tuple _ | .tupleObject _ => .error .nonFunction
 
 abbrev readFreevars := readMetadata .freevars
 abbrev readCellvars := readMetadata .cellvars
@@ -211,10 +211,13 @@ def TupleItem.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layou
 
 /-- Resolve every reached item in order. The scalar profile check follows
 successful reads, so an earlier non-scalar value does not mask a later read error. -/
+def evalTupleContentsIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout)
+    (items : List (TupleItem layout)) : Except Failure (List Core.Module.Value) :=
+  assembleFlatTuple (TupleItem.evalIn globals heap frame) Value.scalar? .unsupportedTupleElement items
+
 def evalTupleIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout)
     (items : List (TupleItem layout)) : Except Failure Value :=
-  (assembleFlatTuple (TupleItem.evalIn globals heap frame) Value.scalar?
-    .unsupportedTupleElement items).map .tuple
+  (evalTupleContentsIn globals heap frame items).map .tuple
 
 def Operand.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout) : Operand layout → Except Failure Value
   | .literal value => .ok value
@@ -389,6 +392,8 @@ inductive Rejects (table : CodeTable) (arguments : List Value) (heap : Heap) :
       Rejects table arguments heap (.text value) (.call (.defined .notCallable))
   | nonCallableTuple (items : List Core.Module.Value) :
       Rejects table arguments heap (.tuple items) (.call (.defined .notCallable))
+  | nonCallableTupleObject (object : Core.Module.TupleDispatch.Object) :
+      Rejects table arguments heap (.tupleObject object) (.call (.defined .notCallable))
   | missing (fn : Function) (absent : table fn.code.key = none) :
       Rejects table arguments heap (.function fn) (.missingCode fn.code.key)
   | mismatch (fn : Function) (entry : Dispatch.Entry Body)

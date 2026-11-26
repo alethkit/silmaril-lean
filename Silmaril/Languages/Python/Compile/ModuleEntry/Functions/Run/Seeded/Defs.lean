@@ -142,6 +142,7 @@ def truth : Value → Bool
   | .exceptionClass _ | .helper _ | .builtin _ => true
   | .function closure => (Core.Closure.Value.function closure).truth
   | .returnedTuple items => !items.isEmpty
+  | .tupleObject object => !object.contents.isEmpty
 
 def assertTruthAs (expected : Bool) (value : Value) : Except Failure Unit :=
   if truth value = expected then .ok () else .error (.raised (.assertionError .empty))
@@ -186,6 +187,7 @@ def ordinaryValue? : Value → Option Core.Closure.Value
   | .none => some .none
   | .function closure => some (.function closure)
   | .returnedTuple items => some (.tuple items)
+  | .tupleObject object => some (.tupleObject object)
   | .exceptionClass _ | .helper _ | .builtin _ | .listObject _ => none
 
 def seededValue : Core.Closure.Value → Value
@@ -195,6 +197,7 @@ def seededValue : Core.Closure.Value → Value
   | .none => .none
   | .function closure => .function closure
   | .tuple items => .returnedTuple items
+  | .tupleObject object => .tupleObject object
 
 def callbackSession (space : Namespace) (heap : Heap) : Core.Module.Functions.Session :=
   ⟨fun name => (space.lookupGlobal name).bind ordinaryValue?, heap⟩
@@ -330,7 +333,7 @@ def observeFactory (space : Namespace) (state : Core.Closure.Executor.State) :
     Except ModuleFailure CallObservation × Heap :=
   match state with
   | .finished heap (.ok (.int _)) | .finished heap (.ok (.bool _)) | .finished heap (.ok .none)
-  | .finished heap (.ok (.text _)) | .finished heap (.ok (.tuple _)) =>
+  | .finished heap (.ok (.text _)) | .finished heap (.ok (.tuple _)) | .finished heap (.ok (.tupleObject _)) =>
     (.ok ⟨.error .unsupported, none⟩, heap)
   | _ => observeDirectCall space state
 
@@ -527,7 +530,8 @@ def readSequenceLength (space : Namespace) (length : Nat) : Except Failure Int :
   match space.lookupGlobal "len" with
   | none => .error (.raised (.runtime (.nameError "len")))
   | some (.builtin .len) => .ok (Int.ofNat length)
-  | some (.int _) | some (.bool _) | some (.text _) | some .none | some (.returnedTuple _) =>
+  | some (.int _) | some (.bool _) | some (.text _) | some .none | some (.returnedTuple _)
+  | some (.tupleObject _) =>
     .error (.raised (.runtime .notCallable))
   | some _ => .error .unsupported
 
@@ -605,7 +609,7 @@ def constructList (space : Namespace) (heap : ListHeap) (argument : ListConstruc
     | .builtin .list =>
       let (object, updated) := reached.allocate contents
       (.ok object, updated)
-    | .int _ | .bool _ | .text _ | .none | .listObject _ | .returnedTuple _ =>
+    | .int _ | .bool _ | .text _ | .none | .listObject _ | .returnedTuple _ | .tupleObject _ =>
       (.error (.raised (.runtime .notCallable)), reached)
     | _ => (.error .unsupported, reached)
 
@@ -645,7 +649,7 @@ def tupleBinding (space : Namespace) : Option Core.Module.TupleDispatch.TypeBind
   (space.lookupGlobal "tuple").map fun
     | .builtin .tuple => .stockTuple
     | .none => .noneValue
-    | .int _ | .bool _ | .text _ | .returnedTuple _ | .listObject _ => .nonCallable
+    | .int _ | .bool _ | .text _ | .returnedTuple _ | .listObject _ | .tupleObject _ => .nonCallable
     | .exceptionClass _ | .helper _ | .builtin _ | .function _ => .outsideProfile
 
 def checkTupleChain {scope : Scope} (space : Namespace) (test : TupleChainTest scope) : Except Failure Unit :=
@@ -672,8 +676,11 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
     (⟨((evaluateScalar space false operand).map fun value => some (name, value)).mapError ModuleFailure.ofCall,
       []⟩, context.heap)
   | .bindTuple name items =>
-    let value := (Core.Module.SeededCall.Operand.tuple items).eval space #v[]
-    (⟨(value.map fun tuple => some (name, tuple)).mapError ModuleFailure.ofCall, []⟩, context.heap)
+    match Core.Module.SeededCall.evalTupleContents space items with
+    | .error error => (⟨.error (.ofCall error), []⟩, context.heap)
+    | .ok contents =>
+      let (value, reached) := context.heap.materializeModuleTuple items contents
+      (⟨.ok (some (name, seededValue value)), []⟩, reached)
   | .scalar (.assertion operand) => (assertOperand space operand true, context.heap)
   | .assertNot operand => (assertOperand space operand false, context.heap)
   | .assertIntegerBuiltin test => (assertIntegerBuiltin space test, context.heap)

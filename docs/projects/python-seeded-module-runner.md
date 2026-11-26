@@ -170,7 +170,19 @@ Both complete the reached reads before checking that every item fits
 the exact scalar profile. A failure retains the incoming target
 binding and heap. Reading or aliasing a bound tuple uses the existing
 module lookup and assignment rules. Rebinding an item name or a tuple
-name preserves the earlier payload in its aliases.
+name preserves the earlier value in its aliases. A successful nonempty
+display with a live item read reserves one initialized slot on the
+shared closure heap. The binding carries the tuple object's address
+and exact contents. The empty tuple has canonical identity without a
+slot. Nonempty closed displays retain their scalar contents and leave
+constant-sharing identity outside this profile. A failed assembly
+preserves the old binding and allocation frontier.
+
+The one-positional stock `tuple` rule uses the existing seeded callee
+lookup and operand order. An exact tuple argument returns unchanged
+through settlement, including its address when it has one. An alias
+or later rebinding leaves earlier references intact. Generic tuple
+identity assertions remain a separate source boundary.
 
 ### Checked calls as equality-helper arguments
 

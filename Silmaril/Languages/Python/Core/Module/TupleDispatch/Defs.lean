@@ -9,7 +9,7 @@ public import Silmaril.Languages.Python.Core.Module.Defs
 namespace Silmaril.Languages.Python.Core.Module.TupleDispatch
 
 /-- An absent address represents the canonical empty tuple. Other addresses
-belong to this evaluation's table of immutable tuple objects. -/
+belong to the allocator that prepared the object. -/
 structure Object where
   address : Option Nat
   contents : List Core.Module.Value

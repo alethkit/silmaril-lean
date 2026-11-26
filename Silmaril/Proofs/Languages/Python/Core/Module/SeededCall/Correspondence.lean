@@ -57,7 +57,7 @@ private theorem unique {arity : Nat} {request : Request arity} {first second : R
     cases right with
     | equalTuple _ _ same => contradiction
     | unequalTuple => rfl
-  | textConversion | truthConversion | intFromBool | callable | isinstance | distinctIntBool => cases right; rfl
+  | textConversion | truthConversion | intFromBool | callable | isinstance | distinctIntBool | copyTuple | copyTupleObject => cases right; rfl
   | sameBool left right same =>
     cases right with
     | sameBool => rfl
@@ -131,6 +131,12 @@ private theorem computed (callee : Value) (arguments : List Value) :
     | emptyTuple =>
       rw [invoke, decoded]
       exact .emptyTuple
+    | copyTuple items =>
+      rw [invoke, decoded]
+      exact .copyTuple items
+    | copyTupleObject object =>
+      rw [invoke, decoded]
+      exact .copyTupleObject object
     | expect expectation callback operands shorter =>
       rw [invoke, decoded]
       exact .expected (ih operands shorter callback) (delivers_iff.mp rfl)

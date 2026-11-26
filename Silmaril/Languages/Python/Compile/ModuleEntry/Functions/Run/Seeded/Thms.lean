@@ -417,23 +417,25 @@ theorem run_publication_fault {scope : Source.Scope} {space : Namespace} {contex
 theorem tupleOperand_read_failure {space : Namespace} {items : List Core.Closure.GlobalTupleItem}
     {error : Failure} (failed : items.mapM (Core.Module.SeededCall.readTupleItem space) = .error error) :
     (Core.Module.SeededCall.Operand.tuple items).eval space #v[] = .error error := by
-  simp [Core.Module.SeededCall.Operand.eval, Core.Closure.assembleFlatTuple, failed, Except.bind, Except.map]
+  simp [Core.Module.SeededCall.Operand.eval, Core.Module.SeededCall.evalTupleContents,
+    Core.Closure.assembleFlatTuple, failed, Except.bind, Except.map]
 
 theorem run_bindTuple_ok {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name : String} {items : List Core.Closure.GlobalTupleItem} {values : List Core.Module.Value}
     {rest : List (Instruction scope)} {lists : ListHeap}
-    (evaluated : (Core.Module.SeededCall.Operand.tuple items).eval space #v[] = .ok (.returnedTuple values)) :
+    (evaluated : Core.Module.SeededCall.evalTupleContents space items = .ok values) :
+    let (value, heap) := context.heap.materializeModuleTuple items values
     runInstructionsIn space context (.bindTuple name items :: rest) lists =
-      runInstructionsIn (space.bindGlobal name (.returnedTuple values)) context rest lists := by
-  simp [runInstructionsIn, effectWithLists, effect, evaluated, Except.map, Except.mapError]
+      runInstructionsIn (space.bindGlobal name (seededValue value)) { context with heap := heap } rest lists := by
+  simp [runInstructionsIn, effectWithLists, effect, evaluated]
 
 theorem run_bindTuple_failure {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name : String} {items : List Core.Closure.GlobalTupleItem} {error : Failure}
     {rest : List (Instruction scope)} {lists : ListHeap}
-    (failed : (Core.Module.SeededCall.Operand.tuple items).eval space #v[] = .error error) :
+    (failed : Core.Module.SeededCall.evalTupleContents space items = .error error) :
     runInstructionsIn space context (.bindTuple name items :: rest) lists =
       ⟨space, .error (.ofCall error), [], context.heap, lists⟩ := by
-  simp [runInstructionsIn, effectWithLists, effect, failed, Except.map, Except.mapError]
+  simp [runInstructionsIn, effectWithLists, effect, failed]
 
 theorem assertNot_operand_failure {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {operand : ModuleEntry.Operand scope} {error : Failure}

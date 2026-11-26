@@ -203,9 +203,9 @@ modeled noncallable mask raises `TypeError` after argument preparation.
 The stock descriptor delivers the canonical empty tuple or the exact
 prepared object and reached tuple heap. The result keeps the argument's
 address and incurs no second allocation. These addresses belong to the
-assertion. Module tuple values carry scalar contents and require object
-provenance before this constructor can accept them for identity-sensitive
-use.
+assertion. The module binding path tracks addresses for nonempty displays
+with live item reads in the shared closure heap. Module name operands
+and identity-sensitive comparisons need a separate source rule.
 
 Run the unchanged pin and CPython 3.13.5 dispatch and sequencing controls
 with `python3.13 -I scripts/check-python-tuple-chain.py --upstream /path/to/pinned/rigorous`.

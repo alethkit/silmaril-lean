@@ -166,7 +166,7 @@ inductive Completion where
 def tupleBinding (session : Session) : Option Core.Module.TupleDispatch.TypeBinding :=
   (session.globals "tuple").map fun
     | .none => .noneValue
-    | .int _ | .bool _ | .text _ | .tuple _ => .nonCallable
+    | .int _ | .bool _ | .text _ | .tuple _ | .tupleObject _ => .nonCallable
     | .function _ => .outsideProfile
 
 def checkTupleChain {scope : Scope} (session : Session) (test : TupleChainTest scope) : Except Completion Unit :=
@@ -282,14 +282,16 @@ def boolIdentityCompletion {scope : Scope} (session : Session) (test : BoolIdent
       | _ => .raised .notCallable
 
 def evaluateTuple (session : Session) (items : List Core.Closure.GlobalTupleItem) :
-    Except Core.Closure.Failure Value :=
+    Except Core.Closure.Failure (List Core.Module.Value) :=
   let frame : Frame ⟨0, 0, 0⟩ := ⟨Fin.elim0, Fin.elim0, Fin.elim0⟩
-  Core.Closure.Executor.evalTupleIn session.globals session.heap frame items
+  Core.Closure.Executor.evalTupleContentsIn session.globals session.heap frame items
 
 def bindTuple (session : Session) (name : String) (items : List Core.Closure.GlobalTupleItem) :
     Except Completion Session :=
   match evaluateTuple session items with
-  | .ok value => .ok (session.bindGlobal name value)
+  | .ok contents =>
+    let (value, heap) := session.heap.materializeModuleTuple items contents
+    .ok ({ session with heap := heap }.bindGlobal name value)
   | .error (.defined error) => .error (.raised error)
   | .error (.danglingCell identity) => .error (.executorFault (.danglingCell identity))
   | .error .unsupportedTupleElement => .error (.executorFault .unsupportedTupleElement)
