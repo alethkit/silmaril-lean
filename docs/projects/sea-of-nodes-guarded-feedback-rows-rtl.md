@@ -1228,6 +1228,53 @@ for that word. The mixed run returns `6` along `[0, 1]`, the same route
 the forward and converse directions above separately recover.
 [Checked regression][table-regression]
 
+### Finite-return existence and its absence across both backends
+
+`Producer.Exit.Inversion.returns_exists_iff` fills in the CF side of the
+existing RTL-oracle law (`Family.rtl_return_iff`): a bounded CF return
+exists at some budget for the typed input exactly when the abstract
+native source has a finite return along some ordered dispatch route.
+Composing it with `Family.rtl_return_iff` gives `rtl_oracle_iff`: the RTL
+oracle's unbounded native relation returns some word exactly when the
+emitted CF does, at its own bounded budget. `no_return_iff` negates that
+agreement to state the absence of any finite return in either backend,
+quantifying over every budget rather than reading divergence off one
+insufficient run. Under the packed-capture entry side condition,
+`region_no_return_iff` extends that absence to the canonical λSSA Region,
+composing the existing two-directional `Phi.region_no_return_iff` with
+`no_return_iff`. [Inversion API][cf-exit-inversion]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy model)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Family.MLIR.Prefix (wordEnv)
+open Family.MLIR.Prefix.Producer (Compiled)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    {mapping : InputMap old new} {source : Family.Source old old entry header tests}
+    {origins : List (HeaderWord new old header)}
+    (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    (absent : ¬ ∃ slots value, source.ReturnsAlong (mapping.pull input) slots
+      (source.primary.initial model (mapping.pull input)) value) :
+    ¬ ∃ fuel value, compiled.setup.cf.run evalOp fuel (wordEnv input) = some (.cons value .nil) :=
+  (not_congr (Family.MLIR.Prefix.Producer.Exit.Inversion.returns_exists_iff compiled input mem)).mpr absent
+```
+
+In the resized fixture, `fixedSource` shares the immediate/mixed-feedback
+fixture's header and producer table but reorders its dispatch tests so
+that every activation from `wideSpin` rebinds the same fixed bank
+(`familyFixedBank`) and never selects the exit. The existing
+`fixedCannotReturn` induction (already used for the native and λSSA
+absence laws) now also certifies that the CF compiled from the same
+source never returns at any budget, and that neither does the canonical
+λSSA Region. [Checked regression][table-regression]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
   +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms \

@@ -1169,6 +1169,31 @@ example {slots : List (Fin 3)}
     slots = [0, 1] :=
   Family.returnsAlong_unique prefixSource (widenCaptures.pull prefixInput) route twoThenExit
 
+-- `Exit.Inversion.returns_exists_iff` recovers the abstract dispatch route
+-- directly from one actual bounded CF return.
+example :
+    ∃ slots value, prefixSource.ReturnsAlong (widenCaptures.pull prefixInput) slots
+      (prefixSource.primary.initial model (widenCaptures.pull prefixInput)) value :=
+  (Exit.Inversion.returns_exists_iff compiledPrefix prefixInput mem).mp
+    ⟨8, 6, show prefixSetup.cf.run evalOp 8 (Family.MLIR.Prefix.wordEnv prefixInput) =
+      some (.cons 6 .nil) from rfl⟩
+
+-- The shared header/producer table also compiles the alternate dispatch
+-- family whose rows never leave the fixed point `familyFixedBank` at
+-- `wideSpin`. `Exit.Inversion.region_no_return_iff` then certifies the
+-- absence of any finite return in the CF backend, the RTL oracle, and the
+-- canonical λSSA Region alike, all from the single existing native
+-- fixed-point witness `fixedCannotReturn`; no insufficient budget is read
+-- as evidence of divergence.
+private def compiledFixed := (compile widenCaptures fixedSource nativeOrigins).get (by decide)
+
+example : ¬ ∃ value final, Eval (Opcode.step (sigs := [⟨4, 1⟩]) compiledFixed.rtl.oracle) (machineEnv wideSpin)
+    (toLambdaSSA [⟨4, 1⟩] (Family.lowerFunc (Family.mapCaptures widenCaptures fixedSource))) mem 0 value final := by
+  rw [Exit.Inversion.region_no_return_iff compiledFixed wideSpin mem (machineEnv wideSpin) rfl,
+    Exit.Inversion.returns_exists_iff compiledFixed wideSpin mem]
+  rintro ⟨slots, value, path⟩
+  exact fixedCannotReturn path rfl
+
 end CFDispatch
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
